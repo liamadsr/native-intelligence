@@ -2,10 +2,11 @@
 /**
  * The shell's blur while a card waits as the chat's Reply chip
  * (CardReplyBackdrop): nothing until then; then the For you focus view's own
- * blur, over the top bar (z-[45], under the lifted composer and column), a
- * hole blocker for the in-app browser, the sky held still; a press on it
- * takes the chip off. The content row, the chat strip, the composer dock and
- * the column switch stacking off the <html> attribute.
+ * blur, over the top bar (z-[45], under the lifted composer and the side
+ * panel while it shows For you), a hole blocker for the in-app browser, the
+ * sky held still; a press on it takes the chip off. The content row, the
+ * chat strip, the composer dock and the side panel switch stacking off the
+ * <html> attribute.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement as h } from 'react'
@@ -56,8 +57,8 @@ describe('CardReplyBackdrop', () => {
     // The content row and the chat strip stop forming stacking contexts.
     expect(shell.match(/\[html\[data-card-reply-focus\]_&\]:z-auto/g)).toHaveLength(2)
     expect(shell).toContain('<CardReplyBackdrop />')
-    // The composer dock and the For you column rise over the blur's z-[45].
+    // The composer dock, and the side panel while it shows For you (Liam, 11-11: the cards moved there), rise over the blur's z-[45].
     expect(read('../chat-panel.tsx')).toContain('data-chat-composer-dock="" className="absolute inset-x-0 bottom-0 z-20 [html[data-card-reply-focus]_&]:z-[46]"')
-    expect(read('../for-you-column.tsx')).toContain('[html[data-card-reply-focus]_&]:z-[46]')
+    expect(read('../../side-panels/side-panels.tsx')).toContain("state.view === 'forYou' && '[html[data-card-reply-focus]_&]:z-[46]'")
   })
 })

@@ -1,20 +1,28 @@
 'use client'
 
 /**
- * The top bar's two panel toggles, one per side (side-panels.tsx): the right
- * side panel's at the bar's right end, over the panel, and For you's at its
- * left end, over its column (the column has no toggle of its own). Disclosure buttons (aria-expanded +
- * aria-controls), drawn like the bar's other pills.
+ * The side panel's two buttons, side by side in the top bar's right header
+ * (`[Capture] [For you] [Side panel]`), one per view of the one panel on the
+ * chat's right (side-panels.tsx; Liam, 11-11: "move the for you cards to the
+ * right hand side panel then you should be able to switch between the agent
+ * browser and context cards and the for you cards but you can't see both at
+ * the same time"). Disclosure buttons (aria-expanded + aria-controls, both
+ * the panel), drawn like the bar's other buttons. On a phone, two pills at
+ * the bar's right, For you's first.
  *
- *   right    always there. Its badges: how many agents run now (the Agents
- *            section's count), and an amber dot while a connection needs
- *            the person (a reconnect, missing access, a sync error). ⌘\.
- *   For you  there whenever the bots have brought something (with nothing,
- *            no toggle: Liam's "hide empty widgets"), with how many, the
- *            column beside the chat or not (Liam, 11-09: "always visible like
- *            the button we have on the right side"): it folds the column
- *            away and brings it back, floating it over the chat where the
- *            row has no room.
+ *   Side panel  always there: opens the panel on its sections (the agent's
+ *               card, Agents, Plan, Context, Environment, Connectors),
+ *               swaps to them from For you, or closes the panel while they
+ *               show. Its badges: how many agents run now (the Agents
+ *               section's count), and an amber dot while a connection needs
+ *               the person (a reconnect, missing access, a sync error). ⌘ *               opens and closes the panel on the view it had.
+ *   For you     an inbox and the count, there whenever the bots have brought
+ *               something (with nothing, no button: Liam's "hide empty
+ *               widgets"): opens the panel on the For you cards, swaps to
+ *               them from the sections, or closes the panel while they show.
+ *
+ * Each is lit only while its own view is on screen (side-panel-store.ts
+ * shownView), so at most one is.
  */
 import { Inbox, createLucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -23,8 +31,7 @@ import { TOP_BAR_PILL, TOP_BAR_TIP } from '../top-bar/pill-style'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAgentsSummary } from '../chat/chat-widgets'
 import { useForYouEntries } from '../chat/for-you-column'
-import { useActiveLiveCapture } from '../chat/use-live-capture-dock'
-import { toggleForYou, toggleRightPanel } from './side-panel-store'
+import { shownView, toggleSidePanelView } from './side-panel-store'
 import { RIGHT_PANEL_ID, useSidePanelState } from './side-panels'
 
 /**
@@ -45,14 +52,15 @@ const SidePanelIcon = createLucideIcon('side-panel', [
 
 /**
  * `pill` (a phone's top bar): the bar's round pill. `header` (the top bar's
- * right header from `md` up, Liam 11-09: Capture and this, as the rail's
- * header on the left): flat and round like that header's buttons, tinted
- * while the panel is open.
+ * right header from `md` up, Liam 11-09: Capture, For you and this, as the
+ * rail's header on the left): flat and round like that header's buttons,
+ * tinted while the sections show.
  */
 export function SidePanelToggle({ variant = 'pill' }: { variant?: 'pill' | 'header' } = {}) {
   const state = useSidePanelState()
   const { running } = useAgentsSummary()
-  const open = state.rightOpen
+  // Lit only while the sections are on screen (not while For you shows).
+  const open = shownView(state) === 'panel'
   const shortcut = useModKeyLabel('\\')
   const label = ['Side panel', running > 0 ? `${running} running` : null, state.connectionsAttention ? 'a connection needs you' : null].filter(Boolean).join(', ')
   return (
@@ -65,8 +73,8 @@ export function SidePanelToggle({ variant = 'pill' }: { variant?: 'pill' | 'head
           aria-controls={RIGHT_PANEL_ID}
           aria-label={label}
           onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => toggleRightPanel()}
-          // The phone's pill: shaded while closed (#36). The header's: tinted while open.
+          onClick={() => toggleSidePanelView('panel')}
+          // The phone's pill: shaded while its view is off screen (#36). The header's: tinted while it shows.
           data-lit={(variant === 'header' ? open : !open) ? '' : undefined}
           data-variant={variant}
           className={
@@ -75,7 +83,7 @@ export function SidePanelToggle({ variant = 'pill' }: { variant?: 'pill' | 'head
                   // A 32px circle, as the header's other icon buttons (a pill once it counts agents running).
                   running > 0 ? 'px-2' : 'w-8',
                   'relative flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full text-sidebar-foreground/65 transition-colors hover:bg-foreground/[0.05] hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
-                  // Tinted while the panel is open, as the rail's lit page (Liam, 11-09: "do the same for this button").
+                  // Tinted while the sections show, as the rail's lit page (Liam, 11-09: "do the same for this button").
                   open && 'bg-foreground/[0.08] text-sidebar-foreground hover:bg-foreground/[0.08]',
                 )
               : cn(TOP_BAR_PILL, !open && 'bg-muted text-sidebar-foreground')
@@ -101,16 +109,16 @@ export function SidePanelToggle({ variant = 'pill' }: { variant?: 'pill' | 'head
 }
 
 /**
- * `pill` (a phone's top bar): the bar's round pill. `header` (the app rail's
- * header from `md` up, Liam 11-09: the workspace's thumbnail, then For you,
- * then Search): flat like the header's other buttons, tinted while lit.
+ * `pill` (a phone's top bar, just before the side panel's): the bar's round
+ * pill. `header` (the top bar's right header from `md` up, between Capture
+ * and the side panel's button): flat like the header's other buttons,
+ * tinted while lit.
  */
 export function ForYouToggle({ variant = 'pill' }: { variant?: 'pill' | 'header' } = {}) {
-  // On screen now (the row's space plan): what the toggle shows and flips.
-  const shown = useSidePanelState().leftShown
+  // On screen now (the panel open on For you, which it is only with cards): what the button shows and flips.
+  const shown = shownView(useSidePanelState()) === 'forYou'
   const entries = useForYouEntries()
-  const capturing = useActiveLiveCapture() !== null
-  if (entries.length === 0 || capturing) return null
+  if (entries.length === 0) return null
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -118,14 +126,15 @@ export function ForYouToggle({ variant = 'pill' }: { variant?: 'pill' | 'header'
           type="button"
           data-for-you-panel-toggle=""
           aria-expanded={shown}
+          aria-controls={RIGHT_PANEL_ID}
           aria-label={`For you, ${entries.length}`}
           onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => toggleForYou(shown)}
-          // The top bar's pill (a phone): lit while the column is folded away,
+          onClick={() => toggleSidePanelView('forYou')}
+          // The top bar's pill (a phone): lit while For you is off screen,
           // plain (its white, raised look) while it shows (Liam, 11-09: "flip
-          // it"). The header's: tinted while the column shows, as the bar's
-          // lit page is, plain while it's folded (Liam, 11-09: "it's closed
-          // but it's highlighted").
+          // it"), as the side panel's pill. The header's: tinted while For you
+          // shows, as the bar's lit page is, plain otherwise (Liam, 11-09:
+          // "it's closed but it's highlighted").
           data-lit={(variant === 'header' ? shown : !shown) ? '' : undefined}
           data-variant={variant}
           className={

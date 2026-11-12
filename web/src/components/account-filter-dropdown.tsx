@@ -16,7 +16,7 @@ import {
 import { isDesktopApp } from '@/lib/platform'
 import { useWorkspaceId } from '@/app/account/workspace-switcher'
 
-interface ConnectedAccount {
+export interface ConnectedAccount {
   id: string
   provider: 'google' | 'microsoft'
   capability: 'email' | 'calendar'
@@ -87,29 +87,39 @@ function fetchOauthAccounts(): Promise<RawConnectedAccount[] | null> {
 }
 
 /**
- * Whether the person has an enabled account of this capability in the
- * current workspace, from the same cached read as the dropdown (one request
- * shared by every caller; a fresh copy reused). False until known.
+ * The person's enabled accounts of this capability in the current workspace,
+ * from the same cached read as the dropdown (one request shared by every
+ * caller; a fresh copy reused, so a second reader beside the dropdown asks
+ * nothing more). Empty until known. The Mail sub-nav's Accounts (Liam, 11-11:
+ * "see and select all the accounts") read it.
  */
-export function useHasConnectedAccount(capability: 'email' | 'calendar'): boolean {
+export function useConnectedAccounts(capability: 'email' | 'calendar'): ConnectedAccount[] {
   const workspaceId = useWorkspaceId()
-  const [has, setHas] = useState(() => {
+  const [accounts, setAccounts] = useState<ConnectedAccount[]>(() => {
     const cached = getCachedOauthAccounts()
-    return cached ? filterAccountsFor(cached, capability, workspaceId).length > 0 : false
+    return cached ? filterAccountsFor(cached, capability, workspaceId) : []
   })
   useEffect(() => {
     const cached = getCachedOauthAccounts()
-    if (cached) setHas(filterAccountsFor(cached, capability, workspaceId).length > 0)
+    if (cached) setAccounts(filterAccountsFor(cached, capability, workspaceId))
     if (cached && Date.now() - cachedOauthAccountsAt < OAUTH_ACCOUNTS_FRESH_MS) return
     let live = true
     void fetchOauthAccounts().then((all) => {
-      if (live && all) setHas(filterAccountsFor(all, capability, workspaceId).length > 0)
+      if (live && all) setAccounts(filterAccountsFor(all, capability, workspaceId))
     })
     return () => {
       live = false
     }
   }, [capability, workspaceId])
-  return has
+  return accounts
+}
+
+/**
+ * Whether the person has an enabled account of this capability in the
+ * current workspace (useConnectedAccounts). False until known.
+ */
+export function useHasConnectedAccount(capability: 'email' | 'calendar'): boolean {
+  return useConnectedAccounts(capability).length > 0
 }
 
 function filterAccountsFor(

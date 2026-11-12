@@ -16,6 +16,7 @@ import { SettingsShell } from '../settings/settings-shell'
 import { onOAuthCallback, onSoftNavigate } from '@/lib/navigation-events'
 import { getIntegration } from '@/lib/integrations/catalog'
 import { consumeOAuthReturnClaim } from '@/lib/integrations/oauth-return-claim'
+import { openTarget } from '@/lib/chat-cards/open-card'
 
 // ── Context ────────────────────────────────────────────────────────
 
@@ -84,7 +85,6 @@ const settingsViews: Record<string, React.LazyExoticComponent<React.ComponentTyp
       </SettingsPageWrapper>
     ),
   }))),
-  'availability': lazy(() => import('../settings/availability/availability-settings-view').then(m => ({ default: m.AvailabilitySettingsView }))),
   'recording': lazy(() => import('../settings/recording/recording-settings-view').then(m => ({ default: m.RecordingSettingsView }))),
   'voice': lazy(() => import('../settings/voice/voice-settings-view').then(m => ({ default: m.VoiceSettingsView }))),
   'autonomy': lazy(() => import('../settings/autonomy/autonomy-settings-view').then(m => ({ default: m.AutonomySettingsView }))),
@@ -167,6 +167,32 @@ export function normalizeSettingsSubPath(subPath: string): string {
 }
 
 /**
+ * Settings pages that became `/` pages of their own, by sub-path: the page's
+ * slug. Availability went under Calendar (Liam, 11-11: "Availability (Right
+ * now it's in the settings but it needs to be it's own page under
+ * Calendar)"). A settings link to one (openSettings, a link inside the
+ * overlay, the desktop's soft navigation) opens the page's card instead of
+ * the overlay; the full-page route redirects (settings/availability/page.tsx).
+ */
+export const SETTINGS_MOVED_TO_PAGES: Readonly<Record<string, string>> = {
+  availability: 'availability',
+}
+
+/** The `/` page a settings sub-path moved to, or null. */
+export function movedSettingsPage(subPath: string): string | null {
+  const key = normalizeSettingsSubPath(subPath.replace(/[?#].*$/, '')).replace(/\/+$/, '')
+  return Object.hasOwn(SETTINGS_MOVED_TO_PAGES, key) ? SETTINGS_MOVED_TO_PAGES[key] : null
+}
+
+/** Open the page a moved settings sub-path names; true when it was one. */
+function openMovedSettingsPage(subPath: string, from: string): boolean {
+  const slug = movedSettingsPage(subPath)
+  if (!slug) return false
+  openTarget({ type: 'page', slug }, { from })
+  return true
+}
+
+/**
  * Resolve a sub-path to a component. Returns null if unknown.
  *
  * Exported for `__tests__/overlay-resolves-catalog.test.tsx`, which asserts
@@ -225,6 +251,10 @@ export function SettingsOverlayProvider({ children }: { children: ReactNode }) {
   }, [pathname, isOpen])
 
   const openSettings = useCallback((path?: string) => {
+    if (openMovedSettingsPage(path || '', 'settings')) {
+      setIsOpen(false)
+      return
+    }
     setSubPath(normalizeSettingsSubPath(path || ''))
     setIsOpen(true)
   }, [])
@@ -238,6 +268,10 @@ export function SettingsOverlayProvider({ children }: { children: ReactNode }) {
     // Settings sub-pages stay inside the overlay (no route change).
     const match = path.match(/^\/account\/settings\/?(.*)$/)
     if (match) {
+      if (openMovedSettingsPage(match[1] || '', 'settings')) {
+        setIsOpen(false)
+        return
+      }
       setSubPath(normalizeSettingsSubPath(match[1] || ''))
       return
     }
@@ -273,6 +307,7 @@ export function SettingsOverlayProvider({ children }: { children: ReactNode }) {
     return onSoftNavigate(({ path }) => {
       const match = path.match(/^\/account\/settings\/?(.*)$/)
       if (match) {
+        if (openMovedSettingsPage(match[1] || '', 'desktop')) return
         setSubPath(normalizeSettingsSubPath(match[1] || ''))
         setIsOpen(true)
       }

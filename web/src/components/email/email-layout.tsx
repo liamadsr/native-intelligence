@@ -26,20 +26,7 @@ import {
 import { useEntityListSync } from '@/hooks/use-entity-sync'
 import { useIsWindowFocused } from '@/components/views/unified-view-layout'
 import { useWorkspaceId } from '@/app/account/workspace-switcher'
-import {
-  Mail,
-  MailCheck,
-  Pencil,
-  Inbox,
-  Star,
-  Send,
-  FileEdit,
-  Archive,
-  ShieldAlert,
-  Trash2,
-  RefreshCw,
-  type LucideIcon,
-} from 'lucide-react'
+import { Mail, Pencil, RefreshCw } from 'lucide-react'
 import { fillHeaders, withCachedHeaders } from '@/lib/email/header-cache'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -66,6 +53,8 @@ import { useView, useViewConfig, type CardConfigSource } from '@/components/view
 import type { ViewFilter } from '@/lib/views/types'
 import type { EmailReplyRequest } from '@/lib/email/reply-in-chat'
 import { getJsonOnce } from '@/lib/email/inflight-get'
+import { publishMailCard, unpublishMailCard } from '@/components/chat-cards/mail-card-controls'
+import { MAIL_FOLDER_ENTRIES as folders, type FolderCounts } from './mail-folders'
 
 const EMAIL_THREADS_CHANNEL = 'email-threads-realtime'
 // The self-refetch dedup key must be PER INSTANCE, not the bare channel name.
@@ -74,35 +63,6 @@ const EMAIL_THREADS_CHANNEL = 'email-threads-realtime'
 // otherwise suppress a DIFFERENT instance's genuine catch-up, and that instance
 // would never set its dirty flag either — it just silently skips the gap.
 const selfRefetchKey = (instanceId: string) => `${EMAIL_THREADS_CHANNEL}:${instanceId}`
-
-interface FolderCounts {
-  inbox_unread?: number
-  inbox_total?: number
-  starred?: number
-  sent?: number
-  drafts?: number
-  spam?: number
-  trash?: number
-  needs_reply?: number
-  /** Threads held beside a reply draft, waiting for the person (src/lib/email/hold.ts). */
-  review?: number
-}
-
-/**
- * The folders, and the count each one's badge shows. The Inbox's is its UNREAD
- * threads (`countUnit`), not all of them: a mail card's header counts every
- * thread its list holds, so the badge says which number it is.
- */
-const folders: { id: string; label: string; icon: LucideIcon; countKey: keyof FolderCounts | null; countUnit?: string }[] = [
-  { id: 'inbox', label: 'Inbox', icon: Inbox, countKey: 'inbox_unread', countUnit: 'unread' },
-  { id: 'review', label: 'To review', icon: MailCheck, countKey: 'review' },
-  { id: 'starred', label: 'Starred', icon: Star, countKey: 'starred' },
-  { id: 'sent', label: 'Sent', icon: Send, countKey: null },
-  { id: 'drafts', label: 'Drafts', icon: FileEdit, countKey: 'drafts' },
-  { id: 'archive', label: 'Archive', icon: Archive, countKey: null },
-  { id: 'spam', label: 'Spam', icon: ShieldAlert, countKey: null },
-  { id: 'trash', label: 'Trash', icon: Trash2, countKey: null },
-]
 
 /** What a mail card shows now: where the person left it. */
 export interface MailCardState {
@@ -139,6 +99,17 @@ export interface MailCardOptions {
   place?: { folder: string; threadId: string | null }
   /** The threads listed and their total (null until the first page loads). */
   onThreads?: (threads: EmailThread[], total: number | null) => void
+  /**
+   * The card's id (its tool call or opened-card id): with one, the card says
+   * where it is to the Mail sub-nav beside the rail and takes its moves
+   * (chat-cards/mail-card-controls.ts; Liam, 11-11: "see and select all the
+   * accounts … the inbox, faves, sent … and any tags that are available for
+   * email"). Full screen from `md` up, that sub-nav is its account and
+   * folder control: the card has no dropdown or Select of its own there.
+   */
+  id?: string
+  /** Put the card full screen (the sub-nav's rows, with another card in front). */
+  show?: () => void
 }
 
 interface EmailLayoutProps {
@@ -182,6 +153,11 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
   const [syncing, setSyncing] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [filterAccountIds, setFilterAccountIds] = useState<string[] | null>(() => cardInit?.accounts ?? null)
+  // A card's tag filter, set from the Mail sub-nav (Liam, 11-11: "any tags
+  // that are available for email"): its threads in every folder but Spam and
+  // Trash. Picking a folder clears it, and so does the sub-nav leaving: the
+  // card never keeps a filter nothing on screen shows.
+  const [labelId, setLabelId] = useState<string | null>(null)
   const [importStatus, setImportStatus] = useState<string | null>(null)
   const listSetThreadsRef = useRef<React.Dispatch<React.SetStateAction<EmailThread[]>> | null>(null)
   // Realtime header refills (no stored mail: a row's subject is fetched live):
@@ -285,8 +261,11 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
   // A card lists only the mailboxes show and read_card read (`readable`: the
   // person's enabled ones, searched the same way), so its count is theirs.
   const listParams = useMemo(
-    () => (isCard ? { readable: '1', ...(unreadOnly ? { unread_only: 'true' } : {}) } : viewFilterParams),
-    [isCard, unreadOnly, viewFilterParams],
+    () =>
+      isCard
+        ? { readable: '1', ...(unreadOnly ? { unread_only: 'true' } : {}), ...(labelId ? { label_id: labelId } : {}) }
+        : viewFilterParams,
+    [isCard, unreadOnly, labelId, viewFilterParams],
   )
 
   // The Sync button doubles as the import indicator: it spins + disables while
@@ -650,6 +629,7 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
   const handleFolderChange = useCallback((folder: string) => {
     setActiveFolder(folder)
     setSelectedThread(null)
+    setLabelId(null)
   }, [])
 
   const handleThreadsLoaded = useCallback((list: EmailThread[]) => {
@@ -699,6 +679,29 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
     // Only a move of the place applies it; the layout's own state is read, not followed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCard, placeFolder, placeThread])
+
+  // The Mail sub-nav beside the rail (Liam, 11-11): where this card is, and
+  // its moves (chat-cards/mail-card-controls.ts). The folder is the Select's
+  // move (a step in the card's history), the mailboxes the dropdown's.
+  const cardId = isCard ? card?.id : undefined
+  useEffect(() => {
+    if (!cardId) return
+    publishMailCard({
+      cardId,
+      folder: activeFolder,
+      accounts: filterAccountIds,
+      labelId,
+      counts,
+      setFolder: handleFolderChange,
+      setAccounts: setFilterAccountIds,
+      setLabel: (id) => {
+        setLabelId(id)
+        if (id) setSelectedThread(null)
+      },
+      show: () => cardRef.current?.show?.(),
+    })
+  }, [cardId, activeFolder, filterAccountIds, labelId, counts, handleFolderChange])
+  useEffect(() => (cardId ? () => unpublishMailCard(cardId) : undefined), [cardId])
 
   // The list's total, for the card's count.
   const [listTotal, setListTotal] = useState<number | null>(null)
@@ -911,7 +914,7 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
 
   const threadList = (
     <EmailThreadList
-      folder={effectiveFolder}
+      folder={labelId ? 'all' : effectiveFolder}
       onThreadSelect={handleThreadSelect}
       selectedThreadId={selectedThread?.provider_thread_id ?? null}
       search={search}
@@ -952,11 +955,21 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
   // subtree (rrweb blockClass) and autocapture skips it. Native Intelligence never stores
   // mail text, and a replay would.
   if (isCard) {
+    // Full screen from `md` up, the Mail sub-nav beside the rail is the
+    // card's one account and folder control (Liam, 11-11: "did you actually
+    // clean up the old one and remove it from the panel complely or did you
+    // do something the lazy way?"): these two exist only below `md` (the
+    // phone's layout, no rail, no sub-nav), in CSS, so the browser decides
+    // before the first paint and nothing shows then goes. Inline in the chat
+    // (no sub-nav beside it) they are the card's own, as always.
+    const ownNav = card?.fullScreen ? 'contents md:hidden' : 'contents'
     return (
       <div ref={rootRef} className="ph-no-capture flex h-full flex-col" data-mail-card="">
         <div className="flex h-9 shrink-0 items-center gap-1.5 px-3">
-          {accountFilter}
-          {folderSelect}
+          <div data-mail-own-nav="" className={ownNav}>
+            {accountFilter}
+            {folderSelect}
+          </div>
           <button
             type="button"
             aria-pressed={unreadOnly}

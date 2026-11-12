@@ -6,6 +6,8 @@ import { searchResultRows } from '@/lib/email/search-result-rows'
 import { heldThreadsFor } from '@/lib/email/held-threads'
 import { NextResponse, type NextRequest } from 'next/server'
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -33,6 +35,11 @@ export async function GET(request: NextRequest) {
   // person's ENABLED mailboxes here (readableWorkspaceEmailAccounts), searched
   // with the same filter. The Mail page leaves this off and lists as before.
   const readableOnly = searchParams.get('readable') === '1'
+  // A tag (Liam, 11-11: the Mail sub-nav's Tags, "any tags that are available
+  // for email"): only the threads wearing that label (email_thread_label,
+  // indexed by label_id; its RLS keeps it to the person's own threads).
+  const labelId = searchParams.get('label_id')
+  if (labelId && !UUID_RE.test(labelId)) return NextResponse.json({ error: 'Invalid label_id' }, { status: 400 })
 
   // Resolve which accounts are assigned to this workspace via junction table
   // (self-heals an empty junction so a freshly-connected inbox isn't blank).
@@ -89,15 +96,24 @@ export async function GET(request: NextRequest) {
         autoClassified: autoClassified || null,
       },
     })
+    const tagged = labelId ? rows.filter((r) => (r.labels as { id: string }[] | undefined)?.some((l) => l.id === labelId)) : rows
     return NextResponse.json({
-      threads: rows,
-      total: rows.length,
+      threads: tagged,
+      total: tagged.length,
       page,
       per_page: perPage,
       has_more: !!found.cursor,
       cursor: found.cursor,
       source: 'provider',
     })
+  }
+
+  if (labelId) {
+    const { data: tagged, error: tagError } = await supabase.from('email_thread_label').select('thread_id').eq('label_id', labelId)
+    if (tagError) return NextResponse.json({ error: tagError.message }, { status: 500 })
+    const ids = (tagged ?? []).map((r) => r.thread_id as string)
+    if (!ids.length) return NextResponse.json({ threads: [], total: 0, page, per_page: perPage, has_more: false })
+    query = query.in('id', ids)
   }
 
   if (folder === 'review') {

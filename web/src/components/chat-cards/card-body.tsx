@@ -23,7 +23,18 @@
  * Where the card is (the record open inside it, an action's inner section)
  * is a step in the card's history (./card-history.tsx): the card header's
  * Back and Forward walk it, so nothing inside a card draws a Back row of its
- * own. A detail panel's properties and actions go in the card header's
+ * own.
+ *
+ * The My Actions page's own card (TasksCardBody; Liam, 11-11: "one todo icon
+ * on the main nav and when you click it the sub-nav would show things like
+ * milestone and projects that way it's nested and clean") is a list card
+ * that also holds the places its sub-nav beside the rail opens (Projects,
+ * Initiatives, Milestones, All teams and each team's board: a step in its
+ * history each, the list under them),
+ * and tells the sub-nav where it is (./tasks-card-controls.ts). Full screen
+ * from `md` up the sub-nav is its one set of views: its own view tabs exist
+ * only below `md` (CSS, no waiting on the panel). A detail panel's
+ * properties and actions go in the card header's
  * Properties popover (window-properties.tsx), as they went in a window's.
  */
 import * as React from 'react'
@@ -52,6 +63,10 @@ import { CardHeaderSlot } from './card-header-slot'
 import { WindowPropertiesButton, WindowPropertiesProvider, WindowPropertiesSidebar, useWindowPropertiesSidebarShown, type PropertiesFrame } from '@/components/views/window-properties'
 import { cn } from '@/lib/utils'
 import { CardOverlay, CardCovered } from './card-covered'
+import type { CardListNav } from '@/components/views/unified-view-layout'
+import { pageOfCard } from '@/app/account/(dashboard)/rail/rail-pages'
+import { publishTasksCard, unpublishTasksCard, type TasksPlace } from './tasks-card-controls'
+import { isTasksPlace, tasksPlaceList, type TasksPlaceList } from '@/lib/chat-cards/tasks-places'
 
 export interface CardBodyProps {
   toolCallId: string
@@ -76,6 +91,8 @@ export interface CardBodyProps {
 // The calendar and mail pages are heavy and only their cards need them.
 const CalendarCardBody = React.lazy(() => import('./calendar-card-body'))
 const MailCardBody = React.lazy(() => import('./mail-card-body'))
+// Teams inside My Actions' card (Liam, 11-11: "Teams should be under action items"): only once one opens.
+const TasksTeamsPlace = React.lazy(() => import('./pages/tasks-teams-place'))
 
 export function isRecordType(type: string): type is CardRecordType {
   return (CARD_RECORD_TYPES as readonly string[]).includes(type)
@@ -178,9 +195,26 @@ export function useOpenRecords(toolCallId: string, store: ChatCardStore) {
   }
 }
 
+/**
+ * Whose actions an action list's own filter picks (`@me` as the assignee or
+ * the creator): the view tab that is its page. My Actions is "Assigned to
+ * me" (and open), so that tab is lit on it, and pressing it stays on the
+ * page; "All" and "Created by me" are their own pages (use-view.ts
+ * resetConfig).
+ */
+export function actionScopeOf(spec: ListCardSpec): 'assigned' | 'created' | undefined {
+  if (spec.entity_type !== 'action') return undefined
+  const me = (field: string) => spec.filters.some((f) => f.field === field && f.operator === 'is' && f.value === '@me')
+  if (me('assignee_id')) return 'assigned'
+  if (me('user_id')) return 'created'
+  return undefined
+}
+
 /** A list card's view config: the agent's page, as UnifiedViewLayout reads a baseline. */
 function baselineOf(spec: ListCardSpec): Partial<ViewConfig> {
+  const scope = actionScopeOf(spec)
   return {
+    ...(scope ? { action_scope: scope } : {}),
     filters: spec.filters.map((f, i) => ({ id: `card-${i}`, ...f })),
     ...(spec.ordering ? { ordering: spec.ordering } : {}),
     ...(spec.grouping !== undefined ? { grouping: spec.grouping } : {}),
@@ -189,8 +223,24 @@ function baselineOf(spec: ListCardSpec): Partial<ViewConfig> {
   }
 }
 
-function ListCardBody({ toolCallId, spec, store, fullScreen, onCount, onConfig }: CardBodyProps & { spec: ListCardSpec }) {
-  const records = useOpenRecords(toolCallId, store)
+function ListCardBody(props: CardBodyProps & { spec: ListCardSpec }) {
+  const records = useOpenRecords(props.toolCallId, props.store)
+  return <ListCardFrame {...props} records={records} />
+}
+
+/** What a page's own list card adds (TasksCardBody): a place over the list, the nav it reports, its tabs only below `md`. */
+interface ListCardExtras {
+  records: ReturnType<typeof useOpenRecords>
+  /** A list opened over the card's own (a place inside the page), or null. */
+  over?: TasksPlaceList | null
+  onNav?: (nav: CardListNav) => void
+  /** Its view tabs only below `md` (UnifiedViewLayout viewTabsBelowMdOnly): from there up the page's sub-nav holds them. */
+  viewTabsBelowMdOnly?: boolean
+  /** A place over the list that is not a list (All teams, a team's board), or null. */
+  overlay?: { key: string; node: React.ReactNode } | null
+}
+
+function ListCardFrame({ toolCallId, spec, store, fullScreen, onCount, onConfig, records, over = null, onNav, viewTabsBelowMdOnly, overlay = null }: CardBodyProps & { spec: ListCardSpec } & ListCardExtras) {
   const kept = React.useMemo(() => store.state(toolCallId), [store, toolCallId])
   const baseline = React.useMemo(() => baselineOf(spec), [spec])
   const onCountRef = React.useRef(onCount)
@@ -211,6 +261,7 @@ function ListCardBody({ toolCallId, spec, store, fullScreen, onCount, onConfig }
       // The saved view picked, kept with the card (a page loaded again lands on it).
       view: kept.views?.list,
       onViewChange: (view: string | null) => store.update(toolCallId, { views: { ...store.state(toolCallId).views, list: view } }, { touch: true }),
+      ...(onNav ? { onNav } : {}),
       // What the card shows now, kept quietly for the next turn's note.
       onStateChange: (state: CardLayoutState) => {
         const rows = flattenRows(state.rows).slice(0, 5).map(rowLabel)
@@ -226,22 +277,63 @@ function ListCardBody({ toolCallId, spec, store, fullScreen, onCount, onConfig }
     }),
     // `kept` is read once, at mount; the layout owns the state after that.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [baseline, fullScreen, store, toolCallId],
+    [baseline, fullScreen, store, toolCallId, onNav],
   )
 
+  // A place over the list: its own quiet card list (no tabs, no report), its
+  // changes kept with the card by the place's key, as a page card keeps a list's.
+  const overKey = over?.key ?? null
+  const overCard = React.useMemo(() => {
+    if (!over) return null
+    const key = over.key
+    return {
+      baseline: over.baseline,
+      overrides: store.state(toolCallId).lists?.[key] as Partial<ViewConfig> | undefined,
+      compact: !fullScreen,
+      onOverridesChange: (overrides: Partial<ViewConfig>) => {
+        const lists = { ...(store.state(toolCallId).lists ?? {}), [key]: overrides as Record<string, unknown> }
+        store.update(toolCallId, { lists }, { touch: true })
+      },
+    }
+    // One per place: its baseline is fixed by its key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overKey, fullScreen, store, toolCallId])
+
+  const openRow = (type: string, id: string, title: string) => {
+    if (isRecordType(type)) records.open({ type, id, label: title })
+  }
   return (
     <div className="relative h-full min-h-0">
-      <CardCovered covered={!!records.current}>
+      <CardCovered covered={!!records.current || !!over || !!overlay}>
         <UnifiedViewLayout
           entityType={spec.entity_type as ViewEntityType}
           card={card}
-          obscured={!!records.current}
-          onItemSelect={(id, title, _event, _item, entityType) => {
-            const type = entityType ?? spec.entity_type
-            if (isRecordType(type)) records.open({ type, id, label: title })
-          }}
+          viewTabsBelowMdOnly={viewTabsBelowMdOnly}
+          obscured={!!records.current || !!over || !!overlay}
+          onItemSelect={(id, title, _event, _item, entityType) => openRow(entityType ?? spec.entity_type, id, title)}
         />
       </CardCovered>
+      {over && overCard && (
+        <CardOverlay key={over.key}>
+          <div data-card-place={over.key} className="min-h-0 flex-1">
+            <CardCovered covered={!!records.current}>
+              <UnifiedViewLayout
+                entityType={over.entityType}
+                card={overCard}
+                obscured={!!records.current}
+                onItemSelect={(id, title, _event, _item, entityType) => openRow(entityType ?? over.entityType, id, title)}
+              />
+            </CardCovered>
+          </div>
+        </CardOverlay>
+      )}
+      {overlay && (
+        <CardOverlay key={overlay.key}>
+          <div data-card-place={overlay.key} className="min-h-0 flex-1">
+            <CardCovered covered={!!records.current}>{overlay.node}</CardCovered>
+          </div>
+        </CardOverlay>
+      )}
       {records.current && (
         <CardOverlay>
           <div className="min-h-0 flex-1 overflow-hidden">
@@ -250,6 +342,106 @@ function ListCardBody({ toolCallId, spec, store, fullScreen, onCount, onConfig }
         </CardOverlay>
       )}
     </div>
+  )
+}
+
+/**
+ * The My Actions page's own card: its list, and the places its sub-nav
+ * beside the rail opens inside it (./tasks-card-controls.ts). A place is a
+ * step in the card's history (`tasks_place`), so Back returns to the list
+ * and the card in front never changes (the page stays selected and lit,
+ * rail/selected-place.ts). Where it is goes to the sub-nav whenever it
+ * changes; the sub-nav's rows move it the same way its own tabs do.
+ */
+function TasksCardBody(props: CardBodyProps & { spec: ListCardSpec }) {
+  const { toolCallId, store, fullScreen } = props
+  const records = useOpenRecords(toolCallId, store)
+  const place = useCardNav<TasksPlace | null>('tasks_place', () => null)
+  const [nav, setNav] = React.useState<CardListNav | null>(null)
+  const recordsRef = React.useRef(records)
+  recordsRef.current = records
+  const placeRef = React.useRef(place)
+  placeRef.current = place
+  // A place asked for from outside the card (Projects or Initiatives opened
+  // from `/`, Search or a link: they nest here, rail/rail-pages.ts
+  // nestedPageOpen, chat-panel openCardHere): a step to it over where the card
+  // was, so Back returns there, at mount too. Taken once: the card's own steps
+  // hold it after that. A record open over the list closes in the same step.
+  useCardNavStoreSync(store, place, () => {
+    const asked = store.state(toolCallId).tasksPlace
+    if (asked === undefined) return undefined
+    store.update(toolCallId, { tasksPlace: undefined })
+    if (!isTasksPlace(asked)) return undefined
+    if (recordsRef.current.current) recordsRef.current.close()
+    return asked
+  })
+
+  React.useEffect(() => {
+    if (!nav) return
+    // Leaving a place (or a record open over the list) for the list: one step
+    // (the history merges what one press moves).
+    const toList = () => {
+      if (recordsRef.current.current) recordsRef.current.close()
+      if (placeRef.current.get() !== null) placeRef.current.set(null)
+    }
+    publishTasksCard({
+      cardId: toolCallId,
+      scope: nav.scope,
+      viewId: nav.viewId,
+      views: nav.views.map((v) => ({ id: v.id, name: v.name })),
+      place: place.value,
+      setScope: (scope) => {
+        toList()
+        nav.setScope(scope)
+      },
+      setView: (viewId) => {
+        toList()
+        nav.setView(viewId)
+      },
+      go: (next) => {
+        if (recordsRef.current.current) recordsRef.current.close()
+        placeRef.current.set(next)
+      },
+      show: () => {
+        if (store.fullScreen() !== toolCallId) store.enterFullScreen(toolCallId)
+      },
+    })
+  }, [nav, place.value, toolCallId, store])
+  React.useEffect(() => () => unpublishTasksCard(toolCallId), [toolCallId])
+
+  // All teams or a team's board (Liam, 11-11: "Teams should be under action
+  // items"): the Teams page's own views over the list, not a list; moving
+  // between them is a step too, and an action on a board opens over it.
+  const teamsAt = place.value && !tasksPlaceList(place.value) ? place.value : null
+  const teamsNode = teamsAt ? (
+    <React.Suspense fallback={null}>
+      <TasksTeamsPlace
+        place={teamsAt}
+        toolCallId={toolCallId}
+        store={store}
+        fullScreen={fullScreen}
+        go={(next) => placeRef.current.set(next)}
+        openAction={(id, title) => records.open({ type: 'action', id, label: title })}
+        selectedActionId={records.current?.type === 'action' ? records.current.id : null}
+        obscured={!!records.current}
+      />
+    </React.Suspense>
+  ) : null
+
+  return (
+    <ListCardFrame
+      {...props}
+      records={records}
+      over={place.value ? tasksPlaceList(place.value) : null}
+      overlay={teamsAt ? { key: `tasks:${teamsAt}`, node: teamsNode } : null}
+      onNav={setNav}
+      // Full screen from `md` up the sub-nav beside the rail is the card's
+      // one set of views (Liam, 11-11: "did you actually clean up the old
+      // one and remove it from the panel complely or did you do something
+      // the lazy way?"): its tabs only below `md`, in CSS, from the first
+      // paint. Inline in the chat it shows no tabs anyway (a card's list).
+      viewTabsBelowMdOnly={fullScreen}
+    />
   )
 }
 
@@ -288,6 +480,8 @@ const PAGE_BODIES: Record<PageKind, React.LazyExoticComponent<React.ComponentTyp
   evals: React.lazy(() => import('./pages/evals-card')),
   campaigns: React.lazy(() => import('./pages/campaigns-card')),
   team_chat: React.lazy(() => import('./pages/team-chat-card')),
+  availability: React.lazy(() => import('./pages/availability-card')),
+  files: React.lazy(() => import('./pages/files-card')),
   knowledge: React.lazy(() => import('./pages/knowledge-card')),
   library: React.lazy(() => import('./pages/library-card')),
   teams: React.lazy(() => import('./pages/teams-card')),
@@ -311,7 +505,12 @@ function PageCardBody(props: CardBodyProps) {
 
 /** What each kind draws. */
 const CARD_BODIES: Record<'list' | 'record' | 'calendar' | 'mail', (props: CardBodyProps) => React.ReactNode> = {
-  list: (props) => (props.spec.kind === 'list' ? <ListCardBody {...props} spec={props.spec} /> : null),
+  list: (props) =>
+    props.spec.kind !== 'list' ? null : pageOfCard(props.spec) === 'actions' ? (
+      <TasksCardBody {...props} spec={props.spec} />
+    ) : (
+      <ListCardBody {...props} spec={props.spec} />
+    ),
   record: (props) => <RecordCardBody {...props} />,
   calendar: (props) => (props.spec.kind === 'calendar' ? <CalendarCardBody {...props} spec={props.spec as CalendarCardSpec} /> : null),
   mail: (props) => (props.spec.kind === 'mail' ? <MailCardBody {...props} spec={props.spec as MailCardSpec} /> : null),

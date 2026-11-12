@@ -17,6 +17,7 @@ import {
   type ProspectStageTab, type ProspectStageCounts,
 } from '@/lib/views/prospect-stage-tabs'
 import { customFieldFilterFields, isCustomFieldPath } from '@/lib/views/custom-field-columns'
+import { ACTION_SCOPE_TAB_ORDER, actionScopeLabel } from '@/lib/views/action-scopes'
 import { useCustomFieldDefinitions } from './hooks/use-custom-field-definitions'
 
 /** What a collection of these is CALLED, in the user's words. Drives the
@@ -183,24 +184,16 @@ export function ViewTabs({
           ))
         ) : entityType === 'action' && !teamId && onActionScopeChange ? (
           <>
-            <button
-              onClick={() => onActionScopeChange('all')}
-              className={tabClass(!activeViewId && !isEditing && actionScope === 'all')}
-            >
-              All issues
-            </button>
-            <button
-              onClick={() => onActionScopeChange('assigned')}
-              className={tabClass(!activeViewId && !isEditing && actionScope === 'assigned')}
-            >
-              Assigned to me
-            </button>
-            <button
-              onClick={() => onActionScopeChange('created')}
-              className={tabClass(!activeViewId && !isEditing && actionScope === 'created')}
-            >
-              Created by me
-            </button>
+            {/* Their names from one source, shared with the Tasks sub-nav (lib/views/action-scopes.ts). */}
+            {ACTION_SCOPE_TAB_ORDER.map(scope => (
+              <button
+                key={scope}
+                onClick={() => onActionScopeChange(scope)}
+                className={tabClass(!activeViewId && !isEditing && actionScope === scope)}
+              >
+                {actionScopeLabel(scope)}
+              </button>
+            ))}
           </>
         ) : entityType === 'contact' && onCrmScopeChange ? (
           <>

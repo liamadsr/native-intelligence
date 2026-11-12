@@ -28,11 +28,12 @@ function leadInset(trafficLights: boolean): string {
 }
 
 /**
- * The top bar's controls: For you's toggle leads it at the far left (from
- * `md` up only where its column has no room to show by itself), then Search
- * on a phone (from `md` up the app rail has it); Listen, the side panel's
- * toggle and the workspace pill trail it (Capture is in the chat's composer:
- * chat/composer-capture-button.tsx). There is nothing in its middle: the
+ * The top bar's controls: Search leads it on a phone (from `md` up the app
+ * rail has it); Listen, the side panel's two buttons (For you and the
+ * sections, the panel's two views: Liam, 11-11, "move the for you cards to
+ * the right hand side panel… you can't see both at the same time") and the
+ * workspace pill trail it, with Capture in the right header from `md` up
+ * (chat/composer-capture-button.tsx). There is nothing in its middle: the
  * main chat is one never-ending conversation (docs/plans/one-chat.md), so the
  * tabs, "New chat" and the chat history that sat there are gone.
  */
@@ -94,7 +95,7 @@ export function TopBar() {
       {/* `contents`, so the leading cluster and the middle become grid items
           of the row itself. */}
       <div className="contents">
-      {/* Leading cluster: For you's toggle, then Search,
+      {/* Leading cluster: Search (a phone's only),
           starting at the window's left edge. It carries the macOS
           traffic-light padding because it is the leftmost element and the
           lights overlay that gutter.
@@ -112,13 +113,6 @@ export function TopBar() {
           style={{ paddingLeft: leadInset(trafficLights) }}
         >
           <TooltipProvider delayDuration={300}>
-            {/* For you's toggle (side-panels/side-panel-toggles.tsx), on a
-                phone only, at the far left over its column: from `md` up it's
-                in the app rail's header (rail/app-rail.tsx; Liam, 11-09: the
-                workspace's thumbnail, then For you, then Search). */}
-            <div data-tab-bar-phone-only="" className="contents md:hidden">
-              <ForYouToggle />
-            </div>
             {/* Search, on a phone only (below `md`, where there is no app
                 rail): from `md` up the rail has it (rail/app-rail.tsx; Liam,
                 11-09). A round pill of its own: the `/` palette, flying out
@@ -156,9 +150,9 @@ export function TopBar() {
       </div>
 
       {/* Trailing control cluster — the grid's last column. In this order:
-            Getting started · Interactive · the side panel's toggle (over the
-          panel it opens) · [◍], which ends the bar at the window's right
-          edge. (For you's toggle starts the bar at the left, then Search.)
+            Getting started · Interactive · For you's and the side panel's
+          buttons (over the panel they open) · [◍], which ends the bar at the
+          window's right edge. (Search starts the bar at the left on a phone.)
           The column is content-sized (`minmax(max-content, 1fr)`).
           (Getting started expands into a card anchored below the bar.) */}
       <div
@@ -188,9 +182,11 @@ export function TopBar() {
             one glass pill, as the app rail's header is (rail/app-rail.tsx),
             holding Capture (moved out of the chat's composer:
             chat/composer-capture-button.tsx, the recording's controls while
-            one runs) and the side panel's toggle (Agents · Plan ·
-            Connections, side-panels/side-panels.tsx), over the panel it
-            opens. Below `md` the toggle is the bar's pill, as before, and
+            one runs), then the side panel's two buttons, one per view of the
+            one panel they open (side-panels/side-panels.tsx; Liam, 11-11):
+            For you (its cards, only while there are any) and the side panel
+            (Agents · Plan · Context · Connectors), each lit while its view
+            shows. Below `md` they are the bar's pills, For you's first, and
             Capture stays in the composer. After hydration only (their
             Tooltips take a useId, see above). */}
         {mounted && (
@@ -202,9 +198,11 @@ export function TopBar() {
               className={cn('relative z-10 -my-px hidden items-center gap-0.5 rounded-full border border-border/60 p-1 md:flex', COLUMN_CARD_SKIN)}
             >
               <ComposerCaptureButton recording={recording} variant="header" />
+              <ForYouToggle variant="header" />
               <SidePanelToggle variant="header" />
             </div>
             <div data-tab-bar-phone-only="" className="contents md:hidden">
+              <ForYouToggle />
               <SidePanelToggle />
             </div>
           </TooltipProvider>

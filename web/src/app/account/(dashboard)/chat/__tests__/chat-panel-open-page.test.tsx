@@ -157,11 +157,13 @@ vi.mock('../slash-command-picker', () => ({
 
 import { ChatPanel, type ChatPanelHandle } from '../chat-panel'
 import { createRef } from 'react'
+import { pageOfCard } from '../../rail/rail-pages'
 import { getEdition, withEffectiveSurface } from '@/lib/editions/manifest'
 import { openedCardFromPart, isOpenedCardMessage } from '@/lib/chat-cards/opened-card'
 import { parseCardContext, renderCardsSection } from '@/lib/chat-cards/context'
 import { highestCardNumber, stampCardNumber } from '../../../../../../agents/chat-agent/lib/card-numbers'
 import { cardForTarget, foldCards } from '@/lib/chat-cards/open-card'
+import { COMPOSER_RESERVE_VAR, holdFrontCard } from '@/components/chat-cards/front-card'
 
 const fetchCalls: Array<{ url: string; method: string; body: unknown }> = []
 
@@ -436,6 +438,62 @@ describe('ChatPanel: pages from /', () => {
     expect(env.store!.openedByVisit().map((c) => c.id)).toEqual([captures, actions])
   })
 
+  it('Projects and Initiatives nest under Tasks (Liam, 11-11): from `/` or a link, My Actions’ card opens on that place', async () => {
+    await mount()
+    await pickPage('projects')
+    const cards = openedCards()
+    expect(cards).toHaveLength(1)
+    expect(cards[0].spec).toMatchObject({ kind: 'list', title: 'My actions', entity_type: 'action' })
+    expect(env.store!.fullScreen()).toBe(cards[0].id)
+    expect(env.store!.state(cards[0].id).tasksPlace).toBe('projects')
+    // A link (openTarget `page`) to Initiatives: the same card brought back, on its place.
+    await act(async () => env.store!.exitFullScreen())
+    const initiatives = cardForTarget({ type: 'page', slug: 'initiatives' })!
+    await act(async () => ref.current!.openCard({ spec: initiatives.spec, from: 'link' }))
+    expect(openedCards()).toHaveLength(1)
+    expect(env.store!.fullScreen()).toBe(cards[0].id)
+    expect(env.store!.state(cards[0].id).tasksPlace).toBe('initiatives')
+  })
+
+  it('Teams nests under Tasks too (Liam, 11-11: "Teams should be under action items"): from `/` or a link, My Actions’ card opens on All teams', async () => {
+    await mount()
+    await pickPage('teams')
+    const cards = openedCards()
+    expect(cards).toHaveLength(1)
+    expect(cards[0].spec).toMatchObject({ kind: 'list', title: 'My actions', entity_type: 'action' })
+    expect(pageOfCard(cards[0].spec)).toBe('actions')
+    expect(env.store!.fullScreen()).toBe(cards[0].id)
+    expect(env.store!.state(cards[0].id).tasksPlace).toBe('teams')
+    await act(async () => env.store!.exitFullScreen())
+    const teams = cardForTarget({ type: 'page', slug: 'teams' })!
+    await act(async () => ref.current!.openCard({ spec: teams.spec, from: 'link' }))
+    expect(openedCards()).toHaveLength(1)
+    expect(env.store!.fullScreen()).toBe(cards[0].id)
+    expect(env.store!.state(cards[0].id).tasksPlace).toBe('teams')
+  })
+
+  it('where My Actions is off, Teams opens on its own as before', async () => {
+    const full = getEdition('full')
+    env.edition = { ...full, views: full.views.filter((v) => v !== 'todo'), extraAllowedViews: full.extraAllowedViews.filter((v) => v !== 'todo') }
+    await mount()
+    await pickPage('teams')
+    const cards = openedCards()
+    expect(cards).toHaveLength(1)
+    expect(cards[0].spec).toMatchObject({ kind: 'teams' })
+    expect(env.store!.state(cards[0].id).tasksPlace).toBeUndefined()
+  })
+
+  it('where My Actions is off, the Projects page opens on its own as before', async () => {
+    const full = getEdition('full')
+    env.edition = { ...full, views: full.views.filter((v) => v !== 'todo'), extraAllowedViews: full.extraAllowedViews.filter((v) => v !== 'todo') }
+    await mount()
+    await pickPage('projects')
+    const cards = openedCards()
+    expect(cards).toHaveLength(1)
+    expect(cards[0].spec).toMatchObject({ kind: 'list', entity_type: 'project' })
+    expect(env.store!.state(cards[0].id).tasksPlace).toBeUndefined()
+  })
+
   it('drops a page queued in one chat when the panel moves to another', async () => {
     await mount({ initialMessages: [showMessage('a1', 1)] })
     env.status = 'streaming'
@@ -596,18 +654,121 @@ describe('ChatPanel: pages from /', () => {
     expect(openedCards()[0].number).toBe(2)
   })
 
-  it('a press around the composer (not on it) puts a full-screen card back', async () => {
+  it('a press around the composer (not on it) puts a full-screen card back: the app’s one rule for empty presses (Liam, 11-11)', async () => {
+    const { EmptyPressMinimizes } = await import('../../minimized-card-tile')
+    const wasMatchMedia = window.matchMedia
+    window.matchMedia = ((query: string) => ({ matches: query.includes('min-width'), addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
+    document.documentElement.setAttribute('data-app-rail', '')
+    const ruleHost = document.createElement('div')
+    document.body.append(ruleHost)
+    const ruleRoot = createRoot(ruleHost)
+    let release = () => {}
+    try {
+      await act(async () => ruleRoot.render(h(EmptyPressMinimizes)))
+      await mount()
+      await act(async () => ref.current!.openCard({ spec: ACTION.spec, from: 'chip' }))
+      const id = env.store!.fullScreen()
+      expect(id).not.toBeNull()
+      // The card in front, as its ShowToolCard holds it (the kept-card host is a stub here).
+      const { holdFrontCard } = await import('@/components/chat-cards/front-card')
+      release = holdFrontCard({ id: id!, spec: ACTION.spec, close: () => env.store!.exitFullScreen() })
+      const press = (el: Element) => el.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }))
+      // On the composer itself: the card stays.
+      await act(async () => press(container.querySelector('textarea')!))
+      expect(env.store!.fullScreen()).toBe(id)
+      // Its margins: the chat's backdrop.
+      const zone = container.querySelector('[data-chat-composer]') as HTMLElement
+      await act(async () => press(zone.firstElementChild as HTMLElement))
+      expect(env.store!.fullScreen()).toBeNull()
+    } finally {
+      release()
+      act(() => ruleRoot.unmount())
+      ruleHost.remove()
+      document.documentElement.removeAttribute('data-app-rail')
+      window.matchMedia = wasMatchMedia
+    }
+  })
+
+  // Liam, 11-11: "you can still see the main chat input even when you have a panel open".
+  const textarea = () => container.querySelector('textarea')!
+  async function type(text: string) {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')!.set!
+    await act(async () => {
+      setter.call(textarea(), text)
+      textarea().dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+
+  it('typing in the composer leaves a full-screen card be; a send puts it back in the chat, and every card in front with it', async () => {
     await mount()
     await act(async () => ref.current!.openCard({ spec: ACTION.spec, from: 'chip' }))
     const id = env.store!.fullScreen()
     expect(id).not.toBeNull()
-    // On the composer itself: the card stays.
-    await act(async () => container.querySelector('textarea')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })))
+    // A card of another chat, full screen too (front-card.ts): it goes back as well.
+    const other = vi.fn()
+    const release = holdFrontCard({ id: 'other', spec: ACTION.spec, close: other })
+    try {
+      await type('What is left on this?')
+      expect(env.store!.fullScreen()).toBe(id)
+      expect(other).not.toHaveBeenCalled()
+      expect(sendMessage).not.toHaveBeenCalled()
+      await act(async () => {
+        textarea().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+        await new Promise((r) => setTimeout(r, 0))
+      })
+      expect(env.store!.fullScreen()).toBeNull()
+      expect(other).toHaveBeenCalledTimes(1)
+    } finally {
+      release()
+    }
+  })
+
+  it('an empty Enter sends nothing and leaves the card full screen', async () => {
+    await mount()
+    await act(async () => ref.current!.openCard({ spec: ACTION.spec, from: 'chip' }))
+    const id = env.store!.fullScreen()
+    await act(async () => {
+      textarea().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      await Promise.resolve()
+    })
     expect(env.store!.fullScreen()).toBe(id)
-    // Its margins: the chat's backdrop.
-    const zone = container.querySelector('[data-chat-composer]') as HTMLElement
-    await act(async () => (zone.firstElementChild as HTMLElement).dispatchEvent(new MouseEvent('mousedown', { bubbles: true })))
-    expect(env.store!.fullScreen()).toBeNull()
+  })
+
+  it('a panel that is not the main chat never puts a card back on send (its composer may sit inside the card)', async () => {
+    await mount({ alwaysShowMessages: false })
+    const close = vi.fn()
+    const release = holdFrontCard({ id: 'outer', spec: ACTION.spec, close })
+    try {
+      await type('Hello')
+      await act(async () => {
+        textarea().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+        await new Promise((r) => setTimeout(r, 0))
+      })
+      expect(close).not.toHaveBeenCalled()
+    } finally {
+      release()
+    }
+  })
+
+  it('the main chat says how tall its composer dock stands on <html>, for the full-screen layer; gone with the chat', async () => {
+    const offsetHeight = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, 'offsetHeight')!
+    Object.defineProperty(window.HTMLElement.prototype, 'offsetHeight', {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.hasAttribute('data-chat-composer-dock') ? 96 : 0
+      },
+    })
+    try {
+      await mount()
+      expect(document.documentElement.style.getPropertyValue(COMPOSER_RESERVE_VAR)).toBe('96px')
+      unmount()
+      expect(document.documentElement.style.getPropertyValue(COMPOSER_RESERVE_VAR)).toBe('')
+      // Another panel (not the main chat) never writes it.
+      await mount({ alwaysShowMessages: false })
+      expect(document.documentElement.style.getPropertyValue(COMPOSER_RESERVE_VAR)).toBe('')
+    } finally {
+      Object.defineProperty(window.HTMLElement.prototype, 'offsetHeight', offsetHeight)
+    }
   })
 
   it('a bot’s page full screen brings its own composer: the chat’s steps aside until it goes back', async () => {

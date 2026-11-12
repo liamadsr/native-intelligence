@@ -19,6 +19,16 @@ describe('deepLinkCard', () => {
     })
   })
 
+  it('?page=<slug>: that `/` page’s own card (Liam, 11-11: where /account/settings/availability redirects); an unknown or odd slug opens nothing', () => {
+    expect(deepLinkCard(new URLSearchParams('page=availability'))).toEqual({
+      param: 'page',
+      request: { spec: { kind: 'availability', title: 'Availability' }, from: 'link' },
+    })
+    expect(deepLinkCard(new URLSearchParams(`page=availability&${DEEP_LINK_WORKSPACE}=${WS}`))?.request.workspaceId).toBe(WS)
+    expect(deepLinkCard(new URLSearchParams('page=nope'))).toBeNull()
+    expect(deepLinkCard(new URLSearchParams('page=../settings'))).toBeNull()
+  })
+
   it('no workspace, or one that isn’t an id: where the person is', () => {
     expect(deepLinkCard(new URLSearchParams(`team_chat_message=${MSG}`))?.request.workspaceId).toBeUndefined()
     expect(deepLinkCard(new URLSearchParams(`team_chat_message=${MSG}&workspace=nope`))?.request.workspaceId).toBeUndefined()

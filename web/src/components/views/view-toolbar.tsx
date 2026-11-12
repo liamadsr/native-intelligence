@@ -31,6 +31,8 @@ interface ViewToolbarProps {
   embedded?: boolean
   /** A chat card: no view tabs (it is its own view), just the filter and settings buttons. */
   hideTabs?: boolean
+  /** The view tabs only below `md` (CSS): from there up a page's sub-nav beside the rail holds them. */
+  tabsBelowMdOnly?: boolean
   /** A slimmer row, for a card inline in the chat. */
   compact?: boolean
   entityType: ViewEntityType
@@ -97,7 +99,7 @@ const getSnapshot = () => true
 const getServerSnapshot = () => false
 
 export function ViewToolbar({
-  embedded = false, hideTabs = false, compact = false, entityType, teamId, views, activeViewId, onViewChange,
+  embedded = false, hideTabs = false, tabsBelowMdOnly = false, compact = false, entityType, teamId, views, activeViewId, onViewChange,
   onCreateView, onUpdateView, onDuplicateView, onDeleteView,
   config, onConfigChange, onScopeReset, crmScopesEnabled = true, captureScopesEnabled = true,
   lockedScopeFields,
@@ -501,31 +503,36 @@ export function ViewToolbar({
         {/* In a card the tabs scroll sideways rather than being cut off: an
             inline card is narrower than a window was. */}
         <div className={cn('flex items-center gap-1 min-w-0 flex-1', compact ? 'overflow-x-auto scrollbar-hide' : 'overflow-hidden')}>
-          {!hideTabs && <ViewTabs
-            views={views}
-            activeViewId={activeViewId}
-            onViewChange={handleViewChange}
-            onDuplicateView={onDuplicateView}
-            onDeleteView={onDeleteView}
-            onEditView={handleStartEdit}
-            entityType={entityType}
-            teamId={teamId}
-            actionScope={config.action_scope}
-            onActionScopeChange={handleScopedViewChange}
-            crmScope={crmScopesEnabled ? config.crm_scope : undefined}
-            onCrmScopeChange={crmScopesEnabled ? handleScopedCrmChange : undefined}
-            captureScope={captureScopesEnabled ? config.capture_scope : undefined}
-            onCaptureScopeChange={captureScopesEnabled ? handleScopedCaptureChange : undefined}
-            libraryScope={config.library_scope}
-            onLibraryScopeChange={onLibraryScopeChange ? handleScopedLibraryChange : undefined}
-            prospectStage={prospectStage}
-            prospectStageCounts={prospectStageCounts}
-            onProspectStageChange={onProspectStageChange ? handleScopedProspectChange : undefined}
-            editMode={editMode}
-            editingViewId={editingViewId}
-            draftName={draftName}
-            onStartCreate={handleStartCreate}
-          />}
+          {/* Below `md` only where a page's sub-nav beside the rail holds them from there up (tabsBelowMdOnly). */}
+          {!hideTabs && (
+            <div data-view-tabs="" className={tabsBelowMdOnly ? 'contents md:hidden' : 'contents'}>
+              <ViewTabs
+                views={views}
+                activeViewId={activeViewId}
+                onViewChange={handleViewChange}
+                onDuplicateView={onDuplicateView}
+                onDeleteView={onDeleteView}
+                onEditView={handleStartEdit}
+                entityType={entityType}
+                teamId={teamId}
+                actionScope={config.action_scope}
+                onActionScopeChange={handleScopedViewChange}
+                crmScope={crmScopesEnabled ? config.crm_scope : undefined}
+                onCrmScopeChange={crmScopesEnabled ? handleScopedCrmChange : undefined}
+                captureScope={captureScopesEnabled ? config.capture_scope : undefined}
+                onCaptureScopeChange={captureScopesEnabled ? handleScopedCaptureChange : undefined}
+                libraryScope={config.library_scope}
+                onLibraryScopeChange={onLibraryScopeChange ? handleScopedLibraryChange : undefined}
+                prospectStage={prospectStage}
+                prospectStageCounts={prospectStageCounts}
+                onProspectStageChange={onProspectStageChange ? handleScopedProspectChange : undefined}
+                editMode={editMode}
+                editingViewId={editingViewId}
+                draftName={draftName}
+                onStartCreate={handleStartCreate}
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-1 shrink-0 ml-2">
