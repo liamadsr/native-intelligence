@@ -27,7 +27,10 @@
  * monthly ceiling refuses a call the workspace can't afford; the check then
  * ends failed with the ceiling's own words. A manual check spends as the
  * person who asked; a scheduled one as the workspace (userId null), after
- * the schedule gate (src/lib/seo/ai-visibility/gate.ts).
+ * the schedule gate (src/lib/seo/ai-visibility/gate.ts), asked at prepare
+ * and again before every paid step: a refusal partway (paused, schedule off,
+ * owner gone or on the free plan) buys nothing more and ends the check in
+ * the gate's words. A manual check is held to the estimate it started with.
  *
  * ONE CHECK PER WORKSPACE AT A TIME, a few at once overall. A sleeping
  * check (waiting for answers, or for late ones) holds no slot.
@@ -118,23 +121,27 @@ export async function runAiVisibilityCheck(
   let spendLimit: string | null = null
   let posted = 0
   const untracked: UntrackedAnswer[] = []
+  // A scheduled check's gate, asked again at each paid step, refused: buy no more.
+  let stopped: { code: string; message: string } | null = null
   for (const [i, batch] of plan.queue.entries()) {
     // A refused ceiling stops further spending: the rest are never sent.
-    if (spendLimit) break
+    if (spendLimit || stopped) break
     const out = await step.run(`post-${i}`, () =>
       postQueueBatch(store, runId, batch, deps),
     )
     posted += out.sent
     spendLimit = spendLimit ?? out.spend_limit
     untracked.push(...(out.untracked ?? []))
+    stopped = stopped ?? out.stopped ?? null
   }
   for (const [i, batch] of plan.model.entries()) {
-    if (spendLimit) break
+    if (spendLimit || stopped) break
     const out = await step.run(`model-${i}`, () =>
       askModelBatch(store, runId, batch, deps),
     )
     spendLimit = spendLimit ?? out.spend_limit
     untracked.push(...(out.untracked ?? []))
+    stopped = stopped ?? out.stopped ?? null
   }
 
   if (posted > 0) {
@@ -148,7 +155,7 @@ export async function runAiVisibilityCheck(
   }
 
   const finished = await step.run('finalize', () =>
-    finalizeRun(store, runId, { spendLimit, untracked }),
+    finalizeRun(store, runId, { spendLimit, untracked, stopped }),
   )
   let missing = finished.late_pending
   for (let round = 1; round <= LATE_READ_ROUNDS && missing > 0; round++) {

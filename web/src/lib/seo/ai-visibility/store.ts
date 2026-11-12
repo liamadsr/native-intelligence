@@ -34,6 +34,7 @@ interface RunRecord {
   location_code: number
   language_code: string
   brands: unknown
+  estimate_usd: number | string
 }
 
 export function createAiRunStore(svc: SupabaseClient): AiRunStore {
@@ -42,14 +43,19 @@ export function createAiRunStore(svc: SupabaseClient): AiRunStore {
       const { data, error } = await svc
         .from('seo_ai_run')
         .select(
-          'id, workspace_id, tracker_id, trigger, status, started_by, engines, location_code, language_code, brands',
+          'id, workspace_id, tracker_id, trigger, status, started_by, engines, location_code, language_code, brands, estimate_usd',
         )
         .eq('id', runId)
         .maybeSingle()
       if (error) throw new Error(`seo ai run read failed: ${error.message}`)
       if (!data) return null
       const row = data as RunRecord
-      return { ...row, brands: readRunBrands(row.brands) } satisfies EngineRun
+      return {
+        ...row,
+        brands: readRunBrands(row.brands),
+        // numeric arrives as a string.
+        estimate_usd: Number(row.estimate_usd) || 0,
+      } satisfies EngineRun
     },
 
     async claimRun(runId) {

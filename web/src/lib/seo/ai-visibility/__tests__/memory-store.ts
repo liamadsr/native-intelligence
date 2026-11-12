@@ -39,7 +39,10 @@ export interface MemRun extends EngineRun {
 }
 
 export function createMemoryStore(seed: {
-  run: Omit<MemRun, 'counts' | 'error_code' | 'error_detail'>
+  /** estimate_usd defaults to more than any test check costs. */
+  run: Omit<MemRun, 'counts' | 'error_code' | 'error_detail' | 'estimate_usd'> & {
+    estimate_usd?: number
+  }
   tracker?: {
     workspace_id: string
     created_by: string | null
@@ -56,6 +59,7 @@ export function createMemoryStore(seed: {
 }) {
   const run: MemRun = {
     ...seed.run,
+    estimate_usd: seed.run.estimate_usd ?? 1000,
     counts: {
       answers_total: 0,
       answers_collected: 0,

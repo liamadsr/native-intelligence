@@ -8,11 +8,17 @@
  *     the check so later edits never rewrite it.
  *   - One live check per tracker: a second start is refused with the live
  *     one. A check stuck far past its start is failed and replaced.
- *   - A manual check is the person's own request: it needs `confirmed` when
- *     its estimate is above CONFIRM_ABOVE_USD (CONFIRMATION_REQUIRED, with the
- *     estimate, and nothing starts), and passes the access check (../access.ts)
- *     before the check is written. A scheduled one goes through the gate in
- *     ./gate.ts instead (./schedule.ts).
+ *   - A manual check is the person's own request: it passes the access check
+ *     (../access.ts) first, so a guest, a plan that does not pay or a turn
+ *     nobody is in is refused before being asked anything; then it needs
+ *     `confirmed` when its estimate is above CONFIRM_ABOVE_USD
+ *     (CONFIRMATION_REQUIRED, with the estimate, and nothing starts). A
+ *     scheduled one goes through the gate in ./gate.ts instead (./schedule.ts).
+ *   - A check buys at most what its start estimated: the estimate and the
+ *     check's answer rows come from ONE read of the active prompts and the
+ *     engines, so a prompt turned on or an engine added while it starts is
+ *     not bought by it. The lane holds a manual check to that stored
+ *     estimate again before it buys (./engine.ts, ESTIMATE_CHANGED).
  *   - The start only writes the rows and sends the event. The answers are
  *     bought in the background lane (src/lib/inngest/seo-ai-visibility-functions.ts).
  */
@@ -51,6 +57,7 @@ import {
 import {
   isLiveRun,
   type AiCostEstimate,
+  type AiPromptView,
   type AiRunTrigger,
   type AiRunView,
 } from './view'
@@ -169,12 +176,14 @@ export async function createRun(
     startedBy: string | null
     scheduledFor: string | null
     runId: string
+    /** The active prompts the caller already read and estimated: the check is written with exactly these. */
+    prompts?: AiPromptView[]
   },
 ): Promise<
   { ok: true; run: AiRunView; estimate: AiCostEstimate } | CreateRunFailure
 > {
   const prompts = (
-    await listPrompts(svc, tracker.workspace_id, tracker.id)
+    opts.prompts ?? (await listPrompts(svc, tracker.workspace_id, tracker.id))
   ).filter((p) => p.active)
   if (prompts.length === 0)
     return {
@@ -286,8 +295,9 @@ export type StartRunResult =
     }
 
 /**
- * A person starts a check now. Above CONFIRM_ABOVE_USD it needs `confirmed`;
- * then the access check; then the rows and the event.
+ * A person starts a check now. The access check first; then, above
+ * CONFIRM_ABOVE_USD, `confirmed`; then the rows (from the same prompts and
+ * engines the estimate counted) and the event.
  */
 export async function startManualRun(
   svc: SupabaseClient,
@@ -303,10 +313,20 @@ export async function startManualRun(
       code: 'NOT_FOUND',
       message: 'That tracker doesn’t exist.',
     }
+  // Refused before anything is asked of the person.
+  const access = await (deps.checkAccess ?? checkSeoDataAccess)({
+    userId: who.userId,
+    workspaceId: who.workspaceId,
+    unattended: who.unattended,
+  })
+  if (!access.ok) return access
+
   const view = trackerView(tracker)
-  const active = (await listPrompts(svc, who.workspaceId, trackerId)).filter(
-    (p) => p.active,
-  ).length
+  // One read: the estimate and the check's answer rows both come from it.
+  const activePrompts = (
+    await listPrompts(svc, who.workspaceId, trackerId)
+  ).filter((p) => p.active)
+  const active = activePrompts.length
   if (active === 0)
     return {
       ok: false,
@@ -328,12 +348,6 @@ export async function startManualRun(
       estimate,
     }
   }
-  const access = await (deps.checkAccess ?? checkSeoDataAccess)({
-    userId: who.userId,
-    workspaceId: who.workspaceId,
-    unattended: who.unattended,
-  })
-  if (!access.ok) return access
 
   const now = deps.now?.() ?? new Date()
   const live = await getLiveRun(svc, who.workspaceId, trackerId)
@@ -351,6 +365,7 @@ export async function startManualRun(
     startedBy: who.userId,
     scheduledFor: null,
     runId: deps.newId?.() ?? crypto.randomUUID(),
+    prompts: activePrompts,
   })
   if (!created.ok) return created
   if (!(await dispatchRun(svc, created.run, who.workspaceId, deps))) {

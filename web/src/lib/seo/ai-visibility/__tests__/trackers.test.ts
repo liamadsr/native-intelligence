@@ -13,6 +13,8 @@
  *     and a plan that does not pay are refused before being asked, and
  *     nothing is written.
  *   - created_by changes only to a person who passed it.
+ *   - A change that stops the schedule running (paused, off) cancels a
+ *     scheduled check still buying; a check started by hand keeps running.
  */
 import type { SeoDataAccess } from '@/lib/seo/access'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -24,6 +26,7 @@ const q = vi.hoisted(() => ({
   getTrackerRow: vi.fn(),
   listPrompts: vi.fn(),
   getLiveRun: vi.fn(),
+  cancelRun: vi.fn(),
 }))
 vi.mock('../queries', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../queries')>()),
@@ -31,6 +34,7 @@ vi.mock('../queries', async (importOriginal) => ({
   listPrompts: q.listPrompts,
   getLiveRun: q.getLiveRun,
 }))
+vi.mock('../runs', () => ({ cancelRun: q.cancelRun }))
 vi.mock('@/lib/seo/site', () => ({
   workspaceSiteUrl: vi.fn(async () => 'fernhillstudio.example.com'),
 }))
@@ -176,6 +180,7 @@ beforeEach(() => {
   q.getTrackerRow.mockReset()
   q.listPrompts.mockReset()
   q.getLiveRun.mockReset()
+  q.cancelRun.mockReset()
   vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 
@@ -500,5 +505,88 @@ describe('prompts on a running schedule', () => {
       expect(out.ok).toBe(true)
       expect(checkAccess).not.toHaveBeenCalled()
     }
+  })
+})
+
+describe('stopping a running schedule', () => {
+  const LIVE = '00000000-0000-4000-8000-000000000301'
+
+  it.each([
+    ['paused', { paused: true }],
+    ['turned off', { schedule_interval: 'off' as const }],
+  ])(
+    '%s: a scheduled check still buying is canceled through the cancel path',
+    async (_label, patch) => {
+      const row = trackerRow({ schedule_interval: 'weekly' })
+      q.getTrackerRow.mockResolvedValue(row)
+      q.getLiveRun.mockResolvedValue({ id: LIVE, trigger: 'scheduled' })
+      const db = fakeSvc({ activePrompts: 50, row })
+      const send = vi.fn()
+      const out = await updateTracker(
+        db.svc,
+        who,
+        TRACKER,
+        patch,
+        {},
+        { checkAccess: accessFor(), send },
+      )
+      expect(out.ok).toBe(true)
+      expect(q.cancelRun).toHaveBeenCalledWith(
+        db.svc,
+        { workspaceId: WS },
+        LIVE,
+        { send },
+      )
+    },
+  )
+
+  it('a check a person started by hand keeps running', async () => {
+    const row = trackerRow({ schedule_interval: 'weekly' })
+    q.getTrackerRow.mockResolvedValue(row)
+    q.getLiveRun.mockResolvedValue({ id: LIVE, trigger: 'manual' })
+    const db = fakeSvc({ activePrompts: 50, row })
+    const out = await updateTracker(
+      db.svc,
+      who,
+      TRACKER,
+      { paused: true },
+      {},
+      { checkAccess: accessFor() },
+    )
+    expect(out.ok).toBe(true)
+    expect(q.cancelRun).not.toHaveBeenCalled()
+  })
+
+  it('a change that keeps the schedule running cancels nothing', async () => {
+    const row = trackerRow({ schedule_interval: 'weekly' })
+    q.getTrackerRow.mockResolvedValue(row)
+    q.getLiveRun.mockResolvedValue({ id: LIVE, trigger: 'scheduled' })
+    const db = fakeSvc({ activePrompts: 50, row })
+    await updateTracker(
+      db.svc,
+      who,
+      TRACKER,
+      { brand_name: 'Fernhill' },
+      {},
+      { checkAccess: accessFor() },
+    )
+    expect(q.cancelRun).not.toHaveBeenCalled()
+  })
+
+  it('a cancel that fails still saves the pause (each paid step asks the gate again)', async () => {
+    const row = trackerRow({ schedule_interval: 'weekly' })
+    q.getTrackerRow.mockResolvedValue(row)
+    q.getLiveRun.mockResolvedValue({ id: LIVE, trigger: 'scheduled' })
+    q.cancelRun.mockRejectedValue(new Error('connection reset'))
+    const db = fakeSvc({ activePrompts: 50, row })
+    const out = await updateTracker(
+      db.svc,
+      who,
+      TRACKER,
+      { paused: true },
+      {},
+      { checkAccess: accessFor() },
+    )
+    expect(out.ok).toBe(true)
   })
 })

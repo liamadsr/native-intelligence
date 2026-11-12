@@ -12,6 +12,11 @@
  *     schedule gate refuses before anything is bought; a cancel stops it.
  *   - Near the ceiling, live answers are asked one by one (an overshoot of
  *     one answer at most), not all at once.
+ *   - A scheduled check asks its gate again before every paid step: paused
+ *     partway (or its owner gone or on the free plan), it buys nothing more,
+ *     keeps what was answered, and ends in the gate's words.
+ *   - A manual check is held to the estimate it started with: answers that
+ *     would cost more end it ESTIMATE_CHANGED before anything is bought.
  *   - An answer that was sent and charged but could not be recorded ends
  *     NOT_TRACKED with its cost, never "not sent", even when the database
  *     refused every write of its step; a check with no answers says what it
@@ -49,6 +54,7 @@ function seed(
   opts: {
     trigger?: 'manual' | 'scheduled'
     engines?: Array<'chatgpt' | 'claude' | 'google_ai_overview'>
+    estimate_usd?: number
   } = {},
 ) {
   const engines = opts.engines ?? ['chatgpt', 'claude']
@@ -68,6 +74,7 @@ function seed(
       location_code: 2840,
       language_code: 'en',
       brands,
+      estimate_usd: opts.estimate_usd,
     },
     answers: prompts.flatMap((p) =>
       engines.map((engine) => ({
@@ -758,5 +765,129 @@ describe('sent and charged, but not recorded', () => {
       error_code: 'NO_ANSWERS',
       error_detail: expect.stringContaining('charged about $0.10'),
     })
+  })
+})
+
+describe('a scheduled check stopped partway', () => {
+  /** The gate as ./gate.ts answers it about the tracker's state. */
+  const gateOn = (deps: EngineDeps) => {
+    deps.scheduledGate = vi.fn(async (t: { paused: boolean }) =>
+      t.paused
+        ? {
+            ok: false as const,
+            reason: 'paused',
+            message: 'The tracker is paused.',
+          }
+        : { ok: true as const },
+    )
+    return deps.scheduledGate
+  }
+
+  it('paused after the post, it asks nothing live, keeps what was answered, and ends in the gate’s words', async () => {
+    const mem = seed({ trigger: 'scheduled' })
+    const { deps, trackingTaskPost, llmResponse } = makeDeps({
+      results: {
+        'task-p1-chatgpt': [completed(chatgptResult('Oakline.'))],
+        'task-p2-chatgpt': [completed(chatgptResult('Fernhill Studio.'))],
+      },
+    })
+    const gate = gateOn(deps)
+    const post = trackingTaskPost.getMockImplementation()!
+    trackingTaskPost.mockImplementation(async (input) => {
+      // The person pauses the tracker while the check is buying.
+      mem.tracker.paused = true
+      return post(input)
+    })
+    const rec = recordingStep()
+    const out = await runAiVisibilityCheck(RUN, rec.step, mem.store, deps)
+    expect(trackingTaskPost).toHaveBeenCalledTimes(1)
+    expect(llmResponse).not.toHaveBeenCalled()
+    // prepare, post-0 and model-0 each asked.
+    expect(gate).toHaveBeenCalledTimes(3)
+    expect(rec.memo.get('model-0')).toMatchObject({
+      sent: 0,
+      stopped: { code: 'PAUSED', message: 'The tracker is paused.' },
+    })
+    expect(rec.ran.filter((id) => id.startsWith('model-'))).toEqual([
+      'model-0',
+    ])
+    expect(out.status).toBe('failed')
+    expect(mem.run).toMatchObject({
+      status: 'failed',
+      error_code: 'PAUSED',
+      error_detail: 'The tracker is paused.',
+    })
+    expect(mem.answers.get('p1-chatgpt')?.status).toBe('collected')
+    expect(mem.answers.get('p2-chatgpt')?.status).toBe('collected')
+    expect(mem.answers.get('p1-claude')).toMatchObject({
+      status: 'failed',
+      error_code: 'NOT_SENT',
+    })
+  })
+
+  it('an owner who moved to the free plan stops the next post', async () => {
+    const mem = seed({ trigger: 'scheduled', engines: ['chatgpt'] })
+    const { deps, trackingTaskPost } = makeDeps()
+    // prepare passed; the owner moved to the free plan before this post.
+    deps.scheduledGate = vi.fn().mockResolvedValue({
+      ok: false,
+      reason: 'free_plan',
+      message: 'The schedule’s owner is on the free plan.',
+    })
+    await mem.store.claimRun(RUN)
+    const out = await postQueueBatch(
+      mem.store,
+      RUN,
+      { engine: 'chatgpt', ids: ['p1-chatgpt', 'p2-chatgpt'] },
+      deps,
+    )
+    expect(out).toMatchObject({ sent: 0, stopped: { code: 'FREE_PLAN' } })
+    expect(trackingTaskPost).not.toHaveBeenCalled()
+    expect(mem.answers.get('p1-chatgpt')?.status).toBe('pending')
+  })
+
+  it('a manual check does not ask the schedule’s gate at its steps', async () => {
+    const mem = seed()
+    const { deps } = makeDeps({
+      results: {
+        'task-p1-chatgpt': [completed(chatgptResult('Oakline.'))],
+        'task-p2-chatgpt': [completed(chatgptResult('Oakline.'))],
+      },
+    })
+    await runAiVisibilityCheck(RUN, recordingStep().step, mem.store, deps)
+    expect(deps.scheduledGate).not.toHaveBeenCalled()
+  })
+})
+
+describe('a manual check is held to its start estimate', () => {
+  it('answers that cost more than the check was started at end it ESTIMATE_CHANGED, nothing bought', async () => {
+    // Two prompts on ChatGPT and Claude cost about $0.3624; it was started at $0.1812.
+    const mem = seed({ estimate_usd: 0.1812 })
+    const { deps, trackingTaskPost, llmResponse } = makeDeps()
+    const out = await runAiVisibilityCheck(
+      RUN,
+      recordingStep().step,
+      mem.store,
+      deps,
+    )
+    expect(out.status).toBe('refused')
+    expect(trackingTaskPost).not.toHaveBeenCalled()
+    expect(llmResponse).not.toHaveBeenCalled()
+    expect(mem.run).toMatchObject({
+      status: 'failed',
+      error_code: 'ESTIMATE_CHANGED',
+      error_detail:
+        'The tracker changed after this check was started, so it was not run. Start it again.',
+    })
+    expect(
+      [...mem.answers.values()].every((a) => a.error_code === 'NOT_SENT'),
+    ).toBe(true)
+  })
+
+  it('answers that cost exactly the estimate run', async () => {
+    const mem = seed({ estimate_usd: 0.3624 })
+    const { deps, trackingTaskPost } = makeDeps()
+    await runAiVisibilityCheck(RUN, recordingStep().step, mem.store, deps)
+    expect(trackingTaskPost).toHaveBeenCalledTimes(1)
   })
 })

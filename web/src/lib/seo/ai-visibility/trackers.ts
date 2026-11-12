@@ -30,6 +30,10 @@
  *     they turn the schedule on or change its interval. (A tracker saved
  *     with no running schedule records who made it; turning its schedule on
  *     later replaces that with the person who did.)
+ *   - A change that stops the schedule running (paused, or set to off) also
+ *     stops a scheduled check still buying, through the cancel path
+ *     (./runs.ts cancelRun: what was answered stays, nothing more is
+ *     bought). A check a person started by hand keeps running.
  *   - A tracker with a check running can't be deleted (stop the check first).
  */
 import {
@@ -75,6 +79,7 @@ import {
   trackerView,
   type TrackerRow,
 } from './queries'
+import { cancelRun, type SendEvent } from './runs'
 import {
   engineLabel,
   type AiBrandRef,
@@ -137,6 +142,8 @@ export interface TrackerDeps {
     workspaceId?: string | null
     unattended?: boolean
   }) => Promise<SeoDataAccess>
+  /** The cancel event's sender (tests). */
+  send?: SendEvent
 }
 
 const invalid = (message: string): TrackerFailure => ({
@@ -766,6 +773,21 @@ export async function updateTracker(
     }
   }
   if (!data) return notFound
+  // The schedule stopped running: a scheduled check still buying stops with
+  // it. Saved either way; each paid step of that check also asks the
+  // schedule's gate again (./engine.ts), so a cancel that fails here still
+  // buys nothing more.
+  if (scheduleRuns(before) && !scheduleRuns(after)) {
+    try {
+      const live = await getLiveRun(svc, who.workspaceId, trackerId)
+      if (live && live.trigger === 'scheduled')
+        await cancelRun(svc, { workspaceId: who.workspaceId }, live.id, {
+          send: deps.send,
+        })
+    } catch (err) {
+      console.error('[seo-ai] schedule stopped: live check not canceled', err)
+    }
+  }
   return {
     ok: true,
     tracker: trackerView(data as TrackerRow),

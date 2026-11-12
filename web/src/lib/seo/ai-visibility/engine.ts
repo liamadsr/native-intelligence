@@ -5,7 +5,10 @@
  * (./store.ts, or the in-memory one in the tests).
  *
  *   prepare        claim the check (queued -> running, a compare-and-set),
- *                  decide who pays (./gate.ts), and split its answers into
+ *                  decide who pays (./gate.ts), hold a manual check to the
+ *                  estimate it was started with (answers that would cost
+ *                  more end it ESTIMATE_CHANGED, nothing bought), and split
+ *                  its answers into
  *                  batches: queued engines (ChatGPT, Gemini, AI Overviews) in
  *                  posts of up to 100 per engine, model engines (Claude,
  *                  Perplexity) in small groups asked live.
@@ -34,6 +37,13 @@
  *                  came back at all (saying what was charged, if anything).
  *   late-N         after the check, a free read of the answers that had not
  *                  arrived; one that has is saved, marked late.
+ *
+ * A SCHEDULED CHECK ASKS ITS GATE AT EVERY PAID STEP (post-N, model-N), not
+ * only at prepare: a tracker paused or its schedule turned off, an owner who
+ * left the workspace or moved to the free plan stops further buying. The
+ * step returns `stopped` with the gate's words, buys nothing, the lane buys
+ * no more, and finalize ends the check failed in those words. What was
+ * already answered stays.
  *
  * NEVER A BLIND RETRY. Every paid call is made once. A step that throws
  * before the call is retried and finds its claim; a step never throws after
@@ -80,6 +90,8 @@ export interface EngineRun {
   location_code: number
   language_code: string
   brands: AiRunBrand[]
+  /** What the check was estimated (and, above the line, confirmed) at when it started. */
+  estimate_usd: number
 }
 
 export interface OpenAnswer {
@@ -237,6 +249,8 @@ export interface PaidStepOutcome {
   spend_limit: string | null
   /** Sent and paid for, but the result could not be written: finalize fails them NOT_TRACKED. */
   untracked: UntrackedAnswer[]
+  /** A scheduled check's gate refused before this step bought anything: its words. Nothing more is bought. */
+  stopped: { code: string; message: string } | null
 }
 
 const nowOf = (deps: Pick<EngineDeps, 'now'>) => deps.now?.() ?? new Date()
@@ -294,7 +308,42 @@ const noOutcome = (): PaidStepOutcome => ({
   failed: 0,
   spend_limit: null,
   untracked: [],
+  stopped: null,
 })
+
+/** Why a manual check whose answers cost more than its start estimated is not run. */
+export const ESTIMATE_CHANGED_MESSAGE =
+  'The tracker changed after this check was started, so it was not run. Start it again.'
+
+/** What these answers cost at the meter's prices, rounded as an estimate is. */
+function answersUsd(answers: Array<Pick<OpenAnswer, 'engine'>>): number {
+  const perEngine = new Map<AiEngine, number>()
+  for (const a of answers)
+    perEngine.set(a.engine, (perEngine.get(a.engine) ?? 0) + 1)
+  let total = 0
+  for (const [engine, n] of perEngine)
+    total += Math.round(n * aiAnswerUsd(engine) * 1e6) / 1e6
+  return Math.round(total * 1e6) / 1e6
+}
+
+/**
+ * A scheduled check, before a paid step: may its schedule still spend? Null
+ * when it may (or the check is manual). Thrown errors leave nothing claimed.
+ */
+async function scheduleStillSpends(
+  store: AiRunStore,
+  run: EngineRun,
+  deps: EngineDeps,
+): Promise<{ code: string; message: string } | null> {
+  if (run.trigger !== 'scheduled') return null
+  const tracker = await store.getTracker(run.tracker_id)
+  if (!tracker)
+    return { code: 'MISSING', message: 'The tracker no longer exists.' }
+  const gate = await deps.scheduledGate(tracker)
+  return gate.ok
+    ? null
+    : { code: gate.reason.toUpperCase().slice(0, 60), message: gate.message }
+}
 
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = []
@@ -404,6 +453,29 @@ export async function prepareRun(
     return { kind: 'refused', ...refusal }
   }
   const pending = await store.listAnswers(run.id, { statuses: ['pending'] })
+  // A manual check buys at most what it was started (and confirmed) at.
+  if (
+    run.trigger === 'manual' &&
+    answersUsd(pending) > (Number(run.estimate_usd) || 0) + 1e-6
+  ) {
+    console.warn('[seo-ai] answers cost more than the start estimated', {
+      runId: run.id,
+      estimate: run.estimate_usd,
+      answers: pending.length,
+    })
+    await store.failAnswers(run.id, null, 'NOT_SENT', ['pending', 'asking'])
+    await store.refreshCounts(run.id)
+    await store.finishRun(run.id, {
+      status: 'failed',
+      error_code: 'ESTIMATE_CHANGED',
+      error_detail: ESTIMATE_CHANGED_MESSAGE,
+    })
+    return {
+      kind: 'refused',
+      code: 'ESTIMATE_CHANGED',
+      message: ESTIMATE_CHANGED_MESSAGE,
+    }
+  }
   return { kind: 'ok', ...planBatches(pending) }
 }
 
@@ -417,6 +489,9 @@ export async function postQueueBatch(
   const none = noOutcome()
   const run = await store.getRun(runId)
   if (!run || run.status !== 'running') return none
+  // Before claiming: a refusal leaves these answers pending (never sent).
+  const stopped = await scheduleStillSpends(store, run, deps)
+  if (stopped) return { ...none, stopped }
   const claimed = await store.beginAnswers(runId, batch.ids)
   if (claimed.length === 0) return none
   const answers = await store.listAnswers(runId, {
@@ -497,6 +572,7 @@ export async function postQueueBatch(
     failed: rejected.length,
     spend_limit: null,
     untracked,
+    stopped: null,
   }
 }
 
@@ -515,6 +591,8 @@ export async function askModelBatch(
   const slug = batch.engine
   const run = await store.getRun(runId)
   if (!run || run.status !== 'running') return none
+  const stopped = await scheduleStillSpends(store, run, deps)
+  if (stopped) return { ...none, stopped }
   // The model's name comes from the provider's free catalog: read it before claiming, so a failure here leaves nothing claimed.
   const modelName = await deps.resolveModelName(slug)
   const claimed = await store.beginAnswers(runId, batch.ids)
@@ -727,7 +805,12 @@ export function noAnswersDetail(costUsd: number): string {
 export async function finalizeRun(
   store: AiRunStore,
   runId: string,
-  opts: { spendLimit: string | null; untracked?: UntrackedAnswer[] },
+  opts: {
+    spendLimit: string | null
+    untracked?: UntrackedAnswer[]
+    /** A scheduled check's gate stopped the buying partway: its words end the check. */
+    stopped?: { code: string; message: string } | null
+  },
 ): Promise<{ status: AiRunStatus; counts: RunCounts; late_pending: number }> {
   // Sent and charged but never recorded: never "not sent".
   if (opts.untracked?.length)
@@ -744,13 +827,23 @@ export async function finalizeRun(
         error_code: 'SPEND_LIMIT_REACHED',
         error_detail: opts.spendLimit,
       }
-    : settled === 0
+    : opts.stopped
       ? {
           status: 'failed' as const,
-          error_code: 'NO_ANSWERS',
-          error_detail: noAnswersDetail(Number(counts.cost_usd) || 0),
+          error_code: opts.stopped.code.slice(0, 60),
+          error_detail: opts.stopped.message,
         }
-      : { status: 'completed' as const, error_code: null, error_detail: null }
+      : settled === 0
+        ? {
+            status: 'failed' as const,
+            error_code: 'NO_ANSWERS',
+            error_detail: noAnswersDetail(Number(counts.cost_usd) || 0),
+          }
+        : {
+            status: 'completed' as const,
+            error_code: null,
+            error_detail: null,
+          }
   const ended = await store.finishRun(runId, patch)
   if (ended)
     await store.touchTracker(run.tracker_id, {
