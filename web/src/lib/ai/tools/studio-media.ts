@@ -5,9 +5,38 @@ import type { ApprovedCall } from '@/lib/safety/approved-call'
 import { isRefusal, missingRefusal, refusal, studioContext, studioRefusal, type StudioRefusal } from '@/lib/studio/agent/access'
 import { GENERATE_STUDIO_NARRATION, GENERATE_STUDIO_SHOT } from '@/lib/studio/agent/spend-card'
 import type { StudioContext } from '@/lib/studio/server/context'
+import { wrapUntrusted } from '@/lib/email/untrusted'
 
 /** A video id: the Studio's ids are uuids. */
 const videoId = z.string().describe('The video (list_studio_projects lists them, with their ids)')
+
+/** A cast member's voice for one line: another voice the Studio knows. */
+const castVoice = z.string().optional().describe("A cast member's voice (list_studio_voices or search_studio_voices); the workspace's narration voice when left out")
+
+/** The most continuity issues one answer lists, and the longest sentence each keeps. */
+export const CONTINUITY_MAX = 20
+const CONTINUITY_DETAIL_MAX = 300
+
+/**
+ * The worker's continuity issues as the agent reads them (the worker is trusted only so far): strings only, beats
+ * named by id, `what` a few plain words, at most CONTINUITY_MAX of them, and each `detail` (the worker's own
+ * sentence) capped and fenced as data. The WORKSPACE kind: the workspace's own measurement of its own video, not text
+ * from outside (src/lib/safety/outside-text.ts). Pure.
+ */
+export function continuityIssuesFor(raw: unknown): { issues: { beat: string; against: string; what: string; detail?: string }[]; more?: number } {
+  const id = (v: unknown) => (typeof v === 'string' && /^[A-Za-z0-9_.:-]{1,100}$/.test(v) ? v : null)
+  const rows = (Array.isArray(raw) ? raw : []).flatMap((value) => {
+    if (!value || typeof value !== 'object') return []
+    const r = value as Record<string, unknown>
+    const beat = id(r.beat)
+    const against = id(r.against)
+    const what = typeof r.what === 'string' && /^[a-z][a-z -]{0,39}$/i.test(r.what.trim()) ? r.what.trim() : 'mismatch'
+    if (!beat || !against) return []
+    const detail = typeof r.detail === 'string' && r.detail.trim() ? r.detail.replace(/\s+/g, ' ').trim().slice(0, CONTINUITY_DETAIL_MAX) : null
+    return [{ beat, against, what, ...(detail ? { detail: wrapUntrusted(detail, 'WORKSPACE')! } : {}) }]
+  })
+  return { issues: rows.slice(0, CONTINUITY_MAX), ...(rows.length > CONTINUITY_MAX ? { more: rows.length - CONTINUITY_MAX } : {}) }
+}
 
 /** How long a tool waits on the worker for a narration before answering its job id. */
 const NARRATION_WAIT_MS = 90_000
@@ -81,19 +110,26 @@ export function createStudioMediaTools(userId: string, workspaceId?: string, opt
     }),
 
     list_studio_voices: tool({
-      description: "The voices of the workspace's ElevenLabs account, to choose a narration voice from (kept an hour; refresh: true reads them again). Needs the Studio worker with an ElevenLabs key.",
+      description: "The voices of the workspace's ElevenLabs account, to choose a narration voice from (kept an hour; refresh: true reads them again). Needs the Studio worker with an ElevenLabs key. search_studio_voices searches the shared voice library too.",
       inputSchema: z.object({ refresh: z.boolean().optional().describe('Read the list again now') }),
       execute: async ({ refresh }) =>
         withStudio(async (ctx) => {
           const { listVoices } = await server()
           const { voices, at } = await listVoices(ctx, { refresh: refresh === true })
-          return { success: true, voices: voices.slice(0, 100).map((v) => ({ voice_id: v.voiceId, name: v.name, ...(v.category ? { category: v.category } : {}) })), listed_at: at, ...(voices.length > 100 ? { more: voices.length - 100 } : {}) }
+          return {
+            success: true,
+            voices: voices.slice(0, 100).map((v) => ({ voice_id: v.voiceId, name: v.name, ...(v.category ? { category: v.category } : {}) })),
+            listed_at: at,
+            ...(voices.length > 100 ? { more: voices.length - 100 } : {}),
+            // The account's list has no accent, age or sample: say where those are, so a voice is never guessed from its name.
+            note: "These are the account's own voices: name, category and id only. For accent, gender, age, language or use, and for preview links, call search_studio_voices.",
+          }
         }),
     }),
 
     set_studio_voice: tool({
       description:
-        "Choose the workspace's narration voice (a voice_id from list_studio_voices), with an optional model and settings (stability, similarityBoost, style 0–1; speed 0.7–1.2; useSpeakerBoost) and substitutions (how words are read: {\"Acme\": \"Ack me\"}). Changing it changes every later narration's price and sound.",
+        "Choose the workspace's narration voice (a voice_id from list_studio_voices or search_studio_voices: only its id is stored, the account is unchanged), with an optional model and settings (stability, similarityBoost, style 0–1; speed 0.7–1.2; useSpeakerBoost) and substitutions (how words are read: {\"Acme\": \"Ack me\"}). Changing it changes every later narration's price and sound.",
       inputSchema: z.object({
         voice_id: z.string().describe('From list_studio_voices'),
         model_id: z.string().optional().describe('An ElevenLabs model id; the default when left out'),
@@ -109,39 +145,41 @@ export function createStudioMediaTools(userId: string, workspaceId?: string, opt
     }),
 
     quote_studio_narration: tool({
-      description: "What narration of a text in the workspace's voice would cost: its characters (ElevenLabs credits) and whether this exact narration is already cached (then it is free). Spends nothing. Show the person before generate_studio_narration.",
-      inputSchema: z.object({ video_id: videoId, text: z.string().describe('The narration, as it should be spoken') }),
-      execute: async ({ video_id, text }) =>
+      description: "What narration of a text in the workspace's voice (or a cast member's voice_id) would cost: its characters (ElevenLabs credits) and whether this exact narration is already cached (then it is free). Spends nothing. Show the person before generate_studio_narration.",
+      inputSchema: z.object({ video_id: videoId, text: z.string().describe('The narration, as it should be spoken'), voice_id: castVoice }),
+      execute: async ({ video_id, text, voice_id }) =>
         withStudio(async (ctx) => {
           if (!(await video(ctx, video_id))) return missingRefusal('video')
           const { previewNarration } = await server()
-          const p = await previewNarration(ctx, text)
+          const p = await previewNarration(ctx, text, voice_id ? { voiceId: voice_id } : {})
           return { success: true, characters: p.characters, cached: p.cached, voice: p.voiceName, model_id: p.modelId, ...(p.cached ? { note: 'Cached: generating it costs nothing.' } : { note: `Uses about ${p.characters} ElevenLabs credits.` }) }
         }),
     }),
 
     generate_studio_narration: tool({
       description:
-        "Make narration of a text in the workspace's voice (ElevenLabs, with word timings): a library audio asset with its transcript. A cached narration runs at once and costs nothing. One that isn't cached uses the person's ElevenLabs credits, so it is held for their yes on an approval card and runs only when they accept. " +
+        "Make narration of a text in the workspace's voice, or a cast member's line in their voice (voice_id), with ElevenLabs and word timings: a library audio asset with its transcript. One narrator, one voice per person. A cached narration runs at once and costs nothing. One that isn't cached uses the person's ElevenLabs credits, so it is held for their yes on an approval card and runs only when they accept. " +
         "place puts it over the whole video's footage (keep-footage refuses one longer than the footage; hold-last-frame holds the last frame); left out, it is only made. " +
         MONEY_RULES,
       inputSchema: z.object({
         video_id: videoId,
         text: z.string().describe('The narration, as it should be spoken (quote_studio_narration first)'),
+        voice_id: castVoice,
         place: z.enum(['keep-footage', 'hold-last-frame']).optional().describe('Put it over the whole video'),
       }),
-      execute: async ({ video_id, text, place }) =>
+      execute: async ({ video_id, text, voice_id, place }) =>
         withStudio(async (ctx) => {
           if (!(await video(ctx, video_id))) return missingRefusal('video')
           const { NARRATION_CHANGED, narrationAnswer, placeNarration, previewNarration, startNarration } = await server()
-          const preview = await previewNarration(ctx, text)
+          const voice = voice_id ? { voiceId: voice_id } : {}
+          const preview = await previewNarration(ctx, text, voice)
           if (!preview.cached && !approved(GENERATE_STUDIO_NARRATION)) {
             return refusal('APPROVAL_REQUIRED', `Nothing was spent. This narration isn't cached, so it uses about ${preview.characters} ElevenLabs credits and runs only from the person's own approval card.`)
           }
           // The card pinned the exact request (voice, model, substitutions, text): anything else spends nothing.
           const expectHash = preview.cached ? undefined : pinned('narration')
           if (!preview.cached && expectHash !== preview.requestHash) return refusal('CARD_CHANGED', NARRATION_CHANGED)
-          const started = await startNarration(ctx, text, { allowPaid: !preview.cached, videoId: video_id, ...(expectHash ? { expectHash } : {}) })
+          const started = await startNarration(ctx, text, { allowPaid: !preview.cached, videoId: video_id, ...voice, ...(expectHash ? { expectHash } : {}) })
           let result = 'result' in started ? started.result : null
           let cancelled = false
           if (!result && 'job' in started) {
@@ -260,8 +298,8 @@ export function createStudioMediaTools(userId: string, workspaceId?: string, opt
         withStudio(async (ctx) => {
           if (!(await video(ctx, video_id))) return missingRefusal('video')
           const { videoContinuity } = await shots()
-          const { issues } = await videoContinuity(ctx, video_id)
-          return { success: true, video_id, matched: issues.length === 0, issues, ...(issues.length ? {} : { note: 'Nothing to fix: each generated beat matches the recorded beat next to it, or there is no such pair.' }) }
+          const { issues, more } = continuityIssuesFor((await videoContinuity(ctx, video_id)).issues)
+          return { success: true, video_id, matched: issues.length === 0, issues, ...(more ? { more } : {}), ...(issues.length ? {} : { note: 'Nothing to fix: each generated beat matches the recorded beat next to it, or there is no such pair.' }) }
         }),
     }),
   }

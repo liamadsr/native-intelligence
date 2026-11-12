@@ -31,6 +31,8 @@ import { getMutatingToolNames, getToolSideEffect, getToolWriteTarget, isReadShap
 import { createBlankVideo } from '@/lib/studio/server/blank'
 import { forgetWorkers } from '@/lib/studio/server/capabilities'
 import { createStudioLibraryTools, extensionOf, importAnswer, isMediaAnswer, linkFileName, transcriptWords, uploadKind } from '../studio-library'
+import { IMPORT_EXTENSIONS, nameFor, sniffMedia } from '@/lib/studio/server/library'
+import { kindOfName } from '../../../../../../studio-worker/src/media.ts'
 import { createStudioTools, withPresentation } from '../studio'
 import { createStudioMediaTools } from '../studio-media'
 
@@ -64,6 +66,17 @@ describe('the pure helpers', () => {
     expect(isMediaAnswer('application/octet-stream', 'https://example.com/bed.mp3')).toBe(true)
     expect(linkFileName('https://cdn.example.com/sounds/soft%20bed.mp3')).toBe('soft bed.mp3')
     expect(linkFileName('https://cdn.example.com/', ' Bed (CC0, example.com) ')).toBe('Bed (CC0, example.com)')
+  })
+
+  it('take only the file kinds the worker\'s import reads (an .m4v is read as the MP4 it is)', () => {
+    for (const [kind, extensions] of Object.entries(IMPORT_EXTENSIONS)) {
+      for (const ext of extensions) expect(kindOfName(`x.${ext}`)?.kind, ext).toBe(kind)
+    }
+    for (const ext of ['png', 'jpg', 'jpeg', 'webp', 'mp4', 'mov', 'webm', 'm4v', 'mkv', 'mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg']) {
+      expect(kindOfName(`x.${ext}`)?.kind, ext).toBe(uploadKind(`x.${ext}`))
+    }
+    expect(uploadKind('clip.m4v')).toBe('video')
+    expect(nameFor('clip.m4v', { kind: 'video', ext: 'mp4' })).toBe('clip.m4v')
   })
 
   it('answer an import and a transcript compactly', () => {
@@ -104,10 +117,36 @@ describe('bringing media in', () => {
     expect(await call(lib(), 'import_studio_media_from_link', { url: 'https://example.com/gone.mp4' })).toMatchObject({ success: false, code: 'LINK_FAILED' })
   })
 
+  it('judges a link by its bytes, not its header: a page or a script served as an image is refused', async () => {
+    const html = new TextEncoder().encode('<!doctype html><script>alert(1)</script>')
+    state.page = { url: 'https://cdn.example.com/logo.png', status: 200, contentType: 'image/png', charset: null, body: html, truncated: false }
+    expect(await call(lib(), 'import_studio_media_from_link', { url: 'https://cdn.example.com/logo.png' })).toMatchObject({ success: false, code: 'NOT_MEDIA' })
+    const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>')
+    state.page = { url: 'https://cdn.example.com/x.png', status: 200, contentType: 'application/octet-stream', charset: null, body: svg, truncated: false }
+    expect(await call(lib(), 'import_studio_media_from_link', { url: 'https://cdn.example.com/x.png' })).toMatchObject({ success: false, code: 'NOT_MEDIA' })
+  })
+
+  it('names a link without an extension by what its bytes are, so the import can read it', () => {
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
+    const mp4 = new Uint8Array([0, 0, 0, 24, ...new TextEncoder().encode('ftypisom'), 0, 0, 2, 0])
+    const webm = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81, 1, 0x42, 0x82, 0x84, ...new TextEncoder().encode('webm')])
+    const wav = new TextEncoder().encode('RIFF\x24\x00\x00\x00WAVEfmt ')
+    const mp3 = new Uint8Array([0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0, 0, 0, 0])
+    expect([png, mp4, webm, wav, mp3].map((b) => sniffMedia(b))).toEqual([
+      { kind: 'image', ext: 'png' }, { kind: 'video', ext: 'mp4' }, { kind: 'video', ext: 'webm' }, { kind: 'audio', ext: 'wav' }, { kind: 'audio', ext: 'mp3' },
+    ])
+    expect(sniffMedia(new TextEncoder().encode('#EXTM3U\nhttp://169.254.169.254/'))).toBeNull()
+    expect(nameFor(linkFileName('https://cdn.example.com/v/8f3a21'), { kind: 'video', ext: 'mp4' })).toBe('8f3a21.mp4')
+    expect(nameFor('take.mov', { kind: 'video', ext: 'mp4' })).toBe('take.mov')
+    expect(nameFor('logo.png', { kind: 'audio', ext: 'mp3' })).toBe('logo.png.mp3')
+    // A malformed escape in the link keeps the name as written instead of failing after the download.
+    expect(linkFileName('https://cdn.example.com/a%E0%A4%A.mp3')).toBe('a%E0%A4%A.mp3')
+  })
+
   it('answers the asset the same bytes already made', async () => {
-    const body = new Uint8Array([1, 2, 3, 4])
+    const body = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
     const sha = createHash('sha256').update(body).digest('hex')
-    const meta = { id: sha, name: 'logo.png', kind: 'image', file: `assets/${sha}.png`, sha256: sha, bytes: 4, width: 10, height: 10, hasAudio: false, sourceCursorHidden: false }
+    const meta = { id: sha, name: 'logo.png', kind: 'image', file: `assets/${sha}.png`, sha256: sha, bytes: body.length, width: 10, height: 10, hasAudio: false, sourceCursorHidden: false }
     tables.studio_asset = [{ id: sha, workspace_id: WS, sha256: sha, meta, kind: 'image', name: 'logo.png', created_at: new Date().toISOString() }]
     state.page = { url: 'https://cdn.example.com/logo.png', status: 200, contentType: 'image/png', charset: null, body, truncated: false }
     expect(await call(lib(), 'import_studio_media_from_link', { url: 'https://cdn.example.com/logo.png' })).toMatchObject({ success: true, asset: { id: sha, kind: 'image' } })

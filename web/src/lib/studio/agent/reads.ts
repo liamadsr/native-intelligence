@@ -7,11 +7,12 @@
  *
  * Every read is on the service client (the Studio tables are service-role
  * only), so each is fenced here by the workspace id, and the trash
- * (archived_at) is left out. Never the whole edit: a video's summary is the
- * engine's projectSummary, which caps the transcript.
+ * (archived_at) is left out. Never the whole edit: a video's summary is its
+ * overview (./edit-view.ts: every settable property not at its default, long
+ * lists shortened, the transcript capped), and named things are read in full.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { projectSummary } from '@/lib/studio/engine/agent-summary'
+import { editItems, editOverview, type EditOverview } from '@/lib/studio/agent/edit-view'
 import type { EditorProject } from '@/lib/studio/engine/contracts'
 import { studioVideoLink } from '@/lib/chat-cards/open-card'
 import { isNotSetUp, notSetUpError, storeError } from '@/lib/studio/server/errors'
@@ -180,12 +181,14 @@ export interface StudioVideoBrief {
   /** Where the person opens it: the Studio on this video. */
   link: string
   updated_at: string
-  /** The engine's projectSummary of the edit: clips, layers, beats' times, transcript (capped). */
-  summary: ReturnType<typeof projectSummary> | { error: string }
+  /** The edit's overview (./edit-view.ts): clips, layers, audio, captions, frame, automation, transcript (capped). */
+  summary: EditOverview | { error: string }
+  /** The things asked for by id, in full (every property, defaults included), when ids were given. */
+  items?: ReturnType<typeof editItems>
 }
 
-/** One video's summary, or null when it isn't the workspace's (or is in the trash). */
-export async function readStudioVideoBrief(supabase: SupabaseClient, workspaceId: string, videoId: string): Promise<StudioVideoBrief | null> {
+/** One video's summary (and the things `ids` names, in full), or null when it isn't the workspace's (or is in the trash). */
+export async function readStudioVideoBrief(supabase: SupabaseClient, workspaceId: string, videoId: string, ids?: string[]): Promise<StudioVideoBrief | null> {
   if (!isUuid(videoId)) return null
   const { data, error } = await supabase
     .from('studio_video')
@@ -203,7 +206,7 @@ export async function readStudioVideoBrief(supabase: SupabaseClient, workspaceId
       : Promise.resolve({ data: null }),
     supabase.from('studio_blob').select('key').eq('workspace_id', workspaceId).eq('key', `thumbs/${row.id}.jpg`).maybeSingle(),
   ])
-  return briefOf(row, (project.data as { id: string; title: string } | null) ?? null, !!thumb.data)
+  return briefOf(row, (project.data as { id: string; title: string } | null) ?? null, !!thumb.data, ids)
 }
 
 /** The brief from a video row: pure, so the tools build it from a row they already hold. */
@@ -211,11 +214,12 @@ export function briefOf(
   row: { id: string; title: string; status: string; doc: EditorProject; digest: string; revision: number; updated_at: string },
   project: { id: string; title: string } | null,
   hasThumbnail: boolean,
+  ids?: string[],
 ): StudioVideoBrief {
   const output = row.doc?.output ?? { width: 0, height: 0, fps: 0 }
   let summary: StudioVideoBrief['summary']
   try {
-    summary = projectSummary(row.doc)
+    summary = editOverview(row.doc)
   } catch (err) {
     // An edit the engine can't schedule (no clips yet) still reads: its size and digest, and why.
     summary = { error: err instanceof Error ? err.message : String(err) }
@@ -236,6 +240,7 @@ export function briefOf(
     link: studioVideoLink(row.id),
     updated_at: row.updated_at,
     summary,
+    ...(ids?.length ? { items: editItems(row.doc, ids) } : {}),
   }
 }
 
@@ -243,6 +248,6 @@ export function briefOf(
 export type StudioVideoFields = Omit<StudioVideoBrief, 'summary'>
 
 export function videoFields(brief: StudioVideoBrief): StudioVideoFields {
-  const { summary: _summary, ...rest } = brief
+  const { summary: _summary, items: _items, ...rest } = brief
   return rest
 }

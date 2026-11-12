@@ -69,6 +69,13 @@ export function jobView(row: Pick<JobRow, 'id' | 'kind' | 'status' | 'progress' 
         ? { outcome: 'undelivered', error: String(result.error ?? ''), characters: result.characters }
         : { asset_id: (result.asset as { id?: string } | undefined)?.id, transcript_id: (result.transcript as { id?: string } | undefined)?.id }
       : {}),
+    // A re-voice, sound effects or a music bed (studio-audio.ts): the library assets it made, placed nowhere, or paid
+    // for and not delivered (the worker's sentence).
+    ...((row.kind === 'revoice' || row.kind === 'sound-effect' || row.kind === 'music') && row.status === 'completed'
+      ? result.outcome === 'undelivered'
+        ? { outcome: 'undelivered', error: String(result.error ?? ''), credits: result.credits }
+        : { asset_ids: Array.isArray(result.assets) ? (result.assets as { id?: string }[]).map((a) => a.id) : [], placed: false, ...(result.transcript ? { transcript_id: (result.transcript as { id?: string }).id } : {}) }
+      : {}),
     // A cut-out (studio-vision.ts): each recording's transparent cut-out, and how many were attached to the video.
     ...(row.kind === 'cutout' && row.status === 'completed' ? { cutouts: result.cutouts, attached: result.applied } : {}),
     // Ads (studio-ads.ts): what a finished batch, motion ad or reel made.
@@ -155,7 +162,7 @@ async function jobAnswer(ctx: StudioContext, row: JobRow, videoAnswer: VideoAnsw
     // A finished measured check: its report, compact, and its key picture (./check-answer.ts).
     ...(row.status === 'completed' && (row.kind === 'motion' || row.kind === 'review' || row.kind === 'look') ? await (await import('./check-answer')).checkAnswer(ctx, row, { picture: opts.frames }) : {}),
     // A finished sound job: what it placed, or what listening measured, compact; waited for, a listen shows its sheet (./sound-view.ts).
-    ...(row.status === 'completed' && ['sounds', 'sound-import', 'listen', 'sound-bank'].includes(row.kind) ? await (await import('./sound-view')).soundAnswer(ctx, row, opts) : {}),
+    ...(row.status === 'completed' && ['sounds', 'sound-import', 'listen', 'sound-bank', 'sound-judge', 'sound-make'].includes(row.kind) ? await (await import('./sound-view')).soundAnswer(ctx, row, opts) : {}),
     ...(ended ? { note: `The ${row.kind} job ${row.status === 'failed' ? 'failed' : 'was cancelled'}${row.error ? `: ${row.error}` : '.'}` } : {}),
     ...(done ? {} : { note: `Still ${row.status} (${Math.round((Number(row.progress) || 0) * 100)}%). Call wait_for_studio_job with job_id ${row.id} to wait again; don't start another.` }),
   }
@@ -216,7 +223,7 @@ export function createStudioJobTools(withStudio: WithStudio, videoAnswer: VideoA
     }),
 
     get_studio_job: tool({
-      description: "How a Studio job is doing (an export, frames, ads, a narration, a shot, sounds, a check or a cut-out): its status, progress and result, and a finished export's download link. Answers at once; wait_for_studio_job waits.",
+      description: "How a Studio job is doing (an export, frames, ads, a narration, a re-voice, a sound effect or music bed, a shot, sounds, a check or a cut-out): its status, progress and result, and a finished export's download link. Answers at once; wait_for_studio_job waits.",
       inputSchema: z.object({ job_id: z.string().describe('The job a Studio tool answered') }),
       execute: async ({ job_id }) =>
         withStudio(async (ctx) => {
@@ -227,7 +234,7 @@ export function createStudioJobTools(withStudio: WithStudio, videoAnswer: VideoA
 
     wait_for_studio_job: tool({
       description:
-        `Wait for a Studio job to finish (up to ${JOB_WAIT_MAX_SECONDS} seconds), then its result: a finished export's download link, a frames job's frames to look at, or what an ads, narration, shot, sound, check or cut-out job made. ` +
+        `Wait for a Studio job to finish (up to ${JOB_WAIT_MAX_SECONDS} seconds), then its result: a finished export's download link, a frames job's frames to look at, or what an ads, narration, re-voice, sound effect, music, shot, sound, check or cut-out job made. ` +
         'Still going at the end: where it is up to; call this again rather than starting another.',
       inputSchema: z.object({
         job_id: z.string().describe('The job a Studio tool answered'),

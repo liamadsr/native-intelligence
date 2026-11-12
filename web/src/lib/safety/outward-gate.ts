@@ -62,7 +62,10 @@
  *     (the narration's voice, model and substitutions; the shot's prompt,
  *     references and settings) rides on the approval, and the tools spend only
  *     as the card's replay, and only when that request is unchanged
- *     (src/lib/studio/agent/spend-card.ts).
+ *     (src/lib/studio/agent/spend-card.ts). generate_studio_revoice,
+ *     generate_studio_sound_effect and generate_studio_music (the voice
+ *     provider's re-voice, sound effects and music beds) the same way: a card
+ *     unless cached, saying the seconds of audio it bills by.
  *   - accept_time_offer, record_time_offer_answer and book_poll_time from an
  *     offer whose guests the person never saw (made by link outside their
  *     own attended turn: src/lib/time-offers/agent-booking.ts): the booking
@@ -252,10 +255,13 @@ async function unsubscribeHold(check: OutwardCheck): Promise<OutwardHold> {
  * A Studio spend of the person's own provider credits (see the header): always their card, but a cached narration.
  * Loaded on use, so the Studio stays out of every door's imports.
  */
+/** The Studio tools that spend the person's own provider credits (spend-card.ts): each always held, but a cached one. */
+const STUDIO_SPEND_TOOLS = new Set(['generate_studio_shot', 'generate_studio_narration', 'generate_studio_revoice', 'generate_studio_sound_effect', 'generate_studio_music'])
+
 async function studioSpendHold(check: OutwardCheck, bare: string): Promise<OutwardHold | null> {
-  const { GENERATE_STUDIO_SHOT, narrationCard, shotSpendCard } = await import('@/lib/studio/agent/spend-card')
+  const { GENERATE_STUDIO_NARRATION, GENERATE_STUDIO_SHOT, narrationCard, paidAudioCard, shotSpendCard } = await import('@/lib/studio/agent/spend-card')
   const args = { workspaceId: check.workspaceId, userId: check.userId, input: check.input }
-  const found = bare === GENERATE_STUDIO_SHOT ? await shotSpendCard(args) : await narrationCard(args)
+  const found = bare === GENERATE_STUDIO_SHOT ? await shotSpendCard(args) : bare === GENERATE_STUDIO_NARRATION ? await narrationCard(args) : await paidAudioCard(bare, args)
   if (!found) return null
   const { context, ...card } = found
   return {
@@ -415,7 +421,7 @@ export async function outwardHoldOf(check: OutwardCheck): Promise<OutwardHold | 
   if (bare === SEND_PAYMENT_LINK) return paymentLinkHold(check)
   if (bare === SEND_QUOTE_TOOL || bare === BOOK_QUOTE_TOOL) return quoteReplyOutwardHold(check, bare)
   if (bare === OFFER_TIMES_TOOL || bare === NUDGE_TIME_OFFER_TOOL) return timeOfferOutwardHold(check, bare)
-  if (bare === 'generate_studio_shot' || bare === 'generate_studio_narration') return studioSpendHold(check, bare)
+  if (STUDIO_SPEND_TOOLS.has(bare)) return studioSpendHold(check, bare)
   if (CALENDAR_INVITE_TOOLS.has(bare) || CALENDAR_EXISTING_EVENT_TOOLS.has(bare)) {
     const added = CALENDAR_INVITE_TOOLS.has(bare) ? attendeeEmailsOf(check.input) : []
     // An existing event's attendees, from the provider: editing or cancelling

@@ -254,6 +254,8 @@ const TOOL_LABELS: Record<string, string> = {
   import_studio_sound: 'Import sound',
   list_studio_sounds: 'List sounds',
   listen_to_studio_video: 'Listen to video',
+  judge_studio_sound: 'Judge sound',
+  make_studio_sound: 'Make sound',
   // Studio parity (studio.ts, studio-media.ts, src/lib/ai/tools/studio-library.ts)
   set_studio_presentation: 'Set presentation',
   assign_studio_costs: 'Assign costs',
@@ -265,10 +267,24 @@ const TOOL_LABELS: Record<string, string> = {
   get_studio_images: 'See images',
   list_studio_fonts: 'List fonts',
   install_studio_font: 'Install font',
+  // Studio product components (src/lib/ai/tools/studio-product.ts)
+  list_studio_products: 'List products',
+  onboard_studio_product: 'Set up a product',
+  capture_studio_component: 'Film a component',
+  refresh_studio_components: 'Refresh components',
+  place_studio_component: 'Place component',
   // Studio checks (src/lib/ai/tools/studio-checks.ts)
   check_studio_motion: 'Check motion',
   review_studio_video: 'Review video',
   look_at_studio_video: 'Look at video',
+  // Studio reference blueprint (src/lib/ai/tools/studio-blueprint.ts)
+  get_studio_blueprint: 'Reference blueprint',
+  storyboard_from_studio_blueprint: 'Storyboard from reference',
+  // Studio code scenes (src/lib/ai/tools/studio-scenes.ts)
+  write_studio_scene: 'Write scene',
+  get_studio_scene: 'Read scene',
+  list_studio_scenes: 'List scenes',
+  add_studio_scene: 'Add scene',
   // Studio voice, generated shots and costs (src/lib/ai/tools/studio-media.ts)
   get_studio_voice: 'Read voice',
   list_studio_voices: 'List voices',
@@ -278,6 +294,14 @@ const TOOL_LABELS: Record<string, string> = {
   quote_studio_shot: 'Quote shot',
   generate_studio_shot: 'Generate shot',
   get_studio_costs: 'Read costs',
+  // Studio voice library, re-voicing, sound effects and music (src/lib/ai/tools/studio-audio.ts)
+  search_studio_voices: 'Search voices',
+  quote_studio_revoice: 'Quote re-voice',
+  generate_studio_revoice: 'Re-voice speech',
+  quote_studio_sound_effect: 'Quote sound effects',
+  generate_studio_sound_effect: 'Generate sound effects',
+  quote_studio_music: 'Quote music bed',
+  generate_studio_music: 'Generate music bed',
   create_calendar_event: 'Create calendar event',
   update_calendar_event: 'Update calendar event',
   delete_calendar_event: 'Delete calendar event',

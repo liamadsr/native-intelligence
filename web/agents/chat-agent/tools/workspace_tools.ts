@@ -174,7 +174,7 @@ const MAC_TURN_ENDING_TOOL_NAMES: ReadonlySet<string> = new Set(['message_teamma
  * The Mac body's own tools: the fence's harness and the Mac host's slots. A
  * proxy of the same name would replace them, so none is ever minted there.
  */
-const MAC_HOST_TOOL_NAMES: ReadonlySet<string> = new Set(['bash', 'read_file', 'write_file', 'finish', 'request_folder_access'])
+const MAC_HOST_TOOL_NAMES: ReadonlySet<string> = new Set(['bash', 'read_file', 'write_file', 'finish', 'request_folder_access', 'studio_product'])
 
 /** `endsTurn` for a proxy that ends the Mac body's turn; nothing otherwise (and nothing in the cloud). */
 function turnEnding(name: string): { endsTurn?: true } {

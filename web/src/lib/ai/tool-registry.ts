@@ -820,11 +820,35 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       // external-write: spends the person's own Higgsfield credits; always their card (the input's model and credits are the price shown).
       { name: 'generate_studio_shot', sideEffect: 'external-write', label: 'Generate a Shot', description: "Generate a beat's still or clip on the person's Higgsfield account at the quoted price and place it, only after they accept the card" },
       { name: 'get_studio_costs', sideEffect: 'read', label: 'Video Costs', description: 'What a video has cost through the Studio, by provider and model, with its latest charges' },
+      // More of the voice provider (src/lib/ai/tools/studio-audio.ts), on the same account and the same per-workspace
+      // gate: a voice search (free), and three spends (external-write: the outward gate holds each for the person's
+      // card unless cached, src/lib/studio/agent/spend-card.ts paidAudioCard; the tool spends only as that replay).
+      { name: 'search_studio_voices', sideEffect: 'read', label: 'Search Voices', description: "Search the voice provider's shared voice library and the account's voices, with preview links" },
+      { name: 'quote_studio_revoice', sideEffect: 'read', label: 'Price a Re-voice', description: 'How many seconds of audio (and about how many credits) re-voicing a stretch of speech takes, and whether it is cached' },
+      { name: 'generate_studio_revoice', sideEffect: 'external-write', label: 'Re-voice Speech', description: "Re-speak a library recording's speech in another voice with its timing kept, on the person's ElevenLabs account, only after they accept the card" },
+      { name: 'quote_studio_sound_effect', sideEffect: 'read', label: 'Price Sound Effects', description: 'How many seconds of audio (and about how many credits) designed sound effects take, the terms, and whether cached' },
+      { name: 'generate_studio_sound_effect', sideEffect: 'external-write', label: 'Generate Sound Effects', description: "Make designed sound effects from a description as library candidates, on the person's ElevenLabs account, only after they accept the card" },
+      { name: 'quote_studio_music', sideEffect: 'read', label: 'Price a Music Bed', description: 'How many seconds of audio (and about how many credits) a music bed takes, the licence terms, and whether cached' },
+      { name: 'generate_studio_music', sideEffect: 'external-write', label: 'Generate a Music Bed', description: "Make a music bed from a description as library candidates, on the person's ElevenLabs account, only after they accept the card" },
       // The measured checks (src/lib/ai/tools/studio-checks.ts). internal-write: each queues a studio_job the Studio
       // worker renders and measures into the workspace's own storage (pictures, reports); none edits the video.
       { name: 'check_studio_motion', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Motion Check', description: "Measure how a video moves (moves, eases, holds, empty frames, handoffs) against reference films, with what to fix first" },
       { name: 'review_studio_video', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Review Video', description: 'Review a whole video scene by scene (on-screen text, speech, motion, sound) and flag where a viewer gets lost' },
       { name: 'look_at_studio_video', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Visual Check', description: "Measure a video's text on the rendered frames: contrast against what is behind it, size, running off the frame" },
+      // The reference blueprint (src/lib/ai/tools/studio-blueprint.ts). internal-write: get_studio_blueprint queues a
+      // review of a library video (and its transcript) on the Studio worker the first time, and keeps the blueprint in
+      // the workspace's own rows. Its `get_` name is read-shaped, so report mode may call it: it measures the
+      // workspace's own media and edits nothing. storyboard_from_studio_blueprint writes the video's storyboard.
+      { name: 'get_studio_blueprint', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Reference Blueprint', description: "A reference video's beats, pace and cut rhythm, measured once and kept (it borrows rhythm, never words)" },
+      { name: 'storyboard_from_studio_blueprint', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Storyboard From Reference', description: "Lay a video's storyboard out in a reference's rhythm at the person's length, with their own lines" },
+      // Code scenes (src/lib/ai/tools/studio-scenes.ts): graphics the agent writes as React code. internal-write: a
+      // scene's source and compiled module are files of the workspace's own storage with a studio_record; placing one
+      // writes the video through the editing commands (one undoable step). Its code never runs on the server or in the
+      // person's page, only in the layer's locked frame (no network, no origin).
+      { name: 'write_studio_scene', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Write Scene', description: 'Write a code scene (an animated graphic as React code), compiled and kept; a compile error comes back with its line' },
+      { name: 'get_studio_scene', sideEffect: 'read', label: 'Get Scene', description: "A code scene's source and default props" },
+      { name: 'list_studio_scenes', sideEffect: 'read', label: 'List Scenes', description: "The workspace's code scenes" },
+      { name: 'add_studio_scene', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Add Scene', description: 'Place a code scene on a video as a layer, or swap it into a code layer, as one undoable step' },
       // Vision (src/lib/ai/tools/studio-vision.ts): macOS Vision in the Studio worker. internal-write: a cut-out is a
       // studio_job the worker stores in the workspace's own library and attaches to the video; the director pass and a
       // format write the video (a version kept before the director pass). Nothing leaves the workspace.
@@ -839,6 +863,10 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'import_studio_sound', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Import Sound', description: 'Put a library audio file on a video on its onset or peak, or as the music bed' },
       { name: 'list_studio_sounds', sideEffect: 'read', label: 'List Sounds', description: "The sound bank (sounds made in code) and each kit preset's role → sound" },
       { name: 'listen_to_studio_video', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Listen', description: "Hear a video's mix: a listening transcript, a scorecard against launch films, an annotated sheet" },
+      // Judging sounds writes nothing but its studio_job (the measurement's answer); a made sound is a library asset in
+      // the workspace's own storage, placed on no video.
+      { name: 'judge_studio_sound', sideEffect: 'read', label: 'Judge Sound', description: 'Hear library or bank sounds: describe, measure, compare, rank, find, an A/B, realness, as numbers' },
+      { name: 'make_studio_sound', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Make Sound', description: 'Make a new sound in code from a description, or turn a library recording into code, as library sounds' },
       // How the recording sits in the frame, the cursor, the webcam bubble (studio.ts): the video, one undoable step.
       { name: 'set_studio_presentation', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Set Presentation', description: "Set how a video's recording sits in its frame (background, padding, radius, shadow), the cursor and the webcam bubble" },
       // Costs and continuity (studio-media.ts): moving charges between videos is the workspace's own ledger rows; the
@@ -858,6 +886,16 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'list_studio_fonts', sideEffect: 'read', label: 'List Fonts', description: 'The fonts installed for the Studio, and the free families a search finds' },
       // Installs a free family from the font shelves' fixed hosts (fonts.ts FONT_HOSTS) into the workspace's own storage.
       { name: 'install_studio_font', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Install Font', description: 'Install a free font family for the workspace\'s videos and answer its weights' },
+      // Product components (src/lib/ai/tools/studio-product.ts): the person's own product UI, rendered from its code on
+      // their Mac. None runs anything: onboard, capture and refresh write a product job (a studio_record of the
+      // workspace) and answer the words for start_local_agent, which is what runs the product's code on the Mac
+      // (automation-write, typed turns only, its own checks), inside the job's read-only fence; the Mac body's calls
+      // back are reviewed like its others. place writes the video (one undoable step). All the workspace's own artifacts.
+      { name: 'list_studio_products', sideEffect: 'read', label: 'List Products', description: "The person's products set up for the Studio, one product's components and captures, a product job's outcome, or a video's component layers and which are out of date" },
+      { name: 'onboard_studio_product', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Set Up a Product', description: "Prepare the job that sets a product up from a folder shared with the desktop app (its settings, its components); answers the words for start_local_agent" },
+      { name: 'capture_studio_component', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Film a Component', description: "Prepare the job that films one of the product's real components from its code (footage or a still, props, size, cursor script), placed on a video when it arrives" },
+      { name: 'refresh_studio_components', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Refresh Components', description: "Prepare the job that films a video's component layers again where the product's code changed, then swaps their footage" },
+      { name: 'place_studio_component', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Place Component', description: 'Put a product capture on a video as a layer that remembers which component and code it shows' },
     ],
   },
 ]
@@ -1407,6 +1445,11 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   'check_studio_motion',
   'review_studio_video',
   'look_at_studio_video',
+  // Studio's reference blueprint: a video's storyboard laid out in a reference's rhythm. `storyboard_` is not a write verb.
+  'storyboard_from_studio_blueprint',
+  // Studio code scenes: a scene's source compiled and kept (files and a record). `write_` is not a write verb.
+  // (add_studio_scene matches the prefix.)
+  'write_studio_scene',
   // Studio vision: a cut-out queued (a Studio worker job attached to the video) and the director pass (cuts the video).
   // Neither `cut_` nor `direct_` is a write verb. (set_studio_delivery_format matches the prefix.)
   'cut_out_studio_subject',
@@ -1416,6 +1459,9 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   'sound_pass_studio_video',
   'import_studio_sound',
   'listen_to_studio_video',
+  // Studio sound making: candidates made in code into the workspace's own library (a Studio worker job). `make_` is not
+  // a write verb.
+  'make_studio_sound',
   // Studio parity: bringing media in, a transcript, a font, moving charges and the continuity measure. None of
   // `import_`, `transcribe_`, `install_`, `assign_`, `check_` is a write verb. (set_studio_presentation matches the prefix.)
   'import_studio_file',
@@ -1424,6 +1470,12 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   'install_studio_font',
   'assign_studio_costs',
   'check_studio_continuity',
+  // Studio product components: a product job prepared for the person's Mac (onboard, capture, refresh) and a capture
+  // placed on a video. None of `onboard_`, `capture_`, `refresh_`, `place_` is a write verb.
+  'onboard_studio_product',
+  'capture_studio_component',
+  'refresh_studio_components',
+  'place_studio_component',
 ]
 
 /**
@@ -1489,8 +1541,13 @@ export function isReadShapedToolName(name: string): boolean {
     // Studio: the readiness checklist (computed, saves nothing) and the job poll.
     name === 'check_studio_video' ||
     name === 'wait_for_studio_job' ||
+    // Studio: judging sounds queues a measurement and writes nothing else (`judge_` is not a read prefix).
+    name === 'judge_studio_sound' ||
     // Studio prices: a quote asks the provider what it would cost and spends nothing.
     name === 'quote_studio_narration' ||
-    name === 'quote_studio_shot'
+    name === 'quote_studio_shot' ||
+    name === 'quote_studio_revoice' ||
+    name === 'quote_studio_sound_effect' ||
+    name === 'quote_studio_music'
   )
 }

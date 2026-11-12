@@ -50,7 +50,13 @@ export function isMediaAnswer(contentType: string, url: string): boolean {
 /** The name a linked file gets in the library: the one given, else the link's last part. Pure. */
 export function linkFileName(url: string, given?: string): string {
   if (given?.trim()) return given.trim().slice(0, 250)
-  const last = decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).at(-1) ?? '')
+  const raw = new URL(url).pathname.split('/').filter(Boolean).at(-1) ?? ''
+  let last = raw
+  try {
+    last = decodeURIComponent(raw)
+  } catch {
+    // A malformed escape keeps the name as written.
+  }
   return (last || new URL(url).hostname).slice(0, 250)
 }
 
@@ -188,8 +194,12 @@ export function createStudioLibraryTools(userId: string, workspaceId?: string) {
           if (page.status < 200 || page.status >= 300) return refusal('LINK_FAILED', `The link answered ${page.status}. Nothing was imported.`)
           if (page.truncated) return refusal('TOO_LARGE', 'That file is larger than 100 MB. Ask the person to upload it instead.')
           if (!isMediaAnswer(page.contentType, page.url)) return refusal('NOT_MEDIA', `That link is ${page.contentType || 'not a file'}, not an image, video or sound: find the direct link to the file.`)
-          const { importBytes } = await library()
-          const made = await importBytes(ctx, page.body, { name: linkFileName(page.url, name), contentType: page.contentType, provenance: { link: page.url } }, { waitMs: IMPORT_WAIT_MS })
+          const { importBytes, nameFor, sniffMedia } = await library()
+          // The bytes decide, not the header: a page or a script served as an image is refused here, and the name
+          // carries the extension of what the file really is (the worker's import reads the kind from it).
+          const media = sniffMedia(page.body)
+          if (!media) return refusal('NOT_MEDIA', 'That link answered a file that is not an image (PNG, JPEG, WebP), a video or a sound. Nothing was imported: find the direct link to the file.')
+          const made = await importBytes(ctx, page.body, { name: nameFor(linkFileName(page.url, name), media), contentType: page.contentType, provenance: { link: page.url } }, { waitMs: IMPORT_WAIT_MS })
           return importAnswer(made)
         }, 'asset'),
     }),
