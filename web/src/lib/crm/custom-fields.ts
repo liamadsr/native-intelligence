@@ -399,10 +399,33 @@ export function customFieldsForModel(
   const out: Record<string, CustomFieldValue> = {}
   for (const d of defs) {
     const value = v[d.key]
-    if (isEmptyValue(value)) continue
+    if (isEmptyValue(value) || !storedShape(d.field_type, value)) continue
     out[d.label] = value as CustomFieldValue
   }
   return out
+}
+
+/**
+ * Is a stored value in its type's own form (custom-field-types.ts)? A list,
+ * an object or a boolean under a text field is junk, never shown as a value.
+ */
+function storedShape(fieldType: CustomFieldType, value: unknown): boolean {
+  switch (fieldType) {
+    case 'number':
+      return typeof value === 'number'
+    case 'checkbox':
+      return typeof value === 'boolean'
+    case 'multi_select':
+    case 'relation':
+      return Array.isArray(value) && value.every((x) => typeof x === 'string')
+    case 'currency': {
+      const c = value as { amount?: unknown; currency?: unknown } | null
+      return !!c && typeof c === 'object' && !Array.isArray(c) && typeof c.amount === 'number' && typeof c.currency === 'string'
+    }
+    default:
+      // text, date, select, url, email, phone, person: a string (an old number field's number still reads).
+      return typeof value === 'string' || typeof value === 'number'
+  }
 }
 
 /** `{ custom_fields }` for a read tool's row when any value is set, else nothing (an empty widget shows nothing). */

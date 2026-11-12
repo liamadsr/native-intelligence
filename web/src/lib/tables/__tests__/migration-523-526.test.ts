@@ -75,7 +75,8 @@ describe('523: the field types', () => {
   it('casts by one rule: refused values are counted, never dropped', () => {
     const convert = fnIn(sql, '_field_convert')
     expect(convert).toContain('public._field_cast(p_from_type, p_from_config, e.value, p_to_type, p_to_options, p_to_config)')
-    expect(convert).toContain('n := n + 1;')
+    // Counted, in the one set-based pass (pinned below).
+    expect(convert).toContain('count(*) filter (where c.v is null)')
     const cast = fnIn(sql, '_field_cast')
     // A relation keeps its ids only for the same target.
     expect(cast).toContain("if p_to_type = 'relation' and (p_from_config -> 'target') is distinct from (p_to_config -> 'target') then return null; end if;")
@@ -112,7 +113,8 @@ describe('524: a relation value is an edge', () => {
   it('checks every linked id without its edge yet, for the writer, with one refusal for every reason', () => {
     // An id with its edge passed when it came; one without never did, however it got into the value.
     expect(sync).toContain("and l.relation = 'field_link' and l.target_type = v_target and l.target_id = v_id::uuid) then")
-    expect(sync).not.toContain('except')
+    // Not only what the write added: no set difference against the old value.
+    expect(sync).not.toMatch(/\n\s*except\n/)
     expect(sync).toContain('public._relation_target_ok(v_target, v_id::uuid, p_workspace, v_target_table)')
     // The 5-argument form: a guest's or a linked agent's turn reads no grant.
     expect(sync).toContain('public.entity_visible_to(v_target, v_id::uuid, p_workspace, p_writer,')
