@@ -24,6 +24,8 @@ export function entityOpenTarget(type: string, id: string, title?: string | null
       return { type: 'prospect_list', id, title: t }
     case 'eval_suite':
       return { type: 'eval_suite', id, title: t }
+    case 'table-row':
+      return { type: 'data_row', id, title: t }
     case 'team-chat':
       // Team chat, on the message (in its channel or thread, scrolled to it) or the channel.
       if (type === 'team_chat_message') return { type: 'team_chat', messageId: id }

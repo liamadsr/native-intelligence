@@ -15,6 +15,9 @@
 import type { CustomFieldConfig, CustomFieldType, CustomFieldValue } from '@/lib/crm/custom-fields'
 
 export type DataTableVisibility = 'workspace' | 'private'
+
+/** A table, or a pipeline: its rows are deals (migration 540). */
+export type DataTableKind = 'table' | 'pipeline'
 export const DATA_TABLE_VISIBILITIES = ['workspace', 'private'] as const
 
 /** Where a batch came from (data_change.source). */
@@ -56,6 +59,10 @@ export interface DataTable {
   description: string | null
   owner_member_id: string | null
   visibility: DataTableVisibility
+  /** 'pipeline': a deal pipeline, with its system columns (migration 540). Absent: a table. */
+  kind?: DataTableKind
+  /** The workspace's default pipeline. */
+  is_default?: boolean
   version: number
   position: number
   archived_at: string | null
@@ -74,6 +81,8 @@ export interface DataColumn {
   config: CustomFieldConfig
   position: number
   deleted_at: string | null
+  /** A pipeline's own column (540): renamed and edited, never deleted or retyped. */
+  system?: boolean
 }
 
 export interface DataRow {
@@ -86,6 +95,9 @@ export interface DataRow {
   archived_at: string | null
   created_at: string
   updated_at: string
+  /** A pipeline's row only (540): when its stage last changed, and when it was won or lost. */
+  stage_changed_at?: string | null
+  closed_at?: string | null
 }
 
 /** A table with its live columns, in order. */

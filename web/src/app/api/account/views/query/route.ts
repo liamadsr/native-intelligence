@@ -26,7 +26,6 @@ import type { ViewEntityType, ViewFilter, SortConfig, GroupConfig, GroupedResult
 import { DEFAULT_DISPLAY_PROPERTIES, NO_MATCH_FILTER_VALUE, defaultOrdering } from '@/lib/views/types'
 import { isCustomFieldPath } from '@/lib/views/custom-field-columns'
 import { countEntriesByList, emptyEntryCounts } from '@/lib/prospecting/lists'
-import { pipelineBoardColumns } from '@/lib/crm/deal-board'
 import { fetchAllRows, inChunks } from '@/lib/supabase/paging'
 import { NextResponse, type NextRequest } from 'next/server'
 
@@ -657,19 +656,6 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Deals pipeline board (roadmap #8): one column per stage of the board's
-      // pipeline (a `pipeline_id is` filter, else the default, seeded on first
-      // use), empty ones included, in the pipeline's own order. A drop on a
-      // column PATCHes { stage_id: column key }, the generic FK path.
-      if (grouping.field === 'stage_id' && entity_type === 'deal') {
-        try {
-          const pipelineFilter = filters.find((f) => f.field === 'pipeline_id' && f.operator === 'is' && typeof f.value === 'string')
-          const columns = await pipelineBoardColumns(supabase, workspaceId, (pipelineFilter?.value as string | undefined) ?? null, grouped, grouping.direction)
-          grouped.splice(0, grouped.length, ...columns)
-        } catch (err) {
-          console.error('[views/query] deal stage columns failed', err)
-        }
-      }
 
       // Sequence lifecycle board: inject an (empty) column per status so the
       // whole lifecycle is always visible, give every column its display

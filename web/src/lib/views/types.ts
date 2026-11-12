@@ -46,7 +46,6 @@ export type ViewEntityType =
       | 'eval_case'
       | 'eval_run'
       | 'claim'
-      | 'deal'
       | 'email_thread'
       | 'data_row'
     >
@@ -467,28 +466,6 @@ export const FILTERABLE_FIELDS: Record<ViewEntityType, FilterFieldDefinition[]> 
     { field: 'email', label: 'Email', type: 'text' },
   ],
 
-  // Deals (roadmap #8, migration 473). `stage_id` reads its options from the
-  // workspace's pipelines (DynamicEnumPicker's 'deal_stages'); `contact_ids`
-  // is an array column, filtered with `@>` like prospect_list_ids.
-  deal: [
-    { field: 'stage_id', label: 'Stage', type: 'enum', options: 'deal_stages' },
-    // The board's pipeline: a fixed scope a pipeline's board sends (and the
-    // views/query route reads to pick its columns). Kept out of
-    // FIELD_CATEGORIES, like prospect_list_entry's `list_id`.
-    { field: 'pipeline_id', label: 'Pipeline', type: 'text' },
-    { field: 'owner_id', label: 'Owner', type: 'member', allowEmpty: true },
-    { field: 'company_id', label: 'Company', type: 'company' },
-    { field: 'contact_ids', label: 'Contact', type: 'contact', isArray: true },
-    { field: 'value', label: 'Value', type: 'number', allowEmpty: true },
-    { field: 'currency', label: 'Currency', type: 'text' },
-    { field: 'expected_close_date', label: 'Expected close', type: 'date', allowEmpty: true },
-    { field: 'closed_at', label: 'Closed', type: 'date', allowEmpty: true },
-    { field: 'source', label: 'Source', type: 'enum', options: ['manual', 'agent', 'email', 'capture', 'sms', 'import'] },
-    { field: 'created_at', label: 'Created', type: 'date' },
-    { field: 'updated_at', label: 'Updated', type: 'date' },
-    { field: 'name', label: 'Name', type: 'text' },
-  ],
-
   company: [
     { field: 'industry', label: 'Industry', type: 'text' },
     { field: 'domain', label: 'Domain', type: 'text' },
@@ -800,9 +777,6 @@ export const DEFAULT_DISPLAY_PROPERTIES: Record<ViewEntityType, string[]> = {
   capture: ['action_count', 'participant_count', 'recipe', 'project', 'started_at', 'status'],
   contact: ['interaction_count', 'last_interaction_at', 'relationship_type', 'job_title', 'company'],
   company: ['contact_count', 'industry', 'domain'],
-  // Rare → common: who owns it, which account, when it should close, its
-  // stage, then the money — the number a pipeline is read for.
-  deal: ['owner', 'company', 'expected_close_date', 'stage', 'value'],
   email_thread: ['labels', 'is_unread', 'folder', 'last_message_at', 'from_email'],
   document: ['project', 'created_by', 'updated_at'],
   initiative: ['target_date', 'project', 'status'],
@@ -969,19 +943,6 @@ export const DISPLAY_PROPERTIES: Record<ViewEntityType, DisplayPropertyDefinitio
     { field: 'contact_count', label: 'Contacts' },
     { field: 'tags', label: 'Tags' },
     { field: 'created_at', label: 'Created' },
-  ],
-  deal: [
-    // `stage` is display-only in a cell: the board's drag is how a deal moves
-    // (it PATCHes stage_id), and the stage picker needs the pipeline's own
-    // stages, which no generic enum picker knows.
-    { field: 'stage', label: 'Stage' },
-    { field: 'value', label: 'Value' },
-    { field: 'owner', label: 'Owner', editable: { picker: 'member', apiField: 'owner_id', allowEmpty: true } },
-    { field: 'company', label: 'Company', editable: { picker: 'company', apiField: 'company_id', allowEmpty: true } },
-    { field: 'expected_close_date', label: 'Expected close', editable: { picker: 'date', apiField: 'expected_close_date' } },
-    { field: 'closed_at', label: 'Closed' },
-    { field: 'created_at', label: 'Created' },
-    { field: 'updated_at', label: 'Updated' },
   ],
   email_thread: [
     { field: 'from_email', label: 'From' },
@@ -1200,12 +1161,6 @@ export const DEFAULT_ORDERING: Partial<Record<ViewEntityType, SortConfig[]>> = {
   agent: [],
   skill: [],
   prospect_list: [{ field: 'updated_at', direction: 'desc' }],
-  // The biggest deals first: what a pipeline is read for. Newest breaks ties
-  // (and orders the deals with no value yet, which sort last).
-  deal: [
-    { field: 'value', direction: 'desc' },
-    { field: 'created_at', direction: 'desc' },
-  ],
   // Hottest first — the score is the point of profiling. `applyOrdering`
   // sends NULLS LAST, so the rows nobody has profiled yet sit under every
   // scored one, newest first among themselves.
@@ -1271,9 +1226,6 @@ export const DEFAULT_BOARD_GROUP_BY: Record<ViewEntityType, string> = {
   capture: 'auto_capture_status',
   contact: 'relationship_type',
   company: 'industry',
-  // The pipeline board: one column per stage, in the pipeline's order (the
-  // views/query route adds the empty ones), and a drag PATCHes stage_id.
-  deal: 'stage_id',
   email_thread: 'folder',
   document: 'status',
   initiative: 'status',
@@ -1345,11 +1297,6 @@ export const FIELD_CATEGORIES: Record<ViewEntityType, { label: string; fields: s
   company: [
     { label: '', fields: ['name', 'industry', 'domain', 'employee_count_range', 'tags'] },
     { label: 'Activity', fields: ['created_at'] },
-  ],
-  deal: [
-    { label: '', fields: ['stage_id', 'owner_id', 'company_id', 'contact_ids', 'value', 'currency', 'source'] },
-    { label: 'Dates', fields: ['expected_close_date', 'closed_at', 'created_at', 'updated_at'] },
-    { label: 'Content', fields: ['name'] },
   ],
   email_thread: [
     { label: '', fields: ['folder', 'is_unread', 'is_starred', 'needs_reply', 'has_attachments', 'auto_classified', 'labels'] },

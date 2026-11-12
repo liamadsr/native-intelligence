@@ -354,24 +354,31 @@ async function searchCompanies(ctx: MenuQueryContext): Promise<MenuSearchRow[]> 
   )
 }
 
-// ── Deals and flows (names only; every member reads them) ────────────────────
+// ── Deals and flows (names only) ─────────────────────────────────────────────
 
 interface DealRow {
   id: string
-  name: string | null
-  stage: { name: string | null } | null
+  title: string | null
+  table_id: string
+  stage: string | null
 }
 
+/** Deals: a pipeline's rows (Tables, phase 7), as RLS lets the person read their pipelines. */
 async function searchDeals(ctx: MenuQueryContext): Promise<MenuSearchRow[]> {
   const { supabase, workspaceId, query, limit } = ctx
   const words = matchWords(query)
-  const base = supabase.from('deal').select('id, name, stage:deal_stage!stage_id(name)').eq('workspace_id', workspaceId)
+  const base = supabase
+    .from('data_row')
+    .select('id, title, table_id, stage:custom_fields->>stage, data_table!inner(kind)')
+    .eq('workspace_id', workspaceId)
+    .eq('data_table.kind', 'pipeline')
+    .is('archived_at', null)
   const rows = await rowsOf<DealRow>(
     'deal',
-    words.reduce((b, w) => b.ilike('name', `%${w}%`), base).order('updated_at', { ascending: false }).limit(words.length ? FETCH : limit),
+    words.reduce((b, w) => b.ilike('title', `%${w}%`), base).order('updated_at', { ascending: false }).limit(words.length ? FETCH : limit),
   )
   return rank(
-    rows.map((d) => ({ kind: 'deal', id: d.id, title: d.name || 'Untitled deal', status: d.stage?.name ?? null, score: scoreText(d.name, query) })),
+    rows.map((d) => ({ kind: 'deal', id: d.id, pipelineId: d.table_id, title: d.title || 'Untitled deal', status: d.stage ?? null, score: scoreText(d.title, query) })),
     limit,
   )
 }

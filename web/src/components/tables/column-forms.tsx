@@ -5,9 +5,11 @@
  * change a column's type (a dialog that shows the database's answer when
  * values don't fit, the misfit count, and leaves the column as it was).
  * Both take a type and what it needs: options for a select, a currency's
- * code, and a relation's target: a kind, or another table's rows.
+ * code, and a relation's target: a kind, or another table's rows. A select's
+ * options (a pipeline's stages, with their outcomes) have their own dialog.
  */
 import { useEffect, useState } from 'react'
+import { ChevronDown, ChevronUp, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -17,10 +19,13 @@ import {
   CUSTOM_FIELD_TYPES,
   CUSTOM_FIELD_TYPE_LABELS,
   RELATION_TARGET_KINDS,
+  STAGE_OUTCOMES,
   hasOptions,
+  optionOutcome,
   type CustomFieldConfig,
   type CustomFieldType,
   type RelationTargetKind,
+  type StageOutcome,
 } from '@/lib/crm/custom-field-types'
 import type { DataColumn, DataTable } from '@/lib/tables/types'
 
@@ -194,6 +199,110 @@ export function TypeChangeDialog({
     </Dialog>
   )
 }
+
+/**
+ * A select column's options, in order (Tables, phase 7): add, rename,
+ * reorder, remove. A pipeline's Stage column also says each stage's outcome:
+ * open, won or lost. One update_column, so Undo takes the whole edit back.
+ * An option rows still hold can't go (the server says which).
+ */
+export function OptionsDialog({
+  column,
+  outcomes,
+  onClose,
+  onSave,
+}: {
+  column: Pick<DataColumn, 'label' | 'options' | 'config'>
+  /** The column's options carry an outcome (a pipeline's stages). */
+  outcomes?: boolean
+  onClose: () => void
+  onSave: (options: string[], config: CustomFieldConfig) => Promise<string | null>
+}) {
+  type Line = { name: string; was: string | null; outcome: StageOutcome }
+  const [lines, setLines] = useState<Line[]>(() =>
+    (column.options ?? []).map((o) => ({ name: o, was: o, outcome: optionOutcome(column.config, o) })),
+  )
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const noun = outcomes ? 'stage' : 'option'
+  const set = (i: number, patch: Partial<Line>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)))
+  const move = (i: number, by: number) =>
+    setLines((ls) => {
+      const j = i + by
+      if (j < 0 || j >= ls.length) return ls
+      const next = [...ls]
+      ;[next[i], next[j]] = [next[j], next[i]]
+      return next
+    })
+  const names = lines.map((l) => l.name.trim()).filter(Boolean)
+  const duplicate = new Set(names.map((n) => n.toLowerCase())).size !== names.length
+  const submit = async () => {
+    if (duplicate) return setError(`Two ${noun}s have the same name.`)
+    const kept = lines.filter((l) => l.name.trim())
+    const config: CustomFieldConfig = { ...(column.config ?? {}) }
+    if (outcomes) {
+      config.outcomes = Object.fromEntries(kept.filter((l) => l.outcome !== 'open').map((l) => [l.name.trim(), l.outcome]))
+    }
+    setBusy(true)
+    setError(null)
+    const problem = await onSave(kept.map((l) => l.name.trim()), config)
+    setBusy(false)
+    if (problem) setError(problem)
+    else onClose()
+  }
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{outcomes ? 'Edit stages' : `Edit the options of ${column.label}`}</DialogTitle>
+          <DialogDescription>
+            {outcomes ? 'In board order. A won or lost stage closes the deals in it.' : 'In the order they show.'}
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="space-y-1.5" data-options-list="">
+          {lines.map((l, i) => (
+            <li key={i} className="flex items-center gap-1.5">
+              <div className="flex flex-col">
+                <button type="button" aria-label={`Move ${l.name || noun} up`} className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30" disabled={i === 0} onClick={() => move(i, -1)}>
+                  <ChevronUp className="h-3 w-3" />
+                </button>
+                <button type="button" aria-label={`Move ${l.name || noun} down`} className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30" disabled={i === lines.length - 1} onClick={() => move(i, 1)}>
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+              </div>
+              <Input aria-label={`${noun} ${i + 1}`} className="h-8 flex-1" maxLength={60} value={l.name} onChange={(e) => set(i, { name: e.target.value })} />
+              {outcomes && (
+                <select aria-label={`Outcome of ${l.name || noun}`} className={cn(fieldClass, 'w-24 cursor-pointer')} value={l.outcome} onChange={(e) => set(i, { outcome: e.target.value as StageOutcome })}>
+                  {STAGE_OUTCOMES.map((o) => (
+                    <option key={o} value={o}>{OUTCOME_LABELS[o]}</option>
+                  ))}
+                </select>
+              )}
+              <button type="button" aria-label={`Remove ${l.name || noun}`} className="rounded p-1 text-muted-foreground hover:text-destructive" onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}>
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+        <Button type="button" size="sm" variant="ghost" className="w-fit" disabled={lines.length >= 50} onClick={() => setLines((ls) => [...ls, { name: '', was: null, outcome: 'open' }])}>
+          <Plus className="h-3.5 w-3.5" /> Add {noun}
+        </Button>
+        {error && (
+          <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={busy || !names.length} onClick={() => void submit()}>{busy ? 'Saving…' : 'Save'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** How a stage's outcome reads. */
+export const OUTCOME_LABELS: Record<StageOutcome, string> = { open: 'Open', won: 'Won', lost: 'Lost' }
 
 /** Rename a column. */
 export function RenameDialog({ label, onClose, onRename }: { label: string; onClose: () => void; onRename: (label: string) => string | null }) {

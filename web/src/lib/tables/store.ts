@@ -30,14 +30,15 @@ import {
   type DataOp,
   type DataRow,
   type DataTable,
+  type DataTableKind,
   type DataTableVisibility,
   type DataTableWithColumns,
   type NewRow,
 } from './types'
 
-const TABLE_SELECT = 'id, workspace_id, name, icon, description, owner_member_id, visibility, version, position, archived_at, created_at, updated_at'
-const COLUMN_SELECT = 'id, table_id, key, label, field_type, options, config, position, deleted_at'
-const ROW_SELECT = 'id, table_id, title, custom_fields, position, archived_at, created_at, updated_at'
+const TABLE_SELECT = 'id, workspace_id, name, icon, description, owner_member_id, visibility, kind, is_default, version, position, archived_at, created_at, updated_at'
+const COLUMN_SELECT = 'id, table_id, key, label, field_type, options, config, position, deleted_at, system'
+export const ROW_SELECT = 'id, table_id, title, custom_fields, position, archived_at, created_at, updated_at, stage_changed_at, closed_at'
 const CHANGE_SELECT = 'id, table_id, version, actor_user_id, actor_member_id, source, reason, changes, undo_of, undone_at, created_at'
 
 /** The most rows one page reads. */
@@ -103,8 +104,9 @@ function normalizeResult(raw: unknown): ApplyResult {
 // ── Reads ───────────────────────────────────────────────────────────────────
 
 /** The workspace's tables the caller can read, in their order. Archived ones only when asked. */
-export async function listTables(db: SupabaseClient, workspaceId: string, opts: { archived?: boolean } = {}): Promise<DataTable[]> {
+export async function listTables(db: SupabaseClient, workspaceId: string, opts: { archived?: boolean; kind?: DataTableKind } = {}): Promise<DataTable[]> {
   let q = db.from('data_table').select(TABLE_SELECT).eq('workspace_id', workspaceId)
+  if (opts.kind) q = q.eq('kind', opts.kind)
   q = opts.archived ? q.not('archived_at', 'is', null) : q.is('archived_at', null)
   const { data, error } = await q.order('position', { ascending: true }).order('created_at', { ascending: true })
   if (error) throw new Error(error.message)

@@ -36,7 +36,7 @@ import { isMentionableType } from '@/lib/entity-links/mentionable'
  *   'team-chat'       the team chat page;
  *   null              nothing opens it on its own.
  */
-export type EntityOpen = 'record' | 'calendar-event' | 'flow' | 'sequence' | 'prospect_list' | 'eval_suite' | 'team-chat' | null
+export type EntityOpen = 'record' | 'calendar-event' | 'flow' | 'sequence' | 'prospect_list' | 'eval_suite' | 'team-chat' | 'table-row' | null
 
 /**
  * How a kind archives and comes back, as it already does:
@@ -147,14 +147,6 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
     share: true,
     makeTask: true,
   },
-  deal: {
-    open: 'record',
-    link: true,
-    rename: { route: 'deals', field: 'name' },
-    archive: { kind: 'none', why: 'A deal ends in a won or lost stage.' },
-    share: true,
-    makeTask: true,
-  },
   flow: {
     open: 'flow',
     link: true,
@@ -221,7 +213,8 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
     makeTask: true,
   },
   data_row: {
-    open: null,
+    // In its table (a pipeline's row: a deal, on the Deals page), open in the row panel.
+    open: 'table-row',
     link: false,
     // A row's name is its title, edited in its table (one batch, in its undo log).
     rename: null,

@@ -66,7 +66,6 @@ const chipClass = 'inline-flex items-center gap-1 rounded-full border border-bor
 export const TARGET_NAMES: Partial<Record<RelationTargetKind, string>> = {
   contact: 'Contacts',
   company: 'Companies',
-  deal: 'Deals',
   action: 'Tasks',
   project: 'Projects',
   initiative: 'Initiatives',

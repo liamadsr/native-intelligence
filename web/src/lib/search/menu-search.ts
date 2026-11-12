@@ -26,11 +26,12 @@ export const MENU_SEARCH_KINDS = [
   'capture',
   'contact',
   'company',
+  // A pipeline's row (Tables, phase 7), found and listed as a deal.
   'deal',
   'flow',
   'agent',
   'team_chat_message',
-] as const satisfies readonly (EntityType | 'agent')[]
+] as const satisfies readonly (EntityType | 'agent' | 'deal')[]
 export type MenuSearchKind = (typeof MENU_SEARCH_KINDS)[number]
 
 export function isMenuSearchKind(v: unknown): v is MenuSearchKind {
@@ -159,7 +160,10 @@ export interface MenuCompanyRow extends Scored {
 
 export interface MenuDealRow extends Scored {
   kind: 'deal'
+  /** The row's id (a deal is a pipeline's row). */
   id: string
+  /** Its pipeline (the table it is a row of). */
+  pipelineId: string
   title: string
   /** Its pipeline stage's name ("Proposal sent"). */
   status: string | null
@@ -242,6 +246,8 @@ export function menuRowTarget(row: MenuSearchRow): OpenTarget {
       return { type: 'agent', id: row.id, title: row.title }
     case 'team_chat_message':
       return { type: 'team_chat', messageId: row.id, channelId: row.channelId }
+    case 'deal':
+      return { type: 'deal', id: row.id, title: row.title, pipelineId: row.pipelineId }
     default:
       return { type: row.kind, id: row.id, title: row.title }
   }
@@ -335,7 +341,7 @@ export function toMentionRecord(row: MenuSearchRow): MentionRecord | null {
  * by its title, a company by its name, the rest by title). Null for what is
  * not a record (an agent).
  */
-export function menuRowMention(row: MenuSearchRow): { type: Exclude<MenuSearchKind, 'agent' | 'team_chat_message'>; id: string; label: string } | null {
+export function menuRowMention(row: MenuSearchRow): { type: Exclude<MenuSearchKind, 'agent' | 'team_chat_message' | 'deal'> | 'data_row'; id: string; label: string } | null {
   switch (row.kind) {
     case 'agent':
     case 'team_chat_message':
@@ -349,6 +355,9 @@ export function menuRowMention(row: MenuSearchRow): { type: Exclude<MenuSearchKi
       return { type: 'company', id: row.company.id, label: row.company.name }
     case 'action':
       return { type: 'action', id: row.id, label: row.identifier || row.title }
+    case 'deal':
+      // A deal is its pipeline's row.
+      return { type: 'data_row', id: row.id, label: row.title }
     default:
       return { type: row.kind, id: row.id, label: row.title }
   }

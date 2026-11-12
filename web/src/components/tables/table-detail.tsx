@@ -96,7 +96,11 @@ export function TableDetail({
   const sortLabel = sort ? (sort.key === TITLE_KEY ? 'Name' : columns.find((c) => c.key === sort.key)?.label) : null
   const layout = config.layout === 'board' || config.layout === 'calendar' || config.layout === 'gallery' ? config.layout : 'grid'
   const boardColumn = groupColumnOf(columns, config.grouping) ?? columns.find(isGroupable) ?? null
-  const totalColumn = columns.find((c) => c.key === settings.total_key && isTotalable(c)) ?? null
+  // A pipeline's board totals its Value unless the view says otherwise (Tables, phase 7).
+  const totalColumn =
+    columns.find((c) => c.key === settings.total_key && isTotalable(c)) ??
+    (table?.kind === 'pipeline' && settings.total_key === undefined ? columns.find((c) => c.system && c.key === 'value') : undefined) ??
+    null
 
   // A board needs a column to group by: entering one picks the first that can.
   const onConfigChange = useCallback(
@@ -128,7 +132,7 @@ export function TableDetail({
         <ViewHeader
           title={
             <span className="flex min-w-0 items-center gap-2">
-              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onBack} aria-label="All tables">
+              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onBack} aria-label={table?.kind === 'pipeline' ? 'All pipelines' : 'All tables'}>
                 <ArrowLeft className="h-4 w-4" />
               </Button>
               <span className="truncate">{table?.name ?? 'Table'}</span>

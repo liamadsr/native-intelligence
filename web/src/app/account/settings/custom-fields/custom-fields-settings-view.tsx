@@ -2,13 +2,13 @@
 
 /**
  * Settings → Custom fields: the workspace's own fields on each kind that
- * takes them (the entity registry's `customFields` flag: deals, contacts,
+ * takes them (the entity registry's `customFields` flag: contacts,
  * companies, tasks, projects, initiatives, documents). Pick a kind, see its
  * fields, add one with the same form a record's panel uses (AddFieldForm).
+ * A deal's fields are its pipeline's columns, added in the pipeline.
  *
  * This is where a kind gets its FIRST field: a record's panel hides the
- * section while its kind has none (hide empty widgets), except a deal's,
- * which always offers "Add a field".
+ * section while its kind has none (hide empty widgets).
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Plus } from 'lucide-react'
@@ -82,7 +82,7 @@ export function CustomFieldsSettingsView({ initialKind = 'action' }: { initialKi
       <div className="mx-auto max-w-2xl px-8 py-8">
         <h1 className="text-lg font-semibold">Custom fields</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Your workspace&apos;s own fields: a contract length on deals, a budget on projects, a customer on tasks. Each one shows on every record of its kind, and your agent can fill it in.
+          Your workspace&apos;s own fields: a renewal date on companies, a budget on projects, a customer on tasks. Each one shows on every record of its kind, and your agent can fill it in.
         </p>
 
         <div className="mt-6">

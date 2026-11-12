@@ -21,7 +21,6 @@ export const MENTIONABLE_TYPES = [
   'contact',
   'company',
   'campaign',
-  'deal',
   'flow',
   'calendar_event',
   'decision',

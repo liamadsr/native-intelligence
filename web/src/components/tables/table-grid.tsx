@@ -15,7 +15,7 @@
  * copy, sort and hide, nothing that writes.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, EyeOff, Maximize2, Pencil, Plus, Shapes, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, EyeOff, ListOrdered, Maximize2, Pencil, Plus, Shapes, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { CellGrid, type CellGridApi, type GridColumn, type PasteTarget } from '@/components/grid/cell-grid'
 import { selectionRange, type CellPos, type CellRange } from '@/components/grid/selection'
@@ -23,11 +23,11 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
-import { CUSTOM_FIELD_TYPE_LABELS, type CustomFieldType } from '@/lib/crm/custom-field-types'
+import { CUSTOM_FIELD_TYPE_LABELS, hasOptions, type CustomFieldType } from '@/lib/crm/custom-field-types'
 import { clipboardText, pastedValue, TITLE_KEY, type CellEdit } from '@/lib/tables/grid-edits'
-import type { DataColumn, DataRow } from '@/lib/tables/types'
+import type { DataColumn, DataRow, DataTable } from '@/lib/tables/types'
 import { CellDisplay, CellEditor, ColumnLabel, type CellColumn } from './cells'
-import { AddColumnForm, RenameDialog, TypeChangeDialog, type ColumnShape } from './column-forms'
+import { AddColumnForm, OptionsDialog, RenameDialog, TypeChangeDialog, type ColumnShape } from './column-forms'
 import { cellId, type TableData } from './use-table-data'
 
 export interface TableSort {
@@ -53,6 +53,10 @@ export const DEFAULT_WIDTH: Record<CustomFieldType, number> = {
 }
 
 export const asCell = (c: DataColumn): CellColumn => ({ key: c.key, label: c.label, field_type: c.field_type, options: c.options ?? [], config: c.config ?? {} })
+
+/** A pipeline's Stage column (540): its options are the stages, each open, won or lost. */
+export const isStageColumn = (table: Pick<DataTable, 'kind'> | null | undefined, c: Pick<DataColumn, 'key' | 'system'> | null | undefined): boolean =>
+  table?.kind === 'pipeline' && !!c?.system && c.key === 'stage'
 
 /** Whether the server can order a column's values (a person, a relation and a multi-select hold ids and lists). */
 export const isSortable = (t: CustomFieldType) => t !== 'person' && t !== 'relation' && t !== 'multi_select'
@@ -95,6 +99,7 @@ export function TableGrid({
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<DataColumn | null>(null)
   const [retyping, setRetyping] = useState<DataColumn | null>(null)
+  const [editingOptions, setEditingOptions] = useState<DataColumn | null>(null)
   const [adding, setAdding] = useState(false)
   const [contextRow, setContextRow] = useState<number | null>(null)
   const focusNewRow = useRef<string | null>(null)
@@ -125,6 +130,8 @@ export function TableGrid({
     const header = (col: CellColumn) => (
       <ColumnHeader
         column={col}
+        system={!!byKey.get(col.key)?.system}
+        stages={isStageColumn(table, byKey.get(col.key))}
         open={menuFor === col.key}
         onOpenChange={(open) => setMenuFor(open ? col.key : null)}
         canEdit={canEdit}
@@ -132,6 +139,7 @@ export function TableGrid({
         onSort={col.key === TITLE_KEY || isSortable(col.field_type) ? (dir) => onSort({ key: col.key, dir }) : undefined}
         onRename={() => setRenaming(byKey.get(col.key) ?? null)}
         onRetype={() => setRetyping(byKey.get(col.key) ?? null)}
+        onEditOptions={() => setEditingOptions(byKey.get(col.key) ?? null)}
         onHide={() => onHide(col.key)}
         onDelete={() => void deleteColumn(col.key)}
         onFocusGrid={() => apiRef.current?.focus()}
@@ -142,7 +150,7 @@ export function TableGrid({
       ...visible.map((c) => ({ id: c.key, label: c.label, width: widths[c.key] ?? DEFAULT_WIDTH[c.field_type], header: header(asCell(c)) })),
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, widths, menuFor, canEdit, sort, byKey])
+  }, [visible, widths, menuFor, canEdit, sort, byKey, table])
 
   const deleteColumn = async (key: string) => {
     const col = byKey.get(key)
@@ -354,6 +362,20 @@ export function TableGrid({
           onRename={(label) => data.columnOps([{ op: 'update_column', key: renaming.key, label }])}
         />
       )}
+      {editingOptions && (
+        <OptionsDialog
+          column={editingOptions}
+          outcomes={isStageColumn(table, editingOptions)}
+          onClose={() => setEditingOptions(null)}
+          onSave={async (options, config) => {
+            const result = await data.sendNow([{ op: 'update_column', key: editingOptions.key, options, config }])
+            if (!result.ok) return result.error
+            const changeId = result.changeId
+            toast(isStageColumn(table, editingOptions) ? 'Stages saved' : `Options of “${editingOptions.label}” saved`, changeId ? { action: { label: 'Undo', onClick: () => void data.undo(changeId) } } : undefined)
+            return null
+          }}
+        />
+      )}
       {retyping && (
         <TypeChangeDialog
           column={retyping}
@@ -379,6 +401,8 @@ export function TableGrid({
  */
 function ColumnHeader({
   column,
+  system,
+  stages,
   open,
   onOpenChange,
   canEdit,
@@ -386,11 +410,16 @@ function ColumnHeader({
   onSort,
   onRename,
   onRetype,
+  onEditOptions,
   onHide,
   onDelete,
   onFocusGrid,
 }: {
   column: CellColumn
+  /** A pipeline's own column (540): renamed and edited, never retyped or deleted. */
+  system: boolean
+  /** A pipeline's Stage column: its options are the stages. */
+  stages: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
   canEdit: boolean
@@ -399,6 +428,7 @@ function ColumnHeader({
   onSort?: (dir: 'asc' | 'desc') => void
   onRename: () => void
   onRetype: () => void
+  onEditOptions: () => void
   onHide: () => void
   onDelete: () => void
   onFocusGrid: () => void
@@ -426,10 +456,17 @@ function ColumnHeader({
             <DropdownMenuItem onSelect={onRename}>
               <Pencil className="h-3.5 w-3.5" /> Rename
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onRetype}>
-              <Shapes className="h-3.5 w-3.5" /> Change type
-              <span className="ml-auto text-xs text-muted-foreground">{CUSTOM_FIELD_TYPE_LABELS[column.field_type]}</span>
-            </DropdownMenuItem>
+            {hasOptions(column.field_type) && (
+              <DropdownMenuItem onSelect={onEditOptions}>
+                <ListOrdered className="h-3.5 w-3.5" /> {stages ? 'Edit stages' : 'Edit options'}
+              </DropdownMenuItem>
+            )}
+            {!system && (
+              <DropdownMenuItem onSelect={onRetype}>
+                <Shapes className="h-3.5 w-3.5" /> Change type
+                <span className="ml-auto text-xs text-muted-foreground">{CUSTOM_FIELD_TYPE_LABELS[column.field_type]}</span>
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
           </>
         )}
@@ -449,7 +486,7 @@ function ColumnHeader({
             <DropdownMenuItem onSelect={onHide}>
               <EyeOff className="h-3.5 w-3.5" /> Hide
             </DropdownMenuItem>
-            {canEdit && (
+            {canEdit && !system && (
               <DropdownMenuItem onSelect={onDelete} className="text-destructive focus:text-destructive">
                 <Trash2 className="h-3.5 w-3.5" /> Delete
               </DropdownMenuItem>

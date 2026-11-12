@@ -1,8 +1,9 @@
 /**
  * Custom fields (roadmap #8, migration 473; every kind, migration 496): a
  * workspace's own fields on the kinds the entity registry marks
- * `customFields` (deals, contacts, companies, tasks, projects, initiatives,
- * documents). A definition says what the field is called and what it holds
+ * `customFields` (contacts, companies, tasks, projects, initiatives,
+ * documents; a deal's are its pipeline's columns, src/lib/crm/deals.ts).
+ * A definition says what the field is called and what it holds
  * (the types, and how each is stored, are ./custom-field-types.ts); the
  * values live in each record's `custom_fields` jsonb, keyed by the
  * definition's `key` (a slug of its label, fixed at creation so a rename
@@ -44,10 +45,9 @@ export const CUSTOM_FIELD_KIND_NOUNS: Readonly<Record<CustomFieldEntity, { one: 
   action: { one: 'task', many: 'tasks' },
   initiative: { one: 'initiative', many: 'initiatives' },
   company: { one: 'company', many: 'companies' },
-  deal: { one: 'deal', many: 'deals' },
 }
 
-/** "deals, contacts, companies, tasks, projects, initiatives and documents", in registry order. */
+/** "documents, contacts, projects, tasks, initiatives and companies", in registry order. */
 export function customFieldKindList(form: 'one' | 'many' = 'many', joiner = 'and'): string {
   const words = CUSTOM_FIELD_ENTITIES.map((k) => CUSTOM_FIELD_KIND_NOUNS[k][form])
   return words.length > 1 ? `${words.slice(0, -1).join(', ')} ${joiner} ${words[words.length - 1]}` : words.join('')
@@ -306,8 +306,8 @@ export async function undoCustomFieldChange(
   return { ok: true, value: { change_id: String(r.change_id ?? ''), converted: Number(r.converted ?? 0), field } }
 }
 
-/** A kind whose values are set here (a deal's go through updateDeal, which logs them for undo). */
-export type CustomFieldRecordEntity = Exclude<CustomFieldEntity, 'deal'>
+/** A kind whose values are set here (a deal's are its pipeline's row, written through src/lib/crm/deals.ts). */
+export type CustomFieldRecordEntity = CustomFieldEntity
 
 /**
  * The checks a value write needs the database for (./custom-field-references.ts
@@ -331,7 +331,7 @@ export const customFieldNotFound = (entity: CustomFieldEntity) => `${capitalize(
 export const customFieldForbidden = (entity: CustomFieldEntity) => `You can't edit this ${CUSTOM_FIELD_KIND_NOUNS[entity].one}`
 
 /**
- * Sets custom field values on any record but a deal: checked against the
+ * Sets custom field values on a record: checked against the
  * kind's definitions, merged into its `custom_fields`, written to the kind's
  * own table. Returns the merged values.
  *

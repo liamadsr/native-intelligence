@@ -122,16 +122,17 @@ export const CARD_PAGES: readonly CardPage[] = [
     spec: () => ({ kind: 'mail', title: 'Inbox', mail: { folder: 'inbox' } }),
   },
   { slug: 'contacts', label: 'Contacts', description: 'Your CRM contacts', kind: 'list', view: 'contacts', keywords: ['crm', 'people'], spec: list('Contacts', 'contact') },
-  // The pipeline board (roadmap #8). It shares the Companies page's gate: deals
-  // are the CRM's accounts at work, on wherever companies are.
+  // The pipeline board (roadmap #8): the default pipeline's board, the other
+  // pipelines a step back (Tables, phase 7). It shares the Companies page's
+  // gate: deals are the CRM's accounts at work, on wherever companies are.
   {
     slug: 'deals',
     label: 'Deals',
     description: 'Your pipeline, by stage',
-    kind: 'list',
+    kind: 'pipelines',
     view: 'companies',
-    keywords: ['crm', 'pipeline', 'opportunities', 'sales'],
-    spec: () => ({ kind: 'list', title: 'Deals', entity_type: 'deal', filters: [], layout: 'board', grouping: { field: 'stage_id', direction: 'asc' } }),
+    keywords: ['crm', 'pipeline', 'pipelines', 'opportunities', 'sales'],
+    spec: () => ({ kind: 'pipelines', title: 'Deals', tab: 'board' }),
   },
   { slug: 'companies', label: 'Companies', description: 'Your CRM companies', kind: 'list', view: 'companies', keywords: ['crm', 'accounts'], spec: list('Companies', 'company') },
   { slug: 'prospecting', label: 'Prospecting', description: 'Your prospect lists', kind: 'prospecting', view: 'prospecting', keywords: ['prospects', 'leads'], spec: page('prospecting', 'Prospecting') },

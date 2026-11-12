@@ -1,6 +1,6 @@
 /**
  * The entity-type registry — ONE declaration of every kind of thing in the
- * app (task, doc, contact, deal, calendar event, team-chat message, …) and
+ * app (task, doc, contact, table row, calendar event, team-chat message, …) and
  * everything the rest of the codebase needs to know about it.
  *
  * Every other kind vocabulary is derived from this list or typed as a subset
@@ -412,24 +412,13 @@ export const ENTITY_REGISTRY = [
     sourceable: false,
   },
 
-  // ── Graph kinds added with the shared entity layer (2026-11-09). Linkable so
+  // ── Graph kinds added with the shared entity layer (2026-11-09). (A deal is
+  // a pipeline's row since 2026-11-12, migration 548: a data_row.) Linkable so
   // they can be linked and @mentioned; not citable, so the claim_source CHECK
   // (migration 264) and claim_neighborhood need no widening. Both are readable
   // by every workspace member (is_workspace_member RLS), so the graph's
   // workspace_id fence and service-role label reads (claims.ts resolveLabels)
   // show nothing a member couldn't already see.
-  {
-    id: 'deal',
-    table: 'deal',
-    workspaceScoped: { kind: 'column', table: 'deal' },
-    label: { table: 'deal', columns: 'name', render: (r) => str(r.name) },
-    realtime: true,
-    linkable: true,
-    activity: true,
-    customFields: true,
-    citable: false,
-    sourceable: false,
-  },
   {
     id: 'flow',
     table: 'flow',

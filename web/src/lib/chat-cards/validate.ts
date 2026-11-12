@@ -63,7 +63,7 @@ export const ID_FIELD_TYPES: ReadonlySet<string> = new Set([
 
 /** True for a field whose values are ids (workflow states included). */
 export function isIdField(def: FilterFieldDefinition): boolean {
-  return ID_FIELD_TYPES.has(def.type) || def.options === 'workflow_states' || def.options === 'deal_stages'
+  return ID_FIELD_TYPES.has(def.type) || def.options === 'workflow_states'
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

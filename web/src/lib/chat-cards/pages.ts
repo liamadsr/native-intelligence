@@ -35,6 +35,7 @@ export const PAGE_KIND_NAMES = [
   'evals',
   'campaigns',
   'tables',
+  'pipelines',
   'knowledge',
   'library',
   'teams',
@@ -180,6 +181,17 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     view: 'docs',
     target: { types: ['data_table', 'data_row'] },
     tabs: ['grid', 'board', 'calendar', 'gallery'],
+  },
+  // Deals (Tables, phase 7): the pipelines, each a table whose rows are
+  // deals. It opens on the default pipeline's board; `target` is a pipeline,
+  // or one deal (`in` names its pipeline). It shares the Companies page's
+  // gate, as the deals list did.
+  pipelines: {
+    label: 'Deals',
+    rows: 'pipelines',
+    view: 'companies',
+    target: { types: ['data_table', 'data_row'] },
+    tabs: ['board', 'grid', 'calendar', 'gallery'],
   },
   knowledge: {
     label: 'Knowledge',

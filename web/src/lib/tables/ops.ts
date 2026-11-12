@@ -43,7 +43,7 @@ type Checked<T> = { ok: true; value: T } | { ok: false; error: string }
 const fail = (error: string): { ok: false; error: string } => ({ ok: false, error })
 
 /** The columns a batch sees: every one the table has, deleted ones too (their keys stay taken). */
-type ColumnState = Pick<DataColumn, 'key' | 'label' | 'field_type' | 'options' | 'deleted_at'> & { config?: CustomFieldConfig | null }
+type ColumnState = Pick<DataColumn, 'key' | 'label' | 'field_type' | 'options' | 'deleted_at'> & { config?: CustomFieldConfig | null; system?: boolean }
 
 /**
  * A key for a new column: its label's slug, made unique against every key
@@ -102,8 +102,29 @@ function checkConfig(columns: Map<string, ColumnState>, key: string, fieldType: 
     if (!option) return fail(`${on.label} has no option "${rule.option}".`)
     cleaned.config.required_when = { key: rule.key, option }
   }
+  if (cleaned.config.outcomes) cleaned.config.outcomes = outcomesFor(columns.get(key)?.options ?? [], cleaned.config.outcomes)
   return { ok: true, value: cleaned.config }
 }
+
+/** A stage column's outcomes, kept to its options (any case), spelled as they are. */
+function outcomesFor(options: readonly string[], outcomes: NonNullable<CustomFieldConfig['outcomes']>): NonNullable<CustomFieldConfig['outcomes']> {
+  const out: NonNullable<CustomFieldConfig['outcomes']> = {}
+  for (const [name, outcome] of Object.entries(outcomes)) {
+    const option = options.find((o) => o.toLowerCase() === name.trim().toLowerCase())
+    if (option) out[option] = outcome
+  }
+  return out
+}
+
+/** Why a pipeline's own column can't take this op, or null. */
+const systemRefusal = (col: ColumnState, what: 'delete' | 'type' | 'link'): string | null =>
+  !col.system
+    ? null
+    : what === 'delete'
+      ? `${col.label} is a pipeline's own column: it can't be deleted.`
+      : what === 'type'
+        ? `${col.label} is a pipeline's own column: it keeps its type.`
+        : `${col.label} is a pipeline's own column: it keeps what it links.`
 
 /**
  * Required when (phase 2): the first column a row leaves empty while the
@@ -229,6 +250,15 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown, opts:
           const options = cleanOptions(Array.isArray(op.options) ? (op.options as string[]) : [])
           next.options = options
           col.options = options
+          // A stage that goes takes its outcome with it.
+          const outcomes = col.config?.outcomes
+          if (outcomes && !('config' in op)) {
+            const kept = outcomesFor(options, outcomes)
+            if (Object.keys(kept).length !== Object.keys(outcomes).length) {
+              next.config = { ...col.config, outcomes: kept }
+              col.config = next.config
+            }
+          }
         }
         if ('config' in op) {
           const config = checkConfig(cols, key, col.field_type, op.config)
@@ -236,6 +266,7 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown, opts:
           if (col.field_type === 'relation' && !sameRelationTarget(col.config?.target, config.value.target)) {
             return fail(`${col.label} links to something else: change its type to link it elsewhere.`)
           }
+          if (col.system && col.field_type === 'relation' && !!col.config?.multiple !== !!config.value.multiple) return fail(systemRefusal(col, 'link')!)
           next.config = config.value
           col.config = config.value
         }
@@ -247,6 +278,7 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown, opts:
         const key = str(op.key)
         const col = cols.get(key)
         if (!col || col.deleted_at) return fail(`No column "${key}" in this table.`)
+        if (col.system) return fail(systemRefusal(col, 'type')!)
         if (!isCustomFieldType(op.field_type)) return fail(`A column is one of: ${CUSTOM_FIELD_TYPES.join(', ')}.`)
         const fieldType = op.field_type
         // A select type given no options keeps the column's own, or (it had
@@ -267,6 +299,7 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown, opts:
         const key = str(op.key)
         const col = cols.get(key)
         if (!col) return fail(`No column "${key}" in this table.`)
+        if (op.op === 'delete_column' && col.system) return fail(systemRefusal(col, 'delete')!)
         col.deleted_at = op.op === 'delete_column' ? 'now' : null
         out.push({ op: op.op, key })
         break

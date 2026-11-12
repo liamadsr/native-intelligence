@@ -17,7 +17,7 @@
  *
  * What lights an icon is the card full screen now (components/chat-cards/
  * front-card.ts): the page's own kind, or a list or a record of what the page
- * lists (an action's card lights My Actions, a deal's Deals). Nothing full
+ * lists (an action's card lights My Actions, a pipeline's Deals). Nothing full
  * screen lights Home: the chat.
  *
  * Client-safe and pure.
@@ -60,7 +60,7 @@ export const RAIL_PAGES: readonly RailPageDef[] = [
   def('tables', 'plans', { kinds: ['tables'] }),
   def('companies', 'customers', { entities: ['company'] }),
   def('contacts', 'customers', { entities: ['contact'] }),
-  def('deals', 'customers', { entities: ['deal'] }),
+  def('deals', 'customers', { kinds: ['pipelines'] }),
   def('prospecting', 'customers', { kinds: ['prospecting'] }),
   def('sequences', 'customers', { kinds: ['sequences'] }),
   def('campaigns', 'customers', { kinds: ['campaigns'] }),

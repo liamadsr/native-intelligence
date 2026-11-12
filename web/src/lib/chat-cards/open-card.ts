@@ -98,6 +98,10 @@ export type OpenTarget =
   | { type: 'flow'; id: string; title?: string | null; runId?: string | null }
   | { type: 'sequence' | 'prospect_list' | 'eval_suite' | 'package' | 'agent' | 'skill' | 'team'; id: string; title?: string | null }
   | { type: 'eval_case' | 'eval_run'; id: string; title?: string | null; suiteId: string; suiteName?: string | null }
+  /** A deal: a pipeline's row (Tables, phase 7), open on the Deals page. */
+  | { type: 'deal'; id: string; title?: string | null; pipelineId: string }
+  /** A table's row, open in its table (the card finds the table when it isn't named). */
+  | { type: 'data_row'; id: string; title?: string | null; tableId?: string | null }
   | { type: 'team_board'; id: string; title?: string | null }
   | { type: 'work_item'; id: string; title?: string | null }
   | { type: 'bot'; teammateId: string; name?: string | null; item?: { itemId: string; title?: string | null } | null }
@@ -137,7 +141,6 @@ const RECORD_NOUN: Record<CardRecordType, string> = {
   project: 'Project',
   contact: 'Contact',
   company: 'Company',
-  deal: 'Deal',
 }
 
 /**
@@ -244,6 +247,19 @@ export function cardForTarget(target: OpenTarget, now: Date = new Date()): Targe
           title: label(target.title, target.type === 'agent' ? 'Agent' : 'Skill'),
           target: { type: target.type, id: target.id, label: label(target.title, target.type === 'agent' ? 'Agent' : 'Skill') },
           tab: target.type === 'agent' ? 'agents' : 'skills',
+        },
+      }
+    case 'deal':
+      if (!target.pipelineId) return null
+      return {
+        spec: { kind: 'pipelines', title: label(target.title, 'Deal'), target: { type: 'data_row', id: target.id, in: target.pipelineId, label: label(target.title, 'Deal') } },
+      }
+    case 'data_row':
+      return {
+        spec: {
+          kind: 'tables',
+          title: label(target.title, 'Row'),
+          target: { type: 'data_row', id: target.id, label: label(target.title, 'Row'), ...(target.tableId ? { in: target.tableId } : {}) },
         },
       }
     case 'team':
