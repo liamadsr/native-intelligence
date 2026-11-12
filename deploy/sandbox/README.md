@@ -2,7 +2,7 @@
 
 A second server, apart from the app's, that runs the coding agent's sandboxes and (later) the cloud browsers. It is separate so that untrusted code never shares a machine with the app and its database, and so that it can grow by itself.
 
-**Where this stands.** The server is set up and the runtime runs on it, tried by hand (see [What was tried](#what-was-tried)). The app does not use it yet: coding runs and cloud browsers still go to the hosted sandbox service ([`../README.md`](../README.md), "The coding agent"). What is still to build is listed under [Not done yet](#not-done-yet).
+**Where this stands.** The server is set up and the runtime runs on it, tried by hand (see [What was tried](#what-was-tried)). Its end of [the tunnel](#the-tunnel) to the app's server is set up; the app's end is not. The app does not use this server yet: coding runs and cloud browsers still go to the hosted sandbox service ([`../README.md`](../README.md), "The coding agent"). What is still to build is listed under [Not done yet](#not-done-yet).
 
 ## What runs here
 
@@ -64,7 +64,44 @@ IPv4 loopback is the one place the guard leaves to the runtime's proxy alone, si
 
 **A port that a container publishes is open to the internet whatever `ufw` says**: Docker sees to that itself. The runtime's own containers publish on loopback only. `check.sh` fails when any container publishes beyond loopback; the guard keeps sandboxes and this machine away from such a port, not the internet.
 
-The app's server will need the runtime's API (3000) and the sandboxes' traffic port (3002). Those two get opened to that one server only, over a private tunnel, when the tunnel is set up. They are never opened to the internet. Opening them takes a line in the guard's second rule as well as one in `ufw`: a `ufw` rule alone changes nothing, because the guard drops first.
+The app's server needs the runtime's API (3000) and the sandboxes' traffic port (3002). Those two are opened to that one server only, through [the tunnel](#the-tunnel), and never to the internet. Opening them takes a line in the guard's second rule as well as one in `ufw`: a `ufw` rule alone changes nothing, because the guard drops first. `tunnel.sh` sets both.
+
+## The tunnel
+
+A private link between the two servers ([`tunnel.sh`](tunnel.sh), WireGuard), with one address at each end: `10.200.77.1` for the app's server, `10.200.77.2` for this one. The app reaches the runtime at `http://10.200.77.2:3000` (its API) and `http://10.200.77.2:3002` (the sandboxes' traffic). The runtime speaks plain HTTP; the tunnel is what encrypts it and what says who is calling.
+
+The two ends are not alike, on purpose:
+
+- **The app's end dials out.** No port is opened on the app's server. Whatever arrives there through the tunnel is dropped unless it answers the app's own call, by a small firewall table of the tunnel's own that runs ahead of `ufw` and ahead of Docker. A `ufw` rule alone would not do it: Docker hands a connection for a port it publishes (the web's two, the calls' two) straight to its container, and `ufw`'s rules for what comes in never see it. `ufw` gets a matching rule as well, first in line, for whoever reads its list.
+- **This end listens on one UDP port (51820)**, opened in `ufw` to the app server's address alone. From the tunnel it takes connections to ports 3000 and 3002, from the app's tunnel address, and nothing else.
+- **Nothing here reaches into the tunnel.** The guard refuses everything this machine would send into it that does not answer the app's own call, and drops anything that would be passed on into it. So a sandbox cannot use this machine, or its proxy, to get at the app's server. One consequence for whoever wires the app: the runtime can never call the app back through the tunnel. Anything it must tell the app, the app asks for.
+
+The second point and the third are two locks on the same door, held by different servers: this server's guard, which someone who took this server over could remove, and the app server's own table, which they could not.
+
+To set it up, on each server from the repository's checkout:
+
+```bash
+sudo ./tunnel.sh key
+```
+
+That makes the end's key pair if it has none and prints its public key. The private key stays in a file only root can read and is never shown. It also installs the tunnel's package where it is missing, on the app's server too. Then give each end the other's public key:
+
+```bash
+# on the sandbox server
+sudo ./tunnel.sh sandbox --peer-key <the app server's public key> --peer-address <the app server's public IPv4 address>
+sudo ./check.sh
+
+# on the app's server
+sudo ./tunnel.sh app --peer-key <the sandbox server's public key> --endpoint <the sandbox server's public IPv4 address>
+sudo ./tunnel.sh check
+```
+
+The app's step ends by asking the runtime for its health answer through the tunnel, and fails when none comes. `sudo ./tunnel.sh check` there changes nothing and says whether the way in is closed and the runtime answers. `sudo ./tunnel.sh status` shows, at either end, the other end's public key and when the two last spoke. Each step is safe to run again, and a role run again with another key or address replaces the earlier one.
+
+On the app's server this installs a package, adds a network interface, a small firewall table and one `ufw` rule, and changes nothing else: no route but the one to this server's tunnel address, no port. Like everything done on that server, it is the owner's call.
+
+When this server is down, a call through the tunnel does not fail: it waits. Whatever calls the runtime needs its own time limit.
+
 
 ## Memory, and how many sandboxes fit
 
@@ -112,6 +149,7 @@ On the first server (4 cores, 8 threads, 32 GB, two spinning disks mirrored), by
 - **The guard.** With it taken out by hand, `check.sh` fails: the runtime answers on the machine's own addresses. With a container made to publish a port, a sandbox reached that port before rule 3 existed and not after, and `check.sh` fails either way, because the port is open to the internet. From another machine only SSH answered, and the guard's own counter showed it had dropped the tries at the runtime's ports itself, ahead of `ufw`. A connection the guard refuses fails at once (0.007 s); in a first version the refusal's own error message was refused too, and the caller waited out its timeout.
 - **A reboot.** Three times. The last, with the guard as it is now: the machine was back two minutes after the command; the guard was loaded 28 s into the boot, before Docker started; the runtime was ready by itself 3 min 45 s after the command, and `check.sh` passed with nothing done by hand. The first time, a sandbox paused before the reboot resumed after it in 1.4 s with its files and its running program. The one that was running was gone, and the runtime still listed it as running: whatever calls the runtime must expect that.
 - **How many.** With 16 GiB set aside, twenty base sandboxes ran at once (the runtime's own limit).
+- **The tunnel, this end only.** Set up with a stand-in for the app server's key: the check passes, and a reboot brings the guard, the tunnel and the runtime back in that order. The app end's table was rehearsed here with a pretend link and a container publishing a port on it: without the table the far end reached the published port, which is what would have happened on the app's server with a `ufw` rule alone; with it nothing came in, and calls going out were still answered. The app's end itself has not been run.
 - **A browser.** An image from a registry with a browser in it was built in 42 s. A 2 GiB sandbox from it started in 0.07 s; the browser answered from outside, through the traffic port, 3.8 s later; it was driven over a WebSocket (it opened a page); and it still showed that page after a pause (1.2 s) and a resume (0.5 s).
 
 ## Known gaps
@@ -125,7 +163,7 @@ On the first server (4 cores, 8 threads, 32 GB, two spinning disks mirrored), by
 
 ## Not done yet
 
-- The private tunnel to the app's server, and with it the two ports the app needs.
+- The app's end of the tunnel. This end is set up and waits, with a stand-in for the app server's key: run `tunnel.sh sandbox` again with the real one.
 - The piece that lets the coding agent use this runtime in place of the hosted service, with its own image.
 - The cloud browser on it.
 - A second setup from nothing on a wiped machine, timed.
