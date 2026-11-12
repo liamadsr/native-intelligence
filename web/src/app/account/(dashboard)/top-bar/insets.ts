@@ -1,8 +1,8 @@
 /**
  * The top bar's own insets from the row it spans (it starts after the app
  * rail): where its first control on the left and its last on the right sit.
- * The side panels line up with them (side-panels.tsx, chat/for-you-column.tsx:
- * Liam, 11-09, For you's cards under its button, not off to the side).
+ * The side panel lines up with them (side-panels.tsx: Liam, 11-09, the
+ * cards under their buttons, not off to the side).
  */
 import { MACOS_TRAFFIC_LIGHT_WIDTH } from '@/lib/platform'
 

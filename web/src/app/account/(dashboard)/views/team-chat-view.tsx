@@ -105,6 +105,9 @@ import { NewMeetingDialog } from '@/components/meeting-links/new-meeting-dialog'
 import { MeetingLinkBar } from '@/components/meeting-links/meeting-link-bar'
 import { MeetingsSection } from '@/components/meeting-links/meetings-section'
 import { Avatar, LinkPreviewCard, MessageAttachments, memberName, ReactButton, ReactionChips, ThreadBar, type Member } from './team-chat-message-parts'
+import { lastTeamChat, publishTeamChatCard, unpublishTeamChatCard, type TeamChatPanelConversation } from '@/components/chat-cards/team-chat-card-controls'
+import { useRailShown } from '../rail/rail-media'
+import { useOwnSubnavShown } from '../page-panel/subnav-on-screen'
 
 /**
  * Below this width the view shows one pane at a time (a phone, a narrow
@@ -178,7 +181,25 @@ export function TeamChatView({
   onCount,
   compact = false,
   focus = null,
-}: { onCount?: (count: number | null) => void; compact?: boolean; focus?: TeamChatFocus | null } = {}) {
+  cardId,
+  onShowCard,
+}: {
+  onCount?: (count: number | null) => void
+  compact?: boolean
+  focus?: TeamChatFocus | null
+  /**
+   * The card it is in (team-chat-card.tsx): what it has and where it is go to
+   * the page's sub-nav beside the rail (Liam, 11-11: "make the team-chat one
+   * look like this"; components/chat-cards/team-chat-card-controls.ts).
+   * Full screen from `md` up, that sub-nav is its one list: the card has no
+   * list and no divider of its own there (Liam, 11-11: "did you actually
+   * clean up the old one and remove it from the panel complely or did you do
+   * something the lazy way?").
+   */
+  cardId?: string
+  /** Put that card full screen (the sub-nav moves it from behind another card). */
+  onShowCard?: () => void
+} = {}) {
   const workspaceId = useWorkspaceId()
   const { teams } = useTeams()
   const { name: assistantName } = useAssistantName()
@@ -201,6 +222,8 @@ export function TeamChatView({
   const [openThread, setOpenThread] = useState<{ channelId: string; rootId: string } | null>(null)
   const [waitingOnAgent, setWaitingOnAgent] = useState<Record<string, number>>({})
   const [newChannelOpen, setNewChannelOpen] = useState(false)
+  // The team the New channel dialog opens with picked (the sub-nav's Team channels +); null: the whole workspace.
+  const [newChannelTeam, setNewChannelTeam] = useState<string | null>(null)
   const [newDmOpen, setNewDmOpen] = useState(false)
   const [newMeetingOpen, setNewMeetingOpen] = useState(false)
   // A meeting just made: the meetings section asks again.
@@ -214,6 +237,17 @@ export function TeamChatView({
   // a channel, then that channel, with Back to the list.
   const rootRef = useRef<HTMLDivElement>(null)
   const narrow = useNarrow(rootRef, compact ? TEAM_CHAT_TWO_PANE_MIN_COMPACT_PX : TEAM_CHAT_TWO_PANE_MIN_PX)
+  // The page's card full screen where the rail is (from `md` up): the
+  // sub-nav beside the rail is its list (page-panel/team-chat-panel.tsx), so
+  // the card has none, from its first render (a card mounts on the client,
+  // so the window is read then, never guessed), and the conversation fills
+  // it. Inline in the chat, below `md` (no rail, no sub-nav), with no card
+  // of its own, or while the sub-nav isn't on screen (a capture's notepad on
+  // the left, the panel closed: page-panel/subnav-on-screen.ts; Liam,
+  // 11-11), its list is as it always was.
+  const railShown = useRailShown()
+  const subnavShown = useOwnSubnavShown(cardId ? 'team-chat' : null)
+  const listInPanel = !!cardId && !compact && railShown && subnavShown
   const sectionRef = useRef<HTMLElement>(null)
   const threadOver = useNarrow(sectionRef, TEAM_CHAT_THREAD_BESIDE_MIN_PX)
   const [opened, setOpened] = useState(false)
@@ -227,8 +261,10 @@ export function TeamChatView({
   }
   // Opened, but its channel is gone (archived, or no longer readable): the list again, never an empty pane with no way back.
   const openedNow = opened && !!selectedId && !!channels?.some((c) => c.id === selectedId)
-  const showList = !narrow || !openedNow
-  const showChannel = !narrow || openedNow
+  const showList = !listInPanel && (!narrow || !openedNow)
+  const showChannel = listInPanel || !narrow || openedNow
+  // One pane on screen (the conversation beside the sub-nav, or a phone's one at a time): no divider.
+  const onePane = listInPanel || narrow
   // The channel on screen: the one read marks are for. The first channel is
   // picked for the person when the list loads, but on a phone it isn't on
   // screen until they open it, and its messages stay unread until then.
@@ -782,6 +818,60 @@ export function TeamChatView({
     setSelectedId(id)
     setOpened(true)
   }, [])
+  // What the card has and where it is, for the page's sub-nav (Liam, 11-11):
+  // the conversations as this list draws them (current with every realtime
+  // change), the one on screen, and its moves: the same openChannel, the
+  // same New channel and New message dialogs.
+  const panelConversations = useMemo<TeamChatPanelConversation[]>(
+    () =>
+      (channels ?? [])
+        .filter((c) => c.kind !== 'meeting' || teamCalls.available)
+        .map((c) => {
+          const person = c.kind === 'dm' && c.dm_member_id ? membersById.get(c.dm_member_id) : undefined
+          const team = c.team_id ? teamsById.get(c.team_id) : undefined
+          return {
+            channel: c,
+            title: channelTitle(c),
+            teamName: team?.name ?? null,
+            privateTeam: !!team?.is_private,
+            person: c.kind === 'dm' ? { name: memberName(person), url: person?.avatar_url ?? null } : null,
+          }
+        }),
+    [channels, teamCalls.available, membersById, teamsById, channelTitle],
+  )
+  const onShowCardRef = useRef(onShowCard)
+  onShowCardRef.current = onShowCard
+  // Said from its first commit, not once its list is read (Liam, 11-11: "it
+  // goes away completely and reappears every time"): until then, the last
+  // conversations this workspace's card said (kept by the bridge after it
+  // went), marked `pending`, so the sub-nav has them and its moves at once;
+  // its own read, as before, replaces them.
+  useEffect(() => {
+    if (!cardId) return
+    const pending = channels === null
+    publishTeamChatCard({
+      cardId,
+      workspaceId: workspaceId ?? null,
+      conversations: pending ? (lastTeamChat(workspaceId ?? null)?.conversations ?? []) : panelConversations,
+      pending,
+      openId: onScreen,
+      open: openChannel,
+      newChannel: (teamId) => {
+        setNewChannelTeam(teamId)
+        setNewChannelOpen(true)
+      },
+      newDm: () => setNewDmOpen(true),
+      newMeeting: teamCalls.available ? () => setNewMeetingOpen(true) : null,
+      meetingsKey,
+      liveMeetings: liveMeetingChannels,
+      show: () => onShowCardRef.current?.(),
+    })
+  }, [cardId, channels, workspaceId, panelConversations, onScreen, openChannel, teamCalls.available, meetingsKey, liveMeetingChannels])
+  useEffect(() => {
+    if (!cardId) return
+    return () => unpublishTeamChatCard(cardId)
+  }, [cardId])
+
   // Back to the list (a phone): the focus goes to the channel's row, where they were.
   const backToList = useCallback(() => {
     setOpened(false)
@@ -984,7 +1074,7 @@ export function TeamChatView({
               onLoadEarlier={(before) => loadEarlier(selected.id, before)}
               windowed={!!windowed[selected.id]}
               onJumpToNewest={() => void loadMessages(selected.id, { fresh: true })}
-              onBack={narrow ? backToList : undefined}
+              onBack={narrow && !listInPanel ? backToList : undefined}
               onNotify={(level) => void setNotify(selected.id, level)}
               focusId={focused && !focused.rootId && focused.channelId === selected.id ? focused.id : null}
               onFocusShown={onFocusShown}
@@ -1019,26 +1109,42 @@ export function TeamChatView({
   )
 
   return (
-    <div ref={rootRef} data-team-chat-panes={narrow ? (openedNow ? 'channel' : 'list') : 'both'} className="flex h-full min-h-0">
+    <div
+      ref={rootRef}
+      data-team-chat-panes={listInPanel ? 'channel' : narrow ? (openedNow ? 'channel' : 'list') : 'both'}
+      className="flex h-full min-h-0"
+    >
       {/* The list and the messages split as Mail's are, by a line with a
           grip that resizes them (Liam, 11-09: "the same type of divider that
-          we have for the main page"). Narrow (a phone), one pane at a time:
-          the other panel hidden (the `hidden` attribute, which the panel's
-          inline display can't override) and no divider. One tree either way,
-          so crossing the width keeps the open channel as it was: its draft,
-          an edit, where it was scrolled to, the focus. */}
-      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-        <ResizablePanel
-          id="team-chat-list"
-          hidden={narrow && !showList}
-          defaultSize={compact ? '32%' : '26%'}
-          minSize={compact ? '176px' : '18%'}
-          maxSize="45%"
-          className="flex min-h-0 flex-col"
-        >
-          {list}
-        </ResizablePanel>
-        {!narrow && <ResizableHandle withHandle />}
+          we have for the main page"). Beside the sub-nav (listInPanel) the
+          list isn't there at all: no panel, no divider. Narrow (a phone), one
+          pane at a time: the other panel hidden (the `hidden` attribute,
+          which the panel's inline display can't override) and no divider.
+          One tree throughout (the channel's panel keeps its place among the
+          group's children), so crossing a width keeps the open channel as it
+          was: its draft, an edit, where it was scrolled to, the focus.
+          With one pane on screen the group is disabled, its cursor too
+          (Liam, 11-11: "when I hover over the teams panel my coursor turns
+          into the resize tool even if I'm not trying to resize"): a hidden
+          panel stays registered with a zero box at the window's corner, and
+          the library's divider hit region then ran from the window's left
+          edge to the visible pane, over the rail and the sub-nav, setting a
+          document-wide `ew-resize` cursor and taking a press there as a
+          resize. Only a real divider between two panes on screen resizes. */}
+      <ResizablePanelGroup orientation="horizontal" disabled={onePane} disableCursor={onePane} className="min-h-0 flex-1">
+        {listInPanel ? null : (
+          <ResizablePanel
+            id="team-chat-list"
+            hidden={narrow && !showList}
+            defaultSize={compact ? '32%' : '26%'}
+            minSize={compact ? '176px' : '18%'}
+            maxSize="45%"
+            className="flex min-h-0 flex-col"
+          >
+            {list}
+          </ResizablePanel>
+        )}
+        {onePane ? null : <ResizableHandle withHandle />}
         <ResizablePanel id="team-chat-channel" hidden={narrow && !showChannel} minSize="40%" className="flex min-h-0 min-w-0 flex-col">
           {pane}
         </ResizablePanel>
@@ -1046,10 +1152,15 @@ export function TeamChatView({
 
       <NewChannelDialog
         open={newChannelOpen}
-        onOpenChange={setNewChannelOpen}
+        onOpenChange={(open) => {
+          setNewChannelOpen(open)
+          if (!open) setNewChannelTeam(null)
+        }}
+        teamId={newChannelTeam}
         teams={teams.map((t) => ({ id: t.id, name: t.name }))}
         onCreated={async (id) => {
           setNewChannelOpen(false)
+          setNewChannelTeam(null)
           await loadChannels()
           openChannel(id)
         }}
@@ -2054,7 +2165,9 @@ function Composer({
   }
 
   return (
-    <div className="relative shrink-0 px-2 pb-6" data-team-chat-composer data-thread={threadRootId ?? undefined}>
+    // At the main chat's reading width at most, centred (Liam, 11-11: across the whole card it was "a bit too long … more
+    // contained … a nice amount of empty space each side"); a narrower pane (a thread's, a phone) is unchanged.
+    <div className="relative mx-auto w-full max-w-[var(--chat-reading-max)] shrink-0 px-2 pb-6" data-team-chat-composer data-thread={threadRootId ?? undefined}>
       {/* Under the box, in its own bottom margin: it never covers a message nor moves one, and nothing is drawn when nobody types. */}
       {typing && (
         <p className="pointer-events-none absolute bottom-1 left-6 right-6 truncate text-xs leading-4 text-muted-foreground" aria-live="polite" data-team-chat-typing="">
@@ -2088,11 +2201,14 @@ function Composer({
 function NewChannelDialog({
   open,
   onOpenChange,
+  teamId: pickedTeam = null,
   teams,
   onCreated,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** The team picked when it opens (the sub-nav's Team channels +); null: everyone in the workspace. */
+  teamId?: string | null
   teams: Array<{ id: string; name: string }>
   onCreated: (id: string) => void | Promise<void>
 }) {
@@ -2105,9 +2221,11 @@ function NewChannelDialog({
     if (open) {
       setName('')
       setTopic('')
-      setTeamId('')
+      setTeamId(pickedTeam && teams.some((t) => t.id === pickedTeam) ? pickedTeam : '')
       setError(null)
     }
+    // Only as it opens: the person's own pick stands after that.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
   const create = async () => {
     if (!name.trim() || saving) return

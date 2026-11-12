@@ -467,8 +467,9 @@ server's stack.
 
 `.github/workflows/image.yml` runs the same two steps on every pull request that
 touches this folder or what the image is built from (web's dependencies, patches,
-`next.config.mjs`, the agents, `web/vercel.json`), and runs the web test suite as a
-separate job.
+`next.config.mjs`, the agents, `web/vercel.json`). It does not run the web test
+suite, and neither does the image build: the suite is run locally before a push
+(`npm test` in `web/`, on Node 24), so a roll-out never runs it.
 
 ## One image, four roles
 

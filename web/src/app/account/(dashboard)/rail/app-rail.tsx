@@ -5,14 +5,27 @@
  * move between the pages, floating at the window's left.
  *
  *   the header  one pill at the top left, over the top bar: the
- *               workspace's thumbnail (its account menu), For you's button,
- *               and Search (Liam, 11-09).
- *   the bar     down the left, just under the header: the pages the
- *               person has pinned, in their order (./rail-pages.ts
- *               railLayout; by default every page the workspace has on, a
- *               hairline between its groups: your work, plans, customers,
- *               agents), then Customize bar's icon. Where the window is too
- *               short it scrolls.
+ *               workspace's thumbnail (its account menu) and Search (Liam,
+ *               11-09; For you's button moved to the top bar's right header,
+ *               beside the side panel's, 11-11: its cards are one of the
+ *               side panel's views now), then the Recent panel's button
+ *               (Liam, 11-11: "a button for opening and closing the new
+ *               panel lets put it to the right of the search button";
+ *               page-panel/page-panel-toggle.tsx), there only while the
+ *               panel has something to show.
+ *   the bar     down the left, just under the header: Home first, a
+ *               hairline, then the pages the person has pinned, in their
+ *               order (./rail-pages.ts railLayout; by default every page the
+ *               workspace has on, a hairline between its groups: your work,
+ *               customers, agents), then Customize bar's icon. Where
+ *               the window is too short it scrolls. Liam, 11-11: Projects,
+ *               Initiatives and Teams nest under Tasks: no icons of their own
+ *               (rail-pages.ts NESTED_RAIL_PAGES), they open inside My
+ *               Actions on its sub-nav's rows. Liam, 11-11: "Contacts:
+ *               Companies, Contacts, Deals · Outreach: Prospecting,
+ *               Sequences, Campaigns · Calendar: Captures": one icon per
+ *               page group (./page-groups.ts), its member pages in its
+ *               sub-nav in the page panel.
  *
  * The person's bar (Liam, 11-09: "customise the navigation like move them up
  * and down, right click and pin and unpin them … a setting icon that lets me
@@ -25,17 +38,29 @@
  *
  *   Search   the `/` palette, as ⌘K and `/` open it (the top bar's own
  *            Search is a phone's only now: Liam, 11-09).
- *   (No Home or New button, Liam 11-09: "we don't need this button". A
- *   page's X and Esc put it away; the composer is the chat's.)
+ *   Home     (Liam, 11-11: "I think we should add a homepage icon on the
+ *            navside for it", back after 11-09's "we don't need this
+ *            button"): the chat. Puts away whatever card is in front, as a
+ *            page's X and Esc do (front-card.ts minimizeFrontCards: into the tile). Fixed at
+ *            the bar's top: not in Customize bar, never dragged, unpinned or
+ *            counted in the person's saved order. Still no New button.
  *   a page   opens as `/` opens it (openTarget `page`): full screen in the
  *            main chat, the same card brought back when it was opened before.
  *            Another page open already is switched in place.
+ *   a group  opens its member page last used on this device, else its
+ *            default (page-groups.ts groupOpenSlug), the same way. Lit while
+ *            any member page is selected.
  *   workspace  the workspace and account menu (WorkspaceSwitcher `header`:
  *            switch workspace, Settings, sign out…), the one place it lives
  *            from `md` up (Liam, 11-09: the top bar's pill is a phone's only now).
  *
- * The page in front is lit (components/chat-cards/front-card.ts). A page full screen starts at the rail's edge and under the header
- * (show-tool-card.tsx), so both stay at hand while a page is open.
+ * The selected place is lit (Liam, 11-11: "when you open differnet artifacts
+ * you don't see the pages like cal and actions page get selected"):
+ * ./selected-place.ts. A page lights only while it is selected (its own card
+ * in front, the person moving about inside it); Home with nothing in front
+ * and under anything opened from home (the Recent panel, a chip, Search, a
+ * notification). A page full screen starts at the rail's edge and under the
+ * header (show-tool-card.tsx), so both stay at hand while a page is open.
  *
  * Its width is `--app-rail-w` (tailwind.css, `[data-app-rail]`): the shell
  * moves its top bar and chat clear of it. The header's right edge and bottom
@@ -47,35 +72,11 @@
  * of the actual panels"): the floating cards' glass (attention/card-skin.ts
  * COLUMN_CARD_SKIN), their translucent fill, blur, fine edge and soft shadow.
  *
- * Flat cost: no animation, no polling; it redraws when a card enters or leaves
- * full screen, or the workspace's edition changes.
+ * Flat cost: no animation, no polling; it redraws when the selected place
+ * changes, or the workspace's edition changes.
  */
 import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import {
-  AudioLines,
-  Brain,
-  Building2,
-  Calendar,
-  Contact,
-  FlaskConical,
-  Folder,
-  FolderKanban,
-  HandCoins,
-  LayoutList,
-  ListChecks,
-  Mail,
-  Megaphone,
-  MessagesSquare,
-  Search,
-  Send,
-  Settings2,
-  Sparkles,
-  Target,
-  Telescope,
-  Users,
-  Workflow,
-  type LucideIcon,
-} from 'lucide-react'
+import { House, LayoutList, Search, Settings2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getMountedServerSnapshot, getMountedSnapshot, subscribeMounted, useHasTrafficLights, useIsDesktop } from '@/components/desktop-titlebar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -87,9 +88,8 @@ import { WorkspaceSwitcher, useWorkspaceEdition } from '@/app/account/workspace-
 import { pagesFor } from '@/lib/chat-cards/page-menu'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { openSearch } from '@/lib/chat/open-search'
-import { ForYouToggle } from '../side-panels/side-panel-toggles'
 import { useModKeyLabel } from '@/lib/hotkeys'
-import { frontCard, subscribeFrontCard } from '@/components/chat-cards/front-card'
+import { minimizeFrontCards } from '@/components/chat-cards/front-card'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
 import { isDefaultRailPrefs, type RailPrefs } from '@/lib/rail-prefs'
 import { saveRailPrefs, useRailPrefs } from '@/lib/rail-prefs-store'
@@ -106,6 +106,10 @@ import {
   type RailPageId,
 } from './rail-pages'
 import { startRailDrag } from './rail-drag'
+import { groupOpenSlug, isPageGroupId } from './page-groups'
+import { RAIL_ICONS } from './rail-icons'
+import { useSelectedPlace } from './selected-place'
+import { PagePanelToggle } from '../page-panel/page-panel-toggle'
 
 /** On the shell root (server markup) and <html> (for the layer on <body>): defines `--app-rail-w`. */
 export const APP_RAIL_ATTR = 'data-app-rail'
@@ -126,29 +130,6 @@ const NAV_STYLE: React.CSSProperties = { width: 'var(--app-rail-w)', top: 'calc(
 const PILL = cn('relative flex flex-col items-center gap-0.5 rounded-full border border-border/60 p-1', COLUMN_CARD_SKIN)
 /** The hairline between two of the bar's groups, and before Customize bar. */
 const HAIRLINE = 'my-1 h-px w-5 shrink-0 bg-foreground/10'
-
-/** Each page's icon: the rail's own for Liam's reference pages, the `/` menu's for the rest (command-menu.tsx). */
-const PAGE_ICONS: Record<RailPageId, LucideIcon> = {
-  docs: Folder,
-  mail: Mail,
-  'team-chat': MessagesSquare,
-  actions: ListChecks,
-  calendar: Calendar,
-  captures: AudioLines,
-  projects: FolderKanban,
-  initiatives: Target,
-  knowledge: Brain,
-  flows: Workflow,
-  companies: Building2,
-  contacts: Contact,
-  deals: HandCoins,
-  prospecting: Telescope,
-  sequences: Send,
-  campaigns: Megaphone,
-  agents: Sparkles,
-  evals: FlaskConical,
-  teams: Users,
-}
 
 // A tint of the foreground for hover and the lit page: it reads on the rail's
 // surface in light and dark alike (bg-muted is the surface's own shade in light).
@@ -215,7 +196,7 @@ function commit(next: RailPrefs | null): boolean {
 
 /** A page's icon in the bar: a click opens it, a drag or Alt+↑/↓ moves it, a right-click offers its menu. */
 function PageButton({
-  entry: { def, page },
+  entry: { def, label },
   index,
   count,
   active,
@@ -235,7 +216,7 @@ function PageButton({
   onCustomize: () => void
   onMenuClosed: (event: Event) => void
 }) {
-  const Icon = PAGE_ICONS[def.id] ?? LayoutList
+  const Icon = RAIL_ICONS[def.id] ?? LayoutList
   return (
     <ContextMenu modal={false}>
       <Tooltip>
@@ -243,7 +224,7 @@ function PageButton({
           <ContextMenuTrigger asChild>
             <button
               type="button"
-              aria-label={page.label}
+              aria-label={label}
               aria-current={active ? 'page' : undefined}
               aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
               data-app-rail-item={def.id}
@@ -266,7 +247,7 @@ function PageButton({
           </ContextMenuTrigger>
         </TooltipTrigger>
         <TooltipContent side="right" sideOffset={8} collisionPadding={8} className={TIP}>
-          <span>{page.label}</span>
+          <span>{label}</span>
         </TooltipContent>
       </Tooltip>
       <ContextMenuContent data-app-rail-menu={def.id} className="min-w-44" onCloseAutoFocus={onMenuClosed}>
@@ -304,7 +285,8 @@ function CustomizeBar({
   onPinned: (id: RailPageId, pinned: boolean) => void
   onReset: () => void
 }) {
-  const hidden = new Set(prefs?.hidden ?? [])
+  // Read as the bar reads them (a group hidden only when all its members are: rail-pages.ts railLayout).
+  const unpinned = new Set(layout.all.filter((p) => !layout.shown.includes(p)).map((p) => p.def.id))
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <Tooltip>
@@ -333,17 +315,17 @@ function CustomizeBar({
           <p className="mt-0.5 text-xs text-muted-foreground">Hidden pages still open from Search and /.</p>
         </div>
         <ul className="min-h-0 flex-1 overflow-y-auto">
-          {layout.all.map(({ def, page }) => {
-            const Icon = PAGE_ICONS[def.id] ?? LayoutList
+          {layout.all.map(({ def, label }) => {
+            const Icon = RAIL_ICONS[def.id] ?? LayoutList
             return (
               <li key={def.id} data-app-rail-customize-row={def.id}>
                 <label className="flex cursor-pointer items-center gap-2.5 rounded-xl px-2 py-1.5 text-sm hover:bg-accent/60">
                   <Icon className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
-                  <span className="min-w-0 flex-1 truncate">{page.label}</span>
+                  <span className="min-w-0 flex-1 truncate">{label}</span>
                   <Switch
-                    checked={!hidden.has(def.id)}
+                    checked={!unpinned.has(def.id)}
                     onCheckedChange={(on) => onPinned(def.id, on)}
-                    aria-label={`Show ${page.label} in the bar`}
+                    aria-label={`Show ${label} in the bar`}
                   />
                 </label>
               </li>
@@ -383,15 +365,14 @@ export function AppRail() {
   // does; only `/` leaves them out where its chat may not read them.
   const pages = useMemo(() => railPagesFor(pagesFor(edition, { desktop })), [edition, desktop])
   const offeredIds = useMemo(() => pages.map((p) => p.def.id), [pages])
-  const front = useSyncExternalStore(subscribeFrontCard, frontCard, () => null)
-  const active = activeRailItem(front?.spec ?? null, pages)
+  const active = activeRailItem(useSelectedPlace(), pages)
 
   // The person's bar: their pinned pages in their order (the default: every page, the rail's).
   const prefs = useRailPrefs()
   const layout = useMemo(() => railLayout(pages, prefs), [pages, prefs])
 
-  // The bar's groups, a hairline between two (your work, plans, customers,
-  // agents), while the order is the default; the person's own order is one list.
+  // The bar's groups, a hairline between two (your work, customers, agents;
+  // a section with no page on draws nothing), while the order is the default; the person's own order is one list.
   const groups = useMemo(() => {
     if (layout.custom) return layout.shown.length ? [{ group: 'custom', pages: layout.shown }] : []
     const out: Array<{ group: string; pages: OfferedRailPage[] }> = []
@@ -411,7 +392,7 @@ export function AppRail() {
   // a moved node loses its focus), and says where it went (side-panels.tsx).
   const [announcement, setAnnouncement] = useState('')
   const refocus = useRef<RailPageId | null>(null)
-  const label = (id: RailPageId) => pages.find((p) => p.def.id === id)?.page.label ?? id
+  const label = (id: RailPageId) => pages.find((p) => p.def.id === id)?.label ?? id
   const moveTo = (id: RailPageId, to: number) => {
     const count = layout.shown.length
     if (!commit(moveRailPage(prefs, offeredIds, id, to))) return
@@ -468,7 +449,7 @@ export function AppRail() {
   }, [mounted])
 
   const pageButton = (entry: OfferedRailPage) => {
-    const { def, page } = entry
+    const { def, page, members } = entry
     return (
       <PageButton
         key={def.id}
@@ -477,7 +458,9 @@ export function AppRail() {
         count={layout.shown.length}
         active={active === def.id}
         onOpen={() => {
-          openTarget({ type: 'page', slug: page.slug }, { from: 'rail' })
+          // A group: its member last used here, else its default (Liam, 11-11: page groups).
+          const slug = members && isPageGroupId(def.id) ? (groupOpenSlug(def.id, members.map((m) => m.slug)) ?? page.slug) : page.slug
+          openTarget({ type: 'page', slug }, { from: 'rail' })
           // Already in front: nothing changes, so the page takes the keys back (a click left them on this button).
           if (active === def.id) focusFrontPage()
         }}
@@ -500,8 +483,8 @@ export function AppRail() {
       {trafficLights && <div data-tauri-drag-region="" aria-hidden className="absolute left-0 top-0 z-30 hidden h-11 md:block" style={{ width: 'var(--app-rail-w)' }} />}
 
       {/* The header (Liam, 11-09, from Miro's board header): the workspace's
-          thumbnail (its account menu), For you, and Search, in one floating
-          pill at the top left, over the top bar. */}
+          thumbnail (its account menu), Search and the Recent panel's
+          button, in one floating pill at the top left, over the top bar. */}
       <div
         ref={headerRef}
         data-app-rail-header=""
@@ -513,8 +496,6 @@ export function AppRail() {
             <div data-app-rail-item="workspace" className="flex">
               <WorkspaceSwitcher variant="header" />
             </div>
-            {/* For you's button (it shows only while the bots have brought something). */}
-            <ForYouToggle variant="header" />
             <RailButton
               label="Search"
               hint={<kbd className={KBD}>{searchKey}</kbd>}
@@ -525,9 +506,12 @@ export function AppRail() {
             >
               <Search className="size-[18px]" strokeWidth={1.75} />
             </RailButton>
+            {/* The Recent panel beside the rail: opens and closes it (only while it has rows). */}
+            <PagePanelToggle />
           </TooltipProvider>
         ) : (
           // Its size until the controls mount (after hydration), so nothing moves.
+          // The Recent button isn't counted: it comes only once its rows are read, after mount.
           <div aria-hidden className="h-8 w-56" />
         )}
       </div>
@@ -547,9 +531,14 @@ export function AppRail() {
             <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto overflow-x-hidden pb-2 [scrollbar-width:none]">
               <div className="flex flex-col items-start gap-1.5 pl-2">
                 <div data-app-rail-pill="pages" className={PILL}>
+                  {/* Home (Liam, 11-11), fixed at the top: the chat, every card in front put away. Not one of the person's pages. */}
+                  <RailButton label="Home" active={active === 'home'} onClick={minimizeFrontCards} data={{ 'data-app-rail-item': 'home' }}>
+                    <House className="size-[18px]" strokeWidth={1.75} />
+                  </RailButton>
+                  <div aria-hidden data-app-rail-home-line="" className={HAIRLINE} />
                   {groups.map((g, i) => (
                     <div key={g.group} data-app-rail-group={g.group} className="flex flex-col items-center gap-0.5">
-                      {/* A hairline where a group starts (your work, plans, customers, agents). */}
+                      {/* A hairline where a group starts (your work, customers, agents). */}
                       {i > 0 && <div aria-hidden data-app-rail-group-line="" className={HAIRLINE} />}
                       {g.pages.map(pageButton)}
                     </div>
