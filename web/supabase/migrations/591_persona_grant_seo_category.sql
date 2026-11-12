@@ -1,8 +1,11 @@
--- Migration 592: keep every-category personas inherit-all after the `seo`
--- tool category was added (the SEO area's site audit: start_site_audit,
--- list_site_audits, get_site_audit, get_site_audit_issues,
--- get_site_audit_pages, cancel_site_audit, src/lib/ai/tools/seo.ts). The
--- 293 / 387 pattern, one category later.
+-- Migration 591: keep every-category personas inherit-all after the `seo`
+-- tool category was added (the SEO area's tools, src/lib/ai/tools/seo*.ts).
+-- The 293 / 387 pattern, one category later.
+--
+-- Apply it before the code is rolled out, and run it once more after: a
+-- persona saved with all 25 categories from a tab that still had the old
+-- code is caught by the second run (it changes nothing where there is
+-- nothing to change).
 --
 -- agentInheritsAllTools (src/lib/live-agent/read-tool-names.ts) is true only
 -- when EVERY registry category is enabled. Adding a 26th category (`seo`)

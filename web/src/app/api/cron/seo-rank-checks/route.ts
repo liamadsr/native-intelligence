@@ -30,9 +30,10 @@ export async function GET(request: NextRequest) {
   if (denied) return denied
   try {
     const summary = await runScheduledRankChecksNow(getServiceClient())
-    const log =
-      summary.errors + summary.unreadable > 0 ? console.error : console.log
-    log('[seo-rank cron] tick', summary)
+    // A tick with nothing due says nothing: it runs every 15 minutes.
+    if (summary.errors + summary.unreadable > 0)
+      console.error('[seo-rank cron] tick', summary)
+    else if (summary.due > 0) console.log('[seo-rank cron] tick', summary)
     return NextResponse.json({ ok: true, ...summary })
   } catch (err) {
     console.error('[seo-rank cron] tick failed', err)

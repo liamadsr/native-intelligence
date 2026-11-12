@@ -773,7 +773,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     id: 'seo',
     label: 'SEO',
     description:
-      "Search engine optimisation for the business's website (or any public site): audit it, research keywords and competitors, track rankings, read Google Search Console and Analytics, backlinks, how AI assistants answer about the business, and its Google Maps presence. With no site named, the workspace's own website. Load the seo-guide skill first.",
+      "SEO for a website: site audits, keyword and competitor research, rank tracking, Search Console and Analytics reports, backlinks, AI visibility, and the Google Maps listing. With no site named, the workspace's own. Load the seo-guide skill first.",
     icon: '🔎',
     tools: [
       { name: 'start_site_audit', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Start Site Audit', description: 'Crawl a website politely and check every page for SEO problems (broken links, titles, descriptions, headings, canonicals, redirects, thin content); runs in the background for a few minutes' },
