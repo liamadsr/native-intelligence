@@ -51,7 +51,9 @@ export function createRankRunStore(svc: SupabaseClient): RankRunStore {
     async getRun(runId) {
       const { data, error } = await svc
         .from('seo_rank_run')
-        .select('id, tracker_id, workspace_id, trigger, status, started_by')
+        .select(
+          'id, tracker_id, workspace_id, trigger, status, started_by, estimate_usd',
+        )
         .eq('id', runId)
         .maybeSingle()
       if (error) throw new Error(`seo_rank_run read failed: ${error.message}`)

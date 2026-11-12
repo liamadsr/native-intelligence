@@ -23,7 +23,9 @@ import {
   type ReadPair,
   type TrackerRecord,
 } from '../engine'
+import { estimateRankCheckUsd } from '@/lib/seo/shared/rank-tracking'
 import { postKey, snapshotRowId } from '../ids'
+import { roundUsd } from '../view'
 import {
   createMemoryRankStore,
   memoryRun,
@@ -159,6 +161,8 @@ function stubPort(
 function setup(
   opts: {
     trigger?: 'manual' | 'scheduled'
+    /** What the start priced (default: the tracker as seeded, like a real start). */
+    estimate?: number
     spent?: number
     trackerOverrides?: Partial<TrackerRecord>
     keywords?: typeof KEYWORDS
@@ -166,6 +170,7 @@ function setup(
     previous?: boolean
   } = {},
 ) {
+  const seeded = tracker(opts.trackerOverrides)
   const runs = [
     memoryRun({
       id: RUN,
@@ -173,6 +178,15 @@ function setup(
       workspace_id: WS,
       trigger: opts.trigger ?? 'manual',
       started_by: opts.trigger === 'scheduled' ? null : PERSON,
+      estimate_usd:
+        opts.estimate ??
+        roundUsd(
+          estimateRankCheckUsd(
+            (opts.keywords ?? KEYWORDS).map((k) => k.keyword),
+            seeded.devices,
+            seeded.serp_depth,
+          ).costUsd,
+        ),
     }),
   ]
   if (opts.previous)
@@ -524,6 +538,61 @@ describe('runRankCheck', () => {
       await runRankCheck(step, d, { runId: RUN, workspaceId: WS }),
     ).toMatchObject({ skipped: 'not_claimable' })
     expect(posts.length).toBe(0)
+  })
+
+  it('a manual check buys at most what its start priced: a tracker that grew since fails it before anything is bought', async () => {
+    // Started (and priced) with one keyword, mobile, depth 20.
+    const { mem, clock } = setup({
+      estimate: roundUsd(
+        estimateRankCheckUsd(['plumber austin'], 'mobile', 20).costUsd,
+      ),
+    })
+    // Before the lane's first step: a keyword more, both devices, depth 100.
+    mem.trackers.get(TRACKER)!.devices = 'both'
+    mem.trackers.get(TRACKER)!.serp_depth = 100
+    const { port, posts } = stubPort(() => 2)
+    const { d } = deps(mem, clock, port)
+    const out = await runRankCheck(fakeStep(clock).step, d, {
+      runId: RUN,
+      workspaceId: WS,
+    })
+    expect(out).toMatchObject({ status: 'failed', code: 'ESTIMATE_CHANGED' })
+    expect(posts.length).toBe(0)
+    expect(mem.posts.size).toBe(0)
+    expect(mem.runs.get(RUN)).toMatchObject({
+      status: 'failed',
+      error_code: 'ESTIMATE_CHANGED',
+    })
+    expect(mem.runs.get(RUN)!.error_detail).toMatch(/Start it again/)
+  })
+
+  it('a manual check whose tracker is as it was priced runs', async () => {
+    const { mem, clock } = setup({ keywords: [KEYWORDS[0]] })
+    const { port, posts } = stubPort(() => 2)
+    const { d } = deps(mem, clock, port)
+    await runRankCheck(fakeStep(clock).step, d, { runId: RUN, workspaceId: WS })
+    expect(posts.length).toBeGreaterThan(0)
+    expect(mem.runs.get(RUN)!.status).toBe('completed')
+    // A stored estimate that comes back as a numeric string reads the same.
+    const again = setup()
+    again.mem.runs.get(RUN)!.estimate_usd = String(
+      again.mem.runs.get(RUN)!.estimate_usd,
+    ) as never
+    const other = deps(again.mem, again.clock, stubPort(() => 2).port)
+    await runRankCheck(fakeStep(again.clock).step, other.d, {
+      runId: RUN,
+      workspaceId: WS,
+    })
+    expect(again.mem.runs.get(RUN)!.status).toBe('completed')
+  })
+
+  it('a scheduled check is not held to a stored estimate', async () => {
+    const { mem, clock } = setup({ trigger: 'scheduled', estimate: 0 })
+    const { port, posts } = stubPort(() => 2)
+    const { d } = deps(mem, clock, port)
+    await runRankCheck(fakeStep(clock).step, d, { runId: RUN, workspaceId: WS })
+    expect(posts.length).toBeGreaterThan(0)
+    expect(mem.runs.get(RUN)!.status).toBe('completed')
   })
 
   it('a scheduled check asks the gate again and spends in nobody’s name', async () => {

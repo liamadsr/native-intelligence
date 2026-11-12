@@ -707,6 +707,122 @@ describe('updateRankTracker', () => {
     })
   })
 
+  it('whoever turns the schedule on (a resume too) or sets its interval owns it, after passing the access check', async () => {
+    const OTHER = '00000000-0000-4000-8000-0000000000bb'
+    const b = { workspaceId: WS, userId: OTHER }
+    // A manual tracker set up by PERSON; OTHER turns its schedule on.
+    const manual = trackerDb({
+      ...trackerRow,
+      schedule_interval: 'manual',
+      next_check_at: null,
+      last_skip_reason: 'free_plan',
+    })
+    const asked = vi.fn(async () => ({ ok: true as const }))
+    await updateRankTracker(
+      manual.client,
+      b,
+      TRACKER,
+      { schedule_interval: 'daily', confirmed: true },
+      { access: asked },
+    )
+    expect(asked).toHaveBeenCalledWith({
+      userId: OTHER,
+      workspaceId: WS,
+      unattended: undefined,
+    })
+    expect(trackerUpdate(manual.log)).toMatchObject({
+      schedule_interval: 'daily',
+      created_by: OTHER,
+      last_skip_reason: null,
+    })
+
+    // A resume from paused.
+    const paused = trackerDb({ ...trackerRow, paused: true })
+    await updateRankTracker(
+      paused.client,
+      b,
+      TRACKER,
+      { paused: false, confirmed: true },
+      { access },
+    )
+    expect(trackerUpdate(paused.log)).toMatchObject({
+      paused: false,
+      created_by: OTHER,
+    })
+
+    // A slower interval costs less, needs no yes, but still asks the access check and takes ownership.
+    const slower = trackerDb(trackerRow)
+    const slowerAsked = vi.fn(async () => ({ ok: true as const }))
+    await updateRankTracker(
+      slower.client,
+      b,
+      TRACKER,
+      { schedule_interval: 'monthly' },
+      { access: slowerAsked },
+    )
+    expect(slowerAsked).toHaveBeenCalled()
+    expect(trackerUpdate(slower.log)).toMatchObject({
+      schedule_interval: 'monthly',
+      created_by: OTHER,
+      last_skip_reason: null,
+    })
+  })
+
+  it('a person refused by the access check never takes a schedule over', async () => {
+    const OTHER = '00000000-0000-4000-8000-0000000000bb'
+    const { client, log } = trackerDb(trackerRow)
+    const out = await updateRankTracker(
+      client,
+      { workspaceId: WS, userId: OTHER },
+      TRACKER,
+      { schedule_interval: 'monthly' },
+      {
+        access: async () => ({
+          ok: false as const,
+          code: 'NOT_A_MEMBER' as const,
+          message: 'Members only.',
+        }),
+      },
+    )
+    expect(out).toMatchObject({ ok: false, code: 'NOT_A_MEMBER' })
+    expect(trackerUpdate(log)).toBeUndefined()
+  })
+
+  it('changes that don’t turn the schedule on or set its interval leave its owner alone', async () => {
+    const OTHER = '00000000-0000-4000-8000-0000000000bb'
+    const b = { workspaceId: WS, userId: OTHER }
+    const fewer = trackerDb({ ...trackerRow, devices: 'both' })
+    await updateRankTracker(
+      fewer.client,
+      b,
+      TRACKER,
+      { devices: 'mobile' },
+      { access },
+    )
+    expect(trackerUpdate(fewer.log)).not.toHaveProperty('created_by')
+    // More depth on a running schedule is a confirmed rise, not a new owner.
+    const deeper = trackerDb(trackerRow)
+    await updateRankTracker(
+      deeper.client,
+      b,
+      TRACKER,
+      { serp_depth: 100, confirmed: true },
+      { access },
+    )
+    expect(trackerUpdate(deeper.log)).toMatchObject({ serp_depth: 100 })
+    expect(trackerUpdate(deeper.log)).not.toHaveProperty('created_by')
+    // Pausing.
+    const pause = trackerDb(trackerRow)
+    await updateRankTracker(
+      pause.client,
+      b,
+      TRACKER,
+      { paused: true },
+      { access },
+    )
+    expect(trackerUpdate(pause.log)).not.toHaveProperty('created_by')
+  })
+
   it('a new schedule still starts at its chosen time', async () => {
     const { client, log } = trackerDb({
       ...trackerRow,

@@ -5,8 +5,8 @@
  *
  *   - Any member of the workspace may set up a tracker. Setting one up costs
  *     nothing; checks do (./runs.ts for a manual one, the schedule for the
- *     rest). Whoever sets it up is the person whose plan the schedule rides
- *     on (./gate.ts).
+ *     rest). Whoever sets it up with a schedule, or later turns one on, is
+ *     the person whose plan the schedule rides on (./gate.ts, created_by).
  *   - Anything that turns on or raises what a tracker spends on its own (a
  *     schedule with keywords at create, a schedule turned on, resumed or made
  *     more frequent, more devices or depth, keywords added to a scheduled
@@ -16,6 +16,11 @@
  *     Without it the answer is NEEDS_GO_AHEAD carrying the estimate
  *     (./view.ts goAheadRefusal), and nothing is written. The routes and the
  *     tools share this one rule.
+ *   - A schedule runs on the standing of the person who turned it on or last
+ *     set its interval (created_by, after their access check passed), not on
+ *     whoever first set the tracker up: a guest's tracker scheduled by a
+ *     paying member runs; a schedule turned on by someone who later loses
+ *     standing stops. Changes that cost nothing more leave it alone.
  *   - Pausing a tracker, or turning its schedule off, stops its scheduled
  *     check if one is running. Moving only the schedule's time never adds a
  *     check: the new due time is never earlier than the one it replaces.
@@ -843,16 +848,27 @@ export async function updateRankTracker(
     planned.plan,
     [],
   )
-  if (preview.raises_cost || (scheduledAfter && !scheduledBefore)) {
+  // Whoever turns the schedule on (a resume included), or sets its interval,
+  // owns it from now on: the schedule's gate (./gate.ts) runs on that
+  // person's standing, so it is theirs, not the creator's.
+  const takesOwnership =
+    (scheduledAfter && !scheduledBefore) ||
+    (scheduledAfter &&
+      planned.plan.after.schedule_interval !== row.schedule_interval)
+  if (preview.raises_cost || takesOwnership) {
     const refused = await scheduleAccess(who, deps)
     if (refused) return refused
   }
   if (preview.raises_cost && input.confirmed !== true)
     return goAheadRefusal('schedule', preview.after, preview.before)
-  if (Object.keys(planned.plan.patch).length > 0) {
+  // Only a person who just passed the access check above becomes the owner.
+  const patch: Record<string, unknown> = takesOwnership
+    ? { ...planned.plan.patch, created_by: who.userId, last_skip_reason: null }
+    : planned.plan.patch
+  if (Object.keys(patch).length > 0) {
     const { error } = await svc
       .from('seo_rank_tracker')
-      .update({ ...planned.plan.patch, updated_at: new Date().toISOString() })
+      .update({ ...patch, updated_at: new Date().toISOString() })
       .eq('workspace_id', who.workspaceId)
       .eq('id', trackerId)
     if (error)

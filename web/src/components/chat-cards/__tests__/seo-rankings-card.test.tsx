@@ -621,6 +621,23 @@ describe('SeoRankingsCard: checks', () => {
     expect(banner.textContent).toContain('Check again')
   })
 
+  it('a check the tracker outgrew before it ran: its words, and Check again prices it anew', async () => {
+    const words = 'The tracker changed after this check was started, so it was not run. Nothing was bought. Start it again.'
+    routes[`/api/account/seo/rank/trackers/${T1}`] = { ...DETAIL, tracker: tracker(T1, { latest_run: run(R1, { status: 'failed', error: words }) }) }
+    answer = (method, path) =>
+      path === '/api/account/seo/rank/estimate'
+        ? { status: 200, body: { before: estimate({ per_check_usd: 0.42 }), after: estimate({ per_check_usd: 0.42 }), raises_cost: false } }
+        : { status: 201, body: { run: run('r-new', { status: 'queued', completed_at: null }) } }
+    openTracker()
+    await render()
+    const banner = q('[data-seo-failed]')!
+    expect(banner.textContent).toContain(words)
+    await click(Array.from(banner.querySelectorAll<HTMLElement>('button')).find((b) => b.textContent === 'Check again')!)
+    // The new size is above the line: the cost is shown before anything is sent.
+    expect(writes()).toEqual([])
+    expect(q('[data-seo-spend-confirm-go]')!.textContent).toBe('Check now, about $0.42')
+  })
+
   it('a finished check with a note: the note in a neutral banner', async () => {
     routes[`/api/account/seo/rank/trackers/${T1}`] = { ...DETAIL, tracker: tracker(T1, { latest_run: run(R1, { note: '2 keywords got no result this time.' }) }) }
     openTracker()

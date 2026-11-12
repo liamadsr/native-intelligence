@@ -8,8 +8,12 @@
  *   claim      queued -> running, a compare-and-set (a redelivered attempt
  *              finds its own row running and carries on).
  *   prepare    the tracker and its keywords; a scheduled check asks the
- *              schedule's gate again (./gate.ts); the most the check can
- *              cost is held against what the workspace has left this month.
+ *              schedule's gate again (./gate.ts); a manual check buys at
+ *              most what its start estimated (the figure the person saw and
+ *              said yes to): a tracker that grew since (more keywords,
+ *              devices or depth) fails it before anything is bought
+ *              (ESTIMATE_CHANGED); the most the check can cost is held
+ *              against what the workspace has left this month.
  *   reads      Google serves scrapers pages that leave real results out or
  *              reshuffle them, so one read can't be trusted. Every keyword
  *              and device is read MIN_READS_PER_CHECK times, and up to
@@ -85,6 +89,8 @@ export interface RunRecord {
   trigger: 'manual' | 'scheduled'
   status: 'queued' | 'running' | 'completed' | 'failed' | 'canceled'
   started_by: string | null
+  /** The most the check may cost, as estimated (and confirmed) at its start. Numeric: may come back as a string. */
+  estimate_usd: number | string
 }
 
 export interface TrackerRecord {
@@ -427,6 +433,19 @@ async function prepareCheck(
     tracker.devices,
     tracker.serp_depth,
   )
+  // A manual check buys what its start priced, never more: the tracker can
+  // grow between the start and this step (a change to a tracker checked by
+  // hand costs nothing on its own, so it asks nobody). A scheduled check
+  // isn't held to it: every rise of a schedule's cost was confirmed when it
+  // was made.
+  if (
+    run.trigger === 'manual' &&
+    roundUsd(costUsd) > roundUsd(Number(run.estimate_usd) || 0) + 1e-6
+  )
+    throw new RankCheckFailure(
+      'ESTIMATE_CHANGED',
+      'The tracker changed after this check was started, so it was not run. Nothing was bought. Start it again.',
+    )
   // The most this check can cost, against what is left this month: a check
   // that can't finish inside the ceiling isn't started (the source's rule).
   // A ledger that can't be read throws: the step retries, it never spends blind.

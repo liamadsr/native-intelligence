@@ -88,6 +88,7 @@ export function createMemoryRankStore(seed: {
             trigger: run.trigger,
             status: run.status,
             started_by: run.started_by,
+            estimate_usd: run.estimate_usd,
           }
         : null
     },
