@@ -16,7 +16,7 @@ import { nativeRecorderAvailable } from '../record/desktop';
 // in the header (Inputs) and kept with the project.
 
 export const sourceLabel = (source: BeatSource) => source.startsWith('camera:') ? `Camera ${source.slice(7)}` : ({ screen: 'Screen', slides: 'Slides', generated: 'Generated', scene: 'Code scene', component: 'Product UI', broll: 'B-roll' } as Record<string, string>)[source] ?? source;
-export const sourceTone = (source: BeatSource) => source === 'camera:A' ? '#4aa58f' : source.startsWith('camera:') ? '#3d8fb0' : source === 'screen' ? '#c79230' : source === 'generated' ? '#e0794d' : source === 'component' ? '#5fa8ff' : source === 'scene' ? '#e879f9' : '#9aa0b4';
+export const sourceTone = (source: BeatSource) => source === 'camera:A' ? 'var(--st-hue-teal)' : source.startsWith('camera:') ? 'var(--st-hue-sky)' : source === 'screen' ? 'var(--st-hue-amber)' : source === 'generated' ? 'var(--st-hue-orange)' : source === 'component' ? 'var(--st-hue-blue)' : source === 'scene' ? 'var(--st-hue-magenta)' : 'var(--st-text-faint)';
 export const statusLabel: Record<Beat['status'], string> = { planned: 'Planned', recorded: 'Recorded', generated: 'Generated', placed: 'Placed', done: 'Done' };
 const board = (project: EditorProject): Storyboard => project.storyboard ?? { beats: [] };
 const setBoard = (project: EditorProject, next: Storyboard): EditorProject => ({ ...project, storyboard: StoryboardSchema.parse({ ...next, beats: sortBeats(next.beats) }) });
