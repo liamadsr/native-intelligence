@@ -107,6 +107,7 @@ import { MeetingsSection } from '@/components/meeting-links/meetings-section'
 import { Avatar, LinkPreviewCard, MessageAttachments, memberName, ReactButton, ReactionChips, ThreadBar, type Member } from './team-chat-message-parts'
 import { lastTeamChat, publishTeamChatCard, unpublishTeamChatCard, type TeamChatPanelConversation } from '@/components/chat-cards/team-chat-card-controls'
 import { useRailShown } from '../rail/rail-media'
+import { useOwnSubnavShown } from '../page-panel/subnav-on-screen'
 
 /**
  * Below this width the view shows one pane at a time (a phone, a narrow
@@ -240,10 +241,13 @@ export function TeamChatView({
   // sub-nav beside the rail is its list (page-panel/team-chat-panel.tsx), so
   // the card has none, from its first render (a card mounts on the client,
   // so the window is read then, never guessed), and the conversation fills
-  // it. Inline in the chat, below `md` (no rail, no sub-nav) or with no card
-  // of its own, its list is as it always was.
+  // it. Inline in the chat, below `md` (no rail, no sub-nav), with no card
+  // of its own, or while the sub-nav isn't on screen (a capture's notepad on
+  // the left, the panel closed: page-panel/subnav-on-screen.ts; Liam,
+  // 11-11), its list is as it always was.
   const railShown = useRailShown()
-  const listInPanel = !!cardId && !compact && railShown
+  const subnavShown = useOwnSubnavShown(cardId ? 'team-chat' : null)
+  const listInPanel = !!cardId && !compact && railShown && subnavShown
   const sectionRef = useRef<HTMLElement>(null)
   const threadOver = useNarrow(sectionRef, TEAM_CHAT_THREAD_BESIDE_MIN_PX)
   const [opened, setOpened] = useState(false)

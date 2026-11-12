@@ -80,6 +80,7 @@ import { CARD_PAGES } from '@/lib/chat-cards/page-menu'
 import type { CardSpec } from '@/lib/chat-cards/kinds'
 import { seedCardState } from '../card-storage'
 import { litTasksRow } from '@/app/account/(dashboard)/page-panel/tasks-panel-model'
+import { __resetSubnavOnScreenForTests, setSubnavOnScreen } from '@/app/account/(dashboard)/page-panel/subnav-on-screen'
 
 const ID = 'card-actions-page'
 const pageSpec = (slug: string) => CARD_PAGES.find((p) => p.slug === slug)!.spec(new Date()) as CardSpec
@@ -94,6 +95,7 @@ beforeEach(() => {
   navCalls = []
   store = undefined
   __resetTasksCardsForTests()
+  __resetSubnavOnScreenForTests()
   vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })))
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -164,6 +166,22 @@ describe('the My Actions card', () => {
     // Inline in the chat (not full screen), no sub-nav beside it: tabs as today.
     await render(pageSpec('actions'), false)
     expect(lists()[0].dataset.tabs).toBe('shown')
+  })
+
+  it('its tabs are back whenever its sub-nav is not on screen (Liam, 11-11): a capture docked, the panel closed, another page’s; undecided, hidden as today', async () => {
+    await render(pageSpec('actions'))
+    // Undecided (the host hasn't said): today's look, no flash.
+    expect(lists()[0].dataset.tabs).toBe('below-md')
+    act(() => setSubnavOnScreen('actions'))
+    expect(lists()[0].dataset.tabs).toBe('below-md')
+    // None on screen (the notepad on the left, the panel closed): its own tabs.
+    act(() => setSubnavOnScreen(null))
+    expect(lists()[0].dataset.tabs).toBe('shown')
+    // Another page's sub-nav (Recent): its own tabs.
+    act(() => setSubnavOnScreen('home'))
+    expect(lists()[0].dataset.tabs).toBe('shown')
+    act(() => setSubnavOnScreen(undefined))
+    expect(lists()[0].dataset.tabs).toBe('below-md')
   })
 
   it('All projects and Initiatives open inside the card: a step in its history each, Back returns to the list', async () => {

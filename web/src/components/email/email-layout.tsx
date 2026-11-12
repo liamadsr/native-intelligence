@@ -55,6 +55,7 @@ import type { EmailReplyRequest } from '@/lib/email/reply-in-chat'
 import { getJsonOnce } from '@/lib/email/inflight-get'
 import { publishMailCard, unpublishMailCard } from '@/components/chat-cards/mail-card-controls'
 import { MAIL_FOLDER_ENTRIES as folders, type FolderCounts } from './mail-folders'
+import { useOwnSubnavShown } from '@/app/account/(dashboard)/page-panel/subnav-on-screen'
 
 const EMAIL_THREADS_CHANNEL = 'email-threads-realtime'
 // The self-refetch dedup key must be PER INSTANCE, not the bare channel name.
@@ -131,6 +132,9 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
   // A card is fixed as one for its life: read once.
   const [cardInit] = useState(() => card?.initial ?? null)
   const isCard = cardInit !== null
+  // The Mail sub-nav beside the rail on screen (Liam, 11-11): only then is it
+  // the card's account and folder control (page-panel/subnav-on-screen.ts).
+  const mailSubnavShown = useOwnSubnavShown(isCard ? 'mail' : null)
   const rootRef = useRef<HTMLDivElement>(null)
   const [activeFolder, setActiveFolder] = useState(() => cardInit?.folder ?? 'inbox')
   // A history target may be outside the loaded list. Its provider ID is enough
@@ -960,9 +964,12 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
     // clean up the old one and remove it from the panel complely or did you
     // do something the lazy way?"): these two exist only below `md` (the
     // phone's layout, no rail, no sub-nav), in CSS, so the browser decides
-    // before the first paint and nothing shows then goes. Inline in the chat
-    // (no sub-nav beside it) they are the card's own, as always.
-    const ownNav = card?.fullScreen ? 'contents md:hidden' : 'contents'
+    // before the first paint and nothing shows then goes. Only while that
+    // sub-nav is on screen, though (Liam, 11-11): with a capture's notepad
+    // on the left, the panel closed, or the card opened from home (Recent
+    // beside it), they are the card's own again. Inline in the chat (no
+    // sub-nav beside it) they are the card's own, as always.
+    const ownNav = card?.fullScreen && mailSubnavShown ? 'contents md:hidden' : 'contents'
     return (
       <div ref={rootRef} className="ph-no-capture flex h-full flex-col" data-mail-card="">
         <div className="flex h-9 shrink-0 items-center gap-1.5 px-3">

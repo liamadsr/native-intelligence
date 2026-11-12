@@ -65,6 +65,7 @@ import { cn } from '@/lib/utils'
 import { CardOverlay, CardCovered } from './card-covered'
 import type { CardListNav } from '@/components/views/unified-view-layout'
 import { pageOfCard } from '@/app/account/(dashboard)/rail/rail-pages'
+import { useOwnSubnavShown } from '@/app/account/(dashboard)/page-panel/subnav-on-screen'
 import { publishTasksCard, unpublishTasksCard, type TasksPlace } from './tasks-card-controls'
 import { isTasksPlace, tasksPlaceList, type TasksPlaceList } from '@/lib/chat-cards/tasks-places'
 
@@ -354,8 +355,11 @@ function ListCardFrame({ toolCallId, spec, store, fullScreen, onCount, onConfig,
  * changes; the sub-nav's rows move it the same way its own tabs do.
  */
 function TasksCardBody(props: CardBodyProps & { spec: ListCardSpec }) {
-  const { toolCallId, store, fullScreen } = props
+  const { toolCallId, store, fullScreen, spec } = props
   const records = useOpenRecords(toolCallId, store)
+  // The page this card is the own card of (My Actions; a non-page card: none, never covered).
+  const ownPage = React.useMemo(() => pageOfCard(spec), [spec])
+  const subnavShown = useOwnSubnavShown(ownPage)
   const place = useCardNav<TasksPlace | null>('tasks_place', () => null)
   const [nav, setNav] = React.useState<CardListNav | null>(null)
   const recordsRef = React.useRef(records)
@@ -439,8 +443,10 @@ function TasksCardBody(props: CardBodyProps & { spec: ListCardSpec }) {
       // one set of views (Liam, 11-11: "did you actually clean up the old
       // one and remove it from the panel complely or did you do something
       // the lazy way?"): its tabs only below `md`, in CSS, from the first
-      // paint. Inline in the chat it shows no tabs anyway (a card's list).
-      viewTabsBelowMdOnly={fullScreen}
+      // paint, while that sub-nav is on screen (not with a capture's notepad
+      // on the left or the panel closed: page-panel/subnav-on-screen.ts;
+      // Liam, 11-11). Inline in the chat it shows no tabs anyway (a card's list).
+      viewTabsBelowMdOnly={fullScreen && subnavShown}
     />
   )
 }

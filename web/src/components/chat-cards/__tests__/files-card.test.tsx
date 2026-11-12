@@ -33,7 +33,7 @@ vi.mock('../card-body', () => ({
   },
 }))
 
-import FilesCard, { fileIconOf } from '../pages/files-card'
+import FilesCard, { FILES_EMPTY_PAGES_MAX, fileIconOf } from '../pages/files-card'
 import type { PageCardSpec } from '@/lib/chat-cards/pages'
 import type { WorkspaceFile } from '@/lib/attachments/workspace-files-model'
 
@@ -178,6 +178,42 @@ describe('FilesCard', () => {
     expect(rowIds()).toEqual(['brief', 'quote', 'logo'])
     expect(q('[data-files-more]')).toBeNull()
     expect(counts.at(-1)).toBe(3)
+  })
+
+  it('reads past a page the server emptied (its files on records the person can’t read) at once; "No files yet" only with nothing more', async () => {
+    const counts: Array<number | null> = []
+    // Offsets 0 and 50 dropped whole; 100 has a file and nothing after it.
+    pages = (url) => {
+      const offset = Number(url.searchParams.get('offset') ?? 0)
+      return offset < 100 ? { files: [], next_offset: offset + 50 } : { files: [LOGO], next_offset: null }
+    }
+    await render((n) => counts.push(n))
+    expect(asked).toEqual(['/api/account/files?limit=50', '/api/account/files?limit=50&offset=50', '/api/account/files?limit=50&offset=100'])
+    expect(rowIds()).toEqual(['logo'])
+    expect(q('[data-files-empty]')).toBeNull()
+    expect(q('[data-files-more]')).toBeNull()
+    expect(counts.at(-1)).toBe(1)
+    // Every page empty to the end: truly none.
+    asked.length = 0
+    pages = (url) => {
+      const offset = Number(url.searchParams.get('offset') ?? 0)
+      return { files: [], next_offset: offset < 100 ? offset + 50 : null }
+    }
+    await click('[data-files-filter="image"]')
+    expect(asked).toHaveLength(3)
+    expect(q('[data-files-empty]')!.textContent).toContain('No files match')
+  })
+
+  it('reads at most FILES_EMPTY_PAGES_MAX empty pages on its own; past them, "Show more", never "No files yet"', async () => {
+    pages = (url) => ({ files: [], next_offset: Number(url.searchParams.get('offset') ?? 0) + 50 })
+    await render()
+    expect(asked).toHaveLength(FILES_EMPTY_PAGES_MAX)
+    expect(q('[data-files-empty]')).toBeNull()
+    expect(q('[data-files-more]')).not.toBeNull()
+    pages = () => ({ files: [QUOTE], next_offset: null })
+    await click('[data-files-more]')
+    expect(asked.at(-1)).toBe(`/api/account/files?limit=50&offset=${50 * FILES_EMPTY_PAGES_MAX}`)
+    expect(rowIds()).toEqual(['quote'])
   })
 
   it('says so when there are no files yet, and when none match', async () => {

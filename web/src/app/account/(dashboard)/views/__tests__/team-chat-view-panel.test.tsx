@@ -44,6 +44,7 @@ vi.mock('@/lib/supabase/client', () => ({
 import { TeamChatView } from '../team-chat-view'
 import { __resetTeamChatCardsForTests, teamChatCardFor } from '@/components/chat-cards/team-chat-card-controls'
 import { RAIL_MEDIA } from '../../rail/rail-media'
+import { __resetSubnavOnScreenForTests, setSubnavOnScreen } from '../../page-panel/subnav-on-screen'
 
 const base = { topic: null, archived_at: null, unread: 0, mentions: 0, thread_unread: 0, thread_mentions: 0, notify: 'mentions' }
 const CHANNELS = [
@@ -80,6 +81,7 @@ beforeEach(() => {
   width = 1200
   railShown = true
   __resetTeamChatCardsForTests()
+  __resetSubnavOnScreenForTests()
   vi.stubGlobal('matchMedia', (query: string) => ({
     matches: query === RAIL_MEDIA ? railShown : false,
     media: query,
@@ -226,6 +228,30 @@ describe('team chat’s card, for its sub-nav', () => {
     expect(panes()).toBe('channel')
     expect(aside()).toBeNull()
     expect(container.querySelector('[data-team-chat-back]')).toBeNull()
+  })
+
+  it('full screen without its sub-nav on screen (Liam, 11-11): a capture docked, the panel closed, another page’s: its own list again; undecided, none (no flash)', async () => {
+    await render()
+    expect(aside()).toBeNull()
+    act(() => setSubnavOnScreen('team-chat'))
+    await settle()
+    expect(aside()).toBeNull()
+    expect(panels()).toEqual(['team-chat-channel'])
+    // None on screen (the notepad on the left, or closed by its button).
+    act(() => setSubnavOnScreen(null))
+    await settle()
+    expect(aside()).not.toBeNull()
+    expect(panes()).toBe('both')
+    expect(handle()).not.toBeNull()
+    // Another page's sub-nav (Recent beside it).
+    act(() => setSubnavOnScreen('home'))
+    await settle()
+    expect(aside()).not.toBeNull()
+    // Its own again: the list goes to the sub-nav.
+    act(() => setSubnavOnScreen('team-chat'))
+    await settle()
+    expect(aside()).toBeNull()
+    expect(panels()).toEqual(['team-chat-channel'])
   })
 
   it('keeps its list inline (not full screen), or with no card of its own', async () => {

@@ -59,6 +59,7 @@ vi.mock('@/components/views/unified-view-layout', () => ({ useIsWindowFocused: (
 const { EmailLayout } = await import('../email-layout')
 const controlsModule = await import('@/components/chat-cards/mail-card-controls')
 const { __resetMailCardsForTests, mailCardFor } = controlsModule
+const { __resetSubnavOnScreenForTests, setSubnavOnScreen } = await import('@/app/account/(dashboard)/page-panel/subnav-on-screen')
 
 const CARD = 'card-mail-page'
 let container: HTMLDivElement
@@ -68,6 +69,7 @@ const shows: string[] = []
 
 beforeEach(() => {
   __resetMailCardsForTests()
+  __resetSubnavOnScreenForTests()
   list = null
   shows.length = 0
   onStateChange = vi.fn()
@@ -156,6 +158,27 @@ describe('a Mail card and its sub-nav', () => {
     expect(own.querySelector('[data-folder-select]')).not.toBeNull()
     // The unread chip, search and compose stay the card's own, at every width.
     expect(q('[data-unread-toggle]')!.closest('[data-mail-own-nav]')).toBeNull()
+  })
+
+  it('full screen without the Mail sub-nav on screen (Liam, 11-11): a capture docked or the panel closed, Recent beside it; its own again', async () => {
+    await mount()
+    const own = () => q('[data-mail-own-nav]')!
+    // The Mail sub-nav on screen: hidden from `md` up, as before.
+    act(() => setSubnavOnScreen('mail'))
+    expect(own().className.split(' ')).toEqual(['contents', 'md:hidden'])
+    // None on screen (the notepad holds the left, or the panel is closed).
+    act(() => setSubnavOnScreen(null))
+    expect(own().className).toBe('contents')
+    expect(own().querySelector('[data-folder-select]')).not.toBeNull()
+    // Opened from home (a thread from Recent, For you, a notification): Recent beside it.
+    act(() => setSubnavOnScreen('home'))
+    expect(own().className).toBe('contents')
+    // Another page's sub-nav.
+    act(() => setSubnavOnScreen('team-chat'))
+    expect(own().className).toBe('contents')
+    // Undecided again (settling): today's look, never a flash.
+    act(() => setSubnavOnScreen(undefined))
+    expect(own().className.split(' ')).toEqual(['contents', 'md:hidden'])
   })
 
   it('inline in the chat (no sub-nav beside it): its own dropdown and Select at every width', async () => {

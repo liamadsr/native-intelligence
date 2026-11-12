@@ -67,18 +67,27 @@
  *              held, inert, while the next has nothing known yet, at most
  *              PAGE_PANEL_HOLD_MAX_MS.
  *
+ *   Covers    which page's sub-nav is on screen goes to the cards
+ *              (subnav-on-screen.ts): a page's card hides its own
+ *              navigation from `md` up only while its page's sub-nav is
+ *              really there (Liam, 11-11), not while the capture's notepad
+ *              holds the left, the panel is closed, or Recent shows beside a
+ *              Mail card opened from home. Undecided while things settle (a
+ *              refresh, the selected place catching up with the card in
+ *              front, a held panel), so the card keeps today's look then.
+ *
  * The store hears whether the page panel has something for the left
  * (side-panel-store.ts setPagePanelContent), the row's plan answers with its
  * mode (dashboard-shell.tsx ChatRow), passed back down here, and the host
  * tells the store whether it is on screen (setPagePanelShown: what lights
  * its button).
  */
-import { useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore, type ComponentType } from 'react'
-import { useRailShown } from '../rail/rail-media'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore, type ComponentType } from 'react'
+import { railMediaNow, useRailShown } from '../rail/rail-media'
 import { PAGE_PANEL_W_VAR, frontCard, subscribeFrontCard } from '@/components/chat-cards/front-card'
 import { useHasTrafficLights } from '@/components/desktop-titlebar'
 import { setPagePanelContent, setPagePanelShown } from '../side-panels/side-panel-store'
-import type { RailPageId } from '../rail/rail-pages'
+import { pageOfCard, type RailPageId } from '../rail/rail-pages'
 import { useSelectedPlace, type SelectedPlace } from '../rail/selected-place'
 import { useSidePanelState } from '../side-panels/side-panels'
 import type { PanelMode } from '../side-panels/space-plan'
@@ -89,6 +98,7 @@ import { TeamChatPanel } from './team-chat-panel'
 import { PAGE_GROUP_PANELS } from './page-group-panel'
 import { PagePanelHeldContext, PagePanelSwapContext, pagePanelReserve } from './page-panel-frame'
 import type { PageKey, PagePanelProps } from './page-panel-types'
+import { setSubnavOnScreen } from './subnav-on-screen'
 
 export type { PageKey, PagePanelProps } from './page-panel-types'
 
@@ -144,7 +154,7 @@ export const PAGE_PANEL_HOLD_MAX_MS = 600
 export function PagePanelHost({ mode }: { mode: PanelMode }) {
   const front = useSyncExternalStore(subscribeFrontCard, frontCard, () => null)
   const place = useSelectedPlace()
-  const { captureDock } = useSidePanelState()
+  const { captureDock, pagePanelOpen } = useSidePanelState()
   const railShown = useRailShown()
   // The left is the notepad's while a capture is docked there; below `md`
   // (no rail, the phone's layout) there is no page panel at all. Its saved
@@ -208,6 +218,30 @@ export function PagePanelHost({ mode }: { mode: PanelMode }) {
     setPagePanelShown(shown)
   }, [shown])
   useEffect(() => () => setPagePanelShown(false), [])
+  // Which page's sub-nav is on screen, for the cards (subnav-on-screen.ts):
+  // a page's card hides its own navigation from `md` up only while its
+  // page's is (Liam, 11-11). Undecided (the card keeps today's look) only
+  // while the answer is still settling, each for a commit or a moment:
+  //   - no card in front (no full-screen card to cover: one coming in front
+  //     first draws as today, never its own navigation shown then taken away);
+  //   - the rail's hook not yet the window's (a refresh's hydration);
+  //   - a page's own card in front, its page not yet selected (selected-place.ts settles a microtask later);
+  //   - the last page's panel held for the next one (at most PAGE_PANEL_HOLD_MAX_MS);
+  //   - the page's panel not yet said what it has (it says in its first commit);
+  //   - its sub-nav open, the plan not yet answered (it never leaves an open one off: space-plan.ts leftPinned).
+  const frontPage = useMemo(() => (front ? pageOfCard(front.spec) : null), [front])
+  const unknown = page !== null && page !== 'home' && content[page] == null
+  useLayoutEffect(() => {
+    const undecided =
+      front === null ||
+      railShown !== railMediaNow() ||
+      (frontPage !== null && place !== frontPage) ||
+      held !== null ||
+      unknown ||
+      (pinned && mode === 'off' && pagePanelOpen)
+    setSubnavOnScreen(undecided ? undefined : shown ? slot : null)
+  }, [front, railShown, frontPage, place, held, unknown, pinned, mode, pagePanelOpen, shown, slot])
+  useEffect(() => () => setSubnavOnScreen(undefined), [])
   const trafficLights = useHasTrafficLights()
   useLayoutEffect(() => {
     if (!shown) return

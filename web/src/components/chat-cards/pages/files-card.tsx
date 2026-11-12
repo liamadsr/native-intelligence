@@ -33,6 +33,7 @@ import { cn } from '@/lib/utils'
 import {
   FILE_CATEGORIES,
   FILE_CATEGORY_LABELS,
+  FILES_OFFSET_MAX,
   FILES_PAGE_SIZE,
   filesUrl,
   formatFileSize,
@@ -96,7 +97,24 @@ interface Listing {
   error: string | null
 }
 
-/** The files for a category and a search, a page at a time. */
+/**
+ * The most pages one load reads on its own while each comes back empty (every
+ * file on it on a record the person can't read, dropped by the server's
+ * second fence) and there are more: past them, "Show more" asks for the rest.
+ */
+export const FILES_EMPTY_PAGES_MAX = 5
+
+/** Where the next page starts, or null: none, or past the offsets the server takes (FILES_OFFSET_MAX). */
+function nextOffsetOf(next: number | null | undefined): number | null {
+  return typeof next === 'number' && next <= FILES_OFFSET_MAX ? next : null
+}
+
+/**
+ * The files for a category and a search, a page at a time. A page the server
+ * emptied (its files all on records the person can't read) with more after
+ * it is read past at once, up to FILES_EMPTY_PAGES_MAX, so "No files yet"
+ * shows only when there is truly nothing more.
+ */
 function useFiles(category: FileCategory | null, q: string) {
   const [listing, setListing] = React.useState<Listing>({ files: [], next: null, loading: true, error: null })
   const asked = React.useRef(0)
@@ -105,14 +123,22 @@ function useFiles(category: FileCategory | null, q: string) {
       const ask = ++asked.current
       setListing((l) => ({ ...(offset ? l : { files: [], next: null }), loading: true, error: null }))
       try {
-        const res = await fetch(filesUrl({ limit: FILES_PAGE_SIZE, offset, ...(category ? { category } : {}), ...(q ? { q } : {}) }))
-        const body = (await res.json().catch(() => null)) as (WorkspaceFilesPage & { error?: string }) | null
-        if (ask !== asked.current) return
-        if (!res.ok || !body || !Array.isArray(body.files)) {
-          setListing((l) => ({ ...l, loading: false, error: body?.error ?? 'Could not load the files' }))
-          return
+        let at = offset
+        let body: (WorkspaceFilesPage & { error?: string }) | null = null
+        for (let read = 0; ; read++) {
+          const res = await fetch(filesUrl({ limit: FILES_PAGE_SIZE, offset: at, ...(category ? { category } : {}), ...(q ? { q } : {}) }))
+          body = (await res.json().catch(() => null)) as (WorkspaceFilesPage & { error?: string }) | null
+          if (ask !== asked.current) return
+          if (!res.ok || !body || !Array.isArray(body.files)) {
+            setListing((l) => ({ ...l, loading: false, error: body?.error ?? 'Could not load the files' }))
+            return
+          }
+          const next = nextOffsetOf(body.next_offset)
+          if (body.files.length > 0 || next === null || read + 1 >= FILES_EMPTY_PAGES_MAX) break
+          at = next
         }
-        setListing((l) => ({ files: offset ? [...l.files, ...body.files] : body.files, next: body.next_offset, loading: false, error: null }))
+        const page = body
+        setListing((l) => ({ files: offset ? [...l.files, ...page.files] : page.files, next: nextOffsetOf(page.next_offset), loading: false, error: null }))
       } catch {
         if (ask === asked.current) setListing((l) => ({ ...l, loading: false, error: 'Could not load the files' }))
       }
@@ -214,7 +240,7 @@ export default function FilesCard(props: PageCardProps) {
               <p className="py-10 text-center text-sm text-destructive">{error}</p>
             ) : files.length === 0 && loading ? (
               <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
-            ) : files.length === 0 ? (
+            ) : files.length === 0 && next === null ? (
               <div data-files-empty="" className="flex flex-col items-center justify-center gap-3 py-20 text-center">
                 <Paperclip className="h-7 w-7 text-muted-foreground/60" aria-hidden />
                 <div>
@@ -224,11 +250,13 @@ export default function FilesCard(props: PageCardProps) {
               </div>
             ) : (
               <>
-                <ul className="divide-y divide-border">
-                  {files.map((file) => (
-                    <FileRow key={file.id} file={file} onOpen={() => void openFile(file)} onOpenParent={() => records.open({ ...file.parent })} />
-                  ))}
-                </ul>
+                {files.length > 0 && (
+                  <ul className="divide-y divide-border">
+                    {files.map((file) => (
+                      <FileRow key={file.id} file={file} onOpen={() => void openFile(file)} onOpenParent={() => records.open({ ...file.parent })} />
+                    ))}
+                  </ul>
+                )}
                 {next !== null && (
                   <div className="flex justify-center pt-3">
                     <button

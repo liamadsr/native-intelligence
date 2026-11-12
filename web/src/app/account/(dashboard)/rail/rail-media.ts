@@ -31,7 +31,7 @@ function subscribeRailMedia(onChange: () => void): () => void {
 }
 
 /** No media queries to ask (a test's DOM): the rail's own CSS decides alone, so nothing is held back here. */
-function railMediaNow(): boolean {
+export function railMediaNow(): boolean {
   if (typeof window === 'undefined') return false
   return typeof window.matchMedia !== 'function' || window.matchMedia(RAIL_MEDIA).matches
 }

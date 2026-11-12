@@ -63,6 +63,7 @@ import { PAGE_PANEL_W_VAR, holdFrontCard } from '@/components/chat-cards/front-c
 import { CARD_PAGES } from '@/lib/chat-cards/page-menu'
 import type { CardSpec } from '@/lib/chat-cards/kinds'
 import { __resetSelectedPlaceForTests } from '../../rail/selected-place'
+import { __resetSubnavOnScreenForTests, subnavCovers, subnavOnScreen, subscribeSubnavOnScreen } from '../subnav-on-screen'
 
 const DOC = 'd0000000-0000-4000-8000-000000000001'
 const ACTION = 'a0000000-0000-4000-8000-000000000001'
@@ -104,6 +105,7 @@ beforeEach(() => {
   reads = 0
   window.localStorage.clear()
   __resetSelectedPlaceForTests()
+  __resetSubnavOnScreenForTests()
   store.resetSidePanelStore()
   vi.stubGlobal(
     'fetch',
@@ -505,6 +507,92 @@ describe('the page panel', () => {
     expect(row - top - bottom).toBeCloseTo(0.8 * (row - top - 209))
   })
 
+  describe('which page’s sub-nav is on screen, for the cards (subnav-on-screen.ts; Liam, 11-11)', () => {
+    /** The row as the plan answers it: room while the panel is wanted (it has rows and is open). */
+    function PlannedRow() {
+      const state = useSyncExternalStore(store.subscribeSidePanels, store.getSidePanelState, store.getServerSidePanelState)
+      return <PagePanelHost mode={store.pagePanelWanted(state) ? 'room' : 'off'} />
+    }
+    const chatSpec = () => CARD_PAGES.find((p) => p.slug === 'team-chat')!.spec(new Date()) as CardSpec
+
+    it('a card covers its own navigation only while its page’s sub-nav is on screen; undecided, it keeps today’s look', () => {
+      expect(subnavCovers('mail', undefined)).toBe(true)
+      expect(subnavCovers('mail', 'mail')).toBe(true)
+      expect(subnavCovers('mail', null)).toBe(false)
+      expect(subnavCovers('mail', 'home')).toBe(false)
+      expect(subnavCovers('mail', 'team-chat')).toBe(false)
+      // A card that is no page's own: never.
+      expect(subnavCovers(null, undefined)).toBe(false)
+      expect(subnavCovers(null, 'mail')).toBe(false)
+    })
+
+    it('undecided before the host says and with no card in front; the page’s own card in front: its page, never passing through none', async () => {
+      expect(subnavOnScreen()).toBeUndefined()
+      const seen: Array<string | null | undefined> = []
+      const off = subscribeSubnavOnScreen(() => seen.push(subnavOnScreen()))
+      act(() => root.render(<PlannedRow />))
+      await flush()
+      // Recent on screen, but no card to cover: undecided, so a card coming in front first draws as today.
+      expect(panel()!.getAttribute('data-page-panel-mode')).toBe('room')
+      expect(subnavOnScreen()).toBeUndefined()
+      let release = () => {}
+      act(() => {
+        release = holdFrontCard({ id: 'card-team-chat-page', spec: chatSpec(), close: () => {} })
+      })
+      await flush()
+      expect(subnavOnScreen()).toBe('team-chat')
+      // On the way there it was only ever undecided, never "none" or another page's (a card's own list shown, then taken away).
+      expect(seen.every((v) => v === undefined || v === 'team-chat')).toBe(true)
+      act(() => release())
+      await flush()
+      expect(subnavOnScreen()).toBeUndefined()
+      off()
+      // Gone with the host: undecided again.
+      act(() => root.unmount())
+      expect(subnavOnScreen()).toBeUndefined()
+      root = createRoot(container)
+    })
+
+    it('none while the capture’s notepad holds the left, or the panel is closed by its button; back with it', async () => {
+      act(() => root.render(<PlannedRow />))
+      await flush()
+      let release = () => {}
+      act(() => {
+        release = holdFrontCard({ id: 'card-team-chat-page', spec: chatSpec(), close: () => {} })
+      })
+      await flush()
+      expect(subnavOnScreen()).toBe('team-chat')
+      act(() => store.setCaptureDockOpen(true))
+      await flush()
+      expect(subnavOnScreen()).toBeNull()
+      act(() => store.setCaptureDockOpen(false))
+      await flush()
+      expect(subnavOnScreen()).toBe('team-chat')
+      act(() => store.setPagePanelOpen(false))
+      await flush()
+      expect(subnavOnScreen()).toBeNull()
+      act(() => store.setPagePanelOpen(true))
+      await flush()
+      expect(subnavOnScreen()).toBe('team-chat')
+      act(() => release())
+      await flush()
+    })
+
+    it('a card opened from home (a thread from Recent, a notification): Recent is what shows, so no page’s sub-nav', async () => {
+      act(() => root.render(<PlannedRow />))
+      await flush()
+      let release = () => {}
+      act(() => {
+        release = holdFrontCard({ id: 'card-thread', spec: { kind: 'mail', title: 'Fernhill quote', mail: { thread_id: 'th-1' } } as never, close: () => {} })
+      })
+      await flush()
+      expect(subnavOnScreen()).toBe('home')
+      expect(subnavCovers('mail')).toBe(false)
+      act(() => release())
+      await flush()
+    })
+  })
+
   describe('only where the app rail is (from md up; Liam, 11-11: at 741px “the page looks all crazy”)', () => {
     let wide = false
     const listeners = new Set<() => void>()
@@ -534,6 +622,12 @@ describe('the page panel', () => {
       expect(panel()).toBeNull()
       expect(store.getSidePanelState()).toMatchObject({ pagePanel: false, pagePanelShown: false })
       expect(document.documentElement.style.getPropertyValue(PAGE_PANEL_W_VAR)).toBe('')
+      // A page's card in front: no sub-nav on screen, its own navigation (its CSS hides nothing below md anyway).
+      const release = holdFrontCard({ id: 'card-team-chat-page', spec: CARD_PAGES.find((p) => p.slug === 'team-chat')!.spec(new Date()) as CardSpec, close: () => {} })
+      await flush()
+      expect(subnavOnScreen()).toBeNull()
+      act(() => release())
+      await flush()
     })
 
     it('crossing md: back as the person left it (open, or closed), and gone again below it', async () => {
