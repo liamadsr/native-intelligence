@@ -56,6 +56,13 @@ const CASES: Array<{ name: string; head: RegExp; isFunction: boolean; arm: strin
   { name: 'the entity_access_entity_type check', head: /add constraint entity_access_entity_type\b/i, isFunction: false, arm: 'data_table' },
   { name: 'the custom_field_definition_entity_check check', head: /add constraint custom_field_definition_entity_check\b/i, isFunction: false, arm: 'data_row' },
   { name: 'the entity_activity_member_select policy', head: /create policy entity_activity_member_select\b/i, isFunction: false, arm: 'data_table' },
+  // A view of a table's rows follows the table's access (602).
+  ...['Users can view accessible views', 'Users can create views in their workspace', 'Users can update their own views or workspace views as admin', 'Users can delete their own views or workspace views as admin'].map((p) => ({
+    name: `the view policy "${p}"`,
+    head: new RegExp(`create policy "${p}"`, 'i'),
+    isFunction: false,
+    arm: "scope_type is distinct from 'data_table' or public.data_table_visible_to(scope_id, auth.uid())",
+  })),
 ]
 
 describe('Tables: the newest definition by file name keeps the table arm', () => {
@@ -66,6 +73,14 @@ describe('Tables: the newest definition by file name keeps the table arm', () =>
       else expect(text, file).toMatch(c.arm)
     })
   }
+
+  it('602 keeps every condition 039 gave the view policies', () => {
+    const sql = all.find((m) => m.file.startsWith('602_'))!.sql
+    expect(sql).toContain("(visibility = 'personal' and created_by = auth.uid())")
+    expect(sql).toContain("(visibility = 'team' and team_id is not null and public.is_team_member(team_id))")
+    expect(sql.match(/public\.get_member_role\(workspace_id\) in \('admin', 'owner'\)/g)).toHaveLength(2)
+    expect(sql.match(/public\.is_workspace_member\(workspace_id\)/g)).toHaveLength(2)
+  })
 
   it('the restatements after main are 600 and 601', () => {
     expect(newest(fn('entity_grant_ids_for'), true).file.startsWith('601_')).toBe(true)

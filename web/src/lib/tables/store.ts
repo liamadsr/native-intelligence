@@ -14,7 +14,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CustomFieldConfig } from '@/lib/crm/custom-fields'
-import { applyFilters, applyOrdering, NoMatchSignal, type CustomFieldTypes } from '@/lib/views/query-engine'
+import { applyFilters, applyOrdering, fieldShapes, NoMatchSignal, type CustomFieldTypes } from '@/lib/views/query-engine'
 import { customFieldKeyOf } from '@/lib/views/custom-field-columns'
 import type { SortConfig, ViewFilter } from '@/lib/views/types'
 import { isUuid, optionsAnUndoCouldDrop, planUndo, requiredWhenProblem, touchedBy, validateOps, type DataOpInput } from './ops'
@@ -173,23 +173,24 @@ function isTableField(field: string, types: CustomFieldTypes): boolean {
  * on the server by the views query engine, each column read by its type
  * (the table's columns are the types), then in the table's order. A filter
  * or a sort on a column since deleted is dropped: a saved view degrades, it
- * never fails. `userId` resolves "me" on a person column.
+ * never fails. `userId` resolves "me" on a person column; `timeZone` (the
+ * reader's) makes a relative window that zone's days.
  */
 export async function queryRows(
   db: SupabaseClient,
   workspaceId: string,
   tableId: string,
-  columns: readonly Pick<DataColumn, 'key' | 'field_type'>[],
-  opts: RowQuery & { offset?: number; limit?: number; userId?: string } = {},
+  columns: ReadonlyArray<Pick<DataColumn, 'key' | 'field_type'> & { config?: DataColumn['config'] }>,
+  opts: RowQuery & { offset?: number; limit?: number; userId?: string; timeZone?: string } = {},
 ): Promise<{ rows: DataRow[]; hasMore: boolean }> {
   const limit = Math.min(Math.max(1, Math.floor(opts.limit ?? 100)), MAX_ROWS_PAGE)
   const offset = Math.max(0, Math.floor(opts.offset ?? 0))
-  const fieldTypes: CustomFieldTypes = new Map(columns.map((c) => [c.key, c.field_type]))
+  const fieldTypes: CustomFieldTypes = fieldShapes(columns)
   const filters = (opts.filters ?? []).filter((f) => isTableField(f.field, fieldTypes))
   const ordering = (opts.ordering ?? []).filter((s) => isTableField(s.field, fieldTypes))
   const q = db.from('data_row').select(ROW_SELECT).eq('workspace_id', workspaceId).eq('table_id', tableId).is('archived_at', null)
   try {
-    await applyFilters(q as never, 'data_row', [...filters], db, workspaceId, { userId: opts.userId }, { fieldTypes })
+    await applyFilters(q as never, 'data_row', [...filters], db, workspaceId, { userId: opts.userId }, { fieldTypes, timeZone: opts.timeZone })
   } catch (e) {
     if (e instanceof NoMatchSignal) return { rows: [], hasMore: false }
     throw e

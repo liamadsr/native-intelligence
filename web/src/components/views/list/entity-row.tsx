@@ -638,6 +638,8 @@ export function getTitle(entityType: ViewEntityType, item: Record<string, unknow
     // document, and a raw newline in a one-line row renders as a gap.
     case 'claim':
       return ((item.text as string) || '').replace(/\s+/g, ' ').trim() || 'Empty claim'
+    // A table's row: its title (a table draws its rows itself; a chat card or a tab may still name one).
+    case 'data_row': return (item.title as string) || 'Untitled'
     case 'eval_run':
       // A RUN HAS NO NAME COLUMN. `runLabel` composes its identity out of the
       // mode and the absolute start time — "Batch run · Sep 8, 3:38 PM" — the

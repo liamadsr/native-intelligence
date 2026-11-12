@@ -40,6 +40,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 // Ids per `.in()` in the post-fetch enrichments: a grouped page holds up to
 // 500 rows, and one `.in()` of that many uuids overflows the request URL.
 const ENRICH_CHUNK = 100
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export async function POST(request: NextRequest) {
   // requireWorkspaceMember resolves user + workspace + member row in one member
@@ -59,6 +60,7 @@ export async function POST(request: NextRequest) {
     grouping = null,
     sub_grouping = null,
     team_id = null,
+    table_id = null,
     page = 1,
     per_page = 50,
     show_completed = true,
@@ -75,6 +77,8 @@ export async function POST(request: NextRequest) {
     grouping?: GroupConfig | null
     sub_grouping?: GroupConfig | null
     team_id?: string | null
+    /** A table's rows (entity_type data_row): the one table they are. */
+    table_id?: string | null
     page?: number
     per_page?: number
     show_completed?: boolean
@@ -88,6 +92,9 @@ export async function POST(request: NextRequest) {
 
   if (!entity_type) {
     return badRequest('entity_type is required')
+  }
+  if (entity_type === 'data_row' && (typeof table_id !== 'string' || !UUID_RE.test(table_id))) {
+    return badRequest('A table’s rows need its table_id')
   }
 
   // Absent (or null, the shape the sibling scope fields use) means the active
@@ -168,7 +175,10 @@ export async function POST(request: NextRequest) {
     // groupResults naturally; the empty-column injection (which needs the DB) is
     // intentionally skipped since there's nothing to place.
     // The custom fields' types, so each is read in its own form (a multi-select's list, a currency's amount).
-    const fieldTypes = await customFieldTypesFor(supabase, workspaceId, entity_type, viewFieldsOf(filters, ordering))
+    // A table's rows: that table's, read by its columns' types.
+    const tableId = entity_type === 'data_row' ? table_id : null
+    if (tableId) query.eq('table_id', tableId)
+    const fieldTypes = await customFieldTypesFor(supabase, workspaceId, entity_type, viewFieldsOf(filters, ordering), tableId)
     if (filters.length > 0) {
       try {
         await applyFilters(query, entity_type, filters, supabase, scopeWorkspaceIds, {
@@ -535,7 +545,7 @@ export async function POST(request: NextRequest) {
       // dragged to an option no record has yet. One definition read.
       if (isCustomFieldPath(grouping.field)) {
         try {
-          grouped = await layoutCustomSelectGroups(supabase, workspaceId, entity_type, grouping, grouped)
+          grouped = await layoutCustomSelectGroups(supabase, workspaceId, entity_type, grouping, grouped, entity_type === 'data_row' ? table_id : null)
         } catch (err) {
           console.error('[views/query] custom field columns failed', err)
         }

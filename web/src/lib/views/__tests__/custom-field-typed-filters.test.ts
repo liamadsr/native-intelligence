@@ -8,8 +8,8 @@
  * compares its amount; "me" on a person is the caller's member id. Sorts
  * order a currency by its amount and skip what holds ids or lists.
  */
-import { describe, expect, it } from 'vitest'
-import { applyFilters, applyOrdering, customFieldTypesFor, holdsTerm, viewFieldsOf, type CustomFieldTypes } from '@/lib/views/query-engine'
+import { describe, expect, it, vi } from 'vitest'
+import { applyFilters, applyOrdering, customFieldTypesFor, fieldShapes, holdsTerm, isRelativeDateValue, viewFieldsOf, wallClockIn, type CustomFieldTypes } from '@/lib/views/query-engine'
 import type { CustomFieldType } from '@/lib/crm/custom-field-types'
 import { customFieldFilterFields } from '@/lib/views/custom-field-columns'
 import { defaultOperatorFor, operatorsFor } from '@/components/views/filters/field-traits'
@@ -31,23 +31,25 @@ function makeQuerySpy() {
   return { query: proxy, calls }
 }
 
-const TYPES: CustomFieldTypes = new Map<string, CustomFieldType>([
-  ['stage', 'select'],
-  ['tags', 'multi_select'],
-  ['paid', 'checkbox'],
-  ['owner', 'person'],
-  ['price', 'currency'],
-  ['client', 'relation'],
-  ['qty', 'number'],
-  ['due', 'date'],
-  ['notes', 'text'],
-  ['site', 'url'],
-])
+const TYPES: CustomFieldTypes = fieldShapes(
+  ([
+    ['stage', 'select'],
+    ['tags', 'multi_select'],
+    ['paid', 'checkbox'],
+    ['owner', 'person'],
+    ['price', 'currency'],
+    ['client', 'relation'],
+    ['qty', 'number'],
+    ['due', 'date'],
+    ['notes', 'text'],
+    ['site', 'url'],
+  ] as Array<[string, CustomFieldType]>).map(([key, field_type]) => ({ key, field_type, config: key === 'price' ? { currency: 'USD' } : {} })),
+)
 
-async function run(key: string, operator: FilterOperator, value: unknown, resolved?: { memberId?: string; userId?: string }) {
+async function run(key: string, operator: FilterOperator, value: unknown, resolved?: { memberId?: string; userId?: string }, timeZone?: string) {
   const { query, calls } = makeQuerySpy()
   const f: ViewFilter = { id: 'f', field: `custom_fields.${key}`, operator, value: value as ViewFilter['value'] }
-  await applyFilters(query as never, 'data_row', [f], undefined, 'ws-1', resolved, { fieldTypes: TYPES })
+  await applyFilters(query as never, 'data_row', [f], undefined, 'ws-1', resolved, { fieldTypes: TYPES, timeZone })
   return calls
 }
 
@@ -67,10 +69,16 @@ describe('number, currency', () => {
     ])
   })
 
-  it('a currency compares its amount, and is empty without one', async () => {
-    expect(await run('price', 'gte', 1000)).toEqual([{ method: 'gte', args: ['custom_fields->price->amount', 1000] }])
-    expect(await run('price', 'between', { from: 100, to: '' })).toEqual([{ method: 'gte', args: ['custom_fields->price->amount', 100] }])
-    expect(await run('price', 'is', '250')).toEqual([{ method: 'eq', args: ['custom_fields->price->amount', 250] }])
+  it('a currency compares its amount in its own code only, and is empty without one', async () => {
+    const usd = { method: 'contains', args: ['custom_fields', { price: { currency: 'USD' } }] }
+    expect(await run('price', 'gte', 1000)).toEqual([usd, { method: 'gte', args: ['custom_fields->price->amount', 1000] }])
+    expect(await run('price', 'between', { from: 100, to: '' })).toEqual([usd, { method: 'gte', args: ['custom_fields->price->amount', 100] }])
+    expect(await run('price', 'between', { from: 100, to: 900 })).toEqual([
+      usd,
+      { method: 'gte', args: ['custom_fields->price->amount', 100] },
+      { method: 'lte', args: ['custom_fields->price->amount', 900] },
+    ])
+    expect(await run('price', 'is', '250')).toEqual([usd, { method: 'eq', args: ['custom_fields->price->amount', 250] }])
     expect(await run('price', 'is_empty', '')).toEqual([{ method: 'is', args: ['custom_fields->>price', null] }])
     expect(await run('price', 'is_not_empty', '')).toEqual([{ method: 'not', args: ['custom_fields->>price', 'is', null] }])
   })
@@ -90,11 +98,15 @@ describe('date', () => {
 describe('select', () => {
   it('is, is not, any of, none of', async () => {
     expect(await run('stage', 'is', 'Won')).toEqual([{ method: 'contains', args: ['custom_fields', { stage: 'Won' }] }])
-    // A row with no stage is "not Won".
-    expect(await run('stage', 'is_not', 'Won')).toEqual([{ method: 'not', args: ['custom_fields', 'cs', '{"stage":"Won"}'] }])
+    // As a column's `neq`: a stage, and not Won (a row with none isn't counted).
+    expect(await run('stage', 'is_not', 'Won')).toEqual([
+      { method: 'not', args: ['custom_fields->>stage', 'is', null] },
+      { method: 'not', args: ['custom_fields', 'cs', '{"stage":"Won"}'] },
+    ])
     expect(await run('stage', 'is_any_of', ['Lead', 'Won'])).toEqual([{ method: 'or', args: [`${holdsTerm('stage', 'Lead')},${holdsTerm('stage', 'Won')}`] }])
     expect(await run('stage', 'is_any_of', ['Lead'])).toEqual([{ method: 'contains', args: ['custom_fields', { stage: 'Lead' }] }])
     expect(await run('stage', 'is_none_of', ['Lead', 'Won'])).toEqual([
+      { method: 'not', args: ['custom_fields->>stage', 'is', null] },
       { method: 'not', args: ['custom_fields', 'cs', '{"stage":"Lead"}'] },
       { method: 'not', args: ['custom_fields', 'cs', '{"stage":"Won"}'] },
     ])
@@ -152,7 +164,7 @@ describe('person', () => {
 })
 
 describe('sorts', () => {
-  it('a currency by its amount; a person, a relation and a multi-select not at all', () => {
+  it('a currency by its code then its amount; a person, a relation and a multi-select not at all', () => {
     const { query, calls } = makeQuerySpy()
     applyOrdering(
       query as never,
@@ -167,6 +179,7 @@ describe('sorts', () => {
       { fieldTypes: TYPES },
     )
     expect(calls).toEqual([
+      { method: 'order', args: ['custom_fields->price->currency', { ascending: true, nullsFirst: false }] },
       { method: 'order', args: ['custom_fields->price->amount', { ascending: false, nullsFirst: false }] },
       { method: 'order', args: ['custom_fields->qty', { ascending: true, nullsFirst: false }] },
       { method: 'order', args: ['title', { ascending: true, nullsFirst: false }] },
@@ -192,15 +205,18 @@ describe('a kind’s definitions as the types', () => {
     const db = { from: (t: string) => (reads.push({ method: 'from', args: [t] }), chain) }
     const fields = viewFieldsOf([{ id: 'f', field: 'custom_fields.tags', operator: 'includes', value: ['Rush'] }], [{ field: 'name', direction: 'asc' }])
     const types = await customFieldTypesFor(db as never, 'ws-1', 'deal', fields)
-    expect(types?.get('tags')).toBe('multi_select')
+    expect(types?.get('tags')).toEqual({ type: 'multi_select' })
     expect(reads).toContainEqual({ method: 'from', args: ['custom_field_definition'] })
     expect(reads).toContainEqual({ method: 'in', args: ['key', ['tags']] })
     expect(reads).toContainEqual({ method: 'is', args: ['table_id', null] })
     reads.length = 0
     expect(await customFieldTypesFor(db as never, 'ws-1', 'deal', ['name'])).toBeUndefined()
-    // A table's rows take their table's columns, never the workspace's definitions.
+    // A table's rows take only their own table's live columns, and none without a table.
     expect(await customFieldTypesFor(db as never, 'ws-1', 'data_row', ['custom_fields.tags'])).toBeUndefined()
     expect(reads).toEqual([])
+    await customFieldTypesFor(db as never, 'ws-1', 'data_row', ['custom_fields.tags'], 't-1')
+    expect(reads).toContainEqual({ method: 'eq', args: ['table_id', 't-1'] })
+    expect(reads).toContainEqual({ method: 'is', args: ['deleted_at', null] })
   })
 })
 
@@ -220,7 +236,7 @@ describe('every field type as a filter field', () => {
       { field: 'custom_fields.tags', label: 'Tags', type: 'enum', options: ['Rush', 'Gift'], isArray: true, allowEmpty: true, custom: true },
       { field: 'custom_fields.paid', label: 'Paid', type: 'boolean', allowEmpty: true, custom: true },
       { field: 'custom_fields.owner', label: 'Owner', type: 'member', allowEmpty: true, custom: true },
-      { field: 'custom_fields.price', label: 'Price', type: 'number', allowEmpty: true, custom: true },
+      { field: 'custom_fields.price', label: 'Price', type: 'number', currency: 'USD', allowEmpty: true, custom: true },
       { field: 'custom_fields.client', label: 'Client', type: 'relation', relationTarget: { kind: 'company' }, allowEmpty: true, custom: true },
       { field: 'custom_fields.parts', label: 'Parts', type: 'relation', relationTarget: { kind: 'data_row', table_id: 't-2' }, allowEmpty: true, custom: true },
     ])
@@ -231,5 +247,29 @@ describe('every field type as a filter field', () => {
     expect(ops.owner).toContain('is_any_of')
     expect(ops.price).toContain('between')
     expect(defaultOperatorFor(fields[0])).toBe('includes')
+  })
+})
+
+describe('relative windows', () => {
+  it('a broken one is skipped, not a failure', async () => {
+    for (const bad of [{ unit: 'fortnight', direction: 'past' }, { unit: 'day', direction: 'sideways' }, { unit: 'day', direction: 'past', count: -2 }, 'soon', ['day']]) {
+      expect(isRelativeDateValue(bad), JSON.stringify(bad)).toBe(false)
+      expect(await run('due', 'is_relative', bad)).toEqual([])
+    }
+    expect(isRelativeDateValue({ unit: 'week', direction: 'this' })).toBe(true)
+  })
+
+  it('a custom date’s window is the reader’s days', async () => {
+    // 05:00 UTC is still the day before in Los Angeles and already that day in Tokyo.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-12T05:00:00Z'))
+    try {
+      const day = (calls: Array<{ args: unknown[] }>) => calls.map((c) => c.args[1])
+      expect(day(await run('due', 'is_relative', { unit: 'day', direction: 'this' }, undefined, 'America/Los_Angeles'))).toEqual(['2026-11-11', '2026-11-11'])
+      expect(day(await run('due', 'is_relative', { unit: 'day', direction: 'this' }, undefined, 'Asia/Tokyo'))).toEqual(['2026-11-12', '2026-11-12'])
+      expect(wallClockIn('Not/A_Zone')).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

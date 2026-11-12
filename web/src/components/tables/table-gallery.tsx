@@ -77,7 +77,8 @@ function Cover({ url }: { url: string | null }) {
   return (
     <div className="-mx-2.5 -mt-2 aspect-[16/9] overflow-hidden border-b border-border bg-muted/50">
       {url && !failed && (
-        // A user's own link: a plain image, no optimizer for an arbitrary host.
+        // Loaded straight from the link a teammate put in the view's cover column (no proxy): its host
+        // can see the viewer's IP fetch it, as with any linked image, so https only, lazy, no referrer.
         <img src={url} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} className="h-full w-full object-cover" />
       )}
     </div>

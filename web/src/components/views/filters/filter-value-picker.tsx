@@ -125,11 +125,13 @@ export function FilterValuePicker({ fieldDef, operator, value, onChange, entityT
       // `numberUnitFor`. The unit belongs to the FIELD, so both editors below
       // take it and neither knows which field it is looking at.
       const unit = numberUnitFor(fieldDef)
+      // A currency's amounts compare in its own code, which the chip names ("$").
+      const code = fieldDef.currency ? <span className="pl-2 text-xs text-muted-foreground" data-currency={fieldDef.currency}>{currencySymbol(fieldDef.currency)}</span> : null
       // `between` is a RANGE — the query engine reads `{ from, to }` — so it
       // gets two fields. One field under "between" was a filter that could
       // never be satisfied.
-      if (operator === 'between') return <NumberRangePicker value={value} onChange={onChange} unit={unit} />
-      return <NumberInput value={value} onChange={onChange} unit={unit} />
+      if (operator === 'between') return <>{code}<NumberRangePicker value={value} onChange={onChange} unit={unit} /></>
+      return <>{code}<NumberInput value={value} onChange={onChange} unit={unit} /></>
     }
     case 'date': {
       if (operator === 'is_relative') return <RelativeDatePicker value={value as RelativeDateValue} onChange={onChange} />
@@ -169,6 +171,15 @@ export function FilterValuePicker({ fieldDef, operator, value, onChange, entityT
       }
       return <span className="px-2 text-muted-foreground text-xs">—</span>
     }
+  }
+}
+
+/** A currency code as its symbol ("USD" → "$"), or the code itself. */
+function currencySymbol(code: string): string {
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: code }).formatToParts(0).find((p) => p.type === 'currency')?.value ?? code
+  } catch {
+    return code
   }
 }
 

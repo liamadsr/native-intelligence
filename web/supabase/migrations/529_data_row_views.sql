@@ -26,10 +26,11 @@ alter type public.view_layout add value if not exists 'calendar';
 alter type public.view_layout add value if not exists 'gallery';
 
 -- 2. A view of one table's rows
-alter table public.view drop constraint if exists view_scope_type_check;
-alter table public.view
-  add constraint view_scope_type_check
-  check (scope_type is null or scope_type in ('project', 'initiative', 'contact', 'company', 'prospect_list', 'eval_suite', 'data_table'));
+-- Spelled as 257 spells it: the lockstep tests read the newest CHECK by this form.
+ALTER TABLE public.view DROP CONSTRAINT IF EXISTS view_scope_type_check;
+ALTER TABLE public.view
+  ADD CONSTRAINT view_scope_type_check
+  CHECK (scope_type IS NULL OR scope_type IN ('project', 'initiative', 'contact', 'company', 'prospect_list', 'eval_suite', 'data_table'));
 
 -- 3. Indexes
 create index if not exists data_row_custom_fields_idx

@@ -59,10 +59,21 @@ export function TableBoard({
     if (errors.length) toast.error(errors[0].error)
   }
 
-  /** A new row in a lane: that lane's value, its title typed in the row panel. */
+  /**
+   * A new row in a lane: that lane's value, its title typed in the row panel.
+   * A lane whose value makes another column required (required-when) can't
+   * take an empty row: it is added without the lane's value instead, opened
+   * with the required column flagged, and the toast says what to fill in
+   * before it can move there.
+   */
   const addTo = (laneKey: string) => {
     const id = newId()
-    data.edit([], [{ id, title: '', values: laneKey === NO_VALUE ? {} : { [column.key]: laneKey } }])
+    const refused = data.edit([], [{ id, title: '', values: laneKey === NO_VALUE ? {} : { [column.key]: laneKey } }])
+    if (refused.length) {
+      data.edit([], [{ id, title: '' }])
+      const lane = lanes.find((l) => l.key === laneKey)
+      toast.error(`${refused[0].error} Added it without ${column.label}; fill that in, then move it to ${lane?.label ?? laneKey}.`)
+    }
     onOpenRow(id)
   }
 

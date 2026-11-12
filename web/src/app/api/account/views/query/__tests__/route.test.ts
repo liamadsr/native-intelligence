@@ -197,6 +197,17 @@ describe('POST /api/account/views/query', () => {
     expect(query.neq).not.toHaveBeenCalled()
   })
 
+  it("a table's rows need their table, and are that table's only", async () => {
+    expect((await POST(postReq({ entity_type: 'data_row' }))).status).toBe(400)
+    expect((await POST(postReq({ entity_type: 'data_row', table_id: 'not-an-id' }))).status).toBe(400)
+    const query = makeQuery()
+    hoisted.buildEntityQuery.mockReturnValueOnce(query)
+    const table = '33333333-3333-4333-8333-333333333333'
+    const res = await POST(postReq({ entity_type: 'data_row', table_id: table }))
+    expect(res.status).toBe(200)
+    expect(query.eq).toHaveBeenCalledWith('table_id', table)
+  })
+
   it("capture_scope 'shared' filters to teammates' workspace-visible captures", async () => {
     const query = makeQuery()
     hoisted.buildEntityQuery.mockReturnValueOnce(query)

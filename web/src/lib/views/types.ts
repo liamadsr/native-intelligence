@@ -306,6 +306,8 @@ export interface FilterFieldDefinition {
    * filter's value picker can search those records.
    */
   relationTarget?: { kind: string; table_id?: string }
+  /** A custom currency field: its own code. Its amounts filter only in it. */
+  currency?: string
   /**
    * One of the workspace's own fields (migrations 473, 496), named
    * `custom_fields.<key>` and read from the record's `custom_fields` jsonb.

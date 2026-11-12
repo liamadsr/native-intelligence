@@ -198,6 +198,7 @@ describe('a gallery', () => {
     expect(coverColumnOf(COLUMNS, 'qty')).toBeNull()
     expect(coverColumnOf(COLUMNS, null)).toBeNull()
     expect(coverUrl(' https://fernhill.example/oak.jpg ')).toBe('https://fernhill.example/oak.jpg')
+    expect(coverUrl('http://fernhill.example/oak.jpg')).toBeNull()
     expect(coverUrl('javascript:alert(1)')).toBeNull()
     expect(coverUrl(3)).toBeNull()
   })

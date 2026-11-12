@@ -43,7 +43,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 }
 
 /**
- * POST { filters, ordering, offset, limit }: a page of the live rows as a
+ * POST { filters, ordering, offset, limit, time_zone }: a page of the live rows as a
  * view asks for them, filtered and sorted on the server (queryRows), with
  * the same `labels` as GET.
  */
@@ -67,6 +67,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       offset: Number(body.offset) || 0,
       limit: Number(body.limit) || 100,
       userId: user.id,
+      ...(typeof body.time_zone === 'string' && body.time_zone.length <= 64 ? { timeZone: body.time_zone } : {}),
     })
     return NextResponse.json({ rows: page.rows, has_more: page.hasMore, labels: await labelsFor(supabase, workspaceId, columns, page.rows) })
   } catch (e) {

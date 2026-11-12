@@ -166,6 +166,11 @@ export function TableDetail({ tableId, onBack }: { tableId: string; onBack: () =
         )}
         {error && <p className="px-5 py-4 text-sm text-destructive">{error}</p>}
         {!table && !error && <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>}
+        {table && layout !== 'grid' && data.rowsCapped && (
+          <p className="border-t border-border px-5 py-1.5 text-xs text-muted-foreground" data-rows-capped="">
+            Showing the first {data.rows.length.toLocaleString()} rows. Filter the view to narrow it.
+          </p>
+        )}
         {table && (
           <div className={data.rowsLoading ? 'flex min-h-0 flex-1 flex-col opacity-60 transition-opacity' : 'flex min-h-0 flex-1 flex-col'}>
             {layout === 'grid' && (

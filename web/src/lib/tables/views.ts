@@ -290,8 +290,8 @@ export function coverColumnOf(columns: readonly DataColumn[], key?: string | nul
   return (key && columns.find((c) => c.key === key && c.field_type === 'url')) || null
 }
 
-/** A cover's image address: an http(s) URL, or nothing. */
+/** A cover's image address: an https URL, or nothing. */
 export function coverUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null
-  return /^https?:\/\/\S+$/i.test(value.trim()) ? value.trim() : null
+  return /^https:\/\/\S+$/i.test(value.trim()) ? value.trim() : null
 }

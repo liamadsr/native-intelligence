@@ -35,6 +35,15 @@ const PAGE = 200
 export const BACKGROUND_ROWS = 10_000
 const CATCH_UP_LIMIT = 200
 
+/** This reader's zone: a relative date filter ("next 7 days") is their days. */
+function readerTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone
+  } catch {
+    return undefined
+  }
+}
+
 /** The rows' query while the open view is still unknown. */
 const WAIT = 'wait'
 
@@ -146,7 +155,7 @@ export function useTableData(
       if (queryRef.current === WAIT) return false
       const view = JSON.parse(queryRef.current) as RowQuery
       const json = await readJson<{ rows: DataRow[]; has_more: boolean; labels?: Record<string, string> }>(
-        await fetch(`${base}/rows`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...view, offset, limit: PAGE }) }),
+        await fetch(`${base}/rows`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...view, offset, limit: PAGE, time_zone: readerTimeZone() }) }),
       )
       // The view changed while this page was on its way: the next read starts over.
       if (gen !== rowsGen.current) return false
@@ -522,6 +531,8 @@ export function useTableData(
     error,
     cellErrors,
     rowsLoading,
+    /** More rows than the page reads (BACKGROUND_ROWS): the layouts say they show the first ones. */
+    rowsCapped: hasMore && rows.length >= BACKGROUND_ROWS,
     canEdit: table?.can_edit === true,
     reload,
     loadMore,

@@ -24,7 +24,7 @@
  */
 import { isCustomFieldEntityType, type CustomFieldEntityType } from '@/lib/knowledge/entity-registry'
 import type { CustomFieldDefinition, CustomFieldType } from '@/lib/crm/custom-fields'
-import { formatFieldValue } from '@/lib/crm/custom-field-types'
+import { DEFAULT_CURRENCY, formatFieldValue } from '@/lib/crm/custom-field-types'
 import type { DisplayPropertyDefinition, FilterFieldDefinition, FilterFieldType, FilterValue, GroupedResults, ViewEntityType } from './types'
 
 export const CUSTOM_FIELD_PATH_PREFIX = 'custom_fields.'
@@ -112,6 +112,7 @@ export function customFieldFilterFields(defs: readonly CustomFieldColumnDefiniti
     const field: FilterFieldDefinition = { field: customFieldPath(d.key), label: d.label, type, allowEmpty: true, custom: true }
     if (d.field_type === 'select' || d.field_type === 'multi_select') field.options = [...(d.options ?? [])]
     if (d.field_type === 'multi_select') field.isArray = true
+    if (d.field_type === 'currency') field.currency = d.config?.currency || DEFAULT_CURRENCY
     if (d.field_type === 'relation') {
       const target = d.config?.target
       if (!target) continue

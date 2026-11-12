@@ -46,7 +46,8 @@ const tomorrow = format(addDays(new Date(), new Date().getDay() === 6 ? -1 : 1),
 const column = (key: string, label: string, field_type: string, extra: Record<string, unknown> = {}, position = 0) => ({ id: `c-${key}`, table_id: T, key, label, field_type, options: [], config: {}, position, deleted_at: null, ...extra })
 const COLUMNS = [
   column('stage', 'Stage', 'select', { options: ['Lead', 'Quoted', 'Won'] }, 0),
-  column('price', 'Price', 'currency', { config: { currency: 'USD' } }, 1),
+  // A price is needed once a row is Won (required-when).
+  column('price', 'Price', 'currency', { config: { currency: 'USD', required_when: { key: 'stage', option: 'Won' } } }, 1),
   column('due', 'Due', 'date', {}, 2),
   column('photo', 'Photo', 'url', {}, 3),
 ]
@@ -165,6 +166,31 @@ describe('a board view', () => {
     await drop(laneArea('Won'), { id: R3, lane: '__none__' })
     expect(laneTitles('__none__')).toEqual(['Elm bench'])
     expect(laneTitles('Won')).toEqual(['Oak table'])
+  })
+})
+
+describe('a board’s New', () => {
+  it('in a lane: a row with that lane’s value, opened', async () => {
+    await open('Pipeline')
+    const add = [...container.querySelectorAll('[data-lane="Lead"] button')].find((b) => b.textContent?.includes('New'))!
+    await act(async () => (add as HTMLElement).click())
+    await flush(10)
+    expect(opsCalls().at(-1)?.body).toMatchObject({ ops: [{ op: 'insert_rows', rows: [{ title: '', values: { stage: 'Lead' } }] }] })
+    expect(laneTitles('Lead')).toEqual(['Linen set', 'Untitled'])
+  })
+
+  it('in a lane whose value needs another column: added without it, opened with that column flagged, and said so', async () => {
+    const { toast } = await import('sonner')
+    await open('Pipeline')
+    const add = [...container.querySelectorAll('[data-lane="Won"] button')].find((b) => b.textContent?.includes('New'))!
+    await act(async () => (add as HTMLElement).click())
+    await flush(10)
+    const sent = opsCalls().at(-1)?.body as { ops: Array<{ op: string; rows: Array<Record<string, unknown>> }> }
+    expect(sent.ops).toEqual([{ op: 'insert_rows', rows: [{ id: expect.any(String), title: '' }] }])
+    expect(laneTitles('__none__')).toContain('Untitled')
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(expect.stringMatching(/^Price is needed when Stage is Won.*Added it without Stage; fill that in, then move it to Won\.$/))
+    // The row panel is open on the new row, its Price flagged.
+    expect(document.querySelector('[data-row-field="price"]')?.textContent).toContain('Price is needed when Stage is Won')
   })
 })
 
