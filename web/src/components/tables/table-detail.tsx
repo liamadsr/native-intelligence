@@ -27,6 +27,8 @@ import { canOfferUndo, describeChange } from '@/lib/tables/describe'
 import { TITLE_KEY } from '@/lib/tables/grid-edits'
 import { coverColumnOf, dateColumnOf, groupColumnOf, isGroupable, isTotalable, moveColumn, viewColumns } from '@/lib/tables/views'
 import { customFieldKeyOf, customFieldPath } from '@/lib/views/custom-field-columns'
+import { resultFieldType } from '@/lib/tables/computed'
+import { isComputedType } from '@/lib/tables/types'
 import type { ViewScope } from '@/lib/views/types'
 import { FieldsMenu } from './fields-menu'
 import { RowPanel } from './row-panel'
@@ -69,7 +71,11 @@ export function TableDetail({ tableId, onBack }: { tableId: string; onBack: () =
 
   // The table's columns, for the filter picker, the chips and the settings.
   const definitions = useMemo(
-    () => ({ entityType: 'data_row' as const, defs: columns.map((c) => ({ key: c.key, label: c.label, field_type: c.field_type, options: c.options ?? [], config: c.config ?? {} })) }),
+    () => ({
+      entityType: 'data_row' as const,
+      // A formula or a rollup filters as its result's type.
+      defs: columns.map((c) => (isComputedType(c.field_type) ? { key: c.key, label: c.label, field_type: resultFieldType(c.computed?.result), options: [], config: {} } : { key: c.key, label: c.label, field_type: c.field_type, options: c.options ?? [], config: c.config ?? {} })),
+    }),
     [columns],
   )
 
@@ -166,6 +172,11 @@ export function TableDetail({ tableId, onBack }: { tableId: string; onBack: () =
         )}
         {error && <p className="px-5 py-4 text-sm text-destructive">{error}</p>}
         {!table && !error && <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>}
+        {table && data.computedSkipped && (
+          <p className="border-t border-border px-5 py-1.5 text-xs text-muted-foreground" data-computed-skipped="">
+            Filters and sorts on a formula or a rollup work on tables of up to 2,000 rows. This view shows the rest of its filters and sorts.
+          </p>
+        )}
         {table && layout !== 'grid' && data.rowsCapped && (
           <p className="border-t border-border px-5 py-1.5 text-xs text-muted-foreground" data-rows-capped="">
             Showing the first {data.rows.length.toLocaleString()} rows. Filter the view to narrow it.

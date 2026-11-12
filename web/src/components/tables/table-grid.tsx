@@ -15,7 +15,7 @@
  * copy, sort and hide, nothing that writes.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, EyeOff, Maximize2, Pencil, Plus, Shapes, Trash2 } from 'lucide-react'
+import { AlertCircle, ArrowDown, ArrowUp, EyeOff, Maximize2, Pencil, Plus, Shapes, Sigma, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { CellGrid, type CellGridApi, type GridColumn, type PasteTarget } from '@/components/grid/cell-grid'
 import { selectionRange, type CellPos, type CellRange } from '@/components/grid/selection'
@@ -23,11 +23,12 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
-import { CUSTOM_FIELD_TYPE_LABELS, type CustomFieldType } from '@/lib/crm/custom-field-types'
+import { COLUMN_TYPE_LABELS } from '@/lib/tables/computed'
 import { clipboardText, pastedValue, TITLE_KEY, type CellEdit } from '@/lib/tables/grid-edits'
-import type { DataColumn, DataRow } from '@/lib/tables/types'
+import { isComputedType, type DataColumn, type DataColumnType, type DataRow } from '@/lib/tables/types'
 import { CellDisplay, CellEditor, ColumnLabel, type CellColumn } from './cells'
-import { AddColumnForm, RenameDialog, TypeChangeDialog, type ColumnShape } from './column-forms'
+import { AddColumnForm, ComputedEditDialog, RenameDialog, TypeChangeDialog, type ColumnShape } from './column-forms'
+import { cellValueOf, ComputedCell, readColumn } from './computed-cells'
 import { cellId, type TableData } from './use-table-data'
 
 export interface TableSort {
@@ -37,7 +38,7 @@ export interface TableSort {
 
 const TITLE_COLUMN: CellColumn = { key: TITLE_KEY, label: 'Name', field_type: 'text', options: [] }
 
-export const DEFAULT_WIDTH: Record<CustomFieldType, number> = {
+export const DEFAULT_WIDTH: Record<DataColumnType, number> = {
   text: 200,
   number: 120,
   date: 130,
@@ -50,12 +51,19 @@ export const DEFAULT_WIDTH: Record<CustomFieldType, number> = {
   person: 160,
   currency: 130,
   relation: 200,
+  formula: 160,
+  rollup: 150,
 }
 
-export const asCell = (c: DataColumn): CellColumn => ({ key: c.key, label: c.label, field_type: c.field_type, options: c.options ?? [], config: c.config ?? {} })
+/** A column as its cells read (a formula or a rollup as its result's type: ./computed-cells.tsx). */
+export const asCell = readColumn
 
-/** Whether the server can order a column's values (a person, a relation and a multi-select hold ids and lists). */
-export const isSortable = (t: CustomFieldType) => t !== 'person' && t !== 'relation' && t !== 'multi_select'
+/**
+ * Whether the server can order a column's values (a person, a relation and a
+ * multi-select hold ids and lists). A formula or a rollup orders in memory,
+ * on tables up to store.ts COMPUTED_SCAN_ROWS rows.
+ */
+export const isSortable = (t: DataColumnType) => t !== 'person' && t !== 'relation' && t !== 'multi_select'
 
 /** Archives rows, with an Undo on the toast. */
 export async function archiveRows(data: TableData, ids: readonly string[]) {
@@ -95,6 +103,7 @@ export function TableGrid({
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<DataColumn | null>(null)
   const [retyping, setRetyping] = useState<DataColumn | null>(null)
+  const [computing, setComputing] = useState<DataColumn | null>(null)
   const [adding, setAdding] = useState(false)
   const [contextRow, setContextRow] = useState<number | null>(null)
   const focusNewRow = useRef<string | null>(null)
@@ -122,24 +131,26 @@ export function TableGrid({
   }, [data])
 
   const gridColumns = useMemo<GridColumn[]>(() => {
-    const header = (col: CellColumn) => (
+    const header = (col: CellColumn, type: DataColumnType, problem?: string) => (
       <ColumnHeader
         column={col}
+        type={type}
+        problem={problem}
         open={menuFor === col.key}
         onOpenChange={(open) => setMenuFor(open ? col.key : null)}
         canEdit={canEdit}
         sorted={sort?.key === col.key ? sort.dir : null}
-        onSort={col.key === TITLE_KEY || isSortable(col.field_type) ? (dir) => onSort({ key: col.key, dir }) : undefined}
+        onSort={col.key === TITLE_KEY || isSortable(type) ? (dir) => onSort({ key: col.key, dir }) : undefined}
         onRename={() => setRenaming(byKey.get(col.key) ?? null)}
-        onRetype={() => setRetyping(byKey.get(col.key) ?? null)}
+        onRetype={() => (isComputedType(type) ? setComputing(byKey.get(col.key) ?? null) : setRetyping(byKey.get(col.key) ?? null))}
         onHide={() => onHide(col.key)}
         onDelete={() => void deleteColumn(col.key)}
         onFocusGrid={() => apiRef.current?.focus()}
       />
     )
     return [
-      { id: TITLE_KEY, label: 'Name', width: widths[TITLE_KEY] ?? 260, minWidth: 120, movable: false, header: header(TITLE_COLUMN) },
-      ...visible.map((c) => ({ id: c.key, label: c.label, width: widths[c.key] ?? DEFAULT_WIDTH[c.field_type], header: header(asCell(c)) })),
+      { id: TITLE_KEY, label: 'Name', width: widths[TITLE_KEY] ?? 260, minWidth: 120, movable: false, header: header(TITLE_COLUMN, 'text') },
+      ...visible.map((c) => ({ id: c.key, label: c.label, width: widths[c.key] ?? DEFAULT_WIDTH[c.field_type], header: header(asCell(c), c.field_type, c.computed?.error) })),
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, widths, menuFor, canEdit, sort, byKey])
@@ -173,6 +184,7 @@ export function TableGrid({
       }
       const col = byKey.get(gc.id)
       if (!col) return null
+      if (isComputedType(col.field_type)) return <ComputedCell column={col} row={row} labels={labels} />
       const value = row.custom_fields?.[gc.id] ?? null
       const toggle = canEdit && col.field_type === 'checkbox' ? () => edit([{ rowId: row.id, key: col.key, value: value !== true }]) : undefined
       return (
@@ -215,16 +227,24 @@ export function TableGrid({
   )
 
   const copyText = useCallback(
-    (row: DataRow, gc: GridColumn) => (gc.id === TITLE_KEY ? row.title ?? '' : clipboardText(byKey.get(gc.id)?.field_type ?? 'text', row.custom_fields?.[gc.id], labels)),
+    (row: DataRow, gc: GridColumn) => {
+      if (gc.id === TITLE_KEY) return row.title ?? ''
+      const col = byKey.get(gc.id)
+      if (col && isComputedType(col.field_type)) return clipboardText(readColumn(col).field_type, cellValueOf(col, row).value, labels)
+      return clipboardText(col?.field_type ?? 'text', row.custom_fields?.[gc.id], labels)
+    },
     [byKey, labels],
   )
+  // A formula's or a rollup's cells are worked out: nothing edits them.
+  const editable = useCallback((_row: DataRow, gc: GridColumn) => !isComputedType(byKey.get(gc.id)?.field_type), [byKey])
+  const computedKey = (key: string) => isComputedType(byKey.get(key)?.field_type)
 
   const onPaste = (targets: PasteTarget[]) => {
     const edits: CellEdit[] = []
     const fresh = new Map<number, { id: string; title?: string; values: Record<string, unknown> }>()
     for (const t of targets) {
       const key = gridColumns[t.col]?.id
-      if (!key) continue
+      if (!key || computedKey(key)) continue
       const col = key === TITLE_KEY ? null : byKey.get(key)
       const value = col ? pastedValue(col, t.text, { members, labels }) : t.text
       if (t.row < displayRows.length) {
@@ -244,7 +264,7 @@ export function TableGrid({
     for (let r = range.top; r <= Math.min(range.bottom, displayRows.length - 1); r++) {
       for (let c = range.left; c <= range.right; c++) {
         const key = gridColumns[c]?.id
-        if (key) edits.push({ rowId: displayRows[r].id, key, value: key === TITLE_KEY ? '' : null })
+        if (key && !computedKey(key)) edits.push({ rowId: displayRows[r].id, key, value: key === TITLE_KEY ? '' : null })
       }
     }
     const errors = data.edit(edits)
@@ -278,6 +298,7 @@ export function TableGrid({
               renderEditor={renderEditor}
               copyText={copyText}
               readOnly={!canEdit}
+              canEdit={editable}
               onActivate={onActivate}
               onPaste={onPaste}
               onClear={clearRange}
@@ -307,6 +328,7 @@ export function TableGrid({
                           <PopoverContent align="end" className="w-72 rounded-xl p-3">
                             <AddColumnForm
                               tableId={table.id}
+                              columns={columns}
                               onCancel={() => setAdding(false)}
                               onAdd={(label, shape: ColumnShape) => {
                                 const problem = data.columnOps([{ op: 'create_column', label, field_type: shape.field_type, options: shape.options, config: shape.config }])
@@ -363,9 +385,17 @@ export function TableGrid({
             const result = await data.sendNow([{ op: 'change_column_type', key: retyping.key, field_type: shape.field_type, options: shape.options, config: shape.config }])
             if (!result.ok) return result.error
             const changeId = result.changeId
-            toast(`“${retyping.label}” is now ${CUSTOM_FIELD_TYPE_LABELS[shape.field_type]}`, changeId ? { action: { label: 'Undo', onClick: () => void data.undo(changeId) } } : undefined)
+            toast(`“${retyping.label}” is now ${COLUMN_TYPE_LABELS[shape.field_type]}`, changeId ? { action: { label: 'Undo', onClick: () => void data.undo(changeId) } } : undefined)
             return null
           }}
+        />
+      )}
+      {computing && (
+        <ComputedEditDialog
+          column={computing}
+          columns={columns}
+          onClose={() => setComputing(null)}
+          onSave={(config) => data.columnOps([{ op: 'update_column', key: computing.key, config }])}
         />
       )}
     </>
@@ -379,6 +409,8 @@ export function TableGrid({
  */
 function ColumnHeader({
   column,
+  type,
+  problem,
   open,
   onOpenChange,
   canEdit,
@@ -391,6 +423,10 @@ function ColumnHeader({
   onFocusGrid,
 }: {
   column: CellColumn
+  /** The column's own type (a formula's cells read as its result's). */
+  type: DataColumnType
+  /** A formula or a rollup that can't be worked out: why. */
+  problem?: string
   open: boolean
   onOpenChange: (open: boolean) => void
   canEdit: boolean
@@ -408,7 +444,8 @@ function ColumnHeader({
     <DropdownMenu open={open} onOpenChange={onOpenChange} modal={false}>
       <DropdownMenuTrigger asChild disabled>
         <span className="flex h-full w-full cursor-default items-center" data-column-header={column.key}>
-          <ColumnLabel type={column.field_type} label={column.label}>
+          <ColumnLabel type={type} label={column.label}>
+            {problem && <AlertCircle className="h-3 w-3 shrink-0 text-destructive" aria-label={problem} />}
             {sorted && (sorted === 'asc' ? <ArrowUp className="h-3 w-3 shrink-0" aria-label="Sorted ascending" /> : <ArrowDown className="h-3 w-3 shrink-0" aria-label="Sorted descending" />)}
           </ColumnLabel>
         </span>
@@ -427,9 +464,11 @@ function ColumnHeader({
               <Pencil className="h-3.5 w-3.5" /> Rename
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={onRetype}>
-              <Shapes className="h-3.5 w-3.5" /> Change type
-              <span className="ml-auto text-xs text-muted-foreground">{CUSTOM_FIELD_TYPE_LABELS[column.field_type]}</span>
+              {isComputedType(type) ? <Sigma className="h-3.5 w-3.5" /> : <Shapes className="h-3.5 w-3.5" />}
+              {type === 'formula' ? 'Edit formula' : type === 'rollup' ? 'Edit rollup' : 'Change type'}
+              <span className="ml-auto text-xs text-muted-foreground">{COLUMN_TYPE_LABELS[type]}</span>
             </DropdownMenuItem>
+            {problem && <p className="px-2 py-1 text-xs text-destructive">{problem}</p>}
             <DropdownMenuSeparator />
           </>
         )}

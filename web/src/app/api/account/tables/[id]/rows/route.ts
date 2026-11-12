@@ -3,7 +3,7 @@ import { requireWorkspace } from '@/lib/api-auth'
 import { badRequest, notFound, serverError } from '@/lib/api-errors'
 import { fieldValueLabels } from '@/lib/crm/custom-field-references'
 import { isUuid } from '@/lib/tables/ops'
-import { listColumns, listRows, queryRows } from '@/lib/tables/store'
+import { listColumns, listRows, queryRows, withComputed } from '@/lib/tables/store'
 import type { DataColumn, DataRow } from '@/lib/tables/types'
 import type { SortConfig, ViewFilter } from '@/lib/views/types'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -12,16 +12,21 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 const MAX_FILTERS = 50
 const MAX_SORTS = 5
 
+/** The reader's zone as the request names it (today() is their day). */
+const zoneOf = (v: unknown) => (typeof v === 'string' && v.length > 0 && v.length <= 64 ? v : undefined)
+
 /**
  * GET ?offset=&limit=&archived=1: a page of the table's rows, in order.
  * ?ids=a,b: those rows (the grid reads a teammate's new or moved rows).
+ * Each row carries its formulas' and rollups' cells (`computed`), worked out
+ * for the caller: a rollup counts only the records they can read.
  * `labels` names the people and linked records the page's values hold, read
  * through the caller's RLS: one read for the members, one per linked kind.
  */
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireWorkspace()
   if (auth instanceof Response) return auth
-  const { supabase, workspaceId } = auth
+  const { supabase, workspaceId, user } = auth
   const { id } = await params
   if (!isUuid(id)) return notFound('Table not found')
   const p = request.nextUrl.searchParams
@@ -36,7 +41,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       }),
       listColumns(supabase, workspaceId, id),
     ])
-    return NextResponse.json({ rows: page.rows, has_more: page.hasMore, labels: await labelsFor(supabase, workspaceId, columns, page.rows) })
+    const rows = await withComputed(supabase, columns, page.rows, { workspaceId, userId: user.id, timeZone: zoneOf(p.get('time_zone')) })
+    return NextResponse.json({ rows, has_more: page.hasMore, labels: await labelsFor(supabase, workspaceId, columns, rows) })
   } catch (e) {
     return serverError(e instanceof Error ? e.message : 'Could not load rows')
   }
@@ -45,7 +51,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 /**
  * POST { filters, ordering, offset, limit, time_zone }: a page of the live rows as a
  * view asks for them, filtered and sorted on the server (queryRows), with
- * the same `labels` as GET.
+ * the same `labels` and `computed` as GET. A filter or a sort on a formula
+ * or a rollup runs over at most COMPUTED_SCAN_ROWS rows; past that it is
+ * dropped and the answer says `computed_skipped`.
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireWorkspace()
@@ -67,16 +75,22 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       offset: Number(body.offset) || 0,
       limit: Number(body.limit) || 100,
       userId: user.id,
-      ...(typeof body.time_zone === 'string' && body.time_zone.length <= 64 ? { timeZone: body.time_zone } : {}),
+      ...(zoneOf(body.time_zone) ? { timeZone: zoneOf(body.time_zone) } : {}),
+      computed: { workspaceId, userId: user.id, timeZone: zoneOf(body.time_zone) },
     })
-    return NextResponse.json({ rows: page.rows, has_more: page.hasMore, labels: await labelsFor(supabase, workspaceId, columns, page.rows) })
+    return NextResponse.json({
+      rows: page.rows,
+      has_more: page.hasMore,
+      ...(page.computedSkipped ? { computed_skipped: true } : {}),
+      labels: await labelsFor(supabase, workspaceId, columns, page.rows),
+    })
   } catch (e) {
     return serverError(e instanceof Error ? e.message : 'Could not load rows')
   }
 }
 
 function labelsFor(db: SupabaseClient, workspaceId: string, columns: DataColumn[], rows: DataRow[]): Promise<Record<string, string>> | Record<string, string> {
-  const named = columns.filter((c) => c.field_type === 'person' || c.field_type === 'relation')
+  const named = columns.filter((c): c is DataColumn & { field_type: 'person' | 'relation' } => c.field_type === 'person' || c.field_type === 'relation')
   return named.length && rows.length ? fieldValueLabels(db, workspaceId, named, rows.map((r) => r.custom_fields)) : {}
 }
 

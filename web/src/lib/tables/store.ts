@@ -14,11 +14,17 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CustomFieldConfig } from '@/lib/crm/custom-fields'
+import type { CustomFieldType } from '@/lib/crm/custom-field-types'
 import { applyFilters, applyOrdering, fieldShapes, NoMatchSignal, type CustomFieldTypes } from '@/lib/views/query-engine'
 import { customFieldKeyOf } from '@/lib/views/custom-field-columns'
 import type { SortConfig, ViewFilter } from '@/lib/views/types'
+import { format } from 'date-fns'
+import { resolveRelativeDate, wallClockIn } from '@/lib/views/query-engine'
+import { cellMatches, cellValue, compareValues } from './computed'
+import { annotateColumns, attachComputed, computedContext, hasComputed, type ComputedContext, type ComputedReader } from './computed-server'
 import { isUuid, optionsAnUndoCouldDrop, planUndo, requiredWhenProblem, touchedBy, validateOps, type DataOpInput } from './ops'
 import {
+  isComputedType,
   NEW_TABLE_ROWS,
   TABLE_COLUMN_ENTITY_TYPE,
   TABLE_LIMITS,
@@ -41,6 +47,14 @@ const CHANGE_SELECT = 'id, table_id, version, actor_user_id, actor_member_id, so
 
 /** The most rows one page reads. */
 export const MAX_ROWS_PAGE = 200
+
+/**
+ * The most rows a view filtered or sorted by a formula or a rollup reads:
+ * those are worked out as rows are read, so the view is run in memory over
+ * this many rows. A table with more drops those filters and sorts (the page
+ * says so) and keeps the rest.
+ */
+export const COMPUTED_SCAN_ROWS = 2000
 
 /** Why a write was refused. */
 export type TableRefusal = 'invalid' | 'not_found' | 'forbidden' | 'conflict'
@@ -123,7 +137,24 @@ export async function getTable(db: SupabaseClient, workspaceId: string, tableId:
     opts.userId ? db.rpc('data_table_editable_by', { p_table_id: tableId, p_user_id: opts.userId }) : Promise.resolve(null),
   ])
   if (editable?.error) throw new Error(editable.error.message)
-  return { ...(data as DataTable), columns, ...(editable ? { can_edit: editable.data === true } : {}) }
+  const shown = hasComputed(columns) ? annotateColumns(await computedContext(db, workspaceId, columns)) : columns
+  return { ...(data as DataTable), columns: shown, ...(editable ? { can_edit: editable.data === true } : {}) }
+}
+
+/**
+ * Rows with their formulas' and rollups' cells, worked out for `reader` (a
+ * rollup counts only what they may read). `ctx` is read once per call when
+ * not given.
+ */
+export async function withComputed(
+  db: SupabaseClient,
+  columns: readonly DataColumn[],
+  rows: DataRow[],
+  reader: ComputedReader,
+  ctx?: ComputedContext,
+): Promise<DataRow[]> {
+  if (!hasComputed(columns) || !rows.length) return rows
+  return attachComputed(db, ctx ?? (await computedContext(db, reader.workspaceId, columns)), rows, reader)
 }
 
 /**
@@ -180,27 +211,102 @@ export async function queryRows(
   db: SupabaseClient,
   workspaceId: string,
   tableId: string,
-  columns: ReadonlyArray<Pick<DataColumn, 'key' | 'field_type'> & { config?: DataColumn['config'] }>,
-  opts: RowQuery & { offset?: number; limit?: number; userId?: string; timeZone?: string } = {},
-): Promise<{ rows: DataRow[]; hasMore: boolean }> {
+  columns: ReadonlyArray<Pick<DataColumn, 'key' | 'field_type'> & { config?: DataColumn['config']; label?: string; deleted_at?: string | null }>,
+  opts: RowQuery & { offset?: number; limit?: number; userId?: string; timeZone?: string; computed?: ComputedReader } = {},
+): Promise<{ rows: DataRow[]; hasMore: boolean; computedSkipped?: boolean }> {
   const limit = Math.min(Math.max(1, Math.floor(opts.limit ?? 100)), MAX_ROWS_PAGE)
   const offset = Math.max(0, Math.floor(opts.offset ?? 0))
-  const fieldTypes: CustomFieldTypes = fieldShapes(columns)
+  const stored = columns.filter((c) => !isComputedType(c.field_type)) as ReadonlyArray<Pick<DataColumn, 'key' | 'field_type'> & { field_type: CustomFieldType; config?: DataColumn['config'] }>
+  const computedKeys = new Set(columns.filter((c) => isComputedType(c.field_type) && !c.deleted_at).map((c) => c.key))
+  const fieldTypes: CustomFieldTypes = fieldShapes(stored)
+  const onComputed = (field: string) => computedKeys.has(customFieldKeyOf(field) ?? '')
   const filters = (opts.filters ?? []).filter((f) => isTableField(f.field, fieldTypes))
   const ordering = (opts.ordering ?? []).filter((s) => isTableField(s.field, fieldTypes))
-  const q = db.from('data_row').select(ROW_SELECT).eq('workspace_id', workspaceId).eq('table_id', tableId).is('archived_at', null)
-  try {
-    await applyFilters(q as never, 'data_row', [...filters], db, workspaceId, { userId: opts.userId }, { fieldTypes, timeZone: opts.timeZone })
-  } catch (e) {
-    if (e instanceof NoMatchSignal) return { rows: [], hasMore: false }
-    throw e
+  // A filter or a sort on a formula or a rollup runs here, over the rows the rest let through.
+  const computedFilters = opts.computed ? (opts.filters ?? []).filter((f) => onComputed(f.field)) : []
+  const computedSort = !!opts.computed && (opts.ordering ?? []).some((s) => onComputed(s.field))
+  const base = () => db.from('data_row').select(ROW_SELECT).eq('workspace_id', workspaceId).eq('table_id', tableId).is('archived_at', null)
+  const narrowed = async (q: ReturnType<typeof base>) => {
+    try {
+      await applyFilters(q as never, 'data_row', [...filters], db, workspaceId, { userId: opts.userId }, { fieldTypes, timeZone: opts.timeZone })
+      return true
+    } catch (e) {
+      if (e instanceof NoMatchSignal) return false
+      throw e
+    }
   }
+  const fullColumns = columns as readonly DataColumn[]
+
+  if (computedFilters.length || computedSort) {
+    const all: DataRow[] = []
+    let skipped = false
+    for (let from = 0; ; from += 1000) {
+      const q = base()
+      if (!(await narrowed(q))) return { rows: [], hasMore: false }
+      const { data, error } = await q.order('position', { ascending: true }).order('id', { ascending: true }).range(from, Math.min(from + 999, COMPUTED_SCAN_ROWS))
+      if (error) throw new Error(error.message)
+      all.push(...((data ?? []) as DataRow[]).map((r) => ({ ...r, custom_fields: r.custom_fields ?? {} })))
+      if (all.length > COMPUTED_SCAN_ROWS) {
+        skipped = true
+        break
+      }
+      if ((data ?? []).length < 1000 || from + 1000 > COMPUTED_SCAN_ROWS) break
+    }
+    if (!skipped) {
+      const reader = opts.computed!
+      const ctx = await computedContext(db, workspaceId, fullColumns)
+      const results = new Map(annotateColumns(ctx).map((c) => [c.key, c.computed?.result ?? null]))
+      // As the query engine reads a relative window on a date column: its days, in the reader's zone.
+      const window = (v: Parameters<typeof resolveRelativeDate>[0]) => {
+        const w = resolveRelativeDate(v, opts.timeZone ? wallClockIn(opts.timeZone) : undefined)
+        return { from: format(new Date(w.from), 'yyyy-MM-dd'), to: format(new Date(w.to), 'yyyy-MM-dd') }
+      }
+      let rows = await attachComputed(db, ctx, all, reader)
+      for (const f of computedFilters) {
+        const key = customFieldKeyOf(f.field)!
+        rows = rows.filter((r) => cellMatches(r.computed?.[key], results.get(key) ?? null, f, { window }))
+      }
+      const sorts = opts.ordering ?? []
+      if (sorts.length) {
+        const typeOf = new Map(fullColumns.map((c) => [c.key, c.field_type]))
+        const sortValue = (r: DataRow, field: string): unknown => {
+          if (field === 'title') return r.title
+          if (field === 'created_at' || field === 'updated_at') return r[field]
+          const key = customFieldKeyOf(field)
+          if (!key) return null
+          if (computedKeys.has(key)) return cellValue(r.computed?.[key])
+          const v = r.custom_fields?.[key]
+          const t = typeOf.get(key)
+          if (t === 'currency') return (v as { amount?: number } | null)?.amount ?? null
+          return Array.isArray(v) || (v && typeof v === 'object') ? null : v
+        }
+        rows = rows
+          .map((r, i) => ({ r, i }))
+          .sort((a, b) => {
+            for (const s of sorts) {
+              const c = compareValues(sortValue(a.r, s.field), sortValue(b.r, s.field), s.direction)
+              if (c) return c
+            }
+            return a.i - b.i
+          })
+          .map((x) => x.r)
+      }
+      return { rows: rows.slice(offset, offset + limit), hasMore: rows.length > offset + limit }
+    }
+    // Too many rows to run it here: the view without those filters and sorts.
+    const page = await queryRows(db, workspaceId, tableId, columns, { ...opts, filters, ordering })
+    return { ...page, computedSkipped: true }
+  }
+
+  const q = base()
+  if (!(await narrowed(q))) return { rows: [], hasMore: false }
   applyOrdering(q as never, [...ordering], 'data_row', { fieldTypes })
   // One more than the page: whether there is another.
   const { data, error } = await q.order('position', { ascending: true }).order('id', { ascending: true }).range(offset, offset + limit)
   if (error) throw new Error(error.message)
   const rows = ((data ?? []) as DataRow[]).map((r) => ({ ...r, custom_fields: r.custom_fields ?? {} }))
-  return { rows: rows.slice(0, limit), hasMore: rows.length > limit }
+  const page = rows.slice(0, limit)
+  return { rows: opts.computed ? await withComputed(db, fullColumns, page, opts.computed) : page, hasMore: rows.length > limit }
 }
 
 /**
@@ -307,6 +413,8 @@ export async function applyOps(
   if (!checked.ok) return { ok: false, reason: 'invalid', error: checked.error }
   const required = await requiredWhenOnRows(db, tableId, columns, checked.value)
   if (required) return { ok: false, reason: 'invalid', error: required }
+  const rollup = await rollupProblem(db, workspaceId, tableId, columns, checked.value)
+  if (rollup) return { ok: false, reason: 'invalid', error: rollup }
   return rpcApply(db, tableId, input.baseVersion, checked.value, actor, null)
 }
 
@@ -343,6 +451,36 @@ async function requiredWhenOnRows(db: SupabaseClient, tableId: string, columns: 
     }
     const problem = requiredWhenProblem(columns, { title: e.title ?? r.title ?? '', values }, e.changed)
     if (problem) return problem
+  }
+  return null
+}
+
+/**
+ * A rollup the batch makes or changes, checked against the records it reads
+ * (validateOps can't see another table): its field there, and a function
+ * that suits that field's type.
+ */
+async function rollupProblem(db: SupabaseClient, workspaceId: string, tableId: string, columns: readonly DataColumn[], ops: readonly DataOp[]): Promise<string | null> {
+  const touched = ops.filter(
+    (o): o is Extract<DataOp, { op: 'create_column' | 'update_column' }> =>
+      (o.op === 'create_column' && o.field_type === 'rollup') || (o.op === 'update_column' && !!o.config && columns.some((c) => c.key === o.key && c.field_type === 'rollup')),
+  )
+  if (!touched.length) return null
+  // The columns as the batch leaves them, as far as rollups need.
+  let after: DataColumn[] = columns.filter((c) => !c.deleted_at)
+  for (const o of ops) {
+    if (o.op === 'create_column') {
+      after.push({ id: '', table_id: tableId, key: o.key, label: o.label, field_type: o.field_type, options: o.options ?? [], config: o.config ?? {}, position: after.length, deleted_at: null })
+    } else if (o.op === 'update_column') {
+      after = after.map((c) => (c.key === o.key ? { ...c, ...(o.label !== undefined ? { label: o.label } : {}), ...(o.config ? { config: o.config } : {}) } : c))
+    } else if (o.op === 'delete_column') {
+      after = after.filter((c) => c.key !== o.key)
+    }
+  }
+  const ctx = await computedContext(db, workspaceId, after)
+  for (const o of touched) {
+    const e = ctx.plan.entries.get(o.key)
+    if (e?.error) return `${after.find((c) => c.key === o.key)?.label ?? o.key}: ${e.error}`
   }
   return null
 }

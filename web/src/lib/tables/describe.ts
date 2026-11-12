@@ -2,7 +2,8 @@
  * Tables: a change and a value in words, for the page's history and its cells.
  * Client-safe and pure.
  */
-import { CUSTOM_FIELD_TYPE_LABELS, formatFieldValue, type CustomFieldType, type CustomFieldValue } from '@/lib/crm/custom-field-types'
+import { formatFieldValue, type CustomFieldType, type CustomFieldValue } from '@/lib/crm/custom-field-types'
+import { COLUMN_TYPE_LABELS } from './computed'
 import type { DataChange, DataChangeEntry, DataColumn } from './types'
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
@@ -27,7 +28,7 @@ function entryWords(e: DataChangeEntry, label: (key: string) => string): string 
       if (e.fields?.label) return `renamed column “${e.fields.label.from}” to “${e.fields.label.to}”`
       return e.fields?.options ? `changed column ${label(e.key)}'s options` : `changed column ${label(e.key)}'s settings`
     case 'change_column_type':
-      return `made column ${label(e.key)} ${e.fields?.field_type?.to ? CUSTOM_FIELD_TYPE_LABELS[e.fields.field_type.to] : 'another type'}`
+      return `made column ${label(e.key)} ${e.fields?.field_type?.to ? COLUMN_TYPE_LABELS[e.fields.field_type.to] : 'another type'}`
     case 'delete_column':
       return `deleted column ${label(e.key)}`
     case 'restore_column':
