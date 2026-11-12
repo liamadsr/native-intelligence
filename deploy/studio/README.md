@@ -176,7 +176,7 @@ sound. Then a deck (a PDF, and a PowerPoint), and an export cancelled half way (
 says `failed: Cancelled` within seconds).
 
 **What only this server can prove** (none of it could be run off it): the image building
-(it has not been built anywhere yet), Chrome's headless shell starting in it under the
+(it first built here on 2026-11-12), Chrome's headless shell starting in it under the
 read-only root and Docker's seccomp profile, LibreOffice converting in it, its way to
 `ni-app-proxy:8080` and to Storage's public name, the app's routes answering it, and its
 CPU and memory on a long render (`sudo docker stats ni-studio-worker`).

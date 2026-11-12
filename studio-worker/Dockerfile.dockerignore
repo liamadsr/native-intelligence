@@ -9,5 +9,4 @@
 !studio-worker/engine-deps/package.json
 !studio-worker/engine-deps/package-lock.json
 !web/src/lib/studio/engine
-!web/src/lib/studio/server/job-contract.ts
-!web/src/lib/studio/server/ads-contract.ts
+!web/src/lib/studio/server/*-contract.ts
