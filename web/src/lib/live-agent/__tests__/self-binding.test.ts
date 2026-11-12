@@ -20,6 +20,7 @@ import {
   othersOwnCommitment,
 } from '../self-binding'
 import { memoryDb } from '@/test/memory-db'
+import { withTableSchema } from '@/test/table-schema'
 
 const CAPTURE_ID = 'cap-1'
 const MEMBER_ME = 'mem-liam'
@@ -196,7 +197,8 @@ describe('a call’s roster the server attests (migration 587)', () => {
   const roster = (over: Row = {}): Row => ({ id: 'p1', capture_id: CAPTURE_ID, member_id: ROSA, source: 'call_roster', self_binding: 'confirmed', speaker_label: 'Rosa Lind', ...over })
 
   it('holds for a member the roster names, with their label and the server’s confirmation', async () => {
-    const db = memoryDb({ capture_participant: [roster()] })
+    // Every column it reads is one capture_participant has (src/test/table-schema.ts).
+    const db = withTableSchema(memoryDb({ capture_participant: [roster()] }), ['capture_participant'])
     expect(await attestedMemberBinding(db, CAPTURE_ID, ROSA)).toBe(true)
   })
 

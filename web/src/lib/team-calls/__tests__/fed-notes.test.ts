@@ -12,6 +12,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { memoryDb } from '@/test/memory-db'
+import { withTableSchema } from '@/test/table-schema'
 
 const CALL = '77777777-7777-4777-8777-777777777777'
 const CAPTURE = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
@@ -70,7 +71,8 @@ function seed() {
       { id: 'p-b', capture_id: CAPTURE, source: 'call_roster', speaker_label: 'Lee Park' },
     ],
   }
-  const db = memoryDb(tables) as SupabaseClient & { rpc: unknown }
+  // Every table and column read here is one the migrations make (src/test/table-schema.ts).
+  const db = withTableSchema(memoryDb(tables), ['team_call', 'capture_feed_session', 'capture_feed_segment', 'capture_feed_speaker', 'capture_participant']) as SupabaseClient & { rpc: unknown }
   db.rpc = async (name: string, args: Record<string, unknown>) => {
     h.rpcs.push([name, args])
     if (name === 'team_call_capture_lock') {
