@@ -134,7 +134,7 @@ describe('registry self-consistency', () => {
   })
 
   it('links the kinds the shared entity layer added, then the tables, after every older one', () => {
-    const added = ['deal', 'flow', 'calendar_event', 'decision', 'team_chat_channel', 'team_chat_message', 'data_table', 'data_row']
+    const added = ['flow', 'calendar_event', 'decision', 'team_chat_channel', 'team_chat_message', 'data_table', 'data_row']
     expect(LINKABLE_ENTITY_TYPES.slice(-added.length)).toEqual(added)
     // None is citable: the claim_source CHECK (264) does not list them.
     for (const id of added) expect(entityDescriptor(id)!.citable, id).toBe(false)

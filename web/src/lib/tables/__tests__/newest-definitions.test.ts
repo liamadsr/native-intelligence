@@ -41,6 +41,9 @@ const CASES: Array<{ name: string; head: RegExp; isFunction: boolean; arm: strin
   { name: '_wsmerge_members', head: fn('_wsmerge_members'), isFunction: true, arm: 'data_table' },
   // Table columns keep their keys per table: the deal fold leaves them alone.
   { name: '_wsmerge_deals', head: fn('_wsmerge_deals'), isFunction: true, arm: 'table_id' },
+  // Pipelines (540, 549): a select's stage outcomes, and the fold of pipelines by name.
+  { name: '_field_config_ok (outcomes)', head: fn('_field_config_ok'), isFunction: true, arm: "(not (p_config ? 'outcomes') or (" },
+  { name: '_wsmerge_deals (pipelines)', head: fn('_wsmerge_deals'), isFunction: true, arm: "kind = 'pipeline'" },
   {
     name: 'entity_visible_to (4 args)',
     head: /create or replace function public\.entity_visible_to\(p_type text, p_id uuid, p_workspace uuid, p_user uuid\)/i,

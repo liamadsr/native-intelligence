@@ -58,7 +58,7 @@ beforeEach(() => {
       { id: ACTION_2, workspace_id: WS, title: 'Book the venue', identifier: 'GEN-43' },
       { id: FOREIGN_ACTION, workspace_id: OTHER_WS, title: 'Not yours', identifier: 'OTH-1' },
     ],
-    deal: [{ id: DEAL, workspace_id: WS, name: 'Fernhill renewal' }],
+    flow: [{ id: DEAL, workspace_id: WS, name: 'Fernhill renewal' }],
     captures: [{ id: BEN_PRIVATE_CAPTURE, workspace_id: WS, visibility: 'private', user_id: BEN_USER, is_eval: false, title: 'Ben 1:1' }],
     local_calendar_event: [
       { id: BEN_EVENT, workspace_id: WS, user_id: BEN_USER, title: 'Ben dentist' },
@@ -89,7 +89,7 @@ describe('posting a message that @-mentions records', () => {
   it('stores and links what the author may read, drops what they may not', async () => {
     const message = await post('@Ben Ortiz see @GEN-42, @Fernhill renewal, @OTH-1, @Ben 1:1, @Ben dentist and @Fernhill sync', [
       { type: 'action', id: ACTION, label: 'GEN-42' },
-      { type: 'deal', id: DEAL, label: 'Fernhill renewal' },
+      { type: 'flow', id: DEAL, label: 'Fernhill renewal' },
       { type: 'action', id: FOREIGN_ACTION, label: 'OTH-1' },
       { type: 'capture', id: BEN_PRIVATE_CAPTURE, label: 'Ben 1:1' },
       { type: 'calendar_event', id: BEN_EVENT, label: 'Ben dentist' },
@@ -99,10 +99,10 @@ describe('posting a message that @-mentions records', () => {
     expect(message.mentions).toEqual([BEN])
     expect(message.record_mentions).toEqual([
       { type: 'action', id: ACTION, label: 'GEN-42' },
-      { type: 'deal', id: DEAL, label: 'Fernhill renewal' },
+      { type: 'flow', id: DEAL, label: 'Fernhill renewal' },
       { type: 'calendar_event', id: MY_EVENT, label: 'Fernhill sync' },
     ])
-    expect(edges()).toEqual([`action:${ACTION}`, `calendar_event:${MY_EVENT}`, `deal:${DEAL}`].sort())
+    expect(edges()).toEqual([`action:${ACTION}`, `calendar_event:${MY_EVENT}`, `flow:${DEAL}`].sort())
     expect(tables.entity_link.every((e) => e.source_id === message.id && e.workspace_id === WS && e.created_by === ANA)).toBe(true)
   })
 
@@ -124,18 +124,18 @@ describe('editing and deleting', () => {
   it('an edit adds the new mentions and removes the ones taken out; a delete removes them all', async () => {
     const message = await post('@GEN-42 and @Fernhill renewal', [
       { type: 'action', id: ACTION, label: 'GEN-42' },
-      { type: 'deal', id: DEAL, label: 'Fernhill renewal' },
+      { type: 'flow', id: DEAL, label: 'Fernhill renewal' },
     ])
     // An edge another surface drew from the same message (another relation) is not the mention sync's.
-    tables.entity_link.push({ id: 'other-edge', workspace_id: WS, source_type: 'team_chat_message', source_id: message.id, target_type: 'deal', target_id: DEAL, relation: 'related_to' })
+    tables.entity_link.push({ id: 'other-edge', workspace_id: WS, source_type: 'team_chat_message', source_id: message.id, target_type: 'flow', target_id: DEAL, relation: 'related_to' })
 
     const edited = await editMessage(
-      req(`/api/account/team-chat/messages/${message.id}`, { body: 'now @GEN-43 and @Fernhill renewal', records: [{ type: 'action', id: ACTION_2, label: 'GEN-43' }, { type: 'deal', id: DEAL, label: 'Fernhill renewal' }] }, 'PATCH'),
+      req(`/api/account/team-chat/messages/${message.id}`, { body: 'now @GEN-43 and @Fernhill renewal', records: [{ type: 'action', id: ACTION_2, label: 'GEN-43' }, { type: 'flow', id: DEAL, label: 'Fernhill renewal' }] }, 'PATCH'),
       params(message.id),
     )
     expect(edited.status).toBe(200)
     expect((await edited.json()).message.record_mentions).toHaveLength(2)
-    expect(edges()).toEqual([`action:${ACTION_2}`, `deal:${DEAL}`].sort())
+    expect(edges()).toEqual([`action:${ACTION_2}`, `flow:${DEAL}`].sort())
 
     const del = await deleteMessage(req(`/api/account/team-chat/messages/${message.id}`, undefined, 'DELETE'), params(message.id))
     expect(del.status).toBe(200)
@@ -146,7 +146,7 @@ describe('editing and deleting', () => {
   it('an edit from an older client (no `records`) keeps the mentions its words still name', async () => {
     const message = await post('@GEN-42 and @Fernhill renewal', [
       { type: 'action', id: ACTION, label: 'GEN-42' },
-      { type: 'deal', id: DEAL, label: 'Fernhill renewal' },
+      { type: 'flow', id: DEAL, label: 'Fernhill renewal' },
     ])
     const edited = await editMessage(
       req(`/api/account/team-chat/messages/${message.id}`, { body: 'just @GEN-42 now' }, 'PATCH'),

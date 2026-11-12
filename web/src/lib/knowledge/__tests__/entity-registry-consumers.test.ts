@@ -17,7 +17,6 @@ describe('realtime bindings derived from the registry', () => {
       ['document', 'document', true],
       ['contact', 'contact', true],
       ['company', 'company', true],
-      ['deal', 'deal', true],
       ['claim', 'claim', true],
       ['entity_link', 'entity_link', true],
       ['comment', 'comment', false],
