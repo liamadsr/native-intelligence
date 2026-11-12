@@ -1156,15 +1156,45 @@ async function entityTouchedSince(
       // destroyed by a revoke's hard delete. If ANY exist, the action carries
       // real linked work — refuse the revoke. (Adversarial review: the cascade
       // data-loss gap that opened once the idle-check was corrected.)
-      const [{ count: agentRuns, error: aErr }, { count: prs, error: pErr }] = await Promise.all([
-        ctx.supabase.from('agent_run').select('id', { count: 'exact', head: true }).eq('action_id', entityId),
+      // Every such child is probed (the baseline's FKs plus later migrations).
+      // None of these is written when the apply creates the action, so any
+      // row at all is work added since. Most don't bump actions.updated_at.
+      const count = (table: string, column: string) =>
+        ctx.supabase.from(table).select('id', { count: 'exact', head: true }).eq(column, entityId)
+      const since = new Date(appliedAtMs + TOUCHED_SKEW_MS).toISOString()
+      const probes = await Promise.all([
+        count('agent_run', 'action_id'),
+        // The table is action_github_pr (migration 064). Reading a misspelt
+        // `action_github_prs` failed every time, which refused every revoke.
+        count('action_github_pr', 'action_id'),
+        count('action_document', 'action_id'),
+        count('action_external_task', 'action_id'),
+        count('action_mail_done', 'action_id'),
+        count('action_relation', 'action_id'),
+        count('action_relation', 'related_action_id'),
+        count('attachments', 'action_id'),
+        count('action_contexts', 'action_id'),
+        count('insights_dependencies', 'blocked_action_id'),
+        count('actions', 'parent_action_id'),
+        // The apply writes the assignee and the proposal's labels with the
+        // action: only an assignee added later, or a label it didn't carry, counts.
         ctx.supabase
-          .from('action_github_prs')
-          .select('id', { count: 'exact', head: true })
-          .eq('action_id', entityId),
+          .from('action_assignee')
+          .select('member_id', { count: 'exact', head: true })
+          .eq('action_id', entityId)
+          .gt('created_at', since),
+        ctx.supabase.from('action_label').select('label_id').eq('action_id', entityId),
       ])
-      if (aErr || pErr) return true // fail-closed
-      if ((agentRuns ?? 0) > 0 || (prs ?? 0) > 0) return true
+      const failed = probes.find((p) => p.error)
+      if (failed) {
+        // Still fail-closed, but said aloud: a silent probe error reads as "the user touched it".
+        console.warn('[verdict-apply] revoke probe failed:', failed.error?.message)
+        return true
+      }
+      const labels = (probes[probes.length - 1].data ?? []) as Array<{ label_id?: unknown }>
+      const applied = new Set(change.labels ?? [])
+      if (labels.some((l) => !applied.has(String(l.label_id)))) return true
+      if (probes.slice(0, -1).some((p) => (p.count ?? 0) > 0)) return true
     } else {
       // For a non-action create, we don't have a specialized freshness probe —
       // fail-closed and refuse the revoke rather than risk deleting edited work.
