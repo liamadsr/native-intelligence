@@ -150,7 +150,7 @@ export function TableGrid({
     )
     return [
       { id: TITLE_KEY, label: 'Name', width: widths[TITLE_KEY] ?? 260, minWidth: 120, movable: false, header: header(TITLE_COLUMN, 'text') },
-      ...visible.map((c) => ({ id: c.key, label: c.label, width: widths[c.key] ?? DEFAULT_WIDTH[c.field_type], header: header(asCell(c), c.field_type, c.computed?.error) })),
+      ...visible.map((c) => ({ id: c.key, label: c.label, width: widths[c.key] ?? DEFAULT_WIDTH[isComputedType(c.field_type) ? readColumn(c).field_type : c.field_type], header: header(asCell(c), c.field_type, c.computed?.error) })),
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, widths, menuFor, canEdit, sort, byKey])

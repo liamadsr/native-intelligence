@@ -109,7 +109,7 @@ export function ImportDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto [&>*]:min-w-0">
         <DialogHeader>
           <DialogTitle>Import a spreadsheet</DialogTitle>
           <DialogDescription>
@@ -123,14 +123,14 @@ export function ImportDialog({
             <input type="file" accept=".csv,.tsv,.txt,.xlsx,text/csv" className="sr-only" onChange={(e) => void pick(e.target.files?.[0])} />
           </label>
         ) : (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <p className="text-sm text-foreground">
               <span className="font-medium">{file.name}</span>
               <span className="text-muted-foreground"> · {file.sheet.rows.length.toLocaleString()} rows, {file.sheet.headers.length} columns</span>
               {file.truncated && <span className="text-muted-foreground"> · only the first {IMPORT_MAX_ROWS.toLocaleString()} rows</span>}
             </p>
             <div className="overflow-hidden rounded-lg border border-border">
-              <table className="w-full text-sm" data-import-mapping="">
+              <table className="w-full table-fixed text-sm" data-import-mapping="">
                 <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
                   <tr>
                     <th className="px-3 py-2 font-medium">In the file</th>
@@ -193,7 +193,7 @@ export function ImportDialog({
             </div>
             {preview && !preview.ok && <p className="text-sm text-destructive">{preview.error}</p>}
             {preview?.ok && (
-              <div className="space-y-2">
+              <div className="min-w-0 space-y-2">
                 <p className="text-xs font-medium text-muted-foreground">The first rows, as they’ll land</p>
                 <div className="overflow-x-auto rounded-lg border border-border">
                   <table className="w-full text-sm" data-import-preview="">
@@ -222,7 +222,7 @@ export function ImportDialog({
                 <p className="text-xs text-muted-foreground">
                   {preview.plan.rows.toLocaleString()} {preview.plan.rows === 1 ? 'row' : 'rows'}
                   {newCols.length > 0 && `, ${newCols.length} new ${newCols.length === 1 ? 'column' : 'columns'}`}.
-                  {preview.plan.misfits.map((m) => ` ${m.count.toLocaleString()} ${m.count === 1 ? 'cell' : 'cells'} in ${m.header} don’t fit and stay empty (like “${m.example}”).`).join('')}
+                  {preview.plan.misfits.map((m) => ` ${m.count.toLocaleString()} ${m.count === 1 ? 'cell in' : 'cells in'} ${m.header} ${m.count === 1 ? 'doesn’t fit and stays' : 'don’t fit and stay'} empty (like “${m.example}”).`).join('')}
                 </p>
               </div>
             )}

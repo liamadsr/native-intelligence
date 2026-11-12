@@ -60,7 +60,13 @@ export async function createFromTemplate(
       metadata: shape.metadata,
     }
   })
-  const { data, error } = await db.from('view').insert(rows).select('id')
-  if (error) console.warn('[tables] template views not saved:', error.message)
-  return { ok: true, value: { ...made.value, views: error ? 0 : (data ?? []).length } }
+  let views = 0
+  try {
+    const { data, error } = await db.from('view').insert(rows).select('id')
+    if (error) console.warn('[tables] template views not saved:', error.message)
+    else views = (data ?? []).length
+  } catch (err) {
+    console.warn('[tables] template views not saved:', err instanceof Error ? err.message : 'unknown')
+  }
+  return { ok: true, value: { ...made.value, views } }
 }

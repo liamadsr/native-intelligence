@@ -205,7 +205,7 @@ export function NewTableForm({ onCancel, onCreated }: { onCancel: () => void; on
                   <span className="truncate text-sm font-medium text-foreground">{saving === t.id ? 'Making…' : t.name}</span>
                 </span>
                 <span className="line-clamp-2 text-xs text-muted-foreground">{t.description}</span>
-                <span className="flex flex-wrap gap-1 pt-0.5">
+                <span className="flex flex-wrap items-center gap-1 pt-0.5">
                   {t.columns.slice(0, 4).map((c) => (
                     <span key={c.key} className="rounded-full border border-border/70 px-1.5 py-px text-[10px] text-muted-foreground">
                       {c.label}

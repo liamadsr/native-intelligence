@@ -6,7 +6,8 @@
  * to the table.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import { Editor, Node } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import Link from '@tiptap/extension-link'
@@ -22,7 +23,28 @@ import { LockedEmbed, TableEmbedGrid, TableEmbedView } from '../table-embed-exte
 const T = '0a1b2c3d-0000-4000-8000-00000000aaaa'
 const V = '0a1b2c3d-0000-4000-8000-00000000bbbb'
 
-afterEach(() => cleanup())
+;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+let roots: Array<{ root: Root; el: HTMLElement }> = []
+afterEach(() => {
+  for (const r of roots) {
+    act(() => r.root.unmount())
+    r.el.remove()
+  }
+  roots = []
+})
+async function render(node: React.ReactNode) {
+  const el = document.createElement('div')
+  document.body.appendChild(el)
+  const root = createRoot(el)
+  roots.push({ root, el })
+  await act(async () => root.render(node))
+}
+const flush = async () => {
+  for (let i = 0; i < 5; i++) await act(async () => new Promise((r) => setTimeout(r, 0)))
+}
+const text = () => document.body.textContent ?? ''
+const buttonNamed = (name: string) => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === name)!
 
 describe('table links', () => {
   it('a view’s link, and back', () => {
@@ -103,16 +125,11 @@ describe('the embed', () => {
     labels: {},
   }
 
-  it('draws the view’s rows read-only, with Open to the table', () => {
-    render(<TableEmbedGrid data={data} onOpen={() => opened.calls.push([T, 'Pipeline'])} />)
-    expect(screen.getByText('Pipeline')).toBeTruthy()
-    expect(screen.getByText('· Closing soon')).toBeTruthy()
-    expect(screen.getByText('Copper Kettle refit')).toBeTruthy()
-    expect(screen.getByText('Lead')).toBeTruthy()
-    expect(screen.getByText('10')).toBeTruthy()
-    expect(screen.getByText(/The first 8 rows/)).toBeTruthy()
+  it('draws the view’s rows read-only, with Open to the table', async () => {
+    await render(<TableEmbedGrid data={data} onOpen={() => opened.calls.push([T, 'Pipeline'])} />)
+    for (const t of ['Pipeline', '· Closing soon', 'Copper Kettle refit', 'Lead', '10', 'The first 8 rows']) expect(text()).toContain(t)
     expect(document.querySelector('input, textarea, [contenteditable="true"]')).toBeNull()
-    fireEvent.click(screen.getByText('Open'))
+    await act(async () => buttonNamed('Open').click())
     expect(opened.calls).toEqual([[T, 'Pipeline']])
   })
 
@@ -122,18 +139,20 @@ describe('the embed', () => {
   it('reads the view for the reader and draws it', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(data), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
-    render(<TableEmbedView {...view({ tableId: T, viewId: V })} />)
-    await waitFor(() => expect(screen.getByText('Copper Kettle refit')).toBeTruthy())
+    await render(<TableEmbedView {...view({ tableId: T, viewId: V })} />)
+    await flush()
+    expect(text()).toContain('Copper Kettle refit')
     expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toContain(`/api/account/tables/${T}/embed?view=${V}`)
     vi.unstubAllGlobals()
   })
 
   it('a reader who can’t open the table sees a placeholder with nothing of it', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'Table not found', locked: true }), { status: 404 })))
-    render(<TableEmbedView {...view({ tableId: T, viewId: V })} />)
-    await waitFor(() => expect(screen.getByText('A table you can’t open is here.')).toBeTruthy())
-    expect(document.body.textContent).not.toContain('Pipeline')
+    await render(<TableEmbedView {...view({ tableId: T, viewId: V })} />)
+    await flush()
+    expect(text()).toContain('A table you can’t open is here.')
+    expect(text()).not.toContain('Pipeline')
     vi.unstubAllGlobals()
-    render(<LockedEmbed />)
+    await render(<LockedEmbed />)
   })
 })
