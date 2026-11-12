@@ -241,8 +241,8 @@ describe('the recorder’s work', () => {
     h.answers.team_call_recorder_work = { data: [{ call_id: CALL, room: `tc-${CALL}`, round: 1 }], error: null }
     const res = await work(post({ producer, running: [SESSION], capacity: 3 }))
     const body = (await res.json()) as { jobs: Array<{ callId: string; room: string; round: number; token: string }>; pollMs: number }
-    // More asked of 588 than fit: some may not have had two people in them yet.
-    expect(h.rpcs[0]).toEqual(['team_call_recorder_work', { p_producer_id: 'recorder', p_running: [SESSION], max_jobs: 15 }])
+    // 589 filters lone calls before its limit: exactly what fits is asked for.
+    expect(h.rpcs.find((r) => r[0] === 'team_call_recorder_work')).toEqual(['team_call_recorder_work', { p_producer_id: 'recorder', p_running: [SESSION], max_jobs: 3 }])
     expect(body.jobs.map(({ token: _t, ...j }) => j)).toEqual([{ callId: CALL, room: `tc-${CALL}`, round: 1 }])
     const claims = await new TokenVerifier(KEY, SECRET).verify(body.jobs[0].token)
     // One identity per producer (notes-recorder-<id>): what 588 puts on the eject outbox for it.

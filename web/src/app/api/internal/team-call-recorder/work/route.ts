@@ -1,9 +1,12 @@
 /**
  * POST /api/internal/team-call-recorder/work { producer, running, capacity }
  * → { jobs: [{ callId, room, round, token }], pollMs } the call recorder's
- * work (src/lib/team-calls/recorder.ts): live calls with notes on that no
- * producer feeds, and this one's own that it no longer lists in `running`
- * (it restarted, or lost the room), at most `capacity`. Each job carries a
+ * work (src/lib/team-calls/recorder.ts): live calls with notes on, that two
+ * people have been in at once, that no producer feeds, and this one's own
+ * that it no longer lists in `running` (it restarted, or lost the room), at
+ * most `capacity`. Before answering it counts the people in a few lone calls'
+ * rooms (reconcileLoneCalls), so a lost join webhook never leaves a
+ * two-person call unheard. Each job carries a
  * token for its room alone: hidden, a recorder, subscribe only. The
  * recorder then starts the call's feed (POST /api/internal/capture-feed/
  * start) and joins the room. Its identity there is its own
@@ -20,8 +23,8 @@ import { getServiceClient } from '@/lib/admin'
 import { notFound } from '@/lib/api-errors'
 import { ProducerSchema } from '@/lib/capture-feed/contract'
 import { feedRequest, feedRetryLater } from '@/lib/capture-feed/route'
-import { teamCallRecorderToken, teamCallsConfig } from '@/lib/team-calls/livekit'
-import { RECORDER_MAX_JOBS, recorderWork, teamCallRecorderOn } from '@/lib/team-calls/recorder'
+import { teamCallRecorderToken, teamCallRoomPeople, teamCallsConfig } from '@/lib/team-calls/livekit'
+import { RECORDER_MAX_JOBS, reconcileLoneCalls, recorderWork, teamCallRecorderOn } from '@/lib/team-calls/recorder'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,6 +43,8 @@ export async function POST(request: Request) {
   const body = await feedRequest(request, WorkSchema)
   if (body instanceof Response) return body
   try {
+    // A call two people are in whose join webhook was lost: counted from the room (bounded, cheap).
+    if (body.capacity > 0) await reconcileLoneCalls(getServiceClient(), (room) => teamCallRoomPeople(config, room))
     const work = body.capacity > 0 ? await recorderWork(getServiceClient(), { producerId: body.producer.id, running: body.running.map((r) => r.toLowerCase()), max: body.capacity }) : []
     const jobs = await Promise.all(work.map(async (j) => ({ ...j, token: await teamCallRecorderToken(config, j.room, body.producer.id) })))
     if (jobs.length > 0) console.info(`[team-call-recorder] producer=${body.producer.id} jobs=${jobs.map((j) => j.callId).join(',')}`)

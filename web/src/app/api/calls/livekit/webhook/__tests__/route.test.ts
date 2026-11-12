@@ -170,7 +170,15 @@ describe('POST /api/calls/livekit/webhook', () => {
     expect(await res.json()).toEqual({ ok: true, outcome: 'ended' })
     expect(h.rpcs).toEqual([['team_call_end', { target_call: CALL, end_reason: 'finished', end_at: new Date(1762851000 * 1000).toISOString() }]])
     expect(tables.notification).toEqual([])
-    expect(h.events).toEqual([{ name: 'team-calls/missed.requested', id: 'team-call-missed-r1', data: { ringId: 'r1' } }])
+    // The missed ring's notice, and the drain of the eject outbox where 589 put the ended call's room
+    // (gone already here: the drain finds it so; for an end anywhere else, it closes the room).
+    expect(h.events).toEqual(
+      expect.arrayContaining([
+        { name: 'team-calls/missed.requested', id: 'team-call-missed-r1', data: { ringId: 'r1' } },
+        { name: 'team-calls/eject.requested', data: {} },
+      ]),
+    )
+    expect(h.events).toHaveLength(2)
   })
 
   it('room_finished for a room made again since (the live call joined after it closed): not the call\u2019s end', async () => {

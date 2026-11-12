@@ -98,15 +98,86 @@ export interface RecorderJob {
 /** People in a call at once (members and let-in guests: 575's peak_participants) before it is heard. */
 export const RECORDER_MIN_PEOPLE = 2
 
+/** A lone call's room is looked at in LiveKit at most this often (per app process). */
+export const LONE_CALL_LOOK_EVERY_MS = 15_000
+/** The most lone calls one work request looks at. */
+export const LONE_CALL_LOOKS_PER_ASK = 5
+/** A call this young is left to its join webhooks (they come within a second or two). */
+export const LONE_CALL_MIN_AGE_MS = 10_000
+
+const lastLook = new Map<string, number>()
+
+/** For a test: forget when each lone call was looked at. */
+export function __forgetLoneCallLooks(): void {
+  lastLook.clear()
+}
+
 /**
- * The recorder's work (588's team_call_recorder_work): calls nobody feeds, or
- * this one's that it says it lost; and of those only calls that have had at
- * least RECORDER_MIN_PEOPLE people in them at the same time (565/575's
- * peak_participants, members and let-in guests; the recorder itself is never
- * counted). A call ringing, missed, or that one person waits in is not heard:
- * no Deepgram socket, no capture (it is made when the recorder's session
- * starts), and at its end it is silent. Once two were in, it is heard to its
- * end, one person left or not (the recorder leaves only a room nobody is in).
+ * A two-person call is never left unheard because a join webhook was lost:
+ * live calls with notes on whose counter says fewer than RECORDER_MIN_PEOPLE
+ * were ever in them at once have their room's people counted from LiveKit's
+ * own list, and a room with two or more raises the counter (589's
+ * team_call_people_seen), so the next work answer offers the call.
+ *
+ * Bounded so it is cheap: asked from the recorder's work request (every few
+ * seconds, so a lost webhook costs seconds, not the sweep's five minutes), it
+ * looks at calls older than LONE_CALL_MIN_AGE_MS (the webhook's own time),
+ * each at most every LONE_CALL_LOOK_EVERY_MS, and at most
+ * LONE_CALL_LOOKS_PER_ASK rooms per request; a call that has had two people
+ * is never looked at again (its counter only grows). Returns how many calls
+ * it raised. Never throws (the work answer goes on without it).
+ */
+export async function reconcileLoneCalls(
+  svc: SupabaseClient,
+  roomPeople: (room: string) => Promise<number>,
+  now: number = Date.now(),
+): Promise<number> {
+  try {
+    const { data, error } = await svc
+      .from('team_call')
+      .select('id, room, started_at')
+      .eq('status', 'live')
+      .eq('notes', true)
+      .lt('peak_participants', RECORDER_MIN_PEOPLE)
+      .lt('started_at', new Date(now - LONE_CALL_MIN_AGE_MS).toISOString())
+      .order('started_at', { ascending: false })
+      .limit(100)
+    if (error) throw new Error(error.message)
+    const lone = (data ?? []) as Array<{ id: string; room: string }>
+    const loneIds = new Set(lone.map((c) => c.id))
+    for (const id of lastLook.keys()) if (!loneIds.has(id)) lastLook.delete(id)
+    const due = lone.filter((c) => now - (lastLook.get(c.id) ?? 0) >= LONE_CALL_LOOK_EVERY_MS).slice(0, LONE_CALL_LOOKS_PER_ASK)
+    let raised = 0
+    for (const c of due) {
+      lastLook.set(c.id, now)
+      const people = await roomPeople(c.room).catch(() => 0)
+      if (people < RECORDER_MIN_PEOPLE) continue
+      const { data: peak, error: seenError } = await svc.rpc('team_call_people_seen', { target_call: c.id, people })
+      if (seenError) throw new Error(seenError.message)
+      if (typeof peak === 'number') {
+        raised++
+        console.warn(`[team-call-recorder] call=${c.id} people=${people} counted from the room: its join webhook was lost`)
+      }
+    }
+    return raised
+  } catch (err) {
+    console.warn('[team-call-recorder] lone calls not looked at:', err instanceof Error ? err.message.slice(0, 160) : 'unknown')
+    return 0
+  }
+}
+
+/**
+ * The recorder's work (589's team_call_recorder_work): calls nobody feeds, or
+ * this one's that it says it lost, that have had at least RECORDER_MIN_PEOPLE
+ * people in them at the same time (565/575's peak_participants, members and
+ * let-in guests; the recorder itself is never counted), filtered in the
+ * database before its limit, so a call two people are in is never kept out
+ * by older ones nobody joined. A call ringing, missed, or that one person
+ * waits in is not heard: no Deepgram socket, no capture (it is made when the
+ * recorder's session starts), and at its end it is silent. Once two were in,
+ * it is heard to its end, one person left or not (the recorder leaves only a
+ * room nobody is in). The same filter here as well: a database still on 588
+ * (the app rolled out before 589) never offers a lone call.
  */
 export async function recorderWork(
   svc: SupabaseClient,
@@ -114,11 +185,10 @@ export async function recorderWork(
 ): Promise<RecorderJob[]> {
   const max = Math.max(0, Math.min(RECORDER_MAX_JOBS, Math.floor(input.max)))
   if (max === 0) return []
-  // Asked for more than fit, since some of them may not have had two people yet.
   const { data, error } = await svc.rpc('team_call_recorder_work', {
     p_producer_id: input.producerId,
     p_running: [...input.running],
-    max_jobs: Math.min(200, max * 5),
+    max_jobs: max,
   })
   if (error) throw new Error(`team calls: recorder work read failed: ${error.message}`)
   const offered = ((data ?? []) as Array<{ call_id: string; room: string; round: number }>).map((r) => ({ callId: r.call_id, room: r.room, round: r.round }))

@@ -148,7 +148,10 @@ describe('its times', () => {
 
   it('only the link’s own window is ever read: a range before or past it is answered empty, reading no calendar', async () => {
     const { deps, readTimes } = setup()
-    for (const query of ['?from=2031-01-07&days=3', `?from=${dayIn(NY, 31)}&days=7`, '?from=2020-01-01&days=7']) {
+    // The window ends at a moment (now + 30 days + the meeting's 30 minutes), not at a day's end: in the
+    // last half hour before midnight in New York it reaches into the New York day 31 days out, so a range
+    // from that day overlaps it. A range from the day after (32 days out) never does, whatever the hour.
+    for (const query of ['?from=2031-01-07&days=3', `?from=${dayIn(NY, 32)}&days=7`, '?from=2020-01-01&days=7']) {
       const res = await handleLinkTimes(get(query), 'ava-lin', 'intro', deps)
       expect(res.status, query).toBe(200)
       expect((await res.json()).slots, query).toEqual([])
