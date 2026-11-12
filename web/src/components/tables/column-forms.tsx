@@ -5,7 +5,9 @@
  * change a column's type (a dialog that shows the database's answer when
  * values don't fit, the misfit count, and leaves the column as it was).
  * Both take a type and what it needs: options for a select, a currency's
- * code, and a relation's target: a kind, or another table's rows. A select's
+ * code, and a relation's target: a kind, or another table's rows. A new
+ * column may also be a formula or a rollup (phase 6, ./computed-cells.tsx);
+ * one of those changes its formula or rollup, never its type. A select's
  * options (a pipeline's stages, with their outcomes) have their own dialog.
  */
 import { useEffect, useState } from 'react'
@@ -17,22 +19,22 @@ import { TARGET_NAMES } from '@/components/crm/custom-fields-group'
 import { cn } from '@/lib/utils'
 import {
   CUSTOM_FIELD_TYPES,
-  CUSTOM_FIELD_TYPE_LABELS,
   RELATION_TARGET_KINDS,
   STAGE_OUTCOMES,
   hasOptions,
   optionOutcome,
   type CustomFieldConfig,
-  type CustomFieldType,
   type RelationTargetKind,
   type StageOutcome,
 } from '@/lib/crm/custom-field-types'
-import type { DataColumn, DataTable } from '@/lib/tables/types'
+import { COLUMN_TYPE_LABELS } from '@/lib/tables/computed'
+import { COMPUTED_COLUMN_TYPES, isComputedType, type DataColumn, type DataColumnType, type DataTable } from '@/lib/tables/types'
+import { ComputedFields } from './computed-cells'
 
 export const fieldClass = 'h-8 w-full min-w-0 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-foreground/30'
 
 export interface ColumnShape {
-  field_type: CustomFieldType
+  field_type: DataColumnType
   options: string[]
   config: CustomFieldConfig
 }
@@ -57,25 +59,48 @@ function useTables(enabled: boolean) {
 }
 
 /** A type and what it needs. */
-export function ColumnTypeFields({ value, onChange, tableId }: { value: ColumnShape; onChange: (v: ColumnShape) => void; tableId: string }) {
+export function ColumnTypeFields({
+  value,
+  onChange,
+  tableId,
+  columns,
+  self,
+}: {
+  value: ColumnShape
+  onChange: (v: ColumnShape) => void
+  tableId: string
+  /** The table's columns: a new column may then be a formula or a rollup over them. */
+  columns?: readonly DataColumn[]
+  /** The column being changed (a formula can't name itself). */
+  self?: string
+}) {
   const t = value.field_type
+  const types: readonly DataColumnType[] = columns ? [...CUSTOM_FIELD_TYPES, ...COMPUTED_COLUMN_TYPES] : CUSTOM_FIELD_TYPES
   const tables = useTables(t === 'relation')
   const [optionText, setOptionText] = useState(value.options.join(', '))
   const set = (patch: Partial<ColumnShape>) => onChange({ ...value, ...patch })
   return (
     <div className="space-y-2">
       <select aria-label="Type" className={cn(fieldClass, 'cursor-pointer')} value={t} onChange={(e) => {
-        const next = e.target.value as CustomFieldType
+        const next = e.target.value as DataColumnType
         set({
           field_type: next,
-          config: next === 'currency' ? { currency: value.config.currency ?? 'USD' } : next === 'relation' ? { target: value.config.target ?? { kind: 'contact' }, multiple: value.config.multiple ?? false } : {},
+          config:
+            next === 'currency'
+              ? { currency: value.config.currency ?? 'USD' }
+              : next === 'relation'
+                ? { target: value.config.target ?? { kind: 'contact' }, multiple: value.config.multiple ?? false }
+                : next === 'rollup'
+                  ? { fn: 'count', field: null }
+                  : {},
         })
       }}>
-        {CUSTOM_FIELD_TYPES.map((x) => (
-          <option key={x} value={x}>{CUSTOM_FIELD_TYPE_LABELS[x]}</option>
+        {types.map((x) => (
+          <option key={x} value={x}>{COLUMN_TYPE_LABELS[x]}</option>
         ))}
       </select>
-      {hasOptions(t) && (
+      {isComputedType(t) && columns && <ComputedFields value={{ field_type: t, config: value.config }} onChange={(v) => set({ config: v.config })} columns={columns} self={self} />}
+      {!isComputedType(t) && hasOptions(t) && (
         <Input
           aria-label="Options"
           className="h-8"
@@ -119,7 +144,17 @@ export function ColumnTypeFields({ value, onChange, tableId }: { value: ColumnSh
 }
 
 /** The + header's form: a name and a type. */
-export function AddColumnForm({ tableId, onAdd, onCancel }: { tableId: string; onAdd: (label: string, shape: ColumnShape) => string | null; onCancel: () => void }) {
+export function AddColumnForm({
+  tableId,
+  columns,
+  onAdd,
+  onCancel,
+}: {
+  tableId: string
+  columns: readonly DataColumn[]
+  onAdd: (label: string, shape: ColumnShape) => string | null
+  onCancel: () => void
+}) {
   const [label, setLabel] = useState('')
   const [shape, setShape] = useState<ColumnShape>({ field_type: 'text', options: [], config: {} })
   const [error, setError] = useState<string | null>(null)
@@ -137,7 +172,7 @@ export function AddColumnForm({ tableId, onAdd, onCancel }: { tableId: string; o
       }}
     >
       <Input autoFocus aria-label="Column name" className="h-8" placeholder="Column name" value={label} onChange={(e) => setLabel(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && onCancel()} />
-      <ColumnTypeFields value={shape} onChange={setShape} tableId={tableId} />
+      <ColumnTypeFields value={shape} onChange={setShape} tableId={tableId} columns={columns} />
       {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex justify-end gap-2">
         <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
@@ -183,7 +218,7 @@ export function TypeChangeDialog({
           <DialogDescription>Every value converts to the new type. If some don’t fit, nothing changes.</DialogDescription>
         </DialogHeader>
         <ColumnTypeFields value={shape} onChange={setShape} tableId={tableId} />
-        {hasOptions(shape.field_type) && !shape.options.length && (
+        {!isComputedType(shape.field_type) && hasOptions(shape.field_type) && !shape.options.length && (
           <p className="text-xs text-muted-foreground">With no options given, the column takes the values it has as its options.</p>
         )}
         {error && (
@@ -194,6 +229,55 @@ export function TypeChangeDialog({
         <DialogFooter>
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
           <Button size="sm" disabled={busy || unchanged} onClick={() => void submit()}>{busy ? 'Changing…' : 'Change type'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/**
+ * Change a formula or a rollup (phase 6): its expression, or what it reads
+ * and how. Saved as one change, with its undo.
+ */
+export function ComputedEditDialog({
+  column,
+  columns,
+  onClose,
+  onSave,
+}: {
+  column: DataColumn
+  columns: readonly DataColumn[]
+  onClose: () => void
+  onSave: (config: CustomFieldConfig) => string | null
+}) {
+  const type = column.field_type as 'formula' | 'rollup'
+  const [config, setConfig] = useState<CustomFieldConfig>(column.config ?? {})
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{type === 'formula' ? `Formula for ${column.label}` : `Rollup for ${column.label}`}</DialogTitle>
+          <DialogDescription>{type === 'formula' ? 'Name columns in braces, like {Price} * {Qty}.' : 'What it reads in the linked records, and how.'}</DialogDescription>
+        </DialogHeader>
+        <ComputedFields value={{ field_type: type, config }} onChange={(v) => setConfig(v.config)} columns={columns} self={column.key} />
+        {error && (
+          <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              const problem = onSave(config)
+              if (problem) setError(problem)
+              else onClose()
+            }}
+          >
+            Save
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

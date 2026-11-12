@@ -40,11 +40,13 @@ const quoted = (s: string) => [...s.matchAll(/'([a-z_]+)'/g)].map((x) => x[1])
 describe('523: the field types', () => {
   const sql = file('523')
 
-  it('the type CHECK lists exactly the app’s types, and it is the newest', () => {
+  it('the type CHECK lists exactly the app’s types; the newest keeps them and the computed ones', () => {
     const hits = all.flatMap((m) => [...m.sql.matchAll(/add constraint custom_field_definition_type_check\s+check \(field_type in \(([^)]*)\)\)/g)].map((h) => ({ file: m.file, list: quoted(h[1]) })))
+    const at523 = hits.find((h) => h.file.startsWith('523_'))!
+    expect(at523.list).toEqual([...CUSTOM_FIELD_TYPES])
+    // The newest (531 or a later restatement) keeps every one and the computed ones.
     const last = hits[hits.length - 1]
-    expect(last.file.startsWith('523_')).toBe(true)
-    expect(last.list).toEqual([...CUSTOM_FIELD_TYPES])
+    for (const t of [...CUSTOM_FIELD_TYPES, 'formula', 'rollup']) expect(last.list).toContain(t)
   })
 
   it('the value floor and the text reader know every type', () => {

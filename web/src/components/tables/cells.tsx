@@ -26,7 +26,9 @@ import {
   Hash,
   Link,
   ListChecks,
+  Layers,
   Phone,
+  Sigma,
   SquareCheck,
   Type,
   User,
@@ -45,6 +47,7 @@ import {
   type CustomFieldType,
 } from '@/lib/crm/custom-field-types'
 import { lenientDate } from '@/lib/tables/grid-edits'
+import type { DataColumnType } from '@/lib/tables/types'
 import { formatE164ForDisplay } from '@/lib/sms/phone-format'
 import type { EditMove } from '@/components/grid/selection'
 
@@ -62,7 +65,7 @@ export interface Member {
   name: string
 }
 
-export const TYPE_ICONS: Record<CustomFieldType, LucideIcon> = {
+export const TYPE_ICONS: Record<DataColumnType, LucideIcon> = {
   text: Type,
   number: Hash,
   date: CalendarDays,
@@ -75,6 +78,8 @@ export const TYPE_ICONS: Record<CustomFieldType, LucideIcon> = {
   person: User,
   currency: Coins,
   relation: ArrowUpRight,
+  formula: Sigma,
+  rollup: Layers,
 }
 
 const chip = 'inline-flex max-w-full shrink-0 items-center truncate rounded-full border border-border/60 px-2 py-0.5 text-[11px] leading-4 text-foreground'
@@ -465,7 +470,7 @@ function PickerEditor({ column, value, initial, labels, members, onCommit, done,
 }
 
 /** A column's header: its type's icon and its name. */
-export function ColumnLabel({ type, label, children }: { type: CustomFieldType; label: string; children?: ReactNode }) {
+export function ColumnLabel({ type, label, children }: { type: DataColumnType; label: string; children?: ReactNode }) {
   const Icon = TYPE_ICONS[type]
   return (
     <span className="flex h-full min-w-0 items-center gap-1.5 px-2">

@@ -19,12 +19,20 @@
  * Realtime: the registry marks data_table realtime, so every batch anyone
  * writes bumps the table's version and arrives as an entity update; a newer
  * version than ours catches up the same way (after our own batch settles).
+ *
+ * Formulas and rollups (phase 6) come worked out with the rows. An edit
+ * works its row's formulas out again here at once (lib/tables/computed.ts,
+ * the server's own rule); a table with rollups reads the edited rows again
+ * once the batch lands, since a rollup needs the linked records. A change to
+ * the columns of a table with either reads its rows again.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { onEntityUpdated } from '@/lib/entity-events'
 import { referencedIds } from '@/lib/crm/custom-field-types'
-import { applyChanges, applyOpsToRows, mergeRows, planEdits, TITLE_KEY, type CellEdit, type CellError } from '@/lib/tables/grid-edits'
-import { validateOps } from '@/lib/tables/ops'
+import { applyChanges, applyOpsToRows, mergeRows, opRowIds, planEdits, TITLE_KEY, type CellEdit, type CellError } from '@/lib/tables/grid-edits'
+import { localPlan, recomputeRow, todayIn } from '@/lib/tables/computed'
+import { touchedBy, validateOps } from '@/lib/tables/ops'
+import { isComputedType } from '@/lib/tables/types'
 import { createWriteQueue, type CellChange, type QueuedBatch, type SendResult, type WriteQueue } from '@/lib/tables/write-queue'
 import type { DataChange, DataColumn, DataOp, DataRow, DataTableWithColumns } from '@/lib/tables/types'
 import type { RowQuery } from '@/lib/tables/store'
@@ -59,6 +67,9 @@ export const cellId = (rowId: string, key: string) => `${rowId}:${key}`
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 
+const hasComputedColumns = (cols: readonly DataColumn[] | undefined) => !!cols?.some((c) => isComputedType(c.field_type))
+const hasRollups = (cols: readonly DataColumn[] | undefined) => !!cols?.some((c) => c.field_type === 'rollup')
+
 function valueOf(row: DataRow, key: string): unknown {
   return key === TITLE_KEY ? row.title ?? '' : row.custom_fields?.[key] ?? null
 }
@@ -86,6 +97,8 @@ export function useTableData(
   const [cellErrors, setCellErrors] = useState<ReadonlyMap<string, string>>(new Map())
   /** The rows are being read again for a new view (the old ones stay shown, dimmed). */
   const [rowsLoading, setRowsLoading] = useState(false)
+  /** The view filters or sorts on a formula or a rollup of a table too big to run that on (store.ts COMPUTED_SCAN_ROWS). */
+  const [computedSkipped, setComputedSkipped] = useState(false)
 
   const rowsRef = useRef<DataRow[]>([])
   const tableRef = useRef<DataTableWithColumns | null>(null)
@@ -112,6 +125,15 @@ export function useTableData(
     setRowsState(next)
   }, [])
   const columns = useMemo<DataColumn[]>(() => table?.columns ?? [], [table])
+
+  /** Rows with their formulas worked out again here (only `ids`, when given). */
+  const recompute = useCallback((list: DataRow[], ids?: ReadonlySet<string>): DataRow[] => {
+    const cols = tableRef.current?.columns
+    if (!hasComputedColumns(cols)) return list
+    const plan = localPlan(cols!)
+    const today = todayIn(readerTimeZone())
+    return list.map((r) => (!ids || ids.has(r.id) ? recomputeRow(r, cols!, plan, today) : r))
+  }, [])
 
   const addLabels = (more: Record<string, string> | undefined) => {
     if (more && Object.keys(more).length) setLabels((prev) => ({ ...prev, ...more }))
@@ -154,13 +176,14 @@ export function useTableData(
       // No rows before the view is known: its own read follows.
       if (queryRef.current === WAIT) return false
       const view = JSON.parse(queryRef.current) as RowQuery
-      const json = await readJson<{ rows: DataRow[]; has_more: boolean; labels?: Record<string, string> }>(
+      const json = await readJson<{ rows: DataRow[]; has_more: boolean; computed_skipped?: boolean; labels?: Record<string, string> }>(
         await fetch(`${base}/rows`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...view, offset, limit: PAGE, time_zone: readerTimeZone() }) }),
       )
       // The view changed while this page was on its way: the next read starts over.
       if (gen !== rowsGen.current) return false
       const page = (json.rows ?? []).map((r) => ({ ...r, custom_fields: r.custom_fields ?? {} }))
       serverRows.current = offset + page.length
+      if (offset === 0) setComputedSkipped(!!json.computed_skipped)
       setRows(offset === 0 ? page : mergeRows(rowsRef.current, page))
       setHasMore(!!json.has_more)
       addLabels(json.labels)
@@ -216,7 +239,8 @@ export function useTableData(
     async (ids: string[]) => {
       for (let i = 0; i < ids.length; i += PAGE) {
         const chunk = ids.slice(i, i + PAGE)
-        const json = await readJson<{ rows: DataRow[]; labels?: Record<string, string> }>(await fetch(`${base}/rows?ids=${chunk.join(',')}`))
+        const zone = readerTimeZone()
+        const json = await readJson<{ rows: DataRow[]; labels?: Record<string, string> }>(await fetch(`${base}/rows?ids=${chunk.join(',')}${zone ? `&time_zone=${encodeURIComponent(zone)}` : ''}`))
         setRows(mergeRows(rowsRef.current, (json.rows ?? []).map((r) => ({ ...r, custom_fields: r.custom_fields ?? {} }))))
         addLabels(json.labels)
       }
@@ -231,9 +255,11 @@ export function useTableData(
       const list = json.changes ?? []
       if (list.length >= CATCH_UP_LIMIT) return null
       if (!list.length) return { version: from, changes: [] }
-      const { rows: next, needs } = applyChanges(rowsRef.current, list)
-      setRows(next)
+      const applied = applyChanges(rowsRef.current, list)
+      const { needs } = applied
       if (needs.columns || needs.table) await loadTable()
+      const next = recompute(applied.rows)
+      setRows(next)
       if (needs.allRows) {
         await loadRest(await loadPage(0))
         return { version: Math.max(from, ...list.map((c) => c.version)), changes: list }
@@ -245,9 +271,11 @@ export function useTableData(
         for (const e of ch.changes ?? [])
           if (e?.op === 'update_row') {
             const row = next.find((r) => r.id === e.row_id)
-            if (row && cols.some((c) => referencedIds(c.field_type, row.custom_fields?.[c.key]).some((id) => !(id in labelsRef.current)))) unnamed.add(row.id)
+            if (row && cols.some((c) => !isComputedType(c.field_type) && referencedIds(c.field_type, row.custom_fields?.[c.key]).some((id) => !(id in labelsRef.current)))) unnamed.add(row.id)
           }
-      if (unnamed.size) await readRows([...unnamed])
+      // A rollup needs the linked records: the rows changed are read again with theirs.
+      if (hasRollups(cols)) for (const ch of list) for (const id of touchedBy(ch).rowIds) unnamed.add(id)
+      if (unnamed.size) await readRows([...unnamed].filter((id) => next.some((r) => r.id === id)))
       const reached = Math.max(from, ...list.map((c) => c.version))
       return { version: reached, changes: list }
     },
@@ -282,6 +310,7 @@ export function useTableData(
     [setRows],
   )
 
+  const restartRows = useRef<() => void>(() => {})
   const queue = useRef<WriteQueue | null>(null)
   const sync = useRef<() => Promise<void>>(async () => {})
   if (!queue.current) {
@@ -299,7 +328,13 @@ export function useTableData(
       catchUp: (from) => catchUp(from),
       onApplied: (changeId, batch) => {
         if (changeId) mine.current.push(changeId)
-        if (batch.ops.some((o) => COLUMN_OPS.has(o.op))) void loadTable()
+        if (batch.ops.some((o) => COLUMN_OPS.has(o.op))) {
+          // A formula or a rollup made or changed: its cells come with the rows.
+          void loadTable().then((t) => hasComputedColumns(t.columns) && restartRows.current())
+        } else if (hasRollups(tableRef.current?.columns)) {
+          const ids = [...opRowIds(batch.ops)].filter((id) => rowsRef.current.some((r) => r.id === id))
+          if (ids.length) void readRows(ids).catch(() => {})
+        }
         loadChangesSoon()
       },
       onRefused: (err, batch) => {
@@ -341,12 +376,9 @@ export function useTableData(
     }
   }, [reload])
 
-  // Another view, or other filters or sorts: the rows from the top.
-  const firstQuery = useRef(queryKey)
-  useEffect(() => {
-    if (firstQuery.current === queryKey) return
-    firstQuery.current = queryKey
-    if (queryKey === WAIT) return
+  /** The rows read again from the top, the old ones shown dimmed meanwhile. */
+  restartRows.current = () => {
+    if (queryRef.current === WAIT) return
     rowsGen.current++
     serverRows.current = 0
     setRowsLoading(true)
@@ -363,7 +395,15 @@ export function useTableData(
         }
       }
     })()
-  }, [queryKey, loadPage, loadRest])
+  }
+
+  // Another view, or other filters or sorts: the rows from the top.
+  const firstQuery = useRef(queryKey)
+  useEffect(() => {
+    if (firstQuery.current === queryKey) return
+    firstQuery.current = queryKey
+    restartRows.current()
+  }, [queryKey])
 
   // Someone's batch (or our own, already applied): a newer version catches up.
   useEffect(
@@ -405,11 +445,11 @@ export function useTableData(
           for (const r of op.rows) if (r.id) cells.push({ rowId: r.id, key: '__insert', from: null, to: true })
         }
       }
-      setRows(applyOpsToRows(rowsRef.current, plan.ops, tableId))
+      setRows(recompute(applyOpsToRows(rowsRef.current, plan.ops, tableId), opRowIds(plan.ops)))
       queue.current!.push({ ops: plan.ops, cells })
       return plan.errors
     },
-    [setRows, tableId],
+    [setRows, tableId, recompute],
   )
 
   const archiveRows = useCallback(
@@ -531,6 +571,7 @@ export function useTableData(
     error,
     cellErrors,
     rowsLoading,
+    computedSkipped,
     /** More rows than the page reads (BACKGROUND_ROWS): the layouts say they show the first ones. */
     rowsCapped: hasMore && rows.length >= BACKGROUND_ROWS,
     canEdit: table?.can_edit === true,

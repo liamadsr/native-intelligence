@@ -24,9 +24,14 @@ import {
   type CustomFieldConfig,
   type CustomFieldValue,
 } from '@/lib/crm/custom-fields'
+import type { CustomFieldType } from '@/lib/crm/custom-field-types'
 import { isEmptyValue, sameRelationTarget } from '@/lib/crm/custom-field-types'
+import { isRollupFn, planComputed, rollupNeedsField, ROLLUP_FN_LABELS } from './computed'
+import { TITLE_REF, toStoredFormula } from './formula'
 import {
+  COMPUTED_COLUMN_TYPES,
   DATA_TABLE_VISIBILITIES,
+  isComputedType,
   TABLE_LIMITS,
   type DataChange,
   type DataColumn,
@@ -69,6 +74,11 @@ export type DataOpInput =
   | { op: 'create_column'; key?: string; label: string; field_type: DataColumnType; options?: string[]; config?: CustomFieldConfig }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
+
+/** Every type a column takes, for a refusal. */
+const COLUMN_TYPES_TEXT = [...CUSTOM_FIELD_TYPES, ...COMPUTED_COLUMN_TYPES].join(', ')
+const isColumnType = (v: unknown): v is DataColumnType => isCustomFieldType(v) || isComputedType(v)
+const KEY_RE = /^[a-z][a-z0-9_]{0,39}$/
 const ids = (v: unknown): string[] | null => (Array.isArray(v) && v.every(isUuid) ? [...new Set(v as string[])] : null)
 
 /** Coerce a values object against the live columns: the stored form of each, null to clear. */
@@ -79,7 +89,8 @@ function checkValues(columns: Map<string, ColumnState>, raw: unknown): Checked<R
   for (const [key, v] of Object.entries(raw as Record<string, unknown>)) {
     const col = columns.get(key)
     if (!col || col.deleted_at) return fail(`No column "${key}" in this table.`)
-    const coerced = coerceCustomValue(col, v)
+    if (isComputedType(col.field_type)) return fail(`${col.label} is worked out from other columns, so it can't be set.`)
+    const coerced = coerceCustomValue(col as typeof col & { field_type: CustomFieldType }, v)
     if (!coerced.ok) return fail(coerced.error)
     out[key] = coerced.value
   }
@@ -92,6 +103,7 @@ function checkValues(columns: Map<string, ColumnState>, raw: unknown): Checked<R
  * than this one, and one of its options.
  */
 function checkConfig(columns: Map<string, ColumnState>, key: string, fieldType: DataColumnType, raw: unknown): Checked<CustomFieldConfig> {
+  if (isComputedType(fieldType)) return checkComputedConfig(columns, key, fieldType, raw)
   const cleaned = cleanFieldConfig(fieldType, raw, { tableColumn: true })
   if (!cleaned.ok) return fail(cleaned.error)
   const rule = cleaned.config.required_when
@@ -125,6 +137,40 @@ const systemRefusal = (col: ColumnState, what: 'delete' | 'type' | 'link'): stri
       : what === 'type'
         ? `${col.label} is a pipeline's own column: it keeps its type.`
         : `${col.label} is a pipeline's own column: it keeps what it links.`
+
+/**
+ * A formula's or a rollup's config (phase 6). A formula's expression may name
+ * columns by name or by stored key; it is stored by key (formula.ts). A
+ * rollup names a live relation column of this table, how it aggregates, and
+ * (all but count and list need one) the linked records' field: a column key,
+ * or `_title` for their names. Whether that field suits the function is read
+ * against the linked table when the rows are (computed-server.ts).
+ */
+function checkComputedConfig(columns: Map<string, ColumnState>, key: string, fieldType: 'formula' | 'rollup', raw: unknown): Checked<CustomFieldConfig> {
+  const c = (raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>
+  const others = [...columns.values()].filter((x) => !x.deleted_at && x.key !== key)
+  if (fieldType === 'formula') {
+    const stored = toStoredFormula(str(c.expression).trim(), others)
+    if (!stored.ok) return fail(stored.error)
+    if (!stored.text) return fail('A formula needs an expression.')
+    return { ok: true, value: { expression: stored.text } }
+  }
+  const relation = columns.get(str(c.relation))
+  if (!relation || relation.deleted_at || relation.field_type !== 'relation' || relation.key === key) return fail('A rollup reads through one of this table’s relation columns.')
+  if (!isRollupFn(c.fn)) return fail('A rollup is a count, sum, avg, min, max, earliest, latest or list.')
+  const field = c.field === undefined || c.field === null || c.field === '' ? null : str(c.field)
+  if (field !== null && field !== TITLE_REF && !KEY_RE.test(field)) return fail('A rollup’s field is a column key of the linked records.')
+  if (field === null && rollupNeedsField(c.fn)) return fail(`${ROLLUP_FN_LABELS[c.fn]} needs a field of the linked records.`)
+  return { ok: true, value: { relation: relation.key, fn: c.fn, field } }
+}
+
+/** A computed column's problem with the table as the batch leaves it (a cycle, a type that doesn't fit), or null. */
+function computedProblem(columns: Map<string, ColumnState>, key: string): string | null {
+  const col = columns.get(key)
+  if (!col || !isComputedType(col.field_type)) return null
+  const entry = planComputed([...columns.values()].map((c) => ({ ...c, config: c.config ?? {} }))).entries.get(key)
+  return entry?.error ? `${col.label}: ${entry.error}` : null
+}
 
 /**
  * Required when (phase 2): the first column a row leaves empty while the
@@ -210,7 +256,7 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown, opts:
       case 'create_column': {
         const label = str(op.label).trim().slice(0, TABLE_LIMITS.label)
         if (!label) return fail('A column needs a name.')
-        if (!isCustomFieldType(op.field_type)) return fail(`A column is one of: ${CUSTOM_FIELD_TYPES.join(', ')}.`)
+        if (!isColumnType(op.field_type)) return fail(`A column is one of: ${COLUMN_TYPES_TEXT}.`)
         const fieldType = op.field_type
         let key = str(op.key)
         if (key) {
@@ -220,16 +266,18 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown, opts:
           key = newColumnKey(label, cols.keys())
           if (!key) return fail('A column needs a name with a letter or number in it.')
         }
-        const options = hasOptions(fieldType) ? cleanOptions(Array.isArray(op.options) ? (op.options as string[]) : []) : []
+        const options = !isComputedType(fieldType) && hasOptions(fieldType) ? cleanOptions(Array.isArray(op.options) ? (op.options as string[]) : []) : []
         const config = checkConfig(cols, key, fieldType, op.config)
         if (!config.ok) return config
         cols.set(key, { key, label, field_type: fieldType, options, config: config.value, deleted_at: null })
+        const computed = computedProblem(cols, key)
+        if (computed) return fail(computed)
         out.push({
           op: 'create_column',
           key,
           label,
           field_type: fieldType,
-          ...(hasOptions(fieldType) ? { options } : {}),
+          ...(!isComputedType(fieldType) && hasOptions(fieldType) ? { options } : {}),
           ...(Object.keys(config.value).length ? { config: config.value } : {}),
         })
         break
@@ -246,7 +294,7 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown, opts:
           col.label = label
         }
         if ('options' in op) {
-          if (!hasOptions(col.field_type)) return fail(`${col.label} has no options.`)
+          if (isComputedType(col.field_type) || !hasOptions(col.field_type)) return fail(`${col.label} has no options.`)
           const options = cleanOptions(Array.isArray(op.options) ? (op.options as string[]) : [])
           next.options = options
           col.options = options
@@ -269,6 +317,8 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown, opts:
           if (col.system && col.field_type === 'relation' && !!col.config?.multiple !== !!config.value.multiple) return fail(systemRefusal(col, 'link')!)
           next.config = config.value
           col.config = config.value
+          const computed = computedProblem(cols, key)
+          if (computed) return fail(computed)
         }
         if (Object.keys(next).length === 2) return fail('update_column changes nothing.')
         out.push(next)
@@ -279,7 +329,10 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown, opts:
         const col = cols.get(key)
         if (!col || col.deleted_at) return fail(`No column "${key}" in this table.`)
         if (col.system) return fail(systemRefusal(col, 'type')!)
-        if (!isCustomFieldType(op.field_type)) return fail(`A column is one of: ${CUSTOM_FIELD_TYPES.join(', ')}.`)
+        if (!isColumnType(op.field_type)) return fail(`A column is one of: ${COLUMN_TYPES_TEXT}.`)
+        if (isComputedType(op.field_type) || isComputedType(col.field_type)) {
+          return fail('A formula or a rollup keeps its type: add a new column instead, and delete this one if it should go.')
+        }
         const fieldType = op.field_type
         // A select type given no options keeps the column's own, or (it had
         // none) takes the values' own: the database reads them.
@@ -634,7 +687,7 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
             kept.push(`${label} (column deleted since)`)
           } else if (!same(row.custom_fields?.[key], c.to)) {
             kept.push(`${label} (changed since)`)
-          } else if (c.from !== null && c.from !== undefined && !coerceCustomValue(col, c.from).ok) {
+          } else if (c.from !== null && c.from !== undefined && (isComputedType(col.field_type) || !coerceCustomValue({ ...col, field_type: col.field_type }, c.from).ok)) {
             kept.push(`${label} (its old value no longer fits the column)`)
           } else {
             values[key] = (c.from ?? null) as CustomFieldValue

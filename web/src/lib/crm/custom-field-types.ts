@@ -113,6 +113,14 @@ export interface CustomFieldConfig {
   multiple?: boolean
   /** A table's column only (src/lib/tables): needed while `key` is `option`. */
   required_when?: RequiredWhen
+  /** A table's formula column (src/lib/tables/formula.ts): its expression, references as `{#key}`. */
+  expression?: string
+  /** A table's rollup column (src/lib/tables/computed.ts): the relation column it reads through. */
+  relation?: string
+  /** A rollup: the linked records' field it aggregates (`_title`: their name; none: the records themselves). */
+  field?: string | null
+  /** A rollup: how it aggregates (count, sum, avg, min, max, earliest, latest, list). */
+  fn?: string
   /**
    * A select column of a table only: each option's outcome, a pipeline's
    * stages (migration 540). An option not named is open.

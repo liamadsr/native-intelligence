@@ -1,3 +1,4 @@
+import { parseTableLink, tableLink } from '@/lib/tables/embed'
 import type { JSONContent } from 'novel'
 
 // --- Markdown <-> JSONContent conversion ---
@@ -212,12 +213,15 @@ export function markdownToJSONContent(markdown: string, proposalRefs?: ProposalC
       continue
     }
 
-    // Link preview — a line that is just a bare URL
+    // Link preview — a line that is just a bare URL. A table's link is the
+    // table itself, embedded (lib/tables/embed.ts).
     if (URL_REGEX.test(line.trim())) {
-      content.push({
-        type: 'linkPreview',
-        attrs: { url: line.trim() },
-      })
+      const table = parseTableLink(line.trim())
+      content.push(
+        table
+          ? { type: 'tableEmbed', attrs: { tableId: table.tableId, viewId: table.viewId } }
+          : { type: 'linkPreview', attrs: { url: line.trim() } },
+      )
       i++
       continue
     }
@@ -599,6 +603,11 @@ function nodeToMarkdown(node: JSONContent): string {
       return `\n${tableNodeToMarkdown(node)}\n`
     case 'linkPreview':
       return (node.attrs?.url as string) || ''
+    case 'tableEmbed': {
+      // One not yet pointed at a table (the slash menu's picker) is nothing.
+      const tableId = node.attrs?.tableId as string | null | undefined
+      return tableId ? tableLink({ tableId, viewId: (node.attrs?.viewId as string | null | undefined) ?? null }) : ''
+    }
     case 'proposalNode':
       return `<!-- proposal:${node.attrs?.changeId ?? ''} -->`
     default:

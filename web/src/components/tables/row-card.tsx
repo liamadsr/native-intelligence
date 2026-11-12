@@ -10,8 +10,9 @@ import type { ReactNode, Ref } from 'react'
 import { cn } from '@/lib/utils'
 import { formatFieldValue } from '@/lib/crm/custom-field-types'
 import { hasCardValue, type LaneTotal } from '@/lib/tables/views'
-import type { DataColumn, DataRow } from '@/lib/tables/types'
+import { isComputedType, type DataColumn, type DataRow } from '@/lib/tables/types'
 import { CellDisplay, TYPE_ICONS } from './cells'
+import { cellValueOf, ComputedCell } from './computed-cells'
 import { asCell } from './table-grid'
 
 export function RowCard({
@@ -35,7 +36,7 @@ export function RowCard({
   /** A calendar day's card: the title only. */
   compact?: boolean
 }) {
-  const shown = compact ? [] : fields.filter((c) => hasCardValue(row.custom_fields?.[c.key]))
+  const shown = compact ? [] : fields.filter((c) => hasCardValue(isComputedType(c.field_type) ? cellValueOf(c, row).value : row.custom_fields?.[c.key]))
   return (
     <div
       ref={cardRef}
@@ -66,7 +67,7 @@ export function RowCard({
               <div key={c.key} className="flex h-5 min-w-0 items-center gap-1.5 text-muted-foreground" title={c.label}>
                 {Icon && <Icon className="h-3 w-3 shrink-0" aria-label={c.label} />}
                 <div className="flex min-w-0 flex-1 items-center overflow-hidden [&>span]:h-auto [&>span]:px-0 [&>span]:text-left [&>span]:text-xs">
-                  <CellDisplay column={asCell(c)} value={row.custom_fields?.[c.key]} labels={labels} />
+                  {isComputedType(c.field_type) ? <ComputedCell column={c} row={row} labels={labels} compact /> : <CellDisplay column={asCell(c)} value={row.custom_fields?.[c.key]} labels={labels} />}
                 </div>
               </div>
             )

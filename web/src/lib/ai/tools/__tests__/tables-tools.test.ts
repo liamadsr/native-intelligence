@@ -446,3 +446,53 @@ describe('names and workspaces', () => {
     expect(await call(tools, 'find_tables', { workspace_id: 'ws-nope' })).toMatchObject({ success: false, error: 'Workspace not found.' })
   })
 })
+
+describe('formulas and rollups (phase 6)', () => {
+  it('create_table makes a formula after the columns it uses, stored by key', async () => {
+    const f = db((name) => (name === 'create_data_table' ? { data: { table_id: 't', version: 1, change_id: CHANGE, inserted_row_ids: [], created_column_ids: {} }, error: null } : { data: null, error: null }))
+    const out = await call(createTableTools(ME, f.client, WS), 'create_table', {
+      name: 'Stock',
+      columns: [
+        { name: 'Qty', type: 'number' },
+        { name: 'Unit price', type: 'currency' },
+        { name: 'Value', type: 'formula', expression: '{Qty} * {Unit price}' },
+      ],
+    })
+    expect(out.success).toBe(true)
+    const ops = f.rpcCalls.find((c) => c.name === 'create_data_table')!.args.p_ops as Array<Record<string, unknown>>
+    expect(ops.find((o) => o.key === 'value')).toMatchObject({ field_type: 'formula', config: { expression: '{#qty} * {#unit_price}' } })
+  })
+
+  it('a formula without its expression, or naming nothing, is refused and nothing is made', async () => {
+    const f = db()
+    const tools = createTableTools(ME, f.client, WS)
+    expect(await call(tools, 'create_table', { name: 'Stock', columns: [{ name: 'Value', type: 'formula' }] })).toMatchObject({ success: false, error: expect.stringContaining('expression') })
+    expect(await call(tools, 'create_table', { name: 'Stock', columns: [{ name: 'Value', type: 'formula', expression: '{Nope} * 2' }] })).toMatchObject({ success: false })
+    expect(f.rpcCalls.some((c) => c.name === 'create_data_table')).toBe(false)
+  })
+
+  it('update_table_columns adds a rollup through a relation column, by name', async () => {
+    const f = db()
+    f.rows.custom_field_definition.push(column('jobs', 'Jobs', 'relation', { config: { target: { kind: 'deal' }, multiple: true } }))
+    const out = await call(createTableTools(ME, f.client, WS), 'update_table_columns', {
+      table: 'Equipment rentals',
+      changes: [{ action: 'add', column: 'Job count', type: 'rollup', through: 'Jobs', aggregate: 'count' }],
+    })
+    expect(out.success).toBe(true)
+    const apply = f.rpcCalls.find((c) => c.name === 'apply_data_ops')!
+    expect((apply.args.p_ops as Array<Record<string, unknown>>)[0]).toMatchObject({ op: 'create_column', field_type: 'rollup', config: { relation: 'jobs', fn: 'count', field: null } })
+  })
+
+  it('query_rows works formulas out for the person, without grants on a guest’s turn, and returns their cells', async () => {
+    const f = db()
+    f.rows.custom_field_definition.push(column('days', 'Days out', 'formula', { config: { expression: 'days_between({#due_back}, today())' } }))
+    hoisted.queryRows.mockResolvedValueOnce({
+      rows: [{ id: ROW, table_id: RENTALS, title: 'Robin', custom_fields: { status: 'Out' }, computed: { days: { value: 4 } }, position: 1, archived_at: null, created_at: '', updated_at: '' }],
+      hasMore: false,
+    })
+    const out = await call(createTableTools(ME, f.client, WS, false, 'session', false, true, 'UTC'), 'query_rows', { table: 'Equipment rentals' })
+    const opts = hoisted.queryRows.mock.calls.at(-1)![4]
+    expect(opts.computed).toEqual({ workspaceId: WS, userId: ME, grants: false, timeZone: 'UTC' })
+    expect((out.rows as Array<{ values: Record<string, unknown> }>)[0].values).toMatchObject({ Status: 'Out', 'Days out': 4 })
+  })
+})
