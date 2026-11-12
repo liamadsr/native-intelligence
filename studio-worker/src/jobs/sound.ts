@@ -65,7 +65,7 @@ const MAX_UPLOAD_SECONDS = 2 * 60 * 60
  * containers above): measured first (it must hold audio, at most two hours), then its first audio stream decoded.
  * earshot is only ever handed this WAV, never the upload.
  */
-export async function uploadAsWav(raw: string, wav: string, signal: AbortSignal): Promise<string> {
+export async function uploadAsWav(raw: string, wav: string, signal: AbortSignal, maxSeconds = MAX_UPLOAD_SECONDS): Promise<string> {
   const formats = ['-format_whitelist', SOUND_FORMATS]
   let p
   try {
@@ -76,23 +76,23 @@ export async function uploadAsWav(raw: string, wav: string, signal: AbortSignal)
   }
   if (!p.streams.some((s) => s.codec_type === 'audio')) throw new JobError('That file has no sound in it.')
   const seconds = Number(p.format.duration)
-  if (Number.isFinite(seconds) && seconds > MAX_UPLOAD_SECONDS) throw new JobError('That sound is longer than two hours.')
-  await run('ffmpeg', ['-nostdin', '-v', 'error', '-y', ...formats, '-i', raw, '-map', '0:a:0', '-vn', '-sn', '-dn', '-c:a', 'pcm_f32le', '-ar', '48000', '-t', String(MAX_UPLOAD_SECONDS), wav], {
-    timeout: mediaTimeout(Number.isFinite(seconds) ? seconds : MAX_UPLOAD_SECONDS, 1),
+  if (Number.isFinite(seconds) && seconds > maxSeconds) throw new JobError(maxSeconds === MAX_UPLOAD_SECONDS ? 'That sound is longer than two hours.' : `That sound is longer than ${maxSeconds} seconds.`)
+  await run('ffmpeg', ['-nostdin', '-v', 'error', '-y', ...formats, '-i', raw, '-map', '0:a:0', '-vn', '-sn', '-dn', '-c:a', 'pcm_f32le', '-ar', '48000', '-t', String(maxSeconds), wav], {
+    timeout: mediaTimeout(Number.isFinite(seconds) ? seconds : maxSeconds, 1),
     signal,
   })
   return wav
 }
 
 /** earshot's folder, or the job's refusal. */
-function earshotDir(ctx: Pick<JobContext, 'config'>): string {
+export function earshotDir(ctx: Pick<JobContext, 'config'>): string {
   const dir = ctx.config.earshotDir
   if (!earshotInstalled(dir)) throw new JobError(NEEDS_EARSHOT)
   return dir
 }
 
 /** A bridge call whose failure is the job's sentence. */
-async function ask<T>(ctx: JobContext, request: Record<string, unknown>, timeout?: number): Promise<T> {
+export async function ask<T>(ctx: JobContext, request: Record<string, unknown>, timeout?: number): Promise<T> {
   try {
     return await bridge<T>(earshotDir(ctx), request, { signal: ctx.signal, cwd: ctx.scratch, timeout })
   } catch (err) {
@@ -107,7 +107,7 @@ const unique = (assets: EditorAsset[]) => [...new Map(assets.map((a) => [a.id, a
  * A finished local audio file as a library asset (measured, hashed, stored under its sha256). The same bytes twice
  * in one job are one asset. The file is moved into the cache.
  */
-async function publishLocal(ctx: JobContext, file: string, name: string, provenance: Record<string, unknown>, published: Map<string, EditorAsset>): Promise<EditorAsset> {
+export async function publishLocal(ctx: JobContext, file: string, name: string, provenance: Record<string, unknown>, published: Map<string, EditorAsset>): Promise<EditorAsset> {
   const sha256 = await fileSha256(file)
   const known = published.get(sha256)
   if (known) return known
@@ -300,7 +300,8 @@ export const runListen: JobHandler<'listen'> = async (ctx): Promise<ListenResult
     try {
       const { selectComposition, renderMedia, makeCancelSignal } = await import('@remotion/renderer')
       const common = await ctx.renderer.common(ctx.log)
-      const inputProps = { ...inputPropsFor(project), fonts: fonts.faces }
+      // Sound only: code scenes draw nothing anyone hears, so their code is never loaded.
+      const inputProps = { ...inputPropsFor(project, 'placeholder'), fonts: fonts.faces }
       const composition = await selectComposition({ serveUrl, id: COMPOSITION_ID, inputProps, ...common })
       seconds = composition.durationInFrames / composition.fps
       ctx.log(`Rendering the mix (sound only, ${seconds.toFixed(1)} s)`)

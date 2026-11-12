@@ -33,6 +33,10 @@ takes them one at a time and does them.
 | `transcribe` | The first audio stream as 16 kHz mono FLAC, sent to Deepgram's prerecorded API (nova-3, smart formatting, punctuation, word times), mapped to the engine's `TranscriptSchema` (label "Transcript", origin `imported`). `no-audio` and `no-speech` when there is nothing to hear. Without `DEEPGRAM_API_KEY` the job fails with a sentence saying so. The desktop app's own model is the first path; this is the fallback. | nothing (the transcript is the result) |
 | `voices` | The ElevenLabs account's voices (`GET /v1/voices` with `ELEVENLABS_API_KEY`), for the person to choose a narration voice. | nothing (the list is the result; the app keeps it an hour) |
 | `narration` | One exact text-to-speech request the app built and hashed (`POST /v1/text-to-speech/<voice>/with-timestamps`, MP3 44.1 kHz): the audio becomes an asset, the provider's character alignment becomes words in milliseconds (the normalized alignment when there is one), checked against the measured audio; what ElevenLabs charged (its `character-cost` header, else the request's length) comes back for the cost ledger. Never retried, and a job handed out a second time (a worker stopped mid-request) refuses rather than pay twice. | `assets/<sha256>.mp3` |
+| `voice-search` | The account's voices (`GET /v1/voices`) and the shared voice library (`GET /v1/shared-voices` with `page_size`, `search`, `gender`, `age`, `accent`, `language`, `use_cases`), the account's matches first. Free. The app keeps what it finds so a voice can be chosen by its id (only the id is stored; the account is unchanged). | nothing (the voices are the result) |
+| `revoice` | A library asset's speech (the stretch `from`..`to`, 1 to 300 s) cut to mono 44.1 kHz WAV and re-spoken in another voice with the voice changer (`POST /v1/voice-changer/<voice>`, multipart `audio`, `model_id` `eleven_multilingual_sts_v2`, `remove_background_noise`), which keeps the timing. The answer is streamed to disk under a 200 MB cap and becomes an asset with its provenance (voice, stretch, whose speech it is). The app carries the source's transcript words over when the length matches. Spends: never retried, a job handed out again refuses, and an answer that could not be kept comes back `undelivered` with the charge. | `assets/<sha256>.mp3` |
+| `sound-effect` | Designed sound effects from a description (`POST /v1/sound-generation`: `text`, `duration_seconds` 0.5 to 30, `prompt_influence`, `loop`, `model_id` `eleven_text_to_sound_v3`), one request per candidate (1 to 3), each an asset with its provenance and the terms the provider states. Spends, as `revoice`. | `assets/<sha256>.mp3`, one per candidate |
+| `music` | Music beds from a description (`POST /v1/music`: `prompt`, `music_length_ms` 3000 to 300000, `force_instrumental`, `model_id` `music_v2_5`), one request per candidate (1 or 2), as `sound-effect`. Spends, as `revoice`. | `assets/<sha256>.mp3`, one per candidate |
 | `shot-quote` | A storyboard beat's still or clip priced as it will run, with the `higgsfield` tool (`account status`, `model get`, `generate cost`, all `--json`): a draft quotes every candidate model that can take the inputs at its lowest quality and answers the cheapest (the others tried with it); a final quotes the beat's good model at the best quality short of 4k. Library media it names (cast references, the approved still) are downloaded and handed to the tool as files; the quote names them `asset:<id>`. A model the plan was refused for is not quoted again on that plan. Free. | nothing |
 | `shot` | The spend: quotes again and spends only when the price is the model and credits the person confirmed (else nothing, "the price changed"); `generate create`, `generate wait` (up to 30 minutes), every result downloaded at once and stored as an asset with its provenance (the provider's job id, model, tier, credits, prompt); a clip is graded toward the camera footage when there is some (frame statistics through FFmpeg, a `lutrgb` grade, a second asset). A plan refusal comes back for the app to remember; spent with no file comes back as such, with the provider's job id. A job handed out a second time refuses rather than spend twice. | the made files as assets |
 | `continuity` | Light, colour and brightness of each generated beat against the recorded beat it cuts to (three small frames each, FFmpeg), as sentences. | nothing |
@@ -40,6 +44,8 @@ takes them one at a time and does them.
 | `sound-import` | One sound or music file (a library asset, or an upload) with its onset and peak measured, its level applied, placed so its onset or peak lands on the time; a music bed is cut to the video's end and faded out (1.5 s by default), from a moment of the file when asked. | `assets/<sha256>.wav` |
 | `listen` | The frozen edit rendered as sound only (Remotion, WAV; mastered to the edit's loudness target when it has one, as the export will be), then earshot listens against the edit's own cue sheet in one process: the listening transcript with the sync of every cue, the scorecard against reference launch films, and an annotated sheet. The first listen loads earshot's models (about 30 s). | `listen/<job id>/sheet.png` |
 | `sound-bank` | earshot's sound bank (252 sounds made in code) and its kit presets with their roles. | nothing (the app keeps it a week) |
+| `sound-judge` | earshot's ears on any sounds: library audio (each decoded first to a 48 kHz WAV with the fenced FFmpeg, ten minutes at most) and bank sounds (rendered by earshot at their own settings). `action`: `describe` (tags, character, meters; with a description, its match z and verdict), `measure` (meters only, no models), `compare` (the first against two or more references), `rank` (by a description, or by closeness to a target sound), `find` (best moments in one sound, or with none the bank sounds that match a description best, a category narrowing it), `ab` (A then B against a description or references), `realness` (p_real and a verdict). Run offline: a model missing from earshot's cache fails the job with a sentence, never a download. | nothing: a compact answer (numbers and short words, files by their names, never a path) |
+| `sound-make` | `forge`: a recipe's parameters searched toward a description by earshot's critic (designed mode, no references, budget 80 to 128 renders, earshot's own seed bank left alone), one to four candidates kept. `fit`: a library recording (30 s at most, decoded first) turned into code (earshot fit, kind auto) and rendered again. Offline, as the judge. | `assets/<sha256>.wav` per made sound, with its provenance (the recipe, the description and the critic's scores; or the recording it was fitted from and how close the fit is). Never placed on a video |
 | `motion` | The motion check: the project's picture for the range (`from`/`to` seconds) rendered at half size with no sound, then watched frame by frame by `python/motion_analysis.py` (`watch`): how much of the time something moves, every move's length, peak speed and ease shape, spring overshoot, holds, empty frames, handoffs between beats (transform, crossfade, cut through an empty frame), compared with the bundled reference films (`python/references/`) and any library videos named (each measured once, kept in the work folder by its sha256), with what to fix first. Needs the `motionCheck` capability (below). | `checks/<job id>/`: `timeline.png`, each move's `*_onion.png` and `*_strip.png`, each handoff's strip, `motion.json`, `motion.txt`, `compare.txt` |
 | `review` | The whole-video review: the same render with its sound (a silent track when it has none), cut into scenes by the script (`review`), with the words said, layers and clicks the app sends lined up, on-screen text read with `tesseract` when it is on `PATH` (otherwise left out, and the result says so), motion and sound per scene, flags (static, dead air, empty, small text, reading, mismatch, slow open) and, with reference videos, the style rows. Needs the `review` capability. | `checks/<job id>/`: `scenes.png`, `timeline.png`, `review.json`, `review.txt` |
 | `look` | The visual check: frames every `step` seconds (0.5) where an overlay is settled on screen, rendered twice, with and without the overlays (full-frame scenes count as the picture); each overlay's footprint is the difference; per text layer its contrast against what is behind it (WCAG, 4.5:1 or 3:1 for big text), its size (under ~30 px at 1080p) and whether it runs off the frame; overlap with the person and their face where the worker has macOS Vision (`../vision`), otherwise reported as not measured. Any worker can do it. | `checks/<job id>/sheet.png` (each problem boxed, or a few frames when there are none), `report.json` |
@@ -47,7 +53,8 @@ takes them one at a time and does them.
 | `faces` | macOS only. `face-track` reads each recording and finds the face boxes every 0.2 s (fractions, top-left origin) with which way the face is turned (yaw, pitch) and Vision's confidence. The app caches each track by the recording's bytes (`studio_record` collection `faces`), so a recording is tracked once; the director pass, a narrower format's crops and the checklist read it. | nothing (the tracks are the result) |
 
 **Paid providers.** The worker says what it can do beyond media work with every claim and
-progress report: `voiceover` when `ELEVENLABS_API_KEY` is set, `generatedShots` while the
+progress report: `voiceover` when `ELEVENLABS_API_KEY` is set (narration, `voice-search`,
+`revoice`, `sound-effect`, `music`: one key, one capability), `generatedShots` while the
 `higgsfield` tool answers its account status (asked at start and every five minutes). The app
 keeps that word about a minute, so the editor's narration and generation buttons, and the
 agent's tools, exist only while such a worker runs. The provider kinds are asked for only while
@@ -68,7 +75,11 @@ its kit presets (a cheap call); while it answers, the worker tells the app `soun
 editor shows its ♪ Sound menu and the agent's sound tools work, and the worker asks for the
 sound kinds (`sound-bank` in the quick slot, the rest in the media slots). Unset, or not
 answering, the capability is simply absent. The jobs never edit a video: the app applies
-what they made (`web/src/lib/studio/server/sound.ts`). Installing it where the worker runs:
+what they made (`web/src/lib/studio/server/sound.ts`; judging and making sounds:
+`sound-judge.ts`, whose made sounds are library assets the agent places itself). Each time `sound`
+comes on, the worker also asks earshot's own health check (`doctor`: packages, models, data files,
+offline) once and logs it in one line, so a missing listening model shows before a job needs it.
+Installing it where the worker runs:
 
 ```bash
 PIN=591fa3e028032e6dce56620a20e932e35667e8d8
@@ -138,9 +149,48 @@ seconds with Remotion's Rspack bundler). The bundle's public folder holds a link
 asset cache as `assets/`, so `staticFile('assets/<sha256>.<ext>')` in the composition reads
 the cached file itself. Renders use `STUDIO_RENDER_CONCURRENCY` Chrome tabs (2).
 
-**Not staged yet.** Fonts other than the system's (text layers and captions draw in the
-fallback stack) and code scenes (drawn as a "Scene failed" box, as the composition does
-for a scene it cannot load). A job whose project uses either says so in its log.
+**Not staged yet.** Fonts a job does not carry (text layers and captions draw in the
+fallback stack); the job's log says so.
+
+**Code scenes.** A `code` layer plays a graphic the agent wrote as React code
+(`web/src/lib/studio/server/scenes.ts`). Its code never runs in the composition's page: the
+layer holds a locked frame (`web/src/lib/studio/engine/scene-frame/protocol.ts`), two nested
+`<iframe sandbox="allow-scripts">` (no same origin, so no cookies, storage or way into the
+page), whose documents carry one policy: no request of any kind (`default-src 'none'`,
+`connect-src`, `frame-src`, `form-action` and the rest `'none'`; images and fonts only from
+bytes handed in), and scripts only by hash (the relay, the bootstrap, the runtime and this
+scene). The outer frame's `frame-src 'none'` also stops the inner one navigating itself
+anywhere. The layer sends the scene's module once and then each frame number; the frame
+answers when that frame is painted, and the render waits for it (`delayRender`). A scene
+that fails, or does not draw a frame within 15 s (30 s for its first), fails the render
+with a sentence naming it. The frame's runtime (React, Remotion, the scene kit) is built
+into the bundle's public folder when the bundle is made (`studio-scene/frame-runtime.js`,
+the same script the app serves to the editor's preview); each scene's module is read from
+the job's workspace (`scenes/<id>.js`, checked against its sha256) into `public/scenes/`,
+every time, even when the bundle (shared by every job on the worker) has that id already.
+A scene that never gives its thread back stops the render's page too (the headless shell runs
+the frame on the page's thread), so the 15 s limit cannot fire and the render fails only at
+Remotion's own timeout (about two minutes).
+
+The frame's only walls are the browser's origin checks and its policy, and the render's
+Chrome is not otherwise fenced: Remotion launches it with `--no-sandbox` and site isolation
+off, and it inherits the worker's environment (`STUDIO_WORKER_SECRET`, the providers' keys),
+its files (every job's scratch and the shared bundles) and its network. Any flaw in Chrome
+that a scene can reach is then the worker's. So code scenes are a setting,
+`STUDIO_CODE_SCENES`, read the same way by the app and by this worker: on outside
+production, **off in production on the app AND the worker unless `STUDIO_CODE_SCENES=on` is
+set on each**. Off on this worker, an export, stills or a check of a video with code scenes
+is refused with a sentence naming them, and a thumbnail and a sound-only render draw each
+scene as a labelled box without loading its code. Off on the app, nothing writes a scene or puts
+one on a video, and the editor draws code layers as labelled boxes without loading the frame
+or the scene's code (a viewer's browser can still be made to look up a host name and open a
+connection to it, see the test's header). Turning it on in production is the owner's call.
+`test/scene-frame-e2e.ts` mounts the real frame in Chrome under the app's own policy and
+proves a hostile scene reaches nothing (cookies, storage, the page's DOM, any request,
+navigation, a host name in the net log) in the headless shell; a full Chrome still
+preconnects to where a refused navigation was headed (the file's header says more);
+`test/scene-export-e2e.ts` exports a made-up video with a scene through this
+worker and reads its frames back.
 
 **The asset cache.** Every asset downloaded or imported is kept in the work folder,
 content-addressed, so the next render of the same project fetches nothing. Past
@@ -189,13 +239,14 @@ local run, `npm start` also reads a `.env` file beside `package.json` when there
 | `STUDIO_SHUTDOWN_GRACE_MS` | 25000 | After SIGTERM, how long a running job may still take. |
 | `DEEPGRAM_API_KEY` | none | Deepgram's key, for `transcribe`. |
 | `DEEPGRAM_URL` | Deepgram's prerecorded endpoint | A test's fake. |
-| `ELEVENLABS_API_KEY` | none | ElevenLabs' key, for `voices` and `narration` (the `voiceover` capability). |
-| `ELEVENLABS_URL` | `https://api.elevenlabs.io` | A test's fake. |
+| `ELEVENLABS_API_KEY` | none | ElevenLabs' key, for `voices`, `narration`, `voice-search`, `revoice`, `sound-effect` and `music` (the `voiceover` capability). The same per-workspace gate as narration applies to all of them (`STUDIO_PROVIDER_WORKSPACES` in the app). |
+| `ELEVENLABS_URL` | `https://api.elevenlabs.io` | https only; a test's fake on this machine may be http. |
 | `STUDIO_HIGGSFIELD_BIN` | `higgsfield` on PATH | The higgsfield tool, signed in, for `shot-quote` and `shot` (the `generatedShots` capability). |
-| `STUDIO_EARSHOT_DIR` | none | An installed earshot (its folder, holding `.venv`), for `sounds`, `sound-import`, `listen` and `sound-bank` (the `sound` capability, while it answers). |
+| `STUDIO_EARSHOT_DIR` | none | An installed earshot (its folder, holding `.venv`), for `sounds`, `sound-import`, `listen`, `sound-bank`, `sound-judge` and `sound-make` (the `sound` capability, while it answers). |
 | `EARSHOT_THREADS` | 3 | Threads earshot's models use. |
 | `STUDIO_ANALYSIS_PYTHON` | `python3` on PATH | A Python with numpy and OpenCV, for `motion` and `review` (the `motionCheck` and `review` capabilities). |
 | `STUDIO_ANALYSIS_TESSERACT` | `tesseract` on PATH | The text reader the review reads on-screen text with (optional). |
+| `STUDIO_CODE_SCENES` | on, off with `NODE_ENV=production` | Whether renders run code scenes' code in their locked frame (`on`/`off`). Off, a render of a video with code scenes is refused with a sentence. |
 
 ## Working on it
 
@@ -213,6 +264,14 @@ a synthetic bed, each take's sync point measured from the stored file against it
 frame), and the bed stepped down before the hit; a click imported on its onset; and a listen
 over the mix with the sounds applied, the sheet copied to `STUDIO_SOUND_OUT` for a look. It
 renders and loads models: one heavy run at a time.
+
+`test/sound-judge-e2e.ts` runs the judge and make jobs the same way
+(`STUDIO_EARSHOT_DIR=<earshot folder> node --import tsx test/sound-judge-e2e.ts`): the doctor;
+a bank pop described against a description and measured; three bank sounds ranked against a
+description; two sounds forged from a description, stored, then ranked; and a made-up knock (made
+with FFmpeg) fitted and A/B-ed against its resynthesis. The made WAVs and every answer go to
+`STUDIO_SOUND_OUT`. `test/sound-judge.test.ts` (in `npm test`) runs the real bridge against a fake
+earshot package, so the new commands are checked without earshot installed.
 
 `npm run e2e` (`test/e2e.ts`) starts a fake app that speaks the job contract in memory
 (`test/fake-app.ts`, every body checked with the contract's own schemas, blobs cut into

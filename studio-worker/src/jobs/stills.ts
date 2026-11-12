@@ -9,6 +9,7 @@ import type { EditorProject } from '../../../web/src/lib/studio/engine/contracts
 import { stageAssets } from '../assets.ts'
 import { COMPOSITION_ID, inputPropsFor, pngSize, unstagedNeeds } from '../render.ts'
 import { frozenProject } from './export.ts'
+import { checkCodeScenes, stageScenes } from '../scenes.ts'
 import { checkAborted, JobError, stage, type JobContext, type JobHandler } from './context.ts'
 
 export const MAX_STILLS = 60
@@ -32,14 +33,18 @@ export async function renderFrames(
   ctx: JobContext,
   project: EditorProject,
   requests: StillRequest[],
-  opts: { scale: number; imageFormat: 'png' | 'jpeg'; jpegQuality?: number },
+  opts: { scale: number; imageFormat: 'png' | 'jpeg'; jpegQuality?: number; codeScenes?: 'run' | 'placeholder' },
   onProgress: (fraction: number) => void,
 ): Promise<{ width: number; height: number; fps: number; durationInFrames: number }> {
   for (const line of unstagedNeeds(project)) ctx.log(line)
+  // A scene's code runs only where this worker allows it; a placeholder render (a thumbnail) never loads it.
+  const codeScenes = opts.codeScenes ?? 'run'
+  if (codeScenes === 'run') checkCodeScenes(project, ctx.config.codeScenes)
   const releaseAssets = await stageAssets(ctx, project.assets, (f) => onProgress(0.3 * f))
   try {
     const { serveUrl, release } = await ctx.renderer.bundle(ctx.log)
     try {
+      if (codeScenes === 'run') await stageScenes(ctx, project, serveUrl)
       const { openBrowser, renderStill, selectComposition, makeCancelSignal } = await import('@remotion/renderer')
       const common = await ctx.renderer.common(ctx.log)
       const browser = await openBrowser('chrome', { browserExecutable: common.browserExecutable, chromiumOptions: common.chromiumOptions, logLevel: common.logLevel })
@@ -47,7 +52,7 @@ export async function renderFrames(
       const onAbort = () => cancel()
       ctx.signal.addEventListener('abort', onAbort, { once: true })
       try {
-        const inputProps = inputPropsFor(project)
+        const inputProps = inputPropsFor(project, codeScenes)
         const composition = await selectComposition({ serveUrl, id: COMPOSITION_ID, inputProps, ...common, puppeteerInstance: browser })
         onProgress(0.4)
         for (const [i, req] of requests.entries()) {

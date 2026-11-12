@@ -21,6 +21,7 @@ import { masterFile } from '../master.ts'
 import { mediaTimeout, probe, run } from '../media.ts'
 import { COMPOSITION_ID, inputPropsFor, unstagedNeeds } from '../render.ts'
 import { stageFonts } from '../fonts.ts'
+import { checkCodeScenes, stageScenes } from '../scenes.ts'
 import { checkAborted, JobError, stage, type JobHandler } from './context.ts'
 
 /** The project as the job froze it, checked (the engine's own migration and rules). */
@@ -39,6 +40,8 @@ export const exportKey = (job: { id: string; attempts: number }) => `exports/${j
 
 export const runExport: JobHandler<'export'> = async (ctx) => {
   const project = frozenProject(ctx.job.input.project)
+  // Code scenes run their code in the render's Chrome only where this worker allows it (scenes.ts).
+  checkCodeScenes(project, ctx.config.codeScenes)
   // Fonts the job carries are staged below; the line about unstaged fonts is for jobs without them.
   for (const line of unstagedNeeds(project)) if (!(ctx.job.input.fonts?.length && line.startsWith('Fonts '))) ctx.log(line)
   ctx.log('Verifying frozen project assets')
@@ -47,6 +50,10 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
   try {
     checkAborted(ctx.signal)
     const { serveUrl, release } = await ctx.renderer.bundle(ctx.log)
+    await stageScenes(ctx, project, serveUrl).catch((err) => {
+      release()
+      throw err
+    })
     const fonts = await stageFonts(ctx, ctx.job.input.fonts, serveUrl).catch((err) => {
       ctx.log(`Fonts could not be staged (${(err as Error).message}): text renders with the fallback stack`)
       return { faces: [], release: async () => {} }
