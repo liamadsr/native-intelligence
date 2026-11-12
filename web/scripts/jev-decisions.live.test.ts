@@ -37,6 +37,8 @@ import { actionDoneByEmail } from '../src/lib/ai/decisions/tasks/action-done-by-
 import { actionDoneFixtures } from '../src/lib/ai/decisions/__tests__/action-done-by-email-fixtures'
 import { meetingNeedsPrep } from '../src/lib/ai/decisions/tasks/meeting-needs-prep'
 import { meetingNeedsPrepFixtures } from '../src/lib/ai/decisions/__tests__/meeting-needs-prep-fixtures'
+import { recordKeptUpToDate } from '../src/lib/ai/decisions/tasks/record-kept-up-to-date'
+import { keptFixtures } from '../src/lib/ai/decisions/__tests__/record-kept-up-to-date-fixtures'
 
 // The production adapter stays real; only Next.js's server-only marker is mocked.
 vi.mock('server-only', () => ({}))
@@ -98,7 +100,7 @@ describe.skipIf(process.env.JEV_LIVE_EVAL !== '1')('live synthetic Jev decisions
       retrieval: 'retrieval.relevance', automation: 'automation.reconcile_required', email: 'email.reply_required', browser: 'browser.next_action',
       trust: 'email.trust', review: 'action.review', emailv4: 'email.reply_required',
       tier: 'model.tier', event: 'event.needs_person', nudge: 'nudge.worth', understand: 'email.understand',
-      done: 'action.done_by_email', prep: 'meeting.needs_prep',
+      done: 'action.done_by_email', prep: 'meeting.needs_prep', kept: 'record.kept_up_to_date',
     }
     it(name, async () => {
       const input = task.schema.parse(raw)
@@ -285,6 +287,17 @@ describe.skipIf(process.env.JEV_LIVE_EVAL !== '1')('live synthetic Jev decisions
       v => v.actionId !== null && v.actionId !== expected,
       () => false,
       v => console.log(JSON.stringify({ done: f.name, expected, got: v })))
+  }
+  // record.kept_up_to_date: a change it missed (labelled one, answered none)
+  // is a false suppression; a wrong change (one where none, or another one)
+  // a false allow, the costly error: the person has to Undo it.
+  for (const f of keptFixtures) {
+    evaluate(`kept.${f.name}`, recordKeptUpToDate, f.input,
+      v => (f.expected.length ? v.changeId !== null && f.expected.includes(v.changeId) : v.changeId === null),
+      v => f.expected.length > 0 && v.changeId === null,
+      v => v.changeId !== null && !f.expected.includes(v.changeId),
+      () => false,
+      v => console.log(JSON.stringify({ kept: f.name, expected: f.expected, got: v })))
   }
   // meeting.needs_prep (live): only a trusted pick counts (an untrusted one
   // is unsure: the sweep preps). A skip on a real meeting is the FALSE

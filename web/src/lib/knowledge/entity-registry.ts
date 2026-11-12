@@ -1,6 +1,6 @@
 /**
  * The entity-type registry — ONE declaration of every kind of thing in the
- * app (task, doc, contact, deal, calendar event, team-chat message, …) and
+ * app (task, doc, contact, table row, calendar event, team-chat message, …) and
  * everything the rest of the codebase needs to know about it.
  *
  * Every other kind vocabulary is derived from this list or typed as a subset
@@ -412,24 +412,13 @@ export const ENTITY_REGISTRY = [
     sourceable: false,
   },
 
-  // ── Graph kinds added with the shared entity layer (2026-11-09). Linkable so
+  // ── Graph kinds added with the shared entity layer (2026-11-09). (A deal is
+  // a pipeline's row since 2026-11-12, migration 548: a data_row.) Linkable so
   // they can be linked and @mentioned; not citable, so the claim_source CHECK
   // (migration 264) and claim_neighborhood need no widening. Both are readable
   // by every workspace member (is_workspace_member RLS), so the graph's
   // workspace_id fence and service-role label reads (claims.ts resolveLabels)
   // show nothing a member couldn't already see.
-  {
-    id: 'deal',
-    table: 'deal',
-    workspaceScoped: { kind: 'column', table: 'deal' },
-    label: { table: 'deal', columns: 'name', render: (r) => str(r.name) },
-    realtime: true,
-    linkable: true,
-    activity: true,
-    customFields: true,
-    citable: false,
-    sourceable: false,
-  },
   {
     id: 'flow',
     table: 'flow',
@@ -498,6 +487,39 @@ export const ENTITY_REGISTRY = [
     table: 'team_chat_message',
     workspaceScoped: { kind: 'column', table: 'team_chat_message' },
     label: { table: 'team_chat_message', columns: 'body', render: (r) => str(r.body).slice(0, 140) },
+    realtime: false,
+    linkable: true,
+    activity: true,
+    customFields: false,
+    citable: false,
+    sourceable: false,
+  },
+
+  // ── Tables (2026-11-10, migrations 520 and 521): a workspace's own databases
+  // and their rows. Private-capable (a private table is its owner's and its
+  // grantees'), so both are fenced in src/lib/knowledge/entity-fences.ts; a
+  // row follows its table. Not customFields: a row's values ARE the table's
+  // columns (custom_field_definition rows with a table_id, entity_type
+  // 'data_row'), written only through apply_data_ops so every change is in
+  // the table's undo log, never through set_custom_fields. Only the table is
+  // realtime: every write batch bumps its version, one event per batch.
+  {
+    id: 'data_table',
+    table: 'data_table',
+    workspaceScoped: { kind: 'column', table: 'data_table' },
+    label: { table: 'data_table', columns: 'name', render: (r) => str(r.name) },
+    realtime: true,
+    linkable: true,
+    activity: true,
+    customFields: false,
+    citable: false,
+    sourceable: false,
+  },
+  {
+    id: 'data_row',
+    table: 'data_row',
+    workspaceScoped: { kind: 'column', table: 'data_row' },
+    label: { table: 'data_row', columns: 'title', render: (r) => str(r.title).slice(0, 140) || 'Untitled' },
     realtime: false,
     linkable: true,
     activity: true,

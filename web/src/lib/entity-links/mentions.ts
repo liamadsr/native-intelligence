@@ -16,8 +16,9 @@
  * Every target is fenced before an edge is written, for `userId`, the person
  * who wrote the mention: it must be a mentionable kind, in the source's
  * workspace, and readable by them (a capture or document of theirs or the
- * workspace's, a contact or company they can see, a calendar event of their
- * own, a channel they're in: src/lib/knowledge/entity-fences.ts; or one a
+ * workspace's, a contact or company they can see, a file they may read, a
+ * calendar event of their own, a channel they're in:
+ * src/lib/knowledge/entity-fences.ts, src/lib/attachments/visibility.ts; or one a
  * grant opens to them: src/lib/entity-access/grants.ts). Anything else is
  * dropped, never an error: the message still posts.
  *
@@ -26,6 +27,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { applyCaptureVisibility, applyDocumentVisibility, documentRequesterMember } from '@/lib/ai/tools/_shared'
+import { visibleAttachmentIds } from '@/lib/attachments/visibility'
 import { filterVisibleCompanies, filterVisibleContacts } from '@/lib/crm/contact-visibility'
 import { isPrivateGraphKind, visiblePrivateKindIds } from '@/lib/knowledge/entity-fences'
 import { withGrantedIds } from '@/lib/entity-access/grants'
@@ -78,6 +80,8 @@ async function visibleIdsOf(
 ): Promise<string[]> {
   try {
     if (isPrivateGraphKind(type)) return [...(await visiblePrivateKindIds(supabase, type, userId, ids, workspaceId))]
+    // A file: its uploader's, or on a record they may see (src/lib/attachments/visibility.ts).
+    if (type === 'attachment') return [...(await visibleAttachmentIds(supabase, { workspaceId, userId }, ids))]
     const table = WORKSPACE_SCOPED_TABLE[type]
     if (!table) return []
     let query = supabase.from(table).select('id').eq('workspace_id', workspaceId).in('id', ids)
@@ -118,6 +122,15 @@ export interface SyncMentionsInput {
   kinds?: readonly MentionableType[]
   /** `targets` already came through visibleMentionTargets for this user and workspace: not read again. */
   fenced?: boolean
+  /** A source whose mentions only grow (a chat: each turn adds its own, none is taken back): nothing is deleted. */
+  addOnly?: boolean
+  /**
+   * The only targets a stale edge may be removed for (a document: what its
+   * previous text named and its new text doesn't, read unfenced). An edge to
+   * anything else stays, whoever drew it and whoever saves. Absent: every
+   * edge of the managed kinds not in `targets` is stale.
+   */
+  removable?: readonly MentionRef[]
 }
 
 export interface SyncMentionsResult {
@@ -155,7 +168,15 @@ export async function syncMentions(supabase: SupabaseClient, input: SyncMentions
     const now = new Set(mentioned.map(key))
     const rows = (existing ?? []) as Array<{ id: string; target_type: string; target_id: string }>
     const had = new Set(rows.map((r) => `${r.target_type}:${r.target_id}`))
-    const stale = rows.filter((r) => !now.has(`${r.target_type}:${r.target_id}`)).map((r) => r.id)
+    const removable = input.removable ? new Set(input.removable.map(key)) : null
+    const stale = input.addOnly
+      ? []
+      : rows
+          .filter((r) => {
+            const k = `${r.target_type}:${r.target_id}`
+            return removable ? removable.has(k) && !now.has(k) : !now.has(k)
+          })
+          .map((r) => r.id)
     const fresh = mentioned.filter((r) => !had.has(key(r)))
 
     if (stale.length) {

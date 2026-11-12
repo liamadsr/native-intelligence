@@ -1,42 +1,59 @@
 /**
- * Deals (roadmap #8, migration 473): what a workspace is trying to win, with
- * a value, a pipeline stage, an expected close date, an owner, a company and
- * the contacts it involves.
+ * Deals (roadmap #8) are the rows of pipeline tables (Tables, phase 7,
+ * migration 540): a pipeline is a table marked `kind = 'pipeline'`, and a
+ * deal is one of its rows. The row's title is the deal's name; its system
+ * columns hold the rest (PIPELINE_KEYS): the stage (a select whose options
+ * carry open, won or lost), the value (currency), the company and contacts
+ * (relations), the expected close date and the owner (a member). People add
+ * their own columns; a pipeline starts with Notes too.
  *
- * Every write goes through here and logs a `deal_event` with each field's
- * before and after, who or what made it (the person, the agent, an email, a
- * meeting, a text) and why. That log is the undo: `undoDealEvent` writes the
- * `from` values back, field by field, unless the field has moved on since
- * (then the newer value stays). Liam's rule is apply with undo, never an
- * accept/dismiss queue: the agent updates a deal directly and says so, and
- * the person undoes it if it was wrong.
+ * This is a thin layer over the table store (src/lib/tables/store.ts): it
+ * reads a row as a Deal and turns a deal change into one batch of row ops,
+ * so every change is in the pipeline's change log with its before and
+ * after, who or what made it and why, and Undo takes it back (apply with
+ * undo, never an accept/dismiss queue). The database keeps `closed_at` and
+ * `stage_changed_at` (540's trigger) and the stage rules (required_when).
  *
- * The default pipeline (Lead, Qualified, Proposal, Won, Lost) is seeded on
- * first use by `ensure_default_deal_pipeline` (473), from any read or write
- * here, so a workspace never sees an empty pipeline.
+ * The default pipeline ("Sales": Lead, Qualified, Proposal, Won, Lost) is
+ * made on first use by ensure_default_pipeline (540), from any read here.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
-  listCustomFieldDefinitions,
-  mergeCustomFields,
-  resolveCustomValues,
   isIsoDate,
+  resolveCustomValues,
+  type CustomFieldDefinition,
   type CustomFieldValue,
 } from './custom-fields'
+import { optionOutcome, relationIds, type CurrencyValue, type StageOutcome } from './custom-field-types'
 import { toIlikeSearchTerm } from './ilike-search-term'
 import { formatDealValue } from './deal-format'
 import { filterVisibleCompanies, filterVisibleContacts, isCompanyVisibleTo } from './contact-visibility'
+import { fieldReferenceCheck } from './custom-field-references'
+import { applyOps, CHANGE_SELECT, listTables, ROW_SELECT, summarizeChange, undoChange, type TableActor } from '@/lib/tables/store'
+import { touchedBy } from '@/lib/tables/ops'
+import { isComputedType, type DataChange, type DataColumn, type DataRow, type DataTable } from '@/lib/tables/types'
 
-export type DealStageKind = 'open' | 'won' | 'lost'
+export type DealStageKind = StageOutcome
 export type DealChangeSource = 'person' | 'agent' | 'email' | 'capture' | 'sms'
 
+/** A pipeline's own columns' keys (540), and its Notes. */
+export const PIPELINE_KEYS = {
+  stage: 'stage',
+  value: 'value',
+  company: 'company',
+  contacts: 'contacts',
+  expectedClose: 'expected_close',
+  owner: 'owner',
+  notes: 'notes',
+} as const
+
+/** The keys that are not a deal's own custom fields. */
+const BUILT_IN_KEYS = new Set<string>(Object.values(PIPELINE_KEYS))
+
 export interface DealStage {
-  id: string
-  pipeline_id: string
   name: string
-  position: number
   kind: DealStageKind
-  color: string | null
+  position: number
 }
 
 export interface DealPipeline {
@@ -44,26 +61,35 @@ export interface DealPipeline {
   name: string
   is_default: boolean
   position: number
+  version: number
+  visibility: DataTable['visibility']
+  owner_member_id: string | null
+  archived_at: string | null
   stages: DealStage[]
+  /** Its live columns, in order. */
+  columns: DataColumn[]
 }
 
 export interface Deal {
   id: string
   workspace_id: string
+  pipeline_id: string
   name: string
   value: number | null
   currency: string
-  pipeline_id: string
-  stage_id: string
+  /** Its stage's name (an option of the Stage column), or null. */
+  stage: string | null
+  status: DealStageKind
   expected_close_date: string | null
   owner_id: string | null
   company_id: string | null
   contact_ids: string[]
   notes: string | null
+  /** Its other columns' values, by column key. */
   custom_fields: Record<string, CustomFieldValue>
-  source: string
-  stage_changed_at: string
+  stage_changed_at: string | null
   closed_at: string | null
+  archived_at: string | null
   created_at: string
   updated_at: string
 }
@@ -72,90 +98,114 @@ export interface Deal {
 export interface DealActor {
   userId: string | null
   source: DealChangeSource
-  /** The email thread, capture or text it came from. */
+  /** The email thread, capture or text it came from (kept on the change: data_change.source_ref). */
   sourceRef?: string | null
   /** Why, in a sentence: "Signed contract in Dana's email of Nov 3". */
   reason?: string | null
 }
 
-/** The fields a change can touch, as the log names them. Custom fields are `custom_fields.<key>`. */
-export const DEAL_FIELDS = [
-  'name',
-  'value',
-  'currency',
-  'pipeline_id',
-  'stage_id',
-  'expected_close_date',
-  'owner_id',
-  'company_id',
-  'contact_ids',
-  'notes',
-] as const
-export type DealField = (typeof DEAL_FIELDS)[number]
+/**
+ * `viewer`: the person a service-role caller (the agent's tools) acts for: a
+ * new contact or company on a deal must be one they can see, the batch names
+ * them (asUserId), and the pipelines they read are fenced. The routes run on
+ * the person's own client.
+ */
+export interface WriteOptions {
+  viewer?: string | null
+  /** false on a guest's or a linked agent's turn (omitGrants): the viewer's grants open nothing. */
+  grants?: boolean
+}
 
+/** The fields a change can touch, as a deal's change names them: the title, or a column key. */
 export type DealChanges = Record<string, { from: unknown; to: unknown }>
-
-export const DEAL_SELECT =
-  'id, workspace_id, name, value, currency, pipeline_id, stage_id, expected_close_date, owner_id, company_id, contact_ids, notes, custom_fields, source, stage_changed_at, closed_at, created_at, updated_at'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID_RE.test(v)
-const CUSTOM_KEY_RE = /^[a-z][a-z0-9_]{0,39}$/
 
-const CURRENCY_RE = /^[A-Z]{3}$/
+const sameValue = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 
-function normalizeDeal(row: Record<string, unknown>): Deal {
-  const value = row.value === null || row.value === undefined ? null : Number(row.value)
-  return {
-    ...(row as unknown as Deal),
-    value: value === null || Number.isNaN(value) ? null : value,
-    contact_ids: Array.isArray(row.contact_ids) ? (row.contact_ids as string[]) : [],
-    custom_fields: (row.custom_fields as Record<string, CustomFieldValue>) ?? {},
-  }
-}
+// ── Pipelines ───────────────────────────────────────────────────────────────
 
-// ── Pipelines and stages ────────────────────────────────────────────────────
-
-/** The workspace's default pipeline id, seeding it (and its five stages) the first time. */
-export async function ensureDefaultPipeline(db: SupabaseClient, workspaceId: string): Promise<string> {
-  const { data, error } = await db.rpc('ensure_default_deal_pipeline', { p_workspace_id: workspaceId })
+/** The workspace's default pipeline id, made (with its five stages) the first time; null for a guest before it exists. */
+export async function ensureDefaultPipeline(db: SupabaseClient, workspaceId: string, asUserId: string | null = null): Promise<string | null> {
+  const { data, error } = await db.rpc('ensure_default_pipeline', { p_workspace_id: workspaceId, p_as_user: asUserId })
   if (error) throw new Error(error.message)
-  if (!data) throw new Error('Could not set up the pipeline')
-  return data as string
+  return (data as string | null) ?? null
 }
 
-/** Every pipeline with its stages in order, the default first. Seeds the default on first use. */
-export async function listPipelines(db: SupabaseClient, workspaceId: string): Promise<DealPipeline[]> {
-  await ensureDefaultPipeline(db, workspaceId)
-  const [{ data: pipelines, error: pErr }, { data: stages, error: sErr }] = await Promise.all([
-    db.from('deal_pipeline').select('id, name, is_default, position').eq('workspace_id', workspaceId).order('position').order('created_at'),
-    db.from('deal_stage').select('id, pipeline_id, name, position, kind, color').eq('workspace_id', workspaceId).order('position').order('created_at'),
-  ])
-  if (pErr) throw new Error(pErr.message)
-  if (sErr) throw new Error(sErr.message)
-  const byPipeline = new Map<string, DealStage[]>()
-  for (const s of (stages ?? []) as DealStage[]) {
-    const list = byPipeline.get(s.pipeline_id) ?? []
-    list.push(s)
-    byPipeline.set(s.pipeline_id, list)
+/** A pipeline's stages: its Stage column's options, each with its outcome. */
+export function stagesOf(columns: readonly DataColumn[]): DealStage[] {
+  const stage = columns.find((c) => c.key === PIPELINE_KEYS.stage && c.field_type === 'select')
+  return (stage?.options ?? []).map((name, position) => ({ name, kind: optionOutcome(stage?.config, name), position }))
+}
+
+export interface PipelineReadOptions {
+  /** The person a service-role client acts for (made the default pipeline for, and fenced to). */
+  viewer?: string | null
+  /** The pipeline ids among these the person may read (a service-role caller's fence). */
+  readable?: (ids: string[]) => Promise<Set<string>>
+  /** Archived ones too. */
+  archived?: boolean
+}
+
+/** Every live pipeline the caller can read, the default first, each with its columns and stages. Makes the default on first use. */
+export async function listPipelines(db: SupabaseClient, workspaceId: string, opts: PipelineReadOptions = {}): Promise<DealPipeline[]> {
+  await ensureDefaultPipeline(db, workspaceId, opts.viewer ?? null)
+  let tables = await listTables(db, workspaceId, { kind: 'pipeline' })
+  if (opts.archived) tables = [...tables, ...(await listTables(db, workspaceId, { kind: 'pipeline', archived: true }))]
+  if (opts.readable && tables.length) {
+    const ok = await opts.readable(tables.map((t) => t.id))
+    tables = tables.filter((t) => ok.has(t.id))
   }
-  return ((pipelines ?? []) as Omit<DealPipeline, 'stages'>[])
-    .map((p) => ({ ...p, stages: byPipeline.get(p.id) ?? [] }))
+  if (!tables.length) return []
+  const { data, error } = await db
+    .from('custom_field_definition')
+    .select('id, table_id, key, label, field_type, options, config, position, deleted_at, system')
+    .eq('workspace_id', workspaceId)
+    .eq('entity_type', 'data_row')
+    .in('table_id', tables.map((t) => t.id))
+    .is('deleted_at', null)
+    .order('position', { ascending: true })
+  if (error) throw new Error(error.message)
+  const byTable = new Map<string, DataColumn[]>()
+  for (const c of (data ?? []) as DataColumn[]) {
+    const list = byTable.get(c.table_id) ?? []
+    list.push({ ...c, options: c.options ?? [], config: c.config ?? {} })
+    byTable.set(c.table_id, list)
+  }
+  return tables
+    .map((t) => {
+      const columns = byTable.get(t.id) ?? []
+      return {
+        id: t.id,
+        name: t.name,
+        is_default: !!t.is_default,
+        position: t.position,
+        version: t.version,
+        visibility: t.visibility,
+        owner_member_id: t.owner_member_id,
+        archived_at: t.archived_at,
+        stages: stagesOf(columns),
+        columns,
+      }
+    })
     .sort((a, b) => Number(b.is_default) - Number(a.is_default) || a.position - b.position)
 }
 
+/** The pipeline a person or the agent names: its id, or its name (any case). */
+export function matchPipeline(pipelines: readonly DealPipeline[], ref: string): DealPipeline | null {
+  const p = ref.trim().toLowerCase()
+  return pipelines.find((x) => x.id === ref.trim()) ?? pipelines.find((x) => x.name.toLowerCase() === p) ?? null
+}
+
 /**
- * A stage named the way a person or the agent would ("won", "Proposal", a
- * stage id), within one pipeline (default: the deal's, else the default).
- * Exact name first, then a prefix; `won`/`lost` also match the stage of that
- * kind ("closed won" → the Won stage).
+ * A stage named the way a person or the agent would ("won", "Proposal"),
+ * within one pipeline. Exact name first, then a prefix; `won`/`lost` also
+ * match the stage of that outcome ("closed won" → the Won stage).
  */
 export function matchStage(stages: readonly DealStage[], name: string): DealStage | null {
   const raw = name.trim()
   if (!raw) return null
-  const byId = stages.find((s) => s.id === raw)
-  if (byId) return byId
-  if (UUID_RE.test(raw)) return null
   const n = raw.toLowerCase()
   const exact = stages.find((s) => s.name.toLowerCase() === n)
   if (exact) return exact
@@ -169,17 +219,60 @@ export function matchStage(stages: readonly DealStage[], name: string): DealStag
   return null
 }
 
-function stageList(pipeline: DealPipeline): string {
-  return pipeline.stages.map((s) => s.name).join(', ')
+const stageList = (pipeline: DealPipeline): string => pipeline.stages.map((s) => s.name).join(', ')
+
+// ── A row as a deal ─────────────────────────────────────────────────────────
+
+/** The currency a pipeline's bare amounts take (its Value column's). */
+export function pipelineCurrency(pipeline: Pick<DealPipeline, 'columns'>): string {
+  const code = pipeline.columns.find((c) => c.key === PIPELINE_KEYS.value)?.config?.currency
+  return typeof code === 'string' && /^[A-Z]{3}$/.test(code) ? code : 'USD'
+}
+
+/** A pipeline's row, read as a deal. */
+export function rowToDeal(row: DataRow & { workspace_id?: string }, pipeline: Pick<DealPipeline, 'columns'>, workspaceId: string): Deal {
+  const cf = (row.custom_fields ?? {}) as Record<string, CustomFieldValue>
+  const money = cf[PIPELINE_KEYS.value] as Partial<CurrencyValue> | undefined
+  const amount = money && typeof money === 'object' && typeof money.amount === 'number' ? money.amount : null
+  const stageCol = pipeline.columns.find((c) => c.key === PIPELINE_KEYS.stage)
+  const stage = typeof cf[PIPELINE_KEYS.stage] === 'string' ? (cf[PIPELINE_KEYS.stage] as string) : null
+  const custom: Record<string, CustomFieldValue> = {}
+  for (const [k, v] of Object.entries(cf)) if (!BUILT_IN_KEYS.has(k)) custom[k] = v
+  return {
+    id: row.id,
+    workspace_id: row.workspace_id ?? workspaceId,
+    pipeline_id: row.table_id,
+    name: row.title,
+    value: amount,
+    currency: amount !== null && typeof money?.currency === 'string' ? money.currency : pipelineCurrency(pipeline),
+    stage,
+    status: optionOutcome(stageCol?.config, stage),
+    expected_close_date: typeof cf[PIPELINE_KEYS.expectedClose] === 'string' ? (cf[PIPELINE_KEYS.expectedClose] as string) : null,
+    owner_id: typeof cf[PIPELINE_KEYS.owner] === 'string' ? (cf[PIPELINE_KEYS.owner] as string) : null,
+    company_id: relationIds(cf[PIPELINE_KEYS.company])[0] ?? null,
+    contact_ids: relationIds(cf[PIPELINE_KEYS.contacts]),
+    notes: typeof cf[PIPELINE_KEYS.notes] === 'string' ? (cf[PIPELINE_KEYS.notes] as string) : null,
+    custom_fields: custom,
+    stage_changed_at: row.stage_changed_at ?? null,
+    closed_at: row.closed_at ?? null,
+    archived_at: row.archived_at,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
 }
 
 // ── Reads ───────────────────────────────────────────────────────────────────
 
-export async function getDeal(db: SupabaseClient, workspaceId: string, dealId: string): Promise<Deal | null> {
+/** One deal (a live row of one of these pipelines), or null. */
+export async function getDeal(db: SupabaseClient, workspaceId: string, dealId: string, pipelines?: readonly DealPipeline[]): Promise<Deal | null> {
   if (!isUuid(dealId)) return null
-  const { data, error } = await db.from('deal').select(DEAL_SELECT).eq('id', dealId).eq('workspace_id', workspaceId).maybeSingle()
+  const { data, error } = await db.from('data_row').select(ROW_SELECT).eq('id', dealId).eq('workspace_id', workspaceId).is('archived_at', null).maybeSingle()
   if (error) throw new Error(error.message)
-  return data ? normalizeDeal(data as Record<string, unknown>) : null
+  if (!data) return null
+  const row = data as DataRow
+  const list = pipelines ?? (await listPipelines(db, workspaceId))
+  const pipeline = list.find((p) => p.id === row.table_id)
+  return pipeline ? rowToDeal(row, pipeline, workspaceId) : null
 }
 
 export interface FindDealsInput {
@@ -189,34 +282,59 @@ export interface FindDealsInput {
   company_id?: string
   contact_id?: string
   owner_id?: string
+  /** A pipeline id or name: only its deals. */
+  pipeline?: string
   limit?: number
 }
 
-/** Deals matching a search, newest activity first. `status` defaults to every deal. */
-export async function findDeals(db: SupabaseClient, workspaceId: string, input: FindDealsInput = {}): Promise<{ deals: Deal[]; pipelines: DealPipeline[] }> {
-  const pipelines = await listPipelines(db, workspaceId)
-  const stages = pipelines.flatMap((p) => p.stages)
-  let q = db.from('deal').select(DEAL_SELECT).eq('workspace_id', workspaceId)
-  if (input.search) {
-    const term = toIlikeSearchTerm(input.search)
-    if (term) q = q.ilike('name', `%${term}%`)
+/** A list of option names for a PostgREST in() filter, each quoted. */
+const inList = (names: readonly string[]) => `(${names.map((n) => `"${n.replace(/["\\]/g, (m) => `\\${m}`)}"`).join(',')})`
+
+/** Deals matching a search, newest activity first, across the pipelines the caller reads. `status` defaults to every deal. */
+export async function findDeals(
+  db: SupabaseClient,
+  workspaceId: string,
+  input: FindDealsInput = {},
+  opts: PipelineReadOptions = {},
+): Promise<{ deals: Deal[]; pipelines: DealPipeline[] }> {
+  const pipelines = await listPipelines(db, workspaceId, opts)
+  const limit = Math.min(Math.max(input.limit ?? 25, 1), 100)
+  let scoped = pipelines
+  if (input.pipeline) {
+    const one = matchPipeline(pipelines, input.pipeline)
+    if (!one) return { deals: [], pipelines }
+    scoped = [one]
   }
-  if (input.stage) {
-    const matched = pipelines.map((p) => matchStage(p.stages, input.stage!)).filter((s): s is DealStage => !!s)
-    if (!matched.length) return { deals: [], pipelines }
-    q = q.in('stage_id', matched.map((s) => s.id))
-  }
-  if (input.status && input.status !== 'all') {
-    const ids = stages.filter((s) => s.kind === input.status).map((s) => s.id)
-    if (!ids.length) return { deals: [], pipelines }
-    q = q.in('stage_id', ids)
-  }
-  if (input.company_id && isUuid(input.company_id)) q = q.eq('company_id', input.company_id)
-  if (input.contact_id && isUuid(input.contact_id)) q = q.contains('contact_ids', [input.contact_id])
-  if (input.owner_id && isUuid(input.owner_id)) q = q.eq('owner_id', input.owner_id)
-  const { data, error } = await q.order('updated_at', { ascending: false }).limit(Math.min(Math.max(input.limit ?? 25, 1), 100))
-  if (error) throw new Error(error.message)
-  return { deals: ((data ?? []) as Record<string, unknown>[]).map(normalizeDeal), pipelines }
+  const reads = scoped.map(async (pipeline) => {
+    let q = db.from('data_row').select(ROW_SELECT).eq('workspace_id', workspaceId).eq('table_id', pipeline.id).is('archived_at', null)
+    if (input.search) {
+      const term = toIlikeSearchTerm(input.search)
+      if (term) q = q.ilike('title', `%${term}%`)
+    }
+    if (input.stage) {
+      const stage = matchStage(pipeline.stages, input.stage)
+      if (!stage) return []
+      q = q.eq(`custom_fields->>${PIPELINE_KEYS.stage}`, stage.name)
+    }
+    if (input.status && input.status !== 'all') {
+      const names = pipeline.stages.filter((s) => s.kind === input.status).map((s) => s.name)
+      if (input.status === 'open') {
+        // An open deal is one in an open stage, or in none.
+        q = names.length ? q.or(`custom_fields->>${PIPELINE_KEYS.stage}.is.null,custom_fields->>${PIPELINE_KEYS.stage}.in.${inList(names)}`) : q.is(`custom_fields->>${PIPELINE_KEYS.stage}`, null)
+      } else {
+        if (!names.length) return []
+        q = q.in(`custom_fields->>${PIPELINE_KEYS.stage}`, names)
+      }
+    }
+    if (input.company_id && isUuid(input.company_id)) q = q.contains('custom_fields', { [PIPELINE_KEYS.company]: [input.company_id] })
+    if (input.contact_id && isUuid(input.contact_id)) q = q.contains('custom_fields', { [PIPELINE_KEYS.contacts]: [input.contact_id] })
+    if (input.owner_id && isUuid(input.owner_id)) q = q.eq(`custom_fields->>${PIPELINE_KEYS.owner}`, input.owner_id)
+    const { data, error } = await q.order('updated_at', { ascending: false }).limit(limit)
+    if (error) throw new Error(error.message)
+    return ((data ?? []) as DataRow[]).map((r) => rowToDeal(r, pipeline, workspaceId))
+  })
+  const deals = (await Promise.all(reads)).flat().sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0))
+  return { deals: deals.slice(0, limit), pipelines }
 }
 
 // ── Writes ──────────────────────────────────────────────────────────────────
@@ -225,9 +343,9 @@ export interface DealInput {
   name?: string
   value?: number | null
   currency?: string
-  /** A pipeline id or name. Default: the deal's own, else the default pipeline. */
+  /** A pipeline id or name. Default: the default pipeline. A deal stays in its pipeline. */
   pipeline?: string
-  /** A stage id or name in that pipeline. Default on create: the first stage. */
+  /** A stage name in that pipeline. Default on create: the first stage. */
   stage?: string
   expected_close_date?: string | null
   owner_id?: string | null
@@ -236,77 +354,88 @@ export interface DealInput {
   /** Contacts to add to the ones already on the deal. */
   add_contact_ids?: string[]
   notes?: string | null
-  /** Custom field values by key or label; null clears one. */
+  /** The pipeline's other columns' values, by key or name; null clears one. */
   custom_fields?: Record<string, unknown>
 }
 
-type Resolved = { ok: true; row: Record<string, unknown> } | { ok: false; error: string }
+/** The most a Notes value holds: a table's text column's limit. */
+export const DEAL_NOTES_MAX = 2000
 
-/** Turns a DealInput into column values, checking every reference belongs to the workspace. */
+type Resolved = { ok: true; title?: string; values: Record<string, CustomFieldValue> } | { ok: false; error: string }
+
+/** A pipeline's columns a value is written to, as custom field definitions (a formula or rollup is worked out, never set). */
+function columnDefs(pipeline: DealPipeline): CustomFieldDefinition[] {
+  return pipeline.columns.flatMap((c) => (isComputedType(c.field_type) ? [] : [{ ...c, field_type: c.field_type }])).map((c) => ({
+    id: c.id,
+    workspace_id: '',
+    entity_type: 'contact',
+    key: c.key,
+    label: c.label,
+    field_type: c.field_type,
+    options: c.options,
+    config: c.config ?? {},
+    position: c.position,
+  }))
+}
+
+/** A DealInput as row values, each reference checked against the workspace (and the viewer). */
 async function resolveInput(
   db: SupabaseClient,
   workspaceId: string,
+  pipeline: DealPipeline,
   input: DealInput,
   current: Deal | null,
   viewer: string | null,
-  // false on a guest's or linked agent's turn: no grant (492) makes a company or contact theirs to put on a deal.
-  grants: boolean = true,
+  grants: boolean,
+  writer: string | null,
 ): Promise<Resolved> {
-  const row: Record<string, unknown> = {}
+  const values: Record<string, CustomFieldValue> = {}
+  let title: string | undefined
+  const has = (key: string) => pipeline.columns.some((c) => c.key === key)
 
   if (input.name !== undefined) {
     const name = input.name.trim()
     if (!name) return { ok: false, error: 'A deal needs a name.' }
-    row.name = name.slice(0, 200)
+    title = name.slice(0, 200)
   }
-  if (input.value !== undefined) {
-    if (input.value !== null && (!Number.isFinite(input.value) || input.value < 0)) return { ok: false, error: 'The value must be a positive number.' }
-    row.value = input.value === null ? null : Math.round(input.value * 100) / 100
-  }
-  if (input.currency !== undefined) {
-    const c = input.currency.trim().toUpperCase()
-    if (!CURRENCY_RE.test(c)) return { ok: false, error: 'Currency is a three-letter code, like USD or EUR.' }
-    row.currency = c
+  if (input.value !== undefined || input.currency !== undefined) {
+    let currency = current?.value !== null && current ? current.currency : pipelineCurrency(pipeline)
+    if (input.currency !== undefined) {
+      const c = input.currency.trim().toUpperCase()
+      if (!/^[A-Z]{3}$/.test(c)) return { ok: false, error: 'Currency is a three-letter code, like USD or EUR.' }
+      currency = c
+    }
+    const amount = input.value !== undefined ? input.value : current?.value ?? null
+    if (amount !== null && (!Number.isFinite(amount) || amount < 0)) return { ok: false, error: 'The value must be a positive number.' }
+    if (input.value !== undefined || amount !== null) values[PIPELINE_KEYS.value] = amount === null ? null : { amount: Math.round(amount * 100) / 100, currency }
   }
   if (input.expected_close_date !== undefined) {
     if (input.expected_close_date !== null && !isIsoDate(input.expected_close_date)) return { ok: false, error: 'The close date is YYYY-MM-DD.' }
-    row.expected_close_date = input.expected_close_date
+    values[PIPELINE_KEYS.expectedClose] = input.expected_close_date
   }
-  if (input.notes !== undefined) row.notes = input.notes === null ? null : input.notes.slice(0, 10000)
+  if (input.notes !== undefined) {
+    if (!has(PIPELINE_KEYS.notes)) return { ok: false, error: `${pipeline.name} has no Notes column.` }
+    const notes = input.notes === null ? '' : input.notes.trim()
+    values[PIPELINE_KEYS.notes] = notes ? notes.slice(0, DEAL_NOTES_MAX) : null
+  }
 
-  // Pipeline and stage.
-  if (input.pipeline !== undefined || input.stage !== undefined || !current) {
-    const pipelines = await listPipelines(db, workspaceId)
-    let pipeline: DealPipeline | undefined
-    if (input.pipeline) {
-      const p = input.pipeline.trim().toLowerCase()
-      pipeline = pipelines.find((x) => x.id === input.pipeline) ?? pipelines.find((x) => x.name.toLowerCase() === p)
-      if (!pipeline) return { ok: false, error: `No pipeline called "${input.pipeline}". Pipelines: ${pipelines.map((x) => x.name).join(', ')}.` }
-    } else {
-      pipeline = (current && pipelines.find((x) => x.id === current.pipeline_id)) || pipelines.find((x) => x.is_default) || pipelines[0]
-    }
-    if (!pipeline || !pipeline.stages.length) return { ok: false, error: 'That pipeline has no stages.' }
-    let stage: DealStage | null = null
+  if (input.stage !== undefined || !current) {
+    if (!pipeline.stages.length) return { ok: false, error: `${pipeline.name} has no stages.` }
+    let stage: DealStage | null = pipeline.stages[0]
     if (input.stage) {
       stage = matchStage(pipeline.stages, input.stage)
       if (!stage) return { ok: false, error: `No stage "${input.stage}" in ${pipeline.name}. Stages: ${stageList(pipeline)}.` }
-    } else if (current && current.pipeline_id === pipeline.id) {
-      stage = pipeline.stages.find((s) => s.id === current.stage_id) ?? pipeline.stages[0]
-    } else {
-      stage = pipeline.stages[0]
     }
-    row.pipeline_id = pipeline.id
-    row.stage_id = stage.id
+    if (stage) values[PIPELINE_KEYS.stage] = stage.name
   }
 
-  // References: owner, company, contacts.
   if (input.owner_id !== undefined) {
     if (input.owner_id !== null) {
       if (!isUuid(input.owner_id)) return { ok: false, error: 'owner_id is a workspace member id.' }
       const { data } = await db.from('member').select('id').eq('id', input.owner_id).eq('workspace_id', workspaceId).maybeSingle()
       if (!data) return { ok: false, error: 'That owner is not a member of this workspace.' }
     }
-    row.owner_id = input.owner_id
+    values[PIPELINE_KEYS.owner] = input.owner_id
   }
   if (input.company_id !== undefined) {
     if (input.company_id !== null) {
@@ -319,7 +448,7 @@ async function resolveInput(
         return { ok: false, error: 'Company not found.' }
       }
     }
-    row.company_id = input.company_id
+    values[PIPELINE_KEYS.company] = input.company_id === null ? null : [input.company_id]
   }
   if (input.contact_ids !== undefined || input.add_contact_ids?.length) {
     const base = input.contact_ids ?? current?.contact_ids ?? []
@@ -340,131 +469,107 @@ async function resolveInput(
       const missing = wanted.filter((id) => !found.has(id))
       if (missing.length) return { ok: false, error: `Contact not found: ${missing.join(', ')}` }
     }
-    row.contact_ids = wanted
+    values[PIPELINE_KEYS.contacts] = wanted.length ? wanted : null
   }
 
   if (input.custom_fields && Object.keys(input.custom_fields).length) {
-    const defs = await listCustomFieldDefinitions(db, workspaceId, 'deal')
+    const defs = columnDefs(pipeline).filter((d) => !BUILT_IN_KEYS.has(d.key))
     const resolved = resolveCustomValues(defs, input.custom_fields)
     if (!resolved.ok) return resolved
-    row.custom_fields = mergeCustomFields(current?.custom_fields ?? {}, resolved.patch)
+    const problem = await fieldReferenceCheck(db, { workspaceId, userId: writer, grants })(defs, resolved.patch, current?.custom_fields ?? {})
+    if (problem) return { ok: false, error: problem }
+    Object.assign(values, resolved.patch)
   }
 
-  return { ok: true, row }
+  return { ok: true, ...(title !== undefined ? { title } : {}), values }
 }
 
-const sameValue = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+/** The stored values a deal holds now, by row field ('title' and column keys). */
+function storedOf(deal: Deal | null): Record<string, unknown> {
+  if (!deal) return {}
+  return {
+    title: deal.name,
+    [PIPELINE_KEYS.stage]: deal.stage,
+    [PIPELINE_KEYS.value]: deal.value === null ? null : { amount: deal.value, currency: deal.currency },
+    [PIPELINE_KEYS.expectedClose]: deal.expected_close_date,
+    [PIPELINE_KEYS.owner]: deal.owner_id,
+    [PIPELINE_KEYS.company]: deal.company_id ? [deal.company_id] : null,
+    [PIPELINE_KEYS.contacts]: deal.contact_ids.length ? deal.contact_ids : null,
+    [PIPELINE_KEYS.notes]: deal.notes,
+    ...deal.custom_fields,
+  }
+}
 
-/** The before/after of every field a write changes; custom fields one key at a time. */
-export function diffDeal(current: Partial<Deal>, next: Record<string, unknown>): DealChanges {
+/** The before and after of every field a write changes (contacts compared as sets). */
+export function diffDeal(current: Deal | null, next: { title?: string; values: Record<string, unknown> }): DealChanges {
+  const now = storedOf(current)
   const changes: DealChanges = {}
-  for (const field of DEAL_FIELDS) {
-    if (!(field in next)) continue
-    const from = current[field] ?? null
-    const to = next[field] ?? null
-    if (field === 'contact_ids') {
-      const a = [...((from as string[]) ?? [])].sort()
-      const b = [...((to as string[]) ?? [])].sort()
-      if (!sameValue(a, b)) changes[field] = { from, to }
+  const fields: Array<[string, unknown]> = [...(next.title !== undefined ? [['title', next.title] as [string, unknown]] : []), ...Object.entries(next.values)]
+  for (const [key, to] of fields) {
+    const from = now[key] ?? null
+    if (key === PIPELINE_KEYS.contacts) {
+      const a = [...((from as string[] | null) ?? [])].sort()
+      const b = [...((to as string[] | null) ?? [])].sort()
+      if (!sameValue(a, b)) changes[key] = { from, to: to ?? null }
       continue
     }
-    if (field === 'value' && from !== null && to !== null && Number(from) === Number(to)) continue
-    if (!sameValue(from, to)) changes[field] = { from, to }
-  }
-  if ('custom_fields' in next) {
-    const before = (current.custom_fields ?? {}) as Record<string, unknown>
-    const after = (next.custom_fields ?? {}) as Record<string, unknown>
-    for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-      if (!sameValue(before[key], after[key])) changes[`custom_fields.${key}`] = { from: before[key] ?? null, to: after[key] ?? null }
-    }
+    if (!sameValue(from, to)) changes[key] = { from, to: to ?? null }
   }
   return changes
-}
-
-async function logEvent(
-  db: SupabaseClient,
-  workspaceId: string,
-  dealId: string,
-  kind: 'created' | 'updated' | 'moved' | 'undo',
-  changes: DealChanges,
-  actor: DealActor,
-): Promise<string | null> {
-  const { data, error } = await db
-    .from('deal_event')
-    .insert({
-      workspace_id: workspaceId,
-      deal_id: dealId,
-      kind,
-      changes,
-      source: actor.source,
-      source_ref: actor.sourceRef?.slice(0, 200) ?? null,
-      reason: actor.reason?.slice(0, 500) ?? null,
-      actor_user_id: actor.userId,
-    })
-    .select('id')
-    .single()
-  if (error) {
-    console.error('[deals] event log failed', { dealId, kind, error: error.message })
-    return null
-  }
-  return (data as { id: string }).id
-}
-
-/**
- * `viewer`: the person a service-role caller (the agent's tools) acts for. A
- * new contact or company on a deal must then be one they can see; the routes
- * run on the person's own RLS client and need no viewer.
- */
-export interface WriteOptions {
-  viewer?: string | null
-  /** false on a guest's or a linked agent's turn (omitGrants): the viewer's grants open nothing. */
-  grants?: boolean
 }
 
 export type DealWriteResult =
   | { ok: true; deal: Deal; changes: DealChanges; eventId: string | null }
   | { ok: false; error: string }
 
-const SOURCE_FOR_DEAL: Record<DealChangeSource, string> = {
-  person: 'manual',
-  agent: 'agent',
-  email: 'email',
-  capture: 'capture',
-  sms: 'sms',
+/** The table store's actor for a deal change. */
+function tableActor(actor: DealActor, opts: WriteOptions): TableActor {
+  return {
+    userId: actor.userId,
+    source: actor.source,
+    reason: actor.reason ?? null,
+    sourceRef: actor.sourceRef ?? null,
+    asUserId: opts.viewer ?? actor.userId,
+    ...(opts.grants === false ? { grants: false } : {}),
+  }
 }
 
-/** Creates a deal (in the default pipeline's first stage unless told otherwise) and logs it. */
+const readOpts = (opts: WriteOptions): PipelineReadOptions => ({ viewer: opts.viewer ?? null })
+
+/** Creates a deal (in the default pipeline's first stage unless told otherwise) in one logged batch. */
 export async function createDeal(
   db: SupabaseClient,
   workspaceId: string,
   input: DealInput & { name: string },
   actor: DealActor,
-  opts: WriteOptions = {},
+  opts: WriteOptions & { pipelines?: DealPipeline[] } = {},
 ): Promise<DealWriteResult> {
-  const resolved = await resolveInput(db, workspaceId, input, null, opts.viewer ?? null, opts.grants !== false)
-  if (!resolved.ok) return resolved
-  const row = resolved.row
-  if (row.owner_id === undefined && actor.userId) {
-    const { data } = await db.from('member').select('id').eq('workspace_id', workspaceId).eq('user_id', actor.userId).maybeSingle()
-    if (data) row.owner_id = (data as { id: string }).id
+  const pipelines = opts.pipelines ?? (await listPipelines(db, workspaceId, readOpts(opts)))
+  const pipeline = input.pipeline ? matchPipeline(pipelines, input.pipeline) : pipelines.find((p) => p.is_default) ?? pipelines[0]
+  if (!pipeline) {
+    return { ok: false, error: input.pipeline ? `No pipeline called "${input.pipeline}". Pipelines: ${pipelines.map((x) => x.name).join(', ')}.` : 'There is no pipeline to put it in.' }
   }
-  const { data, error } = await db
-    .from('deal')
-    .insert({ ...row, workspace_id: workspaceId, source: SOURCE_FOR_DEAL[actor.source], created_by_user_id: actor.userId })
-    .select(DEAL_SELECT)
-    .single()
-  if (error) return { ok: false, error: error.message }
-  const deal = normalizeDeal(data as Record<string, unknown>)
-  const changes = diffDeal({}, row)
-  const eventId = await logEvent(db, workspaceId, deal.id, 'created', changes, actor)
-  return { ok: true, deal, changes, eventId }
+  const writer = opts.viewer ?? actor.userId
+  const resolved = await resolveInput(db, workspaceId, pipeline, input, null, opts.viewer ?? null, opts.grants !== false, writer)
+  if (!resolved.ok) return resolved
+  const values = { ...resolved.values }
+  if (values[PIPELINE_KEYS.owner] === undefined && actor.userId) {
+    const { data } = await db.from('member').select('id').eq('workspace_id', workspaceId).eq('user_id', actor.userId).maybeSingle()
+    if (data) values[PIPELINE_KEYS.owner] = (data as { id: string }).id
+  }
+  // A new row has nothing to clear.
+  for (const [k, v] of Object.entries(values)) if (v === null) delete values[k]
+  const id = crypto.randomUUID()
+  const written = await applyOps(db, workspaceId, pipeline.id, { baseVersion: null, ops: [{ op: 'insert_rows', rows: [{ id, title: resolved.title ?? input.name, values }] }] }, tableActor(actor, opts))
+  if (!written.ok) return { ok: false, error: written.error }
+  const deal = await getDeal(db, workspaceId, id, pipelines)
+  if (!deal) return { ok: false, error: 'The deal was made but could not be read back.' }
+  return { ok: true, deal, changes: diffDeal(null, { title: deal.name, values }), eventId: written.value.change_id }
 }
 
 /**
- * Updates a deal: only the fields given are touched. Logs one event with
- * every changed field (kind `moved` when the stage is all that changed), so
- * one undo reverses the whole write. A write that changes nothing logs
- * nothing.
+ * Updates a deal: only the fields given are touched, in one batch, so one
+ * undo reverses the whole write. A write that changes nothing logs nothing.
  */
 export async function updateDeal(
   db: SupabaseClient,
@@ -472,30 +577,27 @@ export async function updateDeal(
   dealId: string,
   input: DealInput,
   actor: DealActor,
-  opts: WriteOptions = {},
+  opts: WriteOptions & { pipelines?: DealPipeline[] } = {},
 ): Promise<DealWriteResult> {
-  const current = await getDeal(db, workspaceId, dealId)
+  const pipelines = opts.pipelines ?? (await listPipelines(db, workspaceId, readOpts(opts)))
+  const current = await getDeal(db, workspaceId, dealId, pipelines)
   if (!current) return { ok: false, error: 'Deal not found' }
-  const resolved = await resolveInput(db, workspaceId, input, current, opts.viewer ?? null, opts.grants !== false)
+  const pipeline = pipelines.find((p) => p.id === current.pipeline_id)!
+  if (input.pipeline && matchPipeline(pipelines, input.pipeline)?.id !== pipeline.id) {
+    return { ok: false, error: `A deal stays in its pipeline (${pipeline.name}). Make a new deal in the other one instead.` }
+  }
+  const writer = opts.viewer ?? actor.userId
+  const resolved = await resolveInput(db, workspaceId, pipeline, input, current, opts.viewer ?? null, opts.grants !== false, writer)
   if (!resolved.ok) return resolved
-  const changes = diffDeal(current, resolved.row)
+  const changes = diffDeal(current, resolved)
   if (!Object.keys(changes).length) return { ok: true, deal: current, changes, eventId: null }
-
-  const patch: Record<string, unknown> = {}
-  for (const key of Object.keys(changes)) {
-    const field = key.startsWith('custom_fields.') ? 'custom_fields' : key
-    patch[field] = resolved.row[field]
-  }
-  // A pipeline change carries its stage with it (the trigger checks the pair).
-  if ('pipeline_id' in patch || 'stage_id' in patch) {
-    patch.pipeline_id = resolved.row.pipeline_id
-    patch.stage_id = resolved.row.stage_id
-  }
-  const { data, error } = await db.from('deal').update(patch).eq('id', dealId).eq('workspace_id', workspaceId).select(DEAL_SELECT).single()
-  if (error) return { ok: false, error: error.message }
-  const kind = Object.keys(changes).every((k) => k === 'stage_id' || k === 'pipeline_id') ? 'moved' : 'updated'
-  const eventId = await logEvent(db, workspaceId, dealId, kind, changes, actor)
-  return { ok: true, deal: normalizeDeal(data as Record<string, unknown>), changes, eventId }
+  const values: Record<string, CustomFieldValue> = {}
+  for (const key of Object.keys(changes)) if (key !== 'title') values[key] = resolved.values[key] ?? null
+  const op = { op: 'update_row' as const, row_id: dealId, ...('title' in changes ? { title: resolved.title } : {}), ...(Object.keys(values).length ? { values } : {}) }
+  const written = await applyOps(db, workspaceId, pipeline.id, { baseVersion: null, ops: [op] }, tableActor(actor, opts))
+  if (!written.ok) return { ok: false, error: written.error }
+  const deal = (await getDeal(db, workspaceId, dealId, pipelines)) ?? current
+  return { ok: true, deal, changes, eventId: written.value.change_id }
 }
 
 export interface DealEvent {
@@ -503,24 +605,76 @@ export interface DealEvent {
   deal_id: string
   kind: 'created' | 'updated' | 'moved' | 'undo'
   changes: DealChanges
-  source: DealChangeSource
-  source_ref: string | null
+  source: DealChangeSource | 'import'
   reason: string | null
+  /** The email thread, capture or text it came from. */
+  source_ref: string | null
   actor_user_id: string | null
   undone_at: string | null
   created_at: string
 }
 
-export async function listDealEvents(db: SupabaseClient, workspaceId: string, dealId: string, limit = 20): Promise<DealEvent[]> {
-  const { data, error } = await db
-    .from('deal_event')
-    .select('id, deal_id, kind, changes, source, source_ref, reason, actor_user_id, undone_at, created_at')
-    .eq('workspace_id', workspaceId)
-    .eq('deal_id', dealId)
-    .order('created_at', { ascending: false })
-    .limit(limit)
-  if (error) throw new Error(error.message)
-  return (data ?? []) as DealEvent[]
+/** Does a pipeline change touch this deal? */
+const touches = (change: DataChange, dealId: string) => touchedBy(change).rowIds.includes(dealId)
+
+/** One change as a deal's event: what it did to this deal. */
+function asEvent(change: DataChange, dealId: string): DealEvent {
+  const changes: DealChanges = {}
+  let created = false
+  for (const e of change.changes ?? []) {
+    if (e?.op === 'insert_rows' && e.row_ids.includes(dealId)) created = true
+    if (e?.op !== 'update_row' || e.row_id !== dealId) continue
+    for (const [field, ch] of Object.entries(e.fields ?? {})) {
+      const key = field.startsWith('values.') ? field.slice('values.'.length) : field
+      changes[key] = { from: ch.from, to: ch.to }
+    }
+  }
+  const kind = created ? 'created' : change.undo_of ? 'undo' : Object.keys(changes).every((k) => k === PIPELINE_KEYS.stage) && changes[PIPELINE_KEYS.stage] ? 'moved' : 'updated'
+  return {
+    id: change.id,
+    deal_id: dealId,
+    kind,
+    changes,
+    source: change.source as DealEvent['source'],
+    reason: change.reason,
+    source_ref: change.source_ref ?? null,
+    actor_user_id: change.actor_user_id,
+    undone_at: change.undone_at,
+    created_at: change.created_at,
+  }
+}
+
+/**
+ * A deal's changes, newest first: its pipeline's changes that name its row,
+ * read by the row (an entry's row_id, or its row_ids), not from the table's
+ * latest.
+ */
+export async function changesForDeal(db: SupabaseClient, workspaceId: string, deal: Pick<Deal, 'id' | 'pipeline_id'>, limit = 50): Promise<DataChange[]> {
+  const n = Math.min(Math.max(1, limit), 200)
+  const read = (shape: Record<string, unknown>) =>
+    db
+      .from('data_change')
+      .select(CHANGE_SELECT)
+      .eq('workspace_id', workspaceId)
+      .eq('table_id', deal.pipeline_id)
+      .contains('changes', [shape])
+      .order('created_at', { ascending: false })
+      .limit(n)
+  const [one, many] = await Promise.all([read({ row_id: deal.id }), read({ row_ids: [deal.id] })])
+  if (one.error) throw new Error(one.error.message)
+  if (many.error) throw new Error(many.error.message)
+  const byId = new Map<string, DataChange>()
+  for (const c of [...((one.data ?? []) as DataChange[]), ...((many.data ?? []) as DataChange[])]) byId.set(c.id, c)
+  return [...byId.values()]
+    .filter((c) => touches(c, deal.id))
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : b.version - a.version))
+    .slice(0, n)
+}
+
+/** A deal's recent changes, newest first. */
+export async function listDealEvents(db: SupabaseClient, workspaceId: string, deal: Pick<Deal, 'id' | 'pipeline_id'>, limit = 20): Promise<DealEvent[]> {
+  const changes = await changesForDeal(db, workspaceId, deal, limit)
+  return changes.map((c) => asEvent(summarizeChange(c), deal.id))
 }
 
 export type UndoResult =
@@ -528,123 +682,40 @@ export type UndoResult =
   | { ok: false; error: string }
 
 /**
- * Takes one change back: each field it touched gets its `from` value again,
- * unless the field has changed since (then the newer value stays, and the
- * result says so in `kept`). With no event id, the deal's latest change that
- * is not itself an undo and not undone yet. A deal's creation is not undone
- * here: that is a delete, which stays the person's click.
+ * Takes one change back: what it changed goes back, unless it has changed
+ * since (then the newer value stays, and the result says so in `kept`).
+ * With no change id, the deal's latest change that is not itself an undo
+ * and not undone yet. A deal's creation is not undone here: removing a deal
+ * stays the person's click. A change that touched other rows too (a batch
+ * from the grid) is taken back whole.
  */
-export async function undoDealEvent(
+export async function undoDealChange(
   db: SupabaseClient,
   workspaceId: string,
-  args: { dealId: string; eventId?: string },
+  args: { dealId: string; changeId?: string },
   actor: DealActor,
+  opts: WriteOptions & { pipelines?: DealPipeline[] } = {},
 ): Promise<UndoResult> {
-  const deal = await getDeal(db, workspaceId, args.dealId)
+  const pipelines = opts.pipelines ?? (await listPipelines(db, workspaceId, readOpts(opts)))
+  const deal = await getDeal(db, workspaceId, args.dealId, pipelines)
   if (!deal) return { ok: false, error: 'Deal not found' }
-
-  let event: DealEvent | undefined
-  if (args.eventId) {
-    if (!isUuid(args.eventId)) return { ok: false, error: 'Change not found' }
-    const { data } = await db
-      .from('deal_event')
-      .select('id, deal_id, kind, changes, source, source_ref, reason, actor_user_id, undone_at, created_at')
-      .eq('id', args.eventId)
-      .eq('deal_id', deal.id)
-      .eq('workspace_id', workspaceId)
-      .maybeSingle()
-    event = (data as DealEvent | null) ?? undefined
-    if (!event) return { ok: false, error: 'Change not found' }
+  const changes = await changesForDeal(db, workspaceId, deal, 200)
+  let change: DataChange | undefined
+  if (args.changeId) {
+    if (!isUuid(args.changeId)) return { ok: false, error: 'Change not found' }
+    change = changes.find((c) => c.id === args.changeId)
+    if (!change) return { ok: false, error: 'Change not found' }
   } else {
-    const events = await listDealEvents(db, workspaceId, deal.id, 50)
-    event = events.find((e) => e.kind !== 'undo' && !e.undone_at)
-    if (!event) return { ok: false, error: 'Nothing to undo on this deal.' }
+    change = changes.find((c) => !c.undo_of && !c.undone_at)
+    if (!change) return { ok: false, error: 'Nothing to undo on this deal.' }
   }
-  if (event.kind === 'created') return { ok: false, error: 'That change created the deal. Delete the deal instead if it should not exist.' }
-  if (event.kind === 'undo') return { ok: false, error: 'That change was itself an undo.' }
-  if (event.undone_at) return { ok: false, error: 'That change was already undone.' }
-
-  const patch: Record<string, unknown> = {}
-  const restored: string[] = []
-  const kept: string[] = []
-  let customFields: Record<string, unknown> | null = null
-  for (const [key, change] of Object.entries(event.changes ?? {})) {
-    // Only a deal's own fields go back: the log is written by the app, but a
-    // member can add a row by hand, so a key that is no field is ignored.
-    if (!change || typeof change !== 'object') continue
-    const { from, to } = change as { from: unknown; to: unknown }
-    const isCustom = key.startsWith('custom_fields.') && CUSTOM_KEY_RE.test(key.slice('custom_fields.'.length))
-    if (!isCustom && !(DEAL_FIELDS as readonly string[]).includes(key)) continue
-    if (isCustom) {
-      const k = key.slice('custom_fields.'.length)
-      const now = deal.custom_fields?.[k] ?? null
-      if (!sameValue(now, to)) {
-        kept.push(key)
-        continue
-      }
-      customFields = customFields ?? { ...deal.custom_fields }
-      if (from === null || from === undefined) delete customFields[k]
-      else customFields[k] = from
-      restored.push(key)
-      continue
-    }
-    const now = (deal as unknown as Record<string, unknown>)[key] ?? null
-    const matches = key === 'value' ? (now === null ? to === null : to !== null && Number(now) === Number(to)) : key === 'contact_ids' ? sameValue([...((now as string[]) ?? [])].sort(), [...((to as string[]) ?? [])].sort()) : sameValue(now, to)
-    if (!matches) {
-      kept.push(key)
-      continue
-    }
-    patch[key] = from
-    restored.push(key)
-  }
-  // What the old value points at may be gone since: a contact deleted, a
-  // member who left, a company removed. Contacts still there go back; a
-  // missing owner or company keeps the current value.
-  if (Array.isArray(patch.contact_ids) && patch.contact_ids.length) {
-    const wanted = (patch.contact_ids as unknown[]).filter(isUuid)
-    const { data } = wanted.length ? await db.from('contact').select('id').eq('workspace_id', workspaceId).in('id', wanted) : { data: [] }
-    const alive = new Set(((data ?? []) as { id: string }[]).map((c) => c.id))
-    patch.contact_ids = wanted.filter((id) => alive.has(id))
-  }
-  for (const [key, table] of [['owner_id', 'member'], ['company_id', 'company']] as const) {
-    const v = patch[key]
-    if (v === null || v === undefined) continue
-    const { data } = isUuid(v) ? await db.from(table).select('id').eq('id', v).eq('workspace_id', workspaceId).maybeSingle() : { data: null }
-    if (!data) {
-      delete patch[key]
-      restored.splice(restored.indexOf(key), 1)
-      kept.push(key)
-    }
-  }
-  if (customFields) patch.custom_fields = customFields
-  // The stage and its pipeline go back as a pair, or not at all.
-  if (('stage_id' in patch) !== ('pipeline_id' in patch) && event.changes.pipeline_id) {
-    delete patch.stage_id
-    delete patch.pipeline_id
-    for (const k of ['stage_id', 'pipeline_id']) {
-      const i = restored.indexOf(k)
-      if (i >= 0) {
-        restored.splice(i, 1)
-        kept.push(k)
-      }
-    }
-  }
-
-  if (!restored.length) {
-    return { ok: false, error: 'Nothing to restore: every field it changed has changed again since.' }
-  }
-
-  let updated = deal
-  if (Object.keys(patch).length) {
-    const { data, error } = await db.from('deal').update(patch).eq('id', deal.id).eq('workspace_id', workspaceId).select(DEAL_SELECT).single()
-    if (error) return { ok: false, error: error.message }
-    updated = normalizeDeal(data as Record<string, unknown>)
-  }
-  await db.from('deal_event').update({ undone_at: new Date().toISOString() }).eq('id', event.id).eq('workspace_id', workspaceId)
-  const undoChanges: DealChanges = {}
-  for (const key of restored) undoChanges[key] = { from: event.changes[key].to, to: key.startsWith('custom_fields.') ? event.changes[key].from : patch[key] }
-  await logEvent(db, workspaceId, deal.id, 'undo', undoChanges, { ...actor, sourceRef: event.id })
-  return { ok: true, deal: updated, restored, kept }
+  if (asEvent(change, deal.id).kind === 'created') return { ok: false, error: 'That change created the deal. Archive the deal instead if it should not exist.' }
+  if (change.undo_of) return { ok: false, error: 'That change was itself an undo.' }
+  if (change.undone_at) return { ok: false, error: 'That change was already undone.' }
+  const undone = await undoChange(db, workspaceId, deal.pipeline_id, change.id, tableActor(actor, opts))
+  if (!undone.ok) return { ok: false, error: undone.error }
+  const updated = (await getDeal(db, workspaceId, deal.id, pipelines)) ?? deal
+  return { ok: true, deal: updated, restored: undone.value.restored, kept: undone.value.kept }
 }
 
 // ── For the model ───────────────────────────────────────────────────────────
@@ -655,15 +726,14 @@ export function describeDeal(
   ctx: { pipelines: DealPipeline[]; companies?: Map<string, string>; contacts?: Map<string, string>; owners?: Map<string, string> },
 ) {
   const pipeline = ctx.pipelines.find((p) => p.id === deal.pipeline_id)
-  const stage = pipeline?.stages.find((s) => s.id === deal.stage_id)
   return {
     id: deal.id,
     name: deal.name,
     value: deal.value,
     currency: deal.currency,
     pipeline: pipeline?.name ?? null,
-    stage: stage?.name ?? null,
-    status: stage?.kind ?? 'open',
+    stage: deal.stage,
+    status: deal.status,
     expected_close_date: deal.expected_close_date,
     owner_id: deal.owner_id,
     owner: deal.owner_id ? ctx.owners?.get(deal.owner_id) ?? null : null,
@@ -673,6 +743,7 @@ export function describeDeal(
     // A contact the reader can't see is left out (its count says so).
     contacts: deal.contact_ids.filter((id) => !ctx.contacts || ctx.contacts.has(id)).map((id) => ({ id, name: ctx.contacts?.get(id) ?? null })),
     ...(ctx.contacts && deal.contact_ids.some((id) => !ctx.contacts!.has(id)) ? { other_contacts: deal.contact_ids.filter((id) => !ctx.contacts!.has(id)).length } : {}),
+    notes: deal.notes,
     custom_fields: deal.custom_fields,
     closed_at: deal.closed_at,
     updated_at: deal.updated_at,
@@ -709,19 +780,131 @@ export async function lookupDealNames(
   }
 }
 
-/** "Lead → Won", "$10,000 → $12,500": a change in words, for the agent's reply and the history. */
-export function describeChanges(changes: DealChanges, ctx: { pipelines: DealPipeline[]; currency?: string | null }): string[] {
-  const stageName = (id: unknown) => ctx.pipelines.flatMap((p) => p.stages).find((s) => s.id === id)?.name ?? 'none'
+/** "stage: Lead → Won", "value: $10,000 → $12,500": a change in words, for the agent's reply and a deal's history. */
+export function describeChanges(changes: DealChanges, ctx: { columns?: readonly DataColumn[] } = {}): string[] {
+  const label = (key: string) => (key === 'title' ? 'name' : ctx.columns?.find((c) => c.key === key)?.label.toLowerCase() ?? key)
+  const money = (v: unknown) => {
+    const m = v as Partial<CurrencyValue> | null
+    return m && typeof m === 'object' && typeof m.amount === 'number' ? formatDealValue(m.amount, m.currency ?? 'USD') || String(m.amount) : 'none'
+  }
   const out: string[] = []
   for (const [key, { from, to }] of Object.entries(changes)) {
-    if (key === 'pipeline_id') continue
-    if (key === 'stage_id') out.push(`stage: ${stageName(from)} → ${stageName(to)}`)
-    else if (key === 'contact_ids') out.push(`contacts: ${(from as string[] | null)?.length ?? 0} → ${(to as string[] | null)?.length ?? 0}`)
-    else if (key === 'value') {
-      const money = (v: unknown) => (v === null || v === undefined ? 'none' : formatDealValue(v as number, ctx.currency ?? 'USD') || String(v))
-      out.push(`value: ${money(from)} → ${money(to)}`)
+    if (key === PIPELINE_KEYS.value) out.push(`${label(key)}: ${money(from)} → ${money(to)}`)
+    else if (key === PIPELINE_KEYS.contacts) out.push(`${label(key)}: ${relationIds(from).length} → ${relationIds(to).length}`)
+    else if (key === PIPELINE_KEYS.company) out.push(`${label(key)}: ${relationIds(from).length ? 'set' : 'none'} → ${relationIds(to).length ? 'set' : 'none'}`)
+    else {
+      const word = (v: unknown) => (v === null || v === undefined || v === '' ? 'none' : Array.isArray(v) ? v.join(', ') : String(v))
+      out.push(`${label(key)}: ${word(from)} → ${word(to)}`)
     }
-    else out.push(`${key.replace(/^custom_fields\./, '')}: ${from ?? 'none'} → ${to ?? 'none'}`)
   }
   return out
+}
+
+/** The columns a deal's custom fields may be set on: a pipeline's own, past its system ones and Notes. */
+export function dealFieldColumns(pipeline: DealPipeline): DataColumn[] {
+  return pipeline.columns.filter((c) => !BUILT_IN_KEYS.has(c.key))
+}
+
+// ── Making pipelines; a record's deals ──────────────────────────────────────
+
+export interface NewPipelineInput {
+  name: string
+  /** Its stages in order, each open, won or lost. None: Lead, Qualified, Proposal, Won, Lost. */
+  stages?: Array<{ name: string; outcome?: DealStageKind }>
+  currency?: string
+}
+
+/** A new pipeline (540's create_pipeline): its system columns, Notes and stages, owned by the caller. */
+export async function createPipeline(
+  db: SupabaseClient,
+  workspaceId: string,
+  input: NewPipelineInput,
+  actor: DealActor & { asUserId?: string | null },
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const name = input.name.trim()
+  if (!name) return { ok: false, error: 'A pipeline needs a name.' }
+  if (name.length > 200) return { ok: false, error: "A pipeline's name is at most 200 characters." }
+  const seen = new Set<string>()
+  const stages = (input.stages ?? [])
+    .map((s) => ({ name: s.name.trim().slice(0, 60), outcome: s.outcome === 'won' || s.outcome === 'lost' ? s.outcome : 'open' }))
+    .filter((s) => {
+      if (!s.name || seen.has(s.name.toLowerCase())) return false
+      seen.add(s.name.toLowerCase())
+      return true
+    })
+    .slice(0, 50)
+  const currency = input.currency?.trim().toUpperCase() || 'USD'
+  if (!/^[A-Z]{3}$/.test(currency)) return { ok: false, error: 'Currency is a three-letter code, like USD or EUR.' }
+  const { data, error } = await db.rpc('create_pipeline', {
+    p_workspace_id: workspaceId,
+    p_name: name,
+    p_stages: stages.length ? stages : null,
+    p_source: actor.source,
+    p_as_user: actor.asUserId ?? null,
+    p_reason: actor.reason ?? null,
+    p_default: false,
+    p_currency: currency,
+  })
+  if (error) return { ok: false, error: error.message.charAt(0).toUpperCase() + error.message.slice(1) }
+  return { ok: true, id: String((data as { table_id?: string } | null)?.table_id ?? '') }
+}
+
+/**
+ * Make a pipeline the workspace's default (540's set_default_pipeline): a
+ * live, workspace-wide pipeline the caller may change. The default is never
+ * archived or private, so this is how another one takes its place first.
+ */
+export async function setDefaultPipeline(
+  db: SupabaseClient,
+  tableId: string,
+  asUserId: string | null = null,
+): Promise<{ ok: true } | { ok: false; reason: 'not_found' | 'forbidden' | 'invalid'; error: string }> {
+  const { error } = await db.rpc('set_default_pipeline', { p_table_id: tableId, p_as_user: asUserId })
+  if (!error) return { ok: true }
+  const message = error.message.charAt(0).toUpperCase() + error.message.slice(1)
+  if (error.code === 'P0002') return { ok: false, reason: 'not_found', error: 'Pipeline not found' }
+  if (error.code === '42501') return { ok: false, reason: 'forbidden', error: message }
+  return { ok: false, reason: 'invalid', error: message }
+}
+
+/**
+ * The deals a company or a contact is on: the pipeline rows whose Company or
+ * Contacts value links it, found through their relation edges (524's
+ * field_link), newest first. The caller's client decides what it reads.
+ */
+export async function dealsLinkedTo(
+  db: SupabaseClient,
+  workspaceId: string,
+  target: { kind: 'company' | 'contact'; id: string },
+  opts: PipelineReadOptions = {},
+): Promise<{ deals: Deal[]; pipelines: DealPipeline[] }> {
+  if (!isUuid(target.id)) return { deals: [], pipelines: [] }
+  const { data: edges, error } = await db
+    .from('entity_link')
+    .select('source_id')
+    .eq('workspace_id', workspaceId)
+    .eq('relation', 'field_link')
+    .eq('source_type', 'data_row')
+    .eq('target_type', target.kind)
+    .eq('target_id', target.id)
+    .limit(500)
+  if (error) throw new Error(error.message)
+  const ids = [...new Set(((edges ?? []) as Array<{ source_id: string }>).map((e) => e.source_id))]
+  const pipelines = await listPipelines(db, workspaceId, opts)
+  if (!ids.length || !pipelines.length) return { deals: [], pipelines }
+  const key = target.kind === 'company' ? PIPELINE_KEYS.company : PIPELINE_KEYS.contacts
+  const { data, error: rowError } = await db
+    .from('data_row')
+    .select(ROW_SELECT)
+    .eq('workspace_id', workspaceId)
+    .in('table_id', pipelines.map((p) => p.id))
+    .in('id', ids)
+    .is('archived_at', null)
+    .order('updated_at', { ascending: false })
+  if (rowError) throw new Error(rowError.message)
+  const deals = ((data ?? []) as DataRow[])
+    // The link is the deal's own Company or Contacts, not another column's.
+    .filter((r) => relationIds((r.custom_fields ?? {})[key]).includes(target.id))
+    .map((r) => rowToDeal(r, pipelines.find((p) => p.id === r.table_id)!, workspaceId))
+  return { deals, pipelines }
 }

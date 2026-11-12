@@ -398,7 +398,7 @@ describe('the person’s bar', () => {
     expect(panel.querySelector('[data-app-rail-customize-row="projects"]')).toBeNull()
     expect(panel.querySelector('[data-app-rail-customize-row="initiatives"]')).toBeNull()
     // The page groups, not their members (Liam, 11-11).
-    for (const member of ['companies', 'deals', 'captures', 'prospecting', 'sequences', 'campaigns', 'docs', 'knowledge', 'files', 'flows', 'evals']) expect(panel.querySelector(`[data-app-rail-customize-row="${member}"]`)).toBeNull()
+    for (const member of ['companies', 'deals', 'captures', 'prospecting', 'sequences', 'campaigns', 'docs', 'knowledge', 'files', 'tables', 'flows', 'evals']) expect(panel.querySelector(`[data-app-rail-customize-row="${member}"]`)).toBeNull()
     const toggle = (id: string) => panel.querySelector<HTMLButtonElement>(`[data-app-rail-customize-row="${id}"] [role="switch"]`)!
     expect(toggle('outreach').getAttribute('aria-checked')).toBe('true')
     expect(toggle('outreach').getAttribute('aria-label')).toBe('Show Outreach in the bar')
@@ -676,7 +676,7 @@ describe('Drive and Agents (Liam, 11-11: "Drive: Docs, Knowledge, and a new page
 
   it('one icon each, Drive’s HardDrive where Docs stood and Agents’ Sparkles, no member icons and no empty section', async () => {
     await render()
-    for (const member of ['docs', 'knowledge', 'files', 'flows', 'evals']) expect(item(member), member).toBeNull()
+    for (const member of ['docs', 'knowledge', 'files', 'tables', 'flows', 'evals']) expect(item(member), member).toBeNull()
     expect(item('drive')!.getAttribute('aria-label')).toBe('Drive')
     expect(item('drive')!.querySelector('svg.lucide-hard-drive')).not.toBeNull()
     expect(item('agents')!.getAttribute('aria-label')).toBe('Agents')

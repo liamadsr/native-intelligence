@@ -114,7 +114,7 @@ describe('board grouped by a custom select field', () => {
     document.body.appendChild(container)
     root = createRoot(container)
     await act(async () => {
-      root.render(h(UnifiedViewLayout, { entityType: 'deal' as const }))
+      root.render(h(UnifiedViewLayout, { entityType: 'company' as const }))
     })
   })
 
@@ -128,7 +128,7 @@ describe('board grouped by a custom select field', () => {
     expect(onMoveItem).toBeTruthy()
     await act(async () => { onMoveItem!(['d1'], 'Brand', 'Website') })
     expect(valueWrites()).toEqual([
-      { method: 'POST', body: { entity_type: 'deal', id: 'd1', values: { project_type: 'Website' } } },
+      { method: 'POST', body: { entity_type: 'company', id: 'd1', values: { project_type: 'Website' } } },
     ])
     expect(moveItemBetweenGroups).toHaveBeenCalledWith('d1', 'Brand', 'Website', {
       custom_fields: { project_type: 'Website', retainer_months: 6 },
@@ -148,14 +148,14 @@ describe('board grouped by a custom select field', () => {
       window.removeEventListener('ni:entity-updated', listen)
     }
     expect(updates).toEqual([
-      { entityType: 'deal', id: 'd1', fields: { custom_fields: { project_type: 'Website', retainer_months: 6, renewal_date: '2026-12-01' } } },
+      { entityType: 'company', id: 'd1', fields: { custom_fields: { project_type: 'Website', retainer_months: 6, renewal_date: '2026-12-01' } } },
     ])
   })
 
   it('clears the field when dropped on "No value"', async () => {
     await act(async () => { onMoveItem!(['d1'], 'Brand', '__none__') })
     expect(valueWrites()).toEqual([
-      { method: 'POST', body: { entity_type: 'deal', id: 'd1', values: { project_type: null } } },
+      { method: 'POST', body: { entity_type: 'company', id: 'd1', values: { project_type: null } } },
     ])
     expect(moveItemBetweenGroups).toHaveBeenCalledWith('d1', 'Brand', '__none__', {
       custom_fields: { retainer_months: 6 },
@@ -175,7 +175,7 @@ describe('board grouped by a custom select field', () => {
   it('moves a card when its field changes elsewhere (a teammate, the panel)', () => {
     act(() => {
       window.dispatchEvent(new CustomEvent('ni:entity-updated', {
-        detail: { entityType: 'deal', id: 'd1', fields: { custom_fields: { project_type: 'Website', retainer_months: 6 } } },
+        detail: { entityType: 'company', id: 'd1', fields: { custom_fields: { project_type: 'Website', retainer_months: 6 } } },
       }))
     })
     expect(moveItemBetweenGroups).toHaveBeenCalledWith('d1', 'Brand', 'Website', {

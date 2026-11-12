@@ -21,6 +21,8 @@ import { groupLabelsByGroupName, type LabelScope } from '@/lib/labels/utils'
 import { CommandGroup } from '@/components/ui/command'
 import { cn } from '@/lib/utils'
 import { numberUnitFor, percentToStored, storedToPercent, type NumberUnit } from './field-traits'
+import { findTargets } from '@/components/crm/custom-fields-group'
+import type { RelationTarget } from '@/lib/crm/custom-field-types'
 
 const ENTITY_TYPE_TO_LABEL_SCOPE: Partial<Record<ViewEntityType, LabelScope>> = {
   action: 'action',
@@ -90,7 +92,7 @@ export function isFreeTypedValue(fieldDef: FilterFieldDefinition, operator: Filt
 export function FilterValuePicker({ fieldDef, operator, value, onChange, entityType }: FilterValuePickerProps) {
   if (operator === 'is_empty' || operator === 'is_not_empty') return null
 
-  const isMulti = ['is_any_of', 'is_none_of'].includes(operator)
+  const isMulti = ['is_any_of', 'is_none_of', 'includes', 'excludes'].includes(operator)
 
   switch (fieldDef.type) {
     case 'enum':
@@ -123,11 +125,13 @@ export function FilterValuePicker({ fieldDef, operator, value, onChange, entityT
       // `numberUnitFor`. The unit belongs to the FIELD, so both editors below
       // take it and neither knows which field it is looking at.
       const unit = numberUnitFor(fieldDef)
+      // A currency's amounts compare in its own code, which the chip names ("$").
+      const code = fieldDef.currency ? <span className="pl-2 text-xs text-muted-foreground" data-currency={fieldDef.currency}>{currencySymbol(fieldDef.currency)}</span> : null
       // `between` is a RANGE — the query engine reads `{ from, to }` — so it
       // gets two fields. One field under "between" was a filter that could
       // never be satisfied.
-      if (operator === 'between') return <NumberRangePicker value={value} onChange={onChange} unit={unit} />
-      return <NumberInput value={value} onChange={onChange} unit={unit} />
+      if (operator === 'between') return <>{code}<NumberRangePicker value={value} onChange={onChange} unit={unit} /></>
+      return <>{code}<NumberInput value={value} onChange={onChange} unit={unit} /></>
     }
     case 'date': {
       if (operator === 'is_relative') return <RelativeDatePicker value={value as RelativeDateValue} onChange={onChange} />
@@ -147,8 +151,9 @@ export function FilterValuePicker({ fieldDef, operator, value, onChange, entityT
         />
       )
     case 'relation':
-      // Relations only support is_empty/is_not_empty (handled above)
-      return null
+      // A custom relation picks the records it links (searching its target);
+      // a built-in one only asks empty or not (handled above).
+      return fieldDef.relationTarget ? <RelationPicker target={fieldDef.relationTarget} value={value} onChange={onChange} /> : null
     default: {
       // All remaining entity-reference types use EntityPicker
       const pickerConfig = ENTITY_PICKER_CONFIG[fieldDef.type]
@@ -167,6 +172,77 @@ export function FilterValuePicker({ fieldDef, operator, value, onChange, entityT
       return <span className="px-2 text-muted-foreground text-xs">—</span>
     }
   }
+}
+
+/** A currency code as its symbol ("USD" → "$"), or the code itself. */
+function currencySymbol(code: string): string {
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: code }).formatToParts(0).find((p) => p.type === 'currency')?.value ?? code
+  } catch {
+    return code
+  }
+}
+
+/**
+ * Records a custom relation links to: the target's records found as you type
+ * (a table's rows, or a kind through the search menu), ticked into a list.
+ * The names of records already picked are kept as they are found.
+ */
+function RelationPicker({
+  target, value, onChange,
+}: {
+  target: { kind: string; table_id?: string }
+  value: FilterValue
+  onChange: (value: FilterValue) => void
+}) {
+  const [open, setOpen] = React.useState(false)
+  const [query, setQuery] = React.useState('')
+  const [found, setFound] = React.useState<{ id: string; title: string }[] | null>(null)
+  const [names, setNames] = React.useState<Record<string, string>>({})
+  const selected = Array.isArray(value) ? (value as string[]) : typeof value === 'string' && value ? [value] : []
+
+  React.useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    const t = setTimeout(() => {
+      void findTargets({ config: { target: target as RelationTarget } }, query).then((list) => {
+        if (cancelled) return
+        setFound(list)
+        setNames((prev) => ({ ...prev, ...Object.fromEntries(list.map((r) => [r.id, r.title])) }))
+      }).catch(() => { if (!cancelled) setFound([]) })
+    }, 150)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [open, query, target])
+
+  const toggle = (id: string) => onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id])
+  const label = selected.length === 0
+    ? 'Select...'
+    : selected.length === 1 ? names[selected[0]] ?? '1 selected' : `${selected.length} selected`
+
+  return (
+    <Popover open={open} onOpenChange={setOpen} modal={false}>
+      <PopoverTrigger asChild>
+        <button className="px-2 font-medium text-foreground hover:text-primary text-xs truncate max-w-[150px]">{label}</button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-0" align="start" onOpenAutoFocus={e => e.preventDefault()}>
+        <Command shouldFilter={false}>
+          <CommandInput placeholder="Search..." className="h-8" value={query} onValueChange={setQuery} />
+          <CommandList>
+            <CommandEmpty>{found === null ? 'Searching…' : 'Nothing matches'}</CommandEmpty>
+            {(found ?? []).map((r) => (
+              <CommandItem key={r.id} value={r.id} onSelect={() => toggle(r.id)} className="flex items-center gap-2">
+                <Checkbox checked={selected.includes(r.id)} className="h-3.5 w-3.5" />
+                <span className="truncate">{r.title}</span>
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 // Enum picker using Command + Popover with checkboxes (static options)
@@ -194,8 +270,9 @@ function EnumPicker({
     }
   }
 
+  // One or two options read as themselves ("Rush, Gift"); more as a count.
   const displayValue = isMulti
-    ? selected.length > 0 ? `${selected.length} selected` : 'Select...'
+    ? selected.length === 0 ? 'Select...' : selected.length <= 2 ? selected.map((o) => String(o).replace(/_/g, ' ')).join(', ') : `${selected.length} selected`
     : (value as string) ? String(value).replace(/_/g, ' ') : 'Select...'
 
   return (
@@ -269,25 +346,6 @@ function DynamicEnumPicker({
             }
           }
           if (cancelled) return
-          setOptions(Array.from(byName.values()))
-          setLoaded(true)
-        })
-        .catch(() => { if (!cancelled) setLoaded(true) })
-    } else if (source === 'deal_stages') {
-      // Every pipeline's stages; a stage name shared by two pipelines is one
-      // option holding both ids, the way a workflow state is across teams.
-      fetch('/api/account/deals/pipelines')
-        .then(r => r.ok ? r.json() : null)
-        .then((json) => {
-          if (cancelled) return
-          const byName = new Map<string, { id: string; name: string; color?: string; ids: string[] }>()
-          for (const p of (json?.pipelines || []) as { stages: { id: string; name: string; color?: string | null }[] }[]) {
-            for (const s of p.stages) {
-              const opt = byName.get(s.name)
-              if (opt) opt.ids.push(s.id)
-              else byName.set(s.name, { id: s.id, name: s.name, color: s.color ?? undefined, ids: [s.id] })
-            }
-          }
           setOptions(Array.from(byName.values()))
           setLoaded(true)
         })

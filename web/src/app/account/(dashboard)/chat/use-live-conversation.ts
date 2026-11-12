@@ -11,6 +11,7 @@ import { EVE_PROVISIONAL_METADATA_KEY } from '@/lib/chat/eve-message-writer'
 import { isHomeAskMessage } from '@/lib/attention/chat-asks'
 import { EMAIL_AUTO_ARCHIVE_MESSAGE_KIND } from '@/lib/email/auto-archive-part'
 import { ACTION_DONE_MESSAGE_KIND } from '@/lib/email/action-done-part'
+import { KEPT_MESSAGE_KIND } from '@/lib/kept-up-to-date/part'
 import { LOOK_AHEAD_MESSAGE_KIND } from '@/lib/look-ahead/message-kind'
 import { GUEST_MESSAGE_MESSAGE_KIND, GUEST_REQUEST_MESSAGE_KIND } from '@/lib/guests/chat-parts'
 
@@ -149,13 +150,14 @@ function isGuestNoteMessage(message: unknown): boolean {
 /**
  * The morning tidy's message (src/lib/email/auto-archive.ts), after the
  * digest, a to-do arriving mail marked done
- * (src/lib/email/action-done-from-mail.ts), and the evening look-ahead
+ * (src/lib/email/action-done-from-mail.ts), a record kept up to date
+ * (src/lib/kept-up-to-date/engine.ts), and the evening look-ahead
  * (src/lib/look-ahead/message.ts): each lands while the home thread is open.
  */
 function isMailChangeMessage(message: unknown): boolean {
   const meta = (message as { metadata?: unknown } | null)?.metadata
   const kind = !!meta && typeof meta === 'object' ? (meta as Record<string, unknown>).kind : null
-  return kind === EMAIL_AUTO_ARCHIVE_MESSAGE_KIND || kind === ACTION_DONE_MESSAGE_KIND || kind === LOOK_AHEAD_MESSAGE_KIND
+  return kind === EMAIL_AUTO_ARCHIVE_MESSAGE_KIND || kind === ACTION_DONE_MESSAGE_KIND || kind === KEPT_MESSAGE_KIND || kind === LOOK_AHEAD_MESSAGE_KIND
 }
 
 /** True for a reply the reply backup wrote and no browser has replaced yet (eve-message-writer.ts). */

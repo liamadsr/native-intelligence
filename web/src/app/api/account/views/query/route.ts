@@ -9,6 +9,8 @@ import {
   applyOrdering,
   applyPagination,
   applySearch,
+  customFieldTypesFor,
+  viewFieldsOf,
   groupResults,
   layoutCustomSelectGroups,
   resolvePersonalScope,
@@ -24,7 +26,6 @@ import type { ViewEntityType, ViewFilter, SortConfig, GroupConfig, GroupedResult
 import { DEFAULT_DISPLAY_PROPERTIES, NO_MATCH_FILTER_VALUE, defaultOrdering } from '@/lib/views/types'
 import { isCustomFieldPath } from '@/lib/views/custom-field-columns'
 import { countEntriesByList, emptyEntryCounts } from '@/lib/prospecting/lists'
-import { pipelineBoardColumns } from '@/lib/crm/deal-board'
 import { fetchAllRows, inChunks } from '@/lib/supabase/paging'
 import { NextResponse, type NextRequest } from 'next/server'
 
@@ -38,6 +39,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 // Ids per `.in()` in the post-fetch enrichments: a grouped page holds up to
 // 500 rows, and one `.in()` of that many uuids overflows the request URL.
 const ENRICH_CHUNK = 100
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export async function POST(request: NextRequest) {
   // requireWorkspaceMember resolves user + workspace + member row in one member
@@ -57,6 +59,7 @@ export async function POST(request: NextRequest) {
     grouping = null,
     sub_grouping = null,
     team_id = null,
+    table_id = null,
     page = 1,
     per_page = 50,
     show_completed = true,
@@ -73,6 +76,8 @@ export async function POST(request: NextRequest) {
     grouping?: GroupConfig | null
     sub_grouping?: GroupConfig | null
     team_id?: string | null
+    /** A table's rows (entity_type data_row): the one table they are. */
+    table_id?: string | null
     page?: number
     per_page?: number
     show_completed?: boolean
@@ -86,6 +91,9 @@ export async function POST(request: NextRequest) {
 
   if (!entity_type) {
     return badRequest('entity_type is required')
+  }
+  if (entity_type === 'data_row' && (typeof table_id !== 'string' || !UUID_RE.test(table_id))) {
+    return badRequest('A table’s rows need its table_id')
   }
 
   // Absent (or null, the shape the sibling scope fields use) means the active
@@ -165,12 +173,17 @@ export async function POST(request: NextRequest) {
     // and raising a 22P02 uuid-cast error. Grouping an empty array flows through
     // groupResults naturally; the empty-column injection (which needs the DB) is
     // intentionally skipped since there's nothing to place.
+    // The custom fields' types, so each is read in its own form (a multi-select's list, a currency's amount).
+    // A table's rows: that table's, read by its columns' types.
+    const tableId = entity_type === 'data_row' ? table_id : null
+    if (tableId) query.eq('table_id', tableId)
+    const fieldTypes = await customFieldTypesFor(supabase, workspaceId, entity_type, viewFieldsOf(filters, ordering), tableId)
     if (filters.length > 0) {
       try {
         await applyFilters(query, entity_type, filters, supabase, scopeWorkspaceIds, {
           memberId,
           userId: user.id,
-        })
+        }, { fieldTypes })
       } catch (err) {
         if (err instanceof NoMatchSignal) {
           const validSubGrouping = sub_grouping && sub_grouping.field ? sub_grouping : null
@@ -227,7 +240,7 @@ export async function POST(request: NextRequest) {
     // Ordering. Personal scope adds a total-order tie-break: `identifier` is
     // only unique per workspace, so two workspaces' ENG-1 rows would otherwise
     // tie and paging could show one twice.
-    applyOrdering(query, ordering, entity_type, { tieBreakOnId: workspaceScope === 'all' })
+    applyOrdering(query, ordering, entity_type, { tieBreakOnId: workspaceScope === 'all', fieldTypes })
 
     // Pagination
     applyPagination(query, page, perPage)
@@ -531,7 +544,7 @@ export async function POST(request: NextRequest) {
       // dragged to an option no record has yet. One definition read.
       if (isCustomFieldPath(grouping.field)) {
         try {
-          grouped = await layoutCustomSelectGroups(supabase, workspaceId, entity_type, grouping, grouped)
+          grouped = await layoutCustomSelectGroups(supabase, workspaceId, entity_type, grouping, grouped, entity_type === 'data_row' ? table_id : null)
         } catch (err) {
           console.error('[views/query] custom field columns failed', err)
         }
@@ -643,19 +656,6 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Deals pipeline board (roadmap #8): one column per stage of the board's
-      // pipeline (a `pipeline_id is` filter, else the default, seeded on first
-      // use), empty ones included, in the pipeline's own order. A drop on a
-      // column PATCHes { stage_id: column key }, the generic FK path.
-      if (grouping.field === 'stage_id' && entity_type === 'deal') {
-        try {
-          const pipelineFilter = filters.find((f) => f.field === 'pipeline_id' && f.operator === 'is' && typeof f.value === 'string')
-          const columns = await pipelineBoardColumns(supabase, workspaceId, (pipelineFilter?.value as string | undefined) ?? null, grouped, grouping.direction)
-          grouped.splice(0, grouped.length, ...columns)
-        } catch (err) {
-          console.error('[views/query] deal stage columns failed', err)
-        }
-      }
 
       // Sequence lifecycle board: inject an (empty) column per status so the
       // whole lifecycle is always visible, give every column its display

@@ -14,11 +14,12 @@ import {
 const def = (over: Partial<CustomFieldDefinition>): CustomFieldDefinition => ({
   id: 'd1',
   workspace_id: 'w1',
-  entity_type: 'deal',
+  entity_type: 'company',
   key: 'k',
   label: 'K',
   field_type: 'text',
   options: [],
+  config: {},
   position: 0,
   ...over,
 })

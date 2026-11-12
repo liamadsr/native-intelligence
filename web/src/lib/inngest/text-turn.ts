@@ -19,6 +19,7 @@ import {
   type HomeTurnStepResult,
 } from '@/lib/chat/home-turn-server'
 import { hydrateChannelPlan, redactChannelPlan, settleTextTurn, textTurnNotice, textTurnSkipNotice, type TextTurnSettled } from '@/lib/chat/text-turn-server'
+import { keptFromTexts } from '@/lib/kept-up-to-date/sources'
 
 /**
  * A short debounce per conversation: a few texts sent in a row become one
@@ -79,6 +80,11 @@ export async function textTurnStep(
  * autonomy off, over their limit) records its `skipped` row, which carries
  * the texts (never replayed later), and texts one notice. One `[text-turn]`
  * line per run.
+ *
+ * A customer's or a guest's texts then keep the owner's records up to date
+ * (src/lib/kept-up-to-date/sources.ts keptFromTexts), whether the turn
+ * answered or failed: one step, outcomes only (it reads the texts back
+ * itself). The person's own texts are not a source: their turn has the tools.
  */
 export const textTurn = inngest.createFunction(
   {
@@ -146,6 +152,13 @@ export const textTurn = inngest.createFunction(
         const supabase = getServiceClient()
         return textTurnStep(supabase, data, turnPlan, turnRow, (p) => continueHomeTurn(supabase, data, p, turnRow, state), n === HOME_TURN_MAX_READ_STEPS)
       })) as TextTurnStep
+    }
+    const guestId = data.guestId
+    if (guestId) {
+      const messageIds = (turnPlan.channelMessages ?? []).map((m) => m.messageId)
+      await step.run('kept-up-to-date', () =>
+        keptFromTexts(getServiceClient(), { workspaceId: data.workspaceId, userId: data.userId, conversationId: data.conversationId, guestId, messageIds }),
+      )
     }
     if (step_.kind === 'failed') {
       console.info(textTurnLogLine({ conversationId: data.conversationId, rowId: turnRow.id, texts, outcome: step_.error }))

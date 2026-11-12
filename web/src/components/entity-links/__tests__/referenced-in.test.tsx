@@ -35,7 +35,7 @@ afterEach(() => {
 })
 
 async function render() {
-  await act(async () => root.render(<ReferencedIn entityType="deal" entityId="d-1" />))
+  await act(async () => root.render(<ReferencedIn entityType="company" entityId="d-1" />))
   for (let i = 0; i < 3; i++) await act(async () => new Promise((r) => setTimeout(r, 0)))
 }
 

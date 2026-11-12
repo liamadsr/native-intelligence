@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentWorkspaceId } from '@/lib/workspace'
-import { forbidden, notFound } from '@/lib/api-errors'
+import { badRequest, forbidden, notFound } from '@/lib/api-errors'
+import { isTableLayout } from '@/lib/views/types'
 import { NextResponse, type NextRequest } from 'next/server'
 
 // GET /api/account/views/[id] — Get single view
@@ -70,6 +71,23 @@ export async function PATCH(
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+  }
+
+  // The layouts as POST has them: a table's rows take the grid, board,
+  // calendar and gallery, and only they take the three table-only ones.
+  if ('layout' in updates) {
+    const { data: existing } = await supabase
+      .from('view')
+      .select('entity_type')
+      .eq('id', id)
+      .eq('workspace_id', workspaceId)
+      .maybeSingle()
+    const kind = (existing as { entity_type?: string } | null)?.entity_type
+    if (!kind) return notFound('View not found')
+    const layout = updates.layout
+    if (kind === 'data_row' ? !isTableLayout(layout) : isTableLayout(layout) && layout !== 'board') {
+      return badRequest(kind === 'data_row' ? 'A table’s view is a grid, a board, a calendar or a gallery' : `The ${String(layout)} layout is only for tables`)
+    }
   }
 
   const { data, error } = await supabase

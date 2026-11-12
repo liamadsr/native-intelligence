@@ -44,6 +44,8 @@ vi.mock('@/lib/views/query-engine', () => ({
   applyOrdering: vi.fn(),
   applyPagination: vi.fn(),
   applySearch: vi.fn(),
+  customFieldTypesFor: vi.fn(async () => undefined),
+  viewFieldsOf: vi.fn(() => []),
   groupResults: vi.fn((items: unknown[]) => [{ key: 'all', label: 'All', items }]),
   CATEGORY_ORDER: {},
   CATEGORY_LABELS: {},

@@ -9,6 +9,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { CUSTOM_FIELD_ENTITY_TYPES, ENTITY_REGISTRY } from '@/lib/knowledge/entity-registry'
+import { TABLE_COLUMN_ENTITY_TYPE } from '@/lib/tables/types'
 import { migrationsInOrder } from '@/test/migration-sql'
 
 const all = migrationsInOrder()
@@ -27,11 +28,13 @@ function latestEntityCheck(): { file: string; kinds: string[] } {
 }
 
 describe('migration 496: custom fields on any kind', () => {
-  it('the newest entity_type CHECK lists exactly the kinds the registry marks customFields', () => {
+  it('the newest entity_type CHECK lists exactly the kinds the registry marks customFields, and a table column', () => {
     const check = latestEntityCheck()
-    expect(check.file.startsWith('496_')).toBe(true)
-    expect(new Set(check.kinds)).toEqual(new Set(CUSTOM_FIELD_ENTITY_TYPES))
-    expect(check.kinds).toHaveLength(CUSTOM_FIELD_ENTITY_TYPES.length)
+    // 520 added a table's columns (entity_type data_row, with a table_id); 549 took deals out (a deal is a pipeline's row).
+    expect(check.file.startsWith('549_')).toBe(true)
+    expect(new Set(check.kinds)).toEqual(new Set([...CUSTOM_FIELD_ENTITY_TYPES, TABLE_COLUMN_ENTITY_TYPE]))
+    expect(check.kinds).toHaveLength(CUSTOM_FIELD_ENTITY_TYPES.length + 1)
+    expect(CUSTOM_FIELD_ENTITY_TYPES as readonly string[]).not.toContain(TABLE_COLUMN_ENTITY_TYPE)
   })
 
   it('every kind with the flag has its custom_fields jsonb object column, in 473 or here', () => {
@@ -40,9 +43,7 @@ describe('migration 496: custom fields on any kind', () => {
     const dealTable = /create table if not exists public\.deal \(([\s\S]*?)\n\);/.exec(everything)?.[1] ?? ''
     expect(dealTable).toContain("custom_fields jsonb not null default '{}'::jsonb")
     for (const e of ENTITY_REGISTRY.filter((x) => x.customFields)) {
-      if (e.id !== 'deal') {
-        expect(everything, e.id).toContain(`alter table public.${e.table} add column if not exists custom_fields jsonb not null default '{}'::jsonb;`)
-      }
+      expect(everything, e.id).toContain(`alter table public.${e.table} add column if not exists custom_fields jsonb not null default '{}'::jsonb;`)
       expect(everything, e.id).toMatch(new RegExp(`add constraint ${e.table}_custom_fields_object check \\(jsonb_typeof\\(custom_fields\\) = 'object'\\)`))
     }
   })

@@ -17,7 +17,6 @@ describe('realtime bindings derived from the registry', () => {
       ['document', 'document', true],
       ['contact', 'contact', true],
       ['company', 'company', true],
-      ['deal', 'deal', true],
       ['claim', 'claim', true],
       ['entity_link', 'entity_link', true],
       ['comment', 'comment', false],
@@ -42,6 +41,8 @@ describe('realtime bindings derived from the registry', () => {
       ['eval_suite', 'eval_suite', true],
       ['eval_case', 'eval_case', true],
       ['eval_run', 'eval_run', true],
+      // Tables (520): the table only, one event per write batch.
+      ['data_table', 'data_table', true],
     ] as const).map(([table, entityType, filtered]) => ({ table, entityType, filtered }))
 
     const byTable = (rows: readonly { table: string }[]) => [...rows].sort((a, b) => a.table.localeCompare(b.table))

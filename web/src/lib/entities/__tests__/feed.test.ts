@@ -290,6 +290,38 @@ describe('a custom field change (migration 497)', () => {
   })
 })
 
+describe('a table row’s field change (migration 520)', () => {
+  const T1 = 'd0000000-0000-4000-8000-000000000001'
+  const T2 = 'd0000000-0000-4000-8000-000000000002'
+  const ROW = 'd1000000-0000-4000-8000-000000000001'
+  const supabase = () => {
+    seq = 0
+    const client = memoryDb({
+      member: [{ id: ANA, user_id: U_ANA, workspace_id: WS, display_name: 'Ana Reyes' }],
+      data_table: [
+        { id: T1, workspace_id: WS, name: 'Pipeline' },
+        { id: T2, workspace_id: WS, name: 'Hiring' },
+      ],
+      data_row: [{ id: ROW, workspace_id: WS, table_id: T1, title: 'Fernhill' }],
+      custom_field_definition: [
+        { id: 'c1', workspace_id: WS, entity_type: 'data_row', table_id: T1, key: 'status', label: 'Stage' },
+        // Another table's column with the same key: never this row's name.
+        { id: 'c2', workspace_id: WS, entity_type: 'data_row', table_id: T2, key: 'status', label: 'Their status' },
+      ],
+      entity_activity: [act('2026-11-09T13:00:00.000000+00:00', 'data_row', ROW, 'updated', { actor_member_id: ANA, detail: { fields: ['status'] } })],
+    })
+    // The table fence (520's visible_data_table_ids): Ana reads T1.
+    const rpc = async (name: string, args: { p_ids?: string[] }) =>
+      name === 'visible_data_table_ids' ? { data: (args.p_ids ?? []).filter((id) => id === T1), error: null } : { data: null, error: { message: `no rpc ${name}` } }
+    return Object.assign(client, { rpc }) as unknown as SupabaseClient
+  }
+
+  it('names the column by the row’s own table', async () => {
+    const feed = await run(supabase(), { entity: { type: 'data_row', id: ROW }, group: 'none' })
+    expect(feed.events!.map((e) => describeFeedEvent(e))).toEqual(['Changed Stage'])
+  })
+})
+
 describe('rows the history backfill wrote (migration 516)', () => {
   const backfilled = () => {
     seq = 0

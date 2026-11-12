@@ -38,7 +38,7 @@ const tierDef = (entity_type: string) => ({
 describe('the kinds come from the registry flag', () => {
   it('is exactly the registry entries marked customFields, in registry order', () => {
     expect([...CUSTOM_FIELD_ENTITIES]).toEqual(ENTITY_REGISTRY.filter((e) => e.customFields).map((e) => e.id))
-    expect(new Set(CUSTOM_FIELD_ENTITIES)).toEqual(new Set(['deal', 'contact', 'company', 'action', 'project', 'initiative', 'document']))
+    expect(new Set(CUSTOM_FIELD_ENTITIES)).toEqual(new Set(['contact', 'company', 'action', 'project', 'initiative', 'document']))
   })
 
   it('names every kind, and reads each from its own table', () => {
@@ -48,7 +48,7 @@ describe('the kinds come from the registry flag', () => {
     }
     expect(customFieldTable('action')).toBe('actions')
     expect(customFieldTable('project')).toBe('projects')
-    expect(customFieldKindList('one', 'or')).toBe('document, contact, project, task, initiative, company or deal')
+    expect(customFieldKindList('one', 'or')).toBe('document, contact, project, task, initiative or company')
   })
 
   it('refuses a kind without the flag', () => {

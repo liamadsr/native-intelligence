@@ -215,7 +215,7 @@ describe('Drive and Agents’ sub-navs (Liam, 11-11: "Drive: Docs, Knowledge, an
     expect(selectedPlace()).toBe('drive')
     expect(shownGroupPanel()).toBe('drive')
     expect(container.querySelector<HTMLElement>('aside[data-page-panel="drive"]')!.getAttribute('aria-label')).toBe('Drive')
-    expect(rows('drive')).toEqual(['docs', 'knowledge', 'files'])
+    expect(rows('drive')).toEqual(['docs', 'knowledge', 'files', 'tables'])
     expect(lit('drive')).toEqual(['files'])
     expect(row('drive', 'files').textContent).toBe('Files')
     expect(row('drive', 'files').querySelector('svg.lucide-paperclip')).not.toBeNull()

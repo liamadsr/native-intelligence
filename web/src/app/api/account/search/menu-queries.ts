@@ -13,6 +13,9 @@
  * caller's client: the function itself reads only the channels and DMs the
  * caller may read (team_chat_can_read), never a deleted message.
  *
+ * Files keep the attachments rule explicit too (a file on a capture is only as
+ * visible as that capture), and calendar events are the caller's own.
+ *
  * Studio videos and Studio projects (migration 620) are read on the service
  * client: the Studio's tables have no member policies. The route says whether
  * the caller may use the Studio here (a member, not a guest, with the studio
@@ -37,9 +40,11 @@ import {
   toMentionContact,
   type CompanyApiRow,
   type ContactApiRow,
+  type MenuFileRow,
   type MenuSearchKind,
   type MenuSearchRow,
 } from '@/lib/search/menu-search'
+import { filterVisibleAttachments } from '@/lib/attachments/visibility'
 import { searchRecipes, type SupabaseLike } from './recipe-search'
 
 export interface MenuQueryContext {
@@ -362,24 +367,33 @@ async function searchCompanies(ctx: MenuQueryContext): Promise<MenuSearchRow[]> 
   )
 }
 
-// ── Deals and flows (names only; every member reads them) ────────────────────
+// ── Deals and flows (names only) ─────────────────────────────────────────────
 
 interface DealRow {
   id: string
-  name: string | null
-  stage: { name: string | null } | null
+  title: string | null
+  table_id: string
+  stage: string | null
 }
 
+/** Deals: a pipeline's rows (Tables, phase 7), as RLS lets the person read their pipelines. */
 async function searchDeals(ctx: MenuQueryContext): Promise<MenuSearchRow[]> {
   const { supabase, workspaceId, query, limit } = ctx
   const words = matchWords(query)
-  const base = supabase.from('deal').select('id, name, stage:deal_stage!stage_id(name)').eq('workspace_id', workspaceId)
+  const base = supabase
+    .from('data_row')
+    .select('id, title, table_id, stage:custom_fields->>stage, data_table!inner(table_kind, archived_at)')
+    .eq('workspace_id', workspaceId)
+    .eq('data_table.table_kind', 'pipeline')
+    // An archived pipeline's deals are archived with it.
+    .is('data_table.archived_at', null)
+    .is('archived_at', null)
   const rows = await rowsOf<DealRow>(
     'deal',
-    words.reduce((b, w) => b.ilike('name', `%${w}%`), base).order('updated_at', { ascending: false }).limit(words.length ? FETCH : limit),
+    words.reduce((b, w) => b.ilike('title', `%${w}%`), base).order('updated_at', { ascending: false }).limit(words.length ? FETCH : limit),
   )
   return rank(
-    rows.map((d) => ({ kind: 'deal', id: d.id, title: d.name || 'Untitled deal', status: d.stage?.name ?? null, score: scoreText(d.name, query) })),
+    rows.map((d) => ({ kind: 'deal', id: d.id, pipelineId: d.table_id, title: d.title || 'Untitled deal', status: d.stage ?? null, score: scoreText(d.title, query) })),
     limit,
   )
 }
@@ -400,6 +414,106 @@ async function searchFlows(ctx: MenuQueryContext): Promise<MenuSearchRow[]> {
   )
   return rank(
     rows.map((f) => ({ kind: 'flow', id: f.id, title: f.name || 'Untitled flow', status: f.enabled ? 'On' : 'Off', score: scoreText(f.name, query) })),
+    limit,
+  )
+}
+
+// ── Files ────────────────────────────────────────────────────────────────────
+
+interface FileRow {
+  id: string
+  file_name: string | null
+  file_category: string | null
+  user_id: string | null
+  note_id: string | null
+  action_id: string | null
+  project_id: string | null
+  created_at: string | null
+}
+
+/** The record a file hangs off, as opening it opens: its capture, else its task, else its project. */
+function fileParent(f: FileRow): MenuFileRow['parent'] {
+  if (f.note_id) return { type: 'capture', id: f.note_id }
+  if (f.action_id) return { type: 'action', id: f.action_id }
+  if (f.project_id) return { type: 'project', id: f.project_id }
+  return null
+}
+
+/**
+ * Uploaded files, by name. Read on the caller's client (RLS), and the
+ * attachments rule kept explicit as well (src/lib/attachments/visibility.ts):
+ * a file on a capture the caller may not see is left out. Nothing typed: the
+ * caller's own most recent uploads.
+ */
+async function searchAttachments(ctx: MenuQueryContext): Promise<MenuSearchRow[]> {
+  const { supabase, workspaceId, userId, query, limit } = ctx
+  const words = matchWords(query)
+  let q = supabase
+    .from('attachments')
+    .select('id, file_name, file_category, user_id, note_id, action_id, project_id, created_at')
+    .eq('workspace_id', workspaceId)
+  if (!words.length) q = q.eq('user_id', userId)
+  const rows = await rowsOf<FileRow>(
+    'attachment',
+    words.reduce((b, w) => b.ilike('file_name', `%${w}%`), q).order('created_at', { ascending: false }).limit(words.length ? FETCH : limit),
+  )
+  const visible = await filterVisibleAttachments(supabase, { workspaceId, userId }, rows)
+  return rank(
+    visible.map((f) => ({
+      kind: 'attachment' as const,
+      id: f.id,
+      title: f.file_name || 'Untitled file',
+      category: f.file_category,
+      parent: fileParent(f),
+      createdAt: f.created_at,
+      score: scoreText(f.file_name, query),
+    })),
+    limit,
+  )
+}
+
+// ── Calendar events (the caller's own) ───────────────────────────────────────
+
+interface CalendarEventRow {
+  id: string
+  title: string | null
+  start_at: string
+  end_at: string | null
+  is_all_day: boolean | null
+}
+
+/** Nothing typed: events from this long ago on (today's, then what's coming). */
+const EVENTS_FROM_MS = 12 * 60 * 60 * 1000
+
+/**
+ * The caller's own calendar events, by title: each is its owner's alone (RLS
+ * `auth.uid() = user_id`, kept explicit). Typed: the most recent and coming
+ * ones that match. Nothing typed: what's on from today, soonest first.
+ */
+async function searchCalendarEvents(ctx: MenuQueryContext): Promise<MenuSearchRow[]> {
+  const { supabase, workspaceId, userId, query, limit } = ctx
+  const words = matchWords(query)
+  const base = supabase
+    .from('local_calendar_event')
+    .select('id, title, start_at, end_at, is_all_day')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId)
+  const rows = await rowsOf<CalendarEventRow>(
+    'calendar_event',
+    words.length
+      ? words.reduce((b, w) => b.ilike('title', `%${w}%`), base).order('start_at', { ascending: false }).limit(FETCH)
+      : base.gte('start_at', new Date(Date.now() - EVENTS_FROM_MS).toISOString()).order('start_at', { ascending: true }).limit(limit),
+  )
+  return rank(
+    rows.map((e) => ({
+      kind: 'calendar_event' as const,
+      id: e.id,
+      title: e.title || 'Untitled event',
+      start: e.start_at,
+      end: e.end_at,
+      allDay: e.is_all_day === true,
+      score: scoreText(e.title, query),
+    })),
     limit,
   )
 }
@@ -520,6 +634,8 @@ export const MENU_QUERIES: Record<MenuSearchKind, (ctx: MenuQueryContext) => Pro
   company: searchCompanies,
   deal: searchDeals,
   flow: searchFlows,
+  attachment: searchAttachments,
+  calendar_event: searchCalendarEvents,
   agent: searchAgents,
   team_chat_message: searchTeamChatMessages,
   studio_video: searchStudioVideos,

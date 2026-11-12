@@ -43,7 +43,8 @@ describe('custom field tools on every kind', () => {
     const { tools } = setup()
     for (const name of ['define_custom_field', 'set_custom_fields'] as const) {
       const schema = (tools[name] as unknown as { inputSchema: z.ZodObject<{ entity_type: z.ZodEnum }> }).inputSchema
-      expect(schema.shape.entity_type.options, name).toEqual([...CUSTOM_FIELD_ENTITIES])
+      // And deals: a deal's fields are its pipeline's columns (Tables, phase 7).
+      expect(schema.shape.entity_type.options, name).toEqual([...CUSTOM_FIELD_ENTITIES, 'deal'])
       const description = (tools[name] as { description?: string }).description ?? ''
       expect(description, name).toContain('task')
       expect(description, name).toContain('document')

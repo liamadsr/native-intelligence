@@ -13,8 +13,8 @@ const front = (spec: unknown) => ({ id: 'card-1', spec, close: () => {} }) as Pa
 
 describe('recordActionsFor', () => {
   it("lists a record card's actions that need no more input", () => {
-    const source = recordActionsFor(front({ kind: 'record', title: 'Fernhill renewal', record: { type: 'deal', id: 'd-1' } }))
-    expect(source?.entity).toEqual({ type: 'deal', id: 'd-1', label: 'Fernhill renewal' })
+    const source = recordActionsFor(front({ kind: 'record', title: 'Fernhill renewal', record: { type: 'company', id: 'd-1' } }))
+    expect(source?.entity).toEqual({ type: 'company', id: 'd-1', label: 'Fernhill renewal' })
     expect(source?.actions.map((a) => a.id)).toEqual(['copy_link', 'copy_id', 'make_task'])
   })
 

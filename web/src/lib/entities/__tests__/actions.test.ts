@@ -172,8 +172,8 @@ describe('rename', () => {
 
 describe('open and copy', () => {
   it("opens the record's card", () => {
-    expect(openEntity({ type: 'deal', id: 'd-1', label: 'Fernhill renewal' }, {}, deps)).toBe(true)
-    expect(opened).toEqual([{ type: 'deal', id: 'd-1', title: 'Fernhill renewal' }])
+    expect(openEntity({ type: 'company', id: 'd-1', label: 'Fernhill renewal' }, {}, deps)).toBe(true)
+    expect(opened).toEqual([{ type: 'company', id: 'd-1', title: 'Fernhill renewal' }])
     expect(openEntity({ type: 'claim', id: 'cl-1', label: 'x' }, {}, deps)).toBe(false)
   })
 

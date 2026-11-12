@@ -117,8 +117,9 @@ export const PACKS: Record<AreaKey, PackDefinition> = {
     key: 'documents',
     name: 'Documents',
     feature: 'docs',
-    toolGroups: ['documents'],
-    cardKinds: entityCards('document'),
+    // Tables (phase 5) are gated with Docs: their page sits with the docs.
+    toolGroups: ['documents', 'tables'],
+    cardKinds: [...entityCards('document'), 'tables'],
   },
   knowledge: {
     key: 'knowledge',
@@ -160,7 +161,8 @@ export const PACKS: Record<AreaKey, PackDefinition> = {
     name: 'CRM',
     feature: 'crm',
     toolGroups: ['contacts'],
-    cardKinds: entityCards('contact', 'company', 'deal'),
+    // Deals are the pipelines' page (Tables, phase 7).
+    cardKinds: [...entityCards('contact', 'company'), 'pipelines'],
   },
   prospecting: {
     key: 'prospecting',

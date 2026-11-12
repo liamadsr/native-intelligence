@@ -48,7 +48,7 @@ export const PAGE_GROUPS: Readonly<Record<PageGroupId, PageGroupDef>> = {
   calendar: { id: 'calendar', label: 'Calendar', labelFrom: 'calendar', members: ['calendar', 'availability', 'captures'], defaultMember: 'calendar' },
   // Liam, 11-11: "Drive: Docs, Knowledge, and a new page that shows all
   // available files … · Agents: Agents & Skills, Flows, Evals".
-  drive: { id: 'drive', label: 'Drive', members: ['docs', 'knowledge', 'files'], defaultMember: 'docs' },
+  drive: { id: 'drive', label: 'Drive', members: ['docs', 'knowledge', 'files', 'tables'], defaultMember: 'docs' },
   agents: { id: 'agents', label: 'Agents', members: ['agents', 'flows', 'evals'], defaultMember: 'agents' },
 }
 

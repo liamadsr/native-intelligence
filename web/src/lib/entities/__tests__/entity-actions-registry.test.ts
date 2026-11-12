@@ -176,7 +176,7 @@ describe('supportedEntityActions', () => {
   })
 
   it('offers no Open where no chat can open a card', () => {
-    expect(supportedEntityActions('deal', { canOpen: false })).not.toContain('open')
+    expect(supportedEntityActions('company', { canOpen: false })).not.toContain('open')
   })
 
   it('offers nothing for a kind that is not registered', () => {
