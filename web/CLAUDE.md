@@ -120,6 +120,9 @@ founder decision.
 Tests live under `__tests__/` directories next to the code they cover.
 Shared helpers are in `src/test/`. See `docs/TESTING.md` for patterns.
 
+No GitHub workflow runs this suite, and production's image build does not either:
+run `npm test` on Node 24 before you push. That local run is the only gate.
+
 Fixtures use made-up people, companies and numbers (`555-01xx`), never real contacts,
 customers or inbox data. The open-source export (`scripts/open-source/export.sh`) builds
 one public repo from this one (`web/`) and the desktop app (`desktop/`), and refuses to
