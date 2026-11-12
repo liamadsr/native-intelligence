@@ -30,6 +30,7 @@ import { applyOps, type OpCall } from '@/lib/studio/engine/ops';
 import { layerKindInfo, type LayerKind } from '@/lib/studio/engine/layers';
 import { availableShotSources, clipView, layoutPresetOf, layoutPresets, setLayoutForClips } from '@/lib/studio/engine/shots';
 import { useContextMenu, type MenuItem } from './ContextMenu';
+import type { InspectorTab } from './Inspector';
 import { removeAudioSegment } from '@/lib/studio/engine/audio-segments';
 import type { ClipView } from '@/lib/studio/engine/contracts';
 
@@ -37,7 +38,9 @@ export const secondsLabel = (seconds: number) => `${Math.floor(seconds / 60)}:${
 type Gesture = {pointerId:number; target:HTMLElement; x:number; width:number; duration:number; scheduled:ScheduledClip} & ({kind:'zoom'; zoom:EditorZoom; mode:ZoomEditMode}|{kind:'clip'; mode:'start'|'end'}|{kind:'layer'; layer:MotionLayer; mode:'move'|'start'|'end'});
 /** A new id for the piece a cut makes. */
 const cutId=()=>`cut${Date.now().toString(36)}${Math.random().toString(36).slice(2,8)}`;
-export function Timeline({selectedBeatIds=[], selectBeats, recordBeats, recording=false, project, frame, selectedIds, selectedZoom, selectClip, selectZoom, seek, split, remove, append, reorder, addZoom, editZoom, editClip, beginEdit, endEdit, disabled, words, selectedWordIds, selectWord, deleteWords, selectedMotionLayerId, selectedMotionTrackId, selectMotion, editMotion, editMotionLayer, onTyping, setShot, cleanUp, punchIn, automationView, toggleAutomation, beforeServerEdit, afterServerEdit, changeProject, selectedLayerId=null, selectLayer, notify, selectedItems=[], selectItems, playPause}: {
+export function Timeline({selectedBeatIds=[], selectBeats, recordBeats, recording=false, project, frame, selectedIds, selectedZoom, selectClip, selectZoom, seek, split, remove, append, reorder, addZoom, editZoom, editClip, beginEdit, endEdit, disabled, words, selectedWordIds, selectWord, deleteWords, selectedMotionLayerId, selectedMotionTrackId, selectMotion, editMotion, editMotionLayer, onTyping, setShot, cleanUp, punchIn, automationView, toggleAutomation, beforeServerEdit, afterServerEdit, changeProject, selectedLayerId=null, selectLayer, notify, selectedItems=[], selectItems, playPause, showInspector}: {
+  /** Open the inspector (on `tab`, or the one it has) when an action's next step is there: a layer just added, a layout's sources. */
+  showInspector?: (tab?: InspectorTab) => void;
   /** Multi-selection of audio segments and layers (Delete removes them all; dragging one moves them together). */
   selectedItems?: TimelineItem[]; selectItems?: (items: TimelineItem[]) => void; playPause?: () => void;
   selectedLayerId?: string|null; selectLayer?: (id: string|null) => void; notify?: (text: string, error?: boolean) => void;
@@ -147,7 +150,7 @@ export function Timeline({selectedBeatIds=[], selectBeats, recordBeats, recordin
       :kind==='image'?null:{op:'add_callout',args:{kind,x:0.5,y:0.5,width:kind==='highlight'?0.32:0.36,height:kind==='highlight'?0.08:0.28,at,duration:2.5}};
     if(!call){notify?.('Ask the agent to add an image layer. It needs a picture from your media',true);return;}
     const results=run([call],kind==='kinetic'?'Word-by-word captions added from the transcript':`${layerKindInfo[kind].label} added at the playhead · edit it in the inspector`);
-    const added=results?.[0] as {id?:string;ids?:string[]}|undefined;if(added?.id)selectLayer?.(added.id);};
+    const added=results?.[0] as {id?:string;ids?:string[]}|undefined;if(added?.id){selectLayer?.(added.id);showInspector?.();}};
   const addTransitionHere=(kind:TransitionKind)=>{setMenu(null);
     if(run([{op:'add_transition',args:{at,kind}}],`${transitionKinds.find(item=>item.id===kind)!.label} added at the playhead · it's editable automation on the picture`)){
       const shown:AutomationParam=kind==='zoom-punch'?'zoom':kind.startsWith('whip-left')||kind==='whip-right'?'shiftX':kind.startsWith('whip')?'shiftY':kind==='blur'?'blur':kind==='spin'?'rotate':'opacity';
@@ -157,7 +160,7 @@ export function Timeline({selectedBeatIds=[], selectBeats, recordBeats, recordin
   const layoutTargets=selectedIds.length?selectedIds:[schedule.find(s=>frame>=s.startFrame&&frame<s.startFrame+s.durationFrames)?.clip.id].filter((id):id is string=>!!id);
   const layoutSources=availableShotSources(project),layoutClip=project.clips.find(c=>c.id===layoutTargets[0]),currentLayout=layoutClip?layoutPresetOf(clipView(layoutClip)):'single';
   const applyLayout=(presetId:string)=>{setMenu(null);if(!changeProject||!layoutTargets.length)return;
-    try{const next=setLayoutForClips(project,layoutTargets,presetId);changeProject(()=>next);notify?.(`${layoutPresets.find(item=>item.id===presetId)!.label} · pick sources and order in the inspector`);}
+    try{const next=setLayoutForClips(project,layoutTargets,presetId);changeProject(()=>next);showInspector?.('clip');notify?.(`${layoutPresets.find(item=>item.id===presetId)!.label} · pick sources and order in the inspector`);}
     catch(error){notify?.(error instanceof Error?error.message:String(error),true);}};
   /** Every track shares one height; a track the person dragged taller keeps its own (remembered on this computer). */
   const [trackHeights,setTrackHeights]=useState<TrackHeights>(()=>{try{return JSON.parse(localStorage.getItem('ni:studio:trackHeights')??'{}') as TrackHeights;}catch{return{};}});

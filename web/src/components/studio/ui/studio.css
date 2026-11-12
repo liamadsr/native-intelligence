@@ -1268,9 +1268,25 @@
 .ni-studio .rail-sep{width:22px;height:1px;background:var(--st-line);margin:5px 0}
 /* The Edit view's preview toolbar: the Browser toggle (an icon button like the inspector's tools), the format, the
    frame size, and the preview quality on the right. */
-.ni-studio .preview-browser-toggle{width:36px;height:30px;flex:none;display:flex;align-items:center;justify-content:center;padding:0;margin:0 2px 0 0;border:0;border-radius:var(--st-r-md);background:transparent;color:var(--st-text-2)}
-.ni-studio .preview-browser-toggle:hover{background:var(--st-hover);color:var(--st-text)}
-.ni-studio .preview-browser-toggle.active{background:var(--st-selected);color:var(--st-text)}
+.ni-studio :is(.preview-browser-toggle,.preview-inspector-toggle){width:36px;height:30px;flex:none;display:flex;align-items:center;justify-content:center;padding:0;margin:0 2px 0 0;border:0;border-radius:var(--st-r-md);background:transparent;color:var(--st-text-2)}
+.ni-studio :is(.preview-browser-toggle,.preview-inspector-toggle):hover{background:var(--st-hover);color:var(--st-text)}
+.ni-studio :is(.preview-browser-toggle,.preview-inspector-toggle).active{background:var(--st-selected);color:var(--st-text)}
+/* The inspector's toggle, the Browser's mirror at the toolbar's right end: after the preview quality, or pushed there
+   itself when the quality is hidden (the motion toolbar takes the row, or has nothing to show, or the preview is
+   narrow). The frame size and the quality stay on one line, and leave first when the preview is narrow. */
+.ni-studio .preview-toolbar>.preview-inspector-toggle{margin:0 0 0 auto}
+.ni-studio .preview-toolbar>.quality-label:not([hidden])~.preview-inspector-toggle{margin-left:0}
+.ni-studio .preview-toolbar :is(.format-meta,.quality-label){white-space:nowrap}
+.ni-studio .preview-region{container:preview / inline-size}
+@container studio (max-width:780px){.ni-studio .preview-toolbar>.quality-label:not([hidden])~.preview-inspector-toggle{margin-left:auto}}
+@container preview (max-width:520px){.ni-studio .preview-toolbar .format-meta,.ni-studio .preview-toolbar>.quality-label{display:none}.ni-studio .preview-toolbar>.quality-label:not([hidden])~.preview-inspector-toggle{margin-left:auto}}
+/* A narrow preview keeps its timecodes and play controls; the source speed, drawn at the right edge, would sit on them. */
+@container preview (max-width:440px){.ni-studio .transport .speed-indicator{display:none}}
+/* The Browser and the inspector open together: both give up width (down to a floor) before the preview drops below
+   a usable size. When even that does not fit, the editor closes the one opened earlier (inspector-panel.ts). */
+.ni-studio .workspace:has(>.asset-browser):has(>.project-library:not([hidden]))>.preview-region{min-width:280px}
+.ni-studio .workspace:has(>.project-library:not([hidden]))>.asset-browser{flex-shrink:1}
+.ni-studio .workspace:has(>.asset-browser)>.project-library{flex-shrink:1;min-width:260px}
 .ni-studio .preview-toolbar:has(>.preview-browser-toggle){justify-content:flex-start;gap:8px}
 .ni-studio .preview-toolbar:has(>.preview-browser-toggle)>.quality-label{margin-left:auto;color:var(--st-text-faint);font-size:11px}
 .ni-studio .preview-toolbar:has(>.preview-browser-toggle) .preview-format{display:flex;align-items:center;gap:10px}

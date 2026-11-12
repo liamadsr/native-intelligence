@@ -22,7 +22,7 @@ export interface EditorChatState {
   selectedIds: readonly string[];
   /** Layers and audio segments picked on the timeline. */
   selectedItems: readonly TimelineItem[];
-  /** The layer whose settings fill the inspector. */
+  /** The layer picked alone: its settings are what the inspector shows, when it is open. */
   selectedLayerId: string | null;
   selectedBeatIds: readonly string[];
   selectedZoom: string | null;

@@ -2867,17 +2867,16 @@ export class EveChatTransport implements ChatTransport<UIMessage> {
     if (!text) return false
     const options = { body: req.body }
     const mainChat = !!this.opts.getCardContext
+    const timeZone = mainChat ? browserTimeZone() : null
+    const surroundings = mainChat ? currentSurroundings() : null
+    const signals = turnRouteSignals(text)
+    // The cards as they are now, and again once the card in front has settled (mintSteer), as a send does.
+    const encodeCtx = () => encodeTurnContext(options, this.cardContext(), timeZone, surroundings, signals)
     const steer: PendingSteer = {
       id: req.id,
       message: eveUserContent(text, [], readReplyNotes(options)),
       replyId: newReplyId(chatId),
-      ctx: encodeTurnContext(
-        options,
-        this.cardContext(),
-        mainChat ? browserTimeZone() : null,
-        mainChat ? currentSurroundings() : null,
-        turnRouteSignals(text),
-      ),
+      ctx: encodeCtx(),
       agentId: readAgentId(options) ?? undefined,
       skillId: readSkillId(options) ?? undefined,
       prior,
@@ -2901,7 +2900,7 @@ export class EveChatTransport implements ChatTransport<UIMessage> {
       },
     }
     active.pendingSteer = steer
-    void this.mintSteer(active, chatId, steer)
+    void this.mintSteer(active, chatId, steer, encodeCtx)
     return true
   }
 
@@ -2953,7 +2952,9 @@ export class EveChatTransport implements ChatTransport<UIMessage> {
   }
 
   /** The steer's own run token (the same usage check as a send), then its first chance to go. */
-  private async mintSteer(active: ActiveSession, chatId: string, steer: PendingSteer): Promise<void> {
+  private async mintSteer(active: ActiveSession, chatId: string, steer: PendingSteer, encodeCtx?: () => string): Promise<void> {
+    // The card in front settles beside the mint, as for a send (the Studio saves its edits; bounded, never throws).
+    const settled = this.settleCards()
     try {
       const minted = await this.mintWithRefresh(
         {
@@ -2965,6 +2966,15 @@ export class EveChatTransport implements ChatTransport<UIMessage> {
         },
         await this.currentAccessToken(),
       )
+      await settled
+      // Settled: the cards read again, so the steer's note says what the card shows now (a held steer only).
+      if (encodeCtx && active.pendingSteer === steer && steer.phase === 'held') {
+        try {
+          steer.ctx = encodeCtx()
+        } catch {
+          // The cards as read when the steer was asked for still go.
+        }
+      }
       steer.token = minted.mint.token
     } catch (err) {
       if (active.pendingSteer === steer && steer.phase === 'held') this.failSteer(active, steer, 'mint', err)

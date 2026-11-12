@@ -77,6 +77,27 @@ describe('a card’s live detail', () => {
     expect(studioOf(s)).toBeUndefined()
   })
 
+  it('the card sent from stops being the one in front once the person works in another card', () => {
+    // Any card kind: a calendar full screen, sent from, then the person changes another card in the thread.
+    const s = new ChatCardStore()
+    s.setCards([
+      { id: 'cal', spec: CAL, opened: true },
+      { id: 'list', spec: { ...CAL, title: 'Next week' } as CardSpec },
+    ])
+    s.enterFullScreen('cal')
+    s.putBackForSend()
+    expect(s.contextEntries().find((e) => e.id === 'cal')?.fs).toBe(true)
+    s.update('list', { search: 'standup' }, { touch: true })
+    // The calendar no longer claims the screen: "this" is the list they just changed (focusedCard).
+    expect(s.contextEntries().find((e) => e.id === 'cal')?.fs).toBeUndefined()
+    expect(s.inFront('cal')).toBe(false)
+    // The card's own changes keep it in front.
+    s.enterFullScreen('cal')
+    s.putBackForSend()
+    s.update('cal', { cal: undefined }, { touch: true })
+    expect(s.contextEntries().find((e) => e.id === 'cal')?.fs).toBe(true)
+  })
+
   it('a reader that throws or a card gone says nothing, and the turn still has its cards', () => {
     const s = store()
     const stop = s.provideLive('studio', {

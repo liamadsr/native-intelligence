@@ -17,9 +17,14 @@
  *           get_studio_video.
  *   Checked on the server like every card field (parseStudioNote): anything
  *           malformed is dropped, and labels are quoted as data in the note.
+ *           A layer's words and a clip's file name can be someone else's (a
+ *           caption from an imported clip's speech, a file brought in from a
+ *           link): they go inside the untrusted-content marker
+ *           (lib/email/untrusted.ts), as mail and calendar rows do.
  *
  * Client-safe and pure.
  */
+import { wrapUntrusted } from '@/lib/email/untrusted'
 
 /** A video's pages, and `project` for the overview of the Studio project it is in. */
 export const STUDIO_NOTE_PAGES = ['project', 'overview', 'storyboard', 'cast', 'edit'] as const
@@ -145,13 +150,18 @@ const PAGE_WORDS: Record<StudioNotePage, string> = {
 
 const span = (p: StudioPick) => (p.from !== undefined && p.to !== undefined ? ` ${p.from}–${p.to} s` : '')
 
+/** Text that may be someone else's (a layer's words, a clip's file name), fenced as data. */
+const fenced = (text: string, kind: 'TRANSCRIPT' | 'FILE') => wrapUntrusted(text, kind)!
+
 function describePick(p: StudioPick, quote: (text: string) => string): string {
   const label = p.label ? ` ${quote(p.label)}` : ''
   switch (p.k) {
     case 'layer':
-      return `${p.kind ? `${p.kind} ` : ''}layer ${p.id}${label}${p.text ? ` saying ${quote(p.text)}` : ''}${span(p)}`
+      // Its words last, fenced: a caption's words can be what someone in an imported clip said.
+      return `${p.kind ? `${p.kind} ` : ''}layer ${p.id}${label}${span(p)}${p.text ? ` saying ${fenced(p.text, 'TRANSCRIPT')}` : ''}`
     case 'clip':
-      return `clip ${p.id}${label ? ` from${label}` : ''}${span(p)}`
+      // Its source's file name, fenced: a file brought in from a link is named by whoever made it.
+      return `clip ${p.id}${span(p)}${p.label ? ` from ${fenced(p.label, 'FILE')}` : ''}`
     case 'beat':
       return `storyboard beat ${p.id}${label}${span(p)}`
     case 'track':
@@ -178,7 +188,7 @@ export function studioNoteLines(note: StudioNote, quote: (text: string) => strin
   if (state.length) lines.push(`  ${state.join(' · ')}`)
   if (note.sel?.length) lines.push(`  selected: ${note.sel.map((p) => describePick(p, quote)).join('; ')}`)
   lines.push(
-    `  "this" and "here" mean this video${note.sel?.length ? ', the first thing selected' : ''}${note.t !== undefined ? ' and the playhead' : ''}: read it with get_studio_video before you edit it.`,
+    `  "this" and "here" mean this video${note.sel?.length ? ', the first thing selected' : ''}${note.t !== undefined ? ' and the playhead' : ''}: read it with get_studio_video before you edit it${note.sel?.length ? ' (pass ids with what is selected to get every value it has now)' : ''}.`,
   )
   return lines
 }

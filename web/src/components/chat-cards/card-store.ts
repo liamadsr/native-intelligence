@@ -107,7 +107,8 @@ export class ChatCardStore {
   /**
    * The card that was full screen when the main chat's composer sent and put
    * it back (putBackForSend): still the one the person means, until another
-   * card comes in front or they put this one away themselves.
+   * card comes in front, they change another card or they put this one away
+   * themselves.
    */
   private sentFromId: string | null = null
 
@@ -308,6 +309,8 @@ export class ChatCardStore {
    */
   update(id: string, patch: Partial<StoredCardState>, opts: { touch?: boolean; redraw?: boolean } = {}): void {
     const next: StoredCardState = { ...this.state(id), ...patch, ...(opts.touch ? { touchedAt: Date.now() } : {}) }
+    // The person working in another card: the one they sent from (putBackForSend) is no longer what they mean.
+    if (opts.touch && this.sentFromId && this.sentFromId !== id) this.sentFromId = null
     this.states.set(id, next)
     if (typeof window !== 'undefined') writeCardState(id, next)
     if ('visitedAt' in patch) this.openedCache = null

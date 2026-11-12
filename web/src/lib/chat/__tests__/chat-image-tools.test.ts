@@ -15,6 +15,8 @@ describe('pictures in tool answers to the main chat', () => {
     expect(sanitizeOutput('wait_for_studio_job', out)).toBe(out)
     expect(sanitizeOutput('render_studio_stills', out)).toBe(out)
     expect(sanitizeOutput('read_chat_file', out)).toBe(out)
+    // The Studio library's images: without its place here the tool answered names and the model saw no picture.
+    expect(sanitizeOutput('get_studio_images', out)).toBe(out)
   })
 
   it('any other tool loses it, and keeps the rest of its answer', () => {

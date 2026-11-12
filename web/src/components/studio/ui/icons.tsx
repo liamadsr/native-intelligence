@@ -11,7 +11,7 @@ import React from 'react';
 import {
   AppWindow, ArrowLeft, ArrowLeftRight, ArrowRight, ChartGantt, ChartSpline, Check, ChevronDown, ChevronRight, CircleSmall,
   Component, Download, Eraser, Eye, File, FileText, Film, Folder, Frame, GalleryHorizontalEnd, Grid2x2Plus, Hand, History,
-  House, Image, Keyboard, Layers, LayoutGrid, LayoutPanelLeft, Lock, Magnet, Mic, MousePointer2, Music, MoreHorizontal, PanelLeft,
+  House, Image, Keyboard, Layers, LayoutGrid, LayoutPanelLeft, Lock, Magnet, Mic, MousePointer2, Music, MoreHorizontal, PanelLeft, PanelRight,
   Pause, Pencil, Play, Plus, RefreshCw, Redo2, RotateCcw, Save, ScanEye, Scissors, ScrollText, Search, Settings2, Slash, Slice,
   Sparkles, Spline, StepBack, StepForward, Trash2, Type, Undo2, Users, Video, Volume2, WandSparkles, Webcam, X, ZoomIn,
   type LucideIcon,
@@ -26,6 +26,8 @@ const ICONS = {
   // Where you are: the Studio's pages (the Studio sub-nav's icons, page-panel/studio-panel.tsx).
   home: House, stack: Layers, grid: LayoutGrid, storyboard: GalleryHorizontalEnd, people: Users, timeline: ChartGantt,
   apps: Grid2x2Plus, browser: PanelLeft,
+  // The inspector, the side panel on the right: the Browser's icon, mirrored.
+  inspector: PanelRight,
   // Things in a video.
   folder: Folder, file: File, image: Image, clip: Film, type: Type, transcript: FileText, keyboard: Keyboard,
   audio: Volume2, sound: Music, background: Frame, cursor: MousePointer2, zoom: ZoomIn, motion: Spline,
