@@ -28,7 +28,8 @@
 --   3. custom_field_definition.system: a pipeline's own columns. One can be
 --      renamed and its options and settings edited, never deleted, retyped,
 --      re-keyed or pointed at another kind.
---   4. _field_config_ok (523) takes `outcomes`, on a select only.
+--   4. _field_config_ok takes `outcomes`, on a select only (531's, phase 6:
+--      its formula and rollup settings stay).
 --   5. create_pipeline(workspace, name, stages, ...): a new pipeline, through
 --      create_data_table, in one transaction; ensure_default_pipeline(
 --      workspace) returns the workspace's default pipeline, making "Sales"
@@ -90,7 +91,7 @@ alter table public.custom_field_definition
   add constraint custom_field_definition_system_table check (not system or table_id is not null);
 
 -- ------------------------------------------------------------
--- 4. A select's outcomes (523's _field_config_ok, with `outcomes`)
+-- 4. A select's outcomes (531's _field_config_ok, with `outcomes`)
 -- ------------------------------------------------------------
 
 create or replace function public._field_config_ok(p_type text, p_config jsonb)
@@ -101,7 +102,8 @@ set search_path = public, pg_temp
 as $$
   select coalesce(
     jsonb_typeof(p_config) = 'object'
-    and not exists (select 1 from jsonb_object_keys(p_config) k where k not in ('currency', 'target', 'multiple', 'required_when', 'outcomes'))
+    and not exists (select 1 from jsonb_object_keys(p_config) k
+                     where k not in ('currency', 'target', 'multiple', 'required_when', 'outcomes', 'expression', 'relation', 'fn', 'field'))
     and (not (p_config ? 'currency') or (p_type = 'currency' and (p_config ->> 'currency') ~ '^[A-Z]{3}$'))
     and (not (p_config ? 'multiple') or (p_type = 'relation' and jsonb_typeof(p_config -> 'multiple') = 'boolean'))
     and ((p_type = 'relation') = (p_config ? 'target'))
@@ -119,7 +121,21 @@ as $$
       p_type = 'select'
       and jsonb_typeof(p_config -> 'outcomes') = 'object'
       and not exists (select 1 from jsonb_each(p_config -> 'outcomes') o
-                       where jsonb_typeof(o.value) <> 'string' or (o.value #>> '{}') not in ('open', 'won', 'lost')))),
+                       where jsonb_typeof(o.value) <> 'string' or (o.value #>> '{}') not in ('open', 'won', 'lost'))))
+    -- A formula: its expression, and nothing a rollup has (phase 6, 531).
+    and ((p_type = 'formula') = (p_config ? 'expression'))
+    and (p_type <> 'formula' or (
+      jsonb_typeof(p_config -> 'expression') = 'string'
+      and char_length(p_config ->> 'expression') between 1 and 2000))
+    -- A rollup: its relation and function, a field or none (531).
+    and ((p_type = 'rollup') = (p_config ? 'relation'))
+    and ((p_type = 'rollup') = (p_config ? 'fn'))
+    and (not (p_config ? 'field') or p_type = 'rollup')
+    and (p_type <> 'rollup' or (
+      (p_config ->> 'relation') ~ '^[a-z][a-z0-9_]{0,39}$'
+      and (p_config ->> 'fn') in ('count', 'sum', 'avg', 'min', 'max', 'earliest', 'latest', 'list')
+      and (not (p_config ? 'field') or jsonb_typeof(p_config -> 'field') = 'null'
+           or (p_config ->> 'field') ~ '^([a-z][a-z0-9_]{0,39}|_title)$'))),
     false);
 $$;
 revoke all on function public._field_config_ok(text, jsonb) from public, anon, authenticated;
