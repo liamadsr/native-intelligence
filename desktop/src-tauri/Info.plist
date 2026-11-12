@@ -3,9 +3,13 @@
 <plist version="1.0">
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Native Intelligence needs access to your microphone to record audio during meetings and voice notes.</string>
+	<string>Native Intelligence needs access to your microphone to record audio during meetings, voice notes and Studio recordings.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Native Intelligence uses your camera for video calls with your team, only while you have it on in a call.</string>
+	<string>Native Intelligence uses your camera for video calls with your team and for Studio recordings, only while you have it on in a call or a recording.</string>
+	<!-- Studio recordings also use Screen Recording (ScreenCaptureKit) and, for
+	     the take's input trace, Accessibility or Input Monitoring. macOS has no
+	     usage-description key for any of the three: their prompts name the app
+	     and the pane alone. docs/PERMISSIONS.md, "Studio recording". -->
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Native Intelligence captures system audio to record meeting participants, enabling speaker-separated transcripts.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

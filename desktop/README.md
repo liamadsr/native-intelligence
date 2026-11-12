@@ -27,6 +27,7 @@ dial8-desktop/
     sidecars/      # one folder per sidecar; each has build.sh → .out/bin, .out/lib, .out/licenses
       system-audio-capture/  # Swift: system audio tap, meeting detection, calendar
       local-stt/             # C++: on-device transcription (NVIDIA NeMo-Speech.cpp)
+      studio-recorder/       # Swift: Studio takes (screen, window, camera, mic, input trace)
     Cargo.toml
     tauri.conf.json
     capabilities/  # Tauri permission config
