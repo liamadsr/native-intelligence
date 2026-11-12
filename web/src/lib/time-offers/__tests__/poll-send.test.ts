@@ -139,12 +139,21 @@ describe('offer_times with several recipients, by email or text', () => {
     expect(await runOfferTimes(db, args, { ...INPUT, recipients: many, send_by: 'email' }, seams())).toMatchObject({ success: false, code: 'CARD_TOO_LONG' })
     expect(await timeOfferHold(db, { ...args, input: { ...INPUT, recipients: many, send_by: 'email' } }, seams())).toBeNull()
     // Four guests and six times on the real address fit, by email and by text.
-    const four = [...INPUT.recipients, { name: 'Ira Chen', email: 'ira@hooli.example', phone: '+13125550144' }, { name: 'Mo Diaz', email: 'mo@umbrella.example', phone: '+13125550145' }]
-    const six = [26, 30, 50, 54, 74, 78].map((h) => hoursFromNow(h, NOW))
-    for (const send_by of ['email', 'text'] as const) {
-      const hold = await timeOfferHold(db, { ...args, input: { ...INPUT, recipients: four, slots: six, send_by } }, seams({ origin: 'https://nativeintelligence.dev' }))
-      expect(hold, send_by).not.toBeNull()
-      expect(hold!.card.why.length).toBeLessThanOrEqual(OFFER_CARD_WHY_MAX)
+    // The clock is pinned so the six times fall on three days. The card gives
+    // each day its own heading, and on the real clock a pair of times sat
+    // either side of the host's midnight for three hours of every day: up to
+    // six headings, and a card that ran over (then this failed).
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-03-03T15:00:00Z') })
+    try {
+      const four = [...INPUT.recipients, { name: 'Ira Chen', email: 'ira@hooli.example', phone: '+13125550144' }, { name: 'Mo Diaz', email: 'mo@umbrella.example', phone: '+13125550145' }]
+      const six = [26, 30, 50, 54, 74, 78].map((h) => hoursFromNow(h, Date.now()))
+      for (const send_by of ['email', 'text'] as const) {
+        const hold = await timeOfferHold(db, { ...args, input: { ...INPUT, recipients: four, slots: six, send_by } }, seams({ origin: 'https://nativeintelligence.dev' }))
+        expect(hold, send_by).not.toBeNull()
+        expect(hold!.card.why.length).toBeLessThanOrEqual(OFFER_CARD_WHY_MAX)
+      }
+    } finally {
+      vi.useRealTimers()
     }
   })
 })

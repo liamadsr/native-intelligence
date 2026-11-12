@@ -15,7 +15,7 @@ const CONTACTS = [
 
 function chain(table: string) {
   const c: Record<string, unknown> = {}
-  for (const m of ['select', 'eq', 'in', 'order', 'limit', 'not']) c[m] = () => c
+  for (const m of ['select', 'eq', 'neq', 'or', 'in', 'order', 'limit', 'not']) c[m] = () => c
   const data = table === 'contact' ? CONTACTS : []
   c.single = async () => ({ data: null, error: null })
   c.then = (resolve: (v: unknown) => unknown) => Promise.resolve({ data, error: null }).then(resolve)

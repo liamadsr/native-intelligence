@@ -4,7 +4,7 @@
  * schema reloaded; three nullable columns (additive, no rewrite, nothing
  * dropped) and meeting_revoke_as (a definer with a pinned search_path, the
  * service role's alone, the host only); server only (never in 573's column
- * grant to members); the newest file, after 585.
+ * grant to members); numbered after 585, the only 586.
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -40,8 +40,11 @@ describe('migration 586', () => {
     expect(flat).toContain('grant execute on function public.meeting_revoke_as(uuid, uuid) to service_role;')
   })
 
-  it('numbered after 585', () => {
+  it('numbered after 585, the only 586', () => {
+    // Later files may follow it (Tables' 600–609 restate shared objects after main's newest).
     const numbers = readdirSync(DIR).map((f) => Number(f.split('_')[0])).filter(Number.isFinite)
-    expect(Math.max(...numbers)).toBe(586)
+    expect(numbers.filter((n) => n === 586)).toHaveLength(1)
+    expect(numbers).toContain(585)
+    expect(Math.max(...numbers.filter((n) => n < 586))).toBe(585)
   })
 })

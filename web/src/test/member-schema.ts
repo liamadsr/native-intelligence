@@ -78,11 +78,15 @@ function insideParens(text: string, open: number): string {
   return text.slice(open + 1)
 }
 
-/** A table's columns once every migration has run. */
-export function tableColumns(table: string): Set<string> {
-  const name = `(?:public\\.)?"?${table}"?`
+/**
+ * A table's columns once every migration has run. `sources` defaults to the
+ * migrations; table-schema.ts passes the baseline dump plus the migrations
+ * after its cut, which also covers tables no migration creates.
+ */
+export function tableColumns(table: string, sources: readonly { sql: string }[] = migrationsInOrder()): Set<string> {
+  const name = `(?:"?public"?\\.)?"?${table}"?`
   const columns = new Set<string>()
-  for (const { sql } of migrationsInOrder()) {
+  for (const { sql } of sources) {
     const text = sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ')
     for (const create of text.matchAll(new RegExp(`create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?${name}\\s*\\(`, 'gi'))) {
       for (const item of splitTopLevel(insideParens(text, (create.index ?? 0) + create[0].length - 1))) {
@@ -114,12 +118,12 @@ export function memberColumns(): Set<string> {
   return (memberColumnsMemo ??= tableColumns(MEMBER))
 }
 
-type SelectItem =
+export type SelectItem =
   | { kind: 'column'; name: string }
   | { kind: 'embed'; alias: string | null; target: string; inner: string }
 
 /** A PostgREST select list, one level deep. */
-function parseSelect(select: string): SelectItem[] {
+export function parseSelect(select: string): SelectItem[] {
   return splitTopLevel(select.replace(/\s+/g, ' ')).map((raw): SelectItem => {
     const item = raw.replace(/^\.\.\./, '')
     const open = item.indexOf('(')
@@ -182,7 +186,7 @@ export function embedsError(select: string): PostgrestError | null {
 }
 
 /** The columns an `.or()` expression filters on. */
-function orColumns(expression: string): string[] {
+export function orColumns(expression: string): string[] {
   return splitTopLevel(expression).flatMap((part) => {
     const nested = part.match(/^(?:not\.)?(?:and|or)\(([\s\S]*)\)$/)
     return nested ? orColumns(nested[1]) : [part.split('.')[0]]
@@ -190,7 +194,7 @@ function orColumns(expression: string): string[] {
 }
 
 /** The columns a builder call names, other than through `select`. */
-function namedColumns(method: string, args: unknown[]): string[] {
+export function namedColumns(method: string, args: unknown[]): string[] {
   const [first, second] = args
   if (method === 'or') {
     const options = second as { referencedTable?: string; foreignTable?: string } | undefined
@@ -237,7 +241,7 @@ function queryError(table: string, method: string, args: unknown[], state: Query
 
 /** A query PostgREST refused: every further call chains, and awaiting it
  *  gives the error. */
-function refused(error: PostgrestError): unknown {
+export function refused(error: PostgrestError): unknown {
   const settled = Promise.resolve({ data: null, error, count: null, status: 400, statusText: 'Bad Request' })
   const chain: unknown = new Proxy(settled, {
     get(target, prop) {

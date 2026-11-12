@@ -23,7 +23,9 @@ import { logRunUsage, reviewDraft } from '@/lib/writing/review'
 import { chatgptPlanFor } from '@/lib/chatgpt/plan-route'
 import { draftGuardNote, draftGuardProblem, type DraftGuardProblem } from '@/lib/email/draft-guard'
 import { ownMailAddresses } from '@/lib/email/own-addresses'
+import { findMembersByEmail } from '@/lib/workspace-member-emails'
 import { supersedeOtherDrafts } from '@/lib/email/one-draft'
+import { applyCaptureVisibility, isCaptureVisible } from '@/lib/ai/tools/_shared'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -595,6 +597,30 @@ export async function generateEmailDrafts(
 // Context gathering
 // ---------------------------------------------------------------------------
 
+/**
+ * The thread's participants other than the mailbox owner (every address they
+ * send from) and the workspace's members. A failed member lookup leaves no
+ * one: better no meeting context than a teammate's unrelated meetings.
+ */
+async function outsideParticipants(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  userId: string,
+  emails: string[],
+): Promise<string[]> {
+  if (!emails.length) return []
+  try {
+    const [own, members] = await Promise.all([ownMailAddresses(supabase, userId), findMembersByEmail(workspaceId, emails)])
+    return emails.filter((email) => {
+      const key = email.trim().toLowerCase()
+      return key && !own.has(key) && !members.has(key)
+    })
+  } catch (e) {
+    console.warn('[email-drafts] participant lookup failed:', e instanceof Error ? e.message : e)
+    return []
+  }
+}
+
 export async function gatherDraftContext(
   workspaceId: string,
   userId: string,
@@ -620,21 +646,42 @@ export async function gatherDraftContext(
     context.contactInfo = contact
   }
 
-  // 2. Recent captures involving participants (scoped to workspace)
-  const participantEmails = (thread.participant_emails as string[]) || []
+  // 2. Recent captures involving participants (scoped to workspace). From the
+  //    captures side, newest meeting first, once each: capture_participant has
+  //    no created_at (it has joined_at), and ordering by it failed every read,
+  //    so no draft ever drew on a meeting. The service-role client bypasses
+  //    RLS, so the mailbox owner's capture visibility is the fence (another
+  //    member's private meeting and eval captures stay out).
+  //    Only the thread's outside people pick the meetings: the owner's own
+  //    address (and a teammate's) is on most of their calendar meetings, and
+  //    matching it would hand the draft unrelated calls with other clients.
+  const participantEmails = await outsideParticipants(
+    supabaseAdmin,
+    workspaceId,
+    userId,
+    (thread.participant_emails as string[]) || [],
+  )
   if (participantEmails.length > 0) {
-    const { data: recentCaptures } = await supabaseAdmin
-      .from('capture_participant')
-      .select('capture:capture_id!inner(id, title, ai_summary, started_at, status, workspace_id)')
-      .in('external_email', participantEmails)
-      .eq('capture.workspace_id', workspaceId)
-      .order('created_at', { ascending: false })
+    const { data: recentCaptures, error: capturesError } = await applyCaptureVisibility(
+      supabaseAdmin
+        .from('captures')
+        .select(
+          'id, title, ai_summary, started_at, user_id, visibility, is_eval, notes_owner_out, cp:capture_participant!inner(external_email)',
+        )
+        .eq('workspace_id', workspaceId)
+        .in('cp.external_email', participantEmails)
+        .neq('status', 'archived')
+        .not('started_at', 'is', null)
+        .not('ai_summary', 'is', null),
+      userId,
+    )
+      .order('started_at', { ascending: false, nullsFirst: false })
       .limit(5)
+    if (capturesError) console.warn('[email-drafts] recent captures read failed:', capturesError.message)
 
     context.captures = (recentCaptures || [])
-      .map((cp) => cp.capture as unknown as DraftContext['captures'][0])
-      .filter(Boolean)
-      .filter((c) => c.ai_summary)
+      .filter((c) => c.ai_summary && isCaptureVisible(c, userId))
+      .map((c) => ({ id: c.id, title: c.title, ai_summary: c.ai_summary, started_at: c.started_at }))
   }
 
   // 3. Related actions
@@ -669,7 +716,7 @@ export async function gatherDraftContext(
     }
   }
 
-  // 4. Decisions from captures with these participants
+  // 4. Decisions from captures with these (outside) participants
   if (participantEmails.length > 0) {
     const { data: decisions } = await supabaseAdmin.rpc('get_decisions_by_participant_emails', {
       p_workspace_id: workspaceId,

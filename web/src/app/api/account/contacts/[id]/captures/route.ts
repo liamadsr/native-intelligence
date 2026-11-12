@@ -25,18 +25,25 @@ export async function GET(
 
   if (!contact) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  // From the captures side, newest meeting first, once each. capture_participant
+  // has no created_at (it has joined_at): ordering by it failed every read.
   const { data, error } = await supabase
-    .from('capture_participant')
-    .select('capture:capture_id(id, title, ai_summary, started_at, ended_at, status, ai_processed)')
-    .eq('contact_id', id)
+    .from('captures')
+    .select('id, title, ai_summary, started_at, ended_at, status, ai_processed, cp:capture_participant!inner(contact_id)')
+    .eq('workspace_id', workspaceId)
+    .eq('cp.contact_id', id)
+    // Eval captures (migration 252) are synthetic meetings that RLS doesn't hide.
+    .neq('is_eval', true)
+    // Archived meetings and auto-capture placeholders that never started stay out.
+    .neq('status', 'archived')
+    .not('started_at', 'is', null)
+    .order('started_at', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
     .limit(50)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const captures = (data || [])
-    .map((cp) => cp.capture)
-    .filter(Boolean)
+  const captures = (data || []).map(({ cp: _cp, ...capture }) => capture)
 
   return NextResponse.json({ captures })
 }
