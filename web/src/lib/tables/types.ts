@@ -236,6 +236,8 @@ export interface DataChange {
   reason: string | null
   changes: DataChangeEntry[]
   undo_of: string | null
+  /** The email thread, capture or text it came from (540). */
+  source_ref?: string | null
   undone_at: string | null
   created_at: string
 }

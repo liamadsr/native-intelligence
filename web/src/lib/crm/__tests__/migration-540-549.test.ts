@@ -42,9 +42,9 @@ const fn = (name: string) => newest.get(name.toLowerCase())!
 
 describe('540: a pipeline is a table', () => {
   it('marks a table a pipeline, one default per workspace', () => {
-    expect(m540).toContain("add column if not exists kind text not null default 'table'")
-    expect(m540).toContain("check (kind in ('table', 'pipeline'))")
-    expect(m540).toContain("check (not is_default or kind = 'pipeline')")
+    expect(m540).toContain("add column if not exists table_kind text not null default 'table'")
+    expect(m540).toContain("check (table_kind in ('table', 'pipeline'))")
+    expect(m540).toContain("check (not is_default or table_kind = 'pipeline')")
     expect(m540).toContain('create unique index if not exists data_table_one_default_pipeline')
   })
 
@@ -55,7 +55,7 @@ describe('540: a pipeline is a table', () => {
     expect(fn('pipeline_system_keys').text).toContain("array['stage', 'value', 'company', 'contacts', 'expected_close', 'owner']")
     const create = fn('create_pipeline').text
     expect(create).toContain('public.create_data_table(')
-    expect(create).toContain("set kind = 'pipeline'")
+    expect(create).toContain("set table_kind = 'pipeline'")
     expect(create).toContain('set system = true')
     const ensure = fn('ensure_default_pipeline').text
     expect(ensure).toContain('pg_advisory_xact_lock')
@@ -73,12 +73,40 @@ describe('540: a pipeline is a table', () => {
 
   it('keeps the stage times as 473 kept a deal’s', () => {
     const t = fn('pipeline_row_stage').text
-    expect(t).toContain("t.kind = 'pipeline'")
+    expect(t).toContain("t.table_kind = 'pipeline'")
     expect(t).toContain('new.stage_changed_at := coalesce(new.stage_changed_at, now())')
     expect(t).toContain("if v_outcome in ('won', 'lost') then")
     expect(t).toContain("new.closed_at := coalesce(case when tg_op = 'UPDATE' then old.closed_at end, new.closed_at, now())")
     expect(m540).toContain('before insert or update of custom_fields on public.data_row')
     expect(m540).toContain("when (new.system and new.key = 'stage' and (old.config -> 'outcomes') is distinct from (new.config -> 'outcomes'))")
+  })
+})
+
+describe('540: where a change came from, and the default pipeline', () => {
+  it('keeps a change’s source_ref: apply_data_ops is 530’s with p_source_ref', () => {
+    expect(m540).toContain('alter table public.data_change add column if not exists source_ref text null;')
+    expect(m540).toContain('drop function if exists public.apply_data_ops(uuid, bigint, jsonb, text, text, uuid, uuid, boolean);')
+    const apply = fn('apply_data_ops')
+    expect(apply.file.startsWith('540_')).toBe(true)
+    expect(apply.text).toContain('p_source_ref text default null')
+    expect(apply.text).toContain("left(nullif(btrim(coalesce(p_source_ref, '')), ''), 200)")
+    // The rest of 530's checks stay.
+    expect(apply.text).toContain('or (p_grants is false and not public.data_table_visible_ungranted(t.id, v_user)) then')
+    expect(m540).toContain('grant execute on function public.apply_data_ops(uuid, bigint, jsonb, text, text, uuid, uuid, boolean, text) to authenticated, service_role;')
+  })
+
+  it('never lets the default be archived or private, and makes another the default', () => {
+    expect(fn('pipeline_default_guard').text).toContain("if new.is_default and (new.archived_at is not null or new.visibility <> 'workspace') then")
+    expect(m540).toContain('before update of archived_at, visibility, is_default on public.data_table')
+    const make = fn('set_default_pipeline').text
+    expect(make).toContain('public.data_table_editable_by(t.id, v_user)')
+    expect(make).toContain("v_role = 'guest'")
+    expect(fn('ensure_default_pipeline').text.match(/is_default and archived_at is null and visibility = 'workspace'/g)).toHaveLength(2)
+  })
+
+  it('keeps the stage outcome helper the trigger’s alone', () => {
+    expect(m540).toContain('revoke all on function public.pipeline_stage_outcome(uuid, text) from public, anon, authenticated;')
+    expect(m540).not.toContain('grant execute on function public.pipeline_stage_outcome')
   })
 })
 
@@ -136,6 +164,13 @@ describe('548: every deal moves, re-runnably', () => {
   it('says what it can’t undo: a move to another pipeline keeps its other fields', () => {
     expect(fn('_deal_event_changes').text).toContain("if not (p_changes ? 'pipeline_id') then")
   })
+  it('carries an event’s source_ref, a deal relation with no pipeline to point at, and documents’ chips', () => {
+    expect(move).toContain("case when k.kind <> 'undo' then left(nullif(btrim(coalesce(k.source_ref, '')), ''), 200) end")
+    expect(move).toContain('delete from public.custom_field_definition where id = f.id;')
+    expect(move).toContain("set content = replace(d.content, 'mention://deal/', 'mention://data_row/'),")
+    expect(move).toContain("replace(d.content_json::text, '\"kind\": \"deal\"', '\"kind\": \"data_row\"')::jsonb")
+    expect(move).toContain('update public.document_revision r')
+  })
   it('does nothing once the deal tables are gone', () => {
     expect(fn('_deals_to_pipelines').text).toContain("if to_regclass('public.deal') is null then")
     expect(move).toContain('select public._deals_to_pipelines() as moved;')
@@ -153,23 +188,29 @@ describe('549: the deal tables go, and nothing reads them', () => {
   it('no newest definition reads a deal table, but behind a to_regclass guard', () => {
     // Dynamic SQL behind to_regclass (402, 403, 408, 528's legacy branches),
     // and 516's step, whose 'deal' source left its progress list (549).
-    const guarded = new Set(['_wsmerge_members', '_wsmerge_teams_finish', '_wsmerge_companies', 'repair_cross_workspace_drift', '_wsmerge_export_tables', 'entity_activity_backfill_step'])
+    const guarded = new Set(['_wsmerge_members', '_wsmerge_teams_finish', '_wsmerge_companies', 'repair_cross_workspace_drift', '_wsmerge_export_tables'])
     const dropped = new Set(['ensure_default_deal_pipeline', 'deal_before_write', 'contact_merge_move_deals', 'contact_unmerge_restore_deals', 'deal_forget_contact', 'entity_activity_deal_insert', 'entity_activity_deal_update', '_deals_to_pipelines', '_deal_event_changes'])
-    const reads = /\b(from|join|update|into)\s+public\.(deal|deal_stage|deal_pipeline|deal_event)\b/i
+    // A table read, or a name cast to one ('public.deal'::regclass fails once the table is gone).
+    const reads = /\b(from|join|update|into)\s+public\.(deal|deal_stage|deal_pipeline|deal_event)\b|'public\.(deal|deal_stage|deal_pipeline|deal_event)'::regclass/i
     const offenders = [...newest.entries()].filter(([name, d]) => !guarded.has(name) && !dropped.has(name) && reads.test(d.text)).map(([name, d]) => `${name} (${d.file})`)
     expect(offenders).toEqual([])
     for (const name of guarded) {
       const text = fn(name).text
       // 402's export list is predicates as text, read only for the tables that exist.
-      if (name !== 'entity_activity_backfill_step' && name !== '_wsmerge_export_tables' && reads.test(text)) expect(text, name).toMatch(/to_regclass\('public\.deal/)
+      if (name !== '_wsmerge_export_tables' && reads.test(text)) expect(text, name).toMatch(/to_regclass\('public\.deal/)
     }
     expect(m549).toContain("delete from public.entity_activity_backfill_progress where source = 'deal';")
+    // 516's step, restated without its deal branch, kind and table check.
+    const step = fn('entity_activity_backfill_step')
+    expect(step.file.startsWith('549_')).toBe(true)
+    expect(step.text).not.toMatch(/deal/)
+    expect(step.text).toContain("'public.flow'::regclass")
   })
 
   it('folds pipelines by name in a workspace merge, keeping 528’s value rewrite', () => {
     const merge = fn('_wsmerge_deals')
     expect(merge.file.startsWith('549_')).toBe(true)
-    expect(merge.text).toContain("FROM public.data_table WHERE workspace_id = p_source AND kind = 'pipeline'")
+    expect(merge.text).toContain("FROM public.data_table WHERE workspace_id = p_source AND table_kind = 'pipeline'")
     expect(merge.text).toContain('lower(d.name) = lower(p.name)')
     expect(merge.text).toContain('UPDATE public.view SET scope_id = v_dst')
     expect(merge.text).toContain('public._wsmerge_custom_field_ids(p_source, p_dest)')

@@ -93,6 +93,9 @@ MAY_BE_EMPTY = {
     "LIVEKIT_API_KEY": "empty: no audio or video calls",
     "LIVEKIT_API_SECRET": "empty: no audio or video calls",
     "LIVEKIT_EGRESS": "a switch: empty is off (no call notes or recordings; on once Egress runs, ../README.md step 23)",
+    # The call recorder (../livekit's recorder service; ../README.md step 23, "The call recorder").
+    "TEAM_CALL_RECORDER": "a switch: empty is off (call notes are Egress's, or there are none)",
+    "CAPTURE_FEED_SECRET": "empty: the call recorder cannot reach the app (make-keys.sh in ../livekit makes it)",
 }
 
 SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}
@@ -614,6 +617,38 @@ def check_livekit_egress(env, _opts):
     return None, None
 
 
+def check_team_call_recorder(env, _opts):
+    """`on` or empty, and `on` only with calls set up and the feed's secret: the recorder
+    joins the calls' LiveKit and sends that secret. Whether the recorder itself runs is
+    not visible from here; step 23's test call is the proof."""
+    value = env["TEAM_CALL_RECORDER"].strip()
+    if value != "on":
+        return False, "is %r: only on, or empty for off" % (value[:12],)
+    if not env.get("LIVEKIT_URL", "").strip():
+        return False, "on without LIVEKIT_URL: the recorder joins the calls' LiveKit"
+    if not env.get("CAPTURE_FEED_SECRET", "").strip():
+        return False, "on without CAPTURE_FEED_SECRET: the app would refuse the recorder (make-keys.sh in ../livekit)"
+    return None, None
+
+
+# The internal secrets the capture feed's must differ from (web/src/lib/eve/internal-secret.ts).
+INTERNAL_SECRETS = ("RUN_SKILL_INTERNAL_SECRET", "AGENT_RUN_INTERNAL_SECRET", "CHAT_INTERNAL_SECRET", "UTILITY_INTERNAL_SECRET",
+                    "LIVE_AGENT_INTERNAL_SECRET", "BROWSER_INTERNAL_SECRET", "LOCAL_AGENT_TOKEN_SECRET")
+
+
+def check_capture_feed_secret(env, _opts):
+    """Long enough, and its own: the app turns the feed off when it equals any other
+    internal secret (whoever holds it, the recorder in LiveKit's stack, would hold that
+    one too)."""
+    value = env["CAPTURE_FEED_SECRET"].strip()
+    if len(value) < 32:
+        return False, "is %d characters: at least 32 (make-keys.sh in ../livekit makes one)" % len(value)
+    same = [name for name in INTERNAL_SECRETS if env.get(name, "").strip() == value]
+    if same:
+        return False, "equals %s: the app turns the feed off then; give it a value of its own" % ", ".join(same)
+    return None, None
+
+
 CHECKS = {
     "CREDENTIAL_ENCRYPTION_KEY": check_credential_key,
     "RUN_SKILL_INTERNAL_SECRET": check_run_skill,
@@ -633,6 +668,8 @@ CHECKS = {
     "LIVEKIT_API_KEY": check_livekit_key,
     "LIVEKIT_API_SECRET": check_livekit_key,
     "LIVEKIT_EGRESS": check_livekit_egress,
+    "TEAM_CALL_RECORDER": check_team_call_recorder,
+    "CAPTURE_FEED_SECRET": check_capture_feed_secret,
 }
 
 

@@ -23,6 +23,7 @@ import {
   Rows3,
   Hash,
   Link2,
+  MessageSquare,
   Target,
   User,
   Workflow,
@@ -51,6 +52,7 @@ const ICONS: Record<string, LucideIcon> = {
   calendar_event: CalendarDays,
   team_chat_message: Hash,
   team_chat_channel: Hash,
+  conversation: MessageSquare,
 }
 
 /** How a relation reads under a row: a mention is the common case and says so. */

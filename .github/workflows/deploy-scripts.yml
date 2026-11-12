@@ -21,6 +21,8 @@ on:
       - 'web/src/lib/sms/phone-verification.ts'
       - 'web/src/lib/cloud-browser/viewer-token.ts'
       - 'web/src/lib/calls/caller.ts'
+      # deploy/sandbox/tests pins the sandbox image to the app's version of the agent framework:
+      - 'web/package.json'
 
 permissions:
   contents: read
@@ -37,4 +39,6 @@ jobs:
       - run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends python3-cryptography
       - run: /usr/bin/python3 -m unittest discover -s deploy/app/tests -v
       - run: /usr/bin/python3 -m unittest discover -s deploy/supabase/tests -v
-      - run: for f in deploy/app/auto-deploy.sh deploy/app/check-settings.sh deploy/app/pull-settings.sh deploy/supabase/set-secret.sh deploy/livekit/make-keys.sh deploy/livekit/test-token.sh deploy/livekit/test-egress.sh; do bash -n "$f"; done
+      - run: /usr/bin/python3 -m unittest discover -s deploy/sandbox/tests -v
+      - run: for f in deploy/app/auto-deploy.sh deploy/app/check-settings.sh deploy/app/pull-settings.sh deploy/supabase/set-secret.sh deploy/livekit/make-keys.sh deploy/livekit/test-token.sh deploy/livekit/test-egress.sh deploy/sandbox/setup.sh deploy/sandbox/check.sh deploy/sandbox/tunnel.sh deploy/server/setup.sh; do bash -n "$f"; done
+      - run: sh -n deploy/sandbox/guard.sh

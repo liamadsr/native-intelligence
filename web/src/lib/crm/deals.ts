@@ -29,7 +29,7 @@ import { toIlikeSearchTerm } from './ilike-search-term'
 import { formatDealValue } from './deal-format'
 import { filterVisibleCompanies, filterVisibleContacts, isCompanyVisibleTo } from './contact-visibility'
 import { fieldReferenceCheck } from './custom-field-references'
-import { applyOps, listChanges, listTables, ROW_SELECT, undoChange, type TableActor } from '@/lib/tables/store'
+import { applyOps, CHANGE_SELECT, listTables, ROW_SELECT, summarizeChange, undoChange, type TableActor } from '@/lib/tables/store'
 import { touchedBy } from '@/lib/tables/ops'
 import type { DataChange, DataColumn, DataRow, DataTable } from '@/lib/tables/types'
 
@@ -98,7 +98,7 @@ export interface Deal {
 export interface DealActor {
   userId: string | null
   source: DealChangeSource
-  /** The email thread, capture or text it came from (not kept: a table's log has no place for it). */
+  /** The email thread, capture or text it came from (kept on the change: data_change.source_ref). */
   sourceRef?: string | null
   /** Why, in a sentence: "Signed contract in Dana's email of Nov 3". */
   reason?: string | null
@@ -528,6 +528,7 @@ function tableActor(actor: DealActor, opts: WriteOptions): TableActor {
     userId: actor.userId,
     source: actor.source,
     reason: actor.reason ?? null,
+    sourceRef: actor.sourceRef ?? null,
     asUserId: opts.viewer ?? actor.userId,
     ...(opts.grants === false ? { grants: false } : {}),
   }
@@ -606,6 +607,8 @@ export interface DealEvent {
   changes: DealChanges
   source: DealChangeSource | 'import'
   reason: string | null
+  /** The email thread, capture or text it came from. */
+  source_ref: string | null
   actor_user_id: string | null
   undone_at: string | null
   created_at: string
@@ -634,16 +637,44 @@ function asEvent(change: DataChange, dealId: string): DealEvent {
     changes,
     source: change.source as DealEvent['source'],
     reason: change.reason,
+    source_ref: change.source_ref ?? null,
     actor_user_id: change.actor_user_id,
     undone_at: change.undone_at,
     created_at: change.created_at,
   }
 }
 
-/** A deal's recent changes, newest first (its pipeline's changes that touched it). */
+/**
+ * A deal's changes, newest first: its pipeline's changes that name its row,
+ * read by the row (an entry's row_id, or its row_ids), not from the table's
+ * latest.
+ */
+export async function changesForDeal(db: SupabaseClient, workspaceId: string, deal: Pick<Deal, 'id' | 'pipeline_id'>, limit = 50): Promise<DataChange[]> {
+  const n = Math.min(Math.max(1, limit), 200)
+  const read = (shape: Record<string, unknown>) =>
+    db
+      .from('data_change')
+      .select(CHANGE_SELECT)
+      .eq('workspace_id', workspaceId)
+      .eq('table_id', deal.pipeline_id)
+      .contains('changes', [shape])
+      .order('created_at', { ascending: false })
+      .limit(n)
+  const [one, many] = await Promise.all([read({ row_id: deal.id }), read({ row_ids: [deal.id] })])
+  if (one.error) throw new Error(one.error.message)
+  if (many.error) throw new Error(many.error.message)
+  const byId = new Map<string, DataChange>()
+  for (const c of [...((one.data ?? []) as DataChange[]), ...((many.data ?? []) as DataChange[])]) byId.set(c.id, c)
+  return [...byId.values()]
+    .filter((c) => touches(c, deal.id))
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : b.version - a.version))
+    .slice(0, n)
+}
+
+/** A deal's recent changes, newest first. */
 export async function listDealEvents(db: SupabaseClient, workspaceId: string, deal: Pick<Deal, 'id' | 'pipeline_id'>, limit = 20): Promise<DealEvent[]> {
-  const changes = await listChanges(db, workspaceId, deal.pipeline_id, 200, { summary: true })
-  return changes.filter((c) => touches(c, deal.id)).slice(0, limit).map((c) => asEvent(c, deal.id))
+  const changes = await changesForDeal(db, workspaceId, deal, limit)
+  return changes.map((c) => asEvent(summarizeChange(c), deal.id))
 }
 
 export type UndoResult =
@@ -668,7 +699,7 @@ export async function undoDealChange(
   const pipelines = opts.pipelines ?? (await listPipelines(db, workspaceId, readOpts(opts)))
   const deal = await getDeal(db, workspaceId, args.dealId, pipelines)
   if (!deal) return { ok: false, error: 'Deal not found' }
-  const changes = (await listChanges(db, workspaceId, deal.pipeline_id, 200)).filter((c) => touches(c, deal.id))
+  const changes = await changesForDeal(db, workspaceId, deal, 200)
   let change: DataChange | undefined
   if (args.changeId) {
     if (!isUuid(args.changeId)) return { ok: false, error: 'Change not found' }
@@ -816,6 +847,24 @@ export async function createPipeline(
   })
   if (error) return { ok: false, error: error.message.charAt(0).toUpperCase() + error.message.slice(1) }
   return { ok: true, id: String((data as { table_id?: string } | null)?.table_id ?? '') }
+}
+
+/**
+ * Make a pipeline the workspace's default (540's set_default_pipeline): a
+ * live, workspace-wide pipeline the caller may change. The default is never
+ * archived or private, so this is how another one takes its place first.
+ */
+export async function setDefaultPipeline(
+  db: SupabaseClient,
+  tableId: string,
+  asUserId: string | null = null,
+): Promise<{ ok: true } | { ok: false; reason: 'not_found' | 'forbidden' | 'invalid'; error: string }> {
+  const { error } = await db.rpc('set_default_pipeline', { p_table_id: tableId, p_as_user: asUserId })
+  if (!error) return { ok: true }
+  const message = error.message.charAt(0).toUpperCase() + error.message.slice(1)
+  if (error.code === 'P0002') return { ok: false, reason: 'not_found', error: 'Pipeline not found' }
+  if (error.code === '42501') return { ok: false, reason: 'forbidden', error: message }
+  return { ok: false, reason: 'invalid', error: message }
 }
 
 /**

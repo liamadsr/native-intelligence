@@ -1,12 +1,23 @@
 /**
  * A host's own `@` list (team chat) that also finds records: its options in
  * one section first, then the record sections the search found, the offsets
- * running on through them; never a contacts section (the host's people are
- * its options). Deals and flows are search kinds now. Fixtures are made up.
+ * running on through them; the contacts found join the host's people, a
+ * teammate's own contact left out. Deals, flows, files and events are search
+ * kinds. Fixtures are made up.
  */
 import { describe, expect, it } from 'vitest'
 import { buildMenu, hostRecordOffer, mentionOptionsMenu, offeredKinds, serverSearch } from '../command-menu-model'
-import { MENU_SEARCH_KINDS, menuRowMention, type MenuSearchRow } from '@/lib/search/menu-search'
+import {
+  MENTION_PICKER_KINDS,
+  MENTION_RECORD_KEYS,
+  MENTION_RECORD_KINDS,
+  MENU_SEARCH_KINDS,
+  menuRowMention,
+  menuRowTarget,
+  toMentionRecord,
+  type MenuSearchRow,
+} from '@/lib/search/menu-search'
+import { isMentionableType } from '@/lib/entity-links/mentionable'
 
 const OPTIONS = [
   { id: '__agent__', label: 'Joseph', agent: true },
@@ -54,5 +65,54 @@ describe('deals and flows', () => {
     // A deal is its pipeline's row (Tables, phase 7).
     expect(menuRowMention(records.deal![0])).toEqual({ type: 'data_row', id: 'd-1', label: 'Rosewood renewal' })
     expect(menuRowMention({ kind: 'agent', id: 'r-1', title: 'Scout', description: null, icon: null, score: 1 })).toBeNull()
+  })
+})
+
+describe('the one @ picker (MENTION_PICKER_KINDS)', () => {
+  const contact = (id: string, name: string, isMember: boolean, score: number): MenuSearchRow => ({
+    kind: 'contact',
+    contact: { id, full_name: name, email: null, job_title: null, company_name: null, is_member: isMember },
+    score,
+  })
+
+  it('is one list of search kinds, each a kind a mention edge may point at', () => {
+    for (const kind of MENTION_PICKER_KINDS) {
+      expect(MENU_SEARCH_KINDS).toContain(kind)
+      expect(isMentionableType(kind)).toBe(true)
+    }
+    expect(MENTION_PICKER_KINDS).toEqual(expect.arrayContaining(['contact', 'deal', 'flow', 'attachment', 'calendar_event']))
+    expect(MENTION_PICKER_KINDS).not.toContain('agent')
+    expect(MENTION_PICKER_KINDS).not.toContain('team_chat_message')
+  })
+
+  it('every record kind a turn mentions has its system-context and run-chat key', () => {
+    for (const kind of MENTION_RECORD_KINDS) {
+      expect(MENTION_RECORD_KEYS[kind].context).toMatch(/^attached[A-Z]\w+Ids$/)
+      expect(MENTION_RECORD_KEYS[kind].run).toMatch(/^[a-z]\w+Ids$/)
+    }
+  })
+
+  it('a host’s people are its teammates, then the contacts found, never a teammate’s own contact twice', () => {
+    const offer = hostRecordOffer(MENTION_PICKER_KINDS)
+    const found = {
+      contact: [contact('c-rosa', 'Rosa Lind', true, 0.85), contact('c-roz', 'Roz Avery', false, 0.85)],
+      deal: records.deal!,
+    }
+    const menu = mentionOptionsMenu(OPTIONS, 'ro', buildMenu('@', 'all', 'ro', offer, { pages: [], skills: [], records: found }))
+    const people = menu.sections[0]
+    expect(people.key).toBe('people')
+    expect(people.items.map((i) => (i.kind === 'option' ? i.option.id : i.kind === 'record' ? menuRowMention(i.row)!.id : ''))).toEqual(['m-rosa', 'c-roz'])
+    expect(people.items[1]).toMatchObject({ kind: 'record', host: true })
+    expect(menu.sections.map((s) => s.key)).toEqual(['people', 'deals'])
+    expect(menu.sections[1].offset).toBe(2)
+  })
+
+  it('a file opens the record it hangs off; an event opens on its day; both are mentioned by name', () => {
+    const file: MenuSearchRow = { kind: 'attachment', id: 'f-1', title: 'menu.pdf', category: 'document', parent: { type: 'action', id: 'a-1' }, createdAt: null, score: 1 }
+    const event: MenuSearchRow = { kind: 'calendar_event', id: 'e-1', title: 'Harbor call', start: '2026-11-12T10:00:00Z', end: null, allDay: false, score: 1 }
+    expect(menuRowTarget(file)).toEqual({ type: 'action', id: 'a-1', title: null })
+    expect(menuRowTarget(event)).toEqual({ type: 'calendar-event', id: 'e-1', title: 'Harbor call', start: '2026-11-12T10:00:00Z' })
+    expect(menuRowMention(file)).toEqual({ type: 'attachment', id: 'f-1', label: 'menu.pdf' })
+    expect(toMentionRecord(event)).toEqual({ kind: 'calendar_event', id: 'e-1', title: 'Harbor call' })
   })
 })

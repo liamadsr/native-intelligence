@@ -2490,10 +2490,6 @@ function getGroupLabel(item: Record<string, unknown>, field: string, key: string
     const ws = item.workflow_state as { name?: string } | null
     return ws?.name || key
   }
-  if (field === 'stage_id') {
-    const stage = item.stage as { name?: string } | null
-    return stage?.name || key
-  }
   if (field === 'owner_id') {
     const owner = item.owner as { display_name?: string } | null
     return owner?.display_name || key
@@ -2509,6 +2505,12 @@ function getGroupLabel(item: Record<string, unknown>, field: string, key: string
   if (field === 'team_id') {
     const team = item.team as { name?: string } | null
     return team?.name || key
+  }
+  // Joined on every action row (ACTION_VIEW_SELECT's `milestone`): a group by
+  // milestone reads its name, not its id (the Tasks sub-nav's Milestones).
+  if (field === 'milestone_id') {
+    const milestone = item.milestone as { name?: string } | null
+    return milestone?.name || key
   }
   if (field === 'company_id') {
     const company = item.company as { name?: string } | null

@@ -118,6 +118,7 @@ import {
 } from '@/lib/chatgpt/plan-models'
 import { gatewayTelemetryValues, type GatewayTelemetryValues } from '@/lib/ai/gateway-telemetry'
 import { ALL_TOOL_NAMES, getToolDefinition } from '@/lib/ai/tool-registry'
+import { MENTION_RECORD_KEYS, MENTION_RECORD_KINDS } from '@/lib/search/menu-search'
 import {
   CORE_TOOL_NAMES,
   PERSON_MENTION_TOOL_NAMES,
@@ -1061,11 +1062,11 @@ export async function rebuildChatSpec(
   const extraCoreToolNames = [
     ...(turn.systemContext?.attachedContactIds?.length ? PERSON_MENTION_TOOL_NAMES : []),
     ...(turn.systemContext?.attachedCompanyIds?.length ? COMPANY_MENTION_TOOL_NAMES : []),
-    // @-mentioned actions, docs, projects and initiatives (§6h): the tool that reads each kind.
-    ...(turn.systemContext?.attachedActionIds?.length ? RECORD_MENTION_TOOL_NAMES.action : []),
-    ...(turn.systemContext?.attachedDocumentIds?.length ? RECORD_MENTION_TOOL_NAMES.document : []),
-    ...(turn.systemContext?.attachedProjectIds?.length ? RECORD_MENTION_TOOL_NAMES.project : []),
-    ...(turn.systemContext?.attachedInitiativeIds?.length ? RECORD_MENTION_TOOL_NAMES.initiative : []),
+    // @-mentioned records (§6h): the tool that reads each kind present.
+    ...MENTION_RECORD_KINDS.flatMap((kind) => {
+      const ids = (turn.systemContext as Record<string, unknown> | undefined)?.[MENTION_RECORD_KEYS[kind].context]
+      return Array.isArray(ids) && ids.length ? RECORD_MENTION_TOOL_NAMES[kind] : []
+    }),
     // The agent's browser runs in the cloud, so its tools ride every surface;
     // the edition ceiling still gates whether they exist (a no-op seed on a
     // non-browser workspace), and the caller-class policy still applies.

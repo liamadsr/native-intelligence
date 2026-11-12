@@ -77,7 +77,7 @@ import { gatherDraftContext, buildContextBlock } from '@/lib/crm/email-drafts'
 import { readEmailThread, type EmailThreadForAI } from '@/lib/email/email-read-service'
 import { isMailId, parseEmailReplyRequest, type EmailReplyRequest } from '@/lib/email/reply-in-chat'
 import { wrapUntrusted } from '@/lib/email/untrusted'
-import { buildMentionedRecordsBlock } from './mentioned-records'
+import { buildMentionedRecordsBlock, hasMentionedRecordIds, mentionedRecordIdsOf } from './mentioned-records'
 import { getWorkspaceBrief } from '@/lib/knowledge/brief'
 import { buildLiveCaptureContext } from '@/lib/live-agent/live-capture-context'
 import { buildCallLine } from '@/lib/live-agent/call-line'
@@ -147,10 +147,14 @@ export interface ChatSystemContext {
   attachedContactIds?: string[]
   /** Companies the user @-mentioned this turn (picker → chip). Drives §6e + tool seeding. */
   attachedCompanyIds?: string[]
-  /** Actions, docs and initiatives the user @-mentioned this turn (projects ride attachedProjectIds). Drive §6h + tool seeding. */
+  /** Records the user @-mentioned this turn (projects ride attachedProjectIds; MENTION_RECORD_KEYS). Drive §6h + tool seeding. */
   attachedActionIds?: string[]
   attachedDocumentIds?: string[]
   attachedInitiativeIds?: string[]
+  attachedDealIds?: string[]
+  attachedFlowIds?: string[]
+  attachedFileIds?: string[]
+  attachedCalendarEventIds?: string[]
   conversationContext?: string
   /** The email thread on screen, by its provider thread id (Mail's location). */
   emailThreadId?: string
@@ -543,6 +547,8 @@ export async function buildChatSystemPrompt(
   // live conversation's own turn, which has the whole live block).
   const onCallCaptureId = !teammateId && !liveCaptureId && typeof systemContext?.onCallCaptureId === 'string' ? systemContext.onCallCaptureId : null
   const attachedProjectIds = systemContext?.attachedProjectIds
+  // The records @-mentioned this turn, under their run-chat names (projectIds among them).
+  const mentionedRecordIds = mentionedRecordIdsOf(systemContext as Record<string, unknown> | undefined)
   const attachedCompanyIds = systemContext?.attachedCompanyIds
   const attachedContactIds = systemContext?.attachedContactIds
   const emailReply = parseEmailReplyRequest(systemContext?.emailReply)
@@ -647,21 +653,9 @@ export async function buildChatSystemPrompt(
             }),
           )
         : null,
-      // §6h. The actions, docs, projects and initiatives mentioned (each read fenced in the builder).
-      systemContext?.attachedActionIds?.length ||
-      systemContext?.attachedDocumentIds?.length ||
-      attachedProjectIds?.length ||
-      systemContext?.attachedInitiativeIds?.length
-        ? withinMentionBudget(() =>
-            buildMentionedRecordsBlock(supabase, {
-              workspaceId,
-              userId,
-              actionIds: systemContext?.attachedActionIds,
-              documentIds: systemContext?.attachedDocumentIds,
-              projectIds: attachedProjectIds,
-              initiativeIds: systemContext?.attachedInitiativeIds,
-            }),
-          )
+      // §6h. The tasks, docs, projects, initiatives, deals, flows, files and events mentioned (each read fenced in the builder).
+      hasMentionedRecordIds(mentionedRecordIds)
+        ? withinMentionBudget(() => buildMentionedRecordsBlock(supabase, { workspaceId, userId, ...mentionedRecordIds }))
         : null,
       externalMcp,
       emailReply ? emailReplyBlock(supabase, workspaceId, userId, emailReply) : null,

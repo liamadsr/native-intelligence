@@ -17,6 +17,9 @@ import type { EntityType } from '@/lib/knowledge/entity-registry'
  * registered entity kinds, plus 'agent' (a recipe offered as someone to @).
  * 'team_chat_message' (migration 561): a message in a channel or DM the
  * person may read, found by its words; opened in team chat, scrolled to it.
+ * 'attachment': an uploaded file the person may read (its uploader's, or on a
+ * record they can see: src/lib/attachments/visibility.ts). 'calendar_event':
+ * one of the person's own calendar events (each is its owner's alone).
  */
 export const MENU_SEARCH_KINDS = [
   'action',
@@ -29,6 +32,8 @@ export const MENU_SEARCH_KINDS = [
   // A pipeline's row (Tables, phase 7), found and listed as a deal.
   'deal',
   'flow',
+  'attachment',
+  'calendar_event',
   'agent',
   'team_chat_message',
 ] as const satisfies readonly (EntityType | 'agent' | 'deal')[]
@@ -177,6 +182,28 @@ export interface MenuFlowRow extends Scored {
   status: string | null
 }
 
+export interface MenuFileRow extends Scored {
+  kind: 'attachment'
+  id: string
+  /** Its file name. */
+  title: string
+  /** 'image' or 'document'. */
+  category: string | null
+  /** The record it hangs off (what opening it opens): a capture, a task or a project. */
+  parent: { type: 'capture' | 'action' | 'project'; id: string } | null
+  createdAt: string | null
+}
+
+export interface MenuCalendarEventRow extends Scored {
+  kind: 'calendar_event'
+  id: string
+  title: string
+  /** ISO times. */
+  start: string
+  end: string | null
+  allDay: boolean
+}
+
 export interface MenuAgentRow extends Scored {
   kind: 'agent'
   id: string
@@ -211,6 +238,8 @@ export type MenuSearchRow =
   | MenuCompanyRow
   | MenuDealRow
   | MenuFlowRow
+  | MenuFileRow
+  | MenuCalendarEventRow
   | MenuAgentRow
 
 /** What the route answers: each kind asked for, its rows best first. */
@@ -248,6 +277,11 @@ export function menuRowTarget(row: MenuSearchRow): OpenTarget {
       return { type: 'team_chat', messageId: row.id, channelId: row.channelId }
     case 'deal':
       return { type: 'deal', id: row.id, title: row.title, pipelineId: row.pipelineId }
+    case 'attachment':
+      // A file lives on its record: opening it opens that record's card.
+      return row.parent ? { type: row.parent.type, id: row.parent.id, title: null } : { type: 'page', slug: 'captures' }
+    case 'calendar_event':
+      return { type: 'calendar-event', id: row.id, title: row.title, start: row.start }
     default:
       return { type: row.kind, id: row.id, title: row.title }
   }
@@ -304,11 +338,52 @@ export function bestScore(...scores: number[]): number {
 
 // ── Records mentioned in a message ───────────────────────────────────────────
 
+/**
+ * What every `@` picker finds, in one list: the main chat's, team chat's and a
+ * document's. People are contacts (every teammate has one, linked to their
+ * member row); team chat lists its teammates from its own members and leaves
+ * their contacts out. Not mail (no one sees another's, migration 341), not
+ * agents or messages (opened, never mentioned).
+ */
+export const MENTION_PICKER_KINDS = [
+  'contact',
+  'company',
+  'action',
+  'document',
+  'project',
+  'initiative',
+  'capture',
+  'deal',
+  'flow',
+  'attachment',
+  'calendar_event',
+] as const satisfies readonly MenuSearchKind[]
+export type MentionPickerKind = (typeof MENTION_PICKER_KINDS)[number]
+
 /** The record kinds a message mentions by id (captures, people and companies have their own). */
-export const MENTION_RECORD_KINDS = ['action', 'document', 'project', 'initiative'] as const
+export const MENTION_RECORD_KINDS = ['action', 'document', 'project', 'initiative', 'deal', 'flow', 'attachment', 'calendar_event'] as const
 export type MentionRecordKind = (typeof MENTION_RECORD_KINDS)[number]
 
-/** An action, doc, project or initiative mentioned in the message being written. */
+/**
+ * Each record kind's ids as a turn sends them: in the main chat's system
+ * context (`attachedActionIds`…) and in a run chat's `mentions`
+ * (`actionIds`…). One table, read by the composer and both servers.
+ */
+export const MENTION_RECORD_KEYS: Record<MentionRecordKind, { context: string; run: string }> = {
+  action: { context: 'attachedActionIds', run: 'actionIds' },
+  document: { context: 'attachedDocumentIds', run: 'documentIds' },
+  project: { context: 'attachedProjectIds', run: 'projectIds' },
+  initiative: { context: 'attachedInitiativeIds', run: 'initiativeIds' },
+  deal: { context: 'attachedDealIds', run: 'dealIds' },
+  flow: { context: 'attachedFlowIds', run: 'flowIds' },
+  attachment: { context: 'attachedFileIds', run: 'fileIds' },
+  calendar_event: { context: 'attachedCalendarEventIds', run: 'calendarEventIds' },
+}
+
+/**
+ * A task, doc, project, initiative, deal, flow, file or event mentioned in the
+ * message being written. A deal's id is its pipeline row's (Tables, phase 7).
+ */
 export interface MentionRecord {
   kind: MentionRecordKind
   id: string
@@ -329,19 +404,31 @@ export function toMentionRecord(row: MenuSearchRow): MentionRecord | null {
     case 'document':
     case 'project':
     case 'initiative':
+    case 'deal':
+    case 'flow':
+    case 'attachment':
+    case 'calendar_event':
       return { kind: row.kind, id: row.id, title: row.title }
     default:
       return null
   }
 }
 
+/** A row's record as a mention: its kind and id, and the words its `@…` shows. */
+export interface MenuRowMention {
+  /** A deal is mentioned as what it is: its pipeline's row (Tables, phase 7). */
+  type: Exclude<MentionPickerKind, 'deal'> | 'data_row'
+  id: string
+  label: string
+}
+
 /**
- * A search row as a record mention in a message's words (team chat): its kind
- * and id, and the words its `@…` shows (an action by its identifier, a capture
- * by its title, a company by its name, the rest by title). Null for what is
- * not a record (an agent).
+ * A search row as a record mention in a message's or document's words (team
+ * chat, the doc editor): its kind and id, and the words its `@…` shows (an
+ * action by its identifier, a capture by its title, a company by its name, the
+ * rest by title). Null for what is not a record (an agent, a message).
  */
-export function menuRowMention(row: MenuSearchRow): { type: Exclude<MenuSearchKind, 'agent' | 'team_chat_message' | 'deal'> | 'data_row'; id: string; label: string } | null {
+export function menuRowMention(row: MenuSearchRow): MenuRowMention | null {
   switch (row.kind) {
     case 'agent':
     case 'team_chat_message':

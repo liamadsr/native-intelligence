@@ -190,7 +190,7 @@ export function appendMention(value: string, text: string): { value: string; car
 // ── What the menu lists ─────────────────────────────────────────────────────
 
 /** The record kinds, as the menu's sections name them. */
-export type RecordMenuKind = 'actions' | 'docs' | 'projects' | 'initiatives' | 'captures' | 'people' | 'companies' | 'deals' | 'flows' | 'agents' | 'messages'
+export type RecordMenuKind = 'actions' | 'docs' | 'projects' | 'initiatives' | 'captures' | 'people' | 'companies' | 'deals' | 'flows' | 'files' | 'events' | 'agents' | 'messages'
 /**
  * `record_actions`: the actions on the record whose card is in front. `inbox`
  * and `recent`: the palette's first view, from the activity feed (what
@@ -216,6 +216,8 @@ export const TAB_LABELS: Record<MenuTab, string> = {
   companies: 'Companies',
   deals: 'Deals',
   flows: 'Flows',
+  files: 'Files',
+  events: 'Events',
   agents: 'Agents',
   messages: 'Messages',
 }
@@ -254,6 +256,8 @@ export const SEARCH_KIND: Record<RecordMenuKind, MenuSearchKind> = {
   companies: 'company',
   deals: 'deal',
   flows: 'flow',
+  files: 'attachment',
+  events: 'calendar_event',
   agents: 'agent',
   messages: 'team_chat_message',
 }
@@ -267,6 +271,8 @@ export const MENU_KIND: Record<MenuSearchKind, RecordMenuKind> = {
   company: 'companies',
   deal: 'deals',
   flow: 'flows',
+  attachment: 'files',
+  calendar_event: 'events',
   agent: 'agents',
   team_chat_message: 'messages',
 }
@@ -307,11 +313,12 @@ export interface ComposerMentionList {
   /**
    * Records the host's `@` also finds (team chat: a task, a doc, a deal…),
    * searched as the main chat's are and listed under the host's own options.
-   * Picking one puts `@label` in the text and hands the host the row. The
-   * kinds must not include contacts (the host's options are its people).
+   * Picking one puts `@label` in the text and hands the host the row. Its
+   * contacts join the host's people, after them, less the teammates' own
+   * contacts (the host lists its teammates itself).
    */
   records?: {
-    kinds: readonly Exclude<MenuSearchKind, 'contact' | 'agent' | 'team_chat_message'>[]
+    kinds: readonly Exclude<MenuSearchKind, 'agent' | 'team_chat_message'>[]
     onPick: (row: MenuSearchRow) => void
   }
 }
@@ -332,19 +339,24 @@ export function filterMentionOptions(options: readonly ComposerMentionOption[], 
 }
 
 /**
- * The menu for a host's own `@` list: its options in one section, then (when
- * the host also mentions records) the record sections found for the query,
- * best kind first, a few of each. No tabs.
+ * The menu for a host's own `@` list: its options in one section, the
+ * contacts found after them (not a teammate's: the options hold the
+ * teammates), then (when the host also mentions records) the other record
+ * sections found for the query, best kind first, a few of each. No tabs.
  */
 export function mentionOptionsMenu(options: readonly ComposerMentionOption[], query: string, records?: Menu): Menu {
-  const items = filterMentionOptions(options, query).map((option): MenuItem => ({ kind: 'option', option }))
+  const asHost = (item: MenuItem): MenuItem => (item.kind === 'record' ? { ...item, host: true } : item)
+  const contacts = (records?.sections.find((s) => s.key === 'people')?.items ?? [])
+    .filter((item) => !(item.kind === 'record' && item.row.kind === 'contact' && item.row.contact.is_member))
+    .map(asHost)
+  const items = [...filterMentionOptions(options, query).map((option): MenuItem => ({ kind: 'option', option })), ...contacts]
   const sections: MenuSection[] = items.length
     ? [{ key: 'people', label: 'People', items, total: items.length, totalKnown: true, offset: 0 }]
     : []
   let offset = items.length
   for (const s of records?.sections ?? []) {
     if (s.key === 'people') continue
-    const items = s.items.map((item): MenuItem => (item.kind === 'record' ? { ...item, host: true } : item))
+    const items = s.items.map(asHost)
     sections.push({ ...s, items, offset })
     offset += items.length
   }
@@ -398,9 +410,9 @@ export function verbFor(trigger: MenuTrigger, item: MenuItem): MenuVerb {
 }
 
 /** The kinds in order: tabs keep these places, and a tie between two kinds' best rows keeps it. */
-const ORDER: readonly MenuKind[] = ['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'agents', 'messages']
+const ORDER: readonly MenuKind[] = ['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'agents', 'messages']
 /** `@`'s: the records first (`@ma` is Maya before a skill named like her), its skills last. */
-const AT_ORDER: readonly MenuKind[] = ['people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'skills']
+const AT_ORDER: readonly MenuKind[] = ['people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'skills']
 /** What each shows before anything is typed, in this order: recent people first. */
 const LEADS: Record<MenuTrigger, readonly MenuKind[]> = {
   '/': ['people', 'pages', 'skills'],

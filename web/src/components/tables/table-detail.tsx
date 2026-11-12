@@ -14,7 +14,7 @@
  * kept in this browser.
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ArrowDown, ArrowLeft, ArrowUp, Download, History, Link2, Lock, Undo2, Upload, X } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, Download, History, Link2, Lock, Star, Undo2, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -176,6 +176,13 @@ export function TableDetail({
           actions={
             table && (
               <span className="flex items-center gap-1">
+                {/* A pipeline that isn't the default can become it (Tables, phase 7). */}
+                {data.canEdit && table.kind === 'pipeline' && !table.is_default && !table.archived_at && table.visibility === 'workspace' && (
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void makeDefault(table.id, data.reload)}>
+                    <Star className="h-3.5 w-3.5" />
+                    Make default
+                  </Button>
+                )}
                 {data.canEdit && (
                   <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setImporting(true)}>
                     <Upload className="h-3.5 w-3.5" />
@@ -350,6 +357,15 @@ export function TableDetail({
       </div>
     </CustomFieldDefinitionsContext.Provider>
   )
+}
+
+/** Make a pipeline the workspace's default: where a deal named in no pipeline goes. */
+async function makeDefault(tableId: string, reload: () => Promise<void> | void) {
+  const res = await fetch(`/api/account/pipelines/${tableId}/default`, { method: 'POST' })
+  const json = (await res.json().catch(() => ({}))) as { error?: string }
+  if (!res.ok) return void toast.error(json.error || 'Could not make it the default')
+  toast('This is now the default pipeline')
+  await reload()
 }
 
 function Hint({ children }: { children: ReactNode }) {

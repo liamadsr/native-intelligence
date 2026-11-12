@@ -40,6 +40,12 @@ export interface TableTemplate {
   /** One line: what it keeps. */
   description: string
   columns: TemplateColumn[]
+  /**
+   * A real pipeline (Tables, phase 7): made by create_pipeline, so its rows
+   * are deals; the columns it already has (by key) are its own, the rest are
+   * added.
+   */
+  pipeline?: boolean
   views: TemplateView[]
   rows: Array<{ title: string; values?: Record<string, CustomFieldValue> }>
 }
@@ -79,23 +85,25 @@ export function tableTemplates(now: Date = new Date()): TableTemplate[] {
       name: 'Pipeline',
       icon: 'pipeline',
       description: 'Deals by stage, what each is worth, and when it should close.',
+      // A real pipeline: its deals show on the Deals page and on their companies.
+      pipeline: true,
       columns: [
         { key: 'stage', label: 'Stage', field_type: 'select', options: ['Lead', 'Qualified', 'Proposal', 'Won', 'Lost'] },
         { key: 'value', label: 'Value', field_type: 'currency', config: { currency: 'USD' } },
-        { key: 'close_date', label: 'Close date', field_type: 'date' },
+        { key: 'expected_close', label: 'Expected close', field_type: 'date' },
         { key: 'owner', label: 'Owner', field_type: 'person' },
         { key: 'next_step', label: 'Next step', field_type: 'text' },
-        { key: 'days_left', label: 'Days left', field_type: 'formula', config: { expression: 'days_between(today(), {Close date})' } },
+        { key: 'days_left', label: 'Days left', field_type: 'formula', config: { expression: 'days_between(today(), {Expected close})' } },
       ],
       views: [
         { name: 'By stage', layout: 'board', group_by: 'stage', table: { total_key: 'value' } },
-        { name: 'All deals', layout: 'grid', sort: { key: 'close_date', direction: 'asc' } },
-        { name: 'Closing', layout: 'calendar', table: { date_key: 'close_date' } },
+        { name: 'All deals', layout: 'grid', sort: { key: 'expected_close', direction: 'asc' } },
+        { name: 'Closing', layout: 'calendar', table: { date_key: 'expected_close' } },
       ],
       rows: [
-        { title: 'Bayside Bakery catering', values: { stage: 'Lead', value: { amount: 1200, currency: 'USD' }, close_date: day(21, now), next_step: 'Send the menu' } },
-        { title: 'Copper Kettle refit', values: { stage: 'Proposal', value: { amount: 8500, currency: 'USD' }, close_date: day(10, now), next_step: 'Walk the site on Friday' } },
-        { title: 'Harbor Florist website', values: { stage: 'Won', value: { amount: 3000, currency: 'USD' }, close_date: day(-4, now) } },
+        { title: 'Bayside Bakery catering', values: { stage: 'Lead', value: { amount: 1200, currency: 'USD' }, expected_close: day(21, now), next_step: 'Send the menu' } },
+        { title: 'Copper Kettle refit', values: { stage: 'Proposal', value: { amount: 8500, currency: 'USD' }, expected_close: day(10, now), next_step: 'Walk the site on Friday' } },
+        { title: 'Harbor Florist website', values: { stage: 'Won', value: { amount: 3000, currency: 'USD' }, expected_close: day(-4, now) } },
       ],
     },
     {

@@ -225,6 +225,7 @@ export function createDealTools(
             what: describeChanges(e.changes, { columns }),
             source: e.source,
             reason: e.reason,
+            ...(e.source_ref ? { ref: e.source_ref } : {}),
             at: e.created_at,
             undone: !!e.undone_at,
           })),

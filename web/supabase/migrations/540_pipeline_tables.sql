@@ -1,7 +1,7 @@
 -- ============================================================
 -- 540: Pipelines are tables (Tables, phase 7).
 -- ============================================================
--- A pipeline is a table (520) marked `kind = 'pipeline'`, and a deal is one
+-- A pipeline is a table (520) marked `table_kind = 'pipeline'`, and a deal is one
 -- of its rows: the row's title is the deal's name, and its own columns, the
 -- system columns, hold the rest:
 --
@@ -18,7 +18,8 @@
 -- people add. Stages are the stage column's options, edited like any select
 -- column's; required_when (525) gives a stage its rules ("Won needs Value").
 --
---   1. data_table.kind ('table' or 'pipeline') and data_table.is_default
+--   1. data_table.table_kind ('table' or 'pipeline'; not `kind`, which 525's
+--      _data_apply has as a variable) and data_table.is_default
 --      (a pipeline only, one per workspace).
 --   2. data_row.stage_changed_at and data_row.closed_at, kept by a trigger
 --      on a pipeline's rows, as 473 kept a deal's: a new stage stamps
@@ -49,25 +50,25 @@ SET LOCAL lock_timeout = '5s';
 -- 1. A table's kind, and the default pipeline
 -- ------------------------------------------------------------
 
-alter table public.data_table add column if not exists kind text not null default 'table';
+alter table public.data_table add column if not exists table_kind text not null default 'table';
 alter table public.data_table add column if not exists is_default boolean not null default false;
 
-comment on column public.data_table.kind is
+comment on column public.data_table.table_kind is
   'table, or pipeline (540): a pipeline''s rows are deals, with its system columns (custom_field_definition.system).';
 comment on column public.data_table.is_default is
   'The workspace''s default pipeline (540): where a deal goes when no pipeline is named. One per workspace.';
 
 alter table public.data_table drop constraint if exists data_table_kind_check;
 alter table public.data_table
-  add constraint data_table_kind_check check (kind in ('table', 'pipeline'));
+  add constraint data_table_kind_check check (table_kind in ('table', 'pipeline'));
 alter table public.data_table drop constraint if exists data_table_default_pipeline;
 alter table public.data_table
-  add constraint data_table_default_pipeline check (not is_default or kind = 'pipeline');
+  add constraint data_table_default_pipeline check (not is_default or table_kind = 'pipeline');
 
 create unique index if not exists data_table_one_default_pipeline
   on public.data_table (workspace_id) where is_default;
 create index if not exists data_table_pipeline_idx
-  on public.data_table (workspace_id, position) where kind = 'pipeline';
+  on public.data_table (workspace_id, position) where table_kind = 'pipeline';
 
 -- ------------------------------------------------------------
 -- 2. A deal's stage times
@@ -219,7 +220,7 @@ begin
   if coalesce(current_setting('dial8.workspace_merge', true), '') <> '' then
     return new;
   end if;
-  if not exists (select 1 from public.data_table t where t.id = new.table_id and t.kind = 'pipeline') then
+  if not exists (select 1 from public.data_table t where t.id = new.table_id and t.table_kind = 'pipeline') then
     return new;
   end if;
   if tg_op = 'INSERT' then
@@ -352,7 +353,7 @@ begin
     public._pipeline_column_ops(p_stages, p_currency), p_source, p_as_user, p_reason, true);
   v_table := (v_result ->> 'table_id')::uuid;
   update public.data_table
-     set kind = 'pipeline',
+     set table_kind = 'pipeline',
          is_default = p_default and not exists (select 1 from public.data_table d where d.workspace_id = p_workspace_id and d.is_default)
    where id = v_table;
   update public.custom_field_definition
@@ -564,7 +565,7 @@ begin
   if v_user is null then
     raise exception 'set_default_pipeline: no user' using errcode = '42501';
   end if;
-  select * into t from public.data_table where id = p_table_id and kind = 'pipeline' for update;
+  select * into t from public.data_table where id = p_table_id and table_kind = 'pipeline' for update;
   if not found or not public.data_table_visible_to(t.id, v_user) then
     raise exception 'pipeline not found' using errcode = 'P0002';
   end if;

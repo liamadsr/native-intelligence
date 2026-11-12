@@ -42,10 +42,11 @@ import {
   type NewRow,
 } from './types'
 
-const TABLE_SELECT = 'id, workspace_id, name, icon, description, owner_member_id, visibility, kind, is_default, version, position, archived_at, created_at, updated_at'
+// `table_kind` reads as `kind` (540 names the column so: 525's _data_apply has a `kind` variable).
+const TABLE_SELECT = 'id, workspace_id, name, icon, description, owner_member_id, visibility, kind:table_kind, is_default, version, position, archived_at, created_at, updated_at'
 const COLUMN_SELECT = 'id, table_id, key, label, field_type, options, config, position, deleted_at, system'
 export const ROW_SELECT = 'id, table_id, title, custom_fields, position, archived_at, created_at, updated_at, stage_changed_at, closed_at'
-const CHANGE_SELECT = 'id, table_id, version, actor_user_id, actor_member_id, source, reason, changes, undo_of, undone_at, created_at'
+export const CHANGE_SELECT = 'id, table_id, version, actor_user_id, actor_member_id, source, reason, changes, undo_of, undone_at, created_at, source_ref'
 
 /** The most rows one page reads. */
 export const MAX_ROWS_PAGE = 200
@@ -74,6 +75,8 @@ export interface TableActor {
   userId: string | null
   source: DataChangeSource
   reason?: string | null
+  /** The email thread, capture or text a change came from (540's data_change.source_ref). */
+  sourceRef?: string | null
   asUserId?: string | null
   /**
    * false on a guest's or a linked agent's turn (530): a table the writer
@@ -123,7 +126,7 @@ function normalizeResult(raw: unknown): ApplyResult {
 /** The workspace's tables the caller can read, in their order. Archived ones only when asked. */
 export async function listTables(db: SupabaseClient, workspaceId: string, opts: { archived?: boolean; kind?: DataTableKind } = {}): Promise<DataTable[]> {
   let q = db.from('data_table').select(TABLE_SELECT).eq('workspace_id', workspaceId)
-  if (opts.kind) q = q.eq('kind', opts.kind)
+  if (opts.kind) q = q.eq('table_kind', opts.kind)
   q = opts.archived ? q.not('archived_at', 'is', null) : q.is('archived_at', null)
   const { data, error } = await q.order('position', { ascending: true }).order('created_at', { ascending: true })
   if (error) throw new Error(error.message)
@@ -552,6 +555,7 @@ async function rpcApply(
     p_undo_of: undoOf,
     p_as_user: actor.asUserId ?? null,
     ...writeExtras(actor),
+    ...(actor.sourceRef?.trim() ? { p_source_ref: actor.sourceRef.trim().slice(0, 200) } : {}),
   })
   if (error) return refusal(error as RpcError)
   return { ok: true, value: normalizeResult(data) }

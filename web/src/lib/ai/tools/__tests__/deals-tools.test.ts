@@ -113,7 +113,7 @@ describe('the deal tools, over pipeline rows', () => {
     expect(r).toMatchObject({ success: true, message: 'Created deal "Northwind website" in Lead.' })
     expect(r.deal).toMatchObject({ name: 'Northwind website', pipeline: 'Sales', stage: 'Lead', status: 'open', value: 12500, value_label: '$12,500', company: 'Northwind Example' })
     const call = db.rpcCalls.find((c) => c.name === 'apply_data_ops')!
-    expect(call.args).toMatchObject({ p_table_id: SALES, p_source: 'email', p_reason: 'Dana asked for a quote', p_as_user: USER })
+    expect(call.args).toMatchObject({ p_table_id: SALES, p_source: 'email', p_reason: 'Dana asked for a quote', p_as_user: USER, p_source_ref: 'thread-1' })
     expect(db.rows.data_row[0].custom_fields).toMatchObject({ owner: MEMBER })
   })
 

@@ -80,6 +80,17 @@ describe('resolvePersonForCapture', () => {
     })
   })
 
+  it('a call roster’s guest row is no member, however the guest named themself (migration 587)', async () => {
+    const supabase = mockDb({
+      participants: [
+        { speaker_label: 'Rosa Lind (guest)', member_id: null, contact_id: null, external_name: 'Rosa Lind', is_self: false, source: 'call_roster', member: null, contact: null },
+      ],
+      members: [{ id: 'mem-rosa', display_name: 'Rosa Lind' }],
+    })
+    const res = await resolvePersonForCapture(supabase as never, WORKSPACE_ID, CAPTURE_ID, 'Rosa Lind (guest)', USER_ID)
+    expect(res).toMatchObject({ name: 'Rosa Lind', memberId: null })
+  })
+
   it('matches labels ignoring case and separator ("Remote 2" ≡ "remote_2")', async () => {
     const supabase = mockDb({
       participants: [

@@ -36,8 +36,14 @@
 --   view            a view of deals is a view of the default pipeline's
 --                   rows, a board by stage when it was a board.
 --   team chat       a message's record_mentions name the row.
+--   documents       an @ chip of a deal (mention://deal/<id>, and its
+--                   editor node) names the row (mention://data_row/<id>).
 --   custom fields   a relation that linked deals links the default
---                   pipeline's rows; the deal fields themselves go.
+--                   pipeline's rows (with no pipeline, there were no deals
+--                   to link: it goes, with its values); the deal fields
+--                   themselves go.
+--   source_ref      an event's email thread, capture or text is its
+--                   change's (540's data_change.source_ref).
 --
 -- Grants (492) never took deals (entity_access lists no 'deal'), so none
 -- move. Re-runnable: what is already there is left as it is, so a second
@@ -147,6 +153,7 @@ declare
   n_activity int := 0;
   n_views int := 0;
   n_mentions int := 0;
+  n_doc_mentions int := 0;
   n_fields_retargeted int := 0;
   n_fields_gone int := 0;
   v_rows int;
@@ -193,7 +200,7 @@ begin
        where m.workspace_id = p.workspace_id and m.role <> 'guest'
        order by (m.role = 'owner') desc, (m.role = 'admin') desc, m.created_at
        limit 1;
-      insert into public.data_table (id, workspace_id, name, kind, is_default, owner_member_id, visibility, version, position, created_at, updated_at)
+      insert into public.data_table (id, workspace_id, name, table_kind, is_default, owner_member_id, visibility, version, position, created_at, updated_at)
       values (p.id, p.workspace_id, left(btrim(p.name), 200), 'pipeline',
               p.is_default and not exists (select 1 from public.data_table t where t.workspace_id = p.workspace_id and t.is_default),
               v_owner, 'workspace', 0,
@@ -318,14 +325,15 @@ begin
     select ev.*, row_number() over (partition by ev.table_id order by ev.created_at, ev.id) + 1 as version
       from ev where ev.entries is not null
   )
-  insert into public.data_change (id, workspace_id, table_id, version, actor_user_id, actor_member_id, source, reason, changes, undo_of, undone_at, created_at)
+  insert into public.data_change (id, workspace_id, table_id, version, actor_user_id, actor_member_id, source, reason, changes, undo_of, undone_at, created_at, source_ref)
   select k.id, k.workspace_id, k.table_id, k.version, k.actor_user_id,
          (select m.id from public.member m where m.user_id = k.actor_user_id and m.workspace_id = k.workspace_id),
          k.source, k.reason, k.entries,
          case when k.kind = 'undo' and k.source_ref ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
                    and exists (select 1 from kept u where u.id = k.source_ref::uuid and u.table_id = k.table_id and u.kind <> 'undo')
               then k.source_ref::uuid end,
-         k.undone_at, k.created_at
+         k.undone_at, k.created_at,
+         case when k.kind <> 'undo' then left(nullif(btrim(coalesce(k.source_ref, '')), ''), 200) end
     from kept k
    where exists (select 1 from public.data_table t where t.id = k.table_id)
   on conflict (id) do nothing;
@@ -336,7 +344,7 @@ begin
 
   update public.data_table t
      set version = greatest(t.version, (select max(c.version) from public.data_change c where c.table_id = t.id))
-   where t.kind = 'pipeline' and exists (select 1 from public.data_change c where c.table_id = t.id and c.version > t.version);
+   where t.table_kind = 'pipeline' and exists (select 1 from public.data_change c where c.table_id = t.id and c.version > t.version);
 
   -- A relation elsewhere that linked deals links the default pipeline's rows
   -- (524 re-syncs its edges).
@@ -347,6 +355,24 @@ begin
      and cf.config -> 'target' ->> 'kind' = 'deal'
      and exists (select 1 from public.data_table t where t.workspace_id = cf.workspace_id and t.is_default);
   get diagnostics n_fields_retargeted = row_count;
+  -- A workspace with no pipeline had no deals for it to link: the field goes,
+  -- and its values with it (a table's column through its rows, a kind's
+  -- field through its records).
+  for f in
+    select cf.id, cf.workspace_id, cf.entity_type, cf.key, cf.table_id
+      from public.custom_field_definition cf
+     where cf.entity_type <> 'deal'
+       and cf.config -> 'target' ->> 'kind' = 'deal'
+  loop
+    if f.table_id is not null then
+      update public.data_row set custom_fields = custom_fields - f.key where table_id = f.table_id and custom_fields ? f.key;
+    elsif public._custom_field_table(f.entity_type) is not null then
+      execute format('update public.%I set custom_fields = custom_fields - $1 where workspace_id = $2 and custom_fields ? $1', public._custom_field_table(f.entity_type))
+        using f.key, f.workspace_id;
+    end if;
+    delete from public.custom_field_definition where id = f.id;
+    n_fields_retargeted := n_fields_retargeted + 1;
+  end loop;
 
   -- Edges from and to a deal are the row's.
   delete from public.entity_link l
@@ -416,6 +442,19 @@ begin
     alter table public.team_chat_message enable trigger team_chat_message_guard;
   end if;
 
+  -- A document's @ chips (its markdown and its editor JSON), and its revisions'.
+  update public.document d
+     set content = replace(d.content, 'mention://deal/', 'mention://data_row/'),
+         content_json = case when d.content_json is null then null
+                             else replace(d.content_json::text, '"kind": "deal"', '"kind": "data_row"')::jsonb end
+   where d.content like '%mention://deal/%';
+  get diagnostics n_doc_mentions = row_count;
+  update public.document_revision r
+     set content = replace(r.content, 'mention://deal/', 'mention://data_row/'),
+         content_json = case when r.content_json is null then null
+                             else replace(r.content_json::text, '"kind": "deal"', '"kind": "data_row"')::jsonb end
+   where r.content like '%mention://deal/%';
+
   -- The deal fields are the pipelines' columns now.
   delete from public.custom_field_definition where entity_type = 'deal';
   get diagnostics n_fields_gone = row_count;
@@ -423,7 +462,7 @@ begin
   return jsonb_build_object(
     'tables', n_tables, 'columns', n_columns, 'rows', n_rows, 'changes', n_changes,
     'events_left_out', n_events_left_out, 'links', n_links, 'activity', n_activity,
-    'views', n_views, 'mentions', n_mentions, 'fields_retargeted', n_fields_retargeted,
+    'views', n_views, 'mentions', n_mentions, 'doc_mentions', n_doc_mentions, 'fields_retargeted', n_fields_retargeted,
     'deal_fields_gone', n_fields_gone);
 end;
 $$;

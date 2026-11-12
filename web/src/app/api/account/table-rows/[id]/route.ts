@@ -17,7 +17,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   try {
     const { data, error } = await supabase
       .from('data_row')
-      .select('id, title, table_id, data_table!inner(kind)')
+      .select('id, title, table_id, data_table!inner(kind:table_kind)')
       .eq('workspace_id', workspaceId)
       .eq('id', id)
       .maybeSingle()

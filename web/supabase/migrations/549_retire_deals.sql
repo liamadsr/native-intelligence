@@ -616,9 +616,9 @@ DECLARE
   n_rows int := 0;
   n_fields int := 0;
 BEGIN
-  FOR p IN SELECT * FROM public.data_table WHERE workspace_id = p_source AND kind = 'pipeline' ORDER BY is_default DESC, position LOOP
+  FOR p IN SELECT * FROM public.data_table WHERE workspace_id = p_source AND table_kind = 'pipeline' ORDER BY is_default DESC, position LOOP
     SELECT d.id INTO v_dst FROM public.data_table d
-      WHERE d.workspace_id = p_dest AND d.kind = 'pipeline' AND ((p.is_default AND d.is_default) OR lower(d.name) = lower(p.name))
+      WHERE d.workspace_id = p_dest AND d.table_kind = 'pipeline' AND ((p.is_default AND d.is_default) OR lower(d.name) = lower(p.name))
       ORDER BY (p.is_default AND d.is_default) DESC, (d.archived_at IS NULL) DESC, d.position
       LIMIT 1;
     IF v_dst IS NULL THEN
@@ -910,7 +910,7 @@ BEGIN
     SELECT 'pipeline_row.table' AS c, count(*) AS n FROM public.data_row r JOIN public.data_table t ON t.id = r.table_id
       WHERE r.workspace_id = p_workspace AND t.workspace_id <> p_workspace
     UNION ALL SELECT 'pipeline_row.owner', count(*) FROM public.data_row r
-      JOIN public.data_table t ON t.id = r.table_id AND t.kind = 'pipeline'
+      JOIN public.data_table t ON t.id = r.table_id AND t.table_kind = 'pipeline'
       JOIN public.member m ON m.id::text = r.custom_fields ->> 'owner'
       WHERE r.workspace_id = p_workspace AND m.workspace_id <> p_workspace
   )

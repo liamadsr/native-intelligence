@@ -42,6 +42,14 @@ const serviceFrom = vi.fn((table: string) => {
 })
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({ from: serviceFrom }) }))
 
+// The turn's mention edges (src/lib/entity-links/turn-mentions.ts): the writer
+// is spied on; which refs a context names is the real reader's.
+const turnMentionsSpy = vi.fn(async (..._args: unknown[]) => {})
+vi.mock('@/lib/entity-links/turn-mentions', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/entity-links/turn-mentions')>()),
+  syncTurnMentions: (...a: unknown[]) => turnMentionsSpy(...a),
+}))
+
 import { GET } from '@/app/api/internal/chat/spec/route'
 import { mintChatRunToken, CHAT_RUN_SECRET_HEADER, CHAT_RUN_TOKEN_HEADER } from '@/lib/chat/chat-run-token'
 
@@ -68,6 +76,7 @@ describe('GET /api/internal/chat/spec', () => {
     rebuildState.throws = null
     rebuildSpy.mockClear()
     serviceFrom.mockClear()
+    turnMentionsSpy.mockClear()
     ownerRowLive.current = true
   })
   afterEach(() => {
@@ -237,5 +246,17 @@ describe('GET /api/internal/chat/spec', () => {
     expect(res.status).toBe(500)
     const body = await res.json()
     expect(body.code).toBe('CHAT_SPEC_REBUILD_FAILED')
+  })
+
+  it('the turn’s @-mentions become edges from the conversation, once a turn (the skills fetch only)', async () => {
+    const ctx = { systemContext: { attachedDealIds: ['de000000-0000-4000-8000-000000000001'] } }
+    const plain = new URL(req({ secret: SECRET, token: validToken(), ctx }).url)
+    await GET(new Request(plain, { headers: { [CHAT_RUN_SECRET_HEADER]: SECRET, [CHAT_RUN_TOKEN_HEADER]: validToken() } }))
+    expect(turnMentionsSpy).not.toHaveBeenCalled()
+    plain.searchParams.set('skills', '1')
+    await GET(new Request(plain, { headers: { [CHAT_RUN_SECRET_HEADER]: SECRET, [CHAT_RUN_TOKEN_HEADER]: validToken() } }))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(turnMentionsSpy).toHaveBeenCalledTimes(1)
+    expect(turnMentionsSpy.mock.calls[0][1]).toMatchObject({ workspaceId: 'ws-1', userId: 'user-1', conversationId: 'c', systemContext: ctx.systemContext })
   })
 })

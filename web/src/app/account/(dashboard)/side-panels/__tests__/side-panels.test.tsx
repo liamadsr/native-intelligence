@@ -22,7 +22,14 @@
  *     under 640px; re-planned on resize and when the notepad docks, the
  *     move written on the row, re-rendered only when a mode changes;
  *   • no flap: a click-through column of floating cards, each card the
- *     pointer's and its own occluder for the in-app browser's hole.
+ *     pointer's and its own occluder for the in-app browser's hole;
+ *   • two views, one at a time (Liam, 11-11: "move the for you cards to the
+ *     right hand side panel… you can't see both at the same time"): each
+ *     mounted on its first showing and kept, the other hidden and inert,
+ *     swapped in place with no slide; the sections' reads only while they
+ *     show; For you only with cards (the panel saved on it waits off screen,
+ *     the chat gets its room back), over the Reply chip's blur while it
+ *     shows; Esc gives the focus back to the button of the view that showed.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement as h, useRef } from 'react'
@@ -31,10 +38,23 @@ import { createRoot, type Root } from 'react-dom/client'
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const shared = vi.hoisted(() => ({ rows: [] as unknown[] }))
+/** For you: the shell's shared source (null: none) and what the bots brought. */
+const forYou = vi.hoisted(() => ({ shared: null as null | object, entries: [] as Array<{ id: string }>, mounts: 0 }))
 vi.mock('@/components/work/agent-work-provider', () => ({
   useOptionalAgentWork: () => ({ work: { rows: shared.rows, stop: vi.fn(), stopping: new Set() }, counts: new Map() }),
-  useOptionalAgentWorkShared: () => null,
+  useOptionalAgentWorkShared: () => forYou.shared,
 }))
+// For you's cards (their own tests: chat/__tests__/for-you-column.test.tsx); here, where and when they show.
+vi.mock('../../chat/for-you-column', async () => {
+  const React = await import('react')
+  function ForYouView({ entries }: { entries: Array<{ id: string }> }) {
+    React.useEffect(() => {
+      forYou.mounts++
+    }, [])
+    return React.createElement('section', { 'data-for-you-view-stub': '', 'aria-label': 'For you' }, entries.map((e) => e.id).join(','))
+  }
+  return { useForYouEntries: () => forYou.entries, ForYouView }
+})
 vi.mock('@/hooks/use-open-teammate', () => ({ useOpenWorkItem: () => vi.fn() }))
 const connections = vi.hoisted(() => ({
   state: { needsAttention: false, loading: false, refresh: () => {}, groups: { connected: [], attention: [], available: [] } } as Record<string, unknown>,
@@ -73,8 +93,8 @@ vi.mock('../environment-section', () => ({
   EnvironmentSection: () => h('div', { 'data-environment-section-stub': '' }, 'environment'),
 }))
 
-const { INSET_RIGHT_VAR, RightSidePanel, SLIDE_CLASS, useSidePanelPlan, useSidePanelState } = await import('../side-panels')
-const { SidePanelToggle } = await import('../side-panel-toggles')
+const { INSET_LEFT_VAR, INSET_RIGHT_VAR, RightSidePanel, SLIDE_CLASS, planFor, useSidePanelPlan, useSidePanelState } = await import('../side-panels')
+const { ForYouToggle, SidePanelToggle } = await import('../side-panel-toggles')
 const store = await import('../side-panel-store')
 const feed = await import('../chat-feed')
 const { TooltipProvider } = await import('@/components/ui/tooltip')
@@ -105,10 +125,10 @@ const key = (init: KeyboardEventInit, target: EventTarget = document.body) =>
     target.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ...init }))
   })
 
-// Re-rendered on store changes, as the row does.
-const Host = () => h(RightSidePanel, { mode: useSidePanelState().rightOpen ? 'float' : 'off' })
+// Re-rendered on store changes, as the row does: on screen as the space plan has it (store.rightShown).
+const Host = () => h(RightSidePanel, { mode: store.rightShown(useSidePanelState()) ? 'float' : 'off' })
 function renderPanel() {
-  act(() => root.render(h(TooltipProvider, null, h(SidePanelToggle), h(Host))))
+  act(() => root.render(h(TooltipProvider, null, h(ForYouToggle), h(SidePanelToggle), h(Host))))
 }
 function rerender() {
   renderPanel()
@@ -124,6 +144,9 @@ beforeEach(() => {
   connectors.summary = null
   environment.card = null
   environment.calls = []
+  forYou.shared = null
+  forYou.entries = []
+  forYou.mounts = 0
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -631,7 +654,7 @@ describe('the row’s space plan', () => {
     renders++
     const ref = useRef<HTMLDivElement>(null)
     const plan = useSidePanelPlan(ref)
-    return h('div', { ref, 'data-plan': `${plan.left}:${plan.right}` })
+    return h('div', { ref, 'data-plan': plan.right })
   }
   let observe: (() => void) | null = null
   beforeEach(() => {
@@ -658,11 +681,11 @@ describe('the row’s space plan', () => {
 
   it('makes room beside the content without moving it, moves it only by the shortfall, floats where the chat would drop under 640px; a render only when a mode changes', () => {
     act(() => root.render(h(Row)))
-    expect(planNow()).toBe('off:off')
+    expect(planNow()).toBe('off')
     act(() => store.setRightPanelOpen(true))
     act(() => root.render(h(Row)))
     // 1600: the panel fits beside the column, the chat does not move.
-    expect(planNow()).toBe('off:room')
+    expect(planNow()).toBe('room')
     expect(insetRight()).toBe('0px')
 
     // A resize inside the same mode: no render.
@@ -687,7 +710,7 @@ describe('the row’s space plan', () => {
     // Across the line: it floats, the chat untouched.
     width = 938
     act(() => observe!())
-    expect(planNow()).toBe('off:float')
+    expect(planNow()).toBe('float')
     expect(insetRight()).toBe('0px')
   })
 
@@ -697,21 +720,285 @@ describe('the row’s space plan', () => {
     act(() => root.render(h(Row)))
     expect(insetRight()).toBe('0px')
     act(() => store.setCaptureDockOpen(true))
-    expect(planNow()).toBe('off:room')
+    expect(planNow()).toBe('room')
     expect(parseFloat(insetRight())).toBeGreaterThan(0)
     act(() => store.setCaptureDockOpen(false))
     expect(insetRight()).toBe('0px')
   })
 
-  it('For you as the device left it shows only where it makes room; opened by hand it may float', () => {
-    width = 900
+  it('For you with no cards: the panel saved on it is off and the chat has its room back; cards arrive: it comes back on For you', () => {
+    width = 1300
+    act(() => store.setSidePanelView('forYou'))
+    act(() => store.setRightPanelOpen(true))
+    act(() => root.render(h(Row)))
+    expect(planNow()).toBe('off')
+    expect(insetRight()).toBe('0px')
     act(() => store.setForYouContent(true))
+    expect(planNow()).toBe('room')
+    expect(insetRight()).toBe('110px')
+    act(() => store.setForYouContent(false))
+    expect(planNow()).toBe('off')
+    expect(store.getSidePanelState()).toMatchObject({ rightOpen: true, view: 'forYou' })
+  })
+
+  it('the page panel (Liam, 11-11: home’s recents): room beside the content where the row has it, by the shortfall at most; none beside the notepad, nor where the right panel needs the room', () => {
+    function LeftRow() {
+      const ref = useRef<HTMLDivElement>(null)
+      const plan = useSidePanelPlan(ref)
+      return h('div', { ref, 'data-plan': plan.right, 'data-left': plan.left })
+    }
+    const left = () => q('[data-left]')!.getAttribute('data-left')
+    const insetLeft = () => q('[data-left]')!.style.getPropertyValue(INSET_LEFT_VAR)
+    width = 1200
+    act(() => root.render(h(LeftRow)))
+    expect(left()).toBe('off')
+    // Something to show: 1200 is short 41 beside the column, so the content moves right by just that.
+    act(() => store.setPagePanelContent(true))
+    expect(left()).toBe('room')
+    expect(insetLeft()).toBe('82px')
+    // The notepad holds the left: no page panel, the notepad's own push only.
+    act(() => store.setCaptureDockOpen(true))
+    expect(left()).toBe('off')
+    act(() => store.setCaptureDockOpen(false))
+    expect(left()).toBe('room')
+    // The right panel opened at 1300: room for it, not for both; the page panel steps out.
+    width = 1300
+    act(() => observe!())
+    act(() => store.setRightPanelOpen(true))
+    expect(planNow()).toBe('room')
+    expect(left()).toBe('off')
+    expect(insetLeft()).toBe('0px')
+    // Wide enough for both: both make room.
+    width = 1700
+    act(() => observe!())
+    expect([planNow(), left()]).toEqual(['room', 'room'])
+    // Too narrow for it beside a 640px chat (past the hysteresis): it isn't shown, and never floats.
+    act(() => store.setRightPanelOpen(false))
+    width = 930
+    act(() => observe!())
+    expect(left()).toBe('off')
+    expect(insetLeft()).toBe('0px')
+  })
+
+  it('the page panel’s button (Liam, 11-11): closed, the chat gets the left back; opened by hand on a narrow row it floats, open only as remembered it stays out', () => {
+    function LeftRow() {
+      const ref = useRef<HTMLDivElement>(null)
+      const plan = useSidePanelPlan(ref)
+      return h('div', { ref, 'data-plan': plan.right, 'data-left': plan.left })
+    }
+    const left = () => q('[data-left]')!.getAttribute('data-left')
+    const insetLeft = () => q('[data-left]')!.style.getPropertyValue(INSET_LEFT_VAR)
+    width = 1200
+    act(() => store.setPagePanelContent(true))
+    act(() => root.render(h(LeftRow)))
+    expect(left()).toBe('room')
+    expect(insetLeft()).toBe('82px')
+    // Closed: no left, the content back where it was.
+    act(() => store.setPagePanelOpen(false))
+    expect(left()).toBe('off')
+    expect(insetLeft()).toBe('0px')
+    act(() => store.setPagePanelOpen(true))
+    expect(left()).toBe('room')
+    // A narrow row in a new session, open only as the device remembered it: out, never over the chat.
+    act(() => root.unmount())
+    store.resetSidePanelStore()
+    root = createRoot(container)
+    width = 930
+    act(() => store.setPagePanelContent(true))
+    act(() => root.render(h(LeftRow)))
+    expect(store.getSidePanelState().pagePanelOpen).toBe(true)
+    expect(left()).toBe('off')
+    // Opened by hand: it floats over the chat's left edge, the chat untouched.
+    act(() => store.setPagePanelOpen(true))
+    expect(left()).toBe('float')
+    expect(insetLeft()).toBe('0px')
+    // The notepad still holds the left.
+    act(() => store.setCaptureDockOpen(true))
+    expect(left()).toBe('off')
+    act(() => store.setCaptureDockOpen(false))
+    expect(left()).toBe('float')
+    // Closed by hand: gone; the pure plan agrees.
+    act(() => store.setPagePanelOpen(false))
+    expect(left()).toBe('off')
+    const base = { rightOpen: false, view: 'panel' as const, forYouContent: false, captureDock: false, pagePanel: true }
+    expect(planFor(930, { ...base, pagePanelOpen: true, pagePanelFloatOk: false }).left).toBe('off')
+    expect(planFor(930, { ...base, pagePanelOpen: true, pagePanelFloatOk: true }).left).toBe('float')
+    expect(planFor(1800, { ...base, pagePanelOpen: false, pagePanelFloatOk: true }).left).toBe('off')
+    // A page's sub-nav with its card in front: shown while open, room or not; closed by hand, off.
+    expect(planFor(930, { ...base, pagePanelOpen: true, pagePanelPage: true }).left).toBe('float')
+    expect(planFor(930, { ...base, pagePanelOpen: false, pagePanelPage: true }).left).toBe('off')
+  })
+
+  it('swapping views re-plans nothing: one band, whichever view shows', () => {
+    act(() => store.setForYouContent(true))
+    act(() => store.setRightPanelOpen(true))
     act(() => root.render(h(Row)))
-    expect(planNow()).toBe('off:off')
-    expect(store.getSidePanelState().leftShown).toBe(false)
-    act(() => store.toggleForYou(false))
-    act(() => root.render(h(Row)))
-    expect(planNow()).toBe('float:off')
-    expect(store.getSidePanelState().leftShown).toBe(true)
+    expect(planNow()).toBe('room')
+    const before = renders
+    act(() => store.setSidePanelView('forYou'))
+    expect(planNow()).toBe('room')
+    // The store changed (a render), the plan didn't.
+    expect(renders - before).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('the panel’s two views (Liam, 11-11: “you can’t see both at the same time”)', () => {
+  const cards = () => q('[data-side-panel-cards]')
+  const forYouBox = () => q('[data-side-panel-for-you]')
+  const forYouButton = () => q('[data-for-you-panel-toggle]')
+  const sideButton = () => q('[data-side-panel-toggle]')
+  function withCards() {
+    forYou.shared = {}
+    forYou.entries = [{ id: 'c1' }, { id: 'c2' }]
+  }
+
+  it('each view mounts on its first showing and stays mounted, the other hidden and inert; a swap is in place, no slide', () => {
+    withCards()
+    renderPanel()
+    expect(q('[data-side-panel]')).toBeNull()
+    // For you first: only its view mounted.
+    act(() => forYouButton()!.click())
+    rerender()
+    const panel = q('[data-side-panel]')!
+    expect(panel.getAttribute('data-side-panel-view')).toBe('forYou')
+    expect(forYouBox()!.hidden).toBe(false)
+    expect(forYouBox()!.hasAttribute('inert')).toBe(false)
+    expect(forYouBox()!.textContent).toBe('c1,c2')
+    expect(cards()).toBeNull()
+    expect(forYou.mounts).toBe(1)
+    // Its cards fill the panel's box: down to its bottom, the full width.
+    expect(forYouBox()!.className).toMatch(/(^|\s)relative(\s|$)/)
+    expect(forYouBox()!.className).toMatch(/(^|\s)flex-1(\s|$)/)
+    expect(forYouBox()!.className).toMatch(/(^|\s)pointer-events-none(\s|$)/)
+
+    // The sections: swapped in place, the panel still open and where it was (no slide out and in).
+    act(() => sideButton()!.click())
+    rerender()
+    expect(q('[data-side-panel]')).toBe(panel)
+    expect(panel.className).toMatch(/(^|\s)translate-x-0(\s|$)/)
+    expect(panel.hasAttribute('inert')).toBe(false)
+    expect(cards()!.hidden).toBe(false)
+    expect(forYouBox()!.hidden).toBe(true)
+    expect(forYouBox()!.hasAttribute('inert')).toBe(true)
+
+    // Back to For you: the same node, never remounted; the sections kept, hidden.
+    const sections = cards()
+    act(() => forYouButton()!.click())
+    rerender()
+    expect(forYou.mounts).toBe(1)
+    expect(cards()).toBe(sections)
+    expect(cards()!.hidden).toBe(true)
+    expect(cards()!.hasAttribute('inert')).toBe(true)
+    expect(forYouBox()!.hidden).toBe(false)
+
+    // For you's button again: the panel closes (slides out), both views kept.
+    act(() => forYouButton()!.click())
+    rerender()
+    expect(panel.hasAttribute('inert')).toBe(true)
+    expect(panel.className).toContain('translate-x-[calc(100%+1rem)]')
+    expect(cards()).toBe(sections)
+    expect(forYou.mounts).toBe(1)
+  })
+
+  it('the sections read and poll only while they are on screen, never while For you shows', () => {
+    withCards()
+    act(() => feed.publishChatFeed({ plan: null, quick: null, conversationId: 'c-1', busy: false }))
+    store.setRightPanelOpen(true)
+    renderPanel()
+    expect(connections.calls.at(-1)).toEqual({ active: true })
+    expect(environment.calls.at(-1)).toEqual({ open: true, conversationId: 'c-1' })
+    act(() => forYouButton()!.click())
+    rerender()
+    expect(connections.calls.at(-1)).toEqual({ active: false })
+    expect(environment.calls.at(-1)).toEqual({ open: false, conversationId: 'c-1' })
+    // The agent's bot rests too (watched only while the sections show).
+    expect(q('[data-side-panel-row="computer"]')).not.toBeNull()
+    act(() => sideButton()!.click())
+    rerender()
+    expect(connections.calls.at(-1)).toEqual({ active: true })
+    expect(environment.calls.at(-1)).toEqual({ open: true, conversationId: 'c-1' })
+  })
+
+  it('opened first on For you, the sections never mount or read live until shown', () => {
+    withCards()
+    store.setSidePanelView('forYou')
+    store.setRightPanelOpen(true)
+    renderPanel()
+    expect(cards()).toBeNull()
+    expect(environment.calls).toEqual([])
+    expect(connections.calls.every((c) => !c.active)).toBe(true)
+  })
+
+  it('tells the store whether For you has cards (no shared source: none)', () => {
+    renderPanel()
+    expect(store.getSidePanelState().forYouContent).toBe(false)
+    forYou.entries = [{ id: 'c1' }]
+    rerender()
+    // Cards but no shared source: nothing to settle them with, so nothing.
+    expect(store.getSidePanelState().forYouContent).toBe(false)
+    forYou.shared = {}
+    rerender()
+    expect(store.getSidePanelState().forYouContent).toBe(true)
+    forYou.entries = []
+    rerender()
+    expect(store.getSidePanelState().forYouContent).toBe(false)
+  })
+
+  it('saved on For you with no cards: nothing on screen, no For you button; cards arrive: it shows on For you', () => {
+    store.setSidePanelView('forYou')
+    store.setRightPanelOpen(true)
+    renderPanel()
+    expect(q('[data-side-panel]')).toBeNull()
+    expect(forYouButton()).toBeNull()
+    expect(sideButton()!.getAttribute('aria-expanded')).toBe('false')
+    withCards()
+    rerender()
+    rerender()
+    const panel = q('[data-side-panel]')!
+    expect(panel.hasAttribute('inert')).toBe(false)
+    expect(forYouBox()!.hidden).toBe(false)
+    expect(forYouButton()!.getAttribute('aria-expanded')).toBe('true')
+    // The cards settle: off screen again, its open state and view kept.
+    forYou.entries = []
+    rerender()
+    rerender()
+    expect(panel.hasAttribute('inert')).toBe(true)
+    expect(store.getSidePanelState()).toMatchObject({ rightOpen: true, view: 'forYou' })
+  })
+
+  it('over the Reply chip’s blur while For you shows (the card in hand shows where it came from), not while the sections do', () => {
+    withCards()
+    store.setRightPanelOpen(true)
+    renderPanel()
+    const panel = q('[data-side-panel]')!
+    expect(panel.className).not.toContain('[html[data-card-reply-focus]_&]:z-[46]')
+    act(() => forYouButton()!.click())
+    rerender()
+    expect(panel.className).toContain('[html[data-card-reply-focus]_&]:z-[46]')
+  })
+
+  it('Esc on For you closes the panel and gives the focus back to For you’s button', () => {
+    withCards()
+    store.setSidePanelView('forYou')
+    store.setRightPanelOpen(true)
+    renderPanel()
+    rerender()
+    const panel = q('[data-side-panel]')!
+    panel.focus()
+    key({ key: 'Escape' }, panel)
+    expect(store.getSidePanelState().rightOpen).toBe(false)
+    expect(document.activeElement).toBe(forYouButton())
+  })
+
+  it('⌘\\ keeps the view: For you closes and comes back as For you', () => {
+    withCards()
+    store.setSidePanelView('forYou')
+    renderPanel()
+    key({ key: '\\', metaKey: true })
+    rerender()
+    expect(store.getSidePanelState()).toMatchObject({ rightOpen: true, view: 'forYou' })
+    expect(forYouBox()!.hidden).toBe(false)
+    key({ key: '\\', metaKey: true })
+    expect(store.getSidePanelState()).toMatchObject({ rightOpen: false, view: 'forYou' })
   })
 })

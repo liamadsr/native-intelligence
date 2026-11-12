@@ -34,6 +34,12 @@
 #    Containers, other sandboxes and, later, the tunnel to the app's server
 #    all have private addresses; the internet does not.
 #
+# With the tunnel to the app's server set up (tunnel.sh writes the settings
+# read below), three more lines: the app's server may reach the runtime's API
+# and the sandboxes' traffic port through the tunnel; this machine opens no
+# connection into the tunnel; and nothing is passed on into it. The app's
+# server reaches in, and nothing here reaches out.
+#
 #   guard.sh apply     load the table, replacing an older copy in one step
 #   guard.sh check     exit 0 only when the table is loaded exactly as apply left it
 #   guard.sh ensure    check, and apply when the check fails (the timer's job)
@@ -45,6 +51,29 @@ table=ni_sandbox_guard
 # The rules "apply" loaded, without their counters: "check" compares the live rules with them.
 expected=/run/ni-sandbox-guard.expected
 private='{ 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16 }'
+
+# The tunnel, when there is one. The two values go into firewall rules, so
+# they are taken only in the shape they must have.
+tunnel_settings=/etc/ni-sandbox/tunnel.env
+tunnel_in=""
+tunnel_out=""
+tunnel_forward=""
+if [ -r "$tunnel_settings" ]; then
+	tunnel_if="$(sed -n 's/^TUNNEL_IF=\([a-z0-9-]\{1,15\}\)$/\1/p' "$tunnel_settings")"
+	tunnel_peer="$(sed -n 's/^TUNNEL_PEER=\([0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\)$/\1/p' "$tunnel_settings")"
+	if [ -z "$tunnel_if" ] || [ -z "$tunnel_peer" ]; then
+		echo "guard: $tunnel_settings is there but does not name a tunnel and its other end" >&2
+		exit 1
+	fi
+	tunnel_in="iifname \"$tunnel_if\" ip saddr $tunnel_peer tcp dport { 3000, 3002 } accept comment \"from-the-tunnel\""
+	# Everything that does not answer the app's own call, not only what counts
+	# as a new connection. Noted first, like rule 1, so that check.sh can ask
+	# whether one particular try was refused; the second line refuses what the
+	# first cannot note.
+	tunnel_out="oifname \"$tunnel_if\" meta l4proto tcp ct state != { established, related } update @refused4 { ip daddr . tcp dport } counter reject comment \"into-the-tunnel-noted\"
+		oifname \"$tunnel_if\" ct state != { established, related } counter reject comment \"into-the-tunnel\""
+	tunnel_forward="oifname \"$tunnel_if\" counter drop comment \"passed-on-into-the-tunnel\""
+fi
 
 # The three chains, rule by rule. Not the whole table: that would include the
 # note's contents, which change with every refusal.
@@ -77,6 +106,7 @@ table inet $table {
 		# wait out its timeout instead of hearing "refused" at once.
 		icmp type destination-unreachable accept
 		icmpv6 type destination-unreachable accept
+		$tunnel_out
 		# Noted, then refused. When the note is full this rule stops matching,
 		# and the next one, which notes nothing, refuses all the same.
 		meta l4proto tcp fib daddr type local ip daddr != 127.0.0.0/8 update @refused4 { ip daddr . tcp dport } counter reject comment "own-address-v4-noted"
@@ -88,6 +118,7 @@ table inet $table {
 		iifname "lo" accept
 		ct state established,related accept
 		ip saddr 10.11.0.0/16 tcp dport { 5010-5012, 5016-5018 } accept
+		$tunnel_in
 		tcp dport { 3000-3003, 5007-5012, 5016-5018, 5109 } counter drop comment "runtime-ports"
 	}
 	chain forward {
@@ -97,6 +128,7 @@ table inet $table {
 		iifname "e2b-*" ip daddr $private counter drop comment "sandbox-link-to-private"
 		ip saddr 10.11.0.0/16 ip daddr $private counter drop comment "sandbox-range-to-private"
 		iifname "e2b-*" meta nfproto ipv6 counter drop comment "sandbox-ipv6"
+		$tunnel_forward
 	}
 }
 EOF

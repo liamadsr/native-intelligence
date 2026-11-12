@@ -39,22 +39,20 @@ import {
   Boxes,
   Brain,
   Building2,
+  CalendarClock,
   CalendarDays,
   CircleCheck,
-  FileText,
-  Hash,
   FlaskConical,
   FolderKanban,
-  Handshake,
   LayoutList,
   Mail,
   Megaphone,
+  Paperclip,
   Table2,
   Search,
   Send,
   Target,
   Telescope,
-  User,
   Users,
   Workflow,
   type LucideIcon,
@@ -63,7 +61,7 @@ import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { LibraryItemIcon } from '@/components/library-item-icon'
 import { cn } from '@/lib/utils'
 import type { OfferedPage } from '@/lib/chat-cards/page-menu'
-import type { MenuSearchKind, MenuSearchRow } from '@/lib/search/menu-search'
+import type { MenuFileRow, MenuSearchKind, MenuSearchRow } from '@/lib/search/menu-search'
 import { formatCaptureDate } from '../views/capture-utils'
 import type { SkillCommand } from './chat-panel'
 import { companySubline, contactSubline } from './mention-picker'
@@ -101,7 +99,9 @@ import { usePaletteFeed } from './use-palette-feed'
 import { describeFeedEvent, feedActorLabel, sharedWithYouLine, type FeedEntry } from '@/lib/entities/feed-model'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import { openTarget } from '@/lib/chat-cards/open-card'
-import { formatDistanceToNowStrict } from 'date-fns'
+import { FEED_ICONS, RECORD_ICONS } from './feed-icons'
+import { PALETTE_ENTRANCE_EASING, PALETTE_ENTRANCE_FROM, PALETTE_ENTRANCE_MS } from '@/lib/motion/palette-entrance'
+import { format, formatDistanceToNowStrict } from 'date-fns'
 
 /** What the composer's field hands the inline menu: its keys. */
 export interface CommandMenuHandle {
@@ -144,13 +144,21 @@ export interface CommandMenuProps {
   /** The composer (the inline menu opens above it). */
   anchorRef: React.RefObject<HTMLElement | null>
   menuRef?: React.Ref<CommandMenuHandle>
+  /**
+   * Inline, away from a chat (a document's `@`): which side of the anchor the
+   * menu opens on, how wide it is, and what Enter says for a mention. Absent:
+   * above the composer, the chat's reading column wide, "add to chat".
+   */
+  placement?: { side: 'top' | 'bottom'; width: number; mentionWord?: string }
 }
 
 const PAGE_ICONS: Record<string, LucideIcon> = {
   calendar: CalendarDays,
+  availability: CalendarClock,
   actions: CircleCheck,
   captures: AudioLines,
   docs: BookOpen,
+  files: Paperclip,
   tables: Table2,
   knowledge: Brain,
   initiatives: Target,
@@ -174,9 +182,14 @@ const ENTER_WAIT_MS = 2000
 /** A verb as the footer and the highlighted row say it. */
 const VERB_LABEL: Record<MenuVerb, string> = { open: 'open', use: 'use', mention: 'add to chat' }
 
-/** A verb as said for this item: a host's own option or record (team chat's) is mentioned, not added to a chat. */
-function verbLabel(verb: MenuVerb, item: MenuItem | undefined): string {
+/**
+ * A verb as said for this item: a host's own option or record (team chat's)
+ * is mentioned, not added to a chat; so is everything where the menu says so
+ * (`mentionWord`: a document's).
+ */
+function verbLabel(verb: MenuVerb, item: MenuItem | undefined, mentionWord?: string): string {
   const host = item?.kind === 'option' || (item?.kind === 'record' && item.host)
+  if (verb === 'mention' && mentionWord) return mentionWord
   return verb === 'mention' && host ? 'mention' : VERB_LABEL[verb]
 }
 
@@ -205,6 +218,7 @@ export function CommandMenu({
   arriving = false,
   anchorRef,
   menuRef,
+  placement,
 }: CommandMenuProps) {
   const palette = variant === 'palette'
   const [tab, setTab] = useState<MenuTab>('all')
@@ -451,6 +465,7 @@ export function CommandMenu({
       palette={palette}
       listId={listId}
       rowId={rowId}
+      mentionWord={placement?.mentionWord}
     />
   )
 
@@ -486,7 +501,7 @@ export function CommandMenu({
     )
   }
   return (
-    <InlineFrame open={visible} anchorRef={anchorRef} fitAnchor={!!mentionList}>
+    <InlineFrame open={visible} anchorRef={anchorRef} fitAnchor={!!mentionList} placement={placement}>
       {body}
     </InlineFrame>
   )
@@ -499,42 +514,49 @@ function InlineFrame({
   open,
   anchorRef,
   fitAnchor = false,
+  placement,
   children,
 }: {
   open: boolean
   anchorRef: React.RefObject<HTMLElement | null>
   /** No wider than the composer (a host's own list, in a narrow view: a phone, a card). */
   fitAnchor?: boolean
+  /** Away from a chat: the side and width it opens with (CommandMenuProps.placement). */
+  placement?: { side: 'top' | 'bottom'; width: number }
   children: ReactNode
 }) {
   const floatingContainerRef = useFloatingChatContainerRef()
   const [room, setRoom] = useState(420)
+  const side = placement?.side ?? 'top'
   useLayoutEffect(() => {
     if (!open || !anchorRef.current) return
-    setRoom(Math.max(anchorRef.current.getBoundingClientRect().top - 24, 200))
-  }, [open, anchorRef])
+    const rect = anchorRef.current.getBoundingClientRect()
+    setRoom(Math.max(side === 'top' ? rect.top - 24 : window.innerHeight - rect.bottom - 24, 200))
+  }, [open, anchorRef, side])
   // A press on the menu (a row, a tab, its scrollbar) leaves the caret where it is.
   const keepFocus = (e: { preventDefault: () => void }) => e.preventDefault()
   return (
     <Popover open={open}>
       <PopoverAnchor virtualRef={anchorRef as React.RefObject<HTMLElement>} />
       <PopoverContent
-        side="top"
-        align="center"
+        side={side}
+        align={placement ? 'start' : 'center'}
         sideOffset={6}
         data-command-menu="inline"
         className="flex flex-col overflow-hidden rounded-3xl border border-border bg-popover p-0 text-popover-foreground shadow-lg"
         style={{
           // The chat's reading column, inset from the card walls (as the
           // other pickers above the composer: picker-popover.tsx).
-          width: Math.min(
-            measureChatReadingColumn(
-              floatingContainerRef.current?.getBoundingClientRect().width ??
-                anchorRef.current?.getBoundingClientRect().width ??
-                360,
-            ) - 36,
-            fitAnchor ? (anchorRef.current?.getBoundingClientRect().width || 360) - 16 : Infinity,
-          ),
+          width: placement
+            ? placement.width
+            : Math.min(
+                measureChatReadingColumn(
+                  floatingContainerRef.current?.getBoundingClientRect().width ??
+                    anchorRef.current?.getBoundingClientRect().width ??
+                    360,
+                ) - 36,
+                fitAnchor ? (anchorRef.current?.getBoundingClientRect().width || 360) - 16 : Infinity,
+              ),
           maxHeight: Math.min(room, 440),
         }}
         // The box keeps the focus, and decides when the menu goes: a press
@@ -605,8 +627,9 @@ function PaletteFrame({
         role="dialog"
         aria-modal="true"
         aria-label="Search"
-        from={{ opacity: 0, transform: 'translateY(-6px) scale(0.98)' }}
-        duration={160}
+        // The palette's entrance, shared with the page panel's page change (lib/motion/palette-entrance.ts).
+        from={PALETTE_ENTRANCE_FROM}
+        duration={PALETTE_ENTRANCE_MS}
         // Flying in, the flight is its entrance.
         still={arriving}
         className="relative flex max-h-[min(72vh,560px)] w-full max-w-[640px] flex-col overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground shadow-2xl"
@@ -660,7 +683,7 @@ function Entrance({
     const el = ref.current
     if (still || !el || typeof el.animate !== 'function') return
     if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    el.animate([from, { opacity: 1, transform: 'none' }], { duration, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' })
+    el.animate([from, { opacity: 1, transform: 'none' }], { duration, easing: PALETTE_ENTRANCE_EASING })
     // Once, as it mounts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -684,6 +707,7 @@ function MenuBody({
   palette,
   listId,
   rowId,
+  mentionWord,
 }: {
   tabs: readonly MenuTab[]
   tab: MenuTab
@@ -699,6 +723,8 @@ function MenuBody({
   palette: boolean
   listId: string
   rowId: (index: number) => string
+  /** What Enter says for a mention here (verbLabel). */
+  mentionWord?: string
 }) {
   const listRef = useRef<HTMLDivElement>(null)
   // Tabs named in the workspace's words, as the sections are (menuTabLabel).
@@ -783,6 +809,7 @@ function MenuBody({
                     verb={index === highlighted && active ? active : null}
                     onHighlight={onHighlight}
                     onPick={onPick}
+                    mentionWord={mentionWord}
                   />
                 )
               })}
@@ -798,7 +825,7 @@ function MenuBody({
         </span>
         <span className="flex items-center gap-1">
           <Kbd>↵</Kbd>
-          <span className="ml-0.5">{active ? verbLabel(active, items[highlighted]) : 'select'}</span>
+          <span className="ml-0.5">{active ? verbLabel(active, items[highlighted], mentionWord) : 'select'}</span>
         </span>
         {tabs.length > 2 && (
           <span className="flex items-center gap-1">
@@ -897,6 +924,7 @@ function MenuRow({
   verb,
   onHighlight,
   onPick,
+  mentionWord,
 }: {
   id: string
   item: MenuItem
@@ -906,6 +934,7 @@ function MenuRow({
   verb: MenuVerb | null
   onHighlight: (index: number) => void
   onPick: (item: MenuItem) => void
+  mentionWord?: string
 }) {
   const { title, detail, meta } = rowText(item)
   return (
@@ -940,7 +969,7 @@ function MenuRow({
       {verb && (
         <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground" data-menu-row-verb={verb}>
           <Kbd>↵</Kbd>
-          {verbLabel(verb, item)}
+          {verbLabel(verb, item, mentionWord)}
         </span>
       )}
     </button>
@@ -969,6 +998,10 @@ function rowText(item: MenuItem): { title: string; detail: string | null; meta: 
     case 'deal':
     case 'flow':
       return { title: row.title, detail: row.status, meta: null }
+    case 'attachment':
+      return { title: row.title, detail: row.parent ? FILE_ON[row.parent.type] : null, meta: row.createdAt ? formatCaptureDate(row.createdAt) : null }
+    case 'calendar_event':
+      return { title: row.title, detail: eventWhen(row.start, row.allDay), meta: null }
     case 'agent':
       return { title: row.title, detail: row.description, meta: null }
     case 'team_chat_message':
@@ -1005,6 +1038,20 @@ function feedRowText(entry: FeedEntry): { title: string; detail: string | null; 
   }
 }
 
+/** Where a file hangs, as its row says it. */
+const FILE_ON: Record<NonNullable<MenuFileRow['parent']>['type'], string> = {
+  capture: 'On a capture',
+  action: 'On a task',
+  project: 'On a project',
+}
+
+/** An event's start, short: "Thu, Nov 12 · 10:00" ("Thu, Nov 12" all day). */
+function eventWhen(start: string, allDay: boolean): string | null {
+  const at = new Date(start)
+  if (Number.isNaN(at.getTime())) return null
+  return format(at, allDay ? 'EEE, MMM d' : 'EEE, MMM d · HH:mm')
+}
+
 /** `in_progress` → "In progress". */
 function statusLabel(status: string): string {
   const s = status.replace(/_/g, ' ')
@@ -1014,27 +1061,6 @@ function statusLabel(status: string): string {
 const TILE = 'flex size-7 shrink-0 items-center justify-center rounded-lg'
 /** A neutral tile; on the highlighted row it lifts off the highlight. */
 const MUTED_TILE = 'bg-muted group-aria-selected:bg-background'
-
-/** The record kinds drawn as a plain glyph on a tile. */
-const RECORD_ICONS: Partial<Record<MenuSearchRow['kind'], LucideIcon>> = {
-  action: CircleCheck,
-  document: FileText,
-  project: FolderKanban,
-  initiative: Target,
-  capture: AudioLines,
-  deal: Handshake,
-  flow: Workflow,
-  agent: Boxes,
-  team_chat_message: Hash,
-}
-
-/** A feed row's kind, as a glyph on a tile. */
-const FEED_ICONS: Partial<Record<FeedEntry['type'], LucideIcon>> = {
-  ...RECORD_ICONS,
-  contact: User,
-  company: Building2,
-  team_chat_message: Hash,
-}
 
 function RowIcon({ item }: { item: MenuItem }) {
   if (item.kind === 'page') {

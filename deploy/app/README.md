@@ -126,7 +126,7 @@ counts as "nothing to hold".
 |---|---|
 | Between what serves and `origin/main`, a file in `web/supabase/migrations/` is added, changed, renamed or removed | Apply the migrations (below), then `sudo ./auto-deploy.sh acknowledge <commit>`, with the commit the hold names. |
 | The same for `web/supabase/functions/` or `web/supabase/templates/` | These are mounted from the checkout into the Supabase stack (`../supabase/compose.override.yaml`: the `stripe-webhook` function, and the mail templates' file server): they change the moment the checkout moves, whatever happens to the build. Read the change, then `acknowledge <commit>`. |
-| The same for `deploy/edge/`, `deploy/supabase/`, `deploy/inngest/`, `deploy/backup/` or `deploy/livekit/` | Other stacks. Edge reads its folder (`Caddyfile`) when Caddy starts; Supabase's compose files and mounted files, and Inngest's `sync.sh`, take effect when those containers are next created or started; the backup container has its files built in, so its next `up --build`; LiveKit's (its configuration is in its compose file) its next `up -d`, and its scripts are run by a person, as root. A reboot restarts the first three, so a broken file there takes its stack down at the next reboot even though the app's build is fine. Read the change, `acknowledge <commit>`, and once the checkout has moved, roll that stack out by hand (Day to day in [`../README.md`](../README.md#day-to-day)). |
+| The same for `deploy/edge/`, `deploy/supabase/`, `deploy/inngest/`, `deploy/backup/`, `deploy/livekit/` or `recorder/` (but `recorder/test/`, `recorder/e2e/` and `recorder/README.md`) | Other stacks. Edge reads its folder (`Caddyfile`) when Caddy starts; Supabase's compose files and mounted files, and Inngest's `sync.sh`, take effect when those containers are next created or started; the backup container has its files built in, so its next `up --build`; LiveKit's (its configuration is in its compose file) its next `up -d`, and its scripts are run by a person, as root; the call recorder (`recorder/`, run by `../livekit`) once its image is built again there (`docker build -t ni-recorder:local ../../recorder`, then `up -d --no-build recorder`: step 23, R3, which also says why not `--build`). A reboot restarts the first three, so a broken file there takes its stack down at the next reboot even though the app's build is fine. Read the change, `acknowledge <commit>`, and once the checkout has moved, roll that stack out by hand (Day to day in [`../README.md`](../README.md#day-to-day)). |
 | The same for the server's own deploy tooling: **everything in `deploy/app/`** except the few paths named on the right | These run as root on the server in this same run (`deploy.sh`) or the next (`auto-deploy.sh`, `check_settings.py`), set what the containers may do (`compose.yaml`, and any other file Compose reads beside it by itself, such as a `compose.override.yaml`: privileges, mounts), decide what a build may take from the checkout, where the other stacks' settings files lie (the `Dockerfile`, whose first line names the program that drives the build, and `Dockerfile.dockerignore`, which that program applies), or say where traffic goes (`proxy/` sits on the edge network). A file or folder that is new there is held too, whatever its name: the rule lists what is let through, not what is held. Read the change, then `acknowledge <commit>`. Let through, because they only ever run inside the containers with the rights `compose.yaml` gives them: `cron/`, `smoke/`, `healthcheck.mjs`, `eve-origin.mjs`, and the app itself; and `tests/`, `README.md`, and `.env.example` (next row). |
 | The new `deploy/app/.env.example` names a setting `.env` has no line for (names only; no value is read out or shown) | Copy the line into `.env` (`sudo nano .env`) and fill it in where needed. The next run sees it. |
 | The new commits remove `deploy/app/.env.example`, make it a link or a folder, or give it a line that is neither `NAME=value` nor a comment (`export NAME=`, an indented line: forms the reader of settings skips but Compose takes) | The settings the new commits need cannot be checked, and that is not "no new setting". Put the file right on `main`, or roll out by hand once sure. |
@@ -399,6 +399,14 @@ signature, never by their address.
 settings, so the app needs nothing else for it: it sends a file path, and reads the
 finished file from the private bucket through Storage.
 
+`TEAM_CALL_RECORDER` is the other switch for call notes: `on` once the call recorder
+runs beside LiveKit (`../README.md` step 23, "The call recorder"); the notes are then
+the recorder's, and fill in while the call goes on (Egress then takes none, and still
+takes recordings). `CAPTURE_FEED_SECRET` is what the recorder sends with every request
+to the app; `../livekit/make-keys.sh` makes it and writes the same value into both
+`.env` files. It must be its own: the app turns the recorder's routes off when it
+equals any other internal secret, and the settings check says `WRONG` then.
+
 ### Sealed copy (done once, then removed)
 
 The earlier host's write-only production settings reached this server once, on
@@ -441,8 +449,9 @@ server's stack.
 
 `.github/workflows/image.yml` runs the same two steps on every pull request that
 touches this folder or what the image is built from (web's dependencies, patches,
-`next.config.mjs`, the agents, `web/vercel.json`), and runs the web test suite as a
-separate job.
+`next.config.mjs`, the agents, `web/vercel.json`). It does not run the web test
+suite, and neither does the image build: the suite is run locally before a push
+(`npm test` in `web/`, on Node 24), so a roll-out never runs it.
 
 ## One image, four roles
 

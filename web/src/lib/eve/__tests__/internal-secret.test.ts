@@ -122,16 +122,29 @@ describe('resolveInternalSecret', () => {
     expect(logged()[1]).toContain('"sharedWith":["UTILITY_INTERNAL_SECRET","LIVE_AGENT_INTERNAL_SECRET"]')
   })
 
-  it('compares against exactly the seven internal-secret env vars the resolvers use', () => {
+  it('compares against exactly the eight internal-secret env vars the resolvers use', () => {
     expect([...INTERNAL_SECRET_ENVS].sort()).toEqual([
       'AGENT_RUN_INTERNAL_SECRET',
       'BROWSER_INTERNAL_SECRET',
+      'CAPTURE_FEED_SECRET',
       'CHAT_INTERNAL_SECRET',
       'LIVE_AGENT_INTERNAL_SECRET',
       'LOCAL_AGENT_TOKEN_SECRET',
       'RUN_SKILL_INTERNAL_SECRET',
       'UTILITY_INTERNAL_SECRET',
     ])
+  })
+
+  it("never falls back for the capture feed: its producer must not hold the skill-runner's key", () => {
+    vi.stubEnv('RUN_SKILL_INTERNAL_SECRET', ROOT)
+    vi.stubEnv('CAPTURE_FEED_SECRET', '')
+    expect(internalSecretStatus('CAPTURE_FEED_SECRET', { fallback: false })).toEqual({ source: 'unset', sharedWith: [] })
+    expect(resolveInternalSecret('capture-feed', 'CAPTURE_FEED_SECRET', { fallback: false })).toBeNull()
+    expect(logged()[0]).toContain('"family":"capture-feed","env":"CAPTURE_FEED_SECRET","secretSource":"unset"')
+    vi.stubEnv('CAPTURE_FEED_SECRET', ROOT)
+    expect(internalSecretStatus('CAPTURE_FEED_SECRET', { fallback: false })).toEqual({ source: 'shared', sharedWith: ['RUN_SKILL_INTERNAL_SECRET'] })
+    vi.stubEnv('CAPTURE_FEED_SECRET', OWN)
+    expect(resolveInternalSecret('capture-feed', 'CAPTURE_FEED_SECRET', { fallback: false })).toBe(OWN)
   })
 
   it("reports a family sharing the local agent's model-token secret (security review 2026-10-31)", () => {

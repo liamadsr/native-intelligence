@@ -152,8 +152,10 @@ export function fakePipelineDb(rows: Record<string, Row[]>, opts: { rpc?: (name:
       for (const c of columns) {
         const alias = /^(\w+):(\w+)::text$/.exec(c)
         const jsonAlias = /^(\w+):(\w+->>\w+)$/.exec(c)
+        const renamed = /^(\w+):(\w+)$/.exec(c)
         if (alias) out[alias[1]] = r[alias[2]] === undefined ? undefined : String(r[alias[2]])
         else if (jsonAlias) out[jsonAlias[1]] = path(r, jsonAlias[2])
+        else if (renamed) out[renamed[1]] = structuredClone(r[renamed[2]])
         else if (!c.includes('(')) out[c] = structuredClone(r[c])
       }
       return out
@@ -273,6 +275,7 @@ export function fakePipelineDb(rows: Record<string, Row[]>, opts: { rpc?: (name:
       undo_of: args.p_undo_of ?? null,
       undone_at: null,
       created_at: now(),
+      source_ref: args.p_source_ref ?? null,
     })
     if (args.p_undo_of) {
       const undone = table('data_change').find((c) => c.id === args.p_undo_of)
@@ -343,7 +346,7 @@ export function pipelineRows(opts: {
       description: null,
       owner_member_id: null,
       visibility: opts.visibility ?? 'workspace',
-      kind: 'pipeline',
+      table_kind: 'pipeline',
       is_default: !!opts.isDefault,
       version: 1,
       position: opts.position ?? 0,

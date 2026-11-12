@@ -130,7 +130,17 @@ describe('writing a deal', () => {
     expect(row.custom_fields).toEqual({ stage: 'Lead', value: { amount: 12500, currency: 'USD' }, company: [COMPANY], contacts: [CONTACT_A], owner: MEMBER })
     const call = db.rpcCalls.find((c) => c.name === 'apply_data_ops')!
     expect(call.args).toMatchObject({ p_table_id: SALES, p_source: 'agent', p_reason: 'Dana wrote that they signed', p_as_user: USER })
+    expect(call.args).not.toHaveProperty('p_source_ref')
     expect(r.eventId).toBe(db.rows.data_change[0].id)
+  })
+
+  it('keeps where a change came from (the email thread) on the change, and the history says it', async () => {
+    const c = await createDeal(db.client, WS, { name: 'A' }, actor)
+    if (!c.ok) throw new Error(c.error)
+    await updateDeal(db.client, WS, c.deal.id, { stage: 'Won' }, { ...actor, source: 'email', sourceRef: 'thread-7' })
+    expect(db.rpcCalls.filter((x) => x.name === 'apply_data_ops').at(-1)!.args).toMatchObject({ p_source: 'email', p_source_ref: 'thread-7' })
+    const [latest] = await listDealEvents(db.client, WS, c.deal)
+    expect(latest).toMatchObject({ kind: 'moved', source: 'email', source_ref: 'thread-7' })
   })
 
   it('creates in a named pipeline and stage', async () => {
@@ -210,6 +220,15 @@ describe('history and undo', () => {
     expect(undone.kept.length).toBe(1)
     expect(db.rows.data_change.find((ch) => ch.id === moved.eventId)!.undone_at).not.toBeNull()
     expect(await undoDealChange(db.client, WS, { dealId: c.deal.id, changeId: moved.eventId! }, actor)).toEqual({ ok: false, error: 'That change was already undone.' })
+  })
+
+  it('reads a deal’s own changes by its row, past other rows’ newer ones', async () => {
+    const a = await createDeal(db.client, WS, { name: 'A' }, actor)
+    const b = await createDeal(db.client, WS, { name: 'B' }, actor)
+    if (!a.ok || !b.ok) throw new Error('setup')
+    for (let i = 1; i <= 5; i++) await updateDeal(db.client, WS, b.deal.id, { value: i }, actor)
+    const events = await listDealEvents(db.client, WS, a.deal, 3)
+    expect(events.map((e) => e.kind)).toEqual(['created'])
   })
 
   it('a change id from another deal is not this deal’s', async () => {
