@@ -66,8 +66,8 @@ export const showInputSchema = z.object({
     .enum(['list', 'board', 'record', 'calendar', 'mail', ...SHOW_PAGE_KIND_NAMES])
     .describe(
       "'list': a filtered page of records; 'board': the same as a board; 'record': one record; 'calendar': a day, week or month of events; 'mail': a mail folder or one thread. " +
-        'A whole page: team_board (one team\'s actions by state), sequences, prospecting, flows, evals, campaigns, knowledge, ' +
-        'library (agents & skills), teams, browser',
+        'A whole page: team_board (one team\'s actions by state), sequences, prospecting, flows, evals, campaigns, ' +
+        'tables (one of the workspace\'s tables, or the list of them), knowledge, library (agents & skills), teams, browser',
     ),
   title: z.string().describe('What the card says, short: "Due this week · Atlas"'),
   entity_type: z.enum(CARD_LIST_ENTITIES).optional().describe('list / board: what to list'),
@@ -84,9 +84,9 @@ export const showInputSchema = z.object({
   layout: z.enum(['list', 'board']).optional(),
   columns: z.array(z.string()).optional().describe('list / board: columns to show, left to right. Omit for the page default'),
   record: z
-    .object({ type: z.enum(CARD_RECORD_TYPES), id: z.string() })
+    .object({ type: z.enum([...CARD_RECORD_TYPES, 'data_row']), id: z.string() })
     .optional()
-    .describe('record: which one, by id (an action also by identifier, e.g. GEN-42)'),
+    .describe("record: which one, by id (an action also by identifier, e.g. GEN-42; data_row: a table's row)"),
   calendar: z
     .object({
       from: z.string().optional().describe('First day, YYYY-MM-DD'),
@@ -111,9 +111,9 @@ export const showInputSchema = z.object({
     .optional()
     .describe(
       'A page: what to open it on, by name or id: the team (team_board, required; teams), a sequence, a prospect list, an eval suite, ' +
-        'a knowledge package, an agent or skill (library). Omit for the whole page',
+        'a table (tables; a row by its id), a knowledge package, an agent or skill (library). Omit for the whole page',
     ),
-  tab: z.string().optional().describe('A page: evals (overview, cases, runs), knowledge (claims, library), library (agents, skills)'),
+  tab: z.string().optional().describe('A page: evals (overview, cases, runs), knowledge (claims, library), library (agents, skills), tables (grid, board, calendar, gallery)'),
 })
 
 export const readCardInputSchema = z.object({
@@ -135,7 +135,8 @@ const SHOW_DESCRIPTION =
   'their calendar for a day, week or month, or a mail folder or thread. ' +
   'Use it whenever the answer is a set of records ("what\'s due this week", "my open deals", "captures with Acme", "my week", "unread from Acme") instead of listing them in prose, ' +
   'and to open one record. The card is the real page: the person can filter, sort, open rows and keep it as a saved view. ' +
-  'It also shows a whole page (a team board, sequences, prospecting, flows, evals, campaigns, knowledge, agents & skills, teams, the browser), opened on a target by name. ' +
+  'It also shows a whole page (a team board, sequences, prospecting, flows, evals, campaigns, a table, knowledge, agents & skills, teams, the browser), opened on a target by name. ' +
+  'A table is kind tables with the table as target, drawn as a grid, board, calendar or gallery (tab); one of its rows is a record of type data_row. ' +
   'Returns the cleaned-up spec, the count and the first 10 rows, so say in one line what it shows and what stands out; do not repeat the rows. ' +
   'To change what is shown, call show again (a new card); never describe an old card as changed. ' +
   'Filters use the entity\'s own fields; a refusal names the fix and the valid fields.'
@@ -165,14 +166,18 @@ export function createShowTools(
   personalKinds: readonly PersonalCardKind[] = [],
   /** The browser's IANA zone this turn (checked by the caller): a calendar card's days are its local days. */
   timeZone?: string | null,
+  /** A guest's or a linked agent's turn: a table shared with the person by a grant doesn't show. */
+  omitGrants = false,
 ) {
-  const scope: CardScope = { supabase, workspaceId, userId, ...(isTimeZone(timeZone) ? { timeZone } : {}) }
+  const scope: CardScope = { supabase, workspaceId, userId, ...(isTimeZone(timeZone) ? { timeZone } : {}), ...(omitGrants ? { grants: false } : {}) }
   const allowed = (kind: PersonalCardKind) => personalKinds.includes(kind)
   return {
     show: tool({
       description: SHOW_DESCRIPTION,
       inputSchema: showInputSchema,
-      execute: async (input) => {
+      execute: async (raw) => {
+        // A table's row is a record card: the Tables page opened on that row.
+        const input = raw.kind === 'record' && raw.record?.type === 'data_row' ? { ...raw, kind: 'tables' as const, target: raw.record.id, record: undefined } : raw
         if (isPageKind(input.kind)) {
           const page = normalizePageInput(input)
           if (!page.ok) return { success: false, code: 'INPUT_INVALID', error: page.error }

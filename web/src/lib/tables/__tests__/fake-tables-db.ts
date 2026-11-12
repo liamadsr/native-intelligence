@@ -1,6 +1,7 @@
 /**
  * A small stand-in for the Supabase client the tables store reads and writes
- * through: filtered selects over in-memory rows (eq, in, is, not is, order,
+ * through: filtered selects over in-memory rows (eq, in, is, not is, an
+ * ilike with no wildcard, order,
  * range, limit, maybeSingle, a `name:column::text` alias), and RPCs answered
  * by the test. RLS is the test's own choice of rows.
  */
@@ -34,6 +35,12 @@ export function fakeTablesDb(rows: Record<string, Row[]>, rpc: (name: string, ar
       },
       in(col: string, vs: unknown[]) {
         filters.push((r) => vs.includes(r[col]))
+        return q
+      },
+      ilike(col: string, pattern: string) {
+        // An escaped pattern with no wildcard: equal, any case.
+        const want = pattern.replace(/\\([\\%_])/g, '$1').toLowerCase()
+        filters.push((r) => String(r[col] ?? '').toLowerCase() === want)
         return q
       },
       gt(col: string, v: number) {

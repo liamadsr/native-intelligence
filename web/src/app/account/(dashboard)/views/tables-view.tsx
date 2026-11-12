@@ -25,10 +25,26 @@ async function readJson<T>(res: Response): Promise<T> {
   return json
 }
 
-export function TablesView({ onCount }: { onCount?: (count: number) => void } = {}) {
+/**
+ * A chat card's hold on the page (pages in the chat): which table is open,
+ * in which layout, with which row open, and how opening one moves the card.
+ */
+export interface TablesCardState {
+  openId: string | null
+  rowId?: string | null
+  layout?: string
+  onOpen: (id: string | null, name?: string) => void
+}
+
+export function TablesView({ onCount, card }: { onCount?: (count: number) => void; card?: TablesCardState } = {}) {
   const [tables, setTables] = useState<DataTable[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [openId, setOpenId] = useState<string | null>(null)
+  const [ownOpenId, setOwnOpenId] = useState<string | null>(null)
+  const openId = card ? card.openId : ownOpenId
+  const setOpenId = (id: string | null) => {
+    if (card) card.onOpen(id, tables?.find((t) => t.id === id)?.name)
+    else setOwnOpenId(id)
+  }
   const [creating, setCreating] = useState(false)
   // How many there are, for a chat card's header (pages in the chat).
   const onCountRef = useRef(onCount)
@@ -57,6 +73,8 @@ export function TablesView({ onCount }: { onCount?: (count: number) => void } = 
       <TableDetail
         key={openId}
         tableId={openId}
+        initialLayout={card?.layout}
+        initialRowId={card?.rowId ?? null}
         onBack={() => {
           setOpenId(null)
           void load()

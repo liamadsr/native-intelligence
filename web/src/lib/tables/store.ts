@@ -74,6 +74,17 @@ export interface TableActor {
   source: DataChangeSource
   reason?: string | null
   asUserId?: string | null
+  /**
+   * false on a guest's or a linked agent's turn (530): a table the writer
+   * reads only through a grant is not there, and a relation value links only
+   * what they read without one. Absent: grants count, as for the person.
+   */
+  grants?: boolean
+}
+
+/** The RPC arguments only some writes send (530): nothing for the person's own write. */
+function writeExtras(actor: TableActor): { p_grants?: false } {
+  return actor.grants === false ? { p_grants: false } : {}
 }
 
 type RpcError = { code?: string; message: string; details?: string | null }
@@ -384,6 +395,7 @@ export async function createTable(
   else if (blank > 0) raw.push({ op: 'insert_rows', rows: Array.from({ length: blank }, () => ({})) })
   const checked = raw.length ? validateOps([], raw) : { ok: true as const, value: [] as DataOp[] }
   if (!checked.ok) return { ok: false, reason: 'invalid', error: checked.error }
+  const reason = actor.reason?.trim().slice(0, TABLE_LIMITS.reason) || null
 
   const { data, error } = await db.rpc('create_data_table', {
     p_workspace_id: workspaceId,
@@ -394,6 +406,8 @@ export async function createTable(
     p_ops: checked.value,
     p_source: actor.source,
     p_as_user: actor.asUserId ?? null,
+    ...(reason ? { p_reason: reason } : {}),
+    ...writeExtras(actor),
   })
   if (error) return refusal(error as RpcError)
   const r = (data ?? {}) as Record<string, unknown>
@@ -515,6 +529,7 @@ async function rpcApply(
     p_reason: reason,
     p_undo_of: undoOf,
     p_as_user: actor.asUserId ?? null,
+    ...writeExtras(actor),
   })
   if (error) return refusal(error as RpcError)
   return { ok: true, value: normalizeResult(data) }

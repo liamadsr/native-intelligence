@@ -133,6 +133,17 @@ export function channelTurnMayUseNative(toolName: string, claims: { server?: str
  */
 export const DEVICE_ONLY_EXCLUSIONS: readonly string[] = ['enrich_contact']
 
+/**
+ * Team chat reads tables, never writes them (Tables, phase 5). A team chat
+ * turn may change only the person's own items (migration 474), and a table
+ * is the workspace's, kept by everyone: with other members' messages riding
+ * the turn, a write there could be steered into a record the whole team
+ * keeps. The person changes a table from their own chat. Every non-read tool
+ * of the registry's `tables` category, so a new table write is out too.
+ */
+const TABLE_WRITE_TOOLS: readonly string[] =
+  TOOL_CATEGORIES.find((c) => c.id === 'tables')?.tools.filter((t) => t.sideEffect !== 'read').map((t) => t.name) ?? []
+
 export const SURFACE_EXCLUDED_TOOLS: Readonly<Record<ChatRunSurface, ReadonlySet<string>>> = {
   // The attended-only tools the trust authority denies the person away from
   // the app (caller.ts: the device ask is person_remote).
@@ -184,7 +195,7 @@ export const SURFACE_EXCLUDED_TOOLS: Readonly<Record<ChatRunSurface, ReadonlySet
    * came back would have nowhere in the channel to go). Others in the channel
    * read the reply; nothing there draws cards.
    */
-  team_chat: new Set(['mcp_confirm_call', 'helpers', ...CHAT_NATIVE_TOOL_NAMES, ...ATTENDED_ONLY_TOOL_NAMES, ...CARD_TOOLS, ...BROWSER_TOOLS, ...JWT_TOOLS]),
+  team_chat: new Set(['mcp_confirm_call', 'helpers', ...CHAT_NATIVE_TOOL_NAMES, ...ATTENDED_ONLY_TOOL_NAMES, ...CARD_TOOLS, ...BROWSER_TOOLS, ...JWT_TOOLS, ...TABLE_WRITE_TOOLS]),
 }
 
 /**

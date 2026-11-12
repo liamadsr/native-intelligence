@@ -41,6 +41,7 @@ export const TARGET_SOURCE: Partial<Record<PageKind, string>> = {
   evals: 'list_evals',
   knowledge: 'list_packages',
   library: 'list_agents or list_skills',
+  tables: 'find_tables',
 }
 
 const MAX_FILTERS = 12
@@ -81,7 +82,9 @@ export function normalizePageInput(input: PageShowInput): Checked<CheckedPageInp
   if (input.tab !== undefined && input.tab !== null && input.tab !== '') {
     const wanted = String(input.tab).trim().toLowerCase()
     if (!def.tabs) return { ok: false, error: `tab: ${kind} has no tabs. Leave tab out` }
-    const hit = def.tabs.find((t) => t === wanted || `${t}s` === wanted || t === `${wanted}s`)
+    // A table's list is its grid.
+    const asked = kind === 'tables' && (wanted === 'list' || wanted === 'table') ? 'grid' : wanted
+    const hit = def.tabs.find((t) => t === asked || `${t}s` === asked || t === `${asked}s`)
     if (!hit) return { ok: false, error: `tab: ${kind} has the tabs ${def.tabs.join(', ')}. Use one of them, or leave tab out for ${def.tabs[0]}` }
     tab = hit
   }

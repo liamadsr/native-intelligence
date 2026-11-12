@@ -275,6 +275,25 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'list_action_documents', sideEffect: 'read', label: 'List Action Documents', description: 'List documents linked to an action item' },
     ],
   },
+  // Tables (phase 5, src/lib/ai/tools/tables.ts): the workspace's own databases. Every write is one
+  // logged batch with its before and after, so the agent applies it and the person undoes it (no queue).
+  // Gated with Docs (the Documents feature), where the Tables page is.
+  {
+    id: 'tables',
+    label: 'Tables',
+    description: "The workspace's own tables: rows under typed columns",
+    icon: '🗂️',
+    tools: [
+      { name: 'find_tables', sideEffect: 'read', label: 'Find Tables', description: "Find the workspace's tables, each with its columns" },
+      { name: 'get_table', sideEffect: 'read', label: 'Get Table', description: 'One table: its columns and types, row count, saved views and latest changes' },
+      { name: 'create_table', sideEffect: 'internal-write', writeTarget: 'board', label: 'Create Table', description: 'Make a table to track something: typed columns, and rows from what the person said' },
+      { name: 'update_table_columns', sideEffect: 'internal-write', writeTarget: 'board', label: 'Update Table Columns', description: "Add, rename, retype, set options on, require or delete a table's columns; undoable" },
+      { name: 'write_rows', sideEffect: 'internal-write', writeTarget: 'board', label: 'Write Rows', description: "Add rows to a table or change rows already there, values by column name; undoable" },
+      { name: 'query_rows', sideEffect: 'read', label: 'Query Rows', description: "Read a table's rows, filtered and sorted, a page at a time" },
+      { name: 'archive_rows', sideEffect: 'internal-write', writeTarget: 'board', label: 'Archive Rows', description: "Archive a table's rows; undoable" },
+      { name: 'undo_table_change', sideEffect: 'internal-write', writeTarget: 'board', label: 'Undo Table Change', description: 'Take back a change to a table; parts changed again since keep their newer value' },
+    ],
+  },
   {
     id: 'decisions',
     label: 'Decisions',
@@ -1193,6 +1212,9 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   // field both write. (create_/update_/undo_/set_ deal tools match the prefix.)
   'move_deal',
   'define_custom_field',
+  // Tables (phase 5): adds and changes a table's rows. `write_` is no write verb.
+  // (create_table, update_table_columns, archive_rows and undo_table_change match.)
+  'write_rows',
   // Inbox triage (GEN-1166): calls a mailing list's one-click link or sends an
   // unsubscribe email from the person's mailbox. (update_email_thread matches `update_`.)
   'unsubscribe_thread',
@@ -1331,6 +1353,8 @@ export function isReadShapedToolName(name: string): boolean {
     name === 'ask_user' ||
     // Puts a page in the chat: runs one query, writes nothing.
     name === 'show' ||
+    // Reads a table's rows (Tables, phase 5); `query_` is no read prefix.
+    name === 'query_rows' ||
     // Content C0: check a post (pure), and review one (a reviewer call that
     // writes nothing but its usage row, like web research). Neither posts.
     name === 'lint_post' ||

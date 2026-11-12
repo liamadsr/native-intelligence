@@ -13,7 +13,7 @@
  * Save as new view; drafts stay in memory, and only the last-opened view is
  * kept in this browser.
  */
-import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowLeft, ArrowUp, Download, History, Link2, Lock, Undo2, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -29,7 +29,7 @@ import { coverColumnOf, dateColumnOf, groupColumnOf, isGroupable, isTotalable, m
 import { customFieldKeyOf, customFieldPath } from '@/lib/views/custom-field-columns'
 import { resultFieldType } from '@/lib/tables/computed'
 import { isComputedType } from '@/lib/tables/types'
-import type { ViewScope } from '@/lib/views/types'
+import type { ViewLayout, ViewScope } from '@/lib/views/types'
 import { downloadFile } from '@/lib/download'
 import { copyTextToClipboard } from '@/lib/clipboard'
 import { tableLink } from '@/lib/tables/embed'
@@ -60,7 +60,22 @@ const fieldOf = (key: string) => (key === TITLE_KEY ? TITLE_KEY : customFieldPat
 const NONE: readonly string[] = []
 const NO_WIDTHS: Readonly<Record<string, number>> = {}
 
-export function TableDetail({ tableId, onBack }: { tableId: string; onBack: () => void }) {
+/** The layouts a chat card may open a table in (pages in the chat, phase 5). */
+const CARD_LAYOUTS: readonly ViewLayout[] = ['grid', 'board', 'calendar', 'gallery']
+
+export function TableDetail({
+  tableId,
+  onBack,
+  initialLayout,
+  initialRowId = null,
+}: {
+  tableId: string
+  onBack: () => void
+  /** A chat card's layout, set once as a draft of the open view. */
+  initialLayout?: string
+  /** A chat card's row (a row's record card), open from the start. */
+  initialRowId?: string | null
+}) {
   const scope = useMemo<ViewScope>(() => ({ type: 'data_table', id: tableId }), [tableId])
   const { views, activeView, activeViewId, setActiveViewId, createView, updateView, deleteView, duplicateView, loading: viewsLoading } = useView('data_row', undefined, scope)
   const viewConfig = useViewConfig(activeView, 'data_row', (id, updates) => updateView(id, updates), true, undefined, 'workspace', undefined, 'memory')
@@ -72,7 +87,7 @@ export function TableDetail({ tableId, onBack }: { tableId: string; onBack: () =
   const { table, columns, error } = data
   const [historyOpen, setHistoryOpen] = useState(false)
   const [importing, setImporting] = useState(false)
-  const [openRowId, setOpenRowId] = useState<string | null>(null)
+  const [openRowId, setOpenRowId] = useState<string | null>(initialRowId)
 
   // The table's columns, for the filter picker, the chips and the settings.
   const definitions = useMemo(
@@ -106,6 +121,15 @@ export function TableDetail({ tableId, onBack }: { tableId: string; onBack: () =
     [columns, config.grouping, updateConfig],
   )
   const setTable = (next: Partial<NonNullable<ViewConfig['table']>>) => updateConfig({ table: { ...settings, ...next } })
+
+  // The layout a chat card asked for, once the views are read: a draft of the
+  // open view, so nothing saved changes.
+  const [layoutAsked, setLayoutAsked] = useState<ViewLayout | null>(() => CARD_LAYOUTS.find((l) => l === initialLayout) ?? null)
+  useEffect(() => {
+    if (!layoutAsked || viewsLoading || !table) return
+    setLayoutAsked(null)
+    if (layout !== layoutAsked) onConfigChange({ layout: layoutAsked })
+  }, [layoutAsked, viewsLoading, table, layout, onConfigChange])
 
   const openRow = openRowId ? data.rows.find((r) => r.id === openRowId) ?? null : null
 
