@@ -396,12 +396,46 @@ class OwnRuntime(unittest.TestCase):
         _, blockers, _ = cs.report({n: "" for n in self.ENV}, {})
         self.assertEqual([b for b in blockers if "RUNTIME" in b or "GATE" in b], [])
 
-    def test_proven_by_health_and_a_listing_with_the_key(self):
-        ok, note, calls = self.check(dict(self.ENV), [(self.API + "/health", (200, None)), (self.API + "/sandboxes", (200, []))])
+    IMAGES = [{"aliases": ["base"]}, {"aliases": ["ni-coding-agent"]}]
+
+    def test_proven_by_health_a_listing_with_the_key_and_the_image(self):
+        ok, note, calls = self.check(dict(self.ENV), [(self.API + "/health", (200, None)), (self.API + "/sandboxes", (200, [])),
+                                                      (self.API + "/templates", (200, self.IMAGES))])
         self.assertIs(ok, True)
-        self.assertEqual([c[0] for c in calls], [self.API + "/health", self.API + "/sandboxes"])
+        self.assertEqual([c[0] for c in calls], [self.API + "/health", self.API + "/sandboxes", self.API + "/templates"])
         self.assertEqual(calls[1][1], {"X-API-Key": self.KEY})
+        self.assertEqual(calls[2][1], {"X-API-Key": self.KEY})
         self.assertIsNone(calls[0][1])
+
+    def test_the_image_must_be_on_the_runtime(self):
+        up = [(self.API + "/health", (200, None)), (self.API + "/sandboxes", (200, []))]
+        # Not built yet: every run would fail at its first step, with everything else in order.
+        ok, note, _ = self.check(dict(self.ENV), up + [(self.API + "/templates", (200, [{"aliases": ["base"]}]))])
+        self.assertIs(ok, False)
+        self.assertIn("no image", note)
+        # Another name asked for, which the runtime has: fine. The name itself is never shown.
+        ok, note, _ = self.check(dict(self.ENV, SANDBOX_RUNTIME_TEMPLATE="base"), up + [(self.API + "/templates", (200, self.IMAGES))])
+        self.assertIs(ok, True)
+        ok, note, _ = self.check(dict(self.ENV, SANDBOX_RUNTIME_TEMPLATE="made-up-name"), up + [(self.API + "/templates", (200, self.IMAGES))])
+        self.assertIs(ok, False)
+        self.assertNotIn("made-up-name", note)
+        # The listing could not be had: cannot tell, never "all good".
+        for answer, want in (((503, None), None), ((0, None), None), ((404, None), False), ((200, {"not": "a list"}), False)):
+            ok, _, _ = self.check(dict(self.ENV), up + [(self.API + "/templates", answer)])
+            self.assertIs(ok, want, answer)
+
+    def test_the_gate_addresses_must_be_public_ones(self):
+        self.assertEqual(cs.gate_addresses_not_public("203.0.113.7, 2001:db8::7"), 0)
+        self.assertEqual(cs.gate_addresses_not_public("10.200.77.2 127.0.0.1 ::1 fe80::1%eth0 192.168.1.4 100.64.0.9 fd00::2 0.0.0.0 [::ffff:10.0.0.1] 172.20.0.3"), 10)
+        # The likely mistake: the tunnel's address, from the lines above it in .env.
+        ok, note, calls = self.check(dict(self.ENV, AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES="10.200.77.2"))
+        self.assertIs(ok, False)
+        self.assertIn("PUBLIC", note)
+        self.assertNotIn("10.200.77.2", note)
+        self.assertEqual(calls, [])
+        ok, note = cs.CHECKS["AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES"](dict(self.ENV, AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES="203.0.113.7 10.200.77.2"), {})
+        self.assertIs(ok, False)
+        self.assertNotIn("10.200.77.2", note)
 
     def test_answers(self):
         for health, listing, want in (((200, None), (401, None), False), ((200, None), (403, None), False), ((0, None), None, None),
@@ -458,10 +492,11 @@ class OwnRuntime(unittest.TestCase):
     def test_the_hosted_three_may_stay_beside_it_for_the_cloud_browser(self):
         hosted = {"SANDBOX_ACCESS_TOKEN": "made-up", "SANDBOX_TEAM_ID": "team_madeup0001", "SANDBOX_PROJECT_ID": "prj_madeup0001"}
         both = dict(self.ENV, **hosted)
-        ok, note, calls = self.check(both, [(self.API + "/health", (200, None)), (self.API + "/sandboxes", (200, []))])
+        ok, note, calls = self.check(both, [(self.API + "/health", (200, None)), (self.API + "/sandboxes", (200, [])),
+                                            (self.API + "/templates", (200, self.IMAGES))])
         self.assertIs(ok, True)
         self.assertNotIn("made-up", note)
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 3)
         # The hosted three keep their own check, unchanged, against the hosted service.
         with FakeHttp([("https://api.vercel.com/v2/sandboxes?", (200, {"sandboxes": []}))]) as fake:
             self.assertIs(cs.check_sandbox(both, {})[0], True)

@@ -330,6 +330,27 @@ async function lifecycle() {
     const resumed = await second.resume(ctx, { template }, { sandboxId, version: 1 })
     expect((await resumed.sandbox.run({ command: 'true' })).exitCode === 0, 'it does not run commands')
   })
+  await check('an allowed name cannot be used as a mask for another server, and a bare address is refused', async () => {
+    // To another server's address, wearing the allowed name: the answer must be the allowed site's own.
+    const r = await handle!.sandbox.run({
+      command:
+        "curl -sk -m 10 -o /dev/null -w '%{http_code} %header{server}' --connect-to github.com:443:1.1.1.1:443 https://github.com/ || true",
+    })
+    const out = r.stdout.trim()
+    expect(/^200 /.test(out) && /github/i.test(out), `it was answered by something else: ${out || 'nothing'}`)
+    const bare = await reach(handle!, 'https://1.1.1.1/')
+    expect(!reached(bare), `a bare address answered HTTP ${bare}`)
+  })
+  await check('a paused sandbox comes back with the same network level', async () => {
+    await handle!.onSandboxStop()
+    const second = createRuntimeSandboxImplementation(options)
+    const resumed = await second.resume(ctx, { template }, { sandboxId, version: 1 })
+    const allowed = await reach(resumed, 'https://github.com')
+    const refused = await reach(resumed, 'https://example.com')
+    expect(reached(allowed), `the allowed site no longer answers (${allowed})`)
+    expect(!reached(refused), `a site off the list answered HTTP ${refused}`)
+    handle = resumed
+  })
   await check('delete, then resume throws (and starts nothing), then delete again is fine', async () => {
     await handle!.onSandboxDelete()
     const second = createRuntimeSandboxImplementation(options)

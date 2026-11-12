@@ -112,6 +112,18 @@ and at run time alike (the build and the running agent must agree;
    **Built dark:** nothing uses it until those settings are entered on the server
    and the app is rolled out. `scripts/runtime-conformance.mts` has passed against
    the real runtime; no coding run has used it yet.
+   Two things this runtime does differently from the hosted one, both seen on it:
+   - A narrowed level (`restricted`, `isolated`) is a list of allowed names, and
+     with any name allowed the runtime leaves the sandbox's resolver (8.8.8.8)
+     open to it on every port. Nothing else off the list is reachable, an allowed
+     name cannot be used as a mask for another server, and a bare address is
+     refused; but any name can be looked up, so data can leave through lookups,
+     slowly. Until that is closed (`deploy/sandbox/README.md`, "Known gaps"),
+     `isolated` on this runtime does not mean "nothing gets out".
+   - A sandbox lives 60 minutes from the agent's last use of it and six hours in
+     all, and is then removed with what is in it. The hosted one is stopped and
+     kept instead. A run whose agent is away for an hour loses its sandbox and
+     fails at its next step, saying so.
 3. **eve's `DefaultSandbox`** (Docker → microsandbox → just-bash) with none of
    them: local development. Narrowed runs fail closed when the provider cannot
    apply the policy.

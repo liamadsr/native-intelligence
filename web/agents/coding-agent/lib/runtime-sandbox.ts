@@ -53,6 +53,20 @@
  *   - any other allow list      → deny 0.0.0.0/0, allow exactly the listed host
  *                                 names (wildcards such as *.githubusercontent.com
  *                                 are passed as they are; the runtime takes them).
+ * What a list does NOT close (seen on the runtime, 2026-11-12): once any host
+ * is allowed, the runtime also opens the sandbox's resolver (8.8.8.8) to it, on
+ * every port. A sandbox on a list can therefore look up any name and talk to
+ * that resolver, and data can leave that way, slowly (deploy/sandbox/README.md,
+ * "Known gaps"). 'deny-all' has no such opening. What a list DOES close, also
+ * seen there: an allowed name cannot be used as a mask for another server (the
+ * runtime's proxy looks the name up itself), a bare address is refused, and
+ * the level is still in force after a pause and a resume.
+ *
+ * Lifetime: a sandbox lives 60 minutes from its last resume and, whatever is
+ * asked later, at most the runtime's own limit from its start (six hours as
+ * deploy/sandbox sets it: asking for more is accepted and silently capped).
+ * One left alone for an hour is removed, with everything in it.
+ *
  * A host with a non-empty rule list THROWS: the runtime stores per-host header
  * rules but does not apply them, so a credential in one would never be
  * injected where meant (and would sit in the runtime's database). sandbox.ts
@@ -245,6 +259,16 @@ function errorName(err: unknown): string {
 
 function isNotFound(err: unknown): boolean {
   return /NotFound/.test(errorName(err))
+}
+
+/**
+ * A missing FILE, and only that. A sandbox that is gone is "not found" to the
+ * client too (SandboxNotFoundError): read as "no such file", it would tell the
+ * model one file is missing when its whole sandbox is.
+ */
+function isFileNotFound(err: unknown): boolean {
+  const name = errorName(err)
+  return name === 'FileNotFoundError' || name === 'NotFoundError'
 }
 
 /** An error of this file's, with the key cut out of whatever the client said. */
@@ -458,7 +482,7 @@ export function createRuntimeSession(sbx: RuntimeSandboxInstance): SandboxSessio
     try {
       return await sbx.files.read(resolveRuntimePath(path), { format: 'bytes', ...(signal ? { signal } : {}) })
     } catch (err) {
-      if (isNotFound(err)) return null
+      if (isFileNotFound(err)) return null
       throw err
     }
   }

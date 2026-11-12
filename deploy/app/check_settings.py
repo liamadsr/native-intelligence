@@ -497,6 +497,37 @@ def gate_address_problems(value):
     return bad, good
 
 
+NOT_PUBLIC = [ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fc00::/7")]
+
+
+def gate_addresses_not_public(value):
+    """How many entries of AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES are addresses no
+    sandbox can come from as the edge sees it: private, loopback, link-local,
+    unspecified. The sandbox server's PUBLIC addresses belong there; the tunnel's
+    address, which sits a few lines above it in .env, is the likely mistake."""
+    count = 0
+    for entry in re.split(r"[\s,]+", value.strip()):
+        if not entry:
+            continue
+        e = entry[1:-1] if entry.startswith("[") and entry.endswith("]") else entry
+        try:
+            ip = ipaddress.ip_address(e.split("%", 1)[0])
+        except ValueError:
+            continue
+        ip = getattr(ip, "ipv4_mapped", None) or ip
+        if ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.is_multicast or any(n.version == ip.version and ip in n for n in NOT_PUBLIC):
+            count += 1
+    return count
+
+
+def not_public_note(count):
+    return ("%d entr%s a private, loopback or link-local address: the git gate sees the sandbox server's PUBLIC address, "
+            "so every coding run's clone and push would be refused (the tunnel's address does not belong here)" % (count, "y is" if count == 1 else "ies are"))
+
+
+RUNTIME_TEMPLATE_DEFAULT = "ni-coding-agent"
+
+
 def runtime_group_missing(env):
     return [n for n in RUNTIME_GROUP if not env.get(n, "").strip()]
 
@@ -523,6 +554,9 @@ def check_runtime(env, _opts):
         return False, "needs %s (the sandbox server's public addresses): the coding agent refuses to run on its own runtime without it" % GATE_ADDRESSES
     if bad:
         return False, "%s has %d entr%s that %s not an IP address" % (GATE_ADDRESSES, bad, "y" if bad == 1 else "ies", "is" if bad == 1 else "are")
+    private = gate_addresses_not_public(addresses)
+    if private:
+        return False, "%s: %s" % (GATE_ADDRESSES, not_public_note(private))
     base = env["SANDBOX_RUNTIME_API_URL"].strip().rstrip("/")
     status, _ = http(base + "/health")
     if trouble(status):
@@ -531,7 +565,18 @@ def check_runtime(env, _opts):
         return False, "the runtime's health check answered %d" % status
     status, _ = http(base + "/sandboxes", {"X-API-Key": env[RUNTIME_KEY].strip()})
     if status == 200:
-        return True, "the runtime answers over the tunnel and accepts the key (it lists its sandboxes)"
+        # And the image the coding agent's sandboxes start from: without it every run
+        # fails at its first step, with everything above in order.
+        template = env.get("SANDBOX_RUNTIME_TEMPLATE", "").strip() or RUNTIME_TEMPLATE_DEFAULT
+        status, images = http(base + "/templates", {"X-API-Key": env[RUNTIME_KEY].strip()})
+        if status == 200 and isinstance(images, list):
+            names = {a for image in images if isinstance(image, dict) for a in (image.get("aliases") or [])}
+            if template not in names:
+                return False, "the runtime has no image by the name SANDBOX_RUNTIME_TEMPLATE gives (setup.sh in ../sandbox builds it on the sandbox server)"
+            return True, "the runtime answers over the tunnel, accepts the key and has the coding agent's image"
+        if trouble(status):
+            return None, "the runtime could not be asked for its images (%d): cannot tell" % status
+        return False, "the runtime answered %d to a listing of its images" % status
     if status in (401, 403):
         return False, "the runtime refused the key (%d)" % status
     if trouble(status):
@@ -570,6 +615,9 @@ def check_gate_addresses(env, _opts):
         return False, "%d entr%s not an IP address: the git gate then refuses every coding run's clone and push" % (bad, "y is" if bad == 1 else "ies are")
     if not good:
         return None, None
+    private = gate_addresses_not_public(env[GATE_ADDRESSES])
+    if private:
+        return False, not_public_note(private)
     if not env.get("SANDBOX_RUNTIME_API_URL", "").strip():
         return "warn", ("set without our own runtime: the git gate would refuse every clone and push from the hosted "
                         "sandbox service's sandboxes (they come from other addresses), so coding runs there would fail")

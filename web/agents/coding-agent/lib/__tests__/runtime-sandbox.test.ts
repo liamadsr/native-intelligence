@@ -386,6 +386,16 @@ describe('the session on a runtime sandbox', () => {
     expect(sbx.runs).toHaveLength(1)
   })
 
+  it('a sandbox that is gone is an error on a file read, never a missing file', async () => {
+    const { sbx, session: s } = session()
+    ;(sbx.files as { read: unknown }).read = async () => {
+      throw Object.assign(new Error('sandbox sbx_gone not found'), { name: 'SandboxNotFoundError' })
+    }
+    await expect(s.readTextFile({ path: 'a.txt' })).rejects.toThrow('not found')
+    await expect(s.readBinaryFile({ path: 'a.txt' })).rejects.toThrow('not found')
+    await expect(s.readFile({ path: 'a.txt' })).rejects.toThrow('not found')
+  })
+
   it('file methods: null for a missing file, relative paths under /workspace, overwrite, binary round trip', async () => {
     const { sbx, session: s } = session()
     expect(await s.readTextFile({ path: 'missing.txt' })).toBeNull()
