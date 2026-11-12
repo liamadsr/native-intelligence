@@ -84,7 +84,10 @@ setting() {
 # own environment: so they are read from .env and given to this one command, not
 # exported to the rest of the script. The coding agent's build uses them
 # (build-agents.sh); empty, its sandbox is just-bash. Never a build argument: those
-# are kept in the image's history.
+# are kept in the image's history. Our own sandbox runtime's two addresses and its
+# template are not secret and reach the build as arguments (compose.yaml, from
+# .env); its key (SANDBOX_RUNTIME_KEY) is not read here and never reaches a build:
+# only the coding agent's container gets it, when it runs.
 build_web() {
 	local token team project
 	token="$(setting SANDBOX_ACCESS_TOKEN)" || die "cannot read SANDBOX_ACCESS_TOKEN from .env (docker compose config)."

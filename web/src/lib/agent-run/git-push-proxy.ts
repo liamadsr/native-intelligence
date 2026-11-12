@@ -55,6 +55,7 @@ import { getServiceClient } from '@/lib/admin'
 import { apiError, badRequest, forbidden, notFound } from '@/lib/api-errors'
 import { buildAgentRunSpec, NOT_LIVE_STATUSES } from './spec-rebuild'
 import { extractGitPushToken, verifyGitPushToken, type GitPushTokenClaims } from './git-push-token'
+import { gitGateRequestAddressAllowed } from './git-gate-address'
 import { judgeReceivePack, parseReceivePackRequest, rejectionReport, wantsReportStatus } from './git-receive-pack'
 
 /**
@@ -175,7 +176,10 @@ function endpointOf(segments: string[]): 'info-refs' | 'receive-pack' | null {
 
 /**
  * Which run a git gate request is for, and its target, checked the same way
- * for a read and a push: the gate token verifies; the run is a live coding
+ * for a read and a push: first, when AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES is
+ * set, the request comes from one of its addresses (git-gate-address.ts; a
+ * refusal there is the same 403 as a bad token, and says nothing more); the
+ * gate token verifies; the run is a live coding
  * run; the run's live repo and branch are still the ones the token was minted
  * for. A Response when the request can't go at all (403: never git's 401,
  * which would make git prompt for a password; 503 when the run can't be read).
@@ -190,8 +194,13 @@ export async function authorizeRun(
 ): Promise<{ runId: string; target: PushTarget } | Response> {
   const label = kind === 'push' ? 'Push' : 'Fetch'
   const tag = `[git-${kind}]`
+  const badCredential = () => forbidden(`${label} refused: invalid or expired git gate credential`)
+  if (!gitGateRequestAddressAllowed(request)) {
+    console.warn(`${tag} refused: not from an address the git gate allows`)
+    return badCredential()
+  }
   const claims = deps.verifyToken(extractGitPushToken(request))
-  if (!claims) return forbidden(`${label} refused: invalid or expired git gate credential`)
+  if (!claims) return badCredential()
   let target: PushTarget | { refused: string }
   try {
     target = await deps.loadTarget(claims)

@@ -141,6 +141,25 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
+describe('rebuildAgentRunSpec — gitGateAddressBound (the gate takes the token only from the sandbox server)', () => {
+  it('true exactly when AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES holds at least one valid address and no invalid one', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    for (const [value, bound] of [
+      ['', false],
+      [' , ', false],
+      ['203.0.113.7', true],
+      ['203.0.113.7, 2001:db8::7', true],
+      ['203.0.113.7, sandbox.example.com', false],
+    ] as const) {
+      vi.stubEnv('AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES', value)
+      const spec = await rebuildAgentRunSpec(CLAIMS)
+      expect(spec, value).not.toBeNull()
+      expect(spec!.gitGateAddressBound, value).toBe(bound)
+    }
+    error.mockRestore()
+  })
+})
+
 describe('rebuildAgentRunSpec — gatewayTelemetry (Phase A)', () => {
   it('flag off: gatewayTelemetry is absent (spec stays clean)', async () => {
     vi.stubEnv('GATEWAY_USER_TAGGING', '')

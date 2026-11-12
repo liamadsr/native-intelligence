@@ -84,6 +84,36 @@ token as a one-shot env, then it sits in the repo's git config for the gate URL
 only; a local sandbox must be able to reach the app even to clone (there is no
 fallback that clones from GitHub directly).
 
+### Three ways the sandbox can run
+
+`sandbox.ts` picks one when the module loads, from settings read at `eve build`
+and at run time alike (the build and the running agent must agree;
+`deploy/app/build-agents.sh` and `entrypoint.sh` check that they do):
+
+1. **The hosted sandbox service** (provider `vercel`): on that platform, or off it
+   with `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and `SANDBOX_PROJECT_ID`. The policy
+   is a creation option and the firewall injects the gate token ("brokered"), so the
+   token never exists in the sandbox. This is what production uses.
+2. **Our own runtime on the sandbox server** (provider `ni-runtime`,
+   `lib/runtime-sandbox.ts`, over E2B's open-source runtime): with
+   `SANDBOX_RUNTIME_API_URL` and `SANDBOX_RUNTIME_TRAFFIC_URL` (plus
+   `SANDBOX_RUNTIME_TEMPLATE`, default `ni-coding-agent`, and the key,
+   `SANDBOX_RUNTIME_KEY`, read only when a sandbox starts). The policy is a
+   creation option too, but this runtime stores header rules without applying
+   them, so there is no broker: the gate token takes the unbrokered route (clone
+   env, then git config). A run starts here only when the spec says the app's git
+   gate accepts that token solely from the sandbox server's addresses
+   (`gitGateAddressBound`, from `AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES` on the app's
+   side); otherwise it is refused before anything opens. It excludes the first way:
+   both sets of settings, or this one on the hosted platform, refuse to load.
+   **Built dark:** nothing uses it until those settings are entered on the server
+   and the app is rolled out, and no live run has proven it yet
+   (`scripts/runtime-conformance.mts` is the check to run against the real runtime
+   first).
+3. **eve's `DefaultSandbox`** (Docker → microsandbox → just-bash) with none of
+   them: local development. Narrowed runs fail closed when the provider cannot
+   apply the policy.
+
 ### What the push gate guarantees, and what it doesn't
 
 No push from the sandbox can move any ref but the run's own `dial8/…` branch:

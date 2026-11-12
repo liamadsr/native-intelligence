@@ -62,6 +62,7 @@ import { parseEnvText } from '@/lib/agent-run/env-parsing'
 import { gatewayTelemetryValues, type GatewayTelemetryValues } from '@/lib/ai/gateway-telemetry'
 import type { AgentRunTokenClaims } from './agent-run-token'
 import { mintGitPushToken } from './git-push-token'
+import { gitGateAddressBound } from './git-gate-address'
 import { precheckTaskBlock, readRunPrecheck } from '@/lib/coding/precheck'
 import { ciFixTaskBlock, readCiFix } from '@/lib/coding/ci-fix-task'
 import { resolveRunEnvironment } from '@/lib/environments/resolve'
@@ -120,9 +121,13 @@ export interface EveAgentRunSpec {
  * The spec the coding agent is served (the spec route's response): the build
  * WITHOUT the GitHub token, plus the run's git gate token (git-push-token.ts),
  * the only credential the sandbox side gets. The sandbox refuses to start
- * without it, since it could neither clone nor push.
+ * without it, since it could neither clone nor push. `gitGateAddressBound`
+ * says whether the gate takes that token only from the sandbox server's
+ * addresses (AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES, git-gate-address.ts): the
+ * coding agent refuses to run on its own sandbox runtime, where the token sits
+ * in the sandbox, unless it is true.
  */
-export type CodingAgentSpec = Omit<EveAgentRunSpec, 'githubToken'> & { gitPushToken: string }
+export type CodingAgentSpec = Omit<EveAgentRunSpec, 'githubToken'> & { gitPushToken: string; gitGateAddressBound: boolean }
 
 /** Which kind of agent_run row the spec was built from. */
 export type AgentRunOrigin = 'action' | 'flow'
@@ -511,5 +516,5 @@ export async function rebuildAgentRunSpec(
     repoFullName: served.repoFullName,
     branchName: served.branchName,
   })
-  return { ...served, gitPushToken }
+  return { ...served, gitPushToken, gitGateAddressBound: gitGateAddressBound() }
 }

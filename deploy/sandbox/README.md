@@ -188,7 +188,7 @@ On the first server (4 cores, 8 threads, 32 GB, two spinning disks mirrored), by
 
 ## Known gaps
 
-- **Rules that add a header on the way out are stored and not applied** by this package. The coding agent's sandbox relies on such a rule today: the hosted service adds the run's gate token to requests for the app's git gate, so the token never sits inside the sandbox. Here that needs another arrangement, to be decided when the coding agent is moved.
+- **Rules that add a header on the way out are stored and not applied** by this package. The coding agent's sandbox relies on such a rule today: the hosted service adds the run's gate token to requests for the app's git gate, so the token never sits inside the sandbox. The arrangement chosen here instead (built, not in use): the coding agent hands this runtime no rule at all, the token sits in the sandbox's git config, and the app's git gate accepts it only from this server's public addresses (`AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES`); the coding agent refuses to run here unless the gate says it does. That proves "our sandbox server", not "this run's sandbox".
 - **Name lookups still leave with a list of allowed names**, through the resolver the sandbox is given. A program could pass a little data out that way, slowly. The closed setting has no such gap.
 - **No names and no certificates** for a sandbox's ports: the runtime offers one plain port. A browser that a person's own computer must reach needs an address and a certificate from an edge of ours.
 - **A program inside a sandbox can read** its own sandbox's id and a hash of its access token from the machine's metadata address. Neither opens anything by itself.
@@ -196,6 +196,6 @@ On the first server (4 cores, 8 threads, 32 GB, two spinning disks mirrored), by
 
 ## Not done yet
 
-- The piece in the app that lets the coding agent use this runtime in place of the hosted service. Its image and the limits it needs are here; the app's side is not.
+- Switching the coding agent onto this runtime. Its image and the limits it needs are here, and the app's side now exists, dark: a third provider for its sandbox (`ni-runtime`, `web/agents/coding-agent/lib/runtime-sandbox.ts`), the git gate's address check, and the settings to choose them (`../app/.env.example`). Nothing uses it until those settings are entered on the app's server and the app is rolled out, and it has not been proven by a live run: `web/agents/coding-agent/scripts/runtime-conformance.mts`, run against this runtime, is the first check.
 - The cloud browser on it.
 - A second setup from nothing on a wiped machine, timed.

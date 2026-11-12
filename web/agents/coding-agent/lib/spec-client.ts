@@ -94,6 +94,14 @@ export interface EveSpec {
    */
   gitPushToken?: string
   /**
+   * True when the app's git gate accepts the gate token only from the
+   * addresses in AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES (the sandbox server's).
+   * On our own sandbox runtime the token sits in the sandbox (no broker), so
+   * the sandbox refuses to start there unless this is true; absent counts as
+   * false.
+   */
+  gitGateAddressBound?: boolean
+  /**
    * A CI fix run on an open PR (P10 F7): the PR's branch, fetched and forked
    * into the working branch (a side branch) instead of branching from the base.
    */
