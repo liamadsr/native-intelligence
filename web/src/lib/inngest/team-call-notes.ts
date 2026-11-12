@@ -25,6 +25,7 @@ import {
   fedNotesStatus,
   finishClosedCapture,
   lockFedNotesAsTheyAre,
+  markPassDone,
   writeFedNotes,
   type ClosedCaptureFinished,
   type FedNotesStatus,
@@ -183,6 +184,7 @@ async function runFedNotesFinish(callId: string, fed: FedNotesStatus, step: Note
     if (batch === 'in_flight') await step.sleep('let-batch-settle', '11m')
   }
   await step.run('post-extraction', () => postExtraction(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId, captureProcessed: !written.spoke }))
+  await step.run('pass-done', () => markPassDone(getServiceClient(), captureId))
   console.info(`[team-call-notes] call=${callId} capture=${captureId} outcome=written via=recorder batch=${String(batch)}`)
   return { status: 'ready', captureId }
 }
@@ -198,6 +200,7 @@ async function runClosedCaptureFinish(callId: string, captureId: string, step: N
     if (batch === 'in_flight') await step.sleep('let-batch-settle', '11m')
   }
   await step.run('post-extraction', () => postExtraction(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId, captureProcessed: !finished.spoke }))
+  await step.run('pass-done', () => markPassDone(getServiceClient(), captureId))
   console.info(`[team-call-notes] call=${callId} capture=${captureId} outcome=written via=closed_by_hand batch=${String(batch)}`)
   return { status: 'ready', captureId }
 }
@@ -208,9 +211,10 @@ export async function teamCallNotesFinishFailed({ event }: { event: { data?: { e
   if (!isUuid(callId)) return { skipped: 'bad_event' }
   const closedCapture = (event?.data?.event?.data as { captureId?: unknown } | undefined)?.captureId
   if (closedCapture !== undefined) {
-    // A capture closed by hand: ended at least (its pass is the sweeper's next ask, if the finish never ran it).
+    // A capture closed by hand: ended at least. Its pass is not marked done, so the sweeper asks for
+    // it again (a bounded number of times, each a fresh event).
     if (isUuid(closedCapture)) await finishClosedCapture(getServiceClient(), closedCapture).catch(() => null)
-    console.warn(`[team-call-notes] call=${callId} capture=${String(closedCapture)} outcome=finished_as_is via=closed_by_hand reason=retries_spent`)
+    console.warn(`[team-call-notes] call=${callId} capture=${String(closedCapture)} outcome=ended_pass_pending via=closed_by_hand reason=retries_spent`)
     return { failed: callId }
   }
   const fed = await fedNotesStatus(getServiceClient(), callId)

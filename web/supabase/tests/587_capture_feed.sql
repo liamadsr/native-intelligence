@@ -40,6 +40,7 @@ declare
   g1 uuid;
   v text;
   v2 text;
+  ask integer;
   v_report text;
   v_fail int;
   v_raise_report constant boolean := true;
@@ -406,8 +407,12 @@ begin
   perform pg_temp.t587_check('at the end, a transcript its owner locked is kept as they left it; the capture ends, the notes ready', 'ready/true/true/ready',
     v || '/' || (select ((transcript is not distinct from v2))::text || '/' || (ended_at is not null)::text from public.captures where id = cap_m)
       || '/' || (select notes_state from public.team_call where id = call_m));
-  perform pg_temp.t587_check('… a closed-capture finish after the lock: done, nothing run twice', 'done',
-    (select outcome from public.team_call_capture_finish(cap_m)));
+  v := (select ended_at::text from public.captures where id = cap_m);
+  perform pg_temp.t587_check('… a closed-capture finish after the lock, before the pass is done: the pass is asked for, nothing ended twice', 'ready/true',
+    (select outcome from public.team_call_capture_finish(cap_m)) || '/' || (select (ended_at::text = v)::text from public.captures where id = cap_m));
+  perform pg_temp.t587_check('… once the pass is done: done, nothing run twice', 'true/done/false',
+    public.team_call_capture_pass_done(cap_m)::text || '/' || (select outcome from public.team_call_capture_finish(cap_m))
+      || '/' || public.team_call_capture_pass_done(cap_m)::text);
 
   -- ── A capture ended by hand mid-round: the producer's end ends the session; notes on again, a new capture ──
   call_d := pg_temp.t587_as(u_b, format('select call_id::text from public.team_call_start(%L)', ch_quiet))::uuid;
@@ -423,8 +428,11 @@ begin
   perform pg_temp.t587_check('the producer leaves a closed capture: its session ended, nothing written on the capture', 'true/ended/refused/live',
     v || '/' || (select status || '/' || end_reason from public.capture_feed_session where id = s_d)
       || '/' || (select metadata ->> 'notes_recorder' from public.captures where id = cap_d));
-  perform pg_temp.t587_check('the sweeper sees it: closed by hand, not finished', '1',
-    (select count(*)::text from public.team_call_closed_captures(50) x where x.capture_id = cap_d));
+  perform pg_temp.t587_check('the sweeper leaves a capture closed moments ago to the finish already asked for', '0',
+    (select count(*)::text from public.team_call_closed_captures(50, 3) x where x.capture_id = cap_d));
+  update public.team_call_capture set created_at = now() - interval '1 hour' where capture_id = cap_d;
+  v := (select string_agg(kind || ':' || attempt, ',') from public.team_call_closed_captures(50, 3) x where x.capture_id = cap_d);
+  perform pg_temp.t587_check('… an hour on, its finish never ran: asked for again, the first attempt', 'retry:1', v);
   v := (select outcome || '/' || spoke::text || '/' || owner_user::text from public.team_call_capture_finish(cap_d));
   perform pg_temp.t587_check('finished then: ended with a duration, its people left, the recorder''s no more (editable once unlocked), its record finished; the pass is the caller''s',
     'ready/true/' || u_b::text || '/true/true/0/done/true/0',
@@ -432,8 +440,23 @@ begin
       || '/' || (select count(*)::text from public.capture_participant where capture_id = cap_d and joined_at is not null and left_at is null)
       || '/' || (select metadata ->> 'notes_recorder' from public.captures where id = cap_d)
       || '/' || (select (finished_at is not null)::text from public.team_call_capture where capture_id = cap_d)
-      || '/' || (select count(*)::text from public.team_call_closed_captures(50) x where x.capture_id = cap_d));
-  perform pg_temp.t587_check('… a second finish runs nothing', 'done', (select outcome from public.team_call_capture_finish(cap_d)));
+      || '/' || (select count(*)::text from public.team_call_closed_captures(50, 3) x where x.capture_id = cap_d));
+  -- Its pass gave out (the finish's retries spent, the capture ended): the sweeper asks again, each
+  -- time counted, then gives up once, and never again.
+  v := (select ended_at::text from public.captures where id = cap_d);
+  perform pg_temp.t587_check('… ended already, pass not done: a finish asked again runs the pass, ends nothing twice', 'ready/true',
+    (select outcome from public.team_call_capture_finish(cap_d)) || '/' || (select (ended_at::text = v)::text from public.captures where id = cap_d));
+  v := '';
+  for ask in 2..4 loop
+    update public.team_call_capture set pass_asked_at = now() - interval '1 hour' where capture_id = cap_d;
+    v := v || coalesce((select string_agg(kind || ':' || attempt, ',') from public.team_call_closed_captures(50, 3) x where x.capture_id = cap_d), '-') || ' ';
+  end loop;
+  update public.team_call_capture set pass_asked_at = now() - interval '1 hour' where capture_id = cap_d;
+  v := v || coalesce((select string_agg(kind || ':' || attempt, ',') from public.team_call_closed_captures(50, 3) x where x.capture_id = cap_d), '-');
+  perform pg_temp.t587_check('… asked again at most 3 times in all, then given up once (said in the log), then never', 'retry:2 retry:3 given_up:3 -', v);
+  perform pg_temp.t587_check('… a pass done stops every ask', 'true/0',
+    public.team_call_capture_pass_done(cap_d)::text || '/' || (select count(*)::text from public.team_call_closed_captures(50, 3) x where x.capture_id = cap_d));
+  perform pg_temp.t587_check('… and a finish then runs nothing', 'done', (select outcome from public.team_call_capture_finish(cap_d)));
   perform pg_temp.t587_as(u_b, format('select notes::text from public.team_call_set_notes(%L, false)', call_d));
   perform pg_temp.t587_as(u_b, format('select notes::text from public.team_call_set_notes(%L, true)', call_d));
   select capture_id into cap_d2 from public.capture_feed_start('team_call', call_d, 'livekit_recorder', 'rec1', 'd') where outcome = 'started';
@@ -470,6 +493,8 @@ begin
   perform pg_temp.t587_run('a person cannot fence the producers', 'refused', u_a, array['select public.capture_feed_fence_producers()']);
   perform pg_temp.t587_run('a person cannot settle the eject outbox', 'refused', u_a, array['select public.capture_feed_settle_ejects()']);
   perform pg_temp.t587_run('a person cannot finish a call''s capture', 'refused', u_a, array[format('select * from public.team_call_capture_finish(%L)', cap)]);
+  perform pg_temp.t587_run('a person cannot mark its pass done', 'refused', u_a, array[format('select public.team_call_capture_pass_done(%L)', cap)]);
+  perform pg_temp.t587_run('a person cannot run the sweeper''s ask', 'refused', u_a, array['select * from public.team_call_closed_captures(5, 3)']);
   perform pg_temp.t587_run('a person cannot read a call''s captures', 'refused', u_a, array['select 1 from public.team_call_capture']);
   perform pg_temp.t587_run('a person cannot read the recorder''s work', 'refused', u_a, array[format('select * from public.team_call_recorder_work(%L, %L, 5)', 'rec1', '{}')]);
 

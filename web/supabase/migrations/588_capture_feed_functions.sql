@@ -113,9 +113,13 @@
 --   team_call_capture_finish(capture)  a call's capture its owner closed by
 --                     hand, finished then: its feeds end, it ends, its
 --                     people have left, it is the recorder's no more; the
---                     caller runs its end-of-meeting pass ('ready').
---   team_call_closed_captures(max_rows)  the sweeper: captures closed by hand
---                     whose finish has not run.
+--                     caller runs its end-of-meeting pass ('ready', again
+--                     while that pass is not done; 'done' once it is).
+--   team_call_capture_pass_done(capture)  that pass is done.
+--   team_call_closed_captures(max_rows, max_attempts)  the sweeper: closed
+--                     captures whose pass is not done, asked for again
+--                     ('retry', counted), at most max_attempts times, then
+--                     'given_up'.
 --
 -- Lock order, as 565's and 567's: a call's row first, then its sessions,
 -- then the capture, so no two of these wait on each other.
@@ -1074,7 +1078,8 @@ begin
   select count(*)::integer into n from public.capture_feed_segment g where g.capture_id = cap.id;
   if cap.ended_at is not null then
     -- Ended already (a second finish, or its owner ended it by hand): the notes are ready. Its
-    -- end-of-meeting pass is the caller's unless it was finished already (team_call_capture_finish).
+    -- end-of-meeting pass is the caller's unless it was finished already (team_call_capture_finish,
+    -- whose pass is its own, asked for again by the sweeper until done).
     update public.team_call t set notes_state = 'ready', updated_at = now() where t.id = c.id and t.notes_state <> 'ready';
     if exists (select 1 from public.team_call_capture r where r.call_id = c.id and r.capture_id = cap.id and r.finished_at is not null) then
       return query select 'done'::text, cap.id, cap.user_id, cap.workspace_id, n > 0;
@@ -1159,23 +1164,31 @@ begin
     return query select 'none'::text, null::uuid, target_capture, null::uuid, null::uuid, false;
     return;
   end if;
-  -- Lock order: the call, then its sessions, then the capture.
+  -- Lock order, as everywhere: the call, then its sessions, then the capture (capture_feed_append
+  -- takes a session, then its capture; the lock, the call first).
   select * into c from public.team_call t where t.id = r.call_id for update;
   select * into r from public.team_call_capture x where x.call_id = r.call_id and x.capture_id = target_capture for update;
-  if r.finished_at is not null then
+  if r.pass_done_at is not null then
     return query select 'done'::text, r.call_id, target_capture, null::uuid, r.workspace_id, false;
     return;
   end if;
-  select * into cap from public.captures x where x.id = target_capture for update;
+  -- Read without a lock first: an open capture is left as it is, and no session is locked for it.
+  select * into cap from public.captures x where x.id = target_capture;
   if not found or not (cap.ended_at is not null or cap.is_transcript_locked) then
     return query select 'open'::text, r.call_id, target_capture, null::uuid, r.workspace_id, false;
+    return;
+  end if;
+  select count(*)::integer into n from public.capture_feed_segment g where g.capture_id = target_capture;
+  if r.finished_at is not null then
+    -- Ended already; its pass is not done yet (the last ask gave out): the caller runs it.
+    return query select 'ready'::text, r.call_id, cap.id, cap.user_id, cap.workspace_id, n > 0;
     return;
   end if;
   update public.capture_feed_session x
      set status = 'ended', ended_at = coalesce(x.ended_at, now()), end_reason = coalesce(x.end_reason, 'capture_closed'),
          gaps = public.capture_feed_close_gap(x.gaps, x.status), updated_at = now()
-   where x.capture_id = cap.id and x.status <> 'ended';
-  select count(*)::integer into n from public.capture_feed_segment g where g.capture_id = cap.id;
+   where x.capture_id = target_capture and x.status <> 'ended';
+  select * into cap from public.captures x where x.id = target_capture for update;
   ended := greatest(coalesce(cap.ended_at, now()), cap.started_at);
   update public.captures x
      set ended_at = ended,
@@ -1191,22 +1204,69 @@ begin
 end;
 $$;
 
--- The sweeper: captures of calls closed by hand and not finished yet (their finish never ran, or
--- failed), oldest first, for their finish to be asked for again.
-create or replace function public.team_call_closed_captures(max_rows integer)
-returns table (call_id uuid, capture_id uuid)
+-- A call capture's end-of-meeting pass is done (the finish, after its post-extraction step).
+create or replace function public.team_call_capture_pass_done(target_capture uuid)
+returns boolean
 language sql
-stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select r.call_id, r.capture_id
-    from public.team_call_capture r
-    join public.captures x on x.id = r.capture_id
-   where r.finished_at is null
-     and (x.ended_at is not null or x.is_transcript_locked)
-   order by r.created_at
-   limit greatest(coalesce(max_rows, 0), 0);
+  with done as (
+    update public.team_call_capture r set pass_done_at = now()
+     where r.capture_id = target_capture and r.pass_done_at is null
+    returning 1
+  )
+  select exists (select 1 from done);
+$$;
+
+-- The sweeper: a call's capture that is closed (by hand, or by the call's end) and whose
+-- end-of-meeting pass is not done, last asked for at least 30 minutes ago (a running finish has its
+-- time), is asked for again: 'retry', with how many times now; at most max_attempts times, then
+-- 'given_up' (once). A capture still filling in is never in it.
+create or replace function public.team_call_closed_captures(max_rows integer, max_attempts integer)
+returns table (kind text, call_id uuid, capture_id uuid, attempt integer)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+#variable_conflict use_column
+begin
+  return query
+  with spent as (
+    update public.team_call_capture r
+       set pass_given_up_at = now()
+      from public.captures x
+     where x.id = r.capture_id
+       and r.pass_done_at is null and r.pass_given_up_at is null
+       and r.pass_attempts >= greatest(coalesce(max_attempts, 3), 1)
+       and coalesce(r.pass_asked_at, r.finished_at, x.ended_at, r.created_at) < now() - interval '30 minutes'
+       and (x.ended_at is not null or x.is_transcript_locked)
+    returning r.call_id, r.capture_id, r.pass_attempts
+  )
+  select 'given_up'::text, spent.call_id, spent.capture_id, spent.pass_attempts from spent;
+
+  return query
+  with picked as (
+    select r.call_id, r.capture_id
+      from public.team_call_capture r
+      join public.captures x on x.id = r.capture_id
+     where r.pass_done_at is null and r.pass_given_up_at is null
+       and r.pass_attempts < greatest(coalesce(max_attempts, 3), 1)
+       and coalesce(r.pass_asked_at, r.finished_at, x.ended_at, r.created_at) < now() - interval '30 minutes'
+       and (x.ended_at is not null or x.is_transcript_locked)
+     order by r.created_at
+     limit greatest(coalesce(max_rows, 0), 0)
+       for update of r skip locked
+  ),
+  asked as (
+    update public.team_call_capture r
+       set pass_attempts = r.pass_attempts + 1, pass_asked_at = now()
+      from picked
+     where r.call_id = picked.call_id and r.capture_id = picked.capture_id
+    returning r.call_id, r.capture_id, r.pass_attempts
+  )
+  select 'retry'::text, asked.call_id, asked.capture_id, asked.pass_attempts from asked;
+end;
 $$;
 
 revoke all on function public.team_call_notes_owner(public.team_call) from public, anon, authenticated;
@@ -1234,9 +1294,11 @@ revoke all on function public.capture_feed_lines(uuid) from public, anon, authen
 revoke all on function public.capture_feed_quote_speakers(uuid, text) from public, anon, authenticated;
 revoke all on function public.team_call_capture_lock(uuid, text, boolean) from public, anon, authenticated;
 revoke all on function public.team_call_capture_finish(uuid) from public, anon, authenticated;
-revoke all on function public.team_call_closed_captures(integer) from public, anon, authenticated;
+revoke all on function public.team_call_capture_pass_done(uuid) from public, anon, authenticated;
+revoke all on function public.team_call_closed_captures(integer, integer) from public, anon, authenticated;
 grant execute on function public.team_call_capture_finish(uuid) to service_role;
-grant execute on function public.team_call_closed_captures(integer) to service_role;
+grant execute on function public.team_call_capture_pass_done(uuid) to service_role;
+grant execute on function public.team_call_closed_captures(integer, integer) to service_role;
 grant execute on function public.team_call_capture_ensure(uuid, text) to service_role;
 grant execute on function public.capture_feed_start(text, uuid, text, text, text) to service_role;
 grant execute on function public.capture_feed_heartbeat(text, uuid[]) to service_role;

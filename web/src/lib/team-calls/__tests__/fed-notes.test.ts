@@ -38,12 +38,14 @@ vi.mock('@/lib/inngest/capture-finalizer', () => ({
   },
 }))
 
-import { FED_TAIL_CAP_MS, fedNotesStatus, writeFedNotes } from '../fed-notes'
+import { CLOSED_CAPTURE_PASS_ATTEMPTS, FED_TAIL_CAP_MS, closedCapturesToFinish, fedNotesStatus, writeFedNotes } from '../fed-notes'
+import { closedCaptureFinishEvent } from '../notes-store'
 import { runTeamCallNotesFinish, teamCallNotesFinishFailed } from '@/lib/inngest/team-call-notes'
 
 let tables: Record<string, Array<Record<string, unknown>>>
 let lockAnswers: Array<Record<string, unknown>>
 let finishAnswers: Array<Record<string, unknown>>
+let closedAnswer: Array<Record<string, unknown>> = []
 
 function seed() {
   tables = {
@@ -86,6 +88,8 @@ function seed() {
     if (name === 'team_call_capture_finish') {
       return { data: [finishAnswers.shift() ?? { outcome: 'done' }], error: null }
     }
+    if (name === 'team_call_capture_pass_done') return { data: true, error: null }
+    if (name === 'team_call_closed_captures') return { data: closedAnswer, error: null }
     return { data: null, error: { message: `no answer for ${name}` } }
   }
   h.svc = db as unknown as SupabaseClient
@@ -152,6 +156,8 @@ describe('the finish, for the recorder’s notes', () => {
     const out = await runTeamCallNotesFinish({ event: { data: { callId: CALL } }, step: step() })
     expect(out).toEqual({ status: 'ready', captureId: CAPTURE })
     expect(h.calls).toEqual([`batch:${CAPTURE}:u-rosa`, `post:${CAPTURE}:false`])
+    // The pass is marked done, so the sweeper never asks for it again.
+    expect(h.rpcs.map(([name]) => name)).toEqual(['team_call_capture_lock', 'team_call_capture_pass_done'])
   })
 
   it('waits for the recorder’s last words (its end), looking every few seconds, then locks', async () => {
@@ -195,7 +201,10 @@ describe('the finish, for the recorder’s notes', () => {
     finishAnswers = [{ outcome: 'ready', call_id: CALL, capture_id: EARLIER, owner_user: 'u-rosa', workspace_id: 'ws', spoke: true }]
     const out = await runTeamCallNotesFinish({ event: { data: { callId: CALL, captureId: EARLIER } }, step: step() })
     expect(out).toEqual({ status: 'ready', captureId: EARLIER })
-    expect(h.rpcs).toEqual([['team_call_capture_finish', { target_capture: EARLIER }]])
+    expect(h.rpcs).toEqual([
+      ['team_call_capture_finish', { target_capture: EARLIER }],
+      ['team_call_capture_pass_done', { target_capture: EARLIER }],
+    ])
     expect(h.calls).toEqual([`batch:${EARLIER}:u-rosa`, `post:${EARLIER}:false`])
     // Asked again (the sweeper, a retry): finished already, nothing run twice; the call's own finish is untouched.
     h.calls = []
@@ -216,10 +225,25 @@ describe('the finish, for the recorder’s notes', () => {
     expect(h.locks).toEqual([{ target_call: CALL, preamble_text: '', rebuild: false }])
   })
 
-  it('retries spent on a closed capture: it is ended at least (the sweeper asks for its pass again)', async () => {
+  it('retries spent on a closed capture: it is ended, its pass NOT marked done (the sweeper asks for it again)', async () => {
     const EARLIER = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
     await teamCallNotesFinishFailed({ event: { data: { event: { data: { callId: CALL, captureId: EARLIER } } } } })
     expect(h.rpcs).toEqual([['team_call_capture_finish', { target_capture: EARLIER }]])
     expect(h.locks).toEqual([])
+  })
+
+  it('the sweeper’s asks: each a fresh event (never deduplicated away), at most a few times, then given up', async () => {
+    const EARLIER = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    closedAnswer = [
+      { kind: 'retry', call_id: CALL, capture_id: EARLIER, attempt: 2 },
+      { kind: 'given_up', call_id: CALL, capture_id: CAPTURE, attempt: 3 },
+    ]
+    const asked = await closedCapturesToFinish(h.svc)
+    expect(h.rpcs.at(-1)).toEqual(['team_call_closed_captures', { max_rows: 20, max_attempts: CLOSED_CAPTURE_PASS_ATTEMPTS }])
+    expect(asked).toEqual({ retry: [{ callId: CALL, captureId: EARLIER, attempt: 2 }], givenUp: [{ callId: CALL, captureId: CAPTURE, attempts: 3 }] })
+    const first = closedCaptureFinishEvent(CALL, EARLIER)
+    const ids = [first.id, closedCaptureFinishEvent(CALL, EARLIER, 1).id, closedCaptureFinishEvent(CALL, EARLIER, 2).id]
+    expect(new Set(ids).size).toBe(3)
+    expect(closedCaptureFinishEvent(CALL, EARLIER, 2).data).toEqual({ callId: CALL, captureId: EARLIER })
   })
 })

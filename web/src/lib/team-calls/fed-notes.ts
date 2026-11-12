@@ -129,8 +129,9 @@ export type ClosedCaptureFinished =
  * A call's capture its owner ended (or locked) by hand, finished now (588's
  * team_call_capture_finish): its feeds end, it ends, its people have left,
  * and it is the recorder's no more. 'ready': the caller runs its
- * end-of-meeting pass. Idempotent ('done' the second time). Throws on a failed
- * write (Inngest retries the step).
+ * end-of-meeting pass (again, while that pass is not done: markPassDone
+ * says when it is); 'done' once it is. Throws on a failed write (Inngest
+ * retries the step).
  */
 export async function finishClosedCapture(svc: SupabaseClient, captureId: string): Promise<ClosedCaptureFinished> {
   const { data, error } = await svc.rpc('team_call_capture_finish', { target_capture: captureId })
@@ -146,11 +147,32 @@ export async function finishClosedCapture(svc: SupabaseClient, captureId: string
   return { outcome }
 }
 
-/** The captures of calls closed by hand whose finish never ran (the sweeper asks for each again). */
-export async function closedCapturesToFinish(svc: SupabaseClient, max = 20): Promise<Array<{ callId: string; captureId: string }>> {
-  const { data, error } = await svc.rpc('team_call_closed_captures', { max_rows: max })
+/** A call capture's end-of-meeting pass is done (588's team_call_capture_pass_done): the sweeper asks for it no more. */
+export async function markPassDone(svc: SupabaseClient, captureId: string): Promise<boolean> {
+  const { data, error } = await svc.rpc('team_call_capture_pass_done', { target_capture: captureId })
+  if (error) throw new Error(`team calls: pass not marked done: ${error.message}`)
+  return data === true
+}
+
+/** How many times the sweeper asks again for a call capture's end-of-meeting pass before it gives up. */
+export const CLOSED_CAPTURE_PASS_ATTEMPTS = 3
+
+/**
+ * The sweeper's ask (588's team_call_closed_captures): closed call captures whose
+ * end-of-meeting pass is not done, asked for again ('retry', with the attempt
+ * it is: each ask a fresh event), and those whose asks are spent ('given_up').
+ */
+export async function closedCapturesToFinish(
+  svc: SupabaseClient,
+  max = 20,
+): Promise<{ retry: Array<{ callId: string; captureId: string; attempt: number }>; givenUp: Array<{ callId: string; captureId: string; attempts: number }> }> {
+  const { data, error } = await svc.rpc('team_call_closed_captures', { max_rows: max, max_attempts: CLOSED_CAPTURE_PASS_ATTEMPTS })
   if (error) throw new Error(`team calls: closed captures not read: ${error.message}`)
-  return ((data ?? []) as Array<{ call_id: string; capture_id: string }>).map((r) => ({ callId: r.call_id, captureId: r.capture_id }))
+  const rows = (data ?? []) as Array<{ kind: string; call_id: string; capture_id: string; attempt: number }>
+  return {
+    retry: rows.filter((r) => r.kind === 'retry').map((r) => ({ callId: r.call_id, captureId: r.capture_id, attempt: r.attempt })),
+    givenUp: rows.filter((r) => r.kind === 'given_up').map((r) => ({ callId: r.call_id, captureId: r.capture_id, attempts: r.attempt })),
+  }
 }
 
 /** The finish gave out: the capture is locked as it stands (its live transcript), so it is never left open. */

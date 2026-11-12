@@ -193,7 +193,23 @@ describe('migrations 587-588', () => {
     const finish = flat(definition(FUNCTIONS, 'team_call_capture_finish'))
     expect(finish).toContain("jsonb_build_object('notes_recorder', 'done')")
     expect(finish).toContain('update public.team_call_capture x set finished_at = now()')
-    expect(flat(definition(FUNCTIONS, 'team_call_closed_captures'))).toContain('where r.finished_at is null and (x.ended_at is not null or x.is_transcript_locked)')
+    // Lock order as everywhere: the call, then the capture's sessions, then the capture (append: session, then capture).
+    const callAt = finish.indexOf('from public.team_call t where t.id = r.call_id for update')
+    const sessionsAt = finish.indexOf('update public.capture_feed_session x')
+    const captureAt = finish.indexOf('from public.captures x where x.id = target_capture for update')
+    expect(callAt).toBeGreaterThan(0)
+    expect(sessionsAt).toBeGreaterThan(callAt)
+    expect(captureAt).toBeGreaterThan(sessionsAt)
+    expect(finish.match(/from public\.captures x where x\.id = target_capture for update/g)).toHaveLength(1)
+    const lockFn = flat(definition(FUNCTIONS, 'team_call_capture_lock'))
+    expect(lockFn.indexOf('update public.capture_feed_session x')).toBeLessThan(lockFn.indexOf('from public.captures x where x.id = c.capture_id for update'))
+    // Ended and pass done are apart: the sweeper asks again for a pass not done, a bounded number of times.
+    expect(t587).toContain('pass_done_at timestamptz, pass_attempts integer not null default 0 check (pass_attempts >= 0), pass_asked_at timestamptz, pass_given_up_at timestamptz,')
+    expect(finish).toContain("if r.pass_done_at is not null then return query select 'done'::text")
+    const sweep = flat(definition(FUNCTIONS, 'team_call_closed_captures'))
+    expect(sweep).toContain('set pass_attempts = r.pass_attempts + 1, pass_asked_at = now()')
+    expect(sweep).toContain('set pass_given_up_at = now()')
+    expect(flat(definition(FUNCTIONS, 'team_call_capture_pass_done'))).toContain('update public.team_call_capture r set pass_done_at = now()')
     // Leaving an empty room, or a join that failed: handed back without a gap.
     expect(flat(definition(FUNCTIONS, 'capture_feed_end'))).toContain("if p_reason in ('alone', 'failed') then")
     // A transcript its owner locked is never written at the lock.

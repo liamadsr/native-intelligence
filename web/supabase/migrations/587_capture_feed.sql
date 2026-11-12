@@ -44,9 +44,13 @@
 --   team_call_capture  every capture a call's notes produced (a call has one
 --                      at a time, team_call.capture_id, and a new one when its
 --                      owner ended the last by hand and notes came on again):
---                      finished_at is when it was ended and its end-of-meeting
---                      pass queued, so a capture closed by hand mid-call is
---                      finished then, and one the call ends with at the end.
+--                      finished_at is when it was ended (a capture closed by
+--                      hand mid-call is ended then, one the call ends with at
+--                      the end); pass_done_at when its end-of-meeting pass
+--                      (summary, actions, title, index) is done. A pass that
+--                      never got done is asked for again by the sweeper, a
+--                      bounded number of times (pass_attempts, pass_asked_at),
+--                      then given up (pass_given_up_at), said in the log.
 --   team_call_eject.feed_session  564's outbox of people to take out of a
 --                      call's room, now also of a producer whose feed ended:
 --                      the session the entry is for. The drain re-checks a
@@ -200,11 +204,15 @@ create table if not exists public.team_call_capture (
   workspace_id uuid not null references public.workspace(id) on delete cascade,
   created_at timestamptz not null default now(),
   finished_at timestamptz,
+  pass_done_at timestamptz,
+  pass_attempts integer not null default 0 check (pass_attempts >= 0),
+  pass_asked_at timestamptz,
+  pass_given_up_at timestamptz,
   primary key (call_id, capture_id)
 );
 create index if not exists team_call_capture_capture_idx on public.team_call_capture (capture_id);
--- The sweeper's look for captures closed by hand and not finished.
-create index if not exists team_call_capture_open_idx on public.team_call_capture (created_at) where finished_at is null;
+-- The sweeper's look for captures whose end-of-meeting pass is not done.
+create index if not exists team_call_capture_pass_idx on public.team_call_capture (created_at) where pass_done_at is null and pass_given_up_at is null;
 alter table public.team_call_capture enable row level security;
 revoke all on table public.team_call_capture from anon, authenticated;
 grant select, insert, update, delete on table public.team_call_capture to service_role;

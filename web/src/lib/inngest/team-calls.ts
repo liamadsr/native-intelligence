@@ -158,9 +158,11 @@ export const teamCallsSweep = inngest.createFunction(
     const lost = await step.run('feeds-lost', async () => (await markLostFeeds(getServiceClient())).length)
     const recordersFenced = await step.run('fence-recorders', () => fenceProducers(getServiceClient()))
     if (lost + recordersFenced > 0 && teamCallsConfig()) await step.sendEvent('eject-recorders', { name: TEAM_CALL_EJECT_EVENT, data: {} })
-    // A call's capture its owner closed by hand whose finish never ran (or gave out): asked for again.
-    const closed = (await step.run('closed-captures', () => closedCapturesToFinish(getServiceClient()))) as Array<{ callId: string; captureId: string }>
-    if (closed.length > 0) await step.sendEvent('finish-closed-captures', closed.map((c) => closedCaptureFinishEvent(c.callId, c.captureId)))
+    // A call's capture closed (by hand, or at the call's end) whose end-of-meeting pass is not done:
+    // asked for again, each ask a fresh event, at most CLOSED_CAPTURE_PASS_ATTEMPTS times.
+    const closed = (await step.run('closed-captures', () => closedCapturesToFinish(getServiceClient()))) as Awaited<ReturnType<typeof closedCapturesToFinish>>
+    if (closed.retry.length > 0) await step.sendEvent('finish-closed-captures', closed.retry.map((c) => closedCaptureFinishEvent(c.callId, c.captureId, c.attempt)))
+    for (const c of closed.givenUp) console.warn(`[team-call-notes] call=${c.callId} capture=${c.captureId} outcome=pass_given_up attempts=${c.attempts}`)
     console.info(
       `[team-calls-sweep] checked=${result.checked} ended=${result.ended} missed=${result.missed} unreachable=${result.unreachable} notes_stopped=${egress.notesStopped} egress_lost=${egress.egressesLost} feeds_lost=${lost}`,
     )

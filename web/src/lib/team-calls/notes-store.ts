@@ -352,8 +352,10 @@ export function notesFinishEvent(callId: string) {
  * the call went on): the same function as the call's finish, its retries and its one-at-a-time per
  * call, for that capture alone.
  */
-export function closedCaptureFinishEvent(callId: string, captureId: string) {
-  return { name: TEAM_CALL_NOTES_FINISH_EVENT, id: `team-call-notes-finish-${callId}-${captureId}`, data: { callId, captureId } }
+export function closedCaptureFinishEvent(callId: string, captureId: string, attempt?: number) {
+  // The sweeper's asks again each carry their attempt: a fresh id, never deduplicated away.
+  const id = `team-call-notes-finish-${callId}-${captureId}${attempt ? `-ask-${attempt}` : ''}`
+  return { name: TEAM_CALL_NOTES_FINISH_EVENT, id, data: { callId, captureId } }
 }
 
 type SendEvents = (events: Array<{ name: string; id: string; data: Record<string, unknown> }>) => Promise<unknown>

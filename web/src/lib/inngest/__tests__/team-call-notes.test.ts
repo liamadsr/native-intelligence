@@ -41,6 +41,7 @@ vi.mock('@/lib/team-calls/egress', () => ({ teamCallEgressConfig: () => ({}), li
 // Egress's notes here; the call recorder's finish has its own file (fed-notes.test.ts).
 vi.mock('@/lib/team-calls/fed-notes', () => ({
   FED_TAIL_CAP_MS: 120_000,
+  markPassDone: async () => true,
   fedNotesStatus: async () => ({ fed: false, callStatus: 'ended', notesState: 'transcribing', endedAt: null, undelivered: 0 }),
   writeFedNotes: async () => ({ outcome: 'skipped' }),
   lockFedNotesAsTheyAre: async () => null,
