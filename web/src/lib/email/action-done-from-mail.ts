@@ -20,7 +20,8 @@
  * defines it (assigned to them, top level, accepted, in an open state),
  * created before the newest message (a to-do made from this very mail is not
  * settled by it); never one mail closed before (a to-do the person reopened,
- * by Undo or by hand, stays open), and never one linked to Linear, Jira or
+ * by Undo or by hand, stays open), nor one a meeting, a text or other mail
+ * closed before (../kept-up-to-date/, migration 539), and never one linked to Linear, Jira or
  * Asana (their status echoes would carry the close out of Native Intelligence, past Undo).
  * And only while the person has a home thread: Undo lives there.
  *
@@ -154,16 +155,24 @@ export async function readOpenTodos(supabase: SupabaseClient, scope: MailDoneSco
     const ids = open.map((t) => t.id)
     // Never one mail closed before (also how a pass finds 450 missing), and never one
     // linked to Linear, Jira or Asana: their echoes would carry the close out of Native Intelligence.
-    const [{ data: closed, error: closedError }, { data: linked, error: linkedError }] = await Promise.all([
+    const [{ data: closed, error: closedError }, { data: linked, error: linkedError }, { data: kept, error: keptError }] = await Promise.all([
       supabase.from(TABLE).select('action_id').in('action_id', ids),
       supabase.from('action_external_task').select('action_id').eq('workspace_id', scope.workspaceId).in('action_id', ids),
+      // Nor one a meeting, a text or other mail closed before (migration 539; until then, none).
+      supabase.from('kept_change').select('record_id').eq('workspace_id', scope.workspaceId).eq('record_type', 'action').in('record_id', ids),
     ])
+    if (keptError && !isMissingColumnError(keptError, 'kept_change') && keptError.code !== '42P01') {
+      console.warn('[action-done-from-mail] kept to-dos not read:', keptError.message)
+      return null
+    }
     if (closedError || linkedError) {
       if (closedError && !isPre450Error(closedError)) console.warn('[action-done-from-mail] closed to-dos not read:', closedError.message)
       if (linkedError) console.warn('[action-done-from-mail] linked to-dos not read:', linkedError.message)
       return null
     }
-    const off = new Set([...((closed as Array<{ action_id?: unknown }> | null) ?? []), ...((linked as Array<{ action_id?: unknown }> | null) ?? [])].map((r) => r.action_id))
+    const off = new Set(
+      [...((closed as Array<{ action_id?: unknown }> | null) ?? []), ...((linked as Array<{ action_id?: unknown }> | null) ?? []), ...(keptError ? [] : ((kept as Array<{ record_id?: unknown }> | null) ?? []).map((r) => ({ action_id: r.record_id })))].map((r) => r.action_id),
+    )
     return open.filter((t) => !off.has(t.id))
   } catch (err) {
     console.warn('[action-done-from-mail] to-dos not read:', err instanceof Error ? err.message : String(err))

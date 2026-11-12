@@ -22,6 +22,12 @@
  * put beside the person's open to-dos, and the one it clearly settles is
  * marked done, with Undo (./action-done-from-mail.ts).
  *
+ * Every thread it understood, conversations too (not a newsletter), is then
+ * put beside the records it could change: the table rows linked to its
+ * people, and (a known contact's conversation) the open to-dos. The one
+ * change it states is applied, with Undo (../kept-up-to-date/sources.ts).
+ * Not on a thread the to-do closer just closed one from: one change a source.
+ *
  * Gates, as drafting's: the kill switch (failing closed), a dormant workspace,
  * a person over their usage; then at most MAX_UNDERSTOOD_PER_DAY a day and
  * MAX_UNDERSTOOD_PER_PASS a push. Never throws.
@@ -38,6 +44,7 @@ import { draftNowLabel } from '@/lib/crm/email-drafts'
 import { readAgentPausedState, type AgentPausedState } from '@/lib/work/agent-paused'
 import { draftingBlocked } from './arrival-drafts'
 import { mailDonePass, type MailDonePass } from './action-done-from-mail'
+import { mailKeptPass, type MailKeptPass } from '@/lib/kept-up-to-date/sources'
 import { readEmailThread, type EmailMessageForAI, type EmailThreadForAI } from './email-read-service'
 import { mailboxAddresses } from './reply-policy'
 
@@ -71,6 +78,8 @@ export interface UnderstandArrivalsDeps {
   record?: RecordAgentEventsDeps
   /** The pass's to-do closer (default: mailDonePass); null closes nothing. */
   mailDone?: ((supabase: SupabaseClient, scope: Parameters<typeof mailDonePass>[1]) => MailDonePass) | null
+  /** The pass's record keeper (default: mailKeptPass); null changes nothing. */
+  kept?: ((supabase: SupabaseClient, scope: Parameters<typeof mailKeptPass>[1]) => MailKeptPass) | null
   nowMs?: number
 }
 
@@ -79,6 +88,8 @@ export interface UnderstandArrivalsResult {
   recorded: number
   /** Open to-dos a confirmation marked done. */
   closed?: number
+  /** Records kept up to date. */
+  kept?: number
   skipped?: 'paused' | 'dormant' | 'usage' | 'cap'
 }
 
@@ -213,6 +224,9 @@ export async function understandArrivals(
     const done = deps.mailDone === null ? null : (deps.mailDone ?? mailDonePass)(supabase, {
       workspaceId: args.workspaceId, userId: args.userId, accountId: args.accountId, mailbox: args.mailboxEmail, now,
     })
+    const kept = deps.kept === null ? null : (deps.kept ?? mailKeptPass)(supabase, {
+      workspaceId: args.workspaceId, userId: args.userId, mailbox: args.mailboxEmail, now,
+    })
 
     const events: AgentEventInput[] = []
     for (const threadId of threadIds) {
@@ -242,23 +256,24 @@ export async function understandArrivals(
           known: isKnown,
           value: decided.value,
         }, nowMs))
-        if (done) {
-          await done.consider({
-            kind: decided.value.kind,
-            trust: typeof row.trust === 'string' && row.trust ? row.trust : null,
-            folder: typeof row.folder === 'string' ? row.folder : null,
-            threadId,
-            messageId: latest.messageId,
-            messages: thread.messages,
-            runId: String(row.id),
-          })
+        const evidence = {
+          kind: decided.value.kind,
+          trust: typeof row.trust === 'string' && row.trust ? row.trust : null,
+          folder: typeof row.folder === 'string' ? row.folder : null,
+          threadId,
+          messageId: latest.messageId,
+          messages: thread.messages,
+          runId: String(row.id),
         }
+        const closed = done ? await done.consider(evidence) : 'skipped'
+        if (kept && closed !== 'closed') await kept.consider(evidence)
       } catch (err) {
         console.warn('[understand-arrivals] thread skipped:', err instanceof Error ? err.message : err)
       }
     }
     if (events.length) result.recorded = await recordAgentEvents(events, supabase, deps.record ?? {})
     if (done?.closed()) result.closed = done.closed()
+    if (kept?.changed()) result.kept = kept.changed()
   } catch (err) {
     console.warn('[understand-arrivals] skipped:', err instanceof Error ? err.message : err)
   }

@@ -32,6 +32,8 @@ import { EmailAutoArchiveChip } from '@/components/email/email-auto-archive-chip
 import { EMAIL_AUTO_ARCHIVE_PART_TYPE, emailAutoArchivePartData } from '@/lib/email/auto-archive-part'
 import { ActionDoneChip } from '@/components/email/action-done-chip'
 import { ACTION_DONE_PART_TYPE, actionDonePartData } from '@/lib/email/action-done-part'
+import { KeptChip } from '@/components/kept-up-to-date/kept-chip'
+import { KEPT_PART_TYPE, keptPartData } from '@/lib/kept-up-to-date/part'
 import { PlanChecklist, PlanSummaryLine } from '@/components/work/plan-checklist'
 import { planProgress } from '@/lib/work/plan'
 import { HelpersRow, helpersRowModel } from './helpers-row'
@@ -441,6 +443,13 @@ const DATA_PART_ENTRIES: Record<string, DataPartRendererEntry> = {
     render: (part, key) => {
       const data = actionDonePartData((part as { data?: unknown }).data)
       return data ? <ActionDoneChip key={key} data={data} /> : null
+    },
+  },
+  // A record an email, a meeting or a text kept up to date (src/lib/kept-up-to-date/engine.ts), with Undo.
+  [KEPT_PART_TYPE]: {
+    render: (part, key) => {
+      const data = keptPartData((part as { data?: unknown }).data)
+      return data ? <KeptChip key={key} data={data} /> : null
     },
   },
   [OPENED_CARD_PART_TYPE]: {
