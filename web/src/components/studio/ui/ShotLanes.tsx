@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { Icon } from './icons';
 import type { ClipView, EditorProject } from '@/lib/studio/engine/contracts';
 import type { ScheduledClip } from '@/lib/studio/engine/timeline';
 import { presenterMoveFrames } from '@/lib/studio/engine/presenter-position';
@@ -109,7 +110,7 @@ export function ShotControl({ project, clipIds, change }: { project: EditorProje
       {first.layout ? <div className="layout-sources" aria-label="Sources in this layout (first is the main one)">
         {available.map(id => <label key={id} className="checkbox-field"><input type="checkbox" checked={shown.includes(id)} onChange={() => toggle(id)} />
           {sourceLabel(project, id)}{shown.includes(id) ? <small>{shown.indexOf(id) === 0 ? ' · main' : ` · ${shown.indexOf(id) + 1}`}</small> : null}</label>)}
-        <button onClick={() => apply(preset ?? 'split-50', [...shown].reverse())} title="Swap the order (left ↔ right, top ↔ bottom, which is the inset)">⇄ Swap</button>
+        <button onClick={() => apply(preset ?? 'split-50', [...shown].reverse())} title="Swap the order (left ↔ right, top ↔ bottom, which is the inset)"><Icon name="swap" size={14}/>Swap</button>
       </div> : null}
     </> : null}
     {project.presenterTrack ? <label className="checkbox-field"><input type="checkbox" checked={bubble === true} ref={el => { if (el) el.indeterminate = bubble === null; }}

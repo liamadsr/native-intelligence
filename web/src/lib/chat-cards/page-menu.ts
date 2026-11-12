@@ -51,6 +51,12 @@ export interface CardPage {
    */
   personalTool?: 'get_calendar_events' | 'list_emails'
   /**
+   * A workspace member's, never a guest's: its routes refuse a guest (the
+   * Studio: lib/studio/server/auth.ts requireStudio), so `/` and the rail
+   * leave it out for one (pagesFor's `guest`).
+   */
+  membersOnly?: boolean
+  /**
    * The card it opens, built at the moment it is picked (a calendar's "this
    * week" is the week it is opened in). Checked with isCardSpec before use.
    */
@@ -122,6 +128,7 @@ export const CARD_PAGES: readonly CardPage[] = [
     kind: 'studio',
     view: 'studio',
     keywords: ['video', 'ads', 'editor', 'recording', 'storyboard', 'script', 'content'],
+    membersOnly: true,
     spec: page('studio', 'Studio'),
   },
   { slug: 'docs', label: 'Docs', description: 'Every doc', kind: 'list', view: 'docs', keywords: ['documents'], spec: list('Docs', 'document') },
@@ -185,7 +192,8 @@ export const NO_PAGE_KINDS: Readonly<Record<string, string>> = {
  * The pages this workspace may open from `/`: each one's page is on (the
  * edition's view gate), its kind is in this build, the device can draw it, and a
  * page of the person's own data only where the chat may read it
- * (`personalTools`: absent, every tool may).
+ * (`personalTools`: absent, every tool may), and a members-only page never to a
+ * guest of the workspace (`guest`).
  *
  * Each in the edition's words (src/lib/editions/words.ts): a page it renames
  * ("My jobs" for My Actions) is offered, and its card titled, by that name,
@@ -193,7 +201,7 @@ export const NO_PAGE_KINDS: Readonly<Record<string, string>> = {
  */
 export function pagesFor(
   edition: EditionDefinition,
-  opts: { desktop: boolean; now?: Date; from?: readonly CardPage[]; personalTools?: (tool: string) => boolean },
+  opts: { desktop: boolean; now?: Date; from?: readonly CardPage[]; personalTools?: (tool: string) => boolean; guest?: boolean },
 ): OfferedPage[] {
   const now = opts.now ?? new Date()
   return (opts.from ?? CARD_PAGES).filter(
@@ -201,6 +209,7 @@ export function pagesFor(
       isViewAllowed(edition, p.view) &&
       (!p.desktopOnly || opts.desktop) &&
       (!p.personalTool || (opts.personalTools?.(p.personalTool) ?? true)) &&
+      (!p.membersOnly || !opts.guest) &&
       isCardSpec(p.spec(now)),
   ).map((p) => inEditionWords(edition, { ...p, spec: (at: Date) => p.spec(at) as CardSpec }))
 }

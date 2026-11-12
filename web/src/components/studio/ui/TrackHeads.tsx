@@ -126,7 +126,7 @@ export function TrackHeads({ area, project, schedule, frame, automationView, par
       </>; }
     if (key.startsWith('audiotrack:')) { const track = project.audioTracks.find(item => item.id === key.slice(11));
       return track ? <div className="th-row"><span className="th-chip voice" /><span className="th-name">{track.name}</span>
-        <button className={`th-btn ${track.muted ? 'on mute' : ''}`} aria-pressed={track.muted} disabled={!change}
+        <button className={`th-btn ${track.muted ? 'on mute' : ''}`} aria-pressed={track.muted} aria-label={`Mute ${track.name}`} title={`Mute ${track.name}`} disabled={!change}
           onClick={() => change?.(p => ({ ...p, audioTracks: p.audioTracks.map(item => item.id === track.id ? { ...item, muted: !item.muted } : item) }))}>M</button></div> : null; }
     return null;
   };

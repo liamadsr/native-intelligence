@@ -18,6 +18,7 @@ import { getEdition, withEffectiveSurface, type EditionDefinition } from '@/lib/
 const { edition } = vi.hoisted(() => ({ edition: { current: null as EditionDefinition | null } }))
 vi.mock('@/app/account/workspace-switcher', () => ({
   useWorkspaceEdition: () => edition.current,
+  useIsWorkspaceGuest: () => false,
   // The Studio's sub-nav (mounted by the host with every panel) asks who the person is here.
   useWorkspaces: () => ({ workspaces: [], currentId: null }),
   useWorkspaceId: () => null,

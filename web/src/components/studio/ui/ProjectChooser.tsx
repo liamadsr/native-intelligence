@@ -170,7 +170,7 @@ export function ProjectChooser({ currentProjectId, currentTitle, refreshKey, dis
       </aside>
       <section className="chooser-main">
         <header className="chooser-head">
-          <div><h2>Projects</h2>{projects ? <span>{groups.length ? `${groups.length} project${groups.length === 1 ? '' : 's'} · ` : ''}{projects.length} video{projects.length === 1 ? '' : 's'} on this Mac · newest first</span> : <span>Loading…</span>}</div>
+          <div><h2>Projects</h2>{projects ? <span>{groups.length ? `${groups.length} project${groups.length === 1 ? '' : 's'} · ` : ''}{projects.length} video{projects.length === 1 ? '' : 's'} in this workspace · newest first</span> : <span>Loading…</span>}</div>
           <input ref={search} className="chooser-search" type="search" placeholder="Search projects" aria-label="Search projects" value={query} onChange={e => setQuery(e.target.value)} />
           {canClose ? <button className="chooser-close" aria-label="Close projects" title="Close (Esc)" onClick={close}><Icon name="close" size={16} /></button> : null}
         </header>
@@ -183,7 +183,7 @@ export function ProjectChooser({ currentProjectId, currentTitle, refreshKey, dis
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitGroupRename(); } if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setRenamingGroup(null); } }} />
                 : <h3 title="Right-click to rename or ungroup" onDoubleClick={() => setRenamingGroup({ id: c.id, title: c.title })}>{c.title}</h3>}
               <span>{c.ads.length} ad{c.ads.length === 1 ? '' : 's'}{c.outputs.length ? ` · ${c.outputs.length} more format${c.outputs.length === 1 ? '' : 's'}` : ''}{c.castCount ? ` · cast of ${c.castCount}` : ''}</span>
-              <button className="chooser-group-new" disabled={disabled || busy} onClick={e => newAd(e, c)}><Icon name="plus" size={12} />New ad</button>
+              <button className="chooser-group-new" disabled={disabled || busy} onClick={e => newAd(e, c)}><Icon name="plus" size={14} />New ad</button>
             </header>
             <div className="chooser-grid">{c.ads.map(p => card(p, c.outputs.filter(o => o.variantOf === p.id), c.ads.find(a => a.id === p.id)?.status))}
               {!c.ads.length ? <div className="chooser-group-empty">No ads yet. Drag a video here, or make a new ad.</div> : null}</div>

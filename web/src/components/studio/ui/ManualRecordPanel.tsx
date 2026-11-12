@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Icon, type IconName } from './icons';
 import { clockLabel, openCameraPreview, type DesktopApp, type DesktopDisplay, type DeviceOption, type RecorderPermissionName, type ScreenChoice, type TakePlacement } from '../record';
 import { request } from './client';
 import type { ManualRecording, RecordingSession, RecordingStart } from './useManualRecording';
@@ -49,14 +50,10 @@ function rememberedKey(options: ScreenOption[], apps: DesktopApp[], saved: strin
   return options.find(option => option.choice.kind === 'display')?.key ?? options[0]?.key ?? '';
 }
 
-const glyphs: Record<string, React.ReactNode> = {
-  app: <><rect x="3" y="4.5" width="18" height="13" rx="2"/><path d="M8 20.5h8M3 8.5h18"/></>,
-  mic: <><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></>,
-  camera: <><rect x="3" y="6.5" width="13" height="11" rx="2.5"/><path d="m16 10.5 5-3v9l-5-3"/></>,
-  prompter: <><rect x="3" y="3.5" width="18" height="17" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></>,
-};
+/** Each recording card's icon: the screen, the microphone, the camera, the teleprompter. */
+const glyphs = { app: 'screen', mic: 'mic', camera: 'camera', prompter: 'prompter' } as const satisfies Record<string, IconName>;
 function Glyph({ name }: { name: keyof typeof glyphs }) {
-  return <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{glyphs[name]}</svg>;
+  return <Icon name={glyphs[name]} />;
 }
 function Switch({ checked, label, disabled, onChange }: { checked: boolean; label: string; disabled?: boolean; onChange: (value: boolean) => void }) {
   return <label className="rec-switch" title={label}><input type="checkbox" role="switch" aria-label={label} checked={checked} disabled={disabled} onChange={e => onChange(e.target.checked)} /><span aria-hidden="true" /></label>;
@@ -182,7 +179,7 @@ export function ManualRecordPanel(props: Props) {
 
     <div className="rec-grid">
       {kind === 'desktop' ? <Card icon="app" title="Screen" detail={option ? option.detail : 'Window or display to record'}
-        action={<button className="rec-icon-button" aria-label="Refresh windows and displays" title="Refresh windows and displays" disabled={locked || rec.loadingTargets} onClick={() => void rec.refreshTargets()}>{rec.loadingTargets ? '…' : '↻'}</button>}>
+        action={<button className="rec-icon-button" aria-label="Refresh windows and displays" title="Refresh windows and displays" disabled={locked || rec.loadingTargets} onClick={() => void rec.refreshTargets()}>{rec.loadingTargets ? '…' : <Icon name="refresh" size={14}/>}</button>}>
         <select aria-label="What to record" value={option?.key ?? ''} disabled={locked || rec.loadingTargets} onChange={event => chooseScreen(event.target.value)}>
           {options.length ? <>{!option ? <option value="">Choose a window or display…</option> : null}
             {groups.map(group => <optgroup key={group} label={group}>{options.filter(item => item.group === group).map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</optgroup>)}</>

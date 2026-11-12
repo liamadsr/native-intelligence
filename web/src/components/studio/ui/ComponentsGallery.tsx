@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Icon } from './icons';
 import { request } from './client';
 import { StyleGuide } from './StyleGuide';
 
@@ -26,7 +27,7 @@ function SourceBar({ kit, onChanged, busy, setBusy, fail }: { kit: string; onCha
       <option value="working">Your folder, as it is on disk</option></select></label>
     {info.branches.length > 20 ? <input className="cg-source-filter" placeholder={`Filter ${info.branches.length} branches`} value={filter} onChange={e => setFilter(e.target.value)} /> : null}
     <span className="cg-source-commit">{s.sha ? <code>{s.sha.slice(0, 7)}</code> : null} {s.subject ? <span title={s.subject}>{s.subject}</span> : null}{s.committedAt ? <small> · {ago(s.committedAt)}{s.author ? ` · ${s.author}` : ''}</small> : null}</span>
-    {s.mode === 'branch' ? <button onClick={() => void check()} disabled={busy} title={s.fetchedAt ? `Last checked ${ago(s.fetchedAt)}` : 'Check GitHub'}>↻ Check for updates</button> : null}
+    {s.mode === 'branch' ? <button onClick={() => void check()} disabled={busy} title={s.fetchedAt ? `Last checked ${ago(s.fetchedAt)}` : 'Check GitHub'}><Icon name="refresh" size={14}/>Check for updates</button> : null}
     <small className="cg-source-note">{s.mode === 'branch'
       ? <>Read straight from git{s.fetchedAt ? `, checked ${ago(s.fetchedAt)}` : ''}. The Studio only downloads: it never changes your branches, files or checkout.{s.folder_behind ? ` Your folder is ${s.folder_behind} commit${s.folder_behind === 1 ? '' : 's'} behind this.` : ''}</>
       : <>Exactly what's on disk{s.error ? ` (${s.error})` : ''}, read-only.</>}
@@ -39,7 +40,7 @@ type Onboarding = { title: string; components: { total: number; renders: number;
 
 type Job = { id: string; status: string; progress: number; logs: string[]; error?: string; result?: unknown };
 
-/** ▦ Components — the person's product, live from its code: attach a repo (read-only), browse every component it exports
+/** Components — the person's product, live from its code: attach a repo (read-only), browse every component it exports
  *  rendered for real, try props, and add one to the video at the playhead. Component layers re-render from the code
  *  whenever it changes (Refresh here, and automatically on export). */
 const EXAMPLE_SCRIPT = `[
@@ -106,15 +107,15 @@ export function ComponentsGallery({ projectId, at, disabled, notify, beforeEdit,
     job = encodeURIComponent(JSON.stringify({ component: pick?.id, props: JSON.parse(props || '{}'), width: pick?.width, height: pick?.height, theme, pad: 24, preview: true, ...(steps ? { script: steps } : {}) })); } catch { /* invalid props: keep last */ }
 
   return <div className="tl-menu components-gallery">
-    <button disabled={disabled} onClick={() => setOpen(true)} title="Your product's real UI, live from its code — add components to the video">▦ Components{stale ? ` · ${stale} to update` : ''}</button>
+    <button disabled={disabled} onClick={() => setOpen(true)} title="Your product's real UI, live from its code — add components to the video"><Icon name="components" size={14}/>Components{stale ? ` · ${stale} to update` : ''}</button>
     {open ? <div className="cg-overlay" role="dialog" aria-label="Components" onPointerDown={e => { if (e.target === e.currentTarget) setOpen(false); }}>
       <div className="cg-panel">
         <header className="cg-head"><b>Components</b>
           <div className="cg-kits">{(kits ?? []).map(k => <button key={k.name} className={k.name === kit ? 'active' : ''} onClick={() => setKit(k.name)} title={k.repo}>{k.title}{k.available ? '' : ' (repo missing)'}</button>)}
-            {attach === null ? <button onClick={() => setAttach('')}>＋ Attach a repository</button>
+            {attach === null ? <button onClick={() => setAttach('')}><Icon name="plus" size={14}/>Attach a repository</button>
               : <span className="cg-attach"><input autoFocus placeholder="~/code/my-app (folder with package.json)" value={attach} onChange={e => setAttach(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void doAttach(); if (e.key === 'Escape') setAttach(null); }} /><button onClick={() => void doAttach()}>Attach</button></span>}</div>
           {stale ? <button className="cg-stale" onClick={() => void refresh()} disabled={!!busy}>The product changed · update {stale} layer{stale === 1 ? '' : 's'}</button> : null}
-          <button onClick={() => setOpen(false)} aria-label="Close">✕</button></header>
+          <button onClick={() => setOpen(false)} aria-label="Close" title="Close"><Icon name="close"/></button></header>
         {kit ? <nav className="cg-tabs"><button className={view === 'components' ? 'active' : ''} onClick={() => setView('components')}>Components</button><button className={view === 'style' ? 'active' : ''} onClick={() => setView('style')}>Style guide</button></nav> : null}
         {kit ? <SourceBar kit={kit} busy={!!busy} setBusy={setBusy} fail={fail} onChanged={() => { void loadCatalog(kit); void build(); }} /> : null}
         {kit && view === 'style' ? <StyleGuide kit={kit} fail={fail} /> : null}
@@ -137,7 +138,7 @@ export function ComponentsGallery({ projectId, at, disabled, notify, beforeEdit,
             <div className="cg-frame" style={{ width: frameW * scale, height: frameH * scale }}>
               <iframe key={`${pick.id}-${replay}-${stage.key}`} title={pick.name} src={`${stageUrl}#${job}`} style={{ width: frameW, height: frameH, transform: `scale(${scale})`, transformOrigin: '0 0' }} /></div>
             <div className="cg-meta"><b>{pick.name}</b><small>{pick.file}</small>{pick.help ? <p>{pick.help}</p> : null}</div>
-            <div className="cg-controls"><button onClick={() => setReplay(n => n + 1)}>↻ Replay</button>
+            <div className="cg-controls"><button onClick={() => setReplay(n => n + 1)}><Icon name="replay" size={14}/>Replay</button>
               <select value={theme} onChange={e => setTheme(e.target.value as 'light' | 'dark')}><option value="light">Light</option><option value="dark">Dark</option></select>
               <label>Length <input type="number" min={1} max={60} value={seconds} onChange={e => setSeconds(Math.max(1, Math.min(60, Number(e.target.value) || 6)))} /> s</label>
               <button className="primary" disabled={!!busy || disabled} onClick={() => void add()}>Add to the video at {at.toFixed(1)} s</button></div>

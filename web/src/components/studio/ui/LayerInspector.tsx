@@ -1,5 +1,6 @@
 import { studioCan } from '../studio-env';
 import React, { useEffect, useRef, useState } from 'react';
+import { Icon } from './icons';
 import { request } from './client';
 import type { EditorProject } from '@/lib/studio/engine/contracts';
 import { FontPicker } from './FontPicker';
@@ -39,7 +40,7 @@ export function LayerInspector({ project, layerId, change, close }: { project: E
         onChange={n => set({ [side]: { ...value, frames: Math.max(1, Math.round(n * fps)) } } as Partial<EditorLayer>)} /> : null}</div>; };
   return <div className="layer-inspector" style={{ ['--layer-tone' as string]: layerTone[layer.kind] }}>
     <div className="layer-inspector-head"><span className="th-chip" style={{ background: layerTone[layer.kind] }} /><div><strong>{layerKindInfo[layer.kind].label}</strong><small>{layerTitle(layer)}</small></div>
-      <button onClick={remove} title="Delete this layer">Delete</button><button onClick={close} aria-label="Close layer settings">✕</button></div>
+      <button onClick={remove} title="Delete this layer">Delete</button><button onClick={close} aria-label="Close layer settings" title="Close"><Icon name="close"/></button></div>
     {layer.kind === 'text' ? <section><h3>Text</h3>
       <textarea value={s.text ?? ''} rows={3} aria-label="Layer text" onChange={e => style({ text: e.target.value || ' ', ...(s.wordFrames && e.target.value.trim().split(/\s+/).length !== s.wordFrames.length ? { wordFrames: undefined } : {}) })} />
       <div className="layer-looks">{(Object.keys(textLooks) as TextLook[]).map(look => <button key={look} className={`look-${look}`} onClick={() => { const preset: LayerStyle = textLooks[look]; style({ ...preset, background: preset.background, stroke: preset.stroke, strokeWidth: preset.strokeWidth ?? 0, accent: preset.accent, uppercase: preset.uppercase ?? false, radius: preset.radius }); }}>{lookLabels[look]}</button>)}</div>

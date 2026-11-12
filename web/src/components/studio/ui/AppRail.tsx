@@ -9,7 +9,7 @@ const PAGE_ICONS: Record<FilmPage, IconName> = { project: 'stack', overview: 'gr
 
 function RailButton({ icon, label, hint, active, disabled, onClick }: { icon: IconName; label: string; hint?: string; active?: boolean; disabled?: boolean; onClick: () => void }) {
   return <button type="button" className={`rail-button${active ? ' active' : ''}`} aria-label={label} aria-pressed={active} disabled={disabled} onClick={onClick}>
-    <Icon name={icon} size={19} /><span className="rail-label" aria-hidden="true">{label}{hint ? <kbd>{hint}</kbd> : null}</span>
+    <Icon name={icon} size={18} /><span className="rail-label" aria-hidden="true">{label}{hint ? <kbd>{hint}</kbd> : null}</span>
   </button>;
 }
 

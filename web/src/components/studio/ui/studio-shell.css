@@ -1,0 +1,6 @@
+/*
+ * The Studio's icons (./icons.tsx: the app's lucide set) inside its own controls. Loaded right after ./studio.css
+ * (studio-root.tsx), scoped like it to `.ni-studio`, and colourless: an icon takes the colour of the text it sits in.
+ */
+/* An icon keeps its size in a row that is short of room, and sits on the middle of the text beside it. */
+.ni-studio svg.lucide{flex:none;vertical-align:middle}

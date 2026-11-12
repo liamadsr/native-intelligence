@@ -1,5 +1,6 @@
 import { fitMenu } from '../studio-env';
 import React, { useEffect, useRef, useState } from 'react';
+import { Icon } from './icons';
 import { request } from './client';
 
 /** Sound kinds a person can drop at the playhead (earshot kit roles of the launch preset). */
@@ -21,7 +22,7 @@ const kinds: { id: string; label: string; help: string }[] = [
 type Job = { id: string; status: string; progress: number; logs: string[]; error?: string; result?: Record<string, any> };
 export type ListenReport = { critique?: { verdict?: string; score?: number; text?: string }; timeline?: { summary?: string; text?: string }; sheet?: { png?: string }; folder?: string };
 
-/** ♪ Sound ▾ — the automatic sound pass, single sounds at the playhead, and earshot listening to the mix. */
+/** Sound — the automatic sound pass, single sounds at the playhead, and earshot listening to the mix. */
 export function SoundMenu({ projectId, at, disabled, notify }: { projectId: string; at: number; disabled: boolean; notify?: (text: string, error?: boolean) => void }) {
   const [open, setOpen] = useState(false), [busy, setBusy] = useState<{ label: string; progress: number; note: string } | null>(null), [report, setReport] = useState<ListenReport | null>(null), alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
@@ -41,7 +42,7 @@ export function SoundMenu({ projectId, at, disabled, notify }: { projectId: stri
   const one = async (kind: string, label: string) => { const done = await run(label, 'sounds', { sounds: [{ at, kind, label }] }); if (done) notify?.(`${label} added at ${at.toFixed(2)} s`); };
   const listen = async () => { const done = await run('Listening', 'listen', {}); if (done) setReport(done.result as ListenReport); };
   return <div className="tl-menu sound-menu">
-    <button aria-expanded={open} disabled={disabled || !!busy} onClick={() => setOpen(!open)} title="Sound effects made in code (earshot), placed on the picture's moments">{busy ? `♪ ${busy.label} ${Math.round(busy.progress * 100)}%` : '♪ Sound ▾'}</button>
+    <button aria-expanded={open} disabled={disabled || !!busy} onClick={() => setOpen(!open)} title="Sound effects made in code (earshot), placed on the picture's moments"><Icon name="sound" size={14}/>{busy ? `${busy.label} ${Math.round(busy.progress * 100)}%` : <>Sound<Icon name="chevron" size={14}/></>}</button>
     {open ? <div className="tl-menu-list" role="menu" ref={fitMenu}>
       <button role="menuitem" onClick={() => void pass()}><b>Sound the whole video</b><small>A sound for every entrance, transition and click — replaces the last automatic pass</small></button>
       <button role="menuitem" onClick={() => void listen()}><b>Listen &amp; check</b><small>earshot hears the mix: sync to every moment, loudness, a launch-film scorecard</small></button>
@@ -50,7 +51,7 @@ export function SoundMenu({ projectId, at, disabled, notify }: { projectId: stri
     </div> : null}
     {busy ? <span className="sound-busy" title={busy.note}>{busy.note}</span> : null}
     {report ? <div className="listen-report" role="dialog" aria-label="What earshot heard">
-      <header><b>What earshot heard</b>{report.critique?.verdict ? <span className={`verdict v-${report.critique.verdict.replace(/\W+/g, '-')}`}>{report.critique.verdict}</span> : null}<button onClick={() => setReport(null)} aria-label="Close">✕</button></header>
+      <header><b>What earshot heard</b>{report.critique?.verdict ? <span className={`verdict v-${report.critique.verdict.replace(/\W+/g, '-')}`}>{report.critique.verdict}</span> : null}<button onClick={() => setReport(null)} aria-label="Close" title="Close"><Icon name="close"/></button></header>
       {report.sheet?.png && report.folder ? <img src={`/api/account/studio/listen/${encodeURIComponent(report.folder.split('/').pop()!)}/sheet.png`} alt="Annotated listening sheet: events, spectrogram, loudness, sync markers" /> : null}
       {report.critique?.text ? <pre>{report.critique.text}</pre> : null}
       {report.timeline?.text ? <details><summary>Listening transcript</summary><pre>{report.timeline.text}</pre></details> : null}

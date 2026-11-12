@@ -17,7 +17,7 @@ import { FOLD_CARDS_EVENT, cardForTarget, cardMatches, sameCardPlace, type CardM
 import { menuRowTarget, type MentionRecordKind, type MenuSearchRow } from '@/lib/search/menu-search'
 import { seedCardState } from '@/components/chat-cards/card-storage'
 import { nestedPageOpen } from '../rail/rail-pages'
-import { useWorkspaceEdition } from '../../workspace-switcher'
+import { useIsWorkspaceGuest, useWorkspaceEdition } from '../../workspace-switcher'
 import { startersFor } from '@/lib/chat/starters'
 import { QuestionPopover } from './question-popover'
 import { useAskArrivalSound } from '@/lib/sounds/use-ask-arrival-sound'
@@ -1648,13 +1648,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
   // does (openCardHere, below): full screen at once, no model call, no eve
   // turn, and put away when the person closes it.
   const workspaceEdition = useWorkspaceEdition()
+  // A guest of the workspace is not offered a members-only page (the Studio refuses a guest).
+  const workspaceGuest = useIsWorkspaceGuest()
   // Calendar and mail are the person's own: offered only where this chat may
   // read them (show's per-person gate), never in a bot's conversation. The
   // starters follow the same rule.
   const personalTools = useMemo(() => personalToolsFor({ bot: false, agent: activeAgent }), [activeAgent])
   const pages = useMemo(
-    () => pagesFor(workspaceEdition, { desktop: isDesktopApp(), personalTools }),
-    [workspaceEdition, personalTools],
+    () => pagesFor(workspaceEdition, { desktop: isDesktopApp(), personalTools, guest: workspaceGuest }),
+    [workspaceEdition, personalTools, workspaceGuest],
   )
   // For openCardHere (below): a nested page opens inside its parent's card.
   const pagesRef = useRef(pages)

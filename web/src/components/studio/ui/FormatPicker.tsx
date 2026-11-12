@@ -1,5 +1,6 @@
 import { studioKeys } from '../studio-env';
 import React from 'react';
+import { Icon } from './icons';
 import type { EditorProject } from '@/lib/studio/engine/contracts';
 import { exportPresets, formatPreset } from '@/lib/studio/engine/formats';
 import { request } from './client';
@@ -35,7 +36,7 @@ export function FormatPicker({ project, change, disabled }: { project: EditorPro
     <Shape w={pw} h={ph} /><span className="format-name">{label}</span><span className="format-meta">{ratio(pw, ph)} · {pw}×{ph}</span></button>;
   return <div className="format-picker" ref={box}>
     <button className="format-button" disabled={disabled} aria-haspopup="menu" aria-expanded={open} title="Format: the shape the preview and export use" onClick={() => setOpen(!open)}>
-      <Shape w={w} h={h} /><span>{current ? current.label.replace(/ \(.*\)$/, '') : 'Original'}</span><span className="format-meta">{ratio(w, h)}</span>{measuring ? <span className="format-busy">Finding faces…</span> : null}<span aria-hidden="true">▾</span></button>
+      <Shape w={w} h={h} /><span>{current ? current.label.replace(/ \(.*\)$/, '') : 'Original'}</span><span className="format-meta">{ratio(w, h)}</span>{measuring ? <span className="format-busy">Finding faces…</span> : null}<Icon name="chevron" size={14}/></button>
     {error ? <span className="format-error" title={error}>Faces not found: crops stay centred</span> : null}
     {open ? <div className="format-menu" role="menu" aria-label="Format">
       {item('original', `Original`, project.output.width, project.output.height)}

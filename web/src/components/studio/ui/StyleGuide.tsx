@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Icon } from './icons';
 import { request } from './client';
 
 type Palette = { background: string; surface: string; ink: string; muted: string; border: string; primary: string; primaryInk: string; backdrop?: string; wash?: string[] };
@@ -32,7 +33,7 @@ export function StyleGuide({ kit, fail }: { kit: string; fail: (e: unknown) => v
   return <div className="sg">
     <div className="sg-head"><b>{brand.title} style guide</b>
       <small>Read from {brand.site ?? 'the code'}{brand.source ? ` and ${brand.source.ref}${brand.source.sha ? ` @ ${brand.source.sha.slice(0, 7)}` : ''}` : ''}{brand.corrected.length ? ` · your corrections: ${brand.corrected.join(', ')}` : ''}{brand.assistantCorrected?.length ? ` · the assistant corrected: ${brand.assistantCorrected.join(', ')} (yours win)` : ''}</small>
-      <button onClick={() => void derive()} disabled={busy}>{busy ? 'Reading…' : '↻ Read again'}</button>
+      <button onClick={() => void derive()} disabled={busy}><Icon name="refresh" size={14}/>{busy ? 'Reading…' : 'Read again'}</button>
       {brand.corrected.length ? <button onClick={async () => { if (!confirm('Drop your corrections and use only what was read from the product?')) return; await correct({ vibe: '', notes: '', light: null, dark: null, accents: null, fonts: null }); }}>Reset corrections</button> : null}</div>
     {brand.warnings?.length ? <p className="warn">{brand.warnings.join(' · ')}</p> : null}
     <label className="sg-vibe"><span>The look, in words <small>what the assistant designs from; edit it to steer every film</small></span>

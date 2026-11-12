@@ -3,6 +3,7 @@
 // logos with the approved logo colour per ground, and the rest of the kit as raw JSON ("Brand rules"), where a brand
 // folder's brand.json, fonts.json, rules.json or sound.json can also be pasted. Errors show where they happened.
 import React, { useCallback, useEffect, useState } from 'react'
+import { Icon } from './icons'
 import { assetHref } from '@/lib/studio/engine/asset-base'
 import type { CampaignSummary } from '@/lib/studio/engine/api'
 import type { EditorAsset } from '@/lib/studio/engine/contracts'
@@ -155,7 +156,7 @@ export function BrandKitPanel({ campaign, onChanged, notify }: { campaign: Campa
               <div key={t} className="brand-kit-colour">
                 <input type="color" aria-label={`${t} colour`} value={k.palette[t]} onChange={(e) => edit({ palette: { ...k.palette, [t]: e.target.value.toUpperCase() } })} />
                 <code>{t}</code><span>{k.palette[t]}</span>
-                <button aria-label={`Remove ${t}`} onClick={() => { const { [t]: _gone, ...rest } = k.palette; edit({ palette: rest }) }}>×</button>
+                <button aria-label={`Remove ${t}`} title={`Remove ${t}`} onClick={() => { const { [t]: _gone, ...rest } = k.palette; edit({ palette: rest }) }}><Icon name="close" size={14}/></button>
               </div>
             ))}
             <button className="project-link" onClick={() => { const t = window.prompt('Colour token (a name like warmGround)')?.trim(); if (t && /^[A-Za-z][A-Za-z0-9_-]{0,40}$/.test(t)) edit({ palette: { ...k.palette, [t]: '#888888' } }) }}>Add colour</button>

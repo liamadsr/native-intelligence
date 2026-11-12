@@ -76,7 +76,7 @@ export function CampaignPage({ project, openAd, editCast, notify, refreshKey }: 
     </header>
 
     <section className="project-section">
-      <div className="project-section-head"><h2>Ads</h2><button className="project-new" disabled={busy} onClick={newAd}><Icon name="plus" size={13} />New ad</button></div>
+      <div className="project-section-head"><h2>Ads</h2><button className="project-new" disabled={busy} onClick={newAd}><Icon name="plus" size={14} />New ad</button></div>
       <div className="project-ads">{roots.map(card)}</div>
     </section>
 

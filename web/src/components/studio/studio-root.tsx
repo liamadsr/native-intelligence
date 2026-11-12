@@ -18,6 +18,7 @@ import { App } from './ui/App'
 import { ContextMenuProvider } from './ui/ContextMenu'
 import { setStudioRoot, setStudioWorkspace, studioFileBase } from './studio-env'
 import './ui/studio.css'
+import './ui/studio-shell.css'
 
 class Recover extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null }

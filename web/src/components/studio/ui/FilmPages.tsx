@@ -79,7 +79,7 @@ function EmptyStoryboard({ project, change, frame, duration, disabled, goEdit, t
     <p>Beats are the film's plan: the words, which camera or generated shot, what's on screen. Plan them here, then record or generate into them.</p>
     <div className="film-empty-actions">
       <button className="primary" disabled={disabled || busy} onClick={() => { setBusy(true); void startFromScript(project, change, frame, duration).finally(() => setBusy(false)); }}>Start from the script</button>
-      <button className="subtle-button" disabled={disabled} onClick={() => addBeatAt(change, frame, duration, project.output.fps)}>＋ Beat at playhead</button>
+      <button className="subtle-button" disabled={disabled} onClick={() => addBeatAt(change, frame, duration, project.output.fps)}><Icon name="plus" size={14}/>Beat at playhead</button>
       <button className="subtle-button" onClick={goEdit}>Open the editor</button>
     </div>
   </div>;
@@ -133,7 +133,7 @@ export function OverviewPage({ project, change, frame, duration, disabled, openB
               <span className={`ov-words${beat.words.trim() ? '' : ' none'}`}>{beat.words.trim() || (beat.shot ? `Picture only · ${beat.shot}` : 'Picture only, no words')}</span>
               <Badges project={project} beat={beat} />
             </span>
-            <span className="ov-actions"><button className="subtle-button" title={`Open the editor at ${clock(beat.startFrame / fps)}`} onClick={e => { e.stopPropagation(); editAt(beat.startFrame); }}><Icon name="play" size={12} />Edit at {clock(beat.startFrame / fps)}</button></span>
+            <span className="ov-actions"><button className="subtle-button" title={`Open the editor at ${clock(beat.startFrame / fps)}`} onClick={e => { e.stopPropagation(); editAt(beat.startFrame); }}><Icon name="play" size={14} />Edit at {clock(beat.startFrame / fps)}</button></span>
           </div></li>)}</ol>}
     </section>
   </div></div>;
@@ -243,7 +243,7 @@ export function StoryboardPage({ project, change, frame, duration, disabled, ope
     {panel === 'inputs' ? createPortal(<InputsPanel project={project} change={change} close={() => setPanel(null)} anchor={anchors.inputs.current} below />, studioPortal()) : null}
     {panel === 'versions' ? createPortal(<VersionsPanel project={project} anchor={anchors.versions.current} close={() => setPanel(null)} beforeServerEdit={beforeServerEdit} afterServerEdit={afterServerEdit} below />, studioPortal()) : null}
     {panel === 'formats' ? createPortal(<div className="inputs-panel sb-formats" role="dialog" aria-label="Other formats" style={(() => { const box = anchors.formats.current?.getBoundingClientRect(); return box ? { left: Math.max(8, Math.min(box.left, window.innerWidth - 340)), top: box.bottom + 8 } : undefined; })()}>
-      <header><strong>Formats</strong><small>Each becomes its own project, reframed for the platform. Also in Export.</small><button onClick={() => setPanel(null)} aria-label="Close">✕</button></header>
+      <header><strong>Formats</strong><small>Each becomes its own project, reframed for the platform. Also in Export.</small><button onClick={() => setPanel(null)} aria-label="Close" title="Close"><Icon name="close"/></button></header>
       <FormatButtons projectId={project.id} beforeServerEdit={beforeServerEdit} open={id => { setPanel(null); openProject(id); }} say={say} /></div>, studioPortal()) : null}
   </div>;
 }
@@ -254,7 +254,7 @@ export function CastPage({ project, change, openBeat }: { project: EditorProject
   return <div className="film-page cast-page">
     <div className="film-main">
       <div className="film-toolbar"><div className="film-toolbar-title"><h2>Cast</h2><span>People, props and places for generated shots. Beats use them as references, and every ad in this project shares them.</span></div></div>
-      {!cast.length ? <div className="film-empty"><div className="film-empty-mark"><Icon name="presenter" size={22} /></div><h2>No cast yet</h2>
+      {!cast.length ? <div className="film-empty"><div className="film-empty-mark"><Icon name="people" size={22} /></div><h2>No cast yet</h2>
         <p>Add a person (from their own photos, with consent), a prop or a place on the right. Generated beats then use them as references, so the same face and product show up shot after shot.</p></div> :
         <div className="cast-grid">{cast.map(c => { const images = c.assetIds.map(id => project.assets.find(a => a.id === id)).filter(a => !!a), used = beats.filter(b => b.generation?.references?.includes(c.id));
           return <article key={c.id} className="cast-card">

@@ -32,7 +32,7 @@
 import { useLayoutEffect, useMemo, type ComponentType } from 'react'
 import { LayoutList } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useWorkspaceEdition } from '@/app/account/workspace-switcher'
+import { useIsWorkspaceGuest, useWorkspaceEdition } from '@/app/account/workspace-switcher'
 import { useIsDesktop } from '@/components/desktop-titlebar'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { pagesFor } from '@/lib/chat-cards/page-menu'
@@ -50,7 +50,8 @@ const ROW_LIT = 'bg-foreground/[0.08] hover:bg-foreground/[0.08]'
 export function useRailEntry(id: string | null): OfferedRailPage | null {
   const edition = useWorkspaceEdition()
   const desktop = useIsDesktop()
-  return useMemo(() => (id ? (railPagesFor(pagesFor(edition, { desktop })).find((p) => p.def.id === id) ?? null) : null), [id, edition, desktop])
+  const guest = useIsWorkspaceGuest()
+  return useMemo(() => (id ? (railPagesFor(pagesFor(edition, { desktop, guest })).find((p) => p.def.id === id) ?? null) : null), [id, edition, desktop, guest])
 }
 
 export function PageGroupPanel({ group, active, mode, front, onContent }: PagePanelProps & { group: PageGroupId }) {
