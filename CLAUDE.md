@@ -55,8 +55,11 @@ Read this before reporting anything as live or touching production. The code gui
   git gate, which adds the token server-side and refuses an LFS answer that contains
   it, and that service's firewall rules add only the run's gate token, on the gate's
   endpoints. (GitHub's own short-lived LFS storage links, in its LFS answers, are not
-  checked, as before.) Written and tested without live
-  calls, NOT yet proven by a live coding run from the server ("The coding agent" in
-  `deploy/README.md` lists the checks to do first).
+  checked, as before.) A `trusted` run was proven live from
+  the server on 2026-11-11 (clone and push through the gate, a reviewed pull request).
+  The `restricted` and `isolated` levels are written and tested without live calls, NOT
+  yet proven by a live run ("The coding agent" in `deploy/README.md` lists the checks to
+  do first). A sandbox server of our own is set up to take these sandboxes over and is
+  not in use yet ([`deploy/sandbox/README.md`](deploy/sandbox/README.md)).
 - No server address, ssh user or ids in this repository: it is public. Use the
   placeholders `deploy/README.md` uses (`<server>`, `<user>@<server>`).
