@@ -181,6 +181,7 @@ const NOUNS: Record<WorkDeliverableType, [string, string]> = {
   attention_cards: ['card', 'cards'],
   flow_run: ['run', 'runs'],
   url: ['link', 'links'],
+  studio_video: ['video', 'videos'],
 }
 
 export function deliverableNoun(type: WorkDeliverableType, n: number): string {
@@ -300,6 +301,8 @@ export function deliverableVerb(d: WorkDeliverable): string {
       return 'Open run'
     case 'url':
       return 'Open link'
+    case 'studio_video':
+      return 'Open video'
   }
 }
 

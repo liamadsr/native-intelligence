@@ -86,7 +86,7 @@ import { deferLogWrite } from '@/lib/log/agent-log'
 import { requestRoute } from '@/lib/reach/route'
 import { recordAgentEvents } from '@/lib/agent-events/record'
 import { agentEventKey } from '@/lib/agent-events/types'
-import type { BotApprovalContext, ConnectionApprovalContext, DocumentApprovalContext, FlowApprovalContext, FlowStepApprovalContext, LoopStepApprovalContext, OutreachApprovalContext, QuoteReplyApprovalContext, SkillRunMcpContext, TimeOfferApprovalContext, UnsubscribeApprovalContext } from './approved-call'
+import type { BotApprovalContext, ConnectionApprovalContext, DocumentApprovalContext, FlowApprovalContext, FlowStepApprovalContext, LoopStepApprovalContext, OutreachApprovalContext, QuoteReplyApprovalContext, SkillRunMcpContext, StudioSpendApprovalContext, TimeOfferApprovalContext, UnsubscribeApprovalContext } from './approved-call'
 import { mayApprove, type Approver } from './caller'
 import { requestApprovalTurn } from './approval-turn'
 import { activeGuestCeiling } from '@/lib/guests/guest-turn'
@@ -212,6 +212,8 @@ export interface ApprovalContext {
   quoteReply?: QuoteReplyApprovalContext
   /** A time offer card (offer_times by email or text): the offer made for it and its words' hash, set by the server's outward gate, never by a model. */
   timeOffer?: TimeOfferApprovalContext
+  /** A Studio spend card (generate_studio_narration, generate_studio_shot): the request's hash and price, set by the server's outward gate, never by a model. */
+  studioSpend?: StudioSpendApprovalContext
   /**
    * Guest access: a call by the agent the owner made for one person who texts
    * it (src/lib/guests/). At accept the guest must still be active and still
@@ -440,13 +442,15 @@ export async function createToolApproval(supabase: SupabaseClient, approval: New
     // A quote reply's card is its words (roadmap F3): the same input with other words is a new card.
     const quoteCardHash = approval.context?.quoteReply?.card_hash ?? null
     const offerCardHash = approval.context?.timeOffer?.card_hash ?? null
+    const studioRequestHash = approval.context?.studioSpend?.request_hash ?? null
     const same = pending.find((row) =>
       row.tool === approval.toolName && row.input_hash === hash && row.card_id &&
       (row.flow_run_id ?? null) === runId &&
       (row.conversation_id ?? null) === conversationId &&
       (row.context?.localAgent?.sessionId ?? null) === macJobId &&
       (row.context?.quoteReply?.card_hash ?? null) === quoteCardHash &&
-      (row.context?.timeOffer?.card_hash ?? null) === offerCardHash)
+      (row.context?.timeOffer?.card_hash ?? null) === offerCardHash &&
+      (row.context?.studioSpend?.request_hash ?? null) === studioRequestHash)
     if (same) return { ok: true, approvalId: same.id, cardId: same.card_id as string, reused: true }
     // A loop step's card is ONE per run and step, whatever its input (F4
     // review S3): a retried dispatch re-renders earlier steps, and a second
@@ -1221,6 +1225,7 @@ export async function executeStoredCall(
           ...(row.context?.unsubscribe ? { unsubscribe: row.context.unsubscribe } : {}),
           ...(row.context?.quoteReply ? { quoteReply: row.context.quoteReply } : {}),
           ...(row.context?.timeOffer ? { timeOffer: row.context.timeOffer } : {}),
+          ...(row.context?.studioSpend ? { studioSpend: row.context.studioSpend } : {}),
         },
       }
     : {}

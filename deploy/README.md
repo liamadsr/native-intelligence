@@ -9,6 +9,7 @@ Everything Native Intelligence runs on its own server lives in this folder. It h
 | [`inngest/`](inngest) | The Inngest server, its own Postgres 17 and Redis 7, and a small loop that keeps the app's function list in sync. | No ports on the host |
 | [`supabase/`](supabase) | Supabase's own self-hosted stack (Postgres 17, Auth, the data API, Realtime, Storage, edge functions, Studio), and the scripts that move the hosted project onto it. | No ports on the host |
 | [`backup/`](backup) | Encrypted backups to Backblaze B2: Inngest's Postgres nightly, the Supabase database hourly, the stored files nightly. | No |
+| [`studio/`](studio) | The Studio worker: imports, renders, stills, thumbnails, slide decks and transcripts for the Studio (videos and ads). One container on the app's network, started by hand. | No ports on the host |
 | [`app/`](app) | The app: web, a worker for background jobs, the eight eve agents and the scheduler, from one image built on the server, behind the stack's own proxy. | No ports on the host |
 | [`server/`](server) | Not a container: [`setup.sh`](server/setup.sh), which does steps 3 to 7 below on a fresh server in one go. | |
 | [`move/`](move) | Not a container: [`move.sh`](move/move.sh), which moves everything here to another server. | |

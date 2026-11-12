@@ -19,7 +19,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { OPEN_CARD_EVENT, PAGE_DEEP_LINK_PARAM, cardForTarget, parseOpenCardRequest, type OpenCardRequest } from '@/lib/chat-cards/open-card'
+import { OPEN_CARD_EVENT, PAGE_DEEP_LINK_PARAM, PAGE_DEEP_LINK_PLACES, cardForTarget, parseOpenCardRequest, type OpenCardRequest } from '@/lib/chat-cards/open-card'
 import { useSwitchWorkspace, useWorkspaceId } from '@/app/account/workspace-switcher'
 import { toast } from 'sonner'
 import { DEEP_LINK_TYPES } from '@/lib/entities/entity-actions-registry'
@@ -84,9 +84,11 @@ const DEEP_LINK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  * workspace does (a workspace the person isn't in opens nothing). Uuids only.
  * And `?page=<slug>`, a `/` page's own card (pageDeepLink: where a settings
  * page that became a page redirects, Availability; Liam, 11-11), by a slug
- * the `/` menu has (the card checks its own gate). One per boot.
+ * the `/` menu has (the card checks its own gate), with a place inside it
+ * where the page takes one (PAGE_DEEP_LINK_PLACES: `?page=studio&video=<id>`
+ * opens the Studio on that video). One per boot.
  */
-export function deepLinkCard(params: URLSearchParams): { param: string; request: OpenCardRequest } | null {
+export function deepLinkCard(params: URLSearchParams): { param: string; also?: string[]; request: OpenCardRequest } | null {
   const workspace = params.get(DEEP_LINK_WORKSPACE)
   const workspaceId = workspace && DEEP_LINK_ID.test(workspace) ? workspace : null
   for (const param of DEEP_LINK_TYPES) {
@@ -101,8 +103,15 @@ export function deepLinkCard(params: URLSearchParams): { param: string; request:
   }
   const slug = params.get(PAGE_DEEP_LINK_PARAM)
   const page = slug && /^[a-z][a-z-]{0,39}$/.test(slug) ? cardForTarget({ type: 'page', slug }) : null
-  if (page) return { param: PAGE_DEEP_LINK_PARAM, request: { spec: page.spec, from: 'link', ...(workspaceId ? { workspaceId } : {}) } }
-  return null
+  if (!page || !slug) return null
+  // A place inside the page beside it (the Studio on one video: `&video=<id>`), uuids only.
+  for (const [param, type] of Object.entries(PAGE_DEEP_LINK_PLACES[slug] ?? {})) {
+    const id = params.get(param)
+    if (!id || !DEEP_LINK_ID.test(id)) continue
+    const place = cardForTarget({ type, id })
+    if (place) return { param: PAGE_DEEP_LINK_PARAM, also: [param], request: { spec: place.spec, from: 'link', ...(workspaceId ? { workspaceId } : {}) } }
+  }
+  return { param: PAGE_DEEP_LINK_PARAM, request: { spec: page.spec, from: 'link', ...(workspaceId ? { workspaceId } : {}) } }
 }
 
 /** The deep link's workspace parameter. */
@@ -221,6 +230,7 @@ export function MainChatProvider({ children }: { children: React.ReactNode }) {
         if (workspaceId && !link.request.workspaceId) deliverTo(chatRef.current.chatSessionId, link.request)
         else pendingDeepLinkCardRef.current = link.request
         params.delete(link.param)
+        for (const extra of link.also ?? []) params.delete(extra)
         params.delete(DEEP_LINK_WORKSPACE)
         const rest = params.toString()
         window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''))

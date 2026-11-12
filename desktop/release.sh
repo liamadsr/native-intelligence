@@ -450,7 +450,7 @@ while IFS= read -r staged; do
     ok "Sidecar staged: $staged"
 done < <(sidecars_staged_executables "$APP_PATH")
 # Belt and braces: the app is broken without these, whatever the loop saw.
-for required in system-audio-capture dial8-local-stt dial8-local-tts; do
+for required in system-audio-capture dial8-local-stt dial8-local-tts studio-recorder; do
     if [ ! -x "$MACOS_DIR/$required" ]; then
         err "Required sidecar missing from the bundle: $required"
         exit 1
@@ -508,6 +508,13 @@ xattr -cr "$APP_PATH"
 # process that prompts and holds the grant. system-audio-capture only reads PCM
 # from the resulting aggregate device, which is attributed to the responsible
 # parent app, and local-module sidecars only read the PCM we pipe to them.
+# The exception is studio-recorder (Studio takes): it opens the screen
+# (ScreenCaptureKit), the camera and the microphone itself, and its
+# requestPermissions command shows those prompts. macOS attributes all of it
+# to the app, the sidecar's responsible process, so the grants are the app's;
+# but the hardened runtime checks the SIDECAR's own entitlements for the
+# camera and microphone, which the production entitlements below carry
+# (docs/PERMISSIONS.md, "Studio recording").
 log "Signing sidecar binaries..."
 if ! timestamp_retry sidecars_sign_release "$APP_PATH" "$SIGNING_IDENTITY" "$ENTITLEMENTS"; then
     err "Sidecar signing failed"

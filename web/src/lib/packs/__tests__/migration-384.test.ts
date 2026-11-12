@@ -42,7 +42,8 @@ describe('migration 384', () => {
       const add = new RegExp(`ALTER TABLE public\\.${table} ADD CONSTRAINT ${name} CHECK \\(([\\s\\S]*?)\\) NOT VALID;`).exec(statements)
       expect(add, name).not.toBeNull()
       const listed = [...add![1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1])
-      expect(listed, name).toEqual([...AREA_KEYS])
+      // The areas of its day: 621 widens them again with studio.
+      expect(listed, name).toEqual(AREA_KEYS.filter((a) => a !== 'studio'))
       // Added without a scan, then validated under a lock that lets writes go on (review nit).
       expect(statements, name).toContain(`ALTER TABLE public.${table} VALIDATE CONSTRAINT ${name};`)
     }

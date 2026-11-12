@@ -106,6 +106,9 @@ MAY_BE_EMPTY = {
     "CAPTURE_FEED_SECRET": "empty: the call recorder cannot reach the app (make-keys.sh in ../livekit makes it)",
     # The SEO pages' search data (DataForSEO). The site audit needs none.
     "DATAFORSEO_API_KEY": "empty: keyword, ranking and backlink lookups are off (the site audit still works)",
+    # The Studio worker (../studio; ../../studio-worker).
+    "STUDIO_WORKER_SECRET": "empty: the Studio worker is refused, so nothing is imported, rendered or exported (../studio/README.md)",
+    "STUDIO_PROVIDER_WORKSPACES": "empty: no workspace may make narration or generated shots on the worker's provider accounts",
 }
 
 SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}

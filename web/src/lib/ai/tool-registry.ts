@@ -758,7 +758,91 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     ],
   },
   {
-    // SEO (src/lib/ai/tools/seo*.ts). Last, after content: migration 591
+    // Studio (migration 620, src/lib/ai/tools/studio.ts): making videos and
+    // ads. A Studio project groups videos; each video is one edit, written
+    // through the same checked path as the editor (a digest guard, one
+    // undoable step, a version kept before each pass). Last, after content:
+    // migration 623 grants it to every inherit-all persona.
+    // Every write lands on the workspace's own Studio rows (and its private
+    // storage bucket): an artifact, reviewed in the Studio itself. Rendering
+    // stills and exporting queue a studio_job row that the Studio worker (the
+    // app's own container) does; nothing leaves the workspace, so they are
+    // internal artifact writes too, never external ones.
+    id: 'studio',
+    label: 'Studio',
+    description: 'Videos and ads: Studio projects, their videos, scripts, storyboards and cast, editing a video\'s timeline, seeing its frames and exporting it; ads from a brand kit, narration, generated shots, sound, measured checks, cut-outs and the director pass.',
+    icon: '🎬',
+    tools: [
+      { name: 'list_studio_projects', sideEffect: 'read', label: 'List Studio Projects', description: 'The Studio projects, each with its videos (title, status, length, size), and the videos in none' },
+      { name: 'get_studio_video', sideEffect: 'read', label: 'Get Video', description: "One video's edit, summarized (its clips, layers, beats, transcript), with its digest and a link to open it" },
+      { name: 'get_studio_catalog', sideEffect: 'read', label: 'Studio Catalog', description: 'Every editing command edit_studio_video takes, with its arguments, and the animations, transitions and looks' },
+      { name: 'get_studio_storyboard', sideEffect: 'read', label: 'Get Storyboard', description: "A video's storyboard: its beats with their word budgets, the cast, the inputs" },
+      { name: 'get_studio_script', sideEffect: 'read', label: 'Get Script', description: "A video's script: what gets said, beat by beat" },
+      { name: 'write_studio_script', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Write Script', description: "Write a video's script: blocks separated by a blank line, each optionally starting [5s] Label:" },
+      { name: 'list_studio_assets', sideEffect: 'read', label: 'List Media', description: "The workspace's Studio media library: recordings, uploads and generated media" },
+      { name: 'create_studio_project', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Create Studio Project', description: 'Make a Studio project, the group for videos made with the same cast and brand' },
+      { name: 'update_studio_project', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Update Studio Project', description: "Change a Studio project's title, client, notes or brand" },
+      { name: 'create_studio_video', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Create Video', description: 'Make a blank-canvas video (1920x1080, 60 fps, 15 s unless given), in a Studio project or none' },
+      { name: 'update_studio_video', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Update Video', description: "Change a video's title, status (draft, review, approved) or Studio project" },
+      { name: 'duplicate_studio_video', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Duplicate Video', description: 'Copy a video as a new one' },
+      { name: 'edit_studio_video', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Edit Video', description: "Apply editing commands to a video in order, as one undoable step, all or nothing" },
+      { name: 'make_studio_format', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Make Format', description: 'Make a separate video reframed for a platform (Shorts, Reels, TikTok, square…)' },
+      { name: 'list_studio_versions', sideEffect: 'read', label: 'List Versions', description: "A video's kept versions, newest first" },
+      { name: 'restore_studio_version', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Restore Version', description: 'Put a kept version of a video back (the current one is kept first)' },
+      { name: 'check_studio_video', sideEffect: 'read', label: 'Check Video', description: "A video's readiness checklist: what passes and what to fix before a hand-off" },
+      // internal-write: queues a stills job (a studio_job row) the Studio worker renders into the workspace's own storage, then shows the frames.
+      { name: 'render_studio_stills', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'See Frames', description: 'Render frames of a video at the times given and look at them' },
+      // internal-write: queues an export job; the file lands in the workspace's own storage, behind a signed link for the person.
+      { name: 'export_studio_video', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Export Video', description: 'Render a video to an MP4 file; returns the job to wait for' },
+      { name: 'get_studio_job', sideEffect: 'read', label: 'Get Studio Job', description: 'How a Studio job (an export, stills) is doing, and a finished export\'s download link' },
+      { name: 'wait_for_studio_job', sideEffect: 'read', label: 'Wait For Studio Job', description: 'Wait for a Studio job to finish (up to about a minute and a half), then its result' },
+      // delete: to the trash (archived_at), the class every removal from the person's lists takes here; the row stays restorable.
+      { name: 'archive_studio_video', sideEffect: 'delete', label: 'Archive Video', description: 'Move a video to the trash' },
+      // Ads from a Studio project's brand kit (src/lib/ai/tools/studio-ads.ts). The kit is a studio_record row; the ads
+      // are studio_job rows the Studio worker renders into the workspace's own storage and library: artifacts, never external.
+      { name: 'get_studio_brand_kit', sideEffect: 'read', label: 'Get Brand Kit', description: "A Studio project's brand kit (palette, roles, logos, fonts, rules, motion rules, sounds) and what it still needs" },
+      { name: 'set_studio_brand_kit', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Set Brand Kit', description: "Save a Studio project's brand kit, or paste a brand folder's brand.json, fonts.json, rules.json, sound.json" },
+      { name: 'make_studio_static_ads', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Make Static Ads', description: 'Render a batch of static ads from playbook templates in square, portrait, story and landscape, with a brand check' },
+      { name: 'make_studio_motion_ad', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Make Motion Ad', description: 'Render a 9:16 motion ad (and a 4:5 crop) from a brief, with a brand check; it also opens as an editable video' },
+      { name: 'make_studio_reel', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Make Reel', description: "Render a 9:16 reel from the brand's own footage with type beats and an end card" },
+      { name: 'list_studio_ads', sideEffect: 'read', label: 'List Studio Ads', description: "A Studio project's static ad batches (images by size, brand-check findings) and motion ads" },
+      // Studio paid media (src/lib/ai/tools/studio-media.ts): narration (ElevenLabs) and generated shots (Higgsfield)
+      // on the provider accounts the Studio worker holds (only for the workspaces STUDIO_PROVIDER_WORKSPACES lists);
+      // the cost ledger is the workspace's own rows.
+      { name: 'get_studio_voice', sideEffect: 'read', label: 'Get Narration Voice', description: "The workspace's narration voice, or none yet, and whether narration can be made now" },
+      { name: 'list_studio_voices', sideEffect: 'read', label: 'List Voices', description: "The voices of the workspace's ElevenLabs account, to choose a narration voice from" },
+      { name: 'set_studio_voice', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Set Narration Voice', description: "Choose the workspace's narration voice, its model, settings and word substitutions" },
+      { name: 'quote_studio_narration', sideEffect: 'read', label: 'Price Narration', description: 'How many characters (ElevenLabs credits) a narration takes, and whether it is cached (free)' },
+      // external-write: an uncached narration spends the person's own ElevenLabs credits; the outward gate holds it for
+      // their card (src/lib/studio/agent/spend-card.ts) and the tool spends only as that card's replay.
+      { name: 'generate_studio_narration', sideEffect: 'external-write', label: 'Generate Narration', description: "Make narration in the workspace's voice (a library audio asset with its words); uncached text uses ElevenLabs credits, only after the person accepts the card" },
+      { name: 'quote_studio_shot', sideEffect: 'read', label: 'Price a Shot', description: "The price of a storyboard beat's generated still or clip (cheapest draft, or the final), with the balance and plan" },
+      // external-write: spends the person's own Higgsfield credits; always their card (the input's model and credits are the price shown).
+      { name: 'generate_studio_shot', sideEffect: 'external-write', label: 'Generate a Shot', description: "Generate a beat's still or clip on the person's Higgsfield account at the quoted price and place it, only after they accept the card" },
+      { name: 'get_studio_costs', sideEffect: 'read', label: 'Video Costs', description: 'What a video has cost through the Studio, by provider and model, with its latest charges' },
+      // The measured checks (src/lib/ai/tools/studio-checks.ts). internal-write: each queues a studio_job the Studio
+      // worker renders and measures into the workspace's own storage (pictures, reports); none edits the video.
+      { name: 'check_studio_motion', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Motion Check', description: "Measure how a video moves (moves, eases, holds, empty frames, handoffs) against reference films, with what to fix first" },
+      { name: 'review_studio_video', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Review Video', description: 'Review a whole video scene by scene (on-screen text, speech, motion, sound) and flag where a viewer gets lost' },
+      { name: 'look_at_studio_video', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Visual Check', description: "Measure a video's text on the rendered frames: contrast against what is behind it, size, running off the frame" },
+      // Vision (src/lib/ai/tools/studio-vision.ts): macOS Vision in the Studio worker. internal-write: a cut-out is a
+      // studio_job the worker stores in the workspace's own library and attaches to the video; the director pass and a
+      // format write the video (a version kept before the director pass). Nothing leaves the workspace.
+      { name: 'cut_out_studio_subject', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Cut Out Subject', description: "Cut the person (or any subject) out of a video's recordings so layers can sit behind them" },
+      { name: 'direct_studio_video', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Director Pass', description: 'Cut a multi-camera take: false starts and dead air out, the camera the person faces, the screen for clicks; a dry run shows the plan' },
+      { name: 'set_studio_delivery_format', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Set Format', description: "Show and export a video in a platform's shape, the camera crops centred on the face" },
+      // Sound design (src/lib/ai/tools/studio-sound.ts): earshot in the Studio worker. internal-write: each queues a
+      // studio_job whose sounds (or listening sheet) land in the workspace's own storage and library, and the app
+      // applies them to the video as one undoable step: artifacts, never external.
+      { name: 'sound_pass_studio_video', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Sound Pass', description: 'Give a video a sound effect on every entrance, transition and click, levelled against the music (replaces the last pass)' },
+      { name: 'add_studio_sounds', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Add Sounds', description: 'Place chosen sound effects (kit roles or bank sounds) at times on a video' },
+      { name: 'import_studio_sound', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Import Sound', description: 'Put a library audio file on a video on its onset or peak, or as the music bed' },
+      { name: 'list_studio_sounds', sideEffect: 'read', label: 'List Sounds', description: "The sound bank (sounds made in code) and each kit preset's role → sound" },
+      { name: 'listen_to_studio_video', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Listen', description: "Hear a video's mix: a listening transcript, a scorecard against launch films, an annotated sheet" },
+    ],
+  },
+  {
+    // SEO (src/lib/ai/tools/seo*.ts). Last, after studio: migration 628
     // grants it to every inherit-all persona. Two kinds of tool:
     //   - free: the site audit (our own polite crawl of a public website, so
     //     starting one needs no confirmation and a loop may run it) and
@@ -1384,6 +1468,32 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   'record_time_offer_answer',
   'book_poll_time',
   'nudge_time_offer',
+  // Studio (migration 620): a script written, a copy or a platform's version of a video made, frames
+  // rendered and an export queued (the Studio worker's jobs). None of `write_`, `duplicate_`, `make_`,
+  // `render_`, `export_` is a write verb. (edit_studio_video and archive_studio_video match the prefix.)
+  'write_studio_script',
+  'duplicate_studio_video',
+  'make_studio_format',
+  'render_studio_stills',
+  'export_studio_video',
+  // Studio ads: a batch or a motion ad rendered (Studio worker jobs). `make_` is not a write verb.
+  'make_studio_static_ads',
+  'make_studio_motion_ad',
+  'make_studio_reel',
+  // Studio's measured checks: each queues a render and its measurements (Studio worker jobs). None of `check_`,
+  // `review_`, `look_` is a write verb.
+  'check_studio_motion',
+  'review_studio_video',
+  'look_at_studio_video',
+  // Studio vision: a cut-out queued (a Studio worker job attached to the video) and the director pass (cuts the video).
+  // Neither `cut_` nor `direct_` is a write verb. (set_studio_delivery_format matches the prefix.)
+  'cut_out_studio_subject',
+  'direct_studio_video',
+  // Studio sound: a sound pass, an import and a listen queued (Studio worker jobs the app applies to the video).
+  // None of `sound_`, `import_`, `listen_` is a write verb. (add_studio_sounds matches the prefix.)
+  'sound_pass_studio_video',
+  'import_studio_sound',
+  'listen_to_studio_video',
 ]
 
 /**
@@ -1445,6 +1555,12 @@ export function isReadShapedToolName(name: string): boolean {
     // pure reads whose verbs aren't read prefixes. (read_/get_browser_* match
     // the regex already.)
     name === 'screenshot_browser' ||
-    name === 'wait_for_browser_command'
+    name === 'wait_for_browser_command' ||
+    // Studio: the readiness checklist (computed, saves nothing) and the job poll.
+    name === 'check_studio_video' ||
+    name === 'wait_for_studio_job' ||
+    // Studio prices: a quote asks the provider what it would cost and spends nothing.
+    name === 'quote_studio_narration' ||
+    name === 'quote_studio_shot'
   )
 }

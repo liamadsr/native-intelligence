@@ -38,9 +38,15 @@ const MIGRATION_GRANT_CONTENT = readFileSync(
   'utf8',
 )
 
-// 590 grants `seo` (the SEO area) the same way, one category later again.
+// 623 grants `studio` (Studio, migration 620) the same way, one category later.
+const MIGRATION_GRANT_STUDIO = readFileSync(
+  join(process.cwd(), 'supabase/migrations/623_studio_persona_grant.sql'),
+  'utf8',
+)
+
+// 628 grants `seo` (the SEO area) the same way, one category after `studio`.
 const MIGRATION_GRANT_SEO = readFileSync(
-  join(process.cwd(), 'supabase/migrations/591_persona_grant_seo_category.sql'),
+  join(process.cwd(), 'supabase/migrations/628_persona_grant_seo_category.sql'),
   'utf8',
 )
 
@@ -53,11 +59,13 @@ function migratedCategories(sql: string = MIGRATION, tag: 'cats' | 'prev' = 'cat
 /** Registry categories added after 279/282 were written. Each needs a grant
  *  migration (like 287) so every-category personas stay inherit-all — see the
  *  287 block below. 279/282 are historical: pinned to the registry of their day. */
-const ADDED_AFTER_282 = ['browser', 'content', 'seo']
+const ADDED_AFTER_282 = ['browser', 'content', 'studio', 'seo']
 /** Registry categories added after 293 (each with its own grant migration). */
-const ADDED_AFTER_293 = ['content', 'seo']
+const ADDED_AFTER_293 = ['content', 'studio', 'seo']
 /** Registry categories added after 387 (each with its own grant migration). */
-const ADDED_AFTER_387 = ['seo']
+const ADDED_AFTER_387 = ['studio', 'seo']
+/** Registry categories added after 623 (each with its own grant migration). */
+const ADDED_AFTER_623 = ['seo']
 const CATEGORIES_AS_OF_282 = ALL_CATEGORY_IDS.filter((id) => !ADDED_AFTER_282.includes(id))
 
 describe('migration 279 — NULL-config personas keep their inherit-all surface', () => {
@@ -138,18 +146,35 @@ describe('migration 387 — every-category personas stay inherit-all after `cont
   })
 })
 
-describe('migration 591 — every-category personas stay inherit-all after `seo` was added (the SEO area)', () => {
+describe('migration 623 — every-category personas stay inherit-all after `studio` was added', () => {
+  it('writes the registry of its day (every category but the ones added since), in registry order', () => {
+    expect(migratedCategories(MIGRATION_GRANT_STUDIO)).toEqual(ALL_CATEGORY_IDS.filter((id) => !ADDED_AFTER_623.includes(id)))
+  })
+
+  it('targets exactly the rows 387 left inherit-all: the full previous list, no studio yet', () => {
+    expect(migratedCategories(MIGRATION_GRANT_STUDIO, 'prev')).toEqual(migratedCategories(MIGRATION_GRANT_CONTENT))
+    expect(MIGRATION_GRANT_STUDIO).toMatch(/WHERE category = 'agent'/)
+    expect(MIGRATION_GRANT_STUDIO).toMatch(/agent_config->'enabled_tools' @> \$prev\$/)
+    expect(MIGRATION_GRANT_STUDIO).toMatch(/NOT \(agent_config->'enabled_tools' \? 'studio'\)/)
+    expect(MIGRATION_GRANT_STUDIO).toMatch(
+      /CASE\s+WHEN jsonb_typeof\(agent_config->'disabled_tools'\) = 'array' THEN jsonb_array_length\(agent_config->'disabled_tools'\)\s+ELSE 0\s+END\s*\)\s*=\s*0/,
+    )
+    expect(MIGRATION_GRANT_STUDIO).toMatch(/SET agent_config = agent_config\s*\|\| jsonb_build_object/)
+  })
+})
+
+describe('migration 628 — every-category personas stay inherit-all after `seo` was added (the SEO area)', () => {
   it('writes EXACTLY the live ALL_CATEGORY_IDS, in registry order', () => {
     // If this fails you added a tool category: every persona saved with "all
     // categories on" just stopped being inherit-all (agentInheritsAllTools needs
-    // EVERY category). Write a grant migration like 591 for the new category and
+    // EVERY category). Write a grant migration like 628 for the new category and
     // point this block at it.
     expect(migratedCategories(MIGRATION_GRANT_SEO)).toEqual([...ALL_CATEGORY_IDS])
     expect(agentInheritsAllTools({ enabled_tools: migratedCategories(MIGRATION_GRANT_SEO), disabled_tools: [] })).toBe(true)
   })
 
-  it('targets exactly the rows 387 left inherit-all: the full previous list, no seo yet', () => {
-    expect(migratedCategories(MIGRATION_GRANT_SEO, 'prev')).toEqual(migratedCategories(MIGRATION_GRANT_CONTENT))
+  it('targets exactly the rows 623 left inherit-all: the full previous list (studio included), no seo yet', () => {
+    expect(migratedCategories(MIGRATION_GRANT_SEO, 'prev')).toEqual(migratedCategories(MIGRATION_GRANT_STUDIO))
     expect(MIGRATION_GRANT_SEO).toMatch(/WHERE category = 'agent'/)
     expect(MIGRATION_GRANT_SEO).toMatch(/agent_config->'enabled_tools' @> \$prev\$/)
     expect(MIGRATION_GRANT_SEO).toMatch(/NOT \(agent_config->'enabled_tools' \? 'seo'\)/)

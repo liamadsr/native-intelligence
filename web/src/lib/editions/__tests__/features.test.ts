@@ -89,6 +89,8 @@ const SHIPPED: GoldenSurface = {
     // The SEO area (its site audit first): one view for all of its pages.
     'seo',
     'agents',
+    // Studio (migration 620): on by default, like Documents.
+    'studio',
   ],
   extraAllowedViews: ['companies'],
   toolCategories: 'all',

@@ -38,10 +38,11 @@ export interface RunChatMentions {
   documentIds?: string[]
   projectIds?: string[]
   initiativeIds?: string[]
+  studioVideoIds?: string[]
 }
 
 /** The record kinds a run-chat turn mentions by id, as their body keys. */
-const RECORD_MENTION_KEYS = ['actionIds', 'documentIds', 'projectIds', 'initiativeIds'] as const
+const RECORD_MENTION_KEYS = ['actionIds', 'documentIds', 'projectIds', 'initiativeIds', 'studioVideoIds'] as const
 
 /** What the composer adds to a run-chat POST, parsed. */
 export interface RunChatTurnExtras {

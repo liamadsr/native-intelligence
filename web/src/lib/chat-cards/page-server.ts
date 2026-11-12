@@ -49,6 +49,8 @@ import { evalCaseFence, recipeVisible, scrubHiddenBots, visiblePackages, visible
 import { compactValue, rowLabel, type RowLabel } from './rows'
 import { resolveNamedValues } from './server'
 import { isUuid, type Checked } from './validate'
+import { readStudioOverview, readStudioProject, readStudioVideoBrief } from '@/lib/studio/agent/reads'
+import { isRefusal, studioContext } from '@/lib/studio/agent/access'
 
 export type PageScope = FenceScope
 
@@ -120,6 +122,19 @@ async function candidates(scope: PageScope, type: PagePlaceType, resolved: Resol
       return ((data ?? []) as Array<Record<string, unknown>>)
         .filter((r) => recipeVisible(r, scope) && !gated.has(String(r.id)))
         .map((r) => ({ id: String(r.id), name: String(r.name ?? r.slug ?? ''), type }))
+    }
+    case 'studio_project':
+    case 'studio_video': {
+      // The workspace's own, out of the trash, by title (Studio, migration 620).
+      const { data, error } = await scope.supabase
+        .from(type)
+        .select('id, title')
+        .eq('workspace_id', ws)
+        .is('archived_at', null)
+        .order('updated_at', { ascending: false })
+        .limit(500)
+      if (error) throw new Error(`could not read ${PLACE_NOUN[type]}s: ${error.message}`)
+      return ((data ?? []) as Array<{ id: string; title: string | null }>).map((r) => ({ id: r.id, name: r.title ?? '', type }))
     }
     case 'eval_case':
     case 'eval_run':
@@ -215,6 +230,15 @@ async function checkPlace(scope: PageScope, kind: PageKind, place: PagePlace): P
       const resolved = await resolveWorkspaceEdition(scope.supabase, ws)
       const hit = (await candidates(scope, place.type, resolved)).find((c) => c.id === place.id)
       return hit ? ok(hit.name) : null
+    }
+    case 'studio_project':
+    case 'studio_video': {
+      // Read on the service client, so fenced here by the workspace: a video or
+      // Studio project of another workspace, or in the trash, is not there.
+      if (kind !== 'studio' || !isUuid(place.id)) return null
+      const { data } = await scope.supabase.from(place.type).select('id, title').eq('workspace_id', ws).eq('id', place.id).is('archived_at', null).maybeSingle()
+      const row = data as { title?: string | null } | null
+      return row ? ok(row.title) : null
     }
     case 'bot':
     case 'work_item':
@@ -407,6 +431,24 @@ export async function readPageRows(
       }
       break
     }
+    case 'studio': {
+      // One video: itself. One Studio project: its videos. The top level: the
+      // Studio projects, and the videos in none as one row of their own.
+      if (place?.type === 'studio_video') {
+        const brief = await readStudioVideoBrief(scope.supabase, ws, place.id)
+        const rows = brief ? [{ id: brief.id, title: brief.title, status: brief.status, seconds: brief.seconds, format: brief.format }] : []
+        return { count: rows.length, rows, noun: 'videos' }
+      }
+      if (place?.type === 'studio_project') {
+        const project = await readStudioProject(scope.supabase, ws, place.id)
+        const videos = project?.videos ?? []
+        return { count: videos.length, rows: videos.slice(0, limit) as unknown as Record<string, unknown>[], noun: 'videos' }
+      }
+      const overview = await readStudioOverview(scope.supabase, ws)
+      const rows: Record<string, unknown>[] = overview.projects.map((p) => ({ id: p.id, title: p.title, videos: p.videos.length }))
+      if (overview.unfiled.length) rows.push({ id: 'unfiled', title: `Videos in no Studio project (${overview.unfiled.length})`, videos: overview.unfiled.length })
+      return { count: overview.projects.length, rows: rows.slice(0, limit), noun: 'Studio projects' }
+    }
     case 'evals': {
       if (place?.type === 'eval_case' || place?.type === 'eval_run') {
         const select = place.type === 'eval_case' ? 'id, name, polarity, last_outcome, last_run_at' : 'id, mode, status, outcome, started_at, ended_at, cost_usd'
@@ -446,6 +488,11 @@ export interface ShownPage {
 export async function showPage(scope: PageScope, fence: VisibilityFence, input: CheckedPageInput): Promise<Checked<ShownPage>> {
   const gate = await gatePage(scope, input.kind)
   if (!gate.ok) return gate
+  // The Studio is a member's: a workspace guest is refused, as by every Studio tool.
+  if (input.kind === 'studio') {
+    const member = await studioContext(scope.supabase, scope.userId, scope.workspaceId)
+    if (isRefusal(member)) return { ok: false, error: member.error }
+  }
   let target: PagePlace | undefined
   if (input.target) {
     const found = await findTarget(scope, input, gate.value)
@@ -541,6 +588,8 @@ export async function readPageCard(
       note: 'This card is the Files page: every file attached to a capture, action or project the person can see. Read one record\'s files with list_attachments (capture_id, action_id or project_id), and a file\'s text with get_attachment_content.',
     }
   }
+  // The Studio: what the person is on, as the Studio tools read it (never the whole edit).
+  if (kind === 'studio') return readStudioCard(scope, entry)
   // SEO's Site audit: the audits are read with the audit tools, on the
   // workspace's own fences, not from here. On one audit, its id says which.
   if (kind === 'seo_audit') {
@@ -605,4 +654,34 @@ const SEO_PAGE_NOTES: Partial<Record<PageKind, string>> = {
   seo_backlinks: 'This card is the Backlinks page: who links to a site. Read the summary with get_backlinks_overview and the links, linking sites and most-linked pages with get_backlinks_profile. A card of this page holds nothing to read back.',
   seo_ai_visibility: 'This card is the AI visibility page: how AI assistants answer about the business. List the trackers with list_ai_visibility_trackers, read one with get_ai_visibility_tracker, its latest check with get_ai_visibility_results and the sites the assistants cite with get_ai_visibility_sources. A card of this page holds nothing to read back.',
   seo_local: 'This card is the Local page: the business\'s presence on Google Maps. List the tracked businesses with list_tracked_businesses, read a profile with get_google_business_profile, its reviews with get_google_business_reviews and its map rankings with get_local_rank_grid. A card of this page holds nothing to read back.',
+}
+
+/**
+ * read_card for the Studio: on a video, the summary get_studio_video returns;
+ * on a Studio project, it with its videos; at the top level, every Studio
+ * project with its videos, and the videos in none. Compact: no edit document.
+ */
+async function readStudioCard(scope: PageScope, entry: CardContextEntry): Promise<Record<string, unknown>> {
+  const ws = scope.workspaceId
+  const member = await studioContext(scope.supabase, scope.userId, ws)
+  if (isRefusal(member)) return { ...member }
+  const place = entry.at ? await checkPlace(scope, 'studio', entry.at) : null
+  const head = { success: true, card: entry.n, title: entry.title, ...(entry.tab ? { tab: entry.tab } : {}) }
+  if (place?.type === 'studio_video') {
+    const video = await readStudioVideoBrief(scope.supabase, ws, place.id)
+    if (video) return { ...head, at: `video ${video.title}`, video }
+  }
+  if (place?.type === 'studio_project') {
+    const project = await readStudioProject(scope.supabase, ws, place.id)
+    if (project) return { ...head, at: `Studio project ${project.title}`, studio_project: project }
+  }
+  const overview = await readStudioOverview(scope.supabase, ws)
+  return {
+    ...head,
+    showing: 'Studio projects',
+    total: overview.projects.length,
+    studio_projects: overview.projects,
+    videos_in_no_studio_project: overview.unfiled,
+    note: 'Open one video with get_studio_video (its id above) to read its edit; edit_studio_video changes it.',
+  }
 }

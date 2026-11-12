@@ -1,8 +1,8 @@
 /**
  * Every playbook and area skill teaches the agent with names, so a name that
  * doesn't exist teaches it to call nothing. This holds each seeded text (316
- * and 319, as 322, 323 and 324 rewrote them, and the skills 322, 323 and 324 add) to
- * the code:
+ * and 319, as 322, 323 and 324 rewrote them, and the skills 322, 323 and 324 add,
+ * through 621's Studio skills) to the code:
  *   - tools: a backticked bare identifier is a TOOL_CATEGORIES tool (any
  *     area's: real requests cross areas) or a core tool the chat always has
  *     (`search_tools`), a known system skill, or a word
@@ -29,6 +29,7 @@ import { CARD_LIST_ENTITIES, type CardListEntity } from '@/lib/chat-cards/kinds'
 import { estimateTokens } from '../memory'
 import { BACKGROUND_PERSON_STEPS_NOTE } from '../render'
 import { allShippedSkills, readMigration, seededSkills } from './playbook-seeds'
+import { studioNotTools } from './studio-skill-terms'
 
 /** The registry's tools, plus the core ones the chat always has that live outside it (`search_tools`, `ask_user`). */
 const TOOL_NAMES: ReadonlySet<string> = new Set([...TOOL_CATEGORIES.flatMap((c) => c.tools.map((t) => t.name)), ...CORE_TOOL_NAMES])
@@ -223,6 +224,8 @@ const NOT_TOOLS: Record<string, readonly string[]> = {
     'account', 'additional_context', 'body', 'capture_id', 'from_account', 'in_reply_to', 'proposal_id', 'proposal_ids', 'reason', 'recipients', 'since', 'status',
     'subject', 'thread_id', 'to', 'tone', 'why',
   ],
+  // Studio (621): each text's editing commands (the engine's ops, which migration-621 checks are real) and its fields.
+  ...studioNotTools(),
 }
 
 /**
@@ -261,6 +264,8 @@ const CHAT_ONLY_NAMED: Record<string, readonly string[]> = {
   // The working hours (551), and making a booking link (582): the person's own steps, in their chat.
   'calendar-playbook': ['create_booking_link', 'set_working_hours'],
   'find-a-time': ['set_working_hours'],
+  // Studio (621): saving a reference's look as a skill is the person's step, in their chat.
+  'studio-reference-to-style-pack': ['create_skill'],
 }
 
 /** The operators a `show` filter takes (show.ts filterSchema). */
@@ -340,8 +345,8 @@ function showFilterFields(text: string): Array<{ entities: CardListEntity[]; fie
 }
 
 describe('playbook accuracy', () => {
-  it('reads all eighteen playbooks (the sixteen pages, content and marketing) and the area skills, and has a non-tool list for each', () => {
-    expect(seeded.filter((s) => s.slug.endsWith('-playbook'))).toHaveLength(18)
+  it('reads all nineteen playbooks (the sixteen pages, content, marketing and studio) and the area skills, and has a non-tool list for each', () => {
+    expect(seeded.filter((s) => s.slug.endsWith('-playbook'))).toHaveLength(19)
     // Data-derived (A1c: three groups add recipes at once): at least A1's and
     // A1b's eight, every one of them a shipped skill.
     expect(RECIPES.size).toBeGreaterThanOrEqual(8)

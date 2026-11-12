@@ -18,8 +18,8 @@ import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { AREA_KEYS } from '../registry'
 
-/** The 16 page areas 317 knew; 384 widens both CHECKs with content and marketing (migration-384.test.ts). */
-const PAGE_AREAS = AREA_KEYS.filter((a) => a !== 'content' && a !== 'marketing')
+/** The 16 page areas 317 knew; 384 widens both CHECKs with content and marketing (migration-384.test.ts), 621 with studio. */
+const PAGE_AREAS = AREA_KEYS.filter((a) => a !== 'content' && a !== 'marketing' && a !== 'studio')
 import { MEMORY_SCOPES, MEMORY_SOURCES, MEMORY_STATUSES, MEMORY_LINE_MAX_CHARS } from '../memory-types'
 
 const SQL = readFileSync(join(process.cwd(), 'supabase/migrations/317_area_memory.sql'), 'utf8')

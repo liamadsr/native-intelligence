@@ -151,6 +151,8 @@ export interface ChatSystemContext {
   attachedActionIds?: string[]
   attachedDocumentIds?: string[]
   attachedInitiativeIds?: string[]
+  /** Studio videos the user @-mentioned this turn (§6h, for a member who may use the Studio). */
+  attachedStudioVideoIds?: string[]
   conversationContext?: string
   /** The email thread on screen, by its provider thread id (Mail's location). */
   emailThreadId?: string
@@ -651,7 +653,8 @@ export async function buildChatSystemPrompt(
       systemContext?.attachedActionIds?.length ||
       systemContext?.attachedDocumentIds?.length ||
       attachedProjectIds?.length ||
-      systemContext?.attachedInitiativeIds?.length
+      systemContext?.attachedInitiativeIds?.length ||
+      systemContext?.attachedStudioVideoIds?.length
         ? withinMentionBudget(() =>
             buildMentionedRecordsBlock(supabase, {
               workspaceId,
@@ -660,6 +663,7 @@ export async function buildChatSystemPrompt(
               documentIds: systemContext?.attachedDocumentIds,
               projectIds: attachedProjectIds,
               initiativeIds: systemContext?.attachedInitiativeIds,
+              studioVideoIds: systemContext?.attachedStudioVideoIds,
             }),
           )
         : null,

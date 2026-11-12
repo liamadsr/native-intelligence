@@ -21,6 +21,7 @@ import {
   Building2,
   Calendar,
   CalendarClock,
+  Clapperboard,
   Contact,
   FlaskConical,
   Folder,
@@ -56,6 +57,8 @@ export const RAIL_ICONS: Readonly<Record<RailPageId, LucideIcon>> = {
   'team-chat': MessagesSquare,
   actions: ListChecks,
   calendar: Calendar,
+  // Studio (migration 620): videos and ads, its own icon after the Calendar group.
+  studio: Clapperboard,
   contacts: Contact,
   outreach: Send,
   seo: SearchCheck,

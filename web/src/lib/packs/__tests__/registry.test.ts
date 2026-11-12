@@ -16,9 +16,13 @@ import {
 } from '../registry'
 
 describe('pack registry', () => {
-  it('has the 16 page areas plus content and marketing (P8), each keyed by itself and gated by a real feature', () => {
-    expect(AREA_KEYS).toHaveLength(18)
-    expect(AREA_KEYS.slice(16)).toEqual(['content', 'marketing'])
+  it('has the 16 page areas plus content and marketing (P8) and studio, each keyed by itself and gated by a real feature', () => {
+    expect(AREA_KEYS).toHaveLength(19)
+    expect(AREA_KEYS.slice(16)).toEqual(['content', 'marketing', 'studio'])
+    // Studio (migration 620): its own page, gated by its own feature.
+    expect(PACKS.studio.feature).toBe('studio')
+    expect(areaForCard({ kind: 'studio' })).toBe('studio')
+    expect(areaForTool('edit_studio_video')).toBe('studio')
     // No page of their own: gated with core, so every workspace can ask for them.
     expect(PACKS.content.feature).toBe('core')
     expect(PACKS.marketing.feature).toBe('core')

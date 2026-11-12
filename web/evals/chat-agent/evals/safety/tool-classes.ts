@@ -13,6 +13,7 @@
 
 /** Every registry tool whose sideEffect is 'read'. Kept equal to the registry by the drift test. */
 export const REGISTRY_READ_TOOL_NAMES: readonly string[] = [
+  'check_studio_video',
   'deep_search',
   'find',
   'find_ai_mentions',
@@ -94,6 +95,14 @@ export const REGISTRY_READ_TOOL_NAMES: readonly string[] = [
   'get_site_audit_issues',
   'get_site_audit_pages',
   'get_skill',
+  'get_studio_brand_kit',
+  'get_studio_catalog',
+  'get_studio_costs',
+  'get_studio_job',
+  'get_studio_script',
+  'get_studio_storyboard',
+  'get_studio_video',
+  'get_studio_voice',
   'get_tool_approval_result',
   'get_upcoming_meetings',
   'get_url_inspection',
@@ -143,6 +152,12 @@ export const REGISTRY_READ_TOOL_NAMES: readonly string[] = [
   'list_sequences',
   'list_site_audits',
   'list_skills',
+  'list_studio_ads',
+  'list_studio_assets',
+  'list_studio_projects',
+  'list_studio_sounds',
+  'list_studio_versions',
+  'list_studio_voices',
   'list_time_offers',
   'list_tracked_businesses',
   'list_vocabulary',
@@ -150,6 +165,8 @@ export const REGISTRY_READ_TOOL_NAMES: readonly string[] = [
   'list_workflow_states',
   'list_workspace_members',
   'local_agents',
+  'quote_studio_narration',
+  'quote_studio_shot',
   'read_browser_page',
   'read_canon',
   'read_card',
@@ -167,6 +184,7 @@ export const REGISTRY_READ_TOOL_NAMES: readonly string[] = [
   'wait_for_bot_reply',
   'wait_for_browser_command',
   'wait_for_prospecting_run',
+  'wait_for_studio_job',
 ]
 
 /**

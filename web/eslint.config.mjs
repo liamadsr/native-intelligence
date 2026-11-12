@@ -49,6 +49,15 @@ const eslintConfig = defineConfig([
       "react-hooks/globals": "off",
     },
   },
+  {
+    // The Studio's editor writes its copy with plain apostrophes and quotes in JSX text throughout. The rule is
+    // about a typo class (a stray > or }) that this code does not have; escaping every apostrophe there would only
+    // make its sentences harder to read and edit.
+    files: ["src/components/studio/ui/**"],
+    rules: {
+      "react/no-unescaped-entities": "off",
+    },
+  },
   globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts"]),
 ]);
 

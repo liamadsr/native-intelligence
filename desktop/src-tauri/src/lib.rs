@@ -44,7 +44,12 @@ use tauri_plugin_deep_link::DeepLinkExt;
 /// SINGLE OWNER of the HUD label set for the whole crate — `notifications.rs`
 /// and `tray.rs` classify against this list too. Adding an overlay window means
 /// editing exactly this one place.
-pub(crate) const HUD_LABELS: [&str; 3] = ["meeting-hud", "agent-hud", crate::dictate::PANEL];
+pub(crate) const HUD_LABELS: [&str; 4] = [
+    "meeting-hud",
+    "agent-hud",
+    crate::dictate::PANEL,
+    commands::studio_recorder::CONTROL_LABEL,
+];
 
 /// Whether `label` is a floating overlay rather than a window running the web app.
 pub(crate) fn is_hud_label(label: &str) -> bool {
@@ -919,6 +924,16 @@ pub fn run() {
             local_agent::commands::local_agent_resume,
             local_agent::commands::local_agent_events,
             local_agent::commands::local_agent_set_model_token,
+            commands::studio_recorder::studio_recorder_permissions,
+            commands::studio_recorder::studio_recorder_request_permissions,
+            commands::studio_recorder::studio_recorder_targets,
+            commands::studio_recorder::studio_recorder_start,
+            commands::studio_recorder::studio_recorder_stop,
+            commands::studio_recorder::studio_recorder_cancel,
+            commands::studio_recorder::studio_recorder_upload,
+            commands::studio_recorder::studio_recorder_discard,
+            commands::studio_recorder::studio_recorder_show_control,
+            commands::studio_recorder::studio_recorder_hide_control,
         ])
         .setup(|app| {
             log_to_file("[setup] starting");
@@ -937,6 +952,9 @@ pub fn run() {
             // run left live as interrupted, then waits for commands.
             app.manage(local_agent::LocalAgentService::spawn(app.handle().clone()));
             app.manage(browser_exit::BrowserExitService::default());
+            // Studio takes (screen, camera, microphone): idle until the first
+            // studio_recorder_* command starts its sidecar.
+            app.manage(commands::studio_recorder::StudioRecorder::new());
 
             // Opt out of macOS App Nap for the process lifetime. Without this,
             // macOS suspends the backgrounded WebView (pausing timers, realtime
@@ -1032,6 +1050,8 @@ pub fn run() {
             // Old capture recordings in the temp dir (audio/recordings.rs):
             // keep the latest few, remove the rest. Its own thread, files only.
             crate::audio::recordings::prune_in_background("launch");
+            // Studio takes left from earlier runs: older than three days go.
+            commands::studio_recorder::sweep_in_background(app.handle());
 
             // Input Device Priority: the CoreAudio device-list watcher and the
             // supervisor (records seen mics, emits

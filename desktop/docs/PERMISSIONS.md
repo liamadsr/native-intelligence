@@ -63,9 +63,12 @@ across versions — so a properly-signed update does **not** re-prompt.
 
 ## Where Native Intelligence actually prompts (prompt origins in this codebase)
 
-The native code requests two TCC-gated capabilities, microphone and Audio
-Capture, and both prompts originate in the **main process** (`dial8-desktop`),
-never the sidecar. The native code never requests screen recording.
+For meetings and voice, the native code requests two TCC-gated capabilities,
+microphone and Audio Capture, and both prompts originate in the **main
+process** (`dial8-desktop`), never a sidecar. Studio recordings are the one
+exception: the `studio-recorder` sidecar asks for Screen Recording, Camera,
+Microphone, Accessibility and Input Monitoring itself, attributed to the app
+(see "Studio recording" below).
 
 Team calls (the web app's calls between people, in the main window's web view)
 add the **camera** (`kTCCServiceCamera`): WebKit asks for it when a person turns
@@ -325,16 +328,76 @@ DR doesn't reference `identifier "ai.dial8.desktop"` and that team, it lacks
 `com.apple.security.device.audio-input`, or the sidecar's TeamIdentifier isn't
 that team.
 
+## Studio recording (the `studio-recorder` sidecar)
+
+Studio takes (screen, window, camera and microphone recordings for videos and
+ads) are recorded by the `studio-recorder` Swift sidecar
+(`src-tauri/sidecars/studio-recorder`, driven by
+`src-tauri/src/commands/studio_recorder.rs`). Unlike every other sidecar it
+calls TCC-gated APIs itself: ScreenCaptureKit, AVCaptureDevice for the camera
+and the microphone, and a listen-only event tap for the take's input trace.
+
+**Attribution.** The sidecar is a child of the app, spawned without
+disclaiming responsibility, so macOS attributes every one of these to the app
+(the "responsible process"): the prompts name Native Intelligence, the grants
+land on the app's rows (bundle ID `ai.dial8.desktop`, checked against the
+app's csreq), and a grant the app already holds (the microphone) covers the
+sidecar. Everything above about stable signing therefore applies to these
+services too: an ad-hoc dev build that records a take poisons these rows
+exactly as it poisons the microphone's. The hardened runtime, however, checks
+the **sidecar's own** entitlements for the camera and the microphone:
+`sidecars_sign_release` signs it with `entitlements.production.plist`, which
+carries `com.apple.security.device.camera` and
+`com.apple.security.device.audio-input` (dev builds: `entitlements.plist`, the
+same two). Screen Recording, Accessibility and Input Monitoring have no
+entitlement (the app is not sandboxed).
+
+**Who prompts, and when.** Only the sidecar's `requestPermissions` command
+(`studio_recorder_request_permissions`, from the Studio page) shows a prompt;
+`permissions`, `targets` and `start` never do: `start` refuses with code
+`permission` when a service it needs is not granted, and `targets` lists
+windows without ScreenCaptureKit (titles stay empty until Screen Recording is
+granted). Each service is asked the way macOS wants it asked: the system prompt
+while not determined, the System Settings pane once denied (macOS never
+prompts twice).
+
+| Service | TCC key | Status read with | Asked with | Settings anchor | Needed for |
+| --- | --- | --- | --- | --- | --- |
+| Screen Recording | `kTCCServiceScreenCapture` | `CGPreflightScreenCaptureAccess`, `TCCAccessPreflight` (denied vs not determined) | `CGRequestScreenCaptureAccess` | `Privacy_ScreenCapture` | every take (the picture, and system audio through the same stream) |
+| Camera | `kTCCServiceCamera` | `AVCaptureDevice.authorizationStatus(.video)` | `AVCaptureDevice.requestAccess(.video)` | `Privacy_Camera` | a take with a camera |
+| Microphone | `kTCCServiceMicrophone` | `AVCaptureDevice.authorizationStatus(.audio)` | `AVCaptureDevice.requestAccess(.audio)` | `Privacy_Microphone` | a take with a microphone (the same grant meetings use) |
+| Accessibility | `kTCCServiceAccessibility` | `AXIsProcessTrusted`, `TCCAccessPreflight` | `AXIsProcessTrustedWithOptions(prompt)` | `Privacy_Accessibility` | the trace's precise events (optional) |
+| Input Monitoring | `kTCCServiceListenEvent` | `IOHIDCheckAccess(ListenEvent)` | `IOHIDRequestAccess(ListenEvent)` | `Privacy_ListenEvent` | the trace's precise events (optional) |
+
+Usage strings: `NSCameraUsageDescription` and `NSMicrophoneUsageDescription`
+in `src-tauri/Info.plist` name Studio recordings. Screen Recording,
+Accessibility and Input Monitoring have no usage-description key on macOS.
+
+**The trace degrades, the take does not.** With Input Monitoring or
+Accessibility the trace listens to a listen-only event tap (pointer, buttons,
+scrolling, and key-down times: never a character or key code). Without them it
+polls at 60 Hz (pointer position, button state, and "seconds since the last
+key press / scroll", which need no permission), and `permissions` reports
+`trace.level = "pointer"` with the reason. Screen Recording granted after the
+app started can need the app to restart before ScreenCaptureKit sees it.
+
+**Out of the picture.** The recording control (`studio-recorder` window) is
+content-protected, and a display take also leaves out every floating window
+the app owns (followed once a second, so a control shown after the take
+started is left out too).
+
 ## Sidecar identifiers
 
 `release.sh` signs every sidecar (`scripts/sidecars.sh`: `system-audio-capture`,
 `dial8-local-stt`, and their dylibs in `Contents/Frameworks`) with the Developer
 ID, hardened runtime and the production entitlements, then the
 `codesign --force --deep` pass re-signs them with an Identifier equal to the
-executable name — which is what ships. Sidecars never call a TCC-gated API (the
-main process owns the mic, the process tap and every prompt), so their
-identifiers are irrelevant to permissions; the post-sign assertions only check
-that each one carries our TeamIdentifier.
+executable name — which is what ships. The meeting and speech sidecars never
+call a TCC-gated API (the main process owns the mic, the process tap and every
+prompt). `studio-recorder` does, but its access is attributed to the app (see
+"Studio recording" above), so its identifier is irrelevant to permissions too;
+its entitlements are not. The post-sign assertions only check that each
+sidecar carries our TeamIdentifier.
 
 History: `system-audio-capture` used to get `--identifier "ai.dial8.desktop"` on
 its first signing pass (an old attempt to "share" TCC with the main app). The
@@ -393,5 +456,8 @@ ships.
   notarization staple.
 - **Don't "fix" the harmless sidecar identifier** without re-testing the full
   notarization pipeline end-to-end.
-- **Don't change what permissions are requested** — microphone and Audio Capture
-  only; never screen recording.
+- **Don't change what permissions are requested** without updating this
+  document: microphone and Audio Capture for meetings and voice (from the main
+  process); Screen Recording, Camera, Microphone, Accessibility and Input
+  Monitoring for Studio recordings only (from `studio-recorder`, only in
+  `requestPermissions`). Nothing else asks for Screen Recording.

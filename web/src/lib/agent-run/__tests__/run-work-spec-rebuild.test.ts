@@ -204,6 +204,13 @@ describe('computeWorkRunCeiling', () => {
         // Custom vocabulary (migration 430): removing a word is a delete. (The
         // add/update tools are internal writes and refuse unattended runs themselves.)
         'delete_vocabulary_word',
+        // Studio (migration 620): moving a video to the trash is classed a delete; the
+        // Studio's reads and its artifact writes stay in.
+        'archive_studio_video',
+        // Studio: narration and generated shots spend on the workspace's own provider accounts
+        // (external writes; the person's approval card decides, never an unattended run).
+        'generate_studio_narration',
+        'generate_studio_shot',
         // In-app browser: acting on the open web through Jev and
         // opening/closing the user's browser window are external writes, so an
         // unattended work run can READ the browser (read_browser_page,

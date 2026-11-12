@@ -17,7 +17,8 @@ const photo = (extra: Record<string, unknown> = {}) => ({
 
 describe('chatImageModelOutput', () => {
   it('read_chat_file is the tool it shapes', () => {
-    expect([...CHAT_IMAGE_TOOL_NAMES]).toEqual(['read_chat_file'])
+    // And the Studio's frames (src/lib/studio/agent/job-tools.ts), on the same image keys.
+    expect([...CHAT_IMAGE_TOOL_NAMES]).toEqual(['read_chat_file', 'render_studio_stills', 'wait_for_studio_job'])
   })
 
   it('a model that reads images gets the JSON without the base64, then the photo as a file part', () => {
