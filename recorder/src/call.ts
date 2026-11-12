@@ -7,14 +7,15 @@
  *
  *   - It subscribes to microphones and nothing else (no camera, no screen):
  *     auto-subscribe is off, and each microphone publication is asked for.
- *   - A meeting guest is heard only once the app lists them (they said go to
- *     this round's notes: the start's answer, then every heartbeat's). Until
- *     then their microphone is not even subscribed: no audio of theirs leaves
- *     the server. A member is heard from their first frame: a member who joins
- *     a call whose notes someone else turned on holds their microphone until
- *     they have seen the notice (the web, desktop and iPhone apps), so nothing
- *     of theirs is published, and so nothing reaches the recorder, before
- *     that; one already in the call when notes go on is heard from then on.
+ *   - The app offers it a call only once two people have been in it at the
+ *     same time (a ringing or missed call, one person waiting: not heard), and
+ *     every call takes notes from its start. A member is heard from their
+ *     first frame: no notice holds a member's microphone for the recorder's
+ *     notes (being on the platform is agreeing to calls being captured; the
+ *     "Notes are on" badge says so). A meeting guest is heard only once the
+ *     app lists them (they said go to this round's notes: the start's answer,
+ *     then every heartbeat's). Until then their microphone is not even
+ *     subscribed: no audio of theirs leaves the server.
  *   - Someone already in the room, or joining later: a roster event, then their
  *     microphone. Leaving: their last words, then the roster event. Coming back
  *     (a reconnect, a new track): the same speaker, a new socket.

@@ -363,16 +363,30 @@ describe('the call recorder takes the notes (TEAM_CALL_RECORDER=on)', () => {
     delete process.env.CAPTURE_FEED_SECRET
   })
 
-  it('on: no egress, no Deepgram key here; the call’s one capture is made now, so the call links to it', async () => {
+  it('on: no egress, no Deepgram key here, and no capture yet (the recorder’s session makes it, once two people are in the call)', async () => {
     h.rpc.team_call_set_notes = { data: [{ notes: true, notes_round: 1, changed: true }], error: null }
-    h.rpc['svc:team_call_capture_ensure'] = { data: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', error: null }
     h.port.mics = [{ identity: ME, trackSid: 'TR_a' }]
     const res = await notes(post('/n', { on: true }), params)
     expect(await res.json()).toEqual({ notes: true })
-    expect(h.svcRpcs.map((r) => r[0])).toEqual(['team_call_capture_ensure'])
-    expect(h.svcRpcs[0][1]).toEqual({ target_call: CALL, capture_title: 'Call' })
     await runAfters()
+    expect(h.svcRpcs).toEqual([])
     expect(h.port.started).toEqual([])
+  })
+
+  it('notes that could not be turned on at a new call’s start: an error with the call’s id, the call goes on', async () => {
+    tables.team_call.splice(0)
+    h.rpc.team_call_start = { data: [{ call_id: CALL, room: `tc-${CALL}`, message_id: MSG, created: true }], error: null }
+    h.rpc.team_call_set_notes = { data: null, error: { message: 'canceling statement due to lock timeout', code: '55P03' } }
+    const errors: string[] = []
+    const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void errors.push(args.map(String).join(' ')))
+    try {
+      const res = await startCall(post('/api/account/team-calls', { channelId: CH }))
+      expect(res.status).toBe(200)
+      expect((await res.json()).call.notes).toMatchObject({ notes: false })
+    } finally {
+      spy.mockRestore()
+    }
+    expect(errors.some((e) => e.includes(`call=${CALL}`) && e.includes('notes not turned on at the start'))).toBe(true)
   })
 
   it('off: the round’s feed ends in the database, and the recorder is put out of the room at once (the eject outbox, filled by 588)', async () => {
@@ -402,10 +416,11 @@ describe('the call recorder takes the notes (TEAM_CALL_RECORDER=on)', () => {
       const res = await startCall(post('/api/account/team-calls', asked === undefined ? { channelId: CH } : { channelId: CH, notes: asked }))
       const body = await res.json()
       expect(res.status, kind).toBe(200)
-      // Round 1 on, as the starter (567), and its capture made now: the recorder's work list offers the call (588).
+      // Round 1 on, as the starter (567). No capture yet: the recorder's session makes it once a
+      // second person is in the call (recorderWork), so a ringing or missed call shows none.
       expect(h.rpcs.filter((r) => r[0] === 'team_call_set_notes'), kind).toEqual([['team_call_set_notes', { target_call: CALL, turn_on: true }]])
-      expect(h.svcRpcs.map((r) => r[0]), kind).toContain('team_call_capture_ensure')
-      expect(body.call.notes, kind).toMatchObject({ notes: true, notes_by: ME, notes_state: 'capturing', capture_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' })
+      expect(h.svcRpcs.map((r) => r[0]), kind).not.toContain('team_call_capture_ensure')
+      expect(body.call.notes, kind).toMatchObject({ notes: true, notes_by: ME, notes_state: 'capturing', capture_id: null })
       // The starter's own microphone is never held.
       expect(body.join.canPublish, kind).toBe(true)
     }
@@ -429,14 +444,13 @@ describe('the call recorder takes the notes (TEAM_CALL_RECORDER=on)', () => {
     expect((await (await token(tokenReq(), params)).json()).join.canPublish).toBe(false)
   })
 
-  it('a new call started with notes on gets its capture at once, and says the notes are live', async () => {
+  it('a new call says its notes are live (the recorder’s), with no capture until it is heard', async () => {
     tables.team_call.splice(0)
     h.rpc.team_call_start = { data: [{ call_id: CALL, room: `tc-${CALL}`, message_id: MSG, created: true }], error: null }
     h.rpc.team_call_set_notes = { data: [{ notes: true, notes_round: 1, changed: true }], error: null }
-    h.rpc['svc:team_call_capture_ensure'] = { data: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', error: null }
     const res = await startCall(post('/api/account/team-calls', { channelId: CH, notes: true }))
     const body = await res.json()
     expect(body.call.features).toEqual({ notes: true, recording: false, liveNotes: true })
-    expect(body.call.notes).toMatchObject({ notes: true, capture_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' })
+    expect(body.call.notes).toMatchObject({ notes: true, capture_id: null })
   })
 })

@@ -23,8 +23,9 @@
  *        A NEW call starts with its notes on wherever the call recorder takes
  *        them (TEAM_CALL_RECORDER): every call, whoever starts it and from
  *        whatever client (web, desktop, iPhone, a meeting link's or a
- *        booking's meeting), with its capture at once; the in-call switch
- *        still turns them off and on. Where Egress takes the notes
+ *        booking's meeting); nothing is heard, and no capture made, until a
+ *        second person is in the call (src/lib/team-calls/recorder.ts
+ *        recorderWork). The in-call switch still turns them off and on. Where Egress takes the notes
  *        (LIVEKIT_EGRESS=on and a Deepgram key), only when the starter asks
  *        (`notes: true`, the desktop app's "Auto-record meetings").
  *        Joining a live call never changes its notes. The answer carries what
@@ -46,7 +47,6 @@ import { endCall, getCall, openRings, requestRingTimers, ringMembers, startCall,
 import { callsUnreachable, joinAnswer, joinsListenOnly, memberIn, notesViewOf, readyRoom, teamCallsUnavailable } from '@/lib/team-calls/routes'
 import { teamCallFeatures } from '@/lib/team-calls/egress'
 import { setNotes } from '@/lib/team-calls/notes-store'
-import { ensureCallCapture } from '@/lib/team-calls/recorder'
 import { newCallTakesNotes } from '@/lib/team-calls/notes'
 import { liveRingPushDeps, pushRings } from '@/lib/team-calls/ring-push'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -129,12 +129,13 @@ export async function POST(request: NextRequest) {
     if (started.created && newCallTakesNotes(features, input.notes)) {
       try {
         const on = await setNotes(auth.supabase, started.callId, true)
-        // The recorder's notes (src/lib/team-calls/recorder.ts): the call's capture, from now on.
-        const captureId = on.notes && features.liveNotes ? await ensureCallCapture(getServiceClient(), started.callId).catch(() => null) : null
-        notes = notesViewOf({ notes: on.notes, notes_by: on.notes ? me.id : null, notes_state: on.notes ? 'capturing' : 'none', capture_id: captureId })
+        // The recorder's notes (src/lib/team-calls/recorder.ts): no capture yet. The recorder's
+        // session makes it once a second person is in the call (nothing is heard before).
+        notes = notesViewOf({ notes: on.notes, notes_by: on.notes ? me.id : null, notes_state: on.notes ? 'capturing' : 'none', capture_id: null })
+        if (!on.notes) console.error(`[team-calls] call=${started.callId} notes not turned on at the start: refused`)
       } catch (err) {
-        // The call goes on without notes; the panel offers them.
-        console.warn(`[team-calls] call=${started.callId} notes not turned on:`, err instanceof Error ? err.message : 'unknown')
+        // The call goes on without notes (every call is to be captured: this is an error); the panel offers them.
+        console.error(`[team-calls] call=${started.callId} notes not turned on at the start:`, err instanceof Error ? err.message : 'unknown')
       }
     } else if (!started.created) {
       notes = notesViewOf(await getCall(auth.supabase, started.callId))

@@ -39,7 +39,14 @@ final class TeamCallCenter: ObservableObject {
     /// Calling is on here (the LiveKit settings set on the server).
     @Published private(set) var available = false
     /// The call recorder takes the notes on the server: no member is held for them (only a recording is said first).
+    /// From GET /api/account/team-calls, and from every start, join and ring answer (a cold launch from a call
+    /// push answers before that read).
     private(set) var liveNotes = false
+
+    /// What a start, join or ring answer says the server offers.
+    private func learned(_ place: TeamCallPlace?) {
+        if let live = place?.features?.liveNotes { liveNotes = live }
+    }
     /// The call the person is in (connecting, in it, or reconnecting).
     @Published private(set) var session: TeamCallSession?
     /// Its screen is up (false: the bar).
@@ -235,6 +242,7 @@ final class TeamCallCenter: ObservableObject {
         guard let s = session, let callId = s.callId else { return }
         do {
             let joined = try await api.join(callId: callId, noticeSeen: true)
+            learned(joined.call)
             noticesSeen.insert(s.uuid)
             await s.continueAfterNotice(joined.join)
         } catch {
@@ -421,6 +429,7 @@ final class TeamCallCenter: ObservableObject {
                 // Accepted (or settled) on another device before this answer: ends here as that.
                 run(book.answered(ringId: ringId, .settled(answer.state)))
             } else if answer.state == .accepted, let join = answer.join, let place = answer.call {
+                learned(place)
                 guard let e = book.entry(ringId: ringId) else { return }
                 joins[e.uuid] = join
                 pendingKinds[e.uuid] = (place.channelKind, e.update.callerName)
@@ -467,6 +476,7 @@ final class TeamCallCenter: ObservableObject {
                 await api.leave(callId: joined.call.id)
                 return
             }
+            learned(joined.call)
             book.learned(uuid, callId: joined.call.id)
             joins[uuid] = joined.join
             action?.fulfill()

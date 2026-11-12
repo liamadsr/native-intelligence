@@ -176,6 +176,12 @@ struct TeamCallJoin: Codable, Equatable {
     let callId: String
 }
 
+/// What the server offers a call (web TeamCallFeatures): only what the app reads.
+struct TeamCallFeatures: Codable, Equatable {
+    /// The call recorder takes the notes: no member is held, or told first, for them.
+    let liveNotes: Bool?
+}
+
 /// Where the call is, as the routes describe it.
 struct TeamCallPlace: Codable, Equatable {
     let id: String
@@ -183,6 +189,8 @@ struct TeamCallPlace: Codable, Equatable {
     let workspaceId: String
     let messageId: String?
     let channelKind: TeamChatChannelKind
+    /// What the server offers this call (every start, join and ring answer says so).
+    let features: TeamCallFeatures?
 }
 
 // MARK: - Words

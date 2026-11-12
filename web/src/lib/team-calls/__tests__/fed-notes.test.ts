@@ -133,6 +133,13 @@ describe('writeFedNotes', () => {
     expect(await writeFedNotes(h.svc, CALL)).toEqual({ outcome: 'silent' })
   })
 
+  it('a call nobody else joined (never heard: no session, no capture) is not the recorder’s to finish: it ends silent, with no capture and no pass (notes-store’s writeNotes)', async () => {
+    tables.capture_feed_session.splice(0)
+    tables.team_call[0].capture_id = null
+    expect(await fedNotesStatus(h.svc, CALL)).toMatchObject({ fed: false, undelivered: 0 })
+    expect(h.locks).toEqual([])
+  })
+
   it('a live call is not written; a call that is one of Egress’s is not the recorder’s', async () => {
     tables.team_call[0].status = 'live'
     expect(await writeFedNotes(h.svc, CALL)).toEqual({ outcome: 'skipped' })
