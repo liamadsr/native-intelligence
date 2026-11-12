@@ -32,6 +32,7 @@ import {
   type DataTable,
   type DataTableVisibility,
   type DataTableWithColumns,
+  type NewRow,
 } from './types'
 
 const TABLE_SELECT = 'id, workspace_id, name, icon, description, owner_member_id, visibility, version, position, archived_at, created_at, updated_at'
@@ -56,6 +57,17 @@ export interface TableActor {
   source: DataChangeSource
   reason?: string | null
   asUserId?: string | null
+  /**
+   * false on a guest's or a linked agent's turn (530): a table the writer
+   * reads only through a grant is not there, and a relation value links only
+   * what they read without one. Absent: grants count, as for the person.
+   */
+  grants?: boolean
+}
+
+/** The RPC arguments only some writes send (530): nothing for the person's own write. */
+function writeExtras(actor: TableActor): { p_grants?: false } {
+  return actor.grants === false ? { p_grants: false } : {}
 }
 
 type RpcError = { code?: string; message: string; details?: string | null }
@@ -247,10 +259,12 @@ export interface CreateTableInput {
   visibility?: DataTableVisibility
   icon?: string | null
   description?: string | null
-  /** Columns past the Name column (the title, every table has it). */
-  columns?: Array<{ label: string; field_type: DataColumnType; options?: string[]; config?: CustomFieldConfig }>
-  /** Blank rows to start with (default NEW_TABLE_ROWS). */
+  /** Columns past the Name column (the title, every table has it). A key, when given, is the column's (else made from its label). */
+  columns?: Array<{ key?: string; label: string; field_type: DataColumnType; options?: string[]; config?: CustomFieldConfig }>
+  /** Blank rows to start with (default NEW_TABLE_ROWS), when it has no `rows`. */
   blankRows?: number
+  /** Rows to start with instead of blank ones, their values by column key. */
+  rows?: NewRow[]
 }
 
 /** A new table, owned by the caller: its columns and its first blank rows in the same batch. */
@@ -267,10 +281,12 @@ export async function createTable(
   if (visibility !== 'workspace' && visibility !== 'private') return { ok: false, reason: 'invalid', error: 'visibility is workspace or private' }
   const blank = Math.min(Math.max(0, Math.floor(input.blankRows ?? NEW_TABLE_ROWS)), 100)
 
-  const raw: DataOpInput[] = (input.columns ?? []).map((c) => ({ op: 'create_column', label: c.label, field_type: c.field_type, options: c.options, config: c.config }))
-  if (blank > 0) raw.push({ op: 'insert_rows', rows: Array.from({ length: blank }, () => ({})) })
+  const raw: DataOpInput[] = (input.columns ?? []).map((c) => ({ op: 'create_column', ...(c.key ? { key: c.key } : {}), label: c.label, field_type: c.field_type, options: c.options, config: c.config }))
+  if (input.rows?.length) raw.push({ op: 'insert_rows', rows: input.rows })
+  else if (blank > 0) raw.push({ op: 'insert_rows', rows: Array.from({ length: blank }, () => ({})) })
   const checked = raw.length ? validateOps([], raw) : { ok: true as const, value: [] as DataOp[] }
   if (!checked.ok) return { ok: false, reason: 'invalid', error: checked.error }
+  const reason = actor.reason?.trim().slice(0, TABLE_LIMITS.reason) || null
 
   const { data, error } = await db.rpc('create_data_table', {
     p_workspace_id: workspaceId,
@@ -281,6 +297,8 @@ export async function createTable(
     p_ops: checked.value,
     p_source: actor.source,
     p_as_user: actor.asUserId ?? null,
+    ...(reason ? { p_reason: reason } : {}),
+    ...writeExtras(actor),
   })
   if (error) return refusal(error as RpcError)
   const r = (data ?? {}) as Record<string, unknown>
@@ -370,6 +388,7 @@ async function rpcApply(
     p_reason: reason,
     p_undo_of: undoOf,
     p_as_user: actor.asUserId ?? null,
+    ...writeExtras(actor),
   })
   if (error) return refusal(error as RpcError)
   return { ok: true, value: normalizeResult(data) }

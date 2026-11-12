@@ -69,6 +69,8 @@ export interface CardScope {
   timeZone?: string | null
   /** The person's visibility fence, read once per scope (fenceOf). */
   fence?: Promise<VisibilityFence>
+  /** false on a guest's or a linked agent's turn: a table shared with the person by a grant doesn't show (519). */
+  grants?: boolean
 }
 
 /**

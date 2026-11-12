@@ -51,6 +51,8 @@ import { evalCaseFence, recipeVisible, scrubHiddenBots, visiblePackages, visible
 import { compactValue, rowLabel, type RowLabel } from './rows'
 import { resolveNamedValues } from './server'
 import { isUuid, type Checked } from './validate'
+import { visiblePrivateKindIds } from '@/lib/knowledge/entity-fences'
+import { listRows, listTables } from '@/lib/tables/store'
 
 export type PageScope = FenceScope
 
@@ -123,6 +125,11 @@ async function candidates(scope: PageScope, type: PagePlaceType, resolved: Resol
         .filter((r) => recipeVisible(r, scope) && !gated.has(String(r.id)))
         .map((r) => ({ id: String(r.id), name: String(r.name ?? r.slug ?? ''), type }))
     }
+    case 'data_table':
+      return (await visibleTables(scope)).map((t) => ({ id: t.id, name: t.name, type }))
+    case 'data_row':
+      // A row is named by its id alone (findTableTarget).
+      return []
     case 'eval_case':
     case 'eval_run':
     case 'bot':
@@ -136,6 +143,29 @@ async function candidates(scope: PageScope, type: PagePlaceType, resolved: Resol
       // Only ever opened by the person (inside a suite, on a bot's page, from a guest's or a link's card, team chat), never named by the agent.
       return []
   }
+}
+
+/** The workspace's live tables the person can read (without grants on a guest's turn), in their order. */
+async function visibleTables(scope: PageScope): Promise<Array<{ id: string; name: string }>> {
+  const all = await listTables(scope.supabase, scope.workspaceId)
+  const seen = await visiblePrivateKindIds(scope.supabase, 'data_table', scope.userId, all.map((t) => t.id), scope.workspaceId, scope.grants === false ? { grants: false } : {})
+  return all.filter((t) => seen.has(t.id)).map((t) => ({ id: t.id, name: t.name }))
+}
+
+/** One row the person can read, with its table: a row card's place. */
+async function visibleRow(scope: PageScope, rowId: string): Promise<PagePlace | null> {
+  if (!isUuid(rowId)) return null
+  const { data } = await scope.supabase
+    .from('data_row')
+    .select('id, title, table_id')
+    .eq('workspace_id', scope.workspaceId)
+    .eq('id', rowId)
+    .is('archived_at', null)
+    .maybeSingle()
+  const row = data as { id: string; title: string | null; table_id: string } | null
+  if (!row) return null
+  const seen = await visiblePrivateKindIds(scope.supabase, 'data_table', scope.userId, [row.table_id], scope.workspaceId, scope.grants === false ? { grants: false } : {})
+  return seen.has(row.table_id) ? { type: 'data_row', id: row.id, label: row.title || 'Untitled', in: row.table_id } : null
 }
 
 /** One place by id or name among what the person can see; a refusal lists only those. */
@@ -170,6 +200,11 @@ async function findTarget(scope: PageScope, input: CheckedPageInput, resolved: R
   // The library's tab says which of agent and skill is meant.
   if (input.kind === 'library' && input.tab) types = [input.tab === 'skills' ? 'skill' : 'agent']
   const found = (await Promise.all(types.map((t) => candidates(scope, t, resolved)))).flat()
+  // A table's row: by its id, when no table has it.
+  if (input.kind === 'tables' && input.target && isUuid(input.target) && !found.some((c) => c.id === input.target)) {
+    const row = await visibleRow(scope, input.target)
+    if (row) return { ok: true, value: row }
+  }
   return pick(input.kind, input.target ?? '', found)
 }
 
@@ -214,6 +249,13 @@ async function checkPlace(scope: PageScope, kind: PageKind, place: PagePlace): P
       const hit = (await candidates(scope, place.type, resolved)).find((c) => c.id === place.id)
       return hit ? ok(hit.name) : null
     }
+    case 'data_table': {
+      if (kind !== 'tables') return null
+      const table = (await visibleTables(scope)).find((t) => t.id === place.id)
+      return table ? ok(table.name) : null
+    }
+    case 'data_row':
+      return kind === 'tables' ? visibleRow(scope, place.id) : null
     case 'bot':
     case 'work_item':
     case 'guest':
@@ -402,6 +444,20 @@ export async function readPageRows(
         return { count: rows.length, rows, noun: 'steps' }
       }
       break
+    }
+    case 'tables': {
+      // Every place is checked as the person's by now (findTarget, checkPlace).
+      if (place?.type === 'data_table' || place?.type === 'data_row') {
+        const tableId = place.type === 'data_row' ? place.in : place.id
+        if (!tableId) break
+        const page = await listRows(scope.supabase, ws, tableId, { limit, ...(place.type === 'data_row' ? { ids: [place.id] } : {}) })
+        const rows = page.rows.map((r) => ({ id: r.id, title: r.title || 'Untitled', ...r.custom_fields }))
+        if (place.type === 'data_row') return { count: rows.length, rows, noun: 'rows' }
+        const { count } = await scope.supabase.from('data_row').select('id', { count: 'exact', head: true }).eq('table_id', tableId).is('archived_at', null)
+        return { count: typeof count === 'number' ? count : rows.length, rows, noun: 'rows' }
+      }
+      const tables = await visibleTables(scope)
+      return { count: tables.length, rows: tables.slice(0, limit), noun: 'tables' }
     }
     case 'evals': {
       if (place?.type === 'eval_case' || place?.type === 'eval_run') {

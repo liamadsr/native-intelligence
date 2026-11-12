@@ -65,6 +65,8 @@ export const PAGE_PLACE_TYPES = [
   'agent_link_exchange',
   'team_chat_channel',
   'team_chat_message',
+  'data_table',
+  'data_row',
 ] as const
 export type PagePlaceType = (typeof PAGE_PLACE_TYPES)[number]
 
@@ -74,6 +76,8 @@ export interface PagePlace {
   id: string
   /** Its name, for the card and the note. */
   label?: string
+  /** The place it is inside, by id: a row's table. */
+  in?: string
 }
 
 /** What a page card shows. */
@@ -167,13 +171,15 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     view: 'campaigns',
   },
   // Tables (phase 1, migration 520): the workspace's own databases. Gated with
-  // Docs, where a workspace keeps what it writes down. The person opens it
-  // (from `/`); `show` offers it with the agent's table tools (phase 5).
+  // Docs, where a workspace keeps what it writes down. `show` opens it on a
+  // table (phase 5), in a layout (`tab`), or on one row: a row's record card
+  // (`in` names its table).
   tables: {
     label: 'Tables',
     rows: 'tables',
     view: 'docs',
-    personOnly: true,
+    target: { types: ['data_table', 'data_row'] },
+    tabs: ['grid', 'board', 'calendar', 'gallery'],
   },
   knowledge: {
     label: 'Knowledge',
@@ -247,7 +253,7 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
 }
 
 /** The page kinds `show` offers: every one the person alone doesn't open. */
-export const SHOW_PAGE_KIND_NAMES = PAGE_KIND_NAMES.filter((k) => !PAGE_KINDS[k].personOnly) as Exclude<PageKind, 'bot' | 'work_item' | 'guest' | 'agent_link' | 'team_chat' | 'tables'>[]
+export const SHOW_PAGE_KIND_NAMES = PAGE_KIND_NAMES.filter((k) => !PAGE_KINDS[k].personOnly) as Exclude<PageKind, 'bot' | 'work_item' | 'guest' | 'agent_link' | 'team_chat'>[]
 
 /** What each place is called, in the note and in refusals. */
 export const PLACE_NOUN: Record<PagePlaceType, string> = {
@@ -268,6 +274,8 @@ export const PLACE_NOUN: Record<PagePlaceType, string> = {
   agent_link_exchange: 'conversation',
   team_chat_channel: 'channel',
   team_chat_message: 'message',
+  data_table: 'table',
+  data_row: 'row',
 }
 
 export function isPageKind(value: unknown): value is PageKind {
@@ -277,7 +285,12 @@ export function isPageKind(value: unknown): value is PageKind {
 export function isPagePlace(value: unknown): value is PagePlace {
   if (!value || typeof value !== 'object') return false
   const v = value as Record<string, unknown>
-  return (PAGE_PLACE_TYPES as readonly string[]).includes(v.type as string) && typeof v.id === 'string' && !!v.id
+  return (
+    (PAGE_PLACE_TYPES as readonly string[]).includes(v.type as string) &&
+    typeof v.id === 'string' &&
+    !!v.id &&
+    (v.in === undefined || typeof v.in === 'string')
+  )
 }
 
 /** The tab a page card is on: the one asked for, else the kind's default. */

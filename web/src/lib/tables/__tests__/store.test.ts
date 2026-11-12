@@ -63,6 +63,12 @@ describe('applyOps', () => {
     ])
   })
 
+  it("on a guest's turn (grants false) tells the database to count no grant (530)", async () => {
+    const f = db()
+    await applyOps(f.client, WS, T, { baseVersion: 4, ops: [{ op: 'update_row', row_id: ROW, title: 'x' }] }, { userId: 'u-1', source: 'agent', asUserId: 'u-1', grants: false })
+    expect(f.rpcCalls[0].args).toMatchObject({ p_source: 'agent', p_as_user: 'u-1', p_grants: false })
+  })
+
   it('refuses a bad value before the database, and a table the caller can’t read', async () => {
     const f = db()
     expect(await applyOps(f.client, WS, T, { baseVersion: 4, ops: [{ op: 'update_row', row_id: ROW, values: { status: 'Maybe' } }] }, { userId: 'u-1', source: 'person' })).toMatchObject({ ok: false, reason: 'invalid' })
@@ -91,6 +97,30 @@ describe('createTable', () => {
       name: 'create_data_table',
       args: { p_workspace_id: WS, p_name: 'Hiring', p_visibility: 'workspace', p_ops: [{ op: 'insert_rows', rows: [{ title: '' }, { title: '' }, { title: '' }] }], p_source: 'person' },
     })
+  })
+
+  it('starts with the rows given instead of blank ones, and sends the reason and (no grants) p_grants only when set (530)', async () => {
+    const f = db(() => ({ data: { table_id: T, version: 1, change_id: 'ch-1', inserted_row_ids: ['a'], created_column_ids: {} }, error: null }))
+    await createTable(
+      f.client,
+      WS,
+      { name: 'Rentals', columns: [{ key: 'item', label: 'Item', field_type: 'text' }], rows: [{ title: 'Robin', values: { item: 'Tile saw' } }] },
+      { userId: 'u-1', source: 'agent', reason: ' Asked to track rentals ', asUserId: 'u-1', grants: false },
+    )
+    expect(f.rpcCalls[0].args).toMatchObject({
+      p_ops: [
+        { op: 'create_column', key: 'item', label: 'Item', field_type: 'text' },
+        { op: 'insert_rows', rows: [{ title: 'Robin', values: { item: 'Tile saw' } }] },
+      ],
+      p_source: 'agent',
+      p_as_user: 'u-1',
+      p_reason: 'Asked to track rentals',
+      p_grants: false,
+    })
+    const plain = db(() => ({ data: { table_id: T, version: 1, change_id: 'ch-1', inserted_row_ids: [], created_column_ids: {} }, error: null }))
+    await createTable(plain.client, WS, { name: 'Hiring' }, { userId: 'u-1', source: 'person' })
+    expect(plain.rpcCalls[0].args).not.toHaveProperty('p_reason')
+    expect(plain.rpcCalls[0].args).not.toHaveProperty('p_grants')
   })
 
   it('refuses a table with no name or an unknown visibility', async () => {
