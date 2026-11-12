@@ -135,7 +135,9 @@ describe('registry self-consistency', () => {
 
   it('links the kinds the shared entity layer added, after every older one', () => {
     const added = ['deal', 'flow', 'calendar_event', 'decision', 'team_chat_channel', 'team_chat_message']
-    expect(LINKABLE_ENTITY_TYPES.slice(-added.length)).toEqual(added)
+    // The Studio's two (624) came after them.
+    const later = ['studio_video', 'studio_project']
+    expect(LINKABLE_ENTITY_TYPES.slice(-(added.length + later.length))).toEqual([...added, ...later])
     // None is citable: the claim_source CHECK (264) does not list them.
     for (const id of added) expect(entityDescriptor(id)!.citable, id).toBe(false)
   })

@@ -490,6 +490,8 @@ const DELIVERABLE_ENTITY_KIND: Readonly<Record<string, string | null>> = Object.
   attention_cards: null,
   flow_run: null,
   url: null,
+  // The Studio keeps no touch history (its kinds are outside the activity log).
+  studio_video: null,
 })
 
 /**
