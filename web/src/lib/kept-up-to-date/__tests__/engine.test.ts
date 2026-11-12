@@ -29,6 +29,8 @@ import {
   applyKeptChange,
   keptPass,
   keptReason,
+  linkedTaskIds,
+  pendingProposalIds,
   planChanges,
   readPriorChanges,
   readRowCandidates,
@@ -209,11 +211,13 @@ describe('readPriorChanges', () => {
     db.seed('data_change', [
       { id: 'dc1', workspace_id: WS, table_id: 't-pipe', source: 'person', created_at: '2026-11-01T00:00:00.000Z', changes: [{ op: 'update_row', row_id: 'r-acme', fields: { 'values.stage': { from: 'Won', to: 'Proposal' } } }] },
       { id: 'dc2', workspace_id: WS, table_id: 't-pipe', source: 'email', created_at: '2026-11-01T00:00:00.000Z', changes: [{ op: 'update_row', row_id: 'r-acme', fields: { 'values.stage': { from: 'Lost', to: 'Proposal' } } }] },
+      // Another row's history is not this row's.
+      { id: 'dc3', workspace_id: WS, table_id: 't-pipe', source: 'person', created_at: '2026-11-01T00:00:00.000Z', changes: [{ op: 'update_row', row_id: 'r-new', fields: { 'values.stage': { from: 'Lead', to: 'Open' } } }] },
     ])
-    const prior = await readPriorChanges(db as never, SCOPE, ['r-acme'], ['a1'], ['t-pipe'], NOW_MS)
+    const prior = await readPriorChanges(db as never, SCOPE, [{ id: 'r-acme', tableId: 't-pipe' }], ['a1'], NOW_MS)
     expect([...prior!.tasks]).toEqual(['a1'])
     expect([...prior!.values].sort()).toEqual([`r-acme|stage|"Won"`, `r-acme|value|{"amount":1,"currency":"USD"}`])
-    expect(await readPriorChanges(without539(db) as never, SCOPE, ['r-acme'], [], ['t-pipe'], NOW_MS)).toBeNull()
+    expect(await readPriorChanges(without539(db) as never, SCOPE, [{ id: 'r-acme', tableId: 't-pipe' }], [], NOW_MS)).toBeNull()
   })
 })
 
@@ -354,8 +358,55 @@ describe('keptPass', () => {
     const pass = keptPass(db as never, { ...SCOPE, now: 'x' }, { decide, readTodos })
     await pass.consider(item({ tasks: false, ref: 'a' }))
     expect(readTodos).not.toHaveBeenCalled()
-    await pass.consider(item({ tasks: true, ref: 'b', skipActionIds: ['carded'] }))
+    db.seed('proposed_change', [{ id: 'pc1', workspace_id: WS, capture_id: 'cap-1', status: 'pending', entity_type: 'action', entity_id: 'carded' }])
+    await pass.consider(item({ tasks: 'all', ref: 'b' }))
     expect(decide.mock.calls[1][0].records.filter((r) => r.kind === 'task').map((r) => r.title)).toEqual(['Send Dana the signed order form'])
+  })
+
+  it('an email or a text offers only the to-dos linked to its people; a stranger offers none', async () => {
+    const db = fresh()
+    const decide = vi.fn(async (_input: RecordKeptUpToDateInput): Promise<DecisionResult<RecordKeptUpToDateValue>> => ({ status: 'accepted', value: { changeId: null, evidence: null }, inferenceId: 'i', version: 'v' }))
+    const todos = [task(), task({ id: 'a2', title: 'Renew the office lease' })]
+    const linkedTasks = vi.fn(async () => new Set(['a1']))
+    const pass = keptPass(db as never, { ...SCOPE, now: 'x' }, { decide, readTodos: async () => todos, linkedTasks, readRows: async () => [] })
+    await pass.consider(item({ tasks: 'linked' }))
+    expect(linkedTasks).toHaveBeenCalledWith(db, expect.objectContaining(SCOPE), expect.objectContaining({ contactIds: ['c-dana'] }), ['a1', 'a2'])
+    expect(decide.mock.calls[0][0].records.map((r) => r.title)).toEqual(['Send Dana the signed order form'])
+    // None linked, nothing to put beside it.
+    expect(await keptPass(db as never, { ...SCOPE, now: 'x' }, { decide, readTodos: async () => todos, linkedTasks: async () => new Set(), readRows: async () => [] }).consider(item({ tasks: 'linked', ref: 'z' }))).toBe('skipped')
+  })
+
+  it('linkedTaskIds: an edge either way, or through the to-do’s project, in this workspace only', async () => {
+    const db = fresh()
+    db.seed('actions', [
+      { id: 'a2', workspace_id: WS, project_id: 'p1' },
+      { id: 'a3', workspace_id: WS, project_id: null },
+      { id: 'a4', workspace_id: WS, project_id: null },
+      { id: 'a5', workspace_id: WS, project_id: null },
+    ])
+    const edge = (id: string, ws: string, st: string, sid: string, tt: string, tid: string) => ({ id, workspace_id: ws, source_type: st, source_id: sid, target_type: tt, target_id: tid, relation: 'about' })
+    db.seed('entity_link', [
+      edge('e1', WS, 'action', 'a1', 'contact', 'c-dana'),
+      edge('e2', WS, 'project', 'p1', 'company', 'co-acme'),
+      edge('e3', WS, 'company', 'co-acme', 'action', 'a3'),
+      edge('e4', 'other', 'action', 'a4', 'contact', 'c-dana'),
+      edge('e5', WS, 'action', 'a5', 'contact', 'c-someone-else'),
+    ])
+    const ids = await linkedTaskIds(db as never, SCOPE, people(), ['a1', 'a2', 'a3', 'a4', 'a5'])
+    expect([...ids!].sort()).toEqual(['a1', 'a2', 'a3'])
+  })
+
+  it('a record a pending proposal names is left to its card', async () => {
+    const db = fresh()
+    db.seed('proposed_change', [
+      { id: 'pc1', workspace_id: WS, status: 'pending', entity_id: 'r-acme' },
+      { id: 'pc2', workspace_id: WS, status: 'applied', entity_id: 'a1' },
+      { id: 'pc3', workspace_id: 'other', status: 'pending', entity_id: 'a1' },
+    ])
+    expect([...(await pendingProposalIds(db as never, SCOPE, ['r-acme', 'a1']))!]).toEqual(['r-acme'])
+    const decide = vi.fn()
+    expect(await keptPass(db as never, { ...SCOPE, now: 'x' }, { decide }).consider(item())).toBe('skipped')
+    expect(decide).not.toHaveBeenCalled()
   })
 
   it('at most MAX_KEPT_PER_PASS changes a pass', async () => {
@@ -392,9 +443,46 @@ describe('undoKeptChange', () => {
     expect(await undoKeptChange(db as never, { ...SCOPE, recordId }, { undo })).toEqual({ ok: true, status: 'already' })
     expect(undo).toHaveBeenCalledTimes(1)
     // Never set that way again, by any source.
-    const prior = await readPriorChanges(db as never, SCOPE, ['r-acme'], [], ['t-pipe'], NOW_MS)
+    const prior = await readPriorChanges(db as never, SCOPE, [{ id: 'r-acme', tableId: 't-pipe' }], [], NOW_MS)
     const { changes } = planChanges([{ kind: 'row', row: await acmeRow(db) }], { dates: [], amounts: [], numbers: [] }, prior!)
     expect(changes.some((c) => c.kind === 'row_set' && c.to === 'Won')).toBe(false)
+  })
+
+  it('when the batch id never landed, Undo puts the value back by hand, never silently nothing', async () => {
+    const db = fresh()
+    const recordId = await changeWon(db)
+    db.rows('kept_change')[0].data_change_id = null
+    db.rows('data_row').find((r) => r.id === 'r-acme')!.custom_fields = { stage: 'Won' }
+    const apply = applied('chg-back')
+    const undo = vi.fn()
+    expect(await undoKeptChange(db as never, { ...SCOPE, recordId }, { apply, undo, writeMessage: vi.fn(async () => true), appendLog: vi.fn(async () => true) })).toEqual({ ok: true, status: 'reverted' })
+    expect(undo).not.toHaveBeenCalled()
+    expect(apply).toHaveBeenCalledWith(db, WS, 't-pipe', { baseVersion: 7, ops: [{ op: 'update_row', row_id: 'r-acme', values: { stage: 'Proposal' } }] }, { userId: 'u', asUserId: 'u', source: 'person' })
+    // Changed again since: left as it is.
+    const db2 = fresh()
+    const second = await changeWon(db2)
+    db2.rows('kept_change')[0].data_change_id = null
+    db2.rows('data_row').find((r) => r.id === 'r-acme')!.custom_fields = { stage: 'Lost' }
+    const apply2 = applied()
+    expect(await undoKeptChange(db2 as never, { ...SCOPE, recordId: second }, { apply: apply2, writeMessage: vi.fn(async () => true) })).toEqual({ ok: true, status: 'changed' })
+    expect(apply2).not.toHaveBeenCalled()
+  })
+
+  it('a failed write of the batch id is retried', async () => {
+    const db = fresh()
+    const row = await acmeRow(db)
+    const won: PlannedChange = { id: 'c2', kind: 'row_set', record: 0, row, key: 'stage', label: 'Stage', type: 'select', from: 'Proposal', to: 'Won' }
+    const real = db.from.bind(db)
+    let failed = 0
+    const flaky = { ...db, from: (table: string) => {
+      const q = real(table) as Record<string, (...a: unknown[]) => unknown>
+      if (table !== 'kept_change' || failed > 0) return q
+      return { ...q, update: () => ({ eq: async () => { failed += 1; return { data: null, error: { message: 'timeout' } } } }) }
+    } }
+    const result = await applyKeptChange(flaky as never, { ...SCOPE, conversationId: 'home', item: item(), change: won, evidence: 'We signed.' }, { apply: applied(), writeMessage: vi.fn(async () => true), appendLog: vi.fn(async () => true) })
+    expect(result.status).toBe('changed')
+    expect(failed).toBe(1)
+    expect(db.rows('kept_change')[0].data_change_id).toBe('chg-1')
   })
 
   it('changed again since: left as it is', async () => {

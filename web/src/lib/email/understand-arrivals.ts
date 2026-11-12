@@ -225,7 +225,7 @@ export async function understandArrivals(
       workspaceId: args.workspaceId, userId: args.userId, accountId: args.accountId, mailbox: args.mailboxEmail, now,
     })
     const kept = deps.kept === null ? null : (deps.kept ?? mailKeptPass)(supabase, {
-      workspaceId: args.workspaceId, userId: args.userId, mailbox: args.mailboxEmail, now,
+      workspaceId: args.workspaceId, userId: args.userId, mailbox: args.mailboxEmail, now, timeZone: zone,
     })
 
     const events: AgentEventInput[] = []

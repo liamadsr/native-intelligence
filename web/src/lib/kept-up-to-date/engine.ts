@@ -10,13 +10,18 @@
  *
  *   1. Candidates, in the source's own workspace only, never another's:
  *      - the person's open to-dos, as ../email/action-done-from-mail.ts reads
- *        them (when the source may close one: ./sources.ts says);
+ *        them, when the source may close one (./sources.ts says): a meeting,
+ *        any of them; an email or a text, only those linked (entity_link,
+ *        either way, the to-do's own or its project's) to the contacts or
+ *        companies the source involves, so a stranger can't close what isn't
+ *        theirs;
  *      - the table rows a relation field links to a contact or a company the
  *        source involves (field_link edges, migration 524), in live tables
  *        the person may change (data_table_editable_by: a private table of
  *        another member, or one they only view, is left out).
  *      Never a record made after the source (a record made from this very
- *      source is not changed by it).
+ *      source is not changed by it), and never one a pending proposal names
+ *      (a meeting's card decides that one).
  *   2. The changes each could take (planChanges): a to-do done; a select set
  *      to another of its options; a date, an amount or a number the source's
  *      own sentences name (./values.ts); a checkbox flipped. Never a change
@@ -128,10 +133,8 @@ export interface KeptSourceItem {
   /** The words judged: one or more lines. */
   text: string
   people: KeptPeople
-  /** Whether the person's open to-dos are candidates. */
-  tasks: boolean
-  /** To-dos this source leaves alone (a meeting's own pending proposals). */
-  skipActionIds?: readonly string[]
+  /** Which of the person's open to-dos are candidates: none, those linked to its people, or all (a meeting). */
+  tasks: false | 'linked' | 'all'
 }
 
 // ── Who a source involves ──────────────────────────────────────────────────
@@ -253,12 +256,14 @@ export async function readRowCandidates(supabase: SupabaseClient, scope: KeptSco
       .is('archived_at', null)
     if (tableError) return null
     const tables = new Map<string, { name: string; columns: DataColumn[] }>()
-    for (const t of (tableData ?? []) as Array<{ id: string; name: string }>) {
-      // Only a table the person may change (a private one of another member, or one shared to view, is not).
-      const { data: editable, error } = await supabase.rpc('data_table_editable_by', { p_table_id: t.id, p_user_id: scope.userId })
-      if (error || editable !== true) continue
-      tables.set(t.id, { name: t.name, columns: await listColumns(supabase, scope.workspaceId, t.id) })
-    }
+    // Only a table the person may change (a private one of another member, or one shared to view, is not), all at once.
+    const checked = await Promise.all(
+      ((tableData ?? []) as Array<{ id: string; name: string }>).map(async (t) => {
+        const { data: editable, error } = await supabase.rpc('data_table_editable_by', { p_table_id: t.id, p_user_id: scope.userId })
+        return error || editable !== true ? null : { ...t, columns: await listColumns(supabase, scope.workspaceId, t.id) }
+      }),
+    )
+    for (const t of checked) if (t) tables.set(t.id, { name: t.name, columns: t.columns })
     return rows
       .filter((r) => tables.has(r.table_id))
       .map((r) => {
@@ -295,8 +300,15 @@ export interface PriorChanges {
 export const valueKey = (recordId: string, key: string, value: unknown) => `${recordId}|${key}|${JSON.stringify(value ?? null)}`
 
 /** Earlier changes on these records. Null when they can't be read (539 not applied): nothing changes. */
-export async function readPriorChanges(supabase: SupabaseClient, scope: KeptScope, rowIds: readonly string[], taskIds: readonly string[], tableIds: readonly string[], nowMs = Date.now()): Promise<PriorChanges | null> {
+export async function readPriorChanges(
+  supabase: SupabaseClient,
+  scope: KeptScope,
+  rows: ReadonlyArray<{ id: string; tableId: string }>,
+  taskIds: readonly string[],
+  nowMs = Date.now(),
+): Promise<PriorChanges | null> {
   const prior: PriorChanges = { tasks: new Set(), values: new Set() }
+  const rowIds = rows.map((r) => r.id)
   const ids = [...rowIds, ...taskIds]
   if (!ids.length) return prior
   try {
@@ -309,22 +321,28 @@ export async function readPriorChanges(supabase: SupabaseClient, scope: KeptScop
       if (r.record_type === 'action') prior.tasks.add(r.record_id)
       else if (r.field_key) prior.values.add(valueKey(r.record_id, r.field_key, r.to_value))
     }
-    if (rowIds.length && tableIds.length) {
+    if (rows.length) {
       const since = new Date(nowMs - PERSON_MOVES_DAYS * 86_400_000).toISOString()
-      const { data: changes, error: changeError } = await supabase
-        .from('data_change')
-        .select('changes')
-        .eq('workspace_id', scope.workspaceId)
-        .in('table_id', [...tableIds])
-        .eq('source', 'person')
-        .gte('created_at', since)
-        .order('created_at', { ascending: false })
-        .limit(200)
-      if (changeError) return null
-      const rows = new Set(rowIds)
-      for (const c of (changes ?? []) as Array<{ changes: unknown }>) {
+      // Each row's own history (the batches that touched it), not the newest across its tables.
+      const reads = await Promise.all(
+        rows.map((r) =>
+          supabase
+            .from('data_change')
+            .select('changes')
+            .eq('workspace_id', scope.workspaceId)
+            .eq('table_id', r.tableId)
+            .eq('source', 'person')
+            .gte('created_at', since)
+            .contains('changes', [{ row_id: r.id }])
+            .order('created_at', { ascending: false })
+            .limit(50),
+        ),
+      )
+      if (reads.some((r) => r.error)) return null
+      const wanted = new Set(rowIds)
+      for (const c of reads.flatMap((r) => (r.data ?? []) as Array<{ changes: unknown }>)) {
         for (const e of Array.isArray(c.changes) ? (c.changes as Array<Record<string, unknown>>) : []) {
-          if (e?.op !== 'update_row' || typeof e.row_id !== 'string' || !rows.has(e.row_id)) continue
+          if (e?.op !== 'update_row' || typeof e.row_id !== 'string' || !wanted.has(e.row_id)) continue
           for (const [field, ch] of Object.entries((e.fields ?? {}) as Record<string, { from?: unknown; to?: unknown }>)) {
             if (!field.startsWith('values.') || !ch || ch.from === null || ch.from === undefined) continue
             prior.values.add(valueKey(e.row_id, field.slice('values.'.length), ch.from))
@@ -691,7 +709,12 @@ export async function applyKeptChange(
         return drop(applied.reason === 'conflict' ? 'moved' : 'failed')
       }
       if (!changeId) return drop('moved')
-      await supabase.from(TABLE).update({ data_change_id: changeId }).eq('id', recordId)
+      // Undo takes back this batch: the id must land (else Undo falls back to the values).
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const { error: linkError } = await supabase.from(TABLE).update({ data_change_id: changeId }).eq('id', recordId)
+        if (!linkError) break
+        console.warn('[kept-up-to-date] batch id not recorded:', linkError.message)
+      }
       part = {
         record_id: recordId,
         record_type: 'data_row',
@@ -745,8 +768,51 @@ export async function sourceChangedBefore(supabase: SupabaseClient, scope: KeptS
   return ((data as unknown[] | null) ?? []).length > 0
 }
 
+/**
+ * The to-dos among `taskIds` linked to the source's contacts or companies:
+ * an entity_link either way between them, or between the to-do's project and
+ * them. Null when unreadable: no to-do is offered.
+ */
+export async function linkedTaskIds(supabase: SupabaseClient, scope: KeptScope, people: KeptPeople, taskIds: readonly string[]): Promise<Set<string> | null> {
+  const targets = [...people.contactIds, ...people.companyIds]
+  if (!targets.length || !taskIds.length) return new Set()
+  try {
+    const { data: actions, error } = await supabase.from('actions').select('id, project_id').eq('workspace_id', scope.workspaceId).in('id', [...taskIds])
+    if (error) return null
+    const projectOf = new Map(((actions ?? []) as Array<{ id: string; project_id: string | null }>).map((a) => [a.id, a.project_id]))
+    const projects = [...new Set([...projectOf.values()].filter((p): p is string => !!p))]
+    const edges = async (kind: string, ids: readonly string[]) => {
+      if (!ids.length) return new Set<string>()
+      const [out, back] = await Promise.all([
+        supabase.from('entity_link').select('source_id').eq('workspace_id', scope.workspaceId).eq('source_type', kind).in('source_id', [...ids]).in('target_type', ['contact', 'company']).in('target_id', targets),
+        supabase.from('entity_link').select('target_id').eq('workspace_id', scope.workspaceId).eq('target_type', kind).in('target_id', [...ids]).in('source_type', ['contact', 'company']).in('source_id', targets),
+      ])
+      if (out.error || back.error) throw new Error((out.error ?? back.error)!.message)
+      return new Set([...((out.data ?? []) as Array<{ source_id: string }>).map((r) => r.source_id), ...((back.data ?? []) as Array<{ target_id: string }>).map((r) => r.target_id)])
+    }
+    const [direct, viaProject] = await Promise.all([edges('action', taskIds), edges('project', projects)])
+    return new Set(taskIds.filter((id) => direct.has(id) || (!!projectOf.get(id) && viaProject.has(projectOf.get(id)!))))
+  } catch (err) {
+    console.warn('[kept-up-to-date] linked to-dos not read:', err instanceof Error ? err.message : String(err))
+    return null
+  }
+}
+
+/** The records among `ids` a pending proposal names (a meeting's card). Null when unreadable: nothing changes. */
+export async function pendingProposalIds(supabase: SupabaseClient, scope: KeptScope, ids: readonly string[]): Promise<Set<string> | null> {
+  if (!ids.length) return new Set()
+  const { data, error } = await supabase.from('proposed_change').select('entity_id').eq('workspace_id', scope.workspaceId).eq('status', 'pending').in('entity_id', [...ids])
+  if (error) {
+    console.warn('[kept-up-to-date] pending proposals not read:', error.message)
+    return null
+  }
+  return new Set(((data ?? []) as Array<{ entity_id: string | null }>).map((r) => r.entity_id).filter((id): id is string => !!id))
+}
+
 export interface KeptPassDeps extends KeptDeps {
   sourceDone?: typeof sourceChangedBefore
+  linkedTasks?: typeof linkedTaskIds
+  pendingProposals?: typeof pendingProposalIds
   readTodos?: typeof readOpenTodos
   readRows?: typeof readRowCandidates
   readPrior?: typeof readPriorChanges
@@ -769,7 +835,7 @@ export interface KeptPass {
  * One pass's keeper: the home thread and the to-dos are read once, on the
  * first source that needs them, and a changed record leaves the list.
  */
-export function keptPass(supabase: SupabaseClient, scope: KeptScope & { now: string }, deps: KeptPassDeps = {}): KeptPass {
+export function keptPass(supabase: SupabaseClient, scope: KeptScope & { now: string; timeZone?: string }, deps: KeptPassDeps = {}): KeptPass {
   let home: string | null | undefined
   let todos: OpenTodo[] | null | undefined
   const done = new Set<string>()
@@ -790,15 +856,25 @@ export function keptPass(supabase: SupabaseClient, scope: KeptScope & { now: str
         let tasks: OpenTodo[] = []
         if (item.tasks) {
           if (todos === undefined) todos = await (deps.readTodos ?? readOpenTodos)(supabase, scope)
-          const skip = new Set(item.skipActionIds ?? [])
-          tasks = (todos ?? []).filter((t) => !done.has(t.id) && !skip.has(t.id) && before(t.createdAt, item.atIso)).slice(0, MAX_TASKS)
+          tasks = (todos ?? []).filter((t) => !done.has(t.id) && before(t.createdAt, item.atIso))
+          if (item.tasks === 'linked' && tasks.length) {
+            const linked = await (deps.linkedTasks ?? linkedTaskIds)(supabase, scope, item.people, tasks.map((t) => t.id))
+            tasks = linked ? tasks.filter((t) => linked.has(t.id)) : []
+          }
+          tasks = tasks.slice(0, MAX_TASKS)
         }
-        const rows = ((await (deps.readRows ?? readRowCandidates)(supabase, scope, item.people, item.atIso)) ?? []).filter((r) => !done.has(r.id))
+        let rows = ((await (deps.readRows ?? readRowCandidates)(supabase, scope, item.people, item.atIso)) ?? []).filter((r) => !done.has(r.id))
+        if (!rows.length && !tasks.length) return 'skipped'
+        // A record a pending proposal names is the card's to decide.
+        const pending = await (deps.pendingProposals ?? pendingProposalIds)(supabase, scope, [...rows.map((r) => r.id), ...tasks.map((t) => t.id)])
+        if (!pending) return 'skipped'
+        rows = rows.filter((r) => !pending.has(r.id))
+        tasks = tasks.filter((t) => !pending.has(t.id))
         if (!rows.length && !tasks.length) return 'skipped'
 
-        const prior = await (deps.readPrior ?? readPriorChanges)(supabase, scope, rows.map((r) => r.id), tasks.map((t) => t.id), [...new Set(rows.map((r) => r.tableId))], deps.nowMs)
+        const prior = await (deps.readPrior ?? readPriorChanges)(supabase, scope, rows.map((r) => ({ id: r.id, tableId: r.tableId })), tasks.map((t) => t.id), deps.nowMs)
         if (!prior) return 'skipped'
-        const dates = datesIn(sentences, item.atIso)
+        const dates = datesIn(sentences, item.atIso, { timeZone: scope.timeZone })
         const amounts = amountsIn(sentences)
         const numbers = rows.some((r) => r.columns.some((c) => c.field_type === 'number')) ? numbersIn(sentences, dates, amounts) : []
         const candidates: KeptCandidate[] = [...rows.map((row) => ({ kind: 'row' as const, row })), ...tasks.map((task) => ({ kind: 'task' as const, task }))]
@@ -907,7 +983,13 @@ export async function undoKeptChange(supabase: SupabaseClient, args: KeptScope &
     const target = rowData as { id: string; title: string | null } | null
     const table = tableData as { id: string; name: string } | null
     if (!target || !table || !tableId) status = 'gone'
-    else if (row.data_change_id) {
+    else if (!row.data_change_id) {
+      // The batch's id never landed: put the value back by hand, while it is still the one set.
+      const back = await undoByValues(supabase, scope, row, tableId, deps)
+      if (back === 'forbidden') return { ok: false, reason: 'forbidden' }
+      if (back === 'failed') return { ok: false, reason: 'read_failed' }
+      status = back
+    } else {
       const undone = await (deps.undo ?? undoChange)(supabase, scope.workspaceId, tableId, row.data_change_id, { userId: scope.userId, asUserId: scope.userId, source: 'person' })
       if (undone.ok) status = undone.value.restored.length ? 'reverted' : 'changed'
       else if (undone.reason === 'forbidden') return { ok: false, reason: 'forbidden' }
@@ -946,6 +1028,30 @@ export async function undoKeptChange(supabase: SupabaseClient, args: KeptScope &
     }
   }
   return { ok: true, status }
+}
+
+/** A row's value put back as the person, only while it still holds what the change set. */
+async function undoByValues(supabase: SupabaseClient, scope: KeptScope, row: KeptRow, tableId: string, deps: KeptDeps): Promise<'reverted' | 'changed' | 'forbidden' | 'failed'> {
+  if (!row.field_key) return 'changed'
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const [{ data: now }, { data: table }] = await Promise.all([
+      supabase.from('data_row').select('custom_fields').eq('id', row.record_id).eq('workspace_id', scope.workspaceId).maybeSingle(),
+      supabase.from('data_table').select('version').eq('id', tableId).eq('workspace_id', scope.workspaceId).maybeSingle(),
+    ])
+    const current = (now as { custom_fields: Record<string, unknown> | null } | null)?.custom_fields?.[row.field_key]
+    if (!now || !table || !sameValue(current, row.to_value)) return 'changed'
+    const applied = await (deps.apply ?? applyOps)(
+      supabase,
+      scope.workspaceId,
+      tableId,
+      { baseVersion: Number((table as { version: number }).version), ops: [{ op: 'update_row', row_id: row.record_id, values: { [row.field_key]: (row.from_value ?? null) as CustomFieldValue } }] },
+      { userId: scope.userId, asUserId: scope.userId, source: 'person' },
+    )
+    if (applied.ok) return 'reverted'
+    if (applied.reason === 'conflict') continue
+    return applied.reason === 'forbidden' ? 'forbidden' : applied.reason === 'invalid' ? 'changed' : 'failed'
+  }
+  return 'failed'
 }
 
 /** Where Undo puts a to-do: its state before, while it is still its team's; else the team's default. */

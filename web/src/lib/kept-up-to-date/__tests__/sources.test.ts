@@ -1,15 +1,15 @@
 /**
  * The three sources (sources.ts), each one item for the same engine. Pinned:
  *   • mail: conversations count; never a newsletter, a trust-marked thread,
- *     one outside the inbox or the archive, or the person's own message; its
- *     people are the latest message's sender and recipients (not the
- *     person), the sender's work domain; to-dos only from a known contact's
+ *     one outside the inbox or the archive, the person's own message, or one
+ *     with no deal word, date or amount; its people come from the sender
+ *     alone (a Cc never steers); linked to-dos only from a known contact's
  *     mail that is not a confirmation; the quoted reply never judged;
  *   • meetings: the owner's, never a demo or an eval one; its people are the
  *     participants but the owner; the transcript's change lines; the
  *     meeting's pending proposals' to-dos left alone;
- *   • texts: a guest's own texts in their thread, their CRM contact; nobody
- *     known, nothing.
+ *   • texts: a guest's own texts in their thread, their CRM contact, linked
+ *     to-dos only; nobody known, or nothing that could state a change, nothing.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { makeFakeSupabase, type FakeSupabase } from '@/lib/work/__tests__/fake-supabase'
@@ -40,17 +40,26 @@ describe('mail', () => {
   it('a conversation from a known contact: its people, its own words, to-dos too', async () => {
     const people = vi.fn(async () => DANA)
     const item = await mailKeptItem(makeFakeSupabase() as never, SCOPE, args(), { people })
-    expect(people).toHaveBeenCalledWith(expect.anything(), WS, { emails: ['dana@acme.example', 'lee@acme.example'], domains: ['acme.example'] })
+    expect(people).toHaveBeenCalledWith(expect.anything(), WS, { emails: ['dana@acme.example'], domains: ['acme.example'] })
     expect(item).toMatchObject({
       source: 'email', ref: 't1:m2', label: 'acme.example', atIso: '2026-11-10T15:00:00.000Z',
       header: { kind: 'email', from: 'Dana Reyes <dana@acme.example>', subject: 'Re: renewal' },
-      text: 'We signed the renewal this morning.\n', people: DANA, tasks: true,
+      text: 'We signed the renewal this morning.\n', people: DANA, tasks: 'linked',
     })
     expect(item!.context).toContain('Any news?')
   })
 
   it('a confirmation keeps rows only (to-dos stay with the closer); a stranger’s conversation closes no to-do; a free-mail domain is no company', async () => {
     expect((await mailKeptItem(makeFakeSupabase() as never, SCOPE, args({ kind: 'receipt_or_bill' }), { people: async () => DANA }))!.tasks).toBe(false)
+    // A stranger who Cc's a customer: only the stranger counts, so nobody, and nothing changes.
+    const fromStranger = vi.fn(async (_db: unknown, _ws: string, who: { emails?: readonly string[] }) => (who.emails?.includes('dana@acme.example') ? DANA : NOBODY))
+    const steered = await mailKeptItem(makeFakeSupabase() as never, SCOPE, args({ messages: [message({ from: 'Pat Doe <pat@elsewhere.example>', to: ME, cc: 'dana@acme.example' })] }), { people: fromStranger })
+    expect(fromStranger.mock.calls[0][2]).toEqual({ emails: ['pat@elsewhere.example'], domains: ['elsewhere.example'] })
+    expect(steered).toMatchObject({ people: NOBODY, tasks: false })
+    const decide = vi.fn()
+    const pass = mailKeptPass(makeFakeSupabase() as never, { ...SCOPE, now: 'x' }, { people: fromStranger, homeThread: async () => 'home', decide })
+    expect(await pass.consider({ ...args({ messages: [message({ from: 'Pat Doe <pat@elsewhere.example>', to: ME, cc: 'dana@acme.example' })] }), runId: 'i9' })).toBe('skipped')
+    expect(decide).not.toHaveBeenCalled()
     expect((await mailKeptItem(makeFakeSupabase() as never, SCOPE, args(), { people: async () => NOBODY }))!.tasks).toBe(false)
     const people = vi.fn(async (..._args: unknown[]) => NOBODY)
     await mailKeptItem(makeFakeSupabase() as never, SCOPE, args({ messages: [message({ from: 'Robin <robin@gmail.com>', cc: '' })] }), { people })
@@ -65,6 +74,8 @@ describe('mail', () => {
     expect(await mailKeptItem(db, SCOPE, args({ trust: 'suspicious' }), { people })).toBeNull()
     expect(await mailKeptItem(db, SCOPE, args({ folder: 'spam' }), { people })).toBeNull()
     expect(await mailKeptItem(db, SCOPE, args({ messages: [message({ from: `Sam Lee <${ME}>` })] }), { people })).toBeNull()
+    // Nothing that could state a change: no read at all.
+    expect(await mailKeptItem(db, SCOPE, args({ messages: [message({ bodyText: 'Thanks, talk soon!' })] }), { people })).toBeNull()
     expect(people).not.toHaveBeenCalled()
   })
 
@@ -102,14 +113,14 @@ describe('meetings', () => {
     ])
   }
 
-  it('the owner’s records, from the participants but the owner, its pending proposals’ to-dos left alone', async () => {
+  it('the owner’s records, from the participants but the owner, any of the owner’s to-dos', async () => {
     const db = makeFakeSupabase()
     seedCapture(db)
     const people = vi.fn(async () => DANA)
     let seen: KeptSourceItem | undefined
     const decide = vi.fn()
     await keptFromCapture(db as never, { workspaceId: WS, captureId: 'cap-1' }, {
-      people, now: async () => 'Tuesday', decide,
+      people, clock: async () => ({ now: 'Tuesday', timeZone: 'UTC' }), decide,
       homeThread: async (_db, scope) => (scope.userId === 'u' ? 'home' : null),
       readRows: async (_db, _scope, _people, _at) => [],
       readTodos: async () => [],
@@ -120,8 +131,8 @@ describe('meetings', () => {
     })
     expect(people).toHaveBeenCalledWith(expect.anything(), WS, { contactIds: ['c-dana'], emails: ['lee@acme.example'] })
     expect(seen).toMatchObject({
-      source: 'capture', ref: 'cap-1', label: null, atIso: '2026-11-10T15:00:00.000Z', tasks: true,
-      text: 'Dana Reyes: We signed the renewal.\nSam: Great news.', skipActionIds: ['a-carded'],
+      source: 'capture', ref: 'cap-1', label: null, atIso: '2026-11-10T15:00:00.000Z', tasks: 'all',
+      text: 'Dana Reyes: We signed the renewal.\nSam: Great news.',
       header: { kind: 'meeting', subject: 'Acme renewal call' },
     })
     expect(seen!.context).toContain('Acme signed.')
@@ -132,12 +143,12 @@ describe('meetings', () => {
       const db = makeFakeSupabase()
       seedCapture(db, over)
       const sourceDone = vi.fn(async () => false)
-      expect(await keptFromCapture(db as never, { workspaceId: WS, captureId: 'cap-1' }, { people: async () => DANA, now: async () => 'x', sourceDone })).toBe('skipped')
+      expect(await keptFromCapture(db as never, { workspaceId: WS, captureId: 'cap-1' }, { people: async () => DANA, clock: async () => ({ now: 'x', timeZone: 'UTC' }), sourceDone })).toBe('skipped')
       expect(sourceDone).not.toHaveBeenCalled()
     }
     const db = makeFakeSupabase()
     seedCapture(db)
-    expect(await keptFromCapture(db as never, { workspaceId: 'other', captureId: 'cap-1' }, { people: async () => DANA, now: async () => 'x' })).toBe('skipped')
+    expect(await keptFromCapture(db as never, { workspaceId: 'other', captureId: 'cap-1' }, { people: async () => DANA, clock: async () => ({ now: 'x', timeZone: 'UTC' }) })).toBe('skipped')
   })
 })
 
@@ -161,11 +172,11 @@ describe('texts', () => {
     const people = vi.fn(async () => DANA)
     let seen: KeptSourceItem | undefined
     await keptFromTexts(db as never, { workspaceId: WS, userId: 'u', conversationId: 'gthread', guestId: 'g1', messageIds: ['sms:SM2', 'sms:SM1', 'reply'] }, {
-      guest: async () => guest(), people, now: async () => 'x', homeThread: async () => 'home', readRows: async () => [], readTodos: async () => [],
+      guest: async () => guest(), people, clock: async () => ({ now: 'x', timeZone: 'UTC' }), homeThread: async () => 'home', readRows: async () => [], readTodos: async () => [],
       sourceDone: async (_db, _s, item) => ((seen = item as KeptSourceItem), false),
     })
     expect(people).toHaveBeenCalledWith(expect.anything(), WS, { contactIds: ['c-robin'] })
-    expect(seen).toMatchObject({ source: 'sms', ref: 'sms:SM2', atIso: '2026-11-10T15:00:05.000Z', text: 'We just signed the onboarding agreement!\nSee you Monday.', header: { kind: 'text', from: 'Robin Okafor' }, tasks: true })
+    expect(seen).toMatchObject({ source: 'sms', ref: 'sms:SM2', atIso: '2026-11-10T15:00:05.000Z', text: 'We just signed the onboarding agreement!\nSee you Monday.', header: { kind: 'text', from: 'Robin Okafor' }, tasks: 'linked' })
   })
 
   it('no contact on the guest: found by their number; nobody known, or another workspace’s guest, nothing', async () => {
@@ -175,13 +186,18 @@ describe('texts', () => {
     const people = vi.fn(async (_db: unknown, _ws: string, who: { contactIds?: readonly string[] }) => (who.contactIds?.length ? DANA : NOBODY))
     const sourceDone = vi.fn(async () => false)
     const base = { workspaceId: WS, userId: 'u', conversationId: 'gthread', guestId: 'g1', messageIds: ['sms:SM1'] }
-    await keptFromTexts(db as never, base, { guest: async () => guest({ contactId: null }), contactByPhone, people, now: async () => 'x', homeThread: async () => 'home', readRows: async () => [], sourceDone })
+    await keptFromTexts(db as never, base, { guest: async () => guest({ contactId: null }), contactByPhone, people, clock: async () => ({ now: 'x', timeZone: 'UTC' }), homeThread: async () => 'home', readRows: async () => [], sourceDone })
     expect(contactByPhone).toHaveBeenCalledWith(expect.anything(), WS, '+15555550123')
     expect(people).toHaveBeenCalledWith(expect.anything(), WS, { contactIds: ['c-found'] })
     sourceDone.mockClear()
-    expect(await keptFromTexts(db as never, base, { guest: async () => guest({ contactId: null }), contactByPhone: async () => null, people, now: async () => 'x', sourceDone })).toBe('skipped')
-    expect(await keptFromTexts(db as never, base, { guest: async () => guest({ workspaceId: 'other' }), people, now: async () => 'x', sourceDone })).toBe('skipped')
-    expect(await keptFromTexts(db as never, { ...base, messageIds: [] }, { guest: async () => guest(), people, now: async () => 'x', sourceDone })).toBe('skipped')
+    expect(await keptFromTexts(db as never, base, { guest: async () => guest({ contactId: null }), contactByPhone: async () => null, people, clock: async () => ({ now: 'x', timeZone: 'UTC' }), sourceDone })).toBe('skipped')
+    expect(await keptFromTexts(db as never, base, { guest: async () => guest({ workspaceId: 'other' }), people, clock: async () => ({ now: 'x', timeZone: 'UTC' }), sourceDone })).toBe('skipped')
+    expect(await keptFromTexts(db as never, { ...base, messageIds: [] }, { guest: async () => guest(), people, clock: async () => ({ now: 'x', timeZone: 'UTC' }), sourceDone })).toBe('skipped')
+    // A text with nothing that could state a change: no read of the people.
+    people.mockClear()
+    db.seed('chat_messages', [{ id: 9, conversation_id: 'gthread', user_id: 'u', created_at: '2026-11-10T16:00:00.000Z', ui_message: { id: 'sms:SM9', role: 'user', parts: [{ type: 'text', text: 'Thanks so much!' }] } }])
+    expect(await keptFromTexts(db as never, { ...base, messageIds: ['sms:SM9'] }, { guest: async () => guest(), people, clock: async () => ({ now: 'x', timeZone: 'UTC' }), sourceDone })).toBe('skipped')
+    expect(people).not.toHaveBeenCalled()
     expect(sourceDone).not.toHaveBeenCalled()
   })
 })

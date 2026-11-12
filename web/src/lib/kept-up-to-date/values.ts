@@ -4,11 +4,18 @@
  * written in them. The decision only ever picks among these, so a date or a
  * number it sets is one the source says, never one it made up.
  *
- *   - Sentences: an email body's own lines (the quoted reply under "On … wrote:"
- *     and lines starting with ">" left out), split at sentence ends.
- *   - Dates: chrono-node over each sentence, read from the source's own date
- *     ("Friday" is the Friday after the message). A month alone ("push it to
- *     March") is that month's last day: a close date in March is one by its end.
+ *   - Sentences: an email body's own lines (the quoted reply under "On … wrote:",
+ *     lines starting with ">", and the signature from "-- " or "Sent from my"
+ *     left out, as are lines with no letters: a phone, an address number),
+ *     split at sentence ends.
+ *   - Dates: chrono-node over each sentence, from the source's own date in
+ *     the person's time zone. A date with no year written is this year's,
+ *     moved to next year only when that is more than four weeks past and the
+ *     sentence is not in the past tense ("push it to March" in November is
+ *     next March; "we signed on November 3" is this November 3); a past-tense
+ *     one is never after the message. A weekday alone is the next one, or
+ *     the last one in the past tense. A month alone is that month's last day:
+ *     a close date in March is one by its end.
  *   - Amounts: a currency sign or code beside a number ("$48,000", "45k USD",
  *     "€1.2m"), and plain numbers for number columns ("25 seats").
  *
@@ -33,6 +40,10 @@ export function ownText(body: string): string {
   for (let i = 0; i < lines.length; i++) {
     const t = lines[i].trim()
     if (/^On .{4,200}wrote:$/i.test(t) || /^-{2,}\s*Original Message\s*-{2,}$/i.test(t)) break
+    // The signature: "-- " (the standard marker), or a phone's "Sent from my …".
+    if (/^--\s*$/.test(t) || /^Sent from my\b/i.test(t)) break
+    // A line with no letters (a phone number, a street number) states no change.
+    if (t && !/\p{L}/u.test(t)) continue
     // Outlook's quoted header: a "From:" line after a blank one.
     if (out.length > 0 && /^From: .+/.test(t) && !(lines[i - 1] ?? '').trim()) break
     if (t.startsWith('>')) continue
@@ -67,26 +78,79 @@ export interface FoundDate {
 const pad = (n: number) => String(n).padStart(2, '0')
 const lastDay = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate()
 
-/** The dates the sentences name, from `refIso` (the source's own date), at most `max`, each once. */
-export function datesIn(sentences: readonly string[], refIso: string | null, max = MAX_DATES): FoundDate[] {
+/** A zone's offset from UTC in minutes at `at` (New York in November: -300). UTC for an unknown zone. */
+export function zoneOffsetMinutes(timeZone: string | undefined, at: Date): number {
+  if (!timeZone) return 0
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(at)
+    const get = (type: string) => Number(parts.find((p) => p.type === type)?.value)
+    const local = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'))
+    return Number.isFinite(local) ? Math.round((local - at.getTime()) / 60_000) : 0
+  } catch {
+    return 0
+  }
+}
+
+/** A sentence about what already happened: its dates are never after the message. */
+const PAST = /\b(signed|closed|was|were|did|had|went|sent|paid|met|started|ended|agreed|finished|completed|received|delivered|happened|yesterday|ago|last)\b/i
+const DAY_MS = 86_400_000
+/** A date with no year more than this far past is next year's (unless said in the past tense). */
+const STALE_DAYS = 28
+
+const dayNumber = (y: number, m: number, d: number) => Math.floor(Date.UTC(y, m - 1, d) / DAY_MS)
+const fromDayNumber = (n: number) => {
+  const t = new Date(n * DAY_MS)
+  return { y: t.getUTCFullYear(), m: t.getUTCMonth() + 1, d: t.getUTCDate() }
+}
+
+/**
+ * The dates the sentences name, from `refIso` (the source's own date) in the
+ * person's `timeZone`, at most `max`, each once (see the header).
+ */
+export function datesIn(sentences: readonly string[], refIso: string | null, opts: { timeZone?: string; max?: number } = {}): FoundDate[] {
+  const max = opts.max ?? MAX_DATES
   const ref = refIso && Number.isFinite(Date.parse(refIso)) ? new Date(refIso) : new Date()
+  const offset = zoneOffsetMinutes(opts.timeZone, ref)
+  // The message's own day, in the person's zone.
+  const today = Math.floor((ref.getTime() + offset * 60_000) / DAY_MS)
   const out: FoundDate[] = []
   sentences.forEach((sentence, i) => {
     let results: chrono.ParsedResult[] = []
     try {
-      results = chrono.parse(sentence, ref, { forwardDate: true })
+      results = chrono.parse(sentence, { instant: ref, timezone: offset })
     } catch {
       results = []
     }
+    const past = PAST.test(sentence)
     for (const r of results) {
       const c = r.start
       // A time alone ("at 3pm") is no date.
       if (!c.isCertain('day') && !c.isCertain('month') && !c.isCertain('weekday')) continue
-      const y = c.get('year')
+      let y = c.get('year')
       const m = c.get('month')
       let d = c.get('day')
       if (!y || !m || !d) continue
-      if (!c.isCertain('day') && !c.isCertain('weekday')) d = lastDay(y, m)
+      if (!c.isCertain('day') && !c.isCertain('month') && c.isCertain('weekday')) {
+        // A weekday alone: the next one, or (past tense) the last one.
+        let n = dayNumber(y, m, d)
+        if (!past && n < today) n += 7
+        if (past && n > today) n -= 7
+        const at = fromDayNumber(n)
+        const value = `${at.y}-${pad(at.m)}-${pad(at.d)}`
+        if (out.some((x) => x.value === value)) continue
+        out.push({ value, phrase: r.text.trim().slice(0, 80), sentence: i })
+        if (out.length >= max) return
+        continue
+      }
+      if (!c.isCertain('year')) {
+        // This year's, unless it is long past (next year's) or said in the past tense (never after the message).
+        y = fromDayNumber(today).y
+        const said = d
+        const dayOf = (year: number) => dayNumber(year, m, c.isCertain('day') ? said : lastDay(year, m))
+        if (past && dayOf(y) > today) y -= 1
+        else if (!past && dayOf(y) < today - STALE_DAYS) y += 1
+      }
+      if (!c.isCertain('day')) d = lastDay(y, m)
       const value = `${y}-${pad(m)}-${pad(d)}`
       if (out.some((x) => x.value === value)) continue
       out.push({ value, phrase: r.text.trim().slice(0, 80), sentence: i })

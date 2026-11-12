@@ -17,6 +17,12 @@ describe('ownText and sentencesOf', () => {
     expect(ownText('Done.\n\nFrom: Sam Lee\nSent: Tuesday')).toBe('Done.\n')
   })
 
+  it('cuts the signature and lines with no letters', () => {
+    expect(ownText('We can do $48,000.\n-- \nDana Reyes\n+1 555 0142')).toBe('We can do $48,000.')
+    expect(ownText('All signed.\nSent from my phone\n25')).toBe('All signed.')
+    expect(ownText('Deal is done.\n555-0142\nThanks')).toBe('Deal is done.\nThanks')
+  })
+
   it('splits lines at sentence ends, clipped, empty ones gone', () => {
     expect(sentencesOf('Good news. We signed the renewal!\n\nCan we push it to March?  ')).toEqual(['Good news.', 'We signed the renewal!', 'Can we push it to March?'])
     expect(sentencesOf('One. Two. Three. Four.', 2)).toEqual(['One.', 'Two.'])
@@ -31,10 +37,33 @@ describe('datesIn', () => {
     expect(found[0]).toMatchObject({ phrase: 'March', sentence: 0 })
   })
 
+  it('in the person’s zone: "tomorrow" at 10 PM in New York is New York’s tomorrow, not UTC’s', () => {
+    const late = '2026-11-12T03:00:00.000Z' // Wed Nov 11, 10 PM in New York
+    expect(datesIn(['Tomorrow works.'], late, { timeZone: 'America/New_York' }).map((d) => d.value)).toEqual(['2026-11-12'])
+    expect(datesIn(['Tomorrow works.'], late, { timeZone: 'UTC' }).map((d) => d.value)).toEqual(['2026-11-13'])
+    expect(datesIn(['Signing Friday.'], late, { timeZone: 'America/New_York' }).map((d) => d.value)).toEqual(['2026-11-13'])
+  })
+
+  it('no year written: this year, next year only when long past and not in the past tense', () => {
+    expect(datesIn(['We signed on November 3.'], REF).map((d) => d.value)).toEqual(['2026-11-03'])
+    expect(datesIn(['Kickoff is Jan 5.'], REF).map((d) => d.value)).toEqual(['2027-01-05'])
+    expect(datesIn(['We signed on Jan 5.'], REF).map((d) => d.value)).toEqual(['2026-01-05'])
+    // Past tense is never after the message.
+    expect(datesIn(['We closed it on December 20.'], REF).map((d) => d.value)).toEqual(['2025-12-20'])
+    // Within four weeks back stays.
+    expect(datesIn(['Can we keep October 30?'], REF).map((d) => d.value)).toEqual(['2026-10-30'])
+  })
+
+  it('a weekday alone: the next one, or the last one in the past tense', () => {
+    const saturday = '2026-11-14T15:00:00.000Z'
+    expect(datesIn(['Signing Friday.'], saturday, { timeZone: 'America/New_York' }).map((d) => d.value)).toEqual(['2026-11-20'])
+    expect(datesIn(['We signed Monday.'], REF, { timeZone: 'America/New_York' }).map((d) => d.value)).toEqual(['2026-11-09'])
+  })
+
   it('a time alone is no date; each date once; at most max', () => {
     expect(datesIn(['Call at 3pm?'], REF)).toEqual([])
     expect(datesIn(['March.', 'In March then.'], REF)).toHaveLength(1)
-    expect(datesIn(['Jan 5.', 'Feb 6.', 'Mar 7.'], REF, 2)).toHaveLength(2)
+    expect(datesIn(['Jan 5.', 'Feb 6.', 'Mar 7.'], REF, { max: 2 })).toHaveLength(2)
   })
 })
 

@@ -7,23 +7,28 @@
  *     (../email/action-done-from-mail.ts). Conversations count, not only
  *     automated mail: a deal's signals come from people. Never a newsletter,
  *     a thread with a trust mark, or one outside the inbox and the archive,
- *     and never the person's own message. Its people: the latest message's
- *     sender and recipients (the person's own addresses left out) as CRM
- *     contacts, their companies, and the companies at the senders' work
- *     domains. To-dos only from a known contact's mail that is not a
+ *     and never the person's own message. Its people come from the SENDER
+ *     only (their CRM contact and its company, and the company at their work
+ *     domain): someone who Cc's a customer can't steer the customer's
+ *     records. To-dos only from a known contact's mail that is not a
  *     confirmation (confirmations stay with the to-do closer, measured for
- *     them), and nothing when the closer already closed one from this thread.
+ *     them), and only to-dos linked to the sender's contact or company; nothing
+ *     when the closer already closed one from this thread.
  *   - Meetings (keptFromCapture): after the capture's batch extraction, on
  *     its `flow/capture.processed` event (../inngest/kept-up-to-date.ts), the
  *     same event the owner's log line and the knowledge pass read. Its people:
  *     the capture's participants other than the owner. Its words: the
  *     transcript's lines that could state a change (a date, an amount, a
- *     deal word), the summary as context. To-dos too, but never one the
- *     meeting's own pending proposals name (the card decides those).
+ *     deal word), the summary as context. Any of the owner's to-dos (the
+ *     engine leaves out a record a pending proposal names: its card decides).
  *   - Texts (keptFromTexts): after a customer's or a guest's text turn
  *     (../inngest/text-turn.ts), the texts that turn carried. Its people:
- *     their CRM contact. The person's own texts are not a source: their own
- *     agent turn reads them and has the table tools.
+ *     their CRM contact; to-dos only those linked to it. The person's own
+ *     texts are not a source: their own agent turn reads them and has the
+ *     table tools.
+ *
+ * Mail and texts pass a cheap check first, before any read or model call:
+ * a sentence with a deal word, a date or an amount (mayStateChange).
  *
  * Never throws.
  */
@@ -75,13 +80,13 @@ export async function mailKeptItem(supabase: SupabaseClient, scope: KeptScope & 
     const from = latest ? mailboxAddresses(latest.from)[0] : undefined
     if (!latest || !from || own.has(from)) return null
     const text = ownText(latest.bodyText ?? '').slice(0, BODY_MAX)
-    if (!sentencesOf(text).length) return null
-    const ownDomains = new Set([...own].map(domainOf))
-    const addresses = [...new Set([from, ...mailboxAddresses(latest.to), ...mailboxAddresses(latest.cc || '')])].filter((a) => !own.has(a))
-    const domains = [domainOf(from)].filter((d) => !ownDomains.has(d) && !isFreeEmailDomain(`x@${d}`))
-    const people = await (deps.people ?? peopleFor)(supabase, scope.workspaceId, { emails: addresses, domains })
-    const earlier = sent.at(-2)
     const at = latest.dateISO ?? latest.date
+    if (!mayStateChange(sentencesOf(text), at)) return null
+    const ownDomains = new Set([...own].map(domainOf))
+    // The sender alone: recipients never decide whose records it is about.
+    const domains = [domainOf(from)].filter((d) => !ownDomains.has(d) && !isFreeEmailDomain(`x@${d}`))
+    const people = await (deps.people ?? peopleFor)(supabase, scope.workspaceId, { emails: [from], domains })
+    const earlier = sent.at(-2)
     return {
       source: 'email',
       ref: `${args.threadId}:${args.messageId}`,
@@ -92,7 +97,7 @@ export async function mailKeptItem(supabase: SupabaseClient, scope: KeptScope & 
       text,
       people,
       // Confirmations close to-dos through the closer; a stranger's conversation closes none.
-      tasks: !DONE_EVIDENCE_KINDS.has(args.kind) && people.contactIds.length > 0,
+      tasks: !DONE_EVIDENCE_KINDS.has(args.kind) && people.contactIds.length > 0 ? 'linked' : false,
     }
   } catch (err) {
     console.warn('[kept-up-to-date] mail not read:', err instanceof Error ? err.message : String(err))
@@ -108,7 +113,7 @@ export interface MailKeptPass {
 /** One arrival pass's keeper over its threads. */
 export function mailKeptPass(
   supabase: SupabaseClient,
-  scope: KeptScope & { mailbox: string; now: string },
+  scope: KeptScope & { mailbox: string; now: string; timeZone?: string },
   deps: KeptPassDeps & { people?: typeof peopleFor } = {},
 ): MailKeptPass {
   const pass = keptPass(supabase, scope, deps)
@@ -124,24 +129,30 @@ export function mailKeptPass(
 // ── Meetings ───────────────────────────────────────────────────────────────
 
 /** Lines of a transcript that could state a change. */
-const DEAL_WORDS = /\b(sign|signed|signing|signature|contract|countersign|close|closed|closing|won|lost|went with|go ahead|going ahead|moving forward|move forward|push|pushed|postpone|delay|reschedule|budget|price|pricing|quote|approved|approve|decided|decision|cancel|cancelled|canceled|paid|invoice|renew|renewal|deadline|start date|deposit|purchase order|PO|done|finished|sent)\b/i
+const DEAL_WORDS = /\b(sign|signed|signing|signature|contract|countersign|close|closed|closing|won|lost|went with|go ahead|going ahead|moving forward|move forward|push|pushed|postpone|delay|reschedule|budget|price|pricing|quote|approved|approve|decided|decision|cancel|cancelled|canceled|paid|invoice|renew|renewal|deadline|start date|deposit|purchase order|PO|done|finished|sent|booked|ordered|scheduled|confirmed|delivered|received|completed|shipped|agreed|accepted|declined|rejected)\b/i
 const TRANSCRIPT_LINES = 40
+
+/** Whether any of these lines could state a change: a deal word, an amount or a date. Pure. */
+export function mayStateChange(lines: readonly string[], atIso: string | null): boolean {
+  return lines.some((l) => DEAL_WORDS.test(l) || amountsIn([l]).length > 0 || datesIn([l], atIso, { max: 1 }).length > 0)
+}
 
 /** The transcript's lines a change could be in, in order, at most TRANSCRIPT_LINES. Pure. */
 export function meetingLines(transcript: string, atIso: string | null): string[] {
   const lines = transcript.replace(/\r\n?/g, '\n').split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean)
   if (lines.length <= TRANSCRIPT_LINES) return lines
-  return lines.filter((l) => DEAL_WORDS.test(l) || amountsIn([l]).length > 0 || datesIn([l], atIso, 1).length > 0).slice(0, TRANSCRIPT_LINES)
+  return lines.filter((l) => mayStateChange([l], atIso)).slice(0, TRANSCRIPT_LINES)
 }
 
 export interface CaptureKeptDeps extends KeptPassDeps {
   people?: typeof peopleFor
-  now?: (supabase: SupabaseClient, scope: KeptScope) => Promise<string>
+  /** "Now" in the person's words, and their time zone (dates are read in it). */
+  clock?: (supabase: SupabaseClient, scope: KeptScope) => Promise<{ now: string; timeZone: string }>
 }
 
-async function nowLabel(supabase: SupabaseClient, scope: KeptScope, nowMs: number): Promise<string> {
-  const zone = await readMemberTimeZone(supabase, scope).then((z) => z.timeZone).catch(() => 'UTC')
-  return draftNowLabel({ nowMs, timeZone: zone })
+async function personClock(supabase: SupabaseClient, scope: KeptScope, nowMs: number): Promise<{ now: string; timeZone: string }> {
+  const timeZone = await readMemberTimeZone(supabase, scope).then((z) => z.timeZone).catch(() => 'UTC')
+  return { now: draftNowLabel({ nowMs, timeZone }), timeZone }
 }
 
 /**
@@ -167,10 +178,7 @@ export async function keptFromCapture(supabase: SupabaseClient, args: { workspac
     if (!text) return 'skipped'
     const scope = { workspaceId: args.workspaceId, userId: capture.user_id }
 
-    const [{ data: participants }, { data: pending }] = await Promise.all([
-      supabase.from('capture_participant').select('contact_id, external_email, is_self, member_id').eq('capture_id', capture.id),
-      supabase.from('proposed_change').select('entity_id').eq('capture_id', capture.id).eq('status', 'pending').eq('entity_type', 'action'),
-    ])
+    const { data: participants } = await supabase.from('capture_participant').select('contact_id, external_email, is_self, member_id').eq('capture_id', capture.id)
     const others = ((participants ?? []) as Array<{ contact_id: string | null; external_email: string | null; is_self: boolean | null; member_id: string | null }>).filter((p) => !p.is_self && !p.member_id)
     const people: KeptPeople = await (deps.people ?? peopleFor)(supabase, args.workspaceId, {
       contactIds: others.map((p) => p.contact_id).filter((id): id is string => !!id),
@@ -185,11 +193,10 @@ export async function keptFromCapture(supabase: SupabaseClient, args: { workspac
       ...(capture.ai_summary ? { context: `The meeting's summary: ${capture.ai_summary.replace(/\s+/g, ' ').trim()}`.slice(0, 3_000) } : {}),
       text,
       people,
-      tasks: true,
-      skipActionIds: ((pending ?? []) as Array<{ entity_id: string | null }>).map((p) => p.entity_id).filter((id): id is string => !!id),
+      tasks: 'all',
     }
-    const now = await (deps.now ?? ((db, s) => nowLabel(db, s, deps.nowMs ?? Date.now())))(supabase, scope)
-    return await keptPass(supabase, { ...scope, now }, deps).consider(item, capture.id)
+    const clock = await (deps.clock ?? ((db, s) => personClock(db, s, deps.nowMs ?? Date.now())))(supabase, scope)
+    return await keptPass(supabase, { ...scope, ...clock }, deps).consider(item, capture.id)
   } catch (err) {
     console.warn('[kept-up-to-date] meeting skipped:', err instanceof Error ? err.message : String(err))
     return 'skipped'
@@ -233,6 +240,8 @@ export async function keptFromTexts(
       .filter((t) => t.trim())
     const last = rows.at(-1)
     if (!texts.length || !last) return 'skipped'
+    const text = ownText(texts.join('\n'))
+    if (!mayStateChange(sentencesOf(text), last.created_at)) return 'skipped'
 
     let contactId = guest.contactId
     if (!contactId && guest.phone) {
@@ -247,13 +256,13 @@ export async function keptFromTexts(
       label: null,
       atIso,
       header: { kind: 'text', from: guest.displayName.slice(0, 500), ...(atIso ? { date: atIso.slice(0, 100) } : {}) },
-      text: texts.join('\n'),
+      text,
       people,
-      tasks: true,
+      tasks: 'linked',
     }
     const scope = { workspaceId: args.workspaceId, userId: args.userId }
-    const now = await (deps.now ?? ((db, s) => nowLabel(db, s, deps.nowMs ?? Date.now())))(supabase, scope)
-    return await keptPass(supabase, { ...scope, now }, deps).consider(item, item.ref.slice(0, 200))
+    const clock = await (deps.clock ?? ((db, s) => personClock(db, s, deps.nowMs ?? Date.now())))(supabase, scope)
+    return await keptPass(supabase, { ...scope, ...clock }, deps).consider(item, item.ref.slice(0, 200))
   } catch (err) {
     console.warn('[kept-up-to-date] texts skipped:', err instanceof Error ? err.message : String(err))
     return 'skipped'

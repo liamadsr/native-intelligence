@@ -174,7 +174,7 @@ describe('understandArrivals', () => {
     const kept = vi.fn(() => ({ consider: keep, changed: () => 1 }))
     const none = vi.fn(async () => 'none' as const)
     expect(await run(['t1'], { mailDone: () => ({ consider: none, closed: () => 0 }), kept })).toEqual({ understood: 1, recorded: 1, kept: 1 })
-    expect(kept).toHaveBeenCalledWith(db, { workspaceId: 'ws', userId: 'u', mailbox: ME, now: '10:00 AM EDT on Tuesday, October 20, 2026' })
+    expect(kept).toHaveBeenCalledWith(db, { workspaceId: 'ws', userId: 'u', mailbox: ME, now: '10:00 AM EDT on Tuesday, October 20, 2026', timeZone: 'America/New_York' })
     expect(keep).toHaveBeenCalledWith({ kind: 'meeting', trust: null, folder: 'inbox', threadId: 't1', messageId: 'm1', messages: threads.t1!.messages, runId: 'i1' })
     keep.mockClear()
     await run(['t1'], { mailDone: () => ({ consider: vi.fn(async () => 'closed' as const), closed: () => 1 }), kept })
