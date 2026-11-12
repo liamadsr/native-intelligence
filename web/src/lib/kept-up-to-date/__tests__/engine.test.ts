@@ -10,7 +10,7 @@
  *     closed before;
  *   • apply: the record row first (one change per source and record: a retry
  *     changes nothing twice), the batch as the person's agent with source
- *     and a reason quoting the sentence, only while the row holds what was
+ *     and a reason naming only where from (no words, sender or domain), only while the row holds what was
  *     read; a required-when refusal is no change and the row goes; one
  *     message in the home thread and one log line;
  *   • the pass: nothing without a home thread, a source that changed
@@ -227,15 +227,18 @@ describe('applyKeptChange', () => {
     won = { id: 'c2', kind: 'row_set', record: 0, row, key: 'stage', label: 'Stage', type: 'select', from: 'Proposal', to: 'Won' }
   })
 
-  it('records it, applies one batch as the person’s agent with a reason quoting the sentence, then one message and one log line', async () => {
+  it('records it, applies one batch as the person’s agent with a reason naming only where from, then one message and one log line', async () => {
     const apply = applied()
     const writeMessage = vi.fn(async (..._args: unknown[]) => true)
     const appendLog = vi.fn(async () => true)
     const result = await applyKeptChange(db as never, { ...SCOPE, conversationId: 'home', item: item(), change: won, evidence: 'We signed the renewal this morning.' }, { apply, writeMessage, appendLog })
     expect(result).toMatchObject({ status: 'changed' })
     expect(apply).toHaveBeenCalledWith(db, WS, 't-pipe', { baseVersion: 7, ops: [{ op: 'update_row', row_id: 'r-acme', values: { stage: 'Won' } }] }, {
-      userId: 'u', asUserId: 'u', source: 'email', reason: 'Kept up to date from an email from acme.example: “We signed the renewal this morning.”',
+      userId: 'u', asUserId: 'u', source: 'email', reason: 'Kept up to date from an email',
     })
+    // The table's history carries none of the mail: no words, no sender, no domain.
+    const reason = (apply.mock.calls[0] as unknown[])[4] as { reason: string }
+    for (const word of ['signed', 'renewal', 'acme', 'Dana', '“']) expect(reason.reason).not.toContain(word)
     const kept = db.rows('kept_change')
     expect(kept).toHaveLength(1)
     expect(kept[0]).toMatchObject({ source: 'email', source_ref: 'thread-1:msg-1', source_label: 'acme.example', record_type: 'data_row', record_id: 'r-acme', table_id: 't-pipe', field_key: 'stage', from_value: 'Proposal', to_value: 'Won', data_change_id: 'chg-1', evidence: 'We signed the renewal this morning.' })
@@ -277,9 +280,10 @@ describe('applyKeptChange', () => {
     expect(db.rows('kept_change')[0].data_change_id).toBe('chg-2')
   })
 
-  it('a private meeting’s sentence is not quoted in the table’s history', () => {
-    expect(keptReason({ source: 'capture', label: null, private: true }, 'We signed.')).toBe('Kept up to date from a private meeting')
-    expect(keptReason({ source: 'sms', label: null }, 'All signed!')).toBe('Kept up to date from a text: “All signed!”')
+  it('no source is quoted in the table’s history: what and where from only', () => {
+    expect(keptReason('email')).toBe('Kept up to date from an email')
+    expect(keptReason('capture')).toBe('Kept up to date from a meeting')
+    expect(keptReason('sms')).toBe('Kept up to date from a text')
   })
 
   it('a to-do: its team’s done state, only while it sits where it was read, a flow fired as an agent’s change', async () => {

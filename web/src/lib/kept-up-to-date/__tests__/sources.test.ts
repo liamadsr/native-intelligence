@@ -7,8 +7,7 @@
  *     mail that is not a confirmation; the quoted reply never judged;
  *   • meetings: the owner's, never a demo or an eval one; its people are the
  *     participants but the owner; the transcript's change lines; the
- *     meeting's pending proposals' to-dos left alone; a private one is not
- *     quoted in a table's history;
+ *     meeting's pending proposals' to-dos left alone;
  *   • texts: a guest's own texts in their thread, their CRM contact; nobody
  *     known, nothing.
  */
@@ -121,14 +120,14 @@ describe('meetings', () => {
     })
     expect(people).toHaveBeenCalledWith(expect.anything(), WS, { contactIds: ['c-dana'], emails: ['lee@acme.example'] })
     expect(seen).toMatchObject({
-      source: 'capture', ref: 'cap-1', label: null, atIso: '2026-11-10T15:00:00.000Z', tasks: true, private: false,
+      source: 'capture', ref: 'cap-1', label: null, atIso: '2026-11-10T15:00:00.000Z', tasks: true,
       text: 'Dana Reyes: We signed the renewal.\nSam: Great news.', skipActionIds: ['a-carded'],
       header: { kind: 'meeting', subject: 'Acme renewal call' },
     })
     expect(seen!.context).toContain('Acme signed.')
   })
 
-  it('never a demo, an eval or an ownerless capture; a private one is marked private', async () => {
+  it('never a demo, an eval or an ownerless capture, nor another workspace’s', async () => {
     for (const over of [{ is_eval: true }, { metadata: { demo: true } }, { user_id: null }, { transcript: '' }]) {
       const db = makeFakeSupabase()
       seedCapture(db, over)
@@ -137,14 +136,7 @@ describe('meetings', () => {
       expect(sourceDone).not.toHaveBeenCalled()
     }
     const db = makeFakeSupabase()
-    seedCapture(db, { visibility: 'private' })
-    let seen: KeptSourceItem | undefined
-    await keptFromCapture(db as never, { workspaceId: WS, captureId: 'cap-1' }, {
-      people: async () => DANA, now: async () => 'x', homeThread: async () => 'home', readRows: async () => [], readTodos: async () => [],
-      sourceDone: async (_db, _s, item) => ((seen = item as KeptSourceItem), false),
-    })
-    expect(seen?.private).toBe(true)
-    // Another workspace's capture is not found.
+    seedCapture(db)
     expect(await keptFromCapture(db as never, { workspaceId: 'other', captureId: 'cap-1' }, { people: async () => DANA, now: async () => 'x' })).toBe('skipped')
   })
 })

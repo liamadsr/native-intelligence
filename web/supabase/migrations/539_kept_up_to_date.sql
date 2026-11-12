@@ -11,7 +11,9 @@
 --
 -- A row's change goes through apply_data_ops with data_change.source
 -- 'email', 'capture' or 'sms' (520's check already takes them) and a reason
--- that quotes the evidence. This file adds the record of each change, and
+-- that says only where it came from (never the source's words: the table's
+-- history is every reader's). The quoted sentence lives here, the person's
+-- own. This file adds the record of each change, and
 -- the log kind.
 --
 -- What lands:

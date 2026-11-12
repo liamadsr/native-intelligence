@@ -153,12 +153,12 @@ export async function keptFromCapture(supabase: SupabaseClient, args: { workspac
   try {
     const { data, error } = await supabase
       .from('captures')
-      .select('id, user_id, title, visibility, started_at, created_at, transcript, ai_summary, is_eval, metadata')
+      .select('id, user_id, title, started_at, created_at, transcript, ai_summary, is_eval, metadata')
       .eq('id', args.captureId)
       .eq('workspace_id', args.workspaceId)
       .maybeSingle()
     const capture = data as {
-      id: string; user_id: string | null; title: string | null; visibility: string | null; started_at: string | null; created_at: string | null
+      id: string; user_id: string | null; title: string | null; started_at: string | null; created_at: string | null
       transcript: string | null; ai_summary: string | null; is_eval?: boolean | null; metadata: { demo?: unknown } | null
     } | null
     if (error || !capture?.user_id || capture.is_eval === true || capture.metadata?.demo === true) return 'skipped'
@@ -187,7 +187,6 @@ export async function keptFromCapture(supabase: SupabaseClient, args: { workspac
       people,
       tasks: true,
       skipActionIds: ((pending ?? []) as Array<{ entity_id: string | null }>).map((p) => p.entity_id).filter((id): id is string => !!id),
-      private: capture.visibility === 'private',
     }
     const now = await (deps.now ?? ((db, s) => nowLabel(db, s, deps.nowMs ?? Date.now())))(supabase, scope)
     return await keptPass(supabase, { ...scope, now }, deps).consider(item, capture.id)

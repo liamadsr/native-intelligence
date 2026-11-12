@@ -32,10 +32,12 @@
  *      while the record still holds what was read (another change in between
  *      wins, and the row goes):
  *      - a row: one applyOps batch as the person's agent, source 'email',
- *        'capture' or 'sms', its reason quoting the sentence (a private
- *        meeting's is not quoted: the table's history is the table's
- *        readers'). A refusal (a required-when rule, a column changed) means
- *        no change, and the row goes;
+ *        'capture' or 'sms', its reason only what and where from ("Kept up to
+ *        date from an email"): never the source's words, sender or domain,
+ *        since the table's history is every reader's and mail is never shown
+ *        to another person (341). The sentence lives only in the person's
+ *        own message and kept_change. A refusal (a required-when rule, a
+ *        column changed) means no change, and the row goes;
  *      - a to-do: its team's done state, as an agent's change for flows.
  *   5. ONE message in the person's home thread with what changed, the
  *      sentence and Undo (./part.ts), and a line in the agent's log.
@@ -130,8 +132,6 @@ export interface KeptSourceItem {
   tasks: boolean
   /** To-dos this source leaves alone (a meeting's own pending proposals). */
   skipActionIds?: readonly string[]
-  /** Private to the person: the table's history does not quote it. */
-  private?: boolean
 }
 
 // ── Who a source involves ──────────────────────────────────────────────────
@@ -533,13 +533,12 @@ function sourcePhrase(source: KeptSourceKind, label: string | null): string {
   return source === 'capture' ? 'a meeting' : 'a text'
 }
 
-/** The batch's reason in the table's history: the source and the sentence (a private one is not quoted). */
-export function keptReason(item: Pick<KeptSourceItem, 'source' | 'label' | 'private'>, evidence: string): string {
-  const from = sourcePhrase(item.source, item.label)
-  const head = `Kept up to date from ${item.private ? `a private meeting` : from}`
-  if (item.private) return head.slice(0, TABLE_LIMITS.reason)
-  const quote = evidence.slice(0, TABLE_LIMITS.reason - head.length - 6)
-  return `${head}: “${quote}”`
+/**
+ * The batch's reason in the table's history, which every reader of the table
+ * sees: what and where from only, never the source's words, sender or domain.
+ */
+export function keptReason(source: KeptSourceKind): string {
+  return `Kept up to date from ${source === 'email' ? 'an email' : source === 'capture' ? 'a meeting' : 'a text'}`.slice(0, TABLE_LIMITS.reason)
 }
 
 // ── Apply ──────────────────────────────────────────────────────────────────
@@ -678,7 +677,7 @@ export async function applyKeptChange(
           scope.workspaceId,
           row.tableId,
           { baseVersion: Number(t.version), ops: [{ op: 'update_row', row_id: row.id, values: { [ch.key]: ch.to } }] },
-          { userId: scope.userId, asUserId: scope.userId, source: args.item.source, reason: keptReason(args.item, evidence) },
+          { userId: scope.userId, asUserId: scope.userId, source: args.item.source, reason: keptReason(args.item.source) },
         )
         if (applied.ok) {
           changeId = applied.value.change_id
