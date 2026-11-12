@@ -160,7 +160,8 @@ describe('549: the deal tables go, and nothing reads them', () => {
     expect(offenders).toEqual([])
     for (const name of guarded) {
       const text = fn(name).text
-      if (name !== 'entity_activity_backfill_step' && reads.test(text)) expect(text, name).toMatch(/to_regclass\('public\.deal/)
+      // 402's export list is predicates as text, read only for the tables that exist.
+      if (name !== 'entity_activity_backfill_step' && name !== '_wsmerge_export_tables' && reads.test(text)) expect(text, name).toMatch(/to_regclass\('public\.deal/)
     }
     expect(m549).toContain("delete from public.entity_activity_backfill_progress where source = 'deal';")
   })

@@ -59,10 +59,11 @@ describe('523: the field types', () => {
   })
 
   it('a relation links what the app says it can, everywhere the database lists it', () => {
-    const config = fnIn(sql, '_field_config_ok')
+    // The newest definitions: 549 took deals out (a deal is a pipeline's row).
+    const config = newest('_field_config_ok').text
     const list = /\(p_config -> 'target' ->> 'kind'\) in \(([^)]*)\)/.exec(config)?.[1] ?? ''
     expect(quoted(list)).toEqual([...RELATION_TARGET_KINDS])
-    const target = fnIn(file('524'), '_relation_target_ok')
+    const target = newest('_relation_target_ok').text
     for (const k of RELATION_TARGET_KINDS) expect(target, k).toContain(`when '${k}' then exists`)
     // The clean-up runs on each target kind's own table.
     const forget = /'create trigger custom_field_links_forget[\s\S]*?end loop;/.exec(file('524'))?.[0] ?? ''
@@ -296,7 +297,9 @@ describe('528: a merge carries person and relation values', () => {
     expect(deals).toContain('AND d.field_type = f.field_type')
     expect(deals).toContain("|| public._wsmerge_custom_field_ids(p_source, p_dest);")
     expect(newest('_wsmerge_members').file.startsWith('528_')).toBe(true)
-    expect(newest('_wsmerge_deals').file.startsWith('528_')).toBe(true)
+    // 549 restates the deal fold as the pipelines' (Tables, phase 7), with the same rewrite call.
+    expect(newest('_wsmerge_deals').file.startsWith('549_')).toBe(true)
+    expect(newest('_wsmerge_deals').text).toContain('|| public._wsmerge_custom_field_ids(p_source, p_dest);')
   })
   it('rewrites people and folded contacts and companies through the merge’s maps, edges too', () => {
     const ids = fnIn(sql, '_wsmerge_custom_field_ids')

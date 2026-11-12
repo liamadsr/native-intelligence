@@ -86,10 +86,12 @@ describe('the lit icon', () => {
   })
 
   it('lights Companies, Contacts and Deals each for its own, as lists or records', () => {
-    for (const [entity, id] of [['company', 'companies'], ['contact', 'contacts'], ['deal', 'deals'], ['project', 'projects'], ['initiative', 'initiatives'], ['capture', 'captures']]) {
+    for (const [entity, id] of [['company', 'companies'], ['contact', 'contacts'], ['project', 'projects'], ['initiative', 'initiatives'], ['capture', 'captures']]) {
       expect(activeRailItem(list(entity), pages), entity).toBe(id)
       expect(activeRailItem(record(entity), pages), entity).toBe(id)
     }
+    // Deals are the pipelines' page (Tables, phase 7).
+    expect(activeRailItem({ kind: 'pipelines', title: 'Deals' }, pages)).toBe('deals')
     expect(activeRailItem({ kind: 'flows', title: 'Flows' }, pages)).toBe('flows')
     expect(activeRailItem(record('action'), pages)).toBe('actions')
     expect(activeRailItem(record('document'), pages)).toBe('docs')

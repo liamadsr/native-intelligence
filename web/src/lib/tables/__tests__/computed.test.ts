@@ -243,7 +243,7 @@ describe('rollups read only what the reader can read', () => {
 
   it('a kind’s records: names from the reader’s own reads', async () => {
     visible.ids = new Set([id(21)])
-    const dealCols = [col('deals', 'Deals', 'relation', { target: { kind: 'deal' }, multiple: true }), col('names', 'Deal names', 'rollup', { relation: 'deals', fn: 'list', field: null })]
+    const dealCols = [col('deals', 'Deals', 'relation', { target: { kind: 'company' }, multiple: true }), col('names', 'Deal names', 'rollup', { relation: 'deals', fn: 'list', field: null })]
     const db = fakeTablesDb({ custom_field_definition: [] }, () => ({ data: null, error: null }))
     const ctx = await computedContext(db.client, WS, dealCols)
     const [out] = await attachComputed(db.client, ctx, [{ ...row, custom_fields: { deals: [id(21), id(22)] } }], { workspaceId: WS, userId: 'user-1' })

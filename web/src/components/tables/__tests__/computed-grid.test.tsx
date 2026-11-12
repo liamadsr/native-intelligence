@@ -22,7 +22,7 @@ const COLUMNS = [
   column('qty', 'Qty', 'number', {}, 0),
   column('price', 'Price', 'number', {}, 1),
   column('total', 'Total', 'formula', { config: { expression: '{#qty} * {#price}' }, computed: { result: 'number' } }, 2),
-  column('orders', 'Orders', 'relation', { config: { target: { kind: 'deal' }, multiple: true } }, 3),
+  column('orders', 'Orders', 'relation', { config: { target: { kind: 'company' }, multiple: true } }, 3),
   column('n', 'Order count', 'rollup', { config: { relation: 'orders', fn: 'count', field: null }, computed: { result: 'number' } }, 4),
   column('broken', 'Broken', 'formula', { config: { expression: '{#gone}' }, computed: { result: null, error: 'No column named {gone}.' } }, 5),
 ]

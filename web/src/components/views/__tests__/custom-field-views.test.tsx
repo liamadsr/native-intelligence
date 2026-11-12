@@ -34,8 +34,8 @@ import { announceCustomFieldsChanged } from '@/lib/views/custom-field-columns'
 import type { ViewConfig } from '../hooks/use-view'
 
 const DEFS = [
-  { id: 'f1', workspace_id: 'ws-fernhill', entity_type: 'deal', key: 'project_type', label: 'Project type', field_type: 'select', options: ['Brand', 'Website', 'Packaging'], position: 0 },
-  { id: 'f2', workspace_id: 'ws-fernhill', entity_type: 'deal', key: 'retainer_months', label: 'Retainer (months)', field_type: 'number', options: [], position: 1 },
+  { id: 'f1', workspace_id: 'ws-fernhill', entity_type: 'company', key: 'project_type', label: 'Project type', field_type: 'select', options: ['Brand', 'Website', 'Packaging'], position: 0 },
+  { id: 'f2', workspace_id: 'ws-fernhill', entity_type: 'company', key: 'retainer_months', label: 'Retainer (months)', field_type: 'number', options: [], position: 1 },
 ]
 
 let fields: unknown[] = DEFS
@@ -76,10 +76,10 @@ const customFieldReads = () => fetchMock.mock.calls.filter(([u]) => String(u).st
 describe('the filter picker', () => {
   it('lists the kind’s custom fields under their own heading', async () => {
     await act(async () => {
-      root.render(h(FilterFieldPicker, { entityType: 'deal', onSelect: vi.fn() }))
+      root.render(h(FilterFieldPicker, { entityType: 'company', onSelect: vi.fn() }))
     })
     await flush()
-    expect(customFieldReads().map(([u]) => u)).toEqual(['/api/account/custom-fields?entity_type=deal'])
+    expect(customFieldReads().map(([u]) => u)).toEqual(['/api/account/custom-fields?entity_type=company'])
     expect(container.textContent).toContain('Custom fields')
     expect(container.textContent).toContain('Project type')
     expect(container.textContent).toContain('Retainer (months)')
@@ -106,7 +106,7 @@ describe('the filter picker', () => {
   it('reads again when a field is added somewhere', async () => {
     fields = []
     await act(async () => {
-      root.render(h(FilterFieldPicker, { entityType: 'deal', onSelect: vi.fn() }))
+      root.render(h(FilterFieldPicker, { entityType: 'company', onSelect: vi.fn() }))
     })
     await flush()
     expect(container.textContent).not.toContain('Custom fields')
@@ -121,8 +121,8 @@ describe('the filter picker', () => {
     await act(async () => {
       root.render(
         h('div', null,
-          h(FilterFieldPicker, { entityType: 'deal', onSelect: vi.fn() }),
-          h(FilterFieldPicker, { entityType: 'deal', onSelect: vi.fn() }),
+          h(FilterFieldPicker, { entityType: 'company', onSelect: vi.fn() }),
+          h(FilterFieldPicker, { entityType: 'company', onSelect: vi.fn() }),
         ),
       )
     })
@@ -137,7 +137,7 @@ describe('a custom filter chip', () => {
       root.render(
         h('div', null,
           h(FilterChip, {
-            entityType: 'deal',
+            entityType: 'company',
             filter: { id: 'a', field: 'custom_fields.project_type', operator: 'is', value: 'Website' },
             onUpdate: vi.fn(),
             onRemove: vi.fn(),
@@ -157,7 +157,7 @@ describe('a custom filter chip', () => {
     await act(async () => {
       root.render(
         h(FilterChip, {
-          entityType: 'deal',
+          entityType: 'company',
           filter: { id: 'b', field: 'name', operator: 'contains', value: 'Kiln' },
           onUpdate: vi.fn(),
           onRemove: vi.fn(),
@@ -177,7 +177,7 @@ describe('a custom filter with no definition to draw it', () => {
     await act(async () => {
       root.render(
         h(FilterChip, {
-          entityType: 'deal',
+          entityType: 'company',
           filter: { id: 'a', field: 'custom_fields.regoin', operator: 'is', value: 'North' },
           onUpdate: vi.fn(),
           onRemove,
@@ -201,7 +201,7 @@ describe('a custom select chip', () => {
     const { FILTERABLE_FIELDS } = await import('@/lib/views/types')
     const select = customFieldFilterFields([{ key: 'project_type', label: 'Project type', field_type: 'select', options: ['Brand'] }])[0]
     expect(operatorsFor(select)).toEqual(['is', 'is_not', 'is_any_of', 'is_none_of', 'is_empty', 'is_not_empty'])
-    const stage = FILTERABLE_FIELDS.deal.find((f) => f.field === 'source')!
+    const stage = { field: 'source', label: 'Source', type: 'enum', options: ['manual', 'import'] } as (typeof FILTERABLE_FIELDS)['company'][number]
     expect(operatorsFor(stage)).toEqual(['is', 'is_not', 'is_any_of', 'is_none_of'])
   })
 })
@@ -219,7 +219,7 @@ describe('view settings', () => {
   it('reads nothing until opened, then offers each field as a column', async () => {
     const onChange = vi.fn()
     await act(async () => {
-      root.render(h(TooltipProvider, null, h(ViewSettingsPopover, { config: CONFIG, entityType: 'deal', onChange })))
+      root.render(h(TooltipProvider, null, h(ViewSettingsPopover, { config: CONFIG, entityType: 'company', onChange })))
     })
     await flush()
     expect(customFieldReads()).toEqual([])
@@ -243,7 +243,7 @@ describe('a custom column cell', () => {
         h(CustomFieldCell, {
           item: { id: 'd1', custom_fields: { retainer_months: 12, project_type: 'Website' } },
           property: 'custom_fields.retainer_months',
-          entityType: 'deal',
+          entityType: 'company',
         }),
       )
     })
@@ -259,7 +259,7 @@ describe('a custom column cell', () => {
         h(CustomFieldCell, {
           item: { id: 'd2', custom_fields: {} },
           property: 'custom_fields.retainer_months',
-          entityType: 'deal',
+          entityType: 'company',
         }),
       )
     })

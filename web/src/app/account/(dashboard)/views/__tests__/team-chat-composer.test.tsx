@@ -254,7 +254,7 @@ describe("team chat's box is the main composer", () => {
     fetchSpy.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).startsWith('/api/account/search')) {
         searched.push(String(url))
-        const results = { deal: [{ kind: 'deal', id: 'd0000000-0000-4000-8000-000000000001', title: 'Fernhill renewal', status: 'Proposal sent', score: 0.85 }] }
+        const results = { deal: [{ kind: 'deal', id: 'd0000000-0000-4000-8000-000000000001', pipelineId: 'p0000000-0000-4000-8000-000000000001', title: 'Fernhill renewal', status: 'Proposal sent', score: 0.85 }] }
         return new Response(JSON.stringify({ query: 'fern', results }))
       }
       return base(url, init)
@@ -278,7 +278,8 @@ describe("team chat's box is the main composer", () => {
       body: '@Fernhill renewal is due',
       mentions: [],
       mentionsAgent: false,
-      records: [{ type: 'deal', id: 'd0000000-0000-4000-8000-000000000001', label: 'Fernhill renewal' }],
+      // A deal is its pipeline's row (Tables, phase 7).
+      records: [{ type: 'data_row', id: 'd0000000-0000-4000-8000-000000000001', label: 'Fernhill renewal' }],
     })
   })
 

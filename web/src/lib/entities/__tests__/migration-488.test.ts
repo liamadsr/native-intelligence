@@ -23,7 +23,9 @@ const sql = readFileSync(join(process.cwd(), 'supabase/migrations/488_entity_act
 
 /** The kinds a later migration logs: tables and their rows (521, ./migration-521.test.ts). */
 const LATER = new Set<string>(['data_table', 'data_row'])
-const KINDS_488 = ACTIVITY_ENTITY_TYPES.filter((k) => !LATER.has(k))
+/** Kinds 488 logged that left the registry since: a deal is a pipeline's row (548, 549). */
+const RETIRED = ['deal']
+const KINDS_488 = [...ACTIVITY_ENTITY_TYPES.filter((k) => !LATER.has(k)), ...RETIRED]
 
 const triggersOn = (event: 'insert' | 'update') =>
   [...sql.matchAll(new RegExp(`create trigger entity_activity_${event}\\s+after ${event}[^;]*? on public\\.([a-z_]+)`, 'g'))].map((m) => m[1])

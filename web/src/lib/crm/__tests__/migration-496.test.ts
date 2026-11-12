@@ -30,8 +30,8 @@ function latestEntityCheck(): { file: string; kinds: string[] } {
 describe('migration 496: custom fields on any kind', () => {
   it('the newest entity_type CHECK lists exactly the kinds the registry marks customFields, and a table column', () => {
     const check = latestEntityCheck()
-    // 520 added a table's columns (entity_type data_row, with a table_id).
-    expect(check.file.startsWith('520_')).toBe(true)
+    // 520 added a table's columns (entity_type data_row, with a table_id); 549 took deals out (a deal is a pipeline's row).
+    expect(check.file.startsWith('549_')).toBe(true)
     expect(new Set(check.kinds)).toEqual(new Set([...CUSTOM_FIELD_ENTITY_TYPES, TABLE_COLUMN_ENTITY_TYPE]))
     expect(check.kinds).toHaveLength(CUSTOM_FIELD_ENTITY_TYPES.length + 1)
     expect(CUSTOM_FIELD_ENTITY_TYPES as readonly string[]).not.toContain(TABLE_COLUMN_ENTITY_TYPE)

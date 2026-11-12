@@ -15,7 +15,7 @@ const OPTIONS = [
 const HOST_KINDS = ['action', 'document', 'deal', 'flow'] as const
 
 const records: Partial<Record<string, MenuSearchRow[]>> = {
-  deal: [{ kind: 'deal', id: 'd-1', title: 'Rosewood renewal', status: 'Proposal sent', score: 0.85 }],
+  deal: [{ kind: 'deal', id: 'd-1', pipelineId: 'p-1', title: 'Rosewood renewal', status: 'Proposal sent', score: 0.85 }],
   action: [{ kind: 'action', id: 'a-1', title: 'Send Rosewood the quote', identifier: 'GEN-42', status: 'Todo', score: 0.7 }],
 }
 
@@ -51,7 +51,8 @@ describe('deals and flows', () => {
 
   it('a row’s mention: an action by its identifier, the rest by title; none for an agent', () => {
     expect(menuRowMention(records.action![0])).toEqual({ type: 'action', id: 'a-1', label: 'GEN-42' })
-    expect(menuRowMention(records.deal![0])).toEqual({ type: 'deal', id: 'd-1', label: 'Rosewood renewal' })
+    // A deal is its pipeline's row (Tables, phase 7).
+    expect(menuRowMention(records.deal![0])).toEqual({ type: 'data_row', id: 'd-1', label: 'Rosewood renewal' })
     expect(menuRowMention({ kind: 'agent', id: 'r-1', title: 'Scout', description: null, icon: null, score: 1 })).toBeNull()
   })
 })
