@@ -15,9 +15,10 @@ settings=/etc/ni-sandbox/runtime.env
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 tunnel_settings=/etc/ni-sandbox/tunnel.env
 failed=0
+notes=0
 ok() { echo "ok    $*"; }
 bad() { echo "FAIL  $*"; failed=1; }
-note() { echo "note  $*"; }
+note() { echo "note  $*"; notes=$((notes + 1)); }
 # Runs a command and says whether it succeeded, without a pipeline in an "if".
 passes() { "$@" >/dev/null 2>&1; }
 
@@ -110,24 +111,30 @@ if [ -n "$tunnel_if" ]; then
 	fi
 	last="$(wg show "$tunnel_if" latest-handshakes 2>/dev/null | awk '{ print $2 }' | sed -n 1p)"
 	if [ -z "$last" ] || [ "$last" = 0 ]; then
-		note "the app's server has not connected through the tunnel yet"
+		note "the app's server has never connected through the tunnel: it is set up at this end and unproven"
 	elif [ $(($(date +%s) - last)) -le 180 ]; then
 		ok "the app's server is connected through the tunnel"
 	else
 		bad "the app's server last spoke through the tunnel $((($(date +%s) - last) / 60)) minutes ago"
 	fi
-	# This machine opens nothing into the tunnel. The guard's own counter is the
-	# proof: with the other end down the try would fail anyway.
-	before="$(nft list chain inet ni_sandbox_guard outbound 2>/dev/null | sed -n 's/.*counter packets \([0-9][0-9]*\) .*into-the-tunnel.*/\1/p')"
-	if passes curl -sS -m 4 -o /dev/null "http://$tunnel_peer:443/"; then
+	# The tunnel carries the app server's one address and no other.
+	if [ "$(wg show "$tunnel_if" allowed-ips 2>/dev/null | awk '{ print $2 }')" = "$tunnel_peer/32" ]; then
+		ok "the tunnel carries the app server's one address and no other"
+	else
+		bad "the tunnel is not set to the app server's one address"
+	fi
+	# This machine opens nothing into the tunnel. A failed try alone proves
+	# nothing, since with the other end down it fails anyway: the guard's note
+	# of what it refused must hold this very try, at a port picked just now.
+	try_port=$((40000 + RANDOM % 20000))
+	if passes curl -sS -m 4 -o /dev/null "http://$tunnel_peer:$try_port/"; then
 		bad "this machine can open a connection into the tunnel"
 	else
-		after="$(nft list chain inet ni_sandbox_guard outbound 2>/dev/null | sed -n 's/.*counter packets \([0-9][0-9]*\) .*into-the-tunnel.*/\1/p')"
-		if [ -n "$before" ] && [ -n "$after" ] && [ "$after" -gt "$before" ]; then
-			ok "this machine opens no connection into the tunnel: the guard refused the try"
-		else
-			bad "a try into the tunnel failed, but not because the guard refused it"
-		fi
+		noted="$(/usr/local/sbin/ni-sandbox-guard refused 2>/dev/null | tr -d ' \n')"
+		case "$noted" in
+		*"\"concat\":[\"$tunnel_peer\",$try_port]"*) ok "this machine opens no connection into the tunnel: the guard refused the try" ;;
+		*) bad "a try into the tunnel failed, but the guard did not note it as refused" ;;
+		esac
 	fi
 fi
 
@@ -174,5 +181,11 @@ else
 fi
 
 echo
-if [ "$failed" = 0 ]; then echo "All checks passed."; else echo "Some checks FAILED."; fi
+if [ "$failed" != 0 ]; then
+	echo "Some checks FAILED."
+elif [ "$notes" != 0 ]; then
+	echo "All checks passed, with $notes thing(s) to note above."
+else
+	echo "All checks passed."
+fi
 exit "$failed"

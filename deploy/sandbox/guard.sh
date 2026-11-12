@@ -66,7 +66,12 @@ if [ -r "$tunnel_settings" ]; then
 		exit 1
 	fi
 	tunnel_in="iifname \"$tunnel_if\" ip saddr $tunnel_peer tcp dport { 3000, 3002 } accept comment \"from-the-tunnel\""
-	tunnel_out="oifname \"$tunnel_if\" ct state new counter reject comment \"into-the-tunnel\""
+	# Everything that does not answer the app's own call, not only what counts
+	# as a new connection. Noted first, like rule 1, so that check.sh can ask
+	# whether one particular try was refused; the second line refuses what the
+	# first cannot note.
+	tunnel_out="oifname \"$tunnel_if\" meta l4proto tcp ct state != { established, related } update @refused4 { ip daddr . tcp dport } counter reject comment \"into-the-tunnel-noted\"
+		oifname \"$tunnel_if\" ct state != { established, related } counter reject comment \"into-the-tunnel\""
 	tunnel_forward="oifname \"$tunnel_if\" counter drop comment \"passed-on-into-the-tunnel\""
 fi
 
