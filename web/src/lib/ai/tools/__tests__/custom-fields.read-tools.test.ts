@@ -178,6 +178,23 @@ describe('customFieldsForModel / withCustomFields', () => {
     expect(customFieldsForModel(defs, ['West'])).toEqual({})
   })
 
+  it('keeps a new type’s value in its own form, and drops one in another form', () => {
+    const typed = [
+      def('action', 'tags', 'Tags', 0, 'multi_select'),
+      def('action', 'budget', 'Budget', 1, 'currency'),
+      def('action', 'done', 'Done', 2, 'checkbox'),
+      def('action', 'deals', 'Deals', 3, 'relation'),
+    ]
+    const id = 'd0000000-0000-4000-8000-000000000001'
+    expect(customFieldsForModel(typed, { tags: ['A'], budget: { amount: 5, currency: 'EUR' }, done: false, deals: [id] })).toEqual({
+      Tags: ['A'],
+      Budget: { amount: 5, currency: 'EUR' },
+      Done: false,
+      Deals: [id],
+    })
+    expect(customFieldsForModel(typed, { tags: 'A', budget: 5, done: 'yes', deals: [{ id }] })).toEqual({})
+  })
+
   it('withCustomFields is empty when nothing is set or no field is defined', () => {
     expect(withCustomFields(defs, {})).toEqual({})
     expect(withCustomFields([], { region: 'West' })).toEqual({})

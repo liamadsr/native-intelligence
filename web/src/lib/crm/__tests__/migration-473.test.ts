@@ -19,7 +19,9 @@ describe('migration 473 (deals, pipelines, custom fields)', () => {
     expect(sql).toContain("check (kind in ('open', 'won', 'lost'))")
     // 473's own three kinds; 496 widens the list to the registry's customFields flag (migration-496.test.ts).
     expect(sql).toContain("check (entity_type in ('deal', 'contact', 'company'))")
-    expect(sql).toContain(`check (field_type in (${CUSTOM_FIELD_TYPES.map((e) => `'${e}'`).join(', ')}))`)
+    // 473's own four types; 523 widens the CHECK to every type the code has (migration-523-526.test.ts pins that one).
+    expect(sql).toContain("check (field_type in ('text', 'number', 'date', 'select'))")
+    expect(CUSTOM_FIELD_TYPES.slice(0, 4)).toEqual(['text', 'number', 'date', 'select'])
     const sourceOptions = FILTERABLE_FIELDS.deal.find((f) => f.field === 'source')?.options as string[]
     expect(sql).toContain(`check (source in (${sourceOptions.map((e) => `'${e}'`).join(', ')}))`)
     expect(sql).toContain("check (source in ('person', 'agent', 'email', 'capture', 'sms'))")
