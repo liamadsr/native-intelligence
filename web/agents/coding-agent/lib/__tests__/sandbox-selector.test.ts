@@ -138,6 +138,11 @@ beforeEach(() => {
   vi.stubEnv('SANDBOX_ACCESS_TOKEN', '')
   vi.stubEnv('SANDBOX_TEAM_ID', '')
   vi.stubEnv('SANDBOX_PROJECT_ID', '')
+  // Nor the own runtime's (the third way, below).
+  vi.stubEnv('SANDBOX_RUNTIME_API_URL', '')
+  vi.stubEnv('SANDBOX_RUNTIME_TRAFFIC_URL', '')
+  vi.stubEnv('SANDBOX_RUNTIME_TEMPLATE', '')
+  vi.stubEnv('SANDBOX_RUNTIME_KEY', '')
   vi.resetModules()
   fetchEveSpec.mockReset()
   postEvent.mockClear()
@@ -148,6 +153,7 @@ afterEach(() => {
   vi.doUnmock('eve/sandbox/vercel')
   vi.doUnmock('eve/sandbox')
   vi.doUnmock('../spec-client')
+  vi.doUnmock('../runtime-sandbox')
 })
 
 describe('coding-agent sandbox selector — on Vercel', () => {
@@ -857,6 +863,7 @@ describe('coding-agent sandbox selector — off Vercel', () => {
       } else {
         expect(beat).not.toContain('dev only')
         for (const name of mod.SANDBOX_CREDENTIAL_ENVS) expect(beat).toContain(name)
+        for (const name of mod.RUNTIME_URL_ENVS) expect(beat).toContain(name)
       }
     }
   })
@@ -994,6 +1001,253 @@ describe('coding-agent sandbox selector — off Vercel WITH the hosted sandbox\'
   })
 })
 
+describe('coding-agent sandbox selector — on our own runtime (SANDBOX_RUNTIME_* set)', () => {
+  const API_URL = 'http://10.200.77.2:3000'
+  const TRAFFIC_URL = 'http://10.200.77.2:3002'
+  const RUNTIME_KEY = 'e2b_0123456789abcdef0123456789abcdef'
+  const BOUND_SPEC = { ...SPEC, gitGateAddressBound: true }
+
+  beforeEach(() => {
+    vi.stubEnv('VERCEL', '')
+    vi.stubEnv('EVE_DEV', '')
+    vi.stubEnv('EVE_EVALUATION', '')
+    vi.stubEnv('SANDBOX_RUNTIME_API_URL', ` ${API_URL}\n`) // trimmed
+    vi.stubEnv('SANDBOX_RUNTIME_TRAFFIC_URL', TRAFFIC_URL)
+    vi.stubEnv('SANDBOX_RUNTIME_KEY', RUNTIME_KEY)
+    // Neither other provider may be built in this mode.
+    vi.doMock('eve/sandbox', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('eve/sandbox')>()
+      return {
+        ...actual,
+        DefaultSandbox: {
+          name: 'default',
+          environment: () => {
+            throw new Error('DefaultSandbox must not be constructed when the own runtime is configured')
+          },
+        },
+      }
+    })
+    vi.doMock('eve/sandbox/vercel', () => ({
+      VercelSandbox: {
+        environment: () => {
+          throw new Error('the hosted sandbox must not be constructed when the own runtime is configured')
+        },
+      },
+    }))
+  })
+
+  function mockRuntime(calls: Call[], fake?: Omit<FakeOpts, 'setNetworkPolicy'>) {
+    const envOptions: unknown[] = []
+    const env = {
+      provider: 'ni-runtime',
+      open: vi.fn(async (o: unknown) => {
+        calls.push({ kind: 'open', arg: o })
+        // The runtime's handle has no network setter: the policy is set once, at creation.
+        return fakeSandbox(calls, { ...fake, setNetworkPolicy: 'absent' })
+      }),
+    }
+    vi.doMock('../runtime-sandbox', () => ({
+      RuntimeSandbox: {
+        environment: (o: unknown) => {
+          envOptions.push(o)
+          return env
+        },
+      },
+    }))
+    return { env, envOptions }
+  }
+
+  const leaksRuntimeKey = (text: string) => text.includes(RUNTIME_KEY)
+
+  it('exports the ni-runtime environment, built with the two URLs and the template (default ni-coding-agent), and no key', async () => {
+    const { env, envOptions } = mockRuntime([])
+    const mod = await loadSandboxModule()
+    expect(mod.environment).toBe(env)
+    expect(envOptions).toEqual([{ apiUrl: API_URL, trafficUrl: TRAFFIC_URL, template: 'ni-coding-agent' }])
+    expect(leaksRuntimeKey(JSON.stringify(envOptions))).toBe(false)
+
+    vi.resetModules()
+    vi.stubEnv('SANDBOX_RUNTIME_TEMPLATE', ' my-template ')
+    vi.stubEnv('SANDBOX_RUNTIME_KEY', '') // the build has none, and needs none
+    const again = mockRuntime([])
+    await loadSandboxModule()
+    expect(again.envOptions).toEqual([{ apiUrl: API_URL, trafficUrl: TRAFFIC_URL, template: 'my-template' }])
+  })
+
+  it('every level OPENS with its policy (no rule, no credential) before any command; the bound gate token takes the unbrokered path', async () => {
+    for (const networkAccess of ['restricted', 'isolated', 'trusted', 'something-new'] as const) {
+      vi.resetModules()
+      postEvent.mockClear()
+      const calls: Call[] = []
+      mockRuntime(calls)
+      fetchEveSpec.mockResolvedValue({ ...BOUND_SPEC, networkAccess })
+      const mod = await loadSandboxModule()
+
+      await mod.default(selectorCtx as never)
+
+      const policy = mod.buildNetworkPolicy(networkAccess as never, { gateUrl: PUSH_URL, broker: null })
+      expect(calls[0]).toEqual({ kind: 'open', arg: { networkPolicy: policy } })
+      expect(calls.filter((c) => c.kind === 'open')).toHaveLength(1)
+      expect(calls.some((c) => c.kind === 'setNetworkPolicy')).toBe(false)
+      // No host carries a rule: the runtime stores rules without applying them.
+      const allow = (calls[0].arg as { networkPolicy: { allow: Record<string, unknown[]> } }).networkPolicy.allow
+      for (const rules of Object.values(allow)) expect(rules).toEqual([])
+      if (networkAccess !== 'trusted') expect(Object.keys(allow)).not.toContain('*')
+      expect(JSON.stringify(calls[0].arg)).not.toContain('Basic')
+      // The unbrokered path: the token only in the clone's env and the one git config's env.
+      const commands = runCommands(calls)
+      expect(commands[0]).toBe(`git clone --depth 50 --branch 'main' ${LFS_OPTION} '${PUSH_URL}' .`)
+      expect(commands.some(leaksGateToken)).toBe(false)
+      const withToken = calls.filter((c) => c.kind === 'run' && leaksGateToken(JSON.stringify(c.env ?? {})))
+      expect(withToken.map((c) => String(c.arg))).toEqual([
+        commands[0],
+        `git config 'http.${PUSH_URL}.extraheader' "$NI_GIT_GATE_AUTH_HEADER"`,
+      ])
+      expect(beats().some((b) => b.startsWith('Sandbox ready'))).toBe(true)
+      // The runtime's key reaches nothing of the sandbox's, nor any beat.
+      expect(calls.some((c) => leaksRuntimeKey(JSON.stringify(c)))).toBe(false)
+      expect(beats().some(leaksRuntimeKey)).toBe(false)
+    }
+  })
+
+  it('never opens without a DEFINED networkPolicy, whatever the spec', async () => {
+    for (const spec of [BOUND_SPEC, { ...BOUND_SPEC, networkAccess: 'trusted' }, { ...BOUND_SPEC, networkAccess: 'bogus' }, null]) {
+      vi.resetModules()
+      const calls: Call[] = []
+      mockRuntime(calls)
+      fetchEveSpec.mockResolvedValue(spec)
+      const mod = await loadSandboxModule()
+      await mod.default(selectorCtx as never)
+      const opened = calls[0].arg as { networkPolicy?: unknown }
+      expect(calls[0].kind).toBe('open')
+      expect(opened.networkPolicy).toBeDefined()
+      expect(opened.networkPolicy).not.toBeNull()
+    }
+  })
+
+  it('without gitGateAddressBound (false or absent) the run is refused at every level, before anything opens: no command, env, file or git config gets the token', async () => {
+    for (const bound of [false, undefined, 'true' as unknown as boolean]) {
+      for (const networkAccess of ['restricted', 'isolated', 'trusted']) {
+        vi.resetModules()
+        postEvent.mockClear()
+        const calls: Call[] = []
+        const { env } = mockRuntime(calls)
+        const spec: Record<string, unknown> = { ...SPEC, networkAccess }
+        if (bound !== undefined) spec.gitGateAddressBound = bound
+        fetchEveSpec.mockResolvedValue(spec)
+        const mod = await loadSandboxModule()
+
+        const err = await mod.default(selectorCtx as never).then(
+          () => null,
+          (e: unknown) => e as Error,
+        )
+        expect(err).toBeInstanceOf(Error)
+        expect(err!.message).toMatch(/AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES is not set on the app's side/)
+        expect(leaksGateToken(err!.message)).toBe(false)
+        expect(env.open).not.toHaveBeenCalled()
+        expect(calls).toEqual([])
+        expect(beats().some((b) => b.includes('AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES'))).toBe(true)
+        expect(beats().some(leaksGateToken)).toBe(false)
+      }
+    }
+  })
+
+  it('no spec: opens deny-all on the runtime and runs nothing', async () => {
+    const calls: Call[] = []
+    mockRuntime(calls)
+    fetchEveSpec.mockResolvedValue(null)
+    const mod = await loadSandboxModule()
+    await mod.default(selectorCtx as never)
+    expect(calls).toEqual([{ kind: 'open', arg: { networkPolicy: 'deny-all' } }])
+  })
+
+  it('a failed creation (the runtime refusing the policy) fails the run: nothing runs', async () => {
+    const calls: Call[] = []
+    const { env } = mockRuntime(calls)
+    env.open.mockRejectedValueOnce(new Error('ni-runtime sandbox: could not create a sandbox from ni-coding-agent: 400'))
+    fetchEveSpec.mockResolvedValue(BOUND_SPEC)
+    const mod = await loadSandboxModule()
+    await expect(mod.default(selectorCtx as never)).rejects.toThrow(/could not create a sandbox/)
+    expect(calls).toEqual([])
+  })
+
+  it('one URL without the other refuses to load, naming what is missing', async () => {
+    for (const [name, other] of [
+      ['SANDBOX_RUNTIME_TRAFFIC_URL', 'SANDBOX_RUNTIME_API_URL'],
+      ['SANDBOX_RUNTIME_API_URL', 'SANDBOX_RUNTIME_TRAFFIC_URL'],
+    ]) {
+      vi.resetModules()
+      vi.stubEnv('SANDBOX_RUNTIME_API_URL', API_URL)
+      vi.stubEnv('SANDBOX_RUNTIME_TRAFFIC_URL', TRAFFIC_URL)
+      vi.stubEnv(name, '  ')
+      mockRuntime([])
+      const err = await loadSandboxModule().then(() => null, (e: unknown) => e as Error)
+      expect(err).toBeInstanceOf(Error)
+      expect(err!.message).toContain(`${name} not set (both of SANDBOX_RUNTIME_API_URL, SANDBOX_RUNTIME_TRAFFIC_URL, or neither)`)
+      expect(err!.message).not.toContain(`${other} not set`)
+    }
+  })
+
+  it('with the hosted three set as well (the cloud browser keeps them), the own runtime wins: the hosted environment is never built and its token reaches nothing', async () => {
+    const HOSTED_TOKEN = 'madeup_access_token_0123456789'
+    vi.stubEnv('SANDBOX_ACCESS_TOKEN', HOSTED_TOKEN)
+    vi.stubEnv('SANDBOX_TEAM_ID', 'team_madeup0001')
+    vi.stubEnv('SANDBOX_PROJECT_ID', 'prj_madeup0001')
+    // beforeEach made VercelSandbox.environment throw: loading proves it is never constructed.
+    const calls: Call[] = []
+    const { env, envOptions } = mockRuntime(calls)
+    fetchEveSpec.mockResolvedValue({ ...BOUND_SPEC, networkAccess: 'restricted' })
+    const mod = await loadSandboxModule()
+    expect(mod.environment).toBe(env)
+    expect(envOptions).toEqual([{ apiUrl: API_URL, trafficUrl: TRAFFIC_URL, template: 'ni-coding-agent' }])
+
+    await mod.default(selectorCtx as never)
+
+    expect(calls[0]).toEqual({
+      kind: 'open',
+      arg: { networkPolicy: mod.buildNetworkPolicy('restricted', { gateUrl: PUSH_URL, broker: null }) },
+    })
+    const leaksHosted = (text: string) => text.includes(HOSTED_TOKEN) || text.includes('team_madeup0001') || text.includes('prj_madeup0001')
+    expect(leaksHosted(JSON.stringify(envOptions))).toBe(false)
+    expect(calls.some((c) => leaksHosted(JSON.stringify(c)))).toBe(false)
+    expect(beats().some(leaksHosted)).toBe(false)
+    expect(beats().some((b) => b.startsWith('Sandbox ready'))).toBe(true)
+  })
+
+  it('a partial hosted set beside the own runtime is the cloud browser\'s concern, not the coding agent\'s: it loads', async () => {
+    vi.stubEnv('SANDBOX_ACCESS_TOKEN', 'madeup_access_token_0123456789')
+    vi.stubEnv('SANDBOX_TEAM_ID', '')
+    vi.stubEnv('SANDBOX_PROJECT_ID', '')
+    const { env } = mockRuntime([])
+    const mod = await loadSandboxModule()
+    expect(mod.environment).toBe(env)
+  })
+
+  it('on the hosted platform the own runtime refuses to load', async () => {
+    vi.stubEnv('VERCEL', '1')
+    mockRuntime([])
+    const onVercel = await loadSandboxModule().then(() => null, (e: unknown) => e as Error)
+    expect(onVercel).toBeInstanceOf(Error)
+    expect(onVercel!.message).toMatch(/SANDBOX_RUNTIME_API_URL, SANDBOX_RUNTIME_TRAFFIC_URL\) cannot be used on the hosted platform/)
+  })
+})
+
+describe('ownRuntimeSettings', () => {
+  it('both URLs → the trimmed pair and the template; neither (or blank) → null; one → throws', async () => {
+    vi.stubEnv('VERCEL', '1')
+    mockVercelNoop()
+    const mod = await loadSandboxModule()
+    expect(mod.ownRuntimeSettings({ SANDBOX_RUNTIME_API_URL: ' http://10.0.0.1:3000 ', SANDBOX_RUNTIME_TRAFFIC_URL: 'http://10.0.0.1:3002' })).toEqual({
+      apiUrl: 'http://10.0.0.1:3000',
+      trafficUrl: 'http://10.0.0.1:3002',
+      template: 'ni-coding-agent',
+    })
+    expect(mod.ownRuntimeSettings({})).toBeNull()
+    expect(mod.ownRuntimeSettings({ SANDBOX_RUNTIME_API_URL: ' ', SANDBOX_RUNTIME_TRAFFIC_URL: '\n', SANDBOX_RUNTIME_TEMPLATE: 'x' })).toBeNull()
+    expect(() => mod.ownRuntimeSettings({ SANDBOX_RUNTIME_API_URL: 'http://10.0.0.1:3000' })).toThrow(/SANDBOX_RUNTIME_TRAFFIC_URL not set/)
+  })
+})
+
 describe('hostedSandboxCredentials', () => {
   it('all three → the trimmed set; none (or blank) → null; some → throws', async () => {
     vi.stubEnv('VERCEL', '1')
@@ -1041,10 +1295,12 @@ describe('requireDefinedNetworkPolicy (the guard every open goes through)', () =
     expect(body).toMatch(/const policy = requireDefinedNetworkPolicy\(sessionNetworkPolicy\(spec\)\)/)
     // ...the Vercel open passes exactly that...
     expect(body).toMatch(/vercelEnvironment\.open\(\{ networkPolicy: policy \}\)/)
+    // ...the own runtime's open passes exactly that (a creation option)...
+    expect(body).toMatch(/runtimeEnvironment\.open\(\{ networkPolicy: policy \}\)/)
     // ...the local path applies exactly that...
     expect(body).toMatch(/applyLocalPolicy\(sandbox, policy\)/)
     // ...and nothing else opens or builds a policy in this function.
-    expect(body.match(/\.open\(/g)).toHaveLength(2)
+    expect(body.match(/\.open\(/g)).toHaveLength(3)
     expect(body.match(/NetworkPolicy\(/g)).toHaveLength(2) // requireDefined… + session…
     // The selector opens only through openSessionSandbox.
     const selector = source.slice(source.indexOf('export default defineSandbox('))

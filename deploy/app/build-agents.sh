@@ -22,6 +22,17 @@
 # service (web/agents/coding-agent/sandbox.ts), whose snapshot `eve build` prepares
 # there. The Dockerfile hands the three to this script as BuildKit secrets, which
 # exist only while it runs; only the coding agent's build sees them.
+#
+# Or, the third way (built, not switched on): given SANDBOX_RUNTIME_API_URL and
+# SANDBOX_RUNTIME_TRAFFIC_URL, its sandbox runs on our own runtime on the sandbox
+# server (provider ni-runtime, web/agents/coding-agent/lib/runtime-sandbox.ts).
+# Its build calls nothing there: it records the template's name
+# (SANDBOX_RUNTIME_TEMPLATE, default ni-coding-agent), so the two addresses and the
+# template are plain build arguments, and the runtime's key (SANDBOX_RUNTIME_KEY)
+# is needed only when the agent runs, never here. The own runtime takes precedence:
+# with both sets present the coding agent is built for it, and its build runs
+# without the hosted three, which stay for the cloud browser (it reads the same
+# names) until that moves too.
 set -eu
 
 HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -31,17 +42,16 @@ SANDBOX_PROVIDER="${NI_SANDBOX_PROVIDER:-just-bash}"
 # The hosted sandbox service, as eve names its provider.
 HOSTED_PROVIDER=vercel
 CREDENTIALS="SANDBOX_ACCESS_TOKEN SANDBOX_TEAM_ID SANDBOX_PROJECT_ID"
+# Our own runtime on the sandbox server, as the coding agent names its provider.
+RUNTIME_PROVIDER=ni-runtime
+RUNTIME_URLS="SANDBOX_RUNTIME_API_URL SANDBOX_RUNTIME_TRAFFIC_URL"
+DEFAULT_RUNTIME_TEMPLATE=ni-coding-agent
 
-# The sandbox <name> must be built with: the hosted one for the coding agent when
-# all three settings are set, just-bash when none is, and an error (exit 1) when
-# only some are, as the agent itself refuses them. Blank counts as unset.
-sandbox_provider() {
-  if [ "$1" != coding-agent ]; then
-    echo "$SANDBOX_PROVIDER"
-    return 0
-  fi
+# Which of the variables named in $1 are set (blank counts as unset): prints
+# "none", "all", or "some:<the missing ones>".
+which_set() {
   set_names="" missing=""
-  for var in $CREDENTIALS; do
+  for var in $1; do
     eval "value=\${$var:-}"
     case "$value" in
       *[![:space:]]*) set_names="$set_names $var" ;;
@@ -49,13 +59,51 @@ sandbox_provider() {
     esac
   done
   if [ -z "$set_names" ]; then
-    echo "$SANDBOX_PROVIDER"
+    echo none
   elif [ -z "$missing" ]; then
-    echo "$HOSTED_PROVIDER"
+    echo all
   else
-    echo "build-agents: the coding agent's sandbox needs all three of $CREDENTIALS, or none; missing:$missing" >&2
-    return 1
+    echo "some:$missing"
   fi
+}
+
+# The sandbox <name> must be built with: for the coding agent, our own runtime when
+# both of its addresses are set (whatever the hosted three say: those are then the
+# cloud browser's alone), else the hosted one when all three of its settings are,
+# else just-bash; an error (exit 1) when only one address is, or, without the own
+# runtime, only some of the three, as the agent itself refuses them. Blank counts
+# as unset.
+sandbox_provider() {
+  if [ "$1" != coding-agent ]; then
+    echo "$SANDBOX_PROVIDER"
+    return 0
+  fi
+  runtime="$(which_set "$RUNTIME_URLS")"
+  case "$runtime" in
+    all)
+      echo "$RUNTIME_PROVIDER"
+      return 0
+      ;;
+    some:*)
+      echo "build-agents: the coding agent's own runtime needs both of $RUNTIME_URLS, or neither; missing:${runtime#some:}" >&2
+      return 1
+      ;;
+  esac
+  hosted="$(which_set "$CREDENTIALS")"
+  case "$hosted" in
+    all) echo "$HOSTED_PROVIDER" ;;
+    none) echo "$SANDBOX_PROVIDER" ;;
+    *)
+      echo "build-agents: the coding agent's sandbox needs all three of $CREDENTIALS, or none; missing:${hosted#some:}" >&2
+      return 1
+      ;;
+  esac
+}
+
+# The template the own runtime's sandboxes start from, as the agent reads it.
+runtime_template() {
+  template="$(trimmed "${SANDBOX_RUNTIME_TEMPLATE:-}")"
+  echo "${template:-$DEFAULT_RUNTIME_TEMPLATE}"
 }
 
 # A value without its spaces and line breaks (the agent trims the settings too).
@@ -63,11 +111,29 @@ trimmed() {
   printf '%s' "$1" | tr -d '[:space:]'
 }
 
-# A build log, with the access token (if this environment has one) cut out.
+# A build log, with the access token and the runtime's key (if this environment
+# has them) cut out.
 redacted() {
-  NI_REDACT="$(printf '%s' "${SANDBOX_ACCESS_TOKEN:-}" | tr -d '[:space:]')" awk '
-    { t = ENVIRON["NI_REDACT"]; if (t != "") while ((i = index($0, t)) > 0) $0 = substr($0, 1, i - 1) "[redacted]" substr($0, i + length(t)); print }
+  NI_REDACT="$(printf '%s' "${SANDBOX_ACCESS_TOKEN:-}" | tr -d '[:space:]')" \
+  NI_REDACT_KEY="$(printf '%s' "${SANDBOX_RUNTIME_KEY:-}" | tr -d '[:space:]')" awk '
+    function cut(t) { if (t != "") while ((i = index($0, t)) > 0) $0 = substr($0, 1, i - 1) "[redacted]" substr($0, i + length(t)) }
+    { cut(ENVIRON["NI_REDACT"]); cut(ENVIRON["NI_REDACT_KEY"]); print }
   ' "$1"
+}
+
+# Stops the build when a secret's value turns up in a file it wrote:
+# refuse_if_found <name> <value>. The whole app, the build's scratch space and
+# $HOME, where a tool could have cached something. The dependencies' folders are
+# searched too: the framework keeps a build cache in one (node_modules/.cache), each
+# agent's output has its own, and all of them go into the image. A few seconds in a
+# ten-minute build. grep's own exit status 2 (an error) fails the build too.
+refuse_if_found() {
+  status=0
+  grep -rqF -D skip -e "$2" "$WEB" /tmp "${HOME:-/root}" || status=$?
+  [ "$status" = 1 ] || {
+    echo "build-agents: $1 turned up in a file after the build (or grep failed): refusing to put it in the image" >&2
+    exit 1
+  }
 }
 
 # The providers <name>'s build prepared, as eve recorded them, one per line.
@@ -96,7 +162,12 @@ case "${1:-}" in
     ;;
   --state-dirs)
     # Workflow runs, and the sandbox's per-session files. Everything else under
-    # .eve is written by the build and belongs to the image.
+    # .eve is written by the build and belongs to the image. The just-bash sessions
+    # folder is listed for every agent, the coding agent included whatever its
+    # sandbox: the hosted service and our own runtime keep a session's files on
+    # their side and leave it empty, but compose.yaml's volume is mounted there
+    # all the same, and a new volume takes its owner from this folder. So a switch
+    # back to just-bash finds it already writable by the app's user.
     for name in $names; do
       printf '%s\n' \
         "$WEB/agents/$name/.eve/.workflow-data" \
@@ -124,6 +195,10 @@ case "${1:-}" in
     [ "$built" = "$want" ] && exit 0
     if [ "$want" = "$HOSTED_PROVIDER" ]; then
       echo "build-agents: $name was built with the $built sandbox, but $CREDENTIALS are set here, which call for the hosted sandbox service. Build the image again with them (sudo ./deploy.sh), or empty all three." >&2
+    elif [ "$want" = "$RUNTIME_PROVIDER" ]; then
+      echo "build-agents: $name was built with the $built sandbox, but $RUNTIME_URLS are set here, which call for our own runtime. Build the image again with them (sudo ./deploy.sh), or empty both." >&2
+    elif [ "$built" = "$RUNTIME_PROVIDER" ]; then
+      echo "build-agents: $name was built with the $built sandbox, which needs $RUNTIME_URLS, and they are not set here. Set both, or build the image again without them (sudo ./deploy.sh)." >&2
     else
       echo "build-agents: $name was built with the $built sandbox, which needs $CREDENTIALS, and they are not set here. Set all three, or build the image again without them (sudo ./deploy.sh)." >&2
     fi
@@ -154,31 +229,46 @@ for name in $names; do
     exit 1
   }
   expected="$(sandbox_provider "$name")"
-  # deploy.sh says which sandbox it meant the coding agent to get (compose.yaml,
-  # NI_CODING_AGENT_SANDBOX: "vercel/<team id>/<project id>" when .env has the
-  # access token). If the secrets did not arrive, or name another team or project,
-  # stop here rather than build the wrong one.
-  if [ "$name" = coding-agent ] && [ -n "${NI_CODING_AGENT_SANDBOX:-}" ]; then
+  # deploy.sh says which sandbox it meant the coding agent to get (compose.yaml):
+  # NI_CODING_AGENT_RUNTIME, "runtime/<template>" when .env has the own runtime's
+  # API address, and that wins; else NI_CODING_AGENT_SANDBOX, "vercel/<team
+  # id>/<project id>" when .env has the access token. (Two arguments, because
+  # Compose's substitution has no "else": with both sets in .env the second still
+  # names the hosted ids, for the cloud browser's sake, and is not what is meant.)
+  # If the secrets or arguments did not arrive, or name another team, project or
+  # template, stop here rather than build the wrong one.
+  meant="$(trimmed "${NI_CODING_AGENT_RUNTIME:-}")"
+  [ -n "$meant" ] || meant="$(trimmed "${NI_CODING_AGENT_SANDBOX:-}")"
+  if [ "$name" = coding-agent ] && [ -n "$meant" ]; then
     given="$expected"
     if [ "$expected" = "$HOSTED_PROVIDER" ]; then
       given="$HOSTED_PROVIDER/$(trimmed "$SANDBOX_TEAM_ID")/$(trimmed "$SANDBOX_PROJECT_ID")"
+    elif [ "$expected" = "$RUNTIME_PROVIDER" ]; then
+      given="runtime/$(runtime_template)"
     fi
-    if [ "$(trimmed "$NI_CODING_AGENT_SANDBOX")" != "$given" ]; then
-      echo "build-agents: the build was meant to give coding-agent the $NI_CODING_AGENT_SANDBOX sandbox, but the secrets it was given call for $given. Did $CREDENTIALS reach the build as secrets (compose.yaml, deploy.sh)?" >&2
+    if [ "$meant" != "$given" ]; then
+      echo "build-agents: the build was meant to give coding-agent the $meant sandbox, but the settings it was given call for $given. Did $CREDENTIALS reach the build as secrets, or $RUNTIME_URLS and SANDBOX_RUNTIME_TEMPLATE as arguments (compose.yaml, deploy.sh)?" >&2
       exit 1
     fi
   fi
-  # Only the coding agent's build sees the hosted sandbox's credentials.
-  keep=""
+  # Only the coding agent's build sees the hosted sandbox's credentials, or the
+  # own runtime's addresses and template, whichever it is built with. Built for
+  # the own runtime it never sees the hosted three, even when they are here (for
+  # the cloud browser): it can never prepare a snapshot at the hosted service.
+  keep="" keep_runtime=""
   [ "$expected" = "$HOSTED_PROVIDER" ] && keep=1
+  [ "$expected" = "$RUNTIME_PROVIDER" ] && keep_runtime=1
   echo "== eve build: $name (sandbox: $expected)"
   started="$(date +%s)"
   # No VERCEL and no VERCEL_ENV: with either, eve writes Vercel Build Output and
   # prepares a Vercel Sandbox. EVE_PUBLIC_ROUTE_PREFIX is the agent's public mount,
-  # as withEve sets it for the Vercel services.
+  # as withEve sets it for the Vercel services. The runtime's key is never given to
+  # a build: none needs it.
   (
     cd "$dir"
     [ -n "$keep" ] || unset SANDBOX_ACCESS_TOKEN SANDBOX_TEAM_ID SANDBOX_PROJECT_ID
+    [ -n "$keep_runtime" ] || unset SANDBOX_RUNTIME_API_URL SANDBOX_RUNTIME_TRAFFIC_URL SANDBOX_RUNTIME_TEMPLATE
+    unset SANDBOX_RUNTIME_KEY
     env -u VERCEL -u VERCEL_ENV EVE_PUBLIC_ROUTE_PREFIX="/eve/$name" \
       node "$WEB/node_modules/eve/bin/eve.js" build > /tmp/eve-build.log 2>&1
   ) || {
@@ -196,9 +286,10 @@ for name in $names; do
   # The build records the sandbox provider it prepared; the running agent uses that
   # record and never prepares one itself. Any provider but the expected one would
   # start here and then fail on the first sandbox use. A local provider's template
-  # is a folder here; the hosted one's is a snapshot id there.
+  # is a folder here; the hosted one's is a snapshot id there; our own runtime's is
+  # the name of a template the sandbox server built.
   node -e '
-    const [file, cache, expected, name, hosted] = process.argv.slice(1)
+    const [file, cache, expected, name, hosted, runtime] = process.argv.slice(1)
     const { entries } = JSON.parse(require("node:fs").readFileSync(file, "utf8"))
     if (!Array.isArray(entries) || entries.length === 0) throw new Error(`${name}: no prepared sandbox in ${file}`)
     for (const entry of entries) {
@@ -209,27 +300,29 @@ for name in $names; do
         if (typeof entry.artifact?.snapshotId !== "string" || entry.artifact.snapshotId === "") throw new Error(`${name}: sandbox "${entry.nodeId}" has no snapshot`)
         continue
       }
+      if (expected === runtime) {
+        if (typeof entry.artifact?.template !== "string" || entry.artifact.template === "") throw new Error(`${name}: sandbox "${entry.nodeId}" names no template`)
+        continue
+      }
       const template = `${cache}/${expected}/templates/${entry.artifact?.templateKey}`
       if (!require("node:fs").existsSync(template)) throw new Error(`${name}: sandbox template ${template} is missing`)
     }
     console.log(`   sandbox: ${entries.map(entry => `${entry.nodeId}=${entry.providerName}`).join(", ")}`)
-  ' "$dir/.output/.eve/compile/sandbox-prepared-artifacts.json" "$dir/.eve/sandbox-cache" "$expected" "$name" "$HOSTED_PROVIDER"
+  ' "$dir/.output/.eve/compile/sandbox-prepared-artifacts.json" "$dir/.eve/sandbox-cache" "$expected" "$name" "$HOSTED_PROVIDER" "$RUNTIME_PROVIDER"
 
   # The access token logs the app in to the hosted sandbox service; it must be in
   # nothing this build leaves in the image. (Only the token is a secret: the ids
-  # are not.) grep's own exit status 2 (an error) fails the build too.
-  if [ -n "$keep" ]; then
-    token="$(trimmed "$SANDBOX_ACCESS_TOKEN")"
-    status=0
-    # The whole app, the build's scratch space and $HOME, where a tool could have
-    # cached something. The dependencies' folders are searched too: the framework
-    # keeps a build cache in one (node_modules/.cache), each agent's output has its
-    # own, and all of them go into the image. A few seconds in a ten-minute build.
-    grep -rqF -D skip -e "$token" "$WEB" /tmp "${HOME:-/root}" || status=$?
-    [ "$status" = 1 ] || {
-      echo "build-agents: SANDBOX_ACCESS_TOKEN turned up in a file after $name's build (or grep failed): refusing to put it in the image" >&2
-      exit 1
-    }
+  # are not.) Looked for after the coding agent's build whenever it is in this
+  # environment, also when that build was for the own runtime and never saw it.
+  hosted_token="$(trimmed "${SANDBOX_ACCESS_TOKEN:-}")"
+  if [ -n "$keep" ] || { [ "$name" = coding-agent ] && [ -n "$hosted_token" ]; }; then
+    refuse_if_found SANDBOX_ACCESS_TOKEN "$hosted_token"
+  fi
+  # The runtime's key should not be in a build's environment at all (none needs
+  # it, and no build is given it above); if it is, it must be in nothing either.
+  runtime_key="$(trimmed "${SANDBOX_RUNTIME_KEY:-}")"
+  if [ -n "$runtime_key" ]; then
+    refuse_if_found SANDBOX_RUNTIME_KEY "$runtime_key"
   fi
 
   # The build's scratch folders, left empty.

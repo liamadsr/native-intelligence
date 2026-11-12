@@ -367,6 +367,185 @@ class LiveKit(unittest.TestCase):
         self.assertEqual(len(blockers), 1)
 
 
+class OwnRuntime(unittest.TestCase):
+    """The coding agent's own sandbox runtime: a group of its own, and the git gate's addresses."""
+
+    KEY = "e2b_" + "0123456789abcdef" * 2 + "ab"
+    ENV = {
+        "SANDBOX_RUNTIME_API_URL": "http://10.200.77.2:3000",
+        "SANDBOX_RUNTIME_TRAFFIC_URL": "http://10.200.77.2:3002",
+        "SANDBOX_RUNTIME_KEY": KEY,
+        "SANDBOX_RUNTIME_TEMPLATE": "",
+        "AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES": "203.0.113.7, 2001:db8::7",
+        "SANDBOX_ACCESS_TOKEN": "",
+        "SANDBOX_TEAM_ID": "",
+        "SANDBOX_PROJECT_ID": "",
+    }
+    API = "http://10.200.77.2:3000"
+
+    def check(self, env, answers=()):
+        with FakeHttp(list(answers)) as fake:
+            ok, note = cs.CHECKS["SANDBOX_RUNTIME_API_URL"](env, {})
+        self.assertNotIn(self.KEY, note)
+        return ok, note, fake.calls
+
+    def test_may_be_empty_all_of_them(self):
+        for name in ("SANDBOX_RUNTIME_API_URL", "SANDBOX_RUNTIME_TRAFFIC_URL", "SANDBOX_RUNTIME_KEY", "SANDBOX_RUNTIME_TEMPLATE",
+                     "AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES"):
+            self.assertEqual(cs.group(name), "may be empty", name)
+        _, blockers, _ = cs.report({n: "" for n in self.ENV}, {})
+        self.assertEqual([b for b in blockers if "RUNTIME" in b or "GATE" in b], [])
+
+    IMAGES = [{"aliases": ["base"]}, {"aliases": ["ni-coding-agent"]}]
+
+    def test_proven_by_health_a_listing_with_the_key_and_the_image(self):
+        ok, note, calls = self.check(dict(self.ENV), [(self.API + "/health", (200, None)), (self.API + "/sandboxes", (200, [])),
+                                                      (self.API + "/templates", (200, self.IMAGES))])
+        self.assertIs(ok, True)
+        self.assertEqual([c[0] for c in calls], [self.API + "/health", self.API + "/sandboxes", self.API + "/templates"])
+        self.assertEqual(calls[1][1], {"X-API-Key": self.KEY})
+        self.assertEqual(calls[2][1], {"X-API-Key": self.KEY})
+        self.assertIsNone(calls[0][1])
+
+    def test_the_image_must_be_on_the_runtime(self):
+        up = [(self.API + "/health", (200, None)), (self.API + "/sandboxes", (200, []))]
+        # Not built yet: every run would fail at its first step, with everything else in order.
+        ok, note, _ = self.check(dict(self.ENV), up + [(self.API + "/templates", (200, [{"aliases": ["base"]}]))])
+        self.assertIs(ok, False)
+        self.assertIn("no image", note)
+        # Another name asked for, which the runtime has: fine. The name itself is never shown.
+        ok, note, _ = self.check(dict(self.ENV, SANDBOX_RUNTIME_TEMPLATE="base"), up + [(self.API + "/templates", (200, self.IMAGES))])
+        self.assertIs(ok, True)
+        ok, note, _ = self.check(dict(self.ENV, SANDBOX_RUNTIME_TEMPLATE="made-up-name"), up + [(self.API + "/templates", (200, self.IMAGES))])
+        self.assertIs(ok, False)
+        self.assertNotIn("made-up-name", note)
+        # The listing could not be had: cannot tell, never "all good".
+        for answer, want in (((503, None), None), ((0, None), None), ((404, None), False), ((200, {"not": "a list"}), False)):
+            ok, _, _ = self.check(dict(self.ENV), up + [(self.API + "/templates", answer)])
+            self.assertIs(ok, want, answer)
+
+    def test_the_gate_addresses_must_be_public_ones(self):
+        self.assertEqual(cs.gate_addresses_not_public("203.0.113.7, 2001:db8::7"), 0)
+        self.assertEqual(cs.gate_addresses_not_public("10.200.77.2 127.0.0.1 ::1 fe80::1%eth0 192.168.1.4 100.64.0.9 fd00::2 0.0.0.0 [::ffff:10.0.0.1] 172.20.0.3"), 10)
+        # The likely mistake: the tunnel's address, from the lines above it in .env.
+        ok, note, calls = self.check(dict(self.ENV, AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES="10.200.77.2"))
+        self.assertIs(ok, False)
+        self.assertIn("PUBLIC", note)
+        self.assertNotIn("10.200.77.2", note)
+        self.assertEqual(calls, [])
+        ok, note = cs.CHECKS["AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES"](dict(self.ENV, AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES="203.0.113.7 10.200.77.2"), {})
+        self.assertIs(ok, False)
+        self.assertNotIn("10.200.77.2", note)
+
+    def test_answers(self):
+        for health, listing, want in (((200, None), (401, None), False), ((200, None), (403, None), False), ((0, None), None, None),
+                                      ((503, None), None, None), ((404, None), None, False), ((200, None), (502, None), None)):
+            answers = [(self.API + "/health", health)] + ([(self.API + "/sandboxes", listing)] if listing else [])
+            ok, _, _ = self.check(dict(self.ENV), answers)
+            self.assertIs(ok, want, (health, listing))
+
+    def test_all_three_or_none(self):
+        for name in ("SANDBOX_RUNTIME_TRAFFIC_URL", "SANDBOX_RUNTIME_KEY"):
+            ok, note, calls = self.check(dict(self.ENV, **{name: " "}))
+            self.assertIs(ok, False)
+            self.assertIn(name, note)
+            self.assertEqual(calls, [])
+            # And the other way round: one of them set without the API URL.
+            ok, note = cs.CHECKS[name](dict(self.ENV, SANDBOX_RUNTIME_API_URL=""), {})
+            self.assertIs(ok, False)
+            self.assertIn("SANDBOX_RUNTIME_API_URL", note)
+            self.assertEqual(cs.CHECKS[name](dict(self.ENV), {}), (None, None))
+
+    def test_the_urls_are_the_tunnel(self):
+        self.assertIsNone(cs.runtime_url_problem("http://10.200.77.2:3000"))
+        self.assertIsNone(cs.runtime_url_problem(" http://10.200.77.2:3002/\n"))
+        self.assertIsNone(cs.runtime_url_problem("http://[fd00::2]:3000"))
+        for wrong in ("https://10.200.77.2:3000", "http://203.0.113.7:3000", "http://sandbox.example.com:3000",
+                      "http://10.200.77.2:3000/api", "10.200.77.2:3000", "http://u:p@10.200.77.2:3000", ""):
+            self.assertIsNotNone(cs.runtime_url_problem(wrong), wrong)
+            ok, note, calls = self.check(dict(self.ENV, SANDBOX_RUNTIME_API_URL=wrong or "x"))
+            self.assertIs(ok, False, wrong)
+            self.assertEqual(calls, [])
+        ok, note = cs.CHECKS["SANDBOX_RUNTIME_TRAFFIC_URL"](dict(self.ENV, SANDBOX_RUNTIME_TRAFFIC_URL="https://10.200.77.2:3002"), {})
+        self.assertIs(ok, False)
+
+    def test_the_key_shape_never_shown(self):
+        for wrong in ("e2b_" + "0" * 31, "e2b_" + "g" * 40, "sk_" + "0" * 40, "0" * 40):
+            ok, note, calls = self.check(dict(self.ENV, SANDBOX_RUNTIME_KEY=wrong))
+            self.assertIs(ok, False, wrong)
+            self.assertNotIn(wrong, note)
+            self.assertEqual(calls, [])
+            ok, note = cs.CHECKS["SANDBOX_RUNTIME_KEY"](dict(self.ENV, SANDBOX_RUNTIME_KEY=wrong), {})
+            self.assertIs(ok, False)
+            self.assertNotIn(wrong, note)
+        self.assertTrue(cs.runtime_key_shape_ok(" %s\n" % self.KEY))
+
+    def test_needs_the_gate_addresses(self):
+        ok, note, calls = self.check(dict(self.ENV, AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES=""))
+        self.assertIs(ok, False)
+        self.assertIn("AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES", note)
+        self.assertEqual(calls, [])
+        ok, note, _ = self.check(dict(self.ENV, AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES="203.0.113.7, sandbox.example.com"))
+        self.assertIs(ok, False)
+        self.assertNotIn("sandbox.example.com", note)
+
+    def test_the_hosted_three_may_stay_beside_it_for_the_cloud_browser(self):
+        hosted = {"SANDBOX_ACCESS_TOKEN": "made-up", "SANDBOX_TEAM_ID": "team_madeup0001", "SANDBOX_PROJECT_ID": "prj_madeup0001"}
+        both = dict(self.ENV, **hosted)
+        ok, note, calls = self.check(both, [(self.API + "/health", (200, None)), (self.API + "/sandboxes", (200, [])),
+                                            (self.API + "/templates", (200, self.IMAGES))])
+        self.assertIs(ok, True)
+        self.assertNotIn("made-up", note)
+        self.assertEqual(len(calls), 3)
+        # The hosted three keep their own check, unchanged, against the hosted service.
+        with FakeHttp([("https://api.vercel.com/v2/sandboxes?", (200, {"sandboxes": []}))]) as fake:
+            self.assertIs(cs.check_sandbox(both, {})[0], True)
+        self.assertEqual(len(fake.calls), 1)
+        self.assertEqual(cs.group("SANDBOX_ACCESS_TOKEN"), "needed")
+        # Empty, it still blocks Gate 1 (the cloud browser needs it), and says what is off in both worlds.
+        _, blockers, _ = cs.report(dict(self.ENV, SANDBOX_ACCESS_TOKEN=""), {})
+        self.assertIn("SANDBOX_ACCESS_TOKEN is empty", blockers)
+        self.assertIn("cloud browser", cs.EMPTY_MEANS["SANDBOX_ACCESS_TOKEN"])
+        self.assertIn("unless our own sandbox runtime is set", cs.EMPTY_MEANS["SANDBOX_ACCESS_TOKEN"])
+
+    def test_the_gate_addresses_alone(self):
+        check = cs.CHECKS["AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES"]
+        self.assertEqual(cs.gate_address_problems("203.0.113.7,2001:db8::7 [2001:db8::8] fe80::1%eth0"), (0, 4))
+        self.assertEqual(cs.gate_address_problems("203.0.113.7 nope 198.51.100.300"), (2, 1))
+        self.assertEqual(check(dict(self.ENV), {}), (None, None))
+        ok, note = check(dict(self.ENV, AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES="203.0.113.7 secret-ish-entry"), {})
+        self.assertIs(ok, False)
+        self.assertNotIn("secret-ish-entry", note)
+        # Set without the runtime: said, and blocks nothing.
+        lone = {"AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES": "203.0.113.7", "SANDBOX_RUNTIME_API_URL": ""}
+        result = check(lone, {})
+        self.assertEqual(result[0], "warn")
+        self.assertIn("refuse every clone and push from the hosted sandbox service's sandboxes", result[1])
+        lines, blockers, unchecked = cs.report(lone, {"AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES": result})
+        self.assertEqual((blockers, unchecked), ([], []))
+        self.assertIn("WARNING", "\n".join(lines))
+        self.assertNotIn("203.0.113.7", "\n".join(lines))
+
+    def test_the_template(self):
+        check = cs.CHECKS["SANDBOX_RUNTIME_TEMPLATE"]
+        self.assertEqual(check(dict(self.ENV, SANDBOX_RUNTIME_TEMPLATE="ni-coding-agent"), {}), (None, None))
+        self.assertIs(check(dict(self.ENV, SANDBOX_RUNTIME_TEMPLATE="Not A Name"), {})[0], False)
+        self.assertEqual(check({"SANDBOX_RUNTIME_TEMPLATE": "ni-coding-agent"}, {})[0], "warn")
+
+    def test_a_names_only_run_shows_no_value(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".env", delete=False) as f:
+            f.writelines("%s=%s\n" % kv for kv in self.ENV.items())
+        try:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                cs.main(["check_settings.py", f.name, "--names-only"])
+        finally:
+            os.unlink(f.name)
+        text = out.getvalue()
+        for value in (self.KEY, "10.200.77.2", "203.0.113.7"):
+            self.assertNotIn(value, text)
+
+
 class CallRecorder(unittest.TestCase):
     ENV = {"LIVEKIT_URL": "wss://livekit.example.dev", "CAPTURE_FEED_SECRET": "f" * 48, "RUN_SKILL_INTERNAL_SECRET": "r" * 48}
 
