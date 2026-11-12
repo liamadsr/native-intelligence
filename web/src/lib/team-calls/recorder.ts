@@ -104,6 +104,8 @@ export const LONE_CALL_LOOK_EVERY_MS = 15_000
 export const LONE_CALL_LOOKS_PER_ASK = 5
 /** A call this young is left to its join webhooks (they come within a second or two). */
 export const LONE_CALL_MIN_AGE_MS = 10_000
+/** The most one look at lone calls waits on LiveKit, all its rooms together (they are asked at once). */
+export const LONE_CALL_DEADLINE_MS = 2_000
 
 const lastLook = new Map<string, number>()
 
@@ -119,18 +121,22 @@ export function __forgetLoneCallLooks(): void {
  * own list, and a room with two or more raises the counter (589's
  * team_call_people_seen), so the next work answer offers the call.
  *
- * Bounded so it is cheap: asked from the recorder's work request (every few
- * seconds, so a lost webhook costs seconds, not the sweep's five minutes), it
- * looks at calls older than LONE_CALL_MIN_AGE_MS (the webhook's own time),
- * each at most every LONE_CALL_LOOK_EVERY_MS, and at most
- * LONE_CALL_LOOKS_PER_ASK rooms per request; a call that has had two people
- * is never looked at again (its counter only grows). Returns how many calls
- * it raised. Never throws (the work answer goes on without it).
+ * Bounded so it is cheap: run after each of the recorder's work answers
+ * (every few seconds, so a lost webhook costs seconds, not the sweep's five
+ * minutes; never before the answer, which never waits on LiveKit), it looks
+ * at calls older than LONE_CALL_MIN_AGE_MS (the webhook's own time), each at
+ * most every LONE_CALL_LOOK_EVERY_MS, at most LONE_CALL_LOOKS_PER_ASK rooms
+ * per request, asked at once and waited on for LONE_CALL_DEADLINE_MS in all
+ * (a room LiveKit has not answered for by then is looked at next time); a
+ * call that has had two people is never looked at again (its counter only
+ * grows). A write that fails is that call's alone. Returns how many calls it
+ * raised. Never throws.
  */
 export async function reconcileLoneCalls(
   svc: SupabaseClient,
   roomPeople: (room: string) => Promise<number>,
   now: number = Date.now(),
+  deadlineMs: number = LONE_CALL_DEADLINE_MS,
 ): Promise<number> {
   try {
     const { data, error } = await svc
@@ -147,16 +153,33 @@ export async function reconcileLoneCalls(
     const loneIds = new Set(lone.map((c) => c.id))
     for (const id of lastLook.keys()) if (!loneIds.has(id)) lastLook.delete(id)
     const due = lone.filter((c) => now - (lastLook.get(c.id) ?? 0) >= LONE_CALL_LOOK_EVERY_MS).slice(0, LONE_CALL_LOOKS_PER_ASK)
+    if (due.length === 0) return 0
+    // Every room at once, and all of them together waited on for deadlineMs at most: a LiveKit that
+    // hangs costs this look its rooms, never more.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), deadlineMs)
+    })
+    const counted = await Promise.all(due.map((c) => Promise.race([roomPeople(c.room).catch(() => 0), deadline])))
+    clearTimeout(timer)
     let raised = 0
-    for (const c of due) {
+    for (const [i, c] of due.entries()) {
+      const people = counted[i]
+      // Not answered in time: looked at again at its next turn.
+      if (people === null) continue
       lastLook.set(c.id, now)
-      const people = await roomPeople(c.room).catch(() => 0)
       if (people < RECORDER_MIN_PEOPLE) continue
-      const { data: peak, error: seenError } = await svc.rpc('team_call_people_seen', { target_call: c.id, people })
-      if (seenError) throw new Error(seenError.message)
-      if (typeof peak === 'number') {
-        raised++
-        console.warn(`[team-call-recorder] call=${c.id} people=${people} counted from the room: its join webhook was lost`)
+      try {
+        const { data: peak, error: seenError } = await svc.rpc('team_call_people_seen', { target_call: c.id, people })
+        if (seenError) throw new Error(seenError.message)
+        if (typeof peak === 'number') {
+          raised++
+          console.warn(`[team-call-recorder] call=${c.id} people=${people} counted from the room: its join webhook was lost`)
+        }
+      } catch (err) {
+        // This call's alone: looked at again at its next turn, the others go on.
+        lastLook.delete(c.id)
+        console.warn(`[team-call-recorder] call=${c.id} people seen not written:`, err instanceof Error ? err.message.slice(0, 160) : 'unknown')
       }
     }
     return raised

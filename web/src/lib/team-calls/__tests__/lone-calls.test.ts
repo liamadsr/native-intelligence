@@ -95,6 +95,34 @@ describe('reconcileLoneCalls', () => {
     expect(new Set(looked).size).toBe(looked.length)
   })
 
+  it('a LiveKit that never answers: the look settles at its deadline, and those rooms are looked at again next time', async () => {
+    tables.team_call.push(call(1), call(2))
+    let asked = 0
+    const hung = () => (asked++, new Promise<number>(() => undefined))
+    expect(await reconcileLoneCalls(svc, hung, NOW, 30)).toBe(0)
+    expect(asked).toBe(2)
+    // Not marked as looked at: the very next request asks again.
+    expect(await reconcileLoneCalls(svc, async () => 2, NOW + 3_000, 30)).toBe(2)
+  })
+
+  it('one call’s write failing is that call’s alone: the others are raised', async () => {
+    tables.team_call.push(call(1), call(2))
+    const write = svc.rpc.bind(svc)
+    let first = true
+    ;(svc as unknown as { rpc: unknown }).rpc = async (name: string, args: { target_call: string; people: number }) => {
+      if (first) {
+        first = false
+        return { data: null, error: { message: 'canceling statement due to lock timeout' } }
+      }
+      return write(name as never, args as never)
+    }
+    expect(await reconcileLoneCalls(svc, async () => 2, NOW)).toBe(1)
+    // The failed one is looked at again at once; the raised one never is.
+    const again: string[] = []
+    expect(await reconcileLoneCalls(svc, async (room) => (again.push(room), 2), NOW + 1_000)).toBe(1)
+    expect(again).toHaveLength(1)
+  })
+
   it('LiveKit failing, or the database: nothing raised, never a throw', async () => {
     tables.team_call.push(call(1))
     expect(await reconcileLoneCalls(svc, async () => Promise.reject(new Error('connect ECONNREFUSED')), NOW)).toBe(0)

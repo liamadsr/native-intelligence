@@ -39,6 +39,13 @@ describe('migration 589', () => {
     expect(body).not.toMatch(/to anon|to authenticated/)
   })
 
+  it('takes team_call before team_call_eject, as a call’s end does, so the two never wait on each other', () => {
+    const t = flat(SQL)
+    const callLock = t.indexOf('lock table public.team_call in share row exclusive mode;')
+    expect(callLock).toBeGreaterThan(t.indexOf("SET LOCAL lock_timeout = '5s';"))
+    expect(callLock).toBeLessThan(t.indexOf('alter table public.team_call_eject'))
+  })
+
   it('numbered once, the very next after 588', () => {
     const numbers = migrationsInOrder().map((m) => m.num)
     expect(numbers.filter((n) => n === 589)).toHaveLength(1)

@@ -29,9 +29,19 @@ const h = vi.hoisted(() => ({
   svc: null as unknown as SupabaseClient,
   rpcs: [] as Array<[string, Record<string, unknown>]>,
   answers: {} as Record<string, { data: unknown; error: unknown }>,
+  afters: [] as Array<() => Promise<unknown>>,
+  roomPeople: (async () => 0) as (room: string) => Promise<number>,
 }))
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => h.svc }))
+vi.mock('next/server', async (orig) => ({
+  ...(await orig<typeof import('next/server')>()),
+  after: (task: () => Promise<unknown>) => void h.afters.push(task),
+}))
+vi.mock('@/lib/team-calls/livekit', async (orig) => ({
+  ...(await orig<typeof import('@/lib/team-calls/livekit')>()),
+  teamCallRoomPeople: (_config: unknown, room: string) => h.roomPeople(room),
+}))
 
 import { POST as start } from '../start/route'
 import { POST as heartbeat } from '../heartbeat/route'
@@ -253,6 +263,33 @@ describe('the recorder’s work', () => {
     h.rpcs = []
     expect((await (await work(post({ producer, running: [], capacity: 0 }))).json()).jobs).toEqual([])
     expect(h.rpcs).toEqual([])
+  })
+
+  it('the answer never waits on LiveKit: lone calls are counted after it, and a LiveKit that never answers changes nothing', async () => {
+    const LONE = '66666666-6666-4666-8666-666666666666'
+    tables.team_call.push({ id: LONE, room: `tc-${LONE}`, channel_id: CH, workspace_id: 'ws', status: 'live', notes: true, peak_participants: 1, started_at: new Date(Date.now() - 60_000).toISOString() })
+    tables.team_call[0].peak_participants = 2
+    let asked = 0
+    h.roomPeople = () => (asked++, new Promise<number>(() => undefined))
+    h.afters = []
+    h.answers.team_call_recorder_work = { data: [{ call_id: CALL, room: `tc-${CALL}`, round: 1 }], error: null }
+    const res = await work(post({ producer, running: [], capacity: 3 }))
+    // Answered before LiveKit was asked at all: the look runs after the answer.
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { jobs: Array<{ callId: string }> }).jobs.map((j) => j.callId)).toEqual([CALL])
+    expect(asked).toBe(0)
+    expect(h.afters).toHaveLength(1)
+    // The look itself gives up on a LiveKit that hangs (its 2 s deadline): it settles, nothing raised.
+    vi.useFakeTimers()
+    try {
+      const done = h.afters[0]()
+      await vi.advanceTimersByTimeAsync(2_100)
+      expect(await done).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(asked).toBe(1)
+    expect(h.rpcs.some((r) => r[0] === 'team_call_people_seen')).toBe(false)
   })
 
   it('nothing is heard until two people were in the call at once: a ringing or missed DM, one person waiting, no job (no socket, no capture); from then on, to its end', async () => {

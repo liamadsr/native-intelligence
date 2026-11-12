@@ -38,6 +38,12 @@ begin;
 
 SET LOCAL lock_timeout = '5s';
 
+-- Lock order, as a call's end takes them: team_call first (its row, then its trigger's insert into
+-- team_call_eject), then team_call_eject (its check, below). Taken here up front, so this file and
+-- an ending call never wait on each other the other way round. Share row exclusive: reads go on,
+-- writes to team_call wait for this short transaction.
+lock table public.team_call in share row exclusive mode;
+
 -- ── The recorder's work: two people first ─────────────────────────────────────
 
 create or replace function public.team_call_recorder_work(p_producer_id text, p_running uuid[], max_jobs integer)

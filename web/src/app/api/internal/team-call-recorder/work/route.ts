@@ -4,9 +4,10 @@
  * work (src/lib/team-calls/recorder.ts): live calls with notes on, that two
  * people have been in at once, that no producer feeds, and this one's own
  * that it no longer lists in `running` (it restarted, or lost the room), at
- * most `capacity`. Before answering it counts the people in a few lone calls'
- * rooms (reconcileLoneCalls), so a lost join webhook never leaves a
- * two-person call unheard. Each job carries a
+ * most `capacity`. After answering it counts the people in a few lone calls'
+ * rooms (reconcileLoneCalls, at most 2 s of LiveKit; the answer never waits on
+ * it), so a lost join webhook never leaves a two-person call unheard: the
+ * next ask offers it. Each job carries a
  * token for its room alone: hidden, a recorder, subscribe only. The
  * recorder then starts the call's feed (POST /api/internal/capture-feed/
  * start) and joins the room. Its identity there is its own
@@ -17,7 +18,7 @@
  * the feed's secret. 404 while the recorder is off here (TEAM_CALL_RECORDER
  * not on, or calling off).
  */
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getServiceClient } from '@/lib/admin'
 import { notFound } from '@/lib/api-errors'
@@ -43,8 +44,9 @@ export async function POST(request: Request) {
   const body = await feedRequest(request, WorkSchema)
   if (body instanceof Response) return body
   try {
-    // A call two people are in whose join webhook was lost: counted from the room (bounded, cheap).
-    if (body.capacity > 0) await reconcileLoneCalls(getServiceClient(), (room) => teamCallRoomPeople(config, room))
+    // A call two people are in whose join webhook was lost: counted from its room after this answer
+    // (bounded, cheap; the answer never waits on LiveKit), so the next ask offers it.
+    if (body.capacity > 0) after(() => reconcileLoneCalls(getServiceClient(), (room) => teamCallRoomPeople(config, room)))
     const work = body.capacity > 0 ? await recorderWork(getServiceClient(), { producerId: body.producer.id, running: body.running.map((r) => r.toLowerCase()), max: body.capacity }) : []
     const jobs = await Promise.all(work.map(async (j) => ({ ...j, token: await teamCallRecorderToken(config, j.room, body.producer.id) })))
     if (jobs.length > 0) console.info(`[team-call-recorder] producer=${body.producer.id} jobs=${jobs.map((j) => j.callId).join(',')}`)
