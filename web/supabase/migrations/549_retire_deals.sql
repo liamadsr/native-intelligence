@@ -33,12 +33,12 @@
 --   custom_field_definition_entity_check   520's list without 'deal'.
 --   entity_activity_backfill_home          516's without 'deal'; the
 --                             backfill's 'deal' source goes (it was done).
+--   entity_activity_backfill_step          516's without its deal branch,
+--                             its 'deal' kind and its deal table check.
 --
 -- Left as they are: view_entity_type keeps its 'deal' value (an enum value
 -- can't be dropped; no view uses it after 548), and the activity read
 -- policy's and kind lists' 'deal' words, which name no table.
--- 516's backfill step keeps its 'deal' branch: it runs only for a source in
--- its progress list, and 'deal' is not there any more.
 --
 -- After 540 to 548. Re-runnable. No backslashes anywhere in this file.
 -- ------------------------------------------------------------
@@ -192,6 +192,404 @@ as $$
   end;
 $$;
 revoke all on function public.entity_activity_backfill_home(text, uuid) from public, anon, authenticated;
+
+-- 516's entity_activity_backfill_step, without deals: no 'deal' source, no
+-- branch reading public.deal, and the catalog check names no deal table (a
+-- database replayed from scratch has none after this file).
+create or replace function public.entity_activity_backfill_step(p_limit integer default 1000)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  p record;
+  v_after uuid;
+  v_last uuid;
+  v_seen integer := 0;
+  v_rows integer := 0;
+  v_ids uuid[];
+  v_rows_held numeric;
+  kinds constant text[] := array['action', 'document', 'capture', 'project', 'initiative', 'contact', 'company', 'flow', 'team_chat_message'];
+begin
+  if p_limit is null or p_limit < 1 or p_limit > 10000 then
+    raise exception 'entity_activity_backfill_step: p_limit must be between 1 and 10000' using errcode = '22023';
+  end if;
+  -- A batch never waits long on someone's open edit: the next tick retries.
+  perform set_config('lock_timeout', '2s', true);
+
+  if exists (select 1 from public.workspace_merge_job j where j.status = 'queued') then
+    return jsonb_build_object('waiting', 'merge');
+  end if;
+
+  select * into p
+    from public.entity_activity_backfill_progress
+   where done_at is null
+   order by ord
+   limit 1
+   for update skip locked;
+  if not found then
+    if exists (select 1 from public.entity_activity_backfill_progress where done_at is null) then
+      return jsonb_build_object('busy', true);
+    end if;
+    return jsonb_build_object('finished', true);
+  end if;
+  v_after := coalesce(p.after_id, '00000000-0000-0000-0000-000000000000'::uuid);
+
+  -- ── Tasks: created; a finished one's state ────────────────────────────────
+  if p.source = 'action' then
+    select coalesce(array_agg(s.id order by s.id), '{}') into v_ids
+      from (select x.id from public.actions x
+             where x.id > v_after
+               and x.confirmation is distinct from 'suggested'
+             order by x.id
+             limit p_limit
+               for share of x) s;
+    with b as (
+      select x.id, x.workspace_id, x.user_id, x.created_at, x.completed_at, x.status_id,
+             -- Made by an agent: from a chat, a meeting's extraction or a chat suggestion.
+             coalesce(x.source_type in ('chat_suggestion', 'meeting_extraction') or x.context_source in ('ai_chat', 'meeting_note'), false) as by_agent
+        from public.actions x
+       where x.id = any(v_ids)
+    ), ins as (
+      insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
+      select public.entity_activity_backfill_id('action', b.id::text, v.action), b.workspace_id, 'action', b.id, v.action,
+             case when v.action <> 'created' or m.id is null then 'system' when b.by_agent then 'agent' else 'member' end, case when v.action = 'created' then m.id end, v.detail, v.at, true
+        from b
+        left join public.member m on m.user_id = b.user_id and m.workspace_id = b.workspace_id
+        cross join lateral (values
+          ('created', '{}'::jsonb, b.created_at, array['created'], true),
+          ('status_changed', jsonb_build_object('from', null, 'to', b.status_id), greatest(b.completed_at, b.created_at), array['status_changed'],
+            b.completed_at is not null
+            and exists (select 1 from public.workflow_state s where s.id = b.status_id and s.category::text in ('completed', 'canceled')))
+        ) v(action, detail, at, logged, hit)
+       where v.hit
+         and public.entity_activity_writable(b.workspace_id)
+         and not exists (select 1 from public.entity_activity e where e.entity_type = 'action' and e.entity_id = b.id and e.action = any(v.logged))
+      on conflict (id) do nothing
+      returning 1
+    )
+    select count(*)::int into v_rows from ins;
+
+  -- ── Documents: created; archived ──────────────────────────────────────────
+  elsif p.source = 'document' then
+    select coalesce(array_agg(s.id order by s.id), '{}') into v_ids
+      from (select x.id from public.document x
+             where x.id > v_after
+             order by x.id
+             limit p_limit
+               for share of x) s;
+    with b as (
+      select x.id, x.workspace_id, x.created_by, x.created_at, x.updated_at, x.status
+        from public.document x
+       where x.id = any(v_ids)
+    ), ins as (
+      insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
+      select public.entity_activity_backfill_id('document', b.id::text, v.action), b.workspace_id, 'document', b.id, v.action,
+             case when v.action = 'created' and m.id is not null then 'member' else 'system' end, case when v.action = 'created' then m.id end, '{}'::jsonb, v.at, true
+        from b
+        left join public.member m on m.id = b.created_by and m.workspace_id = b.workspace_id
+        cross join lateral (values
+          ('created', b.created_at, array['created'], true),
+          ('archived', greatest(b.updated_at, b.created_at), array['archived', 'restored'], b.status = 'archived')
+        ) v(action, at, logged, hit)
+       where v.hit
+         and public.entity_activity_writable(b.workspace_id)
+         and not exists (select 1 from public.entity_activity e where e.entity_type = 'document' and e.entity_id = b.id and e.action = any(v.logged))
+      on conflict (id) do nothing
+      returning 1
+    )
+    select count(*)::int into v_rows from ins;
+
+  -- ── Captures: created; archived (never an evaluation capture) ─────────────
+  elsif p.source = 'capture' then
+    select coalesce(array_agg(s.id order by s.id), '{}') into v_ids
+      from (select x.id from public.captures x
+             where x.id > v_after
+               and x.is_eval is not true
+             order by x.id
+             limit p_limit
+               for share of x) s;
+    with b as (
+      select x.id, x.workspace_id, x.user_id, x.created_at, x.updated_at, x.status
+        from public.captures x
+       where x.id = any(v_ids)
+    ), ins as (
+      insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
+      select public.entity_activity_backfill_id('capture', b.id::text, v.action), b.workspace_id, 'capture', b.id, v.action,
+             case when v.action = 'created' and m.id is not null then 'member' else 'system' end, case when v.action = 'created' then m.id end, '{}'::jsonb, v.at, true
+        from b
+        left join public.member m on m.user_id = b.user_id and m.workspace_id = b.workspace_id
+        cross join lateral (values
+          ('created', b.created_at, array['created'], true),
+          ('archived', greatest(b.updated_at, b.created_at), array['archived', 'restored'], b.status = 'archived')
+        ) v(action, at, logged, hit)
+       where v.hit
+         and public.entity_activity_writable(b.workspace_id)
+         and not exists (select 1 from public.entity_activity e where e.entity_type = 'capture' and e.entity_id = b.id and e.action = any(v.logged))
+      on conflict (id) do nothing
+      returning 1
+    )
+    select count(*)::int into v_rows from ins;
+
+  -- ── Projects: created; archived ───────────────────────────────────────────
+  elsif p.source = 'project' then
+    select coalesce(array_agg(s.id order by s.id), '{}') into v_ids
+      from (select x.id from public.projects x
+             where x.id > v_after
+             order by x.id
+             limit p_limit
+               for share of x) s;
+    with b as (
+      select x.id, x.workspace_id, x.user_id, x.created_at, x.updated_at, x.is_archived
+        from public.projects x
+       where x.id = any(v_ids)
+    ), ins as (
+      insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
+      select public.entity_activity_backfill_id('project', b.id::text, v.action), b.workspace_id, 'project', b.id, v.action,
+             case when v.action = 'created' and m.id is not null then 'member' else 'system' end, case when v.action = 'created' then m.id end, '{}'::jsonb, v.at, true
+        from b
+        left join public.member m on m.user_id = b.user_id and m.workspace_id = b.workspace_id
+        cross join lateral (values
+          ('created', b.created_at, array['created'], true),
+          ('archived', greatest(b.updated_at, b.created_at), array['archived', 'restored'], b.is_archived is true)
+        ) v(action, at, logged, hit)
+       where v.hit
+         and public.entity_activity_writable(b.workspace_id)
+         and not exists (select 1 from public.entity_activity e where e.entity_type = 'project' and e.entity_id = b.id and e.action = any(v.logged))
+      on conflict (id) do nothing
+      returning 1
+    )
+    select count(*)::int into v_rows from ins;
+
+  -- ── Initiatives: created; archived (no column names a maker) ──────────────
+  elsif p.source = 'initiative' then
+    select coalesce(array_agg(s.id order by s.id), '{}') into v_ids
+      from (select x.id from public.initiative x
+             where x.id > v_after
+             order by x.id
+             limit p_limit
+               for share of x) s;
+    with b as (
+      select x.id, x.workspace_id, x.created_at, x.updated_at, x.status::text as status
+        from public.initiative x
+       where x.id = any(v_ids)
+    ), ins as (
+      insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
+      select public.entity_activity_backfill_id('initiative', b.id::text, v.action), b.workspace_id, 'initiative', b.id, v.action,
+             'system', null, '{}'::jsonb, v.at, true
+        from b
+        cross join lateral (values
+          ('created', b.created_at, array['created'], true),
+          ('archived', greatest(b.updated_at, b.created_at), array['archived', 'restored'], b.status = 'archived')
+        ) v(action, at, logged, hit)
+       where v.hit
+         and public.entity_activity_writable(b.workspace_id)
+         and not exists (select 1 from public.entity_activity e where e.entity_type = 'initiative' and e.entity_id = b.id and e.action = any(v.logged))
+      on conflict (id) do nothing
+      returning 1
+    )
+    select count(*)::int into v_rows from ins;
+
+  -- ── Contacts: created by hand or by an agent (never a sync, an import or a merged one) ──
+  elsif p.source = 'contact' then
+    select coalesce(array_agg(s.id order by s.id), '{}') into v_ids
+      from (select x.id from public.contact x
+             where x.id > v_after
+               and (x.source is null or x.source = 'manual')
+               and x.merged_into_contact_id is null
+             order by x.id
+             limit p_limit
+               for share of x) s;
+    with b as (
+      select x.id, x.workspace_id, x.created_by_member_id, x.created_at
+        from public.contact x
+       where x.id = any(v_ids)
+    ), ins as (
+      insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
+      select public.entity_activity_backfill_id('contact', b.id::text, 'created'), b.workspace_id, 'contact', b.id, 'created',
+             case when m.id is null then 'system' else 'member' end, m.id, '{}'::jsonb, b.created_at, true
+        from b
+        left join public.member m on m.id = b.created_by_member_id and m.workspace_id = b.workspace_id
+       where public.entity_activity_writable(b.workspace_id)
+         and not exists (select 1 from public.entity_activity e where e.entity_type = 'contact' and e.entity_id = b.id and e.action = 'created')
+      on conflict (id) do nothing
+      returning 1
+    )
+    select count(*)::int into v_rows from ins;
+
+  -- ── Companies: created by hand (never a provider's); no column names a maker ──
+  elsif p.source = 'company' then
+    select coalesce(array_agg(s.id order by s.id), '{}') into v_ids
+      from (select x.id from public.company x
+             where x.id > v_after
+               and x.source_provider is null
+             order by x.id
+             limit p_limit
+               for share of x) s;
+    with b as (
+      select x.id, x.workspace_id, x.created_at
+        from public.company x
+       where x.id = any(v_ids)
+    ), ins as (
+      insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
+      select public.entity_activity_backfill_id('company', b.id::text, 'created'), b.workspace_id, 'company', b.id, 'created',
+             'system', null, '{}'::jsonb, b.created_at, true
+        from b
+       where public.entity_activity_writable(b.workspace_id)
+         and not exists (select 1 from public.entity_activity e where e.entity_type = 'company' and e.entity_id = b.id and e.action = 'created')
+      on conflict (id) do nothing
+      returning 1
+    )
+    select count(*)::int into v_rows from ins;
+
+  -- ── Loops: created ────────────────────────────────────────────────────────
+  elsif p.source = 'flow' then
+    select coalesce(array_agg(s.id order by s.id), '{}') into v_ids
+      from (select x.id from public.flow x
+             where x.id > v_after
+             order by x.id
+             limit p_limit
+               for share of x) s;
+    with b as (
+      select x.id, x.workspace_id, x.created_by, x.created_at
+        from public.flow x
+       where x.id = any(v_ids)
+    ), ins as (
+      insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
+      select public.entity_activity_backfill_id('flow', b.id::text, 'created'), b.workspace_id, 'flow', b.id, 'created',
+             case when m.id is null then 'system' else 'member' end, m.id, '{}'::jsonb, b.created_at, true
+        from b
+        left join public.member m on m.user_id = b.created_by and m.workspace_id = b.workspace_id
+       where public.entity_activity_writable(b.workspace_id)
+         and not exists (select 1 from public.entity_activity e where e.entity_type = 'flow' and e.entity_id = b.id and e.action = 'created')
+      on conflict (id) do nothing
+      returning 1
+    )
+    select count(*)::int into v_rows from ins;
+
+  -- ── Comments: 'commented' on the record, in its workspace now ─────────────
+  elsif p.source = 'comment' then
+    with b as (
+      select c.id, c.commentable_type::text as entity_type, c.commentable_id as entity_id, c.author_id, c.author_user_id, c.created_at
+        from public.comment c
+       where c.id > v_after
+         and c.commentable_id is not null
+         and c.commentable_type::text in ('action', 'capture', 'document', 'project', 'contact')
+       order by c.id
+       limit p_limit
+    ), ins as (
+      insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
+      select public.entity_activity_backfill_id('comment', b.id::text), h.workspace_id, b.entity_type, b.entity_id, 'commented',
+             case when coalesce(ma.id, mu.id) is null then 'system' else 'member' end, coalesce(ma.id, mu.id),
+             jsonb_build_object('comment_id', b.id), b.created_at, true
+        from b
+        cross join lateral (select public.entity_activity_backfill_home(b.entity_type, b.entity_id) as workspace_id) h
+        left join public.member ma on ma.id = b.author_id and ma.workspace_id = h.workspace_id
+        left join public.member mu on mu.user_id = b.author_user_id and mu.workspace_id = h.workspace_id
+       where public.entity_activity_writable(h.workspace_id)
+         and not exists (
+           select 1 from public.entity_activity e
+            where e.entity_type = b.entity_type and e.entity_id = b.entity_id
+              and e.action = 'commented' and e.detail ->> 'comment_id' = b.id::text)
+      on conflict (id) do nothing
+      returning 1
+    )
+    select (select b.id from b order by b.id desc limit 1), (select count(*)::int from b), (select count(*)::int from ins)
+      into v_last, v_seen, v_rows;
+
+  -- ── Edges: 488's rows, both records in the edge's workspace now ───────────
+  elsif p.source = 'entity_link' then
+    with b as (
+      select l.id, l.workspace_id, l.source_type, l.source_id, l.target_type, l.target_id, l.relation, l.created_by, l.created_at
+        from public.entity_link l
+       where l.id > v_after
+         and l.source_type <> 'claim'
+       order by l.id
+       limit p_limit
+    ), ins as (
+      insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, subject_member_id, detail, created_at, backfilled)
+      select public.entity_activity_backfill_id('entity_link', b.id::text, v.action, v.entity_type, v.entity_id::text),
+             b.workspace_id, v.entity_type, v.entity_id, v.action,
+             case when m.id is null then 'system' else 'member' end, m.id, v.subject, v.detail, b.created_at, true
+        from b
+        left join public.member m on m.id = b.created_by and m.workspace_id = b.workspace_id
+        cross join lateral (values
+          -- A record mentioned: on it, the source named.
+          ('mentioned', b.target_type, b.target_id, null::uuid, b.source_type, b.source_id,
+            jsonb_build_object('source_type', b.source_type, 'source_id', b.source_id),
+            b.relation = 'mentions' and b.target_type = any(kinds)),
+          -- A member mentioned: on the source, about them.
+          ('mentioned', b.source_type, b.source_id, b.target_id, 'member', b.target_id,
+            jsonb_build_object('source_type', b.source_type, 'source_id', b.source_id),
+            b.relation = 'mentions' and b.target_type = 'member' and b.source_type = any(kinds)),
+          -- Linked, on each end.
+          ('linked', b.target_type, b.target_id, null::uuid, b.source_type, b.source_id,
+            jsonb_build_object('other_type', b.source_type, 'other_id', b.source_id, 'relation', b.relation),
+            b.relation <> 'mentions' and b.target_type = any(kinds) and b.source_type = any(kinds)),
+          ('linked', b.source_type, b.source_id, null::uuid, b.target_type, b.target_id,
+            jsonb_build_object('other_type', b.target_type, 'other_id', b.target_id, 'relation', b.relation),
+            b.relation <> 'mentions' and b.target_type = any(kinds) and b.source_type = any(kinds))
+        ) v(action, entity_type, entity_id, subject, other_type, other_id, detail, hit)
+       where v.hit
+         and v.entity_id is not null
+         and public.entity_activity_writable(b.workspace_id)
+         and public.entity_activity_backfill_home(v.entity_type, v.entity_id) = b.workspace_id
+         and case when v.other_type = 'member'
+               then exists (select 1 from public.member mm where mm.id = v.other_id and mm.workspace_id = b.workspace_id)
+               else public.entity_activity_backfill_home(v.other_type, v.other_id) = b.workspace_id
+             end
+         and not exists (
+           select 1 from public.entity_activity e
+            where e.entity_type = v.entity_type and e.entity_id = v.entity_id
+              and e.action = v.action and e.detail = v.detail
+              and e.subject_member_id is not distinct from v.subject)
+      on conflict (id) do nothing
+      returning 1
+    )
+    select (select b.id from b order by b.id desc limit 1), (select count(*)::int from b), (select count(*)::int from ins)
+      into v_last, v_seen, v_rows;
+  end if;
+  -- A record batch: what it locked is what it read.
+  if v_ids is not null then
+    v_seen := cardinality(v_ids);
+    v_last := v_ids[v_seen];
+  end if;
+
+  -- The last source done, and nothing ever written, while the sources hold
+  -- rows (the catalog's count, which row security cannot hide): the owner
+  -- most likely reads through row security. Fail the step (the source stays
+  -- open, the tick records the error) instead of calling it done.
+  if v_seen < p_limit
+     and not exists (select 1 from public.entity_activity_backfill_progress q where q.done_at is null and q.source <> p.source)
+     and not exists (select 1 from public.entity_activity e where e.backfilled) then
+    select coalesce(sum(greatest(c.reltuples, 0)), 0) into v_rows_held
+      from pg_catalog.pg_class c
+     -- The kinds whose every row is logged (contacts, companies and edges
+     -- may all be synced, imported or claims').
+     where c.oid in ('public.document'::regclass, 'public.projects'::regclass, 'public.initiative'::regclass,
+                     'public.flow'::regclass);
+    if v_rows_held > 0 then
+      raise exception 'entity_activity_backfill: every source was read and nothing was written, yet the source tables hold about % rows. Does %, this function''s owner, bypass row security (rolbypassrls) or own those tables?',
+        v_rows_held::bigint, current_user using errcode = 'P0001';
+    end if;
+  end if;
+
+  update public.entity_activity_backfill_progress
+     set after_id = coalesce(v_last, after_id),
+         seen = seen + v_seen,
+         inserted = inserted + v_rows,
+         failures = 0,
+         last_error = null,
+         done_at = case when v_seen < p_limit then now() end,
+         updated_at = now()
+   where source = p.source;
+
+  return jsonb_build_object('source', p.source, 'seen', v_seen, 'inserted', v_rows, 'done', v_seen < p_limit);
+end;
+$$;
+
+revoke all on function public.entity_activity_backfill_step(integer) from public, anon, authenticated;
 
 -- ------------------------------------------------------------
 -- 5. Workspace merge: pipelines fold by name

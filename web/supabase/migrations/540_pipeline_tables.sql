@@ -34,6 +34,10 @@
 --      create_data_table, in one transaction; ensure_default_pipeline(
 --      workspace) returns the workspace's default pipeline, making "Sales"
 --      (Lead, Qualified, Proposal, Won, Lost) the first time.
+--   6. data_change.source_ref: the email, capture or text a change came
+--      from; apply_data_ops (530's) takes p_source_ref.
+--   7. The default pipeline is never archived or private (a trigger says
+--      so); set_default_pipeline(table) makes another the default.
 --
 -- The deals themselves move in 548; the old deal tables go in 549.
 -- Re-runnable. No backslashes anywhere in this file.
@@ -200,8 +204,7 @@ as $$
      limit 1), 'open');
 $$;
 
-revoke all on function public.pipeline_stage_outcome(uuid, text) from public, anon;
-grant execute on function public.pipeline_stage_outcome(uuid, text) to authenticated, service_role;
+revoke all on function public.pipeline_stage_outcome(uuid, text) from public, anon, authenticated;
 
 create or replace function public.pipeline_row_stage()
 returns trigger
@@ -383,7 +386,8 @@ begin
   if v_role is null then
     raise exception 'workspace not found' using errcode = 'P0002';
   end if;
-  select id into v_id from public.data_table where workspace_id = p_workspace_id and is_default;
+  select id into v_id from public.data_table
+   where workspace_id = p_workspace_id and is_default and archived_at is null and visibility = 'workspace';
   if v_id is not null then
     return v_id;
   end if;
@@ -391,7 +395,8 @@ begin
     return null;
   end if;
   perform pg_advisory_xact_lock(hashtextextended('default_pipeline:' || p_workspace_id::text, 0));
-  select id into v_id from public.data_table where workspace_id = p_workspace_id and is_default;
+  select id into v_id from public.data_table
+   where workspace_id = p_workspace_id and is_default and archived_at is null and visibility = 'workspace';
   if v_id is not null then
     return v_id;
   end if;
@@ -401,5 +406,185 @@ $$;
 
 revoke all on function public.ensure_default_pipeline(uuid, uuid) from public, anon;
 grant execute on function public.ensure_default_pipeline(uuid, uuid) to authenticated, service_role;
+
+-- ------------------------------------------------------------
+-- 6. Where a change came from: data_change.source_ref
+-- ------------------------------------------------------------
+-- The email thread, capture or text a change came from (a deal's `because`
+-- ref, kept by 473's deal_event): apply_data_ops takes p_source_ref, and the
+-- change keeps it. 530's apply_data_ops otherwise, the old signature dropped
+-- first (PostgREST would find two candidates).
+
+alter table public.data_change add column if not exists source_ref text null;
+alter table public.data_change drop constraint if exists data_change_source_ref_length;
+alter table public.data_change
+  add constraint data_change_source_ref_length check (source_ref is null or char_length(source_ref) <= 200);
+
+drop function if exists public.apply_data_ops(uuid, bigint, jsonb, text, text, uuid, uuid, boolean);
+
+create or replace function public.apply_data_ops(
+  p_table_id uuid,
+  p_base_version bigint,
+  p_ops jsonb,
+  p_source text default 'person',
+  p_reason text default null,
+  p_undo_of uuid default null,
+  p_as_user uuid default null,
+  p_grants boolean default true,
+  p_source_ref text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := public._data_writer(p_as_user);
+  t public.data_table%rowtype;
+  v_member uuid;
+  v_result jsonb;
+  v_undone public.data_change%rowtype;
+  v_version bigint;
+  v_change uuid;
+begin
+  if v_user is null then
+    raise exception 'apply_data_ops: no user' using errcode = '42501';
+  end if;
+  -- The lock serializes batches on one table: the version check below is exact.
+  select * into t from public.data_table where id = p_table_id for update;
+  -- Without grants (a guest's or a linked agent's turn), a table the writer
+  -- reads only through a grant is not there for them.
+  if not found
+     or not public.data_table_visible_to(t.id, v_user)
+     or (p_grants is false and not public.data_table_visible_ungranted(t.id, v_user)) then
+    raise exception 'table not found' using errcode = 'P0002';
+  end if;
+  if not public.data_table_editable_by(t.id, v_user) then
+    raise exception 'you can view this table but not change it' using errcode = '42501';
+  end if;
+  if p_base_version is not null and p_base_version <> t.version then
+    raise exception 'the table changed since version %', p_base_version
+      using errcode = 'PT409', detail = t.version::text;
+  end if;
+  if coalesce(p_source, '') not in ('person', 'agent', 'import', 'email', 'capture', 'sms') then
+    raise exception 'unknown source %', p_source using errcode = '22023';
+  end if;
+  select m.id into v_member from public.member m where m.user_id = v_user and m.workspace_id = t.workspace_id;
+
+  if p_undo_of is not null then
+    select * into v_undone from public.data_change c where c.id = p_undo_of and c.table_id = t.id for update;
+    if not found then
+      raise exception 'change not found' using errcode = '22023';
+    end if;
+    if v_undone.undo_of is not null then
+      raise exception 'that change was itself an undo' using errcode = '22023';
+    end if;
+    if v_undone.undone_at is not null then
+      raise exception 'that change was already undone' using errcode = '22023';
+    end if;
+  end if;
+
+  -- The activity log reads the source (521: an import logs no row creations),
+  -- and this batch makes no new table. A relation value links without grants
+  -- when the batch has none (524).
+  perform set_config('dial8.data_source', p_source, true);
+  perform set_config('dial8.data_new_table', '', true);
+  perform set_config('dial8.data_grants', case when p_grants is false then 'off' else '' end, true);
+  v_result := public._data_apply(t.id, v_user, v_member, p_ops);
+
+  if jsonb_array_length(v_result -> 'changes') = 0 then
+    return jsonb_build_object('version', t.version, 'change_id', null, 'inserted_row_ids', '[]'::jsonb, 'created_column_ids', '{}'::jsonb);
+  end if;
+
+  update public.data_table set version = version + 1, updated_at = now() where id = t.id returning version into v_version;
+  insert into public.data_change (workspace_id, table_id, version, actor_user_id, actor_member_id, source, reason, changes, undo_of, source_ref)
+  values (t.workspace_id, t.id, v_version, v_user, v_member, p_source, nullif(btrim(coalesce(p_reason, '')), ''), v_result -> 'changes', p_undo_of,
+          left(nullif(btrim(coalesce(p_source_ref, '')), ''), 200))
+  returning id into v_change;
+  if p_undo_of is not null then
+    update public.data_change set undone_at = now() where id = p_undo_of;
+  end if;
+
+  return jsonb_build_object(
+    'version', v_version,
+    'change_id', v_change,
+    'inserted_row_ids', v_result -> 'inserted_row_ids',
+    'created_column_ids', v_result -> 'created_column_ids'
+  );
+end;
+$$;
+
+revoke all on function public.apply_data_ops(uuid, bigint, jsonb, text, text, uuid, uuid, boolean, text) from public, anon;
+grant execute on function public.apply_data_ops(uuid, bigint, jsonb, text, text, uuid, uuid, boolean, text) to authenticated, service_role;
+
+
+-- ------------------------------------------------------------
+-- 7. The default pipeline stays open to the workspace
+-- ------------------------------------------------------------
+-- A deal named in no pipeline goes to the default, so the default is never
+-- archived or private: make another the default first (set_default_pipeline).
+
+create or replace function public.pipeline_default_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if coalesce(current_setting('dial8.workspace_merge', true), '') <> '' then
+    return new;
+  end if;
+  if new.is_default and (new.archived_at is not null or new.visibility <> 'workspace') then
+    raise exception 'the default pipeline stays open to the workspace: make another pipeline the default first' using errcode = '22023';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.pipeline_default_guard() from public, anon, authenticated;
+
+drop trigger if exists pipeline_default_guard on public.data_table;
+create trigger pipeline_default_guard
+  before update of archived_at, visibility, is_default on public.data_table
+  for each row execute function public.pipeline_default_guard();
+
+-- Make a pipeline the workspace's default: a live, workspace-wide pipeline the
+-- caller (on the service role, p_as_user) may change, and not a guest.
+create or replace function public.set_default_pipeline(p_table_id uuid, p_as_user uuid default null)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user uuid := public._data_writer(p_as_user);
+  t public.data_table%rowtype;
+  v_role text;
+begin
+  if v_user is null then
+    raise exception 'set_default_pipeline: no user' using errcode = '42501';
+  end if;
+  select * into t from public.data_table where id = p_table_id and kind = 'pipeline' for update;
+  if not found or not public.data_table_visible_to(t.id, v_user) then
+    raise exception 'pipeline not found' using errcode = 'P0002';
+  end if;
+  select m.role into v_role from public.member m where m.user_id = v_user and m.workspace_id = t.workspace_id;
+  if v_role is null or v_role = 'guest' or not public.data_table_editable_by(t.id, v_user) then
+    raise exception 'you can view this pipeline but not change it' using errcode = '42501';
+  end if;
+  if t.archived_at is not null or t.visibility <> 'workspace' then
+    raise exception 'the default pipeline stays open to the workspace: restore it, or share it with the workspace, first' using errcode = '22023';
+  end if;
+  if t.is_default then
+    return t.id;
+  end if;
+  update public.data_table set is_default = false, updated_at = now() where workspace_id = t.workspace_id and is_default;
+  update public.data_table set is_default = true, updated_at = now() where id = t.id;
+  return t.id;
+end;
+$$;
+
+revoke all on function public.set_default_pipeline(uuid, uuid) from public, anon;
+grant execute on function public.set_default_pipeline(uuid, uuid) to authenticated, service_role;
 
 notify pgrst, 'reload schema';
