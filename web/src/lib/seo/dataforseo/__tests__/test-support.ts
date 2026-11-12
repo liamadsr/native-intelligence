@@ -4,6 +4,7 @@
  * Adapted from OpenSEO (MIT, see ../THIRD_PARTY_NOTICES.md).
  */
 import { DataforseoChargedTaskError, SeoError } from '@/lib/seo/errors'
+import { DataforseoChargeUnknownError } from '../charge-capture'
 import { afterEach, beforeEach, vi } from 'vitest'
 import type { DataforseoMeter, SeoSpendFeature } from '../meter'
 
@@ -43,12 +44,15 @@ export interface RecordedSpend {
   path: string[]
   /** True when the call failed after DataForSEO billed it. */
   failed: boolean
+  /** True when the charge could not be read and the estimate was counted. */
+  estimated?: true
 }
 
 /**
  * A meter with a USD budget, shaped like a real one: it refuses a call whose
  * estimate does not fit what is left (without running it), and records the
- * provider's real cost of every billed call, failed ones included.
+ * provider's real cost of every billed call, failed ones included, and the
+ * estimate of a call whose charge could not be read.
  */
 export function createRecordingTestMeter(budgetUsd = Number.POSITIVE_INFINITY) {
   const estimates: Array<{ feature: SeoSpendFeature; estimateUsd: number }> = []
@@ -71,6 +75,14 @@ export function createRecordingTestMeter(budgetUsd = Number.POSITIVE_INFINITY) {
       } catch (error) {
         if (error instanceof DataforseoChargedTaskError) {
           spend.push({ feature, ...error.billing, failed: true })
+        } else if (error instanceof DataforseoChargeUnknownError) {
+          spend.push({
+            feature,
+            path: error.path,
+            costUsd: estimateUsd,
+            failed: true,
+            estimated: true,
+          })
         }
         throw error
       }

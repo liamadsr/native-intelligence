@@ -4,8 +4,12 @@
  * Adapted from OpenSEO (MIT, see ../THIRD_PARTY_NOTICES.md).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { setupDataforseoTestEnv } from './test-support'
+import {
+  createRecordingTestMeter,
+  setupDataforseoTestEnv,
+} from './test-support'
 
+import { createDataforseoClient } from '@/lib/seo/dataforseo/client'
 import { DataforseoChargedTaskError } from '@/lib/seo/dataforseo/envelope'
 import { fetchLighthouseResult } from '@/lib/seo/dataforseo/lighthouse'
 
@@ -69,5 +73,30 @@ describe('fetchLighthouseResult', () => {
       }),
     ).rejects.toMatchObject({ code: 'UPSTREAM_UNAVAILABLE' })
     expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it('counts the estimate when the billed answer is cut off before it parses', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response('{"status_code":20000,"tasks":[')),
+    )
+    const { meter, spend } = createRecordingTestMeter()
+
+    await expect(
+      createDataforseoClient(meter).lighthouse.live({
+        url: 'https://example.com/',
+        strategy: 'mobile',
+      }),
+    ).rejects.toMatchObject({ code: 'INTERNAL_ERROR' })
+    expect(spend).toMatchObject([
+      {
+        feature: 'lighthouse',
+        path: ['v3', 'on_page', 'lighthouse', 'live', 'json'],
+        failed: true,
+        estimated: true,
+      },
+    ])
   })
 })

@@ -45,7 +45,8 @@ export type SeoSpendFeature =
 export interface DataforseoMeter {
   /**
    * Refuse (throw) when `estimateUsd` does not fit what the workspace may still spend; otherwise run `exec` and
-   * record the provider's real cost. A call that failed AFTER being billed (DataforseoChargedTaskError) is still recorded.
+   * record the provider's real cost. A call that failed AFTER being billed (DataforseoChargedTaskError) is still recorded,
+   * and one whose charge could not be read (DataforseoChargeUnknownError) is recorded at `estimateUsd`.
    */
   run<T>(call: {
     feature: SeoSpendFeature

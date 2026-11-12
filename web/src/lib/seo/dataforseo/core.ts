@@ -18,7 +18,10 @@ import {
   type DataforseoResponseLike,
   type DataforseoTaskLike,
 } from '@/lib/seo/dataforseo/envelope'
-import { noteDataforseoCharges } from '@/lib/seo/dataforseo/charge-capture'
+import {
+  noteDataforseoCharges,
+  noteUnknownDataforseoCharge,
+} from '@/lib/seo/dataforseo/charge-capture'
 import { inDataforseoSlot } from '@/lib/seo/dataforseo/request-slots'
 import { SeoError, type SeoErrorCode } from '@/lib/seo/errors'
 
@@ -246,6 +249,25 @@ type DataforseoRequestOptions = {
    * nothing to the ledger, even when the provider still billed it.
    */
   timeoutMs?: number
+  /**
+   * A POST that costs nothing (the goto converter). Every other POST to the
+   * provider's own host is where it bills: one that was sent and then cut
+   * off by our deadline, or answered 2xx with a body that can't be read or
+   * parsed, is marked as charged an unknown amount (charge-capture.ts).
+   */
+  free?: boolean
+}
+
+/** Whether this request is one the provider bills (a POST to its own host, not marked free). */
+function isPaidRequest(
+  method: 'GET' | 'POST',
+  options: DataforseoRequestOptions,
+): boolean {
+  return method === 'POST' && !options.baseUrl && !options.free
+}
+
+function isOurDeadline(error: unknown): boolean {
+  return error instanceof Error && error.name === 'DataForSEOTimeoutError'
 }
 
 async function requestDataforseo<TTask extends DataforseoTaskLike>(
@@ -263,30 +285,50 @@ async function requestDataforseo<TTask extends DataforseoTaskLike>(
     options.timeoutMs,
   )
   const url = `${options.baseUrl ?? API_BASE}${path}`
+  const paid = isPaidRequest(method, options)
   // The slot covers the body read too: the connection stays busy until then.
   const text = await inDataforseoSlot(async () => {
-    const response = await doFetch(url, {
-      method,
-      headers: {
-        Accept: 'application/json',
-        ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: method === 'POST' ? JSON.stringify(body) : undefined,
-      signal: options.signal,
-    })
+    let response: Response
+    try {
+      response = await doFetch(url, {
+        method,
+        headers: {
+          Accept: 'application/json',
+          ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+        },
+        body: method === 'POST' ? JSON.stringify(body) : undefined,
+        signal: options.signal,
+      })
+    } catch (error) {
+      // Sent, then cut off by our own deadline: it may have been charged.
+      if (paid && isOurDeadline(error)) noteUnknownDataforseoCharge(path)
+      throw error
+    }
     // The deadline also covers the body: a slow response can send its headers
     // in time and still run out the clock while the body streams in.
     try {
       return await readDataforseoText(response)
     } catch (error) {
+      // A 2xx whose body could not be read: it may have been charged.
+      if (paid) noteUnknownDataforseoCharge(path)
       throw asDataforseoTimeoutError(error, url)
     }
   })
-  if (text === '') return null
+  if (text === '') {
+    if (paid) noteUnknownDataforseoCharge(path)
+    return null
+  }
   // The task type is the caller's claim about the payload; billing metadata
   // and item fields are validated downstream (envelope.ts + section Zod
   // schemas).
-  const parsed = JSON.parse(text) as DataforseoResponseLike<TTask>
+  let parsed: DataforseoResponseLike<TTask>
+  try {
+    parsed = JSON.parse(text) as DataforseoResponseLike<TTask>
+  } catch (error) {
+    // A 2xx that is not JSON (cut off, or garbled): it may have been charged.
+    if (paid) noteUnknownDataforseoCharge(path)
+    throw error
+  }
   // The charge is read off the tasks before anything parses their result,
   // so a metered call that fails later still records it (charge-capture.ts).
   // The sandbox bills nothing.
@@ -330,17 +372,25 @@ export async function dataforseoPostResponse(
     options.classify,
     options.maxServerErrorRetries ?? 0,
   )
-  return inDataforseoSlot(() =>
-    doFetch(`${API_BASE}${path}`, {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(tasks),
-      signal: options.signal,
-    }),
-  )
+  return inDataforseoSlot(async () => {
+    try {
+      return await doFetch(`${API_BASE}${path}`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(tasks),
+        signal: options.signal,
+      })
+    } catch (error) {
+      // Sent, then cut off by our own deadline: it may have been charged.
+      // The caller reads the body itself and marks a body it can't read.
+      if (isPaidRequest('POST', options) && isOurDeadline(error))
+        noteUnknownDataforseoCharge(path)
+      throw error
+    }
+  })
 }
 
 /** GET a DataForSEO endpoint (task_get collection, appendix/locations data). */

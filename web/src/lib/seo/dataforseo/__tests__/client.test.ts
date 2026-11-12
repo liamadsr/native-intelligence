@@ -291,7 +291,20 @@ describe('createDataforseoClient metering', () => {
     expect(spend).toEqual([])
   })
 
-  it('records nothing when the call fails before DataForSEO bills it', async () => {
+  it('records nothing when the call fails before an answer (a connection that never got through)', async () => {
+    const { meter, spend } = createRecordingTestMeter()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockRejectedValue(new TypeError('fetch failed')),
+    )
+
+    await expect(
+      createDataforseoClient(meter).backlinks.summary(backlinksInput),
+    ).rejects.toThrow('fetch failed')
+    expect(spend).toEqual([])
+  })
+
+  it('counts the estimate for a paid call our own deadline cut off after it was sent, keeping the error', async () => {
     const { meter, spend } = createRecordingTestMeter()
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     vi.stubGlobal(
@@ -303,8 +316,40 @@ describe('createDataforseoClient metering', () => {
 
     await expect(
       createDataforseoClient(meter).backlinks.summary(backlinksInput),
-    ).rejects.toMatchObject({ code: 'UPSTREAM_UNAVAILABLE' })
-    expect(spend).toEqual([])
+    ).rejects.toMatchObject({
+      code: 'UPSTREAM_UNAVAILABLE',
+      message: 'DataForSEO request timed out on /v3/backlinks/summary/live',
+    })
+    expect(spend).toEqual([
+      {
+        feature: 'backlinks',
+        path: backlinksPath,
+        costUsd: dataforseoPricing.backlinks.summary(backlinksInput),
+        failed: true,
+        estimated: true,
+      },
+    ])
+  })
+
+  it('counts the estimate for a paid 2xx answer cut off mid-body, keeping the parse error', async () => {
+    const { meter, spend } = createRecordingTestMeter()
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          new Response('{"status_code":20000,"tasks":[{"status_code":200'),
+        ),
+    )
+
+    const failure = createDataforseoClient(meter).backlinks.summary(
+      backlinksInput,
+    )
+    await expect(failure).rejects.toMatchObject({ code: 'INTERNAL_ERROR' })
+    await expect(failure).rejects.toThrow(/JSON/)
+    expect(spend).toMatchObject([
+      { feature: 'backlinks', path: backlinksPath, estimated: true },
+    ])
   })
 
   it('attributes the spend to the feature a caller passes', async () => {

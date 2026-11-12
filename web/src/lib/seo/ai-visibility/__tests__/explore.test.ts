@@ -2,14 +2,17 @@
  * The prompt explorer's purchase (../explore.ts): the parts are bought one
  * after the other, and a later part failing never loses the parts already
  * bought. They are stored, returned marked partial, and a repeat answers from
- * storage without buying again.
+ * storage without buying again. A person who may not buy is refused before
+ * any confirmation is asked.
  */
 import type { DataforseoClient } from '@/lib/seo/dataforseo'
 import { setupDataforseoTestEnv } from '@/lib/seo/dataforseo/__tests__/test-support'
 import { SeoError } from '@/lib/seo/errors'
 import { allowAccess, testDb } from '@/lib/seo/keywords/__tests__/support'
 import { describe, expect, it, vi } from 'vitest'
+import { CONFIRM_ABOVE_USD } from '../limits'
 import {
+  estimateExploreUsd,
   exploreAiMentions,
   explorePartial,
   fetchExplore,
@@ -44,8 +47,11 @@ function fakeClient(fail: { pages?: boolean; totals?: boolean } = {}) {
   }
 }
 
-function resolved(parts: ResolvedExplore['parts']): ResolvedExplore {
-  const r = resolveExplore({ target: 'shop.example.com', parts })
+function resolved(
+  parts: ResolvedExplore['parts'],
+  limit?: number,
+): ResolvedExplore {
+  const r = resolveExplore({ target: 'shop.example.com', parts, limit })
   if ('ok' in r) throw new Error(r.message)
   return r
 }
@@ -122,5 +128,45 @@ describe('exploreAiMentions', () => {
     })
     expect(client.aiSearch.aggregatedMetrics).toHaveBeenCalledTimes(1)
     expect(client.aiSearch.topPages).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses a person who may not buy before any confirmation is asked', async () => {
+    const { svc, tables } = testDb()
+    const client = fakeClient()
+    const input = {
+      target: 'shop.example.com',
+      parts: ['totals' as const, 'pages' as const, 'questions' as const],
+      limit: 100,
+    }
+    // Large enough that, allowed, it would ask for the person's yes.
+    expect(estimateExploreUsd(resolved(input.parts, 100))).toBeGreaterThan(
+      CONFIRM_ABOVE_USD,
+    )
+    const checkAccess = vi.fn(async () => ({
+      ok: false as const,
+      code: 'NOT_A_MEMBER' as const,
+      message: 'Guests can’t look up search data here.',
+    }))
+
+    const out = await exploreAiMentions(svc, who, input, {
+      client: client as unknown as DataforseoClient,
+      checkAccess,
+    })
+    expect(out).toEqual({
+      ok: false,
+      code: 'NOT_A_MEMBER',
+      message: 'Guests can’t look up search data here.',
+    })
+    expect(checkAccess).toHaveBeenCalledOnce()
+    expect(client.aiSearch.mentionsSearch).not.toHaveBeenCalled()
+    expect(tables.seo_lookup ?? []).toHaveLength(0)
+
+    // Allowed, the same lookup asks for the yes and buys nothing yet.
+    const allowed = await exploreAiMentions(svc, who, input, {
+      client: client as unknown as DataforseoClient,
+      checkAccess: allowAccess,
+    })
+    expect(allowed).toMatchObject({ ok: false, code: 'CONFIRMATION_REQUIRED' })
+    expect(client.aiSearch.aggregatedMetrics).not.toHaveBeenCalled()
   })
 })

@@ -7,9 +7,13 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { DataforseoChargedTaskError, SeoError } from '../errors'
 import { SeoInputError } from '../input-error'
-import { createWorkspaceMeter, monthStart, nextMonthStart, readMonthlySeoSpend, SEO_MONTHLY_CAP_DOLLARS, seoSpendSummary } from '../spend'
+import { createWorkspaceMeter, ESTIMATED_CHARGE_MARK, monthStart, nextMonthStart, readMonthlySeoSpend, SEO_MONTHLY_CAP_DOLLARS, seoSpendSummary } from '../spend'
 import { seoErrorMessage } from '../http'
 import { createDataforseoClient } from '../dataforseo/client'
+import { DataforseoChargeUnknownError, runCapturingCharges } from '../dataforseo/charge-capture'
+import { resolveGotoUrls } from '../dataforseo/appendix'
+import { dataforseoGet } from '../dataforseo/core'
+import { dataforseoPricing } from '../dataforseo/pricing'
 import { setupDataforseoTestEnv } from '../dataforseo/__tests__/test-support'
 
 const WS = '0b0f6e0e-3f0a-4a52-9d2b-1f6f0f3f7a01'
@@ -173,6 +177,44 @@ describe('the meter over the provider client', () => {
     const { svc, inserts } = ledger(0)
     const client = createDataforseoClient(createWorkspaceMeter(svc, { workspaceId: WS, userId: USER }, { now: () => NOW }))
     await expect(client.backlinks.summary({ target: 'shop.example' })).rejects.toMatchObject({ code: 'INTERNAL_ERROR' })
+    expect(inserts).toEqual([])
+  })
+
+  it('counts the estimate, marked as one, for a paid call whose 2xx answer was cut off, and the person sees the same error', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => new Response('{"status_code":20000,"tasks":[{"cost":0.0')))
+    const { svc, inserts } = ledger(0)
+    const client = createDataforseoClient(createWorkspaceMeter(svc, { workspaceId: WS, userId: USER }, { now: () => NOW }))
+    const failure = await client.backlinks.summary({ target: 'shop.example' }).catch((err: unknown) => err)
+    // What the person reads is unchanged: the same as any failure we can't explain.
+    expect(seoErrorMessage(failure)).toEqual({ code: 'INTERNAL_ERROR', message: 'Could not look that up just now.' })
+    expect(failure).toBeInstanceOf(DataforseoChargeUnknownError)
+    expect((failure as Error).cause).toBeInstanceOf(SyntaxError)
+    const estimate = dataforseoPricing.backlinks.summary({ target: 'shop.example' })
+    expect(inserts).toEqual([
+      {
+        workspace_id: WS,
+        user_id: USER,
+        feature: 'backlinks',
+        endpoint: `v3/backlinks/summary/live${ESTIMATED_CHARGE_MARK}`,
+        cost_usd: estimate,
+        estimate_usd: estimate,
+      },
+    ])
+  })
+
+  it('writes nothing for a free read or a free POST with a bad body, even inside a metered call', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => new Response('{"status_code":200')))
+    const { svc, inserts } = ledger(0)
+    const meter = createWorkspaceMeter(svc, { workspaceId: WS, userId: USER }, { now: () => NOW })
+    const exec = () =>
+      runCapturingCharges(async () => {
+        await dataforseoGet('/v3/serp/google/organic/task_get/advanced/t-1')
+        return paid(null, 0)
+      })
+    await expect(meter.run({ feature: 'serp', estimateUsd: 0.01, exec })).rejects.toBeInstanceOf(SyntaxError)
+    await expect(
+      meter.run({ feature: 'serp', estimateUsd: 0.01, exec: () => runCapturingCharges(async () => (await resolveGotoUrls(['https://www.google.com/goto?url=x']), paid(null, 0))) }),
+    ).rejects.toBeInstanceOf(SyntaxError)
     expect(inserts).toEqual([])
   })
 })

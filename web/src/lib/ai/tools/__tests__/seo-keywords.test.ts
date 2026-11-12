@@ -308,6 +308,29 @@ describe('refusals before anything is bought', () => {
     ).not.toHaveBeenCalled()
   })
 
+  it('refuses a person who may not buy before asking for a go-ahead on a large lookup', async () => {
+    mocks.plan.mockResolvedValue({ plan: 'free' })
+    const large: Array<[string, Record<string, unknown>]> = [
+      ['find_keywords', { seeds: ['a1', 'b2', 'c3', 'd4', 'e5'], result_limit: 500 }],
+      [
+        'get_serp_results',
+        {
+          keywords: Array.from({ length: 10 }, (_, i) => `keyword ${i}`),
+          depth: 100,
+        },
+      ],
+    ]
+    for (const [name, input] of large) {
+      const free = await setup().run(name as never, input)
+      expect(free).toMatchObject({ success: false, code: 'FREE_PLAN' })
+      const unattended = await setup({ unattended: true }).run(
+        name as never,
+        input,
+      )
+      expect(unattended).toMatchObject({ success: false, code: 'UNATTENDED' })
+    }
+  })
+
   it('serves a stored lookup to an unattended turn without a check (reading what was bought is free)', async () => {
     const { svc } = setup()
     await createSeoKeywordTools(USER, svc, WS).find_keywords.execute!(

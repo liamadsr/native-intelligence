@@ -418,8 +418,9 @@ async function trackedKeys(
 
 /**
  * Explore a domain or brand. A fresh stored lookup answers for free;
- * otherwise, above the confirmation line it needs `confirmed`, then the
- * access check runs, the parts are bought, and the result is stored.
+ * otherwise the access check runs first (its refusal is returned as is),
+ * then above the confirmation line it needs `confirmed`, then the parts are
+ * bought and the result is stored.
  */
 export async function exploreAiMentions(
   svc: SupabaseClient,
@@ -481,6 +482,11 @@ export async function exploreAiMentions(
         estimate_usd: 0,
       }
   }
+  // The access check comes before the yes: a guest, a person whose plan
+  // does not pay or a turn nobody is in is refused outright, never shown a
+  // price and asked to confirm something it could not buy.
+  const opened = await paidSeoClient(svc, who, deps)
+  if (!opened.ok) return opened
   if (estimate > CONFIRM_ABOVE_USD && !input.confirmed) {
     return {
       ok: false,
@@ -489,8 +495,6 @@ export async function exploreAiMentions(
       estimate_usd: estimate,
     }
   }
-  const opened = await paidSeoClient(svc, who, deps)
-  if (!opened.ok) return opened
   const body = await fetchExplore(opened.client, resolved)
   const saved = await writeLookup(
     svc,

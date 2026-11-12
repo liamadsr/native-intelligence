@@ -10,7 +10,11 @@
  *                     the monthly ceiling. A ledger that can't be read
  *                     refuses too: never spend blind.
  *   AFTER the call    the provider's own cost is written to the ledger, also
- *                     for a call that failed after being billed.
+ *                     for a call that failed after being billed. A paid call
+ *                     whose charge could not be read (its answer cut off or
+ *                     garbled, or our own deadline hit after it was sent) is
+ *                     written at its estimate, the endpoint marked
+ *                     ESTIMATED_CHARGE_MARK, so the ceiling still counts it.
  *
  * The estimate (src/lib/seo/dataforseo/pricing.ts) is deliberately at or above
  * the real price, so for one call at a time the gate can only be slightly
@@ -30,7 +34,7 @@
  */
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { DataforseoChargedTaskError, type DataforseoMeter, type SeoSpendFeature } from './dataforseo'
+import { DataforseoChargedTaskError, DataforseoChargeUnknownError, type DataforseoMeter, type SeoSpendFeature } from './dataforseo'
 import { SeoError } from './errors'
 
 /**
@@ -40,6 +44,13 @@ import { SeoError } from './errors'
  * seo_spend rows: the signal is how often a workspace hits it.
  */
 export const SEO_MONTHLY_CAP_DOLLARS = 20
+
+/**
+ * Appended to a ledger row's endpoint when its cost is our estimate, not the
+ * provider's number: the call may have been charged, and its answer (where
+ * the charge is reported) could not be read.
+ */
+export const ESTIMATED_CHARGE_MARK = ' (estimate: charge unreadable)'
 
 /** The first instant of `now`'s calendar month, UTC. */
 export function monthStart(now: Date = new Date()): Date {
@@ -89,12 +100,13 @@ export function createWorkspaceMeter(svc: SupabaseClient, who: { workspaceId: st
   const now = deps.now ?? (() => new Date())
   const cap = deps.capDollars ?? SEO_MONTHLY_CAP_DOLLARS
 
-  const record = async (feature: SeoSpendFeature, estimateUsd: number, billing: { path: string[]; costUsd: number }) => {
+  const record = async (feature: SeoSpendFeature, estimateUsd: number, billing: { path: string[]; costUsd: number }, estimated = false) => {
+    const endpoint = billing.path.join('/').slice(0, 200) || 'unknown'
     const { error } = await svc.from('seo_spend').insert({
       workspace_id: who.workspaceId,
       user_id: who.userId,
       feature,
-      endpoint: billing.path.join('/').slice(0, 200) || 'unknown',
+      endpoint: estimated ? `${endpoint}${ESTIMATED_CHARGE_MARK}` : endpoint,
       cost_usd: Math.max(0, billing.costUsd),
       estimate_usd: Math.max(0, estimateUsd),
     })
@@ -127,6 +139,9 @@ export function createWorkspaceMeter(svc: SupabaseClient, who: { workspaceId: st
       } catch (error) {
         // Billed by the provider even though it failed: still spend.
         if (error instanceof DataforseoChargedTaskError) await record(feature, estimateUsd, error.billing)
+        // Maybe billed, at a cost nobody could read: count the estimate (an upper bound).
+        else if (error instanceof DataforseoChargeUnknownError)
+          await record(feature, estimateUsd, { path: error.path, costUsd: estimateUsd }, true)
         throw error
       }
     },

@@ -35,8 +35,9 @@ export async function resolveGotoUrls(
     await dataforseoPost(
       '/v3/appendix/goto_url_converter',
       [{ goto_urls: gotoUrls }],
-      // Free, so a transient 5xx may be retried like a read.
-      { maxServerErrorRetries: DATAFORSEO_MAX_RETRIES },
+      // Free, so a transient 5xx may be retried like a read, and an answer
+      // that can't be read is no charge.
+      { maxServerErrorRetries: DATAFORSEO_MAX_RETRIES, free: true },
     ),
   )
   return new Map(

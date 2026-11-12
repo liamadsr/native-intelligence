@@ -5,7 +5,10 @@
  */
 import 'server-only'
 
-import { noteDataforseoCharges } from '@/lib/seo/dataforseo/charge-capture'
+import {
+  noteDataforseoCharges,
+  noteUnknownDataforseoCharge,
+} from '@/lib/seo/dataforseo/charge-capture'
 import {
   dataforseoPostResponse,
   readDataforseoText,
@@ -76,10 +79,18 @@ export async function fetchLighthouseResult(
   }
 
   return withParseLock(async () => {
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the envelope is checked by assertOk and the payload parser below
-    const body = JSON.parse(
-      await readDataforseoText(response),
-    ) as DataforseoResponseLike<DataforseoTaskLike>
+    let body: DataforseoResponseLike<DataforseoTaskLike>
+    try {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the envelope is checked by assertOk and the payload parser below
+      body = JSON.parse(
+        await readDataforseoText(response),
+      ) as DataforseoResponseLike<DataforseoTaskLike>
+    } catch (error) {
+      // A 2xx whose body could not be read or parsed: it may have been
+      // charged, and nobody can say how much (the meter counts the estimate).
+      noteUnknownDataforseoCharge(LIGHTHOUSE_PATH)
+      throw error
+    }
     noteDataforseoCharges(body, LIGHTHOUSE_PATH)
     warnIfUpstreamResponseFailed(body, LIGHTHOUSE_PATH)
     // Build the metering envelope before parsing. The provider has already

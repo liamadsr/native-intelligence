@@ -17,6 +17,7 @@ export {
   DATAFORSEO_API_KEY_SETTING,
   isDataforseoConfigured,
 } from '@/lib/seo/dataforseo/core'
+export { DataforseoChargeUnknownError } from '@/lib/seo/dataforseo/charge-capture'
 export {
   DataforseoChargedTaskError,
   type DataforseoApiCallCost,
