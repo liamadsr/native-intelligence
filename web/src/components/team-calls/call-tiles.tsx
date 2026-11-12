@@ -49,21 +49,29 @@ export function callErrorLine(error: CallSnapshot['error']): string {
   return error === 'load' ? 'Calling couldn’t load. Check your connection, then retry.' : 'Couldn’t reach the call. Check your connection, then retry.'
 }
 
-/** What is on for everyone in the call: notes, a recording. Static words, no animation; nothing when neither is on. */
-export function CallBadges({ notes, small = false }: { notes: Pick<TeamCallNotesView, 'notes' | 'recording'>; small?: boolean }) {
+/**
+ * What is on for everyone in the call: notes, a recording. Static words, no
+ * animation; nothing when neither is on. `onOpenNotes`: the notes are a
+ * capture filling in now (the call recorder's), and the badge opens it.
+ */
+export function CallBadges({ notes, small = false, onOpenNotes }: { notes: Pick<TeamCallNotesView, 'notes' | 'recording'>; small?: boolean; onOpenNotes?: () => void }) {
   const recording = notes.recording === 'on' || notes.recording === 'starting'
   if (!notes.notes && !recording) return null
+  const notesClass = cn('flex items-center gap-1 rounded-full bg-sky-500/15 font-medium text-sky-800 dark:text-sky-200', small ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5 text-[11px]')
   return (
     <span className="flex shrink-0 items-center gap-1" data-team-call-badges="">
-      {notes.notes && (
-        <span
-          data-team-call-notes-on=""
-          className={cn('flex items-center gap-1 rounded-full bg-sky-500/15 font-medium text-sky-800 dark:text-sky-200', small ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5 text-[11px]')}
-        >
-          <NotebookPen className="h-3 w-3" aria-hidden />
-          {small ? 'Notes on' : 'Notes are on'}
-        </span>
-      )}
+      {notes.notes &&
+        (onOpenNotes ? (
+          <button type="button" data-team-call-notes-on="" data-team-call-notes-open="" title="Open the notes" onClick={onOpenNotes} className={cn(notesClass, 'hover:bg-sky-500/25')}>
+            <NotebookPen className="h-3 w-3" aria-hidden />
+            {small ? 'Notes on' : 'Notes are on'}
+          </button>
+        ) : (
+          <span data-team-call-notes-on="" className={notesClass}>
+            <NotebookPen className="h-3 w-3" aria-hidden />
+            {small ? 'Notes on' : 'Notes are on'}
+          </span>
+        ))}
       {recording && (
         <span
           data-team-call-recording={notes.recording}

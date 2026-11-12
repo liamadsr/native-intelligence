@@ -63,14 +63,19 @@ final class TeamCallAPI {
         self.baseURL = baseURL
     }
 
-    /// Whether calling is on here (the LiveKit settings set on the server), and the person's rings still open.
-    func availability() async throws -> (available: Bool, rings: [TeamCallRing]) {
+    /// Whether calling is on here (the LiveKit settings set on the server), the person's rings still
+    /// open, and whether the call recorder takes the notes (`liveNotes`: no member is held for them).
+    func availability() async throws -> (available: Bool, rings: [TeamCallRing], liveNotes: Bool) {
+        struct Features: Decodable {
+            let liveNotes: Bool?
+        }
         struct Out: Decodable {
             let available: Bool
             let rings: [TeamCallRing]?
+            let features: Features?
         }
         let out: Out = try await send("GET", "/api/account/team-calls", nil)
-        return (out.available, out.rings ?? [])
+        return (out.available, out.rings ?? [], out.features?.liveNotes == true)
     }
 
     /// Start a call in a conversation, or join the one live there.

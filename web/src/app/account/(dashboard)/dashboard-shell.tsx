@@ -13,9 +13,9 @@ import { GreetingNameProvider } from '@/components/sky/conditions-line'
 import { startSkyFeed } from '@/lib/sky/sky-state'
 import { SkyDevPanelMount } from '@/components/sky/sky-dev-panel-mount'
 import { lazyComponent } from '@/lib/lazy-component'
-import { ForYouColumn } from './chat/for-you-column'
 import { CardReplyBackdrop } from './chat/card-reply-chip'
 import { INSET_LEFT_VAR, INSET_RIGHT_VAR, RightSidePanel, useSidePanelPlan } from './side-panels/side-panels'
+import { PagePanelHost } from './page-panel/page-panel'
 import { RIGHT_RESERVE_PX, TOP_BAR_FADE_PX } from './side-panels/space-plan'
 import { WorkspaceCacheProvider, useWorkspaceId } from '../workspace-switcher'
 import { AutomationMount } from '@/lib/automation/automation-mount'
@@ -66,6 +66,7 @@ import { TalkAnywhereHost } from '@/components/read-aloud/talk-anywhere-host'
 import { SilentMicNotice } from '@/components/desktop/silent-mic-notice'
 import { FadingBlur } from '@/components/ui/fading-blur'
 import { APP_RAIL_ATTR, AppRail } from './rail/app-rail'
+import { EmptyPressMinimizes, MinimizedCardTile } from './minimized-card-tile'
 import { isWithinAppDomain } from '@/lib/app-url'
 
 /** The top bar — always fully visible. The workspace switcher and the action
@@ -76,6 +77,8 @@ const TOP_BAR_BLUR_STYLE = { height: `calc(var(--chat-top-inset, 0px) + ${TOP_BA
 /** The top bar and the chat row start clear of the app rail (rail/app-rail.tsx). */
 const TOP_BAR_STYLE = { left: 'var(--app-rail-w, 0px)' }
 const CHAT_ROW_STYLE = { marginLeft: 'var(--app-rail-w, 0px)' }
+/** The top bar's height, px, on <html>. */
+const TOP_BAR_H_VAR = '--top-bar-h'
 
 function DashboardTopBar() {
   // Web gets half the top pad (pt-1 = 4px); the desktop app keeps pt-2 because the
@@ -88,18 +91,23 @@ function DashboardTopBar() {
   // traffic-light paddingLeft.
   const trafficLights = useHasTrafficLights()
   // Out of the flow, so the chat reads the bar's height to keep its first line
-  // and its overlays clear of it: --top-bar-h on the shell (ChatRow passes it
-  // on as --chat-top-inset).
+  // and its overlays clear of it: --top-bar-h (ChatRow passes it on as
+  // --chat-top-inset). On <html>, not the shell, so a full-screen card's
+  // layer on <body> reads it too: its card's top is the side panels' top
+  // (Liam, 11-11; show-tool-card.tsx FULL_SCREEN_LAYER_STYLE).
   const barRef = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     const bar = barRef.current
-    const shell = bar?.parentElement
-    if (!bar || !shell) return
-    const measure = () => shell.style.setProperty('--top-bar-h', `${bar.offsetHeight}px`)
+    if (!bar) return
+    const html = document.documentElement
+    const measure = () => html.style.setProperty(TOP_BAR_H_VAR, `${bar.offsetHeight}px`)
     measure()
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
     observer?.observe(bar)
-    return () => observer?.disconnect()
+    return () => {
+      observer?.disconnect()
+      html.style.removeProperty(TOP_BAR_H_VAR)
+    }
   }, [])
   return (
     // Over the chat and the shell-level photo; transparent, so both show
@@ -158,10 +166,12 @@ function BackdropMotion() {
  * the chat.
  */
 function ChatRow({ avatarUrl, initials }: { avatarUrl: string | null; initials: string }) {
-  // The panels around the chat (side-panels/side-panels.tsx): where each goes
-  // in this row. A new value only when a panel's mode changes (a toggle, or
-  // a resize across its line), never per frame: how far the chat moves for
-  // them is on the row's CSS variables (STRIP_STYLE).
+  // The panels beside the chat (side-panels/side-panels.tsx on the right,
+  // page-panel/page-panel.tsx beside the navigation): where each goes in
+  // this row. A new value only when a mode changes (a toggle, the page
+  // panel's rows coming or going, or a resize across a line), never per
+  // frame: how far the chat moves for them is on the row's CSS variables
+  // (STRIP_STYLE).
   const rowRef = useRef<HTMLDivElement>(null)
   const plan = useSidePanelPlan(rowRef)
   return (
@@ -201,17 +211,25 @@ function ChatRow({ avatarUrl, initials }: { avatarUrl: string | null; initials: 
         >
           <ChatStripContents avatarUrl={avatarUrl} initials={initials} />
         </div>
-        {/* The For you column on the left and the side panel on the right
-            (side-panels.tsx): beside the chat's content where they make room,
-            over the chat's edge where they float. */}
+        {/* The side panel on the right (side-panels.tsx), its sections or
+            the For you cards, one at a time (Liam, 11-11): beside the chat's
+            content where it makes room, over the chat's edge where it
+            floats. The page panel beside the navigation (page-panel.tsx;
+            Liam, 11-11: home's recents): only where it makes room. It
+            persists under a full-screen card (Liam, 11-11), the one child of
+            this row that keeps painting then (tailwind.css, `> :not([data-
+            page-panel])`), so it stays a direct child of the row. Of the
+            chat strip only the composer's dock keeps painting then (Liam,
+            11-11: "you can still see the main chat input even when you have
+            a panel open"; tailwind.css), the card's layer ending above it. */}
         {/* Under the top bar the chat goes soft, a blur that fades out
             downward (Liam, 10-18: most blurry at the top, less and less going
             down, not one flat band), so what scrolls up passes beneath the bar
             instead of being cut off. Over the chat strip (z-20), under the
-            panels (z-25): they start just under the bar, sharp (Liam, 10-16:
-            never "under the blurry section"; 11-09: close under their buttons). */}
+            panel (z-25): it starts just under the bar, sharp (Liam, 10-16:
+            never "under the blurry section"; 11-09: close under its buttons). */}
         <FadingBlur direction="down" className="pointer-events-none absolute inset-x-0 top-0 z-[22]" style={TOP_BAR_BLUR_STYLE} />
-        <ForYouColumn mode={plan.left} />
+        <PagePanelHost mode={plan.left} />
         <RightSidePanel mode={plan.right} />
 
       {/* Voice enrollment nudge, above the chat, in the top right corner:
@@ -285,6 +303,21 @@ function RealtimeEntitiesMount() {
   const workspaceId = useWorkspaceId()
   useRealtimeEntities(workspaceId)
   return null
+}
+
+/**
+ * The card last minimized, at the bottom left, and the one rule that
+ * minimizes the card in front on a press on any empty part of the app (Liam,
+ * 11-11; minimized-card-tile.tsx). The tile goes with the workspace.
+ */
+function MinimizedCardMount() {
+  const workspaceId = useWorkspaceId()
+  return (
+    <>
+      <EmptyPressMinimizes />
+      <MinimizedCardTile resetKey={workspaceId} />
+    </>
+  )
 }
 
 /** UI sounds' per-window runtime (the browser unlock, desktop voice sessions). */
@@ -532,6 +565,7 @@ export function DashboardShell({
         <RealtimeEntitiesMount />
         <RealtimeWatchdogMount />
         <UiSoundsMount />
+        <MinimizedCardMount />
         <PostHogWorkspaceGroup />
         <AuthSessionPinger />
         <DraftGarbageCollector />

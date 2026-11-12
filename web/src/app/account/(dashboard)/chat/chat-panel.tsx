@@ -4,6 +4,8 @@ import { useChat, type UIMessage } from '@ai-sdk/react'
 import { useStickToBottom, type GetTargetScrollTop } from 'use-stick-to-bottom'
 import { isToolUIPart } from 'ai'
 import { ChatCardStore } from '@/components/chat-cards/card-store'
+import { closeFrontCards, setComposerReserve } from '@/components/chat-cards/front-card'
+import { EMPTY_PRESS_ZONE_ATTR } from '@/components/chat-cards/outside-card-press'
 import { useSkyChatReport } from '@/lib/sky/use-sky-chat-report'
 import { ConditionsLine } from '@/components/sky/conditions-line'
 import { readProspectingSelection, type ProspectingSelectionSnapshot } from '../prospecting/selection-context'
@@ -14,6 +16,7 @@ import { isOpenedCardMessage, nextCardNumber, openedCardFromPart, openedCardMess
 import { FOLD_CARDS_EVENT, cardForTarget, cardMatches, sameCardPlace, type CardMatch, type OpenCardRequest } from '@/lib/chat-cards/open-card'
 import { menuRowTarget, type MenuSearchRow } from '@/lib/search/menu-search'
 import { seedCardState } from '@/components/chat-cards/card-storage'
+import { nestedPageOpen } from '../rail/rail-pages'
 import { useWorkspaceEdition } from '../../workspace-switcher'
 import { startersFor } from '@/lib/chat/starters'
 import { QuestionPopover } from './question-popover'
@@ -1656,6 +1659,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
     () => pagesFor(workspaceEdition, { desktop: isDesktopApp(), personalTools }),
     [workspaceEdition, personalTools],
   )
+  // For openCardHere (below): a nested page opens inside its parent's card.
+  const pagesRef = useRef(pages)
+  pagesRef.current = pages
   // The first-run starters (lib/chat/starters.ts) the empty chat's composer
   // rotates through in its placeholder: the areas that are on in the
   // workspace, calendar and mail only where this chat may read them.
@@ -1723,7 +1729,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
   )
   const openCardHere = useCallback(
     // The card it opened or brought back here, or null (another chat's, or the dock's).
-    (request: OpenCardRequest): string | null => {
+    (asked: OpenCardRequest): string | null => {
+      // Projects, Initiatives and Teams nest under Tasks (Liam, 11-11): their page,
+      // however it is opened (`/`, Search, a link, openTarget `page`), is My
+      // Actions' card on that place inside it (rail/rail-pages.ts
+      // nestedPageOpen), the same card brought back when it is open already.
+      // Where My Actions is off here, the page opens on its own.
+      const nested = nestedPageOpen(asked.spec, pagesRef.current)
+      const request: OpenCardRequest = nested
+        ? { ...asked, spec: nested.spec, seed: { ...asked.seed, tasksPlace: nested.place } }
+        : asked
       // The person's calendar and mail open here too, whatever drives the
       // chat: there is one chat (docs/plans/one-chat.md). `/` and the
       // starters still leave them out where the chat may not read them.
@@ -2125,12 +2140,29 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
    *  While a reply is still running the turn waits above the composer and goes
    *  as the next turn once the chat is free (queued-turn.ts): never sent over
    *  the running reply. */
+  /**
+   * The main chat's composer sends while a card is full screen: every card in
+   * front goes back (this chat's into its message, a page into its place),
+   * as their Minimize or X would, so the chat shows the message and its reply.
+   */
+  function putCardsBackForSend(): void {
+    if (!alwaysShowMessages) return
+    if (cardStore.fullScreen()) cardStore.exitFullScreen()
+    closeFrontCards()
+  }
+
   async function submitTurn(spoken: string | null, extra?: Pick<SystemContext, 'voiceAsk' | 'voiceMode'>): Promise<boolean> {
     const spokenTurn = typeof spoken === 'string'
     const readyFiles = readyChatFiles(attachedFiles)
     const typed = spokenTurn ? spoken.trim() : input.trim()
     if (!typed && readyFiles.length === 0) return false
     if (!accessToken) return false
+    // Sent from the main chat's composer while a card is full screen (Liam,
+    // 11-11: the composer stays on screen beside it): the card goes back in
+    // the chat, so the person sees their message and the reply. Typing alone
+    // changes nothing. Not another panel's composer: one inside a card would
+    // put away the card it sits in.
+    if (!spokenTurn) putCardsBackForSend()
     // `/compact` on its own compacts the conversation now (the side panel's
     // Compact now: lib/chat/context-client.ts), never a message to the agent.
     // An armed skill stays armed for the next message, unless it is a skill
@@ -2399,6 +2431,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
 
   const submitTurnRef = useRef(submitTurn)
   submitTurnRef.current = submitTurn
+  const putCardsBackForSendRef = useRef(putCardsBackForSend)
+  putCardsBackForSendRef.current = putCardsBackForSend
   const submitSurfaceTurnRef = useRef(submitSurfaceTurn)
   submitSurfaceTurnRef.current = submitSurfaceTurn
   const dispatchTurnRef = useRef(dispatchTurn)
@@ -2450,6 +2484,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
   const acceptSuggestion = useCallback((prompt: string) => {
     if (!accessTokenRef.current) return
     setInput('')
+    putCardsBackForSendRef.current()
     sendStarterRef.current(prompt)
   }, [])
 
@@ -2573,17 +2608,29 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
   // scrolls down passes beneath it): its dock's height is --chat-bottom-inset
   // on the panel, the room the messages, the scroll button and the card stage
   // keep clear at the bottom.
+  // The main chat's dock height is also the room a full-screen card leaves
+  // under it, on <html> (front-card.ts COMPOSER_RESERVE_VAR; Liam, 11-11:
+  // "you can still see the main chat input even when you have a panel open"):
+  // the layer ends above the composer. Same observer, so it changes only when
+  // the dock does.
   const composerDockRef = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     const dock = composerDockRef.current
     const panel = dock?.parentElement
     if (!dock || !panel) return
-    const measure = () => panel.style.setProperty('--chat-bottom-inset', `${dock.offsetHeight}px`)
+    const measure = () => {
+      const height = dock.offsetHeight
+      panel.style.setProperty('--chat-bottom-inset', `${height}px`)
+      if (alwaysShowMessages) setComposerReserve(height)
+    }
     measure()
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
     observer?.observe(dock)
-    return () => observer?.disconnect()
-  }, [])
+    return () => {
+      observer?.disconnect()
+      if (alwaysShowMessages) setComposerReserve(null)
+    }
+  }, [alwaysShowMessages])
 
   /**
    * Prospecting → Scout handoff (see ../prospecting/start-event.ts).
@@ -3444,8 +3491,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
           /* The stage a full-screen card draws on: over the messages, the
              composer below it untouched (pages in the chat). It stands with
              no messages too: the kept pages' host is in it, and a page
-             opened in an empty chat goes full screen from there. */
-          <div className="relative flex min-h-0 flex-1 flex-col">
+             opened in an empty chat goes full screen from there.
+             `data-chat-thread-stage`: beside the rail, under a full-screen
+             card, this stops painting while the composer below keeps on
+             (tailwind.css; Liam, 11-11). */
+          <div data-chat-thread-stage="" className="relative flex min-h-0 flex-1 flex-col">
           {/* Clear of the top bar and the composer, which float over the
               messages: a browser card's full screen fills what's between. */}
           <div
@@ -3666,19 +3716,23 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
       />
 
       {/* `data-chat-composer`: the bottom zone, under the card stage. Around
-          the composer (its margins, not the composer itself) is the chat's
-          backdrop too: a press there puts a full-screen card back, as one
-          beside the card does. */}
+          the composer (its margins and its reading column's, not the
+          composer itself) is the chat's backdrop too: a press there puts a
+          full-screen card away, as one beside the card does. That is the
+          app's one rule for empty presses now (Liam, 11-11: "anytime you
+          click an empty area it does close it"; outside-card-press.ts
+          isEmptyAppPress, the dock, this zone and its reading column marked
+          EMPTY_PRESS_ZONE_ATTR), not a handler here. On the composer itself
+          (its field, its buttons, its menus) a press never does: beside the
+          rail it stays on screen under a full-screen card, the layer ending
+          above it (Liam, 11-11), and a send from it puts the card back
+          (submitTurn). */}
       <div
         className="shrink-0"
         data-chat-composer
         ref={inputAnchorRef}
         hidden={botPageUp}
         inert={botPageUp}
-        onMouseDown={(e) => {
-          if (!cardStore.fullScreen()) return
-          if (e.target === e.currentTarget || e.target === e.currentTarget.firstElementChild) cardStore.exitFullScreen()
-        }}
         // Esc in the field takes the Reply chip off, a card's or a message's (a menu's or a type-out's Esc is theirs).
         onKeyDown={(e) => {
           if (e.key !== 'Escape' || e.defaultPrevented || (!replyCardRef.current && !replyMessageRef.current)) return
@@ -3688,7 +3742,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
           clearReplyMessage()
         }}
       >
-        <div className="chat-reading-col w-full px-2.5 py-2">
+        <div className="chat-reading-col w-full px-2.5 py-2" {...{ [EMPTY_PRESS_ZONE_ATTR]: '' }}>
           <QueuedTurnRow turn={queuedTurn} onSendNow={sendQueuedTurnNow} onEdit={returnQueuedTurn} />
           <QueuedTurnRow turn={followUpTurn} onEdit={returnFollowUpTurn} after />
           {replyCard && <CardReplyChip card={replyCard} onRemove={clearReplyCard} note={replyCardHeld ? CARD_REPLY_HELD_NOTE : null} />}

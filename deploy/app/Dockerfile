@@ -101,8 +101,8 @@ ARG NI_BUILD_ID=
 RUN case "$NI_BUILD_ID" in *[!0-9a-f]*) echo "NI_BUILD_ID must be a git commit id" >&2; exit 1 ;; esac \
  && printf '%s' "$NI_BUILD_ID" > /app/BUILD_ID
 
-# What `npm run build` runs before `next build`, minus the test suite (CI runs that
-# as its own job): the cloud browser's assets and ONNX Runtime's wasm files.
+# What `npm run build` runs before `next build`, minus the test suite (run locally
+# before a push, not here): the cloud browser's assets and ONNX Runtime's wasm files.
 RUN VERCEL_GIT_COMMIT_SHA="$NI_BUILD_ID" node scripts/cloud-browser/build-assets.mjs \
  && node scripts/copy-ort-runtime.mjs
 

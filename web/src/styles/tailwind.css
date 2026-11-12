@@ -966,16 +966,43 @@ html[data-sky-tone] [data-on-sky] {
      the photo, the flat surface or Glass), so the rail beside it stays sharp
      and every page is a click away. The chat and the top bar under the layer
      stop painting meanwhile (FRONT_CARD_ATTR, components/chat-cards/
-     front-card.ts): nothing of them showed through the veil anyway. */
+     front-card.ts): nothing of them showed through the veil anyway. All
+     but the page panel (page-panel/page-panel-frame.tsx, `data-page-panel`,
+     a child of the row; Liam, 11-11: "I want the panel to persist when you
+     open something, it should just make room for both things to be open"):
+     it keeps painting beside the rail, and the layer starts after it
+     (`--page-panel-w`). The row's other children stop painting, not the row,
+     since a child can't show through its parent's `opacity: 0`.
+     And the main chat's composer (Liam, 11-11: "you can still see the main
+     chat input even when you have a panel open"): its dock keeps painting at
+     the bottom of the chat strip, and the layer ends above it
+     (`--composer-reserve`, chat-panel.tsx). So the strip is not hidden with
+     the row's others: it takes `visibility: hidden` alone, which its dock
+     overrides (`visible`: a descendant can show through a hidden ancestor's
+     visibility, never through its `opacity: 0`), and the strip's other
+     parts, the thread's stage and the live capture's notepad, stop painting
+     as the row's do. The two frosted strips stay, the top bar's (the row's
+     `data-fading-blur`) and the dock's: hidden under a card, they went at
+     every open and came back after the chat at every close, its text sharp
+     a moment before the blur (Liam, 11-11: "you make that stay the whole
+     time so that way it doesn't go away and come back"). */
   html[data-app-rail] .card-page-layer::before {
     display: none;
   }
-  /* Opacity too: a child with `transition: all` (the composer) would ease its
-     visibility out over its duration, showing beside the page meanwhile. */
-  html[data-app-rail][data-card-front] [data-windows-row],
-  html[data-app-rail][data-card-front] [data-shell-top-bar] {
+  /* Opacity too: a child with `transition: all` would ease its visibility out
+     over its duration, showing beside the page meanwhile. */
+  html[data-app-rail][data-card-front] [data-windows-row] > :not([data-page-panel]):not(#ni-chat-strip-slot):not([data-fading-blur]),
+  html[data-app-rail][data-card-front] [data-shell-top-bar],
+  html[data-app-rail][data-card-front] #ni-chat-strip-slot [data-chat-thread-stage],
+  html[data-app-rail][data-card-front] #ni-chat-strip-slot [data-live-capture-dock] {
     visibility: hidden;
     opacity: 0;
+  }
+  html[data-app-rail][data-card-front] #ni-chat-strip-slot {
+    visibility: hidden;
+  }
+  html[data-app-rail][data-card-front] #ni-chat-strip-slot [data-chat-composer-dock] {
+    visibility: visible;
   }
   /* The web live HUD (live-hud/web-hud.tsx) sits under the layer (z-45): with
      no veil over it, it would look live, and a press on it would put the page

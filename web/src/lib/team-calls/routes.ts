@@ -82,14 +82,20 @@ export async function joinAnswer(
 }
 
 /**
- * Does this join's token wait for the person (phase 6)? Yes when the call's
- * notes are on by someone else's doing, or it is being recorded, and the
+ * Does this join's token wait for the person (phase 6)? Yes when the call is
+ * being recorded, or its Egress notes are on by someone else's doing, and the
  * join request did not say the person has seen that (`noticeSeen: true`, sent
  * only after the client showed its notice). A client that doesn't send it
- * joins listen-only; POST [id]/notice lifts it once they have seen it.
+ * joins listen-only; POST [id]/notice lifts it once they have seen it. The
+ * call recorder's notes never hold a member (holdMicOnJoin).
  */
-export function joinsListenOnly(call: Partial<TeamCallNotesView> | null | undefined, memberId: string, noticeSeen: unknown): boolean {
-  return noticeSeen !== true && holdMicOnJoin({ memberId, notes: notesViewOf(call) })
+export function joinsListenOnly(
+  call: Partial<TeamCallNotesView> | null | undefined,
+  memberId: string,
+  noticeSeen: unknown,
+  features = teamCallFeatures(),
+): boolean {
+  return noticeSeen !== true && holdMicOnJoin({ memberId, notes: notesViewOf(call), features })
 }
 
 /** A readable call as a join answer names it: where it is, who the person is in it, what the server offers, its notes and recording. */

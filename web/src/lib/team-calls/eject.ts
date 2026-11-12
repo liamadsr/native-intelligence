@@ -21,6 +21,13 @@
  * and is tried again (attempts counts); one for a room or person already
  * gone is done. Nothing here runs while calling is off.
  *
+ * The call recorder is on the outbox too (588: its feed ended or went
+ * quiet; identity notes-recorder-<producer id>). Before such an entry is
+ * acted on, the database settles it (capture_feed_settle_ejects): when the
+ * call wants that producer again (a live session in its current round, as
+ * after notes off and on again before this drain), the entry is done and
+ * nobody is removed.
+ *
  * The outbox is also how the app learns a trigger ended a call or took
  * someone out of one: each entry done stops the phones still ringing for
  * it (./ring-push.ts: the call's rings, or that member's, their cancel
@@ -54,8 +61,12 @@ export interface EjectResult {
   failed: number
 }
 
-/** Drain the outbox: each pending entry to LiveKit, then done. Throws only on a failed read. */
-export async function drainTeamCallEjections(svc: SupabaseClient, deps: EjectDeps): Promise<EjectResult> {
+/** The call recorder's identity prefix (./livekit.ts teamCallRecorderIdentity). */
+const RECORDER_IDENTITY_PREFIX = 'notes-recorder-'
+
+type EjectRow = { id: string; call_id: string | null; room: string; identity: string | null; attempts: number | null }
+
+async function pendingEjections(svc: SupabaseClient): Promise<EjectRow[]> {
   const { data, error } = await svc
     .from('team_call_eject')
     .select('id, call_id, room, identity, attempts')
@@ -63,9 +74,29 @@ export async function drainTeamCallEjections(svc: SupabaseClient, deps: EjectDep
     .order('created_at', { ascending: true })
     .limit(TEAM_CALL_EJECT_BATCH)
   if (error) throw new Error(`team calls: eject outbox read failed: ${error.message}`)
+  return (data ?? []) as EjectRow[]
+}
+
+/** Drain the outbox: each pending entry to LiveKit, then done. Throws only on a failed read. */
+export async function drainTeamCallEjections(svc: SupabaseClient, deps: EjectDeps): Promise<EjectResult> {
+  let rows = await pendingEjections(svc)
+  if (rows.some((r) => r.identity?.startsWith(RECORDER_IDENTITY_PREFIX))) {
+    // A recorder the call wants again stays in the room. A settle that fails leaves the entries as
+    // they are: the recorder is taken out, and the work list puts it back (the safe way round).
+    try {
+      const { data: settled, error } = await svc.rpc('capture_feed_settle_ejects')
+      if (error) throw new Error(error.message)
+      if (typeof settled === 'number' && settled > 0) {
+        console.info(`[team-calls-eject] ${settled} recorder entr${settled === 1 ? 'y' : 'ies'} settled: wanted in the call again`)
+        rows = await pendingEjections(svc)
+      }
+    } catch (err) {
+      console.warn('[team-calls-eject] recorder entries not settled:', err instanceof Error ? err.message.slice(0, 160) : 'unknown')
+    }
+  }
   const result: EjectResult = { done: 0, failed: 0 }
   const stop = deps.stopPhones ?? ((s: SupabaseClient, callId: string, memberId: string | null) => cancelRingPushes(liveRingPushDeps(s), { callId, memberId: memberId ?? undefined }))
-  for (const row of (data ?? []) as Array<{ id: string; call_id: string | null; room: string; identity: string | null; attempts: number | null }>) {
+  for (const row of rows) {
     try {
       if (row.identity) await deps.remove(row.room, row.identity)
       else {
@@ -80,7 +111,8 @@ export async function drainTeamCallEjections(svc: SupabaseClient, deps: EjectDep
       }
       await svc.from('team_call_eject').update({ done_at: new Date().toISOString() }).eq('id', row.id)
       result.done++
-      if (row.call_id) await stop(svc, row.call_id, row.identity).catch(() => undefined)
+      // A recorder has no phone ringing.
+      if (row.call_id && !row.identity?.startsWith(RECORDER_IDENTITY_PREFIX)) await stop(svc, row.call_id, row.identity).catch(() => undefined)
     } catch (err) {
       result.failed++
       await svc.from('team_call_eject').update({ attempts: (row.attempts ?? 0) + 1 }).eq('id', row.id)

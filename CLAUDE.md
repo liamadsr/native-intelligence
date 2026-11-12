@@ -19,7 +19,8 @@ Read this before reporting anything as live or touching production. The code gui
   `main` is rolled out within minutes, EXCEPT when it brings a migration, a new setting
   in `deploy/app/.env.example`, or a change to files other stacks use (Supabase's
   functions and mail templates, `deploy/edge`, `deploy/supabase`, `deploy/inngest`,
-  `deploy/backup`, `deploy/livekit`), or to the server's own deploy tooling (everything in `deploy/app`,
+  `deploy/backup`, `deploy/livekit`, and `recorder` but its `test/`, `e2e/` and guide),
+  or to the server's own deploy tooling (everything in `deploy/app`,
   the `Dockerfile` included, except `cron/`, `smoke/`, `tests/`, the two `.mjs` files
   and the guide): those hold it until a person has taken care of them. A failed roll-out or a
   rollback by hand holds everything until the owner clears it. With it on, a merge to
@@ -60,6 +61,10 @@ Read this before reporting anything as live or touching production. The code gui
   The `restricted` and `isolated` levels are written and tested without live calls, NOT
   yet proven by a live run ("The coding agent" in `deploy/README.md` lists the checks to
   do first). A sandbox server of our own is set up to take these sandboxes over and is
-  not in use yet ([`deploy/sandbox/README.md`](deploy/sandbox/README.md)).
+  not in use yet ([`deploy/sandbox/README.md`](deploy/sandbox/README.md)). A private
+  tunnel links production to it since 2026-11-12: production carries a network
+  interface `ni-sandbox`, a firewall table `inet ni_sandbox_tunnel` and the first rule
+  in `ufw`'s list for it. They are not strays; "The tunnel" in that guide says what each
+  is and how to take the tunnel away.
 - No server address, ssh user or ids in this repository: it is public. Use the
   placeholders `deploy/README.md` uses (`<server>`, `<user>@<server>`).

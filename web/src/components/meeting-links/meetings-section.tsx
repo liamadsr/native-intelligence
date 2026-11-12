@@ -11,6 +11,11 @@
  *
  * Asked when the section mounts, when `refreshKey` changes (a meeting made,
  * a call's state changed) and when the tab comes back; no timer runs.
+ *
+ * `dense`: in Team chat's sub-nav beside the rail (app/account/(dashboard)/
+ * page-panel/team-chat-panel.tsx), where the page draws no list of its own
+ * from `md` up: that sub-nav's 32px rows, its 13px titles with the when
+ * beside them, its lit tint and muted glyph.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Link2, MoreHorizontal, Video } from 'lucide-react'
@@ -28,6 +33,7 @@ export function MeetingsSection({
   onOpen,
   initial,
   now: fixedNow,
+  dense = false,
 }: {
   /** Changed: ask again (a meeting made, a call started or ended). */
   refreshKey: unknown
@@ -40,6 +46,8 @@ export function MeetingsSection({
   /** Tests and screenshots: the meetings as read, and the time. */
   initial?: MyMeeting[]
   now?: number
+  /** The sub-nav's rows (see above). */
+  dense?: boolean
 }) {
   const [meetings, setMeetings] = useState<MyMeeting[] | null>(initial ?? null)
   const [now, setNow] = useState(() => fixedNow ?? Date.now())
@@ -74,13 +82,27 @@ export function MeetingsSection({
   return (
     <div data-meetings-section="">
       {shown.map((m) => (
-        <MeetingRow key={m.id} meeting={m} now={now} active={m.channel_id === activeChannelId} onOpen={() => onOpen(m.channel_id)} onChanged={() => void load()} />
+        <MeetingRow key={m.id} meeting={m} now={now} active={m.channel_id === activeChannelId} onOpen={() => onOpen(m.channel_id)} onChanged={() => void load()} dense={dense} />
       ))}
     </div>
   )
 }
 
-function MeetingRow({ meeting, now, active, onOpen, onChanged }: { meeting: SectionMeeting; now: number; active: boolean; onOpen: () => void; onChanged: () => void }) {
+function MeetingRow({
+  meeting,
+  now,
+  active,
+  onOpen,
+  onChanged,
+  dense,
+}: {
+  meeting: SectionMeeting
+  now: number
+  active: boolean
+  onOpen: () => void
+  onChanged: () => void
+  dense: boolean
+}) {
   const enter = meeting.url && meeting.phase !== 'ended' ? enterPathOf(meeting.url) : null
   const copy = async () => {
     if (!meeting.url) return
@@ -107,20 +129,57 @@ function MeetingRow({ meeting, now, active, onOpen, onChanged }: { meeting: Sect
   return (
     <div
       data-meeting-row={meeting.phase}
-      className={cn('group flex min-h-10 w-full items-center gap-1.5 rounded-xl pl-3 pr-1.5', active ? 'bg-accent' : 'hover:bg-accent/60')}
+      aria-current={dense && active ? 'true' : undefined}
+      className={cn(
+        'group flex w-full items-center gap-1.5 rounded-xl',
+        dense
+          ? cn('min-h-8 pl-2 pr-1', active ? 'bg-foreground/[0.08] hover:bg-foreground/[0.08]' : 'hover:bg-muted/60')
+          : cn('min-h-10 pl-3 pr-1.5', active ? 'bg-accent' : 'hover:bg-accent/60'),
+      )}
     >
-      <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-2.5 py-1.5 text-left" data-meeting-open="">
-        <Video className={cn('h-4 w-4 shrink-0', meeting.phase === 'live' ? 'text-emerald-600 dark:text-emerald-400' : 'opacity-70')} aria-hidden />
-        <span className="min-w-0 flex-1">
-          <span className={cn('block truncate text-[15px]', active ? 'font-medium text-foreground' : 'text-foreground/90', meeting.phase === 'ended' && 'text-muted-foreground')}>{meeting.title}</span>
-          <span className={cn('block truncate text-xs', meeting.phase === 'live' ? 'font-medium text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground')} data-meeting-when="">
+      <button
+        type="button"
+        onClick={onOpen}
+        title={dense ? `${meeting.title} · ${meetingWhen(meeting, now)}` : undefined}
+        className={cn('flex min-w-0 flex-1 items-center text-left', dense ? 'gap-2.5 py-1' : 'gap-2.5 py-1.5')}
+        data-meeting-open=""
+      >
+        {dense ? (
+          <span aria-hidden className="flex w-4 shrink-0 items-center justify-center">
+            <Video className={cn('size-4', meeting.phase === 'live' ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground')} strokeWidth={1.75} />
+          </span>
+        ) : (
+          <Video className={cn('h-4 w-4 shrink-0', meeting.phase === 'live' ? 'text-emerald-600 dark:text-emerald-400' : 'opacity-70')} aria-hidden />
+        )}
+        <span className={cn('min-w-0 flex-1', dense && 'flex items-baseline gap-1.5')}>
+          <span
+            className={cn(
+              'truncate',
+              dense ? 'min-w-0 text-[13px] text-foreground' : cn('block text-[15px]', active ? 'font-medium text-foreground' : 'text-foreground/90'),
+              meeting.phase === 'ended' && 'text-muted-foreground',
+            )}
+          >
+            {meeting.title}
+          </span>
+          <span
+            className={cn(
+              'truncate',
+              dense ? 'shrink-0 text-[11px]' : 'block text-xs',
+              meeting.phase === 'live' ? 'font-medium text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground',
+            )}
+            data-meeting-when=""
+          >
             {meetingWhen(meeting, now)}
           </span>
         </span>
       </button>
       {enter && (
         <form method="post" action={enter} className="shrink-0">
-          <button type="submit" className="rounded-full bg-foreground px-2.5 py-1 text-xs font-semibold text-background hover:bg-foreground/90" data-meeting-join="">
+          <button
+            type="submit"
+            className={cn('rounded-full bg-foreground font-semibold text-background hover:bg-foreground/90', dense ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs')}
+            data-meeting-join=""
+          >
             Join
           </button>
         </form>
@@ -128,8 +187,13 @@ function MeetingRow({ meeting, now, active, onOpen, onChanged }: { meeting: Sect
       {meeting.url || meeting.is_host ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button type="button" aria-label="More for this meeting" className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-accent hover:text-foreground" data-meeting-more="">
-              <MoreHorizontal className="h-4 w-4" />
+            <button
+              type="button"
+              aria-label={`More for ${meeting.title}`}
+              className={cn('shrink-0 text-muted-foreground hover:text-foreground', dense ? 'grid size-6 place-items-center rounded-md hover:bg-foreground/[0.06]' : 'rounded-lg p-1 hover:bg-accent')}
+              data-meeting-more=""
+            >
+              <MoreHorizontal className={dense ? 'size-3.5' : 'h-4 w-4'} />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">

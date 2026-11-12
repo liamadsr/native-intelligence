@@ -53,6 +53,8 @@ function makeSupabase(
     confirmReturns?: Array<{ id: string }>
     unbindReturns?: Array<{ id: string }>
     rpcError?: { message: string }
+    /** The capture is a call the recorder heard (roster rows, migration 587). */
+    callRoster?: boolean
   },
   fake: Fake,
 ) {
@@ -71,6 +73,7 @@ function makeSupabase(
           return { data: opts.captureOwnerId == null ? null : { id: CAPTURE_ID, user_id: opts.captureOwnerId }, error: null }
         }
         if (table === 'user_voice_profile') return { data: opts.profileRows ?? [], error: null }
+        if (op.eq.source === 'call_roster') return { data: opts.callRoster ? [{ id: 'roster-1' }] : [], error: null }
         if (op.kind === 'select') {
           return {
             data: opts.selfRow === undefined ? { id: 'self-1', speaker_label: null, self_binding: 'none' } : opts.selfRow,
@@ -92,6 +95,7 @@ function makeSupabase(
           op.payload = payload
           return b
         },
+        limit: () => b,
         maybeSingle: () => Promise.resolve(result()),
         then: (resolve: (v: unknown) => unknown) => Promise.resolve(result()).then(resolve),
       })
@@ -139,6 +143,15 @@ describe('ownership and validation', () => {
     expect((await POST(req({ speaker_label: 'local_2', decision: 'mine', embeddings: nine }), { params })).status).toBe(400)
     setup({ selfRow: null })
     expect((await POST(req({ speaker_label: 'local_2', decision: 'mine' }), { params })).status).toBe(404)
+  })
+
+  it('409 on a call the recorder heard: its speakers come from the call, nothing is written', async () => {
+    const fake = setup({ profileRows: PROFILE, callRoster: true })
+    const res = await POST(req({ speaker_label: 'local_2', decision: 'mine', embeddings: [near(0.72)] }), { params })
+    expect(res.status).toBe(409)
+    expect(((await readJson(res)) as { code?: string }).code).toBe('SPEAKERS_FROM_CALL')
+    expect(updates(fake)).toHaveLength(0)
+    expect(fake.rpc).toHaveLength(0)
   })
 })
 

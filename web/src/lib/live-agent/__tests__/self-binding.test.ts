@@ -16,7 +16,11 @@ import {
   positionEvidenceHolds,
   resolveSelfBinding,
   assigneeResolvedViaSpeakerMap,
+  callRosterSetsSpeakers,
+  quoteIsTheirs,
 } from '../self-binding'
+import { memoryDb } from '@/test/memory-db'
+import { withTableSchema } from '@/test/table-schema'
 
 const CAPTURE_ID = 'cap-1'
 const MEMBER_ME = 'mem-liam'
@@ -185,5 +189,27 @@ describe('assigneeResolvedViaSpeakerMap', () => {
     expect(assigneeResolvedViaSpeakerMap(null)).toBe(false)
     expect(assigneeResolvedViaSpeakerMap(undefined)).toBe(false)
     expect(assigneeResolvedViaSpeakerMap('speaker_label')).toBe(false)
+  })
+})
+
+describe('a call the recorder heard: ownership from the line, never from a name (migration 587)', () => {
+  const ROSA = 'mem-rosa'
+  const said = (over: Record<string, unknown> = {}) => ({ participant_id: 'p-rosa', member_id: ROSA, source: 'call_roster', ...over })
+
+  it('a call’s capture is known by its roster rows; an ordinary capture has none', async () => {
+    const db = withTableSchema(memoryDb({ capture_participant: [{ id: 'p1', capture_id: CAPTURE_ID, member_id: ROSA, source: 'call_roster', speaker_label: 'Rosa Lind' }] }), ['capture_participant'])
+    expect(await callRosterSetsSpeakers(db, CAPTURE_ID)).toBe(true)
+    expect(await callRosterSetsSpeakers(memoryDb({ capture_participant: [{ id: 'p1', capture_id: CAPTURE_ID, member_id: ROSA, source: 'voice_id' }] }), CAPTURE_ID)).toBe(false)
+  })
+
+  it('theirs only when exactly one roster row said it, and it is theirs', () => {
+    expect(quoteIsTheirs([said()], ROSA)).toBe(true)
+    expect(quoteIsTheirs([said({ member_id: MEMBER_ME })], ROSA)).toBe(false)
+    expect(quoteIsTheirs([said({ member_id: null })], ROSA)).toBe(false)
+    expect(quoteIsTheirs([said({ source: 'manual' })], ROSA)).toBe(false)
+    expect(quoteIsTheirs([said({ participant_id: null })], ROSA)).toBe(false)
+    expect(quoteIsTheirs([said(), said({ participant_id: 'p-me', member_id: MEMBER_ME })], ROSA)).toBe(false)
+    expect(quoteIsTheirs([], ROSA)).toBe(false)
+    expect(quoteIsTheirs([said()], null)).toBe(false)
   })
 })

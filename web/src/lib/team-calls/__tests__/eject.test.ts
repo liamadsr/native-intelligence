@@ -75,6 +75,56 @@ describe('drainTeamCallEjections', () => {
   })
 })
 
+describe('the call recorder on the outbox', () => {
+  it('settled first: a recorder the call wants again (notes off, then on) is left in the room; one it does not is taken out', async () => {
+    tables.team_call_eject = [
+      { id: 'r1', call_id: 'call-a', room: 'tc-a', identity: 'notes-recorder-recorder', attempts: 0, done_at: null, created_at: '2026-11-11T10:00:00Z' },
+      { id: 'r2', call_id: 'call-b', room: 'tc-b', identity: 'notes-recorder-recorder', attempts: 0, done_at: null, created_at: '2026-11-11T10:00:01Z' },
+    ]
+    const asked: string[] = []
+    const svc = Object.assign(memoryDb(tables), {
+      rpc: async (name: string) => {
+        asked.push(name)
+        // 588's capture_feed_settle_ejects: call-a has the recorder's live session in its current round.
+        tables.team_call_eject[0].done_at = '2026-11-11T10:00:05Z'
+        return { data: 1, error: null }
+      },
+    }) as unknown as SupabaseClient
+    const removed: Array<[string, string]> = []
+    const stopped: unknown[] = []
+    const result = await drainTeamCallEjections(svc, {
+      remove: async (room, identity) => void removed.push([room, identity]),
+      close: async () => {},
+      stopPhones: async (...args) => void stopped.push(args),
+    })
+    expect(asked).toEqual(['capture_feed_settle_ejects'])
+    expect(removed).toEqual([['tc-b', 'notes-recorder-recorder']])
+    expect(result).toEqual({ done: 1, failed: 0 })
+    // A recorder rings no phone.
+    expect(stopped).toEqual([])
+  })
+
+  it('a settle that fails takes the recorder out anyway (the work list puts it back); no recorder entry, no settle', async () => {
+    tables.team_call_eject = [{ id: 'r1', call_id: 'call-a', room: 'tc-a', identity: 'notes-recorder-recorder', attempts: 0, done_at: null, created_at: '2026-11-11T10:00:00Z' }]
+    const failing = Object.assign(memoryDb(tables), { rpc: async () => ({ data: null, error: { message: 'no such function' } }) }) as unknown as SupabaseClient
+    const removed: string[] = []
+    const warn = console.warn
+    console.warn = () => undefined
+    try {
+      await drainTeamCallEjections(failing, { remove: async (_room, identity) => void removed.push(identity), close: async () => {} })
+    } finally {
+      console.warn = warn
+    }
+    expect(removed).toEqual(['notes-recorder-recorder'])
+    const asked: string[] = []
+    const plain = Object.assign(memoryDb({ team_call_eject: [{ id: 'p1', room: 'tc-x', identity: 'mem-1', attempts: 0, done_at: null, created_at: '2026-11-11T10:00:00Z' }] }), {
+      rpc: async (name: string) => (asked.push(name), { data: 0, error: null }),
+    }) as unknown as SupabaseClient
+    await drainTeamCallEjections(plain, { remove: async () => {}, close: async () => {} })
+    expect(asked).toEqual([])
+  })
+})
+
 describe('requestTeamCallEjections', () => {
   it('asks for a drain when calling is on, and does nothing while it is off', async () => {
     const sent: unknown[] = []

@@ -1,0 +1,7 @@
+node_modules
+test
+e2e
+README.md
+Dockerfile
+.dockerignore
+.gitignore

@@ -25,6 +25,10 @@ import { shouldRunPostLiveBatch } from '@/lib/live-agent/default-agent'
  * as Stop does, and the recovery prompt then skips the capture ("already
  * ended"). Resume (POST /captures/[id]/resume) still reopens it.
  *
+ * A TEAM CALL'S NOTES (captures.notes_channel_id) are never abandoned: the
+ * call recorder fills them in on the server, and the call's end finishes
+ * them, however long nobody spoke.
+ *
  * DECLINED RECOVERY is the same gap from the client side: when the app comes
  * back within ten minutes of a recorder that died, it offers to resume the
  * capture. Declining it used to stamp `ended_at` and run nothing, so the
@@ -70,7 +74,7 @@ export const RETIRE_SWEEP_CAP = 50
 const CANDIDATE_SCAN_LIMIT = 50
 
 export const ABANDONED_CAPTURE_SELECT =
-  'id, workspace_id, user_id, started_at, updated_at, duration_seconds, live_mode, ai_summary, transcript, metadata, is_eval, status'
+  'id, workspace_id, user_id, started_at, updated_at, duration_seconds, live_mode, ai_summary, transcript, metadata, is_eval, status, notes_channel_id'
 
 export interface AbandonedCaptureRow {
   id: string
@@ -85,6 +89,8 @@ export interface AbandonedCaptureRow {
   metadata: Record<string, unknown> | null
   is_eval: boolean | null
   status: string | null
+  /** A team call's notes (566): its call finishes it, never this sweep. */
+  notes_channel_id?: string | null
 }
 
 /**
@@ -95,6 +101,9 @@ export interface AbandonedCaptureRow {
  */
 export function isAbandonedCandidate(row: AbandonedCaptureRow): boolean {
   if (row.is_eval === true) return false
+  // A call's notes have no recorder on anyone's machine: the call's own end finishes them
+  // (src/lib/team-calls/fed-notes.ts), even after an hour in which nobody spoke or notes were off.
+  if (row.notes_channel_id) return false
   if (row.metadata?.demo === true) return false
   if (row.status === 'archived') return false
   if (!row.user_id || !row.workspace_id) return false
@@ -128,6 +137,7 @@ export async function findAbandonedCaptures(
     .neq('transcript', '')
     .not('user_id', 'is', null)
     .not('workspace_id', 'is', null)
+    .is('notes_channel_id', null)
     .order('updated_at', { ascending: true })
     .limit(CANDIDATE_SCAN_LIMIT)
   if (error) {
