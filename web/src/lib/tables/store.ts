@@ -38,6 +38,7 @@ import {
   type DataTable,
   type DataTableVisibility,
   type DataTableWithColumns,
+  type NewRow,
 } from './types'
 
 const TABLE_SELECT = 'id, workspace_id, name, icon, description, owner_member_id, visibility, version, position, archived_at, created_at, updated_at'
@@ -55,6 +56,9 @@ export const MAX_ROWS_PAGE = 200
  * says so) and keeps the rest.
  */
 export const COMPUTED_SCAN_ROWS = 2000
+
+/** The most rows an export reads at once (pageCap): one PostgREST read, with the one past it. */
+export const EXPORT_PAGE = 999
 
 /** Why a write was refused. */
 export type TableRefusal = 'invalid' | 'not_found' | 'forbidden' | 'conflict'
@@ -212,9 +216,9 @@ export async function queryRows(
   workspaceId: string,
   tableId: string,
   columns: ReadonlyArray<Pick<DataColumn, 'key' | 'field_type'> & { config?: DataColumn['config']; label?: string; deleted_at?: string | null }>,
-  opts: RowQuery & { offset?: number; limit?: number; userId?: string; timeZone?: string; computed?: ComputedReader } = {},
+  opts: RowQuery & { offset?: number; limit?: number; userId?: string; timeZone?: string; computed?: ComputedReader; pageCap?: number } = {},
 ): Promise<{ rows: DataRow[]; hasMore: boolean; computedSkipped?: boolean }> {
-  const limit = Math.min(Math.max(1, Math.floor(opts.limit ?? 100)), MAX_ROWS_PAGE)
+  const limit = Math.min(Math.max(1, Math.floor(opts.limit ?? 100)), Math.min(opts.pageCap ?? MAX_ROWS_PAGE, EXPORT_PAGE))
   const offset = Math.max(0, Math.floor(opts.offset ?? 0))
   const stored = columns.filter((c) => !isComputedType(c.field_type)) as ReadonlyArray<Pick<DataColumn, 'key' | 'field_type'> & { field_type: CustomFieldType; config?: DataColumn['config'] }>
   const computedKeys = new Set(columns.filter((c) => isComputedType(c.field_type) && !c.deleted_at).map((c) => c.key))
@@ -353,10 +357,12 @@ export interface CreateTableInput {
   visibility?: DataTableVisibility
   icon?: string | null
   description?: string | null
-  /** Columns past the Name column (the title, every table has it). */
-  columns?: Array<{ label: string; field_type: DataColumnType; options?: string[]; config?: CustomFieldConfig }>
-  /** Blank rows to start with (default NEW_TABLE_ROWS). */
+  /** Columns past the Name column (the title, every table has it). A key, when given, is the column's (else made from its label). */
+  columns?: Array<{ key?: string; label: string; field_type: DataColumnType; options?: string[]; config?: CustomFieldConfig }>
+  /** Blank rows to start with (default NEW_TABLE_ROWS), when it has no `rows`. */
   blankRows?: number
+  /** Rows to start with instead of blank ones, their values by column key. */
+  rows?: NewRow[]
 }
 
 /** A new table, owned by the caller: its columns and its first blank rows in the same batch. */
@@ -373,8 +379,9 @@ export async function createTable(
   if (visibility !== 'workspace' && visibility !== 'private') return { ok: false, reason: 'invalid', error: 'visibility is workspace or private' }
   const blank = Math.min(Math.max(0, Math.floor(input.blankRows ?? NEW_TABLE_ROWS)), 100)
 
-  const raw: DataOpInput[] = (input.columns ?? []).map((c) => ({ op: 'create_column', label: c.label, field_type: c.field_type, options: c.options, config: c.config }))
-  if (blank > 0) raw.push({ op: 'insert_rows', rows: Array.from({ length: blank }, () => ({})) })
+  const raw: DataOpInput[] = (input.columns ?? []).map((c) => ({ op: 'create_column', ...(c.key ? { key: c.key } : {}), label: c.label, field_type: c.field_type, options: c.options, config: c.config }))
+  if (input.rows?.length) raw.push({ op: 'insert_rows', rows: input.rows })
+  else if (blank > 0) raw.push({ op: 'insert_rows', rows: Array.from({ length: blank }, () => ({})) })
   const checked = raw.length ? validateOps([], raw) : { ok: true as const, value: [] as DataOp[] }
   if (!checked.ok) return { ok: false, reason: 'invalid', error: checked.error }
 

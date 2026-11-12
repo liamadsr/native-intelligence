@@ -1,7 +1,7 @@
 /**
  * What pasting a URL on its own does in the editor (NoteEditor's handlePaste):
  *   • on an empty line: a link preview card, and a line after it to keep
- *     typing on;
+ *     typing on (a table's link: the table itself, embedded: lib/tables/embed.ts);
  *   • over text selected within one line: that text becomes the link;
  *   • anywhere else: the URL goes in where it was pasted, as a link.
  * It used to drop the card at the END of the document whenever the line wasn't
@@ -13,6 +13,7 @@
 
 import type { EditorState, Transaction } from '@tiptap/pm/state'
 import { Selection } from '@tiptap/pm/state'
+import { parseTableLink } from '@/lib/tables/embed'
 
 export function pasteUrlTransaction(state: EditorState, url: string): Transaction | null {
   const { schema, selection } = state
@@ -30,8 +31,10 @@ export function pasteUrlTransaction(state: EditorState, url: string): Transactio
   const $pos = tr.doc.resolve(tr.mapping.map(from))
 
   // An empty line: the card, then a fresh line under it.
-  if (linkPreview && $pos.parent.type.name === 'paragraph' && $pos.parent.textContent === '') {
-    const card = linkPreview.create({ url })
+  const tableEmbed = schema.nodes.tableEmbed
+  const table = tableEmbed ? parseTableLink(url) : null
+  if ((linkPreview || table) && $pos.parent.type.name === 'paragraph' && $pos.parent.textContent === '') {
+    const card = table ? tableEmbed.create({ tableId: table.tableId, viewId: table.viewId }) : linkPreview.create({ url })
     const start = $pos.before($pos.depth)
     const end = $pos.after($pos.depth)
     tr.replaceRangeWith(start, end, card)

@@ -55,6 +55,9 @@ const CASES: Array<{ name: string; head: RegExp; isFunction: boolean; arm: strin
   },
   { name: 'the entity_access_entity_type check', head: /add constraint entity_access_entity_type\b/i, isFunction: false, arm: 'data_table' },
   { name: 'the custom_field_definition_entity_check check', head: /add constraint custom_field_definition_entity_check\b/i, isFunction: false, arm: 'data_row' },
+  // Formula and rollup columns (531): the type list and their config shape.
+  { name: 'the custom_field_definition_type_check check', head: /add constraint custom_field_definition_type_check\b/i, isFunction: false, arm: "'formula', 'rollup'" },
+  { name: '_field_config_ok', head: fn('_field_config_ok'), isFunction: true, arm: "(p_type = 'rollup') = (p_config ? 'relation')" },
   { name: 'the entity_activity_member_select policy', head: /create policy entity_activity_member_select\b/i, isFunction: false, arm: 'data_table' },
   // A view of a table's rows follows the table's access (602).
   ...['Users can view accessible views', 'Users can create views in their workspace', 'Users can update their own views or workspace views as admin', 'Users can delete their own views or workspace views as admin'].map((p) => ({

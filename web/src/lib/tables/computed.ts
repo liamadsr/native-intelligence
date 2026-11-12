@@ -517,6 +517,17 @@ export function recomputeRow<R extends { title: string; custom_fields: Record<st
   return { ...row, computed: computeRow(row, columns, plan, rollups, { today }) }
 }
 
+/** A computed cell's value as it reads, or its error (the column's own, else the cell's). */
+export function cellValueOfRow(
+  c: Pick<DataColumn, 'key' | 'computed'>,
+  row: { computed?: Record<string, ComputedCell> },
+): { value: number | string | boolean | null; error?: string } {
+  if (c.computed?.error) return { value: null, error: c.computed.error }
+  const cell = row.computed?.[c.key]
+  if (cell && 'error' in cell) return { value: null, error: cell.error }
+  return { value: cell?.value ?? null }
+}
+
 /** How a computed column's cells read: as a column of its result's type (text when it is unknown). */
 export function resultFieldType(result: ComputedResult | null | undefined): CustomFieldType {
   return result ?? 'text'

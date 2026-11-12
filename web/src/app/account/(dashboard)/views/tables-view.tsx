@@ -7,13 +7,14 @@
  * src/components/tables/table-detail.tsx). It owns its fetches against
  * /api/account/tables, like the Campaigns page.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Lock, Plus, Table2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { KanbanSquare, ListChecks, Lock, Package, Plus, Table2, Users, Wrench, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TableDetail } from '@/components/tables/table-detail'
 import { relativeTime } from '@/lib/work/presentation'
 import type { DataTable } from '@/lib/tables/types'
+import { tableTemplates, type TemplateId } from '@/lib/tables/templates'
 import { ViewHeader } from './view-header'
 
 const NEW_TABLE_LABEL = 'New table'
@@ -127,37 +128,97 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
   )
 }
 
-function NewTableForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: (table: DataTable) => void }) {
-  const [name, setName] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+/** What each starter's card shows (lib/tables/templates.ts). */
+const TEMPLATE_ICONS: Record<TemplateId | 'blank', LucideIcon> = {
+  blank: Table2,
+  list: ListChecks,
+  pipeline: KanbanSquare,
+  inventory: Package,
+  jobs: Wrench,
+  contacts: Users,
+}
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!name.trim() || saving) return
-    setSaving(true)
+/**
+ * A new table: a name (optional for a starter, which has its own), then a
+ * blank table or one of the starters (phase 6): columns, views and example
+ * rows to delete. Nothing to set beyond that.
+ */
+export function NewTableForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: (table: DataTable) => void }) {
+  const [name, setName] = useState('')
+  const [saving, setSaving] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const templates = useMemo(() => tableTemplates(), [])
+
+  const make = async (template: TemplateId | null) => {
+    if (saving) return
+    if (!template && !name.trim()) return setError('Name the table, or start from one below.')
+    setSaving(template ?? 'blank')
     setError(null)
     try {
       const json = await readJson<{ table: DataTable }>(
-        await fetch('/api/account/tables', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }),
+        await fetch('/api/account/tables', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name.trim() || undefined, ...(template ? { template } : {}) }),
+        }),
       )
       onCreated(json.table)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not make the table')
-      setSaving(false)
+      setSaving(null)
     }
   }
 
   return (
-    <form onSubmit={submit} className="flex flex-wrap items-center gap-2 py-3">
-      <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Name the table" maxLength={200} className="h-8 max-w-xs" aria-label="Table name" />
-      <Button size="sm" type="submit" disabled={!name.trim() || saving}>
-        {saving ? 'Making…' : 'Make table'}
-      </Button>
-      <Button size="sm" type="button" variant="ghost" onClick={onCancel}>
-        Cancel
-      </Button>
-      {error && <p className="w-full text-xs text-destructive">{error}</p>}
-    </form>
+    <div className="space-y-3 py-3" data-new-table="">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          void make(null)
+        }}
+        className="flex flex-wrap items-center gap-2"
+      >
+        <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Name the table" maxLength={200} className="h-8 max-w-xs" aria-label="Table name" />
+        <Button size="sm" type="submit" disabled={!name.trim() || !!saving}>
+          {saving === 'blank' ? 'Making…' : 'Make table'}
+        </Button>
+        <Button size="sm" type="button" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+      </form>
+      <div>
+        <p className="mb-2 text-xs text-muted-foreground">Or start from</p>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {templates.map((t) => {
+            const Icon = TEMPLATE_ICONS[t.id]
+            return (
+              <button
+                key={t.id}
+                type="button"
+                disabled={!!saving}
+                onClick={() => void make(t.id)}
+                className="flex min-w-0 flex-col gap-1.5 rounded-lg border border-border bg-background p-3 text-left transition-colors hover:border-foreground/25 hover:bg-muted/30 disabled:opacity-60"
+                data-template={t.id}
+              >
+                <span className="flex items-center gap-2">
+                  <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                  <span className="truncate text-sm font-medium text-foreground">{saving === t.id ? 'Making…' : t.name}</span>
+                </span>
+                <span className="line-clamp-2 text-xs text-muted-foreground">{t.description}</span>
+                <span className="flex flex-wrap gap-1 pt-0.5">
+                  {t.columns.slice(0, 4).map((c) => (
+                    <span key={c.key} className="rounded-full border border-border/70 px-1.5 py-px text-[10px] text-muted-foreground">
+                      {c.label}
+                    </span>
+                  ))}
+                  {t.columns.length > 4 && <span className="px-1 text-[10px] text-muted-foreground">+{t.columns.length - 4}</span>}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
   )
 }

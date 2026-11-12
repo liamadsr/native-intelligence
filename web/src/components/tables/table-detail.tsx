@@ -14,7 +14,7 @@
  * kept in this browser.
  */
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
-import { ArrowDown, ArrowLeft, ArrowUp, History, Lock, Undo2, X } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, Download, History, Link2, Lock, Undo2, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -30,7 +30,11 @@ import { customFieldKeyOf, customFieldPath } from '@/lib/views/custom-field-colu
 import { resultFieldType } from '@/lib/tables/computed'
 import { isComputedType } from '@/lib/tables/types'
 import type { ViewScope } from '@/lib/views/types'
+import { downloadFile } from '@/lib/download'
+import { copyTextToClipboard } from '@/lib/clipboard'
+import { tableLink } from '@/lib/tables/embed'
 import { FieldsMenu } from './fields-menu'
+import { ImportDialog, importedToast } from './import-dialog'
 import { RowPanel } from './row-panel'
 import { TableBoard } from './table-board'
 import { TableCalendar } from './table-calendar'
@@ -67,6 +71,7 @@ export function TableDetail({ tableId, onBack }: { tableId: string; onBack: () =
   const data = useTableData(tableId, { onNotice: showNotice, query: viewPending ? null : query })
   const { table, columns, error } = data
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [importing, setImporting] = useState(false)
   const [openRowId, setOpenRowId] = useState<string | null>(null)
 
   // The table's columns, for the filter picker, the chips and the settings.
@@ -104,6 +109,26 @@ export function TableDetail({ tableId, onBack }: { tableId: string; onBack: () =
 
   const openRow = openRowId ? data.rows.find((r) => r.id === openRowId) ?? null : null
 
+  // The view as CSV: its filters, sorts and shown columns, read on the server.
+  const exportView = async () => {
+    try {
+      await downloadFile(`/api/account/tables/${encodeURIComponent(tableId)}/export`, `${table?.name ?? 'Table'}.csv`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filters: config.filters ?? [],
+          ordering: config.ordering ?? [],
+          order,
+          hidden,
+          view_name: activeView?.name ?? null,
+          time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
+      })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not export the view')
+    }
+  }
+
   return (
     <CustomFieldDefinitionsContext.Provider value={definitions}>
       <div className="flex h-full flex-col">
@@ -119,12 +144,38 @@ export function TableDetail({ tableId, onBack }: { tableId: string; onBack: () =
             </span>
           }
           actions={
-            table &&
-            data.changes.length > 0 && (
-              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setHistoryOpen(true)}>
-                <History className="h-3.5 w-3.5" />
-                History
-              </Button>
+            table && (
+              <span className="flex items-center gap-1">
+                {data.canEdit && (
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setImporting(true)}>
+                    <Upload className="h-3.5 w-3.5" />
+                    Import
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs"
+                  title="Paste it in a doc to show this view there"
+                  onClick={() => {
+                    void copyTextToClipboard(tableLink({ tableId, viewId: activeView?.id ?? null }, /^https?:/.test(window.location.origin) ? window.location.origin : undefined))
+                    toast('Copied the link to this view')
+                  }}
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                  Copy link
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void exportView()}>
+                  <Download className="h-3.5 w-3.5" />
+                  Export
+                </Button>
+                {data.changes.length > 0 && (
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setHistoryOpen(true)}>
+                    <History className="h-3.5 w-3.5" />
+                    History
+                  </Button>
+                )}
+              </span>
             )
           }
         />
@@ -225,6 +276,17 @@ export function TableDetail({ tableId, onBack }: { tableId: string; onBack: () =
             onArchive={() => void archiveRows(data, [openRow.id])}
             onUndo={(id) => void data.undo(id)}
             onClose={() => setOpenRowId(null)}
+          />
+        )}
+        {importing && table && (
+          <ImportDialog
+            tableId={table.id}
+            columns={columns}
+            onClose={() => setImporting(false)}
+            onImported={(changeId, rows) => {
+              void data.reload()
+              importedToast(rows, changeId ? () => void data.undo(changeId) : undefined)
+            }}
           />
         )}
         {historyOpen && table && (

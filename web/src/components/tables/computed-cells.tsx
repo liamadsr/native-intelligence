@@ -15,7 +15,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TARGET_NAMES } from '@/components/crm/custom-fields-group'
-import { COLUMN_TYPE_LABELS, isRollupFn, planComputed, resultFieldType, ROLLUP_FN_LABELS, ROLLUP_FNS, rollupNeedsField, type RollupFn } from '@/lib/tables/computed'
+import { cellValueOfRow, COLUMN_TYPE_LABELS, isRollupFn, planComputed, resultFieldType, ROLLUP_FN_LABELS, ROLLUP_FNS, rollupNeedsField, type RollupFn } from '@/lib/tables/computed'
 import { FORMULA_FUNCTIONS, TITLE_REF, TITLE_REF_NAME, toDisplayFormula, toStoredFormula } from '@/lib/tables/formula'
 import { isComputedType, type DataColumn, type DataRow, type DataTableWithColumns } from '@/lib/tables/types'
 import type { CustomFieldConfig } from '@/lib/crm/custom-field-types'
@@ -31,10 +31,7 @@ export function readColumn(c: DataColumn): CellColumn {
 /** A cell's value as it reads: a stored value, or a computed one (with its error). */
 export function cellValueOf(c: DataColumn, row: Pick<DataRow, 'custom_fields' | 'computed'>): { value: unknown; error?: string } {
   if (!isComputedType(c.field_type)) return { value: row.custom_fields?.[c.key] ?? null }
-  if (c.computed?.error) return { value: null, error: c.computed.error }
-  const cell = row.computed?.[c.key]
-  if (cell && 'error' in cell) return { value: null, error: cell.error }
-  return { value: cell?.value ?? null }
+  return cellValueOfRow(c, row)
 }
 
 /** A computed cell: its value as its result type reads, or its error. */
