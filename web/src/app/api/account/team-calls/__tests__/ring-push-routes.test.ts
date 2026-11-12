@@ -215,6 +215,14 @@ describe('a ring left ringing → the phones stop', () => {
     expect(stopped).toHaveLength(1)
   })
 
+  it('every end asks for its room to be closed now (589 put it on the outbox), whatever ended it; a failed ask never fails the end', async () => {
+    const none = { rpc: async () => ({ data: [], error: null }) } as unknown as SupabaseClient
+    let asked = 0
+    for (const reason of ['left', 'finished', 'swept'] as const) await endCall(none, CALL, reason, new Date(), async () => undefined, async () => void asked++)
+    expect(asked).toBe(3)
+    await expect(endCall(none, CALL, 'finished', new Date(), async () => undefined, async () => Promise.reject(new Error('inngest down')))).resolves.toEqual([])
+  })
+
   it('a member joining (LiveKit’s webhook) stops their phones ringing for that call', async () => {
     const stopped: Array<[string, string]> = []
     const svc = Object.assign(memoryDb({ team_call_webhook_event: [] }), {
