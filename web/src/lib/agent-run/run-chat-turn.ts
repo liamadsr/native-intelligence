@@ -508,6 +508,7 @@ export async function renderRunChatMentions(
     documentIds?: string[]
     projectIds?: string[]
     initiativeIds?: string[]
+    studioVideoIds?: string[]
     privateCaptures: boolean
   },
 ): Promise<string | null> {
@@ -523,7 +524,7 @@ export async function renderRunChatMentions(
       ? withinMentionBudget(() => gatherMentionedCompanyCards(service, { workspaceId, userId, requester, ids: args.companyIds }))
       : null,
     // Actions, docs, projects and initiatives: a private doc only where the run may read private data.
-    args.actionIds?.length || args.documentIds?.length || args.projectIds?.length || args.initiativeIds?.length
+    args.actionIds?.length || args.documentIds?.length || args.projectIds?.length || args.initiativeIds?.length || args.studioVideoIds?.length
       ? withinMentionBudget(() =>
           gatherMentionedRecords(service, {
             workspaceId,
@@ -533,6 +534,7 @@ export async function renderRunChatMentions(
             documentIds: args.documentIds,
             projectIds: args.projectIds,
             initiativeIds: args.initiativeIds,
+            studioVideoIds: args.studioVideoIds,
           }),
         )
       : null,

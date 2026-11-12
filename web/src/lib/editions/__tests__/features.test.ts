@@ -87,6 +87,8 @@ const SHIPPED: GoldenSurface = {
     // Evals was opt-in (in no preset) until every feature went on for everyone.
     'evals',
     'agents',
+    // Studio (migration 620): on by default, like Documents.
+    'studio',
   ],
   extraAllowedViews: ['companies'],
   toolCategories: 'all',
