@@ -16,6 +16,7 @@ import { closeTeamCallRoom, teamCallsConfig } from '@/lib/team-calls/livekit'
 import { memberIn, teamCallsUnavailable } from '@/lib/team-calls/routes'
 import { endCall, requestMissedNotices } from '@/lib/team-calls/store'
 import { meetingById } from '@/lib/meeting-links/store'
+import { meetingCalendarChanged } from '@/lib/meeting-links/calendar-events'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -42,6 +43,8 @@ export async function POST(_request: Request, { params }: Params) {
     after(async () => {
       await requestMissedNotices(missed)
       await closeTeamCallRoom(config, live.room).catch((err) => console.warn(`[meetings] call=${live.id} room not closed:`, err instanceof Error ? err.message : 'unknown'))
+      // Ended during its planned time: its calendar event ends now (never fails the end).
+      await meetingCalendarChanged(getServiceClient(), id, { kind: 'ended' })
     })
     console.info(`[meetings] meeting=${id} call=${live.id} outcome=ended_by_host`)
     return NextResponse.json({ ended: true })

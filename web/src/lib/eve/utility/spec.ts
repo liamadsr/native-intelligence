@@ -462,7 +462,7 @@ export const UTILITY_KIND_SPECS: Record<UtilityKind, UtilityKindSpec> = {
     privateRouting: true,
   },
   // A coding run's reviewer (P10 F6; src/lib/coding/review.ts): the work item,
-  // its criteria and the real diff in, a verdict with each criterion's
+  // its criteria, the branch's commits and the real diff in, a verdict with each criterion's
   // evidence out. Like draft_review, the caller always passes the model
   // (pickReviewerModel: another vendor than the coder, decision 13) and
   // validate refuses a token that breaks that rule. The diff is private code.

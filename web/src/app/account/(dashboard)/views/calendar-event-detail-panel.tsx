@@ -323,6 +323,9 @@ export function CalendarEventDetailPanel({ event, onClose, onEventUpdate, onEven
           }),
         })
         if (!res.ok) throw new Error(`Event update failed: ${res.status}`)
+        // Saved, with a word to say (a meeting link that couldn't follow the new length exactly).
+        const saved = (await res.json().catch(() => null)) as { notice?: string } | null
+        if (saved?.notice) toast(saved.notice)
       }
       // Fold the confirmed edit into the shared events cache so the calendar
       // grid and widget show it without waiting for the next poll.

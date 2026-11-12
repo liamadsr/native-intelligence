@@ -85,14 +85,12 @@ export interface EveSpec {
   /** User-supplied environment vars (from the linked cloud environment). */
   envVars: Record<string, string>
   /**
-   * The triggering user's GitHub OAuth token. The sandbox brokers it for git
-   * READS only (clone, fetch, LFS): it never pushes with it.
-   */
-  githubToken: string
-  /**
-   * The run's push credential for the app's git push gate (GIT_PUSH_PATH),
-   * the only place a run's commits reach GitHub, and only on its own branch.
-   * The sandbox refuses to start without it.
+   * The run's git gate token: the ONLY git credential the coding agent gets.
+   * The app's git gate (GIT_PUSH_PATH) takes it for the run's clones, fetches
+   * and LFS requests (its repo only) and its pushes (its own branch only),
+   * while the run is live, and adds the GitHub token server-side. The spec
+   * carries no GitHub token: it is not handed to this agent at all. The sandbox refuses to
+   * start without this one (it could neither clone nor push).
    */
   gitPushToken?: string
   /**
@@ -190,27 +188,29 @@ function protectionBypassHeaders(): Record<string, string> {
 }
 
 /**
- * Where the app's git push gate is mounted. Twin of GIT_PUSH_PATH in
- * src/lib/agent-run/git-push-proxy.ts (eve roots can't import the app).
+ * Where the app's git gate (reads and pushes) is mounted. Twin of
+ * GIT_PUSH_PATH in src/lib/agent-run/git-push-proxy.ts (eve roots can't import
+ * the app). The name predates the read gate.
  */
 export const GIT_PUSH_PATH = '/api/internal/agent-run/git'
 
 /**
- * The push URL a run's sandbox pushes to: the app's PUBLIC origin
+ * The git gate URL a run's sandbox clones, fetches and pushes through (its
+ * remote, push URL and `lfs.url` base): the app's PUBLIC origin
  * (NEXT_PUBLIC_APP_URL; production is not behind Vercel's deployment
  * protection). Never the deployment URL with a protection-bypass secret: the
  * sandbox must not be handed that secret or the cookie it buys. A deployment
- * whose public origin is protected refuses the push (closed). Only main
- * deploys, so the gate there is the same code as this agent. Off Vercel
+ * whose public origin is protected refuses the clone (closed). Off Vercel
  * (NEXT_PUBLIC_APP_URL unset or local) it is the local app, which a local
- * sandbox VM may not reach: local runs can clone and work, but a push needs the
- * app reachable from the sandbox.
+ * sandbox VM may not reach: then the run cannot even clone (there is no
+ * fallback that clones straight from GitHub), so a local run needs the app
+ * reachable from the sandbox.
  *
  * Null on Vercel without NEXT_PUBLIC_APP_URL: the only other origin is the
- * deployment URL, which is protected, so every push would fail with Vercel's
- * 401. The sandbox refuses to start such a run instead (sandbox.ts).
+ * deployment URL, which is protected, so every clone and push would fail with
+ * Vercel's 401. The sandbox refuses to start such a run instead (sandbox.ts).
  */
-export function gitPushUrl(): string | null {
+export function gitGateUrl(): string | null {
   const publicOrigin = process.env.NEXT_PUBLIC_APP_URL
   if (!publicOrigin && process.env.VERCEL) return null
   const origin = (publicOrigin || appBaseUrl()).replace(/\/+$/, '')

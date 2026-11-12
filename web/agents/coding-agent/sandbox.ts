@@ -12,7 +12,7 @@
  * succeeds, then eve checkpoints the selected provider and its state. Later
  * workflow steps and process restarts call the provider's resume() directly
  * without rerunning the selector or environment.open()". Everything per-run
- * (network policy, GitHub credential brokering, clone, setup script) therefore
+ * (network policy, the git gate credential, clone, setup script) therefore
  * happens here, once, inside the selector.
  *
  * ── WHERE THE SANDBOX RUNS ──────────────────────────────────────────────────
@@ -68,46 +68,68 @@
  * (All of the above is pinned against eve's real provider code in
  * lib/__tests__/eve-vercel-provider-contract.test.ts.)
  *
- * ── THE GITHUB CREDENTIAL: READS ONLY. PUSHES GO THROUGH THE APP ───────────
- * The sandbox never holds a credential that can write the repo on GitHub, so
- * no model, however it is talked to, can push the live (default) branch:
- *   - READS: on Vercel the github.com firewall rules inject the run's GitHub
- *     token on exactly three requests of THIS repo (githubReadRules: exact
- *     paths + methods): GET `/<repo>.git/info/refs?service=git-upload-pack`,
- *     POST `/<repo>.git/git-upload-pack` (clone, fetch) and POST
- *     `/<repo>.git/info/lfs/objects/batch` (LFS objects; never a ref). So
- *     `git-receive-pack`, another repo, or a path dressed up to look like one
- *     of these goes out anonymous and GitHub refuses a push. The
- *     clone uses a CREDENTIAL-FREE remote (`https://github.com/<repo>.git`),
- *     and the token is in no command string (eve's Vercel binding sends each
- *     command as `runCommand({cmd:'bash', args:['-lc', command], env})`, and
- *     Vercel records the command AND its env), no env, nothing in /workspace.
- *   - PUSHES: `remote.origin.pushurl` is the app's git push gate
- *     (`<the app's public origin>/api/internal/agent-run/git`, see
- *     src/lib/agent-run/git-push-proxy.ts). The firewall injects the run's
- *     PUSH token (spec.gitPushToken) on the gate's two endpoints only; the gate reads the run from
- *     the database, refuses every ref update but `refs/heads/<the run's
- *     branch>` (no deletes, no other branch, no tag), and only then pushes to
- *     GitHub with the GitHub token, server-side. The push token opens nothing
- *     else, and only while the run is live. A plain `git push` works; `git push
- *     https://github.com/…`, `--no-verify`, `git send-pack` or raw HTTP to
- *     GitHub all arrive anonymous.
+ * ── GIT: ALL OF IT THROUGH THE APP'S GIT GATE. NO GITHUB CREDENTIAL HERE ───
+ * The run's GitHub token (the triggering person's, repo scope: it can write
+ * every branch, the live (default) one included) is not handed to this agent
+ * (the spec it is served does not carry it), to any network policy, or to the
+ * sandbox: not in a command, an env, a file or git's config. The read gate
+ * also refuses an LFS answer from GitHub that contains it. NOT checked: the
+ * other credentials GitHub's LFS answers carry for its storage (its own
+ * short-lived object links and their headers), as before the gate. Every git
+ * request of the run goes to the app's git gate (`<the app's public
+ * origin>/api/internal/agent-run/git`, gitGateUrl), which reads the run from
+ * the database, adds the GitHub token server-side, and forwards to the run's
+ * repo on GitHub:
+ *   - READS (src/lib/agent-run/git-read-proxy.ts): the clone's remote IS the
+ *     gate URL (`git clone … <gate URL> .`), so the clone and every later
+ *     fetch go there, and `lfs.url` is `<gate URL>/info/lfs`, so git-lfs's
+ *     batch and lock-check calls do too. The gate serves only the run's repo,
+ *     only while the run is live. ACCEPTED: its LFS batch endpoint also
+ *     answers `upload` batches (see git-read-proxy.ts). The LFS object
+ *     transfers themselves go to whatever links GitHub's batch answer names,
+ *     which the gate does not control; a `restricted` or `isolated` run
+ *     reaches them only if its allow-list has their host.
+ *   - PUSHES (src/lib/agent-run/git-push-proxy.ts): the push URL is the same
+ *     gate URL (the remote's URL, and `remote.origin.pushurl` pinned to it
+ *     too). The gate refuses every ref update but `refs/heads/<the run's
+ *     branch>` (no deletes, no other branch, no tag), and only then pushes.
+ * The gate takes ONE credential, the run's git gate token (spec.gitPushToken,
+ * src/lib/agent-run/git-push-token.ts). It opens nothing on GitHub and nothing
+ * else of the app, and only while the run is live: it can do no more than the
+ * run itself may (read its repo, push its own branch). How it reaches the gate:
+ *   - THE HOSTED SANDBOX (`credentialBrokered`): the firewall injects it on
+ *     the gate's six exact endpoints, each with its method (gitGateRules), and
+ *     on no other request. It is in no command string (eve's Vercel binding
+ *     sends each command as `runCommand({cmd:'bash', args:['-lc', command],
+ *     env})`, and Vercel records the command AND its env), no env, nothing in
+ *     /workspace or git's config.
+ *   - ANY OTHER PROVIDER: no firewall credentials at all (eve 0.66.3's
+ *     microsandbox binding keeps a rule's `match` but never applies it, so a
+ *     rule's credential would ride every request to its host, and it stores
+ *     the policy, transforms included, on host disk). So the policy only
+ *     narrows egress; the clone gets the gate token as a one-shot
+ *     GIT_CONFIG_* env (there is no repo yet to hold it), and right after the
+ *     clone a `git config` writes it into the repo's config as an extra header
+ *     for the gate URL only, where later fetches, LFS and pushes find it. Both
+ *     times it is passed in the command's ENV, never in the command text sent
+ *     to the provider; the `git config` process does get it as an argument
+ *     (the shell expands the env reference) for a moment during setup, before
+ *     any model command runs. ACCEPTED: afterwards the model can read it in
+ *     `.git/config` (as the push token before the read gate); it can do no
+ *     more with it than the gate allows.
+ * A plain `git push` works; `git push https://github.com/…`, `--no-verify`,
+ * `git send-pack` or raw HTTP to GitHub all arrive anonymous: the sandbox has
+ * no GitHub credential to send. (github.com stays in every tier's allow-list,
+ * with no rule: what reaches it goes out anonymous.) There is no fallback that
+ * clones from GitHub directly: a gate the sandbox can't reach fails the clone.
  * The `pre-push` hook (prePushGuardScript) stays as the friendly first answer
  * (the run's own branch, no deletes, no force), but nothing rests on it now.
- * OFF VERCEL there are no firewall credentials at all: eve 0.66.3's
- * microsandbox binding keeps a rule's `match` but never applies it (so a
- * read-only GitHub rule would ride every github.com request, receive-pack
- * included) and stores the policy, transforms included, on host disk. So off
- * Vercel the policy only narrows egress; the clone (and a CI fix run's fetch)
- * gets the GitHub token as a one-shot GIT_CONFIG_* env, never persisted, and
- * the push token goes into the repo's git config for the push URL only (it
- * can do no more than the gate allows). A later private-repo fetch by the
- * model is anonymous off Vercel: a dev-only degradation.
- * TENANCY: the repo, branch, credentials, and env all come from the spec REBUILT
+ * TENANCY: the repo, branch, gate token, and env all come from the spec REBUILT
  * server-side from the verified run token on the session principal
  * (`session.auth`) — never from model input. The model cannot name a
- * repository, a branch, or a token. The push gate re-reads the run's repo and
- * branch itself, so even the spec isn't trusted for what a push may update.
+ * repository, a branch, or a token. The git gate re-reads the run's repo and
+ * branch itself, so even the spec isn't trusted for what a clone may read or
+ * a push may update.
  *
  * ── OFF VERCEL, WITHOUT THE HOSTED SANDBOX'S SETTINGS ──────────────────────
  * The provider is chosen from `process.env.VERCEL` (as eve's own DefaultSandbox
@@ -129,7 +151,8 @@
  *     beat. A self-hosted build, CI, or a local `eve eval` never runs a
  *     narrowed run with open egress.
  *   - a `trusted` run already asks for allow-all egress; it proceeds with a
- *     beat, and clone/push use the off-Vercel credential path described above.
+ *     beat, and clone/fetch/push use the "any other provider" gate token path
+ *     described above.
  *     (Outside eve dev the beat names the three settings: a container whose
  *     sandbox is just-bash cannot run git at all.)
  *   - a session with NO spec asks for `deny-all`; off Vercel that is applied
@@ -146,7 +169,7 @@ import {
 import { VercelSandbox } from 'eve/sandbox/vercel'
 import {
   fetchEveSpec,
-  gitPushUrl,
+  gitGateUrl,
   postEvent,
   runTokenFromAuth,
   type EveSpec,
@@ -155,19 +178,19 @@ import {
 /**
  * The `restricted` allow-list — the SINGLE source of truth for what a
  * `restricted` cloud environment lets sandbox commands reach (the Settings ▸
- * Environments helper text describes exactly this list; keep them in step). A
- * coding run needs these to clone, install, and push:
- *   - github.com          — clone + fetch over HTTPS git (the brokered,
- *                           repo-scoped, read-only credential)
+ * Environments helper text describes exactly this list; keep them in step):
+ *   - github.com          — reachable, with no credential on any request (the
+ *                           run's own clone, fetch and push go through the
+ *                           app's git gate, below)
  *   - api.github.com      — anonymous REST reads build tooling makes (release
  *                           lookups); the PR itself is opened server-side by the
  *                           outcome route, never from the sandbox
  *   - *.githubusercontent.com / codeload.github.com — git archives + LFS + raw
  *   - registry.npmjs.org  — npm install (the most common setup-script fetch)
- * Every tier ALSO allows the app's public host (gitPushUrl), for one reason
- * only: the git push gate, the only place a push can authenticate.
- * buildNetworkPolicy adds it per run (it is not in this list), and the push
- * token rides only the gate's two exact endpoints. Nothing else of the app is
+ * Every tier ALSO allows the app's public host (gitGateUrl), for one reason
+ * only: the git gate, the only place a clone, fetch or push can authenticate.
+ * buildNetworkPolicy adds it per run (it is not in this list), and the gate
+ * token rides only the gate's six exact endpoints. Nothing else of the app is
  * open to the run in any useful way: there is no other credential for it.
  * WARNING: deliberately conservative. A repo that fetches from other hosts
  * (private registries, CDNs, apt) needs `trusted`. There is NO AI-gateway host
@@ -185,144 +208,115 @@ export const RESTRICTED_ALLOW_HOSTS = [
 ] as const
 
 /**
- * Basic-auth credential for GitHub HTTPS git. `x-access-token:<token>` is
- * GitHub's documented username:password form for an OAuth token over HTTPS.
+ * The git gate token as git's HTTP Basic credential. The gate reads the
+ * password and ignores the user name (extractGitPushToken); `x-access-token`
+ * is only there because git and git-lfs expect a user name.
  */
-function githubBasicAuth(githubToken: string): string {
-  return `Basic ${Buffer.from(`x-access-token:${githubToken}`, 'utf8').toString('base64')}`
+function gateBasicAuth(gateToken: string): string {
+  return `Basic ${Buffer.from(`x-access-token:${gateToken}`, 'utf8').toString('base64')}`
 }
 
-/** git's per-URL extra-header config key for a URL (off Vercel only). */
+/** git's per-URL extra-header config key for a URL (the unbrokered path only). */
 function extraHeaderKey(url: string): string {
   return `http.${url}.extraheader`
 }
 
 /**
- * The firewall rules that put the run's GitHub token on git's READ requests
- * for THIS repo, and nothing else (see this file's header): three exact paths,
- * each with its method:
- *   - GET  `/<repo>.git/info/refs`, only with `service=git-upload-pack` (the
- *     push advertisement is not needed here: the gate fetches it server-side);
- *   - POST `/<repo>.git/git-upload-pack` (clone, fetch);
- *   - POST `/<repo>.git/info/lfs/objects/batch` (LFS objects);
- *   - POST `/<repo>.git/info/lfs/locks/verify` (git-lfs's pre-push lock
- *     check: it only LISTS the repo's LFS locks, ours and others', and changes
- *     nothing. Anonymous, it fails and git-lfs aborts the push on a private
- *     LFS repo).
- * `git-receive-pack`, another repo, a different case, an encoded, dot-segment
- * or query-smuggled path all fail them and go out anonymous, so a push
- * straight to GitHub is refused.
- * ACCEPTED: the firewall can't read a request body, so the LFS batch rule
- * also answers an `upload` batch with upload actions: the run could store LFS
- * objects in the repo's LFS storage. That moves no ref (nothing goes live),
- * and LFS reads need the rule.
- * Vercel only: off Vercel no rule carries a credential.
+ * The firewall rules that put the run's git gate token on the app's git gate:
+ * exactly its six endpoints under the run's gate URL, each with its method,
+ * and no other request:
+ *   - GET  `info/refs`, only with `service=git-upload-pack` (clone/fetch
+ *     advertisement) or with `service=git-receive-pack` (push advertisement);
+ *   - POST `git-upload-pack` (clone, fetch) and POST `git-receive-pack` (push);
+ *   - POST `info/lfs/objects/batch` (LFS batch API, download and upload) and
+ *     POST `info/lfs/locks/verify` (git-lfs's pre-push lock check).
+ * What each serves, and refuses, is the gate's (git-read-proxy.ts,
+ * git-push-proxy.ts). Nothing else rides along: in particular no Vercel
+ * protection-bypass secret (with `x-vercel-set-bypass-cookie` it would hand
+ * the sandbox a bypass cookie it could leak through its own branch); the gate
+ * URL is the app's public origin, and a protected deployment refuses the
+ * request (closed). The hosted sandbox only: no other provider gets a rule
+ * with a credential (see this file's header).
  */
-export function githubReadRules(githubToken: string, repoFullName: string) {
-  const prefix = repoGitPathPrefix(repoFullName)
-  const transform = [{ headers: { authorization: githubBasicAuth(githubToken) } }]
-  return [
-    {
-      match: {
-        method: ['GET'],
-        path: { exact: `${prefix}info/refs` },
-        queryString: [{ key: { exact: 'service' }, value: { exact: 'git-upload-pack' } }],
-      },
-      transform,
+export function gitGateRules(gateUrl: string, gateToken: string) {
+  const path = new URL(gateUrl).pathname.replace(/\/+$/, '')
+  const transform = [{ headers: { authorization: gateBasicAuth(gateToken) } }]
+  const infoRefs = (service: 'git-upload-pack' | 'git-receive-pack') => ({
+    match: {
+      method: ['GET'],
+      path: { exact: `${path}/info/refs` },
+      queryString: [{ key: { exact: 'service' }, value: { exact: service } }],
     },
-    { match: { method: ['POST'], path: { exact: `${prefix}git-upload-pack` } }, transform },
-    { match: { method: ['POST'], path: { exact: `${prefix}info/lfs/objects/batch` } }, transform },
-    { match: { method: ['POST'], path: { exact: `${prefix}info/lfs/locks/verify` } }, transform },
+    transform,
+  })
+  const post = (endpoint: string) => ({ match: { method: ['POST'], path: { exact: `${path}/${endpoint}` } }, transform })
+  return [
+    infoRefs('git-upload-pack'),
+    infoRefs('git-receive-pack'),
+    post('git-upload-pack'),
+    post('git-receive-pack'),
+    post('info/lfs/objects/batch'),
+    post('info/lfs/locks/verify'),
   ]
 }
 
-/**
- * The firewall rules that put the run's PUSH token on the app's git push gate:
- * exactly its two endpoints under the run's push URL, each with its method
- * (GET `info/refs?service=git-receive-pack`, POST `git-receive-pack`). No
- * other app request carries it. Nothing else rides along: in particular no
- * Vercel protection-bypass secret (with `x-vercel-set-bypass-cookie` it would
- * hand the sandbox a bypass cookie it could leak through its own branch); the
- * push URL is the app's public origin, and a protected deployment refuses the
- * push (closed).
- */
-export function pushGateRules(pushUrl: string, pushToken: string) {
-  const path = new URL(pushUrl).pathname.replace(/\/+$/, '')
-  const transform = [{ headers: { authorization: githubBasicAuth(pushToken) } }]
-  return [
-    {
-      match: {
-        method: ['GET'],
-        path: { exact: `${path}/info/refs` },
-        queryString: [{ key: { exact: 'service' }, value: { exact: 'git-receive-pack' } }],
-      },
-      transform,
-    },
-    { match: { method: ['POST'], path: { exact: `${path}/git-receive-pack` } }, transform },
-  ]
-}
-
-/** What the network policy needs to let a run clone, fetch and push. */
+/** What the network policy needs to let a run clone, fetch and push (all through the git gate). */
 export interface GitEgress {
-  repoFullName: string
-  /** The app's git push gate (gitPushUrl). Its host is allowed in every tier. */
-  pushUrl: string
+  /** The app's git gate (gitGateUrl). Its host is allowed in every tier. */
+  gateUrl: string
   /**
-   * The credentials the firewall injects (Vercel). Null off Vercel: the
-   * policy then only narrows egress and carries no secret.
+   * The credential the hosted sandbox's firewall injects on the gate. Null on
+   * any other provider: the policy then only narrows egress and carries no
+   * secret.
    */
-  broker: { githubToken: string; pushToken: string } | null
+  broker: { gateToken: string } | null
 }
 
 /**
  * Map a run's `networkAccess` to a sandbox network policy. Every tier allows
- * github.com (clone, fetch) and the app's push gate host (push); on Vercel the
- * firewall injects the read-only GitHub credential and the push token there.
+ * github.com (with no rule, so no credential) and the app's git gate host
+ * (clone, fetch, push); on the hosted sandbox the firewall injects the run's
+ * git gate token on the gate's six endpoints. No rule in any tier carries a
+ * GitHub credential: the sandbox has none.
  *
  *   - 'trusted'    → allow-all egress via a "*" catch-all.
- *   - 'restricted' → RESTRICTED_ALLOW_HOSTS + the push gate's host; everything
+ *   - 'restricted' → RESTRICTED_ALLOW_HOSTS + the gate's host; everything
  *                    NOT listed is denied (no "*" catch-all).
  *   - 'isolated', or any value this code does not know → github.com and the
- *                    push gate's host ONLY (no npm, no api.github.com, no "*"):
+ *                    gate's host ONLY (no npm, no api.github.com, no "*"):
  *                    the tightest policy that still lets the run clone and
  *                    push. An unknown value fails toward this bucket, never open.
  *
- * On Vercel this is a creation option; off Vercel it goes through the
- * provider's setter when there is one (see this file's header).
+ * Clones no longer need github.com in any tier (they go through the gate);
+ * it stays allowed as before, and tightening `isolated` is a separate
+ * follow-up.
+ *
+ * On the hosted sandbox this is a creation option; on any other provider it
+ * goes through the provider's setter when there is one (see this file's header).
  */
 export function buildNetworkPolicy(networkAccess: EveSpec['networkAccess'], egress: GitEgress): SandboxNetworkPolicy {
-  type Rules = ReturnType<typeof githubReadRules> | ReturnType<typeof pushGateRules> | []
-  const pushHost = new URL(egress.pushUrl).hostname
-  const githubRules: Rules = egress.broker ? githubReadRules(egress.broker.githubToken, egress.repoFullName) : []
-  const pushRules: Rules = egress.broker ? pushGateRules(egress.pushUrl, egress.broker.pushToken) : []
+  type Rules = ReturnType<typeof gitGateRules> | []
+  const gateHost = new URL(egress.gateUrl).hostname
+  const gateRules: Rules = egress.broker ? gitGateRules(egress.gateUrl, egress.broker.gateToken) : []
   if (networkAccess === 'trusted') {
-    return { allow: { 'github.com': githubRules, [pushHost]: pushRules, '*': [] } }
+    return { allow: { 'github.com': [], [gateHost]: gateRules, '*': [] } }
   }
   if (networkAccess === 'restricted') {
     const allow: Record<string, Rules> = {}
-    for (const host of RESTRICTED_ALLOW_HOSTS) allow[host] = host === 'github.com' ? githubRules : []
-    allow[pushHost] = pushRules
+    for (const host of RESTRICTED_ALLOW_HOSTS) allow[host] = []
+    allow[gateHost] = gateRules
     return { allow }
   }
   // 'isolated' (and anything unrecognised): clone + push, nothing else.
-  return { allow: { 'github.com': githubRules, [pushHost]: pushRules } }
-}
-
-/**
- * The request-path prefix of git's smart-HTTP traffic for `repoFullName`,
- * matching the credential-free clone URL `https://github.com/<repo>.git` that
- * seedWorkspace uses: `/<owner>/<repo>.git/info/refs`, `…/git-upload-pack`,
- * `…/info/lfs/…`. githubReadRules appends exact endings to it.
- */
-export function repoGitPathPrefix(repoFullName: string): string {
-  return `/${repoFullName}.git/`
+  return { allow: { 'github.com': [], [gateHost]: gateRules } }
 }
 
 /**
  * Env var names a user-supplied cloud environment must NEVER set in the sandbox —
- * they'd hijack egress (proxy / TLS-bypass) or shadow the brokered GitHub auth.
+ * they'd hijack egress (proxy / TLS-bypass), retarget git or switch off the push
+ * guard, or plant a GitHub credential in a sandbox that by design holds none.
  * Matched case-insensitively. (There is no gateway/MCP secret in the sandbox to
- * protect; the strip guards egress and the GitHub credential.)
+ * protect; the strip guards egress and git.)
  */
 const RESERVED_ENV_NAMES = new Set(
   [
@@ -622,7 +616,8 @@ const STDERR_TAIL_CHARS = 400
  * (eve's run resolves with the exit code), so a failed clone used to leave an
  * empty /workspace behind a "Sandbox ready" beat. This beats the failure, then
  * throws — eve deletes the sandbox and the run fails with a clear cause. The
- * quoted stderr is scrubbed of the GitHub and push credentials in every form.
+ * quoted stderr is scrubbed of the git gate token, raw and in its Basic form
+ * (the only credential the sandbox side has; the GitHub token is never here).
  */
 async function runRequired(
   sandbox: SandboxSession,
@@ -633,8 +628,8 @@ async function runRequired(
 ): Promise<{ stdout: string }> {
   const result = await sandbox.run(opts)
   if (result.exitCode === 0) return { stdout: result.stdout ?? '' }
-  const tokens = [spec.githubToken, spec.gitPushToken ?? ''].filter((x) => x.length > 0)
-  const secrets = [...tokens, ...tokens.map(githubBasicAuth)]
+  const tokens = [spec.gitPushToken ?? ''].filter((x) => x.length > 0)
+  const secrets = [...tokens.map(gateBasicAuth), ...tokens]
   let stderr = (result.stderr ?? '').trim().slice(-STDERR_TAIL_CHARS)
   for (const secret of secrets) stderr = stderr.split(secret).join('[redacted]')
   const message = `${label} failed (exit ${result.exitCode})${stderr ? `: ${stderr}` : ''}`
@@ -643,92 +638,95 @@ async function runRequired(
 }
 
 /**
- * Clone `repoFullName` @ `baseBranch` into /workspace, create `branchName`, set a
- * committer identity, point pushes at the app's push gate, and (best-effort)
- * run `setupScript`. The fetch remote is always the bare
- * `https://github.com/<repo>.git`; the push URL is `pushUrl` (the gate). With
- * `credentialBrokered` (Vercel) the firewall injects both credentials and no
- * token is used here; without it (off Vercel, see this file's header) the
- * GitHub token travels only as a one-shot env for the clone (never persisted,
- * never in a command string), and the push token is kept in the repo's config
- * for the push URL only. Every git step must exit 0 or the selector throws
- * (see runRequired).
+ * Clone `repoFullName` @ `baseBranch` into /workspace through the app's git
+ * gate, create `branchName`, set a committer identity, and (best-effort) run
+ * `setupScript`. The remote, the push URL and the `lfs.url` base are all
+ * `gateUrl` (the gate serves the run's repo, whatever the URL says: it takes
+ * the repo from the run). With `credentialBrokered` (the hosted sandbox) the
+ * firewall injects the gate token and no token is used here; without it (any
+ * other provider, see this file's header) the gate token travels in the
+ * commands' env (never their text): a one-shot env for the clone, then a
+ * `git config` that writes it into the repo's config for the gate URL only
+ * (that process sees it as an argument during setup; the model can read it in
+ * `.git/config` afterwards). No GitHub token exists here at all. Every git
+ * step must exit 0 or the selector throws (see runRequired).
  */
 async function seedWorkspace(
   sandbox: SandboxSession,
   spec: EveSpec & { gitPushToken: string },
   runToken: string,
   credentialBrokered: boolean,
-  pushUrl: string,
+  gateUrl: string,
 ): Promise<void> {
   // Single-quote every interpolated spec field: repoFullName is regex-validated on
   // write, but baseBranch/branchName are not. Belt-and-suspenders against a spec
   // field that ever carries shell metachars.
-  const remote = `https://github.com/${spec.repoFullName}.git`
   // The push guard allows exactly the working branch, so that branch must never
   // be the base the PR merges into.
   if (spec.branchName === spec.baseBranch) {
     await beat(runToken, `Refusing to run: the working branch is the base branch (${spec.baseBranch}).`)
     throw new Error('coding-agent sandbox: the working branch must differ from the base branch')
   }
-  // Unbrokered only: the GitHub credential for THIS clone (and a CI fix run's
-  // fetch) as a one-shot git config env. It is never written anywhere, so
-  // nothing the model later runs can push with it.
+  const gateAuthHeader = `Authorization: ${gateBasicAuth(spec.gitPushToken)}`
+  // Unbrokered only: the gate token for THE CLONE, as a one-shot git config env
+  // (there is no repo yet to hold it). Right after the clone it moves into the
+  // repo's config (below), where every later fetch, LFS request and push finds it.
   const cloneEnv: Record<string, string> | undefined = credentialBrokered
     ? undefined
     : {
         GIT_CONFIG_COUNT: '1',
-        GIT_CONFIG_KEY_0: extraHeaderKey('https://github.com/'),
-        GIT_CONFIG_VALUE_0: `Authorization: ${githubBasicAuth(spec.githubToken)}`,
+        GIT_CONFIG_KEY_0: extraHeaderKey(gateUrl),
+        GIT_CONFIG_VALUE_0: gateAuthHeader,
         GIT_TERMINAL_PROMPT: '0',
       }
   const required = (opts: { command: string; env?: Record<string, string> }, label: string) =>
     runRequired(sandbox, opts, label, spec, runToken)
 
-  // Shallow clone for speed (depth-bounded).
+  // Shallow clone for speed (depth-bounded), from the gate. `lfs.url` is set
+  // in the new repo by `-c` before anything is fetched or checked out, so an
+  // LFS repo's checkout (git-lfs's smudge, during the clone) and every later
+  // LFS request go to the gate's LFS endpoints too: git-lfs's own default
+  // would be `<gate URL>.git/info/lfs`, which the gate doesn't serve.
   await required(
     {
-      command: `git clone --depth 50 --branch ${shellSingleQuote(spec.baseBranch)} ${shellSingleQuote(remote)} .`,
+      command: `git clone --depth 50 --branch ${shellSingleQuote(spec.baseBranch)} -c ${shellSingleQuote(`lfs.url=${gateUrl}/info/lfs`)} ${shellSingleQuote(gateUrl)} .`,
       ...(cloneEnv ? { env: cloneEnv } : {}),
     },
     `git clone of ${spec.repoFullName}@${spec.baseBranch}`,
   )
-  // Every push goes to the app's push gate, which accepts only this run's
-  // branch (src/lib/agent-run/git-push-proxy.ts). LFS keeps talking to GitHub
-  // (git-lfs would otherwise follow the push URL).
-  await required({ command: `git config remote.origin.pushurl ${shellSingleQuote(pushUrl)}` }, 'git config the push URL')
-  await required(
-    { command: `git config lfs.url ${shellSingleQuote(`${remote}/info/lfs`)}` },
-    'git config lfs.url',
-  )
   if (!credentialBrokered) {
-    // No broker: the push token goes in the repo's config for the push URL
+    // No broker: the gate token goes in the repo's config for the gate URL
     // only, referenced from the env so the command text never carries it. It
-    // can do no more than the gate allows (this run's branch, while it lives).
+    // can do no more than the gate allows (read this repo, push this run's
+    // branch, while the run lives).
     await required(
       {
-        command: `git config ${shellSingleQuote(extraHeaderKey(pushUrl))} "$NI_PUSH_AUTH_HEADER"`,
-        env: { NI_PUSH_AUTH_HEADER: `Authorization: ${githubBasicAuth(spec.gitPushToken)}` },
+        command: `git config ${shellSingleQuote(extraHeaderKey(gateUrl))} "$NI_GIT_GATE_AUTH_HEADER"`,
+        env: { NI_GIT_GATE_AUTH_HEADER: gateAuthHeader },
       },
-      'git push credential config',
+      'git gate credential config',
     )
   }
+  // Pushes go to the gate too, which accepts only this run's branch
+  // (src/lib/agent-run/git-push-proxy.ts). The clone already made the gate the
+  // remote's URL; pinning the push URL as well keeps pushes there if the
+  // remote's URL is changed later (the push guard checks the URL either way).
+  await required({ command: `git config remote.origin.pushurl ${shellSingleQuote(gateUrl)}` }, 'git config the push URL')
   await required({ command: 'git config user.email "agent@dial8.ai"' }, 'git config user.email')
   await required({ command: 'git config user.name "Native Intelligence Agent"' }, 'git config user.name')
   // A first plain `git push` of the new branch sets its upstream (git ≥ 2.37).
   await required({ command: 'git config push.autoSetupRemote true' }, 'git config push.autoSetupRemote')
   if (typeof spec.startFrom === 'string' && spec.startFrom && spec.startFrom !== spec.branchName) {
     // A CI fix run (P10 F7): fork the working branch (a side branch) from the
-    // open PR's branch. Fetch it (the shallow clone carries only the base).
-    // The push guard still allows only the working branch, so nothing this
-    // run does reaches the PR's branch: the outcome route moves the PR there
-    // only after the reviewer approves. POSIX sh and git only.
+    // open PR's branch. Fetch it (the shallow clone carries only the base)
+    // from `origin`, the gate. The push guard still allows only the working
+    // branch, so nothing this run does reaches the PR's branch: the outcome
+    // route moves the PR there only after the reviewer approves. POSIX sh and
+    // git only. No env: unbrokered, the repo's config already carries the
+    // gate token (passing it again would send the header twice).
     const remoteRef = `refs/remotes/origin/${spec.startFrom}`
     await required(
-      {
-        command: `git fetch --depth 50 origin ${shellSingleQuote(`refs/heads/${spec.startFrom}:${remoteRef}`)}`,
-        ...(cloneEnv ? { env: cloneEnv } : {}),
-      },
+      { command: `git fetch --depth 50 origin ${shellSingleQuote(`refs/heads/${spec.startFrom}:${remoteRef}`)}` },
       `git fetch of ${spec.startFrom}`,
     )
     await required(
@@ -749,8 +747,9 @@ async function seedWorkspace(
   // The push guard, before any user env, setup script or model command runs:
   // the hook + chain in $HOME/.dial8-hooks, and the hooks-path pin hooked into
   // the login-shell startup files (see prePushGuardScript). Verified at once.
-  // git hands the hook the URL it pushes to: the gate's.
-  const guard: PushGuardArgs = { home, branchName: spec.branchName, remoteUrl: pushUrl }
+  // git hands the hook the URL it pushes to: the gate's (the same URL the
+  // clone came from, and the only one the hook lets a push go to).
+  const guard: PushGuardArgs = { home, branchName: spec.branchName, remoteUrl: gateUrl }
   await required({ command: installPushGuardCommand(guard) }, 'install the push guard')
   await required({ command: envHookCommand(GIT_PIN_FILE) }, 'hook the push guard into the shell startup files')
   await ensurePushGuard(sandbox, guard, spec, runToken, 'after install')
@@ -839,22 +838,19 @@ export function sessionNetworkPolicy(spec: EveSpec | null): SandboxNetworkPolicy
 }
 
 /**
- * The run's git egress: the push gate at the app's public origin, and on the
- * hosted sandbox (on Vercel, or off it with its settings) the credentials the
- * firewall injects (read-only GitHub, the push token on the gate's two
- * endpoints). With DefaultSandbox the policy carries no credential (see this
+ * The run's git egress: the git gate at the app's public origin, and on the
+ * hosted sandbox (on Vercel, or off it with its settings) the one credential
+ * the firewall injects, the run's git gate token, on the gate's six
+ * endpoints. With DefaultSandbox the policy carries no credential (see this
  * file's header).
  */
 export function gitEgressFor(spec: EveSpec): GitEgress {
-  const pushUrl = gitPushUrl()
-  // The selector refuses a run with no push URL before it opens anything.
-  if (!pushUrl) throw new Error('coding-agent sandbox: no public app origin for the push gate')
+  const gateUrl = gitGateUrl()
+  // The selector refuses a run with no gate URL before it opens anything.
+  if (!gateUrl) throw new Error('coding-agent sandbox: no public app origin for the git gate')
   return {
-    repoFullName: spec.repoFullName,
-    pushUrl,
-    broker: vercelEnvironment
-      ? { githubToken: spec.githubToken, pushToken: spec.gitPushToken ?? '' }
-      : null,
+    gateUrl,
+    broker: vercelEnvironment ? { gateToken: spec.gitPushToken ?? '' } : null,
   }
 }
 
@@ -934,8 +930,8 @@ export const environment = vercelEnvironment ?? localEnvironment!
 /**
  * Open this session's sandbox with its egress policy applied AT CREATION
  * (Vercel), or off Vercel through the provider's setter (see this file's
- * header). `credentialBrokered` says whether the firewall injects the
- * credentials (Vercel only: off Vercel the policy carries none).
+ * header). `credentialBrokered` says whether the firewall injects the git
+ * gate token (the hosted sandbox only: elsewhere the policy carries none).
  */
 async function openSessionSandbox(
   spec: EveSpec | null,
@@ -1008,18 +1004,19 @@ export default defineSandbox(async ({ session }) => {
   const runToken = runTokenFromAuth(session.auth)
   const spec = await fetchEveSpec(runToken)
 
-  // A spec without a push credential is a run that could never push (pushes
-  // only go through the app's gate): refuse it before anything opens.
+  // A spec without a git gate credential is a run that could neither clone nor
+  // push (both only go through the app's git gate): refuse it before anything
+  // opens.
   if (spec && !spec.gitPushToken) {
-    await beat(runToken, 'Refusing to run: the run has no push credential.')
-    throw new Error('coding-agent sandbox: the spec carries no push credential')
+    await beat(runToken, 'Refusing to run: the run has no git gate credential.')
+    throw new Error('coding-agent sandbox: the spec carries no git gate credential')
   }
-  // Nor can it push without the app's public origin (on Vercel the deployment
-  // URL is protected, and the sandbox never gets a bypass secret).
-  const pushUrl = gitPushUrl()
-  if (spec && !pushUrl) {
-    await beat(runToken, "Refusing to run: the app's public address (NEXT_PUBLIC_APP_URL) isn't set, so this run couldn't push its change.")
-    throw new Error('coding-agent sandbox: NEXT_PUBLIC_APP_URL is not set, so the push gate has no public origin')
+  // Nor can it clone or push without the app's public origin (on Vercel the
+  // deployment URL is protected, and the sandbox never gets a bypass secret).
+  const gateUrl = gitGateUrl()
+  if (spec && !gateUrl) {
+    await beat(runToken, "Refusing to run: the app's public address (NEXT_PUBLIC_APP_URL) isn't set, so this run couldn't clone its repository or push its change.")
+    throw new Error('coding-agent sandbox: NEXT_PUBLIC_APP_URL is not set, so the git gate has no public origin')
   }
 
   // No spec (unknown/expired token, route down, or the localDev smoke path with
@@ -1028,15 +1025,15 @@ export default defineSandbox(async ({ session }) => {
   const { sandbox, credentialBrokered } = await openSessionSandbox(spec, runToken)
   if (!spec) return sandbox
 
-  // The network policy (on Vercel with the read-only GitHub credential and the
-  // push token) is already in force (on Vercel from creation; off Vercel
+  // The network policy (on the hosted sandbox with the git gate token on the
+  // gate's endpoints) is already in force (there from creation; elsewhere
   // through the setter), so it governs the clone below and every later command
   // (push included). If anything here
   // throws, eve deletes this new sandbox and reruns the selector on the next
   // access. A nonzero exit does not throw by itself, so seedWorkspace checks
   // every git step and throws on failure (only the setup script is lenient).
   await beat(runToken, `Cloning ${spec.repoFullName}@${spec.baseBranch} onto ${spec.branchName}…`)
-  await seedWorkspace(sandbox, { ...spec, gitPushToken: spec.gitPushToken! }, runToken, credentialBrokered, pushUrl!)
+  await seedWorkspace(sandbox, { ...spec, gitPushToken: spec.gitPushToken! }, runToken, credentialBrokered, gateUrl!)
   await beat(runToken, `Sandbox ready. Working branch ${spec.branchName}.`)
   return sandbox
 })

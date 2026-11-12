@@ -42,6 +42,9 @@ export interface MeetingLink {
   title: string
   opensAt: string
   closesAt: string
+  /** Its planned start and end (null: an unscheduled link). */
+  startsAt: string | null
+  endsAt: string | null
 }
 
 /** Make a meeting and its link, as the person. Throws a TeamChatError ('bad_request' for a bad title or time). */
@@ -71,7 +74,8 @@ export async function createMeetingLink(supabase: SupabaseClient, input: Meeting
     ...(input.hostMemberId ? { hostMemberId: input.hostMemberId } : {}),
   })
   console.info(`[meetings] meeting=${made.meetingId} channel=${made.channelId} scheduled=${!!startsAt}`)
-  return { meetingId: made.meetingId, channelId: made.channelId, url: meetingLink(made.meetingId, nonce), title, opensAt: made.opensAt, closesAt: made.closesAt }
+  const endsAt = startsAt && minutes ? new Date(Date.parse(startsAt) + minutes * 60_000).toISOString() : null
+  return { meetingId: made.meetingId, channelId: made.channelId, url: meetingLink(made.meetingId, nonce), title, opensAt: made.opensAt, closesAt: made.closesAt, startsAt, endsAt }
 }
 
 /**
