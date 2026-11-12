@@ -100,8 +100,14 @@ tools() {
 	# here: this runs on the app's server too, and a small package must not
 	# turn into restarts there.
 	export NEEDRESTART_SUSPEND=1
-	apt-get -o DPkg::Lock::Timeout=600 update -qq
-	apt-get -o DPkg::Lock::Timeout=600 install -y -qq wireguard-tools nftables >/dev/null
+	# With time limits: a package server that is down must end in an error
+	# here, not in a wait of many minutes (that happened on the app's server).
+	local get=(apt-get -o DPkg::Lock::Timeout=600 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Acquire::Retries=1)
+	# The package list is fetched only when this machine does not know the
+	# two packages yet: fetching it asks every package server the machine has.
+	apt-cache show wireguard-tools nftables >/dev/null 2>&1 || "${get[@]}" update -qq
+	"${get[@]}" install -y -qq wireguard-tools nftables >/dev/null ||
+		die "could not install wireguard-tools. If a package server is down, see \"When a package server is down\" in deploy/sandbox/README.md."
 }
 
 # Removes every firewall rule whose line in the numbered list matches, by its
