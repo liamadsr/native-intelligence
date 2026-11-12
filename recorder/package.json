@@ -1,0 +1,26 @@
+{
+  "name": "ni-call-recorder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Joins our own team calls on the server, hears every microphone, and feeds what is said into the call's capture as it is said.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "e2e": "node e2e/run.mjs"
+  },
+  "dependencies": {
+    "@livekit/rtc-node": "1.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "livekit-server-sdk": "2.19.2",
+    "typescript": "5.9.3",
+    "ws": "8.19.0"
+  }
+}

@@ -1,5 +1,6 @@
 import { requireWorkspace } from '@/lib/api-auth'
 import { NextResponse, type NextRequest } from 'next/server'
+import { TRANSCRIPT_FROM_CALL, feedOwnsTranscript } from '@/lib/capture-feed/transcript'
 
 /**
  * Transcript flush beacon. Called via `navigator.sendBeacon` on pagehide /
@@ -34,10 +35,16 @@ export async function POST(request: NextRequest) {
 
     const { data: existingRow } = await supabase
       .from('captures')
-      .select('transcript, is_transcript_locked')
+      .select('transcript, is_transcript_locked, ended_at, metadata')
       .eq('id', captureId)
       .eq('workspace_id', workspaceId)
       .single()
+
+    // A call's capture the recorder is filling: its transcript is the feed's while the call runs.
+    // Refused, nothing written (200 like every beacon answer: a beacon never reads it).
+    if (feedOwnsTranscript(existingRow)) {
+      return NextResponse.json({ ok: false, code: TRANSCRIPT_FROM_CALL }, { status: 200 })
+    }
 
     // Don't touch a locked (finalized) capture — mirrors the DB trigger.
     if (existingRow?.is_transcript_locked) {

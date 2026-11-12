@@ -12,7 +12,8 @@
  * Notes and recording (phase 6), only where the server offers them: a Notes
  * switch and a Record button in the controls, and while either is on, a
  * plain badge in the header and the bar for everyone in the call ("Notes
- * are on", "Recording"), static, no pulse. A person who joins a call with
+ * are on", "Recording"), static, no pulse; where the call recorder takes the
+ * notes, the badge opens them, filling in as people speak. A person who joins a call with
  * notes or a recording on sees a notice first; their microphone is sent
  * only once they choose to join with it.
  *
@@ -48,6 +49,8 @@ import {
 import { cn } from '@/lib/utils'
 import { isDesktopApp } from '@/lib/platform'
 import { cachedJson } from '@/lib/cached-fetch'
+import { openTarget } from '@/lib/chat-cards/open-card'
+import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import { useWorkspaceId } from '@/app/account/workspace-switcher'
 import {
   DropdownMenu,
@@ -91,6 +94,16 @@ export function CallPanel({
   ) : (
     <CallWindow call={call} snap={snap} onMinimize={() => onMinimize(true)} onLeave={onLeave} />
   )
+}
+
+/** The call's notes filling in now (the call recorder's capture, linked while notes are on): open them, the panel stays. */
+function notesOpener(call: ActiveTeamCall): (() => void) | undefined {
+  const captureId = call.notes.capture_id
+  if (!call.notes.notes || !captureId || !call.features.liveNotes) return undefined
+  return () => {
+    const target = entityOpenTarget('capture', captureId, call.label)
+    if (target) openTarget(target, { from: 'team_chat' })
+  }
 }
 
 function StatusLine({ snap }: { snap: CallSnapshot }) {
@@ -165,7 +178,7 @@ function CallBar({ call, snap, onExpand, onLeave }: { call: ActiveTeamCall; snap
           <StatusLine snap={snap} />
         )}
       </button>
-      <CallBadges notes={call.notes} small />
+      <CallBadges notes={call.notes} small onOpenNotes={notesOpener(call)} />
       {snap.phase === 'error' ? (
         <button type="button" onClick={() => void call.session.retry()} data-team-call-retry="" className="shrink-0 rounded-full bg-muted px-3 py-1 text-xs font-medium hover:bg-accent">
           Retry
@@ -198,7 +211,7 @@ function CallWindow({ call, snap, onMinimize, onLeave }: { call: ActiveTeamCall;
         <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
         <h2 className="min-w-0 truncate text-sm font-semibold">{call.label}</h2>
         <StatusLine snap={snap} />
-        <CallBadges notes={call.notes} />
+        <CallBadges notes={call.notes} onOpenNotes={notesOpener(call)} />
         <span className="ml-auto" />
         <IconButton label="Minimise" onClick={onMinimize} small>
           <Minimize2 className="h-4 w-4" />

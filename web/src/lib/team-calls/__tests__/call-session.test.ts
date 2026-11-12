@@ -377,5 +377,22 @@ describe('TeamCallSession, with call notes (phase 6)', () => {
     await s.connect(JOIN)
     expect(rooms[0].options).toMatchObject({ publishDefaults: expect.objectContaining({ dtx: false }) })
   })
+
+  it('the call recorder’s notes: DTX stays on, and a mute only mutes while they are on (no file to end)', async () => {
+    const { sdk, rooms } = fakeSdk()
+    const s = new TeamCallSession({ ...INFO, notesOffered: true, liveNotes: true }, { refreshJoin: async () => null, hangUp: async () => {}, loadSdk: async () => sdk })
+    await s.connect(JOIN)
+    expect(rooms[0].options).toMatchObject({ publishDefaults: expect.objectContaining({ dtx: true }) })
+    const local = rooms[0].localParticipant as unknown as { getTrackPublication: () => unknown; unpublishTrack: (t: unknown, stop: boolean) => Promise<void>; isMicrophoneEnabled: boolean }
+    const unpublished: unknown[] = []
+    local.getTrackPublication = () => ({ track: { sid: 'TR_1' } })
+    local.unpublishTrack = async (t) => {
+      unpublished.push(t)
+    }
+    s.setNotesMode(true)
+    await s.toggleMic()
+    expect(unpublished).toEqual([])
+    expect(local.isMicrophoneEnabled).toBe(false)
+  })
 })
 

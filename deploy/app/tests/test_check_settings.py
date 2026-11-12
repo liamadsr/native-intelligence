@@ -511,6 +511,39 @@ class OwnRuntime(unittest.TestCase):
             self.assertNotIn(value, text)
 
 
+class CallRecorder(unittest.TestCase):
+    ENV = {"LIVEKIT_URL": "wss://livekit.example.dev", "CAPTURE_FEED_SECRET": "f" * 48, "RUN_SKILL_INTERNAL_SECRET": "r" * 48}
+
+    def test_the_switch(self):
+        self.assertEqual(cs.group("TEAM_CALL_RECORDER"), "may be empty")
+        check = cs.CHECKS["TEAM_CALL_RECORDER"]
+        self.assertEqual(check(dict(self.ENV, TEAM_CALL_RECORDER="on"), {}), (None, None))
+        for wrong in ("1", "true", "ON"):
+            ok, note = check(dict(self.ENV, TEAM_CALL_RECORDER=wrong), {})
+            self.assertIs(ok, False, wrong)
+            self.assertIn("only on", note)
+        ok, note = check(dict(self.ENV, LIVEKIT_URL="", TEAM_CALL_RECORDER="on"), {})
+        self.assertIs(ok, False)
+        self.assertIn("LIVEKIT_URL", note)
+        ok, note = check(dict(self.ENV, CAPTURE_FEED_SECRET="", TEAM_CALL_RECORDER="on"), {})
+        self.assertIs(ok, False)
+        self.assertIn("CAPTURE_FEED_SECRET", note)
+        _, blockers, _ = cs.report({"TEAM_CALL_RECORDER": "", "CAPTURE_FEED_SECRET": ""}, {})
+        self.assertEqual(blockers, [])
+
+    def test_the_secret_is_its_own(self):
+        self.assertEqual(cs.group("CAPTURE_FEED_SECRET"), "may be empty")
+        check = cs.CHECKS["CAPTURE_FEED_SECRET"]
+        self.assertEqual(check(dict(self.ENV), {}), (None, None))
+        ok, note = check(dict(self.ENV, CAPTURE_FEED_SECRET="short"), {})
+        self.assertIs(ok, False)
+        self.assertIn("at least 32", note)
+        ok, note = check(dict(self.ENV, CAPTURE_FEED_SECRET="r" * 48), {})
+        self.assertIs(ok, False)
+        self.assertIn("RUN_SKILL_INTERNAL_SECRET", note)
+        self.assertNotIn("r" * 48, note)
+
+
 class Report(unittest.TestCase):
     def test_what_blocks_and_what_does_not(self):
         env = {
