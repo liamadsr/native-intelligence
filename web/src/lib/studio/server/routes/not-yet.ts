@@ -1,9 +1,11 @@
 // What the editor asks for that the Studio cannot do here yet. Each answer has the shape the editor reads, so no
 // screen breaks: an empty list, "not ready", or for an action a plain sentence
 // (501) the editor shows where it shows errors. Each is its own small function, named after the route it stands
-// in for, to be replaced one by one as the capability arrives (the Mac recorder, the agent, product kits).
+// in for, to be replaced one by one as the capability arrives (the Mac recorder, product kits). The editor has no
+// agent of its own: the agent in the app's chat edits videos with the Studio tools, so it has no routes here.
 // Voiceover, generated shots, continuity and costs moved to voiceover.ts, generation.ts and costs.ts; cut-outs and
-// the director pass to vision.ts; sound design to sound.ts; the motion check and the review to checks.ts.
+// the director pass to vision.ts; sound design to sound.ts; the motion check and the review to checks.ts; reference
+// blueprints to blueprint.ts.
 import { notYetError } from '../errors'
 import { route, type StudioHandler, type StudioRoute } from '../router'
 
@@ -55,16 +57,6 @@ const TAKES = 'Recorded takes come from the Mac recorder, which isn’t availabl
 const componentsStatus: StudioHandler = async () => ({ stale: [] })
 const COMPONENTS = "Product components aren't available in the web app yet."
 
-// ---- the assistant -----------------------------------------------------------------------------------------------
-
-/** GET /agent/status: whether the editor's own assistant can run. The app's agent replaces it. */
-const agentStatus: StudioHandler = async () => ({ available: false, claudePath: null })
-/** GET /agent/sessions: past chats with it. */
-const agentSessions: StudioHandler = async () => ({ sessions: [] })
-/** GET /agent/approvals: spend approvals waiting. */
-const agentApprovals: StudioHandler = async () => ({ approvals: [] })
-const AGENT = "The editor has no agent of its own here. Ask the agent in the chat instead."
-
 // ---- playback measurements -----------------------------------------------------------------------------------------
 
 /** POST /perf: frame pacing reports (not kept). */
@@ -114,24 +106,11 @@ export const notYetRoutes: StudioRoute[] = [
   route('POST', 'projects/:id/components', unavailable(COMPONENTS)),
   route('POST', 'projects/:id/components/refresh', unavailable(COMPONENTS)),
 
-  route('GET', 'agent/status', agentStatus),
-  route('POST', 'agent/login', unavailable(AGENT)),
-  route('GET', 'agent/sessions', agentSessions),
-  route('POST', 'agent/sessions', unavailable(AGENT)),
-  route('GET', 'agent/sessions/:id', unavailable(AGENT)),
-  route('POST', 'agent/sessions/:id/stop', unavailable(AGENT)),
-  route('GET', 'agent/approvals', agentApprovals),
-  route('POST', 'agent/approvals', unavailable(AGENT)),
-  route('GET', 'agent/approvals/:id', unavailable(AGENT)),
-  route('POST', 'agent/approvals/:id', unavailable(AGENT)),
-
   route('POST', 'perf', perf),
   route('GET', 'perf', perfReports),
   route('GET', 'perf-config', perfConfig),
   route('POST', 'perf-config', perfConfig),
 
-  route('GET', 'blueprints/:assetId', unavailable("Reference blueprints aren't available yet.")),
-  route('POST', 'blueprints/:assetId', unavailable("Reference blueprints aren't available yet.")),
   route('POST', 'projects/:id/scenes', unavailable("Code scenes aren't available yet.")),
   route('GET', 'scenes/:id', unavailable("Code scenes aren't available yet.")),
   route('POST', 'projects/from-motion', unavailable("Importing motion ads isn't available yet.")),

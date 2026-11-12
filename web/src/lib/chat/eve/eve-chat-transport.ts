@@ -378,6 +378,13 @@ export interface EveChatTransportOptions {
    */
   getCardContext?: () => unknown[]
   /**
+   * Waited for (briefly) before the cards are read for a send: the card in
+   * front finishes what the agent must see first (the Studio saves the
+   * person's last edits, so the agent edits what they see). It starts with the
+   * send and runs beside the mint. Optional; a failure never blocks a send.
+   */
+  settleCardContext?: () => Promise<void>
+  /**
    * Whether the host panel names its own chats (its /api/account/chat/title
    * request, synced onto the row by the autosave), read live at persist time.
    * When true, each persist says so (`panelTitles`) and the server's first-turn
@@ -1088,6 +1095,15 @@ export class EveChatTransport implements ChatTransport<UIMessage> {
    */
   private lastRefresh: { from: string; to: string } | null = null
 
+  /** The card in front, settled before its note is read (settleCardContext); never throws. */
+  private async settleCards(): Promise<void> {
+    try {
+      await this.opts.settleCardContext?.()
+    } catch {
+      // A card that could not settle sends as it is.
+    }
+  }
+
   /** The cards on screen this send, or none: a failing reader never blocks a send. */
   private cardContext(): unknown[] | undefined {
     try {
@@ -1303,6 +1319,9 @@ export class EveChatTransport implements ChatTransport<UIMessage> {
     const submittedAt = clientNow()
     const { messages, chatId, abortSignal } = options
 
+    // The card in front settles beside the mint (the Studio saves its edits); awaited before its note is read.
+    const settled = this.settleCards()
+
     const lastUser = [...messages].reverse().find((m) => m.role === 'user')
     const userText = lastUser ? extractText(lastUser) : ''
     // What eve receives: text only, with a line quoting the message the
@@ -1417,6 +1436,7 @@ export class EveChatTransport implements ChatTransport<UIMessage> {
     // it (and a calendar card's days). A chat that draws cards (the main
     // chat) also sends the person's local conditions (lib/sky/surroundings.ts).
     const mainChat = !!this.opts.getCardContext
+    await settled
     const ctx = encodeTurnContext(
       options,
       this.cardContext(),

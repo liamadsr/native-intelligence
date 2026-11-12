@@ -28,15 +28,25 @@
  * trade places for ever (the card asking for the page the Studio just left). Each request is a new one (`ask`
  * counts them), so asking for a place the Studio has since moved away from moves it back, and asking for where
  * it is already does nothing.
+ *
+ * The agent in the app's chat is the Studio's agent (the editor has none of its own). When the person sends it a
+ * message with this card in front, the chat's card store asks the card what the editor shows at that moment
+ * (ChatCardStore.provideLive): the video, its Studio project, the page, the playhead, the format and what is
+ * selected (lib/chat-cards/studio-note.ts), after the editor has saved the person's edits (settle), so the agent
+ * edits what they see. Read then and only then: nothing is reported as the playhead moves or the selection
+ * changes. Never for a guest of the workspace (the Studio refuses one).
  */
 import * as React from 'react'
 import dynamic from 'next/dynamic'
-import { useWorkspaceId } from '@/app/account/workspace-switcher'
+import { useIsWorkspaceGuest, useWorkspaceId } from '@/app/account/workspace-switcher'
+import { readStudioList, studioList } from '@/app/account/(dashboard)/page-panel/studio-panel-data'
+import { projectOfVideo } from '@/app/account/(dashboard)/page-panel/studio-panel-model'
 import { pageOfCard } from '@/app/account/(dashboard)/rail/rail-pages'
 import { useRailShown } from '@/app/account/(dashboard)/rail/rail-media'
 import { useOwnSubnavShown } from '@/app/account/(dashboard)/page-panel/subnav-on-screen'
 import type { CardSpec } from '@/lib/chat-cards/kinds'
 import type { StudioPage, StudioRootProps } from '@/components/studio/studio-root'
+import type { EditorChatLink } from '@/components/studio/ui/chat-note'
 import { publishStudioCard, unpublishStudioCard } from '../studio-card-controls'
 import { PageGate, usePagePlace, type PageCardProps } from './page-card'
 
@@ -128,6 +138,31 @@ export default function StudioCard(props: PageCardProps) {
   }, [toolCallId, workspaceId, here, place, label, ask, show])
   React.useEffect(() => () => unpublishStudioCard(toolCallId), [toolCallId])
 
+  // What the agent is told about the editor when a turn is sent with this card in front (see the header).
+  const guest = useIsWorkspaceGuest()
+  const link = React.useRef<EditorChatLink | null>(null)
+  const onLive = React.useCallback((next: EditorChatLink | null) => {
+    link.current = next
+  }, [])
+  React.useEffect(() => {
+    if (guest || !workspaceId) return
+    return store.provideLive(toolCallId, {
+      read: () => {
+        const note = link.current?.note()
+        if (!note) return null
+        const list = studioList(workspaceId)
+        const project = list ? projectOfVideo(list, note.v.id) : null
+        return { studio: project ? { ...note, sp: { id: project.id, title: project.title } } : note }
+      },
+      settle: () => link.current?.flush() ?? Promise.resolve(true),
+    })
+  }, [store, toolCallId, guest, workspaceId])
+  // Which Studio project a video is in comes from the list the sub-nav reads: read once when nothing has yet.
+  const videoNow = here ? here.videoId : place.videoId
+  React.useEffect(() => {
+    if (!guest && workspaceId && videoNow && !studioList(workspaceId)) void readStudioList(workspaceId)
+  }, [guest, workspaceId, videoNow])
+
   // Its own rail only where the sub-nav is not its navigation.
   const ownCard = React.useMemo(() => pageOfCard(spec as CardSpec) === 'studio', [spec])
   const railShown = useRailShown()
@@ -145,6 +180,7 @@ export default function StudioCard(props: PageCardProps) {
           ask={asked.n}
           navInPanel={navInPanel}
           onPlace={onPlace}
+          onLive={onLive}
         />
       </div>
     </PageGate>

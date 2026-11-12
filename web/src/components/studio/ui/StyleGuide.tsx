@@ -10,7 +10,7 @@ type Brand = { kit: string; title: string; derivedAt: string; site?: string; sou
 const ROLES: [keyof Palette, string][] = [['background', 'Background'], ['surface', 'Surface'], ['ink', 'Ink'], ['muted', 'Secondary text'], ['border', 'Lines'], ['primary', 'Button'], ['primaryInk', 'Button text']];
 
 /** The product's style guide: what the Studio read from its site and code, and the person's corrections (which win).
- *  Films and the assistant's scenes use these colours and fonts. */
+ *  Videos and the agent's scenes use these colours and fonts. */
 export function StyleGuide({ kit, fail }: { kit: string; fail: (e: unknown) => void }) {
   const [brand, setBrand] = useState<Brand | null | undefined>(undefined), [busy, setBusy] = useState(false), [vibe, setVibe] = useState(''), [notes, setNotes] = useState(''), [site, setSite] = useState('');
   const take = (b: Brand | null) => { setBrand(b); setVibe(b?.vibe ?? ''); setNotes(b?.notes ?? ''); setSite(b?.site ?? ''); };

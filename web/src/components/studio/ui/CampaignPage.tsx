@@ -22,7 +22,7 @@ export function CampaignPage({ project, openAd, editCast, notify, refreshKey }: 
   const openMenu = useContextMenu();
   const load = useCallback(async () => { try { setCampaign((await request<{ campaign: CampaignSummary }>(`/api/account/studio/campaigns/for/${encodeURIComponent(project.id)}`)).campaign); } catch (e) { notify((e as Error).message, true); } }, [project.id, notify]);
   useEffect(() => { void load(); }, [load, refreshKey]);
-  // Ads move on the Projects screen and the assistant makes new ones: catch up when the window comes back.
+  // Ads move on the Projects screen and the agent makes new ones: catch up when the window comes back.
   useEffect(() => { const again = () => void load(); window.addEventListener('focus', again); return () => window.removeEventListener('focus', again); }, [load]);
   const act = async (fn: () => Promise<void>) => { if (busy) return; setBusy(true); try { await fn(); await load(); } catch (e) { notify((e as Error).message, true); } finally { setBusy(false); } };
   const update = (patch: Record<string, unknown>) => campaign && act(async () => { await request(`/api/account/studio/campaigns/${encodeURIComponent(campaign.id)}`, patch); });

@@ -10,8 +10,9 @@ const formats = [
 ] as const;
 const canvases = [{ color: '#f5f6fa', label: 'Light' }, { color: '#ffffff', label: 'White' }, { color: '#0e0f13', label: 'Dark' }, { color: '#000000', label: 'Black' }];
 
-/** A new project without recording anything: a blank canvas of the chosen shape and length that layers, media and the
- *  assistant fill in. Describe the video and the assistant starts building it as soon as the project opens. */
+/** A new video without recording anything: a blank canvas of the chosen shape and length that layers, media and the
+ *  agent fill in. Describe the video and, as soon as it opens, the description goes to the agent in the app's chat as
+ *  the person's message (App.tsx, chat-note.ts askAgentInChat), which starts building it. */
 export function NewProjectPanel({ close, created }: { close: () => void; created: (projectId: string, brief: string) => void }) {
   const [title, setTitle] = useState(''), [format, setFormat] = useState<typeof formats[number]['id']>('landscape'), [seconds, setSeconds] = useState(15);
   const [color, setColor] = useState('#f5f6fa'), [fps, setFps] = useState(60), [brief, setBrief] = useState('');
@@ -37,10 +38,10 @@ export function NewProjectPanel({ close, created }: { close: () => void; created
     <div className="field-label">Canvas<div className="np-colors">
       {canvases.map(c => <button key={c.color} className={color === c.color ? 'active' : ''} onClick={() => setColor(c.color)} title={c.label}><span style={{ background: c.color }} />{c.label}</button>)}
       <label className="np-custom" title="Any color"><input type="color" value={color} onChange={e => setColor(e.target.value)} />Custom</label></div></div>
-    <label className="field-label">What should it be? <small>(optional: the agent starts building it right away)</small>
+    <label className="field-label">What should it be? <small>(optional: sent to the agent in your chat, which starts building it)</small>
       <textarea rows={3} value={brief} maxLength={4000} placeholder="A 15-second launch video for our new feature, light and playful…" onChange={e => setBrief(e.target.value)} /></label>
     <p className="np-note">You can change the length later, drop in recordings or images, and add titles from the timeline.</p>
     {error ? <p className="rec-error" role="alert">{error}</p> : null}
-    <div className="modal-actions"><button onClick={close} disabled={busy}>Cancel</button><button className="primary" onClick={() => void create()} disabled={busy}>{busy ? 'Creating…' : brief.trim() ? 'Create and start the agent' : 'Create video'}</button></div>
+    <div className="modal-actions"><button onClick={close} disabled={busy}>Cancel</button><button className="primary" onClick={() => void create()} disabled={busy}>{busy ? 'Creating…' : brief.trim() ? 'Create and ask the agent' : 'Create video'}</button></div>
   </div>;
 }

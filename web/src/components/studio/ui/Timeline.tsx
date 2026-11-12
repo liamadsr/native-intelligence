@@ -130,7 +130,7 @@ export function Timeline({selectedBeatIds=[], selectBeats, recordBeats, recordin
   // Automation tools from the keyboard while Automation is on: V pointer, P pencil, L line, E eraser.
   useEffect(()=>{if(!automationView)return;const key=(event:KeyboardEvent)=>{const target=event.target as HTMLElement;if(event.metaKey||event.ctrlKey||event.altKey||target.closest('input,textarea,select,[role=combobox],[contenteditable=true]'))return;
     const picked=automationTools.find(item=>item.key.toLowerCase()===event.key.toLowerCase());if(picked){event.preventDefault();setTool(picked.id);}};studioKeys.addEventListener('keydown',key);return()=>studioKeys.removeEventListener('keydown',key);},[automationView]);
-  /** Run editing commands (the same ones the assistant uses) at the playhead. */
+  /** Run editing commands (the same ones the agent uses) at the playhead. */
   const run=(calls:OpCall[],message:string)=>{if(!changeProject)return null;try{const {project:next,results}=applyOps(project,calls);changeProject(()=>next);notify?.(message);return results;}catch(error){notify?.(error instanceof Error?error.message:String(error),true);return null;}};
   const at=+(frame/fps).toFixed(3);
   const addLayer=(kind:LayerKind|'kinetic')=>{setMenu(null);

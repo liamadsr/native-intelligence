@@ -14,7 +14,7 @@ import type { usePresenterRecorder } from './usePresenterRecorder';
 import type { TranscriptionController } from './useTranscription';
 import { Slider, NumberField, Toggle, IconButton, StudioSelect } from './controls';
 
-export type InspectorTab = 'background' | 'cursor' | 'zoom' | 'clip' | 'motion' | 'presenter' | 'audio' | 'transcript' | 'agent';
+export type InspectorTab = 'background' | 'cursor' | 'zoom' | 'clip' | 'motion' | 'presenter' | 'audio' | 'transcript';
 const gradients = [ ['#161626','#595596'], ['#292a48','#898cc3'], ['#126996','#3faab1'], ['#481d85','#152448'], ['#f7a477','#593d87'], ['#326870','#d1aa76'], ['#063d36','#99b94b'], ['#e04b68','#e9af71'], ['#6951ba','#efa2ba'], ['#16171b','#484958'] ];
 type Transition={kind:'dissolve'|'dip-black'|'dip-white';seconds:number};
 /** Cut, dissolve or a dip through black / white, with its length. */

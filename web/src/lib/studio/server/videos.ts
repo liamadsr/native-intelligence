@@ -20,9 +20,6 @@ import { addSibling, afterVideoSave } from './projects'
 import { listPresets } from './records'
 import { asStored, docDigest, sameJson } from './stable'
 
-/** What the session token in the bootstrap is: the editor sends it back, the server ignores it (the session cookie is the auth). */
-export const STUDIO_SESSION_TOKEN = 'studio-session'
-
 /** The stored summary: a ProjectSummary without what the row itself holds (id, title, updatedAt). */
 export type StoredSummary = Omit<ProjectSummary, 'id' | 'title' | 'updatedAt'>
 
@@ -286,7 +283,6 @@ export async function bootstrap(ctx: StudioContext, preferId?: string | null): P
     projects: rows.map((row) => ({ id: row.id, title: row.title })),
     assets,
     presets,
-    sessionToken: STUDIO_SESSION_TOKEN,
     job,
     workspaceId: ctx.workspaceId,
     // What the Studio worker running now can do (capabilities.ts): a part it can't draws no button.

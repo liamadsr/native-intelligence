@@ -1027,6 +1027,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
         getPendingConversation: () => pendingCreateRef.current?.() ?? null,
         // The cards on screen, read at send time (systemContext.cards).
         getCardContext: () => cardStore.contextEntries(),
+        // The card in front finishes first what the agent must see (the Studio saves its edits).
+        settleCardContext: () => cardStore.settle(),
         // The main chat has no title (one-chat Slice 1): the server's
         // first-turn title backfill stands down (see panelNamesChats).
         panelNamesChats: () => true,
@@ -2143,10 +2145,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
    * The main chat's composer sends while a card is full screen: every card in
    * front goes back (this chat's into its message, a page into its place),
    * as their Minimize or X would, so the chat shows the message and its reply.
+   * The card stays the one the turn is about (putBackForSend): its note says
+   * what it showed as the person sent.
    */
   function putCardsBackForSend(): void {
     if (!alwaysShowMessages) return
-    if (cardStore.fullScreen()) cardStore.exitFullScreen()
+    if (cardStore.fullScreen()) cardStore.putBackForSend()
     closeFrontCards()
   }
 

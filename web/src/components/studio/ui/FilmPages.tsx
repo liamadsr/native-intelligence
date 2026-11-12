@@ -13,7 +13,7 @@ import { addBeatAt, CastAddForm, FormatButtons, InputsPanel, nextSelection, remo
 
 // The film's pages for the prompt-first workflow: Overview (the film at a glance and its script outline), Storyboard
 // (the beats as cards, with the beat inspector beside them) and Cast. Edit is the editor itself, in App.tsx. Everything
-// here edits the same project through `change`, so undo, autosave and the assistant work exactly as on the timeline.
+// here edits the same project through `change`, so undo, autosave and the agent's edits work exactly as on the timeline.
 
 /** A film's pages, plus 'project': the overview of the project (campaign) the film is one ad of. */
 export type FilmPage = 'project' | 'overview' | 'storyboard' | 'cast' | 'edit';

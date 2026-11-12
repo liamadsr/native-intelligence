@@ -15,6 +15,7 @@ import './ui/media-budget'
 import * as React from 'react'
 import { setAssetBase } from '@/lib/studio/engine/asset-base'
 import { App } from './ui/App'
+import type { EditorChatLink } from './ui/chat-note'
 import { ContextMenuProvider } from './ui/ContextMenu'
 import { setStudioRoot, setStudioWorkspace, studioFileBase } from './studio-env'
 import './ui/studio.css'
@@ -63,9 +64,14 @@ export interface StudioRootProps {
   navInPanel?: boolean
   /** Told which video is open and on which page, whenever that changes. */
   onPlace?: (place: { videoId: string | null; title: string | null; page: StudioPage }) => void
+  /**
+   * Handed what the app's agent is told about the editor when the person messages it with the Studio in front (the
+   * video, the playhead, the selection: ui/chat-note.ts) and how to save their edits first; null as the editor goes.
+   */
+  onLive?: (link: EditorChatLink | null) => void
 }
 
-export default function StudioRoot({ workspaceId, videoId, page, ask, navInPanel = false, onPlace }: StudioRootProps) {
+export default function StudioRoot({ workspaceId, videoId, page, ask, navInPanel = false, onPlace, onLive }: StudioRootProps) {
   // Set while rendering, before the editor's first read of a media address.
   setAssetBase(studioFileBase(workspaceId))
   setStudioWorkspace(workspaceId)
@@ -74,7 +80,7 @@ export default function StudioRoot({ workspaceId, videoId, page, ask, navInPanel
     <div ref={rootRef} className="ni-studio ni-studio-root" data-studio-root="" data-studio-nav={navInPanel ? 'panel' : 'rail'}>
       <Recover key={workspaceId}>
         <ContextMenuProvider>
-          <App key={workspaceId} openVideoId={videoId ?? null} openPage={page} openAsk={ask} navInPanel={navInPanel} onPlace={onPlace} />
+          <App key={workspaceId} openVideoId={videoId ?? null} openPage={page} openAsk={ask} navInPanel={navInPanel} onPlace={onPlace} onLive={onLive} />
         </ContextMenuProvider>
       </Recover>
     </div>

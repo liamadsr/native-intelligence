@@ -277,7 +277,7 @@ export function BeatInspector({ project, beatId, change, close, record, recordin
   </div>;
 }
 
-/** The storyboard before each assistant pass; restoring brings back that plan and never moves recorded footage. */
+/** The storyboard before each pass of the agent; restoring brings back that plan and never moves recorded footage. */
 export function VersionsPanel({ project, anchor, close, beforeServerEdit, afterServerEdit, below }: { project: EditorProject; anchor: HTMLElement | null; close: () => void; beforeServerEdit: () => Promise<boolean>; afterServerEdit?: () => void; below?: boolean }) {
   const [versions, setVersions] = useState<{ id: string; at: string; by: string; beats: number }[] | null>(null), [error, setError] = useState('');
   useEffect(() => { void request<{ versions: { id: string; at: string; by: string; beats: number }[] }>(`/api/account/studio/projects/${encodeURIComponent(project.id)}/storyboard/versions`).then(r => setVersions(r.versions)).catch(e => setError(String(e instanceof Error ? e.message : e))); }, [project.id]);

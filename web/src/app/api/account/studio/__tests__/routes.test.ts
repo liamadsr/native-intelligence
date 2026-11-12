@@ -125,7 +125,7 @@ describe('the person’s route', () => {
     const made = await (await at('projects/blank', json('POST', { title: 'Launch', seconds: 3, fps: 30 }))).json()
     expect(made.project.title).toBe('Launch')
     const boot = await (await at(`bootstrap?video=${made.project.id}`)).json()
-    expect(boot).toMatchObject({ project: { id: made.project.id }, sessionToken: 'studio-session', workspaceId: WS })
+    expect(boot).toMatchObject({ project: { id: made.project.id }, workspaceId: WS })
     const digest = (await (await at(`projects/${made.project.id}/digest`)).json()).projectDigest
     expect(digest).toBe(boot.projectDigest)
     const ok = await at(`projects/${made.project.id}`, json('PUT', { project: { ...made.project, title: 'Launch v2' }, expectedDigest: digest }))
