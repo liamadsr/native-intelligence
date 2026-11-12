@@ -32,8 +32,12 @@ const selectPolicy = (() => {
 const NAME_IN_500: Record<string, string> = { email_thread: 'email' }
 const in500 = (kind: string) => NAME_IN_500[kind] ?? kind
 
-/** The kinds fenced elsewhere: the Studio's (624's own restrictive policies, pinned by migration-624.test.ts). */
-const LATER = new Set<string>(['studio_video', 'studio_project'])
+/**
+ * Kinds fenced elsewhere: tables and their rows by later migrations (522 and
+ * 600, ./migration-522.test.ts), the Studio's by 624's own restrictive
+ * policies (migration-624.test.ts).
+ */
+const LATER = new Set<string>(['data_table', 'data_row', 'studio_video', 'studio_project'])
 const FENCED_IN_500 = LINK_FENCED_KINDS.filter((k) => !LATER.has(k))
 
 /** Linkable kinds every member of the workspace reads (their tables' RLS is membership only). */

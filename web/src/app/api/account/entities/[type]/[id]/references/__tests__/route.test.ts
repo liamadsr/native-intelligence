@@ -33,7 +33,7 @@ const edge = (source_type: string, source_id: string, relation: string, created_
   workspace_id: WS,
   source_type,
   source_id,
-  target_type: 'deal',
+  target_type: 'flow',
   target_id,
   relation,
   created_at,
@@ -41,7 +41,7 @@ const edge = (source_type: string, source_id: string, relation: string, created_
 
 beforeEach(() => {
   h.db = memoryDb({
-    deal: [{ id: DEAL, workspace_id: WS, name: 'Fernhill renewal' }],
+    flow: [{ id: DEAL, workspace_id: WS, name: 'Fernhill renewal' }],
     team_chat_message: [{ id: MSG, workspace_id: WS, channel_id: CH, body: 'Can someone own @Fernhill renewal?' }],
     team_chat_channel: [{ id: CH, workspace_id: WS, kind: 'channel', name: 'sales' }],
     document: [{ id: DOC, workspace_id: WS, title: 'Q4 renewals plan' }],
@@ -68,7 +68,7 @@ const call = (type: string, id: string) => GET(new Request('http://x'), { params
 
 describe('GET references', () => {
   it('lists what the viewer may read that links to the entity, one row per source, newest first', async () => {
-    const res = await call('deal', DEAL)
+    const res = await call('flow', DEAL)
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.references).toEqual([
@@ -84,18 +84,18 @@ describe('GET references', () => {
   })
 
   it('is a 404 for an entity the viewer cannot read (or that is gone)', async () => {
-    expect((await call('deal', HIDDEN_DEAL)).status).toBe(404)
+    expect((await call('flow', HIDDEN_DEAL)).status).toBe(404)
   })
 
   it('refuses an unknown kind, mail, and a malformed id', async () => {
     expect((await call('widget', DEAL)).status).toBe(400)
     expect((await call('email', DEAL)).status).toBe(400)
-    expect((await call('deal', 'nope')).status).toBe(400)
+    expect((await call('flow', 'nope')).status).toBe(400)
   })
 
   it('an entity nothing links to answers an empty list', async () => {
-    h.db = memoryDb({ deal: [{ id: DEAL, workspace_id: WS, name: 'Fernhill renewal' }], entity_link: [] })
-    const body = await (await call('deal', DEAL)).json()
+    h.db = memoryDb({ flow: [{ id: DEAL, workspace_id: WS, name: 'Fernhill renewal' }], entity_link: [] })
+    const body = await (await call('flow', DEAL)).json()
     expect(body.references).toEqual([])
   })
 })

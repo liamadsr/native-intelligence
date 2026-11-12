@@ -56,6 +56,15 @@ evals/
                                says what a card shows, never its number
                                ("card 3"), which the chat doesn't draw
                                (no-card-numbers)
+      tables/*.eval.ts         the workspace's tables (ids: tables/<name>):
+                               "track my rentals" makes one typed table
+                               (track-rentals), a row goes in by column name
+                               (add-a-row), "which are overdue" is a date
+                               filter before today (overdue-rentals), and
+                               "undo that" is undo_table_change (undo-that).
+                               Every table tool is stubbed; the server side
+                               is pinned in vitest:
+                               src/lib/ai/tools/__tests__/tables-tools.test.ts
 ```
 
 Why the nesting: `eve eval --url` checks that the agent answering at the URL has

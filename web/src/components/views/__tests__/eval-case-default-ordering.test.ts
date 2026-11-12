@@ -56,8 +56,9 @@ describe('every entity default ordering is renderable and unambiguous', () => {
   it.each(entityTypes)('%s', (entityType) => {
     const ordering = defaultConfig(entityType).ordering ?? []
     // The library's endpoints already order each collection. Its settings
-    // have an explicit Default option, covered in view-settings-ordering.
-    if (entityType === 'agent' || entityType === 'skill') {
+    // have an explicit Default option, covered in view-settings-ordering. A
+    // table's rows keep the table's own order (its "Table order" option).
+    if (entityType === 'agent' || entityType === 'skill' || entityType === 'data_row') {
       expect(ordering).toEqual([])
       return
     }

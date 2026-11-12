@@ -53,6 +53,7 @@ import { createSequenceTools } from './sequences'
 import { createProspectingTools } from './prospecting'
 import { createCompanyTools } from './companies'
 import { createDealTools } from './deals'
+import { createTableTools } from './tables'
 import { createCampaignTools } from './campaigns'
 import { createReviewTools } from './reviews'
 import { createChatHelperTools } from './chat-helpers'
@@ -444,6 +445,8 @@ export function createTools(
     ...createCompanyTools(userId, supabase, workspaceId, strict, createPolicy, editGrants, omitGrants),
     // Deals and custom fields (roadmap #8): apply with undo, every change logged. See ./deals.ts.
     ...createDealTools(userId, supabase, workspaceId, strict, createPolicy, editGrants, omitGrants),
+    // Tables (phase 5): the workspace's own databases, apply with undo, every batch in History. See ./tables.ts.
+    ...createTableTools(userId, supabase, workspaceId, strict, createPolicy, editGrants, omitGrants, options?.timeZone),
     // Campaigns — Marketing's anchor entity. Read + create + update; no delete
     // (a campaign is something claims point at).
     // launch_campaign raises the person's card and sends on their yes (roadmap D2).
@@ -633,6 +636,6 @@ export function createTools(
     ...createContactImportTools(userId, supabase, workspaceId, { unattended: options?.unattended === true }),
     // Pages in the chat: show puts a filtered page or a record in the chat;
     // read_card reads what a card shows the person now. See ./show.ts.
-    ...createShowTools(userId, supabase, workspaceId, options?.cards, options?.personalCardKinds, options?.timeZone),
+    ...createShowTools(userId, supabase, workspaceId, options?.cards, options?.personalCardKinds, options?.timeZone, omitGrants),
   }
 }

@@ -34,6 +34,8 @@ export const PAGE_KIND_NAMES = [
   'flows',
   'evals',
   'campaigns',
+  'tables',
+  'pipelines',
   'knowledge',
   'library',
   'teams',
@@ -75,6 +77,8 @@ export const PAGE_PLACE_TYPES = [
   'agent_link_exchange',
   'team_chat_channel',
   'team_chat_message',
+  'data_table',
+  'data_row',
   'studio_project',
   'studio_video',
   'seo_audit',
@@ -90,6 +94,8 @@ export interface PagePlace {
   id: string
   /** Its name, for the card and the note. */
   label?: string
+  /** The place it is inside, by id: a row's table. */
+  in?: string
 }
 
 /** What a page card shows. */
@@ -181,6 +187,28 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     label: 'Campaigns',
     rows: 'campaigns',
     view: 'campaigns',
+  },
+  // Tables (phase 1, migration 520): the workspace's own databases. Gated with
+  // Docs, where a workspace keeps what it writes down. `show` opens it on a
+  // table (phase 5), in a layout (`tab`), or on one row: a row's record card
+  // (`in` names its table).
+  tables: {
+    label: 'Tables',
+    rows: 'tables',
+    view: 'docs',
+    target: { types: ['data_table', 'data_row'] },
+    tabs: ['grid', 'board', 'calendar', 'gallery'],
+  },
+  // Deals (Tables, phase 7): the pipelines, each a table whose rows are
+  // deals. It opens on the default pipeline's board; `target` is a pipeline,
+  // or one deal (`in` names its pipeline). It shares the Companies page's
+  // gate, as the deals list did.
+  pipelines: {
+    label: 'Deals',
+    rows: 'pipelines',
+    view: 'companies',
+    target: { types: ['data_table', 'data_row'] },
+    tabs: ['board', 'grid', 'calendar', 'gallery'],
   },
   knowledge: {
     label: 'Knowledge',
@@ -336,6 +364,8 @@ export const PLACE_NOUN: Record<PagePlaceType, string> = {
   agent_link_exchange: 'conversation',
   team_chat_channel: 'channel',
   team_chat_message: 'message',
+  data_table: 'table',
+  data_row: 'row',
   studio_project: 'Studio project',
   studio_video: 'video',
   seo_audit: 'site audit',
@@ -351,7 +381,12 @@ export function isPageKind(value: unknown): value is PageKind {
 export function isPagePlace(value: unknown): value is PagePlace {
   if (!value || typeof value !== 'object') return false
   const v = value as Record<string, unknown>
-  return (PAGE_PLACE_TYPES as readonly string[]).includes(v.type as string) && typeof v.id === 'string' && !!v.id
+  return (
+    (PAGE_PLACE_TYPES as readonly string[]).includes(v.type as string) &&
+    typeof v.id === 'string' &&
+    !!v.id &&
+    (v.in === undefined || typeof v.in === 'string')
+  )
 }
 
 /** The tab a page card is on: the one asked for, else the kind's default. */

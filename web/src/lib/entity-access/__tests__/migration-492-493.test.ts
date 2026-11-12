@@ -13,10 +13,13 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { GRANTABLE_TYPES, GRANTEE_KINDS, GRANT_SOURCES } from '../model'
+import { migrationsInOrder } from '@/test/migration-sql'
 
 const read = (f: string) => readFileSync(join(process.cwd(), 'supabase/migrations', f), 'utf8')
 const sql492 = read('492_entity_access.sql')
 const sql493 = read('493_entity_access_read_policies.sql')
+/** The newest migration that says `needle` (520 added tables to the kinds). */
+const newestWith = (needle: string) => [...migrationsInOrder()].reverse().find((m) => m.sql.includes(needle))?.sql ?? ''
 
 const fn = (text: string, name: string) =>
   new RegExp(`create or replace function public\\.${name}\\([\\s\\S]*?\\n\\$\\$;`).exec(text)?.[0] ?? ''
@@ -27,15 +30,15 @@ const listIn = (text: string, constraint: string) => {
 
 describe('migration 492: one grant store', () => {
   it('takes exactly the kinds, sources and grantees the app knows', () => {
-    expect(listIn(sql492, 'entity_access_entity_type')).toEqual([...GRANTABLE_TYPES])
+    expect(listIn(newestWith('add constraint entity_access_entity_type check') || sql492, 'entity_access_entity_type')).toEqual([...GRANTABLE_TYPES])
     expect(listIn(sql492, 'entity_access_source')).toEqual([...GRANT_SOURCES])
     expect(listIn(sql492, 'entity_access_level')).toEqual(['view', 'edit'])
     for (const kind of GRANTEE_KINDS) expect(sql492).toContain(`(grantee_kind = '${kind}' and grantee_${kind}_id is not null`)
     expect(sql492).toMatch(/constraint entity_access_unique unique \(workspace_id, entity_type, entity_id, grantee_kind, grantee_id\)/)
     // The trigger and can-share know the same kinds.
     for (const t of GRANTABLE_TYPES) {
-      expect(fn(sql492, 'entity_access_guard'), t).toContain(`when '${t}' then exists`)
-      expect(fn(sql492, 'entity_access_can_share'), t).toContain(`when '${t}' then exists`)
+      expect(fn(newestWith('function public.entity_access_guard('), 'entity_access_guard'), t).toContain(`when '${t}' then exists`)
+      expect(fn(newestWith('function public.entity_access_can_share('), 'entity_access_can_share'), t).toContain(`when '${t}' then exists`)
     }
   })
 

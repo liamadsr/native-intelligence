@@ -19,6 +19,7 @@ import {
   type CrmScope, type LibraryScope,
 } from '@/lib/views/types'
 import type { ViewConfig } from './hooks/use-view'
+import { withTableSettings } from '@/lib/tables/views'
 import {
   seedFiltersForProspectStageTab,
   type ProspectStageTab, type ProspectStageCounts,
@@ -92,6 +93,11 @@ interface ViewToolbarProps {
   graphAvailable?: boolean
   /** Discard the draft, reverting to the baseline. */
   onDiscardDraft: () => void
+  /**
+   * Share a saved view with the workspace, or make it personal again (a
+   * tab's right-click menu). Without it the menu has no such item.
+   */
+  onSetViewVisibility?: (viewId: string, visibility: 'personal' | 'workspace') => void
 }
 
 const subscribe = () => () => {}
@@ -106,7 +112,7 @@ export function ViewToolbar({
   onLibraryScopeChange,
   prospectStage, prospectStageCounts, onProspectStageChange, actions,
   isDirty, overrides, onSaveDraft, onDiscardDraft,
-  graphAvailable,
+  graphAvailable, onSetViewVisibility,
 }: ViewToolbarProps) {
   // Prevent Radix popover hydration mismatch — defer popover rendering to client
   const isMounted = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
@@ -152,7 +158,11 @@ export function ViewToolbar({
     let filterValue: FilterValue
 
     if (value !== undefined) {
-      if (Array.isArray(value) && value.length > 1) {
+      // A custom multi-select (a list) holds the options picked: `includes`.
+      if (field.custom && field.isArray) {
+        operator = 'includes'
+        filterValue = Array.isArray(value) ? value : [value as string]
+      } else if (Array.isArray(value) && value.length > 1) {
         operator = 'is_any_of'
         filterValue = value
       } else if (Array.isArray(value) && value.length === 1) {
@@ -304,6 +314,7 @@ export function ViewToolbar({
         show_sub_items: cfg.show_sub_items,
         nested_sub_items: cfg.nested_sub_items,
         show_empty_groups: cfg.show_empty_groups,
+        ...(cfg.table ? { metadata: { table: cfg.table } } : {}),
       }).finally(() => { savingRef.current = false })
       if (!view) {
         // Keep the panel and the draft filters: closing and discarding here
@@ -321,6 +332,7 @@ export function ViewToolbar({
     } else if (mode === 'edit') {
       const vid = editingViewIdRef.current
       if (vid) {
+        const view = viewsRef.current.find(v => v.id === vid)
         onUpdateView(vid, {
           name,
           filters: cfg.filters,
@@ -331,6 +343,10 @@ export function ViewToolbar({
           board_group_by: cfg.board_group_by,
           show_completed: cfg.show_completed,
           completed_filter: cfg.completed_filter,
+          // A table's view: its column order and its widths, hidden columns and layout picks too.
+          ...(entityType === 'data_row'
+            ? { display_properties: cfg.display_properties, metadata: withTableSettings(view?.metadata, cfg.table) }
+            : {}),
         })
         setEditMode(null)
         setEditingViewId(null)
@@ -513,6 +529,7 @@ export function ViewToolbar({
                 onDuplicateView={onDuplicateView}
                 onDeleteView={onDeleteView}
                 onEditView={handleStartEdit}
+                onSetVisibility={onSetViewVisibility}
                 entityType={entityType}
                 teamId={teamId}
                 actionScope={config.action_scope}

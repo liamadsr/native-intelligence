@@ -124,14 +124,14 @@ describe('the one list', () => {
       recent: [
         entry('document', DOC, 'Q4 renewals plan', at(10, 11, 14, 30), true),
         entry('action', ACTION, 'Send the Fernhill quote', at(10, 10), true),
-        entry('deal', DEAL, 'Fernhill renewal', at(10, 9), true),
+        entry('flow', DEAL, 'Fernhill renewal', at(10, 9), true),
       ],
     })
     expect(items.map((i) => [i.key, i.at])).toEqual([
       [`document:${DOC}`, at(10, 11, 14, 30)],
       // In both: once, at the later time (the inbox's).
       [`action:${ACTION}`, at(10, 11, 14, 0)],
-      [`deal:${DEAL}`, at(10, 9)],
+      [`flow:${DEAL}`, at(10, 9)],
     ])
   })
 

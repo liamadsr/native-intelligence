@@ -54,6 +54,8 @@ async function fetchDefinitions(entityType: string): Promise<CustomFieldColumnDe
       label: d.label,
       field_type: d.field_type,
       options: Array.isArray(d.options) ? d.options.filter((o): o is string => typeof o === 'string') : [],
+      // A relation's target, so its filter can pick records.
+      ...(d.config && typeof d.config === 'object' ? { config: d.config } : {}),
     }))
   } catch {
     return EMPTY
@@ -72,9 +74,18 @@ function load(cacheKey: string, entityType: string): Entry {
   return entry
 }
 
+/**
+ * Definitions a page already holds for one kind, handed to every view
+ * surface under it in place of a read: a table's page gives its columns
+ * (a table's rows take no workspace definitions, only their table's).
+ */
+export const CustomFieldDefinitionsContext = React.createContext<{ entityType: ViewEntityType; defs: CustomFieldColumnDefinition[] } | null>(null)
+
 export function useCustomFieldDefinitions(entityType: ViewEntityType, enabled = true): CustomFieldColumnDefinition[] {
   const workspaceId = useWorkspaceId()
-  const active = enabled && !!workspaceId && viewTakesCustomFields(entityType)
+  const provided = React.useContext(CustomFieldDefinitionsContext)
+  const given = provided?.entityType === entityType ? provided.defs : null
+  const active = !given && enabled && !!workspaceId && viewTakesCustomFields(entityType) && entityType !== 'data_row'
   const cacheKey = `${workspaceId ?? ''}:${entityType}`
   const [state, setState] = React.useState<{ key: string; defs: CustomFieldColumnDefinition[] }>(() => ({
     key: cacheKey,
@@ -105,6 +116,7 @@ export function useCustomFieldDefinitions(entityType: ViewEntityType, enabled = 
     return () => window.removeEventListener(CUSTOM_FIELDS_CHANGED_EVENT, onChanged)
   }, [active])
 
+  if (given) return given
   if (!active || state.key !== cacheKey) return EMPTY
   return state.defs
 }

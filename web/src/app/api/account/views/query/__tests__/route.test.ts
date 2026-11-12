@@ -42,6 +42,8 @@ vi.mock('@/lib/views/query-engine', () => ({
   applyOrdering: hoisted.applyOrdering,
   applyPagination: vi.fn(),
   applySearch: vi.fn(),
+  customFieldTypesFor: vi.fn(async () => undefined),
+  viewFieldsOf: vi.fn(() => []),
   resolvePersonalScope: hoisted.resolvePersonalScope,
   groupResults: vi.fn((items: unknown[]) => [{ key: 'all', label: 'All', items }]),
   CATEGORY_ORDER: {},
@@ -195,6 +197,17 @@ describe('POST /api/account/views/query', () => {
     expect(query.neq).not.toHaveBeenCalled()
   })
 
+  it("a table's rows need their table, and are that table's only", async () => {
+    expect((await POST(postReq({ entity_type: 'data_row' }))).status).toBe(400)
+    expect((await POST(postReq({ entity_type: 'data_row', table_id: 'not-an-id' }))).status).toBe(400)
+    const query = makeQuery()
+    hoisted.buildEntityQuery.mockReturnValueOnce(query)
+    const table = '33333333-3333-4333-8333-333333333333'
+    const res = await POST(postReq({ entity_type: 'data_row', table_id: table }))
+    expect(res.status).toBe(200)
+    expect(query.eq).toHaveBeenCalledWith('table_id', table)
+  })
+
   it("capture_scope 'shared' filters to teammates' workspace-visible captures", async () => {
     const query = makeQuery()
     hoisted.buildEntityQuery.mockReturnValueOnce(query)
@@ -326,6 +339,7 @@ describe('POST /api/account/views/query — workspace_scope', () => {
       expect.anything(), 'action', expect.anything(), expect.anything(),
       ['workspace-1', 'workspace-2'],
       expect.anything(),
+      expect.anything(),
     )
     expect(hoisted.applyCompletedFilter).toHaveBeenCalledWith(
       expect.anything(), expect.anything(), 'all', true,
@@ -394,6 +408,7 @@ describe('POST /api/account/views/query — workspace_scope', () => {
     expect(hoisted.applyFilters).toHaveBeenCalledWith(
       expect.anything(), 'project', expect.anything(), expect.anything(),
       ['workspace-1', 'workspace-2'],
+      expect.anything(),
       expect.anything(),
     )
   })

@@ -26,7 +26,7 @@ import { FILTERABLE_FIELDS, type FilterFieldDefinition } from '@/lib/views/types
 
 import { FilterValuePicker } from '../filter-value-picker'
 
-function field(entity: 'action' | 'deal', name: string): FilterFieldDefinition {
+function field(entity: 'action', name: string): FilterFieldDefinition {
   const def = FILTERABLE_FIELDS[entity].find(f => f.field === name)
   if (!def) throw new Error(`${entity} has no ${name} field`)
   return def
@@ -127,7 +127,6 @@ const MEMBERS = '/api/account/workspace/members'
 const PROJECTS = '/api/account/projects'
 const TEAMS = '/api/account/teams'
 const statesOf = (team: string) => `/api/account/workflow-states?team_id=${team}`
-const PIPELINES = '/api/account/deals/pipelines'
 
 describe('a record picker (Assignee)', () => {
   it('shows the loaded name while it is mounted', async () => {
@@ -260,46 +259,6 @@ describe('a workflow-state picker (Status)', () => {
 
     const reads = countWindowEventReads()
     t1States.resolve(ok({ states: [{ id: 's1', name: 'Todo' }] }))
-    await settle()
-    expect(reads()).toBe(0)
-  })
-})
-
-describe('a deal-stage picker (Stage)', () => {
-  const PIPELINE_BODY = { pipelines: [{ stages: [{ id: 'st1', name: 'Qualified' }] }] }
-
-  it('shows the loaded stage while it is mounted', async () => {
-    stubRoutes({ [PIPELINES]: Promise.resolve(ok(PIPELINE_BODY)) })
-    await act(async () => {
-      await mount(field('deal', 'stage_id'), 'st1')
-      await settle()
-    })
-    expect(container.textContent).toBe('Qualified')
-    await unmount()
-  })
-
-  it('drops a failed request that settles after unmount', async () => {
-    const pipelines = deferred<unknown>()
-    const fetchStub = stubRoutes({ [PIPELINES]: pipelines.promise })
-    await mount(field('deal', 'stage_id'), 'st1')
-    expect(fetchStub).toHaveBeenCalledWith(PIPELINES)
-    await unmount()
-
-    const reads = countWindowEventReads()
-    pipelines.reject(new TypeError('fetch failed'))
-    await settle()
-    expect(reads()).toBe(0)
-  })
-
-  it('drops an answer that arrives after unmount', async () => {
-    const pipelines = deferred<unknown>()
-    const fetchStub = stubRoutes({ [PIPELINES]: pipelines.promise })
-    await mount(field('deal', 'stage_id'), 'st1')
-    expect(fetchStub).toHaveBeenCalledWith(PIPELINES)
-    await unmount()
-
-    const reads = countWindowEventReads()
-    pipelines.resolve(ok(PIPELINE_BODY))
     await settle()
     expect(reads()).toBe(0)
   })

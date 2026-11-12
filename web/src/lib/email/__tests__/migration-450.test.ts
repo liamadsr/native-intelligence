@@ -62,6 +62,6 @@ describe('migration 450', () => {
   it('the log kind check is 446’s list plus action_done_from_mail: the app’s list but 452’s look_ahead', () => {
     const kinds = kindsIn(BODY)
     expect(kinds).toEqual([...kindsIn(flat(read('446_email_auto_archive.sql')))!, 'action_done_from_mail'])
-    expect(kinds).toEqual(AGENT_LOG_KINDS.filter((k) => k !== 'look_ahead'))
+    expect(kinds).toEqual(AGENT_LOG_KINDS.filter((k) => k !== 'look_ahead' && k !== 'kept_up_to_date'))
   })
 })

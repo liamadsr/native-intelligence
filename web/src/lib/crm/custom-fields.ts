@@ -1,15 +1,26 @@
 /**
  * Custom fields (roadmap #8, migration 473; every kind, migration 496): a
  * workspace's own fields on the kinds the entity registry marks
- * `customFields` (deals, contacts, companies, tasks, projects, initiatives,
- * documents). A definition says what the field is called and what it holds
- * (text, number, date or one of a few options); the values live in each
- * record's `custom_fields` jsonb, keyed by the definition's `key` (a slug of
- * its label, fixed at creation so a rename never orphans a value).
+ * `customFields` (contacts, companies, tasks, projects, initiatives,
+ * documents; a deal's are its pipeline's columns, src/lib/crm/deals.ts).
+ * A definition says what the field is called and what it holds
+ * (the types, and how each is stored, are ./custom-field-types.ts); the
+ * values live in each record's `custom_fields` jsonb, keyed by the
+ * definition's `key` (a slug of its label, fixed at creation so a rename
+ * never orphans a value).
  *
  * Client-safe apart from the db helpers' `SupabaseClient` type import.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  cleanFieldConfig,
+  coerceCustomValue,
+  hasOptions,
+  isEmptyValue,
+  type CustomFieldConfig,
+  type CustomFieldType,
+  type CustomFieldValue,
+} from './custom-field-types'
 import {
   CUSTOM_FIELD_ENTITY_TYPES,
   ENTITY_REGISTRY_BY_ID,
@@ -34,10 +45,9 @@ export const CUSTOM_FIELD_KIND_NOUNS: Readonly<Record<CustomFieldEntity, { one: 
   action: { one: 'task', many: 'tasks' },
   initiative: { one: 'initiative', many: 'initiatives' },
   company: { one: 'company', many: 'companies' },
-  deal: { one: 'deal', many: 'deals' },
 }
 
-/** "deals, contacts, companies, tasks, projects, initiatives and documents", in registry order. */
+/** "documents, contacts, projects, tasks, initiatives and companies", in registry order. */
 export function customFieldKindList(form: 'one' | 'many' = 'many', joiner = 'and'): string {
   const words = CUSTOM_FIELD_ENTITIES.map((k) => CUSTOM_FIELD_KIND_NOUNS[k][form])
   return words.length > 1 ? `${words.slice(0, -1).join(', ')} ${joiner} ${words[words.length - 1]}` : words.join('')
@@ -48,8 +58,25 @@ export function customFieldTable(entity: CustomFieldEntity): string {
   return ENTITY_REGISTRY_BY_ID[entity].table
 }
 
-export const CUSTOM_FIELD_TYPES = ['text', 'number', 'date', 'select'] as const
-export type CustomFieldType = (typeof CUSTOM_FIELD_TYPES)[number]
+export {
+  CUSTOM_FIELD_TYPES,
+  CUSTOM_FIELD_TYPE_LABELS,
+  RELATION_TARGET_KINDS,
+  coerceCustomValue,
+  cleanFieldConfig,
+  formatFieldValue,
+  hasOptions,
+  isCustomFieldType,
+  isIsoDate,
+  isRelationTargetKind,
+  type CurrencyValue,
+  type CustomFieldConfig,
+  type CustomFieldType,
+  type CustomFieldValue,
+  type RelationTarget,
+  type RelationTargetKind,
+  type RequiredWhen,
+} from './custom-field-types'
 
 export interface CustomFieldDefinition {
   id: string
@@ -59,21 +86,19 @@ export interface CustomFieldDefinition {
   label: string
   field_type: CustomFieldType
   options: string[]
+  /** What the type needs past its options (custom-field-types.ts CustomFieldConfig). */
+  config: CustomFieldConfig
   position: number
 }
 
-export type CustomFieldValue = string | number | null
-
-const MAX_TEXT = 2000
 const MAX_OPTIONS = 50
 const KEY_RE = /^[a-z][a-z0-9_]{0,39}$/
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 /** "Contract length (months)" → "contract_length_months". Empty when nothing usable is left. */
 export function customFieldKey(label: string): string {
   let key = label
     .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
@@ -81,51 +106,6 @@ export function customFieldKey(label: string): string {
     .replace(/_+$/g, '')
   if (key && !/^[a-z]/.test(key)) key = `f_${key}`.slice(0, 40)
   return KEY_RE.test(key) ? key : ''
-}
-
-/** A valid calendar date in YYYY-MM-DD form. */
-export function isIsoDate(value: string): boolean {
-  if (!DATE_RE.test(value)) return false
-  const d = new Date(`${value}T00:00:00Z`)
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value
-}
-
-/**
- * A raw value checked against its definition: the stored form, or why not.
- * `null` and '' clear the field. A select takes its option case-insensitively
- * and stores the option's own spelling.
- */
-export function coerceCustomValue(
-  def: Pick<CustomFieldDefinition, 'label' | 'field_type' | 'options'>,
-  raw: unknown,
-): { ok: true; value: CustomFieldValue } | { ok: false; error: string } {
-  if (raw === null || raw === undefined || raw === '') return { ok: true, value: null }
-  // The values route takes any JSON: an object or a list is never one value
-  // (String() would store "[object Object]", or a one-item list's item).
-  if (typeof raw === 'object') return { ok: false, error: `${def.label} takes one value` }
-  switch (def.field_type) {
-    case 'text': {
-      const text = String(raw).trim()
-      if (text.length > MAX_TEXT) return { ok: false, error: `${def.label} is longer than ${MAX_TEXT} characters` }
-      return { ok: true, value: text || null }
-    }
-    case 'number': {
-      const n = typeof raw === 'number' ? raw : Number(String(raw).replace(/[,\s]/g, ''))
-      if (!Number.isFinite(n)) return { ok: false, error: `${def.label} needs a number` }
-      return { ok: true, value: n }
-    }
-    case 'date': {
-      const text = String(raw).trim()
-      if (!isIsoDate(text)) return { ok: false, error: `${def.label} needs a date as YYYY-MM-DD` }
-      return { ok: true, value: text }
-    }
-    case 'select': {
-      const text = String(raw).trim().toLowerCase()
-      const match = def.options.find((o) => o.toLowerCase() === text)
-      if (!match) return { ok: false, error: `${def.label} is one of: ${def.options.join(', ')}` }
-      return { ok: true, value: match }
-    }
-  }
 }
 
 /** A definition's options, trimmed, de-duplicated (case-insensitively), capped. */
@@ -186,7 +166,7 @@ export function mergeCustomFields(current: unknown, patch: Record<string, Custom
 
 // ── Database ────────────────────────────────────────────────────────────────
 
-const DEF_SELECT = 'id, workspace_id, entity_type, key, label, field_type, options, position'
+const DEF_SELECT = 'id, workspace_id, entity_type, key, label, field_type, options, config, position'
 
 export async function listCustomFieldDefinitions(
   db: SupabaseClient,
@@ -197,7 +177,11 @@ export async function listCustomFieldDefinitions(
   if (entityType) q = q.eq('entity_type', entityType)
   const { data, error } = await q.order('position', { ascending: true }).order('created_at', { ascending: true })
   if (error) throw new Error(error.message)
-  return (data ?? []) as CustomFieldDefinition[]
+  // A table's columns share this table (entity_type 'data_row', migration 520)
+  // but are the table's own (src/lib/tables): never a workspace's field.
+  return ((data ?? []) as CustomFieldDefinition[])
+    .filter((d) => isCustomFieldEntity(d.entity_type))
+    .map((d) => ({ ...d, options: d.options ?? [], config: d.config ?? {} }))
 }
 
 export interface DefineCustomFieldInput {
@@ -205,6 +189,8 @@ export interface DefineCustomFieldInput {
   label: string
   field_type: CustomFieldType
   options?: string[]
+  /** A currency's default code, a relation's target and whether it takes several. */
+  config?: CustomFieldConfig
 }
 
 /**
@@ -220,7 +206,9 @@ export async function defineCustomField(
   const key = customFieldKey(label)
   if (!label || !key) return { ok: false, error: 'A field needs a name with a letter or number in it.' }
   const options = cleanOptions(input.options)
-  if (input.field_type === 'select' && options.length < 2) return { ok: false, error: 'A select field needs at least two options.' }
+  if (hasOptions(input.field_type) && options.length < 2) return { ok: false, error: 'A select field needs at least two options.' }
+  const config = cleanFieldConfig(input.field_type, input.config)
+  if (!config.ok) return config
 
   const existing = await listCustomFieldDefinitions(db, workspaceId, input.entity_type)
   const same = existing.find((d) => d.key === key)
@@ -234,17 +222,103 @@ export async function defineCustomField(
       key,
       label,
       field_type: input.field_type,
-      options: input.field_type === 'select' ? options : [],
+      options: hasOptions(input.field_type) ? options : [],
+      config: config.config,
       position: existing.length,
     })
     .select(DEF_SELECT)
     .single()
   if (error) return { ok: false, error: error.message }
-  return { ok: true, field: data as CustomFieldDefinition, existed: false }
+  const field = data as CustomFieldDefinition
+  return { ok: true, field: { ...field, options: field.options ?? [], config: field.config ?? {} }, existed: false }
 }
 
-/** A kind whose values are set here (a deal's go through updateDeal, which logs them for undo). */
-export type CustomFieldRecordEntity = Exclude<CustomFieldEntity, 'deal'>
+export interface FieldTypeChange {
+  /** The change's id: what undoCustomFieldChange takes back. */
+  change_id: string
+  /** How many records' values were converted. */
+  converted: number
+  field: CustomFieldDefinition
+}
+
+export type FieldTypeChangeResult = { ok: true; value: FieldTypeChange } | { ok: false; error: string; reason: 'invalid' | 'not_found' | 'forbidden' }
+
+type RpcError = { code?: string; message: string }
+
+function fieldRpcRefusal(error: RpcError): { ok: false; error: string; reason: 'invalid' | 'not_found' | 'forbidden' } {
+  const message = error.message ? error.message.charAt(0).toUpperCase() + error.message.slice(1) : 'Could not change the field'
+  if (error.code === 'P0002') return { ok: false, error: 'Field not found', reason: 'not_found' }
+  if (error.code === '42501') return { ok: false, error: message, reason: 'forbidden' }
+  return { ok: false, error: message, reason: 'invalid' }
+}
+
+async function readDefinition(db: SupabaseClient, workspaceId: string, id: string): Promise<CustomFieldDefinition | null> {
+  const { data } = await db.from('custom_field_definition').select(DEF_SELECT).eq('workspace_id', workspaceId).eq('id', id).is('table_id', null).maybeSingle()
+  if (!data) return null
+  const d = data as CustomFieldDefinition
+  return { ...d, options: d.options ?? [], config: d.config ?? {} }
+}
+
+/**
+ * Changes a kind's field to another type (migration 526): every record's
+ * value converts by the database's one cast rule, or nothing changes and the
+ * answer says how many don't fit and shows a few. A select type given no
+ * options takes the values' own. Undoable (undoCustomFieldChange).
+ * `asUserId`: the person a service-role caller acts for.
+ */
+export async function changeCustomFieldType(
+  db: SupabaseClient,
+  workspaceId: string,
+  input: { id: string; field_type: CustomFieldType; options?: string[]; config?: CustomFieldConfig },
+  opts: { asUserId?: string | null } = {},
+): Promise<FieldTypeChangeResult> {
+  const current = await readDefinition(db, workspaceId, input.id)
+  if (!current) return { ok: false, error: 'Field not found', reason: 'not_found' }
+  const config = cleanFieldConfig(input.field_type, input.config ?? (input.field_type === current.field_type ? current.config : {}))
+  if (!config.ok) return { ...config, reason: 'invalid' }
+  const options = hasOptions(input.field_type) ? cleanOptions(input.options ?? (hasOptions(current.field_type) ? current.options : [])) : []
+  const { data, error } = await db.rpc('change_custom_field_type', {
+    p_definition_id: input.id,
+    p_field_type: input.field_type,
+    p_options: options,
+    p_config: config.config,
+    p_as_user: opts.asUserId ?? null,
+  })
+  if (error) return fieldRpcRefusal(error as RpcError)
+  const field = await readDefinition(db, workspaceId, input.id)
+  if (!field) return { ok: false, error: 'Field not found', reason: 'not_found' }
+  const r = (data ?? {}) as { change_id?: string; converted?: number }
+  return { ok: true, value: { change_id: String(r.change_id ?? ''), converted: Number(r.converted ?? 0), field } }
+}
+
+/** Takes a type change back: the old type, and each value as it was unless it has changed since (then converted back). */
+export async function undoCustomFieldChange(
+  db: SupabaseClient,
+  workspaceId: string,
+  changeId: string,
+  opts: { asUserId?: string | null } = {},
+): Promise<FieldTypeChangeResult> {
+  const { data, error } = await db.rpc('undo_custom_field_change', { p_change_id: changeId, p_as_user: opts.asUserId ?? null })
+  if (error) return fieldRpcRefusal(error as RpcError)
+  const r = (data ?? {}) as { change_id?: string; converted?: number; definition_id?: string }
+  const field = r.definition_id ? await readDefinition(db, workspaceId, r.definition_id) : null
+  if (!field) return { ok: false, error: 'Field not found', reason: 'not_found' }
+  return { ok: true, value: { change_id: String(r.change_id ?? ''), converted: Number(r.converted ?? 0), field } }
+}
+
+/** A kind whose values are set here (a deal's are its pipeline's row, written through src/lib/crm/deals.ts). */
+export type CustomFieldRecordEntity = CustomFieldEntity
+
+/**
+ * The checks a value write needs the database for (./custom-field-references.ts
+ * fieldReferenceCheck): a person is a member, a linked record is one the
+ * writer can read. Null when the patch passes; else why not, in words.
+ */
+export type ReferenceCheck = (
+  defs: readonly Pick<CustomFieldDefinition, 'key' | 'label' | 'field_type' | 'config'>[],
+  patch: Record<string, CustomFieldValue>,
+  current: unknown,
+) => Promise<string | null>
 
 /** Why a set was refused: a value that doesn't fit, a record not there, or one the caller may only read. */
 export type SetCustomFieldsRefusal = 'invalid' | 'not_found' | 'forbidden'
@@ -257,7 +331,7 @@ export const customFieldNotFound = (entity: CustomFieldEntity) => `${capitalize(
 export const customFieldForbidden = (entity: CustomFieldEntity) => `You can't edit this ${CUSTOM_FIELD_KIND_NOUNS[entity].one}`
 
 /**
- * Sets custom field values on any record but a deal: checked against the
+ * Sets custom field values on a record: checked against the
  * kind's definitions, merged into its `custom_fields`, written to the kind's
  * own table. Returns the merged values.
  *
@@ -273,6 +347,7 @@ export async function setRecordCustomFields(
   entityType: CustomFieldRecordEntity,
   recordId: string,
   values: Record<string, unknown>,
+  opts: { checkReferences?: ReferenceCheck } = {},
 ): Promise<{ ok: true; custom_fields: Record<string, CustomFieldValue> } | { ok: false; error: string; reason: SetCustomFieldsRefusal }> {
   const defs = await listCustomFieldDefinitions(db, workspaceId, entityType)
   const resolved = resolveCustomValues(defs, values)
@@ -286,7 +361,12 @@ export async function setRecordCustomFields(
     .maybeSingle()
   if (readError) return { ok: false, error: readError.message, reason: 'invalid' }
   if (!row) return { ok: false, error: customFieldNotFound(entityType), reason: 'not_found' }
-  const merged = mergeCustomFields((row as { custom_fields?: unknown }).custom_fields, resolved.patch)
+  const current = (row as { custom_fields?: unknown }).custom_fields
+  if (opts.checkReferences) {
+    const problem = await opts.checkReferences(defs, resolved.patch, current)
+    if (problem) return { ok: false, error: problem, reason: 'invalid' }
+  }
+  const merged = mergeCustomFields(current, resolved.patch)
   const { data: written, error } = await db
     .from(table)
     .update({ custom_fields: merged })
@@ -319,10 +399,33 @@ export function customFieldsForModel(
   const out: Record<string, CustomFieldValue> = {}
   for (const d of defs) {
     const value = v[d.key]
-    if (value === null || value === undefined || value === '') continue
-    if (typeof value === 'string' || typeof value === 'number') out[d.label] = value
+    if (isEmptyValue(value) || !storedShape(d.field_type, value)) continue
+    out[d.label] = value as CustomFieldValue
   }
   return out
+}
+
+/**
+ * Is a stored value in its type's own form (custom-field-types.ts)? A list,
+ * an object or a boolean under a text field is junk, never shown as a value.
+ */
+function storedShape(fieldType: CustomFieldType, value: unknown): boolean {
+  switch (fieldType) {
+    case 'number':
+      return typeof value === 'number'
+    case 'checkbox':
+      return typeof value === 'boolean'
+    case 'multi_select':
+    case 'relation':
+      return Array.isArray(value) && value.every((x) => typeof x === 'string')
+    case 'currency': {
+      const c = value as { amount?: unknown; currency?: unknown } | null
+      return !!c && typeof c === 'object' && !Array.isArray(c) && typeof c.amount === 'number' && typeof c.currency === 'string'
+    }
+    default:
+      // text, date, select, url, email, phone, person: a string (an old number field's number still reads).
+      return typeof value === 'string' || typeof value === 'number'
+  }
 }
 
 /** `{ custom_fields }` for a read tool's row when any value is set, else nothing (an empty widget shows nothing). */

@@ -52,6 +52,7 @@ import { useEntityDetailSync } from '@/hooks/use-entity-sync'
 import { emitEntityUpdated } from '@/lib/entity-events'
 import { CompanyDeleteDialog } from '@/components/views/bulk-actions/company-delete-dialog'
 import { ShareDialog } from '../components/share-dialog'
+import { LinkedDeals } from '@/components/crm/linked-deals'
 import { useWorkspaces } from '@/app/account/workspace-switcher'
 
 // ============================================================
@@ -139,8 +140,6 @@ interface CompanyDetailPanelProps {
   onDeleted?: () => void
   onSelectContact?: (contactId: string, name: string, event?: React.MouseEvent) => void
   onOpenCapture?: (captureId: string, title: string, event?: React.MouseEvent) => void
-  /** Open one of the company's deals (roadmap #8). */
-  onOpenDeal?: (dealId: string, name: string, event?: React.MouseEvent) => void
 }
 
 export function CompanyDetailPanel({
@@ -152,7 +151,6 @@ export function CompanyDetailPanel({
   onDeleted,
   onSelectContact,
   onOpenCapture,
-  onOpenDeal,
 }: CompanyDetailPanelProps) {
   const [company, setCompany] = useState<CompanyDetail | null>(null)
   // For the Listen brief's fallback line, read when it plays.
@@ -469,15 +467,8 @@ export function CompanyDetailPanel({
               )}
 
               {activeTab === 'deals' && (
-                // The company's deals, the same list/board as the Deals page,
-                // scoped to company_id (a registered deal filter).
-                <UnifiedViewLayout
-                  key={`company-deals-${companyId}`}
-                  entityType="deal"
-                  onItemSelect={(id, title, event) => onOpenDeal?.(id, title || 'Deal', event)}
-                  scopeFilters={peopleScopeFilters}
-                  viewScope={{ type: 'company', id: companyId }}
-                />
+                // The company's deals: the pipeline rows whose Company links it (Tables, phase 7).
+                <LinkedDeals key={`company-deals-${companyId}`} target={{ kind: 'company', id: companyId }} />
               )}
 
               {activeTab === 'agents' && (

@@ -59,6 +59,6 @@ describe('migration 446', () => {
 
   it('the log kind check is the app’s list but 450’s and 452’s', () => {
     const kinds = /add constraint agent_log_kind_check check \(kind in \(([^)]*)\)\)/.exec(BODY)?.[1].split(',').map((k) => k.trim().replace(/'/g, ''))
-    expect(kinds).toEqual(AGENT_LOG_KINDS.filter((k) => k !== 'action_done_from_mail' && k !== 'look_ahead'))
+    expect(kinds).toEqual(AGENT_LOG_KINDS.filter((k) => k !== 'action_done_from_mail' && k !== 'look_ahead' && k !== 'kept_up_to_date'))
   })
 })

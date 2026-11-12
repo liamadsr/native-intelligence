@@ -29,7 +29,7 @@
  * eve's DefaultSandbox run (the "OFF VERCEL" section). eve prepares the snapshot at `eve build`, so the build must
  * see the same three (deploy/app/build-agents.sh).
  *
- * A THIRD WAY, BUILT DARK: our own sandbox runtime on the sandbox server
+ * A THIRD WAY, PRODUCTION'S SINCE 2026-11-12: our own sandbox runtime on the sandbox server
  * (lib/runtime-sandbox.ts, provider `ni-runtime`), when
  * SANDBOX_RUNTIME_API_URL and SANDBOX_RUNTIME_TRAFFIC_URL are set (with
  * SANDBOX_RUNTIME_TEMPLATE, default ni-coding-agent; the key,
@@ -39,9 +39,8 @@
  * read for it (they stay in the environment for the cloud browser, which
  * reads the same names, until it moves too). Only the own runtime on the
  * hosted platform (VERCEL) refuses to load, and so does one URL without the
- * other. Nothing uses it until those settings are entered on the server and
- * the app is rolled out; the conformance script has passed against the real
- * runtime, and no coding run has yet used it. On it:
+ * other. With those settings empty nothing uses it; deploy/README.md ("The
+ * coding agent") says what has been proven on it. On it:
  *   - the network policy is a CREATION option (open() passes it to the
  *     runtime's create call; nothing narrows or widens it afterwards), so a
  *     narrowed run is never open, not even for a moment, and a policy the

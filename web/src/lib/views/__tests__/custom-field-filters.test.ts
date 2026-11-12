@@ -27,7 +27,7 @@ function makeQuerySpy() {
   return { query: proxy, calls }
 }
 
-async function run(field: string, operator: FilterOperator, value: unknown, entityType: ViewEntityType = 'deal') {
+async function run(field: string, operator: FilterOperator, value: unknown, entityType: ViewEntityType = 'company') {
   const { query, calls } = makeQuerySpy()
   const f: ViewFilter = { id: 'f', field, operator, value: value as ViewFilter['value'] }
   await applyFilters(query as never, entityType, [f])
@@ -183,7 +183,7 @@ describe('custom field filters', () => {
 describe('custom field sorts', () => {
   it('orders through -> with records lacking the field last', () => {
     const { query, calls } = makeQuerySpy()
-    applyOrdering(query as never, [{ field: 'custom_fields.retainer_months', direction: 'desc' }], 'deal')
+    applyOrdering(query as never, [{ field: 'custom_fields.retainer_months', direction: 'desc' }], 'company')
     expect(calls).toEqual([{ method: 'order', args: ['custom_fields->retainer_months', { ascending: false, nullsFirst: false }] }])
   })
 
@@ -191,7 +191,7 @@ describe('custom field sorts', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       for (const [field, kind] of [
-        ['custom_fields.tier;drop', 'deal'],
+        ['custom_fields.tier;drop', 'company'],
         ['custom_fields.tier', 'capture'],
         ['custom_fields.tier', undefined],
       ] as const) {
@@ -247,7 +247,7 @@ describe('a custom select board laid out by its definition', () => {
     const calls: unknown[][] = []
     const out = await layoutCustomSelectGroups(
       supabaseWith({ field_type: 'select', options: ['Brand', 'Website', 'Packaging'] }, calls) as never,
-      'ws-1', 'deal', { field: 'custom_fields.project_type', direction: 'asc' }, grouped(),
+      'ws-1', 'company', { field: 'custom_fields.project_type', direction: 'asc' }, grouped(),
     )
     expect(out.map((g) => [g.key, g.items.length])).toEqual([
       ['Brand', 0], ['Website', 1], ['Packaging', 0], ['Retired option', 1], ['__none__', 0],
@@ -256,7 +256,7 @@ describe('a custom select board laid out by its definition', () => {
       ['from', 'custom_field_definition'],
       ['select', 'field_type, options'],
       ['eq', 'workspace_id', 'ws-1'],
-      ['eq', 'entity_type', 'deal'],
+      ['eq', 'entity_type', 'company'],
       ['eq', 'key', 'project_type'],
     ])
   })
@@ -272,11 +272,11 @@ describe('a custom select board laid out by its definition', () => {
 
   it('leaves the groups alone for a non-select field, a missing one, or a kind without fields', async () => {
     const g = grouped()
-    expect(await layoutCustomSelectGroups(supabaseWith({ field_type: 'text', options: [] }) as never, 'ws-1', 'deal', { field: 'custom_fields.project_type', direction: 'asc' }, g)).toBe(g)
-    expect(await layoutCustomSelectGroups(supabaseWith(null) as never, 'ws-1', 'deal', { field: 'custom_fields.project_type', direction: 'asc' }, g)).toBe(g)
+    expect(await layoutCustomSelectGroups(supabaseWith({ field_type: 'text', options: [] }) as never, 'ws-1', 'company', { field: 'custom_fields.project_type', direction: 'asc' }, g)).toBe(g)
+    expect(await layoutCustomSelectGroups(supabaseWith(null) as never, 'ws-1', 'company', { field: 'custom_fields.project_type', direction: 'asc' }, g)).toBe(g)
     const calls: unknown[][] = []
     expect(await layoutCustomSelectGroups(supabaseWith(null, calls) as never, 'ws-1', 'capture', { field: 'custom_fields.project_type', direction: 'asc' }, g)).toBe(g)
-    expect(await layoutCustomSelectGroups(supabaseWith(null, calls) as never, 'ws-1', 'deal', { field: 'stage_id', direction: 'asc' }, g)).toBe(g)
+    expect(await layoutCustomSelectGroups(supabaseWith(null, calls) as never, 'ws-1', 'company', { field: 'stage_id', direction: 'asc' }, g)).toBe(g)
     expect(calls).toEqual([])
   })
 })

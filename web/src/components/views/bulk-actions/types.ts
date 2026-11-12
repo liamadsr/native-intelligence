@@ -99,9 +99,6 @@ export const BULK_ACTIONS: Record<ViewEntityType, BulkActionDefinition[]> = {
     { id: 'add_tags', label: 'Add tags...', icon: 'Tag', requiresValue: true, valueType: 'tags' },
     { id: 'delete', label: 'Delete', icon: 'Trash2', destructive: true },
   ],
-  // None yet: a deal moves on the board (one logged, undoable change at a
-  // time) and is deleted from its own panel.
-  deal: [],
   document: [
     { id: 'set_project', label: 'Move to project...', icon: 'Folder', requiresValue: true, valueType: 'project' },
     { id: 'pin', label: 'Pin', icon: 'Pin' },
@@ -204,6 +201,8 @@ export const BULK_ACTIONS: Record<ViewEntityType, BulkActionDefinition[]> = {
     { id: 'confirm_claim', label: 'Confirm', icon: 'Check' },
     { id: 'dismiss_claim', label: 'Dismiss', icon: 'X' },
   ],
+  // A table's rows change through its own grid and batch route.
+  data_row: [],
 }
 
 // ── API request/response types ─────────────────────────────

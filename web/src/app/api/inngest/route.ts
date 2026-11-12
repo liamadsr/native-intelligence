@@ -20,6 +20,7 @@ import {
 import { captureIngest } from '@/lib/inngest/capture-ingest'
 import { vocabularyHarvestPersonal, vocabularyHarvestWorkspace } from '@/lib/inngest/vocabulary-harvest'
 import { agentLogCaptureProcessed } from '@/lib/inngest/agent-log-capture'
+import { keptUpToDateOnCaptureProcessed } from '@/lib/inngest/kept-up-to-date'
 import { agentEventCaptureProcessed, agentEventDigest, agentEventMeetingSoon, agentEventRoute } from '@/lib/inngest/agent-events'
 import { emailAutoArchive } from '@/lib/inngest/email-auto-archive'
 import { lookAheadRun, lookAheadTravel } from '@/lib/inngest/look-ahead'
@@ -121,6 +122,7 @@ export const { GET, POST, PUT } = serve({
     vocabularyHarvestWorkspace,
     vocabularyHarvestPersonal,
     agentLogCaptureProcessed,
+    keptUpToDateOnCaptureProcessed,
     agentEventCaptureProcessed,
     agentEventMeetingSoon,
     agentEventRoute,

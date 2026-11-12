@@ -6,7 +6,7 @@ import {
 } from '@/components/ui/context-menu'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { Plus, Copy, Trash2, Pencil, Filter as FilterIcon } from 'lucide-react'
+import { Plus, Copy, Trash2, Pencil, Filter as FilterIcon, Users, Lock } from 'lucide-react'
 import {
   FILTERABLE_FIELDS, operatorLabel as describeOperator,
   type View, type ViewEntityType, type ViewFilter, type CrmScope, type LibraryScope,
@@ -25,7 +25,7 @@ import { useCustomFieldDefinitions } from './hooks/use-custom-field-definitions'
 export const ENTITY_PLURAL: Record<ViewEntityType, string> = {
   agent: 'agents', skill: 'skills',
   action: 'issues', capture: 'captures', contact: 'contacts',
-  company: 'companies', deal: 'deals', email_thread: 'threads', document: 'documents',
+  company: 'companies', email_thread: 'threads', document: 'documents',
   initiative: 'initiatives',
   project: 'projects',
   flow: 'flows',
@@ -38,6 +38,7 @@ export const ENTITY_PLURAL: Record<ViewEntityType, string> = {
   // "All knowledge", not "All claims": the built-in tab names what the reader
   // came for, and nobody navigates to Knowledge thinking about claim rows.
   claim: 'knowledge',
+  data_row: 'rows',
 }
 
 type EditMode = null | 'create' | 'edit'
@@ -123,6 +124,8 @@ interface ViewTabsProps {
   onDuplicateView: (viewId: string) => void
   onDeleteView: (viewId: string) => void
   onEditView: (viewId: string) => void
+  /** Share a view with the workspace or make it personal (a menu item only when given). */
+  onSetVisibility?: (viewId: string, visibility: 'personal' | 'workspace') => void
   entityType: ViewEntityType
   teamId?: string
   actionScope?: 'assigned' | 'created' | 'all'
@@ -150,7 +153,7 @@ interface ViewTabsProps {
 }
 
 export function ViewTabs({
-  views, activeViewId, onViewChange, onDuplicateView, onDeleteView, onEditView,
+  views, activeViewId, onViewChange, onDuplicateView, onDeleteView, onEditView, onSetVisibility,
   entityType, teamId, actionScope, onActionScopeChange, crmScope, onCrmScopeChange,
   captureScope, onCaptureScopeChange,
   libraryScope, onLibraryScopeChange,
@@ -294,6 +297,9 @@ export function ViewTabs({
               {isBeingEdited && <Pencil className="h-3 w-3" />}
               {view.icon && !isBeingEdited && <span>{view.icon}</span>}
               {isBeingEdited ? (draftName || view.name) : view.name}
+              {onSetVisibility && view.visibility === 'workspace' && !isBeingEdited && (
+                <Users className="h-3 w-3 opacity-60" aria-label="Shared with the workspace" />
+              )}
             </button>
           )
 
@@ -323,6 +329,17 @@ export function ViewTabs({
                 <ContextMenuItem onClick={() => onDuplicateView(view.id)}>
                   <Copy className="h-4 w-4 mr-2" /> Duplicate
                 </ContextMenuItem>
+                {onSetVisibility && (
+                  view.visibility === 'workspace' ? (
+                    <ContextMenuItem onClick={() => onSetVisibility(view.id, 'personal')}>
+                      <Lock className="h-4 w-4 mr-2" /> Make personal
+                    </ContextMenuItem>
+                  ) : (
+                    <ContextMenuItem onClick={() => onSetVisibility(view.id, 'workspace')}>
+                      <Users className="h-4 w-4 mr-2" /> Share with workspace
+                    </ContextMenuItem>
+                  )
+                )}
                 <ContextMenuSeparator />
                 <ContextMenuItem onClick={() => onDeleteView(view.id)} className="text-destructive">
                   <Trash2 className="h-4 w-4 mr-2" /> Delete

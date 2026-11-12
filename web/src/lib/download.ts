@@ -29,14 +29,21 @@ export function filenameFromContentDisposition(header: string | null): string | 
 }
 
 /**
- * Download `url` and save it as a file.
+ * Download `url` and save it as a file (`init`: a POST that names what to
+ * export, a table view's).
  *
  * Returns where the file went (a path on desktop, the filename in a browser),
  * or null if the user cancelled the desktop save dialog. Throws on HTTP or
  * save errors with a user-presentable message.
  */
-export async function downloadFile(url: string, fallbackName: string): Promise<string | null> {
-  const res = await fetch(url)
+export async function downloadFile(
+  url: string,
+  fallbackName: string,
+  init?: RequestInit,
+  /** The answer's headers, before the file is saved (what the export says about itself). */
+  onHeaders?: (headers: Headers) => void,
+): Promise<string | null> {
+  const res = await fetch(url, init)
   if (!res.ok) {
     let message = `Download failed (${res.status})`
     try {
@@ -48,6 +55,7 @@ export async function downloadFile(url: string, fallbackName: string): Promise<s
     throw new Error(message)
   }
 
+  onHeaders?.(res.headers)
   const fileName =
     filenameFromContentDisposition(res.headers.get('Content-Disposition')) ?? fallbackName
   const buffer = await res.arrayBuffer()

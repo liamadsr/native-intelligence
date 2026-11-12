@@ -168,6 +168,23 @@ describe('understandArrivals', () => {
     expect(consider).not.toHaveBeenCalled()
   })
 
+  it('every understood thread then goes to the record keeper, unless the to-do closer closed one from it (one change a source)', async () => {
+    Object.assign(db.rows('email_thread_index').find((r) => r.id === 'i1')!, { folder: 'inbox' })
+    const keep = vi.fn(async () => 'changed' as const)
+    const kept = vi.fn(() => ({ consider: keep, changed: () => 1 }))
+    const none = vi.fn(async () => 'none' as const)
+    expect(await run(['t1'], { mailDone: () => ({ consider: none, closed: () => 0 }), kept })).toEqual({ understood: 1, recorded: 1, kept: 1 })
+    expect(kept).toHaveBeenCalledWith(db, { workspaceId: 'ws', userId: 'u', mailbox: ME, now: '10:00 AM EDT on Tuesday, October 20, 2026', timeZone: 'America/New_York' })
+    expect(keep).toHaveBeenCalledWith({ kind: 'meeting', trust: null, folder: 'inbox', threadId: 't1', messageId: 'm1', messages: threads.t1!.messages, runId: 'i1' })
+    keep.mockClear()
+    await run(['t1'], { mailDone: () => ({ consider: vi.fn(async () => 'closed' as const), closed: () => 1 }), kept })
+    expect(keep).not.toHaveBeenCalled()
+    // Without the closer, still kept; null keeps nothing.
+    await run(['t1'], { mailDone: null, kept })
+    expect(keep).toHaveBeenCalledOnce()
+    expect(await run(['t1'], { mailDone: null, kept: null })).toEqual({ understood: 1, recorded: 0 })
+  })
+
   it('null closes nothing; the default closes nothing it cannot read', async () => {
     expect(await run(['t1'], { mailDone: null })).toEqual({ understood: 1, recorded: 1 })
     // The same message again: its event is a duplicate, and the default finds no to-dos in this fake.

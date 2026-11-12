@@ -44,7 +44,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { UserContent } from 'ai'
-import type { RunChatFileRef, RunChatTurnExtras } from './run-chat-turn-extras'
+import type { RunChatFileRef, RunChatMentions, RunChatTurnExtras } from './run-chat-turn-extras'
 import { attachedFileMediaType, attachedFileNote } from './run-chat-attachments'
 import { isRunChatPrimerText } from './run-chat-events'
 import {
@@ -57,7 +57,7 @@ import {
 import { featureGatedRecipeExclusions, resolveWorkspaceEdition } from '@/lib/editions'
 import { isFeatureGatedRecipe } from '@/lib/library/feature-gate'
 import { ATTACHED_CAPTURE_SELECT, renderAttachedCaptures, type AttachedCaptureRow } from '@/lib/ai/system-prompt'
-import { MENTIONED_RECORDS_PREAMBLE, gatherMentionedRecords } from '@/lib/ai/mentioned-records'
+import { MENTIONED_RECORDS_PREAMBLE, gatherMentionedRecords, hasMentionedRecordIds } from '@/lib/ai/mentioned-records'
 import {
   MENTIONED_COMPANIES_PREAMBLE,
   MENTIONED_PEOPLE_PREAMBLE,
@@ -504,13 +504,8 @@ export async function renderRunChatMentions(
     captureIds: string[]
     contactIds: string[]
     companyIds: string[]
-    actionIds?: string[]
-    documentIds?: string[]
-    projectIds?: string[]
-    initiativeIds?: string[]
-    studioVideoIds?: string[]
     privateCaptures: boolean
-  },
+  } & Omit<RunChatMentions, 'captureIds' | 'contactIds' | 'companyIds'>,
 ): Promise<string | null> {
   const { userId, workspaceId, privateCaptures } = args
   const requester = privateCaptures ? userId : null
@@ -523,8 +518,8 @@ export async function renderRunChatMentions(
     args.companyIds.length
       ? withinMentionBudget(() => gatherMentionedCompanyCards(service, { workspaceId, userId, requester, ids: args.companyIds }))
       : null,
-    // Actions, docs, projects and initiatives: a private doc only where the run may read private data.
-    args.actionIds?.length || args.documentIds?.length || args.projectIds?.length || args.initiativeIds?.length || args.studioVideoIds?.length
+    // The other records: a private doc, file or event only where the run may read private data.
+    hasMentionedRecordIds(args)
       ? withinMentionBudget(() =>
           gatherMentionedRecords(service, {
             workspaceId,
@@ -534,6 +529,10 @@ export async function renderRunChatMentions(
             documentIds: args.documentIds,
             projectIds: args.projectIds,
             initiativeIds: args.initiativeIds,
+            dealIds: args.dealIds,
+            flowIds: args.flowIds,
+            fileIds: args.fileIds,
+            calendarEventIds: args.calendarEventIds,
             studioVideoIds: args.studioVideoIds,
           }),
         )

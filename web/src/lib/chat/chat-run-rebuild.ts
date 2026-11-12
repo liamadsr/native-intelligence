@@ -118,6 +118,7 @@ import {
 } from '@/lib/chatgpt/plan-models'
 import { gatewayTelemetryValues, type GatewayTelemetryValues } from '@/lib/ai/gateway-telemetry'
 import { ALL_TOOL_NAMES, getToolDefinition } from '@/lib/ai/tool-registry'
+import { MENTION_RECORD_KEYS, MENTION_RECORD_KINDS } from '@/lib/search/menu-search'
 import {
   CORE_TOOL_NAMES,
   PERSON_MENTION_TOOL_NAMES,
@@ -242,7 +243,7 @@ export const TEAM_CHAT_TURN_NOTE =
   'Everyone in the channel reads your reply: keep the person\'s private details (mail, calendar, contacts, documents) out of it unless they asked for exactly that there. ' +
   'Answer like a chat message: short and plain, a short list at most; no headings and no tables. ' +
   'There are no cards or pickers in team chat: never call show or ask_user; if you need them to choose, ask in one short sentence with the options in it. ' +
-  'From team chat you can read, and change their own Native Intelligence items (tasks, notes, contacts). You cannot delete anything, send mail, touch their connected apps or set up automations here: if they ask for that, say they can ask you in their own Native Intelligence chat. ' +
+  'From team chat you can read, and change their own Native Intelligence items (tasks, notes, contacts). You cannot delete anything, send mail, touch their connected apps, set up automations or change a table here: if they ask for that, say they can ask you in their own Native Intelligence chat. ' +
   CHANNEL_REPLY_RULE
 
 /** A channel turn's turn-context line for its surface, or null for any other token. */
@@ -1061,12 +1062,11 @@ export async function rebuildChatSpec(
   const extraCoreToolNames = [
     ...(turn.systemContext?.attachedContactIds?.length ? PERSON_MENTION_TOOL_NAMES : []),
     ...(turn.systemContext?.attachedCompanyIds?.length ? COMPANY_MENTION_TOOL_NAMES : []),
-    // @-mentioned actions, docs, projects and initiatives (§6h): the tool that reads each kind.
-    ...(turn.systemContext?.attachedActionIds?.length ? RECORD_MENTION_TOOL_NAMES.action : []),
-    ...(turn.systemContext?.attachedDocumentIds?.length ? RECORD_MENTION_TOOL_NAMES.document : []),
-    ...(turn.systemContext?.attachedProjectIds?.length ? RECORD_MENTION_TOOL_NAMES.project : []),
-    ...(turn.systemContext?.attachedInitiativeIds?.length ? RECORD_MENTION_TOOL_NAMES.initiative : []),
-    ...(turn.systemContext?.attachedStudioVideoIds?.length ? RECORD_MENTION_TOOL_NAMES.studio_video : []),
+    // @-mentioned records (§6h): the tool that reads each kind present.
+    ...MENTION_RECORD_KINDS.flatMap((kind) => {
+      const ids = (turn.systemContext as Record<string, unknown> | undefined)?.[MENTION_RECORD_KEYS[kind].context]
+      return Array.isArray(ids) && ids.length ? RECORD_MENTION_TOOL_NAMES[kind] : []
+    }),
     // The agent's browser runs in the cloud, so its tools ride every surface;
     // the edition ceiling still gates whether they exist (a no-op seed on a
     // non-browser workspace), and the caller-class policy still applies.

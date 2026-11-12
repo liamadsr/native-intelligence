@@ -109,9 +109,9 @@ describe('CustomFieldsGroup on a task', () => {
     }
   })
 
-  it('a view-only deal with no fields offers no form either', async () => {
+  it('a view-only company with no fields offers no form either', async () => {
     answer = { fields: [], definitions: [], editable: false }
-    await render(<CustomFieldsGroup entityType="deal" recordId={TASK} showAddWhenEmpty />)
+    await render(<CustomFieldsGroup entityType="company" recordId={TASK} showAddWhenEmpty />)
     expect(container.innerHTML).toBe('')
   })
 })
@@ -121,7 +121,7 @@ describe('the settings kind picker', () => {
     await render(<CustomFieldKindPicker value="action" onChange={() => {}} />)
     const pills = [...container.querySelectorAll('[data-kind]')]
     expect(pills.map((p) => p.getAttribute('data-kind'))).toEqual([...CUSTOM_FIELD_ENTITIES])
-    expect(pills.map((p) => p.textContent)).toEqual(['Documents', 'Contacts', 'Projects', 'Tasks', 'Initiatives', 'Companies', 'Deals'])
+    expect(pills.map((p) => p.textContent)).toEqual(['Documents', 'Contacts', 'Projects', 'Tasks', 'Initiatives', 'Companies'])
     expect(pills.find((p) => p.getAttribute('aria-selected') === 'true')?.getAttribute('data-kind')).toBe('action')
   })
 

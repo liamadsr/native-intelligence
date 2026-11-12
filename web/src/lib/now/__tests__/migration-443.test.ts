@@ -99,7 +99,7 @@ describe('migration 443', () => {
     const listed = inList(BODY, 'agent_log_kind_check', 'kind')
     expect(listed).toEqual([...inList(flat(read('376_document_edit_meta.sql')), 'agent_log_kind_check', 'kind'), 'pr_changed', 'mail_archived'])
     expect(inList(flat(read('446_email_auto_archive.sql')), 'agent_log_kind_check', 'kind')).toEqual(listed)
-    expect(listed).toEqual(AGENT_LOG_KINDS.filter((k) => k !== 'action_done_from_mail' && k !== 'look_ahead'))
+    expect(listed).toEqual(AGENT_LOG_KINDS.filter((k) => k !== 'action_done_from_mail' && k !== 'look_ahead' && k !== 'kept_up_to_date'))
   })
 
   it("the notification types are 407's plus agent_check_in (452 adds agent_look_ahead and 454 agent_message after it)", () => {
