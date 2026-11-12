@@ -237,7 +237,7 @@ function TextEditor({ column, value, initial, onCommit, done, cancel }: EditorPr
     <input
       ref={ref}
       aria-label={column.label}
-      className={cn('h-full w-full min-w-0 bg-background px-2 text-sm outline-none ring-2 ring-inset ring-primary', numeric && 'text-right tabular-nums')}
+      className={cn('h-full w-full min-w-0 bg-background px-2 text-sm outline-none', numeric && 'text-right tabular-nums')}
       inputMode={numeric ? 'decimal' : column.field_type === 'email' ? 'email' : column.field_type === 'phone' ? 'tel' : column.field_type === 'url' ? 'url' : undefined}
       placeholder={column.field_type === 'currency' ? fieldCurrency(column.config) : undefined}
       value={draft}
@@ -278,7 +278,9 @@ function DateEditor({ column, value, initial, onCommit, done, cancel }: EditorPr
   return (
     <Popover open onOpenChange={(open) => !open && finish(draft.trim() || null)}>
       <PopoverAnchor asChild>
-        <div className="h-full w-full ring-2 ring-inset ring-primary" />
+        <div className="flex h-full w-full items-center bg-background">
+          <CellDisplay column={column} value={original || null} labels={{}} />
+        </div>
       </PopoverAnchor>
       <PopoverContent align="start" sideOffset={2} className="w-auto rounded-xl p-1">
         <input
@@ -381,10 +383,14 @@ function PickerEditor({ column, value, initial, labels, members, onCommit, done,
     done(null)
   }
 
+  // The cell keeps showing its value while the picker is open.
+  const shown = t === 'relation' ? picked : t === 'multi_select' ? picked : picked[0] ?? null
   return (
     <Popover open onOpenChange={(open) => !open && close()}>
       <PopoverAnchor asChild>
-        <div className="h-full w-full ring-2 ring-inset ring-primary" />
+        <div className="flex h-full w-full items-center bg-background">
+          <CellDisplay column={column} value={Array.isArray(shown) && !shown.length ? null : shown} labels={labels} />
+        </div>
       </PopoverAnchor>
       <PopoverContent align="start" sideOffset={2} className="w-64 rounded-xl p-1" data-cell-picker="">
         <input

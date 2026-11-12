@@ -316,19 +316,21 @@ export function CellGrid<R>(props: CellGridProps<R>) {
     }
     return toTsv(out)
   }
+  /** A dialog or menu input (portaled, bubbling through React) is not the grid. */
+  const outside = (e: React.SyntheticEvent) => !scrollRef.current?.contains(e.target as Node)
   const onCopy = (e: React.ClipboardEvent<HTMLDivElement>) => {
-    if (editingRef.current || !rows.length) return
+    if (editingRef.current || !rows.length || outside(e)) return
     e.clipboardData.setData('text/plain', rangeText())
     e.preventDefault()
   }
   const onCut = (e: React.ClipboardEvent<HTMLDivElement>) => {
-    if (editingRef.current || !rows.length) return
+    if (editingRef.current || !rows.length || outside(e)) return
     e.clipboardData.setData('text/plain', rangeText())
     e.preventDefault()
     if (!readOnly) props.onClear?.(selectionRange(selection))
   }
   const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
-    if (editingRef.current || readOnly || !props.onPaste) return
+    if (editingRef.current || readOnly || !props.onPaste || outside(e)) return
     const block = parseTsv(e.clipboardData.getData('text/plain'))
     e.preventDefault()
     if (!block.length) return
@@ -616,9 +618,10 @@ function HeaderCell({
         sticky ? 'sticky left-0 z-10' : 'absolute',
       )}
       style={sticky ? { width } : { left, width }}
-      onPointerDown={(e) => onPointerDown(e, index)}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
+      // A menu the header opens is portaled, but its events bubble here through React: not the header's.
+      onPointerDown={(e) => e.currentTarget.contains(e.target as Node) && onPointerDown(e, index)}
+      onPointerMove={(e) => e.currentTarget.contains(e.target as Node) && onPointerMove(e)}
+      onPointerUp={(e) => e.currentTarget.contains(e.target as Node) && onPointerUp(e)}
     >
       <div className="min-w-0 flex-1 overflow-hidden">{col.header}</div>
       {onResize && (
@@ -683,7 +686,7 @@ const GridRow = memo(
           ) : (
             ctx.current.renderCell(row, column, rowIndex)
           )}
-          {isActive && !isEditing && <span aria-hidden className="pointer-events-none absolute inset-0 border-2 border-primary" />}
+          {(isActive || isEditing) && <span aria-hidden className="pointer-events-none absolute inset-0 z-[1] border-2 border-primary" />}
         </div>
       )
     }
