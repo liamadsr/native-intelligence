@@ -304,7 +304,7 @@ describe('starting a call with notes on', () => {
     expect(json.call).toMatchObject({ memberId: ME, features: { notes: true, recording: true }, notes: { notes: true, notes_by: ME, notes_state: 'capturing' } })
   })
 
-  it('not asked, or not offered: no notes', async () => {
+  it('Egress’s notes (the recorder off): not asked, or not offered: no notes', async () => {
     tables.team_call.splice(0)
     h.rpc.team_call_start = { data: [{ call_id: CALL, room: `tc-${CALL}`, message_id: MSG, created: true }], error: null }
     await startCall(post('/api/account/team-calls', { channelId: CH }))
@@ -382,6 +382,51 @@ describe('the call recorder takes the notes (TEAM_CALL_RECORDER=on)', () => {
     // Nothing to stop here (no Egress); the drain of the outbox the database just filled is asked for.
     expect(h.events).toEqual([{ name: 'team-calls/eject.requested', data: {} }])
     expect(h.svcRpcs).toEqual([])
+  })
+
+  it('every new call takes notes from its start, whoever starts it and whatever the client asks: a channel’s, a DM’s, a meeting link’s or a booking’s meeting', async () => {
+    const OTHER = '99999999-9999-4999-8999-999999999999'
+    for (const [kind, dm_key, asked] of [
+      ['channel', null, undefined],
+      ['dm', [ME, OTHER].sort().join(':'), false],
+      ['meeting', null, undefined],
+    ] as const) {
+      tables.team_call.splice(0)
+      tables.team_chat_channel[0] = { id: CH, workspace_id: WS, kind, name: kind === 'channel' ? 'launch' : null, dm_key, archived_at: null }
+      h.rpcs = []
+      h.svcRpcs = []
+      h.rpc.team_call_start = { data: [{ call_id: CALL, room: `tc-${CALL}`, message_id: MSG, created: true }], error: null }
+      h.rpc.team_call_set_notes = { data: [{ notes: true, notes_round: 1, changed: true }], error: null }
+      h.rpc['svc:team_call_capture_ensure'] = { data: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', error: null }
+      // The iPhone app sends no `notes`; the browser and the desktop app may send false.
+      const res = await startCall(post('/api/account/team-calls', asked === undefined ? { channelId: CH } : { channelId: CH, notes: asked }))
+      const body = await res.json()
+      expect(res.status, kind).toBe(200)
+      // Round 1 on, as the starter (567), and its capture made now: the recorder's work list offers the call (588).
+      expect(h.rpcs.filter((r) => r[0] === 'team_call_set_notes'), kind).toEqual([['team_call_set_notes', { target_call: CALL, turn_on: true }]])
+      expect(h.svcRpcs.map((r) => r[0]), kind).toContain('team_call_capture_ensure')
+      expect(body.call.notes, kind).toMatchObject({ notes: true, notes_by: ME, notes_state: 'capturing', capture_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' })
+      // The starter's own microphone is never held.
+      expect(body.join.canPublish, kind).toBe(true)
+    }
+  })
+
+  it('joining a live call (a second start, a rejoin) never changes its notes: off by the switch stays off', async () => {
+    tables.team_call[0] = call({ notes: false, notes_state: 'none' })
+    h.rpc.team_call_start = { data: [{ call_id: CALL, room: `tc-${CALL}`, message_id: MSG, created: false }], error: null }
+    const res = await startCall(post('/api/account/team-calls', { channelId: CH }))
+    expect((await res.json()).call.notes).toMatchObject({ notes: false })
+    expect(h.rpcs.map((r) => r[0])).toEqual(['team_call_start'])
+  })
+
+  it('a member joining with the notes on, someone else’s: no notice, the microphone goes at once; a recording still waits for the notice', async () => {
+    const tokenReq = () => new Request('http://localhost/t', { method: 'POST', headers: { 'content-type': 'application/json' } })
+    tables.team_call[0] = call({ notes: true, notes_by: 'someone-else', notes_state: 'capturing' })
+    const joined = await (await token(tokenReq(), params)).json()
+    expect(joined.join.canPublish).toBe(true)
+    expect((await new TokenVerifier(KEY, SECRET).verify(joined.join.token)).video).toMatchObject({ canPublish: true })
+    tables.team_call[0] = call({ notes: true, notes_by: 'someone-else', notes_state: 'capturing', recording: 'on', recording_by: 'someone-else' })
+    expect((await (await token(tokenReq(), params)).json()).join.canPublish).toBe(false)
   })
 
   it('a new call started with notes on gets its capture at once, and says the notes are live', async () => {

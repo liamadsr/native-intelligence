@@ -19,11 +19,14 @@
  *
  *   - follows the active call's own row (team_call over Realtime) for its
  *     notes and recording (phase 6): the panel's "Notes are on" and
- *     recording indicators, for everyone in the call at once. A call joined
- *     with notes on holds the microphone back until the person has seen
- *     that (the panel's notice); a new call starts with notes on when the
+ *     recording indicators, for everyone in the call at once. Where the
+ *     call recorder takes the notes, every call starts with them on (the
+ *     server's choice) and nobody's microphone is held for them: the
+ *     badge says they are on. Where Egress takes them, a call joined with
+ *     notes on holds the microphone back until the person has seen that
+ *     (the panel's notice), and a new call starts with notes on when the
  *     starter's "Auto-record meetings" setting is (the desktop app's own
- *     switch; a browser has none, so off).
+ *     switch; a browser has none, so off). A recording always holds it.
  *
  * The team chat view (its call buttons, a call's message with Join) reads
  * all of this through useTeamCalls().
@@ -242,7 +245,7 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
     })
     setMinimized(false)
     session.setNotesMode(call.notes.notes)
-    // Held for the notice: the notes are on by someone else, it is being recorded, or the server gave a listen-only token.
+    // Held for the notice: it is being recorded, Egress's notes are on by someone else, or the server gave a listen-only token.
     void session.connect(join, { holdMic: holdMicOnJoin(call) || join.canPublish === false })
   }, [])
 
@@ -361,14 +364,15 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
           setMinimized(false)
           return
         }
-        const res = await requestStart(channel.id, features.notes && (await autoRecordOn()))
+        // The recorder's notes are the server's to turn on (every call); Egress's, the starter's setting.
+        const res = await requestStart(channel.id, features.notes && !features.liveNotes && (await autoRecordOn()))
         if (!res.ok) {
           toast(callFailureLine(res.why))
           return
         }
         await switchInto(res.call, res.join, channel.label)
       }),
-    [run, switchInto, features.notes],
+    [run, switchInto, features.notes, features.liveNotes],
   )
 
   const joinCall = useCallback<TeamCallsApi['joinCall']>(

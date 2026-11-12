@@ -123,6 +123,13 @@ struct TeamCall: Codable, Identifiable, Equatable {
 
     /// What the person is told before they talk in it, or nil (TeamCallNotice).
     var notice: String? { TeamCallNotice.line(notes: notes, recording: recording) }
+
+    /// The same, where the server says who takes the notes: the call recorder's notes (`liveNotes`)
+    /// hold no member back (every call takes them; the "Notes are on" badge says so), a recording
+    /// still does. Egress's notes are said first, as before.
+    func notice(liveNotes: Bool) -> String? {
+        TeamCallNotice.line(notes: notes && !liveNotes, recording: recording)
+    }
 }
 
 /// One member in (or once in) a call.

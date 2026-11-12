@@ -254,6 +254,8 @@ git clone --depth 1 --filter=blob:none --sparse <repository URL> /opt/native-int
 cd /opt/native-intelligence && git sparse-checkout set deploy
 ```
 
+(Later steps add the folders they need with `git sparse-checkout add`: `web/supabase/functions web/supabase/templates` at step 14, `web` at step 20, `recorder` for the call recorder, step 23's R3. Never `set` again: it would take those away.)
+
 What ends up where:
 
 ```text
@@ -1487,10 +1489,20 @@ sudo awk -F= '/^(RECORDER_|CAPTURE_FEED_)/ { print $1, length(substr($0, length(
 
 `RECORDER_APP_URL`, `CAPTURE_FEED_SECRET` (48) and `RECORDER_DEEPGRAM_API_KEY` must each print a number above 0 (`RECORDER_MAX_CALLS` may stay empty).
 
-**R3. Build it and start it.** In `livekit/.env`, uncomment `COMPOSE_PROFILES=recorder` (with Egress on as well: `COMPOSE_PROFILES=egress,recorder`), then build it on the server and start it; LiveKit itself is not restarted by this unless its own settings changed:
+**R3. Build it and start it.** The server's checkout is sparse (step 7 sets it to `deploy`, later steps add `web`): the recorder's source has to be added to it first, as the checkout's owner (not with sudo):
 
 ```bash
-sudo docker compose up -d --build recorder
+cd /opt/native-intelligence && git sparse-checkout add recorder
+```
+
+Then, in `livekit/.env`, uncomment `COMPOSE_PROFILES=recorder` (with Egress on as well: `COMPOSE_PROFILES=egress,recorder`), and build its image on the server with Docker itself, then start it from that image. (`sudo docker compose up -d --build recorder` fails in a shell that is not interactive: Compose's build step asks for leave to read outside the project folder, "additional privileges requested: pass --allow=fs.read=…", and `COMPOSE_BAKE=false` did not change that on the server's Compose.) LiveKit itself is not restarted by this unless its own settings changed:
+
+```bash
+sudo docker build -t ni-recorder:local ../../recorder
+```
+
+```bash
+sudo docker compose up -d --no-build recorder
 ```
 
 ```bash
@@ -1534,7 +1546,7 @@ Run these from the stack's own folder. The Supabase stack has its own commands (
 | Upgrade Inngest | Read the release notes, change the image tag in `inngest/compose.yaml`, then `sudo docker compose pull inngest && sudo docker compose up -d inngest` |
 | Patch Postgres, Redis, Caddy | `sudo docker compose pull && sudo docker compose up -d` (they follow `17`, `7` and `2.11`) |
 | Upgrade LiveKit | Read the [release notes](https://github.com/livekit/livekit/releases), change the image tag in `livekit/compose.yaml`, then `sudo docker compose pull livekit && sudo docker compose up -d livekit` in `livekit/`. Calls in progress end; people join again. Egress the same way ([its notes](https://github.com/livekit/egress/releases), service `egress`); it finishes its recordings first. |
-| Take a change to the call recorder (`recorder/`) | After `git pull`: `sudo docker compose up -d --build recorder` in `livekit/` (with its profile on in `.env`). The old process delivers its calls' last words and leaves; the new one takes the calls up within seconds (what was said in between is not in the notes). |
+| Take a change to the call recorder (`recorder/`) | After `git pull` (the checkout must have `recorder` in its sparse list: R3), in `livekit/` (with its profile on in `.env`): `sudo docker build -t ni-recorder:local ../../recorder`, then `sudo docker compose up -d --no-build recorder` (not `--build`: see R3). The old process delivers its calls' last words and leaves; the new one takes the calls up within seconds (what was said in between is not in the notes). |
 | Ship the app | In `app/`: `git pull` in the checkout as its owner, then `sudo ./deploy.sh` ([`app/README.md`](app/README.md#deploysh)) |
 | Go back to the app's previous image | `sudo ./deploy.sh --rollback` in `app/` |
 | Automatic deploys of `main` (off unless switched on) | `sudo ./auto-deploy.sh status` in `app/` says what serves and what holds them; `on`, `off` and the rest in [`app/README.md`](app/README.md#automatic-deploys). While they deploy, `deploy.sh` by hand stops at once (one deploy at a time). |

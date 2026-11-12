@@ -38,6 +38,8 @@ final class TeamCallCenter: ObservableObject {
 
     /// Calling is on here (the LiveKit settings set on the server).
     @Published private(set) var available = false
+    /// The call recorder takes the notes on the server: no member is held for them (only a recording is said first).
+    private(set) var liveNotes = false
     /// The call the person is in (connecting, in it, or reconnecting).
     @Published private(set) var session: TeamCallSession?
     /// Its screen is up (false: the bar).
@@ -119,6 +121,7 @@ final class TeamCallCenter: ObservableObject {
         do {
             let out = try await api.availability()
             available = out.available
+            liveNotes = out.liveNotes
             guard available else { return }
             for ring in out.rings { heard(ring) }
             // Rings ringing here that the server no longer lists: their rows say how they ended.
@@ -206,7 +209,7 @@ final class TeamCallCenter: ObservableObject {
         case .switchCalls, .join:
             break
         }
-        if let callId, !noticeSeen, let line = await api.callRow(callId)?.notice {
+        if let callId, !noticeSeen, let line = await api.callRow(callId)?.notice(liveNotes: liveNotes) {
             confirming = TeamCallConfirm(channelId: channelId, callId: callId, kind: kind, label: label, line: line)
             return
         }
@@ -497,7 +500,7 @@ final class TeamCallCenter: ObservableObject {
             if !appOnly.contains(uuid), e.ringId == nil { callKit.reportConnected(uuid) }
             // Joined without saying they saw a notes or recording notice (answered on a locked phone,
             // a call started where notes were on): listening, told why, until they unmute.
-            if !noticesSeen.contains(uuid), let callId = s.callId, let line = await api.callRow(callId)?.notice {
+            if !noticesSeen.contains(uuid), let callId = s.callId, let line = await api.callRow(callId)?.notice(liveNotes: liveNotes) {
                 await s.holdForNotice(line)
             }
         }

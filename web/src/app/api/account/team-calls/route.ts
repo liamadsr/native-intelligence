@@ -20,12 +20,16 @@
  *        arrived) is ended and a new one started. `join` is the
  *        address and a ten-minute token for the room (src/lib/team-calls/
  *        livekit.ts); the API secret never leaves the server.
- *        `notes: true` (the starter's "Auto-record meetings" setting is on)
- *        starts a NEW call with its notes on, where the server offers notes
- *        (the call recorder, or LIVEKIT_EGRESS=on and a Deepgram key; the
- *        recorder's notes get their capture at once); joining a live call never
- *        changes its notes. The answer carries what the server offers
- *        (`features`) and the call's notes and recording (`notes`).
+ *        A NEW call starts with its notes on wherever the call recorder takes
+ *        them (TEAM_CALL_RECORDER): every call, whoever starts it and from
+ *        whatever client (web, desktop, iPhone, a meeting link's or a
+ *        booking's meeting), with its capture at once; the in-call switch
+ *        still turns them off and on. Where Egress takes the notes
+ *        (LIVEKIT_EGRESS=on and a Deepgram key), only when the starter asks
+ *        (`notes: true`, the desktop app's "Auto-record meetings").
+ *        Joining a live call never changes its notes. The answer carries what
+ *        the server offers (`features`) and the call's notes and recording
+ *        (`notes`).
  * As the person, under RLS, for every read and the start; the room's
  * failure and a stale call's end run with the service role.
  */
@@ -43,6 +47,7 @@ import { callsUnreachable, joinAnswer, joinsListenOnly, memberIn, notesViewOf, r
 import { teamCallFeatures } from '@/lib/team-calls/egress'
 import { setNotes } from '@/lib/team-calls/notes-store'
 import { ensureCallCapture } from '@/lib/team-calls/recorder'
+import { newCallTakesNotes } from '@/lib/team-calls/notes'
 import { liveRingPushDeps, pushRings } from '@/lib/team-calls/ring-push'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -121,7 +126,7 @@ export async function POST(request: NextRequest) {
     }
     const features = teamCallFeatures()
     let notes = notesViewOf(null)
-    if (started.created && input.notes === true && features.notes) {
+    if (started.created && newCallTakesNotes(features, input.notes)) {
       try {
         const on = await setNotes(auth.supabase, started.callId, true)
         // The recorder's notes (src/lib/team-calls/recorder.ts): the call's capture, from now on.
@@ -139,7 +144,7 @@ export async function POST(request: NextRequest) {
       room: started.room,
       memberId: me.id,
       name: me.display_name,
-      listenOnly: joinsListenOnly(notes, me.id, input.noticeSeen),
+      listenOnly: joinsListenOnly(notes, me.id, input.noticeSeen, features),
     })
     const messageId = started.messageId
     after(async () => {
