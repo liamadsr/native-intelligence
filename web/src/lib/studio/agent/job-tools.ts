@@ -153,7 +153,7 @@ async function jobAnswer(ctx: StudioContext, row: JobRow, videoAnswer: VideoAnsw
     ...(video ? { video } : {}),
     ...(row.status === 'completed' && opts.frames && row.kind === 'stills' ? await stillsImage(ctx, row) : {}),
     // A finished measured check: its report, compact, and its key picture (./check-answer.ts).
-    ...(row.status === 'completed' && (row.kind === 'motion' || row.kind === 'review' || row.kind === 'look') ? await (await import('./check-answer')).checkAnswer(ctx, row) : {}),
+    ...(row.status === 'completed' && (row.kind === 'motion' || row.kind === 'review' || row.kind === 'look') ? await (await import('./check-answer')).checkAnswer(ctx, row, { picture: opts.frames }) : {}),
     // A finished sound job: what it placed, or what listening measured, compact; waited for, a listen shows its sheet (./sound-view.ts).
     ...(row.status === 'completed' && ['sounds', 'sound-import', 'listen', 'sound-bank'].includes(row.kind) ? await (await import('./sound-view')).soundAnswer(ctx, row, opts) : {}),
     ...(ended ? { note: `The ${row.kind} job ${row.status === 'failed' ? 'failed' : 'was cancelled'}${row.error ? `: ${row.error}` : '.'}` } : {}),

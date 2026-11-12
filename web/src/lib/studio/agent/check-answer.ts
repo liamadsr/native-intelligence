@@ -105,12 +105,15 @@ async function fileBytes(ctx: StudioContext, key: string): Promise<Buffer> {
   return Buffer.concat(parts)
 }
 
-/** A finished check's answer: `report` (compact) and its key picture as the tool image, or a note when it can't be shown. */
-export async function checkAnswer(ctx: StudioContext, row: JobRow): Promise<Record<string, unknown>> {
+/** A finished check's answer: `report` (compact) and, when `opts.picture`, its key picture as the tool image, or a note when it can't be shown. */
+export async function checkAnswer(ctx: StudioContext, row: JobRow, opts: { picture: boolean } = { picture: true }): Promise<Record<string, unknown>> {
   const report = compactCheck(row)
   if (!report) return {}
   const key = checkImageKey(row)
   if (!key) return { report }
+  // Only a tool whose pictures reach the model as pictures may carry one (the chat agent's list: render_studio_stills
+  // and wait_for_studio_job). From any other, the image would cross as text: tens of thousands of tokens of base64.
+  if (!opts.picture) return { report, picture: 'Call wait_for_studio_job with this job id to see its picture.' }
   if (process.env.STUDIO_AGENT_FRAMES === 'off') return { report, picture: "The check's picture can't be shown to you in this environment; work from the numbers, and ask the person to look in the Studio." }
   try {
     const image = await imageForModel(await fileBytes(ctx, key))

@@ -414,11 +414,16 @@ export async function runTool(
  * (agents/chat-agent/lib/chat-image-output.ts). It is how the chat's photos
  * reach the model at all: never as a file part on the message, which makes eve
  * provision a sandbox.
- * A no-op for every other tool and for non-image attachments.
+ * So are the Studio's frames and check pictures (render_studio_stills, wait_for_studio_job), on the same keys.
+ * From every other tool the keys are dropped: the proxy would hand them to the model as text.
+ * A no-op for an output without them.
  */
+export const CHAT_IMAGE_TOOLS: ReadonlySet<string> = new Set(['read_chat_file', 'render_studio_stills', 'wait_for_studio_job'])
+
 export function sanitizeOutput(toolName: string, output: unknown): unknown {
-  if (toolName !== 'get_attachment_content') return output
-  if (!output || typeof output !== 'object') return output
+  if (CHAT_IMAGE_TOOLS.has(toolName)) return output
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return output
+  if (!('__imageBase64' in output) && !('__imageMimeType' in output)) return output
   const clean = { ...(output as Record<string, unknown>) }
   delete clean.__imageBase64
   delete clean.__imageMimeType
