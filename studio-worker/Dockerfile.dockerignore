@@ -1,0 +1,13 @@
+# The image is built from the repository's root (see Dockerfile): send Docker only what
+# it copies.
+*
+!studio-worker/package.json
+!studio-worker/package-lock.json
+!studio-worker/tsconfig.json
+!studio-worker/src
+!studio-worker/python
+!studio-worker/engine-deps/package.json
+!studio-worker/engine-deps/package-lock.json
+!web/src/lib/studio/engine
+!web/src/lib/studio/server/job-contract.ts
+!web/src/lib/studio/server/ads-contract.ts

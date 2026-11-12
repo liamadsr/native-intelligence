@@ -139,6 +139,16 @@ const APP_COMMANDS: &[&str] = &[
     "voice_status",
     "voice_stop",
     "auth_web_session_cmd",
+    "studio_recorder_cancel",
+    "studio_recorder_discard",
+    "studio_recorder_hide_control",
+    "studio_recorder_permissions",
+    "studio_recorder_request_permissions",
+    "studio_recorder_show_control",
+    "studio_recorder_start",
+    "studio_recorder_stop",
+    "studio_recorder_targets",
+    "studio_recorder_upload",
 ];
 
 /// Release builds read capabilities/default.json alone; debug builds add

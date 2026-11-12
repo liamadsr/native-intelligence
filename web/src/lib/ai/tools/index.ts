@@ -20,6 +20,12 @@ import { createCycleTools } from './cycles'
 import { createAvailabilityTools } from './availability'
 import { createTimeOfferTools } from './time-offers'
 import { createBookingLinkTools } from './booking-links'
+import { createStudioTools } from './studio'
+import { createStudioAdsTools } from './studio-ads'
+import { createStudioCheckTools } from './studio-checks'
+import { createStudioMediaTools } from './studio-media'
+import { createStudioSoundTools } from './studio-sound'
+import { createStudioVisionTools } from './studio-vision'
 import { createCalendarTools } from './calendar'
 import { createEmailTools } from './email'
 import { createCommentTools } from './comments'
@@ -458,6 +464,20 @@ export function createTools(
     // Booking links: standing public pages to book time with the person or their team (src/lib/booking-links/).
     // Making and changing one is attended only (ATTENDED_ONLY_TOOL_NAMES): the ceiling keeps them out of unattended runs.
     ...createBookingLinkTools(userId, workspaceId),
+    // Studio (migration 620): Studio projects, their videos and the editor's own write path (src/lib/studio/).
+    // Internal artifact writes on the workspace's own Studio rows; a workspace guest is refused in each tool.
+    ...createStudioTools(userId, workspaceId),
+    // Studio ads (src/lib/ai/tools/studio-ads.ts): a Studio project's brand kit, static ads and motion ads made from it.
+    ...createStudioAdsTools(userId, workspaceId),
+    // Studio paid media (src/lib/ai/tools/studio-media.ts): narration, generated shots, costs. The two that spend the
+    // person's own provider credits run only as their approved call (the outward gate holds them; spend-card.ts).
+    ...createStudioMediaTools(userId, workspaceId, { approvedCall: options?.approvedCall }),
+    // Studio's measured checks (src/lib/ai/tools/studio-checks.ts): motion, review and the visual check, each a worker job.
+    ...createStudioCheckTools(userId, workspaceId),
+    // Studio vision (src/lib/ai/tools/studio-vision.ts): cut-outs, the director pass, face-aware formats (macOS Vision in the worker).
+    ...createStudioVisionTools(userId, workspaceId),
+    // Studio sound (src/lib/ai/tools/studio-sound.ts): the sound pass, chosen and imported sounds, the bank, listening (earshot in the worker).
+    ...createStudioSoundTools(userId, workspaceId),
     ...createEmailTools(userId, workspaceId, strict, createPolicy, options?.automaticDrafts ?? false, {
       approvedCall: options?.approvedCall,
       ...(options?.flowContext?.turnReadOutside ? { turnReadOutside: options.flowContext.turnReadOutside } : {}),

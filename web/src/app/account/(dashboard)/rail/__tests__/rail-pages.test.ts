@@ -56,7 +56,7 @@ describe('the rail pages', () => {
 
   it('keep the reference order first, then the customers and the agents (Liam, 11-11: Drive and Agents took the plans section’s pages)', () => {
     expect(RAIL_PAGES.map((d) => d.id)).toEqual([
-      'drive', 'mail', 'team-chat', 'actions', 'calendar',
+      'drive', 'mail', 'team-chat', 'actions', 'calendar', 'studio',
       'contacts', 'outreach',
       'agents',
     ])
@@ -180,10 +180,10 @@ describe('the person’s bar (railLayout)', () => {
   it('puts a page the prefs don’t mention (new, or just turned on) in its default place, pinned', () => {
     // Saved before Calendar and Captures existed: calendar lands after actions, captures after it.
     const order = ['mail', 'drive', 'team-chat', 'actions', ...ids.filter((id) => !['mail', 'drive', 'team-chat', 'actions', 'calendar', 'captures'].includes(id))]
-    expect(all({ order, hidden: [] }).slice(0, 6)).toEqual(['mail', 'drive', 'team-chat', 'actions', 'calendar', 'contacts'])
-    // Each after the page before it by default, wherever that one stands: Drive (first) first, Contacts after Calendar.
+    expect(all({ order, hidden: [] }).slice(0, 6)).toEqual(['mail', 'drive', 'team-chat', 'actions', 'calendar', 'studio'])
+    // Each after the page before it by default, wherever that one stands: Drive (first) first, Studio after Calendar.
     const partial = all({ order: ['calendar', 'mail'], hidden: [] })
-    expect(partial.slice(0, 3)).toEqual(['drive', 'calendar', 'contacts'])
+    expect(partial.slice(0, 3)).toEqual(['drive', 'calendar', 'studio'])
     expect(partial.slice(partial.indexOf('mail'), partial.indexOf('mail') + 3)).toEqual(['mail', 'team-chat', 'actions'])
     expect(partial).toHaveLength(ids.length)
     expect(shown({ order: ['calendar', 'mail'], hidden: [] })).toContain('agents')
@@ -192,7 +192,7 @@ describe('the person’s bar (railLayout)', () => {
   it('skips saved ids the workspace doesn’t offer (a page turned off, one that is gone)', () => {
     const noMail = offered(withEffectiveSurface(full, { email: 'off' }))
     const layout = railLayout(noMail, { order: ['gone-page', 'mail', 'calendar', 'docs'], hidden: ['mail', 'gone-page'] })
-    expect(layout.all.map((p) => p.def.id).slice(0, 2)).toEqual(['calendar', 'contacts'])
+    expect(layout.all.map((p) => p.def.id).slice(0, 2)).toEqual(['calendar', 'studio'])
     expect(layout.all).toHaveLength(noMail.length)
     expect(layout.shown).toHaveLength(noMail.length)
     expect(all({ order: ['gone-page', 'mail', 'calendar', 'docs'], hidden: [] }, noMail)).not.toContain('mail')
@@ -215,7 +215,8 @@ describe('a bar saved while Projects and Initiatives had icons (Liam, 11-11: the
       'docs', 'mail', 'team-chat', 'actions', 'calendar', 'captures', 'projects', 'initiatives',
       'knowledge', 'flows', 'companies', 'contacts', 'deals', 'prospecting', 'sequences', 'campaigns', 'agents', 'evals', 'teams',
     ]
-    expect(railLayout(pages, { order: oldDefault, hidden: [] }).all.map((p) => p.def.id)).toEqual(['drive', 'mail', 'team-chat', 'actions', 'calendar', 'agents', 'contacts', 'outreach'])
+    // Studio, newer than that order, takes its default place after Calendar.
+    expect(railLayout(pages, { order: oldDefault, hidden: [] }).all.map((p) => p.def.id)).toEqual(['drive', 'mail', 'team-chat', 'actions', 'calendar', 'studio', 'agents', 'contacts', 'outreach'])
     // Teams had an icon too (Liam, 11-11: it nests under My Actions now): its id is skipped, shown or hidden.
     expect(railLayout(pages, { order: oldDefault, hidden: ['teams'] }).shown.map((p) => p.def.id)).not.toContain('teams')
     expect(railLayout(pages, { order: oldDefault, hidden: ['teams'] }).shown).toHaveLength(pages.length)
@@ -444,7 +445,7 @@ describe('a bar saved before the page groups (Liam, 11-11)', () => {
     expect(moved.order).not.toContain('deals')
     expect(moved.hidden).toEqual(['calendar', 'availability', 'captures'])
     // Moving past a hidden group counts it hidden.
-    expect(moveRailPageBy({ order: [], hidden: ['calendar', 'availability', 'captures'] }, ids, 'contacts', -1)!.order.slice(0, 5)).toEqual(['drive', 'mail', 'team-chat', 'contacts', 'actions'])
+    expect(moveRailPageBy({ order: [], hidden: ['calendar', 'availability', 'captures', 'studio'] }, ids, 'contacts', -1)!.order.slice(0, 5)).toEqual(['drive', 'mail', 'team-chat', 'contacts', 'actions'])
   })
 })
 

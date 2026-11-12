@@ -91,6 +91,10 @@ const SIGNALS: Array<{ label: string; re: RegExp }> = [
  */
 const REVIEWED_IN_CEILING: Record<string, string> = {
   // writes that stop short of anything external
+  make_studio_motion_ad:
+    '"push" is a camera move (a slow zoom on a shot); it renders a video into the Studio\'s own library and publishes nothing',
+  make_studio_reel:
+    '"push" is a camera move on each shot; it renders a reel into the Studio\'s own library and publishes nothing',
   update_document:
     '"published" describes the internal wiki doc state it edits; no third party sees or receives anything',
   propose_document_edit: 'stages a draft edit; its description says it does NOT publish (publish_draft is excluded)',

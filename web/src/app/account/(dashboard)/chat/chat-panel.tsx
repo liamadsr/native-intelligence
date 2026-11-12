@@ -424,6 +424,8 @@ export interface SystemContext {
   attachedDocumentIds?: string[]
   attachedProjectIds?: string[]
   attachedInitiativeIds?: string[]
+  /** Studio videos @-mentioned in the turn. */
+  attachedStudioVideoIds?: string[]
   /** True when the turn is sent from the desktop app. Gates advertising the
    *  in-app browser tools (they can only run on the desktop). */
   isDesktopClient?: boolean
@@ -2311,6 +2313,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
     const documentIds = recordIds('document')
     const projectIds = recordIds('project')
     const initiativeIds = recordIds('initiative')
+    const studioVideoIds = recordIds('studio_video')
     return {
       systemContext: {
         ...turn.context,
@@ -2323,6 +2326,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
         ...(documentIds.length > 0 ? { attachedDocumentIds: documentIds } : {}),
         ...(projectIds.length > 0 ? { attachedProjectIds: projectIds } : {}),
         ...(initiativeIds.length > 0 ? { attachedInitiativeIds: initiativeIds } : {}),
+        ...(studioVideoIds.length > 0 ? { attachedStudioVideoIds: studioVideoIds } : {}),
         ...(turn.selection ? { editorSelection: turn.selection } : {}),
         ...(turn.contextSwitched ? { contextSwitched: true } : {}),
         // Pass file metadata so the AI knows about uploadable files

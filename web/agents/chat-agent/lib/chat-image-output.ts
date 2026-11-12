@@ -1,6 +1,6 @@
 /**
  * What the model sees of a photo a tool reads back: read_chat_file on an image
- * the person uploaded in chat.
+ * the person uploaded in chat, and the Studio's rendered frames.
  *
  * The chat's photos never ride the user's message: an eve file part makes the
  * framework provision a sandbox (harness/attachment-staging.js), and this agent
@@ -21,7 +21,9 @@ import type { ReadFileToolOutput } from 'eve/tools/read_file'
 import { isMacHost } from './host.js'
 
 /** The tools whose result can carry a photo for the model. */
-export const CHAT_IMAGE_TOOL_NAMES: ReadonlySet<string> = new Set(['read_chat_file'])
+// And the Studio's frames (render_studio_stills, and wait_for_studio_job on a frames job:
+// src/lib/studio/agent/job-tools.ts): the agent looks at the video it is editing.
+export const CHAT_IMAGE_TOOL_NAMES: ReadonlySet<string> = new Set(['read_chat_file', 'render_studio_stills', 'wait_for_studio_job'])
 
 /** The note a model that can't read the image gets in its place. */
 export const CHAT_IMAGE_NOT_SHOWN =

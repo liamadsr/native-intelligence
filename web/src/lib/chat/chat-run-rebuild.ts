@@ -1066,6 +1066,7 @@ export async function rebuildChatSpec(
     ...(turn.systemContext?.attachedDocumentIds?.length ? RECORD_MENTION_TOOL_NAMES.document : []),
     ...(turn.systemContext?.attachedProjectIds?.length ? RECORD_MENTION_TOOL_NAMES.project : []),
     ...(turn.systemContext?.attachedInitiativeIds?.length ? RECORD_MENTION_TOOL_NAMES.initiative : []),
+    ...(turn.systemContext?.attachedStudioVideoIds?.length ? RECORD_MENTION_TOOL_NAMES.studio_video : []),
     // The agent's browser runs in the cloud, so its tools ride every surface;
     // the edition ceiling still gates whether they exist (a no-op seed on a
     // non-browser workspace), and the caller-class policy still applies.

@@ -29,6 +29,10 @@ export function entityOpenTarget(type: string, id: string, title?: string | null
       if (type === 'team_chat_message') return { type: 'team_chat', messageId: id }
       if (type === 'team_chat_channel') return { type: 'team_chat', channelId: id }
       return { type: 'page', slug: 'team-chat' }
+    case 'studio':
+      // The Studio page's card, on the video or the Studio project.
+      if (type === 'studio_video' || type === 'studio_project') return { type, id, title: t }
+      return { type: 'page', slug: 'studio' }
     default:
       return null
   }

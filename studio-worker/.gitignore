@@ -1,0 +1,5 @@
+node_modules/
+# Local settings (keys). Never committed: .env.example is the list.
+.env
+.env.*
+!.env.example

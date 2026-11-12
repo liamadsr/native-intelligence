@@ -506,6 +506,43 @@ export const ENTITY_REGISTRY = [
     sourceable: false,
   },
 
+  // ── The Studio (migration 620; joined the graph in 624): a Studio project
+  // groups videos, a video is one edit. Every member's but a guest's, and the
+  // tables are service-role only (no member policies), so both are PRIVATE
+  // graph kinds: src/lib/knowledge/entity-fences.ts restates the rule
+  // (a member of the row's workspace who is not a guest, the row not in the
+  // trash), and 624's studio_entity_visible_to with its restrictive
+  // entity_link policies does in SQL (the shared entity_visible_to is left
+  // alone: another branch adds its kinds to it). Linkable and
+  // mentionable; deliberately NOT in scope: realtime (the editor polls its own
+  // digest), the activity log (no triggers on the Studio's tables), custom
+  // fields, claims citing a video, and per-record sharing grants (the Studio is
+  // workspace-wide for members).
+  {
+    id: 'studio_video',
+    table: 'studio_video',
+    workspaceScoped: { kind: 'column', table: 'studio_video' },
+    label: { table: 'studio_video', columns: 'title', render: (r) => str(r.title) || 'Untitled video' },
+    realtime: false,
+    linkable: true,
+    activity: false,
+    customFields: false,
+    citable: false,
+    sourceable: false,
+  },
+  {
+    id: 'studio_project',
+    table: 'studio_project',
+    workspaceScoped: { kind: 'column', table: 'studio_project' },
+    label: { table: 'studio_project', columns: 'title', render: (r) => str(r.title) || 'Untitled Studio project' },
+    realtime: false,
+    linkable: true,
+    activity: false,
+    customFields: false,
+    citable: false,
+    sourceable: false,
+  },
+
   // ── Kinds outside the knowledge graph: registered so every other vocabulary
   // (the entity event bus, realtime, menus) derives from this one list.
   {

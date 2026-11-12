@@ -9,8 +9,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AREA_KEYS, playbookSlug, isAreaKey } from '../registry'
 
-/** The 16 page areas 316 knew; 384 widens the CHECK with content and marketing (migration-384.test.ts). */
-const PAGE_AREAS = AREA_KEYS.filter((a) => a !== 'content' && a !== 'marketing')
+/** The 16 page areas 316 knew; 384 widens the CHECK with content and marketing (migration-384.test.ts), 621 with studio. */
+const PAGE_AREAS = AREA_KEYS.filter((a) => a !== 'content' && a !== 'marketing' && a !== 'studio')
 
 const sql = readFileSync(join(process.cwd(), 'supabase/migrations/316_skill_area_and_playbooks.sql'), 'utf8')
 

@@ -88,6 +88,14 @@ export async function headers() {
       source: '/account/:path*',
       headers: [{ key: 'Permissions-Policy', value: 'microphone=(self), camera=(self), display-capture=(self), geolocation=()' }],
     },
+    // The Studio's stored files (src/lib/studio/server/files.ts): media people uploaded, served from the app's own
+    // origin. Opened as a page, a file gets no script, no origin and no requests (the route sends only video, audio,
+    // image and font types inline; this is the second fence). The app-wide policy above would otherwise replace the
+    // route's own header: later headers win for the same key.
+    {
+      source: '/api/account/studio/file/:path*',
+      headers: [{ key: 'Content-Security-Policy', value: "sandbox; default-src 'none'" }],
+    },
     // ONNX Runtime's files sit under their version (copy-ort-runtime.mjs), so
     // one URL never changes: cache the 21 MB binary for good.
     {

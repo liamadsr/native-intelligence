@@ -2,7 +2,7 @@
 
 import { createContext, memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
-import { AlertCircle, ArrowUp, AudioLines, Building2, CircleCheck, FileText, FolderKanban, FolderOpen, ImageIcon, Lock, MousePointerClick, Paperclip, Plus, Target, User, X, type LucideIcon } from 'lucide-react'
+import { AlertCircle, ArrowUp, AudioLines, Building2, CircleCheck, FileText, Film, FolderKanban, FolderOpen, ImageIcon, Lock, MousePointerClick, Paperclip, Plus, Target, User, X, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { registerReloadBlocker } from '@/lib/deploy-reload'
@@ -140,6 +140,7 @@ const RECORD_CHIP_ICONS: Record<MentionRecordKind, LucideIcon> = {
   document: FileText,
   project: FolderKanban,
   initiative: Target,
+  studio_video: Film,
 }
 
 /**

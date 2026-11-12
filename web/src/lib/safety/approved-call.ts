@@ -74,6 +74,21 @@ export interface TimeOfferApprovalContext {
 }
 
 /**
+ * What a Studio spend card showed (generate_studio_narration, generate_studio_shot, src/lib/studio/agent/spend-card.ts):
+ * the hash of the exact request the provider would get (a narration's text, voice, model and substitutions; a
+ * shot's prompt, references, parameters and model) and its price. The replay asks again and spends nothing when
+ * the request is no longer that one.
+ */
+export interface StudioSpendApprovalContext {
+  kind: 'narration' | 'shot'
+  request_hash: string
+  /** A narration's characters (ElevenLabs credits). */
+  characters?: number
+  /** A shot's credits (Higgsfield). */
+  credits?: number
+}
+
+/**
  * What an agent card records (GEN-1168: delete_bot, merge_bots), so the replay
  * runs only on the agents the card showed, as they were then.
  */
@@ -152,6 +167,8 @@ export interface ApprovedCall {
   quoteReply?: QuoteReplyApprovalContext
   /** A time offer card's own check (offer_times by email or text): its offer and the words it showed. */
   timeOffer?: TimeOfferApprovalContext
+  /** A Studio spend card's own check (generate_studio_narration, generate_studio_shot): the request it showed. */
+  studioSpend?: StudioSpendApprovalContext
 }
 
 /**

@@ -190,6 +190,7 @@ const DELIVERABLE_TAGS: Record<string, string> = {
   attention_cards: 'Cards',
   flow_run: 'Run',
   url: 'Link',
+  studio_video: 'Video',
 }
 
 /** Which resource types a "Used" chip can open, and where. */
@@ -1108,6 +1109,12 @@ export function WorkItemDetailPanel({ itemId, embedded = false, shown = true, on
                               <span className="shrink-0 text-[10px] text-primary">{deliverableVerb(d)}</span>
                               {d.type === 'pr' || d.type === 'url' ? <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground/60" /> : null}
                             </button>
+                            {/* A Studio export's file: downloaded straight from the app (its own link, the person's session). */}
+                            {d.type === 'studio_video' && typeof d.url === 'string' && d.url.startsWith('/api/account/studio/file/') ? (
+                              <a href={d.url} download className="mt-1 inline-block px-2.5 text-[11px] text-primary hover:underline">
+                                Download the MP4
+                              </a>
+                            ) : null}
                           </li>
                         ))}
                       </ul>

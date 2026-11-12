@@ -26,6 +26,13 @@ describe('deliverableTarget', () => {
     })
   })
 
+  it('opens a Studio export as the Studio on its video (the download link rides along, not the target)', () => {
+    expect(deliverableTarget({ type: 'studio_video', id: 'v-1', label: 'Spring launch', url: '/api/account/studio/file/ws/exports/j/video.mp4' })).toEqual({
+      kind: 'card',
+      target: { type: 'studio_video', id: 'v-1', title: 'Spring launch' },
+    })
+  })
+
   it('opens a PR or link externally, and refuses anything that is not http(s)', () => {
     expect(deliverableTarget({ type: 'pr', id: 'https://github.com/o/r/pull/7', label: 'PR' })).toEqual({
       kind: 'url',

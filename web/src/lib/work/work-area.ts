@@ -59,6 +59,7 @@ export const KIND_AREAS: Readonly<Record<string, AreaKey>> = {
   crm_enrichment: 'crm',
   crm_import: 'crm',
   sequence_enrolment: 'sequences',
+  studio_export: 'studio',
 }
 
 /** The area a new row records: the writer's, else its kind's, else null. */

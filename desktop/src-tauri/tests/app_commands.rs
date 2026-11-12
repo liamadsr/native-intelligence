@@ -384,3 +384,91 @@ fn local_agents_stop_on_the_exit_event_cmd_q_raises() {
         "{run}"
     );
 }
+
+/// Studio takes (src/commands/studio_recorder.rs): the page chooses WHAT to
+/// record (a display or window id, device ids, flags) and never WHERE files go
+/// or WHICH file is read. Every studio_recorder_* command is registered,
+/// declared and granted; none takes a path, folder or file argument (a take
+/// is addressed by its session id and a file by its role); and the start
+/// options are exactly these fields, none of them a path.
+#[test]
+fn studio_recorder_commands_never_take_a_path() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = read_source(dir.join("src/commands/studio_recorder.rs")).unwrap();
+    let handler = handler_commands(&read_source(dir.join("src/lib.rs")).unwrap());
+    let manifest = manifest_commands(&read_source(dir.join("build.rs")).unwrap());
+    let default: serde_json::Value =
+        serde_json::from_str(&read_source(dir.join("capabilities/default.json")).unwrap()).unwrap();
+    let permissions = default["permissions"].as_array().unwrap();
+
+    let mut commands = Vec::new();
+    for (at, _) in src.match_indices("#[tauri::command]\n") {
+        let rest = &src[at + "#[tauri::command]\n".len()..];
+        let signature = &rest[..rest.find('{').expect("command body")];
+        let name = signature
+            .split("fn ")
+            .nth(1)
+            .and_then(|s| s.split('(').next())
+            .expect("command name")
+            .to_string();
+        let params = &signature[signature.find('(').unwrap() + 1..signature.rfind(')').unwrap()];
+        for param in params.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            let lower = param.to_lowercase();
+            assert!(
+                param.starts_with("app: AppHandle")
+                    || !["path", "dir", "file", "folder"].iter().any(|w| lower.contains(w)),
+                "{name} takes {param}: the page must never name a path"
+            );
+        }
+        assert!(handler.contains(&name), "{name} missing from generate_handler!");
+        assert!(manifest.contains(&name), "{name} missing from APP_COMMANDS");
+        let grant = format!("allow-{}", name.replace('_', "-"));
+        assert!(permissions.contains(&serde_json::json!(grant)), "{grant} missing from capabilities/default.json");
+        commands.push(name);
+    }
+    commands.sort();
+    assert_eq!(
+        commands,
+        [
+            "studio_recorder_cancel",
+            "studio_recorder_discard",
+            "studio_recorder_hide_control",
+            "studio_recorder_permissions",
+            "studio_recorder_request_permissions",
+            "studio_recorder_show_control",
+            "studio_recorder_start",
+            "studio_recorder_stop",
+            "studio_recorder_targets",
+            "studio_recorder_upload",
+        ]
+    );
+
+    let options = &src[src.find("pub struct StudioRecorderStartOptions {").expect("start options")..];
+    let fields: Vec<_> = options[..options.find('}').unwrap()]
+        .lines()
+        .skip(1)
+        .map(str::trim)
+        .filter(|l| l.starts_with("pub "))
+        .collect();
+    assert_eq!(
+        fields,
+        [
+            "pub screen: ScreenTarget,",
+            "pub hide_cursor: bool,",
+            "pub camera: Option<DeviceRef>,",
+            "pub microphone: Option<DeviceRef>,",
+            "pub system_audio: bool,",
+            "pub extra_windows: Vec<WindowRef>,",
+            "pub extra_cameras: Vec<DeviceRef>,",
+            "pub fps: Option<u32>,",
+        ]
+    );
+
+    // The recording control is a floating overlay like the other HUDs: it
+    // may call the app's commands but can never raise a dashboard window.
+    let windows = default["windows"].as_array().unwrap();
+    assert!(windows.contains(&serde_json::json!("studio-recorder")));
+    let lib_rs = read_source(dir.join("src/lib.rs")).unwrap();
+    let labels = &lib_rs[lib_rs.find("pub(crate) const HUD_LABELS").unwrap()..];
+    assert!(labels[..labels.find("];").unwrap()].contains("studio_recorder::CONTROL_LABEL"));
+}

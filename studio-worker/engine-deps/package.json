@@ -1,0 +1,16 @@
+{
+  "name": "ni-studio-engine-deps",
+  "version": "0.1.0",
+  "private": true,
+  "description": "What the Studio engine (web/src/lib/studio/engine) imports, and nothing else: installed as web/package.json in the studio worker's image so the engine bundles without the whole app. Versions match web/package.json.",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@remotion/fonts": "4.0.534",
+    "@remotion/media": "4.0.534",
+    "@remotion/media-utils": "4.0.534",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.534",
+    "zod": "4.5.4"
+  }
+}

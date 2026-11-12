@@ -224,7 +224,8 @@ describe('buildMenu', () => {
 
   it('`/` and `@` offer the same things, less what `@` can’t attach (pages, agents)', () => {
     // `/` also finds team chat messages (migration 561); `@` never attaches one.
-    expect(offeredKinds('/', MAIN)).toEqual(['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'agents', 'messages'])
+    // The Studio's videos and Studio projects (the server finds them only for a member who may use the Studio).
+    expect(offeredKinds('/', MAIN)).toEqual(['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'videos', 'studio_projects', 'agents', 'messages'])
     // Records first, the skills last (a tie goes to the record).
     expect(offeredKinds('@', MAIN)).toEqual(['people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'skills'])
     expect(offeredKinds('@', RUN)).toEqual(['people', 'captures', 'companies', 'skills'])
@@ -264,7 +265,7 @@ describe('serverSearch', () => {
     expect(serverSearch('/', 'all', '', offeredKinds('/', MAIN))).toEqual({ kinds: ['contact'], limit: 8 })
     expect(serverSearch('@', 'all', '', offeredKinds('@', MAIN))).toEqual({ kinds: ['contact'], limit: 8 })
     expect(serverSearch('/', 'all', 't', offeredKinds('/', MAIN))).toEqual({
-      kinds: ['contact', 'action', 'document', 'project', 'initiative', 'capture', 'company', 'deal', 'flow', 'agent', 'team_chat_message'],
+      kinds: ['contact', 'action', 'document', 'project', 'initiative', 'capture', 'company', 'deal', 'flow', 'studio_video', 'studio_project', 'agent', 'team_chat_message'],
       limit: 8,
     })
     // `@` never asks for agents or messages: nothing attaches them.
