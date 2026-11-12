@@ -6,8 +6,9 @@ producer of the app's capture feed (`web/src/lib/capture-feed/contract.ts`); a l
 producer that joins someone's Meet, Teams or Zoom call speaks the same feed.
 
 - It asks the app for its work every few seconds: the live calls with notes on that
-  nobody is hearing, each with a LiveKit token for that room alone (hidden, a recorder,
-  subscribe only). Nothing calls it, and it holds no LiveKit key.
+  nobody is hearing and that have had two people in them at once (a ringing or missed
+  call, or one person waiting, is never heard), each with a LiveKit token for that room
+  alone (hidden, a recorder, subscribe only). Nothing calls it, and it holds no LiveKit key.
 - In each room it subscribes to microphones and nothing else (auto-subscribe off): every
   member's, and a meeting guest's only once the app lists them (they said go to this
   round's notes: the start's answer, then every heartbeat's). It streams each to

@@ -397,6 +397,20 @@ describe('a guest’s token', () => {
     expect((await tokenRoute(req('POST', 'token', {}), params())).status).toBe(401)
     expect((await tokenRoute(req('POST', 'token', { cookie: cookieFor('88888888-8888-4888-8888-888888888888') }), params())).status).toBe(401)
   })
+
+  it('the call recorder taking the notes changes nothing for a guest: listen-only until they say go', async () => {
+    Object.assign(process.env, { TEAM_CALL_RECORDER: 'on', CAPTURE_FEED_SECRET: 'capture-feed-secret-of-its-own-0123456789' })
+    const OTHER_GUEST = '5e5e5e5e-5e5e-4e5e-8e5e-5e5e5e5e5e5e'
+    try {
+      Object.assign(tables.team_call[0], { notes: true, notes_round: 1 })
+      tables.meeting_guest.push({ id: OTHER_GUEST, meeting_id: MEETING, name: 'Dana', state: 'admitted', call_id: CALL, notes_ack_round: 0, recording_ack_at: null })
+      // (Their go then lifts it, as the test above shows.) A guest of its own: the token limit is per guest.
+      expect((await (await tokenRoute(req('POST', 'token', { cookie: cookieFor(OTHER_GUEST) }), params())).json()).join.canPublish).toBe(false)
+    } finally {
+      delete process.env.TEAM_CALL_RECORDER
+      delete process.env.CAPTURE_FEED_SECRET
+    }
+  })
 })
 
 describe('leaving', () => {

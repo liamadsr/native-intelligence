@@ -13,10 +13,10 @@
  * call's notes when it ends.
  *
  * Where the call recorder takes the notes (TEAM_CALL_RECORDER=on,
- * src/lib/team-calls/recorder.ts), no egress starts: on makes the call's one
- * capture now (if it has none), so the call links to notes that fill in as
- * people speak, and the recorder, which asks for its work every few
- * seconds, joins the room; off ends that round's feed at this moment (588's
+ * src/lib/team-calls/recorder.ts), no egress starts: on, and the recorder,
+ * which asks for its work every few seconds, joins the room once two people
+ * have been in the call at once, making the call's one capture then (so the
+ * call links to notes that fill in as people speak); off ends that round's feed at this moment (588's
  * trigger) and takes the recorder out of the room (the eject outbox,
  * drained at once); the recorder also hears so at its next heartbeat. A
  * meeting's guests are held to the notice either way, and the recorder hears
@@ -39,7 +39,7 @@ import { getCall } from '@/lib/team-calls/store'
 import { requestNotesStop, setNotes, startNotesForRoom } from '@/lib/team-calls/notes-store'
 import { callEnded, teamCallsUnavailable } from '@/lib/team-calls/routes'
 import { teamCallsConfig } from '@/lib/team-calls/livekit'
-import { ensureCallCapture, teamCallRecorderOn } from '@/lib/team-calls/recorder'
+import { teamCallRecorderOn } from '@/lib/team-calls/recorder'
 import { holdGuestsForNotice } from '@/lib/meeting-links/consent'
 import { requestTeamCallEjections } from '@/lib/team-calls/eject'
 
@@ -79,11 +79,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       // eject outbox: drained now, so nothing keeps hearing the call.
       if (!on) after(() => requestTeamCallEjections().catch(() => undefined))
       if (on) {
-        // The call's capture from now on: its message and panel link to it while it fills in.
-        await ensureCallCapture(svc, call.id).catch((err) => {
-          // The recorder's start makes it too.
-          console.warn(`[team-call-notes] call=${call.id} capture not made yet:`, err instanceof Error ? err.message : 'unknown')
-        })
+        // The call's capture is the recorder's session's to make (once two people are in the call):
+        // its message and panel link to it from then.
         const livekit = teamCallsConfig()
         if (livekit && call.channel_kind === 'meeting') {
           after(async () => {

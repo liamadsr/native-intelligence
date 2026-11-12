@@ -17,8 +17,9 @@
  *   LIVEKIT_*               calls themselves (./livekit.ts).
  *
  * The recorder asks for its work (POST /api/internal/team-call-recorder/work,
- * every few seconds): the live calls with notes on that nobody feeds, each
- * with a token for its room alone. The app never calls the recorder: LiveKit's
+ * every few seconds): the live calls with notes on that nobody feeds and that
+ * have had two people in them at once (nothing is heard before: a ringing or
+ * missed call, one person waiting), each with a token for its room alone. The app never calls the recorder: LiveKit's
  * stack is kept off the app's networks (deploy/README.md step 23), and asking
  * makes a restarted recorder find its calls again by itself. Whether it is
  * alive is its heartbeat on the feed; the sweeper marks a quiet one lost and
@@ -75,8 +76,10 @@ export async function callNotesTitle(svc: SupabaseClient, callId: string): Promi
 
 /**
  * The call's one capture, made now if notes are on and it has none (588's
- * team_call_capture_ensure): the call links to it from the moment notes go
- * on. Null when the call is not live with notes on. Throws on a failed write.
+ * team_call_capture_ensure). The recorder's session start makes it (588's
+ * capture_feed_start), so a call nobody else joined never shows one; the call
+ * links to it from then. Null when the call is not live with notes on. Throws
+ * on a failed write.
  */
 export async function ensureCallCapture(svc: SupabaseClient, callId: string): Promise<string | null> {
   const title = await callNotesTitle(svc, callId)
@@ -92,16 +95,42 @@ export interface RecorderJob {
   round: number
 }
 
-/** The recorder's work (588's team_call_recorder_work): calls nobody feeds, or this one's that it says it lost. */
+/** People in a call at once (members and let-in guests: 575's peak_participants) before it is heard. */
+export const RECORDER_MIN_PEOPLE = 2
+
+/**
+ * The recorder's work (588's team_call_recorder_work): calls nobody feeds, or
+ * this one's that it says it lost; and of those only calls that have had at
+ * least RECORDER_MIN_PEOPLE people in them at the same time (565/575's
+ * peak_participants, members and let-in guests; the recorder itself is never
+ * counted). A call ringing, missed, or that one person waits in is not heard:
+ * no Deepgram socket, no capture (it is made when the recorder's session
+ * starts), and at its end it is silent. Once two were in, it is heard to its
+ * end, one person left or not (the recorder leaves only a room nobody is in).
+ */
 export async function recorderWork(
   svc: SupabaseClient,
   input: { producerId: string; running: readonly string[]; max: number },
 ): Promise<RecorderJob[]> {
+  const max = Math.max(0, Math.min(RECORDER_MAX_JOBS, Math.floor(input.max)))
+  if (max === 0) return []
+  // Asked for more than fit, since some of them may not have had two people yet.
   const { data, error } = await svc.rpc('team_call_recorder_work', {
     p_producer_id: input.producerId,
     p_running: [...input.running],
-    max_jobs: Math.max(0, Math.min(RECORDER_MAX_JOBS, Math.floor(input.max))),
+    max_jobs: Math.min(200, max * 5),
   })
   if (error) throw new Error(`team calls: recorder work read failed: ${error.message}`)
-  return ((data ?? []) as Array<{ call_id: string; room: string; round: number }>).map((r) => ({ callId: r.call_id, room: r.room, round: r.round }))
+  const offered = ((data ?? []) as Array<{ call_id: string; room: string; round: number }>).map((r) => ({ callId: r.call_id, room: r.room, round: r.round }))
+  if (offered.length === 0) return []
+  const { data: calls, error: callsError } = await svc
+    .from('team_call')
+    .select('id, peak_participants')
+    .in(
+      'id',
+      offered.map((o) => o.callId),
+    )
+  if (callsError) throw new Error(`team calls: recorder work's calls read failed: ${callsError.message}`)
+  const peak = new Map(((calls ?? []) as Array<{ id: string; peak_participants: number | null }>).map((c) => [c.id, c.peak_participants ?? 0]))
+  return offered.filter((o) => (peak.get(o.callId) ?? 0) >= RECORDER_MIN_PEOPLE).slice(0, max)
 }

@@ -254,6 +254,8 @@ git clone --depth 1 --filter=blob:none --sparse <repository URL> /opt/native-int
 cd /opt/native-intelligence && git sparse-checkout set deploy
 ```
 
+(Later steps add the folders they need with `git sparse-checkout add`: `web/supabase/functions web/supabase/templates` at step 14, `web` at step 20, `recorder` for the call recorder, step 23's R3. Never `set` again: it would take those away.)
+
 What ends up where:
 
 ```text
@@ -1463,7 +1465,7 @@ The call recorder ([`../recorder`](../recorder)) takes a call's notes instead of
 
 **How it fits.** Nothing calls the recorder, and it publishes no port: it asks the app for its work every few seconds (`/api/internal/team-call-recorder/work`: the live calls with notes on that nobody is hearing, each with a LiveKit token for that room alone, hidden, subscribe only), so it holds no LiveKit key, and a recorder that restarts finds its calls again by itself. It joins rooms over `ni-livekit` (`ws://livekit:7880`), and reaches the app at its public name and Deepgram through `ni-livekit-edge`, the stack's way out, as Egress does: the app's requests come in through Caddy like LiveKit's webhooks. Every request carries `CAPTURE_FEED_SECRET`, a secret of its own (the app turns the routes off when it equals any other internal secret). Every few seconds it also says which calls it is hearing (the heartbeat): that is how the app knows it is alive (a feed quiet for 90 s is marked lost at the sweeper's next run, every 5 minutes, and the notes say what they missed), and the answer tells it to stop when notes go off, the call ends, the 3 hours are spent, its capture was ended by hand, or the app's switch is off (`feed_off`). Each time it leaves a call it delivers its last words, then says so (`end`): the notes' finish waits for that, two minutes at most, before it locks the capture. On SIGTERM it delivers every call's last words and leaves without ending anything, so the next process (the same name, `recorder`) takes the calls up at once. The room closes as it does without it: LiveKit does not count a hidden participant, and it leaves a room nobody else has been in for 30 s.
 
-**Who it hears, and from when.** Every member's microphone, from the moment the recorder is in the room (a few seconds after notes go on): a member who joins a call whose notes someone else turned on holds their microphone until they have seen the notice (web, desktop and iPhone apps), so nothing of theirs is published, and so nothing reaches the recorder or Deepgram, before that; a member already in the call when the notes go on is heard from then on, with the "Notes are on" badge in front of them, as with Egress's notes. A meeting link's guest is heard only once the app says they said go to this round's notes (the answer to its start, then every heartbeat, every 5 s): until then their microphone is not even subscribed to, and no Deepgram socket is opened for them.
+**Who it hears, and from when.** Being on the platform is agreeing to calls being captured: with the recorder on, every call starts with its notes on (the server decides, whoever starts it and from whatever app; the in-call switch still turns them off and on), and the desktop app's "Auto-record meetings" setting does not govern our own calls (it still governs Zoom, Teams, Meet and the other apps it detects). Nothing is heard until two people have been in the call at the same time (members or let-in guests): a ringing or missed call, or one person waiting, opens no Deepgram socket and leaves no capture (the capture is made when the recorder's session starts), and such a call ends silent. Once two were in, it is heard to its end, one person left or not. Every member's microphone is heard from then on, with no notice holding it (the "Notes are on" badge says so; a recording still asks first). A meeting link's guest is heard only once the app says they said go to this round's notes (the answer to its start, then every heartbeat, every 5 s): until then their microphone is not even subscribed to, and no Deepgram socket is opened for them.
 
 **Out of the room.** Whenever a feed ends or goes quiet (notes off, the call over, its capture ended by hand, marked lost), the database puts the recorder's LiveKit identity (`notes-recorder-<RECORDER_ID>`) on the calls' eject outbox, and the app takes it out of the room, whatever the recorder does; the sweeper puts it there again for any live call that no longer wants it. Before the app acts on such an entry it checks it again: a recorder the call wants once more (notes off, then on before the entry was drained) is left in the room.
 
@@ -1489,10 +1491,20 @@ sudo awk -F= '/^(RECORDER_|CAPTURE_FEED_)/ { print $1, length(substr($0, length(
 
 `RECORDER_APP_URL`, `CAPTURE_FEED_SECRET` (48) and `RECORDER_DEEPGRAM_API_KEY` must each print a number above 0 (`RECORDER_MAX_CALLS` may stay empty).
 
-**R3. Build it and start it.** In `livekit/.env`, uncomment `COMPOSE_PROFILES=recorder` (with Egress on as well: `COMPOSE_PROFILES=egress,recorder`), then build it on the server and start it; LiveKit itself is not restarted by this unless its own settings changed:
+**R3. Build it and start it.** The server's checkout is sparse (step 7 sets it to `deploy`, later steps add `web`): the recorder's source has to be added to it first, as the checkout's owner (not with sudo):
 
 ```bash
-sudo docker compose up -d --build recorder
+cd /opt/native-intelligence && git sparse-checkout add recorder
+```
+
+Then, in `livekit/.env`, uncomment `COMPOSE_PROFILES=recorder` (with Egress on as well: `COMPOSE_PROFILES=egress,recorder`), and build its image on the server with Docker itself, then start it from that image. (`sudo docker compose up -d --build recorder` fails in a shell that is not interactive: Compose's build step asks for leave to read outside the project folder, "additional privileges requested: pass --allow=fs.read=…", and `COMPOSE_BAKE=false` did not change that on the server's Compose.) LiveKit itself is not restarted by this unless its own settings changed:
+
+```bash
+sudo docker build -t ni-recorder:local ../../recorder
+```
+
+```bash
+sudo docker compose up -d --no-build recorder
 ```
 
 ```bash
@@ -1536,7 +1548,7 @@ Run these from the stack's own folder. The Supabase stack has its own commands (
 | Upgrade Inngest | Read the release notes, change the image tag in `inngest/compose.yaml`, then `sudo docker compose pull inngest && sudo docker compose up -d inngest` |
 | Patch Postgres, Redis, Caddy | `sudo docker compose pull && sudo docker compose up -d` (they follow `17`, `7` and `2.11`) |
 | Upgrade LiveKit | Read the [release notes](https://github.com/livekit/livekit/releases), change the image tag in `livekit/compose.yaml`, then `sudo docker compose pull livekit && sudo docker compose up -d livekit` in `livekit/`. Calls in progress end; people join again. Egress the same way ([its notes](https://github.com/livekit/egress/releases), service `egress`); it finishes its recordings first. |
-| Take a change to the call recorder (`recorder/`) | After `git pull`: `sudo docker compose up -d --build recorder` in `livekit/` (with its profile on in `.env`). The old process delivers its calls' last words and leaves; the new one takes the calls up within seconds (what was said in between is not in the notes). |
+| Take a change to the call recorder (`recorder/`) | After `git pull` (the checkout must have `recorder` in its sparse list: R3), in `livekit/` (with its profile on in `.env`): `sudo docker build -t ni-recorder:local ../../recorder`, then `sudo docker compose up -d --no-build recorder` (not `--build`: see R3). The old process delivers its calls' last words and leaves; the new one takes the calls up within seconds (what was said in between is not in the notes). |
 | Ship the app | In `app/`: `git pull` in the checkout as its owner, then `sudo ./deploy.sh` ([`app/README.md`](app/README.md#deploysh)) |
 | Go back to the app's previous image | `sudo ./deploy.sh --rollback` in `app/` |
 | Automatic deploys of `main` (off unless switched on) | `sudo ./auto-deploy.sh status` in `app/` says what serves and what holds them; `on`, `off` and the rest in [`app/README.md`](app/README.md#automatic-deploys). While they deploy, `deploy.sh` by hand stops at once (one deploy at a time). |

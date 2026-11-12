@@ -237,10 +237,12 @@ describe('the recorder’s work', () => {
   })
 
   it('the calls nobody feeds, each with a token for its room alone: hidden, a recorder, subscribe only', async () => {
+    tables.team_call[0].peak_participants = 2
     h.answers.team_call_recorder_work = { data: [{ call_id: CALL, room: `tc-${CALL}`, round: 1 }], error: null }
     const res = await work(post({ producer, running: [SESSION], capacity: 3 }))
     const body = (await res.json()) as { jobs: Array<{ callId: string; room: string; round: number; token: string }>; pollMs: number }
-    expect(h.rpcs[0]).toEqual(['team_call_recorder_work', { p_producer_id: 'recorder', p_running: [SESSION], max_jobs: 3 }])
+    // More asked of 588 than fit: some may not have had two people in them yet.
+    expect(h.rpcs[0]).toEqual(['team_call_recorder_work', { p_producer_id: 'recorder', p_running: [SESSION], max_jobs: 15 }])
     expect(body.jobs.map(({ token: _t, ...j }) => j)).toEqual([{ callId: CALL, room: `tc-${CALL}`, round: 1 }])
     const claims = await new TokenVerifier(KEY, SECRET).verify(body.jobs[0].token)
     // One identity per producer (notes-recorder-<id>): what 588 puts on the eject outbox for it.
@@ -251,5 +253,30 @@ describe('the recorder’s work', () => {
     h.rpcs = []
     expect((await (await work(post({ producer, running: [], capacity: 0 }))).json()).jobs).toEqual([])
     expect(h.rpcs).toEqual([])
+  })
+
+  it('nothing is heard until two people were in the call at once: a ringing or missed DM, one person waiting, no job (no socket, no capture); from then on, to its end', async () => {
+    const RINGING = '66666666-6666-4666-8666-666666666666'
+    const DROPPED = '44444444-4444-4444-8444-444444444444'
+    tables.team_call.push(
+      { id: RINGING, channel_id: CH, workspace_id: 'ws', participant_count: 1, peak_participants: 1 },
+      // Two were in it, one left: still heard.
+      { id: DROPPED, channel_id: CH, workspace_id: 'ws', participant_count: 1, peak_participants: 2 },
+    )
+    tables.team_call[0].peak_participants = 0
+    h.answers.team_call_recorder_work = {
+      data: [
+        { call_id: CALL, room: `tc-${CALL}`, round: 1 },
+        { call_id: RINGING, room: `tc-${RINGING}`, round: 1 },
+        { call_id: DROPPED, room: `tc-${DROPPED}`, round: 1 },
+      ],
+      error: null,
+    }
+    const jobs = ((await (await work(post({ producer, running: [], capacity: 3 }))).json()) as { jobs: Array<{ callId: string }> }).jobs
+    expect(jobs.map((j) => j.callId)).toEqual([DROPPED])
+    // The second person joins (575 raises the peak): heard from the next ask.
+    tables.team_call.find((c) => c.id === RINGING)!.peak_participants = 2
+    const next = ((await (await work(post({ producer, running: [DROPPED], capacity: 1 }))).json()) as { jobs: Array<{ callId: string }> }).jobs
+    expect(next.map((j) => j.callId)).toEqual([RINGING])
   })
 })
