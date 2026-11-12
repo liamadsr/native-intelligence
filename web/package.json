@@ -101,6 +101,7 @@
     "date-fns": "^4.1.0",
     "dayjs": "^1.11.12",
     "dompurify": "^3.3.3",
+    "e2b": "2.62.0",
     "embla-carousel-react": "^8.6.0",
     "emoji-mart": "^5.6.0",
     "eve": "0.79.1",

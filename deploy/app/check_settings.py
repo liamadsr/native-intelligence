@@ -33,6 +33,7 @@ database container (supabase-db, or CHECK_DB_CONTAINER) and outbound HTTPS.
 import base64
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -93,6 +94,13 @@ MAY_BE_EMPTY = {
     "LIVEKIT_API_KEY": "empty: no audio or video calls",
     "LIVEKIT_API_SECRET": "empty: no audio or video calls",
     "LIVEKIT_EGRESS": "a switch: empty is off (no call notes or recordings; on once Egress runs, ../README.md step 23)",
+    # The coding agent's own sandbox runtime (../sandbox): built, not switched on.
+    # The URLs and the key, all three or none; then the git gate's addresses too.
+    "SANDBOX_RUNTIME_API_URL": "empty: the coding agent's sandbox is not on our own runtime",
+    "SANDBOX_RUNTIME_TRAFFIC_URL": "empty: the coding agent's sandbox is not on our own runtime",
+    "SANDBOX_RUNTIME_KEY": "empty: the coding agent's sandbox is not on our own runtime",
+    "SANDBOX_RUNTIME_TEMPLATE": "empty: ni-coding-agent",
+    "AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES": "empty: the git gate takes a run's credential from any address (what the hosted sandbox needs)",
     # The call recorder (../livekit's recorder service; ../README.md step 23, "The call recorder").
     "TEAM_CALL_RECORDER": "a switch: empty is off (call notes are Egress's, or there are none)",
     "CAPTURE_FEED_SECRET": "empty: the call recorder cannot reach the app (make-keys.sh in ../livekit makes it)",
@@ -102,7 +110,7 @@ SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}
 
 # What is off while a needed one is empty, where it is not obvious from the name.
 EMPTY_MEANS = {
-    "SANDBOX_ACCESS_TOKEN": "the cloud browser does not start, and no coding run works (its sandbox is just-bash)",
+    "SANDBOX_ACCESS_TOKEN": "the cloud browser does not start, and no coding run works unless our own sandbox runtime is set (SANDBOX_RUNTIME_*)",
     "CONNECT_ACCESS_TOKEN": "Slack is off: the app cannot reach the connector",
     "CONNECT_PROJECT_ID": "Slack's events and button clicks are refused",
     "CLOUD_BROWSER_RELAY_ORIGIN": "the cloud browser does not start",
@@ -435,6 +443,187 @@ def check_sandbox(env, _opts):
     return False, "the sandbox service answered %d" % status
 
 
+# --- the coding agent's own sandbox runtime ------------------------------------------
+
+RUNTIME_URLS = ("SANDBOX_RUNTIME_API_URL", "SANDBOX_RUNTIME_TRAFFIC_URL")
+RUNTIME_KEY = "SANDBOX_RUNTIME_KEY"
+RUNTIME_GROUP = RUNTIME_URLS + (RUNTIME_KEY,)
+GATE_ADDRESSES = "AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES"
+# Where a private tunnel's end can be: the private IPv4 ranges, the shared range
+# tunnels often use, and IPv6 unique local addresses.
+TUNNEL_NETWORKS = tuple(ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fc00::/7"))
+
+
+def runtime_url_problem(value):
+    """None for an http:// URL whose host is a private address (the tunnel's end),
+    else why not. Never quotes the value."""
+    try:
+        parts = urllib.parse.urlsplit(value.strip())
+        host, _port = parts.hostname, parts.port
+    except ValueError:
+        return "not a URL"
+    if parts.scheme != "http":
+        return "not an http:// URL (the tunnel is the encryption; the runtime speaks plain HTTP on it)"
+    try:
+        address = ipaddress.ip_address(host or "")
+    except ValueError:
+        return "its host is not an IP address (the runtime is reached at its tunnel address)"
+    if not any(address.version == n.version and address in n for n in TUNNEL_NETWORKS):
+        return "its host is not a private address: the runtime is reached only over the private tunnel"
+    if parts.path not in ("", "/") or parts.query or parts.fragment or parts.username or parts.password:
+        return "has more than a scheme, an address and a port"
+    return None
+
+
+def runtime_key_shape_ok(value):
+    """e2b_ followed by at least 32 hex digits, as the runtime makes its keys."""
+    return re.fullmatch(r"e2b_[0-9a-fA-F]{32,}", value.strip()) is not None
+
+
+def gate_address_problems(value):
+    """How many entries of AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES are not IP addresses,
+    and how many are (as the app reads it: comma or space separated, brackets and a
+    zone id allowed)."""
+    bad = good = 0
+    for entry in re.split(r"[\s,]+", value.strip()):
+        if not entry:
+            continue
+        e = entry[1:-1] if entry.startswith("[") and entry.endswith("]") else entry
+        try:
+            ipaddress.ip_address(e.split("%", 1)[0])
+            good += 1
+        except ValueError:
+            bad += 1
+    return bad, good
+
+
+NOT_PUBLIC = [ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fc00::/7")]
+
+
+def gate_addresses_not_public(value):
+    """How many entries of AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES are addresses no
+    sandbox can come from as the edge sees it: private, loopback, link-local,
+    unspecified. The sandbox server's PUBLIC addresses belong there; the tunnel's
+    address, which sits a few lines above it in .env, is the likely mistake."""
+    count = 0
+    for entry in re.split(r"[\s,]+", value.strip()):
+        if not entry:
+            continue
+        e = entry[1:-1] if entry.startswith("[") and entry.endswith("]") else entry
+        try:
+            ip = ipaddress.ip_address(e.split("%", 1)[0])
+        except ValueError:
+            continue
+        ip = getattr(ip, "ipv4_mapped", None) or ip
+        if ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.is_multicast or any(n.version == ip.version and ip in n for n in NOT_PUBLIC):
+            count += 1
+    return count
+
+
+def not_public_note(count):
+    return ("%d entr%s a private, loopback or link-local address: the git gate sees the sandbox server's PUBLIC address, "
+            "so every coding run's clone and push would be refused (the tunnel's address does not belong here)" % (count, "y is" if count == 1 else "ies are"))
+
+
+RUNTIME_TEMPLATE_DEFAULT = "ni-coding-agent"
+
+
+def runtime_group_missing(env):
+    return [n for n in RUNTIME_GROUP if not env.get(n, "").strip()]
+
+
+def check_runtime(env, _opts):
+    """SANDBOX_RUNTIME_API_URL, for the whole group: the two URLs and the key set
+    together and well formed, and the git gate's addresses set and valid; then the
+    runtime itself, over the tunnel: its health check, and a listing of its
+    sandboxes with the key (changes nothing). The hosted three may be set beside it:
+    the coding agent then uses the own runtime, and they serve the cloud browser
+    (checked as before, by their own check)."""
+    missing = runtime_group_missing(env)
+    if missing:
+        return False, "set without %s: the two URLs and the key, all three or none" % ", ".join(missing)
+    for name in RUNTIME_URLS:
+        problem = runtime_url_problem(env[name])
+        if problem:
+            return False, "%s %s" % (name, problem)
+    if not runtime_key_shape_ok(env[RUNTIME_KEY]):
+        return False, "%s is not e2b_ followed by at least 32 hex digits" % RUNTIME_KEY
+    addresses = env.get(GATE_ADDRESSES, "")
+    bad, good = gate_address_problems(addresses)
+    if not good and not bad:
+        return False, "needs %s (the sandbox server's public addresses): the coding agent refuses to run on its own runtime without it" % GATE_ADDRESSES
+    if bad:
+        return False, "%s has %d entr%s that %s not an IP address" % (GATE_ADDRESSES, bad, "y" if bad == 1 else "ies", "is" if bad == 1 else "are")
+    private = gate_addresses_not_public(addresses)
+    if private:
+        return False, "%s: %s" % (GATE_ADDRESSES, not_public_note(private))
+    base = env["SANDBOX_RUNTIME_API_URL"].strip().rstrip("/")
+    status, _ = http(base + "/health")
+    if trouble(status):
+        return None, "the runtime could not be asked over the tunnel (%d): cannot tell" % status
+    if status != 200:
+        return False, "the runtime's health check answered %d" % status
+    status, _ = http(base + "/sandboxes", {"X-API-Key": env[RUNTIME_KEY].strip()})
+    if status == 200:
+        # And the image the coding agent's sandboxes start from: without it every run
+        # fails at its first step, with everything above in order.
+        template = env.get("SANDBOX_RUNTIME_TEMPLATE", "").strip() or RUNTIME_TEMPLATE_DEFAULT
+        status, images = http(base + "/templates", {"X-API-Key": env[RUNTIME_KEY].strip()})
+        if status == 200 and isinstance(images, list):
+            names = {a for image in images if isinstance(image, dict) for a in (image.get("aliases") or [])}
+            if template not in names:
+                return False, "the runtime has no image by the name SANDBOX_RUNTIME_TEMPLATE gives (setup.sh in ../sandbox builds it on the sandbox server)"
+            return True, "the runtime answers over the tunnel, accepts the key and has the coding agent's image"
+        if trouble(status):
+            return None, "the runtime could not be asked for its images (%d): cannot tell" % status
+        return False, "the runtime answered %d to a listing of its images" % status
+    if status in (401, 403):
+        return False, "the runtime refused the key (%d)" % status
+    if trouble(status):
+        return None, "the runtime could not be asked for its sandboxes (%d): cannot tell" % status
+    return False, "the runtime answered %d to a listing of its sandboxes" % status
+
+
+def check_runtime_part(name):
+    """The traffic URL and the key: the group is proven by SANDBOX_RUNTIME_API_URL's
+    check; here only that it is set at all, and the value's own shape."""
+    def check(env, _opts):
+        if not env.get("SANDBOX_RUNTIME_API_URL", "").strip():
+            return False, "set without SANDBOX_RUNTIME_API_URL: the two URLs and the key, all three or none"
+        if name == RUNTIME_KEY:
+            if not runtime_key_shape_ok(env[name]):
+                return False, "not e2b_ followed by at least 32 hex digits"
+        else:
+            problem = runtime_url_problem(env[name])
+            if problem:
+                return False, problem
+        return None, None
+    return check
+
+
+def check_runtime_template(env, _opts):
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", env["SANDBOX_RUNTIME_TEMPLATE"].strip()):
+        return False, "not a template name (lowercase letters, digits, - and _)"
+    if not env.get("SANDBOX_RUNTIME_API_URL", "").strip():
+        return "warn", "set without our own runtime: nothing reads it"
+    return None, None
+
+
+def check_gate_addresses(env, _opts):
+    bad, good = gate_address_problems(env[GATE_ADDRESSES])
+    if bad:
+        return False, "%d entr%s not an IP address: the git gate then refuses every coding run's clone and push" % (bad, "y is" if bad == 1 else "ies are")
+    if not good:
+        return None, None
+    private = gate_addresses_not_public(env[GATE_ADDRESSES])
+    if private:
+        return False, not_public_note(private)
+    if not env.get("SANDBOX_RUNTIME_API_URL", "").strip():
+        return "warn", ("set without our own runtime: the git gate would refuse every clone and push from the hosted "
+                        "sandbox service's sandboxes (they come from other addresses), so coding runs there would fail")
+    return None, None
+
+
 SLACK_EVENTS_PATH = "/api/slack/events"
 CONNECT_API = "https://api.vercel.com"
 
@@ -668,6 +857,11 @@ CHECKS = {
     "LIVEKIT_API_KEY": check_livekit_key,
     "LIVEKIT_API_SECRET": check_livekit_key,
     "LIVEKIT_EGRESS": check_livekit_egress,
+    "SANDBOX_RUNTIME_API_URL": check_runtime,
+    "SANDBOX_RUNTIME_TRAFFIC_URL": check_runtime_part("SANDBOX_RUNTIME_TRAFFIC_URL"),
+    "SANDBOX_RUNTIME_KEY": check_runtime_part("SANDBOX_RUNTIME_KEY"),
+    "SANDBOX_RUNTIME_TEMPLATE": check_runtime_template,
+    "AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES": check_gate_addresses,
     "TEAM_CALL_RECORDER": check_team_call_recorder,
     "CAPTURE_FEED_SECRET": check_capture_feed_secret,
 }
@@ -686,8 +880,8 @@ def state_of(value):
 def report(env, results):
     """Lines to print, what keeps Gate 1's settings from being met, and the needed
     settings whose check could not run. results maps a name to (ok, note) for the
-    checks that ran; ok is True, False, None (could not run) or "nothing" (no
-    stored data to prove it against)."""
+    checks that ran; ok is True, False, None (could not run), "nothing" (no
+    stored data to prove it against) or "warn" (said, but blocks nothing)."""
     lines, blockers, unchecked = [], [], []
     for title, key in (("Must be the value the earlier host has", "must match"), ("Needed (any working value)", "needed"),
                        ("May stay empty", "may be empty"), ("Set by the switch itself", "switch")):
@@ -718,7 +912,7 @@ def report(env, results):
             if note is None:
                 quiet += 1
                 continue
-            mark = {True: "ok      ", False: "WRONG   ", None: "UNCHECKED", "nothing": "unproven"}[ok]
+            mark = {True: "ok      ", False: "WRONG   ", None: "UNCHECKED", "nothing": "unproven", "warn": "WARNING "}[ok]
             lines.append("   %-32s %s %s" % (n, mark, note))
             if ok is False:
                 blockers.append("%s: %s" % (n, note))

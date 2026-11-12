@@ -40,6 +40,11 @@ x-app: &app
     SANDBOX_ACCESS_TOKEN: ""
     SANDBOX_TEAM_ID: ""
     SANDBOX_PROJECT_ID: ""
+    # Our own sandbox runtime's API key, blanked the same way and given back to
+    # the coding agent alone (x-coding-agent-env), which reads it when it starts a
+    # sandbox. Its two addresses and template are not secret: every container gets
+    # them from .env, and only the coding agent reads them.
+    SANDBOX_RUNTIME_KEY: ""
   # tini as PID 1: passes SIGTERM on and reaps what the servers leave behind.
   init: true
   # An agent and cron write nothing to the image: state is on the volumes below,
@@ -63,6 +68,11 @@ x-sandbox-env: &sandbox-env
   SANDBOX_ACCESS_TOKEN: ${SANDBOX_ACCESS_TOKEN:-}
   SANDBOX_TEAM_ID: ${SANDBOX_TEAM_ID:-}
   SANDBOX_PROJECT_ID: ${SANDBOX_PROJECT_ID:-}
+
+# The coding agent's: the hosted service's three, and our own runtime's key.
+x-coding-agent-env: &coding-agent-env
+  <<: *sandbox-env
+  SANDBOX_RUNTIME_KEY: ${SANDBOX_RUNTIME_KEY:-}
 
 # web and worker are the same server, and `next start` writes into its own folder
 # (its cache, the docs index, the pages it regenerates), so they are not read-only.
@@ -138,6 +148,18 @@ services:
         # either rebuilds that step (Dockerfile) instead of reusing a snapshot made
         # in another project.
         NI_CODING_AGENT_SANDBOX: ${SANDBOX_ACCESS_TOKEN:+vercel/${SANDBOX_TEAM_ID:-}/${SANDBOX_PROJECT_ID:-}}
+        # "runtime/<template>" when .env has our own runtime's API address, else
+        # empty. It wins over the one above (build-agents.sh): the own runtime takes
+        # precedence for the coding agent, and the hosted three may stay in .env for
+        # the cloud browser. Two arguments because Compose's substitution has no
+        # "else". A change of template rebuilds that step too.
+        NI_CODING_AGENT_RUNTIME: ${SANDBOX_RUNTIME_API_URL:+runtime/${SANDBOX_RUNTIME_TEMPLATE:-ni-coding-agent}}
+        # Our own sandbox runtime (the coding agent's third way): its two addresses
+        # over the private tunnel and the template. Not secret, so arguments; the
+        # build calls nothing there and needs no key.
+        SANDBOX_RUNTIME_API_URL: ${SANDBOX_RUNTIME_API_URL:-}
+        SANDBOX_RUNTIME_TRAFFIC_URL: ${SANDBOX_RUNTIME_TRAFFIC_URL:-}
+        SANDBOX_RUNTIME_TEMPLATE: ${SANDBOX_RUNTIME_TEMPLATE:-}
       # The hosted sandbox service's credentials, for the coding agent's build only
       # (its snapshot is prepared then). Secrets, not build arguments: BuildKit mounts
       # them for one step and writes them into no layer. deploy.sh gives them, from
@@ -206,11 +228,18 @@ services:
   agent-coding-agent:
     <<: *app
     command: [agent, coding-agent]
-    # Its sandbox runs on the hosted sandbox service with these (entrypoint.sh
-    # checks that the image was built for the same choice).
-    environment: *sandbox-env
+    # Its sandbox runs on our own runtime with its addresses and key when those are
+    # set, else on the hosted sandbox service with the three (entrypoint.sh checks
+    # that the image was built for the same choice). With the own runtime set it
+    # still receives the hosted three, as web and worker do, and ignores them; phase
+    # 6 (the cloud browser's move) removes them.
+    environment: *coding-agent-env
     volumes:
       - coding-agent-workflow:/app/web/agents/coding-agent/.eve/.workflow-data
+      # just-bash's sessions. On the hosted service or our own runtime a session's
+      # files live on that side and this stays empty; it stays mounted so that a
+      # switch back to just-bash finds it, owned by the app's user
+      # (build-agents.sh --state-dirs).
       - coding-agent-sandbox:/app/web/agents/coding-agent/.eve/sandbox-cache/just-bash/sessions
     deploy: *agent-limits
 
