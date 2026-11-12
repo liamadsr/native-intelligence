@@ -204,6 +204,8 @@ export const BULK_ACTIONS: Record<ViewEntityType, BulkActionDefinition[]> = {
     { id: 'confirm_claim', label: 'Confirm', icon: 'Check' },
     { id: 'dismiss_claim', label: 'Dismiss', icon: 'X' },
   ],
+  // A table's rows change through its own grid and batch route.
+  data_row: [],
 }
 
 // ── API request/response types ─────────────────────────────

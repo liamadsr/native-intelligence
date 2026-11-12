@@ -38,6 +38,7 @@ import type {
 } from './types'
 import { DEFAULT_DISPLAY_PROPERTIES, DEFAULT_BOARD_GROUP_BY, FILTERABLE_FIELDS, NO_MATCH_FILTER_VALUE, defaultOrdering, isUnsetFilterValue } from './types'
 import { customFieldKeyOf, isCustomFieldPath, orderCustomSelectGroups, viewTakesCustomFields } from './custom-field-columns'
+import type { CustomFieldType } from '@/lib/crm/custom-field-types'
 
 // Re-export so callers already importing from the query engine (and the route)
 // get the sentinel from one place. The value itself lives in ./types so client
@@ -377,6 +378,9 @@ export async function resolvePersonalScope(
   }
 }
 
+/** A table's row as every reader of it takes it (src/lib/tables/store.ts reads the same). */
+export const DATA_ROW_VIEW_SELECT = 'id, table_id, title, custom_fields, position, archived_at, created_at, updated_at'
+
 export interface QueryOptions {
   memberId?: string
   /** 'assigned' = actions assigned to me, 'created' = actions I created, 'all' = no scope filter */
@@ -640,6 +644,15 @@ function buildUnfencedEntityQuery(
         .eq('workspace_id', workspaceId)
         .eq('status', 'active')
         .neq('confirmation', 'dismissed')
+
+    // A table's live rows (migration 520). The table is a `table_id` filter
+    // the table page sends; RLS gives a row its table's access.
+    case 'data_row':
+      return supabase
+        .from('data_row')
+        .select(DATA_ROW_VIEW_SELECT, { count: 'exact' })
+        .eq('workspace_id', workspaceId)
+        .is('archived_at', null)
   }
 }
 
@@ -712,6 +725,7 @@ const JUNCTION_FIELDS: Record<ViewEntityType, string[]> = {
   eval_case: [],
   eval_run: [],
   claim: [],
+  data_row: [],
 }
 
 // Label junction table name per entity type
@@ -781,6 +795,7 @@ const ARRAY_FIELDS: Record<ViewEntityType, string[]> = {
   // one — so "claims on Project X" would silently hide every claim that also
   // touches another project.
   claim: ['project_ids'],
+  data_row: [],
 }
 
 function isJunctionField(entityType: ViewEntityType, field: string): boolean {
@@ -796,6 +811,14 @@ function isArrayField(entityType: ViewEntityType, field: string): boolean {
   return ARRAY_FIELDS[entityType]?.includes(field) ?? false
 }
 
+/**
+ * The types of a view's custom fields, by key: a table's columns, or a
+ * kind's definitions. With them a filter reads each value in its own form
+ * (a multi-select's list, a currency's amount, a person's member id); without
+ * them the filter's value decides, as before (applyCustomFieldFilter).
+ */
+export type CustomFieldTypes = ReadonlyMap<string, CustomFieldType>
+
 export async function applyFilters(
   query: ReturnType<typeof buildEntityQuery>,
   entityType: ViewEntityType,
@@ -805,6 +828,7 @@ export async function applyFilters(
   workspaceId?: WorkspaceScopeIds,
   /** Pass resolved IDs so @me can be expanded to the real member/user ID */
   resolvedIds?: { memberId?: string; userId?: string },
+  opts: { fieldTypes?: CustomFieldTypes } = {},
 ) {
   for (const filter of filters) {
     const { field, operator } = filter
@@ -845,7 +869,10 @@ export async function applyFilters(
       let me: string | undefined
       if (field === 'user_id') {
         me = resolvedIds.userId
-      } else if (field === 'assignee_id' || field === 'created_by' || isMemberField(entityType, field)) {
+      } else if (
+        field === 'assignee_id' || field === 'created_by' || isMemberField(entityType, field) ||
+        opts.fieldTypes?.get(customFieldKeyOf(field) ?? '') === 'person'
+      ) {
         if (resolvedIds.memberId === undefined && resolvedIds.userId && supabase && workspaceId) {
           const { data: member } = await supabase
             .from('member')
@@ -881,7 +908,7 @@ export async function applyFilters(
         console.warn(`[views/query] ignoring filter on custom field "${field}" (${entityType})`)
         continue
       }
-      applyCustomFieldFilter(query, key, operator, value)
+      applyCustomFieldFilter(query, key, operator, value, opts.fieldTypes?.get(key))
       continue
     }
 
@@ -1254,9 +1281,26 @@ export function applyCustomFieldFilter(
   key: string,
   operator: FilterOperator,
   value: unknown,
+  /** The field's type, when the caller knows it (CustomFieldTypes). */
+  fieldType?: CustomFieldType,
 ) {
   const text = `custom_fields->>${key}`
   const json = `custom_fields->${key}`
+  switch (fieldType) {
+    case 'multi_select':
+    case 'relation':
+      if (operator === 'is_empty' || operator === 'is_not_empty') break
+      return applyCustomListFilter(query, key, operator, value)
+    case 'checkbox':
+      return applyCustomCheckboxFilter(query, key, operator, value)
+    case 'currency':
+      if (operator === 'is_empty' || operator === 'is_not_empty') break
+      return applyCustomCurrencyFilter(query, key, operator, value)
+    case 'select':
+    case 'person':
+      if (applyCustomOneOfFilter(query, key, operator, value)) return
+      break
+  }
   switch (operator) {
     case 'is_empty':
       query.is(text, null)
@@ -1325,6 +1369,138 @@ export function applyCustomFieldFilter(
       // includes / excludes / equals are label and tag operators: no custom
       // field type offers them.
       return
+  }
+}
+
+// ── Custom fields by type ───────────────────────────────────────────────────
+//
+// Where a filter can be a containment on the whole `custom_fields` object
+// (`custom_fields @> {"key": …}`), it is one: that is what the jsonb_path_ops
+// index on data_row.custom_fields answers (migration 529), and it reads a
+// select, a person, a checkbox, a multi-select and a relation alike. "Is not"
+// is the containment negated, so a row with no value counts as "not this"
+// (custom_fields itself is never null). "Any of" is an or=(...) of
+// containments, each quoted for PostgREST's list syntax (checked on DEV).
+
+/** `{"key": value}` as JSON, for `cs`. */
+function holdsJson(key: string, value: unknown): string {
+  return JSON.stringify({ [key]: value })
+}
+
+/** One containment as a term of an or=(...) list: quoted, with its quotes and backslashes escaped. */
+export function holdsTerm(key: string, value: unknown): string {
+  return `custom_fields.cs."${holdsJson(key, value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
+function stringsOf(value: unknown): string[] {
+  const list = Array.isArray(value) ? value : [value]
+  return list.filter((v): v is string => typeof v === 'string' && v !== '')
+}
+
+/** A select or a person: one value. False for an operator the generic path handles. */
+function applyCustomOneOfFilter(
+  query: ReturnType<typeof buildEntityQuery>,
+  key: string,
+  operator: FilterOperator,
+  value: unknown,
+): boolean {
+  const list = stringsOf(value)
+  switch (operator) {
+    case 'is':
+      if (list.length) query.contains('custom_fields', { [key]: list[0] })
+      return true
+    case 'is_not':
+      if (list.length) query.not('custom_fields', 'cs', holdsJson(key, list[0]))
+      return true
+    case 'is_any_of':
+      if (list.length === 1) query.contains('custom_fields', { [key]: list[0] })
+      else if (list.length) query.or(list.map((v) => holdsTerm(key, v)).join(','))
+      return true
+    case 'is_none_of':
+      for (const v of list) query.not('custom_fields', 'cs', holdsJson(key, v))
+      return true
+    default:
+      return false
+  }
+}
+
+/**
+ * A multi-select or a relation: a list. "Includes" holds every value picked
+ * (as an array field's `includes` does), "excludes" holds none of them, "any
+ * of" holds at least one.
+ */
+function applyCustomListFilter(
+  query: ReturnType<typeof buildEntityQuery>,
+  key: string,
+  operator: FilterOperator,
+  value: unknown,
+) {
+  const list = stringsOf(value)
+  if (!list.length) return
+  switch (operator) {
+    case 'is':
+    case 'includes':
+    case 'equals':
+      query.contains('custom_fields', { [key]: list })
+      return
+    case 'is_any_of':
+      if (list.length === 1) query.contains('custom_fields', { [key]: list })
+      else query.or(list.map((v) => holdsTerm(key, [v])).join(','))
+      return
+    case 'is_not':
+    case 'excludes':
+    case 'is_none_of':
+      for (const v of list) query.not('custom_fields', 'cs', holdsJson(key, [v]))
+      return
+  }
+}
+
+/** A checkbox: checked, or not (a row never ticked is not). */
+function applyCustomCheckboxFilter(
+  query: ReturnType<typeof buildEntityQuery>,
+  key: string,
+  operator: FilterOperator,
+  value: unknown,
+) {
+  if (operator !== 'is' && operator !== 'is_not') return
+  const checked = value === true || value === 'true'
+  if (checked === (operator === 'is')) query.contains('custom_fields', { [key]: true })
+  else query.not('custom_fields', 'cs', holdsJson(key, true))
+}
+
+/** A currency: its amount compares as a number (`->amount`, jsonb). */
+function applyCustomCurrencyFilter(
+  query: ReturnType<typeof buildEntityQuery>,
+  key: string,
+  operator: FilterOperator,
+  value: unknown,
+) {
+  const amount = `custom_fields->${key}->amount`
+  const bound = (op: ComparisonOperator, v: unknown) => {
+    const n = numberOf(v)
+    if (n !== null) query[op](amount, n)
+  }
+  switch (operator) {
+    case 'is':
+    case 'is_not': {
+      const n = numberOf(value)
+      if (n === null) return
+      if (operator === 'is') query.eq(amount, n)
+      else query.neq(amount, n)
+      return
+    }
+    case 'gt':
+    case 'gte':
+    case 'lt':
+    case 'lte':
+      bound(operator, value)
+      return
+    case 'between': {
+      const range = (value ?? {}) as Partial<RangeValue>
+      bound('gte', range.from)
+      bound('lte', range.to)
+      return
+    }
   }
 }
 
@@ -1714,7 +1890,7 @@ export function applyOrdering(
   query: ReturnType<typeof buildEntityQuery>,
   ordering: SortConfig[],
   entityType?: ViewEntityType,
-  options?: { tieBreakOnId?: boolean },
+  options?: { tieBreakOnId?: boolean; fieldTypes?: CustomFieldTypes },
 ) {
   const virtualFields = entityType
     ? new Set(FILTERABLE_FIELDS[entityType].filter((f) => f.virtual).map((f) => f.field))
@@ -1736,7 +1912,11 @@ export function applyOrdering(
         console.warn(`[views/query] ignoring sort on custom field "${sort.field}" (${entityType})`)
         continue
       }
-      query.order(`custom_fields->${key}`, { ascending: sort.direction === 'asc', nullsFirst: false })
+      // A currency by its amount. A person, a relation and a multi-select
+      // hold ids and lists, which order as nothing a reader would recognise.
+      const type = options?.fieldTypes?.get(key)
+      if (type === 'person' || type === 'relation' || type === 'multi_select') continue
+      query.order(type === 'currency' ? `custom_fields->${key}->amount` : `custom_fields->${key}`, { ascending: sort.direction === 'asc', nullsFirst: false })
       continue
     }
     query.order(sort.field, { ascending: sort.direction === 'asc', nullsFirst: false })
@@ -2005,6 +2185,37 @@ export function groupResults(
   }
 
   return sortedGroups
+}
+
+/**
+ * The types of the custom fields a view's filters and sorts name, read from
+ * the kind's definitions (one read, under the caller's RLS), or undefined
+ * when it names none. A table's rows take their table's columns instead
+ * (src/lib/tables/store.ts), so they are never read here.
+ */
+export async function customFieldTypesFor(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  entityType: ViewEntityType,
+  fields: readonly string[],
+): Promise<CustomFieldTypes | undefined> {
+  if (entityType === 'data_row' || !viewTakesCustomFields(entityType)) return undefined
+  const keys = [...new Set(fields.map((f) => customFieldKeyOf(f)).filter((k): k is string => !!k))]
+  if (!keys.length) return undefined
+  const { data, error } = await supabase
+    .from('custom_field_definition')
+    .select('key, field_type')
+    .eq('workspace_id', workspaceId)
+    .eq('entity_type', entityType)
+    .is('table_id', null)
+    .in('key', keys)
+  if (error || !data) return undefined
+  return new Map((data as Array<{ key: string; field_type: CustomFieldType }>).map((d) => [d.key, d.field_type]))
+}
+
+/** Every field a view's filters and sorts name. */
+export function viewFieldsOf(filters: readonly ViewFilter[] | null | undefined, ordering: readonly SortConfig[] | null | undefined): string[] {
+  return [...(filters ?? []).map((f) => f.field), ...(ordering ?? []).map((s) => s.field)]
 }
 
 /**
@@ -2303,11 +2514,12 @@ export async function executeView(
   // shape WITHOUT hitting the DB, mirroring a genuinely-empty result. Grouping
   // an empty array flows through groupResults naturally (empty groups list).
   const allFilters = [...(view.filters || []), ...(params.override_filters || [])]
+  const fieldTypes = await customFieldTypesFor(supabase, view.workspace_id, view.entity_type, viewFieldsOf(allFilters, view.ordering))
   try {
     await applyFilters(query, view.entity_type, allFilters, supabase, view.workspace_id, {
       memberId,
       userId,
-    })
+    }, { fieldTypes })
   } catch (err) {
     if (err instanceof NoMatchSignal) {
       const emptyGrouped = view.grouping
@@ -2345,7 +2557,7 @@ export async function executeView(
   }
 
   // Ordering
-  applyOrdering(query, view.ordering || defaultOrdering(view.entity_type), view.entity_type)
+  applyOrdering(query, view.ordering || defaultOrdering(view.entity_type), view.entity_type, { fieldTypes })
 
   // Pagination
   applyPagination(query, page, perPage)

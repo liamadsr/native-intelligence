@@ -63,6 +63,7 @@ const ENTITY_CONTEXT_REQUIREMENTS: Record<ViewEntityType, ContextKey[]> = {
   // Creator cell resolves a `member.id`, so without them both would render
   // raw UUIDs.
   claim: ['members', 'projects'],
+  data_row: [],
 }
 
 // ── Module-level cache (keyed by workspace; invalidated on entity-created) ──

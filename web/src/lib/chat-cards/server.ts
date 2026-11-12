@@ -24,6 +24,8 @@ import {
   applyEntityDefaults,
   applyFilters,
   applyOrdering,
+  customFieldTypesFor,
+  viewFieldsOf,
   applyPagination,
   applySearch,
   buildEntityQuery,
@@ -313,8 +315,10 @@ export async function runListQuery(
     visibility: fence,
   })
   const filters: ViewFilter[] = query.filters.map((f, i) => ({ id: `card-${i}`, ...f }))
+  const ordering = query.ordering?.length ? query.ordering : defaultOrdering(entity)
+  const fieldTypes = await customFieldTypesFor(scope.supabase, scope.workspaceId, entity, viewFieldsOf(filters, ordering))
   try {
-    await applyFilters(q, entity, filters, scope.supabase, scope.workspaceId, { memberId, userId: scope.userId })
+    await applyFilters(q, entity, filters, scope.supabase, scope.workspaceId, { memberId, userId: scope.userId }, { fieldTypes })
   } catch (err) {
     if (err instanceof NoMatchSignal) return { count: 0, rows: [] }
     throw err
@@ -324,7 +328,7 @@ export async function runListQuery(
   if (entity === 'action') {
     await applyCompletedFilter(scope.supabase, q, query.completed_filter ?? 'all', query.show_completed ?? true, scope.workspaceId)
   }
-  applyOrdering(q, query.ordering?.length ? query.ordering : defaultOrdering(entity), entity)
+  applyOrdering(q, ordering, entity, { fieldTypes })
   applyPagination(q, 1, limit)
   const { data, count, error } = await q
   if (error) throw new Error(error.message)

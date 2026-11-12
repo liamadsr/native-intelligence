@@ -53,7 +53,9 @@ export function FilterFieldPicker({ entityType, onSelect }: FilterFieldPickerPro
       .map(fieldName => allFields.find(f => f.field === fieldName))
       .filter(Boolean) as FilterFieldDefinition[],
   }))
-  if (customFields.length) groups.push({ label: 'Custom fields', fields: customFields })
+  // A table's own columns lead its picker; a kind's custom fields follow its built-in ones.
+  if (customFields.length && entityType === 'data_row') groups.unshift({ label: 'Columns', fields: customFields })
+  else if (customFields.length) groups.push({ label: 'Custom fields', fields: customFields })
 
   return (
     <Command>

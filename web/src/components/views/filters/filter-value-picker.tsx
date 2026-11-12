@@ -21,6 +21,8 @@ import { groupLabelsByGroupName, type LabelScope } from '@/lib/labels/utils'
 import { CommandGroup } from '@/components/ui/command'
 import { cn } from '@/lib/utils'
 import { numberUnitFor, percentToStored, storedToPercent, type NumberUnit } from './field-traits'
+import { findTargets } from '@/components/crm/custom-fields-group'
+import type { RelationTarget } from '@/lib/crm/custom-field-types'
 
 const ENTITY_TYPE_TO_LABEL_SCOPE: Partial<Record<ViewEntityType, LabelScope>> = {
   action: 'action',
@@ -90,7 +92,7 @@ export function isFreeTypedValue(fieldDef: FilterFieldDefinition, operator: Filt
 export function FilterValuePicker({ fieldDef, operator, value, onChange, entityType }: FilterValuePickerProps) {
   if (operator === 'is_empty' || operator === 'is_not_empty') return null
 
-  const isMulti = ['is_any_of', 'is_none_of'].includes(operator)
+  const isMulti = ['is_any_of', 'is_none_of', 'includes', 'excludes'].includes(operator)
 
   switch (fieldDef.type) {
     case 'enum':
@@ -147,8 +149,9 @@ export function FilterValuePicker({ fieldDef, operator, value, onChange, entityT
         />
       )
     case 'relation':
-      // Relations only support is_empty/is_not_empty (handled above)
-      return null
+      // A custom relation picks the records it links (searching its target);
+      // a built-in one only asks empty or not (handled above).
+      return fieldDef.relationTarget ? <RelationPicker target={fieldDef.relationTarget} value={value} onChange={onChange} /> : null
     default: {
       // All remaining entity-reference types use EntityPicker
       const pickerConfig = ENTITY_PICKER_CONFIG[fieldDef.type]
@@ -167,6 +170,68 @@ export function FilterValuePicker({ fieldDef, operator, value, onChange, entityT
       return <span className="px-2 text-muted-foreground text-xs">—</span>
     }
   }
+}
+
+/**
+ * Records a custom relation links to: the target's records found as you type
+ * (a table's rows, or a kind through the search menu), ticked into a list.
+ * The names of records already picked are kept as they are found.
+ */
+function RelationPicker({
+  target, value, onChange,
+}: {
+  target: { kind: string; table_id?: string }
+  value: FilterValue
+  onChange: (value: FilterValue) => void
+}) {
+  const [open, setOpen] = React.useState(false)
+  const [query, setQuery] = React.useState('')
+  const [found, setFound] = React.useState<{ id: string; title: string }[] | null>(null)
+  const [names, setNames] = React.useState<Record<string, string>>({})
+  const selected = Array.isArray(value) ? (value as string[]) : typeof value === 'string' && value ? [value] : []
+
+  React.useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    const t = setTimeout(() => {
+      void findTargets({ config: { target: target as RelationTarget } }, query).then((list) => {
+        if (cancelled) return
+        setFound(list)
+        setNames((prev) => ({ ...prev, ...Object.fromEntries(list.map((r) => [r.id, r.title])) }))
+      }).catch(() => { if (!cancelled) setFound([]) })
+    }, 150)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [open, query, target])
+
+  const toggle = (id: string) => onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id])
+  const label = selected.length === 0
+    ? 'Select...'
+    : selected.length === 1 ? names[selected[0]] ?? '1 selected' : `${selected.length} selected`
+
+  return (
+    <Popover open={open} onOpenChange={setOpen} modal={false}>
+      <PopoverTrigger asChild>
+        <button className="px-2 font-medium text-foreground hover:text-primary text-xs truncate max-w-[150px]">{label}</button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-0" align="start" onOpenAutoFocus={e => e.preventDefault()}>
+        <Command shouldFilter={false}>
+          <CommandInput placeholder="Search..." className="h-8" value={query} onValueChange={setQuery} />
+          <CommandList>
+            <CommandEmpty>{found === null ? 'Searching…' : 'Nothing matches'}</CommandEmpty>
+            {(found ?? []).map((r) => (
+              <CommandItem key={r.id} value={r.id} onSelect={() => toggle(r.id)} className="flex items-center gap-2">
+                <Checkbox checked={selected.includes(r.id)} className="h-3.5 w-3.5" />
+                <span className="truncate">{r.title}</span>
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 // Enum picker using Command + Popover with checkboxes (static options)
@@ -194,8 +259,9 @@ function EnumPicker({
     }
   }
 
+  // One or two options read as themselves ("Rush, Gift"); more as a count.
   const displayValue = isMulti
-    ? selected.length > 0 ? `${selected.length} selected` : 'Select...'
+    ? selected.length === 0 ? 'Select...' : selected.length <= 2 ? selected.map((o) => String(o).replace(/_/g, ' ')).join(', ') : `${selected.length} selected`
     : (value as string) ? String(value).replace(/_/g, ' ') : 'Select...'
 
   return (

@@ -5,6 +5,11 @@
  * a time, the rest in the background up to BACKGROUND_ROWS), the names its
  * person and relation values show as, its history, and every write.
  *
+ * The rows are the open view's (phase 4): filtered and sorted on the server
+ * (POST rows, src/lib/tables/store.ts queryRows), read again from the top
+ * when the view's filters or sorts change. A row edited so it no longer
+ * matches stays where it is until then, as a sorted row stays in place.
+ *
  * Writes are optimistic: an edit shows at once in its stored form
  * (planEdits coerces as the server does) and goes through the write queue
  * (src/lib/tables/write-queue.ts), one batch in flight. A refused batch puts
@@ -22,12 +27,16 @@ import { applyChanges, applyOpsToRows, mergeRows, planEdits, TITLE_KEY, type Cel
 import { validateOps } from '@/lib/tables/ops'
 import { createWriteQueue, type CellChange, type QueuedBatch, type SendResult, type WriteQueue } from '@/lib/tables/write-queue'
 import type { DataChange, DataColumn, DataOp, DataRow, DataTableWithColumns } from '@/lib/tables/types'
+import type { RowQuery } from '@/lib/tables/store'
 import type { Member } from './cells'
 
 const PAGE = 200
 /** Rows read without being scrolled to (sort and paste see them all); past this, more load on scroll. */
 export const BACKGROUND_ROWS = 10_000
 const CATCH_UP_LIMIT = 200
+
+/** The rows' query while the open view is still unknown. */
+const WAIT = 'wait'
 
 const COLUMN_OPS = new Set<DataOp['op']>(['create_column', 'update_column', 'delete_column', 'restore_column', 'reorder_columns', 'change_column_type'])
 
@@ -52,7 +61,11 @@ export interface TableNotice {
   tone?: 'error'
 }
 
-export function useTableData(tableId: string, opts: { onNotice?: (n: TableNotice) => void } = {}) {
+export function useTableData(
+  tableId: string,
+  /** `query: null` waits: the open view is still being read, so no rows are read for the wrong one. */
+  opts: { onNotice?: (n: TableNotice) => void; query?: RowQuery | null } = {},
+) {
   const base = `/api/account/tables/${encodeURIComponent(tableId)}`
   const [table, setTable] = useState<DataTableWithColumns | null>(null)
   const [rows, setRowsState] = useState<DataRow[]>([])
@@ -62,6 +75,8 @@ export function useTableData(tableId: string, opts: { onNotice?: (n: TableNotice
   const [changes, setChanges] = useState<DataChange[]>([])
   const [error, setError] = useState<string | null>(null)
   const [cellErrors, setCellErrors] = useState<ReadonlyMap<string, string>>(new Map())
+  /** The rows are being read again for a new view (the old ones stay shown, dimmed). */
+  const [rowsLoading, setRowsLoading] = useState(false)
 
   const rowsRef = useRef<DataRow[]>([])
   const tableRef = useRef<DataTableWithColumns | null>(null)
@@ -75,6 +90,12 @@ export function useTableData(tableId: string, opts: { onNotice?: (n: TableNotice
   const historyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const noticeRef = useRef(opts.onNotice)
   noticeRef.current = opts.onNotice
+  // The view's filters and sorts, read by every page; a new set starts the rows over.
+  const queryKey = opts.query === null ? WAIT : JSON.stringify({ filters: opts.query?.filters ?? [], ordering: opts.query?.ordering ?? [] })
+  const queryRef = useRef(queryKey)
+  queryRef.current = queryKey
+  /** Bumped when the rows start over: a page read for an older set is dropped. */
+  const rowsGen = useRef(0)
   const notice = (n: TableNotice) => noticeRef.current?.(n)
 
   const setRows = useCallback((next: DataRow[]) => {
@@ -120,7 +141,15 @@ export function useTableData(tableId: string, opts: { onNotice?: (n: TableNotice
 
   const loadPage = useCallback(
     async (offset: number) => {
-      const json = await readJson<{ rows: DataRow[]; has_more: boolean; labels?: Record<string, string> }>(await fetch(`${base}/rows?limit=${PAGE}&offset=${offset}`))
+      const gen = rowsGen.current
+      // No rows before the view is known: its own read follows.
+      if (queryRef.current === WAIT) return false
+      const view = JSON.parse(queryRef.current) as RowQuery
+      const json = await readJson<{ rows: DataRow[]; has_more: boolean; labels?: Record<string, string> }>(
+        await fetch(`${base}/rows`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...view, offset, limit: PAGE }) }),
+      )
+      // The view changed while this page was on its way: the next read starts over.
+      if (gen !== rowsGen.current) return false
       const page = (json.rows ?? []).map((r) => ({ ...r, custom_fields: r.custom_fields ?? {} }))
       serverRows.current = offset + page.length
       setRows(offset === 0 ? page : mergeRows(rowsRef.current, page))
@@ -147,7 +176,8 @@ export function useTableData(tableId: string, opts: { onNotice?: (n: TableNotice
   const loadRest = useCallback(
     async (more: boolean) => {
       let keepGoing = more
-      while (keepGoing && serverRows.current < BACKGROUND_ROWS) {
+      const gen = rowsGen.current
+      while (keepGoing && serverRows.current < BACKGROUND_ROWS && gen === rowsGen.current) {
         loadingMore.current = true
         try {
           keepGoing = await loadPage(serverRows.current)
@@ -301,6 +331,30 @@ export function useTableData(tableId: string, opts: { onNotice?: (n: TableNotice
       if (historyTimer.current) clearTimeout(historyTimer.current)
     }
   }, [reload])
+
+  // Another view, or other filters or sorts: the rows from the top.
+  const firstQuery = useRef(queryKey)
+  useEffect(() => {
+    if (firstQuery.current === queryKey) return
+    firstQuery.current = queryKey
+    if (queryKey === WAIT) return
+    rowsGen.current++
+    serverRows.current = 0
+    setRowsLoading(true)
+    void (async () => {
+      const gen = rowsGen.current
+      try {
+        const more = await loadPage(0)
+        if (gen === rowsGen.current) setRowsLoading(false)
+        await loadRest(more)
+      } catch (err) {
+        if (gen === rowsGen.current) {
+          setRowsLoading(false)
+          setError(err instanceof Error ? err.message : 'Could not load the rows')
+        }
+      }
+    })()
+  }, [queryKey, loadPage, loadRest])
 
   // Someone's batch (or our own, already applied): a newer version catches up.
   useEffect(
@@ -467,6 +521,7 @@ export function useTableData(tableId: string, opts: { onNotice?: (n: TableNotice
     changes,
     error,
     cellErrors,
+    rowsLoading,
     canEdit: table?.can_edit === true,
     reload,
     loadMore,

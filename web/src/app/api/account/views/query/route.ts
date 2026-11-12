@@ -9,6 +9,8 @@ import {
   applyOrdering,
   applyPagination,
   applySearch,
+  customFieldTypesFor,
+  viewFieldsOf,
   groupResults,
   layoutCustomSelectGroups,
   resolvePersonalScope,
@@ -165,12 +167,14 @@ export async function POST(request: NextRequest) {
     // and raising a 22P02 uuid-cast error. Grouping an empty array flows through
     // groupResults naturally; the empty-column injection (which needs the DB) is
     // intentionally skipped since there's nothing to place.
+    // The custom fields' types, so each is read in its own form (a multi-select's list, a currency's amount).
+    const fieldTypes = await customFieldTypesFor(supabase, workspaceId, entity_type, viewFieldsOf(filters, ordering))
     if (filters.length > 0) {
       try {
         await applyFilters(query, entity_type, filters, supabase, scopeWorkspaceIds, {
           memberId,
           userId: user.id,
-        })
+        }, { fieldTypes })
       } catch (err) {
         if (err instanceof NoMatchSignal) {
           const validSubGrouping = sub_grouping && sub_grouping.field ? sub_grouping : null
@@ -227,7 +231,7 @@ export async function POST(request: NextRequest) {
     // Ordering. Personal scope adds a total-order tie-break: `identifier` is
     // only unique per workspace, so two workspaces' ENG-1 rows would otherwise
     // tie and paging could show one twice.
-    applyOrdering(query, ordering, entity_type, { tieBreakOnId: workspaceScope === 'all' })
+    applyOrdering(query, ordering, entity_type, { tieBreakOnId: workspaceScope === 'all', fieldTypes })
 
     // Pagination
     applyPagination(query, page, perPage)

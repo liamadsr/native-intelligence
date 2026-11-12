@@ -42,6 +42,8 @@ vi.mock('@/lib/views/query-engine', () => ({
   applyOrdering: hoisted.applyOrdering,
   applyPagination: vi.fn(),
   applySearch: vi.fn(),
+  customFieldTypesFor: vi.fn(async () => undefined),
+  viewFieldsOf: vi.fn(() => []),
   resolvePersonalScope: hoisted.resolvePersonalScope,
   groupResults: vi.fn((items: unknown[]) => [{ key: 'all', label: 'All', items }]),
   CATEGORY_ORDER: {},
@@ -326,6 +328,7 @@ describe('POST /api/account/views/query — workspace_scope', () => {
       expect.anything(), 'action', expect.anything(), expect.anything(),
       ['workspace-1', 'workspace-2'],
       expect.anything(),
+      expect.anything(),
     )
     expect(hoisted.applyCompletedFilter).toHaveBeenCalledWith(
       expect.anything(), expect.anything(), 'all', true,
@@ -394,6 +397,7 @@ describe('POST /api/account/views/query — workspace_scope', () => {
     expect(hoisted.applyFilters).toHaveBeenCalledWith(
       expect.anything(), 'project', expect.anything(), expect.anything(),
       ['workspace-1', 'workspace-2'],
+      expect.anything(),
       expect.anything(),
     )
   })

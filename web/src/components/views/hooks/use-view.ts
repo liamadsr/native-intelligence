@@ -19,6 +19,7 @@ import type {
 import { acquireCrossWorkspaceTable } from '@/hooks/use-realtime-entities'
 import { defaultDisplayProperties, DEFAULT_BOARD_GROUP_BY, defaultLayout, defaultOrdering } from '@/lib/views/types'
 import { VIEWS_CHANGED_EVENT } from '@/lib/views/views-changed'
+import { readTableSettings, withTableSettings, type TableViewSettings } from '@/lib/tables/views'
 
 // ============================================================
 // useView — manages the list of saved views + active view config
@@ -429,6 +430,8 @@ export interface ViewConfig {
   capture_scope: 'all' | 'mine' | 'shared'
   /** Library baseline navigation, saved as an explicit Collection filter. */
   library_scope?: LibraryScope
+  /** A table's view (data_row): widths, hidden columns and layout picks, kept in the view's `metadata.table`. */
+  table?: TableViewSettings
 }
 
 /**
@@ -602,6 +605,19 @@ function readDraft(baselineId: string): Partial<ViewConfig> {
   } catch { return {} }
 }
 
+/** Drafts kept in memory instead (useViewConfig's `drafts: 'memory'`), by baseline. */
+type DraftMemory = Map<string, Partial<ViewConfig>>
+
+function readDraftIn(memory: DraftMemory | null, baselineId: string): Partial<ViewConfig> {
+  return memory ? memory.get(baselineId) ?? {} : readDraft(baselineId)
+}
+
+function writeDraftIn(memory: DraftMemory | null, baselineId: string, overrides: Partial<ViewConfig>) {
+  if (!memory) return writeDraft(baselineId, overrides)
+  if (Object.keys(overrides).length) memory.set(baselineId, overrides)
+  else memory.delete(baselineId)
+}
+
 function writeDraft(baselineId: string, overrides: Partial<ViewConfig>) {
   if (typeof window === 'undefined') return
   try {
@@ -750,7 +766,15 @@ export function useViewConfig(
    * reload opens on the agent's page, where they would not belong.
    */
   card?: CardConfigSource,
+  /**
+   * `memory`: drafts live in this hook only (one per baseline, for the
+   * visit), never in localStorage. A table's page keeps only its last-opened
+   * view in the browser (useView), not its unsaved changes.
+   */
+  drafts: 'storage' | 'memory' = 'storage',
 ) {
+  // The drafts' home when they stay in memory (see `drafts`), else null: localStorage.
+  const memoryDraftsRef = useRef<DraftMemory | null>(drafts === 'memory' ? new Map() : null)
   // Scope tab selection — owned here so the baseline can include the scope's
   // implied filter (e.g. user_id=@me for "Created by me"). When the user
   // switches scope, this state updates and the baseline recomputes; any
@@ -805,7 +829,7 @@ export function useViewConfig(
   // Unsaved overrides for the current baseline, seeded from localStorage so
   // navigating away and back (or reloading) restores the draft. A card's come
   // from the card.
-  const [overrides, setOverridesState] = useState<Partial<ViewConfig>>(() => (card ? card.overrides ?? {} : readDraft(baselineId)))
+  const [overrides, setOverridesState] = useState<Partial<ViewConfig>>(() => (card ? card.overrides ?? {} : readDraftIn(memoryDraftsRef.current, baselineId)))
 
   // A card that switched baselines starts its changes over. Adjusted DURING
   // render, like the span refit below, so the list never queries the new
@@ -825,7 +849,7 @@ export function useViewConfig(
     if (lastBaselineIdRef.current === baselineId) return
     lastBaselineIdRef.current = baselineId
     if (cardRef.current) cardRef.current.onOverridesChange?.({})
-    else setOverridesState(readDraft(baselineId))
+    else setOverridesState(readDraftIn(memoryDraftsRef.current, baselineId))
   }, [baselineId])
 
   // The switch flipped while this list is mounted: refit the My Actions tab
@@ -867,7 +891,7 @@ export function useViewConfig(
       if (cardRef.current) {
         // Only changes to the agent's page are kept with the card (see `card`).
         if (baselineId === CARD_BASELINE_ID) queueMicrotask(() => cardRef.current?.onOverridesChange?.(pruned))
-      } else writeDraft(baselineId, pruned)
+      } else writeDraftIn(memoryDraftsRef.current, baselineId, pruned)
       return pruned
     })
   }, [baseline, baselineId])
@@ -889,14 +913,18 @@ export function useViewConfig(
     // the app's switch, and crm_scope and capture_scope are session-only
     // navigation — none of them is persisted. Sending them to the View PATCH
     // endpoint would either be silently ignored or return a 400.
-    const { action_scope, workspace_scope, crm_scope, capture_scope, library_scope, ...viewPatch } = overrides
+    const { action_scope, workspace_scope, crm_scope, capture_scope, library_scope, table, ...viewPatch } = overrides
     void action_scope
     void workspace_scope
     void crm_scope
     void capture_scope
     void library_scope
-    await onSave(savedViewId, viewPatch as Partial<View>)
-    if (!cardRef.current) writeDraft(savedBaselineId, {})
+    // A table's settings live in the view's metadata, beside whatever else it holds.
+    const patch: Partial<View> = 'table' in overrides
+      ? { ...(viewPatch as Partial<View>), metadata: withTableSettings(activeView.metadata, table) }
+      : (viewPatch as Partial<View>)
+    await onSave(savedViewId, patch)
+    if (!cardRef.current) writeDraftIn(memoryDraftsRef.current, savedBaselineId, {})
     // Only clear local React state if we're still on the same baseline.
     // Otherwise the user has moved on and the current overrides belong to
     // a different baseline that we must not stomp.
@@ -917,7 +945,7 @@ export function useViewConfig(
     const currentBaselineId = lastBaselineIdRef.current
     setOverridesState({})
     if (cardRef.current) cardRef.current.onOverridesChange?.({})
-    else writeDraft(currentBaselineId, {})
+    else writeDraftIn(memoryDraftsRef.current, currentBaselineId, {})
   }, [])
 
   // Atomic scope switch — used when changing scope tabs (assigned/created,
@@ -960,9 +988,9 @@ export function useViewConfig(
       return
     }
     const targetBaselineId = defaultBaselineId(workspaceId, entityType, scoped)
-    const { filters, ...kept } = readDraft(targetBaselineId)
+    const { filters, ...kept } = readDraftIn(memoryDraftsRef.current, targetBaselineId)
     void filters
-    writeDraft(targetBaselineId, kept)
+    writeDraftIn(memoryDraftsRef.current, targetBaselineId, kept)
     setOverridesState(kept)
   }, [workspaceId, entityType, scoped])
 
@@ -1010,6 +1038,7 @@ function viewToConfig(view: View): ViewConfig {
     workspace_scope: 'workspace',
     crm_scope: 'contacts',
     capture_scope: 'all',
+    ...(view.entity_type === 'data_row' ? { table: readTableSettings(view.metadata) } : {}),
   }
 }
 

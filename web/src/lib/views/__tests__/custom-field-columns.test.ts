@@ -55,9 +55,11 @@ describe('which views take custom fields', () => {
       expect(FILTERABLE_FIELDS[kind as ViewEntityType]).toBeDefined()
     }
     const others = (Object.keys(FILTERABLE_FIELDS) as ViewEntityType[]).filter(
-      (k) => !(CUSTOM_FIELD_ENTITY_TYPES as readonly string[]).includes(k),
+      (k) => !(CUSTOM_FIELD_ENTITY_TYPES as readonly string[]).includes(k) && k !== 'data_row',
     )
     for (const kind of others) expect(viewTakesCustomFields(kind)).toBe(false)
+    // A table's rows: their columns are their table's own fields.
+    expect(viewTakesCustomFields('data_row')).toBe(true)
     expect(viewTakesCustomFields('deal')).toBe(true)
     expect(viewTakesCustomFields('action')).toBe(true)
   })

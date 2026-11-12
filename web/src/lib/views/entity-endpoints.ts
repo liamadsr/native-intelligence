@@ -41,4 +41,6 @@ export const ENTITY_ENDPOINTS: Record<ViewEntityType, (id: string) => string | n
   // and confidence are extraction output, not row-editable properties. This is
   // also the write path behind the claim board's drag (Suggested ⇄ Confirmed).
   claim: id => `/api/account/claims/${id}`,
+  // A row writes through its table's batch route (ops), never a PATCH.
+  data_row: () => null,
 }

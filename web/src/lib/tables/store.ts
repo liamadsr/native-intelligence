@@ -14,6 +14,9 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CustomFieldConfig } from '@/lib/crm/custom-fields'
+import { applyFilters, applyOrdering, NoMatchSignal, type CustomFieldTypes } from '@/lib/views/query-engine'
+import { customFieldKeyOf } from '@/lib/views/custom-field-columns'
+import type { SortConfig, ViewFilter } from '@/lib/views/types'
 import { isUuid, optionsAnUndoCouldDrop, planUndo, requiredWhenProblem, touchedBy, validateOps, type DataOpInput } from './ops'
 import {
   NEW_TABLE_ROWS,
@@ -142,6 +145,56 @@ export async function listRows(
     if (!ids.length) return { rows: [], hasMore: false }
     q = q.in('id', ids)
   } else q = opts.archived ? q.not('archived_at', 'is', null) : q.is('archived_at', null)
+  // One more than the page: whether there is another.
+  const { data, error } = await q.order('position', { ascending: true }).order('id', { ascending: true }).range(offset, offset + limit)
+  if (error) throw new Error(error.message)
+  const rows = ((data ?? []) as DataRow[]).map((r) => ({ ...r, custom_fields: r.custom_fields ?? {} }))
+  return { rows: rows.slice(0, limit), hasMore: rows.length > limit }
+}
+
+/** What a view asks of a table's rows: its filters and sorts (src/lib/views). */
+export interface RowQuery {
+  filters?: readonly ViewFilter[]
+  ordering?: readonly SortConfig[]
+}
+
+/** The fields every row has, beside its table's columns. */
+const ROW_FIELDS = new Set(['title', 'created_at', 'updated_at'])
+
+/** Whether a view's field is one this table has: a row field, or a live column's path. */
+function isTableField(field: string, types: CustomFieldTypes): boolean {
+  if (ROW_FIELDS.has(field)) return true
+  const key = customFieldKeyOf(field)
+  return !!key && types.has(key)
+}
+
+/**
+ * A page of a table's live rows as a view asks for them: filtered and sorted
+ * on the server by the views query engine, each column read by its type
+ * (the table's columns are the types), then in the table's order. A filter
+ * or a sort on a column since deleted is dropped: a saved view degrades, it
+ * never fails. `userId` resolves "me" on a person column.
+ */
+export async function queryRows(
+  db: SupabaseClient,
+  workspaceId: string,
+  tableId: string,
+  columns: readonly Pick<DataColumn, 'key' | 'field_type'>[],
+  opts: RowQuery & { offset?: number; limit?: number; userId?: string } = {},
+): Promise<{ rows: DataRow[]; hasMore: boolean }> {
+  const limit = Math.min(Math.max(1, Math.floor(opts.limit ?? 100)), MAX_ROWS_PAGE)
+  const offset = Math.max(0, Math.floor(opts.offset ?? 0))
+  const fieldTypes: CustomFieldTypes = new Map(columns.map((c) => [c.key, c.field_type]))
+  const filters = (opts.filters ?? []).filter((f) => isTableField(f.field, fieldTypes))
+  const ordering = (opts.ordering ?? []).filter((s) => isTableField(s.field, fieldTypes))
+  const q = db.from('data_row').select(ROW_SELECT).eq('workspace_id', workspaceId).eq('table_id', tableId).is('archived_at', null)
+  try {
+    await applyFilters(q as never, 'data_row', [...filters], db, workspaceId, { userId: opts.userId }, { fieldTypes })
+  } catch (e) {
+    if (e instanceof NoMatchSignal) return { rows: [], hasMore: false }
+    throw e
+  }
+  applyOrdering(q as never, [...ordering], 'data_row', { fieldTypes })
   // One more than the page: whether there is another.
   const { data, error } = await q.order('position', { ascending: true }).order('id', { ascending: true }).range(offset, offset + limit)
   if (error) throw new Error(error.message)

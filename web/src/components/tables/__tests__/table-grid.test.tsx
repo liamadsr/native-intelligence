@@ -92,6 +92,7 @@ beforeEach(() => {
       if (url === '/api/account/workspace/members') return json({ members: [{ id: MEMBER, display_name: 'Robin Vale', role: 'member' }, { id: 'g', display_name: 'A guest', role: 'guest' }] })
       if (url.startsWith('/api/account/search')) return json({ query: '', results: { company: [{ kind: 'company', company: { id: CO2, name: 'Birchwood Supply' } }] } })
       if (url === '/api/account/tables') return json({ tables: [TABLE] })
+      if (url.startsWith('/api/account/views')) return json({ views: [], total: 0 })
       return json({ table: { ...TABLE, columns: COLUMNS, can_edit: canEdit } })
     }),
   )
