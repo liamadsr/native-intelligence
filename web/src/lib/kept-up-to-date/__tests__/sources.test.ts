@@ -53,7 +53,7 @@ describe('mail', () => {
   it('a confirmation keeps rows only (to-dos stay with the closer); a stranger’s conversation closes no to-do; a free-mail domain is no company', async () => {
     expect((await mailKeptItem(makeFakeSupabase() as never, SCOPE, args({ kind: 'receipt_or_bill' }), { people: async () => DANA }))!.tasks).toBe(false)
     expect((await mailKeptItem(makeFakeSupabase() as never, SCOPE, args(), { people: async () => NOBODY }))!.tasks).toBe(false)
-    const people = vi.fn(async () => NOBODY)
+    const people = vi.fn(async (..._args: unknown[]) => NOBODY)
     await mailKeptItem(makeFakeSupabase() as never, SCOPE, args({ messages: [message({ from: 'Robin <robin@gmail.com>', cc: '' })] }), { people })
     expect(people.mock.calls[0][2]).toEqual({ emails: ['robin@gmail.com'], domains: [] })
   })

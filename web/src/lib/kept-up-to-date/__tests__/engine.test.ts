@@ -229,7 +229,7 @@ describe('applyKeptChange', () => {
 
   it('records it, applies one batch as the person’s agent with a reason quoting the sentence, then one message and one log line', async () => {
     const apply = applied()
-    const writeMessage = vi.fn(async () => true)
+    const writeMessage = vi.fn(async (..._args: unknown[]) => true)
     const appendLog = vi.fn(async () => true)
     const result = await applyKeptChange(db as never, { ...SCOPE, conversationId: 'home', item: item(), change: won, evidence: 'We signed the renewal this morning.' }, { apply, writeMessage, appendLog })
     expect(result).toMatchObject({ status: 'changed' })
@@ -253,7 +253,7 @@ describe('applyKeptChange', () => {
 
   it('a required-when refusal is no change: the row goes, no message', async () => {
     const apply = vi.fn(async () => ({ ok: false as const, reason: 'invalid' as const, error: 'Close reason is needed when Stage is Won (row “Acme renewal”).' }))
-    const writeMessage = vi.fn(async () => true)
+    const writeMessage = vi.fn(async (..._args: unknown[]) => true)
     expect((await applyKeptChange(db as never, { ...SCOPE, conversationId: 'home', item: item(), change: won, evidence: 'We signed.' }, { apply, writeMessage })).status).toBe('refused')
     expect(db.rows('kept_change')).toHaveLength(0)
     expect(writeMessage).not.toHaveBeenCalled()
@@ -310,7 +310,7 @@ describe('keptPass', () => {
     const db = fresh()
     const decide = decideWon()
     const apply = applied()
-    const writeMessage = vi.fn(async () => true)
+    const writeMessage = vi.fn(async (..._args: unknown[]) => true)
     const pass = keptPass(db as never, { ...SCOPE, now: 'Tuesday' }, { decide, apply, writeMessage, appendLog: vi.fn(async () => true), nowMs: NOW_MS })
     expect(await pass.consider(item(), 'run-1')).toBe('changed')
     expect(pass.changed()).toBe(1)
@@ -319,7 +319,7 @@ describe('keptPass', () => {
     expect(input.records).toEqual([expect.objectContaining({ kind: 'row', title: 'Acme renewal', table: 'Pipeline', values: expect.objectContaining({ Stage: 'Proposal' }) })])
     // March, from the message's own date: that month's last day.
     expect(input.changes).toContainEqual(expect.objectContaining({ type: 'date', field: 'Close date', to: expect.stringContaining('Mar 31') }))
-    expect(writeMessage.mock.calls[0][2]).toMatchObject({ evidence: 'We signed the renewal this morning.', to: 'Won' })
+    expect(writeMessage.mock.calls[0][2] as object).toMatchObject({ evidence: 'We signed the renewal this morning.', to: 'Won' })
     // Considered again (a retried pass): the source changed something already.
     expect(await pass.consider(item(), 'run-1')).toBe('skipped')
     expect(apply).toHaveBeenCalledTimes(1)
@@ -344,7 +344,7 @@ describe('keptPass', () => {
 
   it('to-dos only when the source says so, never one made after it or one it must leave alone', async () => {
     const db = fresh()
-    const decide = vi.fn(async (): Promise<DecisionResult<RecordKeptUpToDateValue>> => ({ status: 'accepted', value: { changeId: null, evidence: null }, inferenceId: 'i', version: 'v' }))
+    const decide = vi.fn(async (_input: RecordKeptUpToDateInput): Promise<DecisionResult<RecordKeptUpToDateValue>> => ({ status: 'accepted', value: { changeId: null, evidence: null }, inferenceId: 'i', version: 'v' }))
     const todos = [task(), task({ id: 'late', title: 'Made from this meeting', createdAt: '2026-11-10T16:00:00.000Z' }), task({ id: 'carded', title: 'On the meeting’s card' })]
     const readTodos = vi.fn(async () => todos)
     const pass = keptPass(db as never, { ...SCOPE, now: 'x' }, { decide, readTodos })
@@ -378,7 +378,7 @@ describe('undoKeptChange', () => {
     const db = fresh()
     const recordId = await changeWon(db)
     const undo = vi.fn(async () => ({ ok: true as const, value: { version: 9, change_id: 'chg-undo', inserted_row_ids: [], created_column_ids: {}, undone_change_id: 'chg-1', restored: ['“Stage” on “Acme renewal”'], kept: [] } }))
-    const writeMessage = vi.fn(async () => true)
+    const writeMessage = vi.fn(async (..._args: unknown[]) => true)
     const appendLog = vi.fn(async () => true)
     expect(await undoKeptChange(db as never, { ...SCOPE, recordId, nowMs: NOW_MS }, { undo, writeMessage, appendLog })).toEqual({ ok: true, status: 'reverted' })
     expect(undo).toHaveBeenCalledWith(db, WS, 't-pipe', 'chg-1', { userId: 'u', asUserId: 'u', source: 'person' })
@@ -397,9 +397,9 @@ describe('undoKeptChange', () => {
     const db = fresh()
     const recordId = await changeWon(db)
     const undo = vi.fn(async () => ({ ok: false as const, reason: 'invalid' as const, error: 'Nothing to restore: everything it changed has changed again since.' }))
-    const writeMessage = vi.fn(async () => true)
+    const writeMessage = vi.fn(async (..._args: unknown[]) => true)
     expect(await undoKeptChange(db as never, { ...SCOPE, recordId }, { undo, writeMessage })).toEqual({ ok: true, status: 'changed' })
-    expect(writeMessage.mock.calls[0][2]).toMatchObject({ undone: true, changed: true })
+    expect(writeMessage.mock.calls[0][2] as object).toMatchObject({ undone: true, changed: true })
   })
 
   it('a to-do: back where it was while still in the done state', async () => {

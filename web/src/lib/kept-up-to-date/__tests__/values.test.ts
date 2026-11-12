@@ -19,7 +19,7 @@ describe('ownText and sentencesOf', () => {
 
   it('splits lines at sentence ends, clipped, empty ones gone', () => {
     expect(sentencesOf('Good news. We signed the renewal!\n\nCan we push it to March?  ')).toEqual(['Good news.', 'We signed the renewal!', 'Can we push it to March?'])
-    expect(sentencesOf('a. b. c. d.', 2)).toHaveLength(2)
+    expect(sentencesOf('One. Two. Three. Four.', 2)).toEqual(['One.', 'Two.'])
     expect(sentencesOf('x'.repeat(400))[0]).toHaveLength(300)
   })
 })
