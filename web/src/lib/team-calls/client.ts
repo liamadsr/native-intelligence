@@ -56,14 +56,19 @@ export async function fetchTeamCalls(): Promise<{ available: boolean; rings: Tea
     return {
       available: json.available === true,
       rings: Array.isArray(json.rings) ? json.rings : [],
-      features: { notes: json.features?.notes === true, recording: json.features?.recording === true },
+      features: { notes: json.features?.notes === true, recording: json.features?.recording === true, liveNotes: json.features?.liveNotes === true },
     }
   } catch {
     return { available: false, rings: [], features: NO_CALL_FEATURES }
   }
 }
 
-/** Start a call in a conversation (or join the one live there); `notes`: a new call starts with its notes on (the starter's Auto-record setting). */
+/**
+ * Start a call in a conversation (or join the one live there). `notes`: a new
+ * call starts with its notes on where Egress takes them (the starter's
+ * Auto-record setting); where the call recorder does, the server turns them
+ * on for every call and this is not asked.
+ */
 export async function requestStart(channelId: string, notes = false): Promise<{ ok: true; call: CallPlace; join: TeamCallJoin } | { ok: false; why: CallFailure }> {
   const res = await post('/api/account/team-calls', { channelId, notes })
   if (!res?.ok) return { ok: false, why: await failureOf(res) }
