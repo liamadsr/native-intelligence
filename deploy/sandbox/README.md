@@ -2,7 +2,7 @@
 
 A second server, apart from the app's, that runs the coding agent's sandboxes and (later) the cloud browsers. It is separate so that untrusted code never shares a machine with the app and its database, and so that it can grow by itself.
 
-**Where this stands.** The server is set up and the runtime runs on it, tried by hand (see [What was tried](#what-was-tried)). Its end of [the tunnel](#the-tunnel) to the app's server is set up; the app's end is not. The app does not use this server yet: coding runs and cloud browsers still go to the hosted sandbox service ([`../README.md`](../README.md), "The coding agent"). What is still to build is listed under [Not done yet](#not-done-yet).
+**Where this stands.** The server is set up and the runtime runs on it, tried by hand (see [What was tried](#what-was-tried)). [The tunnel](#the-tunnel) between it and the app's server is up at both ends since 2026-11-12, and the app's containers can reach the runtime through it. The app does not use this server yet: coding runs and cloud browsers still go to the hosted sandbox service ([`../README.md`](../README.md), "The coding agent"). What is still to build is listed under [Not done yet](#not-done-yet).
 
 ## What runs here
 
@@ -102,6 +102,19 @@ On the app's server this installs a package, adds a network interface, a small f
 
 When this server is down, a call through the tunnel does not fail: it waits. Whatever calls the runtime needs its own time limit.
 
+**What the app's server now carries for it,** so that nobody takes these for strays: the package `wireguard-tools`, the network interface `ni-sandbox` (address `10.200.77.1`), three files in `/etc/wireguard` (`ni-sandbox.key`, `.conf`, `.nft`), the firewall table `inet ni_sandbox_tunnel`, the first rule in `ufw`'s list, and the unit `wg-quick@ni-sandbox`. To take the tunnel away there: `sudo systemctl disable --now wg-quick@ni-sandbox`, `sudo nft delete table inet ni_sandbox_tunnel`, `sudo ufw delete deny in on ni-sandbox`.
+
+**When a package server is down.** `tunnel.sh key` installs `wireguard-tools` where it is missing, and gives up with an error when the machine's package server does not answer. The same package can then be fetched from Ubuntu's main archive and checked against the checksum the machine's own signed package list holds, before it is installed:
+
+```bash
+apt-cache show wireguard-tools | grep -E '^(Filename|SHA256):'
+curl -fsS -o wireguard-tools.deb http://archive.ubuntu.com/ubuntu/<that Filename>
+sha256sum wireguard-tools.deb          # must be that SHA256, to the letter
+sudo dpkg -i wireguard-tools.deb
+```
+
+After that `tunnel.sh key` finds the tools in place and installs nothing.
+
 
 ## Memory, and how many sandboxes fit
 
@@ -149,7 +162,7 @@ On the first server (4 cores, 8 threads, 32 GB, two spinning disks mirrored), by
 - **The guard.** With it taken out by hand, `check.sh` fails: the runtime answers on the machine's own addresses. With a container made to publish a port, a sandbox reached that port before rule 3 existed and not after, and `check.sh` fails either way, because the port is open to the internet. From another machine only SSH answered, and the guard's own counter showed it had dropped the tries at the runtime's ports itself, ahead of `ufw`. A connection the guard refuses fails at once (0.007 s); in a first version the refusal's own error message was refused too, and the caller waited out its timeout.
 - **A reboot.** Three times. The last, with the guard as it is now: the machine was back two minutes after the command; the guard was loaded 28 s into the boot, before Docker started; the runtime was ready by itself 3 min 45 s after the command, and `check.sh` passed with nothing done by hand. The first time, a sandbox paused before the reboot resumed after it in 1.4 s with its files and its running program. The one that was running was gone, and the runtime still listed it as running: whatever calls the runtime must expect that.
 - **How many.** With 16 GiB set aside, twenty base sandboxes ran at once (the runtime's own limit).
-- **The tunnel, this end only.** Set up with a stand-in for the app server's key: the check passes, and a reboot brings the guard, the tunnel and the runtime back in that order. The app end's table was rehearsed here with a pretend link and a container publishing a port on it: without the table the far end reached the published port, which is what would have happened on the app's server with a `ufw` rule alone; with it nothing came in, and calls going out were still answered. The app's end itself has not been run.
+- **The tunnel.** First this end alone, with a stand-in for the app server's key: the check passes, and a reboot brings the guard, the tunnel and the runtime back in that order. The app end's table was rehearsed here with a pretend link and a container publishing a port on it: without the table the far end reached the published port, which is what would have happened on the app's server with a `ufw` rule alone; with it nothing came in, and calls going out were still answered. Then both ends for real, on 2026-11-12: the app's step ended with the runtime's health answer through the tunnel, `tunnel.sh check` passed on the app's server, a request from inside the coding agent's own container was answered by the runtime, and this server's check says the app's server is connected. On the app's server nothing restarted and no port changed. Not seen: the app end's table dropping a real packet. Nothing can send it one while this server's guard stands, so that table is proven by the rehearsal alone. On the way, the app's server waited five minutes on a package server that was down and then gave up; the package came from Ubuntu's main archive instead, checked against the signed list (see "When a package server is down").
 - **A browser.** An image from a registry with a browser in it was built in 42 s. A 2 GiB sandbox from it started in 0.07 s; the browser answered from outside, through the traffic port, 3.8 s later; it was driven over a WebSocket (it opened a page); and it still showed that page after a pause (1.2 s) and a resume (0.5 s).
 
 ## Known gaps
@@ -163,7 +176,6 @@ On the first server (4 cores, 8 threads, 32 GB, two spinning disks mirrored), by
 
 ## Not done yet
 
-- The app's end of the tunnel. This end is set up and waits, with a stand-in for the app server's key: run `tunnel.sh sandbox` again with the real one.
 - The piece that lets the coding agent use this runtime in place of the hosted service, with its own image.
 - The cloud browser on it.
 - A second setup from nothing on a wiped machine, timed.
