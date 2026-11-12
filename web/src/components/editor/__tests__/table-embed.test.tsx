@@ -72,6 +72,18 @@ describe('in the markdown', () => {
     expect(jsonContentToMarkdown(doc)).toContain(`/account?data_table=${T}&view=${V}`)
   })
 
+  it('sits beside a record mention: both read and write back as they were', () => {
+    const contact = '0a1b2c3d-0000-4000-8000-00000000cccc'
+    const link = tableLink({ tableId: T, viewId: V }, 'https://nativeintelligence.dev')
+    const md = `Ask [@Robin Vale](mention://contact/${contact}) about it.\n${link}`
+    const doc = markdownToJSONContent(md)
+    expect(doc.content?.[0].content?.some((n) => n.type === 'recordMention' || n.attrs?.kind === 'contact')).toBe(true)
+    expect(doc.content?.[1]).toEqual({ type: 'tableEmbed', attrs: { tableId: T, viewId: V } })
+    const back = jsonContentToMarkdown(doc)
+    expect(back).toContain(`[@Robin Vale](mention://contact/${contact})`)
+    expect(back).toContain(link)
+  })
+
   it('any other link is still a link card, and an embed not pointed at a table writes nothing', () => {
     expect(markdownToJSONContent('https://example.com/page').content?.[0]).toEqual({ type: 'linkPreview', attrs: { url: 'https://example.com/page' } })
     expect(jsonContentToMarkdown({ type: 'doc', content: [{ type: 'tableEmbed', attrs: { tableId: null, viewId: null } }] })).toBe('')
