@@ -6,6 +6,11 @@
  * (the capture is finished, the session is another producer's). A roster
  * event always goes before words said after it, so the app knows a speaker
  * before their first segment. Items of one kind in a row go in one request.
+ *
+ * With `everyMs`, what is pushed waits for the next send, at most that long:
+ * a call's words reach the app in one request every few seconds, not one per
+ * sentence (each request rewrites the capture's transcript once, so this is
+ * what keeps a long call's writes few). `flush` sends at once.
  */
 import { AppError, type RosterEvent, type Segment } from './app-client.ts'
 import { backoffMs, sleep } from './backoff.ts'
@@ -40,11 +45,14 @@ export class Delivery {
   private readonly target: DeliveryTarget
   private readonly onDead: (why: string) => void
   private readonly backoff: { baseMs: number; maxMs: number }
+  private readonly everyMs: number
+  private timer: ReturnType<typeof setTimeout> | null = null
 
-  constructor(target: DeliveryTarget, opts: { onDead?: (why: string) => void; backoff?: { baseMs: number; maxMs: number } } = {}) {
+  constructor(target: DeliveryTarget, opts: { onDead?: (why: string) => void; backoff?: { baseMs: number; maxMs: number }; everyMs?: number } = {}) {
     this.target = target
     this.onDead = opts.onDead ?? (() => undefined)
     this.backoff = opts.backoff ?? { baseMs: 500, maxMs: 30_000 }
+    this.everyMs = Math.max(0, opts.everyMs ?? 0)
   }
 
   /** Items not yet taken by the app. */
@@ -60,26 +68,49 @@ export class Delivery {
   push(item: Item): void {
     if (this.dead) return
     this.queue.push(item)
-    this.kick()
+    if (this.everyMs === 0) this.kick()
+    else this.later()
+  }
+
+  /** The next send, at most everyMs from now (one already due stays due). */
+  private later(): void {
+    if (this.timer || this.running) return
+    this.timer = setTimeout(() => {
+      this.timer = null
+      this.kick()
+    }, this.everyMs)
   }
 
   private kick(): void {
-    if (!this.running) this.running = this.drain().finally(() => (this.running = null))
+    if (this.timer) {
+      clearTimeout(this.timer)
+      this.timer = null
+    }
+    if (!this.running)
+      this.running = this.drain().finally(() => {
+        this.running = null
+        // Pushed while that request was out: the next send.
+        if (this.queue.length > 0 && !this.dead && this.everyMs > 0) this.later()
+      })
   }
 
   private async drain(): Promise<void> {
-    while (this.queue.length > 0 && !this.dead) {
-      const batch = nextBatch(this.queue)
+    // Batched: only what was waiting when this send began (what comes meanwhile waits for the next).
+    let budget = this.everyMs > 0 ? this.queue.length : Infinity
+    while (budget > 0 && this.queue.length > 0 && !this.dead) {
+      const batch = nextBatch(this.queue, Math.min(DELIVERY_BATCH, budget))
       try {
         if (batch[0].kind === 'roster') await this.target.roster(batch.map((i) => (i as Extract<Item, { kind: 'roster' }>).event))
         else await this.target.segments(batch.map((i) => (i as Extract<Item, { kind: 'segment' }>).segment))
         this.queue.splice(0, batch.length)
+        budget -= batch.length
         this.failures = 0
       } catch (err) {
         if (err instanceof AppError && err.status === 400) {
           // This request is malformed (a fault here, not the app's): it is dropped, the rest go on.
           console.warn(`[recorder] a ${batch[0].kind} batch of ${batch.length} was refused as malformed and dropped`)
           this.queue.splice(0, batch.length)
+          budget -= batch.length
           continue
         }
         if (err instanceof AppError && !err.retry) {

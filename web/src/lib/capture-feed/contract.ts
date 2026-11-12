@@ -12,10 +12,15 @@
  *
  *   POST /api/internal/capture-feed/start
  *     { source: { kind, ref }, producer: { kind, id } }
- *     → { outcome, session: { id, startedAt, round, captureId } }
+ *     → { outcome, session: { id, startedAt, round, captureId, guests } }
  *     outcome 'started' / 'resumed' (the session for the source's current
  *     round, made once: a second start, or one after a restart, finds it),
- *     'busy' (another producer feeds it), 'not_wanted', 'unknown'.
+ *     'busy' (another producer feeds it), 'not_wanted' (no notes, or the
+ *     capture was closed), 'unknown'. `guests`: the meeting guests the
+ *     producer may hear (they said go to this round's notes). It hears every
+ *     member, and no other guest: it does not even transcribe one.
+ *     `producer.id` names the producer's room identity
+ *     (notes-recorder-<id>): one id per producer process.
  *   POST /api/internal/capture-feed/sessions/<id>/roster
  *     { producer, events: [{ key, speaker, kind: 'joined' | 'left', atMs,
  *       identity?: { memberId } | { guestId } | { name, email? } }] }
@@ -27,12 +32,17 @@
  *     Final segments only. `key` is the segment's idempotency key: sent
  *     again (a retry), it is a duplicate and changes nothing.
  *   POST /api/internal/capture-feed/heartbeat
- *     { producer, sessions: [id] } → { sessions: [{ id, keep, reason }] }.
- *     Every few seconds, for every session the producer runs: keep false
- *     means stop (notes went off, the call ended, the 3-hour bound), after
- *     delivering what it still holds.
+ *     { producer, sessions: [id] } → { sessions: [{ id, keep, reason, guests }] }.
+ *     Every few seconds, for every session the producer runs: keep true
+ *     with the guests it may hear now (a guest who says go mid-round joins
+ *     the list); keep false means stop (notes went off, the call ended, the
+ *     3-hour bound, the capture was closed, or `feed_off`: the source's
+ *     switch is off on this server), after delivering what it still holds.
  *   POST /api/internal/capture-feed/sessions/<id>/end
- *     { producer, reason } → { ended }.
+ *     { producer, reason } → { ended }. The producer has delivered
+ *     everything it heard for this session and leaves it (every stop but a
+ *     restart): the notes' finish waits for this, a short while at most,
+ *     before it locks the capture.
  *
  * Times: every `atMs`, `startMs` and `endMs` is milliseconds from the
  * session's `startedAt` (the app's clock), so a producer that restarts goes
@@ -60,7 +70,8 @@ const key = z.string().min(1).max(128)
 
 export const ProducerSchema = z.object({
   kind: z.string().regex(/^[a-z][a-z0-9_]{0,39}$/),
-  id: z.string().min(1).max(80),
+  // It is logged, put in a LiveKit identity and checked by 587: letters, digits, dot, underscore, dash.
+  id: z.string().regex(/^[A-Za-z0-9._-]{1,40}$/),
 })
 export type CaptureFeedProducer = z.infer<typeof ProducerSchema>
 

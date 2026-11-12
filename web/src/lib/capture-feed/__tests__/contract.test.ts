@@ -3,14 +3,13 @@
  * (auth.ts) and its transcript at the end (transcript.ts): what a request
  * may carry, what it becomes for 588's functions, who may send one (only
  * the holder of a secret of the feed's own, compared in constant time; off
- * when unset or shared with another internal secret), and the transcript
- * written once more in the order things were said.
+ * when unset or shared with another internal secret), and the line the
+ * notes open with when the recorder was gone a while.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HeartbeatSchema, RosterSchema, SegmentsSchema, StartSchema, rosterEventRow, segmentRow } from '../contract'
 import { captureFeedSecret, checkCaptureFeedAuth } from '../auth'
-import { gapLines, orderedTranscript } from '../transcript'
-import type { StoredSegment } from '../store'
+import { gapLines } from '../transcript'
 
 vi.mock('server-only', () => ({}))
 
@@ -85,29 +84,7 @@ describe('the secret', () => {
   })
 })
 
-describe('the transcript at the end', () => {
-  const seg = (speakerKey: string, label: string, at: string, text: string, ms = 1000): StoredSegment => ({
-    sessionId: 's1',
-    speakerKey,
-    label,
-    saidAt: at,
-    startMs: 0,
-    endMs: ms,
-    text,
-  })
-
-  it('in the order said, whatever order it arrived in; one speaker’s neighbouring stretches are one line', () => {
-    const t = orderedTranscript([
-      seg('b', 'Lee Park', '2026-11-11T10:00:05.000Z', 'Sounds good.'),
-      seg('a', 'Rosa Lind', '2026-11-11T10:00:00.000Z', 'Shall we start?'),
-      seg('a', 'Rosa Lind', '2026-11-11T10:00:01.500Z', 'I have three things.'),
-      seg('a', 'Rosa Lind', '2026-11-11T10:00:09.000Z', 'First, the launch.'),
-    ])
-    expect(t.text).toBe('[Rosa Lind] Shall we start? I have three things.\n[Lee Park] Sounds good.\n[Rosa Lind] First, the launch.')
-    expect(t.lines).toBe(3)
-    expect(orderedTranscript([])).toEqual({ text: '', lines: 0 })
-  })
-
+describe('the notes’ opening line', () => {
   it('what the notes missed while the recorder was gone, never past the call’s end', () => {
     const start = '2026-11-11T10:00:00.000Z'
     const end = '2026-11-11T11:00:00.000Z'

@@ -16,6 +16,8 @@ export interface FeedSession {
   startedAt: string
   round: number
   captureId: string
+  /** The meeting guests who may be heard in this round (let in, and said go to its notes); every member may. */
+  guests: string[]
 }
 
 export interface FeedStart {
@@ -37,13 +39,15 @@ export async function startFeed(
   })
   if (error) throw new Error(`capture feed: start failed: ${error.message}`)
   const row = (Array.isArray(data) ? data[0] : data) as
-    | { outcome?: string; session_id?: string | null; capture_id?: string | null; started_at?: string | null; round?: number | null }
+    | { outcome?: string; session_id?: string | null; capture_id?: string | null; started_at?: string | null; round?: number | null; guests?: string[] | null }
     | undefined
   const outcome = (row?.outcome as FeedStartOutcome) ?? 'unknown'
   const live = (outcome === 'started' || outcome === 'resumed') && row?.session_id && row.capture_id && row.started_at
   return {
     outcome,
-    session: live ? { id: row!.session_id!, startedAt: new Date(row!.started_at!).toISOString(), round: row!.round ?? 0, captureId: row!.capture_id! } : null,
+    session: live
+      ? { id: row!.session_id!, startedAt: new Date(row!.started_at!).toISOString(), round: row!.round ?? 0, captureId: row!.capture_id!, guests: row!.guests ?? [] }
+      : null,
   }
 }
 
@@ -51,14 +55,21 @@ export interface FeedBeat {
   id: string
   keep: boolean
   reason: string | null
+  /** Kept: the meeting guests who may be heard now (a guest who says go mid-round joins this list). */
+  guests: string[]
 }
 
-/** The producer runs these sessions (588's capture_feed_heartbeat): which to keep, which to stop. */
+/** The producer runs these sessions (588's capture_feed_heartbeat): which to keep, which to stop, and whom it may hear. */
 export async function heartbeatFeeds(svc: SupabaseClient, producer: CaptureFeedProducer, sessionIds: readonly string[]): Promise<FeedBeat[]> {
   if (sessionIds.length === 0) return []
   const { data, error } = await svc.rpc('capture_feed_heartbeat', { p_producer_id: producer.id, p_sessions: [...sessionIds] })
   if (error) throw new Error(`capture feed: heartbeat failed: ${error.message}`)
-  return ((data ?? []) as Array<{ session_id: string; keep: boolean; reason: string | null }>).map((r) => ({ id: r.session_id, keep: r.keep === true, reason: r.reason ?? null }))
+  return ((data ?? []) as Array<{ session_id: string; keep: boolean; reason: string | null; guests: string[] | null }>).map((r) => ({
+    id: r.session_id,
+    keep: r.keep === true,
+    reason: r.reason ?? null,
+    guests: r.keep === true ? (r.guests ?? []) : [],
+  }))
 }
 
 export type RosterOutcome = 'applied' | 'stale' | 'unknown_speaker' | 'refused' | 'invalid' | 'locked' | 'taken' | 'unknown'
@@ -111,7 +122,7 @@ export async function appendSegments(
   }
 }
 
-/** The producer stopped (588's capture_feed_end). */
+/** The producer delivered everything it heard and left the session (588's capture_feed_end). */
 export async function endFeed(svc: SupabaseClient, sessionId: string, producer: CaptureFeedProducer, reason: string | undefined): Promise<boolean> {
   const { data, error } = await svc.rpc('capture_feed_end', { p_session: sessionId, p_producer_id: producer.id, p_reason: reason ?? null })
   if (error) throw new Error(`capture feed: end failed: ${error.message}`)
@@ -128,62 +139,41 @@ export async function markLostFeeds(svc: SupabaseClient, staleSeconds = FEED_LOS
   return ((data ?? []) as Array<{ session_id: string; capture_id: string; source_ref: string }>).map((r) => ({ sessionId: r.session_id, captureId: r.capture_id, sourceRef: r.source_ref }))
 }
 
-/** One stored segment, with its speaker's label (the transcript's line). */
-export interface StoredSegment {
-  sessionId: string
-  speakerKey: string
-  label: string
-  saidAt: string
-  startMs: number
-  endMs: number
-  text: string
-}
-
-/** Every segment of a capture, in the order said, with labels. */
-export async function capturedSegments(svc: SupabaseClient, captureId: string): Promise<StoredSegment[]> {
-  const [segs, speakers, people] = await Promise.all([
-    svc.from('capture_feed_segment').select('session_id, speaker_key, said_at, start_ms, end_ms, text, key').eq('capture_id', captureId).order('said_at', { ascending: true }).order('key', { ascending: true }),
-    svc.from('capture_feed_speaker').select('speaker_key, participant_id').eq('capture_id', captureId),
-    svc.from('capture_participant').select('id, speaker_label').eq('capture_id', captureId).eq('source', 'call_roster'),
-  ])
-  if (segs.error) throw new Error(`capture feed: segments read failed: ${segs.error.message}`)
-  if (speakers.error) throw new Error(`capture feed: speakers read failed: ${speakers.error.message}`)
-  if (people.error) throw new Error(`capture feed: participants read failed: ${people.error.message}`)
-  const labelOf = new Map(((people.data ?? []) as Array<{ id: string; speaker_label: string | null }>).map((p) => [p.id, p.speaker_label]))
-  const labels = new Map<string, string>()
-  for (const s of (speakers.data ?? []) as Array<{ speaker_key: string; participant_id: string }>) {
-    const label = labelOf.get(s.participant_id)
-    if (label) labels.set(s.speaker_key, label)
-  }
-  return ((segs.data ?? []) as Array<{ session_id: string; speaker_key: string; said_at: string; start_ms: number; end_ms: number; text: string }>).map((r) => ({
-    sessionId: r.session_id,
-    speakerKey: r.speaker_key,
-    label: labels.get(r.speaker_key) ?? 'Teammate',
-    saidAt: r.said_at,
-    startMs: Number(r.start_ms),
-    endMs: Number(r.end_ms),
-    text: r.text,
-  }))
+/**
+ * The sweeper: every producer still in a room whose call wants no feed of it (notes off, the call
+ * over, the capture closed, or it went quiet) goes on the eject outbox again (588's
+ * capture_feed_fence_producers). Returns how many were queued.
+ */
+export async function fenceProducers(svc: SupabaseClient): Promise<number> {
+  const { data, error } = await svc.rpc('capture_feed_fence_producers')
+  if (error) throw new Error(`capture feed: producers not fenced: ${error.message}`)
+  return typeof data === 'number' ? data : 0
 }
 
 /** The sessions of a source, oldest round first (a finish's gaps and its wait). */
 export async function sourceSessions(
   svc: SupabaseClient,
   source: { kind: CaptureFeedSourceKind; ref: string },
-): Promise<Array<{ id: string; round: number; status: 'live' | 'lost' | 'ended'; startedAt: string; endedAt: string | null; gaps: Array<{ from: string; to?: string }> }>> {
+): Promise<
+  Array<{ id: string; round: number; status: 'live' | 'lost' | 'ended'; startedAt: string; endedAt: string | null; deliveredAt: string | null; heartbeatAt: string; gaps: Array<{ from: string; to?: string }> }>
+> {
+  // One row per round of notes: a call has a handful (each round needs a person to turn notes on),
+  // far under PostgREST's row cap.
   const { data, error } = await svc
     .from('capture_feed_session')
-    .select('id, round, status, started_at, ended_at, gaps')
+    .select('id, round, status, started_at, ended_at, delivered_at, heartbeat_at, gaps')
     .eq('source_kind', source.kind)
     .eq('source_ref', source.ref)
     .order('round', { ascending: true })
   if (error) throw new Error(`capture feed: sessions read failed: ${error.message}`)
-  return ((data ?? []) as Array<{ id: string; round: number; status: 'live' | 'lost' | 'ended'; started_at: string; ended_at: string | null; gaps: unknown }>).map((r) => ({
+  return ((data ?? []) as Array<{ id: string; round: number; status: 'live' | 'lost' | 'ended'; started_at: string; ended_at: string | null; delivered_at: string | null; heartbeat_at: string; gaps: unknown }>).map((r) => ({
     id: r.id,
     round: r.round,
     status: r.status,
     startedAt: r.started_at,
     endedAt: r.ended_at,
+    deliveredAt: r.delivered_at,
+    heartbeatAt: r.heartbeat_at,
     gaps: Array.isArray(r.gaps) ? (r.gaps as Array<{ from: string; to?: string }>) : [],
   }))
 }

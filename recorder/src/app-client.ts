@@ -28,6 +28,16 @@ export interface FeedSession {
   startedAt: string
   round: number
   captureId: string
+  /** The meeting guests who may be heard (let in, and said go to this round's notes). Every member may. */
+  guests: string[]
+}
+
+/** The feed's answer for one running session: keep it or stop, and (kept) whom it may hear now. */
+export interface Beat {
+  id: string
+  keep: boolean
+  reason: string | null
+  guests: string[]
 }
 
 export interface RosterEvent {
@@ -112,12 +122,17 @@ export class AppClient {
 
   async start(callId: string): Promise<{ outcome: string; session: FeedSession | null }> {
     const out = await this.post<{ outcome?: string; session?: FeedSession | null }>('/api/internal/capture-feed/start', { source: { kind: 'team_call', ref: callId } })
-    return { outcome: out.outcome ?? 'unknown', session: out.session ?? null }
+    const session = out.session ? { ...out.session, guests: Array.isArray(out.session.guests) ? out.session.guests : [] } : null
+    return { outcome: out.outcome ?? 'unknown', session }
   }
 
-  async heartbeat(sessions: readonly string[]): Promise<Array<{ id: string; keep: boolean; reason: string | null }>> {
-    const out = await this.post<{ sessions?: Array<{ id: string; keep: boolean; reason: string | null }> }>('/api/internal/capture-feed/heartbeat', { sessions: [...sessions] })
-    return Array.isArray(out.sessions) ? out.sessions : []
+  /** Every session sent gets an answer (unknown and another producer's included: keep false). */
+  async heartbeat(sessions: readonly string[]): Promise<Beat[]> {
+    const out = await this.post<{ sessions?: Array<Partial<Beat>> }>('/api/internal/capture-feed/heartbeat', { sessions: [...sessions] })
+    const answers = Array.isArray(out.sessions) ? out.sessions : []
+    return answers
+      .filter((a): a is Partial<Beat> & { id: string } => typeof a.id === 'string')
+      .map((a) => ({ id: a.id, keep: a.keep === true, reason: a.reason ?? null, guests: a.keep === true && Array.isArray(a.guests) ? a.guests : [] }))
   }
 
   async roster(sessionId: string, events: readonly RosterEvent[]): Promise<Array<{ key: string; outcome: string }>> {

@@ -23,6 +23,13 @@ export function identityOf(identity: string | null | undefined): RosterEvent['id
   return null
 }
 
+/** May this identity be heard now? Every member; a meeting guest only when the app lists them (lowercase ids). */
+export function mayHear(identity: string, guests: ReadonlySet<string>): boolean {
+  const who = identityOf(identity)
+  if (!who) return false
+  return 'memberId' in who || ('guestId' in who && guests.has(who.guestId))
+}
+
 /** A wall-clock time as the feed's clock (ms from the session's start), never before it. */
 export function feedMs(wallMs: number, sessionStartedAtMs: number): number {
   return Math.max(0, Math.round(wallMs - sessionStartedAtMs))

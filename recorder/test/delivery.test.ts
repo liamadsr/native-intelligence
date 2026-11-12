@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { AppClient, AppError, type RosterEvent, type Segment } from '../src/app-client.ts'
 import { Delivery, nextBatch, type Item } from '../src/delivery.ts'
-import { Keys, feedMs, identityOf, rosterEvent, segmentOf } from '../src/speech.ts'
+import { Keys, feedMs, identityOf, mayHear, rosterEvent, segmentOf } from '../src/speech.ts'
 import { loadConfig } from '../src/config.ts'
 
 const MEMBER = '33333333-3333-4333-8333-333333333333'
@@ -76,6 +76,44 @@ test('a malformed batch is dropped, and the rest go on', async () => {
   assert.deepEqual(calls, ['roster:r2'])
 })
 
+test('batched: what is said within a few seconds goes in one request, and a flush sends at once', async () => {
+  const calls: string[] = []
+  const d = new Delivery(
+    {
+      roster: async (events: readonly RosterEvent[]) => {
+        calls.push(`roster:${events.map((e) => e.key).join(',')}`)
+      },
+      segments: async (segments: readonly Segment[]) => {
+        calls.push(`segments:${segments.map((s) => s.key).join(',')}`)
+      },
+    },
+    { everyMs: 80 },
+  )
+  d.push(seg('s1'))
+  d.push(seg('s2'))
+  await new Promise((r) => setTimeout(r, 20))
+  d.push(seg('s3'))
+  assert.deepEqual(calls, [], 'nothing is sent before the window closes')
+  await new Promise((r) => setTimeout(r, 120))
+  assert.deepEqual(calls, ['segments:s1,s2,s3'])
+  d.push(seg('s4'))
+  d.push(roster('r1'))
+  d.push(seg('s5'))
+  assert.equal(await d.flush(1000), true)
+  assert.deepEqual(calls, ['segments:s1,s2,s3', 'segments:s4', 'roster:r1', 'segments:s5'])
+})
+
+test('consent: every member is heard; a meeting guest only once the app lists them', () => {
+  const none = new Set<string>()
+  const listed = new Set([GUEST])
+  assert.equal(mayHear(MEMBER, none), true)
+  assert.equal(mayHear(`guest-${GUEST}`, none), false)
+  assert.equal(mayHear(`guest-${GUEST}`, listed), true)
+  assert.equal(mayHear(`guest-${GUEST.toUpperCase()}`, listed), true)
+  assert.equal(mayHear('notes-recorder-recorder', listed), false)
+  assert.equal(mayHear('EG_abc', listed), false)
+})
+
 test('identities: a member id, a meeting guest, and nobody else', () => {
   assert.deepEqual(identityOf(MEMBER), { memberId: MEMBER })
   assert.deepEqual(identityOf(MEMBER.toUpperCase()), { memberId: MEMBER })
@@ -131,4 +169,19 @@ test('the app client sends the secret and the producer, and says which answers a
   assert.deepEqual(seen[0].body, { producer: { kind: 'livekit_recorder', id: 'recorder' }, running: [], capacity: 3 })
   await assert.rejects(client.segments('s1', []), (e: AppError) => e.status === 409 && e.code === 'FEED_LOCKED' && !e.retry)
   await assert.rejects(client.end('s1', 'told'), (e: AppError) => e.status === 503 && e.retry)
+})
+
+test('the app client reads whom a session may hear: at its start, and at every heartbeat (only a kept one)', async () => {
+  const answers = [
+    new Response(JSON.stringify({ outcome: 'started', session: { id: 's1', startedAt: '2026-11-11T10:00:00.000Z', round: 1, captureId: 'c1', guests: [GUEST] } })),
+    new Response(JSON.stringify({ outcome: 'started', session: { id: 's2', startedAt: '2026-11-11T10:00:00.000Z', round: 1, captureId: 'c2' } })),
+    new Response(JSON.stringify({ sessions: [{ id: 's1', keep: true, reason: null, guests: [GUEST] }, { id: 's2', keep: false, reason: 'notes_off', guests: [GUEST] }, { keep: true }] })),
+  ]
+  const client = new AppClient({ appUrl: 'https://app.example.dev', secret: 'x', producer: { kind: 'livekit_recorder', id: 'recorder' }, fetch: async () => answers.shift()! })
+  assert.deepEqual((await client.start('call-1')).session?.guests, [GUEST])
+  assert.deepEqual((await client.start('call-2')).session?.guests, [])
+  assert.deepEqual(await client.heartbeat(['s1', 's2']), [
+    { id: 's1', keep: true, reason: null, guests: [GUEST] },
+    { id: 's2', keep: false, reason: 'notes_off', guests: [] },
+  ])
 })

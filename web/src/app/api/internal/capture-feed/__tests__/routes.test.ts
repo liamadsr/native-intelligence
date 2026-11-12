@@ -23,6 +23,7 @@ const CAPTURE = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const MEMBER = '33333333-3333-4333-8333-333333333333'
 const FEED = 'capture-feed-secret-of-its-own-0123456789'
 const producer = { kind: 'livekit_recorder', id: 'recorder' }
+const GUEST = '44444444-4444-4444-8444-444444444444'
 
 const h = vi.hoisted(() => ({
   svc: null as unknown as SupabaseClient,
@@ -51,12 +52,12 @@ beforeEach(() => {
   }
   h.rpcs = []
   h.answers = {}
-  const db = memoryDb(tables) as SupabaseClient & { rpc: unknown }
+  const db = memoryDb(tables) as unknown as { rpc: unknown }
   db.rpc = async (name: string, args: Record<string, unknown>) => {
     h.rpcs.push([name, args])
     return h.answers[name] ?? { data: null, error: { message: `no answer for ${name}` } }
   }
-  h.svc = db
+  h.svc = db as unknown as SupabaseClient
   vi.spyOn(console, 'info').mockImplementation(() => undefined)
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
   vi.spyOn(console, 'warn').mockImplementation(() => undefined)
@@ -81,14 +82,43 @@ describe('the secret first', () => {
     expect((await start(post({ source: { kind: 'team_call' }, producer }))).status).toBe(400)
     expect(h.rpcs).toEqual([])
   })
+
+  it('413 for a body over its size in bytes, said or not: fewer characters than the cap, more bytes', async () => {
+    // 600,000 characters of two bytes each: 1.2 MB, over the 1 MB cap, though under it in UTF-16 units.
+    const big = JSON.stringify({ producer, segments: [{ ...seg, text: 'é'.repeat(600_000) }] })
+    expect(big.length).toBeLessThan(1024 * 1024)
+    expect((await segments(post(JSON.parse(big)), params())).status).toBe(413)
+    // No Content-Length (a stream): read no further than the cap.
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode(big))
+        c.close()
+      },
+    })
+    const streamed = new Request('http://localhost/api/internal/capture-feed/x', {
+      method: 'POST',
+      body: stream,
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${FEED}` },
+      duplex: 'half',
+    } as RequestInit & { duplex: 'half' })
+    expect((await segments(streamed, params())).status).toBe(413)
+    // Said to be too large: refused before it is read.
+    const said = new Request('http://localhost/api/internal/capture-feed/x', {
+      method: 'POST',
+      body: '{}',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${FEED}`, 'content-length': String(2 * 1024 * 1024) },
+    })
+    expect((await segments(said, params())).status).toBe(413)
+    expect(h.rpcs).toEqual([])
+  })
 })
 
 describe('start', () => {
-  it('the session for the call’s round, with the capture’s title from its conversation', async () => {
-    h.answers.capture_feed_start = { data: [{ outcome: 'started', session_id: SESSION, capture_id: CAPTURE, started_at: '2026-11-11T10:00:00+00:00', round: 2 }], error: null }
+  it('the session for the call’s round, with the capture’s title from its conversation, and the guests it may hear', async () => {
+    h.answers.capture_feed_start = { data: [{ outcome: 'started', session_id: SESSION, capture_id: CAPTURE, started_at: '2026-11-11T10:00:00+00:00', round: 2, guests: [GUEST] }], error: null }
     const res = await start(post({ source: { kind: 'team_call', ref: CALL }, producer }))
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ outcome: 'started', session: { id: SESSION, startedAt: '2026-11-11T10:00:00.000Z', round: 2, captureId: CAPTURE } })
+    expect(await res.json()).toEqual({ outcome: 'started', session: { id: SESSION, startedAt: '2026-11-11T10:00:00.000Z', round: 2, captureId: CAPTURE, guests: [GUEST] } })
     expect(h.rpcs).toEqual([
       ['capture_feed_start', { p_source_kind: 'team_call', p_source_ref: CALL, p_producer_kind: 'livekit_recorder', p_producer_id: 'recorder', p_capture_title: 'Call in #launch' }],
     ])
@@ -160,10 +190,34 @@ describe('roster, heartbeat, end', () => {
     expect((await roster(post({ producer, events: [{ key: 'r1', speaker: MEMBER, kind: 'left', atMs: 9 }] }), params())).status).toBe(409)
   })
 
-  it('a heartbeat says which to keep and which to stop', async () => {
-    h.answers.capture_feed_heartbeat = { data: [{ session_id: SESSION, keep: false, reason: 'notes_off' }], error: null }
-    expect(await (await heartbeat(post({ producer, sessions: [SESSION] }))).json()).toEqual({ sessions: [{ id: SESSION, keep: false, reason: 'notes_off' }] })
-    expect(h.rpcs[0]).toEqual(['capture_feed_heartbeat', { p_producer_id: 'recorder', p_sessions: [SESSION] }])
+  it('a heartbeat says which to keep and which to stop, and whom a kept one may hear', async () => {
+    const OTHER = '88888888-8888-4888-8888-888888888888'
+    h.answers.capture_feed_heartbeat = {
+      data: [
+        { session_id: SESSION, keep: false, reason: 'notes_off', guests: null },
+        { session_id: OTHER, keep: true, reason: null, guests: [GUEST] },
+      ],
+      error: null,
+    }
+    expect(await (await heartbeat(post({ producer, sessions: [SESSION, OTHER] }))).json()).toEqual({
+      sessions: [
+        { id: SESSION, keep: false, reason: 'notes_off', guests: [] },
+        { id: OTHER, keep: true, reason: null, guests: [GUEST] },
+      ],
+    })
+    expect(h.rpcs[0]).toEqual(['capture_feed_heartbeat', { p_producer_id: 'recorder', p_sessions: [SESSION, OTHER] }])
+  })
+
+  it('the recorder switch turned off here: every session is told to stop (feed_off), nothing asked of the database', async () => {
+    vi.stubEnv('TEAM_CALL_RECORDER', '')
+    expect(await (await heartbeat(post({ producer, sessions: [SESSION] }))).json()).toEqual({ sessions: [{ id: SESSION, keep: false, reason: 'feed_off', guests: [] }] })
+    expect(h.rpcs).toEqual([])
+  })
+
+  it('a producer id that cannot name a LiveKit identity is refused', async () => {
+    expect((await heartbeat(post({ producer: { kind: 'livekit_recorder', id: 'two words' }, sessions: [SESSION] }))).status).toBe(400)
+    expect((await heartbeat(post({ producer: { kind: 'livekit_recorder', id: 'x'.repeat(41) }, sessions: [SESSION] }))).status).toBe(400)
+    expect(h.rpcs).toEqual([])
   })
 
   it('end, by the producer that holds it', async () => {
@@ -189,7 +243,8 @@ describe('the recorder’s work', () => {
     expect(h.rpcs[0]).toEqual(['team_call_recorder_work', { p_producer_id: 'recorder', p_running: [SESSION], max_jobs: 3 }])
     expect(body.jobs.map(({ token: _t, ...j }) => j)).toEqual([{ callId: CALL, room: `tc-${CALL}`, round: 1 }])
     const claims = await new TokenVerifier(KEY, SECRET).verify(body.jobs[0].token)
-    expect(claims.sub).toBe('notes-recorder')
+    // One identity per producer (notes-recorder-<id>): what 588 puts on the eject outbox for it.
+    expect(claims.sub).toBe('notes-recorder-recorder')
     expect(claims.video).toMatchObject({ room: `tc-${CALL}`, roomJoin: true, canSubscribe: true, canPublish: false, canPublishData: false, hidden: true, recorder: true, roomAdmin: false })
     expect(body.pollMs).toBeGreaterThan(0)
     // No room to take more: nothing is asked.

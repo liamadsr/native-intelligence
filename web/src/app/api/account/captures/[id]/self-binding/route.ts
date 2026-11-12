@@ -1,7 +1,8 @@
 import { type NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 import { requireWorkspace } from '@/lib/api-auth'
-import { badRequest, forbidden, notFound, serverError } from '@/lib/api-errors'
+import { apiError, badRequest, forbidden, notFound, serverError } from '@/lib/api-errors'
+import { callRosterSetsSpeakers } from '@/lib/live-agent/self-binding'
 import { cosineSimilarity } from '@/lib/voice-id-matching'
 import {
   EMBEDDING_DIM,
@@ -148,6 +149,11 @@ export async function POST(
 
   if (selfError) return serverError(selfError.message)
   if (!selfRow) return notFound('No self participant row')
+  // A call the recorder heard (migration 587): who each voice is comes from the call's roster, which no
+  // one rebinds by hand (587's guard would refuse the write).
+  if (await callRosterSetsSpeakers(supabase, captureId)) {
+    return apiError('This call’s speakers come from the call itself', { status: 409, code: 'SPEAKERS_FROM_CALL' })
+  }
 
   // Label-uniqueness invariant (self-binding.ts:124-127): two participant rows
   // must never share a speaker_label — label→person resolution and the

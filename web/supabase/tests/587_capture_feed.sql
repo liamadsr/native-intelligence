@@ -6,10 +6,14 @@
 -- the first heartbeats; who joined and left, refused for anyone who may not
 -- read the conversation, one label per person; segments taken once each and
 -- appended in the order said, none said after notes went off, none of a
--- guest who has not said go to this round; a quiet producer lost and back;
--- the recorder's work; the end (locked, or no capture when nothing was said);
--- a roster's row the server's alone; the service role's functions refused to
--- a person. The TS tests (src/lib/capture-feed/__tests__/migration-587-588
+-- guest who has not said go to this round (and the producer told which
+-- guests it may hear); a quiet producer lost and back; every way a session
+-- ends or goes quiet puts its producer on the eject outbox; a producer's
+-- `end` (delivered); a closed capture wanted by no producer; who said a
+-- quote; the recorder's work; the end (every segment, well over a page of
+-- them, written in the order said, in the database; or no capture when
+-- nothing was said); a speaker's label kept when its row goes; a roster's
+-- row the server's alone; the service role's functions refused to a person. The TS tests (src/lib/capture-feed/__tests__/migration-587-588
 -- .test.ts) pin the files' text; this runs the SQL.
 --
 -- Run against a database with 564-588 applied (never PROD):
@@ -35,6 +39,7 @@ declare
   s1 uuid; s2 uuid; s_m uuid; s_s uuid;
   g1 uuid;
   v text;
+  v2 text;
   v_report text;
   v_fail int;
   v_raise_report constant boolean := true;
@@ -164,6 +169,9 @@ begin
     't587ana/organizer/true/confirmed/call_roster,t587ana (2)/attendee/false/confirmed/call_roster,t587ben/attendee/false/confirmed/call_roster',
     (select string_agg(speaker_label || '/' || role || '/' || is_self::text || '/' || self_binding || '/' || source, ',' order by speaker_label)
        from public.capture_participant where capture_id = cap));
+  perform pg_temp.t587_check('each speaker keeps its own label (the transcript''s, whatever becomes of the row)',
+    't587ana,t587ana (2),t587ben',
+    (select string_agg(label, ',' order by label) from public.capture_feed_speaker where capture_id = cap));
   perform pg_temp.t587_check('an older event after a newer one: stale', 'stale',
     (select outcome from public.capture_feed_roster(s1, 'rec1', jsonb_build_array(pg_temp.ev('r7', m_b::text, 'joined', 150, null)))));
   perform pg_temp.t587_check('another producer''s roster: taken', 'taken',
@@ -205,13 +213,20 @@ begin
       pg_temp.sg('k4', m_b::text, 'Last thing.', 9000, 9800), pg_temp.sg('k5', m_b::text, 'After notes went off.', 11000, 11500)))));
   perform pg_temp.t587_check('the heartbeat tells the producer to stop', 'false/notes_off',
     (select keep::text || '/' || reason from public.capture_feed_heartbeat('rec1', array[s1])));
+  perform pg_temp.t587_check('notes off: the producer is put out of the room (the eject outbox, its own identity)', '1',
+    (select count(*)::text from public.team_call_eject where room = room_t and identity = 'notes-recorder-rec1' and done_at is null));
+  perform pg_temp.t587_check('another producer cannot say it is done with the session', 'false', public.capture_feed_end(s1, 'rec2', 'told')::text);
+  v := public.capture_feed_end(s1, 'rec1', 'told')::text;
+  perform pg_temp.t587_check('its own producer says it delivered everything: the finish stops waiting for it', 'true/true/ended',
+    v || '/' || (select (delivered_at is not null)::text || '/' || status from public.capture_feed_session where id = s1));
+  update public.team_call_eject set done_at = now() where room = room_t and done_at is null;
 
   -- ── Round 2, a producer gone quiet and back ───────────────────────────────
   perform pg_temp.t587_as(u_a, format('select notes::text from public.team_call_set_notes(%L, true)', call_t));
   select session_id into s2 from public.capture_feed_start('team_call', call_t, 'livekit_recorder', 'rec1', 'x') where outcome = 'started';
   perform pg_temp.t587_check('notes on again: a new round, the same capture', '2/' || cap::text,
     (select round::text || '/' || capture_id::text from public.capture_feed_session where id = s2));
-  perform pg_temp.t587_check('a heartbeat keeps it', 'true', (select keep::text from public.capture_feed_heartbeat('rec1', array[s2])));
+  perform pg_temp.t587_check('a heartbeat keeps it; no meeting guest to hear here', 'true/{}', (select keep::text || '/' || guests::text from public.capture_feed_heartbeat('rec1', array[s2])));
   perform pg_temp.t587_check('the recorder''s work: nothing while it heartbeats this one', '0',
     (select count(*)::text from public.team_call_recorder_work('rec1', array[call_t], 20) w where w.call_id = call_t));
   perform pg_temp.t587_check('… its own call again when it says it is not running it (a restart)', '1',
@@ -224,12 +239,44 @@ begin
   perform pg_temp.t587_check('quiet past the bound: lost, the moment kept, the capture says so', '1/lost/1/lost',
     v || '/' || (select status || '/' || jsonb_array_length(gaps)::text from public.capture_feed_session where id = s2)
       || '/' || (select metadata ->> 'notes_recorder' from public.captures where id = cap));
+  perform pg_temp.t587_check('… and it is put out of the room', '1',
+    (select count(*)::text from public.team_call_eject where room = room_t and identity = 'notes-recorder-rec1' and done_at is null));
+  update public.team_call_eject set done_at = now() where room = room_t and done_at is null;
   perform pg_temp.t587_check('… then any producer may take it', '1',
     (select count(*)::text from public.team_call_recorder_work('rec2', '{}', 20) w where w.call_id = call_t));
   v := (select keep::text from public.capture_feed_heartbeat('rec1', array[s2]));
   perform pg_temp.t587_check('back: live, the gap closed, the capture live again', 'true/live/true/live',
     v || '/' || (select status || '/' || ((gaps -> 0) ? 'to')::text from public.capture_feed_session where id = s2)
       || '/' || (select metadata ->> 'notes_recorder' from public.captures where id = cap));
+  perform public.capture_feed_fence_producers();
+  perform pg_temp.t587_check('the sweeper''s fence leaves a producer whose session the call wants', '0',
+    (select count(*)::text from public.team_call_eject where room = room_t and done_at is null));
+  v := public.capture_feed_end(s2, 'rec1', 'disconnected')::text;
+  perform pg_temp.t587_check('a producer that lost the room hands the session back: still live, delivered, offered again', 'true/live/true/1',
+    v || '/' || (select status || '/' || (delivered_at is not null)::text from public.capture_feed_session where id = s2)
+      || '/' || (select count(*)::text from public.team_call_recorder_work('rec1', '{}', 20) w where w.call_id = call_t));
+  v := (select outcome from public.capture_feed_start('team_call', call_t, 'livekit_recorder', 'rec1', 'x'));
+  perform pg_temp.t587_check('… taken up again: waited on once more', 'resumed/false',
+    v || '/' || (select (delivered_at is not null)::text from public.capture_feed_session where id = s2));
+
+  -- ── Who said a quote (the live agent's auto-apply gate) ───────────────────
+  perform pg_temp.t587_check('two lines about the contract', 'applied/2',
+    (select outcome || '/' || accepted from public.capture_feed_append(s2, 'rec1', jsonb_build_array(
+      pg_temp.sg('q1', m_a::text, 'Ben, can you send the contract?', 30000, 31500),
+      pg_temp.sg('q2', m_b::text, 'Sure. I will send the contract today.', 33000, 35000)))));
+  perform pg_temp.t587_check('the ask: said by Ana''s own roster row, not Ben''s', m_a::text || '/call_roster/1',
+    (select min(member_id::text) || '/' || min(source) || '/' || count(*)::text from public.capture_feed_quote_speakers(cap, 'Ben, can you send the contract?')));
+  perform pg_temp.t587_check('the promise: said by Ben''s', m_b::text || '/call_roster/1',
+    (select min(member_id::text) || '/' || min(source) || '/' || count(*)::text from public.capture_feed_quote_speakers(cap, 'I will send the contract today')));
+  perform pg_temp.t587_check('a quote of fewer than three words names no one; one nobody said, no one', '0/0',
+    (select count(*)::text from public.capture_feed_quote_speakers(cap, 'the contract')) || '/'
+      || (select count(*)::text from public.capture_feed_quote_speakers(cap, 'we will never ship this')));
+
+  -- ── Far more than a page of segments (PostgREST answers 1000 rows at most) ─
+  insert into public.capture_feed_segment (session_id, capture_id, key, speaker_key, start_ms, end_ms, said_at, text)
+  select s2, cap, 'bulk-' || i, case when i % 2 = 0 then m_a::text else m_b::text end, 100000 + i * 2000, 100000 + i * 2000 + 800,
+         (select started_at from public.capture_feed_session where id = s2) + make_interval(secs => 100 + i * 2), 'Point number ' || i || '.'
+    from generate_series(1, 1500) as i;
 
   -- ── The fence: the conversation's readers, and no wider ───────────────────
   perform pg_temp.t587_run('a teammate in the conversation reads the live capture', 'rows=1', u_b, array[format('select 1 from public.captures where id = %L', cap)]);
@@ -243,18 +290,30 @@ begin
   perform public.team_call_end(call_t, 'finished', now());
   perform pg_temp.t587_check('the call ended: every feed of it ended; the notes are being finished', 'ended/call_ended/transcribing',
     (select status || '/' || end_reason from public.capture_feed_session where id = s2) || '/' || (select notes_state from public.team_call where id = call_t));
-  perform pg_temp.t587_check('a lock written from fewer segments than there are: changed, write it again', 'changed',
-    (select outcome from public.team_call_capture_lock(call_t, 'x', '', 1)));
-  perform pg_temp.t587_check('locked: the ordered transcript, the preamble, ended, the owner''s, something said', 'ready/' || u_a::text || '/true',
-    (select outcome || '/' || owner_user::text || '/' || spoke::text from public.team_call_capture_lock(call_t, '[t587ben] Good morning.', 'Notes were on for 1 min of the 2 min call.', 3)));
-  perform pg_temp.t587_check('… the capture as Stop leaves one', '[t587ben] Good morning./Notes were on for 1 min of the 2 min call./true/true/done/ready',
-    (select transcript || '/' || user_notes || '/' || (ended_at is not null)::text || '/' || is_transcript_locked::text || '/' || (metadata ->> 'notes_recorder') from public.captures where id = cap)
+  perform pg_temp.t587_check('locked: the owner''s, something said', 'ready/' || u_a::text || '/true',
+    (select outcome || '/' || owner_user::text || '/' || spoke::text from public.team_call_capture_lock(call_t, 'Notes were on for 1 min of the 2 min call.', true)));
+  perform pg_temp.t587_check('… every segment, in the order said, written in the database: 1505 lines, the first and the last where they belong',
+    '1505/[t587ben] Good morning./[t587ana] Point number 1500./' || chr(10) || '[t587ana] Ben, can you send the contract?' || chr(10) || '[t587ben] Sure. I will send the contract today.' || chr(10) || '[t587ben] Point number 1.' || chr(10),
+    (select (length(transcript) - length(replace(transcript, chr(10), '')) + 1)::text || '/' || split_part(transcript, chr(10), 1) || '/'
+            || split_part(transcript, chr(10), 1505) || '/'
+            || substr(transcript, position(chr(10) || '[t587ana] Ben, can' in transcript), length(chr(10) || '[t587ana] Ben, can you send the contract?' || chr(10) || '[t587ben] Sure. I will send the contract today.' || chr(10) || '[t587ben] Point number 1.' || chr(10)))
+       from public.captures where id = cap));
+  perform pg_temp.t587_check('… the preamble, ended, locked, done, the notes ready', 'Notes were on for 1 min of the 2 min call./true/true/done/ready',
+    (select user_notes || '/' || (ended_at is not null)::text || '/' || is_transcript_locked::text || '/' || (metadata ->> 'notes_recorder') from public.captures where id = cap)
       || '/' || (select notes_state from public.team_call where id = call_t));
   perform pg_temp.t587_check('… everyone still in it has left at the end', '0',
     (select count(*)::text from public.capture_participant where capture_id = cap and joined_at is not null and left_at is null));
-  perform pg_temp.t587_check('locking again changes nothing', 'ready', (select outcome from public.team_call_capture_lock(call_t, 'other', 'other', -1)));
+  update public.team_call set notes_state = 'transcribing' where id = call_t;
+  v := (select outcome from public.team_call_capture_lock(call_t, 'other', true));
+  perform pg_temp.t587_check('locking again changes nothing, and the notes are ready (a second finish)', 'ready/ready/Notes were on for 1 min of the 2 min call.',
+    v || '/' || (select notes_state from public.team_call where id = call_t) || '/' || (select user_notes from public.captures where id = cap));
   perform pg_temp.t587_check('words after the lock: refused', 'locked',
     (select outcome from public.capture_feed_append(s2, 'rec1', jsonb_build_array(pg_temp.sg('k6', m_b::text, 'Too late.', 100, 200)))));
+  v := (select count(*)::text from public.capture_feed_lines(cap));
+  delete from public.capture_participant where capture_id = cap and member_id = m_b;
+  perform pg_temp.t587_check('a participant row deleted: its lines stay, with their label', v || '/' || v || '/t587ben',
+    v || '/' || (select count(*)::text from public.capture_feed_lines(cap)) || '/'
+      || (select min(label) from public.capture_feed_lines(cap) l where l.label = 't587ben'));
 
   -- ── A meeting: its host owns the notes, whoever started the call; a guest says go first ──
   ch_meet := pg_temp.t587_as(u_b, format('select channel_id::text from public.meeting_create(%L, %L, %L, %L, %L, null, null)',
@@ -270,19 +329,33 @@ begin
   v := (select outcome from public.capture_feed_roster(s_m, 'rec1', jsonb_build_array(pg_temp.ev('g', 'guest-' || g1::text, 'joined', 10, jsonb_build_object('guest_id', g1)))));
   perform pg_temp.t587_check('a guest of this meeting is in, labelled a guest; their row attests nothing', 'applied/Dana (guest)/none/false',
     v || '/' || (select speaker_label || '/' || self_binding || '/' || is_self::text from public.capture_participant where capture_id = cap_m and member_id is null));
+  perform pg_temp.t587_check('the producer is told it may hear no guest yet', '{}',
+    (select guests::text from public.capture_feed_heartbeat('rec1', array[s_m])));
   perform pg_temp.t587_check('a guest who has not said go to this round''s notes: dropped', '0/1',
     (select accepted || '/' || dropped from public.capture_feed_append(s_m, 'rec1', jsonb_build_array(pg_temp.sg('gk1', 'guest-' || g1::text, 'Hello all.', 100, 900)))));
   update public.meeting_guest set notes_ack_round = 1 where id = g1;
   perform pg_temp.t587_check('… once they have: taken', '1/0',
-    (select accepted || '/' || dropped from public.capture_feed_append(s_m, 'rec1', jsonb_build_array(pg_temp.sg('gk2', 'guest-' || g1::text, 'Hello all.', 1000, 1900)))));
+    (select accepted || '/' || dropped from public.capture_feed_append(s_m, 'rec1', jsonb_build_array(pg_temp.sg('gk2', 'guest-' || g1::text, 'Hello all, everyone.', 1000, 1900)))));
+  perform pg_temp.t587_check('… and the producer is told it may hear them now', '{' || g1::text || '}',
+    (select guests::text from public.capture_feed_heartbeat('rec1', array[s_m])));
+  perform pg_temp.t587_check('the guest''s line names a row that is no member', '<null>/call_roster',
+    (select coalesce(min(member_id::text), '<null>') || '/' || min(source) from public.capture_feed_quote_speakers(cap_m, 'Hello all everyone') q) );
   perform pg_temp.t587_run('the meeting''s member who started the call reads its notes', 'rows=1', u_a, array[format('select 1 from public.captures where id = %L', cap_m)]);
+  -- Its owner ends the capture by hand while the call goes on: no producer may feed it.
+  update public.captures set is_transcript_locked = true where id = cap_m;
+  v := (select keep::text || '/' || reason from public.capture_feed_heartbeat('rec1', array[s_m]));
+  perform pg_temp.t587_check('a closed capture: the heartbeat stops the producer and puts it out of the room', 'false/capture_closed/1',
+    v || '/' || (select count(*)::text from public.team_call_eject where room = room_m and identity = 'notes-recorder-rec1' and done_at is null));
+  perform pg_temp.t587_check('… not offered to any producer, and not started again', '0/not_wanted',
+    (select count(*)::text from public.team_call_recorder_work('rec2', '{}', 20) w where w.call_id = call_m) || '/'
+      || (select outcome from public.capture_feed_start('team_call', call_m, 'livekit_recorder', 'rec2', 't587 sync')));
 
   -- ── A call where nothing was said leaves no capture ───────────────────────
   call_s := pg_temp.t587_as(u_b, format('select call_id::text from public.team_call_start(%L)', ch_quiet))::uuid;
   perform pg_temp.t587_as(u_b, format('select notes::text from public.team_call_set_notes(%L, true)', call_s));
   select capture_id, session_id into cap_s, s_s from public.capture_feed_start('team_call', call_s, 'livekit_recorder', 'rec1', 'quiet');
   perform public.team_call_end(call_s, 'finished', now());
-  v := (select outcome from public.team_call_capture_lock(call_s, null, '', 0));
+  v := (select outcome from public.team_call_capture_lock(call_s, '', true));
   perform pg_temp.t587_check('nothing said: silent, the capture and its grant gone', 'silent/silent/<none>/0/0',
     v || '/' || (select notes_state || '/' || coalesce(capture_id::text, '<none>') from public.team_call where id = call_s)
       || '/' || (select count(*)::text from public.captures where id = cap_s)
@@ -294,7 +367,10 @@ begin
   perform pg_temp.t587_run('a person cannot start a feed', 'refused', u_a, array[format('select * from public.capture_feed_start(%L, %L, %L, %L, %L)', 'team_call', call_m, 'livekit_recorder', 'me', 'x')]);
   perform pg_temp.t587_run('a person cannot append words', 'refused', u_a, array[format('select * from public.capture_feed_append(%L, %L, %L)', s_m, 'rec1', '[]')]);
   perform pg_temp.t587_run('a person cannot make a call''s capture', 'refused', u_a, array[format('select public.team_call_capture_ensure(%L, %L)', call_m, 'x')]);
-  perform pg_temp.t587_run('a person cannot lock one', 'refused', u_a, array[format('select * from public.team_call_capture_lock(%L, null, %L, -1)', call_m, '')]);
+  perform pg_temp.t587_run('a person cannot lock one', 'refused', u_a, array[format('select * from public.team_call_capture_lock(%L, %L, true)', call_m, '')]);
+  perform pg_temp.t587_run('a person cannot read who said a quote', 'refused', u_a, array[format('select * from public.capture_feed_quote_speakers(%L, %L)', cap, 'can you send')]);
+  perform pg_temp.t587_run('a person cannot read the lines', 'refused', u_a, array[format('select * from public.capture_feed_lines(%L)', cap)]);
+  perform pg_temp.t587_run('a person cannot fence the producers', 'refused', u_a, array['select public.capture_feed_fence_producers()']);
   perform pg_temp.t587_run('a person cannot read the recorder''s work', 'refused', u_a, array[format('select * from public.team_call_recorder_work(%L, %L, 5)', 'rec1', '{}')]);
 
   -- ── Report ────────────────────────────────────────────────────────────────

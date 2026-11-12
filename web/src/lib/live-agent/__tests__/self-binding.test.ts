@@ -16,8 +16,8 @@ import {
   positionEvidenceHolds,
   resolveSelfBinding,
   assigneeResolvedViaSpeakerMap,
-  attestedMemberBinding,
-  othersOwnCommitment,
+  callRosterSetsSpeakers,
+  quoteIsTheirs,
 } from '../self-binding'
 import { memoryDb } from '@/test/memory-db'
 import { withTableSchema } from '@/test/table-schema'
@@ -192,32 +192,24 @@ describe('assigneeResolvedViaSpeakerMap', () => {
   })
 })
 
-describe('a call’s roster the server attests (migration 587)', () => {
+describe('a call the recorder heard: ownership from the line, never from a name (migration 587)', () => {
   const ROSA = 'mem-rosa'
-  const roster = (over: Row = {}): Row => ({ id: 'p1', capture_id: CAPTURE_ID, member_id: ROSA, source: 'call_roster', self_binding: 'confirmed', speaker_label: 'Rosa Lind', ...over })
+  const said = (over: Record<string, unknown> = {}) => ({ participant_id: 'p-rosa', member_id: ROSA, source: 'call_roster', ...over })
 
-  it('holds for a member the roster names, with their label and the server’s confirmation', async () => {
-    // Every column it reads is one capture_participant has (src/test/table-schema.ts).
-    const db = withTableSchema(memoryDb({ capture_participant: [roster()] }), ['capture_participant'])
-    expect(await attestedMemberBinding(db, CAPTURE_ID, ROSA)).toBe(true)
+  it('a call’s capture is known by its roster rows; an ordinary capture has none', async () => {
+    const db = withTableSchema(memoryDb({ capture_participant: [{ id: 'p1', capture_id: CAPTURE_ID, member_id: ROSA, source: 'call_roster', speaker_label: 'Rosa Lind' }] }), ['capture_participant'])
+    expect(await callRosterSetsSpeakers(db, CAPTURE_ID)).toBe(true)
+    expect(await callRosterSetsSpeakers(memoryDb({ capture_participant: [{ id: 'p1', capture_id: CAPTURE_ID, member_id: ROSA, source: 'voice_id' }] }), CAPTURE_ID)).toBe(false)
   })
 
-  it('never on an ordinary capture: a confirmed row a person or voice ID wrote, or one with no label, is not the server’s word', async () => {
-    expect(await attestedMemberBinding(memoryDb({ capture_participant: [roster({ source: 'manual' })] }), CAPTURE_ID, ROSA)).toBe(false)
-    expect(await attestedMemberBinding(memoryDb({ capture_participant: [roster({ source: 'voice_id' })] }), CAPTURE_ID, ROSA)).toBe(false)
-    expect(await attestedMemberBinding(memoryDb({ capture_participant: [roster({ speaker_label: null })] }), CAPTURE_ID, ROSA)).toBe(false)
-    expect(await attestedMemberBinding(memoryDb({ capture_participant: [roster({ self_binding: 'none' })] }), CAPTURE_ID, ROSA)).toBe(false)
-    expect(await attestedMemberBinding(memoryDb({ capture_participant: [roster()] }), 'another-capture', ROSA)).toBe(false)
-    expect(await attestedMemberBinding(memoryDb({ capture_participant: [roster()] }), CAPTURE_ID, 'mem-lee')).toBe(false)
-    expect(await attestedMemberBinding(memoryDb({ capture_participant: [roster()] }), CAPTURE_ID, null)).toBe(false)
-  })
-
-  it('someone else’s commitment is theirs only through the speaker map and that attestation, and only with the gate on', () => {
-    const yes = { gateEnabled: true, assigneeMemberId: ROSA, viaSpeakerMap: true, attested: true }
-    expect(othersOwnCommitment(yes)).toBe(true)
-    expect(othersOwnCommitment({ ...yes, viaSpeakerMap: false })).toBe(false)
-    expect(othersOwnCommitment({ ...yes, attested: false })).toBe(false)
-    expect(othersOwnCommitment({ ...yes, assigneeMemberId: null })).toBe(false)
-    expect(othersOwnCommitment({ ...yes, gateEnabled: false })).toBe(false)
+  it('theirs only when exactly one roster row said it, and it is theirs', () => {
+    expect(quoteIsTheirs([said()], ROSA)).toBe(true)
+    expect(quoteIsTheirs([said({ member_id: MEMBER_ME })], ROSA)).toBe(false)
+    expect(quoteIsTheirs([said({ member_id: null })], ROSA)).toBe(false)
+    expect(quoteIsTheirs([said({ source: 'manual' })], ROSA)).toBe(false)
+    expect(quoteIsTheirs([said({ participant_id: null })], ROSA)).toBe(false)
+    expect(quoteIsTheirs([said(), said({ participant_id: 'p-me', member_id: MEMBER_ME })], ROSA)).toBe(false)
+    expect(quoteIsTheirs([], ROSA)).toBe(false)
+    expect(quoteIsTheirs([said()], null)).toBe(false)
   })
 })

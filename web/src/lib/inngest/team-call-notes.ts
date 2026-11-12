@@ -20,7 +20,7 @@ import {
 } from '@/lib/team-calls/notes-store'
 import { sweepCallAudio } from '@/lib/team-calls/notes-retention'
 import { postExtraction, runOwnerBatch } from './capture-finalizer'
-import { fedNotesStatus, lockFedNotesAsTheyAre, writeFedNotes, type FedNotesStatus, type FedNotesWritten } from '@/lib/team-calls/fed-notes'
+import { FED_TAIL_CAP_MS, fedNotesStatus, lockFedNotesAsTheyAre, writeFedNotes, type FedNotesStatus, type FedNotesWritten } from '@/lib/team-calls/fed-notes'
 
 /**
  * A call's notes, after the call (calls plan, phase 6; src/lib/team-calls/
@@ -42,7 +42,8 @@ import { fedNotesStatus, lockFedNotesAsTheyAre, writeFedNotes, type FedNotesStat
  *
  *   Where the call recorder took the notes (src/lib/team-calls/fed-notes.ts),
  *   the same finish locks the capture that filled in live instead: no files
- *   to wait for, only the recorder's last words (FED_TAIL_WAIT).
+ *   to wait for, only the recorder's word that it delivered its last words
+ *   (its `end`), checked every FED_POLL, at most FED_TAIL_CAP_MS.
  *
  * One `[team-call-notes]` line per step outcome, ids only.
  */
@@ -134,12 +135,14 @@ export async function runTeamCallNotesFinish({ event, step }: NotesRunContext) {
   return { status: 'ready', captureId }
 }
 
-/** How long the finish of the recorder's notes waits for its last words (a producer hears of the end at its next heartbeat, then flushes). */
-export const FED_TAIL_WAIT = '20s'
+/** How often the finish of the recorder's notes looks for the recorder's last words (it hears of the end at its next heartbeat, then flushes and says so). */
+export const FED_POLL = '5s'
+const FED_POLL_ROUNDS = Math.ceil(FED_TAIL_CAP_MS / 5000)
 
 /**
- * The recorder's notes, once the call ended: give the recorder its tail
- * (FED_TAIL_WAIT), lock the capture with its transcript in the order things
+ * The recorder's notes, once the call ended: wait until every producer that
+ * was still hearing the call says it delivered its last words (at most
+ * FED_TAIL_CAP_MS), lock the capture with its transcript in the order things
  * were said (or leave none when nothing was), then the end-of-meeting pass a
  * recorded meeting gets, as its owner: the batch when anything was said, the
  * title and the index.
@@ -147,7 +150,13 @@ export const FED_TAIL_WAIT = '20s'
 async function runFedNotesFinish(callId: string, fed: FedNotesStatus, step: NotesRunContext['step']) {
   if (fed.callStatus !== 'ended') return { status: 'skipped', reason: 'live' }
   if (fed.notesState === 'ready' || fed.notesState === 'silent') return { status: 'skipped', reason: fed.notesState }
-  await step.sleep('let-feed-finish', FED_TAIL_WAIT)
+  // The recorder's last words: until every producer still hearing the call says it delivered them.
+  let waiting = fed.undelivered
+  for (let round = 1; round <= FED_POLL_ROUNDS && waiting > 0; round++) {
+    await step.sleep(`feed-tail-${round}`, FED_POLL)
+    waiting = ((await step.run(`feed-look-${round}`, () => fedNotesStatus(getServiceClient(), callId))) as FedNotesStatus).undelivered
+  }
+  if (waiting > 0) console.warn(`[team-call-notes] call=${callId} locking with ${waiting} feed(s) that never said they were done`)
   const written = (await step.run('write-feed', () => writeFedNotes(getServiceClient(), callId))) as FedNotesWritten
   if (written.outcome !== 'ready') return { status: written.outcome }
   const { captureId, ownerUserId, workspaceId } = written

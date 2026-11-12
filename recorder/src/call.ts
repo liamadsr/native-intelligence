@@ -1,34 +1,62 @@
 /**
  * One call, heard: the recorder in its LiveKit room (hidden, subscribe only:
- * the token says so), every member's and guest's microphone to Deepgram on a
- * socket of its own, and what they say and who comes and goes delivered to
- * the call's feed session in the order it happened.
+ * the token says so), every member's microphone, and each meeting guest's once
+ * the app says they may be heard, to Deepgram on a socket of its own, and what
+ * they say and who comes and goes delivered to the call's feed session in the
+ * order it happened.
  *
- *   - Someone already in the room, or joining later: a roster event, then
- *     their microphone once it is subscribed. Leaving: their last words, then
- *     the roster event. Coming back (a reconnect, a new track): the same
- *     speaker, a new socket.
- *   - Muted: nothing is sent (the person's app only mutes now; it no longer
- *     ends its track), and Deepgram is asked for what it heard so far.
- *   - The room lost (LiveKit restarted, the connection gone for good), or
- *     nobody left in it for ALONE_MS: the recorder leaves without ending the
- *     session; the main loop asks for its work again and comes back with a
- *     fresh token if the call still wants notes. Told to stop by the
- *     heartbeat (notes off, the call over, the 3-hour bound): the last words
- *     are delivered, then the session is ended.
+ *   - It subscribes to microphones and nothing else (no camera, no screen):
+ *     auto-subscribe is off, and each microphone publication is asked for.
+ *   - A meeting guest is heard only once the app lists them (they said go to
+ *     this round's notes: the start's answer, then every heartbeat's). Until
+ *     then their microphone is not even subscribed: no audio of theirs leaves
+ *     the server. A member is heard from their first frame: a member who joins
+ *     a call whose notes someone else turned on holds their microphone until
+ *     they have seen the notice (the web, desktop and iPhone apps), so nothing
+ *     of theirs is published, and so nothing reaches the recorder, before
+ *     that; one already in the call when notes go on is heard from then on.
+ *   - Someone already in the room, or joining later: a roster event, then their
+ *     microphone. Leaving: their last words, then the roster event. Coming back
+ *     (a reconnect, a new track): the same speaker, a new socket.
+ *   - Muted: nothing is sent, and Deepgram is asked for what it heard so far.
+ *   - It leaves when the room is lost, when nobody else has been in it for
+ *     ALONE_MS, when the feed refuses its words (the capture was closed), at its
+ *     bound, or when the heartbeat says stop; each time it delivers its last
+ *     words first, then tells the feed it is done with the session (`end`), so
+ *     a call's finish knows nothing more is coming (a room it could not join
+ *     too: the session is handed back at once). Only a shutdown (SIGTERM)
+ *     leaves without `end`: the next process takes the session up.
  *
- * Logs carry ids only: the call, the session, a track. Never a name or a word.
+ * Every room event handler is guarded: one that throws is logged, never the
+ * end of the process (and of every other call in it). Logs carry ids only:
+ * the call, the session, a track. Never a name or a word.
  */
-import { AudioStream, Room, RoomEvent, TrackKind, TrackSource, type AudioFrame, type RemoteParticipant, type RemoteTrack, type RemoteTrackPublication, type TrackPublication, type Participant } from '@livekit/rtc-node'
+import {
+  AudioStream,
+  Room,
+  RoomEvent,
+  TrackKind,
+  TrackSource,
+  type AudioFrame,
+  type RemoteParticipant,
+  type RemoteTrack,
+  type RemoteTrackPublication,
+  type TrackPublication,
+  type Participant,
+} from '@livekit/rtc-node'
 import type { AppClient, FeedSession, Job } from './app-client.ts'
 import { DeepgramStream, type SocketFactory } from './deepgram.ts'
 import { Delivery } from './delivery.ts'
-import { Keys, identityOf, rosterEvent, segmentOf } from './speech.ts'
+import { Keys, identityOf, mayHear, rosterEvent, segmentOf } from './speech.ts'
 
 /** Nobody but the recorder in the room this long: it leaves, so the room can close. */
 export const ALONE_MS = 30_000
 /** The audio the recorder asks LiveKit for: what Deepgram is told it gets. */
 export const SAMPLE_RATE = 16_000
+/** The longest a join may take before it is given up (the main loop asks again later). */
+export const CONNECT_TIMEOUT_MS = 20_000
+/** How often the call's words go to the app: one write to the capture per call this often, not one per sentence. */
+export const DELIVERY_EVERY_MS = 4_000
 
 export interface CallDeps {
   client: AppClient
@@ -59,6 +87,7 @@ export class CallRecorder {
   private readonly delivery: Delivery
   private readonly listeners = new Map<string, Listener>()
   private readonly startedAtMs: number
+  private guests: Set<string>
   private stopping: Promise<void> | null = null
   private aloneSince: number | null = null
   private timers: Array<ReturnType<typeof setInterval>> = []
@@ -71,42 +100,97 @@ export class CallRecorder {
     this.session = session
     this.deps = deps
     this.startedAtMs = Date.parse(session.startedAt)
+    this.guests = new Set((session.guests ?? []).map((g) => g.toLowerCase()))
     this.delivery = new Delivery(
       { roster: (events) => deps.client.roster(session.id, events), segments: (segments) => deps.client.segments(session.id, segments) },
       {
+        everyMs: DELIVERY_EVERY_MS,
         onDead: (why) => {
           console.warn(`[recorder] call=${job.callId} session=${session.id} feed refused (${why}): leaving`)
-          void this.stop('refused', { end: false })
+          void this.stop('refused')
         },
       },
     )
     this.done = new Promise((resolve) => (this.resolveDone = resolve))
   }
 
-  /** Join the room and hear it. Throws when the room can't be joined (the main loop asks again later). */
+  /** A room event's handler, guarded: a fault is logged, never thrown into the SDK (and the process). */
+  private guard<A extends unknown[]>(name: string, fn: (...args: A) => unknown): (...args: A) => void {
+    return (...args: A) => {
+      try {
+        const out = fn(...args)
+        if (out instanceof Promise) out.catch((err) => this.fault(name, err))
+      } catch (err) {
+        this.fault(name, err)
+      }
+    }
+  }
+
+  private fault(name: string, err: unknown): void {
+    console.warn(`[recorder] call=${this.job.callId} ${name} failed:`, err instanceof Error ? err.message.slice(0, 160) : 'unknown')
+  }
+
+  /** Join the room and hear it. Throws when the room can't be joined in time (the main loop asks again later). */
   async start(): Promise<void> {
     const room = this.room
     room
-      .on(RoomEvent.ParticipantConnected, (p) => this.joined(p))
-      .on(RoomEvent.ParticipantDisconnected, (p) => void this.left(p))
-      .on(RoomEvent.TrackSubscribed, (track, pub, p) => this.subscribed(track, pub, p))
-      .on(RoomEvent.TrackUnsubscribed, (_track, pub) => void this.closeListener(pub.sid))
-      .on(RoomEvent.TrackMuted, (pub, p) => this.muted(pub, p, true))
-      .on(RoomEvent.TrackUnmuted, (pub, p) => this.muted(pub, p, false))
-      .on(RoomEvent.Disconnected, () => {
-        if (!this.stopping) void this.stop('disconnected', { end: false })
-      })
-    await room.connect(this.deps.livekitUrl, this.job.token, { autoSubscribe: true, dynacast: false })
+      .on(RoomEvent.ParticipantConnected, this.guard('joined', (p: RemoteParticipant) => this.joined(p)))
+      .on(RoomEvent.ParticipantDisconnected, this.guard('left', (p: RemoteParticipant) => this.left(p)))
+      .on(RoomEvent.TrackPublished, this.guard('published', (pub: RemoteTrackPublication, p: RemoteParticipant) => this.offered(pub, p)))
+      .on(RoomEvent.TrackSubscribed, this.guard('subscribed', (track: RemoteTrack, pub: RemoteTrackPublication, p: RemoteParticipant) => this.subscribed(track, pub, p)))
+      .on(RoomEvent.TrackUnsubscribed, this.guard('unsubscribed', (_track: RemoteTrack, pub: RemoteTrackPublication) => this.closeListener(pub.sid)))
+      .on(RoomEvent.TrackUnpublished, this.guard('unpublished', (pub: RemoteTrackPublication) => this.closeListener(pub.sid)))
+      .on(RoomEvent.TrackMuted, this.guard('muted', (pub: TrackPublication, p: Participant) => this.muted(pub, p, true)))
+      .on(RoomEvent.TrackUnmuted, this.guard('unmuted', (pub: TrackPublication, p: Participant) => this.muted(pub, p, false)))
+      .on(
+        RoomEvent.Disconnected,
+        this.guard('disconnected', () => {
+          if (!this.stopping) void this.stop('disconnected')
+        }),
+      )
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        room.connect(this.deps.livekitUrl, this.job.token, { autoSubscribe: false, dynacast: false }),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`no room after ${CONNECT_TIMEOUT_MS / 1000} s`)), CONNECT_TIMEOUT_MS)
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
     console.info(`[recorder] call=${this.job.callId} session=${this.session.id} round=${this.session.round} joined`)
-    for (const p of room.remoteParticipants.values()) this.joined(p)
+    for (const p of room.remoteParticipants.values()) {
+      this.joined(p)
+      for (const pub of p.trackPublications.values()) this.offered(pub, p)
+    }
     this.timers.push(setInterval(() => this.checkAlone(), 5_000))
-    const bound = setTimeout(() => void this.stop('bound', { end: false }), this.deps.maxCallMs)
+    const bound = setTimeout(() => void this.stop('bound'), this.deps.maxCallMs)
     this.timers.push(bound as unknown as ReturnType<typeof setInterval>)
   }
 
   /** Speakers being heard now (a health answer's count). */
   get speakers(): number {
     return this.listeners.size
+  }
+
+  /**
+   * The guests the app says may be heard now (each heartbeat). A guest newly
+   * listed is subscribed to; one no longer listed is closed and unsubscribed.
+   */
+  setGuests(guestIds: readonly string[]): void {
+    this.guests = new Set(guestIds.map((g) => g.toLowerCase()))
+    for (const p of this.room.remoteParticipants.values()) {
+      const who = identityOf(p.identity)
+      if (!who || !('guestId' in who)) continue
+      for (const pub of p.trackPublications.values()) {
+        if (mayHear(p.identity, this.guests)) this.offered(pub, p)
+        else if (pub.sid && this.listeners.has(pub.sid)) {
+          void this.closeListener(pub.sid)
+          pub.setSubscribed(false)
+        }
+      }
+    }
   }
 
   private joined(p: RemoteParticipant): void {
@@ -123,9 +207,20 @@ export class CallRecorder {
     if (event) this.delivery.push({ kind: 'roster', event })
   }
 
+  /** A publication: a microphone of someone who may be heard is subscribed to; anything else never is. */
+  private offered(pub: RemoteTrackPublication, p: RemoteParticipant): void {
+    if (this.stopping || pub.kind !== TrackKind.KIND_AUDIO || pub.source !== TrackSource.SOURCE_MICROPHONE) return
+    if (!mayHear(p.identity, this.guests) || pub.subscribed) return
+    pub.setSubscribed(true)
+  }
+
   private subscribed(track: RemoteTrack, pub: RemoteTrackPublication, p: RemoteParticipant): void {
     if (this.stopping || track.kind !== TrackKind.KIND_AUDIO || pub.source !== TrackSource.SOURCE_MICROPHONE) return
-    if (!identityOf(p.identity) || !pub.sid || this.listeners.has(pub.sid)) return
+    if (!mayHear(p.identity, this.guests)) {
+      pub.setSubscribed(false)
+      return
+    }
+    if (!pub.sid || this.listeners.has(pub.sid)) return
     const trackSid = pub.sid
     const identity = p.identity
     const deepgram = new DeepgramStream({
@@ -184,22 +279,22 @@ export class CallRecorder {
       return
     }
     this.aloneSince ??= Date.now()
-    if (Date.now() - this.aloneSince >= ALONE_MS) void this.stop('alone', { end: false })
+    if (Date.now() - this.aloneSince >= ALONE_MS) void this.stop('alone')
   }
 
   /**
    * Leave: every socket's last words, then everything delivered (at most
-   * `flushMs`), then the room. `end`: the session is over for good (the app
-   * said so), and the feed is told.
+   * `flushMs`), then the feed told it is done with the session (except at a
+   * shutdown, when the next process takes it up), then out of the room.
    */
-  stop(why: CallEnd, opts: { end: boolean; flushMs?: number }): Promise<void> {
+  stop(why: CallEnd, opts: { flushMs?: number } = {}): Promise<void> {
     if (this.stopping) return this.stopping
     this.stopping = (async () => {
       for (const t of this.timers) clearInterval(t)
       await Promise.all([...this.listeners.keys()].map((sid) => this.closeListener(sid)))
       const delivered = await this.delivery.flush(opts.flushMs ?? 15_000)
       if (!delivered) console.warn(`[recorder] call=${this.job.callId} session=${this.session.id} left with ${this.delivery.pending} deliveries unsent`)
-      if (opts.end) await this.deps.client.end(this.session.id, why).catch(() => false)
+      if (why !== 'shutdown') await this.deps.client.end(this.session.id, why).catch(() => false)
       await this.room.disconnect().catch(() => undefined)
       console.info(`[recorder] call=${this.job.callId} session=${this.session.id} left (${why})`)
       this.resolveDone(why)

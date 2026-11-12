@@ -39,11 +39,13 @@ const MA = randomUUID() // a member, tone 400 Hz
 const MB = randomUUID() // a member, tone 800 Hz
 const GUEST = randomUUID() // a meeting guest, tone 1200 Hz
 const who = { [MA]: 'A', [MB]: 'B', [`guest-${GUEST}`]: 'G' }
+const RECORDER_IDENTITY = 'notes-recorder-recorder' // web/src/lib/team-calls/livekit.ts teamCallRecorderIdentity('recorder')
 
 // ── The fake app: the capture feed's contract, in memory ──────────────────
 const app = {
   notes: true,
   round: 1,
+  heard: new Set(), // the meeting guests who said go to this round's notes (588's capture_feed_hearable_guests)
   sessions: new Map(), // id → { id, round, startedAt, producer, heartbeatAt, status, endedAt, endReason }
   segments: new Map(), // key → { session, speaker, text, startMs, endMs, at }
   duplicates: 0,
@@ -56,13 +58,14 @@ const app = {
   works: 0,
   failNextSegments: 0,
   segmentRequests: 0,
+  batchSizes: [], // segments per request the app took
   refusedAuth: 0,
 }
 function sessionFor(round) {
   return [...app.sessions.values()].find((s) => s.round === round)
 }
-function recorderToken(room) {
-  const t = new AccessToken(LK_KEY, LK_SECRET, { identity: 'notes-recorder', name: 'Notes', ttl: 600 })
+function recorderToken(room, producerId) {
+  const t = new AccessToken(LK_KEY, LK_SECRET, { identity: `notes-recorder-${producerId}`, name: 'Notes', ttl: 600 })
   // web/src/lib/team-calls/livekit.ts teamCallRecorderGrant (its own test checks the app's tokens).
   t.addGrant({ room, roomJoin: true, canSubscribe: true, canPublish: false, canPublishSources: [], canPublishData: false, canUpdateOwnMetadata: false, roomCreate: false, roomAdmin: false, roomList: false, roomRecord: false, hidden: true, recorder: true })
   return t.toJwt()
@@ -85,7 +88,7 @@ const appServer = createServer(async (req, res) => {
     const s = sessionFor(app.round)
     const fresh = s && s.status === 'live' && Date.now() - s.heartbeatAt < 30_000 && s.producer !== b.producer.id
     const wanted = app.notes && !b.running.includes(CALL) && !fresh && !(s && s.status === 'ended') && b.capacity > 0
-    return json(200, { jobs: wanted ? [{ callId: CALL, room: ROOM, round: app.round, token: await recorderToken(ROOM) }] : [], pollMs: 1000 })
+    return json(200, { jobs: wanted ? [{ callId: CALL, room: ROOM, round: app.round, token: await recorderToken(ROOM, b.producer.id) }] : [], pollMs: 1000 })
   }
   if (url === '/api/internal/capture-feed/start') {
     if (!app.notes) return json(200, { outcome: 'not_wanted', session: null })
@@ -99,7 +102,7 @@ const appServer = createServer(async (req, res) => {
     s.producer = b.producer.id
     s.heartbeatAt = Date.now()
     app.starts.push({ at: since(), outcome, session: s.id })
-    return json(200, { outcome, session: { id: s.id, startedAt: s.startedAt, round: s.round, captureId: 'capture-1' } })
+    return json(200, { outcome, session: { id: s.id, startedAt: s.startedAt, round: s.round, captureId: 'capture-1', guests: [...app.heard] } })
   }
   if (url === '/api/internal/capture-feed/heartbeat') {
     app.heartbeats++
@@ -109,7 +112,7 @@ const appServer = createServer(async (req, res) => {
         if (!s) return { id, keep: false, reason: 'unknown' }
         if (s.status === 'ended') return { id, keep: false, reason: s.endReason }
         s.heartbeatAt = Date.now()
-        return { id, keep: true, reason: null }
+        return { id, keep: true, reason: null, guests: [...app.heard] }
       }),
     })
   }
@@ -149,6 +152,7 @@ const appServer = createServer(async (req, res) => {
         app.segments.set(g.key, { ...g, session: s.id, at: since() })
         accepted++
       }
+      app.batchSizes.push(b.segments.length)
       return json(200, { outcome: 'applied', accepted, duplicate, dropped, transcriptLength: 0, captureId: 'capture-1' })
     }
     if (m[2] === 'end') {
@@ -261,7 +265,7 @@ function wavPcm(path) {
   }
   throw new Error('no data chunk')
 }
-async function participant(identity, name, freq, speechFile) {
+async function participant(identity, name, freq, speechFile, extra) {
   const t = new AccessToken(LK_KEY, LK_SECRET, { identity, name, ttl: 600 })
   t.addGrant({ room: ROOM, roomJoin: true, canSubscribe: true, canPublish: true, canPublishData: false })
   const room = new rtc.Room()
@@ -271,6 +275,26 @@ async function participant(identity, name, freq, speechFile) {
   const opts = new rtc.TrackPublishOptions()
   opts.source = rtc.TrackSource.SOURCE_MICROPHONE
   const pub = await room.localParticipant.publishTrack(track, opts)
+  // A second audio track that is not a microphone (a screen share's sound): the recorder must never take it.
+  if (extra) {
+    const source2 = new rtc.AudioSource(16000, 1, 200)
+    const opts2 = new rtc.TrackPublishOptions()
+    opts2.source = rtc.TrackSource.SOURCE_SCREENSHARE_AUDIO
+    await room.localParticipant.publishTrack(rtc.LocalAudioTrack.createAudioTrack('screen-audio', source2), opts2)
+    ;(async () => {
+      let phase = 0
+      for (;;) {
+        const frame = rtc.AudioFrame.create(16000, 1, 160)
+        for (let i = 0; i < 160; i++) frame.data[i] = Math.round(8000 * Math.sin((2 * Math.PI * extra * (phase + i)) / 16000))
+        phase += 160
+        try {
+          await source2.captureFrame(frame)
+        } catch {
+          break
+        }
+      }
+    })()
+  }
   const speech = speechFile ? wavPcm(speechFile) : null
   const p = { identity, room, source, track, pub, speaking: 0, phase: 0, running: true, speechAt: 0, bursts: [] }
   p.say = (seconds) => {
@@ -304,7 +328,7 @@ async function participant(identity, name, freq, speechFile) {
   }
   return p
 }
-const seesRecorder = (p) => [...p.room.remoteParticipants.values()].some((r) => r.identity === 'notes-recorder')
+const seesRecorder = (p) => [...p.room.remoteParticipants.values()].some((r) => r.identity === RECORDER_IDENTITY)
 
 // ── The recorder ──────────────────────────────────────────────────────────
 const recLog = createWriteStream(RUN + 'recorder.log', { flags: 'w' })
@@ -373,7 +397,7 @@ if (MODE === 'real') {
 
 await rooms.createRoom({ name: ROOM, emptyTimeout: 60, departureTimeout: 15, maxParticipants: 50 })
 mark('room made')
-const A = await participant(MA, 'Ana', 400, speechFiles.A)
+const A = await participant(MA, 'Ana', 400, speechFiles.A, MODE === 'fake' ? 1600 : undefined)
 const B = await participant(MB, 'Ben', 800, speechFiles.B)
 mark('A and B in the room, publishing')
 startRecorder()
@@ -430,9 +454,21 @@ if (MODE === 'real') {
   await sleep(500)
   A.say(3)
   await sleep(4000)
-  // A meeting guest joins late.
+  // A meeting guest joins late, and has not said go to the notes yet: nothing of theirs may be heard,
+  // not even a Deepgram socket opened for them.
+  const socketsBeforeGuest = dg.connections
   const G = await participant(`guest-${GUEST}`, 'Dana', 1200)
   await sleep(2500)
+  G.say(3)
+  const unheardFrom = Date.now()
+  await sleep(4000)
+  const speakersBeforeAck = (await health())?.speakers
+  check('a guest who has not said go: no socket, nothing heard', dg.connections === socketsBeforeGuest && speakersBeforeAck === 2, { sockets: dg.connections - socketsBeforeGuest, speakers: speakersBeforeAck })
+  // They say go: the next heartbeat lists them, and from then on they are heard.
+  app.heard.add(GUEST)
+  mark('the guest said go')
+  for (let i = 0; i < 60 && (await health())?.speakers < 3; i++) await sleep(200)
+  const ackAt = Date.now()
   G.say(3)
   await sleep(4000)
   // Deepgram drops every socket while B speaks; the app refuses two segment requests (a retry).
@@ -451,6 +487,10 @@ if (MODE === 'real') {
   await sleep(3000)
   B2.say(3)
   await sleep(4000)
+  // Two people speak at once: their words reach the app together, in one request.
+  A.say(1.5)
+  B2.say(1.5)
+  await sleep(6000)
   // The recorder restarts (a deploy): it takes the session up again.
   const beforeRestart = since()
   await stopRecorder()
@@ -490,7 +530,12 @@ if (MODE === 'real') {
   check('nothing A said while muted was heard', aMuted.length === 1 && !aMuted[0].heard && !bySpeaker(MA).some((s) => s.said >= muteFrom + 300 && s.said < muteTo))
   const bAll = [...burstsHeard(B, MB), ...burstsHeard(B2, MB)]
   check('every burst B spoke was heard, the one across the Deepgram drop and the one after B came back included', bAll.every((x) => x.heard), bAll.map((x) => x.heard))
-  check('the late guest was heard', burstsHeard(G, `guest-${GUEST}`).some((x) => x.heard))
+  const gHeard = burstsHeard(G, `guest-${GUEST}`)
+  check('the late guest was heard once they said go, and never before', gHeard.some((x) => x.heard && x.burst.startMs >= ackAt) && !bySpeaker(`guest-${GUEST}`).some((s) => s.said < ackAt - 500), {
+    heard: gHeard.map((x) => x.heard),
+    before: bySpeaker(`guest-${GUEST}`).filter((s) => s.said >= unheardFrom - 500 && s.said < ackAt - 500).length,
+  })
+  check('only microphones are heard: the screen share’s sound never was', !segs.some((s) => s.text === 'tone 1600'))
   check('Deepgram was reconnected after the drop', dg.connections > 4, { connections: dg.connections })
   check('the two refused segment requests were sent again; no key was taken twice', app.failNextSegments === 0 && app.duplicates >= 0, { duplicatesSentAgain: app.duplicates, segmentRequests: app.segmentRequests })
   const keys = segs.map((s) => s.key)
@@ -511,7 +556,8 @@ if (MODE === 'real') {
   check('after notes went off: the session was ended by the recorder, and nothing said after was kept', app.ends.length === 1 && app.ends[0].reason === 'told' && !segs.some((s) => s.said >= offAt), { ends: app.ends, droppedAfterOff: app.dropped.length })
   check('the key went as Deepgram’s subprotocol, with the finals-only settings', dg.protocolsOk)
   check('a mute asked Deepgram for what it had heard (Finalize)', dg.finalizes >= 1, { finalizes: dg.finalizes })
-  check('the recorder never published anything', [...A.room.remoteParticipants.values()].every((p) => p.identity !== 'notes-recorder'))
+  check('the recorder never published anything', [...A.room.remoteParticipants.values()].every((p) => p.identity !== RECORDER_IDENTITY))
+  check('words went to the app in batches, not one request per sentence: two said together came in one', Math.max(...app.batchSizes) >= 2, { batchSizes: app.batchSizes })
   check('the app refused nothing for want of the secret', app.refusedAuth === 0)
 
   // ── Alone: everyone leaves; does the hidden recorder keep the room open? ──
@@ -533,7 +579,7 @@ if (MODE === 'real') {
     const list = await rooms.listRooms([ROOM])
     const ppl = list.length ? await rooms.listParticipants(ROOM).catch(() => []) : []
     if (Date.now() - leftAt >= 20_000 && roomAt20 === null) roomAt20 = list.length > 0
-    if (recorderLeftAt === null && list.length && !ppl.some((p) => p.identity === 'notes-recorder')) recorderLeftAt = Date.now() - leftAt
+    if (recorderLeftAt === null && list.length && !ppl.some((p) => p.identity === RECORDER_IDENTITY)) recorderLeftAt = Date.now() - leftAt
     if (!list.length) {
       roomGoneAt = Date.now() - leftAt
       break
@@ -542,6 +588,9 @@ if (MODE === 'real') {
   }
   result.alone = { roomOpenAt20s: roomAt20, recorderLeftAfterMs: recorderLeftAt, roomGoneAfterMs: roomGoneAt }
   check('alone in the room, the recorder leaves and the room closes', roomGoneAt !== null && roomGoneAt < 70_000, result.alone)
+  // LiveKit closes the room once its last person has been gone departureTimeout (15 s), before the
+  // recorder's own ALONE_MS: either way it tells the feed it is done (a finish stops waiting for it).
+  check('leaving the emptied room, it told the feed it was done with the session (end)', app.ends.some((e) => e.session === sessionFor(2)?.id && ['alone', 'disconnected'].includes(e.reason)), app.ends)
 }
 
 result.deepgram = { connections: dg.connections, finalizes: dg.finalizes, keepalives: dg.keepalives, closes: dg.closes, bytes: dg.bytes }

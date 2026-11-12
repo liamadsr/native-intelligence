@@ -3,7 +3,7 @@
  * is one transaction whatever applies it, with a lock timeout, and reloads
  * the API schema; no backslash anywhere; numbered once each, after 586. The
  * feed's tables have RLS on and no client grant; every function is the
- * service role's alone, a definer with a pinned search_path (the two pure
+ * service role's alone, a definer with a pinned search_path (the three pure
  * helpers are not definers and touch no table); none redefines a function an
  * earlier migration made (566-575's and 568's readers stay as they are: a
  * call's capture keeps 566's fences). A roster's participant row is the
@@ -99,7 +99,7 @@ describe('migrations 587-588', () => {
       expect(earlier.has(name), `${name} is redefined`).toBe(false)
       const def = flat(definition(FUNCTIONS, name))
       expect(def, name).toContain('set search_path = public, pg_temp')
-      if (name === 'capture_feed_label_base' || name === 'capture_feed_close_gap') {
+      if (['capture_feed_label_base', 'capture_feed_close_gap', 'capture_feed_norm'].includes(name)) {
         // Pure: no table, no definer.
         expect(def, name).not.toContain('security definer')
         expect(def, name).not.toMatch(/ from public\./)
@@ -120,6 +120,53 @@ describe('migrations 587-588', () => {
     const follow = flat(definition(FUNCTIONS, 'capture_feed_follow_call'))
     expect(follow).toContain('x.round = old.notes_round')
     expect(flat(FUNCTIONS)).toContain("after update of notes, status on public.team_call for each row when ((old.notes and not new.notes) or (old.status = 'live' and new.status = 'ended'))")
+  })
+
+  it('a producer is named so its LiveKit identity fits; it says when it has delivered everything', () => {
+    const t = flat(TABLES)
+    expect(t).toContain("producer_id text not null check (producer_id ~ '^[A-Za-z0-9._-]{1,40}$')")
+    expect(t).toContain('delivered_at timestamptz')
+    const end = flat(definition(FUNCTIONS, 'capture_feed_end'))
+    expect(end).toContain('set delivered_at = now()')
+    expect(end).toContain('x.producer_id = p_producer_id')
+  })
+
+  it('nothing keeps hearing a call that has no notes: every way a session ends or goes quiet puts its producer on the eject outbox', () => {
+    const eject = flat(definition(FUNCTIONS, 'capture_feed_eject_producer'))
+    expect(eject).toContain("insert into public.team_call_eject (call_id, room, identity, reason) select t.id, t.room, left('notes-recorder-' || s.producer_id, 64), 'access'")
+    expect(flat(definition(FUNCTIONS, 'capture_feed_follow_call'))).toContain("left('notes-recorder-' || x.producer_id, 64), 'access'")
+    expect(flat(definition(FUNCTIONS, 'capture_feed_mark_lost'))).toContain('perform public.capture_feed_eject_producer(r);')
+    const beat = flat(definition(FUNCTIONS, 'capture_feed_heartbeat'))
+    expect(beat).toContain('perform public.capture_feed_eject_producer(s);')
+    expect(beat).toContain("why := 'capture_closed';")
+    const fence = flat(definition(FUNCTIONS, 'capture_feed_fence_producers'))
+    expect(fence).toContain("x.status = 'lost'")
+    expect(fence).toContain('and not public.capture_feed_capture_closed(y.capture_id)')
+  })
+
+  it('a guest is heard only once they said go to this round: the producer is told whom, at its start and every heartbeat', () => {
+    const guests = flat(definition(FUNCTIONS, 'capture_feed_hearable_guests'))
+    expect(guests).toContain("g.state = 'admitted'")
+    expect(guests).toContain('g.notes_ack_round >= s.round')
+    expect(flat(definition(FUNCTIONS, 'capture_feed_start'))).toContain('public.capture_feed_hearable_guests(')
+    expect(flat(definition(FUNCTIONS, 'capture_feed_heartbeat'))).toContain('return query select sid, true, null::text, public.capture_feed_hearable_guests(s);')
+  })
+
+  it('a closed capture is wanted by no producer: not offered, not started', () => {
+    expect(flat(definition(FUNCTIONS, 'team_call_recorder_work'))).toContain('not public.capture_feed_capture_closed(t.capture_id)')
+    expect(flat(definition(FUNCTIONS, 'capture_feed_capture_closed'))).toContain('c.ended_at is not null or c.is_transcript_locked')
+  })
+
+  it('the lock writes every segment in the order said, read in the database (no page cap); a quote names its speaker rows', () => {
+    const lock = flat(definition(FUNCTIONS, 'team_call_capture_lock'))
+    expect(lock).toContain("select string_agg('[' || l.label || '] ' || l.text, chr(10) order by l.line_no) into ordered from public.capture_feed_lines(cap.id) l;")
+    expect(lock).toContain("update public.team_call t set notes_state = 'ready', updated_at = now() where t.id = c.id and t.notes_state <> 'ready';")
+    const lines = flat(definition(FUNCTIONS, 'capture_feed_lines'))
+    expect(lines).toContain("o.said_at - o.prev_end > interval '1.5 seconds'")
+    expect(lines).not.toMatch(/ limit /)
+    const quote = flat(definition(FUNCTIONS, 'capture_feed_quote_speakers'))
+    expect(quote).toContain('>= 3')
+    expect(quote).toContain('left join public.capture_participant p on p.id = l.participant_id')
   })
 
   it('the owner: a meeting’s host, else the call’s starter, else who turned notes on; access through the conversation only', () => {

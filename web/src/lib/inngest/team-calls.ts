@@ -16,7 +16,7 @@ import { sweepTeamCalls } from '@/lib/team-calls/sweep'
 import { closeTeamCallRoom, openTeamCallRooms, teamCallsConfig } from '@/lib/team-calls/livekit'
 import { liveKitEgress, teamCallEgressConfig } from '@/lib/team-calls/egress'
 import { sweepTeamCallEgress } from '@/lib/team-calls/notes-sweep'
-import { markLostFeeds } from '@/lib/capture-feed/store'
+import { fenceProducers, markLostFeeds } from '@/lib/capture-feed/store'
 import { fenceGuests, pruneMeetingGuests, sweepMeetings } from '@/lib/meeting-links/store'
 import { endGuestOnlyCalls } from '@/lib/meeting-links/sweep'
 
@@ -115,7 +115,8 @@ export const teamCallsEject = inngest.createFunction(
  * longer be in a call (574's meeting_guest_fence), and the missed rings nobody was told of are
  * told, in steps of their own; then the notes and recordings
  * (src/lib/team-calls/notes-sweep.ts), and the call recorder's feeds whose
- * heartbeat stopped (lost: their captures say so). With LiveKit unset it still runs the
+ * heartbeat stopped (lost: their captures say so), with every recorder still
+ * in a room that has no notes for it taken out. With LiveKit unset it still runs the
  * rings and the ids (there are none: calling is off), and ends nothing.
  */
 export const teamCallsSweep = inngest.createFunction(
@@ -150,8 +151,11 @@ export const teamCallsSweep = inngest.createFunction(
       const config = teamCallEgressConfig()
       return sweepTeamCallEgress(getServiceClient(), { egress: config ? liveKitEgress(config) : null })
     })
-    // The call recorder's feeds (src/lib/team-calls/recorder.ts): one whose heartbeat stopped is lost, and its capture says so.
+    // The call recorder's feeds (src/lib/team-calls/recorder.ts): one whose heartbeat stopped is lost, and its capture says so;
+    // a recorder in a room whose call wants no feed of it (or that went quiet) is taken out (the eject outbox).
     const lost = await step.run('feeds-lost', async () => (await markLostFeeds(getServiceClient())).length)
+    const recordersFenced = await step.run('fence-recorders', () => fenceProducers(getServiceClient()))
+    if (lost + recordersFenced > 0 && teamCallsConfig()) await step.sendEvent('eject-recorders', { name: TEAM_CALL_EJECT_EVENT, data: {} })
     console.info(
       `[team-calls-sweep] checked=${result.checked} ended=${result.ended} missed=${result.missed} unreachable=${result.unreachable} notes_stopped=${egress.notesStopped} egress_lost=${egress.egressesLost} feeds_lost=${lost}`,
     )

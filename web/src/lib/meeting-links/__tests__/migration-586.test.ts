@@ -4,7 +4,8 @@
  * schema reloaded; three nullable columns (additive, no rewrite, nothing
  * dropped) and meeting_revoke_as (a definer with a pinned search_path, the
  * service role's alone, the host only); server only (never in 573's column
- * grant to members); the newest file, after 585.
+ * grant to members); numbered once, directly after 585 (one file each, no
+ * number between them or taken twice).
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -42,8 +43,12 @@ describe('migration 586', () => {
 
   it('numbered after 585', () => {
     const numbers = readdirSync(DIR).map((f) => Number(f.split('_')[0])).filter(Number.isFinite)
-    // Once, and after 585 (later files come after it: 587 and on).
+    // 586 and 585 are one file each, and 586 is the very next number after 585: what "the newest,
+    // after 585" proved when it was written, without needing it to stay the newest (587 and on follow).
     expect(numbers.filter((n) => n === 586)).toHaveLength(1)
-    expect(numbers).toContain(585)
+    expect(numbers.filter((n) => n === 585)).toHaveLength(1)
+    const ordered = [...new Set(numbers)].sort((a, b) => a - b)
+    expect(ordered[ordered.indexOf(585) + 1]).toBe(586)
+    expect(ordered.indexOf(586)).toBeGreaterThan(ordered.indexOf(585))
   })
 })

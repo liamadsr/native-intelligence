@@ -1,13 +1,16 @@
 /**
  * The end of a call whose notes the call recorder took
  * (src/lib/team-calls/fed-notes.ts, and the finish in
- * src/lib/inngest/team-call-notes.ts): the capture is locked with its
- * transcript written once more in the order things were said, the notes
- * open with what they lack (a stretch the recorder did not hear, notes on
- * for part of the call), words that came in between the read and the lock
- * are read again; a silent call leaves no capture; the end-of-meeting pass
- * runs as the owner (the batch only when anything was said); the finish's
- * retries spent: the capture is locked as it stands, never left open.
+ * src/lib/inngest/team-call-notes.ts): the finish waits for the recorder to
+ * say it delivered its last words (its `end`), at most FED_TAIL_CAP_MS, and
+ * not for one that had gone quiet before the call ended; then the capture is
+ * locked by 588's team_call_capture_lock, which writes the transcript once
+ * more in the order things were said from every segment, in the database
+ * (the app reads no segment: no page cap), the notes opening with what they
+ * lack (a stretch the recorder did not hear, notes on for part of the
+ * call); a silent call leaves no capture; the end-of-meeting pass runs as
+ * the owner (the batch only when anything was said); the finish's retries
+ * spent: the capture is locked as it stands, never left open.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -35,7 +38,7 @@ vi.mock('@/lib/inngest/capture-finalizer', () => ({
   },
 }))
 
-import { fedNotesStatus, writeFedNotes } from '../fed-notes'
+import { FED_TAIL_CAP_MS, fedNotesStatus, writeFedNotes } from '../fed-notes'
 import { runTeamCallNotesFinish, teamCallNotesFinishFailed } from '@/lib/inngest/team-call-notes'
 
 let tables: Record<string, Array<Record<string, unknown>>>
@@ -56,23 +59,23 @@ function seed() {
       },
     ],
     capture_feed_session: [
-      { id: 's1', source_kind: 'team_call', source_ref: CALL, round: 1, status: 'ended', started_at: '2026-11-11T10:00:00.000Z', ended_at: '2026-11-11T10:30:00.000Z', gaps: [{ from: '2026-11-11T10:10:00.000Z', to: '2026-11-11T10:12:00.000Z' }] },
-    ],
-    capture_feed_segment: [
-      { session_id: 's1', capture_id: CAPTURE, key: 'k2', speaker_key: 'b', said_at: '2026-11-11T10:00:04.000Z', start_ms: 4000, end_ms: 5000, text: 'Sounds good.' },
-      { session_id: 's1', capture_id: CAPTURE, key: 'k1', speaker_key: 'a', said_at: '2026-11-11T10:00:01.000Z', start_ms: 1000, end_ms: 2000, text: 'Shall we start?' },
-    ],
-    capture_feed_speaker: [
-      { capture_id: CAPTURE, speaker_key: 'a', participant_id: 'p-a' },
-      { capture_id: CAPTURE, speaker_key: 'b', participant_id: 'p-b' },
-    ],
-    capture_participant: [
-      { id: 'p-a', capture_id: CAPTURE, source: 'call_roster', speaker_label: 'Rosa Lind' },
-      { id: 'p-b', capture_id: CAPTURE, source: 'call_roster', speaker_label: 'Lee Park' },
+      {
+        id: 's1',
+        source_kind: 'team_call',
+        source_ref: CALL,
+        round: 1,
+        status: 'ended',
+        started_at: '2026-11-11T10:00:00.000Z',
+        ended_at: '2026-11-11T10:30:00.000Z',
+        heartbeat_at: '2026-11-11T10:29:58.000Z',
+        delivered_at: '2026-11-11T10:30:02.000Z',
+        gaps: [{ from: '2026-11-11T10:10:00.000Z', to: '2026-11-11T10:12:00.000Z' }],
+      },
     ],
   }
-  // Every table and column read here is one the migrations make (src/test/table-schema.ts).
-  const db = withTableSchema(memoryDb(tables), ['team_call', 'capture_feed_session', 'capture_feed_segment', 'capture_feed_speaker', 'capture_participant']) as SupabaseClient & { rpc: unknown }
+  // Every table and column read here is one the migrations make (src/test/table-schema.ts); no
+  // segment is read in the app (the lock reads them all in the database).
+  const db = withTableSchema(memoryDb(tables), ['team_call', 'capture_feed_session']) as unknown as { rpc: unknown }
   db.rpc = async (name: string, args: Record<string, unknown>) => {
     h.rpcs.push([name, args])
     if (name === 'team_call_capture_lock') {
@@ -81,7 +84,7 @@ function seed() {
     }
     return { data: null, error: { message: `no answer for ${name}` } }
   }
-  h.svc = db
+  h.svc = db as unknown as SupabaseClient
 }
 
 beforeEach(() => {
@@ -95,23 +98,25 @@ beforeEach(() => {
 })
 
 describe('writeFedNotes', () => {
-  it('locks the capture with the words in the order said, and what the notes missed first', async () => {
+  it('locks the capture once, the transcript rebuilt in the database in the order said, what the notes missed first', async () => {
     const out = await writeFedNotes(h.svc, CALL)
     expect(out).toEqual({ outcome: 'ready', captureId: CAPTURE, ownerUserId: 'u-rosa', workspaceId: 'ws', spoke: true })
     expect(h.locks).toEqual([
       {
         target_call: CALL,
-        transcript_text: '[Rosa Lind] Shall we start?\n[Lee Park] Sounds good.',
         preamble_text: 'Notes missed about 2 min from 10 min into the call (the recorder stopped hearing it).',
-        segment_count: 2,
+        rebuild: true,
       },
     ])
   })
 
-  it('words that came between the read and the lock: read again', async () => {
-    lockAnswers = [{ outcome: 'changed', capture_id: CAPTURE, owner_user: 'u-rosa', workspace_id: 'ws', spoke: true }]
-    expect((await writeFedNotes(h.svc, CALL)).outcome).toBe('ready')
-    expect(h.locks).toHaveLength(2)
+  it('a session still waited on: one that has not said it delivered, unless it went quiet before the call ended', async () => {
+    expect((await fedNotesStatus(h.svc, CALL)).undelivered).toBe(0)
+    tables.capture_feed_session[0].delivered_at = null
+    expect((await fedNotesStatus(h.svc, CALL)).undelivered).toBe(1)
+    // Quiet for two minutes before the end (the sweeper's lost bound is 90 s): nothing more is coming from it.
+    tables.capture_feed_session[0].heartbeat_at = '2026-11-11T10:28:00.000Z'
+    expect((await fedNotesStatus(h.svc, CALL)).undelivered).toBe(0)
   })
 
   it('nothing said: silent, no capture left', async () => {
@@ -130,23 +135,45 @@ describe('writeFedNotes', () => {
 })
 
 describe('the finish, for the recorder’s notes', () => {
-  const step = () => ({
+  const step = (onSleep?: (id: string) => void) => ({
     run: async <T,>(_id: string, fn: () => Promise<T>) => fn(),
     sleep: async (id: string) => {
       h.calls.push(`sleep:${id}`)
+      onSleep?.(id)
     },
   })
 
-  it('gives the recorder its tail, locks, then the batch and the title and index as the owner', async () => {
+  it('the recorder already said it delivered everything: locked at once, then the batch and the title and index as the owner', async () => {
     const out = await runTeamCallNotesFinish({ event: { data: { callId: CALL } }, step: step() })
     expect(out).toEqual({ status: 'ready', captureId: CAPTURE })
-    expect(h.calls).toEqual(['sleep:let-feed-finish', `batch:${CAPTURE}:u-rosa`, `post:${CAPTURE}:false`])
+    expect(h.calls).toEqual([`batch:${CAPTURE}:u-rosa`, `post:${CAPTURE}:false`])
+  })
+
+  it('waits for the recorder’s last words (its end), looking every few seconds, then locks', async () => {
+    tables.capture_feed_session[0].delivered_at = null
+    const out = await runTeamCallNotesFinish({
+      event: { data: { callId: CALL } },
+      step: step((id) => {
+        if (id === 'feed-tail-2') tables.capture_feed_session[0].delivered_at = '2026-11-11T10:30:09.000Z'
+      }),
+    })
+    expect(out).toEqual({ status: 'ready', captureId: CAPTURE })
+    expect(h.calls).toEqual(['sleep:feed-tail-1', 'sleep:feed-tail-2', `batch:${CAPTURE}:u-rosa`, `post:${CAPTURE}:false`])
+    expect(h.locks).toHaveLength(1)
+  })
+
+  it('a recorder that never says it is done is waited for at most the cap; what it delivered by then is in the notes', async () => {
+    tables.capture_feed_session[0].delivered_at = null
+    await runTeamCallNotesFinish({ event: { data: { callId: CALL } }, step: step() })
+    const sleeps = h.calls.filter((c) => c.startsWith('sleep:'))
+    expect(sleeps).toHaveLength(Math.ceil(FED_TAIL_CAP_MS / 5000))
+    expect(h.locks).toEqual([expect.objectContaining({ target_call: CALL, rebuild: true })])
   })
 
   it('nothing said but the owner wrote notes in it: no batch, the record closed', async () => {
     lockAnswers = [{ outcome: 'ready', capture_id: CAPTURE, owner_user: 'u-rosa', workspace_id: 'ws', spoke: false }]
     await runTeamCallNotesFinish({ event: { data: { callId: CALL } }, step: step() })
-    expect(h.calls).toEqual(['sleep:let-feed-finish', `post:${CAPTURE}:true`])
+    expect(h.calls).toEqual([`post:${CAPTURE}:true`])
   })
 
   it('a call still live, or notes already locked: skipped', async () => {
@@ -160,6 +187,6 @@ describe('the finish, for the recorder’s notes', () => {
 
   it('retries spent: the capture is locked as it stands', async () => {
     await teamCallNotesFinishFailed({ event: { data: { event: { data: { callId: CALL } } } } })
-    expect(h.locks).toEqual([{ target_call: CALL, transcript_text: null, preamble_text: '', segment_count: -1 }])
+    expect(h.locks).toEqual([{ target_call: CALL, preamble_text: '', rebuild: false }])
   })
 })

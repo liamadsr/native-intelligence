@@ -14,6 +14,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 //   confirmed — the user clicked "this was me" on a label; or the server
 //               wrote it from a call's roster (source 'call_roster': one
 //               track is one known person), for every member in the call.
+//               On such a call the gate does not trust labels at all: an
+//               action is someone's own only when the line it was quoted
+//               from was said by their own roster row (quoteIsTheirs).
 //   voice     — the label matched the user's trained voiceprint.
 //
 // The auto-apply gates (live-agent route + stage route) refuse to auto-apply
@@ -184,44 +187,45 @@ export async function resolveSelfBinding(
 }
 
 /**
- * A member's voice the SERVER attests on this capture: a participant row a
- * call's roster wrote (source 'call_roster', migration 587), naming exactly
- * this member, with its label and self_binding 'confirmed'. One track is one
- * known person, so on a call the recorder heard, every member's binding
- * holds, not only the owner's. No signed-in person can write such a row
- * (587's capture_participant_roster_guard), which is what lets the auto-apply
- * gate trust it for someone who is not running the turn. Ordinary captures
- * have no such rows: for them this is always false, and the gate is as it
- * was.
+ * Does a call's roster say who each voice on this capture is (participant
+ * rows the server wrote, source 'call_roster', migration 587)? Only captures
+ * the call recorder filled in have such rows; nobody else can make one
+ * (587's capture_participant_roster_guard).
  */
-export async function attestedMemberBinding(
-  supabase: SupabaseClient,
-  captureId: string,
-  memberId: string | null | undefined,
-): Promise<boolean> {
-  if (!memberId) return false
-  const { data } = await supabase
-    .from('capture_participant')
-    .select('id')
-    .eq('capture_id', captureId)
-    .eq('member_id', memberId)
-    .eq('source', 'call_roster')
-    .eq('self_binding', 'confirmed')
-    .not('speaker_label', 'is', null)
-    .limit(1)
+export async function callRosterSetsSpeakers(supabase: SupabaseClient, captureId: string): Promise<boolean> {
+  const { data } = await supabase.from('capture_participant').select('id').eq('capture_id', captureId).eq('source', 'call_roster').limit(1)
   return (data ?? []).length > 0
 }
 
+/** Who said a quote on a call's capture: the participant row of each transcript line that holds it (588's capture_feed_quote_speakers). */
+export interface QuoteSpeaker {
+  participant_id: string | null
+  member_id: string | null
+  source: string | null
+}
+
 /**
- * The auto-apply gate's answer for an assignable action whose assignee is a
- * member OTHER than the person running the turn: theirs, verifiably, only
- * when the assignee was resolved through the capture's speaker map AND the
- * server attests that member's voice on this capture
- * ({@link attestedMemberBinding}). Anything less (a fuzzy name, an ordinary
- * capture, the gate switched off) stays staged for a person. Pure.
+ * On a call the recorder heard, an action is its assignee's own only when
+ * the line it came from was said by that member's own roster row: exactly
+ * one row said the quote, it is a `call_roster` row, and it is that member.
+ * A name that merely equals a label, a guest named like a member, a quote
+ * nobody (or more than one person) said: never. Pure.
  */
-export function othersOwnCommitment(input: { gateEnabled: boolean; assigneeMemberId: string | null | undefined; viaSpeakerMap: boolean; attested: boolean }): boolean {
-  return input.gateEnabled && !!input.assigneeMemberId && input.viaSpeakerMap && input.attested
+export function quoteIsTheirs(speakers: readonly QuoteSpeaker[], memberId: string | null | undefined): boolean {
+  if (!memberId || speakers.length !== 1) return false
+  const [one] = speakers
+  return !!one.participant_id && one.source === 'call_roster' && one.member_id === memberId
+}
+
+/** Who said this quote on this capture (the service role: the segments are the server's). Fails closed: an error is nobody. */
+export async function quoteSpeakers(svc: SupabaseClient, captureId: string, quote: string | null | undefined): Promise<QuoteSpeaker[]> {
+  if (!quote || !quote.trim()) return []
+  const { data, error } = await svc.rpc('capture_feed_quote_speakers', { p_capture: captureId, p_quote: quote })
+  if (error) {
+    console.warn(`[self-binding] capture=${captureId} quote speakers not read:`, error.message.slice(0, 120))
+    return []
+  }
+  return (data ?? []) as QuoteSpeaker[]
 }
 
 /**

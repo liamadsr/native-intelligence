@@ -6,7 +6,9 @@
  * (it restarted, or lost the room), at most `capacity`. Each job carries a
  * token for its room alone: hidden, a recorder, subscribe only. The
  * recorder then starts the call's feed (POST /api/internal/capture-feed/
- * start) and joins the room.
+ * start) and joins the room. Its identity there is its own
+ * (`notes-recorder-<producer id>`); one recorder instance is what the
+ * deployment runs today (deploy/livekit's `recorder`, RECORDER_ID).
  *
  * Asked every few seconds; an empty list is the usual answer. Server only:
  * the feed's secret. 404 while the recorder is off here (TEAM_CALL_RECORDER
@@ -39,7 +41,7 @@ export async function POST(request: Request) {
   if (body instanceof Response) return body
   try {
     const work = body.capacity > 0 ? await recorderWork(getServiceClient(), { producerId: body.producer.id, running: body.running.map((r) => r.toLowerCase()), max: body.capacity }) : []
-    const jobs = await Promise.all(work.map(async (j) => ({ ...j, token: await teamCallRecorderToken(config, j.room) })))
+    const jobs = await Promise.all(work.map(async (j) => ({ ...j, token: await teamCallRecorderToken(config, j.room, body.producer.id) })))
     if (jobs.length > 0) console.info(`[team-call-recorder] producer=${body.producer.id} jobs=${jobs.map((j) => j.callId).join(',')}`)
     return NextResponse.json({ jobs, pollMs: RECORDER_POLL_MS })
   } catch (err) {

@@ -27,6 +27,7 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { dmOtherMember } from '@/lib/team-chat/types'
+import { captureFeedSecretUsable } from '@/lib/capture-feed/auth'
 import { teamCallsConfig } from './livekit'
 import { notesTitle } from './notes'
 
@@ -36,12 +37,12 @@ function on(name: string, env: NodeJS.ProcessEnv): boolean {
 
 /**
  * The recorder takes call notes here: TEAM_CALL_RECORDER=on, calling on, and
- * the feed's secret set. (A secret equal to another internal one turns the
- * feed itself off, src/lib/capture-feed/auth.ts: the recorder then logs that
- * every request was refused, and the `[internal-secret]` line says why.)
+ * the feed's secret its own (set, and equal to no other internal secret: one
+ * that is not turns the feed itself off, src/lib/capture-feed/auth.ts, and
+ * then the call would say "Notes on" while nothing could be heard).
  */
 export function teamCallRecorderOn(env: NodeJS.ProcessEnv = process.env): boolean {
-  return on('TEAM_CALL_RECORDER', env) && !!teamCallsConfig(env) && !!env.CAPTURE_FEED_SECRET?.trim()
+  return on('TEAM_CALL_RECORDER', env) && !!teamCallsConfig(env) && captureFeedSecretUsable(env)
 }
 
 /** The producer kind the call recorder names itself (587's producer_kind). */

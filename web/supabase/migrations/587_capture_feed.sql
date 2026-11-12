@@ -21,6 +21,9 @@
 --                      'ended' (the source no longer wants it, or the
 --                      producer said so: end_reason). A segment said at or
 --                      after ended_at never reaches the capture.
+--                      delivered_at: the producer said it has delivered
+--                      everything it heard (its `end`); a call's finish waits
+--                      for it before it locks the capture.
 --   capture_feed_segment  one final stretch of one speaker's speech, as the
 --                      producer sent it: its key (the producer's idempotency
 --                      key: a repeat is answered and skipped), the speaker's
@@ -30,11 +33,14 @@
 --                      once more in the order they were said when it ends.
 --   capture_feed_speaker  per capture and speaker key (the producer's own
 --                      name for a voice: a call recorder's is the LiveKit
---                      identity, which is a member id or a guest's): the
+--                      identity, which is a member id or a guest's): its
+--                      label in the transcript (kept here, so lines keep it
+--                      if the person's row is deleted), the
 --                      capture_participant row the voice is (one per person,
---                      whatever round), the member or meeting guest it is,
---                      and whether they are in the call now (roster events,
---                      applied in the order they happened).
+--                      whatever round; null once that row is deleted, and
+--                      then the voice attests no one), the member or meeting
+--                      guest it is, and whether they are in the call now
+--                      (roster events, applied in the order they happened).
 --   team_call_notes_shape  566's, but a call's capture exists while its
 --                      notes are captured and finished, not only once they
 --                      are ready: capture_id with 'capturing', 'transcribing'
@@ -98,12 +104,13 @@ create table if not exists public.capture_feed_session (
   source_ref uuid not null,
   round integer not null check (round >= 0),
   producer_kind text not null check (producer_kind ~ '^[a-z][a-z0-9_]{0,39}$'),
-  producer_id text not null check (char_length(producer_id) between 1 and 80),
+  producer_id text not null check (producer_id ~ '^[A-Za-z0-9._-]{1,40}$'),
   status text not null default 'live' check (status in ('live', 'lost', 'ended')),
   started_at timestamptz not null default now(),
   heartbeat_at timestamptz not null default now(),
   ended_at timestamptz,
   end_reason text check (end_reason is null or char_length(end_reason) <= 40),
+  delivered_at timestamptz,
   gaps jsonb not null default '[]'::jsonb check (jsonb_typeof(gaps) = 'array'),
   segments integer not null default 0 check (segments >= 0),
   created_at timestamptz not null default now(),
@@ -146,7 +153,8 @@ create index if not exists capture_feed_segment_said_idx on public.capture_feed_
 create table if not exists public.capture_feed_speaker (
   capture_id uuid not null references public.captures(id) on delete cascade,
   speaker_key text not null check (char_length(speaker_key) between 1 and 128),
-  participant_id uuid not null references public.capture_participant(id) on delete cascade,
+  participant_id uuid references public.capture_participant(id) on delete set null,
+  label text not null check (char_length(label) between 1 and 60),
   member_id uuid references public.member(id) on delete set null,
   guest_id uuid references public.meeting_guest(id) on delete set null,
   present boolean not null default false,

@@ -35,6 +35,8 @@ describe('the call recorder takes the notes (TEAM_CALL_RECORDER=on)', () => {
     expect(teamCallFeatures(env({ ...RECORDER, CAPTURE_FEED_SECRET: ' ' }))).toEqual({ notes: false, recording: false, liveNotes: false })
     expect(teamCallFeatures(env({ TEAM_CALL_RECORDER: 'on', CAPTURE_FEED_SECRET: 'x' }))).toEqual({ notes: false, recording: false, liveNotes: false })
     expect(teamCallFeatures(env({ ...RECORDER, TEAM_CALL_RECORDER: 'yes' }))).toEqual({ notes: false, recording: false, liveNotes: false })
+    // A feed secret equal to another internal secret is no secret of its own: the feed refuses it, so no notes are offered.
+    expect(teamCallFeatures(env({ ...RECORDER, RUN_SKILL_INTERNAL_SECRET: RECORDER.CAPTURE_FEED_SECRET }))).toEqual({ notes: false, recording: false, liveNotes: false })
   })
 })
 

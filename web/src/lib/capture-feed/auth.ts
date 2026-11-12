@@ -11,15 +11,27 @@
  */
 import 'server-only'
 import { timingSafeEqual } from 'node:crypto'
-import { internalSecretStatus, resolveInternalSecret } from '@/lib/eve/internal-secret'
+import { INTERNAL_SECRET_ENVS, internalSecretStatus, resolveInternalSecret } from '@/lib/eve/internal-secret'
 
 export const CAPTURE_FEED_SECRET_ENV = 'CAPTURE_FEED_SECRET'
 
-/** The feed's secret, or null when the feed is off (unset, empty, or shared with another internal secret). */
+/** The feed's secret, or null when the feed is off (unset, blank, or shared with another internal secret). */
 export function captureFeedSecret(): string | null {
   const secret = resolveInternalSecret('capture-feed', CAPTURE_FEED_SECRET_ENV, { fallback: false })
-  if (!secret) return null
+  if (!secret || !secret.trim()) return null
   return internalSecretStatus(CAPTURE_FEED_SECRET_ENV, { fallback: false }).source === 'dedicated' ? secret : null
+}
+
+/**
+ * Whether these settings give the feed a secret of its own (set, not blank,
+ * and equal to no other internal secret): what decides, without logging, if the feed can
+ * work at all (src/lib/team-calls/recorder.ts offers the recorder's notes only
+ * then).
+ */
+export function captureFeedSecretUsable(env: NodeJS.ProcessEnv = process.env): boolean {
+  const own = env[CAPTURE_FEED_SECRET_ENV]
+  if (!own || !own.trim()) return false
+  return !INTERNAL_SECRET_ENVS.some((name) => name !== CAPTURE_FEED_SECRET_ENV && env[name] === own)
 }
 
 function sameSecret(a: string, b: string): boolean {

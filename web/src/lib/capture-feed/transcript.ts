@@ -1,29 +1,9 @@
 /**
- * A fed capture's transcript as it is kept once the call is over: every
- * segment in the order it was said (live, they were appended in the order
- * they arrived), each speaker's stretches with nobody between them run
- * together as one line, as a call's notes have always been written
- * (src/lib/team-calls/notes.ts mergeNotes, reused). And the line the notes
- * open with when the producer was gone for a while. Pure.
+ * The line a fed capture's notes open with when the producer was gone for a
+ * while. (The transcript itself is written once more in the order things
+ * were said inside the database, at the lock: 588's capture_feed_lines.)
+ * Pure.
  */
-import { mergeNotes, type NotesFile } from '@/lib/team-calls/notes'
-import type { StoredSegment } from './store'
-
-/** `[Label] words` lines, in the order said. */
-export function orderedTranscript(segments: readonly StoredSegment[]): { text: string; lines: number } {
-  if (segments.length === 0) return { text: '', lines: 0 }
-  const labels = new Map<string, string>()
-  const files: NotesFile[] = []
-  let first = Number.POSITIVE_INFINITY
-  for (const s of segments) {
-    labels.set(s.speakerKey, s.label)
-    const at = Date.parse(s.saidAt)
-    if (Number.isFinite(at) && at < first) first = at
-    files.push({ memberId: s.speakerKey, startedAt: s.saidAt, utterances: [{ start: 0, end: Math.max(0, (s.endMs - s.startMs) / 1000), text: s.text }] })
-  }
-  const merged = mergeNotes(new Date(Number.isFinite(first) ? first : 0).toISOString(), files, labels)
-  return { text: merged.text, lines: merged.lines.length }
-}
 
 export interface FeedGap {
   /** When the producer went quiet (ISO). */

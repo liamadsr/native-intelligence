@@ -375,11 +375,12 @@ describe('the call recorder takes the notes (TEAM_CALL_RECORDER=on)', () => {
     expect(h.port.started).toEqual([])
   })
 
-  it('off: nothing to stop here (the round’s feed ends at this moment in the database; the recorder hears so)', async () => {
+  it('off: the round’s feed ends in the database, and the recorder is put out of the room at once (the eject outbox, filled by 588)', async () => {
     h.rpc.team_call_set_notes = { data: [{ notes: false, notes_round: 2, changed: true }], error: null }
     await notes(post('/n', { on: false }), params)
     await runAfters()
-    expect(h.events).toEqual([])
+    // Nothing to stop here (no Egress); the drain of the outbox the database just filled is asked for.
+    expect(h.events).toEqual([{ name: 'team-calls/eject.requested', data: {} }])
     expect(h.svcRpcs).toEqual([])
   })
 

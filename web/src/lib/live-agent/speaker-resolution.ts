@@ -97,6 +97,8 @@ interface ParticipantRow {
   external_name: string | null
   external_email?: string | null
   is_self: boolean | null
+  /** 'call_roster': the server wrote the row from a call's roster (migration 587). */
+  source?: string | null
   member: { id: string; display_name: string | null } | null
   contact: { id: string; full_name: string | null; member_id: string | null } | null
 }
@@ -161,7 +163,7 @@ export async function resolvePersonForCapture(
   const { data: participants } = await supabase
     .from('capture_participant')
     .select(
-      `speaker_label, member_id, contact_id, external_name, external_email, is_self,
+      `speaker_label, member_id, contact_id, external_name, external_email, is_self, source,
        member:member!member_id(id, display_name),
        contact:contact!contact_id(id, full_name, member_id)`,
     )
@@ -205,11 +207,14 @@ export async function resolvePersonForCapture(
       mapped.member?.display_name || mapped.contact?.full_name || mapped.external_name || null
     if (realName) {
       let memberId = mapped.member_id
+      // A call's roster row says exactly who it is: a guest's (no member) is no member, however
+      // they named themselves, so it never falls through to a name match (migration 587).
+      const fromRoster = mapped.source === 'call_roster'
       // A voice mapped only to a contact may still be a member: prefer the
       // contact's member_id FK (exact — set by ensureMemberContact) over the
       // fuzzy roster match, which can hit the wrong same-first-name member.
-      if (!memberId) memberId = mapped.contact?.member_id ?? null
-      if (!memberId) memberId = await resolveMemberIdByName(supabase, workspaceId, realName)
+      if (!memberId && !fromRoster) memberId = mapped.contact?.member_id ?? null
+      if (!memberId && !fromRoster) memberId = await resolveMemberIdByName(supabase, workspaceId, realName)
       return {
         name: realName,
         memberId,
