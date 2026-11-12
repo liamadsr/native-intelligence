@@ -338,7 +338,7 @@ describe('the page panel', () => {
     expect(rule).not.toBeNull()
     const selectors = rule![1].replace(/\/\*[\s\S]*?\*\//g, '').split(',').map((x) => x.trim()).filter(Boolean)
     // The chat strip is not among them: its composer keeps painting (Liam, 11-11), the strip's other parts stop.
-    expect(selectors).toContain('html[data-app-rail][data-card-front] [data-windows-row] > :not([data-page-panel]):not(#ni-chat-strip-slot)')
+    expect(selectors).toContain('html[data-app-rail][data-card-front] [data-windows-row] > :not([data-page-panel]):not(#ni-chat-strip-slot):not([data-fading-blur])')
     // The row as dashboard-shell.tsx draws it: the chat strip, then the panel, beside each other.
     function ShellRow() {
       return (

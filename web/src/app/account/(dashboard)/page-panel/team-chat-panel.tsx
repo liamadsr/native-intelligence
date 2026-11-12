@@ -9,6 +9,10 @@
  *           All: Favorites (what the person starred), Team channels,
  *           Channels (the whole workspace's), DMs, Meetings (where calling
  *           is on), each only when it has a row (./team-chat-panel-model.ts).
+ *           Meetings are the page's own section (components/meeting-links/
+ *           meetings-section.tsx, `dense`): the person's meetings from the
+ *           moment they are made, live first, each with Join and its menu
+ *           (Copy link; New link and Revoke for the host).
  *           Recent: every conversation in one list, latest activity first.
  *   Heading Team channels, Channels and DMs each have their order (recent
  *           activity or A–Z, remembered per section on this device) and a +
@@ -61,6 +65,7 @@ import {
   type TeamChatPanelConversation,
 } from '@/components/chat-cards/team-chat-card-controls'
 import { useWorkspaceId } from '@/app/account/workspace-switcher'
+import { MeetingsSection } from '@/components/meeting-links/meetings-section'
 import { usePendingMove } from './pending-move'
 import { KEEP_PLACE_ATTR } from '../rail/selected-place'
 import { PagePanelFrame } from './page-panel-frame'
@@ -103,6 +108,7 @@ export function TeamChatPanel({ active, mode, front, onContent }: PagePanelProps
 }
 
 const NO_CONVERSATIONS: readonly TeamChatPanelConversation[] = []
+const NO_LIVE: ReadonlySet<string> = new Set()
 
 function TeamChatPanelRows({
   card,
@@ -127,6 +133,11 @@ function TeamChatPanelRows({
   const sections = useMemo(() => teamChatPanelSections(conversations, favorites, sorts, { meetings: meetingsOn }), [conversations, favorites, sorts, meetingsOn])
   const recent = useMemo(() => teamChatRecentRows(conversations), [conversations])
   const starred = useMemo(() => new Set(favorites), [favorites])
+  // An ended meeting with unread messages stays in its section.
+  const unreadOf = (id: string) => {
+    const c = conversations.find((x) => x.channel.id === id)?.channel
+    return c ? c.unread + (c.thread_unread ?? 0) : 0
+  }
 
   // A record opened over the page as its own card is in front: the page's card comes back first.
   const frontRef = useRef(front)
@@ -187,7 +198,18 @@ function TeamChatPanelRows({
           sections.map((section) => (
             <section key={section.key} data-team-chat-section={section.key} aria-labelledby={`team-chat-${section.key}`}>
               <SectionHeading section={section} sort={section.sort ? sorts[section.sort] : null} onAdd={add} meetingsOn={meetingsOn} />
-              <ul className="flex flex-col">{section.rows.map(row)}</ul>
+              {section.key === 'meetings' && meetingsOn ? (
+                <MeetingsSection
+                  dense
+                  refreshKey={card?.meetingsKey ?? null}
+                  liveChannels={card?.liveMeetings ?? NO_LIVE}
+                  unread={unreadOf}
+                  activeChannelId={openId}
+                  onOpen={press}
+                />
+              ) : (
+                <ul className="flex flex-col">{section.rows.map(row)}</ul>
+              )}
             </section>
           ))
         )}

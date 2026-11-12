@@ -858,9 +858,11 @@ export function TeamChatView({
       },
       newDm: () => setNewDmOpen(true),
       newMeeting: teamCalls.available ? () => setNewMeetingOpen(true) : null,
+      meetingsKey,
+      liveMeetings: liveMeetingChannels,
       show: () => onShowCardRef.current?.(),
     })
-  }, [cardId, channels, workspaceId, panelConversations, onScreen, openChannel, teamCalls.available])
+  }, [cardId, channels, workspaceId, panelConversations, onScreen, openChannel, teamCalls.available, meetingsKey, liveMeetingChannels])
   useEffect(() => {
     if (!cardId) return
     return () => unpublishTeamChatCard(cardId)

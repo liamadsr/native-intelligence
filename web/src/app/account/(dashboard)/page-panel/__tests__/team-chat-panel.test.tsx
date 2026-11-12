@@ -94,6 +94,22 @@ const CONVERSATIONS: TeamChatPanelConversation[] = [
 let container: HTMLDivElement
 let root: Root
 let releases: Array<() => void> = []
+/** The person's meeting behind 'meet-kickoff', as /api/account/meeting-links?view=mine answers (an "Any time" link). */
+const KICKOFF = {
+  id: 'm-kickoff',
+  channel_id: 'meet-kickoff',
+  title: 'Kickoff with Northwind',
+  starts_at: null,
+  ends_at: null,
+  opens_at: '2026-11-06T08:00:00Z',
+  closes_at: '2099-01-01T00:00:00Z',
+  revoked_at: null,
+  created_at: '2026-11-06T08:00:00Z',
+  host_member_id: 'member-me',
+  is_host: true,
+  live: false,
+  url: 'https://example.test/m/kickoffKICKOFFkickoffKICKOFF0001',
+}
 const calls: string[] = []
 
 function controls(over: Partial<TeamChatCardControls> = {}): TeamChatCardControls {
@@ -119,7 +135,14 @@ beforeEach(() => {
   __resetSelectedPlaceForTests()
   __resetTeamChatCardsForTests()
   store.resetSidePanelStore()
-  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ entries: [], next_cursor: null }) }) as Response))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) =>
+      String(url).startsWith('/api/account/meeting-links?view=mine')
+        ? ({ ok: true, json: async () => ({ meetings: [KICKOFF] }) } as Response)
+        : ({ ok: true, json: async () => ({ entries: [], next_cursor: null }) } as Response),
+    ),
+  )
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -196,7 +219,16 @@ describe('the Team chat sub-nav', () => {
     expect(idsIn('team')).toEqual(['t-design-standup', 't-eng-standup', 't-eng-builds'])
     expect(idsIn('channels')).toEqual(['c-general', 'c-announcements'])
     expect(idsIn('dms')).toEqual(['dm-rosa', 'dm-me'])
-    expect(idsIn('meetings')).toEqual(['meet-kickoff'])
+    // Meetings: the page's own section (meetings-section.tsx), read by itself, in the sub-nav's rows: Join, its menu, and a press opens its conversation.
+    const meetings = container.querySelector('[data-team-chat-section="meetings"]')!
+    expect(idsIn('meetings')).toEqual([])
+    const kickoff = meetings.querySelector<HTMLElement>('[data-meeting-row]')!
+    expect(kickoff.textContent).toContain('Kickoff with Northwind')
+    expect(kickoff.className).toMatch(/(^|\s)min-h-8(\s|$)/)
+    expect(kickoff.querySelector('[data-meeting-join]')).not.toBeNull()
+    expect(kickoff.querySelector('[data-meeting-more]')!.getAttribute('aria-label')).toBe('More for Kickoff with Northwind')
+    act(() => kickoff.querySelector<HTMLElement>('[data-meeting-open]')!.click())
+    expect(calls).toContain('open:meet-kickoff')
     // A press in it keeps the page selected; it is the page's one list (pinned: shown while open, room or not).
     expect(row('c-general').closest(`[${KEEP_PLACE_ATTR}]`)).not.toBeNull()
     expect(store.getSidePanelState().pagePanelPage).toBe(true)

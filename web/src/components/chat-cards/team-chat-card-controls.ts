@@ -67,6 +67,15 @@ export interface TeamChatCardControls {
    * off (no Meetings section then, as the page lists none).
    */
   newMeeting: (() => void) | null
+  /**
+   * Its Meetings section's asks (components/meeting-links/meetings-section.tsx,
+   * which reads the person's meetings itself, from the moment they are made):
+   * changed when a meeting is made, a meeting's conversation moves or a call
+   * starts or ends, as the view's own list asked it.
+   */
+  meetingsKey?: string
+  /** The meetings' conversations whose call is live, as the view knows it between asks. */
+  liveMeetings?: ReadonlySet<string>
   /** Put the card full screen (another card is in front). */
   show: () => void
   /**
