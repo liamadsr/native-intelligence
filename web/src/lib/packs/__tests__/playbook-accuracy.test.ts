@@ -209,6 +209,17 @@ const NOT_TOOLS: Record<string, readonly string[]> = {
   'customer-language': [],
   'battle-card': [],
   'content-planning': [],
+  // The SEO skills: `confirmed_with_user` is the argument a paid, repeating or costly call takes after the person's yes.
+  'seo-guide': ['confirmed_with_user'],
+  'seo-site-audit': [],
+  'seo-keywords': ['confirmed_with_user'],
+  'seo-competitors': [],
+  'seo-rank-tracking': ['confirmed_with_user'],
+  'seo-performance': [],
+  'seo-backlinks': [],
+  'seo-ai-visibility': ['confirmed_with_user'],
+  'seo-local': ['confirmed_with_user'],
+  'seo-report': ['enabled'],
   'meeting-follow-up': [
     'account', 'additional_context', 'body', 'capture_id', 'from_account', 'in_reply_to', 'proposal_id', 'proposal_ids', 'reason', 'recipients', 'since', 'status',
     'subject', 'thread_id', 'to', 'tone', 'why',
@@ -247,6 +258,8 @@ const CHAT_ONLY_NAMED: Record<string, readonly string[]> = {
   'x-post': ['review_post'],
   'linkedin-post': ['review_post'],
   'marketing-playbook': ['create_flow'],
+  // The weekly SEO report is a loop the person asks for in chat, built on (and switched on after their yes if it saved off).
+  'seo-report': ['create_flow', 'update_flow'],
   // 551: changing the working hours is the person's step, on what they said in the chat.
   // The working hours (551), and making a booking link (582): the person's own steps, in their chat.
   'calendar-playbook': ['create_booking_link', 'set_working_hours'],

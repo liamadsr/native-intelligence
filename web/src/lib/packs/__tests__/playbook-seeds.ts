@@ -36,6 +36,8 @@ export const SKILL_REWRITE_MIGRATIONS = [
   // P8: the content and marketing areas' skills (new rows, their own areas).
   '384_content_area_skills.sql',
   '385_marketing_skills.sql',
+  // The SEO area: ten skills in the marketing area (new rows).
+  '598_seo_skills.sql',
   // Studio: the studio area's playbook and its 23 task skills (new rows, their own area, the same row shape as 384's).
   '621_studio_skills.sql',
   // Studio: 16 of 621's rows rewritten whole by id (what the Studio can do now), and five new task skills.

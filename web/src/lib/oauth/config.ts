@@ -1,5 +1,5 @@
 export type OAuthProvider = 'google' | 'microsoft' | 'github' | 'hubspot' | 'asana' | 'jira' | 'linear' | 'brevo'
-export type OAuthCapability = 'calendar' | 'email' | 'github' | 'crm' | 'tasks' | 'contacts'
+export type OAuthCapability = 'calendar' | 'email' | 'github' | 'crm' | 'tasks' | 'contacts' | 'search_console' | 'analytics'
 
 export const OAUTH_CONFIG = {
   google: {
@@ -24,6 +24,20 @@ export const OAUTH_CONFIG = {
       // `email`, so no Gmail connection needs a re-consent for it.
       contacts: [
         'https://www.googleapis.com/auth/contacts.readonly',
+        'https://www.googleapis.com/auth/userinfo.email',
+      ],
+      // The SEO area (src/lib/seo/google/): a workspace's Search Console
+      // site and Google Analytics property, read only. Each its own
+      // capability, like `contacts`, so no existing connection needs a
+      // re-consent and either can be a different Google account. Both
+      // scopes are SENSITIVE: Google's OAuth verification must list them
+      // before users outside the test list can grant them.
+      search_console: [
+        'https://www.googleapis.com/auth/webmasters.readonly',
+        'https://www.googleapis.com/auth/userinfo.email',
+      ],
+      analytics: [
+        'https://www.googleapis.com/auth/analytics.readonly',
         'https://www.googleapis.com/auth/userinfo.email',
       ],
     },
@@ -208,8 +222,11 @@ export function isPkceProvider(p: OAuthProvider): boolean {
 }
 
 export function isValidCapability(c: string): c is OAuthCapability {
-  return c === 'calendar' || c === 'email' || c === 'github' || c === 'crm' || c === 'tasks' || c === 'contacts'
+  return OAUTH_CAPABILITIES.includes(c as OAuthCapability)
 }
+
+/** Every capability, in one list: the CHECK constraints on connected_account and user_oauth_tokens hold the same values (migration 595's test). */
+export const OAUTH_CAPABILITIES: readonly OAuthCapability[] = ['calendar', 'email', 'github', 'crm', 'tasks', 'contacts', 'search_console', 'analytics']
 
 export function getScopesForCapability(
   provider: OAuthProvider,

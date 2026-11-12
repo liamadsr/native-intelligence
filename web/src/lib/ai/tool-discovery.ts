@@ -239,7 +239,15 @@ export function mentionsMeetingGoal(text: unknown): boolean {
  *   +2 bonus if tool name starts with a query token
  *   +1 category-sibling boost when any tool in a category scores > 0
  */
-export function searchRegistry(query: string) {
+/**
+ * `keep` drops rows BEFORE the list is cut to its top 15: a caller that may
+ * only use some tools (a ceiling, a token's scope) passes its rule here, so
+ * tools it can't use never take the places of ones it can. Filtering after
+ * the cut returned nothing for a query whose best 15 matches were all out of
+ * reach (a narrowed run searching "google" once the registry held a dozen
+ * out-of-ceiling tools with that word in their name).
+ */
+export function searchRegistry(query: string, keep?: (name: string) => boolean) {
   const tokens = query
     .toLowerCase()
     .split(/[\s_-]+/)
@@ -305,7 +313,7 @@ export function searchRegistry(query: string) {
   }
 
   return scored
-    .filter((s) => s.score > 0)
+    .filter((s) => s.score > 0 && (!keep || keep(s.name)))
     .sort((a, b) => b.score - a.score)
     .slice(0, 15)
     .map(({ name, description, category }) => ({ name, description, category }))
@@ -370,6 +378,9 @@ export function pickPermittedTools<T extends Record<string, unknown>>(
  * the model doesn't waste steps trying to call a tool it can't reach. `null`/
  * omitted → inherit-all, every registered tool is discoverable (chat default).
  */
+/** How many sibling tools a category-completeness hint names (the largest category before SEO had 45: none of those hints change). */
+const CATEGORY_HINT_MAX_NAMES = 45
+
 export function createSearchToolsTool(ceiling?: Set<string> | null) {
   const allowed = (name: string) => !ceiling || ceiling.has(name)
   return tool({
@@ -416,7 +427,8 @@ export function createSearchToolsTool(ceiling?: Set<string> | null) {
       // (the empty-query browse path) carry a category id in `name` and are
       // navigation hints, not callable tools — pass them through (browsing a
       // category re-enters the ceiling-filtered exactCat path above).
-      const results = searchRegistry(query).filter(
+      // The ceiling is applied inside the search, before its top-15 cut.
+      const results = searchRegistry(query, allowed).filter(
         (r) => !TOOL_NAME_SET.has(r.name) || allowed(r.name),
       )
 
@@ -442,7 +454,10 @@ export function createSearchToolsTool(ceiling?: Set<string> | null) {
           .filter((t) => allowed(t.name) && !keptNames.has(t.name))
           .map((t) => t.name)
         if (missing.length > 0) {
-          categoryHints.push(`${cat.label} also has: ${missing.join(', ')} (search "${cat.id}" to load them)`)
+          // A very large category names its first siblings and counts the rest: the hint stays a hint.
+          const named = missing.slice(0, CATEGORY_HINT_MAX_NAMES)
+          const rest = missing.length - named.length
+          categoryHints.push(`${cat.label} also has: ${named.join(', ')}${rest > 0 ? `, and ${rest} more` : ''} (search "${cat.id}" to load them)`)
         }
       }
 

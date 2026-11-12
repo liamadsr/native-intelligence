@@ -67,6 +67,9 @@ const CAPABILITY_CATEGORY: Record<string, ConnectorCategory> = {
   crm: 'sales',
   // Google Contacts: the people a business sells to (roadmap track G2).
   contacts: 'sales',
+  // Google Search Console and Google Analytics: how the business's website does (the SEO area).
+  search_console: 'sites',
+  analytics: 'sites',
   github: 'engineering',
   messaging: 'messaging',
 }

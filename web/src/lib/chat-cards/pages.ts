@@ -43,6 +43,14 @@ export const PAGE_KIND_NAMES = [
   'availability',
   'files',
   'studio',
+  'seo_audit',
+  'seo_keywords',
+  'seo_rankings',
+  'seo_search',
+  'seo_competitors',
+  'seo_backlinks',
+  'seo_ai_visibility',
+  'seo_local',
   'bot',
   'work_item',
   'guest',
@@ -73,6 +81,10 @@ export const PAGE_PLACE_TYPES = [
   'data_row',
   'studio_project',
   'studio_video',
+  'seo_audit',
+  'seo_rank_tracker',
+  'seo_ai_tracker',
+  'seo_local_business',
 ] as const
 export type PagePlaceType = (typeof PAGE_PLACE_TYPES)[number]
 
@@ -268,6 +280,29 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     target: { types: ['studio_video', 'studio_project'] },
     tabs: ['overview', 'storyboard', 'cast', 'edit'],
   },
+  // SEO's Site audit (the `seo` feature): the workspace's site audits, one
+  // audit's findings and crawled pages (GET /api/account/seo/audits). The
+  // first page of the SEO rail group; every SEO page shares the `seo` view,
+  // as Files shares `docs`. The person opens it (`/`, the rail); `show`
+  // doesn't offer it, and read_card points the agent at the audit tools.
+  // `at` is one audit (`seo_audit`); its tabs are that audit's sub-views.
+  seo_audit: {
+    label: 'Site audit',
+    rows: 'audits',
+    view: 'seo',
+    tabs: ['findings', 'pages'],
+    personOnly: true,
+  },
+  // The rest of the SEO group, one page per section, all on the `seo` view and
+  // all the person's to open (read_card points the agent at each section's
+  // own tools). A page with a place opens one tracker or business in it.
+  seo_keywords: { label: 'Keywords', rows: 'keywords', view: 'seo', tabs: ['research', 'saved'], personOnly: true },
+  seo_rankings: { label: 'Rankings', rows: 'rank trackers', view: 'seo', tabs: ['positions', 'history'], personOnly: true },
+  seo_search: { label: 'Search performance', rows: 'queries', view: 'seo', tabs: ['queries', 'pages', 'opportunities', 'analytics'], personOnly: true },
+  seo_competitors: { label: 'Competitors', rows: 'sites', view: 'seo', tabs: ['overview', 'keywords', 'competitors'], personOnly: true },
+  seo_backlinks: { label: 'Backlinks', rows: 'backlinks', view: 'seo', tabs: ['overview', 'links', 'domains', 'pages'], personOnly: true },
+  seo_ai_visibility: { label: 'AI visibility', rows: 'trackers', view: 'seo', tabs: ['results', 'prompts', 'sources'], personOnly: true },
+  seo_local: { label: 'Local', rows: 'businesses', view: 'seo', tabs: ['grid', 'profile', 'reviews'], personOnly: true },
   // One AI teammate's page (bots-v4.md "A bot's page"): its chat and its work.
   // `target` is the teammate; `at` a work item of its open on the page.
   bot: {
@@ -308,7 +343,7 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
 }
 
 /** The page kinds `show` offers: every one the person alone doesn't open. */
-export const SHOW_PAGE_KIND_NAMES = PAGE_KIND_NAMES.filter((k) => !PAGE_KINDS[k].personOnly) as Exclude<PageKind, 'bot' | 'work_item' | 'guest' | 'agent_link' | 'team_chat' | 'availability' | 'files'>[]
+export const SHOW_PAGE_KIND_NAMES = PAGE_KIND_NAMES.filter((k) => !PAGE_KINDS[k].personOnly) as Exclude<PageKind, 'bot' | 'work_item' | 'guest' | 'agent_link' | 'team_chat' | 'availability' | 'files' | 'seo_audit' | 'seo_keywords' | 'seo_rankings' | 'seo_search' | 'seo_competitors' | 'seo_backlinks' | 'seo_ai_visibility' | 'seo_local'>[]
 
 /** What each place is called, in the note and in refusals. */
 export const PLACE_NOUN: Record<PagePlaceType, string> = {
@@ -333,6 +368,10 @@ export const PLACE_NOUN: Record<PagePlaceType, string> = {
   data_row: 'row',
   studio_project: 'Studio project',
   studio_video: 'video',
+  seo_audit: 'site audit',
+  seo_rank_tracker: 'rank tracker',
+  seo_ai_tracker: 'AI visibility tracker',
+  seo_local_business: 'business',
 }
 
 export function isPageKind(value: unknown): value is PageKind {

@@ -234,10 +234,12 @@ export function registerDiscoveryTools(server: McpServer, opts: DiscoveryToolsOp
         })
       }
 
-      const results = searchRegistry(query)
-        // Registry rows for tools this server does not bridge (or a read-only
-        // token cannot reach) are noise: never advertise what cannot be called.
-        .filter((r) => !dispatchable.has(r.name) || !forbiddenForScope(r.name))
+      // Registry rows for tools a read-only token cannot reach are noise:
+      // never advertise what cannot be called. Dropped inside the search,
+      // before its top-15 cut, so they don't take the places of tools it can.
+      const reachable = (name: string) => !dispatchable.has(name) || !forbiddenForScope(name)
+      const results = searchRegistry(query, reachable)
+        .filter((r) => reachable(r.name))
         .map((r) => ({
           name: dispatchable.has(r.name) ? mcpToolName(r.name) : r.name,
           description: r.description,

@@ -1,0 +1,136 @@
+/**
+ * Research target parsing.
+ *
+ * Adapted from OpenSEO (MIT, see ../THIRD_PARTY_NOTICES.md).
+ */
+import {
+  parseBacklinksTarget,
+  parseResearchTarget,
+  urlMatchesResearchTarget,
+} from '@/lib/seo/shared/researchScope'
+import { describe, expect, it } from 'vitest'
+
+function parseOk(
+  input: string,
+  scope?: Parameters<typeof parseResearchTarget>[1],
+) {
+  const result = parseResearchTarget(input, scope)
+  if (!result.ok) throw new Error(`expected ok parse, got: ${result.message}`)
+  return result.target
+}
+
+describe('parseResearchTarget', () => {
+  it('defaults a root domain to subdomains scope', () => {
+    const target = parseOk('Example.com')
+    expect(target).toMatchObject({
+      scope: 'subdomains',
+      hostname: 'example.com',
+      path: '',
+      display: 'example.com',
+    })
+  })
+
+  it('defaults a URL with a path to subfolder scope', () => {
+    const target = parseOk('example.com/commercial-insurance/')
+    expect(target).toMatchObject({
+      scope: 'subfolder',
+      path: '/commercial-insurance',
+      display: 'example.com/commercial-insurance',
+    })
+  })
+
+  it('strips query strings and fragments without failing', () => {
+    const target = parseOk('https://example.com/blog?utm_source=x#section')
+    expect(target.path).toBe('/blog')
+  })
+
+  it('preserves path casing and percent encoding', () => {
+    const target = parseOk('example.com/Docs/%7Euser')
+    expect(target.path).toBe('/Docs/%7Euser')
+  })
+
+  it('strips www from hostname but keeps it for page URLs', () => {
+    const target = parseOk('www.example.com/blog', 'exact_url')
+    expect(target.hostname).toBe('example.com')
+    expect(target.urlHostname).toBe('www.example.com')
+  })
+
+  it('rejects subfolder for a root input instead of silently rescoping', () => {
+    const result = parseResearchTarget('example.com', 'subfolder')
+    expect(result).toEqual({
+      ok: false,
+      message: 'Add a path to use Subfolder (e.g. example.com/blog)',
+    })
+  })
+
+  it('rejects invalid hosts and credentials', () => {
+    expect(parseResearchTarget('example.por').ok).toBe(false)
+    expect(parseResearchTarget('').ok).toBe(false)
+    expect(parseResearchTarget('my_site.com').ok).toBe(false)
+    expect(parseResearchTarget('https://user:pw@example.com/x').ok).toBe(false)
+  })
+})
+
+describe('parseBacklinksTarget', () => {
+  // The search card and the server share this rule, so the user sees it inline.
+  it('rejects a query string or fragment only on an exact page lookup', () => {
+    expect(
+      parseBacklinksTarget('https://example.com/page?ref=1', 'exact_url'),
+    ).toMatchObject({ ok: false })
+    expect(
+      parseBacklinksTarget('https://example.com/page#top', 'subfolder'),
+    ).toMatchObject({ ok: true })
+  })
+})
+
+describe('urlMatchesResearchTarget', () => {
+  const subfolder = parseOk('example.com/blog', 'subfolder')
+
+  it('matches the subfolder itself and its children', () => {
+    expect(
+      urlMatchesResearchTarget('https://example.com/blog', subfolder),
+    ).toBe(true)
+    expect(
+      urlMatchesResearchTarget('https://example.com/blog/post?x=1', subfolder),
+    ).toBe(true)
+    expect(
+      urlMatchesResearchTarget('https://www.example.com/blog/', subfolder),
+    ).toBe(true)
+  })
+
+  it('excludes similarly named sibling paths and other hosts', () => {
+    expect(
+      urlMatchesResearchTarget('https://example.com/blogging', subfolder),
+    ).toBe(false)
+    expect(
+      urlMatchesResearchTarget('https://sub.example.com/blog/post', subfolder),
+    ).toBe(false)
+  })
+
+  it('matches exact URLs ignoring trailing slash, query, and fragment', () => {
+    const exact = parseOk('example.com/pricing', 'exact_url')
+    expect(
+      urlMatchesResearchTarget('https://example.com/pricing/', exact),
+    ).toBe(true)
+    expect(
+      urlMatchesResearchTarget('https://example.com/pricing?ref=x#top', exact),
+    ).toBe(true)
+    expect(
+      urlMatchesResearchTarget('https://example.com/pricing/plans', exact),
+    ).toBe(false)
+  })
+
+  it('separates domain scope from subdomains scope', () => {
+    const domain = parseOk('example.com', 'domain')
+    const subs = parseOk('example.com', 'subdomains')
+    expect(urlMatchesResearchTarget('https://blog.example.com/x', domain)).toBe(
+      false,
+    )
+    expect(urlMatchesResearchTarget('https://blog.example.com/x', subs)).toBe(
+      true,
+    )
+    expect(urlMatchesResearchTarget('https://notexample.com/x', subs)).toBe(
+      false,
+    )
+  })
+})

@@ -147,7 +147,7 @@ describe('categories', () => {
 
   it('lists the categories present, in Discover’s order, and filters by one', () => {
     const g = groups()
-    expect(categoriesIn(discoverConnectors(g))).toEqual(['projects', 'calendar', 'sales', 'engineering'])
+    expect(categoriesIn(discoverConnectors(g))).toEqual(['projects', 'calendar', 'sales', 'engineering', 'sites'])
     const sales = discoverConnectors(g, { category: 'sales' })
     expect(sales.map((r) => r.key)).toEqual(['google:contacts', 'hubspot:crm', 'brevo:contacts'])
     expect(discoverConnectors(g, { category: 'projects', kind: 'mcp' }).map((r) => r.key)).toEqual([

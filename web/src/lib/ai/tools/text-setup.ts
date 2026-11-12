@@ -1,7 +1,8 @@
 import { tool } from 'ai'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { connectLinkText, mintConnectLink, TEXT_CONNECT_PROVIDERS, providerLabel, type TextConnectProvider } from '@/lib/links/oauth-link'
+import { connectLinkText, GOOGLE_PRODUCT_LABEL, mintConnectLink, TEXT_CONNECT_PROVIDERS, providerLabel, type TextConnectProvider } from '@/lib/links/oauth-link'
+import type { OAuthCapability } from '@/lib/oauth/config'
 import { finishTextSetup } from '@/lib/onboarding/text-setup'
 import { saveMemoryLine } from '@/lib/packs/memory-write'
 import { MEMORY_LINE_MAX_CHARS } from '@/lib/packs/memory-types'
@@ -37,6 +38,13 @@ import { appOrigin } from '@/lib/twilio/config'
 /** Tools only the person's own text turn holds: withheld from MCP (src/lib/mcp/tools/index.ts). */
 export const TEXT_TURN_ONLY_TOOL_NAMES: readonly string[] = ['connect_link']
 
+/** connect_link's names for one Google product connected on its own. */
+const GOOGLE_SINGLE_LEG: Record<string, OAuthCapability | undefined> = {
+  google_contacts: 'contacts',
+  google_search_console: 'search_console',
+  google_analytics: 'analytics',
+}
+
 export function createTextSetupTools(
   userId: string,
   supabase: SupabaseClient,
@@ -49,10 +57,13 @@ export function createTextSetupTools(
       description:
         'Text the person a single-use link that connects one of their accounts from their phone: google (Gmail and Google Calendar), microsoft (Outlook mail and calendar), github, ' +
         'or one that holds their customers: google_contacts (Google Contacts), hubspot or brevo. A customers link imports them into the CRM once it connects (read only, nothing is sent) and they get a text when it is done. ' +
+        'For their website\'s search data: google_search_console (Google Search Console) or google_analytics (Google Analytics), both read only. ' +
         'The tool sends the text itself, to their verified number: never write a link in your reply. It opens the provider\'s own sign-in, works once and expires in 15 minutes. ' +
         'Only when they text you; in the app, use connect (a Connect card). Never ask for a password or an API key by text.',
       inputSchema: z.object({
-        provider: z.enum(['google_contacts', ...TEXT_CONNECT_PROVIDERS] as [string, ...string[]]).describe('google, microsoft, github, google_contacts, hubspot or brevo'),
+        provider: z
+          .enum(['google_contacts', 'google_search_console', 'google_analytics', ...TEXT_CONNECT_PROVIDERS] as [string, ...string[]])
+          .describe('google, microsoft, github, google_contacts, google_search_console, google_analytics, hubspot or brevo'),
       }),
       execute: async ({ provider }) => {
         if (opts.unattended || !opts.textTurn) {
@@ -63,12 +74,12 @@ export function createTextSetupTools(
         // a business-line phone only ever from a business number ('no_line': none to send from).
         const from = phone && !phone.optedOut && (await phoneServesWorkspace(supabase, phone, workspaceId)) ? await sendingLine(supabase, phone, workspaceId) : 'no_line'
         if (!phone || from === 'no_line') return { success: false, error: 'Their number can\'t be texted right now, so no link was sent.' }
-        // Google Contacts is Google's contacts leg on its own (roadmap track G2).
-        const contacts = provider === 'google_contacts'
-        const target = (contacts ? 'google' : provider) as TextConnectProvider
-        const link = await mintConnectLink(supabase, { userId, workspaceId, provider: target, origin: appOrigin(), ...(contacts ? { capabilities: ['contacts' as const] } : {}) })
+        // Google Contacts is Google's contacts leg on its own (roadmap track G2); Search Console and Analytics likewise (the SEO area).
+        const googleLeg = GOOGLE_SINGLE_LEG[provider]
+        const target = (googleLeg ? 'google' : provider) as TextConnectProvider
+        const link = await mintConnectLink(supabase, { userId, workspaceId, provider: target, origin: appOrigin(), ...(googleLeg ? { capabilities: [googleLeg] } : {}) })
         if (!link.ok) return { success: false, error: 'The link could not be made just now. Try again in a moment.' }
-        const body = connectLinkText(target, link.url, contacts ? ['contacts'] : undefined)
+        const body = connectLinkText(target, link.url, googleLeg ? [googleLeg] : undefined)
         const send = opts.send ?? sendSms
         // A business's own number when the link is about that business; else their agent's own number, else Native Intelligence's.
         const sender = from ? null : await agentSender(supabase, userId)
@@ -78,7 +89,7 @@ export function createTextSetupTools(
         return {
           success: true,
           texted: true,
-          message: `The ${contacts ? 'Google Contacts' : providerLabel(target)} link is texted to them on its own. Say so in a few words; never write or make up a link yourself.`,
+          message: `The ${googleLeg ? (GOOGLE_PRODUCT_LABEL[googleLeg] ?? 'Google') : providerLabel(target)} link is texted to them on its own. Say so in a few words; never write or make up a link yourself.`,
         }
       },
     }),

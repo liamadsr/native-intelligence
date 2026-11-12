@@ -4,6 +4,7 @@ import {
   computeToolCeiling,
   computeInitialActiveTools,
   createSearchToolsTool,
+  searchRegistry,
   CORE_TOOL_NAMES,
   ALWAYS_ON_CAPABILITY_TOOL_NAMES,
 } from '../tool-discovery'
@@ -125,5 +126,42 @@ describe('search_tools category hint — drift guard', () => {
   it('includes the previously-omitted knowledge and flows categories', () => {
     expect(description).toContain('knowledge')
     expect(description).toContain('flows')
+  })
+})
+
+describe('search_tools under a ceiling: tools out of reach never take the places of tools within it', () => {
+  type SearchOut = { tools: Array<{ name: string }>; hint: string }
+  const search = async (ceiling: Set<string> | null, query: string): Promise<SearchOut> => {
+    const execute = (createSearchToolsTool(ceiling) as unknown as { execute: (input: { query: string }, opts: unknown) => Promise<SearchOut> }).execute
+    return execute({ query }, { toolCallId: 't', messages: [] })
+  }
+
+  it('a narrowed run still finds its own tools for a word many out-of-ceiling tools carry in their name', async () => {
+    // A run that holds only the connections tools (no SEO): "google" matches a
+    // dozen SEO tool NAMES, which used to fill the top 15 and then be filtered
+    // away, leaving nothing.
+    const ceiling = new Set(getToolNamesForCategories(ALL_CATEGORY_IDS.filter((id) => id !== 'seo')))
+    const out = await search(ceiling, 'google')
+    expect(out.tools.length).toBeGreaterThan(0)
+    for (const t of out.tools) expect(ceiling.has(t.name), t.name).toBe(true)
+    expect(out.hint).not.toMatch(/No matching tools/)
+  })
+
+  it('searchRegistry drops what the caller can’t use before the cut, not after', () => {
+    const seo = new Set(getToolNamesForCategories(['seo']))
+    const all = searchRegistry('google')
+    const withoutSeo = searchRegistry('google', (name) => !seo.has(name))
+    // The unfiltered top 15 is crowded with SEO tools; the filtered one is full of others.
+    expect(all.some((r) => seo.has(r.name))).toBe(true)
+    expect(withoutSeo.some((r) => seo.has(r.name))).toBe(false)
+    expect(withoutSeo.length).toBeGreaterThan(all.filter((r) => !seo.has(r.name)).length)
+  })
+
+  it('a very large category’s sibling hint names some tools and counts the rest', async () => {
+    const out = await search(null, 'site audit')
+    const seoHint = out.hint.split('. ').find((part) => part.startsWith('SEO also has:')) ?? ''
+    expect(seoHint).toMatch(/, and \d+ more \(search "seo" to load them\)/)
+    // At most the cap of names before the count.
+    expect(seoHint.replace(/^SEO also has: /, '').split(', and ')[0].split(', ').length).toBeLessThanOrEqual(45)
   })
 })

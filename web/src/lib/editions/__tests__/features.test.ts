@@ -86,6 +86,8 @@ const SHIPPED: GoldenSurface = {
     'campaigns',
     // Evals was opt-in (in no preset) until every feature went on for everyone.
     'evals',
+    // The SEO area (its site audit first): one view for all of its pages.
+    'seo',
     'agents',
     // Studio (migration 620): on by default, like Documents.
     'studio',

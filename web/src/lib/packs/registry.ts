@@ -215,13 +215,16 @@ export const PACKS: Record<AreaKey, PackDefinition> = {
     cardKinds: [],
   },
   // P8 (marketing M0): the product doc as brand context, positioning,
-  // customer language. No tools of its own: it reads calls, claims and docs,
-  // and edits the product doc with the canon tools. It loads by its playbook.
+  // customer language. It reads calls, claims and docs, and edits the product
+  // doc with the canon tools; its own tools are the SEO ones. It loads by its
+  // playbook, or when an SEO tool is found or called.
   marketing: {
     key: 'marketing',
     name: 'Marketing',
     feature: 'core',
-    toolGroups: [],
+    // SEO is marketing work, so its tools belong to this area (the SEO pages
+    // themselves are the `seo` feature's and are opened by the person).
+    toolGroups: ['seo'],
     cardKinds: [],
   },
   // Studio (migration 620): videos and ads, their storyboards, cast and edits.

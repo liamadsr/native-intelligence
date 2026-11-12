@@ -79,6 +79,12 @@ import { createNowTools, type NowToolContext } from './now'
 import { createGettingStartedTools } from './getting-started'
 import { createTextSetupTools } from './text-setup'
 import { createWebsiteTools } from './website'
+import { createSeoTools } from './seo'
+import { createSeoAiVisibilityTools } from './seo-ai-visibility'
+import { createSeoLocalTools } from './seo-local'
+import { createSeoRankTools } from './seo-rank'
+import { createSeoKeywordTools } from './seo-keywords'
+import { createSeoGoogleTools } from './seo-google'
 import { createContactImportTools } from './contact-import'
 import { createShowTools, type PersonalCardKind } from './show'
 import type { CardContextEntry } from '@/lib/chat-cards/context'
@@ -636,6 +642,13 @@ export function createTools(
     // save_business_profile, each refusing an unattended turn. See ./text-setup.ts.
     ...createTextSetupTools(userId, supabase, workspaceId, { unattended: options?.unattended === true, textTurn: options?.textTurn === true }),
     ...createWebsiteTools(userId, supabase, workspaceId, { unattended: options?.unattended === true, remoteTurn: options?.remoteTurn === true }),
+    // SEO (src/lib/seo): the site audit. Our own crawl of a public site, so nothing to confirm and a loop may run it. See ./seo.ts.
+    ...createSeoTools(userId, supabase, workspaceId),
+    ...createSeoAiVisibilityTools(userId, supabase, workspaceId, { unattended: options?.unattended === true }),
+    ...createSeoLocalTools(userId, supabase, workspaceId, { unattended: options?.unattended === true }),
+    ...createSeoRankTools(userId, supabase, workspaceId, { unattended: options?.unattended === true }),
+    ...createSeoKeywordTools(userId, supabase, workspaceId, { unattended: options?.unattended === true }),
+    ...createSeoGoogleTools(userId, supabase, workspaceId, { unattended: options?.unattended === true }),
     // Bringing existing customers in (roadmap track G, docs/plans/customer-import.md): read_contact_file,
     // import_contact_file, import_stripe_customers, list_contact_imports, undo_contact_import. Each write refuses an unattended turn.
     ...createContactImportTools(userId, supabase, workspaceId, { unattended: options?.unattended === true }),

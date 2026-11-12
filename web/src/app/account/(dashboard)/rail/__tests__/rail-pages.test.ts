@@ -57,7 +57,7 @@ describe('the rail pages', () => {
   it('keep the reference order first, then the customers and the agents (Liam, 11-11: Drive and Agents took the plans section’s pages)', () => {
     expect(RAIL_PAGES.map((d) => d.id)).toEqual([
       'drive', 'mail', 'team-chat', 'actions', 'calendar', 'studio',
-      'contacts', 'outreach',
+      'contacts', 'outreach', 'seo',
       'agents',
     ])
     // Each group together, and no section left empty.
@@ -222,8 +222,8 @@ describe('a bar saved while Projects and Initiatives had icons (Liam, 11-11: the
       'docs', 'mail', 'team-chat', 'actions', 'calendar', 'captures', 'projects', 'initiatives',
       'knowledge', 'flows', 'companies', 'contacts', 'deals', 'prospecting', 'sequences', 'campaigns', 'agents', 'evals', 'teams',
     ]
-    // Studio, newer than that order, takes its default place after Calendar.
-    expect(railLayout(pages, { order: oldDefault, hidden: [] }).all.map((p) => p.def.id)).toEqual(['drive', 'mail', 'team-chat', 'actions', 'calendar', 'studio', 'agents', 'contacts', 'outreach'])
+    // Studio and SEO are newer than that order: each takes its default place (after Calendar; after Outreach).
+    expect(railLayout(pages, { order: oldDefault, hidden: [] }).all.map((p) => p.def.id)).toEqual(['drive', 'mail', 'team-chat', 'actions', 'calendar', 'studio', 'agents', 'contacts', 'outreach', 'seo'])
     // Teams had an icon too (Liam, 11-11: it nests under My Actions now): its id is skipped, shown or hidden.
     expect(railLayout(pages, { order: oldDefault, hidden: ['teams'] }).shown.map((p) => p.def.id)).not.toContain('teams')
     expect(railLayout(pages, { order: oldDefault, hidden: ['teams'] }).shown).toHaveLength(pages.length)
@@ -349,6 +349,7 @@ describe('page groups (Liam, 11-11: "Contacts: Companies, Contacts, Deals · Out
     expect(Object.values(PAGE_GROUPS).map((g) => [g.id, g.label, g.members, g.defaultMember])).toEqual([
       ['contacts', 'Contacts', ['companies', 'contacts', 'deals'], 'contacts'],
       ['outreach', 'Outreach', ['prospecting', 'sequences', 'campaigns'], 'prospecting'],
+      ['seo', 'SEO', ['seo-audit', 'seo-keywords', 'seo-rankings', 'seo-search', 'seo-competitors', 'seo-backlinks', 'seo-ai-visibility', 'seo-local'], 'seo-audit'],
       ['calendar', 'Calendar', ['calendar', 'availability', 'captures'], 'calendar'],
       ['drive', 'Drive', ['docs', 'knowledge', 'files', 'tables'], 'docs'],
       ['agents', 'Agents', ['agents', 'flows', 'evals'], 'agents'],
@@ -485,8 +486,11 @@ describe('Drive and Agents (Liam, 11-11: "Drive: Docs, Knowledge, and a new page
   it('leave no empty section: the plans section is gone, and a section with nothing on draws nothing', () => {
     expect(RAIL_PAGES.some((d) => (d.group as string) === 'plans')).toBe(false)
     // CRM off: no customers section at all, the rest as they were.
-    const noCrm = railPagesFor(pagesOf(withEffectiveSurface(full, { crm: 'off', sequences: 'off', campaigns: 'off', prospecting: 'off' })))
+    const noCrm = railPagesFor(pagesOf(withEffectiveSurface(full, { crm: 'off', sequences: 'off', campaigns: 'off', prospecting: 'off', seo: 'off' })))
     expect([...new Set(noCrm.map((p) => p.def.group))]).toEqual(['work', 'agents'])
+    // SEO sits with the customers: on alone, it keeps that section (and only itself in it).
+    const seoOnly = railPagesFor(pagesOf(withEffectiveSurface(full, { crm: 'off', sequences: 'off', campaigns: 'off', prospecting: 'off' })))
+    expect(seoOnly.filter((p) => p.def.group === 'customers').map((p) => p.def.id)).toEqual(['seo'])
   })
 
   it('keep a bar saved with their members’ ids working: each where its first member stood, hidden only when all were', () => {

@@ -130,6 +130,7 @@ function groupPanel(group: PageGroupId): ComponentType<PagePanelProps> {
 export const PAGE_GROUP_PANELS: Readonly<Record<PageGroupId, ComponentType<PagePanelProps>>> = {
   contacts: groupPanel('contacts'),
   outreach: groupPanel('outreach'),
+  seo: groupPanel('seo'),
   calendar: groupPanel('calendar'),
   drive: groupPanel('drive'),
   agents: groupPanel('agents'),

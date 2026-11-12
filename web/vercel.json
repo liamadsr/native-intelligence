@@ -126,6 +126,14 @@
     {
       "path": "/api/cron/studio-sweep",
       "schedule": "15 * * * *"
+    },
+    {
+      "path": "/api/cron/seo-rank-checks",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/seo-ai-visibility",
+      "schedule": "7 * * * *"
     }
   ]
 }
