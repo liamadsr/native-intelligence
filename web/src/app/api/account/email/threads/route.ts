@@ -6,6 +6,18 @@ import { searchResultRows } from '@/lib/email/search-result-rows'
 import { heldThreadsFor } from '@/lib/email/held-threads'
 import { NextResponse, type NextRequest } from 'next/server'
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** A thread row as listed: the thread, and its mailbox. */
+const THREAD_SELECT = '*, connected_account:account_id(id, account_email, display_name, color)' as const
+
+/**
+ * A tag with a search: the most provider pages one request reads while none
+ * of their hits wears the tag and there are more, so a page of results is
+ * never empty only because the tagged hits were further on.
+ */
+const TAGGED_SEARCH_PAGES_MAX = 5
+
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -33,6 +45,13 @@ export async function GET(request: NextRequest) {
   // person's ENABLED mailboxes here (readableWorkspaceEmailAccounts), searched
   // with the same filter. The Mail page leaves this off and lists as before.
   const readableOnly = searchParams.get('readable') === '1'
+  // A tag (Liam, 11-11: the Mail sub-nav's Tags, "any tags that are available
+  // for email"): only the threads wearing that label (email_thread_label,
+  // indexed by label_id; its RLS keeps it to the person's own threads),
+  // joined in the list's own query, never an id list in the URL (a label on
+  // hundreds of threads overran it, and the row cap cut it short).
+  const labelId = searchParams.get('label_id')
+  if (labelId && !UUID_RE.test(labelId)) return NextResponse.json({ error: 'Invalid label_id' }, { status: 400 })
 
   // Resolve which accounts are assigned to this workspace via junction table
   // (self-heals an empty junction so a freshly-connected inbox isn't blank).
@@ -45,11 +64,17 @@ export async function GET(request: NextRequest) {
 
   // A thread has a copy per workspace its mailbox is linked to (each with that
   // workspace's own contact link and labels); this workspace lists its own.
+  // With a tag, an inner join on the label's rows (email_thread_label's one
+  // foreign key to email_thread_index): a thread is listed, and counted, only
+  // when it wears it. The join's column is taken off each row before it goes out.
+  // Typed as the plain list's: the joined column is taken off below, so the rows are that shape.
+  const select = (labelId ? `${THREAD_SELECT}, email_thread_label!inner(label_id)` : THREAD_SELECT) as typeof THREAD_SELECT
   let query = supabase
     .from('email_thread_index')
-    .select('*, connected_account:account_id(id, account_email, display_name, color)', { count: 'exact' })
+    .select(select, { count: 'exact' })
     .eq('user_id', user.id)
     .eq('workspace_id', workspaceId)
+  if (labelId) query = query.eq('email_thread_label.label_id', labelId)
 
   // Filter by workspace-scoped accounts
   if (scopedAccountIds?.length) {
@@ -68,30 +93,41 @@ export async function GET(request: NextRequest) {
   // mail). Rendered from the provider's headers, with the index's flags and
   // labels merged in where it has the thread; the folder is the provider's
   // own (Gmail `in:`, Graph's folder). "To review" searches its held threads.
+  // With a tag, the hits wearing it; a provider page with none of them (and
+  // more after it) is read past here, up to TAGGED_SEARCH_PAGES_MAX, so an
+  // empty answer saying there is more happens only past that.
   if (search && folder !== 'review') {
-    const found = await searchThreadsLive(user.id, workspaceId, {
-      query: search,
-      folder,
-      accountIds: scopedAccountIds,
-      unreadOnly,
-      hasAttachments: hasAttachments === 'true',
-      from: fromEmail || fromEmailContains || null,
-      cursor: searchParams.get('cursor'),
-    })
-    const rows = await searchResultRows(supabase, {
-      userId: user.id,
-      workspaceId,
-      hits: found.hits,
-      held,
-      filters: {
-        isStarred: isStarred === 'true' ? true : isStarred === 'false' ? false : null,
-        needsReply,
-        autoClassified: autoClassified || null,
-      },
-    })
+    let cursor = searchParams.get('cursor')
+    let found: Awaited<ReturnType<typeof searchThreadsLive>>
+    let tagged: Array<Record<string, unknown>>
+    for (let read = 0; ; read++) {
+      found = await searchThreadsLive(user.id, workspaceId, {
+        query: search,
+        folder,
+        accountIds: scopedAccountIds,
+        unreadOnly,
+        hasAttachments: hasAttachments === 'true',
+        from: fromEmail || fromEmailContains || null,
+        cursor,
+      })
+      const rows = await searchResultRows(supabase, {
+        userId: user.id,
+        workspaceId,
+        hits: found.hits,
+        held,
+        filters: {
+          isStarred: isStarred === 'true' ? true : isStarred === 'false' ? false : null,
+          needsReply,
+          autoClassified: autoClassified || null,
+        },
+      })
+      tagged = labelId ? rows.filter((r) => (r.labels as { id: string }[] | undefined)?.some((l) => l.id === labelId)) : rows
+      if (!labelId || tagged.length || !found.cursor || read + 1 >= TAGGED_SEARCH_PAGES_MAX) break
+      cursor = found.cursor
+    }
     return NextResponse.json({
-      threads: rows,
-      total: rows.length,
+      threads: tagged,
+      total: tagged.length,
       page,
       per_page: perPage,
       has_more: !!found.cursor,
@@ -143,7 +179,13 @@ export async function GET(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const threads = data || []
+  // The tag's join column is the query's, not the row's: the shape stays as without a tag.
+  const threads = (data || []).map((row) => {
+    if (!labelId) return row
+    const { email_thread_label: _joined, ...thread } = row as typeof row & { email_thread_label?: unknown }
+    void _joined
+    return thread as typeof row
+  })
 
   // Try to fetch labels for these threads (gracefully skip if table doesn't exist yet)
   let labelsByThread: Record<string, { id: string; name: string; color: string }[]> = {}

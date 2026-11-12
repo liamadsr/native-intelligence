@@ -7,7 +7,7 @@ before adding new tests.
 ## Running tests
 
 ```bash
-npm test              # Run full suite once (what CI and `npm run build` use)
+npm test              # Run full suite once (what `npm run build` runs first)
 npm run test:watch    # Watch mode during development
 npm run test:coverage # v8 coverage report in ./coverage/
 npm run typecheck     # Standalone tsc --noEmit
@@ -15,7 +15,12 @@ npm run lint          # ESLint on src/ (next lint was removed in Next 16)
 ```
 
 `npm run build` runs `vitest run` first — if any test fails, the build is
-blocked. This is intentional: it means deploys can't ship with failing tests.
+blocked.
+
+Nothing else runs the suite. No GitHub workflow does (the `Image` workflow only
+builds the image and smoke-tests it), and production's image build leaves it out
+(`deploy/app/Dockerfile`), so a roll-out can ship with failing tests. The gate is
+the run on your own machine: run the full suite on Node 24 before you push.
 
 ## File layout
 

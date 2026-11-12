@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CardSpec } from '@/lib/chat-cards/kinds'
-import { FRONT_CARD_ATTR, closeFrontCards, frontCard, holdFrontCard, subscribeFrontCard } from '../front-card'
+import { FRONT_CARD_ATTR, closeFrontCards, frontCard, holdFrontCard, minimizeFrontCards, subscribeFrontCard } from '../front-card'
 
 const mail: CardSpec = { kind: 'mail', title: 'Inbox', mail: { folder: 'inbox' } }
 const chat: CardSpec = { kind: 'team_chat', title: 'Team chat' }
@@ -82,5 +82,25 @@ describe('the card in front', () => {
     hold('b', chat, vi.fn(() => order.push('b')))
     closeFrontCards()
     expect(order).toEqual(['b', 'a'])
+  })
+
+  it('minimizeFrontCards (Home on the rail): the one card in front by its own minimize (its flight into the tile first); with none of its own, or more than one held, as closeFrontCards', () => {
+    const close = vi.fn()
+    const minimize = vi.fn()
+    releases.push(holdFrontCard({ id: 'a', spec: mail, close, minimize }))
+    minimizeFrontCards()
+    expect(minimize).toHaveBeenCalledTimes(1)
+    expect(close).not.toHaveBeenCalled()
+    releases.pop()!()
+    // No minimize of its own: closed.
+    const plain = hold('b', chat)
+    minimizeFrontCards()
+    expect(plain.close).toHaveBeenCalledTimes(1)
+    // Two held: every one put back, the front one first.
+    const order: string[] = []
+    releases.push(holdFrontCard({ id: 'c', spec: mail, close: () => order.push('c'), minimize }))
+    minimizeFrontCards()
+    expect(order).toEqual(['c'])
+    expect(minimize).toHaveBeenCalledTimes(1)
   })
 })

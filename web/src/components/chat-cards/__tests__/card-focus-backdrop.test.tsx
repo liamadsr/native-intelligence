@@ -34,7 +34,8 @@ vi.mock('../pages/page-card', () => ({ PageGate: () => null }))
 import { ShowToolCard } from '../show-tool-card'
 import { ChatCardHostProvider } from '../card-host'
 import { ChatCardStore } from '../card-store'
-import { FRONT_CARD_ATTR, closeFrontCards, frontCard } from '../front-card'
+import { CARD_FRAME_ATTR } from '../card-frame-attr'
+import { COMPOSER_RESERVE_VAR, FRONT_CARD_ATTR, closeFrontCards, frontCard, setComposerReserve } from '../front-card'
 import type { CardSpec } from '@/lib/chat-cards/kinds'
 
 const spec: CardSpec = { kind: 'list', title: 'Open actions', entity_type: 'action', filters: [] }
@@ -107,9 +108,45 @@ describe('a full-screen card', () => {
     await act(async () => store.enterFullScreen('c1'))
     const layer = document.querySelector<HTMLElement>('[data-chat-card-fullscreen="c1"]')!
     expect(layer.classList.contains('card-page-layer')).toBe(true)
-    expect(layer.style.left).toBe('var(--app-rail-w, 0px)')
+    // Past the page panel while it shows (--page-panel-w, 0 without it; Liam, 11-11: the card makes room for both),
+    // from `md` up beside the rail only: below `md` the layer is the whole window whatever the variables say
+    // (Liam, 11-11, a 741px window). So no inline `left` (it would hold at every width).
+    expect(layer.style.left).toBe('')
+    expect(layer.className).toContain('left-[var(--app-rail-w,0px)]')
+    expect(layer.className).toContain('md:[html[data-app-rail]_&]:left-[calc(var(--app-rail-w,0px)_+_var(--page-panel-w,0px))]')
+    // Every use of the two offsets sits behind the md/rail variant, in the class and nowhere inline.
+    const classes = layer.className.split(/\s+/)
+    for (const offset of ['--page-panel-w', '--composer-reserve']) {
+      const uses = classes.filter((c) => c.includes(offset))
+      expect(uses.length, offset).toBeGreaterThan(0)
+      for (const c of uses) expect(c.startsWith('md:[html[data-app-rail]_&]:'), c).toBe(true)
+      expect(layer.getAttribute('style') ?? '', offset).not.toContain(offset)
+    }
     expect(layer.className).toContain('right-0')
     expect(layer.className).not.toContain('inset-0')
+    // Its card's top is the side panels' top beside the rail (Liam, 11-11): PANEL_TOP in the window's
+    // coordinates (the top bar's height + half a gutter); the layer under the rail's header, padded the rest.
+    expect(layer.style.getPropertyValue('--card-panel-top')).toBe('calc(var(--top-bar-h, 0px) + 6px)')
+    expect(layer.style.top).toBe('var(--card-layer-top, var(--app-header-bottom, 0px))')
+    expect(layer.className).toContain('md:[html[data-app-rail]_&]:[--card-layer-top:min(var(--app-header-bottom,0px),var(--card-panel-top))]')
+    expect(layer.className).toContain('md:[html[data-app-rail]_&]:pt-[calc(var(--card-panel-top)_-_var(--card-layer-top))]')
+    // Beside the rail it ends above the main chat's composer (Liam, 11-11: the composer stays on screen):
+    // its bottom is the dock's height, on <html> (front-card.ts COMPOSER_RESERVE_VAR); below `md` it runs to the bottom.
+    expect(layer.className).toContain('md:[html[data-app-rail]_&]:bottom-[var(--composer-reserve,0px)]')
+    expect(layer.className).toContain('inset-y-0')
+    expect(COMPOSER_RESERVE_VAR).toBe('--composer-reserve')
+    // Below `md` (no rail) as before: under the window's top, centred.
+    expect(layer.className).toContain('pt-14')
+    const stage = layer.querySelector(`[${CARD_FRAME_ATTR}]`)!.parentElement!.parentElement!
+    expect(stage.className).toContain('items-center')
+    expect(stage.className).toContain('md:[html[data-app-rail]_&]:items-start')
+  })
+
+  it('the composer reserve on <html>: set in px, cleared with null', () => {
+    setComposerReserve(88)
+    expect(document.documentElement.style.getPropertyValue(COMPOSER_RESERVE_VAR)).toBe('88px')
+    setComposerReserve(null)
+    expect(document.documentElement.style.getPropertyValue(COMPOSER_RESERVE_VAR)).toBe('')
   })
 
   it('is the card in front while full screen: the rail lights it, <html> is marked, and its close puts it back', async () => {

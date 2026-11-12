@@ -12,7 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createSkyActivity } from '@/lib/sky/sky-activity'
 import { SKY_PRESETS } from '@/lib/sky/dev-override'
-import { computeSkyScene, type SkyScene } from '@/lib/sky/scene'
+import { WASHED_STRENGTH_CAP, computeSkyScene, type SkyScene } from '@/lib/sky/scene'
 
 const gl = vi.hoisted(() => ({
   init: vi.fn(() => true),
@@ -28,7 +28,11 @@ import { SkyController, type SkyControllerOptions } from '../sky-controller'
 let canvas: HTMLCanvasElement
 let controller: SkyController | null = null
 
-const source = { weather: SKY_PRESETS.fair, latitude: 40.7, longitude: -74, minuteOfDay: 12 * 60 }
+// Noon in New York on one fixed day (the clock is pinned below), not "12:00 wherever the
+// runner is": the sky follows the real instant, so a set local hour gave another sky in
+// UTC or Tokyo than here (a GitHub run in UTC failed on 2026-11-12).
+const NOON_NEW_YORK = new Date('2026-06-15T16:00:00Z')
+const source = { weather: SKY_PRESETS.fair, latitude: 40.7, longitude: -74, minuteOfDay: null }
 
 function mount(extra: Partial<SkyControllerOptions> = {}): SkyController {
   controller = new SkyController({ canvas, activity: createSkyActivity(), source, onFallback: () => {}, ...extra })
@@ -37,9 +41,18 @@ function mount(extra: Partial<SkyControllerOptions> = {}): SkyController {
 
 const lastFrame = () => gl.draw.mock.calls.at(-1)![2] as { scene: SkyScene; bg: readonly number[] }
 
+/**
+ * A washed strength as scene.ts's washedStrength makes it: the scene's own,
+ * at most WASHED_STRENGTH_CAP, times (1 - wash). The cap counts whenever the
+ * scene is stronger than a light day's: the scene follows the real date and
+ * a light day can be stronger too, so the expectation is washedStrength's.
+ */
+const washedOf = (strength: number, wash: number) => Math.min(strength, WASHED_STRENGTH_CAP) * (1 - wash)
+
 describe('SkyController wash', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date', 'performance'] })
+    vi.setSystemTime(NOON_NEW_YORK)
     vi.stubGlobal('requestAnimationFrame', () => 1)
     vi.stubGlobal('cancelAnimationFrame', () => {})
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
@@ -78,7 +91,7 @@ describe('SkyController wash', () => {
     for (const [dark, wash] of [[false, 0.5], [true, 0.25]] as const) {
       const plain = frameFor(dark, { themed: true })
       const washed = frameFor(dark, { wash: [0.5, 0.25], surfaceVar: '--background', themed: true })
-      expect(washed.scene.strength).toBeCloseTo(plain.scene.strength * (1 - wash), 10)
+      expect(washed.scene.strength).toBeCloseTo(washedOf(plain.scene.strength, wash), 10)
       const { strength: _a, ...restWashed } = washed.scene
       const { strength: _b, ...restPlain } = plain.scene
       expect(restWashed).toEqual(restPlain)
@@ -100,7 +113,7 @@ describe('SkyController wash', () => {
     controller!.dispose()
     controller = null
     const plainDark = frameFor(true, { themed: true }).scene.strength
-    expect(dark).toBeCloseTo(plainDark * 0.75, 10)
+    expect(dark).toBeCloseTo(washedOf(plainDark, 0.25), 10)
     expect(dark).not.toBeCloseTo(light, 3)
   })
 
@@ -122,8 +135,7 @@ describe('SkyController wash', () => {
     gl.draw.mockReset()
     mount()
     const dark = lastFrame()
-    const at = new Date()
-    at.setHours(12, 0, 0, 0)
+    const at = new Date() // the pinned noon in New York
     const expected = computeSkyScene({ date: at, latitude: source.latitude, longitude: source.longitude, weather: source.weather, dark: false, dim: true })
     expect(dark.scene.top).toEqual(expected.top)
     expect(dark.scene.cloudLit).toEqual(expected.cloudLit)

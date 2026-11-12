@@ -173,7 +173,7 @@ export async function planPoll(supabase: SupabaseClient, req: OfferRequest, deps
       if (!people.ok) return refuse('BAD_INPUT', people.error)
       const hidden = people.others.filter((p) => p.sharing !== 'busy_only')
       if (hidden.length) {
-        return refuse('NOT_SHARING', `${namesList(hidden.map((p) => p.name))} ${hidden.length === 1 ? "doesn't" : "don't"} share their availability, so their time can't be held. Leave them out, or ask them to turn sharing on in Settings > Availability.`)
+        return refuse('NOT_SHARING', `${namesList(hidden.map((p) => p.name))} ${hidden.length === 1 ? "doesn't" : "don't"} share their availability, so their time can't be held. Leave them out, or ask them to turn on sharing on their Availability page (under Calendar).`)
       }
       coHosts = people.others.map((p) => ({ userId: p.userId, name: p.name }))
     }

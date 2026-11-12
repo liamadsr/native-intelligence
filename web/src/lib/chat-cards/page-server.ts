@@ -524,6 +524,15 @@ export async function readPageCard(
       note: 'This card is the conversation between your agent and another person\'s agent, open for the person to read. Its messages are not readable from here.',
     }
   }
+  // The Files page (Liam, 11-11): the person's view of the workspace's files, read on their own session (its fences are RLS's), not from here.
+  if (kind === 'files') {
+    return {
+      success: true,
+      card: entry.n,
+      title: entry.title,
+      note: 'This card is the Files page: every file attached to a capture, action or project the person can see. Read one record\'s files with list_attachments (capture_id, action_id or project_id), and a file\'s text with get_attachment_content.',
+    }
+  }
   if (entry.entity && !entry.cur) {
     return { success: false, code: 'CARD_TOO_BIG', error: `card ${entry.n} is too big to read back. Show it again, then read that card` }
   }

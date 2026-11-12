@@ -44,6 +44,13 @@
  * And a message's Reply in the chat (message-reply.ts), under its own key:
  * the bubble's first lines lift off (maxHeight) and turn into the chip, or
  * the Reply over the words selected does.
+ *
+ * A full-screen card minimizing into its tile at the bottom left, and
+ * growing back out of it, has its own flight (./tile-flight.ts: one copy,
+ * transform and opacity only, around the page panel, at the ⌘K palette's
+ * pace). This module keeps the tile's still copy of the frame (stillCopyOf:
+ * Liam, 11-11: "I want it to have a preview of the window not just a tab
+ * like a square") and its fit (coverTransform / fitStillCopy).
  */
 import type { CardReplyRef } from './card-reply'
 
@@ -228,7 +235,7 @@ export function settleFrames(dir: { x: number; y: number }): Keyframe[] {
  * start (offsets mirrored, order reversed), so what sped up into its landing
  * slows into where it came from. Pure, for the tests.
  */
-export function reversedFrames(frames: FlightFrame[]): FlightFrame[] {
+export function reversedFrames<T extends { offset: number }>(frames: T[]): T[] {
   return frames.map((f) => ({ ...f, offset: round(1 - f.offset, 4) })).reverse()
 }
 
@@ -299,7 +306,8 @@ export function cancelFlight(key: string): void {
   if (flight?.key === key) endFlight()
 }
 
-function canFly(): boolean {
+/** Flights may play: the Web Animations API is there and reduced motion is not asked for. */
+export function canFly(): boolean {
   if (typeof document === 'undefined' || typeof document.body?.animate !== 'function') return false
   return !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 }
@@ -309,27 +317,93 @@ function radiusOf(el: HTMLElement): number {
   return parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0
 }
 
-function rectOf(el: HTMLElement): FlightRect | null {
+/** An element's box on screen, or null when it has no size. */
+export function rectOf(el: HTMLElement): FlightRect | null {
   const r = el.getBoundingClientRect()
   if (r.width < 1 || r.height < 1) return null
   return { left: r.left, top: r.top, width: r.width, height: r.height }
 }
 
+/** Marks the card's glass in a light copy (copyOf): kept as glass in a flight, see-through in the tile (its skin is the glass). */
+export const FLIGHT_GLASS_CLASS = 'ni-copy-glass'
+
+/**
+ * On a light copy's scrollers: where the real one stood (`top,left`), so the
+ * copy shows the page as it was read, not from its top (a chat scrolled to
+ * its newest message; Liam, 11-11: the window must look the same at both ends
+ * of its flight). Not a `data-` attribute: those are taken off a copy.
+ */
+const COPY_SCROLL_ATTR = 'ni-scroll'
+
+/**
+ * Put a light copy's scrollers where the real ones stood (call once the copy
+ * is in the document: a detached box has no scroll). A clone of a copy keeps
+ * the marks, not the scroll, so each one drawn asks again.
+ */
+export function applyCopyScroll(copy: HTMLElement | null): void {
+  if (!copy) return
+  for (const node of copy.querySelectorAll<HTMLElement>(`[${COPY_SCROLL_ATTR}]`)) {
+    const [top, left] = (node.getAttribute(COPY_SCROLL_ATTR) ?? '').split(',').map(Number)
+    // At once: a scroller that scrolls smoothly would glide there while the copy flies.
+    node.style.scrollBehavior = 'auto'
+    if (top) node.scrollTop = top
+    if (left) node.scrollLeft = left
+  }
+}
+
+/** What a light copy (stillCopyOf) leaves out: each becomes an empty box of its size. */
+const HEAVY_SELECTOR = 'iframe, video, audio, canvas, object, embed'
+
 /**
  * A still copy of `el` for the flyer, exactly `width` wide from its top-left: no ids
  * and no data attributes (nothing that finds the real one finds it), no
- * animation or transition of its own, at most `maxHeight` tall.
+ * animation or transition of its own, at most `maxHeight` tall. Light (a
+ * heavy page's frame: stillCopyOf): `height` tall (its own is sized against
+ * a container the copy lacks), nothing in it that loads or runs (iframes,
+ * video, audio, canvases, embeds: an empty box of the same size each), no
+ * form field names (a copied checked radio would uncheck the real one), and
+ * no backdrop blur but the card's glass (CardGlass, marked FLIGHT_GLASS_CLASS):
+ * the one surface that must read as the window's own, so a flight's copy
+ * hands over to the frame (or the tile, whose skin is the same glass) with
+ * no change of colour (Liam, 11-11: "now when I open it flikers").
  */
-function copyOf(el: HTMLElement, width: number, maxHeight?: number): HTMLElement {
+function copyOf(el: HTMLElement, width: number, maxHeight?: number, light?: { height: number }): HTMLElement {
   const copy = el.cloneNode(true) as HTMLElement
+  if (light) {
+    // Where each scroller stood (a clone starts at its top): marked now, node for node, put back once the copy is drawn (applyCopyScroll).
+    const from = el.querySelectorAll<HTMLElement>('*')
+    const to = copy.querySelectorAll<HTMLElement>('*')
+    if (from.length === to.length) {
+      for (let i = 0; i < from.length; i++) {
+        const { scrollTop, scrollLeft } = from[i]
+        if (scrollTop || scrollLeft) to[i].setAttribute(COPY_SCROLL_ATTR, `${scrollTop},${scrollLeft}`)
+      }
+    }
+    for (const heavy of copy.querySelectorAll<HTMLElement>(HEAVY_SELECTOR)) {
+      const box = document.createElement('div')
+      box.className = heavy.getAttribute('class') ?? ''
+      const style = heavy.getAttribute('style')
+      if (style) box.setAttribute('style', style)
+      heavy.replaceWith(box)
+    }
+  }
   for (const node of [copy, ...copy.querySelectorAll<HTMLElement>('*')]) {
     node.removeAttribute('id')
+    if (light) {
+      node.removeAttribute('name')
+      const cls = node.getAttribute('class')
+      if (node.hasAttribute('data-card-glass')) node.setAttribute('class', `${cls ?? ''} ${FLIGHT_GLASS_CLASS}`.trim())
+      else if (cls?.includes('backdrop-')) node.setAttribute('class', cls.split(/\s+/).filter((c) => !c.includes('backdrop-')).join(' '))
+    }
     for (const name of node.getAttributeNames()) if (name.startsWith('data-')) node.removeAttribute(name)
   }
   Object.assign(copy.style, {
     position: 'absolute',
     left: '0',
     top: '0',
+    // Placed from its top-left only: a box anchored by its bottom (the minimized card's tile) keeps its own height.
+    right: 'auto',
+    bottom: 'auto',
     margin: '0',
     width: `${width}px`,
     // Its own width, not its place's cap (the chip's is 100% of the composer; the flyer has none).
@@ -340,6 +414,7 @@ function copyOf(el: HTMLElement, width: number, maxHeight?: number): HTMLElement
     transition: 'none',
     willChange: 'transform, opacity',
   })
+  if (light) copy.style.height = `${light.height}px`
   if (maxHeight !== undefined) {
     copy.style.maxHeight = `${maxHeight}px`
     copy.style.overflow = 'hidden'
@@ -401,10 +476,109 @@ export function landCardReplyFlight(card: FlightCard, chip: HTMLElement | null):
  */
 export function flyBack(box: HTMLElement | null, home: HTMLElement | null, timing: FlightTiming = {}): void {
   endFlight()
+  if (!home || !rectOf(home)) return
+  flyHome(snapshotForFlight(box, timing), home, timing)
+}
+
+/** A box's still copy, taken while it is on screen, to fly home later (flyHome). */
+export interface FlightSnapshot {
+  copy: HTMLElement
+  rect: FlightRect
+  /** Its own corner radius, px (keepCorners). */
+  radius: number
+}
+
+/**
+ * A still copy of `box` as it stands now, for flyHome (flyBack's: the box
+ * can go at once). Null without the Web Animations API, with reduced motion,
+ * or for a box with no size.
+ */
+export function snapshotForFlight(box: HTMLElement | null, timing: FlightTiming = {}): FlightSnapshot | null {
+  if (!box || !canFly()) return null
+  const rect = rectOf(box)
+  if (!rect) return null
+  const copy = copyOf(box, rect.width, Math.max(1, Math.min(rect.height, window.innerHeight - rect.top)))
+  return { copy, rect, radius: radiusOf(box) }
+}
+
+/** A kept still copy (stillCopyOf), at its size before any scale, and where it stood. */
+export interface StillCopy {
+  copy: HTMLElement
+  width: number
+  height: number
+  left: number
+  top: number
+}
+
+/** What a still copy takes off every element besides ids, data attributes and names: what focuses, links, labels or edits. */
+const STILL_DROPPED_ATTRS = ['tabindex', 'autofocus', 'contenteditable', 'for', 'form', 'popover', 'draggable', 'aria-labelledby', 'aria-describedby', 'aria-controls', 'aria-owns']
+
+/**
+ * A copy of `box` as it stands now, to keep on screen (the minimized card's
+ * preview, components/chat-cards/minimized-card.ts; Liam, 11-11: "a preview
+ * of the window not just a tab"): the light copy (no iframes, video, audio,
+ * canvases or embeds, no ids, data attributes or names), its visible part,
+ * and kept still: no `animate-*` class, no animation or transition of its
+ * own, no compositing hint, nothing that focuses, links or edits (WebKit
+ * keeps a kept clone's CSS animations running). Its holder makes it inert and
+ * aria-hidden, stops its descendants' animations and scales it. Under reduced
+ * motion too (it is no flight). Its scrollers are marked with where the real
+ * ones stood (applyCopyScroll puts them there once it is drawn). Null for a
+ * box with no size.
+ */
+export function stillCopyOf(box: HTMLElement | null): StillCopy | null {
+  if (!box || typeof window === 'undefined') return null
+  const rect = rectOf(box)
+  if (!rect) return null
+  const height = Math.max(1, Math.min(rect.height, window.innerHeight - rect.top))
+  const copy = copyOf(box, rect.width, height, { height: rect.height })
+  for (const node of [copy, ...copy.querySelectorAll<Element>('*')]) {
+    for (const name of STILL_DROPPED_ATTRS) node.removeAttribute(name)
+    if (node.localName === 'a' || node.localName === 'area') node.removeAttribute('href')
+    const cls = node.getAttribute('class')
+    if (cls?.includes('animate-')) node.setAttribute('class', cls.split(/\s+/).filter((c) => !c.includes('animate-')).join(' '))
+  }
+  copy.style.willChange = 'auto'
+  // In the tile the glass is the tile's own skin (the same glass): the copy's lets it through.
+  for (const glass of copy.querySelectorAll<HTMLElement>(`.${FLIGHT_GLASS_CLASS}`)) Object.assign(glass.style, { background: 'transparent', backdropFilter: 'none' })
+  // A frame hidden while a flight lands on it is copied as it is drawn.
+  copy.style.opacity = ''
+  return { copy, width: rect.width, height, left: rect.left, top: rect.top }
+}
+
+/** The scale that covers a `boxW`×`boxH` box with a `w`×`h` one, its aspect kept (coverTransform's). */
+export function coverScale(w: number, h: number, boxW: number, boxH: number): number {
+  return w < 1 || h < 1 ? 1 : Math.max(boxW / w, boxH / h)
+}
+
+/**
+ * The transform that fits a still copy `w`×`h` into a `boxW`×`boxH` box:
+ * scaled to cover it, its aspect kept, centred across and cut at the foot
+ * (a window's top is what reads). Pure, for the tests.
+ */
+export function coverTransform(w: number, h: number, boxW: number, boxH: number): string {
+  if (w < 1 || h < 1) return 'none'
+  const scale = coverScale(w, h, boxW, boxH)
+  return `translate(${round((boxW - w * scale) / 2, 2)}px, 0px) scale(${round(scale, 5)})`
+}
+
+/** Scale a still copy to cover a `boxW`×`boxH` box (coverTransform), on its own transform. */
+export function fitStillCopy(still: StillCopy, boxW: number, boxH: number): void {
+  still.copy.style.transform = coverTransform(still.width, still.height, boxW, boxH)
+}
+
+/**
+ * A box taken earlier (snapshotForFlight) flies back into `home`, as flyBack
+ * does: the flight's path played backwards, the box's copy fading into the
+ * home's on the last stretch, then `home` settles. Leaves any flight in the
+ * air be. Nothing without a snapshot, the Web Animations API or with reduced
+ * motion.
+ */
+export function flyHome(box: FlightSnapshot | null, home: HTMLElement | null, timing: FlightTiming = {}): void {
   if (!box || !home || !canFly()) return
   const from = rectOf(home)
-  const to = rectOf(box)
-  if (!from || !to) return
+  if (!from) return
+  const to = box.rect
   const ms = timing.ms ?? FLIGHT_MS
   const settleMs = timing.settleMs ?? SETTLE_MS
   const flyer = document.createElement('div')
@@ -414,11 +588,11 @@ export function flyBack(box: HTMLElement | null, home: HTMLElement | null, timin
   flyer.className = 'ph-no-capture font-sans'
   Object.assign(flyer.style, { position: 'fixed', left: '0', top: '0', width: '0', height: '0', zIndex: String(FLIGHT_Z), pointerEvents: 'none' })
   const homeCopy = copyOf(home, from.width)
-  const boxCopy = copyOf(box, to.width, Math.max(1, Math.min(to.height, window.innerHeight - to.top)))
+  const boxCopy = box.copy
   flyer.append(homeCopy, boxCopy)
   document.body.append(flyer)
   // The way there, played backwards: `card` is home's copy, `chip` the box's.
-  const frames = flightFrames(from, to, FLIGHT_STEPS, timing.keepCorners ? { card: radiusOf(home), chip: radiusOf(box) } : undefined)
+  const frames = flightFrames(from, to, FLIGHT_STEPS, timing.keepCorners ? { card: radiusOf(home), chip: box.radius } : undefined)
   const play: KeyframeAnimationOptions = { duration: ms, easing: 'linear', fill: 'forwards' }
   const toHome = homeCopy.animate(reversedFrames(frames.card), play)
   boxCopy.animate(reversedFrames(frames.chip), play)

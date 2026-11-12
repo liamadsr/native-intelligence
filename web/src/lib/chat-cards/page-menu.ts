@@ -91,6 +91,16 @@ export const CARD_PAGES: readonly CardPage[] = [
     personalTool: 'get_calendar_events',
     spec: (now) => ({ kind: 'calendar', title: 'This week', calendar: { ...thisWeek(now), view: 'week' } }),
   },
+  // Liam, 11-11: Availability "needs to be its own page under Calendar" (out of Settings).
+  {
+    slug: 'availability',
+    label: 'Availability',
+    description: 'Working hours and booking links',
+    kind: 'availability',
+    view: 'calendar',
+    keywords: ['working hours', 'hours', 'booking links', 'find a time', 'schedule'],
+    spec: page('availability', 'Availability'),
+  },
   {
     slug: 'actions',
     label: 'My Actions',
@@ -105,6 +115,16 @@ export const CARD_PAGES: readonly CardPage[] = [
   },
   { slug: 'captures', label: 'Captures', description: 'Your meetings and notes', kind: 'list', view: 'captures', keywords: ['meetings', 'notes', 'recordings'], spec: list('Captures', 'capture') },
   { slug: 'docs', label: 'Docs', description: 'Every doc', kind: 'list', view: 'docs', keywords: ['documents'], spec: list('Docs', 'document') },
+  // Liam, 11-11: "a new page that shows all available files that were uploaded anywhere in the app" (the Drive group, with Docs and Knowledge).
+  {
+    slug: 'files',
+    label: 'Files',
+    description: 'Every file uploaded to a capture, action or project',
+    kind: 'files',
+    view: 'docs',
+    keywords: ['uploads', 'attachments', 'drive', 'pdf', 'images'],
+    spec: page('files', 'Files'),
+  },
   { slug: 'knowledge', label: 'Knowledge', description: 'What Native Intelligence knows', kind: 'knowledge', view: 'knowledge', keywords: ['claims', 'graph'], spec: page('knowledge', 'Knowledge') },
   { slug: 'initiatives', label: 'Initiatives', description: 'Every initiative', kind: 'list', view: 'initiatives', spec: list('Initiatives', 'initiative') },
   { slug: 'projects', label: 'Projects', description: 'Every project', kind: 'list', view: 'projects', spec: list('Projects', 'project') },

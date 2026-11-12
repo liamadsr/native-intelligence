@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The chat's For you column, its cards (docs/plans/always-on-agent.md,
+ * For you's cards (docs/plans/always-on-agent.md,
  * decision 13): everything the bots count for you, one card each, compact
  * (column-compact-card.tsx; Liam, 2026-10-16: "more like Hard where you just
  * see the action button"): the card's verb as a pill and one sentence, its
@@ -11,11 +11,13 @@
  * over the cards made it inconsistent): where a card came from is a tag on
  * the card itself (column-compact-card.tsx columnTag: the area the agent's
  * card came from, "Captures", "CRM", else the bot's name).
- * Mounted by
- * chat/for-you-column.tsx, which decides
- * whether there is room and places it in the chat's left gutter; it has no
- * pill of its own (Liam, 10-16: the top bar's toggle opens and closes it).
- * This module is fetched the first time it has cards.
+ * The side panel's For you view (Liam, 11-11: "move the for you cards to
+ * the right hand side panel… you can't see both at the same time"): mounted
+ * by chat/for-you-column.tsx ForYouView inside side-panels/side-panels.tsx,
+ * which places it in the panel's 360px, down to the panel's bottom, and
+ * shows and hides it; it has no button of its own (the top bar's For you
+ * button opens and closes it). This module is fetched the first time it
+ * shows.
  *
  * Every verb is the shared source's (AgentWorkProvider: useAttentionItems'
  * accept, start, draft, dismiss and editCard; the ledger's reviewed and
@@ -32,21 +34,20 @@
  * Flat cost: at most `limit` cards are mounted (COLUMN_PAGE, then "Show N
  * more" adds a page), no
  * card animates in or out, and the scroll fades are two booleans that change
- * only as the list reaches or leaves an end.
+ * only as the list reaches or leaves an end (scroll-fades.ts, shared with the
+ * page panel's recents).
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { AgentWorkShared } from '@/components/work/agent-work-provider'
 import { useCardPickers } from '@/lib/bots/card-pickers'
 import { uniqueColumnEntries, type ColumnEntry } from '@/lib/bots/for-you-column'
 import { pruneFullRows, useFullRows } from '@/lib/work/full-rows'
 import { reviewCardOf } from './rail-cards'
 import { ColumnCompactCard, type ColumnShown } from './column-compact-card'
+import { useScrollFades } from './scroll-fades'
 
 /** How many cards are mounted at first, and how many each "Show more" adds. */
 export const COLUMN_PAGE = 30
-
-/** How far the soft fade at an end of the list reaches, px. */
-const FADE_PX = 18
 
 /** `area`: the area an agent's card came from (one face: for-you-column.ts), its tag. */
 type Shown = ColumnShown
@@ -59,7 +60,7 @@ export function ForYouColumnPanel({
   /** What the bots bring you, newest first (forYouColumnEntries). */
   entries: readonly ColumnEntry[]
   shared: AgentWorkShared
-  /** Where the column stands (its host's gutter maths). */
+  /** Where the cards stand in their host's box (the side panel's For you view fills it). */
   style?: CSSProperties
 }) {
   const { work } = shared
@@ -95,36 +96,11 @@ export function ForYouColumnPanel({
   const pickerFor = useCardPickers(cardWorkspaces)
 
   // The soft fades: on at an end only while there is more past it.
-  const scrollerRef = useRef<HTMLDivElement>(null)
-  const listRef = useRef<HTMLUListElement>(null)
-  const [fades, setFades] = useState({ top: false, bottom: false })
-  const readFades = useCallback(() => {
-    const el = scrollerRef.current
-    if (!el) return
-    const top = el.scrollTop > 2
-    const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 2
-    setFades((was) => (was.top === top && was.bottom === bottom ? was : { top, bottom }))
-  }, [])
-  useLayoutEffect(() => {
-    readFades()
-    const el = scrollerRef.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(readFades)
-    observer.observe(el)
-    // The content too: a card growing (its details, wrapped pills) moves the bottom end.
-    if (listRef.current) observer.observe(listRef.current)
-    return () => observer.disconnect()
-  }, [readFades, shown.length])
+  const fades = useScrollFades(shown.length)
 
   const rest = ordered.length - windowed.length
   // Nothing whole to show (reviews still being read): nothing at all.
   if (shown.length === 0) return null
-
-  // No mask at all while neither end has more past it (nothing to composite).
-  const mask =
-    fades.top || fades.bottom
-      ? `linear-gradient(to bottom, transparent 0, #000 ${fades.top ? FADE_PX : 0}px, #000 calc(100% - ${fades.bottom ? FADE_PX : 0}px), transparent 100%)`
-      : undefined
 
   return (
     <section
@@ -137,16 +113,16 @@ export function ForYouColumnPanel({
       style={style}
     >
       <div
-        ref={scrollerRef}
-        onScroll={readFades}
+        ref={fades.scrollerRef}
+        onScroll={fades.onScroll}
         data-for-you-scroller=""
         // Which ends fade (none: neither has more past it).
-        data-for-you-fades={fades.top && fades.bottom ? 'both' : fades.top ? 'top' : fades.bottom ? 'bottom' : undefined}
+        data-for-you-fades={fades.which}
         // Click-through like the column: only the cards and buttons in it take the pointer (a wheel over a card still scrolls it).
         className="pointer-events-none -mx-1 min-h-0 w-[calc(100%+0.5rem)] overflow-y-auto overscroll-contain px-1 pb-1 scrollbar-hide-deep [overflow-anchor:none]"
-        style={{ maskImage: mask, WebkitMaskImage: mask }}
+        style={fades.style}
       >
-        <ul ref={listRef} className="flex flex-col gap-2">
+        <ul ref={fades.contentRef} className="flex flex-col gap-2">
           {shown.map((s) => (
             <li key={s.id} data-for-you-card={s.id} className="flex min-w-0 flex-col">
               {/* The card takes the pointer (the column around it doesn't). */}
