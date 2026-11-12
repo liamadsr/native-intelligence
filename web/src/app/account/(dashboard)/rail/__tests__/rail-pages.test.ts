@@ -350,7 +350,7 @@ describe('page groups (Liam, 11-11: "Contacts: Companies, Contacts, Deals · Out
       ['contacts', 'Contacts', ['companies', 'contacts', 'deals'], 'contacts'],
       ['outreach', 'Outreach', ['prospecting', 'sequences', 'campaigns'], 'prospecting'],
       ['calendar', 'Calendar', ['calendar', 'availability', 'captures'], 'calendar'],
-      ['drive', 'Drive', ['docs', 'knowledge', 'files'], 'docs'],
+      ['drive', 'Drive', ['docs', 'knowledge', 'files', 'tables'], 'docs'],
       ['agents', 'Agents', ['agents', 'flows', 'evals'], 'agents'],
     ])
     for (const g of Object.values(PAGE_GROUPS)) {
@@ -465,11 +465,11 @@ describe('Drive and Agents (Liam, 11-11: "Drive: Docs, Knowledge, and a new page
   it('stand where Docs and Agents & skills stood, their members with no icons of their own', () => {
     const ids = offered().map((p) => p.def.id)
     expect(ids[0]).toBe('drive')
-    for (const slug of ['docs', 'knowledge', 'files', 'flows', 'evals']) expect(ids, slug).not.toContain(slug)
+    for (const slug of ['docs', 'knowledge', 'files', 'tables', 'flows', 'evals']) expect(ids, slug).not.toContain(slug)
     const drive = offered().find((p) => p.def.id === 'drive')!
     expect(drive.label).toBe('Drive')
     expect(drive.page.slug).toBe('docs')
-    expect(drive.members!.map((m) => m.slug)).toEqual(['docs', 'knowledge', 'files'])
+    expect(drive.members!.map((m) => m.slug)).toEqual(['docs', 'knowledge', 'files', 'tables'])
     const agents = offered().find((p) => p.def.id === 'agents')!
     expect(agents.label).toBe('Agents')
     expect(agents.page.slug).toBe('agents')
@@ -478,7 +478,7 @@ describe('Drive and Agents (Liam, 11-11: "Drive: Docs, Knowledge, and a new page
   })
 
   it('select their group for any member page’s own card', () => {
-    for (const slug of ['docs', 'knowledge', 'files']) expect(pageOfCard(own(slug), NOW), slug).toBe('drive')
+    for (const slug of ['docs', 'knowledge', 'files', 'tables']) expect(pageOfCard(own(slug), NOW), slug).toBe('drive')
     for (const slug of ['agents', 'flows']) expect(pageOfCard(own(slug), NOW), slug).toBe('agents')
   })
 
@@ -496,8 +496,8 @@ describe('Drive and Agents (Liam, 11-11: "Drive: Docs, Knowledge, and a new page
     expect(knowledgeLast.indexOf('drive')).toBeGreaterThan(knowledgeLast.indexOf('mail'))
     expect(shown({ order: [], hidden: ['docs'] })).toContain('drive')
     expect(shown({ order: [], hidden: ['knowledge', 'flows'] })).toEqual(expect.arrayContaining(['drive', 'agents']))
-    expect(shown({ order: [], hidden: ['docs', 'knowledge', 'files'] })).not.toContain('drive')
+    expect(shown({ order: [], hidden: ['docs', 'knowledge', 'files', 'tables'] })).not.toContain('drive')
     expect(shown({ order: [], hidden: ['agents', 'flows', 'evals'] })).not.toContain('agents')
-    expect(setRailPagePinned(null, 'drive', false)).toEqual({ order: [], hidden: ['docs', 'knowledge', 'files'] })
+    expect(setRailPagePinned(null, 'drive', false)).toEqual({ order: [], hidden: ['docs', 'knowledge', 'files', 'tables'] })
   })
 })

@@ -82,7 +82,7 @@ describe('EntityActionsMenuItems', () => {
 
   it('leaves out Open where no chat can open it, and what the host omits', async () => {
     hoisted.canOpen = false
-    await renderItems('deal', {}, PANEL_OMIT)
+    await renderItems('company', {}, PANEL_OMIT)
     expect(shown()).toEqual(['copy_link', 'copy_id', 'share', 'make_task'])
   })
 
@@ -101,7 +101,7 @@ describe('EntityActionsMenuItems', () => {
 
 describe('EntityActionsMenu', () => {
   it('draws its ⋯ trigger for a kind with actions', async () => {
-    await act(async () => root.render(<EntityActionsMenu entity={{ type: 'deal', id: 'd-1', label: 'Fernhill renewal' }} omit={PANEL_OMIT} />))
+    await act(async () => root.render(<EntityActionsMenu entity={{ type: 'company', id: 'd-1', label: 'Fernhill renewal' }} omit={PANEL_OMIT} />))
     expect(container.querySelector('[data-entity-actions-trigger]')).not.toBeNull()
   })
 

@@ -14,10 +14,13 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { GRANTABLE_TYPES } from '../model'
+import { migrationsInOrder } from '@/test/migration-sql'
 
 const read = (f: string) => readFileSync(join(process.cwd(), 'supabase/migrations', f), 'utf8')
 const sql494 = read('494_entity_access_view_only_writes.sql')
 const sql495 = read('495_entity_access_hardening.sql')
+/** The newest migration that says `needle` (520 added tables to the kinds). */
+const newestWith = (needle: string) => [...migrationsInOrder()].reverse().find((m) => m.sql.includes(needle))?.sql ?? ''
 
 const fn = (text: string, name: string) =>
   new RegExp(`create or replace function public\\.${name}\\([\\s\\S]*?\\n(\\$\\$|\\$function\\$);`).exec(text)?.[0] ?? ''
@@ -25,7 +28,7 @@ const policy = (text: string, name: string) => new RegExp(`create policy ${name}
 
 describe('migration 494: grants never open a write', () => {
   it('entity_grant_only knows every grantable kind, runs as its owner, and is null-safe', () => {
-    const body = fn(sql494, 'entity_grant_only')
+    const body = fn(newestWith('function public.entity_grant_only('), 'entity_grant_only')
     expect(body).toMatch(/security definer\s+set search_path = public, pg_temp/)
     for (const t of GRANTABLE_TYPES) expect(body, t).toContain(`when '${t}' then exists`)
     // A NULL own rule hid the row: it counts as not visible.

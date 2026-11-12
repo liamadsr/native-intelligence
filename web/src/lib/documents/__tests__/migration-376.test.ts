@@ -67,6 +67,6 @@ describe('migration 376', () => {
   it('the log kind matches the app’s list', () => {
     expect(AGENT_LOG_KINDS).toContain('doc_updated')
     // 'pr_changed' (443), 'mail_archived' (446), 'action_done_from_mail' (450) and 'look_ahead' (452) came later (their own tests pin them).
-    for (const kind of AGENT_LOG_KINDS.filter((k) => k !== 'pr_changed' && k !== 'mail_archived' && k !== 'action_done_from_mail' && k !== 'look_ahead')) expect(BODY).toContain(`'${kind}'`)
+    for (const kind of AGENT_LOG_KINDS.filter((k) => k !== 'pr_changed' && k !== 'mail_archived' && k !== 'action_done_from_mail' && k !== 'look_ahead' && k !== 'kept_up_to_date')) expect(BODY).toContain(`'${kind}'`)
   })
 })

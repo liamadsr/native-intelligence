@@ -651,6 +651,24 @@ mark[data-comment-id].active {
   border-bottom-color: hsl(var(--muted-foreground));
 }
 
+/* A person or record @-mentioned in a document (components/editor/record-mention.ts):
+   an inline chip that opens its card. Static: no transition left running. */
+.record-mention {
+  border-radius: 4px;
+  padding: 0 3px;
+  background-color: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.record-mention:hover {
+  background-color: hsl(var(--primary) / 0.18);
+}
+.record-mention.ProseMirror-selectednode {
+  outline: 2px solid hsl(var(--primary) / 0.4);
+}
+
 /* Note attribution highlights (user notes woven into AI summary) */
 .note-attribution {
   border-left: 2px solid rgba(251, 191, 36, 0.6);

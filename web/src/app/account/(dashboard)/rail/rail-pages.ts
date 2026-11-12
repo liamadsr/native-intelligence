@@ -4,7 +4,7 @@
  * "how come we're not showing all available pages here?"), in three groups,
  * Liam's reference order first:
  *
- *   your work   Drive (Docs, Knowledge, Files), Mail, Team chat, My Actions,
+ *   your work   Drive (Docs, Knowledge, Files, Tables), Mail, Team chat, My Actions,
  *               Calendar (+ Captures), Studio
  *   customers   Contacts (Companies, Contacts, Deals),
  *               Outreach (Prospecting, Sequences, Campaigns)

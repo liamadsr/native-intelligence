@@ -268,7 +268,7 @@ export async function gatherDigest(
   const logLines: AwayLogLine[] = ((logData as Array<Record<string, unknown>> | null) ?? [])
     // The morning tidy's line and a to-do mail closed: each one's own message in the home thread says it
     // (src/lib/email/auto-archive.ts, src/lib/email/action-done-from-mail.ts).
-    .filter((l) => typeof l.at === 'string' && typeof l.line === 'string' && l.kind !== 'chat_checkpoint' && l.kind !== 'mail_archived' && l.kind !== 'action_done_from_mail' && l.kind !== 'look_ahead')
+    .filter((l) => typeof l.at === 'string' && typeof l.line === 'string' && l.kind !== 'chat_checkpoint' && l.kind !== 'mail_archived' && l.kind !== 'action_done_from_mail' && l.kind !== 'look_ahead' && l.kind !== 'kept_up_to_date')
     .map((l) => ({
       at: l.at as string,
       line: l.line as string,

@@ -41,7 +41,8 @@ describe('migration 586', () => {
     expect(flat).toContain('grant execute on function public.meeting_revoke_as(uuid, uuid) to service_role;')
   })
 
-  it('numbered after 585', () => {
+  it('numbered after 585, the only 586', () => {
+    // Later files may follow it (Tables' 600–609 restate shared objects after main's newest).
     const numbers = readdirSync(DIR).map((f) => Number(f.split('_')[0])).filter(Number.isFinite)
     // 586 and 585 are one file each, and 586 is the very next number after 585: what "the newest,
     // after 585" proved when it was written, without needing it to stay the newest (587 and on follow).

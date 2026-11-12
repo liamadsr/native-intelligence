@@ -893,7 +893,7 @@ export function UnifiedViewLayout({
       const JOINED_FK_FIELDS = [
         'status_id', 'project_id', 'assignee_id', 'company_id',
         'initiative_id', 'cycle_id', 'milestone_id', 'team_id',
-        'stage_id', 'owner_id',
+        'owner_id',
       ]
       const changedJoinedFk = JOINED_FK_FIELDS.some((f) => f in d.fields)
       const groupField = groupingFieldRef.current
@@ -901,7 +901,7 @@ export function UnifiedViewLayout({
       // locally below (the column move only needs the column key, not joined
       // display data) — as long as status_id is the ONLY joined FK changed.
       const boardHandlesIt =
-        (groupField === 'status_id' || groupField === 'stage_id') &&
+        groupField === 'status_id' &&
         groupField in d.fields &&
         !JOINED_FK_FIELDS.some((f) => f !== groupField && f in d.fields)
       // Exception 2: self-originated events (this tab's own drag/inline edit,

@@ -46,8 +46,8 @@ export type ViewEntityType =
       | 'eval_case'
       | 'eval_run'
       | 'claim'
-      | 'deal'
       | 'email_thread'
+      | 'data_row'
     >
   | 'agent'
   | 'skill'
@@ -59,7 +59,18 @@ export type LibraryScope = 'all' | 'mine' | 'workspace' | 'discover'
  * so that one saved view ("open questions, last 30 days") can be read as a
  * canvas, a list or a board without rebuilding its filters. See migration 275.
  */
-export type ViewLayout = 'list' | 'board' | 'graph'
+export type ViewLayout = 'list' | 'board' | 'graph' | 'grid' | 'calendar' | 'gallery'
+/**
+ * The layouts a table's rows (data_row, migration 529) take: the cell grid,
+ * a board by a select or person column, a calendar by a date column and a
+ * gallery of cards. Only a table draws these four; every other kind keeps
+ * list, board and (claims) graph.
+ */
+export const TABLE_LAYOUTS = ['grid', 'board', 'calendar', 'gallery'] as const satisfies readonly ViewLayout[]
+export type TableLayout = (typeof TABLE_LAYOUTS)[number]
+export function isTableLayout(v: unknown): v is TableLayout {
+  return typeof v === 'string' && (TABLE_LAYOUTS as readonly string[]).includes(v)
+}
 export type ViewVisibility = 'personal' | 'team' | 'workspace'
 export type CrmScope = 'contacts' | 'internal' | 'external' | 'companies'
 
@@ -212,7 +223,8 @@ export interface ViewScope {
   // entityType="eval_run" with a fixed `suite_id` scopeFilter, exactly as a
   // project's Actions tab embeds a scoped actions view. Saved views made
   // inside one suite must not appear in the next suite's picker.
-  type: 'project' | 'initiative' | 'contact' | 'company' | 'prospect_list' | 'eval_suite'
+  // 'data_table' scopes a table's row views to ONE table (migration 529).
+  type: 'project' | 'initiative' | 'contact' | 'company' | 'prospect_list' | 'eval_suite' | 'data_table'
   id: string
 }
 
@@ -288,6 +300,13 @@ export interface FilterFieldDefinition {
    * drops them defensively in case a saved view already carries one.
    */
   virtual?: boolean
+  /**
+   * A relation field (custom, migration 524): what its values link to, so the
+   * filter's value picker can search those records.
+   */
+  relationTarget?: { kind: string; table_id?: string }
+  /** A custom currency field: its own code. Its amounts filter only in it. */
+  currency?: string
   /**
    * One of the workspace's own fields (migrations 473, 496), named
    * `custom_fields.<key>` and read from the record's `custom_fields` jsonb.
@@ -445,28 +464,6 @@ export const FILTERABLE_FIELDS: Record<ViewEntityType, FilterFieldDefinition[]> 
     { field: 'created_at', label: 'Created', type: 'date' },
     { field: 'full_name', label: 'Name', type: 'text' },
     { field: 'email', label: 'Email', type: 'text' },
-  ],
-
-  // Deals (roadmap #8, migration 473). `stage_id` reads its options from the
-  // workspace's pipelines (DynamicEnumPicker's 'deal_stages'); `contact_ids`
-  // is an array column, filtered with `@>` like prospect_list_ids.
-  deal: [
-    { field: 'stage_id', label: 'Stage', type: 'enum', options: 'deal_stages' },
-    // The board's pipeline: a fixed scope a pipeline's board sends (and the
-    // views/query route reads to pick its columns). Kept out of
-    // FIELD_CATEGORIES, like prospect_list_entry's `list_id`.
-    { field: 'pipeline_id', label: 'Pipeline', type: 'text' },
-    { field: 'owner_id', label: 'Owner', type: 'member', allowEmpty: true },
-    { field: 'company_id', label: 'Company', type: 'company' },
-    { field: 'contact_ids', label: 'Contact', type: 'contact', isArray: true },
-    { field: 'value', label: 'Value', type: 'number', allowEmpty: true },
-    { field: 'currency', label: 'Currency', type: 'text' },
-    { field: 'expected_close_date', label: 'Expected close', type: 'date', allowEmpty: true },
-    { field: 'closed_at', label: 'Closed', type: 'date', allowEmpty: true },
-    { field: 'source', label: 'Source', type: 'enum', options: ['manual', 'agent', 'email', 'capture', 'sms', 'import'] },
-    { field: 'created_at', label: 'Created', type: 'date' },
-    { field: 'updated_at', label: 'Updated', type: 'date' },
-    { field: 'name', label: 'Name', type: 'text' },
   ],
 
   company: [
@@ -706,6 +703,17 @@ export const FILTERABLE_FIELDS: Record<ViewEntityType, FilterFieldDefinition[]> 
     // an empty list. eval_run has no `created_by` at all.
   ],
 
+  // A table's rows (Tables, phase 4). The columns are the table's own
+  // (custom_field_definition with its table_id), named custom_fields.<key>
+  // and added at runtime like any kind's custom fields; these are what every
+  // row has. `table_id` is the scope the table page sends, never a pick.
+  data_row: [
+    { field: 'title', label: 'Name', type: 'text' },
+    { field: 'table_id', label: 'Table', type: 'text' },
+    { field: 'created_at', label: 'Created', type: 'date' },
+    { field: 'updated_at', label: 'Updated', type: 'date' },
+  ],
+
   // ── claim ──────────────────────────────────────────────────────────────
   //
   // THE CONSTRAINT THAT SHAPES THIS LIST: a claim view can be drawn as the
@@ -769,9 +777,6 @@ export const DEFAULT_DISPLAY_PROPERTIES: Record<ViewEntityType, string[]> = {
   capture: ['action_count', 'participant_count', 'recipe', 'project', 'started_at', 'status'],
   contact: ['interaction_count', 'last_interaction_at', 'relationship_type', 'job_title', 'company'],
   company: ['contact_count', 'industry', 'domain'],
-  // Rare → common: who owns it, which account, when it should close, its
-  // stage, then the money — the number a pipeline is read for.
-  deal: ['owner', 'company', 'expected_close_date', 'stage', 'value'],
   email_thread: ['labels', 'is_unread', 'folder', 'last_message_at', 'from_email'],
   document: ['project', 'created_by', 'updated_at'],
   initiative: ['target_date', 'project', 'status'],
@@ -810,6 +815,8 @@ export const DEFAULT_DISPLAY_PROPERTIES: Record<ViewEntityType, string[]> = {
   // record (evidence excerpts, every link, the source it was extracted from) is
   // in the detail panel, which is the same inspector the graph opens.
   claim: ['type', 'confidence', 'project'],
+  // Every column, in the table's order (a view keeps its own order and hidden ones).
+  data_row: [],
   // Outcome LEADS: the verdict is the single most important thing about a
   // run, so the OutcomeChip opens the meta line. Then what distinguishes two
   // runs of the same suite: which mode, how it scored per dimension, what it
@@ -936,19 +943,6 @@ export const DISPLAY_PROPERTIES: Record<ViewEntityType, DisplayPropertyDefinitio
     { field: 'contact_count', label: 'Contacts' },
     { field: 'tags', label: 'Tags' },
     { field: 'created_at', label: 'Created' },
-  ],
-  deal: [
-    // `stage` is display-only in a cell: the board's drag is how a deal moves
-    // (it PATCHes stage_id), and the stage picker needs the pipeline's own
-    // stages, which no generic enum picker knows.
-    { field: 'stage', label: 'Stage' },
-    { field: 'value', label: 'Value' },
-    { field: 'owner', label: 'Owner', editable: { picker: 'member', apiField: 'owner_id', allowEmpty: true } },
-    { field: 'company', label: 'Company', editable: { picker: 'company', apiField: 'company_id', allowEmpty: true } },
-    { field: 'expected_close_date', label: 'Expected close', editable: { picker: 'date', apiField: 'expected_close_date' } },
-    { field: 'closed_at', label: 'Closed' },
-    { field: 'created_at', label: 'Created' },
-    { field: 'updated_at', label: 'Updated' },
   ],
   email_thread: [
     { field: 'from_email', label: 'From' },
@@ -1121,6 +1115,8 @@ export const DISPLAY_PROPERTIES: Record<ViewEntityType, DisplayPropertyDefinitio
     { field: 'started_at', label: 'Started' },
     { field: 'ended_at', label: 'Ended' },
   ],
+  // A table's columns are its own (custom_fields.<key>), drawn by the table page.
+  data_row: [],
   claim: [
     // `confirmation` is the ONE editable cell, and it is the only field on a
     // claim a person is allowed to set: everything else here is extraction
@@ -1165,12 +1161,6 @@ export const DEFAULT_ORDERING: Partial<Record<ViewEntityType, SortConfig[]>> = {
   agent: [],
   skill: [],
   prospect_list: [{ field: 'updated_at', direction: 'desc' }],
-  // The biggest deals first: what a pipeline is read for. Newest breaks ties
-  // (and orders the deals with no value yet, which sort last).
-  deal: [
-    { field: 'value', direction: 'desc' },
-    { field: 'created_at', direction: 'desc' },
-  ],
   // Hottest first — the score is the point of profiling. `applyOrdering`
   // sends NULLS LAST, so the rows nobody has profiled yet sit under every
   // scored one, newest first among themselves.
@@ -1185,6 +1175,8 @@ export const DEFAULT_ORDERING: Partial<Record<ViewEntityType, SortConfig[]>> = {
   // useful default: the run at the top is the one whose number the reader came
   // to check.
   eval_run: [{ field: 'started_at', direction: 'desc' }],
+  // A table's rows in the table's own order (position) until a view sorts them.
+  data_row: [],
   // `eval_case` is an ORDERED set. Cases carry an explicit `sort_order` (252,
   // and its suite index is on `(suite_id, sort_order, created_at)`), which is
   // the sequence the case editor and every replay walk them in. Sorting the
@@ -1219,6 +1211,7 @@ export function defaultOrdering(entityType: ViewEntityType): SortConfig[] {
  */
 export const DEFAULT_LAYOUT: Partial<Record<ViewEntityType, ViewLayout>> = {
   claim: 'graph',
+  data_row: 'grid',
 }
 
 /** The layout an entity opens in — its own, or the list fallback. */
@@ -1233,9 +1226,6 @@ export const DEFAULT_BOARD_GROUP_BY: Record<ViewEntityType, string> = {
   capture: 'auto_capture_status',
   contact: 'relationship_type',
   company: 'industry',
-  // The pipeline board: one column per stage, in the pipeline's order (the
-  // views/query route adds the empty ones), and a drag PATCHes stage_id.
-  deal: 'stage_id',
   email_thread: 'folder',
   document: 'status',
   initiative: 'status',
@@ -1277,6 +1267,8 @@ export const DEFAULT_BOARD_GROUP_BY: Record<ViewEntityType, string> = {
   // dismissed claim leaves the knowledge universe entirely, so it would be a
   // column you can drag into and never out of. Dismiss stays a row action.)
   claim: 'confirmation',
+  // A table's board groups by one of its own select or person columns, picked per view.
+  data_row: '',
 }
 
 // ============================================================
@@ -1305,11 +1297,6 @@ export const FIELD_CATEGORIES: Record<ViewEntityType, { label: string; fields: s
   company: [
     { label: '', fields: ['name', 'industry', 'domain', 'employee_count_range', 'tags'] },
     { label: 'Activity', fields: ['created_at'] },
-  ],
-  deal: [
-    { label: '', fields: ['stage_id', 'owner_id', 'company_id', 'contact_ids', 'value', 'currency', 'source'] },
-    { label: 'Dates', fields: ['expected_close_date', 'closed_at', 'created_at', 'updated_at'] },
-    { label: 'Content', fields: ['name'] },
   ],
   email_thread: [
     { label: '', fields: ['folder', 'is_unread', 'is_starred', 'needs_reply', 'has_attachments', 'auto_classified', 'labels'] },
@@ -1384,6 +1371,7 @@ export const FIELD_CATEGORIES: Record<ViewEntityType, { label: string; fields: s
       ],
     },
   ],
+  data_row: [{ label: 'Row', fields: ['title', 'created_at', 'updated_at'] }],
   claim: [
     { label: '', fields: ['type', 'confirmation', 'confidence', 'auto_accepted'] },
     { label: 'Origin', fields: ['project_ids', 'created_by', 'scope'] },
@@ -1419,6 +1407,8 @@ export interface CreateViewBody {
   show_sub_items?: boolean
   nested_sub_items?: boolean
   show_empty_groups?: boolean
+  /** A table's view keeps its column widths, hidden columns and layout picks here (`table`). */
+  metadata?: Record<string, unknown>
 }
 
 export interface UpdateViewBody extends Partial<CreateViewBody> {}

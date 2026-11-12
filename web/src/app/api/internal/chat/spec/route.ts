@@ -25,7 +25,9 @@
  * absent `ctx` degrades to an empty turn context (base prompt + persona only),
  * never a 500.
  */
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
+import { getServiceClient } from '@/lib/admin'
+import { syncTurnMentions, turnMentionRefs } from '@/lib/entity-links/turn-mentions'
 import {
   extractInternalSecret,
   verifyInternalSecret,
@@ -95,6 +97,27 @@ export async function GET(request: Request) {
     if (err instanceof Response) return err
     const message = err instanceof Error ? err.message : String(err)
     return NextResponse.json({ error: message, code: 'CHAT_SPEC_REBUILD_FAILED' }, { status: 500 })
+  }
+
+  // The person's @-mentions this turn become edges from their conversation
+  // (src/lib/entity-links/turn-mentions.ts): once a turn, on the chat-agent's
+  // one memoized fetch (the skills variant), after the answer is sent. Not a
+  // guest's or a surface's run: only the person's own chat.
+  const systemContext = turn.systemContext as Record<string, unknown> | undefined
+  if (includeSkills && !claims.guestId && !claims.surface && turnMentionRefs(systemContext).length > 0) {
+    const write = async () =>
+      syncTurnMentions(getServiceClient(), {
+        workspaceId: claims.workspaceId,
+        userId: claims.userId,
+        conversationId: claims.conversationId,
+        systemContext,
+      })
+    try {
+      after(write)
+    } catch {
+      // Outside a request scope (a test): written now instead.
+      void write().catch(() => {})
+    }
   }
 
   // Return the eve-facing view. Deliberately NO secrets — prompt text + tool

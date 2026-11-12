@@ -8,6 +8,7 @@
  * Renders nothing when the record has no value (hide empty widgets).
  */
 import { cn } from '@/lib/utils'
+import { relationIds } from '@/lib/crm/custom-field-types'
 import { customFieldKeyOf, formatCustomFieldValue } from '@/lib/views/custom-field-columns'
 import type { ViewEntityType } from '@/lib/views/types'
 import { useCustomFieldDefinitions } from '../hooks/use-custom-field-definitions'
@@ -29,7 +30,9 @@ export function CustomFieldCell({
   const values = item.custom_fields
   const raw = values && typeof values === 'object' && !Array.isArray(values) ? (values as Record<string, unknown>)[key] : undefined
   const def = defs.find((d) => d.key === key)
-  const text = formatCustomFieldValue(def?.field_type, raw)
+  // A row has no names for the records a relation links: it says how many.
+  const linked = def?.field_type === 'relation' ? relationIds(raw).length : 0
+  const text = formatCustomFieldValue(def?.field_type, raw) || (linked ? `${linked} linked` : '')
   if (!text) return null
   return (
     <span

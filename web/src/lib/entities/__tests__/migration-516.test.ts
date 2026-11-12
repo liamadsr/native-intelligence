@@ -38,8 +38,12 @@ const unschedule = fn('entity_activity_backfill_unschedule')
 const branches = new Map(
   [...step.matchAll(/(?:els)?if p\.source = '([a-z_]+)' then([\s\S]*?)(?=\n  (?:els)?if p\.source = |\n  end if;)/g)].map((m) => [m[1], m[2]]),
 )
-const RECORD_SOURCES = ACTIVITY_ENTITY_TYPES.filter((k) => k !== 'team_chat_message')
-const tableOf = new Map<string, string>(ENTITY_REGISTRY.map((e) => [e.id, e.table]))
+// Tables and their rows (520) came after the backfill: they have no history
+// older than their own triggers (521), so nothing of theirs is backfilled.
+const AFTER_BACKFILL = new Set<string>(['data_table', 'data_row'])
+// A deal was a logged kind when 516 ran; it is a pipeline's row since 548, and 549 took its source out.
+const RECORD_SOURCES = [...ACTIVITY_ENTITY_TYPES.filter((k) => k !== 'team_chat_message' && !AFTER_BACKFILL.has(k)), 'deal']
+const tableOf = new Map<string, string>([...ENTITY_REGISTRY.map((e) => [e.id, e.table] as [string, string]), ['deal', 'deal']])
 
 describe('migration 516: the activity log, backfilled', () => {
   it('marks its rows, and the Inbox has a column to skip them by', () => {
@@ -69,7 +73,7 @@ describe('migration 516: the activity log, backfilled', () => {
   })
 
   it('finds every logged kind’s home, locked, and never a record the log leaves out', () => {
-    for (const kind of ACTIVITY_ENTITY_TYPES) {
+    for (const kind of ACTIVITY_ENTITY_TYPES.filter((k) => !AFTER_BACKFILL.has(k))) {
       expect(home, kind).toMatch(new RegExp(`when '${kind}' then \\(select x\\.workspace_id from public\\.${tableOf.get(kind)} x where x\\.id = p_id[^)]* for share\\)`))
     }
     expect(home).toContain('x.is_eval is not true')

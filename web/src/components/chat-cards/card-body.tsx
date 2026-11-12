@@ -52,7 +52,6 @@ import { CaptureDetailPanel } from '@/app/account/(dashboard)/views/capture-deta
 import { DocumentDetailPanel } from '@/app/account/(dashboard)/views/document-detail-panel'
 import { ContactDetailPanel } from '@/app/account/(dashboard)/views/contact-detail-panel'
 import { CompanyDetailPanel } from '@/app/account/(dashboard)/views/company-detail-panel'
-import { DealDetailPanel } from '@/app/account/(dashboard)/views/deal-detail-panel'
 import { ProjectDetailPanel } from '@/app/account/(dashboard)/views/project-detail-panel'
 import { InitiativeDetailPanel } from '@/app/account/(dashboard)/views/initiative-detail-panel'
 import type { ChatCardStore } from './card-store'
@@ -148,11 +147,9 @@ export function CardRecordPanel({
     case 'document':
       return <DocumentDetailPanel key={record.id} documentId={record.id} onClose={onClose} onOpenEntity={openEntity} onSelectionChange={onSelectionChange} />
     case 'contact':
-      return <ContactDetailPanel key={record.id} contactId={record.id} onClose={onClose} onSelectAction={open('action')} onOpenCapture={open('capture')} onOpenDeal={open('deal')} />
+      return <ContactDetailPanel key={record.id} contactId={record.id} onClose={onClose} onSelectAction={open('action')} onOpenCapture={open('capture')} />
     case 'company':
-      return <CompanyDetailPanel key={record.id} companyId={record.id} onClose={onClose} onSelectContact={open('contact')} onOpenCapture={open('capture')} onOpenDeal={open('deal')} />
-    case 'deal':
-      return <DealDetailPanel key={record.id} dealId={record.id} onClose={onClose} onOpenEntity={openEntity} />
+      return <CompanyDetailPanel key={record.id} companyId={record.id} onClose={onClose} onSelectContact={open('contact')} onOpenCapture={open('capture')} />
     case 'project':
       return (
         <ProjectDetailPanel
@@ -485,6 +482,8 @@ const PAGE_BODIES: Record<PageKind, React.LazyExoticComponent<React.ComponentTyp
   flows: React.lazy(() => import('./pages/flows-card')),
   evals: React.lazy(() => import('./pages/evals-card')),
   campaigns: React.lazy(() => import('./pages/campaigns-card')),
+  tables: React.lazy(() => import('./pages/tables-card')),
+  pipelines: React.lazy(() => import('./pages/pipelines-card')),
   team_chat: React.lazy(() => import('./pages/team-chat-card')),
   availability: React.lazy(() => import('./pages/availability-card')),
   files: React.lazy(() => import('./pages/files-card')),

@@ -20,9 +20,10 @@ import {
   CircleCheck,
   FileText,
   FolderKanban,
-  Handshake,
+  Rows3,
   Hash,
   Link2,
+  MessageSquare,
   Target,
   User,
   Workflow,
@@ -46,11 +47,12 @@ const ICONS: Record<string, LucideIcon> = {
   capture: AudioLines,
   contact: User,
   company: Building2,
-  deal: Handshake,
+  data_row: Rows3,
   flow: Workflow,
   calendar_event: CalendarDays,
   team_chat_message: Hash,
   team_chat_channel: Hash,
+  conversation: MessageSquare,
 }
 
 /** How a relation reads under a row: a mention is the common case and says so. */
@@ -65,6 +67,8 @@ const RELATION_WORDS: Record<string, string> = {
   owns: 'Owns this',
   authored_by: 'Authored',
   committed_to: 'Committed to',
+  // A relation field's value (migration 524): the record links this in one of its fields.
+  field_link: 'Linked in a field',
 }
 
 /** The references to one record; null until the first answer (or when it failed). */

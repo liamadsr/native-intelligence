@@ -270,7 +270,6 @@ describe('boot deep links open cards', () => {
     ['capture', 'capture'],
     ['contact', 'contact'],
     ['company', 'company'],
-    ['deal', 'deal'],
   ] as const)('?%s= (a menu’s Copy link) opens its record card', (param, type) => {
     const id = '00000000-0000-4000-8000-0000000000bb'
     window.history.replaceState({}, '', `/account?${param}=${id}`)

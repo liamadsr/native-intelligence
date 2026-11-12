@@ -154,8 +154,11 @@ describe('migration 503: one name for mail', () => {
     expect(sql).toContain(`-- entity_visible_to, from ${src!.file}:`)
     expect(fnBlock(sql, 'entity_visible_to')).toBe(renameVisibleTo(src!.block))
     const fn = fnBlock(code, 'entity_visible_to')!
-    // The Studio's kinds are fenced by 624's own function and policies (migration-624.test.ts), not this one.
-    for (const kind of LINK_FENCED_KINDS.filter((k) => k !== 'studio_video' && k !== 'studio_project')) expect(fn, kind).toMatch(new RegExp(`'${kind}'`))
+    // Tables and their rows joined later (522, ./migration-522.test.ts); the
+    // Studio's kinds are fenced by 624's own function and policies
+    // (migration-624.test.ts), not this one.
+    const later = ['data_table', 'data_row', 'studio_video', 'studio_project']
+    for (const kind of LINK_FENCED_KINDS.filter((k) => !later.includes(k))) expect(fn, kind).toMatch(new RegExp(`'${kind}'`))
     expect(fn).not.toMatch(/'email'/)
     expect(fn).toContain('if auth.uid() is not null and p_user is distinct from auth.uid() then return false; end if;')
     expect(fn).toContain('security definer')

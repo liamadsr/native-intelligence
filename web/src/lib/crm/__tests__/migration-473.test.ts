@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { FILTERABLE_FIELDS } from '@/lib/views/types'
 import { CUSTOM_FIELD_TYPES } from '../custom-fields'
 
 const sql = readFileSync(path.join(process.cwd(), 'supabase/migrations/473_deals_pipelines_custom_fields.sql'), 'utf8')
@@ -19,9 +18,11 @@ describe('migration 473 (deals, pipelines, custom fields)', () => {
     expect(sql).toContain("check (kind in ('open', 'won', 'lost'))")
     // 473's own three kinds; 496 widens the list to the registry's customFields flag (migration-496.test.ts).
     expect(sql).toContain("check (entity_type in ('deal', 'contact', 'company'))")
-    expect(sql).toContain(`check (field_type in (${CUSTOM_FIELD_TYPES.map((e) => `'${e}'`).join(', ')}))`)
-    const sourceOptions = FILTERABLE_FIELDS.deal.find((f) => f.field === 'source')?.options as string[]
-    expect(sql).toContain(`check (source in (${sourceOptions.map((e) => `'${e}'`).join(', ')}))`)
+    // 473's own four types; 523 widens the CHECK to every type the code has (migration-523-526.test.ts pins that one).
+    expect(sql).toContain("check (field_type in ('text', 'number', 'date', 'select'))")
+    expect(CUSTOM_FIELD_TYPES.slice(0, 4)).toEqual(['text', 'number', 'date', 'select'])
+    // A deal's source left with the deal tables (549): a pipeline's change log says where a change came from.
+    expect(sql).toContain("check (source in ('manual', 'agent', 'email', 'capture', 'sms', 'import'))")
     expect(sql).toContain("check (source in ('person', 'agent', 'email', 'capture', 'sms'))")
   })
 

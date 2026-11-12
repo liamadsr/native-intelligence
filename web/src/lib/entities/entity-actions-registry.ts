@@ -37,7 +37,7 @@ import { isMentionableType } from '@/lib/entity-links/mentionable'
  *   'studio'          the Studio page's card on it (a video, a Studio project);
  *   null              nothing opens it on its own.
  */
-export type EntityOpen = 'record' | 'calendar-event' | 'flow' | 'sequence' | 'prospect_list' | 'eval_suite' | 'team-chat' | 'studio' | null
+export type EntityOpen = 'record' | 'calendar-event' | 'flow' | 'sequence' | 'prospect_list' | 'eval_suite' | 'team-chat' | 'table-row' | 'studio' | null
 
 /**
  * How a kind archives and comes back, as it already does:
@@ -148,14 +148,6 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
     share: true,
     makeTask: true,
   },
-  deal: {
-    open: 'record',
-    link: true,
-    rename: { route: 'deals', field: 'name' },
-    archive: { kind: 'none', why: 'A deal ends in a won or lost stage.' },
-    share: true,
-    makeTask: true,
-  },
   flow: {
     open: 'flow',
     link: true,
@@ -207,6 +199,27 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
     // A message is edited by its author in the channel.
     rename: null,
     archive: { kind: 'none', why: 'A message is deleted by its author in the channel.' },
+    share: false,
+    makeTask: true,
+  },
+  // Tables, phase 1: the Tables page opens from `/`; a card for one table or
+  // one row arrives with the agent's tools (phase 5), and with it Open, Copy
+  // link and Share.
+  data_table: {
+    open: null,
+    link: false,
+    rename: { route: 'tables', field: 'name' },
+    archive: { kind: 'none', why: 'A table is archived on the Tables page, where its undo is.' },
+    share: false,
+    makeTask: true,
+  },
+  data_row: {
+    // In its table (a pipeline's row: a deal, on the Deals page), open in the row panel.
+    open: 'table-row',
+    link: false,
+    // A row's name is its title, edited in its table (one batch, in its undo log).
+    rename: null,
+    archive: { kind: 'none', why: 'A row is archived in its table, where its undo is.' },
     share: false,
     makeTask: true,
   },

@@ -4,18 +4,22 @@ import { canonicalEntityType, type LinkableEntityType } from './entity-registry'
 
 /**
  * FENCES FOR THE PRIVATE GRAPH KINDS: calendar events, team-chat channels and
- * messages, and capture decisions.
+ * messages, capture decisions, and tables and their rows.
  *
  * The knowledge graph's own fence is `entity_link.workspace_id` (and, for the
  * indirect kinds, a parent's workspace). That is enough for a kind every
- * workspace member may read, and too weak for these four:
+ * workspace member may read, and too weak for these:
  *   - calendar_event:    its owner's alone (RLS `auth.uid() = user_id`);
  *   - team_chat_channel: a team channel is its team's, a DM its two members'
  *                        (`team_chat_can_read`, migration 474);
  *   - team_chat_message: whoever may read its channel;
  *   - decision:          no workspace_id; readable through its capture: a
  *                        workspace capture's, the capture owner's, or anyone's
- *                        once confirmed (the decision table's RLS).
+ *                        once confirmed (the decision table's RLS);
+ *   - data_table:        a workspace table to every member, a private one to
+ *                        its owner and its grantees (data_table_visible_to,
+ *                        migration 520);
+ *   - data_row:          whoever may read its table.
  *
  * The graph code that reads them may run on a SERVICE-ROLE client (the eve tool
  * routes, unattended runs), where RLS hides nothing and `auth.uid()` is NULL,
@@ -29,7 +33,8 @@ import { canonicalEntityType, type LinkableEntityType } from './entity-registry'
  *
  * The SQL rules these mirror: 474's team_chat_can_read, the
  * local_calendar_event and decision policies (the decision one with 493's
- * grant arm). Change one, change its fence.
+ * grant arm). Change one, change its fence. The table fences ask the
+ * database's own rule (visible_data_table_ids, 520) in one call for every id.
  */
 
 /**
@@ -38,7 +43,7 @@ import { canonicalEntityType, type LinkableEntityType } from './entity-registry'
  * guest's, and their tables have no member policies at all, so the same
  * fence shape holds them: see studioFence below.
  */
-export const PRIVATE_GRAPH_KINDS = ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision', 'studio_video', 'studio_project'] as const
+export const PRIVATE_GRAPH_KINDS = ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision', 'data_table', 'data_row', 'studio_video', 'studio_project'] as const
 export type PrivateGraphKind = (typeof PRIVATE_GRAPH_KINDS)[number]
 
 export function isPrivateGraphKind(type: string): type is PrivateGraphKind {
@@ -239,6 +244,54 @@ const decisionFence: Fence = async (supabase, userId, ids, workspaceId, opts = {
 }
 
 /**
+ * A table: data_table_visible_to for the user (without grants on a guest's
+ * turn: data_table_visible_ungranted), through 520's batched form (one
+ * call, however many ids). On a session client the function answers
+ * only for the caller themself, so another user's question comes back empty.
+ */
+const dataTableFence: Fence = async (supabase, userId, ids, workspaceId, opts = {}) => {
+  const wanted = uniq(ids)
+  if (!userId || wanted.length === 0) return new Set()
+  const out = new Set<string>()
+  for (let i = 0; i < wanted.length; i += ID_CHUNK) {
+    const { data, error } = await supabase.rpc('visible_data_table_ids', {
+      p_ids: wanted.slice(i, i + ID_CHUNK),
+      p_user_id: userId,
+      // A guest's or a linked agent's turn: no grant opens a table (519's rule).
+      p_grants: opts.grants !== false,
+    })
+    if (error) {
+      console.warn('[entity-fences] read failed:', error.message)
+      return new Set()
+    }
+    for (const id of (Array.isArray(data) ? data : []) as unknown[]) if (typeof id === 'string') out.add(id)
+  }
+  if (!workspaceId || out.size === 0) return out
+  const rows = await rowsByIds([...out], (c) => supabase.from('data_table').select('id').eq('workspace_id', workspaceId).in('id', c))
+  return new Set((rows ?? []).map((r) => r.id as string))
+}
+
+/** A row is readable by whoever may read its table. */
+const dataRowFence: Fence = async (supabase, userId, ids, workspaceId, opts = {}) => {
+  const wanted = uniq(ids)
+  if (!userId || wanted.length === 0) return new Set()
+  const rows = await rowsByIds(wanted, (c) => {
+    let q = supabase.from('data_row').select('id, table_id').in('id', c)
+    if (workspaceId) q = q.eq('workspace_id', workspaceId)
+    return q
+  })
+  if (!rows || rows.length === 0) return new Set()
+  const readable = await dataTableFence(
+    supabase,
+    userId,
+    rows.map((r) => r.table_id as string),
+    workspaceId,
+    opts,
+  )
+  return new Set(rows.filter((r) => readable.has(r.table_id as string)).map((r) => r.id as string))
+}
+
+/**
  * The Studio's rule (requireStudio, src/lib/studio/server/auth.ts) for an
  * explicit user: the row is in a workspace they are a member of, and not a
  * guest of, and it is not in the trash. The Studio's tables are service-role
@@ -279,6 +332,8 @@ const FENCES: Record<PrivateGraphKind, Fence> = {
   team_chat_channel: teamChatChannelFence,
   team_chat_message: teamChatMessageFence,
   decision: decisionFence,
+  data_table: dataTableFence,
+  data_row: dataRowFence,
   studio_video: studioFence('studio_video'),
   studio_project: studioFence('studio_project'),
 }
@@ -340,6 +395,8 @@ export const PRIVATE_KIND_LABEL: Record<PrivateGraphKind, string> = {
   team_chat_channel: 'Channel (private)',
   team_chat_message: 'Message (private)',
   decision: 'Decision (private)',
+  data_table: 'Table (private)',
+  data_row: 'Row (private)',
   studio_video: 'Video (Studio)',
   studio_project: 'Studio project',
 }
@@ -366,6 +423,9 @@ export const LINK_FENCED_KINDS = [
   'team_chat_channel',
   'team_chat_message',
   'decision',
+  // Tables (522): a private table's edges, and its rows'.
+  'data_table',
+  'data_row',
   // The Studio's: fenced by 624's own restrictive entity_link policies
   // (studio_entity_visible_to), not in the shared policies' lists; here
   // they are private kinds, so hiddenGraphRefs asks studioFence.

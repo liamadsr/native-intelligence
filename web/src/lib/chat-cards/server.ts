@@ -24,6 +24,8 @@ import {
   applyEntityDefaults,
   applyFilters,
   applyOrdering,
+  customFieldTypesFor,
+  viewFieldsOf,
   applyPagination,
   applySearch,
   buildEntityQuery,
@@ -67,6 +69,8 @@ export interface CardScope {
   timeZone?: string | null
   /** The person's visibility fence, read once per scope (fenceOf). */
   fence?: Promise<VisibilityFence>
+  /** false on a guest's or a linked agent's turn: a table shared with the person by a grant doesn't show (519). */
+  grants?: boolean
 }
 
 /**
@@ -188,22 +192,6 @@ async function lookupNames(
 }
 
 /** Workflow state names → ids across the teams the person can see (several share "In Progress"). */
-/** Deal stages by name (every pipeline's stage of that name), for a deals card's stage filter. */
-async function lookupDealStages(scope: CardScope, names: string[]): Promise<Checked<Map<string, string[]>>> {
-  const { data, error } = await scope.supabase.from('deal_stage').select('id, name').eq('workspace_id', scope.workspaceId).limit(200)
-  if (error) throw new Error(`could not look up stages: ${error.message}`)
-  const stages = (data ?? []) as Array<{ id: string; name: string }>
-  const byName = new Map<string, string[]>()
-  for (const name of names) {
-    const ids = stages.filter((s) => s.name.toLowerCase() === name.trim().toLowerCase()).map((s) => s.id)
-    if (ids.length === 0) {
-      const known = [...new Set(stages.map((s) => s.name))].slice(0, 15)
-      return { ok: false, error: `no stage named '${name}'.${known.length ? ` Stages here: ${known.join(', ')}.` : ''}` }
-    }
-    byName.set(name, ids)
-  }
-  return { ok: true, value: byName }
-}
 
 async function lookupStates(scope: CardScope, fence: VisibilityFence, names: string[]): Promise<Checked<Map<string, string[]>>> {
   const byName = new Map<string, string[]>()
@@ -266,8 +254,6 @@ export async function resolveNamedValues(
     const resolved =
       def.options === 'workflow_states'
         ? await lookupStates(scope, fence, names)
-        : def.options === 'deal_stages'
-        ? await lookupDealStages(scope, names)
         : await lookupNames(scope, fence, def.type, names, f.field === 'user_id' ? 'user_id' : 'id')
     if (!resolved.ok) return { ok: false, error: `filters[${i}] (${f.field}): ${resolved.error}` }
     const ids = values.flatMap((v) => (typeof v === 'string' && resolved.value.has(v) ? resolved.value.get(v)! : [v]))
@@ -281,14 +267,6 @@ export async function resolveNamedValues(
   return { ok: true, value: out }
 }
 
-async function redactHiddenDealCompanies(scope: CardScope, fence: VisibilityFence, rows: Record<string, unknown>[]): Promise<void> {
-  const ids = [...new Set(rows.map((r) => r.company_id).filter((x): x is string => typeof x === 'string'))]
-  if (!ids.length) return
-  const visible = await visibleCompanyIds(scope.supabase, fence, ids)
-  for (const r of rows) {
-    if (typeof r.company_id === 'string' && !visible.has(r.company_id)) r.company = null
-  }
-}
 
 // ── Running a list ────────────────────────────────────────────────────────────
 
@@ -313,8 +291,10 @@ export async function runListQuery(
     visibility: fence,
   })
   const filters: ViewFilter[] = query.filters.map((f, i) => ({ id: `card-${i}`, ...f }))
+  const ordering = query.ordering?.length ? query.ordering : defaultOrdering(entity)
+  const fieldTypes = await customFieldTypesFor(scope.supabase, scope.workspaceId, entity, viewFieldsOf(filters, ordering))
   try {
-    await applyFilters(q, entity, filters, scope.supabase, scope.workspaceId, { memberId, userId: scope.userId })
+    await applyFilters(q, entity, filters, scope.supabase, scope.workspaceId, { memberId, userId: scope.userId }, { fieldTypes })
   } catch (err) {
     if (err instanceof NoMatchSignal) return { count: 0, rows: [] }
     throw err
@@ -324,15 +304,12 @@ export async function runListQuery(
   if (entity === 'action') {
     await applyCompletedFilter(scope.supabase, q, query.completed_filter ?? 'all', query.show_completed ?? true, scope.workspaceId)
   }
-  applyOrdering(q, query.ordering?.length ? query.ordering : defaultOrdering(entity), entity)
+  applyOrdering(q, ordering, entity, { fieldTypes })
   applyPagination(q, 1, limit)
   const { data, count, error } = await q
   if (error) throw new Error(error.message)
   // A row's embedded team (a document's) is named only when the person can see that team.
   const rows = redactHiddenTeams(stripFenceEmbed((data ?? []) as unknown as Record<string, unknown>[]), fence)
-  // A deal's company is named only when the person can see that company (its
-  // embed reads on this service-role client, past the company RLS).
-  if (entity === 'deal') await redactHiddenDealCompanies(scope, fence, rows)
   return { count: count ?? 0, rows }
 }
 
@@ -346,7 +323,6 @@ const RECORD_TABLE: Record<CardRecordType, { table: string; select: string }> = 
   project: { table: 'projects', select: 'id, name' },
   contact: { table: 'contact', select: 'id, full_name' },
   company: { table: 'company', select: 'id, name' },
-  deal: { table: 'deal', select: 'id, name' },
 }
 
 /** Can the person see this record (the same rules as their own page)? */

@@ -75,8 +75,10 @@ describe('migration 512: the helpers', () => {
   })
 
   it('every grantable kind is known to the record-side helpers; a company only by its own grant', () => {
+    // The newest definition of each: 520 added tables (migration-520.test.ts).
+    const newest = (name: string) => [...all].reverse().find((m) => m.sql.includes(`create or replace function public.${name}(`))!.sql
     for (const name of ['entity_edit_grant_on', 'entity_edit_grant_only']) {
-      for (const t of GRANTABLE_TYPES) expect(fn(sql512, name), `${name} ${t}`).toContain(`when '${t}' then`)
+      for (const t of GRANTABLE_TYPES) expect(fn(newest(name), name), `${name} ${t}`).toContain(`when '${t}' then`)
     }
     // A grant on one of a company's contacts opens it to reading (494), never to editing.
     expect(fn(sql512, 'entity_edit_grant_on')).toContain("when 'company' then (select public.has_entity_edit_grant('company', co.id, co.workspace_id) from public.company co where co.id = p_id)")

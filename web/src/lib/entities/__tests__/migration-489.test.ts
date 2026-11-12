@@ -27,6 +27,12 @@ const sql488 = read('488_entity_activity.sql')
 const triggerFns = (text: string) =>
   [...text.matchAll(/create or replace function public\.(entity_activity_[a-z_]+_(?:insert|update))\(\)[\s\S]*?\n\$\$;/g)].map((m) => ({ name: m[1], body: m[0] }))
 
+/** The kinds a later migration logs and probes: tables and their rows (521, ./migration-521.test.ts). */
+const LATER = new Set<string>(['data_table', 'data_row'])
+/** Kinds 489 logged that left the registry since: a deal is a pipeline's row (548, 549). */
+const RETIRED = ['deal']
+const KINDS_489 = [...ACTIVITY_ENTITY_TYPES.filter((k) => !LATER.has(k)), ...RETIRED]
+
 /** Kinds every member of the workspace may read (their table's RLS is is_workspace_member alone). */
 const WORKSPACE_WIDE = ['action', 'project', 'initiative', 'deal', 'flow']
 /** Kinds with a per-record rule: probed through their own table. */
@@ -60,14 +66,14 @@ describe('migration 489: the activity log, hardened', () => {
     const updates = [...sql.matchAll(/create trigger entity_activity_update\s+after update of ([a-z_, ]+) on public\.([a-z_]+)\s+for each row\s+when \(([\s\S]*?)\)\s+execute function public\.(\w+)\(\)/g)]
     const tableOf = new Map<string, string>(ENTITY_REGISTRY.map((e) => [e.table, e.id]))
     // Every logged kind but team chat (a message never changes workspace).
-    expect(new Set(updates.map((m) => tableOf.get(m[2])))).toEqual(new Set(ACTIVITY_ENTITY_TYPES.filter((k) => k !== 'team_chat_message')))
+    expect(new Set(updates.map((m) => tableOf.get(m[2]) ?? m[2]))).toEqual(new Set(KINDS_489.filter((k) => k !== 'team_chat_message')))
     const bodies = new Map(triggerFns(sql).map((f) => [f.name, f.body]))
     for (const [, columns, table, when, fn] of updates) {
       const cols = columns.split(',').map((c) => c.trim())
       expect(cols, table).toContain('workspace_id')
       for (const col of cols) expect(when, `${table}.${col}`).toMatch(new RegExp(`old\\.${col}\\b|\\(old\\.${col} = `))
       const body = bodies.get(fn) ?? ''
-      const type = tableOf.get(table)
+      const type = tableOf.get(table) ?? table
       expect(body, fn).toMatch(
         new RegExp(`if old\\.workspace_id is distinct from new\\.workspace_id then\\s+perform public\\.entity_activity_follow\\('${type}', new\\.id, old\\.workspace_id, new\\.workspace_id\\);\\s+return null;`),
       )
@@ -94,7 +100,7 @@ describe('migration 489: the activity log, hardened', () => {
     const policy = /create policy entity_activity_member_select on public\.entity_activity\s+for select using \(([\s\S]*?)\n  \);/.exec(sql)?.[1] ?? ''
     expect(policy).toMatch(/^\s*public\.is_workspace_member\(workspace_id\)/)
     // The kinds split exactly into the probed and the workspace-wide.
-    expect(new Set([...PER_RECORD, ...WORKSPACE_WIDE])).toEqual(new Set(ACTIVITY_ENTITY_TYPES))
+    expect(new Set([...PER_RECORD, ...WORKSPACE_WIDE])).toEqual(new Set(KINDS_489))
     const tableOf = new Map<string, string>(ENTITY_REGISTRY.map((e) => [e.id, e.table]))
     for (const kind of PER_RECORD) {
       expect(policy, kind).toContain(`when '${kind}' then exists (select 1 from public.${tableOf.get(kind)} x where x.id = entity_activity.entity_id offset 0)`)

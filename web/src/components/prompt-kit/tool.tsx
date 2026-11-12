@@ -107,6 +107,15 @@ const TOOL_LABELS: Record<string, string> = {
   import_stripe_customers: 'Import Stripe customers',
   list_contact_imports: 'Check imports',
   undo_contact_import: 'Undo the import',
+  // Tables (src/lib/ai/tools/tables.ts).
+  find_tables: 'Find tables',
+  get_table: 'Read a table',
+  create_table: 'Make a table',
+  update_table_columns: 'Change columns',
+  write_rows: 'Write rows',
+  query_rows: 'Read rows',
+  archive_rows: 'Archive rows',
+  undo_table_change: 'Undo the table change',
   // The agent's checklist for a long job (agents' native update_plan; the chat
   // draws its own plan card, this is the fallback chip for a refused call).
   update_plan: 'Update plan',

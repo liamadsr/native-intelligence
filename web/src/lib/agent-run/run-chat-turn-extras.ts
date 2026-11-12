@@ -9,6 +9,8 @@
  * read without it: the agent picks each search's scope itself.
  */
 
+import { MENTION_RECORD_KEYS } from '@/lib/search/menu-search'
+
 /** Files one turn may carry. */
 export const RUN_CHAT_MAX_FILES = 8
 /** Mentions of each kind one turn may carry. */
@@ -29,7 +31,7 @@ export interface RunChatFileRef {
   mimeType: string
 }
 
-/** The @-mentions a run-chat turn carries: captures, people and companies, and the actions, docs, projects and initiatives (each only when there are some). */
+/** The @-mentions a run-chat turn carries: captures, people and companies, and the records (each kind only when there are some). */
 export interface RunChatMentions {
   captureIds: string[]
   contactIds: string[]
@@ -38,11 +40,17 @@ export interface RunChatMentions {
   documentIds?: string[]
   projectIds?: string[]
   initiativeIds?: string[]
+  dealIds?: string[]
+  flowIds?: string[]
+  fileIds?: string[]
+  calendarEventIds?: string[]
   studioVideoIds?: string[]
 }
 
-/** The record kinds a run-chat turn mentions by id, as their body keys. */
-const RECORD_MENTION_KEYS = ['actionIds', 'documentIds', 'projectIds', 'initiativeIds', 'studioVideoIds'] as const
+/** The record kinds a run-chat turn mentions by id, as their body keys (MENTION_RECORD_KEYS' run names). */
+const RECORD_MENTION_KEYS = Object.values(MENTION_RECORD_KEYS).map((k) => k.run) as Array<
+  'actionIds' | 'documentIds' | 'projectIds' | 'initiativeIds' | 'dealIds' | 'flowIds' | 'fileIds' | 'calendarEventIds' | 'studioVideoIds'
+>
 
 /** What the composer adds to a run-chat POST, parsed. */
 export interface RunChatTurnExtras {

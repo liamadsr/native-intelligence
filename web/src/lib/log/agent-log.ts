@@ -83,6 +83,10 @@ export const AGENT_LOG_KINDS = [
   // the person about tomorrow morning. Its own message in the home thread
   // stands for it, so the digest leaves it out.
   'look_ahead',
+  // A record kept up to date from an email, a meeting or a text (migration
+  // 539, src/lib/kept-up-to-date/), and an Undo of it. Its own message in the
+  // home thread stands for it, so the digest leaves it out.
+  'kept_up_to_date',
 ] as const
 export type AgentLogKind = (typeof AGENT_LOG_KINDS)[number]
 
@@ -153,6 +157,12 @@ export type LogEvent =
   | { type: 'mail_archived'; count: number; undone?: boolean }
   /** Arriving mail marked a to-do done (`from`: its sender's domain), or (`undone`) the person reopened it. */
   | { type: 'action_done_from_mail'; identifier: string | null; title: string | null; from?: string | null; undone?: boolean }
+  /**
+   * A record kept up to date (`change`: "Stage → Won", or "done" for a to-do;
+   * `from`: "an email from acme.example", "a meeting", "a text"), or
+   * (`undone`) the person took it back.
+   */
+  | { type: 'kept_up_to_date'; title: string | null; change: string; from?: string | null; undone?: boolean }
 
 /** What a pull request's change is said with: Native Intelligence's own values, never the PR's title or body. */
 export interface PrChangeWords {
@@ -250,6 +260,13 @@ export function logLineFor(event: LogEvent): { kind: AgentLogKind; line: string 
         line: capLine(`Marked ${todo} done: a confirmation${from ? ` from ${from}` : ''} arrived (Undo is on its message in the home thread)`),
       }
     }
+    case 'kept_up_to_date': {
+      const record = title(event.title, 'a record')
+      const change = clipLogText(event.change, LOG_TITLE_MAX) ?? 'changed'
+      if (event.undone) return { kind: 'kept_up_to_date', line: capLine(`Undid ${record}: ${change}; it won't be changed that way again`) }
+      const from = clipLogText(event.from ?? null, LOG_TITLE_MAX)
+      return { kind: 'kept_up_to_date', line: capLine(`Updated ${record}: ${change}${from ? `, from ${from}` : ''} (Undo is on its message in the home thread)`) }
+    }
   }
 }
 
@@ -273,6 +290,8 @@ export const logDedupeKey = {
   mailArchived: (batchId: string, undone = false) => `mail:auto-archive:${batchId}${undone ? ':undone' : ''}`,
   /** One to-do mail closed (an action_mail_done row), and its Undo. */
   actionDoneFromMail: (recordId: string, undone = false) => `mail:action-done:${recordId}${undone ? ':undone' : ''}`,
+  /** One record kept up to date (a kept_change row), and its Undo. */
+  keptUpToDate: (recordId: string, undone = false) => `kept:${recordId}${undone ? ':undone' : ''}`,
 }
 
 export interface AppendLogLineInput {

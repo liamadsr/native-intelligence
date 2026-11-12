@@ -59,6 +59,11 @@ const FIELD_TRAITS: Record<string, FilterFieldTrait> = {
  */
 export function operatorsFor(fieldDef: FilterFieldDefinition): FilterOperator[] {
   const operators = OPERATORS_BY_TYPE[fieldDef.type] ?? []
+  // A custom multi-select or relation holds a list: it includes or excludes
+  // the values picked, or is empty.
+  if (fieldDef.custom && ((fieldDef.type === 'enum' && fieldDef.isArray) || fieldDef.type === 'relation')) {
+    return ['includes', 'excludes', 'is_empty', 'is_not_empty']
+  }
   if (fieldDef.custom && fieldDef.type === 'enum') {
     return [...operators, ...(['is_empty', 'is_not_empty'] as const).filter((op) => !operators.includes(op))]
   }
@@ -74,7 +79,7 @@ export function operatorsFor(fieldDef: FilterFieldDefinition): FilterOperator[] 
  * be handed a pair it has no branch for.
  */
 export function defaultOperatorFor(fieldDef: FilterFieldDefinition): FilterOperator {
-  const operators = OPERATORS_BY_TYPE[fieldDef.type] ?? []
+  const operators = operatorsFor(fieldDef)
   const preferred = FIELD_TRAITS[fieldDef.field]?.defaultOperator
   if (preferred && operators.includes(preferred)) return preferred
   return operators[0] ?? 'is'

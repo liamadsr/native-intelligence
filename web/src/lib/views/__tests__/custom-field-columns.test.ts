@@ -55,10 +55,12 @@ describe('which views take custom fields', () => {
       expect(FILTERABLE_FIELDS[kind as ViewEntityType]).toBeDefined()
     }
     const others = (Object.keys(FILTERABLE_FIELDS) as ViewEntityType[]).filter(
-      (k) => !(CUSTOM_FIELD_ENTITY_TYPES as readonly string[]).includes(k),
+      (k) => !(CUSTOM_FIELD_ENTITY_TYPES as readonly string[]).includes(k) && k !== 'data_row',
     )
     for (const kind of others) expect(viewTakesCustomFields(kind)).toBe(false)
-    expect(viewTakesCustomFields('deal')).toBe(true)
+    // A table's rows: their columns are their table's own fields.
+    expect(viewTakesCustomFields('data_row')).toBe(true)
+    expect(viewTakesCustomFields('company')).toBe(true)
     expect(viewTakesCustomFields('action')).toBe(true)
   })
 })
@@ -81,10 +83,10 @@ describe('definitions as filter fields', () => {
   })
 
   it('appends to the built-in fields, and adds nothing when there are none', () => {
-    expect(withCustomFilterFields(FILTERABLE_FIELDS.deal, [])).toEqual(FILTERABLE_FIELDS.deal)
-    const all = withCustomFilterFields(FILTERABLE_FIELDS.deal, DEFS)
-    expect(all.slice(0, FILTERABLE_FIELDS.deal.length)).toEqual(FILTERABLE_FIELDS.deal)
-    expect(all.length).toBe(FILTERABLE_FIELDS.deal.length + DEFS.length)
+    expect(withCustomFilterFields(FILTERABLE_FIELDS.company, [])).toEqual(FILTERABLE_FIELDS.company)
+    const all = withCustomFilterFields(FILTERABLE_FIELDS.company, DEFS)
+    expect(all.slice(0, FILTERABLE_FIELDS.company.length)).toEqual(FILTERABLE_FIELDS.company)
+    expect(all.length).toBe(FILTERABLE_FIELDS.company.length + DEFS.length)
   })
 
   it('definitions as columns, in definition order', () => {

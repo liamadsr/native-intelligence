@@ -24,6 +24,7 @@
  */
 import { isCustomFieldEntityType, type CustomFieldEntityType } from '@/lib/knowledge/entity-registry'
 import type { CustomFieldDefinition, CustomFieldType } from '@/lib/crm/custom-fields'
+import { DEFAULT_CURRENCY, formatFieldValue } from '@/lib/crm/custom-field-types'
 import type { DisplayPropertyDefinition, FilterFieldDefinition, FilterFieldType, FilterValue, GroupedResults, ViewEntityType } from './types'
 
 export const CUSTOM_FIELD_PATH_PREFIX = 'custom_fields.'
@@ -43,8 +44,9 @@ export function announceCustomFieldsChanged() {
 /** The definitions' key shape (custom-fields.ts KEY_RE): a slug, at most 40 characters. */
 const KEY_RE = /^[a-z][a-z0-9_]{0,39}$/
 
-/** The definition fields a view needs (the GET route returns more). */
-export type CustomFieldColumnDefinition = Pick<CustomFieldDefinition, 'key' | 'label' | 'field_type' | 'options'>
+/** The definition fields a view needs (the GET route returns more). `config` names a relation's target. */
+export type CustomFieldColumnDefinition = Pick<CustomFieldDefinition, 'key' | 'label' | 'field_type' | 'options'> &
+  Partial<Pick<CustomFieldDefinition, 'config'>>
 
 /** `contract_length` → `custom_fields.contract_length`. */
 export function customFieldPath(key: string): string {
@@ -66,17 +68,34 @@ export function customFieldKeyOf(field: string): string | null {
   return KEY_RE.test(key) ? key : null
 }
 
-/** Whether a view of this kind can carry custom fields (the registry's flag). */
-export function viewTakesCustomFields(entityType: ViewEntityType): entityType is ViewEntityType & CustomFieldEntityType {
-  return isCustomFieldEntityType(entityType)
+/**
+ * Whether a view of this kind can carry custom fields: the registry's flag,
+ * and a table's rows, whose columns are custom fields of their table's own.
+ */
+export function viewTakesCustomFields(entityType: ViewEntityType): entityType is (ViewEntityType & CustomFieldEntityType) | 'data_row' {
+  return entityType === 'data_row' || isCustomFieldEntityType(entityType)
 }
 
-/** How each field type filters: the built-in filter type with the same editors and operators. */
+/**
+ * How each field type filters: the built-in filter type with the same editors.
+ * A multi-select is an enum over its options that holds a list (`isArray`), a
+ * currency filters by its amount, a person by member ("me" too), a relation
+ * by the records it links. The engine reads each by the field's own type,
+ * which the query route takes from the definitions (CustomFieldTypes).
+ */
 const FILTER_TYPE: Record<CustomFieldType, FilterFieldType> = {
   text: 'text',
   number: 'number',
   date: 'date',
   select: 'enum',
+  multi_select: 'enum',
+  checkbox: 'boolean',
+  url: 'text',
+  email: 'text',
+  phone: 'text',
+  person: 'member',
+  currency: 'number',
+  relation: 'relation',
 }
 
 /**
@@ -91,7 +110,14 @@ export function customFieldFilterFields(defs: readonly CustomFieldColumnDefiniti
     const type = FILTER_TYPE[d.field_type]
     if (!type) continue
     const field: FilterFieldDefinition = { field: customFieldPath(d.key), label: d.label, type, allowEmpty: true, custom: true }
-    if (d.field_type === 'select') field.options = [...(d.options ?? [])]
+    if (d.field_type === 'select' || d.field_type === 'multi_select') field.options = [...(d.options ?? [])]
+    if (d.field_type === 'multi_select') field.isArray = true
+    if (d.field_type === 'currency') field.currency = d.config?.currency || DEFAULT_CURRENCY
+    if (d.field_type === 'relation') {
+      const target = d.config?.target
+      if (!target) continue
+      field.relationTarget = target.table_id ? { kind: target.kind, table_id: target.table_id } : { kind: target.kind }
+    }
     out.push(field)
   }
   return out
@@ -115,16 +141,13 @@ export function withCustomFilterFields(
  * date as "Mar 4" (with the year when it is not this one), the rest as typed.
  * Empty for a value that isn't there, so the cell renders nothing.
  */
-export function formatCustomFieldValue(fieldType: CustomFieldType | undefined, value: unknown, now: Date = new Date()): string {
-  if (value === null || value === undefined || value === '') return ''
-  if (typeof value === 'object') return ''
-  if (fieldType === 'number' && typeof value === 'number') return value.toLocaleString('en-US', { maximumFractionDigits: 2 })
-  if (fieldType === 'date' && typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const [y, m, d] = value.split('-').map(Number)
-    const day = new Date(y, m - 1, d)
-    return day.toLocaleDateString('en-US', y === now.getFullYear() ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' })
-  }
-  return String(value)
+export function formatCustomFieldValue(
+  fieldType: CustomFieldType | undefined,
+  value: unknown,
+  now: Date = new Date(),
+  labels?: Record<string, string>,
+): string {
+  return formatFieldValue(fieldType, value, { now, labels })
 }
 
 /**

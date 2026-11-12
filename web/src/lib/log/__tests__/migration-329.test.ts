@@ -41,7 +41,7 @@ describe('migration 329', () => {
   it('checks the kind against the writers’ list and the line against the 200-character cap', () => {
     const kinds = /kind in \(([^)]*)\)/.exec(BODY)?.[1].split(',').map((k) => k.trim().replace(/'/g, ''))
     // 'doc_updated', 'pr_changed', 'mail_archived', 'action_done_from_mail' and 'look_ahead' came later: migrations 376, 443, 446, 450 and 452 widen the check (pinned in their own tests).
-    expect(kinds).toEqual(AGENT_LOG_KINDS.filter((k) => k !== 'doc_updated' && k !== 'pr_changed' && k !== 'mail_archived' && k !== 'action_done_from_mail' && k !== 'look_ahead'))
+    expect(kinds).toEqual(AGENT_LOG_KINDS.filter((k) => k !== 'doc_updated' && k !== 'pr_changed' && k !== 'mail_archived' && k !== 'action_done_from_mail' && k !== 'look_ahead' && k !== 'kept_up_to_date'))
     expect(BODY).toContain(`check (char_length(btrim(line)) between 1 and ${LOG_LINE_MAX} and char_length(line) <= ${LOG_LINE_MAX})`)
   })
 

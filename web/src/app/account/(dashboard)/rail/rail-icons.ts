@@ -10,7 +10,7 @@
  * Sequences (Send in the `/` menu) wears ListOrdered in the sub-nav, the
  * steps of a sequence, two rows never sharing the group's glyph by accident.
  *
- * Liam, 11-11: Drive (Docs, Knowledge, Files) wears HardDrive, its members
+ * Liam, 11-11: Drive (Docs, Knowledge, Files, Tables) wears HardDrive, its members
  * the icons they had; Agents (Agents & skills, Flows, Evals) keeps Agents &
  * skills' Sparkles, its namesake member's.
  */
@@ -34,6 +34,7 @@ import {
   Paperclip,
   Send,
   Sparkles,
+  Table2,
   Telescope,
   Users,
   Workflow,
@@ -72,6 +73,7 @@ export const GROUP_PAGE_ICONS: Readonly<Record<string, LucideIcon>> = {
   docs: Folder,
   knowledge: Brain,
   files: Paperclip,
+  tables: Table2,
   agents: Sparkles,
   flows: Workflow,
   evals: FlaskConical,
