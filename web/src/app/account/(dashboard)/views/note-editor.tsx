@@ -36,6 +36,7 @@ import { Gapcursor } from '@tiptap/extension-gapcursor'
 import { cx } from 'class-variance-authority'
 import { LinkPreviewNode } from '@/components/editor/link-preview-extension'
 import { TableEmbedNode } from '@/components/editor/table-embed-extension'
+import { RecordMention } from '@/components/editor/record-mention'
 import { EDITOR_LINK_CLASS, UrlLinkDecorations } from '@/components/editor/url-link-decorations'
 import { pasteUrlTransaction } from '@/components/editor/paste-url'
 import { ReadAloudSections } from '@/components/editor/read-aloud-sections-extension'
@@ -217,6 +218,8 @@ const defaultExtensions = [
   LinkPreviewNode,
   // A table's saved view, read-only (Tables, phase 6).
   TableEmbedNode,
+  // A record @-mentioned in the body, drawn as a chip in every editor (the `@` picker is the documents': record-mention.ts).
+  RecordMention,
 ]
 
 

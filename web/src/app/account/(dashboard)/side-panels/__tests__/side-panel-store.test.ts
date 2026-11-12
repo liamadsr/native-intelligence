@@ -8,17 +8,27 @@
  *     reads as all closed), and storage that throws (read or
  *     write) or holds junk breaks nothing: the session holds them in memory;
  *   • a card moves among the cards showing; a hidden one keeps its slot;
- *   • For you's fold is the key it always was;
+ *   • the panel's two views (Liam, 11-11: the sections or the For you
+ *     cards, never both): the view remembered per device, each view's
+ *     button opening the panel on it, swapping to it or closing it; ⌘\
+ *     keeping the view; For you with no cards off screen, the panel's open
+ *     state and view kept for when cards come;
  *   • the capture's notepad docking is heard once;
+ *   • the page panel's button (Liam, 11-11, right of Search): open by
+ *     default, closing remembered per device, opening by hand lets it float
+ *     (this session only), a press closing it only while it is on screen,
+ *     the saved state kept while it hides for another reason, another tab's
+ *     change heard;
  *   • a toggle puts the chat back at the same distance from its bottom.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  FOR_YOU_COLLAPSED_KEY,
   ORDER_KEY,
+  PAGE_PANEL_OPEN_KEY,
   RIGHT_OPEN_KEY,
   SECTIONS_KEY,
   SECTION_IDS,
+  VIEW_KEY,
   captureChatAnchor,
   chatScroller,
   getServerSidePanelState,
@@ -27,16 +37,25 @@ import {
   moveSection,
   parseOrder,
   parseSectionOpen,
+  parseView,
   resetSidePanelStore,
   registerChatScrollHold,
   restoreChatAnchor,
   setCaptureDockOpen,
+  setPagePanelContent,
+  setPagePanelOpen,
+  setPagePanelShown,
+  togglePagePanel,
+  pagePanelWanted,
+  rightShown,
   setForYouContent,
-  setForYouOpen,
   setRightPanelOpen,
   setSectionOpen,
+  setSidePanelView,
+  shownView,
   subscribeSidePanels,
   toggleRightPanel,
+  toggleSidePanelView,
 } from '../side-panel-store'
 
 beforeEach(() => {
@@ -124,21 +143,30 @@ describe('remembered per device', () => {
     expect(window.localStorage.getItem(ORDER_KEY)).toBeNull()
   })
 
-  it('For you keeps its own fold key, open by default', () => {
-    expect(getSidePanelState().leftOpen).toBe(true)
-    setForYouOpen(false)
-    expect(window.localStorage.getItem(FOR_YOU_COLLAPSED_KEY)).toBe('1')
+  it('the panel’s view: the sections by default, For you written and read back, junk the sections', () => {
+    expect(getSidePanelState().view).toBe('panel')
+    setSidePanelView('forYou')
+    expect(window.localStorage.getItem(VIEW_KEY)).toBe('for-you')
     resetSidePanelStore()
-    expect(getSidePanelState().leftOpen).toBe(false)
+    expect(getSidePanelState().view).toBe('forYou')
+    setSidePanelView('panel')
+    expect(window.localStorage.getItem(VIEW_KEY)).toBeNull()
+    expect(parseView('junk')).toBe('panel')
+    expect(parseView(null)).toBe('panel')
+    // The left column's fold key from before is not read by anything any more.
+    window.localStorage.setItem('ni:for-you-column:folded', '1')
+    resetSidePanelStore()
+    expect(Object.keys(getSidePanelState())).not.toContain('leftOpen')
   })
 
   it('the server renders closed, every card closed, the default order (no hydration mismatch)', () => {
     window.localStorage.setItem(RIGHT_OPEN_KEY, '1')
     window.localStorage.setItem(SECTIONS_KEY, '{"open":["plan"]}')
+    window.localStorage.setItem(VIEW_KEY, 'for-you')
     expect(getServerSidePanelState()).toMatchObject({
       rightOpen: false,
-      leftOpen: false,
-      leftContent: false,
+      view: 'panel',
+      forYouContent: false,
       sectionOpen: { computer: true, agents: false, plan: false, context: false, environment: false, connections: false },
       order: SECTION_IDS,
     })
@@ -163,8 +191,8 @@ describe('remembered per device', () => {
     expect(() => setRightPanelOpen(true)).not.toThrow()
     expect(() => setSectionOpen('agents', true)).not.toThrow()
     expect(() => moveSection('plan', 0, SECTION_IDS)).not.toThrow()
-    expect(() => setForYouOpen(false)).not.toThrow()
-    expect(getSidePanelState()).toMatchObject({ rightOpen: true, leftOpen: false, sectionOpen: { agents: true }, order: ['plan', 'computer', 'agents', 'context', 'environment', 'connections'] })
+    expect(() => setSidePanelView('forYou')).not.toThrow()
+    expect(getSidePanelState()).toMatchObject({ rightOpen: true, view: 'forYou', sectionOpen: { agents: true }, order: ['plan', 'computer', 'agents', 'context', 'environment', 'connections'] })
   })
 
   it('subscribers hear a change once, and nothing when nothing changed', () => {
@@ -173,6 +201,7 @@ describe('remembered per device', () => {
     setRightPanelOpen(true)
     setRightPanelOpen(true)
     setForYouContent(false)
+    setSidePanelView('panel')
     expect(heard).toHaveBeenCalledTimes(1)
     off()
   })
@@ -184,6 +213,94 @@ describe('remembered per device', () => {
     setCaptureDockOpen(true)
     setCaptureDockOpen(true)
     expect(getSidePanelState().captureDock).toBe(true)
+    expect(heard).toHaveBeenCalledTimes(1)
+    off()
+  })
+
+  it('the page panel having something to show is heard once, for the space plan, and never saved', () => {
+    const heard = vi.fn()
+    const off = subscribeSidePanels(heard)
+    expect(getSidePanelState().pagePanel).toBe(false)
+    setPagePanelContent(true)
+    setPagePanelContent(true)
+    expect(getSidePanelState().pagePanel).toBe(true)
+    expect(heard).toHaveBeenCalledTimes(1)
+    expect(Object.keys(window.localStorage).filter((k) => k.includes('page'))).toEqual([])
+    off()
+  })
+})
+
+describe('one panel, two views (Liam, 11-11: “you can’t see both at the same time”)', () => {
+  it('each view’s button opens the panel on its view, swaps to it from the other in place, and closes the panel while its view shows', () => {
+    setForYouContent(true)
+    // Side panel: opens on the sections.
+    toggleSidePanelView('panel')
+    expect(getSidePanelState()).toMatchObject({ rightOpen: true, view: 'panel' })
+    expect(shownView(getSidePanelState())).toBe('panel')
+    // For you while the sections show: swapped, still open (no close, so no slide).
+    const heard = vi.fn()
+    const off = subscribeSidePanels(heard)
+    toggleSidePanelView('forYou')
+    expect(getSidePanelState()).toMatchObject({ rightOpen: true, view: 'forYou' })
+    expect(heard).toHaveBeenCalledTimes(1)
+    off()
+    expect(window.localStorage.getItem(VIEW_KEY)).toBe('for-you')
+    // For you again: closed, its view kept.
+    toggleSidePanelView('forYou')
+    expect(getSidePanelState()).toMatchObject({ rightOpen: false, view: 'forYou' })
+    expect(shownView(getSidePanelState())).toBeNull()
+    // Side panel while closed: opens on the sections; again, closes.
+    toggleSidePanelView('panel')
+    expect(getSidePanelState()).toMatchObject({ rightOpen: true, view: 'panel' })
+    toggleSidePanelView('panel')
+    expect(getSidePanelState().rightOpen).toBe(false)
+  })
+
+  it('⌘\\ opens and closes the panel on the view it had', () => {
+    setForYouContent(true)
+    setSidePanelView('forYou')
+    toggleRightPanel()
+    expect(getSidePanelState()).toMatchObject({ rightOpen: true, view: 'forYou' })
+    toggleRightPanel()
+    expect(getSidePanelState()).toMatchObject({ rightOpen: false, view: 'forYou' })
+    setSidePanelView('panel')
+    toggleRightPanel()
+    expect(getSidePanelState()).toMatchObject({ rightOpen: true, view: 'panel' })
+  })
+
+  it('For you with no cards is off screen, its open state and view kept: it comes back on For you when cards arrive, never on the sections by itself', () => {
+    setSidePanelView('forYou')
+    setRightPanelOpen(true)
+    expect(getSidePanelState().forYouContent).toBe(false)
+    expect(rightShown(getSidePanelState())).toBe(false)
+    expect(shownView(getSidePanelState())).toBeNull()
+    expect(getSidePanelState()).toMatchObject({ rightOpen: true, view: 'forYou' })
+    expect(window.localStorage.getItem(RIGHT_OPEN_KEY)).toBe('1')
+    setForYouContent(true)
+    expect(shownView(getSidePanelState())).toBe('forYou')
+    setForYouContent(false)
+    expect(getSidePanelState()).toMatchObject({ rightOpen: true, view: 'forYou' })
+    expect(rightShown(getSidePanelState())).toBe(false)
+    // The sections show whatever For you has.
+    setSidePanelView('panel')
+    expect(shownView(getSidePanelState())).toBe('panel')
+  })
+
+  it('⌘\\ with the panel saved on an empty For you (nothing on screen) opens the sections: a key press always shows something', () => {
+    setSidePanelView('forYou')
+    setRightPanelOpen(true)
+    toggleRightPanel()
+    expect(getSidePanelState()).toMatchObject({ rightOpen: true, view: 'panel' })
+    expect(shownView(getSidePanelState())).toBe('panel')
+  })
+
+  it('another tab’s view change arrives as a storage event', () => {
+    const heard = vi.fn()
+    const off = subscribeSidePanels(heard)
+    getSidePanelState()
+    window.localStorage.setItem(VIEW_KEY, 'for-you')
+    window.dispatchEvent(new StorageEvent('storage', { key: VIEW_KEY }))
+    expect(getSidePanelState().view).toBe('forYou')
     expect(heard).toHaveBeenCalledTimes(1)
     off()
   })
@@ -252,5 +369,104 @@ describe('the chat’s bottom anchor', () => {
     scroller({ scrollHeight: 2000, clientHeight: 600, scrollTop: 0 })
     captureChatAnchor()
     expect(hold).not.toHaveBeenCalled()
+  })
+})
+
+describe('the page panel’s button (Liam, 11-11: “a button for opening and closing the new panel”)', () => {
+  it('open by default; closing is remembered per device, opening by hand clears it and lets it float this session only', () => {
+    expect(getSidePanelState()).toMatchObject({ pagePanelOpen: true, pagePanelFloatOk: false })
+    expect(getServerSidePanelState()).toMatchObject({ pagePanelOpen: true, pagePanelFloatOk: false, pagePanelShown: false })
+    setPagePanelOpen(false)
+    expect(window.localStorage.getItem(PAGE_PANEL_OPEN_KEY)).toBe('0')
+    expect(getSidePanelState()).toMatchObject({ pagePanelOpen: false, pagePanelFloatOk: false })
+    resetSidePanelStore()
+    expect(getSidePanelState().pagePanelOpen).toBe(false)
+    setPagePanelOpen(true)
+    expect(window.localStorage.getItem(PAGE_PANEL_OPEN_KEY)).toBeNull()
+    expect(getSidePanelState()).toMatchObject({ pagePanelOpen: true, pagePanelFloatOk: true })
+    // A new session: open as remembered, not opened by hand.
+    resetSidePanelStore()
+    expect(getSidePanelState()).toMatchObject({ pagePanelOpen: true, pagePanelFloatOk: false })
+  })
+
+  it('a press closes it while on screen, else opens it by hand (open as remembered but off screen too)', () => {
+    setPagePanelShown(true)
+    togglePagePanel()
+    expect(getSidePanelState()).toMatchObject({ pagePanelOpen: false, pagePanelFloatOk: false })
+    setPagePanelShown(false)
+    togglePagePanel()
+    expect(getSidePanelState()).toMatchObject({ pagePanelOpen: true, pagePanelFloatOk: true })
+    resetSidePanelStore()
+    togglePagePanel()
+    expect(getSidePanelState()).toMatchObject({ pagePanelOpen: true, pagePanelFloatOk: true })
+  })
+
+  it('a page’s sub-nav says so with its rows (pinned: shown while open, room or not); never without rows, never saved', () => {
+    expect(getServerSidePanelState().pagePanelPage).toBe(false)
+    setPagePanelContent(true, true)
+    expect(getSidePanelState()).toMatchObject({ pagePanel: true, pagePanelPage: true })
+    // Home's Recent: not pinned.
+    setPagePanelContent(true)
+    expect(getSidePanelState().pagePanelPage).toBe(false)
+    // No rows: nothing pinned either.
+    setPagePanelContent(false, true)
+    expect(getSidePanelState()).toMatchObject({ pagePanel: false, pagePanelPage: false })
+    setPagePanelContent(true, true)
+    resetSidePanelStore()
+    expect(getSidePanelState().pagePanelPage).toBe(false)
+  })
+
+  it('wants the left only with rows and open; the saved state is kept while it hides for another reason', () => {
+    setPagePanelContent(true)
+    expect(pagePanelWanted(getSidePanelState())).toBe(true)
+    setPagePanelOpen(false)
+    expect(pagePanelWanted(getSidePanelState())).toBe(false)
+    setPagePanelContent(false)
+    setCaptureDockOpen(true)
+    setPagePanelShown(false)
+    setCaptureDockOpen(false)
+    setPagePanelContent(true)
+    expect(getSidePanelState().pagePanelOpen).toBe(false)
+    expect(window.localStorage.getItem(PAGE_PANEL_OPEN_KEY)).toBe('0')
+    // And open stays open through the same.
+    setPagePanelOpen(true)
+    setPagePanelContent(false)
+    setCaptureDockOpen(true)
+    expect(getSidePanelState().pagePanelOpen).toBe(true)
+    expect(window.localStorage.getItem(PAGE_PANEL_OPEN_KEY)).toBeNull()
+  })
+
+  it('opening or closing it notes the chat’s place first (its width changes)', () => {
+    const scroller = document.createElement('div')
+    const thread = document.createElement('div')
+    thread.setAttribute('data-main-chat-thread', '')
+    const slot = document.createElement('div')
+    slot.id = 'ni-chat-strip-slot'
+    scroller.appendChild(thread)
+    slot.appendChild(scroller)
+    document.body.appendChild(slot)
+    const hold = vi.fn()
+    registerChatScrollHold(hold)
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 1000 })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+    scroller.scrollTop = 100
+    setPagePanelContent(true)
+    hold.mockClear()
+    setPagePanelOpen(false)
+    expect(hold).toHaveBeenCalledTimes(1)
+  })
+
+  it('another tab’s change arrives as a storage event (the session’s by-hand flag untouched)', () => {
+    const heard = vi.fn()
+    const off = subscribeSidePanels(heard)
+    getSidePanelState()
+    window.localStorage.setItem(PAGE_PANEL_OPEN_KEY, '0')
+    window.dispatchEvent(new StorageEvent('storage', { key: PAGE_PANEL_OPEN_KEY }))
+    expect(getSidePanelState().pagePanelOpen).toBe(false)
+    window.localStorage.removeItem(PAGE_PANEL_OPEN_KEY)
+    window.dispatchEvent(new StorageEvent('storage', { key: PAGE_PANEL_OPEN_KEY }))
+    expect(getSidePanelState()).toMatchObject({ pagePanelOpen: true, pagePanelFloatOk: false })
+    expect(heard).toHaveBeenCalledTimes(2)
+    off()
   })
 })

@@ -95,6 +95,11 @@ export default function MailCardBody({ toolCallId, spec, store, fullScreen, onCo
         store.update(toolCallId, { count: total, rows: threads.slice(0, 5).map((t) => ({ title: threadRow(t) })) })
         onCountRef.current?.(total)
       },
+      // The Mail sub-nav beside the rail moves it (mail-card-controls.ts; Liam, 11-11).
+      id: toolCallId,
+      show: () => {
+        if (store.fullScreen() !== toolCallId) store.enterFullScreen(toolCallId)
+      },
     }),
     [initial, fullScreen, place, navigate, spec, store, toolCallId],
   )

@@ -40,7 +40,7 @@ import { emitProspectEntryAction, useProspectEntryActionTarget } from './list/en
 import { usePickerContext } from './hooks/use-picker-context'
 import { useFlowStatusIds } from './hooks/use-flow-status-ids'
 import { type BulkActionId, isStatusByTeamValue } from './bulk-actions/types'
-import type { ViewEntityType, GroupedResults, ViewFilter, ViewLayout, ViewScope, CrmScope } from '@/lib/views/types'
+import type { View, ViewEntityType, GroupedResults, ViewFilter, ViewLayout, ViewScope, CrmScope } from '@/lib/views/types'
 import type { ProspectStageTab, ProspectStageCounts } from '@/lib/views/prospect-stage-tabs'
 import { DEFAULT_BOARD_GROUP_BY } from '@/lib/views/types'
 import { ENTITY_ENDPOINTS } from '@/lib/views/entity-endpoints'
@@ -300,6 +300,32 @@ interface UnifiedViewLayoutProps {
    * and reports what it shows so the agent can be told (onStateChange).
    */
   card?: CardLayoutOptions
+  /**
+   * The views' tabs only below `md` (the phone's layout): from `md` up a
+   * page's own sub-nav beside the rail holds the same choices (Liam, 11-11:
+   * the Tasks sub-nav, app/account/(dashboard)/page-panel/tasks-panel.tsx).
+   * In CSS, so the browser decides before the first paint. The filter and
+   * settings buttons stay.
+   */
+  viewTabsBelowMdOnly?: boolean
+}
+
+/**
+ * Where a card's own list is among its views, and what moves it there: the
+ * same state its view tabs read and set (a scope tab, a saved view), for a
+ * page's sub-nav outside the card (components/chat-cards/tasks-card-controls.ts).
+ */
+export interface CardListNav {
+  /** The scope tab lit (My Actions' Assigned to me / All / Created by me); null while a saved view is. */
+  scope: 'assigned' | 'created' | 'all' | null
+  /** The saved view picked; null: none. */
+  viewId: string | null
+  /** The saved views the list read. */
+  views: readonly View[]
+  /** As a scope tab's press: the saved view goes, the scope's own page comes. */
+  setScope: (scope: 'assigned' | 'created' | 'all') => void
+  /** As a saved view's tab press. */
+  setView: (viewId: string) => void
 }
 
 /** What a chat card hands the layout (see UnifiedViewLayoutProps.card). */
@@ -322,6 +348,8 @@ export interface CardLayoutOptions extends CardConfigSource {
   view?: string | null
   /** The person picked another saved view (or the page itself). */
   onViewChange?: (viewId: string | null) => void
+  /** Where the list is among its views, whenever that changes (CardListNav); a page's sub-nav reads it. */
+  onNav?: (nav: CardListNav) => void
 }
 
 /**
@@ -397,6 +425,7 @@ export function UnifiedViewLayout({
   renderGraph,
   onFiltersChange,
   card: cardProp,
+  viewTabsBelowMdOnly = false,
 }: UnifiedViewLayoutProps) {
   // A list inside a page card that wasn't handed its own card options (a
   // sequence's page, a suite's cases, a list's entries) takes them from the
@@ -660,6 +689,22 @@ export function UnifiedViewLayout({
   React.useEffect(() => {
     onFiltersChange?.(graphFilters)
   }, [graphFilters, onFiltersChange])
+
+  // A chat card's own list says where it is among its views, and hands the
+  // same moves its view tabs make (a scope tab clears the saved view on the
+  // way, silently, as ViewToolbar's handleScopedViewChange does), for a
+  // page's sub-nav beside the rail (CardListNav).
+  const navScope = activeViewId ? null : config.action_scope
+  const setNavScope = React.useCallback((scope: 'assigned' | 'created' | 'all') => {
+    handleViewSelected(null, { silent: true })
+    resetConfig({ action_scope: scope })
+  }, [handleViewSelected, resetConfig])
+  const setNavView = React.useCallback((viewId: string) => handleViewSelected(viewId), [handleViewSelected])
+  const hasNav = !!card?.onNav
+  React.useEffect(() => {
+    if (!hasNav) return
+    cardRef.current?.onNav?.({ scope: navScope, viewId: activeViewId, views, setScope: setNavScope, setView: setNavView })
+  }, [hasNav, navScope, activeViewId, views, setNavScope, setNavView])
 
   // A chat card reports what it shows: its config against the agent's
   // baseline, its search, its count and its rows (for the agent's note).
@@ -1836,6 +1881,7 @@ export function UnifiedViewLayout({
       <ViewToolbar
         embedded={isScopedInstance || !!card}
         hideTabs={!!card && !card.keepTabs && !cardOwnList}
+        tabsBelowMdOnly={viewTabsBelowMdOnly}
         compact={card?.compact}
         entityType={entityType}
         teamId={teamId}

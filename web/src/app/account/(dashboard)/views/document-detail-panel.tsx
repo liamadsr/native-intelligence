@@ -81,6 +81,8 @@ import { ProposalNodeExtension } from '@/components/capture/proposal-node-extens
 import { useSuggestionHome } from '@/components/suggestions/suggestions-store'
 import type { ProposalChangeRef } from './markdown-conversion'
 import { EntityRefDecorations } from '@/components/entity-refs/entity-ref-tiptap'
+import { RecordMentionSuggestion, createMentionSuggestionStore } from '@/components/editor/record-mention'
+import { RecordMentionMenu } from '@/components/editor/record-mention-menu'
 import { StaleSectionsNote, type StaleSectionMark } from '@/components/documents/stale-sections-note'
 import {
   EntityRefDocPopover,
@@ -335,9 +337,16 @@ export function DocumentDetailPanel({
       }),
     [],
   )
-  // Both stable for the editor's lifetime: suggestion cards for `<!-- proposal:ID -->`
-  // markers, and the identifier decorations.
-  const docExtraExtensions = useMemo(() => [ProposalNodeExtension, entityRefExtension], [entityRefExtension])
+  // `@` in the body: the one `@` picker (RecordMentionMenu, below) opens under
+  // it, and a pick puts the record's chip there. The store joins the two.
+  const [mentionStore] = useState(createMentionSuggestionStore)
+  const mentionExtension = useMemo(() => RecordMentionSuggestion.configure({ store: mentionStore }), [mentionStore])
+  // All stable for the editor's lifetime: suggestion cards for `<!-- proposal:ID -->`
+  // markers, the identifier decorations, and the `@` picker.
+  const docExtraExtensions = useMemo(
+    () => [ProposalNodeExtension, entityRefExtension, mentionExtension],
+    [entityRefExtension, mentionExtension],
+  )
 
   // Re-fetch the document and reconcile local state. Used by both the AI-edit
   // completion signal and the realtime detail sync (teammate/MCP/cron writes).
@@ -1177,6 +1186,7 @@ export function DocumentDetailPanel({
 
       {/* One popover host for identifier decorations clicked in the body. */}
       <EntityRefDocPopover target={entityRefTarget} onClose={() => setEntityRefTarget(null)} />
+      <RecordMentionMenu store={mentionStore} />
     </div>
   )
 }

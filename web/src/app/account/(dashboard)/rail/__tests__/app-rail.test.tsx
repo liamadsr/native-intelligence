@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 /**
  * The app rail (../app-rail.tsx): its icons in Liam's order, a page opens as
- * `/` opens it (OPEN_CARD_EVENT, full screen in the main chat), the page in
- * front is lit (no Home or New button: Liam, 11-09), and <html> carries
- * the rail's width attribute for the full-screen layer while it is mounted.
+ * `/` opens it (OPEN_CARD_EVENT, full screen in the main chat), Home at the
+ * bar's top (Liam, 11-11) puts every card in front away, the selected place
+ * is lit (Home under anything opened from home; a page only when it is
+ * selected), and <html> carries the rail's width attribute for the
+ * full-screen layer while it is mounted.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
@@ -11,8 +13,13 @@ import { act, createElement as h } from 'react'
 import { getEdition, withEffectiveSurface, type EditionDefinition } from '@/lib/editions/manifest'
 import { OPEN_CARD_EVENT, type OpenCardRequest } from '@/lib/chat-cards/open-card'
 import { holdFrontCard } from '@/components/chat-cards/front-card'
+import { __resetSelectedPlaceForTests } from '../selected-place'
+import { GROUP_LAST_PAGE_KEY, __resetPageGroupsForTests } from '../page-groups'
+import { CARD_PAGES } from '@/lib/chat-cards/page-menu'
+import type { CardSpec } from '@/lib/chat-cards/kinds'
 import { __resetRailPrefsForTests } from '@/lib/rail-prefs-store'
 import { RAIL_PAGES_STORAGE_KEY } from '@/lib/rail-prefs'
+import { resetSidePanelStore, setPagePanelContent } from '../../side-panels/side-panel-store'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -32,11 +39,6 @@ vi.mock('@/app/account/workspace-switcher', async () => {
   }
 })
 vi.mock('@/lib/chat/open-search', () => ({ openSearch }))
-// For you's button (side-panels): its own tests; here, where it sits.
-vi.mock('../../side-panels/side-panel-toggles', async () => {
-  const React = await import('react')
-  return { ForYouToggle: ({ variant }: { variant?: string }) => React.createElement('button', { 'data-for-you-panel-toggle': '', 'data-variant': variant }) }
-})
 
 import { APP_RAIL_ATTR, AppRail } from '../app-rail'
 
@@ -49,6 +51,9 @@ const fetchMock = vi.fn(async (..._args: unknown[]) => new Response('{"success":
 beforeEach(() => {
   localStorage.clear()
   __resetRailPrefsForTests()
+  __resetSelectedPlaceForTests()
+  __resetPageGroupsForTests()
+  resetSidePanelStore()
   vi.stubGlobal('fetch', fetchMock)
   edition.current = getEdition('full')
   container = document.createElement('div')
@@ -74,40 +79,66 @@ const items = () => Array.from(container.querySelectorAll<HTMLElement>('[data-ap
 const lit = () => Array.from(container.querySelectorAll<HTMLElement>('[aria-current="page"]')).map((el) => el.dataset.appRailItem)
 
 describe('the app rail', () => {
-  it('draws the header (the workspace’s thumbnail, For you, Search), then every page that is on, and no Home or New', async () => {
+  it('draws the header (the workspace’s thumbnail, Search), then Home, every page that is on, and no New', async () => {
     await render()
     const header = container.querySelector<HTMLElement>('[data-app-rail-header]')!
-    // In order: the workspace's thumbnail at the far left, For you, Search (Liam, 11-09).
-    const order = Array.from(header.querySelectorAll<HTMLElement>('[data-app-rail-item="workspace"], [data-for-you-panel-toggle], [data-app-rail-item="search"]')).map((el) =>
-      el.hasAttribute('data-for-you-panel-toggle') ? 'for-you' : el.dataset.appRailItem,
-    )
-    expect(order).toEqual(['workspace', 'for-you', 'search'])
-    expect(header.querySelector('[data-for-you-panel-toggle]')?.getAttribute('data-variant')).toBe('header')
+    // In order: the workspace's thumbnail at the far left, then Search (Liam, 11-09).
+    const order = Array.from(header.querySelectorAll<HTMLElement>('[data-app-rail-item="workspace"], [data-app-rail-item="search"]')).map((el) => el.dataset.appRailItem)
+    expect(order).toEqual(['workspace', 'search'])
+    // For you's button is the top bar's now, beside the side panel's (Liam, 11-11: its cards are a view of the side panel).
+    expect(header.querySelector('[data-for-you-panel-toggle]')).toBeNull()
     // The one workspace and account menu (Liam, 11-09), the header's variant.
     expect(header.querySelector('[data-app-rail-item="workspace"] [data-variant="header"]')).not.toBeNull()
     const nav = container.querySelector<HTMLElement>('[data-app-rail-nav]')!
     expect(Array.from(nav.querySelectorAll<HTMLElement>('[data-app-rail-item]')).map((el) => el.dataset.appRailItem)).toEqual([
-      'docs', 'mail', 'team-chat', 'actions', 'calendar', 'captures',
-      'projects', 'initiatives', 'knowledge', 'flows', 'tables',
-      'companies', 'contacts', 'deals', 'prospecting', 'sequences', 'campaigns',
-      'agents', 'evals', 'teams',
+      // Home first (Liam, 11-11), fixed.
+      'home',
+      // Drive: Docs, Knowledge, Files · Calendar: Captures (Liam, 11-11): one icon each.
+      // Projects and Initiatives nest under Tasks (Liam, 11-11): no icons of their own.
+      'drive', 'mail', 'team-chat', 'actions', 'calendar',
+      // Contacts: Companies, Contacts, Deals · Outreach: Prospecting, Sequences, Campaigns (Liam, 11-11).
+      'contacts', 'outreach',
+      // Agents: Agents & skills, Flows, Evals (Liam, 11-11). Teams nests under
+      // My Actions (Liam, 11-11: "Teams should be under action items"): no icon.
+      'agents',
       // Customize bar, at its end (Liam, 11-09).
       'customize',
     ])
     expect(item('mail')?.getAttribute('aria-label')).toBe('Mail')
   })
 
+  it('puts the Recent panel’s button right after Search, only while the panel has something to show (Liam, 11-11)', async () => {
+    await render()
+    const header = container.querySelector<HTMLElement>('[data-app-rail-header]')!
+    const order = () => Array.from(header.querySelectorAll<HTMLElement>('[data-app-rail-item]')).map((el) => el.dataset.appRailItem)
+    expect(order()).toEqual(['workspace', 'search'])
+    act(() => setPagePanelContent(true))
+    expect(order()).toEqual(['workspace', 'search', 'page-panel'])
+    const button = item('page-panel')!
+    expect(button.getAttribute('aria-label')).toBe('Recent')
+    expect(button.getAttribute('aria-expanded')).toBe('false')
+    act(() => setPagePanelContent(false))
+    expect(order()).toEqual(['workspace', 'search'])
+  })
+
   it('floats one bar like Miro’s toolbar ("one big bar instead of four"), a hairline between its groups, with the panels’ glass', async () => {
     await render()
     const pills = Array.from(container.querySelectorAll<HTMLElement>('[data-app-rail-pill]'))
     expect(pills.map((p) => p.dataset.appRailPill)).toEqual(['pages'])
-    expect(Array.from(pills[0].querySelectorAll<HTMLElement>('[data-app-rail-group]')).map((g) => g.dataset.appRailGroup)).toEqual(['work', 'plans', 'customers', 'agents'])
-    expect(pills[0].querySelectorAll('[data-app-rail-group-line]')).toHaveLength(3)
+    expect(Array.from(pills[0].querySelectorAll<HTMLElement>('[data-app-rail-group]')).map((g) => g.dataset.appRailGroup)).toEqual(['work', 'customers', 'agents'])
+    expect(pills[0].querySelectorAll('[data-app-rail-group-line]')).toHaveLength(2)
+    // Home at the top (Liam, 11-11: "add a homepage icon on the navside"), the bar's hairline after it.
+    const home = item('home')!
+    expect(pills[0].firstElementChild).toBe(home)
+    expect(home.nextElementSibling?.hasAttribute('data-app-rail-home-line')).toBe(true)
+    expect(home.getAttribute('aria-label')).toBe('Home')
+    expect(home.querySelector('svg.lucide-house')).not.toBeNull()
+    expect(home.className.split(' ')).toContain('rounded-full')
+    // Not one of the person's pages: never dragged.
+    expect(home.hasAttribute('data-app-rail-page')).toBe(false)
     // At the top, not centred (Liam, 11-09: "top align it so it's not center").
     expect(pills[0].parentElement!.className).not.toContain('my-auto')
-    // No Home or New button (Liam, 11-09: "we don't need this button").
-
-    expect(item('home')).toBeNull()
+    // Still no New button (Liam, 11-09: "we don't need this button").
     expect(item('new')).toBeNull()
     for (const pill of [...pills, container.querySelector<HTMLElement>('[data-app-rail-header]')!]) {
       // Capsules: their ends follow the round buttons inside (Liam, 11-09).
@@ -120,7 +151,7 @@ describe('the app rail', () => {
     // Round hovers and lit states (Liam, 11-09: "the hover states should be circle").
     expect(item('mail')!.className.split(' ')).toContain('rounded-full')
     expect(item('search')!.className.split(' ')).toContain('rounded-full')
-    expect(pills[0].querySelector('[data-app-rail-item="deals"]')).not.toBeNull()
+    expect(pills[0].querySelector('[data-app-rail-item="outreach"]')).not.toBeNull()
   })
 
   it('tells the top bar and the full-screen layer where the header ends (on <html>)', async () => {
@@ -162,23 +193,83 @@ describe('the app rail', () => {
     expect(asked[1].spec).toEqual({ kind: 'mail', title: 'Inbox', mail: { folder: 'inbox' } })
   })
 
-  it('lights nothing with no page in front, and the page in front when there is one', async () => {
+  it('lights Home with nothing in front, and a page while its own card is in front', async () => {
     await render()
-    expect(lit()).toEqual([])
+    expect(lit()).toEqual(['home'])
+    expect(item('home')!.className).toContain('bg-foreground/[0.08]')
     await act(async () => {
       releases.push(holdFrontCard({ id: 'c1', spec: { kind: 'team_chat', title: 'Team chat' }, close: () => {} }))
     })
     expect(lit()).toEqual(['team-chat'])
     await act(async () => releases.pop()!())
-    expect(lit()).toEqual([])
+    expect(lit()).toEqual(['home'])
   })
 
-  it('lights nothing for a card no rail page shows', async () => {
+  it('keeps Home lit under an artifact opened from home (Liam, 11-11: its page isn’t selected)', async () => {
     await render()
+    // An action's record (the Recent panel, a chip), an event on its day (a notification): their pages stay dark.
     await act(async () => {
-      releases.push(holdFrontCard({ id: 'c1', spec: { kind: 'work_item', title: 'A review' } as never, close: () => {} }))
+      releases.push(holdFrontCard({ id: 'r1', spec: { kind: 'record', title: 'Send the quote', record: { type: 'action', id: 'a1' } }, close: () => {} }))
     })
-    expect(lit()).toEqual([])
+    expect(lit()).toEqual(['home'])
+    await act(async () => releases.pop()!())
+    await act(async () => {
+      releases.push(holdFrontCard({ id: 'e1', spec: { kind: 'calendar', title: 'Standup', calendar: { from: '2026-11-10', to: '2026-11-10', view: 'day' } }, close: () => {} }))
+    })
+    expect(lit()).toEqual(['home'])
+    // A card no rail page shows: Home too.
+    await act(async () => releases.pop()!())
+    await act(async () => {
+      releases.push(holdFrontCard({ id: 'w1', spec: { kind: 'work_item', title: 'A review' } as never, close: () => {} }))
+    })
+    expect(lit()).toEqual(['home'])
+  })
+
+  it('keeps a page lit for a record opened from inside it, and goes Home for one opened from elsewhere', async () => {
+    const layer = document.createElement('div')
+    layer.setAttribute('data-chat-card-fullscreen', 'a1')
+    const row = document.createElement('button')
+    layer.appendChild(row)
+    document.body.appendChild(layer)
+    await render()
+    let releasePage = () => {}
+    await act(async () => {
+      releasePage = holdFrontCard({ id: 'a1', spec: { kind: 'list', title: 'My actions', entity_type: 'action', filters: [
+        { field: 'assignee_id', operator: 'is', value: '@me' },
+        { field: 'status_type', operator: 'is_none_of', value: ['completed', 'canceled'] },
+      ] }, close: () => {} })
+    })
+    expect(lit()).toEqual(['actions'])
+    // A project linked from a task in the page, opened as a card of its own: one card leaves for the next in one go.
+    row.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await act(async () => {
+      releasePage()
+      releases.push(holdFrontCard({ id: 'p1', spec: { kind: 'record', title: 'Q4', record: { type: 'project', id: 'p1' } }, close: () => {} }))
+    })
+    expect(lit()).toEqual(['actions'])
+    // A doc from Search (a press outside the page): Home.
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await act(async () => {
+      releases.pop()!()
+      releases.push(holdFrontCard({ id: 'd1', spec: { kind: 'record', title: 'Plan', record: { type: 'document', id: 'd1' } }, close: () => {} }))
+    })
+    expect(lit()).toEqual(['home'])
+    layer.remove()
+  })
+
+  it('puts every card in front away from Home, and is never in Customize bar', async () => {
+    await render()
+    const closed: string[] = []
+    await act(async () => {
+      releases.push(holdFrontCard({ id: 'c1', spec: { kind: 'team_chat', title: 'Team chat' }, close: () => closed.push('c1') }))
+      releases.push(holdFrontCard({ id: 'r1', spec: { kind: 'record', title: 'Doc', record: { type: 'document', id: 'd1' } }, close: () => closed.push('r1') }))
+    })
+    await act(async () => item('home')!.click())
+    expect(closed).toEqual(['r1', 'c1'])
+    await act(async () => item('customize')!.click())
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-app-rail-customize-row]')).map((r) => r.dataset.appRailCustomizeRow)
+    expect(rows.length).toBeGreaterThan(0)
+    expect(rows).not.toContain('home')
   })
 
   it('gives the keys back to the page in front when its own icon is clicked again', async () => {
@@ -218,10 +309,9 @@ const savedBar = () => {
   return last ? JSON.parse(String((last[1] as RequestInit).body)).rail_pages : undefined
 }
 const DEFAULT_BAR = [
-  'docs', 'mail', 'team-chat', 'actions', 'calendar', 'captures',
-  'projects', 'initiatives', 'knowledge', 'flows', 'tables',
-  'companies', 'contacts', 'deals', 'prospecting', 'sequences', 'campaigns',
-  'agents', 'evals', 'teams',
+  'drive', 'mail', 'team-chat', 'actions', 'calendar',
+  'contacts', 'outreach',
+  'agents',
 ]
 
 async function rightClick(id: string) {
@@ -249,25 +339,25 @@ describe('the person’s bar', () => {
     expect(savedBar()).toEqual({ order: [], hidden: ['mail'] })
     expect(JSON.parse(localStorage.getItem(RAIL_PAGES_STORAGE_KEY)!)).toEqual({ order: [], hidden: ['mail'] })
     // Still the default order: the hairlines stay.
-    expect(lines()).toBe(3)
+    expect(lines()).toBe(2)
     expect(container.querySelector('[data-app-rail-announce]')?.textContent).toBe('Mail unpinned from the bar')
   })
 
   it('moves a page from its right-click menu, Move up off at the top; a custom order loses the hairlines', async () => {
     await render()
-    await rightClick('docs')
+    await rightClick('drive')
     expect(menuItem('up')!.hasAttribute('data-disabled')).toBe(true)
     await pick('down')
-    expect(bar().slice(0, 3)).toEqual(['mail', 'docs', 'team-chat'])
+    expect(bar().slice(0, 3)).toEqual(['mail', 'drive', 'team-chat'])
     expect(lines()).toBe(0)
     expect(Array.from(container.querySelectorAll<HTMLElement>('[data-app-rail-group]')).map((g) => g.dataset.appRailGroup)).toEqual(['custom'])
-    expect(document.activeElement).toBe(item('docs'))
-    await rightClick('docs')
+    expect(document.activeElement).toBe(item('drive'))
+    await rightClick('drive')
     await pick('up')
     expect(bar()).toEqual(DEFAULT_BAR)
     // Back in the default order: saved as none, the hairlines back.
     expect(savedBar()).toEqual({ order: [], hidden: [] })
-    expect(lines()).toBe(3)
+    expect(lines()).toBe(2)
   })
 
   it('moves the focused icon with Alt+↑/↓, keeps the focus on it and says where it went', async () => {
@@ -276,9 +366,9 @@ describe('the person’s bar', () => {
     await act(async () => {
       item('calendar')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true, cancelable: true }))
     })
-    expect(bar().slice(0, 5)).toEqual(['docs', 'mail', 'team-chat', 'calendar', 'actions'])
+    expect(bar().slice(0, 5)).toEqual(['drive', 'mail', 'team-chat', 'calendar', 'actions'])
     expect(document.activeElement).toBe(item('calendar'))
-    expect(container.querySelector('[data-app-rail-announce]')?.textContent).toBe('Calendar moved to 4 of 20')
+    expect(container.querySelector('[data-app-rail-announce]')?.textContent).toBe('Calendar moved to 4 of 8')
     expect(lines()).toBe(0)
     await act(async () => {
       item('calendar')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true, cancelable: true }))
@@ -302,17 +392,23 @@ describe('the person’s bar', () => {
     expect(panel.textContent).toContain('Navigation bar')
     expect(panel.textContent).toContain('Hidden pages still open from Search and /.')
     expect(Array.from(panel.querySelectorAll<HTMLElement>('[data-app-rail-customize-row]')).map((r) => r.dataset.appRailCustomizeRow)).toEqual(DEFAULT_BAR)
+    // Nested under Tasks (Liam, 11-11): not in Customize bar either.
+    expect(panel.querySelector('[data-app-rail-customize-row="projects"]')).toBeNull()
+    expect(panel.querySelector('[data-app-rail-customize-row="initiatives"]')).toBeNull()
+    // The page groups, not their members (Liam, 11-11).
+    for (const member of ['companies', 'deals', 'captures', 'prospecting', 'sequences', 'campaigns', 'docs', 'knowledge', 'files', 'tables', 'flows', 'evals']) expect(panel.querySelector(`[data-app-rail-customize-row="${member}"]`)).toBeNull()
     const toggle = (id: string) => panel.querySelector<HTMLButtonElement>(`[data-app-rail-customize-row="${id}"] [role="switch"]`)!
-    expect(toggle('deals').getAttribute('aria-checked')).toBe('true')
-    expect(toggle('deals').getAttribute('aria-label')).toBe('Show Deals in the bar')
+    expect(toggle('outreach').getAttribute('aria-checked')).toBe('true')
+    expect(toggle('outreach').getAttribute('aria-label')).toBe('Show Outreach in the bar')
     const reset = panel.querySelector<HTMLButtonElement>('[data-app-rail-customize-reset]')!
     expect(reset.disabled).toBe(true)
-    await act(async () => toggle('deals').click())
-    expect(item('deals')).toBeNull()
-    expect(toggle('deals').getAttribute('aria-checked')).toBe('false')
-    expect(savedBar()).toEqual({ order: [], hidden: ['deals'] })
-    await act(async () => toggle('deals').click())
-    expect(item('deals')).not.toBeNull()
+    await act(async () => toggle('outreach').click())
+    expect(item('outreach')).toBeNull()
+    expect(toggle('outreach').getAttribute('aria-checked')).toBe('false')
+    // A hidden group is saved as all its members.
+    expect(savedBar()).toEqual({ order: [], hidden: ['prospecting', 'sequences', 'campaigns'] })
+    await act(async () => toggle('outreach').click())
+    expect(item('outreach')).not.toBeNull()
     await act(async () => toggle('mail').click())
     expect(reset.disabled).toBe(false)
     await act(async () => reset.click())
@@ -321,25 +417,49 @@ describe('the person’s bar', () => {
   })
 
   it('opens Customize bar from an icon’s menu, its rows in the person’s order', async () => {
-    localStorage.setItem(RAIL_PAGES_STORAGE_KEY, JSON.stringify({ order: ['calendar', ...DEFAULT_BAR.filter((id) => id !== 'calendar')], hidden: ['teams'] }))
+    localStorage.setItem(RAIL_PAGES_STORAGE_KEY, JSON.stringify({ order: ['calendar', ...DEFAULT_BAR.filter((id) => id !== 'calendar')], hidden: ['mail'] }))
     await render()
     expect(bar()[0]).toBe('calendar')
-    expect(bar()).not.toContain('teams')
+    expect(bar()).not.toContain('mail')
     await rightClick('calendar')
     await pick('customize')
     const panel = document.querySelector<HTMLElement>('[data-app-rail-customize]')!
     expect(panel).not.toBeNull()
     const rows = Array.from(panel.querySelectorAll<HTMLElement>('[data-app-rail-customize-row]')).map((r) => r.dataset.appRailCustomizeRow)
     expect(rows[0]).toBe('calendar')
-    expect(rows).toContain('teams')
+    expect(rows).toContain('mail')
+    // Teams nests under My Actions (Liam, 11-11): not a row of its own.
+    expect(rows).not.toContain('teams')
   })
 
-  it('shows just Customize bar when every page is hidden', async () => {
-    localStorage.setItem(RAIL_PAGES_STORAGE_KEY, JSON.stringify({ order: [], hidden: DEFAULT_BAR }))
+  it('shows just Home and Customize bar when every page is hidden', async () => {
+    // A group hidden: every one of its members (Calendar and Contacts are members of their own groups).
+    localStorage.setItem(RAIL_PAGES_STORAGE_KEY, JSON.stringify({ order: [], hidden: [...DEFAULT_BAR, 'availability', 'captures', 'companies', 'deals', 'flows', 'evals'] }))
     await render()
     const nav = container.querySelector<HTMLElement>('[data-app-rail-nav]')!
-    expect(Array.from(nav.querySelectorAll<HTMLElement>('[data-app-rail-item]')).map((el) => el.dataset.appRailItem)).toEqual(['customize'])
+    expect(Array.from(nav.querySelectorAll<HTMLElement>('[data-app-rail-item]')).map((el) => el.dataset.appRailItem)).toEqual(['home', 'customize'])
+    // One hairline, Home's.
     expect(container.querySelector('[data-app-rail-customize-line]')).toBeNull()
+    expect(container.querySelectorAll('[data-app-rail-home-line]')).toHaveLength(1)
+  })
+
+  it('loads a bar saved while Projects, Initiatives and Teams had icons (Liam, 11-11: they nest under Tasks): their ids are skipped, and dropped at the next save', async () => {
+    const order = ['calendar', 'projects', 'initiatives', ...DEFAULT_BAR.filter((id) => id !== 'calendar'), 'teams']
+    localStorage.setItem(RAIL_PAGES_STORAGE_KEY, JSON.stringify({ order, hidden: ['initiatives', 'teams'] }))
+    await render()
+    expect(item('projects')).toBeNull()
+    expect(item('initiatives')).toBeNull()
+    expect(item('teams')).toBeNull()
+    expect(bar()).toEqual(['calendar', ...DEFAULT_BAR.filter((id) => id !== 'calendar')])
+    // Groups: a custom order is one list, as before.
+    expect(lines()).toBe(0)
+    await rightClick('mail')
+    await pick('unpin')
+    const saved = savedBar()
+    expect(saved.order).not.toContain('projects')
+    expect(saved.order).not.toContain('initiatives')
+    expect(saved.order).not.toContain('teams')
+    expect(saved.hidden).toEqual(['mail'])
   })
 
   it('puts a page the saved bar doesn’t mention in its default place, and skips one the workspace doesn’t offer', async () => {
@@ -347,7 +467,8 @@ describe('the person’s bar', () => {
     localStorage.setItem(RAIL_PAGES_STORAGE_KEY, JSON.stringify({ order: ['mail', 'team-chat', 'docs'], hidden: [] }))
     await render()
     expect(bar().slice(0, 3)).toEqual(['team-chat', 'actions', 'calendar'])
-    expect(bar()).toContain('docs')
+    // Docs saved before Drive: Drive stands there.
+    expect(bar()).toContain('drive')
     expect(bar()).not.toContain('mail')
   })
 })
@@ -399,8 +520,8 @@ describe('dragging an icon up or down the bar', () => {
     expect(asked).toEqual([])
     expect(dropLine().style.display).toBe('')
     expect(item('mail')!.hasAttribute('data-dragging')).toBe(false)
-    expect(bar().slice(0, 5)).toEqual(['docs', 'team-chat', 'actions', 'calendar', 'mail'])
-    expect(savedBar()?.order.slice(0, 5)).toEqual(['docs', 'team-chat', 'actions', 'calendar', 'mail'])
+    expect(bar().slice(0, 5)).toEqual(['drive', 'team-chat', 'actions', 'calendar', 'mail'])
+    expect(savedBar()?.order.slice(0, 5)).toEqual(['drive', 'team-chat', 'actions', 'calendar', 'mail'])
   })
 
   it('takes a press that barely moves as a click, and Esc puts a drag back', async () => {
@@ -433,5 +554,149 @@ describe('dragging an icon up or down the bar', () => {
     expect(asked).toHaveLength(1)
     expect(bar()).toEqual(DEFAULT_BAR)
     expect(savedBar()).toBeUndefined()
+  })
+})
+
+describe('page groups (Liam, 11-11: "Contacts: Companies, Contacts, Deals · Outreach: Prospecting, Sequences, Campaigns · Calendar: Captures")', () => {
+  const ownSpec = (slug: string) => CARD_PAGES.find((p) => p.slug === slug)!.spec(new Date()) as CardSpec
+  const opens = async (id: string) => {
+    const asked: OpenCardRequest[] = []
+    const listen = (e: Event) => asked.push((e as CustomEvent<OpenCardRequest>).detail)
+    window.addEventListener(OPEN_CARD_EVENT, listen)
+    await act(async () => item(id)!.click())
+    window.removeEventListener(OPEN_CARD_EVENT, listen)
+    return asked
+  }
+
+  it('one icon per group, the group’s label and icon, no member icons', async () => {
+    await render()
+    for (const member of ['companies', 'deals', 'captures', 'prospecting', 'sequences', 'campaigns']) expect(item(member), member).toBeNull()
+    expect(item('contacts')!.getAttribute('aria-label')).toBe('Contacts')
+    expect(item('contacts')!.querySelector('svg.lucide-contact')).not.toBeNull()
+    expect(item('outreach')!.getAttribute('aria-label')).toBe('Outreach')
+    expect(item('outreach')!.querySelector('svg.lucide-send')).not.toBeNull()
+    expect(item('calendar')!.getAttribute('aria-label')).toBe('Calendar')
+    expect(item('calendar')!.querySelector('svg.lucide-calendar')).not.toBeNull()
+  })
+
+  it('a group’s icon opens its default member, then the member last used on this device', async () => {
+    await render()
+    expect((await opens('outreach')).map((r) => r.spec)).toEqual([ownSpec('prospecting')])
+    expect((await opens('contacts')).map((r) => r.spec.title)).toEqual(['Contacts'])
+    // Deals came in front (opened from `/`): remembered here.
+    await act(async () => {
+      releases.push(holdFrontCard({ id: 'deals-1', spec: ownSpec('deals'), close: () => {} }))
+    })
+    expect(JSON.parse(localStorage.getItem(GROUP_LAST_PAGE_KEY)!)).toEqual({ contacts: 'deals' })
+    const asked = await opens('contacts')
+    expect(asked.map((r) => r.spec)).toEqual([ownSpec('deals')])
+    expect(asked[0].from).toBe('rail')
+  })
+
+  it('reads a last used member saved before (another session), and skips one that is off here', async () => {
+    localStorage.setItem(GROUP_LAST_PAGE_KEY, JSON.stringify({ calendar: 'captures', outreach: 'nope' }))
+    await render()
+    expect((await opens('calendar')).map((r) => r.spec.title)).toEqual(['Captures'])
+    expect((await opens('outreach')).map((r) => r.spec)).toEqual([ownSpec('prospecting')])
+  })
+
+  it('lights the group while any member page’s own card is in front, and keeps it for a record opened from inside', async () => {
+    const layer = document.createElement('div')
+    layer.setAttribute('data-chat-card-fullscreen', 'deals-1')
+    const row = document.createElement('button')
+    layer.appendChild(row)
+    document.body.appendChild(layer)
+    await render()
+    let releasePage = () => {}
+    await act(async () => {
+      releasePage = holdFrontCard({ id: 'deals-1', spec: ownSpec('deals'), close: () => {} })
+    })
+    expect(lit()).toEqual(['contacts'])
+    expect(item('contacts')!.getAttribute('aria-current')).toBe('page')
+    row.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await act(async () => {
+      releasePage()
+      releases.push(holdFrontCard({ id: 'r1', spec: { kind: 'record', title: 'Fernhill renewal', record: { type: 'deal', id: 'd1' } }, close: () => {} }))
+    })
+    expect(lit()).toEqual(['contacts'])
+    layer.remove()
+    await act(async () => releases.pop()!())
+    // Captures: Calendar lit.
+    await act(async () => {
+      releases.push(holdFrontCard({ id: 'cap-1', spec: ownSpec('captures'), close: () => {} }))
+    })
+    expect(lit()).toEqual(['calendar'])
+  })
+
+  it('a deal opened from home keeps Home lit', async () => {
+    await render()
+    await act(async () => {
+      releases.push(holdFrontCard({ id: 'r1', spec: { kind: 'record', title: 'Fernhill renewal', record: { type: 'deal', id: 'd1' } }, close: () => {} }))
+    })
+    expect(lit()).toEqual(['home'])
+  })
+
+  it('loads a bar saved with member ids: each group where its first member stood; hidden only when all its members were', async () => {
+    localStorage.setItem(RAIL_PAGES_STORAGE_KEY, JSON.stringify({
+      order: ['deals', 'captures', 'docs', 'mail', 'team-chat', 'actions', 'calendar', 'knowledge', 'flows', 'companies', 'contacts', 'prospecting', 'sequences', 'campaigns', 'agents', 'evals', 'teams'],
+      hidden: ['deals', 'prospecting', 'sequences', 'campaigns'],
+    }))
+    await render()
+    // Drive where Docs was; Agents where Flows was, its first member saved.
+    expect(bar()).toEqual(['contacts', 'calendar', 'drive', 'mail', 'team-chat', 'actions', 'agents'])
+    // The next save keeps rail ids in the order, and a hidden group as its members.
+    await rightClick('mail')
+    await pick('unpin')
+    expect(savedBar()).toEqual({
+      order: ['contacts', 'calendar', 'drive', 'mail', 'team-chat', 'actions', 'agents', 'outreach'],
+      hidden: ['prospecting', 'sequences', 'campaigns', 'mail'],
+    })
+  })
+
+  it('a group with one member on: its icon opens that member; with none: no icon', async () => {
+    edition.current = withEffectiveSurface(getEdition('full'), { prospecting: 'off', campaigns: 'off' })
+    await render()
+    expect(item('outreach')!.getAttribute('aria-label')).toBe('Outreach')
+    expect((await opens('outreach')).map((r) => r.spec)).toEqual([ownSpec('sequences')])
+    act(() => root.unmount())
+    root = createRoot(container)
+    edition.current = withEffectiveSurface(getEdition('full'), { prospecting: 'off', sequences: 'off', campaigns: 'off', crm: 'off' })
+    await render()
+    expect(item('outreach')).toBeNull()
+    expect(item('contacts')).toBeNull()
+    expect(item('calendar')).not.toBeNull()
+  })
+})
+
+describe('Drive and Agents (Liam, 11-11: "Drive: Docs, Knowledge, and a new page that shows all available files … Agents: Agents & Skills, Flows, Evals")', () => {
+  const ownSpec = (slug: string) => CARD_PAGES.find((p) => p.slug === slug)!.spec(new Date()) as CardSpec
+
+  it('one icon each, Drive’s HardDrive where Docs stood and Agents’ Sparkles, no member icons and no empty section', async () => {
+    await render()
+    for (const member of ['docs', 'knowledge', 'files', 'tables', 'flows', 'evals']) expect(item(member), member).toBeNull()
+    expect(item('drive')!.getAttribute('aria-label')).toBe('Drive')
+    expect(item('drive')!.querySelector('svg.lucide-hard-drive')).not.toBeNull()
+    expect(item('agents')!.getAttribute('aria-label')).toBe('Agents')
+    expect(item('agents')!.querySelector('svg.lucide-sparkles')).not.toBeNull()
+    expect(container.querySelector('[data-app-rail-group="plans"]')).toBeNull()
+  })
+
+  it('opens Docs and Agents & skills by default, and lights its group for any member’s own card', async () => {
+    await render()
+    const asked: OpenCardRequest[] = []
+    const listen = (e: Event) => asked.push((e as CustomEvent<OpenCardRequest>).detail)
+    window.addEventListener(OPEN_CARD_EVENT, listen)
+    await act(async () => item('drive')!.click())
+    await act(async () => item('agents')!.click())
+    window.removeEventListener(OPEN_CARD_EVENT, listen)
+    expect(asked.map((r) => r.spec)).toEqual([ownSpec('docs'), ownSpec('agents')])
+    await act(async () => {
+      releases.push(holdFrontCard({ id: 'files-1', spec: ownSpec('files'), close: () => {} }))
+    })
+    expect(lit()).toEqual(['drive'])
+    await act(async () => {
+      releases.push(holdFrontCard({ id: 'flows-1', spec: ownSpec('flows'), close: () => {} }))
+    })
+    expect(lit()).toEqual(['agents'])
   })
 })

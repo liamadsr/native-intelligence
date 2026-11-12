@@ -1,5 +1,6 @@
 import { requireWorkspace } from '@/lib/api-auth'
-import { badRequest, notFound, serverError } from '@/lib/api-errors'
+import { apiError, badRequest, notFound, serverError } from '@/lib/api-errors'
+import { TRANSCRIPT_FROM_CALL, feedOwnsTranscript } from '@/lib/capture-feed/transcript'
 import { NextResponse, type NextRequest } from 'next/server'
 
 /**
@@ -25,6 +26,10 @@ import { NextResponse, type NextRequest } from 'next/server'
  *  - The client advances its acked counters ONLY on a confirmed 2xx here, so a
  *    lost/failed append never leaves a hole — the next tick re-sends the same
  *    delta (base_length still matches) or falls back to the full PATCH.
+ *  - A call's capture the recorder is filling (588: metadata notes_recorder
+ *    live/lost, open): 409 TRANSCRIPT_FROM_CALL, nothing written. Its
+ *    transcript is the feed's while the call runs (it is written once more
+ *    from what was said when the call ends); typed notes stay the person's.
  *  - Post-lock (ended_at set / is_transcript_locked): we reject with a stable
  *    409 code the client treats as TERMINAL (stops appending). The DB triggers
  *    `lock_transcript_on_end` / `prevent_transcript_edit` are the final backstop;
@@ -84,6 +89,18 @@ export async function POST(
   const baseLength = body.base_length
   if (typeof baseLength !== 'number' || !Number.isInteger(baseLength) || baseLength < 0) {
     return badRequest('base_length must be a non-negative integer')
+  }
+
+  // A call's capture the recorder is filling: no person writes its transcript (a read of three
+  // small columns by id; the transcript itself never leaves the database here).
+  const { data: owner } = await supabase
+    .from('captures')
+    .select('ended_at, is_transcript_locked, metadata')
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+  if (feedOwnsTranscript(owner)) {
+    return apiError('This call’s transcript is written from the call while it runs', { status: 409, code: TRANSCRIPT_FROM_CALL })
   }
 
   // Atomic compare-and-swap append via the append_capture_transcript RPC

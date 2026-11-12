@@ -2,8 +2,44 @@ import { getServiceClient } from '@/lib/admin'
 import { requireWorkspace } from '@/lib/api-auth'
 import { badRequest, notFound, serverError } from '@/lib/api-errors'
 import { productDocIdOf } from '@/lib/workspace/product-doc'
+import { filterVisibleAttachments } from '@/lib/attachments/visibility'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * GET /api/account/attachments/[id]: one file's name and the record it hangs
+ * off (its capture, else its task, else its project), for a mention of it to
+ * open that record's card. Read on the caller's client (RLS), with the
+ * attachments rule kept explicit (src/lib/attachments/visibility.ts): a file
+ * the caller may not read answers 404, as a missing one does.
+ */
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireWorkspace()
+  if (auth instanceof Response) return auth
+  const { supabase, user, workspaceId } = auth
+  const { id } = await params
+  if (!UUID_RE.test(id)) return badRequest('Invalid attachment id')
+
+  const { data, error } = await supabase
+    .from('attachments')
+    .select('id, file_name, user_id, note_id, action_id, project_id')
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+  if (error) return serverError(error.message)
+  const row = data as { id: string; file_name: string | null; user_id: string | null; note_id: string | null; action_id: string | null; project_id: string | null } | null
+  if (!row || (await filterVisibleAttachments(supabase, { workspaceId, userId: user.id }, [row])).length === 0) {
+    return notFound('Attachment not found')
+  }
+  const parent = row.note_id
+    ? { type: 'capture', id: row.note_id }
+    : row.action_id
+      ? { type: 'action', id: row.action_id }
+      : row.project_id
+        ? { type: 'project', id: row.project_id }
+        : null
+  return Response.json({ attachment: { id: row.id, file_name: row.file_name, parent } })
+}
 
 /**
  * DELETE /api/account/attachments/[id]

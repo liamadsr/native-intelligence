@@ -89,9 +89,12 @@ describe('findAbandonedCaptures', () => {
       capture({ id: 'blank', transcript: ' \n'.repeat(400) }),
       capture({ id: 'blip', transcript: 'x'.repeat(MIN_ABANDONED_TRANSCRIPT_CHARS - 1) }),
       capture({ id: 'status-null', status: null, updated_at: ago(70 * MIN) }),
+      // A team call's notes (the call recorder's): the call's end finishes them, however long nobody spoke.
+      capture({ id: 'call-notes', notes_channel_id: '55555555-5555-4555-8555-555555555555', updated_at: ago(90 * MIN) }),
     ])
     const found = await findAbandonedCaptures(fake as never, NOW)
     expect(found.map((r) => r.id)).toEqual(['early', 'status-null', 'late'])
+    expect(isAbandonedCandidate(capture({ notes_channel_id: '55555555-5555-4555-8555-555555555555' }) as unknown as AbandonedCaptureRow)).toBe(false)
   })
 
   it('empty open rows never take the scan window from a real abandoned recording', async () => {

@@ -12,6 +12,10 @@
  * (a reconnect) starts a new file at its own place, so the times hold.
  * The merged transcript becomes a capture like a recorded meeting's.
  *
+ * Where the call recorder takes the notes instead (TEAM_CALL_RECORDER=on,
+ * ./recorder.ts), the same capture fills in while the call goes on, and
+ * mergeNotes writes it once more at the end in the order things were said.
+ *
  * Recording: one video file of the whole call (a "room composite" egress),
  * only where the server allows it (TEAM_CALL_RECORDING=on).
  */
@@ -71,20 +75,46 @@ export interface TeamCallNotesView {
 export interface TeamCallFeatures {
   notes: boolean
   recording: boolean
+  /**
+   * The notes are the call recorder's (src/lib/team-calls/recorder.ts): heard
+   * as they are said, into a capture that fills in live. A mute only mutes
+   * (no notes file to end), and the microphone keeps its DTX. False: the
+   * notes are LiveKit Egress's files, transcribed after the call.
+   */
+  liveNotes?: boolean
 }
 
-export const NO_CALL_FEATURES: TeamCallFeatures = { notes: false, recording: false }
+export const NO_CALL_FEATURES: TeamCallFeatures = { notes: false, recording: false, liveNotes: false }
 
 /**
  * Joining waits for the person (their microphone held back until they say
- * go) when the call's notes are on by someone else's doing, or it is being
- * recorded. A starter whose own Auto-record setting turned the notes on is
- * not stopped by a notice about their own choice.
+ * go) when the call is being recorded, or its notes are Egress's and on by
+ * someone else's doing (a starter whose own Auto-record setting turned them
+ * on is not stopped by a notice about their own choice). The call
+ * recorder's notes (`liveNotes`) hold no member back: being on the platform
+ * is agreeing to its calls being captured, and every call takes notes from
+ * its start; the "Notes are on" badge says so. A meeting link's guests keep
+ * their notice and their go (src/lib/meeting-links/consent.ts).
  */
-export function holdMicOnJoin(call: { memberId: string; notes: Pick<TeamCallNotesView, 'notes' | 'notes_by' | 'recording'> }): boolean {
-  const notesByOthers = call.notes.notes && call.notes.notes_by !== call.memberId
+export function holdMicOnJoin(call: {
+  memberId: string
+  notes: Pick<TeamCallNotesView, 'notes' | 'notes_by' | 'recording'>
+  features?: Pick<TeamCallFeatures, 'liveNotes'> | null
+}): boolean {
+  const notesByOthers = call.features?.liveNotes !== true && call.notes.notes && call.notes.notes_by !== call.memberId
   const recording = call.notes.recording === 'starting' || call.notes.recording === 'on'
   return notesByOthers || recording
+}
+
+/**
+ * Does a new call start with its notes on? Every call does, where the call
+ * recorder takes the notes (decided here on the server, whoever starts it and
+ * from whatever client). Where Egress takes them, only when the starter asked
+ * (the desktop app's "Auto-record meetings").
+ */
+export function newCallTakesNotes(features: TeamCallFeatures, starterAsked: unknown): boolean {
+  if (!features.notes) return false
+  return features.liveNotes === true || starterAsked === true
 }
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'

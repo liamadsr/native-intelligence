@@ -99,6 +99,12 @@ export interface TeamCallSessionInfo {
    * DTX, so a notes file's time runs with the call's even in silence.
    */
   notesOffered?: boolean
+  /**
+   * The notes are the call recorder's (src/lib/team-calls/recorder.ts): it
+   * keeps its own clock, so DTX stays on, and a mute only mutes (there is no
+   * notes file to end).
+   */
+  liveNotes?: boolean
 }
 
 export interface TeamCallSessionDeps {
@@ -167,7 +173,7 @@ export class TeamCallSession {
   private holdMic = false
   /** The person muted themselves: a rejoin keeps them muted. */
   private userMuted = false
-  /** The call's notes are on: muting unpublishes the microphone, so each unmuted stretch is its own notes file at its own place in the call. */
+  /** The call's notes are on, as Egress's files: muting unpublishes the microphone, so each unmuted stretch is its own notes file at its own place in the call. */
   private notesMode = false
 
   constructor(
@@ -205,7 +211,7 @@ export class TeamCallSession {
       adaptiveStream: true,
       dynacast: true,
       disconnectOnPageLeave: true,
-      publishDefaults: { simulcast: true, videoCodec: 'vp8', dtx: !this.info.notesOffered, red: true },
+      publishDefaults: { simulcast: true, videoCodec: 'vp8', dtx: !this.info.notesOffered || this.info.liveNotes === true, red: true },
       videoCaptureDefaults: { resolution: lk.VideoPresets.h720.resolution },
       audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     })
@@ -455,9 +461,13 @@ export class TeamCallSession {
     })
   }
 
-  /** The call's notes went on or off: from now on a mute unpublishes the microphone (on) or only mutes it (off). */
+  /**
+   * The call's notes went on or off: from now on a mute unpublishes the
+   * microphone (on, Egress's notes) or only mutes it (off, or the recorder's
+   * notes, which need no file per stretch).
+   */
   setNotesMode(on: boolean): void {
-    this.notesMode = on
+    this.notesMode = on && this.info.liveNotes !== true
   }
 
   async toggleMic(): Promise<void> {

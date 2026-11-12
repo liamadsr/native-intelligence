@@ -142,6 +142,50 @@ export async function meetingGuestToken(config: TeamCallsConfig, input: { room: 
   return token.toJwt()
 }
 
+/**
+ * A call recorder's identity in a room (./recorder.ts): one per producer
+ * (`notes-recorder-<its name>`, what 588 puts on the eject outbox), never a
+ * member id nor a guest's, so 565's and 574's rules never take it for a person.
+ */
+export function teamCallRecorderIdentity(producerId: string): string {
+  return `notes-recorder-${producerId}`.slice(0, 64)
+}
+
+/**
+ * The grants the call recorder's token carries: one room; hidden (nobody in
+ * the call sees a participant for it), marked a recorder, subscribe only.
+ * It publishes nothing, sends no data, sets no metadata of its own and is
+ * never room admin.
+ */
+export function teamCallRecorderGrant(room: string): VideoGrant {
+  return {
+    room,
+    roomJoin: true,
+    canSubscribe: true,
+    canPublish: false,
+    canPublishSources: [],
+    canPublishData: false,
+    canUpdateOwnMetadata: false,
+    roomCreate: false,
+    roomAdmin: false,
+    roomList: false,
+    roomRecord: false,
+    hidden: true,
+    recorder: true,
+  }
+}
+
+/** A join token for a call recorder, for one room and ten minutes (LiveKit refreshes it while connected; a rejoin asks again). */
+export async function teamCallRecorderToken(config: TeamCallsConfig, room: string, producerId: string): Promise<string> {
+  const token = new AccessToken(config.apiKey, config.apiSecret, {
+    identity: teamCallRecorderIdentity(producerId),
+    name: 'Notes',
+    ttl: TEAM_CALL_TOKEN_TTL_SECONDS,
+  })
+  token.addGrant(teamCallRecorderGrant(room))
+  return token.toJwt()
+}
+
 function rooms(config: TeamCallsConfig): RoomServiceClient {
   return new RoomServiceClient(config.apiUrl, config.apiKey, config.apiSecret)
 }

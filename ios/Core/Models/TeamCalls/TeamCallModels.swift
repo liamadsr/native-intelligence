@@ -123,6 +123,13 @@ struct TeamCall: Codable, Identifiable, Equatable {
 
     /// What the person is told before they talk in it, or nil (TeamCallNotice).
     var notice: String? { TeamCallNotice.line(notes: notes, recording: recording) }
+
+    /// The same, where the server says who takes the notes: the call recorder's notes (`liveNotes`)
+    /// hold no member back (every call takes them; the "Notes are on" badge says so), a recording
+    /// still does. Egress's notes are said first, as before.
+    func notice(liveNotes: Bool) -> String? {
+        TeamCallNotice.line(notes: notes && !liveNotes, recording: recording)
+    }
 }
 
 /// One member in (or once in) a call.
@@ -169,6 +176,12 @@ struct TeamCallJoin: Codable, Equatable {
     let callId: String
 }
 
+/// What the server offers a call (web TeamCallFeatures): only what the app reads.
+struct TeamCallFeatures: Codable, Equatable {
+    /// The call recorder takes the notes: no member is held, or told first, for them.
+    let liveNotes: Bool?
+}
+
 /// Where the call is, as the routes describe it.
 struct TeamCallPlace: Codable, Equatable {
     let id: String
@@ -176,6 +189,8 @@ struct TeamCallPlace: Codable, Equatable {
     let workspaceId: String
     let messageId: String?
     let channelKind: TeamChatChannelKind
+    /// What the server offers this call (every start, join and ring answer says so).
+    let features: TeamCallFeatures?
 }
 
 // MARK: - Words

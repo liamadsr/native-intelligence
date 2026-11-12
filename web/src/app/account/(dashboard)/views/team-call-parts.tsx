@@ -9,7 +9,8 @@
  * call's message is its words.
  *
  * Notes and recording (phase 6): a live call's message says when its notes
- * are on or it is being recorded; an ended one links its Notes (the capture,
+ * are on (a link to them while the call recorder fills them in) or it is
+ * being recorded; an ended one links its Notes (the capture,
  * opened like any record: readable to whoever may read the conversation,
  * 567's grant) and its Recording (a link the server makes for them, signed
  * and short-lived), says "Writing notes…" while they are being written, and
@@ -168,6 +169,11 @@ export function CallRecordingRow({ metadata }: { metadata: Record<string, unknow
   )
 }
 
+/** What a call's notes are called where they open: "Call in #launch", a meeting's title, "Call with Rosa Lind". */
+function notesTitleOf(place: { label: string; kind: TeamChatChannel['kind'] } | undefined): string {
+  return place?.kind === 'channel' ? `Call in ${place.label}` : place?.kind === 'meeting' ? place.label : `Call with ${place?.label ?? 'them'}`
+}
+
 /** A call's message: live (who is in it, Join) or ended (how it went). */
 export function CallMessage({
   message,
@@ -196,9 +202,7 @@ export function CallMessage({
           <Icon className="h-4 w-4" aria-hidden />
         </span>
         <span className="min-w-0 truncate text-sm text-foreground">{line}</span>
-        {ended && (
-          <CallAfterwards call={ended} title={place?.kind === 'channel' ? `Call in ${place.label}` : place?.kind === 'meeting' ? place.label : `Call with ${place?.label ?? 'them'}`} />
-        )}
+        {ended && <CallAfterwards call={ended} title={notesTitleOf(place)} />}
       </div>
     )
   }
@@ -227,11 +231,28 @@ export function CallMessage({
       <div className="min-w-0 flex-1">
         <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
           Call in progress
-          {call.call.notes && (
-            <span data-team-call-message-notes="" className="rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-800 dark:text-sky-200">
-              Notes on
-            </span>
-          )}
+          {call.call.notes &&
+            (call.call.capture_id ? (
+              // The call recorder's notes, filling in now: open them.
+              <button
+                type="button"
+                data-team-call-message-notes=""
+                data-team-call-message-notes-open=""
+                title="Open the notes"
+                onClick={() => {
+                  const target = entityOpenTarget('capture', call.call.capture_id!, notesTitleOf(place))
+                  if (target) openTarget(target, { from: 'team_chat' })
+                }}
+                className="flex items-center gap-1 rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-800 hover:bg-sky-500/25 dark:text-sky-200"
+              >
+                <NotebookPen className="h-3 w-3" aria-hidden />
+                Notes on
+              </button>
+            ) : (
+              <span data-team-call-message-notes="" className="rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-800 dark:text-sky-200">
+                Notes on
+              </span>
+            ))}
           {(call.call.recording === 'on' || call.call.recording === 'starting') && (
             <span data-team-call-message-recording="" className="flex items-center gap-1 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:text-red-300">
               <span className="h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden />

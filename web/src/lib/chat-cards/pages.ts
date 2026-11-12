@@ -39,6 +39,8 @@ export const PAGE_KIND_NAMES = [
   'library',
   'teams',
   'team_chat',
+  'availability',
+  'files',
   'bot',
   'work_item',
   'guest',
@@ -213,6 +215,32 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     view: 'teams',
     personOnly: true,
   },
+  // Availability (Liam, 11-11: "Availability (Right now it's in the settings
+  // but it needs to be it's own page under Calendar)"): the person's working
+  // hours, the calendars that make them busy, sharing busy times with
+  // teammates, and their booking links, the view Settings had. Gated with the
+  // calendar, in whose rail group it sits. The person opens it (`/`, the
+  // Calendar sub-nav, a link); `show` doesn't offer it, so the agent's tools
+  // don't change, and it has no rows for the agent's note.
+  availability: {
+    label: 'Availability',
+    rows: 'booking links',
+    view: 'calendar',
+    personOnly: true,
+  },
+  // Files (Liam, 11-11: "Drive: Docs, Knowledge, and a new page that shows
+  // all available files that were uploaded anywhere in the app, uploaded to
+  // captures or action items or projects"): every attachment in the workspace
+  // the person may see (GET /api/account/files, fenced twice). Gated with
+  // Docs, beside which it sits in the Drive group. The person opens it (`/`,
+  // the Drive sub-nav); `show` doesn't offer it, and read_card points the
+  // agent at list_attachments.
+  files: {
+    label: 'Files',
+    rows: 'files',
+    view: 'docs',
+    personOnly: true,
+  },
   // One AI teammate's page (bots-v4.md "A bot's page"): its chat and its work.
   // `target` is the teammate; `at` a work item of its open on the page.
   bot: {
@@ -253,7 +281,7 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
 }
 
 /** The page kinds `show` offers: every one the person alone doesn't open. */
-export const SHOW_PAGE_KIND_NAMES = PAGE_KIND_NAMES.filter((k) => !PAGE_KINDS[k].personOnly) as Exclude<PageKind, 'bot' | 'work_item' | 'guest' | 'agent_link' | 'team_chat'>[]
+export const SHOW_PAGE_KIND_NAMES = PAGE_KIND_NAMES.filter((k) => !PAGE_KINDS[k].personOnly) as Exclude<PageKind, 'bot' | 'work_item' | 'guest' | 'agent_link' | 'team_chat' | 'availability' | 'files'>[]
 
 /** What each place is called, in the note and in refusals. */
 export const PLACE_NOUN: Record<PagePlaceType, string> = {

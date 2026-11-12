@@ -254,6 +254,8 @@ git clone --depth 1 --filter=blob:none --sparse <repository URL> /opt/native-int
 cd /opt/native-intelligence && git sparse-checkout set deploy
 ```
 
+(Later steps add the folders they need with `git sparse-checkout add`: `web/supabase/functions web/supabase/templates` at step 14, `web` at step 20, `recorder` for the call recorder, step 23's R3. Never `set` again: it would take those away.)
+
 What ends up where:
 
 ```text
@@ -1455,6 +1457,82 @@ sudo docker compose --profile egress rm -sf egress
 
 Egress finishes what it is recording first (up to two minutes). Recordings already made stay in the bucket. To remove the storage key from this stack as well, empty the four `LIVEKIT_EGRESS_S3_` lines.
 
+### The call recorder: call notes as people speak (off until asked for)
+
+The call recorder ([`../recorder`](../recorder)) takes a call's notes instead of Egress: one process joins each of our calls whose notes are on as a hidden participant that publishes nothing, subscribes to microphones and nothing else (no camera, no screen share), sends each to Deepgram's streaming API as it is spoken, and delivers the words to the app, where the call's one capture fills in live; when the call ends the app locks it and runs the end-of-meeting pass on it, as on any recorded meeting. One track is one known person, so every line is said by whom it says. It is the service `recorder` in `livekit/compose.yaml`, behind a Compose profile like Egress, so plain `sudo docker compose up -d` does not start it. Recordings of a whole call stay Egress's.
+
+**How it fits.** Nothing calls the recorder, and it publishes no port: it asks the app for its work every few seconds (`/api/internal/team-call-recorder/work`: the live calls with notes on that nobody is hearing, each with a LiveKit token for that room alone, hidden, subscribe only), so it holds no LiveKit key, and a recorder that restarts finds its calls again by itself. It joins rooms over `ni-livekit` (`ws://livekit:7880`), and reaches the app at its public name and Deepgram through `ni-livekit-edge`, the stack's way out, as Egress does: the app's requests come in through Caddy like LiveKit's webhooks. Every request carries `CAPTURE_FEED_SECRET`, a secret of its own (the app turns the routes off when it equals any other internal secret). Every few seconds it also says which calls it is hearing (the heartbeat): that is how the app knows it is alive (a feed quiet for 90 s is marked lost at the sweeper's next run, every 5 minutes, and the notes say what they missed), and the answer tells it to stop when notes go off, the call ends, the 3 hours are spent, its capture was ended by hand, or the app's switch is off (`feed_off`). Each time it leaves a call it delivers its last words, then says so (`end`): the notes' finish waits for that, two minutes at most, before it locks the capture. On SIGTERM it delivers every call's last words and leaves without ending anything, so the next process (the same name, `recorder`) takes the calls up at once. The room closes as it does without it: LiveKit does not count a hidden participant, and it leaves a room nobody else has been in for 30 s.
+
+**Who it hears, and from when.** Being on the platform is agreeing to calls being captured: with the recorder on, every call starts with its notes on (the server decides, whoever starts it and from whatever app; the in-call switch still turns them off and on), and the desktop app's "Auto-record meetings" setting does not govern our own calls (it still governs Zoom, Teams, Meet and the other apps it detects). Nothing is heard until two people have been in the call at the same time (members or let-in guests): a ringing or missed call, or one person waiting, opens no Deepgram socket and leaves no capture (the capture is made when the recorder's session starts), and such a call ends silent. Once two were in, it is heard to its end, one person left or not. Every member's microphone is heard from then on, with no notice holding it (the "Notes are on" badge says so; a recording still asks first). A meeting link's guest is heard only once the app says they said go to this round's notes (the answer to its start, then every heartbeat, every 5 s): until then their microphone is not even subscribed to, and no Deepgram socket is opened for them.
+
+**Out of the room.** Whenever a feed ends or goes quiet (notes off, the call over, its capture ended by hand, marked lost), the database puts the recorder's LiveKit identity (`notes-recorder-<RECORDER_ID>`) on the calls' eject outbox, and the app takes it out of the room, whatever the recorder does; the sweeper puts it there again for any live call that no longer wants it. Before the app acts on such an entry it checks it again: a recorder the call wants once more (notes off, then on before the entry was drained) is left in the room.
+
+**The transcript is the call's while it runs.** While the recorder fills a call's capture, nobody edits its transcript by hand (the app answers 409 `TRANSCRIPT_FROM_CALL`): when the call ends it is written once more from what was said, which would undo such an edit. Typed notes stay editable. A person who ends (or locks) the capture while the call goes on turns the call's notes off (as the switch would), and that capture is finished then: ended, its people marked as left, its summary and actions written as any meeting's (a pass that gives out is asked for again by the sweeper, up to 3 times, half an hour apart, then given up with a `pass_given_up` log line); once unlocked, its transcript is theirs to edit. Turning the notes on again starts a new capture; the call keeps a record of every capture it made, and if the new one hears nothing, the call links back to the earlier one. A transcript its owner locked by hand is never rewritten.
+
+**Egress notes and the recorder in one call.** Only if the switch is flipped mid-call: a call that has both Egress notes files and a recorder's feed is finished from the feed alone (the recorder's capture wins; the Egress files are left as they are, unused).
+
+**One recorder process.** Run one `recorder` service per deployment: its identity in every room is `notes-recorder-<RECORDER_ID>`, so two processes with the same `RECORDER_ID` would push each other out of a room. A second one, for more calls, needs an id of its own, and that has not been tried.
+
+**What it may use.** At most 2 CPUs and 1 GB. Each call costs a WebRTC subscription and one Deepgram socket per microphone; `RECORDER_MAX_CALLS` (default 10) caps how many calls it hears at once. Deepgram bills the recorder's audio as it bills the browser's live transcription: every unmuted minute of every person heard in a call with notes on (nothing is sent while someone is muted, or for a guest who has not said go). Its words reach the app every 4 s or so, in one request per call: one write to the capture each time, whose row holds the whole transcript (about 160 KB of text after three hours of steady talk, under Realtime's default 1 MB per record; the server's Realtime setting was not checked).
+
+**R1. The database.** Migrations `web/supabase/migrations/587_capture_feed.sql` and `588_capture_feed_functions.sql`, in that order, as every migration is applied ("Day to day", on the owner's word), before the app that needs them is rolled out. Each says `notify pgrst, 'reload schema';` itself. To tell whether they are applied: `select to_regclass('public.capture_feed_session')` is not null after 587, and `select count(*) from pg_proc where proname = 'capture_feed_append'` is 1 after 588.
+
+**R2. The settings.** In `livekit/.env`, the recorder's lines come from `livekit/.env.example` (a `.env` made before the recorder existed has none: copy the block "The call recorder", empty, with `sudo nano .env`); in `app/.env`, the two lines `TEAM_CALL_RECORDER` and `CAPTURE_FEED_SECRET` from `app/.env.example`, empty. Then `make-keys.sh` fills in what it can, never shown: `RECORDER_APP_URL` from `NEXT_PUBLIC_APP_URL`, a new `CAPTURE_FEED_SECRET` into both files (or the app's copied, if only it has one), and `RECORDER_DEEPGRAM_API_KEY` from the app's `DEEPGRAM_API_KEY`. Check them by length only:
+
+```bash
+cd /opt/native-intelligence/deploy/livekit && sudo ./make-keys.sh
+```
+
+```bash
+sudo awk -F= '/^(RECORDER_|CAPTURE_FEED_)/ { print $1, length(substr($0, length($1) + 2)) }' .env
+```
+
+`RECORDER_APP_URL`, `CAPTURE_FEED_SECRET` (48) and `RECORDER_DEEPGRAM_API_KEY` must each print a number above 0 (`RECORDER_MAX_CALLS` may stay empty).
+
+**R3. Build it and start it.** The server's checkout is sparse (step 7 sets it to `deploy`, later steps add `web`): the recorder's source has to be added to it first, as the checkout's owner (not with sudo):
+
+```bash
+cd /opt/native-intelligence && git sparse-checkout add recorder
+```
+
+Then, in `livekit/.env`, uncomment `COMPOSE_PROFILES=recorder` (with Egress on as well: `COMPOSE_PROFILES=egress,recorder`), and build its image on the server with Docker itself, then start it from that image. (`sudo docker compose up -d --build recorder` fails in a shell that is not interactive: Compose's build step asks for leave to read outside the project folder, "additional privileges requested: pass --allow=fs.read=…", and `COMPOSE_BAKE=false` did not change that on the server's Compose.) LiveKit itself is not restarted by this unless its own settings changed:
+
+```bash
+sudo docker build -t ni-recorder:local ../../recorder
+```
+
+```bash
+sudo docker compose up -d --no-build recorder
+```
+
+```bash
+sudo docker compose ps
+```
+
+`ni-livekit-recorder` must say `healthy` within a minute. Its log says `[recorder] started as recorder`, then, until the app's switch is on (R4), `work not read (404): the recorder is off in the app`, every 30 s or so: that is right.
+
+```bash
+sudo docker compose logs --tail 30 recorder
+```
+
+**R4. The app.** `TEAM_CALL_RECORDER=on` in `app/.env`, then the app rolled out (`sudo ./deploy.sh` in `app/` when the code that has the recorder's routes is not live yet; `--no-build` when it is). The recorder's log then stops saying 404. The settings check reads the two lines and says `WRONG` for a value that cannot work (the switch on without LiveKit or the secret; a secret shorter than 32 characters, or equal to another internal secret's):
+
+```bash
+deploy/app/check-settings.sh <user>@<server>
+```
+
+**R5. A real call, from outside.** Two people in a channel's call, on two machines; one turns the notes on. Within a few seconds the recorder's log says `call=<id> … joined` and `track=… hearing` once per microphone; the call's message and panel say "Notes on" and open the capture, whose transcript fills in as each person speaks, under their name. Then: mute one person and speak (nothing of theirs appears); turn the notes off (the log says `stop: notes_off`, and nothing said after appears); turn them on again, and hang up. Within a minute or so of the call's end the capture is ended, its transcript in the order things were said, its summary and actions written as any meeting's. A meeting link's guest is in the notes only once they have said go to the notice. A call where nobody spoke leaves no capture.
+
+**What only this server can prove** (none of it could be run off it): the image building and starting on the server (its native library on linux/amd64), its health check, its media path to LiveKit from inside Docker (as for Egress, LiveKit offers its address on `ni-livekit` and its public one), its way out to the app's public name and to Deepgram through `ni-livekit-edge`, the app's routes behind Caddy, real people's microphones from a browser, the desktop app and the iPhone app, Deepgram's latency and accuracy on real calls, and its CPU and memory with several calls at once (`sudo docker stats ni-livekit-recorder`).
+
+**The undo.** `TEAM_CALL_RECORDER=` (empty) in `app/.env` and `sudo ./deploy.sh --no-build` in `app/`: the app stops handing out work, its heartbeat answer tells the running recorder to stop every call it is in (`feed_off`: it delivers what it holds and leaves the rooms within seconds), and the next notes are Egress's (if `LIVEKIT_EGRESS` is on) or there are none. Then comment `COMPOSE_PROFILES` again in `livekit/.env` (or take `recorder` out of it) and stop it; LiveKit is not touched:
+
+```bash
+sudo docker compose --profile recorder rm -sf recorder
+```
+
+It delivers what it still holds first (up to 40 s). Captures it filled in stay; a call that was live then is finished by the app as usual, with what was said until then.
+
 ## Day to day
 
 Run these from the stack's own folder. The Supabase stack has its own commands (`sudo sh run.sh …` in `supabase/stack`) and its own way of taking a new release: [`supabase/README.md`](supabase/README.md#day-to-day).
@@ -1468,6 +1546,7 @@ Run these from the stack's own folder. The Supabase stack has its own commands (
 | Upgrade Inngest | Read the release notes, change the image tag in `inngest/compose.yaml`, then `sudo docker compose pull inngest && sudo docker compose up -d inngest` |
 | Patch Postgres, Redis, Caddy | `sudo docker compose pull && sudo docker compose up -d` (they follow `17`, `7` and `2.11`) |
 | Upgrade LiveKit | Read the [release notes](https://github.com/livekit/livekit/releases), change the image tag in `livekit/compose.yaml`, then `sudo docker compose pull livekit && sudo docker compose up -d livekit` in `livekit/`. Calls in progress end; people join again. Egress the same way ([its notes](https://github.com/livekit/egress/releases), service `egress`); it finishes its recordings first. |
+| Take a change to the call recorder (`recorder/`) | After `git pull` (the checkout must have `recorder` in its sparse list: R3), in `livekit/` (with its profile on in `.env`): `sudo docker build -t ni-recorder:local ../../recorder`, then `sudo docker compose up -d --no-build recorder` (not `--build`: see R3). The old process delivers its calls' last words and leaves; the new one takes the calls up within seconds (what was said in between is not in the notes). |
 | Ship the app | In `app/`: `git pull` in the checkout as its owner, then `sudo ./deploy.sh` ([`app/README.md`](app/README.md#deploysh)) |
 | Go back to the app's previous image | `sudo ./deploy.sh --rollback` in `app/` |
 | Automatic deploys of `main` (off unless switched on) | `sudo ./auto-deploy.sh status` in `app/` says what serves and what holds them; `on`, `off` and the rest in [`app/README.md`](app/README.md#automatic-deploys). While they deploy, `deploy.sh` by hand stops at once (one deploy at a time). |
@@ -1654,6 +1733,16 @@ Egress (added later the same day) could not be run at all off the server: it is 
 - **`make-keys.sh` copying the storage settings** from a made-up `supabase/stack/.env` (a secret with quotes and spaces in it): the four lines filled, the secret read back exactly, nothing copied a second time.
 
 Not tested, and only the server can: Egress starting, its health check, its media path to LiveKit (LiveKit offers its address on `ni-livekit`, which its STUN request cannot leave and so stays as it is, and its public one, which Egress reaches through `ni-livekit-edge`; either will do, and with `LIVEKIT_NODE_IP` set only the public one is offered), the upload to Storage through Caddy (Storage's signature check against `SUPABASE_PUBLIC_URL` was read in its source, v1.89.12, not run), a track recording (E4) and a room composite's CPU (E5).
+
+The call recorder (added 2026-11-11) was run on a Mac against LiveKit's own 1.13.11 binary, configured as `livekit/compose.yaml` renders it, with the end-to-end kit in [`../recorder/e2e`](../recorder/e2e) (a fake app speaking the feed's contract, fake participants publishing tones, Deepgram replaced by a fake that names each tone by its pitch):
+
+- **Who said what, when.** Two members and a late meeting guest: every segment was its own speaker's tone, every burst spoken was heard within 0.9 s of when it was said, and nothing said while muted (muted from the server, as a person's mute reaches LiveKit) was heard. The guest, before saying go: no Deepgram socket opened and nothing heard; after: heard. A screen share's sound published beside a microphone: never heard. Two people speaking at once: their words reached the app in one request.
+- **Things going wrong.** Every Deepgram socket dropped mid-sentence: reconnected, and the sentence heard. The app refused two requests (`503`): sent again, nothing taken twice. Someone left and came back on a new track: heard again under the same speaker. The recorder restarted (SIGTERM, then a new process with the same name): the session was taken up again (`resumed`) and words kept coming. Notes off: the recorder was told at its heartbeat, ended the session, and nothing said after was kept. The room emptied: it left and said `end`. Notes off and on again within 2 s with the eject drained late (after the new round began): the eject was settled, the recorder stayed in the room, and both people speaking once it was back were heard. 27 checks, all passed.
+- **Hidden, and the room still closes.** No participant ever saw it; once everyone else left, the room closed 15 s later (LiveKit's departure timeout) with the recorder still in it: a hidden participant does not hold a room open.
+- **Real Deepgram**, one short pass: two people each speaking a sentence (macOS's `say`): both sentences came back word for word, each under its own speaker.
+- The compose file renders with and without the profile (`docker compose config`); `make-keys.sh`'s recorder part was run on a copy of the folders (secret made once into both files, kept on a second run, the app's copied when only it had one, a mismatch reported). The database functions were run on the development database in transactions that were rolled back (`web/supabase/tests/587_capture_feed.sql`, 114 checks, among them a capture locked by hand mid-call finished then and the call linked back to it when the next round was silent, among them the quote matcher (whole words, a long enough quote, a contraction one word, two speakers, a quote spanning two lines), an eject settled after notes off and on, a locked transcript kept at the lock, a capture of 1,505 lines written whole in the order said, and the eject outbox filled on notes off, a lost feed and a capture ended by hand). That file is not run by CI, which has no Postgres; the text of 587-588 is pinned by `src/lib/capture-feed/__tests__/migration-587-588.test.ts`, which is.
+
+Not tested, and only the server can: the recorder's image built and started there (its native library on linux/amd64), its health check, its media path to LiveKit and its way out to the app and Deepgram through `ni-livekit-edge`, real people on browsers, the desktop app and the iPhone, and its load with several calls (R5 and "What only this server can prove" above).
 
 ## The record
 

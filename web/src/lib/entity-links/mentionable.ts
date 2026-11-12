@@ -6,11 +6,13 @@
 import type { EntityTypeSubset, LinkableEntityType } from '@/lib/knowledge/entity-registry'
 
 /**
- * The kinds a person can @-mention: records people work on. Not claims (facts
- * are cited, not mentioned), not mail (shown to no one, migration 341), not a
- * chat with the agent or an attachment (each is its own person's), not a
- * member (team chat's `mentions` column holds people), and not cycles or
- * milestones (no picker offers them).
+ * The kinds a person can @-mention: records people work on, and uploaded
+ * files (fenced as the attachments table is: its uploader's, or on a record
+ * the author can see). Not claims (facts are cited, not mentioned), not mail
+ * (shown to no one, migration 341), not a chat with the agent (its person's
+ * own: it mentions, it is never mentioned), not a member (team chat's
+ * `mentions` column holds people), and not cycles or milestones (no picker
+ * offers them).
  */
 export const MENTIONABLE_TYPES = [
   'action',
@@ -23,6 +25,7 @@ export const MENTIONABLE_TYPES = [
   'campaign',
   'deal',
   'flow',
+  'attachment',
   'calendar_event',
   'decision',
   'team_chat_channel',
