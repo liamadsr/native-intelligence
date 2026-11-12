@@ -20,6 +20,7 @@ import {
 } from '@/lib/team-calls/notes-store'
 import { sweepCallAudio } from '@/lib/team-calls/notes-retention'
 import { postExtraction, runOwnerBatch } from './capture-finalizer'
+import { fedNotesStatus, lockFedNotesAsTheyAre, writeFedNotes, type FedNotesStatus, type FedNotesWritten } from '@/lib/team-calls/fed-notes'
 
 /**
  * A call's notes, after the call (calls plan, phase 6; src/lib/team-calls/
@@ -38,6 +39,10 @@ import { postExtraction, runOwnerBatch } from './capture-finalizer'
  *     batch on it as a recorded meeting's (summary, action items, claims,
  *     as its owner), name nothing (its title is the conversation's), index
  *     it, and remove the audio whose words are in.
+ *
+ *   Where the call recorder took the notes (src/lib/team-calls/fed-notes.ts),
+ *   the same finish locks the capture that filled in live instead: no files
+ *   to wait for, only the recorder's last words (FED_TAIL_WAIT).
  *
  * One `[team-call-notes]` line per step outcome, ids only.
  */
@@ -86,6 +91,10 @@ export async function runTeamCallNotesFinish({ event, step }: NotesRunContext) {
   const callId = (event.data as { callId?: unknown } | undefined)?.callId
   if (!isUuid(callId)) return { status: 'skipped', reason: 'bad_event' }
 
+  // The call recorder's notes (src/lib/team-calls/fed-notes.ts): a capture that filled in live.
+  const fed = (await step.run('fed', () => fedNotesStatus(getServiceClient(), callId))) as FedNotesStatus
+  if (fed.fed) return runFedNotesFinish(callId, fed, step)
+
   let progress = (await step.run('look-0', () => notesStatus(getServiceClient(), callId))) as NotesStatus
   if (progress.callStatus !== 'ended' || progress.notesState !== 'transcribing') {
     return { status: 'skipped', reason: progress.notesState ?? 'no_call' }
@@ -125,10 +134,43 @@ export async function runTeamCallNotesFinish({ event, step }: NotesRunContext) {
   return { status: 'ready', captureId }
 }
 
-/** The finish gave out (its retries spent): the notes are failed, every file's audio kept. */
+/** How long the finish of the recorder's notes waits for its last words (a producer hears of the end at its next heartbeat, then flushes). */
+export const FED_TAIL_WAIT = '20s'
+
+/**
+ * The recorder's notes, once the call ended: give the recorder its tail
+ * (FED_TAIL_WAIT), lock the capture with its transcript in the order things
+ * were said (or leave none when nothing was), then the end-of-meeting pass a
+ * recorded meeting gets, as its owner: the batch when anything was said, the
+ * title and the index.
+ */
+async function runFedNotesFinish(callId: string, fed: FedNotesStatus, step: NotesRunContext['step']) {
+  if (fed.callStatus !== 'ended') return { status: 'skipped', reason: 'live' }
+  if (fed.notesState === 'ready' || fed.notesState === 'silent') return { status: 'skipped', reason: fed.notesState }
+  await step.sleep('let-feed-finish', FED_TAIL_WAIT)
+  const written = (await step.run('write-feed', () => writeFedNotes(getServiceClient(), callId))) as FedNotesWritten
+  if (written.outcome !== 'ready') return { status: written.outcome }
+  const { captureId, ownerUserId, workspaceId } = written
+  let batch: unknown = 'none'
+  if (written.spoke) {
+    batch = await step.run('batch', () => runOwnerBatch(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId }))
+    if (batch === 'in_flight') await step.sleep('let-batch-settle', '11m')
+  }
+  await step.run('post-extraction', () => postExtraction(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId, captureProcessed: !written.spoke }))
+  console.info(`[team-call-notes] call=${callId} capture=${captureId} outcome=written via=recorder batch=${String(batch)}`)
+  return { status: 'ready', captureId }
+}
+
+/** The finish gave out (its retries spent): the notes are failed, every file's audio kept; the recorder's capture is locked as it stands. */
 export async function teamCallNotesFinishFailed({ event }: { event: { data?: { event?: { data?: unknown } | null } | null } }) {
   const callId = (event?.data?.event?.data as { callId?: unknown } | undefined)?.callId
   if (!isUuid(callId)) return { skipped: 'bad_event' }
+  const fed = await fedNotesStatus(getServiceClient(), callId)
+  if (fed.fed) {
+    const locked = await lockFedNotesAsTheyAre(getServiceClient(), callId)
+    console.warn(`[team-call-notes] call=${callId} outcome=locked_as_is via=recorder reason=retries_spent result=${locked}`)
+    return { failed: callId }
+  }
   const settled = await settleNotes(getServiceClient(), callId, 'failed')
   console.warn(`[team-call-notes] call=${callId} outcome=failed reason=retries_spent settled=${settled}`)
   return { failed: callId }

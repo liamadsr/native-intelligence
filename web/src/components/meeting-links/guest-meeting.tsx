@@ -96,6 +96,7 @@ export function GuestMeeting({
   notes,
   recording,
   notesOffered = false,
+  liveNotes = false,
 }: {
   token: string
   title: string
@@ -104,6 +105,8 @@ export function GuestMeeting({
   recording: boolean
   /** The server offers notes: the microphone is sent as a member's is then (no DTX; a mute ends the track while notes are on). */
   notesOffered?: boolean
+  /** The notes are the call recorder's: DTX stays on, and a mute only mutes. */
+  liveNotes?: boolean
 }) {
   const base = `/m/${token}`
   const [phase, setPhase] = useState<Phase>({ kind: 'entry' })
@@ -164,7 +167,7 @@ export function GuestMeeting({
     }
     setOnNow(first.call)
     const session = new TeamCallSession(
-      { callId: first.join.callId, channelId: '', channelKind: 'meeting', label: title, notesOffered },
+      { callId: first.join.callId, channelId: '', channelKind: 'meeting', label: title, notesOffered, liveNotes },
       {
         refreshJoin: async () => (await fetchJoin())?.join ?? null,
         // "Join with microphone": the server records their go and lets their connection publish.
@@ -185,7 +188,7 @@ export function GuestMeeting({
     setPhase({ kind: 'call', session })
     await session.connect(first.join, { holdMic })
     if (wantCamera && session.getSnapshot().phase === 'connected') await session.toggleCamera()
-  }, [base, title, notesOffered, finish, stopPreview])
+  }, [base, title, notesOffered, liveNotes, finish, stopPreview])
 
   // The lobby, and the call's notes and recording while in it: asked while the page is on screen.
   const waiting = phase.kind === 'waiting'

@@ -32,6 +32,8 @@ import {
   SELF_BINDING_GATE_ENABLED,
   resolveSelfBinding,
   assigneeResolvedViaSpeakerMap,
+  attestedMemberBinding,
+  othersOwnCommitment,
   type SelfBindingState,
 } from '@/lib/live-agent/self-binding'
 import { seedSelfParticipant } from '@/lib/crm/contacts'
@@ -1010,6 +1012,12 @@ export async function POST(req: Request) {
         let selfBindingPromise: Promise<SelfBindingState> | null = null
         const getSelfBinding = () =>
           (selfBindingPromise ??= resolveSelfBinding(supabase, capture_id, currentMemberId))
+        // Another member's voice the server attests (a call the recorder heard, migration 587), per member.
+        const attested = new Map<string, Promise<boolean>>()
+        const isAttested = (memberId: string) => {
+          if (!attested.has(memberId)) attested.set(memberId, attestedMemberBinding(supabase, capture_id, memberId))
+          return attested.get(memberId)!
+        }
 
         for (const change of candidates || []) {
           const key = `${change.change_type}:${change.entity_type}`
@@ -1029,7 +1037,16 @@ export async function POST(req: Request) {
           // (mine-check.ts needsMineCheck).
           if (needsMineCheck(change as Parameters<typeof needsMineCheck>[0])) {
             if (change.assignee_member_id !== currentMemberId) {
-              isMineExplicit = false
+              // Someone else's: only on a call whose roster the server attests (one track, one known
+              // person), resolved through that speaker map to a member whose voice it vouches for.
+              // Their own commitment is filed as theirs. Never on an ordinary capture (no such rows).
+              const viaSpeakerMap = assigneeResolvedViaSpeakerMap(change.extra)
+              isMineExplicit = othersOwnCommitment({
+                gateEnabled: SELF_BINDING_GATE_ENABLED,
+                assigneeMemberId: change.assignee_member_id,
+                viaSpeakerMap,
+                attested: SELF_BINDING_GATE_ENABLED && viaSpeakerMap && !!change.assignee_member_id && (await isAttested(change.assignee_member_id)),
+              })
             } else if (SELF_BINDING_GATE_ENABLED) {
               // "Mine" must be a verified fact, not the model's inference:
               //   1. the assignee was resolved through the SPEAKER MAP (not a

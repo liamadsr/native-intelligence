@@ -12,9 +12,18 @@
  * after this moment reaches the notes (567's cutoff); they become the
  * call's notes when it ends.
  *
- * 404 when the server offers no notes (LIVEKIT_EGRESS off, or no Deepgram
- * key) or the call isn't the person's to read; 409 once it ended; 403 for
- * someone not in it; 400 at the 3-hour bound.
+ * Where the call recorder takes the notes (TEAM_CALL_RECORDER=on,
+ * src/lib/team-calls/recorder.ts), no egress starts: on makes the call's one
+ * capture now (if it has none), so the call links to notes that fill in as
+ * people speak, and the recorder, which asks for its work every few
+ * seconds, joins the room; off ends that round's feed at this moment (588's
+ * trigger), and the recorder hears so at its next heartbeat. A meeting's
+ * guests are held to the notice either way.
+ *
+ * 404 when the server offers no notes (neither the recorder nor
+ * LIVEKIT_EGRESS with a Deepgram key) or the call isn't the person's to
+ * read; 409 once it ended; 403 for someone not in it; 400 at the 3-hour
+ * bound.
  */
 import { after, NextResponse, type NextRequest } from 'next/server'
 import { requireUser } from '@/lib/api-auth'
@@ -28,13 +37,15 @@ import { getCall } from '@/lib/team-calls/store'
 import { requestNotesStop, setNotes, startNotesForRoom } from '@/lib/team-calls/notes-store'
 import { callEnded, teamCallsUnavailable } from '@/lib/team-calls/routes'
 import { teamCallsConfig } from '@/lib/team-calls/livekit'
+import { ensureCallCapture, teamCallRecorderOn } from '@/lib/team-calls/recorder'
 import { holdGuestsForNotice } from '@/lib/meeting-links/consent'
 
 type Params = { params: Promise<{ id: string }> }
 
 export async function POST(request: NextRequest, { params }: Params) {
-  const config = teamCallEgressConfig()
-  if (!config || !teamCallFeatures().notes) return teamCallsUnavailable()
+  const recorder = teamCallRecorderOn()
+  const config = recorder ? null : teamCallEgressConfig()
+  if ((!recorder && !config) || !teamCallFeatures().notes) return teamCallsUnavailable()
   const auth = await requireUser()
   if (auth instanceof Response) return auth
   const { id } = await params
@@ -59,7 +70,26 @@ export async function POST(request: NextRequest, { params }: Params) {
       if (err instanceof TeamChatError && err.code === 'bad_request') return apiError('This call’s notes are full (3 hours)', { status: 400, code: 'NOTES_FULL' })
       throw err
     }
-    if (changed.changed) {
+    if (changed.changed && recorder) {
+      const svc = getServiceClient()
+      if (on) {
+        // The call's capture from now on: its message and panel link to it while it fills in.
+        await ensureCallCapture(svc, call.id).catch((err) => {
+          // The recorder's start makes it too.
+          console.warn(`[team-call-notes] call=${call.id} capture not made yet:`, err instanceof Error ? err.message : 'unknown')
+        })
+        const livekit = teamCallsConfig()
+        if (livekit && call.channel_kind === 'meeting') {
+          after(async () => {
+            try {
+              await holdGuestsForNotice(svc, livekit, call.id)
+            } catch (err) {
+              console.warn(`[team-call-notes] call=${call.id} guests not held:`, err instanceof Error ? err.message : 'unknown')
+            }
+          })
+        }
+      }
+    } else if (changed.changed && config) {
       const port = liveKitEgress(config)
       const svc = getServiceClient()
       const round = changed.round

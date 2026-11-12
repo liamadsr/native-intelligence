@@ -16,7 +16,10 @@ import {
   positionEvidenceHolds,
   resolveSelfBinding,
   assigneeResolvedViaSpeakerMap,
+  attestedMemberBinding,
+  othersOwnCommitment,
 } from '../self-binding'
+import { memoryDb } from '@/test/memory-db'
 
 const CAPTURE_ID = 'cap-1'
 const MEMBER_ME = 'mem-liam'
@@ -185,5 +188,34 @@ describe('assigneeResolvedViaSpeakerMap', () => {
     expect(assigneeResolvedViaSpeakerMap(null)).toBe(false)
     expect(assigneeResolvedViaSpeakerMap(undefined)).toBe(false)
     expect(assigneeResolvedViaSpeakerMap('speaker_label')).toBe(false)
+  })
+})
+
+describe('a call’s roster the server attests (migration 587)', () => {
+  const ROSA = 'mem-rosa'
+  const roster = (over: Row = {}): Row => ({ id: 'p1', capture_id: CAPTURE_ID, member_id: ROSA, source: 'call_roster', self_binding: 'confirmed', speaker_label: 'Rosa Lind', ...over })
+
+  it('holds for a member the roster names, with their label and the server’s confirmation', async () => {
+    const db = memoryDb({ capture_participant: [roster()] })
+    expect(await attestedMemberBinding(db, CAPTURE_ID, ROSA)).toBe(true)
+  })
+
+  it('never on an ordinary capture: a confirmed row a person or voice ID wrote, or one with no label, is not the server’s word', async () => {
+    expect(await attestedMemberBinding(memoryDb({ capture_participant: [roster({ source: 'manual' })] }), CAPTURE_ID, ROSA)).toBe(false)
+    expect(await attestedMemberBinding(memoryDb({ capture_participant: [roster({ source: 'voice_id' })] }), CAPTURE_ID, ROSA)).toBe(false)
+    expect(await attestedMemberBinding(memoryDb({ capture_participant: [roster({ speaker_label: null })] }), CAPTURE_ID, ROSA)).toBe(false)
+    expect(await attestedMemberBinding(memoryDb({ capture_participant: [roster({ self_binding: 'none' })] }), CAPTURE_ID, ROSA)).toBe(false)
+    expect(await attestedMemberBinding(memoryDb({ capture_participant: [roster()] }), 'another-capture', ROSA)).toBe(false)
+    expect(await attestedMemberBinding(memoryDb({ capture_participant: [roster()] }), CAPTURE_ID, 'mem-lee')).toBe(false)
+    expect(await attestedMemberBinding(memoryDb({ capture_participant: [roster()] }), CAPTURE_ID, null)).toBe(false)
+  })
+
+  it('someone else’s commitment is theirs only through the speaker map and that attestation, and only with the gate on', () => {
+    const yes = { gateEnabled: true, assigneeMemberId: ROSA, viaSpeakerMap: true, attested: true }
+    expect(othersOwnCommitment(yes)).toBe(true)
+    expect(othersOwnCommitment({ ...yes, viaSpeakerMap: false })).toBe(false)
+    expect(othersOwnCommitment({ ...yes, attested: false })).toBe(false)
+    expect(othersOwnCommitment({ ...yes, assigneeMemberId: null })).toBe(false)
+    expect(othersOwnCommitment({ ...yes, gateEnabled: false })).toBe(false)
   })
 })

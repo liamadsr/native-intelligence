@@ -22,7 +22,8 @@
  *        livekit.ts); the API secret never leaves the server.
  *        `notes: true` (the starter's "Auto-record meetings" setting is on)
  *        starts a NEW call with its notes on, where the server offers notes
- *        (LIVEKIT_EGRESS=on and a Deepgram key); joining a live call never
+ *        (the call recorder, or LIVEKIT_EGRESS=on and a Deepgram key; the
+ *        recorder's notes get their capture at once); joining a live call never
  *        changes its notes. The answer carries what the server offers
  *        (`features`) and the call's notes and recording (`notes`).
  * As the person, under RLS, for every read and the start; the room's
@@ -41,6 +42,7 @@ import { endCall, getCall, openRings, requestRingTimers, ringMembers, startCall,
 import { callsUnreachable, joinAnswer, joinsListenOnly, memberIn, notesViewOf, readyRoom, teamCallsUnavailable } from '@/lib/team-calls/routes'
 import { teamCallFeatures } from '@/lib/team-calls/egress'
 import { setNotes } from '@/lib/team-calls/notes-store'
+import { ensureCallCapture } from '@/lib/team-calls/recorder'
 import { liveRingPushDeps, pushRings } from '@/lib/team-calls/ring-push'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -122,7 +124,9 @@ export async function POST(request: NextRequest) {
     if (started.created && input.notes === true && features.notes) {
       try {
         const on = await setNotes(auth.supabase, started.callId, true)
-        notes = notesViewOf({ notes: on.notes, notes_by: on.notes ? me.id : null, notes_state: on.notes ? 'capturing' : 'none' })
+        // The recorder's notes (src/lib/team-calls/recorder.ts): the call's capture, from now on.
+        const captureId = on.notes && features.liveNotes ? await ensureCallCapture(getServiceClient(), started.callId).catch(() => null) : null
+        notes = notesViewOf({ notes: on.notes, notes_by: on.notes ? me.id : null, notes_state: on.notes ? 'capturing' : 'none', capture_id: captureId })
       } catch (err) {
         // The call goes on without notes; the panel offers them.
         console.warn(`[team-calls] call=${started.callId} notes not turned on:`, err instanceof Error ? err.message : 'unknown')

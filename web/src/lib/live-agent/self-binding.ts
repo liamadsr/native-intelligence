@@ -11,7 +11,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 //   position  — desktop dual-channel capture whose mic stream diarized exactly
 //               ONE voice for the whole session (the solo-desk case). Granted
 //               and revoked here, from the persisted transcript.
-//   confirmed — the user clicked "this was me" on a label.
+//   confirmed — the user clicked "this was me" on a label; or the server
+//               wrote it from a call's roster (source 'call_roster': one
+//               track is one known person), for every member in the call.
 //   voice     — the label matched the user's trained voiceprint.
 //
 // The auto-apply gates (live-agent route + stage route) refuse to auto-apply
@@ -179,6 +181,47 @@ export async function resolveSelfBinding(
     memberId: selfRow.member_id as string,
     speakerLabel: 'local_1',
   }
+}
+
+/**
+ * A member's voice the SERVER attests on this capture: a participant row a
+ * call's roster wrote (source 'call_roster', migration 587), naming exactly
+ * this member, with its label and self_binding 'confirmed'. One track is one
+ * known person, so on a call the recorder heard, every member's binding
+ * holds, not only the owner's. No signed-in person can write such a row
+ * (587's capture_participant_roster_guard), which is what lets the auto-apply
+ * gate trust it for someone who is not running the turn. Ordinary captures
+ * have no such rows: for them this is always false, and the gate is as it
+ * was.
+ */
+export async function attestedMemberBinding(
+  supabase: SupabaseClient,
+  captureId: string,
+  memberId: string | null | undefined,
+): Promise<boolean> {
+  if (!memberId) return false
+  const { data } = await supabase
+    .from('capture_participant')
+    .select('id')
+    .eq('capture_id', captureId)
+    .eq('member_id', memberId)
+    .eq('source', 'call_roster')
+    .eq('self_binding', 'confirmed')
+    .not('speaker_label', 'is', null)
+    .limit(1)
+  return (data ?? []).length > 0
+}
+
+/**
+ * The auto-apply gate's answer for an assignable action whose assignee is a
+ * member OTHER than the person running the turn: theirs, verifiably, only
+ * when the assignee was resolved through the capture's speaker map AND the
+ * server attests that member's voice on this capture
+ * ({@link attestedMemberBinding}). Anything less (a fuzzy name, an ordinary
+ * capture, the gate switched off) stays staged for a person. Pure.
+ */
+export function othersOwnCommitment(input: { gateEnabled: boolean; assigneeMemberId: string | null | undefined; viaSpeakerMap: boolean; attested: boolean }): boolean {
+  return input.gateEnabled && !!input.assigneeMemberId && input.viaSpeakerMap && input.attested
 }
 
 /**

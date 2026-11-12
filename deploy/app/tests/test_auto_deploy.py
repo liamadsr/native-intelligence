@@ -403,7 +403,7 @@ class AutoDeploy(unittest.TestCase):
         self.switch_on()
         for name in ("web/supabase/functions/hook/index.ts", "web/supabase/templates/invite.html",
                      "deploy/edge/Caddyfile", "deploy/supabase/x.yaml", "deploy/inngest/sync.sh", "deploy/backup/crontab",
-                     "deploy/livekit/compose.yaml"):
+                     "deploy/livekit/compose.yaml", "recorder/src/main.ts", "recorder/package-lock.json"):
             new = self.commit({name: "changed %s\n" % name})
             r = self.run_tool("run")
             self.assertHeld(r, name, "a person deploys this one")
@@ -454,11 +454,12 @@ class AutoDeploy(unittest.TestCase):
             self.run_ok("run")
             self.assertEqual(self.deploy_calls()[-1], new)
         # What only runs inside the containers is the app's, like web/: not held. Nor
-        # are the tests and the guide.
+        # are the tests and the guide, here or the call recorder's.
         new = self.commit({"deploy/app/cron/crontab": "* * * * * x\n", "deploy/app/cron/run.sh": "x\n",
                            "deploy/app/smoke/compose.yaml": "x\n", "deploy/app/healthcheck.mjs": "x\n",
                            "deploy/app/eve-origin.mjs": "x\n", "deploy/app/tests/test_x.py": "x\n",
-                           "deploy/app/README.md": "x\n"})
+                           "deploy/app/README.md": "x\n", "recorder/test/x.test.ts": "x\n",
+                           "recorder/e2e/run.mjs": "x\n", "recorder/README.md": "x\n"})
         self.run_ok("run")
         self.assertEqual(self.deploy_calls()[-1], new)
 

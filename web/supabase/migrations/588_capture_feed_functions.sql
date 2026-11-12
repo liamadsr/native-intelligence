@@ -1,0 +1,843 @@
+-- ============================================================
+-- 588: The capture feed, the functions that write 587's tables. The app's
+-- server calls every one as the service role (src/lib/capture-feed/store.ts):
+-- the producer's requests reach them through /api/internal/capture-feed/*,
+-- after its secret was checked; the notes switch, the call recorder's work
+-- list, the notes' finish and the sweeper call the rest.
+-- ============================================================
+--   team_call_notes_owner(call)  the member whose capture a call's notes are:
+--                     a meeting's host (whoever started its call), else the
+--                     call's starter, else who turned the notes on; a member
+--                     of the workspace with an account.
+--   team_call_capture_ensure(target_call, capture_title)  the call's one
+--                     capture, made the first time notes are on (private to
+--                     its owner, its conversation written on it as 566's
+--                     fences read it, shared with that conversation by one
+--                     entity_access grant, source 'team_call', as 567's
+--                     notes are). Null while the call is not live with notes
+--                     on. Once made, the same one every round.
+--   team_call_feed_unwanted(call_ref, feed_round)  null while a call wants a
+--                     feed for this round (live, notes on in this round,
+--                     under 567's 3 hours); else why not.
+--   capture_feed_start(source_kind, source_ref, producer_kind, producer_id,
+--                     capture_title)  a producer begins (or takes up again)
+--                     the feed of a source: the session for the source's
+--                     current round, made once. 'started' / 'resumed' (its
+--                     own, or one whose producer went quiet); 'busy' (another
+--                     producer heartbeats it), 'not_wanted', 'unknown'.
+--   capture_feed_heartbeat(producer_id, sessions)  the producer is running
+--                     these: each is kept (its heartbeat written, a lost one
+--                     live again), or ended because its source no longer
+--                     wants it (keep false, with why), or is not this
+--                     producer's.
+--   capture_feed_roster(session, producer_id, events)  who joined and left:
+--                     a speaker key's first event names who it is (a member
+--                     of the workspace who may read the call's conversation,
+--                     a guest of this meeting, or an outside name and
+--                     email); each person gets one participant row with a
+--                     label unique in the capture, applied in the order the
+--                     events happened (an older one is stale).
+--   capture_feed_append(session, producer_id, segments)  final segments:
+--                     each key once (a repeat is a duplicate), dropped when
+--                     said after the session ended, when its speaker is not
+--                     known yet, or for a guest who has not said go to this
+--                     round's notes (574's notes_ack_round); the rest are
+--                     stored and appended to the capture's transcript as
+--                     `[Label] words` lines in the order they were said,
+--                     through 192's append_capture_transcript.
+--   capture_feed_end(session, producer_id, reason)  the producer stopped.
+--   capture_feed_follow_call  a trigger on team_call: notes going off, or the
+--                     call ending, end that round's session at that moment
+--                     (nothing said after it reaches the capture).
+--   capture_feed_mark_lost(stale_seconds)  the sweeper: sessions whose
+--                     producer stopped heartbeating are 'lost', with the
+--                     moment in gaps, and their capture says so
+--                     (metadata.notes_recorder 'lost' until it comes back).
+--   team_call_recorder_work(producer_id, running, max_jobs)  the call
+--                     recorder's work: live calls with notes on that no
+--                     producer is feeding (or this one, which says it isn't).
+--   team_call_capture_lock(target_call, transcript_text, preamble_text,
+--                     segment_count)  the call ended: its sessions end, and
+--                     its capture is locked (ended_at, duration, the
+--                     transcript in the order things were said, the preamble
+--                     before the person's own notes) and 'ready' (spoke:
+--                     whether anything was said); or, when nothing was said
+--                     and its owner wrote nothing in it, removed with its
+--                     grant and the notes 'silent'. segment_count is how many segments the
+--                     transcript was written from: if more came since,
+--                     'changed', and the caller writes it again. Null
+--                     transcript_text (and -1): lock it as it stands.
+--
+-- Lock order, as 565's and 567's: a call's row first, then its sessions,
+-- then the capture, so no two of these wait on each other.
+--
+-- Additive. Idempotent. New functions only; no earlier function is
+-- redefined. Every one is SECURITY DEFINER with its search_path pinned, and
+-- only the service role may run it. No backslashes anywhere in this file
+-- (one MCP transport decodes escapes).
+-- ------------------------------------------------------------
+
+-- One transaction, whatever applies it: the file opens with begin and ends
+-- with commit, so plain `psql -v ON_ERROR_STOP=1 < file` (no
+-- --single-transaction) is atomic too. A failure rolls the whole file back,
+-- and SET LOCAL's lock_timeout holds for every statement in it. Nothing in it
+-- is refused inside a transaction (no CONCURRENTLY, no VACUUM).
+
+begin;
+
+SET LOCAL lock_timeout = '5s';
+
+-- ── A call's capture ────────────────────────────────────────────────────────
+
+create or replace function public.team_call_notes_owner(c public.team_call)
+returns uuid
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select m.id
+    from (values
+           (1, (select mt.host_member_id from public.meeting mt where mt.channel_id = c.channel_id)),
+           (2, c.started_by),
+           (3, c.notes_by)
+         ) as o(rank, member_ref)
+    join public.member m on m.id = o.member_ref and m.workspace_id = c.workspace_id and m.user_id is not null
+   order by o.rank
+   limit 1;
+$$;
+
+create or replace function public.team_call_capture_ensure(target_call uuid, capture_title text)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  c public.team_call%rowtype;
+  owner_member uuid;
+  owner_user uuid;
+  made uuid;
+begin
+  select * into c from public.team_call t where t.id = target_call for update;
+  if not found then
+    raise exception 'team calls: no such call' using errcode = '22023';
+  end if;
+  if c.capture_id is not null then
+    return c.capture_id;
+  end if;
+  if c.status <> 'live' or not c.notes then
+    return null;
+  end if;
+  owner_member := public.team_call_notes_owner(c);
+  if owner_member is null then
+    raise exception 'team calls: the notes have no owner in the workspace' using errcode = '22023';
+  end if;
+  select m.user_id into owner_user from public.member m where m.id = owner_member;
+
+  insert into public.captures (
+    user_id, workspace_id, title, status, recorded_at, started_at, visibility, live_mode, is_transcript_locked, metadata, notes_channel_id
+  )
+  values (
+    owner_user, c.workspace_id, left(coalesce(nullif(trim(capture_title), ''), 'Call'), 200), 'active', now(), now(), 'private', false, false,
+    jsonb_build_object(
+      'source', 'team_call', 'team_call_id', c.id, 'channel_id', c.channel_id, 'message_id', c.message_id,
+      'capture_mode', 'team_call', 'notes_recorder', 'live'
+    ),
+    c.channel_id
+  )
+  returning id into made;
+
+  update public.team_call t set capture_id = made, updated_at = now() where t.id = c.id;
+  -- Shared with the call's conversation, and no one else (566's fence).
+  insert into public.entity_access (workspace_id, entity_type, entity_id, grantee_kind, grantee_channel_id, level, granted_by, source)
+  values (c.workspace_id, 'capture', made, 'channel', c.channel_id, 'view', owner_member, 'team_call')
+  on conflict do nothing;
+  return made;
+end;
+$$;
+
+create or replace function public.team_call_feed_unwanted(call_ref uuid, feed_round integer)
+returns text
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  c public.team_call%rowtype;
+begin
+  select * into c from public.team_call t where t.id = call_ref;
+  if not found then
+    return 'gone';
+  end if;
+  if c.status <> 'live' then
+    return 'call_ended';
+  end if;
+  if not c.notes or c.notes_round <> feed_round then
+    return 'notes_off';
+  end if;
+  if c.notes_seconds + greatest(0, extract(epoch from (now() - c.notes_on_since))) >= 10800 then
+    return 'bound';
+  end if;
+  return null;
+end;
+$$;
+
+-- ── A producer's session ────────────────────────────────────────────────────
+
+create or replace function public.capture_feed_start(
+  p_source_kind text, p_source_ref uuid, p_producer_kind text, p_producer_id text, p_capture_title text
+)
+returns table (outcome text, session_id uuid, capture_id uuid, started_at timestamptz, round integer)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+#variable_conflict use_column
+declare
+  c public.team_call%rowtype;
+  s public.capture_feed_session%rowtype;
+  made uuid;
+  why text;
+begin
+  if p_producer_kind is null or p_producer_kind !~ '^[a-z][a-z0-9_]{0,39}$'
+     or p_producer_id is null or char_length(p_producer_id) not between 1 and 80 then
+    raise exception 'capture feed: no such producer' using errcode = '22023';
+  end if;
+  if p_source_kind is distinct from 'team_call' then
+    return query select 'unknown'::text, null::uuid, null::uuid, null::timestamptz, null::integer;
+    return;
+  end if;
+  select * into c from public.team_call t where t.id = p_source_ref for update;
+  if not found then
+    return query select 'unknown'::text, null::uuid, null::uuid, null::timestamptz, null::integer;
+    return;
+  end if;
+  why := public.team_call_feed_unwanted(c.id, c.notes_round);
+  if why is not null then
+    return query select 'not_wanted'::text, null::uuid, c.capture_id, null::timestamptz, c.notes_round;
+    return;
+  end if;
+  made := public.team_call_capture_ensure(c.id, p_capture_title);
+
+  select * into s from public.capture_feed_session x
+   where x.source_kind = 'team_call' and x.source_ref = c.id and x.round = c.notes_round
+     for update;
+  if not found then
+    insert into public.capture_feed_session (workspace_id, capture_id, source_kind, source_ref, round, producer_kind, producer_id)
+    values (c.workspace_id, made, 'team_call', c.id, c.notes_round, p_producer_kind, p_producer_id)
+    returning * into s;
+    return query select 'started'::text, s.id, s.capture_id, s.started_at, s.round;
+    return;
+  end if;
+  if s.status = 'ended' then
+    return query select 'not_wanted'::text, s.id, s.capture_id, s.started_at, s.round;
+    return;
+  end if;
+  if s.producer_id <> p_producer_id and s.status = 'live' and s.heartbeat_at > now() - interval '30 seconds' then
+    return query select 'busy'::text, s.id, s.capture_id, s.started_at, s.round;
+    return;
+  end if;
+  update public.capture_feed_session x
+     set producer_kind = p_producer_kind, producer_id = p_producer_id, heartbeat_at = now(), status = 'live',
+         gaps = public.capture_feed_close_gap(x.gaps, x.status), updated_at = now()
+   where x.id = s.id;
+  if s.status = 'lost' then
+    perform public.capture_feed_recorder_state(s.capture_id, 'live');
+  end if;
+  return query select 'resumed'::text, s.id, s.capture_id, s.started_at, s.round;
+end;
+$$;
+
+-- A lost session's last gap ends now (it is back).
+create or replace function public.capture_feed_close_gap(gaps jsonb, was text)
+returns jsonb
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select case
+    when was <> 'lost' or jsonb_array_length(gaps) = 0 or (gaps -> -1) ? 'to' then gaps
+    else jsonb_set(gaps, array[(jsonb_array_length(gaps) - 1)::text], (gaps -> -1) || jsonb_build_object('to', now()))
+  end;
+$$;
+
+-- What the capture says of its recorder now: 'live', or 'lost' (it stopped hearing the call).
+create or replace function public.capture_feed_recorder_state(target_capture uuid, state text)
+returns void
+language sql
+security definer
+set search_path = public, pg_temp
+as $$
+  update public.captures c
+     set metadata = coalesce(c.metadata, '{}'::jsonb) || jsonb_build_object('notes_recorder', state)
+   where c.id = target_capture
+     and c.ended_at is null
+     and coalesce(c.metadata ->> 'notes_recorder', '') is distinct from state;
+$$;
+
+create or replace function public.capture_feed_heartbeat(p_producer_id text, p_sessions uuid[])
+returns table (session_id uuid, keep boolean, reason text)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+#variable_conflict use_column
+declare
+  sid uuid;
+  s public.capture_feed_session%rowtype;
+  why text;
+begin
+  for sid in select distinct x from unnest(coalesce(p_sessions, '{}'::uuid[])) as x limit 200 loop
+    select * into s from public.capture_feed_session x where x.id = sid for update;
+    if not found then
+      return query select sid, false, 'unknown'::text;
+      continue;
+    end if;
+    if s.producer_id is distinct from p_producer_id then
+      return query select sid, false, 'taken'::text;
+      continue;
+    end if;
+    if s.status = 'ended' then
+      return query select sid, false, coalesce(s.end_reason, 'ended');
+      continue;
+    end if;
+    why := public.team_call_feed_unwanted(s.source_ref, s.round);
+    if why is not null then
+      update public.capture_feed_session x
+         set status = 'ended', ended_at = now(), end_reason = why, gaps = public.capture_feed_close_gap(x.gaps, x.status), updated_at = now()
+       where x.id = s.id;
+      return query select sid, false, why;
+      continue;
+    end if;
+    update public.capture_feed_session x
+       set heartbeat_at = now(), status = 'live', gaps = public.capture_feed_close_gap(x.gaps, x.status), updated_at = now()
+     where x.id = s.id;
+    if s.status = 'lost' then
+      perform public.capture_feed_recorder_state(s.capture_id, 'live');
+    end if;
+    return query select sid, true, null::text;
+  end loop;
+end;
+$$;
+
+create or replace function public.capture_feed_end(p_session uuid, p_producer_id text, p_reason text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  done uuid;
+begin
+  update public.capture_feed_session x
+     set status = 'ended', ended_at = now(), end_reason = left(coalesce(nullif(trim(p_reason), ''), 'producer'), 40),
+         gaps = public.capture_feed_close_gap(x.gaps, x.status), updated_at = now()
+   where x.id = p_session and x.producer_id = p_producer_id and x.status <> 'ended'
+  returning x.id into done;
+  return done is not null;
+end;
+$$;
+
+-- Notes going off, or the call ending (565's team_call_end, 567's team_call_set_notes and
+-- team_call_notes_stop, all unchanged), end that round's feed at that moment: a segment said
+-- after it never reaches the capture, however late the producer hears of it.
+create or replace function public.capture_feed_follow_call()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  update public.capture_feed_session x
+     set status = 'ended',
+         ended_at = case when new.status = 'ended' then coalesce(new.ended_at, now()) else now() end,
+         end_reason = case when new.status = 'ended' then 'call_ended' else 'notes_off' end,
+         gaps = public.capture_feed_close_gap(x.gaps, x.status),
+         updated_at = now()
+   where x.source_kind = 'team_call' and x.source_ref = new.id and x.round = old.notes_round and x.status <> 'ended';
+  return null;
+end;
+$$;
+
+revoke all on function public.capture_feed_follow_call() from public, anon, authenticated;
+
+drop trigger if exists capture_feed_follow_call on public.team_call;
+create trigger capture_feed_follow_call
+  after update of notes, status on public.team_call
+  for each row
+  when ((old.notes and not new.notes) or (old.status = 'live' and new.status = 'ended'))
+  execute function public.capture_feed_follow_call();
+
+-- ── Who is in it ────────────────────────────────────────────────────────────
+
+-- A person's name as a transcript label: no brackets or line breaks, one space between words,
+-- 36 characters at most (the "(2)" that makes it unique stays under 40).
+create or replace function public.capture_feed_label_base(raw text, fallback text)
+returns text
+language sql
+immutable
+set search_path = public, pg_temp
+as $$
+  select coalesce(nullif(left(trim(regexp_replace(regexp_replace(coalesce(raw, ''), '[][]+', ' ', 'g'), '[[:space:]]+', ' ', 'g')), 36), ''), fallback);
+$$;
+
+-- A label no other roster row of this capture has: "Rosa Lind", then "Rosa Lind (2)".
+create or replace function public.capture_feed_unique_label(target_capture uuid, base text)
+returns text
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  label text := base;
+  n integer := 2;
+begin
+  while exists (
+    select 1 from public.capture_participant p
+     where p.capture_id = target_capture and p.source = 'call_roster' and lower(p.speaker_label) = lower(label)
+  ) loop
+    label := base || ' (' || n || ')';
+    n := n + 1;
+  end loop;
+  return label;
+end;
+$$;
+
+create or replace function public.capture_feed_roster(p_session uuid, p_producer_id text, p_events jsonb)
+returns table (key text, outcome text)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+#variable_conflict use_column
+declare
+  s public.capture_feed_session%rowtype;
+  c public.team_call%rowtype;
+  cap public.captures%rowtype;
+  ev jsonb;
+  ev_key text;
+  speaker text;
+  kind text;
+  ev_at timestamptz;
+  sp public.capture_feed_speaker%rowtype;
+  ident jsonb;
+  person_member uuid;
+  person_guest uuid;
+  person_name text;
+  person_email text;
+  participant uuid;
+  owner_member uuid;
+begin
+  select * into s from public.capture_feed_session x where x.id = p_session for update;
+  if not found or s.producer_id is distinct from p_producer_id then
+    return query select (e ->> 'key'), (case when s.id is null then 'unknown' else 'taken' end)::text
+      from jsonb_array_elements(case when jsonb_typeof(p_events) = 'array' then p_events else '[]'::jsonb end) as e;
+    return;
+  end if;
+  select * into cap from public.captures x where x.id = s.capture_id for update;
+  if cap.ended_at is not null then
+    return query select (e ->> 'key'), 'locked'::text
+      from jsonb_array_elements(case when jsonb_typeof(p_events) = 'array' then p_events else '[]'::jsonb end) as e;
+    return;
+  end if;
+  select * into c from public.team_call t where t.id = s.source_ref;
+  owner_member := (select m.id from public.member m where m.user_id = cap.user_id and m.workspace_id = cap.workspace_id);
+
+  for ev in
+    select e from jsonb_array_elements(case when jsonb_typeof(p_events) = 'array' then p_events else '[]'::jsonb end) as e
+     order by case when jsonb_typeof(e -> 'at_ms') = 'number' then (e ->> 'at_ms')::numeric end nulls last
+     limit 500
+  loop
+    ev_key := left(ev ->> 'key', 128);
+    speaker := ev ->> 'speaker';
+    kind := ev ->> 'kind';
+    if speaker is null or char_length(speaker) not between 1 and 128 or kind not in ('joined', 'left')
+       or jsonb_typeof(ev -> 'at_ms') is distinct from 'number' or (ev ->> 'at_ms')::numeric < 0 then
+      return query select ev_key, 'invalid'::text;
+      continue;
+    end if;
+    ev_at := s.started_at + make_interval(secs => (ev ->> 'at_ms')::numeric / 1000);
+
+    select * into sp from public.capture_feed_speaker x where x.capture_id = s.capture_id and x.speaker_key = speaker for update;
+    if not found then
+      ident := ev -> 'identity';
+      if jsonb_typeof(ident) is distinct from 'object' then
+        return query select ev_key, 'unknown_speaker'::text;
+        continue;
+      end if;
+      person_member := null;
+      person_guest := null;
+      person_name := null;
+      person_email := null;
+      begin
+        person_member := nullif(ident ->> 'member_id', '')::uuid;
+        person_guest := nullif(ident ->> 'guest_id', '')::uuid;
+      exception when invalid_text_representation then
+        return query select ev_key, 'invalid'::text;
+        continue;
+      end;
+      if person_member is not null then
+        -- A member of the workspace who may read the call's conversation now.
+        select m.display_name into person_name from public.member m where m.id = person_member and m.workspace_id = s.workspace_id;
+        if not found or c.id is null or not public.team_chat_member_can_read(c.channel_id, person_member) then
+          return query select ev_key, 'refused'::text;
+          continue;
+        end if;
+        select p.id into participant from public.capture_participant p
+         where p.capture_id = s.capture_id and p.source = 'call_roster' and p.member_id = person_member
+         limit 1;
+        -- The owner's own row, if the app seeded one already (a turn run on the capture): theirs, attested now.
+        if participant is null and person_member = owner_member then
+          select p.id into participant from public.capture_participant p where p.capture_id = s.capture_id and p.is_self limit 1;
+          if participant is not null then
+            update public.capture_participant p
+               set member_id = person_member,
+                   speaker_label = public.capture_feed_unique_label(s.capture_id, public.capture_feed_label_base(person_name, 'Teammate')),
+                   self_binding = 'confirmed', source = 'call_roster', role = 'organizer',
+                   joined_at = coalesce(p.joined_at, ev_at)
+             where p.id = participant;
+          end if;
+        end if;
+      elsif person_guest is not null then
+        -- A guest of this call's meeting.
+        select g.name into person_name from public.meeting_guest g where g.id = person_guest and c.id is not null and g.channel_id = c.channel_id;
+        if not found then
+          return query select ev_key, 'refused'::text;
+          continue;
+        end if;
+        select x.participant_id into participant from public.capture_feed_speaker x
+         where x.capture_id = s.capture_id and x.guest_id = person_guest
+         limit 1;
+      else
+        person_name := nullif(left(trim(ident ->> 'name'), 120), '');
+        person_email := nullif(left(trim(lower(ident ->> 'email')), 254), '');
+        if person_name is null then
+          return query select ev_key, 'invalid'::text;
+          continue;
+        end if;
+        participant := null;
+      end if;
+
+      if participant is null then
+        insert into public.capture_participant (
+          capture_id, member_id, contact_id, external_name, external_email, speaker_label, role, joined_at, is_self, self_binding, source
+        )
+        values (
+          s.capture_id,
+          person_member,
+          case when person_member is not null then (select ct.id from public.contact ct where ct.workspace_id = s.workspace_id and ct.member_id = person_member limit 1) end,
+          case when person_member is not null then left(nullif(trim(person_name), ''), 120) else coalesce(left(nullif(trim(person_name), ''), 120), 'Guest') end,
+          person_email,
+          public.capture_feed_unique_label(
+            s.capture_id,
+            case
+              when person_member is not null then public.capture_feed_label_base(person_name, 'Teammate')
+              when person_guest is not null then public.capture_feed_label_base(coalesce(nullif(trim(person_name), ''), 'Guest') || ' (guest)', 'Guest')
+              else public.capture_feed_label_base(person_name, 'Guest')
+            end
+          ),
+          case when person_member is not null and person_member = owner_member then 'organizer' else 'attendee' end,
+          ev_at,
+          person_member is not null and person_member = owner_member,
+          -- The voice on this track is exactly this member's: the server says so, for each of them.
+          case when person_member is not null then 'confirmed' else 'none' end,
+          'call_roster'
+        )
+        returning id into participant;
+      end if;
+      insert into public.capture_feed_speaker (capture_id, speaker_key, participant_id, member_id, guest_id)
+      values (s.capture_id, speaker, participant, person_member, person_guest)
+      returning * into sp;
+    end if;
+
+    if sp.last_event_at is not null and ev_at < sp.last_event_at then
+      return query select ev_key, 'stale'::text;
+      continue;
+    end if;
+    update public.capture_feed_speaker x
+       set present = (kind = 'joined'), last_event_at = ev_at
+     where x.capture_id = sp.capture_id and x.speaker_key = sp.speaker_key;
+    if kind = 'joined' then
+      update public.capture_participant p
+         set joined_at = least(coalesce(p.joined_at, ev_at), ev_at), left_at = null
+       where p.id = sp.participant_id;
+    else
+      update public.capture_participant p
+         set left_at = greatest(ev_at, coalesce(p.joined_at, ev_at))
+       where p.id = sp.participant_id
+         and not exists (
+           select 1 from public.capture_feed_speaker o
+            where o.participant_id = sp.participant_id and o.present and o.speaker_key <> sp.speaker_key
+         );
+    end if;
+    return query select ev_key, 'applied'::text;
+  end loop;
+end;
+$$;
+
+-- ── What was said ───────────────────────────────────────────────────────────
+
+create or replace function public.capture_feed_append(p_session uuid, p_producer_id text, p_segments jsonb)
+returns table (outcome text, accepted integer, duplicate integer, dropped integer, transcript_length integer, capture_id uuid)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+#variable_conflict use_column
+declare
+  s public.capture_feed_session%rowtype;
+  cap public.captures%rowtype;
+  list jsonb := case when jsonb_typeof(p_segments) = 'array' then p_segments else '[]'::jsonb end;
+  total integer;
+  seg jsonb;
+  seg_key text;
+  speaker text;
+  words text;
+  start_at numeric;
+  end_at numeric;
+  said timestamptz;
+  sp public.capture_feed_speaker%rowtype;
+  n_accepted integer := 0;
+  n_duplicate integer := 0;
+  n_dropped integer := 0;
+  lines text;
+  stored_length integer;
+  appended record;
+  added text[] := '{}';
+begin
+  total := jsonb_array_length(list);
+  select * into s from public.capture_feed_session x where x.id = p_session for update;
+  if not found then
+    return query select 'unknown'::text, 0, 0, total, null::integer, null::uuid;
+    return;
+  end if;
+  if s.producer_id is distinct from p_producer_id then
+    return query select 'taken'::text, 0, 0, total, null::integer, null::uuid;
+    return;
+  end if;
+  select * into cap from public.captures x where x.id = s.capture_id for update;
+  if cap.ended_at is not null or cap.is_transcript_locked then
+    return query select 'locked'::text, 0, 0, total, coalesce(char_length(cap.transcript), 0), cap.id;
+    return;
+  end if;
+
+  for seg in
+    select e from jsonb_array_elements(list) as e
+     order by case when jsonb_typeof(e -> 'start_ms') = 'number' then (e ->> 'start_ms')::numeric end nulls last
+     limit 500
+  loop
+    seg_key := seg ->> 'key';
+    speaker := seg ->> 'speaker';
+    words := trim(regexp_replace(coalesce(seg ->> 'text', ''), '[[:space:]]+', ' ', 'g'));
+    if seg_key is null or char_length(seg_key) not between 1 and 128 or speaker is null or char_length(speaker) not between 1 and 128
+       or words = '' or jsonb_typeof(seg -> 'start_ms') is distinct from 'number' or jsonb_typeof(seg -> 'end_ms') is distinct from 'number' then
+      n_dropped := n_dropped + 1;
+      continue;
+    end if;
+    start_at := (seg ->> 'start_ms')::numeric;
+    end_at := (seg ->> 'end_ms')::numeric;
+    if start_at < 0 or end_at < start_at then
+      n_dropped := n_dropped + 1;
+      continue;
+    end if;
+    said := s.started_at + make_interval(secs => start_at / 1000);
+    -- Said after the notes went off (or the call ended): never in the notes.
+    if s.ended_at is not null and said >= s.ended_at then
+      n_dropped := n_dropped + 1;
+      continue;
+    end if;
+    select * into sp from public.capture_feed_speaker x where x.capture_id = s.capture_id and x.speaker_key = speaker;
+    if not found then
+      n_dropped := n_dropped + 1;
+      continue;
+    end if;
+    -- A meeting's guest is in the notes only once they said go to this round's (574's notice).
+    if sp.guest_id is not null and not exists (
+      select 1 from public.meeting_guest g where g.id = sp.guest_id and g.notes_ack_round >= s.round
+    ) then
+      n_dropped := n_dropped + 1;
+      continue;
+    end if;
+    insert into public.capture_feed_segment (session_id, capture_id, key, speaker_key, start_ms, end_ms, said_at, text)
+    values (s.id, s.capture_id, seg_key, speaker, floor(start_at)::bigint, floor(end_at)::bigint, said, left(words, 4000))
+    on conflict (session_id, key) do nothing;
+    if found then
+      n_accepted := n_accepted + 1;
+      added := added || seg_key;
+    else
+      n_duplicate := n_duplicate + 1;
+    end if;
+  end loop;
+
+  stored_length := coalesce(char_length(cap.transcript), 0);
+  if n_accepted > 0 then
+    select string_agg('[' || p.speaker_label || '] ' || g.text, chr(10) order by g.said_at, g.key) into lines
+      from public.capture_feed_segment g
+      join public.capture_feed_speaker x on x.capture_id = g.capture_id and x.speaker_key = g.speaker_key
+      join public.capture_participant p on p.id = x.participant_id
+     where g.session_id = s.id and g.key = any (added);
+    -- 192's compare-and-swap append (the capture's row is locked here, so it applies).
+    select * into appended from public.append_capture_transcript(
+      cap.id, cap.workspace_id, case when stored_length > 0 then chr(10) else '' end || lines, stored_length
+    );
+    if appended.status is distinct from 'applied' then
+      raise exception 'capture feed: the transcript did not take the append (%)', appended.status using errcode = '40001';
+    end if;
+    stored_length := appended.server_length;
+    update public.capture_feed_session x set segments = x.segments + n_accepted, updated_at = now() where x.id = s.id;
+  end if;
+  return query select 'applied'::text, n_accepted, n_duplicate, n_dropped, stored_length, cap.id;
+end;
+$$;
+
+-- ── The sweeper and the recorder's work ─────────────────────────────────────
+
+create or replace function public.capture_feed_mark_lost(stale_seconds integer)
+returns table (session_id uuid, capture_id uuid, source_ref uuid)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+#variable_conflict use_column
+declare
+  r record;
+begin
+  for r in
+    select x.id, x.capture_id, x.source_ref, x.heartbeat_at
+      from public.capture_feed_session x
+     where x.status = 'live'
+       and x.heartbeat_at < now() - make_interval(secs => greatest(coalesce(stale_seconds, 90), 30))
+     order by x.heartbeat_at
+     limit 200
+  loop
+    update public.capture_feed_session x
+       set status = 'lost', gaps = x.gaps || jsonb_build_array(jsonb_build_object('from', r.heartbeat_at)), updated_at = now()
+     where x.id = r.id and x.status = 'live';
+    perform public.capture_feed_recorder_state(r.capture_id, 'lost');
+    return query select r.id, r.capture_id, r.source_ref;
+  end loop;
+end;
+$$;
+
+create or replace function public.team_call_recorder_work(p_producer_id text, p_running uuid[], max_jobs integer)
+returns table (call_id uuid, room text, round integer, channel_kind text)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select t.id, t.room, t.notes_round, ch.kind
+    from public.team_call t
+    join public.team_chat_channel ch on ch.id = t.channel_id
+    left join public.capture_feed_session x
+      on x.source_kind = 'team_call' and x.source_ref = t.id and x.round = t.notes_round
+   where t.status = 'live'
+     and t.notes
+     and not (t.id = any (coalesce(p_running, '{}'::uuid[])))
+     and (
+       x.id is null
+       or (x.status <> 'ended' and (x.producer_id = p_producer_id or x.status = 'lost' or x.heartbeat_at < now() - interval '30 seconds'))
+     )
+   order by t.notes_on_since
+   limit greatest(coalesce(max_jobs, 0), 0);
+$$;
+
+-- ── The end ─────────────────────────────────────────────────────────────────
+
+create or replace function public.team_call_capture_lock(target_call uuid, transcript_text text, preamble_text text, segment_count integer)
+returns table (outcome text, capture_id uuid, owner_user uuid, workspace_id uuid, spoke boolean)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+#variable_conflict use_column
+declare
+  c public.team_call%rowtype;
+  cap public.captures%rowtype;
+  n integer;
+  ended timestamptz;
+begin
+  select * into c from public.team_call t where t.id = target_call for update;
+  if not found or c.capture_id is null then
+    return query select 'none'::text, null::uuid, null::uuid, null::uuid, false;
+    return;
+  end if;
+  if c.status <> 'ended' then
+    return query select 'live'::text, c.capture_id, null::uuid, c.workspace_id, false;
+    return;
+  end if;
+  -- The call is over: so is every feed of it.
+  update public.capture_feed_session x
+     set status = 'ended', ended_at = coalesce(x.ended_at, now()), end_reason = coalesce(x.end_reason, 'call_ended'),
+         gaps = public.capture_feed_close_gap(x.gaps, x.status), updated_at = now()
+   where x.source_kind = 'team_call' and x.source_ref = c.id and x.status <> 'ended';
+  select * into cap from public.captures x where x.id = c.capture_id for update;
+  select count(*)::integer into n from public.capture_feed_segment g where g.capture_id = cap.id;
+  if cap.ended_at is not null then
+    return query select 'ready'::text, cap.id, cap.user_id, cap.workspace_id, n > 0;
+    return;
+  end if;
+  if n = 0 and coalesce(trim(cap.user_notes), '') = '' then
+    -- Nothing was said: no capture is left behind.
+    delete from public.entity_access g where g.entity_type = 'capture' and g.entity_id = cap.id;
+    delete from public.captures x where x.id = cap.id;
+    update public.team_call t set notes_state = 'silent', updated_at = now() where t.id = c.id and t.notes_state in ('capturing', 'transcribing');
+    return query select 'silent'::text, null::uuid, null::uuid, c.workspace_id, false;
+    return;
+  end if;
+  if segment_count is not null and segment_count >= 0 and segment_count <> n then
+    return query select 'changed'::text, cap.id, cap.user_id, cap.workspace_id, n > 0;
+    return;
+  end if;
+  ended := greatest(coalesce(c.ended_at, now()), cap.started_at);
+  update public.captures x
+     set transcript = case when transcript_text is not null and trim(transcript_text) <> '' then transcript_text else x.transcript end,
+         user_notes = case
+           when coalesce(trim(preamble_text), '') = '' then x.user_notes
+           when coalesce(trim(x.user_notes), '') = '' then preamble_text
+           else preamble_text || chr(10) || chr(10) || x.user_notes
+         end,
+         ended_at = ended,
+         duration_seconds = greatest(0, floor(extract(epoch from (ended - x.started_at))))::integer,
+         metadata = coalesce(x.metadata, '{}'::jsonb) || jsonb_build_object('notes_recorder', 'done')
+   where x.id = cap.id;
+  update public.capture_participant p
+     set left_at = greatest(ended, coalesce(p.joined_at, ended))
+   where p.capture_id = cap.id and p.source = 'call_roster' and p.left_at is null and p.joined_at is not null;
+  update public.capture_feed_speaker x set present = false where x.capture_id = cap.id and x.present;
+  update public.team_call t set notes_state = 'ready', updated_at = now() where t.id = c.id;
+  return query select 'ready'::text, cap.id, cap.user_id, cap.workspace_id, n > 0;
+end;
+$$;
+
+revoke all on function public.team_call_notes_owner(public.team_call) from public, anon, authenticated;
+revoke all on function public.team_call_capture_ensure(uuid, text) from public, anon, authenticated;
+revoke all on function public.team_call_feed_unwanted(uuid, integer) from public, anon, authenticated;
+revoke all on function public.capture_feed_start(text, uuid, text, text, text) from public, anon, authenticated;
+revoke all on function public.capture_feed_close_gap(jsonb, text) from public, anon, authenticated;
+revoke all on function public.capture_feed_recorder_state(uuid, text) from public, anon, authenticated;
+revoke all on function public.capture_feed_heartbeat(text, uuid[]) from public, anon, authenticated;
+revoke all on function public.capture_feed_end(uuid, text, text) from public, anon, authenticated;
+revoke all on function public.capture_feed_label_base(text, text) from public, anon, authenticated;
+revoke all on function public.capture_feed_unique_label(uuid, text) from public, anon, authenticated;
+revoke all on function public.capture_feed_roster(uuid, text, jsonb) from public, anon, authenticated;
+revoke all on function public.capture_feed_append(uuid, text, jsonb) from public, anon, authenticated;
+revoke all on function public.capture_feed_mark_lost(integer) from public, anon, authenticated;
+revoke all on function public.team_call_recorder_work(text, uuid[], integer) from public, anon, authenticated;
+revoke all on function public.team_call_capture_lock(uuid, text, text, integer) from public, anon, authenticated;
+grant execute on function public.team_call_capture_ensure(uuid, text) to service_role;
+grant execute on function public.capture_feed_start(text, uuid, text, text, text) to service_role;
+grant execute on function public.capture_feed_heartbeat(text, uuid[]) to service_role;
+grant execute on function public.capture_feed_end(uuid, text, text) to service_role;
+grant execute on function public.capture_feed_roster(uuid, text, jsonb) to service_role;
+grant execute on function public.capture_feed_append(uuid, text, jsonb) to service_role;
+grant execute on function public.capture_feed_mark_lost(integer) to service_role;
+grant execute on function public.team_call_recorder_work(text, uuid[], integer) to service_role;
+grant execute on function public.team_call_capture_lock(uuid, text, text, integer) to service_role;
+
+notify pgrst, 'reload schema';
+
+commit;

@@ -42,6 +42,8 @@ describe('migration 586', () => {
 
   it('numbered after 585', () => {
     const numbers = readdirSync(DIR).map((f) => Number(f.split('_')[0])).filter(Number.isFinite)
-    expect(Math.max(...numbers)).toBe(586)
+    // Once, and after 585 (later files come after it: 587 and on).
+    expect(numbers.filter((n) => n === 586)).toHaveLength(1)
+    expect(numbers).toContain(585)
   })
 })
