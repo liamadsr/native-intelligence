@@ -78,7 +78,8 @@ describe('the one @ picker (MENTION_PICKER_KINDS)', () => {
   it('is one list of search kinds, each a kind a mention edge may point at', () => {
     for (const kind of MENTION_PICKER_KINDS) {
       expect(MENU_SEARCH_KINDS).toContain(kind)
-      expect(isMentionableType(kind)).toBe(true)
+      // A deal is found as a deal and mentioned as its pipeline's row (Tables, phase 7).
+      expect(isMentionableType(kind === 'deal' ? 'data_row' : kind)).toBe(true)
     }
     expect(MENTION_PICKER_KINDS).toEqual(expect.arrayContaining(['contact', 'deal', 'flow', 'attachment', 'calendar_event']))
     expect(MENTION_PICKER_KINDS).not.toContain('agent')

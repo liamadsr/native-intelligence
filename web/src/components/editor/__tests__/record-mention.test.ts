@@ -75,7 +75,7 @@ describe('RecordMention', () => {
   })
 
   it('a click on the chip opens what it names', () => {
-    make(`See [@Renewal](mention://deal/${DEAL})`)
+    make(`See [@Renewal](mention://flow/${DEAL})`)
     let chipPos = -1
     editor.state.doc.descendants((node, pos) => {
       if (node.type.name === 'recordMention') chipPos = pos
@@ -85,7 +85,7 @@ describe('RecordMention', () => {
       f(editor.view, chipPos + 1, node, chipPos, new MouseEvent('click'), true),
     )
     expect(handled).toBe(true)
-    expect(opened).toEqual([{ type: 'deal', id: DEAL }])
+    expect(opened).toEqual([{ type: 'flow', id: DEAL }])
   })
 })
 

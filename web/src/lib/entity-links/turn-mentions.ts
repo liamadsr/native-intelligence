@@ -31,7 +31,8 @@ export function turnMentionRefs(systemContext: Record<string, unknown> | null | 
     for (const id of ids) raw.push({ type, id })
   }
   for (const [key, type] of Object.entries(OTHER_KEYS)) add(type, systemContext[key])
-  for (const kind of MENTION_RECORD_KINDS) add(kind, systemContext[MENTION_RECORD_KEYS[kind].context])
+  // A deal is its pipeline's row (Tables, phase 7): its edge names the row.
+  for (const kind of MENTION_RECORD_KINDS) add(kind === 'deal' ? 'data_row' : kind, systemContext[MENTION_RECORD_KEYS[kind].context])
   return tidyMentionRefs(raw)
 }
 

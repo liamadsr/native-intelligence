@@ -34,7 +34,7 @@ beforeEach(() => {
       { id: BEN_CHAT, user_id: BEN, workspace_id: WS },
     ],
     actions: [{ id: ACTION, workspace_id: WS }],
-    deal: [{ id: DEAL, workspace_id: WS }],
+    flow: [{ id: DEAL, workspace_id: WS }],
     captures: [{ id: BEN_CALL, workspace_id: WS, visibility: 'private', user_id: BEN, is_eval: false }],
     attachments: [
       { id: OPEN_FILE, workspace_id: WS, user_id: BEN, note_id: null },
@@ -62,7 +62,8 @@ describe('turnMentionRefs', () => {
       }),
     ).toEqual([
       { type: 'action', id: ACTION },
-      { type: 'deal', id: DEAL },
+      // A deal is its pipeline's row (Tables, phase 7).
+      { type: 'data_row', id: DEAL },
       { type: 'attachment', id: OPEN_FILE },
     ])
     expect(turnMentionRefs(undefined)).toEqual([])
@@ -86,9 +87,9 @@ describe('syncTurnMentions', () => {
     const db = memoryDb(tables)
     const scope = { workspaceId: WS, userId: ANA, conversationId: CHAT }
     await syncTurnMentions(db, { ...scope, systemContext: { attachedActionIds: [ACTION] } })
-    await syncTurnMentions(db, { ...scope, systemContext: { attachedDealIds: [DEAL] } })
-    await syncTurnMentions(db, { ...scope, systemContext: { attachedDealIds: [DEAL] } })
-    expect(edges(CHAT)).toEqual([`conversation>action:${ACTION}`, `conversation>deal:${DEAL}`].sort())
+    await syncTurnMentions(db, { ...scope, systemContext: { attachedFlowIds: [DEAL] } })
+    await syncTurnMentions(db, { ...scope, systemContext: { attachedFlowIds: [DEAL] } })
+    expect(edges(CHAT)).toEqual([`conversation>action:${ACTION}`, `conversation>flow:${DEAL}`].sort())
   })
 
   it('never writes from someone else’s conversation', async () => {

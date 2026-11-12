@@ -30,7 +30,7 @@ describe('mention markdown', () => {
 
   it('reads the records a body mentions, each once, in order; never one in code, nor a kind no one mentions', () => {
     const body = [
-      `${mentionMarkdown({ type: 'deal', id: DEAL, label: 'Renewal' })} and again ${mentionMarkdown({ type: 'deal', id: DEAL, label: 'it' })},`,
+      `${mentionMarkdown({ type: 'flow', id: DEAL, label: 'Renewal' })} and again ${mentionMarkdown({ type: 'flow', id: DEAL, label: 'it' })},`,
       `${mentionMarkdown({ type: 'attachment', id: FILE, label: 'menu.pdf' })}, \`[@Maya](mention://contact/${MAYA})\`,`,
       '```',
       `[@Maya](mention://contact/${MAYA})`,
@@ -38,7 +38,7 @@ describe('mention markdown', () => {
       `[@x](mention://claim/${DEAL})`,
     ].join('\n')
     expect(parseDocumentMentions(body)).toEqual([
-      { type: 'deal', id: DEAL },
+      { type: 'flow', id: DEAL },
       { type: 'attachment', id: FILE },
     ])
   })
@@ -60,7 +60,7 @@ describe('the editor’s conversion', () => {
   })
 
   it('bold across a chip keeps every part bold, and reads back the same', () => {
-    const md = `Then **the [@Renewal](mention://deal/${DEAL}) now** is due`
+    const md = `Then **the [@Renewal](mention://flow/${DEAL}) now** is due`
     const nodes = inline(md)
     const bold = nodes.filter((n) => n.marks?.some((m) => m.type === 'bold'))
     expect(bold.map((n) => n.type)).toEqual(['text', RECORD_MENTION_NODE, 'text'])
