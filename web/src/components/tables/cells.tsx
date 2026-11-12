@@ -45,6 +45,7 @@ import {
   type CustomFieldType,
 } from '@/lib/crm/custom-field-types'
 import { lenientDate } from '@/lib/tables/grid-edits'
+import { formatE164ForDisplay } from '@/lib/sms/phone-format'
 import type { EditMove } from '@/components/grid/selection'
 
 /** What a cell needs to know about its column (the title column is a text one). */
@@ -160,7 +161,9 @@ export function CellDisplay({
       </span>
     )
   }
-  const text = formatFieldValue(t, value, { labels })
+  const stored = formatFieldValue(t, value, { labels })
+  // A phone is stored (and edited, and copied) as E.164; it reads as the contact panel shows one.
+  const text = t === 'phone' ? formatE164ForDisplay(stored) : stored
   if (!text) return null
   return (
     <span className={cn('block w-full truncate px-2 text-sm', RIGHT_ALIGNED.has(t) && 'text-right tabular-nums', (t === 'url' || t === 'email') && 'text-foreground/90 underline decoration-border underline-offset-2')}>

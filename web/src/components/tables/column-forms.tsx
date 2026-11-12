@@ -174,7 +174,7 @@ export function TypeChangeDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Change “{column.label}”’s type</DialogTitle>
+          <DialogTitle>Change the type of {column.label}</DialogTitle>
           <DialogDescription>Every value converts to the new type. If some don’t fit, nothing changes.</DialogDescription>
         </DialogHeader>
         <ColumnTypeFields value={shape} onChange={setShape} tableId={tableId} />

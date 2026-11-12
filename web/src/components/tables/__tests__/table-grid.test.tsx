@@ -33,10 +33,11 @@ const COLUMNS = [
   column('price', 'Price', 'currency', { config: { currency: 'USD' } }, 5),
   column('due', 'Due', 'date', {}, 6),
   column('site', 'Site', 'url', {}, 7),
+  column('phone', 'Phone', 'phone', {}, 8),
 ]
 const TABLE = { id: T, workspace_id: 'ws', name: 'Fernhill orders', icon: null, description: null, owner_member_id: 'm', visibility: 'workspace', version: 4, position: 0, archived_at: null, created_at: '', updated_at: '' }
 const ROWS = [
-  { id: R1, table_id: T, title: 'Oak table', custom_fields: { qty: 2, stage: 'Lead', paid: true, owner: MEMBER, client: [CO], price: { amount: 1200, currency: 'USD' }, due: '2026-12-01', site: 'https://fernhill.example' }, position: 1, archived_at: null, created_at: '', updated_at: '' },
+  { id: R1, table_id: T, title: 'Oak table', custom_fields: { qty: 2, stage: 'Lead', paid: true, owner: MEMBER, client: [CO], price: { amount: 1200, currency: 'USD' }, due: '2026-12-01', site: 'https://fernhill.example', phone: '+15550100001' }, position: 1, archived_at: null, created_at: '', updated_at: '' },
   { id: R2, table_id: T, title: 'Linen set', custom_fields: {}, position: 2, archived_at: null, created_at: '', updated_at: '' },
 ]
 
@@ -136,12 +137,12 @@ async function open() {
 }
 
 describe('TableDetail grid', () => {
-  it('shows every type as stored: headers by type, numbers, chips, a checkbox, names, an amount, a date, a link', async () => {
+  it('shows every type as stored: headers by type, numbers, chips, a checkbox, names, an amount, a date, a link, a phone as the contact panel shows one', async () => {
     await open()
-    expect([...container.querySelectorAll('[role="columnheader"]')].map((h) => h.getAttribute('aria-label'))).toEqual(['Name', 'Qty', 'Stage', 'Paid', 'Owner', 'Client', 'Price', 'Due', 'Site'])
-    const texts = Array.from({ length: 9 }, (_, c) => cell(0, c).textContent)
+    expect([...container.querySelectorAll('[role="columnheader"]')].map((h) => h.getAttribute('aria-label'))).toEqual(['Name', 'Qty', 'Stage', 'Paid', 'Owner', 'Client', 'Price', 'Due', 'Site', 'Phone'])
+    const texts = Array.from({ length: 10 }, (_, c) => cell(0, c).textContent)
     expect(texts[0]).toContain('Oak table')
-    expect(texts.slice(1)).toEqual(['2', 'Lead', '', expect.stringContaining('Robin Vale'), 'Fernhill Studio', '$1,200.00', expect.stringMatching(/^Dec 1/), 'https://fernhill.example'])
+    expect(texts.slice(1)).toEqual(['2', 'Lead', '', expect.stringContaining('Robin Vale'), 'Fernhill Studio', '$1,200.00', expect.stringMatching(/^Dec 1/), 'https://fernhill.example', '+1 (555) 010-0001'])
     expect(cell(0, 3).querySelector('[role="checkbox"]')?.getAttribute('aria-checked')).toBe('true')
     // A + New row and a + column header, for an editor.
     expect([...container.querySelectorAll('button')].some((b) => b.textContent === 'New')).toBe(true)
