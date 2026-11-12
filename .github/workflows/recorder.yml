@@ -1,0 +1,30 @@
+# The call recorder (recorder/): its tests and its types, on Node 24 (the version its image
+# runs, which runs its TypeScript as it is), in the same base image as recorder/Dockerfile.
+# The end-to-end run (recorder/e2e) needs a LiveKit server and is run by hand.
+name: Call recorder
+
+on:
+  pull_request:
+    paths:
+      - 'recorder/**'
+      - '.github/workflows/recorder.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Recorder tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    container: node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
+    defaults:
+      run:
+        working-directory: recorder
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck

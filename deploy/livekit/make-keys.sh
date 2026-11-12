@@ -4,7 +4,9 @@
 # connect to. While LIVEKIT_WEBHOOK_URL in this folder's .env is empty, it also sets
 # that to the app's public address (NEXT_PUBLIC_APP_URL in ../app/.env) and the
 # webhook route, and while Egress's four storage lines are empty, copies them from the
-# Supabase stack's own settings (../supabase/stack/.env). Neither key is ever shown, typed, or put on a command line: they go
+# Supabase stack's own settings (../supabase/stack/.env). For the call recorder, while its lines here
+# are empty: the app's address, the capture feed's secret (made once, the same value in both files)
+# and Deepgram's key (the app's). Neither key is ever shown, typed, or put on a command line: they go
 # from here to the files through a pipe, with ../supabase/envfile.py, which only
 # changes lines the files already have.
 #
@@ -176,12 +178,64 @@ PY
 	fi
 fi
 
-if [ "$made" = 1 ] || [ "$webhook_changed" = 1 ] || [ "$storage_changed" = 1 ]; then
+# The call recorder (../README.md step 23, "The call recorder"): the app's address, the
+# capture feed's secret (one value, in this .env and the app's) and Deepgram's key, each
+# while its line here is empty. Never shown; lines filled in by hand are left alone.
+recorder_changed=0
+if grep -q '^RECORDER_APP_URL=$' "$own_env"; then
+	app_url=""
+	[ -f "$app_env" ] && app_url="$(value_of NEXT_PUBLIC_APP_URL "$app_env")"
+	app_url="${app_url%/}"
+	if [[ "$app_url" =~ ^https://[A-Za-z0-9.-]+$ ]]; then
+		write "$own_env" "RECORDER_APP_URL=$app_url"
+		echo "The recorder will reach the app at $app_url (RECORDER_APP_URL in $own_env)."
+		recorder_changed=1
+	fi
+fi
+if grep -q '^CAPTURE_FEED_SECRET=' "$own_env"; then
+	feed="$(value_of CAPTURE_FEED_SECRET "$own_env")"
+	if [ ! -f "$app_env" ] || ! grep -q '^CAPTURE_FEED_SECRET=' "$app_env"; then
+		[ -n "$feed" ] || echo "$app_env has no CAPTURE_FEED_SECRET line yet: copy it (and TEAM_CALL_RECORDER) from $deploy/app/.env.example, then run this again."
+	else
+		app_feed="$(value_of CAPTURE_FEED_SECRET "$app_env")"
+		if [ -z "$feed" ] && [ -n "$app_feed" ]; then
+			[[ "$app_feed" =~ ^[A-Za-z0-9]{32,}$ ]] || die "CAPTURE_FEED_SECRET in $app_env is not 32 or more letters and digits: empty it there, then run this again to make one."
+			write "$own_env" "CAPTURE_FEED_SECRET=$app_feed"
+			echo "The capture feed's secret is copied from $app_env into $own_env (${#app_feed} characters)."
+			recorder_changed=1
+		elif [ -z "$feed" ]; then
+			feed="$(random_alnum 48)"
+			write "$own_env" "CAPTURE_FEED_SECRET=$feed"
+			write "$app_env" "CAPTURE_FEED_SECRET=$feed"
+			echo "A new capture feed secret is in $own_env and $app_env (${#feed} characters)."
+			recorder_changed=1
+			made_feed=1
+		elif [ -z "$app_feed" ]; then
+			write "$app_env" "CAPTURE_FEED_SECRET=$feed"
+			echo "The capture feed's secret is copied into $app_env."
+			made_feed=1
+		elif [ "$feed" != "$app_feed" ]; then
+			echo "make-keys: CAPTURE_FEED_SECRET differs between $own_env and $app_env: the app will refuse the recorder. Empty one of them, then run this again." >&2
+		fi
+	fi
+fi
+if grep -q '^RECORDER_DEEPGRAM_API_KEY=$' "$own_env" && [ -f "$app_env" ]; then
+	dg="$(value_of DEEPGRAM_API_KEY "$app_env")"
+	if [[ "$dg" =~ ^[A-Za-z0-9]+$ ]]; then
+		write "$own_env" "RECORDER_DEEPGRAM_API_KEY=$dg"
+		echo "Deepgram's key is copied from $app_env into $own_env (RECORDER_DEEPGRAM_API_KEY)."
+		recorder_changed=1
+	elif [ -n "$dg" ]; then
+		echo "DEEPGRAM_API_KEY in $app_env is not letters and digits: put the recorder's own in RECORDER_DEEPGRAM_API_KEY by hand (sudo nano $own_env)."
+	fi
+fi
+
+if [ "$made" = 1 ] || [ "$webhook_changed" = 1 ] || [ "$storage_changed" = 1 ] || [ "$recorder_changed" = 1 ]; then
 	echo
 	echo "LiveKit reads this only when its container is made: sudo docker compose up -d in $here"
 	echo "(if LiveKit is running, it is recreated, and every call in it ends)."
 fi
-if [ "$made" = 1 ]; then
+if [ "$made" = 1 ] || [ "${made_feed:-0}" = 1 ]; then
 	echo "The app reads its copy when its containers start: sudo ./deploy.sh --no-build in $deploy/app,"
 	echo "once the app uses it."
 fi

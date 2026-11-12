@@ -38,9 +38,15 @@
  * family here too: LOCAL_AGENT_TOKEN_SECRET, falling back to RUN_SKILL's like
  * the rest (security review 2026-10-31), so its line says the same four
  * things and every other family is compared against it.
+ *
+ * The capture feed's (CAPTURE_FEED_SECRET, src/lib/capture-feed/auth.ts) is
+ * held by a producer outside the app's containers (the call recorder, in
+ * LiveKit's stack), so it never falls back: `{ fallback: false }` makes an
+ * unset one `unset`, and the feed is off, rather than hand that service the
+ * skill-runner's key.
  */
 
-export type InternalSecretFamily = 'chat' | 'agent-run' | 'live-agent' | 'utility' | 'browser' | 'local-agent'
+export type InternalSecretFamily = 'chat' | 'agent-run' | 'live-agent' | 'utility' | 'browser' | 'local-agent' | 'capture-feed'
 export type InternalSecretSource = 'dedicated' | 'shared' | 'fallback' | 'unset'
 
 /** The root of the internal-secret chain (the skill-runner's own secret). */
@@ -59,6 +65,7 @@ export const INTERNAL_SECRET_ENVS = [
   'LIVE_AGENT_INTERNAL_SECRET',
   'BROWSER_INTERNAL_SECRET',
   'LOCAL_AGENT_TOKEN_SECRET',
+  'CAPTURE_FEED_SECRET',
 ] as const
 
 export interface InternalSecretStatus {
@@ -75,10 +82,10 @@ function nonEmpty(v: string | undefined): string | null {
 }
 
 /** Where `dedicatedEnv` resolves from right now, and which other env vars share its value. Never returns a secret. */
-export function internalSecretStatus(dedicatedEnv: string): InternalSecretStatus {
+export function internalSecretStatus(dedicatedEnv: string, opts: { fallback?: boolean } = {}): InternalSecretStatus {
   const own = nonEmpty(process.env[dedicatedEnv])
   if (!own) {
-    return { source: nonEmpty(process.env[ROOT_INTERNAL_SECRET_ENV]) ? 'fallback' : 'unset', sharedWith: [] }
+    return { source: opts.fallback !== false && nonEmpty(process.env[ROOT_INTERNAL_SECRET_ENV]) ? 'fallback' : 'unset', sharedWith: [] }
   }
   const sharedWith = INTERNAL_SECRET_ENVS.filter((env) => env !== dedicatedEnv && nonEmpty(process.env[env]) === own)
   return { source: sharedWith.length > 0 ? 'shared' : 'dedicated', sharedWith }
@@ -95,8 +102,8 @@ export function internalSecretSource(dedicatedEnv: string): InternalSecretSource
  * family (again only if the source or its sharedWith list changes); the log
  * carries env var names only, never a secret value.
  */
-export function resolveInternalSecret(family: InternalSecretFamily, dedicatedEnv: string): string | null {
-  const { source, sharedWith } = internalSecretStatus(dedicatedEnv)
+export function resolveInternalSecret(family: InternalSecretFamily, dedicatedEnv: string, opts: { fallback?: boolean } = {}): string | null {
+  const { source, sharedWith } = internalSecretStatus(dedicatedEnv, opts)
   const fields: Record<string, unknown> = { family, env: dedicatedEnv, secretSource: source }
   if (sharedWith.length > 0) fields.sharedWith = sharedWith
   const line = JSON.stringify(fields)
@@ -105,6 +112,7 @@ export function resolveInternalSecret(family: InternalSecretFamily, dedicatedEnv
     if (source === 'dedicated') console.info(`[internal-secret] ${line}`)
     else console.warn(`[internal-secret] ${line}`)
   }
+  if (opts.fallback === false) return nonEmpty(process.env[dedicatedEnv])
   return nonEmpty(process.env[dedicatedEnv]) ?? nonEmpty(process.env[ROOT_INTERNAL_SECRET_ENV])
 }
 

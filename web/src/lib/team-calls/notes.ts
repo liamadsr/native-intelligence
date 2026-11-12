@@ -12,6 +12,10 @@
  * (a reconnect) starts a new file at its own place, so the times hold.
  * The merged transcript becomes a capture like a recorded meeting's.
  *
+ * Where the call recorder takes the notes instead (TEAM_CALL_RECORDER=on,
+ * ./recorder.ts), the same capture fills in while the call goes on, and
+ * mergeNotes writes it once more at the end in the order things were said.
+ *
  * Recording: one video file of the whole call (a "room composite" egress),
  * only where the server allows it (TEAM_CALL_RECORDING=on).
  */
@@ -71,9 +75,16 @@ export interface TeamCallNotesView {
 export interface TeamCallFeatures {
   notes: boolean
   recording: boolean
+  /**
+   * The notes are the call recorder's (src/lib/team-calls/recorder.ts): heard
+   * as they are said, into a capture that fills in live. A mute only mutes
+   * (no notes file to end), and the microphone keeps its DTX. False: the
+   * notes are LiveKit Egress's files, transcribed after the call.
+   */
+  liveNotes?: boolean
 }
 
-export const NO_CALL_FEATURES: TeamCallFeatures = { notes: false, recording: false }
+export const NO_CALL_FEATURES: TeamCallFeatures = { notes: false, recording: false, liveNotes: false }
 
 /**
  * Joining waits for the person (their microphone held back until they say

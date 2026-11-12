@@ -11,7 +11,12 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 //   position  — desktop dual-channel capture whose mic stream diarized exactly
 //               ONE voice for the whole session (the solo-desk case). Granted
 //               and revoked here, from the persisted transcript.
-//   confirmed — the user clicked "this was me" on a label.
+//   confirmed — the user clicked "this was me" on a label; or the server
+//               wrote it from a call's roster (source 'call_roster': one
+//               track is one known person), for every member in the call.
+//               On such a call the gate does not trust labels at all: an
+//               action is someone's own only when the line it was quoted
+//               from was said by their own roster row (quoteIsTheirs).
 //   voice     — the label matched the user's trained voiceprint.
 //
 // The auto-apply gates (live-agent route + stage route) refuse to auto-apply
@@ -179,6 +184,48 @@ export async function resolveSelfBinding(
     memberId: selfRow.member_id as string,
     speakerLabel: 'local_1',
   }
+}
+
+/**
+ * Does a call's roster say who each voice on this capture is (participant
+ * rows the server wrote, source 'call_roster', migration 587)? Only captures
+ * the call recorder filled in have such rows; nobody else can make one
+ * (587's capture_participant_roster_guard).
+ */
+export async function callRosterSetsSpeakers(supabase: SupabaseClient, captureId: string): Promise<boolean> {
+  const { data } = await supabase.from('capture_participant').select('id').eq('capture_id', captureId).eq('source', 'call_roster').limit(1)
+  return (data ?? []).length > 0
+}
+
+/** Who said a quote on a call's capture: the participant row of each transcript line that holds it (588's capture_feed_quote_speakers). */
+export interface QuoteSpeaker {
+  participant_id: string | null
+  member_id: string | null
+  source: string | null
+}
+
+/**
+ * On a call the recorder heard, an action is its assignee's own only when
+ * the line it came from was said by that member's own roster row: exactly
+ * one row said the quote, it is a `call_roster` row, and it is that member.
+ * A name that merely equals a label, a guest named like a member, a quote
+ * nobody (or more than one person) said: never. Pure.
+ */
+export function quoteIsTheirs(speakers: readonly QuoteSpeaker[], memberId: string | null | undefined): boolean {
+  if (!memberId || speakers.length !== 1) return false
+  const [one] = speakers
+  return !!one.participant_id && one.source === 'call_roster' && one.member_id === memberId
+}
+
+/** Who said this quote on this capture (the service role: the segments are the server's). Fails closed: an error is nobody. */
+export async function quoteSpeakers(svc: SupabaseClient, captureId: string, quote: string | null | undefined): Promise<QuoteSpeaker[]> {
+  if (!quote || !quote.trim()) return []
+  const { data, error } = await svc.rpc('capture_feed_quote_speakers', { p_capture: captureId, p_quote: quote })
+  if (error) {
+    console.warn(`[self-binding] capture=${captureId} quote speakers not read:`, error.message.slice(0, 120))
+    return []
+  }
+  return (data ?? []) as QuoteSpeaker[]
 }
 
 /**

@@ -31,6 +31,7 @@ const hoisted = vi.hoisted(() => ({
   requireWorkspace: vi.fn(),
   rpcSpy: vi.fn(),
   fromSpy: vi.fn(),
+  updateSpy: vi.fn(),
 }))
 
 vi.mock('@/lib/api-auth', () => ({
@@ -48,6 +49,8 @@ interface FakeOpts {
   /** A thrown/returned RPC error (e.g. a P0001 lock-trigger exception, or a
    *  generic failure). When set, `data` is null and `error` carries it. */
   rpcError?: { code?: string; message?: string } | null
+  /** The capture's ended/locked/metadata, as the route reads them first (a call's capture the recorder fills). */
+  captureRow?: Record<string, unknown> | null
 }
 
 function makeFakeSupabase(opts: FakeOpts = {}) {
@@ -56,9 +59,24 @@ function makeFakeSupabase(opts: FakeOpts = {}) {
   return {
     // The route MUST use rpc(), not .from('captures').update(...). fromSpy is
     // wired so any accidental table write surfaces in the assertions.
+    // The one table read: three small columns by id (is it a call's capture the recorder fills?).
+    // Any write to a table throws.
     from: (...args: unknown[]) => {
       hoisted.fromSpy(...args)
-      throw new Error('route must not touch tables directly — it must call rpc()')
+      const chain: Record<string, unknown> = {}
+      Object.assign(chain, {
+        select: (cols: string) => {
+          if (cols.split(',').map((c) => c.trim()).includes('transcript')) throw new Error('route must not read the transcript')
+          return chain
+        },
+        eq: () => chain,
+        maybeSingle: async () => ({ data: opts.captureRow ?? null, error: null }),
+        update: (...u: unknown[]) => {
+          hoisted.updateSpy(...u)
+          throw new Error('route must not write tables directly — it must call rpc()')
+        },
+      })
+      return chain
     },
     rpc: async (fn: string, params: Record<string, unknown>) => {
       hoisted.rpcSpy(fn, params)
@@ -117,7 +135,20 @@ describe('POST transcript-append', () => {
       p_append: CHUNK,
       p_base_length: BASE.length,
     })
-    expect(hoisted.fromSpy).not.toHaveBeenCalled()
+    expect(hoisted.updateSpy).not.toHaveBeenCalled()
+  })
+
+  it('409 TRANSCRIPT_FROM_CALL on a call’s capture the recorder is filling: nothing written', async () => {
+    hoisted.requireWorkspace.mockResolvedValue(auth({ captureRow: { ended_at: null, is_transcript_locked: false, metadata: { source: 'team_call', notes_recorder: 'live' } } }))
+    const res = await POST(appendReq({ append_text: CHUNK, base_length: BASE.length }), ctx)
+    expect(res.status).toBe(409)
+    expect((await readJson<{ code: string }>(res)).code).toBe('TRANSCRIPT_FROM_CALL')
+    expect(hoisted.rpcSpy).not.toHaveBeenCalled()
+    // Once the call is over (the notes done), the capture is an ordinary one: the lock answers as before.
+    hoisted.requireWorkspace.mockResolvedValue(
+      auth({ captureRow: { ended_at: '2026-11-11T10:30:00Z', is_transcript_locked: true, metadata: { notes_recorder: 'done' } }, rpcResult: { status: 'locked', server_length: 10 } }),
+    )
+    expect((await readJson<{ code: string }>(await POST(appendReq({ append_text: CHUNK, base_length: BASE.length }), ctx))).code).toBe('TRANSCRIPT_LOCKED')
   })
 
   it('returns 200 + new_length when the RPC applies the append', async () => {

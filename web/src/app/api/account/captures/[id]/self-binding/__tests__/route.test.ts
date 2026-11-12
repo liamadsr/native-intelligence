@@ -73,6 +73,8 @@ interface FakeOpts {
   grantReturns?: { id: string }[]
   /** error the label-release UPDATE should surface (drives the 500 path). */
   releaseError?: { message: string }
+  /** The capture is a call the recorder heard (roster rows, migration 587). */
+  callRoster?: boolean
 }
 
 function makeSupabase(opts: FakeOpts, captured: Captured) {
@@ -127,6 +129,7 @@ function makeSupabase(opts: FakeOpts, captured: Captured) {
         },
         maybeSingle: () =>
           Promise.resolve({ data: opts.selfRow === undefined ? { id: 'self-1' } : opts.selfRow, error: null }),
+        limit: () => b,
         update: (payload: Record<string, unknown>) => {
           local.isUpdate = true
           local.payload = payload
@@ -149,6 +152,10 @@ function makeSupabase(opts: FakeOpts, captured: Captured) {
               speakerLabel: local.eqCols['speaker_label'] as string,
             }
             return Promise.resolve(resolve({ data: null, error: opts.releaseError ?? null }))
+          }
+          // The roster probe (callRosterSetsSpeakers): a call the recorder heard has roster rows.
+          if (local.eqCols['source'] === 'call_roster') {
+            return Promise.resolve(resolve({ data: opts.callRoster ? [{ id: 'roster-1' }] : [], error: null }))
           }
           // A bare read thenable (unused here) resolves empty.
           return Promise.resolve(resolve({ data: null, error: null }))
@@ -310,6 +317,16 @@ describe('CAS atomicity', () => {
     expect(body.reason).toBeTruthy()
     // Still exactly ONE grant update attempt — no read-then-write.
     expect(captured.updateCount).toBe(1)
+  })
+
+  it('409 on a call the recorder heard: its speakers come from the call, nothing is written', async () => {
+    const captured = freshCaptured()
+    hoisted.requireWorkspace.mockResolvedValue(auth({ captureOwnerId: USER_ID, profileRows, callRoster: true }, captured))
+    const res = await POST(req(matchingBody), { params })
+    expect(res.status).toBe(409)
+    expect((await readJson<{ code?: string }>(res)).code).toBe('SPEAKERS_FROM_CALL')
+    expect(captured.updateCount).toBe(0)
+    expect(captured.releaseCount).toBe(0)
   })
 })
 
