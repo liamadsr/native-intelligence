@@ -278,11 +278,43 @@ describe('setSearchConsoleSite', () => {
 
   it('clearing needs no connection and leaves Analytics alone', async () => {
     const { db } = workspace({ source: [chosenSource()] })
-    await clearSearchConsoleSite(db, { workspaceId: WS })
+    // Bea has no Search Console connection of her own that the choice uses: any full member may stop the reads.
+    expect(
+      await clearSearchConsoleSite(db, { workspaceId: WS, userId: BEA }),
+    ).toEqual({ ok: true, source: null })
     expect(await readSource(db, WS)).toMatchObject({
       sc_site_url: null,
       sc_account_id: null,
       ga4_property_id: 'properties/123',
+    })
+  })
+
+  it('a workspace guest can’t clear the choice: that would stop every member’s reads', async () => {
+    const { db } = workspace({
+      source: [chosenSource()],
+      members: [
+        {
+          id: 'm1',
+          workspace_id: WS,
+          user_id: ALEX,
+          role: 'owner',
+          display_name: 'Alex Rivera',
+        },
+        {
+          id: 'm2',
+          workspace_id: WS,
+          user_id: BEA,
+          role: 'guest',
+          display_name: 'Bea Chen',
+        },
+      ],
+    })
+    expect(
+      await clearSearchConsoleSite(db, { workspaceId: WS, userId: BEA }),
+    ).toMatchObject({ ok: false, code: 'NO_ACCESS' })
+    // Nothing was cleared.
+    expect(await readSource(db, WS)).toMatchObject({
+      sc_site_url: 'sc-domain:example.com',
     })
   })
 })

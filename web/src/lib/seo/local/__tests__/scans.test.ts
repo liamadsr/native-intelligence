@@ -111,7 +111,7 @@ beforeEach(() => {
 })
 
 describe('startLocalScan: the confirmation line', () => {
-  it('refuses a scan above the line without confirmed, with the estimate, and writes, checks and sends nothing', async () => {
+  it('refuses a scan above the line without confirmed, with the estimate, and writes and sends nothing', async () => {
     hoisted.getGrid.mockResolvedValue(BIG)
     const { svc, inserts } = fakeSvc()
     const out = await startLocalScan(svc, WHO, GRID_ID, {}, {
@@ -131,7 +131,8 @@ describe('startLocalScan: the confirmation line', () => {
     expect(out.message).toContain('245 searches')
     expect(out.message).toContain('$0.29')
     expect(inserts).toHaveLength(0)
-    expect(allowed).not.toHaveBeenCalled()
+    // The person was allowed to spend before they were asked: the access check comes first.
+    expect(allowed).toHaveBeenCalledTimes(1)
     expect(send).not.toHaveBeenCalled()
 
     // A max_estimate_usd alone is not a yes.
@@ -214,6 +215,24 @@ describe('startLocalScan: the confirmation line', () => {
     )
     expect(out).toMatchObject({ ok: false, code: 'NOT_A_MEMBER' })
     expect(inserts).toHaveLength(0)
+  })
+
+  it('a guest is refused before any estimate or yes is asked, even unconfirmed', async () => {
+    hoisted.getGrid.mockResolvedValue(BIG)
+    const { svc, inserts } = fakeSvc()
+    const out = await startLocalScan(svc, WHO, GRID_ID, {}, {
+      checkAccess: async () => ({
+        ok: false as const,
+        code: 'NOT_A_MEMBER' as const,
+        message: 'Guests read what is there.',
+      }),
+      send,
+      now: () => NOW,
+    })
+    // Not CONFIRMATION_REQUIRED: nobody who can't spend is asked to confirm a cost.
+    expect(out).toMatchObject({ ok: false, code: 'NOT_A_MEMBER' })
+    expect(inserts).toHaveLength(0)
+    expect(send).not.toHaveBeenCalled()
   })
 
   it('replaces a stuck scan only once the new one is confirmed', async () => {

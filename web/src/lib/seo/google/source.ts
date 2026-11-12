@@ -449,24 +449,34 @@ export async function setAnalyticsProperty(
   }
 }
 
-/** Stop reading Search Console for this workspace (any member). */
+/** Stop reading Search Console for this workspace (any full member; a guest can't stop everyone's reads). */
 export async function clearSearchConsoleSite(
   svc: SupabaseClient,
-  who: { workspaceId: string },
+  who: Who,
 ): Promise<SourceWriteResult<SearchConsoleSourceView>> {
-  if (await readSource(svc, who.workspaceId))
-    await writeSource(svc, who.workspaceId, CLEAR_SEARCH_CONSOLE)
-  return { ok: true, source: null }
+  try {
+    await assertMayChoose(svc, who, 'search_console')
+    if (await readSource(svc, who.workspaceId))
+      await writeSource(svc, who.workspaceId, CLEAR_SEARCH_CONSOLE)
+    return { ok: true, source: null }
+  } catch (err) {
+    return failure(err)
+  }
 }
 
-/** Stop reading Google Analytics for this workspace (any member). */
+/** Stop reading Google Analytics for this workspace (any full member; a guest can't stop everyone's reads). */
 export async function clearAnalyticsProperty(
   svc: SupabaseClient,
-  who: { workspaceId: string },
+  who: Who,
 ): Promise<SourceWriteResult<AnalyticsSourceView>> {
-  if (await readSource(svc, who.workspaceId))
-    await writeSource(svc, who.workspaceId, CLEAR_ANALYTICS)
-  return { ok: true, source: null }
+  try {
+    await assertMayChoose(svc, who, 'analytics')
+    if (await readSource(svc, who.workspaceId))
+      await writeSource(svc, who.workspaceId, CLEAR_ANALYTICS)
+    return { ok: true, source: null }
+  } catch (err) {
+    return failure(err)
+  }
 }
 
 // ---------------------------------------------------------------------------

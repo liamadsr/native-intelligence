@@ -170,6 +170,15 @@ export async function startLocalScan(
     }
   }
 
+  // Who may spend comes first: a guest, a free-plan person or a turn nobody
+  // is in is refused before any estimate is shown or any yes is asked.
+  const access = await (deps.checkAccess ?? checkSeoDataAccess)({
+    userId: who.userId,
+    workspaceId: who.workspaceId,
+    unattended: who.unattended,
+  })
+  if (!access.ok) return access
+
   // The grid as it is now, priced the same way the page and the agent price it.
   const detail = estimateScan({
     keywords: grid.keywords.length,
@@ -204,14 +213,7 @@ export async function startLocalScan(
     }
   }
 
-  const access = await (deps.checkAccess ?? checkSeoDataAccess)({
-    userId: who.userId,
-    workspaceId: who.workspaceId,
-    unattended: who.unattended,
-  })
-  if (!access.ok) return access
-
-  // Confirmed and allowed: only now is a stuck scan ended to make way.
+  // Allowed and confirmed: only now is a stuck scan ended to make way.
   if (live) {
     await failScan(
       createLocalScanStore(svc),

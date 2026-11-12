@@ -66,9 +66,11 @@ export async function DELETE() {
   const auth = await requireWorkspaceMember()
   if (auth instanceof Response) return auth
   try {
-    await clearSearchConsoleSite(getServiceClient(), {
+    const out = await clearSearchConsoleSite(getServiceClient(), {
       workspaceId: auth.workspaceId,
+      userId: auth.user.id,
     })
+    if (!out.ok) return googleRefusalResponse(out)
     return NextResponse.json({ source: null })
   } catch (err) {
     console.error('[seo-google] clear site failed', err)
