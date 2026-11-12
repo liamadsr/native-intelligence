@@ -1,10 +1,11 @@
 import { studioCan } from '../studio-env';
 import React, { useEffect, useRef, useState } from 'react';
+import { Icon } from './icons';
 import { request } from './client';
 import type { EditorProject } from '@/lib/studio/engine/contracts';
 import { FontPicker } from './FontPicker';
 import { weightNumber, animationPresets, ParticleFormSchema, layerKindInfo, layerParamInfo, setLayerLane, textLooks, type AnimationPreset, type EditorLayer, type LayerStyle, type TextLook } from '@/lib/studio/engine/layers';
-import { Slider } from './controls';
+import { Slider, StudioSelect } from './controls';
 import { layerTitle, layerTone } from './LayerLanes';
 
 const presetLabels: Record<AnimationPreset, string> = { none: 'None', fade: 'Fade', pop: 'Pop', 'slide-up': 'Slide up', 'slide-down': 'Slide down', 'slide-left': 'Slide from right', 'slide-right': 'Slide from left',
@@ -30,22 +31,22 @@ export function LayerInspector({ project, layerId, change, close }: { project: E
     <input type="color" disabled={optional && !value} value={(value ?? '#ffffff').slice(0, 7)} onChange={e => onChange(e.target.value + (value && value.length === 9 ? value.slice(7) : ''))} /></label>;
   const anim = (side: 'enter' | 'exit') => { const value = layer[side];
     return <div className="layer-anim"><label className="field-label">{side === 'enter' ? 'In' : 'Out'}</label>
-      <select value={value.preset} onChange={e => set({ [side]: { ...value, preset: e.target.value as AnimationPreset } } as Partial<EditorLayer>)}>
-        {presetsFor(layer.kind, side).map(preset => <option key={preset} value={preset}>{presetLabels[preset]}</option>)}</select>
-      {value.preset !== 'none' ? <select aria-label={`${side === 'enter' ? 'In' : 'Out'} motion`} title="How it moves: Snappy (no overshoot), Spring (overshoots a little and settles), Bouncy, Smooth (ease in and out)"
-        value={value.ease ?? 'expo'} onChange={e => { const { ease: _old, ...rest } = value; const next = e.target.value as NonNullable<typeof value.ease>; set({ [side]: next === 'expo' ? rest : { ...rest, ease: next } } as Partial<EditorLayer>); }}>
-        <option value="expo">Snappy</option><option value="spring">Spring</option><option value="bouncy">Bouncy</option><option value="smooth">Smooth</option></select> : null}
+      <StudioSelect aria-label={`${side === 'enter' ? 'In' : 'Out'} animation`} value={value.preset} onChange={v => set({ [side]: { ...value, preset: v as AnimationPreset } } as Partial<EditorLayer>)}>
+        {presetsFor(layer.kind, side).map(preset => <option key={preset} value={preset}>{presetLabels[preset]}</option>)}</StudioSelect>
+      {value.preset !== 'none' ? <StudioSelect aria-label={`${side === 'enter' ? 'In' : 'Out'} motion`} title="How it moves: Snappy (no overshoot), Spring (overshoots a little and settles), Bouncy, Smooth (ease in and out)"
+        value={value.ease ?? 'expo'} onChange={v => { const { ease: _old, ...rest } = value; const next = v as NonNullable<typeof value.ease>; set({ [side]: next === 'expo' ? rest : { ...rest, ease: next } } as Partial<EditorLayer>); }}>
+        <option value="expo">Snappy</option><option value="spring">Spring</option><option value="bouncy">Bouncy</option><option value="smooth">Smooth</option></StudioSelect> : null}
       {value.preset !== 'none' && !(side === 'enter' && value.preset === 'words' && s.wordFrames) ? <Slider label="Length" value={+(value.frames / fps).toFixed(2)} min={0.05} max={Math.max(0.1, Math.min(4, (layer.endFrame - layer.startFrame) / fps))} step={0.05} unit=" s"
         onChange={n => set({ [side]: { ...value, frames: Math.max(1, Math.round(n * fps)) } } as Partial<EditorLayer>)} /> : null}</div>; };
   return <div className="layer-inspector" style={{ ['--layer-tone' as string]: layerTone[layer.kind] }}>
     <div className="layer-inspector-head"><span className="th-chip" style={{ background: layerTone[layer.kind] }} /><div><strong>{layerKindInfo[layer.kind].label}</strong><small>{layerTitle(layer)}</small></div>
-      <button onClick={remove} title="Delete this layer">Delete</button><button onClick={close} aria-label="Close layer settings">✕</button></div>
+      <button onClick={remove} title="Delete this layer">Delete</button><button onClick={close} aria-label="Close layer settings" title="Close"><Icon name="close"/></button></div>
     {layer.kind === 'text' ? <section><h3>Text</h3>
       <textarea value={s.text ?? ''} rows={3} aria-label="Layer text" onChange={e => style({ text: e.target.value || ' ', ...(s.wordFrames && e.target.value.trim().split(/\s+/).length !== s.wordFrames.length ? { wordFrames: undefined } : {}) })} />
       <div className="layer-looks">{(Object.keys(textLooks) as TextLook[]).map(look => <button key={look} className={`look-${look}`} onClick={() => { const preset: LayerStyle = textLooks[look]; style({ ...preset, background: preset.background, stroke: preset.stroke, strokeWidth: preset.strokeWidth ?? 0, accent: preset.accent, uppercase: preset.uppercase ?? false, radius: preset.radius }); }}>{lookLabels[look]}</button>)}</div>
       <div className="layer-row"><label className="field-label">Font<FontPicker value={s.font ?? 'sans'} onPick={font => style({ font })} onInfo={setFontInfo} /></label>
-        <label className="field-label">Shadow<select value={s.shadow === true ? 'soft' : s.shadow || 'none'} onChange={e => style({ shadow: e.target.value === 'none' ? undefined : e.target.value as LayerStyle['shadow'] })}><option value="none">None</option><option value="soft">Soft</option><option value="lifted">Lifted</option><option value="glow">Glow</option><option value="hard">Hard</option></select></label>
-        <label className="field-label">Case<select value={s.uppercase ? 'upper' : 'as-typed'} onChange={e => style({ uppercase: e.target.value === 'upper' })}><option value="as-typed">As typed</option><option value="upper">UPPER</option></select></label></div>
+        <label className="field-label">Shadow<StudioSelect aria-label="Shadow" value={s.shadow === true ? 'soft' : s.shadow || 'none'} onChange={v => style({ shadow: v === 'none' ? undefined : v as LayerStyle['shadow'] })}><option value="none">None</option><option value="soft">Soft</option><option value="lifted">Lifted</option><option value="glow">Glow</option><option value="hard">Hard</option></StudioSelect></label>
+        <label className="field-label">Case<StudioSelect aria-label="Case" value={s.uppercase ? 'upper' : 'as-typed'} onChange={v => style({ uppercase: v === 'upper' })}><option value="as-typed">As typed</option><option value="upper">UPPER</option></StudioSelect></label></div>
       <Slider label="Size" value={Math.round((s.size ?? 0.06) * 1000) / 10} min={1} max={45} step={0.5} unit="%" onChange={n => style({ size: n / 100 })} />
       <Slider label="Weight" value={weightNumber(s.weight)} min={fontInfo?.weights[0] ?? 100} max={fontInfo?.weights[1] ?? 900} step={fontInfo?.variable ? 10 : 100} resetValue={700} onChange={n => style({ weight: n })} />
       <Slider label="Letter spacing" value={Math.round((s.tracking ?? 0) * 1000) / 1000} min={-0.12} max={0.5} step={0.005} unit=" em" resetValue={0} onChange={n => style({ tracking: n || undefined })} />
@@ -54,7 +55,7 @@ export function LayerInspector({ project, layerId, change, close }: { project: E
         <label className="field-label">Features<input placeholder="ss01, tnum…" value={(s.features ?? []).join(', ')} onChange={e => { const f = e.target.value.split(',').map(x => x.trim()).filter(x => /^[a-z0-9]{4}( [01])?$/.test(x)); style({ features: f.length ? f : undefined }); }} /></label></div>
       <div className="layer-row"><label className="layer-toggle"><input type="checkbox" checked={!!s.stack} onChange={e => style({ stack: e.target.checked || undefined })} /> One word per line</label>
         <label className="layer-toggle"><input type="checkbox" checked={!!s.fit} onChange={e => style({ fit: e.target.checked || undefined })} /> Fit width</label>
-        <label className="layer-toggle" title="A slim blinking cursor after the text (in the accent colour). Wrap words in *stars* to colour them."><input type="checkbox" checked={s.caret === 'line'} onChange={e => style({ caret: e.target.checked ? 'line' : undefined })} /> Cursor</label></div>
+        <label className="layer-toggle" title="A slim blinking cursor after the text (in the accent color). Wrap words in *stars* to color them."><input type="checkbox" checked={s.caret === 'line'} onChange={e => style({ caret: e.target.checked ? 'line' : undefined })} /> Cursor</label></div>
       <div className="layer-row"><label className="field-label">Then swap to<input placeholder="word, word…" value={(s.swapWords ?? []).join(', ')} onChange={e => { const words = e.target.value.split(',').map(w => w.trim()).filter(Boolean).slice(0, 12); style({ swapWords: words.length ? words : undefined }); }} /></label>
         <label className="field-label">Count up from<input type="number" value={s.countFrom ?? ''} onChange={e => style({ countFrom: e.target.value === '' ? undefined : Number(e.target.value) })} /></label></div>
       <Slider label="Drift" value={Math.round((s.drift ?? 0) * 100)} min={-20} max={20} unit="%/s" resetValue={0} onChange={n => style({ drift: n ? n / 100 : undefined })} />
@@ -79,8 +80,8 @@ export function LayerInspector({ project, layerId, change, close }: { project: E
       {layer.kind === 'icons' ? <><textarea rows={4} aria-label="One icon per line" value={(s.items ?? []).join('\n')} onChange={e => { const items = list(e.target.value); style({ items: items.length ? items : ['note'] }); }} />
         <small className="field-help">note · key · toggle · bubbles · dash · check · spark · play · film · cursor · mark</small>
         <Slider label="Stagger" value={s.stagger ?? 9} max={40} unit=" fr" onChange={n => style({ stagger: n })} /></> : null}
-      {layer.kind === 'waveform' ? <><div className="layer-row"><label className="field-label">Look<select value={s.variant ?? 'bars'} onChange={e => style({ variant: e.target.value as LayerStyle['variant'] })}><option value="bars">Bars</option><option value="mirror">Bars + reflection</option><option value="dots">Dots</option><option value="line">Flowing lines</option><option value="radial">Radial</option></select></label>
-          <label className="field-label">Moves with<select value={s.source ?? 'synthetic'} onChange={e => style({ source: e.target.value as LayerStyle['source'] })}><option value="synthetic">A voice-like swell</option><option value="voice">The voice-over</option><option value="music">The music</option><option value="all">All audio</option></select></label></div>
+      {layer.kind === 'waveform' ? <><div className="layer-row"><label className="field-label">Look<StudioSelect aria-label="Look" value={s.variant ?? 'bars'} onChange={v => style({ variant: v as LayerStyle['variant'] })}><option value="bars">Bars</option><option value="mirror">Bars + reflection</option><option value="dots">Dots</option><option value="line">Flowing lines</option><option value="radial">Radial</option></StudioSelect></label>
+          <label className="field-label">Moves with<StudioSelect aria-label="Moves with" value={s.source ?? 'synthetic'} onChange={v => style({ source: v as LayerStyle['source'] })}><option value="synthetic">A voice-like swell</option><option value="voice">The voice-over</option><option value="music">The music</option><option value="all">All audio</option></StudioSelect></label></div>
         <Slider label="Bars" value={s.count ?? 48} min={4} max={120} onChange={n => style({ count: n })} />
         <Slider label="Gap" value={Math.round((s.gap ?? 0.45) * 100)} min={0} max={90} unit="%" resetValue={45} onChange={n => style({ gap: n / 100 })} />
         <Slider label="Roundness" value={Math.round((s.roundness ?? 1) * 100)} min={0} max={100} unit="%" resetValue={100} onChange={n => style({ roundness: n / 100 })} />
@@ -90,15 +91,15 @@ export function LayerInspector({ project, layerId, change, close }: { project: E
         {s.variant === 'line' ? <Slider label="Line" value={s.strokeWidth ?? 3} min={1} max={14} step={0.5} onChange={n => style({ strokeWidth: n })} /> : null}
         <label className="layer-toggle"><input type="checkbox" checked={!!s.spike} onChange={e => style({ spike: e.target.checked || undefined })} /> Travelling peak</label></> : null}
       {layer.kind === 'ring' ? <Slider label="Line" value={s.strokeWidth ?? 4} min={1} max={16} onChange={n => style({ strokeWidth: n })} /> : null}
-      <div className="layer-colors">{color(layer.kind === 'icons' ? 'Icons' : 'Colour', s.color, v => style({ color: v }))}{layer.kind === 'icons' ? color('Accent', s.accent, v => style({ accent: v }), true) : null}{layer.kind === 'waveform' ? color('Gradient to', s.color2, v => style({ color2: v }), true) : null}</div>
+      <div className="layer-colors">{color(layer.kind === 'icons' ? 'Icons' : 'Color', s.color, v => style({ color: v }))}{layer.kind === 'icons' ? color('Accent', s.accent, v => style({ accent: v }), true) : null}{layer.kind === 'waveform' ? color('Gradient to', s.color2, v => style({ color2: v }), true) : null}</div>
     </section> : layer.kind === 'background' ? <section><h3>Fill</h3>
-      <div className="layer-row"><label className="field-label">Kind<select value={s.fill ?? 'mesh'} onChange={e => style({ fill: e.target.value as LayerStyle['fill'] })}>
-        {(['mesh', 'glow', 'gradient', 'solid', 'image'] as const).map(fill => <option key={fill} value={fill} disabled={fill === 'image' && !project.assets.some(a => a.kind === 'image')}>{fill[0]!.toUpperCase() + fill.slice(1)}</option>)}</select></label>
-        {s.fill === 'image' ? <label className="field-label">Picture<select value={layer.assetId ?? ''} onChange={e => set({ assetId: e.target.value || undefined })}><option value="">—</option>{project.assets.filter(a => a.kind === 'image').map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label> : null}</div>
+      <div className="layer-row"><label className="field-label">Kind<StudioSelect aria-label="Fill kind" value={s.fill ?? 'mesh'} onChange={v => style({ fill: v as LayerStyle['fill'] })}>
+        {(['mesh', 'glow', 'gradient', 'solid', 'image'] as const).map(fill => <option key={fill} value={fill} disabled={fill === 'image' && !project.assets.some(a => a.kind === 'image')}>{fill[0]!.toUpperCase() + fill.slice(1)}</option>)}</StudioSelect></label>
+        {s.fill === 'image' ? <label className="field-label">Picture<StudioSelect aria-label="Picture" value={layer.assetId ?? ''} onChange={v => set({ assetId: v || undefined })}><option value="">—</option>{project.assets.filter(a => a.kind === 'image').map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</StudioSelect></label> : null}</div>
       <div className="layer-colors">{color('Color', s.color, v => style({ color: v }))}{color('Second', s.color2, v => style({ color2: v }), true)}</div>
       {s.fill === 'image' ? <Slider label="Blur" value={s.blur ?? 0} max={120} unit=" px" onChange={n => style({ blur: n })} /> : null}
     </section> : layer.kind === 'image' ? <section><h3>Image</h3>
-      <label className="field-label">Picture<select value={layer.assetId ?? ''} onChange={e => set({ assetId: e.target.value || undefined })}>{project.assets.filter(a => a.kind === 'image').map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
+      <label className="field-label">Picture<StudioSelect aria-label="Picture" value={layer.assetId ?? ''} onChange={v => set({ assetId: v || undefined })}>{project.assets.filter(a => a.kind === 'image').map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</StudioSelect></label>
       <Slider label="Corners" value={s.radius ?? 0} max={500} unit=" px" onChange={n => style({ radius: n })} />
       <Slider label="Float" value={Math.round((s.float ?? 0) * 1000)} max={40} unit="" resetValue={0} onChange={n => style({ float: n ? n / 1000 : undefined })} />
     </section> : <section><h3>Look</h3>
@@ -144,13 +145,13 @@ function SubjectCutout({ projectId }: { projectId: string }) {
       const { job } = await request<{ job: { id: string } }>(`/api/account/studio/projects/${encodeURIComponent(projectId)}/cutouts`, { mode });
       for (;;) { await new Promise(done => setTimeout(done, 1000)); if (!alive.current) return;
         const { job: now } = await request<{ job: { status: string; progress: number; logs: string[]; error?: string } }>(`/api/account/studio/jobs/${job.id}`);
-        if (now.status === 'completed') { setState({ progress: 1, note: 'Done — the editor reloads the project with the cut-out' }); return; }
+        if (now.status === 'completed') { setState({ progress: 1, note: 'Done. The editor reloads the video with the cut-out' }); return; }
         if (now.status !== 'running') throw new Error(now.error ?? now.status);
         setState({ progress: now.progress, note: now.logs.at(-1) ?? '' }); }
     } catch (error) { if (alive.current) setState({ progress: 0, note: '', error: error instanceof Error ? error.message : String(error) }); }
   };
   return <div className="subject-cutout">
-    <p className="hint">Needs the subject isolated from the footage (macOS Vision, on the Studio worker’s Mac). Takes about as long as the camera recording.</p>
+    <p className="hint">Cuts the subject out of the camera footage on the Studio’s render worker. Takes about as long as the camera recording.</p>
     {state && !state.error ? <div className="cutout-progress"><span style={{ width: `${Math.round(state.progress * 100)}%` }} /><small>{Math.round(state.progress * 100)}% · {state.note}</small></div>
       : <div className="layer-row"><button onClick={() => void start('person')}>Isolate the person</button><button onClick={() => void start('subject')} title="Any main object, not just people">Isolate any subject</button></div>}
     {state?.error ? <p className="hint error">{state.error}</p> : null}

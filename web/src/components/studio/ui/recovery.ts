@@ -13,7 +13,7 @@ export function recoveryMatchesSaved(draft:RecoveryDraft,savedProject:EditorProj
  return draft.project.id===savedProject.id&&draft.baseDigest===savedDigest&&draft.baseSignature===JSON.stringify(savedProject);
 }
 export function recoveryCopy(draft:EditorProject,newId:string):EditorProject{
- return {...draft,id:newId,title:`${draft.title} — recovered copy`};
+ return {...draft,id:newId,title:`${draft.title} (recovered copy)`};
 }
 export function serializeRecoveryDraft(project:EditorProject,baseDigest:string|null|undefined,baseSignature:string):string{
  return JSON.stringify({kind:'editor-recovery-v2',project,baseDigest,baseSignature,savedAt:Date.now()});

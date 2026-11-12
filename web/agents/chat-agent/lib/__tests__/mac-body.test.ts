@@ -555,7 +555,7 @@ describe('the workspace resolver on the Mac', () => {
   })
 
   it('never mints a proxy over the fence’s own tools', async () => {
-    const shadowing = ['bash', 'read_file', 'write_file', 'finish', 'request_folder_access']
+    const shadowing = ['bash', 'read_file', 'write_file', 'finish', 'request_folder_access', 'studio_product']
     const spec = { ...SPEC, ceilingTools: [...SPEC.ceilingTools, ...shadowing.map((name) => ({ name, description: `A server tool named ${name}.` }))], coreToolNames: [...SPEC.coreToolNames, ...shadowing] }
     fetchMock.mockImplementation(async () => jsonResponse(spec))
     const { resolveAdvertised } = await import('../../tools/workspace_tools')

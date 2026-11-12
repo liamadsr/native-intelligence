@@ -80,12 +80,15 @@ export interface TimeOfferApprovalContext {
  * the request is no longer that one.
  */
 export interface StudioSpendApprovalContext {
-  kind: 'narration' | 'shot'
+  /** narration, shot, and the voice provider's re-voice, sound effects and music beds (generate_studio_revoice, …). */
+  kind: 'narration' | 'shot' | 'revoice' | 'sound-effect' | 'music'
   request_hash: string
   /** A narration's characters (ElevenLabs credits). */
   characters?: number
-  /** A shot's credits (Higgsfield). */
+  /** A shot's credits (Higgsfield), or the estimated credits of a re-voice, sound effects or music. */
   credits?: number
+  /** The seconds of audio a re-voice, sound effects or music bills by. */
+  seconds?: number
 }
 
 /**

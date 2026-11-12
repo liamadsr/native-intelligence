@@ -27,6 +27,8 @@ export const PAGE_PANEL_LABELS = {
   mail: 'Mail',
   // Team chat's sub-nav (team-chat-panel.tsx; Liam, 11-11: "make the team-chat one look like this").
   'team-chat': 'Team chat',
+  // The Studio's sub-nav (studio-panel.tsx; Liam, 11-12: the Studio "needs to match the rest of our app").
+  studio: 'Studio',
   // The page groups' sub-navs (Liam, 11-11): the group's label (in the
   // workspace's words where it takes a member's: page-group-panel.tsx useRailEntry).
   contacts: 'Contacts',

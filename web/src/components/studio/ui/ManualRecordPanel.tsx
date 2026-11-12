@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Icon, type IconName } from './icons';
 import { clockLabel, openCameraPreview, type DesktopApp, type DesktopDisplay, type DeviceOption, type RecorderPermissionName, type ScreenChoice, type TakePlacement } from '../record';
 import { request } from './client';
+import { StudioSelect } from './controls';
 import type { ManualRecording, RecordingSession, RecordingStart } from './useManualRecording';
 
 /** A take for the open edit: replaces fromFrame..toFrame (equal = inserted there), or goes into storyboard beats. */
@@ -49,14 +51,10 @@ function rememberedKey(options: ScreenOption[], apps: DesktopApp[], saved: strin
   return options.find(option => option.choice.kind === 'display')?.key ?? options[0]?.key ?? '';
 }
 
-const glyphs: Record<string, React.ReactNode> = {
-  app: <><rect x="3" y="4.5" width="18" height="13" rx="2"/><path d="M8 20.5h8M3 8.5h18"/></>,
-  mic: <><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></>,
-  camera: <><rect x="3" y="6.5" width="13" height="11" rx="2.5"/><path d="m16 10.5 5-3v9l-5-3"/></>,
-  prompter: <><rect x="3" y="3.5" width="18" height="17" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></>,
-};
+/** Each recording card's icon: the screen, the microphone, the camera, the teleprompter. */
+const glyphs = { app: 'screen', mic: 'mic', camera: 'camera', prompter: 'prompter' } as const satisfies Record<string, IconName>;
 function Glyph({ name }: { name: keyof typeof glyphs }) {
-  return <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{glyphs[name]}</svg>;
+  return <Icon name={glyphs[name]} />;
 }
 function Switch({ checked, label, disabled, onChange }: { checked: boolean; label: string; disabled?: boolean; onChange: (value: boolean) => void }) {
   return <label className="rec-switch" title={label}><input type="checkbox" role="switch" aria-label={label} checked={checked} disabled={disabled} onChange={e => onChange(e.target.checked)} /><span aria-hidden="true" /></label>;
@@ -182,12 +180,12 @@ export function ManualRecordPanel(props: Props) {
 
     <div className="rec-grid">
       {kind === 'desktop' ? <Card icon="app" title="Screen" detail={option ? option.detail : 'Window or display to record'}
-        action={<button className="rec-icon-button" aria-label="Refresh windows and displays" title="Refresh windows and displays" disabled={locked || rec.loadingTargets} onClick={() => void rec.refreshTargets()}>{rec.loadingTargets ? '…' : '↻'}</button>}>
-        <select aria-label="What to record" value={option?.key ?? ''} disabled={locked || rec.loadingTargets} onChange={event => chooseScreen(event.target.value)}>
+        action={<button className="rec-icon-button" aria-label="Refresh windows and displays" title="Refresh windows and displays" disabled={locked || rec.loadingTargets} onClick={() => void rec.refreshTargets()}>{rec.loadingTargets ? '…' : <Icon name="refresh" size={14}/>}</button>}>
+        <StudioSelect size="normal" aria-label="What to record" value={option?.key ?? ''} disabled={locked || rec.loadingTargets} onChange={v => chooseScreen(v)}>
           {options.length ? <>{!option ? <option value="">Choose a window or display…</option> : null}
             {groups.map(group => <optgroup key={group} label={group}>{options.filter(item => item.group === group).map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</optgroup>)}</>
             : <option value="">{rec.loadingTargets ? 'Finding windows…' : 'No windows found'}</option>}
-        </select>
+        </StudioSelect>
         <small className="rec-hint">{option?.ownApp ? 'This is Native Intelligence itself: this dialog shows in the picture until you switch away.' : option?.choice.kind === 'display' ? 'Everything on this display is recorded.' : 'Only this window is recorded; your clicks and typing drive auto-zooms.'}</small>
         <label className="rec-check"><input type="checkbox" checked={prefs.systemAudio} disabled={locked} onChange={event => setPrefs({ systemAudio: event.target.checked })} /><span>Record the computer's sound</span></label>
       </Card> : <Card icon="app" title="Screen" detail={rec.share ? (rec.share.surface === 'browser' ? 'A browser tab' : rec.share.surface === 'window' ? 'A window' : rec.share.surface === 'monitor' ? 'Your whole screen' : 'Shared') : 'A tab, window or screen'}>
@@ -199,27 +197,27 @@ export function ManualRecordPanel(props: Props) {
 
       <Card icon="mic" title="Microphone" on={prefs.microphone} detail={prefs.microphone ? 'Narration' : 'Off'}
         action={<Switch label="Record microphone narration" checked={prefs.microphone} disabled={locked} onChange={microphone => setPrefs({ microphone })} />}>
-        <select aria-label="Microphone" value={microphoneId} disabled={locked || !prefs.microphone} onChange={event => setPrefs({ microphoneId: event.target.value })}>
+        <StudioSelect size="normal" aria-label="Microphone" value={microphoneId} disabled={locked || !prefs.microphone} onChange={v => setPrefs({ microphoneId: v })}>
           <option value="">System default{microphones.find(item => item.isDefault) ? ` (${microphones.find(item => item.isDefault)!.name})` : ''}</option>
           {microphones.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
+        </StudioSelect>
         {unnamed ? <button className="rec-link" disabled={locked} onClick={() => void rec.unlockDevices(prefs.camera, prefs.microphone)}>Show device names</button> : null}
       </Card>
 
       <Card icon="camera" title="Camera" on={prefs.camera} detail={prefs.camera ? 'Movable bubble' : 'Off'}
         action={<Switch label="Record the camera as a movable bubble" checked={prefs.camera} disabled={locked} onChange={camera => setPrefs({ camera })} />}>
-        <select aria-label="Camera" value={cameraId} disabled={locked || !prefs.camera} onChange={event => setPrefs({ cameraId: event.target.value })}>
+        <StudioSelect size="normal" aria-label="Camera" value={cameraId} disabled={locked || !prefs.camera} onChange={v => setPrefs({ cameraId: v })}>
           <option value="">System default{cameras.find(item => item.isDefault) ? ` (${cameras.find(item => item.isDefault)!.name})` : ''}</option>
           {cameras.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
+        </StudioSelect>
         {prefs.camera && !locked ? <CameraPreview deviceId={cameraId || null} /> : null}
       </Card>
 
       {prompterAllowed ? <Card icon="prompter" title="Teleprompter" on={lines.length > 0} detail={lines.length ? `${lines.length} lines` : 'Optional'}>
         {props.punch?.prompter?.length ? <small className="rec-hint">The beats' own lines, one at a time. Next line marks where each beat starts in the take.</small>
-          : scripts.length ? <select aria-label="Teleprompter script" value={script?.id ?? ''} disabled={locked} onChange={event => setPrefs({ scriptId: event.target.value })}>
+          : scripts.length ? <StudioSelect size="normal" aria-label="Teleprompter script" value={script?.id ?? ''} disabled={locked} onChange={v => setPrefs({ scriptId: v })}>
             <option value="">No teleprompter</option>{scripts.map(item => <option key={item.id} value={item.id}>{item.title} · {item.beats.length} lines</option>)}
-          </select> : <small className="rec-hint">Ask the assistant to write a script for this video; it shows up here.</small>}
+          </StudioSelect> : <small className="rec-hint">Ask the agent to write a script for this video. It shows up here.</small>}
         {lines.length ? <small className="rec-hint">Shown in this window while you record, out of the picture. First line: "{lines[0]!.text.slice(0, 70)}{lines[0]!.text.length > 70 ? '…' : ''}"</small> : null}
       </Card> : null}
     </div>

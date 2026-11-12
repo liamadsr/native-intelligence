@@ -11,7 +11,7 @@
  *   - A progress answer saying this worker no longer holds the job (409
  *     NOT_HELD: it went quiet and the job was claimed again) aborts it too, and
  *     nothing more is reported for it: the job is another worker's now.
- *   - A paid job (a shot, a narration) that returned after spending is
+ *   - A paid job (a shot, a narration, a re-voice, sound effects, music) that returned after spending is
  *     COMPLETED whatever happened meanwhile (a cancel, SIGTERM, the job taken
  *     back): its answer carries the provider's job and the charge, and losing it
  *     would lose the charge and invite a second spend. Taken back, its
@@ -47,15 +47,17 @@ export const TAKEN_BACK = 'This worker no longer holds the job (it was taken bac
  */
 export function spentResult(kind: StudioJobKind, result: unknown): boolean {
   if (!result || typeof result !== 'object') return false
-  if (kind === 'narration') return true
+  // A narration's, a re-voice's, sound effects' or music's answer exists only once the provider answered (and charged).
+  if (kind === 'narration' || kind === 'revoice' || kind === 'sound-effect' || kind === 'music') return true
   if (kind === 'shot') return (result as { outcome?: unknown }).outcome !== 'refused'
   return false
 }
 
 /** What a spent answer cost, in words, for a failure that must not lose it. Pure. */
 export function chargeOf(kind: StudioJobKind, result: unknown): string {
-  const r = (result ?? {}) as { providerJobId?: string; quote?: { credits?: number; model?: string }; characters?: number; providerRequestId?: string }
+  const r = (result ?? {}) as { providerJobId?: string; quote?: { credits?: number; model?: string }; characters?: number; providerRequestId?: string; credits?: number; providerRequestIds?: string[] }
   if (kind === 'shot') return `Higgsfield job ${r.providerJobId ?? 'unknown'} (${r.quote?.credits ?? '?'} credits on ${r.quote?.model ?? 'unknown'})`
+  if (kind === 'revoice' || kind === 'sound-effect' || kind === 'music') return `ElevenLabs request ${r.providerRequestIds?.join(', ') || 'unknown'} (about ${r.credits ?? '?'} credits)`
   return `ElevenLabs request ${r.providerRequestId ?? 'unknown'} (${r.characters ?? '?'} characters)`
 }
 

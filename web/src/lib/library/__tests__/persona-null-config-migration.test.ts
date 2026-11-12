@@ -58,10 +58,10 @@ const MIGRATION_GRANT_TABLES_AND_STUDIO = readFileSync(
   'utf8',
 )
 
-// 629 grants `seo` (the SEO area) the 387 way, one category after the 27 that
+// 632 grants `seo` (the SEO area) the 387 way, one category after the 27 that
 // 628 leaves.
 const MIGRATION_GRANT_SEO = readFileSync(
-  join(process.cwd(), 'supabase/migrations/629_persona_grant_seo_category.sql'),
+  join(process.cwd(), 'supabase/migrations/632_persona_grant_seo_category.sql'),
   'utf8',
 )
 
@@ -252,11 +252,11 @@ describe('migration 628 — every-category personas hold both `tables` and `stud
   })
 })
 
-describe('migration 629 — every-category personas stay inherit-all after `seo` was added (the SEO area)', () => {
+describe('migration 632 — every-category personas stay inherit-all after `seo` was added (the SEO area)', () => {
   it('writes EXACTLY the live ALL_CATEGORY_IDS, in registry order', () => {
     // If this fails you added a tool category: every persona saved with "all
     // categories on" just stopped being inherit-all (agentInheritsAllTools needs
-    // EVERY category). Write a grant migration like 629 for the new category and
+    // EVERY category). Write a grant migration like 632 for the new category and
     // point this block at it.
     expect(migratedCategories(MIGRATION_GRANT_SEO)).toEqual([...ALL_CATEGORY_IDS])
     expect(agentInheritsAllTools({ enabled_tools: migratedCategories(MIGRATION_GRANT_SEO), disabled_tools: [] })).toBe(true)

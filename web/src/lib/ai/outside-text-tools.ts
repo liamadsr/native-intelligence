@@ -105,6 +105,36 @@ export const OUTSIDE_TEXT_TOOLS: Readonly<Record<string, OutsideTextTool>> = {
     fence: ['completedResult('],
     note: 'a pending read or task, settled: the same fences as the call it waits for',
   },
+  get_studio_transcript: {
+    file: 'src/lib/ai/tools/studio-library.ts',
+    kind: 'TRANSCRIPT',
+    fence: ['wrapUntrusted'],
+    note: "a library video's or sound's words (a reference film, a recording): what someone else said",
+  },
+  search_studio_voices: {
+    file: 'src/lib/ai/tools/studio-audio.ts',
+    kind: 'WEB',
+    fence: ['wrapUntrusted'],
+    note: "a shared library voice's name and description, written by whoever shared it on the voice provider",
+  },
+  get_studio_video: {
+    file: 'src/lib/ai/tools/studio.ts',
+    kind: 'TRANSCRIPT',
+    fence: ['readStudioVideoBrief'],
+    note: "a video's layer words, its media's file names and the transcript of its footage (someone in an imported clip, a file named by whoever made it): fenced where the read is built (src/lib/studio/agent/edit-view.ts, fenced-text.ts); a value written back loses its fence (server/ops.ts checkCalls)",
+  },
+  list_studio_assets: {
+    file: 'src/lib/ai/tools/studio.ts',
+    kind: 'FILE',
+    fence: ['fenced'],
+    note: "each media file's name (a file brought in from a link is named by whoever made it)",
+  },
+  get_studio_blueprint: {
+    file: 'src/lib/ai/tools/studio-blueprint.ts',
+    kind: 'FILE',
+    fence: ['wrapUntrusted'],
+    note: "reference_words: what a reference video said in each beat and the text read on its screen (someone else's words)",
+  },
   get_capture_transcript: {
     file: 'src/lib/ai/tools/captures.ts',
     kind: 'TRANSCRIPT',

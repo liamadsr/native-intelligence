@@ -9,7 +9,10 @@
  * its own, so a cancel stops the FFmpeg it started too.
  *
  * The `sound` capability holds while a cheap call (the kit presets) answers;
- * ./providers/capabilities.ts asks at start and every few minutes.
+ * ./providers/capabilities.ts asks at start and every few minutes. Each time it
+ * comes on, earshot's own health check (doctor: its packages, models and data
+ * files, offline) is asked once and said in the worker's log, so a missing
+ * model shows before a job needs it.
  */
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -95,7 +98,7 @@ export async function checkEarshot(dir: string | null, opts: Pick<BridgeOptions,
 // ---- the capability, and which jobs each slot asks for ---------------------------------------------------------
 
 /** Sound design's kinds: the bank is quick (the provider slot); the rest are audio work (the media slots). */
-export const SOUND_KINDS: readonly StudioJobKind[] = ['sounds', 'sound-import', 'listen', 'sound-bank']
+export const SOUND_KINDS: readonly StudioJobKind[] = ['sounds', 'sound-import', 'listen', 'sound-bank', 'sound-judge', 'sound-make']
 const QUICK_SOUND_KINDS: readonly StudioJobKind[] = ['sound-bank']
 
 /** How often earshot is asked again whether it answers. */
@@ -112,14 +115,39 @@ export function soundKindsFor(slot: 'media' | 'provider', kinds: readonly Studio
   return [...rest, ...mine]
 }
 
+/** earshot's health check as the bridge answers it (`doctor`): short, no paths. */
+export type EarshotDoctor = { summary?: string; problems?: string[]; notes?: string[]; modelsCached?: boolean; bank?: string; realness?: boolean }
+
+/** earshot's health check, or null when it does not answer. Never throws. */
+export async function earshotDoctor(dir: string | null, opts: Pick<BridgeOptions, 'python' | 'script'> = {}): Promise<EarshotDoctor | null> {
+  if (!dir || (!opts.python && !earshotInstalled(dir))) return null
+  try {
+    return await bridge<EarshotDoctor>(dir, { cmd: 'doctor' }, { ...opts, timeout: 120_000 })
+  } catch {
+    return null
+  }
+}
+
+/** The doctor's answer as one log line: its summary, whether the listening models are there, its problems. Pure. */
+export function doctorLine(d: EarshotDoctor | null): string {
+  if (!d) return 'earshot doctor: no answer'
+  const models = d.modelsCached === false ? ' Listening models NOT cached: judging and making sounds refuse until `earshot doctor --fetch` runs once.' : d.modelsCached ? ' Listening models cached.' : ''
+  const realness = d.realness === false ? ' Realness model missing.' : ''
+  const problems = d.problems?.length ? ` Problems: ${d.problems.join('; ')}` : ''
+  return `earshot doctor: ${d.summary ?? 'answered'}${models}${realness}${problems}`.slice(0, 1200)
+}
+
 /** Whether earshot answers, checked at start and every few minutes (never on every poll). */
 export class EarshotWatch {
   usable = false
+  /** earshot's latest health check (asked each time sound design comes on). */
+  doctor: EarshotDoctor | null = null
   private timer: NodeJS.Timeout | null = null
 
   constructor(
     private readonly dir: string | null,
     private readonly check: (dir: string | null) => Promise<boolean> = checkEarshot,
+    private readonly examine: (dir: string | null) => Promise<EarshotDoctor | null> = earshotDoctor,
   ) {}
 
   /** The capability as the app is told. */
@@ -132,6 +160,10 @@ export class EarshotWatch {
     this.usable = this.dir ? await this.check(this.dir) : false
     if (before !== this.usable || (!this.usable && this.dir && !this.timer))
       console.info(`[studio-worker] sound design ${this.usable ? 'on: earshot answers' : `off: earshot does not answer in ${this.dir}`}`)
+    if (this.usable && !before) {
+      this.doctor = await this.examine(this.dir)
+      console.info(`[studio-worker] ${doctorLine(this.doctor)}`)
+    }
   }
 
   async start(): Promise<void> {

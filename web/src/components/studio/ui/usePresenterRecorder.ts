@@ -20,9 +20,9 @@ export function usePresenterRecorder({projectId,readProject,getPlayer,setLock,at
    const {asset}=await importPresenter<{asset:EditorAsset;rawSha256:string;rawBytes:number}>(blob,`${source.name}.${extension}`);
    const measured=Math.min(source.duration,source.maxFrame+1);
    const applied=measured>1&&attach(asset,source.projectId,source.signature,measured);
-   if(!applied){retain(asset);notify(measured<=1?'Presenter recording was retained, but the walkthrough did not advance far enough to attach it.':'Presenter recording was retained. The edit changed, so it was not attached automatically.',true);}
+   if(!applied){retain(asset);notify(measured<=1?'The presenter recording was kept, but the walkthrough did not play far enough to attach it.':'The presenter recording was kept. The video changed, so it was not attached automatically.',true);}
    else notify(measured<source.duration?'Presenter added for the recorded portion of the walkthrough.':'Presenter added across the walkthrough.');
-   raw.current=null;context.current=null;deviceOwner.current=null;setPartial(measured<source.duration?'Partial recording retained':'Recording complete');clearRawUrl();setError(null);update('idle');
+   raw.current=null;context.current=null;deviceOwner.current=null;setPartial(measured<source.duration?'Part of the recording was kept':'Recording complete');clearRawUrl();setError(null);update('idle');
   }catch(e){setError(`Presenter video could not be imported: ${failure(e)}. The raw recording remains available to retry or download.`);update('error');}finally{setLock(false);}
  },[attach,retain,notify,setLock,rawUrl]);
  const stop=useCallback((reason='Stopped')=>{if(phaseRef.current!=='recording')return;update('finalizing');clearTimers();getPlayer()?.pause();const source=context.current;if(source){source.maxFrame=Math.max(source.maxFrame,getPlayer()?.getCurrentFrame()??0);setPartial(reason);}try{recorder.current?.stop();}catch(e){setError(`Recording stopped unexpectedly: ${failure(e)}`);update('error');setLock(false);}stopTracks();},[getPlayer,setLock]);
@@ -43,19 +43,19 @@ export function usePresenterRecorder({projectId,readProject,getPlayer,setLock,at
       media.onerror=event=>{setError(`Webcam recording failed: ${String(event)}`);stop('Interrupted');};
       media.onstop=()=>{const blob=new Blob(chunks.current,{type:media.mimeType||'video/webm'});raw.current=blob;recorder.current=null;const source=context.current;if(blob.size&&source){clearRawUrl();rawUrlRef.current=URL.createObjectURL(blob);setRawUrl(rawUrlRef.current);void importRaw(blob,source);}else{setError('No presenter footage was recorded.');update('error');setLock(false);}};
       getPlayer()?.pause();getPlayer()?.seekTo(0);media.start(250);source.startedAt=performance.now();source.progressAt=source.startedAt;update('recording');getPlayer()?.play();
-      watchTimer.current=setInterval(()=>{const current=context.current;if(phaseRef.current==='recording'&&current&&performance.now()-current.progressAt>2500&&current.maxFrame<current.duration-1)stop('Preview stopped advancing; partial footage retained');},500);
+      watchTimer.current=setInterval(()=>{const current=context.current;if(phaseRef.current==='recording'&&current&&performance.now()-current.progressAt>2500&&current.maxFrame<current.duration-1)stop('The preview stopped playing; the footage so far was kept');},500);
     }catch(e){setError(`Webcam recording could not start: ${failure(e)}`);stopTracks();setLock(false);update('error');}
    };tick(3);
  },[readProject,getPlayer,setLock,cancel,importRaw,stop]);
  const noteFrame=useCallback((frame:number)=>{const source=context.current;if(phaseRef.current!=='recording'||!source)return;if(frame>source.maxFrame){source.maxFrame=frame;source.progressAt=performance.now();}},[]);
  const onEnded=useCallback(()=>{if(phaseRef.current==='recording')stop('Recording complete');},[stop]);
- const onWaiting=useCallback(()=>{if(phaseRef.current==='recording')stop('Preview paused while buffering; partial footage retained');},[stop]);
+ const onWaiting=useCallback(()=>{if(phaseRef.current==='recording')stop('The preview paused while loading; the footage so far was kept');},[stop]);
  const importFile=useCallback(async(file:File)=>{const project=readProject();if(!project||raw.current||phaseRef.current!=='idle'&&phaseRef.current!=='error')return;const source:Context={projectId:project.id,signature:JSON.stringify(project),duration:projectDuration(project),maxFrame:projectDuration(project)-1,progressAt:0,startedAt:0,name:file.name.replace(/\.[^.]+$/,'')};context.current=source;raw.current=file;clearRawUrl();rawUrlRef.current=URL.createObjectURL(file);setRawUrl(rawUrlRef.current);setError(null);update('finalizing');await importRaw(file,source);},[readProject,importRaw]);
  const retry=useCallback(()=>{if(raw.current&&context.current){update('finalizing');void importRaw(raw.current,context.current);}},[importRaw]);
  const discardRaw=useCallback(()=>{if(phaseRef.current!=='error')return;raw.current=null;context.current=null;deviceOwner.current=null;clearRawUrl();setError(null);setPartial(null);update('idle');},[]);
  const videoRef=useCallback((node:HTMLVideoElement|null)=>{video.current=node;if(node&&stream.current){node.srcObject=stream.current;void node.play().catch(()=>{});}},[]);
- useEffect(()=>{const owner=context.current?.projectId??deviceOwner.current;if(owner&&projectId!==owner){if(phaseRef.current==='recording')stop('Project changed; partial footage retained');else if(phaseRef.current==='countdown'||phaseRef.current==='ready'||phaseRef.current==='requesting')cancel();}},[projectId,stop,cancel]);
- useEffect(()=>{const hidden=()=>{if(document.hidden&&phaseRef.current==='recording')stop('Tab hidden; partial footage retained');};document.addEventListener('visibilitychange',hidden);return()=>document.removeEventListener('visibilitychange',hidden);},[stop]);
+ useEffect(()=>{const owner=context.current?.projectId??deviceOwner.current;if(owner&&projectId!==owner){if(phaseRef.current==='recording')stop('The video changed; the footage so far was kept');else if(phaseRef.current==='countdown'||phaseRef.current==='ready'||phaseRef.current==='requesting')cancel();}},[projectId,stop,cancel]);
+ useEffect(()=>{const hidden=()=>{if(document.hidden&&phaseRef.current==='recording')stop('The tab was hidden; the footage so far was kept');};document.addEventListener('visibilitychange',hidden);return()=>document.removeEventListener('visibilitychange',hidden);},[stop]);
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;deviceRequest.current++;clearTimers();if(phaseRef.current==='recording')try{recorder.current?.stop();}catch{}stopTracks();if(rawUrlRef.current)URL.revokeObjectURL(rawUrlRef.current);setLock(false);};},[setLock]);
  return {phase,countdown,error,partial,rawUrl,videoRef,prepare,begin,cancel,stop,importFile,retry,discardRaw,noteFrame,onEnded,onWaiting,active:phase==='countdown'||phase==='recording'||phase==='finalizing'};
 }

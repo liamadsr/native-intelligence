@@ -111,7 +111,7 @@ export const studioKeys = {
  * the worker). The server says which it has when the Studio opens (GET /bootstrap, `capabilities`); a part it
  * does not have draws no button, rather than one that fails when pressed.
  */
-export const STUDIO_CAPABILITIES = ['sound', 'motionCheck', 'review', 'productUi', 'cutouts', 'generatedShots', 'voiceover', 'costs'] as const
+export const STUDIO_CAPABILITIES = ['sound', 'motionCheck', 'review', 'productUi', 'cutouts', 'generatedShots', 'voiceover', 'costs', 'codeScenes'] as const
 export type StudioCapability = (typeof STUDIO_CAPABILITIES)[number]
 
 let capabilities: ReadonlySet<string> = new Set()
@@ -122,6 +122,12 @@ export function setStudioCapabilities(value: unknown): void {
   capabilities = new Set(on)
 }
 export const studioCan = (capability: StudioCapability): boolean => capabilities.has(capability)
+
+/**
+ * How the editor's preview draws code scenes: in their locked frame when the server runs them, otherwise as labelled
+ * boxes whose code (and the frame's runtime) is never loaded. Until the server has said, it is the box.
+ */
+export const previewCodeScenes = (): 'run' | 'placeholder' => (studioCan('codeScenes') ? 'run' : 'placeholder')
 
 /**
  * Keep a menu that opens beside its button inside the Studio: when it would run off the right edge of the Studio

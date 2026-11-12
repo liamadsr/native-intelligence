@@ -36,7 +36,7 @@ const blank = () => createBlankVideo({ supabase: state.db as SupabaseClient, wor
 describe('the Studio vision tools', () => {
   it('refuse a cut-out without a worker on a Mac, and the director without words', async () => {
     const video = await blank()
-    expect(await call(ava(), 'cut_out_studio_subject', { video_id: video.id, mode: 'person' })).toMatchObject({ success: false, code: 'NOT_AVAILABLE', error: expect.stringMatching(/on a Mac/) })
+    expect(await call(ava(), 'cut_out_studio_subject', { video_id: video.id, mode: 'person' })).toMatchObject({ success: false, code: 'NOT_AVAILABLE', error: expect.stringMatching(/find people in footage/) })
     expect(await call(ava(), 'direct_studio_video', { video_id: video.id, dry_run: true })).toMatchObject({ success: false, code: 'NO_TRANSCRIPT', error: expect.stringMatching(/needs a transcript/) })
     expect(await call(ava(), 'direct_studio_video', { video_id: 'not-a-video', dry_run: true })).toMatchObject({ success: false, code: 'NOT_FOUND' })
   })

@@ -22,8 +22,9 @@ import { isMacHost } from './host.js'
 
 /** The tools whose result can carry a photo for the model. */
 // And the Studio's frames (render_studio_stills, and wait_for_studio_job on a frames job:
-// src/lib/studio/agent/job-tools.ts): the agent looks at the video it is editing.
-export const CHAT_IMAGE_TOOL_NAMES: ReadonlySet<string> = new Set(['read_chat_file', 'render_studio_stills', 'wait_for_studio_job'])
+// src/lib/studio/agent/job-tools.ts): the agent looks at the video it is editing. And the library's images
+// (get_studio_images, src/lib/ai/tools/studio-library.ts): a cast photo, a logo, a still, as one picture.
+export const CHAT_IMAGE_TOOL_NAMES: ReadonlySet<string> = new Set(['read_chat_file', 'render_studio_stills', 'wait_for_studio_job', 'get_studio_images'])
 
 /** The note a model that can't read the image gets in its place. */
 export const CHAT_IMAGE_NOT_SHOWN =

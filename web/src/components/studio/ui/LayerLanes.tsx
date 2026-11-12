@@ -4,7 +4,8 @@ import { layerKindInfo, layerLanePoints, layerParamInfo, moveLayer, setLayerLane
 import { AutomationOverlay, type AutomationTool } from './AutomationOverlay';
 import { itemKey, layerLaneKey, moveItems, timelineSpans, type PickMode, type TimelineItem } from '@/lib/studio/engine/timeline-selection';
 
-export const layerTone: Record<EditorLayer['kind'], string> = { text: '#b18cff', box: '#ffd84d', highlight: '#ffb648', arrow: '#ff8a5c', spotlight: '#7fd1ff', notification: '#9fe7ff', card: '#8cf0c0', chips: '#5ce08a', image: '#ff9fd2', background: '#7a8cff', waveform: '#6f8bff', icons: '#ffc37a', ring: '#9aa8ff', code: '#e879f9', particles: '#5fa8ff' };
+/** Each layer kind's colour on the timeline and in the inspector: one of the Studio's categorical hues (studio.css `--st-hue-*`), so it follows the app's theme. */
+export const layerTone: Record<EditorLayer['kind'], string> = { text: 'var(--st-hue-violet)', box: 'var(--st-hue-yellow)', highlight: 'var(--st-hue-amber)', arrow: 'var(--st-hue-orange)', spotlight: 'var(--st-hue-sky)', notification: 'var(--st-hue-sky)', card: 'var(--st-hue-green)', chips: 'var(--st-hue-green)', image: 'var(--st-hue-pink)', background: 'var(--st-hue-indigo)', waveform: 'var(--st-hue-indigo)', icons: 'var(--st-hue-amber)', ring: 'var(--st-hue-indigo)', code: 'var(--st-hue-magenta)', particles: 'var(--st-hue-blue)' };
 export const layerTitle = (layer: EditorLayer) => layer.kind === 'text' ? (layer.style.text ?? layer.name).replace(/\s+/g, ' ').slice(0, 60) : layer.name;
 /** Layers sharing a `track` sit on one timeline track (captions); others get their own. */
 export const trackKeyOf = (layer: EditorLayer) => layerLaneKey(layer);

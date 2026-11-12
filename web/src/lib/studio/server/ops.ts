@@ -5,6 +5,8 @@
 import { applyOps, automationCatalog, opSchemas, type OpCall } from '../engine/ops'
 import type { StudioContext } from './context'
 import { conflictError, StudioError } from './errors'
+import { checkSceneIds } from './scenes'
+import { unfenceArgs } from '../agent/fenced-text'
 import { sameJson } from './stable'
 import { saveStoryboardVersion, saveVersion } from './versions'
 import { namedLibraryAssets, openVideo, saveVideo } from './videos'
@@ -18,7 +20,8 @@ export function catalog() {
 export function checkCalls(calls: unknown): OpCall[] {
   if (!Array.isArray(calls) || !calls.length || calls.length > 200) throw new StudioError('ops must be a list of 1–200 commands')
   for (const call of calls) if (!call || typeof call !== 'object' || typeof (call as OpCall).op !== 'string') throw new StudioError('Each command is {op, args}.')
-  return calls as OpCall[]
+  // A value the agent read and writes back comes as its words, never with the untrusted marker it was read in.
+  return (calls as OpCall[]).map((call) => (call.args === undefined ? call : { ...call, args: unfenceArgs(call.args) }))
 }
 
 /**
@@ -27,15 +30,17 @@ export function checkCalls(calls: unknown): OpCall[] {
  */
 export async function runOps(ctx: StudioContext, videoId: string, calls: unknown, expectedDigest?: unknown) {
   const list = checkCalls(calls)
+  // A code scene a command names must be one of this workspace's (scenes.ts).
+  await checkSceneIds(ctx, list)
   const opened = await openVideo(ctx, videoId)
   if (typeof expectedDigest === 'string' && expectedDigest !== opened.projectDigest)
-    throw conflictError('The project changed since you last read it — read it again and retry', 'DIGEST_CONFLICT')
+    throw conflictError('The video changed since you last read it. Read it again and try again.', 'DIGEST_CONFLICT')
   let start = opened.project
   const brought = await namedLibraryAssets(ctx, start, JSON.stringify(list))
   if (brought.length) start = { ...start, assets: [...start.assets, ...brought] }
   const { project: next, results } = applyOps(start, list)
   const names = [...new Set(list.map((call) => call.op))].join(', ')
-  if (!sameJson(next, opened.project)) await saveVersion(ctx, videoId, 'project', `Before the assistant: ${names}`, opened.project).catch(() => null)
+  if (!sameJson(next, opened.project)) await saveVersion(ctx, videoId, 'project', `Before the agent: ${names}`, opened.project).catch(() => null)
   const saved = await saveVideo(ctx, next, opened.projectDigest)
   // The storyboard as it was before this pass, so the person can go back to it.
   if (!sameJson(opened.project.storyboard ?? null, next.storyboard ?? null))

@@ -83,3 +83,6 @@ __pycache__/
 
 # ONNX Runtime's wasm runtime for voice ID (scripts/copy-ort-runtime.mjs), copied before next dev/build
 /public/ort/
+
+# The Studio's code scene frame runtime (scripts/studio-scene-runtime.mjs), built before next dev/build
+/public/studio-scene/

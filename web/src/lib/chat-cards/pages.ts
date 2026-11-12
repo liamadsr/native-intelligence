@@ -271,8 +271,8 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
   // Studio (migration 620): making videos and ads. A Studio project groups
   // videos; each video is one edit. Unlike Files, the agent opens it with
   // `show`, on one video or one Studio project (`target`, checked to be the
-  // workspace's), and a video's tabs are its views in the editor. The card
-  // draws its own navigation, so the page has no sub-nav panel beside the rail.
+  // workspace's), and a video's tabs are its views in the editor. Its
+  // navigation is the page's sub-nav beside the rail (page-panel/studio-panel.tsx).
   studio: {
     label: 'Studio',
     rows: 'Studio projects',

@@ -17,7 +17,7 @@ import { FOLD_CARDS_EVENT, cardForTarget, cardMatches, sameCardPlace, type CardM
 import { menuRowTarget, type MenuSearchRow } from '@/lib/search/menu-search'
 import { seedCardState } from '@/components/chat-cards/card-storage'
 import { nestedPageOpen } from '../rail/rail-pages'
-import { useWorkspaceEdition } from '../../workspace-switcher'
+import { useIsWorkspaceGuest, useWorkspaceEdition } from '../../workspace-switcher'
 import { startersFor } from '@/lib/chat/starters'
 import { QuestionPopover } from './question-popover'
 import { useAskArrivalSound } from '@/lib/sounds/use-ask-arrival-sound'
@@ -1032,6 +1032,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
         getPendingConversation: () => pendingCreateRef.current?.() ?? null,
         // The cards on screen, read at send time (systemContext.cards).
         getCardContext: () => cardStore.contextEntries(),
+        // The card in front finishes first what the agent must see (the Studio saves its edits).
+        settleCardContext: () => cardStore.settle(),
         // The main chat has no title (one-chat Slice 1): the server's
         // first-turn title backfill stands down (see panelNamesChats).
         panelNamesChats: () => true,
@@ -1653,13 +1655,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
   // does (openCardHere, below): full screen at once, no model call, no eve
   // turn, and put away when the person closes it.
   const workspaceEdition = useWorkspaceEdition()
+  // A guest of the workspace is not offered a members-only page (the Studio refuses a guest).
+  const workspaceGuest = useIsWorkspaceGuest()
   // Calendar and mail are the person's own: offered only where this chat may
   // read them (show's per-person gate), never in a bot's conversation. The
   // starters follow the same rule.
   const personalTools = useMemo(() => personalToolsFor({ bot: false, agent: activeAgent }), [activeAgent])
   const pages = useMemo(
-    () => pagesFor(workspaceEdition, { desktop: isDesktopApp(), personalTools }),
-    [workspaceEdition, personalTools],
+    () => pagesFor(workspaceEdition, { desktop: isDesktopApp(), personalTools, guest: workspaceGuest }),
+    [workspaceEdition, personalTools, workspaceGuest],
   )
   // For openCardHere (below): a nested page opens inside its parent's card.
   const pagesRef = useRef(pages)
@@ -2146,10 +2150,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
    * The main chat's composer sends while a card is full screen: every card in
    * front goes back (this chat's into its message, a page into its place),
    * as their Minimize or X would, so the chat shows the message and its reply.
+   * The card stays the one the turn is about (putBackForSend): its note says
+   * what it showed as the person sent.
    */
   function putCardsBackForSend(): void {
     if (!alwaysShowMessages) return
-    if (cardStore.fullScreen()) cardStore.exitFullScreen()
+    if (cardStore.fullScreen()) cardStore.putBackForSend()
     closeFrontCards()
   }
 

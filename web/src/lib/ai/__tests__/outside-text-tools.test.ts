@@ -105,6 +105,15 @@ describe('outside-text tools wrap what they return', () => {
     expect(captures).toMatch(/company: webText\(p\.company\)/)
   })
 
+  it('the Studio video read fences where it is built, and its write path takes the fence off', () => {
+    const view = read('src/lib/studio/agent/edit-view.ts')
+    expect(read('src/lib/studio/agent/reads.ts')).toMatch(/summary = editOverview\(row\.doc\)/)
+    expect(view).toMatch(/const words = \(text: string\) => fenced\(text, 'TRANSCRIPT'\)/)
+    expect(view).toMatch(/const fileName = \(name: string\) => fenced\(name, 'FILE'\)/)
+    expect(view).toMatch(/transcript: base\.transcript \? fenced\(base\.transcript\.join/)
+    expect(read('src/lib/studio/server/ops.ts')).toMatch(/args: unfenceArgs\(call\.args\)/)
+  })
+
   it('every outside-text-looking registry tool is listed one way or the other', () => {
     const unlisted = ALL_TOOL_NAMES.filter(
       (n) => OUTSIDE_TEXT_NAME.test(n) && !(n in OUTSIDE_TEXT_TOOLS) && !(n in NOT_OUTSIDE_TEXT_TOOLS),

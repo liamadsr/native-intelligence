@@ -1,4 +1,4 @@
--- Migration 629: keep every-category personas inherit-all after the `seo`
+-- Migration 632: keep every-category personas inherit-all after the `seo`
 -- tool category was added (the SEO area's tools, src/lib/ai/tools/seo*.ts).
 -- The 293 / 387 pattern, one category later. It follows 628, which leaves
 -- every such persona holding all 27 categories (`tables` from 538 and

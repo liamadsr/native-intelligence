@@ -14,14 +14,12 @@ import { scheduleProject } from '../engine/timeline'
 import { getAssets, getTranscripts, listAssets } from './assets'
 import { isDuplicate, isUuid, must, type StudioContext } from './context'
 import { conflictError, digestConflict, notFoundError, StudioError, zodSentence } from './errors'
+import { codeScenesOn } from './code-scenes'
 import { checkCapabilities, currentCapabilities, soundCapabilities, visionCapabilities, type StudioCapabilities, type VisionCapabilities } from './capabilities'
 import { activeJob } from './jobs'
 import { addSibling, afterVideoSave } from './projects'
-import { listPresets } from './records'
+import { listPresets, listRecords } from './records'
 import { asStored, docDigest, sameJson } from './stable'
-
-/** What the session token in the bootstrap is: the editor sends it back, the server ignores it (the session cookie is the auth). */
-export const STUDIO_SESSION_TOKEN = 'studio-session'
 
 /** The stored summary: a ProjectSummary without what the row itself holds (id, title, updatedAt). */
 export type StoredSummary = Omit<ProjectSummary, 'id' | 'title' | 'updatedAt'>
@@ -70,13 +68,13 @@ export async function validateVideo(ctx: StudioContext, value: unknown): Promise
   const registered = await getAssets(ctx, project.assets.map((asset) => asset.id))
   for (const asset of project.assets) {
     const known = registered.get(asset.id)
-    if (!known || !sameJson(known, asset)) throw new StudioError('Project contains unregistered or modified asset metadata', 400, 'UNREGISTERED_ASSET')
+    if (!known || !sameJson(known, asset)) throw new StudioError('This video has media details the Studio did not record, or that were changed', 400, 'UNREGISTERED_ASSET')
   }
   if (project.transcripts.length) {
     const transcripts = await getTranscripts(ctx, project.transcripts.map((t) => t.id))
     for (const transcript of project.transcripts) {
       const known = transcripts.get(transcript.id)
-      if (!known || !sameJson(known, transcript)) throw new StudioError('Project contains unregistered or modified transcript timing', 400, 'UNREGISTERED_TRANSCRIPT')
+      if (!known || !sameJson(known, transcript)) throw new StudioError('This video has transcript timing the Studio did not record, or that was changed', 400, 'UNREGISTERED_TRANSCRIPT')
     }
   }
   return project
@@ -109,7 +107,7 @@ export async function getVideoRow(ctx: StudioContext, id: string): Promise<Video
 /** Open a video: its edit and the digest a save must name. 404 when missing or trashed. */
 export async function openVideo(ctx: StudioContext, id: string): Promise<{ project: EditorProject; projectDigest: string; row: VideoRow }> {
   const row = await getVideoRow(ctx, id)
-  if (!row || row.archived_at) throw notFoundError('Project not found')
+  if (!row || row.archived_at) throw notFoundError('Video not found')
   let project: EditorProject
   try {
     project = parseEditorProject(row.doc)
@@ -121,12 +119,12 @@ export async function openVideo(ctx: StudioContext, id: string): Promise<{ proje
 
 /** The current digest of a video (the editor polls this every two seconds): one indexed read of one column. */
 export async function videoDigest(ctx: StudioContext, id: string): Promise<string> {
-  if (!isUuid(id)) throw notFoundError('Project not found')
+  if (!isUuid(id)) throw notFoundError('Video not found')
   const row = must(
     await ctx.supabase.from('studio_video').select('digest').eq('workspace_id', ctx.workspaceId).eq('id', id).is('archived_at', null).maybeSingle(),
     'read that video',
   ) as { digest: string } | null
-  if (!row) throw notFoundError('Project not found')
+  if (!row) throw notFoundError('Video not found')
   return row.digest
 }
 
@@ -236,23 +234,23 @@ export async function renameVideo(ctx: StudioContext, id: string, title: unknown
 
 /** Move a video to the trash (media and other videos are untouched). Answers the remaining list. */
 export async function archiveVideo(ctx: StudioContext, id: string): Promise<ProjectSummary[]> {
-  if (!isUuid(id)) throw notFoundError('Project not found')
+  if (!isUuid(id)) throw notFoundError('Video not found')
   const done = must(
     await ctx.supabase.from('studio_video').update({ archived_at: new Date().toISOString() }).eq('workspace_id', ctx.workspaceId).eq('id', id).is('archived_at', null).select('id'),
     'move that video to the trash',
   ) as { id: string }[] | null
-  if (!done?.length) throw notFoundError('Project not found')
+  if (!done?.length) throw notFoundError('Video not found')
   return listVideos(ctx)
 }
 
 /** Take a video out of the trash (the Undo of archiveVideo, from the entity actions menu). Answers the list. */
 export async function restoreVideo(ctx: StudioContext, id: string): Promise<ProjectSummary[]> {
-  if (!isUuid(id)) throw notFoundError('Project not found')
+  if (!isUuid(id)) throw notFoundError('Video not found')
   const done = must(
     await ctx.supabase.from('studio_video').update({ archived_at: null }).eq('workspace_id', ctx.workspaceId).eq('id', id).not('archived_at', 'is', null).select('id'),
     'take that video out of the trash',
   ) as { id: string }[] | null
-  if (!done?.length) throw notFoundError('Project not found')
+  if (!done?.length) throw notFoundError('Video not found')
   return listVideos(ctx)
 }
 
@@ -268,8 +266,8 @@ export async function namedLibraryAssets(ctx: StudioContext, project: EditorProj
  * What the editor opens with: the video asked for (else the most recently changed), the list, the library, the
  * presets and the person's running export or transcription, if any.
  */
-export async function bootstrap(ctx: StudioContext, preferId?: string | null): Promise<EditorBootstrap & { workspaceId: string; capabilities: StudioCapabilities & VisionCapabilities & { sound: boolean; motionCheck: boolean; review: boolean } }> {
-  const [rows, assets, presets] = await Promise.all([listVideoRows(ctx), listAssets(ctx), listPresets(ctx)])
+export async function bootstrap(ctx: StudioContext, preferId?: string | null): Promise<EditorBootstrap & { workspaceId: string; capabilities: StudioCapabilities & VisionCapabilities & { sound: boolean; motionCheck: boolean; review: boolean; productUi: boolean; codeScenes: boolean } }> {
+  const [rows, assets, presets, products] = await Promise.all([listVideoRows(ctx), listAssets(ctx), listPresets(ctx), listRecords(ctx, 'products', 1).catch(() => [])])
   let opened: { project: EditorProject | null; projectDigest: string | null } = { project: null, projectDigest: null }
   const pick = (preferId && rows.find((row) => row.id === preferId)) || rows[0]
   if (pick) {
@@ -286,11 +284,12 @@ export async function bootstrap(ctx: StudioContext, preferId?: string | null): P
     projects: rows.map((row) => ({ id: row.id, title: row.title })),
     assets,
     presets,
-    sessionToken: STUDIO_SESSION_TOKEN,
     job,
     workspaceId: ctx.workspaceId,
     // What the Studio worker running now can do (capabilities.ts): a part it can't draws no button.
-    capabilities: { ...currentCapabilities(ctx), ...visionCapabilities(), ...soundCapabilities(), ...checkCapabilities() },
+    // productUi: the Components panel, once the workspace has a product the agent set up from a Mac (products.ts).
+    // codeScenes: whether this server runs code scenes (code-scenes.ts); off, the editor draws them as boxes.
+    capabilities: { ...currentCapabilities(ctx), ...visionCapabilities(), ...soundCapabilities(), ...checkCapabilities(), productUi: products.length > 0, codeScenes: codeScenesOn() },
   }
 }
 

@@ -103,8 +103,29 @@ export function rankTools<T extends { name: string; description: string }>(query
     if (score > 0) scored.push({ tool, score })
   }
 
-  return scored
-    .sort((a, b) => b.score - a.score)
-    .slice(0, SEARCH_RESULT_LIMIT)
-    .map((s) => s.tool)
+  return withCompanions(
+    scored
+      .sort((a, b) => b.score - a.score)
+      .slice(0, SEARCH_RESULT_LIMIT)
+      .map((s) => s.tool),
+    tools,
+  )
+}
+
+/**
+ * Tools that only work together: a search that returns one brings the other, past the limit. Every Studio tool that
+ * starts work on the Studio worker answers a job, and wait_for_studio_job is how that job's result is read. Found
+ * without it, the model checks the job a few times, sees it still running and gives up.
+ */
+export const COMPANION_TOOLS: ReadonlyArray<{ when: RegExp; bring: string }> = [{ when: /_studio_/, bring: 'wait_for_studio_job' }]
+
+/** `matches` plus each companion they call for, taken from `tools` only (so a companion outside the searched set never appears). */
+export function withCompanions<T extends { name: string }>(matches: readonly T[], tools: readonly T[]): T[] {
+  const out = [...matches]
+  for (const { when, bring } of COMPANION_TOOLS) {
+    if (out.some((t) => t.name === bring) || !out.some((t) => when.test(t.name))) continue
+    const companion = tools.find((t) => t.name === bring)
+    if (companion) out.push(companion)
+  }
+  return out
 }

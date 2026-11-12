@@ -60,7 +60,7 @@ describe('capabilities', () => {
     expect(currentCapabilities(HERE, t + CAPABILITY_TTL_MS + 1)).toEqual({ voiceover: false, generatedShots: true, costs: true })
     noteWorker('mac-2', undefined, t + 80_000)
     expect(currentCapabilities(HERE, t + 30_000 + CAPABILITY_TTL_MS + 1).costs).toBe(false)
-    expect(() => requireCapability(HERE, 'voiceover', { now: t + 10 * CAPABILITY_TTL_MS })).toThrow(/ELEVENLABS_API_KEY/)
+    expect(() => requireCapability(HERE, 'voiceover', { now: t + 10 * CAPABILITY_TTL_MS })).toThrow(/voice provider set up/)
     forgetWorkers()
     noteWorker('mac-3', [], t)
     expect(currentCapabilities(HERE, t)).toEqual({ voiceover: false, generatedShots: false, costs: false })

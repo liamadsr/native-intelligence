@@ -31,6 +31,7 @@ import { runExport } from './jobs/export.ts'
 import { runFaces } from './jobs/faces.ts'
 import { runImport } from './jobs/import.ts'
 import { runNarration, runVoices } from './jobs/narration.ts'
+import { runMusic, runRevoice, runSoundEffect, runVoiceSearch } from './jobs/voice-media.ts'
 import { runContinuity, runShot, runShotQuote } from './jobs/shot.ts'
 import { runSlides } from './jobs/slides.ts'
 import { runStills } from './jobs/stills.ts'
@@ -38,6 +39,7 @@ import { runAdsMotion } from './jobs/ads-motion.ts'
 import { runAdsReel } from './jobs/ads-reel.ts'
 import { runAdsStatic } from './jobs/ads-static.ts'
 import { runListen, runSoundBank, runSoundImport, runSounds } from './jobs/sound.ts'
+import { runSoundJudge, runSoundMake } from './jobs/sound-judge.ts'
 import { runThumbnail } from './jobs/thumbnail.ts'
 import { runTranscribe } from './jobs/transcribe.ts'
 import { kindsFor, WorkerCapabilities } from './providers/capabilities.ts'
@@ -64,11 +66,17 @@ export const handlers: Handlers = {
   'sound-import': runSoundImport,
   listen: runListen,
   'sound-bank': runSoundBank,
+  'sound-judge': runSoundJudge,
+  'sound-make': runSoundMake,
   cutout: runCutout,
   faces: runFaces,
   'ads-static': runAdsStatic,
   'ads-motion': runAdsMotion,
   'ads-reel': runAdsReel,
+  'voice-search': runVoiceSearch,
+  revoice: runRevoice,
+  'sound-effect': runSoundEffect,
+  music: runMusic,
 }
 
 const loaded = loadConfig()

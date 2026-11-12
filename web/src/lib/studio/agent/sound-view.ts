@@ -3,14 +3,16 @@
  * through get_studio_job / wait_for_studio_job (./job-tools.ts): compact, with
  * the numbers it must quote. A finished listen job also shows its annotated
  * sheet as the answer's image, through the tool image slot, the way finished
- * stills show their frames.
+ * stills show their frames. A judgement reads as earshot's compact answer
+ * (numbers and short words); a make job as the library sounds it made, with
+ * what to do before placing one.
  */
 import { imageForModel, TOOL_IMAGE_BASE64, TOOL_IMAGE_MIME_TYPE } from '@/lib/ai/tools/tool-image'
 import type { StudioContext } from '@/lib/studio/server/context'
 import type { JobRow } from '@/lib/studio/server/jobs'
 
 /** The sound design kinds. */
-export const SOUND_JOB_KINDS = ['sounds', 'sound-import', 'listen', 'sound-bank'] as const
+export const SOUND_JOB_KINDS = ['sounds', 'sound-import', 'listen', 'sound-bank', 'sound-judge', 'sound-make'] as const
 export const isSoundJob = (kind: string) => (SOUND_JOB_KINDS as readonly string[]).includes(kind)
 
 /** How much of the scorecard and the transcript the agent is shown. */
@@ -20,6 +22,37 @@ const HEARD_CHARS = 1200
 const LIST_PLACED = 40
 
 type Placed = { cue?: string; sound?: string; at?: number; label?: string }
+
+/** The same value with every `assetId` key named `asset_id`, as the agent's tools take it. Pure. */
+export function withAssetIds(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withAssetIds)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.entries(value).map(([k, v]) => [k === 'assetId' ? 'asset_id' : k, withAssetIds(v)]))
+}
+
+/** What a finished judgement tells the agent: earshot's answer as kept (compact), ids as its tools take them. Pure. */
+export function judgeView(r: Record<string, unknown>): Record<string, unknown> {
+  const { action, ...rest } = r
+  return {
+    judged: action,
+    ...(withAssetIds(rest) as Record<string, unknown>),
+    note: 'Quote these numbers when you say how a sound sounds or why you chose it (z: 3 or more is a strong match, under 2 none). Change one thing at a time and judge again.',
+  }
+}
+
+/** What a finished make job tells the agent: the library sounds it made and their numbers, and what to do next. Pure. */
+export function madeView(r: Record<string, unknown>): Record<string, unknown> {
+  const made = (Array.isArray(r.made) ? r.made : []) as Record<string, unknown>[]
+  return {
+    ...(r.mode === 'forge' ? { recipe: r.recipe } : { fitted_from: r.fittedFrom }),
+    made: withAssetIds(made),
+    ...(typeof r.summary === 'string' && r.summary ? { summary: r.summary } : {}),
+    note:
+      made.length > 1
+        ? 'In the library, on no video. Rank them first: judge_studio_sound with action rank, these asset_ids and the description; then place the winner with import_studio_sound.'
+        : 'In the library, on no video. Judge it (describe with the description, or an A/B against the sound it replaces) before placing it with import_studio_sound.',
+  }
+}
 
 /** The opening of the listening transcript: its summary paragraph, before the event table. Pure. */
 export function heardSummary(text: string): string {
@@ -58,6 +91,10 @@ export function soundJobView(row: Pick<JobRow, 'kind' | 'status' | 'result'>): R
     }
     case 'sound-bank':
       return { sounds: r.sounds, presets: r.presets }
+    case 'sound-judge':
+      return judgeView(r)
+    case 'sound-make':
+      return madeView(r)
     default:
       return {}
   }

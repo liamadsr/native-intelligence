@@ -138,7 +138,7 @@ export function BrowserPanel({ add, disabled, notify }: { add: (item: BrowserIte
   };
 
   return <aside className="asset-browser" style={{ width }} aria-label="Browser" onKeyDown={ev => { if (!ev.metaKey && !ev.ctrlKey) ev.stopPropagation(); }}>
-    <div className="ab-search"><Icon name="search" size={14} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder={place ? `Search ${place.name}` : 'Search everything'} aria-label="Search the Browser" onKeyDown={e => { if (e.key === 'Escape') setQuery(''); if (e.key === 'ArrowDown') { e.preventDefault(); listRef.current?.focus(); if (rows[0]) setSelected(rows[0].entry); } }} />{query ? <button className="ab-clear" aria-label="Clear search" onClick={() => setQuery('')}><Icon name="close" size={12} /></button> : null}</div>
+    <div className="ab-search"><Icon name="search" size={14} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder={place ? `Search ${place.name}` : 'Search everything'} aria-label="Search the Browser" onKeyDown={e => { if (e.key === 'Escape') setQuery(''); if (e.key === 'ArrowDown') { e.preventDefault(); listRef.current?.focus(); if (rows[0]) setSelected(rows[0].entry); } }} />{query ? <button className="ab-clear" aria-label="Clear search" title="Clear search" onClick={() => setQuery('')}><Icon name="close" size={14} /></button> : null}</div>
     <div className="ab-filters" role="tablist" aria-label="File types">{FILTERS.map(f => <button key={f.label} role="tab" aria-selected={filter === f.kind} className={filter === f.kind ? 'on' : ''} onClick={() => setFilter(f.kind)}>{f.label}</button>)}</div>
     <div className="ab-body">
       <nav className="ab-places" aria-label="Places">
@@ -146,7 +146,7 @@ export function BrowserPanel({ add, disabled, notify }: { add: (item: BrowserIte
         {places.map(p => <div key={p.id} className={`ab-place${p.id === placeId ? ' on' : ''}${p.available ? '' : ' missing'}`} title={p.name}
           onContextMenu={event => placeMenu(event, p)}>
           <button onClick={() => { setPlaceId(p.id); setQuery(''); }} onKeyDown={e => { if (isMenuKey(e)) { e.preventDefault(); placeMenu({ ...e, currentTarget: e.currentTarget, clientX: 0, clientY: 0 } as unknown as React.KeyboardEvent, p); } }}>
-            <Icon name={p.id === 'files' ? 'folder' : 'clip'} size={13} /><span>{p.name}</span></button>
+            <Icon name={p.id === 'files' ? 'folder' : 'clip'} size={14} /><span>{p.name}</span></button>
         </div>)}
       </nav>
       <div className="ab-list" ref={listRef} tabIndex={0} onKeyDown={onKey} role="tree" aria-label={place ? place.name : 'Files'}>
@@ -161,8 +161,8 @@ export function BrowserPanel({ add, disabled, notify }: { add: (item: BrowserIte
               draggable={ADDABLE.includes(e.kind)} onDragStart={ev => { const item = itemFor(e); if (!item) return; ev.dataTransfer.setData(BROWSER_DRAG, JSON.stringify(item)); ev.dataTransfer.effectAllowed = 'copy'; }}
               onClick={() => { setSelected(e); if (e.kind === 'folder' && !results) toggle(e); listRef.current?.focus(); }} onDoubleClick={() => addEntry(e)}
               onContextMenu={event => { listRef.current?.focus(); entryMenu(event, e); }}>
-              {e.kind === 'folder' && !results ? <span className={`ab-tri${expanded.has(e.path) ? ' open' : ''}`} aria-hidden="true">▸</span> : <span className="ab-tri" aria-hidden="true" />}
-              {e.thumbnail && e.kind !== 'audio' ? <img className="ab-thumb" loading="lazy" src={thumbUrl(owner, e.path)} alt="" onError={ev => { (ev.target as HTMLImageElement).style.visibility = 'hidden'; }} /> : <span className="ab-icon"><Icon name={ICONS[e.kind]} size={13} /></span>}
+              {e.kind === 'folder' && !results ? <span className={`ab-tri${expanded.has(e.path) ? ' open' : ''}`} aria-hidden="true"><Icon name="chevronRight" size={12}/></span> : <span className="ab-tri" aria-hidden="true" />}
+              {e.thumbnail && e.kind !== 'audio' ? <img className="ab-thumb" loading="lazy" src={thumbUrl(owner, e.path)} alt="" onError={ev => { (ev.target as HTMLImageElement).style.visibility = 'hidden'; }} /> : <span className="ab-icon"><Icon name={ICONS[e.kind]} size={14} /></span>}
               <span className="ab-name">{e.name}{results ? <small>{e.placeName} / {e.path.split('/').slice(0, -1).join('/')}</small> : null}</span>
               {e.size != null && e.kind !== 'folder' ? <span className="ab-size">{bytes(e.size)}</span> : null}
             </div>;
@@ -208,7 +208,7 @@ function Preview({ entry, owner, info, autoPlay, setAutoPlay, add, disabled }: {
     </div>
     <div className="ab-meta"><strong title={entry.path}>{entry.name}</strong><span>{entry.kind === 'folder' ? 'Folder' : meta}</span></div>
     <div className="ab-actions">
-      {entry.kind === 'audio' || entry.kind === 'video' ? <button className="ab-play" onClick={() => { const m = media.current; if (m) { if (m.paused) void m.play().catch(() => {}); else m.pause(); } }} aria-label={playing ? 'Pause preview' : 'Play preview'}><Icon name={playing ? 'pause' : 'play'} size={12} /></button> : null}
+      {entry.kind === 'audio' || entry.kind === 'video' ? <button className="ab-play" onClick={() => { const m = media.current; if (m) { if (m.paused) void m.play().catch(() => {}); else m.pause(); } }} aria-label={playing ? 'Pause preview' : 'Play preview'} title={playing ? 'Pause preview' : 'Play preview'}><Icon name={playing ? 'pause' : 'play'} size={14} /></button> : null}
       {entry.kind === 'audio' || entry.kind === 'video' ? <label className="ab-auto" title="Play sound as soon as you select a file"><input type="checkbox" checked={autoPlay} onChange={e => setAutoPlay(e.target.checked)} />Auto-preview</label> : null}
       <span className="ab-spacer" />
       {ADDABLE.includes(entry.kind) ? <button className="primary ab-addfile" disabled={disabled} onClick={() => add(entry)}>{addLabel(entry.kind)}</button> : null}

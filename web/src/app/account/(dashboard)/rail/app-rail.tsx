@@ -84,7 +84,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
-import { WorkspaceSwitcher, useWorkspaceEdition } from '@/app/account/workspace-switcher'
+import { WorkspaceSwitcher, useIsWorkspaceGuest, useWorkspaceEdition } from '@/app/account/workspace-switcher'
 import { pagesFor } from '@/lib/chat-cards/page-menu'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { openSearch } from '@/lib/chat/open-search'
@@ -350,6 +350,8 @@ export function AppRail() {
   const trafficLights = useHasTrafficLights()
   const desktop = useIsDesktop()
   const edition = useWorkspaceEdition()
+  // A guest of the workspace: no members-only page (the Studio refuses a guest).
+  const guest = useIsWorkspaceGuest()
   const searchRef = useRef<HTMLButtonElement>(null)
   const searchKey = useModKeyLabel('K')
 
@@ -363,7 +365,7 @@ export function AppRail() {
   // Calendar and Mail always: the main chat opens the person's own pages
   // whatever drives it (chat-panel.tsx openCardHere), as a chip or a notice
   // does; only `/` leaves them out where its chat may not read them.
-  const pages = useMemo(() => railPagesFor(pagesFor(edition, { desktop })), [edition, desktop])
+  const pages = useMemo(() => railPagesFor(pagesFor(edition, { desktop, guest })), [edition, desktop, guest])
   const offeredIds = useMemo(() => pages.map((p) => p.def.id), [pages])
   const active = activeRailItem(useSelectedPlace(), pages)
 

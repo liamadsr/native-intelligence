@@ -51,7 +51,7 @@ export function makeBlueprint(assetId: string, review: ReviewResult, words: Time
     scenes: review.scenes.map(s => ({ start: round(s.start), end: round(s.end) })),
     style: { medianScene: num(p.median_scene_s) ?? 0, cutsPerMinute: num(p.scenes_per_min) ?? 0, alive: num(p.alive), movesPerSecond: num(p.moves_per_s), snapShare: num(m.snap_share), overshootShare: num(m.overshoot_share),
       textHeight: num(p.text_height_median), wordsOnScreen: num(p.words_on_screen_median), luma: num(p.luma),
-      palette: Array.isArray(p.palette) ? (p.palette as { hex?: string }[]).map(c => c.hex).filter((h): h is string => !!h) : undefined } };
+      palette: Array.isArray(p.palette) ? (p.palette as { hex?: unknown }[]).map(c => c?.hex).filter((h): h is string => typeof h === 'string' && /^#[\da-fA-F]{3,8}$/.test(h)) : undefined } };
 }
 
 /** Storyboard lines that follow a blueprint's rhythm, scaled to a target length. Words are left for the script

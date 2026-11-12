@@ -3,7 +3,8 @@
  * and progress report (the app keeps the word about a minute: no worker, no
  * buttons in the editor).
  *
- *   voiceover        ELEVENLABS_API_KEY is set
+ *   voiceover        ELEVENLABS_API_KEY is set (narration, voice search,
+ *                    re-voicing, sound effects, music beds)
  *   generatedShots   the higgsfield tool answers `account status` (installed
  *                    and signed in), checked at start and every few minutes,
  *                    never on every poll
@@ -26,6 +27,11 @@ export const PROVIDER_KINDS: Partial<Record<StudioJobKind, Capability>> = {
   narration: 'voiceover',
   'shot-quote': 'generatedShots',
   shot: 'generatedShots',
+  // More of the voice provider, on the same key (../jobs/voice-media.ts).
+  'voice-search': 'voiceover',
+  revoice: 'voiceover',
+  'sound-effect': 'voiceover',
+  music: 'voiceover',
 }
 /** Quick work that rides in the provider slot too (any worker with FFmpeg can do it). */
 export const QUICK_KINDS: StudioJobKind[] = ['continuity']

@@ -46,7 +46,7 @@ export const storeError = (what: string) => new StudioError(`Couldn't ${what} ju
 
 /** The save conflict the editor recognises ("changed in another editor tab"): its draft is kept and it offers to reload. */
 export const digestConflict = () =>
-  conflictError('Project changed in another editor tab. Your draft is preserved; reopen and reconcile before saving.', 'DIGEST_CONFLICT')
+  conflictError('This video changed somewhere else since you opened it. Your edits are kept here; open it again before saving.', 'DIGEST_CONFLICT')
 
 /** A zod failure as one readable sentence: the first problem and where it is. */
 export function zodSentence(error: ZodError, label: string): string {

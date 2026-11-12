@@ -8,11 +8,12 @@
  *   withStills     one browser for many frames of several versions of a video
  *                  (the look renders each frame with and without its overlays).
  */
-import type { EditorAsset, EditorProject } from '../../web/src/lib/studio/engine/contracts.ts'
+import type { EditorProject } from '../../web/src/lib/studio/engine/contracts.ts'
 import { stageAssets } from './assets.ts'
 import { stageFonts, type FontFace } from './fonts.ts'
 import { checkAborted, type JobContext } from './jobs/context.ts'
 import { COMPOSITION_ID, inputPropsFor, unstagedNeeds } from './render.ts'
+import { checkCodeScenes, stageScenes } from './scenes.ts'
 
 /** A frame range inside a video of `durationInFrames`, from seconds (the whole video when left out). Pure. */
 export function frameRange(durationInFrames: number, fps: number, from?: number, to?: number): [number, number] {
@@ -22,18 +23,26 @@ export function frameRange(durationInFrames: number, fps: number, from?: number,
   return [a, b]
 }
 
-/** Stage what every render of `project` needs (assets, the bundle, fonts) and run `work` with it; all released after. */
+/**
+ * Stage what every render of `project` needs (assets, the bundle, its code scenes, fonts) and run `work` with it;
+ * all released after. A project with code scenes is refused where they are off (scenes.ts).
+ */
 async function staged<T>(
   ctx: JobContext,
-  assets: readonly EditorAsset[],
+  project: EditorProject,
   fontsInput: unknown,
   onProgress: (fraction: number) => void,
   work: (serveUrl: string, fonts: FontFace[]) => Promise<T>,
 ): Promise<T> {
-  const releaseAssets = await stageAssets(ctx, assets, onProgress)
+  checkCodeScenes(project, ctx.config.codeScenes)
+  const releaseAssets = await stageAssets(ctx, project.assets, onProgress)
   try {
     checkAborted(ctx.signal)
     const { serveUrl, release } = await ctx.renderer.bundle(ctx.log)
+    await stageScenes(ctx, project, serveUrl).catch((err) => {
+      release()
+      throw err
+    })
     const fonts = await stageFonts(ctx, fontsInput, serveUrl).catch((err) => {
       ctx.log(`Fonts could not be staged (${(err as Error).message}): text renders with the fallback stack`)
       return { faces: [] as FontFace[], release: async () => {} }
@@ -64,7 +73,7 @@ export async function renderPicture(
   onProgress: (fraction: number) => void,
 ): Promise<Picture> {
   for (const line of unstagedNeeds(project)) if (!(opts.fonts && Array.isArray(opts.fonts) && opts.fonts.length && line.startsWith('Fonts '))) ctx.log(line)
-  return staged(ctx, project.assets, opts.fonts, (f) => onProgress(0.1 * f), async (serveUrl, fonts) => {
+  return staged(ctx, project, opts.fonts, (f) => onProgress(0.1 * f), async (serveUrl, fonts) => {
     const { selectComposition, renderMedia, makeCancelSignal } = await import('@remotion/renderer')
     const common = await ctx.renderer.common(ctx.log)
     const inputProps = { ...inputPropsFor(project), fonts }
@@ -114,7 +123,7 @@ export type StillRenderer = {
  */
 export async function withStills<T>(ctx: JobContext, project: EditorProject, fontsInput: unknown, onProgress: (fraction: number) => void, work: (render: StillRenderer) => Promise<T>): Promise<T> {
   for (const line of unstagedNeeds(project)) if (!(Array.isArray(fontsInput) && fontsInput.length && line.startsWith('Fonts '))) ctx.log(line)
-  return staged(ctx, project.assets, fontsInput, onProgress, async (serveUrl, fonts) => {
+  return staged(ctx, project, fontsInput, onProgress, async (serveUrl, fonts) => {
     const { openBrowser, renderStill, selectComposition, makeCancelSignal } = await import('@remotion/renderer')
     const common = await ctx.renderer.common(ctx.log)
     const browser = await openBrowser('chrome', { browserExecutable: common.browserExecutable, chromiumOptions: common.chromiumOptions, logLevel: common.logLevel })

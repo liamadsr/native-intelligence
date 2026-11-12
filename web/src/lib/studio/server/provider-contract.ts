@@ -149,3 +149,104 @@ export type MeasureSpan = { asset: EditorAsset; from: number; to: number }
 export type ContinuityInput = { pairs: { beat: string; against: string; a: MeasureSpan; b: MeasureSpan }[] }
 export type ContinuityIssue = { beat: string; against: string; what: string; detail: string }
 export type ContinuityResult = { issues: ContinuityIssue[] }
+
+// ---- the voice library ------------------------------------------------------------------------------------------------
+//
+//   voice-search   the account's own voices and the voice provider's shared library, by words and its own filters
+//                  (free: two reads; the app waits on it). GET /v1/shared-voices and GET /v1/voices.
+
+/** What a voice search asks: words, and the provider's own filters. */
+export type VoiceSearchQuery = { search?: string; gender?: string; age?: string; accent?: string; language?: string; useCase?: string; pageSize: number }
+/** A voice a search found: one of the account's own (`account`) or one of the shared library's (`library`). */
+export type FoundVoice = ProviderVoice & { source: 'account' | 'library'; gender?: string; age?: string; accent?: string; language?: string; useCase?: string }
+export type VoiceSearchInput = { provider: 'elevenlabs'; query: VoiceSearchQuery }
+export type VoiceSearchResult = { voices: FoundVoice[]; hasMore: boolean }
+
+// ---- re-voicing, sound effects and music beds -------------------------------------------------------------------------
+//
+//   revoice        a library asset's speech (or a stretch of it) re-spoken in another voice, its timing kept
+//                  (POST /v1/voice-changer/{voice}, multipart; the provider's speech to speech)
+//   sound-effect   designed sound effects from a description (POST /v1/sound-generation)
+//   music          music beds from a description (POST /v1/music)
+//
+// Each is a spend, made the narration way: the app builds the exact request and hashes it (the cache key and what an
+// approval card pins), the worker sends it once and never again (an attempt after the first refuses), and whatever
+// the provider answered comes back with its charge, delivered or not. The audio is streamed to disk under a size cap.
+
+/** The longest stretch one re-voice sends. */
+export const REVOICE_MAX_SECONDS = 300
+
+/** The provider's request for a re-voice, exactly as it is sent (the audio is the stretch of `source`). */
+export const RevoiceRequestSchema = z.object({
+  provider: z.literal('elevenlabs'),
+  endpoint: z.literal('voice-changer'),
+  requestVersion: z.literal(1),
+  voiceId: z.string().regex(/^[\w-]{1,200}$/),
+  modelId: z.string().regex(/^[\w.-]{1,200}$/),
+  outputFormat: z.literal('mp3_44100_128'),
+  removeBackgroundNoise: z.boolean(),
+  seed: z.number().int().min(0).max(4_294_967_295).nullable(),
+  source: z.object({
+    assetId: z.string().regex(/^[a-f0-9]{64}$/),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    fromSeconds: z.number().finite().min(0),
+    toSeconds: z.number().finite().positive(),
+  }).strict(),
+}).strict().refine((r) => r.source.toSeconds - r.source.fromSeconds >= 1 && r.source.toSeconds - r.source.fromSeconds <= REVOICE_MAX_SECONDS, `A re-voice is 1 to ${REVOICE_MAX_SECONDS} seconds of speech.`)
+export type RevoiceRequest = z.infer<typeof RevoiceRequestSchema>
+
+
+/**
+ * The provider's request for designed sound effects. `variants` is how many requests are sent (one candidate each);
+ * `take` is never sent: it tells a deliberate new take of the same description from a repeat (which is cached).
+ */
+export const SoundEffectRequestSchema = z.object({
+  provider: z.literal('elevenlabs'),
+  endpoint: z.literal('sound-generation'),
+  requestVersion: z.literal(1),
+  modelId: z.enum(['eleven_text_to_sound_v3', 'eleven_text_to_sound_v2']),
+  outputFormat: z.literal('mp3_44100_128'),
+  text: z.string().trim().min(1).max(1000),
+  durationSeconds: z.number().finite().min(0.5).max(30),
+  promptInfluence: z.number().finite().min(0).max(1),
+  loop: z.boolean(),
+  variants: z.number().int().min(1).max(3),
+  take: z.number().int().min(1).max(50),
+}).strict()
+export type SoundEffectRequest = z.infer<typeof SoundEffectRequestSchema>
+
+/** The provider's request for a music bed: a prompt and a length (`variants` and `take` as for sound effects). */
+export const MusicRequestSchema = z.object({
+  provider: z.literal('elevenlabs'),
+  endpoint: z.literal('music'),
+  requestVersion: z.literal(1),
+  modelId: z.enum(['music_v2_5', 'music_v2', 'music_v1']),
+  outputFormat: z.literal('mp3_44100_128'),
+  prompt: z.string().trim().min(1).max(4100),
+  lengthMs: z.number().int().min(3000).max(300_000),
+  forceInstrumental: z.boolean(),
+  variants: z.number().int().min(1).max(2),
+  take: z.number().int().min(1).max(50),
+}).strict()
+export type MusicRequest = z.infer<typeof MusicRequestSchema>
+
+/** Who is speaking in what is re-voiced: a generated voice, or a real person who agreed to it. Nothing else is sent. */
+export type SpeakerConsent = 'generated' | 'person-who-agreed'
+
+/**
+ * Every spend of these kinds is given the Studio's own estimate of its charge (`estimatedCredits`, used when the
+ * provider says nothing of what it charged) and the words of the provider's terms to keep with what it makes.
+ */
+type SpendInput = { requestHash: string; name: string; estimatedCredits: number; terms: string }
+export type RevoiceInput = SpendInput & { request: RevoiceRequest; source: EditorAsset; voiceName: string; speaker: SpeakerConsent }
+export type SoundEffectInput = SpendInput & { request: SoundEffectRequest }
+export type MusicInput = SpendInput & { request: MusicRequest }
+
+/** What a spend cost: the provider's own count when it said one (`provider`), else the Studio's estimate. */
+export type ProviderSpend = { credits: number; creditsFrom: 'provider' | 'estimate'; providerRequestIds?: string[] }
+/** revoice, made: the stored audio (blob `asset.file`) and its length. */
+export type RevoiceWorkerResult = ProviderSpend & { asset: EditorAsset; seconds: number }
+/** sound-effect or music, made: the stored candidates; `note` says when fewer came back than were asked for. */
+export type GeneratedAudioWorkerResult = ProviderSpend & { assets: EditorAsset[]; note?: string }
+/** Spent but not delivered (the provider answered, nothing could be kept), as NarrationUndelivered. */
+export type AudioUndelivered = ProviderSpend & { outcome: 'undelivered'; error: string }

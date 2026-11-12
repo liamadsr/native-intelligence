@@ -45,13 +45,13 @@ async function projectRow(ctx: StudioContext, id: string): Promise<ProjectRow | 
   if (!isUuid(id)) return null
   return must(
     await ctx.supabase.from('studio_project').select(PROJECT_FIELDS).eq('workspace_id', ctx.workspaceId).eq('id', id).is('archived_at', null).maybeSingle(),
-    'open that project',
+    'open that Studio project',
   ) as ProjectRow | null
 }
 
 async function mustProject(ctx: StudioContext, id: string): Promise<ProjectRow> {
   const row = await projectRow(ctx, id)
-  if (!row) throw notFoundError('Project not found')
+  if (!row) throw notFoundError('Studio project not found')
   return row
 }
 
@@ -74,7 +74,7 @@ async function videoExists(ctx: StudioContext, videoId: string): Promise<{ id: s
 }
 
 const touch = async (ctx: StudioContext, id: string) =>
-  must(await ctx.supabase.from('studio_project').update({ updated_at: new Date().toISOString() }).eq('workspace_id', ctx.workspaceId).eq('id', id), 'update that project')
+  must(await ctx.supabase.from('studio_project').update({ updated_at: new Date().toISOString() }).eq('workspace_id', ctx.workspaceId).eq('id', id), 'update that Studio project')
 
 /** Every project: those that group videos, then each lone video as its own, most recently changed first. */
 export async function listProjects(ctx: StudioContext): Promise<CampaignSummary[]> {
@@ -112,7 +112,7 @@ export async function listProjects(ctx: StudioContext): Promise<CampaignSummary[
 /** One project's summary (a `single-<id>` one too). */
 export async function projectSummary(ctx: StudioContext, projectId: string): Promise<CampaignSummary> {
   const found = (await listProjects(ctx)).find((c) => c.id === projectId)
-  if (!found) throw notFoundError('Project not found')
+  if (!found) throw notFoundError('Studio project not found')
   return found
 }
 
@@ -132,7 +132,7 @@ export async function createProject(ctx: StudioContext, title: unknown, videoIds
 /** A new project, its brand seeded from the workspace (brand-seed.ts: its name, and its logo's link in the notes). */
 async function insertProject(ctx: StudioContext, title: unknown): Promise<string> {
   const t = typeof title === 'string' ? title.trim() : ''
-  if (!t) throw new StudioError('Name the project')
+  if (!t) throw new StudioError('Name the Studio project')
   const seed = await workspaceSeed(ctx)
   const row = must(
     await ctx.supabase
@@ -150,7 +150,7 @@ export async function realProject(ctx: StudioContext, projectId: string): Promis
   if (!projectId.startsWith(SINGLE)) return projectId
   const videoId = projectId.slice(SINGLE.length)
   const video = await videoExists(ctx, videoId)
-  if (!video) throw notFoundError('Project not found')
+  if (!video) throw notFoundError('Video not found')
   if (video.studio_project_id) return video.studio_project_id
   const id = await insertProject(ctx, video.title || 'New project')
   await fileVideo(ctx, id, videoId)
@@ -164,14 +164,14 @@ export async function updateProject(ctx: StudioContext, projectId: string, patch
   const next: Record<string, unknown> = {}
   if (typeof patch.title === 'string') {
     const t = patch.title.trim()
-    if (!t) throw new StudioError('Name the project')
+    if (!t) throw new StudioError('Name the Studio project')
     next.title = t.slice(0, 160)
   }
   if (typeof patch.client === 'string') next.client = patch.client.slice(0, 160)
   if (typeof patch.notes === 'string') next.notes = patch.notes.slice(0, 20_000)
   if (patch.brand && typeof patch.brand === 'object') next.brand = CampaignBrandSchema.parse(patch.brand)
   next.updated_at = new Date().toISOString()
-  must(await ctx.supabase.from('studio_project').update(next).eq('workspace_id', ctx.workspaceId).eq('id', id), 'update that project')
+  must(await ctx.supabase.from('studio_project').update(next).eq('workspace_id', ctx.workspaceId).eq('id', id), 'update that Studio project')
   return projectSummary(ctx, id)
 }
 
@@ -181,9 +181,9 @@ export async function dissolveProject(ctx: StudioContext, projectId: string): Pr
   await mustProject(ctx, projectId)
   must(
     await ctx.supabase.from('studio_video').update({ studio_project_id: null, status: 'draft', variant_of: null }).eq('workspace_id', ctx.workspaceId).eq('studio_project_id', projectId),
-    'ungroup that project',
+    'ungroup that Studio project',
   )
-  must(await ctx.supabase.from('studio_project').update({ archived_at: new Date().toISOString() }).eq('workspace_id', ctx.workspaceId).eq('id', projectId), 'ungroup that project')
+  must(await ctx.supabase.from('studio_project').update({ archived_at: new Date().toISOString() }).eq('workspace_id', ctx.workspaceId).eq('id', projectId), 'ungroup that Studio project')
 }
 
 /**
@@ -227,9 +227,9 @@ async function archiveIfEmpty(ctx: StudioContext, projectId: string) {
   if (!row || row.notes || row.brand) return
   const left = must(
     await ctx.supabase.from('studio_video').select('id').eq('workspace_id', ctx.workspaceId).eq('studio_project_id', projectId).is('archived_at', null).limit(1),
-    'tidy projects',
+    'tidy Studio projects',
   ) as { id: string }[] | null
-  if (!left?.length) must(await ctx.supabase.from('studio_project').update({ archived_at: new Date().toISOString() }).eq('workspace_id', ctx.workspaceId).eq('id', projectId), 'tidy projects')
+  if (!left?.length) must(await ctx.supabase.from('studio_project').update({ archived_at: new Date().toISOString() }).eq('workspace_id', ctx.workspaceId).eq('id', projectId), 'tidy Studio projects')
 }
 
 /** Take a video out of its project (it becomes its own again). */
@@ -245,7 +245,7 @@ export async function unfileVideo(ctx: StudioContext, videoId: string): Promise<
 export async function setVideoStatus(ctx: StudioContext, videoId: string, status: unknown): Promise<void> {
   if (!adStatuses.includes(status as AdStatus)) throw new StudioError(`Status is one of ${adStatuses.join(', ')}`)
   const projectId = await projectOfVideo(ctx, videoId)
-  if (!projectId) throw new StudioError('File this video in a project to give it a status')
+  if (!projectId) throw new StudioError('Put this video in a Studio project to give it a status')
   must(await ctx.supabase.from('studio_video').update({ status }).eq('workspace_id', ctx.workspaceId).eq('id', videoId), 'set that status')
   await touch(ctx, projectId)
 }

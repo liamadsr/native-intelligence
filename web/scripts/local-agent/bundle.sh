@@ -66,6 +66,8 @@ cp -R "$stage/agents/chat-agent/.output" "$out/.output"
 
 # The worker adapters (F-web's, L4), when there are any.
 build_workers "$stage" "$out"
+# The Studio's product-component runner, beside the server (tools/studio_product.ts).
+build_studio "$stage" "$out/.output/studio"
 capabilities=()
 if ls "$out"/workers/*.mjs >/dev/null 2>&1; then
   capabilities+=(workers)

@@ -2,6 +2,12 @@ import { z } from 'zod';
 import { curveValue, cutPoints, normalizePoints, type AutomationPoint, type ParamInfo } from './automation';
 import { ease as easeCurve, type Ease } from './particles';
 
+/** The most a code scene's props may be, as JSON: every write of a scene layer (a command, a saved video) holds to it. */
+export const MAX_SCENE_PROPS_BYTES = 16 * 1024;
+/** Props handed to a code scene: a JSON object of at most MAX_SCENE_PROPS_BYTES. */
+export const SceneProps = z.record(z.string(), z.unknown()).refine(props => new TextEncoder().encode(JSON.stringify(props)).byteLength <= MAX_SCENE_PROPS_BYTES,
+  { message: `A scene's props are at most ${MAX_SCENE_PROPS_BYTES / 1024} KB of JSON` });
+
 /**
  * Layers: text, callouts and spotlights that sit on the timeline above the picture (project frames, not per clip),
  * each with an in and out animation and its own automation lanes. Geometry is in fractions of the output frame so the
@@ -131,7 +137,7 @@ export const LayerStyleSchema = z.object({
     seconds: finite.min(0.5).max(60), theme: z.enum(['light', 'dark']).optional(), width: finite.min(40).max(4000).optional(), height: finite.min(40).max(4000).optional(),
     key: z.string().max(64) }).strict().optional(),
   /** A code scene (scenes.ts): the compiled scene (by content hash), its name, the props it gets and the fonts it uses. */
-  scene: z.object({ id: z.string().regex(/^[a-f0-9]{16}$/), name: z.string().min(1).max(80), props: z.record(z.string(), z.unknown()).optional(), fonts: z.array(z.string().min(1).max(80)).max(16).optional() }).strict().optional(),
+  scene: z.object({ id: z.string().regex(/^[a-f0-9]{16}$/), name: z.string().min(1).max(80), props: SceneProps.optional(), fonts: z.array(z.string().min(1).max(80)).max(16).optional() }).strict().optional(),
   /** Clip a scene to its box. */
   clip: z.boolean().optional(),
   /** Particles: the shapes the dots travel through, in time order. */

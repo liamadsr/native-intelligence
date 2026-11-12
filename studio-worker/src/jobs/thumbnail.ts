@@ -1,6 +1,7 @@
 /**
  * thumbnail: one small JPEG of a video for lists, the frame at `seconds`, at most
- * 640 px wide, stored at the key the app chose (`thumbs/<video id>.jpg`).
+ * 640 px wide, stored at the key the app chose (`thumbs/<video id>.jpg`). Code
+ * scenes draw as labelled boxes: a list's picture never runs a scene's code.
  */
 import { join } from 'node:path'
 import { deliveredProject } from '../engine.ts'
@@ -20,7 +21,7 @@ export const runThumbnail: JobHandler<'thumbnail'> = async (ctx) => {
   // The size the composition renders at is the delivered format's (a reframed view of the edit).
   const scale = thumbnailScale(deliveredProject(project).output.width)
   const output = join(ctx.scratch, 'thumb.jpg')
-  await renderFrames(ctx, project, [{ seconds: ctx.job.input.seconds, output }], { scale, imageFormat: 'jpeg', jpegQuality: 80 }, stage(ctx, 0, 0.9))
+  await renderFrames(ctx, project, [{ seconds: ctx.job.input.seconds, output }], { scale, imageFormat: 'jpeg', jpegQuality: 80, codeScenes: 'placeholder' }, stage(ctx, 0, 0.9))
   await ctx.client.writeBlob(ctx.job.id, ctx.job.input.key, output, 'image/jpeg', { signal: ctx.signal })
   ctx.progress(1)
   return { key: ctx.job.input.key }

@@ -1,60 +1,107 @@
-// Playing a code scene inside the composition: load its script once (a render waits for it), give it the shared
-// React / Remotion / kit, a 1920-wide stage scaled to the layer, its own clock (frame 0 = the layer's start) and an
-// error boundary that draws the error instead of breaking the film.
-import React, { Component, useEffect, useState, type ReactNode } from 'react';
-import * as jsxRuntime from 'react/jsx-runtime';
-import * as remotion from 'remotion';
-import { Sequence, continueRender, delayRender } from 'remotion';
-import * as kit from './scene-kit';
-import { SceneContext } from './scene-kit';
+// Playing a code scene inside the composition. The scene's code never runs in this page: the layer holds a locked
+// frame (scene-frame/protocol.ts) in its box, sends it the compiled scene once and then, for each frame, the frame
+// number and the props, and the frame answers when that frame is painted. In the editor's preview the frame keeps up
+// as it can; in a render (an export, stills, a check) each frame waits for it (delayRender), and a scene that fails or
+// does not draw in time fails the render with a sentence naming it. The same layer, runtime and frame in both.
+import React, { createContext, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { cancelRender, continueRender, delayRender, staticFile, useCurrentFrame, useRemotionEnvironment } from 'remotion';
 import type { EditorProject } from './contracts';
 import type { EditorLayer } from './layers';
+import { FRAME_SANDBOX, STAGE_WIDTH, SCENE_IMAGE_TYPES, type SceneAsset, type SceneFontFace } from './scene-frame/protocol';
+import { SceneHost } from './scene-frame/host';
+import type { FontFace } from './font-names';
 
-const g = globalThis as unknown as { __studio?: unknown; __studioScenes?: Record<string, { default?: React.ComponentType<any> }> };
-g.__studio = { React, jsxRuntime, remotion, kit };
-const loading = new Map<string, Promise<{ default?: React.ComponentType<any> }>>();
-function load(id: string, url: string) {
-  let p = loading.get(id);
-  if (!p) {
-    p = fetch(url).then(r => { if (!r.ok) throw new Error(`Scene ${id} is missing (${r.status})`); return r.text(); })
-      .then(code => { new Function(code)(); const mod = g.__studioScenes?.[id]; if (!mod) throw new Error(`Scene ${id} did not register`); return mod; });
-    loading.set(id, p); p.catch(() => loading.delete(id));
-  }
-  return p;
-}
-function useSceneModule(id: string, url: string) {
-  const [state, setState] = useState<{ mod?: { default?: React.ComponentType<any> }; error?: string }>(() => ({ mod: g.__studioScenes?.[id] }));
-  const [handle] = useState(() => (g.__studioScenes?.[id] ? null : delayRender(`Loading scene ${id}`)));
-  useEffect(() => {
-    if (state.mod) { if (handle !== null) continueRender(handle); return; }
-    let alive = true;
-    load(id, url).then(mod => { if (alive) setState({ mod }); }).catch(e => { if (alive) setState({ error: e instanceof Error ? e.message : String(e) }); }).finally(() => { if (handle !== null) continueRender(handle); });
-    return () => { alive = false; };
-  }, [id]);
-  return state;
+export { STAGE_WIDTH };
+
+/** Where the app serves the frame runtime (web/scripts/studio-scene-runtime.mjs); a render bundle has it in its public folder. */
+export const RUNTIME_FILE = 'studio-scene/frame-runtime.js';
+
+/**
+ * How code scenes draw in this composition: `run` (in their locked frame) or `placeholder` (a labelled box, their
+ * code never loaded: a thumbnail, a sound-only render, or a worker where code scenes are off), and the font faces
+ * the composition has, so a scene's families can be handed to its frame as bytes.
+ */
+export type CodeScenes = { mode: 'run' | 'placeholder'; fonts?: FontFace[] };
+export const CodeScenesContext = createContext<CodeScenes>({ mode: 'run' });
+
+/** The image type of a library file by its name (the frame takes only these). Pure. */
+export function imageTypeOf(file: string): string | null {
+  const ext = file.toLowerCase().split('.').pop();
+  const type = ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : null;
+  return type && (SCENE_IMAGE_TYPES as readonly string[]).includes(type) ? type : null;
 }
 
-class SceneBoundary extends Component<{ name: string; children: ReactNode }, { error: string | null }> {
-  state = { error: null as string | null };
-  static getDerivedStateFromError(e: unknown) { return { error: e instanceof Error ? `${e.message}\n${(e.stack ?? '').split('\n').slice(1, 4).join('\n')}` : String(e) }; }
-  render() { return this.state.error ? <SceneProblem name={this.props.name} text={this.state.error} /> : this.props.children; }
+/** The library image a scene names (by id, name, or name without its extension), or undefined. Pure. */
+export function findSceneImage(project: EditorProject, name: string) {
+  return project.assets.find(a => a.kind === 'image' && (a.id === name || a.name === name || a.name.replace(/\.[^.]+$/, '') === name));
 }
+
 const SceneProblem = ({ name, text }: { name: string; text: string }) => <div style={{ position: 'absolute', left: 40, top: 40, right: 40, padding: 24, borderRadius: 14, background: 'rgba(30,6,6,.88)', color: '#ffb4ab', font: '500 22px/1.4 ui-monospace, Menlo, monospace', whiteSpace: 'pre-wrap' }}>Scene “{name}” failed:{'\n'}{text}</div>;
+const ScenePlaceholder = ({ name }: { name: string }) => <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'repeating-linear-gradient(45deg,rgba(120,120,140,.28) 0 14px,rgba(120,120,140,.16) 14px 28px)', color: '#fff', font: '600 28px sans-serif', textShadow: '0 1px 3px rgba(0,0,0,.5)' }}>Code scene · {name}</div>;
 
-export const STAGE_WIDTH = 1920;
 export function CodeLayer({ layer, project, assetPath, common, width, height, fps }: { layer: EditorLayer; project: EditorProject; assetPath: (file: string) => string; common: React.CSSProperties; width: number; height: number; fps: number }) {
-  const scene = layer.style.scene!, { mod, error } = useSceneModule(scene.id, assetPath(`scenes/${scene.id}.js`));
-  const boxW = layer.width * width, boxH = layer.height * height, scale = boxW / STAGE_WIDTH, stageH = boxH / scale;
-  const info = { width: STAGE_WIDTH, height: stageH, seconds: (layer.endFrame - layer.startFrame) / fps,
-    asset: (key: string) => { const a = project.assets.find(x => x.id === key || x.name === key || x.name.replace(/\.[^.]+$/, '') === key); return a ? { url: assetPath(a.file), kind: a.kind as 'image' | 'video' | 'audio', width: a.width, height: a.height } : null; } };
-  const Scene = mod?.default;
+  const scene = layer.style.scene!, mode = useContext(CodeScenesContext).mode;
+  const boxW = layer.width * width, boxH = layer.height * height;
   return <div style={{ ...common, width: boxW, height: boxH }}>
-    <div style={{ position: 'absolute', left: 0, top: 0, width: STAGE_WIDTH, height: stageH, transform: `scale(${scale})`, transformOrigin: '0 0', overflow: layer.style.clip ? 'hidden' : 'visible' }}>
-      <SceneContext.Provider value={info}>
-        <Sequence from={layer.startFrame} durationInFrames={Math.max(1, layer.endFrame - layer.startFrame)} layout="none">
-          <SceneBoundary name={scene.name}>{error ? <SceneProblem name={scene.name} text={error} /> : Scene ? <Scene {...(scene.props ?? {})} /> : null}</SceneBoundary>
-        </Sequence>
-      </SceneContext.Provider>
-    </div>
+    {mode === 'placeholder' ? <ScenePlaceholder name={scene.name} /> : <SceneFrame layer={layer} project={project} assetPath={assetPath} boxW={boxW} boxH={boxH} fps={fps} />}
   </div>;
+}
+
+/** The scene's frame in the layer's box, kept in step with the composition's frame. */
+function SceneFrame({ layer, project, assetPath, boxW, boxH, fps }: { layer: EditorLayer; project: EditorProject; assetPath: (file: string) => string; boxW: number; boxH: number; fps: number }) {
+  const scene = layer.style.scene!, environment = useRemotionEnvironment(), rendering = environment.isRendering, fonts = useContext(CodeScenesContext).fonts;
+  const iframe = useRef<HTMLIFrameElement>(null), [host, setHost] = useState<SceneHost | null>(null), [problem, setProblem] = useState<string | null>(null);
+  // The latest project and fonts, for the frame's requests (the host lives as long as the scene's code does).
+  const latest = useRef({ project, fonts }); latest.current = { project, fonts };
+  const runtimeUrl = environment.isPlayer ? `/${RUNTIME_FILE}` : staticFile(RUNTIME_FILE), codeUrl = assetPath(`scenes/${scene.id}.js`);
+  useLayoutEffect(() => {
+    if (!iframe.current) return;
+    const made = new SceneHost(iframe.current, {
+      name: scene.name, runtimeUrl, codeUrl, onError: setProblem,
+      image: name => imageBytes(latest.current.project, name, assetPath),
+      fonts: () => fontBytes(latest.current.fonts ?? [], scene.fonts ?? [], assetPath),
+    });
+    setHost(made); setProblem(null);
+    return () => made.close();
+    // A new scene (or a new address for its code) is a new frame.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene.id, codeUrl, runtimeUrl]);
+  const frame = useCurrentFrame() - layer.startFrame, durationInFrames = Math.max(1, layer.endFrame - layer.startFrame);
+  const stageHeight = boxH / (boxW / STAGE_WIDTH), propsKey = useMemo(() => JSON.stringify(scene.props ?? {}), [scene.props]);
+  useLayoutEffect(() => {
+    if (!host) return;
+    const handle = rendering ? delayRender(`Code scene "${scene.name}", frame ${frame}`) : null;
+    host.show({ frame, fps, durationInFrames, stageWidth: STAGE_WIDTH, stageHeight, viewWidth: boxW, viewHeight: boxH, props: JSON.parse(propsKey) as Record<string, unknown> })
+      .then(() => { if (handle !== null) continueRender(handle); })
+      .catch((error: unknown) => {
+        const text = error instanceof Error ? error.message : String(error);
+        if (handle !== null) cancelRender(new Error(text));
+        else setProblem(text);
+      });
+  }, [host, frame, fps, durationInFrames, stageHeight, boxW, boxH, propsKey, rendering, scene.name]);
+  return <>
+    <iframe ref={iframe} sandbox={FRAME_SANDBOX} referrerPolicy="no-referrer" title={`Code scene ${scene.name}`} aria-hidden="true" tabIndex={-1}
+      style={{ position: 'absolute', left: 0, top: 0, width: boxW, height: boxH, border: 0, margin: 0, padding: 0, background: 'transparent', colorScheme: 'normal', pointerEvents: 'none', display: 'block' }} />
+    {problem ? <SceneProblem name={scene.name} text={problem} /> : null}
+  </>;
+}
+
+/** A library image's bytes for the frame (only the video's own images, never an address). */
+async function imageBytes(project: EditorProject, name: string, assetPath: (file: string) => string): Promise<SceneAsset> {
+  const asset = findSceneImage(project, name), type = asset ? imageTypeOf(asset.file) : null;
+  if (!asset || !type) return { name, kind: 'missing' };
+  const response = await fetch(assetPath(asset.file));
+  if (!response.ok) return { name, kind: 'missing' };
+  return { name, kind: 'image', type, bytes: await response.arrayBuffer(), width: asset.width, height: asset.height };
+}
+
+/** The faces of the families a scene names, as bytes (a face that cannot be fetched is left out). */
+async function fontBytes(faces: FontFace[], families: string[], assetPath: (file: string) => string): Promise<SceneFontFace[]> {
+  const wanted = new Set(families.map(f => f.toLowerCase()));
+  const out: SceneFontFace[] = [];
+  for (const face of faces.filter(f => wanted.has(f.family.toLowerCase())).slice(0, 16)) {
+    const response = await fetch(assetPath(face.file)).catch(() => null);
+    if (response?.ok) out.push({ family: face.family, weight: face.weight, style: face.style, bytes: await response.arrayBuffer() });
+  }
+  return out;
 }

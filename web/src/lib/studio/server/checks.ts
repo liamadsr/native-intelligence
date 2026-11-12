@@ -8,6 +8,8 @@
 //                   without a re-run, and the readiness list uses a visual check only while it matches the video
 //   serveCheckFile  a check's pictures (`checks/<job id>/<file>`), to members of the job's workspace only
 //
+// A review of a library video by itself (a reference, no video) is queued by blueprint.ts and handed back to it here.
+//
 // motion and review need a worker with the analysis (`motionCheck`, `review`: capabilities.ts); look any worker (refused at
 // once when none is running).
 import type { EditorProject } from '../engine/contracts'
@@ -142,6 +144,8 @@ export async function fileCheck(ctx: StudioContext, row: Pick<JobRow, 'id' | 'ki
     const record: CheckRecord = { kind: row.kind, jobId: row.id, videoId: row.video_id, digest: String(row.input?.digest ?? ''), checkedAt: new Date().toISOString(), result }
     await putRecord(ctx, CHECKS_COLLECTION, checkRecordKey(row.video_id, row.kind), record)
   }
+  // A review of a library video by itself is a reference's: the blueprint waiting on it is finished (blueprint.ts).
+  if (row.kind === 'review' && !row.video_id && row.input?.reference) await (await import('./blueprint')).fileReferenceReview(ctx, row, result)
   return result
 }
 

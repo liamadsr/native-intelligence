@@ -26,9 +26,10 @@ import { z } from 'zod'
 import type { EditorAsset, EditorProject, EditorTranscript } from '../engine/contracts'
 import type { FaceSample } from '../engine/director'
 import type { LookInput, LookResult, MotionInput, MotionResult, ReviewInput, ReviewResult } from './check-contract'
-import type { ListenInput, ListenResult, SoundBankInput, SoundBankResult, SoundImportInput, SoundImportResult, SoundsInput, SoundsResult } from './sound-contract'
+import type { ListenInput, ListenResult, SoundBankInput, SoundBankResult, SoundImportInput, SoundImportResult, SoundJudgeInput, SoundJudgeResult, SoundMakeInput, SoundMakeResult, SoundsInput, SoundsResult } from './sound-contract'
 import type { AdsMotionInput, AdsMotionResult, AdsReelInput, AdsReelResult, AdsStaticInput, AdsStaticResult } from './ads-contract'
 import type { ContinuityInput, ContinuityResult, NarrationInput, NarrationUndelivered, NarrationWorkerResult, ShotInput, ShotQuoteInput, ShotQuoteResult, ShotResult, VoicesInput, VoicesResult } from './provider-contract'
+import type { AudioUndelivered, GeneratedAudioWorkerResult, MusicInput, RevoiceInput, RevoiceWorkerResult, SoundEffectInput, VoiceSearchInput, VoiceSearchResult } from './provider-contract'
 
 /** Bytes per stored part. Under the smallest per-object cap we run with (50 MB on our own server). */
 export const STUDIO_PART_BYTES = 32 * 1024 * 1024
@@ -59,10 +60,17 @@ export const STUDIO_JOB_KINDS = [
   'sound-import', // one sound or music file aligned on its onset or peak, levelled (a music bed cut and faded)
   'listen',       // the mix rendered as sound only and heard: transcript, scorecard, an annotated sheet image
   'sound-bank',   // the sound bank and the kit presets (quick)
+  'sound-judge',  // earshot's ears on library or bank sounds: describe, measure, compare, rank, find, A/B, realness
+  'sound-make',   // a sound made in code (forge) or a recording turned into code (fit), as library assets
   // Ads from a Studio project's brand kit (ads-contract.ts): Chromium and FFmpeg, every worker.
   'ads-static',   // a batch of static ads in their sizes, brand-checked, as library images, a report and a contact sheet
   'ads-motion',   // a 9:16 motion ad (and its 4:5 crop) from a brief, brand-checked, with its parts for an editable video
   'ads-reel',     // a 9:16 reel from the brand's own footage, with type beats and an end card
+  // More of the voice provider (provider-contract.ts), on the same key and capability as narration (`voiceover`).
+  'voice-search', // the account's voices and the shared voice library, by words and filters (free)
+  'revoice',      // a library asset's speech re-spoken in another voice, its timing kept (spends)
+  'sound-effect', // designed sound effects from a description, as library assets (spends)
+  'music',        // music beds from a description, as library assets (spends)
 ] as const
 export type StudioJobKind = (typeof STUDIO_JOB_KINDS)[number]
 
@@ -146,9 +154,15 @@ export type StudioJobIO = {
   'sound-import': { input: SoundImportInput; result: SoundImportResult }
   listen: { input: ListenInput; result: ListenResult }
   'sound-bank': { input: SoundBankInput; result: SoundBankResult }
+  'sound-judge': { input: SoundJudgeInput; result: SoundJudgeResult }
+  'sound-make': { input: SoundMakeInput; result: SoundMakeResult }
   'ads-static': { input: AdsStaticInput; result: AdsStaticResult }
   'ads-motion': { input: AdsMotionInput; result: AdsMotionResult }
   'ads-reel': { input: AdsReelInput; result: AdsReelResult }
+  'voice-search': { input: VoiceSearchInput; result: VoiceSearchResult }
+  revoice: { input: RevoiceInput; result: RevoiceWorkerResult | AudioUndelivered }
+  'sound-effect': { input: SoundEffectInput; result: GeneratedAudioWorkerResult | AudioUndelivered }
+  music: { input: MusicInput; result: GeneratedAudioWorkerResult | AudioUndelivered }
 }
 
 // ---- the worker's routes -----------------------------------------------------------------------------------

@@ -23,8 +23,9 @@ import { resetSidePanelStore, setPagePanelContent } from '../../side-panels/side
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-const { edition, openSearch, switcher } = vi.hoisted(() => ({
+const { edition, guest, openSearch, switcher } = vi.hoisted(() => ({
   edition: { current: null as EditionDefinition | null },
+  guest: { current: false },
   openSearch: vi.fn(() => true),
   switcher: { variants: [] as string[] },
 }))
@@ -32,6 +33,7 @@ vi.mock('@/app/account/workspace-switcher', async () => {
   const React = await import('react')
   return {
     useWorkspaceEdition: () => edition.current,
+    useIsWorkspaceGuest: () => guest.current,
     WorkspaceSwitcher: ({ variant }: { variant: string }) => {
       switcher.variants.push(variant)
       return React.createElement('button', { 'aria-label': 'Workspace and account menu', 'data-variant': variant })
@@ -56,6 +58,7 @@ beforeEach(() => {
   resetSidePanelStore()
   vi.stubGlobal('fetch', fetchMock)
   edition.current = getEdition('full')
+  guest.current = false
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -173,6 +176,17 @@ describe('the app rail', () => {
     await render()
     expect(item('mail')).toBeNull()
     expect(item('calendar')).not.toBeNull()
+  })
+
+  it('leaves out the Studio for a guest of the workspace (its routes refuse a guest), and keeps it for a member', async () => {
+    await render()
+    expect(item('studio')).not.toBeNull()
+    act(() => root.unmount())
+    root = createRoot(container)
+    guest.current = true
+    await render()
+    expect(item('studio')).toBeNull()
+    expect(item('team-chat')).not.toBeNull()
   })
 
   it('marks <html> with its width attribute while it is mounted', async () => {

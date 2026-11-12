@@ -82,6 +82,7 @@ The desktop app launches it; nothing here is mounted in the Next app
 | `launcher/launcher.ts` | The per-job launcher (below). |
 | `launcher/prompts.ts` | C3 native prompts, both halves: the launcher's broker (`prompt` lines out, `prompt_answer` lines in, one prompt on screen at a time, a timeout is a no) and the eve server's `askPerson`, which tools await over fd 3. Self-contained (node: imports only). |
 | `workers/` | L4: the person's own Claude Code or Codex as the job's worker instead of eve, on the same JSON lines, inside the same fence (`workers/README.md`). eve's build ignores the folder too. |
+| `tools/studio_product.ts`, `studio/` | The Studio's product components: a Mac-only tool that runs one Studio product job the cloud body prepared (its id in the request). It reads the job from the app (`/api/local-agent/agent/studio`, the session token), unpacks the runner (`studio/build.sh` makes `.output/studio/studio.tgz`) into the job's scratch dir and runs it as ONE command inside the fence: the product's own esbuild and Tailwind build a stage, a headless browser in the product's folder (or `STUDIO_BROWSER`) renders its components on a virtual clock, ffmpeg encodes transparent footage. The folder stays read-only and nothing reaches the network (the stage is served from memory). The result goes back to the app (`/studio` and `/studio/capture`). `studio/kit.ts` is the pure half (detection, discovery, code keys), unit-tested. |
 
 ## The sandbox
 

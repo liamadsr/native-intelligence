@@ -5,6 +5,7 @@ import { layerKindInfo, layerLanePoints, layerParamInfo, layerParams, layerValue
 import { layerTone, trackKeyOf, trackTitle } from './LayerLanes';
 import { layoutPresetOf, layoutPresets, shotSegments, sourceLabel } from '@/lib/studio/engine/shots';
 import { presetShort } from './LayoutLane';
+import { StudioSelect } from './controls';
 import type { ScheduledClip } from '@/lib/studio/engine/timeline';
 
 /** What each track's automation shows, by track key: 'audio', 'video', or 'layer:<id>' → a parameter id or 'off'. */
@@ -105,28 +106,28 @@ export function TrackHeads({ area, project, schedule, frame, automationView, par
         <button className={`th-btn ${allMuted ? 'on mute' : ''}`} aria-pressed={allMuted} title="Mute the recording's audio" disabled={!change}
           onClick={() => change?.(p => ({ ...p, clips: p.clips.map(clip => ({ ...clip, audio: { ...clip.audio, muted: !allMuted } })) }))}>M</button></div>
       <div className="th-meter" title={Number.isFinite(db) ? `${db.toFixed(1)} dB` : 'Silent'}><span style={{ width: `${Math.min(100, level / 1.4 * 100)}%` }} /></div>
-      {automationView ? <div className="th-row"><select aria-label="Audio automation" title="What this track's automation line controls" value={params.audio ?? 'volume'} onChange={e => setParams({ ...params, audio: e.target.value })}>
-        <option value="off">Off</option><option value="volume">{lanePoints(project, 'volume').length ? '● ' : ''}Volume</option></select>{(params.audio ?? 'volume') !== 'off' ? <output>{value('volume')}</output> : null}</div> : null}
+      {automationView ? <div className="th-row"><StudioSelect aria-label="Audio automation" title="What this track's automation line controls" value={params.audio ?? 'volume'} onChange={v => setParams({ ...params, audio: v })}>
+        <option value="off">Off</option><option value="volume" data-dot={lanePoints(project, 'volume').length ? 'has automation' : undefined}>Volume</option></StudioSelect>{(params.audio ?? 'volume') !== 'off' ? <output>{value('volume')}</output> : null}</div> : null}
     </>;
     if (key.startsWith('video:')) { const lane = key.slice(6);
       return <>
         <div className="th-row"><span className={`th-chip shot-${lane.startsWith('src-') ? (project.sources?.find(item => item.id === lane)?.kind ?? 'window') : lane}`} /><span className="th-name th-layer-name" title={shotNames[lane] ?? sourceLabel(project, lane)}>{shotNames[lane] ?? sourceLabel(project, lane)}</span></div>
-        {automationView && key === firstShot ? <div className="th-row"><select aria-label="Picture automation" title="Automates the whole picture — screen, slides and camera (● = has automation)" value={params.video ?? 'zoom'} onChange={e => setParams({ ...params, video: e.target.value })}>
-          <option value="off">Off</option>{automationParams.filter(item => item.target === 'video').map(item => <option key={item.id} value={item.id}>{lanePoints(project, item.id).length ? '● ' : ''}{item.label}</option>)}</select>
+        {automationView && key === firstShot ? <div className="th-row"><StudioSelect aria-label="Picture automation" title="Automates the whole picture: screen, slides and camera (a dot marks one that has automation)" value={params.video ?? 'zoom'} onChange={v => setParams({ ...params, video: v })}>
+          <option value="off">Off</option>{automationParams.filter(item => item.target === 'video').map(item => <option key={item.id} value={item.id} data-dot={lanePoints(project, item.id).length ? 'has automation' : undefined}>{item.label}</option>)}</StudioSelect>
           {(params.video ?? 'zoom') !== 'off' ? <output>{value((params.video ?? 'zoom') as AutomationParam)}</output> : null}</div> : null}
       </>; }
     if (key.startsWith('layer:')) { const members = (project.layers ?? []).filter(item => trackKeyOf(item) === key), layer = members[0]; if (!layer) return null;
       const param = params[key] ?? 'opacity', title = trackTitle(members);
       return <>
         <div className="th-row"><span className="th-chip" style={{ background: layerTone[layer.kind] }} /><span className="th-name th-layer-name" title={title}>{title}</span></div>
-        {automationView ? <div className="th-row"><select aria-label={`${title} automation`} title={members.length > 1 ? 'One curve for every layer on this track (● = has automation)' : 'What this layer\'s automation line controls (● = has automation)'} value={param} onChange={e => setParams({ ...params, [key]: e.target.value })}>
-          <option value="off">Off</option>{layerParams.map(item => <option key={item} value={item}>{layerLanePoints(layer, item).length ? '● ' : ''}{layerParamInfo(layer, item).label}</option>)}</select>
+        {automationView ? <div className="th-row"><StudioSelect aria-label={`${title} automation`} title={members.length > 1 ? 'One curve for every layer on this track (a dot marks one that has automation)' : 'What this layer\'s automation line controls (a dot marks one that has automation)'} value={param} onChange={v => setParams({ ...params, [key]: v })}>
+          <option value="off">Off</option>{layerParams.map(item => <option key={item} value={item} data-dot={layerLanePoints(layer, item).length ? 'has automation' : undefined}>{layerParamInfo(layer, item).label}</option>)}</StudioSelect>
           {param !== 'off' ? <output>{layerParamInfo(layer, param as LayerParam).format(layerValue(layer, param as LayerParam, frame))}</output> : null}</div>
           : <span className="th-sub">{members.length > 1 ? `${members.length} ${layerKindInfo[layer.kind].label.toLowerCase()} layers` : `${layerKindInfo[layer.kind].label} · ${layer.enter.preset} in`}{layer.automation.length ? ` · ${layer.automation.length} automated` : ''}</span>}
       </>; }
     if (key.startsWith('audiotrack:')) { const track = project.audioTracks.find(item => item.id === key.slice(11));
       return track ? <div className="th-row"><span className="th-chip voice" /><span className="th-name">{track.name}</span>
-        <button className={`th-btn ${track.muted ? 'on mute' : ''}`} aria-pressed={track.muted} disabled={!change}
+        <button className={`th-btn ${track.muted ? 'on mute' : ''}`} aria-pressed={track.muted} aria-label={`Mute ${track.name}`} title={`Mute ${track.name}`} disabled={!change}
           onClick={() => change?.(p => ({ ...p, audioTracks: p.audioTracks.map(item => item.id === track.id ? { ...item, muted: !item.muted } : item) }))}>M</button></div> : null; }
     return null;
   };

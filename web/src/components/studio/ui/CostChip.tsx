@@ -7,7 +7,7 @@ import type { CostEntry, CostSummary } from '@/lib/studio/engine/server-types';
 // server's ledger, costs.ts). Opens a breakdown by provider and model, every charge (with a way to move strays out),
 // charges no video owns yet, and the rates.
 const money = (v: number) => v >= 100 ? `$${Math.round(v)}` : `$${v.toFixed(2)}`;
-const PROVIDER: Record<string, string> = { higgsfield: 'Higgsfield', elevenlabs: 'ElevenLabs', claude: 'Claude agent' };
+const PROVIDER: Record<string, string> = { higgsfield: 'Higgsfield', elevenlabs: 'ElevenLabs', claude: 'Agent' };
 const when = (at: string) => new Date(at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 export const creditsLabel = (e: Pick<CostEntry, 'provider' | 'credits'>) => e.provider === 'claude' ? '' : `${Math.round(e.credits * 100) / 100} cr`;
 

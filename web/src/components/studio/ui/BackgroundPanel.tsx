@@ -1,4 +1,5 @@
 import React from 'react';
+import { Icon } from './icons';
 import { defaultPresentation, type EditorAsset, type EditorProject } from '@/lib/studio/engine/contracts';
 import { assetUrl } from '@/lib/studio/engine/api';
 import { STUDIO_API } from '../studio-env';
@@ -85,7 +86,7 @@ export function BackgroundPanel({ project, change, busy, importMedia }: {
         <div className="palette-grid">
           {yourImages.map(a => <button key={a.id} className={`swatch ${a.id === bg.assetId && bg.kind === 'image' ? 'active' : ''}`} style={{ backgroundImage: `url(${assetUrl(a)})`, backgroundSize: 'cover' }}
             aria-label={`Use ${a.name} as background`} title={a.name} onClick={() => pickImage(a)} />)}
-          <button className="swatch bg-upload" disabled={busy} onClick={() => importMedia('image')} aria-label="Upload an image" title="Upload an image">＋</button>
+          <button className="swatch bg-upload" disabled={busy} onClick={() => importMedia('image')} aria-label="Upload an image" title="Upload an image"><Icon name="plus"/></button>
         </div>
         {!yourImages.length ? <p className="hint">Upload an image, or add one from the Browser. Images you add are kept in the Studio library for every video.</p> : null}
       </div>
@@ -113,7 +114,7 @@ export function BackgroundPanel({ project, change, busy, importMedia }: {
       onClick={() => set({ radius })}>{radius === 0 ? 'Square' : radius}</button>)}</div>
     <Slider label="Shadow" value={Math.round(p.shadow.opacity * 100)} max={100} unit="%" resetValue={0} onChange={n => update(current => ({ ...current, shadow: { ...current.shadow, opacity: n / 100,
       blur: current.shadow.blur || clamp(short * 0.03, 200), distance: current.shadow.distance || clamp(short * 0.01, 200) } }))} />
-    <button className="bg-more" aria-expanded={more} onClick={() => setMore(value => !value)}>{more ? '▾' : '▸'} More</button>
+    <button className="bg-more" aria-expanded={more} onClick={() => setMore(value => !value)}><Icon name={more ? 'chevron' : 'chevronRight'} size={14}/>More</button>
     {more ? <div className="bg-more-body">
       <Slider resetValue={defaultPresentation.shadow.blur} label="Shadow softness" value={p.shadow.blur} max={200} unit=" px" onChange={n => set({ shadow: { ...p.shadow, blur: n } })} />
       <Slider resetValue={defaultPresentation.shadow.distance} label="Shadow distance" value={p.shadow.distance} max={200} unit=" px" onChange={n => set({ shadow: { ...p.shadow, distance: n } })} />

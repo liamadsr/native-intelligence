@@ -9,8 +9,8 @@ export const automationTools: { id: AutomationTool; label: string; key: string; 
   { id: 'eraser', label: 'Eraser', key: 'E', help: 'Drag across points (or click one) to remove them' },
 ];
 
-/** Line colour per main-picture parameter, so each curve reads as itself. */
-export const paramTone: Record<string, string> = { zoom: '#f2a65a', panX: '#6fd3a6', panY: '#6fd3a6', shiftX: '#6fb8ff', shiftY: '#6fb8ff', rotate: '#c8a2ff', blur: '#9fb4ff', opacity: '#e6e6ea', volume: '#e16ad8' };
+/** Line colour per main-picture parameter, so each curve reads as itself: the Studio's categorical hues (studio.css `--st-hue-*`), which follow the app's theme. */
+export const paramTone: Record<string, string> = { zoom: 'var(--st-hue-amber)', panX: 'var(--st-hue-green)', panY: 'var(--st-hue-green)', shiftX: 'var(--st-hue-blue)', shiftY: 'var(--st-hue-blue)', rotate: 'var(--st-hue-violet)', blur: 'var(--st-hue-indigo)', opacity: 'var(--st-text-2)', volume: 'var(--st-hue-magenta)' };
 
 /** Curve area inside the track, in % of its height: room at the top for point value labels so nothing spills out. */
 const TOP = 26, SPAN = 68;

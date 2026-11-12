@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { EditorProjectSchema, type ClipView, type EditorProject } from './contracts';
 import { setShotRange, shotSegments } from './shots';
 import { addTransition, addZoomBump, automationParams, erasePoints, lanePoints, paramInfo, setLanePoints, spliceCurve, transitionKinds, type AutomationParam, type AutomationPoint, type TransitionKind } from './automation';
-import { animationPresets, easeKinds, ParticleFormSchema, createLayer, layerKindInfo, layerLanePoints, layerParamInfo, layerParams, LayerStyleSchema, setLayerLane, textLooks, type EditorLayer, type LayerKind, type LayerParam, type TextLook } from './layers';
+import { animationPresets, easeKinds, ParticleFormSchema, createLayer, layerKindInfo, layerLanePoints, layerParamInfo, layerParams, LayerStyleSchema, SceneProps, setLayerLane, textLooks, type EditorLayer, type LayerKind, type LayerParam, type TextLook } from './layers';
 import { projectDuration, scheduleProject } from './timeline';
 import { transcriptWords } from './transcript';
 import { defaultDuck } from './ducking';
@@ -58,7 +58,7 @@ const fieldsOf = (args: { label?: string; words?: string; source?: Beat['source'
   ...(args.arrive !== undefined ? { arrive: args.arrive } : {}), ...(args.leave !== undefined ? { leave: args.leave } : {}), ...(args.standIns ? { placeholders: args.standIns } : {}), ...(args.generation ? { generation: args.generation } : {}) });
 
 export const ops = [
-  op({ name: 'add_text', summary: 'Add a text layer with a look (impact = huge heavy caps; hero, gradient, statement, title, caption, label, pill, subtitle) and an in/out animation. Modern presets: blur-in (words rise out of a blur), chars (letters), streak (letters fly in from the right with motion blur — pair with style.drift ≈ -0.04 for a sliding title), scatter (letters assemble), zoom-blur (big and blurred to sharp), plus typewriter and words (spoken timing). style.swapWords cycles words after the text; style.countFrom counts the number in the text up.',
+  op({ name: 'add_text', summary: 'Add a text layer with a look (impact = huge heavy caps; hero, gradient, statement, title, caption, label, pill, subtitle) and an in/out animation. Modern presets: blur-in (words rise out of a blur), chars (letters), streak (letters fly in from the right with motion blur — pair with style.drift ≈ -0.04 for a sliding title), scatter (letters assemble), zoom-blur (big and blurred to sharp), plus typewriter and words (spoken timing). style.swapWords cycles words after the text; style.countFrom counts the number in the text up. position = the text\'s centre (a name, or {x, y} as fractions of the frame, 0,0 top left); width = a fraction of the frame width (the text wraps to it); style.size = the text height as a fraction of the frame height (0.06 ≈ 65 px at 1080p; each look sets its own).',
     input: z.object({ text: z.string().min(1).max(2000), at: seconds, duration: seconds.optional(), look: z.enum(Object.keys(textLooks) as [TextLook, ...TextLook[]]).optional(),
       position: Position.optional(), width: z.number().min(0.05).max(1).optional(), enter: Animation.optional(), exit: Animation.optional(), style: LayerStyleSchema.optional(), behind: z.boolean().optional(), name: z.string().min(1).max(100).optional() }).strict(),
     apply: (project, args, ctx) => { const [start, end] = span(args.at, args.duration, ctx), [x, y] = where(args.position, args.look === 'caption' || args.look === 'subtitle' ? [0.5, 0.8] : [0.5, 0.5]);
@@ -66,7 +66,7 @@ export const ops = [
       const layer = createLayer('text', base.id, start, end, { name: args.name ?? args.text.slice(0, 40), x, y, width: args.width ?? (args.look === 'impact' ? 0.96 : base.width), ...(args.behind ? { behind: true } : {}),
         style: { ...textLooks[args.look ?? 'title'], ...(args.style ?? {}), text: args.text }, enter: animation(args.enter, base.enter, ctx.fps), exit: animation(args.exit, base.exit, ctx.fps) }, ctx.fps);
       return { project: withLayer(project, layer), result: { id: layer.id } }; } }),
-  op({ name: 'set_ducking', summary: 'Sidechain ducking: the music dips while anyone speaks (narration or speech on the clips) and comes back between sentences. depthDb how far down (default 12), attackMs how early it starts dipping before a word (150), releaseMs how slowly it comes back (500). track = a music track id (default: every music track). off: true removes it.',
+  op({ name: 'set_ducking', summary: 'Sidechain ducking: the music dips while anyone speaks (narration or speech on the clips) and comes back between sentences. depthDb how far down (default 12), attackMs how early it starts dipping before a word (150), releaseMs how slowly it comes back (500). track = a music track id (default: every music track). off: true removes it. More depthDb = the music lower under speech: 3 dB is a small step, 6 dB a clear one.',
     input: z.object({ track: z.string().optional(), depthDb: z.number().min(1).max(40).optional(), attackMs: z.number().min(0).max(2000).optional(), releaseMs: z.number().min(0).max(5000).optional(), off: z.boolean().optional() }).strict(),
     apply: (project, args) => { const targets = project.audioTracks.filter(t => args.track ? t.id === args.track : t.role === 'music');
       if (!targets.length) throw new Error(args.track ? `No audio track ${args.track}` : 'No music track to duck: add music first');
@@ -74,7 +74,7 @@ export const ops = [
       const ids = new Set(targets.map(t => t.id));
       return { project: { ...project, audioTracks: project.audioTracks.map(t => { if (!ids.has(t.id)) return t; if (args.off) { const { duck: _gone, ...rest } = t; return rest; } return { ...t, duck }; }) },
         result: args.off ? { unducked: [...ids] } : { ducked: [...ids], ...duck } }; } }),
-  op({ name: 'set_audio_segment', summary: 'Shape one audio segment (a narration line, the music bed, a sound effect): gain (× on top of the track, 0–4), fadeIn / fadeOut (seconds, equal-power), or remove: true to delete it. Find ids with the project\'s audioTracks.',
+  op({ name: 'set_audio_segment', summary: 'Shape one audio segment (a narration line, the music bed, a sound effect): gain (× on top of the track, 0–4), fadeIn / fadeOut (seconds, equal-power), or remove: true to delete it. Find ids with the project\'s audioTracks. gain multiplies the track\'s level (1 = as it is): read the current gain first; "louder" ≈ ×1.4 (+3 dB), "a little quieter" ≈ ×0.8 (−2 dB), ×2 = +6 dB.',
     input: z.object({ track: z.string(), segment: z.string(), gain: z.number().min(0).max(4).optional(), fadeIn: z.number().min(0).max(60).optional(), fadeOut: z.number().min(0).max(60).optional(), remove: z.boolean().optional() }).strict(),
     apply: (project, args) => { const track = project.audioTracks.find(t => t.id === args.track); if (!track) throw new Error(`No audio track ${args.track}`);
       if (!track.segments.some(s => s.id === args.segment)) throw new Error(`No segment ${args.segment} on ${args.track}`);
@@ -98,11 +98,11 @@ export const ops = [
     apply: (project, args) => { if (args.format !== 'original' && !exportPresets.some(p => p.id === args.format)) throw new Error(`Unknown format; choose original or ${exportPresets.map(p => p.id).join(', ')}`);
       const preset = exportPresets.find(p => p.id === args.format);
       return { project: { ...project, delivery: { ...(project.delivery ?? {}), format: args.format } }, result: { format: args.format, size: preset ? `${preset.width}×${preset.height}` : `${project.output.width}×${project.output.height}` } }; } }),
-  op({ name: 'set_master', summary: 'Master the soundtrack on export to a loudness target: lufs -14 (web, default; -16 for podcasts/voice-led), truePeak -1 dBTP. off: true removes it. earshot\'s critique checks integrated loudness against professional launch films.',
+  op({ name: 'set_master', summary: 'Master the soundtrack on export to a loudness target: lufs -14 (web, default; -16 for podcasts/voice-led; a higher number is louder, 1 LU is a small step), truePeak -1 dBTP. off: true removes it. earshot\'s critique checks integrated loudness against professional launch films.',
     input: z.object({ lufs: z.number().min(-30).max(-6).optional(), truePeak: z.number().min(-6).max(0).optional(), off: z.boolean().optional() }).strict(),
     apply: (project, args) => { if (args.off) { const { master: _gone, ...rest } = project; return { project: rest as EditorProject, result: 'unmastered' }; }
       const master = { lufs: args.lufs ?? -14, truePeak: args.truePeak ?? -1 }; return { project: { ...project, master }, result: master }; } }),
-  op({ name: 'set_frame', summary: 'How the picture sits in the video: cameraFill makes camera shots fill the frame (films, talking heads, vertical) instead of the screen recording\'s shape; fullBleed fills the whole frame edge to edge (no wallpaper, corners or shadow — the look for talking heads and words-behind-the-speaker); otherwise set padding (px around the picture), radius (corner px) and shadow (0–1).',
+  op({ name: 'set_frame', summary: 'How the picture sits in the video: cameraFill makes camera shots fill the frame (films, talking heads, vertical) instead of the screen recording\'s shape; fullBleed fills the whole frame edge to edge (no wallpaper, corners or shadow — the look for talking heads and words-behind-the-speaker); otherwise set padding (px around the picture), radius (corner px) and shadow (0–1). padding and radius are pixels of the output size; shadow is the shadow\'s opacity (0 none, 1 full).',
     input: z.object({ cameraFill: z.boolean().optional(), fullBleed: z.boolean().optional(), padding: z.number().min(0).max(500).optional(), radius: z.number().min(0).max(300).optional(), shadow: z.number().min(0).max(1).optional() }).strict(),
     apply: (project, args) => { const p = project.presentation;
       const presentation = args.fullBleed ? { ...p, padding: 0, inset: 0, radius: 0, shadow: { ...p.shadow, opacity: 0 } }
@@ -119,7 +119,7 @@ export const ops = [
         ? { ...clip, trimStartSourceFrame: 0, trimEndSourceFrame: Math.max(1, Math.round(args.seconds * asset.sourceFps)), holdEndFrames: 0, playbackRate: 1 }
         : { ...clip, trimStartSourceFrame: 0, trimEndSourceFrame: asset.sourceFrames, holdEndFrames: Math.round((args.seconds - canvasSeconds) * fps), playbackRate: 1 };
       return { project: { ...project, clips: [next] }, result: { seconds: args.seconds } }; } }),
-  op({ name: 'add_callout', summary: 'Add a box (outline), highlight (glowing marker) or spotlight (dims everything else) over an area of the frame.',
+  op({ name: 'add_callout', summary: 'Add a box (outline), highlight (glowing marker) or spotlight (dims everything else) over an area of the frame. x, y = the area\'s centre and width, height its size, all fractions of the frame (0,0 top left).',
     input: z.object({ kind: z.enum(['box', 'highlight', 'spotlight']), x: fraction, y: fraction, width: z.number().min(0.01).max(3), height: z.number().min(0.01).max(3),
       at: seconds, duration: seconds.optional(), color: z.string().regex(/^#[\da-fA-F]{6}(?:[\da-fA-F]{2})?$/).optional(), enter: Animation.optional(), exit: Animation.optional(), style: LayerStyleSchema.optional(), name: z.string().min(1).max(100).optional() }).strict(),
     apply: (project, args, ctx) => { const [start, end] = span(args.at, args.duration, ctx), base = createLayer(args.kind, nextId(project, args.kind), start, end, {}, ctx.fps);
@@ -158,8 +158,8 @@ export const ops = [
         style: { ...base.style, ...(args.style ?? {}), ...(args.color ? { color: args.color } : {}), ...(args.count ? { count: args.count } : {}), ...(args.spike !== undefined ? { spike: args.spike } : {}) },
         enter: animation(args.enter, base.enter, ctx.fps), exit: animation(args.exit, base.exit, ctx.fps) }, ctx.fps);
       return { project: withLayer(project, layer), result: { id: layer.id } }; } }),
-  op({ name: 'add_scene', summary: 'Place a code scene: an animated graphic the agent wrote as a .tsx file (it must be compiled first; this command places a compiled scene). sceneId is the compiled id; the scene fills the box (default the whole frame) and its frame 0 is the layer start.',
-    input: z.object({ sceneId: z.string().regex(/^[a-f0-9]{16}$/), name: z.string().min(1).max(100).optional(), props: z.record(z.string(), z.unknown()).optional(), fonts: z.array(z.string().max(80)).max(12).optional(),
+  op({ name: 'add_scene', summary: 'Place a code scene: an animated graphic the agent wrote as React code (write_studio_scene compiles and keeps it; add_studio_scene places it). sceneId is the scene\'s id; the scene fills the box (default the whole frame), its frame 0 is the layer start, and its code runs only inside the layer\'s locked frame.',
+    input: z.object({ sceneId: z.string().regex(/^[a-f0-9]{16}$/), name: z.string().min(1).max(100).optional(), props: SceneProps.optional(), fonts: z.array(z.string().max(80)).max(12).optional(),
       at: seconds, duration: seconds.optional(), x: fraction.optional(), y: fraction.optional(), width: z.number().min(0.02).max(3).optional(), height: z.number().min(0.02).max(3).optional(),
       clip: z.boolean().optional(), behind: z.boolean().optional(), enter: Animation.optional(), exit: Animation.optional() }).strict(),
     apply: (project, args, ctx) => { const [start, end] = span(args.at, args.duration, ctx, 4), base = createLayer('code', nextId(project, 'scene'), start, end, {}, ctx.fps);
@@ -236,7 +236,7 @@ export const ops = [
           wordFrames: phrase.map(word => word.startFrame - start) }, enter: { preset: 'words', frames: Math.max(1, end - start) }, exit: { preset: 'none', frames: 1 } }, ctx.fps);
         next = withLayer(next, layer); ids.push(id); });
       return { project: next, result: { added: ids.length, ids } }; } }),
-  op({ name: 'update_layer', summary: 'Change a layer: text, timing (start/end seconds), position/size, look/style, in/out animation, opacity or rotation.',
+  op({ name: 'update_layer', summary: 'Change a layer: text, timing (start/end seconds), position/size, look/style, in/out animation, opacity or rotation. Give only what changes: style merges into the layer\'s, a look replaces the keys it sets. For a relative change read the layer\'s current values first. x, y = its centre as fractions of the frame (0,0 top left; "a little up" ≈ y − 0.04); width, height = fractions of the frame (text wraps to width); style.size = text height as a fraction of the frame height (0.06 ≈ 65 px at 1080p; "bigger" ≈ ×1.25 the current size, "much bigger" ×1.5–2, and widen width to match); opacity 0–1; rotate degrees; enter/exit seconds = the animation\'s length.',
     input: z.object({ id: z.string(), text: z.string().min(1).max(2000).optional(), start: seconds.optional(), end: seconds.optional(), x: fraction.optional(), y: fraction.optional(),
       width: z.number().min(0.0005).max(3).optional(), height: z.number().min(0.0005).max(3).optional(), opacity: z.number().min(0).max(1).optional(), rotate: z.number().min(-360).max(360).optional(),
       look: z.enum(Object.keys(textLooks) as [TextLook, ...TextLook[]]).optional(), style: LayerStyleSchema.optional(), enter: Animation.optional(), exit: Animation.optional(), behind: z.boolean().optional(), name: z.string().min(1).max(100).optional() }).strict(),
@@ -249,7 +249,7 @@ export const ops = [
       return { project: replaceLayer(project, updated), result: describeLayer(updated, ctx.fps) }; } }),
   op({ name: 'remove_layer', summary: 'Delete a layer.', input: z.object({ id: z.string() }).strict(),
     apply: (project, args) => { findLayer(project, args.id); return { project: { ...project, layers: (project.layers ?? []).filter(layer => layer.id !== args.id) } }; } }),
-  op({ name: 'set_automation', summary: `Write automation points. target "main" automates the whole picture (${mainParams.join(', ')}); target a layer id automates that layer (${layerParams.join(', ')}). mode "replace" swaps the lane; "splice" (default) rewrites only the span the points cover. Each point's curve shapes the segment ending at it: smooth (eased), linear or hold (step).`,
+  op({ name: 'set_automation', summary: `Write automation points. target "main" automates the whole picture (${mainParams.join(', ')}); target a layer id automates that layer (${layerParams.join(', ')}). mode "replace" swaps the lane; "splice" (default) rewrites only the span the points cover. Each point's curve shapes the segment ending at it: smooth (eased), linear or hold (step). Values are in each parameter's own unit (the automation catalog gives min, max and neutral: zoom 1 = the whole frame, volume 1 = as recorded and 2 ≈ +6 dB, a layer's scale 1 = its own size); for a relative change read the lane's current points first.`,
     input: z.object({ target: z.string(), param: z.string(), points: z.array(PointInput).min(1).max(2000), mode: z.enum(['splice', 'replace']).optional() }).strict(),
     apply: (project, args, ctx) => { const points: AutomationPoint[] = args.points.map(point => ({ frame: toFrame(point.time, ctx), value: point.value, ...(point.curve ? { curve: point.curve } : {}) }));
       const merge = (current: AutomationPoint[], info: { neutral: number; min: number; max: number }) => {
@@ -286,7 +286,7 @@ export const ops = [
       return { project: setShotRange(project, toFrame(args.from, ctx), Math.max(toFrame(args.to, ctx), toFrame(args.from, ctx) + 1), patch) }; } }),
   op({ name: 'list_shots', summary: 'The Layout track: each stretch of the timeline with what is on screen (one source or a layout of several).', input: z.object({}).strict(),
     apply: (project, _args, ctx) => ({ project, result: shotSegments(project).map(segment => ({ start: +(segment.from / ctx.fps).toFixed(2), end: +(segment.to / ctx.fps).toFixed(2), main: segment.view.main, bubble: segment.view.bubble, ...(segment.view.layout ? { layout: segment.view.layout } : {}) })) }) }),
-  op({ name: 'add_zoom', summary: 'Zoom the picture in at a time, hold, and ease back out. x/y (0–1) is where to look (e.g. a click position on the screen recording).',
+  op({ name: 'add_zoom', summary: 'Zoom the picture in at a time, hold, and ease back out. x/y (0–1) is where to look (e.g. a click position on the screen recording). scale = magnification (1 = the whole frame; 1.8 by default; "closer" ≈ +0.4); hold = seconds held at full zoom. It writes the zoom automation lane (and panX, panY when x/y are given).',
     input: z.object({ at: seconds, hold: z.number().min(0).max(60).optional(), scale: z.number().min(1.05).max(4).optional(), x: z.number().min(0).max(1).optional(), y: z.number().min(0).max(1).optional() }).strict(),
     apply: (project, args, ctx) => ({ project: addZoomBump(project, toFrame(args.at, ctx), ctx.total, args.scale ?? 1.8, args.hold ?? 1.5, args.x, args.y) }) }),
   op({ name: 'list_layers', summary: 'List the layers with their timing, position, animation and automated parameters.', input: z.object({}).strict(),
@@ -335,7 +335,7 @@ export const ops = [
   op({ name: 'set_style_pack', summary: 'Choose the film\'s look: a style pack from style-packs/ (clean-product, editorial-archival, paper-collage, …). Read its rules with project.ts pack <name> and use its scene templates.',
     input: z.object({ pack: z.string().regex(/^[a-z0-9-]{1,60}$/) }).strict(),
     apply: (project, args) => ({ project: withBoard(project, { ...board(project), stylePack: args.pack }), result: { stylePack: args.pack } }) }),
-  op({ name: 'style_captions', summary: 'Caption style: fontSize (px at this output), how many words at a time, vertical position (0–1), word-by-word or line reveal. From a reference: fontSize = its text height × output height, maxWords = its words on screen.',
+  op({ name: 'style_captions', summary: 'Caption style: fontSize (px at this output), how many words at a time, vertical position (0–1), word-by-word or line reveal. From a reference: fontSize = its text height × output height, maxWords = its words on screen. fontSize is pixels at this output\'s size (42 by default; "bigger" ≈ +8 to +12); y = the captions\' vertical centre, 0 top to 1 bottom (0.9 by default; "a little up" ≈ −0.05). Read the current values first.',
     input: z.object({ enabled: z.boolean().optional(), fontSize: z.number().min(8).max(200).optional(), maxWords: z.number().int().min(1).max(12).optional(), y: z.number().min(0).max(1).optional(), reveal: z.enum(['line', 'word']).optional(), font: z.enum(['sans', 'serif', 'mono']).optional() }).strict(),
     apply: (project, args) => { const captions = { ...project.captions, ...Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined)) }; return { project: { ...project, captions }, result: captions }; } }),
   op({ name: 'lock_beat', summary: 'Lock a beat so it stays as it is (only the person can unlock it).',

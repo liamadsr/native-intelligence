@@ -18,6 +18,7 @@ import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 import type { EditorProject } from '../../web/src/lib/studio/engine/contracts.ts'
 import type { WorkerConfig } from './config.ts'
+import { buildSceneRuntime, RUNTIME_PATH } from './engine.ts'
 
 export const COMPOSITION_ID = 'EditorVideo'
 const ENGINE_FILE = /\.(tsx?|css|json)$/
@@ -155,6 +156,12 @@ export class Renderer {
       await rename(staging, outDir)
       log(`Bundled in ${((Date.now() - started) / 1000).toFixed(1)} s`)
     }
+    // The code scene frame's runtime (the same script the app serves to the editor), made once per bundle.
+    const runtime = join(outDir, 'public', RUNTIME_PATH)
+    if (!existsSync(runtime)) {
+      const bytes = await buildSceneRuntime(await import('esbuild'), this.config.engineDir, runtime)
+      log(`Code scene runtime built (${Math.round(bytes / 1024)} KB)`)
+    }
     // The bundle's public folder serves the asset cache as `assets/`.
     const link = join(outDir, 'public', 'assets')
     await mkdir(join(outDir, 'public'), { recursive: true })
@@ -179,9 +186,13 @@ export class Renderer {
   }
 }
 
-/** The props the composition takes. Fonts are not staged on the worker yet: text uses the fallback stack. */
-export function inputPropsFor(project: EditorProject): Record<string, unknown> {
-  return { project, fonts: [] }
+/**
+ * The props the composition takes. Fonts are staged per job (fonts.ts) and added by the caller. `codeScenes`:
+ * 'run' plays code scenes in their locked frame (their modules staged first, scenes.ts), 'placeholder' draws each
+ * as a labelled box without loading its code (a thumbnail, a sound-only render).
+ */
+export function inputPropsFor(project: EditorProject, codeScenes: 'run' | 'placeholder' = 'run'): Record<string, unknown> {
+  return { project, fonts: [], codeScenes }
 }
 
 /** What a project uses that this worker does not stage yet (each a sentence), so the job's log says so. */
@@ -195,8 +206,6 @@ export function unstagedNeeds(project: EditorProject): string[] {
   }
   if (project.captions.enabled) fonts.add(project.captions.font)
   if (fonts.size > 0) out.push(`Fonts are not staged on the studio worker yet: ${[...fonts].join(', ')} render with the fallback stack`)
-  const scenes = [...new Map(layers.filter((l) => l.style?.scene).map((l) => [l.style!.scene!.id, l.style!.scene!.name])).values()]
-  if (scenes.length > 0) out.push(`Code scenes are not staged on the studio worker yet: ${scenes.join(', ')} draw as "failed" boxes`)
   return out
 }
 
