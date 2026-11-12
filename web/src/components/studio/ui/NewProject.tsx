@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { request } from './client';
+import { StudioSelect } from './controls';
 
 const formats = [
   { id: 'landscape', label: '16:9', help: 'YouTube, websites', width: 1920, height: 1080 },
@@ -31,7 +32,7 @@ export function NewProjectPanel({ close, created }: { close: () => void; created
         <span className="np-shape" style={{ aspectRatio: `${f.width} / ${f.height}` }} /><b>{f.label}</b><small>{f.help}</small></button>)}</div></div>
     <div className="np-row">
       <label className="field-label">Length<span className="np-seconds"><input type="number" min={1} max={600} step={1} value={seconds} onChange={e => setSeconds(Math.max(1, Math.min(600, Number(e.target.value) || 1)))} /> s</span></label>
-      <label className="field-label">Frame rate<select value={fps} onChange={e => setFps(Number(e.target.value))}><option value={60}>60 fps (smooth motion)</option><option value={30}>30 fps</option></select></label>
+      <label className="field-label">Frame rate<StudioSelect size="normal" aria-label="Frame rate" value={fps} onChange={v => setFps(Number(v))}><option value={60}>60 fps (smooth motion)</option><option value={30}>30 fps</option></StudioSelect></label>
     </div>
     <div className="field-label">Canvas<div className="np-colors">
       {canvases.map(c => <button key={c.color} className={color === c.color ? 'active' : ''} onClick={() => setColor(c.color)} title={c.label}><span style={{ background: c.color }} />{c.label}</button>)}

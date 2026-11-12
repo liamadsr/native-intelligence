@@ -12,15 +12,15 @@ import { MotionInspector } from './MotionInspector';
 import { PresenterPanel } from './PresenterPanel';
 import type { usePresenterRecorder } from './usePresenterRecorder';
 import type { TranscriptionController } from './useTranscription';
-import { Slider, NumberField, Toggle, IconButton } from './controls';
+import { Slider, NumberField, Toggle, IconButton, StudioSelect } from './controls';
 
 export type InspectorTab = 'background' | 'cursor' | 'zoom' | 'clip' | 'motion' | 'presenter' | 'audio' | 'transcript' | 'agent';
 const gradients = [ ['#161626','#595596'], ['#292a48','#898cc3'], ['#126996','#3faab1'], ['#481d85','#152448'], ['#f7a477','#593d87'], ['#326870','#d1aa76'], ['#063d36','#99b94b'], ['#e04b68','#e9af71'], ['#6951ba','#efa2ba'], ['#16171b','#484958'] ];
 type Transition={kind:'dissolve'|'dip-black'|'dip-white';seconds:number};
 /** Cut, dissolve or a dip through black / white, with its length. */
 function TransitionField({label,value,allowDissolve,onChange}:{label:string;value?:Transition;allowDissolve:boolean;onChange:(t?:Transition)=>void}){
-  return <div className="inspector-section"><label className="field"><span className="field-label">{label}</span><select aria-label={label} value={value?.kind??'cut'} onChange={e=>{const kind=e.target.value;onChange(kind==='cut'?undefined:{kind:kind as Transition['kind'],seconds:value?.seconds??(allowDissolve?0.6:1)});}}>
-    <option value="cut">{allowDissolve?'Cut':'None'}</option>{allowDissolve?<option value="dissolve">Dissolve</option>:null}<option value="dip-black">{allowDissolve?'Dip to black':'Black'}</option><option value="dip-white">{allowDissolve?'Dip to white':'White'}</option></select></label>
+  return <div className="inspector-section"><label className="field"><span className="field-label">{label}</span><StudioSelect aria-label={label} value={value?.kind??'cut'} onChange={v => {const kind=v;onChange(kind==='cut'?undefined:{kind:kind as Transition['kind'],seconds:value?.seconds??(allowDissolve?0.6:1)});}}>
+    <option value="cut">{allowDissolve?'Cut':'None'}</option>{allowDissolve?<option value="dissolve">Dissolve</option>:null}<option value="dip-black">{allowDissolve?'Dip to black':'Black'}</option><option value="dip-white">{allowDissolve?'Dip to white':'White'}</option></StudioSelect></label>
     {value?<Slider label={`${label} length`} value={value.seconds} min={0.05} max={3} step={0.05} unit=" s" resetValue={allowDissolve?0.6:1} onChange={seconds=>onChange({...value,seconds})}/>:null}</div>;
 }
 

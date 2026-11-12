@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './icons';
+import { StudioSelect } from './controls';
 import { request } from './client';
 import { StyleGuide } from './StyleGuide';
 
@@ -22,9 +23,9 @@ function SourceBar({ kit, onChanged, busy, setBusy, fail }: { kit: string; onCha
   const s = info.source, q = filter.trim().toLowerCase(), list = info.branches.filter(b => !q || b.name.toLowerCase().includes(q)).slice(0, 60);
   if (s.ref !== 'working' && !list.some(b => b.name === s.ref)) list.unshift({ name: s.ref, date: s.committedAt ?? '', subject: s.subject ?? '' });
   return <div className="cg-source">
-    <label>Shows <select value={s.ref} disabled={busy} onChange={e => void choose(e.target.value)} title="Which code the components come from">
+    <label>Shows <StudioSelect aria-label="Which code the components come from" value={s.ref} disabled={busy} onChange={v => void choose(v)} title="Which code the components come from">
       {list.map(b => <option key={b.name} value={b.name}>{b.name}{b.date ? ` · ${ago(b.date)}` : ''}</option>)}
-      <option value="working">Your folder, as it is on disk</option></select></label>
+      <option value="working">Your folder, as it is on disk</option></StudioSelect></label>
     {info.branches.length > 20 ? <input className="cg-source-filter" placeholder={`Filter ${info.branches.length} branches`} value={filter} onChange={e => setFilter(e.target.value)} /> : null}
     <span className="cg-source-commit">{s.sha ? <code>{s.sha.slice(0, 7)}</code> : null} {s.subject ? <span title={s.subject}>{s.subject}</span> : null}{s.committedAt ? <small> · {ago(s.committedAt)}{s.author ? ` · ${s.author}` : ''}</small> : null}</span>
     {s.mode === 'branch' ? <button onClick={() => void check()} disabled={busy} title={s.fetchedAt ? `Last checked ${ago(s.fetchedAt)}` : 'Check GitHub'}><Icon name="refresh" size={14}/>Check for updates</button> : null}
@@ -139,7 +140,7 @@ export function ComponentsGallery({ projectId, at, disabled, notify, beforeEdit,
               <iframe key={`${pick.id}-${replay}-${stage.key}`} title={pick.name} src={`${stageUrl}#${job}`} style={{ width: frameW, height: frameH, transform: `scale(${scale})`, transformOrigin: '0 0' }} /></div>
             <div className="cg-meta"><b>{pick.name}</b><small>{pick.file}</small>{pick.help ? <p>{pick.help}</p> : null}</div>
             <div className="cg-controls"><button onClick={() => setReplay(n => n + 1)}><Icon name="replay" size={14}/>Replay</button>
-              <select value={theme} onChange={e => setTheme(e.target.value as 'light' | 'dark')}><option value="light">Light</option><option value="dark">Dark</option></select>
+              <StudioSelect aria-label="Preview theme" value={theme} onChange={v => setTheme(v as 'light' | 'dark')}><option value="light">Light</option><option value="dark">Dark</option></StudioSelect>
               <label>Length <input type="number" min={1} max={60} value={seconds} onChange={e => setSeconds(Math.max(1, Math.min(60, Number(e.target.value) || 6)))} /> s</label>
               <button className="primary" disabled={!!busy || disabled} onClick={() => void add()}>Add to the video at {at.toFixed(1)} s</button></div>
             <label className="cg-props"><span>Script <small>what happens on screen: a cursor types, clicks, hovers, scrolls, drags. It plays here and in the video.</small> <button type="button" onClick={() => setScript(EXAMPLE_SCRIPT)}>Example</button></span><textarea rows={4} spellCheck={false} placeholder={EXAMPLE_SCRIPT} value={script} onChange={e => setScript(e.target.value)} onBlur={() => setReplay(n => n + 1)} /></label>

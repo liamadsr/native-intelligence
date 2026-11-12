@@ -4,6 +4,7 @@
 // folder's brand.json, fonts.json, rules.json or sound.json can also be pasted. Errors show where they happened.
 import React, { useCallback, useEffect, useState } from 'react'
 import { Icon } from './icons'
+import { StudioSelect } from './controls'
 import { assetHref } from '@/lib/studio/engine/asset-base'
 import type { CampaignSummary } from '@/lib/studio/engine/api'
 import type { EditorAsset } from '@/lib/studio/engine/contracts'
@@ -168,10 +169,10 @@ export function BrandKitPanel({ campaign, onChanged, notify }: { campaign: Campa
               <span className="brand-kit-label">Logo color on each ground</span>
               {tokens.map((g) => (
                 <label key={g}><code>{g}</code>
-                  <select value={k.logoOn[g] ?? ''} onChange={(e) => { const { [g]: _old, ...rest } = k.logoOn; edit({ logoOn: e.target.value ? { ...rest, [g]: e.target.value } : rest }) }}>
+                  <StudioSelect size="normal" aria-label={`Logo color on ${g}`} value={k.logoOn[g] ?? ''} onChange={v => { const { [g]: _old, ...rest } = k.logoOn; edit({ logoOn: v ? { ...rest, [g]: v } : rest }) }}>
                     <option value="">no logo</option>
                     {tokens.filter((t) => t !== g).map((t) => <option key={t} value={t}>{t}</option>)}
-                  </select>
+                  </StudioSelect>
                 </label>
               ))}
             </div>

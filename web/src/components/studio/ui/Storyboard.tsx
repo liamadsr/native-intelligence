@@ -2,6 +2,7 @@ import { studioPortal, studioKeys, studioCan } from '../studio-env';
 import { assetHref } from '@/lib/studio/engine/asset-base';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from './icons';
+import { StudioSelect } from './controls';
 import { createPortal } from 'react-dom';
 import type { EditorProject } from '@/lib/studio/engine/contracts';
 import { applyOps } from '@/lib/studio/engine/ops';
@@ -142,20 +143,20 @@ export function InputsPanel({ project, change, close, anchor, below }: { project
     <header><strong>Inputs</strong><small>Which device feeds each track. Kept with this video.</small><button onClick={() => load(!apps)} aria-label={apps ? 'Look for cameras and windows again' : 'Look for cameras and microphones again'} title={apps ? 'Look for cameras and windows again' : 'Look for cameras and microphones again (the browser may ask to use them, so their names show)'}><Icon name="refresh"/></button><button onClick={close} aria-label="Close" title="Close"><Icon name="close"/></button></header>
     {error ? <p className="inputs-error">{error}</p> : null}
     {cameraSlots.map(slot => { const value = inputs.cameras?.[slot]?.deviceId ?? '';
-      return <label key={slot} className="field-label">Camera {slot}{slot === 'A' ? ' · main' : ''}<select value={value} onChange={e => { const device = cams.find(c => c.id === e.target.value);
+      return <label key={slot} className="field-label">Camera {slot}{slot === 'A' ? ' · main' : ''}<StudioSelect aria-label={`Camera ${slot}`} value={value} onChange={v => { const device = cams.find(c => c.id === v);
         const cameras = { ...(inputs.cameras ?? {}) }; if (device) cameras[slot] = { deviceId: device.id, name: device.name }; else delete cameras[slot]; set({ cameras }); }}>
         <option value="">{slot === 'A' ? 'No camera' : 'Not used'}</option>
         {value && !cams.some(c => c.id === value) ? <option value={value}>{inputs.cameras?.[slot]?.name} (not connected)</option> : null}
-        {cams.map(c => <option key={c.id} value={c.id} disabled={Object.entries(inputs.cameras ?? {}).some(([s, d]) => s !== slot && d?.deviceId === c.id)}>{c.name}</option>)}</select></label>; })}
-    {apps ? <label className="field-label">Screen<select value={inputs.screen?.bundleId ?? ''} onChange={e => { const app = apps.find(a => a.bundleId === e.target.value); set({ screen: app ? { bundleId: app.bundleId, appName: app.appName } : undefined }); }}>
+        {cams.map(c => <option key={c.id} value={c.id} disabled={Object.entries(inputs.cameras ?? {}).some(([s, d]) => s !== slot && d?.deviceId === c.id)}>{c.name}</option>)}</StudioSelect></label>; })}
+    {apps ? <label className="field-label">Screen<StudioSelect aria-label="Screen" value={inputs.screen?.bundleId ?? ''} onChange={v => { const app = apps.find(a => a.bundleId === v); set({ screen: app ? { bundleId: app.bundleId, appName: app.appName } : undefined }); }}>
       <option value="">Choose the app to record…</option>
       {inputs.screen?.bundleId && !apps.some(a => a.bundleId === inputs.screen!.bundleId) ? <option value={inputs.screen.bundleId}>{inputs.screen.appName} (not open)</option> : null}
-      {apps.map(a => <option key={a.bundleId} value={a.bundleId}>{a.appName}</option>)}</select></label> : null}
-    <label className="field-label">Microphone<select value={inputs.microphone?.deviceId ?? ''} onChange={e => { const mic = lists?.microphones.find(m => m.id === e.target.value); set({ microphone: mic ? { deviceId: mic.id, name: mic.name } : undefined }); }}>
+      {apps.map(a => <option key={a.bundleId} value={a.bundleId}>{a.appName}</option>)}</StudioSelect></label> : null}
+    <label className="field-label">Microphone<StudioSelect aria-label="Microphone" value={inputs.microphone?.deviceId ?? ''} onChange={v => { const mic = lists?.microphones.find(m => m.id === v); set({ microphone: mic ? { deviceId: mic.id, name: mic.name } : undefined }); }}>
       <option value="">System default</option>
       {inputs.microphone?.deviceId && lists && !lists.microphones.some(m => m.id === inputs.microphone!.deviceId) ? <option value={inputs.microphone.deviceId}>{inputs.microphone.name} (not connected)</option> : null}
-      {(lists?.microphones ?? []).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
-    <label className="field-label">Countdown<select value={String(inputs.countdown ?? 3)} onChange={e => set({ countdown: Number(e.target.value) })}>{[0, 3, 5].map(n => <option key={n} value={n}>{n ? `${n} s` : 'None'}</option>)}</select></label>
+      {(lists?.microphones ?? []).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</StudioSelect></label>
+    <label className="field-label">Countdown<StudioSelect aria-label="Countdown" value={String(inputs.countdown ?? 3)} onChange={v => set({ countdown: Number(v) })}>{[0, 3, 5].map(n => <option key={n} value={n}>{n ? `${n} s` : 'None'}</option>)}</StudioSelect></label>
     {!lists && !error ? <small>Looking for cameras and windows…</small> : null}
   </div>;
 }
@@ -227,7 +228,7 @@ export function CastAddForm({ project, change }: { project: EditorProject; chang
     setDraft({ name: '', kind: 'person', assetIds: [], consent: false }); };
   return <>
     <div className="cast-new"><input placeholder="Name (e.g. Maya)" aria-label="Cast name" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} />
-      <select value={draft.kind} aria-label="Kind" onChange={e => setDraft({ ...draft, kind: e.target.value as typeof draft.kind })}><option value="person">Person</option><option value="prop">Prop</option><option value="location">Location</option></select></div>
+      <StudioSelect size="normal" value={draft.kind} aria-label="Kind" onChange={v => setDraft({ ...draft, kind: v as typeof draft.kind })}><option value="person">Person</option><option value="prop">Prop</option><option value="location">Location</option></StudioSelect></div>
     {images.length ? <div className="cast-pick">{images.slice(-24).map(a => { const on = draft.assetIds.includes(a.id);
       return <button key={a.id} className={on ? 'on' : ''} aria-pressed={on} title={a.name} onClick={() => setDraft({ ...draft, assetIds: on ? draft.assetIds.filter(x => x !== a.id) : [...draft.assetIds, a.id] })}><img src={assetHref(a.file)} alt={a.name} /></button>; })}</div>
       : <small>Add photos to this video first (Add media), then pick them here.</small>}
@@ -260,9 +261,9 @@ export function BeatInspector({ project, beatId, change, close, record, recordin
     <section><h3>Beat</h3>
       <div className="layer-row"><label className="field-label">Label<input value={beat.label ?? ''} maxLength={80} onChange={e => patch({ label: e.target.value || undefined })} /></label>
         <label className="field-label">Length<input type="number" min={0.2} step={0.1} value={+(beat.durationFrames / fps).toFixed(2)} disabled={beat.status !== 'planned'} title={beat.status !== 'planned' ? 'Recorded beats take their length from the take' : undefined} onChange={e => lengthen(Number(e.target.value) || 0.2)} /></label></div>
-      <label className="field-label">Picture<select value={beat.source} onChange={e => patch({ source: e.target.value as BeatSource })}>
+      <label className="field-label">Picture<StudioSelect aria-label="Picture" value={beat.source} onChange={v => patch({ source: v as BeatSource })}>
         {cameraSlots.map(slot => <option key={slot} value={`camera:${slot}`}>Camera {slot}{board(project).inputs?.cameras?.[slot] ? ` · ${board(project).inputs!.cameras![slot]!.name}` : ''}</option>)}
-        {pictureSources.map(s => <option key={s} value={s}>{sourceLabel(s)}</option>)}</select></label>
+        {pictureSources.map(s => <option key={s} value={s}>{sourceLabel(s)}</option>)}</StudioSelect></label>
       <label className="field-label">Shot<textarea rows={2} value={beat.shot ?? ''} placeholder="What's on screen (cards fly in, product UI docks right…)" onChange={e => patch({ shot: e.target.value || undefined })} /></label>
       <label className="check-row"><input type="checkbox" checked={!!beat.locked} onChange={e => patch({ locked: e.target.checked || undefined })} /> Locked: the agent won't change it</label>
       </section>

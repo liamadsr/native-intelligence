@@ -8,6 +8,7 @@ import { beatEnd, isPlaceholder, needsRecording, reorderBeats, sortBeats, Storyb
 import { scheduleProject, sourceTimeSeconds } from '@/lib/studio/engine/timeline';
 import { request } from './client';
 import { Icon } from './icons';
+import { studioSelectOpen } from './controls';
 import { addBeatAt, CastAddForm, FormatButtons, InputsPanel, nextSelection, removeCast, sourceLabel, sourceTone, startFromScript, statusLabel, useBrowserChoosesScreen, VersionsPanel } from './Storyboard';
 
 // The film's pages for the prompt-first workflow: Overview (the film at a glance and its script outline), Storyboard
@@ -187,7 +188,7 @@ export function StoryboardPage({ project, change, frame, duration, disabled, ope
   const [panel, setPanel] = useState<'inputs' | 'versions' | 'formats' | null>(null), [hover, setHover] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ id: string; over?: string; after?: boolean } | null>(null);
   const anchors = { inputs: useRef<HTMLButtonElement>(null), versions: useRef<HTMLButtonElement>(null), formats: useRef<HTMLButtonElement>(null) };
-  useEffect(() => { if (!panel) return; const close = (e: PointerEvent) => { const t = e.target as HTMLElement; if (!t.closest('.inputs-panel,.sb-formats,.sb-toolbar')) setPanel(null); };
+  useEffect(() => { if (!panel) return; const close = (e: PointerEvent) => { const t = e.target as HTMLElement; if (!studioSelectOpen() && !t.closest('.inputs-panel,.sb-formats,.sb-toolbar')) setPanel(null); };
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setPanel(null); };
     document.addEventListener('pointerdown', close); studioKeys.addEventListener('keydown', esc); return () => { document.removeEventListener('pointerdown', close); studioKeys.removeEventListener('keydown', esc); }; }, [panel]);
   const chosen = beats.filter(b => selected.includes(b.id)), recordable = chosen.some(needsRecording), missingInputs = !board?.inputs?.screen && !browserChoosesScreen;

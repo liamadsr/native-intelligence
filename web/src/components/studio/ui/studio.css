@@ -1103,10 +1103,10 @@
 .ni-studio .ov-stats>div{padding:12px 14px;border-radius:var(--st-r);background:var(--st-raised);border:1px solid var(--st-line);min-width:0}
 .ni-studio .ov-stats b{display:block;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
 .ni-studio .ov-stats span{display:block;margin-top:2px;font-size:12px;color:var(--st-text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ni-studio .ov-ready{display:flex;flex-direction:column;max-height:290px;padding:14px 14px 8px 16px;border-radius:var(--st-r-xl);background:var(--st-raised);border:1px solid var(--st-line)}
+.ni-studio .ov-ready{display:flex;flex-direction:column;max-height:480px;padding:14px 14px 0 16px;border-radius:var(--st-r-xl);background:var(--st-raised);border:1px solid var(--st-line)}
 .ni-studio .ov-ready-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px}.ni-studio .ov-ready-head strong{font-size:14px}
 .ni-studio .ov-ready-head span{font-size:12px}.ni-studio .ov-ready-head span.warn{color:var(--st-warn-text)}.ni-studio .ov-ready-head span.ok{color:var(--st-ok-text)}
-.ni-studio .ov-ready ul{list-style:none;margin:10px 0 0;padding:0 4px 0 0;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.ni-studio .ov-ready ul{list-style:none;margin:10px 0 0;min-height:0;padding:0 6px 14px 0;overflow-y:auto;overscroll-behavior:contain;-webkit-mask-image:linear-gradient(to top,transparent,black 14px);mask-image:linear-gradient(to top,transparent,black 14px);display:flex;flex-direction:column;gap:2px}
 .ni-studio .ov-ready li{display:grid;grid-template-columns:8px minmax(0,1fr) auto;gap:10px;align-items:start;padding:6px 0;border-top:1px solid var(--st-line);font-size:12px;line-height:16px;color:var(--st-text-2)}
 .ni-studio .ov-ready li:first-child{border-top:0}
 .ni-studio .ov-ready li i{width:7px;height:7px;margin-top:5px;border-radius:50%;background:var(--st-ok)}.ni-studio .ov-ready li.todo i{background:var(--st-warn)}
@@ -1637,3 +1637,33 @@
 .ni-studio .timeline-toolbar select{min-height:28px;padding-top:0;padding-bottom:0;font-size:12px}
 .ni-studio .th-btn{width:24px;height:24px;font-size:11px;font-weight:600;border-radius:var(--st-r-sm)}
 .ni-studio .track-group-toggle{height:24px}
+/* The timeline's toolbar is one flex row of all its controls: the edit buttons, then (pushed to the right) the tracks and
+   zoom group. They wrap as one row, so a narrower card moves the group under the buttons rather than giving it a row of
+   its own: one row at 1440, two at 1100. */
+.ni-studio .timeline-toolbar{align-items:center;column-gap:2px}
+.ni-studio .timeline-toolbar>.button-row{display:contents}
+.ni-studio .timeline-toolbar>.button-row>*{flex:none}
+.ni-studio .timeline-toolbar>.timeline-word-tools{margin-left:auto;padding-left:8px;gap:8px}
+
+/* Selects: the app's (src/components/ui/select, through StudioSelect in ./controls.tsx). The trigger is a button, so the
+   Studio's button look is undone here and it draws as the fields above do: the --input edge, no fill, the muted chevron,
+   focus darkening the edge. Compact is the editor's 28px field with 12px text; normal is the app's 36px field on
+   page-like screens and in dialogs. The open list is the app's own, drawn on the page above the Studio. */
+.ni-studio button.st-select{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%;min-width:0;height:28px;min-height:0;margin:0;padding:0 6px 0 8px;font-size:12px;font-weight:400;line-height:16px;letter-spacing:0;text-align:left;text-transform:none;color:var(--st-text);background:transparent;border:1px solid var(--st-input);border-radius:var(--st-r-md);box-shadow:none;opacity:1}
+.ni-studio button.st-select.st-select-normal{height:36px;padding:0 10px 0 12px;font-size:14px;line-height:20px}
+.ni-studio button.st-select:hover:not(:disabled){background:transparent}
+.ni-studio button.st-select:is(:focus-visible,[data-state=open]){border-color:var(--st-input-focus);box-shadow:none;outline:none}
+.ni-studio button.st-select:disabled{opacity:.5;cursor:not-allowed}
+.ni-studio button.st-select>span{display:block;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ni-studio button.st-select>svg{width:14px;height:14px;opacity:.5}
+.ni-studio button.st-select.st-select-normal>svg{width:16px;height:16px}
+/* Where the system's select sat at its own width, or shared a row with a value. */
+.ni-studio :is(.timeline-density,.cast-new,.cg-controls,.brand-kit-logo-on) button.st-select{width:auto;max-width:280px}
+.ni-studio .cg-source button.st-select{max-width:280px}
+.ni-studio :is(.th-row,.motion-add-row) button.st-select{flex:1 1 0;width:auto}
+.ni-studio .th-row button.st-select{height:24px}
+.ni-studio .shot-control .field-label button.st-select{margin-top:4px}
+.ni-studio .layer-anim>button.st-select+button.st-select{grid-column:2}
+/* On page-like screens every select is the page's field, as the system's was there. */
+.ni-studio :is(.modal,.chooser,.film-page,.project-page,.cast-side,.manual-record-panel) button.st-select{height:36px;padding:0 10px 0 12px;font-size:14px;line-height:20px}
+.ni-studio :is(.modal,.chooser,.film-page,.project-page,.cast-side,.manual-record-panel) button.st-select>svg{width:16px;height:16px}
