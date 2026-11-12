@@ -1,0 +1,117 @@
+---
+title: SEO
+description: Audit your site, research keywords, track rankings, and see how search engines and AI assistants see your business.
+---
+
+The SEO area brings the work of being found into your workspace: what is wrong with your site, what people search for, where you rank, who links to you, and whether AI assistants mention you. Every page is also something you can ask the assistant for in chat.
+
+Open it from **SEO** in the left rail. It has eight pages:
+
+| Page | What it answers |
+|------|-----------------|
+| **Site audit** | What is broken or missing on my site? |
+| **Keywords** | What do people search for, and how hard is it to rank? |
+| **Rankings** | Where do I rank for the searches I care about, and is it moving? |
+| **Search performance** | What does Google say about my clicks, impressions and positions? |
+| **Competitors** | What does another site rank for, and who competes with it? |
+| **Backlinks** | Who links to a site, and from which pages? |
+| **AI visibility** | Do ChatGPT, Gemini and other assistants mention my brand? |
+| **Local** | Where does my business show up on the map, street by street? |
+
+## Site audit
+
+An audit reads your site the way a search engine does and lists what it finds, most serious first. Each finding says what it means and how to fix it.
+
+- Starts from your workspace's own website unless you name another one
+- Reads up to 100 pages by default, and up to 1,000 if you ask
+- Checks for broken links and pages, missing or duplicate titles and descriptions, heading and canonical problems, thin content, redirect chains, pages search engines are told not to index, and pages nothing links to
+- Runs in the background for a few minutes; you can stop it and keep what it found
+
+Audits are free. They cost nothing but our own requests to a public site.
+
+### Our crawler
+
+The audit reads pages politely: it follows `robots.txt` and asks for about one page a second. It identifies itself as:
+
+```
+Mozilla/5.0 (compatible; NativeIntelligenceBot/1.0; site audit)
+```
+
+To keep it out of part of your site, or all of it, add a rule for it in `robots.txt`:
+
+```
+User-agent: NativeIntelligenceBot
+Disallow: /private/
+```
+
+If your site blocks unknown crawlers at a firewall, allow `NativeIntelligenceBot` there, or the audit will report that the site did not answer.
+
+A few limits keep the audit polite and safe:
+
+- It reads a site on its standard web address only (no custom port numbers) and never leaves the site it was asked to audit.
+- If your `robots.txt` can't be read because the server returns an error, the audit stops rather than guess what it may read. A missing `robots.txt` means everything may be read.
+- A workspace can start up to 20 audits a day, one at a time.
+
+## Search performance
+
+Connect **Google Search Console** and **Google Analytics** in **Settings → Connectors**, then choose which site and property the workspace reads. The page shows clicks, impressions, click rate and average position over time, by search and by page, and lists the searches where a small improvement would win the most traffic.
+
+Reading your own Google data is free.
+
+## Search data that costs money
+
+Keyword numbers, competitor rankings, backlinks, rank checks, AI visibility checks and local map scans come from a search-data provider that charges for each lookup. Two things keep that under control:
+
+- **A monthly budget.** Each workspace has a monthly budget for these lookups. Every page that spends shows what has been used and when it resets. When the budget is spent, lookups stop until the next month.
+- **You see the cost first.** A lookup that costs more than a few cents, and anything that repeats on a schedule, shows its estimate and waits for your yes.
+
+Results are kept, so looking at the same thing again does not spend again until you press **Refresh**.
+
+These lookups need a paid plan, and they are for workspace members: a guest can read what the workspace already has, but can't start new lookups or schedules.
+
+## Keywords
+
+Type a topic to get related searches with their monthly volume, difficulty, intent and cost per click. Filter and sort the list, open a keyword to see who ranks for it today, then save the ones you want to keep. Saved keywords can be tagged.
+
+## Rankings
+
+A tracker follows a list of keywords for one site in one country and language.
+
+- Check by hand, or on a schedule (daily, weekly or monthly)
+- Mobile, desktop or both
+- See each keyword's position, its change since the last check and the page that ranks
+- Pin the keywords that matter most to the top
+- History shows how many keywords sit in the top 3 and top 10 over time, and one keyword's position check by check
+
+A new tracker checks nothing on its own until you choose a schedule.
+
+## Competitors
+
+Enter any domain to see its estimated organic traffic, the keywords it ranks for and the sites that compete with it for the same searches.
+
+## Backlinks
+
+Enter a domain or a page to see how many sites link to it, the links themselves, the linking domains and the pages that attract the most links. Sort by newest or strongest, filter by the linking address, and hide links that are lost or look like spam.
+
+## AI visibility
+
+A tracker asks AI assistants the questions your customers ask and records whether your brand, or a competitor's, is mentioned and which sources the answer cites.
+
+- Assistants: ChatGPT, Gemini, Google AI Overviews, Claude and Perplexity
+- Run a check by hand, or weekly or monthly
+- Read every answer in full, with your mentions highlighted
+
+## Local
+
+Add your business as it appears on Google Maps to see its profile and reviews, then run a grid scan: the same search from a grid of points around your address, showing where you rank at each one and which competitors appear instead.
+
+## Ask the assistant
+
+Everything above is available in chat. For example:
+
+- "Audit our website and tell me the three things to fix first"
+- "Find keywords for handmade ceramic mugs in the UK"
+- "How did our search clicks change this month?"
+- "Who ranks above us for stoneware dinner set?"
+
+The assistant follows the same rules as the pages: it tells you what a paid lookup will cost before it spends, and it never starts paid lookups in scheduled or background runs on its own.

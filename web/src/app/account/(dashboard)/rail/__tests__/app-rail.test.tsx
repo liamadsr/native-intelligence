@@ -97,7 +97,8 @@ describe('the app rail', () => {
       // Projects and Initiatives nest under Tasks (Liam, 11-11): no icons of their own.
       'drive', 'mail', 'team-chat', 'actions', 'calendar',
       // Contacts: Companies, Contacts, Deals · Outreach: Prospecting, Sequences, Campaigns (Liam, 11-11).
-      'contacts', 'outreach',
+      // SEO: Site audit (one icon; its sections join it as they land).
+      'contacts', 'outreach', 'seo',
       // Agents: Agents & skills, Flows, Evals (Liam, 11-11). Teams nests under
       // My Actions (Liam, 11-11: "Teams should be under action items"): no icon.
       'agents',
@@ -310,7 +311,7 @@ const savedBar = () => {
 }
 const DEFAULT_BAR = [
   'drive', 'mail', 'team-chat', 'actions', 'calendar',
-  'contacts', 'outreach',
+  'contacts', 'outreach', 'seo',
   'agents',
 ]
 
@@ -368,7 +369,7 @@ describe('the person’s bar', () => {
     })
     expect(bar().slice(0, 5)).toEqual(['drive', 'mail', 'team-chat', 'calendar', 'actions'])
     expect(document.activeElement).toBe(item('calendar'))
-    expect(container.querySelector('[data-app-rail-announce]')?.textContent).toBe('Calendar moved to 4 of 8')
+    expect(container.querySelector('[data-app-rail-announce]')?.textContent).toBe('Calendar moved to 4 of 9')
     expect(lines()).toBe(0)
     await act(async () => {
       item('calendar')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true, cancelable: true }))
@@ -434,7 +435,7 @@ describe('the person’s bar', () => {
 
   it('shows just Home and Customize bar when every page is hidden', async () => {
     // A group hidden: every one of its members (Calendar and Contacts are members of their own groups).
-    localStorage.setItem(RAIL_PAGES_STORAGE_KEY, JSON.stringify({ order: [], hidden: [...DEFAULT_BAR, 'availability', 'captures', 'companies', 'deals', 'flows', 'evals'] }))
+    localStorage.setItem(RAIL_PAGES_STORAGE_KEY, JSON.stringify({ order: [], hidden: [...DEFAULT_BAR, 'availability', 'captures', 'companies', 'deals', 'flows', 'evals', 'seo-audit', 'seo-keywords', 'seo-rankings', 'seo-search', 'seo-competitors', 'seo-backlinks', 'seo-ai-visibility', 'seo-local'] }))
     await render()
     const nav = container.querySelector<HTMLElement>('[data-app-rail-nav]')!
     expect(Array.from(nav.querySelectorAll<HTMLElement>('[data-app-rail-item]')).map((el) => el.dataset.appRailItem)).toEqual(['home', 'customize'])
@@ -643,7 +644,8 @@ describe('page groups (Liam, 11-11: "Contacts: Companies, Contacts, Deals · Out
     }))
     await render()
     // Drive where Docs was; Agents where Flows was, its first member saved.
-    expect(bar()).toEqual(['contacts', 'calendar', 'drive', 'mail', 'team-chat', 'actions', 'agents'])
+    // SEO came after this bar was saved: a page it doesn't mention, shown, after the rest.
+    expect(bar()).toEqual(['contacts', 'calendar', 'drive', 'mail', 'team-chat', 'actions', 'agents', 'seo'])
     // The next save keeps rail ids in the order, and a hidden group as its members.
     await rightClick('mail')
     await pick('unpin')
@@ -698,5 +700,32 @@ describe('Drive and Agents (Liam, 11-11: "Drive: Docs, Knowledge, and a new page
       releases.push(holdFrontCard({ id: 'flows-1', spec: ownSpec('flows'), close: () => {} }))
     })
     expect(lit()).toEqual(['agents'])
+  })
+})
+
+describe('SEO (one page per section: Site audit today)', () => {
+  const ownSpec = (slug: string) => CARD_PAGES.find((p) => p.slug === slug)!.spec(new Date()) as CardSpec
+
+  it('one icon after Outreach, SearchCheck, that opens Site audit and lights for its card; off with the feature', async () => {
+    await render()
+    expect(item('seo-audit')).toBeNull()
+    expect(item('seo')!.getAttribute('aria-label')).toBe('SEO')
+    expect(item('seo')!.querySelector('svg.lucide-search-check')).not.toBeNull()
+    expect(bar().indexOf('seo')).toBe(bar().indexOf('outreach') + 1)
+    const asked: OpenCardRequest[] = []
+    const listen = (e: Event) => asked.push((e as CustomEvent<OpenCardRequest>).detail)
+    window.addEventListener(OPEN_CARD_EVENT, listen)
+    await act(async () => item('seo')!.click())
+    window.removeEventListener(OPEN_CARD_EVENT, listen)
+    expect(asked.map((r) => r.spec)).toEqual([ownSpec('seo-audit')])
+    await act(async () => {
+      releases.push(holdFrontCard({ id: 'seo-1', spec: ownSpec('seo-audit'), close: () => {} }))
+    })
+    expect(lit()).toEqual(['seo'])
+    act(() => root.unmount())
+    root = createRoot(container)
+    edition.current = withEffectiveSurface(getEdition('full'), { seo: 'off' })
+    await render()
+    expect(item('seo')).toBeNull()
   })
 })

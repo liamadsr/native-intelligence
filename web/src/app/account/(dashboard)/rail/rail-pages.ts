@@ -92,6 +92,8 @@ export const RAIL_PAGES: readonly RailPageDef[] = [
   // Contacts: Companies, Contacts, Deals · Outreach: Prospecting, Sequences, Campaigns (Liam, 11-11).
   groupDef('contacts', 'customers'),
   groupDef('outreach', 'customers'),
+  // SEO: Site audit, and its next sections as they land (./page-groups.ts).
+  groupDef('seo', 'customers'),
   // Sparkles: the agents (Liam's reference has Home for the chat and sparkles
   // for the AI). Agents: Agents & skills, Flows, Evals (Liam, 11-11).
   groupDef('agents', 'agents'),

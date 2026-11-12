@@ -74,6 +74,7 @@ export type EditionView =
   | 'campaigns'
   | 'prospecting'
   | 'evals'
+  | 'seo'
 
 /** The five editions. `full` is the default and reproduces today's behavior. */
 export type EditionId = 'full' | 'sales' | 'notes' | 'brain' | 'service'
@@ -142,6 +143,7 @@ export type FeatureKey =
   | 'prospecting'
   | 'evals'
   | 'browser'
+  | 'seo'
 
 export interface FeatureDefinition {
   id: FeatureKey
@@ -485,6 +487,38 @@ export const FEATURES: Record<FeatureKey, FeatureDefinition> = {
     // feature so a workspace with it off never lists it.
     systemRecipeIds: ['eec790ec-399f-416d-8189-c883859ba8c3'],
   },
+
+  seo: {
+    id: 'seo',
+    label: 'SEO',
+    description: 'Audit your website, find keywords, track rankings and see how you show up in search, on Google Maps and in AI answers.',
+    // One view for every SEO page (the audit today; keywords, rankings and the
+    // rest as they land), the way Files shares `docs` and Availability shares
+    // `calendar`: the area turns on and off as one.
+    views: ['seo'],
+    extraAllowedViews: [],
+    toolCategories: ['seo'],
+    autoCreateEntities: [],
+    // Works on any public website, so it needs nothing else. The workspace's
+    // own site is only its default (src/lib/seo/site.ts).
+    requires: [],
+    // The ten SEO skills (migration 598: the overview, site audit, keywords,
+    // competitors, rank tracking, search performance, backlinks, AI
+    // visibility, local, the report). They sit in the Marketing area, whose
+    // pack lists them; gated here so a workspace with SEO off never does.
+    systemRecipeIds: [
+      '72285100-16f5-43ac-abc8-599ad8e96e8a',
+      '7185990b-056e-42f8-be10-4fb998268646',
+      '48632b85-370a-41d2-90ec-134c70720de6',
+      'f39d4983-a50f-4b8c-9628-e36e61bc389e',
+      '6972ef33-62e5-4f75-bc0d-ca12fe66059b',
+      '7effa973-4c67-4c25-8d1d-8458d15750a3',
+      '59791459-238d-40ad-8bc4-39d87497c76f',
+      '87aac0de-9c0c-40b7-a5c2-d8ed2099f38b',
+      '52d2241c-1a7d-482f-8645-d4e706472a9a',
+      '0b2fb881-429c-485d-9119-1a6ad914680c',
+    ],
+  },
 }
 
 export const FEATURE_KEYS = [
@@ -501,6 +535,7 @@ export const FEATURE_KEYS = [
   'prospecting',
   'evals',
   'browser',
+  'seo',
 ] as const satisfies readonly FeatureKey[]
 
 /**

@@ -142,13 +142,14 @@ describe('actions', () => {
   it('unfiltered, Discover groups its cards under category headings; a category chip narrows to one', () => {
     render()
     const headings = [...container.querySelectorAll('[data-discover-category] h3')].map((el) => el.textContent)
-    expect(headings).toEqual(['Projects & docs', 'Calendar & email', 'Sales & marketing', 'Engineering & data'])
+    // Content & sites: Google Search Console and Google Analytics (the SEO area's two read-only sources).
+    expect(headings).toEqual(['Projects & docs', 'Calendar & email', 'Sales & marketing', 'Engineering & data', 'Content & sites'])
     act(() => button('Sales & marketing')!.click())
     expect(container.querySelector('[data-discover-category]')).toBeNull()
     expect(keysIn('discover-connectors')).toEqual(['google:contacts', 'hubspot:crm', 'brevo:contacts'])
     expect(button('Sales & marketing')!.getAttribute('aria-pressed')).toBe('true')
     act(() => button('All categories')!.click())
-    expect(container.querySelectorAll('[data-discover-category]').length).toBe(4)
+    expect(container.querySelectorAll('[data-discover-category]').length).toBe(5)
   })
 
   it('once every MCP server is connected the filter goes, and Discover shows the integrations again', () => {

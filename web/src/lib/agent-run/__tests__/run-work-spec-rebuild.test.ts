@@ -304,6 +304,15 @@ describe('computeWorkRunCeiling', () => {
         'delete_document',
         // GEN-1165: discarding Native Intelligence's drafts is a delete, attended-only.
         'discard_email_draft',
+        // The SEO area: removing a tracker, a grid, a tracked business or saved
+        // keywords is a delete, so a work run can't. (Its paid lookups and
+        // schedule changes stay in the ceiling and refuse an unattended turn
+        // themselves, src/lib/seo/access.ts.)
+        'delete_rank_tracker',
+        'delete_ai_visibility_tracker',
+        'delete_local_rank_grid',
+        'remove_tracked_business',
+        'remove_saved_keywords',
         // Roadmap C2: a payment link to a customer, an external write, only on the owner's own card.
         'send_payment_link',
         // Roadmap F3: the owner's answer to a quote (its text, or the booked time), external writes on their own card.

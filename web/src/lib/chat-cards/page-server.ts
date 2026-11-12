@@ -131,7 +131,11 @@ async function candidates(scope: PageScope, type: PagePlaceType, resolved: Resol
     case 'agent_link_exchange':
     case 'team_chat_channel':
     case 'team_chat_message':
-      // Only ever opened by the person (inside a suite, on a bot's page, from a guest's or a link's card, team chat), never named by the agent.
+    case 'seo_audit':
+    case 'seo_rank_tracker':
+    case 'seo_ai_tracker':
+    case 'seo_local_business':
+      // Only ever opened by the person (inside a suite, on a bot's page, from a guest's or a link's card, team chat, a site audit), never named by the agent.
       return []
   }
 }
@@ -220,7 +224,11 @@ async function checkPlace(scope: PageScope, kind: PageKind, place: PagePlace): P
     case 'agent_link_exchange':
     case 'team_chat_channel':
     case 'team_chat_message':
-      // A bot's page, a work item's panel, a guest's or a link's conversation, team chat: read_card answers them before reading any place.
+    case 'seo_audit':
+    case 'seo_rank_tracker':
+    case 'seo_ai_tracker':
+    case 'seo_local_business':
+      // A bot's page, a work item's panel, a guest's or a link's conversation, team chat, a site audit: read_card answers them before reading any place.
       return null
   }
 }
@@ -533,6 +541,30 @@ export async function readPageCard(
       note: 'This card is the Files page: every file attached to a capture, action or project the person can see. Read one record\'s files with list_attachments (capture_id, action_id or project_id), and a file\'s text with get_attachment_content.',
     }
   }
+  // SEO's Site audit: the audits are read with the audit tools, on the
+  // workspace's own fences, not from here. On one audit, its id says which.
+  if (kind === 'seo_audit') {
+    return {
+      success: true,
+      card: entry.n,
+      title: entry.title,
+      ...(entry.at?.type === 'seo_audit' ? { audit_id: entry.at.id } : {}),
+      ...(entry.at?.type === 'seo_audit' && entry.tab ? { tab: entry.tab } : {}),
+      note: 'This card is the Site audit page: the workspace\'s SEO site audits. List them with list_site_audits, read one (its progress, then its findings by type) with get_site_audit, the pages a finding is on with get_site_audit_issues, and the crawled pages with get_site_audit_pages.',
+    }
+  }
+  // The other SEO pages: each is read with its own section's tools, never from here.
+  const seoNote = SEO_PAGE_NOTES[kind]
+  if (seoNote) {
+    return {
+      success: true,
+      card: entry.n,
+      title: entry.title,
+      ...(entry.at ? { open: { type: entry.at.type, id: entry.at.id } } : {}),
+      ...(entry.tab ? { tab: entry.tab } : {}),
+      note: seoNote,
+    }
+  }
   if (entry.entity && !entry.cur) {
     return { success: false, code: 'CARD_TOO_BIG', error: `card ${entry.n} is too big to read back. Show it again, then read that card` }
   }
@@ -564,3 +596,13 @@ export async function readPageCard(
   }
 }
 
+/** What read_card says for each SEO page beyond Site audit: which tools read it. */
+const SEO_PAGE_NOTES: Partial<Record<PageKind, string>> = {
+  seo_keywords: 'This card is the Keywords page: the workspace\'s keyword research and saved keywords. Research keywords with find_keywords, read their numbers with get_keyword_metrics, the saved ones with list_saved_keywords, and a live results page with get_serp_results. A card of this page holds nothing to read back.',
+  seo_rankings: 'This card is the Rankings page: the workspace\'s rank trackers. List them with list_rank_trackers, read one\'s latest positions and movers with get_rank_tracker, and a keyword\'s history with get_rank_history. A card of this page holds nothing to read back.',
+  seo_search: 'This card is the Search performance page: what Google Search Console and Google Analytics report for the workspace\'s site. Read it with get_search_console_performance, get_search_opportunities and the get_google_analytics_ tools. A card of this page holds nothing to read back.',
+  seo_competitors: 'This card is the Competitors page: a site\'s search footprint and its competitors. Read a site with get_domain_overview and get_ranked_keywords, and who competes for its searches with find_serp_competitors. A card of this page holds nothing to read back.',
+  seo_backlinks: 'This card is the Backlinks page: who links to a site. Read the summary with get_backlinks_overview and the links, linking sites and most-linked pages with get_backlinks_profile. A card of this page holds nothing to read back.',
+  seo_ai_visibility: 'This card is the AI visibility page: how AI assistants answer about the business. List the trackers with list_ai_visibility_trackers, read one with get_ai_visibility_tracker, its latest check with get_ai_visibility_results and the sites the assistants cite with get_ai_visibility_sources. A card of this page holds nothing to read back.',
+  seo_local: 'This card is the Local page: the business\'s presence on Google Maps. List the tracked businesses with list_tracked_businesses, read a profile with get_google_business_profile, its reviews with get_google_business_reviews and its map rankings with get_local_rank_grid. A card of this page holds nothing to read back.',
+}

@@ -26,7 +26,7 @@
  */
 
 /** A page group's id: its rail id (the same as a member's slug where the group is named after it). */
-export type PageGroupId = 'contacts' | 'outreach' | 'calendar' | 'drive' | 'agents'
+export type PageGroupId = 'contacts' | 'outreach' | 'seo' | 'calendar' | 'drive' | 'agents'
 
 export interface PageGroupDef {
   id: PageGroupId
@@ -44,6 +44,10 @@ export interface PageGroupDef {
 export const PAGE_GROUPS: Readonly<Record<PageGroupId, PageGroupDef>> = {
   contacts: { id: 'contacts', label: 'Contacts', labelFrom: 'contacts', members: ['companies', 'contacts', 'deals'], defaultMember: 'contacts' },
   outreach: { id: 'outreach', label: 'Outreach', members: ['prospecting', 'sequences', 'campaigns'], defaultMember: 'prospecting' },
+  // SEO: one page per section (the `seo` feature's `seo` view). Site audit
+  // today; each new section is one more slug here. With one member the rail
+  // shows just the icon, and the sub-nav appears once there are two.
+  seo: { id: 'seo', label: 'SEO', members: ['seo-audit', 'seo-keywords', 'seo-rankings', 'seo-search', 'seo-competitors', 'seo-backlinks', 'seo-ai-visibility', 'seo-local'], defaultMember: 'seo-audit' },
   // Liam, 11-11: "Calendar: Calendar, Availability (… its own page under Calendar), Captures".
   calendar: { id: 'calendar', label: 'Calendar', labelFrom: 'calendar', members: ['calendar', 'availability', 'captures'], defaultMember: 'calendar' },
   // Liam, 11-11: "Drive: Docs, Knowledge, and a new page that shows all

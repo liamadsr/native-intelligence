@@ -65,6 +65,10 @@ import { hubspotPushContact } from '@/lib/inngest/hubspot-push-contact'
 import { hubspotPushSweep } from '@/lib/inngest/hubspot-push-sweep'
 import { contactImportApply, contactImportBrevo, contactImportGoogle, contactImportStripe, contactImportUndo } from '@/lib/inngest/contact-import-functions'
 import { websiteChangeMerged, websitePrOpened } from '@/lib/inngest/website-functions'
+import { seoAiVisibilityRun } from '@/lib/inngest/seo-ai-visibility-functions'
+import { seoAuditRun } from '@/lib/inngest/seo-audit-functions'
+import { seoLocalScanRun } from '@/lib/inngest/seo-local-functions'
+import { seoRankCheckRun } from '@/lib/inngest/seo-rank-functions'
 import { sequenceStepSend } from '@/lib/inngest/sequence-functions'
 import { campaignRollingPass, reviewRequestOnJob } from '@/lib/inngest/outreach-functions'
 import { dailyJobsPass, dailyJobsSend } from '@/lib/inngest/daily-jobs'
@@ -173,6 +177,14 @@ export const { GET, POST, PUT } = serve({
     contactImportApply,
     websitePrOpened,
     websiteChangeMerged,
+    // The SEO area's site audit: a polite crawl of one website, a chunk per step.
+    seoAuditRun,
+    // The SEO area's AI visibility checks: paid posts and live answers made once, queued answers read for free on a backoff, late ones filled in.
+    seoAiVisibilityRun,
+    // Local SEO: one scan of a rank grid (Google Maps positions around a business), a paid post per keyword then free reads.
+    seoLocalScanRun,
+    // The SEO area's rank checks: paid searches posted once, read back for free on a sleep-and-collect cadence.
+    seoRankCheckRun,
     contactImportUndo,
     contactImportGoogle,
     contactImportBrevo,

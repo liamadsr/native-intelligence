@@ -45,7 +45,7 @@ type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B 
 const ALL_VIEWS = [
   'todo', 'captures', 'docs', 'initiatives', 'projects', 'flows', 'teams',
   'team-actions', 'calendar', 'contacts', 'companies', 'mail', 'knowledge', 'agents',
-  'sequences', 'campaigns', 'prospecting', 'evals',
+  'sequences', 'campaigns', 'prospecting', 'evals', 'seo',
 ] as const satisfies readonly EditionView[]
 const _allViews: Equals<(typeof ALL_VIEWS)[number], EditionView> = true
 void _allViews

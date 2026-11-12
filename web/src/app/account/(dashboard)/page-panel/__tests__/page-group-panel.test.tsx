@@ -238,6 +238,36 @@ describe('Drive and Agents’ sub-navs (Liam, 11-11: "Drive: Docs, Knowledge, an
   })
 })
 
+describe('SEO’s sub-nav (one page per section)', () => {
+  it('is registered', () => {
+    expect(PAGE_PANELS.seo).toBeTypeOf('function')
+  })
+
+  it('Site audit in front: SEO selected, its sections listed in order with Site audit lit', async () => {
+    act(() => root.render(<Row />))
+    await flush()
+    await hold('seo-1', ownSpec('seo-audit'))
+    expect(selectedPlace()).toBe('seo')
+    expect(shownGroupPanel()).toBe('seo')
+    expect(rows('seo')).toEqual(['seo-audit', 'seo-keywords', 'seo-rankings', 'seo-search', 'seo-competitors', 'seo-backlinks', 'seo-ai-visibility', 'seo-local'])
+    expect(lit('seo')).toEqual(['seo-audit'])
+    // Each row wears its page's own words and icon.
+    expect(row('seo', 'seo-audit').textContent).toBe('Site audit')
+    expect(row('seo', 'seo-keywords').textContent).toBe('Keywords')
+    expect(row('seo', 'seo-ai-visibility').textContent).toBe('AI visibility')
+    expect(row('seo', 'seo-rankings').querySelector('svg.lucide-trending-up')).not.toBeNull()
+    expect(container.querySelector('[data-page-panel-toggle]')!.getAttribute('aria-label')).toBe('SEO')
+  })
+
+  it('another section in front lights its own row', async () => {
+    act(() => root.render(<Row />))
+    await flush()
+    await hold('seo-2', ownSpec('seo-rankings'))
+    expect(selectedPlace()).toBe('seo')
+    expect(lit('seo')).toEqual(['seo-rankings'])
+  })
+})
+
 describe('changing pages: the next panel arrives as the search palette does, nothing slides (Liam, 11-11)', () => {
   let animated: Array<{ el: Element; frames: Keyframe[]; options: KeyframeAnimationOptions }>
   const realAnimate = (HTMLElement.prototype as { animate?: unknown }).animate

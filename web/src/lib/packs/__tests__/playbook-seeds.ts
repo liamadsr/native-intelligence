@@ -36,6 +36,8 @@ export const SKILL_REWRITE_MIGRATIONS = [
   // P8: the content and marketing areas' skills (new rows, their own areas).
   '384_content_area_skills.sql',
   '385_marketing_skills.sql',
+  // The SEO area: ten skills in the marketing area (new rows).
+  '598_seo_skills.sql',
 ] as const
 
 /**
