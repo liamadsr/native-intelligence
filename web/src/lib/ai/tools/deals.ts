@@ -30,6 +30,8 @@ import {
   setRecordCustomFields,
 } from '@/lib/crm/custom-fields'
 import { customFieldWriteRefusal } from '@/lib/crm/custom-field-access'
+import { fieldReferenceCheck } from '@/lib/crm/custom-field-references'
+import { RELATION_TARGET_KINDS } from '@/lib/crm/custom-field-types'
 import { formatDealValue } from '@/lib/crm/deal-format'
 import { resolveCreateWorkspace, resolveEntityWorkspace, workspaceEcho, type CreateWorkspacePolicy } from './_shared'
 
@@ -285,34 +287,43 @@ export function createDealTools(
     }),
 
     define_custom_field: tool({
-      description: `Add a custom field to every one of a kind of record in the workspace (${customFieldKindList()}; a task is entity_type "action"): text, number, date or select (with options). A field of that name already there is returned as it is.`,
+      description: `Add a custom field to every one of a kind of record in the workspace (${customFieldKindList()}; a task is entity_type "action"). A field of that name already there is returned as it is.`,
       inputSchema: z.object({
         entity_type: z.enum(CUSTOM_FIELD_ENTITIES),
         label: z.string().min(1).max(60).describe('e.g. "Contract length (months)".'),
         field_type: z.enum(CUSTOM_FIELD_TYPES),
-        options: z.array(z.string()).max(50).optional().describe('select only: the choices.'),
+        options: z.array(z.string()).max(50).optional().describe('select and multi_select: the choices.'),
+        currency: z.string().length(3).optional().describe('currency: the default ISO code (USD when absent).'),
+        links_to: z.enum(RELATION_TARGET_KINDS).optional().describe("relation: the kind it links to (data_row: a table's rows, with table_id)."),
+        table_id: z.string().optional(),
+        multiple: z.boolean().optional().describe('relation: links several records.'),
         workspace_id: workspaceIdField,
       }),
-      execute: async ({ workspace_id, ...input }) => {
+      execute: async ({ workspace_id, currency, links_to, table_id, multiple, ...input }) => {
         const ws = await createIn(workspace_id)
         if (!ws.ok) return ws.error
-        const result = await defineCustomField(supabase, ws.workspaceId, input)
+        const config =
+          input.field_type === 'currency' ? { currency } : input.field_type === 'relation' ? { target: { kind: links_to!, table_id }, multiple } : undefined
+        const result = await defineCustomField(supabase, ws.workspaceId, { ...input, config })
         if (!result.ok) return { success: false, error: result.error }
         return {
           ...workspaceEcho(ws.workspaceId, ws.workspaceName),
           success: true,
-          field: { key: result.field.key, label: result.field.label, field_type: result.field.field_type, options: result.field.options },
+          field: { key: result.field.key, label: result.field.label, field_type: result.field.field_type, options: result.field.options, config: result.field.config },
           message: result.existed ? `"${result.field.label}" already exists.` : `Added "${result.field.label}" to ${CUSTOM_FIELD_KIND_NOUNS[input.entity_type].many}.`,
         }
       },
     }),
 
     set_custom_fields: tool({
-      description: `Set custom field values on one record (${customFieldKindList('one', 'or')}; a task is entity_type "action"), by field name; null clears one. Lists the fields when a name is unknown. (A deal's are undoable like any deal change.)`,
+      description: `Set custom field values on one record (${customFieldKindList('one', 'or')}; a task is entity_type "action"), by field name; null clears one. A multi_select or relation takes a list (relation: record ids), a checkbox true or false, a person a member id, a currency an amount or {amount, currency}. Lists the fields when a name is unknown. (A deal's are undoable like any deal change.)`,
       inputSchema: z.object({
         entity_type: z.enum(CUSTOM_FIELD_ENTITIES),
         id: z.string().describe('The record id.'),
-        values: z.record(z.string(), z.union([z.string(), z.number(), z.null()])),
+        values: z.record(
+          z.string(),
+          z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.object({ amount: z.number(), currency: z.string().optional() }), z.null()]),
+        ),
         because: becauseSchema,
       }),
       execute: async ({ entity_type, id, values, because }) => {
@@ -330,7 +341,9 @@ export function createDealTools(
         // through a grant is not theirs to change).
         const refusal = await customFieldWriteRefusal(supabase, userId, resolved.workspaceId, entity_type, id, { grants: editGrants, readGrants: !omitGrants })
         if (refusal) return { success: false, error: refusal.error }
-        const result = await setRecordCustomFields(supabase, resolved.workspaceId, entity_type, id, values)
+        const result = await setRecordCustomFields(supabase, resolved.workspaceId, entity_type, id, values, {
+          checkReferences: fieldReferenceCheck(supabase, { workspaceId: resolved.workspaceId, userId, grants: !omitGrants }),
+        })
         if (!result.ok) {
           const defs = await listCustomFieldDefinitions(supabase, resolved.workspaceId, entity_type).catch(() => [])
           return { success: false, error: result.error, fields: defs.map((d) => ({ label: d.label, field_type: d.field_type, options: d.options })) }

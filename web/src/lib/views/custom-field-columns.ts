@@ -24,6 +24,7 @@
  */
 import { isCustomFieldEntityType, type CustomFieldEntityType } from '@/lib/knowledge/entity-registry'
 import type { CustomFieldDefinition, CustomFieldType } from '@/lib/crm/custom-fields'
+import { formatFieldValue } from '@/lib/crm/custom-field-types'
 import type { DisplayPropertyDefinition, FilterFieldDefinition, FilterFieldType, FilterValue, GroupedResults, ViewEntityType } from './types'
 
 export const CUSTOM_FIELD_PATH_PREFIX = 'custom_fields.'
@@ -71,12 +72,20 @@ export function viewTakesCustomFields(entityType: ViewEntityType): entityType is
   return isCustomFieldEntityType(entityType)
 }
 
-/** How each field type filters: the built-in filter type with the same editors and operators. */
-const FILTER_TYPE: Record<CustomFieldType, FilterFieldType> = {
+/**
+ * How each field type filters: the built-in filter type with the same editors
+ * and operators. The types whose values are lists, objects, booleans or ids
+ * (multi-select, checkbox, person, currency, relation) filter once the views
+ * engine reads them (Tables, phase 4); until then they are columns only.
+ */
+const FILTER_TYPE: Partial<Record<CustomFieldType, FilterFieldType>> = {
   text: 'text',
   number: 'number',
   date: 'date',
   select: 'enum',
+  url: 'text',
+  email: 'text',
+  phone: 'text',
 }
 
 /**
@@ -115,16 +124,13 @@ export function withCustomFilterFields(
  * date as "Mar 4" (with the year when it is not this one), the rest as typed.
  * Empty for a value that isn't there, so the cell renders nothing.
  */
-export function formatCustomFieldValue(fieldType: CustomFieldType | undefined, value: unknown, now: Date = new Date()): string {
-  if (value === null || value === undefined || value === '') return ''
-  if (typeof value === 'object') return ''
-  if (fieldType === 'number' && typeof value === 'number') return value.toLocaleString('en-US', { maximumFractionDigits: 2 })
-  if (fieldType === 'date' && typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const [y, m, d] = value.split('-').map(Number)
-    const day = new Date(y, m - 1, d)
-    return day.toLocaleDateString('en-US', y === now.getFullYear() ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' })
-  }
-  return String(value)
+export function formatCustomFieldValue(
+  fieldType: CustomFieldType | undefined,
+  value: unknown,
+  now: Date = new Date(),
+  labels?: Record<string, string>,
+): string {
+  return formatFieldValue(fieldType, value, { now, labels })
 }
 
 /**

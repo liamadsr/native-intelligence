@@ -52,6 +52,7 @@ export function fakeRecordsDb(
       order: () => chain,
       eq: (k: string, v: unknown) => (filters.push((r) => r[k] === v), chain),
       in: (k: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[k])), chain),
+      is: (k: string, v: unknown) => (filters.push((r) => (r[k] ?? null) === v), chain),
       update: (p: Row) => ((patch = p), chain),
       insert: (row: Row) => ((inserted = row), chain),
       maybeSingle: async () => {

@@ -272,7 +272,7 @@ function TableDetail({ tableId, onBack }: { tableId: string; onBack: () => void 
                         <TableCell className="font-medium">{r.title || <span className="text-muted-foreground/60">Untitled</span>}</TableCell>
                         {columns.map((c) => (
                           <TableCell key={c.id} className="text-sm text-muted-foreground">
-                            {cellText(r.custom_fields?.[c.key])}
+                            {cellText(r.custom_fields?.[c.key], c.field_type)}
                           </TableCell>
                         ))}
                       </TableRow>

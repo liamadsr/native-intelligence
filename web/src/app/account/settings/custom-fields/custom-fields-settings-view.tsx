@@ -18,17 +18,11 @@ import { cn } from '@/lib/utils'
 import {
   CUSTOM_FIELD_ENTITIES,
   CUSTOM_FIELD_KIND_NOUNS,
+  CUSTOM_FIELD_TYPE_LABELS as TYPE_LABEL,
+  hasOptions,
   type CustomFieldDefinition,
   type CustomFieldEntity,
-  type CustomFieldType,
 } from '@/lib/crm/custom-fields'
-
-const TYPE_LABEL: Record<CustomFieldType, string> = {
-  text: 'Text',
-  number: 'Number',
-  date: 'Date',
-  select: 'Select',
-}
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
@@ -121,7 +115,7 @@ export function CustomFieldsSettingsView({ initialKind = 'action' }: { initialKi
                 {fields.map((f) => (
                   <li key={f.id} className="flex items-center gap-3 px-4 py-2.5" data-custom-field={f.key}>
                     <span className="min-w-0 flex-1 truncate text-sm">{f.label}</span>
-                    {f.field_type === 'select' && f.options.length > 0 && (
+                    {hasOptions(f.field_type) && f.options.length > 0 && (
                       <span className="hidden max-w-[50%] truncate text-xs text-muted-foreground sm:block" title={f.options.join(', ')}>
                         {f.options.join(', ')}
                       </span>

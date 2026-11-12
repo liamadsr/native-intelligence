@@ -336,7 +336,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'update_deal', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Update Deal', description: 'Change a deal\'s value, stage, close date, owner, company, contacts or custom fields; undoable' },
       { name: 'move_deal', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Move Deal', description: 'Move a deal to another pipeline stage (won, lost, proposal…); undoable' },
       { name: 'undo_deal_change', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Undo Deal Change', description: 'Take back a change to a deal; fields changed again since keep their newer value' },
-      { name: 'define_custom_field', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Define Custom Field', description: `Add a custom field (text, number, date, select) to every one of a kind: ${customFieldKindList('many', 'or')}` },
+      { name: 'define_custom_field', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Define Custom Field', description: `Add a custom field (text, number, date, select, multi-select, checkbox, URL, email, phone, person, currency or relation) to every one of a kind: ${customFieldKindList('many', 'or')}` },
       { name: 'set_custom_fields', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Set Custom Fields', description: `Set custom field values on a ${customFieldKindList('one', 'or')}` },
       { name: 'create_contact', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Create Contact', description: 'Add a new contact' },
       // Bringing existing customers in (roadmap track G, src/lib/ai/tools/contact-import.ts). Not attended only:

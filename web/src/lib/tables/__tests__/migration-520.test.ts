@@ -21,6 +21,15 @@ import { DATA_CHANGE_SOURCES, DATA_OP_KINDS, DATA_TABLE_VISIBILITIES, TABLE_LIMI
 
 const all = migrationsInOrder()
 const sql = all.find((m) => m.file.startsWith('520_'))!.sql
+/** The newest definition by file name: the one a database replayed in order ends up with. */
+const newest = (name: string) => {
+  const head = new RegExp(`create or replace function public\\.${name}\\([\\s\\S]*?\\n\\$\\$;`, 'i')
+  for (const m of [...all].reverse()) {
+    const hit = head.exec(m.sql)
+    if (hit) return hit[0]
+  }
+  return ''
+}
 const fn = (name: string) => new RegExp(`create or replace function public\\.${name}\\([\\s\\S]*?\\n\\$\\$;`, 'i').exec(sql)?.[0] ?? ''
 
 describe('migration 520: tables, rows and one write path', () => {
@@ -50,14 +59,17 @@ describe('migration 520: tables, rows and one write path', () => {
     expect(sql).toContain(`jsonb_array_length(op -> 'rows') > ${TABLE_LIMITS.rowsPerOp}`)
     expect(sql).toContain("add constraint data_row_custom_fields_object check (jsonb_typeof(custom_fields) = 'object');")
     expect(sql).toContain("add constraint data_change_changes_array check (jsonb_typeof(changes) = 'array');")
-    // The SQL value check knows every custom field type.
-    const ok = fn('_data_value_ok')
+    // The SQL value check knows every custom field type (523 took it over:
+    // 520's _data_value_ok now asks _field_value_ok).
+    const ok = newest('_field_value_ok')
     for (const t of CUSTOM_FIELD_TYPES) expect(ok, t).toContain(`when '${t}' then`)
+    expect(newest('_data_value_ok')).toContain('public._field_value_ok(p_type, p_options')
   })
 
   it('applies every op the app sends, and refuses any other', () => {
+    // The newest _data_apply (525 restated it with change_column_type) applies them all.
+    for (const kind of DATA_OP_KINDS) expect(newest('_data_apply'), kind).toMatch(new RegExp(`'${kind}'`))
     const apply = fn('_data_apply')
-    for (const kind of DATA_OP_KINDS) expect(apply, kind).toMatch(new RegExp(`'${kind}'`))
     expect(apply).toContain("raise exception 'unknown op %'")
     // Rows go in one statement, so the activity trigger runs once per batch.
     expect(apply).toMatch(/insert into public\.data_row \(id, workspace_id, table_id, title, custom_fields, position, created_by_user_id\)\s+select/)

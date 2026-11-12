@@ -2,7 +2,7 @@
  * Tables: a change and a value in words, for the page's history and its cells.
  * Client-safe and pure.
  */
-import type { CustomFieldValue } from '@/lib/crm/custom-fields'
+import { CUSTOM_FIELD_TYPE_LABELS, formatFieldValue, type CustomFieldType, type CustomFieldValue } from '@/lib/crm/custom-field-types'
 import type { DataChange, DataChangeEntry, DataColumn } from './types'
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
@@ -24,7 +24,10 @@ function entryWords(e: DataChangeEntry, label: (key: string) => string): string 
     case 'create_column':
       return `added column ${label(e.key)}`
     case 'update_column':
-      return e.fields?.label ? `renamed column “${e.fields.label.from}” to “${e.fields.label.to}”` : `changed column ${label(e.key)}'s options`
+      if (e.fields?.label) return `renamed column “${e.fields.label.from}” to “${e.fields.label.to}”`
+      return e.fields?.options ? `changed column ${label(e.key)}'s options` : `changed column ${label(e.key)}'s settings`
+    case 'change_column_type':
+      return `made column ${label(e.key)} ${e.fields?.field_type?.to ? CUSTOM_FIELD_TYPE_LABELS[e.fields.field_type.to] : 'another type'}`
     case 'delete_column':
       return `deleted column ${label(e.key)}`
     case 'restore_column':
@@ -75,8 +78,13 @@ export function canOfferUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'u
   return !(Array.isArray(change.changes) ? change.changes : []).some((e) => e?.op === 'create_table')
 }
 
-/** A cell's value as text: an empty cell is empty. */
-export function cellText(value: CustomFieldValue | undefined): string {
+/**
+ * A cell's value as text, read for its column's type (custom-field-types.ts
+ * formatFieldValue): an empty cell is empty, and so is a person or a linked
+ * record `labels` can't name.
+ */
+export function cellText(value: CustomFieldValue | undefined, fieldType?: CustomFieldType, labels?: Record<string, string>): string {
   if (value === null || value === undefined) return ''
-  return typeof value === 'number' ? value.toLocaleString() : String(value)
+  if (!fieldType) return typeof value === 'number' ? value.toLocaleString() : typeof value === 'object' ? '' : String(value)
+  return formatFieldValue(fieldType, value, { labels })
 }

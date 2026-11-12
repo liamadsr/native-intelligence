@@ -65,6 +65,8 @@ const RELATION_WORDS: Record<string, string> = {
   owns: 'Owns this',
   authored_by: 'Authored',
   committed_to: 'Committed to',
+  // A relation field's value (migration 524): the record links this in one of its fields.
+  field_link: 'Linked in a field',
 }
 
 /** The references to one record; null until the first answer (or when it failed). */

@@ -12,7 +12,7 @@
  *
  * Client-safe: plain types and constants only.
  */
-import type { CustomFieldType, CustomFieldValue } from '@/lib/crm/custom-fields'
+import type { CustomFieldConfig, CustomFieldType, CustomFieldValue } from '@/lib/crm/custom-fields'
 
 export type DataTableVisibility = 'workspace' | 'private'
 export const DATA_TABLE_VISIBILITIES = ['workspace', 'private'] as const
@@ -70,6 +70,8 @@ export interface DataColumn {
   label: string
   field_type: DataColumnType
   options: string[]
+  /** A currency's code, a relation's target, required_when (custom-field-types.ts). */
+  config: CustomFieldConfig
   position: number
   deleted_at: string | null
 }
@@ -106,8 +108,23 @@ export type DataOp =
   | { op: 'update_table'; name?: string; icon?: string | null; description?: string | null; visibility?: DataTableVisibility }
   | { op: 'archive_table' }
   | { op: 'restore_table' }
-  | { op: 'create_column'; key: string; label: string; field_type: DataColumnType; options?: string[] }
-  | { op: 'update_column'; key: string; label?: string; options?: string[] }
+  | { op: 'create_column'; key: string; label: string; field_type: DataColumnType; options?: string[]; config?: CustomFieldConfig }
+  /** config replaces the column's whole config (a relation keeps its target: change its type to relink it). */
+  | { op: 'update_column'; key: string; label?: string; options?: string[]; config?: CustomFieldConfig }
+  /**
+   * Another type: every row's value converts by the database's one cast rule
+   * (migration 523's _field_cast), or the batch is refused with how many don't
+   * fit. `restore` (an undo) gives each row's value back where it is still the
+   * one the change made.
+   */
+  | {
+      op: 'change_column_type'
+      key: string
+      field_type: DataColumnType
+      options?: string[]
+      config?: CustomFieldConfig
+      restore?: Record<string, FieldChange<CustomFieldValue>>
+    }
   | { op: 'delete_column'; key: string }
   | { op: 'restore_column'; key: string }
   | { op: 'reorder_columns'; keys: string[] }
@@ -128,6 +145,7 @@ export const DATA_OP_KINDS: readonly DataOpKind[] = [
   'delete_column',
   'restore_column',
   'reorder_columns',
+  'change_column_type',
   'insert_rows',
   'update_row',
   'archive_rows',
@@ -147,8 +165,17 @@ export type DataChangeEntry =
   | { op: 'update_table'; fields: Partial<Record<'name' | 'icon' | 'description' | 'visibility', FieldChange<string | null>>> }
   | { op: 'archive_table' }
   | { op: 'restore_table' }
-  | { op: 'create_column'; key: string; column_id: string; label: string; field_type: DataColumnType; options: string[] }
-  | { op: 'update_column'; key: string; fields: { label?: FieldChange<string>; options?: FieldChange<string[]> } }
+  | { op: 'create_column'; key: string; column_id: string; label: string; field_type: DataColumnType; options: string[]; config?: CustomFieldConfig }
+  | { op: 'update_column'; key: string; fields: { label?: FieldChange<string>; options?: FieldChange<string[]>; config?: FieldChange<CustomFieldConfig> } }
+  | {
+      op: 'change_column_type'
+      key: string
+      fields: { field_type: FieldChange<DataColumnType>; options: FieldChange<string[]>; config: FieldChange<CustomFieldConfig> }
+      /** Every row's value before and after, by row id (empty in the history's summary). */
+      values: Record<string, FieldChange<CustomFieldValue>>
+      /** The history's summary: how many values changed. */
+      value_count?: number
+    }
   | { op: 'delete_column'; key: string }
   | { op: 'restore_column'; key: string }
   | { op: 'reorder_columns'; from: string[]; to: string[] }

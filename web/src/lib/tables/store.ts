@@ -13,7 +13,8 @@
  * transaction (./ops.ts planUndo has the rule).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { isUuid, optionsAnUndoCouldDrop, planUndo, touchedBy, validateOps, type DataOpInput } from './ops'
+import type { CustomFieldConfig } from '@/lib/crm/custom-fields'
+import { isUuid, optionsAnUndoCouldDrop, planUndo, requiredWhenProblem, touchedBy, validateOps, type DataOpInput } from './ops'
 import {
   NEW_TABLE_ROWS,
   TABLE_COLUMN_ENTITY_TYPE,
@@ -31,7 +32,7 @@ import {
 } from './types'
 
 const TABLE_SELECT = 'id, workspace_id, name, icon, description, owner_member_id, visibility, version, position, archived_at, created_at, updated_at'
-const COLUMN_SELECT = 'id, table_id, key, label, field_type, options, position, deleted_at'
+const COLUMN_SELECT = 'id, table_id, key, label, field_type, options, config, position, deleted_at'
 const ROW_SELECT = 'id, table_id, title, custom_fields, position, archived_at, created_at, updated_at'
 const CHANGE_SELECT = 'id, table_id, version, actor_user_id, actor_member_id, source, reason, changes, undo_of, undone_at, created_at'
 
@@ -101,7 +102,7 @@ export async function listColumns(db: SupabaseClient, workspaceId: string, table
   if (!opts.deleted) q = q.is('deleted_at', null)
   const { data, error } = await q.order('position', { ascending: true }).order('created_at', { ascending: true })
   if (error) throw new Error(error.message)
-  return ((data ?? []) as DataColumn[]).map((c) => ({ ...c, options: c.options ?? [] }))
+  return ((data ?? []) as DataColumn[]).map((c) => ({ ...c, options: c.options ?? [], config: c.config ?? {} }))
 }
 
 /**
@@ -141,7 +142,13 @@ export async function listRows(
 }
 
 /** A table's write history, newest first. */
-export async function listChanges(db: SupabaseClient, workspaceId: string, tableId: string, limit = 50): Promise<DataChange[]> {
+export async function listChanges(
+  db: SupabaseClient,
+  workspaceId: string,
+  tableId: string,
+  limit = 50,
+  opts: { summary?: boolean } = {},
+): Promise<DataChange[]> {
   const { data, error } = await db
     .from('data_change')
     .select(CHANGE_SELECT)
@@ -150,7 +157,23 @@ export async function listChanges(db: SupabaseClient, workspaceId: string, table
     .order('created_at', { ascending: false })
     .limit(Math.min(Math.max(1, limit), 200))
   if (error) throw new Error(error.message)
-  return (data ?? []) as DataChange[]
+  const changes = (data ?? []) as DataChange[]
+  return opts.summary ? changes.map(summarizeChange) : changes
+}
+
+/**
+ * A change as the history shows it: a type change's every-row before and
+ * after (about 100 bytes a value, so a megabyte for 10,000 rows) becomes its
+ * count. The undo reads the whole change by its id.
+ */
+export function summarizeChange(change: DataChange): DataChange {
+  if (!Array.isArray(change.changes) || !change.changes.some((e) => e?.op === 'change_column_type')) return change
+  return {
+    ...change,
+    changes: change.changes.map((e) =>
+      e?.op === 'change_column_type' ? { ...e, values: {}, value_count: Object.keys(e.values ?? {}).length } : e,
+    ),
+  }
 }
 
 // ── Writes ──────────────────────────────────────────────────────────────────
@@ -161,7 +184,7 @@ export interface CreateTableInput {
   icon?: string | null
   description?: string | null
   /** Columns past the Name column (the title, every table has it). */
-  columns?: Array<{ label: string; field_type: DataColumnType; options?: string[] }>
+  columns?: Array<{ label: string; field_type: DataColumnType; options?: string[]; config?: CustomFieldConfig }>
   /** Blank rows to start with (default NEW_TABLE_ROWS). */
   blankRows?: number
 }
@@ -180,7 +203,7 @@ export async function createTable(
   if (visibility !== 'workspace' && visibility !== 'private') return { ok: false, reason: 'invalid', error: 'visibility is workspace or private' }
   const blank = Math.min(Math.max(0, Math.floor(input.blankRows ?? NEW_TABLE_ROWS)), 100)
 
-  const raw: DataOpInput[] = (input.columns ?? []).map((c) => ({ op: 'create_column', label: c.label, field_type: c.field_type, options: c.options }))
+  const raw: DataOpInput[] = (input.columns ?? []).map((c) => ({ op: 'create_column', label: c.label, field_type: c.field_type, options: c.options, config: c.config }))
   if (blank > 0) raw.push({ op: 'insert_rows', rows: Array.from({ length: blank }, () => ({})) })
   const checked = raw.length ? validateOps([], raw) : { ok: true as const, value: [] as DataOp[] }
   if (!checked.ok) return { ok: false, reason: 'invalid', error: checked.error }
@@ -218,7 +241,46 @@ export async function applyOps(
   const columns = await listColumns(db, workspaceId, tableId, { deleted: true })
   const checked = validateOps(columns, input.ops, { archived: !!table.archived_at })
   if (!checked.ok) return { ok: false, reason: 'invalid', error: checked.error }
+  const required = await requiredWhenOnRows(db, tableId, columns, checked.value)
+  if (required) return { ok: false, reason: 'invalid', error: required }
   return rpcApply(db, tableId, input.baseVersion, checked.value, actor, null)
+}
+
+/**
+ * Required when, for the rows a batch edits that it didn't make (validateOps
+ * checks the ones it makes): their values now, the batch's edits merged in,
+ * against the columns' rules. One read, and only when a column has a rule.
+ * The database checks the same (525), so a row someone changed in between
+ * is still caught.
+ */
+async function requiredWhenOnRows(db: SupabaseClient, tableId: string, columns: readonly DataColumn[], ops: readonly DataOp[]): Promise<string | null> {
+  if (!columns.some((c) => c.config?.required_when && !c.deleted_at)) return null
+  const made = new Set(ops.flatMap((o) => (o.op === 'insert_rows' ? o.rows.map((r) => r.id).filter((id): id is string => !!id) : [])))
+  const edits = new Map<string, { title?: string; values: Record<string, unknown>; changed: Set<string> }>()
+  for (const o of ops) {
+    if (o.op !== 'update_row' || made.has(o.row_id)) continue
+    const e = edits.get(o.row_id) ?? edits.set(o.row_id, { values: {}, changed: new Set() }).get(o.row_id)!
+    if (o.title !== undefined) e.title = o.title
+    for (const [k, v] of Object.entries(o.values ?? {})) {
+      e.values[k] = v
+      e.changed.add(k)
+    }
+  }
+  const ids = [...edits.keys()].filter((id) => edits.get(id)!.changed.size)
+  if (!ids.length) return null
+  const { data, error } = await db.from('data_row').select('id, title, custom_fields').eq('table_id', tableId).in('id', ids.slice(0, 1000))
+  if (error) return null
+  for (const r of (data ?? []) as Array<{ id: string; title: string | null; custom_fields: Record<string, unknown> | null }>) {
+    const e = edits.get(r.id)!
+    const values: Record<string, unknown> = { ...(r.custom_fields ?? {}) }
+    for (const [k, v] of Object.entries(e.values)) {
+      if (v === null) delete values[k]
+      else values[k] = v
+    }
+    const problem = requiredWhenProblem(columns, { title: e.title ?? r.title ?? '', values }, e.changed)
+    if (problem) return problem
+  }
+  return null
 }
 
 async function readTableRow(db: SupabaseClient, workspaceId: string, tableId: string): Promise<DataTable | null> {
@@ -305,17 +367,33 @@ export async function undoChange(
   }
   // The rows holding an option the undo could drop (520 refuses to drop one in use).
   const optionUses = new Map<string, Array<{ rowId: string; value: string }>>()
-  for (const [key, options] of optionsAnUndoCouldDrop(change)) {
+  for (const [key, { options, multi }] of optionsAnUndoCouldDrop(change, columns)) {
     if (!/^[a-z][a-z0-9_]{0,39}$/.test(key)) continue
     // One past the touched rows is enough: then at least one untouched row holds it.
-    const { data, error } = await db
-      .from('data_row')
-      .select(`id, value:custom_fields->>${key}`)
-      .eq('table_id', tableId)
-      .in(`custom_fields->>${key}`, options)
-      .limit(rows.size + 1)
-    if (error) throw new Error(error.message)
-    optionUses.set(key, ((data ?? []) as unknown as Array<{ id: string; value: string }>).map((r) => ({ rowId: String(r.id), value: String(r.value) })))
+    if (!multi) {
+      const { data, error } = await db
+        .from('data_row')
+        .select(`id, value:custom_fields->>${key}`)
+        .eq('table_id', tableId)
+        .in(`custom_fields->>${key}`, options)
+        .limit(rows.size + 1)
+      if (error) throw new Error(error.message)
+      optionUses.set(key, ((data ?? []) as unknown as Array<{ id: string; value: string }>).map((r) => ({ rowId: String(r.id), value: String(r.value) })))
+      continue
+    }
+    // A multi-select holds a list: each option is read by containment.
+    const uses: Array<{ rowId: string; value: string }> = []
+    for (const option of options.slice(0, 50)) {
+      const { data, error } = await db
+        .from('data_row')
+        .select('id')
+        .eq('table_id', tableId)
+        .contains('custom_fields', { [key]: [option] })
+        .limit(rows.size + 1)
+      if (error) throw new Error(error.message)
+      for (const r of (data ?? []) as Array<{ id: string }>) uses.push({ rowId: String(r.id), value: option })
+    }
+    optionUses.set(key, uses)
   }
   const memberId = await callerMemberId(db, workspaceId, actor)
   const plan = planUndo(change, {

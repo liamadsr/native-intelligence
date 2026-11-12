@@ -26,6 +26,7 @@ import {
 import { toIlikeSearchTerm } from './ilike-search-term'
 import { formatDealValue } from './deal-format'
 import { filterVisibleCompanies, filterVisibleContacts, isCompanyVisibleTo } from './contact-visibility'
+import { fieldReferenceCheck } from './custom-field-references'
 
 export type DealStageKind = 'open' | 'won' | 'lost'
 export type DealChangeSource = 'person' | 'agent' | 'email' | 'capture' | 'sms'
@@ -251,6 +252,8 @@ async function resolveInput(
   viewer: string | null,
   // false on a guest's or linked agent's turn: no grant (492) makes a company or contact theirs to put on a deal.
   grants: boolean = true,
+  // Who writes: a person or relation custom field's new ids are checked for them.
+  writer: string | null = viewer,
 ): Promise<Resolved> {
   const row: Record<string, unknown> = {}
 
@@ -347,6 +350,8 @@ async function resolveInput(
     const defs = await listCustomFieldDefinitions(db, workspaceId, 'deal')
     const resolved = resolveCustomValues(defs, input.custom_fields)
     if (!resolved.ok) return resolved
+    const problem = await fieldReferenceCheck(db, { workspaceId, userId: writer, grants })(defs, resolved.patch, current?.custom_fields ?? {})
+    if (problem) return { ok: false, error: problem }
     row.custom_fields = mergeCustomFields(current?.custom_fields ?? {}, resolved.patch)
   }
 
@@ -441,7 +446,7 @@ export async function createDeal(
   actor: DealActor,
   opts: WriteOptions = {},
 ): Promise<DealWriteResult> {
-  const resolved = await resolveInput(db, workspaceId, input, null, opts.viewer ?? null, opts.grants !== false)
+  const resolved = await resolveInput(db, workspaceId, input, null, opts.viewer ?? null, opts.grants !== false, opts.viewer ?? actor.userId)
   if (!resolved.ok) return resolved
   const row = resolved.row
   if (row.owner_id === undefined && actor.userId) {
@@ -476,7 +481,7 @@ export async function updateDeal(
 ): Promise<DealWriteResult> {
   const current = await getDeal(db, workspaceId, dealId)
   if (!current) return { ok: false, error: 'Deal not found' }
-  const resolved = await resolveInput(db, workspaceId, input, current, opts.viewer ?? null, opts.grants !== false)
+  const resolved = await resolveInput(db, workspaceId, input, current, opts.viewer ?? null, opts.grants !== false, opts.viewer ?? actor.userId)
   if (!resolved.ok) return resolved
   const changes = diffDeal(current, resolved.row)
   if (!Object.keys(changes).length) return { ok: true, deal: current, changes, eventId: null }

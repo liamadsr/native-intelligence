@@ -10,6 +10,7 @@ import {
   setRecordCustomFields,
 } from '@/lib/crm/custom-fields'
 import { customFieldWriteRefusal } from '@/lib/crm/custom-field-access'
+import { fieldReferenceCheck, fieldValueLabels } from '@/lib/crm/custom-field-references'
 import { isUuid, updateDeal } from '@/lib/crm/deals'
 
 const KIND_ERROR = `entity_type is one of: ${CUSTOM_FIELD_ENTITIES.join(', ')}`
@@ -20,6 +21,8 @@ const KIND_ERROR = `entity_type is one of: ${CUSTOM_FIELD_ENTITIES.join(', ')}`
  * record they can't see is not found. Any kind the registry marks
  * `customFields`. `editable` says whether the caller may change them (a record
  * shared to them for viewing only: no), asked only when there are fields.
+ * `labels` names the people and linked records the values hold (only those
+ * the caller can read); `members` are the people a person field can take.
  */
 export async function GET(request: NextRequest) {
   const auth = await requireWorkspace()
@@ -33,11 +36,24 @@ export async function GET(request: NextRequest) {
     supabase.from(customFieldTable(entity)).select('custom_fields').eq('id', id).eq('workspace_id', workspaceId).maybeSingle(),
   ])
   if (!row.data) return notFound('Not found')
-  const editable = defs.length === 0 || entity === 'deal' || (await customFieldWriteRefusal(supabase, user.id, workspaceId, entity, id)) === null
+  const values = (row.data as { custom_fields?: Record<string, unknown> }).custom_fields ?? {}
+  const people = defs.some((d) => d.field_type === 'person')
+  const [editable, labels, members] = await Promise.all([
+    defs.length === 0 || entity === 'deal' || customFieldWriteRefusal(supabase, user.id, workspaceId, entity, id).then((r) => r === null),
+    fieldValueLabels(supabase, workspaceId, defs, [values]),
+    people
+      ? Promise.resolve(supabase.from('member').select('id, display_name').eq('workspace_id', workspaceId).neq('role', 'guest').order('display_name')).then(
+          (res) => ((res.data ?? []) as Array<{ id: string; display_name: string | null }>).map((m) => ({ id: m.id, name: m.display_name?.trim() || 'Member' })),
+          () => [],
+        )
+      : [],
+  ])
   return NextResponse.json({
-    fields: describeCustomFields(defs, (row.data as { custom_fields?: unknown }).custom_fields),
+    fields: describeCustomFields(defs, values),
     definitions: defs,
     editable,
+    labels,
+    members,
   })
 }
 
@@ -65,7 +81,9 @@ export async function POST(request: NextRequest) {
   }
   const refusal = await customFieldWriteRefusal(supabase, user.id, workspaceId, body.entity_type, body.id)
   if (refusal) return refusal.reason === 'not_found' ? notFound(refusal.error) : forbidden(refusal.error)
-  const result = await setRecordCustomFields(supabase, workspaceId, body.entity_type, body.id, values as Record<string, unknown>)
+  const result = await setRecordCustomFields(supabase, workspaceId, body.entity_type, body.id, values as Record<string, unknown>, {
+    checkReferences: fieldReferenceCheck(supabase, { workspaceId, userId: user.id }),
+  })
   if (!result.ok) {
     if (result.reason === 'not_found') return notFound(result.error)
     if (result.reason === 'forbidden') return forbidden(result.error)

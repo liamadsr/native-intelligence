@@ -12,7 +12,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params
   if (!isUuid(id)) return notFound('Table not found')
   try {
-    const changes = await listChanges(supabase, workspaceId, id, Number(request.nextUrl.searchParams.get('limit')) || 50)
+    // A type change's every-row values stay on the server: the history shows their count.
+    const changes = await listChanges(supabase, workspaceId, id, Number(request.nextUrl.searchParams.get('limit')) || 50, { summary: true })
     return NextResponse.json({ changes })
   } catch (e) {
     return serverError(e instanceof Error ? e.message : 'Could not load the history')

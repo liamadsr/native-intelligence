@@ -15,11 +15,16 @@
  */
 import {
   CUSTOM_FIELD_TYPES,
+  cleanFieldConfig,
   cleanOptions,
   coerceCustomValue,
   customFieldKey,
+  hasOptions,
+  isCustomFieldType,
+  type CustomFieldConfig,
   type CustomFieldValue,
 } from '@/lib/crm/custom-fields'
+import { isEmptyValue, sameRelationTarget } from '@/lib/crm/custom-field-types'
 import {
   DATA_TABLE_VISIBILITIES,
   TABLE_LIMITS,
@@ -38,7 +43,7 @@ type Checked<T> = { ok: true; value: T } | { ok: false; error: string }
 const fail = (error: string): { ok: false; error: string } => ({ ok: false, error })
 
 /** The columns a batch sees: every one the table has, deleted ones too (their keys stay taken). */
-type ColumnState = Pick<DataColumn, 'key' | 'label' | 'field_type' | 'options' | 'deleted_at'>
+type ColumnState = Pick<DataColumn, 'key' | 'label' | 'field_type' | 'options' | 'deleted_at'> & { config?: CustomFieldConfig | null }
 
 /**
  * A key for a new column: its label's slug, made unique against every key
@@ -61,7 +66,7 @@ export function newColumnKey(label: string, taken: Iterable<string>): string {
 /** A create_column op as a writer may send it: the key is made here when it isn't given. */
 export type DataOpInput =
   | Exclude<DataOp, { op: 'create_column' }>
-  | { op: 'create_column'; key?: string; label: string; field_type: DataColumnType; options?: string[] }
+  | { op: 'create_column'; key?: string; label: string; field_type: DataColumnType; options?: string[]; config?: CustomFieldConfig }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
 const ids = (v: unknown): string[] | null => (Array.isArray(v) && v.every(isUuid) ? [...new Set(v as string[])] : null)
@@ -82,6 +87,50 @@ function checkValues(columns: Map<string, ColumnState>, raw: unknown): Checked<R
 }
 
 /**
+ * A column's config for its type (custom-field-types.ts cleanFieldConfig),
+ * with `required_when` checked against the table: a live select column other
+ * than this one, and one of its options.
+ */
+function checkConfig(columns: Map<string, ColumnState>, key: string, fieldType: DataColumnType, raw: unknown): Checked<CustomFieldConfig> {
+  const cleaned = cleanFieldConfig(fieldType, raw, { tableColumn: true })
+  if (!cleaned.ok) return fail(cleaned.error)
+  const rule = cleaned.config.required_when
+  if (rule) {
+    const on = columns.get(rule.key)
+    if (!on || on.deleted_at || on.field_type !== 'select' || rule.key === key) return fail('required_when names another select column of this table.')
+    const option = on.options.find((o) => o.toLowerCase() === rule.option.trim().toLowerCase())
+    if (!option) return fail(`${on.label} has no option "${rule.option}".`)
+    cleaned.config.required_when = { key: rule.key, option }
+  }
+  return { ok: true, value: cleaned.config }
+}
+
+/**
+ * Required when (phase 2): the first column a row leaves empty while the
+ * select column its rule names holds the rule's option, in words, or null.
+ * Only a write that put the row there, emptied the column or made the row is
+ * held to it (`changed`: the value keys the write touched, or 'all' for a new
+ * row), so an old row that never met the rule can still be renamed. 525's
+ * _data_required_check is the same rule in the database.
+ */
+export function requiredWhenProblem(
+  columns: Iterable<ColumnState>,
+  row: { title: string; values: Record<string, unknown> },
+  changed: ReadonlySet<string> | 'all',
+): string | null {
+  const list = [...columns]
+  for (const col of list) {
+    const rule = col.config?.required_when
+    if (!rule || col.deleted_at) continue
+    const on = list.find((c) => c.key === rule.key && !c.deleted_at && c.field_type === 'select')
+    if (!on || row.values[rule.key] !== rule.option || !isEmptyValue(row.values[col.key])) continue
+    if (changed !== 'all' && !changed.has(rule.key) && !changed.has(col.key)) continue
+    return `${col.label} is needed when ${on.label} is ${rule.option} (row ${quote(row.title)}).`
+  }
+  return null
+}
+
+/**
  * Checks a batch against the table and its columns, in order (a column made
  * earlier in the batch takes values later in it), and returns it in the form
  * the RPC takes: keys made, values coerced, text trimmed. The first problem
@@ -94,6 +143,7 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown, opts:
   if (ops.length > TABLE_LIMITS.opsPerBatch) return fail(`At most ${TABLE_LIMITS.opsPerBatch} changes in one batch.`)
   const cols = new Map(columns.map((c) => [c.key, { ...c }]))
   const out: DataOp[] = []
+  const fresh: Array<{ id: string | null; title: string; values: Record<string, unknown> }> = []
   let archived = !!opts.archived
   // Rows a batch inserts, archives or restores, across all its ops.
   let rowsTotal = 0
@@ -139,10 +189,8 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown, opts:
       case 'create_column': {
         const label = str(op.label).trim().slice(0, TABLE_LIMITS.label)
         if (!label) return fail('A column needs a name.')
-        if (!(CUSTOM_FIELD_TYPES as readonly unknown[]).includes(op.field_type)) {
-          return fail(`A column is one of: ${CUSTOM_FIELD_TYPES.join(', ')}.`)
-        }
-        const fieldType = op.field_type as DataColumnType
+        if (!isCustomFieldType(op.field_type)) return fail(`A column is one of: ${CUSTOM_FIELD_TYPES.join(', ')}.`)
+        const fieldType = op.field_type
         let key = str(op.key)
         if (key) {
           if (customFieldKey(key) !== key) return fail(`"${key}" is not a column key (lowercase letters, numbers and _).`)
@@ -151,9 +199,18 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown, opts:
           key = newColumnKey(label, cols.keys())
           if (!key) return fail('A column needs a name with a letter or number in it.')
         }
-        const options = fieldType === 'select' ? cleanOptions(Array.isArray(op.options) ? (op.options as string[]) : []) : []
-        cols.set(key, { key, label, field_type: fieldType, options, deleted_at: null })
-        out.push({ op: 'create_column', key, label, field_type: fieldType, ...(fieldType === 'select' ? { options } : {}) })
+        const options = hasOptions(fieldType) ? cleanOptions(Array.isArray(op.options) ? (op.options as string[]) : []) : []
+        const config = checkConfig(cols, key, fieldType, op.config)
+        if (!config.ok) return config
+        cols.set(key, { key, label, field_type: fieldType, options, config: config.value, deleted_at: null })
+        out.push({
+          op: 'create_column',
+          key,
+          label,
+          field_type: fieldType,
+          ...(hasOptions(fieldType) ? { options } : {}),
+          ...(Object.keys(config.value).length ? { config: config.value } : {}),
+        })
         break
       }
       case 'update_column': {
@@ -168,13 +225,41 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown, opts:
           col.label = label
         }
         if ('options' in op) {
-          if (col.field_type !== 'select') return fail(`${col.label} has no options.`)
+          if (!hasOptions(col.field_type)) return fail(`${col.label} has no options.`)
           const options = cleanOptions(Array.isArray(op.options) ? (op.options as string[]) : [])
           next.options = options
           col.options = options
         }
+        if ('config' in op) {
+          const config = checkConfig(cols, key, col.field_type, op.config)
+          if (!config.ok) return config
+          if (col.field_type === 'relation' && !sameRelationTarget(col.config?.target, config.value.target)) {
+            return fail(`${col.label} links to something else: change its type to link it elsewhere.`)
+          }
+          next.config = config.value
+          col.config = config.value
+        }
         if (Object.keys(next).length === 2) return fail('update_column changes nothing.')
         out.push(next)
+        break
+      }
+      case 'change_column_type': {
+        const key = str(op.key)
+        const col = cols.get(key)
+        if (!col || col.deleted_at) return fail(`No column "${key}" in this table.`)
+        if (!isCustomFieldType(op.field_type)) return fail(`A column is one of: ${CUSTOM_FIELD_TYPES.join(', ')}.`)
+        const fieldType = op.field_type
+        // A select type given no options keeps the column's own, or (it had
+        // none) takes the values' own: the database reads them.
+        const given = Array.isArray(op.options) ? cleanOptions(op.options as string[]) : []
+        const options = hasOptions(fieldType) ? (given.length ? given : hasOptions(col.field_type) ? [...col.options] : []) : []
+        const config = checkConfig(cols, key, fieldType, op.config ?? (fieldType === col.field_type ? col.config : {}))
+        if (!config.ok) return config
+        const back = op.restore && typeof op.restore === 'object' && !Array.isArray(op.restore) ? (op.restore as Record<string, { from: CustomFieldValue; to: CustomFieldValue }>) : undefined
+        col.field_type = fieldType
+        col.options = options
+        col.config = config.value
+        out.push({ op: 'change_column_type', key, field_type: fieldType, options, config: config.value, ...(back ? { restore: back } : {}) })
         break
       }
       case 'delete_column':
@@ -209,6 +294,7 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown, opts:
           // A new row has nothing to clear.
           const set = Object.fromEntries(Object.entries(values.value).filter(([, v]) => v !== null))
           clean.push({ ...(row.id ? { id: row.id as string } : {}), title, ...(Object.keys(set).length ? { values: set } : {}) })
+          fresh.push({ id: row.id ? String(row.id) : null, title, values: { ...set } })
         }
         out.push({ op: 'insert_rows', rows: clean })
         break
@@ -227,6 +313,15 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown, opts:
           if (Object.keys(values.value).length) next.values = values.value
         }
         if (!('title' in next) && !next.values) return fail('update_row changes nothing.')
+        // A row this batch made: its later edits count toward its first values.
+        const made = fresh.find((r) => r.id === next.row_id)
+        if (made) {
+          if (next.title !== undefined) made.title = next.title
+          for (const [k, v] of Object.entries(next.values ?? {})) {
+            if (v === null) delete made.values[k]
+            else made.values[k] = v
+          }
+        }
         out.push(next)
         break
       }
@@ -256,6 +351,10 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown, opts:
         return fail(`Unknown op "${String(op.op)}".`)
     }
   }
+  for (const row of fresh) {
+    const problem = requiredWhenProblem(cols.values(), row, 'all')
+    if (problem) return fail(problem)
+  }
   return { ok: true, value: out }
 }
 
@@ -267,7 +366,7 @@ export interface UndoState {
   /** The undoer owns the table (only an owner changes who sees it, or archives a private one). */
   isOwner: boolean
   /** Every column, deleted ones too. */
-  columns: readonly Pick<DataColumn, 'key' | 'label' | 'field_type' | 'options' | 'deleted_at' | 'position'>[]
+  columns: readonly (Pick<DataColumn, 'key' | 'label' | 'field_type' | 'options' | 'deleted_at' | 'position'> & { config?: CustomFieldConfig | null })[]
   /** The rows the change touched, as they are now (position as exact text). */
   rows: ReadonlyMap<string, UndoRow>
   /**
@@ -327,6 +426,7 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
     for (const r of rows.values()) {
       const v = r.custom_fields[key]
       if (typeof v === 'string' && options.includes(v)) return true
+      if (Array.isArray(v) && v.some((x) => typeof x === 'string' && options.includes(x))) return true
     }
     return false
   }
@@ -405,9 +505,39 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
             restored.push(`column ${colName(e.key)}'s options`)
           }
         }
+        if (e.fields?.config) {
+          if (same(col.config ?? {}, e.fields.config.to)) {
+            back.config = e.fields.config.from
+            restored.push(`column ${colName(e.key)}'s settings`)
+          } else kept.push(`column ${colName(e.key)}'s settings (changed since)`)
+        }
         if (back.label !== undefined) col.label = back.label
         if (back.options) col.options = [...back.options]
+        if (back.config) col.config = back.config
         if (Object.keys(back).length > 2) ops.push(back)
+        break
+      }
+      case 'change_column_type': {
+        const col = cols.get(e.key)
+        if (!col || col.deleted_at || col.field_type !== e.fields?.field_type?.to) {
+          kept.push(`column ${colName(e.key)}'s type (changed since)`)
+          break
+        }
+        // Each value as it was where it is still what the change made; the
+        // rest convert back by the same cast rule (the database refuses the
+        // undo when one can't).
+        ops.push({
+          op: 'change_column_type',
+          key: e.key,
+          field_type: e.fields.field_type.from,
+          options: e.fields.options?.from ?? [],
+          config: e.fields.config?.from ?? {},
+          restore: e.values ?? {},
+        })
+        col.field_type = e.fields.field_type.from
+        col.options = [...(e.fields.options?.from ?? [])]
+        col.config = e.fields.config?.from ?? {}
+        restored.push(`column ${colName(e.key)}'s type`)
         break
       }
       case 'delete_column':
@@ -526,8 +656,15 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
   return { ok: true, ops, restored, kept }
 }
 
-/** Per column, the options an undo of `change` could drop: what UndoState.optionUses reads. */
-export function optionsAnUndoCouldDrop(change: Pick<DataChange, 'changes'>): Map<string, string[]> {
+/**
+ * Per column, the options an undo of `change` could drop, and whether the
+ * column holds a list of them (a multi-select is read by containment, a
+ * select by its text): what UndoState.optionUses reads.
+ */
+export function optionsAnUndoCouldDrop(
+  change: Pick<DataChange, 'changes'>,
+  columns: readonly Pick<DataColumn, 'key' | 'field_type'>[],
+): Map<string, { options: string[]; multi: boolean }> {
   const out = new Map<string, Set<string>>()
   for (const e of Array.isArray(change.changes) ? change.changes : []) {
     if (e?.op !== 'update_column' || !e.fields?.options) continue
@@ -535,7 +672,8 @@ export function optionsAnUndoCouldDrop(change: Pick<DataChange, 'changes'>): Map
     for (const o of dropped(e.fields.options.to ?? [], e.fields.options.from ?? [])) set.add(o)
     out.set(e.key, set)
   }
-  return new Map([...out].filter(([, v]) => v.size > 0).map(([k, v]) => [k, [...v]]))
+  const multi = (key: string) => columns.find((c) => c.key === key)?.field_type === 'multi_select'
+  return new Map([...out].filter(([, v]) => v.size > 0).map(([k, v]) => [k, { options: [...v], multi: multi(k) }]))
 }
 
 /** The rows and columns a change touched: what an undo must read. */
