@@ -27,7 +27,21 @@
  * Only the path and query are matched: robots.txt is read from the audit's
  * origin, and every URL asked about is that site's (www or not, http or
  * https), so the scheme, host and port are the robots file's by definition.
- * A URL that can't be read is not allowed.
+ * A URL that can't be read is not allowed. The URL asked about is the one
+ * the crawl fetches: normalised, its query re-encoded (url-utils.ts).
+ *
+ * A rule and a path are compared in one form (robotsForm): an escape of a
+ * printable ASCII character is decoded (RFC 9309 2.2.2 requires it for the
+ * unreserved ones; the others are decoded too, so `|` and `%7C`, `/` and
+ * `%2F` in a re-encoded query, read the same whichever way they arrived),
+ * and everything else (a space, a control character, anything outside
+ * ASCII, a `%` that starts no escape) is escaped with upper-case hex.
+ *
+ * The file is read at least as strictly as the major search engines read
+ * it: a missing colon may be whitespace, their accepted misspellings of
+ * Disallow and User-agent count, an agent is matched on its leading product
+ * token ("Bot (site audit)" is "bot", "* all bots" is "*"), and only an
+ * Allow or Disallow line ends a group's list of agents.
  */
 import { AuditFailure } from './failure'
 import { CRAWLER_TOKEN, MAX_URL_CHARS } from './limits'
@@ -62,31 +76,86 @@ interface Rule {
   priority: number
 }
 
-/** Lower case, without a version ("Bot/1.0" is "bot"), as robots-parser reads agents. */
+/**
+ * The agent a User-agent line names, lower case: its leading product token
+ * ("Bot/1.0" and "Bot (site audit)" are "bot"), or "*" for a `*` alone or
+ * followed by whitespace ("* all bots"). Empty when it names neither.
+ */
 function formatUserAgent(value: string): string {
-  const lower = value.toLowerCase()
-  const slash = lower.indexOf('/')
-  return (slash > -1 ? lower.slice(0, slash) : lower).trim()
+  if (/^\*(\s|$)/.test(value)) return '*'
+  return (/^[A-Za-z_-]+/.exec(value)?.[0] ?? '').toLowerCase()
 }
 
-function urlEncodeToUpper(path: string): string {
-  return path.replace(/%[0-9a-fA-F]{2}/g, (match) => match.toUpperCase())
+/** Directive names as written, misspellings the major search engines accept included. */
+const DIRECTIVES: Record<string, 'user-agent' | 'allow' | 'disallow' | 'crawl-delay' | 'sitemap'> = {
+  'user-agent': 'user-agent',
+  useragent: 'user-agent',
+  'user agent': 'user-agent',
+  allow: 'allow',
+  disallow: 'disallow',
+  dissallow: 'disallow',
+  dissalow: 'disallow',
+  disalow: 'disallow',
+  diasllow: 'disallow',
+  disallaw: 'disallow',
+  'crawl-delay': 'crawl-delay',
+  sitemap: 'sitemap',
 }
 
-function normaliseEncoding(pattern: string): string {
-  try {
-    return urlEncodeToUpper(encodeURI(pattern).replace(/%25/g, '%'))
-  } catch {
-    return pattern
+/** Printable ASCII other than `%`: kept as it is. */
+const PLAIN = /^[\x21-\x24\x26-\x7e]*$/
+const HEX_PAIR = /^[0-9A-Fa-f]{2}$/
+
+/**
+ * The one form a rule and a path are compared in (see the header). Linear,
+ * and a string of printable ASCII without `%` (most paths) comes back as it is.
+ */
+export function robotsForm(text: string): string {
+  if (PLAIN.test(text)) return text
+  let out = ''
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i)
+    if (code === 0x25) {
+      const hex = text.slice(i + 1, i + 3)
+      if (HEX_PAIR.test(hex)) {
+        const octet = parseInt(hex, 16)
+        out +=
+          octet > 0x20 && octet < 0x7f && octet !== 0x25
+            ? String.fromCharCode(octet)
+            : `%${hex.toUpperCase()}`
+        i += 2
+      } else {
+        out += '%25'
+      }
+    } else if (code > 0x20 && code < 0x7f) {
+      out += text[i]
+    } else {
+      // A space, a control character, anything outside ASCII: its UTF-8
+      // bytes, escaped. A surrogate pair is one character.
+      const pair =
+        code >= 0xd800 &&
+        code <= 0xdbff &&
+        (text.charCodeAt(i + 1) & 0xfc00) === 0xdc00
+      const char = pair ? text.slice(i, i + 2) : text[i]
+      if (pair) i += 1
+      try {
+        out += encodeURIComponent(char)
+      } catch {
+        // A lone surrogate: the replacement character, as a URL parser writes it.
+        out += '%EF%BF%BD'
+      }
+    }
   }
+  return out
 }
 
 /** A rule made cheap to match, or null when it is dropped (see the header). */
 function compileRule(pattern: string, allow: boolean): Rule | null {
-  const normalised = normaliseEncoding(pattern)
-  const anchored = normalised.endsWith('$')
-  const body = anchored ? normalised.slice(0, -1) : normalised
-  const split = body.split('*')
+  // `*` and an ending `$` are the pattern's own: read them before the text
+  // is brought to the compared form (an escaped %2A or %24 is a character).
+  const anchored = pattern.endsWith('$')
+  const body = anchored ? pattern.slice(0, -1) : pattern
+  const split = body.split('*').map(robotsForm)
   // A run of `*` leaves empty pieces between its stars: drop them.
   let pieces =
     split.length === 1
@@ -101,7 +170,9 @@ function compileRule(pattern: string, allow: boolean): Rule | null {
     pieces = [...pieces.slice(0, MAX_RULE_WILDCARDS), '']
     ends = false
   }
-  return { allow, pieces, anchored: ends, priority: normalised.length }
+  // The pattern's length as written, in the compared form.
+  const priority = split.join('*').length + (anchored ? 1 : 0)
+  return { allow, pieces, anchored: ends, priority }
 }
 
 function ruleMatches(rule: Rule, path: string): boolean {
@@ -127,7 +198,7 @@ function robotsPath(url: string): string | null {
     const parsed = new URL(url)
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
       return null
-    const path = urlEncodeToUpper(parsed.pathname + parsed.search)
+    const path = robotsForm(parsed.pathname + parsed.search)
     return path.length <= MAX_URL_CHARS ? path : null
   } catch {
     return null
@@ -151,19 +222,32 @@ export function parseRobotsTxt(
   let star: Rule[] | null = null
   const sitemapUrls: string[] = []
   let agents: string[] = []
-  // A User-agent line after any other line starts a new group.
-  let afterOtherLine = true
+  // A User-agent line after an Allow or Disallow line starts a new group;
+  // any other line in between (Crawl-delay, Sitemap, unknown) does not.
+  let afterRule = true
   for (const raw of text.split(/\r\n|\r|\n/)) {
     const hash = raw.indexOf('#')
     const line = hash > -1 ? raw.slice(0, hash) : raw
+    let name: string
+    let value: string
     const colon = line.indexOf(':')
-    if (colon < 0) continue
-    const key = line.slice(0, colon).trim().toLowerCase()
+    if (colon > -1) {
+      name = line.slice(0, colon)
+      value = line.slice(colon + 1).trim()
+    } else {
+      // No colon: whitespace between a name and one value ("Disallow /private").
+      const parts = /^\s*(\S+)\s+(\S+)\s*$/.exec(line)
+      if (!parts) continue
+      name = parts[1]
+      value = parts[2]
+    }
+    const key = DIRECTIVES[name.trim().toLowerCase().replace(/\s+/g, ' ')]
     if (!key) continue
-    const value = line.slice(colon + 1).trim()
     if (key === 'user-agent') {
-      if (afterOtherLine) agents = []
-      if (value) agents.push(formatUserAgent(value))
+      if (afterRule) agents = []
+      afterRule = false
+      const agent = value ? formatUserAgent(value) : ''
+      if (agent) agents.push(agent)
     } else if (key === 'allow' || key === 'disallow' || key === 'crawl-delay') {
       const forUs = agents.includes(ourAgent)
       const forStar = agents.includes('*')
@@ -176,10 +260,10 @@ export function parseRobotsTxt(
           if (forStar) star!.push(rule)
         }
       }
+      if (key !== 'crawl-delay') afterRule = true
     } else if (key === 'sitemap') {
       if (value) sitemapUrls.push(value)
     }
-    afterOtherLine = key !== 'user-agent'
   }
 
   const rules: Rule[] = ours ?? star ?? []
@@ -210,6 +294,15 @@ export function parseRobotsTxt(
     },
     sitemapUrls,
   }
+}
+
+/**
+ * A robots.txt the size cap cut off ends in part of a line: drop it, so half
+ * a rule (`Allow: /pr` of `Allow: /pr/public/`) is never read as a rule.
+ */
+export function dropPartialLastLine(text: string): string {
+  const end = Math.max(text.lastIndexOf('\n'), text.lastIndexOf('\r'))
+  return text.slice(0, end + 1)
 }
 
 /**

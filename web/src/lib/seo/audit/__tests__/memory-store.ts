@@ -39,6 +39,17 @@
  *                  no other page links to it (self-links don't count), and no
  *                  saved redirect points at it.
  *
+ * Starting (not part of AuditStore: start.ts calls the function itself):
+ *
+ *   startAudit     seo_audit_start: the workspace's live audit when there is
+ *                  one; otherwise its start-log rows older than 48 hours go,
+ *                  the last 24 hours of the log are counted against the daily
+ *                  limit, and an allowed start writes a log row and a queued
+ *                  audit (and sweeps what ended audits left in the queue and
+ *                  link tables, and their robots.txt).
+ *   deleteAudit    deleting an audit (cascades to its rows); the start log
+ *                  is untouched, so deleting never frees a start.
+ *
  * The tables' own checks are held too (URL length, fetch class, the issue's
  * page foreign key, one page row per URL), so a test fails where the database
  * would refuse a write.
@@ -118,6 +129,8 @@ export class MemoryAuditStore implements AuditStore {
   readonly links = new Map<string, Map<string, PageLinksRow>>()
   /** saveBatch calls so far, failed ones included. */
   saveBatchCalls = 0
+  /** seo_audit_start_log: one row per start the function allowed. */
+  readonly startLog: Array<{ workspaceId: string; startedAt: number }> = []
 
   private seq = 0
   private faults: SaveFault[] = []
@@ -155,6 +168,57 @@ export class MemoryAuditStore implements AuditStore {
     }
     this.audits.set(id, row)
     return row
+  }
+
+  /** seo_audit_start, rule for rule (see the header). */
+  startAudit(
+    workspaceId: string,
+    input: { startUrl: string; maxPages?: number },
+    dailyLimit: number,
+  ): { outcome: 'started' | 'live' | 'limit'; auditId: string | null } {
+    const live = [...this.audits.values()].find(
+      (row) =>
+        row.workspaceId === workspaceId &&
+        (row.status === 'queued' || row.status === 'running'),
+    )
+    if (live) return { outcome: 'live', auditId: live.id }
+
+    const now = Date.now()
+    const day = 24 * 3_600_000
+    for (let i = this.startLog.length - 1; i >= 0; i--) {
+      const row = this.startLog[i]
+      if (row.workspaceId === workspaceId && row.startedAt < now - 2 * day)
+        this.startLog.splice(i, 1)
+    }
+    const started = this.startLog.filter(
+      (row) => row.workspaceId === workspaceId && row.startedAt > now - day,
+    ).length
+    if (started >= Math.max(dailyLimit, 0))
+      return { outcome: 'limit', auditId: null }
+
+    for (const row of this.audits.values()) {
+      if (row.workspaceId !== workspaceId) continue
+      this.frontier.delete(row.id)
+      this.links.delete(row.id)
+      row.robotsTxt = null
+    }
+    this.startLog.push({ workspaceId, startedAt: now })
+    const audit = this.createAudit({
+      startUrl: input.startUrl,
+      maxPages: input.maxPages,
+      workspaceId,
+      status: 'queued',
+    })
+    return { outcome: 'started', auditId: audit.id }
+  }
+
+  /** Delete an audit and, by cascade, everything it wrote. Not the start log. */
+  deleteAudit(auditId: string): void {
+    this.audits.delete(auditId)
+    this.frontier.delete(auditId)
+    this.pages.delete(auditId)
+    this.issues.delete(auditId)
+    this.links.delete(auditId)
   }
 
   /** Make a later saveBatch call throw once, as a crash mid-chunk would. */

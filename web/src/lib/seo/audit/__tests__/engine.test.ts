@@ -427,24 +427,47 @@ describe('robots.txt', () => {
     expect(crawlRequests(site.requests)).toEqual([])
   })
 
-  it('ignores a robots.txt that redirects to another site: the audit reads everything and saves no robots.txt', async () => {
+  it('fails ROBOTS_UNREACHABLE on a robots.txt that redirects to another site, which may say Disallow: /', async () => {
     const store = new MemoryAuditStore()
     const { id } = store.createAudit({ startUrl: START })
     const site = studioSite({
-      [at('/robots.txt')]: redirect('https://example.org/robots.txt'),
-      'https://example.org/robots.txt': text(
-        'User-agent: *\nDisallow: /\nSitemap: https://example.org/sitemap.xml\n',
+      [at('/robots.txt')]: redirect('https://files.example.org/robots.txt'),
+      'https://files.example.org/robots.txt': text(
+        'User-agent: *\nDisallow: /\n',
+      ),
+    })
+
+    const failure = await drive(
+      runDiscovery(store, id, { fetch: site.fetch }),
+    ).catch((err: unknown) => err)
+
+    expect(failure).toMatchObject({ code: 'ROBOTS_UNREACHABLE' })
+    expect(store.frontierRows(id)).toEqual([])
+    expect(crawlRequests(site.requests)).toEqual([])
+    expect(site.count('https://files.example.org/robots.txt')).toBe(0)
+  })
+
+  it('checks a link against robots.txt as the crawl would fetch it (its query re-encoded)', async () => {
+    const store = new MemoryAuditStore()
+    const { id } = store.createAudit({ startUrl: START })
+    const site = fakeSite({
+      [at('/robots.txt')]: text('User-agent: *\nDisallow: /*?*return_to=/\n'),
+      [START]: html(
+        page({
+          title: 'Example Studio | Calm websites',
+          h1: 'Home',
+          links: ['/login?return_to=/account', '/public'],
+        }),
+      ),
+      [at('/public')]: html(
+        page({ title: 'Public | Example Studio', h1: 'Public', links: ['/'] }),
       ),
     })
 
     await runAudit(store, id, site.fetch)
 
-    expect(auditRow(store, id)).toMatchObject({
-      status: 'completed',
-      robotsTxt: null,
-    })
-    expect(store.pageList(id)).toHaveLength(STUDIO_PAGES.length)
-    expect(site.count('https://example.org/sitemap.xml')).toBe(0)
+    expect(site.urls().filter((u) => u.includes('/login'))).toEqual([])
+    expect(store.pageList(id).map((p) => p.url).sort()).toEqual([START, at('/public')])
   })
 
   it('applies the rules to the www form of the site’s address too', async () => {
@@ -1049,6 +1072,25 @@ describe('a cancel while a step is running', () => {
   })
 })
 
+describe('what a page’s links may store', () => {
+  it('keeps no link target longer than the URL limit', async () => {
+    const store = new MemoryAuditStore()
+    const { id } = store.createAudit({ startUrl: START })
+    const long = `/${'a'.repeat(2_100)}`
+    const site = fakeSite({
+      [at('/robots.txt')]: text('User-agent: *\nAllow: /\n'),
+      [START]: html(
+        page({ title: 'Example Studio | Calm websites', h1: 'Home', links: [long, '/public'] }),
+      ),
+    })
+    await drive(runDiscovery(store, id, { fetch: site.fetch }))
+    await drive(runCrawlChunk(store, id, 0, { fetch: site.fetch }))
+
+    const targets = store.linkRows(id).flatMap((row) => row.targets)
+    expect(targets).toEqual([at('/public')])
+  })
+})
+
 describe('what a finding may carry', () => {
   it('stores a page’s own text in a finding cut to 300 characters', async () => {
     const store = new MemoryAuditStore()
@@ -1212,6 +1254,34 @@ async function seededStore() {
 }
 
 describe('MemoryAuditStore mirrors migration 590', () => {
+  // seo_audit_start: one live audit per workspace, and a daily limit counted
+  // in a log that deleting audits does not touch.
+  it('start: hands back the live audit, and refuses the 21st start of a day even after audits were deleted', async () => {
+    const store = new MemoryAuditStore()
+    const ws = '00000000-0000-4000-8000-0000000000bb'
+    const first = store.startAudit(ws, { startUrl: START }, 20)
+    expect(first.outcome).toBe('started')
+    expect(store.startAudit(ws, { startUrl: START }, 20)).toEqual({
+      outcome: 'live',
+      auditId: first.auditId,
+    })
+    // Start, cancel, delete, again and again: the audits go, the log stays.
+    for (let n = 1; n <= 20; n++) {
+      const live = [...store.audits.values()].find(
+        (row) => row.workspaceId === ws && (row.status === 'queued' || row.status === 'running'),
+      )!
+      await store.updateAudit(live.id, { status: 'canceled' })
+      store.deleteAudit(live.id)
+      const next = store.startAudit(ws, { startUrl: START }, 20)
+      expect(next.outcome, `start ${n + 1}`).toBe(n < 20 ? 'started' : 'limit')
+    }
+    expect([...store.audits.values()].filter((row) => row.workspaceId === ws)).toHaveLength(0)
+    // A day later the log has room again, and rows older than two days are gone.
+    await vi.advanceTimersByTimeAsync(49 * HOUR)
+    expect(store.startAudit(ws, { startUrl: START }, 20).outcome).toBe('started')
+    expect(store.startLog.filter((row) => row.workspaceId === ws)).toHaveLength(1)
+  })
+
   it('seeds each URL once: a seed already queued stays as it is', async () => {
     const { store, audit } = await seededStore()
     await store.seedFrontier(audit, [

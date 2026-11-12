@@ -9,10 +9,12 @@ import { AuditFailure } from '../failure'
 import { CRAWLER_TOKEN } from '../limits'
 import {
   createRobotsGate,
+  dropPartialLastLine,
   MAX_ROBOTS_RULES,
   parseRobotsTxt,
   ROBOTS_YIELD_EVERY,
 } from '../robots'
+import { normalizeUrl } from '../url-utils'
 
 const ORIGIN = 'https://example.com'
 
@@ -136,6 +138,119 @@ describe('parseRobotsTxt applies the file to every form of the site’s address'
     const robots = parseRobotsTxt(ORIGIN, 'User-agent: *\nAllow: /\n')
     expect(robots.isAllowed('not a url')).toBe(false)
     expect(parseRobotsTxt(ORIGIN, null).isAllowed('not a url')).toBe(false)
+  })
+})
+
+describe('parseRobotsTxt compares a rule and a URL in one form', () => {
+  const VICTIM = 'https://victim.example'
+  const allowed = (file: string, url: string) =>
+    parseRobotsTxt(VICTIM, file).isAllowed(url)
+
+  // RFC 9309 2.2.2: percent-encoded unreserved characters are decoded before
+  // comparing. Without it /%61dmin/ walked around Disallow: /admin/.
+  it('decodes an escaped unreserved character in the URL', () => {
+    const file = 'User-agent: *\nDisallow: /admin/\n'
+    expect(allowed(file, `${VICTIM}/%61dmin/x`)).toBe(false)
+    expect(allowed(file, `${VICTIM}/%61%64%6D%69%6E/x`)).toBe(false)
+    expect(allowed(file, `${VICTIM}/admins`)).toBe(true)
+  })
+
+  it('decodes an escaped unreserved character in the rule', () => {
+    const file = 'User-agent: *\nDisallow: /foo/bar/%62%61%7A\nDisallow: /%7Euser\n'
+    expect(allowed(file, `${VICTIM}/foo/bar/baz`)).toBe(false)
+    expect(allowed(file, `${VICTIM}/~user/page`)).toBe(false)
+  })
+
+  it.each([
+    ['/a|b', '/a|b'],
+    ['/a|b', '/a%7cb'],
+    ['/a%7Cb', '/a|b'],
+    ['/a[1]', '/a[1]'],
+    ['/a[1]', '/a%5B1%5D'],
+    ['/caf%c3%a9', '/café'],
+    ['/café', '/caf%C3%A9'],
+  ])('Disallow: %s disallows %s (a character literal on one side, escaped on the other)', (rule, path) => {
+    expect(allowed(`User-agent: *\nDisallow: ${rule}\n`, `${VICTIM}${path}`)).toBe(false)
+  })
+
+  // The crawl fetches the normalised URL, whose query is re-encoded
+  // (`/` in a value becomes %2F): the rule must still see it.
+  it('matches a query rule against the URL as the crawl fetches it', () => {
+    const file = 'User-agent: *\nDisallow: /*?*return_to=/\n'
+    const fetched = normalizeUrl(`${VICTIM}/login?return_to=/account`)!
+    expect(fetched).toBe(`${VICTIM}/login?return_to=%2Faccount`)
+    expect(allowed(file, fetched)).toBe(false)
+    expect(allowed(file, `${VICTIM}/login?return_to=/account`)).toBe(false)
+    expect(allowed(file, `${VICTIM}/login?next=account`)).toBe(true)
+  })
+})
+
+describe('parseRobotsTxt reads a file at least as strictly as the major search engines', () => {
+  const at = (path: string) => `${ORIGIN}${path}`
+
+  it('accepts whitespace where the colon is missing', () => {
+    const robots = parseRobotsTxt(ORIGIN, 'User-agent *\nDisallow /private\n')
+    expect(robots.isAllowed(at('/private/a'))).toBe(false)
+    expect(robots.isAllowed(at('/public'))).toBe(true)
+  })
+
+  it.each(['dissallow', 'dissalow', 'disalow', 'diasllow', 'disallaw', 'Disallow'])(
+    'reads %s as Disallow',
+    (key) => {
+      expect(parseRobotsTxt(ORIGIN, `User-agent: *\n${key}: /private\n`).isAllowed(at('/private'))).toBe(false)
+    },
+  )
+
+  it.each(['useragent', 'user agent', 'User-Agent'])('reads %s as User-agent', (key) => {
+    const robots = parseRobotsTxt(ORIGIN, `${key}: ${CRAWLER_TOKEN}\nDisallow: /mine\n\nUser-agent: *\nDisallow: /all\n`)
+    expect(robots.isAllowed(at('/mine'))).toBe(false)
+    expect(robots.isAllowed(at('/all'))).toBe(true)
+  })
+
+  it('selects our group by the leading product token, whatever follows it', () => {
+    const robots = parseRobotsTxt(
+      ORIGIN,
+      `User-agent: *\nAllow: /\n\nUser-agent: ${CRAWLER_TOKEN} (site audit)\nDisallow: /private/\n`,
+    )
+    expect(robots.isAllowed(at('/private/a'))).toBe(false)
+  })
+
+  it('reads "* all bots" as the global group', () => {
+    const robots = parseRobotsTxt(ORIGIN, 'User-agent: * all bots\nDisallow: /private/\n')
+    expect(robots.isAllowed(at('/private/a'))).toBe(false)
+    // A token that merely starts with * is not the global group.
+    expect(parseRobotsTxt(ORIGIN, 'User-agent: *bot\nDisallow: /\n').isAllowed(at('/a'))).toBe(true)
+  })
+
+  it('keeps one group across a line that is not a rule: only Allow and Disallow close its list of agents', () => {
+    const robots = parseRobotsTxt(
+      ORIGIN,
+      `User-agent: a\nCrawl-delay: 1\nUser-agent: ${CRAWLER_TOKEN}\nDisallow: /\n`,
+    )
+    expect(robots.isAllowed(at('/anything'))).toBe(false)
+    const sitemapBetween = parseRobotsTxt(
+      ORIGIN,
+      `User-agent: ${CRAWLER_TOKEN}\nSitemap: https://example.com/s.xml\nUser-agent: other\nDisallow: /x\n`,
+    )
+    expect(sitemapBetween.isAllowed(at('/x'))).toBe(false)
+    // After a rule, a User-agent line starts a new group.
+    const split = parseRobotsTxt(
+      ORIGIN,
+      `User-agent: ${CRAWLER_TOKEN}\nDisallow: /a\nUser-agent: other\nDisallow: /b\n`,
+    )
+    expect(split.isAllowed(at('/b'))).toBe(true)
+  })
+})
+
+describe('dropPartialLastLine', () => {
+  it('drops a line the size cap cut off, and keeps every whole line', () => {
+    expect(dropPartialLastLine('User-agent: *\nDisallow: /p\nAllow: /pr')).toBe(
+      'User-agent: *\nDisallow: /p\n',
+    )
+    expect(dropPartialLastLine('User-agent: *\r\nDisallow: /p\r')).toBe(
+      'User-agent: *\r\nDisallow: /p\r',
+    )
+    expect(dropPartialLastLine('no line break at all')).toBe('')
   })
 })
 

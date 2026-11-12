@@ -414,48 +414,50 @@ describe('discoverUrls on robots.txt that redirects', () => {
     'User-agent: *\nDisallow: /\nSitemap: https://example.org/sitemap.xml\n',
   )
 
-  it('reads a robots.txt whose redirects end on another site as missing: everything allowed, its sitemaps never read', async () => {
+  // A robots.txt that moved to a host we won't follow may hold rules for this
+  // site (`Disallow: /`): it can't be read, so the audit fails closed.
+  it('fails ROBOTS_UNREACHABLE when robots.txt redirects to another site, and never asks that site', async () => {
     const site = fakeSite({
       'https://example.com/robots.txt': {
         status: 301,
-        headers: { location: 'https://example.org/robots.txt' },
+        headers: { location: 'https://files.example.org/robots.txt' },
       },
-      'https://example.org/robots.txt': foreignRobots,
-      'https://example.org/sitemap.xml': xml(
-        urlset(['https://example.org/elsewhere']),
-      ),
+      'https://files.example.org/robots.txt': foreignRobots,
       'https://example.com/sitemap.xml': xml(urlset(['https://example.com/a'])),
     })
-    const { robotsText, urls } = await drive(
-      discoverUrls(ORIGIN, 10, site.fetch),
-    )
-    expect(robotsText).toBeNull()
-    expect(parseRobotsTxt(ORIGIN, robotsText).isAllowed(`${ORIGIN}/a`)).toBe(
-      true,
-    )
-    expect(urls).toEqual(['https://example.com/a'])
-    expect(site.count('https://example.org/sitemap.xml')).toBe(0)
-    // The other site is never asked at all: the hop is refused before it is fetched.
-    expect(site.count('https://example.org/robots.txt')).toBe(0)
+    await expect(
+      drive(discoverUrls(ORIGIN, 10, site.fetch)),
+    ).rejects.toMatchObject({ code: 'ROBOTS_UNREACHABLE' })
+    expect(site.count('https://files.example.org/robots.txt')).toBe(0)
+    expect(site.count('https://example.com/sitemap.xml')).toBe(0)
   })
 
-  it('also when the other site is reached after a hop on this one', async () => {
-    const site = fakeSite({
-      'https://example.com/robots.txt': {
-        status: 301,
-        headers: { location: '/robots-live.txt' },
-      },
-      'https://example.com/robots-live.txt': {
-        status: 302,
-        headers: { location: 'https://example.org/robots.txt' },
-      },
-      'https://example.org/robots.txt': foreignRobots,
-    })
-    expect(
-      (await drive(discoverUrls(ORIGIN, 10, site.fetch))).robotsText,
-    ).toBeNull()
-    expect(site.count('https://example.org/robots.txt')).toBe(0)
-  })
+  it.each([
+    ['another site after a hop on this one', [
+      ['https://example.com/robots.txt', '/robots-live.txt'],
+      ['https://example.com/robots-live.txt', 'https://example.org/robots.txt'],
+    ]],
+    ['another port', [['https://example.com/robots.txt', 'https://example.com:8443/robots.txt']]],
+    ['a private address', [['https://example.com/robots.txt', 'http://127.0.0.1/robots.txt']]],
+    ['a redirect without a Location', [['https://example.com/robots.txt', null]]],
+    ['too many hops', Array.from({ length: 8 }, (_, i) => [
+      i === 0 ? 'https://example.com/robots.txt' : `https://example.com/r${i}.txt`,
+      `/r${i + 1}.txt`,
+    ])],
+  ] as Array<[string, Array<[string, string | null]>]>)(
+    'fails ROBOTS_UNREACHABLE on a robots.txt redirect it won’t follow: %s',
+    async (_, hops) => {
+      const routes: Record<string, FakeRoute> = {}
+      for (const [from, location] of hops) {
+        routes[from] = { status: 301, headers: location ? { location } : {} }
+      }
+      const site = fakeSite(routes, foreignRobots)
+      await expect(
+        drive(discoverUrls(ORIGIN, 10, site.fetch)),
+      ).rejects.toMatchObject({ code: 'ROBOTS_UNREACHABLE' })
+      expect(site.urls().every((url) => url.startsWith('https://example.com/'))).toBe(true)
+    },
+  )
 
   it('reads a robots.txt that redirects within the site, www included', async () => {
     const robotsTxt = 'User-agent: *\nDisallow: /tmp/\n'
@@ -475,6 +477,20 @@ describe('discoverUrls on robots.txt that redirects', () => {
         location,
       ).toBe(robotsTxt)
     }
+  })
+})
+
+describe('discoverUrls on a robots.txt cut at the size cap', () => {
+  it('drops the line the cap cut through, so half a rule is never read', async () => {
+    // The full file: Allow: /pr/public/. Cut, its last line reads Allow: /pr,
+    // which would allow all of /private.
+    const cut = 'User-agent: *\nDisallow: /p\nAllow: /pr'
+    const site = fakeSite({
+      'https://example.com/robots.txt': { ...text(cut), truncated: true },
+    })
+    const { robotsText } = await drive(discoverUrls(ORIGIN, 10, site.fetch))
+    expect(robotsText).toBe('User-agent: *\nDisallow: /p\n')
+    expect(parseRobotsTxt(ORIGIN, robotsText).isAllowed(`${ORIGIN}/private`)).toBe(false)
   })
 })
 

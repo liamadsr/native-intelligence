@@ -25,13 +25,20 @@
 --   5. seo_audit_link      each crawled page's internal link targets, for
 --                          the broken-link and orphan-page checks.
 --
+-- What only the start reads:
+--
+--   6. seo_audit_start_log one row per audit started, for the daily limit.
+--                          Deleting an audit does not touch it, so deleting
+--                          audits never frees a start. Rows older than two
+--                          days are pruned by the start itself.
+--
 -- Eight functions, service role only:
 --
 --   seo_audit_start(workspace, started_by, start_url, origin, max_pages, daily_limit)
 --                        starts an audit, under a lock per workspace: hands
 --                        back the live one when there is one, refuses past
---                        the daily limit, sweeps what ended audits left in
---                        4 and 5, and inserts.
+--                        the daily limit (counted in 6), sweeps what ended
+--                        audits left in 4 and 5, and inserts.
 --   seo_audit_claim_chunk(audit, chunk, limit, pages_left_after)
 --                        leases the next URLs for one crawl chunk. A retried
 --                        chunk gets back exactly the URLs its failed attempt
@@ -59,8 +66,8 @@
 -- and insert) and the background lane's own concurrency, so a workspace merge
 -- (402) never meets a uniqueness it cannot resolve here.
 --
--- RLS: workspace members read 1-3; only the service role writes. 4 and 5
--- are the service role's alone. No other table changes. Re-runnable.
+-- RLS: workspace members read 1-3; only the service role writes. 4, 5 and
+-- 6 are the service role's alone. No other table changes. Re-runnable.
 
 SET LOCAL lock_timeout = '5s';
 
@@ -279,6 +286,22 @@ create index if not exists seo_audit_link_workspace_idx
   on public.seo_audit_link (workspace_id);
 
 -- ------------------------------------------------------------
+-- 6. seo_audit_start_log (the start's own; outlives deleted audits)
+-- ------------------------------------------------------------
+
+create table if not exists public.seo_audit_start_log (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspace(id) on delete cascade,
+  started_at timestamptz not null default now()
+);
+
+comment on table public.seo_audit_start_log is
+  'One row per site audit started (590), counted for the daily start limit. Kept apart from seo_audit so deleting audits never frees a start; rows older than two days are pruned by seo_audit_start. Service role only.';
+
+create index if not exists seo_audit_start_log_workspace_idx
+  on public.seo_audit_start_log (workspace_id, started_at);
+
+-- ------------------------------------------------------------
 -- Functions (service role only)
 -- ------------------------------------------------------------
 
@@ -286,10 +309,14 @@ create index if not exists seo_audit_link_workspace_idx
 -- and the insert one step: two starts at once can't both find no live audit.
 -- Outcomes:
 --   live     an audit of this workspace is queued or running: its id, nothing written.
---   limit    p_daily_limit audits were started in the last 24 hours: nothing written.
---   started  the new audit's id. Before the insert, what ended audits of this
---            workspace left behind is swept: queue and link rows a step wrote
---            after its audit was canceled, and their saved robots.txt.
+--   limit    p_daily_limit starts in the last 24 hours, as seo_audit_start_log
+--            counts them (deleted audits included): no audit written.
+--   started  the new audit's id, and a start-log row. Before the insert, what
+--            ended audits of this workspace left behind is swept: queue and
+--            link rows a step wrote after its audit was canceled, and their
+--            saved robots.txt.
+-- Either of the last two first prunes this workspace's start-log rows older
+-- than 48 hours.
 create or replace function public.seo_audit_start(
   p_workspace uuid,
   p_started_by uuid,
@@ -318,9 +345,11 @@ begin
     return;
   end if;
 
+  delete from public.seo_audit_start_log s
+  where s.workspace_id = p_workspace and s.started_at < now() - interval '48 hours';
   select count(*) into v_started
-  from public.seo_audit a
-  where a.workspace_id = p_workspace and a.created_at > now() - interval '24 hours';
+  from public.seo_audit_start_log s
+  where s.workspace_id = p_workspace and s.started_at > now() - interval '24 hours';
   if v_started >= greatest(p_daily_limit, 0) then
     return query select 'limit'::text, null::uuid;
     return;
@@ -342,6 +371,7 @@ begin
     and a.status not in ('queued', 'running')
     and a.robots_txt is not null;
 
+  insert into public.seo_audit_start_log (workspace_id) values (p_workspace);
   insert into public.seo_audit (workspace_id, started_by, start_url, origin, max_pages)
   values (p_workspace, p_started_by, p_start_url, p_origin, p_max_pages)
   returning id into v_id;
@@ -654,6 +684,7 @@ alter table public.seo_audit_page enable row level security;
 alter table public.seo_audit_issue enable row level security;
 alter table public.seo_audit_frontier enable row level security;
 alter table public.seo_audit_link enable row level security;
+alter table public.seo_audit_start_log enable row level security;
 
 drop policy if exists seo_audit_select_member on public.seo_audit;
 create policy seo_audit_select_member on public.seo_audit
@@ -670,6 +701,7 @@ revoke all on table public.seo_audit_page from anon, authenticated;
 revoke all on table public.seo_audit_issue from anon, authenticated;
 revoke all on table public.seo_audit_frontier from anon, authenticated;
 revoke all on table public.seo_audit_link from anon, authenticated;
+revoke all on table public.seo_audit_start_log from anon, authenticated;
 grant select on table public.seo_audit to authenticated;
 grant select on table public.seo_audit_page to authenticated;
 grant select on table public.seo_audit_issue to authenticated;
@@ -678,3 +710,4 @@ grant all on table public.seo_audit_page to service_role;
 grant all on table public.seo_audit_issue to service_role;
 grant all on table public.seo_audit_frontier to service_role;
 grant all on table public.seo_audit_link to service_role;
+grant all on table public.seo_audit_start_log to service_role;

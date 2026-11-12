@@ -235,6 +235,10 @@ export async function runDiscovery(
   if (!audit)
     throw new AuditFailure('AUDIT_NOT_FOUND', 'The audit no longer exists.')
 
+  // The start page is probed (a few requests at most, one per redirect hop,
+  // no body read) before robots.txt is read: robots.txt belongs to the
+  // site's real address, and only following the start URL's redirects tells
+  // us what that is. Every page fetch comes after robots.txt.
   // Whether the start page answered anything at all, for when discovery runs out of time.
   let startAnswered = false
   const resolved = await resolveStartUrlRedirects(
@@ -597,7 +601,11 @@ async function buildBatch(
     const targets: string[] = []
     for (const link of page.links) {
       if (!link.isInternal) continue
-      if (targets.length < MAX_STORED_LINKS_PER_PAGE)
+      // A target the crawl would never fetch is not worth storing either.
+      if (
+        targets.length < MAX_STORED_LINKS_PER_PAGE &&
+        link.targetUrl.length <= MAX_URL_CHARS
+      )
         targets.push(link.targetUrl)
       if (
         discovered.size < discoverLimit &&

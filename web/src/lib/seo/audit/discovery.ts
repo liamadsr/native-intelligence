@@ -9,7 +9,7 @@ import { createRateLimitWait, type RateLimitWait } from './crawl-throttle'
 import { AuditFailure } from './failure'
 import { crawlFetch, type CrawlFetch, type CrawlResponse } from './fetch'
 import { frontierCapFor } from './limits'
-import { parseRobotsTxt } from './robots'
+import { dropPartialLastLine, parseRobotsTxt } from './robots'
 import { isCrawlableUrl } from './start-url'
 import { isSameOrigin, normalizeUrl } from './url-utils'
 
@@ -86,9 +86,14 @@ async function fetchFollowingRedirects(
 
 type RobotsFetch =
   | { kind: 'found'; text: string }
-  /** Not there (a 4xx, or a redirect that leads off the site): everything is allowed. */
+  /** Not there (a 4xx): everything is allowed. */
   | { kind: 'missing' }
-  /** The server or the network failed: RFC 9309 says assume everything is disallowed. */
+  /**
+   * Could not be read: the server or the network failed (RFC 9309 says
+   * assume everything is disallowed), or it redirects somewhere we won't
+   * follow (another site, another port, a private address, too many hops, no
+   * Location), where rules for this site may well be.
+   */
   | { kind: 'unreachable' }
 
 /** The raw robots.txt body, kept apart from parsing so the text can be saved and parsed the same way by every chunk. */
@@ -118,11 +123,15 @@ async function fetchRobotsTxtText(
     ) {
       fetched = await fetchRobots()
     }
-    // A redirect not followed: robots.txt moved off this site, or nowhere.
-    if (!fetched) return { kind: 'missing' }
+    // A redirect not followed: robots.txt moved where we won't read it. Its
+    // rules may still be this site's (`Disallow: /`): fail closed.
+    if (!fetched) return { kind: 'unreachable' }
     const { status } = fetched.response
-    if (status >= 200 && status < 300)
-      return { kind: 'found', text: fetched.response.body }
+    if (status >= 200 && status < 300) {
+      const { body, truncated } = fetched.response
+      // Cut at the size cap: the last line may be half a rule.
+      return { kind: 'found', text: truncated ? dropPartialLastLine(body) : body }
+    }
     if (status >= 400 && status < 500 && status !== 429)
       return { kind: 'missing' }
     // 5xx, a 429 still there after its one retry, anything else.
