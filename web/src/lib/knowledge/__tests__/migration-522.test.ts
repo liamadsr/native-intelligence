@@ -12,6 +12,10 @@ import { describe, expect, it } from 'vitest'
 import { migrationsInOrder } from '@/test/migration-sql'
 import { LINK_FENCED_KINDS, PRIVATE_GRAPH_KINDS } from '../entity-fences'
 
+/** The Studio's kinds: fenced by 624's own function and restrictive policies (migration-624.test.ts), never these. */
+const STUDIO = ['studio_video', 'studio_project']
+const SHARED_FENCED_KINDS = LINK_FENCED_KINDS.filter((k) => !STUDIO.includes(k))
+
 const all = migrationsInOrder()
 const sql = all.find((m) => m.file.startsWith('522_'))!.sql
 const sql600 = all.find((m) => m.file.startsWith('600_'))!.sql
@@ -58,7 +62,7 @@ describe('migrations 522 and 600: table edges follow the table', () => {
       .replace("  -- A table, and a row through its table: 520's rule for p_user.\n  if v_type in ('data_table', 'data_row') then return public.data_table_visible_to(v_table, p_user); end if;\n\n", '')
     const FOUR = 'create or replace function public.entity_visible_to(p_type text, p_id uuid, p_workspace uuid, p_user uuid)\n'
     expect(body(back, FOUR)).toBe(body(sql572, FOUR))
-    for (const kind of LINK_FENCED_KINDS) expect(fn, kind).toMatch(new RegExp(`'${kind}'`))
+    for (const kind of SHARED_FENCED_KINDS) expect(fn, kind).toMatch(new RegExp(`'${kind}'`))
   })
 
   it('the 5-arg form (519’s, as 572 restated it) gains the same arms, its grant arm only when grants count', () => {
@@ -82,7 +86,7 @@ describe('migrations 522 and 600: table edges follow the table', () => {
       expect(here.replaceAll(',data_table,data_row}', '}'), name).toBe(policy(sql503, name))
       const lists = [...here.matchAll(/<> all \('\{([a-z_,]+)\}'::text\[\]\)/g)].map((m) => m[1].split(','))
       expect(lists).toHaveLength(2)
-      for (const list of lists) expect(new Set(list)).toEqual(new Set(LINK_FENCED_KINDS.filter((k) => k !== 'claim' && k !== 'company')))
+      for (const list of lists) expect(new Set(list)).toEqual(new Set(SHARED_FENCED_KINDS.filter((k) => k !== 'claim' && k !== 'company')))
       expect(sql).toContain(`drop policy if exists ${name} on public.entity_link;`)
     }
     const select = policy(sql, 'entity_link_select')

@@ -37,8 +37,13 @@ import { canonicalEntityType, type LinkableEntityType } from './entity-registry'
  * database's own rule (visible_data_table_ids, 520) in one call for every id.
  */
 
-/** The graph kinds whose rows only some members may read. */
-export const PRIVATE_GRAPH_KINDS = ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision', 'data_table', 'data_row'] as const
+/**
+ * The graph kinds whose rows only some members may read. The Studio's two
+ * kinds (migration 620, in the graph since 624) are every member's but a
+ * guest's, and their tables have no member policies at all, so the same
+ * fence shape holds them: see studioFence below.
+ */
+export const PRIVATE_GRAPH_KINDS = ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision', 'data_table', 'data_row', 'studio_video', 'studio_project'] as const
 export type PrivateGraphKind = (typeof PRIVATE_GRAPH_KINDS)[number]
 
 export function isPrivateGraphKind(type: string): type is PrivateGraphKind {
@@ -286,6 +291,42 @@ const dataRowFence: Fence = async (supabase, userId, ids, workspaceId, opts = {}
   return new Set(rows.filter((r) => readable.has(r.table_id as string)).map((r) => r.id as string))
 }
 
+/**
+ * The Studio's rule (requireStudio, src/lib/studio/server/auth.ts) for an
+ * explicit user: the row is in a workspace they are a member of, and not a
+ * guest of, and it is not in the trash. The Studio's tables are service-role
+ * only (migration 620: RLS on, no member policies), so a session client reads
+ * nothing there: the rows and the person's member row are read through the
+ * service client whatever client the caller holds (loaded here, not at the
+ * top: this file is imported where no service key exists). Mirrors 624's
+ * studio_entity_visible_to, which its restrictive entity_link policies ask;
+ * the shared entity_visible_to does not know these kinds (it would answer
+ * "every member's"), so no reader here sends a Studio ref to it.
+ */
+let adminModule: Promise<typeof import('@/lib/admin')> | null = null
+/** The service client's module, imported once (two fences asking at once share the one import). */
+const loadAdmin = () => (adminModule ??= import('@/lib/admin'))
+
+function studioFence(table: 'studio_video' | 'studio_project'): Fence {
+  return async (_supabase, userId, ids, workspaceId) => {
+    const wanted = uniq(ids)
+    if (!userId || wanted.length === 0) return new Set()
+    const service = (await loadAdmin()).getServiceClient()
+    const rows = await rowsByIds(wanted, (c) => {
+      let q = service.from(table).select('id, workspace_id').in('id', c).is('archived_at', null)
+      if (workspaceId) q = q.eq('workspace_id', workspaceId)
+      return q
+    })
+    if (!rows || rows.length === 0) return new Set()
+    const members = await rowsByIds(uniq(rows.map((r) => r.workspace_id as string)), (c) =>
+      service.from('member').select('workspace_id, role').eq('user_id', userId).in('workspace_id', c),
+    )
+    if (!members) return new Set()
+    const allowed = new Set(members.filter((m) => m.role !== 'guest').map((m) => m.workspace_id as string))
+    return new Set(rows.filter((r) => allowed.has(r.workspace_id as string)).map((r) => r.id as string))
+  }
+}
+
 const FENCES: Record<PrivateGraphKind, Fence> = {
   calendar_event: calendarEventFence,
   team_chat_channel: teamChatChannelFence,
@@ -293,6 +334,8 @@ const FENCES: Record<PrivateGraphKind, Fence> = {
   decision: decisionFence,
   data_table: dataTableFence,
   data_row: dataRowFence,
+  studio_video: studioFence('studio_video'),
+  studio_project: studioFence('studio_project'),
 }
 
 /**
@@ -354,6 +397,8 @@ export const PRIVATE_KIND_LABEL: Record<PrivateGraphKind, string> = {
   decision: 'Decision (private)',
   data_table: 'Table (private)',
   data_row: 'Row (private)',
+  studio_video: 'Video (Studio)',
+  studio_project: 'Studio project',
 }
 
 /**
@@ -361,8 +406,9 @@ export const PRIVATE_KIND_LABEL: Record<PrivateGraphKind, string> = {
  * checked for: every linkable kind some members can't read. The SELECT and
  * INSERT policies on entity_link (migration 501) list exactly these (claims
  * and companies through their set-based hidden sets, the rest through
- * entity_visible_to); a test holds the two equal. Every other linkable kind
- * is every member's.
+ * entity_visible_to); a test holds the two equal. The Studio's two kinds are
+ * the exception: 624 fences their edges with restrictive policies of its own
+ * (migration-624.test.ts). Every other linkable kind is every member's.
  */
 export const LINK_FENCED_KINDS = [
   'document',
@@ -380,6 +426,11 @@ export const LINK_FENCED_KINDS = [
   // Tables (522): a private table's edges, and its rows'.
   'data_table',
   'data_row',
+  // The Studio's: fenced by 624's own restrictive entity_link policies
+  // (studio_entity_visible_to), not in the shared policies' lists; here
+  // they are private kinds, so hiddenGraphRefs asks studioFence.
+  'studio_video',
+  'studio_project',
 ] as const satisfies readonly LinkableEntityType[]
 export type LinkFencedKind = (typeof LINK_FENCED_KINDS)[number]
 

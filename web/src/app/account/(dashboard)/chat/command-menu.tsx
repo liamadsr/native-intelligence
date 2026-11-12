@@ -42,6 +42,7 @@ import {
   CalendarClock,
   CalendarDays,
   CircleCheck,
+  Clapperboard,
   FlaskConical,
   FolderKanban,
   LayoutList,
@@ -174,6 +175,7 @@ const PAGE_ICONS: Record<string, LucideIcon> = {
   browser: AppWindow,
   agents: Boxes,
   teams: Users,
+  studio: Clapperboard,
 }
 
 /** How long Enter typed ahead of the answer waits for it before taking what's there. */
@@ -1002,6 +1004,11 @@ function rowText(item: MenuItem): { title: string; detail: string | null; meta: 
       return { title: row.title, detail: row.parent ? FILE_ON[row.parent.type] : null, meta: row.createdAt ? formatCaptureDate(row.createdAt) : null }
     case 'calendar_event':
       return { title: row.title, detail: eventWhen(row.start, row.allDay), meta: null }
+    case 'studio_video':
+      // A video: its status (draft, review, approved), and where it lives.
+      return { title: row.title, detail: row.status ? statusLabel(row.status) : null, meta: 'Studio' }
+    case 'studio_project':
+      return { title: row.title, detail: null, meta: 'Studio' }
     case 'agent':
       return { title: row.title, detail: row.description, meta: null }
     case 'team_chat_message':

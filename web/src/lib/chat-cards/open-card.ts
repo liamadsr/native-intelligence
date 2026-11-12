@@ -18,7 +18,7 @@
 import { CARD_RECORD_TYPES, MAIL_FOLDERS, isCardSpec, type CardRecordType, type CardSpec, type MailFolder } from './kinds'
 import { calendarRange, localIsoDate } from './calendar'
 import { CARD_PAGES } from './page-menu'
-import type { PagePlace } from './pages'
+import { PAGE_KINDS, type PagePlace } from './pages'
 import type { TasksPlace } from './tasks-places'
 
 /** Asks the dashboard to open a card: `detail` is an OpenCardRequest. */
@@ -115,12 +115,17 @@ export type OpenTarget =
   | { type: 'agent_link'; linkId: string; name?: string | null; exchangeId?: string | null }
   /** Team chat, on a channel or on one message (in its channel, or its thread), scrolled to it. */
   | { type: 'team_chat'; channelId?: string | null; messageId?: string | null }
+  /** The Studio, on one video (on one of its tabs) or one Studio project. */
+  | { type: 'studio_video' | 'studio_project'; id: string; title?: string | null; tab?: string | null }
   | { type: 'page'; slug: string }
 
 export interface TargetCard {
   spec: CardSpec
   seed?: OpenCardSeed
 }
+
+/** A Studio video's tabs (pages.ts). */
+const STUDIO_TABS: readonly string[] = PAGE_KINDS.studio.tabs ?? []
 
 const label = (title: string | null | undefined, fallback: string): string => {
   const t = typeof title === 'string' ? title.replace(/\s+/g, ' ').trim() : ''
@@ -272,6 +277,19 @@ export function cardForTarget(target: OpenTarget, now: Date = new Date()): Targe
       return { spec: { kind: 'teams', title: label(target.title, 'Team'), target: { type: 'team', id: target.id, label: label(target.title, 'Team') } } }
     case 'team_board':
       return { spec: { kind: 'team_board', title: label(target.title, 'Team board'), target: { type: 'team', id: target.id, label: label(target.title, 'Team') } } }
+    case 'studio_video':
+    case 'studio_project': {
+      const noun = target.type === 'studio_video' ? 'Video' : 'Studio project'
+      const tab = target.type === 'studio_video' && target.tab && STUDIO_TABS.includes(target.tab) ? target.tab : null
+      return {
+        spec: {
+          kind: 'studio',
+          title: label(target.title, noun),
+          target: { type: target.type, id: target.id, label: label(target.title, noun) },
+          ...(tab ? { tab } : {}),
+        },
+      }
+    }
     case 'work_item':
       // Not a record: a work item with a teammate opens on its bot's page
       // (useOpenWorkItem); one with none lands on its own card.
@@ -332,4 +350,19 @@ export const PAGE_DEEP_LINK_PARAM = 'page'
 
 export function pageDeepLink(slug: string): string {
   return `/account?${PAGE_DEEP_LINK_PARAM}=${encodeURIComponent(slug)}`
+}
+
+/**
+ * A page's deep link may name a place inside it, beside `?page=`: the Studio
+ * on one video (`/account?page=studio&video=<id>`, the link get_studio_video
+ * hands out) or one Studio project (`&studio_project=<id>`). Uuids only, as
+ * every deep link (main-chat-context.tsx deepLinkCard).
+ */
+export const PAGE_DEEP_LINK_PLACES: Readonly<Record<string, Readonly<Record<string, 'studio_video' | 'studio_project'>>>> = {
+  studio: { video: 'studio_video', studio_project: 'studio_project' },
+}
+
+/** The Studio's link on one video, as get_studio_video hands it out. */
+export function studioVideoLink(videoId: string): string {
+  return `${pageDeepLink('studio')}&video=${encodeURIComponent(videoId)}`
 }

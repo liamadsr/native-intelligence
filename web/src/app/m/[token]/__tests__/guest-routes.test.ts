@@ -276,7 +276,10 @@ describe('the lobby', () => {
     tables.meeting_guest.push({ id: GUEST, state: 'waiting' })
     const good = cookieFor()
     const [id, exp, mac] = good.split('.')
-    const bad = [null, `${id}.${exp}.${mac.slice(0, -1)}A`, `${id}.${Date.now() - 1}.${mac}`, signGuestCookie(meetingToken('99999999-9999-4999-8999-999999999999', NONCE), GUEST, new Date(Date.now() + 60_000)).value]
+    // Tampered at its first character, which is always another signature. Its last
+    // one is "A" one time in sixteen, so "ends in A" left the cookie as it was that often.
+    const tampered = `${mac[0] === 'A' ? 'B' : 'A'}${mac.slice(1)}`
+    const bad = [null, `${id}.${exp}.${tampered}`, `${id}.${Date.now() - 1}.${mac}`,signGuestCookie(meetingToken('99999999-9999-4999-8999-999999999999', NONCE), GUEST, new Date(Date.now() + 60_000)).value]
     for (const cookie of bad) {
       const res = await lobby(req('GET', 'lobby', { cookie }), params())
       expect(res.status).toBe(401)

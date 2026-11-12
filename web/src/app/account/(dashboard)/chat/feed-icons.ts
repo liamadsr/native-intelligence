@@ -12,7 +12,9 @@ import {
   Building2,
   CalendarDays,
   CircleCheck,
+  Clapperboard,
   FileText,
+  Film,
   FolderKanban,
   Handshake,
   Hash,
@@ -36,6 +38,8 @@ export const RECORD_ICONS: Partial<Record<MenuSearchRow['kind'], LucideIcon>> = 
   flow: Workflow,
   attachment: Paperclip,
   calendar_event: CalendarDays,
+  studio_video: Film,
+  studio_project: Clapperboard,
   agent: Boxes,
   team_chat_message: Hash,
 }

@@ -25,8 +25,12 @@ function rule(name: string, clause: 'using' | 'with check'): string {
 }
 
 const SET_KINDS = ['claim', 'company']
-/** Kinds a later migration fences: tables and their rows (522, ./migration-522.test.ts). */
-const LATER = ['data_table', 'data_row']
+/**
+ * Kinds fenced elsewhere: tables and their rows by a later migration (522,
+ * ./migration-522.test.ts), the Studio's by 624's own restrictive policies,
+ * never these lists (migration-624.test.ts).
+ */
+const LATER = ['data_table', 'data_row', 'studio_video', 'studio_project']
 
 describe('migration 501: graph edges after review', () => {
   it('holds no backslash and reloads the API schema', () => {

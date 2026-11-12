@@ -155,6 +155,8 @@ export interface ChatSystemContext {
   attachedFlowIds?: string[]
   attachedFileIds?: string[]
   attachedCalendarEventIds?: string[]
+  /** Studio videos the user @-mentioned this turn (§6h, for a member who may use the Studio). */
+  attachedStudioVideoIds?: string[]
   conversationContext?: string
   /** The email thread on screen, by its provider thread id (Mail's location). */
   emailThreadId?: string
@@ -653,7 +655,7 @@ export async function buildChatSystemPrompt(
             }),
           )
         : null,
-      // §6h. The tasks, docs, projects, initiatives, deals, flows, files and events mentioned (each read fenced in the builder).
+      // §6h. The tasks, docs, projects, initiatives, deals, flows, files, events and Studio videos mentioned (each read fenced in the builder).
       hasMentionedRecordIds(mentionedRecordIds)
         ? withinMentionBudget(() => buildMentionedRecordsBlock(supabase, { workspaceId, userId, ...mentionedRecordIds }))
         : null,

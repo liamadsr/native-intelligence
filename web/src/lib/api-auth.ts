@@ -217,8 +217,10 @@ export async function requireUser(): Promise<AuthContext | Response> {
  * If the request carries a device token, return the workspace it's pinned to.
  * Stateless (re-reads the header), so it's safe under concurrency — no shared
  * module state between overlapping requests. Returns null for non-device auth.
+ * Exported for routes that take the workspace from their path (the Studio's
+ * file links): a pinned token reaches its own workspace only.
  */
-async function deviceTokenWorkspace(): Promise<string | null> {
+export async function deviceTokenWorkspace(): Promise<string | null> {
   try {
     const headerStore = await headers()
     const authHeader = headerStore.get('authorization')

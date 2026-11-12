@@ -38,6 +38,7 @@ import {
   type TeamCallView,
 } from './types'
 import { cancelRingPushes, liveRingPushDeps } from './ring-push'
+import { requestTeamCallEjections } from './eject'
 
 // ── As the person ───────────────────────────────────────────────────────────
 
@@ -181,7 +182,11 @@ export interface MissedRing {
  * them written next (requestNotesFinish; never throws). The phones still
  * ringing for the missed rings are stopped (./ring-push.ts: each ring's
  * cancel, once, when it was pushed), started here and never waited on: a
- * slow Apple never holds a hang-up or a webhook.
+ * slow Apple never holds a hang-up or a webhook. Its room closes now: 589's
+ * trigger put it on the eject outbox as the call ended, and its drain is
+ * asked for here (and runs every minute until LiveKit takes it), so nobody
+ * sits in a dead room; the recorder in it delivers its last words on the
+ * way out.
  */
 export async function endCall(
   svc: SupabaseClient,
@@ -189,11 +194,13 @@ export async function endCall(
   reason: TeamCallEndReason,
   at: Date = new Date(),
   stopPhones: (ringIds: string[]) => Promise<unknown> = (ringIds) => cancelRingPushes(liveRingPushDeps(svc), { ringIds }),
+  closeRooms: () => Promise<unknown> = () => requestTeamCallEjections(),
 ): Promise<MissedRing[]> {
   const { data, error } = await svc.rpc('team_call_end', { target_call: callId, end_reason: reason, end_at: at.toISOString() })
   if (error) throw new Error(`team calls: end failed: ${error.message}`)
   const missed = (data ?? []) as MissedRing[]
   if (missed.length > 0) void stopPhones(missed.map((r) => r.ring_id)).catch(() => undefined)
+  void closeRooms().catch(() => undefined)
   await requestNotesFinish(svc, callId)
   return missed
 }

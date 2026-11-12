@@ -25,9 +25,35 @@
  * (bindings/vercel.js vercelIdentityOptions). They log the APP in to the
  * service; nothing of them enters the sandbox. Everything below that says "on
  * Vercel" holds for that mode too: the selector cannot tell the two apart. Only
- * with none of the three set off Vercel does eve's DefaultSandbox run (the "OFF
- * VERCEL" section). eve prepares the snapshot at `eve build`, so the build must
+ * with none of the three (and not the own runtime, below) set off Vercel does
+ * eve's DefaultSandbox run (the "OFF VERCEL" section). eve prepares the snapshot at `eve build`, so the build must
  * see the same three (deploy/app/build-agents.sh).
+ *
+ * A THIRD WAY, PRODUCTION'S SINCE 2026-11-12: our own sandbox runtime on the sandbox server
+ * (lib/runtime-sandbox.ts, provider `ni-runtime`), when
+ * SANDBOX_RUNTIME_API_URL and SANDBOX_RUNTIME_TRAFFIC_URL are set (with
+ * SANDBOX_RUNTIME_TEMPLATE, default ni-coding-agent; the key,
+ * SANDBOX_RUNTIME_KEY, is read only when a sandbox starts, so the build needs
+ * none). It TAKES PRECEDENCE over the hosted sandbox: with both sets present
+ * the coding agent uses the own runtime, and the hosted three are not even
+ * read for it (they stay in the environment for the cloud browser, which
+ * reads the same names, until it moves too). Only the own runtime on the
+ * hosted platform (VERCEL) refuses to load, and so does one URL without the
+ * other. With those settings empty nothing uses it; deploy/README.md ("The
+ * coding agent") says what has been proven on it. On it:
+ *   - the network policy is a CREATION option (open() passes it to the
+ *     runtime's create call; nothing narrows or widens it afterwards), so a
+ *     narrowed run is never open, not even for a moment, and a policy the
+ *     runtime refuses fails the creation and so the run;
+ *   - there is no broker: the runtime stores per-host header rules without
+ *     applying them, so the policy carries none (the provider throws on one)
+ *     and the gate token takes the unbrokered route below (clone env, then
+ *     git config), like any other provider's;
+ *   - that token would then sit in the sandbox, so the run starts ONLY when the
+ *     app's git gate accepts gate tokens solely from the sandbox server's
+ *     addresses (AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES on the app's side, which
+ *     the spec reports as `gitGateAddressBound`). Otherwise the selector refuses
+ *     the run before anything is opened, at every network level.
  *
  * ── EGRESS: WHY THIS IS ENFORCED, NOT ASSUMED (the security-critical part) ──
  * On Vercel the selector opens the session sandbox with
@@ -133,7 +159,8 @@
  *
  * ── OFF VERCEL, WITHOUT THE HOSTED SANDBOX'S SETTINGS ──────────────────────
  * The provider is chosen from `process.env.VERCEL` (as eve's own DefaultSandbox
- * chooses) and the three settings, read when the module loads, at `eve build`
+ * chooses) and the settings above (the own runtime's pair first, then the
+ * hosted three), read when the module loads, at `eve build`
  * and at runtime alike; deploy/app/entrypoint.sh refuses to start an agent whose
  * build chose differently. Without them we use DefaultSandbox (Docker, else microsandbox, else just-bash),
  * whose typed handle hides provider capabilities, and apply the same policy
@@ -153,8 +180,9 @@
  *   - a `trusted` run already asks for allow-all egress; it proceeds with a
  *     beat, and clone/fetch/push use the "any other provider" gate token path
  *     described above.
- *     (Outside eve dev the beat names the three settings: a container whose
- *     sandbox is just-bash cannot run git at all.)
+ *     (Outside eve dev the beat names the settings that would give it a
+ *     policy-capable sandbox: a container whose sandbox is just-bash cannot
+ *     run git at all.)
  *   - a session with NO spec asks for `deny-all`; off Vercel that is applied
  *     through the setter too, best-effort (a failure is logged and beaten, and
  *     the sandbox has nothing to clone and no credential in it either way).
@@ -167,6 +195,7 @@ import {
   type SandboxSession,
 } from 'eve/sandbox'
 import { VercelSandbox } from 'eve/sandbox/vercel'
+import { RuntimeSandbox } from './lib/runtime-sandbox.js'
 import {
   fetchEveSpec,
   gitGateUrl,
@@ -904,8 +933,61 @@ export function hostedSandboxCredentials(
   return { token, teamId, projectId }
 }
 
-/** Off Vercel only: on Vercel the deployment's own credentials are used, as before. */
-const HOSTED_CREDENTIALS = ON_VERCEL ? null : hostedSandboxCredentials()
+/**
+ * The settings that put this agent's sandbox on our own runtime (see this
+ * file's header): its API and the traffic to its sandboxes, both over the
+ * private tunnel to the sandbox server. deploy/app/build-agents.sh reads the
+ * same names.
+ */
+export const RUNTIME_URL_ENVS = ['SANDBOX_RUNTIME_API_URL', 'SANDBOX_RUNTIME_TRAFFIC_URL'] as const
+/** The template sandboxes start from (the sandbox server builds it, deploy/sandbox). */
+export const RUNTIME_TEMPLATE_ENV = 'SANDBOX_RUNTIME_TEMPLATE'
+export const DEFAULT_RUNTIME_TEMPLATE = 'ni-coding-agent'
+
+/**
+ * The own runtime's settings: both URLs (trimmed) and the template, or null
+ * when neither URL is set. One URL without the other throws (at module load,
+ * so at `eve build` and when the agent starts), as a partial hosted set does.
+ * The key is not read here: the provider reads SANDBOX_RUNTIME_KEY when it
+ * starts a sandbox, so the build needs no secret.
+ */
+export function ownRuntimeSettings(
+  env: NodeJS.ProcessEnv = process.env,
+): { apiUrl: string; trafficUrl: string; template: string } | null {
+  const [apiUrl, trafficUrl] = RUNTIME_URL_ENVS.map((name) => env[name]?.trim() || '')
+  if (!apiUrl && !trafficUrl) return null
+  const missing = RUNTIME_URL_ENVS.filter((_, i) => ![apiUrl, trafficUrl][i])
+  if (missing.length) {
+    throw new Error(`coding-agent sandbox: ${missing.join(', ')} not set (both of ${RUNTIME_URL_ENVS.join(', ')}, or neither)`)
+  }
+  return { apiUrl, trafficUrl, template: env[RUNTIME_TEMPLATE_ENV]?.trim() || DEFAULT_RUNTIME_TEMPLATE }
+}
+
+const OWN_RUNTIME = ownRuntimeSettings()
+if (OWN_RUNTIME && ON_VERCEL) {
+  throw new Error(
+    `coding-agent sandbox: the own runtime's settings (${RUNTIME_URL_ENVS.join(', ')}) cannot be used on the hosted platform`,
+  )
+}
+
+/**
+ * The hosted sandbox's credentials, off Vercel (on Vercel the deployment's own
+ * are used, as before), and only when the own runtime is NOT chosen: with it,
+ * the three belong to the cloud browser alone (it reads the same names), so
+ * they are not read here at all, and a partial set is not this agent's
+ * failure.
+ */
+const HOSTED_CREDENTIALS = ON_VERCEL || OWN_RUNTIME ? null : hostedSandboxCredentials()
+
+/**
+ * Our own runtime (`ni-runtime`), when its settings are set: `open()` takes the
+ * network policy, which the provider makes a creation option. No credential
+ * is passed here: the key is read when a sandbox starts.
+ */
+const runtimeEnvironment = OWN_RUNTIME ? RuntimeSandbox.environment(OWN_RUNTIME) : null
+
+/** The setting the app's git gate must have before a run may start on our own runtime. */
+export const GIT_GATE_ADDRESSES_SETTING = 'AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES'
 
 /**
  * Hosted: a dedicated Vercel environment, so `open()` accepts `networkPolicy`
@@ -918,20 +1000,21 @@ const HOSTED_CREDENTIALS = ON_VERCEL ? null : hostedSandboxCredentials()
  * eve hands them to every Sandbox.create/get/delete it makes for this agent.
  */
 const vercelEnvironment =
-  ON_VERCEL || HOSTED_CREDENTIALS
+  !OWN_RUNTIME && (ON_VERCEL || HOSTED_CREDENTIALS)
     ? VercelSandbox.environment({ networkPolicy: 'deny-all', ...HOSTED_CREDENTIALS })
     : null
 
 /** Local dev: eve's default selection (Docker → microsandbox → just-bash). */
-const localEnvironment = vercelEnvironment ? null : DefaultSandbox.environment()
+const localEnvironment = vercelEnvironment || runtimeEnvironment ? null : DefaultSandbox.environment()
 
-export const environment = vercelEnvironment ?? localEnvironment!
+export const environment = vercelEnvironment ?? runtimeEnvironment ?? localEnvironment!
 
 /**
  * Open this session's sandbox with its egress policy applied AT CREATION
- * (Vercel), or off Vercel through the provider's setter (see this file's
- * header). `credentialBrokered` says whether the firewall injects the git
- * gate token (the hosted sandbox only: elsewhere the policy carries none).
+ * (Vercel, and our own runtime), or otherwise through the provider's setter
+ * (see this file's header). `credentialBrokered` says whether the firewall
+ * injects the git gate token (the hosted sandbox only: elsewhere the policy
+ * carries none).
  */
 async function openSessionSandbox(
   spec: EveSpec | null,
@@ -940,6 +1023,10 @@ async function openSessionSandbox(
   const policy = requireDefinedNetworkPolicy(sessionNetworkPolicy(spec))
   if (vercelEnvironment) {
     return { sandbox: await vercelEnvironment.open({ networkPolicy: policy }), credentialBrokered: true }
+  }
+  if (runtimeEnvironment) {
+    // A creation option: a policy the runtime refuses fails the open, and so the run.
+    return { sandbox: await runtimeEnvironment.open({ networkPolicy: policy }), credentialBrokered: false }
   }
   const sandbox = await localEnvironment!.open()
   const failure = await applyLocalPolicy(sandbox, policy)
@@ -969,7 +1056,7 @@ async function openSessionSandbox(
 }
 
 /** What an operator sets to give this agent a sandbox that enforces its policy. */
-const HOSTED_SANDBOX_HINT = `set ${SANDBOX_CREDENTIAL_ENVS.join(', ')} to run it on the hosted sandbox, then build the agents again`
+const HOSTED_SANDBOX_HINT = `set ${RUNTIME_URL_ENVS.join(' and ')} to run it on our own sandbox runtime, or ${SANDBOX_CREDENTIAL_ENVS.join(', ')} to run it on the hosted sandbox, then build the agents again`
 
 /**
  * Whether a narrowed (`restricted` / `isolated`) run may degrade to open
@@ -1017,6 +1104,19 @@ export default defineSandbox(async ({ session }) => {
   if (spec && !gateUrl) {
     await beat(runToken, "Refusing to run: the app's public address (NEXT_PUBLIC_APP_URL) isn't set, so this run couldn't clone its repository or push its change.")
     throw new Error('coding-agent sandbox: NEXT_PUBLIC_APP_URL is not set, so the git gate has no public origin')
+  }
+  // On our own runtime the gate token will sit in the sandbox (there is no
+  // broker), so it must be useless anywhere else: the app's git gate has to
+  // accept it only from the sandbox server's addresses. Refused before anything
+  // opens, so nothing that carries the token reaches a sandbox.
+  if (spec && runtimeEnvironment && spec.gitGateAddressBound !== true) {
+    await beat(
+      runToken,
+      `Refusing to run: the app's git gate does not yet accept this run's credential only from the sandbox server (${GIT_GATE_ADDRESSES_SETTING} is not set on the app's side).`,
+    )
+    throw new Error(
+      `coding-agent sandbox: ${GIT_GATE_ADDRESSES_SETTING} is not set on the app's side, so the git gate token would work from anywhere: refusing to run on the own runtime`,
+    )
   }
 
   // No spec (unknown/expired token, route down, or the localDev smoke path with

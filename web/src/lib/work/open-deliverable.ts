@@ -57,6 +57,9 @@ export function deliverableTarget(d: WorkDeliverable, ctx: DeliverableContext = 
       return { kind: 'flow_run', runId: d.id }
     case 'flow_run':
       return { kind: 'flow_run', runId: d.id }
+    case 'studio_video':
+      // The Studio, on the video (its download link rides on `url`, shown beside it).
+      return { kind: 'card', target: { type: 'studio_video', id: d.id, title: d.label } }
   }
 }
 

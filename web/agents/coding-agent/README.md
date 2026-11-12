@@ -84,6 +84,51 @@ token as a one-shot env, then it sits in the repo's git config for the gate URL
 only; a local sandbox must be able to reach the app even to clone (there is no
 fallback that clones from GitHub directly).
 
+### Three ways the sandbox can run
+
+`sandbox.ts` picks one when the module loads, from settings read at `eve build`
+and at run time alike (the build and the running agent must agree;
+`deploy/app/build-agents.sh` and `entrypoint.sh` check that they do):
+
+1. **The hosted sandbox service** (provider `vercel`): on that platform, or off it
+   with `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and `SANDBOX_PROJECT_ID`. The policy
+   is a creation option and the firewall injects the gate token ("brokered"), so the
+   token never exists in the sandbox. This is what production used until 2026-11-12.
+2. **Our own runtime on the sandbox server** (provider `ni-runtime`,
+   `lib/runtime-sandbox.ts`, over E2B's open-source runtime): with
+   `SANDBOX_RUNTIME_API_URL` and `SANDBOX_RUNTIME_TRAFFIC_URL` (plus
+   `SANDBOX_RUNTIME_TEMPLATE`, default `ni-coding-agent`, and the key,
+   `SANDBOX_RUNTIME_KEY`, read only when a sandbox starts). The policy is a
+   creation option too, but this runtime stores header rules without applying
+   them, so there is no broker: the gate token takes the unbrokered route (clone
+   env, then git config). A run starts here only when the spec says the app's git
+   gate accepts that token solely from the sandbox server's addresses
+   (`gitGateAddressBound`, from `AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES` on the app's
+   side); otherwise it is refused before anything opens. It takes precedence over
+   the first way: the two sets of settings may be set together, and then the coding
+   agent uses this one and does not read the hosted three, which stay for the cloud
+   browser (it reads the same names) until that moves too. Only this one on the
+   hosted platform, or one URL without the other, refuses to load.
+   **What production uses since 2026-11-12** (the settings on the server, a build
+   and a roll-out). `scripts/runtime-conformance.mts` has passed against the real
+   runtime and a sandbox has been started from production's container; no whole
+   coding run has been watched on it yet (`deploy/README.md`, "The coding agent").
+   Two things this runtime does differently from the hosted one, both seen on it:
+   - A narrowed level (`restricted`, `isolated`) is a list of allowed names, and
+     with any name allowed the runtime leaves the sandbox's resolver (8.8.8.8)
+     open to it on every port. Nothing else off the list is reachable, an allowed
+     name cannot be used as a mask for another server, and a bare address is
+     refused; but any name can be looked up, so data can leave through lookups,
+     slowly. Until that is closed (`deploy/sandbox/README.md`, "Known gaps"),
+     `isolated` on this runtime does not mean "nothing gets out".
+   - A sandbox lives 60 minutes from the agent's last use of it and six hours in
+     all, and is then removed with what is in it. The hosted one is stopped and
+     kept instead. A run whose agent is away for an hour loses its sandbox and
+     fails at its next step, saying so.
+3. **eve's `DefaultSandbox`** (Docker → microsandbox → just-bash) with none of
+   them: local development. Narrowed runs fail closed when the provider cannot
+   apply the policy.
+
 ### What the push gate guarantees, and what it doesn't
 
 No push from the sandbox can move any ref but the run's own `dial8/…` branch:

@@ -2,7 +2,7 @@
 
 import { createContext, memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
-import { AlertCircle, ArrowUp, AudioLines, Building2, CalendarDays, CircleCheck, FileText, FolderKanban, FolderOpen, ImageIcon, Lock, MousePointerClick, Paperclip, Plus, Target, User, Workflow, Handshake, X, type LucideIcon } from 'lucide-react'
+import { AlertCircle, ArrowUp, AudioLines, Building2, CalendarDays, CircleCheck, FileText, Film, FolderKanban, FolderOpen, ImageIcon, Lock, MousePointerClick, Paperclip, Plus, Target, User, Workflow, Handshake, X, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { registerReloadBlocker } from '@/lib/deploy-reload'
@@ -145,6 +145,7 @@ const RECORD_CHIP_ICONS: Record<MentionRecordKind, LucideIcon> = {
   flow: Workflow,
   attachment: Paperclip,
   calendar_event: CalendarDays,
+  studio_video: Film,
 }
 
 /**

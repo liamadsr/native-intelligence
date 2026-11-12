@@ -145,7 +145,8 @@ describe('migration 329', () => {
 
   it('writes an area only when it is a registered one (registry.ts AREA_KEYS), as appendLogLine does', () => {
     const keys = /when tj\.area in \(([^)]*)\) then tj\.area end as area/.exec(BODY)?.[1].split(',').map((k) => k.trim().replace(/'/g, ''))
-    expect(keys).toEqual([...PAGE_AREAS])
+    // The page areas of its day: this backfill ran once, before the Studio (620) had an area of its own.
+    expect(keys).toEqual(PAGE_AREAS.filter((area) => area !== 'studio'))
   })
 
   it('leaves out what the live filter leaves out: quiet rows, children, housekeeping kinds, the drafts pass but for drafts made', () => {

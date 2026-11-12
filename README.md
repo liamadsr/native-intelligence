@@ -88,6 +88,7 @@ with all its complexity, until it simply does things for you the way you expect.
 | Meetings | The desktop, iPhone and Apple Watch apps record and transcribe your meetings, then pull out the actions, decisions and commitments. | [Captures &rarr;](https://dial8.ai/docs/features/captures) |
 | Tasks and projects | Tasks with custom workflows and team identifiers (`ENG-42`), grouped into projects, milestones, cycles and initiatives. | [Actions &rarr;](https://dial8.ai/docs/features/actions) |
 | Documents | Rich documents you and the agent write together, with @mentions to anything in the workspace. | [Documents &rarr;](https://dial8.ai/docs/features/documents) |
+| Studio | Make videos and ads: write a script, record your screen and camera, edit on a timeline and export for each platform, with the agent's help. | [Studio &rarr;](https://dial8.ai/docs/features/studio) |
 | CRM | Contacts, companies and their whole history, built from your email, calendar and meetings, including who said what on a call. | [CRM &rarr;](https://dial8.ai/docs/features/contacts-and-crm) |
 | Prospecting | Find prospects, build lists, and run outreach sequences, with the agent writing each message. | |
 | Search and views | Full-text and semantic search across everything, and saved views as lists or boards. | [Search &rarr;](https://dial8.ai/docs/features/search) |

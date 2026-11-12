@@ -190,7 +190,7 @@ export function appendMention(value: string, text: string): { value: string; car
 // ── What the menu lists ─────────────────────────────────────────────────────
 
 /** The record kinds, as the menu's sections name them. */
-export type RecordMenuKind = 'actions' | 'docs' | 'projects' | 'initiatives' | 'captures' | 'people' | 'companies' | 'deals' | 'flows' | 'files' | 'events' | 'agents' | 'messages'
+export type RecordMenuKind = 'actions' | 'docs' | 'projects' | 'initiatives' | 'captures' | 'people' | 'companies' | 'deals' | 'flows' | 'files' | 'events' | 'videos' | 'studio_projects' | 'agents' | 'messages'
 /**
  * `record_actions`: the actions on the record whose card is in front. `inbox`
  * and `recent`: the palette's first view, from the activity feed (what
@@ -218,6 +218,8 @@ export const TAB_LABELS: Record<MenuTab, string> = {
   flows: 'Flows',
   files: 'Files',
   events: 'Events',
+  videos: 'Videos',
+  studio_projects: 'Studio projects',
   agents: 'Agents',
   messages: 'Messages',
 }
@@ -258,6 +260,8 @@ export const SEARCH_KIND: Record<RecordMenuKind, MenuSearchKind> = {
   flows: 'flow',
   files: 'attachment',
   events: 'calendar_event',
+  videos: 'studio_video',
+  studio_projects: 'studio_project',
   agents: 'agent',
   messages: 'team_chat_message',
 }
@@ -273,6 +277,8 @@ export const MENU_KIND: Record<MenuSearchKind, RecordMenuKind> = {
   flow: 'flows',
   attachment: 'files',
   calendar_event: 'events',
+  studio_video: 'videos',
+  studio_project: 'studio_projects',
   agent: 'agents',
   team_chat_message: 'messages',
 }
@@ -410,9 +416,9 @@ export function verbFor(trigger: MenuTrigger, item: MenuItem): MenuVerb {
 }
 
 /** The kinds in order: tabs keep these places, and a tie between two kinds' best rows keeps it. */
-const ORDER: readonly MenuKind[] = ['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'agents', 'messages']
+const ORDER: readonly MenuKind[] = ['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'videos', 'studio_projects', 'agents', 'messages']
 /** `@`'s: the records first (`@ma` is Maya before a skill named like her), its skills last. */
-const AT_ORDER: readonly MenuKind[] = ['people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'skills']
+const AT_ORDER: readonly MenuKind[] = ['people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'videos', 'studio_projects', 'skills']
 /** What each shows before anything is typed, in this order: recent people first. */
 const LEADS: Record<MenuTrigger, readonly MenuKind[]> = {
   '/': ['people', 'pages', 'skills'],

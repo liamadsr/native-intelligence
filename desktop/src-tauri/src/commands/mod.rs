@@ -5,6 +5,7 @@ pub mod files;
 pub mod hud;
 pub mod notifications;
 pub mod recording;
+pub mod studio_recorder;
 pub mod system;
 pub mod tray;
 pub mod window;

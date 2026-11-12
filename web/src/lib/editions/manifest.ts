@@ -74,6 +74,7 @@ export type EditionView =
   | 'campaigns'
   | 'prospecting'
   | 'evals'
+  | 'studio'
 
 /** The five editions. `full` is the default and reproduces today's behavior. */
 export type EditionId = 'full' | 'sales' | 'notes' | 'brain' | 'service'
@@ -142,6 +143,7 @@ export type FeatureKey =
   | 'prospecting'
   | 'evals'
   | 'browser'
+  | 'studio'
 
 export interface FeatureDefinition {
   id: FeatureKey
@@ -486,6 +488,54 @@ export const FEATURES: Record<FeatureKey, FeatureDefinition> = {
     // feature so a workspace with it off never lists it.
     systemRecipeIds: ['eec790ec-399f-416d-8189-c883859ba8c3'],
   },
+
+  // Studio (migration 620): Studio projects group videos, each one edit the
+  // editor and the agent write through the same checked path
+  // (src/lib/studio/). On by default, like Documents: every edition gets it.
+  studio: {
+    id: 'studio',
+    label: 'Studio',
+    description: 'Make videos and ads: record, script, storyboard, edit and export.',
+    views: ['studio'],
+    extraAllowedViews: [],
+    toolCategories: ['studio'],
+    // A video is made on purpose, never conjured by a meeting.
+    autoCreateEntities: [],
+    requires: [],
+    // The Studio skills (migration 621, refreshed and extended by 626): the playbook, then its task skills.
+    systemRecipeIds: [
+      '954c76ec-ab39-4066-af50-7bdfb4a15a82', // studio-playbook
+      '586ac29a-3ea9-44ed-a21c-03f1d5850570', // studio-editing-layers
+      '09a42a42-bcc7-4e1e-8aea-cde5f7410df6', // studio-picture-and-shots
+      '748fabfb-99c8-40f6-a43c-6bf74921fb75', // studio-motion-design
+      '99e78d7c-4e13-4cff-8fba-75aea2cd7060', // studio-motion-particles
+      'f4b1b4cc-ab0b-4e91-b49b-d3111e0b02ff', // studio-motion-recipes
+      'ddd132e7-05d6-490b-a1b8-6fda277f6287', // studio-type-and-graphics
+      '6890489d-e8a8-4712-9d5d-35e9633b323a', // studio-brand
+      'edbcbdcc-5101-4c9a-b89f-7f9d51fea9d6', // studio-script-writing
+      'dc4e61f5-a966-4120-9a63-e770725696c5', // studio-storyboard
+      '470a6a9c-ef31-4d9f-a43c-b64d30717e8e', // studio-style-packs
+      '651c4102-eaef-4a56-ae51-bbb4afb995d3', // studio-style-pack-editorial-archival
+      '8cf5a3ee-ab8b-4dcb-ac70-5ca6e9da1ad8', // studio-style-pack-paper-collage
+      '4390a45d-766e-4487-af0a-808223245a91', // studio-style-pack-orbital
+      '9499a35b-bacb-462d-aad9-7168668fa405', // studio-style-pack-warm-loft
+      '73c5576d-701d-49d4-bdd8-4fb40df9a7c4', // studio-reference-to-style-pack
+      '399c0258-a53f-4ac5-b4b4-97ebbcaa5e4c', // studio-review
+      'd7dd9d4f-f7af-4722-9e8c-e7daf930d159', // studio-match-a-reference
+      '630f44d7-164d-46bc-a5d4-723558173211', // studio-motion-ads
+      'ecb5d367-acbe-4fcf-a863-30b3332eb2ca', // studio-generated-shots
+      'cd6753b1-db8f-42cb-aab1-21620b411f24', // studio-sound
+      'b310d743-be33-49dd-85ef-1655cd5b7f14', // studio-scene-design
+      '6ed3b2eb-8d15-46b7-9717-23f36d698f85', // studio-product-ui
+      'f78898eb-1f33-4cc2-974a-6f7986e5070e', // studio-product-onboarding
+      // Migration 626: the task skills for what the Studio gained since.
+      'ff3c1bc7-de70-4e91-9201-37b79d1d0c03', // studio-static-ads
+      '808be34a-c35f-4976-abf7-8f19066e30d9', // studio-reels
+      'd1c1868a-529c-420c-9e65-86ce43b64050', // studio-narration
+      'eca4a2dd-7410-43c5-bddc-477d2f1d7da1', // studio-measured-checks
+      'c1ae523f-83c4-4a7e-9dff-3286f38cd4d4', // studio-director-and-cut-outs
+    ],
+  },
 }
 
 export const FEATURE_KEYS = [
@@ -502,6 +552,7 @@ export const FEATURE_KEYS = [
   'prospecting',
   'evals',
   'browser',
+  'studio',
 ] as const satisfies readonly FeatureKey[]
 
 /**

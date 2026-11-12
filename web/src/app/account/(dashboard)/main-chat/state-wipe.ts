@@ -31,7 +31,9 @@
 // bar (`ni:rail-pages`; the account keeps the real ones,
 // lib/account-setting.ts), so the next account to sign in starts
 // on the default rather than the last one's, and a desktop HUD still open
-// drops it at once.
+// drops it at once. And what the Studio keeps on a device (`ni:studio:*`): the
+// unsaved copy of an edit it holds for recovery (a video's whole document),
+// the page each video was left on, and its recording and layout choices.
 const WIPE_KEY_PREFIXES = [
   'ni-chat:',
   'ni-tabs',
@@ -42,6 +44,7 @@ const WIPE_KEY_PREFIXES = [
   'ni:agent-look',
   'ni:voice:assistant-name',
   'ni:rail-pages',
+  'ni:studio:',
 ] as const
 // TODO(rename-compat): the same keys under their names from before the rename. The storage
 // rename script leaves the old keys beside the new ones for a release

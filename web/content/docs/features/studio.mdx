@@ -1,0 +1,90 @@
+---
+title: Studio
+description: Make videos and ads in your workspace, from a script to a finished MP4.
+---
+
+The Studio is where you make videos in Native Intelligence: product walkthroughs, launch clips, short ads for each platform. You write what the video says, record or generate what it shows, edit it on a timeline, and export an MP4. The agent can do any of these steps with you.
+
+Open it from the `/` menu (**Studio**). The Studio is for members of the workspace; a workspace guest can't open it.
+
+## Studio projects and videos
+
+A **video** is one edit: its timeline, layers, sound, storyboard and cast. A **Studio project** groups the videos you make with the same people, brand and media, such as a launch, a season, or one client's ads.
+
+- Each Studio project has a title, a client, notes and a brand (a name, colors, fonts and a logo). A new Studio project starts with your workspace's name as its brand name, and your workspace logo's link in its notes.
+- A video in a Studio project can be marked **Draft**, **Review** or **Approved**.
+- Every video keeps its earlier versions. Each change the agent makes is saved as a version first, so you can go back to the one before.
+- Deleting a video moves it to the trash. Media in the library is kept.
+
+Videos and Studio projects are records like any other in your workspace. You can find them from the `/` menu or ⌘K, @mention them in the chat and in team chat, make a task about one, and copy a link that opens the Studio on it.
+
+## From a script to an export
+
+Most videos follow the same path:
+
+1. **Script.** What the video says, as beats. Each beat is a block of text, separated by a blank line, and may start with its length and a name: `[5s] Hook: Your inbox, finally quiet.` On a video's **Overview**, **Use a document…** turns one of your workspace documents into the script, one beat per paragraph, word for word. **Open as a document** puts the script in a new document, linked to the video, so your team can edit and comment on it there.
+2. **Storyboard.** **Start from the script** makes one storyboard beat per script beat. Each beat says what is said and what is shown, and who is in it (the **Cast**).
+3. **Record or generate.** Record a beat yourself (see below), import a file, or, where your workspace has it set up, generate a shot or a voiceover for a beat.
+4. **Edit.** Arrange clips, zooms, text and layers on the timeline.
+5. **Export.** Render the video to an MP4 for the platform you chose.
+
+## Recording
+
+You record from the Storyboard, one beat or several at a time.
+
+- **In the desktop app**, the Studio records your screen (a display, an app or a window), your camera and your microphone, each as its own file. It also keeps where your pointer was and where you clicked, so the editor can zoom in on the clicks and draw a clean pointer over the recording.
+- **In a browser**, the Studio records through the browser's own screen share, with your camera and microphone. A browser can't see your pointer or clicks outside the page, so a browser recording has no click zooms.
+
+A teleprompter can show the beat's script while you record. Finished recordings go into the workspace's media library and onto their beats.
+
+## The editor
+
+The editor has three main parts:
+
+- **Preview**: the video as it will look, in the shape of the format you chose.
+- **Timeline**: the video's lanes, one above the other: clips, zooms, shots, text and other layers, and sound. Drag to move or trim, and select an item to change it.
+- **Inspector**: the settings of whatever you selected, such as a clip's background and screen, a zoom's target, or a layer's text and motion.
+
+A video also has its own pages: **Overview** (its length, its script outline and a readiness checklist), **Storyboard**, **Cast** and **Edit**.
+
+The media library holds every file recorded, imported or generated in the workspace, kept once each. Recordings with speech can be transcribed, and the transcript lines up with the timeline.
+
+## Asking the agent
+
+The agent can make and change videos from the chat. For example:
+
+- "Make a Studio project for the spring launch and a 30-second teaser in it."
+- "Write a script for the teaser from the launch doc." (It reads the document you name, word for word.)
+- "Tighten the hook and add a title over the first beat."
+- "Make a vertical version for TikTok."
+- "Check the teaser and export it."
+
+The agent works through the same checks as the editor. If you are editing the same video, neither of you overwrites the other: the agent reads the video again and redoes its change. Before writing a script, the agent can read your workspace's `product` document and your own voice document, so the words match how you describe your product.
+
+## Formats
+
+A video is made for one shape, and you can make a separate version for another platform from it. The formats are:
+
+| Format | Shape |
+|--------|-------|
+| YouTube, LinkedIn, X | 16:9 |
+| YouTube Shorts, TikTok, Instagram Reels, Instagram Stories | 9:16 |
+| Instagram feed, Facebook feed | 4:5 |
+| Square | 1:1 |
+
+Each format has its own safe areas (where the platform draws its buttons) and loudness target. A new version is reframed for the new shape and kept as its own video.
+
+## Exports
+
+An export renders the video to an MP4 on the Studio's own render worker, which may take a minute or two for a short video. While you watch the progress bar in the editor, the download link appears there when it is done.
+
+When the agent exported the video for you, or you left the editor before your export finished, the finished video comes to you in **For you**, with a link that opens the Studio on it and a link to download the MP4. If an export the agent started fails, you are told why.
+
+## What is not here yet
+
+- Sound design passes and a sound library.
+- Motion checks, video review, and cutting a person out of a recording.
+- Building scenes from your product's own components.
+- Setting up apps for recording from the web app.
+- Generated shots and voiceovers only where your workspace's Studio worker has them set up; otherwise their buttons don't show.
+- A video's logo isn't imported from your workspace automatically: the link is kept in the Studio project's notes for you to bring in.

@@ -16,11 +16,17 @@
  * Files keep the attachments rule explicit too (a file on a capture is only as
  * visible as that capture), and calendar events are the caller's own.
  *
+ * Studio videos and Studio projects (migration 620) are read on the service
+ * client: the Studio's tables have no member policies. The route says whether
+ * the caller may use the Studio here (a member, not a guest, with the studio
+ * feature on: `studio`); when not, neither kind reads anything.
+ *
  * Titles and names match as you type (each typed word somewhere in the name);
  * capture, document and action bodies match through their `fts` columns, whole
  * words only, ranked under any title match. With nothing typed, a kind lists
  * its most recent rows.
  */
+import { isNotSetUp } from '@/lib/studio/server/errors'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CaptureListItem } from '@/app/account/(dashboard)/views/capture-utils'
 import {
@@ -54,6 +60,8 @@ export interface MenuQueryContext {
   limit: number
   /** System skills/agents whose feature is off here (agents only). */
   excludedRecipeIds: readonly string[]
+  /** The caller may use the Studio here (a member, not a guest, the feature on): Studio kinds only. Absent: no. */
+  studio?: boolean
 }
 
 /** Title matches read this many rows to rank, so a good match past the most recent few still makes it. */
@@ -566,6 +574,56 @@ async function searchTeamChatMessages(ctx: MenuQueryContext): Promise<MenuSearch
   }))
 }
 
+// ── The Studio (titles only; service client, the route's `studio` gate) ─────
+
+interface StudioTitleRow {
+  id: string
+  title: string | null
+  status?: string | null
+}
+
+/** How long a server without the Studio's tables answers its kinds empty before it looks again (they heal after the migration). */
+export const STUDIO_MISSING_RECHECK_MS = 60_000
+
+/** Until when the Studio's tables are taken as missing on this server (0: not known missing), kept on globalThis. */
+const MISSING_UNTIL = Symbol.for('ni.search.studio-missing-until')
+const studioMissing = globalThis as { [MISSING_UNTIL]?: number }
+
+/** Forget that the Studio's tables were missing (tests). */
+export function forgetStudioMissing(): void {
+  studioMissing[MISSING_UNTIL] = 0
+}
+
+/**
+ * One Studio kind by title, not in the trash, most recently changed first. Where the Studio's tables are not in the
+ * database yet (isNotSetUp), empty without a log line, and not asked again for a minute.
+ */
+async function searchStudioKind(ctx: MenuQueryContext, kind: 'studio_video' | 'studio_project'): Promise<MenuSearchRow[]> {
+  const { service, workspaceId, query, limit } = ctx
+  if (!ctx.studio) return []
+  if (Date.now() < (studioMissing[MISSING_UNTIL] ?? 0)) return []
+  const words = matchWords(query)
+  const base = service
+    .from(kind)
+    .select(kind === 'studio_video' ? 'id, title, status' : 'id, title')
+    .eq('workspace_id', workspaceId)
+    .is('archived_at', null)
+  const { data, error } = await words.reduce((b, w) => b.ilike('title', `%${w}%`), base).order('updated_at', { ascending: false }).limit(words.length ? FETCH : limit)
+  if (error && isNotSetUp(error)) {
+    studioMissing[MISSING_UNTIL] = Date.now() + STUDIO_MISSING_RECHECK_MS
+    return []
+  }
+  const rows = await rowsOf<StudioTitleRow>(kind, Promise.resolve({ data, error }))
+  const fallback = kind === 'studio_video' ? 'Untitled video' : 'Untitled Studio project'
+  return rank(
+    rows.map((r) => ({ kind, id: r.id, title: r.title || fallback, status: r.status ?? null, score: scoreText(r.title, query) })),
+    limit,
+  )
+}
+
+const searchStudioVideos = (ctx: MenuQueryContext) => searchStudioKind(ctx, 'studio_video')
+const searchStudioProjects = (ctx: MenuQueryContext) => searchStudioKind(ctx, 'studio_project')
+
 export const MENU_QUERIES: Record<MenuSearchKind, (ctx: MenuQueryContext) => Promise<MenuSearchRow[]>> = {
   action: searchActions,
   document: searchDocuments,
@@ -580,4 +638,6 @@ export const MENU_QUERIES: Record<MenuSearchKind, (ctx: MenuQueryContext) => Pro
   calendar_event: searchCalendarEvents,
   agent: searchAgents,
   team_chat_message: searchTeamChatMessages,
+  studio_video: searchStudioVideos,
+  studio_project: searchStudioProjects,
 }

@@ -114,6 +114,16 @@ export const CARD_PAGES: readonly CardPage[] = [
     ]),
   },
   { slug: 'captures', label: 'Captures', description: 'Your meetings and notes', kind: 'list', view: 'captures', keywords: ['meetings', 'notes', 'recordings'], spec: list('Captures', 'capture') },
+  // Studio (migration 620): Studio projects and their videos, each one edit. The agent opens it too (`show`).
+  {
+    slug: 'studio',
+    label: 'Studio',
+    description: 'Videos and ads',
+    kind: 'studio',
+    view: 'studio',
+    keywords: ['video', 'ads', 'editor', 'recording', 'storyboard', 'script', 'content'],
+    spec: page('studio', 'Studio'),
+  },
   { slug: 'docs', label: 'Docs', description: 'Every doc', kind: 'list', view: 'docs', keywords: ['documents'], spec: list('Docs', 'document') },
   // The workspace's own databases (Tables, phase 1). Gated with Docs.
   { slug: 'tables', label: 'Tables', description: 'Your own tables of anything', kind: 'tables', view: 'docs', keywords: ['databases', 'spreadsheets', 'lists'], spec: page('tables', 'Tables') },

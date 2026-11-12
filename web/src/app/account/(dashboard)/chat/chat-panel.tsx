@@ -429,6 +429,8 @@ export interface SystemContext {
   attachedFlowIds?: string[]
   attachedFileIds?: string[]
   attachedCalendarEventIds?: string[]
+  /** Studio videos @-mentioned in the turn. */
+  attachedStudioVideoIds?: string[]
   /** True when the turn is sent from the desktop app. Gates advertising the
    *  in-app browser tools (they can only run on the desktop). */
   isDesktopClient?: boolean
@@ -2319,7 +2321,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
         ...(noteIds.length > 0 ? { attachedNoteIds: noteIds } : {}),
         ...(contactIds.length > 0 ? { attachedContactIds: contactIds } : {}),
         ...(companyIds.length > 0 ? { attachedCompanyIds: companyIds } : {}),
-        // The tasks, docs, projects, initiatives, deals, flows, files and events (`attachedActionIds`…).
+        // The tasks, docs, projects, initiatives, deals, flows, files, events and Studio videos (`attachedActionIds`…).
         ...recordIdsBody(turn.records, 'context'),
         ...(turn.selection ? { editorSelection: turn.selection } : {}),
         ...(turn.contextSwitched ? { contextSwitched: true } : {}),

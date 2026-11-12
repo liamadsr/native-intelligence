@@ -5,7 +5,7 @@
  * Liam's reference order first:
  *
  *   your work   Drive (Docs, Knowledge, Files, Tables), Mail, Team chat, My Actions,
- *               Calendar (+ Captures)
+ *               Calendar (+ Captures), Studio
  *   customers   Contacts (Companies, Contacts, Deals),
  *               Outreach (Prospecting, Sequences, Campaigns)
  *   agents      Agents (Agents & skills, Flows, Evals)
@@ -89,6 +89,9 @@ export const RAIL_PAGES: readonly RailPageDef[] = [
   def('actions', 'work'),
   // Calendar: Captures (Liam, 11-11).
   groupDef('calendar', 'work'),
+  // Studio (migration 620): videos and ads. One page, no sub-nav: the editor
+  // draws its own navigation inside the card.
+  def('studio', 'work'),
   // Contacts: Companies, Contacts, Deals · Outreach: Prospecting, Sequences, Campaigns (Liam, 11-11).
   groupDef('contacts', 'customers'),
   groupDef('outreach', 'customers'),

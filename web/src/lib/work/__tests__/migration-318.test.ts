@@ -11,8 +11,8 @@ import { describe, it, expect } from 'vitest'
 import { migrationsInOrder } from '@/test/migration-sql'
 import { AREA_KEYS } from '@/lib/packs/registry'
 
-/** The 16 page areas this migration knew; 384 adds content and marketing to the CHECKs. */
-const PAGE_AREAS = AREA_KEYS.filter((a) => a !== 'content' && a !== 'marketing')
+/** The 16 page areas this migration knew; 384 adds content and marketing to the CHECKs, 621 studio. */
+const PAGE_AREAS = AREA_KEYS.filter((a) => a !== 'content' && a !== 'marketing' && a !== 'studio')
 import { SYSTEM_TEAMMATE_KEYS } from '../system-teammates'
 import { SYSTEM_TEAMMATE_FACES } from '@/lib/bots/teammate-faces'
 

@@ -19,7 +19,9 @@ const rows = seededSkills(FILE)
 const S1_AREAS: readonly AreaKey[] = ['mail', 'calendar']
 /** The areas 384 added (content and marketing): their playbooks are 384's. */
 const P8_AREAS: readonly AreaKey[] = ['content', 'marketing']
-const S4_AREAS = AREA_KEYS.filter((a) => !S1_AREAS.includes(a) && !P8_AREAS.includes(a))
+/** The areas added after 384 (Studio, migration 620): their playbooks are their own migrations' (621). */
+const LATER_AREAS: readonly AreaKey[] = ['studio']
+const S4_AREAS = AREA_KEYS.filter((a) => !S1_AREAS.includes(a) && !P8_AREAS.includes(a) && !LATER_AREAS.includes(a))
 const MAIL_SKILLS = ['write-in-your-tone', 'clear-inbox']
 
 describe('migration 319', () => {
@@ -90,7 +92,7 @@ describe('migration 319', () => {
 
   it('has one playbook for every area across 316 and 319, and 384 for content and marketing', () => {
     const playbooks = allSeededSkills().filter((r) => r.slug.endsWith('-playbook'))
-    expect(playbooks.map((r) => r.area).sort()).toEqual(AREA_KEYS.filter((a) => !P8_AREAS.includes(a)).sort())
+    expect(playbooks.map((r) => r.area).sort()).toEqual(AREA_KEYS.filter((a) => !P8_AREAS.includes(a) && !LATER_AREAS.includes(a)).sort())
     const all = allShippedSkills().filter((r) => r.slug.endsWith('-playbook'))
     expect(all.map((r) => r.area).sort()).toEqual([...AREA_KEYS].sort())
   })

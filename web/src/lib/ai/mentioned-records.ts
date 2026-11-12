@@ -1,6 +1,6 @@
 /**
  * `## Mentioned records`: the actions, docs, projects, initiatives, deals,
- * flows, files and calendar events the person @-mentioned this turn
+ * flows, files, calendar events and Studio videos the person @-mentioned this turn
  * (docs/plans/slash-search.md), one line each with the tool that reads it, so
  * "what's left on @GEN-42" needs no search.
  *
@@ -8,9 +8,10 @@
  * every read is fenced here: to the turn's workspace, to well-formed ids (at
  * most MAX_PER_KIND of each), a private doc to its creator (document
  * visibility, migration 369), a file by the attachments rule
- * (src/lib/attachments/visibility.ts), and a calendar event to its owner. An
- * id that fails any of that is left out
- * silently. Titles are the workspace's own text but can come from outside
+ * (src/lib/attachments/visibility.ts), a calendar event to its owner, and a
+ * Studio video only for a member who may use the Studio (not a guest:
+ * requireStudio's rule), never one in the trash. An id that fails any of that
+ * is left out silently. Titles are the workspace's own text but can come from outside
  * (an email turned into an action), so the list is fenced as data.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -40,6 +41,7 @@ export interface MentionedRecordIds {
   flowIds?: unknown
   fileIds?: unknown
   calendarEventIds?: unknown
+  studioVideoIds?: unknown
 }
 
 /** The ids a main-chat turn's system context names, under the run chat's names. */
@@ -73,7 +75,7 @@ export interface MentionedRecordLine {
 
 /**
  * The mentioned records that can be read, in kind order (actions, docs,
- * projects, initiatives, deals, flows, files, events), each as its line.
+ * projects, initiatives, deals, flows, files, events, Studio videos), each as its line.
  * `privateDocs` false (a run whose tools can't read private data): only the
  * workspace's shared docs, only the files every member reads, and no
  * calendar event (each is its owner's alone).
@@ -91,11 +93,12 @@ export async function gatherMentionedRecords(
   const flowIds = mentionedIds(args.flowIds)
   const fileIds = mentionedIds(args.fileIds)
   const eventIds = privateDocs ? mentionedIds(args.calendarEventIds) : []
-  const all = [actionIds, documentIds, projectIds, initiativeIds, dealIds, flowIds, fileIds, eventIds]
+  const studioVideoIds = mentionedIds(args.studioVideoIds)
+  const all = [actionIds, documentIds, projectIds, initiativeIds, dealIds, flowIds, fileIds, eventIds, studioVideoIds]
   if (all.every((ids) => !ids.length)) return []
 
   const none = Promise.resolve({ data: [] as unknown[] })
-  const [actions, documents, projects, initiatives, deals, flows, files, events] = await Promise.all([
+  const [actions, documents, projects, initiatives, deals, flows, files, events, videos] = await Promise.all([
     actionIds.length
       ? supabase
           .from('actions')
@@ -121,6 +124,7 @@ export async function gatherMentionedRecords(
           .eq('user_id', userId)
           .in('id', eventIds)
       : none,
+    studioVideoIds.length ? readStudioVideos(supabase, { workspaceId, userId, ids: studioVideoIds }) : none,
   ])
 
   const lines: MentionedRecordLine[] = []
@@ -168,6 +172,13 @@ export async function gatherMentionedRecords(
       kind: 'calendar_event',
       id: e.id,
       line: `Calendar event ${quote(e.title)} (starts ${e.is_all_day ? day : e.start_at}): get_calendar_events(start_date: ${day})`,
+    })
+  }
+  for (const v of (videos.data ?? []) as { id: string; title: string | null; status: string | null }[]) {
+    lines.push({
+      kind: 'studio_video',
+      id: v.id,
+      line: `Studio video ${quote(v.title)}${v.status ? ` (${v.status})` : ''}: get_studio_video(video_id: ${v.id})`,
     })
   }
   return lines
@@ -245,4 +256,18 @@ async function readVisibleDocuments(
   let query = supabase.from('document').select('id, title').eq('workspace_id', workspaceId).in('id', ids)
   query = memberId ? query.or(`visibility.eq.workspace,created_by.eq.${memberId}`) : query.eq('visibility', 'workspace')
   return query
+}
+
+/**
+ * Studio videos the caller may read: a member of the workspace who is not a guest, and not in the trash. The
+ * Studio's tables are service-role only (migration 620), as the client here is.
+ */
+async function readStudioVideos(
+  supabase: SupabaseClient,
+  { workspaceId, userId, ids }: { workspaceId: string; userId: string; ids: string[] },
+): Promise<{ data: unknown[] | null }> {
+  const { data: member } = await supabase.from('member').select('role').eq('workspace_id', workspaceId).eq('user_id', userId).maybeSingle()
+  const role = (member as { role?: string | null } | null)?.role
+  if (!member || role === 'guest') return { data: [] }
+  return supabase.from('studio_video').select('id, title, status').eq('workspace_id', workspaceId).in('id', ids).is('archived_at', null)
 }

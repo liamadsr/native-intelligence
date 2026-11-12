@@ -6,7 +6,8 @@
     "meeting-hud",
     "agent-hud",
     "dictate",
-    "workspace-*"
+    "workspace-*",
+    "studio-recorder"
   ],
   "remote": {
     "urls": [
@@ -144,6 +145,16 @@
     "allow-dictate-watch-pointer",
     "allow-dictate-status",
     "allow-talk-send",
-    "allow-talk-state"
+    "allow-talk-state",
+    "allow-studio-recorder-cancel",
+    "allow-studio-recorder-discard",
+    "allow-studio-recorder-hide-control",
+    "allow-studio-recorder-permissions",
+    "allow-studio-recorder-request-permissions",
+    "allow-studio-recorder-show-control",
+    "allow-studio-recorder-start",
+    "allow-studio-recorder-stop",
+    "allow-studio-recorder-targets",
+    "allow-studio-recorder-upload"
   ]
 }

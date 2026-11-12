@@ -96,6 +96,7 @@ export const RECORD_MENTION_TOOL_NAMES = {
   flow: ['list_flows'],
   attachment: ['get_attachment_content'],
   calendar_event: ['get_calendar_events'],
+  studio_video: ['get_studio_video'],
 } as const satisfies Record<MentionRecordKind, readonly string[]>
 
 /**

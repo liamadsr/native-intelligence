@@ -12,7 +12,8 @@ import type { EntityTypeSubset, LinkableEntityType } from '@/lib/knowledge/entit
  * (shown to no one, migration 341), not a chat with the agent (its person's
  * own: it mentions, it is never mentioned), not a member (team chat's
  * `mentions` column holds people), and not cycles or milestones (no picker
- * offers them).
+ * offers them). A Studio video or Studio project is mentionable by a member
+ * who may use the Studio (never a guest).
  */
 export const MENTIONABLE_TYPES = [
   'action',
@@ -31,6 +32,9 @@ export const MENTIONABLE_TYPES = [
   'team_chat_message',
   'data_table',
   'data_row',
+  // The Studio's (624): fenced for the writer as a member who is not a guest.
+  'studio_video',
+  'studio_project',
 ] as const satisfies readonly EntityTypeSubset<LinkableEntityType>[]
 export type MentionableType = (typeof MENTIONABLE_TYPES)[number]
 

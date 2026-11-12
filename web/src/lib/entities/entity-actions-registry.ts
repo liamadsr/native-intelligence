@@ -34,9 +34,10 @@ import { isMentionableType } from '@/lib/entity-links/mentionable'
  *   'flow'            the flows card's editor on it;
  *   'sequence' | 'prospect_list' | 'eval_suite'  that page's card on it;
  *   'team-chat'       the team chat page;
+ *   'studio'          the Studio page's card on it (a video, a Studio project);
  *   null              nothing opens it on its own.
  */
-export type EntityOpen = 'record' | 'calendar-event' | 'flow' | 'sequence' | 'prospect_list' | 'eval_suite' | 'team-chat' | 'table-row' | null
+export type EntityOpen = 'record' | 'calendar-event' | 'flow' | 'sequence' | 'prospect_list' | 'eval_suite' | 'team-chat' | 'table-row' | 'studio' | null
 
 /**
  * How a kind archives and comes back, as it already does:
@@ -239,6 +240,31 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
     share: false,
     makeTask: false,
   },
+  // The Studio (620, in the graph since 624). Its routes are the editor's own
+  // (/api/account/studio/projects/<id> is a video, .../campaigns/<id> a Studio
+  // project): PATCH { title } renames through renameVideo / updateProject,
+  // DELETE moves a video to the trash (archiveVideo) and PATCH { status:
+  // 'active' } takes it out again (restoreVideo). Not shared to a channel from
+  // the menu (Share is for kinds every reader of a channel may open; a guest
+  // in the channel can't open the Studio): mentioned from team chat's `@`.
+  studio_video: {
+    open: 'studio',
+    // `/account?page=studio&video=<id>` (STUDIO_PAGE_LINKS below).
+    link: true,
+    rename: { route: 'studio/projects', field: 'title' },
+    archive: { kind: 'status', route: 'studio/projects', via: 'delete', archived: 'archived', restore: 'active', restorePrevious: false },
+    share: false,
+    makeTask: true,
+  },
+  studio_project: {
+    open: 'studio',
+    // `/account?page=studio&studio_project=<id>`.
+    link: true,
+    rename: { route: 'studio/campaigns', field: 'title' },
+    archive: { kind: 'none', why: 'A Studio project is ungrouped in the Studio, where its videos stay.' },
+    share: false,
+    makeTask: true,
+  },
   eval_suite: {
     open: 'eval_suite',
     link: false,
@@ -312,10 +338,25 @@ export const DEEP_LINK_TYPES: readonly EntityType[] = (Object.keys(ENTITY_ACTION
   (t) => ENTITY_ACTIONS[t].link && ENTITY_ACTIONS[t].open !== null,
 )
 
+/**
+ * The kinds whose link is a place inside a page rather than `?<kind>=<id>`:
+ * the Studio on one video or one Studio project, the parameters
+ * PAGE_DEEP_LINK_PLACES (src/lib/chat-cards/open-card.ts) reads. Written out
+ * here, not imported (this module stays free of the cards' modules); a test
+ * holds the two equal.
+ */
+export const STUDIO_PAGE_LINKS: Readonly<Partial<Record<EntityType, string>>> = {
+  studio_video: 'video',
+  studio_project: 'studio_project',
+}
+
 /** A record's link (its boot deep link on `origin`), or null for a kind with none. */
 export function entityLink(type: string, id: string, origin: string): string | null {
   if (!(DEEP_LINK_TYPES as readonly string[]).includes(type)) return null
-  return `${origin.replace(/\/$/, '')}/account?${encodeURIComponent(type)}=${encodeURIComponent(id)}`
+  const base = origin.replace(/\/$/, '')
+  const place = STUDIO_PAGE_LINKS[type as EntityType]
+  if (place) return `${base}/account?page=studio&${place}=${encodeURIComponent(id)}`
+  return `${base}/account?${encodeURIComponent(type)}=${encodeURIComponent(id)}`
 }
 
 /** What Copy ID copies: "<kind> <uuid>", for pasting into a prompt (the agent routes it by kind). */

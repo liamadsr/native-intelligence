@@ -21,12 +21,18 @@ const hoisted = vi.hoisted(() => ({
   rpc: vi.fn(),
   /** The caller's own client's RPCs (team_chat_search, migration 561). */
   userRpc: vi.fn(),
+  /** The caller's member row's role (the Studio's guest gate), and the workspace's settings. */
+  role: 'member' as string | null,
+  settings: {} as Record<string, unknown>,
+  /** Tables read through the service client. */
+  serviceTables: [] as string[],
 }))
 
-function fakeClient() {
+function fakeClient(service = false) {
   return {
     rpc: hoisted.userRpc,
     from: (table: string) => {
+      if (service) hoisted.serviceTables.push(table)
       const record = { table, calls: [] as Call[] }
       hoisted.builders.push(record)
       const builder: Record<string, unknown> = {}
@@ -36,7 +42,10 @@ function fakeClient() {
           return builder
         }
       }
-      builder.maybeSingle = async () => ({ data: { settings: {} }, error: null })
+      builder.maybeSingle = async () =>
+        table === 'member'
+          ? { data: hoisted.role === null ? null : { role: hoisted.role }, error: null }
+          : { data: { settings: hoisted.settings }, error: null }
       builder.then = (onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
         Promise.resolve(hoisted.resolve(table, record.calls)).then(onFulfilled, onRejected)
       return builder
@@ -48,10 +57,11 @@ vi.mock('@/lib/api-auth', () => ({
   requireWorkspace: vi.fn(async () => hoisted.auth),
 }))
 vi.mock('@/lib/admin', () => ({
-  getServiceClient: () => ({ rpc: hoisted.rpc }),
+  getServiceClient: () => ({ rpc: hoisted.rpc, from: fakeClient(true).from }),
 }))
 
 import { GET } from '@/app/api/account/search/route'
+import { forgetStudioMissing, STUDIO_MISSING_RECHECK_MS } from '@/app/api/account/search/menu-queries'
 
 function req(qs: string) {
   return new NextRequest(`http://localhost/api/account/search?${qs}`)
@@ -69,6 +79,9 @@ beforeEach(() => {
   hoisted.rpc.mockResolvedValue({ data: [], error: null })
   hoisted.userRpc.mockReset()
   hoisted.userRpc.mockResolvedValue({ data: [], error: null })
+  hoisted.role = 'member'
+  hoisted.settings = {}
+  hoisted.serviceTables = []
 })
 
 describe('GET /api/account/search', () => {
@@ -81,10 +94,72 @@ describe('GET /api/account/search', () => {
   it('answers every kind by default, and only the kinds asked for (junk dropped)', async () => {
     const all = await (await GET(req('q=pricing'))).json()
     expect(Object.keys(all.results).sort()).toEqual(
-      ['action', 'agent', 'attachment', 'calendar_event', 'capture', 'company', 'contact', 'deal', 'document', 'flow', 'initiative', 'project', 'team_chat_message'].sort(),
+      ['action', 'agent', 'attachment', 'calendar_event', 'capture', 'company', 'contact', 'deal', 'document', 'flow', 'initiative', 'project', 'studio_project', 'studio_video', 'team_chat_message'].sort(),
     )
     const some = await (await GET(req('q=pricing&types=action,claim,document'))).json()
     expect(Object.keys(some.results)).toEqual(['action', 'document'])
+  })
+
+  it('finds Studio videos and Studio projects by title for a member, on the service client, never one in the trash', async () => {
+    hoisted.resolve = (table) =>
+      table === 'studio_video'
+        ? { data: [{ id: 'v-1', title: 'Launch teaser', status: 'review' }, { id: 'v-2', title: 'Pricing launch recap', status: 'draft' }], error: null }
+        : table === 'studio_project'
+          ? { data: [{ id: 'p-1', title: 'Spring launch' }], error: null }
+          : { data: [], error: null }
+    const res = await (await GET(req('q=launch&types=studio_video,studio_project'))).json()
+    expect(res.results.studio_video).toEqual([
+      { kind: 'studio_video', id: 'v-1', title: 'Launch teaser', status: 'review', score: 0.85 },
+      { kind: 'studio_video', id: 'v-2', title: 'Pricing launch recap', status: 'draft', score: 0.7 },
+    ])
+    expect(res.results.studio_project).toEqual([{ kind: 'studio_project', id: 'p-1', title: 'Spring launch', status: null, score: 0.7 }])
+    // Read on the service client (the Studio's tables have no member policies), fenced to the workspace and the trash.
+    expect(hoisted.serviceTables).toEqual(expect.arrayContaining(['member', 'studio_video', 'studio_project']))
+    for (const table of ['studio_video', 'studio_project']) {
+      const [b] = builderFor(table)
+      expect(has(b.calls, 'eq', 'workspace_id', 'ws-1'), table).toBe(true)
+      expect(has(b.calls, 'is', 'archived_at', null), table).toBe(true)
+      expect(has(b.calls, 'ilike', 'title', '%launch%'), table).toBe(true)
+    }
+  })
+
+  it('finds nothing in the Studio for a workspace guest, a non-member, or where the studio feature is off', async () => {
+    hoisted.resolve = () => ({ data: [{ id: 'v-1', title: 'Launch teaser', status: 'draft' }], error: null })
+    for (const role of ['guest', null]) {
+      hoisted.role = role
+      hoisted.builders = []
+      const res = await (await GET(req('q=launch&types=studio_video,studio_project'))).json()
+      expect(res.results, String(role)).toEqual({ studio_video: [], studio_project: [] })
+      expect(builderFor('studio_video'), String(role)).toHaveLength(0)
+    }
+    hoisted.role = 'member'
+    hoisted.builders = []
+    hoisted.settings = { feature_overrides: { studio: 'off' } }
+    const off = await (await GET(req('q=launch&types=studio_video'))).json()
+    expect(off.results).toEqual({ studio_video: [] })
+    expect(builderFor('studio_video')).toHaveLength(0)
+  })
+
+  it('answers the Studio kinds empty without a log line where the Studio’s tables are not in the database, and looks again a minute later', async () => {
+    forgetStudioMissing()
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    hoisted.resolve = (table) =>
+      table.startsWith('studio_') ? { data: null, error: { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` } } : { data: [], error: null }
+    const first = await (await GET(req('q=launch&types=studio_video,studio_project,document'))).json()
+    expect(first.results).toEqual({ studio_video: [], studio_project: [], document: [] })
+    expect(logged).not.toHaveBeenCalled()
+    // Remembered: the next searches do not ask.
+    hoisted.builders = []
+    await GET(req('q=launch&types=studio_video'))
+    expect(builderFor('studio_video')).toHaveLength(0)
+    // A minute on (the migration may be applied by then), it asks again, and finds.
+    const later = Date.now() + STUDIO_MISSING_RECHECK_MS + 1
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(later)
+    hoisted.resolve = () => ({ data: [{ id: 'v-1', title: 'Launch teaser', status: 'draft' }], error: null })
+    const healed = await (await GET(req('q=launch&types=studio_video'))).json()
+    expect(healed.results.studio_video).toMatchObject([{ id: 'v-1', title: 'Launch teaser' }])
+    clock.mockRestore()
+    logged.mockRestore()
   })
 
   it('finds team chat messages through team_chat_search as the caller (the function fences what they may read), each opening team chat on it', async () => {

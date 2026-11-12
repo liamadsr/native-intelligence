@@ -349,6 +349,24 @@ app's own deployment token did their work (`web/src/lib/slack/config.ts`).
   the team named.
 - `CONNECT_ENVIRONMENT`: that project's environment the forwarded token must name;
   empty is `production`.
+- `SANDBOX_RUNTIME_API_URL`, `SANDBOX_RUNTIME_TRAFFIC_URL`, `SANDBOX_RUNTIME_TEMPLATE`,
+  `SANDBOX_RUNTIME_KEY`: the coding agent's third way, our own sandbox runtime on the
+  sandbox server (`../sandbox`). It may be set beside the hosted service's three
+  below: the coding agent then uses the own runtime and ignores the three, which
+  stay for the cloud browser until that moves too. Empty: nothing uses it. Set in
+  production since 2026-11-12 (`../README.md`, "The coding agent", says what is
+  proven on it and how to go back). The two URLs are the runtime's API and its sandboxes' traffic over the
+  private tunnel; the template defaults to `ni-coding-agent`; the key comes from the
+  sandbox server's `/opt/e2b/sdk.env`, moved without being shown. The URLs and the
+  key go together. `check_settings.py` proves the group against the runtime
+  (its health check, and a listing of its sandboxes with the key).
+- `AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES`: read by web. When set, the app's git gate
+  takes a coding run's credential only from these addresses (comma or space
+  separated): the sandbox server's public IPv4 and IPv6. On our own runtime that
+  credential sits in the sandbox, so the coding agent refuses to run there without
+  this; set it with the runtime's group and not before, since while it is set the
+  hosted service's sandboxes cannot clone or push. One entry that is not an address
+  refuses every request.
 - `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID`, `SANDBOX_PROJECT_ID`: an access token
   of that account scoped to the team, and the ids of the team and project the
   sandboxes belong to. All three or none. They serve two things: the cloud
@@ -526,6 +544,22 @@ the service. Coding runs then fail (closed), and a rebuild may not help: eve
 reuses the snapshot its template sandbox on the service names. Whether the
 service expires these snapshots is not known yet.
 
+The third way, our own sandbox runtime, takes no secret at the build: with
+`SANDBOX_RUNTIME_API_URL` and `SANDBOX_RUNTIME_TRAFFIC_URL` in `.env`, compose.yaml
+passes them and `SANDBOX_RUNTIME_TEMPLATE` as plain build arguments, the coding
+agent's build records only the template's name (it calls nothing on the runtime),
+and the build argument `NI_CODING_AGENT_RUNTIME` is `runtime/<template>` (it wins
+over `NI_CODING_AGENT_SANDBOX`, which may still name the hosted ids: Compose has no
+"else"). It takes precedence: with the hosted three in `.env` too (the cloud
+browser's), the coding agent is built for the own runtime and its build runs
+without them, while the access-token search still runs after it. The runtime's key
+is blanked for every container and given back to `agent-coding-agent` alone, at run
+time; no build is given it, and `build-agents.sh` fails the build if it turns up in
+what the build wrote. The coding agent's container still receives the hosted three
+and ignores them; phase 6 (the cloud browser's move) removes them. Production has
+used it since 2026-11-12; `../README.md` ("The coding agent") says what is proven
+on it.
+
 At run time only the containers that read them get the three: web and worker (the
 cloud browser, `web/src/lib/cloud-browser/config.ts`) and the coding agent.
 `compose.yaml` blanks them for the scheduler and the seven other agents
@@ -567,8 +601,9 @@ the move script and the backups find them):
 
 - `agents/<name>/.eve/.workflow-data`: its workflow runs.
 - `agents/<name>/.eve/sandbox-cache/just-bash/sessions`: its sandbox's files, per
-  session. (A coding agent built for the hosted sandbox service keeps its sandboxes
-  there, not here; its volume stays empty.)
+  session. (A coding agent built for the hosted sandbox service, or for our own
+  runtime, keeps its sandboxes there, not here; its volume stays empty, and stays
+  mounted so that a switch back to just-bash finds it owned by the app's user.)
 
 The rest of `agents/<name>/.eve` is written by `eve build` (the sandbox template)
 and has to come from the image, so the volumes are not on `.eve` itself: a volume

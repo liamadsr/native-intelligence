@@ -8,12 +8,13 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ENTITY_REGISTRY, ENTITY_REGISTRY_BY_ID, type EntityType } from '@/lib/knowledge/entity-registry'
 import { CARD_RECORD_TYPES } from '@/lib/chat-cards/kinds'
-import { cardForTarget } from '@/lib/chat-cards/open-card'
+import { PAGE_DEEP_LINK_PLACES, cardForTarget, studioVideoLink } from '@/lib/chat-cards/open-card'
 import { isMentionableType } from '@/lib/entity-links/mentionable'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import {
   DEEP_LINK_TYPES,
   ENTITY_ACTIONS,
+  STUDIO_PAGE_LINKS,
   entityIdText,
   entityLink,
   isArchivedRow,
@@ -53,6 +54,8 @@ describe('ENTITY_ACTIONS', () => {
   it('names only routes that exist and take the verb sent to them', () => {
     for (const id of ids) {
       const { rename, archive } = ENTITY_ACTIONS[id]
+      // The Studio's kinds go through its one catch-all route: checked below.
+      if (rename?.route.startsWith('studio/')) continue
       if (rename) {
         expect(existsSync(routeFile(rename.route)), `${id} rename route`).toBe(true)
         expect(exportsVerb(rename.route, 'PATCH'), `${id} rename PATCH`).toBe(true)
@@ -62,6 +65,24 @@ describe('ENTITY_ACTIONS', () => {
         // Restore (and a flag's archive) is always a PATCH.
         expect(exportsVerb(archive.route, 'PATCH'), `${id} archive PATCH`).toBe(true)
         if (archive.kind === 'status' && archive.via === 'delete') expect(exportsVerb(archive.route, 'DELETE'), `${id} archive DELETE`).toBe(true)
+      }
+    }
+  })
+
+  it("the Studio's kinds name its own routes (the catch-all and the Studio router), with the verbs sent", () => {
+    const catchAll = readFileSync(join(API, 'studio', '[...path]', 'route.ts'), 'utf8')
+    const routesDir = join(__dirname, '../../studio/server/routes')
+    const routes = ['videos.ts', 'projects.ts'].map((f) => readFileSync(join(routesDir, f), 'utf8')).join('\n')
+    const studioRoute = (verb: string, path: string) => new RegExp(`route\\('${verb}', '${path}'`).test(routes)
+    for (const id of ['studio_video', 'studio_project'] as const) {
+      const { rename, archive } = ENTITY_ACTIONS[id]
+      expect(rename?.route.startsWith('studio/'), id).toBe(true)
+      expect(catchAll, 'the catch-all takes PATCH').toMatch(/handle as PATCH/)
+      expect(studioRoute('PATCH', `${rename!.route.slice('studio/'.length)}/:id`), `${id} rename PATCH`).toBe(true)
+      if (archive.kind === 'status') {
+        const path = `${archive.route.slice('studio/'.length)}/:id`
+        expect(studioRoute('PATCH', path), `${id} restore PATCH`).toBe(true)
+        if (archive.via === 'delete') expect(studioRoute('DELETE', path), `${id} archive DELETE`).toBe(true)
       }
     }
   })
@@ -89,6 +110,15 @@ describe('ENTITY_ACTIONS', () => {
 })
 
 describe('deep links', () => {
+  it("links the Studio's kinds as the Studio page on them (the places PAGE_DEEP_LINK_PLACES reads)", () => {
+    const id = '00000000-0000-4000-8000-0000000000aa'
+    expect(entityLink('studio_video', id, 'https://app.example/')).toBe(`https://app.example/account?page=studio&video=${id}`)
+    expect(entityLink('studio_project', id, 'https://app.example')).toBe(`https://app.example/account?page=studio&studio_project=${id}`)
+    expect(PAGE_DEEP_LINK_PLACES.studio).toEqual(Object.fromEntries(Object.entries(STUDIO_PAGE_LINKS).map(([kind, param]) => [param, kind])))
+    expect(`https://app.example${studioVideoLink(id)}`).toBe(entityLink('studio_video', id, 'https://app.example'))
+    expect(entityOpenTarget('studio_video', id, 'Launch teaser')).toEqual({ type: 'studio_video', id, title: 'Launch teaser' })
+  })
+
   it('keeps every link the app already handed out', () => {
     for (const t of ['sequence', 'prospect_list', 'action', 'project', 'initiative'] as const) expect(DEEP_LINK_TYPES).toContain(t)
   })

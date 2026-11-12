@@ -533,6 +533,7 @@ export async function renderRunChatMentions(
             flowIds: args.flowIds,
             fileIds: args.fileIds,
             calendarEventIds: args.calendarEventIds,
+            studioVideoIds: args.studioVideoIds,
           }),
         )
       : null,

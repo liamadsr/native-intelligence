@@ -23,7 +23,7 @@
 import type { FeatureKey } from '@/lib/editions/manifest'
 import { TOOL_CATEGORIES, TOOL_REGISTRY_MAP } from '@/lib/ai/tool-registry'
 
-/** The area keys, the same list the area CHECKs allow (migration 316, widened by 384). */
+/** The area keys, the same list the area CHECKs allow (migration 316, widened by 384 and, for `studio`, 621). */
 export const AREA_KEYS = [
   'calendar',
   'actions',
@@ -43,6 +43,7 @@ export const AREA_KEYS = [
   'library',
   'content',
   'marketing',
+  'studio',
 ] as const
 
 export type AreaKey = (typeof AREA_KEYS)[number]
@@ -222,6 +223,14 @@ export const PACKS: Record<AreaKey, PackDefinition> = {
     feature: 'core',
     toolGroups: [],
     cardKinds: [],
+  },
+  // Studio (migration 620): videos and ads, their storyboards, cast and edits.
+  studio: {
+    key: 'studio',
+    name: 'Studio',
+    feature: 'studio',
+    toolGroups: ['studio'],
+    cardKinds: ['studio'],
   },
 }
 

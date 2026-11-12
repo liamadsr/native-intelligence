@@ -44,11 +44,12 @@ export interface RunChatMentions {
   flowIds?: string[]
   fileIds?: string[]
   calendarEventIds?: string[]
+  studioVideoIds?: string[]
 }
 
 /** The record kinds a run-chat turn mentions by id, as their body keys (MENTION_RECORD_KEYS' run names). */
 const RECORD_MENTION_KEYS = Object.values(MENTION_RECORD_KEYS).map((k) => k.run) as Array<
-  'actionIds' | 'documentIds' | 'projectIds' | 'initiativeIds' | 'dealIds' | 'flowIds' | 'fileIds' | 'calendarEventIds'
+  'actionIds' | 'documentIds' | 'projectIds' | 'initiativeIds' | 'dealIds' | 'flowIds' | 'fileIds' | 'calendarEventIds' | 'studioVideoIds'
 >
 
 /** What the composer adds to a run-chat POST, parsed. */

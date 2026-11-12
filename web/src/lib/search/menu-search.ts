@@ -20,6 +20,9 @@ import type { EntityType } from '@/lib/knowledge/entity-registry'
  * 'attachment': an uploaded file the person may read (its uploader's, or on a
  * record they can see: src/lib/attachments/visibility.ts). 'calendar_event':
  * one of the person's own calendar events (each is its owner's alone).
+ * 'studio_video' and 'studio_project' (migration 620): the Studio's videos and
+ * Studio projects by title, for a member who may use the Studio where it is
+ * on; opened as the Studio page's card on them.
  */
 export const MENU_SEARCH_KINDS = [
   'action',
@@ -36,6 +39,8 @@ export const MENU_SEARCH_KINDS = [
   'calendar_event',
   'agent',
   'team_chat_message',
+  'studio_video',
+  'studio_project',
 ] as const satisfies readonly (EntityType | 'agent' | 'deal')[]
 export type MenuSearchKind = (typeof MENU_SEARCH_KINDS)[number]
 
@@ -227,8 +232,18 @@ export interface MenuTeamChatMessageRow extends Scored {
   createdAt: string
 }
 
+/** A Studio video or Studio project (titles only: the Studio's tables are read on the server, for members but guests). */
+export interface MenuStudioRow extends Scored {
+  kind: 'studio_video' | 'studio_project'
+  id: string
+  title: string
+  /** A video's status (draft, review, approved); a Studio project's video count ("3 videos"). */
+  status: string | null
+}
+
 export type MenuSearchRow =
   | MenuTeamChatMessageRow
+  | MenuStudioRow
   | MenuActionRow
   | MenuDocumentRow
   | MenuProjectRow
@@ -282,6 +297,10 @@ export function menuRowTarget(row: MenuSearchRow): OpenTarget {
       return row.parent ? { type: row.parent.type, id: row.parent.id, title: null } : { type: 'page', slug: 'captures' }
     case 'calendar_event':
       return { type: 'calendar-event', id: row.id, title: row.title, start: row.start }
+    case 'studio_video':
+    case 'studio_project':
+      // The Studio page's card, on it (open-card.ts).
+      return { type: row.kind, id: row.id, title: row.title }
     default:
       return { type: row.kind, id: row.id, title: row.title }
   }
@@ -357,11 +376,17 @@ export const MENTION_PICKER_KINDS = [
   'flow',
   'attachment',
   'calendar_event',
+  // The Studio's (624): found only for a member who may use the Studio.
+  'studio_video',
+  'studio_project',
 ] as const satisfies readonly MenuSearchKind[]
 export type MentionPickerKind = (typeof MENTION_PICKER_KINDS)[number]
 
-/** The record kinds a message mentions by id (captures, people and companies have their own). */
-export const MENTION_RECORD_KINDS = ['action', 'document', 'project', 'initiative', 'deal', 'flow', 'attachment', 'calendar_event'] as const
+/**
+ * The record kinds a message mentions by id (captures, people and companies have their own). A Studio video comes
+ * back from the search only for a member who may use the Studio, and its line is read again on the server for them.
+ */
+export const MENTION_RECORD_KINDS = ['action', 'document', 'project', 'initiative', 'deal', 'flow', 'attachment', 'calendar_event', 'studio_video'] as const
 export type MentionRecordKind = (typeof MENTION_RECORD_KINDS)[number]
 
 /**
@@ -378,11 +403,13 @@ export const MENTION_RECORD_KEYS: Record<MentionRecordKind, { context: string; r
   flow: { context: 'attachedFlowIds', run: 'flowIds' },
   attachment: { context: 'attachedFileIds', run: 'fileIds' },
   calendar_event: { context: 'attachedCalendarEventIds', run: 'calendarEventIds' },
+  studio_video: { context: 'attachedStudioVideoIds', run: 'studioVideoIds' },
 }
 
 /**
- * A task, doc, project, initiative, deal, flow, file or event mentioned in the
- * message being written. A deal's id is its pipeline row's (Tables, phase 7).
+ * A task, doc, project, initiative, deal, flow, file, event or Studio video
+ * mentioned in the message being written. A deal's id is its pipeline row's
+ * (Tables, phase 7).
  */
 export interface MentionRecord {
   kind: MentionRecordKind
@@ -408,6 +435,7 @@ export function toMentionRecord(row: MenuSearchRow): MentionRecord | null {
     case 'flow':
     case 'attachment':
     case 'calendar_event':
+    case 'studio_video':
       return { kind: row.kind, id: row.id, title: row.title }
     default:
       return null

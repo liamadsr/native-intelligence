@@ -302,6 +302,8 @@ function verbFor(type: WorkDeliverableType, group: readonly WorkDeliverable[], v
       return v.haveBare
     case 'url':
       return 'found'
+    case 'studio_video':
+      return 'exported'
     default:
       return 'finished'
   }
