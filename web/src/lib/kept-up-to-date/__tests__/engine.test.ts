@@ -177,7 +177,7 @@ describe('planChanges', () => {
     const { records, changes } = planChanges(
       [{ kind: 'row', row }],
       { dates: [{ value: '2027-03-31', phrase: 'March', sentence: 1 }], amounts: [{ amount: 48000, currency: 'USD', phrase: '$48,000', sentence: 0 }, { amount: 9, currency: 'EUR', phrase: '€9', sentence: 0 }], numbers: [] },
-      { tasks: new Set(), values: new Set() },
+      { tasks: new Set(), values: new Set(), moved: new Set() },
     )
     expect(records).toHaveLength(1)
     const summary = changes.map((c) => (c.kind === 'row_set' ? `${c.key}=${JSON.stringify(c.to)}` : 'done'))
@@ -187,15 +187,35 @@ describe('planChanges', () => {
 
   it('never a value set before or one the person moved away from, never a to-do closed before', async () => {
     const row = await acmeRow(fresh())
-    const prior = { tasks: new Set(['a1']), values: new Set([`r-acme|stage|"Won"`, `r-acme|signed|true`]) }
+    const prior = { tasks: new Set(['a1']), values: new Set([`r-acme|stage|"Won"`]), moved: new Set([`r-acme|signed|true`]) }
     const { records, changes } = planChanges([{ kind: 'row', row }, { kind: 'task', task: task() }], { dates: [], amounts: [], numbers: [] }, prior)
     expect(changes.map((c) => (c.kind === 'row_set' ? `${c.key}=${String(c.to)}` : 'done'))).toEqual(['stage=Lead', 'stage=Lost'])
     expect(records.map((r) => r.kind)).toEqual(['row'])
   })
 
+  it('a pipeline’s stage reads by its outcomes: a closed deal is left alone, a reopened one never closed again, open stages free', async () => {
+    const row = await acmeRow(fresh())
+    const stage = row.columns.find((c) => c.key === 'stage')!
+    const pipe = { ...row, columns: [{ ...stage, config: { outcomes: { Won: 'won' as const, Lost: 'lost' as const } } }] }
+    const none = { dates: [], amounts: [], numbers: [] }
+    const stages = (r: RowCandidate, prior: { values?: string[]; moved?: string[] }) =>
+      planChanges([{ kind: 'row', row: r }], none, { tasks: new Set(), values: new Set(prior.values ?? []), moved: new Set(prior.moved ?? []) }).changes.map((c) => (c.kind === 'row_set' ? c.to : 'done'))
+    expect(stages(pipe, {})).toEqual(['Lead', 'Won', 'Lost'])
+    // The person moved it out of Won: never closed again, either way; an open stage stays free.
+    expect(stages(pipe, { moved: [`r-acme|stage|"Won"`] })).toEqual(['Lead'])
+    // This engine closed it before (since undone): the same.
+    expect(stages(pipe, { values: [`r-acme|stage|"Lost"`] })).toEqual(['Lead'])
+    // An open stage the person moved away from can be set again.
+    expect(stages(pipe, { moved: [`r-acme|stage|"Lead"`] })).toEqual(['Lead', 'Won', 'Lost'])
+    // Already won: the person's to reopen.
+    expect(stages({ ...pipe, values: { ...pipe.values, stage: 'Won' } }, {})).toEqual([])
+    // A plain select: a value the person moved away from stays off.
+    expect(stages({ ...row, columns: [stage] }, { moved: [`r-acme|stage|"Lead"`] })).toEqual(['Won', 'Lost'])
+  })
+
   it('rows before to-dos, a to-do is one change: done', async () => {
     const row = await acmeRow(fresh())
-    const { records, changes } = planChanges([{ kind: 'task', task: task() }, { kind: 'row', row }], { dates: [], amounts: [], numbers: [] }, { tasks: new Set(), values: new Set() })
+    const { records, changes } = planChanges([{ kind: 'task', task: task() }, { kind: 'row', row }], { dates: [], amounts: [], numbers: [] }, { tasks: new Set(), values: new Set(), moved: new Set() })
     expect(records.map((r) => r.kind)).toEqual(['row', 'task'])
     expect(changes.at(-1)).toMatchObject({ kind: 'task_done', record: 1 })
   })
@@ -216,7 +236,8 @@ describe('readPriorChanges', () => {
     ])
     const prior = await readPriorChanges(db as never, SCOPE, [{ id: 'r-acme', tableId: 't-pipe' }], ['a1'], NOW_MS)
     expect([...prior!.tasks]).toEqual(['a1'])
-    expect([...prior!.values].sort()).toEqual([`r-acme|stage|"Won"`, `r-acme|value|{"amount":1,"currency":"USD"}`])
+    expect([...prior!.values]).toEqual([`r-acme|value|{"amount":1,"currency":"USD"}`])
+    expect([...prior!.moved]).toEqual([`r-acme|stage|"Won"`])
     expect(await readPriorChanges(without539(db) as never, SCOPE, [{ id: 'r-acme', tableId: 't-pipe' }], [], NOW_MS)).toBeNull()
   })
 })
@@ -238,7 +259,7 @@ describe('applyKeptChange', () => {
     const result = await applyKeptChange(db as never, { ...SCOPE, conversationId: 'home', item: item(), change: won, evidence: 'We signed the renewal this morning.' }, { apply, writeMessage, appendLog })
     expect(result).toMatchObject({ status: 'changed' })
     expect(apply).toHaveBeenCalledWith(db, WS, 't-pipe', { baseVersion: 7, ops: [{ op: 'update_row', row_id: 'r-acme', values: { stage: 'Won' } }] }, {
-      userId: 'u', asUserId: 'u', source: 'email', reason: 'Kept up to date from an email',
+      userId: 'u', asUserId: 'u', source: 'email', reason: 'Kept up to date from an email', sourceRef: 'thread-1:msg-1',
     })
     // The table's history carries none of the mail: no words, no sender, no domain.
     const reason = (apply.mock.calls[0] as unknown[])[4] as { reason: string }
@@ -399,7 +420,8 @@ describe('keptPass', () => {
   it('a record a pending proposal names is left to its card', async () => {
     const db = fresh()
     db.seed('proposed_change', [
-      { id: 'pc1', workspace_id: WS, status: 'pending', entity_id: 'r-acme' },
+      // A deal is a pipeline row now: a pending deal proposal names the row.
+      { id: 'pc1', workspace_id: WS, status: 'pending', entity_type: 'deal', entity_id: 'r-acme' },
       { id: 'pc2', workspace_id: WS, status: 'applied', entity_id: 'a1' },
       { id: 'pc3', workspace_id: 'other', status: 'pending', entity_id: 'a1' },
     ])

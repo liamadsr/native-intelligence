@@ -28,7 +28,12 @@
  *      this engine made to that record before (applied or undone: a record
  *      the person took back stays as they left it), never a select or a
  *      checkbox set back to a value the person moved it away from, and never
- *      a to-do mail or this engine closed before.
+ *      a to-do mail or this engine closed before. A pipeline's stage (a select
+ *      with outcomes, migration 540) reads by its outcomes: a closed deal
+ *      (won or lost) is the person's to reopen, so its stage is left alone; a
+ *      deal the person reopened, or one this engine closed before, is never
+ *      closed again (no won or lost stage); moving between open stages is
+ *      normal, so an open stage left behind can be set again.
  *   3. One decision (record.kept_up_to_date, on Jev, the utility path): the
  *      ONE change the source states in plain words, and the sentence that
  *      says it, or none.
@@ -75,7 +80,7 @@ import { homeConversationId } from '@/lib/email/auto-archive'
 import { emitStatusChange } from '@/lib/flows/emit-status-change'
 import { appendLogLine, logDedupeKey, logLineFor } from '@/lib/log/agent-log'
 import { isMissingColumnError } from '@/lib/mcp-client/public-row'
-import { fieldCurrency, formatFieldValue } from '@/lib/crm/custom-field-types'
+import { fieldCurrency, formatFieldValue, optionOutcome } from '@/lib/crm/custom-field-types'
 import type { CustomFieldValue } from '@/lib/crm/custom-fields'
 import { applyOps, listColumns, undoChange } from '@/lib/tables/store'
 import { TABLE_LIMITS, type DataColumn } from '@/lib/tables/types'
@@ -293,8 +298,10 @@ export async function readRowCandidates(supabase: SupabaseClient, scope: KeptSco
 export interface PriorChanges {
   /** Tasks mail or this engine closed before. */
   tasks: Set<string>
-  /** `${recordId}|${key}|${JSON value}`: a value this engine set before, or one the person moved a select or a checkbox away from. */
+  /** `${recordId}|${key}|${JSON value}`: a value this engine set before. */
   values: Set<string>
+  /** The same keys: a value the person moved a field away from. */
+  moved: Set<string>
 }
 
 export const valueKey = (recordId: string, key: string, value: unknown) => `${recordId}|${key}|${JSON.stringify(value ?? null)}`
@@ -307,7 +314,7 @@ export async function readPriorChanges(
   taskIds: readonly string[],
   nowMs = Date.now(),
 ): Promise<PriorChanges | null> {
-  const prior: PriorChanges = { tasks: new Set(), values: new Set() }
+  const prior: PriorChanges = { tasks: new Set(), values: new Set(), moved: new Set() }
   const rowIds = rows.map((r) => r.id)
   const ids = [...rowIds, ...taskIds]
   if (!ids.length) return prior
@@ -345,7 +352,7 @@ export async function readPriorChanges(
           if (e?.op !== 'update_row' || typeof e.row_id !== 'string' || !wanted.has(e.row_id)) continue
           for (const [field, ch] of Object.entries((e.fields ?? {}) as Record<string, { from?: unknown; to?: unknown }>)) {
             if (!field.startsWith('values.') || !ch || ch.from === null || ch.from === undefined) continue
-            prior.values.add(valueKey(e.row_id, field.slice('values.'.length), ch.from))
+            prior.moved.add(valueKey(e.row_id, field.slice('values.'.length), ch.from))
           }
         }
       }
@@ -390,19 +397,34 @@ export function planChanges(
       if (!prior.tasks.has(c.task.id)) mine.push({ id: `c${changes.length + 1}`, kind: 'task_done', record: index, task: c.task })
     } else {
       const row = c.row
-      const set = (col: DataColumn, type: Exclude<KeptChangeType, 'done'>, to: CustomFieldValue) => {
+      const set = (col: DataColumn, type: Exclude<KeptChangeType, 'done'>, to: CustomFieldValue, opts: { movedBlocks?: boolean } = {}) => {
         const from = row.values[col.key] ?? null
-        if (sameValue(from, to) || prior.values.has(valueKey(row.id, col.key, to))) return
+        const key = valueKey(row.id, col.key, to)
+        if (sameValue(from, to) || prior.values.has(key) || (opts.movedBlocks && prior.moved.has(key))) return
         mine.push({ id: `c${changes.length + mine.length + 1}`, kind: 'row_set', record: index, row, key: col.key, label: col.label, type, from, to })
       }
       for (const col of row.columns) {
         if (col.deleted_at) continue
         switch (col.field_type) {
-          case 'select':
-            for (const option of col.options.slice(0, MAX_SELECT_OPTIONS)) set(col, 'select', option)
+          case 'select': {
+            const options = col.options.slice(0, MAX_SELECT_OPTIONS)
+            if (!col.config?.outcomes || !Object.keys(col.config.outcomes).length) {
+              for (const option of options) set(col, 'select', option, { movedBlocks: true })
+              break
+            }
+            // A pipeline's stage, read by its outcomes.
+            const closed = (o: unknown) => optionOutcome(col.config, o) !== 'open'
+            if (closed(row.values[col.key])) break
+            const touched = (o: string) => prior.values.has(valueKey(row.id, col.key, o)) || prior.moved.has(valueKey(row.id, col.key, o))
+            const neverClose = options.some((o) => closed(o) && touched(o))
+            for (const option of options) {
+              if (closed(option) && neverClose) continue
+              set(col, 'select', option)
+            }
             break
+          }
           case 'checkbox':
-            set(col, 'checkbox', row.values[col.key] !== true)
+            set(col, 'checkbox', row.values[col.key] !== true, { movedBlocks: true })
             break
           case 'date':
             for (const d of found.dates) set(col, 'date', d.value)
@@ -695,7 +717,7 @@ export async function applyKeptChange(
           scope.workspaceId,
           row.tableId,
           { baseVersion: Number(t.version), ops: [{ op: 'update_row', row_id: row.id, values: { [ch.key]: ch.to } }] },
-          { userId: scope.userId, asUserId: scope.userId, source: args.item.source, reason: keptReason(args.item.source) },
+          { userId: scope.userId, asUserId: scope.userId, source: args.item.source, reason: keptReason(args.item.source), sourceRef: args.item.ref },
         )
         if (applied.ok) {
           changeId = applied.value.change_id
