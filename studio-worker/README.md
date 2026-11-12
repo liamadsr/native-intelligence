@@ -305,11 +305,13 @@ analysis: `STUDIO_ANALYSIS_PYTHON=<python> node --import tsx test/checks-e2e.ts`
 installs FFmpeg, poppler, LibreOffice Impress, fonts and Chrome's libraries on the app's
 own Node 24 base, the engine's few packages from `engine-deps/` as `web/`, the worker's
 packages, and Remotion's Chrome headless shell at build time. **It was first built on the
-server on 2026-11-12** (about 2.8 GB) **and the worker starts in it**; that first image
-lacked three contract files the job contract imports and died at start, which
-`test/image-files.test.ts` now guards. A render, a deck and a transcript have not been run
-in the container yet: the worker's jobs are proven on macOS by the end-to-end run above.
-Deployment is [`deploy/studio`](../deploy/studio).
+server on 2026-11-12** (about 2.8 GB). That first image lacked three contract files the
+job contract imports and died at start; with them mounted in, the worker started and
+offered its job kinds, and `test/image-files.test.ts` now holds the Dockerfile to what the
+code reaches. A render, a deck and a transcript have not been run in the container yet:
+the worker's jobs are proven on macOS by the end-to-end run above. The image's Python has
+no fontTools, so an ad's knocked-out word is drawn as text there, not as its outline (the
+ad says so in a note). Deployment is [`deploy/studio`](../deploy/studio).
 
 The image does not install earshot (see "Sound"), so a worker in it never offers `sound`. It
 already copies `studio-worker/python` (the bridge and the analysis script, with

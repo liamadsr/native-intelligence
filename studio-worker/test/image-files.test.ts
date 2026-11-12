@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url'
 // Dockerfile.dockerignore lets through. The worker loads the engine and the contracts from
 // web/ by path, so the day one of them imports a file the Dockerfile does not name, the
 // worker in the image dies at start with MODULE_NOT_FOUND, and nothing run on a checkout
-// sees it. The first image ever built did exactly that (four contract files were missing).
+// sees it. The first image ever built did exactly that (the job contract imports three
+// contract files the Dockerfile did not name).
 // This walks every relative import from the worker's code and from the engine's two entry
 // files, and holds each file reached against both lists.
 
