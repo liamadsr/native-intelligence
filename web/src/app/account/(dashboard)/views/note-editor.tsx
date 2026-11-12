@@ -35,6 +35,7 @@ import { TextAlign } from '@tiptap/extension-text-align'
 import { Gapcursor } from '@tiptap/extension-gapcursor'
 import { cx } from 'class-variance-authority'
 import { LinkPreviewNode } from '@/components/editor/link-preview-extension'
+import { RecordMention } from '@/components/editor/record-mention'
 import { EDITOR_LINK_CLASS, UrlLinkDecorations } from '@/components/editor/url-link-decorations'
 import { pasteUrlTransaction } from '@/components/editor/paste-url'
 import { ReadAloudSections } from '@/components/editor/read-aloud-sections-extension'
@@ -213,6 +214,8 @@ const defaultExtensions = [
   tableCell,
   textAlign,
   LinkPreviewNode,
+  // A record @-mentioned in the body, drawn as a chip in every editor (the `@` picker is the documents': record-mention.ts).
+  RecordMention,
 ]
 
 

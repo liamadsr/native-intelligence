@@ -12,7 +12,7 @@ import { SHOW_TOOL_NAME, cardFromShowOutput, type CardSpec } from '@/lib/chat-ca
 import { pagesFor, personalToolsFor, type OfferedPage } from '@/lib/chat-cards/page-menu'
 import { isOpenedCardMessage, nextCardNumber, openedCardFromPart, openedCardMessage } from '@/lib/chat-cards/opened-card'
 import { FOLD_CARDS_EVENT, cardForTarget, cardMatches, sameCardPlace, type CardMatch, type OpenCardRequest } from '@/lib/chat-cards/open-card'
-import { menuRowTarget, type MentionRecordKind, type MenuSearchRow } from '@/lib/search/menu-search'
+import { menuRowTarget, type MenuSearchRow } from '@/lib/search/menu-search'
 import { seedCardState } from '@/components/chat-cards/card-storage'
 import { useWorkspaceEdition } from '../../workspace-switcher'
 import { startersFor } from '@/lib/chat/starters'
@@ -27,6 +27,7 @@ import {
   chatFileUIParts,
   clearStaleModelPicks,
   readyChatFiles,
+  recordIdsBody,
   useComposerEnvironment,
   useComposerFiles,
   useComposerFolders,
@@ -416,11 +417,15 @@ export interface SystemContext {
   attachedContactIds?: string[]
   /** Companies @-mentioned in the turn (CRM company ids). */
   attachedCompanyIds?: string[]
-  /** Actions, docs, projects and initiatives @-mentioned in the turn (their ids). */
+  /** Records @-mentioned in the turn (their ids, by MENTION_RECORD_KEYS). */
   attachedActionIds?: string[]
   attachedDocumentIds?: string[]
   attachedProjectIds?: string[]
   attachedInitiativeIds?: string[]
+  attachedDealIds?: string[]
+  attachedFlowIds?: string[]
+  attachedFileIds?: string[]
+  attachedCalendarEventIds?: string[]
   /** True when the turn is sent from the desktop app. Gates advertising the
    *  in-app browser tools (they can only run on the desktop). */
   isDesktopClient?: boolean
@@ -2274,11 +2279,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
     const noteIds = turn.notes.map((n) => n.id)
     const contactIds = turn.contacts.map((c) => c.id)
     const companyIds = turn.companies.map((c) => c.id)
-    const recordIds = (kind: MentionRecordKind) => (turn.records ?? []).filter((r) => r.kind === kind).map((r) => r.id)
-    const actionIds = recordIds('action')
-    const documentIds = recordIds('document')
-    const projectIds = recordIds('project')
-    const initiativeIds = recordIds('initiative')
     return {
       systemContext: {
         ...turn.context,
@@ -2287,10 +2287,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
         ...(noteIds.length > 0 ? { attachedNoteIds: noteIds } : {}),
         ...(contactIds.length > 0 ? { attachedContactIds: contactIds } : {}),
         ...(companyIds.length > 0 ? { attachedCompanyIds: companyIds } : {}),
-        ...(actionIds.length > 0 ? { attachedActionIds: actionIds } : {}),
-        ...(documentIds.length > 0 ? { attachedDocumentIds: documentIds } : {}),
-        ...(projectIds.length > 0 ? { attachedProjectIds: projectIds } : {}),
-        ...(initiativeIds.length > 0 ? { attachedInitiativeIds: initiativeIds } : {}),
+        // The tasks, docs, projects, initiatives, deals, flows, files and events (`attachedActionIds`…).
+        ...recordIdsBody(turn.records, 'context'),
         ...(turn.selection ? { editorSelection: turn.selection } : {}),
         ...(turn.contextSwitched ? { contextSwitched: true } : {}),
         // Pass file metadata so the AI knows about uploadable files

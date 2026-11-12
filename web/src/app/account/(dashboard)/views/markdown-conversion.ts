@@ -1,6 +1,11 @@
 import type { JSONContent } from 'novel'
+import { mentionMarkdown } from '@/lib/documents/mention-markdown'
+import { isMentionableType } from '@/lib/entity-links/mentionable'
 
 // --- Markdown <-> JSONContent conversion ---
+
+/** The editor's node for a record @-mentioned in the text (src/components/editor/record-mention.ts). */
+export const RECORD_MENTION_NODE = 'recordMention'
 
 /** Optional proposal change map for resolving <!-- proposal:ID --> markers */
 export interface ProposalChangeRef {
@@ -506,7 +511,10 @@ function parseInlineMarkdown(text: string): JSONContent[] {
   // `_`/`__` only delimit emphasis at word boundaries (the closing side is the
   // lookahead here, the opening side is checked in the loop), so snake_case
   // identifiers keep their underscores.
-  const regex = /(\[([^\]\n]+)\]\(((?:https?:\/\/|mailto:|\/)[^)\s]*)\)|\*\*(.+?)\*\*|__(.+?)__(?![\p{L}\p{N}_])|_(.+?)_(?![\p{L}\p{N}_])|\*(.+?)\*|`(.+?)`|~~(.+?)~~)/gu
+  // A record mention (`[@Maya Chen](mention://contact/<id>)`,
+  // src/lib/documents/mention-markdown.ts) is a chip, matched in place like
+  // the rest: inside bold it is bold, inside backticks it stays code text.
+  const regex = /(\[([^\]\n]+)\]\(((?:https?:\/\/|mailto:|\/)[^)\s]*)\)|\*\*(.+?)\*\*|__(.+?)__(?![\p{L}\p{N}_])|_(.+?)_(?![\p{L}\p{N}_])|\*(.+?)\*|`(.+?)`|~~(.+?)~~|\[@([^\]\n]{1,200})\]\(mention:\/\/([a-z_]+)\/([0-9a-fA-F-]{36})\))/gu
   let lastIndex = 0
   let match: RegExpExecArray | null
 
@@ -542,6 +550,13 @@ function parseInlineMarkdown(text: string): JSONContent[] {
     } else if (match[9]) {
       // Strikethrough
       nodes.push(...parseInlineWithMark(match[9], { type: 'strike' }))
+    } else if (match[10] && match[11] && match[12]) {
+      // A record mention (a link to no mentionable kind stays its words)
+      nodes.push(
+        isMentionableType(match[11])
+          ? { type: RECORD_MENTION_NODE, attrs: { kind: match[11], id: match[12].toLowerCase(), label: match[10].trim() } }
+          : { type: 'text', text: match[0] },
+      )
     }
 
     lastIndex = match.index + match[0].length
@@ -693,37 +708,70 @@ function tableNodeToMarkdown(node: JSONContent): string {
   return lines.join('\n')
 }
 
+/** Wrap `text` in the delimiters of `marks`, innermost first (the order the node lists them). */
+function wrapMarks(text: string, marks: JSONContent['marks']): string {
+  let out = text
+  for (const mark of marks ?? []) {
+    switch (mark.type) {
+      case 'bold':
+        out = `**${out}**`
+        break
+      case 'italic':
+        out = `_${out}_`
+        break
+      case 'code':
+        out = `\`${out}\``
+        break
+      case 'strike':
+        out = `~~${out}~~`
+        break
+      case 'link':
+        out = `[${out}](${mark.attrs?.href ?? ''})`
+        break
+    }
+  }
+  return out
+}
+
+/** A record mention's markdown, without its marks; null for a node that isn't a whole one. */
+function mentionNodeMarkdown(node: JSONContent): string | null {
+  if (node.type !== RECORD_MENTION_NODE || !isMentionableType(node.attrs?.kind) || typeof node.attrs?.id !== 'string') return null
+  return mentionMarkdown({ type: node.attrs.kind, id: node.attrs.id, label: String(node.attrs.label ?? '') })
+}
+
+/** The bold, italic and strike marks a run shares with a chip (a chip carries no code or link). */
+const RUN_MARKS = new Set(['bold', 'italic', 'strike'])
+function runKey(node: JSONContent): string | null {
+  const marks = node.marks ?? []
+  if (marks.length === 0 || marks.some((m) => !RUN_MARKS.has(m.type))) return null
+  if (node.type !== 'text' && mentionNodeMarkdown(node) === null) return null
+  return marks.map((m) => m.type).join(',')
+}
+
 function inlineToMarkdown(content?: JSONContent[]): string {
   if (!content) return ''
-  return content
-    .map((node) => {
-      if (node.type === 'text') {
-        let text = node.text ?? ''
-        if (node.marks) {
-          for (const mark of node.marks) {
-            switch (mark.type) {
-              case 'bold':
-                text = `**${text}**`
-                break
-              case 'italic':
-                text = `_${text}_`
-                break
-              case 'code':
-                text = `\`${text}\``
-                break
-              case 'strike':
-                text = `~~${text}~~`
-                break
-              case 'link':
-                text = `[${text}](${mark.attrs?.href ?? ''})`
-                break
-            }
-          }
-        }
-        return text
+  const out: string[] = []
+  for (let i = 0; i < content.length; i++) {
+    const node = content[i]
+    // A chip inside bold (or italic, or struck) text: the run around it,
+    // chip included, is wrapped once (`**the [@Renewal](…) now**`), so the
+    // marks stay on the chip and the run reads back as it was written.
+    // Plain text runs are written node by node, as before.
+    const key = runKey(node)
+    if (key !== null) {
+      let j = i
+      while (j < content.length && runKey(content[j]) === key) j++
+      const run = content.slice(i, j)
+      if (run.some((n) => n.type === RECORD_MENTION_NODE)) {
+        const words = run.map((n) => (n.type === 'text' ? (n.text ?? '') : (mentionNodeMarkdown(n) ?? ''))).join('')
+        out.push(wrapMarks(words, node.marks))
+        i = j - 1
+        continue
       }
-      if (node.type === 'hardBreak') return '\n'
-      return ''
-    })
-    .join('')
+    }
+    if (node.type === 'text') out.push(wrapMarks(node.text ?? '', node.marks))
+    else if (node.type === 'hardBreak') out.push('\n')
+    else out.push(mentionNodeMarkdown(node) ?? '')
+  }
+  return out.join('')
 }

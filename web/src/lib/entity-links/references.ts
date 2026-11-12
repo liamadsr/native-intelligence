@@ -87,6 +87,8 @@ export async function loadReferenceEdges(
     supabase,
     edges.filter((e) => e.source_type === 'team_chat_message').map((e) => e.source_id),
   )
+  // The person's chat with their agent (only they read it, so only they see it here).
+  for (const e of edges) if (e.source_type === 'conversation') contexts.set(e.source_id, 'Your chat')
   return { edges, contexts }
 }
 
@@ -129,7 +131,7 @@ export function groupReferences(edges: readonly ReferenceEdge[], contexts: Reado
       label: e.label,
       relations: [e.relation],
       created_at: e.created_at,
-      context: e.source_type === 'team_chat_message' ? (contexts.get(e.source_id) ?? null) : null,
+      context: e.source_type === 'team_chat_message' || e.source_type === 'conversation' ? (contexts.get(e.source_id) ?? null) : null,
     })
   }
   return [...out.values()].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))

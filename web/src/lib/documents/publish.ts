@@ -122,7 +122,10 @@ export async function publishDraft<Row extends Record<string, unknown>>(
   if (content !== null) {
     // Wikilinks against the newly published body.
     const { syncDocumentLinks } = await import('@/lib/wiki/wikilinks')
-    await syncDocumentLinks(supabase, args.workspaceId, args.documentId, content, memberId)
+    // What the live body named before (the doc read above): only that is taken back.
+    const before = (doc as { content?: unknown }).content
+    const previous = typeof before === 'string' ? before : null
+    await syncDocumentLinks(supabase, args.workspaceId, args.documentId, content, memberId, args.userId, previous)
     // The live body changed: re-index. Best-effort; never fails the publish.
     // The Now file is never embedded (migration 440).
     if (!isNowDocument(args.access.row.frontmatter)) {
