@@ -5,11 +5,12 @@
 #
 #   sudo docker build -f studio-worker/Dockerfile -t ni-studio-worker:local .
 #
-# It carries the engine's own files (web/src/lib/studio/engine, the job contract and the ads contract),
+# It carries the engine's own files (web/src/lib/studio/engine and the contracts beside it),
 # not a copy, and installs only what the engine imports (engine-deps/, as web/), so
 # the image holds none of the rest of the app.
 #
-# Not built or run yet: written with care, untested as an image (README.md, "The image").
+# First built on the server on 2026-11-12; what has and has not been proven in it is in
+# README.md, "The image".
 #
 # Debian, not Alpine: Chrome and Remotion's compositor are built for glibc. The base is
 # the app's own (deploy/app/Dockerfile), pinned to the same digest.
@@ -55,8 +56,10 @@ RUN cd studio-worker && npm ci --omit=dev && npm cache clean --force
 RUN cd studio-worker && node --input-type=module -e "import { ensureBrowser } from '@remotion/renderer'; await ensureBrowser();"
 
 COPY web/src/lib/studio/engine web/src/lib/studio/engine
-COPY web/src/lib/studio/server/job-contract.ts web/src/lib/studio/server/job-contract.ts
-COPY web/src/lib/studio/server/ads-contract.ts web/src/lib/studio/server/ads-contract.ts
+# Every contract, not a list of them: the job contract imports the others, and the worker
+# dies at start when one is missing (test/image-files.test.ts holds this file to what the
+# code reaches).
+COPY web/src/lib/studio/server/*-contract.ts web/src/lib/studio/server/
 COPY studio-worker/tsconfig.json studio-worker/
 COPY studio-worker/src studio-worker/src
 COPY studio-worker/python studio-worker/python
