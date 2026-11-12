@@ -21,6 +21,7 @@ import { studioVideoCardOf } from '@/lib/studio/agent/video-card'
 import { createStudioTools } from '../studio'
 import { createStudioAdsTools } from '../studio-ads'
 import { createStudioCheckTools } from '../studio-checks'
+import { createStudioLibraryTools } from '../studio-library'
 import { createStudioMediaTools } from '../studio-media'
 import { createStudioSoundTools } from '../studio-sound'
 import { createStudioVisionTools } from '../studio-vision'
@@ -218,7 +219,7 @@ describe('their registry classes', () => {
   it('reads are reads, writes are artifact writes, and the trash is a delete', () => {
     // The studio category also holds the ads tools (studio-ads.ts, tested in studio-ads.test.ts) and the paid media
     // tools (studio-media.ts, tested in studio-media.test.ts), and the sound tools (studio-sound.ts, studio-sound.test.ts).
-    const tools = [...Object.keys(ava()), ...Object.keys(createStudioAdsTools(AVA, WS)), ...Object.keys(createStudioMediaTools(AVA, WS)), ...Object.keys(createStudioSoundTools(AVA, WS)), ...Object.keys(createStudioCheckTools(AVA, WS)), ...Object.keys(createStudioVisionTools(AVA, WS))]
+    const tools = [...Object.keys(ava()), ...Object.keys(createStudioAdsTools(AVA, WS)), ...Object.keys(createStudioMediaTools(AVA, WS)), ...Object.keys(createStudioSoundTools(AVA, WS)), ...Object.keys(createStudioCheckTools(AVA, WS)), ...Object.keys(createStudioVisionTools(AVA, WS)), ...Object.keys(createStudioLibraryTools(AVA, WS))]
     for (const name of tools) expect(TOOL_REGISTRY_MAP.get(name)?.category.id, name).toBe('studio')
     expect(tools.sort()).toEqual(TOOL_REGISTRY_MAP.size ? [...TOOL_REGISTRY_MAP.values()].filter((e) => e.category.id === 'studio').map((e) => e.tool.name).sort() : [])
     for (const name of ['list_studio_projects', 'get_studio_video', 'get_studio_catalog', 'get_studio_storyboard', 'get_studio_script', 'list_studio_assets', 'list_studio_versions', 'check_studio_video', 'get_studio_job', 'wait_for_studio_job']) {

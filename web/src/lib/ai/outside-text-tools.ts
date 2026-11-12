@@ -105,6 +105,12 @@ export const OUTSIDE_TEXT_TOOLS: Readonly<Record<string, OutsideTextTool>> = {
     fence: ['completedResult('],
     note: 'a pending read or task, settled: the same fences as the call it waits for',
   },
+  get_studio_transcript: {
+    file: 'src/lib/ai/tools/studio-library.ts',
+    kind: 'TRANSCRIPT',
+    fence: ['wrapUntrusted'],
+    note: "a library video's or sound's words (a reference film, a recording): what someone else said",
+  },
   get_capture_transcript: {
     file: 'src/lib/ai/tools/captures.ts',
     kind: 'TRANSCRIPT',

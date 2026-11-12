@@ -839,6 +839,25 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'import_studio_sound', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Import Sound', description: 'Put a library audio file on a video on its onset or peak, or as the music bed' },
       { name: 'list_studio_sounds', sideEffect: 'read', label: 'List Sounds', description: "The sound bank (sounds made in code) and each kit preset's role → sound" },
       { name: 'listen_to_studio_video', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Listen', description: "Hear a video's mix: a listening transcript, a scorecard against launch films, an annotated sheet" },
+      // How the recording sits in the frame, the cursor, the webcam bubble (studio.ts): the video, one undoable step.
+      { name: 'set_studio_presentation', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Set Presentation', description: "Set how a video's recording sits in its frame (background, padding, radius, shadow), the cursor and the webcam bubble" },
+      // Costs and continuity (studio-media.ts): moving charges between videos is the workspace's own ledger rows; the
+      // continuity measure is a studio_job the worker runs on the workspace's own media. Neither spends.
+      { name: 'assign_studio_costs', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Assign Costs', description: 'Move Studio charges to the video they were for, or to none' },
+      { name: 'check_studio_continuity', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Continuity Check', description: 'Measure brightness, colour and light direction of each generated beat against the recorded beat it cuts to' },
+      // The library (src/lib/ai/tools/studio-library.ts). import_studio_file copies a chat upload or a workspace file
+      // (never one on a private meeting) into the workspace's own library: internal. import_studio_media_from_link
+      // reaches outside: a GET of a public link the person gave, through the SSRF-safe fetcher (nothing of theirs sent),
+      // classed external-write like the cloud browser so the risky-call reviewer sees it and unattended runs never do it.
+      { name: 'import_studio_file', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Import to Studio', description: 'Put a file attached in the chat, or a workspace file, into the Studio library' },
+      { name: 'import_studio_media_from_link', sideEffect: 'external-write', label: 'Import From Link', description: 'Download one image, video or sound from a public link the person gave into the Studio library' },
+      // A transcribe job on the Studio worker (the same as the editor's Transcribe), stored in the workspace's own rows.
+      { name: 'transcribe_studio_asset', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Transcribe Media', description: 'Transcribe a library video or sound so its words and times can be read' },
+      { name: 'get_studio_transcript', sideEffect: 'read', label: 'Get Transcript', description: "A library video's or sound's transcript: its words with times, and its text" },
+      { name: 'get_studio_images', sideEffect: 'read', label: 'See Images', description: 'Look at up to six library images on one picture' },
+      { name: 'list_studio_fonts', sideEffect: 'read', label: 'List Fonts', description: 'The fonts installed for the Studio, and the free families a search finds' },
+      // Installs a free family from the font shelves' fixed hosts (fonts.ts FONT_HOSTS) into the workspace's own storage.
+      { name: 'install_studio_font', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Install Font', description: 'Install a free font family for the workspace\'s videos and answer its weights' },
     ],
   },
 ]
@@ -1397,6 +1416,14 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   'sound_pass_studio_video',
   'import_studio_sound',
   'listen_to_studio_video',
+  // Studio parity: bringing media in, a transcript, a font, moving charges and the continuity measure. None of
+  // `import_`, `transcribe_`, `install_`, `assign_`, `check_` is a write verb. (set_studio_presentation matches the prefix.)
+  'import_studio_file',
+  'import_studio_media_from_link',
+  'transcribe_studio_asset',
+  'install_studio_font',
+  'assign_studio_costs',
+  'check_studio_continuity',
 ]
 
 /**

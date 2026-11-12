@@ -261,12 +261,28 @@ export async function importWorkspaceFile(ctx: StudioContext, session: SupabaseC
   }
   if (data.size > FILE_IMPORT_MAX_BYTES) throw new StudioError('That file is too large to add.', 413, 'TOO_LARGE')
   const bytes = new Uint8Array(await data.arrayBuffer())
+  return importBytes(ctx, bytes, { name: row.file_name, contentType: row.mime_type || data.type, provenance: { workspaceFile: row.id } }, options)
+}
+
+/**
+ * Bytes the server already holds (a workspace file, a chat upload, a fetched link) into the library: stored as a
+ * Studio upload and imported by the worker, whose import checks the file. The same bytes twice are the same asset.
+ * Answers the asset once it is in the library, or the import job while it still runs.
+ */
+export async function importBytes(
+  ctx: StudioContext,
+  bytes: Uint8Array,
+  file: { name: string; contentType?: string | null; provenance: Record<string, unknown> },
+  options: { waitMs?: number; signal?: AbortSignal } = {},
+): Promise<{ asset: EditorAsset } | { job: EditorJob }> {
+  if (!bytes.byteLength) throw new StudioError('That file is empty.')
+  if (bytes.byteLength > FILE_IMPORT_MAX_BYTES) throw new StudioError('That file is too large to add.', 413, 'TOO_LARGE')
   const sha256 = createHash('sha256').update(bytes).digest('hex')
   const existing = await assetBySha(ctx, sha256)
   if (existing) return { asset: existing }
   const key = uploadKey(randomUUID())
-  await putBlobBytes(ctx, key, bytes, row.mime_type || data.type || 'application/octet-stream', sha256)
-  const job = await queueJob(ctx, 'import', { uploadKey: key, name: row.file_name.slice(0, 250), provenance: { workspaceFile: row.id } })
+  await putBlobBytes(ctx, key, bytes, file.contentType || 'application/octet-stream', sha256)
+  const job = await queueJob(ctx, 'import', { uploadKey: key, name: file.name.slice(0, 250), provenance: file.provenance })
   const done = await waitForJob(ctx, job.id, { timeoutMs: options.waitMs ?? IMPORT_WAIT_MS, everyMs: 700, signal: options.signal })
   if (done.status === 'completed' && done.result?.asset) return { asset: done.result.asset as EditorAsset }
   if (done.status === 'failed') throw new StudioError(done.error || 'That file could not be imported.')

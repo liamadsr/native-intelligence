@@ -23,6 +23,7 @@ import { createBookingLinkTools } from './booking-links'
 import { createStudioTools } from './studio'
 import { createStudioAdsTools } from './studio-ads'
 import { createStudioCheckTools } from './studio-checks'
+import { createStudioLibraryTools } from './studio-library'
 import { createStudioMediaTools } from './studio-media'
 import { createStudioSoundTools } from './studio-sound'
 import { createStudioVisionTools } from './studio-vision'
@@ -478,6 +479,9 @@ export function createTools(
     ...createStudioVisionTools(userId, workspaceId),
     // Studio sound (src/lib/ai/tools/studio-sound.ts): the sound pass, chosen and imported sounds, the bank, listening (earshot in the worker).
     ...createStudioSoundTools(userId, workspaceId),
+    // Studio library (src/lib/ai/tools/studio-library.ts): a chat or workspace file, or a public link's file, into the
+    // library; transcripts; looking at library images; fonts.
+    ...createStudioLibraryTools(userId, workspaceId),
     ...createEmailTools(userId, workspaceId, strict, createPolicy, options?.automaticDrafts ?? false, {
       approvedCall: options?.approvedCall,
       ...(options?.flowContext?.turnReadOutside ? { turnReadOutside: options.flowContext.turnReadOutside } : {}),

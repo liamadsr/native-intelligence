@@ -165,17 +165,26 @@ export function createStudioJobTools(withStudio: WithStudio, videoAnswer: VideoA
   return {
     render_studio_stills: tool({
       description:
-        'Look at a video: render its frames at the times given (seconds on the video) and see them, laid out left to right on one image. Fewer times give bigger frames: 1 to 4 to read text, up to 12 to see the flow. ' +
+        'Look at a video: render its frames at the times given (seconds on the video) and see them, laid out left to right on one image. Fewer times give bigger frames: 1 to 4 to read text, up to 12 to see the flow. version_id renders a kept version instead, to compare two versions side by side. ' +
         "Waits about a minute and a half for the Studio's renderer; if it is still busy then, you get the job id: wait_for_studio_job shows the frames when they're done.",
       inputSchema: z.object({
         video_id: z.string().describe('The video (list_studio_projects)'),
         times: z.array(z.number().min(0)).min(1).max(STILLS_MAX).describe('Seconds on the video, one frame each'),
         scale: z.number().min(0.15).max(1).optional().describe('Size of each frame against the video, 0.15 to 1 (default 0.5)'),
+        version_id: z.string().optional().describe("A kept version's frames instead of the edit now (list_studio_versions): render the same times without it to compare"),
       }),
-      execute: async ({ video_id, times, scale }) =>
+      execute: async ({ video_id, times, scale, version_id }) =>
         withStudio(async (ctx) => {
-          const { openVideo, queueJob, waitForJob, projectDuration } = await import('@/lib/studio/agent/server')
-          const { project } = await openVideo(ctx, video_id)
+          const { openVideo, queueJob, waitForJob, projectDuration, loadVersion } = await import('@/lib/studio/agent/server')
+          const opened = await openVideo(ctx, video_id)
+          let project = opened.project
+          if (version_id) {
+            try {
+              project = { ...(await loadVersion(ctx, video_id, version_id)), id: opened.project.id }
+            } catch (error) {
+              return studioRefusal(error, 'version')
+            }
+          }
           const seconds = projectDuration(project) / project.output.fps
           const past = times.filter((t) => t > seconds)
           if (past.length) return refusal('INVALID', `The video is ${Math.round(seconds * 100) / 100} seconds long; ${past.join(', ')} ${past.length === 1 ? 'is' : 'are'} past its end.`)

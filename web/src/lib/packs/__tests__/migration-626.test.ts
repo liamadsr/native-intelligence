@@ -71,6 +71,10 @@ const ROWS = [...REWRITTEN, ...ADDED]
 const ALL_STUDIO = [...before.map((r) => ({ id: r.id, slug: r.slug })), ...ADDED]
 const STUDIO_SLUGS: ReadonlySet<string> = new Set(ALL_STUDIO.map((r) => r.slug))
 const STUDIO_IDS: ReadonlySet<string> = new Set(ALL_STUDIO.map((r) => r.id))
+/** The later Studio skill file (629): the rows it rewrites ship its text, and the skills it adds ship beside these. */
+const LATER = '629_studio_skills_parity.sql'
+const later = seededSkills(LATER)
+const LATER_ADDED_SLUGS = later.filter((r) => !STUDIO_IDS.has(r.id)).map((r) => r.slug)
 
 /** The tools added since 621 (src/lib/ai/tools/studio-ads.ts, -media, -sound, -checks, -vision): each is taught somewhere. */
 const NEW_TOOLS = [
@@ -128,11 +132,11 @@ describe('migration 626', () => {
     expect(new Set(ALL_STUDIO.map((r) => r.slug)).size).toBe(29)
   })
 
-  it('ships 626’s texts for the rows it writes, and every Studio skill id is in the Studio feature', () => {
+  it('ships 626’s texts for the rows it writes (629’s where 629 rewrote one), and every Studio skill id is in the Studio feature', () => {
     const shipped = allShippedSkills()
-    for (const r of ROWS) expect(shipped.find((s) => s.id === r.id)?.file, r.slug).toBe(FILE)
+    for (const r of ROWS) expect(shipped.find((s) => s.id === r.id)?.file, r.slug).toBe(later.some((l) => l.id === r.id) ? LATER : FILE)
     const ids = FEATURES.studio.systemRecipeIds ?? []
-    expect([...ids].sort()).toEqual([...STUDIO_IDS].sort())
+    expect(ids).toEqual(expect.arrayContaining([...STUDIO_IDS]))
   })
 
   it('lists the playbook globally and every task skill inside the Studio pack only, on real categories and tools', () => {
@@ -200,7 +204,7 @@ describe('migration 626', () => {
 
   it('no Studio text that ships says a built capability is not here yet', () => {
     const shipped = allShippedSkills().filter((s) => s.area === 'studio')
-    expect(shipped.map((s) => s.slug).sort()).toEqual([...STUDIO_SLUGS].sort())
+    expect(shipped.map((s) => s.slug).sort()).toEqual([...STUDIO_SLUGS, ...LATER_ADDED_SLUGS].sort())
     for (const s of shipped) {
       for (const text of [s.prompt, s.description]) {
         for (const sentence of sentences(text).filter((x) => NOT_HERE.test(x))) expect(sentence, s.slug).not.toMatch(BUILT)

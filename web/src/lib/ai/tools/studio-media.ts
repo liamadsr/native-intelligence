@@ -28,7 +28,9 @@ const MONEY_RULES =
  *   generate_studio_narration   spends when not cached: only as the person's approved call
  *   quote_studio_shot           a beat's still or clip price (free)
  *   generate_studio_shot        spends: only as the person's approved call, at a price no higher than its input
- *   get_studio_costs            what a video cost through the Studio
+ *   get_studio_costs            what a video cost through the Studio, each charge with its id
+ *   assign_studio_costs         move charges to the video they were for, or to none (spends nothing)
+ *   check_studio_continuity     generated beats measured against the recorded beats they cut to (spends nothing)
  *
  * Spending is provider spend on the accounts the Studio worker holds (per-workspace provider keys do not exist yet),
  * never Native Intelligence's AI usage: no credits are debited here (no logUsage); the Studio's cost ledger records
@@ -224,10 +226,42 @@ export function createStudioMediaTools(userId: string, workspaceId?: string, opt
             usd: usd(s.usd),
             providers: s.providers.map((p) => ({ provider: p.provider, credits: p.credits, usd: usd(p.usd), count: p.count })),
             models: s.models.slice(0, 8).map((m) => ({ model: m.model, kind: m.kind, count: m.count, credits: m.credits, usd: usd(m.usd) })),
-            charges: s.entries.slice(0, 20).map((e) => ({ at: e.at, provider: e.provider, model: e.model, kind: e.kind, credits: e.credits, usd: usd(e.usd) })),
+            charges: s.entries.slice(0, 20).map((e) => ({ id: e.id, at: e.at, provider: e.provider, model: e.model, kind: e.kind, credits: e.credits, usd: usd(e.usd) })),
             unassigned: s.unassigned.length,
+            // The charges no video owns (the newest): assign_studio_costs moves one to the video it was for.
+            unassigned_charges: s.unassigned.slice(0, 20).map((e) => ({ id: e.id, at: e.at, provider: e.provider, model: e.model, kind: e.kind, credits: e.credits, usd: usd(e.usd) })),
             note: s.warnings[0],
           }
+        }),
+    }),
+
+    assign_studio_costs: tool({
+      description:
+        'Move charges (their ids from get_studio_costs: its charges, or the unassigned ones no video owns) to the video they were for, or to no video with video_id null. Only when the person says which video a charge belongs to, or a charge is plainly on the wrong one. Spends nothing.',
+      inputSchema: z.object({
+        charge_ids: z.array(z.string()).min(1).max(200).describe('Charge ids from get_studio_costs'),
+        video_id: z.string().nullable().describe('The video they were for; null for none'),
+      }),
+      execute: async ({ charge_ids, video_id }) =>
+        withStudio(async (ctx) => {
+          if (video_id !== null && !(await video(ctx, video_id))) return missingRefusal('video')
+          const { assignCharges } = await import('@/lib/studio/server/costs')
+          const moved = await assignCharges(ctx, charge_ids, video_id)
+          return { success: true, moved, ...(moved < charge_ids.length ? { note: `${charge_ids.length - moved} of the ids are not charges in this workspace.` } : {}), message: `Moved ${moved} charge${moved === 1 ? '' : 's'} ${video_id ? 'to the video' : 'to no video'}.` }
+        }),
+    }),
+
+    check_studio_continuity: tool({
+      description:
+        "Measure each generated beat against the recorded beat it cuts to, on the Studio worker when available: brightness, colour and light-direction mismatches, so a generated shot doesn't jump against the real footage. Fix one with the beat's prompt (light from the same side, the same time of day) or a regrade, then measure again. " +
+        'No generated clip next to a recorded beat: nothing to measure. Waits up to a minute and a half. Spends nothing.',
+      inputSchema: z.object({ video_id: videoId }),
+      execute: async ({ video_id }) =>
+        withStudio(async (ctx) => {
+          if (!(await video(ctx, video_id))) return missingRefusal('video')
+          const { videoContinuity } = await shots()
+          const { issues } = await videoContinuity(ctx, video_id)
+          return { success: true, video_id, matched: issues.length === 0, issues, ...(issues.length ? {} : { note: 'Nothing to fix: each generated beat matches the recorded beat next to it, or there is no such pair.' }) }
         }),
     }),
   }

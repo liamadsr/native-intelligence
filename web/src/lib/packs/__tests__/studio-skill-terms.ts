@@ -1,10 +1,10 @@
 /**
- * The backticked words the Studio skills (621, and 626's rewrites and new
- * skills) name that are not tools: the editing commands each text names and
- * the fields it names. migration-621 and migration-626 each check their own
- * file's texts against their list (each command a real engine op, each entry
- * still used), and playbook-accuracy takes the shipped text's two together
- * as that text's NOT_TOOLS.
+ * The backticked words the Studio skills (621, 626's and 629's rewrites and
+ * new skills) name that are not tools: the editing commands each text names
+ * and the fields it names. migration-621, migration-626 and migration-629 each
+ * check their own file's texts against their list (each command a real engine
+ * op, each entry still used), and playbook-accuracy takes the shipped text's
+ * two together as that text's NOT_TOOLS.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -94,8 +94,52 @@ export const STUDIO_TERMS_626: Record<string, { ops: readonly string[]; words: r
   'studio-director-and-cut-outs': { ops: ['add_text', 'set_automation', 'set_format', 'set_shot', 'update_layer'], words: [] },
 }
 
-/** Per Studio text that ships, its terms: 626's where 626 rewrote or added the text, else 621's. */
-export const STUDIO_SHIPPED_TERMS: Record<string, { ops: readonly string[]; words: readonly string[] }> = { ...STUDIO_TERMS, ...STUDIO_TERMS_626 }
+/**
+ * The same, for the texts 629 writes: the fourteen rows it rewrites whole
+ * (from 621 or 626) and its three new skills. migration-629 holds 629's texts
+ * to these exactly (each command real, each entry used).
+ */
+export const STUDIO_TERMS_629: Record<string, { ops: readonly string[]; words: readonly string[] }> = {
+  'studio-playbook': { ops: ['set_canvas'], words: ['args', 'brand', 'edits', 'expected_digest', 'op', 'target', 'times'] },
+  'studio-picture-and-shots': {
+    ops: [
+      'add_background', 'add_callout', 'add_kinetic_captions', 'add_transition', 'add_zoom', 'clear_automation', 'list_shots', 'set_automation',
+      'set_canvas', 'set_format', 'set_frame', 'set_shot', 'set_transition', 'style_captions',
+    ],
+    words: [],
+  },
+  'studio-motion-design': { ops: ['set_canvas', 'set_master'], words: ['brand'] },
+  'studio-type-and-graphics': { ops: ['add_text', 'add_waveform', 'set_automation'], words: [] },
+  'studio-brand': { ops: [], words: ['brand'] },
+  'studio-script-writing': { ops: ['split_beat', 'storyboard_from_script', 'update_beat'], words: [] },
+  'studio-storyboard': {
+    ops: ['add_beat', 'lock_beat', 'remove_beat', 'reorder_beats', 'set_style_pack', 'split_beat', 'storyboard', 'storyboard_from_script', 'update_beat'],
+    words: [],
+  },
+  'studio-reference-to-style-pack': { ops: ['add_image', 'set_style_pack'], words: [] },
+  'studio-match-a-reference': { ops: ['add_image'], words: [] },
+  'studio-generated-shots': { ops: ['remove_cast', 'set_automation', 'set_cast', 'update_beat'], words: [] },
+  'studio-sound': { ops: ['set_audio_segment', 'set_automation', 'set_ducking', 'set_master'], words: [] },
+  'studio-scene-design': {
+    ops: [
+      'add_arrow', 'add_background', 'add_card', 'add_chips', 'add_icons', 'add_image', 'add_notification', 'add_particles', 'add_ring', 'add_text',
+      'add_waveform', 'set_automation',
+    ],
+    words: [],
+  },
+  'studio-product-ui': { ops: ['add_background', 'add_callout', 'add_image', 'add_zoom'], words: [] },
+  'studio-product-onboarding': { ops: [], words: [] },
+  'studio-media-in': { ops: [], words: [] },
+  'studio-reference-blueprint': { ops: ['storyboard_from_script', 'style_captions'], words: [] },
+  'studio-story-film': { ops: ['set_cast'], words: [] },
+}
+
+/** Per Studio text that ships, its terms: the latest file's that wrote the text (629 over 626 over 621). */
+export const STUDIO_SHIPPED_TERMS: Record<string, { ops: readonly string[]; words: readonly string[] }> = {
+  ...STUDIO_TERMS,
+  ...STUDIO_TERMS_626,
+  ...STUDIO_TERMS_629,
+}
 
 /** A shipped Studio text's non-tool words for playbook-accuracy: its commands and its fields together, each once. */
 export function studioNotTools(): Record<string, readonly string[]> {

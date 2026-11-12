@@ -211,6 +211,8 @@ describe('computeWorkRunCeiling', () => {
         // (external writes; the person's approval card decides, never an unattended run).
         'generate_studio_narration',
         'generate_studio_shot',
+        // Studio: downloading a file from a public link reaches outside (an external write, attended only).
+        'import_studio_media_from_link',
         // In-app browser: acting on the open web through Jev and
         // opening/closing the user's browser window are external writes, so an
         // unattended work run can READ the browser (read_browser_page,

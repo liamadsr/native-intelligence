@@ -254,6 +254,17 @@ const TOOL_LABELS: Record<string, string> = {
   import_studio_sound: 'Import sound',
   list_studio_sounds: 'List sounds',
   listen_to_studio_video: 'Listen to video',
+  // Studio parity (studio.ts, studio-media.ts, src/lib/ai/tools/studio-library.ts)
+  set_studio_presentation: 'Set presentation',
+  assign_studio_costs: 'Assign costs',
+  check_studio_continuity: 'Check continuity',
+  import_studio_file: 'Import to Studio',
+  import_studio_media_from_link: 'Import from link',
+  transcribe_studio_asset: 'Transcribe media',
+  get_studio_transcript: 'Get transcript',
+  get_studio_images: 'See images',
+  list_studio_fonts: 'List fonts',
+  install_studio_font: 'Install font',
   // Studio checks (src/lib/ai/tools/studio-checks.ts)
   check_studio_motion: 'Check motion',
   review_studio_video: 'Review video',

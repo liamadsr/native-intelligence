@@ -9,9 +9,92 @@ import { parseScriptText, scriptSeconds, scriptText } from '@/lib/studio/agent/s
 import { createStudioJobTools } from '@/lib/studio/agent/job-tools'
 import { studioBrandWords } from '@/lib/studio/agent/brand-words'
 import type { StudioContext } from '@/lib/studio/server/context'
+import type { EditorProject } from '@/lib/studio/engine/contracts'
 
 /** A video id: the Studio's ids are uuids. */
 const videoId = z.string().describe('The video (list_studio_projects lists them, with their ids)')
+
+/** Which versions: the whole edit's, or the storyboard's own. */
+const versionOf = z.enum(['edit', 'storyboard']).optional().describe("edit (default): the whole edit's versions; storyboard: the storyboard's own")
+
+const hex = z.string().regex(/^#[\da-fA-F]{6}(?:[\da-fA-F]{2})?$/)
+
+/** What set_studio_presentation changes: how the recording sits in the frame, the cursor, the webcam bubble. */
+const presentationInput = {
+  background: z
+    .object({
+      kind: z.enum(['none', 'solid', 'gradient', 'image']).optional(),
+      color: hex.optional(),
+      color2: hex.optional().describe('The gradient\'s second colour'),
+      angle: z.number().min(0).max(360).optional().describe('The gradient\'s angle in degrees'),
+      asset_id: z.string().nullable().optional().describe('A library image, for kind image'),
+    })
+    .optional()
+    .describe('What fills the frame around the recording'),
+  blur: z.number().min(0).max(100).optional().describe('Blur of an image background'),
+  padding: z.number().min(0).max(500).optional().describe('Space around the recording, in pixels of the output'),
+  inset: z.number().min(0).max(200).optional(),
+  radius: z.number().min(0).max(300).optional().describe("The recording's corner radius, in pixels"),
+  shadow: z
+    .object({ opacity: z.number().min(0).max(1).optional(), blur: z.number().min(0).max(200).optional(), distance: z.number().min(0).max(200).optional(), angle: z.number().min(0).max(360).optional() })
+    .optional(),
+  camera_fill: z.boolean().optional().describe('Camera shots fill the whole frame instead of the recording\'s shape'),
+  cursor: z
+    .object({ style: z.enum(['none', 'glass', 'arrow']).optional(), size: z.number().min(6).max(100).optional(), click_feedback: z.boolean().optional() })
+    .optional()
+    .describe('The drawn cursor over screen recordings'),
+  presenter: z
+    .object({ shape: z.enum(['circle', 'rounded']).optional(), radius: z.number().min(0).max(0.5).optional(), muted: z.boolean().optional(), gain: z.number().min(0).max(2).optional() })
+    .optional()
+    .describe("The webcam bubble's shape and its sound (a video with a camera recording)"),
+}
+type PresentationPatch = { [K in keyof typeof presentationInput]?: z.infer<(typeof presentationInput)[K]> }
+
+/**
+ * A video with the presentation, cursor and webcam bubble changes applied (only what is given). Pure. Throws a
+ * sentence when the presenter is asked of a video with no camera recording.
+ */
+export function withPresentation(project: EditorProject, patch: PresentationPatch): EditorProject {
+  const p = project.presentation
+  const bg = patch.background
+  const presentation = {
+    ...p,
+    ...(bg
+      ? {
+          background: {
+            ...p.background,
+            ...(bg.kind !== undefined ? { kind: bg.kind } : {}),
+            ...(bg.color !== undefined ? { color: bg.color } : {}),
+            ...(bg.color2 !== undefined ? { color2: bg.color2 } : {}),
+            ...(bg.angle !== undefined ? { angle: bg.angle } : {}),
+            ...(bg.asset_id !== undefined ? { assetId: bg.asset_id } : {}),
+          },
+        }
+      : {}),
+    ...(patch.blur !== undefined ? { blur: patch.blur } : {}),
+    ...(patch.padding !== undefined ? { padding: patch.padding } : {}),
+    ...(patch.inset !== undefined ? { inset: patch.inset } : {}),
+    ...(patch.radius !== undefined ? { radius: patch.radius } : {}),
+    ...(patch.shadow ? { shadow: { ...p.shadow, ...Object.fromEntries(Object.entries(patch.shadow).filter(([, v]) => v !== undefined)) } } : {}),
+    ...(patch.camera_fill !== undefined ? { cameraFill: patch.camera_fill } : {}),
+  }
+  const c = patch.cursor
+  const cursor = c
+    ? { ...project.cursor, ...(c.style !== undefined ? { style: c.style } : {}), ...(c.size !== undefined ? { size: c.size } : {}), ...(c.click_feedback !== undefined ? { clickFeedback: c.click_feedback } : {}) }
+    : project.cursor
+  let presenterTrack = project.presenterTrack
+  const pr = patch.presenter
+  if (pr) {
+    if (!presenterTrack) throw new Error('This video has no camera recording, so it has no webcam bubble to change.')
+    const style = pr.shape !== undefined || pr.radius !== undefined ? { shape: pr.shape ?? presenterTrack.style?.shape ?? 'circle', radius: pr.radius ?? presenterTrack.style?.radius ?? 0.5 } : presenterTrack.style
+    presenterTrack = {
+      ...presenterTrack,
+      audio: { muted: pr.muted ?? presenterTrack.audio.muted, gain: pr.gain ?? presenterTrack.audio.gain },
+      ...(style ? { style } : {}),
+    }
+  }
+  return { ...project, presentation, cursor, presenterTrack }
+}
 
 /** The most media one list_studio_assets answer holds. */
 const ASSETS_MAX = 100
@@ -35,9 +118,10 @@ const ASSETS_MAX = 100
  *   update_studio_video    its title, status or Studio project.
  *   duplicate_studio_video a copy.
  *   edit_studio_video      editing commands, in order, as ONE undoable step: the write path.
+ *   set_studio_presentation how the recording sits in the frame, the cursor, the webcam bubble.
  *   make_studio_format     a separate video reframed for a platform.
  *   list_studio_versions /
- *   restore_studio_version the versions kept before each pass.
+ *   restore_studio_version the versions kept before each pass (the whole edit's, or the storyboard's own).
  *   check_studio_video     the readiness checklist.
  *   render_studio_stills,
  *   export_studio_video,
@@ -348,6 +432,35 @@ export function createStudioTools(userId: string, workspaceId?: string) {
         }),
     }),
 
+    set_studio_presentation: tool({
+      description:
+        "How a video's recording sits in its frame, as ONE undoable step (the version before is kept): what fills the frame around it (background: none, solid, gradient with color2 and angle, or a library image with blur), padding, inset, corner radius, shadow, camera_fill; the drawn cursor (style none, glass or arrow, size, click_feedback); and the webcam bubble (shape circle or rounded, radius, muted, gain). " +
+        'Give only what changes. Pass the digest you read as expected_digest. For padding, radius and full bleed alone, edit_studio_video set_frame does the same.',
+      inputSchema: z.object({ video_id: videoId, ...presentationInput, expected_digest: z.string().regex(/^[a-f0-9]{64}$/).optional().describe('The digest get_studio_video returned') }),
+      execute: async ({ video_id, expected_digest, ...patch }) => {
+        if (!Object.values(patch).some((v) => v !== undefined)) return refusal('INVALID', 'Give at least one thing to change.')
+        return withStudio(async (ctx) => {
+          const { openVideo, saveVideo, saveVersion } = await import('@/lib/studio/agent/server')
+          const opened = await openVideo(ctx, video_id)
+          if (expected_digest && expected_digest !== opened.projectDigest) {
+            return refusal('DIGEST_CONFLICT', 'The video changed since you read it (the person may be editing it). Read it again with get_studio_video, then redo the change against the new digest.')
+          }
+          let start = opened.project
+          const imageId = patch.background?.asset_id
+          if (imageId && !start.assets.some((a) => a.id === imageId)) {
+            const { getAssets } = await import('@/lib/studio/server/assets')
+            const image = (await getAssets(ctx, [imageId])).get(imageId)
+            if (!image || image.kind !== 'image') return refusal('NOT_FOUND', 'The background must be a library image (list_studio_assets, kind image).')
+            start = { ...start, assets: [...start.assets, image] }
+          }
+          const next = withPresentation(start, patch)
+          await saveVersion(ctx, video_id, 'project', 'Before the agent: set_studio_presentation', opened.project).catch(() => null)
+          const saved = await saveVideo(ctx, next, opened.projectDigest)
+          return { success: true, digest: saved.projectDigest, presentation: saved.project.presentation, cursor: saved.project.cursor, video: await videoAnswer(ctx, video_id) }
+        })
+      },
+    }),
+
     make_studio_format: tool({
       description:
         `Make a separate video reframed for a platform: its shape and loudness, text moved clear of its buttons, filed as an output of this one (asking again remakes it). Formats: ${exportPresets.map((p) => `${p.id} (${p.label})`).join(', ')}. ` +
@@ -362,26 +475,34 @@ export function createStudioTools(userId: string, workspaceId?: string) {
     }),
 
     list_studio_versions: tool({
-      description: "A video's kept versions, newest first: the edit as it was before each assistant pass or restore. restore_studio_version puts one back.",
-      inputSchema: z.object({ video_id: videoId }),
-      execute: async ({ video_id }) =>
+      description:
+        "A video's kept versions, newest first: of 'edit' (the default), the whole edit as it was before each agent pass, director run, generation or restore; of 'storyboard', the storyboard as it was before each pass that changed it (with its beat count). " +
+        'restore_studio_version puts one back; render_studio_stills with version_id shows a version\'s frames, to compare it with the edit now.',
+      inputSchema: z.object({ video_id: videoId, of: versionOf }),
+      execute: async ({ video_id, of }) =>
         withStudio(async (ctx) => {
-          const { openVideo, listVersions } = await import('@/lib/studio/agent/server')
+          const { openVideo, listVersions, listStoryboardVersions } = await import('@/lib/studio/agent/server')
           await openVideo(ctx, video_id)
+          if (of === 'storyboard') {
+            const kept = await listStoryboardVersions(ctx, video_id)
+            return { success: true, video_id, of, versions: kept.map((v) => ({ id: v.id, at: v.at, label: v.by, beats: v.beats })) }
+          }
           const versions = await listVersions(ctx, video_id)
-          return { success: true, video_id, versions: versions.map((v) => ({ id: v.id, at: v.at, label: v.by })) }
+          return { success: true, video_id, of: 'edit', versions: versions.map((v) => ({ id: v.id, at: v.at, label: v.by })) }
         }),
     }),
 
     restore_studio_version: tool({
-      description: "Put a kept version of a video back. The edit as it is now is kept as a version first, so this is undone the same way. The person's latest device choices stay.",
-      inputSchema: z.object({ video_id: videoId, version_id: z.string().describe('The version (list_studio_versions)') }),
-      execute: async ({ video_id, version_id }) =>
+      description:
+        "Put a kept version of a video back. of 'edit' (the default) restores the whole edit, the person's latest device choices kept; of 'storyboard' restores the storyboard's plan only, never moving recorded footage (recorded beats stay, planned beats that would overlap them are dropped). " +
+        'What is there now is kept as a version first, so this is undone the same way.',
+      inputSchema: z.object({ video_id: videoId, version_id: z.string().describe('The version (list_studio_versions, with the same of)'), of: versionOf }),
+      execute: async ({ video_id, version_id, of }) =>
         withStudio(async (ctx) => {
-          const { openVideo, restoreVersion } = await import('@/lib/studio/agent/server')
+          const { openVideo, restoreVersion, restoreStoryboardVersion } = await import('@/lib/studio/agent/server')
           await openVideo(ctx, video_id)
           try {
-            const saved = await restoreVersion(ctx, video_id, version_id)
+            const saved = of === 'storyboard' ? await restoreStoryboardVersion(ctx, video_id, version_id) : await restoreVersion(ctx, video_id, version_id)
             return { success: true, digest: saved.projectDigest, video: await videoAnswer(ctx, video_id) }
           } catch (error) {
             return studioRefusal(error, 'version')
