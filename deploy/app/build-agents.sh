@@ -23,7 +23,7 @@
 # there. The Dockerfile hands the three to this script as BuildKit secrets, which
 # exist only while it runs; only the coding agent's build sees them.
 #
-# Or, the third way (built, not switched on): given SANDBOX_RUNTIME_API_URL and
+# Or, the third way (production's since 2026-11-12): given SANDBOX_RUNTIME_API_URL and
 # SANDBOX_RUNTIME_TRAFFIC_URL, its sandbox runs on our own runtime on the sandbox
 # server (provider ni-runtime, web/agents/coding-agent/lib/runtime-sandbox.ts).
 # Its build calls nothing there: it records the template's name
