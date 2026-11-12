@@ -83,3 +83,82 @@ export interface ProspectingRunCancelEvent {
 }
 
 export type ProspectingEvent = ProspectingRunRequestedEvent | ProspectingRunCancelEvent
+
+/**
+ * The SEO site audit's two events (src/lib/inngest/seo-audit-functions.ts),
+ * named here for the same reason as prospecting's: the start and cancel
+ * routes and the lane must agree on them, and an import makes a rename break
+ * the build. The start (src/lib/seo/audit/start.ts) creates the `seo_audit`
+ * row first and sends its id; the lane never creates one.
+ */
+export const SEO_AUDIT_REQUESTED = 'seo/audit.requested' as const
+export const SEO_AUDIT_CANCEL = 'seo/audit.cancel' as const
+
+export interface SeoAuditRequestedEvent {
+  name: typeof SEO_AUDIT_REQUESTED
+  data: { auditId: string; workspaceId: string }
+}
+
+export interface SeoAuditCancelEvent {
+  name: typeof SEO_AUDIT_CANCEL
+  data: { auditId: string }
+}
+
+/**
+ * The SEO rank check's two events (src/lib/inngest/seo-rank-functions.ts),
+ * named here for the same reason. A manual start (src/lib/seo/rank/runs.ts)
+ * and the schedule's cron (/api/cron/seo-rank-checks) create the
+ * `seo_rank_run` row first and send its id; the lane never creates one.
+ */
+export const SEO_RANK_CHECK_REQUESTED = 'seo/rank-check.requested' as const
+export const SEO_RANK_CHECK_CANCEL = 'seo/rank-check.cancel' as const
+
+export interface SeoRankCheckRequestedEvent {
+  name: typeof SEO_RANK_CHECK_REQUESTED
+  data: { runId: string; workspaceId: string; trackerId: string }
+}
+
+export interface SeoRankCheckCancelEvent {
+  name: typeof SEO_RANK_CHECK_CANCEL
+  data: { runId: string }
+}
+
+/**
+ * The AI visibility check's two events
+ * (src/lib/inngest/seo-ai-visibility-functions.ts), named here for the same
+ * reason, and so the library that sends them (src/lib/seo/ai-visibility/
+ * runs.ts) never imports the lane's own module. A manual start and the
+ * schedule's cron (/api/cron/seo-ai-visibility) write the run row first and
+ * send its id; the lane never creates one.
+ */
+export const SEO_AI_VISIBILITY_RUN_REQUESTED = 'seo/ai-visibility.run.requested' as const
+export const SEO_AI_VISIBILITY_RUN_CANCEL = 'seo/ai-visibility.run.cancel' as const
+
+export interface SeoAiVisibilityRunRequestedEvent {
+  name: typeof SEO_AI_VISIBILITY_RUN_REQUESTED
+  data: { runId: string; workspaceId: string }
+}
+
+export interface SeoAiVisibilityRunCancelEvent {
+  name: typeof SEO_AI_VISIBILITY_RUN_CANCEL
+  data: { runId: string }
+}
+
+/**
+ * The local rank scan's two events (src/lib/inngest/seo-local-functions.ts),
+ * named here for the same reasons. The start (src/lib/seo/local/scans.ts)
+ * creates the `seo_local_scan` row first and sends its id; the lane never
+ * creates one.
+ */
+export const SEO_LOCAL_SCAN_REQUESTED = 'seo/local-scan.requested' as const
+export const SEO_LOCAL_SCAN_CANCEL = 'seo/local-scan.cancel' as const
+
+export interface SeoLocalScanRequestedEvent {
+  name: typeof SEO_LOCAL_SCAN_REQUESTED
+  data: { scanId: string; workspaceId: string }
+}
+
+export interface SeoLocalScanCancelEvent {
+  name: typeof SEO_LOCAL_SCAN_CANCEL
+  data: { scanId: string }
+}
