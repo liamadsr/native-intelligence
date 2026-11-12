@@ -94,7 +94,7 @@ MAY_BE_EMPTY = {
     "LIVEKIT_API_KEY": "empty: no audio or video calls",
     "LIVEKIT_API_SECRET": "empty: no audio or video calls",
     "LIVEKIT_EGRESS": "a switch: empty is off (no call notes or recordings; on once Egress runs, ../README.md step 23)",
-    # The coding agent's own sandbox runtime (../sandbox): built, not switched on.
+    # The coding agent's own sandbox runtime (../sandbox): production's since 2026-11-12.
     # The URLs and the key, all three or none; then the git gate's addresses too.
     "SANDBOX_RUNTIME_API_URL": "empty: the coding agent's sandbox is not on our own runtime",
     "SANDBOX_RUNTIME_TRAFFIC_URL": "empty: the coding agent's sandbox is not on our own runtime",

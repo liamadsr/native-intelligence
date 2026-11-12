@@ -2,7 +2,7 @@
 
 A second server, apart from the app's, that runs the coding agent's sandboxes and (later) the cloud browsers. It is separate so that untrusted code never shares a machine with the app and its database, and so that it can grow by itself.
 
-**Where this stands.** The server is set up and the runtime runs on it, tried by hand (see [What was tried](#what-was-tried)). [The tunnel](#the-tunnel) between it and the app's server is up at both ends since 2026-11-12, and the app's containers can reach the runtime through it. The app does not use this server yet: coding runs and cloud browsers still go to the hosted sandbox service ([`../README.md`](../README.md), "The coding agent"). What is still to build is listed under [Not done yet](#not-done-yet).
+**Where this stands.** The server is set up and the runtime runs on it, tried by hand (see [What was tried](#what-was-tried)). [The tunnel](#the-tunnel) between it and the app's server is up at both ends since 2026-11-12, and the app's containers can reach the runtime through it. Since 2026-11-12 production's coding agent starts its sandboxes here ([`../README.md`](../README.md), "The coding agent", says what is proven on it and what is not); cloud browsers still go to the hosted sandbox service. What is still to build is listed under [Not done yet](#not-done-yet).
 
 ## What runs here
 
@@ -196,6 +196,6 @@ On the first server (4 cores, 8 threads, 32 GB, two spinning disks mirrored), by
 
 ## Not done yet
 
-- Switching the coding agent onto this runtime. Its image and the limits it needs are here, and the app's side now exists, dark: a third provider for its sandbox (`ni-runtime`, `web/agents/coding-agent/lib/runtime-sandbox.ts`), the git gate's address check, and the settings to choose them (`../app/.env.example`). Those settings may sit beside the hosted service's three, which the cloud browser keeps using until it moves: the own runtime then wins for the coding agent. Nothing uses it until those settings are entered on the app's server and the app is rolled out. `web/agents/coding-agent/scripts/runtime-conformance.mts` has passed against this runtime (every check, no sandbox left behind); no coding run has used it yet.
+- A whole coding run on this runtime, and its `restricted` and `isolated` levels, proven live. The coding agent was switched onto it on 2026-11-12 (a third provider for its sandbox, `ni-runtime`, `web/agents/coding-agent/lib/runtime-sandbox.ts`; the git gate's address check; the settings that choose them, `../app/.env.example`, beside the hosted service's three, which the cloud browser keeps using until it moves). `web/agents/coding-agent/scripts/runtime-conformance.mts` had passed against this runtime (every check, no sandbox left behind), and that day a sandbox was created from the app's coding agent container through the tunnel and the git gate's address rule was seen working from both sides.
 - The cloud browser on it.
 - A second setup from nothing on a wiped machine, timed.

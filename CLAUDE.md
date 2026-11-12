@@ -49,20 +49,27 @@ Read this before reporting anything as live or touching production. The code gui
   and commit `deploy/app/cron/crontab` with it (the image build and CI fail when the two
   disagree).
 - **Still at the earlier host, on purpose:** Slack's connector, the cloud browser's
-  sandboxes and the coding agent's, the AI Gateway, and DNS. The coding agent's sandbox
-  runs on that host's sandbox service when `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and
-  `SANDBOX_PROJECT_ID` are set at the image build and in the container. It is not
-  handed the person's GitHub token: it clones, fetches and pushes through the app's
-  git gate, which adds the token server-side and refuses an LFS answer that contains
-  it, and that service's firewall rules add only the run's gate token, on the gate's
-  endpoints. (GitHub's own short-lived LFS storage links, in its LFS answers, are not
-  checked, as before.) A `trusted` run was proven live from
-  the server on 2026-11-11 (clone and push through the gate, a reviewed pull request).
-  The `restricted` and `isolated` levels are written and tested without live calls, NOT
-  yet proven by a live run ("The coding agent" in `deploy/README.md` lists the checks to
-  do first). A sandbox server of our own is set up to take these sandboxes over and is
-  not in use yet ([`deploy/sandbox/README.md`](deploy/sandbox/README.md)). A private
-  tunnel links production to it since 2026-11-12: production carries a network
+  sandboxes, the AI Gateway, and DNS. The cloud browser's sandboxes run on that host's
+  sandbox service with `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and
+  `SANDBOX_PROJECT_ID`, which is why those three stay in the server's `.env`.
+- **The coding agent's sandbox runs on our own sandbox server since 2026-11-12**
+  ([`deploy/sandbox/README.md`](deploy/sandbox/README.md)), chosen by
+  `SANDBOX_RUNTIME_API_URL`, `SANDBOX_RUNTIME_TRAFFIC_URL` and `SANDBOX_RUNTIME_KEY` in
+  the server's `.env` (at the image build and in the coding agent's container; they
+  win over the hosted three). It is not handed the person's GitHub token: it clones,
+  fetches and pushes through the app's git gate, which adds the token server-side and
+  refuses an LFS answer that contains it. (GitHub's own short-lived LFS storage
+  links, in its LFS answers, are not checked, as before.) On our runtime the run's
+  gate token sits inside the sandbox, so the gate takes it only from the sandbox
+  server's addresses (`AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES`). Proven live on
+  2026-11-12: a sandbox started from production's coding agent container, and the
+  gate's address rule from both sides. NOT yet proven: a whole coding run on our
+  runtime, and the `restricted` and `isolated` levels on any sandbox ("The coding
+  agent" in `deploy/README.md` lists the checks to do first; on our runtime a narrowed
+  level still leaves the sandbox's DNS resolver reachable, so `isolated` does not yet
+  mean "nothing gets out"). On the hosted service a `trusted` run was proven live on
+  2026-11-11, before the move. A private
+  tunnel links production to the sandbox server since 2026-11-12: production carries a network
   interface `ni-sandbox`, a firewall table `inet ni_sandbox_tunnel` and the first rule
   in `ufw`'s list for it. They are not strays; "The tunnel" in that guide says what each
   is and how to take the tunnel away.
