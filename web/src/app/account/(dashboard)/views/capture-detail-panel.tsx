@@ -2222,6 +2222,15 @@ export function CaptureDetailPanel({
             )
           }
 
+          // A call's notes the call recorder writes on the server (metadata.notes_recorder,
+          // src/lib/team-calls/recorder.ts): nobody records them on this machine, so their
+          // transcript comes in here as people speak, and once more, ordered, when the call ends.
+          const notesRecorder = (updated.metadata as Record<string, unknown> | null | undefined)?.notes_recorder
+          if (typeof notesRecorder === 'string' && typeof updated.transcript === 'string' && !isActiveRecordingRef.current) {
+            const transcript = updated.transcript
+            setCapture((prev) => (prev && prev.transcript !== transcript ? { ...prev, transcript } : prev))
+          }
+
           // Carry the row's updated_at into every merge — the staleness guards
           // on the resync/refetch paths compare against it.
           const rowUpdatedAt = updated.updated_at as string | undefined

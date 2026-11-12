@@ -209,7 +209,7 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
 
   const begin = useCallback((call: CallPlace, join: TeamCallJoin, label: string) => {
     const session = new TeamCallSession(
-      { callId: call.id, channelId: call.channelId, channelKind: call.channelKind, label, notesOffered: call.features.notes },
+      { callId: call.id, channelId: call.channelId, channelKind: call.channelKind, label, notesOffered: call.features.notes, liveNotes: call.features.liveNotes === true },
       {
         refreshJoin: async (noticeSeen) => {
           const again = await requestJoin(call.id, noticeSeen)

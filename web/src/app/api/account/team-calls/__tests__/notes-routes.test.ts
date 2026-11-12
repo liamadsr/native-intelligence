@@ -311,7 +311,7 @@ describe('starting a call with notes on', () => {
     delete process.env.DEEPGRAM_API_KEY
     const res = await startCall(post('/api/account/team-calls', { channelId: CH, notes: true }))
     expect(h.rpcs.map((r) => r[0])).toEqual(['team_call_start', 'team_call_start'])
-    expect((await res.json()).call.features).toEqual({ notes: false, recording: true })
+    expect((await res.json()).call.features).toEqual({ notes: false, recording: true, liveNotes: false })
   })
 })
 
@@ -349,5 +349,49 @@ describe('joining a call whose notes are on: listen-only until the notice was se
     expect((await notice(new Request('http://localhost/n', { method: 'POST' }), params)).status).toBe(409)
     tables.team_call[0] = call({ status: 'ended' })
     expect((await notice(new Request('http://localhost/n', { method: 'POST' }), params)).status).toBe(409)
+  })
+})
+
+describe('the call recorder takes the notes (TEAM_CALL_RECORDER=on)', () => {
+  beforeEach(() => {
+    delete process.env.LIVEKIT_EGRESS
+    delete process.env.DEEPGRAM_API_KEY
+    Object.assign(process.env, { TEAM_CALL_RECORDER: 'on', CAPTURE_FEED_SECRET: 'capture-feed-secret-of-its-own-0123456789' })
+  })
+  afterEach(() => {
+    delete process.env.TEAM_CALL_RECORDER
+    delete process.env.CAPTURE_FEED_SECRET
+  })
+
+  it('on: no egress, no Deepgram key here; the call’s one capture is made now, so the call links to it', async () => {
+    h.rpc.team_call_set_notes = { data: [{ notes: true, notes_round: 1, changed: true }], error: null }
+    h.rpc['svc:team_call_capture_ensure'] = { data: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', error: null }
+    h.port.mics = [{ identity: ME, trackSid: 'TR_a' }]
+    const res = await notes(post('/n', { on: true }), params)
+    expect(await res.json()).toEqual({ notes: true })
+    expect(h.svcRpcs.map((r) => r[0])).toEqual(['team_call_capture_ensure'])
+    expect(h.svcRpcs[0][1]).toEqual({ target_call: CALL, capture_title: 'Call' })
+    await runAfters()
+    expect(h.port.started).toEqual([])
+  })
+
+  it('off: the round’s feed ends in the database, and the recorder is put out of the room at once (the eject outbox, filled by 588)', async () => {
+    h.rpc.team_call_set_notes = { data: [{ notes: false, notes_round: 2, changed: true }], error: null }
+    await notes(post('/n', { on: false }), params)
+    await runAfters()
+    // Nothing to stop here (no Egress); the drain of the outbox the database just filled is asked for.
+    expect(h.events).toEqual([{ name: 'team-calls/eject.requested', data: {} }])
+    expect(h.svcRpcs).toEqual([])
+  })
+
+  it('a new call started with notes on gets its capture at once, and says the notes are live', async () => {
+    tables.team_call.splice(0)
+    h.rpc.team_call_start = { data: [{ call_id: CALL, room: `tc-${CALL}`, message_id: MSG, created: true }], error: null }
+    h.rpc.team_call_set_notes = { data: [{ notes: true, notes_round: 1, changed: true }], error: null }
+    h.rpc['svc:team_call_capture_ensure'] = { data: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', error: null }
+    const res = await startCall(post('/api/account/team-calls', { channelId: CH, notes: true }))
+    const body = await res.json()
+    expect(body.call.features).toEqual({ notes: true, recording: false, liveNotes: true })
+    expect(body.call.notes).toMatchObject({ notes: true, capture_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' })
   })
 })

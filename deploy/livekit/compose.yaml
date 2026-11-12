@@ -262,12 +262,76 @@ services:
           cpus: "4"
           memory: 4g
 
+  # The call recorder (../../recorder): joins each of our calls whose notes are on as a
+  # hidden participant that publishes nothing, hears every microphone, transcribes each
+  # with Deepgram as it is spoken, and sends the words to the app (its capture feed),
+  # where the call's capture fills in live. Off until asked for: it starts only with
+  # `recorder` in COMPOSE_PROFILES in .env (../README.md step 23, "The call recorder").
+  # Plain `sudo docker compose up -d` leaves it out.
+  #
+  # It joins rooms on the private network (ws://livekit:7880) with a token the app
+  # hands it for each call (it holds no LiveKit key of its own), and reaches the app,
+  # and Deepgram, through ni-livekit-edge: the app at its public name, in through Caddy
+  # like LiveKit's webhooks. Nothing calls it: it asks the app for its work every few
+  # seconds, so it publishes no port and listens on none outside its container.
+  recorder:
+    profiles: ["recorder"]
+    build: ../../recorder
+    image: ni-recorder:local
+    pull_policy: never
+    container_name: ni-livekit-recorder
+    restart: unless-stopped
+    # tini as PID 1: SIGTERM reaches the recorder, which delivers every call's last
+    # words and leaves (the next process takes the calls up).
+    init: true
+    environment:
+      RECORDER_APP_URL: ${RECORDER_APP_URL:-}
+      CAPTURE_FEED_SECRET: ${CAPTURE_FEED_SECRET:-}
+      RECORDER_DEEPGRAM_API_KEY: ${RECORDER_DEEPGRAM_API_KEY:-}
+      RECORDER_LIVEKIT_URL: ws://livekit:7880
+      RECORDER_MAX_CALLS: ${RECORDER_MAX_CALLS:-10}
+      # Its name on the feed: the same after every restart, so the new process takes
+      # its calls up at once instead of waiting for them to be marked lost.
+      RECORDER_ID: recorder
+      RECORDER_HEALTH_PORT: "9091"
+    depends_on:
+      livekit:
+        condition: service_healthy
+    # Writes nothing: state is the app's; scratch in /tmp.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks:
+      # LiveKit's signalling and media, on the private network.
+      internal: {}
+      # The way out: the app's public name, Deepgram, and LiveKit's public media
+      # address when that is the one it offers (as Egress).
+      livekit-edge: {}
+    healthcheck:
+      # 200 while its loop runs (127.0.0.1 only, inside the container).
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9091/').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # Every call's last words (Deepgram's finals, then the app's answer), then out.
+    stop_grace_period: 40s
+    deploy:
+      resources:
+        limits:
+          # Decoding a microphone and sending it on is light: a fraction of a core per
+          # call. Capped so that it cannot take the database's or the app's share.
+          cpus: "2"
+          memory: 1g
+
 networks:
-  # LiveKit, its Redis and its Egress, and nothing else. No route out.
+  # LiveKit, its Redis, its Egress and the call recorder, and nothing else. No route out.
   internal:
     name: ni-livekit
     internal: true
-  # Caddy and this stack (LiveKit, and Egress when it runs), and nothing else.
+  # Caddy and this stack (LiveKit, and Egress and the recorder when they run), and nothing else.
   # Created once by hand (../README.md, step 7, or ../server/setup.sh) so that
   # neither stack owns it. Not internal: this stack's way out is through it.
   livekit-edge:

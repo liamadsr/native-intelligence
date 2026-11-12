@@ -3,6 +3,9 @@
  * what the call notes and recordings ask of it.
  *
  * Settings (an empty value counts as unset):
+ *   TEAM_CALL_RECORDER=on    call notes are the call recorder's instead
+ *                            (./recorder.ts): this file then starts no notes
+ *                            file; recordings stay Egress's.
  *   LIVEKIT_EGRESS=on        the egress service runs beside LiveKit, with its
  *                            own storage settings: Supabase Storage's S3
  *                            endpoint, bucket `team-call-recordings` (566),
@@ -30,6 +33,7 @@ import {
 } from 'livekit-server-sdk'
 import { teamCallsConfig, type TeamCallsConfig } from './livekit'
 import { NO_CALL_FEATURES, type TeamCallFeatures } from './notes'
+import { teamCallRecorderOn } from './recorder'
 
 function on(name: string, env: NodeJS.ProcessEnv): boolean {
   return env[name]?.trim().toLowerCase() === 'on'
@@ -41,10 +45,16 @@ export function teamCallEgressConfig(env: NodeJS.ProcessEnv = process.env): Team
   return config && on('LIVEKIT_EGRESS', env) ? config : null
 }
 
-/** What this server offers a call: notes (egress and a Deepgram key) and recording (egress and TEAM_CALL_RECORDING=on). */
+/**
+ * What this server offers a call: notes (the call recorder, ./recorder.ts;
+ * else egress and a Deepgram key) and recording (egress and
+ * TEAM_CALL_RECORDING=on). `liveNotes`: the notes are the recorder's.
+ */
 export function teamCallFeatures(env: NodeJS.ProcessEnv = process.env): TeamCallFeatures {
-  if (!teamCallEgressConfig(env)) return NO_CALL_FEATURES
-  return { notes: !!env.DEEPGRAM_API_KEY?.trim(), recording: on('TEAM_CALL_RECORDING', env) }
+  const recorder = teamCallRecorderOn(env)
+  const egress = !!teamCallEgressConfig(env)
+  if (!recorder && !egress) return NO_CALL_FEATURES
+  return { notes: recorder || !!env.DEEPGRAM_API_KEY?.trim(), recording: egress && on('TEAM_CALL_RECORDING', env), liveNotes: recorder }
 }
 
 /** The most recordings at once across the server (TEAM_CALL_RECORDING_MAX, default 1). */
