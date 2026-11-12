@@ -41,6 +41,7 @@ export const TARGET_SOURCE: Partial<Record<PageKind, string>> = {
   evals: 'list_evals',
   knowledge: 'list_packages',
   library: 'list_agents or list_skills',
+  studio: 'list_studio_projects lists the Studio projects and their videos',
 }
 
 const MAX_FILTERS = 12
@@ -90,6 +91,11 @@ export function normalizePageInput(input: PageShowInput): Checked<CheckedPageInp
     return { ok: false, error: `tab: '${tab}' is inside an eval suite. Give target, the suite's name or id, or leave tab out for the list of suites` }
   }
   if (kind === 'evals' && tab === 'overview' && !rawTarget) tab = undefined
+  // A Studio tab is a view of one video: the overview is the page's own top level.
+  if (kind === 'studio' && tab && tab !== 'overview' && !rawTarget) {
+    return { ok: false, error: `tab: '${tab}' is a view of one video. Give target, the video's title or id, or leave tab out for the Studio` }
+  }
+  if (kind === 'studio' && tab === 'overview' && !rawTarget) tab = undefined
   // Knowledge's packages live on its library tab.
   if (kind === 'knowledge' && rawTarget) tab = 'library'
 

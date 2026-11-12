@@ -61,7 +61,7 @@
 import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
-import { Bookmark, CalendarDays, LayoutList, Mail, Maximize2, Minimize2, X } from 'lucide-react'
+import { Bookmark, CalendarDays, Clapperboard, LayoutList, Mail, Maximize2, Minimize2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { countLabel, type CardSpec } from '@/lib/chat-cards/kinds'
 import type { EditionDefinition } from '@/lib/editions/manifest'
@@ -99,6 +99,7 @@ function countText(spec: CardSpec, count: number | null, edition: EditionDefinit
 export function KindIcon({ spec, className }: { spec: CardSpec; className: string }) {
   if (spec.kind === 'calendar') return <CalendarDays className={className} strokeWidth={1.75} />
   if (spec.kind === 'mail') return <Mail className={className} strokeWidth={1.75} />
+  if (spec.kind === 'studio') return <Clapperboard className={className} strokeWidth={1.75} />
   return <LayoutList className={className} strokeWidth={1.75} />
 }
 

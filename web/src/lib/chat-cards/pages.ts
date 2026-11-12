@@ -40,6 +40,7 @@ export const PAGE_KIND_NAMES = [
   'team_chat',
   'availability',
   'files',
+  'studio',
   'bot',
   'work_item',
   'guest',
@@ -66,6 +67,8 @@ export const PAGE_PLACE_TYPES = [
   'agent_link_exchange',
   'team_chat_channel',
   'team_chat_message',
+  'studio_project',
+  'studio_video',
 ] as const
 export type PagePlaceType = (typeof PAGE_PLACE_TYPES)[number]
 
@@ -225,6 +228,18 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     view: 'docs',
     personOnly: true,
   },
+  // Studio (migration 620): making videos and ads. A Studio project groups
+  // videos; each video is one edit. Unlike Files, the agent opens it with
+  // `show`, on one video or one Studio project (`target`, checked to be the
+  // workspace's), and a video's tabs are its views in the editor. The card
+  // draws its own navigation, so the page has no sub-nav panel beside the rail.
+  studio: {
+    label: 'Studio',
+    rows: 'Studio projects',
+    view: 'studio',
+    target: { types: ['studio_video', 'studio_project'] },
+    tabs: ['overview', 'storyboard', 'cast', 'edit'],
+  },
   // One AI teammate's page (bots-v4.md "A bot's page"): its chat and its work.
   // `target` is the teammate; `at` a work item of its open on the page.
   bot: {
@@ -286,6 +301,8 @@ export const PLACE_NOUN: Record<PagePlaceType, string> = {
   agent_link_exchange: 'conversation',
   team_chat_channel: 'channel',
   team_chat_message: 'message',
+  studio_project: 'Studio project',
+  studio_video: 'video',
 }
 
 export function isPageKind(value: unknown): value is PageKind {

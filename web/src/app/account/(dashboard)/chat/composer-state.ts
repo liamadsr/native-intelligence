@@ -373,12 +373,14 @@ const SYSTEM_CONTEXT_RECORD_KEYS: Record<MentionRecordKind, string> = {
   document: 'attachedDocumentIds',
   project: 'attachedProjectIds',
   initiative: 'attachedInitiativeIds',
+  studio_video: 'attachedStudioVideoIds',
 }
 const RUN_CHAT_RECORD_KEYS: Record<MentionRecordKind, string> = {
   action: 'actionIds',
   document: 'documentIds',
   project: 'projectIds',
   initiative: 'initiativeIds',
+  studio_video: 'studioVideoIds',
 }
 
 /**
