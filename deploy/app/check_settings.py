@@ -104,6 +104,9 @@ MAY_BE_EMPTY = {
     # The call recorder (../livekit's recorder service; ../README.md step 23, "The call recorder").
     "TEAM_CALL_RECORDER": "a switch: empty is off (call notes are Egress's, or there are none)",
     "CAPTURE_FEED_SECRET": "empty: the call recorder cannot reach the app (make-keys.sh in ../livekit makes it)",
+    # The Studio worker (../studio; ../../studio-worker).
+    "STUDIO_WORKER_SECRET": "empty: the Studio worker is refused, so nothing is imported, rendered or exported (../studio/README.md)",
+    "STUDIO_PROVIDER_WORKSPACES": "empty: no workspace may make narration or generated shots on the worker's provider accounts",
 }
 
 SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}
