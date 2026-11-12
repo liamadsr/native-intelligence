@@ -19,7 +19,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { OPEN_CARD_EVENT, cardForTarget, parseOpenCardRequest, type OpenCardRequest } from '@/lib/chat-cards/open-card'
+import { OPEN_CARD_EVENT, PAGE_DEEP_LINK_PARAM, cardForTarget, parseOpenCardRequest, type OpenCardRequest } from '@/lib/chat-cards/open-card'
 import { useSwitchWorkspace, useWorkspaceId } from '@/app/account/workspace-switcher'
 import { toast } from 'sonner'
 import { DEEP_LINK_TYPES } from '@/lib/entities/entity-actions-registry'
@@ -82,7 +82,9 @@ const DEEP_LINK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  * `&workspace=<id>` (a team chat email's link) names the workspace it is in:
  * the card opens there, switched to first, as any card asked for in another
  * workspace does (a workspace the person isn't in opens nothing). Uuids only.
- * One per boot.
+ * And `?page=<slug>`, a `/` page's own card (pageDeepLink: where a settings
+ * page that became a page redirects, Availability; Liam, 11-11), by a slug
+ * the `/` menu has (the card checks its own gate). One per boot.
  */
 export function deepLinkCard(params: URLSearchParams): { param: string; request: OpenCardRequest } | null {
   const workspace = params.get(DEEP_LINK_WORKSPACE)
@@ -97,6 +99,9 @@ export function deepLinkCard(params: URLSearchParams): { param: string; request:
     // The seed is where inside the card it starts (a flow's editor).
     return { param, request: { spec: card.spec, from: 'link', ...(card.seed ? { seed: card.seed } : {}), ...(workspaceId ? { workspaceId } : {}) } }
   }
+  const slug = params.get(PAGE_DEEP_LINK_PARAM)
+  const page = slug && /^[a-z][a-z-]{0,39}$/.test(slug) ? cardForTarget({ type: 'page', slug }) : null
+  if (page) return { param: PAGE_DEEP_LINK_PARAM, request: { spec: page.spec, from: 'link', ...(workspaceId ? { workspaceId } : {}) } }
   return null
 }
 

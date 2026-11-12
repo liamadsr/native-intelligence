@@ -1,36 +1,54 @@
 'use client'
 
 /**
- * The panels around the main chat (Liam, 10-15: "make it a lot more smoother
- * so that they all fit nicely"): the right side panel and, on the left, the
- * For you column (chat/for-you-column.tsx), one system.
+ * The side panel beside the main chat (Liam, 10-15: "make it a lot more
+ * smoother so that they all fit nicely"), on its right, with two views
+ * (Liam, 11-11: "move the for you cards to the right hand side panel then you
+ * should be able to switch between the agent browser and context cards and
+ * the for you cards but you can't see both at the same time"):
  *
- *   One way in   each side has one toggle in the top bar
- *                (side-panel-toggles.tsx); the right one also ⌘\, and Esc
- *                closes it while the focus is inside it.
- *   One motion   a panel slides in and out on a transform (PANEL_SLIDE_MS,
+ *   panel    its sections (below), the default view.
+ *   For you  the cards the bots bring you (chat/for-you-column.tsx
+ *            ForYouView, components/attention/for-you-column-panel.tsx),
+ *            filling the panel's width, down to its bottom, then scrolling.
+ *            Only while it has cards: the panel saved on For you with none
+ *            is off screen (side-panel-store.ts rightShown), the chat with
+ *            its room back, and comes back on For you with the next card.
+ *
+ *   One way in   two buttons side by side in the top bar's right header
+ *                (side-panel-toggles.tsx), one per view: each opens the
+ *                panel on its view, swaps to it, or closes the panel while
+ *                its view shows, and is lit only while its view is on
+ *                screen. ⌘\ opens and closes the panel on the view it had;
+ *                Esc closes it while the focus is inside it, the focus back
+ *                on the button of the view that showed.
+ *   One motion   the panel slides in and out on a transform (PANEL_SLIDE_MS,
  *                none under reduced motion); width, left and grid columns are
- *                never animated.
+ *                never animated. Switching views swaps them in place with no
+ *                motion at all (Liam: the less movement in the app, the
+ *                better).
  *   One plan     space-plan.ts decides, from the row's width and where the
- *                chat's content stands, whether a panel makes room (it fits
+ *                chat's content stands, whether the panel makes room (it fits
  *                in the free space beside the content and the chat does not
  *                move at all, or the content moves by just the shortfall,
  *                once, never animated) or floats over the chat's edge. Where
  *                the chat moves, its scroll keeps its distance from the
  *                bottom (side-panel-store.ts captureChatAnchor /
  *                restoreChatAnchor).
- *   No remounts  the right panel mounts on its first open and then stays
- *                mounted, hidden off-screen and `inert`, so its rows and a
- *                steer half typed survive closing it.
+ *   No remounts  the panel mounts on its first open and then stays mounted,
+ *                hidden off-screen and `inert`, so its rows and a steer half
+ *                typed survive closing it; inside it each view mounts on its
+ *                first showing and then stays mounted, `hidden` and inert
+ *                while the other shows.
  *   No flaps     (Liam, 10-16: "it shouldn't feel like you have two side
- *                panels; you just have floating cards") neither panel draws a
- *                box of its own: each is an invisible, click-through column
+ *                panels; you just have floating cards") the panel draws no
+ *                box of its own: an invisible, click-through column
  *                (pointer-events: none) of floating cards that take the
- *                pointer, on the For you column's card surface
+ *                pointer, on the For you cards' surface
  *                (components/attention/card-skin.ts: solid, no backdrop blur
  *                over the moving sky).
  *
- * The right panel's sections, each only when it has something (Liam's "hide
+ * The sections, each only when it has something (Liam's "hide
  * empty widgets"), except the agent's own: Computer, always (Liam, 10-24: the
  * agent card always shows; with no cloud browser yet its computer row offers
  * to start one, and the agent's first browsing fills it in) (computer-section.tsx,
@@ -52,13 +70,15 @@
  * or ⌥↑ / ⌥↓ on it; remembered, a hidden card keeping its slot), Agents ·
  * Plan · Context · Environment · Connections until then.
  *
- * Flat cost: no timer but the Agents section's once-a-minute elapsed redraw
- * while rows show and the environment's 30 s read while the panel is open and
- * the page visible (the connections refresh when the panel opens, on window
- * focus while it is open, and after a connect returns; the context when it
- * opens and after each reply), no idle
+ * Flat cost: the sections read and poll only while they are on screen (the
+ * panel open on them, never while For you shows): no timer but the Agents
+ * section's once-a-minute elapsed redraw while its rows show, the computer's
+ * 15 s read and the environment's 30 s read while the sections show and the
+ * page is visible (the connections refresh when the sections show, on
+ * window focus while they do, and after a connect returns; the context when
+ * they show and after each reply), no idle
  * animation (the computer card's bot moves only while someone is watching:
- * bots/agent-bot.tsx); the row re-renders only when a panel's mode changes, never per
+ * bots/agent-bot.tsx); the row re-renders only when the panel's mode changes, never per
  * frame of a resize (a resize that only changes how far the content moves
  * sets the strip's margins on the row's CSS variables, no render).
  */
@@ -67,6 +87,8 @@ import { cn } from '@/lib/utils'
 import { useHotkeys } from '@/lib/hotkeys'
 import { useConnections } from '@/lib/integrations/use-connections'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
+import { useOptionalAgentWorkShared } from '@/components/work/agent-work-provider'
+import { ForYouView, useForYouEntries } from '../chat/for-you-column'
 import { CardHeading, type SummaryTone } from './card-heading'
 import { AgentsSection, PlanSection, planHeaderCount, useAgentsSummary } from '../chat/chat-widgets'
 import { useChatFeed } from './chat-feed'
@@ -85,13 +107,16 @@ import {
   getSidePanelState,
   moveSection,
   restoreChatAnchor,
-  reportSpacePlan,
+  rightShown,
   setConnectionsAttention,
+  setForYouContent,
   setRightPanelOpen,
+  shownView,
   subscribeSidePanels,
   toggleRightPanel,
   type SectionId,
   type SidePanelState,
+  type SidePanelView,
 } from './side-panel-store'
 import {
   CHAT_CONTENT_MAX_PX,
@@ -111,20 +136,26 @@ export function useSidePanelState(): SidePanelState {
 }
 
 /**
- * Where the panels go in a row this wide, as the store says they are: For
- * you as the device remembered it shows where it makes room, and floats only
- * once opened by hand this session. `content` is the chat's widest content
- * (measureChatContent), `was` the plan in force (the hysteresis).
+ * Where the panels go in a row this wide, as the store says they are: the
+ * right one on screen while open, on the sections or on For you with cards
+ * (rightShown); the page panel beside the navigation while it has something
+ * to show, is open (its button in the rail's header, Liam 11-11; open by
+ * default) and the capture's notepad doesn't hold the left. The page panel
+ * as the device remembered it shows only where it makes room; opened by
+ * hand this session (pagePanelFloatOk) it floats where there's none, and
+ * a page's sub-nav with its card in front (pagePanelPage) shows while open,
+ * room or not, before the right panel (space-plan.ts leftPinned).
+ * `content` is the chat's widest content (measureChatContent), `was` the
+ * plan in force (the hysteresis).
  */
 export function planFor(
   width: number,
-  state: Pick<SidePanelState, 'rightOpen' | 'leftOpen' | 'leftContent' | 'leftFloatOk' | 'captureDock'>,
+  state: Pick<SidePanelState, 'rightOpen' | 'view' | 'forYouContent' | 'captureDock'> &
+    Partial<Pick<SidePanelState, 'pagePanel' | 'pagePanelOpen' | 'pagePanelFloatOk' | 'pagePanelPage'>>,
   { content, was = null }: { content?: number; was?: SpacePlan | null } = {},
 ): SpacePlan {
-  const input = { width, right: state.rightOpen, content, dock: state.captureDock, was }
-  const plan = planSpace({ ...input, left: state.leftOpen && state.leftContent })
-  if (plan.left === 'float' && !state.leftFloatOk) return planSpace({ ...input, left: false })
-  return plan
+  const left = !!state.pagePanel && state.pagePanelOpen !== false && !state.captureDock
+  return planSpace({ width, right: rightShown(state), left, leftFloat: !!state.pagePanelFloatOk, leftPinned: !!state.pagePanelPage, content, dock: state.captureDock, was })
 }
 
 /** The row's CSS variables holding the chat strip's margins (dashboard-shell.tsx reads them). */
@@ -155,14 +186,15 @@ export function measureChatContent(row: HTMLElement): number {
 
 /**
  * The row's space plan. Re-planned when the store changes (a toggle, For you
- * showing or hiding, the capture's notepad docking) and as the row resizes
+ * gaining or losing its cards, the page panel gaining or losing its rows,
+ * the capture's notepad docking) and as the row resizes
  * (the chat's content measured again then). A render only when a panel's
  * mode changes: a resize that only changes how far the content moves writes
  * the strip's margins on the row's CSS variables (INSET_LEFT_VAR /
  * INSET_RIGHT_VAR) straight from the ResizeObserver, so the returned plan's
  * insets are as of its last render and the row's variables are the live
  * ones. After a toggle the chat goes back to where it was from its bottom,
- * before paint, and the crew hears whether the strip still holds it.
+ * before paint.
  */
 export function useSidePanelPlan(rowRef: RefObject<HTMLElement | null>): SpacePlan {
   const state = useSidePanelState()
@@ -183,7 +215,6 @@ export function useSidePanelPlan(rowRef: RefObject<HTMLElement | null>): SpacePl
         setPxVar(row, INSET_LEFT_VAR, plan.insetLeft)
         setPxVar(row, INSET_RIGHT_VAR, plan.insetRight)
       }
-      reportSpacePlan(plan.left !== 'off')
     },
     [rowRef],
   )
@@ -241,18 +272,25 @@ export const SLIDE_CLASS = 'transition-[translate,visibility] ease-out motion-re
 export const SLIDE_STYLE: CSSProperties = { transitionDuration: `${PANEL_SLIDE_MS}ms` }
 
 /**
- * Both panels' top (this one's and For you's): just under the top bar, half a
- * gutter after it, close under their buttons (Liam, 11-09: too much space
- * between For you's button and its cards). The bar's blur is under them, not
- * over them (dashboard-shell.tsx ChatRow), so they're sharp from their top.
- * Their outer sides line up with the bar's buttons (top-bar/insets.ts).
+ * The panel's top: just under the top bar, half a gutter after it, close
+ * under its buttons (Liam, 11-09: too much space between a button and its
+ * cards). The bar's blur is under it, not over it (dashboard-shell.tsx
+ * ChatRow), so it's sharp from its top. Its outer side lines up with the
+ * bar's buttons (top-bar/insets.ts).
  */
 export const PANEL_TOP = `calc(var(--chat-top-inset, 0px) + ${PANEL_GUTTER_PX / 2}px)`
 
+/** The button that opens each view (side-panel-toggles.tsx): where Esc puts the focus back. */
+const VIEW_TOGGLE_SELECTOR: Record<SidePanelView, string> = {
+  panel: '[data-side-panel-toggle]',
+  forYou: '[data-for-you-panel-toggle]',
+}
+
 /**
- * The right side panel. Always rendered by the row (its toggle's shortcut and
- * the connections' status read live here, for the toggle's dot), the panel
- * itself from its first open.
+ * The right side panel. Always rendered by the row (its toggle's shortcut,
+ * the connections' status for the toggle's dot, and whether For you has
+ * cards read live here), the panel itself from its first open, each view
+ * from its first showing.
  */
 export function RightSidePanel({ mode }: { mode: PanelMode }) {
   const state = useSidePanelState()
@@ -260,12 +298,28 @@ export function RightSidePanel({ mode }: { mode: PanelMode }) {
   const [mounted, setMounted] = useState(open)
   if (open && !mounted) setMounted(true)
 
+  // For you's cards: the panel says whether there are any (with none, its view is never on screen).
+  const shared = useOptionalAgentWorkShared()
+  const entries = useForYouEntries()
+  const hasForYou = shared !== null && entries.length > 0
+  useEffect(() => {
+    setForYouContent(hasForYou)
+  }, [hasForYou])
+  useEffect(() => () => setForYouContent(false), [])
+
+  // Which view is on screen: one at a time, the other hidden and inert.
+  const sectionsOn = open && state.view === 'panel'
+  const forYouOn = open && state.view === 'forYou' && hasForYou
+  // Each view mounted on its first showing, then kept.
+  const [seen, setSeen] = useState({ panel: sectionsOn, forYou: forYouOn })
+  if ((sectionsOn && !seen.panel) || (forYouOn && !seen.forYou)) setSeen({ panel: seen.panel || sectionsOn, forYou: seen.forYou || forYouOn })
+
   // ⌘\ anywhere (the composer too: it's a chord, never typed text).
   useHotkeys([{ key: '\\', mod: true, allowInInput: true, handler: () => toggleRightPanel() }])
 
   // The connections: read at load (so the toggle's dot can show), when the
-  // panel opens, on focus while it is open, and after a connect returns.
-  const connections = useConnections({ active: open })
+  // sections show, on focus while they do, and after a connect returns.
+  const connections = useConnections({ active: sectionsOn })
   useEffect(() => {
     setConnectionsAttention(connections.needsAttention)
   }, [connections.needsAttention])
@@ -278,8 +332,10 @@ export function RightSidePanel({ mode }: { mode: PanelMode }) {
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== 'Escape' || e.defaultPrevented) return
     e.preventDefault()
+    // The focus goes back to the button of the view that showed.
+    const view = shownView(getSidePanelState()) ?? 'panel'
     setRightPanelOpen(false)
-    document.querySelector<HTMLElement>('[data-side-panel-toggle]')?.focus()
+    ;(document.querySelector<HTMLElement>(VIEW_TOGGLE_SELECTOR[view]) ?? document.querySelector<HTMLElement>(VIEW_TOGGLE_SELECTOR.panel))?.focus()
   }
 
   if (!mounted) return null
@@ -289,6 +345,7 @@ export function RightSidePanel({ mode }: { mode: PanelMode }) {
       id={RIGHT_PANEL_ID}
       aria-label="Side panel"
       data-side-panel={mode}
+      data-side-panel-view={state.view}
       tabIndex={-1}
       inert={!open}
       aria-hidden={!open || undefined}
@@ -296,18 +353,30 @@ export function RightSidePanel({ mode }: { mode: PanelMode }) {
       // No box of its own: a click-through column, its cards take the pointer.
       className={cn(
         'pointer-events-none absolute z-[25] flex flex-col focus-visible:outline-none',
+        // Over the shell's blur while a card waits as the chat's Reply chip: the card in hand shows where it came from (CARD_REPLY_FOCUS_ATTR).
+        state.view === 'forYou' && '[html[data-card-reply-focus]_&]:z-[46]',
         SLIDE_CLASS,
         open ? 'visible translate-x-0' : 'invisible translate-x-[calc(100%+1rem)]',
       )}
       style={{ ...SLIDE_STYLE, top: PANEL_TOP, right: TOP_BAR_RIGHT_INSET_PX, bottom, width: RIGHT_PANEL_WIDTH_PX }}
     >
-      {/* As tall as its cards (down to the panel's bottom, then it scrolls), a hair of room round them for their lift and focus rings. */}
-      <div
-        data-side-panel-cards=""
-        className="pointer-events-none -mx-1 flex min-h-0 flex-col gap-2.5 overflow-y-auto overscroll-contain px-1 pb-1 scrollbar-hide-deep"
-      >
-        <PanelSections open={open} state={state} connections={connections} />
-      </div>
+      {/* The sections: as tall as their cards (down to the panel's bottom, then they scroll), a hair of room round them for their lift and focus rings. */}
+      {seen.panel && (
+        <div
+          data-side-panel-cards=""
+          hidden={!sectionsOn}
+          inert={!sectionsOn}
+          className="pointer-events-none -mx-1 flex min-h-0 flex-col gap-2.5 overflow-y-auto overscroll-contain px-1 pb-1 scrollbar-hide-deep"
+        >
+          <PanelSections open={sectionsOn} state={state} connections={connections} />
+        </div>
+      )}
+      {/* For you: its cards fill the panel's box, down to its bottom (then they scroll). */}
+      {seen.forYou && shared && (
+        <div data-side-panel-for-you="" hidden={!forYouOn} inert={!forYouOn} className="pointer-events-none relative min-h-0 flex-1">
+          <ForYouView entries={entries} shared={shared} />
+        </div>
+      )}
     </aside>
   )
 }
@@ -392,14 +461,14 @@ function PanelSections({
 }) {
   const agents = useAgentsSummary()
   const { plan, conversationId, busy } = useChatFeed()
-  // The main chat's context: read when the panel opens and after each reply.
+  // The main chat's context: read when the sections show and after each reply.
   const context = useChatContext({ conversationId, active: open, busy })
   const { sectionOpen, order } = state
   const { groups, loading } = connections
   const connectors = useMemo(() => connectionsSummary({ groups, loading }), [groups, loading])
-  // Where the main chat's work runs; a Mac's folders read every 30 s while the panel is open.
+  // Where the main chat's work runs; a Mac's folders read every 30 s while the sections show.
   const environment = useEnvironmentCard({ open, conversationId })
-  // The agent's computer (its cloud browser): read every 15 s while the panel is open, its preview while it runs.
+  // The agent's computer (its cloud browser): read every 15 s while the sections show, its preview while it runs.
   const computer = useComputer()
   useComputerPolling(open)
   const { name: assistantName } = useAssistantName()
@@ -503,7 +572,7 @@ function PanelSections({
 }
 
 /**
- * One floating card in the panel's column: the For you cards' surface, the
+ * One floating card in the sections' column: the For you cards' surface, the
  * pointer's (the column is not). A pinned card (the agent's) is not one of
  * the cards a drag moves among (card-drag.ts CARD_SELECTOR).
  */

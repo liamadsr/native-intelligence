@@ -31,7 +31,7 @@ import { readWorkingHours } from './schedule'
 
 export const NOT_SHARING_REASON = "they don't share their availability"
 /** A teammate whose zone is nowhere to be found: their hours in UTC would be a guess. */
-export const ZONE_UNKNOWN_REASON = "their time zone isn't known (they can set it in Settings > Availability); ask them which hours suit them"
+export const ZONE_UNKNOWN_REASON = "their time zone isn't known (they can set it on their Availability page, under Calendar); ask them which hours suit them"
 
 export type Coverage = 'complete' | 'unknown'
 

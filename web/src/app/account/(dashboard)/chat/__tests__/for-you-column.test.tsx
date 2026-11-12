@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 /**
- * The chat's For you column (docs/plans/always-on-agent.md, decision 13):
+ * For you's cards (docs/plans/always-on-agent.md, decision 13), the side
+ * panel's For you view (chat/for-you-column.tsx ForYouView; Liam, 11-11:
+ * "move the for you cards to the right hand side panel"; where and when the
+ * view shows, its mounting and the store's word on whether it has cards are
+ * side-panels/__tests__/side-panels.test.tsx's):
  *
- *   • placed by the side panels' space plan (it draws in the mode it is
- *     given), sliding off-screen and inert when off, kept mounted once shown;
- *     it tells the side panels' store whether it has cards;
  *   • the work the bots delivered for you, across all of them, one card
  *     each: its cards and reviews, as each bot's own list has them; never an
  *     approval, a question card or a run parked on a question (P13: those ask
@@ -18,8 +19,10 @@
  *   • one store with the bots: settling a card here takes it off the shared
  *     source, so it leaves a bot's For you too (and the other way round);
  *   • with nothing waiting, nothing at all;
- *   • no toggle of its own: the top bar's folds it (the side panels' store,
- *     remembered per device: its own tests);
+ *   • no button of its own: the top bar's For you button opens and closes
+ *     it (side-panels/__tests__/for-you-toggle.test.tsx);
+ *   • a click-through column (the cards take the pointer), kept out of
+ *     session replay (`ph-no-capture`);
  *   • a card's impression goes once per card per session, once it's in view;
  *   • its bot's count leaves out a review whose read failed;
  *   • its bottom fade follows a card growing.
@@ -123,9 +126,8 @@ import { __resetColumnImpressionsForTests } from '@/components/attention/attenti
 import { ForYou, forYouItems } from '@/components/bots/bot-page/for-you'
 import { useBotPageOpen } from '@/components/bots/bot-page/use-bot-page-open'
 import { BotPageNavContext } from '@/components/bots/bot-page/bot-page-nav'
-import { ForYouColumn } from '../for-you-column'
-import { getSidePanelState, resetSidePanelStore } from '../../side-panels/side-panel-store'
-import type { PanelMode } from '../../side-panels/space-plan'
+import { ForYouView, useForYouEntries } from '../for-you-column'
+import { useOptionalAgentWorkShared } from '@/components/work/agent-work-provider'
 
 /** A row as the shell's light read gives it (LIGHT_WORK_ITEM_SELECT): its title and step, no result or deliverables. */
 function light(id: string, over: Partial<LightWorkRow> = {}): LightWorkRow {
@@ -244,8 +246,7 @@ function hold(rows: Array<WorkItem | LightWorkRow>, cards: ReturnType<typeof car
   store.emit()
 }
 
-// ── The chat's width (jsdom lays nothing out) and its ResizeObserver ─────────
-let chatWidth = 1400
+// ── Its ResizeObserver (jsdom has none) ─────────
 const observers: Array<{ cb: ResizeObserverCallback; els: Set<Element> }> = []
 class FakeResizeObserver {
   private entry: { cb: ResizeObserverCallback; els: Set<Element> }
@@ -263,21 +264,6 @@ class FakeResizeObserver {
     this.entry.els.clear()
   }
 }
-/** The chat resized to `width`: every observer of the column's box hears it. */
-async function resizeChat(width: number) {
-  chatWidth = width
-  await act(async () => {
-    for (const o of observers) {
-      for (const el of o.els) {
-        if (el.hasAttribute('data-for-you-column-root')) {
-          o.cb([{ target: el, contentRect: { width } } as unknown as ResizeObserverEntry], o as unknown as ResizeObserver)
-        }
-      }
-    }
-  })
-}
-const clientWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
-
 let container: HTMLDivElement
 let root: Root
 
@@ -287,17 +273,8 @@ beforeEach(() => {
   hold([])
   __resetFullRowsForTests()
   __resetColumnImpressionsForTests()
-  window.localStorage.clear()
-  resetSidePanelStore()
-  chatWidth = 1400
   observers.length = 0
   vi.stubGlobal('ResizeObserver', FakeResizeObserver)
-  Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
-    configurable: true,
-    get(this: HTMLElement) {
-      return this.hasAttribute('data-for-you-column-root') ? chatWidth : 0
-    },
-  })
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date('2026-10-03T12:00:00.000Z'))
   container = document.createElement('div')
@@ -309,7 +286,6 @@ afterEach(() => {
   container.remove()
   vi.useRealTimers()
   vi.unstubAllGlobals()
-  if (clientWidth) Object.defineProperty(HTMLElement.prototype, 'clientWidth', clientWidth)
 })
 
 /** Lets the column's lazily fetched module land and render (loaded here first: a busy run is slow to import it). */
@@ -341,11 +317,16 @@ const cardBy = (id: string, bot: string, minutesAgo: number) =>
 const within = (el: HTMLElement | null, name: string) =>
   [...(el?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find((b) => (b.getAttribute('aria-label') ?? b.textContent?.trim()) === name)
 
-async function renderColumn(mode: PanelMode = 'room') {
-  await act(async () => root.render(h('div', { style: { position: 'relative' } }, h(ForYouColumn, { mode }))))
+/** The view as the side panel hosts it (side-panels.tsx): the entries and the shared source, nothing without one. */
+function Host({ show }: { show: boolean }) {
+  const shared = useOptionalAgentWorkShared()
+  const entries = useForYouEntries()
+  return show && shared ? h(ForYouView, { entries, shared }) : null
+}
+async function renderColumn(show = true) {
+  await act(async () => root.render(h('div', { style: { position: 'relative' } }, h(Host, { show }))))
   await settle()
 }
-const columnRoot = () => container.querySelector<HTMLElement>('[data-for-you-column-root]')
 
 describe('the bots\' email drafts, one card each (Phase 6)', () => {
   const draft = (id: string, over: Record<string, unknown> = {}) => ({
@@ -526,36 +507,17 @@ describe('columnTag: where a card came from, on the card', () => {
   })
 })
 
-describe('ForYouColumn', () => {
-  it('draws where the space plan puts it; off, it slides away inert but stays mounted once shown', async () => {
-    hold([], [card('c1')])
-    await renderColumn('off')
-    // Never shown yet: nothing mounted.
-    expect(columnRoot()).toBeNull()
-    await renderColumn('room')
-    expect(columnRoot()!.getAttribute('data-for-you-column-root')).toBe('room')
-    expect(columnRoot()!.hasAttribute('inert')).toBe(false)
-    expect(columnCards()).toEqual(['c1'])
-    await renderColumn('off')
-    expect(columnRoot()!.hasAttribute('inert')).toBe(true)
-    expect(columnRoot()!.className).toContain('-translate-x-[calc(100%+1rem)]')
-    // It slides: the transition is on `translate`, what translate-x-* sets.
-    expect(columnRoot()!.className).toContain('transition-[translate,visibility]')
-    // Its cards stay mounted (what was half done in one survives).
-    expect(columnCards()).toEqual(['c1'])
-  })
-
+describe('the For you view', () => {
   it('no flap: a click-through column whose cards, pill and buttons take the pointer themselves', async () => {
     // Past one page, so Show more is there too.
     hold([], Array.from({ length: 32 }, (_, i) => card(`c${i}`, { created_at: new Date(Date.parse('2026-10-03T08:00:00.000Z') - i * 60_000).toISOString() })))
-    await renderColumn('float')
+    await renderColumn()
     const pe = (el: Element | null) => el!.className.match(/(^|\s)pointer-events-(none|auto)(\s|$)/)?.[2]
-    // The column, its section and its scroller draw nothing and take no pointer: the chat behind the gaps stays clickable.
-    expect(pe(columnRoot())).toBe('none')
+    // Its section and its scroller draw nothing and take no pointer: the chat behind the gaps stays clickable.
     expect(pe(column())).toBe('none')
     const scroller = container.querySelector('[data-for-you-scroller]')
     expect(pe(scroller)).toBe('none')
-    for (const el of [columnRoot()!, column()!, scroller!]) expect(el.className).not.toMatch(/(^|\s)(bg-|backdrop-)/)
+    for (const el of [column()!, scroller!]) expect(el.className).not.toMatch(/(^|\s)(bg-|backdrop-)/)
     // What takes the pointer: each card and Show more.
     const boxes = [...container.querySelectorAll<HTMLElement>('[data-for-you-card-box]')]
     expect(boxes.length).toBeGreaterThan(0)
@@ -565,15 +527,6 @@ describe('ForYouColumn', () => {
     }
     const more = container.querySelector('[data-for-you-more]')
     expect(pe(more)).toBe('auto')
-  })
-
-  it('tells the side panels whether it has anything to show', async () => {
-    await renderColumn('off')
-    expect(getSidePanelState().leftContent).toBe(false)
-    await act(async () => hold([], [card('c1')]))
-    expect(getSidePanelState().leftContent).toBe(true)
-    await act(async () => hold([], []))
-    expect(getSidePanelState().leftContent).toBe(false)
   })
 
   it('renders what the shared source holds, each under its bot, the bots newest first', async () => {
@@ -726,7 +679,7 @@ describe('ForYouColumn', () => {
     store.present = false
     await act(async () => hold([], [card('c1')]))
     await renderColumn()
-    expect(container.querySelector('[data-for-you-column-root]')).toBeNull()
+    expect(container.querySelector('section')).toBeNull()
   })
 
   it('caps what it mounts and shows the rest a page at a time', async () => {
@@ -792,24 +745,16 @@ describe('ForYouColumn', () => {
     expect(headers()).toBe(0)
   })
 
-  it('stands under its top-bar button: its left edge at the bar’s inset, just under the bar (Liam, 11-09)', async () => {
-    hold([], [card('c1')])
-    await renderColumn()
-    // The web's bar starts its controls 4px in (top-bar/insets.ts); the column lines up with them.
-    expect(columnRoot()!.style.left).toBe('4px')
-    // Half a gutter under the bar, not below its 24px blur (the blur is under the panels now).
-    expect(columnRoot()!.style.top).toBe('calc(var(--chat-top-inset, 0px) + 6px)')
-  })
-
-  it('has no toggle of its own: the top bar’s folds it', async () => {
+  it('has no button of its own (the top bar’s For you button opens and closes it), and is kept out of session replay', async () => {
     hold([], [card('c1')])
     await renderColumn()
     const loose = [...column()!.querySelectorAll('button')].filter((b) => !b.closest('[data-for-you-card-box]'))
     expect(loose).toEqual([])
     expect(container.querySelector('[data-for-you-toggle]')).toBeNull()
+    expect(column()!.classList.contains('ph-no-capture')).toBe(true)
   })
 
-  it('sends a card’s impression once it’s in view, once per card for the session (not again on a fold)', async () => {
+  it('sends a card’s impression once it’s in view, once per card for the session (not again when it shows again)', async () => {
     const ios: Array<{ cb: IntersectionObserverCallback; els: Set<Element> }> = []
     vi.stubGlobal(
       'IntersectionObserver',
@@ -848,9 +793,9 @@ describe('ForYouColumn', () => {
       expect.objectContaining({ kind: 'work_review', surface: 'column' }),
     ])
 
-    // Folded and shown again: nothing new for those already seen.
-    await renderColumn('off')
-    await renderColumn('room')
+    // Gone and shown again (even remounted): nothing new for those already seen.
+    await renderColumn(false)
+    await renderColumn()
     await inView('c1')
     await inView('r1')
     expect(impressions()).toHaveLength(2)
@@ -864,23 +809,6 @@ describe('ForYouColumn', () => {
     await renderColumn()
     expect(columnCards()).toEqual(['c1'])
     expect(columnTags()).toEqual([['c1', 'Writer']])
-  })
-
-  it('floating, it stands clear of the composer', async () => {
-    const strip = document.createElement('div')
-    strip.id = 'ni-chat-strip-slot'
-    const dock = document.createElement('div')
-    dock.setAttribute('data-chat-composer-dock', '')
-    Object.defineProperty(dock, 'offsetHeight', { configurable: true, value: 140 })
-    strip.appendChild(dock)
-    document.body.appendChild(strip)
-    try {
-      hold([], [card('c1')])
-      await renderColumn('float')
-      expect(columnRoot()!.style.bottom).toBe('152px')
-    } finally {
-      strip.remove()
-    }
   })
 
   it('watches its content too, so a card growing turns the bottom fade on', async () => {

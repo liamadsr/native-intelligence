@@ -10,8 +10,21 @@
  *               big round Full screen and Close buttons over its corner;
  *   full screen the same card over the whole window, everything else blurred
  *               behind it (in the dashboard, beside the app rail, on the
- *               app's own background instead: front-card.ts); the X, the
- *               button under it, a click outside it or Esc puts it back;
+ *               app's own background instead: front-card.ts; and past the
+ *               home page's panel while it shows, Liam 11-11: the panel
+ *               persists, the card makes room for both; its top level with
+ *               the side panels' top, Liam 11-11: "when you open a panel its
+ *               header… should match the top of the sidepanel"; and above
+ *               the main chat's composer, which stays on screen beside the
+ *               rail, Liam 11-11: "you can still see the main chat input even
+ *               when you have a panel open"; a message sent from it puts the
+ *               card back in the chat); the X, the button under it, a click
+ *               outside it or Esc puts it back, and from `md` up beside the
+ *               rail it minimizes into the tile at the bottom left on its
+ *               way (Liam, 11-11: "minimize and animate that same way and go
+ *               to the bottom left … click on it again and bring it back";
+ *               ./minimized-card.ts), growing back out of the tile when it
+ *               is clicked;
  *   collapsed   one line, "Showed 12 actions · Due this week".
  *
  * Only the newest three cards in a chat are live (older ones fold to their
@@ -66,7 +79,11 @@ import { CardHeaderSlotsProvider, type CardHeaderSlots } from './card-header-slo
 import { CARD_HEADER_ICON_BUTTON } from './card-header-button'
 import { useLiveCaptureDockSlot } from './card-dock-slot'
 import { CARD_GLASS_FRAME, CardGlass } from './card-glass'
+import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
 import { holdFrontCard } from './front-card'
+import { minimizeCard, minimizeSoon, minimizedFlightKey, recheckMinimized } from './minimized-card'
+import { landTileFlight } from '@/lib/chat/tile-flight'
+import { PANEL_GUTTER_PX } from '@/app/account/(dashboard)/side-panels/space-plan'
 
 
 const CardBody = React.lazy(() => import('./card-body'))
@@ -78,8 +95,8 @@ function countText(spec: CardSpec, count: number | null, edition: EditionDefinit
   return countLabel(spec, count, edition)
 }
 
-/** The kind's icon, in the header and the pill. */
-function KindIcon({ spec, className }: { spec: CardSpec; className: string }) {
+/** The kind's icon, in the header and the pill (and the minimized card's tile). */
+export function KindIcon({ spec, className }: { spec: CardSpec; className: string }) {
   if (spec.kind === 'calendar') return <CalendarDays className={className} strokeWidth={1.75} />
   if (spec.kind === 'mail') return <Mail className={className} strokeWidth={1.75} />
   return <LayoutList className={className} strokeWidth={1.75} />
@@ -214,7 +231,12 @@ function OverlayButton({ label, onClick, testId, children }: { label: string; on
 
 /**
  * A full-screen card's size: a wide screen (16:10) as large as the window
- * allows, up to 1440px across, centred. Filling the height under a width cap
+ * allows, up to 1440px across, centred across. Beside the app rail (`md` up
+ * in the dashboard) its top is the side panels' top (Liam, 11-11), so the
+ * stage aligns it to its start; elsewhere (a phone) it is centred down too,
+ * as before. The column never runs past the stage (the sizes below keep the
+ * card and its controls' row within the room), so top-aligned it still ends
+ * above the layer's bottom padding. Filling the height under a width cap
  * turned it near square on a big window. The stage is a size container, so
  * the card's width can read the room's height: the width that keeps 16:10
  * within it, less the controls' row under the card.
@@ -233,7 +255,7 @@ function OverlayButton({ label, onClick, testId, children }: { label: string; on
  * too when the room's height binds (16:10 of it is the room). Continuous,
  * no breakpoint to jump at.
  */
-const FULL_SCREEN_STAGE = 'flex min-h-0 w-full flex-1 items-center justify-center [container-type:size]'
+const FULL_SCREEN_STAGE = 'flex min-h-0 w-full flex-1 items-center justify-center [container-type:size] md:[html[data-app-rail]_&]:items-start'
 const FULL_SCREEN_COLUMN = 'flex flex-col'
 /**
  * The column and the frame's size, for a room: the stage less the controls'
@@ -252,8 +274,51 @@ function fullScreenSizes(room: string): { column: React.CSSProperties; frame: Re
 }
 const FULL_SCREEN_WITH_CONTROLS = fullScreenSizes('calc(100cqh - 3.75rem)')
 const FULL_SCREEN_PAGE = fullScreenSizes('calc(100cqh - 1rem)')
-/** The full-screen layer: the window from the app rail's edge and under its header (rail/app-rail.tsx; 0 without the rail). */
-const FULL_SCREEN_LAYER_STYLE: React.CSSProperties = { left: 'var(--app-rail-w, 0px)', top: 'var(--app-header-bottom, 0px)' }
+/**
+ * The full-screen layer: the window from the app rail's edge and under its
+ * header (rail/app-rail.tsx; 0 without the rail), and past the page panel
+ * while it shows (PAGE_PANEL_W_VAR, front-card.ts; Liam, 11-11: the panel
+ * persists when you open something, the card makes room for both). The card
+ * sizes from its stage, so it simply gets narrower; no motion when it changes.
+ *
+ * Its card's top is the side panels' top (Liam, 11-11: "when you open a
+ * panel its header… should match the top of the sidepanel"), from `md` up
+ * beside the rail. The panels (side-panels.tsx PANEL_TOP, and the page
+ * panel's frame) stand at `--chat-top-inset + PANEL_GUTTER_PX / 2` in the
+ * chat row, whose top is the window's (the shell is the window's height, the
+ * row its first child in the flow; the top bar and the rail float over it),
+ * and `--chat-top-inset` there is the top bar's height, `--top-bar-h`
+ * (dashboard-shell.tsx, on <html> so this layer on <body> reads it). So in
+ * the window's coordinates, where this fixed layer lives, the panels' top is
+ * CARD_PANEL_TOP_VAR below. The layer starts at the rail header's bottom (or
+ * at the panels' top, should that ever be higher: the min()), and its top
+ * padding is the rest, so the stage, its card at its start, begins exactly
+ * there, the Recent panel showing or not. Below `md` (no rail): as before,
+ * `pt-14` under the window's top. The classes are on the layer's className.
+ *
+ * Its bottom, from `md` up beside the rail, is the main chat's composer dock's
+ * height (COMPOSER_RESERVE_VAR on <html>, front-card.ts; 0 without the main
+ * chat), so the layer ends above the composer, which keeps painting there
+ * (tailwind.css; Liam, 11-11: "you can still see the main chat input even
+ * when you have a panel open"), its bottom padding the gutter between them.
+ * The stage sizes from what is left, so the whole card, its Minimize row
+ * included, sits above the composer. Below `md` it runs to the window's
+ * bottom, over the composer, as before. A class too (the className).
+ *
+ * Both offsets, the page panel's on the left and the composer's at the
+ * bottom, live behind the `md:[html[data-app-rail]_&]` variant only (Liam,
+ * 11-11: at a 741px window the card started past a panel that was not there
+ * and left the chat showing): below `md` the layer is the whole window, as
+ * before today, whatever those variables say.
+ */
+const CARD_PANEL_TOP_VAR = '--card-panel-top'
+const FULL_SCREEN_LAYER_STYLE = {
+  // `left` is on the className: past the page panel only from `md` up beside
+  // the rail (an inline style would hold below `md` too).
+  // --card-layer-top: set from `md` up beside the rail (the className); the header's bottom otherwise, as before.
+  top: 'var(--card-layer-top, var(--app-header-bottom, 0px))',
+  [CARD_PANEL_TOP_VAR]: `calc(var(--top-bar-h, 0px) + ${PANEL_GUTTER_PX / 2}px)`,
+} as React.CSSProperties
 /** The row under the card (the button and its gap: 3.75rem, as the column allows). */
 const FULL_SCREEN_CONTROLS = 'flex h-[3.75rem] shrink-0 items-end justify-end gap-2'
 
@@ -268,10 +333,28 @@ const PARKED_SIZE = { width: 1200, height: 690 }
  * own toggle is under the card's layer, and its controls (the mic, Next)
  * should stay at hand while a card is in front. It reads the app's listen
  * state, so it is the same switch as the bar's.
+ *
+ * From `md` up beside the rail it stands exactly where the top bar's right
+ * header stands (Capture, For you, the side panel: hidden while a card is in
+ * front), in the same capsule: the card's top is level with the side panels'
+ * now, so 12px under the layer's top it sat on the card's header (Liam,
+ * 11-11: "it's in the wrong place it needs to be in the top right corner …
+ * it's colliding with the open window"). Fixed to the window (the layer has
+ * no transform), 3px from the top like that header (42px tall in the bar's
+ * row) and TOP_BAR_RIGHT_INSET_PX from the right. Nothing to read here: the
+ * toggle draws nothing and the capsule goes with it (`empty:hidden`). Below
+ * `md` it stays in the layer's corner, above the card, in the same capsule.
  */
 function FullScreenInteractive() {
   return (
-    <div {...{ [FULL_SCREEN_CONTROL_ATTR]: '' }} className="absolute right-4 top-3 z-10 flex items-center">
+    <div
+      {...{ [FULL_SCREEN_CONTROL_ATTR]: '' }}
+      className={cn(
+        'absolute right-4 top-3 z-10 flex items-center rounded-full border border-border/60 p-1 empty:hidden',
+        COLUMN_CARD_SKIN,
+        'md:[html[data-app-rail]_&]:fixed md:[html[data-app-rail]_&]:right-2 md:[html[data-app-rail]_&]:top-[3px] md:[html[data-app-rail]_&]:h-[42px]',
+      )}
+    >
       <ListenModeToggle />
     </div>
   )
@@ -724,16 +807,32 @@ export function ShowToolCard({
     })
   }, [fullScreen, history])
 
+  // `spec` as it is now, for what reads it later (a minimize).
+  const specRef = React.useRef(spec)
+  React.useLayoutEffect(() => {
+    specRef.current = spec
+  })
+  // Out of full screen as a minimize the person asked for (Esc, an empty
+  // press: EmptyPressMinimizes): the flight into the tile first, the store
+  // letting it go a frame later (minimized-card.ts minimizeSoon; Liam, 11-11:
+  // "its better but the animation isnt as smooth"). At once where it would
+  // not minimize (below `md`, no tile).
+  const minimizeFromFullScreen = React.useCallback(() => {
+    minimizeSoon({ id: toolCallId, spec: specRef.current, store }, fullScreenFrameRef.current, () => {
+      if (store.fullScreen() === toolCallId) store.exitFullScreen()
+    })
+  }, [store, toolCallId])
+
   // Esc puts a full-screen card back, unless a popover inside it is open.
   React.useEffect(() => {
     if (!fullScreen) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented || anotherLayerOpen()) return
-      store.exitFullScreen()
+      minimizeFromFullScreen()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [fullScreen, store])
+  }, [fullScreen, minimizeFromFullScreen])
 
   // Full screen, it is the card in front for the app rail (front-card.ts):
   // the rail lights its page, Home or New put it back, and beside the rail
@@ -749,11 +848,37 @@ export function ShowToolCard({
       close: () => {
         if (store.fullScreen() === toolCallId) store.exitFullScreen()
       },
+      minimize: minimizeFromFullScreen,
     })
     // `spec` as it went full screen: a card's kind never changes under its id,
     // and a reply's spec may be a new object each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fullScreen, toolCallId, store])
+
+  // Leaving full screen, however it goes (an empty press, Esc, its X, Home,
+  // Minimize, a send, another card taking the front), it minimizes into the
+  // tile at the bottom left (./minimized-card.ts; Liam, 11-11): told the
+  // moment its store lets it go, while its frame is still on screen for the
+  // flight's copy. Its fate is otherwise as before (back in its message, or
+  // its place); the tile is a shortcut to it. Before paint, so no exit is missed.
+  React.useLayoutEffect(() => {
+    if (!shownFullScreen) return
+    let left = false
+    return store.subscribe(() => {
+      if (left || store.fullScreen() === toolCallId) return
+      left = true
+      minimizeCard({ id: toolCallId, spec: specRef.current, store }, fullScreenFrameRef.current)
+    })
+  }, [shownFullScreen, store, toolCallId])
+  // Brought back from the tile: its copy grows into the frame
+  // (lib/chat/tile-flight.ts), landed here as it shows: the frame hidden till
+  // the copy reaches it, shown in that frame.
+  React.useLayoutEffect(() => {
+    if (!shownFullScreen) return
+    return landTileFlight(minimizedFlightKey(toolCallId), fullScreenFrameRef.current)
+  }, [shownFullScreen, toolCallId])
+  // Gone (its chat let its cards go): the tile checks its card still is.
+  React.useEffect(() => () => void window.setTimeout(recheckMinimized, 0), [])
 
   // In the workspace's words ("12 jobs" in a service business: src/lib/editions/words.ts).
   const edition = useWorkspaceEdition()
@@ -828,7 +953,8 @@ export function ShowToolCard({
         {pageClose && (
           <button
             type="button"
-            onClick={() => store.exitFullScreen()}
+            // As an empty press or Esc: its flight into the tile first (minimizeFromFullScreen), one sequence whatever closes it.
+            onClick={minimizeFromFullScreen}
             aria-label="Close"
             title="Close"
             data-testid="card-close"
@@ -864,7 +990,8 @@ export function ShowToolCard({
   const overlay = !shownFullScreen
     ? null
     : // The whole window, over the top bar and the composer too (the layer
-      // sits on <body>).
+      // sits on <body>); beside the rail, above the main chat's composer,
+      // which stays on screen (FULL_SCREEN_LAYER_STYLE).
       createPortal(
           <div
             ref={fullScreenRef}
@@ -876,17 +1003,26 @@ export function ShowToolCard({
             // Everything behind the card goes soft and grey (tailwind.css), so
             // the card is what's in focus. z-50 like Radix's popovers, which
             // open after it and so paint over it. In the dashboard it starts
-            // at the app rail's edge (--app-rail-w) and, beside the rail, has
+            // at the app rail's edge (--app-rail-w), past the page panel while
+            // it shows (--page-panel-w: the panel stays clickable beside it,
+            // never under the layer), and, beside the rail, has
             // no veil (`card-page-layer`): the page sits on the app's own
             // background and the rail stays at hand.
             // pt-14 below `md` (clear of the Mac app's traffic lights, no rail
             // header there); from `md` up the layer starts under the rail's
-            // header already.
-            className="card-focus-backdrop card-page-layer fixed inset-y-0 right-0 z-50 flex flex-col items-center px-4 pb-6 pt-14 outline-none sm:px-16 md:pt-2"
+            // header already, and beside the rail its padding takes the
+            // card's top to the side panels' top (Liam, 11-11;
+            // FULL_SCREEN_LAYER_STYLE says the arithmetic), and its bottom is
+            // the composer's top (--composer-reserve; Liam, 11-11).
+            className="card-focus-backdrop card-page-layer fixed inset-y-0 right-0 z-50 flex flex-col items-center px-4 pb-6 pt-14 outline-none sm:px-16 md:pt-2 md:[html[data-app-rail]_&]:[--card-layer-top:min(var(--app-header-bottom,0px),var(--card-panel-top))] md:[html[data-app-rail]_&]:pt-[calc(var(--card-panel-top)_-_var(--card-layer-top))] left-[var(--app-rail-w,0px)] md:[html[data-app-rail]_&]:left-[calc(var(--app-rail-w,0px)_+_var(--page-panel-w,0px))] md:[html[data-app-rail]_&]:bottom-[var(--composer-reserve,0px)]"
             style={FULL_SCREEN_LAYER_STYLE}
             // A press anywhere outside the card (the space all round, beside
-            // the button under it) puts it back in its message.
+            // the button under it) puts it back in its message. From `md` up
+            // beside the rail the app's one rule for empty presses took it
+            // already (outside-card-press.ts isEmptyAppPress, before this,
+            // the press prevented): never twice.
             onPointerDown={(e) => {
+              if (e.nativeEvent.defaultPrevented) return
               if (!isOutsideCardPress(e, fullScreenFrameRef.current)) return
               e.preventDefault()
               store.exitFullScreen()

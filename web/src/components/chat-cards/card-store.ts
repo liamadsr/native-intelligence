@@ -70,6 +70,8 @@ export class ChatCardStore {
   /** Older cards the person expanded this session: live again until collapsed. */
   private reopened = new Set<string>()
   private listeners = new Set<() => void>()
+  /** Told of every change too, but never counted as the store being in use (attached): the minimized card's tile. */
+  private watchers = new Set<() => void>()
   private version = 0
   /** Bumped per card when it is told to redraw: part of its draw key. */
   private stamps = new Map<string, number>()
@@ -94,10 +96,30 @@ export class ChatCardStore {
 
   getVersion = (): number => this.version
 
+  /**
+   * Hear every change without holding the store in use (attached): what
+   * outlives the chat that owns the store (the minimized card's tile,
+   * minimized-card.ts) watches it this way.
+   */
+  watch = (watcher: () => void): (() => void) => {
+    this.watchers.add(watcher)
+    return () => this.watchers.delete(watcher)
+  }
+
+  /**
+   * Is the store in use: something drawn from it still subscribed (its chat
+   * panel, its kept-card host, a card of its own)? A store whose chat is gone
+   * has no card left to bring back.
+   */
+  attached(): boolean {
+    return this.listeners.size > 0
+  }
+
   private notify(): void {
     this.version += 1
     this.openedCache = null
-    for (const listener of this.listeners) listener()
+    for (const listener of [...this.listeners]) listener()
+    for (const watcher of [...this.watchers]) watcher()
   }
 
   private stamp(id: string): void {
