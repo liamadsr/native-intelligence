@@ -15,8 +15,9 @@ import { relativeTime } from '@/lib/work/presentation'
 import { cn } from '@/lib/utils'
 import { canOfferUndo, describeChange } from '@/lib/tables/describe'
 import { touchedBy } from '@/lib/tables/ops'
-import type { DataChange, DataColumn, DataRow } from '@/lib/tables/types'
-import { CellDisplay, CellEditor, ColumnLabel, type CellColumn, type Member } from './cells'
+import { isComputedType, type DataChange, type DataColumn, type DataRow } from '@/lib/tables/types'
+import { CellDisplay, CellEditor, ColumnLabel, type Member } from './cells'
+import { ComputedCell, readColumn } from './computed-cells'
 
 export function RowPanel({
   row,
@@ -73,8 +74,21 @@ export function RowPanel({
           <PropertyGroup>
             <div className="space-y-0.5">
               {columns.map((c) => {
-                const col: CellColumn = { key: c.key, label: c.label, field_type: c.field_type, options: c.options, config: c.config }
+                const col = readColumn(c)
                 const value = row.custom_fields?.[c.key] ?? null
+                // A formula or a rollup is worked out, never edited.
+                if (isComputedType(c.field_type)) {
+                  return (
+                    <div key={c.key} className="grid grid-cols-[132px_1fr] items-start gap-2 px-3" data-row-field={c.key}>
+                      <span className="flex h-8 items-center text-xs text-muted-foreground">
+                        <ColumnLabel type={c.field_type} label={c.label} />
+                      </span>
+                      <div className="flex h-8 items-center">
+                        <ComputedCell column={c} row={row} labels={labels} />
+                      </div>
+                    </div>
+                  )
+                }
                 const error = cellErrors.get(`${row.id}:${c.key}`)
                 const isEditing = editing === c.key
                 return (

@@ -38,6 +38,12 @@ const MIGRATION_GRANT_CONTENT = readFileSync(
   'utf8',
 )
 
+// 538 grants `tables` (Tables phase 5) the same way, one category later.
+const MIGRATION_GRANT_TABLES = readFileSync(
+  join(process.cwd(), 'supabase/migrations/538_persona_grant_tables_category.sql'),
+  'utf8',
+)
+
 function migratedCategories(sql: string = MIGRATION, tag: 'cats' | 'prev' = 'cats'): string[] {
   const match = sql.match(new RegExp(`\\$${tag}\\$([\\s\\S]*?)\\$${tag}\\$`))
   expect(match, `migration is missing its $${tag}$ block`).toBeTruthy()
@@ -47,9 +53,11 @@ function migratedCategories(sql: string = MIGRATION, tag: 'cats' | 'prev' = 'cat
 /** Registry categories added after 279/282 were written. Each needs a grant
  *  migration (like 287) so every-category personas stay inherit-all — see the
  *  287 block below. 279/282 are historical: pinned to the registry of their day. */
-const ADDED_AFTER_282 = ['browser', 'content']
+const ADDED_AFTER_282 = ['browser', 'content', 'tables']
 /** Registry categories added after 293 (each with its own grant migration). */
-const ADDED_AFTER_293 = ['content']
+const ADDED_AFTER_293 = ['content', 'tables']
+/** Registry categories added after 387 (each with its own grant migration). */
+const ADDED_AFTER_387 = ['tables']
 const CATEGORIES_AS_OF_282 = ALL_CATEGORY_IDS.filter((id) => !ADDED_AFTER_282.includes(id))
 
 describe('migration 279 — NULL-config personas keep their inherit-all surface', () => {
@@ -114,13 +122,8 @@ describe('migration 293 — every-category personas stay inherit-all after `brow
 })
 
 describe('migration 387 — every-category personas stay inherit-all after `content` was added (P8)', () => {
-  it('writes EXACTLY the live ALL_CATEGORY_IDS, in registry order', () => {
-    // If this fails you added a tool category: every persona saved with "all
-    // categories on" just stopped being inherit-all (agentInheritsAllTools needs
-    // EVERY category). Write a grant migration like 387 for the new category and
-    // point this block at it.
-    expect(migratedCategories(MIGRATION_GRANT_CONTENT)).toEqual([...ALL_CATEGORY_IDS])
-    expect(agentInheritsAllTools({ enabled_tools: migratedCategories(MIGRATION_GRANT_CONTENT), disabled_tools: [] })).toBe(true)
+  it('writes the registry of its day (every category but the ones added since), in registry order', () => {
+    expect(migratedCategories(MIGRATION_GRANT_CONTENT)).toEqual(ALL_CATEGORY_IDS.filter((id) => !ADDED_AFTER_387.includes(id)))
   })
 
   it('targets exactly the rows 293 left inherit-all: the full previous list, no content yet', () => {
@@ -132,5 +135,27 @@ describe('migration 387 — every-category personas stay inherit-all after `cont
       /CASE\s+WHEN jsonb_typeof\(agent_config->'disabled_tools'\) = 'array' THEN jsonb_array_length\(agent_config->'disabled_tools'\)\s+ELSE 0\s+END\s*\)\s*=\s*0/,
     )
     expect(MIGRATION_GRANT_CONTENT).toMatch(/SET agent_config = agent_config\s*\|\| jsonb_build_object/)
+  })
+})
+
+describe('migration 538 — every-category personas stay inherit-all after `tables` was added (Tables phase 5)', () => {
+  it('writes EXACTLY the live ALL_CATEGORY_IDS, in registry order', () => {
+    // If this fails you added a tool category: every persona saved with "all
+    // categories on" just stopped being inherit-all (agentInheritsAllTools needs
+    // EVERY category). Write a grant migration like 538 for the new category and
+    // point this block at it.
+    expect(migratedCategories(MIGRATION_GRANT_TABLES)).toEqual([...ALL_CATEGORY_IDS])
+    expect(agentInheritsAllTools({ enabled_tools: migratedCategories(MIGRATION_GRANT_TABLES), disabled_tools: [] })).toBe(true)
+  })
+
+  it('targets exactly the rows 387 left inherit-all: the full previous list, no tables yet', () => {
+    expect(migratedCategories(MIGRATION_GRANT_TABLES, 'prev')).toEqual(migratedCategories(MIGRATION_GRANT_CONTENT))
+    expect(MIGRATION_GRANT_TABLES).toMatch(/WHERE category = 'agent'/)
+    expect(MIGRATION_GRANT_TABLES).toMatch(/agent_config->'enabled_tools' @> \$prev\$/)
+    expect(MIGRATION_GRANT_TABLES).toMatch(/NOT \(agent_config->'enabled_tools' \? 'tables'\)/)
+    expect(MIGRATION_GRANT_TABLES).toMatch(
+      /CASE\s+WHEN jsonb_typeof\(agent_config->'disabled_tools'\) = 'array' THEN jsonb_array_length\(agent_config->'disabled_tools'\)\s+ELSE 0\s+END\s*\)\s*=\s*0/,
+    )
+    expect(MIGRATION_GRANT_TABLES).toMatch(/SET agent_config = agent_config\s*\|\| jsonb_build_object/)
   })
 })

@@ -203,11 +203,10 @@ function changedFieldKeys(row: Pick<ActivityRow, 'action' | 'detail'>): string[]
 /** How many changed fields a line names before "and N more". */
 const FIELDS_NAMED = 2
 
-/** The names behind the ids a set of rows names: members, task states, deal stages, custom fields. */
+/** The names behind the ids a set of rows names: members, task states, custom fields (a deal's stage is its name since 548). */
 async function readNames(supabase: SupabaseClient, workspaceId: string, rows: readonly ActivityRow[]) {
   const memberIds = new Set<string>()
   const stateIds = new Set<string>()
-  const stageIds = new Set<string>()
   const fieldKeys = new Set<string>()
   // A table's columns are its own (migration 520): a row's field is named through its table.
   const dataRowIds = new Set<string>()
@@ -219,7 +218,6 @@ async function readNames(supabase: SupabaseClient, workspaceId: string, rows: re
       for (const v of [d.from, d.to]) if (str(v)) memberIds.add(v as string)
     }
     if (r.action === 'status_changed' && r.entity_type === 'action') for (const v of [d.from, d.to]) if (str(v)) stateIds.add(v as string)
-    if (r.action === 'status_changed' && r.entity_type === 'deal') for (const v of [d.from, d.to]) if (str(v)) stageIds.add(v as string)
     for (const k of changedFieldKeys(r)) fieldKeys.add(k)
     if (r.entity_type === 'data_row' && changedFieldKeys(r).length) dataRowIds.add(r.entity_id)
   }
@@ -246,14 +244,13 @@ async function readNames(supabase: SupabaseClient, workspaceId: string, rows: re
       ]),
     )
   }
-  const [members, states, stages, fields, rowTables] = await Promise.all([
+  const [members, states, fields, rowTables] = await Promise.all([
     read('member', memberIds, 'display_name', true),
     read('workflow_state', stateIds, 'name', false),
-    read('deal_stage', stageIds, 'name', false),
     readFields(),
     read('data_row', dataRowIds, 'table_id', true),
   ])
-  return { members, states, stages, fields, rowTables }
+  return { members, states, fields, rowTables }
 }
 
 type Names = Awaited<ReturnType<typeof readNames>>
@@ -285,7 +282,6 @@ function wordsFor(row: ActivityRow, names: Names): { from: string | null; to: st
     if (row.action === 'assigned') return names.members.get(s) ?? null
     if (row.action === 'status_changed') {
       if (row.entity_type === 'action') return names.states.get(s) ?? null
-      if (row.entity_type === 'deal') return names.stages.get(s) ?? null
       // A project's or initiative's status, a document's, a loop's on/off: the words themselves.
       return s
     }

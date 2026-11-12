@@ -25,7 +25,7 @@ import {
   type MenuSources,
   TAB_LABELS,
 } from '../command-menu-model'
-import type { MentionContact, MenuSearchKind, MenuSearchRow } from '@/lib/search/menu-search'
+import { MENTION_PICKER_KINDS, type MentionContact, type MenuSearchKind, type MenuSearchRow } from '@/lib/search/menu-search'
 import type { CaptureListItem } from '../../views/capture-utils'
 
 /** The token with the caret at the end of the text. */
@@ -149,7 +149,7 @@ const MAIN: MenuOffer = {
   pages: true,
   skills: true,
   open: true,
-  mention: new Set<MenuSearchKind>(['capture', 'contact', 'company', 'action', 'document', 'project', 'initiative']),
+  mention: new Set<MenuSearchKind>(MENTION_PICKER_KINDS),
 }
 /** A run's chat: skills, and captures, people and companies to mention; nothing opens. */
 const RUN: MenuOffer = { pages: false, skills: true, open: false, mention: new Set<MenuSearchKind>(['capture', 'contact', 'company']) }
@@ -224,9 +224,9 @@ describe('buildMenu', () => {
 
   it('`/` and `@` offer the same things, less what `@` can’t attach (pages, agents)', () => {
     // `/` also finds team chat messages (migration 561); `@` never attaches one.
-    expect(offeredKinds('/', MAIN)).toEqual(['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'agents', 'messages'])
+    expect(offeredKinds('/', MAIN)).toEqual(['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'agents', 'messages'])
     // Records first, the skills last (a tie goes to the record).
-    expect(offeredKinds('@', MAIN)).toEqual(['people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'skills'])
+    expect(offeredKinds('@', MAIN)).toEqual(['people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'files', 'events', 'skills'])
     expect(offeredKinds('@', RUN)).toEqual(['people', 'captures', 'companies', 'skills'])
   })
 
@@ -264,7 +264,7 @@ describe('serverSearch', () => {
     expect(serverSearch('/', 'all', '', offeredKinds('/', MAIN))).toEqual({ kinds: ['contact'], limit: 8 })
     expect(serverSearch('@', 'all', '', offeredKinds('@', MAIN))).toEqual({ kinds: ['contact'], limit: 8 })
     expect(serverSearch('/', 'all', 't', offeredKinds('/', MAIN))).toEqual({
-      kinds: ['contact', 'action', 'document', 'project', 'initiative', 'capture', 'company', 'deal', 'flow', 'agent', 'team_chat_message'],
+      kinds: ['contact', 'action', 'document', 'project', 'initiative', 'capture', 'company', 'deal', 'flow', 'attachment', 'calendar_event', 'agent', 'team_chat_message'],
       limit: 8,
     })
     // `@` never asks for agents or messages: nothing attaches them.

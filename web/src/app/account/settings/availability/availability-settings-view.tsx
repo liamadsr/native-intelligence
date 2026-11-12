@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Settings → Availability: what decides the times Native Intelligence offers
+ * Availability: what decides the times Native Intelligence offers
  * for you (find_times, Copy availability, a teammate finding a time with
  * you). Nothing to set up: weekdays 9 to 6, your own calendars counting and
  * busy times shared with teammates are the defaults, and they already work.
@@ -17,6 +17,12 @@
  *                   (./booking-links-section.tsx).
  *
  * Read once when the page opens; nothing polls.
+ *
+ * Its own page under Calendar now (Liam, 11-11: "Availability (Right now
+ * it's in the settings but it needs to be it's own page under Calendar)"):
+ * the Availability page card (src/components/chat-cards/pages/
+ * availability-card.tsx) draws this view, the card's header its title, the
+ * card's padding; /account/settings/availability redirects there.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Plus, X } from 'lucide-react'
@@ -181,10 +187,10 @@ export function AvailabilitySettingsView() {
   const dated = useMemo(() => Object.entries(hours?.overrides ?? {}).sort(([a], [b]) => a.localeCompare(b)), [hours])
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-2xl px-8 py-8">
-        <h1 className="text-lg font-semibold">Availability</h1>
-        <p className="mt-1 text-sm text-muted-foreground">When you can meet. Native Intelligence offers times inside your working hours and around everything busy on the calendars that count.</p>
+    <div className="h-full overflow-y-auto" data-availability-view="">
+      {/* No heading: the page card's header names it. */}
+      <div className="mx-auto max-w-2xl px-5 pt-3 pb-6">
+        <p className="text-sm text-muted-foreground">When you can meet. Native Intelligence offers times inside your working hours and around everything busy on the calendars that count.</p>
 
         {loadError && <p className="mt-8 text-sm text-destructive">{loadError}</p>}
 

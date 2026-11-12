@@ -35,9 +35,10 @@ import urllib.request
 from e2b import Sandbox
 
 # The runtime's ports and SSH, tried even when nothing listens on them right
-# now. 5008 is the runtime's control port: no password. check.sh adds every
-# port that does listen.
-PORTS = [22, 3000, 3001, 3002, 3003, 5007, 5008, 5009, 5010, 5011, 5012, 5016, 5017, 5018, 5109, 6060, 6061]
+# now, and the web's two (the app's server, at the other end of the tunnel,
+# answers on those). 5008 is the runtime's control port: no password.
+# check.sh adds every port that does listen here.
+PORTS = [22, 80, 443, 3000, 3001, 3002, 3003, 5007, 5008, 5009, 5010, 5011, 5012, 5016, 5017, 5018, 5109, 6060, 6061]
 UDP_PORT = 47631
 GUARD = "/usr/local/sbin/ni-sandbox-guard"
 

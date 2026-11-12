@@ -41,8 +41,9 @@ const branches = new Map(
 // Tables and their rows (520) came after the backfill: they have no history
 // older than their own triggers (521), so nothing of theirs is backfilled.
 const AFTER_BACKFILL = new Set<string>(['data_table', 'data_row'])
-const RECORD_SOURCES = ACTIVITY_ENTITY_TYPES.filter((k) => k !== 'team_chat_message' && !AFTER_BACKFILL.has(k))
-const tableOf = new Map<string, string>(ENTITY_REGISTRY.map((e) => [e.id, e.table]))
+// A deal was a logged kind when 516 ran; it is a pipeline's row since 548, and 549 took its source out.
+const RECORD_SOURCES = [...ACTIVITY_ENTITY_TYPES.filter((k) => k !== 'team_chat_message' && !AFTER_BACKFILL.has(k)), 'deal']
+const tableOf = new Map<string, string>([...ENTITY_REGISTRY.map((e) => [e.id, e.table] as [string, string]), ['deal', 'deal']])
 
 describe('migration 516: the activity log, backfilled', () => {
   it('marks its rows, and the Inbox has a column to skip them by', () => {

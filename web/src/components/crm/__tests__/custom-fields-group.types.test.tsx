@@ -34,7 +34,7 @@ const answer = {
     { key: 'tags', options: ['Gold', 'Silver'], config: {} },
     { key: 'vip', options: [], config: {} },
     { key: 'owner', options: [], config: {} },
-    { key: 'deals', options: [], config: { target: { kind: 'deal' }, multiple: true } },
+    { key: 'deals', options: [], config: { target: { kind: 'flow' }, multiple: true } },
     { key: 'budget', options: [], config: { currency: 'EUR' } },
   ],
   editable: true,

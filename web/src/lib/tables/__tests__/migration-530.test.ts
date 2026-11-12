@@ -22,7 +22,9 @@ const newest = (name: string) => {
 
 describe('migration 530: table writes without grants', () => {
   it('is the newest definition of both writers, with the old signatures dropped', () => {
-    for (const name of ['apply_data_ops', 'create_data_table']) expect(newest(name).file, name).toBe('530_data_ops_grants.sql')
+    expect(newest('create_data_table').file).toBe('530_data_ops_grants.sql')
+    // 540 restates apply_data_ops with p_source_ref, 530's otherwise (migration-540-549.test.ts).
+    expect(newest('apply_data_ops').file).toBe('540_pipeline_tables.sql')
     expect(sql).toContain('drop function if exists public.apply_data_ops(uuid, bigint, jsonb, text, text, uuid, uuid);')
     expect(sql).toContain('drop function if exists public.create_data_table(uuid, text, text, text, text, jsonb, text, uuid);')
     expect(sql).toContain('grant execute on function public.apply_data_ops(uuid, bigint, jsonb, text, text, uuid, uuid, boolean) to authenticated, service_role;')

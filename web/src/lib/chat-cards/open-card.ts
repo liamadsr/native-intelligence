@@ -19,6 +19,7 @@ import { CARD_RECORD_TYPES, MAIL_FOLDERS, isCardSpec, type CardRecordType, type 
 import { calendarRange, localIsoDate } from './calendar'
 import { CARD_PAGES } from './page-menu'
 import type { PagePlace } from './pages'
+import type { TasksPlace } from './tasks-places'
 
 /** Asks the dashboard to open a card: `detail` is an OpenCardRequest. */
 export const OPEN_CARD_EVENT = 'ni:open-card'
@@ -59,6 +60,11 @@ export interface OpenCardSeed {
   editing?: string | null
   /** The flows card: the run of `editing` its editor lands on (a notification about one run). */
   editingRun?: string | null
+  /**
+   * My Actions' card: the place inside it to go to (Projects, Initiatives…),
+   * a step in its history (a nested page opened: rail-pages.ts nestedPageOpen).
+   */
+  tasksPlace?: TasksPlace | null
 }
 
 export interface OpenCardRequest {
@@ -98,6 +104,10 @@ export type OpenTarget =
   | { type: 'flow'; id: string; title?: string | null; runId?: string | null }
   | { type: 'sequence' | 'prospect_list' | 'eval_suite' | 'package' | 'agent' | 'skill' | 'team'; id: string; title?: string | null }
   | { type: 'eval_case' | 'eval_run'; id: string; title?: string | null; suiteId: string; suiteName?: string | null }
+  /** A deal: a pipeline's row (Tables, phase 7), open on the Deals page. */
+  | { type: 'deal'; id: string; title?: string | null; pipelineId: string }
+  /** A table's row, open in its table (the card finds the table when it isn't named). */
+  | { type: 'data_row'; id: string; title?: string | null; tableId?: string | null }
   | { type: 'team_board'; id: string; title?: string | null }
   | { type: 'work_item'; id: string; title?: string | null }
   | { type: 'bot'; teammateId: string; name?: string | null; item?: { itemId: string; title?: string | null } | null }
@@ -137,7 +147,6 @@ const RECORD_NOUN: Record<CardRecordType, string> = {
   project: 'Project',
   contact: 'Contact',
   company: 'Company',
-  deal: 'Deal',
 }
 
 /**
@@ -246,6 +255,19 @@ export function cardForTarget(target: OpenTarget, now: Date = new Date()): Targe
           tab: target.type === 'agent' ? 'agents' : 'skills',
         },
       }
+    case 'deal':
+      if (!target.pipelineId) return null
+      return {
+        spec: { kind: 'pipelines', title: label(target.title, 'Deal'), target: { type: 'data_row', id: target.id, in: target.pipelineId, label: label(target.title, 'Deal') } },
+      }
+    case 'data_row':
+      return {
+        spec: {
+          kind: 'tables',
+          title: label(target.title, 'Row'),
+          target: { type: 'data_row', id: target.id, label: label(target.title, 'Row'), ...(target.tableId ? { in: target.tableId } : {}) },
+        },
+      }
     case 'team':
       return { spec: { kind: 'teams', title: label(target.title, 'Team'), target: { type: 'team', id: target.id, label: label(target.title, 'Team') } } }
     case 'team_board':
@@ -299,4 +321,15 @@ export function parseOpenCardRequest(detail: unknown): OpenCardRequest | null {
     ...(workspaceId ? { workspaceId } : {}),
     ...(d.reuse === true ? { reuse: true } : {}),
   }
+}
+
+/**
+ * The boot deep link that opens a `/` page's card: `/account?page=<slug>`
+ * (main-chat-context.tsx deepLinkCard). What a settings page that became a
+ * page redirects to (Liam, 11-11: Availability, its own page under Calendar).
+ */
+export const PAGE_DEEP_LINK_PARAM = 'page'
+
+export function pageDeepLink(slug: string): string {
+  return `/account?${PAGE_DEEP_LINK_PARAM}=${encodeURIComponent(slug)}`
 }

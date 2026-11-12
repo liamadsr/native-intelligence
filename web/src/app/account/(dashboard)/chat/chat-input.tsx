@@ -2,7 +2,7 @@
 
 import { createContext, memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
-import { AlertCircle, ArrowUp, AudioLines, Building2, CircleCheck, FileText, FolderKanban, FolderOpen, ImageIcon, Lock, MousePointerClick, Paperclip, Plus, Target, User, X, type LucideIcon } from 'lucide-react'
+import { AlertCircle, ArrowUp, AudioLines, Building2, CalendarDays, CircleCheck, FileText, FolderKanban, FolderOpen, ImageIcon, Lock, MousePointerClick, Paperclip, Plus, Target, User, Workflow, Handshake, X, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { registerReloadBlocker } from '@/lib/deploy-reload'
@@ -31,6 +31,7 @@ import type { OfferedPage } from '@/lib/chat-cards/page-menu'
 import { SEARCH_FLIGHT_KEY, flightWaiting } from '@/lib/chat/card-reply-flight'
 import { OPEN_SEARCH_EVENT, flySearchBack, launchSearchFlight, searchButton } from '@/lib/chat/open-search'
 import {
+  MENTION_PICKER_KINDS,
   MENTION_RECORD_KINDS,
   menuRowMention,
   mentionRecordLabel,
@@ -140,6 +141,10 @@ const RECORD_CHIP_ICONS: Record<MentionRecordKind, LucideIcon> = {
   document: FileText,
   project: FolderKanban,
   initiative: Target,
+  deal: Handshake,
+  flow: Workflow,
+  attachment: Paperclip,
+  calendar_event: CalendarDays,
 }
 
 /**
@@ -973,13 +978,17 @@ export const ChatInput = memo(function ChatInput({
     return () => window.removeEventListener(OPEN_SEARCH_EVENT, onOpenSearch)
   }, [paletteShortcutOn, closePalette])
 
-  // What either menu can pick here: each kind only where this composer can take it.
-  const mentionKinds: MenuSearchKind[] = [
-    'capture',
-    ...(onAttachContact ? (['contact'] as const) : []),
-    ...(onAttachCompany ? (['company'] as const) : []),
-    ...(onAttachRecord ? MENTION_RECORD_KINDS : []),
-  ]
+  // What either menu can pick here: the one picker's kinds (MENTION_PICKER_KINDS),
+  // each only where this composer can take it.
+  const mentionKinds: MenuSearchKind[] = MENTION_PICKER_KINDS.filter((kind) =>
+    kind === 'capture'
+      ? true
+      : kind === 'contact'
+        ? !!onAttachContact
+        : kind === 'company'
+          ? !!onAttachCompany
+          : !!onAttachRecord && (MENTION_RECORD_KINDS as readonly string[]).includes(kind),
+  )
   const recordIdsOf = (kind: MenuSearchKind) => attachedRecords.filter((r) => r.kind === kind).map((r) => r.id)
   const menuPicks = {
     onSelect: handleSlashCommandSelect,
@@ -992,10 +1001,7 @@ export const ChatInput = memo(function ChatInput({
       capture: attachedNotes.map((n) => n.id),
       contact: attachedContacts.map((c) => c.id),
       company: attachedCompanies.map((c) => c.id),
-      action: recordIdsOf('action'),
-      document: recordIdsOf('document'),
-      project: recordIdsOf('project'),
-      initiative: recordIdsOf('initiative'),
+      ...Object.fromEntries(MENTION_RECORD_KINDS.map((kind) => [kind, recordIdsOf(kind)])),
     },
   }
 

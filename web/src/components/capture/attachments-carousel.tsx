@@ -333,7 +333,8 @@ const ZOOM_MIN = 0.25
 const ZOOM_MAX = 5
 const ZOOM_STEP = 0.25
 
-function Lightbox({
+/** The image viewer (zoom, pan, ← →); also the Files page's (components/chat-cards/pages/files-card.tsx). Its keys are its host's (Escape, the arrows). */
+export function Lightbox({
   images,
   signedUrls,
   currentIndex,

@@ -10,7 +10,9 @@ import { isTimeZone } from '@/lib/chat-cards/calendar'
 import { canOfferUndo, describeChange } from '@/lib/tables/describe'
 import { isUuid, newColumnKey } from '@/lib/tables/ops'
 import { applyOps, createTable, getTable, listChanges, listColumns, listTables, queryRows, undoChange, MAX_ROWS_PAGE, type TableActor } from '@/lib/tables/store'
-import { TABLE_LIMITS, type DataColumn, type DataOp, type DataRow, type DataTable, type DataTableWithColumns, type NewRow } from '@/lib/tables/types'
+import { COMPUTED_COLUMN_TYPES, isComputedType, TABLE_LIMITS, type DataColumn, type DataOp, type DataRow, type DataTable, type DataTableWithColumns, type NewRow } from '@/lib/tables/types'
+import { cellValueOfRow, ROLLUP_FNS, type RollupFn } from '@/lib/tables/computed'
+import { TITLE_REF, toDisplayFormula } from '@/lib/tables/formula'
 import { customFieldPath } from '@/lib/views/custom-field-columns'
 import type { FilterOperator, SortConfig, ViewFilter } from '@/lib/views/types'
 import { resolveCreateWorkspace, resolveEntityWorkspace, workspaceEcho, type CreateWorkspacePolicy } from './_shared'
@@ -38,16 +40,30 @@ import { resolveCreateWorkspace, resolveEntityWorkspace, workspaceEcho, type Cre
 /** Rows one query_rows page returns by default. */
 const DEFAULT_ROWS = 25
 
-const columnTypes = CUSTOM_FIELD_TYPES
+const columnTypes = [...CUSTOM_FIELD_TYPES, ...COMPUTED_COLUMN_TYPES] as const
 
 const columnSpec = z.object({
   name: z.string().min(1).max(TABLE_LIMITS.label).describe('e.g. "Due back".'),
-  type: z.enum(columnTypes).describe('text, number, date, select, multi_select, checkbox, url, email, phone, person (a workspace member), currency or relation.'),
+  type: z
+    .enum(columnTypes)
+    .describe(
+      'text, number, date, select, multi_select, checkbox, url, email, phone, person (a workspace member), currency, relation, formula (worked out from the row\'s other columns) or rollup (worked out from the records a relation links).',
+    ),
   options: z.array(z.string()).max(TABLE_LIMITS.options).optional().describe('select and multi_select: the choices, e.g. ["Out", "Returned", "Late"].'),
   currency: z.string().length(3).optional().describe('currency: the ISO code, default USD.'),
   links_to: z.enum(RELATION_TARGET_KINDS).optional().describe("relation: the kind it links (data_row: another table's rows, with links_to_table)."),
   links_to_table: z.string().optional().describe('relation to data_row: that table, by id or name.'),
   multiple: z.boolean().optional().describe('relation: links several records.'),
+  expression: z
+    .string()
+    .max(2000)
+    .optional()
+    .describe(
+      'formula: the expression. Columns by name in braces ({Name} is the row\'s name), numbers, "text", true/false; + - * / and = != < <= > >=; if(cond, a, b), and(), or(), not(), concat(), round(n, digits), min(), max(), today(), days_between(start, end), empty(x). E.g. "{Qty} * {Unit price}", "days_between(today(), {Due back})", "if({Paid}, \\"Done\\", \\"Chase\\")". Only columns made before it.',
+    ),
+  through: z.string().optional().describe('rollup: the relation column it reads through, by name.'),
+  aggregate: z.enum(ROLLUP_FNS).optional().describe('rollup: count, sum, avg, min, max, earliest, latest or list.'),
+  of: z.string().optional().describe('rollup: the linked records\' field it reads, by name ("Name" for their names). Not for count.'),
 })
 
 const valueSchema = z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.object({ amount: z.number(), currency: z.string().optional() }), z.null()])
@@ -119,10 +135,15 @@ function describeColumn(c: DataColumn, columns: readonly DataColumn[], tableName
     name: c.label,
     key: c.key,
     type: c.field_type,
-    ...(hasOptions(c.field_type) ? { options: c.options } : {}),
+    ...(!isComputedType(c.field_type) && hasOptions(c.field_type) ? { options: c.options } : {}),
     ...(c.field_type === 'currency' ? { currency: config.currency ?? 'USD' } : {}),
     ...(target ? { links_to: target.kind, ...(target.table_id ? { links_to_table: tableNames.get(target.table_id) ?? target.table_id } : {}), multiple: !!config.multiple } : {}),
     ...(rule && on ? { required_when: `${on.label} is ${rule.option}` } : {}),
+    ...(c.field_type === 'formula' ? { expression: toDisplayFormula(config.expression ?? '', columns) } : {}),
+    ...(c.field_type === 'rollup'
+      ? { through: columns.find((x) => x.key === config.relation)?.label ?? config.relation, aggregate: config.fn, ...(config.field ? { of: config.field === TITLE_REF ? 'Name' : config.field } : {}) }
+      : {}),
+    ...(c.computed?.error ? { error: c.computed.error } : {}),
   }
 }
 
@@ -148,7 +169,14 @@ function compactValue(c: DataColumn, value: unknown, labels: Record<string, stri
 function compactRow(row: DataRow, columns: readonly DataColumn[], labels: Record<string, string>) {
   const values: Record<string, unknown> = {}
   for (const c of columns) {
-    const v = compactValue(c, row.custom_fields?.[c.key], labels)
+    if (isComputedType(c.field_type)) {
+      // A formula's or a rollup's cell, worked out for the person as the rows were read.
+      const { value, error } = cellValueOfRow(c, row)
+      if (error) values[c.label] = { error }
+      else if (value !== null && value !== '') values[c.label] = value
+      continue
+    }
+    const v = compactValue(c, Object.prototype.hasOwnProperty.call(row.custom_fields ?? {}, c.key) ? row.custom_fields[c.key] : undefined, labels)
     if (v !== undefined && v !== '') values[c.label] = v
   }
   return { id: row.id, name: row.title || 'Untitled', ...(Object.keys(values).length ? { values } : {}) }
@@ -291,6 +319,7 @@ export function createTableTools(
         }
         return fail(noColumn(table, name))
       }
+      if (isComputedType(col.field_type)) return fail(`${col.label} is worked out from other columns, so it can't be set.`)
       let v: unknown = value
       if (col.field_type === 'person' && typeof v === 'string' && v.trim() && !isId(v.trim())) {
         people ??= await members(ws)
@@ -300,7 +329,7 @@ export function createTableTools(
         v = hit.id
       }
       if (col.field_type === 'date') v = await dayIn(v)
-      const coerced = coerceCustomValue(col, v)
+      const coerced = coerceCustomValue({ ...col, field_type: col.field_type }, v)
       if (!coerced.ok) return fail(coerced.error)
       out[col.key] = coerced.value
     }
@@ -308,7 +337,34 @@ export function createTableTools(
   }
 
   /** A column's config from its spec: a currency's code, a relation's target. */
-  async function configFor(spec: z.infer<typeof columnSpec>): Promise<Checked<CustomFieldConfig | undefined>> {
+  async function configFor(
+    spec: z.infer<typeof columnSpec>,
+    /** The table's columns as the batch has them so far: a rollup's relation is one of them. */
+    columns: ReadonlyArray<{ key: string; label: string; field_type: string; config?: CustomFieldConfig }> = [],
+  ): Promise<Checked<CustomFieldConfig | undefined>> {
+    if (spec.type === 'formula') {
+      if (!spec.expression?.trim()) return fail(`${spec.name}: a formula needs its expression.`)
+      return { ok: true, value: { expression: spec.expression.trim() } }
+    }
+    if (spec.type === 'rollup') {
+      const want = spec.through?.trim().toLowerCase()
+      const relation = want ? columns.find((c) => c.label.trim().toLowerCase() === want) : undefined
+      if (!relation || relation.field_type !== 'relation' || !relation.config?.target) return fail(`${spec.name}: a rollup reads through one of the table's relation columns (through).`)
+      const fn: RollupFn = spec.aggregate ?? 'count'
+      let field: string | null = null
+      const of = spec.of?.trim()
+      if (of && fn !== 'count') {
+        if (['name', 'title'].includes(of.toLowerCase())) field = TITLE_REF
+        else if (relation.config.target.kind === 'data_row' && relation.config.target.table_id) {
+          const other = await openTable(relation.config.target.table_id)
+          if (!other.ok) return other
+          const col = columnNamed(other.value.table.columns, of)
+          if (!col) return fail(noColumn(other.value.table, of))
+          field = col.key
+        } else field = of
+      }
+      return { ok: true, value: { relation: relation.key, fn, field } }
+    }
     if (spec.type === 'currency') return { ok: true, value: spec.currency ? { currency: spec.currency.toUpperCase() } : undefined }
     if (spec.type !== 'relation') return { ok: true, value: undefined }
     if (!spec.links_to) return fail(`${spec.name}: a relation needs links_to, the kind it links.`)
@@ -324,7 +380,7 @@ export function createTableTools(
    * record is named only when the person may read it; members always are.
    */
   async function labelsFor(ws: string, columns: readonly DataColumn[], rows: readonly DataRow[]): Promise<Record<string, string>> {
-    const named = columns.filter((c) => c.field_type === 'person' || (c.field_type === 'relation' && c.config?.target))
+    const named = columns.filter((c): c is DataColumn & { field_type: 'person' | 'relation' } => c.field_type === 'person' || (c.field_type === 'relation' && !!c.config?.target))
     if (!named.length || !rows.length) return {}
     const records = rows.map((r) => ({ ...(r.custom_fields ?? {}) }) as Record<string, unknown>)
     for (const c of named) {
@@ -482,7 +538,7 @@ export function createTableTools(
 
     create_table: tool({
       description:
-        'Make a table when the person asks you to track, log or keep a list of something ("track my equipment rentals", "keep a list of our suppliers", "log the jobs we quote"). find_tables first: add to one that fits instead. Every table has a Name column (each row\'s name). Add the columns the thing needs, with real types: a date for when something is due or back, a select with its options for a status, a number or currency for amounts, a person for who has it, a checkbox for yes or no. Rows only from what they told you. Then say in one line what you made and its columns.',
+        'Make a table when the person asks you to track, log or keep a list of something ("track my equipment rentals", "keep a list of our suppliers", "log the jobs we quote"). find_tables first: add to one that fits instead. Every table has a Name column (each row\'s name). Add the columns the thing needs, with real types: a date for when something is due or back, a select with its options for a status, a number or currency for amounts, a person for who has it, a checkbox for yes or no; a formula for a value worked out of the row (a total, days left), after the columns it uses. Rows only from what they told you. Then say in one line what you made and its columns.',
       inputSchema: z.object({
         name: z.string().min(1).max(TABLE_LIMITS.name).describe('e.g. "Equipment rentals".'),
         description: z.string().max(TABLE_LIMITS.description).optional(),
@@ -509,7 +565,7 @@ export function createTableTools(
             const key = newColumnKey(spec.name, taken)
             if (!key) return { success: false, error: `"${spec.name}" needs a letter or number in it.` }
             if (specs.some((s) => s.label.toLowerCase() === spec.name.trim().toLowerCase())) return { success: false, error: `Two columns are named "${spec.name}".` }
-            const config = await configFor(spec)
+            const config = await configFor(spec, specs)
             if (!config.ok) return { success: false, error: config.error }
             taken.push(key)
             specs.push({ key, label: spec.name.trim(), field_type: spec.type, ...(spec.options ? { options: spec.options } : {}), ...(config.value ? { config: config.value } : {}) })
@@ -542,7 +598,7 @@ export function createTableTools(
 
     update_table_columns: tool({
       description:
-        "Change a table's columns: add one, rename one, change its type (every value converts, or it refuses with how many don't fit), set a select's options, make one required while a select holds an option, or delete one. All in one batch; the person can undo it.",
+        "Change a table's columns: add one (a formula, worked out of the row, or a rollup, worked out of the records a relation links, too), rename one, change its type (every value converts, or it refuses with how many don't fit), set a select's options, make one required while a select holds an option, or delete one. All in one batch; the person can undo it.",
       inputSchema: z.object({
         table: tableField,
         workspace_id: lookupWorkspaceField,
@@ -558,6 +614,10 @@ export function createTableTools(
               links_to: z.enum(RELATION_TARGET_KINDS).optional(),
               links_to_table: z.string().optional(),
               multiple: z.boolean().optional(),
+              expression: columnSpec.shape.expression,
+              through: columnSpec.shape.through,
+              aggregate: columnSpec.shape.aggregate,
+              of: columnSpec.shape.of,
               when: z
                 .object({ column: z.string(), option: z.string() })
                 .nullable()
@@ -582,7 +642,10 @@ export function createTableTools(
             if (ch.action === 'add') {
               if (!ch.type) return { success: false, error: `add "${ch.column}": give its type.` }
               if (isTitleName(ch.column) || columnNamed(table.columns, ch.column)) return { success: false, error: `${table.name} already has a column "${ch.column}".` }
-              const config = await configFor({ name: ch.column, type: ch.type, options: ch.options, currency: ch.currency, links_to: ch.links_to, links_to_table: ch.links_to_table, multiple: ch.multiple })
+              const config = await configFor(
+                { name: ch.column, type: ch.type, options: ch.options, currency: ch.currency, links_to: ch.links_to, links_to_table: ch.links_to_table, multiple: ch.multiple, expression: ch.expression, through: ch.through, aggregate: ch.aggregate, of: ch.of },
+                table.columns,
+              )
               if (!config.ok) return { success: false, error: config.error }
               const key = newColumnKey(ch.column, taken)
               if (!key) return { success: false, error: `"${ch.column}" needs a letter or number in it.` }
@@ -790,6 +853,9 @@ export function createTableTools(
             userId,
             // A relative window ("this week") is the person's days, as the grid reads it.
             ...(viewFilters.length ? { timeZone: await personZone() } : {}),
+            // Formulas and rollups worked out for the person: a rollup counts only what they read,
+            // and on a guest's or a linked agent's turn nothing a grant opens.
+            computed: { workspaceId: ws, userId, grants: !omitGrants, timeZone: await personZone() },
           })
           const labels = await labelsFor(ws, table.columns, page.rows)
           return {
@@ -798,6 +864,7 @@ export function createTableTools(
             count: page.rows.length,
             rows: page.rows.map((r) => compactRow(r, table.columns, labels)),
             ...(page.hasMore ? { has_more: true, next_offset: from + page.rows.length } : {}),
+            ...(page.computedSkipped ? { note: 'The table is too big to filter or sort by a formula or a rollup; those were left out.' } : {}),
           }
         } catch (e) {
           return { success: false, error: e instanceof Error ? e.message : String(e) }

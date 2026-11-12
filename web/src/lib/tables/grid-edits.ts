@@ -19,7 +19,7 @@
  */
 import { coerceCustomValue, formatFieldValue, isIsoDate, type CustomFieldValue } from '@/lib/crm/custom-field-types'
 import { requiredWhenProblem, validateOps } from './ops'
-import { TABLE_LIMITS, type DataChange, type DataColumn, type DataOp, type DataRow, type NewRow } from './types'
+import { isComputedType, TABLE_LIMITS, type DataChange, type DataColumn, type DataOp, type DataRow, type NewRow } from './types'
 
 /** The title column's key in the grid (a row's title is not a custom field). */
 export const TITLE_KEY = 'title' as const
@@ -88,7 +88,11 @@ export function planEdits(
       errors.push({ rowId, key, error: 'That column is gone.' })
       return { ok: false }
     }
-    const c = coerceCustomValue(col, raw)
+    if (isComputedType(col.field_type)) {
+      errors.push({ rowId, key, error: `${col.label} is worked out from other columns, so it can't be set.` })
+      return { ok: false }
+    }
+    const c = coerceCustomValue({ ...col, field_type: col.field_type }, raw)
     if (!c.ok) {
       errors.push({ rowId, key, error: c.error })
       return { ok: false }
@@ -472,5 +476,5 @@ export function pastedValue(
 /** A value as the clipboard takes it: dates as YYYY-MM-DD (spreadsheets read that), the rest as the cell reads. */
 export function clipboardText(fieldType: DataColumn['field_type'], value: unknown, labels?: Readonly<Record<string, string>>): string {
   if (fieldType === 'date' && typeof value === 'string') return value
-  return formatFieldValue(fieldType, value, { labels })
+  return formatFieldValue(isComputedType(fieldType) ? 'text' : fieldType, value, { labels })
 }

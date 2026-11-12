@@ -204,13 +204,13 @@ describe('a kind’s definitions as the types', () => {
     )
     const db = { from: (t: string) => (reads.push({ method: 'from', args: [t] }), chain) }
     const fields = viewFieldsOf([{ id: 'f', field: 'custom_fields.tags', operator: 'includes', value: ['Rush'] }], [{ field: 'name', direction: 'asc' }])
-    const types = await customFieldTypesFor(db as never, 'ws-1', 'deal', fields)
+    const types = await customFieldTypesFor(db as never, 'ws-1', 'company', fields)
     expect(types?.get('tags')).toEqual({ type: 'multi_select' })
     expect(reads).toContainEqual({ method: 'from', args: ['custom_field_definition'] })
     expect(reads).toContainEqual({ method: 'in', args: ['key', ['tags']] })
     expect(reads).toContainEqual({ method: 'is', args: ['table_id', null] })
     reads.length = 0
-    expect(await customFieldTypesFor(db as never, 'ws-1', 'deal', ['name'])).toBeUndefined()
+    expect(await customFieldTypesFor(db as never, 'ws-1', 'company', ['name'])).toBeUndefined()
     // A table's rows take only their own table's live columns, and none without a table.
     expect(await customFieldTypesFor(db as never, 'ws-1', 'data_row', ['custom_fields.tags'])).toBeUndefined()
     expect(reads).toEqual([])

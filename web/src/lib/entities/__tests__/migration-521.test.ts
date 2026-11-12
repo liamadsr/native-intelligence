@@ -62,7 +62,8 @@ describe('migration 521: tables and rows in the activity log', () => {
     const newest = [...all].reverse().find((m) => m.sql.includes('create or replace function public.entity_activity_entity_link_insert()'))!
     expect(newest.file.startsWith('521_')).toBe(true)
     const list = /kinds text\[\] := array\[([^\]]+)\]/.exec(sql)?.[1] ?? ''
-    expect(new Set(list.split(',').map((s) => s.trim().replace(/'/g, '')))).toEqual(new Set(ACTIVITY_ENTITY_TYPES))
+    // Its list still names deals, a pipeline's rows since 548: no edge has that kind any more.
+    expect(new Set(list.split(',').map((s) => s.trim().replace(/'/g, '')))).toEqual(new Set([...ACTIVITY_ENTITY_TYPES, 'deal']))
   })
 
   it('is the newest read policy, and probes the tables like every kind with a per-record rule', () => {

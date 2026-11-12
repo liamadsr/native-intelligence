@@ -146,10 +146,17 @@ async function candidates(scope: PageScope, type: PagePlaceType, resolved: Resol
 }
 
 /** The workspace's live tables the person can read (without grants on a guest's turn), in their order. */
-async function visibleTables(scope: PageScope): Promise<Array<{ id: string; name: string }>> {
-  const all = await listTables(scope.supabase, scope.workspaceId)
+async function visibleTables(scope: PageScope, opts: { pipelines?: boolean } = {}): Promise<Array<{ id: string; name: string }>> {
+  const all = await listTables(scope.supabase, scope.workspaceId, opts.pipelines ? { kind: 'pipeline' } : {})
   const seen = await visiblePrivateKindIds(scope.supabase, 'data_table', scope.userId, all.map((t) => t.id), scope.workspaceId, scope.grants === false ? { grants: false } : {})
   return all.filter((t) => seen.has(t.id)).map((t) => ({ id: t.id, name: t.name }))
+}
+
+/** A row's place on the Deals page: only a pipeline's row is a deal. */
+async function visibleDealRow(scope: PageScope, rowId: string): Promise<PagePlace | null> {
+  const row = await visibleRow(scope, rowId)
+  if (!row?.in) return null
+  return (await visibleTables(scope, { pipelines: true })).some((t) => t.id === row.in) ? row : null
 }
 
 /** One row the person can read, with its table: a row card's place. */
@@ -199,10 +206,15 @@ async function findTarget(scope: PageScope, input: CheckedPageInput, resolved: R
   let types = def.target?.types ?? []
   // The library's tab says which of agent and skill is meant.
   if (input.kind === 'library' && input.tab) types = [input.tab === 'skills' ? 'skill' : 'agent']
-  const found = (await Promise.all(types.map((t) => candidates(scope, t, resolved)))).flat()
+  let found = (await Promise.all(types.map((t) => candidates(scope, t, resolved)))).flat()
+  // The Deals page opens on a pipeline (Tables, phase 7: a pipeline is a table).
+  if (input.kind === 'pipelines') {
+    const pipelines = new Set((await visibleTables(scope, { pipelines: true })).map((t) => t.id))
+    found = found.filter((c) => pipelines.has(c.id))
+  }
   // A table's row: by its id, when no table has it.
-  if (input.kind === 'tables' && input.target && isUuid(input.target) && !found.some((c) => c.id === input.target)) {
-    const row = await visibleRow(scope, input.target)
+  if ((input.kind === 'tables' || input.kind === 'pipelines') && input.target && isUuid(input.target) && !found.some((c) => c.id === input.target)) {
+    const row = input.kind === 'pipelines' ? await visibleDealRow(scope, input.target) : await visibleRow(scope, input.target)
     if (row) return { ok: true, value: row }
   }
   return pick(input.kind, input.target ?? '', found)
@@ -250,12 +262,12 @@ async function checkPlace(scope: PageScope, kind: PageKind, place: PagePlace): P
       return hit ? ok(hit.name) : null
     }
     case 'data_table': {
-      if (kind !== 'tables') return null
-      const table = (await visibleTables(scope)).find((t) => t.id === place.id)
+      if (kind !== 'tables' && kind !== 'pipelines') return null
+      const table = (await visibleTables(scope, { pipelines: kind === 'pipelines' })).find((t) => t.id === place.id)
       return table ? ok(table.name) : null
     }
     case 'data_row':
-      return kind === 'tables' ? visibleRow(scope, place.id) : null
+      return kind === 'tables' ? visibleRow(scope, place.id) : kind === 'pipelines' ? visibleDealRow(scope, place.id) : null
     case 'bot':
     case 'work_item':
     case 'guest':
@@ -445,7 +457,8 @@ export async function readPageRows(
       }
       break
     }
-    case 'tables': {
+    case 'tables':
+    case 'pipelines': {
       // Every place is checked as the person's by now (findTarget, checkPlace).
       if (place?.type === 'data_table' || place?.type === 'data_row') {
         const tableId = place.type === 'data_row' ? place.in : place.id
@@ -456,8 +469,8 @@ export async function readPageRows(
         const { count } = await scope.supabase.from('data_row').select('id', { count: 'exact', head: true }).eq('table_id', tableId).is('archived_at', null)
         return { count: typeof count === 'number' ? count : rows.length, rows, noun: 'rows' }
       }
-      const tables = await visibleTables(scope)
-      return { count: tables.length, rows: tables.slice(0, limit), noun: 'tables' }
+      const tables = await visibleTables(scope, { pipelines: kind === 'pipelines' })
+      return { count: tables.length, rows: tables.slice(0, limit), noun: kind === 'pipelines' ? 'pipelines' : 'tables' }
     }
     case 'evals': {
       if (place?.type === 'eval_case' || place?.type === 'eval_run') {
@@ -582,6 +595,15 @@ export async function readPageCard(
       card: entry.n,
       title: entry.title,
       note: 'This card is the conversation between your agent and another person\'s agent, open for the person to read. Its messages are not readable from here.',
+    }
+  }
+  // The Files page (Liam, 11-11): the person's view of the workspace's files, read on their own session (its fences are RLS's), not from here.
+  if (kind === 'files') {
+    return {
+      success: true,
+      card: entry.n,
+      title: entry.title,
+      note: 'This card is the Files page: every file attached to a capture, action or project the person can see. Read one record\'s files with list_attachments (capture_id, action_id or project_id), and a file\'s text with get_attachment_content.',
     }
   }
   if (entry.entity && !entry.cur) {

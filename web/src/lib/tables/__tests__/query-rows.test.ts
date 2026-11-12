@@ -58,7 +58,7 @@ describe('queryRows', () => {
     })
     const rowCalls = calls.filter((c) => c.table === 'data_row').map((c) => [c.method, ...c.args])
     expect(rowCalls).toEqual([
-      ['select', 'id, table_id, title, custom_fields, position, archived_at, created_at, updated_at'],
+      ['select', 'id, table_id, title, custom_fields, position, archived_at, created_at, updated_at, stage_changed_at, closed_at'],
       ['eq', 'workspace_id', WS],
       ['eq', 'table_id', T],
       ['is', 'archived_at', null],

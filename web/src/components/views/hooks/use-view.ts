@@ -1160,14 +1160,6 @@ function deriveDenormalizedFields(
     return {}
   }
 
-  // A deal dragged to another stage column (roadmap #8): the column IS the
-  // stage, so its label and kind (deal-board.ts metadata) are the new chip.
-  if (groupField === 'stage_id') {
-    const newId = fields.stage_id as string | undefined
-    if (!newId || !targetGroup) return {}
-    const kind = targetGroup.metadata?.stage_kind as string | undefined
-    return { stage: { id: newId, name: targetGroup.label.split(' · ')[0], kind: kind ?? 'open' } }
-  }
 
   if (groupField === 'project_id') {
     const newProjectId = fields.project_id as string | null | undefined

@@ -12,6 +12,7 @@
 import { tool } from 'ai'
 import { z } from 'zod'
 import { TOOL_CATEGORIES, getToolNamesForCategories, ALL_CATEGORY_IDS, ALL_TOOL_NAMES } from './tool-registry'
+import type { MentionRecordKind } from '@/lib/search/menu-search'
 
 /** Fast membership test: is this name an actual registered tool (vs a category id)? */
 const TOOL_NAME_SET = new Set<string>(ALL_TOOL_NAMES)
@@ -82,17 +83,20 @@ export const COMPANY_MENTION_TOOL_NAMES: string[] = [
 
 /**
  * The tool that reads each record kind a turn can @-mention by id
- * (`systemContext.attachedActionIds` / `attachedDocumentIds` /
- * `attachedProjectIds` / `attachedInitiativeIds`; §6h names the tool on each
- * record's line). Seeded only for the kinds present, still subject to the
- * agent ceiling.
+ * (`systemContext.attachedActionIds`… as MENTION_RECORD_KEYS names them; §6h
+ * names the tool on each record's line). Seeded only for the kinds present,
+ * still subject to the agent ceiling.
  */
 export const RECORD_MENTION_TOOL_NAMES = {
   action: ['get_action'],
   document: ['get_document'],
   project: ['get_project_context'],
   initiative: ['get_initiative'],
-} as const satisfies Record<string, readonly string[]>
+  deal: ['get_deal'],
+  flow: ['list_flows'],
+  attachment: ['get_attachment_content'],
+  calendar_event: ['get_calendar_events'],
+} as const satisfies Record<MentionRecordKind, readonly string[]>
 
 /**
  * The agent's browser tools, seeded into the active set on every turn: the

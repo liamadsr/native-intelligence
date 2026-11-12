@@ -32,6 +32,9 @@ import {
   SELF_BINDING_GATE_ENABLED,
   resolveSelfBinding,
   assigneeResolvedViaSpeakerMap,
+  callRosterSetsSpeakers,
+  quoteIsTheirs,
+  quoteSpeakers,
   type SelfBindingState,
 } from '@/lib/live-agent/self-binding'
 import { seedSelfParticipant } from '@/lib/crm/contacts'
@@ -1010,6 +1013,10 @@ export async function POST(req: Request) {
         let selfBindingPromise: Promise<SelfBindingState> | null = null
         const getSelfBinding = () =>
           (selfBindingPromise ??= resolveSelfBinding(supabase, capture_id, currentMemberId))
+        // A call the recorder heard (migration 587): its roster says exactly who said every line, so
+        // ownership is read from the line an action was quoted from, never from a name. Read once.
+        let callRosterPromise: Promise<boolean> | null = null
+        const isCallCapture = () => (callRosterPromise ??= callRosterSetsSpeakers(supabase, capture_id))
 
         for (const change of candidates || []) {
           const key = `${change.change_type}:${change.entity_type}`
@@ -1028,7 +1035,14 @@ export async function POST(req: Request) {
           // a named member assignee is still checked as "mine", agent or not
           // (mine-check.ts needsMineCheck).
           if (needsMineCheck(change as Parameters<typeof needsMineCheck>[0])) {
-            if (change.assignee_member_id !== currentMemberId) {
+            if (SELF_BINDING_GATE_ENABLED && (await isCallCapture())) {
+              // A call's capture, for anyone, its owner included: theirs only when the line the
+              // action was quoted from was said by the assignee's own roster row. "Rosa, can you…"
+              // said by someone else, a name that equals a label, a guest named like a member: staged.
+              isMineExplicit =
+                !!change.assignee_member_id &&
+                quoteIsTheirs(await quoteSpeakers(getServiceClient(), capture_id, change.trigger_quote), change.assignee_member_id)
+            } else if (change.assignee_member_id !== currentMemberId) {
               isMineExplicit = false
             } else if (SELF_BINDING_GATE_ENABLED) {
               // "Mine" must be a verified fact, not the model's inference:

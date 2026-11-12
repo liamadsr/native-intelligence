@@ -33,7 +33,8 @@ describe('migration 497: custom field changes in the activity log', () => {
 
   it('triggers on exactly the kinds that are logged AND take fields, each passing its own type', () => {
     const triggers = [...sql.matchAll(/create trigger entity_activity_custom_fields\s+after update of custom_fields on public\.([a-z_]+)\s+for each row\s+when \(old\.custom_fields is distinct from new\.custom_fields\)\s+execute function public\.entity_activity_custom_fields_update\('([a-z_]+)'\);/g)]
-    const want = ENTITY_REGISTRY.filter((e) => e.activity && e.customFields)
+    // A deal was logged and took fields when 497 ran; it is a pipeline's row since 548 and 549.
+    const want = [...ENTITY_REGISTRY.filter((e) => e.activity && e.customFields), { id: 'deal', table: 'deal' }]
     expect(new Set(triggers.map((t) => t[2]))).toEqual(new Set(want.map((e) => e.id)))
     for (const [, table, type] of triggers) expect(table, type).toBe(want.find((e) => e.id === type)!.table)
     for (const e of want) expect(sql).toContain(`drop trigger if exists entity_activity_custom_fields on public.${e.table};`)

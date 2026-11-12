@@ -31,7 +31,7 @@ function world() {
   return fakeRecordsDb(
     {
       member: [{ id: MEMBER, workspace_id: WS, user_id: USER, display_name: 'Robin' }],
-      deal: [
+      flow: [
         { id: DEAL, workspace_id: WS, name: 'Fernhill renewal' },
         { id: OTHER_DEAL, workspace_id: 'ws-2', name: 'Elsewhere' },
       ],
@@ -52,7 +52,7 @@ function world() {
 
 const defs = [
   { key: 'owner', label: 'Owner', field_type: 'person' as const, config: {} },
-  { key: 'deals', label: 'Deals', field_type: 'relation' as const, config: { target: { kind: 'deal' as const }, multiple: true } },
+  { key: 'deals', label: 'Deals', field_type: 'relation' as const, config: { target: { kind: 'flow' as const }, multiple: true } },
   { key: 'rows', label: 'Rows', field_type: 'relation' as const, config: { target: { kind: 'data_row' as const, table_id: TABLE }, multiple: true } },
   { key: 'secret', label: 'Secret', field_type: 'relation' as const, config: { target: { kind: 'data_row' as const, table_id: PRIVATE_TABLE } } },
 ]
@@ -91,7 +91,7 @@ describe('a contact’s fields of the new types', () => {
   const contactDefs = [
     { id: 'd1', workspace_id: WS, entity_type: 'contact', key: 'vip', label: 'VIP', field_type: 'checkbox', options: [], config: {}, position: 0 },
     { id: 'd2', workspace_id: WS, entity_type: 'contact', key: 'budget', label: 'Budget', field_type: 'currency', options: [], config: { currency: 'EUR' }, position: 1 },
-    { id: 'd3', workspace_id: WS, entity_type: 'contact', key: 'existing', label: 'Deals', field_type: 'relation', options: [], config: { target: { kind: 'deal' }, multiple: true }, position: 2 },
+    { id: 'd3', workspace_id: WS, entity_type: 'contact', key: 'existing', label: 'Deals', field_type: 'relation', options: [], config: { target: { kind: 'flow' }, multiple: true }, position: 2 },
   ]
 
   it('stores each in its type’s form, and keeps an id already there', async () => {

@@ -11,6 +11,7 @@ import {
   egressRowOfPath,
   egressStatusOf,
   holdMicOnJoin,
+  newCallTakesNotes,
   mergeNotes,
   notesPreamble,
   notesTitle,
@@ -213,6 +214,26 @@ describe('the title and the preamble', () => {
     )
     expect(notesPreamble({ missing: [], notesSeconds: 2400, callSeconds: 2400, stoppedAtBound: false })).toBe('')
     expect(notesPreamble({ missing: [], notesSeconds: 10800, callSeconds: 14000, stoppedAtBound: true })).toBe('Notes stopped after 3 hours.')
+  })
+})
+
+describe('the call recorder’s notes: on for every call, nobody held for them', () => {
+  const base = { notes: false, notes_by: null, notes_state: 'none' as const, capture_id: null, recording: 'off' as const, recording_by: null }
+  const live = { notes: true, recording: false, liveNotes: true }
+  const egress = { notes: true, recording: true, liveNotes: false }
+  it('a new call takes notes from its start where the recorder takes them, asked or not; where Egress does, only when asked', () => {
+    expect(newCallTakesNotes(live, undefined)).toBe(true)
+    expect(newCallTakesNotes(live, false)).toBe(true)
+    expect(newCallTakesNotes(egress, undefined)).toBe(false)
+    expect(newCallTakesNotes(egress, true)).toBe(true)
+    expect(newCallTakesNotes({ notes: false, recording: false, liveNotes: false }, true)).toBe(false)
+  })
+  it('a member joining with the recorder’s notes on, someone else’s: the microphone goes at once; a recording still holds it', () => {
+    expect(holdMicOnJoin({ memberId: ANA, notes: { ...base, notes: true, notes_by: BEN }, features: live })).toBe(false)
+    expect(holdMicOnJoin({ memberId: ANA, notes: { ...base, notes: true, notes_by: BEN, recording: 'on' }, features: live })).toBe(true)
+    // Egress's notes (or a client that doesn't know): held as before.
+    expect(holdMicOnJoin({ memberId: ANA, notes: { ...base, notes: true, notes_by: BEN }, features: egress })).toBe(true)
+    expect(holdMicOnJoin({ memberId: ANA, notes: { ...base, notes: true, notes_by: BEN } })).toBe(true)
   })
 })
 

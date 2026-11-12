@@ -78,7 +78,6 @@ export const hasOptions = (t: CustomFieldType): boolean => t === 'select' || t =
 export const RELATION_TARGET_KINDS = [
   'contact',
   'company',
-  'deal',
   'action',
   'project',
   'initiative',
@@ -114,6 +113,30 @@ export interface CustomFieldConfig {
   multiple?: boolean
   /** A table's column only (src/lib/tables): needed while `key` is `option`. */
   required_when?: RequiredWhen
+  /** A table's formula column (src/lib/tables/formula.ts): its expression, references as `{#key}`. */
+  expression?: string
+  /** A table's rollup column (src/lib/tables/computed.ts): the relation column it reads through. */
+  relation?: string
+  /** A rollup: the linked records' field it aggregates (`_title`: their name; none: the records themselves). */
+  field?: string | null
+  /** A rollup: how it aggregates (count, sum, avg, min, max, earliest, latest, list). */
+  fn?: string
+  /**
+   * A select column of a table only: each option's outcome, a pipeline's
+   * stages (migration 540). An option not named is open.
+   */
+  outcomes?: Record<string, StageOutcome>
+}
+
+/** Where a pipeline's stage leaves a deal: still open, won or lost. */
+export type StageOutcome = 'open' | 'won' | 'lost'
+export const STAGE_OUTCOMES: readonly StageOutcome[] = ['open', 'won', 'lost']
+
+/** An option's outcome in a select's config: 'won', 'lost', or 'open' for any other. */
+export function optionOutcome(config: CustomFieldConfig | null | undefined, option: unknown): StageOutcome {
+  if (typeof option !== 'string') return 'open'
+  const o = config?.outcomes?.[option]
+  return o === 'won' || o === 'lost' ? o : 'open'
 }
 
 export interface CurrencyValue {
@@ -349,6 +372,17 @@ export function cleanFieldConfig(
       return { ok: false, error: 'required_when names a select column and one of its options.' }
     }
     config.required_when = { key: r.key, option: r.option }
+  }
+  if (c.outcomes !== undefined && c.outcomes !== null) {
+    if (fieldType !== 'select' || !opts.tableColumn) return { ok: false, error: "Only a table's select column has outcomes." }
+    if (typeof c.outcomes !== 'object' || Array.isArray(c.outcomes)) return { ok: false, error: 'outcomes names options and won or lost.' }
+    const outcomes: Record<string, StageOutcome> = {}
+    for (const [option, outcome] of Object.entries(c.outcomes as Record<string, unknown>)) {
+      if (outcome !== 'open' && outcome !== 'won' && outcome !== 'lost') return { ok: false, error: 'An outcome is open, won or lost.' }
+      // Open is every option's default: only won and lost are kept.
+      if (outcome !== 'open') outcomes[option] = outcome
+    }
+    config.outcomes = outcomes
   }
   return { ok: true, config }
 }

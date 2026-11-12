@@ -11,7 +11,7 @@ import {
 } from '@/lib/crm/custom-fields'
 import { customFieldWriteRefusal } from '@/lib/crm/custom-field-access'
 import { fieldReferenceCheck, fieldValueLabels } from '@/lib/crm/custom-field-references'
-import { isUuid, updateDeal } from '@/lib/crm/deals'
+import { isUuid } from '@/lib/crm/deals'
 
 const KIND_ERROR = `entity_type is one of: ${CUSTOM_FIELD_ENTITIES.join(', ')}`
 
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
   const values = (row.data as { custom_fields?: Record<string, unknown> }).custom_fields ?? {}
   const people = defs.some((d) => d.field_type === 'person')
   const [editable, labels, members] = await Promise.all([
-    defs.length === 0 || entity === 'deal' || customFieldWriteRefusal(supabase, user.id, workspaceId, entity, id).then((r) => r === null),
+    defs.length === 0 || customFieldWriteRefusal(supabase, user.id, workspaceId, entity, id).then((r) => r === null),
     fieldValueLabels(supabase, workspaceId, defs, [values]),
     people
       ? Promise.resolve(supabase.from('member').select('id, display_name').eq('workspace_id', workspaceId).neq('role', 'guest').order('display_name')).then(
@@ -58,8 +58,8 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST { entity_type, id, values }: set custom field values on a record. A
- * deal's go through updateDeal (logged, undoable); every other kind checks
+ * POST { entity_type, id, values }: set custom field values on a record (a
+ * deal's are its pipeline's columns, set in its table). It checks
  * the caller's edit right on the record first (custom-field-access), then
  * writes through their own RLS, which reads back the row it changed: a record
  * they may only view is a 403, never a silent no-op.
@@ -74,11 +74,6 @@ export async function POST(request: NextRequest) {
     return badRequest('entity_type, id and values are required')
   }
   if (!isCustomFieldEntity(body.entity_type)) return badRequest(KIND_ERROR)
-  if (body.entity_type === 'deal') {
-    const result = await updateDeal(supabase, workspaceId, body.id, { custom_fields: values as Record<string, unknown> }, { userId: user.id, source: 'person' })
-    if (!result.ok) return result.error === 'Deal not found' ? notFound(result.error) : badRequest(result.error)
-    return NextResponse.json({ custom_fields: result.deal.custom_fields })
-  }
   const refusal = await customFieldWriteRefusal(supabase, user.id, workspaceId, body.entity_type, body.id)
   if (refusal) return refusal.reason === 'not_found' ? notFound(refusal.error) : forbidden(refusal.error)
   const result = await setRecordCustomFields(supabase, workspaceId, body.entity_type, body.id, values as Record<string, unknown>, {

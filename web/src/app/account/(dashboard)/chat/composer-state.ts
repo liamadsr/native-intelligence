@@ -43,12 +43,12 @@ import { validateChatUpload } from '@/lib/chat/upload-allowlist'
 import { uploadChatFile, ChatUploadError } from '@/lib/chat/upload-client'
 import type { CaptureListItem } from '../views/capture-utils'
 import type { MentionCompany, MentionContact } from './mention-picker'
-import type { MentionRecord, MentionRecordKind } from '@/lib/search/menu-search'
+import { MENTION_RECORD_KEYS, MENTION_RECORD_KINDS, type MentionRecord } from '@/lib/search/menu-search'
 import type { ChatFileAttachment } from './chat-panel'
 
 // ── Mentions ────────────────────────────────────────────────────────────────
 
-/** What's @-mentioned in the turn being written: captures, people, companies, and actions, docs, projects and initiatives. */
+/** What's @-mentioned in the turn being written: captures, people, companies, and the records (tasks, docs, projects, initiatives, deals, flows, files, events). */
 export function useComposerMentions() {
   const [attachedNotes, setAttachedNotes] = useState<CaptureListItem[]>([])
   const [attachedContacts, setAttachedContacts] = useState<MentionContact[]>([])
@@ -348,7 +348,7 @@ export interface ComposerTurnExtras {
   files: FileUIPart[]
   /** The same uploads' storage facts, for the server. */
   chatFiles: ChatFileMeta[]
-  /** @-mentions: capture, contact and company ids, and the actions, docs, projects and initiatives. */
+  /** @-mentions: capture, contact and company ids, and the records (MENTION_RECORD_KINDS). */
   mentions: { noteIds: string[]; contactIds: string[]; companyIds: string[]; records?: MentionRecord[] }
   /** The armed skill, if any. */
   skill: ComposerTurnSkill | null
@@ -359,26 +359,18 @@ export interface ComposerTurnExtras {
 const hasMentions = (m: ComposerTurnExtras['mentions']) =>
   m.noteIds.length > 0 || m.contactIds.length > 0 || m.companyIds.length > 0 || (m.records?.length ?? 0) > 0
 
-/** The mentioned records' ids by kind, each key only when there are some (`<prefix>ActionIds`…). */
-function recordIdsBody(records: readonly MentionRecord[] | undefined, keys: Record<MentionRecordKind, string>): Record<string, string[]> {
+/**
+ * The mentioned records' ids by kind, each key only when there are some: the
+ * system context's (`attachedActionIds`…) or a run chat's (`actionIds`…), as
+ * MENTION_RECORD_KEYS names them.
+ */
+export function recordIdsBody(records: readonly MentionRecord[] | undefined, keys: 'context' | 'run'): Record<string, string[]> {
   const out: Record<string, string[]> = {}
-  for (const kind of Object.keys(keys) as MentionRecordKind[]) {
+  for (const kind of MENTION_RECORD_KINDS) {
     const ids = (records ?? []).filter((r) => r.kind === kind).map((r) => r.id)
-    if (ids.length) out[keys[kind]] = ids
+    if (ids.length) out[MENTION_RECORD_KEYS[kind][keys]] = ids
   }
   return out
-}
-const SYSTEM_CONTEXT_RECORD_KEYS: Record<MentionRecordKind, string> = {
-  action: 'attachedActionIds',
-  document: 'attachedDocumentIds',
-  project: 'attachedProjectIds',
-  initiative: 'attachedInitiativeIds',
-}
-const RUN_CHAT_RECORD_KEYS: Record<MentionRecordKind, string> = {
-  action: 'actionIds',
-  document: 'documentIds',
-  project: 'projectIds',
-  initiative: 'initiativeIds',
 }
 
 /**
@@ -395,7 +387,7 @@ export function chatAgentTurnBody(extras: ComposerTurnExtras): Record<string, un
       ...(mentions.noteIds.length > 0 ? { attachedNoteIds: mentions.noteIds } : {}),
       ...(mentions.contactIds.length > 0 ? { attachedContactIds: mentions.contactIds } : {}),
       ...(mentions.companyIds.length > 0 ? { attachedCompanyIds: mentions.companyIds } : {}),
-      ...recordIdsBody(mentions.records, SYSTEM_CONTEXT_RECORD_KEYS),
+      ...recordIdsBody(mentions.records, 'context'),
       ...(chatFiles.length > 0 ? { chatFiles } : {}),
     },
     ...(extras.skill ? { skillId: extras.skill.id } : {}),
@@ -418,7 +410,7 @@ export function runChatTurnBody(extras: ComposerTurnExtras): Record<string, unkn
             ...(mentions.noteIds.length > 0 ? { captureIds: mentions.noteIds } : {}),
             ...(mentions.contactIds.length > 0 ? { contactIds: mentions.contactIds } : {}),
             ...(mentions.companyIds.length > 0 ? { companyIds: mentions.companyIds } : {}),
-            ...recordIdsBody(mentions.records, RUN_CHAT_RECORD_KEYS),
+            ...recordIdsBody(mentions.records, 'run'),
           },
         }
       : {}),

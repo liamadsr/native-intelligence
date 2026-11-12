@@ -14,7 +14,7 @@
  * kept in this browser.
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ArrowDown, ArrowLeft, ArrowUp, History, Lock, Undo2, X } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, Download, History, Link2, Lock, Star, Undo2, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -27,8 +27,14 @@ import { canOfferUndo, describeChange } from '@/lib/tables/describe'
 import { TITLE_KEY } from '@/lib/tables/grid-edits'
 import { coverColumnOf, dateColumnOf, groupColumnOf, isGroupable, isTotalable, moveColumn, viewColumns } from '@/lib/tables/views'
 import { customFieldKeyOf, customFieldPath } from '@/lib/views/custom-field-columns'
+import { resultFieldType } from '@/lib/tables/computed'
+import { isComputedType } from '@/lib/tables/types'
 import type { ViewLayout, ViewScope } from '@/lib/views/types'
+import { downloadFile } from '@/lib/download'
+import { copyTextToClipboard } from '@/lib/clipboard'
+import { tableLink } from '@/lib/tables/embed'
 import { FieldsMenu } from './fields-menu'
+import { ImportDialog, importedToast } from './import-dialog'
 import { RowPanel } from './row-panel'
 import { TableBoard } from './table-board'
 import { TableCalendar } from './table-calendar'
@@ -80,11 +86,16 @@ export function TableDetail({
   const data = useTableData(tableId, { onNotice: showNotice, query: viewPending ? null : query })
   const { table, columns, error } = data
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [importing, setImporting] = useState(false)
   const [openRowId, setOpenRowId] = useState<string | null>(initialRowId)
 
   // The table's columns, for the filter picker, the chips and the settings.
   const definitions = useMemo(
-    () => ({ entityType: 'data_row' as const, defs: columns.map((c) => ({ key: c.key, label: c.label, field_type: c.field_type, options: c.options ?? [], config: c.config ?? {} })) }),
+    () => ({
+      entityType: 'data_row' as const,
+      // A formula or a rollup filters as its result's type.
+      defs: columns.map((c) => (isComputedType(c.field_type) ? { key: c.key, label: c.label, field_type: resultFieldType(c.computed?.result), options: [], config: {} } : { key: c.key, label: c.label, field_type: c.field_type, options: c.options ?? [], config: c.config ?? {} })),
+    }),
     [columns],
   )
 
@@ -96,7 +107,11 @@ export function TableDetail({
   const sortLabel = sort ? (sort.key === TITLE_KEY ? 'Name' : columns.find((c) => c.key === sort.key)?.label) : null
   const layout = config.layout === 'board' || config.layout === 'calendar' || config.layout === 'gallery' ? config.layout : 'grid'
   const boardColumn = groupColumnOf(columns, config.grouping) ?? columns.find(isGroupable) ?? null
-  const totalColumn = columns.find((c) => c.key === settings.total_key && isTotalable(c)) ?? null
+  // A pipeline's board totals its Value unless the view says otherwise (Tables, phase 7).
+  const totalColumn =
+    columns.find((c) => c.key === settings.total_key && isTotalable(c)) ??
+    (table?.kind === 'pipeline' && settings.total_key === undefined ? columns.find((c) => c.system && c.key === 'value') : undefined) ??
+    null
 
   // A board needs a column to group by: entering one picks the first that can.
   const onConfigChange = useCallback(
@@ -122,13 +137,35 @@ export function TableDetail({
 
   const openRow = openRowId ? data.rows.find((r) => r.id === openRowId) ?? null : null
 
+  // The view as CSV: its filters, sorts and shown columns, read on the server.
+  const exportView = async () => {
+    try {
+      await downloadFile(`/api/account/tables/${encodeURIComponent(tableId)}/export`, `${table?.name ?? 'Table'}.csv`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filters: config.filters ?? [],
+          ordering: config.ordering ?? [],
+          order,
+          hidden,
+          view_name: activeView?.name ?? null,
+          time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
+      }, (headers) => {
+        if (headers.get('X-Computed-Skipped')) toast('Filters and sorts on a formula or a rollup work on tables of up to 2,000 rows. The file has the rest of the view’s filters and sorts.')
+      })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not export the view')
+    }
+  }
+
   return (
     <CustomFieldDefinitionsContext.Provider value={definitions}>
       <div className="flex h-full flex-col">
         <ViewHeader
           title={
             <span className="flex min-w-0 items-center gap-2">
-              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onBack} aria-label="All tables">
+              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onBack} aria-label={table?.kind === 'pipeline' ? 'All pipelines' : 'All tables'}>
                 <ArrowLeft className="h-4 w-4" />
               </Button>
               <span className="truncate">{table?.name ?? 'Table'}</span>
@@ -137,12 +174,45 @@ export function TableDetail({
             </span>
           }
           actions={
-            table &&
-            data.changes.length > 0 && (
-              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setHistoryOpen(true)}>
-                <History className="h-3.5 w-3.5" />
-                History
-              </Button>
+            table && (
+              <span className="flex items-center gap-1">
+                {/* A pipeline that isn't the default can become it (Tables, phase 7). */}
+                {data.canEdit && table.kind === 'pipeline' && !table.is_default && !table.archived_at && table.visibility === 'workspace' && (
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void makeDefault(table.id, data.reload)}>
+                    <Star className="h-3.5 w-3.5" />
+                    Make default
+                  </Button>
+                )}
+                {data.canEdit && (
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setImporting(true)}>
+                    <Upload className="h-3.5 w-3.5" />
+                    Import
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs"
+                  title="Paste it in a doc to show this view there"
+                  onClick={() => {
+                    void copyTextToClipboard(tableLink({ tableId, viewId: activeView?.id ?? null }, /^https?:/.test(window.location.origin) ? window.location.origin : undefined))
+                    toast('Copied the link to this view')
+                  }}
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                  Copy link
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void exportView()}>
+                  <Download className="h-3.5 w-3.5" />
+                  Export
+                </Button>
+                {data.changes.length > 0 && (
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setHistoryOpen(true)}>
+                    <History className="h-3.5 w-3.5" />
+                    History
+                  </Button>
+                )}
+              </span>
             )
           }
         />
@@ -190,6 +260,11 @@ export function TableDetail({
         )}
         {error && <p className="px-5 py-4 text-sm text-destructive">{error}</p>}
         {!table && !error && <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>}
+        {table && data.computedSkipped && (
+          <p className="border-t border-border px-5 py-1.5 text-xs text-muted-foreground" data-computed-skipped="">
+            Filters and sorts on a formula or a rollup work on tables of up to 2,000 rows. This view shows the rest of its filters and sorts.
+          </p>
+        )}
         {table && layout !== 'grid' && data.rowsCapped && (
           <p className="border-t border-border px-5 py-1.5 text-xs text-muted-foreground" data-rows-capped="">
             Showing the first {data.rows.length.toLocaleString()} rows. Filter the view to narrow it.
@@ -240,6 +315,17 @@ export function TableDetail({
             onClose={() => setOpenRowId(null)}
           />
         )}
+        {importing && table && (
+          <ImportDialog
+            tableId={table.id}
+            columns={columns}
+            onClose={() => setImporting(false)}
+            onImported={(changeId, rows) => {
+              void data.reload()
+              importedToast(rows, changeId ? () => void data.undo(changeId) : undefined)
+            }}
+          />
+        )}
         {historyOpen && table && (
           <Sheet open onOpenChange={setHistoryOpen}>
             <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
@@ -271,6 +357,15 @@ export function TableDetail({
       </div>
     </CustomFieldDefinitionsContext.Provider>
   )
+}
+
+/** Make a pipeline the workspace's default: where a deal named in no pipeline goes. */
+async function makeDefault(tableId: string, reload: () => Promise<void> | void) {
+  const res = await fetch(`/api/account/pipelines/${tableId}/default`, { method: 'POST' })
+  const json = (await res.json().catch(() => ({}))) as { error?: string }
+  if (!res.ok) return void toast.error(json.error || 'Could not make it the default')
+  toast('This is now the default pipeline')
+  await reload()
 }
 
 function Hint({ children }: { children: ReactNode }) {

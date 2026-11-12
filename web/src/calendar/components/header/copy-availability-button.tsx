@@ -10,7 +10,9 @@
  * Under them, the person's booking links (availability phase 4b), read each
  * time the menu opens (one made since shows up): each copies its address. A
  * read that fails never reads as "no links". Renders nothing when no
- * calendar is connected.
+ * calendar is connected. "Manage booking links" opens the Availability page
+ * (Liam, 11-11: its own page under Calendar, out of Settings): its card in
+ * the chat, or the dashboard opening it where there is no chat.
  */
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -22,6 +24,8 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useHasConnectedAccount } from "@/components/account-filter-dropdown";
 import { copyDeferredTextToClipboard, copyTextToClipboard } from "@/lib/clipboard";
+import { useCanOpenCards } from "@/app/account/(dashboard)/main-chat/main-chat-context";
+import { openTarget, pageDeepLink } from "@/lib/chat-cards/open-card";
 import { COPY_RANGES, COPY_RANGE_LABELS, type CopyRange } from "@/lib/availability/copy-ranges";
 
 /** The text for a range, or a rejection carrying why it is unknown. */
@@ -55,6 +59,11 @@ export async function fetchMyBookingLinks(load: typeof fetch = fetch): Promise<M
 export function CopyAvailabilityButton({ compact = false, className }: { compact?: boolean; className?: string }) {
   const connected = useHasConnectedAccount("calendar");
   const router = useRouter();
+  const canOpenCards = useCanOpenCards();
+  const openAvailability = useCallback(() => {
+    if (canOpenCards) openTarget({ type: "page", slug: "availability" }, { from: "calendar" });
+    else router.push(pageDeepLink("availability"));
+  }, [canOpenCards, router]);
   const [busy, setBusy] = useState(false);
   // Read each time the menu opens (the last list stays while it loads); null until then, or after a failed read.
   const [links, setLinks] = useState<MenuLink[] | null>(null);
@@ -123,7 +132,7 @@ export function CopyAvailabilityButton({ compact = false, className }: { compact
             <span className="truncate">Copy {link.title}</span>
           </DropdownMenuItem>
         ))}
-        <DropdownMenuItem className="text-sm text-muted-foreground" onSelect={() => router.push("/account/settings/availability")}>
+        <DropdownMenuItem className="text-sm text-muted-foreground" onSelect={openAvailability} data-manage-booking-links="">
           {links && links.length === 0 ? "Make a booking link" : "Manage booking links"}
         </DropdownMenuItem>
       </DropdownMenuContent>

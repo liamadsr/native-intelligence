@@ -31,8 +31,6 @@ const ENTITY_CONTEXT_REQUIREMENTS: Record<ViewEntityType, ContextKey[]> = {
   capture: ['projects', 'members'],
   contact: ['companies'],
   company: [],
-  // Owner (a member) and company are the inline pickers on a deal row.
-  deal: ['members', 'companies'],
   document: ['members', 'projects'],
   email_thread: ['labels'],
   flow: [],

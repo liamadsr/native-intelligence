@@ -101,6 +101,7 @@ import {
 } from '../sequences/api'
 import { emitEntityUpdated } from '@/lib/entity-events'
 import { startFindContactEmail } from '../prospecting/start-event'
+import { LinkedDeals } from '@/components/crm/linked-deals'
 
 // ============================================================
 // Types
@@ -275,8 +276,6 @@ interface ContactDetailPanelProps {
   /** Open a sequence's detail page (sequences are bespoke pages — the host
    *  navigates to a `{ kind: 'sequence' }` location, not a detail panel). */
   onOpenSequence?: (sequenceId: string, name: string, event?: React.MouseEvent) => void
-  /** Open one of the contact's deals (roadmap #8). */
-  onOpenDeal?: (dealId: string, name: string, event?: React.MouseEvent) => void
 }
 
 export function ContactDetailPanel({
@@ -289,7 +288,6 @@ export function ContactDetailPanel({
   onOpenCapture,
   onSelectAction,
   onOpenSequence,
-  onOpenDeal,
 }: ContactDetailPanelProps) {
   const [contact, setContact] = useState<ContactDetail | null>(null)
   // For the Listen brief's fallback line, read when it plays.
@@ -621,12 +619,6 @@ export function ContactDetailPanel({
     [contactId],
   )
 
-  // The deals this contact is on (roadmap #8): `contact_ids` is an array
-  // column, so `includes` is a `@>` predicate.
-  const dealScopeFilters = useMemo<ViewFilter[]>(
-    () => [{ id: '__scope_contact', field: 'contact_ids', operator: 'includes', value: [contactId] }],
-    [contactId],
-  )
 
   // Badge = distinct sequences (what the embedded list shows), not raw
   // enrollment rows — a contact re-enrolled twice in one sequence is one row.
@@ -965,13 +957,8 @@ export function ContactDetailPanel({
               )}
 
               {activeTab === 'deals' && (
-                <UnifiedViewLayout
-                  key={`contact-deals-${contactId}`}
-                  entityType="deal"
-                  onItemSelect={(id, title, event) => onOpenDeal?.(id, title || 'Deal', event)}
-                  scopeFilters={dealScopeFilters}
-                  viewScope={{ type: 'contact', id: contactId }}
-                />
+                // The deals this contact is on: the pipeline rows whose Contacts link it (Tables, phase 7).
+                <LinkedDeals key={`contact-deals-${contactId}`} target={{ kind: 'contact', id: contactId }} />
               )}
 
               {activeTab === 'agents' && (

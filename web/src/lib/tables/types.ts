@@ -15,6 +15,9 @@
 import type { CustomFieldConfig, CustomFieldType, CustomFieldValue } from '@/lib/crm/custom-fields'
 
 export type DataTableVisibility = 'workspace' | 'private'
+
+/** A table, or a pipeline: its rows are deals (migration 540). */
+export type DataTableKind = 'table' | 'pipeline'
 export const DATA_TABLE_VISIBILITIES = ['workspace', 'private'] as const
 
 /** Where a batch came from (data_change.source). */
@@ -27,8 +30,32 @@ export const DATA_CHANGE_SOURCES = ['person', 'agent', 'import', 'email', 'captu
  */
 export const TABLE_COLUMN_ENTITY_TYPE = 'data_row' as const
 
-/** The column types a table takes: the custom field types, one list. */
-export type DataColumnType = CustomFieldType
+/**
+ * Columns a table computes when its rows are read (phase 6): a formula over
+ * the row's other columns, or a rollup over the records a relation column
+ * links. Only a table's column is one (531); nothing is ever stored in one.
+ */
+export const COMPUTED_COLUMN_TYPES = ['formula', 'rollup'] as const
+export type ComputedColumnType = (typeof COMPUTED_COLUMN_TYPES)[number]
+
+export function isComputedType(v: unknown): v is ComputedColumnType {
+  return v === 'formula' || v === 'rollup'
+}
+
+/** The column types a table takes: the custom field types, one list, and the computed ones. */
+export type DataColumnType = CustomFieldType | ComputedColumnType
+
+/** What a computed value's type is (formula.ts FormulaType): how its cells read. */
+export type ComputedResult = 'number' | 'text' | 'date' | 'checkbox'
+
+/** A computed column as the server reads it: its result's type, or why it can't be worked out. */
+export interface ComputedInfo {
+  result: ComputedResult | null
+  error?: string
+}
+
+/** One computed cell: its value (a date as YYYY-MM-DD), or why it can't be worked out. */
+export type ComputedCell = { value: number | string | boolean | null } | { error: string }
 
 /** The limits the database enforces too (520). */
 export const TABLE_LIMITS = {
@@ -56,6 +83,10 @@ export interface DataTable {
   description: string | null
   owner_member_id: string | null
   visibility: DataTableVisibility
+  /** 'pipeline': a deal pipeline, with its system columns (migration 540). Absent: a table. */
+  kind?: DataTableKind
+  /** The workspace's default pipeline. */
+  is_default?: boolean
   version: number
   position: number
   archived_at: string | null
@@ -74,6 +105,10 @@ export interface DataColumn {
   config: CustomFieldConfig
   position: number
   deleted_at: string | null
+  /** A pipeline's own column (540): renamed and edited, never deleted or retyped. */
+  system?: boolean
+  /** A formula's or a rollup's result type and any error (read with the table, phase 6). */
+  computed?: ComputedInfo
 }
 
 export interface DataRow {
@@ -86,6 +121,11 @@ export interface DataRow {
   archived_at: string | null
   created_at: string
   updated_at: string
+  /** A pipeline's row only (540): when its stage last changed, and when it was won or lost. */
+  stage_changed_at?: string | null
+  closed_at?: string | null
+  /** Its formulas' and rollups' cells by column key, worked out as it was read (phase 6). */
+  computed?: Record<string, ComputedCell>
 }
 
 /** A table with its live columns, in order. */
@@ -196,6 +236,8 @@ export interface DataChange {
   reason: string | null
   changes: DataChangeEntry[]
   undo_of: string | null
+  /** The email thread, capture or text it came from (540). */
+  source_ref?: string | null
   undone_at: string | null
   created_at: string
 }

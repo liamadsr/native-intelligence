@@ -133,16 +133,6 @@ const COMPANY_VIEW_SELECT = `
   custom_fields, created_at, updated_at, workspace_id
 `
 
-// Deals (roadmap #8, migration 473): the stage (its name, order and whether it
-// is won or lost), the owner and the company ride along, so the board labels
-// its columns and the row draws its chips without a second read.
-const DEAL_VIEW_SELECT = `
-  id, name, value, currency, pipeline_id, stage_id, expected_close_date, owner_id,
-  company_id, contact_ids, custom_fields, source, closed_at, created_at, updated_at, workspace_id,
-  stage:deal_stage!stage_id(id, name, position, kind, color),
-  owner:member!owner_id(id, display_name, avatar_url),
-  company:company!company_id(id, name, domain, logo_url)
-`
 
 const EMAIL_THREAD_VIEW_SELECT = `
   id, provider_thread_id, provider_message_id, account_id, provider, from_email, folder, is_unread, is_starred, needs_reply,
@@ -509,11 +499,6 @@ function buildUnfencedEntityQuery(
         .select(companyNeedsFenceEmbed(options?.visibility) ? `${COMPANY_VIEW_SELECT}, ${COMPANY_FENCE_SELECT}` : COMPANY_VIEW_SELECT, { count: 'exact' })
         .eq('workspace_id', workspaceId)
 
-    case 'deal':
-      return supabase
-        .from('deal')
-        .select(DEAL_VIEW_SELECT, { count: 'exact' })
-        .eq('workspace_id', workspaceId)
 
     case 'email_thread':
       return supabase
@@ -712,7 +697,6 @@ const JUNCTION_FIELDS: Record<ViewEntityType, string[]> = {
   capture: ['labels'],
   contact: [],
   company: [],
-  deal: [],
   email_thread: ['labels'],
   document: [],
   initiative: ['labels'],
@@ -771,8 +755,6 @@ const ARRAY_FIELDS: Record<ViewEntityType, string[]> = {
   capture: [],
   contact: ['tags', 'prospect_list_ids'],
   company: ['tags', 'prospect_list_ids'],
-  // The contacts a deal involves (473), filtered with `@>`.
-  deal: ['contact_ids'],
   email_thread: [],
   document: [],
   initiative: [],
@@ -2036,7 +2018,6 @@ export function applySearch(
       break
     }
     case 'company':
-    case 'deal':
       query.ilike('name', `%${term}%`)
       break
     case 'capture':
@@ -2509,10 +2490,6 @@ function getGroupLabel(item: Record<string, unknown>, field: string, key: string
     const ws = item.workflow_state as { name?: string } | null
     return ws?.name || key
   }
-  if (field === 'stage_id') {
-    const stage = item.stage as { name?: string } | null
-    return stage?.name || key
-  }
   if (field === 'owner_id') {
     const owner = item.owner as { display_name?: string } | null
     return owner?.display_name || key
@@ -2528,6 +2505,12 @@ function getGroupLabel(item: Record<string, unknown>, field: string, key: string
   if (field === 'team_id') {
     const team = item.team as { name?: string } | null
     return team?.name || key
+  }
+  // Joined on every action row (ACTION_VIEW_SELECT's `milestone`): a group by
+  // milestone reads its name, not its id (the Tasks sub-nav's Milestones).
+  if (field === 'milestone_id') {
+    const milestone = item.milestone as { name?: string } | null
+    return milestone?.name || key
   }
   if (field === 'company_id') {
     const company = item.company as { name?: string } | null

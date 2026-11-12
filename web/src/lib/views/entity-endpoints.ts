@@ -18,9 +18,6 @@ export const ENTITY_ENDPOINTS: Record<ViewEntityType, (id: string) => string | n
   capture: id => `/api/account/captures/${id}`,
   contact: id => `/api/account/contacts/${id}`,
   company: id => `/api/account/companies/${id}`,
-  // PATCH takes stage_id (the board's drag), owner_id, company_id,
-  // expected_close_date and the rest, each logged for undo (src/lib/crm/deals.ts).
-  deal: id => `/api/account/deals/${id}`,
   document: id => `/api/account/documents/${id}`,
   email_thread: id => `/api/account/email/threads/${id}`,
   flow: id => `/api/account/flows/${id}`,
