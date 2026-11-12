@@ -80,7 +80,7 @@ import { homeConversationId } from '@/lib/email/auto-archive'
 import { emitStatusChange } from '@/lib/flows/emit-status-change'
 import { appendLogLine, logDedupeKey, logLineFor } from '@/lib/log/agent-log'
 import { isMissingColumnError } from '@/lib/mcp-client/public-row'
-import { fieldCurrency, formatFieldValue, optionOutcome } from '@/lib/crm/custom-field-types'
+import { fieldCurrency, formatFieldValue, isCustomFieldType, optionOutcome } from '@/lib/crm/custom-field-types'
 import type { CustomFieldValue } from '@/lib/crm/custom-fields'
 import { applyOps, listColumns, undoChange } from '@/lib/tables/store'
 import { TABLE_LIMITS, type DataColumn } from '@/lib/tables/types'
@@ -459,7 +459,8 @@ export function planChanges(
 /** A value as the decision and the message say it. */
 export function valueWords(type: KeptChangeType | DataColumn['field_type'], value: unknown): string | null {
   if (value === null || value === undefined) return null
-  const text = formatFieldValue(type === 'done' ? 'text' : (type as DataColumn['field_type']), value, { now: new Date(0) })
+  const shape = type === 'done' || !isCustomFieldType(type) ? 'text' : type
+  const text = formatFieldValue(shape, value, { now: new Date(0) })
   return text ? text.slice(0, KEPT_VALUE_MAX) : null
 }
 
