@@ -537,6 +537,8 @@ export const FEATURES: Record<FeatureKey, FeatureDefinition> = {
       '2a19cab2-11df-4743-bc90-898aa877a7d1', // studio-media-in
       '87d5379b-f8f5-4ed6-85fe-4a3c355ca1d4', // studio-reference-blueprint
       '49c3dda3-ff71-4aba-ab70-d14790a2c48f', // studio-story-film
+      // Migration 630: judging and making sounds, designed effects and music beds.
+      '7341b7e4-c5a7-45df-b18c-29c3136c599b', // studio-sound-making
     ],
   },
 }

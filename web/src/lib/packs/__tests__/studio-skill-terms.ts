@@ -1,7 +1,7 @@
 /**
- * The backticked words the Studio skills (621, 626's and 629's rewrites and
- * new skills) name that are not tools: the editing commands each text names
- * and the fields it names. migration-621, migration-626 and migration-629 each
+ * The backticked words the Studio skills (621, 626's, 629's and 630's rewrites
+ * and new skills) name that are not tools: the editing commands each text names
+ * and the fields it names. migration-621, -626, -629 and -630 each
  * check their own file's texts against their list (each command a real engine
  * op, each entry still used), and playbook-accuracy takes the shipped text's
  * two together as that text's NOT_TOOLS.
@@ -134,11 +134,64 @@ export const STUDIO_TERMS_629: Record<string, { ops: readonly string[]; words: r
   'studio-story-film': { ops: ['set_cast'], words: [] },
 }
 
-/** Per Studio text that ships, its terms: the latest file's that wrote the text (629 over 626 over 621). */
+/**
+ * The same, for the texts 630 writes: the twenty-one rows it rewrites whole
+ * (from 621, 626 or 629) and its new skill. migration-630 holds 630's texts
+ * to these exactly (each command real, each entry used). The words are the
+ * tools' own argument names and values the texts name in backticks.
+ */
+export const STUDIO_TERMS_630: Record<string, { ops: readonly string[]; words: readonly string[] }> = {
+  'studio-playbook': { ops: ['set_canvas'], words: ['args', 'brand', 'defaults', 'edits', 'expected_digest', 'ids', 'op', 'target', 'text_looks', 'times'] },
+  'studio-editing-layers': {
+    ops: [
+      'add_arrow', 'add_background', 'add_callout', 'add_card', 'add_chips', 'add_icons', 'add_image', 'add_kinetic_captions', 'add_notification',
+      'add_particles', 'add_ring', 'add_scene', 'add_text', 'add_waveform', 'list_layers', 'remove_layer', 'update_layer',
+    ],
+    words: ['edits', 'expected_digest'],
+  },
+  'studio-motion-design': { ops: ['set_canvas', 'set_master'], words: ['brand'] },
+  'studio-motion-recipes': { ops: ['add_chips', 'add_icons', 'add_image', 'add_notification', 'add_text'], words: [] },
+  'studio-storyboard': {
+    ops: ['add_beat', 'lock_beat', 'remove_beat', 'reorder_beats', 'set_style_pack', 'split_beat', 'storyboard', 'storyboard_from_script', 'update_beat'],
+    words: ['expected_digest', 'lines', 'seconds'],
+  },
+  'studio-style-packs': { ops: ['add_background', 'add_card', 'add_chips', 'add_text', 'set_style_pack'], words: [] },
+  'studio-style-pack-editorial-archival': { ops: ['add_image', 'add_text', 'set_automation', 'set_style_pack', 'set_transition'], words: [] },
+  'studio-style-pack-paper-collage': { ops: ['add_image', 'add_transition', 'set_automation', 'set_style_pack', 'update_layer'], words: [] },
+  'studio-style-pack-orbital': { ops: ['add_particles', 'add_ring', 'set_style_pack'], words: [] },
+  'studio-style-pack-warm-loft': { ops: ['set_style_pack', 'set_transition'], words: [] },
+  'studio-reference-to-style-pack': { ops: ['add_image', 'set_style_pack'], words: [] },
+  'studio-review': { ops: ['set_master'], words: [] },
+  'studio-match-a-reference': { ops: ['add_image'], words: [] },
+  'studio-generated-shots': { ops: ['remove_cast', 'set_automation', 'set_cast', 'update_beat'], words: [] },
+  'studio-sound': { ops: ['set_audio_segment', 'set_automation', 'set_ducking', 'set_master'], words: [] },
+  'studio-scene-design': {
+    ops: ['add_text'],
+    words: ['at', 'duration', 'expected_digest', 'height', 'layer_id', 'name', 'props', 'source', 'video_id', 'width', 'x', 'y'],
+  },
+  'studio-product-ui': {
+    ops: ['add_background', 'add_callout', 'add_image', 'add_zoom'],
+    words: ['asset_id', 'background', 'component', 'height', 'job_id', 'place', 'product', 'props', 'script', 'seconds', 'still', 'theme', 'video_id', 'width'],
+  },
+  'studio-product-onboarding': { ops: [], words: ['folder_id', 'job_id', 'product', 'title'] },
+  'studio-reference-blueprint': { ops: ['style_captions'], words: ['asset_id', 'expected_digest', 'lines', 'rebuild', 'seconds', 'video_id'] },
+  'studio-story-film': { ops: ['set_cast'], words: [] },
+  'studio-narration': { ops: ['add_kinetic_captions', 'set_ducking', 'set_master'], words: ['generate_audio', 'speaker', 'voice_id'] },
+  'studio-sound-making': {
+    ops: [],
+    words: [
+      'action', 'asset_ids', 'category', 'count', 'description', 'from', 'from_asset_id', 'kind', 'level_db', 'loop', 'sounds', 'take', 'target_asset_id',
+      'target_sound', 'variants',
+    ],
+  },
+}
+
+/** Per Studio text that ships, its terms: the latest file's that wrote the text (630 over 629 over 626 over 621). */
 export const STUDIO_SHIPPED_TERMS: Record<string, { ops: readonly string[]; words: readonly string[] }> = {
   ...STUDIO_TERMS,
   ...STUDIO_TERMS_626,
   ...STUDIO_TERMS_629,
+  ...STUDIO_TERMS_630,
 }
 
 /** A shipped Studio text's non-tool words for playbook-accuracy: its commands and its fields together, each once. */

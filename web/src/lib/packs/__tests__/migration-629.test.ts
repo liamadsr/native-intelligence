@@ -71,6 +71,10 @@ const ROWS = [...REWRITTEN, ...ADDED]
 const ALL_STUDIO = [...before.map((r) => ({ id: r.id, slug: r.slug })), ...ADDED]
 const STUDIO_SLUGS: ReadonlySet<string> = new Set(ALL_STUDIO.map((r) => r.slug))
 const STUDIO_IDS: ReadonlySet<string> = new Set(ALL_STUDIO.map((r) => r.id))
+/** The later Studio skill file (630): the rows it rewrites ship its text, and the skills it adds ship beside these. */
+const LATER = '630_studio_skills_capabilities.sql'
+const later = seededSkills(LATER)
+const LATER_ADDED_SLUGS = later.filter((r) => !STUDIO_IDS.has(r.id)).map((r) => r.slug)
 
 /** The tools added since 626: each is taught somewhere. */
 const NEW_TOOLS = [
@@ -128,11 +132,11 @@ describe('migration 629', () => {
     expect(new Set(ALL_STUDIO.map((r) => r.slug)).size).toBe(32)
   })
 
-  it('ships 629’s texts for the rows it writes, and every Studio skill id is in the Studio feature', () => {
+  it('ships 629’s texts for the rows it writes (630’s where 630 rewrote one), and every Studio skill id is in the Studio feature', () => {
     const shipped = allShippedSkills()
-    for (const r of ROWS) expect(shipped.find((s) => s.id === r.id)?.file, r.slug).toBe(FILE)
+    for (const r of ROWS) expect(shipped.find((s) => s.id === r.id)?.file, r.slug).toBe(later.some((l) => l.id === r.id) ? LATER : FILE)
     const ids = FEATURES.studio.systemRecipeIds ?? []
-    expect([...ids].sort()).toEqual([...STUDIO_IDS].sort())
+    expect(ids).toEqual(expect.arrayContaining([...STUDIO_IDS]))
   })
 
   it('lists the playbook globally and every task skill inside the Studio pack only, on real categories and tools', () => {
@@ -220,7 +224,7 @@ describe('migration 629', () => {
     expect(by('studio-product-ui').prompt).toMatch(/Never generate UI, and never redraw the product with layers pretending to be it/)
     expect(by('studio-product-ui').prompt).toMatch(/`import_studio_file`\), placed with `add_image` and given motion/)
     const shipped = allShippedSkills().filter((s) => s.area === 'studio')
-    expect(shipped.map((s) => s.slug).sort()).toEqual([...STUDIO_SLUGS].sort())
+    expect(shipped.map((s) => s.slug).sort()).toEqual([...STUDIO_SLUGS, ...LATER_ADDED_SLUGS].sort())
     for (const s of shipped) {
       for (const sentence of sentences(s.prompt + '\n' + s.description).filter((x) => NOT_HERE.test(x))) expect(sentence, s.slug).not.toMatch(NOW_HERE)
       expect(s.prompt, s.slug).not.toMatch(/Nothing is downloaded from the web/)

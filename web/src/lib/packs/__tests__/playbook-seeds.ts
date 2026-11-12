@@ -43,6 +43,10 @@ export const SKILL_REWRITE_MIGRATIONS = [
   // Studio: 14 rows rewritten whole by id (every rule of the Studio's earlier teaching, the new media, font,
   // frame, continuity and cost tools), and three new task skills (media in, a reference's blueprint, story films).
   '629_studio_skills_parity.sql',
+  // Studio: 21 rows rewritten whole by id (the blueprint, judging and making sounds, reading before a relative edit,
+  // voices and re-voicing, designed effects and music, code scenes, the product's real UI from its code), and one new
+  // task skill (making sounds).
+  '630_studio_skills_capabilities.sql',
 ] as const
 
 /**
