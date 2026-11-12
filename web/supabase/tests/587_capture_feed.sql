@@ -16,7 +16,10 @@
 -- row the server's alone; the service role's functions refused to a person. The TS tests (src/lib/capture-feed/__tests__/migration-587-588
 -- .test.ts) pin the files' text; this runs the SQL.
 --
--- Run against a database with 564-588 applied (never PROD):
+-- 589 (a call heard only once two people were in it at once; a call that
+-- ends closes its room) is checked here too.
+--
+-- Run against a database with 564-589 applied (never PROD):
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/587_capture_feed.sql
 -- Everything runs in one transaction that is rolled back. A probe runs as one
 -- caller (role authenticated with that user's JWT claims) inside its own
@@ -34,7 +37,7 @@ declare
   w1 uuid; t1 uuid;
   m_a uuid; m_b uuid; m_c uuid; m_d uuid; m_x uuid;
   ch_team uuid; ch_quiet uuid; ch_meet uuid; mt uuid;
-  call_t uuid; room_t text; call_m uuid; room_m text; call_s uuid; call_d uuid;
+  call_t uuid; room_t text; call_m uuid; room_m text; call_s uuid; call_d uuid; call_q uuid; room_q text;
   cap uuid; cap_m uuid; cap_s uuid; cap_d uuid; cap_d2 uuid;
   s1 uuid; s2 uuid; s_m uuid; s_s uuid; s_d uuid;
   g1 uuid;
@@ -140,6 +143,18 @@ begin
     (select capture_id::text || '/' || notes_state from public.team_call where id = call_t));
   perform pg_temp.t587_check('… and the call keeps a record of it, not finished', '1/false',
     (select count(*)::text || '/' || bool_or(finished_at is not null)::text from public.team_call_capture where call_id = call_t and capture_id = cap));
+
+  -- ── 589: heard only once two people were in it at once ─────────────────────
+  perform pg_temp.t587_check('notes on, nobody else in it yet (ringing, missed, one person waiting): not offered to the recorder', '0',
+    (select count(*)::text from public.team_call_recorder_work('rec1', '{}', 20) w where w.call_id = call_t));
+  perform pg_temp.t587_check('the app saw one person in the room: the counter says so, still not offered', '1/0',
+    coalesce(public.team_call_people_seen(call_t, 1)::text, '<null>') || '/'
+      || (select count(*)::text from public.team_call_recorder_work('rec1', '{}', 20) w where w.call_id = call_t));
+  v := coalesce(public.team_call_people_seen(call_t, 3)::text, '<null>');
+  perform pg_temp.t587_check('three in the room (a join webhook lost): the peak raised, never lowered, and the call offered', '3/<null>/3/1',
+    v || '/' || coalesce(public.team_call_people_seen(call_t, 2)::text, '<null>') || '/'
+      || (select peak_participants::text from public.team_call where id = call_t) || '/'
+      || (select count(*)::text from public.team_call_recorder_work('rec1', '{}', 20) w where w.call_id = call_t));
   perform pg_temp.t587_check('… private, its starter''s, its conversation''s, open and live', u_a::text || '/private/' || ch_team::text || '/false/live/team_call',
     (select user_id::text || '/' || visibility || '/' || notes_channel_id::text || '/' || (ended_at is not null)::text || '/' || (metadata ->> 'notes_recorder') || '/' || (metadata ->> 'source')
        from public.captures where id = cap));
@@ -309,6 +324,9 @@ begin
 
   -- ── The end ───────────────────────────────────────────────────────────────
   perform public.team_call_end(call_t, 'finished', now());
+  perform pg_temp.t587_check('589: the call ended, its room is put on the outbox to be closed (once), and a second end adds none', '1/ended',
+    (select count(*)::text || '/' || min(reason) from public.team_call_eject where room = room_t and identity is null and done_at is null));
+  perform pg_temp.t587_check('… an ended call''s people are never counted again', '<null>', coalesce(public.team_call_people_seen(call_t, 9)::text, '<null>'));
   perform pg_temp.t587_check('the call ended: every feed of it ended; the notes are being finished', 'ended/call_ended/transcribing',
     (select status || '/' || end_reason from public.capture_feed_session where id = s2) || '/' || (select notes_state from public.team_call where id = call_t));
   perform pg_temp.t587_check('locked: the owner''s, something said', 'ready/' || u_a::text || '/true',
@@ -480,6 +498,19 @@ begin
     v || '/' || (select notes_state || '/' || coalesce(capture_id::text, '<none>') from public.team_call where id = call_s)
       || '/' || (select count(*)::text from public.captures where id = cap_s)
       || '/' || (select count(*)::text from public.entity_access where entity_id = cap_s));
+  perform pg_temp.t587_check('589: a call that ended alone closes its room too', '1',
+    (select count(*)::text from public.team_call_eject x join public.team_call t on t.room = x.room where t.id = call_s and x.identity is null and x.done_at is null));
+
+  -- ── 589: a channel archived with a call live: one close for its room, not two ──
+  call_q := pg_temp.t587_as(u_b, format('select call_id::text from public.team_call_start(%L)', ch_quiet))::uuid;
+  select room into room_q from public.team_call where id = call_q;
+  update public.team_chat_channel set archived_at = now() where id = ch_quiet;
+  perform pg_temp.t587_check('the archive ends the call; its room is closed by one entry', 'ended/1',
+    (select status from public.team_call where id = call_q) || '/'
+      || (select count(*)::text from public.team_call_eject where room = room_q and identity is null and done_at is null));
+  perform pg_temp.t587_check('the outbox takes ''ended'' among its reasons, one check, validated', '1/true/true',
+    (select count(*)::text || '/' || bool_and(convalidated)::text || '/' || bool_and(pg_get_constraintdef(oid) like '%ended%')::text
+       from pg_constraint where conrelid = 'public.team_call_eject'::regclass and contype = 'c' and pg_get_constraintdef(oid) like '%reason%'));
 
   -- ── The server's alone ────────────────────────────────────────────────────
   perform pg_temp.t587_run('a person cannot read the sessions', 'refused', u_a, array['select 1 from public.capture_feed_session']);
@@ -495,6 +526,7 @@ begin
   perform pg_temp.t587_run('a person cannot finish a call''s capture', 'refused', u_a, array[format('select * from public.team_call_capture_finish(%L)', cap)]);
   perform pg_temp.t587_run('a person cannot mark its pass done', 'refused', u_a, array[format('select public.team_call_capture_pass_done(%L)', cap)]);
   perform pg_temp.t587_run('a person cannot run the sweeper''s ask', 'refused', u_a, array['select * from public.team_call_closed_captures(5, 3)']);
+  perform pg_temp.t587_run('a person cannot say how many are in a call', 'refused', u_a, array[format('select public.team_call_people_seen(%L, 5)', call_m)]);
   perform pg_temp.t587_run('a person cannot read a call''s captures', 'refused', u_a, array['select 1 from public.team_call_capture']);
   perform pg_temp.t587_run('a person cannot read the recorder''s work', 'refused', u_a, array[format('select * from public.team_call_recorder_work(%L, %L, 5)', 'rec1', '{}')]);
 

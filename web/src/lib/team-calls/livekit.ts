@@ -207,6 +207,23 @@ export async function openTeamCallRooms(config: TeamCallsConfig, names: readonly
   return new Set(list.map((r) => r.name))
 }
 
+/**
+ * How many people are in a call's room now, as LiveKit lists them: members (a
+ * member id) and meeting guests (`guest-<id>`); the recorder, Egress and any
+ * other identity are not people. A room that is gone has none.
+ */
+export async function teamCallRoomPeople(config: TeamCallsConfig, room: string): Promise<number> {
+  try {
+    const list = await rooms(config).listParticipants(room)
+    return list.filter((p) => PERSON_IDENTITY.test(p.identity ?? '')).length
+  } catch (err) {
+    if (isNotFound(err)) return 0
+    throw err
+  }
+}
+
+const PERSON_IDENTITY = /^(guest-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /** LiveKit's "no such room / participant": what was to go is gone already. */
 function isNotFound(err: unknown): boolean {
   const status = (err as { status?: unknown } | null)?.status
