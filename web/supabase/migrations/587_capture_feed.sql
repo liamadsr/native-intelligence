@@ -41,6 +41,13 @@
 --                      then the voice attests no one), the member or meeting
 --                      guest it is, and whether they are in the call now
 --                      (roster events, applied in the order they happened).
+--   team_call_eject.feed_session  564's outbox of people to take out of a
+--                      call's room, now also of a producer whose feed ended:
+--                      the session the entry is for. The drain re-checks a
+--                      producer's entry before it acts (588's
+--                      capture_feed_settle_ejects): one that has a live
+--                      session in the call's current round again (notes off,
+--                      then on) is left in the room.
 --   team_call_notes_shape  566's, but a call's capture exists while its
 --                      notes are captured and finished, not only once they
 --                      are ready: capture_id with 'capturing', 'transcribing'
@@ -65,8 +72,9 @@
 -- wider one (validated in the same transaction: a scan of a small table);
 -- capture_participant gains a check value, a partial unique index (built
 -- inside the transaction; nothing has the new source yet, so it holds) and a
--- trigger that refuses only what no deployed code does. The deployed app
--- never reads the new tables. No backslashes anywhere in this file (one MCP
+-- trigger that refuses only what no deployed code does; team_call_eject
+-- gains a nullable column (no rewrite) the deployed app never reads. The
+-- deployed app never reads the new tables. No backslashes anywhere in this file (one MCP
 -- transport decodes escapes).
 -- ------------------------------------------------------------
 
@@ -177,6 +185,12 @@ grant select, insert, update, delete on table public.capture_feed_speaker to ser
 
 comment on table public.capture_feed_session is
   'A producer''s live feed of one source''s speech into one capture (587): a team call''s recorder today. Server only.';
+
+-- ── A producer on the eject outbox: the session it is for ───────────────────
+
+alter table public.team_call_eject add column if not exists feed_session uuid references public.capture_feed_session(id) on delete set null;
+comment on column public.team_call_eject.feed_session is
+  'For a producer''s entry (587): the feed session it ended or lost. The drain leaves the producer in the room when it has a live session in the call''s current round.';
 
 -- ── A participant row the server attests ────────────────────────────────────
 

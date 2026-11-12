@@ -149,13 +149,22 @@ export class CallRecorder {
         }),
       )
     let timer: ReturnType<typeof setTimeout> | undefined
+    const connecting = room.connect(this.deps.livekitUrl, this.job.token, { autoSubscribe: false, dynacast: false })
     try {
       await Promise.race([
-        room.connect(this.deps.livekitUrl, this.job.token, { autoSubscribe: false, dynacast: false }),
+        connecting,
         new Promise((_, reject) => {
           timer = setTimeout(() => reject(new Error(`no room after ${CONNECT_TIMEOUT_MS / 1000} s`)), CONNECT_TIMEOUT_MS)
         }),
       ])
+    } catch (err) {
+      // Given up: a connect that completes after this leaves the room at once (never a deaf
+      // participant holding the recorder's identity in it).
+      connecting.then(
+        () => void room.disconnect().catch(() => undefined),
+        () => undefined,
+      )
+      throw err
     } finally {
       clearTimeout(timer)
     }

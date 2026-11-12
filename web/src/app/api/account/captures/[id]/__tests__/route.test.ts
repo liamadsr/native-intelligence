@@ -36,7 +36,14 @@ const hoisted = vi.hoisted(() => ({
   inngestSendSpy: vi.fn(),
   orSpy: vi.fn(),
   loadPrecallBrief: vi.fn(),
+  stopNotes: vi.fn(async () => true),
+  ejections: vi.fn(async () => undefined),
 }))
+
+// A call's capture ended by hand turns the call's notes off (src/lib/team-calls/fed-notes.ts).
+vi.mock('@/lib/team-calls/fed-notes', () => ({ stopNotesForEndedCapture: (...args: unknown[]) => hoisted.stopNotes(...(args as [])) }))
+vi.mock('@/lib/team-calls/eject', () => ({ requestTeamCallEjections: () => hoisted.ejections() }))
+vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({ service: true }) }))
 
 vi.mock('@/lib/live-agent/precall-brief', () => ({
   loadPrecallBrief: (...args: unknown[]) => hoisted.loadPrecallBrief(...args),
@@ -250,6 +257,54 @@ function notVisibleAuth() {
 }
 
 const { GET, PATCH, DELETE } = await import('@/app/api/account/captures/[id]/route')
+
+describe('PATCH on a call’s capture the recorder is filling (migration 587)', () => {
+  const FED = { ended_at: null, is_transcript_locked: false, metadata: { source: 'team_call', notes_recorder: 'live' } }
+  const fedAuth = (overrides: Record<string, unknown> = FED) => ({
+    supabase: makeFakeSupabase('[Rosa Lind] Shall we start?', overrides),
+    user: { id: 'user-1' },
+    workspaceId: WORKSPACE_ID,
+    member: { id: 'member-1', role: 'owner' },
+  })
+  beforeEach(() => {
+    hoisted.updateSpy.mockClear()
+    hoisted.stopNotes.mockClear()
+    hoisted.ejections.mockClear()
+  })
+
+  it('409 TRANSCRIPT_FROM_CALL for its transcript, nothing written; typed notes stay the person’s', async () => {
+    hoisted.requireWorkspace.mockResolvedValue(fedAuth())
+    const res = await PATCH(patchReq({ transcript: '[Rosa Lind] Shall we start? (edited)', force_transcript: true }), { params: Promise.resolve({ id: CAPTURE_ID }) })
+    expect(res.status).toBe(409)
+    expect((await readJson<{ code: string }>(res)).code).toBe('TRANSCRIPT_FROM_CALL')
+    expect(hoisted.updateSpy).not.toHaveBeenCalled()
+    const notes = await PATCH(patchReq({ user_notes: 'Ask about the budget' }), { params: Promise.resolve({ id: CAPTURE_ID }) })
+    expect(notes.status).toBe(200)
+    expect(hoisted.updateSpy).toHaveBeenCalledWith({ user_notes: 'Ask about the budget' })
+  })
+
+  it('once the call’s notes are done, its transcript is an ordinary capture’s', async () => {
+    hoisted.requireWorkspace.mockResolvedValue(fedAuth({ ended_at: '2026-11-11T10:30:00Z', is_transcript_locked: false, metadata: { source: 'team_call', notes_recorder: 'done' } }))
+    const res = await PATCH(patchReq({ transcript: '[Rosa Lind] Shall we start? Yes.', force_transcript: true }), { params: Promise.resolve({ id: CAPTURE_ID }) })
+    expect(res.status).toBe(200)
+  })
+
+  it('ending it while the call goes on turns the call’s notes off, and the recorder is put out at once', async () => {
+    hoisted.requireWorkspace.mockResolvedValue(fedAuth())
+    const res = await PATCH(patchReq({ ended_at: '2026-11-11T10:20:00Z' }), { params: Promise.resolve({ id: CAPTURE_ID }) })
+    expect(res.status).toBe(200)
+    expect(hoisted.stopNotes).toHaveBeenCalledWith({ service: true }, CAPTURE_ID)
+    expect(hoisted.ejections).toHaveBeenCalledTimes(1)
+    // The answer still carries only what was written.
+    expect(Object.keys((await readJson<{ capture: Record<string, unknown> }>(res)).capture).sort()).toEqual(['ended_at', 'id', 'updated_at'])
+  })
+
+  it('ending any other capture asks nothing of calls', async () => {
+    hoisted.requireWorkspace.mockResolvedValue(happyAuth())
+    await PATCH(patchReq({ ended_at: '2026-11-11T10:20:00Z', is_transcript_locked: true }), { params: Promise.resolve({ id: CAPTURE_ID }) })
+    expect(hoisted.stopNotes).not.toHaveBeenCalled()
+  })
+})
 
 // The DELETE handler reads request.nextUrl.searchParams, which a plain Request
 // (buildRequest) doesn't have — attach a nextUrl shaped like NextRequest's.

@@ -46,6 +46,9 @@ const app = {
   notes: true,
   round: 1,
   heard: new Set(), // the meeting guests who said go to this round's notes (588's capture_feed_hearable_guests)
+  ejects: [], // 565's outbox as 588 fills it for the recorder: { identity, session, done }
+  ejectsSettled: 0,
+  ejectsRemoved: 0,
   sessions: new Map(), // id → { id, round, startedAt, producer, heartbeatAt, status, endedAt, endReason }
   segments: new Map(), // key → { session, speaker, text, startMs, endMs, at }
   duplicates: 0,
@@ -171,6 +174,22 @@ function notesOff() {
     s.status = 'ended'
     s.endedAt = Date.now()
     s.endReason = 'notes_off'
+  }
+  // 588's follow trigger: the round's producer goes on the eject outbox, naming its session.
+  if (s) app.ejects.push({ identity: `notes-recorder-${s.producer}`, session: s.id, done: false })
+}
+// The app's drain (src/lib/team-calls/eject.ts), settled first as 588's capture_feed_settle_ejects
+// does: a producer with a live session in the call's current round stays in the room.
+async function drainEjects() {
+  for (const e of app.ejects.filter((x) => !x.done)) {
+    const cur = sessionFor(app.round)
+    e.done = true
+    if (app.notes && cur && cur.status === 'live' && `notes-recorder-${cur.producer}` === e.identity) {
+      app.ejectsSettled++
+      continue
+    }
+    await rooms.removeParticipant(ROOM, e.identity).catch(() => undefined)
+    app.ejectsRemoved++
   }
 }
 function notesOn() {
@@ -569,6 +588,39 @@ if (MODE === 'real') {
   }
   mark(`round 2: recorder in, session ${sessionFor(2) ? 'started' : 'missing'}`)
   check('a new round: a new session, the recorder back in the room', !!sessionFor(2))
+
+  // ── Notes off, then on within two seconds, the drain late: round 3's recorder stays ──
+  notesOff()
+  mark('notes off (round 2)')
+  await sleep(1500)
+  notesOn()
+  mark('notes on again within 2 s (round 3)')
+  for (let i = 0; i < 150; i++) {
+    const h = await health()
+    if (sessionFor(3) && sessionFor(3).status === 'live' && h?.calls >= 1 && h?.speakers >= 3) break
+    await sleep(200)
+  }
+  mark(`round 3: session ${sessionFor(3) ? 'started' : 'missing'}, recorder hearing ${(await health())?.speakers}`)
+  // The eject queued at notes off is drained only now, after round 3 began.
+  await drainEjects()
+  mark(`late drain: settled ${app.ejectsSettled}, removed ${app.ejectsRemoved}`)
+  await sleep(3000)
+  const inRoom = (await rooms.listParticipants(ROOM)).some((p) => p.identity === RECORDER_IDENTITY)
+  const r3From = Date.now()
+  A.say(2)
+  await sleep(1000)
+  G.say(2)
+  await sleep(6000)
+  const r3 = sessionFor(3)
+  const r3Segs = r3 ? [...app.segments.values()].filter((g) => g.session === r3.id).map((g) => ({ ...g, said: Date.parse(r3.startedAt) + g.startMs })) : []
+  const heardA3 = r3Segs.some((g) => g.speaker === MA && Math.abs(g.said - r3From) < 900)
+  const heardG3 = r3Segs.some((g) => g.speaker === `guest-${GUEST}` && g.said >= r3From + 500)
+  check('notes off then on within 2 s, the drain late: the stale eject is settled, the new round’s recorder stays in the room', app.ejectsSettled >= 1 && app.ejectsRemoved === 0 && inRoom, {
+    settled: app.ejectsSettled,
+    removed: app.ejectsRemoved,
+    inRoom,
+  })
+  check('… and nothing said once it was back is lost (both speakers heard in round 3)', heardA3 && heardG3, { A: heardA3, G: heardG3, segments: r3Segs.length })
   await Promise.all([A.leave(), B2.leave(), G.leave()])
   const leftAt = Date.now()
   mark('everyone left; the recorder alone')
@@ -590,7 +642,7 @@ if (MODE === 'real') {
   check('alone in the room, the recorder leaves and the room closes', roomGoneAt !== null && roomGoneAt < 70_000, result.alone)
   // LiveKit closes the room once its last person has been gone departureTimeout (15 s), before the
   // recorder's own ALONE_MS: either way it tells the feed it is done (a finish stops waiting for it).
-  check('leaving the emptied room, it told the feed it was done with the session (end)', app.ends.some((e) => e.session === sessionFor(2)?.id && ['alone', 'disconnected'].includes(e.reason)), app.ends)
+  check('leaving the emptied room, it told the feed it was done with the session (end)', app.ends.some((e) => e.session === sessionFor(app.round)?.id && ['alone', 'disconnected'].includes(e.reason)), app.ends)
 }
 
 result.deepgram = { connections: dg.connections, finalizes: dg.finalizes, keepalives: dg.keepalives, closes: dg.closes, bytes: dg.bytes }

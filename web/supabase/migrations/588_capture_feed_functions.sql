@@ -9,8 +9,9 @@
 --                     a meeting's host (whoever started its call), else the
 --                     call's starter, else who turned the notes on; a member
 --                     of the workspace with an account.
---   team_call_capture_ensure(target_call, capture_title)  the call's one
---                     capture, made the first time notes are on (private to
+--   team_call_capture_ensure(target_call, capture_title)  the call's
+--                     capture, made the first time notes are on (or again
+--                     after its owner ended it by hand) (private to
 --                     its owner, its conversation written on it as 566's
 --                     fences read it, shared with that conversation by one
 --                     entity_access grant, source 'team_call', as 567's
@@ -26,7 +27,13 @@
 --                     owner ended it by hand): no producer feeds it.
 --   capture_feed_eject_producer(session)  the session's producer on 565's
 --                     eject outbox (identity notes-recorder-<producer id>, the
---                     app's teamCallRecorderIdentity): out of the room.
+--                     app's teamCallRecorderIdentity, and the session): out of
+--                     the room.
+--   capture_feed_producer_wanted(call, producer_id)  a live session of that
+--                     producer in the call's current round, its capture open.
+--   capture_feed_settle_ejects()  the drain's first step: a producer's
+--                     pending eject is done, nobody removed, when the call
+--                     wants that producer again (notes off, then on).
 --   capture_feed_start(source_kind, source_ref, producer_kind, producer_id,
 --                     capture_title)  a producer begins (or takes up again)
 --                     the feed of a source: the session for the source's
@@ -59,8 +66,9 @@
 --   capture_feed_end(session, producer_id, reason)  the producer delivered
 --                     everything it heard and leaves the session
 --                     (delivered_at: the notes' finish stops waiting for it).
---                     It ends unless its source still wants a feed (a
---                     producer that lost the room hands it back).
+--                     It ends unless its source still wants a feed and its
+--                     capture is open; a producer that lost the room hands
+--                     it back as 'lost', a gap opened, until one takes it up.
 --   capture_feed_follow_call  a trigger on team_call: notes going off, or the
 --                     call ending, end that round's session at that moment
 --                     (nothing said after it reaches the capture) and put its
@@ -82,7 +90,8 @@
 --                     a speaker's stretches less than 1.5 s apart, with
 --                     nobody between, run together (notes.ts mergeNotes).
 --   capture_feed_quote_speakers(capture, quote)  the participant rows of the
---                     lines that hold a quote (three words or more): the
+--                     lines that hold a quote as whole words (five words or
+--                     more, or 20 characters; a contraction one word): the
 --                     live agent's gate files an action as its assignee's own
 --                     only when that member's own roster row said it.
 --   team_call_capture_lock(target_call, preamble_text, rebuild)  the call
@@ -93,7 +102,8 @@
 --                     anything was said); or, when nothing was said and its
 --                     owner wrote nothing in it, removed with its grant and
 --                     the notes 'silent'. rebuild false: lock it as it
---                     stands. A capture already locked: the notes 'ready'.
+--                     stands. A capture already ended: the notes 'ready'; a
+--                     transcript its owner locked is never written.
 --
 -- Lock order, as 565's and 567's: a call's row first, then its sessions,
 -- then the capture, so no two of these wait on each other.
@@ -150,7 +160,8 @@ begin
   if not found then
     raise exception 'team calls: no such call' using errcode = '22023';
   end if;
-  if c.capture_id is not null then
+  -- A capture its owner ended by hand takes no more words: notes on again get a new one.
+  if c.capture_id is not null and not public.capture_feed_capture_closed(c.capture_id) then
     return c.capture_id;
   end if;
   if c.status <> 'live' or not c.notes then
@@ -249,11 +260,54 @@ language sql
 security definer
 set search_path = public, pg_temp
 as $$
-  insert into public.team_call_eject (call_id, room, identity, reason)
-  select t.id, t.room, left('notes-recorder-' || s.producer_id, 64), 'access'
+  insert into public.team_call_eject (call_id, room, identity, reason, feed_session)
+  select t.id, t.room, left('notes-recorder-' || s.producer_id, 64), 'access', s.id
     from public.team_call t
    where s.source_kind = 'team_call' and t.id = s.source_ref
   on conflict do nothing;
+$$;
+
+-- Does this call want a feed from this producer now: a live session of it in the call's current
+-- round of notes, its capture open? (An eject queued for an earlier round is then stale.)
+create or replace function public.capture_feed_producer_wanted(call_ref uuid, p_producer_id text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1
+      from public.team_call t
+      join public.capture_feed_session y
+        on y.source_kind = 'team_call' and y.source_ref = t.id and y.round = t.notes_round
+     where t.id = call_ref and t.status = 'live' and t.notes
+       and y.producer_id = p_producer_id and y.status = 'live'
+       and not public.capture_feed_capture_closed(y.capture_id)
+  );
+$$;
+
+-- The eject drain asks this first (src/lib/team-calls/eject.ts): a producer's pending entry is
+-- done, nobody removed, when that producer is wanted in the call again (notes off, then on before
+-- the drain ran). Returns how many were settled so.
+create or replace function public.capture_feed_settle_ejects()
+returns integer
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  n integer;
+begin
+  update public.team_call_eject e
+     set done_at = now()
+   where e.done_at is null
+     and e.identity like 'notes-recorder-%'
+     and e.call_id is not null
+     and public.capture_feed_producer_wanted(e.call_id, substr(e.identity, 16));
+  get diagnostics n = row_count;
+  return n;
+end;
 $$;
 
 create or replace function public.capture_feed_start(
@@ -270,6 +324,7 @@ declare
   s public.capture_feed_session%rowtype;
   made uuid;
   why text;
+  had boolean;
 begin
   if p_producer_kind is null or p_producer_kind !~ '^[a-z][a-z0-9_]{0,39}$'
      or p_producer_id is null or p_producer_id !~ '^[A-Za-z0-9._-]{1,40}$' then
@@ -285,20 +340,22 @@ begin
     return;
   end if;
   why := public.team_call_feed_unwanted(c.id, c.notes_round);
-  -- A capture its owner ended by hand takes no more words: nobody is to hear the call for it.
-  if why is null and c.capture_id is not null and public.capture_feed_capture_closed(c.capture_id) then
-    why := 'capture_closed';
-  end if;
   if why is not null then
     return query select 'not_wanted'::text, null::uuid, c.capture_id, null::timestamptz, c.notes_round, null::uuid[];
     return;
   end if;
-  made := public.team_call_capture_ensure(c.id, p_capture_title);
-
   select * into s from public.capture_feed_session x
    where x.source_kind = 'team_call' and x.source_ref = c.id and x.round = c.notes_round
      for update;
-  if not found then
+  had := found;
+  -- This round's capture was ended by hand: it takes no more words, and nobody is to hear the
+  -- call for it (notes on again is a new round, into a new capture).
+  if had and public.capture_feed_capture_closed(s.capture_id) then
+    return query select 'not_wanted'::text, null::uuid, s.capture_id, null::timestamptz, c.notes_round, null::uuid[];
+    return;
+  end if;
+  made := public.team_call_capture_ensure(c.id, p_capture_title);
+  if not had then
     insert into public.capture_feed_session (workspace_id, capture_id, source_kind, source_ref, round, producer_kind, producer_id)
     values (c.workspace_id, made, 'team_call', c.id, c.notes_round, p_producer_kind, p_producer_id)
     returning * into s;
@@ -347,6 +404,7 @@ as $$
      set metadata = coalesce(c.metadata, '{}'::jsonb) || jsonb_build_object('notes_recorder', state)
    where c.id = target_capture
      and c.ended_at is null
+     and not c.is_transcript_locked
      and coalesce(c.metadata ->> 'notes_recorder', '') is distinct from state;
 $$;
 
@@ -416,15 +474,30 @@ begin
   if not found then
     return false;
   end if;
-  why := case when s.status = 'ended' then null else public.team_call_feed_unwanted(s.source_ref, s.round) end;
+  if s.status = 'ended' then
+    update public.capture_feed_session x set delivered_at = now(), updated_at = now() where x.id = s.id;
+    return true;
+  end if;
+  why := public.team_call_feed_unwanted(s.source_ref, s.round);
+  if why is null and public.capture_feed_capture_closed(s.capture_id) then
+    why := 'capture_closed';
+  end if;
+  if why is not null then
+    update public.capture_feed_session x
+       set delivered_at = now(), status = 'ended', ended_at = now(),
+           end_reason = left(coalesce(nullif(trim(p_reason), ''), why), 40),
+           gaps = public.capture_feed_close_gap(x.gaps, x.status), updated_at = now()
+     where x.id = s.id;
+    return true;
+  end if;
+  -- Still wanted (the producer lost the room, or could not join it): handed back, and until a
+  -- producer takes it up again the notes say what they miss (a gap, the capture 'lost').
   update public.capture_feed_session x
-     set delivered_at = now(),
-         status = case when why is not null then 'ended' else x.status end,
-         ended_at = case when why is not null then now() else x.ended_at end,
-         end_reason = case when why is not null then left(coalesce(nullif(trim(p_reason), ''), why), 40) else x.end_reason end,
-         gaps = case when why is not null then public.capture_feed_close_gap(x.gaps, x.status) else x.gaps end,
+     set delivered_at = now(), status = 'lost',
+         gaps = case when x.status = 'lost' then x.gaps else x.gaps || jsonb_build_array(jsonb_build_object('from', now())) end,
          updated_at = now()
    where x.id = s.id;
+  perform public.capture_feed_recorder_state(s.capture_id, 'lost');
   return true;
 end;
 $$;
@@ -447,10 +520,11 @@ begin
          updated_at = now()
    where x.source_kind = 'team_call' and x.source_ref = new.id and x.round = old.notes_round and x.status <> 'ended';
   -- Nothing hears the call for these notes any more: out of the room (the eject outbox).
-  insert into public.team_call_eject (call_id, room, identity, reason)
-  select distinct new.id, new.room, left('notes-recorder-' || x.producer_id, 64), 'access'
+  insert into public.team_call_eject (call_id, room, identity, reason, feed_session)
+  select distinct on (x.producer_id) new.id, new.room, left('notes-recorder-' || x.producer_id, 64), 'access', x.id
     from public.capture_feed_session x
    where x.source_kind = 'team_call' and x.source_ref = new.id and x.round = old.notes_round
+   order by x.producer_id, x.updated_at desc
   on conflict do nothing;
   return null;
 end;
@@ -837,22 +911,17 @@ as $$
 declare
   n integer;
 begin
-  insert into public.team_call_eject (call_id, room, identity, reason)
-  select distinct t.id, t.room, left('notes-recorder-' || x.producer_id, 64), 'access'
+  -- Not a producer the call wants now (capture_feed_producer_wanted, the drain's own check: one
+  -- that started the current round's session is left alone, before its join as after it).
+  insert into public.team_call_eject (call_id, room, identity, reason, feed_session)
+  select distinct on (t.id, x.producer_id) t.id, t.room, left('notes-recorder-' || x.producer_id, 64), 'access', x.id
     from public.capture_feed_session x
     join public.team_call t on t.id = x.source_ref
    where x.source_kind = 'team_call'
      and x.updated_at > now() - interval '15 minutes'
      and t.status = 'live'
-     and (
-       x.status = 'lost'
-       or not exists (
-         select 1 from public.capture_feed_session y
-          where y.source_kind = 'team_call' and y.source_ref = t.id and y.producer_id = x.producer_id
-            and y.status = 'live' and y.round = t.notes_round and t.notes
-            and not public.capture_feed_capture_closed(y.capture_id)
-       )
-     )
+     and not public.capture_feed_producer_wanted(t.id, x.producer_id)
+   order by t.id, x.producer_id, x.updated_at desc
   on conflict do nothing;
   get diagnostics n = row_count;
   return n;
@@ -874,7 +943,7 @@ as $$
    where t.status = 'live'
      and t.notes
      and not (t.id = any (coalesce(p_running, '{}'::uuid[])))
-     and (t.capture_id is null or not public.capture_feed_capture_closed(t.capture_id))
+     and (x.id is null or not public.capture_feed_capture_closed(x.capture_id))
      and (
        x.id is null
        or (x.status <> 'ended' and (x.producer_id = p_producer_id or x.status = 'lost' or x.heartbeat_at < now() - interval '30 seconds'))
@@ -885,14 +954,16 @@ $$;
 
 -- ── The transcript in the order said ────────────────────────────────────────
 
--- Words as a quote is matched against them: lower case, letters and digits, one space between words.
+-- Words as a quote is matched against them: lower case, an apostrophe dropped (a contraction is
+-- one word: "I'll" is "ill"), anything else that is not a letter or digit a space, one space
+-- between words.
 create or replace function public.capture_feed_norm(raw text)
 returns text
 language sql
 immutable
 set search_path = public, pg_temp
 as $$
-  select trim(regexp_replace(lower(coalesce(raw, '')), '[^[:alnum:]]+', ' ', 'g'));
+  select trim(regexp_replace(translate(lower(coalesce(raw, '')), '''' || chr(8217), ''), '[^[:alnum:]]+', ' ', 'g'));
 $$;
 
 -- A capture's lines in the order things were said: every segment, by when it was said; a
@@ -928,8 +999,9 @@ as $$
    group by m.n;
 $$;
 
--- Who said a quote: the participant rows of the lines that hold it (a quote of fewer than three
--- words names no one). The live agent's gate files an action as its assignee's own only when the
+-- Who said a quote: the participant rows of the lines that hold it, as whole words. A quote of
+-- fewer than five words, unless it has 20 letters and spaces or more, names no one ("I'll do it"
+-- could be anyone's). The live agent's gate files an action as its assignee's own only when the
 -- one row that said it is that member's own roster row.
 create or replace function public.capture_feed_quote_speakers(p_capture uuid, p_quote text)
 returns table (participant_id uuid, member_id uuid, source text)
@@ -943,8 +1015,9 @@ as $$
     from q
     cross join public.capture_feed_lines(p_capture) l
     left join public.capture_participant p on p.id = l.participant_id
-   where array_length(regexp_split_to_array(q.t, ' '), 1) >= 3
-     and position(q.t in public.capture_feed_norm(l.text)) > 0;
+   where q.t <> ''
+     and (array_length(regexp_split_to_array(q.t, ' '), 1) >= 5 or char_length(q.t) >= 20)
+     and position(' ' || q.t || ' ' in ' ' || public.capture_feed_norm(l.text) || ' ') > 0;
 $$;
 
 -- ── The end ─────────────────────────────────────────────────────────────────
@@ -980,12 +1053,12 @@ begin
   select * into cap from public.captures x where x.id = c.capture_id for update;
   select count(*)::integer into n from public.capture_feed_segment g where g.capture_id = cap.id;
   if cap.ended_at is not null then
-    -- Locked already (a second finish, or its owner ended it by hand): the notes are ready.
+    -- Ended already (a second finish, or its owner ended it by hand): the notes are ready.
     update public.team_call t set notes_state = 'ready', updated_at = now() where t.id = c.id and t.notes_state <> 'ready';
     return query select 'ready'::text, cap.id, cap.user_id, cap.workspace_id, n > 0;
     return;
   end if;
-  if n = 0 and coalesce(trim(cap.user_notes), '') = '' then
+  if n = 0 and coalesce(trim(cap.user_notes), '') = '' and not cap.is_transcript_locked then
     -- Nothing was said: no capture is left behind.
     delete from public.entity_access g where g.entity_type = 'capture' and g.entity_id = cap.id;
     delete from public.captures x where x.id = cap.id;
@@ -995,7 +1068,8 @@ begin
   end if;
   -- Every segment, in the order said, read here in the database (the capture's row is locked, so
   -- nothing is appended meanwhile, and no read is capped at a page).
-  if coalesce(rebuild, true) and n > 0 then
+  -- Its owner locked the transcript by hand: it stays as they left it (the capture still ends).
+  if coalesce(rebuild, true) and n > 0 and not cap.is_transcript_locked then
     select string_agg('[' || l.label || '] ' || l.text, chr(10) order by l.line_no) into ordered
       from public.capture_feed_lines(cap.id) l;
   end if;
@@ -1026,6 +1100,8 @@ revoke all on function public.team_call_feed_unwanted(uuid, integer) from public
 revoke all on function public.capture_feed_hearable_guests(public.capture_feed_session) from public, anon, authenticated;
 revoke all on function public.capture_feed_capture_closed(uuid) from public, anon, authenticated;
 revoke all on function public.capture_feed_eject_producer(public.capture_feed_session) from public, anon, authenticated;
+revoke all on function public.capture_feed_producer_wanted(uuid, text) from public, anon, authenticated;
+revoke all on function public.capture_feed_settle_ejects() from public, anon, authenticated;
 revoke all on function public.capture_feed_start(text, uuid, text, text, text) from public, anon, authenticated;
 revoke all on function public.capture_feed_close_gap(jsonb, text) from public, anon, authenticated;
 revoke all on function public.capture_feed_recorder_state(uuid, text) from public, anon, authenticated;
@@ -1050,6 +1126,7 @@ grant execute on function public.capture_feed_roster(uuid, text, jsonb) to servi
 grant execute on function public.capture_feed_append(uuid, text, jsonb) to service_role;
 grant execute on function public.capture_feed_mark_lost(integer) to service_role;
 grant execute on function public.capture_feed_fence_producers() to service_role;
+grant execute on function public.capture_feed_settle_ejects() to service_role;
 grant execute on function public.team_call_recorder_work(text, uuid[], integer) to service_role;
 grant execute on function public.capture_feed_quote_speakers(uuid, text) to service_role;
 grant execute on function public.team_call_capture_lock(uuid, text, boolean) to service_role;

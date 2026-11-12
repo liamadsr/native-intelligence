@@ -1,9 +1,27 @@
 /**
  * The line a fed capture's notes open with when the producer was gone for a
- * while. (The transcript itself is written once more in the order things
- * were said inside the database, at the lock: 588's capture_feed_lines.)
- * Pure.
+ * while, and whether a person may write a capture's transcript now (not
+ * while the call recorder fills it). (The transcript itself is written once
+ * more in the order things were said inside the database, at the lock: 588's
+ * capture_feed_lines.) Pure.
  */
+
+/** The answer's code when a person writes the transcript of a call capture the recorder is filling. */
+export const TRANSCRIPT_FROM_CALL = 'TRANSCRIPT_FROM_CALL'
+
+/**
+ * Is this capture's transcript the call recorder's to write now: a call's
+ * capture the feed fills while the call runs (588 writes metadata
+ * notes_recorder 'live' or 'lost'), not ended, not locked? Then no person
+ * writes it (their edits would be undone when the call ends and the
+ * transcript is written once more from what was said); typed notes stay
+ * theirs.
+ */
+export function feedOwnsTranscript(row: { ended_at?: string | null; is_transcript_locked?: boolean | null; metadata?: unknown } | null | undefined): boolean {
+  if (!row || row.ended_at || row.is_transcript_locked) return false
+  const meta = row.metadata && typeof row.metadata === 'object' ? (row.metadata as Record<string, unknown>) : null
+  return meta?.notes_recorder === 'live' || meta?.notes_recorder === 'lost'
+}
 
 export interface FeedGap {
   /** When the producer went quiet (ISO). */

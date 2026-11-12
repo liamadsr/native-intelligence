@@ -24,11 +24,11 @@ vi.mock('@/lib/api-auth', () => ({
 const CAPTURE_ID = 'cap-beacon-1'
 const WORKSPACE_ID = 'ws-test-1'
 
-function makeFakeSupabase(existing: string | null, locked = false) {
+function makeFakeSupabase(existing: string | null, locked = false, extra: Record<string, unknown> = {}) {
   const chain = {
     eq: () => chain,
     select: () => chain,
-    single: async () => ({ data: { transcript: existing, is_transcript_locked: locked }, error: null }),
+    single: async () => ({ data: { transcript: existing, is_transcript_locked: locked, ended_at: null, metadata: null, ...extra }, error: null }),
     update: (fields: Record<string, unknown>) => {
       hoisted.updateSpy(fields)
       return chain
@@ -67,6 +67,19 @@ describe('POST transcript-beacon', () => {
   beforeEach(() => {
     hoisted.updateSpy.mockClear()
     hoisted.requireWorkspace.mockResolvedValue(auth(null))
+  })
+
+  it('refuses a call’s capture the recorder is filling: nothing written (its transcript is the feed’s)', async () => {
+    hoisted.requireWorkspace.mockResolvedValue({
+      supabase: makeFakeSupabase(SHORT, false, { metadata: { source: 'team_call', notes_recorder: 'live' } }),
+      user: { id: 'user-1' },
+      workspaceId: WORKSPACE_ID,
+      member: { id: 'member-1', role: 'owner' },
+    })
+    const res = await POST(beaconReq({ capture_id: CAPTURE_ID, transcript: LONG }))
+    expect(res.status).toBe(200)
+    expect(await readJson(res)).toEqual({ ok: false, code: 'TRANSCRIPT_FROM_CALL' })
+    expect(hoisted.updateSpy).not.toHaveBeenCalled()
   })
 
   it('persists a growing transcript', async () => {

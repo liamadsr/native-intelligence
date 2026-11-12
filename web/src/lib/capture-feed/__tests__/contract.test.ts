@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HeartbeatSchema, RosterSchema, SegmentsSchema, StartSchema, rosterEventRow, segmentRow } from '../contract'
 import { captureFeedSecret, checkCaptureFeedAuth } from '../auth'
-import { gapLines } from '../transcript'
+import { feedOwnsTranscript, gapLines } from '../transcript'
 
 vi.mock('server-only', () => ({}))
 
@@ -95,5 +95,17 @@ describe('the notes’ opening line', () => {
       'Notes missed the rest of the call from 50 min into the call (the recorder stopped hearing it).',
     ])
     expect(gapLines([{ from: '2026-11-11T10:00:10.000Z' }], start, end)[0]).toContain('the rest of the call from the start of the call')
+  })
+})
+
+describe('whose transcript a call capture is', () => {
+  it('the recorder’s while it fills it (live or lost, open); anyone’s once the notes are done, or for any other capture', () => {
+    expect(feedOwnsTranscript({ ended_at: null, is_transcript_locked: false, metadata: { notes_recorder: 'live' } })).toBe(true)
+    expect(feedOwnsTranscript({ ended_at: null, is_transcript_locked: false, metadata: { notes_recorder: 'lost' } })).toBe(true)
+    expect(feedOwnsTranscript({ ended_at: '2026-11-11T10:30:00Z', is_transcript_locked: true, metadata: { notes_recorder: 'done' } })).toBe(false)
+    expect(feedOwnsTranscript({ ended_at: null, is_transcript_locked: true, metadata: { notes_recorder: 'live' } })).toBe(false)
+    expect(feedOwnsTranscript({ ended_at: null, is_transcript_locked: false, metadata: { source: 'desktop' } })).toBe(false)
+    expect(feedOwnsTranscript({ ended_at: null, metadata: null })).toBe(false)
+    expect(feedOwnsTranscript(null)).toBe(false)
   })
 })

@@ -99,6 +99,28 @@ export async function writeFedNotes(svc: SupabaseClient, callId: string): Promis
   return { outcome: 'skipped' }
 }
 
+/**
+ * A person ended (or locked) a call's capture while the call goes on with its notes on: the notes
+ * go off for the call (567's team_call_notes_stop, the switch's own effect: the round's feed ends
+ * and the recorder is put out of the room by 588's trigger). Notes on again are a new round, into
+ * a new capture. True when they were on.
+ */
+export async function stopNotesForEndedCapture(svc: SupabaseClient, captureId: string): Promise<boolean> {
+  const { data: call, error } = await svc
+    .from('team_call')
+    .select('id')
+    .eq('capture_id', captureId)
+    .eq('status', 'live')
+    .eq('notes', true)
+    .maybeSingle<{ id: string }>()
+  if (error) throw new Error(`team calls: call read failed: ${error.message}`)
+  if (!call) return false
+  const { data, error: stopError } = await svc.rpc('team_call_notes_stop', { target_call: call.id })
+  if (stopError) throw new Error(`team calls: notes not stopped: ${stopError.message}`)
+  console.info(`[team-call-notes] call=${call.id} capture=${captureId} notes off: the capture was ended by hand`)
+  return data === true
+}
+
 /** The finish gave out: the capture is locked as it stands (its live transcript), so it is never left open. */
 export async function lockFedNotesAsTheyAre(svc: SupabaseClient, callId: string): Promise<string | null> {
   return (await lockCapture(svc, callId, '', false))?.outcome ?? null

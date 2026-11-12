@@ -1,5 +1,9 @@
 import { requireWorkspace } from '@/lib/api-auth'
-import { notFound, serverError } from '@/lib/api-errors'
+import { apiError, notFound, serverError } from '@/lib/api-errors'
+import { TRANSCRIPT_FROM_CALL, feedOwnsTranscript } from '@/lib/capture-feed/transcript'
+import { stopNotesForEndedCapture } from '@/lib/team-calls/fed-notes'
+import { requestTeamCallEjections } from '@/lib/team-calls/eject'
+import { getServiceClient } from '@/lib/admin'
 import { loadPrecallBrief } from '@/lib/live-agent/precall-brief'
 import { inngest } from '@/lib/inngest/client'
 import {
@@ -254,6 +258,17 @@ export async function PATCH(
   // (e.g. a very short session) and must always win.
   let transcriptGuardSkipped = false
   if (body.transcript !== undefined) {
+    // A call's capture the recorder is filling: its transcript is the feed's while the call runs
+    // (written once more from what was said when it ends). Nothing in this request is written.
+    const { data: owner } = await supabase
+      .from('captures')
+      .select('ended_at, is_transcript_locked, metadata')
+      .eq('id', id)
+      .eq('workspace_id', workspaceId)
+      .maybeSingle()
+    if (feedOwnsTranscript(owner)) {
+      return apiError('This call’s transcript is written from the call while it runs', { status: 409, code: TRANSCRIPT_FROM_CALL })
+    }
     if (body.force_transcript === true) {
       updates.transcript = body.transcript
     } else {
@@ -401,12 +416,14 @@ export async function PATCH(
   // Consumers merge partially (mergeCaptureResponse spreads over prev state) or
   // ignore the body entirely, so absent keys are simply left untouched.
   const updatedKeys = Object.keys(updates)
+  // Ending (or locking) a capture: whether it is a call's notes is read back with the write.
+  const ending = (typeof updates.ended_at === 'string' && updates.ended_at !== '') || updates.is_transcript_locked === true
   const { data, error } = await supabase
     .from('captures')
     .update(updates)
     .eq('id', id)
     .eq('workspace_id', workspaceId)
-    .select(['id', 'updated_at', ...updatedKeys].join(', '))
+    .select(['id', 'updated_at', ...updatedKeys, ...(ending && !updatedKeys.includes('metadata') ? ['metadata'] : [])].join(', '))
     .single()
 
   if (error) {
@@ -443,6 +460,15 @@ export async function PATCH(
   }
 
   const row = data as unknown as Record<string, unknown>
+  // A person ended a call's capture while its notes are on: the notes go off for the call, as the
+  // switch would turn them off, so the call never says notes are on while nothing is heard.
+  if (ending && (row.metadata as { source?: unknown } | null | undefined)?.source === 'team_call') {
+    try {
+      if (await stopNotesForEndedCapture(getServiceClient(), id)) await requestTeamCallEjections()
+    } catch (err) {
+      console.warn('[captures.patch] the call’s notes not turned off:', err instanceof Error ? err.message.slice(0, 160) : 'unknown')
+    }
+  }
   const capture: Record<string, unknown> = { id: row.id, updated_at: row.updated_at }
   for (const key of updatedKeys) capture[key] = row[key]
 

@@ -133,15 +133,26 @@ describe('migrations 587-588', () => {
 
   it('nothing keeps hearing a call that has no notes: every way a session ends or goes quiet puts its producer on the eject outbox', () => {
     const eject = flat(definition(FUNCTIONS, 'capture_feed_eject_producer'))
-    expect(eject).toContain("insert into public.team_call_eject (call_id, room, identity, reason) select t.id, t.room, left('notes-recorder-' || s.producer_id, 64), 'access'")
+    expect(eject).toContain("insert into public.team_call_eject (call_id, room, identity, reason, feed_session) select t.id, t.room, left('notes-recorder-' || s.producer_id, 64), 'access', s.id")
     expect(flat(definition(FUNCTIONS, 'capture_feed_follow_call'))).toContain("left('notes-recorder-' || x.producer_id, 64), 'access'")
     expect(flat(definition(FUNCTIONS, 'capture_feed_mark_lost'))).toContain('perform public.capture_feed_eject_producer(r);')
     const beat = flat(definition(FUNCTIONS, 'capture_feed_heartbeat'))
     expect(beat).toContain('perform public.capture_feed_eject_producer(s);')
     expect(beat).toContain("why := 'capture_closed';")
     const fence = flat(definition(FUNCTIONS, 'capture_feed_fence_producers'))
-    expect(fence).toContain("x.status = 'lost'")
-    expect(fence).toContain('and not public.capture_feed_capture_closed(y.capture_id)')
+    expect(fence).toContain('and not public.capture_feed_producer_wanted(t.id, x.producer_id)')
+    // The drain settles a producer's entry first: one the call wants again (notes off, then on) stays in the room.
+    const wanted = flat(definition(FUNCTIONS, 'capture_feed_producer_wanted'))
+    expect(wanted).toContain("y.round = t.notes_round where t.id = call_ref and t.status = 'live' and t.notes and y.producer_id = p_producer_id and y.status = 'live' and not public.capture_feed_capture_closed(y.capture_id)")
+    const settle = flat(definition(FUNCTIONS, 'capture_feed_settle_ejects'))
+    expect(settle).toContain("and e.identity like 'notes-recorder-%'")
+    expect(settle).toContain('public.capture_feed_producer_wanted(e.call_id, substr(e.identity, 16))')
+    expect(flat(TABLES)).toContain('alter table public.team_call_eject add column if not exists feed_session uuid references public.capture_feed_session(id) on delete set null;')
+    // A producer that hands back a session still wanted opens a gap; a closed capture is unwanted.
+    const end = flat(definition(FUNCTIONS, 'capture_feed_end'))
+    expect(end).toContain("why := 'capture_closed';")
+    expect(end).toContain("x.gaps || jsonb_build_array(jsonb_build_object('from', now()))")
+    expect(flat(definition(FUNCTIONS, 'capture_feed_recorder_state'))).toContain('and not c.is_transcript_locked')
   })
 
   it('a guest is heard only once they said go to this round: the producer is told whom, at its start and every heartbeat', () => {
@@ -153,7 +164,9 @@ describe('migrations 587-588', () => {
   })
 
   it('a closed capture is wanted by no producer: not offered, not started', () => {
-    expect(flat(definition(FUNCTIONS, 'team_call_recorder_work'))).toContain('not public.capture_feed_capture_closed(t.capture_id)')
+    expect(flat(definition(FUNCTIONS, 'team_call_recorder_work'))).toContain('(x.id is null or not public.capture_feed_capture_closed(x.capture_id))')
+    // Notes on again after the capture was ended by hand: a new capture for the new round.
+    expect(flat(definition(FUNCTIONS, 'team_call_capture_ensure'))).toContain('if c.capture_id is not null and not public.capture_feed_capture_closed(c.capture_id) then')
     expect(flat(definition(FUNCTIONS, 'capture_feed_capture_closed'))).toContain('c.ended_at is not null or c.is_transcript_locked')
   })
 
@@ -165,7 +178,11 @@ describe('migrations 587-588', () => {
     expect(lines).toContain("o.said_at - o.prev_end > interval '1.5 seconds'")
     expect(lines).not.toMatch(/ limit /)
     const quote = flat(definition(FUNCTIONS, 'capture_feed_quote_speakers'))
-    expect(quote).toContain('>= 3')
+    expect(quote).toContain("(array_length(regexp_split_to_array(q.t, ' '), 1) >= 5 or char_length(q.t) >= 20)")
+    expect(quote).toContain("position(' ' || q.t || ' ' in ' ' || public.capture_feed_norm(l.text) || ' ') > 0")
+    expect(flat(definition(FUNCTIONS, 'capture_feed_norm'))).toContain("translate(lower(coalesce(raw, '')), '''' || chr(8217), '')")
+    // A transcript its owner locked is never written at the lock.
+    expect(lock).toContain('if coalesce(rebuild, true) and n > 0 and not cap.is_transcript_locked then')
     expect(quote).toContain('left join public.capture_participant p on p.id = l.participant_id')
   })
 

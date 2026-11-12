@@ -34,9 +34,9 @@ declare
   w1 uuid; t1 uuid;
   m_a uuid; m_b uuid; m_c uuid; m_d uuid; m_x uuid;
   ch_team uuid; ch_quiet uuid; ch_meet uuid; mt uuid;
-  call_t uuid; room_t text; call_m uuid; room_m text; call_s uuid;
-  cap uuid; cap_m uuid; cap_s uuid;
-  s1 uuid; s2 uuid; s_m uuid; s_s uuid;
+  call_t uuid; room_t text; call_m uuid; room_m text; call_s uuid; call_d uuid;
+  cap uuid; cap_m uuid; cap_s uuid; cap_d uuid; cap_d2 uuid;
+  s1 uuid; s2 uuid; s_m uuid; s_s uuid; s_d uuid;
   g1 uuid;
   v text;
   v2 text;
@@ -219,13 +219,20 @@ begin
   v := public.capture_feed_end(s1, 'rec1', 'told')::text;
   perform pg_temp.t587_check('its own producer says it delivered everything: the finish stops waiting for it', 'true/true/ended',
     v || '/' || (select (delivered_at is not null)::text || '/' || status from public.capture_feed_session where id = s1));
-  update public.team_call_eject set done_at = now() where room = room_t and done_at is null;
+  perform pg_temp.t587_check('… the eject names the session it is for', s1::text,
+    (select feed_session::text from public.team_call_eject where room = room_t and identity = 'notes-recorder-rec1' and done_at is null));
+  perform pg_temp.t587_check('… the drain''s settle leaves it while the call does not want the producer', '0/1',
+    public.capture_feed_settle_ejects()::text || '/' || (select count(*)::text from public.team_call_eject where room = room_t and done_at is null));
 
   -- ── Round 2, a producer gone quiet and back ───────────────────────────────
   perform pg_temp.t587_as(u_a, format('select notes::text from public.team_call_set_notes(%L, true)', call_t));
   select session_id into s2 from public.capture_feed_start('team_call', call_t, 'livekit_recorder', 'rec1', 'x') where outcome = 'started';
   perform pg_temp.t587_check('notes on again: a new round, the same capture', '2/' || cap::text,
     (select round::text || '/' || capture_id::text from public.capture_feed_session where id = s2));
+  -- Notes off, then on before the drain ran: the eject queued for round 1 must not put round 2's recorder out.
+  v := public.capture_feed_settle_ejects()::text;
+  perform pg_temp.t587_check('the drain''s settle: the round-1 eject is done, nobody removed (the producer has round 2''s live session)', '1/0',
+    v || '/' || (select count(*)::text from public.team_call_eject where room = room_t and done_at is null));
   perform pg_temp.t587_check('a heartbeat keeps it; no meeting guest to hear here', 'true/{}', (select keep::text || '/' || guests::text from public.capture_feed_heartbeat('rec1', array[s2])));
   perform pg_temp.t587_check('the recorder''s work: nothing while it heartbeats this one', '0',
     (select count(*)::text from public.team_call_recorder_work('rec1', array[call_t], 20) w where w.call_id = call_t));
@@ -239,8 +246,9 @@ begin
   perform pg_temp.t587_check('quiet past the bound: lost, the moment kept, the capture says so', '1/lost/1/lost',
     v || '/' || (select status || '/' || jsonb_array_length(gaps)::text from public.capture_feed_session where id = s2)
       || '/' || (select metadata ->> 'notes_recorder' from public.captures where id = cap));
-  perform pg_temp.t587_check('… and it is put out of the room', '1',
-    (select count(*)::text from public.team_call_eject where room = room_t and identity = 'notes-recorder-rec1' and done_at is null));
+  perform pg_temp.t587_check('… and it is put out of the room (the settle keeps the entry: its session is lost)', '1/0',
+    (select count(*)::text from public.team_call_eject where room = room_t and identity = 'notes-recorder-rec1' and done_at is null)
+      || '/' || public.capture_feed_settle_ejects()::text);
   update public.team_call_eject set done_at = now() where room = room_t and done_at is null;
   perform pg_temp.t587_check('… then any producer may take it', '1',
     (select count(*)::text from public.team_call_recorder_work('rec2', '{}', 20) w where w.call_id = call_t));
@@ -252,12 +260,15 @@ begin
   perform pg_temp.t587_check('the sweeper''s fence leaves a producer whose session the call wants', '0',
     (select count(*)::text from public.team_call_eject where room = room_t and done_at is null));
   v := public.capture_feed_end(s2, 'rec1', 'disconnected')::text;
-  perform pg_temp.t587_check('a producer that lost the room hands the session back: still live, delivered, offered again', 'true/live/true/1',
-    v || '/' || (select status || '/' || (delivered_at is not null)::text from public.capture_feed_session where id = s2)
+  perform pg_temp.t587_check('a producer that lost the room hands the session back: lost, a gap open, the capture says so, offered again',
+    'true/lost/true/2/false/lost/1',
+    v || '/' || (select status || '/' || (delivered_at is not null)::text || '/' || jsonb_array_length(gaps)::text || '/' || ((gaps -> -1) ? 'to')::text from public.capture_feed_session where id = s2)
+      || '/' || (select metadata ->> 'notes_recorder' from public.captures where id = cap)
       || '/' || (select count(*)::text from public.team_call_recorder_work('rec1', '{}', 20) w where w.call_id = call_t));
   v := (select outcome from public.capture_feed_start('team_call', call_t, 'livekit_recorder', 'rec1', 'x'));
-  perform pg_temp.t587_check('… taken up again: waited on once more', 'resumed/false',
-    v || '/' || (select (delivered_at is not null)::text from public.capture_feed_session where id = s2));
+  perform pg_temp.t587_check('… taken up again: waited on once more, the gap closed, the capture live', 'resumed/false/true/live',
+    v || '/' || (select (delivered_at is not null)::text || '/' || ((gaps -> -1) ? 'to')::text from public.capture_feed_session where id = s2)
+      || '/' || (select metadata ->> 'notes_recorder' from public.captures where id = cap));
 
   -- ── Who said a quote (the live agent's auto-apply gate) ───────────────────
   perform pg_temp.t587_check('two lines about the contract', 'applied/2',
@@ -268,7 +279,7 @@ begin
     (select min(member_id::text) || '/' || min(source) || '/' || count(*)::text from public.capture_feed_quote_speakers(cap, 'Ben, can you send the contract?')));
   perform pg_temp.t587_check('the promise: said by Ben''s', m_b::text || '/call_roster/1',
     (select min(member_id::text) || '/' || min(source) || '/' || count(*)::text from public.capture_feed_quote_speakers(cap, 'I will send the contract today')));
-  perform pg_temp.t587_check('a quote of fewer than three words names no one; one nobody said, no one', '0/0',
+  perform pg_temp.t587_check('a short quote names no one; one nobody said, no one', '0/0',
     (select count(*)::text from public.capture_feed_quote_speakers(cap, 'the contract')) || '/'
       || (select count(*)::text from public.capture_feed_quote_speakers(cap, 'we will never ship this')));
 
@@ -335,20 +346,73 @@ begin
     (select accepted || '/' || dropped from public.capture_feed_append(s_m, 'rec1', jsonb_build_array(pg_temp.sg('gk1', 'guest-' || g1::text, 'Hello all.', 100, 900)))));
   update public.meeting_guest set notes_ack_round = 1 where id = g1;
   perform pg_temp.t587_check('… once they have: taken', '1/0',
-    (select accepted || '/' || dropped from public.capture_feed_append(s_m, 'rec1', jsonb_build_array(pg_temp.sg('gk2', 'guest-' || g1::text, 'Hello all, everyone.', 1000, 1900)))));
+    (select accepted || '/' || dropped from public.capture_feed_append(s_m, 'rec1', jsonb_build_array(pg_temp.sg('gk2', 'guest-' || g1::text, 'Hello all, everyone, good to be here.', 1000, 1900)))));
   perform pg_temp.t587_check('… and the producer is told it may hear them now', '{' || g1::text || '}',
     (select guests::text from public.capture_feed_heartbeat('rec1', array[s_m])));
   perform pg_temp.t587_check('the guest''s line names a row that is no member', '<null>/call_roster',
-    (select coalesce(min(member_id::text), '<null>') || '/' || min(source) from public.capture_feed_quote_speakers(cap_m, 'Hello all everyone') q) );
+    (select coalesce(min(member_id::text), '<null>') || '/' || min(source) from public.capture_feed_quote_speakers(cap_m, 'Hello all everyone good to be here') q) );
+
+  -- ── The quote matcher: whole words, a long enough quote, one line, one speaker ──
+  perform pg_temp.t587_check('two members in the meeting''s roster', 'qa:applied,qb:applied',
+    (select string_agg(key || ':' || outcome, ',' order by key) from public.capture_feed_roster(s_m, 'rec1', jsonb_build_array(
+      pg_temp.ev('qa', m_a::text, 'joined', 20, jsonb_build_object('member_id', m_a)),
+      pg_temp.ev('qb', m_b::text, 'joined', 30, jsonb_build_object('member_id', m_b))))));
+  perform pg_temp.t587_check('their lines, seconds apart', 'applied/7',
+    (select outcome || '/' || accepted from public.capture_feed_append(s_m, 'rec1', jsonb_build_array(
+      pg_temp.sg('m1', m_a::text, 'We will resend the contracts tomorrow morning.', 10000, 12000),
+      pg_temp.sg('m2', m_b::text, 'Okay. I''ll do it.', 15000, 16000),
+      pg_temp.sg('m3', m_b::text, 'Sure, I' || chr(8217) || 'll send the deck tonight.', 20000, 22000),
+      pg_temp.sg('m4', m_a::text, 'Let us ship the release on Friday.', 25000, 27000),
+      pg_temp.sg('m5', m_b::text, 'Let us ship the release on Friday.', 30000, 32000),
+      pg_temp.sg('m6', m_a::text, 'Then can you take the', 35000, 36000),
+      pg_temp.sg('m7', m_b::text, 'budget review next week please', 36500, 38000)))));
+  perform pg_temp.t587_check('a contraction is one word', 'ill send the deck tonight', public.capture_feed_norm('I' || chr(8217) || 'll send the deck tonight!'));
+  perform pg_temp.t587_check('inside a longer word: no one ("send" is not "resend")', '0',
+    (select count(*)::text from public.capture_feed_quote_speakers(cap_m, 'send the contracts tomorrow morning')));
+  perform pg_temp.t587_check('a three-word common phrase names no one, though one member said it', '0',
+    (select count(*)::text from public.capture_feed_quote_speakers(cap_m, 'I''ll do it')));
+  perform pg_temp.t587_check('a contraction in a long enough quote: the one who said it', m_b::text || '/1',
+    (select min(member_id::text) || '/' || count(*)::text from public.capture_feed_quote_speakers(cap_m, 'I''ll send the deck tonight')));
+  perform pg_temp.t587_check('said by two speakers: both rows (the gate stages it: one row only is anyone''s)', '2',
+    (select count(*)::text from public.capture_feed_quote_speakers(cap_m, 'let us ship the release on friday')));
+  perform pg_temp.t587_check('spanning two speakers'' lines: no one', '0',
+    (select count(*)::text from public.capture_feed_quote_speakers(cap_m, 'take the budget review next week')));
+  perform pg_temp.t587_check('the happy path: a whole quote from one line, its speaker', m_a::text || '/call_roster/1',
+    (select min(member_id::text) || '/' || min(source) || '/' || count(*)::text from public.capture_feed_quote_speakers(cap_m, 'we will resend the contracts tomorrow')));
   perform pg_temp.t587_run('the meeting''s member who started the call reads its notes', 'rows=1', u_a, array[format('select 1 from public.captures where id = %L', cap_m)]);
   -- Its owner ends the capture by hand while the call goes on: no producer may feed it.
+  v2 := (select transcript from public.captures where id = cap_m);
   update public.captures set is_transcript_locked = true where id = cap_m;
+  perform public.capture_feed_recorder_state(cap_m, 'lost');
+  perform pg_temp.t587_check('nothing writes the recorder''s state onto a locked capture', 'live',
+    (select metadata ->> 'notes_recorder' from public.captures where id = cap_m));
   v := (select keep::text || '/' || reason from public.capture_feed_heartbeat('rec1', array[s_m]));
   perform pg_temp.t587_check('a closed capture: the heartbeat stops the producer and puts it out of the room', 'false/capture_closed/1',
     v || '/' || (select count(*)::text from public.team_call_eject where room = room_m and identity = 'notes-recorder-rec1' and done_at is null));
   perform pg_temp.t587_check('… not offered to any producer, and not started again', '0/not_wanted',
     (select count(*)::text from public.team_call_recorder_work('rec2', '{}', 20) w where w.call_id = call_m) || '/'
       || (select outcome from public.capture_feed_start('team_call', call_m, 'livekit_recorder', 'rec2', 't587 sync')));
+  perform public.team_call_end(call_m, 'finished', now());
+  v := (select outcome from public.team_call_capture_lock(call_m, '', true));
+  perform pg_temp.t587_check('at the end, a transcript its owner locked is kept as they left it; the capture ends, the notes ready', 'ready/true/true/ready',
+    v || '/' || (select ((transcript is not distinct from v2))::text || '/' || (ended_at is not null)::text from public.captures where id = cap_m)
+      || '/' || (select notes_state from public.team_call where id = call_m));
+
+  -- ── A capture ended by hand mid-round: the producer's end ends the session; notes on again, a new capture ──
+  call_d := pg_temp.t587_as(u_b, format('select call_id::text from public.team_call_start(%L)', ch_quiet))::uuid;
+  perform pg_temp.t587_as(u_b, format('select notes::text from public.team_call_set_notes(%L, true)', call_d));
+  select capture_id, session_id into cap_d, s_d from public.capture_feed_start('team_call', call_d, 'livekit_recorder', 'rec1', 'd');
+  update public.captures set ended_at = now() where id = cap_d;
+  v := public.capture_feed_end(s_d, 'rec1', 'refused')::text;
+  perform pg_temp.t587_check('the producer leaves a closed capture: its session ended, nothing written on the capture', 'true/ended/refused/live',
+    v || '/' || (select status || '/' || end_reason from public.capture_feed_session where id = s_d)
+      || '/' || (select metadata ->> 'notes_recorder' from public.captures where id = cap_d));
+  perform pg_temp.t587_as(u_b, format('select notes::text from public.team_call_set_notes(%L, false)', call_d));
+  perform pg_temp.t587_as(u_b, format('select notes::text from public.team_call_set_notes(%L, true)', call_d));
+  select capture_id into cap_d2 from public.capture_feed_start('team_call', call_d, 'livekit_recorder', 'rec1', 'd') where outcome = 'started';
+  perform pg_temp.t587_check('notes on again: a new round into a new capture, the call linked to it', 'true/true',
+    (cap_d2 is not null and cap_d2 <> cap_d)::text || '/' || (select (capture_id = cap_d2)::text from public.team_call where id = call_d));
+  perform public.team_call_end(call_d, 'finished', now());
 
   -- ── A call where nothing was said leaves no capture ───────────────────────
   call_s := pg_temp.t587_as(u_b, format('select call_id::text from public.team_call_start(%L)', ch_quiet))::uuid;
@@ -371,6 +435,7 @@ begin
   perform pg_temp.t587_run('a person cannot read who said a quote', 'refused', u_a, array[format('select * from public.capture_feed_quote_speakers(%L, %L)', cap, 'can you send')]);
   perform pg_temp.t587_run('a person cannot read the lines', 'refused', u_a, array[format('select * from public.capture_feed_lines(%L)', cap)]);
   perform pg_temp.t587_run('a person cannot fence the producers', 'refused', u_a, array['select public.capture_feed_fence_producers()']);
+  perform pg_temp.t587_run('a person cannot settle the eject outbox', 'refused', u_a, array['select public.capture_feed_settle_ejects()']);
   perform pg_temp.t587_run('a person cannot read the recorder''s work', 'refused', u_a, array[format('select * from public.team_call_recorder_work(%L, %L, 5)', 'rec1', '{}')]);
 
   -- ── Report ────────────────────────────────────────────────────────────────
