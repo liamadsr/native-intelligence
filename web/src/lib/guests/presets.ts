@@ -50,8 +50,8 @@ export const GUEST_NATIVE_TOOLS: readonly string[] = ['web_search', 'web_fetch']
  * never hold (main-chat only, attended-only, automation writes): the chat's
  * own uploads and cards (a text has neither), the tools that need the owner's
  * JWT (a guest's turn carries none), the browser tools that show or steer the
- * owner's own browser, a live meeting's note-taker, and the evals and post
- * tools (the owner's own workbench).
+ * owner's own browser, a live meeting's note-taker, and the evals, post and
+ * Studio tools (the owner's own workbench).
  */
 export const GUEST_NEVER_TOOLS: ReadonlySet<string> = new Set([
   'read_chat_file',
@@ -96,7 +96,8 @@ export const GUEST_NEVER_TOOLS: ReadonlySet<string> = new Set([
   'update_booking_link',
   'delete_booking_link',
 ])
-const NEVER_CATEGORIES: ReadonlySet<string> = new Set(['evals', 'content'])
+// Studio (migration 620): the workspace's videos and the editor, the team's own workbench, never a guest's.
+const NEVER_CATEGORIES: ReadonlySet<string> = new Set(['evals', 'content', 'studio'])
 
 /** True for a registry tool the People tab may offer a guest. */
 function offerableRegistryTool(name: string, sideEffect: string): boolean {

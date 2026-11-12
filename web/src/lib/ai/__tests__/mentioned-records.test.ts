@@ -11,12 +11,12 @@ import { MAX_PER_KIND, buildMentionedRecordsBlock, gatherMentionedRecords, menti
 
 type Call = { table: string; method: string; args: unknown[] }
 
-function fakeClient(rows: Record<string, unknown[]>, member: { id: string } | null = { id: 'member-1' }) {
+function fakeClient(rows: Record<string, unknown[]>, member: { id: string; role?: string } | null = { id: 'member-1' }) {
   const calls: Call[] = []
   const client = {
     from(table: string) {
       const builder: Record<string, unknown> = {}
-      for (const m of ['select', 'eq', 'in', 'or']) {
+      for (const m of ['select', 'eq', 'in', 'or', 'is']) {
         builder[m] = (...args: unknown[]) => {
           calls.push({ table, method: m, args })
           return builder
@@ -95,5 +95,27 @@ describe('buildMentionedRecordsBlock', () => {
     const { client, calls } = fakeClient({ document: [] }, null)
     await buildMentionedRecordsBlock(client, { workspaceId: 'ws-1', userId: 'u', documentIds: [D] })
     expect(calls.some((c) => c.table === 'document' && c.method === 'eq' && c.args[0] === 'visibility' && c.args[1] === 'workspace')).toBe(true)
+  })
+})
+
+describe('Studio videos mentioned', () => {
+  const V = '55555555-5555-4555-8555-555555555555'
+
+  it('lists a video with get_studio_video, fenced to the workspace and never one in the trash', async () => {
+    const { client, calls } = fakeClient({ studio_video: [{ id: V, title: 'Launch teaser', status: 'review' }] }, { id: 'member-1', role: 'member' })
+    const lines = await gatherMentionedRecords(client, { workspaceId: 'ws-1', userId: 'u', studioVideoIds: [V, 'nope'] })
+    expect(lines).toEqual([{ kind: 'studio_video', id: V, line: `Studio video "Launch teaser" (review): get_studio_video(video_id: ${V})` }])
+    const reads = calls.filter((c) => c.table === 'studio_video')
+    expect(reads).toContainEqual({ table: 'studio_video', method: 'eq', args: ['workspace_id', 'ws-1'] })
+    expect(reads).toContainEqual({ table: 'studio_video', method: 'in', args: ['id', [V]] })
+    expect(reads).toContainEqual({ table: 'studio_video', method: 'is', args: ['archived_at', null] })
+  })
+
+  it('reads no video for a workspace guest or someone outside it', async () => {
+    for (const member of [{ id: 'member-2', role: 'guest' }, null]) {
+      const { client, calls } = fakeClient({ studio_video: [{ id: V, title: 'Launch teaser', status: 'draft' }] }, member)
+      expect(await gatherMentionedRecords(client, { workspaceId: 'ws-1', userId: 'u', studioVideoIds: [V] })).toEqual([])
+      expect(calls.some((c) => c.table === 'studio_video')).toBe(false)
+    }
   })
 })

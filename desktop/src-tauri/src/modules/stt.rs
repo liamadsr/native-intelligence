@@ -159,6 +159,25 @@ impl SttSink {
         }
     }
 
+    /// For a producer that can wait instead of a capture callback (a Studio
+    /// take's microphone file, read faster than real time): queue the chunk
+    /// behind the ones before it, waiting for room rather than dropping it.
+    /// false = the session has failed or closed; nothing more is wanted.
+    pub async fn push_wait(&self, stream: u8, samples: &[f32]) -> bool {
+        if self.shared.failed.load(Ordering::Relaxed) || self.shared.closed.load(Ordering::Relaxed) {
+            return false;
+        }
+        if samples.is_empty() {
+            return true;
+        }
+        let frame = Input::Audio(Frame::Audio {
+            stream,
+            sample_rate: SAMPLE_RATE,
+            samples: samples.to_vec(),
+        });
+        self.tx.send(frame).await.is_ok()
+    }
+
     /// The recording stopped: finish the session even if some capture
     /// callback still holds a clone of this sink.
     pub fn close(&self) {

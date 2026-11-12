@@ -92,6 +92,7 @@ export const RECORD_MENTION_TOOL_NAMES = {
   document: ['get_document'],
   project: ['get_project_context'],
   initiative: ['get_initiative'],
+  studio_video: ['get_studio_video'],
 } as const satisfies Record<string, readonly string[]>
 
 /**

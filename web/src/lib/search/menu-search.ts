@@ -17,6 +17,9 @@ import type { EntityType } from '@/lib/knowledge/entity-registry'
  * registered entity kinds, plus 'agent' (a recipe offered as someone to @).
  * 'team_chat_message' (migration 561): a message in a channel or DM the
  * person may read, found by its words; opened in team chat, scrolled to it.
+ * 'studio_video' and 'studio_project' (migration 620): the Studio's videos and
+ * Studio projects by title, for a member who may use the Studio where it is
+ * on; opened as the Studio page's card on them.
  */
 export const MENU_SEARCH_KINDS = [
   'action',
@@ -30,6 +33,8 @@ export const MENU_SEARCH_KINDS = [
   'flow',
   'agent',
   'team_chat_message',
+  'studio_video',
+  'studio_project',
 ] as const satisfies readonly (EntityType | 'agent')[]
 export type MenuSearchKind = (typeof MENU_SEARCH_KINDS)[number]
 
@@ -196,8 +201,18 @@ export interface MenuTeamChatMessageRow extends Scored {
   createdAt: string
 }
 
+/** A Studio video or Studio project (titles only: the Studio's tables are read on the server, for members but guests). */
+export interface MenuStudioRow extends Scored {
+  kind: 'studio_video' | 'studio_project'
+  id: string
+  title: string
+  /** A video's status (draft, review, approved); a Studio project's video count ("3 videos"). */
+  status: string | null
+}
+
 export type MenuSearchRow =
   | MenuTeamChatMessageRow
+  | MenuStudioRow
   | MenuActionRow
   | MenuDocumentRow
   | MenuProjectRow
@@ -242,6 +257,10 @@ export function menuRowTarget(row: MenuSearchRow): OpenTarget {
       return { type: 'agent', id: row.id, title: row.title }
     case 'team_chat_message':
       return { type: 'team_chat', messageId: row.id, channelId: row.channelId }
+    case 'studio_video':
+    case 'studio_project':
+      // The Studio page's card, on it (open-card.ts).
+      return { type: row.kind, id: row.id, title: row.title }
     default:
       return { type: row.kind, id: row.id, title: row.title }
   }
@@ -298,11 +317,14 @@ export function bestScore(...scores: number[]): number {
 
 // ── Records mentioned in a message ───────────────────────────────────────────
 
-/** The record kinds a message mentions by id (captures, people and companies have their own). */
-export const MENTION_RECORD_KINDS = ['action', 'document', 'project', 'initiative'] as const
+/**
+ * The record kinds a message mentions by id (captures, people and companies have their own). A Studio video comes
+ * back from the search only for a member who may use the Studio, and its line is read again on the server for them.
+ */
+export const MENTION_RECORD_KINDS = ['action', 'document', 'project', 'initiative', 'studio_video'] as const
 export type MentionRecordKind = (typeof MENTION_RECORD_KINDS)[number]
 
-/** An action, doc, project or initiative mentioned in the message being written. */
+/** An action, doc, project, initiative or Studio video mentioned in the message being written. */
 export interface MentionRecord {
   kind: MentionRecordKind
   id: string
@@ -323,6 +345,7 @@ export function toMentionRecord(row: MenuSearchRow): MentionRecord | null {
     case 'document':
     case 'project':
     case 'initiative':
+    case 'studio_video':
       return { kind: row.kind, id: row.id, title: row.title }
     default:
       return null

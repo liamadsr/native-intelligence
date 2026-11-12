@@ -11,7 +11,9 @@ import {
   Boxes,
   Building2,
   CircleCheck,
+  Clapperboard,
   FileText,
+  Film,
   FolderKanban,
   Handshake,
   Hash,
@@ -32,6 +34,8 @@ export const RECORD_ICONS: Partial<Record<MenuSearchRow['kind'], LucideIcon>> = 
   capture: AudioLines,
   deal: Handshake,
   flow: Workflow,
+  studio_video: Film,
+  studio_project: Clapperboard,
   agent: Boxes,
   team_chat_message: Hash,
 }

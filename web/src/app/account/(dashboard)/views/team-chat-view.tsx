@@ -1723,8 +1723,12 @@ function ThreadPane({
   )
 }
 
-/** The record kinds team chat's `@` finds, beside the people (contacts aren't: its people are teammates). */
-const TEAM_CHAT_RECORD_KINDS = ['action', 'document', 'project', 'initiative', 'capture', 'company', 'deal', 'flow'] as const
+/**
+ * The record kinds team chat's `@` finds, beside the people (contacts aren't: its people are teammates). The
+ * Studio's videos and Studio projects come back only for a member who may use the Studio (the search's gate), and a
+ * mention of one is kept only for such a writer (the mention fence, src/lib/knowledge/entity-fences.ts).
+ */
+const TEAM_CHAT_RECORD_KINDS = ['action', 'document', 'project', 'initiative', 'capture', 'company', 'deal', 'flow', 'studio_video', 'studio_project'] as const
 
 /** The card a record mention opens, or null for a kind no card draws. */
 function recordMentionTarget(r: TeamChatRecordMention): OpenTarget | null {

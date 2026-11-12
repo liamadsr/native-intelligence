@@ -6,6 +6,24 @@
 import { isDesktopApp } from "./platform";
 import { disposeAll, listenScoped, toSafeUnlisten } from "./tauri-unlisten";
 import type { NudgeKind } from "./live-agent/nudge-channel";
+import type {
+  StudioCancelled,
+  StudioErrorEvent,
+  StudioFileRole,
+  StudioPermissionRequest,
+  StudioPermissionService,
+  StudioPermissions,
+  StudioRecorderFailure,
+  StudioStarted,
+  StudioStartOptions,
+  StudioStatusEvent,
+  StudioStopped,
+  StudioStoppedEvent,
+  StudioTargets,
+  StudioUploadPart,
+  StudioUploadProgressEvent,
+  StudioUploadResult,
+} from "./studio/recorder-bridge-types";
 
 // ── Types matching Rust audio::types ────────────────────────────
 
@@ -1406,11 +1424,145 @@ export function toMicMode(raw: unknown): MicMode {
     : "unknown";
 }
 
+// ── Studio recorder (desktop: src-tauri/src/commands/studio_recorder.rs) ──
+// Screen, window, camera and microphone takes recorded natively, each source
+// to its own local file, plus the input trace and (when the local-stt module
+// is ready) on-device words. Payload types: @/lib/studio/recorder-bridge-types.
+//
+// `available()` and the `on*` subscriptions never throw (false / a no-op
+// outside a desktop app that has the recorder: a browser, or an older
+// desktop build, which is probed safely). Every other call resolves its
+// payload or rejects with a StudioRecorderError whose `code` says why
+// ("unavailable" outside such an app; see StudioRecorderFailure).
+
+export const STUDIO_RECORDER_STATUS_EVENT = "studio-recorder://status";
+export const STUDIO_RECORDER_STOPPED_EVENT = "studio-recorder://stopped";
+export const STUDIO_RECORDER_ERROR_EVENT = "studio-recorder://error";
+export const STUDIO_RECORDER_UPLOAD_EVENT = "studio-recorder://upload";
+
+const STUDIO_UNAVAILABLE = "The Studio recorder runs only in a Native Intelligence desktop app that has it.";
+
+/** Why a studioRecorder call failed. `code`: see StudioRecorderFailure. */
+export class StudioRecorderError extends Error {
+  readonly code: StudioRecorderFailure;
+  constructor(code: StudioRecorderFailure, message: string) {
+    super(message);
+    this.name = "StudioRecorderError";
+    this.code = code;
+  }
+}
+
+/** A refusal from the desktop (`"<code>: <message>"`), a missing command
+ *  (an older desktop: "unavailable"), or anything else ("failed"). */
+function studioError(cmd: string, err: unknown): StudioRecorderError {
+  if (isMissingCommand(cmd, err)) return new StudioRecorderError("unavailable", STUDIO_UNAVAILABLE);
+  const text = err instanceof Error ? err.message : typeof err === "string" ? err : "";
+  const match = /^([a-z][a-z-]*): ([\s\S]*)$/.exec(text);
+  if (match) return new StudioRecorderError(match[1], match[2]);
+  return new StudioRecorderError("failed", text || `${cmd} failed`);
+}
+
+async function invokeStudio<T>(
+  cmd: string,
+  args: Record<string, unknown> | undefined,
+  check: (raw: unknown) => boolean = (raw) => !!raw && typeof raw === "object",
+): Promise<T> {
+  if (!isDesktopApp()) throw new StudioRecorderError("unavailable", STUDIO_UNAVAILABLE);
+  let raw: unknown;
+  try {
+    raw = await invoke<unknown>(cmd, args);
+  } catch (e) {
+    throw studioError(cmd, e);
+  }
+  if (!check(raw)) throw new StudioRecorderError("failed", `${cmd}: malformed answer`);
+  return raw as T;
+}
+
+/** Subscribe to one recorder event; `accept` drops payloads that aren't one. */
+function onStudioEvent<T>(event: string, accept: (raw: unknown) => raw is T, cb: (payload: T) => void): () => void {
+  if (!isDesktopApp()) return () => {};
+  return listenScoped((gate) =>
+    listen<unknown>(event, gate((payload) => {
+      if (accept(payload)) cb(payload);
+    })),
+  );
+}
+
+const isObject = (raw: unknown): raw is Record<string, unknown> => !!raw && typeof raw === "object";
+const hasSession = (raw: unknown): boolean => isObject(raw) && typeof raw.sessionId === "string";
+
+/** One probe per page load: a desktop that answers `studio_recorder_permissions`. */
+let studioProbe: Promise<boolean> | null = null;
+
+export const studioRecorder = {
+  /** True inside a desktop app that has the recorder (false in a browser and
+   *  on older desktop builds). Probes once per page load; never throws. */
+  available: (): Promise<boolean> => {
+    if (!isDesktopApp()) return Promise.resolve(false);
+    studioProbe ??= invokeStudio<StudioPermissions>("studio_recorder_permissions", undefined).then(
+      () => true,
+      () => false,
+    );
+    return studioProbe;
+  },
+  /** Each privacy service as macOS reports it, and what the input trace can record. Never prompts. */
+  permissions: () => invokeStudio<StudioPermissions>("studio_recorder_permissions", undefined),
+  /** Ask for `which`: macOS's prompt when not yet asked, System Settings once
+   *  denied. Answers the permissions after asking, with what happened to each. */
+  requestPermissions: async (which: StudioPermissionService[]): Promise<StudioPermissionRequest> => {
+    const raw = await invokeStudio<{ results?: StudioPermissionRequest["results"]; permissions?: StudioPermissions }>(
+      "studio_recorder_request_permissions",
+      { which },
+      (r) => isObject(r) && isObject(r.permissions),
+    );
+    return { ...(raw.permissions as StudioPermissions), results: raw.results ?? {} };
+  },
+  /** Displays, on-screen windows by app, cameras and microphones. Never prompts. */
+  targets: () => invokeStudio<StudioTargets>("studio_recorder_targets", undefined),
+  /** Start a take. Rejects with code `permission` when a service it needs
+   *  isn't granted, `busy` when a take is already recording. */
+  start: (options: StudioStartOptions) =>
+    invokeStudio<StudioStarted>("studio_recorder_start", { options }, hasSession),
+  /** Stop and finalize: files, the trace and (when local) the words. Idempotent. */
+  stop: (sessionId: string) => invokeStudio<StudioStopped>("studio_recorder_stop", { sessionId }, hasSession),
+  /** Stop and delete the take's files. */
+  cancel: (sessionId: string) => invokeStudio<StudioCancelled>("studio_recorder_cancel", { sessionId }, hasSession),
+  /** PUT a stopped take's file straight from disk to its signed part URLs
+   *  (progress: onUpload). Resolves with the file's size, SHA-256 and each part's ETag. */
+  upload: (sessionId: string, role: StudioFileRole, parts: StudioUploadPart[]) =>
+    invokeStudio<StudioUploadResult>("studio_recorder_upload", { sessionId, role, parts }, (raw) =>
+      isObject(raw) && typeof raw.sha256 === "string" && typeof raw.bytes === "number"),
+  /** Delete the take's local files (after its uploads committed). */
+  discard: (sessionId: string) => invokeStudio<void>("studio_recorder_discard", { sessionId }, () => true),
+  /** The floating recording control (time, level, Stop, Cancel): never in the recording. */
+  showControl: (sessionId: string) => invokeStudio<void>("studio_recorder_show_control", { sessionId }, () => true),
+  hideControl: () => invokeStudio<void>("studio_recorder_hide_control", undefined, () => true),
+  /** Twice a second while recording. Returns the unsubscribe function. */
+  onStatus: (cb: (status: StudioStatusEvent) => void) =>
+    onStudioEvent(STUDIO_RECORDER_STATUS_EVENT, (raw): raw is StudioStatusEvent =>
+      hasSession(raw) && typeof (raw as Record<string, unknown>).elapsedMs === "number", cb),
+  /** A take stopped (from any window, the control included) or was cancelled. */
+  onStopped: (cb: (event: StudioStoppedEvent) => void) =>
+    onStudioEvent(STUDIO_RECORDER_STOPPED_EVENT, (raw): raw is StudioStoppedEvent => hasSession(raw), cb),
+  onError: (cb: (event: StudioErrorEvent) => void) =>
+    onStudioEvent(STUDIO_RECORDER_ERROR_EVENT, (raw): raw is StudioErrorEvent =>
+      isObject(raw) && typeof raw.message === "string", cb),
+  /** Upload progress, as each part lands. */
+  onUpload: (cb: (event: StudioUploadProgressEvent) => void) =>
+    onStudioEvent(STUDIO_RECORDER_UPLOAD_EVENT, (raw): raw is StudioUploadProgressEvent =>
+      hasSession(raw) && typeof (raw as Record<string, unknown>).uploadedBytes === "number", cb),
+  /** The same as onUpload. */
+  onUploadProgress: (cb: (event: StudioUploadProgressEvent) => void) => studioRecorder.onUpload(cb),
+};
+
 // ── Public API ──────────────────────────────────────────────────
 
 export const tauriBridge = {
   /** True when running inside the Tauri desktop shell. */
   isAvailable: isDesktopApp,
+
+  /** Studio takes recorded by the desktop (see `studioRecorder` above). */
+  studioRecorder,
 
   /** macOS's audio daemon (see AudioHealth). */
   audioHealth: {

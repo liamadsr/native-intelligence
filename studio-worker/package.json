@@ -1,0 +1,31 @@
+{
+  "name": "ni-studio-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Does Studio's heavy media work for the app: imports uploads, renders videos with Remotion, stills, thumbnails, slide decks and transcripts.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env --import tsx src/index.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "e2e": "node --import tsx test/e2e.ts",
+    "e2e:ads": "node --import tsx test/ads-e2e.ts"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.534",
+    "@remotion/renderer": "4.0.534",
+    "playwright-core": "1.60.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "tsx": "4.21.0",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "5.9.3"
+  }
+}

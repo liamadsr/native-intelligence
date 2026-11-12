@@ -56,7 +56,9 @@ describe('migration 501: graph edges after review', () => {
     // 501 is read under its own names: 503 renamed the graph's `email` to
     // `email_thread` in these lists (migration-503.test.ts pins that).
     const in501 = (k: string) => (k === 'email_thread' ? 'email' : k)
-    const expected = LINK_FENCED_KINDS.filter((k) => !SET_KINDS.includes(k)).map(in501)
+    // The Studio's kinds are fenced by 624's own restrictive policies, never these lists (migration-624.test.ts).
+    const later = new Set<string>(['studio_video', 'studio_project'])
+    const expected = LINK_FENCED_KINDS.filter((k) => !SET_KINDS.includes(k) && !later.has(k)).map(in501)
     for (const list of lists) expect([...list].sort()).toEqual([...expected].sort())
     expect(select).toContain('public.entity_visible_to(source_type, source_id, workspace_id, (select auth.uid()))')
     expect(select).toContain('public.entity_visible_to(target_type, target_id, workspace_id, (select auth.uid()))')

@@ -67,7 +67,7 @@ export const showInputSchema = z.object({
     .describe(
       "'list': a filtered page of records; 'board': the same as a board; 'record': one record; 'calendar': a day, week or month of events; 'mail': a mail folder or one thread. " +
         'A whole page: team_board (one team\'s actions by state), sequences, prospecting, flows, evals, campaigns, knowledge, ' +
-        'library (agents & skills), teams, browser',
+        'library (agents & skills), teams, studio (videos and ads), browser',
     ),
   title: z.string().describe('What the card says, short: "Due this week · Atlas"'),
   entity_type: z.enum(CARD_LIST_ENTITIES).optional().describe('list / board: what to list'),
@@ -111,9 +111,9 @@ export const showInputSchema = z.object({
     .optional()
     .describe(
       'A page: what to open it on, by name or id: the team (team_board, required; teams), a sequence, a prospect list, an eval suite, ' +
-        'a knowledge package, an agent or skill (library). Omit for the whole page',
+        'a knowledge package, an agent or skill (library), a video or Studio project (studio). Omit for the whole page',
     ),
-  tab: z.string().optional().describe('A page: evals (overview, cases, runs), knowledge (claims, library), library (agents, skills)'),
+  tab: z.string().optional().describe('A page: evals (overview, cases, runs), knowledge (claims, library), library (agents, skills), studio on a video (overview, storyboard, cast, edit)'),
 })
 
 export const readCardInputSchema = z.object({
@@ -135,7 +135,7 @@ const SHOW_DESCRIPTION =
   'their calendar for a day, week or month, or a mail folder or thread. ' +
   'Use it whenever the answer is a set of records ("what\'s due this week", "my open deals", "captures with Acme", "my week", "unread from Acme") instead of listing them in prose, ' +
   'and to open one record. The card is the real page: the person can filter, sort, open rows and keep it as a saved view. ' +
-  'It also shows a whole page (a team board, sequences, prospecting, flows, evals, campaigns, knowledge, agents & skills, teams, the browser), opened on a target by name. ' +
+  'It also shows a whole page (a team board, sequences, prospecting, flows, evals, campaigns, knowledge, agents & skills, teams, the Studio, the browser), opened on a target by name. ' +
   'Returns the cleaned-up spec, the count and the first 10 rows, so say in one line what it shows and what stands out; do not repeat the rows. ' +
   'To change what is shown, call show again (a new card); never describe an old card as changed. ' +
   'Filters use the entity\'s own fields; a refusal names the fix and the valid fields.'

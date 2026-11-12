@@ -63,6 +63,9 @@ export const WORK_DELIVERABLE_TYPES = [
   'attention_cards',
   'flow_run',
   'url',
+  // A Studio video (migration 620) a finished export delivered: opens the
+  // Studio on the video, and carries the export's download link (`url`).
+  'studio_video',
 ] as const
 export type WorkDeliverableType = (typeof WORK_DELIVERABLE_TYPES)[number]
 
@@ -81,6 +84,8 @@ export interface WorkDeliverable {
   workspace_id?: string
   /** 'attention_cards': how many cards the run surfaced. */
   count?: number
+  /** 'studio_video': the finished export's download link (an app path). */
+  url?: string
   /** For generic entities. */
   entity_type?: string
   /** Stamped when the human acted on it on its own surface (sent the draft,
@@ -272,4 +277,6 @@ export const WORK_KINDS = {
   crmEnrichment: 'crm_enrichment',
   crmImport: 'crm_import',
   emailImport: 'email_import',
+  /** A finished (or failed) Studio export delivered to whoever asked (src/lib/studio/server/delivery.ts). */
+  studioExport: 'studio_export',
 } as const

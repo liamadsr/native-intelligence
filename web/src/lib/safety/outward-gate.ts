@@ -54,6 +54,15 @@
  *     not held here. A poll (several guests, phase 5) is the same card naming
  *     every guest and their address; so is nudge_time_offer, a reminder to
  *     its guests still to answer (nothing to make first: its card pins who).
+ *   - generate_studio_shot / generate_studio_narration (the Studio): a spend of
+ *     the person's own provider credits (Higgsfield, ElevenLabs), always, but a
+ *     narration already cached (it costs nothing). The card says the price from
+ *     the call's own input (a shot's model and credits, pinned by the input hash)
+ *     or read now (a narration's characters); the hash of the exact request
+ *     (the narration's voice, model and substitutions; the shot's prompt,
+ *     references and settings) rides on the approval, and the tools spend only
+ *     as the card's replay, and only when that request is unchanged
+ *     (src/lib/studio/agent/spend-card.ts).
  *   - accept_time_offer, record_time_offer_answer and book_poll_time from an
  *     offer whose guests the person never saw (made by link outside their
  *     own attended turn: src/lib/time-offers/agent-booking.ts): the booking
@@ -75,7 +84,7 @@ import { getCalendarEventAttendees } from '@/lib/integrations/calendar'
 import type { ServerToolMeta } from '@/lib/mcp-client/adapter'
 import { typefullyCardCopy } from '@/lib/content/typefully'
 import { readThreadListHeaders, unsubscribeMethod, unsubscribeMethodKey, type ThreadListHeaders } from '@/lib/email/unsubscribe'
-import type { QuoteReplyApprovalContext, TimeOfferApprovalContext, UnsubscribeApprovalContext } from './approved-call'
+import type { QuoteReplyApprovalContext, StudioSpendApprovalContext, TimeOfferApprovalContext, UnsubscribeApprovalContext } from './approved-call'
 import { mailboxAddresses } from '@/lib/email/reply-policy'
 import { paymentsReady } from '@/lib/payments/ready'
 import { paymentLinkCard, parsePaymentLinkCall, SEND_PAYMENT_LINK } from '@/lib/payments/tool-input'
@@ -101,13 +110,13 @@ export type ExternalToolPolicy = Pick<ServerToolMeta, 'serverName' | 'requiresAp
 
 export interface OutwardHold {
   /** Why, for the approval row's `reason` and the logs. */
-  reason: 'outside_attendees' | 'teammate_attendees' | 'mcp_write' | 'public_post' | 'unsubscribe' | 'payment_link' | 'customer_quote' | 'time_offer'
+  reason: 'outside_attendees' | 'teammate_attendees' | 'mcp_write' | 'public_post' | 'unsubscribe' | 'payment_link' | 'customer_quote' | 'time_offer' | 'studio_spend'
   /** The approval card's words. */
   card: { title: string; why: string }
   /** What the model reads when there is no person to ask (NEEDS_PERSON). */
   refusal: string
   /** The hold's own check, kept on the approval for its replay (an unsubscribe card's method, a quote card's words). */
-  context?: { unsubscribe?: UnsubscribeApprovalContext; quoteReply?: QuoteReplyApprovalContext; timeOffer?: Partial<TimeOfferApprovalContext> }
+  context?: { unsubscribe?: UnsubscribeApprovalContext; quoteReply?: QuoteReplyApprovalContext; timeOffer?: Partial<TimeOfferApprovalContext>; studioSpend?: StudioSpendApprovalContext }
   /**
    * Work the hold does only once its card will really be raised (a time
    * offer's held times): more context for the approval, or why there is no
@@ -236,6 +245,27 @@ async function unsubscribeHold(check: OutwardCheck): Promise<OutwardHold> {
       'Do not retry; tell them which list you would have unsubscribed them from.',
     // The replay does only what this card says, or nothing (unsubscribe.ts pinned).
     ...(method ? { context: { unsubscribe: { method: method.kind, key: unsubscribeMethodKey(method) } } } : {}),
+  }
+}
+
+/**
+ * A Studio spend of the person's own provider credits (see the header): always their card, but a cached narration.
+ * Loaded on use, so the Studio stays out of every door's imports.
+ */
+async function studioSpendHold(check: OutwardCheck, bare: string): Promise<OutwardHold | null> {
+  const { GENERATE_STUDIO_SHOT, narrationCard, shotSpendCard } = await import('@/lib/studio/agent/spend-card')
+  const args = { workspaceId: check.workspaceId, userId: check.userId, input: check.input }
+  const found = bare === GENERATE_STUDIO_SHOT ? await shotSpendCard(args) : await narrationCard(args)
+  if (!found) return null
+  const { context, ...card } = found
+  return {
+    reason: 'studio_spend',
+    card,
+    // The request the card showed rides on the approval: the replay spends nothing when it changed since.
+    ...(context ? { context: { studioSpend: context } } : {}),
+    refusal:
+      `Nothing was spent. ${check.toolName} spends the person's own provider credits, which only ever happens on their approval card, and nobody is here to give it. ` +
+      'Do not retry; tell them what you would have generated and its price.',
   }
 }
 
@@ -385,6 +415,7 @@ export async function outwardHoldOf(check: OutwardCheck): Promise<OutwardHold | 
   if (bare === SEND_PAYMENT_LINK) return paymentLinkHold(check)
   if (bare === SEND_QUOTE_TOOL || bare === BOOK_QUOTE_TOOL) return quoteReplyOutwardHold(check, bare)
   if (bare === OFFER_TIMES_TOOL || bare === NUDGE_TIME_OFFER_TOOL) return timeOfferOutwardHold(check, bare)
+  if (bare === 'generate_studio_shot' || bare === 'generate_studio_narration') return studioSpendHold(check, bare)
   if (CALENDAR_INVITE_TOOLS.has(bare) || CALENDAR_EXISTING_EVENT_TOOLS.has(bare)) {
     const added = CALENDAR_INVITE_TOOLS.has(bare) ? attendeeEmailsOf(check.input) : []
     // An existing event's attendees, from the provider: editing or cancelling
