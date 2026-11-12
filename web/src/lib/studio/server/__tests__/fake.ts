@@ -12,6 +12,7 @@
 import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { StudioContext } from '../context'
+import { PAID_KINDS } from '../jobs'
 import type { StudioStorage } from '../storage'
 
 type Row = Record<string, unknown>
@@ -167,7 +168,7 @@ export function fakeDb(tables: Record<string, Row[]> = {}, options: { queueFunct
     rowsOf('studio_blob').filter((b) => b.workspace_id === workspace).reduce((n, b) => n + Number(b.bytes), 0) +
     rowsOf('studio_record').filter((r) => r.workspace_id === workspace && r.collection === 'blob-writes').reduce((n, r) => n + (Number((r.value as Row)?.bytes) || 0), 0)
   /**
-   * studio_claim_job as 625 has it: stale running paid jobs (shot, narration) end failed, stale running jobs asked to stop end cancelled, queued ones asked to stop are
+   * studio_claim_job as 625 and 631 have it: stale running paid jobs (the kinds in PAID_KINDS) end failed, stale running jobs asked to stop end cancelled, queued ones asked to stop are
    * cancelled, stale ones past three tries fail, other stale ones go back in the queue; then the queued job of the
    * workspace with the fewest running jobs is taken, the oldest first.
    */
@@ -178,7 +179,7 @@ export function fakeDb(tables: Record<string, Row[]> = {}, options: { queueFunct
     const since = Math.min(Date.parse(nowIso()), Date.now()) - staleSeconds * 1000
     const stale = (j: Row) => j.status === 'running' && Date.parse(String(j.heartbeat_at ?? j.claimed_at ?? j.created_at)) < since
     for (const j of jobs) {
-      if (stale(j) && (j.kind === 'shot' || j.kind === 'narration'))
+      if (stale(j) && PAID_KINDS.includes(String(j.kind)))
         Object.assign(j, { status: 'failed', error: 'The worker stopped while making this, after it may have asked the provider: it may have charged. Check the costs before trying again.', updated_at: nowIso() })
       else if (stale(j) && j.cancel_requested) Object.assign(j, { status: 'cancelled', error: j.error ?? 'Cancelled.', updated_at: nowIso() })
       else if (j.status === 'queued' && j.cancel_requested) Object.assign(j, { status: 'cancelled', error: j.error ?? 'Cancelled.', updated_at: nowIso() })

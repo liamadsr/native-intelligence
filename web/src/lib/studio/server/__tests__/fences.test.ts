@@ -354,6 +354,13 @@ describe('a paid job whose worker went quiet', () => {
     expect((env.tables.studio_record ?? []).filter((r) => r.collection === COSTS_COLLECTION)).toMatchObject([{ value: { credits: 11, provider: 'elevenlabs' } }])
   })
 
+  it.each(['revoice', 'sound-effect', 'music'])('a stale %s job ends failed too, never queued again', async (kind) => {
+    const id = await held(kind, { name: 'made-up' }, 'w-1')
+    stale(id)
+    expect(await claimJob(deps(), 'w-2', [kind as never])).toBeNull()
+    expect(env.tables.studio_job!.find((j) => j.id === id)).toMatchObject({ status: 'failed', error: expect.stringMatching(/may have charged\. Check the costs before trying again/) })
+  })
+
   it('other kinds still go back in the queue', async () => {
     const id = await held('stills', { times: [0] }, 'w-1')
     stale(id)

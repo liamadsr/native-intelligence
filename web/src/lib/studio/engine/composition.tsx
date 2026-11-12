@@ -18,6 +18,7 @@ import { clipView, fitRect, isCameraSource, layoutTiles, slideForClipFrame, sync
 import { cutAudioPlan, cutVideoPlan, cutVolume, dipOpacity, dipPlan, type Dip } from './cuts';
 import { automationValue } from './automation';
 import { LayerStack } from './layers-render';
+import { CodeScenesContext, type CodeScenes } from './scene-layer';
 import { loadFaces, type FontFace } from './font-faces';
 import { CutoutPass, gradeFilter, passAsset, useCutoutPass } from './cutout-pass';
 import type { EditorAsset, EditorClip } from './contracts';
@@ -163,9 +164,11 @@ function SyncedTile({ project, scheduled, source, rect, assetPath, style, playba
 }
 
 /** Draws the edit as its chosen platform format sees it (see deliveredProject); without a format, the edit itself. */
-export function EditorComposition({ project: edit, fonts }: { project: EditorProject; fonts?: FontFace[] }) {
+/** `codeScenes`: 'placeholder' draws code scenes as labelled boxes without loading their code (scene-layer.tsx). */
+export function EditorComposition({ project: edit, fonts, codeScenes }: { project: EditorProject; fonts?: FontFace[]; codeScenes?: CodeScenes['mode'] }) {
   const project = React.useMemo(() => deliveredProject(edit), [edit]);
-  return <EditorFrame project={project} fonts={fonts} />;
+  const scenes = React.useMemo<CodeScenes>(() => ({ mode: codeScenes ?? 'run', fonts }), [codeScenes, fonts]);
+  return <CodeScenesContext.Provider value={scenes}><EditorFrame project={project} fonts={fonts} /></CodeScenesContext.Provider>;
 }
 
 function EditorFrame({ project, fonts }: { project: EditorProject; fonts?: FontFace[] }) {

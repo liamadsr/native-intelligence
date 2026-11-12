@@ -30,6 +30,8 @@ export const VOICE_COLLECTION = 'voice'
 export const NARRATION_COLLECTION = 'narration'
 const VOICE_KEY = 'default'
 const VOICES_KEY = 'list'
+/** The voices voice searches found (voice-media.ts), kept so a found voice can be chosen by its id. */
+export const FOUND_KEY = 'found'
 
 /** How long the account's voice list is kept before it is read again. */
 export const VOICES_FRESH_MS = 60 * 60_000
@@ -116,10 +118,34 @@ export async function getVoice(ctx: StudioContext): Promise<StudioVoice | null> 
   return getRecord<StudioVoice>(ctx, VOICE_COLLECTION, VOICE_KEY)
 }
 
-async function voiceOrRefuse(ctx: StudioContext): Promise<StudioVoice> {
+/**
+ * A voice the Studio has seen by its id: one of the account's voices (the last list read) or one a voice search found.
+ * Null when it has seen none with that id.
+ */
+export async function knownVoice(ctx: StudioContext, voiceId: string): Promise<ProviderVoice | null> {
+  const [listed, found] = await Promise.all([
+    getRecord<{ voices: ProviderVoice[] }>(ctx, VOICE_COLLECTION, VOICES_KEY),
+    getRecord<{ voices: ProviderVoice[] }>(ctx, VOICE_COLLECTION, FOUND_KEY),
+  ])
+  return [...(listed?.voices ?? []), ...(found?.voices ?? [])].find((v) => v.voiceId === voiceId) ?? null
+}
+
+/**
+ * The voice a narration reads with: the workspace's, or (`voiceId`, a cast member's line) another voice the Studio
+ * has seen, read with the workspace voice's model, settings and substitutions.
+ */
+async function voiceOrRefuse(ctx: StudioContext, voiceId?: string): Promise<StudioVoice> {
   const voice = await getVoice(ctx)
-  if (!voice) throw new StudioError('Choose a voice for narration first.', 400, 'NO_VOICE')
-  return voice
+  if (!voiceId || voiceId === voice?.voiceId) {
+    if (!voice) throw new StudioError('Choose a voice for narration first.', 400, 'NO_VOICE')
+    return voice
+  }
+  const known = await knownVoice(ctx, voiceId)
+  if (!known) throw new StudioError('That voice is not one the Studio knows: choose it from the account’s voices or a voice search first.', 400, 'UNKNOWN_VOICE')
+  return {
+    provider: 'elevenlabs', voiceId: known.voiceId, name: known.name.slice(0, 100), modelId: voice?.modelId || DEFAULT_MODEL_ID,
+    ...(voice?.settings ? { settings: voice.settings } : {}), ...(voice?.substitutions ? { substitutions: voice.substitutions } : {}),
+  }
 }
 
 /** A voice choice checked (the voice id, and the name, model, settings and substitutions when given). */
@@ -154,7 +180,9 @@ export function checkVoice(body: Record<string, unknown>, known: ProviderVoice[]
 /** PUT /voiceover/voice: save the workspace's voice. */
 export async function saveVoice(ctx: StudioContext, body: Record<string, unknown>): Promise<StudioVoice> {
   const listed = await getRecord<{ at: string; voices: ProviderVoice[] }>(ctx, VOICE_COLLECTION, VOICES_KEY)
-  const voice = checkVoice(body, listed?.voices ?? [])
+  // A voice a search found (the shared library's) is chosen the same way: only its id is kept, the account is unchanged.
+  const found = await getRecord<{ voices: ProviderVoice[] }>(ctx, VOICE_COLLECTION, FOUND_KEY)
+  const voice = checkVoice(body, [...(listed?.voices ?? []), ...(found?.voices ?? [])])
   await putRecord(ctx, VOICE_COLLECTION, VOICE_KEY, voice)
   return voice
 }
@@ -196,10 +224,13 @@ export async function cachedNarration(ctx: StudioContext, hash: string): Promise
   return { asset, transcript, cached: true, requestHash: hash }
 }
 
-/** POST /voiceover/preview: the request's hash, how many characters it sends, and whether this exact one is cached. */
-export async function previewNarration(ctx: StudioContext, text: unknown) {
+/**
+ * POST /voiceover/preview: the request's hash, how many characters it sends, and whether this exact one is cached.
+ * `voiceId`: read in another voice the Studio knows (a cast member's), else the workspace's.
+ */
+export async function previewNarration(ctx: StudioContext, text: unknown, options: { voiceId?: string } = {}) {
   requireCapability(ctx, 'voiceover', { worker: false })
-  const voice = await voiceOrRefuse(ctx)
+  const voice = await voiceOrRefuse(ctx, options.voiceId)
   const { request, requestHash: hash, characters } = narrationRequest(voice, text)
   const cached = !!(await cachedNarration(ctx, hash))
   return { cached, characters, requestHash: hash, voiceName: voice.name, voiceId: request.voiceId, modelId: request.modelId }
@@ -228,10 +259,10 @@ export const NARRATION_CHANGED = 'Nothing was spent. The voice or script changed
  * (an approval card's pinned request) refuses (409 CARD_CHANGED) a request that is no longer that one: the voice,
  * its model or its substitutions changed since.
  */
-export function startNarration(ctx: StudioContext, text: unknown, options: { allowPaid: boolean; videoId?: string | null; expectHash?: string }): Promise<{ result: VoiceoverResult } | { job: JobRow }> {
+export function startNarration(ctx: StudioContext, text: unknown, options: { allowPaid: boolean; videoId?: string | null; expectHash?: string; voiceId?: string }): Promise<{ result: VoiceoverResult } | { job: JobRow }> {
   return (async () => {
     requireCapability(ctx, 'voiceover', { worker: false })
-    const voice = await voiceOrRefuse(ctx)
+    const voice = await voiceOrRefuse(ctx, options.voiceId)
     const { request, requestHash: hash } = narrationRequest(voice, text)
     if (options.expectHash !== undefined && options.expectHash !== hash) throw new StudioError(NARRATION_CHANGED, 409, 'CARD_CHANGED')
     const slot = `${ctx.workspaceId}:${hash}`

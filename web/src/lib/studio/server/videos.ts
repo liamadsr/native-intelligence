@@ -14,10 +14,11 @@ import { scheduleProject } from '../engine/timeline'
 import { getAssets, getTranscripts, listAssets } from './assets'
 import { isDuplicate, isUuid, must, type StudioContext } from './context'
 import { conflictError, digestConflict, notFoundError, StudioError, zodSentence } from './errors'
+import { codeScenesOn } from './code-scenes'
 import { checkCapabilities, currentCapabilities, soundCapabilities, visionCapabilities, type StudioCapabilities, type VisionCapabilities } from './capabilities'
 import { activeJob } from './jobs'
 import { addSibling, afterVideoSave } from './projects'
-import { listPresets } from './records'
+import { listPresets, listRecords } from './records'
 import { asStored, docDigest, sameJson } from './stable'
 
 /** The stored summary: a ProjectSummary without what the row itself holds (id, title, updatedAt). */
@@ -265,8 +266,8 @@ export async function namedLibraryAssets(ctx: StudioContext, project: EditorProj
  * What the editor opens with: the video asked for (else the most recently changed), the list, the library, the
  * presets and the person's running export or transcription, if any.
  */
-export async function bootstrap(ctx: StudioContext, preferId?: string | null): Promise<EditorBootstrap & { workspaceId: string; capabilities: StudioCapabilities & VisionCapabilities & { sound: boolean; motionCheck: boolean; review: boolean } }> {
-  const [rows, assets, presets] = await Promise.all([listVideoRows(ctx), listAssets(ctx), listPresets(ctx)])
+export async function bootstrap(ctx: StudioContext, preferId?: string | null): Promise<EditorBootstrap & { workspaceId: string; capabilities: StudioCapabilities & VisionCapabilities & { sound: boolean; motionCheck: boolean; review: boolean; productUi: boolean; codeScenes: boolean } }> {
+  const [rows, assets, presets, products] = await Promise.all([listVideoRows(ctx), listAssets(ctx), listPresets(ctx), listRecords(ctx, 'products', 1).catch(() => [])])
   let opened: { project: EditorProject | null; projectDigest: string | null } = { project: null, projectDigest: null }
   const pick = (preferId && rows.find((row) => row.id === preferId)) || rows[0]
   if (pick) {
@@ -286,7 +287,9 @@ export async function bootstrap(ctx: StudioContext, preferId?: string | null): P
     job,
     workspaceId: ctx.workspaceId,
     // What the Studio worker running now can do (capabilities.ts): a part it can't draws no button.
-    capabilities: { ...currentCapabilities(ctx), ...visionCapabilities(), ...soundCapabilities(), ...checkCapabilities() },
+    // productUi: the Components panel, once the workspace has a product the agent set up from a Mac (products.ts).
+    // codeScenes: whether this server runs code scenes (code-scenes.ts); off, the editor draws them as boxes.
+    capabilities: { ...currentCapabilities(ctx), ...visionCapabilities(), ...soundCapabilities(), ...checkCapabilities(), productUi: products.length > 0, codeScenes: codeScenesOn() },
   }
 }
 

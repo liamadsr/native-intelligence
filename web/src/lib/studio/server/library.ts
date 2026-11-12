@@ -57,6 +57,54 @@ const IMPORT_WAIT_MS = 45_000
 
 const likeLiteral = (text: string) => text.replace(/[\\%_]/g, (c) => `\\${c}`)
 
+// ---- what bytes are ------------------------------------------------------------------------------------------
+
+/** The file name extensions the worker's import takes, by kind (studio-worker/src/media.ts kindOfName). */
+export const IMPORT_EXTENSIONS = {
+  image: ['png', 'jpg', 'jpeg', 'webp'],
+  video: ['mp4', 'm4v', 'mov', 'webm', 'mkv'],
+  audio: ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg'],
+} as const
+
+export type SniffedMedia = { kind: 'image' | 'video' | 'audio'; ext: string }
+
+/**
+ * What a file's own first bytes say it is, whatever a header or a name claims: an image (PNG, JPEG, WebP), a video
+ * (MP4, MOV, WebM, Matroska) or a sound (WAV, MP3, AAC, M4A, FLAC, Ogg), or null for anything else (a page, a
+ * script, an SVG, a playlist). The worker's import then checks the whole file. Pure.
+ */
+export function sniffMedia(bytes: Uint8Array): SniffedMedia | null {
+  const ascii = (from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to))
+  const at = (i: number) => bytes[i] ?? -1
+  if (bytes.length < 12) return null
+  if (at(0) === 0x89 && ascii(1, 8) === 'PNG\r\n\x1a\n') return { kind: 'image', ext: 'png' }
+  if (at(0) === 0xff && at(1) === 0xd8 && at(2) === 0xff) return { kind: 'image', ext: 'jpg' }
+  if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return { kind: 'image', ext: 'webp' }
+  if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WAVE') return { kind: 'audio', ext: 'wav' }
+  if (ascii(4, 8) === 'ftyp') {
+    const brand = ascii(8, 12)
+    if (brand === 'M4A ' || brand === 'M4B ') return { kind: 'audio', ext: 'm4a' }
+    return brand === 'qt  ' ? { kind: 'video', ext: 'mov' } : { kind: 'video', ext: 'mp4' }
+  }
+  if (at(0) === 0x1a && at(1) === 0x45 && at(2) === 0xdf && at(3) === 0xa3) {
+    // EBML: WebM names its doc type early in the header; anything else is Matroska.
+    return ascii(0, Math.min(bytes.length, 64)).includes('webm') ? { kind: 'video', ext: 'webm' } : { kind: 'video', ext: 'mkv' }
+  }
+  if (ascii(0, 4) === 'OggS') return { kind: 'audio', ext: 'ogg' }
+  if (ascii(0, 4) === 'fLaC') return { kind: 'audio', ext: 'flac' }
+  if (ascii(0, 3) === 'ID3') return { kind: 'audio', ext: 'mp3' }
+  if (at(0) === 0xff && (at(1) & 0xf6) === 0xf0) return { kind: 'audio', ext: 'aac' }
+  if (at(0) === 0xff && (at(1) & 0xe0) === 0xe0 && (at(1) & 0x06) !== 0) return { kind: 'audio', ext: 'mp3' }
+  return null
+}
+
+/** A name the worker's import reads as `media`: kept when its extension is of that kind, else that extension added. Pure. */
+export function nameFor(name: string, media: SniffedMedia): string {
+  const ext = (/\.([^./]+)$/.exec(name)?.[1] ?? '').toLowerCase()
+  if ((IMPORT_EXTENSIONS[media.kind] as readonly string[]).includes(ext)) return name.slice(0, 250)
+  return `${name.slice(0, 240)}.${media.ext}`
+}
+
 // ---- the Studio library ------------------------------------------------------------------------------------
 
 type AssetRow = { meta: EditorAsset; created_at: string }

@@ -286,10 +286,18 @@ export function fontsourceRecord(f: SourceFont, files: FontFile[], axes: Axes | 
 
 // ---- installing ---------------------------------------------------------------------------------------------
 
-/** Put one font file in the workspace's storage, unless it is there already. */
+/** Whether bytes are a font file by their own header: WOFF2, WOFF, TrueType or OpenType. Pure. */
+export function isFontFile(bytes: Uint8Array): boolean {
+  if (bytes.length < 12) return false
+  const tag = String.fromCharCode(...bytes.subarray(0, 4))
+  return tag === 'wOF2' || tag === 'wOFF' || tag === 'OTTO' || tag === 'true' || (bytes[0] === 0 && bytes[1] === 1 && bytes[2] === 0 && bytes[3] === 0)
+}
+
+/** Put one font file in the workspace's storage, unless it is there already. Anything but a font is refused. */
 async function storeFile(ctx: StudioContext, planned: PlannedFile): Promise<FontFile> {
   if (!(await getBlob(ctx, planned.file))) {
     const bytes = await fetchCapped(planned.url, FONT_FILE_MAX_BYTES, FILE_TIMEOUT_MS)
+    if (!isFontFile(bytes)) throw new Error(`${planned.url} is not a font file`)
     await putBlobBytes(ctx, planned.file, bytes, 'font/woff2')
   }
   return { file: planned.file, weight: planned.weight, style: planned.style }
