@@ -17,6 +17,8 @@ import { closeTeamCallRoom, openTeamCallRooms, teamCallsConfig } from '@/lib/tea
 import { liveKitEgress, teamCallEgressConfig } from '@/lib/team-calls/egress'
 import { sweepTeamCallEgress } from '@/lib/team-calls/notes-sweep'
 import { fenceProducers, markLostFeeds } from '@/lib/capture-feed/store'
+import { closedCapturesToFinish } from '@/lib/team-calls/fed-notes'
+import { closedCaptureFinishEvent } from '@/lib/team-calls/notes-store'
 import { fenceGuests, pruneMeetingGuests, sweepMeetings } from '@/lib/meeting-links/store'
 import { endGuestOnlyCalls } from '@/lib/meeting-links/sweep'
 
@@ -156,6 +158,9 @@ export const teamCallsSweep = inngest.createFunction(
     const lost = await step.run('feeds-lost', async () => (await markLostFeeds(getServiceClient())).length)
     const recordersFenced = await step.run('fence-recorders', () => fenceProducers(getServiceClient()))
     if (lost + recordersFenced > 0 && teamCallsConfig()) await step.sendEvent('eject-recorders', { name: TEAM_CALL_EJECT_EVENT, data: {} })
+    // A call's capture its owner closed by hand whose finish never ran (or gave out): asked for again.
+    const closed = (await step.run('closed-captures', () => closedCapturesToFinish(getServiceClient()))) as Array<{ callId: string; captureId: string }>
+    if (closed.length > 0) await step.sendEvent('finish-closed-captures', closed.map((c) => closedCaptureFinishEvent(c.callId, c.captureId)))
     console.info(
       `[team-calls-sweep] checked=${result.checked} ended=${result.ended} missed=${result.missed} unreachable=${result.unreachable} notes_stopped=${egress.notesStopped} egress_lost=${egress.egressesLost} feeds_lost=${lost}`,
     )

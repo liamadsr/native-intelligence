@@ -20,7 +20,16 @@ import {
 } from '@/lib/team-calls/notes-store'
 import { sweepCallAudio } from '@/lib/team-calls/notes-retention'
 import { postExtraction, runOwnerBatch } from './capture-finalizer'
-import { FED_TAIL_CAP_MS, fedNotesStatus, lockFedNotesAsTheyAre, writeFedNotes, type FedNotesStatus, type FedNotesWritten } from '@/lib/team-calls/fed-notes'
+import {
+  FED_TAIL_CAP_MS,
+  fedNotesStatus,
+  finishClosedCapture,
+  lockFedNotesAsTheyAre,
+  writeFedNotes,
+  type ClosedCaptureFinished,
+  type FedNotesStatus,
+  type FedNotesWritten,
+} from '@/lib/team-calls/fed-notes'
 
 /**
  * A call's notes, after the call (calls plan, phase 6; src/lib/team-calls/
@@ -43,7 +52,10 @@ import { FED_TAIL_CAP_MS, fedNotesStatus, lockFedNotesAsTheyAre, writeFedNotes, 
  *   Where the call recorder took the notes (src/lib/team-calls/fed-notes.ts),
  *   the same finish locks the capture that filled in live instead: no files
  *   to wait for, only the recorder's word that it delivered its last words
- *   (its `end`), checked every FED_POLL, at most FED_TAIL_CAP_MS.
+ *   (its `end`), checked every FED_POLL, at most FED_TAIL_CAP_MS. The same
+ *   event with a captureId finishes one capture its owner closed by hand
+ *   while the call went on (ended now, then its end-of-meeting pass), whether
+ *   or not notes come on again into a new one.
  *
  * One `[team-call-notes]` line per step outcome, ids only.
  */
@@ -91,6 +103,11 @@ export const FINISH_WAIT = '30s'
 export async function runTeamCallNotesFinish({ event, step }: NotesRunContext) {
   const callId = (event.data as { callId?: unknown } | undefined)?.callId
   if (!isUuid(callId)) return { status: 'skipped', reason: 'bad_event' }
+  const closedCapture = (event.data as { captureId?: unknown } | undefined)?.captureId
+  if (closedCapture !== undefined) {
+    if (!isUuid(closedCapture)) return { status: 'skipped', reason: 'bad_event' }
+    return runClosedCaptureFinish(callId, closedCapture, step)
+  }
 
   // The call recorder's notes (src/lib/team-calls/fed-notes.ts): a capture that filled in live.
   const fed = (await step.run('fed', () => fedNotesStatus(getServiceClient(), callId))) as FedNotesStatus
@@ -170,10 +187,32 @@ async function runFedNotesFinish(callId: string, fed: FedNotesStatus, step: Note
   return { status: 'ready', captureId }
 }
 
+/** A capture of the call its owner closed by hand: finished now, then the pass a recorded meeting gets, as its owner. */
+async function runClosedCaptureFinish(callId: string, captureId: string, step: NotesRunContext['step']) {
+  const finished = (await step.run('finish-closed', () => finishClosedCapture(getServiceClient(), captureId))) as ClosedCaptureFinished
+  if (finished.outcome !== 'ready') return { status: 'skipped', reason: finished.outcome }
+  const { ownerUserId, workspaceId } = finished
+  let batch: unknown = 'none'
+  if (finished.spoke) {
+    batch = await step.run('batch', () => runOwnerBatch(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId }))
+    if (batch === 'in_flight') await step.sleep('let-batch-settle', '11m')
+  }
+  await step.run('post-extraction', () => postExtraction(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId, captureProcessed: !finished.spoke }))
+  console.info(`[team-call-notes] call=${callId} capture=${captureId} outcome=written via=closed_by_hand batch=${String(batch)}`)
+  return { status: 'ready', captureId }
+}
+
 /** The finish gave out (its retries spent): the notes are failed, every file's audio kept; the recorder's capture is locked as it stands. */
 export async function teamCallNotesFinishFailed({ event }: { event: { data?: { event?: { data?: unknown } | null } | null } }) {
   const callId = (event?.data?.event?.data as { callId?: unknown } | undefined)?.callId
   if (!isUuid(callId)) return { skipped: 'bad_event' }
+  const closedCapture = (event?.data?.event?.data as { captureId?: unknown } | undefined)?.captureId
+  if (closedCapture !== undefined) {
+    // A capture closed by hand: ended at least (its pass is the sweeper's next ask, if the finish never ran it).
+    if (isUuid(closedCapture)) await finishClosedCapture(getServiceClient(), closedCapture).catch(() => null)
+    console.warn(`[team-call-notes] call=${callId} capture=${String(closedCapture)} outcome=finished_as_is via=closed_by_hand reason=retries_spent`)
+    return { failed: callId }
+  }
   const fed = await fedNotesStatus(getServiceClient(), callId)
   if (fed.fed) {
     const locked = await lockFedNotesAsTheyAre(getServiceClient(), callId)

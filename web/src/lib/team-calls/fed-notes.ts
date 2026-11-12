@@ -121,6 +121,38 @@ export async function stopNotesForEndedCapture(svc: SupabaseClient, captureId: s
   return data === true
 }
 
+export type ClosedCaptureFinished =
+  | { outcome: 'ready'; captureId: string; ownerUserId: string; workspaceId: string; spoke: boolean }
+  | { outcome: 'done' | 'open' | 'none' }
+
+/**
+ * A call's capture its owner ended (or locked) by hand, finished now (588's
+ * team_call_capture_finish): its feeds end, it ends, its people have left,
+ * and it is the recorder's no more. 'ready': the caller runs its
+ * end-of-meeting pass. Idempotent ('done' the second time). Throws on a failed
+ * write (Inngest retries the step).
+ */
+export async function finishClosedCapture(svc: SupabaseClient, captureId: string): Promise<ClosedCaptureFinished> {
+  const { data, error } = await svc.rpc('team_call_capture_finish', { target_capture: captureId })
+  if (error) throw new Error(`team calls: closed capture not finished: ${error.message}`)
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | { outcome?: string; capture_id?: string | null; owner_user?: string | null; workspace_id?: string | null; spoke?: boolean }
+    | undefined
+  if (row?.outcome === 'ready' && row.capture_id && row.owner_user && row.workspace_id) {
+    console.info(`[team-call-notes] capture=${row.capture_id} outcome=finished via=closed_by_hand spoke=${row.spoke === true}`)
+    return { outcome: 'ready', captureId: row.capture_id, ownerUserId: row.owner_user, workspaceId: row.workspace_id, spoke: row.spoke === true }
+  }
+  const outcome = row?.outcome === 'done' || row?.outcome === 'open' ? row.outcome : 'none'
+  return { outcome }
+}
+
+/** The captures of calls closed by hand whose finish never ran (the sweeper asks for each again). */
+export async function closedCapturesToFinish(svc: SupabaseClient, max = 20): Promise<Array<{ callId: string; captureId: string }>> {
+  const { data, error } = await svc.rpc('team_call_closed_captures', { max_rows: max })
+  if (error) throw new Error(`team calls: closed captures not read: ${error.message}`)
+  return ((data ?? []) as Array<{ call_id: string; capture_id: string }>).map((r) => ({ callId: r.call_id, captureId: r.capture_id }))
+}
+
 /** The finish gave out: the capture is locked as it stands (its live transcript), so it is never left open. */
 export async function lockFedNotesAsTheyAre(svc: SupabaseClient, callId: string): Promise<string | null> {
   return (await lockCapture(svc, callId, '', false))?.outcome ?? null

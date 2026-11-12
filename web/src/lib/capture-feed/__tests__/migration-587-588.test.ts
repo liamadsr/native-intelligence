@@ -181,6 +181,21 @@ describe('migrations 587-588', () => {
     expect(quote).toContain("(array_length(regexp_split_to_array(q.t, ' '), 1) >= 5 or char_length(q.t) >= 20)")
     expect(quote).toContain("position(' ' || q.t || ' ' in ' ' || public.capture_feed_norm(l.text) || ' ') > 0")
     expect(flat(definition(FUNCTIONS, 'capture_feed_norm'))).toContain("translate(lower(coalesce(raw, '')), '''' || chr(8217), '')")
+    // Every capture a call produced is on record; one closed by hand is finished then; a silent
+    // last round links the call back to an earlier capture that holds words.
+    const t587 = flat(TABLES)
+    expect(t587).toContain('create table if not exists public.team_call_capture (')
+    expect(t587).toContain('alter table public.team_call_capture enable row level security;')
+    expect(t587).toContain('revoke all on table public.team_call_capture from anon, authenticated;')
+    expect(flat(definition(FUNCTIONS, 'team_call_capture_ensure'))).toContain('insert into public.team_call_capture (call_id, capture_id, workspace_id) values (c.id, made, c.workspace_id)')
+    expect(lock).toContain("update public.team_call t set capture_id = earlier, notes_state = 'ready', updated_at = now() where t.id = c.id;")
+    expect(lock).toContain("return query select 'done'::text")
+    const finish = flat(definition(FUNCTIONS, 'team_call_capture_finish'))
+    expect(finish).toContain("jsonb_build_object('notes_recorder', 'done')")
+    expect(finish).toContain('update public.team_call_capture x set finished_at = now()')
+    expect(flat(definition(FUNCTIONS, 'team_call_closed_captures'))).toContain('where r.finished_at is null and (x.ended_at is not null or x.is_transcript_locked)')
+    // Leaving an empty room, or a join that failed: handed back without a gap.
+    expect(flat(definition(FUNCTIONS, 'capture_feed_end'))).toContain("if p_reason in ('alone', 'failed') then")
     // A transcript its owner locked is never written at the lock.
     expect(lock).toContain('if coalesce(rebuild, true) and n > 0 and not cap.is_transcript_locked then')
     expect(quote).toContain('left join public.capture_participant p on p.id = l.participant_id')

@@ -3,6 +3,7 @@ import { apiError, notFound, serverError } from '@/lib/api-errors'
 import { TRANSCRIPT_FROM_CALL, feedOwnsTranscript } from '@/lib/capture-feed/transcript'
 import { stopNotesForEndedCapture } from '@/lib/team-calls/fed-notes'
 import { requestTeamCallEjections } from '@/lib/team-calls/eject'
+import { closedCaptureFinishEvent } from '@/lib/team-calls/notes-store'
 import { getServiceClient } from '@/lib/admin'
 import { loadPrecallBrief } from '@/lib/live-agent/precall-brief'
 import { inngest } from '@/lib/inngest/client'
@@ -460,13 +461,24 @@ export async function PATCH(
   }
 
   const row = data as unknown as Record<string, unknown>
-  // A person ended a call's capture while its notes are on: the notes go off for the call, as the
-  // switch would turn them off, so the call never says notes are on while nothing is heard.
-  if (ending && (row.metadata as { source?: unknown } | null | undefined)?.source === 'team_call') {
+  // A person ended a call's capture: while its notes are on, they go off for the call (as the switch
+  // would turn them off), so the call never says notes are on while nothing is heard; and the
+  // capture is finished now (ended, its people left, its end-of-meeting pass), whether or not notes
+  // come on again into a new one.
+  const callMeta = row.metadata as { source?: unknown; team_call_id?: unknown } | null | undefined
+  if (ending && callMeta?.source === 'team_call') {
     try {
       if (await stopNotesForEndedCapture(getServiceClient(), id)) await requestTeamCallEjections()
     } catch (err) {
       console.warn('[captures.patch] the call’s notes not turned off:', err instanceof Error ? err.message.slice(0, 160) : 'unknown')
+    }
+    if (typeof callMeta.team_call_id === 'string') {
+      try {
+        await inngest.send(closedCaptureFinishEvent(callMeta.team_call_id, id))
+      } catch (err) {
+        // The sweeper asks again for a closed capture that was never finished.
+        console.warn('[captures.patch] the call capture’s finish not asked for:', err instanceof Error ? err.message.slice(0, 160) : 'unknown')
+      }
     }
   }
   const capture: Record<string, unknown> = { id: row.id, updated_at: row.updated_at }

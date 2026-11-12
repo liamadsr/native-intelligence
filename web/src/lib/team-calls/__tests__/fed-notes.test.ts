@@ -43,6 +43,7 @@ import { runTeamCallNotesFinish, teamCallNotesFinishFailed } from '@/lib/inngest
 
 let tables: Record<string, Array<Record<string, unknown>>>
 let lockAnswers: Array<Record<string, unknown>>
+let finishAnswers: Array<Record<string, unknown>>
 
 function seed() {
   tables = {
@@ -82,6 +83,9 @@ function seed() {
       h.locks.push(args)
       return { data: [lockAnswers.shift() ?? { outcome: 'ready', capture_id: CAPTURE, owner_user: 'u-rosa', workspace_id: 'ws', spoke: true }], error: null }
     }
+    if (name === 'team_call_capture_finish') {
+      return { data: [finishAnswers.shift() ?? { outcome: 'done' }], error: null }
+    }
     return { data: null, error: { message: `no answer for ${name}` } }
   }
   h.svc = db as unknown as SupabaseClient
@@ -92,6 +96,7 @@ beforeEach(() => {
   h.locks = []
   h.calls = []
   lockAnswers = []
+  finishAnswers = []
   seed()
   vi.spyOn(console, 'info').mockImplementation(() => undefined)
   vi.spyOn(console, 'warn').mockImplementation(() => undefined)
@@ -185,8 +190,36 @@ describe('the finish, for the recorder’s notes', () => {
     expect(h.locks).toEqual([])
   })
 
+  it('a capture its owner closed by hand mid-call: finished then, and its end-of-meeting pass, as its owner', async () => {
+    const EARLIER = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    finishAnswers = [{ outcome: 'ready', call_id: CALL, capture_id: EARLIER, owner_user: 'u-rosa', workspace_id: 'ws', spoke: true }]
+    const out = await runTeamCallNotesFinish({ event: { data: { callId: CALL, captureId: EARLIER } }, step: step() })
+    expect(out).toEqual({ status: 'ready', captureId: EARLIER })
+    expect(h.rpcs).toEqual([['team_call_capture_finish', { target_capture: EARLIER }]])
+    expect(h.calls).toEqual([`batch:${EARLIER}:u-rosa`, `post:${EARLIER}:false`])
+    // Asked again (the sweeper, a retry): finished already, nothing run twice; the call's own finish is untouched.
+    h.calls = []
+    expect(await runTeamCallNotesFinish({ event: { data: { callId: CALL, captureId: EARLIER } }, step: step() })).toEqual({ status: 'skipped', reason: 'done' })
+    expect(h.calls).toEqual([])
+    expect(h.locks).toEqual([])
+  })
+
+  it('a closed capture where nothing was said: ended, the record closed, no batch', async () => {
+    const EARLIER = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    finishAnswers = [{ outcome: 'ready', call_id: CALL, capture_id: EARLIER, owner_user: 'u-rosa', workspace_id: 'ws', spoke: false }]
+    await runTeamCallNotesFinish({ event: { data: { callId: CALL, captureId: EARLIER } }, step: step() })
+    expect(h.calls).toEqual([`post:${EARLIER}:true`])
+  })
+
   it('retries spent: the capture is locked as it stands', async () => {
     await teamCallNotesFinishFailed({ event: { data: { event: { data: { callId: CALL } } } } })
     expect(h.locks).toEqual([{ target_call: CALL, preamble_text: '', rebuild: false }])
+  })
+
+  it('retries spent on a closed capture: it is ended at least (the sweeper asks for its pass again)', async () => {
+    const EARLIER = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    await teamCallNotesFinishFailed({ event: { data: { event: { data: { callId: CALL, captureId: EARLIER } } } } })
+    expect(h.rpcs).toEqual([['team_call_capture_finish', { target_capture: EARLIER }]])
+    expect(h.locks).toEqual([])
   })
 })
