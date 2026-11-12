@@ -95,6 +95,7 @@ import { HomeRecentsPanel } from './home-recents'
 import { TasksPanel } from './tasks-panel'
 import { MailPanel } from './mail-panel'
 import { TeamChatPanel } from './team-chat-panel'
+import { StudioPanel } from './studio-panel'
 import { PAGE_GROUP_PANELS } from './page-group-panel'
 import { PagePanelHeldContext, PagePanelSwapContext, pagePanelReserve } from './page-panel-frame'
 import type { PageKey, PagePanelProps } from './page-panel-types'
@@ -132,6 +133,10 @@ export const PAGE_PANELS: Readonly<{ home: PagePanel } & Partial<Record<RailPage
   // Team chat's sub-nav (Liam, 11-11: "make the team-chat one look like
   // this"): team-chat-panel.tsx.
   'team-chat': TeamChatPanel,
+  // The Studio's sub-nav (Liam, 11-12: the Studio "needs to match the rest of
+  // our app"): its Studio projects and videos, the open video's pages;
+  // studio-panel.tsx. Its card draws no rail of its own while it shows.
+  studio: StudioPanel,
   ...PAGE_GROUP_PANELS,
 }
 

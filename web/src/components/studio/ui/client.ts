@@ -7,11 +7,14 @@
 // while; when it is still running at the end of that wait, the job is polled here until it is done.
 import type { EditorBootstrap, EditorJob } from '@/lib/studio/engine/api';
 import { STUDIO_API } from '../studio-env';
+import { noteStudioCall } from '../studio-changes';
 
 export async function request<T>(path: string, body?: unknown): Promise<T> {
   const response = body === undefined ? await fetch(path) : await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  return decode<T>(response);
+  return said(body === undefined ? 'GET' : 'POST', path, await decode<T>(response));
 }
+/** A call that succeeded: when it changed the list of videos and Studio projects, the sub-nav beside the rail hears it (../studio-changes.ts). */
+function said<T>(method: string, path: string, answer: T): T { noteStudioCall(method, path); return answer; }
 async function decode<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({ error: `Request failed (${response.status})` }));
   // The code travels with the sentence: the Studio shows a page of its own for some (STUDIO_NOT_SET_UP).
@@ -24,10 +27,10 @@ export async function saveProject<T>(id: string, project: unknown, expectedDiges
   return put<T>(`${STUDIO_API}/projects/${encodeURIComponent(id)}`, { project, expectedDigest });
 }
 export async function remove<T>(path: string): Promise<T> {
-  return decode<T>(await fetch(path, { method: 'DELETE' }));
+  return said('DELETE', path, await decode<T>(await fetch(path, { method: 'DELETE' })));
 }
 export async function put<T>(path: string, body: unknown): Promise<T> {
-  return decode<T>(await fetch(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
+  return said('PUT', path, await decode<T>(await fetch(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })));
 }
 
 type UploadPart = { index: number; bytes: number; url: string; headers: Record<string, string> };

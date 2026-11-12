@@ -16,7 +16,12 @@ import { getEdition, withEffectiveSurface, type EditionDefinition } from '@/lib/
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const { edition } = vi.hoisted(() => ({ edition: { current: null as EditionDefinition | null } }))
-vi.mock('@/app/account/workspace-switcher', () => ({ useWorkspaceEdition: () => edition.current }))
+vi.mock('@/app/account/workspace-switcher', () => ({
+  useWorkspaceEdition: () => edition.current,
+  // The Studio's sub-nav (mounted by the host with every panel) asks who the person is here.
+  useWorkspaces: () => ({ workspaces: [], currentId: null }),
+  useWorkspaceId: () => null,
+}))
 vi.mock('@/lib/workspace-fetch', () => ({ getClientWorkspaceId: () => 'ws-home' }))
 vi.mock('@/components/desktop-titlebar', () => ({ useHasTrafficLights: () => false, useIsDesktop: () => false }))
 vi.mock('../../side-panels/side-panels', async () => {

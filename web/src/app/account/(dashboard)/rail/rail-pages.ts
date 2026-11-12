@@ -89,8 +89,8 @@ export const RAIL_PAGES: readonly RailPageDef[] = [
   def('actions', 'work'),
   // Calendar: Captures (Liam, 11-11).
   groupDef('calendar', 'work'),
-  // Studio (migration 620): videos and ads. One page, no sub-nav: the editor
-  // draws its own navigation inside the card.
+  // Studio (migration 620): videos and ads. One page; its sub-nav lists its
+  // Studio projects and videos (page-panel/studio-panel.tsx; Liam, 11-12).
   def('studio', 'work'),
   // Contacts: Companies, Contacts, Deals · Outreach: Prospecting, Sequences, Campaigns (Liam, 11-11).
   groupDef('contacts', 'customers'),
