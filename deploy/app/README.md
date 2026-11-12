@@ -351,9 +351,11 @@ app's own deployment token did their work (`web/src/lib/slack/config.ts`).
   empty is `production`.
 - `SANDBOX_RUNTIME_API_URL`, `SANDBOX_RUNTIME_TRAFFIC_URL`, `SANDBOX_RUNTIME_TEMPLATE`,
   `SANDBOX_RUNTIME_KEY`: the coding agent's third way, our own sandbox runtime on the
-  sandbox server (`../sandbox`), in place of the hosted service's three below, never
-  with them. Built, not switched on: empty, nothing uses it, and no live run has
-  proven it. The two URLs are the runtime's API and its sandboxes' traffic over the
+  sandbox server (`../sandbox`). It may be set beside the hosted service's three
+  below: the coding agent then uses the own runtime and ignores the three, which
+  stay for the cloud browser until that moves too. Built, not switched on: empty,
+  nothing uses it; its conformance script has passed against the real runtime,
+  and no coding run has used it yet. The two URLs are the runtime's API and its sandboxes' traffic over the
   private tunnel; the template defaults to `ni-coding-agent`; the key comes from the
   sandbox server's `/opt/e2b/sdk.env`, moved without being shown. The URLs and the
   key go together. `check_settings.py` proves the group against the runtime
@@ -537,11 +539,17 @@ The third way, our own sandbox runtime, takes no secret at the build: with
 `SANDBOX_RUNTIME_API_URL` and `SANDBOX_RUNTIME_TRAFFIC_URL` in `.env`, compose.yaml
 passes them and `SANDBOX_RUNTIME_TEMPLATE` as plain build arguments, the coding
 agent's build records only the template's name (it calls nothing on the runtime),
-and `NI_CODING_AGENT_SANDBOX` is `runtime/<template>`. The runtime's key is blanked
-for every container and given back to `agent-coding-agent` alone, at run time; no
-build is given it, and `build-agents.sh` fails the build if it turns up in what the
-build wrote. It is built, not switched on (those settings are empty), and not yet
-proven by a live run.
+and the build argument `NI_CODING_AGENT_RUNTIME` is `runtime/<template>` (it wins
+over `NI_CODING_AGENT_SANDBOX`, which may still name the hosted ids: Compose has no
+"else"). It takes precedence: with the hosted three in `.env` too (the cloud
+browser's), the coding agent is built for the own runtime and its build runs
+without them, while the access-token search still runs after it. The runtime's key
+is blanked for every container and given back to `agent-coding-agent` alone, at run
+time; no build is given it, and `build-agents.sh` fails the build if it turns up in
+what the build wrote. The coding agent's container still receives the hosted three
+and ignores them; phase 6 (the cloud browser's move) removes them. It is built, not
+switched on (those settings are empty); the conformance script has passed against
+the real runtime, and no coding run has used it yet.
 
 At run time only the containers that read them get the three: web and worker (the
 cloud browser, `web/src/lib/cloud-browser/config.ts`) and the coding agent.

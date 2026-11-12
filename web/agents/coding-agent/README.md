@@ -104,12 +104,14 @@ and at run time alike (the build and the running agent must agree;
    env, then git config). A run starts here only when the spec says the app's git
    gate accepts that token solely from the sandbox server's addresses
    (`gitGateAddressBound`, from `AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES` on the app's
-   side); otherwise it is refused before anything opens. It excludes the first way:
-   both sets of settings, or this one on the hosted platform, refuse to load.
+   side); otherwise it is refused before anything opens. It takes precedence over
+   the first way: the two sets of settings may be set together, and then the coding
+   agent uses this one and does not read the hosted three, which stay for the cloud
+   browser (it reads the same names) until that moves too. Only this one on the
+   hosted platform, or one URL without the other, refuses to load.
    **Built dark:** nothing uses it until those settings are entered on the server
-   and the app is rolled out, and no live run has proven it yet
-   (`scripts/runtime-conformance.mts` is the check to run against the real runtime
-   first).
+   and the app is rolled out. `scripts/runtime-conformance.mts` has passed against
+   the real runtime; no coding run has used it yet.
 3. **eve's `DefaultSandbox`** (Docker → microsandbox → just-bash) with none of
    them: local development. Narrowed runs fail closed when the provider cannot
    apply the policy.

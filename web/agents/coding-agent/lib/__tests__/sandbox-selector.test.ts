@@ -863,6 +863,7 @@ describe('coding-agent sandbox selector — off Vercel', () => {
       } else {
         expect(beat).not.toContain('dev only')
         for (const name of mod.SANDBOX_CREDENTIAL_ENVS) expect(beat).toContain(name)
+        for (const name of mod.RUNTIME_URL_ENVS) expect(beat).toContain(name)
       }
     }
   })
@@ -1187,24 +1188,47 @@ describe('coding-agent sandbox selector — on our own runtime (SANDBOX_RUNTIME_
     }
   })
 
-  it('together with the hosted sandbox\'s settings, or on the hosted platform, it refuses to load, naming both sets', async () => {
-    vi.stubEnv('SANDBOX_ACCESS_TOKEN', 'madeup_access_token_0123456789')
+  it('with the hosted three set as well (the cloud browser keeps them), the own runtime wins: the hosted environment is never built and its token reaches nothing', async () => {
+    const HOSTED_TOKEN = 'madeup_access_token_0123456789'
+    vi.stubEnv('SANDBOX_ACCESS_TOKEN', HOSTED_TOKEN)
     vi.stubEnv('SANDBOX_TEAM_ID', 'team_madeup0001')
     vi.stubEnv('SANDBOX_PROJECT_ID', 'prj_madeup0001')
-    mockRuntime([])
-    const both = await loadSandboxModule().then(() => null, (e: unknown) => e as Error)
-    expect(both!.message).toMatch(/SANDBOX_RUNTIME_API_URL, SANDBOX_RUNTIME_TRAFFIC_URL/)
-    expect(both!.message).toMatch(/SANDBOX_ACCESS_TOKEN, SANDBOX_TEAM_ID, SANDBOX_PROJECT_ID/)
-    expect(both!.message).not.toContain('madeup_access_token_0123456789')
+    // beforeEach made VercelSandbox.environment throw: loading proves it is never constructed.
+    const calls: Call[] = []
+    const { env, envOptions } = mockRuntime(calls)
+    fetchEveSpec.mockResolvedValue({ ...BOUND_SPEC, networkAccess: 'restricted' })
+    const mod = await loadSandboxModule()
+    expect(mod.environment).toBe(env)
+    expect(envOptions).toEqual([{ apiUrl: API_URL, trafficUrl: TRAFFIC_URL, template: 'ni-coding-agent' }])
 
-    vi.resetModules()
-    vi.stubEnv('SANDBOX_ACCESS_TOKEN', '')
+    await mod.default(selectorCtx as never)
+
+    expect(calls[0]).toEqual({
+      kind: 'open',
+      arg: { networkPolicy: mod.buildNetworkPolicy('restricted', { gateUrl: PUSH_URL, broker: null }) },
+    })
+    const leaksHosted = (text: string) => text.includes(HOSTED_TOKEN) || text.includes('team_madeup0001') || text.includes('prj_madeup0001')
+    expect(leaksHosted(JSON.stringify(envOptions))).toBe(false)
+    expect(calls.some((c) => leaksHosted(JSON.stringify(c)))).toBe(false)
+    expect(beats().some(leaksHosted)).toBe(false)
+    expect(beats().some((b) => b.startsWith('Sandbox ready'))).toBe(true)
+  })
+
+  it('a partial hosted set beside the own runtime is the cloud browser\'s concern, not the coding agent\'s: it loads', async () => {
+    vi.stubEnv('SANDBOX_ACCESS_TOKEN', 'madeup_access_token_0123456789')
     vi.stubEnv('SANDBOX_TEAM_ID', '')
     vi.stubEnv('SANDBOX_PROJECT_ID', '')
+    const { env } = mockRuntime([])
+    const mod = await loadSandboxModule()
+    expect(mod.environment).toBe(env)
+  })
+
+  it('on the hosted platform the own runtime refuses to load', async () => {
     vi.stubEnv('VERCEL', '1')
     mockRuntime([])
     const onVercel = await loadSandboxModule().then(() => null, (e: unknown) => e as Error)
-    expect(onVercel!.message).toMatch(/cannot be used on the hosted platform/)
+    expect(onVercel).toBeInstanceOf(Error)
+    expect(onVercel!.message).toMatch(/SANDBOX_RUNTIME_API_URL, SANDBOX_RUNTIME_TRAFFIC_URL\) cannot be used on the hosted platform/)
   })
 })
 

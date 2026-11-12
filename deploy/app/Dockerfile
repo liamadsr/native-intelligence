@@ -126,11 +126,15 @@ RUN VERCEL_GIT_COMMIT_SHA="$NI_BUILD_ID" node scripts/cloud-browser/build-assets
 # The third way, our own sandbox runtime on the sandbox server: its two addresses
 # (over the private tunnel) and the template's name are build ARGUMENTS, not
 # secrets. They are not secret, and the build only records the template's name:
-# it calls nothing there. NI_CODING_AGENT_SANDBOX is then "runtime/<template>". The
+# it calls nothing there. NI_CODING_AGENT_RUNTIME is then "runtime/<template>",
+# the cache key for that choice; it wins over NI_CODING_AGENT_SANDBOX, since the own
+# runtime takes precedence even with the hosted three set (they stay for the cloud
+# browser, and build-agents.sh keeps them from the coding agent's build). The
 # runtime's key is never given to this build (compose.yaml hands it to the coding
 # agent's container alone, at run time); build-agents.sh refuses to finish if it
 # turns up in what the build wrote all the same.
 ARG NI_CODING_AGENT_SANDBOX=
+ARG NI_CODING_AGENT_RUNTIME=
 ARG SANDBOX_RUNTIME_API_URL=
 ARG SANDBOX_RUNTIME_TRAFFIC_URL=
 ARG SANDBOX_RUNTIME_TEMPLATE=

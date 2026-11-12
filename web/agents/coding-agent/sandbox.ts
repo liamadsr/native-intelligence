@@ -25,8 +25,8 @@
  * (bindings/vercel.js vercelIdentityOptions). They log the APP in to the
  * service; nothing of them enters the sandbox. Everything below that says "on
  * Vercel" holds for that mode too: the selector cannot tell the two apart. Only
- * with none of the three set off Vercel does eve's DefaultSandbox run (the "OFF
- * VERCEL" section). eve prepares the snapshot at `eve build`, so the build must
+ * with none of the three (and not the own runtime, below) set off Vercel does
+ * eve's DefaultSandbox run (the "OFF VERCEL" section). eve prepares the snapshot at `eve build`, so the build must
  * see the same three (deploy/app/build-agents.sh).
  *
  * A THIRD WAY, BUILT DARK: our own sandbox runtime on the sandbox server
@@ -34,10 +34,14 @@
  * SANDBOX_RUNTIME_API_URL and SANDBOX_RUNTIME_TRAFFIC_URL are set (with
  * SANDBOX_RUNTIME_TEMPLATE, default ni-coding-agent; the key,
  * SANDBOX_RUNTIME_KEY, is read only when a sandbox starts, so the build needs
- * none). It excludes the hosted sandbox: both sets at once, or the own runtime
- * on Vercel, refuse to load. Nothing uses it until those settings are entered
- * on the server and the app is rolled out, and no live run has proven it yet.
- * On it:
+ * none). It TAKES PRECEDENCE over the hosted sandbox: with both sets present
+ * the coding agent uses the own runtime, and the hosted three are not even
+ * read for it (they stay in the environment for the cloud browser, which
+ * reads the same names, until it moves too). Only the own runtime on the
+ * hosted platform (VERCEL) refuses to load, and so does one URL without the
+ * other. Nothing uses it until those settings are entered on the server and
+ * the app is rolled out; the conformance script has passed against the real
+ * runtime, and no coding run has yet used it. On it:
  *   - the network policy is a CREATION option (open() passes it to the
  *     runtime's create call; nothing narrows or widens it afterwards), so a
  *     narrowed run is never open, not even for a moment, and a policy the
@@ -156,7 +160,8 @@
  *
  * ── OFF VERCEL, WITHOUT THE HOSTED SANDBOX'S SETTINGS ──────────────────────
  * The provider is chosen from `process.env.VERCEL` (as eve's own DefaultSandbox
- * chooses) and the three settings, read when the module loads, at `eve build`
+ * chooses) and the settings above (the own runtime's pair first, then the
+ * hosted three), read when the module loads, at `eve build`
  * and at runtime alike; deploy/app/entrypoint.sh refuses to start an agent whose
  * build chose differently. Without them we use DefaultSandbox (Docker, else microsandbox, else just-bash),
  * whose typed handle hides provider capabilities, and apply the same policy
@@ -176,8 +181,9 @@
  *   - a `trusted` run already asks for allow-all egress; it proceeds with a
  *     beat, and clone/fetch/push use the "any other provider" gate token path
  *     described above.
- *     (Outside eve dev the beat names the three settings: a container whose
- *     sandbox is just-bash cannot run git at all.)
+ *     (Outside eve dev the beat names the settings that would give it a
+ *     policy-capable sandbox: a container whose sandbox is just-bash cannot
+ *     run git at all.)
  *   - a session with NO spec asks for `deny-all`; off Vercel that is applied
  *     through the setter too, best-effort (a failure is logged and beaten, and
  *     the sandbox has nothing to clone and no credential in it either way).
@@ -928,9 +934,6 @@ export function hostedSandboxCredentials(
   return { token, teamId, projectId }
 }
 
-/** Off Vercel only: on Vercel the deployment's own credentials are used, as before. */
-const HOSTED_CREDENTIALS = ON_VERCEL ? null : hostedSandboxCredentials()
-
 /**
  * The settings that put this agent's sandbox on our own runtime (see this
  * file's header): its API and the traffic to its sandboxes, both over the
@@ -962,13 +965,20 @@ export function ownRuntimeSettings(
 }
 
 const OWN_RUNTIME = ownRuntimeSettings()
-if (OWN_RUNTIME && (ON_VERCEL || HOSTED_CREDENTIALS)) {
+if (OWN_RUNTIME && ON_VERCEL) {
   throw new Error(
-    `coding-agent sandbox: the own runtime's settings (${RUNTIME_URL_ENVS.join(', ')}) cannot be used ${
-      ON_VERCEL ? 'on the hosted platform' : `together with the hosted sandbox's (${SANDBOX_CREDENTIAL_ENVS.join(', ')})`
-    }: set one of the two, not both`,
+    `coding-agent sandbox: the own runtime's settings (${RUNTIME_URL_ENVS.join(', ')}) cannot be used on the hosted platform`,
   )
 }
+
+/**
+ * The hosted sandbox's credentials, off Vercel (on Vercel the deployment's own
+ * are used, as before), and only when the own runtime is NOT chosen: with it,
+ * the three belong to the cloud browser alone (it reads the same names), so
+ * they are not read here at all, and a partial set is not this agent's
+ * failure.
+ */
+const HOSTED_CREDENTIALS = ON_VERCEL || OWN_RUNTIME ? null : hostedSandboxCredentials()
 
 /**
  * Our own runtime (`ni-runtime`), when its settings are set: `open()` takes the
@@ -991,7 +1001,7 @@ export const GIT_GATE_ADDRESSES_SETTING = 'AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES'
  * eve hands them to every Sandbox.create/get/delete it makes for this agent.
  */
 const vercelEnvironment =
-  ON_VERCEL || HOSTED_CREDENTIALS
+  !OWN_RUNTIME && (ON_VERCEL || HOSTED_CREDENTIALS)
     ? VercelSandbox.environment({ networkPolicy: 'deny-all', ...HOSTED_CREDENTIALS })
     : null
 
@@ -1047,7 +1057,7 @@ async function openSessionSandbox(
 }
 
 /** What an operator sets to give this agent a sandbox that enforces its policy. */
-const HOSTED_SANDBOX_HINT = `set ${SANDBOX_CREDENTIAL_ENVS.join(', ')} to run it on the hosted sandbox, then build the agents again`
+const HOSTED_SANDBOX_HINT = `set ${RUNTIME_URL_ENVS.join(' and ')} to run it on our own sandbox runtime, or ${SANDBOX_CREDENTIAL_ENVS.join(', ')} to run it on the hosted sandbox, then build the agents again`
 
 /**
  * Whether a narrowed (`restricted` / `isolated`) run may degrade to open

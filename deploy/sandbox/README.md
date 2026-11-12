@@ -196,6 +196,6 @@ On the first server (4 cores, 8 threads, 32 GB, two spinning disks mirrored), by
 
 ## Not done yet
 
-- Switching the coding agent onto this runtime. Its image and the limits it needs are here, and the app's side now exists, dark: a third provider for its sandbox (`ni-runtime`, `web/agents/coding-agent/lib/runtime-sandbox.ts`), the git gate's address check, and the settings to choose them (`../app/.env.example`). Nothing uses it until those settings are entered on the app's server and the app is rolled out, and it has not been proven by a live run: `web/agents/coding-agent/scripts/runtime-conformance.mts`, run against this runtime, is the first check.
+- Switching the coding agent onto this runtime. Its image and the limits it needs are here, and the app's side now exists, dark: a third provider for its sandbox (`ni-runtime`, `web/agents/coding-agent/lib/runtime-sandbox.ts`), the git gate's address check, and the settings to choose them (`../app/.env.example`). Those settings may sit beside the hosted service's three, which the cloud browser keeps using until it moves: the own runtime then wins for the coding agent. Nothing uses it until those settings are entered on the app's server and the app is rolled out. `web/agents/coding-agent/scripts/runtime-conformance.mts` has passed against this runtime (every check, no sandbox left behind); no coding run has used it yet.
 - The cloud browser on it.
 - A second setup from nothing on a wiped machine, timed.

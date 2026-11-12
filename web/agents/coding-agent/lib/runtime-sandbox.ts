@@ -7,9 +7,9 @@
  * headers the client sets). Plain HTTP: the tunnel is the encryption.
  *
  * NOTHING USES THIS until SANDBOX_RUNTIME_API_URL and SANDBOX_RUNTIME_TRAFFIC_URL
- * are set where the coding agent is built and run (sandbox.ts chooses it), and
- * it has not been proven by a live run: scripts/runtime-conformance.mts is the
- * proof to run against the real runtime first.
+ * are set where the coding agent is built and run (sandbox.ts chooses it, ahead
+ * of the hosted sandbox's settings). scripts/runtime-conformance.mts, run against
+ * the real runtime, has passed; no coding run has used it yet.
  *
  * ── The client ─────────────────────────────────────────────────────────────
  * The official client, npm `e2b` (pinned in package.json), loaded with a

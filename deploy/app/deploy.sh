@@ -87,7 +87,10 @@ setting() {
 # are kept in the image's history. Our own sandbox runtime's two addresses and its
 # template are not secret and reach the build as arguments (compose.yaml, from
 # .env); its key (SANDBOX_RUNTIME_KEY) is not read here and never reaches a build:
-# only the coding agent's container gets it, when it runs.
+# only the coding agent's container gets it, when it runs. With both in .env the
+# coding agent is built for the own runtime, and build-agents.sh keeps the hosted
+# three from its build: they are still handed over here for the cloud browser's
+# sake, as before.
 build_web() {
 	local token team project
 	token="$(setting SANDBOX_ACCESS_TOKEN)" || die "cannot read SANDBOX_ACCESS_TOKEN from .env (docker compose config)."

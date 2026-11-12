@@ -115,10 +115,11 @@ case "$role" in
     "$DEPLOY/build-agents.sh" --list | grep -qx -- "$name" \
       || die "no agent named '$name' in this image: $("$DEPLOY/build-agents.sh" --list | tr '\n' ' ')"
     # The sandbox this agent's build prepared must be the one it opens now: the coding
-    # agent opens the hosted sandbox service when SANDBOX_ACCESS_TOKEN, SANDBOX_TEAM_ID
-    # and SANDBOX_PROJECT_ID are set, our own runtime when SANDBOX_RUNTIME_API_URL and
-    # SANDBOX_RUNTIME_TRAFFIC_URL are (it reads SANDBOX_RUNTIME_KEY only when it
-    # starts a sandbox), just-bash when none is. A build made with other
+    # agent opens our own runtime when SANDBOX_RUNTIME_API_URL and
+    # SANDBOX_RUNTIME_TRAFFIC_URL are set (whatever the hosted three say; it reads
+    # SANDBOX_RUNTIME_KEY only when it starts a sandbox), else the hosted sandbox
+    # service when SANDBOX_ACCESS_TOKEN, SANDBOX_TEAM_ID and SANDBOX_PROJECT_ID are,
+    # just-bash when none is. A build made with other
     # settings than these would start healthy and fail at its first run, so it does
     # not start (the message says which way, and what to do).
     "$DEPLOY/build-agents.sh" --check-sandbox "$name" || exit 64

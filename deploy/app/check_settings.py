@@ -107,7 +107,7 @@ SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}
 
 # What is off while a needed one is empty, where it is not obvious from the name.
 EMPTY_MEANS = {
-    "SANDBOX_ACCESS_TOKEN": "the cloud browser does not start, and no coding run works (its sandbox is just-bash)",
+    "SANDBOX_ACCESS_TOKEN": "the cloud browser does not start, and no coding run works unless our own sandbox runtime is set (SANDBOX_RUNTIME_*)",
     "CONNECT_ACCESS_TOKEN": "Slack is off: the app cannot reach the connector",
     "CONNECT_PROJECT_ID": "Slack's events and button clicks are refused",
     "CLOUD_BROWSER_RELAY_ORIGIN": "the cloud browser does not start",
@@ -445,7 +445,6 @@ def check_sandbox(env, _opts):
 RUNTIME_URLS = ("SANDBOX_RUNTIME_API_URL", "SANDBOX_RUNTIME_TRAFFIC_URL")
 RUNTIME_KEY = "SANDBOX_RUNTIME_KEY"
 RUNTIME_GROUP = RUNTIME_URLS + (RUNTIME_KEY,)
-HOSTED_SANDBOX = ("SANDBOX_ACCESS_TOKEN", "SANDBOX_TEAM_ID", "SANDBOX_PROJECT_ID")
 GATE_ADDRESSES = "AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES"
 # Where a private tunnel's end can be: the private IPv4 ranges, the shared range
 # tunnels often use, and IPv6 unique local addresses.
@@ -501,9 +500,11 @@ def runtime_group_missing(env):
 
 def check_runtime(env, _opts):
     """SANDBOX_RUNTIME_API_URL, for the whole group: the two URLs and the key set
-    together and well formed, the git gate's addresses set and valid, the hosted
-    sandbox's three unset; then the runtime itself, over the tunnel: its health
-    check, and a listing of its sandboxes with the key (changes nothing)."""
+    together and well formed, and the git gate's addresses set and valid; then the
+    runtime itself, over the tunnel: its health check, and a listing of its
+    sandboxes with the key (changes nothing). The hosted three may be set beside it:
+    the coding agent then uses the own runtime, and they serve the cloud browser
+    (checked as before, by their own check)."""
     missing = runtime_group_missing(env)
     if missing:
         return False, "set without %s: the two URLs and the key, all three or none" % ", ".join(missing)
@@ -513,9 +514,6 @@ def check_runtime(env, _opts):
             return False, "%s %s" % (name, problem)
     if not runtime_key_shape_ok(env[RUNTIME_KEY]):
         return False, "%s is not e2b_ followed by at least 32 hex digits" % RUNTIME_KEY
-    hosted = [n for n in HOSTED_SANDBOX if env.get(n, "").strip()]
-    if hosted:
-        return False, "set together with the hosted sandbox's %s: the coding agent refuses both at once" % ", ".join(hosted)
     addresses = env.get(GATE_ADDRESSES, "")
     bad, good = gate_address_problems(addresses)
     if not good and not bad:
@@ -570,8 +568,8 @@ def check_gate_addresses(env, _opts):
     if not good:
         return None, None
     if not env.get("SANDBOX_RUNTIME_API_URL", "").strip():
-        return "warn", ("set without our own runtime: the git gate then refuses the hosted sandbox's clones and pushes, "
-                        "which come from other addresses")
+        return "warn", ("set without our own runtime: the git gate would refuse every clone and push from the hosted "
+                        "sandbox service's sandboxes (they come from other addresses), so coding runs there would fail")
     return None, None
 
 

@@ -29,7 +29,10 @@
 # Its build calls nothing there: it records the template's name
 # (SANDBOX_RUNTIME_TEMPLATE, default ni-coding-agent), so the two addresses and the
 # template are plain build arguments, and the runtime's key (SANDBOX_RUNTIME_KEY)
-# is needed only when the agent runs, never here. The two ways exclude each other.
+# is needed only when the agent runs, never here. The own runtime takes precedence:
+# with both sets present the coding agent is built for it, and its build runs
+# without the hosted three, which stay for the cloud browser (it reads the same
+# names) until that moves too.
 set -eu
 
 HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -64,40 +67,37 @@ which_set() {
   fi
 }
 
-# The sandbox <name> must be built with: for the coding agent, the hosted one when
-# all three of its settings are set, our own runtime when both of its addresses
-# are, just-bash when none is; an error (exit 1) when only some of a set is, or
-# when both sets are, as the agent itself refuses them. Blank counts as unset.
+# The sandbox <name> must be built with: for the coding agent, our own runtime when
+# both of its addresses are set (whatever the hosted three say: those are then the
+# cloud browser's alone), else the hosted one when all three of its settings are,
+# else just-bash; an error (exit 1) when only one address is, or, without the own
+# runtime, only some of the three, as the agent itself refuses them. Blank counts
+# as unset.
 sandbox_provider() {
   if [ "$1" != coding-agent ]; then
     echo "$SANDBOX_PROVIDER"
     return 0
   fi
-  hosted="$(which_set "$CREDENTIALS")"
   runtime="$(which_set "$RUNTIME_URLS")"
-  case "$hosted" in
-    some:*)
-      echo "build-agents: the coding agent's sandbox needs all three of $CREDENTIALS, or none; missing:${hosted#some:}" >&2
-      return 1
-      ;;
-  esac
   case "$runtime" in
+    all)
+      echo "$RUNTIME_PROVIDER"
+      return 0
+      ;;
     some:*)
       echo "build-agents: the coding agent's own runtime needs both of $RUNTIME_URLS, or neither; missing:${runtime#some:}" >&2
       return 1
       ;;
   esac
-  if [ "$hosted" = all ] && [ "$runtime" = all ]; then
-    echo "build-agents: the coding agent's sandbox is either the hosted one ($CREDENTIALS) or our own runtime ($RUNTIME_URLS), not both: empty one set" >&2
-    return 1
-  fi
-  if [ "$hosted" = all ]; then
-    echo "$HOSTED_PROVIDER"
-  elif [ "$runtime" = all ]; then
-    echo "$RUNTIME_PROVIDER"
-  else
-    echo "$SANDBOX_PROVIDER"
-  fi
+  hosted="$(which_set "$CREDENTIALS")"
+  case "$hosted" in
+    all) echo "$HOSTED_PROVIDER" ;;
+    none) echo "$SANDBOX_PROVIDER" ;;
+    *)
+      echo "build-agents: the coding agent's sandbox needs all three of $CREDENTIALS, or none; missing:${hosted#some:}" >&2
+      return 1
+      ;;
+  esac
 }
 
 # The template the own runtime's sandboxes start from, as the agent reads it.
@@ -229,25 +229,32 @@ for name in $names; do
     exit 1
   }
   expected="$(sandbox_provider "$name")"
-  # deploy.sh says which sandbox it meant the coding agent to get (compose.yaml,
-  # NI_CODING_AGENT_SANDBOX: "vercel/<team id>/<project id>" when .env has the
-  # access token, "runtime/<template>" when it has the own runtime's API address).
+  # deploy.sh says which sandbox it meant the coding agent to get (compose.yaml):
+  # NI_CODING_AGENT_RUNTIME, "runtime/<template>" when .env has the own runtime's
+  # API address, and that wins; else NI_CODING_AGENT_SANDBOX, "vercel/<team
+  # id>/<project id>" when .env has the access token. (Two arguments, because
+  # Compose's substitution has no "else": with both sets in .env the second still
+  # names the hosted ids, for the cloud browser's sake, and is not what is meant.)
   # If the secrets or arguments did not arrive, or name another team, project or
   # template, stop here rather than build the wrong one.
-  if [ "$name" = coding-agent ] && [ -n "${NI_CODING_AGENT_SANDBOX:-}" ]; then
+  meant="$(trimmed "${NI_CODING_AGENT_RUNTIME:-}")"
+  [ -n "$meant" ] || meant="$(trimmed "${NI_CODING_AGENT_SANDBOX:-}")"
+  if [ "$name" = coding-agent ] && [ -n "$meant" ]; then
     given="$expected"
     if [ "$expected" = "$HOSTED_PROVIDER" ]; then
       given="$HOSTED_PROVIDER/$(trimmed "$SANDBOX_TEAM_ID")/$(trimmed "$SANDBOX_PROJECT_ID")"
     elif [ "$expected" = "$RUNTIME_PROVIDER" ]; then
       given="runtime/$(runtime_template)"
     fi
-    if [ "$(trimmed "$NI_CODING_AGENT_SANDBOX")" != "$given" ]; then
-      echo "build-agents: the build was meant to give coding-agent the $NI_CODING_AGENT_SANDBOX sandbox, but the settings it was given call for $given. Did $CREDENTIALS reach the build as secrets, or $RUNTIME_URLS and SANDBOX_RUNTIME_TEMPLATE as arguments (compose.yaml, deploy.sh)?" >&2
+    if [ "$meant" != "$given" ]; then
+      echo "build-agents: the build was meant to give coding-agent the $meant sandbox, but the settings it was given call for $given. Did $CREDENTIALS reach the build as secrets, or $RUNTIME_URLS and SANDBOX_RUNTIME_TEMPLATE as arguments (compose.yaml, deploy.sh)?" >&2
       exit 1
     fi
   fi
   # Only the coding agent's build sees the hosted sandbox's credentials, or the
-  # own runtime's addresses and template, whichever it is built with.
+  # own runtime's addresses and template, whichever it is built with. Built for
+  # the own runtime it never sees the hosted three, even when they are here (for
+  # the cloud browser): it can never prepare a snapshot at the hosted service.
   keep="" keep_runtime=""
   [ "$expected" = "$HOSTED_PROVIDER" ] && keep=1
   [ "$expected" = "$RUNTIME_PROVIDER" ] && keep_runtime=1
@@ -305,9 +312,11 @@ for name in $names; do
 
   # The access token logs the app in to the hosted sandbox service; it must be in
   # nothing this build leaves in the image. (Only the token is a secret: the ids
-  # are not.)
-  if [ -n "$keep" ]; then
-    refuse_if_found SANDBOX_ACCESS_TOKEN "$(trimmed "$SANDBOX_ACCESS_TOKEN")"
+  # are not.) Looked for after the coding agent's build whenever it is in this
+  # environment, also when that build was for the own runtime and never saw it.
+  hosted_token="$(trimmed "${SANDBOX_ACCESS_TOKEN:-}")"
+  if [ -n "$keep" ] || { [ "$name" = coding-agent ] && [ -n "$hosted_token" ]; }; then
+    refuse_if_found SANDBOX_ACCESS_TOKEN "$hosted_token"
   fi
   # The runtime's key should not be in a build's environment at all (none needs
   # it, and no build is given it above); if it is, it must be in nothing either.

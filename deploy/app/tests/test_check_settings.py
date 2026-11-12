@@ -446,7 +446,7 @@ class OwnRuntime(unittest.TestCase):
             self.assertNotIn(wrong, note)
         self.assertTrue(cs.runtime_key_shape_ok(" %s\n" % self.KEY))
 
-    def test_needs_the_gate_addresses_and_not_the_hosted_three(self):
+    def test_needs_the_gate_addresses(self):
         ok, note, calls = self.check(dict(self.ENV, AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES=""))
         self.assertIs(ok, False)
         self.assertIn("AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES", note)
@@ -454,11 +454,24 @@ class OwnRuntime(unittest.TestCase):
         ok, note, _ = self.check(dict(self.ENV, AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES="203.0.113.7, sandbox.example.com"))
         self.assertIs(ok, False)
         self.assertNotIn("sandbox.example.com", note)
-        ok, note, calls = self.check(dict(self.ENV, SANDBOX_ACCESS_TOKEN="made-up"))
-        self.assertIs(ok, False)
-        self.assertIn("SANDBOX_ACCESS_TOKEN", note)
+
+    def test_the_hosted_three_may_stay_beside_it_for_the_cloud_browser(self):
+        hosted = {"SANDBOX_ACCESS_TOKEN": "made-up", "SANDBOX_TEAM_ID": "team_madeup0001", "SANDBOX_PROJECT_ID": "prj_madeup0001"}
+        both = dict(self.ENV, **hosted)
+        ok, note, calls = self.check(both, [(self.API + "/health", (200, None)), (self.API + "/sandboxes", (200, []))])
+        self.assertIs(ok, True)
         self.assertNotIn("made-up", note)
-        self.assertEqual(calls, [])
+        self.assertEqual(len(calls), 2)
+        # The hosted three keep their own check, unchanged, against the hosted service.
+        with FakeHttp([("https://api.vercel.com/v2/sandboxes?", (200, {"sandboxes": []}))]) as fake:
+            self.assertIs(cs.check_sandbox(both, {})[0], True)
+        self.assertEqual(len(fake.calls), 1)
+        self.assertEqual(cs.group("SANDBOX_ACCESS_TOKEN"), "needed")
+        # Empty, it still blocks Gate 1 (the cloud browser needs it), and says what is off in both worlds.
+        _, blockers, _ = cs.report(dict(self.ENV, SANDBOX_ACCESS_TOKEN=""), {})
+        self.assertIn("SANDBOX_ACCESS_TOKEN is empty", blockers)
+        self.assertIn("cloud browser", cs.EMPTY_MEANS["SANDBOX_ACCESS_TOKEN"])
+        self.assertIn("unless our own sandbox runtime is set", cs.EMPTY_MEANS["SANDBOX_ACCESS_TOKEN"])
 
     def test_the_gate_addresses_alone(self):
         check = cs.CHECKS["AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES"]
@@ -472,6 +485,7 @@ class OwnRuntime(unittest.TestCase):
         lone = {"AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES": "203.0.113.7", "SANDBOX_RUNTIME_API_URL": ""}
         result = check(lone, {})
         self.assertEqual(result[0], "warn")
+        self.assertIn("refuse every clone and push from the hosted sandbox service's sandboxes", result[1])
         lines, blockers, unchecked = cs.report(lone, {"AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES": result})
         self.assertEqual((blockers, unchecked), ([], []))
         self.assertIn("WARNING", "\n".join(lines))

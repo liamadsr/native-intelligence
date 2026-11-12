@@ -74,13 +74,21 @@ class SandboxProvider(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("missing: SANDBOX_RUNTIME_TRAFFIC_URL", r.stderr)
 
-    def test_both_ways_at_once_is_an_error_that_names_both_and_shows_no_value(self):
+    def test_both_ways_set_the_own_runtime_wins_for_the_coding_agent(self):
+        # The hosted three stay in .env for the cloud browser.
         r = run(SCRIPT, "--sandbox-provider", "coding-agent", env=dict(CREDS, **RUNTIME, SANDBOX_RUNTIME_KEY=RUNTIME_KEY))
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("SANDBOX_ACCESS_TOKEN SANDBOX_TEAM_ID SANDBOX_PROJECT_ID", r.stderr)
-        self.assertIn("SANDBOX_RUNTIME_API_URL SANDBOX_RUNTIME_TRAFFIC_URL", r.stderr)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "ni-runtime"))
         self.assertNotIn(TOKEN, r.stdout + r.stderr)
         self.assertNotIn(RUNTIME_KEY, r.stdout + r.stderr)
+        r = run(SCRIPT, "--sandbox-provider", "chat-agent", env=dict(CREDS, **RUNTIME))
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "just-bash"))
+
+    def test_a_partial_hosted_set_beside_the_own_runtime_is_not_the_coding_agents_error(self):
+        r = run(SCRIPT, "--sandbox-provider", "coding-agent", env=dict(RUNTIME, SANDBOX_ACCESS_TOKEN=TOKEN))
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "ni-runtime"))
+        # Without the own runtime, it still is.
+        r = run(SCRIPT, "--sandbox-provider", "coding-agent", env={"SANDBOX_ACCESS_TOKEN": TOKEN})
+        self.assertEqual(r.returncode, 1)
 
     def test_state_dirs_keep_the_just_bash_sessions_folder_whatever_the_sandbox(self):
         plain = run(SCRIPT, "--state-dirs").stdout
@@ -137,6 +145,12 @@ class CheckSandbox(unittest.TestCase):
     def test_our_own_runtime_built_and_set_starts_without_the_key(self):
         self.built("coding-agent", "ni-runtime")
         self.assertEqual(run(self.script, "--check-sandbox", "coding-agent", env=RUNTIME).returncode, 0)
+        # And with the hosted three set as well (the cloud browser's).
+        self.assertEqual(run(self.script, "--check-sandbox", "coding-agent", env=dict(CREDS, **RUNTIME)).returncode, 0)
+        self.built("coding-agent", "vercel")
+        r = run(self.script, "--check-sandbox", "coding-agent", env=dict(CREDS, **RUNTIME))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("call for our own runtime", r.stderr)
 
     def test_runtime_settings_set_but_built_without_them_refuses_and_says_rebuild(self):
         self.built("coding-agent", "just-bash")
@@ -159,6 +173,130 @@ class CheckSandbox(unittest.TestCase):
         self.assertEqual(run(self.script, "--check-sandbox", "coding-agent").returncode, 1)
 
 
+# Stands in for eve: records the SANDBOX_* settings each agent's build ran with
+# (outside the app's folder), and writes what a build of the provider that environment
+# calls for would write.
+FAKE_EVE = r"""
+const fs = require("node:fs"), path = require("node:path")
+const name = path.basename(process.cwd())
+// Only the names this test asks about: a failing assertion prints what was recorded.
+const seen = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith("SANDBOX_")))
+fs.writeFileSync(path.join(process.env.NI_TEST_ENV_DIR, name + ".json"), JSON.stringify(seen))
+let providerName = "just-bash", artifact = { templateKey: "tpl" }
+if (name === "coding-agent" && process.env.SANDBOX_RUNTIME_API_URL) {
+  providerName = "ni-runtime"; artifact = { template: process.env.SANDBOX_RUNTIME_TEMPLATE || "ni-coding-agent" }
+} else if (name === "coding-agent" && process.env.SANDBOX_ACCESS_TOKEN) {
+  providerName = "vercel"; artifact = { snapshotId: "snap_madeup" }
+} else {
+  fs.mkdirSync(".eve/sandbox-cache/just-bash/templates/tpl", { recursive: true })
+}
+fs.mkdirSync(".output/server", { recursive: true })
+fs.writeFileSync(".output/server/index.mjs", "")
+fs.mkdirSync(".output/.eve/compile", { recursive: true })
+fs.writeFileSync(".output/.eve/compile/sandbox-prepared-artifacts.json", JSON.stringify({ entries: [{ nodeId: "root", providerName, artifact }] }))
+console.log("built")
+"""
+
+# grep, except that the build's leak search looks in the app's folder alone (the
+# real one also searches /tmp and $HOME, far too much for a test), and is logged.
+GREP_SHIM = """#!/bin/sh
+if [ "$1" = "-rqF" ]; then
+  printf '%s\\n' "$5" >> "$NI_TEST_GREP_LOG"
+  exec /usr/bin/grep -rqF -D skip -e "$5" "$6"
+fi
+exec /usr/bin/grep "$@"
+"""
+
+
+class BuildEnvironment(unittest.TestCase):
+    """The build loop itself, with a stand-in for eve: what each agent's build sees."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        os.makedirs(os.path.join(self.root, "deploy", "app"))
+        self.script = os.path.join(self.root, "deploy", "app", "build-agents.sh")
+        shutil.copy(SCRIPT, self.script)
+        self.web = os.path.join(self.root, "web")
+        for name in ("coding-agent", "chat-agent"):
+            os.makedirs(os.path.join(self.web, "agents", name))
+            open(os.path.join(self.web, "agents", name, "agent.ts"), "w").close()
+        with open(os.path.join(self.web, "next.config.mjs"), "w") as f:
+            f.write("agents: { 'coding-agent': './agents/coding-agent', 'chat-agent': './agents/chat-agent' }\n")
+        eve = os.path.join(self.web, "node_modules", "eve", "bin")
+        os.makedirs(eve)
+        with open(os.path.join(eve, "eve.js"), "w") as f:
+            f.write(FAKE_EVE)
+        self.envs = os.path.join(self.root, "envs")
+        os.makedirs(self.envs)
+        shim = os.path.join(self.root, "bin")
+        os.makedirs(shim)
+        with open(os.path.join(shim, "grep"), "w") as f:
+            f.write(GREP_SHIM)
+        os.chmod(os.path.join(shim, "grep"), 0o755)
+        self.grep_log = os.path.join(self.root, "grep.log")
+        self.base = {"PATH": shim + os.pathsep + os.environ["PATH"], "HOME": self.root,
+                     "NI_TEST_ENV_DIR": self.envs, "NI_TEST_GREP_LOG": self.grep_log}
+
+    def tearDown(self):
+        shutil.rmtree(self.root)
+
+    def build(self, env):
+        return run(self.script, env=dict(self.base, **env))
+
+    def seen(self, name):
+        with open(os.path.join(self.envs, name + ".json")) as f:
+            return json.load(f)
+
+    def searched(self):
+        if not os.path.exists(self.grep_log):
+            return []
+        with open(self.grep_log) as f:
+            return f.read().split()
+
+    def test_both_sets_the_coding_agent_is_built_for_the_own_runtime_without_the_hosted_three(self):
+        env = dict(CREDS, **RUNTIME, SANDBOX_RUNTIME_KEY=RUNTIME_KEY,
+                   NI_CODING_AGENT_SANDBOX="vercel/team_madeup0001/prj_madeup0001", NI_CODING_AGENT_RUNTIME="runtime/ni-coding-agent")
+        r = self.build(env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("== eve build: coding-agent (sandbox: ni-runtime)", r.stdout)
+        coding = self.seen("coding-agent")
+        for name in NAMES + ("SANDBOX_RUNTIME_KEY",):
+            self.assertNotIn(name, coding)
+        self.assertEqual(coding["SANDBOX_RUNTIME_API_URL"], RUNTIME["SANDBOX_RUNTIME_API_URL"])
+        chat = self.seen("chat-agent")
+        for name in NAMES + RUNTIME_NAMES:
+            self.assertNotIn(name, chat)
+        # The leak searches still ran, for the hosted token and for the key.
+        self.assertIn(TOKEN, self.searched())
+        self.assertIn(RUNTIME_KEY, self.searched())
+        self.assertNotIn(TOKEN, r.stdout + r.stderr)
+        self.assertNotIn(RUNTIME_KEY, r.stdout + r.stderr)
+
+    def test_hosted_alone_still_gives_the_coding_agent_the_three(self):
+        r = self.build(dict(CREDS, NI_CODING_AGENT_SANDBOX="vercel/team_madeup0001/prj_madeup0001"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("== eve build: coding-agent (sandbox: vercel)", r.stdout)
+        self.assertEqual(self.seen("coding-agent")["SANDBOX_ACCESS_TOKEN"], TOKEN)
+        self.assertNotIn("SANDBOX_ACCESS_TOKEN", self.seen("chat-agent"))
+        self.assertIn(TOKEN, self.searched())
+
+    def test_the_cross_check_follows_the_chosen_provider(self):
+        # Meant for the own runtime, but its addresses did not arrive: the hosted one would be built.
+        r = self.build(dict(CREDS, NI_CODING_AGENT_SANDBOX="vercel/team_madeup0001/prj_madeup0001", NI_CODING_AGENT_RUNTIME="runtime/ni-coding-agent"))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("meant to give coding-agent the runtime/ni-coding-agent sandbox", r.stderr)
+        # Another template than meant.
+        r = self.build(dict(RUNTIME, SANDBOX_RUNTIME_TEMPLATE="other", NI_CODING_AGENT_RUNTIME="runtime/ni-coding-agent"))
+        self.assertEqual(r.returncode, 1)
+
+    def test_a_hosted_token_that_turns_up_in_the_app_stops_the_build(self):
+        with open(os.path.join(self.web, "agents", "chat-agent", "leak.txt"), "w") as f:
+            f.write(TOKEN)
+        r = self.build(dict(CREDS, **RUNTIME))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("SANDBOX_ACCESS_TOKEN turned up", r.stderr)
+
+
 def read(name):
     with open(os.path.join(APP, name)) as f:
         return f.read()
@@ -174,7 +312,7 @@ class SecretsNeverInALayer(unittest.TestCase):
         mentioning = [i for i in instructions if any(n in i for n in NAMES)]
         # The runtime's key is in no instruction at all; its addresses and template are arguments.
         self.assertFalse(any("SANDBOX_RUNTIME_KEY" in i for i in instructions))
-        for name in ("SANDBOX_RUNTIME_API_URL", "SANDBOX_RUNTIME_TRAFFIC_URL", "SANDBOX_RUNTIME_TEMPLATE"):
+        for name in ("SANDBOX_RUNTIME_API_URL", "SANDBOX_RUNTIME_TRAFFIC_URL", "SANDBOX_RUNTIME_TEMPLATE", "NI_CODING_AGENT_RUNTIME"):
             self.assertIn("ARG %s=" % name, instructions)
         self.assertEqual(len(mentioning), 1, mentioning)
         step = mentioning[0]
@@ -196,8 +334,8 @@ class SecretsNeverInALayer(unittest.TestCase):
         # The one argument that mentions the token yields a word and the two ids,
         # never the token's value (and, for our own runtime, a word and the template).
         self.assertIn(
-            "NI_CODING_AGENT_SANDBOX: ${SANDBOX_ACCESS_TOKEN:+vercel/${SANDBOX_TEAM_ID:-}/${SANDBOX_PROJECT_ID:-}}"
-            "${SANDBOX_RUNTIME_API_URL:+runtime/${SANDBOX_RUNTIME_TEMPLATE:-ni-coding-agent}}\n", args)
+            "NI_CODING_AGENT_SANDBOX: ${SANDBOX_ACCESS_TOKEN:+vercel/${SANDBOX_TEAM_ID:-}/${SANDBOX_PROJECT_ID:-}}\n", args)
+        self.assertIn("NI_CODING_AGENT_RUNTIME: ${SANDBOX_RUNTIME_API_URL:+runtime/${SANDBOX_RUNTIME_TEMPLATE:-ni-coding-agent}}\n", args)
         self.assertEqual(len(re.findall(r"SANDBOX_ACCESS_TOKEN", args)), 1)
         self.assertNotIn("SANDBOX_RUNTIME_KEY", args)
         for name in NAMES:
@@ -265,10 +403,21 @@ class ComposeGivesThemOnlyToTheirReaders(unittest.TestCase):
         self.assertNotIn(RUNTIME_KEY, json.dumps(build))
         self.assertEqual(build["args"]["SANDBOX_RUNTIME_API_URL"], RUNTIME["SANDBOX_RUNTIME_API_URL"])
         self.assertEqual(build["args"]["SANDBOX_RUNTIME_TRAFFIC_URL"], RUNTIME["SANDBOX_RUNTIME_TRAFFIC_URL"])
-        self.assertEqual(build["args"]["NI_CODING_AGENT_SANDBOX"], "runtime/ni-coding-agent")
+        self.assertEqual(build["args"]["NI_CODING_AGENT_RUNTIME"], "runtime/ni-coding-agent")
+        self.assertEqual(build["args"]["NI_CODING_AGENT_SANDBOX"], "")
         args = self.config(dict(RUNTIME, SANDBOX_RUNTIME_TEMPLATE="my-template"))["services"]["web"]["build"]["args"]
-        self.assertEqual(args["NI_CODING_AGENT_SANDBOX"], "runtime/my-template")
+        self.assertEqual(args["NI_CODING_AGENT_RUNTIME"], "runtime/my-template")
         self.assertEqual(args["SANDBOX_RUNTIME_TEMPLATE"], "my-template")
+
+    def test_both_sets_the_runtime_argument_names_the_own_runtime_and_the_hosted_three_still_reach_their_readers(self):
+        services = self.config(dict(CREDS, **RUNTIME, SANDBOX_RUNTIME_KEY=RUNTIME_KEY))["services"]
+        args = services["web"]["build"]["args"]
+        self.assertEqual(args["NI_CODING_AGENT_RUNTIME"], "runtime/ni-coding-agent")
+        self.assertEqual(args["NI_CODING_AGENT_SANDBOX"], "vercel/team_madeup0001/prj_madeup0001")
+        for name in ("web", "worker", "agent-coding-agent"):
+            self.assertEqual(services[name]["environment"]["SANDBOX_ACCESS_TOKEN"], TOKEN, name)
+        self.assertEqual(services["agent-coding-agent"]["environment"]["SANDBOX_RUNTIME_KEY"], RUNTIME_KEY)
+        self.assertEqual(services["web"]["environment"]["SANDBOX_RUNTIME_KEY"], "")
 
 
 if __name__ == "__main__":
