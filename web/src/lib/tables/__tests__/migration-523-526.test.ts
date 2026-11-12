@@ -120,7 +120,7 @@ describe('524: a relation value is an edge', () => {
     expect(sync).toContain('public.entity_visible_to(v_target, v_id::uuid, p_workspace, p_writer,')
     expect(sync).toContain("coalesce(current_setting('dial8.data_grants', true), '') <> 'off'")
     expect(sync.match(/raise exception/g)?.length).toBe(3)
-    expect(new Set(sync.match(/raise exception '[^']*'/g))).toEqual(new Set(["raise exception '% takes a member of this workspace'", "raise exception '% links a record that isn''t one you can link to'"]))
+    expect(new Set(sync.match(/raise exception '(?:[^']|'')*'/g))).toEqual(new Set(["raise exception '% takes a member of this workspace'", "raise exception '% links a record that isn''t one you can link to'"]))
     expect(fnIn(sql, 'custom_field_links_on_write')).toContain("coalesce(auth.uid(), nullif(current_setting('dial8.data_writer', true), '')::uuid)")
   })
 
