@@ -50,6 +50,14 @@ const MIGRATION_GRANT_STUDIO = readFileSync(
   'utf8',
 )
 
+// 628 squares 538 and 623, written on two branches: whichever runs second
+// replaces the first one's list with its own 26, so it brings a persona left
+// with exactly one of `tables` and `studio` up to all 27.
+const MIGRATION_GRANT_TABLES_AND_STUDIO = readFileSync(
+  join(process.cwd(), 'supabase/migrations/628_persona_grant_tables_and_studio.sql'),
+  'utf8',
+)
+
 function migratedCategories(sql: string = MIGRATION, tag: 'cats' | 'prev' = 'cats'): string[] {
   const match = sql.match(new RegExp(`\\$${tag}\\$([\\s\\S]*?)\\$${tag}\\$`))
   expect(match, `migration is missing its $${tag}$ block`).toBeTruthy()
@@ -62,7 +70,7 @@ function migratedCategories(sql: string = MIGRATION, tag: 'cats' | 'prev' = 'cat
 const ADDED_AFTER_282 = ['browser', 'content', 'tables', 'studio']
 /** Registry categories added after 293 (each with its own grant migration). */
 const ADDED_AFTER_293 = ['content', 'tables', 'studio']
-/** Registry categories added after 387 (each with its own grant migration). */
+/** Registry categories added after 387 (each with its own grant migration; 628 squares the two). */
 const ADDED_AFTER_387 = ['tables', 'studio']
 const CATEGORIES_AS_OF_282 = ALL_CATEGORY_IDS.filter((id) => !ADDED_AFTER_282.includes(id))
 
@@ -175,5 +183,59 @@ describe('migration 623 — every-category personas stay inherit-all after `stud
       /CASE\s+WHEN jsonb_typeof\(agent_config->'disabled_tools'\) = 'array' THEN jsonb_array_length\(agent_config->'disabled_tools'\)\s+ELSE 0\s+END\s*\)\s*=\s*0/,
     )
     expect(MIGRATION_GRANT_STUDIO).toMatch(/SET agent_config = agent_config\s*\|\| jsonb_build_object/)
+  })
+})
+
+/**
+ * One grant migration's UPDATE on one persona's enabled_tools, as SQL runs it:
+ * a containment test on the "prev" list, the row not yet holding `adds`, the
+ * whole list replaced by "cats". 628's own test (exactly one of tables and
+ * studio) is `xor`.
+ */
+function applyGrant(sql: string, tools: string[], test: { adds?: string; xor?: [string, string] }): string[] {
+  const prev = migratedCategories(sql, 'prev')
+  if (!prev.every((id) => tools.includes(id))) return tools
+  if (test.adds && tools.includes(test.adds)) return tools
+  if (test.xor && tools.includes(test.xor[0]) === tools.includes(test.xor[1])) return tools
+  return migratedCategories(sql)
+}
+
+describe('migration 628 — every-category personas hold both `tables` and `studio`, whatever order 538 and 623 ran in', () => {
+  it('writes EXACTLY the live ALL_CATEGORY_IDS, in registry order', () => {
+    // If this fails you added a tool category: every persona saved with "all
+    // categories on" just stopped being inherit-all (agentInheritsAllTools needs
+    // EVERY category). Write a grant migration like 628 for the new category and
+    // point this block at it.
+    expect(migratedCategories(MIGRATION_GRANT_TABLES_AND_STUDIO)).toEqual([...ALL_CATEGORY_IDS])
+    expect(agentInheritsAllTools({ enabled_tools: migratedCategories(MIGRATION_GRANT_TABLES_AND_STUDIO), disabled_tools: [] })).toBe(true)
+  })
+
+  it('targets the rows 538 and 623 leave: the full 387 list plus exactly one of the two', () => {
+    expect(migratedCategories(MIGRATION_GRANT_TABLES_AND_STUDIO, 'prev')).toEqual(migratedCategories(MIGRATION_GRANT_CONTENT))
+    expect(MIGRATION_GRANT_TABLES_AND_STUDIO).toMatch(/WHERE category = 'agent'/)
+    expect(MIGRATION_GRANT_TABLES_AND_STUDIO).toMatch(/agent_config->'enabled_tools' @> \$prev\$/)
+    expect(MIGRATION_GRANT_TABLES_AND_STUDIO).toMatch(/\(agent_config->'enabled_tools' \? 'tables'\) <> \(agent_config->'enabled_tools' \? 'studio'\)/)
+    expect(MIGRATION_GRANT_TABLES_AND_STUDIO).toMatch(
+      /CASE\s+WHEN jsonb_typeof\(agent_config->'disabled_tools'\) = 'array' THEN jsonb_array_length\(agent_config->'disabled_tools'\)\s+ELSE 0\s+END\s*\)\s*=\s*0/,
+    )
+    expect(MIGRATION_GRANT_TABLES_AND_STUDIO).toMatch(/SET agent_config = agent_config\s*\|\| jsonb_build_object/)
+  })
+
+  it('538 then 623, or 623 then 538: each alone drops the other\'s category, and 628 ends every one at all 27', () => {
+    const tables = (t: string[]) => applyGrant(MIGRATION_GRANT_TABLES, t, { adds: 'tables' })
+    const studio = (t: string[]) => applyGrant(MIGRATION_GRANT_STUDIO, t, { adds: 'studio' })
+    const both = (t: string[]) => applyGrant(MIGRATION_GRANT_TABLES_AND_STUDIO, t, { xor: ['tables', 'studio'] })
+    const before = migratedCategories(MIGRATION_GRANT_CONTENT)
+    // The bug 628 fixes: the second migration replaces the first one's list.
+    expect(studio(tables(before))).not.toContain('tables')
+    expect(tables(studio(before))).not.toContain('studio')
+    for (const after of [both(studio(tables(before))), both(tables(studio(before)))]) {
+      expect(after).toEqual([...ALL_CATEGORY_IDS])
+      expect(agentInheritsAllTools({ enabled_tools: after, disabled_tools: [] })).toBe(true)
+    }
+    // Re-runnable: a full list is left as it is, and so is a narrowed one.
+    expect(both([...ALL_CATEGORY_IDS])).toEqual([...ALL_CATEGORY_IDS])
+    const narrowed = before.filter((id) => id !== 'emails').concat('tables')
+    expect(both(narrowed)).toEqual(narrowed)
   })
 })
