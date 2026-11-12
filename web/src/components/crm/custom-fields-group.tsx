@@ -63,7 +63,7 @@ const inputClass =
 const chipClass = 'inline-flex items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-[11px]'
 
 /** What a relation's target is called in the add-a-field form. */
-const TARGET_NAMES: Partial<Record<RelationTargetKind, string>> = {
+export const TARGET_NAMES: Partial<Record<RelationTargetKind, string>> = {
   contact: 'Contacts',
   company: 'Companies',
   deal: 'Deals',
@@ -299,8 +299,8 @@ function FieldInput({
   )
 }
 
-/** Records to link: the search menu's for a kind, a table's rows by name. */
-async function findTargets(def: Definition, query: string): Promise<Array<{ id: string; title: string }>> {
+/** Records to link: the search menu's for a kind, a table's rows by name (the table grid uses it too). */
+export async function findTargets(def: Pick<Definition, 'config'>, query: string): Promise<Array<{ id: string; title: string }>> {
   const target = def.config?.target
   if (!target) return []
   if (target.kind === 'data_row') {

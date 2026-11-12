@@ -1,13 +1,26 @@
 // @vitest-environment jsdom
 /**
- * The Tables page (phase 1): the list, making a table, and one table as its
- * rows under its columns with its history and Undo. Fetch is stubbed.
+ * The Tables page (phase 1): the list, making a table, and one table open as
+ * its grid (phase 3) with its History and Undo. Fetch is stubbed.
  */
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { TablesView } from '../tables-view'
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+// jsdom lays nothing out: give the grid's scroller a size so its rows render.
+const saved: Record<string, PropertyDescriptor | undefined> = {}
+beforeAll(() => {
+  for (const [k, v] of Object.entries({ offsetWidth: 1200, offsetHeight: 600 })) {
+    saved[k] = Object.getOwnPropertyDescriptor(HTMLElement.prototype, k)
+    Object.defineProperty(HTMLElement.prototype, k, { configurable: true, get: () => v })
+  }
+  HTMLElement.prototype.scrollTo = function () {} as never
+})
+afterAll(() => {
+  for (const [k, d] of Object.entries(saved)) if (d) Object.defineProperty(HTMLElement.prototype, k, d)
+})
 
 const T = '33333333-3333-4333-8333-333333333333'
 const table = { id: T, workspace_id: 'ws', name: 'Fernhill orders', icon: null, description: null, owner_member_id: 'm', visibility: 'workspace', version: 2, position: 0, archived_at: null, created_at: '2026-11-10T10:00:00Z', updated_at: '2026-11-10T10:00:00Z' }
@@ -59,19 +72,25 @@ it('lists the tables and opens one: its columns, its rows, its history with Undo
 
   await act(async () => button('Fernhill orders').click())
   await flush()
-  const heads = [...container.querySelectorAll('th')].map((th) => th.textContent)
+  const heads = [...container.querySelectorAll('[role="columnheader"]')].map((h) => h.getAttribute('aria-label'))
   expect(heads).toEqual(['Name', 'Status'])
-  expect([...container.querySelectorAll('td')].map((td) => td.textContent)).toEqual(['Order 1', 'Done'])
-  expect(container.textContent).toContain('Edited 1 row')
-  expect(container.textContent).toContain('Made the table')
-  // The batch that made the table has no Undo; the edit does.
-  expect([...container.querySelectorAll('button')].filter((b) => b.textContent?.includes('Undo'))).toHaveLength(1)
+  const cells = [...container.querySelectorAll('[role="gridcell"]')].map((td) => td.textContent)
+  expect(cells[0]).toContain('Order 1')
+  expect(cells[1]).toBe('Done')
 
-  await act(async () => button('Undo').click())
+  await act(async () => button('History').click())
+  await flush()
+  const history = () => document.body.textContent ?? ''
+  expect(history()).toContain('Edited 1 row')
+  expect(history()).toContain('Made the table')
+  // The batch that made the table has no Undo; the edit does.
+  const undoButtons = () => [...document.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Undo')
+  expect(undoButtons()).toHaveLength(1)
+
+  await act(async () => undoButtons()[0].click())
   await flush()
   const undo = calls.find((c) => c.url.endsWith('/undo'))!
   expect(JSON.parse(String(undo.init?.body))).toEqual({ change_id: 'ch2' })
-  expect(container.textContent).toContain('Undone.')
 })
 
 it('shows no Undo to a reader who can’t change the table', async () => {
@@ -80,8 +99,11 @@ it('shows no Undo to a reader who can’t change the table', async () => {
   await flush()
   await act(async () => button('Fernhill orders').click())
   await flush()
-  expect(container.textContent).toContain('Edited 1 row')
-  expect([...container.querySelectorAll('button')].filter((b) => b.textContent?.includes('Undo'))).toHaveLength(0)
+  expect(container.textContent).toContain('View only')
+  await act(async () => button('History').click())
+  await flush()
+  expect(document.body.textContent).toContain('Edited 1 row')
+  expect([...document.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Undo')).toHaveLength(0)
 })
 
 it('makes a table by name and opens it', async () => {

@@ -36,6 +36,10 @@ export function fakeTablesDb(rows: Record<string, Row[]>, rpc: (name: string, ar
         filters.push((r) => vs.includes(r[col]))
         return q
       },
+      gt(col: string, v: number) {
+        filters.push((r) => Number(r[col]) > v)
+        return q
+      },
       is(col: string, v: null) {
         filters.push((r) => (r[col] ?? null) === v)
         return q

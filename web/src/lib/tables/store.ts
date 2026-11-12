@@ -123,17 +123,25 @@ export async function getTable(db: SupabaseClient, workspaceId: string, tableId:
   return { ...(data as DataTable), columns, ...(editable ? { can_edit: editable.data === true } : {}) }
 }
 
-/** A page of a table's rows, in order: the live ones, or the archived ones. */
+/**
+ * A page of a table's rows, in order: the live ones, or the archived ones.
+ * With `ids`, those rows whatever their state (the grid reads the rows a
+ * teammate just added or moved).
+ */
 export async function listRows(
   db: SupabaseClient,
   workspaceId: string,
   tableId: string,
-  opts: { offset?: number; limit?: number; archived?: boolean } = {},
+  opts: { offset?: number; limit?: number; archived?: boolean; ids?: readonly string[] } = {},
 ): Promise<{ rows: DataRow[]; hasMore: boolean }> {
   const limit = Math.min(Math.max(1, Math.floor(opts.limit ?? 100)), MAX_ROWS_PAGE)
   const offset = Math.max(0, Math.floor(opts.offset ?? 0))
   let q = db.from('data_row').select(ROW_SELECT).eq('workspace_id', workspaceId).eq('table_id', tableId)
-  q = opts.archived ? q.not('archived_at', 'is', null) : q.is('archived_at', null)
+  if (opts.ids) {
+    const ids = opts.ids.filter(isUuid).slice(0, MAX_ROWS_PAGE)
+    if (!ids.length) return { rows: [], hasMore: false }
+    q = q.in('id', ids)
+  } else q = opts.archived ? q.not('archived_at', 'is', null) : q.is('archived_at', null)
   // One more than the page: whether there is another.
   const { data, error } = await q.order('position', { ascending: true }).order('id', { ascending: true }).range(offset, offset + limit)
   if (error) throw new Error(error.message)
@@ -141,20 +149,22 @@ export async function listRows(
   return { rows: rows.slice(0, limit), hasMore: rows.length > limit }
 }
 
-/** A table's write history, newest first. */
+/**
+ * A table's write history, newest first. With `afterVersion`, only the
+ * changes after it, oldest first (what a reader holding that version missed).
+ * With `summary`, a type change's every-row values are its count.
+ */
 export async function listChanges(
   db: SupabaseClient,
   workspaceId: string,
   tableId: string,
   limit = 50,
-  opts: { summary?: boolean } = {},
+  opts: { summary?: boolean; afterVersion?: number } = {},
 ): Promise<DataChange[]> {
-  const { data, error } = await db
-    .from('data_change')
-    .select(CHANGE_SELECT)
-    .eq('workspace_id', workspaceId)
-    .eq('table_id', tableId)
-    .order('created_at', { ascending: false })
+  let q = db.from('data_change').select(CHANGE_SELECT).eq('workspace_id', workspaceId).eq('table_id', tableId)
+  if (opts.afterVersion !== undefined) q = q.gt('version', opts.afterVersion)
+  const { data, error } = await q
+    .order(opts.afterVersion !== undefined ? 'version' : 'created_at', { ascending: opts.afterVersion !== undefined })
     .limit(Math.min(Math.max(1, limit), 200))
   if (error) throw new Error(error.message)
   const changes = (data ?? []) as DataChange[]

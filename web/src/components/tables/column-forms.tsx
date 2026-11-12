@@ -1,0 +1,228 @@
+'use client'
+
+/**
+ * A table's column forms (Tables, phase 3): add a column (the + header), and
+ * change a column's type (a dialog that shows the database's answer when
+ * values don't fit, the misfit count, and leaves the column as it was).
+ * Both take a type and what it needs: options for a select, a currency's
+ * code, and a relation's target: a kind, or another table's rows.
+ */
+import { useEffect, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { TARGET_NAMES } from '@/components/crm/custom-fields-group'
+import { cn } from '@/lib/utils'
+import {
+  CUSTOM_FIELD_TYPES,
+  CUSTOM_FIELD_TYPE_LABELS,
+  RELATION_TARGET_KINDS,
+  hasOptions,
+  type CustomFieldConfig,
+  type CustomFieldType,
+  type RelationTargetKind,
+} from '@/lib/crm/custom-field-types'
+import type { DataColumn, DataTable } from '@/lib/tables/types'
+
+export const fieldClass = 'h-8 w-full min-w-0 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-foreground/30'
+
+export interface ColumnShape {
+  field_type: CustomFieldType
+  options: string[]
+  config: CustomFieldConfig
+}
+
+/** A relation target as one select value: a kind, or `data_row:<table id>`. */
+const targetValue = (c: CustomFieldConfig) => (c.target?.kind === 'data_row' ? `data_row:${c.target.table_id ?? ''}` : c.target?.kind ?? 'contact')
+
+function useTables(enabled: boolean) {
+  const [tables, setTables] = useState<Pick<DataTable, 'id' | 'name'>[]>([])
+  useEffect(() => {
+    if (!enabled) return
+    let live = true
+    void fetch('/api/account/tables')
+      .then((r) => (r.ok ? r.json() : { tables: [] }))
+      .then((j: { tables?: DataTable[] }) => live && setTables(j.tables ?? []))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [enabled])
+  return tables
+}
+
+/** A type and what it needs. */
+export function ColumnTypeFields({ value, onChange, tableId }: { value: ColumnShape; onChange: (v: ColumnShape) => void; tableId: string }) {
+  const t = value.field_type
+  const tables = useTables(t === 'relation')
+  const [optionText, setOptionText] = useState(value.options.join(', '))
+  const set = (patch: Partial<ColumnShape>) => onChange({ ...value, ...patch })
+  return (
+    <div className="space-y-2">
+      <select aria-label="Type" className={cn(fieldClass, 'cursor-pointer')} value={t} onChange={(e) => {
+        const next = e.target.value as CustomFieldType
+        set({
+          field_type: next,
+          config: next === 'currency' ? { currency: value.config.currency ?? 'USD' } : next === 'relation' ? { target: value.config.target ?? { kind: 'contact' }, multiple: value.config.multiple ?? false } : {},
+        })
+      }}>
+        {CUSTOM_FIELD_TYPES.map((x) => (
+          <option key={x} value={x}>{CUSTOM_FIELD_TYPE_LABELS[x]}</option>
+        ))}
+      </select>
+      {hasOptions(t) && (
+        <Input
+          aria-label="Options"
+          className="h-8"
+          placeholder="Options, comma-separated"
+          value={optionText}
+          onChange={(e) => {
+            setOptionText(e.target.value)
+            set({ options: e.target.value.split(',').map((o) => o.trim()).filter(Boolean) })
+          }}
+        />
+      )}
+      {t === 'currency' && (
+        <Input aria-label="Currency" className="h-8 w-24" maxLength={3} placeholder="USD" value={value.config.currency ?? ''} onChange={(e) => set({ config: { ...value.config, currency: e.target.value.toUpperCase() } })} />
+      )}
+      {t === 'relation' && (
+        <div className="flex items-center gap-2">
+          <select
+            aria-label="Links to"
+            className={cn(fieldClass, 'cursor-pointer')}
+            value={targetValue(value.config)}
+            onChange={(e) => {
+              const v = e.target.value
+              const target = v.startsWith('data_row:') ? { kind: 'data_row' as const, table_id: v.slice('data_row:'.length) } : { kind: v as RelationTargetKind }
+              set({ config: { ...value.config, target } })
+            }}
+          >
+            {RELATION_TARGET_KINDS.filter((k) => k !== 'data_row').map((k) => (
+              <option key={k} value={k}>{TARGET_NAMES[k] ?? k}</option>
+            ))}
+            {tables.map((tb) => (
+              <option key={tb.id} value={`data_row:${tb.id}`}>{tb.id === tableId ? `Rows of this table` : `Rows of ${tb.name}`}</option>
+            ))}
+          </select>
+          <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+            <input type="checkbox" checked={value.config.multiple === true} onChange={(e) => set({ config: { ...value.config, multiple: e.target.checked } })} /> Several
+          </label>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** The + header's form: a name and a type. */
+export function AddColumnForm({ tableId, onAdd, onCancel }: { tableId: string; onAdd: (label: string, shape: ColumnShape) => string | null; onCancel: () => void }) {
+  const [label, setLabel] = useState('')
+  const [shape, setShape] = useState<ColumnShape>({ field_type: 'text', options: [], config: {} })
+  const [error, setError] = useState<string | null>(null)
+  const submit = () => {
+    if (!label.trim()) return onCancel()
+    const problem = onAdd(label.trim(), shape)
+    if (problem) setError(problem)
+  }
+  return (
+    <form
+      className="space-y-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        submit()
+      }}
+    >
+      <Input autoFocus aria-label="Column name" className="h-8" placeholder="Column name" value={label} onChange={(e) => setLabel(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && onCancel()} />
+      <ColumnTypeFields value={shape} onChange={setShape} tableId={tableId} />
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <div className="flex justify-end gap-2">
+        <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
+        <Button type="submit" size="sm" disabled={!label.trim()}>Add column</Button>
+      </div>
+    </form>
+  )
+}
+
+/**
+ * Change a column's type. Every value converts by the database's one cast
+ * rule, or nothing changes and the dialog says how many don't fit (the
+ * error the server answers). Undo comes after, from the toast or History.
+ */
+export function TypeChangeDialog({
+  column,
+  tableId,
+  onClose,
+  onChange,
+}: {
+  column: DataColumn
+  tableId: string
+  onClose: () => void
+  onChange: (shape: ColumnShape) => Promise<string | null>
+}) {
+  const [shape, setShape] = useState<ColumnShape>({ field_type: column.field_type, options: column.options ?? [], config: column.config ?? {} })
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const unchanged = shape.field_type === column.field_type && JSON.stringify(shape.options) === JSON.stringify(column.options ?? []) && JSON.stringify(shape.config) === JSON.stringify(column.config ?? {})
+  const submit = async () => {
+    setBusy(true)
+    setError(null)
+    const problem = await onChange(shape)
+    setBusy(false)
+    if (problem) setError(problem)
+    else onClose()
+  }
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Change “{column.label}”’s type</DialogTitle>
+          <DialogDescription>Every value converts to the new type. If some don’t fit, nothing changes.</DialogDescription>
+        </DialogHeader>
+        <ColumnTypeFields value={shape} onChange={setShape} tableId={tableId} />
+        {hasOptions(shape.field_type) && !shape.options.length && (
+          <p className="text-xs text-muted-foreground">With no options given, the column takes the values it has as its options.</p>
+        )}
+        {error && (
+          <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={busy || unchanged} onClick={() => void submit()}>{busy ? 'Changing…' : 'Change type'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Rename a column. */
+export function RenameDialog({ label, onClose, onRename }: { label: string; onClose: () => void; onRename: (label: string) => string | null }) {
+  const [value, setValue] = useState(label)
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Rename column</DialogTitle>
+        </DialogHeader>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!value.trim() || value.trim() === label) return onClose()
+            const problem = onRename(value.trim())
+            if (problem) setError(problem)
+            else onClose()
+          }}
+          className="space-y-3"
+        >
+          <Input autoFocus aria-label="Column name" value={value} maxLength={60} onChange={(e) => setValue(e.target.value)} />
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <DialogFooter>
+            <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+            <Button type="submit" size="sm">Rename</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}

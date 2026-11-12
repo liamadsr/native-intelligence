@@ -120,9 +120,21 @@ describe('rows, history and undo', () => {
     expect(await readJson(res)).toMatchObject({ rows: [{ id: ROW, title: 'Order 1' }], has_more: false })
   })
 
+  it('reads rows by id, archived ones too (the grid catching up), with the names their values show', async () => {
+    f.rows.data_row.push({ id: '55555555-5555-4555-8555-555555555555', workspace_id: WS, table_id: T, title: 'Gone', custom_fields: {}, archived_at: 'now', position: 2 })
+    const res = await getRows(get(`${base}/${T}/rows?ids=55555555-5555-4555-8555-555555555555,not-an-id`), ctx())
+    expect(await readJson(res)).toMatchObject({ rows: [{ title: 'Gone', archived_at: 'now' }], labels: {} })
+  })
+
   it('lists the history, newest first', async () => {
     const res = await getChanges(get(`${base}/${T}/changes`), ctx())
     expect((await readJson<{ changes: Array<{ id: string }> }>(res)).changes.map((c) => c.id)).toEqual([CHANGE])
+  })
+
+  it('lists only the changes after a version, oldest first', async () => {
+    f.rows.data_change.push({ ...f.rows.data_change[0], id: 'later-6', version: 6 }, { ...f.rows.data_change[0], id: 'later-5', version: 5 })
+    const res = await getChanges(get(`${base}/${T}/changes?after_version=4`), ctx())
+    expect((await readJson<{ changes: Array<{ id: string }> }>(res)).changes.map((c) => c.id)).toEqual(['later-5', 'later-6'])
   })
 
   it('undoes a change, and says why it can’t when it can’t', async () => {
