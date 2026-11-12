@@ -227,7 +227,21 @@ export async function queryRows(
   workspaceId: string,
   tableId: string,
   columns: ReadonlyArray<Pick<DataColumn, 'key' | 'field_type'> & { config?: DataColumn['config']; label?: string; deleted_at?: string | null }>,
-  opts: RowQuery & { offset?: number; limit?: number; userId?: string; timeZone?: string; computed?: ComputedReader; pageCap?: number } = {},
+  opts: RowQuery & {
+    offset?: number
+    limit?: number
+    userId?: string
+    timeZone?: string
+    /** Who reads: formulas and rollups are worked out for them (without it, rows come without cells). */
+    computed?: ComputedReader
+    pageCap?: number
+    /**
+     * When the view filters or sorts on a formula or a rollup: every matching
+     * row in one answer (at most COMPUTED_SCAN_ROWS), so the pages after it
+     * need no second run. Offset past 0 answers nothing more.
+     */
+    computedWhole?: boolean
+  } = {},
 ): Promise<{ rows: DataRow[]; hasMore: boolean; computedSkipped?: boolean }> {
   const limit = Math.min(Math.max(1, Math.floor(opts.limit ?? 100)), Math.min(opts.pageCap ?? MAX_ROWS_PAGE, EXPORT_PAGE))
   const offset = Math.max(0, Math.floor(opts.offset ?? 0))
@@ -238,8 +252,13 @@ export async function queryRows(
   const filters = (opts.filters ?? []).filter((f) => isTableField(f.field, fieldTypes))
   const ordering = (opts.ordering ?? []).filter((s) => isTableField(s.field, fieldTypes))
   // A filter or a sort on a formula or a rollup runs here, over the rows the rest let through.
-  const computedFilters = opts.computed ? (opts.filters ?? []).filter((f) => onComputed(f.field)) : []
-  const computedSort = !!opts.computed && (opts.ordering ?? []).some((s) => onComputed(s.field))
+  const computedFilters = (opts.filters ?? []).filter((f) => onComputed(f.field))
+  const computedSort = (opts.ordering ?? []).some((s) => onComputed(s.field))
+  // Without a reader there are no cells to run them on: the rest of the view, and it says so.
+  if ((computedFilters.length || computedSort) && !opts.computed) {
+    const page = await queryRows(db, workspaceId, tableId, columns, { ...opts, filters, ordering })
+    return { ...page, computedSkipped: true }
+  }
   const base = () => db.from('data_row').select(ROW_SELECT).eq('workspace_id', workspaceId).eq('table_id', tableId).is('archived_at', null)
   const narrowed = async (q: ReturnType<typeof base>) => {
     try {
@@ -306,6 +325,7 @@ export async function queryRows(
           })
           .map((x) => x.r)
       }
+      if (opts.computedWhole) return { rows: offset === 0 ? rows : [], hasMore: false }
       return { rows: rows.slice(offset, offset + limit), hasMore: rows.length > offset + limit }
     }
     // Too many rows to run it here: the view without those filters and sorts.

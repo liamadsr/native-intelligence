@@ -97,6 +97,15 @@ describe('computeRow', () => {
   })
 })
 
+describe('a column keyed like an object’s own property', () => {
+  it('reads the row’s own value, never one the prototype lends', () => {
+    const cols = [col('constructor', 'Constructor', 'number'), col('f', 'F', 'formula', { expression: 'empty({#constructor})' })]
+    const plan = planComputed(cols)
+    expect(computeRow({ title: '', custom_fields: {} }, cols, plan, {}, { today: '2026-11-11' })).toEqual({ f: { value: true } })
+    expect(computeRow({ title: '', custom_fields: { constructor: 3 } as Record<string, unknown> }, cols, plan, {}, { today: '2026-11-11' })).toEqual({ f: { value: false } })
+  })
+})
+
 describe('aggregate', () => {
   const items = [
     { name: 'A', value: 10 },

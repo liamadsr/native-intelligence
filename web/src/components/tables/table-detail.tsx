@@ -147,6 +147,8 @@ export function TableDetail({
           view_name: activeView?.name ?? null,
           time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         }),
+      }, (headers) => {
+        if (headers.get('X-Computed-Skipped')) toast('Filters and sorts on a formula or a rollup work on tables of up to 2,000 rows. The file has the rest of the view’s filters and sorts.')
       })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not export the view')

@@ -11,7 +11,8 @@
  * takes the whole import back (the rows archived, the new columns removed).
  * The cap is the batch's: IMPORT_MAX_ROWS rows. A cell that doesn't fit its
  * column (a word in a number column) is left empty and counted, never a
- * refusal of the whole file.
+ * refusal of the whole file; so is a row a required-when rule would refuse
+ * (it comes in without the select option that needs the empty column).
  *
  * Out: `exportCsv` writes a view's rows (its filters, sorts and shown
  * columns) as RFC 4180 CSV, each value as it reads: names for people and
@@ -25,6 +26,7 @@ import {
   coerceCustomValue,
   formatFieldValue,
   hasOptions,
+  isEmptyValue,
   isIsoDate,
   normalizeUrl,
   parseCurrency,
@@ -126,6 +128,12 @@ export interface ImportPlan {
   over: number
   /** Per file column, the cells that didn't fit and were left empty, with one of them. */
   misfits: Array<{ header: string; count: number; example: string }>
+  /**
+   * Rows that would break a required-when rule (a select set to the option
+   * that makes another column needed, that column empty): they come in
+   * without that select's value, counted per rule, with one row's name.
+   */
+  held: Array<{ select: string; option: string; needs: string; count: number; example: string }>
   /** The table columns the file fills, in the file's order (a new one with its key). */
   columns: Array<{ key: string; label: string; field_type: CustomFieldType }>
 }
@@ -170,6 +178,12 @@ export function importOps(
     }
   }
   const misfit = new Map<number, { count: number; example: string }>()
+  // The table's required-when rules (a new column has none).
+  const rules = columns
+    .filter((c) => !c.deleted_at && !isComputedType(c.field_type) && c.config?.required_when)
+    .map((c) => ({ col: c, rule: c.config!.required_when!, on: byKey.get(c.config!.required_when!.key) }))
+    .filter((r) => r.on && !r.on.deleted_at && r.on.field_type === 'select')
+  const held = new Map<string, { select: string; option: string; needs: string; count: number; example: string }>()
   const rows: Array<{ id?: string; title?: string; values?: Record<string, CustomFieldValue> }> = []
   let over = 0
   for (const cells of sheet.rows) {
@@ -196,6 +210,15 @@ export function importOps(
         misfit.set(i, m)
       }
     })
+    // A row the rule would refuse comes in without the option that needs the other column.
+    for (const { col, rule, on } of rules) {
+      if (values[rule.key] !== rule.option || !isEmptyValue(values[col.key])) continue
+      delete values[rule.key]
+      const id = `${col.key}:${rule.key}`
+      const h = held.get(id) ?? { select: on!.label, option: rule.option, needs: col.label, count: 0, example: row.title ?? 'Untitled' }
+      h.count++
+      held.set(id, h)
+    }
     if (Object.keys(values).length) row.values = values
     rows.push(row)
   }
@@ -208,6 +231,7 @@ export function importOps(
       rows: rows.length,
       over,
       misfits: [...misfit].map(([i, m]) => ({ header: sheet.headers[i], count: m.count, example: m.example })),
+      held: [...held.values()],
       columns: into.filter((x): x is Shape => !!x && x !== 'title').map((x) => ({ key: x.key, label: x.label, field_type: x.field_type })),
     },
   }
@@ -258,7 +282,7 @@ export function exportValue(column: DataColumn, row: Pick<DataRow, 'custom_field
 
 /** A view's rows as CSV: a Name column, then the shown columns in the view's order. */
 export function exportCsv(rows: readonly DataRow[], shown: readonly DataColumn[], labels: Readonly<Record<string, string>>): string {
-  const lines = [['Name', ...shown.map((c) => c.label)].map(csvField).join(',')]
+  const lines = [['Name', ...shown.map((c) => c.label)].map((h) => csvField(safeText(h))).join(',')]
   for (const r of rows) lines.push([safeText(r.title ?? ''), ...shown.map((c) => exportValue(c, r, labels))].map(csvField).join(','))
   return `${lines.join('\r\n')}\r\n`
 }

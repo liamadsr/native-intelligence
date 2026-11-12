@@ -54,6 +54,11 @@ describe('formula: parse', () => {
     expect(run('constructor(1)')).toEqual({ parseError: 'There is no function called constructor.' })
   })
 
+  it('refuses a number too big to be one, and a result that is not a number', () => {
+    expect(run('1e999 + 1')).toEqual({ parseError: '1e999 is too big a number.' })
+    expect(run('1e300 * 1e300')).toEqual({ type: 'number', error: 'The result is not a number.' })
+  })
+
   it('refuses a formula past its limits', () => {
     expect(run('1+'.repeat(1200) + '1')).toEqual({ parseError: 'A formula is at most 2000 characters.' })
     expect(run('('.repeat(60) + '1' + ')'.repeat(60))).toEqual({ parseError: 'That formula nests too deep.' })

@@ -101,6 +101,21 @@ describe('CSV import: one batch', () => {
     expect(importOps({ headers: ['A', 'B'], rows: [['x', 'y']] }, [{ kind: 'title' }, { kind: 'title' }], [])).toEqual({ ok: false, error: 'Only one column of the file can be the row’s name.' })
   })
 
+  it('a row a required-when rule would refuse comes in without the option, counted, never refusing the file', () => {
+    const cols = [col('stage', 'Stage', 'select', { options: ['Lead', 'Won'] }), col('close', 'Close date', 'date', { config: { required_when: { key: 'stage', option: 'Won' } } })]
+    const r = importOps(
+      { headers: ['Name', 'Stage', 'Close date'], rows: [['A', 'Won', '2026-02-01'], ['B', 'Won', ''], ['C', 'Lead', ''], ['D', 'Won', 'soon']] },
+      [{ kind: 'title' }, { kind: 'column', key: 'stage' }, { kind: 'column', key: 'close' }],
+      cols,
+    )
+    if (!r.ok) throw new Error(r.error)
+    const rows = (r.plan.ops.find((o) => o.op === 'insert_rows') as { rows: Array<{ title: string; values?: Record<string, unknown> }> }).rows
+    expect(rows.map((x) => x.values ?? {})).toEqual([{ stage: 'Won', close: '2026-02-01' }, {}, { stage: 'Lead' }, {}])
+    expect(r.plan.held).toEqual([{ select: 'Stage', option: 'Won', needs: 'Close date', count: 2, example: 'B' }])
+    expect(r.plan.misfits).toEqual([{ header: 'Close date', count: 1, example: 'soon' }])
+    expect(validateOps(cols, r.plan.ops)).toMatchObject({ ok: true })
+  })
+
   it('never writes into a formula, and skips blank lines', () => {
     const cols = [col('total', 'Total', 'formula', { config: { expression: '1' } })]
     expect(importOps({ headers: ['Total'], rows: [['3']] }, [{ kind: 'column', key: 'total' }], cols)).toMatchObject({ ok: false })
@@ -159,6 +174,11 @@ describe('CSV export', () => {
       `Copper Kettle,,,,No,,"'=HYPERLINK(""x"")",#ERROR,#ERROR`,
       '',
     ])
+  })
+
+  it('a column’s name that would run as a spreadsheet formula is made safe in the header too', () => {
+    const csv = exportCsv([], [col('evil', '=HYPERLINK("http://x.example")', 'text'), col('neg', '-Margin', 'number')], {})
+    expect(csv.split('\r\n')[0]).toBe(`Name,"'=HYPERLINK(""http://x.example"")",'-Margin`)
   })
 
   it('quotes only where a field needs it, and names the file safely', () => {

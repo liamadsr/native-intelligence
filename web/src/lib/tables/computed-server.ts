@@ -15,7 +15,8 @@
  *
  * Cost: one read of the linked fields' definitions per table read, and per
  * page, for each relation a rollup reads through, one fence and one read of
- * the linked records (in chunks), whatever the number of rollups on it.
+ * the linked records (in chunks of 200, four at a time), whatever the number
+ * of rollups on it.
  *
  * SERVER ONLY.
  */
@@ -24,11 +25,29 @@ import { relationIds, type CustomFieldType, type RelationTarget } from '@/lib/cr
 import { visibleRelationTargets, type ReferenceScope } from '@/lib/crm/custom-field-references'
 import { entityDescriptor, WORKSPACE_SCOPED_TABLE } from '@/lib/knowledge/entity-registry'
 import { resolveEntityLabels } from '@/lib/knowledge/graph-map/source'
-import { aggregate, computedInfo, computeRow, MAX_ROLLUP_LINKS, planComputed, todayIn, type ComputedPlan, type LinkedValue, type TargetFieldType } from './computed'
+import { aggregate, computedInfo, computeRow, own, MAX_ROLLUP_LINKS, planComputed, todayIn, type ComputedPlan, type LinkedValue, type TargetFieldType } from './computed'
 import { TITLE_REF } from './formula'
 import { isComputedType, TABLE_COLUMN_ENTITY_TYPE, type ComputedCell, type DataColumn, type DataRow } from './types'
 
 const CHUNK = 200
+/** Chunks read at once (a page of 2,000 rows may link thousands of records). */
+const PARALLEL = 4
+
+/** `fn` over `items` in chunks, PARALLEL chunks at a time, results in order. */
+async function inChunks<T, R>(items: readonly T[], fn: (chunk: T[]) => Promise<R>): Promise<R[]> {
+  const chunks: T[][] = []
+  for (let i = 0; i < items.length; i += CHUNK) chunks.push(items.slice(i, i + CHUNK))
+  const out: R[] = new Array(chunks.length)
+  let next = 0
+  const worker = async () => {
+    while (next < chunks.length) {
+      const i = next++
+      out[i] = await fn(chunks[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(PARALLEL, chunks.length) }, worker))
+  return out
+}
 
 /** Who reads: the rollups count what they may read. */
 export interface ComputedReader {
@@ -138,26 +157,26 @@ async function readLinked(
   const out = new Map<string, { name: string; values: Record<string, unknown> }>()
   if (!ids.length) return out
   const scope: ReferenceScope = { workspaceId: reader.workspaceId, userId: reader.userId, ...(reader.grants === false ? { grants: false } : {}) }
-  const visible: string[] = []
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const ok = await visibleRelationTargets(db, scope, target, ids.slice(i, i + CHUNK))
-    visible.push(...ids.slice(i, i + CHUNK).filter((id) => ok.has(id)))
-  }
+  const visible = (
+    await inChunks(ids, async (chunk) => {
+      const ok = await visibleRelationTargets(db, scope, target, chunk)
+      return chunk.filter((id) => ok.has(id))
+    })
+  ).flat()
   if (!visible.length) return out
   if (target.kind === 'data_row') {
-    for (let i = 0; i < visible.length; i += CHUNK) {
+    const pages = await inChunks(visible, async (chunk) => {
       const { data, error } = await db
         .from('data_row')
         .select('id, title, custom_fields')
         .eq('workspace_id', reader.workspaceId)
         .eq('table_id', target.table_id ?? '')
         .is('archived_at', null)
-        .in('id', visible.slice(i, i + CHUNK))
+        .in('id', chunk)
       if (error) throw new Error(error.message)
-      for (const r of (data ?? []) as Array<{ id: string; title: string | null; custom_fields: Record<string, unknown> | null }>) {
-        out.set(r.id, { name: r.title?.trim() || 'Untitled', values: r.custom_fields ?? {} })
-      }
-    }
+      return (data ?? []) as Array<{ id: string; title: string | null; custom_fields: Record<string, unknown> | null }>
+    })
+    for (const r of pages.flat()) out.set(r.id, { name: r.title?.trim() || 'Untitled', values: r.custom_fields ?? {} })
     return out
   }
   const names = await resolveEntityLabels(db, reader.workspaceId, new Map([[target.kind, new Set(visible)]])).catch(() => new Map<string, string>())
@@ -165,13 +184,14 @@ async function readLinked(
   const table = WORKSPACE_SCOPED_TABLE[target.kind]
   const custom = [...fields].some((f) => f !== TITLE_REF)
   if (table && custom && entityDescriptor(target.kind)?.customFields) {
-    for (let i = 0; i < visible.length; i += CHUNK) {
-      const { data, error } = await db.from(table).select('id, custom_fields').eq('workspace_id', reader.workspaceId).in('id', visible.slice(i, i + CHUNK))
+    const pages = await inChunks(visible, async (chunk) => {
+      const { data, error } = await db.from(table).select('id, custom_fields').eq('workspace_id', reader.workspaceId).in('id', chunk)
       if (error) throw new Error(error.message)
-      for (const r of (data ?? []) as Array<{ id: string; custom_fields: Record<string, unknown> | null }>) {
-        const hit = out.get(r.id)
-        if (hit) hit.values = r.custom_fields ?? {}
-      }
+      return (data ?? []) as Array<{ id: string; custom_fields: Record<string, unknown> | null }>
+    })
+    for (const r of pages.flat()) {
+      const hit = out.get(r.id)
+      if (hit) hit.values = r.custom_fields ?? {}
     }
   }
   return out
@@ -189,7 +209,7 @@ export async function attachComputed(db: SupabaseClient, ctx: ComputedContext, r
     if (ctx.plan.entries.get(key)?.error) continue
     const g = byRelation.get(r.relationKey) ?? byRelation.set(r.relationKey, { target: r.target, ids: new Set(), fields: new Set() }).get(r.relationKey)!
     if (r.field) g.fields.add(r.field)
-    for (const row of rows) for (const id of relationIds(row.custom_fields?.[r.relationKey]).slice(0, MAX_ROLLUP_LINKS)) g.ids.add(id)
+    for (const row of rows) for (const id of relationIds(own(row.custom_fields, r.relationKey)).slice(0, MAX_ROLLUP_LINKS)) g.ids.add(id)
   }
   const linked = new Map<string, Map<string, { name: string; values: Record<string, unknown> }>>()
   const failed = new Set<string>()
@@ -214,9 +234,9 @@ export async function attachComputed(db: SupabaseClient, ctx: ComputedContext, r
       }
       const records = linked.get(r.relationKey) ?? new Map()
       const items: LinkedValue[] = []
-      for (const id of relationIds(row.custom_fields?.[r.relationKey]).slice(0, MAX_ROLLUP_LINKS)) {
+      for (const id of relationIds(own(row.custom_fields, r.relationKey)).slice(0, MAX_ROLLUP_LINKS)) {
         const rec = records.get(id)
-        if (rec) items.push({ name: rec.name, value: r.field && r.field !== TITLE_REF ? rec.values[r.field] : rec.name })
+        if (rec) items.push({ name: rec.name, value: r.field && r.field !== TITLE_REF ? own(rec.values, r.field) : rec.name })
       }
       const v = aggregate(entry.rollup.fn, r.fieldType, items)
       rollups[key] = { value: v === null ? null : v.v }

@@ -36,7 +36,13 @@ export function filenameFromContentDisposition(header: string | null): string | 
  * or null if the user cancelled the desktop save dialog. Throws on HTTP or
  * save errors with a user-presentable message.
  */
-export async function downloadFile(url: string, fallbackName: string, init?: RequestInit): Promise<string | null> {
+export async function downloadFile(
+  url: string,
+  fallbackName: string,
+  init?: RequestInit,
+  /** The answer's headers, before the file is saved (what the export says about itself). */
+  onHeaders?: (headers: Headers) => void,
+): Promise<string | null> {
   const res = await fetch(url, init)
   if (!res.ok) {
     let message = `Download failed (${res.status})`
@@ -49,6 +55,7 @@ export async function downloadFile(url: string, fallbackName: string, init?: Req
     throw new Error(message)
   }
 
+  onHeaders?.(res.headers)
   const fileName =
     filenameFromContentDisposition(res.headers.get('Content-Disposition')) ?? fallbackName
   const buffer = await res.arrayBuffer()

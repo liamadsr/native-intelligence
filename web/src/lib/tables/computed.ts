@@ -43,6 +43,14 @@ export const ROLLUP_FN_LABELS: Record<RollupFn, string> = {
   list: 'List',
 }
 
+/**
+ * A record's own value under a key, never one its prototype lends: a column
+ * keyed `constructor` reads as empty, not as Object's function.
+ */
+export function own(record: Readonly<Record<string, unknown>> | null | undefined, key: string): unknown {
+  return record && Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined
+}
+
 /** What each column type is called in a menu. */
 export const COLUMN_TYPE_LABELS: Readonly<Record<DataColumnType, string>> = { ...CUSTOM_FIELD_TYPE_LABELS, formula: 'Formula', rollup: 'Rollup' }
 
@@ -318,7 +326,7 @@ export function computeRow(
   const values = new Map<string, FormulaValue | { error: string }>()
   for (const [key, e] of plan.entries) {
     if (e.kind !== 'rollup' || e.error) continue
-    const cell = rollups[key] ?? { value: e.rollup?.fn === 'count' ? 0 : null }
+    const cell = (own(rollups, key) as ComputedCell | undefined) ?? { value: e.rollup?.fn === 'count' ? 0 : null }
     out[key] = cell
     values.set(key, 'error' in cell ? { error: cell.error } : typedCell(cell, e.result))
   }
@@ -326,7 +334,7 @@ export function computeRow(
     if (key === TITLE_REF) return row.title ? { t: 'text', v: row.title } : null
     if (values.has(key)) return values.get(key)!
     const col = byKey.get(key)
-    return col ? formulaValueOf(col.field_type, row.custom_fields?.[key]) : null
+    return col ? formulaValueOf(col.field_type, own(row.custom_fields, key)) : null
   }
   for (const key of plan.order) {
     const e = plan.entries.get(key)!
@@ -513,7 +521,10 @@ export function recomputeRow<R extends { title: string; custom_fields: Record<st
 ): R {
   if (!plan.entries.size) return row
   const rollups: Record<string, ComputedCell> = {}
-  for (const [key, e] of plan.entries) if (e.kind === 'rollup' && row.computed?.[key]) rollups[key] = row.computed[key]
+  for (const [key, e] of plan.entries) {
+    const cell = own(row.computed, key) as ComputedCell | undefined
+    if (e.kind === 'rollup' && cell) rollups[key] = cell
+  }
   return { ...row, computed: computeRow(row, columns, plan, rollups, { today }) }
 }
 
@@ -523,7 +534,7 @@ export function cellValueOfRow(
   row: { computed?: Record<string, ComputedCell> },
 ): { value: number | string | boolean | null; error?: string } {
   if (c.computed?.error) return { value: null, error: c.computed.error }
-  const cell = row.computed?.[c.key]
+  const cell = own(row.computed, c.key) as ComputedCell | undefined
   if (cell && 'error' in cell) return { value: null, error: cell.error }
   return { value: cell?.value ?? null }
 }

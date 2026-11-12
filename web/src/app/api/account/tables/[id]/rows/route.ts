@@ -52,8 +52,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
  * POST { filters, ordering, offset, limit, time_zone }: a page of the live rows as a
  * view asks for them, filtered and sorted on the server (queryRows), with
  * the same `labels` and `computed` as GET. A filter or a sort on a formula
- * or a rollup runs over at most COMPUTED_SCAN_ROWS rows; past that it is
- * dropped and the answer says `computed_skipped`.
+ * or a rollup runs over at most COMPUTED_SCAN_ROWS rows, and answers every
+ * matching row at once (has_more false); past that it is dropped and the
+ * answer says `computed_skipped`.
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireWorkspace()
@@ -77,6 +78,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       userId: user.id,
       ...(zoneOf(body.time_zone) ? { timeZone: zoneOf(body.time_zone) } : {}),
       computed: { workspaceId, userId: user.id, timeZone: zoneOf(body.time_zone) },
+      // A view run in memory comes whole: the grid's next pages need no second run.
+      computedWhole: true,
     })
     return NextResponse.json({
       rows: page.rows,

@@ -16,6 +16,8 @@ const KEY_RE = /^[a-z][a-z0-9_]{0,39}$/
  * as CSV, as the reader sees it: its filters and sorts (run on the server,
  * formulas and rollups worked out for them), its shown columns in its order,
  * each value as it reads (lib/tables/csv.ts). At most EXPORT_MAX_ROWS rows.
+ * A view on a formula or a rollup of a table too big to run it on comes
+ * without those filters and sorts, and says so (X-Computed-Skipped).
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireWorkspace()
@@ -40,6 +42,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const shown = viewColumns(table.columns, keys(body.order), keys(body.hidden))
     const rows: DataRow[] = []
     const labels: Record<string, string> = {}
+    let skipped = false
     const named = table.columns.filter((c): c is DataColumn & { field_type: 'person' | 'relation' } => c.field_type === 'person' || c.field_type === 'relation')
     for (let offset = 0; offset < EXPORT_MAX_ROWS; ) {
       const page = await queryRows(supabase, workspaceId, id, table.columns, {
@@ -51,7 +54,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         userId: user.id,
         timeZone,
         computed: { workspaceId, userId: user.id, timeZone },
+        // A view on a formula or a rollup runs once, whole.
+        computedWhole: true,
       })
+      if (page.computedSkipped) skipped = true
       rows.push(...page.rows)
       if (named.length && page.rows.length) Object.assign(labels, await fieldValueLabels(supabase, workspaceId, named, page.rows.map((r) => r.custom_fields)))
       offset += page.rows.length
@@ -64,6 +70,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': `attachment; filename="${name.replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(name)}`,
         'Cache-Control': 'no-store',
+        // The page says the view's formula filters and sorts were left out (a table too big to run them on).
+        ...(skipped ? { 'X-Computed-Skipped': '1' } : {}),
       },
     })
   } catch (e) {

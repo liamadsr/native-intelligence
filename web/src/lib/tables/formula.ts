@@ -91,7 +91,9 @@ function tokenize(src: string): { ok: true; tokens: Token[] } | Fail {
     if (/[0-9]/.test(ch) || (ch === '.' && /[0-9]/.test(src[i + 1] ?? ''))) {
       const m = /^(\d+(\.\d*)?|\.\d+)([eE][-+]?\d{1,3})?/.exec(src.slice(i))!
       i += m[0].length
-      tokens.push({ t: 'num', v: Number(m[0]), at, end: i })
+      const v = Number(m[0])
+      if (!Number.isFinite(v)) return fail(`${m[0]} is too big a number.`)
+      tokens.push({ t: 'num', v, at, end: i })
       continue
     }
     if (ch === '"' || ch === "'") {
@@ -628,6 +630,7 @@ export function runFormula(ast: FormulaNode, ref: (key: string) => FormulaValue 
   }
   try {
     const value = walk(ast)
+    if (value?.t === 'number' && !Number.isFinite(value.v as number)) return fail('The result is not a number.')
     if (value?.t === 'text' && (value.v as string).length > 2000) return { ok: true, value: { t: 'text', v: (value.v as string).slice(0, 2000) } }
     if (value?.t === 'date' && !ISO_DATE.test(String(value.v))) return fail('That date is out of range.')
     return { ok: true, value }

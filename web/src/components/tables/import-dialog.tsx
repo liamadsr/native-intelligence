@@ -223,6 +223,7 @@ export function ImportDialog({
                   {preview.plan.rows.toLocaleString()} {preview.plan.rows === 1 ? 'row' : 'rows'}
                   {newCols.length > 0 && `, ${newCols.length} new ${newCols.length === 1 ? 'column' : 'columns'}`}.
                   {preview.plan.misfits.map((m) => ` ${m.count.toLocaleString()} ${m.count === 1 ? 'cell in' : 'cells in'} ${m.header} ${m.count === 1 ? 'doesn’t fit and stays' : 'don’t fit and stay'} empty (like “${m.example}”).`).join('')}
+                  {preview.plan.held.map((h) => ` ${h.count.toLocaleString()} ${h.count === 1 ? 'row comes' : 'rows come'} in without ${h.select} “${h.option}”, because ${h.needs} is needed then and is empty (like “${h.example}”).`).join('')}
                 </p>
               </div>
             )}

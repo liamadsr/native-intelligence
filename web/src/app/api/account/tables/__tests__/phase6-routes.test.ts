@@ -68,6 +68,16 @@ describe('POST /api/account/tables/[id]/import', () => {
     expect((call.args.p_ops as Array<{ op: string }>).map((o) => o.op)).toEqual(['create_column', 'insert_rows'])
   })
 
+  it('refuses a request over 6 MB by its length, and reads a body only up to that', async () => {
+    const declared = await postImport(buildRequest({ url: `${base}/${T}/import`, method: 'POST', headers: { 'content-length': String(7 * 1024 * 1024) }, body: { headers: [], rows: [], targets: [] } }) as unknown as NextRequest, ctx())
+    expect(declared.status).toBe(413)
+    const huge = 'x'.repeat(2000)
+    const rows = Array.from({ length: 3200 }, () => [huge])
+    const big = await postImport(send(`${base}/${T}/import`, { headers: ['Name'], rows, targets: [{ kind: 'title' }] }), ctx())
+    expect(big.status).toBe(413)
+    expect(f.rpcCalls).toHaveLength(0)
+  })
+
   it('refuses a file over the cap, and a column no file fills', async () => {
     const big = await postImport(send(`${base}/${T}/import`, { headers: ['Name'], rows: Array.from({ length: 5001 }, () => ['x']), targets: [{ kind: 'title' }] }), ctx())
     expect(big.status).toBe(400)

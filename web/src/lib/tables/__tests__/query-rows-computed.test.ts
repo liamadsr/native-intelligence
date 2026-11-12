@@ -41,6 +41,20 @@ describe('queryRows on a formula', () => {
     expect(page.rows.map((r) => r.computed?.total)).toEqual([{ value: 20 }, { value: 5 }, { value: 120 }, { value: 3 }])
   })
 
+  it('whole: a view run in memory answers every matching row at once, and nothing past it', async () => {
+    const first = await queryRows(db(), WS, T, COLUMNS, { ordering: [{ field: 'custom_fields.total', direction: 'asc' }], limit: 2, computed: reader, computedWhole: true })
+    expect(first.rows.map((r) => r.title)).toEqual(['Item 4', 'Item 2', 'Item 1', 'Item 3'])
+    expect(first.hasMore).toBe(false)
+    const next = await queryRows(db(), WS, T, COLUMNS, { ordering: [{ field: 'custom_fields.total', direction: 'asc' }], offset: 200, computed: reader, computedWhole: true })
+    expect(next.rows).toEqual([])
+  })
+
+  it('without a reader, a formula filter is not dropped silently: the answer says it was left out', async () => {
+    const page = await queryRows(db(), WS, T, COLUMNS, { filters: [{ id: 'f', field: 'custom_fields.total', operator: 'gt', value: 50 }] })
+    expect(page.computedSkipped).toBe(true)
+    expect(page.rows).toHaveLength(4)
+  })
+
   it('past the cap, the formula’s filter and sort are dropped and the answer says so', async () => {
     const many = Array.from({ length: COMPUTED_SCAN_ROWS + 5 }, (_, i) => row(i + 1, 1, i))
     const big = fakeTablesDb({ data_row: many }, () => ({ data: null, error: null })).client
