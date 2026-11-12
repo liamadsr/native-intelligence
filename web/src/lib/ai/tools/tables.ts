@@ -135,7 +135,7 @@ function describeColumn(c: DataColumn, columns: readonly DataColumn[], tableName
     name: c.label,
     key: c.key,
     type: c.field_type,
-    ...(hasOptions(c.field_type) ? { options: c.options } : {}),
+    ...(!isComputedType(c.field_type) && hasOptions(c.field_type) ? { options: c.options } : {}),
     ...(c.field_type === 'currency' ? { currency: config.currency ?? 'USD' } : {}),
     ...(target ? { links_to: target.kind, ...(target.table_id ? { links_to_table: tableNames.get(target.table_id) ?? target.table_id } : {}), multiple: !!config.multiple } : {}),
     ...(rule && on ? { required_when: `${on.label} is ${rule.option}` } : {}),
@@ -319,6 +319,7 @@ export function createTableTools(
         }
         return fail(noColumn(table, name))
       }
+      if (isComputedType(col.field_type)) return fail(`${col.label} is worked out from other columns, so it can't be set.`)
       let v: unknown = value
       if (col.field_type === 'person' && typeof v === 'string' && v.trim() && !isId(v.trim())) {
         people ??= await members(ws)
@@ -328,7 +329,7 @@ export function createTableTools(
         v = hit.id
       }
       if (col.field_type === 'date') v = await dayIn(v)
-      const coerced = coerceCustomValue(col, v)
+      const coerced = coerceCustomValue({ ...col, field_type: col.field_type }, v)
       if (!coerced.ok) return fail(coerced.error)
       out[col.key] = coerced.value
     }
