@@ -3,6 +3,7 @@ import {
   isValidProvider,
   isValidCapability,
   getScopesForCapability,
+  OAUTH_CAPABILITIES,
   OAUTH_CONFIG,
 } from '../config'
 
@@ -22,9 +23,14 @@ describe('isValidProvider', () => {
 
 describe('isValidCapability', () => {
   it('accepts every configured capability including crm and tasks', () => {
-    for (const c of ['calendar', 'email', 'github', 'crm', 'tasks']) {
+    for (const c of ['calendar', 'email', 'github', 'crm', 'tasks', 'contacts', 'search_console', 'analytics']) {
       expect(isValidCapability(c)).toBe(true)
     }
+  })
+
+  it('accepts exactly the capabilities of OAUTH_CAPABILITIES', () => {
+    expect([...OAUTH_CAPABILITIES].sort()).toEqual(['analytics', 'calendar', 'contacts', 'crm', 'email', 'github', 'search_console', 'tasks'])
+    for (const c of ['searchconsole', 'search-console', 'ANALYTICS', 'ga4', 'gsc']) expect(isValidCapability(c)).toBe(false)
   })
 
   it('rejects unknown capabilities', () => {
@@ -63,6 +69,43 @@ describe('getScopesForCapability — hubspot/crm', () => {
     expect(getScopesForCapability('google', 'calendar')).toContain(
       'https://www.googleapis.com/auth/calendar.events',
     )
+  })
+})
+
+describe('getScopesForCapability — google search_console / analytics (the SEO area)', () => {
+  it('asks only for the read-only scope and the account email, one product each', () => {
+    expect(getScopesForCapability('google', 'search_console')).toEqual([
+      'https://www.googleapis.com/auth/webmasters.readonly',
+      'https://www.googleapis.com/auth/userinfo.email',
+    ])
+    expect(getScopesForCapability('google', 'analytics')).toEqual([
+      'https://www.googleapis.com/auth/analytics.readonly',
+      'https://www.googleapis.com/auth/userinfo.email',
+    ])
+  })
+
+  it('leaves every earlier Google capability asking for exactly what it did', () => {
+    expect(getScopesForCapability('google', 'email')).toEqual([
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/gmail.compose',
+      'https://www.googleapis.com/auth/userinfo.email',
+    ])
+    expect(getScopesForCapability('google', 'calendar')).toEqual([
+      'https://www.googleapis.com/auth/calendar.readonly',
+      'https://www.googleapis.com/auth/calendar.events',
+      'https://www.googleapis.com/auth/userinfo.email',
+    ])
+    expect(getScopesForCapability('google', 'contacts')).toEqual([
+      'https://www.googleapis.com/auth/contacts.readonly',
+      'https://www.googleapis.com/auth/userinfo.email',
+    ])
+  })
+
+  it('never asks a write scope, and no other provider has them', () => {
+    for (const c of ['search_console', 'analytics'] as const) {
+      expect(getScopesForCapability('google', c).every((s) => s.endsWith('.readonly') || s.endsWith('userinfo.email'))).toBe(true)
+      expect(getScopesForCapability('microsoft', c)).toEqual([])
+    }
   })
 })
 

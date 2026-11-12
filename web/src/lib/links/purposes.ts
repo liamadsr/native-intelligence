@@ -10,7 +10,7 @@
  * A new purpose (Stripe Connect, track C) adds an entry here and to
  * migration 457's purpose check.
  */
-import { importsOnConnect, parseOAuthConnectPayload, providerLabel, startConnectFromLink } from './oauth-link'
+import { GOOGLE_PRODUCT_LABEL, importsOnConnect, parseOAuthConnectPayload, providerLabel, startConnectFromLink } from './oauth-link'
 import type { OneTimeLink, OneTimeLinkPurpose } from './one-time'
 
 export interface LinkPurposeView {
@@ -26,7 +26,7 @@ export interface LinkPurpose {
   start(link: OneTimeLink): LinkStart
 }
 
-const CAPABILITY_WORDS: Record<string, string> = { email: 'email', calendar: 'calendar', github: 'repositories', crm: 'contacts and companies', contacts: 'contacts' }
+const CAPABILITY_WORDS: Record<string, string> = { email: 'email', calendar: 'calendar', github: 'repositories', crm: 'contacts and companies', contacts: 'contacts', search_console: 'Search Console data (read only)', analytics: 'Google Analytics data (read only)' }
 
 export const LINK_PURPOSES: Record<OneTimeLinkPurpose, LinkPurpose> = {
   oauth_connect: {
@@ -37,7 +37,10 @@ export const LINK_PURPOSES: Record<OneTimeLinkPurpose, LinkPurpose> = {
       const what = payload.capabilities.map((c) => CAPABILITY_WORDS[c] ?? c).join(' and ')
       return {
         // Google's contacts leg asked for on its own reads as its own product.
-        title: payload.provider === 'google' && payload.capabilities.join() === 'contacts' ? 'Connect Google Contacts' : `Connect ${name}`,
+        title:
+          payload.provider === 'google' && payload.capabilities.length === 1 && GOOGLE_PRODUCT_LABEL[payload.capabilities[0]]
+            ? `Connect ${GOOGLE_PRODUCT_LABEL[payload.capabilities[0]]}`
+            : `Connect ${name}`,
         body: payload.capabilities.every((c) => importsOnConnect(payload.provider, c))
           ? `Your Native Intelligence agent will read your ${what} to bring them into Native Intelligence. It only reads: nothing is sent or changed in ${name}. You sign in on ${name}'s own page: Native Intelligence never sees your password.`
           : payload.provider === 'github'

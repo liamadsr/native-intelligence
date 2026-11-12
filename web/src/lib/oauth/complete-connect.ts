@@ -245,7 +245,7 @@ export async function completeOAuthConnect(input: CompleteConnectInput): Promise
                 : provider === 'brevo'
                   ? 'Brevo'
                   : provider === 'google'
-                  ? (capability === 'email' ? 'Gmail' : capability === 'contacts' ? 'Google Contacts' : 'Google Calendar')
+                  ? (capability === 'email' ? 'Gmail' : capability === 'contacts' ? 'Google Contacts' : capability === 'search_console' ? 'Google Search Console' : capability === 'analytics' ? 'Google Analytics' : 'Google Calendar')
                   : (capability === 'email' ? 'Outlook' : 'Outlook Calendar')
 
       // Create new connected_account

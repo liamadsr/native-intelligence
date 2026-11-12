@@ -184,3 +184,23 @@ describe("the GitHub link's page (roadmap track E)", () => {
     })
   })
 })
+
+describe('a Search Console or Google Analytics link (the SEO area)', () => {
+  it('connects that one product, reads as its own, and says it only reads', () => {
+    for (const [capability, label] of [
+      ['search_console', 'Google Search Console'],
+      ['analytics', 'Google Analytics'],
+    ] as const) {
+      expect(parseOAuthConnectPayload({ provider: 'google', capabilities: [capability] })).toEqual({ provider: 'google', capabilities: [capability] })
+      expect(connectLinkText('google', 'https://nativeintelligence.dev/l/x', [capability])).toMatch(new RegExp(`^Connect your ${label}: `))
+      const view = LINK_PURPOSES.oauth_connect.view({ payload: { provider: 'google', capabilities: [capability] } } as never)
+      expect(view?.title).toBe(`Connect ${label}`)
+      expect(view?.body).toContain('(read only)')
+    }
+  })
+
+  it('a plain Google link still connects only mail and calendar', () => {
+    expect(startConnectFromLink(LINK)).toMatchObject({ ok: true, provider: 'google' })
+    expect(parseOAuthConnectPayload({ provider: 'google', capabilities: ['email', 'calendar'] })?.capabilities).toEqual(['email', 'calendar'])
+  })
+})

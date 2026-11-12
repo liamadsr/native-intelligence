@@ -88,6 +88,27 @@ const INTEGRATION_TOOLS: Record<string, { tools: string[]; summary: string }> = 
   'microsoft:email': { tools: categoryTools('emails'), summary: 'Read mail and write drafts (never sends).' },
   'github:github': { tools: [], summary: 'Links pull requests to actions and projects; loops can start on a PR change.' },
   'hubspot:crm': { tools: [], summary: 'Syncs contacts and companies from HubSpot into the CRM.' },
+  // The SEO area (src/lib/seo/google/, src/lib/ai/tools/seo-google.ts): read only, for the workspace's chosen site and property.
+  'google:search_console': {
+    tools: ['list_search_console_sites', 'get_search_console_performance', 'get_search_opportunities', 'get_url_inspection', 'set_search_console_site'],
+    summary: 'Reads Search Console for the site this workspace chose: searches, clicks, positions and index status (read only).',
+  },
+  'google:analytics': {
+    tools: [
+      'list_google_analytics_properties',
+      'get_google_analytics_organic_overview',
+      'get_google_analytics_organic_landing_pages',
+      'get_google_analytics_page_performance',
+      'get_google_analytics_key_events',
+      'get_google_analytics_traffic_acquisition',
+      'get_google_analytics_ecommerce_performance',
+      'get_google_analytics_site_search',
+      'get_google_analytics_audience_breakdown',
+      'get_google_analytics_measurement_health',
+      'set_google_analytics_property',
+    ],
+    summary: 'Reads Google Analytics for the property this workspace chose: what visitors from search do on the site (read only).',
+  },
   'asana:tasks': { tools: ['push_action_to_asana'], summary: 'Pushes actions to Asana as tasks and keeps completion in sync.' },
   'jira:tasks': { tools: ['push_action_to_jira'], summary: 'Pushes actions to Jira as issues and keeps status in sync.' },
   'linear:tasks': { tools: ['push_action_to_linear'], summary: 'Pushes actions to Linear as issues and keeps state in sync.' },

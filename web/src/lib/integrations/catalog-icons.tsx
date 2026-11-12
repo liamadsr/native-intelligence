@@ -16,7 +16,7 @@
  * would render if a mark were ever unavailable.
  */
 
-import { Calendar, Mail, GitBranch, Building2, CheckSquare, Contact, MessageSquare, MessageSquareText, Monitor, Plug } from 'lucide-react'
+import { BarChart3, Calendar, Mail, GitBranch, Building2, CheckSquare, Contact, MessageSquare, MessageSquareText, Monitor, Plug, SearchCheck } from 'lucide-react'
 import {
   GitHubIcon,
   GoogleCalendarIcon,
@@ -40,6 +40,9 @@ export const CAPABILITY_ICONS: Record<string, typeof Calendar> = {
   github: GitBranch,
   crm: Building2,
   contacts: Contact,
+  // The SEO area's Google sources (no brand mark: the lucide fallback).
+  search_console: SearchCheck,
+  analytics: BarChart3,
   tasks: CheckSquare,
   messaging: MessageSquare,
   // A connected app with no brand mark (a custom MCP server, Typefully today):

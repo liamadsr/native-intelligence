@@ -104,7 +104,7 @@ export function createConnectionTools(userId: string, supabase: SupabaseClient, 
         'Use it instead of telling them to go to Settings. After calling it, say one short line; the card does the rest.',
       inputSchema: z.object({
         provider: z.enum(INTEGRATION_PROVIDERS).optional().describe('An integration: google, microsoft, github, hubspot, asana, jira, linear or brevo.'),
-        capability: z.string().max(40).optional().describe('With provider, when it has several: calendar or email (google, microsoft), or contacts (google: Google Contacts, imported into the CRM).'),
+        capability: z.string().max(40).optional().describe('With provider, when it has several: calendar or email (google, microsoft), or contacts (google: Google Contacts, imported into the CRM), or search_console / analytics (google: Google Search Console / Google Analytics, read only, for the SEO area).'),
         catalog_id: z.string().max(40).optional().describe('An app from the catalog, e.g. "atlassian", "linear", "typefully".'),
         mcp_url: z.string().url().max(2048).optional().describe('Any other MCP server, by the https URL the person gave.'),
       }),

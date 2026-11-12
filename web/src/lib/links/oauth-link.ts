@@ -52,7 +52,7 @@ import { createOneTimeLink, type CreateLinkResult, type OneTimeLink } from './on
 
 /** The providers a texted link connects, and what each may connect, in order. */
 export const TEXT_CONNECT_CAPABILITIES = {
-  google: ['email', 'calendar', 'contacts'],
+  google: ['email', 'calendar', 'contacts', 'search_console', 'analytics'],
   microsoft: ['email', 'calendar'],
   github: ['github'],
   // Bringing existing customers in (roadmap track G): read-only, imported once on connect.
@@ -67,6 +67,8 @@ export const TEXT_CONNECT_PROVIDERS = Object.keys(TEXT_CONNECT_CAPABILITIES) as 
  * What a plain link for a provider connects. Google's contacts leg is only
  * ever asked for on its own (a `google_contacts` link): its scope waits on
  * Google's verification, and a sign-up's Google link must not stop on it.
+ * Search Console and Google Analytics likewise (`google_search_console`,
+ * `google_analytics`: the SEO area, src/lib/seo/google/).
  */
 export const TEXT_CONNECT_DEFAULT: Record<TextConnectProvider, readonly OAuthCapability[]> = {
   google: ['email', 'calendar'],
@@ -85,7 +87,10 @@ const REVOKE_URL: Record<TextConnectProvider, string> = {
   hubspot: 'https://app.hubspot.com/connected-apps',
   brevo: 'https://app.brevo.com/settings',
 }
-const CAPABILITY_LABEL: Partial<Record<OAuthCapability, string>> = { email: 'email', calendar: 'calendar', github: 'repositories', crm: 'contacts and companies', contacts: 'contacts' }
+const CAPABILITY_LABEL: Partial<Record<OAuthCapability, string>> = { email: 'email', calendar: 'calendar', github: 'repositories', crm: 'contacts and companies', contacts: 'contacts', search_console: 'Search Console', analytics: 'Google Analytics' }
+
+/** A Google leg asked for on its own that reads as its own product ("Connect your Google Contacts"). */
+export const GOOGLE_PRODUCT_LABEL: Partial<Record<OAuthCapability, string>> = { contacts: 'Google Contacts', search_console: 'Google Search Console', analytics: 'Google Analytics' }
 
 /** True when connecting a capability starts an import of the owner's people (src/lib/crm/import/). */
 export function importsOnConnect(provider: string, capability: string): boolean {
@@ -181,7 +186,8 @@ export function nextConnectLeg(state: OAuthStateData, provider: OAuthProvider, c
 /** The text a connect link goes out in (connect_link). Pure. */
 export function connectLinkText(provider: TextConnectProvider, url: string, capabilities?: readonly OAuthCapability[]): string {
   const name = PROVIDER_LABEL[provider]
-  const what = capabilities?.length === 1 && capabilities[0] === 'contacts' ? `${name} Contacts` : `${name} account`
+  const product = provider === 'google' && capabilities?.length === 1 ? GOOGLE_PRODUCT_LABEL[capabilities[0]] : undefined
+  const what = capabilities?.length === 1 && capabilities[0] === 'contacts' ? `${name} Contacts` : (product ?? `${name} account`)
   const reads = (capabilities ?? TEXT_CONNECT_DEFAULT[provider]).every((c) => importsOnConnect(provider, c)) ? ' I only read them, to bring your contacts into Native Intelligence.' : ''
   return `Connect your ${what}: ${url} It opens ${name}'s own sign-in and works once, for 15 minutes.${reads} I'll never ask for a password by text.`
 }

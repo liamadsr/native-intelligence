@@ -91,6 +91,20 @@ export const INTEGRATION_CATALOG: readonly IntegrationCatalogEntry[] = [
     iconColor: 'text-blue-500',
   },
   {
+    provider: 'google',
+    capability: 'search_console',
+    name: 'Google Search Console',
+    description: 'See the searches that bring people to your site, and whether Google indexed your pages (read only)',
+    iconColor: 'text-blue-600',
+  },
+  {
+    provider: 'google',
+    capability: 'analytics',
+    name: 'Google Analytics',
+    description: 'See what visitors from search do on your site: sessions, key events and revenue (read only)',
+    iconColor: 'text-orange-500',
+  },
+  {
     provider: 'hubspot',
     capability: 'crm',
     name: 'HubSpot',

@@ -61,6 +61,20 @@ describe('connect_link', () => {
     expect(recordOutbound).toHaveBeenCalledWith(db.client, { phone: '+15551234567', kind: 'reply', sid: 'SMlink', userId: 'user-1' })
   })
 
+  it('google_search_console and google_analytics connect that one Google product on its own (the SEO area)', async () => {
+    for (const [provider, capability, label] of [
+      ['google_search_console', 'search_console', 'Google Search Console'],
+      ['google_analytics', 'analytics', 'Google Analytics'],
+    ] as const) {
+      const sms = send()
+      const out = await run(createTextSetupTools('user-1', fakeSupabase().client, 'ws-1', { textTurn: true, send: sms }), 'connect_link', { provider })
+      expect(out).toMatchObject({ success: true, texted: true })
+      expect(mintConnectLink).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ provider: 'google', capabilities: [capability] }))
+      expect(sms).toHaveBeenCalledWith('+15551234567', expect.stringContaining(`Connect your ${label}: `))
+      expect(String(out.message)).toContain(label)
+    }
+  })
+
   it('anywhere else (the app, a run, an unattended turn, MCP) it makes no link: a link handed out could be forwarded', async () => {
     for (const opts of [{}, { textTurn: false }, { textTurn: true, unattended: true }, { unattended: true }]) {
       const sms = send()
