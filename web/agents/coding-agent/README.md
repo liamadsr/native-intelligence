@@ -93,7 +93,7 @@ and at run time alike (the build and the running agent must agree;
 1. **The hosted sandbox service** (provider `vercel`): on that platform, or off it
    with `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and `SANDBOX_PROJECT_ID`. The policy
    is a creation option and the firewall injects the gate token ("brokered"), so the
-   token never exists in the sandbox. This is what production uses.
+   token never exists in the sandbox. This is what production used until 2026-11-12.
 2. **Our own runtime on the sandbox server** (provider `ni-runtime`,
    `lib/runtime-sandbox.ts`, over E2B's open-source runtime): with
    `SANDBOX_RUNTIME_API_URL` and `SANDBOX_RUNTIME_TRAFFIC_URL` (plus
@@ -109,9 +109,10 @@ and at run time alike (the build and the running agent must agree;
    agent uses this one and does not read the hosted three, which stay for the cloud
    browser (it reads the same names) until that moves too. Only this one on the
    hosted platform, or one URL without the other, refuses to load.
-   **Built dark:** nothing uses it until those settings are entered on the server
-   and the app is rolled out. `scripts/runtime-conformance.mts` has passed against
-   the real runtime; no coding run has used it yet.
+   **What production uses since 2026-11-12** (the settings on the server, a build
+   and a roll-out). `scripts/runtime-conformance.mts` has passed against the real
+   runtime and a sandbox has been started from production's container; no whole
+   coding run has been watched on it yet (`deploy/README.md`, "The coding agent").
    Two things this runtime does differently from the hosted one, both seen on it:
    - A narrowed level (`restricted`, `isolated`) is a list of allowed names, and
      with any name allowed the runtime leaves the sandbox's resolver (8.8.8.8)
