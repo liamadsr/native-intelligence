@@ -43,9 +43,7 @@ describe('migration 496: custom fields on any kind', () => {
     const dealTable = /create table if not exists public\.deal \(([\s\S]*?)\n\);/.exec(everything)?.[1] ?? ''
     expect(dealTable).toContain("custom_fields jsonb not null default '{}'::jsonb")
     for (const e of ENTITY_REGISTRY.filter((x) => x.customFields)) {
-      if (e.id !== 'deal') {
-        expect(everything, e.id).toContain(`alter table public.${e.table} add column if not exists custom_fields jsonb not null default '{}'::jsonb;`)
-      }
+      expect(everything, e.id).toContain(`alter table public.${e.table} add column if not exists custom_fields jsonb not null default '{}'::jsonb;`)
       expect(everything, e.id).toMatch(new RegExp(`add constraint ${e.table}_custom_fields_object check \\(jsonb_typeof\\(custom_fields\\) = 'object'\\)`))
     }
   })

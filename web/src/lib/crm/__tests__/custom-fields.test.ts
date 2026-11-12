@@ -19,6 +19,7 @@ const def = (over: Partial<CustomFieldDefinition>): CustomFieldDefinition => ({
   label: 'K',
   field_type: 'text',
   options: [],
+  config: {},
   position: 0,
   ...over,
 })

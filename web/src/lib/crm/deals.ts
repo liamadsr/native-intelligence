@@ -31,7 +31,7 @@ import { filterVisibleCompanies, filterVisibleContacts, isCompanyVisibleTo } fro
 import { fieldReferenceCheck } from './custom-field-references'
 import { applyOps, CHANGE_SELECT, listTables, ROW_SELECT, summarizeChange, undoChange, type TableActor } from '@/lib/tables/store'
 import { touchedBy } from '@/lib/tables/ops'
-import type { DataChange, DataColumn, DataRow, DataTable } from '@/lib/tables/types'
+import { isComputedType, type DataChange, type DataColumn, type DataRow, type DataTable } from '@/lib/tables/types'
 
 export type DealStageKind = StageOutcome
 export type DealChangeSource = 'person' | 'agent' | 'email' | 'capture' | 'sms'
@@ -363,9 +363,9 @@ export const DEAL_NOTES_MAX = 2000
 
 type Resolved = { ok: true; title?: string; values: Record<string, CustomFieldValue> } | { ok: false; error: string }
 
-/** A pipeline's own columns as custom field definitions, for the value checks. */
+/** A pipeline's columns a value is written to, as custom field definitions (a formula or rollup is worked out, never set). */
 function columnDefs(pipeline: DealPipeline): CustomFieldDefinition[] {
-  return pipeline.columns.map((c) => ({
+  return pipeline.columns.flatMap((c) => (isComputedType(c.field_type) ? [] : [{ ...c, field_type: c.field_type }])).map((c) => ({
     id: c.id,
     workspace_id: '',
     entity_type: 'contact',
