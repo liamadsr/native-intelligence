@@ -153,7 +153,9 @@ export function parseRate(rate: string | undefined): number {
 
 /** The kind of media a file name says it is, as the editor imports it (null: a kind it does not take). */
 export function kindOfName(name: string): { kind: 'video' | 'image' | 'audio'; extension: string } | null {
-  const extension = (/\.([^./]+)$/.exec(name)?.[1] ?? '').toLowerCase()
+  const named = (/\.([^./]+)$/.exec(name)?.[1] ?? '').toLowerCase()
+  // An .m4v is an MP4 by another name (Apple's): read and stored as .mp4, so the library serves it as video/mp4.
+  const extension = named === 'm4v' ? 'mp4' : named
   const kind = ['png', 'jpg', 'jpeg', 'webp'].includes(extension)
     ? 'image'
     : ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg'].includes(extension)

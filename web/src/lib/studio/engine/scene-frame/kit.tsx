@@ -1,14 +1,15 @@
-// @studio/kit — the motion toolkit for code scenes (scenes.ts). A scene is a React component the agent writes; it draws
-// on a 1920-wide stage, its frame 0 is the layer's start, and everything is driven by time — never by timers or state.
-// Everything here is pure and deterministic, so the preview, stills and the export draw the same frame.
+// @studio/kit: the motion toolkit for code scenes. It lives inside the scene's locked frame (runtime.tsx), the only
+// place a scene's code runs. A scene is a React component the agent writes; it draws on a 1920-wide stage, its frame 0
+// is the layer's start, and everything is driven by time, never by timers or state. Everything here is pure and
+// deterministic, so the preview, stills and the export draw the same frame.
 import React, { createContext, useContext } from 'react';
-import { Img, useCurrentFrame, useVideoConfig } from 'remotion';
-import { spring as springCurve } from './particles';
-import { fontStack } from './font-faces';
-import { MediaVideo } from './media-video';
+import { useCurrentFrame, useVideoConfig } from 'remotion';
+import { spring as springCurve } from '../particles';
+import { fontStack } from '../font-names';
 
 // -------------------------------------------------------------------------------------------------------- the scene
-type Asset = { url: string; kind: 'image' | 'video' | 'audio'; width?: number; height?: number };
+/** An image of the video's library, as the frame holds it: bytes the host handed in, shown from a blob: address. */
+type Asset = { url: string; kind: 'image'; width?: number; height?: number };
 export type SceneInfo = { width: number; height: number; seconds: number; asset: (idOrName: string) => Asset | null };
 export const SceneContext = createContext<SceneInfo>({ width: 1920, height: 1080, seconds: 5, asset: () => null });
 /** Time in the scene: frame (0 at the layer's start), t in seconds, the stage size (1920 wide) and the scene's length. */
@@ -175,12 +176,13 @@ export function Backdrop({ kind = 'paper', glowColor, style }: { kind?: 'paper' 
 }
 
 // --------------------------------------------------------------------------------------------------------- media
-/** An image or video from the project (by asset id or name): screenshots, photos, captured product UI. Videos play from the scene's start (or `from` s). */
-export function Media({ src, fit = 'cover', style, from = 0 }: { src: string; fit?: 'cover' | 'contain'; style?: React.CSSProperties; from?: number }) {
-  const asset = useScene().asset(src), { fps } = useVideoConfig();
-  if (!asset) return <div style={{ ...style, background: 'repeating-linear-gradient(45deg,#ddd 0 10px,#eee 10px 20px)', display: 'flex', alignItems: 'center', justifyContent: 'center', font: '600 18px Inter', color: '#999' }}>missing: {src}</div>;
-  const css: React.CSSProperties = { width: '100%', height: '100%', objectFit: fit, display: 'block', ...style };
-  return asset.kind === 'video' ? <MediaVideo src={asset.url} muted style={css} trimBefore={Math.round(from * fps)} /> : <Img src={asset.url} style={css} />;
+/** An image from the video's library (by asset id or name): screenshots, photos, captured product UI. The frame asks
+ *  the editor for its bytes the first time; until they arrive (or when there is no such image) a hatched box shows its
+ *  name. Videos are not available inside a scene yet: place the clip as its own layer. */
+export function Media({ src, fit = 'cover', style }: { src: string; fit?: 'cover' | 'contain'; style?: React.CSSProperties }) {
+  const asset = useScene().asset(src);
+  if (!asset) return <div style={{ ...style, background: 'repeating-linear-gradient(45deg,#ddd 0 10px,#eee 10px 20px)', display: 'flex', alignItems: 'center', justifyContent: 'center', font: '600 18px sans-serif', color: '#999' }}>missing: {src}</div>;
+  return <img src={asset.url} alt="" decoding="sync" style={{ width: '100%', height: '100%', objectFit: fit, display: 'block', ...style }} />;
 }
 
 // --------------------------------------------------------------------------------------------------------- devices

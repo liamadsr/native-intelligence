@@ -207,7 +207,7 @@ describe('cut-outs', () => {
 
   it('is refused without a worker on a Mac, then queued for the cameras not cut out yet', async () => {
     const project = await twoCameraVideo()
-    await expect(startCutouts(env.ctx, project.id, { mode: 'person' })).rejects.toMatchObject({ status: 503, message: expect.stringMatching(/on a Mac/) })
+    await expect(startCutouts(env.ctx, project.id, { mode: 'person' })).rejects.toMatchObject({ status: 503, message: expect.stringMatching(/find people in footage/) })
     noteWorker('mac-1', ['cutouts'])
     await expect(startCutouts(env.ctx, project.id, { assetIds: [SCREEN.id.replace('a', 'f')] })).rejects.toThrow(/is not a video in this project/)
     const { job } = await startCutouts(env.ctx, project.id, {})

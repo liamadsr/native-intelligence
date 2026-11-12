@@ -561,6 +561,12 @@ export function useWorkspaces() {
   return { workspaces, currentId, refresh }
 }
 
+/** Whether the person is a guest of the active workspace: a members-only page (the Studio) is not offered to them. */
+export function useIsWorkspaceGuest(): boolean {
+  const { workspaces, currentId } = useContext(WorkspaceCacheCtx)
+  return workspaces.find((w) => w.id === currentId)?.role === 'guest'
+}
+
 /**
  * Switch the active workspace behind the wipe/reveal curtain. Encapsulates the
  * full orchestration (recording guard, transition, switch POST, client header

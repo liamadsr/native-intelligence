@@ -8,11 +8,12 @@ import { beatEnd, isPlaceholder, needsRecording, reorderBeats, sortBeats, Storyb
 import { scheduleProject, sourceTimeSeconds } from '@/lib/studio/engine/timeline';
 import { request } from './client';
 import { Icon } from './icons';
+import { studioSelectOpen } from './controls';
 import { addBeatAt, CastAddForm, FormatButtons, InputsPanel, nextSelection, removeCast, sourceLabel, sourceTone, startFromScript, statusLabel, useBrowserChoosesScreen, VersionsPanel } from './Storyboard';
 
 // The film's pages for the prompt-first workflow: Overview (the film at a glance and its script outline), Storyboard
 // (the beats as cards, with the beat inspector beside them) and Cast. Edit is the editor itself, in App.tsx. Everything
-// here edits the same project through `change`, so undo, autosave and the assistant work exactly as on the timeline.
+// here edits the same project through `change`, so undo, autosave and the agent's edits work exactly as on the timeline.
 
 /** A film's pages, plus 'project': the overview of the project (campaign) the film is one ad of. */
 export type FilmPage = 'project' | 'overview' | 'storyboard' | 'cast' | 'edit';
@@ -76,10 +77,10 @@ function EmptyStoryboard({ project, change, frame, duration, disabled, goEdit, t
   return <div className="film-empty">
     <div className="film-empty-mark"><Icon name="transcript" size={22} /></div>
     <h2>{title}</h2>
-    <p>Beats are the film's plan: the words, which camera or generated shot, what's on screen. Plan them here, then record or generate into them.</p>
+    <p>Beats are the video's plan: the words, which camera or generated shot, what's on screen. Plan them here, then record or generate into them.</p>
     <div className="film-empty-actions">
       <button className="primary" disabled={disabled || busy} onClick={() => { setBusy(true); void startFromScript(project, change, frame, duration).finally(() => setBusy(false)); }}>Start from the script</button>
-      <button className="subtle-button" disabled={disabled} onClick={() => addBeatAt(change, frame, duration, project.output.fps)}>＋ Beat at playhead</button>
+      <button className="subtle-button" disabled={disabled} onClick={() => addBeatAt(change, frame, duration, project.output.fps)}><Icon name="plus" size={14}/>Beat at playhead</button>
       <button className="subtle-button" onClick={goEdit}>Open the editor</button>
     </div>
   </div>;
@@ -102,7 +103,7 @@ export function OverviewPage({ project, change, frame, duration, disabled, openB
   return <div className="film-page ov-page"><div className="ov-inner">
     <header className="ov-head">
       <div className="ov-title">
-        <span className="film-kicker">Film</span>
+        <span className="film-kicker">Video</span>
         <h1 title={project.title}>{project.title}</h1>
         <div className="ov-meta">{meta.map(m => <span key={m}>{m}</span>)}</div>
         {beats.length ? <div className="ov-stats">
@@ -114,7 +115,7 @@ export function OverviewPage({ project, change, frame, duration, disabled, openB
       </div>
       <section className="ov-ready" aria-label="Readiness">
         <div className="ov-ready-head"><strong>Readiness</strong>{checks ? <span className={problems.length ? 'warn' : 'ok'}>{problems.length ? `${passing} of ${groups.length} checks pass · ${problems.length} to fix` : `All ${groups.length} checks pass`}</span> : null}</div>
-        {checkError ? <p className="ov-ready-error">{checkError}</p> : !checks ? <p className="ov-ready-loading">Checking the saved film…</p> : <ul>
+        {checkError ? <p className="ov-ready-error">{checkError}</p> : !checks ? <p className="ov-ready-loading">Checking the saved video…</p> : <ul>
           {problems.map((c, i) => <li key={i} className="todo"><i aria-hidden="true" /><span><b>{c.check}</b>{c.detail}</span>{c.at !== undefined ? <button className="ov-at" title="Show this moment in the editor" onClick={() => editAt(Math.round(c.at! * fps))}>{clock(c.at)}</button> : null}</li>)}
           {groups.filter(([, list]) => list.every(c => c.ok)).map(([name, list]) => <li key={name} className="ok"><i aria-hidden="true" /><span><b>{name}</b>{list[0]!.detail}</span></li>)}
         </ul>}
@@ -133,7 +134,7 @@ export function OverviewPage({ project, change, frame, duration, disabled, openB
               <span className={`ov-words${beat.words.trim() ? '' : ' none'}`}>{beat.words.trim() || (beat.shot ? `Picture only · ${beat.shot}` : 'Picture only, no words')}</span>
               <Badges project={project} beat={beat} />
             </span>
-            <span className="ov-actions"><button className="subtle-button" title={`Open the editor at ${clock(beat.startFrame / fps)}`} onClick={e => { e.stopPropagation(); editAt(beat.startFrame); }}><Icon name="play" size={12} />Edit at {clock(beat.startFrame / fps)}</button></span>
+            <span className="ov-actions"><button className="subtle-button" title={`Open the editor at ${clock(beat.startFrame / fps)}`} onClick={e => { e.stopPropagation(); editAt(beat.startFrame); }}><Icon name="play" size={14} />Edit at {clock(beat.startFrame / fps)}</button></span>
           </div></li>)}</ol>}
     </section>
   </div></div>;
@@ -187,7 +188,7 @@ export function StoryboardPage({ project, change, frame, duration, disabled, ope
   const [panel, setPanel] = useState<'inputs' | 'versions' | 'formats' | null>(null), [hover, setHover] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ id: string; over?: string; after?: boolean } | null>(null);
   const anchors = { inputs: useRef<HTMLButtonElement>(null), versions: useRef<HTMLButtonElement>(null), formats: useRef<HTMLButtonElement>(null) };
-  useEffect(() => { if (!panel) return; const close = (e: PointerEvent) => { const t = e.target as HTMLElement; if (!t.closest('.inputs-panel,.sb-formats,.sb-toolbar')) setPanel(null); };
+  useEffect(() => { if (!panel) return; const close = (e: PointerEvent) => { const t = e.target as HTMLElement; if (!studioSelectOpen() && !t.closest('.inputs-panel,.sb-formats,.sb-toolbar')) setPanel(null); };
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setPanel(null); };
     document.addEventListener('pointerdown', close); studioKeys.addEventListener('keydown', esc); return () => { document.removeEventListener('pointerdown', close); studioKeys.removeEventListener('keydown', esc); }; }, [panel]);
   const chosen = beats.filter(b => selected.includes(b.id)), recordable = chosen.some(needsRecording), missingInputs = !board?.inputs?.screen && !browserChoosesScreen;
@@ -208,11 +209,11 @@ export function StoryboardPage({ project, change, frame, duration, disabled, ope
           <span className="film-toolbar-sep" />
           <button ref={anchors.inputs} className={panel === 'inputs' ? 'on' : ''} aria-expanded={panel === 'inputs'} title="Inputs: which camera, window and microphone feed the tracks" onClick={() => setPanel(v => v === 'inputs' ? null : 'inputs')}>Inputs</button>
           <button onClick={goCast} title="Cast: people, props and places for generated shots">Cast{board?.cast?.length ? <span className="film-count">{board.cast.length}</span> : null}</button>
-          <button ref={anchors.versions} className={panel === 'versions' ? 'on' : ''} aria-expanded={panel === 'versions'} title="Earlier versions of the storyboard (one before each assistant pass)" onClick={() => setPanel(v => v === 'versions' ? null : 'versions')}>Versions</button>
+          <button ref={anchors.versions} className={panel === 'versions' ? 'on' : ''} aria-expanded={panel === 'versions'} title="Earlier versions of the storyboard (one before each change the agent makes)" onClick={() => setPanel(v => v === 'versions' ? null : 'versions')}>Versions</button>
           <button ref={anchors.formats} className={panel === 'formats' ? 'on' : ''} aria-expanded={panel === 'formats'} title="A version of this edit for each platform" onClick={() => setPanel(v => v === 'formats' ? null : 'formats')}>Formats</button>
         </div>
       </div>
-      {!beats.length ? <EmptyStoryboard project={project} change={change} frame={frame} duration={duration} disabled={disabled} goEdit={goEdit} title="Plan the film as beats" /> :
+      {!beats.length ? <EmptyStoryboard project={project} change={change} frame={frame} duration={duration} disabled={disabled} goEdit={goEdit} title="Plan the video as beats" /> :
         <div className="sb-grid" role="listbox" aria-label="Beats" aria-multiselectable="true" onKeyDown={e => { if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); move(1); } if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); move(-1); } }}>
           {beats.map((beat, i) => { const on = selected.includes(beat.id), placeholder = isPlaceholder(beat), over = drag?.over === beat.id && drag.id !== beat.id;
             return <div key={beat.id} role="option" aria-selected={on} tabIndex={on || (!selected.length && i === 0) ? 0 : -1} draggable={!disabled}
@@ -243,7 +244,7 @@ export function StoryboardPage({ project, change, frame, duration, disabled, ope
     {panel === 'inputs' ? createPortal(<InputsPanel project={project} change={change} close={() => setPanel(null)} anchor={anchors.inputs.current} below />, studioPortal()) : null}
     {panel === 'versions' ? createPortal(<VersionsPanel project={project} anchor={anchors.versions.current} close={() => setPanel(null)} beforeServerEdit={beforeServerEdit} afterServerEdit={afterServerEdit} below />, studioPortal()) : null}
     {panel === 'formats' ? createPortal(<div className="inputs-panel sb-formats" role="dialog" aria-label="Other formats" style={(() => { const box = anchors.formats.current?.getBoundingClientRect(); return box ? { left: Math.max(8, Math.min(box.left, window.innerWidth - 340)), top: box.bottom + 8 } : undefined; })()}>
-      <header><strong>Formats</strong><small>Each becomes its own project, reframed for the platform. Also in Export.</small><button onClick={() => setPanel(null)} aria-label="Close">✕</button></header>
+      <header><strong>Formats</strong><small>Each becomes its own video, reframed for the platform. Also in Export.</small><button onClick={() => setPanel(null)} aria-label="Close" title="Close"><Icon name="close"/></button></header>
       <FormatButtons projectId={project.id} beforeServerEdit={beforeServerEdit} open={id => { setPanel(null); openProject(id); }} say={say} /></div>, studioPortal()) : null}
   </div>;
 }
@@ -253,8 +254,8 @@ export function CastPage({ project, change, openBeat }: { project: EditorProject
   const cast = project.storyboard?.cast ?? [], beats = sortBeats(project.storyboard?.beats ?? []);
   return <div className="film-page cast-page">
     <div className="film-main">
-      <div className="film-toolbar"><div className="film-toolbar-title"><h2>Cast</h2><span>People, props and places for generated shots. Beats use them as references, and every ad in this project shares them.</span></div></div>
-      {!cast.length ? <div className="film-empty"><div className="film-empty-mark"><Icon name="presenter" size={22} /></div><h2>No cast yet</h2>
+      <div className="film-toolbar"><div className="film-toolbar-title"><h2>Cast</h2><span>People, props and places for generated shots. Beats use them as references, and every video in this Studio project shares them.</span></div></div>
+      {!cast.length ? <div className="film-empty"><div className="film-empty-mark"><Icon name="people" size={22} /></div><h2>No cast yet</h2>
         <p>Add a person (from their own photos, with consent), a prop or a place on the right. Generated beats then use them as references, so the same face and product show up shot after shot.</p></div> :
         <div className="cast-grid">{cast.map(c => { const images = c.assetIds.map(id => project.assets.find(a => a.id === id)).filter(a => !!a), used = beats.filter(b => b.generation?.references?.includes(c.id));
           return <article key={c.id} className="cast-card">
@@ -270,6 +271,6 @@ export function CastPage({ project, change, openBeat }: { project: EditorProject
             </div>
           </article>; })}</div>}
     </div>
-    <aside className="film-side cast-side" aria-label="Add to cast"><div className="cast-add"><h3>Add to cast</h3><p>A name, what it is, and photos from this project.</p><CastAddForm project={project} change={change} /></div></aside>
+    <aside className="film-side cast-side" aria-label="Add to cast"><div className="cast-add"><h3>Add to cast</h3><p>A name, what it is, and photos from this video.</p><CastAddForm project={project} change={change} /></div></aside>
   </div>;
 }

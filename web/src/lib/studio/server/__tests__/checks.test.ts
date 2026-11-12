@@ -53,7 +53,7 @@ describe('starting a check', () => {
     const video = await createBlankVideo(env.ctx, { title: 'Launch', seconds: 4, fps: 30 })
     const { projectDigest } = await openVideo(env.ctx, video.id)
     await expect(startCheck(env.ctx, 'motion', video.id, {})).rejects.toMatchObject({ status: 503, code: 'NOT_AVAILABLE' })
-    await expect(startCheck(env.ctx, 'review', video.id, {})).rejects.toThrow(/STUDIO_ANALYSIS_PYTHON/)
+    await expect(startCheck(env.ctx, 'review', video.id, {})).rejects.toThrow(/video analysis set up/)
     // With no worker at all, the visual check is refused at once rather than left waiting in the queue.
     await expect(startCheck(env.ctx, 'look', video.id, { step: 0.25 })).rejects.toMatchObject({ status: 503, code: 'NOT_AVAILABLE', message: expect.stringMatching(/none is running/) })
     expect(env.tables.studio_job ?? []).toHaveLength(0)

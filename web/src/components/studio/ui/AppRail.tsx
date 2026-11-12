@@ -9,7 +9,7 @@ const PAGE_ICONS: Record<FilmPage, IconName> = { project: 'stack', overview: 'gr
 
 function RailButton({ icon, label, hint, active, disabled, onClick }: { icon: IconName; label: string; hint?: string; active?: boolean; disabled?: boolean; onClick: () => void }) {
   return <button type="button" className={`rail-button${active ? ' active' : ''}`} aria-label={label} aria-pressed={active} disabled={disabled} onClick={onClick}>
-    <Icon name={icon} size={19} /><span className="rail-label" aria-hidden="true">{label}{hint ? <kbd>{hint}</kbd> : null}</span>
+    <Icon name={icon} size={18} /><span className="rail-label" aria-hidden="true">{label}{hint ? <kbd>{hint}</kbd> : null}</span>
   </button>;
 }
 
@@ -18,9 +18,9 @@ export function AppRail({ page, hasProject, chooserOpen, settingsOpen, locked, o
   openProjects: () => void; openPage: (page: FilmPage) => void; openSettings?: () => void;
 }) {
   const onFilm = hasProject && !settingsOpen && !chooserOpen;
-  return <nav className="app-rail" aria-label="App">
+  return <nav className="app-rail" aria-label="Studio">
     <div className="rail-group">
-      <RailButton icon="home" label="Projects" hint="⌘O" active={chooserOpen} disabled={locked} onClick={openProjects} />
+      <RailButton icon="home" label="Projects and videos" hint="⌘O" active={chooserOpen} disabled={locked} onClick={openProjects} />
       <span className="rail-sep" aria-hidden="true" />
       <RailButton icon="stack" label="Project overview" active={onFilm && page === 'project'} disabled={!hasProject || locked} onClick={() => openPage('project')} />
       <span className="rail-sep" aria-hidden="true" />

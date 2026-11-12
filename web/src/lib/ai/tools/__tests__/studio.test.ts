@@ -20,10 +20,15 @@ import { getToolSideEffect, getToolWriteTarget, TOOL_REGISTRY_MAP } from '@/lib/
 import { studioVideoCardOf } from '@/lib/studio/agent/video-card'
 import { createStudioTools } from '../studio'
 import { createStudioAdsTools } from '../studio-ads'
+import { createStudioBlueprintTools } from '../studio-blueprint'
+import { createStudioSceneTools } from '../studio-scenes'
 import { createStudioCheckTools } from '../studio-checks'
+import { createStudioLibraryTools } from '../studio-library'
 import { createStudioMediaTools } from '../studio-media'
+import { createStudioAudioTools } from '../studio-audio'
 import { createStudioSoundTools } from '../studio-sound'
 import { createStudioVisionTools } from '../studio-vision'
+import { createStudioProductTools } from '../studio-product'
 
 type Row = Record<string, unknown>
 const GUEST = 'b2b2b2b2-1111-4222-8333-777777777777'
@@ -76,7 +81,7 @@ describe('the Studio tools', () => {
     expect(edited.digest).not.toBe(digest)
     expect(studioVideoCardOf('edit_studio_video', edited)).toMatchObject({ verb: 'edited', edits: 1 })
     const versions = await call(ava(), 'list_studio_versions', { video_id: video.id })
-    expect(versions).toMatchObject({ success: true, versions: [{ label: 'Before the assistant: add_text' }] })
+    expect(versions).toMatchObject({ success: true, versions: [{ label: 'Before the agent: add_text' }] })
     // The digest it read is no longer current.
     const stale = await call(ava(), 'edit_studio_video', { video_id: video.id, expected_digest: digest, edits: [{ op: 'list_layers' }] })
     expect(stale).toMatchObject({ success: false, code: 'DIGEST_CONFLICT' })
@@ -218,7 +223,7 @@ describe('their registry classes', () => {
   it('reads are reads, writes are artifact writes, and the trash is a delete', () => {
     // The studio category also holds the ads tools (studio-ads.ts, tested in studio-ads.test.ts) and the paid media
     // tools (studio-media.ts, tested in studio-media.test.ts), and the sound tools (studio-sound.ts, studio-sound.test.ts).
-    const tools = [...Object.keys(ava()), ...Object.keys(createStudioAdsTools(AVA, WS)), ...Object.keys(createStudioMediaTools(AVA, WS)), ...Object.keys(createStudioSoundTools(AVA, WS)), ...Object.keys(createStudioCheckTools(AVA, WS)), ...Object.keys(createStudioVisionTools(AVA, WS))]
+    const tools = [...Object.keys(ava()), ...Object.keys(createStudioAdsTools(AVA, WS)), ...Object.keys(createStudioMediaTools(AVA, WS)), ...Object.keys(createStudioAudioTools(AVA, WS)), ...Object.keys(createStudioSoundTools(AVA, WS)), ...Object.keys(createStudioCheckTools(AVA, WS)), ...Object.keys(createStudioVisionTools(AVA, WS)), ...Object.keys(createStudioLibraryTools(AVA, WS)), ...Object.keys(createStudioBlueprintTools(AVA, WS)), ...Object.keys(createStudioSceneTools(AVA, WS)), ...Object.keys(createStudioProductTools(AVA, WS))]
     for (const name of tools) expect(TOOL_REGISTRY_MAP.get(name)?.category.id, name).toBe('studio')
     expect(tools.sort()).toEqual(TOOL_REGISTRY_MAP.size ? [...TOOL_REGISTRY_MAP.values()].filter((e) => e.category.id === 'studio').map((e) => e.tool.name).sort() : [])
     for (const name of ['list_studio_projects', 'get_studio_video', 'get_studio_catalog', 'get_studio_storyboard', 'get_studio_script', 'list_studio_assets', 'list_studio_versions', 'check_studio_video', 'get_studio_job', 'wait_for_studio_job']) {

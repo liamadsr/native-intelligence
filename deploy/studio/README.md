@@ -147,7 +147,9 @@ day" in `../README.md`, on the owner's word).
    `623_studio_persona_grant.sql` (agents that had every tool category keep every one),
    `624_studio_entities.sql` (who may read a link to a video) and
    `625_studio_job_fairness.sql` (the job queue), `627_studio_limits.sql` (the job caps
-   under requests at once; the app works without it, so either way), plus any later
+   under requests at once; the app works without it, so either way),
+   `631_studio_paid_job_kinds.sql` (after 625: the paid job kinds a stale claim ends as
+   failed, never queued again, now with re-voicing, sound effects and music), plus any later
    `6xx_studio_*.sql` whose header says "before the app". All are additive and safe under the app that serves today.
 2. `STUDIO_WORKER_SECRET` in `app/.env` (S2), and, if narration or generated shots should
    work for some workspaces, `STUDIO_PROVIDER_WORKSPACES` (see `app/.env.example`): the
@@ -155,9 +157,12 @@ day" in `../README.md`, on the owner's word).
    `*`. Empty in production: none may (per-workspace provider keys do not exist yet).
 3. **The app rolled out** (`sudo ./deploy.sh` in `app/`). The worker's log then stops
    saying 404 (it says 503 while the app runs without the secret).
-4. **Right after the app:** `621_studio_skills.sql` then `626_studio_skills_refresh.sql`
-   (the agent's Studio skills). After, not before: the app that served until now does not
-   know these skills are for the Studio only and would offer them in every chat.
+4. **Right after the app:** `621_studio_skills.sql`, `626_studio_skills_refresh.sql`,
+   `629_studio_skills_parity.sql`, then `630_studio_skills_capabilities.sql` (the agent's
+   Studio skills). After, not before: the app that served until now does not
+   know these skills are for the Studio only and would offer them in every chat. 629 and
+   630 also teach tools only the new app has: an older app would offer skills for tools it
+   does not have.
 
 **If the app is rolled out without step 1** (anyone rolling out `main` for another change
 does this): nothing else breaks, but every person sees the Studio in the rail and it opens
@@ -209,6 +214,10 @@ sudo docker compose down
   earshot at its reviewed commit and its models (a few hundred MB) to the image, then
   `STUDIO_EARSHOT_DIR=/opt/earshot` in this `.env`. Until then a worker on the owner's Mac with
   earshot installed does sound design.
+- Whether code scenes (graphics the agent writes as React code) should run: they are off in
+  production on the app AND the worker unless `STUDIO_CODE_SCENES=on` is set in each one's
+  `.env` (`../app/.env` and this one). The reasons are in `studio-worker/README.md` ("Code
+  scenes").
 - Whether cut-outs and face tracks should run on the server: today they need a worker on a Mac
   (macOS Vision); a Linux path means choosing a person-segmentation model and a face detector
   to ship in the image.

@@ -283,6 +283,8 @@ export async function failJob(deps: WorkerDeps, jobId: string, workerId: string,
   if (cancelled || failed || late) await dropUpload(deps, held)
   // A failed export is reported to whoever queued it, by the delivery rule (delivery.ts); a cancelled one was asked for.
   if (failed && held.kind === 'export') await deliverEndedExport(deps, jobId)
+  // A product capture's import that ended without its file: its product job is told (products.ts). Never throws.
+  if ((cancelled || failed || late) && held.kind === 'import') await settleProductCapture(deps, jobId, { error: failed ? error : CANCELLED })
   return { ok: true }
 }
 
@@ -310,6 +312,7 @@ export async function completeJob(deps: WorkerDeps, jobId: string, workerId: str
       'record the failure',
     )
     if (row.kind === 'export') await deliverEndedExport(deps, jobId)
+    if (row.kind === 'import') await settleProductCapture(deps, jobId, { error: reason })
     await dropUpload(deps, row)
     throw new StudioError(reason, 422, 'RESULT_REFUSED')
   }
@@ -328,11 +331,35 @@ export async function completeJob(deps: WorkerDeps, jobId: string, workerId: str
   await dropUpload(deps, row)
   // A finished export goes to whoever queued it, the way the app delivers finished work (delivery.ts). Never throws.
   if (row.kind === 'export') await deliverEndedExport(deps, jobId)
+  // A product capture whose import outlasted the capture route's wait is filed now (products.ts). Never throws.
+  if (row.kind === 'import' && filed.asset) await settleProductCapture(deps, jobId, { asset: filed.asset as EditorAsset })
   return { ok: true }
 }
 
+/**
+ * An import of a product capture (its provenance names the product job, products.ts acceptCapture) that ended after
+ * the capture route stopped waiting for it: completed, the capture is filed onto its job (kept, placed or swapped in,
+ * the job finished); failed or cancelled, the job is told. Only a job still waiting on this very import is touched,
+ * so an import the route already filed changes nothing. Never throws.
+ */
+async function settleProductCapture(deps: WorkerDeps, jobId: string, ended: { asset: EditorAsset } | { error: string | null }): Promise<void> {
+  try {
+    const found = must(await deps.supabase.from('studio_job').select('workspace_id, kind, provenance:input->provenance').eq('id', jobId).maybeSingle(), 'read that job') as
+      | { workspace_id: string; kind: string; provenance: { productComponent?: { job?: unknown } } | null }
+      | null
+    const productJob = found?.provenance?.productComponent?.job
+    if (!found || found.kind !== 'import' || typeof productJob !== 'string' || !isUuid(productJob)) return
+    const ctx = jobContext(deps, found)
+    const products = await import('./products')
+    if ('asset' in ended) await products.captureImported(ctx, productJob, jobId, ended.asset)
+    else await products.captureImportEnded(ctx, productJob, jobId, ended.error)
+  } catch (error) {
+    console.error('[studio] filing a product capture failed:', error instanceof Error ? error.message : error)
+  }
+}
+
 /** The kinds that spend at a provider: their charge is recorded whenever the worker says it spent. */
-export const PAID_KINDS: readonly string[] = ['shot', 'narration']
+export const PAID_KINDS: readonly string[] = ['shot', 'narration', 'revoice', 'sound-effect', 'music']
 
 /**
  * A paid job's result that arrives after the job was taken from its worker (its heartbeat went stale and it ended
@@ -346,7 +373,8 @@ async function chargeLateResult(deps: WorkerDeps, jobId: string, workerId: strin
     if (!row || !PAID_KINDS.includes(row.kind) || row.worker_id !== workerId || row.status === 'running' || row.status === 'completed') return
     const ctx = jobContext(deps, row)
     if (row.kind === 'shot') await (await import('./generation')).recordShotCharge(ctx, row, result as Record<string, unknown>)
-    else await (await import('./voiceover')).recordNarrationCharge(ctx, row, result as Record<string, unknown>)
+    else if (row.kind === 'narration') await (await import('./voiceover')).recordNarrationCharge(ctx, row, result as Record<string, unknown>)
+    else await (await import('./voice-media')).recordPaidCharge(ctx, row, result as Record<string, unknown>)
   } catch (error) {
     console.error('[studio] recording a late charge failed:', error instanceof Error ? error.message : error)
   }
@@ -461,6 +489,13 @@ async function fileResult(ctx: StudioContext, row: JobRow, raw: unknown): Promis
       return (await import('./voiceover')).fileNarration(ctx, row, result)
     case 'shot':
       return (await import('./generation')).fileShot(ctx, row, result)
+    // The voice provider's other work (voice-media.ts): a search's voices kept; a spend's charge, assets and cache.
+    case 'voice-search':
+      return (await import('./voice-media')).fileVoiceSearch(ctx, result)
+    case 'revoice':
+    case 'sound-effect':
+    case 'music':
+      return (await import('./voice-media')).filePaidAudio(ctx, row, result)
     // Vision's (vision.ts): cut-outs registered and attached to the video, face tracks cached by the recording's bytes.
     case 'cutout':
       return (await import('./vision')).fileCutout(ctx, row, result)
@@ -475,6 +510,11 @@ async function fileResult(ctx: StudioContext, row: JobRow, raw: unknown): Promis
       return (await import('./sound')).fileListen(ctx, row, result)
     case 'sound-bank':
       return (await import('./sound')).fileSoundBank(ctx, result)
+    // Judging and making sounds (sound-judge.ts): the judgement checked again; made sounds checked, then registered.
+    case 'sound-judge':
+      return (await import('./sound-judge')).fileSoundJudge(row, result)
+    case 'sound-make':
+      return (await import('./sound-judge')).fileSoundMake(ctx, row, result)
     // The measured checks: kept as the video's latest of each kind (checks.ts).
     case 'motion':
     case 'review':

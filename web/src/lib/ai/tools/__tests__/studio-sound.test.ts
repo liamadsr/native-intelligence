@@ -20,7 +20,8 @@ import { forgetWorkers, noteWorker } from '@/lib/studio/server/capabilities'
 import { claimJob, completeJob } from '@/lib/studio/server/jobs'
 import { putRecord } from '@/lib/studio/server/records'
 import type { StudioContext } from '@/lib/studio/server/context'
-import { heardSummary, soundJobView } from '@/lib/studio/agent/sound-view'
+import { heardSummary, judgeView, madeView, soundJobView, withAssetIds } from '@/lib/studio/agent/sound-view'
+import { putBlobBytes } from '@/lib/studio/server/blobs'
 import { createStudioJobTools } from '@/lib/studio/agent/job-tools'
 import { studioContext } from '@/lib/studio/agent/access'
 import { createStudioSoundTools } from '../studio-sound'
@@ -33,7 +34,9 @@ const call = (tools: Record<string, unknown>, name: string, input: unknown) =>
   (tools[name] as { execute: (i: unknown, o: unknown) => Promise<Record<string, unknown>> }).execute(input, { toolCallId: 't', messages: [] })
 const tools = () => createStudioSoundTools(AVA, WS)
 const deps = () => ({ supabase: ctx.supabase, storage: ctx.storage })
-const NAMES = ['sound_pass_studio_video', 'add_studio_sounds', 'import_studio_sound', 'list_studio_sounds', 'listen_to_studio_video']
+const NAMES = ['sound_pass_studio_video', 'add_studio_sounds', 'import_studio_sound', 'list_studio_sounds', 'listen_to_studio_video', 'judge_studio_sound', 'make_studio_sound']
+/** The read-shaped ones: the bank, and judging (it writes nothing but its job). */
+const READS = ['list_studio_sounds', 'judge_studio_sound']
 
 beforeEach(() => {
   tables = { member: [{ id: 'm-ava', workspace_id: WS, user_id: AVA, role: 'owner' }, { id: 'm-guest', workspace_id: WS, user_id: 'guest-1', role: 'guest' }] }
@@ -48,10 +51,13 @@ beforeEach(() => {
 describe('the Studio sound tools', () => {
   it('are the ones registered, classed as artifact writes (the bank a read), and never read-shaped writes', () => {
     expect(Object.keys(tools()).sort()).toEqual([...NAMES].sort())
-    expect(getToolSideEffect('list_studio_sounds')).toBe('read')
-    expect(isReadShapedToolName('list_studio_sounds')).toBe(true)
     const mutating = getMutatingToolNames()
-    for (const name of NAMES.filter((n) => n !== 'list_studio_sounds')) {
+    for (const name of READS) {
+      expect(getToolSideEffect(name), name).toBe('read')
+      expect(isReadShapedToolName(name), name).toBe(true)
+      expect(mutating.has(name), name).toBe(false)
+    }
+    for (const name of NAMES.filter((n) => !READS.includes(n))) {
       expect(getToolSideEffect(name), name).toBe('internal-write')
       expect(getToolWriteTarget(name), name).toBe('artifact')
       expect(mutating.has(name), name).toBe(true)
@@ -126,4 +132,88 @@ describe('the Studio sound tools', () => {
     expect(soundJobView({ kind: 'sounds', status: 'running', result: null })).toEqual({})
     expect(heardSummary('Summary line.\nSECTIONS\n rest')).toBe('Summary line.')
   })
+
+  it('view a finished judgement and a finished make job compactly, ids as the tools take them', () => {
+    const sha = 'd'.repeat(64)
+    expect(withAssetIds({ ranked: [{ name: 'Made-up pop.wav', assetId: sha }] })).toEqual({ ranked: [{ name: 'Made-up pop.wav', asset_id: sha }] })
+    expect(judgeView({ action: 'rank', summary: 'Ranked 2 files.', ranked: [{ name: 'Made-up pop.wav', assetId: sha, z: 3.2 }] })).toMatchObject({ judged: 'rank', summary: 'Ranked 2 files.', ranked: [{ asset_id: sha, z: 3.2 }], note: expect.stringMatching(/Quote these numbers/) })
+    expect(madeView({ mode: 'forge', recipe: 'pop', made: [{ assetId: sha, name: 'a.wav' }, { assetId: 'e'.repeat(64), name: 'b.wav' }], summary: 'forge pop' })).toMatchObject({ recipe: 'pop', made: [{ asset_id: sha }, {}], note: expect.stringMatching(/Rank them first: judge_studio_sound/) })
+    expect(madeView({ mode: 'fit', fittedFrom: sha, made: [{ assetId: 'e'.repeat(64) }] })).toMatchObject({ fitted_from: sha, note: expect.stringMatching(/Judge it/) })
+  })
+})
+
+describe('judging and making sounds', () => {
+  const audio = async (ch: string, name: string, seconds = 1) => {
+    const sha = ch.repeat(64)
+    return registerAsset(ctx, { id: sha, name, kind: 'audio', file: `assets/${sha}.wav`, sha256: sha, bytes: 10, durationSeconds: seconds, hasAudio: true, sourceCursorHidden: false })
+  }
+  const jobTools = () =>
+    createStudioJobTools(async (work) => {
+      const c = await studioContext(ctx.supabase, AVA, WS)
+      return work(c as StudioContext)
+    }, async () => null) as Record<string, unknown>
+
+  it('judge_studio_sound refuses without earshot, checks what it is given, and queues library and bank sounds in order', async () => {
+    const pop = await audio('a', 'Made-up pop.wav')
+    expect(await call(tools(), 'judge_studio_sound', { action: 'measure', sounds: ['pop/2'] })).toMatchObject({ success: false, code: 'NOT_AVAILABLE' })
+    noteWorker('mac-1', ['sound'])
+    expect(await call(tools(), 'judge_studio_sound', { action: 'describe', asset_ids: [pop.id], sounds: ['pop/2'] })).toMatchObject({ success: false, error: expect.stringMatching(/hears one sound/) })
+    expect(await call(tools(), 'judge_studio_sound', { action: 'rank', sounds: ['pop/2', 'pop/3'] })).toMatchObject({ success: false, error: expect.stringMatching(/description or a target/) })
+    expect(await call(tools(), 'judge_studio_sound', { action: 'compare', sounds: ['pop/2', 'pop/3'] })).toMatchObject({ success: false, error: expect.stringMatching(/two or more references/) })
+    expect(await call(tools(), 'judge_studio_sound', { action: 'measure', sounds: ['../etc'] })).toMatchObject({ success: false, error: expect.stringMatching(/not a bank sound id/) })
+    expect(await call(tools(), 'judge_studio_sound', { action: 'measure', asset_ids: ['f'.repeat(64)] })).toMatchObject({ success: false, code: 'NOT_FOUND' })
+    const long = await audio('b', 'Made-up long bed.wav', 900)
+    expect(await call(tools(), 'judge_studio_sound', { action: 'measure', asset_ids: [long.id] })).toMatchObject({ success: false, error: expect.stringMatching(/longer than 600 seconds/) })
+
+    const queued = await call(tools(), 'judge_studio_sound', { action: 'rank', asset_ids: [pop.id], sounds: ['pop/2', 'pop/3'], description: 'a soft rounded pop', top: 2 })
+    expect(queued).toMatchObject({ success: true, job: { kind: 'sound-judge' } })
+    const claimed = await claimJob(deps(), 'mac-1', ['sound-judge'])
+    expect(claimed!.videoId).toBeNull()
+    expect(claimed!.input).toMatchObject({ action: 'rank', description: 'a soft rounded pop', top: 2, sounds: [{ asset: { id: pop.id } }, { sound: 'pop/2' }, { sound: 'pop/3' }] })
+
+    // A finished judgement is checked again and kept compact: no path, no field outside the contract.
+    await completeJob(deps(), claimed!.id, 'mac-1', {
+      summary: "Ranked 3 files for 'a soft rounded pop'. Best: Made-up pop.wav (z +3.1, strong).",
+      ranked: [{ name: 'Made-up pop.wav', assetId: pop.id, z: '3.14159', cosine: 0.3, verdict: 'strong', path: '/scratch/in-01.wav' }, { name: 'pop/2', sound: 'pop/2', z: 1.2, verdict: 'no match' }],
+      embeddings: [[0.1, 0.2]],
+    })
+    const answer = await call(jobTools(), 'get_studio_job', { job_id: claimed!.id })
+    expect(answer).toMatchObject({ success: true, done: true, judged: 'rank', ranked: [{ name: 'Made-up pop.wav', asset_id: pop.id, z: 3.14, verdict: 'strong' }, { sound: 'pop/2' }] })
+    expect(JSON.stringify(answer)).not.toMatch(/scratch|embeddings/)
+    // Several jobs queued, claimed and filed against the in-memory tables: slow on a loaded machine.
+  }, 20_000)
+
+  it('make_studio_sound picks a recipe, takes a recording to fit, and its sounds land in the library only once stored', async () => {
+    expect(await call(tools(), 'make_studio_sound', { description: 'a soft pop' })).toMatchObject({ success: false, code: 'NOT_AVAILABLE' })
+    noteWorker('mac-1', ['sound'])
+    expect(await call(tools(), 'make_studio_sound', {})).toMatchObject({ success: false, error: expect.stringMatching(/Describe the sound/) })
+    expect(await call(tools(), 'make_studio_sound', { description: 'a thing', kind: 'banjo' })).toMatchObject({ success: false, error: expect.stringMatching(/"banjo" is not a kind/) })
+    const forged = await call(tools(), 'make_studio_sound', { description: 'a fast airy whoosh for a title', kind: 'whoosh.short', count: 3 })
+    expect(forged).toMatchObject({ success: true, job: { kind: 'sound-make' } })
+    const claimed = await claimJob(deps(), 'mac-1', ['sound-make'])
+    expect(claimed!.input).toEqual({ mode: 'forge', recipe: 'whoosh', description: 'a fast airy whoosh for a title', count: 3 })
+
+    const knock = await audio('c', 'Made-up knock.wav', 0.6)
+    await call(tools(), 'make_studio_sound', { from_asset_id: knock.id })
+    expect((await claimJob(deps(), 'mac-1', ['sound-make']))!.input).toMatchObject({ mode: 'fit', asset: { id: knock.id } })
+    const tooLong = await audio('9', 'Made-up long take.wav', 45)
+    expect(await call(tools(), 'make_studio_sound', { from_asset_id: tooLong.id })).toMatchObject({ success: false, error: expect.stringMatching(/longer than 30 seconds/) })
+
+    // The worker's sounds: refused when not stored, registered (and placed nowhere) when they are.
+    const made = (ch: string) => ({ id: ch.repeat(64), name: `Made-up whoosh ${ch}.wav`, kind: 'audio', file: `assets/${ch.repeat(64)}.wav`, sha256: ch.repeat(64), bytes: 12, durationSeconds: 0.4, hasAudio: true, sourceCursorHidden: false, provenance: { earshot: true, made: 'forge' } })
+    await expect(completeJob(deps(), claimed!.id, 'mac-1', { mode: 'forge', made: [{ asset: made('1'), name: 'w1', score: { total: 2.9 } }], summary: 'forge whoosh' })).rejects.toMatchObject({ code: 'RESULT_REFUSED' })
+    expect((tables.studio_job ?? []).find((j) => j.id === claimed!.id)).toMatchObject({ status: 'failed', error: 'The worker did not store the made sound.' })
+
+    const again = await call(tools(), 'make_studio_sound', { description: 'a soft rounded pop', count: 2 })
+    const job = (await claimJob(deps(), 'mac-1', ['sound-make']))!
+    expect(job.id).toBe((again.job as { id: string }).id)
+    expect(job.input).toMatchObject({ recipe: expect.stringMatching(/pop/) })
+    for (const ch of ['1', '2']) await putBlobBytes(ctx, `assets/${ch.repeat(64)}.wav`, new Uint8Array(12), 'audio/wav', ch.repeat(64))
+    await completeJob(deps(), job.id, 'mac-1', { mode: 'forge', made: [{ asset: made('1'), name: 'w1', score: { total: 2.9, matchZ: 3.7, junk: [1, 2] } }, { asset: made('2'), name: 'w2', score: { total: 2.7 } }], summary: 'forge pop' })
+    expect((tables.studio_asset ?? []).map((a) => a.id)).toEqual(expect.arrayContaining(['1'.repeat(64), '2'.repeat(64)]))
+    const answer = await call(jobTools(), 'get_studio_job', { job_id: job.id })
+    expect(answer).toMatchObject({ done: true, made: [{ asset_id: '1'.repeat(64), score: { total: 2.9, matchZ: 3.7 } }, { asset_id: '2'.repeat(64) }], note: expect.stringMatching(/on no video/) })
+    expect(JSON.stringify(answer)).not.toMatch(/junk/)
+    // Several jobs queued, claimed and filed against the in-memory tables: slow on a loaded machine.
+  }, 20_000)
 })

@@ -22,10 +22,15 @@ import { createTimeOfferTools } from './time-offers'
 import { createBookingLinkTools } from './booking-links'
 import { createStudioTools } from './studio'
 import { createStudioAdsTools } from './studio-ads'
+import { createStudioBlueprintTools } from './studio-blueprint'
 import { createStudioCheckTools } from './studio-checks'
+import { createStudioLibraryTools } from './studio-library'
 import { createStudioMediaTools } from './studio-media'
+import { createStudioAudioTools } from './studio-audio'
+import { createStudioSceneTools } from './studio-scenes'
 import { createStudioSoundTools } from './studio-sound'
 import { createStudioVisionTools } from './studio-vision'
+import { createStudioProductTools } from './studio-product'
 import { createCalendarTools } from './calendar'
 import { createEmailTools } from './email'
 import { createCommentTools } from './comments'
@@ -475,12 +480,25 @@ export function createTools(
     // Studio paid media (src/lib/ai/tools/studio-media.ts): narration, generated shots, costs. The two that spend the
     // person's own provider credits run only as their approved call (the outward gate holds them; spend-card.ts).
     ...createStudioMediaTools(userId, workspaceId, { approvedCall: options?.approvedCall }),
+    // More of the voice provider (src/lib/ai/tools/studio-audio.ts): voice search, re-voicing, sound effects, music
+    // beds. The three spends run only as the person's approved call, the same way (spend-card.ts paidAudioCard).
+    ...createStudioAudioTools(userId, workspaceId, { approvedCall: options?.approvedCall }),
     // Studio's measured checks (src/lib/ai/tools/studio-checks.ts): motion, review and the visual check, each a worker job.
     ...createStudioCheckTools(userId, workspaceId),
+    // Studio reference blueprint (src/lib/ai/tools/studio-blueprint.ts): a reference's beat grid, and a storyboard in its rhythm.
+    ...createStudioBlueprintTools(userId, workspaceId),
+    // Studio code scenes (src/lib/ai/tools/studio-scenes.ts): graphics written as React code, run only in a layer's locked frame.
+    ...createStudioSceneTools(userId, workspaceId),
     // Studio vision (src/lib/ai/tools/studio-vision.ts): cut-outs, the director pass, face-aware formats (macOS Vision in the worker).
     ...createStudioVisionTools(userId, workspaceId),
+    // Studio product components (src/lib/ai/tools/studio-product.ts): the person's own product UI, rendered from its code on
+    // their Mac in a local agent job (start_local_agent), brought into the library, placed and kept current on videos.
+    ...createStudioProductTools(userId, workspaceId),
     // Studio sound (src/lib/ai/tools/studio-sound.ts): the sound pass, chosen and imported sounds, the bank, listening (earshot in the worker).
     ...createStudioSoundTools(userId, workspaceId),
+    // Studio library (src/lib/ai/tools/studio-library.ts): a chat or workspace file, or a public link's file, into the
+    // library; transcripts; looking at library images; fonts.
+    ...createStudioLibraryTools(userId, workspaceId),
     ...createEmailTools(userId, workspaceId, strict, createPolicy, options?.automaticDrafts ?? false, {
       approvedCall: options?.approvedCall,
       ...(options?.flowContext?.turnReadOutside ? { turnReadOutside: options.flowContext.turnReadOutside } : {}),

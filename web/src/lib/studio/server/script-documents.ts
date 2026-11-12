@@ -116,7 +116,7 @@ export const SCRIPT_DOCUMENT_RELATION = 'about'
 export async function scriptToDocument(ctx: StudioContext, videoId: string): Promise<{ document: { id: string; title: string }; linked: boolean }> {
   if (!ctx.userId) throw new StudioError('Only a person can make a document.')
   const video = await getVideoRow(ctx, videoId)
-  if (!video || video.archived_at) throw notFoundError('Project not found')
+  if (!video || video.archived_at) throw notFoundError('Video not found')
   const script = await getScript(ctx, videoId)
   if (!script) throw new StudioError('This video has no script yet: write one first.')
   const member = must(

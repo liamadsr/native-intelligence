@@ -96,7 +96,7 @@ export function workerHeard(now = Date.now()): boolean {
 
 /** Refuse (503) at once when no Studio worker is running: a job queued now would only wait. */
 export function requireWorker(what: string, now = Date.now()): void {
-  if (!workerHeard(now)) throw new StudioError(`${what} needs the Studio worker, and none is running now. Start it, then try again.`, 503, 'NOT_AVAILABLE')
+  if (!workerHeard(now)) throw new StudioError(`${what} needs the Studio’s worker, and none is running now. Try again once it is running.`, 503, 'NOT_AVAILABLE')
 }
 
 /** What GET /bootstrap answers beside the provider capabilities: macOS Vision on a worker heard from in the last minute. */
@@ -125,13 +125,13 @@ export function forgetWorkers(): void {
 }
 
 const MISSING: Record<WorkerCapability, string> = {
-  voiceover: 'Narration needs the Studio worker running with an ElevenLabs key (ELEVENLABS_API_KEY), and none is running now.',
-  generatedShots: 'Generated shots need the Studio worker running where the higgsfield tool is installed and signed in, and none is running now.',
-  cutouts: 'Cutting out the person needs the Studio worker running on a Mac (it uses macOS Vision), and none is running now.',
-  faces: 'Finding faces needs the Studio worker running on a Mac (it uses macOS Vision), and none is running now.',
-  sound: 'Sound design needs the Studio worker running where earshot is installed (STUDIO_EARSHOT_DIR), and none is running now.',
-  motionCheck: 'The motion check needs the Studio worker running with its analysis (a Python with numpy and OpenCV, STUDIO_ANALYSIS_PYTHON), and none is running now.',
-  review: 'The video review needs the Studio worker running with its analysis (a Python with numpy and OpenCV, STUDIO_ANALYSIS_PYTHON), and none is running now.',
+  voiceover: 'Narration needs the Studio’s worker with the voice provider set up, and none is running now.',
+  generatedShots: 'Generated shots need the Studio’s worker with the shot generator set up, and none is running now.',
+  cutouts: 'Cutting out the person needs a Studio worker that can find people in footage, and none is running now.',
+  faces: 'Finding faces needs a Studio worker that can find faces in footage, and none is running now.',
+  sound: 'Sound design needs a Studio worker with sound design set up, and none is running now.',
+  motionCheck: 'The motion check needs a Studio worker with video analysis set up, and none is running now.',
+  review: 'The video review needs a Studio worker with video analysis set up, and none is running now.',
 }
 
 const NOT_SET_UP: Partial<Record<WorkerCapability, string>> = {

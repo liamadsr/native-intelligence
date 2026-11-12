@@ -534,6 +534,12 @@ export const FEATURES: Record<FeatureKey, FeatureDefinition> = {
       'd1c1868a-529c-420c-9e65-86ce43b64050', // studio-narration
       'eca4a2dd-7410-43c5-bddc-477d2f1d7da1', // studio-measured-checks
       'c1ae523f-83c4-4a7e-9dff-3286f38cd4d4', // studio-director-and-cut-outs
+      // Migration 629: bringing media in, a reference's blueprint, story films.
+      '2a19cab2-11df-4743-bc90-898aa877a7d1', // studio-media-in
+      '87d5379b-f8f5-4ed6-85fe-4a3c355ca1d4', // studio-reference-blueprint
+      '49c3dda3-ff71-4aba-ab70-d14790a2c48f', // studio-story-film
+      // Migration 630: judging and making sounds, designed effects and music beds.
+      '7341b7e4-c5a7-45df-b18c-29c3136c599b', // studio-sound-making
     ],
   },
 }

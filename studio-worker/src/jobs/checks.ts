@@ -14,6 +14,9 @@
  *           text on screen when this worker has tesseract (else it says so),
  *           measures motion and sound per scene and flags where a viewer gets
  *           lost. Stores scenes.png, timeline.png, review.json, review.txt.
+ *           Given a library video alone (`reference`), it measures that file as
+ *           it is, with no render, and keeps the measurement by its sha256 like
+ *           any reference. Either way the answer carries the scene list.
  *   look    the visual check (../visual.ts): frames every `step` seconds with
  *           and without the overlays; per overlay where it lands, per text its
  *           contrast, size and overflow; a contact sheet (the problems boxed,
@@ -21,12 +24,12 @@
  *           their face needs the person finder (macOS Vision, ../vision/): on a
  *           worker without it the report says that part was not measured.
  */
-import { mkdir, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
-import { basename, join, resolve } from 'node:path'
+import { mkdir, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { basename, dirname, join, resolve } from 'node:path'
 import type { EditorAsset, EditorProject } from '../../../web/src/lib/studio/engine/contracts.ts'
 import type { EditorLayer } from '../../../web/src/lib/studio/engine/layers.ts'
 import type { VisualIssue } from '../../../web/src/lib/studio/engine/server-types.ts'
-import type { CheckReference, LookResult, MotionResult, ReviewContext, ReviewResult } from '../../../web/src/lib/studio/server/check-contract.ts'
+import type { CheckReference, LookResult, MotionResult, ReviewContext, ReviewInput, ReviewReferenceInput, ReviewResult, ReviewScene, ReviewShot } from '../../../web/src/lib/studio/server/check-contract.ts'
 import { analysisState, REFERENCES_DIR, runAnalysis } from '../analysis.ts'
 import { stageAssets } from '../assets.ts'
 import { mediaTimeout, pictureStream, probe, run, runBuffer } from '../media.ts'
@@ -89,8 +92,70 @@ export function motionResult(raw: Record<string, unknown>, name: string, offsetS
   }
 }
 
+/** A scene as the analysis script writes it in review.json (the fields read here). */
+type RawScene = {
+  index?: unknown
+  start?: unknown
+  end?: unknown
+  seconds?: unknown
+  enters_by?: unknown
+  alive?: unknown
+  luma?: unknown
+  empty_seconds?: unknown
+  said?: unknown
+  words_spoken?: unknown
+  on_screen?: unknown
+  words_on_screen?: unknown
+  largest_text?: unknown
+}
+
+const num = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
+
+/**
+ * How a scene reads, from its measured numbers, first match wins: empty (the frame is empty for half of it or more),
+ * motion (something moves for 60% of it or more: busy footage, whatever text the reader finds in it), text (two or
+ * more headline-sized words on screen), talk (three or more words said in it), motion (something moves for 30% of
+ * it or more), else still. Pure.
+ */
+export function shotOf(scene: RawScene): ReviewShot {
+  const seconds = num(scene.seconds)
+  if (seconds > 0 && num(scene.empty_seconds) >= seconds / 2) return 'empty'
+  if (num(scene.alive) >= 0.6) return 'motion'
+  if (num(scene.words_on_screen) >= 2) return 'text'
+  if (num(scene.words_spoken) >= 3) return 'talk'
+  if (num(scene.alive) >= 0.3) return 'motion'
+  return 'still'
+}
+
+/** A line of read text worth keeping: three letters or digits at least (shorter ones are the reader guessing at texture). Pure. */
+const readable = (line: string) => (line.match(/[\p{L}\p{N}]/gu) ?? []).length >= 3
+
+/** The scene list from review.json's scenes: times, how each reads, what was said and read in it. Pure. */
+export function sceneList(raw: unknown): ReviewScene[] {
+  if (!Array.isArray(raw)) return []
+  return (raw as RawScene[]).map((sc, i) => {
+    const onScreen = Array.isArray(sc.on_screen) ? (sc.on_screen as { text?: unknown }[]).map((l) => String(l?.text ?? '').trim()).filter(readable).slice(0, 8) : []
+    const said = typeof sc.said === 'string' ? sc.said.trim() : ''
+    return {
+      index: num(sc.index, i),
+      start: num(sc.start),
+      end: num(sc.end),
+      seconds: num(sc.seconds, num(sc.end) - num(sc.start)),
+      shot: shotOf(sc),
+      entersBy: String(sc.enters_by ?? 'change'),
+      alive: num(sc.alive),
+      luma: num(sc.luma),
+      ...(said ? { said, words: num(sc.words_spoken) } : {}),
+      ...(onScreen.length ? { onScreen, wordsOnScreen: num(sc.words_on_screen), textHeight: num(sc.largest_text) } : {}),
+    }
+  })
+}
+
+/** What a review answer carries beyond the script's printout: its scene list and, for a reference, which file it measured. */
+export type ReviewExtra = { sceneList?: ReviewScene[]; reference?: ReviewResult['reference'] }
+
 /** The review's answer as the job's result, saying whether on-screen text was read. Pure. */
-export function reviewResult(raw: Record<string, unknown>, name: string, offsetSeconds: number, read: boolean, files: string[]): ReviewResult {
+export function reviewResult(raw: Record<string, unknown>, name: string, offsetSeconds: number, read: boolean, files: string[], extra: ReviewExtra = {}): ReviewResult {
   return {
     name,
     offsetSeconds,
@@ -100,6 +165,8 @@ export function reviewResult(raw: Record<string, unknown>, name: string, offsetS
     pictures: names(raw.pictures),
     ...(raw.against ? { against: raw.against as ReviewResult['against'] } : {}),
     scenes: Number(raw.scenes ?? 0),
+    ...(extra.sceneList ? { sceneList: extra.sceneList } : {}),
+    ...(extra.reference ? { reference: extra.reference } : {}),
     onScreenText: read ? 'read' : 'not-read',
     ...(read ? {} : { note: 'On-screen text was not read (this Studio worker has no text reader, tesseract): the reading, small text and mismatch flags and the text style rows are left out.' }),
     files,
@@ -241,7 +308,35 @@ export const runMotion: JobHandler<'motion'> = async (ctx) => {
 
 // ---- review ----------------------------------------------------------------------------------------------------
 
+/** The scenes of a review.json the script wrote, as the scene list (none when it can't be read). */
+async function scenesOf(file: string): Promise<ReviewScene[]> {
+  const raw = JSON.parse(await readFile(file, 'utf8').catch(() => '{}')) as { scenes?: unknown }
+  return sceneList(raw.scenes)
+}
+
+/** Whether a review job was given a library video alone (a reference) rather than a saved video. Pure. */
+export const isReferenceReview = (input: ReviewInput): input is ReviewReferenceInput => !!(input as Partial<ReviewReferenceInput>).reference && !(input as { project?: unknown }).project
+
+/**
+ * A library video reviewed by itself: measured as it is (no render), once per file (kept by its sha256 with the
+ * other references' measurements), its pictures and report stored under the job's folder.
+ */
+async function reviewReference(ctx: JobContext, input: ReviewReferenceInput): Promise<ReviewResult> {
+  const [asset] = referencesOf([input.reference])
+  const ocr = analysisState().tesseract
+  ctx.log(ocr ? `Watching "${asset!.name}" and reading its text` : `Watching "${asset!.name}" (no text reader here: on-screen text is left out)`)
+  const report = await measuredReference(ctx, asset!, 'review', ocr ? ['--ocr', ocr] : [])
+  ctx.progress(0.85)
+  const folder = dirname(report)
+  const raw = JSON.parse(await readFile(report, 'utf8')) as Record<string, unknown>
+  const scenes = sceneList(raw.scenes)
+  const files = await store(ctx, folder, keptFiles(await readdir(folder)), stage(ctx, 0.85, 1))
+  ctx.log(`Reviewed the reference: ${scenes.length} scenes`)
+  return reviewResult({ ...raw, scenes: scenes.length }, ctx.job.id, 0, !!ocr, files, { sceneList: scenes, reference: { assetId: asset!.id, sha256: asset!.sha256 } })
+}
+
 export const runReview: JobHandler<'review'> = async (ctx) => {
+  if (isReferenceReview(ctx.job.input)) return reviewReference(ctx, ctx.job.input)
   const input = ctx.job.input
   const project = frozenProject(input.project)
   const range = checkRange(input.from, input.to)
@@ -267,7 +362,7 @@ export const runReview: JobHandler<'review'> = async (ctx) => {
   ctx.progress(0.85)
   const files = await store(ctx, out, keptFiles(await readdir(out)), stage(ctx, 0.85, 1))
   ctx.log(`Reviewed: ${String(raw.scenes ?? 0)} scenes, ${Array.isArray(raw.issues) ? raw.issues.length : 0} flags`)
-  return reviewResult(raw, ctx.job.id, offset, !!ocr, files)
+  return reviewResult(raw, ctx.job.id, offset, !!ocr, files, { sceneList: await scenesOf(join(out, 'review.json')) })
 }
 
 // ---- look ------------------------------------------------------------------------------------------------------

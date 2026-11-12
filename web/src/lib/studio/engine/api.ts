@@ -1,7 +1,7 @@
 import { assetHref } from './asset-base';
 import type { EditorAsset, EditorPreset, EditorProject, EditorTranscript } from './contracts';
 export type EditorJob = { id: string; kind: 'export' | 'transcribe' | 'model-download' | 'cutout' | 'sounds' | 'listen' | 'motion' | 'component'; result?: unknown; status: 'running' | 'completed' | 'failed' | 'cancelled'; progress: number; logs: string[]; error?: string; downloadUrl?: string; asset?: EditorAsset; assetId?: string; sourceSha256?: string; transcript?: EditorTranscript; outcome?: 'transcribed' | 'no-speech' | 'no-audio'; cached?: boolean; modelPath?: string; };
-export type EditorBootstrap = { project: EditorProject | null; projectDigest: string | null; projects: { id: string; title: string }[]; presets: EditorPreset[]; assets: EditorAsset[]; sessionToken: string; job: EditorJob | null };
+export type EditorBootstrap = { project: EditorProject | null; projectDigest: string | null; projects: { id: string; title: string }[]; presets: EditorPreset[]; assets: EditorAsset[]; job: EditorJob | null };
 /** Manual sessions are independent of scripts, app profiles, and the currently open edit. */
 export type ManualNativeWindow = { windowId: number; title: string; frame: { x: number; y: number; width: number; height: number }; displayId: number; scale: number };
 export type ManualNativeTarget = { pid: number; bundleId: string; appPath: string; name: string; windows: ManualNativeWindow[] };

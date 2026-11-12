@@ -36,6 +36,8 @@ test('file names map to the kinds the editor imports', () => {
   assert.deepEqual(kindOfName('Take 1.MOV'), { kind: 'video', extension: 'mov' })
   assert.deepEqual(kindOfName('a.jpeg'), { kind: 'image', extension: 'jpeg' })
   assert.deepEqual(kindOfName('x.flac'), { kind: 'audio', extension: 'flac' })
+  // The app takes .m4v (chat uploads, workspace files): the import reads it as the MP4 it is.
+  assert.deepEqual(kindOfName('Trailer.M4V'), { kind: 'video', extension: 'mp4' })
   assert.equal(kindOfName('deck.pdf'), null)
   assert.equal(kindOfName('noextension'), null)
 })
@@ -157,7 +159,7 @@ test('what a project needs that the worker does not stage yet is named', () => {
   const base = { captions: { enabled: false, font: 'sans' }, layers: [] } as never
   assert.deepEqual(unstagedNeeds(base), [])
   const lines = unstagedNeeds({ captions: { enabled: true, font: 'serif' }, layers: [{ style: { font: 'Satoshi' } }, { style: { scene: { id: '0123456789abcdef', name: 'Orbit', fonts: ['Inter'] } } }] } as never)
-  assert.equal(lines.length, 2)
+  // Code scenes are staged now (scenes.ts): only the fonts are named.
+  assert.equal(lines.length, 1)
   assert.match(lines[0]!, /Satoshi, Inter, serif/)
-  assert.match(lines[1]!, /Orbit/)
 })

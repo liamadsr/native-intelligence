@@ -27,7 +27,8 @@
 #         agent's only door into agents/local-agent, so none of that code (a
 #         local model's provider included) reaches the cloud bundle.
 #   - ADDED, the Mac host's own slots: sandbox.ts (the host-folder fence),
-#     tools/finish.ts and tools/request_folder_access.ts. The cloud build never
+#     tools/finish.ts, tools/request_folder_access.ts and tools/studio_product.ts
+#     (the Studio's product jobs; its runner is built apart, build_studio). The cloud build never
 #     has them: eve has no "absent" export, and any authored sandbox.ts or tool
 #     file changes the cloud's compiled manifest.
 # Each swap or addition is a re-export written here, so the source stays
@@ -63,7 +64,7 @@ stage_mac_body() {
   printf '%s\nexport { default } from %s\n' "$header" "'../../local-agent/channels/eve.js'" \
     >"$stage/agents/chat-agent/channels/eve.ts"
   local tool
-  for tool in finish request_folder_access; do
+  for tool in finish request_folder_access studio_product; do
     printf '%s\nexport { default } from %s\n' "$header" "'../../local-agent/tools/$tool.js'" \
       >"$stage/agents/chat-agent/tools/$tool.ts"
   done
@@ -103,4 +104,18 @@ build_workers() {
     tail -40 "$stage/workers-build.log" >&2
     return 1
   }
+}
+
+# The Studio's product-component runner (agents/local-agent/studio/build.sh),
+# built from the copy into <out-dir>: studio.tgz, which tools/studio_product.ts
+# unpacks into a job's scratch dir and runs inside the job's fence. It finds the
+# archive at .output/studio/studio.tgz beside the server.
+build_studio() {
+  local stage="$1" out="$2"
+  [ -x "$stage/agents/local-agent/studio/build.sh" ] || return 0
+  (cd "$stage" && agents/local-agent/studio/build.sh "$out") >"$stage/studio-build.log" 2>&1 || {
+    tail -40 "$stage/studio-build.log" >&2
+    return 1
+  }
+  test -f "$out/studio.tgz"
 }

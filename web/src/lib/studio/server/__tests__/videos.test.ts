@@ -47,7 +47,7 @@ describe('blank canvas and saving', () => {
     const saved = await saveVideo(env.ctx, { ...project, title: 'Renamed' }, projectDigest)
     expect(saved.projectDigest).not.toBe(projectDigest)
     expect(await videoDigest(env.ctx, video.id)).toBe(saved.projectDigest)
-    await expect(saveVideo(env.ctx, { ...project, title: 'Late' }, projectDigest)).rejects.toThrow(/changed in another editor tab/)
+    await expect(saveVideo(env.ctx, { ...project, title: 'Late' }, projectDigest)).rejects.toThrow(/changed somewhere else/)
     await expect(saveVideo(env.ctx, { ...project, title: 'Late' }, null)).rejects.toMatchObject({ status: 409 })
     // Writing without a digest writes.
     await saveVideo(env.ctx, { ...project, title: 'Forced' })
@@ -66,7 +66,7 @@ describe('blank canvas and saving', () => {
   it('refuses media or transcripts that are not registered as they are', async () => {
     const video = await blank()
     const changed = { ...video, assets: [{ ...video.assets[0]!, name: 'Edited by hand.mp4' }] }
-    await expect(saveVideo(env.ctx, changed)).rejects.toThrow('Project contains unregistered or modified asset metadata')
+    await expect(saveVideo(env.ctx, changed)).rejects.toThrow('This video has media details the Studio did not record, or that were changed')
     const invalid = { ...video, output: { ...video.output, width: 101 } }
     await expect(saveVideo(env.ctx, invalid)).rejects.toThrow(/^The edit is not valid: MP4 dimensions must be even/)
   })
@@ -77,7 +77,7 @@ describe('blank canvas and saving', () => {
     env.tables.studio_asset![0]!.meta = audio
     const transcript = toTranscript(audio, { words: [{ text: 'Hello', startMs: 0, endMs: 400 }], text: 'Hello' }, 'imported', 'a'.repeat(64), 'Words')
     const project = { ...video, assets: [audio], transcripts: [transcript] }
-    await expect(saveVideo(env.ctx, project)).rejects.toThrow('unregistered or modified transcript timing')
+    await expect(saveVideo(env.ctx, project)).rejects.toThrow('transcript timing the Studio did not record')
     await registerTranscript(env.ctx, transcript)
     await saveVideo(env.ctx, project)
     await expect(registerTranscript(env.ctx, { ...transcript, label: 'Other' })).rejects.toThrow('Transcript identity conflict')
@@ -92,11 +92,12 @@ describe('blank canvas and saving', () => {
     expect(copy.title).toBe('Hero cut copy')
     expect((await bootstrap(env.ctx, b.id)).project?.id).toBe(b.id)
     const boot = await bootstrap(env.ctx, null)
-    expect(boot).toMatchObject({ sessionToken: 'studio-session', job: null, workspaceId: WS })
+    expect(boot).toMatchObject({ job: null, workspaceId: WS })
+    expect(boot).not.toHaveProperty('sessionToken')
     expect(boot.projects.map((p) => p.title)).toEqual(['Hero cut copy', 'Hero cut', 'Second'])
     const left = await archiveVideo(env.ctx, a.id)
     expect(left.map((v) => v.id)).not.toContain(a.id)
-    await expect(openVideo(env.ctx, a.id)).rejects.toMatchObject({ status: 404, message: 'Project not found' })
+    await expect(openVideo(env.ctx, a.id)).rejects.toMatchObject({ status: 404, message: 'Video not found' })
     await expect(saveVideo(env.ctx, a)).rejects.toThrow('This video is in the trash.')
   })
 })
@@ -123,7 +124,7 @@ describe('studio projects', () => {
     await expect(setVideoStatus(env.ctx, a.id, 'shipped')).rejects.toThrow('Status is one of draft, review, approved')
     expect((await projectForVideo(env.ctx, a.id)).ads.find((x) => x.id === a.id)?.status).toBe('review')
     await unfileVideo(env.ctx, a.id)
-    await expect(setVideoStatus(env.ctx, a.id, 'review')).rejects.toThrow('File this video in a project to give it a status')
+    await expect(setVideoStatus(env.ctx, a.id, 'review')).rejects.toThrow('Put this video in a Studio project to give it a status')
     await dissolveProject(env.ctx, both.id)
     expect((await listProjects(env.ctx)).every((c) => c.single)).toBe(true)
   })
@@ -160,13 +161,13 @@ describe('commands and versions', () => {
     expect(out.projectDigest).not.toBe(before)
     expect((await openVideo(env.ctx, video.id)).project.storyboard?.beats).toHaveLength(1)
     const versions = await listVersions(env.ctx, video.id)
-    expect(versions[0]!.by).toBe('Before the assistant: add_beat')
+    expect(versions[0]!.by).toBe('Before the agent: add_beat')
     // The storyboard was empty before, so no storyboard version is kept for this pass.
     expect(await listStoryboardVersions(env.ctx, video.id)).toEqual([])
     await runOps(env.ctx, video.id, [{ op: 'add_beat', args: { at: 2, label: 'Close', words: 'Try it.', seconds: 1.5 } }])
     const boards = await listStoryboardVersions(env.ctx, video.id)
     expect(boards[0]).toMatchObject({ by: 'Before: add_beat', beats: 1 })
-    await expect(runOps(env.ctx, video.id, [{ op: 'add_beat', args: {} }], before)).rejects.toThrow('The project changed since you last read it')
+    await expect(runOps(env.ctx, video.id, [{ op: 'add_beat', args: {} }], before)).rejects.toThrow('The video changed since you last read it')
     await expect(runOps(env.ctx, video.id, [{ op: 'no_such_op' }])).rejects.toThrow(/unknown command "no_such_op"/)
     await expect(runOps(env.ctx, video.id, [])).rejects.toThrow('ops must be a list of 1–200 commands')
     // A restore brings the first edit back, keeping what is there now as a version.

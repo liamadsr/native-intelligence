@@ -57,6 +57,54 @@ const IMPORT_WAIT_MS = 45_000
 
 const likeLiteral = (text: string) => text.replace(/[\\%_]/g, (c) => `\\${c}`)
 
+// ---- what bytes are ------------------------------------------------------------------------------------------
+
+/** The file name extensions the worker's import takes, by kind (studio-worker/src/media.ts kindOfName). */
+export const IMPORT_EXTENSIONS = {
+  image: ['png', 'jpg', 'jpeg', 'webp'],
+  video: ['mp4', 'm4v', 'mov', 'webm', 'mkv'],
+  audio: ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg'],
+} as const
+
+export type SniffedMedia = { kind: 'image' | 'video' | 'audio'; ext: string }
+
+/**
+ * What a file's own first bytes say it is, whatever a header or a name claims: an image (PNG, JPEG, WebP), a video
+ * (MP4, MOV, WebM, Matroska) or a sound (WAV, MP3, AAC, M4A, FLAC, Ogg), or null for anything else (a page, a
+ * script, an SVG, a playlist). The worker's import then checks the whole file. Pure.
+ */
+export function sniffMedia(bytes: Uint8Array): SniffedMedia | null {
+  const ascii = (from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to))
+  const at = (i: number) => bytes[i] ?? -1
+  if (bytes.length < 12) return null
+  if (at(0) === 0x89 && ascii(1, 8) === 'PNG\r\n\x1a\n') return { kind: 'image', ext: 'png' }
+  if (at(0) === 0xff && at(1) === 0xd8 && at(2) === 0xff) return { kind: 'image', ext: 'jpg' }
+  if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return { kind: 'image', ext: 'webp' }
+  if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WAVE') return { kind: 'audio', ext: 'wav' }
+  if (ascii(4, 8) === 'ftyp') {
+    const brand = ascii(8, 12)
+    if (brand === 'M4A ' || brand === 'M4B ') return { kind: 'audio', ext: 'm4a' }
+    return brand === 'qt  ' ? { kind: 'video', ext: 'mov' } : { kind: 'video', ext: 'mp4' }
+  }
+  if (at(0) === 0x1a && at(1) === 0x45 && at(2) === 0xdf && at(3) === 0xa3) {
+    // EBML: WebM names its doc type early in the header; anything else is Matroska.
+    return ascii(0, Math.min(bytes.length, 64)).includes('webm') ? { kind: 'video', ext: 'webm' } : { kind: 'video', ext: 'mkv' }
+  }
+  if (ascii(0, 4) === 'OggS') return { kind: 'audio', ext: 'ogg' }
+  if (ascii(0, 4) === 'fLaC') return { kind: 'audio', ext: 'flac' }
+  if (ascii(0, 3) === 'ID3') return { kind: 'audio', ext: 'mp3' }
+  if (at(0) === 0xff && (at(1) & 0xf6) === 0xf0) return { kind: 'audio', ext: 'aac' }
+  if (at(0) === 0xff && (at(1) & 0xe0) === 0xe0 && (at(1) & 0x06) !== 0) return { kind: 'audio', ext: 'mp3' }
+  return null
+}
+
+/** A name the worker's import reads as `media`: kept when its extension is of that kind, else that extension added. Pure. */
+export function nameFor(name: string, media: SniffedMedia): string {
+  const ext = (/\.([^./]+)$/.exec(name)?.[1] ?? '').toLowerCase()
+  if ((IMPORT_EXTENSIONS[media.kind] as readonly string[]).includes(ext)) return name.slice(0, 250)
+  return `${name.slice(0, 240)}.${media.ext}`
+}
+
 // ---- the Studio library ------------------------------------------------------------------------------------
 
 type AssetRow = { meta: EditorAsset; created_at: string }
@@ -261,12 +309,28 @@ export async function importWorkspaceFile(ctx: StudioContext, session: SupabaseC
   }
   if (data.size > FILE_IMPORT_MAX_BYTES) throw new StudioError('That file is too large to add.', 413, 'TOO_LARGE')
   const bytes = new Uint8Array(await data.arrayBuffer())
+  return importBytes(ctx, bytes, { name: row.file_name, contentType: row.mime_type || data.type, provenance: { workspaceFile: row.id } }, options)
+}
+
+/**
+ * Bytes the server already holds (a workspace file, a chat upload, a fetched link) into the library: stored as a
+ * Studio upload and imported by the worker, whose import checks the file. The same bytes twice are the same asset.
+ * Answers the asset once it is in the library, or the import job while it still runs.
+ */
+export async function importBytes(
+  ctx: StudioContext,
+  bytes: Uint8Array,
+  file: { name: string; contentType?: string | null; provenance: Record<string, unknown> },
+  options: { waitMs?: number; signal?: AbortSignal } = {},
+): Promise<{ asset: EditorAsset } | { job: EditorJob }> {
+  if (!bytes.byteLength) throw new StudioError('That file is empty.')
+  if (bytes.byteLength > FILE_IMPORT_MAX_BYTES) throw new StudioError('That file is too large to add.', 413, 'TOO_LARGE')
   const sha256 = createHash('sha256').update(bytes).digest('hex')
   const existing = await assetBySha(ctx, sha256)
   if (existing) return { asset: existing }
   const key = uploadKey(randomUUID())
-  await putBlobBytes(ctx, key, bytes, row.mime_type || data.type || 'application/octet-stream', sha256)
-  const job = await queueJob(ctx, 'import', { uploadKey: key, name: row.file_name.slice(0, 250), provenance: { workspaceFile: row.id } })
+  await putBlobBytes(ctx, key, bytes, file.contentType || 'application/octet-stream', sha256)
+  const job = await queueJob(ctx, 'import', { uploadKey: key, name: file.name.slice(0, 250), provenance: file.provenance })
   const done = await waitForJob(ctx, job.id, { timeoutMs: options.waitMs ?? IMPORT_WAIT_MS, everyMs: 700, signal: options.signal })
   if (done.status === 'completed' && done.result?.asset) return { asset: done.result.asset as EditorAsset }
   if (done.status === 'failed') throw new StudioError(done.error || 'That file could not be imported.')

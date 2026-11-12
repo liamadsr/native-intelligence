@@ -49,6 +49,8 @@ services:
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       # Sound design (earshot). Empty: off. This image does not install earshot yet (studio-worker/README.md, "The image").
       STUDIO_EARSHOT_DIR: ${STUDIO_EARSHOT_DIR:-}
+      # Renders run code scenes' code (studio-worker/README.md, "Code scenes"). Empty: off here (production).
+      STUDIO_CODE_SCENES: ${STUDIO_CODE_SCENES:-}
     volumes:
       # The asset cache, the render bundle and each job's scratch. Safe to delete while
       # the worker is stopped: it is all made again.

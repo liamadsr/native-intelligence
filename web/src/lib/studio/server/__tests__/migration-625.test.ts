@@ -33,10 +33,9 @@ describe('migration 625', () => {
     expect(sql).toMatch(/^-- 625: /m)
   })
 
-  it('is the newest definition of studio_claim_job, with 620’s signature and grants', () => {
-    // The newest migration that defines it (either case) is this one, so this is the definition production runs.
+  it('restates studio_claim_job with 620’s signature and grants (631 restates it again: migration-631.test.ts holds the newest)', () => {
     const defining = migrationsInOrder().filter((m) => /create or replace function public\.studio_claim_job\(/i.test(m.sql))
-    expect(defining.at(-1)?.file).toBe('625_studio_job_fairness.sql')
+    expect(defining.map((m) => m.file)).toContain('625_studio_job_fairness.sql')
     const head = (text: string) => squash(fnBlock(text, 'studio_claim_job')).split(' as $$')[0]!
     expect(head(sql)).toBe(head(sql620))
     for (const grant of [
@@ -48,10 +47,11 @@ describe('migration 625', () => {
     }
   })
 
-  it('fails a stale paid job (a shot, a narration) first, saying the provider may have charged, never queuing it again', () => {
+  it('fails a stale paid job (a shot, a narration; 631 adds the later kinds) first, saying the provider may have charged, never queuing it again', () => {
     const fn = squash(fnBlock(sql, 'studio_claim_job'))
+    const kinds = "'shot', 'narration'"
     const paid = fn.indexOf(
-      "set status = 'failed', error = 'The worker stopped while making this, after it may have asked the provider: it may have charged. Check the costs before trying again.', updated_at = now() where status = 'running' and kind in ('shot', 'narration') and coalesce(heartbeat_at, claimed_at, created_at) < now() - make_interval(secs => p_stale_seconds);",
+      `set status = 'failed', error = 'The worker stopped while making this, after it may have asked the provider: it may have charged. Check the costs before trying again.', updated_at = now() where status = 'running' and kind in (${kinds}) and coalesce(heartbeat_at, claimed_at, created_at) < now() - make_interval(secs => p_stale_seconds);`,
     )
     expect(paid).toBeGreaterThan(-1)
     // Before every other stale rule: nothing else can queue it again or end it otherwise first.

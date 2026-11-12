@@ -35,9 +35,9 @@ export type BrandKitView = {
 
 async function liveProject(ctx: StudioContext, id: string): Promise<void> {
   const row = isUuid(id)
-    ? (must(await ctx.supabase.from('studio_project').select('id').eq('workspace_id', ctx.workspaceId).eq('id', id).is('archived_at', null).maybeSingle(), 'open that project') as { id: string } | null)
+    ? (must(await ctx.supabase.from('studio_project').select('id').eq('workspace_id', ctx.workspaceId).eq('id', id).is('archived_at', null).maybeSingle(), 'open that Studio project') as { id: string } | null)
     : null
-  if (!row) throw notFoundError('Project not found')
+  if (!row) throw notFoundError('Studio project not found')
 }
 
 /** The stored kit of a project, or null. */

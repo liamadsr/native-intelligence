@@ -82,7 +82,7 @@ export async function importPresenter(ctx: StudioContext, body: { uploadKey?: un
   const name = checkFileName(body.name, 'Presenter file')
   if (!PRESENTER_EXTENSIONS.includes(extension(name))) throw new StudioError('Presenter source must be WebM, MP4, MOV, or MKV')
   const blob = await takeUpload(ctx, body.uploadKey, MAX_UPLOAD_BYTES, 'Presenter source exceeds 2 GB')
-  const label = `${name.replace(/\.[^.]+$/, '').slice(0, 220)} — presenter.mp4`
+  const label = `${name.replace(/\.[^.]+$/, '').slice(0, 220)} · presenter.mp4`
   const row = await queueJob(ctx, 'import', { uploadKey: blob.key, name: label, conform: { fps: 30 }, provenance: { presenter: true, uploadedName: name } })
   return answer(ctx, row, !!options.wait, (job) => ({ asset: job.asset as EditorAsset, rawSha256: String((job.result as { rawSha256?: string } | undefined)?.rawSha256 ?? ''), rawBytes: Number((job.result as { rawBytes?: number } | undefined)?.rawBytes ?? blob.bytes) }), options.signal)
 }

@@ -81,7 +81,7 @@ describe('the cloud tree', () => {
   })
 
   it('has none of the Mac host’s own slots', () => {
-    for (const rel of ['sandbox.ts', 'tools/finish.ts', 'tools/request_folder_access.ts']) expect(existsSync(join(CHAT_AGENT, rel)), rel).toBe(false)
+    for (const rel of ['sandbox.ts', 'tools/finish.ts', 'tools/request_folder_access.ts', 'tools/studio_product.ts']) expect(existsSync(join(CHAT_AGENT, rel)), rel).toBe(false)
   })
 })
 
@@ -96,7 +96,7 @@ describe.runIf(process.platform === 'darwin')('the Mac build’s copy (mac-body.
       expect(generated).toContain("from '../../local-agent/lib/model.js'")
       expect(readFileSync(join(body, 'channels', 'eve.ts'), 'utf8')).toContain("from '../../local-agent/channels/eve.js'")
       expect(readFileSync(join(body, 'sandbox.ts'), 'utf8')).toContain("export { default, environment } from '../local-agent/sandbox.js'")
-      for (const tool of ['finish', 'request_folder_access']) {
+      for (const tool of ['finish', 'request_folder_access', 'studio_product']) {
         expect(readFileSync(join(body, 'tools', `${tool}.ts`), 'utf8')).toContain(`from '../../local-agent/tools/${tool}.js'`)
       }
       for (const rel of ['subagents', 'tools/helpers.ts', 'hooks/usage-meter.ts', '.eve', '.output']) expect(existsSync(join(body, rel)), rel).toBe(false)

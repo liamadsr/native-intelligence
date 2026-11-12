@@ -15,9 +15,11 @@ import './ui/media-budget'
 import * as React from 'react'
 import { setAssetBase } from '@/lib/studio/engine/asset-base'
 import { App } from './ui/App'
+import type { EditorChatLink } from './ui/chat-note'
 import { ContextMenuProvider } from './ui/ContextMenu'
 import { setStudioRoot, setStudioWorkspace, studioFileBase } from './studio-env'
 import './ui/studio.css'
+import './ui/studio-shell.css'
 
 class Recover extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null }
@@ -53,20 +55,32 @@ export interface StudioRootProps {
   videoId?: string | null
   /** The page of that video to open on. */
   page?: StudioPage
+  /** Which request `videoId` and `page` are: a new number asks again, even for the same place (the Studio may have moved away since). */
+  ask?: number
+  /**
+   * The Studio page's sub-nav beside the rail is its navigation now (page-panel/studio-panel.tsx): the editor draws
+   * no rail and no Projects entry of its own. Off: as a page of its own, with its rail.
+   */
+  navInPanel?: boolean
   /** Told which video is open and on which page, whenever that changes. */
   onPlace?: (place: { videoId: string | null; title: string | null; page: StudioPage }) => void
+  /**
+   * Handed what the app's agent is told about the editor when the person messages it with the Studio in front (the
+   * video, the playhead, the selection: ui/chat-note.ts) and how to save their edits first; null as the editor goes.
+   */
+  onLive?: (link: EditorChatLink | null) => void
 }
 
-export default function StudioRoot({ workspaceId, videoId, page, onPlace }: StudioRootProps) {
+export default function StudioRoot({ workspaceId, videoId, page, ask, navInPanel = false, onPlace, onLive }: StudioRootProps) {
   // Set while rendering, before the editor's first read of a media address.
   setAssetBase(studioFileBase(workspaceId))
   setStudioWorkspace(workspaceId)
   const rootRef = React.useCallback((element: HTMLDivElement | null) => setStudioRoot(element), [])
   return (
-    <div ref={rootRef} className="ni-studio ni-studio-root" data-studio-root="">
+    <div ref={rootRef} className="ni-studio ni-studio-root" data-studio-root="" data-studio-nav={navInPanel ? 'panel' : 'rail'}>
       <Recover key={workspaceId}>
         <ContextMenuProvider>
-          <App key={workspaceId} openVideoId={videoId ?? null} openPage={page} onPlace={onPlace} />
+          <App key={workspaceId} openVideoId={videoId ?? null} openPage={page} openAsk={ask} navInPanel={navInPanel} onPlace={onPlace} onLive={onLive} />
         </ContextMenuProvider>
       </Recover>
     </div>

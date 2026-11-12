@@ -31,8 +31,15 @@
  * Every card subscribes with a key of its own draw state (drawKey), and the
  * host with the cards it mounts (hostedKey), so a change to one redraws that
  * one only, however many the chat holds.
+ *
+ * A card can also say what it shows at the moment a turn is sent, beyond what
+ * it keeps here (provideLive: the Studio's editor, its video, playhead and
+ * selection). The store reads it only then, and only from the card in front
+ * (inFront), so nothing is reported per frame or per click, and a card put
+ * away says nothing. Before the read, settle() lets that card finish what the
+ * agent must see (the Studio saves the person's last edits).
  */
-import { buildCardContextEntry, MAX_CONTEXT_CARDS, queryOfSpec, type CardContextEntry } from '@/lib/chat-cards/context'
+import { buildCardContextEntry, MAX_CONTEXT_CARDS, queryOfSpec, type CardContextEntry, type CardLiveDetail } from '@/lib/chat-cards/context'
 import { isPageCard, type CardSpec } from '@/lib/chat-cards/kinds'
 import { pageBaseQuery } from '@/lib/chat-cards/pages'
 import { browserTimeZone } from '@/lib/chat-cards/calendar'
@@ -44,6 +51,17 @@ export const LIVE_CARDS = 3
 
 /** The most the turn's cards may take in the request header, as UTF-8 bytes of JSON. */
 export const MAX_CONTEXT_CHARS = 6000
+
+/** The longest a send waits for the card in front to settle (settle): past it, the turn goes as things are. */
+export const SETTLE_TIMEOUT_MS = 4000
+
+/** What a card in front says of itself when a turn is sent (provideLive). */
+export interface CardLive {
+  /** What it shows now: read at send time, never ahead of it. */
+  read: () => CardLiveDetail | null
+  /** Finish what the agent must see before the turn goes (the Studio saves its edits). */
+  settle?: () => Promise<unknown>
+}
 
 /** UTF-8 bytes, what a header actually carries (a title in Greek or Thai is several per character). */
 function byteSize(value: unknown): number {
@@ -84,6 +102,15 @@ export class ChatCardStore {
    */
   private dockedId: string | null = null
   private releasedDockId: string | null = null
+  /** What the mounted cards say of themselves when a turn is sent (provideLive), by card id. */
+  private lives = new Map<string, CardLive>()
+  /**
+   * The card that was full screen when the main chat's composer sent and put
+   * it back (putBackForSend): still the one the person means, until another
+   * card comes in front, they change another card or they put this one away
+   * themselves.
+   */
+  private sentFromId: string | null = null
 
   constructor() {
     if (typeof window !== 'undefined') sweepCardStates()
@@ -149,6 +176,7 @@ export class ChatCardStore {
     this.indexById = new Map(this.cards.map((c, i) => [c.id, i]))
     // A card gone from the chat (another conversation loaded) is full screen no more.
     if (this.fullScreenId && !this.byId.has(this.fullScreenId)) this.fullScreenId = null
+    if (this.sentFromId && !this.byId.has(this.sentFromId)) this.sentFromId = null
     for (const id of [...this.reopened]) if (!this.byId.has(id)) this.reopened.delete(id)
     this.notify()
   }
@@ -281,6 +309,8 @@ export class ChatCardStore {
    */
   update(id: string, patch: Partial<StoredCardState>, opts: { touch?: boolean; redraw?: boolean } = {}): void {
     const next: StoredCardState = { ...this.state(id), ...patch, ...(opts.touch ? { touchedAt: Date.now() } : {}) }
+    // The person working in another card: the one they sent from (putBackForSend) is no longer what they mean.
+    if (opts.touch && this.sentFromId && this.sentFromId !== id) this.sentFromId = null
     this.states.set(id, next)
     if (typeof window !== 'undefined') writeCardState(id, next)
     if ('visitedAt' in patch) this.openedCache = null
@@ -298,12 +328,14 @@ export class ChatCardStore {
   collapse(id: string): void {
     this.reopened.delete(id)
     if (this.fullScreenId === id) this.fullScreenId = null
+    if (this.sentFromId === id) this.sentFromId = null
     this.update(id, { collapsed: true }, { redraw: true })
   }
 
   /** Full screen, and a visit to the card: an opened page is one of the kept pages from now (keptPages). */
   enterFullScreen(id: string): void {
     this.fullScreenId = id
+    this.sentFromId = null
     if (!this.isLive(id)) this.reopened.add(id)
     this.update(id, { collapsed: false, visitedAt: Date.now() }, { touch: true, redraw: true })
   }
@@ -311,7 +343,70 @@ export class ChatCardStore {
   exitFullScreen(): void {
     if (!this.fullScreenId) return
     this.fullScreenId = null
+    this.sentFromId = null
     this.notify()
+  }
+
+  /**
+   * The main chat's composer sent while a card was full screen: the card goes
+   * back as exitFullScreen puts it, so the person sees their message and the
+   * reply, but it stays the one in front for what the turn says (inFront):
+   * they sent from it.
+   */
+  putBackForSend(): void {
+    const id = this.fullScreenId
+    if (!id) return
+    this.exitFullScreen()
+    this.sentFromId = id
+  }
+
+  // ── What a card in front says when a turn is sent ───────────────────────
+
+  /**
+   * A mounted card says what it shows, read at send time (contextEntries) and
+   * only while it is in front. Returns the way to stop (its unmount).
+   */
+  provideLive(id: string, live: CardLive): () => void {
+    this.lives.set(id, live)
+    return () => {
+      if (this.lives.get(id) === live) this.lives.delete(id)
+    }
+  }
+
+  /**
+   * Is the person looking at this card: the one full screen; with none, the
+   * one they sent from (putBackForSend); with neither, a card of the chat's
+   * own that is open in the thread. Never a page put away, nor one behind
+   * another.
+   */
+  inFront(id: string): boolean {
+    if (this.fullScreenId) return this.fullScreenId === id
+    if (this.sentFromId) return this.sentFromId === id
+    const card = this.byId.get(id)
+    return !!card && !card.opened && !this.isCollapsed(id)
+  }
+
+  /**
+   * Let the card in front finish what the agent must see before the turn's
+   * cards are read (the Studio saves the person's last edits, so the agent
+   * edits what they see). Bounded by SETTLE_TIMEOUT_MS; never fails a send.
+   */
+  async settle(timeoutMs = SETTLE_TIMEOUT_MS): Promise<void> {
+    const waits = [...this.lives].filter(([id, live]) => live.settle && this.inFront(id)).map(([, live]) => Promise.resolve().then(() => live.settle!()).catch(() => undefined))
+    if (!waits.length) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([Promise.all(waits), new Promise<void>((resolve) => (timer = setTimeout(resolve, timeoutMs)))])
+    if (timer) clearTimeout(timer)
+  }
+
+  private liveDetail(id: string): CardLiveDetail | null {
+    const live = this.lives.get(id)
+    if (!live || !this.inFront(id)) return null
+    try {
+      return live.read()
+    } catch {
+      return null
+    }
   }
 
   // ── The live capture's dock (chat/live-capture-dock.tsx) ────────────────
@@ -383,13 +478,15 @@ export class ChatCardStore {
     // One card alone too big (a long value list): it still goes, as its number
     // and title only; read_card then says to show it again more narrowly.
     if (entries.length === 1 && byteSize(entries) > MAX_CONTEXT_CHARS) {
-      const { n, id, kind, title, entity, record, fs, t, at, tab, u } = entries[0]
+      const { n, id, kind, title, entity, record, fs, t, at, tab, u, studio } = entries[0]
       entries[0] = {
         n, id, kind, title: title.slice(0, 120),
         ...(entity ? { entity } : {}), ...(record ? { record } : {}), ...(fs ? { fs } : {}), ...(t ? { t } : {}),
         // A page card keeps where it is: read_card must not read another place.
         ...(at ? { at } : {}), ...(tab ? { tab } : {}),
         ...(u ? { u } : {}),
+        // The Studio's editor is bounded small (studio-note.ts): it stays.
+        ...(studio ? { studio } : {}),
       }
     }
     return entries
@@ -429,11 +526,13 @@ export class ChatCardStore {
           mail: spec.kind === 'mail' ? (s.mail ?? spec.mail) : undefined,
           count: s.count,
           rows: s.rows,
-          fullScreen: this.fullScreenId === c.id,
+          // The card the composer sent from is still in front for the turn (putBackForSend).
+          fullScreen: this.fullScreenId === c.id || (!this.fullScreenId && this.sentFromId === c.id),
           touchedAt: s.touchedAt,
           open: s.open ?? null,
           ...(isPageCard(spec) ? { at: s.at, tab: s.tab ?? null } : {}),
           opened: c.opened,
+          live: this.liveDetail(c.id),
         })
       })
   }

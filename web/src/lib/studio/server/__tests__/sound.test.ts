@@ -6,7 +6,7 @@
  * meanwhile). Also the bank kept in a record, and the listening sheet. The worker's side is faked by calling the job
  * routes' functions; no earshot runs here (studio-worker/test/sound-e2e.ts runs the real one). Made-up material.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EditorAsset, EditorProject } from '../../engine/contracts'
 import { createLayer } from '../../engine/layers'
 import { createBlankVideo } from '../blank'
@@ -24,6 +24,12 @@ beforeEach(() => {
   env = fakeContext()
   forgetWorkers()
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  // A sound pass or a listen stages the video's fonts, and a family the workspace lacks is downloaded from the font
+  // hosts. Never from a test: the hosts answer "down" here, so the job is queued without that family, at once.
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('down', { status: 503 })))
+})
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 const deps = () => ({ supabase: env.ctx.supabase, storage: env.ctx.storage })
 
@@ -239,6 +245,7 @@ describe('the jobs', () => {
     expect(head.status).toBe(200)
     expect(head.headers.get('content-type')).toBe('image/png')
     await expect(listenSheet(env.ctx, imp!.id, new Request('http://studio.test/x', { method: 'HEAD' }))).rejects.toMatchObject({ status: 404 })
+    // Three jobs queued, claimed and filed against the in-memory tables: about 1.5 s alone, past 5 s on a loaded machine.
   })
 
   it('the bank is read through a worker once, then kept; without a worker the kept copy answers', async () => {

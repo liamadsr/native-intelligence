@@ -220,10 +220,11 @@ test('capabilities: which slot asks for what', () => {
   assert.ok(signedIn({ credits: 1 }))
   assert.ok(!signedIn({ error: 'x' }))
   const all = [...STUDIO_JOB_KINDS]
-  assert.deepEqual(kindsFor('media', all, new Set()), all.filter((k) => !['voices', 'narration', 'shot-quote', 'shot'].includes(k)))
+  const voice = ['voice-search', 'revoice', 'sound-effect', 'music']
+  assert.deepEqual(kindsFor('media', all, new Set()), all.filter((k) => !['voices', 'narration', 'shot-quote', 'shot', ...voice].includes(k)))
   assert.deepEqual(kindsFor('provider', all, new Set()), ['continuity'])
-  assert.deepEqual(kindsFor('provider', all, new Set(['voiceover'])), ['voices', 'narration', 'continuity'])
-  assert.deepEqual(kindsFor('provider', all, new Set(['voiceover', 'generatedShots'])), ['voices', 'narration', 'shot-quote', 'shot', 'continuity'])
+  assert.deepEqual(kindsFor('provider', all, new Set(['voiceover'])), ['voices', 'narration', 'continuity', ...voice])
+  assert.deepEqual(kindsFor('provider', all, new Set(['voiceover', 'generatedShots'])), ['voices', 'narration', 'shot-quote', 'shot', 'continuity', ...voice])
   assert.deepEqual(kindsFor('provider', ['export'], new Set(['voiceover'])), [])
 })
 

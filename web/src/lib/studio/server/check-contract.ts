@@ -5,7 +5,9 @@
 //   motion   the picture rendered at half size, muted, for the range; the analysis script watches it frame by frame
 //            and compares it with the bundled reference films and any library videos named as references
 //   review   the same render with its sound, cut into scenes; on-screen text (when the worker has a text reader),
-//            what is said (the video's transcript), layers, clicks, motion and sound per scene, flags, style rows
+//            what is said (the video's transcript), layers, clicks, motion and sound per scene, flags, style rows,
+//            or a library video by itself (a reference), measured as it is, with no render. Either answers its
+//            scene list with each scene's times and how it reads (sceneList)
 //   look     frames every `step` seconds, rendered with and without the overlays: each overlay's footprint is the
 //            difference; per text layer its contrast, size and overflow; a contact sheet
 //
@@ -32,7 +34,45 @@ export type ReviewContext = {
   layers: { name: string; kind: string; text: string; start: number; end: number }[]
   clicks: number[]
 }
-export type ReviewInput = CheckBase & { from?: number; to?: number; references?: CheckReference[]; context: ReviewContext }
+/** review of a saved video: its edit rendered with its sound, then cut into scenes. */
+export type ReviewVideoInput = CheckBase & { from?: number; to?: number; references?: CheckReference[]; context: ReviewContext }
+
+/**
+ * review of a library video by itself (a reference: an uploaded or imported file, not one of the workspace's edits):
+ * the file is measured as it is, with no render and no edit. The worker keeps that measurement by the file's sha256,
+ * so measuring the same file again costs nothing. Made for the reference blueprint (blueprint.ts).
+ */
+export type ReviewReferenceInput = { reference: CheckReference }
+
+export type ReviewInput = ReviewVideoInput | ReviewReferenceInput
+
+/** How a scene reads, from the measured numbers: text on screen, someone talking, something moving, a still, an empty frame. */
+export type ReviewShot = 'text' | 'talk' | 'motion' | 'still' | 'empty'
+
+/**
+ * One scene as the review cut it, in seconds on the render (a reference's own clock for a library video). `onScreen`
+ * is the text read in it, when the worker has a text reader; `said` the words of the transcript the review was given.
+ */
+export type ReviewScene = {
+  index: number
+  start: number
+  end: number
+  seconds: number
+  shot: ReviewShot
+  /** How it begins: start, cut, scene change, or the handoff the motion analysis saw. */
+  entersBy: string
+  /** The share of the scene in which something moves (0 to 1). */
+  alive: number
+  /** Its mean brightness (0 to 1). */
+  luma: number
+  said?: string
+  words?: number
+  onScreen?: string[]
+  /** The most headline-sized words read in one frame of it. */
+  wordsOnScreen?: number
+  /** Its largest text's height as a share of the frame height. */
+  textHeight?: number
+}
 
 /** look: a frame every `step` seconds (default 0.5) where an overlay shows, at `scale` (default 0.5). */
 export type LookInput = CheckBase & { step?: number; scale?: number }
@@ -70,6 +110,10 @@ export type ReviewResult = {
   pictures: Record<string, string>
   against?: { references: string[]; rows: unknown[]; in_range: number; of: number }
   scenes: number
+  /** Every scene with its times (render clock), how it reads and its text. Left out by a worker from before it. */
+  sceneList?: ReviewScene[]
+  /** The library video measured, for a review of a reference (ReviewReferenceInput). */
+  reference?: { assetId: string; sha256: string }
   /** Whether on-screen text was read (a text reader on the worker), with a sentence when not. */
   onScreenText: 'read' | 'not-read'
   note?: string

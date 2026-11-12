@@ -82,6 +82,13 @@ describe('the rail pages', () => {
     expect(ids).toContain('team-chat')
   })
 
+  it('leave out the Studio for a guest of the workspace (its routes refuse a guest), and nothing else', () => {
+    const forGuest = railPagesFor(pagesFor(full, { desktop: false, now: NOW, guest: true })).map((p) => p.def.id)
+    expect(offered().map((p) => p.def.id)).toContain('studio')
+    expect(forGuest).not.toContain('studio')
+    expect(forGuest).toEqual(offered().map((p) => p.def.id).filter((id) => id !== 'studio'))
+  })
+
   it('name a page in the workspace’s words', () => {
     const service = getEdition('service')
     const actions = offered(service).find((p) => p.def.id === 'actions')

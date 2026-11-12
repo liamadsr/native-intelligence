@@ -66,6 +66,8 @@ type HarnessOpts = {
   holdSend?: (index: number) => Promise<void> | undefined
   persist?: (body: EvePersistBody) => Promise<void>
   timeouts?: ConstructorParameters<typeof EveChatTransport>[0] extends infer O ? O extends { timeouts?: infer T } ? T : never : never
+  /** The main chat's cards and their settling (settleCardContext). */
+  cards?: Pick<ConstructorParameters<typeof EveChatTransport>[0], 'getCardContext' | 'settleCardContext'>
 }
 
 function harness(sources: Source[], opts: HarnessOpts = {}) {
@@ -106,6 +108,7 @@ function harness(sources: Source[], opts: HarnessOpts = {}) {
     },
     createClient: () => client as never,
     ...(opts.timeouts ? { timeouts: opts.timeouts } : {}),
+    ...(opts.cards ?? {}),
   })
   return { transport, dispatches, cancel, mint, persists, writes, send, client }
 }
@@ -200,6 +203,64 @@ function request(t: EveChatTransport, phases: SteerPhase[] = [], id = 's1', word
 }
 
 describe('EveChatTransport — steering the running reply (UI-2)', () => {
+  it('a steer settles the card in front first, as a send does: the cards it carries are read after the save', async () => {
+    const r1 = pushable()
+    const r2 = pushable()
+    const log: string[] = []
+    let saved = false
+    const h = harness([r1, r2], {
+      cards: {
+        getCardContext: () => {
+          log.push(saved ? 'read cards (saved)' : 'read cards')
+          return [{ n: 1, id: 'card-studio', kind: 'studio', title: 'Studio' }]
+        },
+        settleCardContext: async () => {
+          log.push('save started')
+          await new Promise((r) => setTimeout(r, 15))
+          saved = true
+          log.push('saved')
+        },
+      },
+    })
+    const reader1 = (await h.transport.sendMessages(firstSend())).getReader()
+    r1.push(st(turnStarted('turn_0'), ['d1'], 'e1'), st(reasoning('Planning the draft'), ['d1'], 'e2'))
+    await readUntil(reader1, (c) => c.type === 'reasoning-delta')
+    log.length = 0
+    saved = false
+    expect(request(h.transport, [], 's1', 'and move it up a little')).toBe(true)
+    await new Promise((r) => setTimeout(r, 40))
+    await settle()
+    // Posted once the save is done, with the cards read again after it.
+    expect(h.dispatches.map((d) => d.kind)).toEqual(['create', 'send'])
+    expect(log.indexOf('saved')).toBeGreaterThan(-1)
+    expect(log.indexOf('read cards (saved)')).toBeGreaterThan(log.indexOf('saved'))
+    r1.end()
+    r2.end()
+  })
+
+  it('a steer whose card cannot settle still goes, with the cards as they were', async () => {
+    const r1 = pushable()
+    const r2 = pushable()
+    const h = harness([r1, r2], {
+      cards: {
+        getCardContext: () => [{ n: 1, id: 'card-studio', kind: 'studio', title: 'Studio' }],
+        settleCardContext: async () => {
+          throw new Error('offline')
+        },
+      },
+    })
+    const reader1 = (await h.transport.sendMessages(firstSend())).getReader()
+    r1.push(st(turnStarted('turn_0'), ['d1'], 'e1'), st(reasoning('Planning the draft'), ['d1'], 'e2'))
+    await readUntil(reader1, (c) => c.type === 'reasoning-delta')
+    const phases: SteerPhase[] = []
+    expect(request(h.transport, phases)).toBe(true)
+    await settle()
+    expect(h.dispatches.map((d) => d.kind)).toEqual(['create', 'send'])
+    expect(phases).toEqual(['posting', 'posted'])
+    r1.end()
+    r2.end()
+  })
+
   it('a steer that carries a replied-to card names it in the message eve receives (card-reply.ts)', async () => {
     const r1 = pushable()
     const r2 = pushable()

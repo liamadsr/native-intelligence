@@ -21,12 +21,14 @@ vi.mock('../records', () => ({
 
 import {
   allowedFontUrl, ensureFonts, facesOf, familiesToEnsure, FONT_FILE_MAX_BYTES, fontshareCssUrl, fontshareFiles, fontshareRecord, fontsourceAxes,
-  fontsourceStaticFiles, fontsourceVariableCandidates, installFont, installedFonts, parseFamilies, parseFontshare, parseFontsource, projectFamilies,
+  fontsourceStaticFiles, fontsourceVariableCandidates, installFont, installedFonts, isFontFile, parseFamilies, parseFontshare, parseFontsource, projectFamilies,
   resetFontListings, searchFonts, servedFaces, type InstalledFont,
 } from '../fonts'
 import type { StudioContext } from '../context'
 
 const ctx = { workspaceId: '11111111-2222-4333-8444-555555555555', userId: null, supabase: {} } as unknown as StudioContext
+/** A made-up font file: a WOFF2 header, then nothing. */
+const WOFF2 = new Uint8Array([0x77, 0x4f, 0x46, 0x32, ...new Array<number>(60).fill(0)])
 
 // ---- recorded fixtures, written by hand in the shapes the two sources answer -----------------------------------
 
@@ -80,7 +82,7 @@ function fakeHosts(overrides: Record<string, () => Response> = {}) {
     if (url === 'https://api.fontsource.org/v1/fonts') return Response.json(SOURCE_LIST)
     if (url === 'https://api.fontsource.org/v1/variable/inter') return Response.json(INTER_AXES)
     if (url.startsWith('https://api.fontshare.com/v2/css?')) return new Response(SATOSHI_CSS)
-    if (url.endsWith('.woff2')) return new Response(new Uint8Array(64))
+    if (url.endsWith('.woff2')) return new Response(WOFF2)
     return new Response('missing', { status: 404 })
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -204,6 +206,14 @@ describe('installing', () => {
     fakeHosts({ 'https://cdn.jsdelivr.net/fontsource/fonts/anton@latest/latin-400-normal.woff2': () => new Response(new Uint8Array(FONT_FILE_MAX_BYTES + 1)) })
     await expect(installFont(ctx, 'Anton')).rejects.toThrow(/no files/)
     expect(blobs.size).toBe(0)
+  })
+
+  it('refuses a file that is not a font (a page or a script on a font host)', async () => {
+    fakeHosts({ 'https://cdn.jsdelivr.net/fontsource/fonts/anton@latest/latin-400-normal.woff2': () => new Response('<!doctype html><script>alert(1)</script>') })
+    await expect(installFont(ctx, 'Anton')).rejects.toThrow(/no files/)
+    expect(blobs.size).toBe(0)
+    expect(isFontFile(WOFF2)).toBe(true)
+    expect(isFontFile(new Uint8Array(64))).toBe(false)
   })
 
   it('does not follow a redirect off the font hosts', async () => {

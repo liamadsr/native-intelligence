@@ -20,9 +20,11 @@
  *   STUDIO_SHUTDOWN_GRACE_MS   on SIGTERM, how long a running job may still take (default 25000).
  *   DEEPGRAM_API_KEY           Deepgram's key, for `transcribe` (that kind fails without it).
  *   DEEPGRAM_URL               Deepgram's prerecorded endpoint (a test's fake).
- *   ELEVENLABS_API_KEY         ElevenLabs' key, for narration (`voices`, `narration`): set, the worker
- *                              offers the `voiceover` capability; unset, it never asks for those jobs.
- *   ELEVENLABS_URL             ElevenLabs' API origin (default https://api.elevenlabs.io; a test's fake).
+ *   ELEVENLABS_API_KEY         ElevenLabs' key, for narration (`voices`, `narration`) and the rest of the
+ *                              voice provider (`voice-search`, `revoice`, `sound-effect`, `music`): set, the
+ *                              worker offers the `voiceover` capability; unset, it never asks for those jobs.
+ *   ELEVENLABS_URL             ElevenLabs' API origin, https only (default https://api.elevenlabs.io; a test's
+ *                              fake on this machine may be http).
  *   STUDIO_HIGGSFIELD_BIN      the higgsfield command-line tool (default: `higgsfield` on PATH or in the
  *                              usual places). Generated shots (`shot-quote`, `shot`) are offered only while
  *                              it answers its account status, signed in (./providers/capabilities.ts).
@@ -32,6 +34,8 @@
  *   STUDIO_EARSHOT_DIR         the folder of an installed earshot (with its `.venv`), for sound design
  *                              (`sounds`, `sound-import`, `listen`, `sound-bank`). Unset, or not answering,
  *                              the worker offers no `sound` capability (./earshot.ts).
+ *   STUDIO_CODE_SCENES         whether renders run code scenes' code (in their locked frame, ./scenes.ts):
+ *                              on/off (also 1/0, true/false). Default on outside production, off in production.
  */
 import { hostname, tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
@@ -60,6 +64,8 @@ export interface WorkerConfig {
   higgsfieldBin: string | null
   analysisPython: string | null
   earshotDir: string | null
+  /** Run code scenes in renders (STUDIO_CODE_SCENES). */
+  codeScenes: boolean
 }
 
 export const DEV_SECRET = 'dev-studio-worker'
@@ -78,6 +84,15 @@ function int(env: NodeJS.ProcessEnv, name: string, fallback: number, min: number
   return Number.isFinite(n) && n >= min && n <= max ? n : fallback
 }
 
+/** A switch setting: on/off, 1/0, true/false, yes/no (case aside); unset is `fallback`, anything else null. */
+function onOff(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boolean | null {
+  const v = setting(env, name)?.toLowerCase()
+  if (v === undefined || v === null) return fallback
+  if (['on', '1', 'true', 'yes'].includes(v)) return true
+  if (['off', '0', 'false', 'no'].includes(v)) return false
+  return null
+}
+
 /** The settings, or what is wrong with them (each a sentence). */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig | { problems: string[] } {
   const problems: string[] = []
@@ -92,6 +107,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig |
   const unknown = kinds.filter((k) => !(STUDIO_JOB_KINDS as readonly string[]).includes(k))
   if (unknown.length > 0) problems.push(`STUDIO_WORKER_KINDS names kinds that do not exist: ${unknown.join(', ')} (known: ${STUDIO_JOB_KINDS.join(', ')})`)
   if (kinds.length === 0) problems.push('STUDIO_WORKER_KINDS names no kind')
+  const codeScenes = onOff(env, 'STUDIO_CODE_SCENES', !production)
+  if (codeScenes === null) problems.push('STUDIO_CODE_SCENES must be on or off')
   if (problems.length > 0) return { problems }
   const gb = 1024 ** 3
   return {
@@ -115,5 +132,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig |
     higgsfieldBin: setting(env, 'STUDIO_HIGGSFIELD_BIN'),
     analysisPython: setting(env, 'STUDIO_ANALYSIS_PYTHON'),
     earshotDir: setting(env, 'STUDIO_EARSHOT_DIR') ? resolve(setting(env, 'STUDIO_EARSHOT_DIR')!) : null,
+    codeScenes: codeScenes!,
   }
 }

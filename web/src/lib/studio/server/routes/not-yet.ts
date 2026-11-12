@@ -1,9 +1,11 @@
 // What the editor asks for that the Studio cannot do here yet. Each answer has the shape the editor reads, so no
 // screen breaks: an empty list, "not ready", or for an action a plain sentence
 // (501) the editor shows where it shows errors. Each is its own small function, named after the route it stands
-// in for, to be replaced one by one as the capability arrives (the Mac recorder, the agent, product kits).
+// in for, to be replaced one by one as the capability arrives (the Mac recorder, product kits). The editor has no
+// agent of its own: the agent in the app's chat edits videos with the Studio tools, so it has no routes here.
 // Voiceover, generated shots, continuity and costs moved to voiceover.ts, generation.ts and costs.ts; cut-outs and
-// the director pass to vision.ts; sound design to sound.ts; the motion check and the review to checks.ts.
+// the director pass to vision.ts; sound design to sound.ts; the motion check and the review to checks.ts; reference
+// blueprints to blueprint.ts; code scenes to scenes.ts.
 import { notYetError } from '../errors'
 import { route, type StudioHandler, type StudioRoute } from '../router'
 
@@ -31,8 +33,6 @@ const APPS = "Setting up apps for recording isn't available in the web app yet."
 
 // ---- product kits, style guides ------------------------------------------------------------------------------
 
-/** GET /kits: attached product repositories. */
-const kits: StudioHandler = async () => ({ kits: [] })
 /** GET /brands: style guides read from products. */
 const brands: StudioHandler = async () => ({ brands: [] })
 /** GET /kits/:k/brand: a product's style guide. */
@@ -41,9 +41,10 @@ const kitBrand: StudioHandler = async () => ({ brand: null })
 const kitOnboard: StudioHandler = async () => ({ onboarding: null })
 /** GET /kits/:k/source: where a product's code comes from. */
 const kitSource: StudioHandler = async () => ({ source: { ref: 'main', mode: 'branch' }, branches: [] })
-/** GET /kits/:k/catalog: a product's components and its stage. */
-const kitCatalog: StudioHandler = async () => ({ components: [], stage: { built: false, fresh: false }, health: null, checking: false, stageUrl: null })
-const KITS = "Product components aren't available in the web app yet."
+// GET kits, GET kits/:kit/catalog and the component placement and status are products.ts's (routes/products.ts): a
+// product is set up and filmed on the person's Mac by the agent. What stays here is the standalone editor's own: attaching a
+// folder by its path, branches, a live stage and a style guide read from the code.
+const KITS = "Products are set up from a folder your desktop app shares: ask the agent in the chat to set yours up."
 
 // ---- generated shots, takes ----------------------------------------------------------------------------------
 
@@ -51,19 +52,7 @@ const TAKES = 'Recorded takes come from the Mac recorder, which isn’t availabl
 
 // ---- product components on a video ----------------------------------------------------------------
 
-/** GET /projects/:id/components/status: component layers whose product code changed. */
-const componentsStatus: StudioHandler = async () => ({ stale: [] })
-const COMPONENTS = "Product components aren't available in the web app yet."
-
-// ---- the assistant -----------------------------------------------------------------------------------------------
-
-/** GET /agent/status: whether the editor's own assistant can run. The app's agent replaces it. */
-const agentStatus: StudioHandler = async () => ({ available: false, claudePath: null })
-/** GET /agent/sessions: past chats with it. */
-const agentSessions: StudioHandler = async () => ({ sessions: [] })
-/** GET /agent/approvals: spend approvals waiting. */
-const agentApprovals: StudioHandler = async () => ({ approvals: [] })
-const AGENT = "The editor's own assistant isn't available here. Ask the app's assistant instead."
+const COMPONENTS = "Refreshing films the components again on your Mac: ask the agent in the chat to refresh this video's product components."
 
 // ---- playback measurements -----------------------------------------------------------------------------------------
 
@@ -92,7 +81,6 @@ export const notYetRoutes: StudioRoute[] = [
   route('PUT', 'app-profiles/:id', unavailable(APPS)),
   route('POST', 'app-profiles/:id/validate', unavailable(APPS)),
 
-  route('GET', 'kits', kits),
   route('POST', 'kits/attach', unavailable(KITS)),
   route('GET', 'brands', brands),
   route('GET', 'kits/:kit/brand', kitBrand),
@@ -104,35 +92,17 @@ export const notYetRoutes: StudioRoute[] = [
   route('GET', 'kits/:kit/source', kitSource),
   route('POST', 'kits/:kit/source', unavailable(KITS)),
   route('POST', 'kits/:kit/source/refresh', unavailable(KITS)),
-  route('GET', 'kits/:kit/catalog', kitCatalog),
   route('POST', 'kits/:kit/stage', unavailable(KITS)),
   route('GET', 'kits/:kit/stage/:file', unavailable(KITS)),
 
   route('POST', 'projects/:id/beats/:beat/take', unavailable(TAKES)),
 
-  route('GET', 'projects/:id/components/status', componentsStatus),
-  route('POST', 'projects/:id/components', unavailable(COMPONENTS)),
   route('POST', 'projects/:id/components/refresh', unavailable(COMPONENTS)),
-
-  route('GET', 'agent/status', agentStatus),
-  route('POST', 'agent/login', unavailable(AGENT)),
-  route('GET', 'agent/sessions', agentSessions),
-  route('POST', 'agent/sessions', unavailable(AGENT)),
-  route('GET', 'agent/sessions/:id', unavailable(AGENT)),
-  route('POST', 'agent/sessions/:id/stop', unavailable(AGENT)),
-  route('GET', 'agent/approvals', agentApprovals),
-  route('POST', 'agent/approvals', unavailable(AGENT)),
-  route('GET', 'agent/approvals/:id', unavailable(AGENT)),
-  route('POST', 'agent/approvals/:id', unavailable(AGENT)),
 
   route('POST', 'perf', perf),
   route('GET', 'perf', perfReports),
   route('GET', 'perf-config', perfConfig),
   route('POST', 'perf-config', perfConfig),
 
-  route('GET', 'blueprints/:assetId', unavailable("Reference blueprints aren't available yet.")),
-  route('POST', 'blueprints/:assetId', unavailable("Reference blueprints aren't available yet.")),
-  route('POST', 'projects/:id/scenes', unavailable("Code scenes aren't available yet.")),
-  route('GET', 'scenes/:id', unavailable("Code scenes aren't available yet.")),
   route('POST', 'projects/from-motion', unavailable("Importing motion ads isn't available yet.")),
 ]
