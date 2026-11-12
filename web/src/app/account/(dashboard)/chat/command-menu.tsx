@@ -39,21 +39,19 @@ import {
   Boxes,
   Brain,
   Building2,
+  CalendarClock,
   CalendarDays,
   CircleCheck,
-  FileText,
-  Hash,
   FlaskConical,
   FolderKanban,
-  Handshake,
   LayoutList,
   Mail,
   Megaphone,
+  Paperclip,
   Search,
   Send,
   Target,
   Telescope,
-  User,
   Users,
   Workflow,
   type LucideIcon,
@@ -100,6 +98,8 @@ import { usePaletteFeed } from './use-palette-feed'
 import { describeFeedEvent, feedActorLabel, sharedWithYouLine, type FeedEntry } from '@/lib/entities/feed-model'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import { openTarget } from '@/lib/chat-cards/open-card'
+import { FEED_ICONS, RECORD_ICONS } from './feed-icons'
+import { PALETTE_ENTRANCE_EASING, PALETTE_ENTRANCE_FROM, PALETTE_ENTRANCE_MS } from '@/lib/motion/palette-entrance'
 import { formatDistanceToNowStrict } from 'date-fns'
 
 /** What the composer's field hands the inline menu: its keys. */
@@ -147,9 +147,11 @@ export interface CommandMenuProps {
 
 const PAGE_ICONS: Record<string, LucideIcon> = {
   calendar: CalendarDays,
+  availability: CalendarClock,
   actions: CircleCheck,
   captures: AudioLines,
   docs: BookOpen,
+  files: Paperclip,
   knowledge: Brain,
   initiatives: Target,
   projects: FolderKanban,
@@ -603,8 +605,9 @@ function PaletteFrame({
         role="dialog"
         aria-modal="true"
         aria-label="Search"
-        from={{ opacity: 0, transform: 'translateY(-6px) scale(0.98)' }}
-        duration={160}
+        // The palette's entrance, shared with the page panel's page change (lib/motion/palette-entrance.ts).
+        from={PALETTE_ENTRANCE_FROM}
+        duration={PALETTE_ENTRANCE_MS}
         // Flying in, the flight is its entrance.
         still={arriving}
         className="relative flex max-h-[min(72vh,560px)] w-full max-w-[640px] flex-col overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground shadow-2xl"
@@ -658,7 +661,7 @@ function Entrance({
     const el = ref.current
     if (still || !el || typeof el.animate !== 'function') return
     if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    el.animate([from, { opacity: 1, transform: 'none' }], { duration, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' })
+    el.animate([from, { opacity: 1, transform: 'none' }], { duration, easing: PALETTE_ENTRANCE_EASING })
     // Once, as it mounts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -1012,27 +1015,6 @@ function statusLabel(status: string): string {
 const TILE = 'flex size-7 shrink-0 items-center justify-center rounded-lg'
 /** A neutral tile; on the highlighted row it lifts off the highlight. */
 const MUTED_TILE = 'bg-muted group-aria-selected:bg-background'
-
-/** The record kinds drawn as a plain glyph on a tile. */
-const RECORD_ICONS: Partial<Record<MenuSearchRow['kind'], LucideIcon>> = {
-  action: CircleCheck,
-  document: FileText,
-  project: FolderKanban,
-  initiative: Target,
-  capture: AudioLines,
-  deal: Handshake,
-  flow: Workflow,
-  agent: Boxes,
-  team_chat_message: Hash,
-}
-
-/** A feed row's kind, as a glyph on a tile. */
-const FEED_ICONS: Partial<Record<FeedEntry['type'], LucideIcon>> = {
-  ...RECORD_ICONS,
-  contact: User,
-  company: Building2,
-  team_chat_message: Hash,
-}
 
 function RowIcon({ item }: { item: MenuItem }) {
   if (item.kind === 'page') {

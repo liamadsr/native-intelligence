@@ -1,61 +1,109 @@
 /**
- * The side panels around the main chat, as one small external store (Liam,
- * 10-15: "make it a lot more smoother so that they all fit nicely"): the
- * right panel (Agents · Plan · Context · Environment · Connections) and the For you column on the
- * left share one model, one toggle each, one motion and one space plan
- * (space-plan.ts). Nothing here lives in ChatPanel, so toggling a panel never
- * re-renders the chat.
+ * The side panel beside the main chat, as one small external store (Liam,
+ * 10-15: "make it a lot more smoother so that they all fit nicely"): one
+ * model, one motion and one space plan (space-plan.ts). Nothing here lives in
+ * ChatPanel, so toggling the panel never re-renders the chat.
  *
- *   right     open or closed, remembered per device (RIGHT_OPEN_KEY).
- *   left      the For you column: open unless the person folded it away,
- *             remembered as it always was (FOR_YOU_COLLAPSED_KEY), and drawn
- *             only while it has cards and no live capture's notepad holds the
- *             left (leftContent, told by the column itself).
- *   sections  the right panel's cards: which the person opened (closed until
- *             then: the high-level view, one row each) and their order,
- *             dragged by hand, each remembered per device.
+ * One panel, two views (Liam, 11-11: "move the for you cards to the right
+ * hand side panel then you should be able to switch between the agent
+ * browser and context cards and the for you cards but you can't see both at
+ * the same time"):
+ *
+ *   rightOpen      open or closed, remembered per device (RIGHT_OPEN_KEY).
+ *   view           which of its views shows, remembered per device
+ *                  (VIEW_KEY): `panel`, the sections (the agent's card, then
+ *                  Agents · Plan · Context · Environment · Connectors), the
+ *                  default; or `forYou`, the For you cards. Each view's
+ *                  top-bar button (side-panel-toggles.tsx) opens the panel on
+ *                  its view, or closes it when its view is the one showing
+ *                  (toggleSidePanelView); ⌘\ opens and closes it on the view
+ *                  it had (toggleRightPanel).
+ *   forYouContent  For you has cards (told by the panel, side-panels.tsx).
+ *                  With none, the For you view is never drawn (Liam's "hide
+ *                  empty widgets"): the panel open on For you is not on
+ *                  screen (rightShown) and the chat gets its room back, but
+ *                  rightOpen and the view stay as saved, so it comes back on
+ *                  For you when cards arrive. It never falls back to the
+ *                  sections by itself.
+ *   sections       the sections' cards: which the person opened (closed
+ *                  until then: the high-level view, one row each) and their
+ *                  order, dragged by hand, each remembered per device.
+ *   pagePanel      the page panel beside the navigation has something to
+ *                  show (told by page-panel/page-panel.tsx: the page on
+ *                  screen has one, with rows, and the capture's notepad
+ *                  doesn't hold the left; Liam, 11-11). Never saved: it
+ *                  follows the page, and the space plan gives it the left
+ *                  only where the row has room for it.
+ *   pagePanelOpen  the page panel open or closed by its button, to the
+ *                  right of Search in the app rail's header (Liam, 11-11:
+ *                  "we also need a button for opening and closing the new
+ *                  panel lets put it to the right of the search button"),
+ *                  remembered per device (PAGE_PANEL_OPEN_KEY), open by
+ *                  default. Kept as saved while the panel is hidden for
+ *                  another reason (no rows, the notepad docked, no room).
+ *   pagePanelPage  what it shows is a page's sub-nav, that page's card in
+ *                  front (told by its host): the card draws no navigation of
+ *                  its own from `md` up, so the sub-nav shows while it is
+ *                  open, room or not (space-plan.ts leftPinned; Liam, 11-11:
+ *                  "did you actually clean up the old one and remove it …
+ *                  completely"). Home's Recent keeps the rules below. Never
+ *                  saved.
+ *   pagePanelFloatOk  opened by hand this session (setPagePanelOpen): where
+ *                  the row has no room it may float over the chat's left
+ *                  edge (side-panels.tsx planFor). Opened only as the device
+ *                  remembered it, it shows only where it makes room, never
+ *                  over the chat unasked. Never saved.
+ *   pagePanelShown the page panel is on screen now (told by its host, from
+ *                  the row's plan): what lights its button.
  *
  * Every read and write of storage is in try/catch: blocked storage keeps the
- * state in memory for the session. The server snapshot is closed, every card
- * closed and in the default order, so hydration never mismatches; the client
- * then renders what the device saved. Another tab's change arrives as a `storage` event.
+ * state in memory for the session. The server snapshot is closed, on the
+ * sections, every card closed and in the default order, so hydration never
+ * mismatches; the client then renders what the device saved. Another tab's
+ * change arrives as a `storage` event.
  *
- * The chat's bottom anchor: a toggle whose panel moves the chat's content
- * changes the chat's width once, and its text re-wraps. The toggle notes how
+ * The chat's bottom anchor: a change that puts a panel on or off screen
+ * changes the chat's width once, and its text re-wraps. The change notes how
  * far the person was from the chat's bottom (captureChatAnchor) and the row
  * puts them back there in the same frame (restoreChatAnchor), before paint.
  */
 
 export type SectionId = 'computer' | 'agents' | 'plan' | 'context' | 'environment' | 'connections'
 
+/** The right panel's two views: its sections, or the For you cards. */
+export type SidePanelView = 'panel' | 'forYou'
+
 export interface SidePanelState {
-  /** The right panel is open. */
+  /** The right panel is open (on screen unless its view is For you with no cards: rightShown). */
   rightOpen: boolean
-  /** The For you column is open (not folded away). */
-  leftOpen: boolean
-  /** The For you column has something to show, and the left is free for it. */
-  leftContent: boolean
+  /** Which view the panel shows: its sections, or the For you cards. */
+  view: SidePanelView
+  /** For you has cards to show (told by the panel). */
+  forYouContent: boolean
   /** The right panel's cards the person opened (closed by default: one row each). */
   sectionOpen: Readonly<Record<SectionId, boolean>>
   /** The right panel's cards in the person's order, every id once (a hidden one keeps its slot). */
   order: readonly SectionId[]
   /** Some connection needs the person (a reconnect, missing access…): the toggle's amber dot. */
   connectionsAttention: boolean
-  /**
-   * The person opened For you by hand this session: it may float over the
-   * chat. Opened only as the device remembered it, it shows where it makes
-   * room and waits, closed, where it would float (never over the chat
-   * unasked). Session only.
-   */
-  leftFloatOk: boolean
   /** The live capture's notepad is docked on the chat's left (live-capture-dock.tsx): the chat's content moves over for it. */
   captureDock: boolean
-  /** The For you column is on screen now (the row's space plan): what its toggle shows and flips. */
-  leftShown: boolean
+  /** The page panel has something to show beside the navigation (page-panel/page-panel.tsx). */
+  pagePanel: boolean
+  /** What the page panel shows is a page's sub-nav, with that page's card in front: it shows while open, room or not. Never saved. */
+  pagePanelPage: boolean
+  /** The page panel is open (its button in the rail's header), remembered per device; open by default. */
+  pagePanelOpen: boolean
+  /** The page panel was opened by hand this session: it may float over the chat where there is no room. Never saved. */
+  pagePanelFloatOk: boolean
+  /** The page panel is on screen now (the row's plan, told by its host): what its button shows and flips. */
+  pagePanelShown: boolean
 }
 
 /** Remembered per device: the right panel open. */
 export const RIGHT_OPEN_KEY = 'ni:side-panel:open'
+/** Remembered per device: the panel's view, `for-you` (absent: the sections, the default). */
+export const VIEW_KEY = 'ni:side-panel:view'
 /**
  * Remembered per device: which of the right panel's cards are open, as
  * `{"open":[ids]}`. The key held, before the cards closed by default, a plain
@@ -67,12 +115,8 @@ export const RIGHT_OPEN_KEY = 'ni:side-panel:open'
 export const SECTIONS_KEY = 'ni:side-panel:collapsed'
 /** Remembered per device: the right panel's cards in the person's order (JSON list of ids). */
 export const ORDER_KEY = 'ni:side-panel:order'
-/**
- * Remembered per device: the For you column folded away. A new name (11-09:
- * For you shows whenever it has cards, its toggle always there to fold it):
- * a fold remembered before then doesn't hide it now.
- */
-export const FOR_YOU_COLLAPSED_KEY = 'ni:for-you-column:folded'
+/** Remembered per device: the page panel closed, `0` (absent: open, the default). */
+export const PAGE_PANEL_OPEN_KEY = 'ni:page-panel:open'
 
 /**
  * Every card, in the order it shows until the person drags one. A saved order
@@ -94,14 +138,17 @@ const isSectionId = (v: unknown): v is SectionId => typeof v === 'string' && (SE
 
 const SERVER: SidePanelState = {
   rightOpen: false,
-  leftOpen: false,
-  leftContent: false,
+  view: 'panel',
+  forYouContent: false,
   sectionOpen: NONE_OPEN,
   order: SECTION_IDS,
   connectionsAttention: false,
-  leftFloatOk: false,
   captureDock: false,
-  leftShown: false,
+  pagePanel: false,
+  pagePanelPage: false,
+  pagePanelOpen: true,
+  pagePanelFloatOk: false,
+  pagePanelShown: false,
 }
 
 function readKey(key: string): string | null {
@@ -119,6 +166,11 @@ function writeKey(key: string, value: string | null): void {
   } catch {
     // Storage blocked or full: it holds in memory for this session.
   }
+}
+
+/** VIEW_KEY read: For you only as written; anything else (missing, junk) the sections. */
+export function parseView(raw: string | null): SidePanelView {
+  return raw === 'for-you' ? 'forYou' : 'panel'
 }
 
 /**
@@ -181,15 +233,37 @@ export function moveAmongVisible(
 function readSaved(): SidePanelState {
   return {
     rightOpen: readKey(RIGHT_OPEN_KEY) === '1',
-    leftOpen: readKey(FOR_YOU_COLLAPSED_KEY) !== '1',
-    leftContent: false,
+    view: parseView(readKey(VIEW_KEY)),
+    forYouContent: false,
     sectionOpen: parseSectionOpen(readKey(SECTIONS_KEY)),
     order: parseOrder(readKey(ORDER_KEY)),
     connectionsAttention: false,
-    leftFloatOk: false,
     captureDock: false,
-    leftShown: false,
+    pagePanel: false,
+    pagePanelPage: false,
+    pagePanelOpen: readKey(PAGE_PANEL_OPEN_KEY) !== '0',
+    pagePanelFloatOk: false,
+    pagePanelShown: false,
   }
+}
+
+/**
+ * The panel is on screen: open, on the sections or on For you with cards.
+ * Open on For you with none, it waits off screen (rightOpen and the view
+ * kept), and the space plan gives the chat its room back.
+ */
+export function rightShown(s: Pick<SidePanelState, 'rightOpen' | 'view' | 'forYouContent'>): boolean {
+  return s.rightOpen && (s.view === 'panel' || s.forYouContent)
+}
+
+/** The view on screen now, or null with the panel off screen: what lights its button. */
+export function shownView(s: Pick<SidePanelState, 'rightOpen' | 'view' | 'forYouContent'>): SidePanelView | null {
+  return rightShown(s) ? s.view : null
+}
+
+/** The page panel asks the row for the left: it has something to show and is open. */
+export function pagePanelWanted(s: Pick<SidePanelState, 'pagePanel'> & Partial<Pick<SidePanelState, 'pagePanelOpen'>>): boolean {
+  return s.pagePanel && s.pagePanelOpen !== false
 }
 
 const listeners = new Set<() => void>()
@@ -204,6 +278,8 @@ function set(patch: Partial<SidePanelState>): void {
   const current = getSidePanelState()
   const next = { ...current, ...patch }
   if ((Object.keys(next) as Array<keyof SidePanelState>).every((k) => next[k] === current[k])) return
+  // A panel comes on or goes off screen: the chat's width changes once, so its place is noted first.
+  if (rightShown(next) !== rightShown(current) || pagePanelWanted(next) !== pagePanelWanted(current)) captureChatAnchor()
   state = next
   emit()
 }
@@ -214,7 +290,7 @@ export function getSidePanelState(): SidePanelState {
   return state
 }
 
-/** The server snapshot: closed, every card closed, the default order. */
+/** The server snapshot: closed, on the sections, every card closed, the default order. */
 export function getServerSidePanelState(): SidePanelState {
   return SERVER
 }
@@ -222,12 +298,13 @@ export function getServerSidePanelState(): SidePanelState {
 export function subscribeSidePanels(listener: () => void): () => void {
   listeners.add(listener)
   const onStorage = (e: StorageEvent) => {
-    if (e.key !== null && ![RIGHT_OPEN_KEY, SECTIONS_KEY, ORDER_KEY, FOR_YOU_COLLAPSED_KEY].includes(e.key)) return
+    if (e.key !== null && ![RIGHT_OPEN_KEY, VIEW_KEY, SECTIONS_KEY, ORDER_KEY, PAGE_PANEL_OPEN_KEY].includes(e.key)) return
     const saved = readSaved()
     const current = getSidePanelState()
     set({
       rightOpen: saved.rightOpen,
-      leftOpen: saved.leftOpen,
+      view: saved.view,
+      pagePanelOpen: saved.pagePanelOpen,
       sectionOpen: sameOpen(saved.sectionOpen, current.sectionOpen) ? current.sectionOpen : saved.sectionOpen,
       order: saved.order.join() === current.order.join() ? current.order : saved.order,
     })
@@ -241,34 +318,50 @@ export function subscribeSidePanels(listener: () => void): () => void {
 
 export function setRightPanelOpen(open: boolean): void {
   if (getSidePanelState().rightOpen === open) return
-  captureChatAnchor()
   writeKey(RIGHT_OPEN_KEY, open ? '1' : null)
   set({ rightOpen: open })
 }
 
+/** The panel's view, remembered per device; its open state untouched. */
+export function setSidePanelView(view: SidePanelView): void {
+  if (getSidePanelState().view === view) return
+  writeKey(VIEW_KEY, view === 'forYou' ? 'for-you' : null)
+  set({ view })
+}
+
+/**
+ * ⌘\: the panel off screen if it is on, else on, on the view it had. Open
+ * on For you with no cards (nothing on screen), the key opens the sections:
+ * a key press always shows or hides something.
+ */
 export function toggleRightPanel(): void {
-  setRightPanelOpen(!getSidePanelState().rightOpen)
-}
-
-/** Open or fold the For you column by hand (its toggle): opened so, it may float over the chat. */
-export function setForYouOpen(open: boolean): void {
   const current = getSidePanelState()
-  if (current.leftOpen === open && (!open || current.leftFloatOk)) return
-  captureChatAnchor()
-  writeKey(FOR_YOU_COLLAPSED_KEY, open ? null : '1')
-  set({ leftOpen: open, leftFloatOk: open })
+  if (rightShown(current)) {
+    setRightPanelOpen(false)
+    return
+  }
+  if (current.view === 'forYou' && !current.forYouContent) setSidePanelView('panel')
+  setRightPanelOpen(true)
 }
 
-/** The toggle: `shown` is whether the column is on screen now (the space plan's word, not just the saved state). */
-export function toggleForYou(shown: boolean): void {
-  setForYouOpen(!shown)
+/**
+ * A view's top-bar button (side-panel-toggles.tsx): the panel closes when
+ * that view is the one on screen, else it opens on it (switched in place,
+ * no slide, when the other view was showing). For you's button shows only
+ * with cards.
+ */
+export function toggleSidePanelView(view: SidePanelView): void {
+  if (shownView(getSidePanelState()) === view) {
+    setRightPanelOpen(false)
+    return
+  }
+  setSidePanelView(view)
+  setRightPanelOpen(true)
 }
 
-/** The For you column says whether it has anything to show (and room on the left to show it). */
+/** The panel says whether For you has cards (with none, its view is never drawn). */
 export function setForYouContent(has: boolean): void {
-  if (getSidePanelState().leftContent === has) return
-  captureChatAnchor()
-  set({ leftContent: has })
+  set({ forYouContent: has })
 }
 
 const sameOpen = (a: Readonly<Record<SectionId, boolean>>, b: Readonly<Record<SectionId, boolean>>) =>
@@ -296,16 +389,41 @@ export function setConnectionsAttention(attention: boolean): void {
   set({ connectionsAttention: attention })
 }
 
+/**
+ * The page panel says whether it has something to show here, and whether
+ * that is a page's sub-nav with its card in front (page-panel/page-panel.tsx).
+ */
+export function setPagePanelContent(has: boolean, page = false): void {
+  set({ pagePanel: has, pagePanelPage: has && page })
+}
+
+/**
+ * Open or close the page panel by hand (its button), remembered per device.
+ * Opened so, it may float over the chat where the row has no room for it
+ * (pagePanelFloatOk, this session only): a press always shows something.
+ */
+export function setPagePanelOpen(open: boolean): void {
+  const current = getSidePanelState()
+  if (current.pagePanelOpen === open && (!open || current.pagePanelFloatOk)) return
+  writeKey(PAGE_PANEL_OPEN_KEY, open ? null : '0')
+  set({ pagePanelOpen: open, pagePanelFloatOk: open })
+}
+
+/** The page panel's button: closed while it is on screen, else opened by hand. */
+export function togglePagePanel(): void {
+  setPagePanelOpen(!getSidePanelState().pagePanelShown)
+}
+
+/** The page panel's host says whether it is on screen now (the row's plan). */
+export function setPagePanelShown(shown: boolean): void {
+  set({ pagePanelShown: shown })
+}
+
 /** The live capture's notepad docks or goes (live-capture-dock.tsx): the space plan counts its push. */
 export function setCaptureDockOpen(open: boolean): void {
   if (getSidePanelState().captureDock === open) return
   captureChatAnchor()
   set({ captureDock: open })
-}
-
-/** The row's space plan, as the rest of the shell reads it: For you on screen. */
-export function reportSpacePlan(leftShown: boolean): void {
-  set({ leftShown })
 }
 
 // ── The chat's bottom anchor ───────────────────────────────────────────────

@@ -2235,6 +2235,12 @@ function getGroupLabel(item: Record<string, unknown>, field: string, key: string
     const team = item.team as { name?: string } | null
     return team?.name || key
   }
+  // Joined on every action row (ACTION_VIEW_SELECT's `milestone`): a group by
+  // milestone reads its name, not its id (the Tasks sub-nav's Milestones).
+  if (field === 'milestone_id') {
+    const milestone = item.milestone as { name?: string } | null
+    return milestone?.name || key
+  }
   if (field === 'company_id') {
     const company = item.company as { name?: string } | null
     return company?.name || key

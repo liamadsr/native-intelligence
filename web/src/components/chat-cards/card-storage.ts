@@ -13,6 +13,7 @@
 import type { CalendarQuery, CardOpenType, CardQuery, MailQuery } from '@/lib/chat-cards/kinds'
 import type { OpenCardSeed } from '@/lib/chat-cards/open-card'
 import type { PagePlace } from '@/lib/chat-cards/pages'
+import type { TasksPlace } from '@/lib/chat-cards/tasks-places'
 import { storageKeyAfterRename } from '@/lib/storage-key-rename'
 import type { ViewEntityType } from '@/lib/views/types'
 
@@ -61,6 +62,12 @@ export interface StoredCardState {
   lists?: Record<string, Record<string, unknown>>
   /** The saved view each list inside the card has picked (null: the page itself), by list. */
   views?: Record<string, string | null>
+  /**
+   * My Actions' card: a place inside it asked for from outside (a nested
+   * page opened, OpenCardSeed.tasksPlace). Taken once by the card, which
+   * makes it a step of its history and clears it (card-body.tsx TasksCardBody).
+   */
+  tasksPlace?: TasksPlace | null
   savedAt?: number
 }
 
@@ -83,6 +90,7 @@ export function seedCardState(seed: OpenCardSeed): StoredCardState {
   if (seed.trail) out.trail = seed.trail
   if (seed.editing !== undefined) out.editing = seed.editing
   if (seed.editingRun) out.editingRun = seed.editingRun
+  if (seed.tasksPlace) out.tasksPlace = seed.tasksPlace
   return out
 }
 

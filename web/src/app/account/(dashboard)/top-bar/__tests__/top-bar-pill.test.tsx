@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
 /**
- * The top bar's lead cluster is For you's toggle, then Search, on a phone only (md:hidden). The Inbox bell
+ * The top bar's lead cluster is Search, on a phone only (md:hidden). For
+ * you's button is in the trailing cluster, just before the side panel's
+ * (Liam, 11-11: its cards are one of the side panel's views): from `md` up
+ * in the right header after Capture, on a phone as the pill before the side
+ * panel's. The Inbox bell
  * and its unread badge that followed them went 2026-10-20 (Liam): every notice
  * reaches the agent, which tells the person in the chat
  * (docs/plans/retire-notifications-page.md). The Agents button that stood in
@@ -38,8 +42,8 @@ vi.mock('../capture-bar-button', () => ({ CaptureBarButton: () => null }))
 vi.mock('../../side-panels/side-panel-toggles', async () => {
   const { createElement } = await import('react')
   return {
-    ForYouToggle: () => createElement('button', { 'data-for-you-toggle': '', 'aria-label': 'For you' }),
-    SidePanelToggle: () => null,
+    ForYouToggle: ({ variant = 'pill' }: { variant?: string }) => createElement('button', { 'data-for-you-toggle': '', 'data-variant': variant, 'aria-label': 'For you' }),
+    SidePanelToggle: ({ variant = 'pill' }: { variant?: string }) => createElement('button', { 'data-side-panel-toggle': '', 'data-variant': variant, 'aria-label': 'Side panel' }),
   }
 })
 
@@ -66,15 +70,15 @@ function render() {
   })
 }
 
-/** The lead cluster: For you's toggle, then Search. */
+/** The lead cluster: Search (a phone's). */
 const lead = () => container.querySelector<HTMLElement>('[data-tab-bar-lead]')!
 
 describe('the top bar’s lead cluster', () => {
-  it('is For you’s toggle, then Search, and nothing else: no Inbox bell, no badge', () => {
+  it('is Search and nothing else: no For you (it went right, beside the side panel’s), no Inbox bell, no badge', () => {
     render()
     expect(lead()).not.toBeNull()
     const buttons = [...lead().querySelectorAll('button')]
-    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['For you', 'Search'])
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['Search'])
     expect(container.querySelector('button[aria-label="Inbox"]')).toBeNull()
     // The bell's own round pill (and the badge inside it) went with it.
     expect(lead().querySelector('div.rounded-full.border')).toBeNull()
@@ -94,19 +98,32 @@ describe('the top bar’s lead cluster', () => {
     expect(container.querySelector('[data-onboarding-target="create"]')).toBeNull()
   })
 
-  it('has Search as its own round pill, after For you’s toggle', () => {
+  it('has Search as its own round pill', () => {
     render()
     const search = lead().querySelector<HTMLElement>('[data-search-button]')
     expect(search?.getAttribute('aria-label')).toBe('Search')
-    const forYou = lead().querySelector<HTMLElement>('[data-for-you-toggle]')!
-    expect(forYou.compareDocumentPosition(search!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('keeps For you and Search for a phone only (from md up the app rail’s header has them)', () => {
+  it('keeps Search for a phone only (from md up the app rail’s header has it)', () => {
     render()
-    const forYou = lead().querySelector<HTMLElement>('[data-for-you-toggle]')!
     const search = lead().querySelector<HTMLElement>('[data-search-button]')!
-    for (const el of [forYou, search]) expect(el.closest<HTMLElement>('[data-tab-bar-phone-only]')?.className).toContain('md:hidden')
+    expect(search.closest<HTMLElement>('[data-tab-bar-phone-only]')?.className).toContain('md:hidden')
+  })
+
+  it('the right header holds Capture, For you, then the side panel; on a phone, For you’s pill just before the side panel’s', () => {
+    render()
+    const header = container.querySelector<HTMLElement>('[data-top-bar-right-header]')!
+    const buttons = [...header.querySelectorAll<HTMLElement>('[data-for-you-toggle], [data-side-panel-toggle]')]
+    expect(buttons.map((b) => [b.getAttribute('aria-label'), b.getAttribute('data-variant')])).toEqual([
+      ['For you', 'header'],
+      ['Side panel', 'header'],
+    ])
+    // Capture leads the header, before them both.
+    expect(header.firstElementChild!.matches('[data-for-you-toggle], [data-side-panel-toggle]')).toBe(false)
+    const trail = container.querySelector<HTMLElement>('[data-tab-bar-trail]')!
+    const pills = [...trail.querySelectorAll<HTMLElement>('[data-tab-bar-phone-only] > [data-variant="pill"]')]
+    expect(pills.map((b) => b.getAttribute('aria-label'))).toEqual(['For you', 'Side panel'])
+    expect(pills[0].parentElement!.className).toContain('md:hidden')
   })
 
   it('keeps the workspace pill for a phone only: from md up the app rail’s header is the one workspace menu', () => {

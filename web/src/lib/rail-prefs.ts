@@ -22,9 +22,14 @@ export const RAIL_PAGES_PROFILE_FIELD = 'rail_pages'
 /** Where this device keeps its copy (wiped at sign-out: main-chat/state-wipe.ts). */
 export const RAIL_PAGES_STORAGE_KEY = 'ni:rail-pages'
 
-/** At most this many ids in each list (the rail has 19 pages). */
+/** At most this many ids in each list (the rail has 12 items, its groups' member pages 8 more). */
 // Small on purpose: user_metadata rides in the access token and the auth
-// cookie on every request (the rail has 19 pages; room to grow).
+// cookie on every request (room to grow). An id the rail no longer has
+// (Projects and Initiatives nest under Tasks since Liam, 11-11) still
+// parses: the bar skips it, and the next save drops it (rail-pages.ts
+// railLayout, tidyOrder). A page group's member's id (Liam, 11-11: Contacts,
+// Outreach, Calendar) stands for its group (rail-pages.ts currentPrefs); a
+// hidden group is saved as all its members' ids.
 export const RAIL_PREFS_MAX_IDS = 32
 
 /** A page id: a `/` page's slug, short. */
