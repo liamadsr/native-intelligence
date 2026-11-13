@@ -5,7 +5,7 @@ Everything Native Intelligence runs on its own server lives in this folder. It h
 | Folder | What it runs | Public? |
 | --- | --- | --- |
 | [`edge/`](edge) | Caddy on ports 80 and 443, with automatic certificates. An allowlist in front of Inngest, a pass-through host for Supabase, the app's names, and LiveKit's signalling. | Yes: everything that is HTTP |
-| [`livekit/`](livekit) | LiveKit and its own Redis, and its Egress (recordings; off until asked for). Keeps nothing on disk. | Its two media ports, UDP 7882 and TCP 7881 (step 23); its signalling only through Caddy |
+| [`livekit/`](livekit) | LiveKit and its own Redis, and its Egress (recordings; off until asked for). Keeps nothing on disk but the call recorder's audio files on their way to the app (step 23, "Call audio files"). | Its two media ports, UDP 7882 and TCP 7881 (step 23); its signalling only through Caddy |
 | [`inngest/`](inngest) | The Inngest server, its own Postgres 17 and Redis 7, and a small loop that keeps the app's function list in sync. | No ports on the host |
 | [`supabase/`](supabase) | Supabase's own self-hosted stack (Postgres 17, Auth, the data API, Realtime, Storage, edge functions, Studio), and the scripts that move the hosted project onto it. | No ports on the host |
 | [`backup/`](backup) | Encrypted backups to Backblaze B2: Inngest's Postgres nightly, the Supabase database hourly, the stored files nightly. | No |
@@ -1402,7 +1402,7 @@ That 2 GB does not apply as it stands. Storage takes the smaller of a bucket's o
       FILE_SIZE_LIMIT: 2147483648
 ```
 
-then `cd /opt/native-intelligence/deploy/supabase/stack && sudo sh run.sh recreate storage` (Storage restarts in a few seconds). That is a decision of its own: every bucket without a limit of its own then takes files of up to 2 GB, so give the app's other buckets their own limits first if they should keep 50 MB. It is not in this change.
+then `cd /opt/native-intelligence/deploy/supabase/stack && sudo sh run.sh recreate storage` (Storage restarts in a few seconds). That is a decision of its own: every bucket without a limit of its own then takes files of up to 2 GB, so give the app's other buckets their own limits first if they should keep 50 MB. The call recorder's audio files ("Call audio files", below) made that change: the line is in `supabase/compose.override.yaml` now, after migration 651 gave every bucket without a limit today's 50 MB. Once its steps are done, E1 needs nothing more.
 
 **E2. The storage settings.** `make-keys.sh` copies them, unseen, from `supabase/stack/.env` into the four empty `LIVEKIT_EGRESS_S3_` lines of `livekit/.env` (a `.env` made before Egress existed has no such lines: copy them, empty, from `livekit/.env.example` first, with `sudo nano .env`). Then check that all four are filled in, by length only:
 
@@ -1535,6 +1535,48 @@ sudo docker compose --profile recorder rm -sf recorder
 ```
 
 It delivers what it still holds first (up to 40 s). Captures it filled in stay; a call that was live then is finished by the app as usual, with what was said until then.
+
+### Call audio files (off until asked for)
+
+With this on, every call the recorder hears keeps one audio file beside its capture, for 30 days, for whoever may read the capture (its owner and the conversation's members, as for the notes), with a Download button that says the day it will be deleted. After 30 days the file is deleted and the capture says on which day; the capture, its transcript and its notes stay. 30 days for everyone; nothing sets it. Two switches, both off: `RECORDER_AUDIO` in `livekit/.env` (the recorder makes files) and `TEAM_CALL_AUDIO` in `app/.env` (the app asks for them and takes them).
+
+**How it fits.** The recorder already has every microphone's sound. It mixes the members' microphones (never a meeting guest's: their notice says notes, not their voice kept; their words are in the transcript as before) into one mono stream on the call's clock, silence where nobody speaks, and writes it to its volume `ni-livekit-recorder-audio` as raw 16 kHz sound, a second behind the call: memory stays at a few seconds of sound, whatever the call's length. When it leaves the call it encodes the file once with ffmpeg (in its image: AAC in an MP4 file, 32 kbit/s, about 15 MB an hour; it plays in every browser and in the desktop and iPhone apps), then hands it over through the capture feed: the app grants a one-time upload to a path it chose (`<channel>/<call>/audio/<id>.m4a` in the private bucket `team-call-recordings`), the recorder sends the file straight to Storage at its public name through `ni-livekit-edge` (it holds no storage key), and the app checks that Storage has it. One file at a time, after the call, at a lower priority than the calls. The notes, their finish and their summary never wait for the sound. An upload that fails is tried again with backoff, across restarts, for three days; then the recorder's copy is dropped. A restart mid-call (a deploy) leaves the file on the volume, and the next process, taking the call up, goes on in the same file at the call's own time: the seconds nobody heard are silence, and every later word is where the transcript says. A call the recorder leaves and comes back to later (everyone gone for a while, the room lost, notes off and on again) gets a second file, shown as "part 2". A file with no sound in it is not kept. The daily `team-call-notes-retention` job deletes files past their 30 days, files of captures that were deleted, and (as before) files of calls whose rows are gone.
+
+**What it costs.** Measured with `recorder/e2e/load.mjs` on a Mac, one call of 10 people each speaking half the time, for 60 s: the recorder used about 17 % of a core and 210 MB with the audio on, and 18 % and 214 MB with it off (the mixing is lost in the noise). Encoding comes after the call: a 30-minute file took 3 s of one core and 27 MB on that Mac (a 3-hour call, about 20 s; the server's cores are slower). Disk: up to about 115 MB an hour of talk per call while it is heard (silence costs nothing), so 10 three-hour calls at once need about 3.5 GB; no file starts with less than `RECORDER_AUDIO_MIN_FREE_MB` (2 GB) free, and a write that fails ends that call's sound, never its notes. Deepgram is not touched: it gets what it got before. A call's notes stop at 3 hours, and so does its sound: a 4-hour call keeps its first 3 hours, about 45 MB.
+
+**A1. The database.** Migrations `650_capture_feed_audio.sql` (the files' table, the feed's two requests, the sweep's reads, and the read policy) and `651_storage_bucket_limits.sql` (every bucket without a size limit of its own gets today's 50 MB), applied as every migration is ("Day to day", on the owner's word), 651 before A2. Look first at every bucket's limit on the server, since a bucket made outside the migrations may have one of its own:
+
+```bash
+echo "select id, file_size_limit from storage.buckets order by id;" | sudo docker exec -i supabase-db psql -U postgres -d postgres
+```
+
+After 651 none may be empty. `team-call-recordings` and `studio` show 2147483648 (their own 2 GB: the calls' audio and Egress's recordings, and the Studio's media, which it stores in parts under 50 MB). Any other bucket with a limit above 52428800 takes files up to its own limit after A2: decide about it before A2.
+
+**A2. Storage's upload limit.** `FILE_SIZE_LIMIT: "2147483648"` is in `supabase/compose.override.yaml` (under `storage:`). Once the checkout has it, it reaches Storage only when its container is made again, a few seconds without files (uploads and downloads under way are cut):
+
+```bash
+cd /opt/native-intelligence/deploy/supabase/stack && sudo sh run.sh recreate storage
+sudo docker exec supabase-storage printenv FILE_SIZE_LIMIT
+```
+
+The second line must print `2147483648` (that one setting, not the container's whole environment). Nothing else in a large file's way needs a change: Caddy sets no limit on a request's body, the gateway streams it with no time limit on the Storage route (`supabase/gateway/entrypoint.sh`), the recorder uses Storage's standard upload (its `UPLOAD_FILE_SIZE_LIMIT_STANDARD` is unset, so the limit above holds; resumable uploads are not used), and a signed upload link is good for 60 s from when it is made (Storage's default, `UPLOAD_SIGNED_URL_EXPIRATION_TIME`, read in its source and unset here), which is why the recorder asks for a fresh one before every attempt.
+
+**A3. The recorder.** In `livekit/.env`, the two lines `RECORDER_AUDIO` and `RECORDER_AUDIO_MIN_FREE_MB` from `livekit/.env.example` (empty, with `sudo nano .env`), then `RECORDER_AUDIO=on`. Build its image again (it now has ffmpeg) and make the container again, as R3 does; the new volume comes with it:
+
+```bash
+cd /opt/native-intelligence/deploy/livekit
+sudo docker build -t ni-recorder:local ../../recorder
+sudo docker compose up -d --no-build recorder
+sudo docker compose logs --tail 30 recorder
+```
+
+Its log must say `audio on: 0 take(s) to hand on` and, in the `started as recorder` line, `audio on`. `audio off: its folder or ffmpeg is not usable` means the image or the volume is wrong. Until A4 it keeps no file: the app's start does not ask for one.
+
+**A4. The app.** `TEAM_CALL_AUDIO=on` in `app/.env` (the line from `app/.env.example`), then the app rolled out (`sudo ./deploy.sh` in `app/` when the code is not live yet; `--no-build` when it is). The settings check says `WRONG` for it when `TEAM_CALL_RECORDER` is not on.
+
+**A5. Prove it.** A real call of two people, a few minutes, both speaking, then hang up. The recorder's log says `audio take=…` when it joins, then after the call `audio kept: <n> KB, <s> s, until <date>`. The call's capture shows "Call audio" in its properties with its length, Play and Download, and "Will be deleted on" the call's day plus 30. It plays where each person spoke (pick a sentence in the transcript, play there). Download saves `Call audio <day>.m4a`. Signed in as someone outside the conversation, the capture does not open and the file's link gives nothing. Then: restart the recorder mid-call (`sudo docker compose restart recorder`): the call still has one file, with a silent second or two at the restart. A meeting guest who said go to the notes is in the transcript and not in the file. The deletion itself waits 30 days; to see it sooner, on a test call only, set that file's `expires_at` to `now()` in `public.capture_audio` with psql and run `team-call-notes-retention` from the Inngest dashboard: the file is gone from the bucket and the capture says "Call audio was deleted on" today.
+
+**The undo.** `TEAM_CALL_AUDIO=` (empty) and `sudo ./deploy.sh --no-build` in `app/`: from then on no session asks for a file, and every file still on its way is refused (`not_wanted`) and dropped by the recorder. Files already kept stay until their 30 days and are deleted as usual. Then `RECORDER_AUDIO=` (empty) in `livekit/.env` and `sudo docker compose up -d --no-build recorder`; the volume can stay (empty once nothing is on its way) or go with `sudo docker volume rm ni-livekit-recorder-audio` once the container is stopped. `FILE_SIZE_LIMIT` can stay raised: with every bucket's own limit set, it changes nothing else.
 
 ## Day to day
 
@@ -1766,6 +1808,8 @@ The call recorder (added 2026-11-11) was run on a Mac against LiveKit's own 1.13
 - The compose file renders with and without the profile (`docker compose config`); `make-keys.sh`'s recorder part was run on a copy of the folders (secret made once into both files, kept on a second run, the app's copied when only it had one, a mismatch reported). The database functions were run on the development database in transactions that were rolled back (`web/supabase/tests/587_capture_feed.sql`, 114 checks, among them a capture locked by hand mid-call finished then and the call linked back to it when the next round was silent, among them the quote matcher (whole words, a long enough quote, a contraction one word, two speakers, a quote spanning two lines), an eject settled after notes off and on, a locked transcript kept at the lock, a capture of 1,505 lines written whole in the order said, and the eject outbox filled on notes off, a lost feed and a capture ended by hand). That file is not run by CI, which has no Postgres; the text of 587-588 is pinned by `src/lib/capture-feed/__tests__/migration-587-588.test.ts`, which is.
 
 Not tested, and only the server can: the recorder's image built and started there (its native library on linux/amd64), its health check, its media path to LiveKit and its way out to the app and Deepgram through `ni-livekit-edge`, real people on browsers, the desktop app and the iPhone, and its load with several calls (R5 and "What only this server can prove" above).
+
+The call audio files (added 2026-11-13) were run the same way, with the end-to-end kit's scenario above and the audio on: one file for the round, through the recorder's restart (the next process went on in the same file); uploaded whole through the grant and said stored; its length as the file says it (ffprobe) the same as the take's to the millisecond, and the take within 10 ms of the time the round was heard (about 57 s; three runs); decoded, each member's tone at its pitch where they spoke and within 1 ms of where the transcript puts it, before and after the restart and after someone came back; nothing of a muted microphone, of the meeting guest (heard in the transcript), of the screen share, or during the restart; the recorder's copy gone once the app had it. 36 checks, all passed. The load figures above are `recorder/e2e/load.mjs`'s, on the Mac. Unit tests cover the mixer, the retries, the restart and the files a restart leaves, the app's grant and checks, the 30-day sweep and the page. The migrations ran twice each on PGlite (Postgres in a scratch folder), with their functions and the read policy exercised as a signed-in person. Not tested: the image built with ffmpeg (Docker was not running on the Mac), Storage's real signed upload, its 2 GB limit and the `recreate`, a real 3- or 4-hour call, and playback in the desktop and iPhone apps (AAC in MP4 is what WebKit plays; not tried there).
 
 ## The record
 

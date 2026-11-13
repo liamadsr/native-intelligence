@@ -14,6 +14,13 @@
  *   RECORDER_MAX_CALLS        calls at once (default 10).
  *   RECORDER_DEEPGRAM_URL     Deepgram's streaming address (a test's fake).
  *   RECORDER_HEALTH_PORT      the health answer, on 127.0.0.1 only (9091).
+ *   RECORDER_AUDIO            `on`: keep each call's sound too, when the app
+ *                             asks for it (./audio.ts). Off unless set.
+ *   RECORDER_AUDIO_DIR        where takes are written (default
+ *                             /var/lib/recorder/audio, the service's volume).
+ *   RECORDER_FFMPEG           the encoder (default `ffmpeg`, in the image).
+ *   RECORDER_AUDIO_MIN_FREE_MB  no new take with less free on that disk
+ *                             (default 2048).
  */
 
 export interface RecorderConfig {
@@ -27,6 +34,8 @@ export interface RecorderConfig {
   healthPort: number
   /** The most one call is heard (3 hours of notes, and a margin; the app stops it first). */
   maxCallMs: number
+  /** Keeping the calls' sound (null: off). */
+  audio: { dir: string; ffmpeg: string; minFreeBytes: number } | null
 }
 
 /** Deepgram's live endpoint, as the person's own app uses it (web/src/lib/deepgram-stream.ts), with finals only and no diarization: one track is one known speaker. */
@@ -75,6 +84,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RecorderConfig
     maxCalls: int(env, 'RECORDER_MAX_CALLS', 10, 1, 20),
     healthPort: int(env, 'RECORDER_HEALTH_PORT', 9091, 1, 65535),
     maxCallMs: (3 * 60 + 5) * 60_000,
+    audio:
+      setting(env, 'RECORDER_AUDIO')?.toLowerCase() === 'on'
+        ? {
+            dir: setting(env, 'RECORDER_AUDIO_DIR') ?? '/var/lib/recorder/audio',
+            ffmpeg: setting(env, 'RECORDER_FFMPEG') ?? 'ffmpeg',
+            minFreeBytes: int(env, 'RECORDER_AUDIO_MIN_FREE_MB', 2048, 0, 1_000_000) * 1024 * 1024,
+          }
+        : null,
   }
 }
 

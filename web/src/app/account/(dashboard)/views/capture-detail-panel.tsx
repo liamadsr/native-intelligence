@@ -94,6 +94,7 @@ import { useScopedLabels } from '@/lib/labels/use-scoped-labels'
 import { LabelPickerContent } from '@/components/labels/label-picker-content'
 import { createClient } from '@/lib/supabase/client'
 import { CallRecordingRow } from './team-call-parts'
+import { CallAudioRow } from '@/components/capture/call-audio'
 import { AttributionTooltip } from '@/components/note-attribution/attribution-tooltip'
 import { LiveVoiceIdRow } from '@/components/capture/live-capture-header'
 import { useLiveHudUp } from '@/components/capture/voice-id-hud-publisher'
@@ -3335,6 +3336,9 @@ export function CaptureDetailPanel({
 
                             {/* A team call's notes: the call's recording, when one was saved */}
                             <CallRecordingRow metadata={capture.metadata} />
+
+                            {/* A call heard by the call recorder: its audio, kept 30 days */}
+                            <CallAudioRow captureId={captureId} metadata={capture.metadata} />
 
                             {/* Project */}
                             <ProjectPanelField

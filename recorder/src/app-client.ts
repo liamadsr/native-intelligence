@@ -30,6 +30,8 @@ export interface FeedSession {
   captureId: string
   /** The meeting guests who may be heard (let in, and said go to this round's notes). Every member may. */
   guests: string[]
+  /** The app keeps a sound file of this session (./audio.ts). */
+  audio: boolean
 }
 
 /** The feed's answer for one running session: keep it or stop, and (kept) whom it may hear now. */
@@ -122,7 +124,7 @@ export class AppClient {
 
   async start(callId: string): Promise<{ outcome: string; session: FeedSession | null }> {
     const out = await this.post<{ outcome?: string; session?: FeedSession | null }>('/api/internal/capture-feed/start', { source: { kind: 'team_call', ref: callId } })
-    const session = out.session ? { ...out.session, guests: Array.isArray(out.session.guests) ? out.session.guests : [] } : null
+    const session = out.session ? { ...out.session, guests: Array.isArray(out.session.guests) ? out.session.guests : [], audio: out.session.audio === true } : null
     return { outcome: out.outcome ?? 'unknown', session }
   }
 
@@ -143,6 +145,26 @@ export class AppClient {
   async segments(sessionId: string, segments: readonly Segment[]): Promise<{ accepted: number; duplicate: number; dropped: number }> {
     const out = await this.post<{ accepted?: number; duplicate?: number; dropped?: number }>(`/api/internal/capture-feed/sessions/${sessionId}/segments`, { segments: [...segments] })
     return { accepted: out.accepted ?? 0, duplicate: out.duplicate ?? 0, dropped: out.dropped ?? 0 }
+  }
+
+  /** May this take of the session's sound be uploaded, and where (once). */
+  async audioGrant(
+    sessionId: string,
+    take: { take: string; offsetMs: number; durationMs: number; bytes: number; contentType: string },
+  ): Promise<{ outcome: string; upload: { url: string; headers: Record<string, string> } | null; expiresAt: string | null }> {
+    const out = await this.post<{ outcome?: string; upload?: { url?: string; headers?: Record<string, string> } | null; expiresAt?: string | null }>(`/api/internal/capture-feed/sessions/${sessionId}/audio`, { ...take })
+    const url = out.upload?.url
+    return {
+      outcome: out.outcome ?? 'unknown',
+      upload: typeof url === 'string' && /^https?:\/\//.test(url) ? { url, headers: out.upload?.headers ?? {} } : null,
+      expiresAt: out.expiresAt ?? null,
+    }
+  }
+
+  /** The take is uploaded: 'stored' once the app finds it, 'missing' to upload it again. */
+  async audioStored(sessionId: string, take: string): Promise<{ outcome: string; expiresAt: string | null }> {
+    const out = await this.post<{ outcome?: string; expiresAt?: string | null }>(`/api/internal/capture-feed/sessions/${sessionId}/audio/stored`, { take })
+    return { outcome: out.outcome ?? 'unknown', expiresAt: out.expiresAt ?? null }
   }
 
   async end(sessionId: string, reason: string): Promise<boolean> {

@@ -21,7 +21,7 @@
 #      over a network of their own, and no time limit on Storage transfers
 #   4. data in named volumes instead of folders inside the checkout
 #   5. Postgres memory settings for this server
-#   6. image transformation off
+#   6. image transformation off, and Storage's upload limit (2 GB)
 #   7. Auth settings that only exist in the hosted dashboard today
 #   8. the stripe-webhook function and its secrets
 name: ni-supabase
@@ -218,6 +218,18 @@ services:
   # -------------------------------------------------------------------------
   # Storage: files in a named volume, image transformation off (the app
   # resizes nothing through Storage), so imgproxy does not run.
+  #
+  # The largest file Storage takes, 2 GB instead of their file's 50 MB. Storage
+  # takes the smaller of this and a bucket's own limit, and every bucket has
+  # one of its own (web/supabase/migrations/651 gave today's 50 MB to those
+  # that had none: apply it BEFORE this, or they would take 2 GB too). So
+  # this lets through only what a bucket was made for: a long call's audio
+  # file and Egress's recordings in team-call-recordings (2 GB, 566), and the
+  # Studio's 2 GB (620). It reaches Storage only when the container is made
+  # again (`sudo sh run.sh recreate storage`, ../README.md step 23, "Call
+  # audio files"). Nothing in front of Storage caps a body: Caddy sets no
+  # request_body limit, and the gateway (Envoy) streams it, with no time
+  # limit on the Storage route (../gateway/entrypoint.sh).
   # -------------------------------------------------------------------------
   storage:
     depends_on: !override
@@ -227,6 +239,7 @@ services:
         condition: service_started
     environment:
       ENABLE_IMAGE_TRANSFORMATION: "false"
+      FILE_SIZE_LIMIT: "2147483648"
     volumes:
       - storage-data:/var/lib/storage
 

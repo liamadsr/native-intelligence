@@ -18,6 +18,8 @@ export interface FeedSession {
   captureId: string
   /** The meeting guests who may be heard in this round (let in, and said go to its notes); every member may. */
   guests: string[]
+  /** The app keeps a sound file of this session (650; the source's switch). */
+  audio: boolean
 }
 
 export interface FeedStart {
@@ -28,7 +30,7 @@ export interface FeedStart {
 /** A producer begins (or takes up again) a source's feed (588's capture_feed_start). Throws on a failed write. */
 export async function startFeed(
   svc: SupabaseClient,
-  input: { source: { kind: CaptureFeedSourceKind; ref: string }; producer: CaptureFeedProducer; title: string },
+  input: { source: { kind: CaptureFeedSourceKind; ref: string }; producer: CaptureFeedProducer; title: string; audio?: boolean },
 ): Promise<FeedStart> {
   const { data, error } = await svc.rpc('capture_feed_start', {
     p_source_kind: input.source.kind,
@@ -46,7 +48,7 @@ export async function startFeed(
   return {
     outcome,
     session: live
-      ? { id: row!.session_id!, startedAt: new Date(row!.started_at!).toISOString(), round: row!.round ?? 0, captureId: row!.capture_id!, guests: row!.guests ?? [] }
+      ? { id: row!.session_id!, startedAt: new Date(row!.started_at!).toISOString(), round: row!.round ?? 0, captureId: row!.capture_id!, guests: row!.guests ?? [], audio: input.audio === true }
       : null,
   }
 }

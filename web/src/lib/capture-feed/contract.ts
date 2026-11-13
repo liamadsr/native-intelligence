@@ -12,7 +12,7 @@
  *
  *   POST /api/internal/capture-feed/start
  *     { source: { kind, ref }, producer: { kind, id } }
- *     → { outcome, session: { id, startedAt, round, captureId, guests } }
+ *     → { outcome, session: { id, startedAt, round, captureId, guests, audio } }
  *     outcome 'started' / 'resumed' (the session for the source's current
  *     round, made once: a second start, or one after a restart, finds it),
  *     'busy' (another producer feeds it), 'not_wanted' (no notes, or the
@@ -43,6 +43,28 @@
  *     everything it heard for this session and leaves it (every stop but a
  *     restart): the notes' finish waits for this, a short while at most,
  *     before it locks the capture.
+ *
+ * Audio (migration 650, off unless the source's switch is on): a session the
+ * app wants a sound file of says `audio: true` in the start's answer. The
+ * producer then keeps one file per take (from where it began hearing the
+ * session to where it stopped: a restart that takes the session up again
+ * goes on in the same take, a producer that left and came back later makes
+ * a new one), its time running on the session's clock from `offsetMs`, with
+ * silence where nobody spoke. Every member's voice is in it; a meeting
+ * guest's never is (their notice covers notes, not their voice kept). The
+ * file waits for nothing and nothing waits for it: the notes, their finish
+ * and their summary never do.
+ *   POST /api/internal/capture-feed/sessions/<id>/audio
+ *     { producer, take, offsetMs, durationMs, bytes, contentType }
+ *     → { outcome, upload?: { url, method: 'PUT', headers }, expiresAt }.
+ *     'granted': PUT the file's bytes to `url` (one use, soon: ask again for
+ *     every attempt); 'stored' (that take is in already), 'not_wanted' (the
+ *     app keeps no sound of this session: the switch, the source, or past
+ *     its 30 days), 'too_large', 'taken', 'unknown': drop the file.
+ *     `take`: the producer's own key for the file, the same for every retry.
+ *   POST /api/internal/capture-feed/sessions/<id>/audio/stored
+ *     { producer, take } → { outcome, expiresAt }: the upload is done.
+ *     'stored' once Storage has it; 'missing': upload it again.
  *
  * Times: every `atMs`, `startMs` and `endMs` is milliseconds from the
  * session's `startedAt` (the app's clock), so a producer that restarts goes
@@ -131,6 +153,28 @@ export const HeartbeatSchema = z.object({
 export const EndSchema = z.object({
   producer: ProducerSchema,
   reason: z.string().trim().min(1).max(40).optional(),
+})
+
+/** The sound file types a producer may hand over (650's capture_audio.content_type). */
+export const CAPTURE_FEED_AUDIO_TYPES = ['audio/mp4', 'audio/ogg'] as const
+/** The largest file (the recordings bucket's own limit, 566). */
+export const CAPTURE_FEED_AUDIO_MAX_BYTES = 2 * 1024 * 1024 * 1024
+/** A producer's key for one file (650's take_key). */
+const take = z.string().regex(/^[A-Za-z0-9._-]{1,80}$/)
+
+export const AudioGrantSchema = z.object({
+  producer: ProducerSchema,
+  take,
+  offsetMs: ms,
+  durationMs: ms,
+  bytes: z.number().int().min(1).max(CAPTURE_FEED_AUDIO_MAX_BYTES),
+  contentType: z.enum(CAPTURE_FEED_AUDIO_TYPES),
+})
+export type CaptureFeedAudioGrant = z.infer<typeof AudioGrantSchema>
+
+export const AudioStoredSchema = z.object({
+  producer: ProducerSchema,
+  take,
 })
 
 /** A roster event as 588 reads it (snake_case: at_ms, member_id, guest_id). */
