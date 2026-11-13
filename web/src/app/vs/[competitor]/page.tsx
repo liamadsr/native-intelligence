@@ -5,9 +5,9 @@ import { Footer } from '@/components/footer'
 import { Link } from '@/components/link'
 import { Navbar } from '@/components/navbar'
 import { PageLayout } from '@/components/page-layout'
+import { CompareLinks } from '@/components/compare-links'
 import { StructuredData } from '@/components/structured-data'
 import {
-  COMPETITORS,
   VS_COMPETITOR_SLUGS,
   NI_STRENGTHS,
   getCompetitor,
@@ -16,6 +16,7 @@ import {
 } from '@/data/vs-competitors'
 import { hasDownload } from '@/lib/app-download'
 import { appUrl } from '@/lib/app-url'
+import { SEAT_PRICE_USD, TRIAL_DAYS } from '@/lib/billing/access'
 
 const BASE_URL = appUrl()
 
@@ -38,8 +39,8 @@ export async function generateMetadata({
 
   const canonical = `/vs/${competitor.slug}`
   return {
-    // metaTitle already leads with "Native Intelligence", so bypass the root "%s - Native Intelligence"
-    // template to avoid a doubled brand name in the rendered <title>.
+    // metaTitle already names Native Intelligence ("... | Native Intelligence"), so bypass the root
+    // "%s - Native Intelligence" template to avoid a doubled brand name in the rendered <title>.
     title: { absolute: competitor.metaTitle },
     description: competitor.metaDescription,
     alternates: { canonical },
@@ -81,15 +82,15 @@ function Hero({ competitor }: { competitor: Competitor }) {
     <section className="relative flex items-center pt-40 pb-16 px-6 lg:px-8">
       <div className="mx-auto max-w-4xl w-full">
         <p className="font-mono text-xs/5 font-semibold uppercase tracking-widest text-muted-foreground">
-          Comparison
+          Native Intelligence vs {competitor.name}
         </p>
         <h1 className="mt-2 text-pretty text-4xl font-medium tracking-tight text-foreground sm:text-5xl lg:text-6xl">
-          Native Intelligence vs {competitor.name}
+          The {competitor.name} alternative for {competitor.audience}
         </h1>
         <p className="mt-6 text-lg text-muted-foreground max-w-2xl leading-relaxed">
-          {competitor.name} is {competitor.tagline}. Native Intelligence takes the meeting
-          further — turning it into tracked work, live projects, a self-updating
-          CRM, and agents that execute. Here is an honest, side-by-side look.
+          {competitor.name} is {competitor.tagline}. Native Intelligence is built for the
+          rep on the call: it records without a bot, helps you live while you talk, and
+          fills in your CRM when you hang up. Here is an honest, side-by-side look.
         </p>
         <div className="mt-8 flex flex-col sm:flex-row items-start sm:items-center gap-3">
           {hasDownload() && (
@@ -148,8 +149,8 @@ function Matrix({ competitor }: { competitor: Competitor }) {
           Feature-by-feature
         </h2>
         <p className="mt-3 text-muted-foreground">
-          Both tools capture, transcribe, and summarize meetings well. The
-          differences start after the summary.
+          Both record and summarize calls. The differences are in help during the
+          call, how your CRM gets updated, and what you pay.
         </p>
 
         <div className="mt-8 overflow-x-auto rounded-2xl border border-border">
@@ -202,9 +203,8 @@ function Matrix({ competitor }: { competitor: Competitor }) {
           </table>
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
-          {competitor.name} details reflect their published material as of July
-          2026 and may change. Both products transcribe and summarize meetings —
-          this table highlights where they diverge.
+          {competitor.name} details reflect their published material as of{' '}
+          {competitor.verifiedAt} and may change.
         </p>
       </div>
     </section>
@@ -245,9 +245,8 @@ function DialWins({ competitor }: { competitor: Competitor }) {
           Where Native Intelligence wins
         </h2>
         <p className="mt-3 text-muted-foreground">
-          {competitor.name}&rsquo;s output lives in notes and hands off to other
-          tools. With Native Intelligence, the meeting output is the tracker — the work gets
-          done in the same system.
+          Native Intelligence is built around the rep on the call: help while you
+          talk, and a CRM that keeps itself current afterward.
         </p>
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
           {NI_STRENGTHS.map((s) => (
@@ -289,11 +288,11 @@ function Cta() {
       <SectionDivider />
       <div className="mx-auto max-w-4xl text-center">
         <h2 className="text-2xl font-medium tracking-tight text-foreground sm:text-3xl">
-          Turn your meetings into work that ships
+          Try it on your next call
         </h2>
         <p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto">
-          Bot-free capture, a real task system, live projects, a self-updating
-          CRM, and agents that execute — in one workspace.
+          Bot-free capture, live help on the call, and a CRM that fills itself in.
+          Free for {TRIAL_DAYS} days, then ${SEAT_PRICE_USD} per seat a month.
         </p>
         <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
           {hasDownload() && (
@@ -324,35 +323,7 @@ function CompareNav({ current }: { current: string }) {
     <section className="px-6 lg:px-8 py-16 relative">
       <SectionDivider />
       <div className="mx-auto max-w-4xl">
-        <p className="text-sm font-medium text-muted-foreground">Compare Native Intelligence with</p>
-        <nav className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
-          {VS_COMPETITOR_SLUGS.map((slug, i) => {
-            const c = COMPETITORS[slug]
-            const isCurrent = slug === current
-            return (
-              <span key={slug} className="flex items-center gap-2">
-                {i > 0 && <span className="text-border">·</span>}
-                {isCurrent ? (
-                  <span className="font-medium text-foreground">{c.name}</span>
-                ) : (
-                  <Link
-                    href={`/vs/${slug}`}
-                    className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-                  >
-                    {c.name}
-                  </Link>
-                )}
-              </span>
-            )
-          })}
-          <span className="text-border">·</span>
-          <Link
-            href="/ai-work-environment"
-            className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-          >
-            What is an AI work environment?
-          </Link>
-        </nav>
+        <CompareLinks current={current} />
       </div>
     </section>
   )

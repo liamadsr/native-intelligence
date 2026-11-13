@@ -4,6 +4,7 @@
 // the same Fumadocs loaders that feed the sitemap, so new content appears
 // automatically instead of drifting out of date.
 
+import { COMPETITORS, VS_COMPETITOR_SLUGS } from '@/data/vs-competitors'
 import { hasDownload } from '@/lib/app-download'
 import { blog, source } from '@/lib/source'
 import { appUrl } from '@/lib/app-url'
@@ -20,6 +21,14 @@ function docsSection(): string {
       return `- [${page.data.title}](${BASE}${page.url})${desc}`
     })
     .join('\n')
+}
+
+// The /vs pages, from the same data that builds them and the sitemap.
+function comparisonsSection(): string {
+  return VS_COMPETITOR_SLUGS.map((slug) => {
+    const c = COMPETITORS[slug]
+    return `- [${c.name} alternative for ${c.audience}](${BASE}/vs/${slug}): ${c.metaDescription}`
+  }).join('\n')
 }
 
 function blogSection(): string {
@@ -69,10 +78,7 @@ ${docsSection()}
 
 ## Comparisons
 
-- [Native Intelligence vs Granola](${BASE}/vs/granola): How Native Intelligence compares to Granola for meeting notes.
-- [Native Intelligence vs Fathom](${BASE}/vs/fathom): How Native Intelligence compares to Fathom for meeting recording.
-- [Native Intelligence vs Otter](${BASE}/vs/otter): How Native Intelligence compares to Otter for transcription.
-- [Native Intelligence vs Fireflies](${BASE}/vs/fireflies): How Native Intelligence compares to Fireflies for meeting capture.
+${comparisonsSection()}
 
 ## Blog posts
 
