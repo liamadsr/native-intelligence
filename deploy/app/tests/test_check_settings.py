@@ -53,11 +53,14 @@ class Groups(unittest.TestCase):
         # A new value is fine for it: only cloud browsers running at the switch hold tokens made with it.
         self.assertEqual(cs.group("BROWSER_INTERNAL_SECRET"), "needed")
         self.assertEqual(cs.group("GITHUB_WEBHOOK_SECRET"), "must match")
-        # Slack stays on: an empty token or project id blocks the gate, the environment defaults.
-        self.assertEqual(cs.group("CONNECT_ACCESS_TOKEN"), "needed")
-        self.assertEqual(cs.group("CONNECT_PROJECT_ID"), "needed")
-        self.assertEqual(cs.group("CONNECT_ENVIRONMENT"), "may be empty")
-        self.assertEqual(cs.group("CONNECT_TEAM_ID"), "may be empty")
+        # Slack: our own app's four settings, all four or none; empty is Slack off.
+        for name in ("SLACK_APP_ID", "SLACK_CLIENT_ID", "SLACK_CLIENT_SECRET", "SLACK_SIGNING_SECRET"):
+            self.assertEqual(cs.group(name), "may be empty")
+        # The connector's settings are gone.
+        for name in ("CONNECT_ACCESS_TOKEN", "CONNECT_PROJECT_ID", "CONNECT_ENVIRONMENT", "CONNECT_TEAM_ID", "SLACK_CONNECTOR"):
+            self.assertNotIn(name, cs.MAY_BE_EMPTY)
+            self.assertNotIn(name, cs.EMPTY_MEANS)
+            self.assertNotIn(name, cs.CHECKS)
 
     def test_no_name_is_in_two_groups(self):
         self.assertFalse(set(cs.MUST_MATCH) & set(cs.MAY_BE_EMPTY))
@@ -162,107 +165,79 @@ class FakeHttp:
         cs.http = self.real
 
 
-class Connectors(unittest.TestCase):
-    PROJECT = "prj_madeup0001"
-    PROJECT_TOKEN = "made-up.project.token"
-    SLACK_TOKEN = "made-up-slack-bot-token"
-    ENV = {"CONNECT_ACCESS_TOKEN": " made-up-access-token\n", "SLACK_CONNECTOR": "slack/made-up",
-           "CONNECT_PROJECT_ID": PROJECT, "CONNECT_TEAM_ID": "team_madeup0001", "SANDBOX_TEAM_ID": "team_madeup0002"}
-    MINT = "https://api.vercel.com/v1/projects/"
-    META = "https://api.vercel.com/v1/connect/connectors/"
-    TOKEN = "https://api.vercel.com/v1/connect/token/"
-    SLACK = "https://slack.com/api/auth.test"
+class Slack(unittest.TestCase):
+    ENV = {"SLACK_APP_ID": "A0MADEUP01", "SLACK_CLIENT_ID": "1111111111.2222222222",
+           "SLACK_CLIENT_SECRET": "c1" * 16, "SLACK_SIGNING_SECRET": "5e" * 16}
+    NAMES = tuple(ENV)
 
-    def answers(self, **over):
-        a = {
-            "mint": (200, {"token": self.PROJECT_TOKEN}),
-            "meta": (200, {"uid": "slack/made-up", "defaultInstallationId": "T0MADEUP1",
-                           "triggerDestinations": [{"projectId": "prj_madeup0002", "path": "/api/slack/events"},
-                                                   {"projectId": self.PROJECT, "path": "/api/slack/events"}]}),
-            "token": (200, {"token": self.SLACK_TOKEN, "expiresAt": 1}),
-            "slack": (200, {"ok": True, "team_id": "T0MADEUP1"}),
-        }
-        a.update(over)
-        return [(self.MINT, a["mint"]), (self.META, a["meta"]), (self.TOKEN, a["token"]), (self.SLACK, a["slack"])]
-
-    def run_check(self, env=None, **over):
-        with FakeHttp(self.answers(**over)) as fake:
-            ok, note = cs.check_connect(dict(env or self.ENV), {})
-        for secret in ("made-up-access-token", self.PROJECT_TOKEN, self.SLACK_TOKEN):
-            self.assertNotIn(secret, note or "")
-        return ok, note, fake.calls
-
-    def test_the_whole_path(self):
-        ok, _, calls = self.run_check()
-        self.assertIs(ok, True)
-        self.assertEqual([c[0] for c in calls], [
-            "https://api.vercel.com/v1/projects/prj_madeup0001/token?source=vercel-oidc-refresh&teamId=team_madeup0001",
-            "https://api.vercel.com/v1/connect/connectors/slack%2Fmade-up",
-            "https://api.vercel.com/v1/connect/token/slack%2Fmade-up",
-            "https://slack.com/api/auth.test",
-        ])
-        # The access token only makes the project token; the project token does the rest.
-        # As the app sends it: a POST with no body.
-        self.assertEqual(calls[0][1], {"Authorization": "Bearer made-up-access-token"})
-        self.assertEqual(calls[0][2:], (None, "POST"))
-        self.assertEqual(calls[1][1], {"Authorization": "Bearer " + self.PROJECT_TOKEN})
-        self.assertEqual(calls[1][2], None)
-        self.assertEqual(calls[2][1], {"Authorization": "Bearer " + self.PROJECT_TOKEN})
-        self.assertEqual(calls[2][2], {"subject": {"type": "app"}, "installationId": "T0MADEUP1", "scopes": ["*"]})
-        self.assertEqual(calls[3][1], {"Authorization": "Bearer " + self.SLACK_TOKEN})
-
-    def test_no_team_is_named_without_connect_team_id(self):
-        # As the app: SANDBOX_TEAM_ID is never used in its place.
-        env = dict(self.ENV, CONNECT_TEAM_ID="")
-        _, _, calls = self.run_check(env)
-        self.assertEqual(calls[0][0], "https://api.vercel.com/v1/projects/prj_madeup0001/token?source=vercel-oidc-refresh")
-
-    def test_each_step_says_where_it_stopped(self):
-        cases = [
-            ({"mint": (403, None)}, False, "step 1"),
-            ({"mint": (200, {"nothing": 1})}, False, "step 1"),
-            ({"meta": (403, None)}, False, "step 2"),
-            ({"meta": (200, {"defaultInstallationId": "T0MADEUP1", "triggerDestinations": [{"projectId": self.PROJECT, "path": "/api/other"}]})}, False, "step 2"),
-            ({"meta": (200, {"defaultInstallationId": "T0MADEUP1", "triggerDestinations": [self.PROJECT]})}, None, "step 2"),
-            ({"meta": (200, {"triggerDestinations": [{"projectId": self.PROJECT, "path": "/api/slack/events"}]})}, None, "step 2"),
-            ({"token": (403, {"error": {"code": "forbidden"}})}, False, "step 3"),
-            ({"slack": (200, {"ok": False, "error": "invalid_auth"})}, False, "invalid_auth"),
-            ({"slack": (200, {"ok": True, "team_id": "T0OTHER01"})}, False, "another team"),
-        ]
-        for over, want, where in cases:
-            ok, note, _ = self.run_check(**over)
-            self.assertIs(ok, want, over)
-            self.assertIn(where, note)
-
-    def test_trouble_on_the_way_cannot_tell(self):
-        for step in ("mint", "meta", "token", "slack"):
-            for status in (0, 429, 502):
-                ok, note, _ = self.run_check(**{step: (status, None)})
-                self.assertIsNone(ok, (step, status))
-                self.assertIn("cannot tell", note)
-
-    def test_it_stops_at_the_first_failure(self):
-        _, _, calls = self.run_check(mint=(401, None))
-        self.assertEqual(len(calls), 1)
-
-    def test_whitespace_or_a_missing_setting_never_asks(self):
+    def run_check(self, name, env):
         with FakeHttp([]) as fake:
-            ok, note = cs.check_connect(dict(self.ENV, CONNECT_ACCESS_TOKEN="  \n"), {})
-            self.assertIs(ok, False)
-            self.assertIn("whitespace", note)
-            ok, note = cs.check_connect(dict(self.ENV, CONNECT_PROJECT_ID=""), {})
-            self.assertIs(ok, False)
-            self.assertIn("CONNECT_PROJECT_ID", note)
-        self.assertEqual(fake.calls, [])
+            result = cs.CHECKS[name](dict(env), {})
+        self.assertEqual(fake.calls, [])  # nothing is asked of Slack
+        return result
 
-    def test_a_wildcard_is_wrong(self):
-        for name in ("CONNECT_PROJECT_ID", "CONNECT_ENVIRONMENT"):
-            ok, note = cs.CHECKS[name]({name: "*"}, {})
-            self.assertIs(ok, False)
-            self.assertIn("refuses every event", note)
-            self.assertEqual(cs.CHECKS[name]({name: "prj_madeup0001"}, {}), (None, None))
-        _, blockers, _ = cs.report({"CONNECT_ENVIRONMENT": "pro*"}, {"CONNECT_ENVIRONMENT": cs.CHECKS["CONNECT_ENVIRONMENT"]({"CONNECT_ENVIRONMENT": "pro*"}, {})})
+    def test_all_four_well_formed_are_quiet(self):
+        for name in self.NAMES:
+            self.assertEqual(self.run_check(name, self.ENV), (None, None))
+        # Spaces around a value are what the app trims too.
+        self.assertEqual(self.run_check("SLACK_CLIENT_SECRET", dict(self.ENV, SLACK_CLIENT_SECRET=" %s\n" % self.ENV["SLACK_CLIENT_SECRET"])), (None, None))
+
+    def test_all_four_or_none(self):
+        for missing in self.NAMES:
+            env = dict(self.ENV, **{missing: ""})
+            for name in self.NAMES:
+                if name == missing:
+                    continue
+                ok, note = self.run_check(name, env)
+                self.assertIs(ok, False, (missing, name))
+                self.assertIn(missing, note)
+                self.assertIn("all four or none", note)
+
+    def test_secrets_of_32_to_128_hex_characters_either_case(self):
+        for value in ("0123456789ABCDEF0123456789abcdef", "a" * 64, "F" * 128):
+            for name in ("SLACK_CLIENT_SECRET", "SLACK_SIGNING_SECRET"):
+                self.assertEqual(self.run_check(name, dict(self.ENV, **{name: value})), (None, None), (name, len(value)))
+        for value in ("a" * 31, "a" * 129, "g" * 32):
+            for name in ("SLACK_CLIENT_SECRET", "SLACK_SIGNING_SECRET"):
+                self.assertIs(self.run_check(name, dict(self.ENV, **{name: value}))[0], False, (name, value[:3]))
+
+    def test_the_same_shapes_as_the_app(self):
+        # web/src/lib/slack/config.ts holds the same four rules: keep them identical.
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+                               "web", "src", "lib", "slack", "config.ts")) as f:
+            config = f.read()
+        self.assertIn("const APP_ID = /^A[A-Z0-9]{2,30}$/", config)
+        self.assertIn("const CLIENT_ID = /^[0-9]{3,20}\\.[0-9]{3,20}$/", config)
+        self.assertIn("const SECRET = /^[0-9a-f]{32,128}$/i", config)
+        self.assertEqual(cs.SLACK_SETTINGS["SLACK_APP_ID"][0], r"A[A-Z0-9]{2,30}")
+        self.assertEqual(cs.SLACK_SETTINGS["SLACK_CLIENT_ID"][0], r"[0-9]{3,20}\.[0-9]{3,20}")
+        self.assertEqual(cs.SLACK_SETTINGS["SLACK_CLIENT_SECRET"][0], r"[0-9a-fA-F]{32,128}")
+        self.assertEqual(cs.SLACK_SETTINGS["SLACK_SIGNING_SECRET"][0], r"[0-9a-fA-F]{32,128}")
+
+    def test_a_malformed_one_is_wrong_and_never_shown(self):
+        bad = {"SLACK_APP_ID": "T0NOTANAPP", "SLACK_CLIENT_ID": "made-up-client", "SLACK_CLIENT_SECRET": "made-up-secret-value",
+               "SLACK_SIGNING_SECRET": "5e" * 15 + "5g"}
+        for name, value in bad.items():
+            ok, note = self.run_check(name, dict(self.ENV, **{name: value}))
+            self.assertIs(ok, False, name)
+            self.assertNotIn(value, note)
+
+    def test_empty_says_slack_is_off_and_blocks_nothing(self):
+        lines, blockers, _ = cs.report({name: "" for name in self.NAMES}, {})
+        self.assertEqual(blockers, [])
+        text = "\n".join(lines)
+        for name in self.NAMES:
+            self.assertIn(name, text)
+        self.assertIn("Slack is off", text)
+
+    def test_one_set_alone_blocks_the_gate(self):
+        env = {name: "" for name in self.NAMES}
+        env["SLACK_CLIENT_SECRET"] = self.ENV["SLACK_CLIENT_SECRET"]
+        results = {"SLACK_CLIENT_SECRET": cs.CHECKS["SLACK_CLIENT_SECRET"](env, {})}
+        _, blockers, _ = cs.report(env, results)
         self.assertEqual(len(blockers), 1)
+        self.assertIn("SLACK_CLIENT_SECRET", blockers[0])
+        self.assertNotIn(self.ENV["SLACK_CLIENT_SECRET"], blockers[0])
 
 
 class Sandbox(unittest.TestCase):

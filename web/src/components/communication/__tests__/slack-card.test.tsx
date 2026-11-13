@@ -16,11 +16,12 @@ const { SlackCard } = await import('../slack-card')
 
 let myLink: { slackUserName: string; alertsOn: boolean } | null
 let configured: boolean
+let tokenStored: boolean | undefined
 const calls: string[] = []
 const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
   calls.push(`${init?.method ?? 'GET'} ${url}`)
   if (url === '/api/account/integrations/slack') {
-    return Response.json({ configured, appId: 'A1', canInstall: true, canLink: true, selfInstallOpen: false, installations: configured ? [{ teamId: 'T1', teamName: 'Acme', teamDomain: 'acme', myLink }] : [] })
+    return Response.json({ configured, appId: 'A1', canInstall: true, canLink: true, installations: configured ? [{ teamId: 'T1', teamName: 'Acme', teamDomain: 'acme', tokenStored, myLink }] : [] })
   }
   if (url === '/api/account/integrations/slack/link-code') return Response.json({ code: 'K7Q2-9XPL', expiresAt: '2026-10-24T22:00:00Z' })
   if (url.startsWith('/api/account/integrations/slack/link?team=')) {
@@ -35,6 +36,7 @@ let host: HTMLElement
 beforeEach(() => {
   myLink = null
   configured = true
+  tokenStored = undefined
   calls.length = 0
   vi.stubGlobal('fetch', fetchMock)
   host = document.createElement('div')
@@ -69,10 +71,10 @@ describe('the Slack card', () => {
   })
 
   it('linked: who you are there, Open Native Intelligence in Slack, each workspace at the foot with Unlink; no alerts switch', async () => {
-    myLink = { slackUserName: 'liam', alertsOn: true }
+    myLink = { slackUserName: 'sam', alertsOn: true }
     await mount()
     const linked = q('[data-slack-step="linked"]')!
-    expect(linked.textContent).toContain('@liam')
+    expect(linked.textContent).toContain('@sam')
     expect(linked.textContent).toContain('Acme')
     expect(q('[data-slack-open]')).not.toBeNull()
     expect(q('[data-slack-alerts]')).toBeNull()
@@ -80,6 +82,17 @@ describe('the Slack card', () => {
     await act(async () => q<HTMLButtonElement>('[aria-label="Unlink me from Acme"]')!.click())
     await until(() => !!q('[data-slack-step="setup"]'))
     expect(calls).toContain('DELETE /api/account/integrations/slack/link?team=T1')
+  })
+
+  it('a connected workspace whose token the app does not hold: says to add it again, with Add it to Slack; not shown as linked', async () => {
+    myLink = { slackUserName: 'sam', alertsOn: true }
+    tokenStored = false
+    await mount()
+    const readd = q('[data-slack-readd]')!
+    expect(readd.textContent).toContain("Native Intelligence has to be added to Acme's Slack again")
+    expect(q('[aria-label="Add Native Intelligence to Acme again"]')).not.toBeNull()
+    expect(q('[data-slack-step="linked"]')).toBeNull()
+    expect(q('[aria-label="Unlink me from Acme"]')).toBeNull()
   })
 
   it('Slack not set up here: says so', async () => {

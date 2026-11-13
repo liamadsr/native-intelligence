@@ -15,8 +15,8 @@ What "the right value" means depends on the setting, so they are in four groups:
                (a stored ciphertext must open, a stored hash must be reproduced,
                a pinned public key must match).
   needed       any working value does; checked against its provider where a
-               call that changes nothing can tell (reads, and for Slack the
-               short-lived tokens the app itself would ask for).
+               call that changes nothing can tell (reads, and short-lived tokens
+               the app itself would ask for).
   may be empty the app runs without it, and what is then off is said.
   the switch   NI_LIVE, which step 21 sets and nothing else may.
 
@@ -79,9 +79,11 @@ MAY_BE_EMPTY = {
     "APP_DOWNLOAD_URL_WINDOWS": "empty: no Windows download is offered",
     "SENTRY_ORG": "read only by the build's source-map upload, which this image does not do",
     "SENTRY_PROJECT": "read only by the build's source-map upload, which this image does not do",
-    "SLACK_SIGNING_SECRET": "empty: a button click Slack sends straight here, not through the connector, is refused",
-    "CONNECT_ENVIRONMENT": "empty: production",
-    "CONNECT_TEAM_ID": "empty: the project token is asked for without a team (measured working both ways)",
+    # Our own Slack app (web/src/lib/slack/config.ts): all four or none.
+    "SLACK_APP_ID": "empty: Slack is off (all four SLACK_ settings or none)",
+    "SLACK_CLIENT_ID": "empty: Slack is off, and no workspace can add the app (all four SLACK_ settings or none)",
+    "SLACK_CLIENT_SECRET": "empty: Slack is off, and no workspace can add the app (all four SLACK_ settings or none)",
+    "SLACK_SIGNING_SECRET": "empty: Slack is off: every event and button click from Slack is refused (all four SLACK_ settings or none)",
     "GATEWAY_USAGE_REPORTING": "empty: the admin's AI usage page opens on its log view",
     "GATEWAY_USER_TAGGING": "empty: no per-person tags in the AI Gateway's report",
     "AGENT_AUTO_ATTEMPT_ENABLED": "a switch: empty is off",
@@ -119,8 +121,6 @@ SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}
 # What is off while a needed one is empty, where it is not obvious from the name.
 EMPTY_MEANS = {
     "SANDBOX_ACCESS_TOKEN": "the cloud browser does not start, and no coding run works unless our own sandbox runtime is set (SANDBOX_RUNTIME_*)",
-    "CONNECT_ACCESS_TOKEN": "Slack is off: the app cannot reach the connector",
-    "CONNECT_PROJECT_ID": "Slack's events and button clicks are refused",
     "CLOUD_BROWSER_RELAY_ORIGIN": "the cloud browser does not start",
     "CLOUD_BROWSER_BASE_SNAPSHOT_ID": "the cloud browser does not start",
     "BROWSER_INTERNAL_SECRET": "it falls back to RUN_SKILL_INTERNAL_SECRET's key: give it a value of its own (any)",
@@ -632,102 +632,35 @@ def check_gate_addresses(env, _opts):
     return None, None
 
 
-SLACK_EVENTS_PATH = "/api/slack/events"
-CONNECT_API = "https://api.vercel.com"
-
-
 def trouble(status):
     """True for an answer that says nothing about the settings: the network, too
     many requests, or the other side's own failure."""
     return status == 0 or status == 429 or status >= 500
 
 
-def destinations_verdict(body, project):
-    """(ok, note) for the connector's own metadata: one of its trigger destinations
-    must be `project` at the events path. None when the shape is not known here."""
-    destinations = body.get("triggerDestinations") if isinstance(body, dict) else None
-    if not isinstance(destinations, list) or not all(isinstance(d, dict) for d in destinations):
-        return None, "the connector's trigger destinations are not in a form known here: cannot tell"
-    if any(d.get("projectId") == project and d.get("path") == SLACK_EVENTS_PATH for d in destinations):
-        return True, None
-    return False, "the connector forwards no events to CONNECT_PROJECT_ID at %s" % SLACK_EVENTS_PATH
+# Our own Slack app (web/src/lib/slack/config.ts): the app takes Slack as set up only
+# when all four are set and well formed, so the check holds them to the same shapes
+# (keep the two rules identical; the app logs a malformed one by name and turns Slack off).
+# Nothing is asked of Slack: none of the four can be proven there without an install.
+SLACK_SETTINGS = {
+    "SLACK_APP_ID": (r"A[A-Z0-9]{2,30}", "not an app id (A and capitals or digits, from Basic Information, App Credentials)"),
+    "SLACK_CLIENT_ID": (r"[0-9]{3,20}\.[0-9]{3,20}", "not a client id (digits.digits, from Basic Information, App Credentials)"),
+    "SLACK_CLIENT_SECRET": (r"[0-9a-fA-F]{32,128}", "not a client secret (32 to 128 hexadecimal characters, from Basic Information, App Credentials)"),
+    "SLACK_SIGNING_SECRET": (r"[0-9a-fA-F]{32,128}", "not a signing secret (32 to 128 hexadecimal characters, from Basic Information, App Credentials)"),
+}
 
 
-def project_token(env):
-    """(token, None) or (None, (ok, note)): step 1, the project token the app makes
-    with CONNECT_ACCESS_TOKEN (web/src/lib/slack/connect-auth.ts, the request
-    @vercel/oidc's token-util.js getVercelOidcToken makes), sent as the app sends
-    it: the team named only when CONNECT_TEAM_ID is set, and no body."""
-    access, project = env["CONNECT_ACCESS_TOKEN"].strip(), env.get("CONNECT_PROJECT_ID", "").strip()
-    team = env.get("CONNECT_TEAM_ID", "").strip()
-    url = "%s/v1/projects/%s/token?source=vercel-oidc-refresh" % (CONNECT_API, urllib.parse.quote(project, safe=""))
-    if team:
-        url += "&teamId=" + urllib.parse.quote(team, safe="")
-    status, body = http(url, {"Authorization": "Bearer " + access}, method="POST")
-    if trouble(status):
-        return None, (None, "step 1, the project token: could not be asked (%d): cannot tell" % status)
-    token = body.get("token") if status == 200 and isinstance(body, dict) else None
-    if not isinstance(token, str) or not token:
-        return None, (False, "step 1, the project token: answered %d without one (the access token is not accepted for "
-                             "CONNECT_PROJECT_ID, or the team is wrong)" % status)
-    return token, None
+def check_slack(name):
+    """One of the four: its shape, and the other three set too (all four or none:
+    the app turns Slack off while any is missing)."""
+    pattern, wrong = SLACK_SETTINGS[name]
 
-
-def check_connect(env, _opts):
-    """The app's real path to a Slack login, in three steps, stopping at the first
-    that fails: (1) the project token, (2) with it, the Slack connector's metadata
-    (it must forward its events to CONNECT_PROJECT_ID; its default installation is
-    used next), (3) with it, a Slack token for that installation, which Slack's
-    auth.test must accept for the same team. A metadata read alone proved nothing:
-    the access token reads it, yet Connect refuses it for a token. No credential
-    from any answer is printed or put in a note."""
-    if not env["CONNECT_ACCESS_TOKEN"].strip():
-        return False, "holds only whitespace: the app reads it as empty"
-    connector, project = env.get("SLACK_CONNECTOR", "").strip(), env.get("CONNECT_PROJECT_ID", "").strip()
-    if not connector or not project:
-        return False, "needs SLACK_CONNECTOR and CONNECT_PROJECT_ID too"
-    token, failed = project_token(env)
-    if failed:
-        return failed
-    bearer = {"Authorization": "Bearer " + token}
-    path = urllib.parse.quote(connector, safe="!*'()")
-
-    # Step 2: what the app's client asks for a connector's metadata (connector.js getConnectorMetadata).
-    status, body = http("%s/v1/connect/connectors/%s" % (CONNECT_API, path), bearer)
-    if trouble(status):
-        return None, "step 2, the connector: could not be asked (%d): cannot tell" % status
-    if status != 200:
-        return False, "step 2, the connector: answered %d to the project token (not attached to the project, or SLACK_CONNECTOR is wrong)" % status
-    ok, note = destinations_verdict(body, project)
-    if ok is not True:
-        return ok, "step 2, the connector: " + note
-    installation = body.get("defaultInstallationId")
-    if not isinstance(installation, str) or not installation:
-        return None, "step 2, the connector: names no default installation: cannot tell"
-
-    # Step 3: what the app's client asks for a bot token (token.js getTokenResponse), then Slack itself.
-    status, body = http("%s/v1/connect/token/%s" % (CONNECT_API, path), bearer,
-                        post={"subject": {"type": "app"}, "installationId": installation, "scopes": ["*"]})
-    if trouble(status):
-        return None, "step 3, the Slack token: could not be asked (%d): cannot tell" % status
-    slack = body.get("token") if status == 200 and isinstance(body, dict) else None
-    if not isinstance(slack, str) or not slack:
-        return False, "step 3, the Slack token: the connector answered %d without one" % status
-    status, body = http("https://slack.com/api/auth.test", {"Authorization": "Bearer " + slack})
-    if trouble(status):
-        return None, "step 3, Slack: could not be asked (%d): cannot tell" % status
-    if not (isinstance(body, dict) and body.get("ok") is True):
-        return False, "step 3, Slack: refused the token the connector gave (%s)" % (
-            body.get("error") if isinstance(body, dict) and isinstance(body.get("error"), str) else status)
-    if body.get("team_id") != installation:
-        return False, "step 3, Slack: the token is for another team than the connector's default installation"
-    return True, "a project token, the connector forwarding to CONNECT_PROJECT_ID, and a Slack token Slack accepts for the installation"
-
-
-def check_no_wildcard(name):
     def check(env, _opts):
-        if "*" in env[name]:
-            return False, "contains *: the app then refuses every event the connector forwards"
+        if not re.fullmatch(pattern, env[name].strip()):
+            return False, "%s: the app reads Slack as not set up" % wrong
+        missing = [other for other in SLACK_SETTINGS if other != name and not env.get(other, "").strip()]
+        if missing:
+            return False, "set without %s: all four or none (Slack stays off)" % ", ".join(missing)
         return None, None
     return check
 
@@ -870,9 +803,10 @@ CHECKS = {
     "GOOGLE_GENERATIVE_AI_API_KEY": check_google,
     "EMAIL_FROM": check_email_from,
     "SANDBOX_ACCESS_TOKEN": check_sandbox,
-    "CONNECT_ACCESS_TOKEN": check_connect,
-    "CONNECT_PROJECT_ID": check_no_wildcard("CONNECT_PROJECT_ID"),
-    "CONNECT_ENVIRONMENT": check_no_wildcard("CONNECT_ENVIRONMENT"),
+    "SLACK_APP_ID": check_slack("SLACK_APP_ID"),
+    "SLACK_CLIENT_ID": check_slack("SLACK_CLIENT_ID"),
+    "SLACK_CLIENT_SECRET": check_slack("SLACK_CLIENT_SECRET"),
+    "SLACK_SIGNING_SECRET": check_slack("SLACK_SIGNING_SECRET"),
     "DEEPGRAM_API_KEY": check_deepgram,
     "GPT_LIVE_API_KEY": check_openai,
     "LIVEKIT_URL": check_livekit,

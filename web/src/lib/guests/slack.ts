@@ -317,7 +317,7 @@ export async function deliverGuestSlackDm(
 export interface GuestSlackTarget {
   teamId: string
   slackUserId: string
-  /** The installation row's own id, never the row's word. */
+  /** The team whose stored bot token answers: the live installation's own team id, never the row's word. */
   installationId: string
 }
 
@@ -341,7 +341,7 @@ export async function guestSlackTarget(supabase: SupabaseClient, scope: { guestI
     if (!g.channels.includes('slack') || !g.slackTeamId || !g.slackUserId) return null
     const installation = await getInstallation(supabase, g.slackTeamId)
     if (!installation || installation.status !== 'active' || installation.workspace_id !== scope.workspaceId) return null
-    return { teamId: g.slackTeamId, slackUserId: g.slackUserId, installationId: installation.connect_installation_id }
+    return { teamId: g.slackTeamId, slackUserId: g.slackUserId, installationId: installation.slack_team_id }
   } catch {
     return null
   }

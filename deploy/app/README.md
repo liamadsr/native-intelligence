@@ -329,26 +329,8 @@ These may be new on the server (`PULL_GENERATE=1` makes the first three):
 Each of them falls back to `RUN_SKILL_INTERNAL_SECRET` when empty
 (`web/src/lib/eve/internal-secret.ts`), so give each its own value.
 
-These exist only here: the earlier host has no such settings, because there the
-app's own deployment token did their work (`web/src/lib/slack/config.ts`).
+These exist only here: the earlier host has no such settings.
 
-- `CONNECT_ACCESS_TOKEN`: an access token of that account, scoped to the team the
-  Slack connector is in. The connector refuses this team token as the credential
-  for a Slack login (measured from this server), so the app only makes a
-  short-lived project token with it (`web/src/lib/slack/connect-auth.ts`) and sends
-  that to the connector. The project token is for the project's development
-  environment, so the connector must stay enabled for development as well as
-  production. An access token narrowed to the project, instead of scoped to the
-  team, is refused outright, here and by the sandbox service (`SANDBOX_ACCESS_TOKEN`
-  is scoped to the team too).
-- `CONNECT_PROJECT_ID`: the id of the project the connector is attached to and
-  forwards Slack's events for. Required with the access token: the project token
-  is made for it. A forwarded event or button click must carry a token naming it.
-- `CONNECT_TEAM_ID`: that project's team, sent with the project-token request when
-  set. May stay empty: the request was measured working both with and without
-  the team named.
-- `CONNECT_ENVIRONMENT`: that project's environment the forwarded token must name;
-  empty is `production`.
 - `SANDBOX_RUNTIME_API_URL`, `SANDBOX_RUNTIME_TRAFFIC_URL`, `SANDBOX_RUNTIME_TEMPLATE`,
   `SANDBOX_RUNTIME_KEY`: the coding agent's third way, our own sandbox runtime on the
   sandbox server (`../sandbox`). It may be set beside the hosted service's three
@@ -382,19 +364,19 @@ app's own deployment token did their work (`web/src/lib/slack/config.ts`).
   snapshot is prepared when the image is built, so the build needs them too
   ("What is fixed when the image is built"); after changing one, build again.
 
-`check-settings.sh` makes the app's own requests for a Slack login, in order, and
-says at which step it stopped: the project token, made exactly as the app makes it
-(the team named only when `CONNECT_TEAM_ID` is set, no body), the connector read
-with it (a trigger destination with `CONNECT_PROJECT_ID` and the path
-`/api/slack/events`), a Slack login for the connector's default installation, and
-Slack's own `auth.test` naming that workspace. It shows no token, at most a
-length; network trouble, too many requests (429) or the other side's failure is
-"cannot tell", not wrong. This path was seen working end to end from this server.
+Slack's four, `SLACK_APP_ID`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` and
+`SLACK_SIGNING_SECRET`, are our own Slack app's, which the app talks to directly
+(`web/src/lib/slack/config.ts`): the install is Slack's own OAuth, run by the app;
+each workspace's bot token is stored in the database, encrypted with
+`CREDENTIAL_ENCRYPTION_KEY` (migration 644); every event and button click must carry
+Slack's signature. All four come from the Slack app's settings at Slack (Basic
+Information, App Credentials), all four or none: while any is empty Slack is off,
+and the Settings page says so. `check_settings.py` holds each to the shape the app
+requires and calls one set without the others wrong; nothing can prove them at
+Slack without an install. What the owner sets at Slack is in `../README.md`
+("Slack", under "Day to day").
 
-A `*` in `CONNECT_PROJECT_ID` or `CONNECT_ENVIRONMENT` makes the app refuse every
-forwarded event, and the check calls it wrong.
-
-`VERCEL_PROJECT_ID` and `VERCEL_ENV` are never set here in their place: other code
+`VERCEL_PROJECT_ID` and `VERCEL_ENV` are never set here: other code
 reads `VERCEL_ENV` to tell production from a preview.
 
 Three more exist only here, for calls on this server's own LiveKit (`../livekit`,
