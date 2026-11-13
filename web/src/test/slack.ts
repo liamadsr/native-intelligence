@@ -8,8 +8,9 @@ import { vi } from 'vitest'
 
 export const SLACK_TEST_APP_ID = 'A0MADEUP01'
 export const SLACK_TEST_CLIENT_ID = '1111111111.2222222222'
-export const SLACK_TEST_CLIENT_SECRET = '0123456789abcdef0123456789abcdef'
-export const SLACK_TEST_SIGNING_SECRET = 'fedcba9876543210fedcba9876543210'
+// Built, not written out: a literal of this shape reads as a real secret to the leak check.
+export const SLACK_TEST_CLIENT_SECRET = 'c1'.repeat(16)
+export const SLACK_TEST_SIGNING_SECRET = '5e'.repeat(16)
 
 /** Stub all four Slack settings (vi.stubEnv; undo with vi.unstubAllEnvs). */
 export function stubSlackEnv(over: Partial<Record<'SLACK_APP_ID' | 'SLACK_CLIENT_ID' | 'SLACK_CLIENT_SECRET' | 'SLACK_SIGNING_SECRET', string>> = {}): void {

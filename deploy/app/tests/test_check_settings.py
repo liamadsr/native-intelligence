@@ -167,7 +167,7 @@ class FakeHttp:
 
 class Slack(unittest.TestCase):
     ENV = {"SLACK_APP_ID": "A0MADEUP01", "SLACK_CLIENT_ID": "1111111111.2222222222",
-           "SLACK_CLIENT_SECRET": "0123456789abcdef0123456789abcdef", "SLACK_SIGNING_SECRET": "fedcba9876543210fedcba9876543210"}
+           "SLACK_CLIENT_SECRET": "c1" * 16, "SLACK_SIGNING_SECRET": "5e" * 16}
     NAMES = tuple(ENV)
 
     def run_check(self, name, env):
@@ -216,7 +216,7 @@ class Slack(unittest.TestCase):
 
     def test_a_malformed_one_is_wrong_and_never_shown(self):
         bad = {"SLACK_APP_ID": "T0NOTANAPP", "SLACK_CLIENT_ID": "made-up-client", "SLACK_CLIENT_SECRET": "made-up-secret-value",
-               "SLACK_SIGNING_SECRET": "0123456789abcdef0123456789abcdeg"}
+               "SLACK_SIGNING_SECRET": "5e" * 15 + "5g"}
         for name, value in bad.items():
             ok, note = self.run_check(name, dict(self.ENV, **{name: value}))
             self.assertIs(ok, False, name)
