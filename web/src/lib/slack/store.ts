@@ -7,7 +7,7 @@
  * verified Slack's signature, the install callback verified its state, or an
  * account route authenticated the person. Every function scopes by the ids it
  * is given. An installation is addressed by its Slack team id everywhere: the
- * bot token is stored under it (./bot-token.ts, migration 643).
+ * bot token is stored under it (./bot-token.ts, migration 644).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { LINK_CODE_TTL_MS, linkCodeHash, newLinkCode, normalizeLinkCode } from './link-code'
@@ -101,7 +101,7 @@ export async function bindInstallation(svc: Svc, input: BindInstallationInput): 
     team_domain: input.teamDomain.slice(0, 200),
     enterprise_id: input.enterpriseId,
     workspace_id: input.workspaceId,
-    // An old NOT NULL column from 412, read by nothing since 643: always the team id.
+    // An old NOT NULL column from 412, read by nothing since 644: always the team id.
     connect_installation_id: input.teamId,
     bot_user_id: input.botUserId,
     status: 'active' as const,

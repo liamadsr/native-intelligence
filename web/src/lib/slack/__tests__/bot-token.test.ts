@@ -1,5 +1,5 @@
 /**
- * The stored Slack bot tokens (bot-token.ts, migration 643): never stored in
+ * The stored Slack bot tokens (bot-token.ts, migration 644): never stored in
  * the clear; an install's save moves the version atomically; cached briefly
  * and forgotten on demand; never an expired token; refreshed by ONE container
  * (the claim), written by compare and set, and kept in process when the write

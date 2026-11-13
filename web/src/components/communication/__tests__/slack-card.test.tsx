@@ -71,10 +71,10 @@ describe('the Slack card', () => {
   })
 
   it('linked: who you are there, Open Native Intelligence in Slack, each workspace at the foot with Unlink; no alerts switch', async () => {
-    myLink = { slackUserName: 'liam', alertsOn: true }
+    myLink = { slackUserName: 'sam', alertsOn: true }
     await mount()
     const linked = q('[data-slack-step="linked"]')!
-    expect(linked.textContent).toContain('@liam')
+    expect(linked.textContent).toContain('@sam')
     expect(linked.textContent).toContain('Acme')
     expect(q('[data-slack-open]')).not.toBeNull()
     expect(q('[data-slack-alerts]')).toBeNull()
@@ -85,7 +85,7 @@ describe('the Slack card', () => {
   })
 
   it('a connected workspace whose token the app does not hold: says to add it again, with Add it to Slack; not shown as linked', async () => {
-    myLink = { slackUserName: 'liam', alertsOn: true }
+    myLink = { slackUserName: 'sam', alertsOn: true }
     tokenStored = false
     await mount()
     const readd = q('[data-slack-readd]')!

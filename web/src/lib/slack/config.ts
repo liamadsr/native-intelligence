@@ -2,7 +2,7 @@
  * Slack as a customer connection: the deployment's settings. The app talks to
  * Slack directly with our own Slack app: Slack's OAuth v2 install
  * (./install.ts), the bot tokens it gives, stored encrypted per Slack team
- * (./bot-token.ts, migration 643), and Slack's own signature on every request
+ * (./bot-token.ts, migration 644), and Slack's own signature on every request
  * Slack sends here (./signature.ts).
  *
  *   SLACK_APP_ID          our Slack app's id (A…). An install, an event or a

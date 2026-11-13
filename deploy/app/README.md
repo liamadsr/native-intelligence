@@ -368,7 +368,7 @@ Slack's four, `SLACK_APP_ID`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` and
 `SLACK_SIGNING_SECRET`, are our own Slack app's, which the app talks to directly
 (`web/src/lib/slack/config.ts`): the install is Slack's own OAuth, run by the app;
 each workspace's bot token is stored in the database, encrypted with
-`CREDENTIAL_ENCRYPTION_KEY` (migration 643); every event and button click must carry
+`CREDENTIAL_ENCRYPTION_KEY` (migration 644); every event and button click must carry
 Slack's signature. All four come from the Slack app's settings at Slack (Basic
 Information, App Credentials), all four or none: while any is empty Slack is off,
 and the Settings page says so. `check_settings.py` holds each to the shape the app

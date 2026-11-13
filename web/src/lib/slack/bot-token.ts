@@ -1,5 +1,5 @@
 /**
- * The bot token of each Slack team the app is installed in (migration 643,
+ * The bot token of each Slack team the app is installed in (migration 644,
  * `slack_bot_token`): stored by the install (./install.ts), read for every
  * call the bot makes, refreshed when the Slack app has token rotation on, and
  * deleted when the app is removed (an `app_uninstalled` event, a

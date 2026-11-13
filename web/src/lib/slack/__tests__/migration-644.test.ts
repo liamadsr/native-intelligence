@@ -1,5 +1,5 @@
 /**
- * Migration 643: Slack's bot tokens. Pins the security shape (RLS on, no
+ * Migration 644: Slack's bot tokens. Pins the security shape (RLS on, no
  * policy, every privilege taken from clients), the columns bot-token.ts
  * reads and writes (the refresh claim and installed_at included), the trigger
  * that takes a team's token with its live installation, re-runnability, and
@@ -9,7 +9,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const FILE = '643_slack_bot_tokens.sql'
+const FILE = '644_slack_bot_tokens.sql'
 const SQL = readFileSync(join(process.cwd(), 'supabase/migrations', FILE), 'utf8')
 const BODY = SQL.split('\n')
   .map((l) => l.replace(/--.*$/, ''))
@@ -18,10 +18,10 @@ const BODY = SQL.split('\n')
 const STORE = readFileSync(join(process.cwd(), 'src/lib/slack/bot-token.ts'), 'utf8')
 const TABLE = BODY.slice(BODY.indexOf('create table if not exists public.slack_bot_token ('), BODY.indexOf('comment on table public.slack_bot_token'))
 
-describe('migration 643', () => {
-  it('is the only 643, holds no backslash, and takes its locks with a timeout', () => {
+describe('migration 644', () => {
+  it('is the only 644, holds no backslash, and takes its locks with a timeout', () => {
     const numbers = readdirSync(join(process.cwd(), 'supabase/migrations')).map((f) => Number(f.split('_')[0]))
-    expect(numbers.filter((n) => n === 643)).toHaveLength(1)
+    expect(numbers.filter((n) => n === 644)).toHaveLength(1)
     expect(SQL).not.toContain('\\')
     expect(BODY).toContain("SET LOCAL lock_timeout = '5s';")
   })

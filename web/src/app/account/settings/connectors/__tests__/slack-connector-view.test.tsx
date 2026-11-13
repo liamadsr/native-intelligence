@@ -37,7 +37,7 @@ const slack = (installations: Team[], over: Record<string, unknown> = {}) => ({
   installations,
   ...over,
 })
-const acme: Team = { teamId: 'T1', teamName: 'Acme', teamDomain: 'acme', myLink: { slackUserName: 'liam' } }
+const acme: Team = { teamId: 'T1', teamName: 'Acme', teamDomain: 'acme', myLink: { slackUserName: 'sam' } }
 const beta: Team = { teamId: 'T2', teamName: 'Beta', teamDomain: 'beta', myLink: null }
 
 let container: HTMLDivElement
@@ -137,7 +137,7 @@ describe('linking one more Slack workspace', () => {
     expect(open?.getAttribute('href')).toContain('team=T2')
     expect(container.textContent).toContain('K7Q4M2')
 
-    net.state = slack([acme, { ...beta, myLink: { slackUserName: 'liam' } }])
+    net.state = slack([acme, { ...beta, myLink: { slackUserName: 'sam' } }])
     await act(async () => window.dispatchEvent(new Event('focus')))
     await flush()
     expect(container.textContent).not.toContain('K7Q4M2')

@@ -1,5 +1,5 @@
 -- ============================================================
--- 643: Slack's bot tokens, held by the app itself.
+-- 644: Slack's bot tokens, held by the app itself.
 --
 -- The app talks to Slack directly with our own Slack app: Slack's OAuth v2
 -- install (src/lib/slack/install.ts, /api/slack/oauth/callback) gives one bot
@@ -38,7 +38,7 @@
 --
 -- Applied by hand, from this file: to DEV, then to PROD on the owner's word,
 -- before the code that uses it is rolled out. Re-runnable.
--- Pinned by src/lib/slack/__tests__/migration-643.test.ts.
+-- Pinned by src/lib/slack/__tests__/migration-644.test.ts.
 -- No backslashes anywhere in this file (one MCP transport decodes escapes).
 -- ============================================================
 
@@ -73,7 +73,7 @@ alter table public.slack_bot_token add column if not exists refresh_claimed_unti
 alter table public.slack_bot_token add column if not exists installed_at timestamptz not null default now();
 
 comment on table public.slack_bot_token is
-  'Slack (643): the bot token (and refresh token) of each Slack team the app is installed in, encrypted by the app. Service role only.';
+  'Slack (644): the bot token (and refresh token) of each Slack team the app is installed in, encrypted by the app. Service role only.';
 
 drop trigger if exists slack_bot_token_updated_at on public.slack_bot_token;
 create trigger slack_bot_token_updated_at
@@ -115,4 +115,4 @@ create trigger slack_installation_gone
   for each row execute function public.slack_installation_gone_trigger();
 
 comment on column public.slack_installation.connect_installation_id is
-  'Since 643 always the Slack team id, and read by nothing: an installation is addressed by slack_team_id, its bot token kept in slack_bot_token.';
+  'Since 644 always the Slack team id, and read by nothing: an installation is addressed by slack_team_id, its bot token kept in slack_bot_token.';
