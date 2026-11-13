@@ -34,11 +34,28 @@ export const CAPTURE_AUDIO_SAVING_SHOWN_MS = 24 * 60 * 60_000
 
 export type AudioGrantOutcome = 'granted' | 'stored' | 'not_wanted' | 'too_large' | 'too_many' | 'taken' | 'unknown' | 'invalid'
 
-/** A database without migration 650 yet: its table or functions are not there (Postgres's or PostgREST's word for it). */
+/**
+ * A database without migration 650 yet: Postgres's or PostgREST's word that 650's own table or
+ * one of its functions is not there, by its code AND by that object's name. Anything else (a
+ * column, an operator, a type inside a function, another table) is a real failure, said loudly
+ * every time.
+ */
 export function missingFromDatabase(error: { code?: string; message?: string } | null | undefined): boolean {
   if (!error) return false
-  if (error.code && ['42P01', '42883', 'PGRST202', 'PGRST205'].includes(error.code)) return true
-  return /does not exist|could not find the (function|table)/i.test(error.message ?? '')
+  const message = error.message ?? ''
+  const fn = /\bpublic\.(capture_audio_(settle|due|orphans|capture_of)|capture_feed_audio_(grant|stored))\b/
+  switch (error.code) {
+    case '42883': // function public.capture_audio_settle(integer) does not exist
+      return /^function /.test(message) && fn.test(message)
+    case 'PGRST202': // Could not find the function public.capture_audio_settle(max_rows) in the schema cache
+      return /^Could not find the function /.test(message) && fn.test(message)
+    case '42P01': // relation "public.capture_audio" does not exist
+      return /^relation "(public\.)?capture_audio" does not exist/.test(message)
+    case 'PGRST205': // Could not find the table 'public.capture_audio' in the schema cache
+      return /^Could not find the table '(public\.)?capture_audio'/.test(message)
+    default:
+      return false
+  }
 }
 
 export interface AudioGrant {
@@ -119,7 +136,9 @@ interface AudioRow {
 export function audioViewOf(row: AudioRow, now: number = Date.now()): CaptureAudioView | null {
   const base = { id: row.id, part: row.part, durationMs: row.duration_ms === null ? null : Number(row.duration_ms), expiresAt: new Date(row.expires_at).toISOString() }
   if (row.state === 'stored') return now < Date.parse(row.expires_at) ? { ...base, state: 'ready', deletedAt: null } : { ...base, state: 'deleted', deletedAt: base.expiresAt }
-  if (row.state === 'deleted') return row.stored_at && row.deleted_at ? { ...base, state: 'deleted', deletedAt: new Date(row.deleted_at).toISOString() } : null
+  // The day it went is the day it stopped playing (its 30th, or earlier if its call or capture
+  // went first), never the later morning the sweep removed the object: what was said stays said.
+  if (row.state === 'deleted') return row.stored_at && row.deleted_at ? { ...base, state: 'deleted', deletedAt: new Date(Math.min(Date.parse(row.deleted_at), Date.parse(row.expires_at))).toISOString() } : null
   if (now - Date.parse(row.created_at) < CAPTURE_AUDIO_SAVING_SHOWN_MS && now < Date.parse(row.expires_at)) return { ...base, state: 'saving', deletedAt: null }
   return null
 }
@@ -154,8 +173,9 @@ export function audioDownloadName(startedAt: string | null, part: number, severa
 
 /**
  * A link to one stored file of a capture, to play or to download, signed as the person (Storage's
- * read policy checks them again), lasting CAPTURE_AUDIO_LINK_TTL_SECONDS. Null when they may not
- * read the capture, or the file is not kept (any more).
+ * read policy checks them again), lasting CAPTURE_AUDIO_LINK_TTL_SECONDS, and never past the
+ * file's day (Storage checks a link when it signs it, not when it is used, so the link itself must
+ * end then). Null when they may not read the capture, or the file is not kept (any more).
  */
 export async function captureAudioLink(
   supabase: SupabaseClient,
@@ -164,7 +184,7 @@ export async function captureAudioLink(
   fileId: string,
   as: 'play' | 'download',
   now: number = Date.now(),
-): Promise<string | null> {
+): Promise<{ url: string; expiresIn: number } | null> {
   const { data: capture, error: captureError } = await supabase.from('captures').select('id').eq('id', captureId).maybeSingle<{ id: string }>()
   if (captureError) throw new Error(`capture audio: capture read failed: ${captureError.message}`)
   if (!capture) return null
@@ -181,7 +201,9 @@ export async function captureAudioLink(
   const row = all.find((r) => r.id === fileId && r.state === 'stored' && Date.parse(r.expires_at) > now)
   if (!row) return null
   const options = as === 'download' ? { download: audioDownloadName(row.created_at, row.part, all.length > 1, row.content_type) } : undefined
-  const { data: signed, error: signError } = await supabase.storage.from(CAPTURE_AUDIO_BUCKET).createSignedUrl(row.path, CAPTURE_AUDIO_LINK_TTL_SECONDS, options)
+  const ttl = Math.min(CAPTURE_AUDIO_LINK_TTL_SECONDS, Math.floor((Date.parse(row.expires_at) - now) / 1000))
+  if (ttl < 1) return null
+  const { data: signed, error: signError } = await supabase.storage.from(CAPTURE_AUDIO_BUCKET).createSignedUrl(row.path, ttl, options)
   if (signError || !signed?.signedUrl) return null
-  return signed.signedUrl
+  return { url: signed.signedUrl, expiresIn: ttl }
 }

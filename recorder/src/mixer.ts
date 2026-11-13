@@ -14,8 +14,13 @@
  *     after it. A muted track's frames move its clock on without sound
  *     (`skip`). Only a real gap moves a track: frames that stopped coming for
  *     more than GAP_MS (a stall that long is past the window anyway) are
- *     placed again where the wall clock says. A track running ahead of the
- *     wall clock is held to DRIFT_MS ahead.
+ *     placed again where the wall clock says, and so is a track that stays
+ *     more than LAG_MS behind it for LAG_HOLD_MS (samples lost before they
+ *     reached the recorder: a burst after a stall catches up within itself,
+ *     a loss never does), by moving it on: silence where the lost samples
+ *     were, nothing dropped. A track running ahead of the wall clock is held
+ *     to DRIFT_MS ahead. `maxDriftMs` is the furthest any track was from the
+ *     wall clock (logged when a take ends).
  *   - Frames are summed into a window of the last `capacityMs` and written out
  *     `latencyMs` behind the wall clock, in order, once: what arrives later
  *     than that for a stretch already written is dropped (counted in `late`).
@@ -29,6 +34,9 @@
 export const DRIFT_MS = 120
 /** A track this far behind the wall clock had a real gap (its frames stopped): placed again. */
 export const GAP_MS = 1_000
+/** A track this far behind the wall clock for LAG_HOLD_MS lost samples: moved on to it. */
+export const LAG_MS = 100
+export const LAG_HOLD_MS = 1_500
 
 export interface MixerOptions {
   sampleRate: number
@@ -54,6 +62,10 @@ export class Mixer {
   /** Every sample before this one is written (or was before this mixer). */
   private flushed: number
   private readonly cursors = new Map<string, number>()
+  /** Since when (wall ms) each track has been more than LAG_MS behind. */
+  private readonly behind = new Map<string, number>()
+  /** The furthest any track was from the wall clock, in ms (either way). */
+  maxDriftMs = 0
   /** Samples dropped for arriving after their stretch was written. */
   late = 0
   /** Whether any stretch with sound was written. */
@@ -82,9 +94,16 @@ export class Mixer {
   /** Where a track's next `n` samples go, its last heard at `endWallMs`; its clock moved past them. */
   private place(key: string, n: number, endWallMs: number): number {
     const expected = this.sampleAt(endWallMs) - n
+    const ms = (samples: number) => (samples * 1000) / this.rate
     let start = this.cursors.get(key)
-    if (start === undefined || expected - start > (GAP_MS * this.rate) / 1000) start = expected
-    else if (start - expected > (DRIFT_MS * this.rate) / 1000) start = expected + Math.round((DRIFT_MS * this.rate) / 1000)
+    if (start !== undefined) this.maxDriftMs = Math.max(this.maxDriftMs, Math.abs(ms(expected - start)))
+    const lagging = start !== undefined && ms(expected - start) > LAG_MS
+    if (!lagging) this.behind.delete(key)
+    else if (!this.behind.has(key)) this.behind.set(key, endWallMs)
+    if (start === undefined || ms(expected - start) > GAP_MS || (lagging && endWallMs - this.behind.get(key)! >= LAG_HOLD_MS)) {
+      start = expected
+      this.behind.delete(key)
+    } else if (ms(start - expected) > DRIFT_MS) start = expected + Math.round((DRIFT_MS * this.rate) / 1000)
     this.cursors.set(key, start + n)
     return start
   }
@@ -115,6 +134,7 @@ export class Mixer {
   /** A track ended: its next frame (a new track) is placed afresh. */
   forget(key: string): void {
     this.cursors.delete(key)
+    this.behind.delete(key)
   }
 
   /** Write out what is `latencyMs` old by now. */

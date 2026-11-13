@@ -79,6 +79,20 @@ test('mixer: a burst after a stall (the event loop busy) lands where it was hear
   assert.equal(m.late, 0)
 })
 
+test('mixer: samples lost before they reached the recorder: the track sits early for LAG_HOLD_MS at most, then is moved on (silence for the loss, nothing dropped)', () => {
+  const { m, out } = mixer()
+  let k = 0
+  // 1 s in real time, then 300 ms of frames never arrive, then on in real time for 3 s.
+  for (; k < 100; k++) m.push('a', frame(k + 1), 1010 + k * 10)
+  for (k = 130; k < 430; k++) m.push('a', frame(k + 1), 1010 + k * 10)
+  m.finish(6000)
+  // Early on, frame 130 sits where frame 100 would have (300 ms early); 1.5 s later it is back on the clock.
+  assert.equal(out.get(sample(1000 + 100 * 10) + 5), 131)
+  for (const late of [300, 350, 429]) assert.equal(out.get(sample(1000 + late * 10) + 5), late + 1, `frame ${late}`)
+  assert.equal(m.late, 0, 'nothing dropped')
+  assert.ok(m.maxDriftMs >= 290 && m.maxDriftMs < 400, `furthest drift ${m.maxDriftMs}`)
+})
+
 test('mixer: a track running ahead of the wall clock is held to DRIFT_MS ahead', () => {
   const { m, out } = mixer()
   // 40 frames (400 ms) arriving within the same instant: no frame lands more than DRIFT_MS after it was heard.

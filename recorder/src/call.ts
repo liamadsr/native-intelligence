@@ -126,6 +126,7 @@ export class CallRecorder {
   private aloneSince: number | null = null
   private timers: Array<ReturnType<typeof setInterval>> = []
   private audio: CallAudio | null = null
+  private stopWhy: CallEnd | null = null
   private resolveDone: (why: CallEnd) => void = () => undefined
   /** Resolves with why the call ended here. */
   readonly done: Promise<CallEnd>
@@ -205,27 +206,39 @@ export class CallRecorder {
       clearTimeout(timer)
     }
     console.info(`[recorder] call=${this.job.callId} session=${this.session.id} round=${this.session.round} joined`)
-    // The sound's take, from now (or the one a restart left, going on): before the first frame,
-    // and never for longer than AUDIO_OPEN_MS. A disk that hangs leaves the call heard without
-    // its sound; a take that opens later than that is finished at once (it heard nothing).
-    if (!this.stopping && this.deps.audio) {
-      const opening = this.deps.audio.openTake(this.session).catch(() => null)
-      const opened = await within(opening, this.deps.audioOpenMs ?? AUDIO_OPEN_MS)
-      if (opened === TIMEOUT) {
-        console.warn(`[recorder] call=${this.job.callId} session=${this.session.id} audio not opened in time: the call goes on without its sound`)
-        void opening.then((late) => late?.end('finish').catch(() => undefined))
-      } else this.audio = opened
-    }
-    // Stopped while the take was opening: it ends with the call (nothing was heard into it).
-    if (this.stopping && this.audio) void this.audio.end('finish').catch(() => undefined)
-    if (this.audio) console.info(`[recorder] call=${this.job.callId} session=${this.session.id} audio take=${this.audio.meta.take}`)
+    // Everyone already here is heard first: the call's sound never holds up its words.
     for (const p of room.remoteParticipants.values()) {
       this.joined(p)
       for (const pub of p.trackPublications.values()) this.offered(pub, p)
     }
+    // The sound's take (or the one a restart left, going on) opens beside it; what is heard before
+    // it opens is in the notes, not in the file.
+    if (!this.stopping && this.deps.audio) void this.openAudio(this.deps.audio)
     this.timers.push(setInterval(() => this.checkAlone(), 5_000))
     const bound = setTimeout(() => void this.stop('bound'), this.deps.maxCallMs)
     this.timers.push(bound as unknown as ReturnType<typeof setInterval>)
+  }
+
+  /**
+   * The take, given AUDIO_OPEN_MS: a disk that hangs leaves the call heard without its sound, and a
+   * take that opens later than that, or once the call is leaving, is ended at once (it heard
+   * nothing): finished, or paused at a shutdown (the next process takes it up).
+   */
+  private async openAudio(keeper: Pick<AudioKeeper, 'openTake'>): Promise<void> {
+    const opening = keeper.openTake(this.session).catch(() => null)
+    const opened = await within(opening, this.deps.audioOpenMs ?? AUDIO_OPEN_MS)
+    if (opened === TIMEOUT) {
+      console.warn(`[recorder] call=${this.job.callId} session=${this.session.id} audio not opened in time: the call goes on without its sound`)
+      void opening.then((late) => late?.end('finish').catch(() => undefined))
+      return
+    }
+    if (!opened) return
+    if (this.stopping) {
+      void opened.end(this.stopWhy === 'shutdown' ? 'pause' : 'finish').catch(() => undefined)
+      return
+    }
+    this.audio = opened
+    console.info(`[recorder] call=${this.job.callId} session=${this.session.id} audio take=${opened.meta.take}`)
   }
 
   /** Speakers being heard now (a health answer's count). */
@@ -356,6 +369,7 @@ export class CallRecorder {
    */
   stop(why: CallEnd, opts: { flushMs?: number } = {}): Promise<void> {
     if (this.stopping) return this.stopping
+    this.stopWhy = why
     this.stopping = (async () => {
       for (const t of this.timers) clearInterval(t)
       await Promise.all([...this.listeners.keys()].map((sid) => this.closeListener(sid)))

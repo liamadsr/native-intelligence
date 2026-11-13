@@ -7,7 +7,9 @@
  * each kind; the next day takes the rest), and every part may run again:
  *
  *   1. A pending take whose file landed over an hour ago is stored (its
- *      producer stopped between the upload and saying so).
+ *      producer stopped between the upload and saying so), on the same checks
+ *      as the producer's own "stored"; one that fails them (another type, too
+ *      large) has its object removed and its row marked deleted, never kept.
  *   2. Takes past their 30 days: each object removed through the storage API
  *      (the file and its row go together; one already gone is no error),
  *      then the row marked deleted, with the day. A removal that fails leaves
@@ -20,7 +22,9 @@
  *
  * It runs whatever TEAM_CALL_AUDIO says: files kept before the switch went
  * off are still deleted on their day. On a database without migration 650
- * yet it does nothing, says so once per process, and the job succeeds.
+ * yet (650's own function not there, by its code and its name) it does
+ * nothing, says so every run, and the job succeeds; any other failure fails
+ * the step, every time.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { CAPTURE_AUDIO_BUCKET, missingFromDatabase } from './audio'
@@ -33,13 +37,8 @@ export interface AudioRetentionResult {
   orphans: number
   /** Migration 650 is not on this database yet: nothing was done. */
   skipped?: true
-}
-
-let saidMissing = false
-
-/** For a test: say "650 is missing" again. */
-export function __forgetSaidMissing(): void {
-  saidMissing = false
+  /** Takes whose landed file was not the one their grant named: removed, never kept. */
+  invalid?: number
 }
 
 async function remove(svc: SupabaseClient, paths: string[]): Promise<void> {
@@ -64,17 +63,21 @@ export async function markAudioDeleted(svc: SupabaseClient, by: { ids?: string[]
 
 export async function expireCallAudio(svc: SupabaseClient, deps: { now?: () => Date } = {}): Promise<AudioRetentionResult> {
   const now = deps.now?.() ?? new Date()
-  const result: AudioRetentionResult = { settled: 0, deleted: 0, orphans: 0 }
+  const result: AudioRetentionResult = { settled: 0, invalid: 0, deleted: 0, orphans: 0 }
 
   // 1. Landed, never said.
   const { data: settled, error: settleError } = await svc.rpc('capture_audio_settle', { max_rows: AUDIO_RETENTION_BATCH })
   if (settleError && missingFromDatabase(settleError)) {
-    if (!saidMissing) console.info('[call-audio-retention] skipped: migration 650 is not applied to this database')
-    saidMissing = true
+    console.warn('[call-audio-retention] skipped: migration 650 is not applied to this database')
     return { ...result, skipped: true }
   }
   if (settleError) throw new Error(`call audio retention: settle failed: ${settleError.message}`)
-  result.settled = typeof settled === 'number' ? settled : 0
+  const settledRows = (Array.isArray(settled) ? settled : []) as Array<{ outcome: string; id: string; path: string }>
+  result.settled = settledRows.filter((r) => r.outcome === 'stored').length
+  const invalid = settledRows.filter((r) => r.outcome === 'invalid' && r.id && r.path)
+  await remove(svc, invalid.map((r) => r.path))
+  await markAudioDeleted(svc, { ids: invalid.map((r) => r.id) }, now)
+  result.invalid = invalid.length
 
   // 2. Past their 30 days.
   const { data: due, error: dueError } = await svc.rpc('capture_audio_due', { max_rows: AUDIO_RETENTION_BATCH })
@@ -93,6 +96,6 @@ export async function expireCallAudio(svc: SupabaseClient, deps: { now?: () => D
   await markAudioDeleted(svc, { paths: names }, now)
   result.orphans = names.length
 
-  console.info(`[call-audio-retention] settled=${result.settled} deleted=${result.deleted} orphans=${result.orphans}`)
+  console.info(`[call-audio-retention] settled=${result.settled} invalid=${result.invalid} deleted=${result.deleted} orphans=${result.orphans}`)
   return result
 }

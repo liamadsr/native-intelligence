@@ -60,8 +60,10 @@ describe('what the page shows of a file', () => {
   it('kept: it plays, with the day it will be deleted', () => {
     expect(audioViewOf(row('a', {}), NOW)).toEqual({ id: 'a', part: 0, state: 'ready', durationMs: 2_520_000, expiresAt: '2026-12-13T10:00:00.000Z', deletedAt: null })
   })
-  it('deleted after it was kept: the day it was; never kept: nothing', () => {
-    expect(audioViewOf(row('a', { state: 'deleted', deleted_at: '2026-12-14T04:17:00.000Z' }), NOW)).toMatchObject({ state: 'deleted', deletedAt: '2026-12-14T04:17:00.000Z' })
+  it('deleted after it was kept: on its day, never the sweep’s later morning (the day shown does not move); never kept: nothing', () => {
+    expect(audioViewOf(row('a', { state: 'deleted', deleted_at: '2026-12-14T04:17:00.000Z' }), NOW)).toMatchObject({ state: 'deleted', deletedAt: '2026-12-13T10:00:00.000Z' })
+    // Its call or capture went first: that earlier day.
+    expect(audioViewOf(row('a', { state: 'deleted', deleted_at: '2026-11-20T04:17:00.000Z' }), NOW)).toMatchObject({ state: 'deleted', deletedAt: '2026-11-20T04:17:00.000Z' })
     expect(audioViewOf(row('a', { state: 'deleted', stored_at: null, deleted_at: '2026-12-14T04:17:00.000Z' }), NOW)).toBeNull()
   })
   it('kept but past its day, before the sweep: deleted on that day (what the person was shown)', () => {
@@ -91,16 +93,23 @@ describe('a capture’s files', () => {
 describe('a link to one file', () => {
   it('to play: signed as the person, an hour long, no download name', async () => {
     svcTables.capture_audio.push(row('a', {}))
-    const url = await captureAudioLink(person, svc, CAPTURE, 'a', 'play')
-    expect(url).toMatch(/^https:\/\/sb\.example\.test\/storage\/v1\/object\/sign\/team-call-recordings\/ch\/call\/audio\/a\.m4a\?token=/)
+    const link = await captureAudioLink(person, svc, CAPTURE, 'a', 'play', NOW)
+    expect(link?.url).toMatch(/^https:\/\/sb\.example\.test\/storage\/v1\/object\/sign\/team-call-recordings\/ch\/call\/audio\/a\.m4a\?token=/)
+    expect(link?.expiresIn).toBe(CAPTURE_AUDIO_LINK_TTL_SECONDS)
     expect(signed).toEqual([{ path: 'ch/call/audio/a.m4a', ttl: CAPTURE_AUDIO_LINK_TTL_SECONDS, opts: undefined }])
   })
   it('to download: the file is named for its day (and its part when there are several)', async () => {
     svcTables.capture_audio.push(row('a', {}), row('b', { part: 1 }))
-    await captureAudioLink(person, svc, CAPTURE, 'b', 'download')
+    await captureAudioLink(person, svc, CAPTURE, 'b', 'download', NOW)
     expect(signed[0].opts).toEqual({ download: 'Call audio 2026-11-13 part 2.m4a' })
     expect(audioDownloadName('2026-11-13T10:59:00Z', 0, false, 'audio/mp4')).toBe('Call audio 2026-11-13.m4a')
     expect(audioDownloadName(null, 0, false, 'audio/ogg')).toBe('Call audio.ogg')
+  })
+  it('signed just before its day: the link lasts only until then (Storage checks when it signs, not when it is used)', async () => {
+    svcTables.capture_audio.push(row('a', {}))
+    const link = await captureAudioLink(person, svc, CAPTURE, 'a', 'play', Date.parse('2026-12-13T09:50:00.000Z'))
+    expect(link?.expiresIn).toBe(600)
+    expect(signed[0].ttl).toBe(600)
   })
   it('never once its day has passed, even before the sweep removed it', async () => {
     svcTables.capture_audio.push(row('a', {}))
@@ -124,6 +133,12 @@ describe('a database without migration 650', () => {
     expect(missingFromDatabase({ code: 'PGRST205', message: "Could not find the table 'public.capture_audio'" })).toBe(true)
     expect(missingFromDatabase({ code: '42P01', message: 'relation "public.capture_audio" does not exist' })).toBe(true)
     expect(missingFromDatabase({ code: '57014', message: 'canceling statement due to statement timeout' })).toBe(false)
+    // After 650, real failures are never read as "650 is missing".
+    expect(missingFromDatabase({ code: '42883', message: 'operator does not exist: text = integer' })).toBe(false)
+    expect(missingFromDatabase({ code: '42703', message: 'column a.content_type does not exist' })).toBe(false)
+    expect(missingFromDatabase({ code: 'PGRST202', message: 'Could not find the function public.capture_feed_start(p_session) in the schema cache' })).toBe(false)
+    expect(missingFromDatabase({ code: '42P01', message: 'relation "public.captures" does not exist' })).toBe(false)
+    expect(missingFromDatabase({ message: 'function public.capture_audio_due(integer) does not exist' })).toBe(false)
     expect(missingFromDatabase(null)).toBe(false)
   })
 })

@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { memoryDb } from '@/test/memory-db'
 import { vi } from 'vitest'
-import { AUDIO_RETENTION_BATCH, __forgetSaidMissing, expireCallAudio } from '../audio-retention'
+import { AUDIO_RETENTION_BATCH, expireCallAudio } from '../audio-retention'
 import { sweepCallAudio } from '@/lib/team-calls/notes-retention'
 
 const NOW = new Date('2026-12-14T04:17:00.000Z')
@@ -34,7 +34,7 @@ beforeEach(() => {
   svc = Object.assign(memoryDb(tables), {
     rpc: async (name: string, args: Record<string, unknown>) => {
       rpcs.push([name, args])
-      return { data: answers[name] ?? (name === 'capture_audio_settle' ? 0 : []), error: null }
+      return { data: answers[name] ?? [], error: null }
     },
     storage: {
       from: (bucket: string) => {
@@ -55,9 +55,9 @@ describe('expireCallAudio', () => {
   it('past 30 days: the object removed, then the row deleted with the day; a kept one untouched', async () => {
     tables.capture_audio.push(audio('old'), audio('kept'))
     answers.capture_audio_due = [{ id: 'old', path: 'ch/call/audio/old.m4a' }]
-    answers.capture_audio_settle = 1
+    answers.capture_audio_settle = [{ outcome: 'stored', id: 'landed', path: 'ch/call/audio/landed.m4a' }]
     const r = await expireCallAudio(svc, { now: () => NOW })
-    expect(r).toEqual({ settled: 1, deleted: 1, orphans: 0 })
+    expect(r).toEqual({ settled: 1, invalid: 0, deleted: 1, orphans: 0 })
     expect(removed).toEqual([['ch/call/audio/old.m4a']])
     expect(tables.capture_audio.find((a) => a.id === 'old')).toMatchObject({ state: 'deleted', deleted_at: NOW.toISOString() })
     expect(tables.capture_audio.find((a) => a.id === 'kept')).toMatchObject({ state: 'stored', deleted_at: null })
@@ -85,8 +85,16 @@ describe('expireCallAudio', () => {
     expect(tables.capture_audio[0].deleted_at).toBe('2026-12-13T04:17:00.000Z')
   })
 
+  it('a landed take that is not what its grant named (settle says invalid): its object removed, its row deleted, never kept', async () => {
+    tables.capture_audio.push(audio('bad', { state: 'pending', stored_at: null }))
+    answers.capture_audio_settle = [{ outcome: 'invalid', id: 'bad', path: 'ch/call/audio/bad.m4a' }]
+    expect(await expireCallAudio(svc, { now: () => NOW })).toMatchObject({ settled: 0, invalid: 1 })
+    expect(removed).toEqual([['ch/call/audio/bad.m4a']])
+    expect(tables.capture_audio[0]).toMatchObject({ state: 'deleted', deleted_at: NOW.toISOString() })
+  })
+
   it('an empty run asks, removes nothing', async () => {
-    expect(await expireCallAudio(svc, { now: () => NOW })).toEqual({ settled: 0, deleted: 0, orphans: 0 })
+    expect(await expireCallAudio(svc, { now: () => NOW })).toEqual({ settled: 0, invalid: 0, deleted: 0, orphans: 0 })
     expect(removed).toEqual([])
   })
 })
@@ -104,9 +112,8 @@ describe('569’s sweep of files whose call is gone', () => {
 })
 
 describe('before migration 650 (code rolled out first)', () => {
-  it('skips, says so once, and the daily job does not fail', async () => {
-    __forgetSaidMissing()
-    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+  it('skips, says so every run, and the daily job does not fail', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const noAudio = Object.assign(Object.create(svc), {
       rpc: async (name: string) => {
         rpcs.push([name, {}])
@@ -114,11 +121,23 @@ describe('before migration 650 (code rolled out first)', () => {
         return { data: null, error: { code: 'PGRST202', message: `Could not find the function public.${name}(max_rows) in the schema cache` } }
       },
     }) as SupabaseClient
-    expect(await expireCallAudio(noAudio, { now: () => NOW })).toEqual({ settled: 0, deleted: 0, orphans: 0, skipped: true })
+    expect(await expireCallAudio(noAudio, { now: () => NOW })).toEqual({ settled: 0, invalid: 0, deleted: 0, orphans: 0, skipped: true })
     expect(await expireCallAudio(noAudio, { now: () => NOW })).toMatchObject({ skipped: true })
-    expect(info.mock.calls.filter((c) => String(c[0]).includes('migration 650')).length).toBe(1)
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes('migration 650')).length).toBe(2)
     expect(rpcs.map(([n]) => n)).toEqual(['capture_audio_settle', 'capture_audio_settle'])
     expect(removed).toEqual([])
-    info.mockRestore()
+    warn.mockRestore()
+  })
+
+  it('after 650, a real failure of settle (a column, an operator, another object) fails the step, every time', async () => {
+    for (const error of [
+      { code: '42703', message: 'column a.content_type does not exist' },
+      { code: '42883', message: 'operator does not exist: text = integer' },
+      { code: 'PGRST202', message: 'Could not find the function public.some_other_function(max_rows) in the schema cache' },
+      { code: '57014', message: 'canceling statement due to statement timeout' },
+    ]) {
+      const broken = Object.assign(Object.create(svc), { rpc: async () => ({ data: null, error }) }) as SupabaseClient
+      await expect(expireCallAudio(broken, { now: () => NOW })).rejects.toThrow('settle failed')
+    }
   })
 })

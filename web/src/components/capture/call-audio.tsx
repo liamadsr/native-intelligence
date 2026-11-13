@@ -37,12 +37,20 @@ export function clock(ms: number | null | undefined): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`
 }
 
-async function audioLink(captureId: string, fileId: string, as: 'play' | 'download'): Promise<string | null> {
+/** A link is renewed this long before it runs out, so no request is ever made on a dead one. */
+export const LINK_MARGIN_MS = 60_000
+/** The longest a renewed link may take to load before the player gives the control back. */
+export const RENEW_WAIT_MS = 15_000
+
+/** A link to the file, and when it runs out (epoch ms; the route says how long it lasts). */
+async function audioLink(captureId: string, fileId: string, as: 'play' | 'download'): Promise<{ url: string; until: number } | null> {
   try {
     const res = await fetch(`/api/account/captures/${captureId}/audio?file=${fileId}&as=${as}`)
     if (!res.ok) return null
-    const json = (await res.json()) as { url?: string }
-    return typeof json.url === 'string' && /^https?:/.test(json.url) ? json.url : null
+    const json = (await res.json()) as { url?: string; expiresIn?: number }
+    if (typeof json.url !== 'string' || !/^https?:/.test(json.url)) return null
+    const seconds = typeof json.expiresIn === 'number' && json.expiresIn > 0 ? json.expiresIn : 3600
+    return { url: json.url, until: Date.now() + seconds * 1000 }
   } catch {
     return null
   }
@@ -93,22 +101,63 @@ export function CallAudioPlayer({
   const resumeAt = useRef<number | null>(null)
   // Links renewed in a row without one loading: a second failure in a row gives up.
   const renewals = useRef(0)
+  // When the current link runs out (epoch ms; 0: no link yet).
+  const linkUntil = useRef(0)
+  // A renewal waiting for its file to load, given up after RENEW_WAIT_MS.
+  const renewTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => void (renewTimer.current && clearTimeout(renewTimer.current)), [])
 
-  const cantPlay = () => {
+  /** The link runs out within LINK_MARGIN_MS (or is gone): a request on it would be refused. */
+  const stale = () => Date.now() > linkUntil.current - LINK_MARGIN_MS
+
+  const cantPlay = (line = 'That audio can’t be played.') => {
+    if (renewTimer.current) clearTimeout(renewTimer.current)
+    renewTimer.current = null
     wantPlay.current = false
     resumeAt.current = null
+    renewals.current = 0
     setState('idle')
-    toast('That audio can’t be played.')
+    toast(line)
   }
 
-  /** A fresh link (an hour long), the file loading from `resume` (seconds) once it can. */
+  /** A fresh link, the file loading from `resume` (seconds) once it can. */
   const load = async (resume: number | null): Promise<boolean> => {
     const el = audio.current
-    const url = await audioLink(captureId, file.id, 'play')
-    if (!el || !url) return false
+    const link = await audioLink(captureId, file.id, 'play')
+    if (!el || !link) return false
     resumeAt.current = resume
-    el.src = url
+    linkUntil.current = link.until
+    el.src = link.url
     return true
+  }
+
+  /**
+   * A fresh link for the file, the place kept, and on where it was if it was playing. Used when
+   * the link has run out, or is about to and the file is needed (Play, a move along the bar), and
+   * when the browser says the old one failed. A request on a dead link does not always fail
+   * loudly: WebKit (the desktop app, the iPhone) reads the refusal as the file and stalls, so
+   * the player never waits for that. Loading is asked for outright (`preload` and `load()`), and
+   * waited on for RENEW_WAIT_MS at most: the control is then the person's again, and Play tries
+   * once more from the same place. A fresh link that fails to load as well gives up and says so.
+   */
+  const renew = async (at: number) => {
+    const el = audio.current
+    if (!el) return
+    if (renewals.current >= 1) return cantPlay()
+    renewals.current++
+    setState('loading')
+    el.preload = 'auto'
+    if (!(await load(Number.isFinite(at) ? at : 0))) return cantPlay()
+    el.load()
+    if (renewTimer.current) clearTimeout(renewTimer.current)
+    renewTimer.current = setTimeout(() => {
+      renewTimer.current = null
+      if (resumeAt.current === null) return
+      renewals.current = 0
+      wantPlay.current = false
+      setState('paused')
+      toast('The audio is slow to load. Press play to try again.')
+    }, RENEW_WAIT_MS)
   }
 
   const start = async () => {
@@ -123,6 +172,9 @@ export function CallAudioPlayer({
     if (!el.getAttribute('src')) {
       setState('loading')
       if (!(await load(null))) return cantPlay()
+    } else if (stale()) {
+      // Paused past the link's hour: a fresh one first, on from the same place.
+      return renew(resumeAt.current ?? el.currentTime)
     }
     try {
       await el.play()
@@ -131,36 +183,26 @@ export function CallAudioPlayer({
     }
   }
 
-  /**
-   * The hour's link ran out while it played (or was paused): a fresh one, the place kept, and on
-   * where it was if it was playing. As often as an hour passes; a fresh link that fails to load
-   * too gives up and says so.
-   */
-  const renew = async () => {
+  /** A move along the bar: past the link's hour, a fresh link first (a dead one would stall). */
+  const seek = (seconds: number) => {
     const el = audio.current
     if (!el) return
-    if (renewals.current >= 1) {
-      renewals.current = 0
-      return cantPlay()
-    }
-    renewals.current++
-    const at = resumeAt.current ?? el.currentTime
-    setState('loading')
-    if (!(await load(Number.isFinite(at) ? at : 0))) return cantPlay()
-    el.load()
+    setAt(seconds * 1000)
+    if (stale()) void renew(seconds)
+    else el.currentTime = seconds
   }
 
   const download = async () => {
     if (downloading) return
     setDownloading(true)
-    const url = await audioLink(captureId, file.id, 'download')
+    const link = await audioLink(captureId, file.id, 'download')
     setDownloading(false)
-    if (!url) {
+    if (!link) {
       toast('That audio can’t be downloaded.')
       return
     }
     // The link names the file: the browser (or, in the desktop app, the person's own) saves it.
-    await openExternalUrl(url)
+    await openExternalUrl(link.url)
   }
 
   const progress = length > 0 ? Math.min(1, at / length) : 0
@@ -202,8 +244,7 @@ export function CallAudioPlayer({
               value={Math.round(progress * 1000)}
               disabled={state === 'idle' || state === 'loading'}
               onChange={(e) => {
-                const el = audio.current
-                if (el && length > 0) el.currentTime = (Number(e.target.value) / 1000) * (length / 1000)
+                if (length > 0) seek((Number(e.target.value) / 1000) * (length / 1000))
               }}
               className="absolute -inset-y-1.5 inset-x-0 h-4 w-full cursor-pointer opacity-0 disabled:cursor-default"
             />
@@ -236,12 +277,16 @@ export function CallAudioPlayer({
           wantPlay.current = false
           setState('paused')
         }}
-        onTimeUpdate={(e) => setAt(e.currentTarget.currentTime * 1000)}
+        onTimeUpdate={(e) => {
+          if (resumeAt.current === null) setAt(e.currentTarget.currentTime * 1000)
+        }}
         onLoadedMetadata={(e) => {
           const el = e.currentTarget
           const d = el.duration
           if (Number.isFinite(d) && d > 0) setLength(d * 1000)
           renewals.current = 0
+          if (renewTimer.current) clearTimeout(renewTimer.current)
+          renewTimer.current = null
           const resume = resumeAt.current
           resumeAt.current = null
           if (resume === null) return
@@ -251,7 +296,14 @@ export function CallAudioPlayer({
           if (wantPlay.current) void el.play().catch(() => setState('paused'))
           else setState('paused')
         }}
-        onError={() => void renew()}
+        onWaiting={(e) => {
+          // Waiting on a link that has run out: it never comes in WebKit (see `renew`).
+          if (wantPlay.current && stale() && resumeAt.current === null) void renew(e.currentTarget.currentTime)
+        }}
+        onStalled={(e) => {
+          if (wantPlay.current && stale() && resumeAt.current === null) void renew(e.currentTarget.currentTime)
+        }}
+        onError={(e) => void renew(resumeAt.current ?? e.currentTarget.currentTime)}
         className="hidden"
       />
     </div>

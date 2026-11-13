@@ -30,6 +30,8 @@ let container: HTMLDivElement
 let root: Root
 let requests: string[]
 let files: unknown[]
+/** How long the next play links last (seconds); the route's `expiresIn`. */
+let playLinkSeconds = 3600
 
 beforeEach(() => {
   container = document.createElement('div')
@@ -38,10 +40,11 @@ beforeEach(() => {
   requests = []
   opened.urls = []
   files = []
+  playLinkSeconds = 3600
   vi.stubGlobal('fetch', async (url: string) => {
     requests.push(url)
     if (url.includes('as=download')) return new Response(JSON.stringify({ url: 'https://sb.example.test/storage/v1/object/sign/x?token=t&download=Call%20audio.m4a' }))
-    if (url.includes('as=play')) return new Response(JSON.stringify({ url: `https://sb.example.test/storage/v1/object/sign/x?token=link-${requests.filter((r) => r.includes('as=play')).length}` }))
+    if (url.includes('as=play')) return new Response(JSON.stringify({ url: `https://sb.example.test/storage/v1/object/sign/x?token=link-${requests.filter((r) => r.includes('as=play')).length}`, expiresIn: playLinkSeconds }))
     return new Response(JSON.stringify({ files }))
   })
 })
@@ -189,6 +192,121 @@ describe('CallAudioRow', () => {
     await act(async () => void el.dispatchEvent(new Event('loadedmetadata')))
     expect(position).toBe(900)
     expect(plays).toEqual([0])
+  })
+
+  /** The player's media element, as a browser's, with where it is and what was played from. */
+  function media() {
+    const el = container.querySelector('audio')!
+    const m = { el, position: 0, plays: [] as number[] }
+    Object.defineProperty(el, 'currentTime', { get: () => m.position, set: (v: number) => void (m.position = v), configurable: true })
+    el.play = vi.fn(async () => void (m.plays.push(m.position), el.dispatchEvent(new Event('play'))))
+    el.pause = vi.fn(() => void el.dispatchEvent(new Event('pause')))
+    el.load = vi.fn()
+    return m
+  }
+  const tick = () => act(async () => void (await new Promise((r) => setTimeout(r, 0))))
+  const fire = (el: HTMLElement, type: string) => act(async () => void el.dispatchEvent(new Event(type)))
+  const press = () => act(async () => container.querySelector('[data-capture-call-audio-play]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  const moveTo = async (seconds: number) => {
+    const bar = container.querySelector('input[type=range]') as HTMLInputElement
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => {
+      set.call(bar, String(Math.round((seconds * 1000 * 1000) / ready.durationMs)))
+      bar.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+
+  it('a move along the bar on a link about to run out: a fresh link first, then on from there (a dead one would stall in WebKit, never failing)', async () => {
+    files = [ready]
+    playLinkSeconds = 30 // under the minute's margin: as good as run out
+    await mount(team)
+    const m = media()
+    await press()
+    await tick()
+    await fire(m.el, 'loadedmetadata')
+    m.position = 100
+    playLinkSeconds = 3600
+    await moveTo(1200)
+    await tick()
+    expect(m.el.getAttribute('src')).toContain('token=link-2')
+    await fire(m.el, 'loadedmetadata')
+    // The bar moves in thousandths of the file (2.5 s here).
+    expect(Math.abs(m.position - 1200)).toBeLessThan(3)
+    expect(Math.abs(m.plays.at(-1)! - 1200)).toBeLessThan(3)
+  })
+
+  it('a move along the bar on a good link just moves (no new link)', async () => {
+    files = [ready]
+    await mount(team)
+    const m = media()
+    await press()
+    await tick()
+    await fire(m.el, 'loadedmetadata')
+    await moveTo(600)
+    expect(Math.abs(m.position - 600)).toBeLessThan(3)
+    expect(requests.filter((r) => r.includes('as=play'))).toHaveLength(1)
+  })
+
+  it('Play after a pause past the link’s hour: a fresh link, on from the same place', async () => {
+    files = [ready]
+    playLinkSeconds = 30
+    await mount(team)
+    const m = media()
+    await press()
+    await tick()
+    await fire(m.el, 'loadedmetadata')
+    m.position = 754
+    await press() // pause
+    playLinkSeconds = 3600
+    await press() // play again, the link run out meanwhile
+    await tick()
+    expect(m.el.getAttribute('src')).toContain('token=link-2')
+    await fire(m.el, 'loadedmetadata')
+    expect(m.position).toBe(754)
+    expect(m.plays).toEqual([0, 754])
+  })
+
+  it('waiting on a link that ran out (WebKit stalls instead of failing): renewed, on from where it was', async () => {
+    files = [ready]
+    playLinkSeconds = 30
+    await mount(team)
+    const m = media()
+    await press()
+    await tick()
+    await fire(m.el, 'loadedmetadata')
+    m.position = 3000
+    playLinkSeconds = 3600
+    await fire(m.el, 'stalled')
+    await tick()
+    expect(m.el.getAttribute('src')).toContain('token=link-2')
+    await fire(m.el, 'loadedmetadata')
+    expect(m.plays.at(-1)).toBe(3000)
+  })
+
+  it('a renewed link that never loads: after its wait the control is the person’s again, with a line, and Play goes on from the same place', async () => {
+    files = [ready]
+    await mount(team)
+    const m = media()
+    await press()
+    await tick()
+    await fire(m.el, 'loadedmetadata')
+    m.position = 1500
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await fire(m.el, 'error') // the link failed: renewed, and the new one never answers
+      await act(async () => void (await vi.advanceTimersByTimeAsync(0)))
+      const button = container.querySelector('[data-capture-call-audio-play]') as HTMLButtonElement
+      expect(button.disabled).toBe(true)
+      await act(async () => void (await vi.advanceTimersByTimeAsync(15_000)))
+      expect(button.disabled).toBe(false)
+      expect(button.getAttribute('aria-label')).toBe('Play call audio')
+      expect(toastMock).toHaveBeenCalledWith('The audio is slow to load. Press play to try again.')
+      await press()
+      await fire(m.el, 'loadedmetadata')
+      expect(m.plays.at(-1)).toBe(1500)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('a fresh link that fails as well: it gives up and says so, nothing loops', async () => {

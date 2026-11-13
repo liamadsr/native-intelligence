@@ -8,15 +8,16 @@
  *     who may not read the capture.
  * GET /api/account/captures/[id]/audio?file=<id>&as=play|download
  *   → { url, expiresIn } a link to one kept file, signed as them (Storage's
- *     read policy checks them again), lasting an hour; `as=download` names
- *     the file so the browser saves it. 404 when it is not kept (any more).
+ *     read policy checks them again), lasting an hour, or less when the file's
+ *     day comes sooner (never past it); `as=download` names the file so the
+ *     browser saves it. 404 when it is not kept (any more).
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireUser } from '@/lib/api-auth'
 import { notFound, serverError } from '@/lib/api-errors'
 import { getServiceClient } from '@/lib/admin'
 import { isUuid } from '@/lib/team-chat/types'
-import { CAPTURE_AUDIO_LINK_TTL_SECONDS, captureAudioFor, captureAudioLink } from '@/lib/capture-feed/audio'
+import { captureAudioFor, captureAudioLink } from '@/lib/capture-feed/audio'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,9 +34,9 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (file !== null) {
       if (!isUuid(file)) return notFound()
       const as = request.nextUrl.searchParams.get('as') === 'download' ? 'download' : 'play'
-      const url = await captureAudioLink(auth.supabase, getServiceClient(), captureId, file.toLowerCase(), as)
-      if (!url) return notFound()
-      return NextResponse.json({ url, expiresIn: CAPTURE_AUDIO_LINK_TTL_SECONDS })
+      const link = await captureAudioLink(auth.supabase, getServiceClient(), captureId, file.toLowerCase(), as)
+      if (!link) return notFound()
+      return NextResponse.json(link)
     }
     const files = await captureAudioFor(auth.supabase, getServiceClient(), captureId)
     if (!files) return notFound()

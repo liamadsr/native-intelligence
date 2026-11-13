@@ -89,7 +89,9 @@ describe('migrations 650 and 651', () => {
     expect(s).toContain("from storage.objects o where o.bucket_id = 'team-call-recordings' and o.name = a.path;")
     expect(s).toContain("return query select 'missing'::text")
     // Of the type its grant named: anything else is never kept.
-    expect(s).toContain('if kind is distinct from a.content_type then')
+    expect(s).toContain('if kind is distinct from a.content_type or size > 2147483648 then')
+    // The sweep's settle keeps a file on the same checks.
+    expect(flat(definition(A, 'capture_audio_settle'))).toContain("((o.metadata ->> 'mimetype') is not distinct from a.content_type and coalesce((o.metadata ->> 'size')::bigint, 0) between 1 and 2147483648) as fits")
   })
 
   it('the sweep’s reads touch only audio files: due by expires_at, orphans under audio/ an hour old', () => {

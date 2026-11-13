@@ -52,7 +52,9 @@
 --                     take said it would be: dropped, swept at its 30 days).
 --   capture_audio_settle(max_rows)  the sweep: a pending row whose object
 --                     landed an hour ago is stored (the producer died between
---                     its upload and its word).
+--                     its upload and its word), on stored's own checks; one
+--                     that fails them is answered 'invalid' (the sweep removes
+--                     its object and marks it deleted, never kept).
 --   capture_audio_due(max_rows)  the sweep: rows past their 30 days, oldest
 --                     first, whose object the sweep removes before it marks
 --                     them deleted.
@@ -279,7 +281,7 @@ begin
     return query select 'missing'::text, a.id, null::bigint, a.expires_at;
     return;
   end if;
-  if kind is distinct from a.content_type then
+  if kind is distinct from a.content_type or size > 2147483648 then
     return query select 'invalid'::text, a.id, null::bigint, a.expires_at;
     return;
   end if;
@@ -292,32 +294,41 @@ $$;
 
 -- ── The daily sweep ─────────────────────────────────────────────────────────
 
--- A pending take whose object landed over an hour ago is stored (its producer never said so).
+-- A pending take whose object landed over an hour ago (its producer never said so) is stored, on the
+-- same checks as capture_feed_audio_stored: the type its grant named, a size within the bucket's
+-- limit (the path is the take's own: the object is found by it). One that fails them is answered
+-- 'invalid', its row left as it is: the sweep removes the object, then marks the row deleted
+-- (never kept, so the capture shows nothing of it).
 create or replace function public.capture_audio_settle(max_rows integer)
-returns integer
+returns table (outcome text, id uuid, path text)
 language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
-declare
-  n integer;
+#variable_conflict use_column
 begin
+  return query
   with landed as (
-    select a.id, (o.metadata ->> 'size')::bigint as size
+    select a.id, a.path, (o.metadata ->> 'size')::bigint as size,
+           ((o.metadata ->> 'mimetype') is not distinct from a.content_type
+            and coalesce((o.metadata ->> 'size')::bigint, 0) between 1 and 2147483648) as fits
       from public.capture_audio a
       join storage.objects o on o.bucket_id = 'team-call-recordings' and o.name = a.path
      where a.state = 'pending'
        and a.created_at < now() - interval '1 hour'
-       and (o.metadata ->> 'size')::bigint > 0
      order by a.created_at
      limit greatest(1, least(coalesce(max_rows, 200), 1000))
+  ),
+  kept as (
+    update public.capture_audio x
+       set state = 'stored', bytes = l.size, stored_at = now(), updated_at = now()
+      from landed l
+     where x.id = l.id and l.fits
+    returning x.id, x.path
   )
-  update public.capture_audio x
-     set state = 'stored', bytes = landed.size, stored_at = now(), updated_at = now()
-    from landed
-   where x.id = landed.id;
-  get diagnostics n = row_count;
-  return n;
+  select 'stored'::text, k.id, k.path from kept k
+  union all
+  select 'invalid'::text, l.id, l.path from landed l where not l.fits;
 end;
 $$;
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import type { Room } from '@livekit/rtc-node'
+import { TrackKind, TrackSource, type Room } from '@livekit/rtc-node'
 import { CallRecorder, TIMEOUT, within } from '../src/call.ts'
 import type { AppClient, FeedSession, Job } from '../src/app-client.ts'
 import type { AudioKeeper, CallAudio } from '../src/audio.ts'
@@ -99,12 +99,40 @@ test('a shutdown with a hung disk: the take is paused (not finished), the call l
   assert.deepEqual(ends, [])
 })
 
+test('someone already in the room is subscribed to before the take opens: a hung disk never costs the notes their first words', async () => {
+  const subscribed: boolean[] = []
+  let opened = false
+  const pub = { kind: TrackKind.KIND_AUDIO, source: TrackSource.SOURCE_MICROPHONE, subscribed: false, sid: 'TR_1', setSubscribed: (v: boolean) => void subscribed.push(v && !opened) }
+  const participant = { identity: '33333333-3333-4333-8333-333333333333', trackPublications: new Map([['TR_1', pub]]) }
+  const room = fakeRoom()
+  ;(room as unknown as { remoteParticipants: Map<string, unknown> }).remoteParticipants.set('p', participant)
+  const { client } = fakeClient()
+  const rec = new CallRecorder(job, session, {
+    client,
+    livekitUrl: 'ws://livekit.test',
+    deepgramUrl: 'wss://deepgram.test',
+    deepgramKey: 'k',
+    maxCallMs: 60_000,
+    keys: new Keys('t'),
+    audio: { openTake: () => never<CallAudio | null>() },
+    audioOpenMs: 150,
+    audioEndMs: 200,
+    room,
+  })
+  await rec.start()
+  assert.deepEqual(subscribed, [true], 'asked for the microphone before (and whatever) the take did')
+  opened = true
+  await rec.stop('told', { flushMs: 50 })
+})
+
 test('a take that opens after its time is finished at once (it heard nothing), never left open', async () => {
   const hows: string[] = []
   let open: (t: CallAudio) => void = () => undefined
   const take = { meta: { take: 't-late' }, end: async (how: string) => void hows.push(how), push() {}, skip() {}, forget() {} } as unknown as CallAudio
   const { rec } = recorder({ openTake: () => new Promise<CallAudio | null>((r) => (open = r)) })
   await rec.start()
+  // Past its 150 ms here (2 s in the recorder), then it opens.
+  await new Promise((r) => setTimeout(r, 250))
   open(take)
   await new Promise((r) => setTimeout(r, 20))
   assert.deepEqual(hows, ['finish'])

@@ -253,6 +253,8 @@ export class CallAudio {
       await this.file.close(samples)
       if (this.mixer.voiced) this.meta.voiced = true
       if (this.mixer.late > 0) console.info(`[recorder] session=${this.meta.sessionId} audio: ${Math.round(this.mixer.late / 16)} ms of late frames left out`)
+      // How far a track ever was from the call's clock (what a long call's drift looks like).
+      console.info(`[recorder] session=${this.meta.sessionId} audio: furthest drift ${Math.round(this.mixer.maxDriftMs)} ms`)
       if (how === 'pause' && !this.file.failed) {
         await this.keeper.saveMeta(this.meta)
         this.keeper.released(this.meta.take)

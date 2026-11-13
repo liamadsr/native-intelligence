@@ -85,9 +85,7 @@ export async function sweepCallAudio(svc: SupabaseClient, deps: { now?: () => Da
   const names = ((orphans ?? []) as Array<{ name: string } | string>).map((o) => (typeof o === 'string' ? o : o.name)).filter(Boolean)
   await removePaths(svc, names)
   // Before migration 650 there is no audio table: nothing to mark (and no audio file to have removed).
-  await markAudioDeleted(svc, { paths: names.filter((n) => n.split('/')[2] === 'audio') }, now).catch((err) => {
-    if (!/does not exist|could not find the table/i.test(err instanceof Error ? err.message : '')) throw err
-  })
+  await markAudioDeleted(svc, { paths: names.filter((n) => n.split('/')[2] === 'audio') }, now)
   result.orphans = names.length
 
   console.info(`[team-call-notes-retention] settled=${result.settled} failed_expired=${result.failedExpired} orphans=${result.orphans}`)

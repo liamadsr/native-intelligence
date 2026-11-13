@@ -80,6 +80,12 @@ fi
 
 echo "2. stack/.env"
 for k in $(comm -23 <(grep -oE '^[A-Za-z_][A-Za-z0-9_]*=' "$ours" | tr -d '=' | sort -u) <(keys "$real")); do
+	# Optional: ../compose.override.yaml has a default for it (Supabase's own 50 MB). The line is
+	# needed only to raise it (../README.md step 23, "Call audio files", A2).
+	if [ "$k" = STORAGE_FILE_SIZE_LIMIT ]; then
+		note "STORAGE_FILE_SIZE_LIMIT is not in stack/.env: Storage uses its default, 50 MB"
+		continue
+	fi
 	problem "$k is missing from stack/.env"
 done
 # The stack does not start, or does not do its job, with one of these empty.
@@ -168,6 +174,18 @@ case "$(value STORAGE_FILE_SIZE_LIMIT)" in
 	*[!0-9]*) problem "STORAGE_FILE_SIZE_LIMIT must be a number of bytes, or empty for 50 MB" ;;
 	*) [ "$(value STORAGE_FILE_SIZE_LIMIT)" -le 52428800 ] || note "STORAGE_FILE_SIZE_LIMIT is above 50 MB: right only once migration 651 is applied and no bucket is without a limit of its own (../README.md step 23, \"Call audio files\", A1)" ;;
 esac
+# Raised: a bucket without a limit of its own would take files that large. Read from the running
+# database when there is one here (one read-only query; nothing changes).
+limit="$(value STORAGE_FILE_SIZE_LIMIT)"
+case "$limit" in '' | *[!0-9]*) limit=0 ;; esac
+if [ "$limit" -gt 52428800 ] && command -v docker >/dev/null && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx supabase-db; then
+	open_buckets="$(docker exec supabase-db psql -U postgres -d postgres -Atc "select string_agg(id, ', ' order by id) from storage.buckets where file_size_limit is null" 2>/dev/null || echo '?')"
+	case "$open_buckets" in
+		'') echo "  every bucket has a size limit of its own" ;;
+		'?') note "could not list the buckets without a size limit (the database did not answer)" ;;
+		*) problem "buckets without a size limit of their own take files up to STORAGE_FILE_SIZE_LIMIT: $open_buckets (give each one, as migration 651 did)" ;;
+	esac
+fi
 perms="$(stat -c '%a %U' "$real")"
 [ "$perms" = "600 root" ] || problem "stack/.env is $perms; it must be 600 root (sudo chown root:root stack/.env && sudo chmod 600 stack/.env)"
 [ ! -e "$here/stack/.env.old" ] || note "stack/.env.old is left over from generate-keys.sh. Delete it: it holds the previous values."
