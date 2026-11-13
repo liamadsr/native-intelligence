@@ -10,7 +10,7 @@ import {
   Trash2,
   Star,
   ReplyAll,
-  MoreHorizontal,
+  CircleCheck,
   Boxes,
   ChevronDown,
   Tag,
@@ -39,6 +39,7 @@ import { ListenTarget } from '@/components/read-aloud/listen-target'
 import { emailThreadToSentences, type ThreadSpeechMessage } from '@/lib/read-aloud/email-thread-speech'
 import type { DraftEdits } from '@/lib/email/draft-edits'
 import type { EmailReplyRequest } from '@/lib/email/reply-in-chat'
+import { emailTaskLabel, makeTaskFromEntity } from '@/lib/entities/actions'
 import { EmailMessage, type EmailMessageData } from './email-message'
 
 interface EmailLabel {
@@ -303,6 +304,21 @@ export function EmailThreadDetail({
     if (!ok) toast.error('Could not delete the email')
   }, [threadId, onClose, onThreadUpdate])
 
+  // A task about this thread: "Follow up: <subject>", else its sender (the
+  // first message that is not a draft), linked 'about' the thread's index row.
+  // The one task path (makeTaskFromEntity: its toast opens the task).
+  const [makingTask, setMakingTask] = useState(false)
+  const handleMakeTask = useCallback(async () => {
+    if (!thread?.indexId || makingTask) return
+    const sender = thread.messages.find((m) => !m.isDraft)?.from ?? null
+    setMakingTask(true)
+    try {
+      await makeTaskFromEntity({ type: 'email_thread', id: thread.indexId, label: emailTaskLabel(thread.subject, sender) })
+    } finally {
+      setMakingTask(false)
+    }
+  }, [thread, makingTask])
+
   const handleToggleStar = useCallback(async () => {
     const newStarred = !starred
     setStarred(newStarred)
@@ -555,14 +571,27 @@ export function EmailThreadDetail({
             <TooltipContent>Delete</TooltipContent>
           </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                <MoreHorizontal className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>More</TooltipContent>
-          </Tooltip>
+          {/* Make a task about this thread ("Follow up: <subject>", else its
+              sender), linked to it. Only an indexed thread can be linked; the
+              server checks the mail is the person's own. */}
+          {thread.indexId && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  aria-label="Make a task"
+                  data-make-task=""
+                  disabled={makingTask}
+                  onClick={handleMakeTask}
+                >
+                  <CircleCheck className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Make a task</TooltipContent>
+            </Tooltip>
+          )}
         </TooltipProvider>
 
       </div>

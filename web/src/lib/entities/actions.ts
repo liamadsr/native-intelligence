@@ -322,6 +322,28 @@ export function taskTitleFor(label: string): string {
   return `Follow up: ${words || 'this'}`.slice(0, 200)
 }
 
+/** The longest a chat message's line runs in its task's title. */
+export const MESSAGE_TASK_LABEL_MAX = 80
+
+/**
+ * What a task made from an email thread follows up on: its subject, else its
+ * sender (their name, else their address), else nothing ("Follow up: this").
+ */
+export function emailTaskLabel(
+  subject: string | null | undefined,
+  sender: { name?: string | null; email?: string | null } | null | undefined,
+): string {
+  const words = (subject ?? '').replace(/\s+/g, ' ').trim()
+  if (words && !/^\(no subject\)$/i.test(words)) return words
+  return (sender?.name ?? '').replace(/\s+/g, ' ').trim() || (sender?.email ?? '').trim()
+}
+
+/** What a task made from a chat message follows up on: its first line with words, at most MESSAGE_TASK_LABEL_MAX characters. */
+export function messageTaskLabel(body: string | null | undefined): string {
+  const line = (body ?? '').split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).find(Boolean) ?? ''
+  return line.length > MESSAGE_TASK_LABEL_MAX ? `${line.slice(0, MESSAGE_TASK_LABEL_MAX - 1).trimEnd()}…` : line
+}
+
 /**
  * A new task about the record: POST /api/account/actions with `about`, which
  * fences the record and links the task to it ('about'). Toasts with Open.
