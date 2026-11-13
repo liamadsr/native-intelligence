@@ -15,7 +15,7 @@
 --     (500 at most), in the order they were said. allowed is true only
 --     while the guest is let in (574's state 'admitted') to the meeting's
 --     live call and in its room now (in_call; or out of it for under 30 s,
---     a reconnect), by the link they came in on (its token's hash, as 574's
+--     a reconnect, and then only what was said before they left), by the link they came in on (its token's hash, as 574's
 --     poll checks it), the meeting not revoked, notes on and the capture
 --     still open. A guest who left, dropped off or closed the tab, was
 --     removed or declined, a call that ended, a capture closed by hand,
@@ -81,6 +81,8 @@ begin
         from public.capture_feed_segment s
         left join public.capture_feed_speaker sp on sp.capture_id = s.capture_id and sp.speaker_key = s.speaker_key
        where s.capture_id = live.capture_id and s.said_at >= since
+         -- Out of the room within the grace: nothing said after they left.
+         and (g.in_call or s.said_at <= g.left_at)
        order by s.said_at desc, s.key desc
        limit greatest(1, least(coalesce(max_lines, 200), 500))
     ) l;

@@ -16,7 +16,7 @@ import {
   RACE_DAMP_ENABLED,
 } from '@/lib/proposed-changes/auto-accept-race-damp'
 import { resolveTrustPolicyFromSettings } from '@/lib/proposed-changes/trust-policy'
-import { decideAutoApply, gateModeForCapture } from '@/lib/proposed-changes/auto-apply-gate'
+import { decideAutoApply, gateModeForCapture, isExternal as isExternalProposal } from '@/lib/proposed-changes/auto-apply-gate'
 import { resolveWorkspaceEditionFromSettings } from '@/lib/editions'
 import { fetchWorkspaceSettings } from '@/lib/workspace-settings'
 import { ExtractionLedgerRecorder } from '@/lib/proposed-changes/extraction-ledger'
@@ -52,7 +52,7 @@ import { needsMineCheck } from '@/lib/live-agent/mine-check'
 import { syncProposalsCard } from '@/lib/live-agent/conversation-writer'
 import { liveTurnTypeFromRequest } from '@/lib/live-agent/ceiling'
 import { liveLookupsAllowed } from '@/lib/live-agent/mcp-lookups'
-import { fenceCallCapture, isCallCapture } from '@/lib/live-agent/call-capture-fence'
+import { fenceCallCapture, isCallCapture, isCallCapture as isCallCaptureRow } from '@/lib/live-agent/call-capture-fence'
 import { verifyCallTurnKey } from '@/lib/live-agent/call-turn-key'
 import { callNotesLive, callTurnLeaseUntil } from '@/lib/team-calls/call-turn-state'
 import { internalSecret, liveRecentTail, mintLiveAgentRunToken } from '@/lib/live-agent/live-agent-run-token'
@@ -1027,9 +1027,12 @@ export async function POST(req: Request) {
     //   * DECISIONS / MILESTONES: per-class threshold PLUS the D2 explicitness
     //     rule — only items the model marked explicitly stated ("we decided X")
     //     auto-apply; inferred leanings stay pending for review.
-    //   * EXTERNALS (send_email, mcp_call): ALWAYS staged as drafts for an
-    //     explicit click — never auto-fired (NORTH-STAR invariant 5). This is
-    //     an intentional change from the old allow_external auto-fire.
+    //   * EXTERNALS (send_email, mcp_call): staged as drafts for an explicit
+    //     click unless the workspace's trust policy sets allow_external; with it
+    //     set, an mcp_call or an 'external' entity still stages (no bucket), but
+    //     send_email:action rides the actions rule (its entity_type) and can
+    //     apply (an empty draft for the owner, nothing sent). On a call's
+    //     capture every external stages, whatever the policy (below).
     // Fully reversible (and still editable): applied items carry auto_accepted
     // and the agent can edit_proposal / dismiss_proposal them afterward. Best
     // effort — a failure here never breaks the live turn.
@@ -1063,13 +1066,27 @@ export async function POST(req: Request) {
         let selfBindingPromise: Promise<SelfBindingState> | null = null
         const getSelfBinding = () =>
           (selfBindingPromise ??= resolveSelfBinding(supabase, capture_id, currentMemberId))
-        // A call the recorder heard (migration 587): its roster says exactly who said every line, so
-        // ownership is read from the line an action was quoted from, never from a name. Read once.
+        // A call's capture (the fence's own test, its notes_channel_id), or a call the recorder heard
+        // (587's roster): who said a line is read from the roster, never from a name. A call's capture
+        // from before the roster has no line anyone is known to have said, so nothing on it is filed
+        // without a click (an action, a decision, a milestone all stay suggestions). Read once.
         let callRosterPromise: Promise<boolean> | null = null
-        const isCallCapture = () => (callRosterPromise ??= callRosterSetsSpeakers(supabase, capture_id))
+        const isCallCapture = () =>
+          (callRosterPromise ??= isCallCaptureRow(capture as { notes_channel_id?: string | null })
+            ? Promise.resolve(true)
+            : callRosterSetsSpeakers(supabase, capture_id))
 
         for (const change of candidates || []) {
           const key = `${change.change_type}:${change.entity_type}`
+
+          // A call's capture: a follow-up email draft (send_email, the end-of-call pass only) is
+          // always staged for its owner's click, whatever the workspace's allow_external says (with
+          // it on, send_email:action rides the actions rule and would otherwise be applied). So is
+          // anything external.
+          if (isCallCaptureRow(capture as { notes_channel_id?: string | null }) && isExternalProposal(change)) {
+            ledger.staged(change.id, 'a call’s draft — staged for its owner')
+            continue
+          }
 
           // Resolve the me-ownership signal the shared gate needs for ACTIONS.
           // Assignable items (create:action / assign:action) are user-scoped:

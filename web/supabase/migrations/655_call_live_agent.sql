@@ -93,7 +93,14 @@
 --     so the words are never sent twice, and keeps the lease to its end, so
 --     the call's finish still waits for it; 'failed' leaves it; 'stopped'
 --     ends the agent for the capture. A lease that is no longer this turn's
---     changes nothing ('stale').
+--     changes nothing ('stale'). A turn that ends after the agent was
+--     stopped (the call ended while it ran) gives its lease back and changes
+--     nothing else ('stale'); one whose answer never came back keeps it to
+--     its end. No outcome at all counts as 'unknown', never as a failure.
+--   A stop (the call's end, the owner out, the bound, failures, usage) takes
+--     the queue marks away but never a RUNNING turn's lease: that ends by its
+--     release or at its end, so the call's finish, which waits while busy(),
+--     never runs the end-of-meeting pass beside it.
 --   team_call_live_turn_lease_until(capture, lease)  the running turn's
 --     lease end, or null when `lease` is not running: the live agent's route
 --     takes a server turn only while it holds the lease (its key is bound to
@@ -148,6 +155,27 @@ create table if not exists public.team_call_live_agent (
   constraint team_call_live_agent_stopped check ((state = 'stopped') = (stop_reason is not null))
 );
 create index if not exists team_call_live_agent_call_idx on public.team_call_live_agent (call_id);
+
+-- Earlier forms of this file were pushed on its branch while it was reviewed (never applied to any
+-- server, as far as is known). A database that got one converges here: the columns added since,
+-- the queue's constraints as they are now (a mark from then gets its time), and no function left
+-- over with an earlier signature.
+alter table public.team_call_live_agent add column if not exists done_tail text;
+alter table public.team_call_live_agent add column if not exists queued_id uuid;
+alter table public.team_call_live_agent add column if not exists queued_at timestamptz;
+alter table public.team_call_live_agent add column if not exists queued_until timestamptz;
+alter table public.team_call_live_agent add column if not exists prev_queued_id uuid;
+alter table public.team_call_live_agent add column if not exists prev_queued_until timestamptz;
+update public.team_call_live_agent set queued_at = coalesce(queued_until, now()) - interval '10 minutes'
+ where queued_id is not null and queued_at is null;
+alter table public.team_call_live_agent drop constraint if exists team_call_live_agent_queue;
+alter table public.team_call_live_agent add constraint team_call_live_agent_queue
+  check ((queued_id is null) = (queued_until is null) and (queued_id is null) = (queued_at is null));
+alter table public.team_call_live_agent drop constraint if exists team_call_live_agent_prev;
+alter table public.team_call_live_agent add constraint team_call_live_agent_prev
+  check ((prev_queued_id is null) = (prev_queued_until is null));
+drop function if exists public.team_call_live_notes_stamp(uuid, text, integer, text);
+drop function if exists public.team_call_live_turn_claim(uuid, integer, integer, integer, integer, integer, integer);
 
 alter table public.team_call_live_agent enable row level security;
 revoke all on table public.team_call_live_agent from anon, authenticated;
@@ -236,7 +264,11 @@ create or replace trigger team_call_live_notes_summary_sync
   when (new.notes_channel_id is not null and old.ai_summary is distinct from new.ai_summary)
   execute function public.team_call_live_notes_summary_sync();
 
--- Stop the agent for a capture, once.
+-- Stop the agent for a capture, once. Its queue marks go (nothing new begins), but a turn RUNNING now
+-- keeps its lease: it ends only by its own release or at the lease's end, so busy() stays true until
+-- then and the call's finish waits for it before the end-of-meeting pass (a stop from any caller, the
+-- feed's last append after the call ended included, never lets the pass start beside it). Its route
+-- takes no new turn once stopped (team_call_live_turn_lease_until).
 create or replace function public.team_call_live_turn_stop(target_capture uuid, reason text)
 returns integer
 language plpgsql
@@ -247,7 +279,7 @@ declare
   n integer;
 begin
   update public.team_call_live_agent a
-     set state = 'stopped', stop_reason = left(reason, 40), lease_id = null, lease_until = null,
+     set state = 'stopped', stop_reason = left(reason, 40),
          queued_id = null, queued_at = null, queued_until = null, prev_queued_id = null, prev_queued_until = null, updated_at = now()
    where a.capture_id = target_capture and a.state <> 'stopped'
   returning a.turns into n;
@@ -579,8 +611,11 @@ declare
   r public.team_call_live_agent%rowtype;
   tx text;
   read_to integer;
+  -- No outcome said: as a turn whose answer never came back (its words count as sent, its lease is
+  -- kept to its end), never as a failure.
+  how text := coalesce(turn_outcome, 'unknown');
 begin
-  if turn_outcome not in ('ok', 'unknown', 'failed', 'stopped') then
+  if how not in ('ok', 'unknown', 'failed', 'stopped') then
     raise exception 'live turns: unknown outcome' using errcode = '22023';
   end if;
   select a.* into r from public.team_call_live_agent a where a.capture_id = target_capture for update;
@@ -588,12 +623,26 @@ begin
     return 'stale';
   end if;
 
-  if turn_outcome = 'stopped' then
+  -- Stopped while this turn ran (the call ended, its owner left, ...): the stop kept its lease so the
+  -- call's finish would wait for it. It is over now: its lease goes, unless its answer never came
+  -- back (the route may still be writing; the lease then runs to its end). Nothing else moves.
+  if r.state = 'stopped' then
+    if how <> 'unknown' then
+      update public.team_call_live_agent a set lease_id = null, lease_until = null, updated_at = now()
+       where a.capture_id = target_capture;
+    end if;
+    return 'stale';
+  end if;
+
+  if how = 'stopped' then
     perform public.team_call_live_turn_stop(target_capture, coalesce(nullif(trim(reason), ''), 'stopped'));
+    -- This turn is the one that ended: its own lease goes with it.
+    update public.team_call_live_agent a set lease_id = null, lease_until = null, updated_at = now()
+     where a.capture_id = target_capture;
     return 'stopped';
   end if;
 
-  if turn_outcome in ('ok', 'unknown') then
+  if how in ('ok', 'unknown') then
     select coalesce(x.transcript, '') into tx from public.captures x where x.id = target_capture;
     read_to := greatest(r.done_offset, least(coalesce(sent_to, r.done_offset), char_length(coalesce(tx, ''))));
     -- 'unknown': the turn's answer never came back, and the route may still be writing. Its words
@@ -602,10 +651,10 @@ begin
        set done_offset = read_to,
            done_tail = public.team_call_live_turn_tail(tx, read_to),
            failures_in_row = 0,
-           last_ok_at = case when turn_outcome = 'ok' then now() else a.last_ok_at end,
+           last_ok_at = case when how = 'ok' then now() else a.last_ok_at end,
            state = 'ready',
-           lease_id = case when turn_outcome = 'ok' then null else a.lease_id end,
-           lease_until = case when turn_outcome = 'ok' then null else a.lease_until end,
+           lease_id = case when how = 'ok' then null else a.lease_id end,
+           lease_until = case when how = 'ok' then null else a.lease_until end,
            updated_at = now()
      where a.capture_id = target_capture;
     perform public.team_call_live_notes_stamp(target_capture, 'ready', null, r.turns, null);
@@ -615,7 +664,7 @@ begin
   -- Failed: its words stay unread, so the next turn sends them.
   if r.failures_in_row + 1 >= greatest(max_failures_in_row, 1) then
     update public.team_call_live_agent a
-       set failures = a.failures + 1, failures_in_row = a.failures_in_row + 1, updated_at = now()
+       set failures = a.failures + 1, failures_in_row = a.failures_in_row + 1, lease_id = null, lease_until = null, updated_at = now()
      where a.capture_id = target_capture;
     perform public.team_call_live_turn_stop(target_capture, 'failing');
     return 'stopped';
@@ -635,7 +684,9 @@ $$;
 
 -- When the running turn holding `lease` must stop writing (its lease's end), or null when `lease`
 -- is not the running turn's: the live agent's route takes a server turn on a call's capture only
--- while it holds the lease, and stops its tools at the lease's end.
+-- while it holds the lease, and stops its tools at the lease's end. Null too once the agent is
+-- stopped: a turn that reaches the route after the call ended is refused (its lease still holds
+-- the call's finish back until the turn releases it or it runs out).
 create or replace function public.team_call_live_turn_lease_until(target_capture uuid, turn_lease uuid)
 returns timestamptz
 language sql
@@ -644,7 +695,8 @@ security definer
 set search_path = public, pg_temp
 as $$
   select a.lease_until from public.team_call_live_agent a
-   where a.capture_id = target_capture and a.lease_id = turn_lease and a.lease_until > now();
+   where a.capture_id = target_capture and a.lease_id = turn_lease and a.lease_until > now()
+     and a.state <> 'stopped';
 $$;
 
 create or replace function public.team_call_live_turn_busy(target_capture uuid)

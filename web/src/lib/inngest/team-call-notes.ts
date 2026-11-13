@@ -31,7 +31,7 @@ import {
   type FedNotesStatus,
   type FedNotesWritten,
 } from '@/lib/team-calls/fed-notes'
-import { liveTurnBusy, teamCallLiveAgentOn } from '@/lib/team-calls/live-turns'
+import { LIVE_TURN_LEASE_SECONDS, liveTurnBusy, teamCallLiveAgentOn } from '@/lib/team-calls/live-turns'
 
 /**
  * A call's notes, after the call (calls plan, phase 6; src/lib/team-calls/
@@ -191,21 +191,30 @@ async function runFedNotesFinish(callId: string, fed: FedNotesStatus, step: Note
   return { status: 'ready', captureId }
 }
 
-/** How many times the finish looks for a live turn still running on the capture, FED_POLL apart (about the turn's lease). */
-export const LIVE_TURN_SETTLE_ROUNDS = 60
+/**
+ * How many times the finish looks for a live turn still running on the
+ * capture, FED_POLL apart: past a whole lease (each round also sleeps, so the
+ * wait outlasts it), since a running turn's tools may write until its lease's
+ * end (the run token's notAfter).
+ */
+export const LIVE_TURN_SETTLE_ROUNDS = Math.ceil(LIVE_TURN_LEASE_SECONDS / 5) + 2
 
 /**
  * The live agent's last turn on the capture, still running when the call
  * ended (src/lib/team-calls/live-turns.ts): the end-of-meeting pass waits
- * for it, so the turn's summary edit never lands on top of the pass's. No
- * new turn starts once the capture is locked (655), and a turn holds its
- * lease 5 minutes at most. Only where the live agent is on: elsewhere its
- * table may not exist.
+ * for it, so the turn's writes never land beside or on top of the pass's.
+ * No new turn starts once the call ended (655 stops the agent then), and the
+ * stop keeps a RUNNING turn's lease, so busy() stays true until the turn
+ * gives it back or it runs out (at most LIVE_TURN_LEASE_SECONDS); past that
+ * its tools write nothing (their token stops at the lease's end) and the
+ * route takes no turn on it. A read that fails counts as busy (the wait is
+ * bounded by the lease anyway). Only where the live agent is on: elsewhere
+ * its table may not exist.
  */
 async function waitForLiveTurn(captureId: string, step: NotesRunContext['step']) {
   if (!teamCallLiveAgentOn()) return
   for (let round = 0; round < LIVE_TURN_SETTLE_ROUNDS; round++) {
-    const busy = await step.run(`live-turn-look-${round}`, () => liveTurnBusy(getServiceClient(), captureId).catch(() => false))
+    const busy = await step.run(`live-turn-look-${round}`, () => liveTurnBusy(getServiceClient(), captureId).catch(() => true))
     if (!busy) return
     await step.sleep(`live-turn-wait-${round}`, FED_POLL)
   }

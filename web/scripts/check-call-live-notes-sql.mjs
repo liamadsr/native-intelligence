@@ -72,8 +72,9 @@ const say = (text) => db.query(`update captures set transcript = coalesce(transc
 const line = (who, n) => `[${who}] ${'word '.repeat(n).trim()}\n`
 const ago = (seconds) => db.query(`update team_call_live_agent set last_turn_at = now() - make_interval(secs => $2) where capture_id = $1`, [CAPTURE, seconds])
 
-try {
-  await db.exec(`
+/** What the migrations lean on: the stubs, the repo's own few functions, 566's fence. */
+async function stubs(target) {
+  await target.exec(`
     create role anon; create role authenticated; create role service_role bypassrls;
     create schema auth;
     create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
@@ -107,9 +108,9 @@ try {
     create table entity_access (entity_type text, entity_id uuid, grantee_kind text, grantee_channel_id uuid, level text);
   `)
   // The repo's own functions and fence these build on.
-  await db.exec(fnText(await read('588_'), 'capture_feed_capture_closed'))
-  await db.exec(fnText(await read('572_'), 'team_chat_can_read'))
-  await db.exec(`
+  await target.exec(fnText(await read('588_'), 'capture_feed_capture_closed'))
+  await target.exec(fnText(await read('572_'), 'team_chat_can_read'))
+  await target.exec(`
     alter table captures enable row level security;
     grant select on captures, entity_access to authenticated;
     -- The base read (a stub of the workspace's: own, workspace-wide, or shared by a view grant).
@@ -118,7 +119,11 @@ try {
         or exists (select 1 from entity_access e where e.entity_type = 'capture' and e.entity_id = captures.id
                     and e.grantee_kind = 'channel' and public.team_chat_can_read(e.grantee_channel_id))));
   `)
-  await db.exec(policyText(await read('566_'), 'captures_team_call_notes_fence'))
+  await target.exec(policyText(await read('566_'), 'captures_team_call_notes_fence'))
+}
+
+try {
+  await stubs(db)
 
   for (const n of ['655_', '656_', '657_']) {
     const sql = await read(n)
@@ -368,13 +373,75 @@ try {
   await db.query(`update team_call set status = 'ended' where id = $1`, [CALL])
   eq((await db.query(`select * from team_call_live_turn_window($1, $2, 100000, 2000)`, [CAPTURE, lastTurn.lease])).rows.length, 0, 'once the call ended a running turn reads nothing')
   eq((await agent()).stop_reason, 'call_ended', 'and the agent is stopped then')
-  eq((await release(lastTurn.lease, 'failed', 0)).s, 'stale', 'the running turn’s release changes nothing')
+  const busyNow = async () => (await one(`select team_call_live_turn_busy($1) as b`, [CAPTURE])).b
+  ok((await busyNow()) === true, 'the stop keeps the running turn’s lease: the finish still waits for it')
+  eq((await release(lastTurn.lease, 'failed', 0)).s, 'stale', 'the running turn’s release changes nothing else')
+  ok((await busyNow()) === false, 'and gives its lease back: the finish goes on')
+  eq((await agent()).state, 'stopped', 'the agent stays stopped')
   eq((await claim()).outcome, 'stopped', 'and no turn starts')
   // A call that ends with a turn still queued: its run starts and stops.
   await db.query(`update team_call_live_agent set state = 'ready', stop_reason = null, queued_id = $2, queued_at = now(), queued_until = now() + interval '5 minutes' where capture_id = $1`, [CAPTURE, id(98)])
   eq((await begin(id(98))).outcome, 'stopped', 'a queued turn whose call ended does not run')
   eq((await agent()).stop_reason, 'call_ended', 'call_ended')
+
+  // ── The call ends while a turn runs, and the recorder's last words still arrive (a claim) ──
+  // The review's probe: the claim's stop used to empty the running lease, busy() went false, and the
+  // end-of-meeting pass started beside a turn whose tools still had minutes to write.
+  for (const order of ['the last words first', 'the turn’s end first']) {
+    await db.query(`update team_call set status = 'live' where id = $1`, [CALL])
+    await reset()
+    await say(line('Rosa Lind', 130))
+    const running = await turn()
+    eq(running.outcome, 'running', `(${order}) a turn runs`)
+    await db.query(`update team_call set status = 'ended' where id = $1`, [CALL])
+    ok((await busyNow()) === true, `(${order}) the call ended with it running: busy`)
+    if (order === 'the last words first') {
+      eq((await claim()).outcome, 'stopped', `(${order}) a claim after the end stops the agent`)
+      ok((await busyNow()) === true, `(${order}) and the turn still holds its lease: the finish keeps waiting`)
+      eq((await agent()).lease_id, running.lease, `(${order}) its lease is kept`)
+      ok((await leaseUntil(running.lease)).u === null, `(${order}) but the route takes no turn on that lease any more`)
+      eq((await release(running.lease, 'ok', 999999)).s, 'stale', `(${order}) the turn’s own end moves nothing`)
+      ok((await agent()).done_offset < 999999, `(${order}) not even its words`)
+      ok((await busyNow()) === false, `(${order}) and gives the lease back: now the finish goes on`)
+    } else {
+      eq((await release(running.lease, 'ok', 0)).s, 'ready', `(${order}) the turn ends first`)
+      ok((await busyNow()) === false, `(${order}) nothing to wait for`)
+      eq((await claim()).outcome, 'stopped', `(${order}) then the last words stop the agent`)
+      ok((await busyNow()) === false, `(${order}) still nothing to wait for`)
+    }
+    eq((await agent()).state, 'stopped', `(${order}) stopped either way`)
+  }
+  // An answer that never came back, after the stop: the route may still be writing, so the lease
+  // holds the finish back to its end, and then lets it go.
   await db.query(`update team_call set status = 'live' where id = $1`, [CALL])
+  await reset()
+  await say(line('Rosa Lind', 130))
+  const noAnswer = await turn()
+  await db.query(`update team_call set status = 'ended' where id = $1`, [CALL])
+  eq((await claim()).outcome, 'stopped', 'stopped while a turn runs')
+  eq((await release(noAnswer.lease, 'unknown', 0)).s, 'stale', 'its answer never came back')
+  ok((await busyNow()) === true, 'its lease is held to its end: the finish waits')
+  await db.query(`update team_call_live_agent set lease_until = now() - interval '1 second' where capture_id = $1`, [CAPTURE])
+  ok((await busyNow()) === false, 'and once the lease ran out, the finish goes on (the turn’s tools stopped there: its token’s notAfter)')
+  // A stop by the turn itself (its owner's usage ran out): its own lease goes at once.
+  await db.query(`update team_call set status = 'live' where id = $1`, [CALL])
+  await reset()
+  await say(line('Rosa Lind', 130))
+  const usage = await turn()
+  eq((await release(usage.lease, 'stopped', 0)).s, 'stopped', 'the turn stops the agent itself')
+  ok((await busyNow()) === false, 'and holds nothing back')
+  // No outcome said: as an answer that never came back, never a failure.
+  await reset()
+  await say(line('Rosa Lind', 130))
+  const silent = await turn()
+  const silentWin = await one(`select * from team_call_live_turn_window($1, $2, 100000, 2000)`, [CAPTURE, silent.lease])
+  eq((await release(silent.lease, null, silentWin.to_offset)).s, 'ready', 'a release with no outcome')
+  const afterSilent = await agent()
+  eq(afterSilent.failures_in_row, 0, 'is not a failure')
+  eq(afterSilent.done_offset, silentWin.to_offset, 'its words count as sent')
+  eq(afterSilent.lease_id, silent.lease, 'and its lease is kept to its end, as for no answer')
+  await reset()
+  await db.query(`select team_call_live_turn_stop($1, 'call_ended')`, [CAPTURE])
 
   // ── The shared notes reach the conversation and no one else ────────────────
   await db.query(`update captures set ai_summary = '## Summary' || chr(10) || 'The pilot starts Monday.' where id = $1`, [CAPTURE])
@@ -487,6 +554,10 @@ try {
   eq(dropped.lines.length, 0, 'and nothing')
   await db.query(`update meeting_guest set left_at = now() - interval '10 seconds' where id = $1`, [GUEST])
   eq((await guest()).allowed, true, 'out of the room for a few seconds (a reconnect): still reads')
+  await db.query(`insert into capture_feed_segment values ($1, $2, 'k5', 'm-dana', now() - interval '2 seconds', 'Said after the guest left.')`, [id(40), CAPTURE])
+  const inGrace = await guest()
+  ok(inGrace.lines.length > 0 && !inGrace.lines.some((l) => l.text === 'Said after the guest left.'), 'but nothing said after they left')
+  await db.query(`delete from capture_feed_segment where key = 'k5'`)
   await db.query(`update meeting_guest set left_at = null where id = $1`, [GUEST])
   eq((await guest()).allowed, false, 'let in but never in the room: refused')
   await db.query(`update meeting_guest set state = 'admitted', in_call = true where id = $1`, [GUEST])
@@ -556,6 +627,53 @@ try {
     eq(rows.reduce((n, r) => n + r.turns, 0), started, 'only turns that ran were counted')
     ok(rows.every((r) => r.turns >= 3 && r.done_offset > 0), `every call’s notes kept moving (fewest turns: ${Math.min(...rows.map((r) => r.turns))})`)
     console.log(`backlog: ${CALLS} calls, ${LIMIT} at once, ${TICKS * TICK / 60} virtual minutes: ${started} turns ran, ${stale} stale starts skipped, longest wait ${maxWaitTicks * TICK} s, turns per call ${Math.min(...rows.map((r) => r.turns))}-${Math.max(...rows.map((r) => r.turns))}`)
+  }
+
+  // ── An earlier form of 655-657 (pushed on the branch while it was reviewed): the files converge ──
+  // CALL_LIVE_NOTES_EARLIER: a folder of the earlier files, named <label>-<file>, one label per form.
+  const EARLIER = process.env.CALL_LIVE_NOTES_EARLIER
+  if (EARLIER) {
+    const forms = (await readdir(EARLIER)).filter((f) => f.endsWith('.sql'))
+    const labels = [...new Set(forms.map((f) => f.split('-')[0]))]
+    ok(labels.length >= 2, `earlier forms given (${labels.join(', ')})`)
+    for (const label of labels) {
+      const d2 = new PGlite()
+      try {
+        await stubs(d2)
+        for (const n of ['655_', '656_', '657_']) {
+          const old = forms.find((f) => f.startsWith(`${label}-${n}`))
+          if (old) await d2.exec(await readFile(join(EARLIER, old), 'utf8'))
+        }
+        await d2.query(`insert into workspace values ($1)`, [WS])
+        await d2.query(`insert into member values ($1, $2, $3, 'Dana Ortiz')`, [OWNER, WS, OWNER_USER])
+        await d2.query(`insert into captures (id, workspace_id, user_id, title, transcript, notes_channel_id) values ($1, $2, $3, 'Pilot review', $4, $5)`, [CAPTURE, WS, OWNER_USER, line('Dana Ortiz', 150), CHANNEL])
+        await d2.query(`insert into team_call values ($1, $2, $3, 'live', true, $4)`, [CALL, WS, CHANNEL, CAPTURE])
+        await d2.query(`insert into team_call_capture (call_id, capture_id, workspace_id) values ($1, $2, $3)`, [CALL, CAPTURE, WS])
+        await d2.query(`insert into team_call_live_agent (capture_id, workspace_id, call_id, last_turn_at) values ($1, $2, $3, now() - interval '1 hour')`, [CAPTURE, WS, CALL])
+        const hadQueue = (await d2.query(`select 1 from information_schema.columns where table_name = 'team_call_live_agent' and column_name = 'queued_id'`)).rows.length > 0
+        if (hadQueue) await d2.query(`update team_call_live_agent set queued_id = $2, queued_until = now() + interval '5 minutes' where capture_id = $1`, [CAPTURE, id(77)])
+        for (const n of ['655_', '656_', '657_']) {
+          const sql = await read(n)
+          await d2.exec(sql)
+          await d2.exec(sql)
+        }
+        const cols = (await d2.query(`select column_name from information_schema.columns where table_name = 'team_call_live_agent'`)).rows.map((r) => r.column_name)
+        for (const c of ['done_tail', 'queued_id', 'queued_at', 'queued_until', 'prev_queued_id', 'prev_queued_until']) ok(cols.includes(c), `(${label}) ${c} is there`)
+        for (const f of ['team_call_live_turn_claim', 'team_call_live_notes_stamp']) {
+          eq((await d2.query(`select count(*)::int as n from pg_proc where proname = $1`, [f])).rows[0].n, 1, `(${label}) one ${f}, no earlier signature left`)
+        }
+        if (hadQueue) ok((await d2.query(`select queued_at from team_call_live_agent where capture_id = $1`, [CAPTURE])).rows[0].queued_at !== null, `(${label}) a mark from then got its time`)
+        const q = (await d2.query(`select * from team_call_live_turn_claim($1, 20, 60, 600, 30, 300, 600, 120)`, [CAPTURE])).rows[0]
+        eq(q.outcome, 'queued', `(${label}) and the current claim runs on it`)
+        const b = (await d2.query(`select * from team_call_live_turn_begin($1, $2, 300, 300)`, [CAPTURE, q.lease])).rows[0]
+        eq(b.outcome, 'running', `(${label}) and the current begin`)
+        ok((await d2.query(`select team_call_live_turn_lease_until($1, $2) as u`, [CAPTURE, q.lease])).rows[0].u !== null, `(${label}) and the lease check`)
+      } finally {
+        await d2.close()
+      }
+    }
+  } else {
+    console.log('CALL_LIVE_NOTES_EARLIER not set: the earlier forms were not checked')
   }
 
   console.log(`migrations 655-657: ${checks} checks passed`)

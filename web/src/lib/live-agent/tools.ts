@@ -942,13 +942,18 @@ export function createLiveAgentTools(
           }
           let existingId: string | null = null
           if (callCapture) {
-            // A call's capture is private to its owner by visibility, but read by the whole
-            // conversation: matching what its owner can see would attach this capture to the
-            // owner's PRIVATE claims (a private chat, a private meeting) and so widen them to the
-            // conversation, on what anyone in the call said. So it matches only claims everyone
-            // can already read, or claims this same capture already sources (re-filed in a later
-            // turn). Anything else is a new claim, and the answer says nothing of the owner's.
-            const shared = await matchClaims(null, 1)
+            // A call's capture is private to its owner by visibility, but what it says came from
+            // anyone in the call: matching what its owner can see would attach the call's words to
+            // the owner's PRIVATE claims (a private chat, a private meeting), and the answer would
+            // tell the call what the owner holds. So it matches only claims everyone can already
+            // read (dedupeRequesterFor's call-capture rule, which claim extraction shares), or
+            // claims this same capture already sources (its own, re-filed in a later turn: their
+            // one source is this private capture, so only its owner reads them). Anything else is a
+            // new claim, and the answer says nothing of the owner's.
+            const shared = await matchClaims(
+              dedupeRequesterFor({ sourceType: 'capture', ownerUserId: captureOwnerId, captureVisibility, callCapture: true, links: dedupeLinks }),
+              1,
+            )
             existingId = shared[0] ?? null
             if (!existingId && captureOwnerId) {
               const owned = await matchClaims(captureOwnerId, 5)

@@ -134,6 +134,7 @@ import { toast } from 'sonner'
 import { useEntityDetailSync, useEntityListSync } from '@/hooks/use-entity-sync'
 import { useRecordingPollFallback } from '@/hooks/use-recording-poll-fallback'
 import { emitEntityUpdated } from '@/lib/entity-events'
+import { isCallCapture } from '@/lib/live-agent/call-capture-fence'
 
 // Sentinel value for the agent <Select>. A null agentId means the built-in
 // "Assistant" persona (the general-purpose default, resolved server-side in
@@ -2183,8 +2184,9 @@ export function CaptureDetailPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [captureId])
 
-  // A call's capture (the call recorder's: 567/588 stamp metadata.source 'team_call'): no device records into it.
-  const isCallCaptureRow = (capture?.metadata as Record<string, unknown> | null | undefined)?.source === 'team_call'
+  // A call's capture: no device records into it. The same test as the resume route's and the
+  // fence's (its notes_channel_id, the server's own column).
+  const isCallCaptureRow = isCallCapture(capture)
 
   // Supabase Realtime: watch for ai_summary updates on this capture (from live agent)
   useEffect(() => {
