@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { authCookieOptions } from '@/lib/supabase/project'
-import { createClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { User } from '@supabase/supabase-js'
 import { hasAdminAssurance, isAuthorizedAdmin } from '@/lib/admin'
@@ -97,7 +97,7 @@ export async function proxy(request: NextRequest) {
           user = { id: resolved.userId } as User
         }
       } else {
-        const bearerClient = createClient(
+        const bearerClient = createStatelessClient(
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
           process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         )

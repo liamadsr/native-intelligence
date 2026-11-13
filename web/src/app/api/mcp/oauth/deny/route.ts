@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { requireUser } from '@/lib/api-auth'
 import { checkMcpClient, oauthErrorUrl } from '@/lib/mcp/oauth-client'
 
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     }
     const { user } = auth
 
-    const serviceClient = createClient(
+    const serviceClient = createStatelessClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { persistSession: false, autoRefreshToken: false } },

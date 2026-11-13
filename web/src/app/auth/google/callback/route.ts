@@ -1,4 +1,5 @@
-import { createClient as createSupabaseClient, type AuthError } from '@supabase/supabase-js'
+import type { AuthError } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { NextResponse, type NextRequest } from 'next/server'
 import { getServiceClient, isAuthorizedAdmin } from '@/lib/admin'
 import { deepLinkPage, escapeHtml } from '@/lib/auth/deep-link-page'
@@ -89,7 +90,7 @@ async function finishDesktop(
   tx: GoogleSignInTransaction,
   tokens: GoogleTokens,
 ): Promise<NextResponse> {
-  const verifier = createSupabaseClient(
+  const verifier = createStatelessClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } },
@@ -120,7 +121,7 @@ async function finishDesktop(
   )
 }
 
-type GoogleAuth = Pick<ReturnType<typeof createSupabaseClient>['auth'], 'signInWithIdToken'>
+type GoogleAuth = Pick<ReturnType<typeof createStatelessClient>['auth'], 'signInWithIdToken'>
 
 /** Supabase checks the ID token's signature, issuer, audience (its Google
  *  provider's client), expiry, `at_hash` against the access token, and the

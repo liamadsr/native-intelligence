@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { requireCronSecret } from '@/lib/api-auth'
 import { getGatewayUsageReport, type GatewayReportRow } from '@/lib/ai/gateway-report'
 import * as Sentry from '@sentry/nextjs'
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
   const denied = requireCronSecret(request)
   if (denied) return denied
 
-  const supabase = createClient(
+  const supabase = createStatelessClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false, autoRefreshToken: false } },

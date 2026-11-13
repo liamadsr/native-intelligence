@@ -1,4 +1,5 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import type { OAuthCapability, OAuthProvider } from './config'
 import { decryptOAuthToken, encryptOAuthToken, isEncryptedOAuthToken } from './token-crypto'
 
@@ -22,7 +23,7 @@ interface OAuthToken {
 const REFRESH_BUFFER_MS = 5 * 60 * 1000 // refresh 5 min before expiry
 
 function getServiceSupabase() {
-  return createClient(
+  return createStatelessClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )

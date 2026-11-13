@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { generateClientId } from '@/lib/mcp/auth'
 import { isAllowedRedirectUri } from '@/lib/mcp/redirect-uri'
 
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     const grantTypes = body.grant_types || ['authorization_code', 'refresh_token']
     const tokenEndpointAuthMethod = body.token_endpoint_auth_method || 'none'
 
-    const supabase = createClient(
+    const supabase = createStatelessClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { persistSession: false, autoRefreshToken: false } },

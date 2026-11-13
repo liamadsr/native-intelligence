@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { authenticateUser } from '@/lib/ai/auth'
 import { missingScopes } from '@/lib/oauth/scope-diff'
 
@@ -7,7 +7,7 @@ export async function GET(req: Request) {
   try {
     const { user } = await authenticateUser(req)
 
-    const supabase = createClient(
+    const supabase = createStatelessClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )

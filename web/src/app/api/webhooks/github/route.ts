@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { resolveWorkForDeliverable } from '@/lib/work/resolve'
 import { completeActionsForMergedPr } from '@/lib/actions/agent-finish'
 import { emitPrStatusChange } from '@/lib/flows/emit-pr-status-change'
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
   if (event === 'check_suite' || event === 'check_run') {
     const ci = ciEventFrom(event, payload)
     if (!ci) return NextResponse.json({ ok: true, skipped: true })
-    const service = createClient(
+    const service = createStatelessClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { persistSession: false, autoRefreshToken: false } },
@@ -80,7 +80,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, skipped: true })
   }
 
-  const supabase = createClient(
+  const supabase = createStatelessClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false, autoRefreshToken: false } },

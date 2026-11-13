@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { createClient as createServerClient } from '@/lib/supabase/server'
 import { clientIdUrlProblem, isMetadataClientId } from '@/lib/mcp/client-metadata'
 import { mcpBaseUrl } from '@/lib/mcp/base-url'
@@ -54,7 +54,7 @@ export async function GET(request: Request) {
   // an error is a 400 here, never a redirect to whatever the URL named. This
   // path is one a sign-in may resume (src/lib/auth/login-redirect.ts), so an
   // unchecked redirect_uri made it an open redirect.
-  const serviceClient = createClient(
+  const serviceClient = createStatelessClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false, autoRefreshToken: false } },

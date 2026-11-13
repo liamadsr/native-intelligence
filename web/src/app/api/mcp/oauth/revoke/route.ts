@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 
 /**
  * POST /api/mcp/oauth/revoke — Revoke an MCP OAuth token.
@@ -16,7 +16,7 @@ export async function POST(request: Request) {
 
   const body = await request.json()
 
-  const serviceClient = createServiceClient(
+  const serviceClient = createStatelessClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false, autoRefreshToken: false } },
