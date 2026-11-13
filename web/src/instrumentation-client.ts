@@ -11,6 +11,7 @@ import {
   shouldDropSentryBreadcrumb,
   shouldDropSentryEvent,
 } from '@/lib/sentry-env'
+import { scrubSentryEvent } from '@/lib/privacy/join-token-redaction'
 
 // Only report from production, and only when NEXT_PUBLIC_SENTRY_DSN is set:
 // dev/preview events are noise, and a copy without a DSN has no Sentry.
@@ -23,11 +24,16 @@ if (isSentryEnabled()) {
     // Drop browser noise (Apple Mail / Safari link-prefetch aborts) that fires
     // even in production. See sentry-env.ts for the rationale.
     ignoreErrors: SENTRY_IGNORE_ERRORS,
-    beforeSend: (event, hint) => (shouldDropSentryEvent(event, hint) ? null : event),
+    // A workspace join link (/join/<token>) admits whoever holds it: its
+    // token is blanked in URLs, breadcrumbs and transaction names
+    // (src/lib/privacy/join-token-redaction.ts).
+    beforeSend: (event, hint) => (shouldDropSentryEvent(event, hint) ? null : scrubSentryEvent(event)),
+    beforeSendTransaction: (event) => scrubSentryEvent(event),
+    beforeSendLog: (log) => scrubSentryEvent(log),
     // Inside the in-app browser's DOM, click/input breadcrumbs would carry the
     // user's visited URLs + page titles (element title/aria-label). See sentry-env.ts.
     beforeBreadcrumb: (breadcrumb, hint) =>
-      shouldDropSentryBreadcrumb(breadcrumb, hint) ? null : breadcrumb,
+      shouldDropSentryBreadcrumb(breadcrumb, hint) ? null : scrubSentryEvent(breadcrumb),
 
     // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
     tracesSampleRate: 1,

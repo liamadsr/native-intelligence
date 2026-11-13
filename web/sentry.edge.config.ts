@@ -5,6 +5,7 @@
 
 import * as Sentry from '@sentry/nextjs'
 import { getSentryDsn, getSentryEnvironment, isSentryEnabled } from '@/lib/sentry-env'
+import { scrubSentryEvent } from '@/lib/privacy/join-token-redaction'
 
 // Only report from production, and only when NEXT_PUBLIC_SENTRY_DSN is set:
 // dev/preview events are noise, and a copy without a DSN has no Sentry.
@@ -23,5 +24,13 @@ if (isSentryEnabled()) {
     // Enable sending user PII (Personally Identifiable Information)
     // https://docs.sentry.io/platforms/javascript/guides/nextjs/configuration/options/#sendDefaultPii
     sendDefaultPii: true,
+
+    // A workspace join link (/join/<token>) admits whoever holds it: its
+    // token is blanked in request URLs, headers, breadcrumbs and transaction
+    // names (src/lib/privacy/join-token-redaction.ts).
+    beforeSend: (event) => scrubSentryEvent(event),
+    beforeSendTransaction: (event) => scrubSentryEvent(event),
+    beforeSendLog: (log) => scrubSentryEvent(log),
+    beforeBreadcrumb: (breadcrumb) => scrubSentryEvent(breadcrumb),
   })
 }

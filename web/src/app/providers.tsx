@@ -6,6 +6,7 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect } from 'react'
 import { isDesktopApp } from '@/lib/platform'
 import { PublicSky } from '@/components/sky/public-sky'
+import { isJoinLinkPage, scrubPostHogEvent } from '@/lib/privacy/join-token-redaction'
 
 /**
  * Desktop-only escape hatch for a debugging session, read from localStorage —
@@ -70,6 +71,11 @@ if (
     capture_pageview: false, // We handle this manually for App Router
     capture_pageleave: true,
     disable_session_recording: disableSessionRecording,
+    // A workspace join link (/join/<token>) admits whoever holds it: its
+    // token is blanked in every event, whatever property carries a URL
+    // ($current_url, $pathname, $referrer, the $initial_* copies, pageleave,
+    // autocapture's hrefs, a `redirect=` holding it).
+    before_send: (event) => scrubPostHogEvent(event),
   })
   posthog.register({
     platform: 'web',
@@ -83,7 +89,9 @@ function PostHogPageview() {
   const posthog = usePostHog()
 
   useEffect(() => {
-    if (pathname && posthog && !pathname.startsWith('/hud/') && !pathname.startsWith('/l/')) {
+    // No pageview for a join link's page: its path is the link (the token
+    // would be blanked anyway; this keeps the view out altogether).
+    if (pathname && posthog && !pathname.startsWith('/hud/') && !pathname.startsWith('/l/') && !isJoinLinkPage(pathname)) {
       let url = window.origin + pathname
       if (searchParams.toString()) {
         url = url + '?' + searchParams.toString()
