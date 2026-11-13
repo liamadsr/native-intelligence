@@ -65,7 +65,8 @@ describe('migration 553', () => {
       [CALENDAR, 'calendar-playbook'],
       [FIND_A_TIME, 'find-a-time'],
     ])
-    expect(PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE) + 1)).toEqual([LATER, NEWEST, POLLS])
+    // Of the later text-only rewrites, those that touch the calendar rows (641 rewrites the flows rows only).
+    expect(PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE) + 1).filter((f) => promptRewrites(f).some((r) => r.slug === 'calendar-playbook' || r.slug === 'find-a-time'))).toEqual([LATER, NEWEST, POLLS])
     for (const id of [CALENDAR, FIND_A_TIME]) {
       // The next rewrite after 551 is this one (580 comes after it).
       const next = PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(BEFORE) + 1).find((f) => promptRewrites(f).some((r) => r.id === id))

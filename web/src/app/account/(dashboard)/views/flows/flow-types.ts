@@ -9,6 +9,8 @@
  */
 
 import type { FlowEntityType } from '@/lib/flows/types'
+import { validateCronExpression } from '@/lib/flows/cron'
+import { runAtInstant } from '@/lib/flows/schedule'
 export type { FlowEntityType }
 
 export type FlowTriggerType =
@@ -17,8 +19,11 @@ export type FlowTriggerType =
   | 'capture_processed'
   | 'calendar_event'
   | 'pr_status_changed'
+  | 'email_received'
+  | 'chat_message'
+  | 'document_created'
 
-export type ScheduleCadence = 'hourly' | 'daily' | 'weekdays' | 'weekly'
+export type ScheduleCadence = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'cron' | 'once'
 
 export type ConditionField =
   | 'label'
@@ -51,10 +56,16 @@ export interface EntityStatusChangeTriggerConfig {
 export interface ScheduleTriggerConfig {
   kind: 'schedule'
   cadence: ScheduleCadence
-  /** 'HH:mm' 24h wall-clock in `timezone`. Required unless cadence is hourly. */
+  /** 'HH:mm' 24h wall-clock in `timezone`. Required for daily, weekdays, weekly and monthly. */
   time?: string
   /** 0 (Sunday) - 6 (Saturday). Weekly cadence only. */
   weekday?: number
+  /** 1-28. Monthly cadence only. */
+  day_of_month?: number
+  /** A 5-field cron expression. Cron (custom) cadence only. */
+  cron?: string
+  /** 'YYYY-MM-DDTHH:mm' wall-clock in `timezone`. Once cadence only. */
+  run_at?: string
   /** IANA timezone name, e.g. 'America/Los_Angeles'. */
   timezone: string
 }
@@ -82,12 +93,33 @@ export interface PrStatusChangedTriggerConfig {
   to_state: PrTriggerState
 }
 
+/** New mail in the loop owner's own inbox, optionally from one sender (an address or a domain). */
+export interface EmailReceivedTriggerConfig {
+  kind: 'email_received'
+  from?: string
+}
+
+/** A person's team chat message: in one channel, or (mentions_only) anywhere the owner is @mentioned. */
+export interface ChatMessageTriggerConfig {
+  kind: 'chat_message'
+  channel_id: string | null
+  mentions_only: boolean
+}
+
+/** A person creates a document the owner can see. */
+export interface DocumentCreatedTriggerConfig {
+  kind: 'document_created'
+}
+
 export type FlowTriggerConfig =
   | EntityStatusChangeTriggerConfig
   | ScheduleTriggerConfig
   | CaptureProcessedTriggerConfig
   | CalendarEventTriggerConfig
   | PrStatusChangedTriggerConfig
+  | EmailReceivedTriggerConfig
+  | ChatMessageTriggerConfig
+  | DocumentCreatedTriggerConfig
 
 export interface HttpPostActionConfig {
   method: 'POST' | 'PUT' | 'PATCH'
@@ -460,6 +492,9 @@ export interface EditorTrigger {
   cadence: ScheduleCadence
   time: string // 'HH:mm'
   weekday: number // 0 (Sunday) - 6 (Saturday)
+  day_of_month: number // 1-28, monthly
+  cron: string // 5-field expression, custom
+  run_at: string // 'YYYY-MM-DDTHH:mm' in timezone, once
   timezone: string // IANA name
   // calendar_event fields (GEN-136)
   event_title: string // recurring event title to anchor to
@@ -467,7 +502,24 @@ export interface EditorTrigger {
   // pr_status_changed fields (F1): a PR linked to one of the workspace's actions
   repo_full_name: string // "owner/repo"
   pr_state: PrTriggerState
+  // email_received: '' = any sender
+  email_from: string
+  // chat_message: ANY_CHANNEL = any channel (only with mentions_only), '' = none picked yet
+  chat_channel_id: string
+  mentions_only: boolean
+  /**
+   * Someone else's mail or chat loop, read without its sender filter or
+   * channel (the server's triggerConfigForViewer, `owner_only`): the editor,
+   * read-only for them anyway, says "a channel" / "new email".
+   */
+  details_hidden?: boolean
 }
+
+/** The chat trigger's channel when it is another member's to see. */
+export const HIDDEN_CHANNEL = '__hidden__'
+
+/** The chat trigger's "Any channel" choice (stored as channel_id null). */
+export const ANY_CHANNEL = '__any__'
 
 export interface EditorState {
   id: string | null // null = creating
@@ -492,6 +544,37 @@ export interface EditorState {
    * (and on a new loop).
    */
   ownedBy: { name: string; requested: boolean } | null
+  /** A saved one-time loop's time, as stored (the once field says what a save does). */
+  savedOnce?: SavedOnce | null
+}
+
+/** A one-time loop's saved time. */
+export interface SavedOnce {
+  run_at: string
+  timezone: string
+}
+
+/** The saved one-time time of a flow read, or null when it is not a one-time loop. */
+export function savedOnceOf(flow: Pick<Flow, 'trigger_type' | 'trigger_config'>): SavedOnce | null {
+  if (flow.trigger_type !== 'schedule') return null
+  const cfg = (flow.trigger_config ?? {}) as { cadence?: unknown; run_at?: unknown; timezone?: unknown }
+  return cfg.cadence === 'once' && typeof cfg.run_at === 'string' && typeof cfg.timezone === 'string' ? { run_at: cfg.run_at, timezone: cfg.timezone } : null
+}
+
+/**
+ * The once field's line: what the loop did and what a save does, as the PATCH
+ * route decides it (next-run.ts onceArming). A NEW time ahead switches the
+ * loop on for it; a time that has passed leaves it off; the saved time keeps
+ * the switch as it is.
+ */
+export function onceFieldNote(args: { runAt: string; timezone: string; saved: SavedOnce | null | undefined; enabled: boolean; now?: Date }): string {
+  const at = runAtInstant(args.runAt, args.timezone)
+  if (!at) return 'Runs one time, then the loop switches itself off.'
+  const ahead = at.getTime() > (args.now ?? new Date()).getTime()
+  const isSaved = !!args.saved && args.saved.run_at === args.runAt && args.saved.timezone === args.timezone
+  if (!isSaved) return ahead ? 'Saving switches the loop on to run at this time; then it switches itself off.' : 'That time has passed: saving leaves the loop off. Pick a time ahead to run it.'
+  if (ahead) return args.enabled ? 'Runs one time, then the loop switches itself off.' : 'Off: it won’t run at this time unless you switch it on.'
+  return args.enabled ? 'Its time has passed: it runs at the next chance, then switches itself off.' : 'It ran at this time and is off now. Pick a new time and save to run it again.'
 }
 
 /** True when the editor shows the loop's trigger and steps read-only (someone else owns it). */
@@ -512,6 +595,9 @@ export const TRIGGER_TYPE_LABELS: Record<FlowTriggerType, string> = {
   capture_processed: 'Capture processed',
   calendar_event: 'Calendar event',
   pr_status_changed: 'Pull request',
+  email_received: 'New email',
+  chat_message: 'Chat message',
+  document_created: 'New document',
 }
 
 export const PR_STATE_LABELS: Record<PrTriggerState, string> = {
@@ -526,6 +612,9 @@ export const CADENCE_LABELS: Record<ScheduleCadence, string> = {
   daily: 'Daily',
   weekdays: 'Weekdays',
   weekly: 'Weekly',
+  monthly: 'Monthly',
+  cron: 'Custom',
+  once: 'Once',
 }
 
 /** Indexed by the schedule trigger's 0 (Sunday) - 6 (Saturday) weekday. */
@@ -550,9 +639,15 @@ function defaultTimezone(): string {
 
 /** One-line summary of a schedule trigger for the canvas node / config panel. */
 export function describeSchedule(
-  t: Pick<EditorTrigger, 'cadence' | 'time' | 'weekday'>,
+  t: Pick<EditorTrigger, 'cadence' | 'time' | 'weekday'> & Partial<Pick<EditorTrigger, 'day_of_month' | 'cron' | 'run_at'>>,
 ): string {
   switch (t.cadence) {
+    case 'monthly':
+      return `Monthly on day ${t.day_of_month ?? 1} at ${t.time || '--:--'}`
+    case 'cron':
+      return t.cron?.trim() ? `Custom: ${t.cron.trim()}` : 'Custom schedule'
+    case 'once':
+      return t.run_at ? `Once on ${t.run_at.replace('T', ' at ')}` : 'Once: pick a date and time'
     case 'hourly':
       return 'Every hour'
     case 'daily':
@@ -689,6 +784,12 @@ function newTrigger(): EditorTrigger {
     offset_minutes: -15, // fire 15 min before the meeting by default
     repo_full_name: '',
     pr_state: 'any',
+    day_of_month: 1,
+    cron: '0 9 * * 1-5', // weekdays at 9
+    run_at: '',
+    email_from: '',
+    chat_channel_id: '',
+    mentions_only: false,
   }
 }
 
@@ -851,7 +952,33 @@ function triggerToEditor(flow: Pick<Flow, 'trigger_type' | 'trigger_config'>): E
           ? cfg.weekday
           : base.weekday,
       timezone: typeof cfg.timezone === 'string' && cfg.timezone ? cfg.timezone : base.timezone,
+      day_of_month:
+        typeof cfg.day_of_month === 'number' && cfg.day_of_month >= 1 && cfg.day_of_month <= 28
+          ? cfg.day_of_month
+          : base.day_of_month,
+      cron: typeof cfg.cron === 'string' && cfg.cron ? cfg.cron : base.cron,
+      run_at: typeof cfg.run_at === 'string' ? cfg.run_at : base.run_at,
     }
+  }
+  if (flow.trigger_type === 'email_received') {
+    const cfg = flow.trigger_config as Partial<EmailReceivedTriggerConfig> & { owner_only?: unknown }
+    return { ...base, kind: 'email_received', email_from: typeof cfg.from === 'string' ? cfg.from : '', ...(cfg.owner_only === true ? { details_hidden: true } : {}) }
+  }
+  if (flow.trigger_type === 'chat_message') {
+    const cfg = flow.trigger_config as Partial<ChatMessageTriggerConfig> & { owner_only?: unknown; channel?: unknown }
+    // Someone else's chat loop: its channel is theirs to see ("a channel"), unless it is any channel.
+    if (cfg.owner_only === true) {
+      return { ...base, kind: 'chat_message', chat_channel_id: cfg.channel === 'any channel' ? ANY_CHANNEL : HIDDEN_CHANNEL, mentions_only: cfg.mentions_only === true, details_hidden: true }
+    }
+    return {
+      ...base,
+      kind: 'chat_message',
+      chat_channel_id: typeof cfg.channel_id === 'string' && cfg.channel_id ? cfg.channel_id : cfg.mentions_only ? ANY_CHANNEL : '',
+      mentions_only: cfg.mentions_only === true,
+    }
+  }
+  if (flow.trigger_type === 'document_created') {
+    return { ...base, kind: 'document_created' }
   }
   if (flow.trigger_type === 'capture_processed') {
     return { ...base, kind: 'capture_processed' }
@@ -903,6 +1030,7 @@ export function flowToEditor(flow: Flow): EditorState {
     // Only an explicit "not yours" makes it read-only: a read that predates the
     // ownership fields (or a list row) keeps today's editor.
     ownedBy: flow.viewer_is_owner === false ? { name: flow.owner?.name ?? 'someone else', requested: flow.takeover_pending === true } : null,
+    savedOnce: savedOnceOf(flow),
   }
 }
 
@@ -951,6 +1079,9 @@ function conditionToConfig(condition: EditorCondition): ConditionGroup | null {
 /** 24h 'HH:mm' — matches the server-side schedule validator. */
 const SCHEDULE_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 
+/** The cadences that run at a time of day. */
+const SCHEDULE_TIMED: ScheduleCadence[] = ['daily', 'weekdays', 'weekly', 'monthly']
+
 /** Serialize the editor trigger to the shape the per-type validators expect. */
 function triggerToConfig(t: EditorTrigger): Record<string, unknown> {
   switch (t.kind) {
@@ -958,10 +1089,23 @@ function triggerToConfig(t: EditorTrigger): Record<string, unknown> {
       return {
         kind: 'schedule',
         cadence: t.cadence,
-        ...(t.cadence !== 'hourly' ? { time: t.time } : {}),
+        ...(SCHEDULE_TIMED.includes(t.cadence) ? { time: t.time } : {}),
         ...(t.cadence === 'weekly' ? { weekday: t.weekday } : {}),
+        ...(t.cadence === 'monthly' ? { day_of_month: t.day_of_month } : {}),
+        ...(t.cadence === 'cron' ? { cron: t.cron.trim() } : {}),
+        ...(t.cadence === 'once' ? { run_at: t.run_at } : {}),
         timezone: t.timezone.trim(),
       }
+    case 'email_received':
+      return { kind: 'email_received', ...(t.email_from.trim() ? { from: t.email_from.trim() } : {}) }
+    case 'chat_message':
+      return {
+        kind: 'chat_message',
+        channel_id: t.chat_channel_id && t.chat_channel_id !== ANY_CHANNEL ? t.chat_channel_id : null,
+        mentions_only: t.mentions_only,
+      }
+    case 'document_created':
+      return { kind: 'document_created' }
     case 'capture_processed':
       return { kind: 'capture_processed' }
     case 'pr_status_changed':
@@ -1036,10 +1180,22 @@ export function buildSavePayload(editor: EditorState):
     if (!t.to_status_id) return { error: 'Target status is required' }
   }
   if (t.kind === 'schedule') {
-    if (t.cadence !== 'hourly' && !SCHEDULE_TIME_RE.test(t.time)) {
+    if (SCHEDULE_TIMED.includes(t.cadence) && !SCHEDULE_TIME_RE.test(t.time)) {
       return { error: 'Schedule time is required' }
     }
     if (!t.timezone.trim()) return { error: 'Timezone is required' }
+    if (t.cadence === 'monthly' && !(Number.isInteger(t.day_of_month) && t.day_of_month >= 1 && t.day_of_month <= 28)) {
+      return { error: 'Pick a day of the month from 1 to 28' }
+    }
+    if (t.cadence === 'cron') {
+      const checked = validateCronExpression(t.cron, t.timezone.trim())
+      if (checked instanceof Error) return { error: `Custom schedule: ${checked.message}` }
+    }
+    if (t.cadence === 'once' && !t.run_at) return { error: 'Pick the date and time it runs' }
+  }
+  if (t.kind === 'chat_message' && !t.chat_channel_id) return { error: 'Pick a channel' }
+  if (t.kind === 'chat_message' && t.chat_channel_id === ANY_CHANNEL && !t.mentions_only) {
+    return { error: 'Pick a channel, or turn on “Only when I’m @mentioned” to watch every channel' }
   }
   if (t.kind === 'pr_status_changed' && !/^[^/\s]+\/[^/\s]+$/.test(t.repo_full_name.trim())) {
     return { error: 'Repository is required, as owner/repo' }

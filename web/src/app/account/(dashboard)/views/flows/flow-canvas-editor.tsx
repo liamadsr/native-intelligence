@@ -66,12 +66,15 @@ import {
   emptyEditor,
   isReadOnlyFlow,
   describeSchedule,
+  ANY_CHANNEL,
   PR_STATE_LABELS,
   ENTITY_LABELS,
   isActionComplete,
   newAction,
   buildSavePayload,
   flowToEditor,
+  savedOnceOf,
+  HIDDEN_CHANNEL,
 } from './flow-types'
 
 interface FlowCanvasEditorProps {
@@ -391,8 +394,10 @@ export function FlowCanvasEditor({ flowId, initialRunId = null, onClose, onSaved
           prev
             ? {
                 ...prev,
-                // The saved state: off while it waits on the owner's card.
+                // The saved state: off while it waits on the owner's card, a
+                // one-time loop on again after a new time, off after its time.
                 enabled: flow.enabled,
+                savedOnce: savedOnceOf(flow),
                 bot: flow.ai_team_member_id ? { kind: 'teammate', id: flow.ai_team_member_id } : null,
                 botDirty: false,
                 botSummary: flow.bot ?? null,
@@ -977,6 +982,18 @@ function FlowCanvas({
         title: 'Pull request',
         subtitle: t.repo_full_name ? `${PR_STATE_LABELS[t.pr_state]} in ${t.repo_full_name}` : 'Pick a repository',
       }
+    }
+    if (t.kind === 'email_received') {
+      if (t.details_hidden) return { title: 'New email', subtitle: "In its owner's inbox" }
+      return { title: 'New email', subtitle: t.email_from.trim() ? `From ${t.email_from.trim()}` : 'From anyone, in your inbox' }
+    }
+    if (t.kind === 'chat_message') {
+      const where = t.chat_channel_id === ANY_CHANNEL ? 'any channel' : t.chat_channel_id === HIDDEN_CHANNEL ? 'a channel' : t.chat_channel_id ? 'its channel' : 'pick a channel'
+      const who = t.details_hidden ? 'its owner is' : "you're"
+      return { title: 'Chat message', subtitle: t.mentions_only ? `When ${who} @mentioned in ${where}` : `Every message in ${where}` }
+    }
+    if (t.kind === 'document_created') {
+      return { title: 'New document', subtitle: 'When someone creates a document you can see' }
     }
     if (t.kind === 'calendar_event') {
       const mag = Math.abs(t.offset_minutes)

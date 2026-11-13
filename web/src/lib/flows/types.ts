@@ -22,6 +22,92 @@ export type FlowTriggerType =
   | 'schedule'
   | 'calendar_event'
   | 'quote_received'
+  | 'email_received'
+  | 'chat_message'
+  | 'document_created'
+
+/** The event triggers that fire for one flow OWNER's own items (their mail, a channel they read, a document they see). */
+export const OWNER_EVENT_TRIGGER_TYPES = ['email_received', 'chat_message', 'document_created'] as const
+export type OwnerEventTriggerType = (typeof OWNER_EVENT_TRIGGER_TYPES)[number]
+
+/** One of the owner's event triggers (their mail, chat, documents). */
+export function isOwnerEventTrigger(triggerType: unknown): triggerType is OwnerEventTriggerType {
+  return typeof triggerType === 'string' && (OWNER_EVENT_TRIGGER_TYPES as readonly string[]).includes(triggerType)
+}
+
+/**
+ * Who alone may read a run, stamped on its flow_run row (`private_to`, migration
+ * 640) when the row is written: the run-as user of a fire of the owner's event
+ * triggers (their mail, DMs, documents: the run's step results summarize
+ * them). Null for every other fire: the workspace's members read it. The stamp
+ * belongs to the RUN, so changing the loop's trigger or handing it to someone
+ * else later exposes none of its old runs.
+ */
+export function flowRunPrivateTo(triggerType: unknown, runAsUserId: string | null | undefined): string | null {
+  return isOwnerEventTrigger(triggerType) && runAsUserId ? runAsUserId : null
+}
+
+/**
+ * Whether `userId` may read this run and what it produced: a stamped run only
+ * its `private_to` user, any other the workspace (membership is the caller's
+ * own check). The same rule as migration 640's flow_run read policy, for the
+ * reads that run on the service role.
+ */
+export function canReadFlowRun(run: { private_to?: string | null } | null | undefined, userId: string | null | undefined): boolean {
+  if (!run) return false
+  if (!run.private_to) return true
+  return !!userId && run.private_to === userId
+}
+
+/**
+ * Whether the history of this loop is (mostly) another person's to read: a
+ * loop on the owner's event triggers, seen by someone other than its owner.
+ * Only for the note a history shows; what is read is decided per run.
+ */
+export function flowRunsAreSomeoneElses(flow: { trigger_type?: unknown; created_by?: string | null } | null | undefined, userId: string | null | undefined): boolean {
+  return !!flow && isOwnerEventTrigger(flow.trigger_type) && flow.created_by !== userId
+}
+
+/**
+ * A loop's trigger config as `viewer` may see it. The owner's event triggers
+ * name the owner's own things: the channel a chat loop watches (possibly a
+ * DM) and the sender a mail loop waits for. Anyone but the owner gets the
+ * config without them ("a channel"; a mail loop's sender filter left out),
+ * marked `owner_only: true` so the editor says so rather than showing an
+ * empty field. Every other trigger, and the owner, get it as stored.
+ */
+export function triggerConfigForViewer(
+  triggerType: unknown,
+  config: unknown,
+  isOwner: boolean,
+): Record<string, unknown> {
+  const cfg = (config && typeof config === 'object' ? config : {}) as Record<string, unknown>
+  if (isOwner || !isOwnerEventTrigger(triggerType)) return cfg
+  if (triggerType === 'chat_message') {
+    const { channel_id, ...rest } = cfg
+    return { ...rest, channel: channel_id === null || channel_id === undefined ? 'any channel' : 'a channel', owner_only: true }
+  }
+  if (triggerType === 'email_received') {
+    const { from: _from, ...rest } = cfg
+    void _from
+    return { ...rest, owner_only: true }
+  }
+  return cfg
+}
+
+/**
+ * A flow row as `viewerId` may see it (the REST reads, the views query):
+ * triggerConfigForViewer on its trigger_config, everything else as is.
+ */
+export function flowRowForViewer<T extends { trigger_type?: unknown; trigger_config?: unknown; created_by?: unknown }>(row: T, viewerId: string | null | undefined): T {
+  if (!isOwnerEventTrigger(row.trigger_type)) return row
+  const isOwner = !!viewerId && row.created_by === viewerId
+  if (isOwner) return row
+  return { ...row, trigger_config: triggerConfigForViewer(row.trigger_type, row.trigger_config, false) }
+}
+
+/** What a member who may not read a loop's runs is told instead of them. */
+export const OWNER_ONLY_RUNS_NOTE = "Only the person a run of this loop ran for can see it: it starts on their own mail, chat or documents."
 
 export type FlowActionType = 'http_post' | 'run_skill' | 'run_agent' | 'archive_capture' | 'call_tool' | 'run_local_agent'
 
@@ -87,20 +173,29 @@ export interface EntityStatusChangeTriggerConfig {
   to_status_id: string
 }
 
-export type ScheduleCadence = 'hourly' | 'daily' | 'weekdays' | 'weekly'
+export type ScheduleCadence = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'cron' | 'once'
 
 /**
  * Workspace-scoped (team_id NULL) recurring trigger. next occurrence is
  * computed by computeNextRun (schedule.ts) and persisted on flow.next_run_at,
  * which the cron tick scans.
+ *
+ * `once` runs one time, at `run_at`: after it fires the tick sets next_run_at
+ * NULL and switches the loop off (it reads as finished).
  */
 export interface ScheduleTriggerConfig {
   kind: 'schedule'
   cadence: ScheduleCadence
-  /** 'HH:mm' 24h wall-clock in `timezone`. Required unless cadence is hourly. */
+  /** 'HH:mm' 24h wall-clock in `timezone`. Required for daily, weekdays, weekly and monthly. */
   time?: string
   /** 0 (Sunday) - 6 (Saturday). Weekly cadence only. */
   weekday?: number
+  /** 1-28 (every month has it). Monthly cadence only. */
+  day_of_month?: number
+  /** A 5-field cron expression (minute hour day-of-month month day-of-week), evaluated in `timezone`. Cron cadence only. */
+  cron?: string
+  /** 'YYYY-MM-DDTHH:mm' wall-clock in `timezone` (stored normalized). Once cadence only. */
+  run_at?: string
   /** IANA timezone name, e.g. 'America/Los_Angeles'. */
   timezone: string
 }
@@ -175,6 +270,49 @@ export interface QuoteReceivedTriggerConfig {
 }
 
 /**
+ * Fired when new mail ARRIVES in one of the flow OWNER's own connected
+ * mailboxes (src/lib/flows/emit-email-received.ts, from the incremental sync's
+ * triage). Never for the first import, the person's own mail, drafts, spam or
+ * trash. No entity: `{{trigger.email_thread_id}}` and
+ * `{{trigger.email_account_id}}` name the thread, which a step reads live with
+ * read_email (no mail is stored). The sender's words never ride the template.
+ */
+export interface EmailReceivedTriggerConfig {
+  kind: 'email_received'
+  /**
+   * Only mail from this sender: an exact address ("ana@acme.example") or a
+   * domain ("acme.example", stored without a leading "@"), lowercased.
+   * Absent: any sender.
+   */
+  from?: string
+}
+
+/**
+ * Fired when a PERSON posts in team chat (src/lib/flows/emit-chat-message.ts,
+ * from the post route), in a channel the flow's owner can read. Never for an
+ * agent's message. `{{trigger.chat_message_id}}`, `{{trigger.chat_channel_id}}`
+ * and `{{trigger.chat_thread_root_id}}` name it; a step reads it with
+ * read_team_chat_message.
+ */
+export interface ChatMessageTriggerConfig {
+  kind: 'chat_message'
+  /** The channel it watches; null = any channel the owner can read (only with mentions_only). */
+  channel_id: string | null
+  /** Only messages that @mention the owner (never their own). */
+  mentions_only: boolean
+}
+
+/**
+ * Fired about five minutes after a PERSON creates a document the flow's owner
+ * can see (src/lib/flows/emit-document-created.ts, from the documents route;
+ * an agent's or a canon template's create never fires). `{{trigger.document_id}}`
+ * names it; a step reads it with get_document.
+ */
+export interface DocumentCreatedTriggerConfig {
+  kind: 'document_created'
+}
+
+/**
  * All trigger config shapes. Rows created before the loop engine have no
  * `kind` — a missing kind means entity_status_change (back-compat); the
  * row-level flow.trigger_type column is the authoritative discriminator.
@@ -186,6 +324,9 @@ export type FlowTriggerConfig =
   | CalendarEventTriggerConfig
   | PrStatusChangedTriggerConfig
   | QuoteReceivedTriggerConfig
+  | EmailReceivedTriggerConfig
+  | ChatMessageTriggerConfig
+  | DocumentCreatedTriggerConfig
 
 // ──────────────────────────────────────────────────────────────────
 // Condition model (per-action gate on the triggering entity)
@@ -818,6 +959,18 @@ export interface TriggerContext {
   fired_at: string
   /** A quote_received fire: the quote it is about (`{{trigger.quote_id}}`). */
   quote_id?: string | null
+  /** An email_received fire: the provider thread (`{{trigger.email_thread_id}}`), read live with read_email. */
+  email_thread_id?: string | null
+  /** An email_received fire: the connected account it arrived in (`{{trigger.email_account_id}}`). */
+  email_account_id?: string | null
+  /** A chat_message fire: the message (`{{trigger.chat_message_id}}`). */
+  chat_message_id?: string | null
+  /** A chat_message fire: its channel (`{{trigger.chat_channel_id}}`). */
+  chat_channel_id?: string | null
+  /** A chat_message fire: the thread it replies in, or null in the channel itself (`{{trigger.chat_thread_root_id}}`). */
+  chat_thread_root_id?: string | null
+  /** A document_created fire: the document (`{{trigger.document_id}}`). */
+  document_id?: string | null
 }
 
 /**

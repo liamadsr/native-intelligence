@@ -3,6 +3,8 @@ import { withServerFrontmatter } from '@/lib/agent-events/prep-ref'
 import { indexDocument } from '@/lib/ai/embeddings'
 import { trackServerEvent } from '@/lib/posthog'
 import { getCurrentWorkspaceId } from '@/lib/workspace'
+import { emitDocumentCreated } from '@/lib/flows/emit-document-created'
+import { workspaceHasEventFlows } from '@/lib/flows/event-triggers'
 import { NextResponse, type NextRequest } from 'next/server'
 import { getServiceClient } from '@/lib/supabase/service'
 import { templateKey } from '@/lib/documents/canon'
@@ -216,6 +218,18 @@ export async function POST(request: NextRequest) {
     } catch (err) {
       console.error('[documents.post] index failed (non-fatal):', err)
     }
+  }
+
+  // The document_created loops a person's create may start, about five minutes
+  // from now (src/lib/flows/emit-document-created.ts). Only this plain create
+  // emits: the canon template branch above and every agent's create_document
+  // never do. Never throws.
+  try {
+    if (await workspaceHasEventFlows(getServiceClient(), { workspaceId, triggerType: 'document_created' })) {
+      await emitDocumentCreated({ workspaceId, documentId: data.id })
+    }
+  } catch (err) {
+    console.error('[documents.post] loop event not sent (non-fatal):', err instanceof Error ? err.message : 'unknown')
   }
 
   return NextResponse.json({ document: data })

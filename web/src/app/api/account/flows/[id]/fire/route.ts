@@ -7,9 +7,13 @@
  *
  * - entity_status_change flows fire against a real entity (caller supplies
  *   entity_id/action_id) or a synthetic placeholder.
- * - schedule / capture_processed flows are workspace-scoped: no entity, a
- *   synthetic trigger context (capture_processed additionally gets a
- *   synthetic capture so `{{capture.*}}` tokens render).
+ * - every other flow (schedule, capture, calendar, quote, and the owner's
+ *   mail, chat and document loops) has no entity: its own trigger context,
+ *   built by test-fire.ts entitylessTestTrigger (chat's test_flow builds the
+ *   same), with ids naming items that aren't there (capture_processed
+ *   additionally gets a synthetic capture so `{{capture.*}}` tokens render).
+ *   A run of the owner's event triggers is stamped private to the caller, who
+ *   it ran as (flow_run.private_to).
  *
  * The run_skill executor is injected, so "Test" genuinely executes the skill
  * (LLM run, document + notification delivery) — this is the loop engine's
@@ -41,9 +45,10 @@ import { legacySnapshotFromResults } from '@/lib/flows/run-record'
 import { createCallToolExecutor } from '@/lib/flows/call-tool'
 import { keepRunState } from '@/lib/flows/flow-step-resume'
 // Shared with chat's test_flow (a dry run of the same fire): src/lib/flows/test-fire.ts.
-import { SYNTH_ID, makeSyntheticEntity, prSampleState, prTestTrigger } from '@/lib/flows/test-fire'
+import { SYNTH_ID, entitylessTestTrigger, makeSyntheticEntity, prSampleState, prTestTrigger } from '@/lib/flows/test-fire'
 import type { FireExtras, RunnerEntityData } from '@/lib/flows/runner'
 import type { FlowAction, FlowEntityType, TriggerContext } from '@/lib/flows/types'
+import { flowRunPrivateTo } from '@/lib/flows/types'
 import { DEFAULT_APP_URL } from '@/lib/app-url'
 
 // A test-fire can run a real skill (up to 240s per prose run_skill action, and
@@ -101,7 +106,8 @@ export async function POST(
   }
 
   const triggerType = flowRow.trigger_type as string
-  const isWorkspaceScoped = triggerType === 'schedule' || triggerType === 'capture_processed'
+  // Only a status or PR loop fires against an entity; every other trigger has none.
+  const isWorkspaceScoped = triggerType !== 'entity_status_change' && triggerType !== 'pr_status_changed'
 
   // Resolve what to fire against. Workspace-scoped triggers have no entity;
   // entity_status_change fires against a caller-supplied entity or a
@@ -112,13 +118,7 @@ export async function POST(
   const extras: FireExtras = { workspaceId }
 
   if (isWorkspaceScoped) {
-    trigger = {
-      type: triggerType as 'schedule' | 'capture_processed',
-      entity_type: null,
-      from_status_id: null,
-      to_status_id: null,
-      fired_at: new Date().toISOString(),
-    }
+    trigger = entitylessTestTrigger(triggerType, flowRow.trigger_config as Record<string, unknown> | null, new Date().toISOString())
     if (triggerType === 'capture_processed') {
       // Synthetic capture so {{capture.*}} tokens render in the test.
       extras.capture = { id: SYNTH_ID, title: 'Test fire from Native Intelligence' }
@@ -231,6 +231,8 @@ export async function POST(
     status,
     action_results,
     ...snapshot,
+    // A test of the owner's event loops ran as the caller: theirs alone to read.
+    ...(flowRunPrivateTo(triggerType, user.id) ? { private_to: user.id } : {}),
   })
 
   if (insertError) {

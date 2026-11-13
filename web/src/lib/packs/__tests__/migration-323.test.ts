@@ -45,8 +45,9 @@ const RECIPES = [
 /** 323's cores a later migration rewrote again, by slug: the file whose text ships. */
 const LATER_REWRITES: Readonly<Record<string, string>> = {
   // 324 rewrote the Flows core; 338 then swapped every core's helper line and
-  // added the promotion rule to Actions (migration-338.test.ts).
-  'flows-playbook': '338_skill_helper_lines.sql',
+  // added the promotion rule to Actions (migration-338.test.ts); 641 rewrote the
+  // Flows core again for the new triggers and schedules (migration-641.test.ts).
+  'flows-playbook': '641_flow_triggers_playbooks.sql',
   'actions-playbook': '338_skill_helper_lines.sql',
   'projects-playbook': '338_skill_helper_lines.sql',
   'knowledge-playbook': '338_skill_helper_lines.sql',

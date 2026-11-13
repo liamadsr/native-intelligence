@@ -112,10 +112,12 @@ const NOT_TOOLS: Record<string, readonly string[]> = {
     'name_match', 'offset', 'open_actions_total', 'project_id', 'project_name', 'roll_to_next', 'since', 'start_date', 'status', 'status_type',
     'target_date', 'team_id', 'time_field',
   ],
+  // 641: the mail, chat and document triggers' fields, and the monthly, cron and once schedules'.
   'flows-playbook': [
-    'action_results', 'actions', 'bearer_token', 'body_template', 'bot_character', 'cadence', 'condition', 'confirmed_with_user',
-    'enabled', 'event_title', 'field', 'fire_on_agent_changes', 'flow_id', 'headers', 'id', 'method', 'mode', 'offset_minutes', 'parent_id',
-    'skill', 'status', 'summary', 'time', 'timezone', 'to_status_id', 'trigger', 'type', 'url', 'weekday',
+    'action_results', 'actions', 'bearer_token', 'body_template', 'bot_character', 'cadence', 'channel_id', 'condition', 'confirmed_with_user',
+    'cron', 'day_of_month', 'email_from', 'enabled', 'event_title', 'field', 'fire_on_agent_changes', 'flow_id', 'headers', 'id', 'instructions',
+    'mentions_only', 'method', 'mode', 'offset_minutes', 'parent_id', 'run_at', 'skill', 'status', 'summary', 'time', 'timezone', 'to_status_id',
+    'trigger', 'type', 'url', 'weekday',
   ],
   // A1c crm-outreach: crm, prospecting, sequences and campaigns rewritten in 326.
   'crm-playbook': [
@@ -172,8 +174,9 @@ const NOT_TOOLS: Record<string, readonly string[]> = {
   'find-anything': ['all_time', 'project_id', 'query', 'since', 'status', 'types'],
   // 324's recipe.
   'build-a-workflow': [
-    'actions', 'bearer_token', 'body_template', 'cadence', 'confirmed_with_user', 'enabled', 'event_title', 'field', 'flow_id', 'id',
-    'instructions', 'mode', 'name', 'offset_minutes', 'skill', 'summary', 'time', 'timezone', 'to_status_id', 'trigger', 'url', 'weekday',
+    'actions', 'bearer_token', 'body_template', 'cadence', 'channel_id', 'confirmed_with_user', 'cron', 'day_of_month', 'email_from', 'enabled',
+    'event_title', 'field', 'flow_id', 'id', 'instructions', 'mentions_only', 'mode', 'name', 'offset_minutes', 'run_at', 'skill', 'summary',
+    'time', 'timezone', 'to_status_id', 'trigger', 'url', 'weekday',
   ],
   // A1c docs-goals-tools: 327's recipes; write-a-document's documents phase 1 tools in 370.
   'write-a-document': ['base_revision', 'capture_id', 'content', 'id', 'project_id', 'revision', 'title'],
@@ -219,7 +222,8 @@ const NOT_TOOLS: Record<string, readonly string[]> = {
   'seo-backlinks': [],
   'seo-ai-visibility': ['confirmed_with_user'],
   'seo-local': ['confirmed_with_user'],
-  'seo-report': ['enabled'],
+  // 641: a monthly report's day.
+  'seo-report': ['day_of_month', 'enabled'],
   'meeting-follow-up': [
     'account', 'additional_context', 'body', 'capture_id', 'from_account', 'in_reply_to', 'proposal_id', 'proposal_ids', 'reason', 'recipients', 'since', 'status',
     'subject', 'thread_id', 'to', 'tone', 'why',

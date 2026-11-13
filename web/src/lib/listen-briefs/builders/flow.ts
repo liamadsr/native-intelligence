@@ -121,6 +121,12 @@ function whenItRuns(flow: FlowRow, names: ReadonlyMap<string, string>, clock: Cl
           const day = typeof t.weekday === 'number' ? WEEKDAYS[t.weekday] : undefined
           return day && at ? `It runs every ${day} at ${at}${zone}` : null
         }
+        case 'monthly':
+          return typeof t.day_of_month === 'number' && at ? `It runs every month on the ${ordinal(t.day_of_month)} at ${at}${zone}` : null
+        case 'cron':
+          return 'It runs on a custom schedule'
+        case 'once':
+          return 'It runs one time'
         default:
           return null
       }
@@ -148,6 +154,12 @@ function whenItRuns(flow: FlowRow, names: ReadonlyMap<string, string>, clock: Cl
       return "It runs when a pull request's status changes"
     case 'quote_received':
       return "It runs when a customer's quote arrives from the website"
+    case 'email_received':
+      return 'It runs when new mail arrives in your inbox'
+    case 'chat_message':
+      return t.mentions_only ? 'It runs when someone mentions you in team chat' : 'It runs when someone posts in a team chat channel'
+    case 'document_created':
+      return 'It runs when someone creates a document'
     default:
       return null
   }
@@ -233,6 +245,13 @@ function cityOf(timeZone: string): string {
   return (timeZone.split('/').pop() ?? timeZone).replace(/_/g, ' ')
 }
 
+/** 1 → "1st", 2 → "2nd", 23 → "23rd". */
+function ordinal(n: number): string {
+  const tens = n % 100
+  if (tens >= 11 && tens <= 13) return `${n}th`
+  return `${n}${['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`
+}
+
 /** 30 → "30 minutes", 60 → "an hour", 120 → "2 hours", 90 → "90 minutes". */
 function span(minutes: number): string {
   if (minutes === 60) return 'an hour'
@@ -255,13 +274,15 @@ export interface FlowRow {
   name: string | null
   description: string | null
   enabled: boolean | null
-  /** entity_status_change | capture_processed | pr_status_changed | schedule | calendar_event | quote_received */
+  /** entity_status_change | capture_processed | pr_status_changed | schedule | calendar_event | quote_received | email_received | chat_message | document_created */
   trigger_type: string | null
   trigger_config: {
     cadence?: string
     time?: string
     weekday?: number
+    day_of_month?: number
     timezone?: string
+    mentions_only?: boolean
     event_title?: string
     offset_minutes?: number
     entity_type?: string

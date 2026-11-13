@@ -218,7 +218,7 @@ describe('create_flow — each trigger and action type', () => {
     const row = inserts.flow![0]
     const cfg: ScheduleTriggerConfig = { kind: 'schedule', cadence: 'weekdays', time: '09:00', timezone: 'America/New_York' }
     expect(row).toMatchObject({ team_id: null, enabled: false, trigger_type: 'schedule', trigger_config: cfg })
-    expect(row.next_run_at).toBe(computeNextRun(cfg, NOW).toISOString())
+    expect(row.next_run_at).toBe(computeNextRun(cfg, NOW)!.toISOString())
     expect(res).toMatchObject({ enabled: false, awaiting_go_ahead: true, next_run_at: row.next_run_at })
     expect(res.summary).toMatch(/^Every weekday at 09:00 \(America\/New_York\) → POST https:\/\/example\.com\/hook\. next run Wed, Oct 14, 09:00$/)
     expect(res.note).toContain(`update_flow { flow_id: "${(res.flow as { id: string }).id}", enabled: true, confirmed_with_user: true }`)
@@ -237,9 +237,9 @@ describe('create_flow — each trigger and action type', () => {
 
   it('schedule validation errors name the trigger field and the allowed values', async () => {
     const tools = createFlowTools(USER, seeded().client, WS)
-    const bad = await call(tools.create_flow, { name: 'A', trigger: { ...schedule, cadence: 'monthly' }, actions: [hook] })
+    const bad = await call(tools.create_flow, { name: 'A', trigger: { ...schedule, cadence: 'fortnightly' }, actions: [hook] })
     expect(bad).toMatchObject({ success: false, field: 'trigger.cadence' })
-    expect(bad.error).toBe('trigger.cadence must be one of: hourly, daily, weekdays, weekly')
+    expect(bad.error).toBe('trigger.cadence must be one of: hourly, daily, weekdays, weekly, monthly, cron, once')
     const noDay = await call(tools.create_flow, { name: 'A', trigger: { ...schedule, cadence: 'weekly' }, actions: [hook] })
     expect(noDay).toMatchObject({ field: 'trigger.weekday' })
     const tz = await call(tools.create_flow, { name: 'A', trigger: { ...schedule, timezone: 'Mars/Base' }, actions: [hook] })
@@ -577,7 +577,7 @@ describe('update_flow', () => {
 
     const res = await call(tools.update_flow, { flow_id: 'flow-1', enabled: true, confirmed_with_user: true })
     expect(tables.flow[0].enabled).toBe(true)
-    expect(tables.flow[0].next_run_at).toBe(computeNextRun(scheduleCfg, NOW).toISOString())
+    expect(tables.flow[0].next_run_at).toBe(computeNextRun(scheduleCfg, NOW)!.toISOString())
     expect(res).toMatchObject({ enabled: true, next_run_at: tables.flow[0].next_run_at })
   })
 
@@ -618,7 +618,7 @@ describe('update_flow', () => {
     await call(createFlowTools(USER, client, WS).update_flow, { flow_id: 'flow-1', trigger: { type: 'schedule', time: '18:15' } })
     const cfg = { ...scheduleCfg, time: '18:15' }
     expect(tables.flow[0].trigger_config).toEqual(cfg)
-    expect(tables.flow[0].next_run_at).toBe(computeNextRun(cfg, NOW).toISOString())
+    expect(tables.flow[0].next_run_at).toBe(computeNextRun(cfg, NOW)!.toISOString())
   })
 
   it('replacing actions runs the same validation (skill slugs, field errors) and keeps tokens by id', async () => {

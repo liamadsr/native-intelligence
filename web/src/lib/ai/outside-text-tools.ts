@@ -18,7 +18,7 @@ export interface OutsideTextTool {
   /** Where the tool is defined (from the repo root). */
   file: string
   /** What the outside text is: the marker kind it is wrapped with. */
-  kind: 'EMAIL' | 'CALENDAR' | 'FILE' | 'BROWSER' | 'TOOL' | 'TRANSCRIPT' | 'WEB'
+  kind: 'EMAIL' | 'CALENDAR' | 'FILE' | 'BROWSER' | 'TOOL' | 'TRANSCRIPT' | 'WEB' | 'CHAT'
   /** The fence the tool's definition calls (any one is enough). */
   fence: readonly string[]
   /** What carries the outside text. */
@@ -80,6 +80,12 @@ export const OUTSIDE_TEXT_TOOLS: Readonly<Record<string, OutsideTextTool>> = {
     kind: 'FILE',
     fence: ['wrapUntrusted'],
     note: "an uploaded text file's content (a photo is shown)",
+  },
+  read_team_chat_message: {
+    file: 'src/lib/ai/tools/team-chat.ts',
+    kind: 'CHAT',
+    fence: ['wrapUntrusted'],
+    note: "each message's words (a teammate's or a guest's in a shared channel, read by a loop that runs as someone else)",
   },
   read_browser_page: {
     file: 'src/lib/ai/tools/browser.ts',

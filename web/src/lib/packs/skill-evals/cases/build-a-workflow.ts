@@ -1,7 +1,8 @@
 import type { SkillEvalCase } from '../types'
 
 /**
- * `build-a-workflow` (flows, pack-only, 324; its asking rule in 400): listed in
+ * `build-a-workflow` (flows, pack-only, 324; its asking rule in 400; the mail,
+ * chat and document triggers and the monthly, cron and once schedules in 641): listed in
  * the Flows pack, which rides the search for the flows tools, so the cases
  * load the pack first. A loop the person asks for is created on (`enabled`
  * true) and said in one line, with no second ask; a webhook loop is the one
@@ -106,6 +107,55 @@ export const cases: SkillEvalCase[] = [
     loads: ['flows-playbook', 'build-a-workflow'],
     tools: ['search_tools', 'list_flows'],
     avoid: ['update_flow'],
-    why: 'No cron or fortnightly cadence: offer weekly on Tuesday and ask.',
+    why: 'No cadence, and no cron expression, says every other week: offer weekly on Tuesday and ask.',
+  },
+  {
+    request: 'on the 1st of every month at 9am, run the initiative review skill',
+    loads: ['flows-playbook', 'build-a-workflow'],
+    tools: ['search_tools', 'list_flows', 'list_skills', 'create_flow'],
+    params: {
+      create_flow: {
+        trigger: { type: 'schedule', cadence: 'monthly', day_of_month: 1, time: '09:00' },
+        actions: [{ type: 'run_skill' }],
+        enabled: true,
+      },
+    },
+    avoid: ['update_flow'],
+    why: 'Monthly is a cadence (641): day_of_month 1 and the time, on because they asked.',
+  },
+  {
+    request: 'every two hours on weekdays, post our open urgent actions to https://hooks.example.com/ops',
+    loads: ['flows-playbook', 'build-a-workflow'],
+    tools: ['search_tools', 'list_flows', 'create_flow'],
+    params: {
+      create_flow: {
+        trigger: { type: 'schedule', cadence: 'cron' },
+        actions: [{ type: 'http_post', url: 'https://hooks.example.com/ops' }],
+      },
+    },
+    avoid: ['update_flow'],
+    why: 'No fixed cadence says every two hours on weekdays: a cron schedule does ("0 */2 * * 1-5").',
+  },
+  {
+    request: 'tomorrow at 3pm, send me a prep brief for the Fernhill review',
+    loads: ['flows-playbook', 'build-a-workflow'],
+    tools: ['search_tools', 'list_flows', 'create_flow'],
+    params: { create_flow: { trigger: { type: 'schedule', cadence: 'once' }, actions: [{ type: 'run_skill' }], enabled: true } },
+    avoid: ['update_flow'],
+    why: 'One time: a once schedule with run_at, its date worked out from today in their zone.',
+  },
+  {
+    request: 'whenever I get an email from anyone at fernhill.example, summarize it for me',
+    loads: ['flows-playbook', 'build-a-workflow'],
+    tools: ['search_tools', 'list_flows', 'create_flow'],
+    params: {
+      create_flow: {
+        trigger: { type: 'email_received', email_from: 'fernhill.example' },
+        actions: [{ type: 'run_skill' }],
+        enabled: true,
+      },
+    },
+    avoid: ['update_flow'],
+    why: "A mail loop narrowed to the domain; the step reads {{trigger.email_thread_id}} with read_email, never the mail's words in its template.",
   },
 ]

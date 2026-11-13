@@ -29,16 +29,25 @@ import {
   validateCanvasLayout,
   validateTriggerConfig,
 } from '@/lib/flows/queries'
-import { nextRunAtOnEnable, nextRunAtOnWrite } from '@/lib/flows/next-run'
+import { nextRunAtOnEnable, nextRunAtOnWrite, onceArming } from '@/lib/flows/next-run'
+import { chatTriggerChannelProblem } from '@/lib/flows/event-triggers'
 import type { FlowAction } from '@/lib/flows/types'
+import { flowRowForViewer } from '@/lib/flows/types'
 
-/** Trigger types with a wired dispatcher (pr_status_changed: the GitHub webhook, F1). */
+/**
+ * Trigger types with a wired dispatcher (pr_status_changed: the GitHub
+ * webhook, F1; email_received, chat_message and document_created: the
+ * owner's own new mail, team chat messages and documents).
+ */
 const WIRED_TRIGGER_TYPES = new Set([
   'entity_status_change',
   'schedule',
   'capture_processed',
   'calendar_event',
   'pr_status_changed',
+  'email_received',
+  'chat_message',
+  'document_created',
 ])
 
 const FLOW_FIELDS = `
@@ -73,7 +82,8 @@ export async function GET(
     ownerId: ((data as Record<string, unknown>).created_by as string | null) ?? null,
     viewerId: user.id,
   })
-  return NextResponse.json({ flow: { ...toPublicFlow(data as Record<string, unknown>), ...ownership } })
+  // Another member's mail or chat loop shows without its sender filter or channel.
+  return NextResponse.json({ flow: { ...toPublicFlow(flowRowForViewer(data as Record<string, unknown>, user.id)), ...ownership } })
 }
 
 export async function PATCH(
@@ -101,7 +111,7 @@ export async function PATCH(
     (typeof body.trigger_type !== 'string' || !WIRED_TRIGGER_TYPES.has(body.trigger_type))
   ) {
     return badRequest(
-      'trigger_type must be one of "entity_status_change", "schedule", "capture_processed", "calendar_event", "pr_status_changed"',
+      `trigger_type must be one of ${[...WIRED_TRIGGER_TYPES].map((t) => `"${t}"`).join(', ')}`,
     )
   }
 
@@ -132,7 +142,8 @@ export async function PATCH(
         }
         rawCfg = nextType === currentType ? existing.trigger_config : {}
       }
-      const tcfg = validateTriggerConfig(nextType, rawCfg)
+      // A once time in the past is refused unless it is the stored one unchanged (a re-save from the editor).
+      const tcfg = validateTriggerConfig(nextType, rawCfg, { now: new Date(), storedConfig: nextType === currentType ? existing.trigger_config : undefined })
       if (tcfg instanceof Error) return badRequest(tcfg.message)
       updates.trigger_type = nextType
       updates.trigger_config = tcfg
@@ -160,12 +171,19 @@ export async function PATCH(
         updates.team_id = null
         updates.next_run_at = nextRunAtOnWrite(nextType, tcfg, new Date())
       }
+      const once = onceArming(nextType, tcfg, currentType, existing.trigger_config, updates.next_run_at as string | null)
+      if (once) Object.assign(updates, once)
     } else if (body.enabled === true) {
       // Re-enabling: a schedule recomputes so a stale past-due next_run_at
       // doesn't make the tick fire it immediately; a calendar flow's slot is
       // nulled for the tick's re-anchor pass (nextRunAtOnEnable).
       const nextRun = nextRunAtOnEnable(currentType, existing.trigger_config, new Date())
       if (nextRun !== undefined) updates.next_run_at = nextRun
+      // A one-time loop whose time has passed stays finished: switching it on
+      // doesn't run it again (give it a new time instead).
+      if (nextRun === null && currentType === 'schedule' && (existing.trigger_config as { cadence?: unknown } | null)?.cadence === 'once') {
+        updates.enabled = false
+      }
     }
   }
 
@@ -301,6 +319,16 @@ export async function PATCH(
       )
     }
   }
+  // A chat loop's channel must be one its OWNER can read (it runs as them).
+  if (touchesTrigger && typeof updates.trigger_type === 'string') {
+    const channelProblem = await chatTriggerChannelProblem(getServiceClient(), {
+      workspaceId,
+      ownerUserId: ownerId ?? user.id,
+      triggerType: updates.trigger_type,
+      config: updates.trigger_config,
+    })
+    if (channelProblem) return badRequest(channelProblem)
+  }
   // F4: a call_tool's connection, tool and input, and a skill step's
   // connections, are the loop owner's own.
   if (body.actions !== undefined) {
@@ -380,12 +408,12 @@ export async function PATCH(
       { toolCallId: `flow-patch-${id}`, messages: [] } as never,
     )) as { awaiting_approval?: boolean; card_for?: string; owner?: { name?: string | null } }
     return NextResponse.json({
-      flow: toPublicFlow(data as Record<string, unknown>),
+      flow: toPublicFlow(flowRowForViewer(data as Record<string, unknown>, user.id)),
       awaiting_owner: raised.awaiting_approval ? (raised.card_for ?? raised.owner?.name ?? 'the owner') : null,
     })
   }
 
-  return NextResponse.json({ flow: toPublicFlow(data as Record<string, unknown>) })
+  return NextResponse.json({ flow: toPublicFlow(flowRowForViewer(data as Record<string, unknown>, user.id)) })
 }
 
 export async function DELETE(
