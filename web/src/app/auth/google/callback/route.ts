@@ -14,7 +14,8 @@ import {
   type GoogleTokens,
 } from '@/lib/auth/google-sign-in'
 import { browserOrigin, postAuthRedirect } from '@/lib/auth/post-auth-redirect'
-import { joinByEmailDomainAtSignIn } from '@/lib/workspace-join/domain-join'
+import { hasDomainOfferAtSignIn } from '@/lib/workspace-join/domain-offer'
+import { JOIN_OFFER_PAGE, markCheckedThisSignIn } from '@/lib/workspace-join/sign-in-check'
 import { WORK_EMAIL_REQUIRED_ERROR_CODE, isWorkEmailRejection } from '@/lib/auth/work-email'
 import { sessionTokenHash } from '@/lib/chatgpt/account'
 import { createClient } from '@/lib/supabase/server'
@@ -76,9 +77,11 @@ export async function GET(request: NextRequest) {
     return finish(NextResponse.redirect(new URL('/admin', browserOrigin(request))))
   }
 
-  // Auto-join by email domain (src/lib/workspace-join/domain-join.ts); never fails the sign-in.
-  await joinByEmailDomainAtSignIn(data.user)
-  return finish(postAuthRedirect(request, browserOrigin(request)))
+  // Join by email domain (src/lib/workspace-join/domain-offer.ts), once per sign-in; never fails the sign-in.
+  const offer = await hasDomainOfferAtSignIn(data.user)
+  return finish(
+    markCheckedThisSignIn(postAuthRedirect(request, browserOrigin(request), offer ? { home: JOIN_OFFER_PAGE } : {}), data.user),
+  )
 }
 
 /**

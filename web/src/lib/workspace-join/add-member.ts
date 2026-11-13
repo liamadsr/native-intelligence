@@ -1,6 +1,6 @@
 /**
  * Add a person to a workspace: the ONE member setup every way in shares
- * (an emailed invite, the shareable link, auto-join by email domain).
+ * (an emailed invite, the shareable link, Join on the email-domain page).
  *
  *   1. the member row, onboarding skipped (they already have an account),
  *      with `joined_via` saying which way they came;
@@ -8,6 +8,9 @@
  *   3. the analytics event: `invite_accepted` for an invite (as before),
  *      `workspace_joined` with `{ via }` for the link and the domain;
  *   4. optionally, the active-workspace cookie, so they land there.
+ *
+ * Every way in is the person's own act (accepting, opening the link,
+ * clicking Join): nothing here adds anyone on its own.
  *
  * Runs on the service client: the person is not a member yet, so RLS would
  * hide the workspace from them, and member inserts are server-only (306).
@@ -31,13 +34,11 @@ export interface JoiningUser {
 
 /**
  * When to make the workspace the active one:
- *   always    the person chose to join (invite accepted, link opened)
- *   if-fresh  only when they have nowhere else yet: none of their other
- *             memberships has finished onboarding (a brand-new account,
- *             whose own workspace was made by the signup trigger moments ago)
+ *   always    the person chose to join (an invite accepted, the link opened,
+ *             Join clicked on the domain page): land them there
  *   never     just add the membership; it shows in the workspace switcher
  */
-export type Activate = 'always' | 'if-fresh' | 'never'
+export type Activate = 'always' | 'never'
 
 export interface JoinWorkspaceInput {
   service: SupabaseClient
@@ -125,27 +126,10 @@ export async function joinWorkspace(input: JoinWorkspaceInput): Promise<JoinWork
     trackServerEvent('workspace_joined', { userId: user.id, workspaceId, email: user.email }, { via, role })
   }
 
-  let activated = false
-  if (activate === 'always') activated = true
-  else if (activate === 'if-fresh') activated = await hasNowhereElse(service, user.id, workspaceId)
+  const activated = activate === 'always'
   if (activated) await setActiveWorkspace(workspaceId)
 
   return { ok: true, memberId, alreadyMember: false, activated }
-}
-
-/**
- * True when none of the person's other memberships has finished onboarding:
- * their own workspace is brand new, and no invite has taken them anywhere.
- * A failed read counts as "has somewhere": the cookie stays as it is.
- */
-export async function hasNowhereElse(service: SupabaseClient, userId: string, exceptWorkspaceId: string): Promise<boolean> {
-  const { data, error } = await service
-    .from('member')
-    .select('workspace_id, onboarding_completed_at')
-    .eq('user_id', userId)
-    .neq('workspace_id', exceptWorkspaceId)
-  if (error || !data) return false
-  return (data as Array<{ onboarding_completed_at: string | null }>).every((m) => !m.onboarding_completed_at)
 }
 
 /** The active-workspace cookie, as /api/account/workspace/switch sets it. */

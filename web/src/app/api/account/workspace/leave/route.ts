@@ -5,6 +5,7 @@ import { WORKSPACE_COOKIE, getCurrentWorkspaceId } from '@/lib/workspace'
 import { NextResponse, type NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
 import { requestTeamCallEjections } from '@/lib/team-calls/eject'
+import { recordLeftWorkspace } from '@/lib/workspace-join/marks'
 
 /**
  * POST /api/account/workspace/leave
@@ -68,7 +69,18 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { data: deleted, error } = await getServiceClient()
+  // Remembered first, on their account: join-by-email-domain never offers
+  // this workspace to them again (src/lib/workspace-join/marks.ts). If that
+  // can't be written they stay in, rather than leave and be offered it back.
+  const service = getServiceClient()
+  try {
+    await recordLeftWorkspace(service, user.id, workspaceId)
+  } catch (err) {
+    console.error('[leave] left mark failed:', err instanceof Error ? err.message : err)
+    return serverError('Could not leave the workspace. Try again.')
+  }
+
+  const { data: deleted, error } = await service
     .from('member')
     .delete()
     .eq('id', member.id)

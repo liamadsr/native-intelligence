@@ -1,6 +1,6 @@
 /**
  * Is this person's address proven theirs, firmly enough to let it open a
- * workspace on its own (auto-join by email domain, and claiming a domain)?
+ * workspace on its own (join by email domain, and listing a domain)?
  *
  * Both have to hold:
  *   1. Supabase confirmed the address (`email_confirmed_at`), and

@@ -65,6 +65,8 @@ describe('JoinLinkView', () => {
     act(() => button().click())
     expect(nav.push).toHaveBeenCalledWith(`/login?redirect=${encodeURIComponent(`/join/${TOKEN}`)}`)
     expect(joinSignInHref('/join/x')).toBe('/login?redirect=%2Fjoin%2Fx')
+    // A personal address can't sign up through a link (the signup gate exempts emailed invites only).
+    expect(container.textContent).toContain('New here? Sign up with your work email. For a personal address, ask for an emailed invite.')
   })
 
   it('signed in: one click joins through the link, then opens the app', async () => {

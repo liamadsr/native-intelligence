@@ -1,16 +1,18 @@
 /**
- * The switches and the link (settings.ts) on an in-memory database: the
- * link on, off, back on, reset; a closed link opens nothing; the domain
- * claim clash; the token's strength.
+ * The switches, listed domains and the link (settings.ts) on an in-memory
+ * database: the link on, off, back on, reset, two admins switching it on at
+ * once; a closed link opens nothing; several domains per workspace and the
+ * same domain in several workspaces; the token's strength.
  */
 import { describe, expect, it } from 'vitest'
 import { memoryDb } from '@/test/memory-db'
 import {
+  addJoinDomain,
   findOpenJoinLink,
   readJoinSettings,
   readMembersCanInvite,
+  removeJoinDomains,
   resetJoinLink,
-  setAutoJoinDomain,
   setJoinLinkEnabled,
   setMembersCanInvite,
 } from '../settings'
@@ -19,11 +21,10 @@ import { isJoinTokenShape, joinLinkPath, newJoinToken } from '../token'
 type Row = Record<string, unknown>
 
 function setup() {
-  const tables: Record<string, Row[]> = { workspace_join_settings: [], workspace_join_link: [] }
+  const tables: Record<string, Row[]> = { workspace_join_settings: [], workspace_join_link: [], workspace_join_domain: [] }
   const db = memoryDb(tables, {
-    workspace_join_settings: (a, b) =>
-      a.workspace_id !== b.workspace_id && a.auto_join_domain != null && a.auto_join_domain === b.auto_join_domain,
-    workspace_join_link: (a, b) => a.workspace_id !== b.workspace_id && a.token === b.token,
+    workspace_join_link: (a, b) => a.workspace_id === b.workspace_id || a.token === b.token,
+    workspace_join_domain: (a, b) => a.workspace_id === b.workspace_id && a.domain === b.domain,
   })
   return { db, tables }
 }
@@ -49,7 +50,7 @@ describe('the token', () => {
 describe('the link', () => {
   it('starts off: no row, nothing open', async () => {
     const { db } = setup()
-    expect(await readJoinSettings(db, 'ws-acme')).toEqual({ membersCanInvite: false, autoJoinDomain: null, link: null })
+    expect(await readJoinSettings(db, 'ws-acme')).toEqual({ membersCanInvite: false, domains: [], link: null })
     expect(await setJoinLinkEnabled(db, 'ws-acme', false, 'user-avery')).toBeNull()
   })
 
@@ -66,6 +67,16 @@ describe('the link', () => {
     const again = await setJoinLinkEnabled(db, 'ws-acme', true, 'user-avery')
     expect(again!.token).toBe(on!.token)
     expect(await findOpenJoinLink(db, on!.token)).toEqual({ workspaceId: 'ws-acme' })
+  })
+
+  it('two admins switching it on at once both succeed, with one token', async () => {
+    const { db, tables } = setup()
+    const [a, b] = await Promise.all([
+      setJoinLinkEnabled(db, 'ws-acme', true, 'user-avery'),
+      setJoinLinkEnabled(db, 'ws-acme', true, 'user-jordan'),
+    ])
+    expect(tables.workspace_join_link).toHaveLength(1)
+    expect(a!.token).toBe(b!.token)
   })
 
   it('reset kills the old token at once and keeps the link on', async () => {
@@ -95,20 +106,24 @@ describe('the switches', () => {
     expect(await readMembersCanInvite(db, 'ws-acme')).toBe(false)
   })
 
-  it('a domain is claimed by one workspace at a time; releasing it frees it', async () => {
+  it('a workspace lists several domains; the same domain may be listed by several workspaces', async () => {
     const { db } = setup()
-    expect(await setAutoJoinDomain(db, 'ws-acme', 'acme.example', 'user-avery')).toEqual({ ok: true })
-    expect(await setAutoJoinDomain(db, 'ws-northwind', 'acme.example', 'user-jordan')).toEqual({ ok: false, clash: true })
-    expect((await readJoinSettings(db, 'ws-northwind')).autoJoinDomain).toBeNull()
+    await addJoinDomain(db, 'ws-acme', 'acme.example', 'user-avery')
+    await addJoinDomain(db, 'ws-acme', 'acme-labs.example', 'user-jordan')
+    await addJoinDomain(db, 'ws-acme', 'acme.example', 'user-jordan') // again: no change, no error
+    await addJoinDomain(db, 'ws-northwind', 'acme.example', 'user-kai')
+    expect((await readJoinSettings(db, 'ws-acme')).domains).toEqual(['acme-labs.example', 'acme.example'])
+    expect((await readJoinSettings(db, 'ws-northwind')).domains).toEqual(['acme.example'])
 
-    expect(await setAutoJoinDomain(db, 'ws-acme', null, 'user-avery')).toEqual({ ok: true })
-    expect(await setAutoJoinDomain(db, 'ws-northwind', 'acme.example', 'user-jordan')).toEqual({ ok: true })
+    await removeJoinDomains(db, 'ws-acme', ['acme.example'])
+    expect((await readJoinSettings(db, 'ws-acme')).domains).toEqual(['acme-labs.example'])
+    expect((await readJoinSettings(db, 'ws-northwind')).domains).toEqual(['acme.example'])
   })
 
-  it('switching the domain does not touch members can invite, and the other way round', async () => {
+  it('the domains do not touch members can invite, and the other way round', async () => {
     const { db } = setup()
     await setMembersCanInvite(db, 'ws-acme', true, 'user-avery')
-    await setAutoJoinDomain(db, 'ws-acme', 'acme.example', 'user-avery')
-    expect(await readJoinSettings(db, 'ws-acme')).toMatchObject({ membersCanInvite: true, autoJoinDomain: 'acme.example' })
+    await addJoinDomain(db, 'ws-acme', 'acme.example', 'user-avery')
+    expect(await readJoinSettings(db, 'ws-acme')).toMatchObject({ membersCanInvite: true, domains: ['acme.example'] })
   })
 })

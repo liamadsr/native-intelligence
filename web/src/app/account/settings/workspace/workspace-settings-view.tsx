@@ -198,7 +198,7 @@ export function WorkspaceSettingsView() {
   const isOwnerOrAdmin = currentRole === 'owner' || currentRole === 'admin'
   const isOwner = currentRole === 'owner'
 
-  // Joining (link, auto-join, members can invite). A member sees the invite
+  // Joining (link, join by domain, members can invite). A member sees the invite
   // form while "members can invite" is on, offering member and guest only;
   // the invites route enforces the same rule.
   const { view: joinView, setView: setJoinView } = useJoinSettings()
@@ -1005,7 +1005,7 @@ export function WorkspaceSettingsView() {
           </div>
         )}
 
-        {/* Joining: the invite link, auto-join by domain, members can invite */}
+        {/* Joining: the invite link, join by email domain, members can invite */}
         <JoiningSection view={joinView} onChange={setJoinView} />
 
         {/* Agents outside this workspace (agent links, decision 5) */}

@@ -20,9 +20,8 @@ let pinged = false
  * cookie, so every auth method — OAuth, password, magic link, returning
  * session — is counted exactly once.
  *
- * The same call runs auto-join by email domain once per sign-in; when that
- * makes a brand-new account's team workspace the active one, the page reloads
- * into it.
+ * The same call checks join-by-email-domain once per sign-in; when a
+ * workspace on the person's domain is on offer, the page goes to /join/team.
  *
  * Fail-soft: a rejected fetch is swallowed. Analytics must never break the app.
  */
@@ -36,10 +35,10 @@ export function AuthSessionPinger() {
       keepalive: true,
     })
       .then((res) => (res.ok ? res.json() : null))
-      .then((body: { switchedWorkspace?: string } | null) => {
-        // A brand-new account just joined its team's workspace by email
-        // domain and the server made it the active one: open it.
-        if (body?.switchedWorkspace) window.location.assign('/account')
+      .then((body: { joinOffer?: boolean } | null) => {
+        // Workspaces on the person's email domain are on offer (checked once
+        // per sign-in): show them, one click each.
+        if (body?.joinOffer) window.location.assign('/join/team')
       })
       .catch(() => {})
   }, [])

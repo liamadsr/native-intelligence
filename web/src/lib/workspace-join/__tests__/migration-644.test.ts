@@ -1,10 +1,11 @@
 /**
- * Migration 644: joining a workspace. Pins the file: the two service-only
+ * Migration 644: joining a workspace. Pins the file: the three service-only
  * tables (RLS on, no policies, everything revoked from anon and
- * authenticated and nothing granted back), the lowercased unique domain
- * index, the token's shape, member.joined_via with its CHECK and its guard,
- * and the merge re-stamp restated from 473 with only the two deletes added.
- * Re-runnable, bounded, no backslash.
+ * authenticated and nothing granted back), listed domains stored lowercased
+ * ASCII with a plain (not unique) index, the token's shape, member.joined_via
+ * with its CHECK and its guard, is_free_email_domain restated from 241 with
+ * the relay and ISP domains added, and the merge re-stamp restated from 473
+ * with only the three deletes added. Re-runnable, bounded, no backslash.
  *
  * The SQL was also applied twice on PGlite (a real Postgres engine, one
  * connection, stubbed roles and auth schema) with RLS, grants, the unique
@@ -45,23 +46,34 @@ describe('migration 644', () => {
     }
   })
 
-  for (const table of ['workspace_join_settings', 'workspace_join_link']) {
+  for (const table of ['workspace_join_settings', 'workspace_join_link', 'workspace_join_domain']) {
     it(`${table}: RLS on, no policy, no client grant, the service role keeps all`, () => {
       expect(STATEMENTS).toContain(`alter table public.${table} enable row level security`)
       expect(STATEMENTS).toContain(`revoke all on table public.${table} from anon, authenticated`)
       expect(STATEMENTS).toContain(`grant all on table public.${table} to service_role`)
       expect(BODY).not.toMatch(new RegExp(`create policy [^;]* on public\\.${table}`, 'i'))
       expect(BODY).not.toMatch(new RegExp(`grant [^;]* on (table )?public\\.${table} to [^;]*(anon|authenticated)`, 'i'))
-      expect(BODY).toMatch(new RegExp(`create table if not exists public\\.${table} \\( workspace_id uuid primary key references public\\.workspace \\(id\\) on delete cascade`))
+      expect(BODY).toMatch(new RegExp(`create table if not exists public\\.${table} \\( workspace_id uuid (primary key|not null) references public\\.workspace \\(id\\) on delete cascade`))
     })
   }
 
-  it('a domain is claimed once, stored lowercased, and switched off by null', () => {
-    expect(STATEMENTS).toContain(
-      'create unique index if not exists workspace_join_settings_domain_key on public.workspace_join_settings (auto_join_domain) where auto_join_domain is not null',
-    )
-    expect(BODY).toContain('auto_join_domain = lower(btrim(auto_join_domain))')
+  it('domains: lowercased ASCII, one row per workspace and domain, several workspaces per domain', () => {
+    expect(BODY).toContain('primary key (workspace_id, domain)')
+    expect(BODY).toContain('domain = lower(btrim(domain))')
+    expect(BODY).toContain("domain ~ '^[a-z0-9]([a-z0-9-]*[a-z0-9])?([.][a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'")
+    expect(STATEMENTS).toContain('create index if not exists workspace_join_domain_domain_idx on public.workspace_join_domain (domain)')
+    expect(BODY).not.toMatch(/create unique index[^;]*workspace_join_domain/i)
+    expect(BODY).not.toContain('auto_join_domain')
     expect(BODY).toContain('members_can_invite boolean not null default false')
+  })
+
+  it('is_free_email_domain: 241 restated with relay and ISP domains, still the auth admin\'s to call', () => {
+    const fn = STATEMENTS.find((s) => s.startsWith('CREATE OR REPLACE FUNCTION public.is_free_email_domain(p_domain text)'))!
+    expect(fn).toContain("RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path = '' AS $$ SELECT lower(coalesce(p_domain, '')) = ANY (ARRAY[")
+    for (const d of ['gmail.com', 'privaterelay.appleid.com', 'mozmail.com', 'addy.io', 'spectrum.net', 'bigpond.com', 'getnada.com']) {
+      expect(fn, d).toContain(`'${d}'`)
+    }
+    expect(STATEMENTS).toContain('GRANT EXECUTE ON FUNCTION public.is_free_email_domain(text) TO supabase_auth_admin')
   })
 
   it('the link: a unique url-safe token of at least 128 bits, off by default', () => {
@@ -84,7 +96,7 @@ describe('migration 644', () => {
     expect(STATEMENTS).toContain('revoke execute on function public.member_guard_joined_via() from public, anon, authenticated')
   })
 
-  it('a merge drops the source’s link and claim: the re-stamp is 473’s plus two deletes, first', () => {
+  it('a merge drops the source’s link, domains and switches: the re-stamp is 473’s plus three deletes, first', () => {
     const newest = latestDefinition('_wsmerge_generic_restamp')
     expect(newest.file).toBe(FILE)
     const ours = newest.blocks.join('\n')
@@ -94,9 +106,10 @@ describe('migration 644', () => {
     ).blocks.join('\n')
     expect(before).not.toBe('')
     const added = [
-      '  -- Joining (644): the source\'s link and domain claim end with it. They are',
-      '  -- never handed to the destination, which keeps its own switches.',
+      '  -- Joining (644): the source\'s link, listed domains and switches end with',
+      '  -- it. They are never handed to the destination, which keeps its own.',
       '  DELETE FROM public.workspace_join_link WHERE workspace_id = p_source;',
+      '  DELETE FROM public.workspace_join_domain WHERE workspace_id = p_source;',
       '  DELETE FROM public.workspace_join_settings WHERE workspace_id = p_source;',
     ]
     const stripped = ours.split('\n').filter((l) => !added.includes(l)).join('\n')
@@ -108,7 +121,9 @@ describe('migration 644', () => {
   it('changes nothing else that already exists', () => {
     const touched = STATEMENTS.filter((s) => /^(create or replace function|alter table|drop|create trigger)/i.test(s))
     expect(touched.map((s) => s.slice(0, 80))).toEqual([
+      'CREATE OR REPLACE FUNCTION public.is_free_email_domain(p_domain text) RETURNS boolean LANGUAGE sql IMMUTABLE SE',
       'alter table public.workspace_join_settings enable row level security',
+      'alter table public.workspace_join_domain enable row level security',
       'alter table public.workspace_join_link enable row level security',
       'alter table public.member add column if not exists joined_via text constraint member_joined_via_check check (',
       "create or replace function public.member_guard_joined_via() returns trigger language plpgsql security definer s",

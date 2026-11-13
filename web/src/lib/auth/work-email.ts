@@ -24,9 +24,14 @@
  * login form was reached from an invite link (`?redirect=/invite/...`).
  *
  * KEEP `FREE_EMAIL_DOMAINS` IN SYNC with `public.is_free_email_domain`
- * (migration 241). The database list is the one that decides; this list only
- * decides whether the form bothers the server. Drift is not a security bug,
+ * (newest definition: migration 644; a test compares the two). The
+ * database list is the one that decides; this list only decides whether the
+ * form bothers the server. Drift is not a security bug,
  * just a worse error message (the server's) instead of the inline one.
+ *
+ * Workspace joining (src/lib/workspace-join/domains.ts) refuses these
+ * domains too: none may be listed for join-by-domain, and the database's
+ * workspace_join_domain CHECK asks the same SQL function.
  *
  * This list is deliberately BROADER than the CRM's `PERSONAL_DOMAINS`
  * (src/lib/crm/*), which answers a different question — "does this address
@@ -62,6 +67,17 @@ export const FREE_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
   // Disposable / throwaway
   'mailinator.com', 'guerrillamail.com', '10minutemail.com', 'temp-mail.org',
   'yopmail.com', 'sharklasers.com', 'trashmail.com', 'getnada.com',
+  // Relay and alias services (644): one domain shared by strangers
+  'privaterelay.appleid.com', 'mozmail.com', 'relay.firefox.com',
+  'simplelogin.com', 'simplelogin.co', 'slmail.me', 'aleeas.com',
+  'anonaddy.com', 'anonaddy.me', 'addy.io', 'passmail.net', 'passmail.com',
+  'passinbox.com', '33mail.com',
+  // More consumer ISP mailboxes (644)
+  'spectrum.net', 'rr.com', 'roadrunner.com', 'frontier.com', 'windstream.net',
+  'centurylink.net', 'xfinity.com', 'btinternet.com', 'sky.com', 'virginmedia.com',
+  'ntlworld.com', 'talktalk.net', 'blueyonder.co.uk', 'shaw.ca', 'rogers.com',
+  'bell.net', 'sympatico.ca', 'telus.net', 'videotron.ca', 'optusnet.com.au',
+  'bigpond.com', 'bigpond.net.au', 'iinet.net.au',
 ])
 
 /**

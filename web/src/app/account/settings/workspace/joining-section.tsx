@@ -21,7 +21,7 @@ export function useJoinSettings() {
       if (!res.ok) return
       const data = (await res.json()) as Partial<JoinSettingsView> | null
       // Only a whole answer: anything else leaves the section hidden.
-      if (data && data.link && data.autoJoin && Array.isArray(data.invitableRoles)) setView(data as JoinSettingsView)
+      if (data && data.link && data.byDomain && Array.isArray(data.invitableRoles)) setView(data as JoinSettingsView)
     } catch {
       // The section stays hidden; nothing else depends on it.
     }
@@ -32,10 +32,10 @@ export function useJoinSettings() {
   return { view, setView, reload }
 }
 
-type Busy = 'link' | 'auto_join' | 'members_can_invite' | 'reset' | null
+type Busy = 'link' | 'by_domain' | 'members_can_invite' | 'reset' | `remove:${string}` | null
 
 /**
- * "Joining": the shareable link (switch, Copy, Reset), auto-join by email
+ * "Joining": the shareable link (switch, Copy, Reset), join by email
  * domain, and "members can invite people". Owners and admins change them;
  * a member sees the link to copy only while members can invite; a guest sees
  * nothing here.
@@ -56,7 +56,7 @@ export function JoiningSection({
   // A member without "members can invite" (or a guest) has nothing to do here.
   if (!canManage && !view.link.url) return null
 
-  async function send(kind: Exclude<Busy, null>, init: { url: string; body?: Record<string, boolean> }) {
+  async function send(kind: Exclude<Busy, null>, init: { url: string; body?: Record<string, boolean | string[]> }) {
     setBusy(kind)
     setError('')
     try {
@@ -86,10 +86,11 @@ export function JoiningSection({
     }
   }
 
-  const domain = view.autoJoin.domain ?? view.autoJoin.yourDomain
-  const autoJoinOn = view.autoJoin.domain !== null
-  // Off and not claimable by this person: the switch can't go on, and says why.
-  const autoJoinBlocked = !autoJoinOn && view.autoJoin.blockedReason !== null
+  // Join by email domain: this admin's own domain is the switch; domains
+  // other admins listed show below it, each with Remove.
+  const { domains, yourDomain, unavailableReason } = view.byDomain
+  const mineOn = yourDomain !== null && domains.includes(yourDomain)
+  const others = domains.filter((d) => d !== yourDomain)
 
   return (
     <div className="mt-10" data-joining>
@@ -125,7 +126,13 @@ export function JoiningSection({
           </div>
           {view.link.url && (
             <div className="mt-2 flex items-center gap-2">
-              <Input readOnly value={view.link.url} aria-label="Invite link address" className="h-8 font-mono text-xs" />
+              <Input
+                readOnly
+                value={view.link.url}
+                aria-label="Invite link address"
+                // Kept out of session replay and autocapture: the link admits whoever holds it.
+                className="ph-no-capture h-8 font-mono text-xs"
+              />
               <Button variant="outline" size="sm" className="gap-1.5" onClick={copyLink}>
                 {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                 {copied ? 'Copied' : 'Copy'}
@@ -150,29 +157,51 @@ export function JoiningSection({
         </div>
 
         {canManage && (
-          <div className="flex items-center justify-between gap-4 px-4 py-3">
-            <div className="min-w-0">
-              <p className="text-sm font-medium">
-                {domain ? `Anyone with an @${domain} email can join` : 'Anyone with your email domain can join'}
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                People who sign in with a verified address on this domain join as members.
-              </p>
-              {autoJoinBlocked && (
-                <p className="mt-0.5 text-xs text-muted-foreground/80">{view.autoJoin.blockedReason}</p>
-              )}
+          <div className="px-4 py-3" data-by-domain>
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">
+                  {yourDomain ? `People with an @${yourDomain} email can join` : 'Join by email domain'}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  After signing in with a verified address, they can join with one click. Nobody is added without it.
+                </p>
+                {unavailableReason && (
+                  <p className="mt-0.5 text-xs text-muted-foreground/80">Unavailable: {unavailableReason}</p>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {busy === 'by_domain' && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                <Switch
+                  checked={mineOn}
+                  disabled={busy !== null || yourDomain === null}
+                  aria-label="Join by email domain"
+                  onCheckedChange={(val) =>
+                    send('by_domain', { url: '/api/account/workspace/join', body: { by_domain: val } })
+                  }
+                />
+              </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {busy === 'auto_join' && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-              <Switch
-                checked={autoJoinOn}
-                disabled={busy !== null || autoJoinBlocked}
-                aria-label="Auto-join by email domain"
-                onCheckedChange={(val) =>
-                  send('auto_join', { url: '/api/account/workspace/join', body: { auto_join: val } })
-                }
-              />
-            </div>
+            {others.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {others.map((d) => (
+                  <li key={d} className="flex items-center justify-between gap-4">
+                    <span className="truncate text-xs text-muted-foreground">People with an @{d} email can join</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-muted-foreground"
+                      disabled={busy !== null}
+                      onClick={() =>
+                        send(`remove:${d}`, { url: '/api/account/workspace/join', body: { remove_domains: [d] } })
+                      }
+                    >
+                      {busy === `remove:${d}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Remove'}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

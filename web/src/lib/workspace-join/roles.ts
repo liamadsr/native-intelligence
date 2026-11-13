@@ -2,7 +2,7 @@
  * Who may do what with joining. Pure rules, enforced by the API routes; the
  * settings page only follows them.
  *
- *   Owners and admins switch everything (the link, auto-join, members can
+ *   Owners and admins switch everything (the link, join by domain, members can
  *   invite), copy and reset the link, and invite as admin, member or guest.
  *   Members, while "members can invite" is on, copy the link and invite as
  *   member or guest, never admin. Guests never invite or see the link.

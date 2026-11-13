@@ -15,13 +15,13 @@ export interface JoinSettingsView {
   membersCanInvite: boolean
   invitableRoles: string[]
   link: { enabled: boolean; url: string | null }
-  autoJoin: {
-    /** The domain this workspace has claimed, or null when auto-join is off. */
-    domain: string | null
-    /** The caller's own domain, the only one they could switch on. */
+  byDomain: {
+    /** Domains whose verified addresses may join with one click. */
+    domains: string[]
+    /** The caller's own domain when they could list it, else null. */
     yourDomain: string | null
-    /** Why the caller can't switch it on, or null when they can. */
-    blockedReason: string | null
+    /** Why the caller can't list their domain, or null when they can. */
+    unavailableReason: string | null
   }
 }
 
@@ -38,10 +38,10 @@ export function joinSettingsView(settings: JoinSettings, role: string | null, us
       enabled: linkOn,
       url: mayCopy && linkOn && settings.link ? `${BASE_URL}${joinLinkPath(settings.link.token)}` : null,
     },
-    autoJoin: {
-      domain: settings.autoJoinDomain,
-      yourDomain: claim.domain,
-      blockedReason: claimRefusalText(claim),
+    byDomain: {
+      domains: settings.domains,
+      yourDomain: claim.ok ? claim.domain : null,
+      unavailableReason: claimRefusalText(claim),
     },
   }
 }

@@ -89,9 +89,14 @@ export function JoinLinkView({
               {alreadyMember ? (joining ? 'Opening...' : 'Open workspace') : joining ? 'Joining...' : 'Join workspace'}
             </Button>
           ) : (
-            <Button className="w-full" onClick={handleSignIn}>
-              Sign in to join
-            </Button>
+            <>
+              <Button className="w-full" onClick={handleSignIn}>
+                Sign in to join
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                New here? Sign up with your work email. For a personal address, ask for an emailed invite.
+              </p>
+            </>
           )}
         </CardContent>
       </Card>

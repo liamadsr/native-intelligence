@@ -2,7 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { getServiceClient } from '@/lib/admin'
 import { deepLinkPage, escapeHtml } from '@/lib/auth/deep-link-page'
 import { browserOrigin, postAuthRedirect } from '@/lib/auth/post-auth-redirect'
-import { joinByEmailDomainAtSignIn } from '@/lib/workspace-join/domain-join'
+import { hasDomainOfferAtSignIn } from '@/lib/workspace-join/domain-offer'
+import { JOIN_OFFER_PAGE, markCheckedThisSignIn } from '@/lib/workspace-join/sign-in-check'
 import { resolveChatGptAccount, sessionTokenHash } from '@/lib/chatgpt/account'
 import { DYNAMIC_CLIENT_ID, chatGptClient } from '@/lib/chatgpt/config'
 import { saveConnection } from '@/lib/chatgpt/connection'
@@ -101,9 +102,11 @@ export async function GET(request: NextRequest) {
     console.error('[chatgpt] session not created:', error.message)
     return fail(request, tx, 'auth_failed')
   }
-  // Auto-join by email domain (src/lib/workspace-join/domain-join.ts); never fails the sign-in.
-  await joinByEmailDomainAtSignIn(data?.user)
-  return finish(postAuthRedirect(request, browserOrigin(request)))
+  // Join by email domain (src/lib/workspace-join/domain-offer.ts), once per sign-in; never fails the sign-in.
+  const offer = await hasDomainOfferAtSignIn(data?.user)
+  return finish(
+    markCheckedThisSignIn(postAuthRedirect(request, browserOrigin(request), offer ? { home: JOIN_OFFER_PAGE } : {}), data?.user),
+  )
 }
 
 /** Clear the one-time transaction cookie on every outcome. */

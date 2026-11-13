@@ -79,6 +79,10 @@ vi.mock('@/lib/supabase/server', () => ({
   }),
 }))
 vi.mock('@/lib/workspace', () => ({ getCurrentWorkspaceId: async () => 'ws-1' }))
+// Removal is remembered on the person's account first (join-by-domain never offers it again).
+const marks = vi.hoisted(() => ({ recordLeftWorkspace: vi.fn(async (..._args: unknown[]) => {}) }))
+vi.mock('@/lib/workspace-join/marks', () => ({ recordLeftWorkspace: marks.recordLeftWorkspace }))
+vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({ service: true }) }))
 
 import { DELETE, PATCH } from '../route'
 
@@ -185,6 +189,26 @@ describe('PATCH /api/account/workspace/members/[id]', () => {
 describe('DELETE /api/account/workspace/members/[id]', () => {
   beforeEach(() => {
     state.caller = { id: 'm-caller', role: 'owner' }
+    marks.recordLeftWorkspace.mockReset()
+    marks.recordLeftWorkspace.mockResolvedValue(undefined)
+  })
+
+  it('removed by the owner: remembered on their account before the row goes, however they joined', async () => {
+    for (const joined_via of ['invite', 'link', 'domain', null]) {
+      marks.recordLeftWorkspace.mockClear()
+      state.deletes = []
+      state.target = { id: 'm-target', role: 'member', user_id: 'user-riley', joined_via } as unknown as Row
+      expect((await remove('m-target')).status).toBe(200)
+      expect(marks.recordLeftWorkspace).toHaveBeenCalledWith({ service: true }, 'user-riley', 'ws-1')
+      expect(state.deletes).toHaveLength(1)
+    }
+  })
+
+  it('stays in when the removal cannot be remembered: a 500, nothing deleted', async () => {
+    state.target = { id: 'm-target', role: 'member', user_id: 'user-riley' } as unknown as Row
+    marks.recordLeftWorkspace.mockRejectedValueOnce(new Error('auth down'))
+    expect((await remove('m-target')).status).toBe(500)
+    expect(state.deletes).toHaveLength(0)
   })
 
   it('the owner removes a member: exactly that non-owner row in this workspace', async () => {
