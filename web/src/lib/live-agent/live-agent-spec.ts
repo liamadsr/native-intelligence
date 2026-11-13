@@ -555,7 +555,7 @@ export async function rebuildLiveAgentContextBlock(
     claims.captureId,
     state.currentMemberName,
     claims.userId,
-    { talks: !isBatch && !state.notesRole, callCapture: state.callCapture },
+    { talks: !isBatch && !state.notesRole, callCapture: state.callCapture, endOfCall: isBatch },
   )
   const externalMcpBlock = state.callCapture
     ? ''

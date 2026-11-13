@@ -84,6 +84,8 @@ export interface LiveAgentToolOptions {
    * email draft, a CRM contact) is refused as a normal tool result.
    */
   callCapture?: boolean
+  /** The end-of-call pass on a call's capture: it may also stage follow-up email drafts (./call-capture-fence.ts). */
+  callCaptureEndOfCall?: boolean
 }
 
 /** search_contacts returns at most this many (visible) contacts. */
@@ -208,7 +210,7 @@ export function createLiveAgentTools(
       }),
       execute: async (params) => {
         // A call's capture proposes only what the call itself produced (./call-capture-fence.ts).
-        if (options.callCapture === true && !callCaptureChangeAllowed(params.change_type, params.entity_type)) {
+        if (options.callCapture === true && !callCaptureChangeAllowed(params.change_type, params.entity_type, options.callCaptureEndOfCall === true)) {
           return { success: false, error: CALL_CAPTURE_CHANGE_REFUSAL }
         }
         // Resolve who the assignee actually is. Precedence:

@@ -170,6 +170,52 @@ describe('the spec eve runs for a notes turn on a call’s capture (rebuilt from
   })
 })
 
+describe('the end-of-call pass on a call’s capture: owner-only follow-up drafts kept', () => {
+  /** The fixture, with a staged proposal's insert answered. */
+  const staged: Array<Record<string, unknown>> = []
+  const db = () => {
+    const base = meetingFixture()
+    return createFakeSupabase((q: FakeQuery) => {
+      if (q.table === 'proposed_change' && q.op === 'insert') {
+        staged.push(q.payload as Record<string, unknown>)
+        return { data: { id: 'pc-draft' }, error: null }
+      }
+      return base(q)
+    }).client
+  }
+  const build = (endOfCall: boolean) =>
+    createLiveAgentTools('u', db(), FIX.workspaceId, FIX.captureId, null, null, null, null, null, {
+      callCapture: true,
+      ...(endOfCall ? { callCaptureEndOfCall: true } : {}),
+    }) as unknown as Record<string, { execute: (input: Record<string, unknown>, ctx: unknown) => Promise<unknown> }>
+  const draft = { change_type: 'send_email', entity_type: 'action', display_text: 'Send Sam the pilot dates', email_to_name: 'Sam Ruiz', email_subject: 'Pilot dates', confidence: 0.9 }
+
+  it('the same tool map as the live notes (the drafts ride propose_change, nothing is added)', () => {
+    const live = computeLiveAgentCeiling({ turnType: 'notes', assistOnly: false, agentConfig: BUILTIN_ASSISTANT_TOOL_SELECTION, callCapture: true })
+    const end = computeLiveAgentCeiling({ turnType: 'batch', assistOnly: false, agentConfig: BUILTIN_ASSISTANT_TOOL_SELECTION, callCapture: true })
+    expect([...end.ceiling].sort()).toEqual([...live.ceiling].sort())
+  })
+
+  it('stages a follow-up email draft at the end of the call, never during it', async () => {
+    staged.length = 0
+    const atEnd = await build(true).propose_change.execute(draft, { toolCallId: 't', messages: [] })
+    expect(atEnd).not.toEqual({ success: false, error: CALL_CAPTURE_CHANGE_REFUSAL })
+    // A proposal on this capture (the owner's to review), nothing sent.
+    expect(staged).toHaveLength(1)
+    expect(staged[0]).toMatchObject({ change_type: 'send_email', entity_type: 'action', status: 'pending', email_to_name: 'Sam Ruiz' })
+    const live = await build(false).propose_change.execute(draft, { toolCallId: 't', messages: [] })
+    expect(live).toEqual({ success: false, error: CALL_CAPTURE_CHANGE_REFUSAL })
+    expect(staged).toHaveLength(1)
+  })
+
+  it('a new CRM contact, an update or a delete stays withheld at the end of the call too', async () => {
+    for (const [change_type, entity_type] of [['create', 'contact'], ['update', 'action'], ['delete', 'action'], ['assign', 'action']]) {
+      const out = await build(true).propose_change.execute({ change_type, entity_type, display_text: 'x' }, { toolCallId: 't', messages: [] })
+      expect(out, `${change_type}:${entity_type}`).toEqual({ success: false, error: CALL_CAPTURE_CHANGE_REFUSAL })
+    }
+  })
+})
+
 describe('propose_change on a call’s capture', () => {
   const tools = createLiveAgentTools('u', stub, 'w', 'c', null, null, null, null, null, { callCapture: true }) as unknown as Record<
     string,

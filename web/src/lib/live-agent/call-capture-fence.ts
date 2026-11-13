@@ -15,8 +15,9 @@
  *
  *   - the record's own writers: the summary (write_summary, update_summary),
  *     its title, the proposals this capture raises and their edits (new
- *     action items, decisions and milestones only: propose_change refuses
- *     any other change on a call's capture, src/lib/live-agent/tools.ts), and
+ *     action items, decisions and milestones, and in the end-of-call pass
+ *     only follow-up email drafts for the owner: propose_change refuses any
+ *     other change on a call's capture, src/lib/live-agent/tools.ts), and
  *     other people's commitments (record_commitment);
  *   - three structural reads with nothing private in them: who is in the
  *     workspace (to name an assignee), its labels and its workflow states.
@@ -29,9 +30,10 @@
  * and its proposals (propose_mcp_call), the talk tools, playbooks, and the
  * web. What that costs the notes: an action item said aloud is not linked to
  * a project or a CRM contact by name, an existing task is not updated or
- * reassigned from the call (a new one is proposed instead), nothing from
- * earlier meetings or documents is woven in, and no fact is looked up on the
- * web. The summary itself, the action items, the decisions and who said
+ * reassigned from the call (a new one is proposed instead), no new CRM
+ * contact is proposed, no follow-up email draft is made during the call (the
+ * end-of-call pass still makes them), nothing from earlier meetings or
+ * documents is woven in, and no fact is looked up on the web. The summary itself, the action items, the decisions and who said
  * what are unchanged.
  *
  * What each kept tool can reach beyond the capture:
@@ -88,9 +90,22 @@ export const CALL_CAPTURE_READ_TOOLS: ReadonlySet<string> = new Set<string>(['li
 /** What propose_change may stage on a call's capture: new action items, decisions and milestones. */
 export const CALL_CAPTURE_CHANGES: ReadonlySet<string> = new Set<string>(['create:action', 'create:decision', 'create:milestone'])
 
-/** Is this change one a call's capture may propose? */
-export function callCaptureChangeAllowed(changeType: string, entityType: string): boolean {
-  return CALL_CAPTURE_CHANGES.has(`${changeType}:${entityType}`)
+/**
+ * What the END-OF-CALL pass may stage beside them: follow-up email drafts.
+ * A draft is written only from the call's own words (every private read is
+ * withheld), lands only with the owner (a proposal on their capture, then a
+ * draft in their own drafts, pending their review), and sends nothing: an
+ * email never auto-sends, and the draft waits for the owner to send it. The
+ * live notes turn does not make them (a follow-up is the finished call's).
+ * A new CRM contact stays withheld: accepting one may write the call's words
+ * into an existing contact matched by name or address across the workspace,
+ * someone else's private one included, so it does not land only with the owner.
+ */
+export const CALL_CAPTURE_END_OF_CALL_CHANGES: ReadonlySet<string> = new Set<string>([...CALL_CAPTURE_CHANGES, 'send_email:action', 'send_email:contact'])
+
+/** Is this change one a call's capture may propose (the end-of-call pass, or a live turn)? */
+export function callCaptureChangeAllowed(changeType: string, entityType: string, endOfCall = false): boolean {
+  return (endOfCall ? CALL_CAPTURE_END_OF_CALL_CHANGES : CALL_CAPTURE_CHANGES).has(`${changeType}:${entityType}`)
 }
 
 /** What propose_change answers for any other change on a call's capture. */
@@ -108,8 +123,9 @@ export function callCaptureGuidance(endOfCall: boolean): string {
     "This capture is a call's: anyone in the call may have said any line, and everyone in the call's conversation reads what you write. On it you may:",
     '- write and update the summary and the title;',
     '- propose NEW action items, decisions and milestones (propose_change with change_type "create" and entity_type "action", "decision" or "milestone");',
+    ...(endOfCall ? ['- propose follow-up email drafts for the owner to review (propose_change with change_type "send_email"): written only from what was said;'] : []),
     '- record other people\'s commitments (record_commitment), and edit or dismiss the proposals this capture already made.',
-    'Do not propose updates, reassignments or deletions of existing items, email drafts or new contacts: they are refused here. Note them in the summary instead.',
+    `Do not propose updates, reassignments or deletions of existing items${endOfCall ? '' : ', email drafts'} or new contacts: they are refused here. Note them in the summary instead.`,
     'You cannot look anything up beyond the workspace\'s members, labels and workflow states: write only from what was said in this call.',
   ].join('\n')
 }

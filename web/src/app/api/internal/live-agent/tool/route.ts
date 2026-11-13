@@ -237,7 +237,7 @@ export async function POST(request: Request) {
     state.currentMemberId,
     state.currentMemberName,
     resolveClaimsAutoAcceptPolicyFromSettings(state.workspaceSettings),
-    { isEvalCapture, ...(state.callCapture ? { callCapture: true } : {}) },
+    { isEvalCapture, ...(state.callCapture ? { callCapture: true, ...(claims.turnType === 'batch' ? { callCaptureEndOfCall: true } : {}) } : {}) },
   )
   const readTools = buildLiveAgentReadTools(
     claims.userId,

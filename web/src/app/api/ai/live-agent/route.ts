@@ -480,7 +480,7 @@ export async function POST(req: Request) {
       currentMemberName,
       user.id,
       // A copilot turn speaks, so it also sees what it already told the user.
-      { talks: !isBatch && !notesRole, callCapture: callFenced },
+      { talks: !isBatch && !notesRole, callCapture: callFenced, endOfCall: isBatch },
     )
 
     // ── Attached context packages ("+ Packages" chip, mig 239) — LIVE ONLY ──
