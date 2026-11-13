@@ -52,6 +52,8 @@ import { Switch } from '@/components/ui/switch'
 import { useWorkspaceCacheRefresh } from '@/app/account/workspace-switcher'
 import { MergeWorkspaceSheet } from './merge-workspace-sheet'
 import { OutsideAgentLinksSection } from './outside-agent-links-section'
+import { JoiningSection, useJoinSettings } from './joining-section'
+import { joinedViaNote } from '@/lib/workspace-join/labels'
 import {
   DEFAULT_EDITION_ID,
   EDITIONS,
@@ -89,6 +91,8 @@ interface Member {
   role: string
   email: string
   created_at: string
+  /** How they joined (migration 644): 'invite', 'link', 'domain', or null. */
+  joined_via?: string | null
 }
 
 interface Invite {
@@ -193,6 +197,13 @@ export function WorkspaceSettingsView() {
 
   const isOwnerOrAdmin = currentRole === 'owner' || currentRole === 'admin'
   const isOwner = currentRole === 'owner'
+
+  // Joining (link, auto-join, members can invite). A member sees the invite
+  // form while "members can invite" is on, offering member and guest only;
+  // the invites route enforces the same rule.
+  const { view: joinView, setView: setJoinView } = useJoinSettings()
+  const inviteRoles = joinView?.invitableRoles ?? (isOwnerOrAdmin ? ['admin', 'member', 'guest'] : [])
+  const canSendInvites = inviteRoles.length > 0
 
   // Derived on every render from (edition, overrides), never stored: an
   // edition change therefore re-bases the whole card — defaults, Custom
@@ -784,6 +795,11 @@ export function WorkspaceSettingsView() {
                       <p className="truncate text-xs text-muted-foreground">
                         {member.email}
                       </p>
+                      {joinedViaNote(member.joined_via) && (
+                        <p className="truncate text-xs text-muted-foreground/70">
+                          {joinedViaNote(member.joined_via)}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -850,8 +866,8 @@ export function WorkspaceSettingsView() {
           </div>
         </div>
 
-        {/* Invites */}
-        {isOwnerOrAdmin && (
+        {/* Invites: owners and admins, and members while they may invite */}
+        {canSendInvites && (
           <div className="mt-10">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Mail className="h-4 w-4" />
@@ -882,9 +898,11 @@ export function WorkspaceSettingsView() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="member">Member</SelectItem>
-                    <SelectItem value="guest">Guest</SelectItem>
+                    {inviteRoles.map((r) => (
+                      <SelectItem key={r} value={r}>
+                        {ROLE_LABELS[r] ?? r}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -897,7 +915,7 @@ export function WorkspaceSettingsView() {
               <p className="mt-2 text-sm text-destructive">{inviteError}</p>
             )}
 
-            {invites.length > 0 && (
+            {isOwnerOrAdmin && invites.length > 0 && (
               <div className="mt-6 space-y-3">
                 <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   Pending Invites
@@ -986,6 +1004,9 @@ export function WorkspaceSettingsView() {
             )}
           </div>
         )}
+
+        {/* Joining: the invite link, auto-join by domain, members can invite */}
+        <JoiningSection view={joinView} onChange={setJoinView} />
 
         {/* Agents outside this workspace (agent links, decision 5) */}
         {currentRole && <OutsideAgentLinksSection />}
