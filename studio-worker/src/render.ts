@@ -13,13 +13,29 @@
  */
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readdir, rename, rm, stat, symlink } from 'node:fs/promises'
+import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 import type { EditorProject } from '../../web/src/lib/studio/engine/contracts.ts'
 import type { WorkerConfig } from './config.ts'
 import { buildSceneRuntime, RUNTIME_PATH } from './engine.ts'
 import { projectScenes } from './scenes.ts'
+import { linkDir, removeQuietly, unlinkDir } from './platform.ts'
+import { prebuiltBundle } from './bundle-dir.ts'
+
+/**
+ * The engine's render version (web/src/lib/studio/engine/render-version.ts), which a local export and a bundle built
+ * ahead are held to; null while the engine has none.
+ */
+export function engineRenderVersion(): string | null {
+  try {
+    const m = createRequire(import.meta.url)('../../web/src/lib/studio/engine/render-version.ts') as Record<string, unknown>
+    const v = m.RENDER_VERSION ?? m.STUDIO_RENDER_VERSION ?? m.renderVersion
+    return typeof v === 'string' ? v : null
+  } catch {
+    return null
+  }
+}
 
 export const COMPOSITION_ID = 'EditorVideo'
 const ENGINE_FILE = /\.(tsx?|css|json)$/
@@ -115,9 +131,10 @@ export class Renderer {
 
   /** The bundle for the engine as it is now: the one already made, or a new one (one at a time). */
   async bundle(log: Log): Promise<{ serveUrl: string; release: () => void }> {
-    const key = await engineFingerprint(this.config.engineDir)
+    const prebuilt = this.config.bundleDir
+    const key = prebuilt ? `prebuilt:${prebuilt}` : await engineFingerprint(this.config.engineDir)
     if (!this.bundling || this.bundling.key !== key) {
-      const promise = this.make(key, log)
+      const promise = prebuilt ? this.usePrebuilt(prebuilt, log) : this.make(key, log)
       this.bundling = { key, promise }
       promise.catch(() => {
         if (this.bundling?.promise === promise) this.bundling = null
@@ -136,6 +153,18 @@ export class Renderer {
         else this.inUse.delete(serveUrl)
       },
     }
+  }
+
+  /** A bundle built ahead (STUDIO_BUNDLE_DIR; bundle-dir.ts), from its copy here, the asset cache linked into it. */
+  private async usePrebuilt(dir: string, log: Log): Promise<string> {
+    const remotion = (createRequire(import.meta.url)('@remotion/renderer/package.json') as { version: string }).version
+    const outDir = await prebuiltBundle(dir, this.config.workDir, { renderVersion: engineRenderVersion(), remotion })
+    if (!existsSync(join(outDir, 'public', RUNTIME_PATH))) throw new Error('STUDIO_BUNDLE_DIR: the bundle has no code scene runtime')
+    const link = join(outDir, 'public', 'assets')
+    await unlinkDir(link)
+    await linkDir(this.assetsDir, link)
+    log(`Using the render bundle built ahead (${dir})`)
+    return outDir
   }
 
   private async make(key: string, log: Log): Promise<string> {
@@ -172,8 +201,9 @@ export class Renderer {
     // The bundle's public folder serves the asset cache as `assets/`.
     const link = join(outDir, 'public', 'assets')
     await mkdir(join(outDir, 'public'), { recursive: true })
-    await rm(link, { recursive: true, force: true })
-    await symlink(this.assetsDir, link, 'dir')
+    // The link itself, never the cache it points to (on Windows a junction).
+    await unlinkDir(link)
+    await linkDir(this.assetsDir, link)
     await this.dropOldBundles(outDir)
     return outDir
   }
@@ -182,7 +212,9 @@ export class Renderer {
     for (const name of await readdir(this.config.workDir).catch(() => [] as string[])) {
       const path = resolve(this.config.workDir, name)
       if (!/^bundle-[a-f0-9]{16}$/.test(name) || path === keep || this.inUse.has(path)) continue
-      await rm(path, { recursive: true, force: true }).catch(() => undefined)
+      // An old bundle's assets link goes first, so removing the bundle never reaches into the cache.
+      await unlinkDir(join(path, 'public', 'assets')).catch(() => undefined)
+      await removeQuietly(path)
     }
   }
 

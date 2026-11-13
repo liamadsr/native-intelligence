@@ -14,6 +14,8 @@ import { noteExportWatched } from './delivery'
 import { typeForName } from './media-types'
 import { COLLECTIONS, listRecords } from './records'
 import { getVideoRow, validateVideo } from './videos'
+import { localToken } from './local-jobs'
+import { STUDIO_RENDER_VERSION } from '../engine/render-version'
 
 /** The largest upload: 2 GB (a long screen recording). */
 export const MAX_UPLOAD_BYTES = 2 * 1024 ** 3
@@ -118,8 +120,43 @@ export async function queueExport(ctx: StudioContext, project: unknown, source: 
   return queueJob(ctx, 'export', { project: checked, title: checked.title, source, ...(checked.master ? { master: checked.master } : {}), ...(fonts.length ? { fonts } : {}) }, saved)
 }
 
-/** Render an edit to MP4 from the editor (delivery.ts tells the person only if they left before it finished). */
-export async function startExport(ctx: StudioContext, project: unknown): Promise<{ job: EditorJob }> {
+/** Whether an edit plays code scenes (a layer naming a scene module): those run only on the server's worker. Pure. */
+export function playsCodeScenes(project: EditorProject): boolean {
+  return (project.layers ?? []).some((layer) => {
+    const scene = (layer as { style?: { scene?: { id?: unknown } } }).style?.scene
+    return !!scene && typeof scene.id === 'string'
+  })
+}
+
+/** What a computer whose engine is not the Studio's is told (the Export dialog shows it, then exports on the server). */
+export const RENDER_VERSION_REFUSAL = "This computer's Studio app is a different version from the Studio, so it can't export this video. It's exported on our server instead."
+/** What a computer is told for a video with code scenes. */
+export const CODE_SCENES_REFUSAL = 'This video has code scenes, which only our server runs. It’s exported on our server instead.'
+
+/**
+ * Queue an export to run on the person's own computer, in the desktop app (job-contract.ts `local-export`): from the
+ * editor only (the agent's exports stay on the server). Refused (409) when the computer's engine is not this Studio's
+ * (`renderVersion`, engine/render-version.ts) or the video plays code scenes; the editor then exports on the server.
+ */
+export async function queueLocalExport(ctx: StudioContext, project: unknown, renderVersion: unknown): Promise<JobRow> {
+  if (renderVersion !== STUDIO_RENDER_VERSION) throw new StudioError(RENDER_VERSION_REFUSAL, 409, 'RENDER_VERSION')
+  const checked: EditorProject = await validateVideo(ctx, project)
+  if (playsCodeScenes(checked)) throw new StudioError(CODE_SCENES_REFUSAL, 409, 'CODE_SCENES')
+  const saved = (await getVideoRow(ctx, checked.id)) ? checked.id : null
+  const fonts = await exportFonts(ctx, checked).catch(() => [])
+  return queueJob(ctx, 'local-export', { project: checked, title: checked.title, source: 'editor', renderVersion: STUDIO_RENDER_VERSION, ...(checked.master ? { master: checked.master } : {}), ...(fonts.length ? { fonts } : {}) }, saved)
+}
+
+/**
+ * Render an edit to MP4 from the editor (delivery.ts tells the person only if they left before it finished). `where`
+ * 'computer' queues it for the desktop app on the person's own computer and answers the token the editor hands it;
+ * anything else, on the server.
+ */
+export async function startExport(ctx: StudioContext, project: unknown, options: { where?: unknown; renderVersion?: unknown } = {}): Promise<{ job: EditorJob; local?: { token: string; expiresAt: string } }> {
+  if (options.where === 'computer') {
+    const row = await queueLocalExport(ctx, project, options.renderVersion)
+    return { job: toEditorJob(row), local: await localToken(ctx, row.id) }
+  }
   return { job: toEditorJob(await queueExport(ctx, project, 'editor')) }
 }
 

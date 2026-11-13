@@ -5,6 +5,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
+import { binaryNames, toolName, toolPath } from './platform.ts'
 
 export interface RunOptions {
   timeout?: number
@@ -36,7 +37,7 @@ export const PROTOCOL_WHITELIST = 'file,pipe'
  * (it is an input option), for ffprobe before everything (its one input). Other tools are untouched. Pure.
  */
 export function fenceInputs(file: string, args: readonly string[]): string[] {
-  const tool = file.replace(/^.*[\\/]/, '')
+  const tool = toolName(file)
   const fence = ['-protocol_whitelist', PROTOCOL_WHITELIST]
   if (tool === 'ffprobe') return args.includes('-protocol_whitelist') ? [...args] : [...fence, ...args]
   if (tool !== 'ffmpeg') return [...args]
@@ -51,7 +52,7 @@ export function fenceInputs(file: string, args: readonly string[]): string[] {
 /** Run a tool and collect its output. The signal kills it (a cancelled job), as does the timeout. */
 export function run(file: string, args: string[], opts: RunOptions = {}): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile(file, fenceInputs(file, args), { timeout: opts.timeout ?? 180_000, maxBuffer: opts.maxBuffer ?? 8 * 1024 * 1024, signal: opts.signal, env: opts.env, cwd: opts.cwd, encoding: 'utf8' }, (err, stdout, stderr) => {
+    execFile(toolPath(file), fenceInputs(file, args), { timeout: opts.timeout ?? 180_000, maxBuffer: opts.maxBuffer ?? 8 * 1024 * 1024, signal: opts.signal, env: opts.env, cwd: opts.cwd, encoding: 'utf8', windowsHide: true }, (err, stdout, stderr) => {
       if (!err) return resolve({ stdout, stderr })
       const e = err as NodeJS.ErrnoException & { killed?: boolean }
       if (opts.signal?.aborted) return reject(new ToolError(`${file} stopped: the job was cancelled`, 'ABORT_ERR'))
@@ -65,7 +66,7 @@ export function run(file: string, args: string[], opts: RunOptions = {}): Promis
 /** Run a tool whose standard output is binary (raw samples). */
 export function runBuffer(file: string, args: string[], opts: RunOptions = {}): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    execFile(file, fenceInputs(file, args), { timeout: opts.timeout ?? 180_000, maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024, signal: opts.signal, encoding: 'buffer' }, (err, stdout, stderr) => {
+    execFile(toolPath(file), fenceInputs(file, args), { timeout: opts.timeout ?? 180_000, maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024, signal: opts.signal, encoding: 'buffer', windowsHide: true }, (err, stdout, stderr) => {
       if (!err) return resolve(stdout)
       if (opts.signal?.aborted) return reject(new ToolError(`${file} stopped: the job was cancelled`, 'ABORT_ERR'))
       const tail = String(stderr ?? '').trim().split('\n').slice(-4).join(' | ').slice(0, 600)
@@ -81,9 +82,10 @@ export const mediaTimeout = (seconds: number, perSecond = 3) => Math.max(180_000
  * Where a tool is: on PATH, else the usual places Homebrew and Debian put it.
  * Null when it is nowhere.
  */
-export function findBinary(name: string, extra: string[] = [], env: NodeJS.ProcessEnv = process.env): string | null {
-  const dirs = [...(env.PATH ?? '').split(delimiter).filter(Boolean), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']
-  for (const candidate of [...extra, ...dirs.map((d) => join(d, name))]) if (existsSync(candidate)) return candidate
+export function findBinary(name: string, extra: string[] = [], env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string | null {
+  const dirs = [...(env.PATH ?? env.Path ?? '').split(platform === 'win32' ? ';' : delimiter).filter(Boolean), ...(platform === 'win32' ? [] : ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'])]
+  const names = binaryNames(name, platform, env.PATHEXT)
+  for (const candidate of [...extra, ...dirs.flatMap((d) => names.map((n) => join(d, n)))]) if (existsSync(candidate)) return candidate
   return null
 }
 

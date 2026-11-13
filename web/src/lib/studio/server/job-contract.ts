@@ -265,6 +265,74 @@ export type LivePieces = {
 }
 export { blobKey as BlobKey }
 
+// ---- the person's own computer -----------------------------------------------------------------------------
+//
+// An export can run on the person's own computer, in the desktop app (macOS and Windows), instead of the shared
+// worker: a studio_job of kind `local-export`. It is never a server worker's: the kind is kept out of
+// STUDIO_JOB_KINDS, so ClaimBody refuses it and studio_claim_job is never asked for it. The person's signed-in
+// editor queues it (POST /api/account/studio/export {project, where: 'computer', renderVersion}) and is answered a
+// token for that one job (local-token.ts), which the editor hands to the desktop app. The desktop app then works the
+// job through its own routes, every one POST and JSON, `Authorization: Bearer <token>`, under
+// /api/local-agent/studio-export/:
+//
+//   take                 {}                                        -> LocalTaken (the job, and a token that holds it)
+//   progress             {progress, log?}                          -> {cancelRequested, token, expiresAt}
+//   complete             {result: ExportResult}                    -> {ok: true}   (422 when the file is not right)
+//   fail                 {error}                                   -> {ok: true}
+//   blobs/read           {key}                                     -> BlobRead     (only a key the frozen project names)
+//   blobs/write          {key, bytes, contentType: 'video/mp4'}    -> BlobWrite    (only its own exports/<id>/<attempt>/video.mp4)
+//   blobs/commit         {key}                                     -> {ok: true}   (refused unless the file starts as an MP4)
+//
+// A token lasts LOCAL_TOKEN_SECONDS; `take` and every `progress` answer a fresh one, which replaces the old. A token
+// minted by the editor can only take; the one `take` answers names this attempt and works the job until it ends.
+// Taken again after the computer went quiet (the stale rule puts a running job back in the queue after 180 s, and
+// fails it after 3 attempts) the job starts over as a new attempt, from the token the editor mints again
+// (POST /api/account/studio/jobs/<id>/local-token). The editor can also move a queued one to the server
+// (POST /api/account/studio/jobs/<id>/to-server): it becomes an ordinary `export`.
+
+/** Kinds the person's own computer runs (the desktop app), never a server worker. */
+export const LOCAL_JOB_KINDS = ['local-export'] as const
+export type LocalJobKind = (typeof LOCAL_JOB_KINDS)[number]
+
+/**
+ * local-export: an `export`, plus the render version the desktop app's engine was built from (the app refuses one
+ * that is not the server's own, engine/render-version.ts). `source` is always the editor: the agent's exports run on
+ * the server.
+ */
+export type LocalExportInput = ExportInput & { renderVersion: string; source: 'editor' }
+export type LocalJobIO = { 'local-export': { input: LocalExportInput; result: ExportResult } }
+
+/** How long a local job's token lasts (seconds): `take` and each progress answer give a new one. */
+export const LOCAL_TOKEN_SECONDS = 10 * 60
+/** The largest export a computer may store: 8 GB (two hours of 4K at a high rate). */
+export const LOCAL_EXPORT_MAX_BYTES = 8 * 1024 ** 3
+
+export const LocalTakeBody = z.object({}).strict()
+export const LocalProgressBody = z.object({ progress: z.number().min(0).max(1), log: z.string().max(2000).optional() }).strict()
+export const LocalCompleteBody = z.object({
+  result: z.object({
+    key: blobKey,
+    bytes: z.number().int().min(1).max(LOCAL_EXPORT_MAX_BYTES),
+    width: z.number().int().min(1).max(16384),
+    height: z.number().int().min(1).max(16384),
+    fps: z.number().min(1).max(240),
+    durationSeconds: z.number().min(0).max(24 * 3600),
+  }).strict(),
+}).strict()
+export const LocalFailBody = z.object({ error: z.string().min(1).max(4000) }).strict()
+export const LocalBlobReadBody = z.object({ key: blobKey }).strict()
+export const LocalBlobWriteBody = z.object({ key: blobKey, bytes: z.number().int().min(1).max(LOCAL_EXPORT_MAX_BYTES), contentType: z.literal('video/mp4') }).strict()
+export const LocalBlobCommitBody = z.object({ key: blobKey }).strict()
+
+/** A local job as `take` answers it: the job (as a worker's claim reads), and the token that now holds it. */
+export type LocalTaken = {
+  job: { id: string; kind: LocalJobKind; workspaceId: string; videoId: string | null; input: LocalExportInput; attempts: number }
+  token: string
+  expiresAt: string
+}
+/** What `progress` answers: whether the person asked it to stop, and the token to use from now on. */
+export type LocalProgress = { cancelRequested: boolean; token: string; expiresAt: string }
+
 /** The parts a file of `bytes` is cut into. An empty file is one empty part. */
 export function blobParts(bytes: number, partBytes = STUDIO_PART_BYTES): { index: number; bytes: number }[] {
   const count = Math.max(1, Math.ceil(bytes / partBytes))

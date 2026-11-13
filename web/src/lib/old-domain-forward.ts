@@ -181,7 +181,7 @@ export const API_FAMILIES: Readonly<Record<string, string>> = {
   intake: 'Forms on businesses\' own sites (cross-origin POST with a preflight).',
   internal: 'The eight agents calling back into the app; they refuse any redirect.',
   links: 'The single-use links\' buttons (POST, same-origin check).',
-  'local-agent': 'The agent on the person\'s Mac and the desktop app (tokens; redirects refused).',
+  'local-agent': 'The agent on the person\'s Mac and the desktop app (tokens; redirects refused), also its Studio exports made on the person\'s computer (studio-export, a token for one job).',
   marketplace: 'The app\'s pages.',
   mcp: 'MCP clients: the MCP server, its OAuth authorize, token and registration steps, named after the host the client connected to.',
   'mcp-oauth': 'MCP connectors\' OAuth callbacks: a binding cookie on the domain the connect began on.',

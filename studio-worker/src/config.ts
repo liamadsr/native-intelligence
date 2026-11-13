@@ -43,9 +43,11 @@
  *   STUDIO_FAST_EXPORT         on/off (default on): an export that is only a recording, its cuts and its camera bubble
  *                              is composed by FFmpeg instead of drawn in Chrome (./fast-export.ts); off, Chrome draws all.
  */
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { availableParallelism, hostname, tmpdir } from 'node:os'
-import { dirname, resolve } from 'node:path'
+import { dirname, isAbsolute, resolve } from 'node:path'
+import { ENCODER_PROFILES, type EncoderProfile } from './encoders.ts'
+import { setTools } from './platform.ts'
 import { fileURLToPath } from 'node:url'
 import type { StudioJobKind } from '../../web/src/lib/studio/server/job-contract.ts'
 import { STUDIO_JOB_KINDS } from './engine.ts'
@@ -79,6 +81,13 @@ export interface WorkerConfig {
   codeScenes: boolean
   /** Compose plain exports with FFmpeg (STUDIO_FAST_EXPORT; fast-export.ts). */
   fastExport: boolean
+  /** How the fast export encodes its picture (STUDIO_FAST_ENCODER; encoders.ts): x264 on the server. */
+  fastEncoder: EncoderProfile
+  /** FFmpeg and ffprobe to run (STUDIO_FFMPEG, STUDIO_FFPROBE: absolute paths), null for the ones on PATH. */
+  ffmpeg: string | null
+  ffprobe: string | null
+  /** A render bundle built ahead (STUDIO_BUNDLE_DIR; bundle-dir.ts), null to bundle the engine here. */
+  bundleDir: string | null
 }
 
 export const DEV_SECRET = 'dev-studio-worker'
@@ -161,7 +170,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cpus: () => num
   if (codeScenes === null) problems.push('STUDIO_CODE_SCENES must be on or off')
   const fastExport = onOff(env, 'STUDIO_FAST_EXPORT', true)
   if (fastExport === null) problems.push('STUDIO_FAST_EXPORT must be on or off')
+  const fastEncoder = (setting(env, 'STUDIO_FAST_ENCODER') ?? 'x264') as EncoderProfile
+  if (!ENCODER_PROFILES.includes(fastEncoder)) problems.push(`STUDIO_FAST_ENCODER must be one of ${ENCODER_PROFILES.join(', ')}`)
+  const tool = (name: string) => {
+    const v = setting(env, name)
+    if (v && (!isAbsolute(v) || !existsSync(v))) problems.push(`${name} must be the absolute path of a file that exists`)
+    return v ?? null
+  }
+  const ffmpeg = tool('STUDIO_FFMPEG'), ffprobe = tool('STUDIO_FFPROBE')
+  const bundleDir = setting(env, 'STUDIO_BUNDLE_DIR') ? resolve(setting(env, 'STUDIO_BUNDLE_DIR')!) : null
   if (problems.length > 0) return { problems }
+  // Every FFmpeg and ffprobe run of this process goes to these (media.ts, fast-sound.ts).
+  if (ffmpeg || ffprobe) setTools({ ffmpeg, ffprobe })
   const gb = 1024 ** 3
   return {
     appUrl: appUrl.replace(/\/+$/, ''),
@@ -188,5 +208,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cpus: () => num
     earshotDir: setting(env, 'STUDIO_EARSHOT_DIR') ? resolve(setting(env, 'STUDIO_EARSHOT_DIR')!) : null,
     codeScenes: codeScenes!,
     fastExport: fastExport!,
+    fastEncoder, ffmpeg, ffprobe, bundleDir,
   }
 }

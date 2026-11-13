@@ -4,6 +4,7 @@
 // one-call import answered; otherwise, or when the job is still running, it answers {job} to poll.
 import { attachTranscript, importTimedTranscript, listAssets } from '../assets'
 import { videoExports } from '../jobs'
+import { localToken, moveToServer } from '../local-jobs'
 import { importPresenter, importSlides, importUpload, jobStatus, listSlideDecks, startExport, startUpload, stopJob } from '../media'
 import { route, type StudioRoute } from '../router'
 
@@ -24,7 +25,14 @@ export const mediaRoutes: StudioRoute[] = [
   // A transcript already registered for the asset; null tells the editor there is nothing to attach.
   route('POST', 'transcripts/attach', async ({ ctx, body }) => ({ transcript: await attachTranscript(ctx, (await body()).assetId) })),
 
-  route('POST', 'export', async ({ ctx, body }) => startExport(ctx, (await body()).project)),
+  // {project, where?: 'computer' | 'server', renderVersion?}: 'computer' runs it in the desktop app (local-jobs.ts).
+  route('POST', 'export', async ({ ctx, body }) => {
+    const b = await body()
+    return startExport(ctx, b.project, { where: b.where, renderVersion: b.renderVersion })
+  }),
+  // A token for the person's own export on their computer (the desktop app takes it with it), and "Finish on the server".
+  route('POST', 'jobs/:id/local-token', async ({ ctx, params }) => localToken(ctx, params.id!)),
+  route('POST', 'jobs/:id/to-server', async ({ ctx, params }) => moveToServer(ctx, params.id!)),
   route('GET', 'jobs/:id', async ({ ctx, params }) => jobStatus(ctx, params.id!)),
   route('POST', 'jobs/:id/cancel', async ({ ctx, params }) => stopJob(ctx, params.id!)),
   // A video's finished exports still kept, newest first (the Export dialog's list).

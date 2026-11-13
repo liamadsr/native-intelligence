@@ -1,15 +1,21 @@
 /**
- * Running a fast-export plan (fast-export.ts): each clip composed by FFmpeg, the clips joined without re-encoding,
- * the sound (Remotion's own mix, rendered alone) joined to them, then checked before anyone sees it:
- * - the frame count and the duration are the composition's;
- * - a few frames (the first with the bubble, the first of a blend, one late in the video) drawn by Chrome itself are
- *   compared with the same frames of the file (CHECK_DB below). About 2 s of Chrome on a Mac.
- * Any error or a failed check throws; the export job then renders the whole video in Chrome instead.
+ * Running a fast-export plan (fast-export.ts): the files checked first (codec, colour, shape, every frame used on its
+ * file's frame grid), each clip composed by FFmpeg, the clips joined without re-encoding, the sound (fast-sound.ts, or
+ * Remotion's own mix) joined to them, then checked before anyone sees it:
+ * - the frame count is the composition's (the packets counted);
+ * - at a few places in each clip (its two ends, after a blend, where the source changes most) the frames FFmpeg's graph
+ *   had are the source frames the plan says, bit for bit (hashes from the graph against frames decoded alone);
+ * - a few frames (the first with the bubble, one in a blend, the one where the recording changes most) drawn by Chrome
+ *   itself are compared with the same frames of the file (CHECK_DB below).
+ * Any error or a failed check throws (and stops the other branches); the export job then renders the whole video in
+ * Chrome instead, after removing what this left in its scratch folder.
  */
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { probe, run } from './media.ts'
-import { planFiles, segmentArgs, sourcesFit, bubbleGeometry, type FastPlan } from './fast-export.ts'
+import { concatLine } from './platform.ts'
+import { encoderArgs, type EncoderProfile } from './encoders.ts'
+import { planFiles, segmentArgs, sourcesFit, stampsFit, bubbleGeometry, bubbleSampling, type FastPlan, type SegmentPlan } from './fast-export.ts'
 
 /** The least a sampled frame may score against Chrome's drawing of it: the whole frame, and inside the bubble. */
 export const CHECK_DB = { frame: 34, bubble: 25 }
@@ -26,26 +32,57 @@ export interface FastRun {
   sound: (out: string) => Promise<void>
   /** Chrome's drawing of these frames, as PNG files (frame → path). */
   stills: (frames: number[]) => Promise<Map<number, string>>
+  /** Stops what Chrome is doing for this run (the picture failed: nothing it makes is needed). */
+  abortChrome?: () => void
+  /** How the picture is encoded (encoders.ts): x264 unless said. */
+  encoder?: EncoderProfile
 }
 
 const timeout = (frames: number, fps: number) => Math.max(180_000, Math.ceil((frames / fps) * 20_000))
 
 export async function composeFast(r: FastRun): Promise<string> {
-  const { plan, scratch, signal } = r
-  // What the files are made of must be what the plan assumes (codec, pixels, colour, timing from 0).
+  const { plan, scratch } = r
+  // A failure anywhere stops the rest: FFmpeg's runs by this signal, Chrome's by r.abortChrome.
+  const inner = new AbortController(), signal = AbortSignal.any([r.signal, inner.signal])
+  const stop = (err: unknown) => { if (!inner.signal.aborted) { inner.abort(); r.abortChrome?.() } throw err }
+  // What the files are made of must be what the plan assumes (codec, pixels, colour, shape, timing from 0), and every
+  // frame the plan shows must sit on its file's frame grid (read only around the stretches used, not the whole file).
   const streams = await Promise.all(planFiles(plan).map(async (file) => {
     const v = (await probe(r.path(file), { signal })).streams.find((s) => s.codec_type === 'video') as Record<string, unknown> | undefined
+    const side = (v?.side_data_list as { rotation?: number }[] | undefined)?.find((d) => d.rotation !== undefined)?.rotation
+    const tagged = (v?.tags as { rotate?: string } | undefined)?.rotate
     return { file, codec: v?.codec_name as string | undefined, pixFmt: v?.pix_fmt as string | undefined, colorSpace: v?.color_space as string | undefined,
-      colorRange: v?.color_range as string | undefined, startTime: v?.start_time === undefined ? 0 : Number(v.start_time) }
+      colorRange: v?.color_range as string | undefined, colorPrimaries: v?.color_primaries as string | undefined, colorTransfer: v?.color_transfer as string | undefined,
+      sar: v?.sample_aspect_ratio as string | undefined, rotation: Number(side ?? tagged ?? 0) % 360, startTime: v?.start_time === undefined ? 0 : Number(v.start_time) }
   }))
   const misfit = sourcesFit(streams)
   if (misfit) throw new Error(misfit)
+  const packets = new Map<string, Map<number, { size: number; key: boolean }>>()
+  for (const [file, ranges] of usedFrames(plan)) {
+    const srcFps = ranges[0]!.srcFps
+    // Overlapping stretches read once (ffprobe would list their packets twice).
+    const spans = ranges.map((x) => [Math.max(0, x.first / srcFps - 1), x.last / srcFps + 1] as [number, number]).sort((a, b) => a[0] - b[0])
+      .reduce<[number, number][]>((out, x) => { const last = out.at(-1); if (last && x[0] <= last[1]) last[1] = Math.max(last[1], x[1]); else out.push(x); return out }, [])
+    const intervals = spans.map(([a, b]) => `${a.toFixed(3)}%${b.toFixed(3)}`).join(',')
+    const { stdout } = await run('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-read_intervals', intervals, '-show_entries', 'packet=pts_time,size,flags', '-of', 'csv=p=0', r.path(file)],
+      { signal, maxBuffer: 64 * 1024 * 1024, timeout: timeout(plan.frames, plan.fps) })
+    const rows = stdout.split('\n').filter(Boolean).map((l) => l.split(','))
+    const stamps = rows.map((x) => Number(x[0]))
+    for (const x of ranges) {
+      const why = stampsFit(stamps, srcFps, x.first, x.last)
+      if (why) throw new Error(`${file}: ${why}`)
+    }
+    packets.set(file, new Map(rows.map((x) => [Math.round(Number(x[0]) * srcFps), { size: Number(x[1]), key: (x[2] ?? '').includes('K') }])))
+  }
+  const change = (file: string, i: number) => { const p = packets.get(file)?.get(i); return p && !p.key ? p.size : 0 }
 
   // FFmpeg draws the picture while Chrome (one browser) works on what only it can give: the sound's checked windows,
-  // then the frames the picture is checked against. The two run side by side; the file is checked once both are done.
+  // then the frames the picture is checked against. Beside them, the source frames the picture must show at a few
+  // places are hashed straight from the files, to compare with what FFmpeg's graph had there (hashFrames).
   const t0 = Date.now(), secs = (a: number, b: number) => ((b - a) / 1000).toFixed(1)
-  const wav = join(scratch, 'fast-sound.wav'), frames = sampleFrames(plan)
+  const wav = join(scratch, 'fast-sound.wav'), frames = sampleFrames(plan, change)
   const times = { picture: 0, sound: 0, chromeFrames: 0 }
+  const hashes = plan.segments.map((seg, i) => ({ ...hashFrames(seg, change), screenOut: join(scratch, `fast-${i}-screen.md5`), cameraOut: join(scratch, `fast-${i}-camera.md5`) }))
   const chrome = (async () => {
     const a = Date.now()
     await r.sound(wav)
@@ -54,39 +91,120 @@ export async function composeFast(r: FastRun): Promise<string> {
     times.sound = b - a
     times.chromeFrames = Date.now() - b
     return stills
-  })()
+  })().catch(stop)
+  const references = Promise.all(plan.segments.map(async (seg, i) => ({
+    screen: await sourceHashes(r.path(seg.screen.file), seg.screen.srcFps, hashes[i]!.screen.map((l) => seg.screen.map[l]!), null, signal),
+    camera: seg.bubble ? await sourceHashes(r.path(seg.bubble.camera.file), seg.bubble.camera.srcFps, hashes[i]!.camera.map((l) => seg.bubble!.camera.map[l]!), bubbleSampling(bubbleGeometry(seg.bubble)), signal) : [],
+  }))).catch(stop)
   const picture = (async () => {
     const parts: string[] = []
     let done = 0
     for (const [i, seg] of plan.segments.entries()) {
       const out = join(scratch, `fast-${i}.mp4`)
-      await run('ffmpeg', segmentArgs(seg, plan.fps, r.path, out), { timeout: timeout(seg.frames, plan.fps), maxBuffer: 4 * 1024 * 1024, signal })
+      await run('ffmpeg', segmentArgs(seg, plan.fps, r.path, out, seg.bubble ? hashes[i] : { ...hashes[i]!, camera: [] }, encoderArgs(r.encoder ?? 'x264', plan.width, plan.height, plan.fps)),
+        { timeout: timeout(seg.frames, plan.fps), maxBuffer: 4 * 1024 * 1024, signal })
       parts.push(out)
       done += seg.frames
       r.progress(0.7 * done / plan.frames)
     }
     const list = join(scratch, 'fast-parts.txt')
-    await writeFile(list, parts.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n') + '\n')
+    await writeFile(list, parts.map(concatLine).join('\n') + '\n')
     const file = join(scratch, 'fast-picture.mp4')
     await run('ffmpeg', ['-nostdin', '-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', file],
       { timeout: timeout(plan.frames, plan.fps), maxBuffer: 4 * 1024 * 1024, signal })
     times.picture = Date.now() - t0
     return file
-  })()
-  const [p, c] = await Promise.allSettled([picture, chrome])
-  if (p.status === 'rejected') throw p.reason
-  if (c.status === 'rejected') throw c.reason
+  })().catch(stop)
+  const [pictureFile, stills, refs] = await Promise.all([picture, chrome, references])
+  // The source frames FFmpeg's graph actually had, at the sampled places, against the plan's: bit for bit.
+  for (const [i, seg] of plan.segments.entries()) {
+    const h = hashes[i]!
+    const got = { screen: await readHashes(h.screenOut, h.screen.length), camera: seg.bubble ? await readHashes(h.cameraOut, h.camera.length) : [] }
+    for (const kind of ['screen', 'camera'] as const) for (const [k, l] of h[kind].entries()) {
+      const source = kind === 'screen' ? seg.screen.map[l] : seg.bubble!.camera.map[l]
+      if (got[kind][k] !== refs[i]![kind][k]) throw new Error(`clip ${i + 1}'s ${kind} frame ${l} is not source frame ${source}`)
+    }
+  }
   const t1 = Date.now()
   r.progress(0.85)
   const output = join(scratch, 'video.fast.mp4')
   // AAC at Remotion's rate and bitrate (48 kHz, 320 kb/s), the picture copied.
-  await run('ffmpeg', ['-nostdin', '-v', 'error', '-y', '-i', p.value, '-i', wav, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy',
+  await run('ffmpeg', ['-nostdin', '-v', 'error', '-y', '-i', pictureFile, '-i', wav, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy',
     '-c:a', 'aac', '-b:a', '320k', '-ar', '48000', '-movflags', '+faststart', output], { timeout: timeout(plan.frames, plan.fps), maxBuffer: 4 * 1024 * 1024, signal })
   const t2 = Date.now()
-  await check(r, output, frames, c.value)
-  r.log(`Fast export: picture ${secs(0, times.picture)} s, alongside it the sound ${secs(0, times.sound)} s and Chrome's check frames ${secs(0, times.chromeFrames)} s; joining ${secs(t1, t2)} s, comparing ${secs(t2, Date.now())} s`)
+  await check(r, output, frames, stills)
+  const checked = hashes.reduce((n, h) => n + h.screen.length + h.camera.length, 0)
+  r.log(`Fast export: picture ${secs(0, times.picture)} s, alongside it the sound ${secs(0, times.sound)} s and Chrome's check frames ${secs(0, times.chromeFrames)} s; ${checked} source frames matched bit for bit; joining ${secs(t1, t2)} s, comparing ${secs(t2, Date.now())} s`)
   r.progress(1)
   return output
+}
+
+/**
+ * Where to compare the frames FFmpeg's graph had with the source frames the plan says (output frames of the clip, and
+ * of its camera stretch): the first and the last (the cut's two sides), the first after a blend, and the two where the
+ * source changes most from the frame before (`change`: the frame's packet size, keyframes 0), so a frame early or late
+ * would show. Pure.
+ */
+export function hashFrames(seg: SegmentPlan, change: (file: string, index: number) => number): { screen: number[]; camera: number[] } {
+  const pick = (map: number[], file: string, must: number[]) => {
+    const moves = map.map((i, l) => ({ l, size: l === 0 || map[l - 1] !== i ? change(file, i) : 0 })).filter((x) => x.size > 0).sort((a, b) => b.size - a.size || a.l - b.l)
+    return [...new Set([...must, ...moves.slice(0, 2).map((x) => x.l)])].filter((l) => l >= 0 && l < map.length).sort((a, b) => a - b)
+  }
+  return {
+    screen: pick(seg.screen.map, seg.screen.file, [0, seg.screen.map.length - 1, ...(seg.blend ? [seg.blend.frames] : [])]),
+    camera: seg.bubble ? pick(seg.bubble.camera.map, seg.bubble.camera.file, [0, seg.bubble.camera.map.length - 1]) : [],
+  }
+}
+
+/** MD5s of source frames (each decoded alone, from a seek), through `filters` when given, as framemd5 writes them. */
+async function sourceHashes(file: string, srcFps: number, indices: number[], filters: string | null, signal: AbortSignal): Promise<string[]> {
+  const out: string[] = []
+  for (const i of indices) {
+    const { stdout } = await run('ffmpeg', ['-nostdin', '-v', 'error', '-ss', (Math.max(0, i - 0.5) / srcFps).toFixed(6), '-i', file, '-map', '0:v:0', ...(filters ? ['-vf', filters] : []),
+      '-frames:v', '1', '-f', 'framemd5', '-'], { signal })
+    out.push(lastHashes(stdout)[0] ?? '')
+  }
+  return out
+}
+const lastHashes = (text: string) => text.split('\n').filter((l) => l && !l.startsWith('#')).map((l) => l.split(',').at(-1)!.trim())
+async function readHashes(file: string, count: number): Promise<string[]> {
+  if (!count) return []
+  const hashes = lastHashes(await readFile(file, 'utf8'))
+  if (hashes.length !== count) throw new Error(`the graph hashed ${hashes.length} frames, not ${count}`)
+  return hashes
+}
+
+/** Per file, the stretches of source frames the plan shows (each clip's screen, a blend's held frame, the camera). Pure. */
+export function usedFrames(plan: FastPlan): Map<string, { srcFps: number; first: number; last: number }[]> {
+  const out = new Map<string, { srcFps: number; first: number; last: number }[]>()
+  const add = (file: string, srcFps: number, first: number, last: number) => out.set(file, [...(out.get(file) ?? []), { srcFps, first, last }])
+  for (const seg of plan.segments) {
+    add(seg.screen.file, seg.screen.srcFps, seg.screen.map[0]!, seg.screen.map.at(-1)!)
+    if (seg.blend) add(seg.blend.file, seg.blend.srcFps, seg.blend.index, seg.blend.index)
+    if (seg.bubble) add(seg.bubble.camera.file, seg.bubble.camera.srcFps, seg.bubble.camera.map[0]!, seg.bubble.camera.map.at(-1)!)
+  }
+  return out
+}
+
+/**
+ * The frames checked against Chrome: the first with the bubble, one in a blend, and the one where the recording changes
+ * most from the frame before (`change`: the frame's packet size; with nothing known, one 80 % of the way through), so
+ * a picture a frame early or late scores low there. Pure.
+ */
+export function sampleFrames(plan: FastPlan, change: (file: string, index: number) => number = () => 0): number[] {
+  const out = new Set<number>()
+  const withBubble = plan.segments.find((s) => s.bubble)
+  if (withBubble) out.add(withBubble.startFrame + withBubble.bubble!.offset)
+  const blended = plan.segments.find((s) => s.blend)
+  if (blended) out.add(blended.startFrame + Math.floor(blended.blend!.frames / 2))
+  let most = { frame: Math.min(plan.frames - 1, Math.floor(plan.frames * 0.8)), size: 0 }
+  for (const seg of plan.segments) for (const [l, i] of seg.screen.map.entries()) {
+    if (l < (seg.blend?.frames ?? 0) || (l > 0 && seg.screen.map[l - 1] === i)) continue
+    const size = change(seg.screen.file, i)
+    if (size > most.size) most = { frame: seg.startFrame + l, size }
+  }
+  out.add(most.frame)
+  return [...out].sort((a, b) => a - b)
 }
 
 /** The file's frame count, and the sampled frames against Chrome's drawing of them. */
@@ -100,29 +218,19 @@ async function check(r: FastRun, file: string, frames: number[], stills: Map<num
     if (!png) throw new Error(`Chrome drew no frame ${frame}`)
     const seg = plan.segments.find((s) => frame >= s.startFrame && frame < s.startFrame + s.frames)!
     const g = seg.bubble ? bubbleGeometry(seg.bubble) : null
-    const whole = await psnr(png, file, frame, null, signal)
-    const bubble = g && frame >= seg.startFrame + seg.bubble!.offset ? await psnr(png, file, frame, g, signal) : Infinity
+    const whole = await psnr(png, file, frame, plan.fps, null, signal)
+    const bubble = g && frame >= seg.startFrame + seg.bubble!.offset ? await psnr(png, file, frame, plan.fps, g, signal) : Infinity
     r.log(`Fast export check, frame ${frame}: ${whole.toFixed(1)} dB${Number.isFinite(bubble) ? `, bubble ${bubble.toFixed(1)} dB` : ''} against Chrome`)
     if (!(whole >= CHECK_DB.frame) || !(bubble >= CHECK_DB.bubble)) throw new Error(`frame ${frame} is not Chrome's (${whole.toFixed(1)} dB, bubble ${bubble.toFixed(1)} dB)`)
   }
 }
 
-/** The frames checked: the first with the bubble, the first of a blend, and one 80 % of the way through. Pure. */
-export function sampleFrames(plan: FastPlan): number[] {
-  const out = new Set<number>()
-  const withBubble = plan.segments.find((s) => s.bubble)
-  if (withBubble) out.add(withBubble.startFrame + withBubble.bubble!.offset)
-  const blended = plan.segments.find((s) => s.blend)
-  if (blended) out.add(blended.startFrame + Math.floor(blended.blend!.frames / 2))
-  out.add(Math.min(plan.frames - 1, Math.floor(plan.frames * 0.8)))
-  return [...out].sort((a, b) => a - b)
-}
-
 /** PSNR (dB, average over the planes) of a PNG still against one frame of a video, both as BT.709 YUV, optionally in a box. */
-async function psnr(png: string, video: string, frame: number, box: { bx: number; by: number; bw: number; bh: number } | null, signal: AbortSignal): Promise<number> {
+async function psnr(png: string, video: string, frame: number, fps: number, box: { bx: number; by: number; bw: number; bh: number } | null, signal: AbortSignal): Promise<number> {
   const crop = box ? `,crop=${box.bw}:${box.bh}:${box.bx}:${box.by}` : ''
-  const { stderr } = await run('ffmpeg', ['-nostdin', '-hide_banner', '-i', png, '-i', video, '-lavfi',
-    `[0:v]scale=out_color_matrix=bt709:out_range=tv,format=yuv420p${crop}[a];[1:v]select=eq(n\\,${frame}),setpts=PTS-STARTPTS,format=yuv420p${crop}[b];[a][b]psnr`,
+  // The frame read from a seek half a frame before it (the decoder starts at the keyframe before), not decoded from the start.
+  const { stderr } = await run('ffmpeg', ['-nostdin', '-hide_banner', '-i', png, '-ss', (Math.max(0, frame - 0.5) / fps).toFixed(6), '-i', video, '-lavfi',
+    `[0:v]scale=out_color_matrix=bt709:out_range=tv,format=yuv420p${crop}[a];[1:v]setpts=PTS-STARTPTS,format=yuv420p${crop}[b];[a][b]psnr`,
     '-frames:v', '1', '-f', 'null', '-'], { signal, maxBuffer: 4 * 1024 * 1024 })
   const m = /average:([\d.]+|inf)/.exec(stderr)
   return m ? (m[1] === 'inf' ? Infinity : Number(m[1])) : NaN

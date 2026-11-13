@@ -17,7 +17,8 @@
  * Progress: staging 0–15 %, bundling and opening the composition 15–25 %,
  * rendering 25–92 %, mastering and the decode check 92–97 %, the upload the rest.
  */
-import { stat } from 'node:fs/promises'
+import { readdir, stat } from 'node:fs/promises'
+import { removeQuietly } from '../platform.ts'
 import { dirname, join } from 'node:path'
 import { parseEditorProject } from '../engine.ts'
 import { stageAssets } from '../assets.ts'
@@ -27,7 +28,7 @@ import { bt709WithSwscale, COMPOSITION_ID, EXPORT_ENCODING, inputPropsFor, unsta
 import { stageFonts } from '../fonts.ts'
 import { checkCodeScenes, stageScenes } from '../scenes.ts'
 import { fastExportPlan, soundOnly } from '../fast-export.ts'
-import { composeSound } from '../fast-sound.ts'
+import { composeSound, type AudioProbe } from '../fast-sound.ts'
 import { composeFast, joinWavs, soundRanges } from '../fast-export-run.ts'
 import { checkAborted, JobError, stage, type JobHandler } from './context.ts'
 
@@ -76,7 +77,11 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
 
       // The FFmpeg export for a video that is only a recording and its camera (fast-export.ts); anything else, a failure
       // or a failed check, and Chrome renders it below.
-      const plan = ctx.config.fastExport ? fastExportPlan(project) : { reason: 'STUDIO_FAST_EXPORT is off' }
+      // Default deny covers a planner that throws: that too is a reason, and Chrome renders it.
+      const plan = ((): ReturnType<typeof fastExportPlan> => {
+        if (!ctx.config.fastExport) return { reason: 'STUDIO_FAST_EXPORT is off' }
+        try { return fastExportPlan(project) } catch (err) { return { reason: `the fast export's plan failed (${String((err as Error)?.message ?? err).slice(0, 200)})` } }
+      })()
       if ('segments' in plan) {
         const { cancel, cancelSignal } = makeCancelSignal()
         const onAbort = () => cancel()
@@ -99,6 +104,8 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
           output = await composeFast({
             plan, scratch: ctx.scratch, signal: ctx.signal, log: ctx.log, progress: stage(ctx, 0.25, 0.92),
             path: (file) => join(dirname(ctx.cache.dir), file),
+            abortChrome: () => cancel(),
+            encoder: ctx.config.fastEncoder,
             sound: async (out) => {
               // Mixed here as Remotion mixes it (fast-sound.ts), its cold starts and a few checked frames by Remotion in the shared
               // browser; any doubt, and Remotion's own mix, in consecutive stretches rendered at once, a browser each, and joined.
@@ -112,11 +119,11 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
                 await Promise.all(ranges.map((r, i) => retried(r, parts[i]!)))
                 await joinWavs(ranges.map(([from, to], i) => ({ file: parts[i]!, samples: (to - from + 1) * perFrame })), o)
               }
-              const probes = new Map<string, { codec?: string; sampleRate?: number; channels?: number } | null>()
+              const probes = new Map<string, AudioProbe>()
               for (const a of project.assets) {
                 if (a.kind === 'image') continue
                 const st = (await probe(join(dirname(ctx.cache.dir), a.file), { signal: ctx.signal })).streams.find((x) => x.codec_type === 'audio') as Record<string, unknown> | undefined
-                probes.set(a.file, st ? { codec: st.codec_name as string, sampleRate: Number(st.sample_rate), channels: Number(st.channels) } : null)
+                probes.set(a.file, st ? { codec: st.codec_name as string, sampleRate: Number(st.sample_rate), channels: Number(st.channels), startTime: Number(st.start_time) } : null)
               }
               ctx.log(`Fast export: ${await composeSound({ project, frames: plan.frames, fps: plan.fps, path: (file) => join(dirname(ctx.cache.dir), file), out, scratch: ctx.scratch,
                 probe: (file) => probes.get(file) ?? null, remotion: async (r, o) => { await window(r, o) }, whole, signal: ctx.signal, log: ctx.log })}`)
@@ -137,6 +144,8 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
           checkAborted(ctx.signal)
           ctx.log(`The fast export did not hold (${String((err as Error)?.message ?? err).split('\n')[0]!.slice(0, 300)}): rendering in Chrome instead`)
           output = join(ctx.scratch, 'video.partial.mp4')
+          // Its parts, picture, sound and checked frames (two to three times the video's size) go before Chrome starts.
+          for (const name of await readdir(ctx.scratch).catch(() => [] as string[])) if (/^(fast-|video\.fast\.)/.test(name)) await removeQuietly(join(ctx.scratch, name))
         } finally {
           ctx.signal.removeEventListener('abort', onAbort)
           await browser?.close({ silent: true }).catch(() => undefined)

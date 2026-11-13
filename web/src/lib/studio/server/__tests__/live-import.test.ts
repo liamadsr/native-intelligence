@@ -9,7 +9,7 @@ import { forgetWorkers, noteWorker } from '../capabilities'
 import { workerLivePieces } from '../http'
 import { cancelJob, claimJob, completeJob, failJob, jobRow, MAX_OPEN_JOBS, queueJob } from '../jobs'
 import { discardLiveTake, livePiece, liveRate, liveWorkerPieces, MAX_LIVE_JOBS, QUIET_MS, sealLiveTrack, startLiveTake, TAKES, type TakeRecord } from '../live-takes'
-import { advanceRecording, FALLBACK_GIVE_UP_MS, LIVE_REUSE_SHARE, recoverTake, startRecording } from '../recordings'
+import { advanceRecording, FALLBACK_GIVE_UP_MS, recoverTake, startRecording } from '../recordings'
 import { AVA, fakeContext, WS } from './fake'
 
 let env: ReturnType<typeof fakeContext>
@@ -206,15 +206,37 @@ describe('a take brought back after a crash', () => {
 })
 
 describe('as the review asked', () => {
-  it('keeps a live job only far enough along, else imports from scratch', async () => {
-    const t = (await newTake([{ role: 'screen', name: 'Screen.webm', frameRate: 60 }]))
+  it('keeps a running live job however far along: the worker weighs that at the seal, where its speed is known', async () => {
+    const t = await newTake([{ role: 'screen', name: 'Screen.webm', frameRate: 60 }])
     await send(t.id, 'screen', 0, webm(2000))
     const job = (await claimJob(deps(), 'w', ['live-import']))!
-    along(job.id, LIVE_REUSE_SHARE - 0.1)
-    const { recording } = await startRecording(env.ctx, { screen: { uploadKey: t.keys.screen, name: 'Screen.webm', pieces: 1 } }, 0)
+    along(job.id, 0.05)
+    const { recording } = await startRecording(env.ctx, { screen: { uploadKey: t.keys.screen, name: 'Screen.webm', pieces: 1, frameRate: 60 } }, 0)
+    const record = env.tables.studio_record!.find((r) => r.collection === 'recordings' && r.key === recording.id)!.value as { jobs: Record<string, string> }
+    expect(record.jobs.screen).toBe(job.id)
+  })
+
+  it('does not keep a live job asked for another rate ceiling than the import would be', async () => {
+    // The take started saying 60; at Stop the recorder says the screen gave 30.
+    const t = await newTake([{ role: 'screen', name: 'Screen.webm', frameRate: 60 }])
+    await send(t.id, 'screen', 0, webm(2000))
+    const job = (await claimJob(deps(), 'w', ['live-import']))!
+    along(job.id, 0.9)
+    const { recording } = await startRecording(env.ctx, { screen: { uploadKey: t.keys.screen, name: 'Screen.webm', pieces: 1, frameRate: 30 } }, 0)
     const record = env.tables.studio_record!.find((r) => r.collection === 'recordings' && r.key === recording.id)!.value as { jobs: Record<string, string> }
     expect(record.jobs.screen).not.toBe(job.id)
+    expect(jobs().find((j) => j.id === record.jobs.screen)).toMatchObject({ kind: 'import', input: { conform: { fps: 60, fit: true, ceiling: 30 } } })
     expect(jobs().find((j) => j.id === job.id)!.cancel_requested).toBe(true)
+  })
+
+  it('does not keep a live job whose cursor flag is not the import’s', async () => {
+    const t = await newTake([{ role: 'screen', name: 'Screen.webm', frameRate: 60 }])
+    await send(t.id, 'screen', 0, webm(2000))
+    const job = (await claimJob(deps(), 'w', ['live-import']))!
+    along(job.id, 0.9)
+    const { recording } = await startRecording(env.ctx, { screen: { uploadKey: t.keys.screen, name: 'Screen.webm', pieces: 1, frameRate: 60 }, sourceCursorHidden: true }, 0)
+    const record = env.tables.studio_record!.find((r) => r.collection === 'recordings' && r.key === recording.id)!.value as { jobs: Record<string, string> }
+    expect(record.jobs.screen).not.toBe(job.id)
   })
 
   it('stops unused live jobs before queueing the imports, so a workspace near its cap is not refused', async () => {

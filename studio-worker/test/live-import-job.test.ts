@@ -3,7 +3,9 @@
  * "arrive": the conformed file is byte for byte the one an import after Stop makes from the joined pieces (the same
  * conform, the same threads), for uneven pieces, for a take stopped early, for a piece listed before it is readable,
  * and for a job handed out again that picks up from its local copy. A take thrown away ends the job; a slot that is not
- * a live slot never takes such a job. Made-up clips from FFmpeg's test sources.
+ * a live slot never takes such a job. Made-up clips from FFmpeg's test sources, and one real browser take
+ * (fixtures/chrome-screen.mp4: 5 s of a canvas redrawn at uneven times, 640×360, recorded by Chrome 1xx's own
+ * MediaRecorder as `video/mp4;codecs=avc1`, one chunk a second, headless on a Mac, as the Studio's recorder asks).
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -14,7 +16,7 @@ import { join } from 'node:path'
 import { conformArgs, conformVideo } from '../src/assets.ts'
 import { AssetCache } from '../src/cache.ts'
 import { EditorAssetSchema } from '../src/engine.ts'
-import { liveLimits, LocalCopy, localCopyDir, prefixRate, runLiveImport, tidyLocalCopies, LOCAL_COPY_KEEP_MS } from '../src/jobs/live-import.ts'
+import { endTimeout, handOver, importSpeedup, liveLimits, liveProbe, readerLine, LocalCopy, localCopyDir, prefixRate, runLiveImport, tidyLocalCopies, LOCAL_COPY_KEEP_MS } from '../src/jobs/live-import.ts'
 import { runImport } from '../src/jobs/import.ts'
 import { TAKEN_BACK } from '../src/runner.ts'
 import type { JobContext } from '../src/jobs/context.ts'
@@ -23,6 +25,8 @@ import { kindsFor } from '../src/providers/capabilities.ts'
 import type { LiveImportInput, LivePieces, StudioJobKind } from '../../web/src/lib/studio/server/job-contract.ts'
 
 const THREADS = 2
+// The live job never hands over for being behind in these tests unless one says so (a machine as fast for both).
+liveLimits.cores = 1
 const md5 = async (path: string) => createHash('md5').update(await readFile(path)).digest('hex')
 
 /** Cut a file into pieces of uneven lengths. */
@@ -100,13 +104,25 @@ async function liveJob(dir: string, app: ReturnType<typeof stubApp>, opts: { job
   return { asset, logs, file: cache.pathOf(asset.file) }
 }
 
-/** What an import after Stop makes of the same bytes: the joined pieces conformed with the same arguments and threads. */
-async function ordinary(dir: string, bytes: Buffer, fps: 30 | 60, name: string): Promise<string> {
+/** What an import after Stop makes of the same bytes: the joined pieces conformed with the same arguments and threads (strict, as for a take sealed whole; `lenient` as for one cut short). */
+async function ordinary(dir: string, bytes: Buffer, fps: 30 | 60, name: string, lenient = false): Promise<string> {
   const joined = join(dir, name)
   await writeFile(joined, bytes)
   const out = join(dir, `${name}.conformed.mp4`)
-  await conformVideo(joined, out, fps, { lenient: true, threads: THREADS })
+  await conformVideo(joined, out, fps, { lenient, threads: THREADS })
   return out
+}
+
+/** Where each fragment of a fragmented MP4 starts (its `moof` box). */
+function fragmentStarts(bytes: Buffer): number[] {
+  const starts: number[] = []
+  for (let at = 0; at + 8 <= bytes.length;) {
+    const size = bytes.readUInt32BE(at)
+    if (bytes.toString('latin1', at + 4, at + 8) === 'moof') starts.push(at)
+    if (size < 8) break
+    at += size
+  }
+  return starts
 }
 
 /** A screen take: VFR H.264 in fragmented MP4 (as WebKit and Chromium record MP4), with sound. */
@@ -161,20 +177,24 @@ test('pieces arriving as the take records make the same file as the joined take 
   }
 })
 
-test('a take stopped early, cut off mid-piece, makes the same file as its joined pieces conformed', async () => {
+test('a take stopped early makes the same file as its joined pieces; cut mid-frame, the lenient import decides', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'studio-live-job-'))
   try {
     const source = join(dir, 'screen.mp4')
     await screenTake(source, 5)
     const bytes = await readFile(source)
-    // The window closed: what arrived ends part way into a fragment.
-    const arrived = bytes.subarray(0, Math.floor(bytes.length * 0.55) + 123)
+    // The window closed between two fragments: what arrived is whole, and read the same strictly or leniently.
+    const starts = fragmentStarts(bytes)
+    const arrived = bytes.subarray(0, starts[Math.floor(starts.length * 0.55)]!)
     const pieces = cut(arrived, [20_000, 13_000])
-    const app = stubApp(pieces, [{ listed: 2 }, { listed: pieces.length, sealed: { count: pieces.length, complete: false } }])
-    const { asset, file } = await liveJob(dir, app)
-    assert.equal(await md5(file), await md5(await ordinary(dir, arrived, 60, 'arrived.mp4')))
+    const { asset, file } = await liveJob(dir, stubApp(pieces, [{ listed: 2 }, { listed: pieces.length, sealed: { count: pieces.length, complete: false } }]))
+    assert.equal(await md5(file), await md5(await ordinary(dir, arrived, 60, 'arrived.mp4', true)))
     assert.equal(asset.provenance?.partial, true)
     assert.ok((asset.durationSeconds ?? 0) > 1 && (asset.durationSeconds ?? 0) < 4, `duration ${asset.durationSeconds}`)
+    // It closed part way into a fragment: the strict flags stop where the lenient import reads past, so it decides.
+    const torn = bytes.subarray(0, Math.floor(bytes.length * 0.55) + 123)
+    const tornPieces = cut(torn, [20_000, 13_000])
+    await assert.rejects(liveJob(dir, stubApp(tornPieces, [{ listed: 2 }, { listed: tornPieces.length, sealed: { count: tornPieces.length, complete: false } }])), /ordinary way/)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -442,19 +462,123 @@ test('a rate decided early that the whole take disagrees with fails the job, so 
   }
 })
 
-test('damage in the middle of a take sealed whole fails the job; the same take cut short is read past', async () => {
+test('only lines from the container’s reader count as damage, not what a decoder logs and recovers from', () => {
+  assert.equal(readerLine('[h264 @ 0x7567070700] mmco: unref short failure'), false)
+  assert.equal(readerLine('[vist#0:0/h264 @ 0x7ac4c38300] [dec:h264 @ 0x7ac4c48640] Decoding error: Invalid data found when processing input'), false)
+  assert.equal(readerLine('[matroska,webm @ 0x7885064000] Unknown element A5 at pos. 0x64909 with length 0x25 considered as invalid data.'), true)
+  assert.equal(readerLine('[mov,mp4,m4a,3gp,3g2,mj2 @ 0x7ac5050000] stream 0, offset 0x1a2474: partial file'), true)
+  assert.equal(readerLine('[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x756705c100] corrupt input packet in stream 0'), true)
+})
+
+test('damage the strict import reads past is handed over (a pipe resyncs otherwise); damage it stops on, too', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'studio-live-job-'))
   try {
-    const source = join(dir, 'camera.webm')
-    await webmTake(source, 6)
-    const bytes = Buffer.from(await readFile(source))
-    bytes.fill(0xa5, Math.floor(bytes.length / 2), Math.floor(bytes.length / 2) + 3000)
-    const pieces = cut(bytes, [50_000])
-    await withLimits({}, async () => {
-      await assert.rejects(liveJob(dir, stubApp(pieces, [{ listed: pieces.length, sealed: { count: pieces.length, complete: true } }]), { fps: 30 }), /could not be read while it recorded/)
-      const partial = await liveJob(dir, stubApp(pieces, [{ listed: pieces.length, sealed: { count: pieces.length, complete: false } }]), { fps: 30 })
-      assert.equal(partial.asset.provenance?.partial, true)
+    // Bytes the WebM reader skips: the strict import reads past them, but from a file, where it resyncs by seeking.
+    const camera = join(dir, 'camera.webm')
+    await webmTake(camera, 6)
+    const skipped = Buffer.from(await readFile(camera))
+    skipped.fill(0xa5, Math.floor(skipped.length / 2), Math.floor(skipped.length / 2) + 3000)
+    await ordinary(dir, skipped, 30, 'skipped.webm')
+    const skippedPieces = cut(skipped, [50_000])
+    await assert.rejects(liveJob(dir, stubApp(skippedPieces, [{ listed: skippedPieces.length, sealed: { count: skippedPieces.length, complete: true } }]), { fps: 30 }), /damaged; it is prepared the ordinary way/)
+    // A box the MP4 reader cannot read, in the middle of a take sealed whole: the strict import refuses the take; read
+    // from a pipe it would end there quietly, half as long. The reader stops short of the copy's end: handed over.
+    const screen = join(dir, 'screen.mp4')
+    await screenTake(screen, 5)
+    const broken = Buffer.from(await readFile(screen))
+    const starts = fragmentStarts(broken)
+    const middle = starts[Math.floor(starts.length / 2)]!
+    broken.fill(0xff, middle + 200, middle + 4000)
+    await assert.rejects(ordinary(dir, broken, 60, 'broken.mp4'), 'the strict import refuses it')
+    const brokenPieces = cut(broken, [40_000])
+    await assert.rejects(liveJob(dir, stubApp(brokenPieces, [{ listed: brokenPieces.length, sealed: { count: brokenPieces.length, complete: true } }])), /ordinary way/)
+    // Pictures the H.264 decoder cannot read, inside a fragment the reader reads whole: the strict import stops on them
+    // (a lenient read would go on), and so does this job, by the same flags.
+    const inner = Buffer.from(await readFile(screen))
+    const mdat = inner.indexOf('mdat', starts[Math.floor(starts.length / 2)]!) - 4
+    inner.fill(0, mdat + 3000, mdat + 5000)
+    await assert.rejects(ordinary(dir, inner, 60, 'inner.mp4'), 'the strict import refuses it')
+    await ordinary(dir, inner, 60, 'inner-lenient.mp4', true)
+    const innerPieces = cut(inner, [40_000])
+    await assert.rejects(liveJob(dir, stubApp(innerPieces, [{ listed: innerPieces.length, sealed: { count: innerPieces.length, complete: true } }])), /could not be prepared while it recorded/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a real browser take (Chrome’s MP4 recorder) is prepared here, the same as the import makes it', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'studio-live-job-'))
+  try {
+    const source = join(import.meta.dirname, 'fixtures', 'chrome-screen.mp4')
+    const bytes = await readFile(source)
+    const pieces = cut(bytes, [60_000, 41_000])
+    const conform = { fps: 60 as const, fit: true, ceiling: 60 }
+    const live = await withLimits({ rateEveryMs: 0 }, () => liveJob(dir, stubApp(pieces, [{ listed: 3 }, { listed: 6 }, { listed: pieces.length, sealed: { count: pieces.length, complete: true } }]), { conform }))
+    const fps = fitRate(await videoStamps(source), 60, 60)
+    assert.equal(live.asset.sourceFps, fps)
+    assert.equal(await md5(live.file), await md5(await ordinary(dir, bytes, fps, 'chrome.mp4')), 'byte for byte the strict conform')
+    const imported = await ordinaryImport(dir, source, conform)
+    assert.equal(imported.asset.sourceFps, live.asset.sourceFps)
+    assert.equal(imported.asset.sourceFrames, live.asset.sourceFrames)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('behind by more than the import would take at the seal, the take is handed over at once', () => {
+  // Square root of cores over the live job's threads.
+  assert.equal(importSpeedup(2, 18), 3)
+  assert.equal(importSpeedup(4, 4), 1)
+  assert.equal(importSpeedup(8, 2), 1)
+  // Two threads on 18 cores: kept up to a third behind.
+  assert.equal(handOver(30, 100, 3), false)
+  assert.equal(handOver(40, 100, 3), true)
+  // As fast as the import: never handed over for being behind.
+  assert.equal(handOver(100, 100, 1), false)
+  // FFmpeg's time after its input closes follows what is left: three times the backlog at the speed it showed.
+  assert.equal(endTimeout(600 * 1000, 1000), liveLimits.endMinMs, 'a short backlog: the floor')
+  assert.equal(endTimeout(100_000 * 1000, 1000), 300_000, '100 s of backlog: 5 minutes')
+  assert.equal(endTimeout(10_000_000 * 1000, 1000), liveLimits.endMs, 'never past the cap')
+  assert.equal(endTimeout(5_000, 0), liveLimits.endMs, 'never behind: the cap')
+})
+
+test('the seal decides: handed over before FFmpeg is started or waited for', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'studio-live-job-'))
+  try {
+    const source = join(import.meta.dirname, 'fixtures', 'chrome-screen.mp4')
+    const pieces = cut(await readFile(source), [60_000])
+    const conform = { fps: 60 as const, fit: true, ceiling: 60 }
+    // The whole take arrives with the seal: nothing conformed yet. With an import 3 times as fast, it is handed over.
+    const app = () => stubApp(pieces, [{ listed: pieces.length, sealed: { count: pieces.length, complete: true } }])
+    await withLimits({ cores: 18 }, () => assert.rejects(liveJob(dir, app(), { conform }), /100% behind at the seal/))
+    await assert.rejects(stat(join(dir, 'scratch', 'conformed.mp4')), 'FFmpeg never started')
+    // A rate check that cannot read the frame times does not know: handed over too, at the seal.
+    const stamps = liveProbe.stamps
+    liveProbe.stamps = async () => {
+      throw new Error('ffprobe failed')
+    }
+    try {
+      await assert.rejects(liveJob(dir, app(), { conform }), /frame times could not be read/)
+    } finally {
+      liveProbe.stamps = stamps
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a rate that disagrees is found at the seal, before FFmpeg finishes its backlog', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'studio-live-job-'))
+  try {
+    const source = join(dir, 'screen.webm')
+    await jitteryScreen(dir, source, [[3, 60], [20, 30]], 5)
+    const pieces = cut(await readFile(source), [60_000])
+    const early = Math.max(2, Math.floor(pieces.length * 0.12))
+    await withLimits({ rateEveryMs: 0 }, async () => {
+      await assert.rejects(liveJob(dir, stubApp(pieces, [{ listed: early }, { listed: pieces.length, sealed: { count: pieces.length, complete: true } }]), { conform: { fps: 60, fit: true, ceiling: 60 } }), /not the one it was prepared at/)
     })
+    // FFmpeg was stopped, not waited for: its file was never finished.
+    await assert.rejects(run('ffprobe', ['-v', 'error', join(dir, 'scratch', 'conformed.mp4')]))
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -575,7 +699,7 @@ test('a live job ends at its wall-clock ceiling, when the take goes quiet, and w
     // No new piece for the quiet limit (the recorder cuts one every 4 s): it ends.
     await withLimits({ quietMs: 100, pollMs: 20 }, () => assert.rejects(liveJob(dir, stubApp(pieces, [{ listed: 1 }, { listed: 1 }]), { fps: 30 }), /brought back/))
     // FFmpeg not done in time after its input closed: killed, and the job ends.
-    await withLimits({ endMs: 1 }, () => assert.rejects(liveJob(dir, stubApp(pieces, [{ listed: pieces.length, sealed: { count: pieces.length, complete: true } }]), { fps: 30 }), /too long to finish/))
+    await withLimits({ endMs: 1, endMinMs: 1 }, () => assert.rejects(liveJob(dir, stubApp(pieces, [{ listed: pieces.length, sealed: { count: pieces.length, complete: true } }]), { fps: 30 }), /too long to finish/))
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

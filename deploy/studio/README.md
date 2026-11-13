@@ -223,10 +223,13 @@ none, a take is prepared after Stop as before; a live job that fails gives way t
 What it makes is what the import would make, or nothing: the screen's rate is the import's own rule, decided once
 enough of the picture has moved and checked on the whole take after the seal (a disagreement fails the job: it takes
 a take whose motion changes character after its first seconds, and costs the time live would have saved, never a
-wrong rate); a take sealed whole with damage FFmpeg read past fails it (the strict import decides); the app refuses
+wrong rate); it conforms with the strict import's flags, and hands over at the seal when the reader of the copy stops
+short of its end or met damage (a pipe resyncs otherwise than a file); the app refuses
 its result when its bytes or pieces are not the sealed track's. It always re-encodes, where the import keeps an MP4
-already on the frame grid byte for byte. At Stop a running live job is kept only when it has fed at least half the
-take (recordings.ts `LIVE_REUSE_SHARE`, measured below): what it has left runs at its lower priority and threads.
+already on the frame grid byte for byte. At Stop a running live job asked to make what the import would (the same
+conform, cursor flag) is kept; at the seal the worker hands the take to the import at once when what it has left
+would take longer than the import takes for all of it (studio-worker/src/jobs/live-import.ts `handOver`, measured
+below): what it has left runs at its lower priority and threads.
 A live job runs at most 2 h 30 min and ends when no piece comes for 3 minutes; a workspace has at most 4 live jobs
 queued or running (two takes), later takes are prepared after Stop.
 
@@ -242,7 +245,10 @@ on average, conformed to 60 fps, ultrafast CRF 26, 267 MB):
   made-up 10-minute 2.5K take (268 MB, MP4 or Matroska alike), beside the encoder's close: the 2 s above stand.
 - Whether a live job behind at Stop is worth keeping, on that take: the live conform (`nice`, 4 threads for decoder,
   filters and encoder) 54.7 s, the import's (every thread) 26.7 s. Keeping a job is sooner once it has fed more
-  than 1 − 26.7/54.7 of the take: about half. Capping the decoder's and filters' threads changed nothing on this H.264 take (54.0 s
+  than 1 − 26.7/54.7 of the take: about half. With the machine busy (a load of 26 to 65): 1 thread 344 s, 2 threads
+  163 s, 8 threads 73 s against the import's 54.7 s. The worker takes the import to be √(cores ÷ threads) times as
+  fast (one thread: the 0.64th power), within an eighth of these from 2 threads up: at the default of 2 threads on
+  18 cores a job is kept up to a third behind, at 4 threads on 8 cores up to about seven tenths. Capping the decoder's and filters' threads changed nothing on this H.264 take (54.0 s
   either way, about 5 cores busy): it bounds them on a take whose decoding is heavier.
 
 Expected from Stop to an editable video on the Mac, all steps included (the last piece's upload, the worker's 1.5 s

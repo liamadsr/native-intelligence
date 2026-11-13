@@ -43,12 +43,14 @@ export function jobView(row: Pick<JobRow, 'id' | 'kind' | 'status' | 'progress' 
   const result = row.result ?? {}
   return {
     id: row.id,
-    kind: row.kind,
+    // An export on the person's own computer reads as an export, saying where it runs.
+    kind: row.kind === 'local-export' ? 'export' : row.kind,
+    ...(row.kind === 'local-export' ? { where: 'computer' } : row.kind === 'export' ? { where: 'server' } : {}),
     status: row.status,
     progress: Math.round((Number(row.progress) || 0) * 100),
     video_id: row.video_id,
     ...(row.error ? { error: row.error } : {}),
-    ...(row.kind === 'export' && row.status === 'completed'
+    ...((row.kind === 'export' || row.kind === 'local-export') && row.status === 'completed'
       ? {
           ...(downloadUrl ? { download_url: downloadUrl } : {}),
           ...(typeof result.durationSeconds === 'number' ? { seconds: Math.round(result.durationSeconds * 100) / 100 } : {}),
@@ -143,7 +145,7 @@ async function stillsImage(ctx: StudioContext, row: JobRow): Promise<Record<stri
 
 /** A finished export's download link (the app serves the file to the person), else null. */
 async function downloadUrl(row: JobRow): Promise<string | null> {
-  if (row.kind !== 'export' || row.status !== 'completed') return null
+  if ((row.kind !== 'export' && row.kind !== 'local-export') || row.status !== 'completed') return null
   const { toEditorJob } = await import('@/lib/studio/agent/server')
   return toEditorJob(row).downloadUrl ?? null
 }
@@ -152,7 +154,7 @@ async function downloadUrl(row: JobRow): Promise<string | null> {
 async function jobAnswer(ctx: StudioContext, row: JobRow, videoAnswer: VideoAnswer, opts: { frames: boolean }) {
   const ended = row.status === 'failed' || row.status === 'cancelled'
   const done = row.status === 'completed' || ended
-  const video = row.kind === 'export' && row.video_id ? await videoAnswer(ctx, row.video_id) : null
+  const video = (row.kind === 'export' || row.kind === 'local-export') && row.video_id ? await videoAnswer(ctx, row.video_id) : null
   return {
     success: true as const,
     done,

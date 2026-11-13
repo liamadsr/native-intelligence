@@ -188,7 +188,7 @@ function EditorFrame({ project, fonts }: { project: EditorProject; fonts?: FontF
     </Sequence>)}
     {/* Clip sound lives in its own layer so every cut crossfades instead of clicking or dropping out. */}
     {/* The layers (and the audio tracks' below) come from sound-layers.ts, which the worker's FFmpeg export mixes too. */}
-    {sound.filter(layer => layer.key.startsWith('audio-')).map(layer => <Sequence key={layer.key} from={layer.from} durationInFrames={layer.duration} premountFor={layer.premountFor}>
+    {sound.filter(layer => layer.kind === 'clip').map(layer => <Sequence key={layer.key} from={layer.from} durationInFrames={layer.duration} premountFor={layer.premountFor}>
       <Audio src={assetPath(project.assets.find(a => a.id === layer.assetId)!.file)} trimBefore={layer.trimBefore} playbackRate={layer.playbackRate} volume={layer.volume} />
     </Sequence>)}
     <PresenterLayer project={project} assetPath={assetPath}/>
@@ -205,7 +205,7 @@ function EditorFrame({ project, fonts }: { project: EditorProject; fonts?: FontF
     </> : null}
     <LayerStack project={project} assetPath={assetPath} />
     <DipLayer dips={dips} />
-    {sound.filter(layer => !layer.key.startsWith('audio-')).map(layer => <Sequence key={layer.key} from={layer.from} premountFor={layer.premountFor} durationInFrames={layer.duration}>
+    {sound.filter(layer => layer.kind === 'track').map(layer => <Sequence key={layer.key} from={layer.from} premountFor={layer.premountFor} durationInFrames={layer.duration}>
       <Audio src={assetPath(project.assets.find(a => a.id === layer.assetId)!.file)} trimBefore={layer.trimBefore} volume={layer.volume} />
     </Sequence>)}
     <EditorCaptions project={project} />

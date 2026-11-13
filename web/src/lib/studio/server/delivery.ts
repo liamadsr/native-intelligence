@@ -115,7 +115,8 @@ export async function deliverEndedExport(deps: { supabase: SupabaseClient }, job
       .eq('id', jobId)
       .maybeSingle()
     const job = data as EndedJob | null
-    if (error || !job || job.kind !== 'export' || (job.status !== 'completed' && job.status !== 'failed')) return 'skipped'
+    // An export on the server or on the person's own computer (local-jobs.ts) is delivered alike.
+    if (error || !job || (job.kind !== 'export' && job.kind !== 'local-export') || (job.status !== 'completed' && job.status !== 'failed')) return 'skipped'
     const ctx: StudioContext = { supabase, workspaceId: job.workspace_id, userId: null }
     const watch = await getRecord<{ at?: unknown }>(ctx, WATCH_COLLECTION, job.id).catch(() => null)
     await deleteRecord(ctx, WATCH_COLLECTION, job.id).catch(() => undefined)

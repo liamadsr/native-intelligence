@@ -12,7 +12,7 @@ import { ASSET_KEY, deleteBlob, getBlob, type StoredBlob } from './blobs'
 import { isUuid, must, type StudioContext } from './context'
 import { deliverEndedExport } from './delivery'
 import { asStudioError, conflictError, notFoundError, StudioError } from './errors'
-import type { ClaimedJob, ExportResult, ImportInput, SlidesInput, SlidesResult, StudioJobIO, StudioJobKind, StudioJobStatus, TranscribeInput, TranscribeResult } from './job-contract'
+import type { ClaimedJob, ExportResult, ImportInput, LocalJobIO, LocalJobKind, SlidesInput, SlidesResult, StudioJobIO, StudioJobKind, StudioJobStatus, TranscribeInput, TranscribeResult } from './job-contract'
 import { COLLECTIONS, putRecord } from './records'
 import type { StudioStorage } from './storage'
 import { KEEP } from './sweep'
@@ -23,11 +23,19 @@ export const fileUrl = (workspaceId: string, key: string) => `/api/account/studi
 /** How many log lines a job keeps. */
 const KEEP_LOGS = 200
 
+/** Every kind a studio_job row may be: a server worker's, or one the person's own computer runs (job-contract.ts). */
+export type AnyJobKind = StudioJobKind | LocalJobKind
+type AnyJobIO = StudioJobIO & LocalJobIO
+
+/** The export kinds: on the server, or on the person's own computer. Read alike everywhere an export is read. */
+export const EXPORT_KINDS: readonly AnyJobKind[] = ['export', 'local-export']
+export const isExportKind = (kind: string) => kind === 'export' || kind === 'local-export'
+
 export type JobRow = {
   id: string
   workspace_id: string
   video_id: string | null
-  kind: StudioJobKind
+  kind: AnyJobKind
   status: StudioJobStatus
   progress: number
   logs: string[]
@@ -51,7 +59,7 @@ export const MAX_OPEN_JOBS = 20
 export const MAX_OPEN_EXPORTS = 5
 
 /** Refuse (429) a new job when the workspace already has as many open as it may (MAX_OPEN_JOBS, MAX_OPEN_EXPORTS). */
-async function checkOpenJobs(ctx: StudioContext, kind: StudioJobKind): Promise<void> {
+export async function checkOpenJobs(ctx: StudioContext, kind: AnyJobKind): Promise<void> {
   const open = must(
     await ctx.supabase.from('studio_job').select('kind').eq('workspace_id', ctx.workspaceId).in('status', ['queued', 'running']).eq('cancel_requested', false).limit(MAX_OPEN_JOBS),
     'start that job',
@@ -71,7 +79,7 @@ const missingFunction = (error: { code?: string } | null) => error?.code === 'PG
  * (studio_queue_job, migration 627), so requests at once can't together pass them. Before 627 is applied, counted
  * first and inserted after, as before.
  */
-export async function queueJob<K extends StudioJobKind>(ctx: StudioContext, kind: K, input: StudioJobIO[K]['input'] & Record<string, unknown>, videoId: string | null = null): Promise<JobRow> {
+export async function queueJob<K extends AnyJobKind>(ctx: StudioContext, kind: K, input: AnyJobIO[K]['input'] & Record<string, unknown>, videoId: string | null = null): Promise<JobRow> {
   const video = videoId && isUuid(videoId) ? videoId : null
   const { data, error } = await ctx.supabase.rpc('studio_queue_job', {
     p_workspace: ctx.workspaceId, p_kind: kind, p_input: input, p_video: video, p_created_by: ctx.userId, p_max_open: MAX_OPEN_JOBS, p_max_exports: MAX_OPEN_EXPORTS,
@@ -99,9 +107,9 @@ export async function queueJob<K extends StudioJobKind>(ctx: StudioContext, kind
 // What the editor's reads take of a job: everything but its input, of which only the export's title and the
 // transcribed asset are needed (an export's input is a whole edit, read every 700 ms while it runs).
 // The thumbnail job's given key is read too: the worker's blob writes are fenced to it (blobs.ts workerWriteFence).
-const LIGHT_FIELDS = 'id, workspace_id, video_id, kind, status, progress, logs, result, error, cancel_requested, worker_id, attempts, created_by, created_at, updated_at, input_title:input->>title, input_asset:input->asset, input_key:input->>key'
-type LightRow = Omit<JobRow, 'input'> & { input_title: string | null; input_asset: EditorAsset | null; input_key?: string | null }
-const fromLight = (row: LightRow): JobRow => {
+export const LIGHT_FIELDS = 'id, workspace_id, video_id, kind, status, progress, logs, result, error, cancel_requested, worker_id, attempts, created_by, created_at, updated_at, input_title:input->>title, input_asset:input->asset, input_key:input->>key'
+export type LightRow = Omit<JobRow, 'input'> & { input_title: string | null; input_asset: EditorAsset | null; input_key?: string | null }
+export const fromLight = (row: LightRow): JobRow => {
   const { input_title, input_asset, input_key, ...rest } = row
   return { ...rest, ...stoppedWhileQueued(rest), input: { ...(input_title ? { title: input_title } : {}), ...(input_asset ? { asset: input_asset } : {}), ...(input_key ? { key: input_key } : {}) } }
 }
@@ -118,7 +126,7 @@ const fromFull = (row: JobRow): JobRow => {
 }
 
 /** What a job's worker is told and the person reads when it ends because they asked it to stop. */
-const CANCELLED = 'Cancelled.'
+export const CANCELLED = 'Cancelled.'
 
 /**
  * A queued row the person asked to stop reads as cancelled. cancelJob cancels a queued job at once, so such a row is
@@ -145,7 +153,9 @@ export function toEditorJob(row: JobRow): EditorJob {
   const status: EditorJob['status'] = row.status === 'queued' || row.status === 'running' ? 'running' : row.status
   const job: EditorJob = {
     id: row.id,
-    kind: row.kind as EditorJob['kind'],
+    // An export on the person's own computer reads as an export, saying where it runs.
+    kind: (row.kind === 'local-export' ? 'export' : row.kind) as EditorJob['kind'],
+    ...(isExportKind(row.kind) ? { where: row.kind === 'local-export' ? ('computer' as const) : ('server' as const) } : {}),
     status,
     progress: Number(row.progress) || 0,
     logs: Array.isArray(row.logs) ? row.logs.map(String) : [],
@@ -153,8 +163,8 @@ export function toEditorJob(row: JobRow): EditorJob {
     ...(row.result ? { result: row.result } : {}),
     ...(row.video_id ? { videoId: row.video_id } : {}),
   }
-  if (row.status === 'queued' && !job.logs.length) job.logs = ['Waiting for the Studio worker…']
-  if (row.kind === 'export' && row.status === 'completed' && typeof row.result?.key === 'string') {
+  if (row.status === 'queued' && !job.logs.length) job.logs = [row.kind === 'local-export' ? 'Waiting for the Studio app on this computer…' : 'Waiting for the Studio worker…']
+  if (isExportKind(row.kind) && row.status === 'completed' && typeof row.result?.key === 'string') {
     const title = typeof row.input?.title === 'string' ? row.input.title : 'video'
     job.downloadUrl = `${fileUrl(row.workspace_id, row.result.key)}?download=${encodeURIComponent(fileName(title, 'mp4'))}`
   }
@@ -218,7 +228,7 @@ export type FinishedExport = EditorJob & { title: string; finishedAt: string }
 export async function videoExports(ctx: StudioContext, videoId: string, now = Date.now()): Promise<{ exports: FinishedExport[] }> {
   if (!isUuid(videoId)) throw notFoundError('Video not found')
   const rows = must(
-    await ctx.supabase.from('studio_job').select(LIGHT_FIELDS).eq('workspace_id', ctx.workspaceId).eq('video_id', videoId).eq('kind', 'export').eq('status', 'completed')
+    await ctx.supabase.from('studio_job').select(LIGHT_FIELDS).eq('workspace_id', ctx.workspaceId).eq('video_id', videoId).in('kind', EXPORT_KINDS).eq('status', 'completed')
       .gte('updated_at', new Date(now - KEEP.exports).toISOString()).order('created_at', { ascending: false }).limit(20),
     'read the exports',
   ) as LightRow[] | null
@@ -233,7 +243,7 @@ export async function videoExports(ctx: StudioContext, videoId: string, now = Da
 /** The person's export or transcription still going, if any (the editor picks it back up when it opens). */
 export async function activeJob(ctx: StudioContext, userId: string): Promise<EditorJob | null> {
   const rows = must(
-    await ctx.supabase.from('studio_job').select(LIGHT_FIELDS).eq('workspace_id', ctx.workspaceId).eq('created_by', userId).in('status', ['queued', 'running']).in('kind', ['export', 'transcribe']).order('created_at', { ascending: false }).limit(1),
+    await ctx.supabase.from('studio_job').select(LIGHT_FIELDS).eq('workspace_id', ctx.workspaceId).eq('created_by', userId).in('status', ['queued', 'running']).in('kind', [...EXPORT_KINDS, 'transcribe']).order('created_at', { ascending: false }).limit(1),
     'read jobs',
   ) as LightRow[] | null
   return rows?.[0] ? toEditorJob(fromLight(rows[0])) : null
@@ -258,7 +268,8 @@ export async function claimJob(deps: WorkerDeps, workerId: string, kinds: Studio
   const rows = must(await deps.supabase.rpc('studio_claim_job', { p_worker: workerId, p_kinds: kinds }), 'claim a job') as JobRow[] | JobRow | null
   const row = Array.isArray(rows) ? rows[0] : rows
   if (!row) return null
-  return { id: row.id, kind: row.kind, workspaceId: row.workspace_id, videoId: row.video_id, input: row.input as never, attempts: row.attempts }
+  // Only the kinds asked for come back (studio_claim_job), and ClaimBody asks only for a server worker's kinds.
+  return { id: row.id, kind: row.kind as StudioJobKind, workspaceId: row.workspace_id, videoId: row.video_id, input: row.input as never, attempts: row.attempts }
 }
 
 /** The job, when this worker holds it (claimed by it and running); otherwise a 409 the worker should stop on. */
@@ -317,7 +328,7 @@ export async function failJob(deps: WorkerDeps, jobId: string, workerId: string,
   // An upload whose import ended without an asset is not kept (it is never served, and counts against the space).
   if (cancelled || failed || late) await dropUpload(deps, held)
   // A failed export is reported to whoever queued it, by the delivery rule (delivery.ts); a cancelled one was asked for.
-  if (failed && held.kind === 'export') await deliverEndedExport(deps, jobId)
+  if (failed && isExportKind(held.kind)) await deliverEndedExport(deps, jobId)
   // A product capture's import that ended without its file: its product job is told (products.ts). Never throws.
   if ((cancelled || failed || late) && held.kind === 'import') await settleProductCapture(deps, jobId, { error: failed ? error : CANCELLED })
   // A recording's import that ended: when it was the last, the recording is finished now (recordings.ts). Never throws.
@@ -348,7 +359,7 @@ export async function completeJob(deps: WorkerDeps, jobId: string, workerId: str
       await deps.supabase.from('studio_job').update({ status: 'failed', error: reason.slice(0, 4000), updated_at: new Date().toISOString() }).eq('id', jobId).eq('worker_id', workerId).eq('status', 'running'),
       'record the failure',
     )
-    if (row.kind === 'export') await deliverEndedExport(deps, jobId)
+    if (isExportKind(row.kind)) await deliverEndedExport(deps, jobId)
     if (row.kind === 'import') await settleProductCapture(deps, jobId, { error: reason })
     await dropUpload(deps, row)
     if (row.kind === 'import' || row.kind === 'live-import') await later(deps, () => settleRecording(deps, row))
@@ -368,7 +379,7 @@ export async function completeJob(deps: WorkerDeps, jobId: string, workerId: str
   // The consumed upload goes only once the job is recorded as done, never while the job could still be taken back.
   await dropUpload(deps, row)
   // A finished export goes to whoever queued it, the way the app delivers finished work (delivery.ts). Never throws.
-  if (row.kind === 'export') await deliverEndedExport(deps, jobId)
+  if (isExportKind(row.kind)) await deliverEndedExport(deps, jobId)
   // A product capture whose import outlasted the capture route's wait is filed now (products.ts). Never throws.
   if (row.kind === 'import' && filed.asset) await settleProductCapture(deps, jobId, { asset: filed.asset as EditorAsset })
   if (row.kind === 'import' || row.kind === 'live-import') await later(deps, () => settleRecording(deps, row))
@@ -515,6 +526,9 @@ async function fileResult(ctx: StudioContext, row: JobRow, raw: unknown): Promis
       await ownBlob(ctx, out.key, `exports/${row.id}/${row.attempts}/`, 'exported video')
       return result
     }
+    case 'local-export':
+      // Made on the person's computer: exactly this attempt's file, as large as said, an MP4 (local-jobs.ts).
+      return (await import('./local-jobs')).fileLocalExport(ctx, row, result)
     case 'thumbnail': {
       // Exactly the key the job was given.
       const key = (row.input as { key?: string }).key

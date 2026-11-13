@@ -44,8 +44,12 @@ const SECRET = 'fast-e2e-secret-not-real-0123456789abcdef'
  * sensor noise, drawn up to five times smaller), which Chrome samples without filtering, so a tenth of a pixel moves
  * its aliasing; side by side the two show the same picture (the frame of the right camera frame scores 27–33 dB, the
  * neighbouring camera frame about 22). The sound: lined up to the sample, the same level within half a decibel.
+ * The mask's edge on its own, the luma 2 px inside it and 0.5–2.5 px outside it: outside 30 dB, inside 18 dB, and the
+ * same bubble drawn with its radius 2 px smaller must fail them (it scores about 18 dB outside). A radius 2 px larger
+ * is not caught: Chrome's rounded corners measure about a pixel rounder than the mask here (both bands score best with
+ * the radius 1 px larger), so a larger radius scores as well as the right one. Circles are capped at half the side.
  */
-export const THRESHOLDS = { outsideDb: 40, outsideSsim: 0.99, bubbleDb: 27, bubbleSsim: 0.93, soundLagMs: 0.5, soundLevelDb: 0.5, mixLevelDb: 0.1, mixResidualDbfs: -90, mixWorstStep: 32 }
+export const THRESHOLDS = { outsideDb: 40, outsideSsim: 0.99, bubbleDb: 27, bubbleSsim: 0.93, soundLagMs: 0.5, soundLevelDb: 0.5, mixLevelDb: 0.1, mixResidualDbfs: -90, mixWorstStep: 32, edgeInnerDb: 18, edgeOuterDb: 30 }
 
 const ff = (args: string[]) => execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-y', ...args], { stdio: ['ignore', 'inherit', 'inherit'] })
 const TAGS = ['-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv']
@@ -58,18 +62,25 @@ async function main() {
   const workDir = resolve(process.env.STUDIO_E2E_WORK_DIR ?? join(tmpdir(), 'studio-worker-e2e-work'))
   const S = 6
   // Screens: a made-up app window (static parts, a moving test card, the frame number), RGB made BT.709 as recorders do.
-  const screen = (file: string, w: number, h: number, fps: number, sound: boolean) => ff([
+  // Untagged (`tags` false): the same BT.709 pixels with no colour said, as a browser's take conformed by the worker arrives.
+  const screen = (file: string, w: number, h: number, fps: number, sound: boolean, tags = true, soundDelay = 0) => ff([
     '-f', 'lavfi', '-i', `color=c=0xf2f3f6:s=${w}x${h}:r=${fps}:d=${S}`, '-f', 'lavfi', '-i', `testsrc2=s=${Math.round(w / 2)}x${Math.round(h / 2)}:r=${fps}:d=${S}`,
-    ...(sound ? ['-f', 'lavfi', '-i', `aevalsrc='0.2*sin(2*PI*(500+60*t)*t)':s=48000:d=${S}`] : []),
+    ...(sound ? [...(soundDelay ? ['-itsoffset', String(soundDelay)] : []), '-f', 'lavfi', '-i', `aevalsrc='0.2*sin(2*PI*(500+60*t)*t)':s=48000:d=${S}`] : []),
     '-filter_complex', `[0:v]format=rgb24,drawbox=x=0:y=0:w=${Math.round(w * 0.14)}:h=${h}:color=0x23232b:t=fill,drawbox=x=${Math.round(w * 0.18)}:y=${Math.round(h * 0.1)}:w=${Math.round(w * 0.36)}:h=${Math.round(h * 0.04)}:color=0x5b3fd0:t=fill[bg];`
       + `[1:v]format=rgb24[p];[bg][p]overlay=x=${Math.round(w * 0.4)}:y=${Math.round(h * 0.36)}:format=rgb[o];[o]drawtext=text='%{n}':x=20:y=${h - 80}:fontsize=60:fontcolor=white:box=1:boxcolor=black,${TO709}[v]`,
-    '-map', '[v]', ...(sound ? ['-map', '2:a', '-c:a', 'aac', '-b:a', '160k'] : []), ...TAGS, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-g', String(fps), file])
-  const camera = (file: string, w: number, h: number, fps: number) => ff(['-f', 'lavfi', '-i', `testsrc2=s=${w}x${h}:r=${fps}:d=${S + 1}`,
+    '-map', '[v]', ...(sound ? ['-map', '2:a', '-c:a', 'aac', '-b:a', '160k'] : []), ...(tags ? TAGS : []), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-g', String(fps), file])
+  const camera = (file: string, w: number, h: number, fps: number, tags = true) => ff(['-f', 'lavfi', '-i', `testsrc2=s=${w}x${h}:r=${fps}:d=${S + 1}`,
     '-vf', `format=rgb24,noise=alls=10:allf=t,drawtext=text='%{n}':x=${w * 0.4}:y=${h * 0.35}:fontsize=${Math.round(h / 4)}:fontcolor=white:box=1:boxcolor=black,${TO709}`,
-    ...TAGS, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-g', String(fps), file])
+    ...(tags ? TAGS : []), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-g', String(fps), file])
   const files = {
     screen60: join(media, 'screen60.mp4'), screen30: join(media, 'screen30.mp4'), cam30: join(media, 'cam30.mp4'), cam60: join(media, 'cam60.mp4'), mic: join(media, 'mic.m4a'),
+    screen60u: join(media, 'screen60u.mp4'), screen30u: join(media, 'screen30u.mp4'), cam30u: join(media, 'cam30u.mp4'), screen60d: join(media, 'screen60d.mp4'),
   }
+  screen(files.screen60u, 2504, 1438, 60, false, false)
+  screen(files.screen30u, 1366, 766, 30, false, false)
+  camera(files.cam30u, 1920, 1080, 30, false)
+  // Its sound starts 0.3 s after its picture (kept as it came: on the grid, H.264 in MP4).
+  screen(files.screen60d, 1280, 720, 60, true, true, 0.3)
   screen(files.screen60, 2504, 1438, 60, true)
   screen(files.screen30, 1366, 766, 30, false)
   camera(files.cam30, 1920, 1080, 30)
@@ -103,6 +114,8 @@ async function main() {
     const A = {
       screen60: (await asset('screen60', 'Screen.mp4', 60)).asset, screen30: (await asset('screen30', 'Screen.mp4', 30)).asset,
       cam30: (await asset('cam30', 'Camera.mp4', 30)).asset, cam60: (await asset('cam60', 'Camera.mp4', 60)).asset, mic: (await asset('mic', 'Microphone.m4a')).asset,
+      screen60u: (await asset('screen60u', 'Screen.mp4', 60)).asset, screen30u: (await asset('screen30u', 'Screen.mp4', 30)).asset, cam30u: (await asset('cam30u', 'Camera.mp4', 30)).asset,
+      screen60d: (await asset('screen60d', 'Screen.mp4', 60)).asset,
     }
     importer.kill('SIGTERM')
     await new Promise((r) => importer.once('exit', r))
@@ -130,7 +143,7 @@ async function main() {
       const { Renderer, inputPropsFor, COMPOSITION_ID } = await import('../src/render.ts')
       const { loadConfig } = await import('../src/config.ts')
       const { soundOnly } = await import('../src/fast-export.ts')
-      const { composeSound, SAMPLE_RATE } = await import('../src/fast-sound.ts')
+      const { composeSound, soundPlan, SAMPLE_RATE } = await import('../src/fast-sound.ts')
       const { soundLayers } = require('../../web/src/lib/studio/engine/sound-layers.ts') as typeof import('../../web/src/lib/studio/engine/sound-layers.ts')
       const { renderMedia, selectComposition } = await import('@remotion/renderer')
       const cfg = loadConfig({ ...process.env, STUDIO_WORK_DIR: workDir }, () => 4) as Exclude<ReturnType<typeof loadConfig>, { problems: string[] }>
@@ -144,8 +157,13 @@ async function main() {
         const reference = join(dir, `${c.name}-remotion.wav`), mine = join(dir, `${c.name}-ffmpeg.wav`)
         await renderMedia({ serveUrl, composition: comp, inputProps, ...common, codec: 'wav', outputLocation: reference, concurrency: 1 })
         const probe = (file: string) => {
-          const st = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=codec_name,sample_rate,channels', '-of', 'json', cache(file)], { encoding: 'utf8' })).streams?.[0]
-          return st ? { codec: st.codec_name, sampleRate: Number(st.sample_rate), channels: st.channels } : null
+          const st = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=codec_name,sample_rate,channels,start_time', '-of', 'json', cache(file)], { encoding: 'utf8' })).streams?.[0]
+          return st ? { codec: st.codec_name, sampleRate: Number(st.sample_rate), channels: st.channels, startTime: Number(st.start_time) } : null
+        }
+        if (c.remotionSound) {
+          const r = soundPlan(c.project, probe)
+          soundRows.set(c.name, { how: 'reason' in r ? `the sound mixed by Remotion (${r.reason})` : 'mixed by FFmpeg' })
+          continue
         }
         const how = await composeSound({ project: c.project, frames: comp.durationInFrames, fps: comp.fps, path: cache, out: mine, scratch: dir, probe,
           remotion: async (frameRange, out) => { await renderMedia({ serveUrl, composition: comp, inputProps, ...common, codec: 'wav', frameRange, outputLocation: out, concurrency: 1 }) },
@@ -194,23 +212,47 @@ async function main() {
         const worst = (xs: number[]) => xs.reduce((m, x, i) => (x < m.v ? { v: x, frame: i } : m), { v: Infinity, frame: -1 })
         row.outsideDb = worst(out0.psnr); row.outsideSsim = worst(out0.ssim)
         if (bub0) { row.bubbleDb = worst(bub0.psnr.filter((_, i) => c.bubbleFrames!(i))); row.bubbleSsim = worst(bub0.ssim.filter((_, i) => c.bubbleFrames!(i))) }
+        // The mask's edge on its own (2 px either side of it, the luma): a radius wrong by 2 px must fall below what the right one reaches.
+        if (box) {
+          const { fastExportPlan, segmentArgs, bubbleGeometry } = await import('../src/fast-export.ts')
+          const plan = fastExportPlan(c.project) as Extract<ReturnType<typeof fastExportPlan>, { segments: unknown }>
+          const seg = plan.segments.find((x) => x.bubble)!, b = seg.bubble!, g = bubbleGeometry(b)
+          const frames = Array.from({ length: seg.frames }, (_, l) => seg.startFrame + l).filter((f) => f >= seg.startFrame + b.offset && c.bubbleFrames!(f))
+          // Two bands: just inside the edge (the camera: a mask too small shows the screen there) and just outside it (the
+          // screen: a mask too large shows the camera there). Each against Chrome's, the worst frame.
+          const chromeY = lumaBox(o.chrome, g), fastY = lumaBox(o.fast, g), inner = edgeBand(g, b.square, b.radius, -2, 0), outer = edgeBand(g, b.square, b.radius, 0.5, 2.5)
+          const bands = (y: Buffer, shift: number) => ({ inner: Math.min(...frames.map((f) => bandPsnr(y, chromeY, f - shift, f, inner, g.bw * g.bh))), outer: Math.min(...frames.map((f) => bandPsnr(y, chromeY, f - shift, f, outer, g.bw * g.bh))) })
+          row.edgeDb = bands(fastY, 0)
+          const wrong: Record<string, { inner: number; outer: number }> = {}
+          for (const dr of process.env.STUDIO_FAST_E2E_SWEEP ? [-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2].filter((d) => b.radius + d <= b.square.side / 2) : b.radius * 2 >= b.square.side - 1e-9 ? [-2] : [-2, 2]) {
+            const out = join(dir, `${c.name}-radius${dr}.mp4`)
+            execFileSync('ffmpeg', segmentArgs({ ...seg, blend: seg.blend, bubble: { ...b, radius: b.radius + dr } }, plan.fps, (f) => join(workDir, 'cache', f), out), { stdio: ['ignore', 'inherit', 'inherit'] })
+            const y = lumaBox(out, g)
+            wrong[`${dr > 0 ? '+' : ''}${dr}px`] = bands(y, seg.startFrame)
+          }
+          row.edgeWrongRadiusDb = wrong
+        }
         const sound = soundCompare(o.chrome, o.fast)
         row.sound = sound
         const mix = soundRows.get(c.name)!
         row.mix = mix
-        assert.ok(o.fastLog.some((l) => /the sound mixed by FFmpeg/.test(l)), `${c.name}: the export's sound was not FFmpeg's: ${o.fastLog.filter((l) => /sound/.test(l)).join(' | ')}`)
+        const expected = c.remotionSound ?? /the sound mixed by FFmpeg/
+        assert.ok(o.fastLog.some((l) => expected.test(l)), `${c.name}: the export's sound was not as expected (${expected}): ${o.fastLog.filter((l) => /sound/.test(l)).join(' | ')}`)
+        if (c.remotionSound) assert.match(String(mix.how), c.remotionSound)
         const bad = [
           (row.outsideDb as { v: number }).v < THRESHOLDS.outsideDb && 'outside PSNR',
           (row.outsideSsim as { v: number }).v < THRESHOLDS.outsideSsim && 'outside SSIM',
           bub0 && (row.bubbleDb as { v: number }).v < THRESHOLDS.bubbleDb && 'bubble PSNR',
           bub0 && (row.bubbleSsim as { v: number }).v < THRESHOLDS.bubbleSsim && 'bubble SSIM',
+          bub0 && Math.min((row.edgeDb as { inner: number }).inner - THRESHOLDS.edgeInnerDb, (row.edgeDb as { outer: number }).outer - THRESHOLDS.edgeOuterDb) < 0 && 'mask edge PSNR',
+          bub0 && Object.entries(row.edgeWrongRadiusDb as Record<string, { inner: number; outer: number }>).some(([k, v]) => k === '-2px' && v.inner >= THRESHOLDS.edgeInnerDb && v.outer >= THRESHOLDS.edgeOuterDb) && 'a mask 2 px too small would pass',
           Math.abs(sound.lagMs) > THRESHOLDS.soundLagMs && 'sound offset',
           Math.abs(sound.levelDb) > THRESHOLDS.soundLevelDb && 'sound level',
-          mix.lengthRemotion !== mix.lengthFfmpeg && 'mix length',
-          (mix.offsets as number[]).some((x) => x !== 0) && 'mix offset at a layer start',
-          Math.abs(mix.levelDb as number) > THRESHOLDS.mixLevelDb && 'mix level',
-          (mix.residualDbfs as number) > THRESHOLDS.mixResidualDbfs && 'mix residual',
-          (mix.maxDiff as number) > THRESHOLDS.mixWorstStep && 'mix sample difference',
+          !c.remotionSound && mix.lengthRemotion !== mix.lengthFfmpeg && 'mix length',
+          !c.remotionSound && (mix.offsets as number[]).some((x) => x !== 0) && 'mix offset at a layer start',
+          !c.remotionSound && Math.abs(mix.levelDb as number) > THRESHOLDS.mixLevelDb && 'mix level',
+          !c.remotionSound && (mix.residualDbfs as number) > THRESHOLDS.mixResidualDbfs && 'mix residual',
+          !c.remotionSound && (mix.maxDiff as number) > THRESHOLDS.mixWorstStep && 'mix sample difference',
         ].filter(Boolean)
         row.ok = bad.length === 0
         if (bad.length) { failures++; row.failed = bad }
@@ -232,9 +274,10 @@ async function main() {
 }
 
 // ---- the made-up videos ----------------------------------------------------------------------------------------------
-type Case = { name: string; project: EditorProject; bubbleBox?: { x: number; y: number; w: number; h: number }; bubbleFrames?: (frame: number) => boolean }
+/** `remotionSound`: the sound this case must leave to Remotion's mix (fast-sound.ts's reason), the picture still FFmpeg's. */
+type Case = { name: string; project: EditorProject; bubbleBox?: { x: number; y: number; w: number; h: number }; bubbleFrames?: (frame: number) => boolean; remotionSound?: RegExp }
 
-function buildCases(A: Record<'screen60' | 'screen30' | 'cam30' | 'cam60' | 'mic', EditorAsset>): Case[] {
+function buildCases(A: Record<'screen60' | 'screen30' | 'cam30' | 'cam60' | 'mic' | 'screen60u' | 'screen30u' | 'cam30u' | 'screen60d', EditorAsset>): Case[] {
   const make = (o: { name: string; screen: EditorAsset; camera: EditorAsset; clips: { from: number; to: number; rate?: number; muted?: boolean }[]; corner: 'tl' | 'tr' | 'bl' | 'br';
     style?: { shape: 'circle' | 'rounded'; radius: number }; offset: number; look?: 'default' | 'gradient' | 'solid'; mic?: boolean; noCamera?: boolean; micFades?: boolean }): Case => {
     const screen = o.clips.some((c) => (c.rate ?? 1) > 1)
@@ -272,7 +315,7 @@ function buildCases(A: Record<'screen60' | 'screen30' | 'cam30' | 'cam60' | 'mic
     const box = { x: Math.floor(x * W), y: Math.floor(y * H), w: Math.ceil(side), h: Math.ceil(side) }
     // Frames with the bubble: those the camera covers (the sync offset can leave the first frames without it).
     const lead = Math.max(0, Math.ceil(o.offset * fps))
-    return { name: o.name, project, bubbleBox: box, bubbleFrames: (f) => f >= lead + 2 }
+    return { name: o.name, project, bubbleBox: box, bubbleFrames: (f) => f >= lead }
   }
   const s60 = A.screen60, s30 = A.screen30
   return [
@@ -284,6 +327,11 @@ function buildCases(A: Record<'screen60' | 'screen30' | 'cam30' | 'cam60' | 'mic
     // export showed source frame 132 where 179 was held under this cut's blend (fast-export.ts compared it and fell back).
     make({ name: 'nocamcut60', screen: s60, camera: A.cam30, clips: [{ from: 5, to: 180 }, { from: 213, to: 341 }], corner: 'br', offset: 0, noCamera: true }),
     make({ name: 'cuts30', screen: s30, camera: A.cam30, clips: [{ from: 3, to: 61 }, { from: 77, to: 150 }], corner: 'bl', style: { shape: 'rounded', radius: 0.1 }, offset: -0.2, mic: true, micFades: true }),
+    // No colour said in the files (a browser's take, conformed): Chrome and FFmpeg must read them alike, at 60 and 30.
+    make({ name: 'untagged60', screen: A.screen60u, camera: A.cam30u, clips: [{ from: 0, to: 250 }, { from: 271, to: 360 }], corner: 'br', offset: 0.1, mic: true }),
+    make({ name: 'untagged30', screen: A.screen30u, camera: A.cam30u, clips: [{ from: 0, to: 180 }], corner: 'tl', style: { shape: 'rounded', radius: 0.2 }, offset: 0.05, mic: true }),
+    // The recording's sound starts 0.3 s after its picture: not mixed here (Remotion places it by its time), the picture still is.
+    { ...make({ name: 'delayed60', screen: A.screen60d, camera: A.cam30, clips: [{ from: 0, to: 300 }], corner: 'br', offset: 0, noCamera: true }), remotionSound: /the sound mixed by Remotion \(a sound starts at 0\.2\d* s in its file/ },
   ]
 }
 
@@ -308,6 +356,26 @@ function perFrame(a: string, b: string, off: number, filter: string): { psnr: nu
   }
   // With a negative shift a's frames start late: put them back at their own index.
   return off < 0 ? { psnr: [...Array(-off).fill(-Infinity), ...psnr], ssim: [...Array(-off).fill(0), ...ssim] } : { psnr, ssim }
+}
+/** The luma of the bubble's box, every frame, as one buffer (bw × bh bytes a frame). */
+function lumaBox(file: string, g: { bx: number; by: number; bw: number; bh: number }): Buffer {
+  return execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-i', file, '-vf', `crop=${g.bw}:${g.bh}:${g.bx}:${g.by},extractplanes=y`, '-f', 'rawvideo', '-'], { maxBuffer: 1 << 30 })
+}
+/** The pixels of the box whose centre is `from` to `to` px from the bubble's edge (a rounded square's signed distance: below 0 inside). */
+function edgeBand(g: { bx: number; by: number; bw: number; bh: number }, q: { x: number; y: number; side: number }, r: number, from: number, to: number): number[] {
+  const out: number[] = [], cx = q.x + q.side / 2, cy = q.y + q.side / 2, half = q.side / 2
+  for (let j = 0; j < g.bh; j++) for (let i = 0; i < g.bw; i++) {
+    const qx = Math.abs(g.bx + i + 0.5 - cx) - (half - r), qy = Math.abs(g.by + j + 0.5 - cy) - (half - r)
+    const d = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r
+    if (d >= from && d <= to) out.push(j * g.bw + i)
+  }
+  return out
+}
+/** PSNR over `band` of frame `fa` of one luma box against frame `fb` of another (`n` bytes a frame). */
+function bandPsnr(a: Buffer, b: Buffer, fa: number, fb: number, band: number[], n: number): number {
+  let se = 0
+  for (const k of band) { const d = (a[fa * n + k] ?? 0) - (b[fb * n + k] ?? 0); se += d * d }
+  return se ? 10 * Math.log10((255 * 255 * band.length) / se) : 99
 }
 /** A 16-bit WAV's samples (interleaved). */
 function wav(file: string): Int16Array {

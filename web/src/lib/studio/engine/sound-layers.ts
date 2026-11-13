@@ -9,6 +9,8 @@ import { duckGain, voiceSpans } from './ducking';
 import { projectDuration, scheduleProject, type ScheduledClip } from './timeline';
 
 export type SoundLayer = {
+  /** A recording's sound under its clip, or an audio track's segment (a segment's id may look like anything). */
+  kind: 'clip' | 'track';
   key: string;
   assetId: string;
   /** Timeline frame the layer starts at, and how many frames its Sequence lasts. */
@@ -26,12 +28,12 @@ export function soundLayers(project: EditorProject, schedule: ScheduledClip[] = 
   const fps = project.output.fps, frames = projectDuration(project);
   const clips = cutAudioPlan(project, schedule).map((plan): SoundLayer => {
     const s = schedule.find((item) => item.clip.id === plan.clipId)!;
-    return { key: `audio-${plan.clipId}`, assetId: s.asset.id, from: plan.from, duration: plan.duration, trimBefore: Math.max(0, plan.trimBefore),
+    return { kind: 'clip', key: `audio-${plan.clipId}`, assetId: s.asset.id, from: plan.from, duration: plan.duration, trimBefore: Math.max(0, plan.trimBefore),
       playbackRate: s.clip.playbackRate, premountFor: Math.min(fps, plan.from), volume: (f: number) => cutVolume(plan, f) * automationValue(project, 'volume', plan.from + f) };
   });
   const ducking = project.audioTracks.some((t) => t.role === 'music' && t.duck), spans = ducking ? voiceSpans(project) : [];
   const tracks = project.audioTracks.filter((track) => !track.muted).flatMap((track) => track.segments.filter((segment) => segment.startFrame < frames).map((segment): SoundLayer => ({
-    key: segment.id, assetId: segment.assetId, from: segment.startFrame,
+    kind: 'track', key: `track-${track.id}-${segment.id}`, assetId: segment.assetId, from: segment.startFrame,
     duration: Math.min(frames - segment.startFrame, Math.max(1, Math.round((segment.trimEndSeconds - segment.trimStartSeconds) * fps))),
     trimBefore: segment.trimStartSeconds * fps, playbackRate: 1, premountFor: Math.min(fps * 2, segment.startFrame),
     volume: (f: number) => track.gain * segmentLevel(segment, f, fps) * (track.role === 'music' && track.duck ? duckGain(spans, segment.startFrame + f, fps, track.duck) : 1),

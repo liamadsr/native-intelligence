@@ -22,6 +22,7 @@
  * primaries and matrix, limited range, the sRGB transfer (render.ts, bt709WithSwscale).
  */
 import { createRequire } from 'node:module'
+import { encoderArgs } from './encoders.ts'
 import type { EditorAsset, EditorClip, EditorProject } from '../../web/src/lib/studio/engine/contracts.ts'
 
 const require = createRequire(import.meta.url)
@@ -172,12 +173,15 @@ export function fastExportPlan(project: EditorProject): FastPlan | { reason: str
       const rect = outputRect(v, W, H), side = Math.min(rect.width, rect.height)
       const square = { x: rect.x + (rect.width - side) / 2, y: rect.y + (rect.height - side) / 2, side }
       const radiusCss = presenterRadius(track.style, side)
+      const radius = radiusCss === '50%' ? side / 2 : Math.min(side / 2, Number(radiusCss))
+      // Square corners: the mask's distance below is a rounded square's for a radius of half a pixel and more (not tested under one).
+      if (!(radius >= 1)) return deny("its camera bubble's corners are square")
       const map = Array.from({ length: piece.duration }, (_, l) => remotionFrame(l, fps, piece.playbackRate, piece.sourceStartSeconds * fps, media.sourceFps!))
       if (map[0]! < 0 || map.at(-1)! >= media.sourceFrames) return deny("its camera's take is shorter than its bubble")
       segment.bubble = {
         offset: piece.from - segment.startFrame,
         camera: { file: media.file, srcFps: media.sourceFps, rate: piece.playbackRate, startSeconds: piece.sourceStartSeconds, map, width: media.width, height: media.height },
-        square, radius: radiusCss === '50%' ? side / 2 : Math.min(side / 2, Number(radiusCss)),
+        square, radius,
         crop: sourceCropRect(media.width, media.height, v.crop, side, side),
       }
     }
@@ -281,21 +285,42 @@ export function bubbleGeometry(b: BubblePlan) {
   return { bx, by, bw, bh, x0, y0, x1, y2, mask }
 }
 
+/**
+ * Frames whose pictures, as the graph has them before anything is drawn over them, are written as MD5s (FFmpeg's
+ * framemd5) beside the clip: `screen` output frames of the recording, `camera` frames of the camera's stretch (after its
+ * sampling, before the mask), each list ascending. The run compares them with the source frames the plan says they are.
+ */
+export interface FrameHashes { screen: number[]; camera: number[]; screenOut: string; cameraOut: string }
+
+const selectFrames = (frames: number[]) => `select='${frames.map((l) => `eq(n\\,${l})`).join('+')}'`
+
+/**
+ * The filters that sample the camera into the bubble's box (bilinear, at the exact fractional place), in the camera's
+ * own yuv420p: pinned, or FFmpeg may add the alpha plane the mask needs before the sampling (the same pixels, a plane
+ * more to sample).
+ */
+export const bubbleSampling = (g: ReturnType<typeof bubbleGeometry>) =>
+  `format=yuv420p,perspective=x0=${num(g.x0)}:y0=${num(g.y0)}:x1=${num(g.x1)}:y1=${num(g.y0)}:x2=${num(g.x0)}:y2=${num(g.y2)}:x3=${num(g.x1)}:y3=${num(g.y2)}:interpolation=linear,crop=${g.bw}:${g.bh}:0:0,format=yuv420p`
+
 /** One clip's FFmpeg arguments (inputs as files under `dir`, the asset cache's parent), writing `out`. */
-export function segmentArgs(seg: SegmentPlan, fps: number, path: (file: string) => string, out: string): string[] {
-  const inputs: string[] = [], graph: string[] = []
+export function segmentArgs(seg: SegmentPlan, fps: number, path: (file: string) => string, out: string, hashes?: FrameHashes, encoder: string[] = FAST_ENCODER): string[] {
+  const inputs: string[] = [], graph: string[] = [], extra: string[] = []
   let n = 0
   const input = (file: string, srcFps: number, first: number, last: number) => { inputs.push(...seekArgs({ srcFps }, first, last), '-i', path(file)); return n++ }
   const scr = input(seg.screen.file, seg.screen.srcFps, seg.screen.map[0]!, seg.screen.map.at(-1)!)
   graph.push(`[${scr}:v]${realise(seg.screen, fps, seg.frames)}[scr0]`)
-  let screenOut = 'scr0'
+  if (hashes?.screen.length) {
+    graph.push(`[scr0]split[scr0k][scrh]`, `[scrh]${selectFrames(hashes.screen)}[scrhash]`)
+    extra.push('-map', '[scrhash]', '-fps_mode', 'passthrough', '-f', 'framemd5', hashes.screenOut)
+  }
+  let screenOut = hashes?.screen.length ? 'scr0k' : 'scr0'
   if (seg.blend) {
     const b = seg.blend, f = b.frames
     const held = input(b.file, b.srcFps, b.index, b.index)
     // The frame's number from its time, both inputs on one 1/fps clock (blend's own N counts from 1): the k-th blended frame is (k + 1) / (f + 1) in, as SourceClip fades it.
     const a = `min(1\\,(round(T*${fps})+1)/${f + 1})`
     graph.push(`[${held}:v]trim=end_frame=1,setpts=0,loop=loop=${f - 1}:size=1:start=0,settb=1/${fps},setpts=N[held]`,
-      `[scr0]split[sa][sb]`, `[sa]trim=end_frame=${f},settb=1/${fps},setpts=N[head]`, `[sb]trim=start_frame=${f},setpts=PTS-STARTPTS[tail]`,
+      `[${screenOut}]split[sa][sb]`, `[sa]trim=end_frame=${f},settb=1/${fps},setpts=N[head]`, `[sb]trim=start_frame=${f},setpts=PTS-STARTPTS[tail]`,
       `[head][held]blend=all_expr='A*${a}+B*(1-${a})'[mixed]`, `[mixed][tail]concat=n=2:v=1:a=0[scr1]`)
     screenOut = 'scr1'
   }
@@ -304,30 +329,73 @@ export function segmentArgs(seg: SegmentPlan, fps: number, path: (file: string) 
   screenOut = 'scrN'
   if (seg.bubble) {
     const b = seg.bubble, g = bubbleGeometry(b), cam = input(b.camera.file, b.camera.srcFps, b.camera.map[0]!, b.camera.map.at(-1)!)
-    const persp = `,perspective=x0=${num(g.x0)}:y0=${num(g.y0)}:x1=${num(g.x1)}:y1=${num(g.y0)}:x2=${num(g.x0)}:y2=${num(g.y2)}:x3=${num(g.x1)}:y3=${num(g.y2)}:interpolation=linear,crop=${g.bw}:${g.bh}:0:0`
-    graph.push(`color=c=black:s=${g.bw}x${g.bh}:r=1:d=1,format=gray,geq=lum='${g.mask}',loop=loop=-1:size=1,settb=1/${fps},setpts=N[mask]`,
-      `[${cam}:v]${realise(b.camera, fps, b.camera.map.length, persp)},settb=1/${fps},setpts=N+${b.offset},format=yuva420p[cam]`,
+    const persp = `,${bubbleSampling(g)}`
+    graph.push(`color=c=black:s=${g.bw}x${g.bh}:r=1:d=1,format=gray,geq=lum='${g.mask}',loop=loop=-1:size=1,settb=1/${fps},setpts=N[mask]`)
+    if (hashes?.camera.length) {
+      graph.push(`[${cam}:v]${realise(b.camera, fps, b.camera.map.length, persp)},split[camr][camh]`, `[camh]${selectFrames(hashes.camera)}[camhash]`)
+      extra.push('-map', '[camhash]', '-fps_mode', 'passthrough', '-f', 'framemd5', hashes.cameraOut)
+    } else graph.push(`[${cam}:v]${realise(b.camera, fps, b.camera.map.length, persp)}[camr]`)
+    graph.push(`[camr]settb=1/${fps},setpts=N+${b.offset},format=yuva420p[cam]`,
       `[cam][mask]alphamerge=shortest=1[bub]`, `[${screenOut}][bub]overlay=x=${g.bx}:y=${g.by}:eof_action=pass:format=yuv420[scr2]`)
     screenOut = 'scr2'
   }
-  graph.push(`[${screenOut}]format=yuv420p,setparams=color_primaries=bt709:color_trc=iec61966-2-1:colorspace=bt709:range=tv[v]`)
+  graph.push(`[${screenOut}]format=yuv420p,setsar=1,setparams=color_primaries=bt709:color_trc=iec61966-2-1:colorspace=bt709:range=tv[v]`)
   return ['-nostdin', '-v', 'error', '-y', ...inputs, '-filter_complex', graph.join(';'), '-map', '[v]', '-frames:v', String(seg.frames), '-an',
-    ...FAST_ENCODER, '-r', String(fps), '-video_track_timescale', '90000', '-f', 'mp4', out]
+    ...encoder, '-r', String(fps), '-video_track_timescale', '90000', '-f', 'mp4', out, ...extra]
 }
 
-/** The Chrome path's encoder settings (render.ts, EXPORT_ENCODING), so the two paths make the same kind of file. */
-export const FAST_ENCODER = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p',
-  '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'iec61966-2-1', '-color_range', 'tv']
+/** The Chrome path's encoder settings (render.ts, EXPORT_ENCODING), so the two paths make the same kind of file (encoders.ts's `x264`). */
+export const FAST_ENCODER = encoderArgs('x264', 0, 0, 0)
 
-/** What the files must be for the plan to hold (after staging, from ffprobe): H.264 in yuv420p, BT.709 or untagged, limited range, starting at 0. Pure. */
-export function sourcesFit(streams: { file: string; codec?: string; pixFmt?: string; colorSpace?: string; colorRange?: string; startTime?: number }[]): string | null {
+/** A video file as ffprobe describes it (its first video stream), for sourcesFit. */
+export interface SourceProbe {
+  file: string; codec?: string; pixFmt?: string; colorSpace?: string; colorRange?: string; colorPrimaries?: string; colorTransfer?: string
+  startTime?: number; sar?: string; rotation?: number
+}
+
+/**
+ * Colour as tagged (or not) in what was proven against Chrome (test/fast-export-e2e.ts): BT.709 matrix, primaries and
+ * transfer or none of them said, limited range or none said. The worker's own conform keeps what its source said, so a
+ * browser's untagged take arrives untagged.
+ */
+export const PROVEN_COLOUR = { space: ['bt709', 'unknown'], primaries: ['bt709', 'unknown'], transfer: ['bt709', 'unknown'], range: ['tv', 'unknown'] }
+
+/**
+ * What the files must be for the plan to hold (after staging, from ffprobe): H.264 in yuv420p, colour as PROVEN_COLOUR,
+ * square pixels, not turned, starting at 0. Pure.
+ */
+export function sourcesFit(streams: SourceProbe[]): string | null {
+  const said = (v: string | undefined) => v ?? 'unknown'
   for (const s of streams) {
     if (s.codec !== 'h264') return `${s.file} is ${s.codec ?? 'not video'}, not H.264`
     if (s.pixFmt !== 'yuv420p') return `${s.file} is ${s.pixFmt}`
-    if (s.colorSpace && !['bt709', 'unknown'].includes(s.colorSpace)) return `${s.file}'s colour is ${s.colorSpace}`
-    if (s.colorRange && !['tv', 'unknown'].includes(s.colorRange)) return `${s.file} is full range`
+    if (!PROVEN_COLOUR.space.includes(said(s.colorSpace))) return `${s.file}'s colour is ${s.colorSpace}`
+    if (!PROVEN_COLOUR.primaries.includes(said(s.colorPrimaries))) return `${s.file}'s primaries are ${s.colorPrimaries}`
+    if (!PROVEN_COLOUR.transfer.includes(said(s.colorTransfer))) return `${s.file}'s transfer is ${s.colorTransfer}`
+    if (!PROVEN_COLOUR.range.includes(said(s.colorRange))) return `${s.file} is ${s.colorRange} range`
+    if (s.sar && !['1:1', '0:1'].includes(s.sar)) return `${s.file}'s pixels are not square (${s.sar})`
+    if (s.rotation) return `${s.file} is turned ${s.rotation}°`
     if (Math.abs(s.startTime ?? 0) > 1e-6) return `${s.file} does not start at 0`
   }
+  return null
+}
+
+/**
+ * Whether a stream's frames `first`…`last` sit on its frame grid, as the plan assumes (realise numbers frames from their
+ * times; Chrome picks them by their times): each present, once, within a quarter of a millisecond of i / fps.
+ * `stamps`: packet times (seconds, any order) read around those frames. Null when they do, else why. Pure.
+ */
+export function stampsFit(stamps: number[], srcFps: number, first: number, last: number): string | null {
+  const seen = new Set<number>()
+  // The same packet read twice (overlapping reads) is one frame; two packets for one frame are not.
+  for (const t of new Set(stamps)) {
+    const i = Math.round(t * srcFps)
+    if (i < first || i > last) continue
+    if (Math.abs(t - i / srcFps) > 0.00025) return `frame ${i} is at ${t.toFixed(6)} s, off its place by ${((t - i / srcFps) * 1000).toFixed(2)} ms`
+    if (seen.has(i)) return `frame ${i} is there twice`
+    seen.add(i)
+  }
+  for (let i = first; i <= last; i++) if (!seen.has(i)) return `frame ${i} is missing`
   return null
 }
 

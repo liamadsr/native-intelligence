@@ -509,11 +509,20 @@ async function queueRecording(
   const live: NonNullable<RecordingRecord['live']> = { roles: [], fallbacks: {} }
   // Which live jobs become their track's import, decided first; the others stop BEFORE any import is queued, so a
   // workspace near its job cap is not refused for jobs about to go.
+  // What each track's import is asked to make. The screen at 60 fps when its frames came that fast while it moved,
+  // else 30 (no frame is made up to fill 60); never above the rate the recorder asked for.
+  const ceiling = input.screen.frameRate ?? sealed.screen?.frameRate
+  const asked: Record<Role, Partial<ImportInput>> = {
+    screen: { conform: { fps: 60, fit: true, ...(ceiling ? { ceiling } : {}) }, sourceCursorHidden: input.sourceCursorHidden, ...(input.trace ? { trace: input.trace } : {}) },
+    camera: { conform: { fps: 30 }, sourceCursorHidden: false },
+    microphone: { sourceCursorHidden: false },
+    systemAudio: { sourceCursorHidden: false },
+  }
   const reusable: Partial<Record<Role, string>> = {}
   if (take?.liveJobs && !input.trace) {
     for (const role of ['screen', 'camera'] as const) {
       const liveJob = take.liveJobs[role]
-      if (liveJob && input[role] && (await reusableLiveJob(ctx, liveJob))) reusable[role] = liveJob
+      if (liveJob && input[role] && (await reusableLiveJob(ctx, liveJob, asked[role]))) reusable[role] = liveJob
     }
   }
   if (take?.liveJobs) for (const jobId of Object.values(take.liveJobs)) if (jobId && !Object.values(reusable).includes(jobId)) await stopLiveJobs(ctx, { liveJobs: { screen: jobId } })
@@ -541,13 +550,7 @@ async function queueRecording(
     const row = await queueJob(ctx, 'import', importInput)
     jobs[role] = row.id
   }
-  // The screen at 60 fps when its frames came that fast while it moved, else 30 (no frame is made up to fill 60); never
-  // above the rate the recorder asked for.
-  const ceiling = input.screen.frameRate ?? sealed.screen?.frameRate
-  await queue('screen', { conform: { fps: 60, fit: true, ...(ceiling ? { ceiling } : {}) }, sourceCursorHidden: input.sourceCursorHidden, ...(input.trace ? { trace: input.trace } : {}) })
-  await queue('camera', { conform: { fps: 30 }, sourceCursorHidden: false })
-  await queue('microphone', { sourceCursorHidden: false })
-  await queue('systemAudio', { sourceCursorHidden: false })
+  for (const role of ROLES) await queue(role, asked[role])
   const record: RecordingRecord = {
     id, createdAt: new Date().toISOString(), ownerId: ctx.userId, ...(takeId ? { takeId } : {}), ...(options.recovered ? { recovered: true } : {}),
     status: 'importing', claim: null, claimedAt: null, input, jobs, rev: 0, ...(live.roles.length ? { live } : {}),
@@ -712,22 +715,20 @@ export async function advanceRecording(ctx: StudioContext, id: string, waitMs = 
 }
 
 /**
- * How far along a running live job must be, at Stop, to be kept as its track's import: the share of the declared
- * pieces it has fed its FFmpeg (it reports that as its progress). After Stop a live job keeps its lower priority and
- * its STUDIO_LIVE_THREADS (FFmpeg's threads are fixed when it starts), so what it has left runs slower than an ordinary
- * import would run the whole take: keeping a job at share p is sooner when (1 - p) / live speed < 1 / import speed,
- * that is p > 1 - live speed / import speed. Measured on a made-up 10-minute 2.5K screen take (Mac, 18 cores): the live
- * conform (nice, 4 threads) 54.7 s, the import's 26.7 s, so p > 0.51. On a server with fewer cores the two are closer
- * and the line lower; the import also waits for a media slot and downloads the take first. Half way it is.
+ * Whether a take's live job can be its track's import: done or running, nobody asked it to stop, and asked to make
+ * exactly what the import would (the same conform: the screen's rate ceiling is the one known at Stop, which can differ
+ * from the one the take started with; the same cursor flag). How far along it is is not weighed here: the worker
+ * judges that at the seal, where its threads and speed are known, and hands over to the import when finishing the
+ * live job would take longer (studio-worker/src/jobs/live-import.ts handOver).
  */
-export const LIVE_REUSE_SHARE = 0.5
-
-/** Whether a take's live job can be its track's import: done, or running and far enough along; nobody asked it to stop. */
-async function reusableLiveJob(ctx: StudioContext, jobId: string): Promise<boolean> {
+async function reusableLiveJob(ctx: StudioContext, jobId: string, wanted: Partial<ImportInput>): Promise<boolean> {
   const { jobRow } = await jobsModule()
   const row = await jobRow(ctx, jobId).catch(() => null)
-  if (!row || row.cancel_requested) return false
-  return row.status === 'completed' || (row.status === 'running' && Number(row.progress) >= LIVE_REUSE_SHARE)
+  if (!row || row.cancel_requested || (row.status !== 'completed' && row.status !== 'running')) return false
+  const read = must(await ctx.supabase.from('studio_job').select('input').eq('workspace_id', ctx.workspaceId).eq('id', jobId).maybeSingle(), 'read that job') as { input?: Partial<ImportInput> } | null
+  const had = read?.input ?? {}
+  const same = (a: ImportInput['conform'], b: ImportInput['conform']) => a?.fps === b?.fps && !!a?.fit === !!b?.fit && a?.ceiling === b?.ceiling
+  return same(had.conform, wanted.conform) && !!had.sourceCursorHidden === !!wanted.sourceCursorHidden
 }
 
 /** Name the recording on a live job's input, so its end is followed up as the recording's (jobs.ts settleRecording). */

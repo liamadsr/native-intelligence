@@ -6,8 +6,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { fastExportPlan, placedSlot, realise, realiseProblem, remotionFrame, segmentArgs, soundOnly, sourcesFit, type FastPlan } from '../src/fast-export.ts'
-import { joinWavs, sampleFrames, soundRanges } from '../src/fast-export-run.ts'
+import { fastExportPlan, placedSlot, realise, realiseProblem, remotionFrame, segmentArgs, soundOnly, sourcesFit, stampsFit, type FastPlan } from '../src/fast-export.ts'
+import { hashFrames, joinWavs, sampleFrames, soundRanges, usedFrames } from '../src/fast-export-run.ts'
 import { loadConfig } from '../src/config.ts'
 import { parseEditorProject, defaultCaptions, defaultPresentation } from '../src/engine.ts'
 import type { EditorProject } from '../../web/src/lib/studio/engine/contracts.ts'
@@ -98,6 +98,8 @@ test('each thing not proven sends the export to Chrome, with a reason', () => {
     ['subject cut-outs', (p) => { p.cutouts = [{ assetId: 'a', cutoutAssetId: 'b', mode: 'person' }] }, /cut-out/],
     ['extra recorded sources', (p) => { p.sources = [{ id: 'src-1', kind: 'window', assetId: 'b', name: 'Window' }] }, /extra/],
     ['no sound at all', (p) => { p.audioTracks = [] }, /sound/],
+    // presenterRadius rounds to whole pixels: a radius under half a pixel is 0, a square the mask is not proven for.
+    ['a rounded bubble with square corners', (p) => { p.presenterTrack.style = { shape: 'rounded', radius: 0.001 } }, /square/],
   ]
   for (const [name, change, why] of cases) {
     // Changed after the schema's check: the gate sees what the export job would see, whatever filled it.
@@ -126,6 +128,10 @@ test("the frame @remotion/media shows: the latest at or before the clip's time, 
   // A time a hair before a frame (float) still shows it; 0.137 s into a 30 fps camera is frame 4.
   assert.equal(remotionFrame(0, 30, 1, (77 / 30 + 0.2) * 30, 30), 83)
   assert.equal(remotionFrame(0, 60, 1, 0.137 * 60, 30), 4)
+  // The millisecond's grace: frame 10 of a 30 fps camera is at 0.33333 s. At 0.3324 s (0.93 ms before it; 0.332 against
+  // 0.333 rounded) it already shows; at 0.3322 s (1.13 ms before) the frame before does.
+  assert.equal(remotionFrame(0, 60, 1, 0.3324 * 60, 30), 10)
+  assert.equal(remotionFrame(0, 60, 1, 0.3322 * 60, 30), 9)
 })
 
 test('FFmpeg is placed to show exactly those frames, and refuses a placement a hair from a boundary', () => {
@@ -143,7 +149,7 @@ test("one clip's FFmpeg graph: the blend counts its frames by time, every stream
   assert.match(graph, /blend=all_expr='A\*min\(1\\,\(round\(T\*60\)\+1\)\/8\)/)
   assert.match(graph, /\[sa\]trim=end_frame=7,settb=1\/60,setpts=N\[head\]/)
   assert.match(graph, /settb=1\/60,setpts=N\+\d+,format=yuva420p\[cam\]/)
-  assert.match(graph, /setparams=color_primaries=bt709:color_trc=iec61966-2-1:colorspace=bt709:range=tv/)
+  assert.match(graph, /setsar=1,setparams=color_primaries=bt709:color_trc=iec61966-2-1:colorspace=bt709:range=tv/)
   assert.ok(args.includes('-copyts') && args.includes('veryfast') && args.includes('18'))
   assert.equal(args.filter((a) => a === '-i').length, 3, 'the recording, the held frame, the camera')
 })
@@ -154,8 +160,32 @@ test('the files must be what the plan assumes', () => {
   assert.match(sourcesFit([{ ...ok, codec: 'hevc' }])!, /H.264/)
   assert.match(sourcesFit([{ ...ok, pixFmt: 'yuv444p' }])!, /yuv444p/)
   assert.match(sourcesFit([{ ...ok, colorSpace: 'smpte170m' }])!, /colour/)
-  assert.match(sourcesFit([{ ...ok, colorRange: 'pc' }])!, /full range/)
+  assert.match(sourcesFit([{ ...ok, colorRange: 'pc' }])!, /pc range/)
   assert.match(sourcesFit([{ ...ok, startTime: 0.033 }])!, /start/)
+  assert.equal(sourcesFit([{ ...ok, colorPrimaries: 'bt709', colorTransfer: 'bt709', sar: '1:1' }, { ...ok, sar: '0:1', rotation: 0 }]), null)
+  assert.match(sourcesFit([{ ...ok, colorPrimaries: 'bt2020' }])!, /primaries/)
+  assert.match(sourcesFit([{ ...ok, colorTransfer: 'smpte2084' }])!, /transfer/)
+  assert.match(sourcesFit([{ ...ok, sar: '4:3' }])!, /square/)
+  assert.match(sourcesFit([{ ...ok, rotation: -90 }])!, /turned/)
+})
+
+test("the frames shown must sit on their file's frame grid, each once", () => {
+  const grid = Array.from({ length: 40 }, (_, i) => i / 30)
+  assert.equal(stampsFit(grid, 30, 5, 30), null)
+  assert.equal(stampsFit(grid.map((t, i) => (i === 31 ? t + 0.004 : t)), 30, 5, 30), null, 'a frame outside the stretch is not asked about')
+  assert.match(stampsFit(grid.map((t, i) => (i === 12 ? t + 0.0004 : t)), 30, 5, 30)!, /frame 12 .* 0\.40 ms/)
+  assert.match(stampsFit(grid.filter((_, i) => i !== 20), 30, 5, 30)!, /frame 20 is missing/)
+  assert.match(stampsFit([...grid, 7 / 30 + 0.0001], 30, 5, 30)!, /frame 7 is there twice/)
+  assert.equal(stampsFit([...grid, ...grid.slice(3, 9)], 30, 5, 30), null, 'a packet read twice (overlapping reads) is one frame')
+  // Times a microsecond off (what ffprobe prints) are on the grid.
+  assert.equal(stampsFit(grid.map((t) => Math.round(t * 1e6) / 1e6), 30, 0, 39), null)
+})
+
+test('the stretches of each file the plan shows: screens, held frames, the camera', () => {
+  const p = plan(base((x) => { x.clips = [{ ...x.clips[0], id: 'c1', trimEndSourceFrame: 100 }, { ...x.clips[0], id: 'c2', trimStartSourceFrame: 140 }] }))
+  const u = usedFrames(p)
+  assert.deepEqual(u.get(p.segments[0]!.screen.file)!.map((x) => [x.first, x.last]), [[0, 99], [140, 359], [99, 99]])
+  assert.equal(u.get(p.segments[0]!.bubble!.camera.file)!.length, 2)
 })
 
 test("the sound is Remotion's mix of the same video without the pictures that make none", () => {
@@ -167,9 +197,23 @@ test("the sound is Remotion's mix of the same video without the pictures that ma
   assert.deepEqual(s.clips.map((c) => [c.trimStartSourceFrame, c.trimEndSourceFrame, c.audio, c.playbackRate]), p.clips.map((c) => [c.trimStartSourceFrame, c.trimEndSourceFrame, c.audio, c.playbackRate]))
 })
 
-test('the frames checked against Chrome: the first with the bubble, a blended one, one late', () => {
+test('the frames checked against Chrome: the first with the bubble, a blended one, the one where the recording changes most', () => {
   const p = plan(base((x) => { x.clips = [{ ...x.clips[0], id: 'c1', trimEndSourceFrame: 100 }, { ...x.clips[0], id: 'c2', trimStartSourceFrame: 140 }] }))
-  assert.deepEqual(sampleFrames(p), [15, 103, Math.floor(p.frames * 0.8)])
+  assert.deepEqual(sampleFrames(p), [15, 103, Math.floor(p.frames * 0.8)], 'with nothing known of the changes, one 80 % in')
+  // Source frame 200 has the biggest packet: it shows at output frame 100 + (200 - 140) = 160.
+  assert.deepEqual(sampleFrames(p, (_, i) => (i === 200 ? 9000 : 100)), [15, 103, 160])
+})
+
+test("where the graph's frames are compared with the source's: each clip's ends, after its blend, where it changes most", () => {
+  const p = plan(base((x) => { x.clips = [{ ...x.clips[0], id: 'c1', trimEndSourceFrame: 100 }, { ...x.clips[0], id: 'c2', trimStartSourceFrame: 140 }] }))
+  const seg = p.segments[1]!
+  const h = hashFrames(seg, (file, i) => (file === seg.screen.file ? (i === 170 || i === 171 ? 5000 : 10) : (i === 80 ? 7000 : 10)))
+  assert.deepEqual(h.screen, [0, 7, 30, 31, seg.screen.map.length - 1])
+  // The camera's frames each show twice (30 fps in 60): only the first showing of a frame is a change.
+  const at = seg.bubble!.camera.map.indexOf(80)
+  assert.ok(h.camera.includes(at) && !h.camera.includes(at + 1) && h.camera[0] === 0 && h.camera.at(-1) === seg.bubble!.camera.map.length - 1)
+  // A keyframe's size says nothing of change: no change known, only the ends (and the blend).
+  assert.deepEqual(hashFrames(seg, () => 0).screen, [0, 7, seg.screen.map.length - 1])
 })
 
 test('STUDIO_FAST_EXPORT: on by default, off when asked, anything else refused', () => {
