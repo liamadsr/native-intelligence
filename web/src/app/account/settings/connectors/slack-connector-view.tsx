@@ -1,8 +1,8 @@
 'use client'
 
 /**
- * Native Intelligence's Slack app under Settings › Connectors (`connectors/slack`;
- * docs/plans/slack-connect.md §4 piece 3), laid out like a connector's own page:
+ * Native Intelligence's Slack app under Settings › Connectors (`connectors/slack`),
+ * laid out like a connector's own page:
  *
  *   ← Your connectors
  *   [icon] Slack
@@ -12,11 +12,13 @@
  *                      account / Unlink me), and Disconnect for admins
  *   the code panel     a one-time code to send the bot in Slack
  *
- * An admin adds Native Intelligence to their Slack workspace, then sends the bot a code from
- * here: that binds the Slack workspace to this Native Intelligence workspace and links their
- * own Slack account. Everyone else links theirs the same way, with their own
- * code. Slack's install comes back here with `?slack=installed`, and the code
- * is made at once.
+ * An admin presses "Add to Slack": Slack's own install page, which comes back
+ * here connected (the Slack workspace bound to this Native Intelligence
+ * workspace, their own Slack account linked) with `?slack=<result>`, which
+ * the page shows in plain words (src/lib/slack/install-result.ts) and then
+ * takes off the address. Everyone else links their Slack account with a
+ * one-time code they send the bot. A code from an admin also connects a Slack
+ * workspace the app is already in.
  *
  * Reads `GET /api/account/integrations/slack` (again on window focus: the
  * code is sent in Slack, so the link lands while this page is in the
@@ -31,6 +33,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { SLACK_APP_ENTRY } from '@/lib/integrations/catalog'
+import { SLACK_INSTALL_RESULT_PARAM, parseSlackInstallResult, slackInstallMessage } from '@/lib/slack/install-result'
 import { RowIcon } from '../../(dashboard)/side-panels/connections-section'
 import { useSettingsNavigate } from '../settings-shell'
 
@@ -39,13 +42,13 @@ interface SlackState {
   configured: boolean
   appId?: string | null
   canInstall?: boolean
-  /** Add to Slack works from here (off until Vercel turns on Connect installs). */
-  selfInstallOpen?: boolean
   canLink?: boolean
   installations?: Array<{
     teamId: string
     teamName: string
     teamDomain: string
+    /** False: connected here, but the app holds no token for it (connected the old way, or its token died): add it again. */
+    tokenStored?: boolean
     /** alertsOn: the "needs your OK" DMs (null: unknown, no switch). */
     myLink: { slackUserName: string; alertsOn?: boolean | null } | null
   }>
@@ -105,8 +108,8 @@ export function useSlackConnector() {
   const [confirmTeam, setConfirmTeam] = useState<{ teamId: string; teamName: string } | null>(null)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [justInstalled, setJustInstalled] = useState(false)
-  const autoCodeTried = useRef(false)
+  // What Slack's install came back with (the good news; a failure is `error`).
+  const [notice, setNotice] = useState<string | null>(null)
 
   const fetchState = useCallback(async () => {
     try {
@@ -122,9 +125,12 @@ export function useSlackConnector() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    if (params.get('slack') === 'installed') {
-      setJustInstalled(true)
-      params.delete('slack')
+    const result = parseSlackInstallResult(params.get(SLACK_INSTALL_RESULT_PARAM))
+    if (result) {
+      const message = slackInstallMessage(result)
+      if (message.ok) setNotice(message.text)
+      else setError(message.text)
+      params.delete(SLACK_INSTALL_RESULT_PARAM)
       const rest = params.toString()
       window.history.replaceState({}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`)
     }
@@ -145,7 +151,6 @@ export function useSlackConnector() {
     if (prev !== null && linkedCount > prev) {
       setLinkCode(null)
       setCodeTeam(null)
-      setJustInstalled(false)
     }
   }, [linkedCount])
 
@@ -165,22 +170,19 @@ export function useSlackConnector() {
     }
   }, [])
 
-  // Back from Slack's install: the next step is the code, so make it, once
-  // (a failure leaves the error and the button, never a retry loop).
-  useEffect(() => {
-    if (autoCodeTried.current || !justInstalled || !state?.configured || !state.canInstall || installations.length > 0) return
-    autoCodeTried.current = true
-    void makeCode(null)
-  }, [justInstalled, state, installations.length, makeCode])
-
   const install = async () => {
     setInstalling(true)
     setError(null)
     try {
-      const res = await fetch('/api/account/integrations/slack/install', { method: 'POST' })
-      const data = (await res.json().catch(() => null)) as { url?: string; error?: string; code?: string } | null
+      const res = await fetch('/api/account/integrations/slack/install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // Slack's install comes back to this page (the settings page, or the agent panel's Slack tab).
+        body: JSON.stringify({ returnTo: window.location.pathname }),
+      })
+      const data = (await res.json().catch(() => null)) as { url?: string } | null
       if (!res.ok || !data?.url) {
-        setError(data?.code === 'SLACK_INSTALL_UNAVAILABLE' && data.error ? data.error : "Couldn't start the Slack install. Try again.")
+        setError("Couldn't start the Slack install. Try again.")
         setInstalling(false)
         return
       }
@@ -245,11 +247,11 @@ export function useSlackConnector() {
   const connected = installations.length > 0
   const slackHref = openInSlackHref(state?.appId, codeTeam ?? installations[0]?.teamId)
 
-  return { state, loading, installing, linkCode, codeTeam, makingCode, busyTeam, confirmTeam, setConfirmTeam, copied, error, fetchState, installations, makeCode, install, unlink, setAlerts, disconnect, copyCode, connected, slackHref }
+  return { state, loading, installing, linkCode, codeTeam, makingCode, busyTeam, confirmTeam, setConfirmTeam, copied, error, notice, fetchState, installations, makeCode, install, unlink, setAlerts, disconnect, copyCode, connected, slackHref }
 }
 
 export function SlackConnectorContent({ compact = false }: { compact?: boolean }) {
-  const { state, loading, installing, linkCode, codeTeam, makingCode, busyTeam, confirmTeam, setConfirmTeam, copied, error, fetchState, installations, makeCode, install, unlink, setAlerts, disconnect, copyCode, connected, slackHref } = useSlackConnector()
+  const { state, loading, installing, linkCode, codeTeam, makingCode, busyTeam, confirmTeam, setConfirmTeam, copied, error, notice, fetchState, installations, makeCode, install, unlink, setAlerts, disconnect, copyCode, connected, slackHref } = useSlackConnector()
 
   return (
     <div data-slack-section="">
@@ -295,38 +297,30 @@ export function SlackConnectorContent({ compact = false }: { compact?: boolean }
               </h2>
               {state.canInstall ? (
                 <ol className="mt-3 space-y-4 text-sm">
-                  <SetupStep n={1} title="Make sure Native Intelligence is in your Slack">
-                    {state.selfInstallOpen ? (
-                      <>
-                        Look for Native Intelligence under Apps in Slack. Not there?{' '}
-                        <button
-                          type="button"
-                          onClick={() => void install()}
-                          disabled={installing}
-                          className="text-foreground underline underline-offset-2 disabled:opacity-60"
-                        >
-                          Add it to Slack
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        Look for Native Intelligence under Apps in Slack. Not there? Email{' '}
-                        <a href="mailto:liam@dial8.ai" className="text-foreground underline underline-offset-2">
-                          liam@dial8.ai
-                        </a>{' '}
-                        and we&apos;ll add it for you.
-                      </>
-                    )}
+                  <SetupStep n={1} title="Add Native Intelligence to your Slack">
+                    Slack asks you to allow it, then brings you back here, connected.
+                    <div>
+                      <Button size="sm" className="mt-2 h-7 px-3 text-xs" onClick={() => void install()} disabled={installing}>
+                        {installing && <Loader2 aria-hidden className="mr-1 h-3 w-3 animate-spin motion-reduce:animate-none" />}
+                        Add to Slack
+                      </Button>
+                    </div>
                   </SetupStep>
-                  <SetupStep n={2} title="Get your code">
-                    <Button size="sm" className="mt-2 h-7 px-3 text-xs" onClick={() => void makeCode(null)} disabled={makingCode}>
-                      {makingCode && <Loader2 aria-hidden className="mr-1 h-3 w-3 animate-spin motion-reduce:animate-none" />}
-                      Get my code
-                    </Button>
+                  <SetupStep n={2} title="Message your agent in Slack">
+                    Open Native Intelligence under Apps in Slack. Teammates link their own Slack accounts from this page.
                   </SetupStep>
-                  <SetupStep n={3} title="Send the code to Native Intelligence">
-                    In Slack, open Native Intelligence and send it the code as a message. That&apos;s it: you can then message your agent there.
-                  </SetupStep>
+                  <li className="text-xs text-muted-foreground">
+                    Native Intelligence already in your Slack?{' '}
+                    <button
+                      type="button"
+                      onClick={() => void makeCode(null)}
+                      disabled={makingCode}
+                      className="text-foreground underline underline-offset-2 disabled:opacity-60"
+                    >
+                      Get a code
+                    </button>{' '}
+                    and send it to Native Intelligence there.
+                  </li>
                 </ol>
               ) : (
                 <p className="mt-2 text-sm text-muted-foreground">
@@ -335,6 +329,12 @@ export function SlackConnectorContent({ compact = false }: { compact?: boolean }
                 </p>
               )}
             </section>
+          )}
+
+          {notice && !error && (
+            <p role="status" className="mt-5 text-sm text-muted-foreground">
+              {notice}
+            </p>
           )}
 
           {error && (
@@ -393,6 +393,39 @@ export function SlackConnectorContent({ compact = false }: { compact?: boolean }
                   {installations.map((team) => {
                     const name = team.teamName || team.teamDomain || team.teamId
                     const busy = busyTeam === team.teamId
+                    if (team.tokenStored === false) {
+                      // Connected, but the app holds no token there: it can't answer until it is added again.
+                      return (
+                        <li key={team.teamId} data-slack-team={team.teamId} data-slack-readd="" className="flex items-center gap-3 px-4 py-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {state.canInstall
+                                ? 'Native Intelligence has to be added to this Slack workspace again before it answers there. Everyone’s links come back with it.'
+                                : 'Native Intelligence has to be added to this Slack workspace again before it answers there. Ask an admin of this workspace to add it.'}
+                            </p>
+                          </div>
+                          {state.canInstall && (
+                            <Button size="sm" className="h-7 shrink-0 px-3 text-xs" disabled={installing} aria-label={`Add Native Intelligence to ${name} again`} onClick={() => void install()}>
+                              {installing && <Loader2 aria-hidden className="mr-1 h-3 w-3 animate-spin motion-reduce:animate-none" />}
+                              Add to Slack
+                            </Button>
+                          )}
+                          {state.canInstall && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="h-7 shrink-0 px-3 text-xs"
+                              disabled={busy}
+                              aria-label={`Disconnect ${name}`}
+                              onClick={() => setConfirmTeam({ teamId: team.teamId, teamName: name })}
+                            >
+                              Disconnect
+                            </Button>
+                          )}
+                        </li>
+                      )
+                    }
                     return (
                       <li key={team.teamId} data-slack-team={team.teamId} className="flex items-center gap-3 px-4 py-3">
                         <div className="min-w-0 flex-1">

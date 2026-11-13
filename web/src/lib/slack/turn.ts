@@ -105,11 +105,15 @@ export interface SlackOrigin {
   reaction_ts?: string[]
   /** The person's own Slack user: a channel thread's notices go to them alone (ephemeral). */
   slack_user_id?: string
-  /** The installation row's own id, never the row's word. */
+  /**
+   * The Slack team whose stored bot token answers (the installation's own
+   * team id, from the server's rows, never the message row's word). Named
+   * installation_id because step outputs of runs in flight carry it.
+   */
   installation_id: string
 }
 
-/** The Slack calls the turn makes; the real ones come from ./web-api.ts with a Connect token. */
+/** The Slack calls the turn makes; the real ones come from ./deps.ts with the team's stored bot token. */
 export interface SlackTurnSlack {
   post: (message: { channel: string; text: string; thread_ts?: string; blocks?: unknown[] }) => Promise<SlackApiResult<{ ts?: string }>>
   /** A message only `user` sees, in a channel (chat.postEphemeral). */
@@ -249,7 +253,7 @@ export async function replyOrigin(
   supabase: SupabaseClient,
   data: Pick<HomeTurnRequestedData, 'conversationId' | 'userId' | 'workspaceId' | 'guestId'>,
   messageIds: readonly string[],
-  deps: { openDm: (installationId: string, slackUserId: string) => Promise<string | null> },
+  deps: { openDm: (teamId: string, slackUserId: string) => Promise<string | null> },
 ): Promise<SlackOrigin | null> {
   const last = messageIds[messageIds.length - 1]
   if (!last) return null
@@ -278,7 +282,7 @@ export async function replyOrigin(
       if (!installation || installation.status !== 'active' || installation.workspace_id !== data.workspaceId) return null
       const [link] = await linksForUser(supabase, data.userId, [thread.slack_team_id])
       if (!link) return null
-      const dm = await deps.openDm(installation.connect_installation_id, link.slack_user_id).catch(() => null)
+      const dm = await deps.openDm(installation.slack_team_id, link.slack_user_id).catch(() => null)
       return {
         team_id: thread.slack_team_id,
         channel_id: thread.channel_id,
@@ -287,7 +291,7 @@ export async function replyOrigin(
         ts: thread.last_mention_ts ?? thread.thread_ts,
         reaction_ts: carriedTs(messageIds, thread.slack_team_id, thread.channel_id),
         slack_user_id: link.slack_user_id,
-        installation_id: installation.connect_installation_id,
+        installation_id: installation.slack_team_id,
       }
     }
     const row = await messageRow(supabase, data, last)
@@ -298,7 +302,7 @@ export async function replyOrigin(
     if (!installation || installation.status !== 'active' || installation.workspace_id !== data.workspaceId) return null
     const [link] = await linksForUser(supabase, data.userId, [ref.team_id])
     if (!link) return null
-    const channel = await deps.openDm(installation.connect_installation_id, link.slack_user_id)
+    const channel = await deps.openDm(installation.slack_team_id, link.slack_user_id)
     if (!channel || !/^D[A-Z0-9]{2,30}$/.test(channel)) return null
     return {
       team_id: ref.team_id,
@@ -307,7 +311,7 @@ export async function replyOrigin(
       ts: ref.ts,
       reaction_ts: carriedTs(messageIds, ref.team_id, channel),
       slack_user_id: link.slack_user_id,
-      installation_id: installation.connect_installation_id,
+      installation_id: installation.slack_team_id,
     }
   } catch {
     return null

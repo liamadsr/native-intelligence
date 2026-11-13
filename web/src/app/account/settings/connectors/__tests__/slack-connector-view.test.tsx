@@ -2,8 +2,9 @@
 /**
  * Slack's page under Settings › Connectors (slack-connector-view.tsx):
  *
- *   • back from Slack's install it makes the first code once, and a failure
- *     stays a failure (no retry loop of POSTs);
+ *   • back from Slack's install it says how it ended, in plain words, and
+ *     takes the result off the address (no code is made by itself);
+ *   • Add to Slack asks for the install with this page to come back to;
  *   • linked in one Slack workspace, linking another sends the person to
  *     that workspace, and the code step ends when that link lands;
  *   • a failed first read says so and can be tried again.
@@ -19,12 +20,14 @@ vi.mock('../../../(dashboard)/side-panels/connections-section', () => ({ RowIcon
 
 const { SlackConnectorView } = await import('../slack-connector-view')
 
-type Team = { teamId: string; teamName: string; teamDomain: string; myLink: { slackUserName: string } | null }
+type Team = { teamId: string; teamName: string; teamDomain: string; tokenStored?: boolean; myLink: { slackUserName: string } | null }
 const net = {
   state: null as Record<string, unknown> | null,
   getStatus: 200,
   codeStatus: 200,
+  installStatus: 200,
   calls: [] as string[],
+  bodies: [] as string[],
 }
 const slack = (installations: Team[], over: Record<string, unknown> = {}) => ({
   configured: true,
@@ -34,7 +37,7 @@ const slack = (installations: Team[], over: Record<string, unknown> = {}) => ({
   installations,
   ...over,
 })
-const acme: Team = { teamId: 'T1', teamName: 'Acme', teamDomain: 'acme', myLink: { slackUserName: 'liam' } }
+const acme: Team = { teamId: 'T1', teamName: 'Acme', teamDomain: 'acme', myLink: { slackUserName: 'sam' } }
 const beta: Team = { teamId: 'T2', teamName: 'Beta', teamDomain: 'beta', myLink: null }
 
 let container: HTMLDivElement
@@ -54,12 +57,18 @@ beforeEach(() => {
   net.state = null
   net.getStatus = 200
   net.codeStatus = 200
+  net.installStatus = 200
   net.calls = []
+  net.bodies = []
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (url: string, init?: { method?: string }) => {
+    vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
       const method = init?.method ?? 'GET'
       net.calls.push(`${method} ${url}`)
+      if (init?.body) net.bodies.push(init.body)
+      if (url === '/api/account/integrations/slack/install') {
+        return new Response(JSON.stringify(net.installStatus === 200 ? { url: 'https://slack.com/oauth/v2/authorize?x=1' } : { error: 'nope' }), { status: net.installStatus })
+      }
       if (url === '/api/account/integrations/slack/link-code') {
         return new Response(JSON.stringify({ code: 'K7Q4M2', expiresAt: '2026-10-22T19:00:00Z' }), { status: net.codeStatus })
       }
@@ -79,14 +88,42 @@ afterEach(() => {
 })
 
 describe('back from Slack’s install', () => {
-  it('makes the first code once, and a failed one is not retried by itself', async () => {
+  it('says it is connected, takes the result off the address, and makes no code by itself', async () => {
     window.history.replaceState({}, '', '/account/settings/connectors/slack?slack=installed')
-    net.state = slack([])
-    net.codeStatus = 500
+    net.state = slack([acme])
     await render()
-    expect(codePosts()).toBe(1)
-    expect(container.textContent).toContain("Couldn't make a code")
+    expect(container.textContent).toContain('Slack is connected')
     expect(window.location.search).toBe('')
+    expect(codePosts()).toBe(0)
+  })
+
+  it('says plainly why it did not connect', async () => {
+    window.history.replaceState({}, '', '/account/settings/connectors/slack?slack=other_workspace&tab=x')
+    net.state = slack([])
+    await render()
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('already connected to a different Native Intelligence workspace')
+    expect(window.location.search).toBe('?tab=x')
+  })
+
+  it('leaves an address it does not know alone', async () => {
+    window.history.replaceState({}, '', '/account/settings/connectors/slack?slack=<b>hi</b>')
+    net.state = slack([])
+    await render()
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(container.textContent).not.toContain('<b>hi</b>')
+  })
+})
+
+describe('Add to Slack', () => {
+  it('asks for the install, to come back to this page; a failure says so', async () => {
+    net.state = slack([])
+    net.installStatus = 502
+    await render()
+    await act(async () => button('Add to Slack')!.click())
+    await flush()
+    expect(net.calls).toContain('POST /api/account/integrations/slack/install')
+    expect(JSON.parse(net.bodies[0])).toEqual({ returnTo: '/account/settings/connectors/slack' })
+    expect(container.textContent).toContain("Couldn't start the Slack install")
   })
 })
 
@@ -100,7 +137,7 @@ describe('linking one more Slack workspace', () => {
     expect(open?.getAttribute('href')).toContain('team=T2')
     expect(container.textContent).toContain('K7Q4M2')
 
-    net.state = slack([acme, { ...beta, myLink: { slackUserName: 'liam' } }])
+    net.state = slack([acme, { ...beta, myLink: { slackUserName: 'sam' } }])
     await act(async () => window.dispatchEvent(new Event('focus')))
     await flush()
     expect(container.textContent).not.toContain('K7Q4M2')
@@ -111,6 +148,30 @@ describe('linking one more Slack workspace', () => {
     await render()
     expect(button('Unlink me from Acme')).toBeDefined()
     expect(button('Disconnect Beta')).toBeDefined()
+  })
+})
+
+describe('a connected Slack workspace whose token the app does not hold', () => {
+  it('says the app must be added to it again, with Add to Slack for an admin, and offers no linking there', async () => {
+    net.state = slack([acme, { ...beta, tokenStored: false }])
+    await render()
+    const row = container.querySelector('[data-slack-team="T2"]')!
+    expect(row.hasAttribute('data-slack-readd')).toBe(true)
+    expect(row.textContent).toContain('has to be added to this Slack workspace again')
+    expect(button('Add Native Intelligence to Beta again')).toBeDefined()
+    expect(button('Link my account in Beta')).toBeUndefined()
+    // The other workspace is as before.
+    expect(container.querySelector('[data-slack-team="T1"]')!.hasAttribute('data-slack-readd')).toBe(false)
+    await act(async () => button('Add Native Intelligence to Beta again')!.click())
+    await flush()
+    expect(net.calls).toContain('POST /api/account/integrations/slack/install')
+  })
+
+  it('tells someone who is not an admin to ask one', async () => {
+    net.state = slack([{ ...beta, tokenStored: false }], { canInstall: false })
+    await render()
+    expect(container.textContent).toContain('Ask an admin of this workspace to add it')
+    expect(button('Add Native Intelligence to Beta again')).toBeUndefined()
   })
 })
 

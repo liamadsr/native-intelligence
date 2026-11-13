@@ -28,7 +28,7 @@ vi.mock('../texting', async (orig) => {
 })
 vi.mock('@/lib/slack/store', () => ({
   getInstallation: vi.fn(async (_s: unknown, teamId: string) =>
-    teamId === 'T1' ? { status: 'active', workspace_id: 'ws-1', connect_installation_id: 'inst-1', bot_user_id: 'UBOT' } : null,
+    teamId === 'T1' ? { slack_team_id: 'T1', status: 'active', workspace_id: 'ws-1', bot_user_id: 'UBOT' } : null,
   ),
 }))
 
@@ -230,7 +230,7 @@ describe('the guest’s Slack turn and answers', () => {
   it('answers only an active guest of this owner, bound in a live team of the same workspace', async () => {
     const bound = { id: GID, owner_user_id: 'owner-1', workspace_id: 'ws-1', display_name: 'Sam', channels: ['slack'], slack_team_id: 'T1', slack_user_id: 'U1', state: 'active', preset: 'colleague', tools: [], ask_before: [], created_at: 'x' }
     const scope = { guestId: GID, ownerUserId: 'owner-1', workspaceId: 'ws-1' }
-    expect(await guestSlackTarget(fakeSupabase(() => ({ data: bound })).supabase as never, scope)).toEqual({ teamId: 'T1', slackUserId: 'U1', installationId: 'inst-1' })
+    expect(await guestSlackTarget(fakeSupabase(() => ({ data: bound })).supabase as never, scope)).toEqual({ teamId: 'T1', slackUserId: 'U1', installationId: 'T1' })
     expect(await guestSlackTarget(fakeSupabase(() => ({ data: { ...bound, channels: ['sms'] } })).supabase as never, scope)).toBeNull()
     expect(await guestSlackTarget(fakeSupabase(() => ({ data: { ...bound, slack_team_id: 'T9' } })).supabase as never, scope)).toBeNull()
     expect(await guestSlackTarget(fakeSupabase(() => ({ data: { ...bound, workspace_id: 'ws-2' } })).supabase as never, { ...scope, workspaceId: 'ws-2' })).toBeNull()
@@ -245,7 +245,7 @@ describe('the guest’s Slack turn and answers', () => {
     const text = vi.fn(async () => ({ sent: true as const, sid: 'SM1' }))
     const slack = vi.fn(async () => ({ sent: true as const }))
     expect(await messageGuest(lastWas('slack-in:T1:D1:1.2'), args, { text, slack })).toEqual({ sent: true, channel: 'slack' })
-    expect(slack).toHaveBeenCalledWith({ teamId: 'T1', slackUserId: 'U1', installationId: 'inst-1' }, args.body)
+    expect(slack).toHaveBeenCalledWith({ teamId: 'T1', slackUserId: 'U1', installationId: 'T1' }, args.body)
     expect(text).not.toHaveBeenCalled()
 
     slack.mockClear()

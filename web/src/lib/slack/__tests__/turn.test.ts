@@ -67,7 +67,6 @@ const installation = {
   enterprise_id: null,
   workspace_id: WS,
   installed_by_user_id: USER,
-  connect_installation_id: TEAM,
   bot_user_id: 'UBOT',
   status: 'active' as const,
   created_at: 'x',
@@ -205,7 +204,7 @@ describe('the words stay out of step outputs', () => {
   })
 
   describe('where the reply goes (replyOrigin)', () => {
-    const installation = { slack_team_id: TEAM, workspace_id: WS, status: 'active', connect_installation_id: 'inst-T111' }
+    const installation = { slack_team_id: TEAM, workspace_id: WS, status: 'active' }
     const openDm = vi.fn(async () => 'D999')
     const rows = fakeDb({ messages: [{ id: 'a', metadata: { slack: { team_id: TEAM, ts: '1700000001.000100' } } }] })
 
@@ -223,9 +222,9 @@ describe('the words stay out of step outputs', () => {
         ts: '1700000001.000100',
         reaction_ts: [],
         slack_user_id: 'U222',
-        installation_id: 'inst-T111',
+        installation_id: TEAM,
       })
-      expect(openDm).toHaveBeenCalledWith('inst-T111', 'U222')
+      expect(openDm).toHaveBeenCalledWith(TEAM, 'U222')
       expect(m.linksForUser).toHaveBeenCalledWith(rows.client, USER, [TEAM])
     })
 
@@ -353,7 +352,7 @@ describe('a channel thread (piece d): each person’s own conversation, answered
 
   it('answers in the thread the server’s row names, with approval cards going to the person’s DM', async () => {
     m.threadForConversation.mockResolvedValue(thread)
-    m.getInstallation.mockResolvedValue({ slack_team_id: TEAM, workspace_id: WS, status: 'active', connect_installation_id: 'inst-T111' })
+    m.getInstallation.mockResolvedValue({ slack_team_id: TEAM, workspace_id: WS, status: 'active' })
     m.linksForUser.mockResolvedValue([{ slack_team_id: TEAM, slack_user_id: 'U222', user_id: USER }])
     const data = { conversationId: THREAD_CONV, userId: USER, workspaceId: WS }
     const carried = ['slack-in:T111:C444:1700000003.000100', 'slack-in:T111:C444:1700000005.000100', 'slack-in:T111:C999:1700000006.000100']
@@ -367,10 +366,10 @@ describe('a channel thread (piece d): each person’s own conversation, answered
       // Every carried mention in this channel (another channel's id is not this thread's).
       reaction_ts: ['1700000003.000100', '1700000005.000100'],
       slack_user_id: 'U222',
-      installation_id: 'inst-T111',
+      installation_id: TEAM,
     })
     // Never a thread of a team bound elsewhere.
-    m.getInstallation.mockResolvedValueOnce({ slack_team_id: TEAM, workspace_id: 'elsewhere', status: 'active', connect_installation_id: 'inst-T111' })
+    m.getInstallation.mockResolvedValueOnce({ slack_team_id: TEAM, workspace_id: 'elsewhere', status: 'active' })
     expect(await replyOrigin({} as never, data, ['slack-in:x'], { openDm: async () => 'D999' })).toBeNull()
   })
 

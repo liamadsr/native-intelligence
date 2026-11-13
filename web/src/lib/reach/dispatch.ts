@@ -64,11 +64,11 @@ export async function slackTarget(supabase: SupabaseClient, input: { userId: str
   try {
     const { data: installs, error } = await supabase
       .from('slack_installation')
-      .select('slack_team_id, connect_installation_id')
+      .select('slack_team_id')
       .eq('workspace_id', input.workspaceId)
       .eq('status', 'active')
     if (error || !Array.isArray(installs) || installs.length === 0) return null
-    const teams = installs as Array<{ slack_team_id: string; connect_installation_id: string }>
+    const teams = installs as Array<{ slack_team_id: string }>
     const { data: links, error: linkError } = await supabase
       .from('slack_user_link')
       .select('slack_team_id, slack_user_id, alerts_off_at')
@@ -78,7 +78,7 @@ export async function slackTarget(supabase: SupabaseClient, input: { userId: str
     if (linkError || !Array.isArray(links)) return null
     const link = (links as Array<{ slack_team_id: string; slack_user_id: string; alerts_off_at: string | null }>).find((l) => !l.alerts_off_at)
     const team = link && teams.find((t) => t.slack_team_id === link.slack_team_id)
-    return link && team ? { installationId: team.connect_installation_id, slackUserId: link.slack_user_id } : null
+    return link && team ? { installationId: team.slack_team_id, slackUserId: link.slack_user_id } : null
   } catch {
     return null
   }
