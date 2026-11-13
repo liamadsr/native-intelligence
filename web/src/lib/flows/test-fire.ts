@@ -212,6 +212,16 @@ export async function runDryTestFire(args: {
       fired_at: firedAt,
       // A quote loop's test names a quote that isn't there: get_quote says so.
       ...(flow.trigger_type === 'quote_received' ? { quote_id: SYNTH_ID } : {}),
+      // The event loops' tests name items that aren't there: the read tools say so.
+      ...(flow.trigger_type === 'email_received' ? { email_thread_id: SYNTH_ID, email_account_id: null, email_from: null } : {}),
+      ...(flow.trigger_type === 'chat_message'
+        ? {
+            chat_message_id: SYNTH_ID,
+            chat_channel_id: ((flow.trigger_config ?? {}) as { channel_id?: string | null }).channel_id ?? SYNTH_ID,
+            chat_thread_root_id: null,
+          }
+        : {}),
+      ...(flow.trigger_type === 'document_created' ? { document_id: SYNTH_ID } : {}),
     }
     if (flow.trigger_type === 'capture_processed') {
       if (sample?.capture_id) {

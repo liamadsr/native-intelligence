@@ -88,6 +88,16 @@ export interface TemplateContext {
     capture: { id: string; title: string | null } | null
     /** A quote_received fire's quote (`{{trigger.quote_id}}`); null otherwise. */
     quote_id: string | null
+    /** An email_received fire's thread, account and (a well-formed) sender address; null otherwise. */
+    email_thread_id: string | null
+    email_account_id: string | null
+    email_from: string | null
+    /** A chat_message fire's message, channel and thread root; null otherwise. */
+    chat_message_id: string | null
+    chat_channel_id: string | null
+    chat_thread_root_id: string | null
+    /** A document_created fire's document; null otherwise. */
+    document_id: string | null
   }
   workspace: {
     id: string
@@ -151,6 +161,16 @@ export const TEMPLATE_TOKENS = [
   '{{trigger.fired_at}}',
   // quote_received fires only: the quote's id (read it with get_quote)
   '{{trigger.quote_id}}',
+  // email_received fires only: ids to read the mail with read_email (never its words), and the sender's address
+  '{{trigger.email_thread_id}}',
+  '{{trigger.email_account_id}}',
+  '{{trigger.email_from}}',
+  // chat_message fires only: ids to read it with read_team_chat_message (never its words)
+  '{{trigger.chat_message_id}}',
+  '{{trigger.chat_channel_id}}',
+  '{{trigger.chat_thread_root_id}}',
+  // document_created fires only: the document's id (read it with get_document)
+  '{{trigger.document_id}}',
   // Workspace
   '{{workspace.id}}',
   // F4 data passing: the call's capture under the trigger, and an earlier step's output (by its id)
@@ -445,6 +465,13 @@ export function buildTemplateContext(
       fired_at: trigger.fired_at,
       capture: extras.capture ?? null,
       quote_id: trigger.quote_id ?? null,
+      email_thread_id: trigger.email_thread_id ?? null,
+      email_account_id: trigger.email_account_id ?? null,
+      email_from: trigger.email_from ?? null,
+      chat_message_id: trigger.chat_message_id ?? null,
+      chat_channel_id: trigger.chat_channel_id ?? null,
+      chat_thread_root_id: trigger.chat_thread_root_id ?? null,
+      document_id: trigger.document_id ?? null,
     },
     workspace: {
       id: entity?.workspace_id ?? extras.workspaceId ?? '',

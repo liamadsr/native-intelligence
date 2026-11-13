@@ -13,6 +13,9 @@ import type {
   CalendarEventTriggerConfig,
   CanvasLayout,
   CaptureProcessedTriggerConfig,
+  ChatMessageTriggerConfig,
+  DocumentCreatedTriggerConfig,
+  EmailReceivedTriggerConfig,
   ConditionGroup,
   ConditionField,
   ConditionOp,
@@ -43,6 +46,8 @@ import type {
   RunnerProjectData,
 } from './runner'
 import { isPublicHttpUrl } from './url-guard'
+import { validateCronExpression } from './cron'
+import { runAtInstant, toWallTime } from './schedule'
 
 const FLOW_FIELDS = `
   id,
@@ -322,6 +327,83 @@ export async function findMatchingFlowsForQuoteReceived(supabase: SupabaseClient
     .eq('workspace_id', workspaceId)
     .eq('enabled', true)
     .eq('trigger_type', 'quote_received')
+  if (error || !data) return []
+  return (data as Array<Record<string, unknown>>).map(toFlowWithSecrets)
+}
+
+/**
+ * Enabled email_received flows OWNED by the mailbox's person in the workspace
+ * whose sender filter matches (emailFromMatches): mail arriving in someone's
+ * inbox fires only that person's loops. Server only.
+ */
+export async function findMatchingFlowsForEmailReceived(
+  supabase: SupabaseClient,
+  args: { workspaceId: string; ownerUserId: string; fromEmail: string | null },
+): Promise<FlowWithSecrets[]> {
+  const { data, error } = await supabase
+    .from('flow')
+    .select(FLOW_FIELDS)
+    .eq('workspace_id', args.workspaceId)
+    .eq('enabled', true)
+    .eq('trigger_type', 'email_received')
+    .eq('created_by', args.ownerUserId)
+  if (error || !data) return []
+  return (data as Array<Record<string, unknown>>)
+    .filter((row) => emailFromMatches(((row.trigger_config ?? {}) as Partial<EmailReceivedTriggerConfig>).from, args.fromEmail))
+    .map(toFlowWithSecrets)
+}
+
+/**
+ * Does a sender match an email_received filter? No filter: every sender. An
+ * address filter: that address exactly. A domain filter: that domain or any
+ * subdomain of it. Case-insensitive. Pure.
+ */
+export function emailFromMatches(filter: string | null | undefined, fromEmail: string | null | undefined): boolean {
+  const f = (filter ?? '').trim().toLowerCase().replace(/^@/, '')
+  if (!f) return true
+  const from = (fromEmail ?? '').trim().toLowerCase()
+  if (!from) return false
+  if (f.includes('@')) return from === f
+  const domain = from.slice(from.lastIndexOf('@') + 1)
+  return domain === f || domain.endsWith(`.${f}`)
+}
+
+/**
+ * Enabled chat_message flows in the workspace that watch this channel, or any
+ * channel. Whose message it is, the mentions and the owner's read access are
+ * the dispatcher's (event-triggers.ts chatFlowFires), since they need the
+ * owners' member ids. Server only.
+ */
+export async function findMatchingFlowsForChatMessage(
+  supabase: SupabaseClient,
+  args: { workspaceId: string; channelId: string },
+): Promise<FlowWithSecrets[]> {
+  const { data, error } = await supabase
+    .from('flow')
+    .select(FLOW_FIELDS)
+    .eq('workspace_id', args.workspaceId)
+    .eq('enabled', true)
+    .eq('trigger_type', 'chat_message')
+  if (error || !data) return []
+  return (data as Array<Record<string, unknown>>)
+    .filter((row) => {
+      const cfg = (row.trigger_config ?? {}) as Partial<ChatMessageTriggerConfig>
+      return cfg.channel_id === args.channelId || ((cfg.channel_id ?? null) === null && cfg.mentions_only === true)
+    })
+    .map(toFlowWithSecrets)
+}
+
+/**
+ * Enabled document_created flows in the workspace. Which owners can see the
+ * document is the dispatcher's (event-triggers.ts). Server only.
+ */
+export async function findMatchingFlowsForDocumentCreated(supabase: SupabaseClient, workspaceId: string): Promise<FlowWithSecrets[]> {
+  const { data, error } = await supabase
+    .from('flow')
+    .select(FLOW_FIELDS)
+    .eq('workspace_id', workspaceId)
+    .eq('enabled', true)
+    .eq('trigger_type', 'document_created')
   if (error || !data) return []
   return (data as Array<Record<string, unknown>>).map(toFlowWithSecrets)
 }
@@ -1140,18 +1222,36 @@ const SCHEDULE_CADENCES = new Set<ScheduleTriggerConfig['cadence']>([
   'daily',
   'weekdays',
   'weekly',
+  'monthly',
+  'cron',
+  'once',
 ])
 
 /** 24h 'HH:mm' — the only time shape the schedule trigger stores. */
 const SCHEDULE_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 
 /**
- * Validate user-supplied trigger_config for a schedule trigger. Time is
- * required for every cadence except hourly; weekday only for weekly. The
- * timezone must be a real IANA name — a typo here would silently schedule
- * in the wrong zone (Intl throws on unknown zones, so we probe it).
+ * What a write's validation knows beyond the config. `now` (a create, or an
+ * edit of the trigger) turns on the checks that depend on the clock: a once
+ * time in the past is refused, unless it is the stored one unchanged
+ * (`storedConfig`: re-saving a finished one-time loop from the editor, which
+ * always sends its trigger). A custom schedule's "runs in the next year" check
+ * uses `now`, or the current time.
  */
-export function validateScheduleConfig(raw: unknown): ScheduleTriggerConfig | Error {
+export interface TriggerValidateOptions {
+  now?: Date
+  storedConfig?: unknown
+}
+
+/**
+ * Validate user-supplied trigger_config for a schedule trigger. Time is
+ * required for daily/weekdays/weekly/monthly; weekday only for weekly;
+ * day_of_month (1-28) only for monthly; a cron expression only for cron
+ * (cron.ts: at most every 15 minutes, at least once a year); run_at only for
+ * once. The timezone must be a real IANA name — a typo here would silently
+ * schedule in the wrong zone (Intl throws on unknown zones, so we probe it).
+ */
+export function validateScheduleConfig(raw: unknown, opts: TriggerValidateOptions = {}): ScheduleTriggerConfig | Error {
   if (!raw || typeof raw !== 'object') {
     return new Error('trigger_config is required')
   }
@@ -1183,9 +1283,31 @@ export function validateScheduleConfig(raw: unknown): ScheduleTriggerConfig | Er
     timezone,
   }
 
+  if (cadence === 'cron') {
+    const checked = validateCronExpression(r.cron, timezone, opts.now ?? new Date())
+    if (checked instanceof Error) return new Error(`trigger_config.cron: ${checked.message}`)
+    out.cron = checked.cron
+    return out
+  }
+
+  if (cadence === 'once') {
+    const at = typeof r.run_at === 'string' ? runAtInstant(r.run_at, timezone) : null
+    if (!at) {
+      return new Error('trigger_config.run_at is required for a once schedule, as a date and time ("2026-12-01T15:00", in timezone)')
+    }
+    out.run_at = toWallTime(at, timezone)
+    if (opts.now && at.getTime() <= opts.now.getTime()) {
+      const stored = (opts.storedConfig ?? null) as Partial<ScheduleTriggerConfig> | null
+      const unchanged =
+        !!stored && stored.cadence === 'once' && stored.timezone === timezone && stored.run_at === out.run_at
+      if (!unchanged) return new Error('trigger_config.run_at is in the past: pick a time from now on')
+    }
+    return out
+  }
+
   if (cadence !== 'hourly') {
     if (typeof r.time !== 'string' || !SCHEDULE_TIME_RE.test(r.time)) {
-      return new Error('trigger_config.time is required as 24h "HH:mm" for daily/weekdays/weekly cadences')
+      return new Error('trigger_config.time is required as 24h "HH:mm" for daily/weekdays/weekly/monthly cadences')
     }
     out.time = r.time
   }
@@ -1196,6 +1318,14 @@ export function validateScheduleConfig(raw: unknown): ScheduleTriggerConfig | Er
       return new Error('trigger_config.weekday must be an integer 0 (Sunday) - 6 (Saturday) for weekly cadence')
     }
     out.weekday = weekday
+  }
+
+  if (cadence === 'monthly') {
+    const day = r.day_of_month
+    if (typeof day !== 'number' || !Number.isInteger(day) || day < 1 || day > 28) {
+      return new Error('trigger_config.day_of_month must be an integer 1 - 28 for monthly cadence (every month has it)')
+    }
+    out.day_of_month = day
   }
 
   return out
@@ -1224,6 +1354,81 @@ export function validateQuoteReceivedConfig(raw: unknown): QuoteReceivedTriggerC
     return new Error('trigger_config must be an object or null')
   }
   return { kind: 'quote_received' }
+}
+
+/** An address: something@domain.tld, no spaces. */
+const EMAIL_ADDRESS_RE = /^[^\s@]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i
+/** A domain: labels of letters, digits and hyphens with a dot-separated top level. */
+const EMAIL_DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/i
+
+/**
+ * Normalize an email_received sender filter: an exact address, or a domain
+ * written "acme.example" or "@acme.example" (stored without the "@"),
+ * lowercased. '' when empty; an Error when it is neither.
+ */
+export function normalizeEmailFrom(raw: unknown): string | Error {
+  if (raw === undefined || raw === null) return ''
+  if (typeof raw !== 'string') return new Error('trigger_config.from must be a string: an address or a domain')
+  const value = raw.trim().toLowerCase()
+  if (!value) return ''
+  if (value.length > 254) return new Error('trigger_config.from is too long')
+  if (value.startsWith('@')) {
+    const domain = value.slice(1)
+    return EMAIL_DOMAIN_RE.test(domain) ? domain : new Error('trigger_config.from must be an address ("ana@acme.example") or a domain ("acme.example" or "@acme.example")')
+  }
+  if (value.includes('@')) {
+    return EMAIL_ADDRESS_RE.test(value) ? value : new Error('trigger_config.from must be an address ("ana@acme.example") or a domain ("acme.example" or "@acme.example")')
+  }
+  return EMAIL_DOMAIN_RE.test(value) ? value : new Error('trigger_config.from must be an address ("ana@acme.example") or a domain ("acme.example" or "@acme.example")')
+}
+
+/** True when `address` is a well-formed email address (what may ride `{{trigger.email_from}}`). */
+export function isEmailAddress(address: unknown): address is string {
+  return typeof address === 'string' && address.length <= 254 && EMAIL_ADDRESS_RE.test(address)
+}
+
+/**
+ * Validate an email_received trigger_config: an optional sender filter
+ * (normalizeEmailFrom). Nothing else: it fires for the loop owner's own
+ * mailboxes only.
+ */
+export function validateEmailReceivedConfig(raw: unknown): EmailReceivedTriggerConfig | Error {
+  if (raw !== undefined && raw !== null && (typeof raw !== 'object' || Array.isArray(raw))) {
+    return new Error('trigger_config must be an object or null')
+  }
+  const from = normalizeEmailFrom((raw as Record<string, unknown> | null | undefined)?.from)
+  if (from instanceof Error) return from
+  return from ? { kind: 'email_received', from } : { kind: 'email_received' }
+}
+
+/**
+ * Validate a chat_message trigger_config: the channel it watches (a channel
+ * id) or null for any channel the owner can read, and mentions_only. Any
+ * channel is allowed ONLY with mentions_only: without it, the loop would run
+ * on every message in the workspace. Whether the owner can read the channel
+ * is checked at save (chatTriggerChannelProblem) and again at every fire.
+ */
+export function validateChatMessageConfig(raw: unknown): ChatMessageTriggerConfig | Error {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return new Error('trigger_config must be an object')
+  const r = raw as Record<string, unknown>
+  const channel = r.channel_id === undefined || r.channel_id === '' ? null : r.channel_id
+  if (channel !== null && (typeof channel !== 'string' || !UUID_RE.test(channel))) {
+    return new Error('trigger_config.channel_id must be a team chat channel id, or null for any channel')
+  }
+  const mentionsOnly = r.mentions_only === undefined ? false : r.mentions_only
+  if (typeof mentionsOnly !== 'boolean') return new Error('trigger_config.mentions_only must be true or false')
+  if (channel === null && !mentionsOnly) {
+    return new Error('trigger_config.channel_id is required unless mentions_only is true: pick a channel, or fire only when the owner is @mentioned')
+  }
+  return { kind: 'chat_message', channel_id: channel as string | null, mentions_only: mentionsOnly }
+}
+
+/** Validate a document_created trigger_config: no options, the bare `{ kind }` shape. */
+export function validateDocumentCreatedConfig(raw: unknown): DocumentCreatedTriggerConfig | Error {
+  if (raw !== undefined && raw !== null && (typeof raw !== 'object' || Array.isArray(raw))) {
+    return new Error('trigger_config must be an object or null')
+  }
+  return { kind: 'document_created' }
 }
 
 /**
@@ -1295,19 +1500,23 @@ export function validateCalendarEventConfig(
  * REST API uses so a new trigger type can't be created with an unvalidated
  * config. pr_status_changed fires from the GitHub webhook
  * (flowDispatchOnPrStatusChange) and quote_received from the website quote
- * intake (flowDispatchOnQuoteReceived); the canvas editor can't build either
- * yet, so the REST routes still refuse them while chat's create_flow /
- * update_flow take them.
+ * intake (flowDispatchOnQuoteReceived); the canvas editor can't build
+ * quote_received yet, so the REST routes still refuse it while chat's
+ * create_flow / update_flow take it. email_received, chat_message and
+ * document_created (the owner's own mail, chat and documents:
+ * event-triggers.ts) are built in both. `opts` carries the clock-dependent
+ * checks of a write (TriggerValidateOptions).
  */
 export function validateTriggerConfig(
   triggerType: string,
   raw: unknown,
+  opts: TriggerValidateOptions = {},
 ): FlowTriggerConfig | Error {
   switch (triggerType) {
     case 'entity_status_change':
       return validateStatusChangeConfig(raw)
     case 'schedule':
-      return validateScheduleConfig(raw)
+      return validateScheduleConfig(raw, opts)
     case 'capture_processed':
       return validateCaptureProcessedConfig(raw)
     case 'calendar_event':
@@ -1316,6 +1525,12 @@ export function validateTriggerConfig(
       return validatePrStatusChangedConfig(raw)
     case 'quote_received':
       return validateQuoteReceivedConfig(raw)
+    case 'email_received':
+      return validateEmailReceivedConfig(raw)
+    case 'chat_message':
+      return validateChatMessageConfig(raw)
+    case 'document_created':
+      return validateDocumentCreatedConfig(raw)
     default:
       return new Error(`trigger_type "${triggerType}" is not supported`)
   }

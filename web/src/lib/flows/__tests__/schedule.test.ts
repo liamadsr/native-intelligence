@@ -20,7 +20,7 @@ function cfg(
 }
 
 function next(config: ScheduleTriggerConfig, fromIso: string): string {
-  return computeNextRun(config, new Date(fromIso)).toISOString()
+  return computeNextRun(config, new Date(fromIso))!.toISOString()
 }
 
 describe('computeNextRun — hourly', () => {
@@ -83,7 +83,7 @@ describe('computeNextRun — DST spring-forward (LA, 2026-03-08)', () => {
   it('daily run lands 23 real hours after the pre-transition run', () => {
     const daily9 = cfg({ cadence: 'daily', time: '09:00' })
     // Sat Mar 7 09:00 PST fired at 17:00Z; next is Sun Mar 8 09:00 PDT = 16:00Z.
-    const out = computeNextRun(daily9, new Date('2026-03-07T17:00:00.000Z'))
+    const out = computeNextRun(daily9, new Date('2026-03-07T17:00:00.000Z'))!
     expect(out.toISOString()).toBe('2026-03-08T16:00:00.000Z')
     expect(out.getTime() - Date.parse('2026-03-07T17:00:00.000Z')).toBe(23 * 3_600_000)
   })
@@ -100,7 +100,7 @@ describe('computeNextRun — DST fall-back (LA, 2026-11-01)', () => {
   it('daily run lands 25 real hours after the pre-transition run', () => {
     const daily9 = cfg({ cadence: 'daily', time: '09:00' })
     // Sat Oct 31 09:00 PDT fired at 16:00Z; next is Sun Nov 1 09:00 PST = 17:00Z.
-    const out = computeNextRun(daily9, new Date('2026-10-31T16:00:00.000Z'))
+    const out = computeNextRun(daily9, new Date('2026-10-31T16:00:00.000Z'))!
     expect(out.toISOString()).toBe('2026-11-01T17:00:00.000Z')
     expect(out.getTime() - Date.parse('2026-10-31T16:00:00.000Z')).toBe(25 * 3_600_000)
   })

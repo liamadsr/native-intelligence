@@ -15,6 +15,9 @@ import {
   flowDispatchOnCaptureProcessed,
   flowDispatchOnPrStatusChange,
   flowDispatchOnQuoteReceived,
+  flowDispatchOnEmailReceived,
+  flowDispatchOnChatMessage,
+  flowDispatchOnDocumentCreated,
   flowResumeOnStepSettled,
 } from '@/lib/inngest/flow-functions'
 import { captureIngest } from '@/lib/inngest/capture-ingest'
@@ -117,6 +120,9 @@ export const { GET, POST, PUT } = serve({
     flowDispatchOnCaptureProcessed,
     flowDispatchOnPrStatusChange,
     flowDispatchOnQuoteReceived,
+    flowDispatchOnEmailReceived,
+    flowDispatchOnChatMessage,
+    flowDispatchOnDocumentCreated,
     flowResumeOnStepSettled,
     captureIngest,
     vocabularyHarvestWorkspace,

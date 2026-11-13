@@ -22,6 +22,13 @@ export type FlowTriggerType =
   | 'schedule'
   | 'calendar_event'
   | 'quote_received'
+  | 'email_received'
+  | 'chat_message'
+  | 'document_created'
+
+/** The event triggers that fire for one flow OWNER's own items (their mail, a channel they read, a document they see). */
+export const OWNER_EVENT_TRIGGER_TYPES = ['email_received', 'chat_message', 'document_created'] as const
+export type OwnerEventTriggerType = (typeof OWNER_EVENT_TRIGGER_TYPES)[number]
 
 export type FlowActionType = 'http_post' | 'run_skill' | 'run_agent' | 'archive_capture' | 'call_tool' | 'run_local_agent'
 
@@ -87,20 +94,29 @@ export interface EntityStatusChangeTriggerConfig {
   to_status_id: string
 }
 
-export type ScheduleCadence = 'hourly' | 'daily' | 'weekdays' | 'weekly'
+export type ScheduleCadence = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'cron' | 'once'
 
 /**
  * Workspace-scoped (team_id NULL) recurring trigger. next occurrence is
  * computed by computeNextRun (schedule.ts) and persisted on flow.next_run_at,
  * which the cron tick scans.
+ *
+ * `once` runs one time, at `run_at`: after it fires the tick sets next_run_at
+ * NULL and switches the loop off (it reads as finished).
  */
 export interface ScheduleTriggerConfig {
   kind: 'schedule'
   cadence: ScheduleCadence
-  /** 'HH:mm' 24h wall-clock in `timezone`. Required unless cadence is hourly. */
+  /** 'HH:mm' 24h wall-clock in `timezone`. Required for daily, weekdays, weekly and monthly. */
   time?: string
   /** 0 (Sunday) - 6 (Saturday). Weekly cadence only. */
   weekday?: number
+  /** 1-28 (every month has it). Monthly cadence only. */
+  day_of_month?: number
+  /** A 5-field cron expression (minute hour day-of-month month day-of-week), evaluated in `timezone`. Cron cadence only. */
+  cron?: string
+  /** 'YYYY-MM-DDTHH:mm' wall-clock in `timezone` (stored normalized). Once cadence only. */
+  run_at?: string
   /** IANA timezone name, e.g. 'America/Los_Angeles'. */
   timezone: string
 }
@@ -175,6 +191,49 @@ export interface QuoteReceivedTriggerConfig {
 }
 
 /**
+ * Fired when new mail ARRIVES in one of the flow OWNER's own connected
+ * mailboxes (src/lib/flows/emit-email-received.ts, from the incremental sync's
+ * triage). Never for the first import, the person's own mail, drafts, spam or
+ * trash. No entity: `{{trigger.email_thread_id}}` and
+ * `{{trigger.email_account_id}}` name the thread, which a step reads live with
+ * read_email (no mail is stored). The sender's words never ride the template.
+ */
+export interface EmailReceivedTriggerConfig {
+  kind: 'email_received'
+  /**
+   * Only mail from this sender: an exact address ("ana@acme.example") or a
+   * domain ("acme.example", stored without a leading "@"), lowercased.
+   * Absent: any sender.
+   */
+  from?: string
+}
+
+/**
+ * Fired when a PERSON posts in team chat (src/lib/flows/emit-chat-message.ts,
+ * from the post route), in a channel the flow's owner can read. Never for an
+ * agent's message. `{{trigger.chat_message_id}}`, `{{trigger.chat_channel_id}}`
+ * and `{{trigger.chat_thread_root_id}}` name it; a step reads it with
+ * read_team_chat_message.
+ */
+export interface ChatMessageTriggerConfig {
+  kind: 'chat_message'
+  /** The channel it watches; null = any channel the owner can read (only with mentions_only). */
+  channel_id: string | null
+  /** Only messages that @mention the owner (never their own). */
+  mentions_only: boolean
+}
+
+/**
+ * Fired about five minutes after a PERSON creates a document the flow's owner
+ * can see (src/lib/flows/emit-document-created.ts, from the documents route;
+ * an agent's or a canon template's create never fires). `{{trigger.document_id}}`
+ * names it; a step reads it with get_document.
+ */
+export interface DocumentCreatedTriggerConfig {
+  kind: 'document_created'
+}
+
+/**
  * All trigger config shapes. Rows created before the loop engine have no
  * `kind` — a missing kind means entity_status_change (back-compat); the
  * row-level flow.trigger_type column is the authoritative discriminator.
@@ -186,6 +245,9 @@ export type FlowTriggerConfig =
   | CalendarEventTriggerConfig
   | PrStatusChangedTriggerConfig
   | QuoteReceivedTriggerConfig
+  | EmailReceivedTriggerConfig
+  | ChatMessageTriggerConfig
+  | DocumentCreatedTriggerConfig
 
 // ──────────────────────────────────────────────────────────────────
 // Condition model (per-action gate on the triggering entity)
@@ -818,6 +880,20 @@ export interface TriggerContext {
   fired_at: string
   /** A quote_received fire: the quote it is about (`{{trigger.quote_id}}`). */
   quote_id?: string | null
+  /** An email_received fire: the provider thread (`{{trigger.email_thread_id}}`), read live with read_email. */
+  email_thread_id?: string | null
+  /** An email_received fire: the connected account it arrived in (`{{trigger.email_account_id}}`). */
+  email_account_id?: string | null
+  /** An email_received fire: the sender's address, only when it is a well-formed address (`{{trigger.email_from}}`). */
+  email_from?: string | null
+  /** A chat_message fire: the message (`{{trigger.chat_message_id}}`). */
+  chat_message_id?: string | null
+  /** A chat_message fire: its channel (`{{trigger.chat_channel_id}}`). */
+  chat_channel_id?: string | null
+  /** A chat_message fire: the thread it replies in, or null in the channel itself (`{{trigger.chat_thread_root_id}}`). */
+  chat_thread_root_id?: string | null
+  /** A document_created fire: the document (`{{trigger.document_id}}`). */
+  document_id?: string | null
 }
 
 /**

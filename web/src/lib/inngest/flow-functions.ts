@@ -10,12 +10,17 @@
  * each flow run to be observable, retryable in v2, and not block the API
  * response. Inngest gives us a durable queue without standing up a worker.
  */
+import type { GetStepTools } from 'inngest'
 import { inngest } from './client'
 import { getServiceClient } from '@/lib/admin'
 import {
   findMatchingFlowsForCaptureProcessed,
+  findMatchingFlowsForChatMessage,
+  findMatchingFlowsForDocumentCreated,
+  findMatchingFlowsForEmailReceived,
   findMatchingFlowsForPrStatusChange,
   findMatchingFlowsForQuoteReceived,
+  isEmailAddress,
   findMatchingFlowsForStatusChange,
   loadFlowForDispatch,
   loadRunnerEntityData,
@@ -42,13 +47,25 @@ import type {
   EntityStatusChangeTriggerConfig,
   FlowAction,
   FlowEntityType,
+  FlowWithSecrets,
   StatusChangeOrigin,
   TriggerContext,
 } from '@/lib/flows/types'
+import {
+  EVENT_CAP_SKIP_REASON,
+  chatFlowsToFire,
+  chatMessageSkipReason,
+  documentFlowsToFire,
+  documentSkipReason,
+  eventFireCapState,
+  loadChatMessageFacts,
+  loadDocumentFacts,
+} from '@/lib/flows/event-triggers'
 import { USER_STATUS_CHANGE_ORIGIN } from '@/lib/flows/emit-status-change'
 import { decideReconcileSkip } from '@/lib/flows/reconcile-decision'
 import { AGENT_PAUSED_REASON, checkAgentPaused } from '@/lib/work/agent-paused'
 import { DEFAULT_APP_URL } from '@/lib/app-url'
+import { isOnceFire } from '@/lib/flows/schedule'
 
 const APP_BASE_URL =
   process.env.NEXT_PUBLIC_APP_URL ??
@@ -732,10 +749,12 @@ export const flowDispatchOnSchedule = inngest.createFunction(
     // or re-pointed at a different trigger between the tick's CAS and now. Both
     // schedule and calendar_event flows are driven by the same cron clock /
     // next_run_at queue and emit `flow/schedule.due` — accept either here.
+    // A once-schedule is switched off by the tick as it claims its one fire
+    // (it reads as finished): that fire still runs (isOnceFire).
     if (
       !flow ||
-      !flow.enabled ||
-      (flow.trigger_type !== 'schedule' && flow.trigger_type !== 'calendar_event')
+      (flow.trigger_type !== 'schedule' && flow.trigger_type !== 'calendar_event') ||
+      (!flow.enabled && !(flow.trigger_type === 'schedule' && isOnceFire(flow.trigger_config, scheduled_for)))
     ) {
       return { dispatched: 0, skipped: 'flow_not_schedulable' }
     }
@@ -768,6 +787,8 @@ export const flowDispatchOnSchedule = inngest.createFunction(
     // double record).
     const dormant = await step.run('dormancy-gate', async () => {
       if (flow.trigger_type !== 'schedule') return false
+      // A one-time run is something the person set for that moment: never gated.
+      if ((flow.trigger_config as { cadence?: unknown } | null)?.cadence === 'once') return false
       if (!(await workspaceIsDormant(supabase, workspace_id))) return false
       const action_results = dormantSkipActionResults(flow.actions)
       const dormantRunId = crypto.randomUUID()
@@ -1321,6 +1342,136 @@ export const flowDispatchOnPrStatusChange = inngest.createFunction(
 )
 
 /**
+ * The run of an ENTITY-LESS fire (no triggering entity: a quote, a mail, a
+ * chat message, a document), shared by every event dispatcher below. Under
+ * the kill switch (A5: autonomy off runs nothing, ledgered per flow), then per
+ * flow: the event cap when asked (`cap`, the owner-scoped event triggers:
+ * event-triggers.ts eventFireCapState, the skip ledgered), the fire's work
+ * ledger row, the run as the loop's owner (created_by) with every executor,
+ * its flow_run row once, the cards' back-link, its kept state, and the
+ * ledger's settle.
+ */
+type FlowStep = Pick<GetStepTools<typeof inngest>, 'run'>
+
+export async function runEntitylessFires(
+  supabase: ReturnType<typeof getServiceClient>,
+  step: FlowStep,
+  args: {
+    fireId: string | null
+    workspaceId: string
+    flows: FlowWithSecrets[]
+    trigger: TriggerContext
+    source: WorkSource
+    deadlineMs: number
+    /** Hold each flow to EVENT_FIRE_CAP_PER_DAY fires a day (the owner-scoped event triggers). */
+    cap?: boolean
+  },
+): Promise<{ dispatched: number; skipped?: 'agent_paused'; capped?: number }> {
+  const { fireId, workspaceId, flows, trigger, source, deadlineMs } = args
+  if (flows.length === 0) return { dispatched: 0 }
+
+  // The kill switch (A5): autonomy off runs no loop. Ledgered per flow.
+  const paused = await step.run('kill-switch', () => checkAgentPaused(supabase, workspaceId, 'flow_dispatch'))
+  if (paused) {
+    await step.run('ledger-paused-fires', () => ledgerPausedFires(supabase, { workspaceId, flows, fireId, source }))
+    return { dispatched: 0, skipped: 'agent_paused' }
+  }
+
+  let dispatched = 0
+  let capped = 0
+  for (const flow of flows) {
+    if (args.cap) {
+      const state = await step.run(`cap-${flow.id}`, async () => {
+        const s = await eventFireCapState(supabase, flow.id)
+        if (s === 'capped') await ledgerSkippedFire(supabase, { workspaceId, flow, fireId, source, reason: EVENT_CAP_SKIP_REASON })
+        return s
+      })
+      if (state !== 'ok') {
+        capped += 1
+        continue
+      }
+    }
+    await step.run(`run-flow-${flow.id}`, async () => {
+      const flowRunId = fireRunId(fireId, flow.id)
+      const work = await startFlowWork(supabase, { workspaceId, flow, fireId, source })
+      const ran = await runFlow(
+        { actions: flow.actions },
+        null,
+        trigger,
+        APP_BASE_URL,
+        {
+          executors: {
+            run_skill: createRunSkillExecutor({ deadlineMs, workspaceId, runAsUserId: flow.created_by ?? null, flowId: flow.id, fireId, flowRunId, work }),
+            run_agent: createRunAgentExecutor({ workspaceId, flowId: flow.id, runAsUserId: flow.created_by ?? null, fireId }),
+            archive_capture: createArchiveCaptureExecutor({ workspaceId }),
+            run_local_agent: createRunLocalAgentExecutor({ workspaceId, flowId: flow.id, runAsUserId: flow.created_by ?? null, fireKey: flowRunId }),
+            call_tool: createCallToolExecutor({ workspaceId, runAsUserId: flow.created_by ?? null, flowId: flow.id, flowName: flow.name, flowRunId }),
+          },
+          extras: { workspaceId },
+        },
+      )
+      const { status, action_results } = ran
+      await insertFlowRunOnce(supabase, { id: flowRunId, flow_id: flow.id, triggered_by_action_id: null, status, action_results, ...legacySnapshotFromResults(action_results) })
+      await backfillCardRunLink(supabase, fireId, flowRunId)
+      await keepRunState(supabase, {
+        flowRunId,
+        flowId: flow.id,
+        workspaceId,
+        actions: flow.actions,
+        createdBy: flow.created_by ?? null,
+        outcome: ran,
+        context: { trigger, entity: null, extras: { workspaceId }, fire_id: fireId, origin_depth: 1, run_as_user_id: flow.created_by ?? null },
+      })
+      await work.link({ flowRunId })
+      await settleFlowWork(work, { status, actionResults: action_results, flowRunId, supabase })
+    })
+    dispatched += 1
+  }
+  return { dispatched, ...(capped ? { capped } : {}) }
+}
+
+/**
+ * Ledger an entity-less fire as a SKIP with its reason: one flow_run row with
+ * every action skipped (the dormancy shape: the run history shows the reason),
+ * plus the fire's work-ledger row as skipped. Best effort.
+ */
+async function ledgerSkippedFire(
+  supabase: ReturnType<typeof getServiceClient>,
+  args: {
+    workspaceId: string
+    flow: { id: string; name: string; created_by: string | null; actions: FlowAction[] }
+    fireId: string | null
+    source: WorkSource
+    reason: string
+  },
+): Promise<void> {
+  const action_results = skippedActionResults(args.flow.actions, args.reason)
+  const flowRunId = crypto.randomUUID()
+  try {
+    await insertFlowRunOnce(supabase, {
+      id: flowRunId,
+      flow_id: args.flow.id,
+      triggered_by_action_id: null,
+      status: 'success',
+      action_results,
+      ...legacySnapshotFromResults(action_results),
+      response_body_preview: args.reason,
+    })
+  } catch {
+    /* best-effort ledger */
+  }
+  await startFlowWork(supabase, {
+    workspaceId: args.workspaceId,
+    flow: args.flow,
+    fireId: args.fireId,
+    source: args.source,
+    status: 'skipped',
+    skipReason: args.reason,
+    flowRunId,
+  })
+}
+
+/**
  * Dispatch quote_received loops (roadmap B1): the website quote intake emits
  * `flow/quote.received` once per new quote (src/lib/flows/emit-quote-received.ts).
  * Every enabled quote_received loop of the workspace fires, entity-less
@@ -1343,13 +1494,6 @@ export const flowDispatchOnQuoteReceived = inngest.createFunction(
     const flows = await step.run('find-matching-flows', async () => findMatchingFlowsForQuoteReceived(supabase, workspace_id))
     if (flows.length === 0) return { dispatched: 0 }
 
-    // The kill switch (A5): autonomy off runs no loop. Ledgered per flow.
-    const paused = await step.run('kill-switch', () => checkAgentPaused(supabase, workspace_id, 'flow_dispatch'))
-    if (paused) {
-      await step.run('ledger-paused-fires', () => ledgerPausedFires(supabase, { workspaceId: workspace_id, flows, fireId: event.id ?? null, source: { quote_id } }))
-      return { dispatched: 0, skipped: 'agent_paused' }
-    }
-
     const trigger: TriggerContext = {
       type: 'quote_received',
       entity_type: null,
@@ -1358,46 +1502,173 @@ export const flowDispatchOnQuoteReceived = inngest.createFunction(
       fired_at: fired_at ?? new Date().toISOString(),
       quote_id,
     }
+    const out = await runEntitylessFires(supabase, step, { fireId: event.id ?? null, workspaceId: workspace_id, flows, trigger, source: { quote_id }, deadlineMs })
+    return out.skipped ? out : { dispatched: out.dispatched, quote_id }
+  },
+)
 
-    let dispatched = 0
-    for (const flow of flows) {
-      await step.run(`run-flow-${flow.id}`, async () => {
-        const flowRunId = fireRunId(event.id ?? null, flow.id)
-        const work = await startFlowWork(supabase, { workspaceId: workspace_id, flow, fireId: event.id ?? null, source: { quote_id } })
-        const ran = await runFlow(
-          { actions: flow.actions },
-          null,
-          trigger,
-          APP_BASE_URL,
-          {
-            executors: {
-              run_skill: createRunSkillExecutor({ deadlineMs, workspaceId: workspace_id, runAsUserId: flow.created_by ?? null, flowId: flow.id, fireId: event.id ?? null, flowRunId, work }),
-              run_agent: createRunAgentExecutor({ workspaceId: workspace_id, flowId: flow.id, runAsUserId: flow.created_by ?? null, fireId: event.id ?? null }),
-              archive_capture: createArchiveCaptureExecutor({ workspaceId: workspace_id }),
-              run_local_agent: createRunLocalAgentExecutor({ workspaceId: workspace_id, flowId: flow.id, runAsUserId: flow.created_by ?? null, fireKey: flowRunId }),
-              call_tool: createCallToolExecutor({ workspaceId: workspace_id, runAsUserId: flow.created_by ?? null, flowId: flow.id, flowName: flow.name, flowRunId }),
-            },
-            extras: { workspaceId: workspace_id },
-          },
-        )
-        const { status, action_results } = ran
-        await insertFlowRunOnce(supabase, { id: flowRunId, flow_id: flow.id, triggered_by_action_id: null, status, action_results, ...legacySnapshotFromResults(action_results) })
-        await backfillCardRunLink(supabase, event.id ?? null, flowRunId)
-        await keepRunState(supabase, {
-          flowRunId,
-          flowId: flow.id,
-          workspaceId: workspace_id,
-          actions: flow.actions,
-          createdBy: flow.created_by ?? null,
-          outcome: ran,
-          context: { trigger, entity: null, extras: { workspaceId: workspace_id }, fire_id: event.id ?? null, origin_depth: 1, run_as_user_id: flow.created_by ?? null },
-        })
-        await work.link({ flowRunId })
-        await settleFlowWork(work, { status, actionResults: action_results, flowRunId, supabase })
-      })
-      dispatched += 1
+/**
+ * Dispatch email_received loops: the incremental mail sync emits
+ * `flow/email.received` once per message that ARRIVED in a person's connected
+ * mailbox (src/lib/flows/emit-email-received.ts: mail from someone else, not
+ * spam, trash or a draft, never the first import). Only that person's own
+ * loops fire (the matcher filters on created_by), with their sender filter;
+ * `{{trigger.email_thread_id}}` / `{{trigger.email_account_id}}` name the
+ * thread, which a step reads live with read_email. Capped per flow
+ * (event-triggers.ts). retries: 0, concurrency per workspace.
+ */
+export const flowDispatchOnEmailReceived = inngest.createFunction(
+  {
+    id: 'flow-dispatch-on-email-received',
+    retries: 0,
+    concurrency: [{ limit: 2, key: 'event.data.workspace_id' }],
+    triggers: [{ event: 'flow/email.received' }],
+  },
+  async ({ event, step }) => {
+    const deadlineMs = flowRunDeadlineMs(Date.now())
+    const { workspace_id, user_id, account_id, thread_id, message_id, from_email, fired_at } = event.data as {
+      workspace_id: string
+      user_id: string
+      account_id?: string | null
+      thread_id: string
+      message_id: string
+      from_email?: string | null
+      fired_at?: string
     }
-    return { dispatched, quote_id }
+    const supabase = getServiceClient()
+
+    const flows = await step.run('find-matching-flows', async () =>
+      findMatchingFlowsForEmailReceived(supabase, { workspaceId: workspace_id, ownerUserId: user_id, fromEmail: from_email ?? null }),
+    )
+    if (flows.length === 0) return { dispatched: 0 }
+
+    const trigger: TriggerContext = {
+      type: 'email_received',
+      entity_type: null,
+      from_status_id: null,
+      to_status_id: null,
+      fired_at: fired_at ?? new Date().toISOString(),
+      email_thread_id: thread_id,
+      email_account_id: account_id ?? null,
+      // Only a well-formed address rides the template; never a display name.
+      email_from: isEmailAddress(from_email) ? from_email : null,
+    }
+    const out = await runEntitylessFires(supabase, step, {
+      fireId: event.id ?? null,
+      workspaceId: workspace_id,
+      flows,
+      trigger,
+      source: { thread_ids: [thread_id] },
+      deadlineMs,
+      cap: true,
+    })
+    return { ...out, message_id }
+  },
+)
+
+/**
+ * Dispatch chat_message loops: the team chat post route emits
+ * `flow/chat.message` once per message a PERSON writes
+ * (src/lib/flows/emit-chat-message.ts). Re-checked here: a person's message
+ * (the loop guard: never an agent's, a call's row, or a deleted one), the
+ * loop takes it (its channel, or any channel with mentions-only, and then
+ * only a message that @mentions the owner), and the owner can read the
+ * channel now (event-triggers.ts chatFlowsToFire). Ids only in the template
+ * (`{{trigger.chat_message_id}}` …); a step reads it with
+ * read_team_chat_message. Capped per flow. retries: 0, concurrency per
+ * workspace.
+ */
+export const flowDispatchOnChatMessage = inngest.createFunction(
+  {
+    id: 'flow-dispatch-on-chat-message',
+    retries: 0,
+    concurrency: [{ limit: 2, key: 'event.data.workspace_id' }],
+    triggers: [{ event: 'flow/chat.message' }],
+  },
+  async ({ event, step }) => {
+    const deadlineMs = flowRunDeadlineMs(Date.now())
+    const { workspace_id, message_id, channel_id, fired_at } = event.data as { workspace_id: string; message_id: string; channel_id: string; fired_at?: string }
+    const supabase = getServiceClient()
+
+    const found = await step.run('find-matching-flows', async () => {
+      const msg = await loadChatMessageFacts(supabase, message_id)
+      if (!msg || msg.workspace_id !== workspace_id || msg.channel_id !== channel_id) return { flows: [] as FlowWithSecrets[], threadRoot: null }
+      if (chatMessageSkipReason(msg)) return { flows: [] as FlowWithSecrets[], threadRoot: null }
+      const candidates = await findMatchingFlowsForChatMessage(supabase, { workspaceId: workspace_id, channelId: channel_id })
+      return { flows: await chatFlowsToFire(supabase, candidates, msg), threadRoot: msg.thread_root_id }
+    })
+    if (found.flows.length === 0) return { dispatched: 0 }
+
+    const trigger: TriggerContext = {
+      type: 'chat_message',
+      entity_type: null,
+      from_status_id: null,
+      to_status_id: null,
+      fired_at: fired_at ?? new Date().toISOString(),
+      chat_message_id: message_id,
+      chat_channel_id: channel_id,
+      chat_thread_root_id: found.threadRoot,
+    }
+    return runEntitylessFires(supabase, step, {
+      fireId: event.id ?? null,
+      workspaceId: workspace_id,
+      flows: found.flows as FlowWithSecrets[],
+      trigger,
+      source: { chat_message_id: message_id },
+      deadlineMs,
+      cap: true,
+    })
+  },
+)
+
+/**
+ * Dispatch document_created loops: the documents route emits
+ * `flow/document.created` for a document a PERSON created, delivered about
+ * five minutes later (src/lib/flows/emit-document-created.ts) so the run reads
+ * what they wrote. Skipped when the document was deleted or archived by then;
+ * fires the loops whose owner can see it now (event-triggers.ts
+ * documentFlowsToFire: not a private one). `{{trigger.document_id}}` names it.
+ * Capped per flow. retries: 0, concurrency per workspace.
+ */
+export const flowDispatchOnDocumentCreated = inngest.createFunction(
+  {
+    id: 'flow-dispatch-on-document-created',
+    retries: 0,
+    concurrency: [{ limit: 2, key: 'event.data.workspace_id' }],
+    triggers: [{ event: 'flow/document.created' }],
+  },
+  async ({ event, step }) => {
+    const deadlineMs = flowRunDeadlineMs(Date.now())
+    const { workspace_id, document_id } = event.data as { workspace_id: string; document_id: string }
+    const supabase = getServiceClient()
+
+    const found = await step.run('find-matching-flows', async () => {
+      const doc = await loadDocumentFacts(supabase, document_id)
+      const skip = documentSkipReason(doc, workspace_id)
+      if (skip || !doc) return { skip: skip ?? 'deleted', flows: [] as FlowWithSecrets[] }
+      const candidates = await findMatchingFlowsForDocumentCreated(supabase, workspace_id)
+      return { skip: null, flows: await documentFlowsToFire(supabase, candidates, doc) }
+    })
+    if (found.skip) return { dispatched: 0, skipped: found.skip }
+    if (found.flows.length === 0) return { dispatched: 0 }
+
+    const trigger: TriggerContext = {
+      type: 'document_created',
+      entity_type: null,
+      from_status_id: null,
+      to_status_id: null,
+      fired_at: new Date().toISOString(),
+      document_id,
+    }
+    return runEntitylessFires(supabase, step, {
+      fireId: event.id ?? null,
+      workspaceId: workspace_id,
+      flows: found.flows as FlowWithSecrets[],
+      trigger,
+      source: { document_id },
+      deadlineMs,
+      cap: true,
+    })
   },
 )
 

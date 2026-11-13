@@ -112,6 +112,13 @@ export interface ArrivalTriage {
   understandable?: string[]
   /** Held threads whose newest message changed, or that are gone: their hold is refreshed or released. */
   held: string[]
+  /**
+   * Every thread with a new newest message this push that isn't muted, held
+   * or not: the candidates for email_received loops
+   * (src/lib/flows/emit-email-received.ts, which keeps the ones that are mail
+   * from someone else).
+   */
+  arrived?: string[]
   /** Threads indexed (or found gone) this push. */
   indexed: number
 }
@@ -130,7 +137,7 @@ export interface TriageDeps {
  */
 export async function triageArrivals(supabase: SupabaseClient, input: TriageInput, deps: TriageDeps = {}): Promise<ArrivalTriage> {
   const threadIds = [...new Set(input.threadIds)].slice(0, MAX_ARRIVAL_THREADS)
-  if (!threadIds.length) return { draftable: [], understandable: [], held: [], indexed: 0 }
+  if (!threadIds.length) return { draftable: [], understandable: [], held: [], arrived: [], indexed: 0 }
   const before = await readThreadRevisions(supabase, input, threadIds)
 
   const indexThread = deps.indexThread ?? (input.provider === 'google' ? indexGmailThread : indexOutlookThread)
@@ -159,7 +166,7 @@ export async function triageArrivals(supabase: SupabaseClient, input: TriageInpu
   const after = await readThreadRevisions(supabase, input, threadIds)
   const changed = threadIds.filter((id) => after[id] != null && after[id] !== before[id])
   const candidates = [...changed, ...gone]
-  if (!candidates.length) return { draftable: [], understandable: [], held: [], indexed }
+  if (!candidates.length) return { draftable: [], understandable: [], held: [], arrived: [], indexed }
 
   // Held threads: the hold refresh owns them (re-draft, stale, or release).
   let heldQuery = supabase
@@ -197,5 +204,5 @@ export async function triageArrivals(supabase: SupabaseClient, input: TriageInpu
     const own = new Set(input.mailboxEmail?.trim() ? [input.mailboxEmail.trim().toLowerCase()] : [])
     understandable = rows.filter((row) => !isDraftable(row) && isUnderstandable(row, own)).map((row) => row.provider_thread_id)
   }
-  return { draftable, understandable, held: candidates.filter((id) => held.has(id)), indexed }
+  return { draftable, understandable, held: candidates.filter((id) => held.has(id)), arrived: changed.filter((id) => !muted.has(id)), indexed }
 }

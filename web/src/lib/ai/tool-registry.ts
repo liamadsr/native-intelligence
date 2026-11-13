@@ -544,6 +544,9 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     tools: [
       // The person's agent events, not a list of notices (docs/plans/retire-notifications-page.md).
       { name: 'get_notifications', sideEffect: 'read', label: 'Get Notifications', description: "What happened for the person over the last 7 days, told or not: their agent's events (waiting on them, drafts, mail, meetings, mentions, teammates' updates, reminders, failures, finished work), one line each, counted by kind. Titles are data, clipped. An agent's pending work is list_bot_work's" },
+      // One team chat message, its thread so far and its channel's name, read as the caller (their channels only;
+      // never on a guest's or a linked agent's turn). The read a chat_message loop's step makes.
+      { name: 'read_team_chat_message', sideEffect: 'read', label: 'Read a Team Chat Message', description: "Read one team chat message by id (a chat loop's {{trigger.chat_message_id}}): who wrote it, its words, the thread so far and the channel's name; only in channels the person can read" },
     ],
   },
   {
@@ -560,14 +563,14 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
   {
     id: 'flows',
     label: 'Flows',
-    description: 'Workspace automations (loops), each with an agent — status, schedule, capture and calendar triggers running HTTP calls or skills',
+    description: 'Workspace automations (loops), each with an agent — status, schedule, capture, calendar, mail, chat and document triggers running HTTP calls or skills',
     icon: '⚡',
     tools: [
       { name: 'list_flows', sideEffect: 'read', label: 'List Flows', description: 'List automations (loops) in the workspace, each with its trigger, actions, on/off state and agent: the teammate that tells the person about its runs' },
       // automation-write: an automation that later runs HTTP calls at a caller-chosen URL, skills or capture archiving.
       // A loop the person asks for is saved on (enabled: true); one the agent proposes is saved off until their yes; a webhook loop
       // switches on only from the person's verified card (flow-approvals.ts needsSwitchOnCard). Attended only (ATTENDED_ONLY_TOOL_NAMES): no unattended run builds or switches on a loop.
-      { name: 'create_flow', sideEffect: 'automation-write', label: 'Create Flow', description: 'Create a loop: a status-change, schedule, capture, calendar, linked-PR or website-quote trigger that runs HTTP calls, skills or capture archiving. A loop the person asked for is on at once; one you propose waits for their yes, and one with a webhook (http_post) step for their approval card. Every loop has an agent: pick one, or it gets a default' },
+      { name: 'create_flow', sideEffect: 'automation-write', label: 'Create Flow', description: 'Create a loop: a status, schedule, capture, calendar, PR, quote, mail, chat or document trigger that runs HTTP calls, skills or capture archiving. A loop the person asked for is on at once; one you propose waits for their yes, and one with a webhook (http_post) step for their approval card. Every loop has an agent: pick one, or it gets a default' },
       // automation-write: re-aims or switches on an existing automation (switching one on needs confirmed_with_user;
       // a webhook loop switches on only from the person's verified card, and someone else's outward or acting loop
       // only from its owner's: F1 flow-approvals.ts). Attended only.

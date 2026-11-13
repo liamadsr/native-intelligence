@@ -37,6 +37,7 @@ import { createCommentTools } from './comments'
 import { createDashboardTools } from './dashboard'
 import { createSearchTools } from './search'
 import { createNotificationTools } from './notifications'
+import { createTeamChatTools } from './team-chat'
 import { createBrowserTools } from './browser'
 import { createCalendarCaptureTools } from './calendar-capture'
 import { createCrmTools } from './crm'
@@ -513,6 +514,8 @@ export function createTools(
     ...createDashboardTools(userId, supabase, workspaceId, omitPrivate),
     ...createSearchTools(userId, supabase, workspaceId, omitPrivate, options?.searchDefaultWindow ?? 'all_time', strict, options?.nowContext?.readable === true, omitGrants),
     ...createNotificationTools(userId, supabase, workspaceId),
+    // One team chat message and its thread, read as the caller (none on a guest's or a linked agent's turn).
+    ...createTeamChatTools(userId, supabase, workspaceId, { strictWorkspace: strict, omitGrants }),
     ...createBrowserTools(userId, supabase, workspaceId, options?.browserAttribution, options?.browserSourceRequest, options?.approvedCall),
     ...createCalendarCaptureTools(userId, supabase, workspaceId, accessToken, omitPrivate, omitGrants),
     // The person's goal for one of their meetings (the prep card's composer writes the same store).

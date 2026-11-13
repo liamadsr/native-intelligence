@@ -36,6 +36,8 @@ export const maxDuration = 60
  *   next_run_at (the double-fire guard), and fires the winner. next occurrence
  *   is pure cadence math (computeNextRun), computed from NOW so a flow that was
  *   due while the tick was down fires once and re-anchors — no catch-up burst.
+ *   A once-schedule's fire CAS-sets next_run_at NULL and enabled false in one
+ *   write (claimOnceFire): it runs one time and then reads as finished.
  *
  *   CALENDAR PASS (GEN-136) — scans ALL enabled calendar_event flows (not just
  *   due ones) because a calendar flow's next_run_at is derived from synced
@@ -190,7 +192,21 @@ async function runSchedulePass(
   for (const flow of due ?? []) {
     try {
       const cfg = flow.trigger_config as ScheduleTriggerConfig
-      const next = computeNextRun(cfg, now).toISOString()
+
+      // A one-time run: claim it by switching the loop off as next_run_at
+      // goes NULL (one CAS), so it reads as finished and never fires again.
+      if (cfg?.cadence === 'once') {
+        const claimed = await claimOnceFire(supabase, flow)
+        if (claimed === 'error') errored += 1
+        else if (claimed === 'lost') lost += 1
+        else if (await emitOnceAfterClaim(supabase, flow)) fired += 1
+        else errored += 1
+        continue
+      }
+
+      // NULL: a custom schedule with no run left in the search window; it
+      // stays on and idle (an edit or a re-enable recomputes it).
+      const next = computeNextRun(cfg, now)?.toISOString() ?? null
 
       // CAS: advance next_run_at only if it still holds the value we read.
       // Losing the race (0 rows) means another tick already claimed this fire.
@@ -223,6 +239,59 @@ async function runSchedulePass(
   }
 
   return { due: due?.length ?? 0, fired, lost, errored }
+}
+
+/**
+ * Claim a once-schedule's fire: next_run_at -> NULL and enabled -> false, only
+ * if both still hold what we read (the same double-fire guard as casNextRunAt).
+ */
+async function claimOnceFire(
+  supabase: ReturnType<typeof getServiceClient>,
+  flow: DueFlow,
+): Promise<'set' | 'lost' | 'error'> {
+  if (flow.next_run_at === null) return 'lost'
+  const { data: won, error } = await supabase
+    .from('flow')
+    .update({ next_run_at: null, enabled: false })
+    .eq('id', flow.id)
+    .eq('workspace_id', flow.workspace_id)
+    .eq('enabled', true)
+    .eq('next_run_at', flow.next_run_at)
+    .select('id')
+  if (error) {
+    console.error(`[flow-schedule cron] once claim failed for flow ${flow.id}:`, error.message)
+    return 'error'
+  }
+  return won && won.length > 0 ? 'set' : 'lost'
+}
+
+/**
+ * Emit a claimed once fire; on a failed emit put the loop back as it was (on,
+ * due at its time) so the next tick retries, guarded on the claim's own
+ * writes so a person's edit in between is never clobbered.
+ */
+async function emitOnceAfterClaim(
+  supabase: ReturnType<typeof getServiceClient>,
+  flow: DueFlow,
+): Promise<boolean> {
+  try {
+    await inngest.send({
+      name: 'flow/schedule.due',
+      data: { flow_id: flow.id, workspace_id: flow.workspace_id, scheduled_for: flow.next_run_at },
+    })
+    return true
+  } catch (err) {
+    console.error(`[flow-schedule cron] once emit failed for flow ${flow.id}, putting it back:`, err instanceof Error ? err.message : err)
+    const { error } = await supabase
+      .from('flow')
+      .update({ next_run_at: flow.next_run_at, enabled: true })
+      .eq('id', flow.id)
+      .eq('workspace_id', flow.workspace_id)
+      .eq('enabled', false)
+      .is('next_run_at', null)
+    if (error) console.error(`[flow-schedule cron] once rollback failed for flow ${flow.id}:`, error.message)
+    return false
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────

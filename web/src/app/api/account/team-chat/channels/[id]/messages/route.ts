@@ -49,8 +49,10 @@
  *        message asks for its notifications after the answer
  *        (src/lib/team-chat/notify.ts, migration 560): the DM, the people it
  *        mentions, the thread's people, whoever set the channel to all.
- * Reads and the post run as the person, under RLS; only the agent's turn
- * and the link preview run with the service role.
+ *        And it may start the workspace's chat_message loops
+ *        (src/lib/flows/emit-chat-message.ts), after the answer too.
+ * Reads and the post run as the person, under RLS; only the agent's turn,
+ * the link preview and the loop check run with the service role.
  */
 import { after, NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspaceMember } from '@/lib/api-auth'
@@ -72,6 +74,8 @@ import {
 import { deliverTeamChatMention } from '@/lib/team-chat/agent-turn'
 import { firstLink, requestLinkPreview } from '@/lib/team-chat/link-preview'
 import { requestTeamChatNotify } from '@/lib/team-chat/notify'
+import { emitChatMessage } from '@/lib/flows/emit-chat-message'
+import { workspaceHasEventFlows } from '@/lib/flows/event-triggers'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { callViews } from '@/lib/team-calls/store'
 import { fenceRecordMentions, syncMessageMentions } from '@/lib/team-chat/record-mentions'
@@ -80,6 +84,17 @@ import { shareMentionedRecords } from '@/lib/entity-access/share'
 import { dmOtherMember, isUuid, mentionsAssistantName, tidyBody, tidyMentionIds, TEAM_CHAT_MESSAGE_MAX } from '@/lib/team-chat/types'
 
 type Params = { params: Promise<{ id: string }> }
+
+/** Ask for the chat_message loops a person's message may start. Never throws. */
+async function requestChatMessageLoops(workspaceId: string, message: { id: string; channel_id: string }): Promise<void> {
+  try {
+    if (await workspaceHasEventFlows(getServiceClient(), { workspaceId, triggerType: 'chat_message' })) {
+      await emitChatMessage({ workspaceId, messageId: message.id, channelId: message.channel_id })
+    }
+  } catch (err) {
+    console.warn(`[team-chat] message=${message.id} loops not requested:`, err instanceof Error ? err.message : 'unknown')
+  }
+}
 
 /** The calls a page's call messages show (migration 564). */
 function callIdsOf(messages: ReadonlyArray<{ kind?: string; call_id?: string | null }>): string[] {
@@ -215,8 +230,15 @@ export async function POST(request: NextRequest, { params }: Params) {
         }
       })
     }
-    // Its notifications, last (the event's id is the message's: a replay asks once).
-    after(() => requestTeamChatNotify(message.id))
+    // Its notifications, last (the event's id is the message's: a replay asks
+    // once), then the chat_message loops it may start
+    // (src/lib/flows/emit-chat-message.ts): a person's message only (this
+    // route is the one writer of those), once per message (that event's id is
+    // the message's too), and only when the workspace has such a loop.
+    after(async () => {
+      await requestTeamChatNotify(message.id)
+      await requestChatMessageLoops(auth.workspaceId, message)
+    })
     if (replayed) return NextResponse.json({ message, shared, shared_with, replayed: true })
     return NextResponse.json({ message, shared, shared_with }, { status: 201 })
   } catch (err) {
