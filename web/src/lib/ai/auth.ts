@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import * as Sentry from '@sentry/nextjs'
 import { createClient as createServerClient } from '@/lib/supabase/server'
 import { getServiceClient } from '@/lib/supabase/service'
@@ -46,7 +46,7 @@ export async function authenticateUser(req: Request) {
 
   if (token) {
     // JWT-based auth
-    const supabase = createClient(
+    const supabase = createStatelessClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {

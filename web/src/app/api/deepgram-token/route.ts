@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { NextRequest, NextResponse } from 'next/server'
 import { isDeviceToken, resolveDeviceToken } from '@/lib/device-tokens'
 import { checkUsageLimits } from '@/lib/ai/auth'
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
         if (resolved) user = { id: resolved.userId }
       } else {
         // Supabase access token (`eyJ…`): validate as a JWT.
-        const supa = createServiceClient(
+        const supa = createStatelessClient(
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
           process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         )

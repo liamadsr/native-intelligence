@@ -1,5 +1,5 @@
 import { cookies, headers } from 'next/headers'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { createClient } from '@/lib/supabase/server'
 import { isDeviceToken, isDeviceWorkspaceMember, resolveDeviceToken } from '@/lib/device-tokens'
 import { serverError, sessionExpired } from '@/lib/api-errors'
@@ -99,7 +99,7 @@ async function resolveUser(supabase: SupabaseClient): Promise<ResolvedUser | nul
       // per-request and thrown away, and the default auto-refresh starts a
       // permanent 30s interval timer that would never be cleared (one leaked
       // timer + pinned closure per Bearer request).
-      const tokenClient = createSupabaseClient(
+      const tokenClient = createStatelessClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         {

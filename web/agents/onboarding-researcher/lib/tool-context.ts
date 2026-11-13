@@ -74,6 +74,6 @@ export function serviceClient(): SupabaseClient {
       '[onboarding-researcher] missing NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY'
     )
   }
-  cached = createClient(url, key, { auth: { persistSession: false } })
+  cached = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } })
   return cached
 }

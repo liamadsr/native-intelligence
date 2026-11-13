@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { authenticateUser } from '@/lib/ai/auth'
 import { isValidProvider, isValidCapability } from '@/lib/oauth/config'
 import { disconnectOAuthAccount } from '@/lib/connections/disconnect'
@@ -21,7 +21,7 @@ export async function POST(
       )
     }
 
-    const supabase = createClient(
+    const supabase = createStatelessClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
-import { createClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { requireUser } from '@/lib/api-auth'
 import { checkMcpClient, saveMetadataClient } from '@/lib/mcp/oauth-client'
 import { grantedScopes } from '@/lib/mcp/scopes'
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     const { user } = auth
 
     // Verify client exists and redirect_uri matches
-    const serviceClient = createClient(
+    const serviceClient = createStatelessClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { persistSession: false, autoRefreshToken: false } },

@@ -27,7 +27,7 @@
  */
 import { timingSafeEqual } from 'crypto'
 import type { SupabaseClient, User } from '@supabase/supabase-js'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { cookies, headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { getServiceClient } from '@/lib/supabase/service'
@@ -90,7 +90,7 @@ export function requireCronSecret(request: Request): Response | null {
  * per Bearer request in a long-lived process).
  */
 function createTokenBoundClient(token: string): SupabaseClient {
-  return createSupabaseClient(
+  return createStatelessClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
