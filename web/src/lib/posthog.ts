@@ -185,6 +185,10 @@ export type ProductEvent =
   // the lever for going from linear to exponential acquisition.
   | 'invite_sent'
   | 'invite_accepted'
+  // Someone joined a workspace without an emailed invite: through its
+  // shareable link or by their verified email domain. Carries `via`
+  // ('link' | 'domain') and `role` (always 'member').
+  | 'workspace_joined'
   // Fires when a user sets or reschedules a "Remind me" on an entity. Carries
   // `entity_type` ('action' | 'project' | 'initiative' | 'capture' |
   // 'document'), so the question the feature was built to answer — do people

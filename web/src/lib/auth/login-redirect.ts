@@ -47,11 +47,21 @@ export function mcpRedirectTarget(value: string, origin: string, appUrl: string 
 
 /**
  * A page an invite opens, which a person may need to sign in or up for first:
- * a workspace invite (/invite/<token>) or an agent link's connect link
- * (/link/<token>). Same-site paths only.
+ * a workspace invite (/invite/<token>), a workspace's shareable join link
+ * (/join/<token>) or an agent link's connect link (/link/<token>). Same-site
+ * paths only. They share the `invite_redirect` cookie through sign-in.
  */
 export function isInviteRedirectPath(path: string): boolean {
-  return (path.startsWith('/invite/') || path.startsWith('/link/')) && !path.includes('//')
+  return (path.startsWith('/invite/') || path.startsWith('/link/') || isJoinLinkPath(path)) && !path.includes('//')
+}
+
+/**
+ * A workspace's shareable join link (/join/<token>). Unlike an emailed invite
+ * it names no address, so the signup hook's invite exemption (migration 242)
+ * does not cover it: the login form keeps its work-email pre-check.
+ */
+export function isJoinLinkPath(path: string): boolean {
+  return path.startsWith('/join/') && !path.includes('//')
 }
 
 /**

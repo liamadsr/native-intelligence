@@ -3,6 +3,8 @@ import { getCurrentWorkspaceId } from '@/lib/workspace'
 import { forbidden, notFound, serverError } from '@/lib/api-errors'
 import { NextResponse, type NextRequest } from 'next/server'
 import { requestTeamCallEjections } from '@/lib/team-calls/eject'
+import { getServiceClient } from '@/lib/admin'
+import { recordLeftWorkspace } from '@/lib/workspace-join/marks'
 
 export async function PATCH(
   request: NextRequest,
@@ -116,6 +118,25 @@ export async function DELETE(
   // Cannot remove self
   if (caller.id === id) {
     return NextResponse.json({ error: 'Cannot remove yourself' }, { status: 400 })
+  }
+
+  // Remembered first, on the removed person's account, however they had
+  // joined: join-by-email-domain never offers this workspace to them again
+  // (src/lib/workspace-join/marks.ts). If that can't be written they stay in.
+  // (The invite link still works for them; resetting it is the admin's call.)
+  const { data: target } = await supabase
+    .from('member')
+    .select('id, user_id, role')
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle<{ id: string; user_id?: string; role: string }>()
+  if (target?.user_id && target.role !== 'owner') {
+    try {
+      await recordLeftWorkspace(getServiceClient(), target.user_id, workspaceId)
+    } catch (err) {
+      console.error('[members] removed mark failed:', err instanceof Error ? err.message : err)
+      return serverError('Could not remove the member. Try again.')
+    }
   }
 
   // What goes with them and what stays (their comments and drafts) is the

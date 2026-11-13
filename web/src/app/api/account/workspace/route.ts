@@ -34,7 +34,7 @@ export async function GET() {
     supabase.from('workspace').select('*').eq('id', workspaceId).single(),
     supabase
       .from('member')
-      .select('id, user_id, display_name, avatar_url, role, created_at')
+      .select('id, user_id, display_name, avatar_url, role, created_at, joined_via')
       .eq('workspace_id', workspaceId)
       .order('created_at', { ascending: true }),
     supabase
