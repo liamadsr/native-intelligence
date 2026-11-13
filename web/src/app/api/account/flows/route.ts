@@ -41,15 +41,24 @@ import {
   validateTriggerConfig,
 } from '@/lib/flows/queries'
 import { nextRunAtOnWrite } from '@/lib/flows/next-run'
+import { chatTriggerChannelProblem } from '@/lib/flows/event-triggers'
 import type { FlowAction } from '@/lib/flows/types'
+import { flowRowForViewer } from '@/lib/flows/types'
 
-/** Trigger types with a wired dispatcher (pr_status_changed: the GitHub webhook, F1). */
+/**
+ * Trigger types with a wired dispatcher (pr_status_changed: the GitHub
+ * webhook, F1; email_received, chat_message and document_created: the
+ * owner's own new mail, team chat messages and documents).
+ */
 const WIRED_TRIGGER_TYPES = new Set([
   'entity_status_change',
   'schedule',
   'capture_processed',
   'calendar_event',
   'pr_status_changed',
+  'email_received',
+  'chat_message',
+  'document_created',
 ])
 
 const FLOW_FIELDS = `
@@ -62,7 +71,7 @@ const FLOW_FIELDS = `
 export async function GET(_request: NextRequest) {
   const auth = await requireWorkspaceMember()
   if (auth instanceof Response) return auth
-  const { supabase, workspaceId } = auth
+  const { supabase, user, workspaceId } = auth
 
   const { data, error } = await supabase
     .from('flow')
@@ -72,7 +81,8 @@ export async function GET(_request: NextRequest) {
 
   if (error) return serverError(error.message)
 
-  const flows = (data || []).map((row) => toPublicFlow(row as Record<string, unknown>))
+  // Another member's mail or chat loop shows without its sender filter or channel.
+  const flows = (data || []).map((row) => toPublicFlow(flowRowForViewer(row as Record<string, unknown>, user.id)))
   return NextResponse.json({ flows })
 }
 
@@ -99,7 +109,7 @@ export async function POST(request: NextRequest) {
 
   if (typeof trigger_type !== 'string' || !WIRED_TRIGGER_TYPES.has(trigger_type)) {
     return badRequest(
-      'trigger_type must be one of "entity_status_change", "schedule", "capture_processed", "calendar_event", "pr_status_changed"',
+      `trigger_type must be one of ${[...WIRED_TRIGGER_TYPES].map((t) => `"${t}"`).join(', ')}`,
     )
   }
   // team_id is required ONLY for entity_status_change (team-scoped) flows;
@@ -109,8 +119,11 @@ export async function POST(request: NextRequest) {
     return badRequest('team_id is required for entity_status_change flows')
   }
 
-  const tcfg = validateTriggerConfig(trigger_type, trigger_config)
+  const tcfg = validateTriggerConfig(trigger_type, trigger_config, { now: new Date() })
   if (tcfg instanceof Error) return badRequest(tcfg.message)
+  // A chat loop's channel must be one its owner (the caller) can read.
+  const channelProblem = await chatTriggerChannelProblem(getServiceClient(), { workspaceId, ownerUserId: user.id, triggerType: trigger_type, config: tcfg })
+  if (channelProblem) return badRequest(channelProblem)
 
   // Validate the action list (config + condition per action). The bearer
   // token is supplied alongside each raw action and encrypted below — it is

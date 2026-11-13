@@ -32,7 +32,7 @@ export function FlowRunHistory({
   // current flowId we're loading — a switch between flows shows the skeleton
   // instead of briefly rendering the previous flow's runs, and without a
   // synchronous setState reset inside an effect (which cascades renders).
-  const [state, setState] = useState<{ flowId: string; runs: FlowRun[] } | null>(null)
+  const [state, setState] = useState<{ flowId: string; runs: FlowRun[]; ownerOnly?: string | null } | null>(null)
 
   const refetch = useCallback(() => {
     let cancelled = false
@@ -40,7 +40,8 @@ export function FlowRunHistory({
     fetch(`/api/account/flows/${flowId}/runs?limit=20${include}`)
       .then((r) => r.json())
       .then((j) => {
-        if (!cancelled) setState({ flowId, runs: j.runs || [] })
+        // Runs of a loop on someone's own mail, chat or documents are theirs alone: the note says so.
+        if (!cancelled) setState({ flowId, runs: j.runs || [], ownerOnly: j.owner_only ? (typeof j.note === 'string' ? j.note : '') : null })
       })
       .catch(() => {
         if (!cancelled) setState({ flowId, runs: [] })
@@ -63,12 +64,22 @@ export function FlowRunHistory({
   })
 
   const runs = state?.flowId === flowId ? state.runs : null
+  const ownerOnly = state?.flowId === flowId ? (state.ownerOnly ?? null) : null
 
   if (runs === null) {
     return (
       <div className="space-y-1.5 p-3">
         <Skeleton className="h-8 w-full" />
         <Skeleton className="h-8 w-full" />
+      </div>
+    )
+  }
+
+  if (ownerOnly !== null && runs.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-1 px-3 py-6 text-center">
+        <Clock className="h-4 w-4 text-muted-foreground" />
+        <p className="text-xs text-muted-foreground">{ownerOnly || 'Only the person a run of this loop ran for can see it.'}</p>
       </div>
     )
   }
@@ -86,6 +97,7 @@ export function FlowRunHistory({
 
   return (
     <ul className="space-y-1 p-2">
+      {ownerOnly !== null && <li className="px-1 pb-1 text-xs text-muted-foreground">{ownerOnly || 'Only the person a run of this loop ran for can see it.'}</li>}
       {runs.map((run) => {
         const highlighted = run.id === highlightRunId
         // The highlight is part of the key so a row re-mounts (and so re-derives

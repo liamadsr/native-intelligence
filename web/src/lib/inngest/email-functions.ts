@@ -9,6 +9,7 @@ import { setupOutlookSubscription } from '@/lib/email/outlook-webhook'
 import { finishEmailImport, openEmailImport } from '@/lib/work/import-mirror'
 import { MAX_ARRIVAL_THREADS, triageArrivals, understandableThreads } from '@/lib/email/triage'
 import { understandArrivals } from '@/lib/email/understand-arrivals'
+import { emailArrivals, emitEmailReceived } from '@/lib/flows/emit-email-received'
 import { arrivalGate, dailyCapCheck, draftRepliesToNewMail, recordArrivalDrafts, unsureReasons } from '@/lib/email/arrival-drafts'
 import { refreshHeldThreads } from '@/lib/email/held-refresh'
 import { recordDraftPassEvents } from '@/lib/agent-events/email'
@@ -315,7 +316,7 @@ export const emailIncrementalSync = inngest.createFunction(
     // them are indexed: MAX_ARRIVAL_THREADS a step (each its own invocation),
     // as many steps as a flood needs. Cost follows the mail that arrived,
     // never the mailbox's size.
-    let triaged = { draftable: [] as string[], understandable: [] as string[], held: [] as string[], mailboxEmail: null as string | null }
+    let triaged = { draftable: [] as string[], understandable: [] as string[], held: [] as string[], arrived: [] as string[], mailboxEmail: null as string | null }
     if (result.fullRebuild) {
       await step.run('index-recent-threads', async () => {
         const mailbox = await getMailbox(userId, provider, accountId)
@@ -335,15 +336,34 @@ export const emailIncrementalSync = inngest.createFunction(
             accessToken: mailbox.token,
             mailboxEmail: mailbox.email,
           })
-          return { draftable: out.draftable, understandable: out.understandable ?? [], held: out.held, mailboxEmail: mailbox.email }
+          return { draftable: out.draftable, understandable: out.understandable ?? [], held: out.held, arrived: out.arrived ?? [], mailboxEmail: mailbox.email }
         })
         triaged = {
           draftable: [...new Set([...triaged.draftable, ...part.draftable])],
           understandable: [...new Set([...triaged.understandable, ...(part.understandable ?? [])])],
           held: [...new Set([...triaged.held, ...part.held])],
+          arrived: [...new Set([...triaged.arrived, ...(part.arrived ?? [])])],
           mailboxEmail: part.mailboxEmail ?? triaged.mailboxEmail,
         }
       }
+    }
+
+    // New mail for the person's email_received loops (src/lib/flows/emit-email-received.ts):
+    // only threads triage saw a new newest message in, so never the first
+    // import or a full re-index; one event per arrived message, keyed on it.
+    if (triaged.arrived.length) {
+      await step.run('emit-email-received', async () => {
+        const arrivals = await emailArrivals(supabase, {
+          userId,
+          workspaceId,
+          provider,
+          accountId: accountId ?? null,
+          threadIds: triaged.arrived,
+          mailboxEmail: triaged.mailboxEmail,
+          getAccessToken: async () => (await getMailbox(userId, provider, accountId)).token,
+        })
+        return { emitted: await emitEmailReceived({ workspaceId, userId, provider, accountId: accountId ?? null, arrivals }) }
+      })
     }
 
     if (triaged.draftable.length || triaged.held.length) {

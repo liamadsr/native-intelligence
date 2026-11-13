@@ -9,6 +9,7 @@ import { expireStaleSuggestions, purgeResolvedSuggestions } from '@/lib/suggesti
 import { reapStaleWork, type ReapOutcome } from '@/lib/work/reaper'
 import { readSettledRunDigests } from '@/lib/attention/read-digest'
 import { runReminderPass } from '@/lib/reminders/dispatch'
+import { agentPausedCache } from '@/lib/work/agent-paused'
 import type { CalendarEventTriggerConfig, FlowAction, ScheduleTriggerConfig } from '@/lib/flows/types'
 
 // Recurring hygiene horizon: the automatic cron ages out proposals older than
@@ -36,6 +37,15 @@ export const maxDuration = 60
  *   next_run_at (the double-fire guard), and fires the winner. next occurrence
  *   is pure cadence math (computeNextRun), computed from NOW so a flow that was
  *   due while the tick was down fires once and re-anchors — no catch-up burst.
+ *   A once-schedule's fire CAS-sets next_run_at NULL and enabled false in one
+ *   write (claimOnceFire): it runs one time and then reads as finished. While
+ *   its workspace's autonomy is off (the dispatcher's own kill switch check)
+ *   it is not claimed: the dispatcher would only ledger the fire as paused,
+ *   and the switched-off loop would never run. It stays due and fires on the
+ *   first tick after autonomy is back on. One-time loops are scanned apart
+ *   from recurring ones, leaving out paused workspaces, so held ones never
+ *   take a due loop's place in the 200-row scan; the per-row check is the
+ *   backstop (`held` counts what it holds).
  *
  *   CALENDAR PASS (GEN-136) — scans ALL enabled calendar_event flows (not just
  *   due ones) because a calendar flow's next_run_at is derived from synced
@@ -167,30 +177,66 @@ async function runQueueHygienePass(
 async function runSchedulePass(
   supabase: ReturnType<typeof getServiceClient>,
   now: Date,
-): Promise<{ due: number; fired: number; lost: number; errored: number }> {
-  const { data: due, error } = await supabase
-    .from('flow')
-    .select('id, workspace_id, trigger_config, next_run_at')
-    .eq('trigger_type', 'schedule')
-    .eq('enabled', true)
-    .not('next_run_at', 'is', null)
-    .lte('next_run_at', now.toISOString())
+): Promise<{ due: number; fired: number; lost: number; errored: number; held: number }> {
+  // Two scans, 200 rows each. A one-time loop held by its workspace's kill
+  // switch stays due (see the header), so it must never take a recurring
+  // loop's place in the queue: recurring schedules are read on their own,
+  // and one-time loops on theirs, leaving out the workspaces whose autonomy
+  // is off (they would only be held). The per-row check below stays the
+  // backstop (and the dispatcher's own rule, fail-open).
+  const dueScan = () =>
+    supabase
+      .from('flow')
+      .select('id, workspace_id, trigger_config, next_run_at')
+      .eq('trigger_type', 'schedule')
+      .eq('enabled', true)
+      .not('next_run_at', 'is', null)
+      .lte('next_run_at', now.toISOString())
+  const recurring = await dueScan()
+    .or('trigger_config->>cadence.is.null,trigger_config->>cadence.neq.once')
     .order('next_run_at', { ascending: true })
     .limit(200)
-
-  if (error) {
-    console.error('[flow-schedule cron] schedule due-scan failed:', error.message)
-    return { due: 0, fired: 0, lost: 0, errored: 1 }
+  if (recurring.error) {
+    console.error('[flow-schedule cron] schedule due-scan failed:', recurring.error.message)
+    return { due: 0, fired: 0, lost: 0, errored: 1, held: 0 }
   }
+  const paused = await pausedWorkspaceIds(supabase)
+  let onceScan = dueScan().eq('trigger_config->>cadence', 'once')
+  if (paused.length) onceScan = onceScan.not('workspace_id', 'in', `(${paused.join(',')})`)
+  const once = await onceScan.order('next_run_at', { ascending: true }).limit(200)
+  if (once.error) console.error('[flow-schedule cron] one-time due-scan failed:', once.error.message)
+  const due = [...(recurring.data ?? []), ...(once.error ? [] : (once.data ?? []))]
 
   let fired = 0
   let lost = 0
   let errored = 0
+  let held = 0
+  // The dispatcher's kill switch check (door flow_dispatch, fail-open), once per workspace.
+  const autonomyOff = agentPausedCache(supabase, 'flow_dispatch')
 
-  for (const flow of due ?? []) {
+  for (const flow of due) {
     try {
       const cfg = flow.trigger_config as ScheduleTriggerConfig
-      const next = computeNextRun(cfg, now).toISOString()
+
+      // A one-time run: claim it by switching the loop off as next_run_at
+      // goes NULL (one CAS), so it reads as finished and never fires again.
+      if (cfg?.cadence === 'once') {
+        // Autonomy off: not claimed. It stays on and due, and fires once it is back on.
+        if (await autonomyOff(flow.workspace_id)) {
+          held += 1
+          continue
+        }
+        const claimed = await claimOnceFire(supabase, flow)
+        if (claimed === 'error') errored += 1
+        else if (claimed === 'lost') lost += 1
+        else if (await emitOnceAfterClaim(supabase, flow)) fired += 1
+        else errored += 1
+        continue
+      }
+
+      // NULL: a custom schedule with no run left in the search window; it
+      // stays on and idle (an edit or a re-enable recomputes it).
+      const next = computeNextRun(cfg, now)?.toISOString() ?? null
 
       // CAS: advance next_run_at only if it still holds the value we read.
       // Losing the race (0 rows) means another tick already claimed this fire.
@@ -222,7 +268,75 @@ async function runSchedulePass(
     }
   }
 
-  return { due: due?.length ?? 0, fired, lost, errored }
+  return { due: due.length, fired, lost, errored, held }
+}
+
+/**
+ * The workspaces whose autonomy is off (agent_autonomy.mode 'off', what the
+ * kill switch reads), for the one-time scan to leave out. Empty on a failed
+ * read: the scan then holds them row by row, as before.
+ */
+async function pausedWorkspaceIds(supabase: ReturnType<typeof getServiceClient>): Promise<string[]> {
+  try {
+    const { data, error } = await supabase.from('workspace').select('id').eq('settings->agent_autonomy->>mode', 'off').limit(1000)
+    if (error || !Array.isArray(data)) return []
+    return (data as Array<{ id?: unknown }>).flatMap((r) => (typeof r.id === 'string' && /^[\w-]+$/.test(r.id) ? [r.id] : []))
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Claim a once-schedule's fire: next_run_at -> NULL and enabled -> false, only
+ * if both still hold what we read (the same double-fire guard as casNextRunAt).
+ */
+async function claimOnceFire(
+  supabase: ReturnType<typeof getServiceClient>,
+  flow: DueFlow,
+): Promise<'set' | 'lost' | 'error'> {
+  if (flow.next_run_at === null) return 'lost'
+  const { data: won, error } = await supabase
+    .from('flow')
+    .update({ next_run_at: null, enabled: false })
+    .eq('id', flow.id)
+    .eq('workspace_id', flow.workspace_id)
+    .eq('enabled', true)
+    .eq('next_run_at', flow.next_run_at)
+    .select('id')
+  if (error) {
+    console.error(`[flow-schedule cron] once claim failed for flow ${flow.id}:`, error.message)
+    return 'error'
+  }
+  return won && won.length > 0 ? 'set' : 'lost'
+}
+
+/**
+ * Emit a claimed once fire; on a failed emit put the loop back as it was (on,
+ * due at its time) so the next tick retries, guarded on the claim's own
+ * writes so a person's edit in between is never clobbered.
+ */
+async function emitOnceAfterClaim(
+  supabase: ReturnType<typeof getServiceClient>,
+  flow: DueFlow,
+): Promise<boolean> {
+  try {
+    await inngest.send({
+      name: 'flow/schedule.due',
+      data: { flow_id: flow.id, workspace_id: flow.workspace_id, scheduled_for: flow.next_run_at },
+    })
+    return true
+  } catch (err) {
+    console.error(`[flow-schedule cron] once emit failed for flow ${flow.id}, putting it back:`, err instanceof Error ? err.message : err)
+    const { error } = await supabase
+      .from('flow')
+      .update({ next_run_at: flow.next_run_at, enabled: true })
+      .eq('id', flow.id)
+      .eq('workspace_id', flow.workspace_id)
+      .eq('enabled', false)
+      .is('next_run_at', null)
+    if (error) console.error(`[flow-schedule cron] once rollback failed for flow ${flow.id}:`, error.message)
+    return false
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────

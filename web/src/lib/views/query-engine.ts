@@ -44,6 +44,7 @@ import { DEFAULT_CURRENCY, type CustomFieldType } from '@/lib/crm/custom-field-t
 // get the sentinel from one place. The value itself lives in ./types so client
 // components can import it without pulling in this server-side module.
 import { applyVisibilityFence, companyNeedsFenceEmbed, COMPANY_FENCE_SELECT, type VisibilityFence } from './visibility-fence'
+import { flowRowForViewer } from '@/lib/flows/types'
 export { NO_MATCH_FILTER_VALUE } from './types'
 
 /**
@@ -2641,6 +2642,8 @@ export async function executeView(
   if (error) throw error
 
   let items = (data || []) as Record<string, unknown>[]
+  // Another member's mail or chat loop shows without its sender filter or channel.
+  if (view.entity_type === 'flow') items = items.map((row) => flowRowForViewer(row, userId))
 
   // Enrich items with project names when not already joined (e.g. captures)
   const firstItem = items.length > 0 ? items[0] : null

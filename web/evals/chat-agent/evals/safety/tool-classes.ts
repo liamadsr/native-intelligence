@@ -188,6 +188,7 @@ export const REGISTRY_READ_TOOL_NAMES: readonly string[] = [
   'read_email',
   'read_guest_conversation',
   'read_local_agent',
+  'read_team_chat_message',
   'review_post',
   'screenshot_browser',
   'search',

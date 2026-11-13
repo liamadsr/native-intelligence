@@ -8,11 +8,16 @@
  * row, and no backslash anywhere.
  */
 import { describe, it, expect } from 'vitest'
-import { allShippedSkills, readMigration } from './playbook-seeds'
+import { promptRewrites, readMigration, seededSkills } from './playbook-seeds'
 
 const SQL = readMigration('400_flows_asked_for_loops_on.sql')
 const PAIRS = [...SQL.matchAll(/\$o\$([^$]*)\$o\$,\s*\$n\$([^$]*)\$n\$/g)].map((m) => ({ old: m[1], next: m[2] }))
-const shipped = (slug: string) => allShippedSkills().find((s) => s.slug === slug)!
+/** The text 400 edits: 338's core and 324's recipe (641 rewrote both rows whole since, from 400's result; migration-641.test.ts pins that). */
+const BEFORE_400: Record<string, { prompt: string }> = {
+  'flows-playbook': promptRewrites('338_skill_helper_lines.sql').find((r) => r.slug === 'flows-playbook')!,
+  'build-a-workflow': seededSkills('324_workflows_skill.sql').find((r) => r.slug === 'build-a-workflow')!,
+}
+const shipped = (slug: string) => BEFORE_400[slug]
 const SHIPPED_324_DESC = readMigration('324_workflows_skill.sql')
 
 /** The text as 400 leaves it. */
@@ -21,7 +26,7 @@ function after(text: string): string {
 }
 
 describe('migration 400', () => {
-  it('replaces six sentences, each word for word in what ships now', () => {
+  it('replaces six sentences, each word for word in the text before it', () => {
     expect(PAIRS).toHaveLength(6)
     const sources = [shipped('flows-playbook').prompt, shipped('build-a-workflow').prompt, SHIPPED_324_DESC].join('\n')
     for (const p of PAIRS) expect(sources.includes(p.old), p.old.slice(0, 60)).toBe(true)

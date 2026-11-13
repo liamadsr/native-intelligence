@@ -27,6 +27,7 @@ import { DEFAULT_DISPLAY_PROPERTIES, NO_MATCH_FILTER_VALUE, defaultOrdering } fr
 import { isCustomFieldPath } from '@/lib/views/custom-field-columns'
 import { countEntriesByList, emptyEntryCounts } from '@/lib/prospecting/lists'
 import { fetchAllRows, inChunks } from '@/lib/supabase/paging'
+import { flowRowForViewer } from '@/lib/flows/types'
 import { NextResponse, type NextRequest } from 'next/server'
 
 /**
@@ -250,6 +251,8 @@ export async function POST(request: NextRequest) {
     if (error) throw error
 
     let items = (data || []) as Record<string, unknown>[]
+    // Another member's mail or chat loop shows without its sender filter or channel.
+    if (entity_type === 'flow') items = items.map((row) => flowRowForViewer(row, user.id))
 
     // Enrich items with project names when not already joined
     // (captures don't have a FK join to projects, so resolve separately)

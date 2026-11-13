@@ -5,6 +5,8 @@ import type { SkillEvalCase } from '../types'
  * trigger and action the editor wires; a loop the person asks for is created
  * with `enabled` true (on), a webhook loop then waits on the person's card;
  * it debugs with list_flow_runs. Every flows tool sits behind search_tools.
+ * 641: loops also start on mail, team chat messages and new documents, and
+ * schedules may be monthly, cron or once; cron can't say "the first Monday".
  */
 export const cases: SkillEvalCase[] = [
   {
@@ -68,5 +70,27 @@ export const cases: SkillEvalCase[] = [
     tools: ['search_tools', 'list_flows', 'list_flow_runs'],
     avoid: ['update_flow', 'delete_flow'],
     why: 'Read the runs (action_results) before changing anything.',
+  },
+  {
+    request: 'run the triage skill whenever someone @mentions me in team chat',
+    loads: ['flows-playbook'],
+    tools: ['search_tools', 'list_flows', 'create_flow'],
+    params: {
+      create_flow: {
+        trigger: { type: 'chat_message', channel_id: null, mentions_only: true },
+        actions: [{ type: 'run_skill' }],
+        enabled: true,
+      },
+    },
+    avoid: ['update_flow'],
+    why: 'Any channel is allowed only with mentions_only; the step reads {{trigger.chat_message_id}} with read_team_chat_message.',
+  },
+  {
+    request: 'run the groom skill on the first Monday of every month at 9',
+    loads: ['flows-playbook'],
+    tools: ['search_tools', 'list_flows'],
+    forbidParams: { create_flow: { trigger: { cron: '0 9 1-7 * 1' } } },
+    avoid: ['update_flow'],
+    why: 'Cron runs a day matching either day field, so "1-7" with Monday is every Monday too: offer monthly on a date or weekly on Monday, and say so.',
   },
 ]

@@ -90,7 +90,7 @@ describe('triageArrivals', () => {
   it('indexes each touched thread once and hands on one whose new newest message needs a personal reply', async () => {
     db.seed('email_thread_index', [ROW('t1', 'm1')])
     providerSays = { t1: { provider_message_id: 'm2', needs_reply: true, auto_classified: 'personal' } }
-    expect(await triage(['t1'])).toEqual({ draftable: ['t1'], understandable: [], held: [], indexed: 1 })
+    expect(await triage(['t1'])).toEqual({ draftable: ['t1'], understandable: [], held: [], arrived: ['t1'], indexed: 1 })
     expect(hoisted.indexGmailThread).toHaveBeenCalledTimes(1)
     expect(hoisted.indexGmailThread).toHaveBeenCalledWith(db, expect.objectContaining({
       threadId: 't1', accessToken: 'tok', userEmail: 'me@x.com', userId: 'u-1', workspaceId: 'ws-1', accountId: 'acct-1',
@@ -152,14 +152,15 @@ describe('triageArrivals', () => {
     db.seed('email_thread_index', [ROW('t1', 'm1')])
     db.seed('email_hold', [{ id: 'h1', user_id: 'u-1', account_id: 'acct-1', provider_thread_id: 't1' }])
     providerSays = { t1: { provider_message_id: 'm2', needs_reply: true, auto_classified: 'personal' } }
-    expect(await triage(['t1'])).toEqual({ draftable: [], understandable: [], held: ['t1'], indexed: 1 })
+    expect(await triage(['t1'])).toEqual({ draftable: [], understandable: [], held: ['t1'], arrived: ['t1'], indexed: 1 })
   })
 
   it('a thread gone from the mailbox loses its index rows; a held one goes to the refresh to be released', async () => {
     db.seed('email_thread_index', [ROW('gone', 'm1'), ROW('gone', 'm1', { workspace_id: 'ws-2' })])
     db.seed('email_hold', [{ id: 'h1', user_id: 'u-1', account_id: 'acct-1', provider_thread_id: 'gone' }])
     hoisted.indexGmailThread.mockImplementationOnce(async () => 'gone')
-    expect(await triage(['gone'])).toEqual({ draftable: [], understandable: [], held: ['gone'], indexed: 1 })
+    // A gone thread has no new message: nothing arrived.
+    expect(await triage(['gone'])).toEqual({ draftable: [], understandable: [], held: ['gone'], arrived: [], indexed: 1 })
     expect(hoisted.deleteThreadCopies).toHaveBeenCalledWith(db, { userId: 'u-1', accountId: 'acct-1', provider: 'google', threadId: 'gone' })
   })
 
@@ -176,6 +177,8 @@ describe('triageArrivals', () => {
     const out = await triageArrivals(db as never, { ...REF, workspaceId: 'ws-1', threadIds: ['muted', 'reply', 'notice'], accessToken: 'tok', mailboxEmail: 'me@x.com' }, { rearchiveMuted })
     expect(out.draftable).toEqual(['reply'])
     expect(out.understandable).toEqual(['notice'])
+    // A muted thread is no arrival for email_received loops either.
+    expect(out.arrived).toEqual(['reply', 'notice'])
     // Only threads with a new newest message are checked, with the push's own mailbox.
     expect(rearchiveMuted).toHaveBeenCalledWith(db, { userId: 'u-1', provider: 'google', accountId: 'acct-1', accessToken: 'tok', threadIds: ['muted', 'reply', 'notice'] })
   })

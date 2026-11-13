@@ -40,12 +40,15 @@ const BODY = sql
   .replace(/\s+/g, ' ')
 
 describe('migration 584', () => {
-  it('rewrites only the calendar playbook and find-a-time, by id and slug, after 582 and registered last', () => {
+  it('rewrites only the calendar playbook and find-a-time, by id and slug, after 582 and the last rewrite of either', () => {
     expect(rows.map((r) => [r.id, r.slug])).toEqual([
       [CALENDAR, 'calendar-playbook'],
       [FIND_A_TIME, 'find-a-time'],
     ])
-    expect(PROMPT_REWRITE_MIGRATIONS.at(-1)).toBe(FILE)
+    // Registered after 582, and no later text-only rewrite touches either row.
+    for (const f of PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE) + 1)) {
+      expect(promptRewrites(f).some((r) => r.id === CALENDAR || r.id === FIND_A_TIME), f).toBe(false)
+    }
     expect(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE)).toBeGreaterThan(PROMPT_REWRITE_MIGRATIONS.indexOf('582_booking_links_in_calendar_playbook.sql'))
     // Only text: the preferred tools stay as 580 left them.
     expect(PREFERRED_TOOLS_REWRITE_MIGRATIONS).not.toContain(FILE as never)
