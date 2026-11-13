@@ -73,6 +73,7 @@ import {
   newAction,
   buildSavePayload,
   flowToEditor,
+  savedOnceOf,
 } from './flow-types'
 
 interface FlowCanvasEditorProps {
@@ -392,8 +393,10 @@ export function FlowCanvasEditor({ flowId, initialRunId = null, onClose, onSaved
           prev
             ? {
                 ...prev,
-                // The saved state: off while it waits on the owner's card.
+                // The saved state: off while it waits on the owner's card, a
+                // one-time loop on again after a new time, off after its time.
                 enabled: flow.enabled,
+                savedOnce: savedOnceOf(flow),
                 bot: flow.ai_team_member_id ? { kind: 'teammate', id: flow.ai_team_member_id } : null,
                 botDirty: false,
                 botSummary: flow.bot ?? null,

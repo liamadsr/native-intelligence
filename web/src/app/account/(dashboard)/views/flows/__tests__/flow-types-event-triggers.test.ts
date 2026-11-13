@@ -7,7 +7,18 @@
  */
 import { describe, expect, it } from 'vitest'
 import { validateTriggerConfig } from '@/lib/flows/queries'
-import { ANY_CHANNEL, TRIGGER_TYPE_LABELS, buildSavePayload, describeSchedule, emptyEditor, flowToEditor, type EditorState, type Flow } from '../flow-types'
+import {
+  ANY_CHANNEL,
+  TRIGGER_TYPE_LABELS,
+  buildSavePayload,
+  describeSchedule,
+  emptyEditor,
+  flowToEditor,
+  onceFieldNote,
+  savedOnceOf,
+  type EditorState,
+  type Flow,
+} from '../flow-types'
 
 const CH = '55555555-5555-4555-8555-555555555555'
 
@@ -83,5 +94,38 @@ describe('the new triggers in the editor', () => {
     expect(validateTriggerConfig(p.trigger_type, p.trigger_config, { now: new Date() })).not.toBeInstanceOf(Error)
     expect(reload(p).run_at).toBe('2099-12-01T15:00')
     expect(buildSavePayload(editorWith({ kind: 'schedule', cadence: 'once', run_at: '' }))).toEqual({ error: 'Pick the date and time it runs' })
+  })
+})
+
+describe("the Once field says honestly what the loop did and what a save does", () => {
+  const tz = 'America/New_York'
+  const now = new Date('2026-11-16T15:00:00Z')
+  const saved = { run_at: '2026-11-10T09:00', timezone: tz }
+  const note = (runAt: string, enabled: boolean, s: typeof saved | null = saved) => onceFieldNote({ runAt, timezone: tz, saved: s, enabled, now })
+
+  it('a loaded one-time loop carries its saved time; any other loop none', () => {
+    const flow = { id: 'f-1', name: 'Once', description: null, team_id: null, enabled: false, actions: [], canvas_layout: {}, trigger_type: 'schedule', trigger_config: { kind: 'schedule', cadence: 'once', ...saved } } as unknown as Flow
+    expect(flowToEditor(flow).savedOnce).toEqual(saved)
+    expect(savedOnceOf({ trigger_type: 'schedule', trigger_config: { kind: 'schedule', cadence: 'daily', time: '09:00', timezone: tz } } as never)).toBeNull()
+  })
+
+  it('off after it ran: pick a new time', () => {
+    expect(note('2026-11-10T09:00', false)).toMatch(/ran at this time and is off now/)
+  })
+
+  it('a new time ahead: saving switches it on', () => {
+    expect(note('2026-11-18T10:00', false)).toMatch(/Saving switches the loop on/)
+  })
+
+  it('on again after the new time is saved', () => {
+    expect(note('2026-11-18T10:00', true, { run_at: '2026-11-18T10:00', timezone: tz })).toBe('Runs one time, then the loop switches itself off.')
+  })
+
+  it('a new time already passed: saving leaves it off', () => {
+    expect(note('2026-11-12T09:00', true)).toMatch(/saving leaves the loop off/)
+  })
+
+  it('the saved time ahead, switched off: it will not run unless switched on', () => {
+    expect(note('2026-11-18T10:00', false, { run_at: '2026-11-18T10:00', timezone: tz })).toMatch(/won’t run at this time/)
   })
 })

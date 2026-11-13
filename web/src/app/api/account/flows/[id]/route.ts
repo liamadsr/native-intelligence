@@ -29,7 +29,7 @@ import {
   validateCanvasLayout,
   validateTriggerConfig,
 } from '@/lib/flows/queries'
-import { nextRunAtOnEnable, nextRunAtOnWrite } from '@/lib/flows/next-run'
+import { nextRunAtOnEnable, nextRunAtOnWrite, onceArming } from '@/lib/flows/next-run'
 import { chatTriggerChannelProblem } from '@/lib/flows/event-triggers'
 import type { FlowAction } from '@/lib/flows/types'
 
@@ -169,12 +169,19 @@ export async function PATCH(
         updates.team_id = null
         updates.next_run_at = nextRunAtOnWrite(nextType, tcfg, new Date())
       }
+      const once = onceArming(nextType, tcfg, currentType, existing.trigger_config, updates.next_run_at as string | null)
+      if (once) Object.assign(updates, once)
     } else if (body.enabled === true) {
       // Re-enabling: a schedule recomputes so a stale past-due next_run_at
       // doesn't make the tick fire it immediately; a calendar flow's slot is
       // nulled for the tick's re-anchor pass (nextRunAtOnEnable).
       const nextRun = nextRunAtOnEnable(currentType, existing.trigger_config, new Date())
       if (nextRun !== undefined) updates.next_run_at = nextRun
+      // A one-time loop whose time has passed stays finished: switching it on
+      // doesn't run it again (give it a new time instead).
+      if (nextRun === null && currentType === 'schedule' && (existing.trigger_config as { cadence?: unknown } | null)?.cadence === 'once') {
+        updates.enabled = false
+      }
     }
   }
 

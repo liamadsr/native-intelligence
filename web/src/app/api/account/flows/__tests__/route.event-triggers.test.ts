@@ -4,7 +4,8 @@
  * any channel only with mentions-only, on a named channel only when its owner
  * can read it (the owner, not whoever saves), a custom schedule held to every
  * 15 minutes, a one-time run never in the past (its stored time re-saved from
- * the editor is fine).
+ * the editor is fine). A one-time loop's switch follows its time: a new time
+ * ahead re-arms it, a passed time leaves it off.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NextRequest } from 'next/server'
@@ -159,12 +160,40 @@ describe('PATCH /api/account/flows/[id] — the new triggers', () => {
     expect(moved.status).toBe(400)
   })
 
-  it("switching on a finished one-time loop leaves next_run_at NULL", async () => {
+  it('switching on a finished one-time loop leaves it off, with next_run_at NULL', async () => {
     auth.userId = 'user-2'
     db.flow = [onceFlow()]
     const res = await PATCH(req({ enabled: true }), params)
     expect(res.status).toBe(200)
-    expect(db.updates.at(-1)).toMatchObject({ enabled: true, next_run_at: null })
+    expect(db.updates.at(-1)).toMatchObject({ enabled: false, next_run_at: null })
+    expect((await res.json()).flow).toMatchObject({ enabled: false })
+  })
+
+  it('saving a NEW time ahead re-arms a finished one-time loop: on, due then (whatever enabled the editor sent)', async () => {
+    auth.userId = 'user-2'
+    for (const sent of [undefined, false, true]) {
+      db.flow = [onceFlow()]
+      const res = await PATCH(req({ ...(sent === undefined ? {} : { enabled: sent }), trigger_type: 'schedule', trigger_config: { cadence: 'once', run_at: '2026-11-18T10:00', timezone: tz } }), params)
+      expect(res.status).toBe(200)
+      expect(db.updates.at(-1)).toMatchObject({ enabled: true, next_run_at: '2026-11-18T15:00:00.000Z' })
+      expect((await res.json()).flow).toMatchObject({ enabled: true })
+    }
+  })
+
+  it('a stale editor re-sending enabled: true with the passed time leaves the loop finished: off, no next run', async () => {
+    auth.userId = 'user-2'
+    db.flow = [onceFlow({ enabled: true, next_run_at: '2026-11-10T14:00:00.000Z' })]
+    const res = await PATCH(req({ enabled: true, trigger_type: 'schedule', trigger_config: { cadence: 'once', run_at: '2026-11-10T09:00', timezone: tz } }), params)
+    expect(res.status).toBe(200)
+    expect(db.updates.at(-1)).toMatchObject({ enabled: false, next_run_at: null })
+  })
+
+  it('the saved time, still ahead, keeps the switch as sent (switching it off sticks)', async () => {
+    auth.userId = 'user-2'
+    db.flow = [onceFlow({ enabled: true, trigger_config: { kind: 'schedule', cadence: 'once', run_at: '2026-11-18T10:00', timezone: tz }, next_run_at: '2026-11-18T15:00:00.000Z' })]
+    const res = await PATCH(req({ enabled: false, trigger_type: 'schedule', trigger_config: { cadence: 'once', run_at: '2026-11-18T10:00', timezone: tz } }), params)
+    expect(res.status).toBe(200)
+    expect(db.updates.at(-1)).toMatchObject({ enabled: false, next_run_at: '2026-11-18T15:00:00.000Z' })
   })
 
   it("a chat channel is checked against the loop OWNER's access", async () => {

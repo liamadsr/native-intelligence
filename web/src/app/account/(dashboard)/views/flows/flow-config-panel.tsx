@@ -59,6 +59,8 @@ import {
   type Team,
   type WorkflowState,
   type PrTriggerState,
+  type SavedOnce,
+  onceFieldNote,
   PR_STATE_LABELS,
   ANY_CHANNEL,
   CADENCE_LABELS,
@@ -308,7 +310,7 @@ function TriggerConfig({
       {t.kind === 'entity_status_change' && (
         <StatusChangeTriggerFields editor={editor} setTrigger={setTrigger} setEditor={setEditor} teams={teams} states={states} />
       )}
-      {t.kind === 'schedule' && <ScheduleTriggerFields trigger={t} setTrigger={setTrigger} />}
+      {t.kind === 'schedule' && <ScheduleTriggerFields trigger={t} setTrigger={setTrigger} enabled={editor.enabled} savedOnce={editor.savedOnce ?? null} />}
       {t.kind === 'calendar_event' && (
         <CalendarEventTriggerFields trigger={t} setTrigger={setTrigger} />
       )}
@@ -440,9 +442,14 @@ function StatusChangeTriggerFields({
 function ScheduleTriggerFields({
   trigger,
   setTrigger,
+  enabled,
+  savedOnce,
 }: {
   trigger: EditorTrigger
   setTrigger: (patch: Partial<EditorTrigger>) => void
+  /** The loop's switch as the editor holds it (the saved state after a save). */
+  enabled: boolean
+  savedOnce: SavedOnce | null
 }) {
   return (
     <>
@@ -505,7 +512,7 @@ function ScheduleTriggerFields({
             onChange={(e) => setTrigger({ run_at: e.target.value })}
           />
           <p className="mt-1 text-xs text-muted-foreground">
-            Runs one time, then the loop switches itself off.
+            {onceFieldNote({ runAt: trigger.run_at, timezone: trigger.timezone, saved: savedOnce, enabled })}
           </p>
         </Field>
       )}

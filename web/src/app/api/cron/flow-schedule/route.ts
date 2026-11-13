@@ -9,6 +9,7 @@ import { expireStaleSuggestions, purgeResolvedSuggestions } from '@/lib/suggesti
 import { reapStaleWork, type ReapOutcome } from '@/lib/work/reaper'
 import { readSettledRunDigests } from '@/lib/attention/read-digest'
 import { runReminderPass } from '@/lib/reminders/dispatch'
+import { agentPausedCache } from '@/lib/work/agent-paused'
 import type { CalendarEventTriggerConfig, FlowAction, ScheduleTriggerConfig } from '@/lib/flows/types'
 
 // Recurring hygiene horizon: the automatic cron ages out proposals older than
@@ -37,7 +38,11 @@ export const maxDuration = 60
  *   is pure cadence math (computeNextRun), computed from NOW so a flow that was
  *   due while the tick was down fires once and re-anchors — no catch-up burst.
  *   A once-schedule's fire CAS-sets next_run_at NULL and enabled false in one
- *   write (claimOnceFire): it runs one time and then reads as finished.
+ *   write (claimOnceFire): it runs one time and then reads as finished. While
+ *   its workspace's autonomy is off (the dispatcher's own kill switch check)
+ *   it is not claimed: the dispatcher would only ledger the fire as paused,
+ *   and the switched-off loop would never run. It stays due and fires on the
+ *   first tick after autonomy is back on (`held` counts them).
  *
  *   CALENDAR PASS (GEN-136) — scans ALL enabled calendar_event flows (not just
  *   due ones) because a calendar flow's next_run_at is derived from synced
@@ -169,7 +174,7 @@ async function runQueueHygienePass(
 async function runSchedulePass(
   supabase: ReturnType<typeof getServiceClient>,
   now: Date,
-): Promise<{ due: number; fired: number; lost: number; errored: number }> {
+): Promise<{ due: number; fired: number; lost: number; errored: number; held: number }> {
   const { data: due, error } = await supabase
     .from('flow')
     .select('id, workspace_id, trigger_config, next_run_at')
@@ -182,12 +187,15 @@ async function runSchedulePass(
 
   if (error) {
     console.error('[flow-schedule cron] schedule due-scan failed:', error.message)
-    return { due: 0, fired: 0, lost: 0, errored: 1 }
+    return { due: 0, fired: 0, lost: 0, errored: 1, held: 0 }
   }
 
   let fired = 0
   let lost = 0
   let errored = 0
+  let held = 0
+  // The dispatcher's kill switch check (door flow_dispatch, fail-open), once per workspace.
+  const autonomyOff = agentPausedCache(supabase, 'flow_dispatch')
 
   for (const flow of due ?? []) {
     try {
@@ -196,6 +204,11 @@ async function runSchedulePass(
       // A one-time run: claim it by switching the loop off as next_run_at
       // goes NULL (one CAS), so it reads as finished and never fires again.
       if (cfg?.cadence === 'once') {
+        // Autonomy off: not claimed. It stays on and due, and fires once it is back on.
+        if (await autonomyOff(flow.workspace_id)) {
+          held += 1
+          continue
+        }
         const claimed = await claimOnceFire(supabase, flow)
         if (claimed === 'error') errored += 1
         else if (claimed === 'lost') lost += 1
@@ -238,7 +251,7 @@ async function runSchedulePass(
     }
   }
 
-  return { due: due?.length ?? 0, fired, lost, errored }
+  return { due: due?.length ?? 0, fired, lost, errored, held }
 }
 
 /**

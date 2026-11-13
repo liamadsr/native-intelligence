@@ -10,6 +10,7 @@
 
 import type { FlowEntityType } from '@/lib/flows/types'
 import { validateCronExpression } from '@/lib/flows/cron'
+import { runAtInstant } from '@/lib/flows/schedule'
 export type { FlowEntityType }
 
 export type FlowTriggerType =
@@ -534,6 +535,37 @@ export interface EditorState {
    * (and on a new loop).
    */
   ownedBy: { name: string; requested: boolean } | null
+  /** A saved one-time loop's time, as stored (the once field says what a save does). */
+  savedOnce?: SavedOnce | null
+}
+
+/** A one-time loop's saved time. */
+export interface SavedOnce {
+  run_at: string
+  timezone: string
+}
+
+/** The saved one-time time of a flow read, or null when it is not a one-time loop. */
+export function savedOnceOf(flow: Pick<Flow, 'trigger_type' | 'trigger_config'>): SavedOnce | null {
+  if (flow.trigger_type !== 'schedule') return null
+  const cfg = (flow.trigger_config ?? {}) as { cadence?: unknown; run_at?: unknown; timezone?: unknown }
+  return cfg.cadence === 'once' && typeof cfg.run_at === 'string' && typeof cfg.timezone === 'string' ? { run_at: cfg.run_at, timezone: cfg.timezone } : null
+}
+
+/**
+ * The once field's line: what the loop did and what a save does, as the PATCH
+ * route decides it (next-run.ts onceArming). A NEW time ahead switches the
+ * loop on for it; a time that has passed leaves it off; the saved time keeps
+ * the switch as it is.
+ */
+export function onceFieldNote(args: { runAt: string; timezone: string; saved: SavedOnce | null | undefined; enabled: boolean; now?: Date }): string {
+  const at = runAtInstant(args.runAt, args.timezone)
+  if (!at) return 'Runs one time, then the loop switches itself off.'
+  const ahead = at.getTime() > (args.now ?? new Date()).getTime()
+  const isSaved = !!args.saved && args.saved.run_at === args.runAt && args.saved.timezone === args.timezone
+  if (!isSaved) return ahead ? 'Saving switches the loop on to run at this time; then it switches itself off.' : 'That time has passed: saving leaves the loop off. Pick a time ahead to run it.'
+  if (ahead) return args.enabled ? 'Runs one time, then the loop switches itself off.' : 'Off: it won’t run at this time unless you switch it on.'
+  return args.enabled ? 'Its time has passed: it runs at the next chance, then switches itself off.' : 'It ran at this time and is off now. Pick a new time and save to run it again.'
 }
 
 /** True when the editor shows the loop's trigger and steps read-only (someone else owns it). */
@@ -985,6 +1017,7 @@ export function flowToEditor(flow: Flow): EditorState {
     // Only an explicit "not yours" makes it read-only: a read that predates the
     // ownership fields (or a list row) keeps today's editor.
     ownedBy: flow.viewer_is_owner === false ? { name: flow.owner?.name ?? 'someone else', requested: flow.takeover_pending === true } : null,
+    savedOnce: savedOnceOf(flow),
   }
 }
 
