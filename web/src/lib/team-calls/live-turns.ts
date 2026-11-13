@@ -89,6 +89,14 @@ export const LIVE_TURN_MAX_TURNS = 300
  * on purpose: a queue that backs up makes the notes slower, never stops them.
  */
 export const LIVE_TURN_QUEUE_SECONDS = 600
+/**
+ * How long a queued turn holds off a fresh claim. A mark older than this may
+ * be an event Inngest will never run (lost, or a function not yet registered
+ * after a deploy): the next claim queues a fresh one, the old one staying
+ * valid beside it (655), so a lost event costs this long, while a slow queue
+ * is never starved (its event still begins the turn when it runs).
+ */
+export const LIVE_TURN_SUPERSEDE_SECONDS = 120
 /** A running turn's lease: past its own wall clock (the tick's 120 s, a retry, the route's start, this wait). */
 export const LIVE_TURN_LEASE_SECONDS = 300
 export const LIVE_TURN_MAX_WINDOW_CHARS = 16_000
@@ -120,6 +128,7 @@ export async function claimLiveTurn(svc: SupabaseClient, captureId: string): Pro
     quiet_seconds: LIVE_TURN_QUIET_SECONDS,
     max_turns: LIVE_TURN_MAX_TURNS,
     queue_seconds: LIVE_TURN_QUEUE_SECONDS,
+    supersede_seconds: LIVE_TURN_SUPERSEDE_SECONDS,
   })
   if (error) throw new Error(`live turns: claim failed: ${error.message}`)
   const row = (Array.isArray(data) ? data[0] : data) as { outcome?: string; lease?: string | null; turn_no?: number } | undefined
@@ -261,7 +270,7 @@ export type LiveTurnPost = number | 'timeout'
 
 export interface RunLiveTurnDeps {
   /** POST the live agent's route as the owner. */
-  postTurn?: (args: { captureId: string; ownerId: string; workspaceId: string; recentChunks: string[] }) => Promise<LiveTurnPost>
+  postTurn?: (args: { captureId: string; lease: string; ownerId: string; workspaceId: string; recentChunks: string[] }) => Promise<LiveTurnPost>
 }
 
 /**
@@ -318,7 +327,7 @@ export async function runLiveTurn(svc: SupabaseClient, input: { captureId: strin
     // As the owner's own app sends it: earlier lines first (already read), the new words last.
     const recentChunks = [window.context, window.words].filter((c) => c.trim().length > 0)
     const post = deps.postTurn ?? ((args: Parameters<typeof postTurnAsOwner>[1]) => postTurnAsOwner(svc, args))
-    const status = await post({ captureId, ownerId: cap.user_id, workspaceId: cap.workspace_id, recentChunks })
+    const status = await post({ captureId, lease, ownerId: cap.user_id, workspaceId: cap.workspace_id, recentChunks })
     if (status === 'timeout') {
       const out = await release('unknown', { sentTo: window.toOffset })
       console.warn(`[call-live-turns] capture=${captureId} turn=${began.turn} outcome=${out} reason=no_answer`)
@@ -346,12 +355,13 @@ export async function runLiveTurn(svc: SupabaseClient, input: { captureId: strin
 
 /**
  * The live agent's route, as the owner, the paired note-taker's turn (it
- * writes the record, never talks), signed with the capture's call-turn key
- * (the route takes no other live turn on a call's capture). 'timeout' when no
+ * writes the record, never talks), signed with the call-turn key of this
+ * capture and this running turn's lease (the route takes no other live turn on
+ * a call's capture, and none after the lease ends). 'timeout' when no
  * answer came back in LIVE_TURN_WAIT_MS.
  */
-async function postTurnAsOwner(svc: SupabaseClient, args: { captureId: string; ownerId: string; workspaceId: string; recentChunks: string[] }): Promise<LiveTurnPost> {
-  const key = callTurnKey(args.captureId)
+async function postTurnAsOwner(svc: SupabaseClient, args: { captureId: string; lease: string; ownerId: string; workspaceId: string; recentChunks: string[] }): Promise<LiveTurnPost> {
+  const key = callTurnKey(args.captureId, args.lease)
   if (!key) throw new Error('live turns: no internal secret to sign the turn')
   return withOwnerRunToken(
     svc,
@@ -361,7 +371,14 @@ async function postTurnAsOwner(svc: SupabaseClient, args: { captureId: string; o
         const res = await fetch(`${appUrl()}/api/ai/live-agent`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ capture_id: args.captureId, recent_chunks: args.recentChunks, mode: 'live', live_role: 'notes', call_turn_key: key }),
+          body: JSON.stringify({
+            capture_id: args.captureId,
+            recent_chunks: args.recentChunks,
+            mode: 'live',
+            live_role: 'notes',
+            call_turn_lease: args.lease,
+            call_turn_key: key,
+          }),
           signal: AbortSignal.timeout(LIVE_TURN_WAIT_MS),
         })
         // Read to the end, so the route's finalize (usage, auto-apply) is not cut short by a closed socket.

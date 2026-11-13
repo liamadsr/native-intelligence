@@ -54,6 +54,7 @@ import { liveTurnTypeFromRequest } from '@/lib/live-agent/ceiling'
 import { liveLookupsAllowed } from '@/lib/live-agent/mcp-lookups'
 import { fenceCallCapture, isCallCapture } from '@/lib/live-agent/call-capture-fence'
 import { verifyCallTurnKey } from '@/lib/live-agent/call-turn-key'
+import { callNotesLive, callTurnLeaseUntil } from '@/lib/team-calls/call-turn-state'
 import { internalSecret, liveRecentTail, mintLiveAgentRunToken } from '@/lib/live-agent/live-agent-run-token'
 import { selectRiderOmissions } from '@/lib/live-agent/riders'
 import {
@@ -306,9 +307,30 @@ export async function POST(req: Request) {
     // own context, no web.
     const turnTypeForFence = liveTurnTypeFromRequest(mode, live_role)
     const onCallCapture = isCallCapture(capture as { notes_channel_id?: string | null })
-    if (onCallCapture && !isBatch && !verifyCallTurnKey(capture_id, (body as { call_turn_key?: unknown }).call_turn_key)) {
+    // A server turn holds the capture's running lease (655): its key is bound to that lease, and the
+    // lease must be the one running now, so a replayed or late turn is refused. Its tools stop at the
+    // lease's end (the run token's notAfter), and so does its finalize.
+    let callTurnNotAfter: number | undefined
+    if (onCallCapture && !isBatch) {
+      const turnLease = (body as { call_turn_lease?: unknown }).call_turn_lease
+      const leaseUntil =
+        verifyCallTurnKey(capture_id, turnLease, (body as { call_turn_key?: unknown }).call_turn_key)
+          ? await callTurnLeaseUntil(capture_id, turnLease as string)
+          : null
+      if (!leaseUntil) {
+        return Response.json(
+          { error: 'This call’s live notes are written on the server', code: 'CALL_CAPTURE_SERVER_TURNS' },
+          { status: 409 },
+        )
+      }
+      callTurnNotAfter = leaseUntil
+    }
+    // The end-of-meeting pass (Reprocess) on a call's capture waits for the call: while the call's
+    // notes are being written live, a pass would run beside the server's turns (it replaces the
+    // pending proposals and rewrites the summary). The call's own finish runs it when the call ends.
+    if (onCallCapture && isBatch && (await callNotesLive(capture_id))) {
       return Response.json(
-        { error: 'This call’s live notes are written on the server', code: 'CALL_CAPTURE_SERVER_TURNS' },
+        { error: 'This call is still taking notes. Reprocess it once the call has ended.', code: 'CALL_NOTES_LIVE' },
         { status: 409 },
       )
     }
@@ -771,6 +793,8 @@ export async function POST(req: Request) {
       ...(recentTail !== undefined ? { recentTail } : {}),
       // The riders the prompt does without (riders.ts); absent → the full prompt.
       ...(riderOmit.length > 0 ? { omit: riderOmit } : {}),
+      // A call's server turn: its tools stop at its lease's end.
+      ...(callTurnNotAfter !== undefined ? { notAfter: callTurnNotAfter } : {}),
     })
     // mintLiveAgentRunToken throws when no secret is configured, so it is set.
     const client = liveAgentEveClient({
@@ -818,8 +842,11 @@ export async function POST(req: Request) {
     // alter their workspace. The tools' own DB writes (proposals/summary staged
     // during generation) remain — those are recoverable/visible and the user can
     // Reprocess; what we must not do is auto-COMMIT on their behalf unprompted.
-    const finalize = async (gen: GenResult, aborted = false) => {
+    const finalize = async (gen: GenResult, abortedIn = false) => {
       const result = gen
+      // A call's server turn past its lease: usage is logged, nothing is written (the call's finish
+      // may be running the end-of-meeting pass by now).
+      const aborted = abortedIn || (callTurnNotAfter !== undefined && Date.now() > callTurnNotAfter)
 
       // Exa spend visibility, same shape as the chat route. web_search is
       // provider-executed, so its cost rides on the tool RESULT

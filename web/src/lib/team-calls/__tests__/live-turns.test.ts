@@ -7,8 +7,9 @@
  * back (no failure). A turn's run begins once: a mark that waited too long,
  * or a run started twice, is stale and skipped, never counted, never a
  * failure, and sends nothing. A turn runs the live agent's own route as the
- * capture's owner, as the paired note-taker, signed with the capture's
- * call-turn key, with the words the lease holds; it never reads who is in the
+ * capture's owner, as the paired note-taker, signed with the call-turn key
+ * of the capture and its running lease, with the words the lease holds; it
+ * never reads who is in the
  * call. One that fails is skipped (its words stay for the next); one whose
  * answer never came back counts its words as sent (never twice) and keeps its
  * lease; a usage wall or a refusal stops the agent for the call; nothing
@@ -159,6 +160,8 @@ describe('queuing a turn', () => {
       quiet_seconds: 30,
       max_turns: 300,
       queue_seconds: 600,
+      // A mark whose event never ran is superseded after two minutes (the old mark stays valid).
+      supersede_seconds: 120,
     })
   })
 
@@ -201,7 +204,7 @@ describe('a turn', () => {
     const out = await runLiveTurn(db.svc, { captureId: CAPTURE, lease: LEASE }, { postTurn: async (a) => (posts.push(a), 200) })
     expect(out).toBe('ok')
     expect(db.rpcs[0]).toEqual(['team_call_live_turn_begin', { target_capture: CAPTURE, queued: LEASE, lease_seconds: 300, max_turns: 300 }])
-    expect(posts).toEqual([{ captureId: CAPTURE, ownerId: OWNER, workspaceId: WS, recentChunks: ['[Dana Ortiz] Earlier words\n', '[Rosa Lind] New words\n'] }])
+    expect(posts).toEqual([{ captureId: CAPTURE, ownerId: OWNER, workspaceId: WS, lease: LEASE, recentChunks: ['[Dana Ortiz] Earlier words\n', '[Rosa Lind] New words\n'] }])
     expect(release(db)).toMatchObject({ turn_outcome: 'ok', sent_to: 400, max_failures_in_row: LIVE_TURN_MAX_FAILURES_IN_ROW })
   })
 
@@ -285,9 +288,11 @@ describe('a turn', () => {
       mode: 'live',
       live_role: 'notes',
     })
-    // The key the route asks for on a call's capture: this capture's, and no other's.
-    expect(verifyCallTurnKey(CAPTURE, body.call_turn_key)).toBe(true)
-    expect(verifyCallTurnKey(LEASE, body.call_turn_key)).toBe(false)
+    // The key the route asks for on a call's capture: this capture's and this running lease's, no other's.
+    expect(body.call_turn_lease).toBe(LEASE)
+    expect(verifyCallTurnKey(CAPTURE, LEASE, body.call_turn_key)).toBe(true)
+    expect(verifyCallTurnKey(CAPTURE, 'another-lease', body.call_turn_key)).toBe(false)
+    expect(verifyCallTurnKey('another-capture', LEASE, body.call_turn_key)).toBe(false)
     expect((calls[0].init.headers as Record<string, string>).Authorization).toMatch(/^Bearer nid_/)
     // The owner's token, pinned to the capture's workspace, and gone once the turn is over.
     expect(db.inserted[0]).toMatchObject({ user_id: OWNER, active_workspace_id: WS })

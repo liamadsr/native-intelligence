@@ -157,6 +157,13 @@ export interface LiveAgentTokenClaims {
    * full prompt. Unknown values are dropped at mint and at verify.
    */
   omit?: RiderId[]
+  /**
+   * A server turn on a call's capture (src/lib/team-calls/live-turns.ts): its
+   * lease's end, epoch ms. Past it the token verifies no more, so the turn's
+   * tools stop writing even if its model is still running (the call's finish
+   * may be running the end-of-meeting pass by then).
+   */
+  notAfter?: number
   /** Epoch ms expiry. Verified on every internal route. */
   exp: number
 }
@@ -226,6 +233,8 @@ export function verifyLiveAgentRunToken(token: string | null | undefined): LiveA
   }
   if (!claims || typeof claims !== 'object') return null
   if (typeof claims.exp !== 'number' || claims.exp <= Date.now()) return null
+  // A call's server turn: nothing past its lease's end.
+  if (claims.notAfter !== undefined && (typeof claims.notAfter !== 'number' || claims.notAfter <= Date.now())) return null
   // A valid HMAC already proves WE minted it; the shape guard is defensive.
   if (
     typeof claims.captureId !== 'string' ||

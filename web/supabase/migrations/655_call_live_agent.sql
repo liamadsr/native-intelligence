@@ -15,9 +15,19 @@
 --                      queue that backs up makes the notes slower, never
 --                      stops them:
 --                        queued   the claim handed a turn to the queue
---                                 (queued_id, queued_until): nothing more is
---                                 offered for the capture while it waits;
---                                 nothing is counted.
+--                                 (queued_id, queued_at, queued_until):
+--                                 nothing more is offered for the capture
+--                                 while it waits, for supersede_seconds;
+--                                 nothing is counted. A mark older than that
+--                                 may be an event that never runs (lost, or a
+--                                 function not yet registered after a
+--                                 deploy): the next claim queues a fresh one
+--                                 and keeps the old one valid beside it
+--                                 (prev_queued_id), so whichever event runs
+--                                 first begins the turn and the other is
+--                                 stale. A lost event costs supersede_seconds,
+--                                 not the queue's bound, and a slow queue is
+--                                 never starved (its old event stays valid).
 --                        running  the queued turn began (its run started):
 --                                 lease_id, lease_until; only now is it a
 --                                 turn (turns, the bound per call) and the
@@ -84,6 +94,10 @@
 --     the call's finish still waits for it; 'failed' leaves it; 'stopped'
 --     ends the agent for the capture. A lease that is no longer this turn's
 --     changes nothing ('stale').
+--   team_call_live_turn_lease_until(capture, lease)  the running turn's
+--     lease end, or null when `lease` is not running: the live agent's route
+--     takes a server turn only while it holds the lease (its key is bound to
+--     the lease), and stops the turn's tools at the lease's end.
 --   team_call_live_turn_busy(capture)  is a turn RUNNING now (a queued one
 --     is not: the call's finish waits only for a turn that can still write).
 --
@@ -93,9 +107,12 @@
 -- database with the deployed app running: two new empty tables, a trigger on
 -- captures that acts only on a call's capture with a live notes row (none
 -- until the switch is on), and new functions the deployed app never calls.
--- The new tables' foreign keys and the trigger take a brief lock on captures,
--- team_call and workspace: apply it with no call live (lock_timeout bounds
--- the wait to 5 s; past it the file rolls back and can be applied again). No
+-- The new tables' foreign keys and the trigger take a SHARE ROW EXCLUSIVE lock
+-- on captures, team_call and workspace (writes wait, reads do not; the trigger
+-- is created or replaced, never dropped, so no exclusive lock): apply it with
+-- no call live and at a quiet moment. lock_timeout bounds each statement's
+-- wait to 5 s (per statement: the file waits at most a few times that), and
+-- past it the file rolls back whole and can be applied again. No
 -- backslashes anywhere in this file (one MCP transport decodes escapes).
 -- ------------------------------------------------------------
 
@@ -115,14 +132,18 @@ create table if not exists public.team_call_live_agent (
   done_offset integer not null default 0 check (done_offset >= 0),
   done_tail text,
   queued_id uuid,
+  queued_at timestamptz,
   queued_until timestamptz,
+  prev_queued_id uuid,
+  prev_queued_until timestamptz,
   lease_id uuid,
   lease_until timestamptz,
   last_turn_at timestamptz,
   last_ok_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint team_call_live_agent_queue check ((queued_id is null) = (queued_until is null)),
+  constraint team_call_live_agent_queue check ((queued_id is null) = (queued_until is null) and (queued_id is null) = (queued_at is null)),
+  constraint team_call_live_agent_prev check ((prev_queued_id is null) = (prev_queued_until is null)),
   constraint team_call_live_agent_lease check ((lease_id is null) = (lease_until is null)),
   constraint team_call_live_agent_stopped check ((state = 'stopped') = (stop_reason is not null))
 );
@@ -185,7 +206,10 @@ as $$
    where x.id = target_capture
   on conflict (capture_id) do update
      set state = excluded.state, state_at = excluded.state_at, until = excluded.until,
-         turns = excluded.turns, reason = excluded.reason, updated_at = excluded.updated_at;
+         turns = excluded.turns, reason = excluded.reason, updated_at = excluded.updated_at,
+         -- Re-read on every stamp: a summary written while the row was first made (its trigger saw
+         -- no row yet) is caught up at the next stamp, never left behind.
+         summary = excluded.summary;
 $$;
 
 -- The summary the live agent writes on a call's capture, copied to the narrow row the readers follow.
@@ -204,8 +228,9 @@ begin
 end;
 $$;
 
-drop trigger if exists team_call_live_notes_summary_sync on public.captures;
-create trigger team_call_live_notes_summary_sync
+-- Create or replace (Postgres 14 and later: the Supabase stack runs 17), never drop and create: a
+-- drop takes an ACCESS EXCLUSIVE lock on captures that stalls every read of it while it waits.
+create or replace trigger team_call_live_notes_summary_sync
   after update of ai_summary on public.captures
   for each row
   when (new.notes_channel_id is not null and old.ai_summary is distinct from new.ai_summary)
@@ -223,7 +248,7 @@ declare
 begin
   update public.team_call_live_agent a
      set state = 'stopped', stop_reason = left(reason, 40), lease_id = null, lease_until = null,
-         queued_id = null, queued_until = null, updated_at = now()
+         queued_id = null, queued_at = null, queued_until = null, prev_queued_id = null, prev_queued_until = null, updated_at = now()
    where a.capture_id = target_capture and a.state <> 'stopped'
   returning a.turns into n;
   if n is not null then
@@ -276,7 +301,8 @@ create or replace function public.team_call_live_turn_claim(
   ready_chars integer,
   quiet_seconds integer,
   max_turns integer,
-  queue_seconds integer
+  queue_seconds integer,
+  supersede_seconds integer
 )
 returns table (outcome text, lease uuid, turn_no integer)
 language plpgsql
@@ -337,8 +363,9 @@ begin
     return query select 'notes_off'::text, null::uuid, r.turns;
     return;
   end if;
-  -- One at a time: a turn running, or one waiting in the queue.
-  if (r.lease_until is not null and r.lease_until > now()) or (r.queued_until is not null and r.queued_until > now()) then
+  -- One at a time: a turn running, or one queued in the last supersede_seconds.
+  if (r.lease_until is not null and r.lease_until > now())
+     or (r.queued_until is not null and r.queued_until > now() and r.queued_at > now() - make_interval(secs => greatest(supersede_seconds, 30))) then
     return query select 'busy'::text, null::uuid, r.turns;
     return;
   end if;
@@ -361,8 +388,15 @@ begin
   end if;
 
   made := gen_random_uuid();
+  -- A mark still valid but older than supersede_seconds stays valid beside the new one: its event
+  -- may yet run (a slow queue), and whichever runs first begins the turn.
   update public.team_call_live_agent a
-     set queued_id = made,
+     set prev_queued_id = case when a.queued_until > now() then a.queued_id
+                               when a.prev_queued_until > now() then a.prev_queued_id else null end,
+         prev_queued_until = case when a.queued_until > now() then a.queued_until
+                                  when a.prev_queued_until > now() then a.prev_queued_until else null end,
+         queued_id = made,
+         queued_at = now(),
          queued_until = now() + make_interval(secs => greatest(queue_seconds, 60)),
          updated_at = now()
    where a.capture_id = target_capture;
@@ -390,11 +424,15 @@ begin
     return query select 'stopped'::text, r.turns;
     return;
   end if;
-  -- Not this mark (another one, or this one already began: a run that starts twice sends once), or
-  -- it waited too long in the queue: skipped, never counted, never a failure.
-  if r.queued_id is distinct from queued or r.queued_until <= now() then
+  -- Not a valid mark (another one, or this one already began: a run that starts twice sends once),
+  -- or it waited too long in the queue: skipped, never counted, never a failure.
+  -- (coalesce: with no mark at all the comparisons are null, and a null test would let it run.)
+  if not (coalesce(r.queued_id = queued and r.queued_until > now(), false)
+          or coalesce(r.prev_queued_id = queued and r.prev_queued_until > now(), false)) then
     if r.queued_id = queued then
-      update public.team_call_live_agent a set queued_id = null, queued_until = null, updated_at = now() where a.capture_id = target_capture;
+      update public.team_call_live_agent a set queued_id = null, queued_at = null, queued_until = null, updated_at = now() where a.capture_id = target_capture;
+    elsif r.prev_queued_id = queued then
+      update public.team_call_live_agent a set prev_queued_id = null, prev_queued_until = null, updated_at = now() where a.capture_id = target_capture;
     end if;
     return query select 'stale'::text, r.turns;
     return;
@@ -414,7 +452,10 @@ begin
      set lease_id = queued,
          lease_until = now() + make_interval(secs => greatest(lease_seconds, 30)),
          queued_id = null,
+         queued_at = null,
          queued_until = null,
+         prev_queued_id = null,
+         prev_queued_until = null,
          last_turn_at = now(),
          turns = a.turns + 1,
          state = 'working',
@@ -433,7 +474,7 @@ set search_path = public, pg_temp
 as $$
   with taken as (
     update public.team_call_live_agent a
-       set queued_id = null, queued_until = null, updated_at = now()
+       set queued_id = null, queued_at = null, queued_until = null, updated_at = now()
      where a.capture_id = target_capture and a.queued_id = queued
     returning 1
   )
@@ -592,6 +633,20 @@ begin
 end;
 $$;
 
+-- When the running turn holding `lease` must stop writing (its lease's end), or null when `lease`
+-- is not the running turn's: the live agent's route takes a server turn on a call's capture only
+-- while it holds the lease, and stops its tools at the lease's end.
+create or replace function public.team_call_live_turn_lease_until(target_capture uuid, turn_lease uuid)
+returns timestamptz
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select a.lease_until from public.team_call_live_agent a
+   where a.capture_id = target_capture and a.lease_id = turn_lease and a.lease_until > now();
+$$;
+
 create or replace function public.team_call_live_turn_busy(target_capture uuid)
 returns boolean
 language sql
@@ -609,7 +664,8 @@ revoke all on function public.team_call_live_notes_stamp(uuid, text, timestamptz
 revoke all on function public.team_call_live_notes_summary_sync() from public, anon, authenticated;
 revoke all on function public.team_call_live_turn_stop(uuid, text) from public, anon, authenticated;
 revoke all on function public.team_call_live_turn_unwanted(uuid, uuid) from public, anon, authenticated;
-revoke all on function public.team_call_live_turn_claim(uuid, integer, integer, integer, integer, integer, integer) from public, anon, authenticated;
+revoke all on function public.team_call_live_turn_claim(uuid, integer, integer, integer, integer, integer, integer, integer) from public, anon, authenticated;
+revoke all on function public.team_call_live_turn_lease_until(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.team_call_live_turn_begin(uuid, uuid, integer, integer) from public, anon, authenticated;
 revoke all on function public.team_call_live_turn_unqueue(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.team_call_live_turn_tail(text, integer) from public, anon, authenticated;
@@ -620,7 +676,8 @@ grant execute on function public.team_call_live_notes_stamp(uuid, text, timestam
 grant execute on function public.team_call_live_notes_summary_sync() to service_role;
 grant execute on function public.team_call_live_turn_stop(uuid, text) to service_role;
 grant execute on function public.team_call_live_turn_unwanted(uuid, uuid) to service_role;
-grant execute on function public.team_call_live_turn_claim(uuid, integer, integer, integer, integer, integer, integer) to service_role;
+grant execute on function public.team_call_live_turn_claim(uuid, integer, integer, integer, integer, integer, integer, integer) to service_role;
+grant execute on function public.team_call_live_turn_lease_until(uuid, uuid) to service_role;
 grant execute on function public.team_call_live_turn_begin(uuid, uuid, integer, integer) to service_role;
 grant execute on function public.team_call_live_turn_unqueue(uuid, uuid) to service_role;
 grant execute on function public.team_call_live_turn_tail(text, integer) to service_role;

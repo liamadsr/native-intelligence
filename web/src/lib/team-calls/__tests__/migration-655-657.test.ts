@@ -55,6 +55,12 @@ describe('migrations 655-657', () => {
     expect(sql).toContain('using (exists (select 1 from public.captures c where c.id = team_call_live_notes.capture_id));')
   })
 
+  it('the summary trigger is made with create or replace (no drop, no window without it; PG14+, the server runs 17)', () => {
+    const sql = bodyOf(read(FILES[0]))
+    expect(sql).toContain('create or replace trigger team_call_live_notes_summary_sync')
+    expect(sql).not.toMatch(/drop trigger/i)
+  })
+
   it('every function is the service role’s alone, a definer with a pinned search_path', () => {
     for (const f of FILES) {
       const sql = bodyOf(read(f))

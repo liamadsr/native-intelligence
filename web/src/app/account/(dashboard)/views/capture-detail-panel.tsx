@@ -2183,6 +2183,9 @@ export function CaptureDetailPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [captureId])
 
+  // A call's capture (the call recorder's: 567/588 stamp metadata.source 'team_call'): no device records into it.
+  const isCallCaptureRow = (capture?.metadata as Record<string, unknown> | null | undefined)?.source === 'team_call'
+
   // Supabase Realtime: watch for ai_summary updates on this capture (from live agent)
   useEffect(() => {
     const supabase = createClient()
@@ -3077,8 +3080,10 @@ export function CaptureDetailPanel({
           )}
           {/* Resume — restart capture for this row (mic-only on web). Lives at
                       the top next to Reprocess now (moved out of the live-agent panel).
-                      Styled like the Share button. Hidden during an active recording. */}
-          {!isActiveRecording && (
+                      Styled like the Share button. Hidden during an active recording, and
+                      on a call's capture: the call recorder fills it on the server, and no
+                      device records into it (the resume route refuses it too). */}
+          {!isActiveRecording && !isCallCaptureRow && (
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>

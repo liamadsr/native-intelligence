@@ -55,7 +55,8 @@ let checks = 0
 const ok = (cond, msg) => { assert.ok(cond, msg); checks++ }
 const eq = (a, b, msg) => { assert.deepEqual(a, b, msg); checks++ }
 const one = async (sql, params = []) => (await db.query(sql, params)).rows[0]
-const claim = (capture = CAPTURE) => one(`select * from team_call_live_turn_claim($1, 20, 60, 600, 30, 300, 600)`, [capture])
+const claim = (capture = CAPTURE) => one(`select * from team_call_live_turn_claim($1, 20, 60, 600, 30, 300, 600, 120)`, [capture])
+const leaseUntil = (lease, capture = CAPTURE) => one(`select team_call_live_turn_lease_until($1, $2) as u`, [capture, lease])
 const begin = (lease, capture = CAPTURE) => one(`select * from team_call_live_turn_begin($1, $2, 300, 300)`, [capture, lease])
 const release = (lease, outcome, sentTo, capture = CAPTURE) =>
   one(`select team_call_live_turn_release($1, $2, $3, $4, null, 3) as s`, [capture, lease, outcome, sentTo])
@@ -100,7 +101,7 @@ try {
       starts_at timestamptz, ends_at timestamptz, revoked_at timestamptz, booking_id uuid, calendar_event_id text,
       calendar_account_id uuid, calendar_event_kind text);
     create table meeting_guest (id uuid primary key, meeting_id uuid, workspace_id uuid, channel_id uuid, name text, state text,
-      call_id uuid, in_call boolean default false, first_joined_at timestamptz, left_at timestamptz, decided_at timestamptz, requested_at timestamptz default now());
+      call_id uuid, in_call boolean default false, first_joined_at timestamptz, joined_at timestamptz, left_at timestamptz, decided_at timestamptz, requested_at timestamptz default now());
     create table capture_feed_segment (session_id uuid, capture_id uuid, key text, speaker_key text, said_at timestamptz, text text, primary key (session_id, key));
     create table capture_feed_speaker (capture_id uuid, speaker_key text, label text, primary key (capture_id, speaker_key));
     create table entity_access (entity_type text, entity_id uuid, grantee_kind text, grantee_channel_id uuid, level text);
@@ -142,7 +143,8 @@ try {
   const fns = [
     'team_call_live_notes_stamp', 'team_call_live_notes_summary_sync', 'team_call_live_turn_stop', 'team_call_live_turn_unwanted',
     'team_call_live_turn_claim', 'team_call_live_turn_begin', 'team_call_live_turn_unqueue', 'team_call_live_turn_tail',
-    'team_call_live_turn_window', 'team_call_live_turn_release', 'team_call_live_turn_busy', 'team_call_capture_link_event', 'team_call_guest_notes',
+    'team_call_live_turn_window', 'team_call_live_turn_release', 'team_call_live_turn_busy', 'team_call_live_turn_lease_until',
+    'team_call_capture_link_event', 'team_call_guest_notes',
   ]
   for (const f of fns) {
     const p = await one(`select p.oid, p.prosecdef, p.proconfig from pg_proc p where p.proname = $1`, [f])
@@ -256,7 +258,7 @@ try {
   eq((await claim()).outcome, 'stopped', 'no more turns once stopped')
 
   // ── A queued turn that waited too long: stale, never a failure, never a turn ──
-  const reset = () => db.query(`update team_call_live_agent set state = 'ready', stop_reason = null, turns = 1, failures_in_row = 0, last_turn_at = now() - interval '1 hour', lease_id = null, lease_until = null, queued_id = null, queued_until = null where capture_id = $1`, [CAPTURE])
+  const reset = () => db.query(`update team_call_live_agent set state = 'ready', stop_reason = null, turns = 1, failures_in_row = 0, last_turn_at = now() - interval '1 hour', lease_id = null, lease_until = null, queued_id = null, queued_at = null, queued_until = null, prev_queued_id = null, prev_queued_until = null where capture_id = $1`, [CAPTURE])
   await reset()
   const late = await claim()
   eq(late.outcome, 'queued', 'queued')
@@ -278,6 +280,48 @@ try {
   const notSent = (await agent()).queued_id
   ok((await one(`select team_call_live_turn_unqueue($1, $2) as b`, [CAPTURE, notSent])).b === true, 'a send that failed takes its mark back')
   eq((await agent()).failures_in_row, 0, 'not a failure')
+
+  // ── A mark whose event never ran: a newer claim supersedes it after two minutes ──
+  for (const firstRuns of ['older', 'newer']) {
+    await reset()
+    await say(line('Rosa Lind', 130))
+    const lost = await claim()
+    eq(lost.outcome, 'queued', `(${firstRuns}) a turn is queued`)
+    eq((await claim()).outcome, 'busy', `(${firstRuns}) within two minutes of its mark nothing else is queued`)
+    await db.query(`update team_call_live_agent set queued_at = now() - interval '130 seconds' where capture_id = $1`, [CAPTURE])
+    const newer = await claim()
+    eq(newer.outcome, 'queued', `(${firstRuns}) two minutes on and still not run: a newer claim queues another`)
+    eq((await agent()).prev_queued_id, lost.lease, `(${firstRuns}) the older mark stays valid beside it (its event may yet run)`)
+    eq((await claim()).outcome, 'busy', `(${firstRuns}) and nothing more is queued beside the two`)
+    const [runs, skipped] = firstRuns === 'older' ? [lost, newer] : [newer, lost]
+    eq((await begin(runs.lease)).outcome, 'running', `(${firstRuns}) whichever runs first begins the turn`)
+    eq((await begin(skipped.lease)).outcome, 'stale', `(${firstRuns}) and the other is stale, never counted`)
+    const after = await agent()
+    ok(after.queued_id === null && after.prev_queued_id === null, `(${firstRuns}) no mark is left`)
+    // The running turn's lease, which the route asks for before it takes a server turn.
+    ok((await leaseUntil(runs.lease)).u !== null, `(${firstRuns}) the running turn’s lease answers its end`)
+    ok((await leaseUntil(skipped.lease)).u === null, `(${firstRuns}) a stale mark’s answers nothing`)
+    ok((await leaseUntil(id(97))).u === null, `(${firstRuns}) nor any other lease`)
+    eq((await release(runs.lease, 'ok', 0)).s, 'ready', `(${firstRuns}) released`)
+    ok((await leaseUntil(runs.lease)).u === null, `(${firstRuns}) a released turn’s lease answers nothing: a late or replayed turn is refused`)
+  }
+  await reset()
+  await say(line('Rosa Lind', 130))
+  const runOut = await turn()
+  await db.query(`update team_call_live_agent set lease_until = now() - interval '1 second' where capture_id = $1`, [CAPTURE])
+  ok((await leaseUntil(runOut.lease)).u === null, 'a lease that ran out answers nothing')
+
+  // ── A notes row made after the summary was written: its next stamp catches it up ──
+  await db.query(`delete from team_call_live_notes where capture_id = $1`, [CAPTURE])
+  await db.query(`update captures set ai_summary = 'Written before the row was made' where id = $1`, [CAPTURE])
+  ok(!(await notesRow()), 'the trigger found no row to copy to')
+  await db.query(`select team_call_live_notes_stamp($1, 'ready', null, 1, null)`, [CAPTURE])
+  eq((await notesRow()).summary, 'Written before the row was made', 'a new row starts from the capture’s summary')
+  // The first insert raced the summary: a row holding an older summary is caught up by the next stamp.
+  await db.query(`update team_call_live_notes set summary = 'older' where capture_id = $1`, [CAPTURE])
+  await db.query(`select team_call_live_notes_stamp($1, 'working', now() + interval '5 minutes', 2, null)`, [CAPTURE])
+  eq((await notesRow()).summary, 'Written before the row was made', 'and every stamp re-reads it, so none is left behind')
+  await db.query(`update captures set ai_summary = null where id = $1`, [CAPTURE])
 
   // ── The bound per call: turns that ran ─────────────────────────────────────
   await db.query(`update team_call_live_agent set turns = 300, last_turn_at = now() - interval '1 hour' where capture_id = $1`, [CAPTURE])
@@ -327,7 +371,7 @@ try {
   eq((await release(lastTurn.lease, 'failed', 0)).s, 'stale', 'the running turn’s release changes nothing')
   eq((await claim()).outcome, 'stopped', 'and no turn starts')
   // A call that ends with a turn still queued: its run starts and stops.
-  await db.query(`update team_call_live_agent set state = 'ready', stop_reason = null, queued_id = $2, queued_until = now() + interval '5 minutes' where capture_id = $1`, [CAPTURE, id(98)])
+  await db.query(`update team_call_live_agent set state = 'ready', stop_reason = null, queued_id = $2, queued_at = now(), queued_until = now() + interval '5 minutes' where capture_id = $1`, [CAPTURE, id(98)])
   eq((await begin(id(98))).outcome, 'stopped', 'a queued turn whose call ended does not run')
   eq((await agent()).stop_reason, 'call_ended', 'call_ended')
   await db.query(`update team_call set status = 'live' where id = $1`, [CALL])
@@ -426,6 +470,10 @@ try {
   ok(!JSON.stringify(seen).includes('pilot starts Monday'), 'never the agent’s summary')
   eq((await guest(GUEST, 'another-link')).allowed, false, 'another link’s token: refused')
   eq((await guest(OTHER_GUEST)).allowed, false, 'a guest still waiting: refused')
+  // Left and came back (574 sets joined_at to each join's own time): from the new join on, nothing said while away.
+  await db.query(`update meeting_guest set joined_at = now() - interval '90 seconds' where id = $1`, [GUEST])
+  eq((await guest()).lines.map((l) => l.text), ['Thanks for having me.'], 'a guest back in the room reads from their new join, not what was said while away')
+  await db.query(`update meeting_guest set joined_at = null where id = $1`, [GUEST])
   await db.query(`update meeting_guest set state = 'removed', in_call = false where id = $1`, [GUEST])
   const removed = await guest()
   eq(removed.allowed, false, 'removed: refused')
@@ -495,7 +543,8 @@ try {
       }
       await db.query(
         `update team_call_live_agent set created_at = created_at - make_interval(secs => $1), last_turn_at = last_turn_at - make_interval(secs => $1),
-                queued_until = queued_until - make_interval(secs => $1), lease_until = lease_until - make_interval(secs => $1)
+                queued_at = queued_at - make_interval(secs => $1), queued_until = queued_until - make_interval(secs => $1),
+                prev_queued_until = prev_queued_until - make_interval(secs => $1), lease_until = lease_until - make_interval(secs => $1)
           where capture_id = any($2::uuid[])`,
         [TICK, caps],
       )

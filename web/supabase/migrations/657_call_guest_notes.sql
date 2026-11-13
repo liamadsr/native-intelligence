@@ -6,9 +6,9 @@
 -- and no database session, and the capture's summary is written by an
 -- agent that also reads the workspace (its people, earlier meetings,
 -- documents), so a guest is never shown it. A guest is shown only the
--- call's own words: the lines the call recorder heard, from when the guest
--- was first let into this call, each with the speaker's label as the call
--- shows it.
+-- call's own words: the lines the call recorder heard since the guest last
+-- joined the room (never what was said while they were away), each with the
+-- speaker's label as the call shows it.
 --
 --   team_call_guest_notes(guest, token digest, max lines) → jsonb
 --     { allowed, lines: [{ at, speaker, text }] }, newest max_lines at most
@@ -70,8 +70,10 @@ begin
     return jsonb_build_object('allowed', false, 'lines', '[]'::jsonb);
   end if;
 
-  -- From when they were first let into this call: nothing said before they were there.
-  since := coalesce(g.first_joined_at, g.decided_at, g.requested_at);
+  -- From when they joined the room this time (574's joined_at: each join's own time): nothing said
+  -- before they were there, nor while they were away (a guest who left and came back reads from
+  -- their return; a reconnect after a dropped connection is a new join too).
+  since := coalesce(g.joined_at, g.first_joined_at, g.decided_at, g.requested_at);
   select coalesce(jsonb_agg(jsonb_build_object('at', l.said_at, 'speaker', l.label, 'text', l.text) order by l.said_at, l.key), '[]'::jsonb)
     into out_lines
     from (
