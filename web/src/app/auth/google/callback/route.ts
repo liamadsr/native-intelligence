@@ -14,6 +14,7 @@ import {
   type GoogleTokens,
 } from '@/lib/auth/google-sign-in'
 import { browserOrigin, postAuthRedirect } from '@/lib/auth/post-auth-redirect'
+import { joinByEmailDomainAtSignIn } from '@/lib/workspace-join/domain-join'
 import { WORK_EMAIL_REQUIRED_ERROR_CODE, isWorkEmailRejection } from '@/lib/auth/work-email'
 import { sessionTokenHash } from '@/lib/chatgpt/account'
 import { createClient } from '@/lib/supabase/server'
@@ -75,6 +76,8 @@ export async function GET(request: NextRequest) {
     return finish(NextResponse.redirect(new URL('/admin', browserOrigin(request))))
   }
 
+  // Auto-join by email domain (src/lib/workspace-join/domain-join.ts); never fails the sign-in.
+  await joinByEmailDomainAtSignIn(data.user)
   return finish(postAuthRedirect(request, browserOrigin(request)))
 }
 

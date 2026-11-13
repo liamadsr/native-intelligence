@@ -1,23 +1,17 @@
 import { sendEmail, BASE_URL } from '@/lib/email'
 import { escapeHtml } from '@/lib/email/plain-text-to-html'
-import { createClient } from '@/lib/supabase/server'
-import { getCurrentWorkspaceId } from '@/lib/workspace'
+import { getServiceClient } from '@/lib/admin'
+import { requireWorkspace, requireWorkspaceMember } from '@/lib/api-auth'
+import { badRequest, conflict, forbidden, serverError } from '@/lib/api-errors'
 import { trackServerEvent } from '@/lib/posthog'
+import { canManageJoining, decideInvite } from '@/lib/workspace-join/roles'
+import { readMembersCanInvite } from '@/lib/workspace-join/settings'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function GET() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const workspaceId = await getCurrentWorkspaceId()
-  if (!workspaceId) {
-    return NextResponse.json({ error: 'No workspace found' }, { status: 404 })
-  }
+  const auth = await requireWorkspace()
+  if (auth instanceof Response) return auth
+  const { supabase, workspaceId } = auth
 
   const { data, error } = await supabase
     .from('invite')
@@ -27,95 +21,98 @@ export async function GET() {
     .gt('expires_at', new Date().toISOString())
     .order('created_at', { ascending: false })
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+  if (error) return serverError(error.message)
 
   return NextResponse.json({ invites: data ?? [] })
 }
 
+/**
+ * POST { email, role?, workspace_id? }: invite someone by email.
+ *
+ * Owners and admins invite as admin, member or guest. A member may invite
+ * too while the workspace's "members can invite people" switch is on
+ * (migration 644), as member or guest only; guests never can. The rule is
+ * decideInvite (src/lib/workspace-join/roles.ts). A member's invite is
+ * written with the service role, since invite RLS (028) lets only owners and
+ * admins write; an owner's or admin's still goes through their own session.
+ */
 export async function POST(request: NextRequest) {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const auth = await requireWorkspaceMember({ select: 'id, role' })
+  if (auth instanceof Response) return auth
+  const { supabase, user } = auth
 
-  const { email, role, workspace_id: bodyWorkspaceId } = await request.json()
+  let body: { email?: unknown; role?: unknown; workspace_id?: unknown }
+  try {
+    body = await request.json()
+  } catch {
+    return badRequest('Invalid JSON')
+  }
+  const { email, role, workspace_id: bodyWorkspaceId } = body
 
   // Accept an explicit workspace_id in the body (used by the create-workspace
   // wizard so invites go to the newly created workspace, not the old one still
-  // stored in the cookie). Fall back to the cookie for all other callers.
-  const workspaceId =
-    (bodyWorkspaceId as string | undefined) || (await getCurrentWorkspaceId())
-  if (!workspaceId) {
-    return NextResponse.json({ error: 'No workspace found' }, { status: 404 })
+  // stored in the cookie). Fall back to the resolved workspace for all other callers.
+  let workspaceId = auth.workspaceId
+  let caller: { id: string; role?: string | null } = auth.member
+  if (typeof bodyWorkspaceId === 'string' && bodyWorkspaceId && bodyWorkspaceId !== workspaceId) {
+    const { data: other } = await supabase
+      .from('member')
+      .select('id, role')
+      .eq('workspace_id', bodyWorkspaceId)
+      .eq('user_id', user.id)
+      .maybeSingle()
+    if (!other) return forbidden('Only owners and admins can invite')
+    workspaceId = bodyWorkspaceId
+    caller = other
   }
 
-  if (!email || typeof email !== 'string') {
-    return NextResponse.json({ error: 'Email is required' }, { status: 400 })
+  if (!email || typeof email !== 'string') return badRequest('Email is required')
+
+  const managing = canManageJoining(caller.role)
+  let membersCanInvite = false
+  if (!managing && caller.role === 'member') {
+    try {
+      membersCanInvite = await readMembersCanInvite(getServiceClient(), workspaceId)
+    } catch (err) {
+      console.error('[invites] members-can-invite read failed:', err instanceof Error ? err.message : err)
+      return serverError()
+    }
+  }
+  const decision = decideInvite(caller.role, membersCanInvite, role)
+  if (!decision.ok) {
+    return decision.status === 400 ? badRequest(decision.message) : forbidden(decision.message)
   }
 
-  const validRoles = ['admin', 'member', 'guest']
-  if (role && !validRoles.includes(role)) {
-    return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
-  }
-
-  // Verify caller is owner or admin
-  const { data: callerMember } = await supabase
-    .from('member')
-    .select('id, role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .single()
-
-  if (!callerMember || !['owner', 'admin'].includes(callerMember.role)) {
-    return NextResponse.json(
-      { error: 'Only owners and admins can invite' },
-      { status: 403 },
-    )
-  }
-
-  // Check if already a member (via service client to check all users)
-  const { data: existingMembers } = await supabase
-    .from('member')
-    .select('id, user_id')
-    .eq('workspace_id', workspaceId)
+  // An owner's or admin's invite goes through their own session (invite RLS);
+  // a member's, allowed above, through the service role.
+  const db = managing ? supabase : getServiceClient()
+  const address = email.toLowerCase().trim()
 
   // We can't easily check email → user_id mapping through RLS,
   // but we can check for duplicate pending invites
-  const { data: existingInvite } = await supabase
+  const { data: existingInvite } = await db
     .from('invite')
     .select('id')
     .eq('workspace_id', workspaceId)
-    .eq('email', email.toLowerCase().trim())
+    .eq('email', address)
     .is('accepted_at', null)
     .gt('expires_at', new Date().toISOString())
-    .single()
+    .maybeSingle()
 
-  if (existingInvite) {
-    return NextResponse.json(
-      { error: 'An invite is already pending for this email' },
-      { status: 409 },
-    )
-  }
+  if (existingInvite) return conflict('An invite is already pending for this email')
 
-  const { data: invite, error } = await supabase
+  const { data: invite, error } = await db
     .from('invite')
     .insert({
       workspace_id: workspaceId,
-      email: email.toLowerCase().trim(),
-      role: role || 'member',
-      invited_by: callerMember.id,
+      email: address,
+      role: decision.role,
+      invited_by: caller.id,
     })
     .select()
     .single()
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+  if (error || !invite) return serverError(error?.message)
 
   // Fetch workspace name for the email
   const { data: workspace } = await supabase

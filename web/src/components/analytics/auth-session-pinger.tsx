@@ -20,6 +20,10 @@ let pinged = false
  * cookie, so every auth method — OAuth, password, magic link, returning
  * session — is counted exactly once.
  *
+ * The same call runs auto-join by email domain once per sign-in; when that
+ * makes a brand-new account's team workspace the active one, the page reloads
+ * into it.
+ *
  * Fail-soft: a rejected fetch is swallowed. Analytics must never break the app.
  */
 export function AuthSessionPinger() {
@@ -30,7 +34,14 @@ export function AuthSessionPinger() {
       method: 'POST',
       credentials: 'same-origin',
       keepalive: true,
-    }).catch(() => {})
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { switchedWorkspace?: string } | null) => {
+        // A brand-new account just joined its team's workspace by email
+        // domain and the server made it the active one: open it.
+        if (body?.switchedWorkspace) window.location.assign('/account')
+      })
+      .catch(() => {})
   }, [])
 
   return null
