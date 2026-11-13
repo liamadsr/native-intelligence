@@ -78,6 +78,7 @@ import { campaignRollingPass, reviewRequestOnJob } from '@/lib/inngest/outreach-
 import { dailyJobsPass, dailyJobsSend } from '@/lib/inngest/daily-jobs'
 import { customerRemindersPass, customerRemindersSend } from '@/lib/inngest/customer-reminders'
 import { timeOffersSweep } from '@/lib/inngest/time-offers'
+import { emailScheduledSend } from '@/lib/inngest/email-scheduled-send'
 import { prospectingRunExecute } from '@/lib/inngest/prospecting-functions'
 import { evalRunExecute } from '@/lib/inngest/eval-functions'
 import { asanaEchoStatus } from '@/lib/inngest/asana-echo-status'
@@ -213,6 +214,8 @@ export const { GET, POST, PUT } = serve({
     customerRemindersSend,
     // Time offers (availability phase 3a): lapsed offers let their held times go; a booking left half-written is finished or failed.
     timeOffersSweep,
+    // Send later (migration 642): a scheduled message, at its time.
+    emailScheduledSend,
     prospectingRunExecute,
     evalRunExecute,
     asanaEchoStatus,

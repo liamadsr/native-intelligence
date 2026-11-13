@@ -195,12 +195,17 @@ export async function sendProviderDraft(
   providerThreadId: string,
   draftMessageId: string,
   edits: DraftEdits | null = null,
+  opts: { accountId?: string | null } = {},
 ): Promise<SendProviderDraftResult> {
   if (!isProviderId(providerThreadId) || !isProviderId(draftMessageId)) return NOT_FOUND
   // The route checked them; checked again because they go into MIME headers.
   if (edits && parseDraftEdits(edits) === 'invalid') throw new Error('Draft edits are not well formed')
 
-  const mailbox = await mailboxForThread(userId, workspaceId, providerThreadId)
+  // `accountId` pins the mailbox (a scheduled send names the one its draft was
+  // saved in, which a new message's thread is not yet indexed under).
+  const mailbox = opts.accountId
+    ? await pinnedMailbox(userId, opts.accountId)
+    : await mailboxForThread(userId, workspaceId, providerThreadId)
   if (!mailbox) throw new Error('No email integration connected')
 
   // The holding pattern: the hold behind this draft goes 'sending' while the
@@ -553,6 +558,27 @@ async function mailboxForThread(
     if (fallback) return { provider: p, token: fallback.token, email: fallback.email ?? null }
   }
   return null
+}
+
+/**
+ * ONE mailbox the person named (a connected email account of theirs), or null
+ * when it is not theirs, not an email account, or has no valid token. The
+ * user_id filter is the fence: this reads on the service client.
+ */
+export async function pinnedMailbox(
+  userId: string,
+  accountId: string,
+): Promise<{ provider: 'google' | 'microsoft'; token: string; email: string | null } | null> {
+  const { data: account } = await getServiceClient()
+    .from('connected_account')
+    .select('provider, capability')
+    .eq('id', accountId)
+    .eq('user_id', userId)
+    .maybeSingle()
+  const row = account as { provider?: unknown; capability?: unknown } | null
+  if (!row || row.capability !== 'email' || (row.provider !== 'google' && row.provider !== 'microsoft')) return null
+  const found = await getValidTokenForAccount(accountId)
+  return found ? { provider: row.provider, token: found.token, email: found.email ?? null } : null
 }
 
 /**

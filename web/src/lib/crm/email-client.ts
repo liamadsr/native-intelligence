@@ -972,6 +972,8 @@ export async function saveDraftToProvider(
           body: { contentType: 'html', content: params.body_html },
           toRecipients: params.to.map((e) => ({ emailAddress: { address: e } })),
           ccRecipients: params.cc?.map((e) => ({ emailAddress: { address: e } })),
+          // Kept as Gmail's draft keeps it (a scheduled send goes out as saved).
+          ...(params.bcc?.length ? { bccRecipients: params.bcc.map((e) => ({ emailAddress: { address: e } })) } : {}),
         }),
       },
     )
