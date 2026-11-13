@@ -50,10 +50,13 @@ describe('parseCron', () => {
     expect([...parsed('0 9 * jan,Mar mon-wed').months].sort((a, b) => a - b)).toEqual([1, 3])
   })
 
-  it('a field starting with * is unrestricted, even with a step', () => {
+  it('only a bare * is unrestricted: a stepped * restricts its day field', () => {
     const s = parsed('0 9 */2 * 1')
-    expect(s.domRestricted).toBe(false)
+    expect(s.domRestricted).toBe(true)
     expect(s.dowRestricted).toBe(true)
+    expect(parsed('0 9 * * */2').dowRestricted).toBe(true)
+    expect(parsed('0 9 * * *').domRestricted).toBe(false)
+    expect(parsed('0 9 * * *').dowRestricted).toBe(false)
   })
 
   it('refuses the wrong field count, out-of-range values, backwards ranges and bad steps', () => {
@@ -130,6 +133,50 @@ describe('computeNextCronRun', () => {
   it('nextCronRuns lists consecutive runs', () => {
     const runs = nextCronRuns(parsed('0 9 * * 1,3'), NY, new Date('2026-11-16T15:00:00Z'), 3).map((d) => d.toISOString())
     expect(runs).toEqual(['2026-11-18T14:00:00.000Z', '2026-11-23T14:00:00.000Z', '2026-11-25T14:00:00.000Z'])
+  })
+})
+
+describe('stepped day fields', () => {
+  const runs = (expr: string, fromIso: string, n = 4) =>
+    nextCronRuns(parsed(expr), NY, new Date(fromIso), n).map((d) => d.toISOString())
+
+  it('*/2 in day-of-week runs Sun, Tue, Thu, Sat, not every day', () => {
+    // From Mon 2026-11-16 15:00Z: Tue 17, Thu 19, Sat 21, Sun 22.
+    expect(runs('0 9 * * */2', '2026-11-16T15:00:00.000Z')).toEqual([
+      '2026-11-17T14:00:00.000Z',
+      '2026-11-19T14:00:00.000Z',
+      '2026-11-21T14:00:00.000Z',
+      '2026-11-22T14:00:00.000Z',
+    ])
+  })
+
+  it('*/2 in day-of-month runs on odd days, not every day', () => {
+    // From Mon 2026-11-16 15:00Z: the 17th, 19th, 21st, 23rd.
+    expect(runs('0 9 */2 * *', '2026-11-16T15:00:00.000Z')).toEqual([
+      '2026-11-17T14:00:00.000Z',
+      '2026-11-19T14:00:00.000Z',
+      '2026-11-21T14:00:00.000Z',
+      '2026-11-23T14:00:00.000Z',
+    ])
+    // Across a 30-day month: the 29th, then the 1st.
+    expect(runs('0 9 */2 * *', '2026-11-28T15:00:00.000Z', 2)).toEqual(['2026-11-29T14:00:00.000Z', '2026-12-01T14:00:00.000Z'])
+  })
+
+  it('a stepped day-of-month and a weekday: both restricted, so either matches', () => {
+    // Odd days OR Mondays. From Fri 2026-11-27 15:00Z: Sun 29 (odd), Mon 30 (Monday), Tue Dec 1 (odd).
+    expect(runs('0 9 */2 * 1', '2026-11-27T15:00:00.000Z', 3)).toEqual([
+      '2026-11-29T14:00:00.000Z',
+      '2026-11-30T14:00:00.000Z', // Monday, even day
+      '2026-12-01T14:00:00.000Z',
+    ])
+  })
+
+  it('a stepped day-of-month with a bare * weekday: the day set alone, a stepped range too', () => {
+    expect(runs('0 9 1-10/3 * *', '2026-11-16T15:00:00.000Z', 3)).toEqual([
+      '2026-12-01T14:00:00.000Z',
+      '2026-12-04T14:00:00.000Z',
+      '2026-12-07T14:00:00.000Z',
+    ])
   })
 })
 

@@ -8,8 +8,10 @@
  * Each field takes `*`, a number, a range `a-b`, a step `*\/n`, `a-b/n` or
  * `a/n` (a to the field's end), and comma lists of those. Month and weekday
  * names (JAN-DEC, SUN-SAT) are accepted. Day-of-week is 0-7 (0 and 7 are
- * Sunday). When both day fields are restricted (neither starts with `*`) a
- * day matches if EITHER does (classic cron). No seconds, no `?`, `L`, `W` or `#`.
+ * Sunday). Every field's values always apply. Only a bare `*` leaves a day
+ * field unrestricted (`*\/2` restricts it to every other day); when BOTH day
+ * fields are restricted a day matches if EITHER does (classic cron), otherwise
+ * it must match both. No seconds, no `?`, `L`, `W` or `#`.
  *
  * The loop engine's tick runs every 5 minutes, so an expression that can fire
  * more often than every CRON_MIN_INTERVAL_MINUTES is refused, as is one with
@@ -23,7 +25,12 @@ import { wallClock, zonedTimeToUtc } from './schedule'
 export const CRON_MIN_INTERVAL_MINUTES = 15
 /** A custom schedule must run at least once within this many days of being saved. */
 export const CRON_HORIZON_DAYS = 366
-/** How far computeNextCronRun looks (a 29th of February recurs every four years). */
+/**
+ * How far computeNextCronRun looks. Saving needs a run within
+ * CRON_HORIZON_DAYS, so a 29th-of-February schedule is only accepted when
+ * that leap day is less than a year away; after it runs, the next one is
+ * four years out, and this window still reaches it.
+ */
 const SEARCH_DAYS = 366 * 5
 
 export interface CronSchedule {
@@ -36,9 +43,9 @@ export interface CronSchedule {
   months: ReadonlySet<number>
   /** 0 (Sunday) - 6 (Saturday); a 7 is folded onto 0. */
   daysOfWeek: ReadonlySet<number>
-  /** The day-of-month field was restricted (did not start with `*`). */
+  /** The day-of-month field was restricted (anything but a bare `*`). */
   domRestricted: boolean
-  /** The day-of-week field was restricted (did not start with `*`). */
+  /** The day-of-week field was restricted (anything but a bare `*`). */
   dowRestricted: boolean
 }
 
@@ -132,8 +139,8 @@ export function parseCron(expression: string): CronSchedule | Error {
     daysOfMonth: parsed[2],
     months: parsed[3],
     daysOfWeek: parsed[4],
-    domRestricted: !fields[2].startsWith('*'),
-    dowRestricted: !fields[4].startsWith('*'),
+    domRestricted: fields[2] !== '*',
+    dowRestricted: fields[4] !== '*',
   }
 }
 
@@ -147,10 +154,10 @@ function dayMatches(s: CronSchedule, year: number, month: number, day: number): 
   const dow = new Date(Date.UTC(year, month - 1, day)).getUTCDay()
   const dom = s.daysOfMonth.has(day)
   const wd = s.daysOfWeek.has(dow)
+  // Both restricted: either matches. Otherwise both sets apply (a bare `*`
+  // holds every value, so it never narrows the other field).
   if (s.domRestricted && s.dowRestricted) return dom || wd
-  if (s.domRestricted) return dom
-  if (s.dowRestricted) return wd
-  return true
+  return dom && wd
 }
 
 /**
