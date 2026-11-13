@@ -14,8 +14,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { probe, run } from './media.ts'
 import { concatLine } from './platform.ts'
-import { encoderArgs, type EncoderProfile } from './encoders.ts'
-import { planFiles, segmentArgs, sourcesFit, stampsFit, bubbleGeometry, bubbleSampling, type FastPlan, type SegmentPlan } from './fast-export.ts'
+import { FAST_ENCODER, planFiles, segmentArgs, sourcesFit, stampsFit, bubbleGeometry, bubbleSampling, type FastPlan, type SegmentPlan } from './fast-export.ts'
 
 /** The least a sampled frame may score against Chrome's drawing of it: the whole frame, and inside the bubble. */
 export const CHECK_DB = { frame: 34, bubble: 25 }
@@ -34,8 +33,10 @@ export interface FastRun {
   stills: (frames: number[]) => Promise<Map<number, string>>
   /** Stops what Chrome is doing for this run (the picture failed: nothing it makes is needed). */
   abortChrome?: () => void
-  /** How the picture is encoded (encoders.ts): x264 unless said. */
-  encoder?: EncoderProfile
+  /** The picture's encoder arguments (encoders.ts, encoderArgs; given, so the encoder stays out of the render version): the Chrome path's x264 unless said. */
+  encoder?: string[]
+  /** What a checked frame must score with that encoder (encoders.ts, checkFloor): CHECK_DB unless said. */
+  checkDb?: { frame: number; bubble: number }
 }
 
 const timeout = (frames: number, fps: number) => Math.max(180_000, Math.ceil((frames / fps) * 20_000))
@@ -101,7 +102,7 @@ export async function composeFast(r: FastRun): Promise<string> {
     let done = 0
     for (const [i, seg] of plan.segments.entries()) {
       const out = join(scratch, `fast-${i}.mp4`)
-      await run('ffmpeg', segmentArgs(seg, plan.fps, r.path, out, seg.bubble ? hashes[i] : { ...hashes[i]!, camera: [] }, encoderArgs(r.encoder ?? 'x264', plan.width, plan.height, plan.fps)),
+      await run('ffmpeg', segmentArgs(seg, plan.fps, r.path, out, seg.bubble ? hashes[i] : { ...hashes[i]!, camera: [] }, r.encoder ?? FAST_ENCODER),
         { timeout: timeout(seg.frames, plan.fps), maxBuffer: 4 * 1024 * 1024, signal })
       parts.push(out)
       done += seg.frames
@@ -221,7 +222,8 @@ async function check(r: FastRun, file: string, frames: number[], stills: Map<num
     const whole = await psnr(png, file, frame, plan.fps, null, signal)
     const bubble = g && frame >= seg.startFrame + seg.bubble!.offset ? await psnr(png, file, frame, plan.fps, g, signal) : Infinity
     r.log(`Fast export check, frame ${frame}: ${whole.toFixed(1)} dB${Number.isFinite(bubble) ? `, bubble ${bubble.toFixed(1)} dB` : ''} against Chrome`)
-    if (!(whole >= CHECK_DB.frame) || !(bubble >= CHECK_DB.bubble)) throw new Error(`frame ${frame} is not Chrome's (${whole.toFixed(1)} dB, bubble ${bubble.toFixed(1)} dB)`)
+    const floor = r.checkDb ?? CHECK_DB
+    if (!(whole >= floor.frame) || !(bubble >= floor.bubble)) throw new Error(`frame ${frame} is not Chrome's (${whole.toFixed(1)} dB, bubble ${bubble.toFixed(1)} dB)`)
   }
 }
 

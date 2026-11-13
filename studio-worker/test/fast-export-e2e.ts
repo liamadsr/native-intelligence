@@ -140,7 +140,7 @@ async function main() {
     // ---- the sound itself: FFmpeg's mix against Remotion's, sample for sample (in this process) ------------------------
     const soundRows = new Map<string, Record<string, unknown>>()
     {
-      const { Renderer, inputPropsFor, COMPOSITION_ID } = await import('../src/render.ts')
+      const { Renderer, inputPropsFor, COMPOSITION_ID, EXPORT_ENCODING, bt709WithSwscale } = await import('../src/render.ts')
       const { loadConfig } = await import('../src/config.ts')
       const { soundOnly } = await import('../src/fast-export.ts')
       const { composeSound, soundPlan, SAMPLE_RATE } = await import('../src/fast-sound.ts')
@@ -150,6 +150,16 @@ async function main() {
       const renderer = new Renderer(cfg, join(workDir, 'cache', 'assets'))
       const { serveUrl, release } = await renderer.bundle(() => {})
       const cache = (file: string) => join(workDir, 'cache', file)
+      // With the lossless encoder (STUDIO_FAST_ENCODER=lossless) the fast export's frames are compared before any lossy
+      // encoder: so are Chrome's, rendered here as PNG screenshots encoded at CRF 1 (the export's own colour conversion).
+      if (process.env.STUDIO_FAST_ENCODER === 'lossless') for (const c of cases) {
+        const common = await renderer.common(() => {}, c.project)
+        const inputProps = inputPropsFor(c.project)
+        const comp = await selectComposition({ serveUrl, id: COMPOSITION_ID, inputProps, ...common })
+        const out = join(dir, `${c.name}-chrome-png.mp4`)
+        await renderMedia({ serveUrl, composition: comp, inputProps, ...common, ...EXPORT_ENCODING, crf: 1, imageFormat: 'png', ffmpegOverride: bt709WithSwscale, outputLocation: out })
+        outputs[c.name]!.chrome = out
+      }
       for (const c of cases) {
         const common = await renderer.common(() => {}, c.project)
         const inputProps = inputPropsFor(soundOnly(c.project))

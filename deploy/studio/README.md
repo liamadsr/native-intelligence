@@ -155,6 +155,10 @@ fast export, …)`, or `Rendering in Chrome: <the first reason>`.
   from `presenterPieces` (now in the engine's `presenter-pieces.ts`, the one copy the editor and the worker both
   use), sampled bilinearly at Chrome's fractional place under an antialiased circle or rounded-square mask; one
   FFmpeg pass per clip with the Chrome path's encoder settings and labels, joined without re-encoding.
+- *What the files must be* (checked before anything runs): H.264 yuv420p, colour BT.709 or not said (an untagged
+  take, as a browser's conformed by the worker arrives, is read by Chrome as BT.709 limited range: proven), square
+  pixels, not turned, starting at 0, and every source frame the plan shows on its file's frame grid (within 0.25 ms,
+  each once; read only around the stretches used). A rounded bubble's radius must be a pixel or more.
 - *The sound* (`studio-worker/src/fast-sound.ts`), mixed as Remotion mixes it: the layers are the composition's own
   (the engine's `sound-layers.ts`, which `composition.tsx` now draws from too: each recording's sound under its
   clips with the cut fades, each audio track's segments with gain and fades); for every frame of a layer the file's
@@ -162,11 +166,16 @@ fast export, …)`, or `Rendering in Chrome: <the first reason>`.
   below zero, ×32767 above, the fraction dropped), at the frame's level truncated, nothing at level 0, each piece at
   its frame's place, the layers summed and clipped. Two things only Remotion's own mix gives, so the fast export asks
   it for them in one shared browser: the first ~100 ms of a file played from its very start, where Chrome's AAC
-  decoder starts cold (448 samples of silence, then its ramp), spliced in; and a few frames (each layer that starts
-  mid-video and one 80 % in), compared, with Remotion's whole mix taking over if they differ by more than 2 steps
+  decoder starts cold (448 samples of silence, then its ramp), spliced in; and ten frames around each layer's
+  loudest frame (every layer, up to six windows; past that, layers spread through the video; a layer silent
+  throughout is checked in its middle), compared, with Remotion's whole mix taking over if they differ by more than 2 steps
   RMS or 64 at a sample (Chrome's AAC decoder and FFmpeg's round differently: on the made-up voices one sample in a
   thousand by one step; on a pure tone one in eight by up to 14 steps, -97 dBFS RMS). Sources it mixes: 48 kHz AAC
-  or PCM, mono or stereo, at 1x (a clip at 2x is silent in Remotion's mix as here: its sound is muted), no ducking.
+  or PCM, mono or stereo, starting at 0 in its file, at 1x (a clip at 2x is silent in Remotion's mix as here: its
+  sound is muted), no ducking. Each layer's file is decoded only over the stretch it plays, as a stream (a quarter
+  second of decoding before it, then sample-exact): what is held is a ten-second block and a few readers' buffers,
+  whatever the files' lengths (a 10-minute source: +23 MB for a 20 s trim at minute 9, +66 MB for all of it; decoding
+  the files whole had taken 580 MB).
   Otherwise the sound is Remotion's mix of the same video without its silent pictures, in stretches rendered at
   once (one browser each) and joined to the sample.
 - *Proof* (`studio-worker/test/fast-export-e2e.ts`: made-up videos exported by the real worker both ways, every
@@ -180,10 +189,21 @@ fast export, …)`, or `Rendering in Chrome: <the first reason>`.
   outside, 27 dB and 0.93 inside. The sound, against Remotion's own mix of the same video sample for sample: the
   same length to the sample, offset 0 at every layer's start, level within 0.0001 dB, 28–108 samples a step apart
   (residual 115–117 dB below the sound). Thresholds: length equal, offset 0, 0.1 dB, residual under -90 dBFS, no
-  sample more than 32 steps apart. One of the five has no camera and a cut (below).
+  sample more than 32 steps apart. One of the five has no camera and a cut (below). Also: two untagged takes (60
+  and 30 fps: 44.9 and 45.4 dB outside, 32.0 and 27.0 inside), and a take whose sound starts 0.28 s after its picture
+  (left to Remotion's mix, picture still FFmpeg's). The mask's edge on its own, 2 px inside it and 0.5–2.5 px
+  outside: at least 18 and 30 dB, and the same bubble drawn with its radius 2 px smaller must fail (about 18 dB
+  outside). A radius 2 px larger is not caught: Chrome's rounded corners measure about a pixel rounder than the mask.
+  With `STUDIO_FAST_ENCODER=lossless` the proof compares the frames before any lossy encoder with Chrome's PNG
+  screenshots encoded at CRF 1: outside the bubble 46.5–48.7 dB; inside 26.9–32.4 (one case, the 30 fps camera drawn
+  five times smaller under a rounded mask, 0.06 dB under the 27 dB threshold).
 - *At run time*: a failure, or a failed check, and the export goes through Chrome, with the reason in the log.
-  The check: the frame count, then two or three frames (the first with the bubble, a blended one, one late) drawn by
-  Chrome and compared with the file (34 dB, bubble 25 dB; the wrong camera frame scores about 22). Chrome (one
+  The check: the frame count; at each clip's two ends, after a blend and where the source changes most, the frames
+  FFmpeg's graph had (hashed in the real run, before the encoder) against the source frames the plan says, decoded
+  alone, bit for bit; then two or three frames (the first with the bubble, a blended one, the one where the recording
+  changes most) drawn by Chrome and compared with the file (34 dB, bubble 25 dB with x264; 30 and 25 with a hardware
+  encoder; the wrong camera frame scores about 22). A failure stops the other branches, and what the fast export left
+  in the job's folder is removed before Chrome starts. Chrome (one
   browser for the whole fast export) draws them, and the sound's windows, while FFmpeg draws the picture.
   The log gives every stage's time: `Fast export: Chrome started …`, `sound mixed in …`, `picture …, alongside it
   the sound … and Chrome's check frames …; joining …, comparing …`, `Composed in …`, `Decode check in …`,

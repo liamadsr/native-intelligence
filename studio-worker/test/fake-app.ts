@@ -18,12 +18,19 @@ import {
   FailBody,
   ProgressBody,
   blobParts,
+  LocalBlobCommitBody,
+  LocalBlobReadBody,
+  LocalBlobWriteBody,
+  LocalCompleteBody,
+  LocalFailBody,
+  LocalProgressBody,
+  LocalTakeBody,
 } from '../src/engine.ts'
 import type { StudioJobKind } from '../../web/src/lib/studio/server/job-contract.ts'
 
 export interface FakeJob {
   id: string
-  kind: StudioJobKind
+  kind: StudioJobKind | 'local-export'
   workspaceId: string
   videoId: string | null
   input: unknown
@@ -60,6 +67,13 @@ export class FakeApp {
   url = ''
   /** When set, the next N requests to the app's routes answer 503 (the app restarting). */
   failNext = 0
+  /**
+   * The local-export tokens, as the app's signed ones work: each names its job and the attempt it holds (0: minted by
+   * the editor, it can only take), and works until it runs out, whichever newer one exists.
+   */
+  private readonly localTokens = new Map<string, { jobId: string; attempt: number }>()
+  /** Every token a local runner presented, in order (to check it always used the newest). */
+  readonly localTokensSeen: string[] = []
 
   constructor(opts: { secret: string; dir: string; partBytes: number }) {
     this.secret = opts.secret
@@ -81,7 +95,19 @@ export class FakeApp {
     await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()))
   }
 
-  queue(kind: StudioJobKind, input: unknown, opts: { videoId?: string } = {}): FakeJob {
+  /** A token for a queued local-export job, as the editor gets it (the app's local-token.ts). */
+  mintLocal(job: FakeJob, attempt = 0): string {
+    const token = `ls1.${randomBytes(16).toString('hex')}`
+    this.localTokens.set(token, { jobId: job.id, attempt })
+    return token
+  }
+
+  /** Tokens run out (the app's last 10 minutes): every token of this job, now. */
+  expireLocal(job: FakeJob): void {
+    for (const [t, v] of this.localTokens) if (v.jobId === job.id) this.localTokens.delete(t)
+  }
+
+  queue(kind: StudioJobKind | 'local-export', input: unknown, opts: { videoId?: string } = {}): FakeJob {
     const job: FakeJob = { id: randomUUID(), kind, workspaceId: randomUUID(), videoId: opts.videoId ?? null, input, attempts: 0, status: 'queued', progress: [], logs: [], cancelRequested: false }
     this.jobs.push(job)
     return job
@@ -136,6 +162,7 @@ export class FakeApp {
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', this.url)
     if (url.pathname.startsWith('/fake-storage/')) return this.storage(req, res, url)
+    if (url.pathname.startsWith('/api/local-agent/studio-export/')) return this.local(req, res, url)
     const path = url.pathname.replace(/^\/api\/internal\/studio\//, '')
     const reply = (status: number, body: unknown) => {
       this.calls.push({ path, status })
@@ -152,7 +179,7 @@ export class FakeApp {
 
     if (path === 'jobs/claim') {
       const b = ClaimBody.parse(raw)
-      const next = this.jobs.find((j) => j.status === 'queued' && b.kinds.includes(j.kind))
+      const next = this.jobs.find((j) => j.status === 'queued' && j.kind !== 'local-export' && b.kinds.includes(j.kind))
       if (!next) return reply(200, { job: null })
       next.status = 'running'
       next.attempts++
@@ -222,6 +249,80 @@ export class FakeApp {
       const sha256 = hash.digest('hex')
       if (p.sha256 && p.sha256 !== sha256) return reply(409, { error: 'Bytes differ from the stated sha256' })
       this.blobs.set(b.key, { bytes: p.bytes, contentType: p.contentType, sha256, partBytes: this.partBytes })
+      this.pending.delete(b.key)
+      return reply(200, { ok: true })
+    }
+    return reply(404, { error: 'Not found' })
+  }
+
+  /** The local-export routes (job-contract.ts, "the person's own computer"), with the contract's strict bodies. */
+  private async local(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+    const op = url.pathname.replace(/^\/api\/local-agent\/studio-export\//, '')
+    const reply = (status: number, body: unknown) => { this.calls.push({ path: `local/${op}`, status }); this.send(res, status, body) }
+    if (req.method !== 'POST') return reply(405, { error: 'Method' })
+    const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? ''
+    this.localTokensSeen.push(token)
+    const held = this.localTokens.get(token)
+    const j = this.jobs.find((x) => x.id === held?.jobId)
+    if (!j || !held || j.kind !== 'local-export') return reply(401, { error: 'Unauthorized', code: 'UNAUTHORIZED' })
+    const raw = JSON.parse((await this.body(req)).toString('utf8') || '{}')
+    const fresh = () => ({ token: this.mintLocal(j, j.attempts), expiresAt: new Date(Date.now() + 600_000).toISOString() })
+    // The editor's token only takes; a taken one only works its own attempt.
+    if ((op === 'take') !== (held.attempt === 0) || (held.attempt > 0 && held.attempt !== j.attempts)) return reply(409, { error: 'Not held', code: 'NOT_HELD' })
+    const own = `exports/${j.id}/${j.attempts}/video.mp4`
+    if (op === 'take') {
+      LocalTakeBody.parse(raw)
+      if (j.status !== 'queued') return reply(409, { error: 'Not queued', code: 'NOT_QUEUED' })
+      j.status = 'running'
+      j.attempts++
+      const { id, kind, workspaceId, videoId, input, attempts } = j
+      return reply(200, { job: { id, kind, workspaceId, videoId, input, attempts }, ...fresh() })
+    }
+    if (j.status !== 'running') return reply(409, { error: 'Not held', code: 'NOT_HELD' })
+    if (op === 'progress') {
+      const b = LocalProgressBody.parse(raw)
+      j.progress.push(b.progress)
+      if (b.log) j.logs.push(...b.log.split('\n'))
+      return reply(200, { cancelRequested: j.cancelRequested, ...fresh() })
+    }
+    if (op === 'complete') {
+      const b = LocalCompleteBody.parse(raw)
+      if (b.result.key !== own || !this.blobs.has(own)) return reply(422, { error: 'The file is not right', code: 'RESULT_REFUSED' })
+      j.status = 'completed'
+      j.result = b.result
+      return reply(200, { ok: true })
+    }
+    if (op === 'fail') {
+      const b = LocalFailBody.parse(raw)
+      j.status = j.cancelRequested ? 'cancelled' : 'failed'
+      j.error = b.error
+      return reply(200, { ok: true })
+    }
+    if (op === 'blobs/read') {
+      const b = LocalBlobReadBody.parse(raw)
+      const named = (j.input as { project: { assets: { file: string }[] }; fonts?: { file: string }[] })
+      if (![...named.project.assets.map((a) => a.file), ...(named.fonts ?? []).map((f) => f.file)].includes(b.key)) return reply(409, { error: 'Not yours', code: 'NOT_YOURS' })
+      const meta = this.blobs.get(b.key)
+      if (!meta) return reply(404, { error: 'No such blob', code: 'BLOB_NOT_FOUND' })
+      return reply(200, { key: b.key, bytes: meta.bytes, contentType: meta.contentType, sha256: meta.sha256,
+        parts: blobParts(meta.bytes, meta.partBytes).map((p) => ({ ...p, url: `${this.url}/fake-storage/${encodeURIComponent(b.key)}/${p.index}?token=${this.token}` })) })
+    }
+    if (op === 'blobs/write') {
+      const b = LocalBlobWriteBody.parse(raw)
+      if (b.key !== own) return reply(409, { error: 'Not yours', code: 'NOT_YOURS' })
+      this.pending.set(b.key, { bytes: b.bytes, contentType: b.contentType, sha256: '', partBytes: this.partBytes, jobId: j.id })
+      return reply(200, { key: b.key, partBytes: this.partBytes, parts: blobParts(b.bytes, this.partBytes).map((p) => ({ ...p,
+        url: `${this.url}/fake-storage/${encodeURIComponent(b.key)}/${p.index}?token=${this.token}`, headers: { 'content-type': 'application/octet-stream' } })) })
+    }
+    if (op === 'blobs/commit') {
+      const b = LocalBlobCommitBody.parse(raw)
+      const p = this.pending.get(b.key)
+      if (!p || p.jobId !== j.id) return reply(409, { error: 'Nothing written under that key' })
+      const first = await readFile(join(this.partDir(b.key), '0')).catch(() => Buffer.alloc(0))
+      if (first.toString('latin1', 4, 8) !== 'ftyp') return reply(422, { error: 'Not an MP4', code: 'NOT_MP4' })
+      const hash = createHash('sha256')
+      for (const part of blobParts(p.bytes, this.partBytes)) hash.update(await readFile(join(this.partDir(b.key), String(part.index))))
+      this.blobs.set(b.key, { bytes: p.bytes, contentType: p.contentType, sha256: hash.digest('hex'), partBytes: this.partBytes })
       this.pending.delete(b.key)
       return reply(200, { ok: true })
     }

@@ -19,6 +19,7 @@
  */
 import { readdir, stat } from 'node:fs/promises'
 import { removeQuietly } from '../platform.ts'
+import { checkFloor, encoderArgs } from '../encoders.ts'
 import { dirname, join } from 'node:path'
 import { parseEditorProject } from '../engine.ts'
 import { stageAssets } from '../assets.ts'
@@ -105,7 +106,7 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
             plan, scratch: ctx.scratch, signal: ctx.signal, log: ctx.log, progress: stage(ctx, 0.25, 0.92),
             path: (file) => join(dirname(ctx.cache.dir), file),
             abortChrome: () => cancel(),
-            encoder: ctx.config.fastEncoder,
+            encoder: encoderArgs(ctx.config.fastEncoder, plan.width, plan.height, plan.fps), checkDb: checkFloor(ctx.config.fastEncoder),
             sound: async (out) => {
               // Mixed here as Remotion mixes it (fast-sound.ts), its cold starts and a few checked frames by Remotion in the shared
               // browser; any doubt, and Remotion's own mix, in consecutive stretches rendered at once, a browser each, and joined.

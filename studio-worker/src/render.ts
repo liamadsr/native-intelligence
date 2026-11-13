@@ -13,7 +13,7 @@
  */
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
+import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 import type { EditorProject } from '../../web/src/lib/studio/engine/contracts.ts'
@@ -21,7 +21,7 @@ import type { WorkerConfig } from './config.ts'
 import { buildSceneRuntime, RUNTIME_PATH } from './engine.ts'
 import { projectScenes } from './scenes.ts'
 import { linkDir, removeQuietly, unlinkDir } from './platform.ts'
-import { prebuiltBundle } from './bundle-dir.ts'
+import { BUNDLE_MANIFEST, prebuiltBundle } from './bundle-dir.ts'
 
 /**
  * The engine's render version (web/src/lib/studio/engine/render-version.ts), which a local export and a bundle built
@@ -87,6 +87,37 @@ export interface RenderedComposition {
 }
 
 type Log = (line: string) => void
+
+/** The engine's composition bundled by Remotion's bundler into `outDir` (`publicDir`: an empty folder). */
+async function bundleEngine(engineDir: string, outDir: string, publicDir: string): Promise<void> {
+  const { bundle } = await import('@remotion/bundler')
+  await bundle({
+    entryPoint: resolve(engineDir, 'remotion.tsx'),
+    publicDir,
+    outDir,
+    // Webpack's cache would be written next to node_modules, which is read-only in the container; the bundle itself is kept instead.
+    enableCaching: false,
+    webpackOverride: (config) => ({
+      ...config,
+      resolve: { ...config.resolve, extensionAlias: { ...config.resolve?.extensionAlias, '.js': ['.ts', '.tsx', '.js'] } },
+    }),
+  })
+}
+
+/**
+ * A render bundle built ahead, for the desktop app (scripts/build-local-runner.ts; used with STUDIO_BUNDLE_DIR): the
+ * bundle, the code scene runtime in it, and its manifest (bundle-dir.ts: the render version and Remotion's).
+ */
+export async function buildRenderBundle(engineDir: string, outDir: string, scratch: string): Promise<void> {
+  const publicDir = join(scratch, 'empty-public')
+  await rm(outDir, { recursive: true, force: true })
+  await mkdir(publicDir, { recursive: true })
+  await bundleEngine(engineDir, outDir, publicDir)
+  await buildSceneRuntime(await import('esbuild'), engineDir, join(outDir, 'public', RUNTIME_PATH))
+  const remotion = (createRequire(import.meta.url)('@remotion/bundler/package.json') as { version: string }).version
+  await writeFile(join(outDir, BUNDLE_MANIFEST), JSON.stringify({ renderVersion: engineRenderVersion() ?? 'unversioned', remotion, builtAt: new Date().toISOString() }, null, 2))
+  await rm(scratch, { recursive: true, force: true })
+}
 
 export class Renderer {
   private readonly config: WorkerConfig
@@ -176,18 +207,7 @@ export class Renderer {
       const emptyPublic = resolve(this.config.workDir, 'empty-public')
       await rm(staging, { recursive: true, force: true })
       await mkdir(emptyPublic, { recursive: true })
-      const { bundle } = await import('@remotion/bundler')
-      await bundle({
-        entryPoint: resolve(this.config.engineDir, 'remotion.tsx'),
-        publicDir: emptyPublic,
-        outDir: staging,
-        // Webpack's cache would be written next to node_modules, which is read-only in the container; the bundle itself is kept instead.
-        enableCaching: false,
-        webpackOverride: (config) => ({
-          ...config,
-          resolve: { ...config.resolve, extensionAlias: { ...config.resolve?.extensionAlias, '.js': ['.ts', '.tsx', '.js'] } },
-        }),
-      })
+      await bundleEngine(this.config.engineDir, staging, emptyPublic)
       await rm(outDir, { recursive: true, force: true })
       await rename(staging, outDir)
       log(`Bundled in ${((Date.now() - started) / 1000).toFixed(1)} s`)

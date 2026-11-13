@@ -18,7 +18,7 @@ import { createBlankVideo } from '../blank'
 import { activeJob, cancelJob, claimJob, getJob, MAX_OPEN_EXPORTS, queueJob, toEditorJob, videoExports } from '../jobs'
 import { ClaimBody, LOCAL_TOKEN_SECONDS, STUDIO_JOB_KINDS, type LocalTaken } from '../job-contract'
 import { handleLocalRunner, LOCAL_CALLS_PER_MINUTE, resetLocalCalls } from '../local-http'
-import { localExportKey, localToken, moveToServer, startsLikeMp4 } from '../local-jobs'
+import { localExportKey, localJob, localToken, moveToServer, startsLikeMp4 } from '../local-jobs'
 import { signLocalToken, verifyLocalToken } from '../local-token'
 import { CODE_SCENES_REFUSAL, queueExport, RENDER_VERSION_REFUSAL, startExport } from '../media'
 import { STUDIO_RENDER_VERSION } from '../../engine/render-version'
@@ -217,13 +217,23 @@ describe('what the door refuses', () => {
     expect((await call('take', model)).status).toBe(401)
     const { verifyModelToken } = await import('@/lib/local-agent/tokens')
     expect(verifyModelToken(signLocalToken({ jid: job.id, uid: AVA, wid: WS }).token).ok).toBe(false)
+    // A body of this shape MACed under the model tokens' domain, with the same key, is refused: the domains differ.
+    const body = Buffer.from(JSON.stringify({ jid: job.id, uid: AVA, wid: WS, exp: Math.floor(Date.now() / 1000) + 60 })).toString('base64url')
+    const { createHmac } = await import('node:crypto')
+    const crossed = createHmac('sha256', process.env[SECRET_ENV]!).update('dial8.local-agent.model-token.v1:').update(body).digest('base64url')
+    expect(verifyLocalToken(`ls1.${body}.${crossed}`)).toMatchObject({ ok: false, reason: 'signature' })
   })
 
   it('a token for another job, another person’s job, another workspace, or a guest', async () => {
     const mine = await queued()
     const bens = await queued({ as: BEN })
-    // A token naming Ben's job but Ava as its person: not hers.
+    // A token naming Ben's job but Ava as its person: not hers, at the door and in the fence every call reads.
     expect((await call('take', signLocalToken({ jid: bens.job.id, uid: AVA, wid: WS }).token)).status).toBe(409)
+    await expect(localJob(deps(), { jid: bens.job.id, uid: AVA, wid: WS, exp: 0 })).rejects.toMatchObject({ code: 'NOT_HELD' })
+    // Nor a server export of hers: only a local export is a computer's.
+    const video = await createBlankVideo(env.ctx, { title: 'Server one', seconds: 2, fps: 30 })
+    const server = await queueExport(env.ctx, video, 'editor')
+    await expect(localJob(deps(), { jid: server.id, uid: AVA, wid: WS, exp: 0 })).rejects.toMatchObject({ code: 'NOT_HELD' })
     // Ava can't be handed a token for Ben's job at all.
     await expect(localToken(env.ctx, bens.job.id)).rejects.toMatchObject({ status: 404 })
     // Her job in another workspace: nothing there.

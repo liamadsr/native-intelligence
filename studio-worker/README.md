@@ -207,6 +207,21 @@ content-addressed, so the next render of the same project fetches nothing. Past
 uses is never removed. Each job's own scratch folder is removed when it ends, whatever
 happened.
 
+### On the person's own computer
+
+`src/local.ts` (command line: `src/local-main.ts`) is the local runner the desktop app starts for an export on the
+person's own computer (macOS or Windows): it takes ONE `local-export` job by id with the token the editor minted for it
+(the app client's token mode, the routes under `/api/local-agent/studio-export/`), stages only the files the project
+names (sha256-checked), exports as the worker does with the machine's own encoder and a render bundle built ahead,
+writes the video to the destination the desktop app names, uploads it and completes the job (unless `--no-upload`),
+reports progress at least every 15 s and stops on a cancel. The token never goes on the command line
+(`STUDIO_LOCAL_TOKEN` or the first line of standard input); events come out as JSON lines. `scripts/build-local-runner.ts
+<out>` builds what the desktop carries: `runner/runner.cjs` (esbuild), the packages it keeps, the render bundle with its
+manifest, `NOTICES.md` and `sizes.json`. What differs between Linux, a Mac and Windows (process trees, junctions,
+concat lists, tool paths, path length, a child's environment) is in `src/platform.ts`, each branch tested with the
+platform named (`test/platform.test.ts`). Tests: `test/local.test.ts`, `test/encoders.test.ts`, `test/bundle-dir.test.ts`;
+end to end `test/local-e2e.ts`; a lossy encoder against the lossless one: `test/encoder-check.ts`.
+
 ## Running it against `next dev`
 
 Node 24, FFmpeg and ffprobe on `PATH` (`brew install ffmpeg`); for decks, poppler
@@ -259,6 +274,9 @@ local run, `npm start` also reads a `.env` file beside `package.json` when there
 | `STUDIO_ANALYSIS_TESSERACT` | `tesseract` on PATH | The text reader the review reads on-screen text with (optional). |
 | `STUDIO_CODE_SCENES` | on, off with `NODE_ENV=production` | Whether renders run code scenes' code in their locked frame (`on`/`off`). Off, a render of a video with code scenes is refused with a sentence. |
 | `STUDIO_FAST_EXPORT` | on | The FFmpeg export for a video that is only a recording, its cuts and its camera bubble (`on`/`off`); what it covers and how it was proven: [`deploy/studio/README.md`](../deploy/studio/README.md#export-speed), "Export speed". |
+| `STUDIO_FAST_ENCODER` | x264 | How the FFmpeg export encodes its picture (`src/encoders.ts`): `x264` (the server: the Chrome path's settings), `videotoolbox` (a Mac's own encoder), `mf` (Windows' Media Foundation), `lossless` (the proof). The local runner picks the machine's own. |
+| `STUDIO_FFMPEG`, `STUDIO_FFPROBE` | the ones on PATH | Absolute paths of the FFmpeg and ffprobe to run (every run of them goes through `src/platform.ts`, `toolPath`). |
+| `STUDIO_BUNDLE_DIR` | unset | A render bundle built ahead (`scripts/build-local-runner.ts`; `src/bundle-dir.ts`): used instead of bundling the engine here, refused unless its manifest names this engine's render version and Remotion's. |
 
 ## Working on it
 

@@ -9,7 +9,7 @@
  * (__tests__/render-version.test.ts) fails when they change and this file does not: change the version and the hash
  * together. Constants only: the desktop app's bundle reads this file as it is.
  */
-export const STUDIO_RENDER_VERSION = '2026-11-13.1'
+export const STUDIO_RENDER_VERSION = '2026-11-13.3'
 
 /** The hash of the files above when STUDIO_RENDER_VERSION was last changed. */
-export const RENDER_SOURCES_SHA256 = '7fd1abe8aa525f7845d98849e621217ed56ecadf423064ded4a5daa5b4d14eca'
+export const RENDER_SOURCES_SHA256 = 'c7718ec862ffdbda7f0357890ab975d112fe4c2a0c81085e373bed6e3db8ddad'

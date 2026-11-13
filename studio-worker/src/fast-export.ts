@@ -22,17 +22,16 @@
  * primaries and matrix, limited range, the sRGB transfer (render.ts, bt709WithSwscale).
  */
 import { createRequire } from 'node:module'
-import { encoderArgs } from './encoders.ts'
 import type { EditorAsset, EditorClip, EditorProject } from '../../web/src/lib/studio/engine/contracts.ts'
 
 const require = createRequire(import.meta.url)
-const engine = (name: string) => require(`../../web/src/lib/studio/engine/${name}.ts`)
-const { scheduleProject } = engine('timeline') as typeof import('../../web/src/lib/studio/engine/timeline.ts')
-const { cutVideoPlan } = engine('cuts') as typeof import('../../web/src/lib/studio/engine/cuts.ts')
-const { clipView } = engine('shots') as typeof import('../../web/src/lib/studio/engine/shots.ts')
-const { presenterPieces, presenterRadius } = engine('presenter-pieces') as typeof import('../../web/src/lib/studio/engine/presenter-pieces.ts')
-const { outputRect, sourceCropRect } = engine('motion-render') as typeof import('../../web/src/lib/studio/engine/motion-render.ts')
-const { neutralMotion } = engine('motion-contracts') as typeof import('../../web/src/lib/studio/engine/motion-contracts.ts')
+// Each by its own literal path, so a bundler (scripts/build-local-runner.ts) takes exactly these files in.
+const { scheduleProject } = require('../../web/src/lib/studio/engine/timeline.ts') as typeof import('../../web/src/lib/studio/engine/timeline.ts')
+const { cutVideoPlan } = require('../../web/src/lib/studio/engine/cuts.ts') as typeof import('../../web/src/lib/studio/engine/cuts.ts')
+const { clipView } = require('../../web/src/lib/studio/engine/shots.ts') as typeof import('../../web/src/lib/studio/engine/shots.ts')
+const { presenterPieces, presenterRadius } = require('../../web/src/lib/studio/engine/presenter-pieces.ts') as typeof import('../../web/src/lib/studio/engine/presenter-pieces.ts')
+const { outputRect, sourceCropRect } = require('../../web/src/lib/studio/engine/motion-render.ts') as typeof import('../../web/src/lib/studio/engine/motion-render.ts')
+const { neutralMotion } = require('../../web/src/lib/studio/engine/motion-contracts.ts') as typeof import('../../web/src/lib/studio/engine/motion-contracts.ts')
 
 /** A stretch of one video shown frame by frame: `map[l]` is the source frame at output frame l. */
 export interface StreamPlan { file: string; srcFps: number; rate: number; startSeconds: number; map: number[] }
@@ -344,8 +343,13 @@ export function segmentArgs(seg: SegmentPlan, fps: number, path: (file: string) 
     ...encoder, '-r', String(fps), '-video_track_timescale', '90000', '-f', 'mp4', out, ...extra]
 }
 
-/** The Chrome path's encoder settings (render.ts, EXPORT_ENCODING), so the two paths make the same kind of file (encoders.ts's `x264`). */
-export const FAST_ENCODER = encoderArgs('x264', 0, 0, 0)
+/**
+ * The Chrome path's encoder settings (render.ts, EXPORT_ENCODING), so the two paths make the same kind of file: the
+ * default of segmentArgs. The encoder is a parameter (encoders.ts, kept out of the render version: an encoder is not
+ * what is drawn), and encoders.ts's `x264` is these.
+ */
+export const FAST_ENCODER = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p',
+  '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'iec61966-2-1', '-color_range', 'tv']
 
 /** A video file as ffprobe describes it (its first video stream), for sourcesFit. */
 export interface SourceProbe {

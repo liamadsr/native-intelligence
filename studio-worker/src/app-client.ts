@@ -8,13 +8,18 @@
  * A request that fails on the way (no answer, 408, 429, 5xx) is sent again with
  * a growing wait, a few times; any other answer is final. The secret is never in
  * an error or a log line.
+ *
+ * Token mode (`local`): the desktop app's local runner (local.ts) works ONE job through the local-export routes
+ * (/api/local-agent/studio-export/: take, progress, complete, fail, blobs/…), with the token the editor minted for it.
+ * The same methods, the routes' own bodies (no worker id or job id: the token names the job), and the token renewed
+ * by every answer that carries one.
  */
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { mkdir, open, rename, rm, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { backoffMs, sleep } from './backoff.ts'
-import type { BlobRead, BlobWrite, ClaimedJob, LivePieces, StudioJobKind } from '../../web/src/lib/studio/server/job-contract.ts'
+import type { BlobRead, BlobWrite, ClaimedJob, LivePieces, LocalTaken, StudioJobKind } from '../../web/src/lib/studio/server/job-contract.ts'
 
 /** A request the app did not take. `retry`: it may take it later (the app or the network failed). */
 export class AppError extends Error {
@@ -68,14 +73,37 @@ export class AppClient {
   private readonly retry: RetryOptions
   /** What this worker can do beyond media work, said on every claim and progress report (./providers/capabilities.ts). */
   private readonly capabilities?: () => string[]
+  /** Token mode: the job's token, the newest the app gave (null: a worker, with its secret). */
+  private readonly local: { token: string } | null
 
-  constructor(opts: { appUrl: string; secret: string; workerId: string; fetch?: Fetch; retry?: Partial<RetryOptions>; capabilities?: () => string[] }) {
+  constructor(opts: { appUrl: string; secret: string; workerId: string; fetch?: Fetch; retry?: Partial<RetryOptions>; capabilities?: () => string[]; local?: { token: string } }) {
     this.base = opts.appUrl.replace(/\/+$/, '')
     this.secret = opts.secret
     this.workerId = opts.workerId
     this.fetchImpl = opts.fetch ?? ((url, init) => fetch(url, init))
     this.retry = { ...DEFAULT_RETRY, ...opts.retry }
     this.capabilities = opts.capabilities
+    this.local = opts.local ? { token: opts.local.token } : null
+  }
+
+  /**
+   * Where a request goes and what it carries. A worker: /api/internal/studio/<path>, its id in the body. Token mode:
+   * the local-export route for it (a job's own progress, complete and fail; the blob routes; take), the body without
+   * the worker's id or the job's (the routes refuse unknown keys), and no sha256 on a write (they do not take one).
+   * Pure over its inputs.
+   */
+  static route(path: string, body: Record<string, unknown>, workerId: string, local: boolean): { url: string; body: Record<string, unknown> } {
+    if (!local) return { url: `/api/internal/studio/${path}`, body: { workerId, ...body } }
+    const op = /^jobs\/[^/]+\/(progress|complete|fail)$/.exec(path)?.[1] ?? path
+    if (!['take', 'progress', 'complete', 'fail', 'blobs/read', 'blobs/write', 'blobs/commit'].includes(op)) throw new AppError(`${path}: not a local export route`, 400, null)
+    const { jobId: _job, workerId: _worker, capabilities: _caps, sha256: _sha, ...rest } = body
+    return { url: `/api/local-agent/studio-export/${op}`, body: rest }
+  }
+
+  /** Token mode: take the job the token names (from the queue); the answer's token holds it from now on. */
+  async take(): Promise<LocalTaken> {
+    if (!this.local) throw new Error('take is for token mode')
+    return this.post<LocalTaken>('take', {}, { retry: false })
   }
 
   /** The capabilities field of a claim or progress body (absent when this client says nothing). */
@@ -87,10 +115,11 @@ export class AppClient {
   private async postOnce<T>(path: string, body: Record<string, unknown>): Promise<T> {
     let res: Response
     try {
-      res = await this.fetchImpl(`${this.base}/api/internal/studio/${path}`, {
+      const r = AppClient.route(path, body, this.workerId, this.local !== null)
+      res = await this.fetchImpl(`${this.base}${r.url}`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${this.secret}` },
-        body: JSON.stringify({ workerId: this.workerId, ...body }),
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${this.local ? this.local.token : this.secret}` },
+        body: JSON.stringify(r.body),
         signal: AbortSignal.timeout(30_000),
       })
     } catch (err) {
@@ -109,11 +138,16 @@ export class AppClient {
       }
       throw new AppError(`${path} answered ${res.status}${detail}`, res.status, code)
     }
+    let parsed: T
     try {
-      return JSON.parse(text) as T
+      parsed = JSON.parse(text) as T
     } catch {
       throw new AppError(`${path} answered something that is not JSON`, 502, null)
     }
+    // Token mode: take and every progress answer a fresh token, which replaces the old one.
+    const fresh = (parsed as { token?: unknown } | null)?.token
+    if (this.local && typeof fresh === 'string' && fresh) this.local.token = fresh
+    return parsed
   }
 
   private post<T>(path: string, body: Record<string, unknown>, opts: { retry?: boolean } = {}): Promise<T> {

@@ -19,6 +19,8 @@ const ads = require('../../web/src/lib/studio/server/ads-contract.ts') as typeof
 const sceneBuild = require('../../web/src/lib/studio/engine/scene-frame/build.ts') as typeof import('../../web/src/lib/studio/engine/scene-frame/build.ts')
 
 export const { STUDIO_JOB_KINDS, LIVE_JOB_KINDS, STUDIO_PART_BYTES, blobParts, ClaimBody, ProgressBody, CompleteBody, FailBody, BlobReadBody, BlobWriteBody, BlobCommitBody, LivePiecesBody } = contract
+// The local-export routes' bodies (the desktop app's local runner, local.ts; the tests' fake app).
+export const { LOCAL_JOB_KINDS, LocalTakeBody, LocalProgressBody, LocalCompleteBody, LocalFailBody, LocalBlobReadBody, LocalBlobWriteBody, LocalBlobCommitBody } = contract
 export const { EditorAssetSchema, TranscriptSchema, parseEditorProject, defaultCaptions, defaultPresentation } = contracts
 export const { deliveredProject } = formats
 export const { applyQualityTier } = quality
