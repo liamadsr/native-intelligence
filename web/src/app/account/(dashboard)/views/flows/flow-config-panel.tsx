@@ -60,6 +60,7 @@ import {
   type WorkflowState,
   type PrTriggerState,
   type SavedOnce,
+  HIDDEN_CHANNEL,
   onceFieldNote,
   PR_STATE_LABELS,
   ANY_CHANNEL,
@@ -342,9 +343,10 @@ function TriggerConfig({
       {t.kind === 'email_received' && (
         <Field label="From">
           <Input
-            value={t.email_from}
+            value={t.details_hidden ? '' : t.email_from}
             onChange={(e) => setTrigger({ email_from: e.target.value })}
-            placeholder="Anyone (or an address or domain)"
+            placeholder={t.details_hidden ? 'New email: its sender filter is the owner’s to see' : 'Anyone (or an address or domain)'}
+            disabled={t.details_hidden}
           />
           <p className="mt-1 text-xs text-muted-foreground">Matches the mail’s From address, which anyone can write: it is not proof of who sent it.</p>
         </Field>
@@ -646,7 +648,8 @@ function ChatMessageTriggerFields({
   const label = (c: PickableChannel) => (c.kind === 'channel' ? `#${c.name ?? 'channel'}` : c.kind === 'dm' ? `Direct message with ${memberName(c.dm_member_id)}` : (c.name ?? 'Meeting chat'))
   // A saved channel that isn't in the list still shows: as loading until the
   // list is in, then as one the person can no longer see (left since).
-  const known = !trigger.chat_channel_id || trigger.chat_channel_id === ANY_CHANNEL || (channels ?? []).some((c) => c.id === trigger.chat_channel_id)
+  const known =
+    !trigger.chat_channel_id || trigger.chat_channel_id === ANY_CHANNEL || trigger.chat_channel_id === HIDDEN_CHANNEL || (channels ?? []).some((c) => c.id === trigger.chat_channel_id)
   return (
     <>
       <Field label="Channel">
@@ -656,6 +659,8 @@ function ChatMessageTriggerFields({
           </SelectTrigger>
           <SelectContent>
             {trigger.mentions_only && <SelectItem value={ANY_CHANNEL}>Any channel</SelectItem>}
+            {/* Someone else's loop: which channel is theirs to see. */}
+            {trigger.chat_channel_id === HIDDEN_CHANNEL && <SelectItem value={HIDDEN_CHANNEL}>A channel</SelectItem>}
             {!known && <SelectItem value={trigger.chat_channel_id}>{channels === null ? 'Loading…' : 'A channel you can no longer see'}</SelectItem>}
             {(channels ?? []).map((c) => (
               <SelectItem key={c.id} value={c.id}>

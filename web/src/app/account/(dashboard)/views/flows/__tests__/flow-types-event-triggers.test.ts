@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { validateTriggerConfig } from '@/lib/flows/queries'
 import {
   ANY_CHANNEL,
+  HIDDEN_CHANNEL,
   TRIGGER_TYPE_LABELS,
   buildSavePayload,
   describeSchedule,
@@ -127,5 +128,31 @@ describe("the Once field says honestly what the loop did and what a save does", 
 
   it('the saved time ahead, switched off: it will not run unless switched on', () => {
     expect(note('2026-11-18T10:00', false, { run_at: '2026-11-18T10:00', timezone: tz })).toMatch(/won’t run at this time/)
+  })
+})
+
+describe("someone else's mail or chat loop, read redacted (owner_only)", () => {
+  it('a chat loop on a channel loads as "a channel"; on any channel as any channel', () => {
+    const t = reload({ trigger_type: 'chat_message', trigger_config: { kind: 'chat_message', mentions_only: true, channel: 'a channel', owner_only: true } })
+    expect(t).toMatchObject({ chat_channel_id: HIDDEN_CHANNEL, mentions_only: true, details_hidden: true })
+    const any = reload({ trigger_type: 'chat_message', trigger_config: { kind: 'chat_message', mentions_only: true, channel: 'any channel', owner_only: true } })
+    expect(any).toMatchObject({ chat_channel_id: ANY_CHANNEL, details_hidden: true })
+  })
+
+  it('a mail loop loads with no sender and says its filter is hidden', () => {
+    expect(reload({ trigger_type: 'email_received', trigger_config: { kind: 'email_received', owner_only: true } })).toMatchObject({ email_from: '', details_hidden: true })
+    expect(reload({ trigger_type: 'email_received', trigger_config: { kind: 'email_received', from: 'acme.example' } }).details_hidden).toBeUndefined()
+  })
+
+  it("a non-owner's save never sends the redacted trigger (only what they may change)", () => {
+    const editor = flowToEditor({
+      id: 'f-1', name: 'Loop', description: null, team_id: null, enabled: true, actions: [], canvas_layout: {},
+      trigger_type: 'chat_message', trigger_config: { kind: 'chat_message', mentions_only: false, channel: 'a channel', owner_only: true },
+      ai_team_member_id: 'bot-1', viewer_is_owner: false, owner: { name: 'Ana' },
+    } as unknown as Flow)
+    const built = buildSavePayload(editor)
+    if ('error' in built) throw new Error(built.error)
+    expect(built.payload).not.toHaveProperty('trigger_config')
+    expect(built.payload).not.toHaveProperty('trigger_type')
   })
 })

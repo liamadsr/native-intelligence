@@ -32,6 +32,7 @@ import {
 import { nextRunAtOnEnable, nextRunAtOnWrite, onceArming } from '@/lib/flows/next-run'
 import { chatTriggerChannelProblem } from '@/lib/flows/event-triggers'
 import type { FlowAction } from '@/lib/flows/types'
+import { flowRowForViewer } from '@/lib/flows/types'
 
 /**
  * Trigger types with a wired dispatcher (pr_status_changed: the GitHub
@@ -81,7 +82,8 @@ export async function GET(
     ownerId: ((data as Record<string, unknown>).created_by as string | null) ?? null,
     viewerId: user.id,
   })
-  return NextResponse.json({ flow: { ...toPublicFlow(data as Record<string, unknown>), ...ownership } })
+  // Another member's mail or chat loop shows without its sender filter or channel.
+  return NextResponse.json({ flow: { ...toPublicFlow(flowRowForViewer(data as Record<string, unknown>, user.id)), ...ownership } })
 }
 
 export async function PATCH(
@@ -406,12 +408,12 @@ export async function PATCH(
       { toolCallId: `flow-patch-${id}`, messages: [] } as never,
     )) as { awaiting_approval?: boolean; card_for?: string; owner?: { name?: string | null } }
     return NextResponse.json({
-      flow: toPublicFlow(data as Record<string, unknown>),
+      flow: toPublicFlow(flowRowForViewer(data as Record<string, unknown>, user.id)),
       awaiting_owner: raised.awaiting_approval ? (raised.card_for ?? raised.owner?.name ?? 'the owner') : null,
     })
   }
 
-  return NextResponse.json({ flow: toPublicFlow(data as Record<string, unknown>) })
+  return NextResponse.json({ flow: toPublicFlow(flowRowForViewer(data as Record<string, unknown>, user.id)) })
 }
 
 export async function DELETE(

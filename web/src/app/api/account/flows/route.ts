@@ -43,6 +43,7 @@ import {
 import { nextRunAtOnWrite } from '@/lib/flows/next-run'
 import { chatTriggerChannelProblem } from '@/lib/flows/event-triggers'
 import type { FlowAction } from '@/lib/flows/types'
+import { flowRowForViewer } from '@/lib/flows/types'
 
 /**
  * Trigger types with a wired dispatcher (pr_status_changed: the GitHub
@@ -70,7 +71,7 @@ const FLOW_FIELDS = `
 export async function GET(_request: NextRequest) {
   const auth = await requireWorkspaceMember()
   if (auth instanceof Response) return auth
-  const { supabase, workspaceId } = auth
+  const { supabase, user, workspaceId } = auth
 
   const { data, error } = await supabase
     .from('flow')
@@ -80,7 +81,8 @@ export async function GET(_request: NextRequest) {
 
   if (error) return serverError(error.message)
 
-  const flows = (data || []).map((row) => toPublicFlow(row as Record<string, unknown>))
+  // Another member's mail or chat loop shows without its sender filter or channel.
+  const flows = (data || []).map((row) => toPublicFlow(flowRowForViewer(row as Record<string, unknown>, user.id)))
   return NextResponse.json({ flows })
 }
 

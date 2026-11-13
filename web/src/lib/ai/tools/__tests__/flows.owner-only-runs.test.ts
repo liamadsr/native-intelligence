@@ -122,9 +122,9 @@ describe("list_flows: another member's event loop details", () => {
     const byId = new Map((out.flows as Array<Record<string, unknown>>).map((f) => [f.id, f]))
     const mail = byId.get('f-mail')!
     const chat = byId.get('f-chat')!
-    expect(mail.trigger_config).toEqual({ kind: 'email_received' })
+    expect(mail.trigger_config).toEqual({ kind: 'email_received', owner_only: true })
     expect(mail.trigger).toBe("When new email arrives in its owner's inbox")
-    expect(chat.trigger_config).toEqual({ kind: 'chat_message', mentions_only: false, channel: 'a channel' })
+    expect(chat.trigger_config).toEqual({ kind: 'chat_message', mentions_only: false, channel: 'a channel', owner_only: true })
     expect(chat.trigger).toBe('When someone posts in a channel')
     expect(JSON.stringify(out)).not.toContain(CH_DM)
     expect(JSON.stringify(out)).not.toContain('billing@vendor.example')

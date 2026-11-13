@@ -65,14 +65,18 @@ vi.mock('@/lib/knowledge/entity-fences', async (orig) => ({
   visiblePrivateKindIds: async (_s: unknown, _kind: string, userId: string, ids: string[]) => new Set(ids.filter((id) => (readable.byUser[userId] ?? []).includes(id))),
 }))
 vi.mock('@/lib/posthog', () => ({ trackServerEvent: vi.fn() }))
+vi.mock('@/lib/flows/flow-approvals', async (orig) => ({
+  ...(await orig<typeof import('@/lib/flows/flow-approvals')>()),
+  flowOwnership: async () => ({}),
+}))
 vi.mock('@/lib/crypto/credentials', () => ({ encryptCredentialOrNull: () => null }))
 vi.mock('@/lib/flows/flow-bot', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/flows/flow-bot')>()),
   defaultFlowBot: async () => ({ teammateId: 'bot-1', created: false }),
 }))
 
-const { POST } = await import('../route')
-const { PATCH } = await import('../[id]/route')
+const { GET: LIST, POST } = await import('../route')
+const { GET, PATCH } = await import('../[id]/route')
 
 const CH = '55555555-5555-4555-8555-555555555555'
 const CH_OTHER = '66666666-6666-4666-8666-666666666666'
@@ -206,5 +210,44 @@ describe('PATCH /api/account/flows/[id] — the new triggers', () => {
     const res = await PATCH(req({ trigger_type: 'chat_message', trigger_config: { channel_id: CH_OTHER } }), params)
     expect(res.status).toBe(400)
     expect((await res.json()).error).toMatch(/owner can read/)
+  })
+})
+
+describe("GET /api/account/flows (and [id]): another member's mail and chat loops", () => {
+  const row = (id: string, trigger_type: string, trigger_config: Row) => ({
+    id, workspace_id: 'ws-1', team_id: null, name: id, enabled: true, trigger_type, trigger_config, actions: [], created_by: 'user-2', created_at: 'x', updated_at: 'x',
+  })
+  beforeEach(() => {
+    db.flow = [
+      row('flow-1', 'email_received', { kind: 'email_received', from: 'billing@vendor.example' }),
+      row('flow-2', 'chat_message', { kind: 'chat_message', channel_id: CH, mentions_only: true }),
+      row('flow-3', 'schedule', { kind: 'schedule', cadence: 'daily', time: '09:00', timezone: tz }),
+    ]
+  })
+
+  it('a non-owner reads them without the sender filter or the channel; a schedule as stored', async () => {
+    auth.userId = 'user-1'
+    const body = (await (await LIST(req({}))).json()) as { flows: Array<{ id: string; trigger_config: Row }> }
+    const by = new Map(body.flows.map((f) => [f.id, f.trigger_config]))
+    expect(by.get('flow-1')).toEqual({ kind: 'email_received', owner_only: true })
+    expect(by.get('flow-2')).toEqual({ kind: 'chat_message', mentions_only: true, channel: 'a channel', owner_only: true })
+    expect(by.get('flow-3')).toEqual(db.flow[2].trigger_config)
+    expect(JSON.stringify(body)).not.toContain('vendor.example')
+    expect(JSON.stringify(body)).not.toContain(CH)
+    const one = (await (await GET(req({}), params)).json()) as { flow: { trigger_config: Row } }
+    expect(one.flow.trigger_config).toEqual({ kind: 'email_received', owner_only: true })
+  })
+
+  it('a non-owner renaming it gets the redacted row back too', async () => {
+    auth.userId = 'user-1'
+    const res = await PATCH(req({ name: 'Renamed' }), params)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { flow: { trigger_config: Row } }).flow.trigger_config).toEqual({ kind: 'email_received', owner_only: true })
+  })
+
+  it('the owner reads them as stored', async () => {
+    auth.userId = 'user-2'
+    const body = (await (await LIST(req({}))).json()) as { flows: Array<{ id: string; trigger_config: Row }> }
+    expect(body.flows.find((f) => f.id === 'flow-1')?.trigger_config).toEqual(db.flow[0].trigger_config)
   })
 })

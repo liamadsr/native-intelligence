@@ -507,7 +507,16 @@ export interface EditorTrigger {
   // chat_message: ANY_CHANNEL = any channel (only with mentions_only), '' = none picked yet
   chat_channel_id: string
   mentions_only: boolean
+  /**
+   * Someone else's mail or chat loop, read without its sender filter or
+   * channel (the server's triggerConfigForViewer, `owner_only`): the editor,
+   * read-only for them anyway, says "a channel" / "new email".
+   */
+  details_hidden?: boolean
 }
+
+/** The chat trigger's channel when it is another member's to see. */
+export const HIDDEN_CHANNEL = '__hidden__'
 
 /** The chat trigger's "Any channel" choice (stored as channel_id null). */
 export const ANY_CHANNEL = '__any__'
@@ -952,11 +961,15 @@ function triggerToEditor(flow: Pick<Flow, 'trigger_type' | 'trigger_config'>): E
     }
   }
   if (flow.trigger_type === 'email_received') {
-    const cfg = flow.trigger_config as Partial<EmailReceivedTriggerConfig>
-    return { ...base, kind: 'email_received', email_from: typeof cfg.from === 'string' ? cfg.from : '' }
+    const cfg = flow.trigger_config as Partial<EmailReceivedTriggerConfig> & { owner_only?: unknown }
+    return { ...base, kind: 'email_received', email_from: typeof cfg.from === 'string' ? cfg.from : '', ...(cfg.owner_only === true ? { details_hidden: true } : {}) }
   }
   if (flow.trigger_type === 'chat_message') {
-    const cfg = flow.trigger_config as Partial<ChatMessageTriggerConfig>
+    const cfg = flow.trigger_config as Partial<ChatMessageTriggerConfig> & { owner_only?: unknown; channel?: unknown }
+    // Someone else's chat loop: its channel is theirs to see ("a channel"), unless it is any channel.
+    if (cfg.owner_only === true) {
+      return { ...base, kind: 'chat_message', chat_channel_id: cfg.channel === 'any channel' ? ANY_CHANNEL : HIDDEN_CHANNEL, mentions_only: cfg.mentions_only === true, details_hidden: true }
+    }
     return {
       ...base,
       kind: 'chat_message',

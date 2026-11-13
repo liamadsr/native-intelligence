@@ -74,6 +74,7 @@ import {
   buildSavePayload,
   flowToEditor,
   savedOnceOf,
+  HIDDEN_CHANNEL,
 } from './flow-types'
 
 interface FlowCanvasEditorProps {
@@ -983,11 +984,13 @@ function FlowCanvas({
       }
     }
     if (t.kind === 'email_received') {
+      if (t.details_hidden) return { title: 'New email', subtitle: "In its owner's inbox" }
       return { title: 'New email', subtitle: t.email_from.trim() ? `From ${t.email_from.trim()}` : 'From anyone, in your inbox' }
     }
     if (t.kind === 'chat_message') {
-      const where = t.chat_channel_id === ANY_CHANNEL ? 'any channel' : t.chat_channel_id ? 'its channel' : 'pick a channel'
-      return { title: 'Chat message', subtitle: t.mentions_only ? `When you're @mentioned in ${where}` : `Every message in ${where}` }
+      const where = t.chat_channel_id === ANY_CHANNEL ? 'any channel' : t.chat_channel_id === HIDDEN_CHANNEL ? 'a channel' : t.chat_channel_id ? 'its channel' : 'pick a channel'
+      const who = t.details_hidden ? 'its owner is' : "you're"
+      return { title: 'Chat message', subtitle: t.mentions_only ? `When ${who} @mentioned in ${where}` : `Every message in ${where}` }
     }
     if (t.kind === 'document_created') {
       return { title: 'New document', subtitle: 'When someone creates a document you can see' }

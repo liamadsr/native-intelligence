@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { reportIsPrivate } from '../run-skill'
-import { triggerConfigForViewer } from '../types'
+import { flowRowForViewer, triggerConfigForViewer } from '../types'
 
 describe('reportIsPrivate', () => {
   it("is private for every owner event trigger, and for P9's material", () => {
@@ -42,17 +42,40 @@ describe('triggerConfigForViewer', () => {
       kind: 'chat_message',
       mentions_only: false,
       channel: 'a channel',
+      owner_only: true,
     })
     expect(triggerConfigForViewer('chat_message', { kind: 'chat_message', channel_id: null, mentions_only: true }, false)).toEqual({
       kind: 'chat_message',
       mentions_only: true,
       channel: 'any channel',
+      owner_only: true,
     })
-    expect(triggerConfigForViewer('email_received', { kind: 'email_received', from: 'billing@vendor.example' }, false)).toEqual({ kind: 'email_received' })
+    expect(triggerConfigForViewer('email_received', { kind: 'email_received', from: 'billing@vendor.example' }, false)).toEqual({ kind: 'email_received', owner_only: true })
   })
 
   it("leaves every other loop's config alone", () => {
     const cfg = { kind: 'schedule', cadence: 'daily', time: '09:00', timezone: 'UTC' }
     expect(triggerConfigForViewer('schedule', cfg, false)).toEqual(cfg)
+  })
+})
+
+describe('flowRowForViewer (the REST reads and the views query)', () => {
+  const mail = { id: 'f-1', trigger_type: 'email_received', created_by: 'u-ana', trigger_config: { kind: 'email_received', from: 'billing@vendor.example' }, name: 'Mail' }
+  it("redacts another member's event loop, and only its trigger config", () => {
+    expect(flowRowForViewer(mail, 'u-bo')).toEqual({ ...mail, trigger_config: { kind: 'email_received', owner_only: true } })
+    expect(flowRowForViewer(mail, null).trigger_config).toEqual({ kind: 'email_received', owner_only: true })
+  })
+  it('the owner, and every other loop, as stored', () => {
+    expect(flowRowForViewer(mail, 'u-ana')).toBe(mail)
+    const daily = { ...mail, trigger_type: 'schedule', trigger_config: { kind: 'schedule', cadence: 'daily' } }
+    expect(flowRowForViewer(daily, 'u-bo')).toBe(daily)
+  })
+})
+
+describe('the views read flows through flowRowForViewer', () => {
+  const read = (f: string) => readFileSync(join(process.cwd(), f), 'utf8')
+  it('the saved-view results (executeView) and the ad hoc views query both redact a flow row for its viewer', () => {
+    expect(read('src/lib/views/query-engine.ts')).toContain("if (view.entity_type === 'flow') items = items.map((row) => flowRowForViewer(row, userId))")
+    expect(read('src/app/api/account/views/query/route.ts')).toContain("if (entity_type === 'flow') items = items.map((row) => flowRowForViewer(row, user.id))")
   })
 })

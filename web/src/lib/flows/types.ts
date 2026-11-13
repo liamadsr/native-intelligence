@@ -72,8 +72,9 @@ export function flowRunsAreSomeoneElses(flow: { trigger_type?: unknown; created_
  * A loop's trigger config as `viewer` may see it. The owner's event triggers
  * name the owner's own things: the channel a chat loop watches (possibly a
  * DM) and the sender a mail loop waits for. Anyone but the owner gets the
- * config without them ("a channel"; a mail loop's sender filter left out).
- * Every other trigger, and the owner, get it as stored.
+ * config without them ("a channel"; a mail loop's sender filter left out),
+ * marked `owner_only: true` so the editor says so rather than showing an
+ * empty field. Every other trigger, and the owner, get it as stored.
  */
 export function triggerConfigForViewer(
   triggerType: unknown,
@@ -84,14 +85,25 @@ export function triggerConfigForViewer(
   if (isOwner || !isOwnerEventTrigger(triggerType)) return cfg
   if (triggerType === 'chat_message') {
     const { channel_id, ...rest } = cfg
-    return { ...rest, channel: channel_id === null || channel_id === undefined ? 'any channel' : 'a channel' }
+    return { ...rest, channel: channel_id === null || channel_id === undefined ? 'any channel' : 'a channel', owner_only: true }
   }
   if (triggerType === 'email_received') {
     const { from: _from, ...rest } = cfg
     void _from
-    return rest
+    return { ...rest, owner_only: true }
   }
   return cfg
+}
+
+/**
+ * A flow row as `viewerId` may see it (the REST reads, the views query):
+ * triggerConfigForViewer on its trigger_config, everything else as is.
+ */
+export function flowRowForViewer<T extends { trigger_type?: unknown; trigger_config?: unknown; created_by?: unknown }>(row: T, viewerId: string | null | undefined): T {
+  if (!isOwnerEventTrigger(row.trigger_type)) return row
+  const isOwner = !!viewerId && row.created_by === viewerId
+  if (isOwner) return row
+  return { ...row, trigger_config: triggerConfigForViewer(row.trigger_type, row.trigger_config, false) }
 }
 
 /** What a member who may not read a loop's runs is told instead of them. */
