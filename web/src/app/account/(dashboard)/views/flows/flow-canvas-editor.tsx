@@ -66,6 +66,7 @@ import {
   emptyEditor,
   isReadOnlyFlow,
   describeSchedule,
+  ANY_CHANNEL,
   PR_STATE_LABELS,
   ENTITY_LABELS,
   isActionComplete,
@@ -977,6 +978,16 @@ function FlowCanvas({
         title: 'Pull request',
         subtitle: t.repo_full_name ? `${PR_STATE_LABELS[t.pr_state]} in ${t.repo_full_name}` : 'Pick a repository',
       }
+    }
+    if (t.kind === 'email_received') {
+      return { title: 'New email', subtitle: t.email_from.trim() ? `From ${t.email_from.trim()}` : 'From anyone, in your inbox' }
+    }
+    if (t.kind === 'chat_message') {
+      const where = t.chat_channel_id === ANY_CHANNEL ? 'any channel' : t.chat_channel_id ? 'its channel' : 'pick a channel'
+      return { title: 'Chat message', subtitle: t.mentions_only ? `When you're @mentioned in ${where}` : `Every message in ${where}` }
+    }
+    if (t.kind === 'document_created') {
+      return { title: 'New document', subtitle: 'When someone creates a document you can see' }
     }
     if (t.kind === 'calendar_event') {
       const mag = Math.abs(t.offset_minutes)

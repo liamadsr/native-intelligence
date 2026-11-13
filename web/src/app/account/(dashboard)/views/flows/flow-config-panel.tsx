@@ -8,7 +8,7 @@
  * or Run skill).
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Boxes, ChevronDown, Filter, Plus, Sparkles, Trash2, X, Zap, Globe, Laptop, Plug } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { FlowBotPicker } from './flow-bot-picker'
 import { TEMPLATE_TOKENS } from '@/lib/flows/template'
+import { nextCronRuns, validateCronExpression } from '@/lib/flows/cron'
 import { useEditorConnections } from './use-editor-connections'
 import {
   TOOL_CATEGORIES,
@@ -59,6 +60,7 @@ import {
   type WorkflowState,
   type PrTriggerState,
   PR_STATE_LABELS,
+  ANY_CHANNEL,
   CADENCE_LABELS,
   CONDITION_FIELD_LABELS,
   PRIORITY_LABELS,
@@ -224,7 +226,7 @@ export function FlowConfigPanel({
             {/* Native disabling: every input, select and button inside goes read-only. */}
             <fieldset disabled={readOnly} className="m-0 min-w-0 border-0 p-0">
               {isTrigger ? (
-                <TriggerConfig editor={editor} setTrigger={setTrigger} setEditor={setEditor} teams={teams} states={states} />
+                <TriggerConfig editor={editor} setTrigger={setTrigger} setEditor={setEditor} teams={teams} states={states} members={members} />
               ) : action ? (
                 <ActionConfig
                   action={action}
@@ -258,6 +260,12 @@ const TRIGGER_DESCRIPTIONS: Record<FlowTriggerType, string> = {
     'Fires before or after each occurrence of a recurring calendar event (e.g. 15 min before your weekly 1:1). Uses your synced calendar — no team needed.',
   pr_status_changed:
     "Fires when a GitHub pull request linked to one of the workspace's actions opens, merges or closes, in the repository you name. Only PRs from the repo's own people count.",
+  email_received:
+    'Fires when new mail arrives in your own inbox (Gmail or Outlook). Never for mail you send, drafts or spam. Runs at most 50 times a day.',
+  chat_message:
+    'Fires when someone posts in a team chat channel you can read, replies in its threads included. Runs at most 50 times a day.',
+  document_created:
+    'Fires about 5 minutes after someone creates a document you can see, so it reads what they wrote. Runs at most 50 times a day.',
 }
 
 function TriggerConfig({
@@ -266,12 +274,14 @@ function TriggerConfig({
   setEditor,
   teams,
   states,
+  members,
 }: {
   editor: EditorState
   setTrigger: (patch: Partial<EditorTrigger>) => void
   setEditor: (e: EditorState) => void
   teams: Team[]
   states: WorkflowState[]
+  members: Member[]
 }) {
   const t = editor.trigger
   return (
@@ -327,7 +337,17 @@ function TriggerConfig({
           </Field>
         </>
       )}
-      {/* capture_processed carries no config beyond the type. */}
+      {t.kind === 'email_received' && (
+        <Field label="From">
+          <Input
+            value={t.email_from}
+            onChange={(e) => setTrigger({ email_from: e.target.value })}
+            placeholder="Anyone (or an address or domain)"
+          />
+        </Field>
+      )}
+      {t.kind === 'chat_message' && <ChatMessageTriggerFields trigger={t} setTrigger={setTrigger} members={members} />}
+      {/* capture_processed and document_created carry no config beyond the type. */}
     </div>
   )
 }
@@ -443,7 +463,7 @@ function ScheduleTriggerFields({
             </SelectContent>
           </Select>
         </Field>
-        {trigger.cadence !== 'hourly' && (
+        {TIMED_CADENCES.includes(trigger.cadence) && (
           <Field label="Time">
             <Input
               type="time"
@@ -453,6 +473,41 @@ function ScheduleTriggerFields({
           </Field>
         )}
       </div>
+
+      {trigger.cadence === 'monthly' && (
+        <Field label="Day of the month">
+          <Select
+            value={String(trigger.day_of_month)}
+            onValueChange={(v) => setTrigger({ day_of_month: Number.parseInt(v, 10) })}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+                <SelectItem key={d} value={String(d)}>
+                  {d}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      )}
+
+      {trigger.cadence === 'cron' && <CronScheduleField trigger={trigger} setTrigger={setTrigger} />}
+
+      {trigger.cadence === 'once' && (
+        <Field label="Date and time">
+          <Input
+            type="datetime-local"
+            value={trigger.run_at}
+            onChange={(e) => setTrigger({ run_at: e.target.value })}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Runs one time, then the loop switches itself off.
+          </p>
+        </Field>
+      )}
 
       {trigger.cadence === 'weekly' && (
         <Field label="Day of week">
@@ -484,6 +539,136 @@ function ScheduleTriggerFields({
           IANA timezone name. Defaults to your browser&apos;s timezone.
         </p>
       </Field>
+    </>
+  )
+}
+
+/** The cadences that run at a time of day (the rest: hourly, custom, once). */
+const TIMED_CADENCES: ScheduleCadence[] = ['daily', 'weekdays', 'weekly', 'monthly']
+
+/** "Mon, Nov 16, 9:00 AM" in the person's own timezone. */
+function formatRunTime(date: Date): string {
+  try {
+    return new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date)
+  } catch {
+    return date.toISOString()
+  }
+}
+
+/** A custom (cron) schedule: the expression, and the next three runs in plain words, or what is wrong with it. */
+function CronScheduleField({
+  trigger,
+  setTrigger,
+}: {
+  trigger: EditorTrigger
+  setTrigger: (patch: Partial<EditorTrigger>) => void
+}) {
+  const preview = useMemo(() => {
+    const zone = trigger.timezone.trim()
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: zone })
+    } catch {
+      return { error: 'Set a valid timezone below' }
+    }
+    const checked = validateCronExpression(trigger.cron, zone)
+    if (checked instanceof Error) return { error: checked.message.charAt(0).toUpperCase() + checked.message.slice(1) }
+    return { runs: nextCronRuns(checked.schedule, zone, new Date(), 3) }
+  }, [trigger.cron, trigger.timezone])
+  return (
+    <Field label="Cron expression">
+      <Input
+        value={trigger.cron}
+        onChange={(e) => setTrigger({ cron: e.target.value })}
+        placeholder="0 9 * * 1-5"
+        className="font-mono"
+      />
+      <p className="mt-1 text-xs text-muted-foreground">
+        Minute, hour, day of month, month, day of week. At most every 15 minutes.
+      </p>
+      {'error' in preview ? (
+        <p className="mt-1.5 text-xs text-destructive">{preview.error}</p>
+      ) : (
+        <div className="mt-1.5 text-xs text-muted-foreground">
+          <p>Next runs, your time:</p>
+          <ul className="mt-0.5 list-disc pl-4">
+            {preview.runs.map((d) => (
+              <li key={d.toISOString()}>{formatRunTime(d)}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Field>
+  )
+}
+
+/** The channels a person can read, for the chat trigger's picker (GET /api/account/team-chat/channels). */
+interface PickableChannel {
+  id: string
+  kind: string
+  name: string | null
+  dm_member_id: string | null
+  archived_at: string | null
+}
+
+function ChatMessageTriggerFields({
+  trigger,
+  setTrigger,
+  members,
+}: {
+  trigger: EditorTrigger
+  setTrigger: (patch: Partial<EditorTrigger>) => void
+  members: Member[]
+}) {
+  const [channels, setChannels] = useState<PickableChannel[] | null>(null)
+  useEffect(() => {
+    let live = true
+    fetch('/api/account/team-chat/channels')
+      .then((r) => (r.ok ? r.json() : { channels: [] }))
+      .then((d: { channels?: PickableChannel[] }) => {
+        if (live) setChannels((d.channels ?? []).filter((c) => !c.archived_at))
+      })
+      .catch(() => {
+        if (live) setChannels([])
+      })
+    return () => {
+      live = false
+    }
+  }, [])
+  const memberName = (id: string | null) => members.find((m) => m.id === id)?.display_name?.trim() || 'a teammate'
+  const label = (c: PickableChannel) => (c.kind === 'channel' ? `#${c.name ?? 'channel'}` : c.kind === 'dm' ? `Direct message with ${memberName(c.dm_member_id)}` : (c.name ?? 'Meeting chat'))
+  // A saved channel that isn't in the list (left since, or still loading) still shows.
+  const known = !trigger.chat_channel_id || trigger.chat_channel_id === ANY_CHANNEL || (channels ?? []).some((c) => c.id === trigger.chat_channel_id)
+  return (
+    <>
+      <Field label="Channel">
+        <Select value={trigger.chat_channel_id || undefined} onValueChange={(v) => setTrigger({ chat_channel_id: v })}>
+          <SelectTrigger>
+            <SelectValue placeholder={channels ? 'Pick a channel' : 'Loading…'} />
+          </SelectTrigger>
+          <SelectContent>
+            {trigger.mentions_only && <SelectItem value={ANY_CHANNEL}>Any channel</SelectItem>}
+            {!known && <SelectItem value={trigger.chat_channel_id}>A channel you can no longer see</SelectItem>}
+            {(channels ?? []).map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {label(c)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+      <div className="flex items-center justify-between gap-3">
+        <Label htmlFor="flow-chat-mentions-only" className="text-xs">
+          Only when I&apos;m @mentioned
+        </Label>
+        <Switch
+          id="flow-chat-mentions-only"
+          checked={trigger.mentions_only}
+          onCheckedChange={(on) =>
+            // "Any channel" is only for mentions: switching it off asks for a channel.
+            setTrigger(on ? { mentions_only: true } : { mentions_only: false, ...(trigger.chat_channel_id === ANY_CHANNEL ? { chat_channel_id: '' } : {}) })
+          }
+        />
+      </div>
     </>
   )
 }
@@ -698,9 +883,17 @@ function ActionConfig({
 }
 
 /** The template tokens a connected-app step can use: its ancestors' outputs, then the call's. */
+/** The fire's own tokens a step may use, per trigger (ids only for the event triggers: a step reads the item with a tool). */
+const TRIGGER_TOKENS: Partial<Record<FlowTriggerType, string[]>> = {
+  capture_processed: ['{{trigger.capture.title}}', '{{capture.id}}'],
+  email_received: ['{{trigger.email_thread_id}}', '{{trigger.email_account_id}}', '{{trigger.email_from}}'],
+  chat_message: ['{{trigger.chat_message_id}}', '{{trigger.chat_channel_id}}', '{{trigger.chat_thread_root_id}}'],
+  document_created: ['{{trigger.document_id}}'],
+}
+
 function stepTokens(ancestors: EditorAction[], trigger: EditorTrigger): string[] {
   const steps = ancestors.map((a) => `{{steps.${a.id}.output}}`)
-  const call = trigger.kind === 'capture_processed' ? ['{{trigger.capture.title}}', '{{capture.id}}'] : ['{{entity.name}}', '{{entity.url}}']
+  const call = TRIGGER_TOKENS[trigger.kind] ?? ['{{entity.name}}', '{{entity.url}}']
   return [...steps, ...call]
 }
 

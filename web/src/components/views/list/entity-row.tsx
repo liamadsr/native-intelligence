@@ -3177,12 +3177,18 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
       // Trigger summary. Workspace-scoped triggers (schedule/capture_processed)
       // get a flat label; status-change gets "Action → Done"-style.
       const triggerType = item.trigger_type as string | undefined
-      if (triggerType === 'schedule' || triggerType === 'capture_processed') {
+      const flatLabels: Record<string, string> = {
+        capture_processed: 'Capture processed',
+        email_received: 'New email',
+        chat_message: 'Chat message',
+        document_created: 'New document',
+      }
+      if (triggerType === 'schedule' || (triggerType && triggerType in flatLabels)) {
         const scfg = item.trigger_config as { cadence?: string } | null
         const label =
           triggerType === 'schedule'
             ? `Schedule${scfg?.cadence ? ` · ${scfg.cadence}` : ''}`
-            : 'Capture processed'
+            : flatLabels[triggerType!]
         return (
           <span className={cn(chipClass, 'max-w-[200px] truncate gap-1')} title={label}>
             <Zap className="h-2.5 w-2.5 shrink-0 text-amber-500" />
