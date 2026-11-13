@@ -10,6 +10,7 @@
  */
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { linkCallCaptureToEvent } from '@/lib/team-calls/event-link'
 import { callNotesTitle, teamCallRecorderOn } from '@/lib/team-calls/recorder'
 import type { CaptureFeedSourceKind } from './contract'
 
@@ -18,9 +19,12 @@ export interface CaptureFeedSource {
   enabled: () => boolean
   /** The capture's title, should the start make it. */
   title: (svc: SupabaseClient, ref: string) => Promise<string>
+  /** After a session started or was taken up (run after the start's answer; never throws). */
+  afterStart?: (svc: SupabaseClient, captureId: string) => Promise<unknown>
 }
 
 export const CAPTURE_FEED_SOURCES: Record<CaptureFeedSourceKind, CaptureFeedSource> = {
   // One of our own team calls, heard by the call recorder (src/lib/team-calls/recorder.ts).
-  team_call: { enabled: () => teamCallRecorderOn(), title: callNotesTitle },
+  // A meeting link's call: its capture takes the meeting's calendar event (src/lib/team-calls/event-link.ts).
+  team_call: { enabled: () => teamCallRecorderOn(), title: callNotesTitle, afterStart: (svc, captureId) => linkCallCaptureToEvent(svc, captureId) },
 }

@@ -1,15 +1,16 @@
 /**
  * Where work on a fed capture's new words attaches: called once per batch
  * of segments the capture took (the segments route, after 588's append
- * answered). Phase 1 does nothing here. Phase 2's server-side live turns
- * (the live agent answering during the call, as a person's own app asks it
- * today with its recent chunks) attach here, behind their own gate, so the
- * route and the feed's contract stay as they are.
+ * answered). The live agent's server-side turns on a call's capture attach
+ * here (src/lib/team-calls/live-turns.ts, behind TEAM_CALL_LIVE_AGENT), so
+ * the route and the feed's contract stay as they are.
  *
  * Never throws into the route: a hook's failure must not make a producer
- * send words the capture already has.
+ * send words the capture already has. A hook returns at once: the producer's
+ * next batch waits on the route's answer, so its work runs after it.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { callLiveTurnsHook } from '@/lib/team-calls/live-turns'
 
 export interface FeedAppended {
   sessionId: string
@@ -22,9 +23,9 @@ export interface FeedAppended {
 
 export type FeedAppendHook = (svc: SupabaseClient, appended: FeedAppended) => Promise<void>
 
-const hooks: FeedAppendHook[] = []
+const hooks: FeedAppendHook[] = [callLiveTurnsHook]
 
-/** Attach a hook (phase 2). Returns its detach. */
+/** Attach a hook. Returns its detach. */
 export function onFeedAppended(hook: FeedAppendHook): () => void {
   hooks.push(hook)
   return () => {

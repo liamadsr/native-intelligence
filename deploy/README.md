@@ -1536,6 +1536,27 @@ sudo docker compose --profile recorder rm -sf recorder
 
 It delivers what it still holds first (up to 40 s). Captures it filled in stay; a call that was live then is finished by the app as usual, with what was said until then.
 
+### Live notes during a call (off until asked for)
+
+With the recorder on, a call's capture fills in as people speak, but until now its notes (the summary, the suggested actions) were written only once the call ended: nobody's device runs the live agent on a call's capture. Two switches in `app/.env`, each needing `TEAM_CALL_RECORDER=on`:
+
+- **`TEAM_CALL_LIVE_AGENT=on`**: the app runs the live agent's own turns on the call's capture as the words arrive (`web/src/lib/team-calls/live-turns.ts`), on Inngest, as the capture's owner (the meeting's host, else the call's starter), on their plan and credits, with nobody's device in the loop and whoever is still in the call. A turn starts after 600 new characters, or 60 and 30 s of quiet, never within 20 s of the last, one at a time per call across every web container and the worker (a lease in the database, migration 655); a turn that fails is skipped and its words go with the next; at most 300 turns per call, and 3 failures in a row or the owner's usage running out stop it for that call. Everyone in the call sees the shared notes under the call's tiles, live, and opens the whole capture from there; a meeting's guest sees only what was said since they came in (the call's own words, never the summary, which the agent writes with the workspace's context), only while they are let into that live call. The end-of-meeting pass still runs when the call ends.
+- **`TEAM_CALL_EVENT_LINK=on`**: a meeting link's call capture is linked to the meeting's calendar event (migration 656), as the host's own capture of it would be, so the meeting's prep and the calendar find it. Only from what the database knows for certain: the event the meeting link made, or the one the host made in the app's calendar with the link, or a booked meeting's confirmed event, on the host's own connected calendar; never guessed from a title or a time. The host's own open capture of the same event keeps it.
+
+**L1. The database.** Migrations `web/supabase/migrations/655_call_live_agent.sql`, `656_call_capture_calendar_event.sql` and `657_call_guest_notes.sql`, in that order, as every migration is applied ("Day to day", on the owner's word), before either switch goes on. Each says `notify pgrst, 'reload schema';` itself. To tell whether they are applied: `select to_regclass('public.team_call_live_agent')` is not null after 655, and `select count(*) from pg_proc where proname in ('team_call_capture_link_event', 'team_call_guest_notes')` is 2 after 656 and 657.
+
+**L2. The settings.** In `app/.env`, the two lines `TEAM_CALL_LIVE_AGENT` and `TEAM_CALL_EVENT_LINK` from `app/.env.example` (empty: off). Set one or both to `on`, then `sudo ./deploy.sh --no-build` in `app/` when the code that has them is live (`sudo ./deploy.sh` when it is not). The settings check says `WRONG` for a value other than `on` or empty, or for `on` without `TEAM_CALL_RECORDER=on`:
+
+```bash
+deploy/app/check-settings.sh <user>@<server>
+```
+
+**L3. The proof, from outside.** Two people in a channel's call, on two machines, talking for a few minutes. Within about a minute of the first words, the call panel shows "Live notes" under the tiles ("Writing as people speak…", then the summary and "Updated just now"), on both machines, without a reload, and keeps updating while they talk; the app's log says `[call-live-turns] capture=<id> turn=1 outcome=offered` and then `outcome=ok`, once a turn and never two at a time for one capture. Open shows the whole capture. Then the owner leaves the call and the other person keeps talking: the notes keep updating. In a meeting link's call, a guest's page shows "What's been said" (closed until they open it), with only what was said since they came in; once they leave, it is gone. Hang up: within a few minutes the end-of-meeting pass writes the finished notes as before. With `TEAM_CALL_EVENT_LINK=on`, a meeting link made with a start time on the host's connected calendar, its call capture shows the linked event, and the log says `[team-call-event] capture=<id> outcome=linked`.
+
+**What only this server can prove** (none of it could be run off it): the turns through Inngest and the live agent's mount for real, the delay from words spoken to notes on a reader's screen (the recorder's batches of about 4 s, the throttle above, the model's own time, then Realtime), the owner's usage rows (one per turn, `feature = live_agent`), the queue with several calls at once (five turns at once at most), and Realtime's delivery of the capture's row with the summary to every member's screen.
+
+**The undo.** `TEAM_CALL_LIVE_AGENT=` and `TEAM_CALL_EVENT_LINK=` (empty) in `app/.env`, then `sudo ./deploy.sh --no-build` in `app/`: no turn starts any more (a turn already handed to Inngest runs nothing once the switch is off), the panel's notes and the guest's view go away, and a call's notes are written when it ends, as before. What was written stays on the captures; a link to a calendar event stays (unlink it on the capture by hand). The migrations stay: nothing reads their table or functions with the switches off.
+
 ## Day to day
 
 Run these from the stack's own folder. The Supabase stack has its own commands (`sudo sh run.sh …` in `supabase/stack`) and its own way of taking a new release: [`supabase/README.md`](supabase/README.md#day-to-day).

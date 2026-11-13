@@ -31,6 +31,7 @@ import {
   type FedNotesStatus,
   type FedNotesWritten,
 } from '@/lib/team-calls/fed-notes'
+import { liveTurnBusy, teamCallLiveAgentOn } from '@/lib/team-calls/live-turns'
 
 /**
  * A call's notes, after the call (calls plan, phase 6; src/lib/team-calls/
@@ -180,6 +181,7 @@ async function runFedNotesFinish(callId: string, fed: FedNotesStatus, step: Note
   const { captureId, ownerUserId, workspaceId } = written
   let batch: unknown = 'none'
   if (written.spoke) {
+    await waitForLiveTurn(captureId, step)
     batch = await step.run('batch', () => runOwnerBatch(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId }))
     if (batch === 'in_flight') await step.sleep('let-batch-settle', '11m')
   }
@@ -189,6 +191,27 @@ async function runFedNotesFinish(callId: string, fed: FedNotesStatus, step: Note
   return { status: 'ready', captureId }
 }
 
+/** How many times the finish looks for a live turn still running on the capture, FED_POLL apart (about the turn's lease). */
+export const LIVE_TURN_SETTLE_ROUNDS = 60
+
+/**
+ * The live agent's last turn on the capture, still running when the call
+ * ended (src/lib/team-calls/live-turns.ts): the end-of-meeting pass waits
+ * for it, so the turn's summary edit never lands on top of the pass's. No
+ * new turn starts once the capture is locked (655), and a turn holds its
+ * lease 5 minutes at most. Only where the live agent is on: elsewhere its
+ * table may not exist.
+ */
+async function waitForLiveTurn(captureId: string, step: NotesRunContext['step']) {
+  if (!teamCallLiveAgentOn()) return
+  for (let round = 0; round < LIVE_TURN_SETTLE_ROUNDS; round++) {
+    const busy = await step.run(`live-turn-look-${round}`, () => liveTurnBusy(getServiceClient(), captureId).catch(() => false))
+    if (!busy) return
+    await step.sleep(`live-turn-wait-${round}`, FED_POLL)
+  }
+  console.warn(`[team-call-notes] capture=${captureId} the end-of-meeting pass runs beside a live turn that never finished`)
+}
+
 /** A capture of the call its owner closed by hand: finished now, then the pass a recorded meeting gets, as its owner. */
 async function runClosedCaptureFinish(callId: string, captureId: string, step: NotesRunContext['step']) {
   const finished = (await step.run('finish-closed', () => finishClosedCapture(getServiceClient(), captureId))) as ClosedCaptureFinished
@@ -196,6 +219,7 @@ async function runClosedCaptureFinish(callId: string, captureId: string, step: N
   const { ownerUserId, workspaceId } = finished
   let batch: unknown = 'none'
   if (finished.spoke) {
+    await waitForLiveTurn(captureId, step)
     batch = await step.run('batch', () => runOwnerBatch(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId }))
     if (batch === 'in_flight') await step.sleep('let-batch-settle', '11m')
   }
