@@ -116,9 +116,16 @@ export async function inspectFile(path: string, name: string, signal?: AbortSign
   return { measured, waveform: peaks }
 }
 
-/** H.264 for the editor, in software (any machine): fast x264 at a high quality. */
+/**
+ * H.264 for the editor, in software (any machine). A recording waits on this after Stop, so speed comes first:
+ * x264's fastest preset, with its CRF set so the picture stays at least as close to the source as the old
+ * `veryfast` at CRF 16 was. Measured on made-up 20 s recordings (a 2504x1438 screen, mostly still and in full
+ * motion, and a 1080p camera), at four threads: about half the CPU time of the old setting, PSNR and SSIM against
+ * the source as good or better, files 1.1 to 1.2 times as large for moving pictures and camera footage (up to twice
+ * for a mostly still screen, whose files are small). A keyframe a second (`-g`, set by the caller) keeps seeking quick.
+ */
 export function x264Args(): string[] {
-  return ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16']
+  return ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '26']
 }
 
 /**
@@ -127,11 +134,13 @@ export function x264Args(): string[] {
  * frame on the grid, the sound resampled onto the picture's clock. Sizes are
  * made even (H.264 in 4:2:0 needs it).
  */
-export async function conformVideo(input: string, out: string, fps: 30 | 60, opts: { seconds?: number; signal?: AbortSignal } = {}): Promise<void> {
+export async function conformVideo(input: string, out: string, fps: 30 | 60, opts: { seconds?: number; signal?: AbortSignal; lenient?: boolean } = {}): Promise<void> {
+  // `lenient`: a recording cut short (a crash mid-take) may end mid-frame; damage there is read past, not refused.
+  const strict = opts.lenient ? ['-err_detect', 'ignore_err'] : ['-xerror']
   await run(
     'ffmpeg',
     [
-      '-nostdin', '-v', 'error', '-xerror', '-fflags', '+genpts', '-y', '-i', input,
+      '-nostdin', '-v', 'error', ...strict, '-fflags', '+genpts', '-y', '-i', input,
       '-map', '0:v:0', '-map', '0:a:0?',
       '-vf', `fps=${fps},scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p`, '-fps_mode', 'cfr',
       ...x264Args(), '-g', String(fps),

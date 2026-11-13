@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
+import { studioPortal } from '../studio-env';
 import { Icon } from './icons';
 import { request } from './client';
 
@@ -48,9 +50,10 @@ export function ComponentsGallery({ projectId, at, disabled, notify, beforeEdit,
 
   return <div className="tl-menu components-gallery">
     <button disabled={disabled} onClick={() => setOpen(true)} title="Your product's real interface, filmed from its code on your Mac: add it to the video"><Icon name="components" size={14}/>Components{stale ? ` · ${stale} to update` : ''}</button>
-    {open ? <div className="cg-overlay" role="dialog" aria-label="Components" onPointerDown={e => { if (e.target === e.currentTarget) setOpen(false); }}>
-      <div className="cg-panel">
-        <header className="cg-head"><b>Components</b>
+    {/* A dialog as the Studio's others are (controls.tsx Modal): over the whole window, Escape and outside close it. */}
+    <DialogPrimitive.Root open={open} onOpenChange={setOpen}><DialogPrimitive.Portal container={typeof document === 'undefined' ? null : studioPortal()}><DialogPrimitive.Overlay className="cg-overlay">
+      <DialogPrimitive.Content className="cg-panel" aria-describedby={undefined}>
+        <header className="cg-head"><DialogPrimitive.Title asChild><b>Components</b></DialogPrimitive.Title>
           <div className="cg-kits">{(products ?? []).map(p => <button key={p.name} className={p.name === kit ? 'active' : ''} onClick={() => setKit(p.name)} title={p.repo}>{p.title}</button>)}</div>
           <button onClick={() => setOpen(false)} aria-label="Close" title="Close"><Icon name="close"/></button></header>
         {stale ? <p className="cg-stale">The product changed since {stale === 1 ? 'one layer was' : `${stale} layers were`} filmed. Ask the agent in the chat to refresh this video&apos;s product components: it films them again on your Mac.</p> : null}
@@ -68,7 +71,7 @@ export function ComponentsGallery({ projectId, at, disabled, notify, beforeEdit,
               : <p className="cg-empty">Not filmed yet. Ask the agent in the chat to film {pick.name} from {product?.title ?? 'the product'}, with the data and cursor moves the video needs.</p>}
           </> : <p className="cg-empty">Pick a component.</p>}</section>
         </div> : null}
-      </div>
-    </div> : null}
+      </DialogPrimitive.Content>
+    </DialogPrimitive.Overlay></DialogPrimitive.Portal></DialogPrimitive.Root>
   </div>;
 }

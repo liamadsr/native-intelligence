@@ -3,6 +3,7 @@
 // waits for its job (up to about 110 s) and answers what the editor's old
 // one-call import answered; otherwise, or when the job is still running, it answers {job} to poll.
 import { attachTranscript, importTimedTranscript, listAssets } from '../assets'
+import { videoExports } from '../jobs'
 import { importPresenter, importSlides, importUpload, jobStatus, listSlideDecks, startExport, startUpload, stopJob } from '../media'
 import { route, type StudioRoute } from '../router'
 
@@ -26,4 +27,6 @@ export const mediaRoutes: StudioRoute[] = [
   route('POST', 'export', async ({ ctx, body }) => startExport(ctx, (await body()).project)),
   route('GET', 'jobs/:id', async ({ ctx, params }) => jobStatus(ctx, params.id!)),
   route('POST', 'jobs/:id/cancel', async ({ ctx, params }) => stopJob(ctx, params.id!)),
+  // A video's finished exports still kept, newest first (the Export dialog's list).
+  route('GET', 'projects/:id/exports', async ({ ctx, params }) => videoExports(ctx, params.id!)),
 ]

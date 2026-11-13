@@ -3,8 +3,10 @@
  *
  * The edit frozen in the job is checked against the engine's schema, every asset
  * it names is staged (downloaded once into the cache, checked against its
- * sha256), and the engine's composition renders it in Chrome: H.264, AAC,
- * yuv420p, CRF 18. With a loudness target the soundtrack is mastered (two-pass
+ * sha256), and the engine's composition renders it in Chrome: H.264 (BT.709, CRF 18,
+ * x264 veryfast: render.ts, EXPORT_ENCODING), AAC, yuv420p, in as many tabs as the
+ * worker's CPUs make worth it (config.ts, renderTabs), Chrome compositing in software on
+ * Linux (render.ts, glFor). With a loudness target the soundtrack is mastered (two-pass
  * loudnorm). The whole file is then decoded once (`-xerror`): a broken MP4 never
  * reaches the library. Stored as `exports/<job id>/<attempt>/video.mp4`: a worker
  * that lost the job (it went quiet and the job was claimed again) can never
@@ -19,7 +21,7 @@ import { parseEditorProject } from '../engine.ts'
 import { stageAssets } from '../assets.ts'
 import { masterFile } from '../master.ts'
 import { mediaTimeout, probe, run } from '../media.ts'
-import { COMPOSITION_ID, inputPropsFor, unstagedNeeds } from '../render.ts'
+import { bt709WithSwscale, COMPOSITION_ID, EXPORT_ENCODING, inputPropsFor, unstagedNeeds } from '../render.ts'
 import { stageFonts } from '../fonts.ts'
 import { checkCodeScenes, stageScenes } from '../scenes.ts'
 import { checkAborted, JobError, stage, type JobHandler } from './context.ts'
@@ -61,12 +63,12 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
     try {
       ctx.progress(0.2)
       const { selectComposition, renderMedia, makeCancelSignal } = await import('@remotion/renderer')
-      const common = await ctx.renderer.common(ctx.log)
+      const common = await ctx.renderer.common(ctx.log, project)
       const inputProps = { ...inputPropsFor(project), fonts: fonts.faces }
       const composition = await selectComposition({ serveUrl, id: COMPOSITION_ID, inputProps, ...common })
       checkAborted(ctx.signal)
       ctx.progress(0.25)
-      ctx.log(`Rendering ${composition.durationInFrames} frames at ${composition.width}×${composition.height}, ${composition.fps} fps`)
+      ctx.log(`Rendering ${composition.durationInFrames} frames at ${composition.width}×${composition.height}, ${composition.fps} fps (${ctx.config.renderConcurrency} tabs)`)
       const output = join(ctx.scratch, 'video.partial.mp4')
       const { cancel, cancelSignal } = makeCancelSignal()
       const onAbort = () => cancel()
@@ -79,10 +81,8 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
           composition,
           inputProps,
           ...common,
-          codec: 'h264',
-          audioCodec: 'aac',
-          pixelFormat: 'yuv420p',
-          crf: 18,
+          ...EXPORT_ENCODING,
+          ffmpegOverride: bt709WithSwscale,
           outputLocation: output,
           concurrency: ctx.config.renderConcurrency,
           cancelSignal,

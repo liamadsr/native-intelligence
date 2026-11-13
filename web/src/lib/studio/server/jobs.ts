@@ -15,6 +15,7 @@ import { asStudioError, conflictError, notFoundError, StudioError } from './erro
 import type { ClaimedJob, ExportResult, ImportInput, SlidesInput, SlidesResult, StudioJobIO, StudioJobKind, StudioJobStatus, TranscribeInput, TranscribeResult } from './job-contract'
 import { COLLECTIONS, putRecord } from './records'
 import type { StudioStorage } from './storage'
+import { KEEP } from './sweep'
 
 /** Where the app serves a workspace's stored files (files.ts). */
 export const fileUrl = (workspaceId: string, key: string) => `/api/account/studio/file/${workspaceId}/${key}`
@@ -201,6 +202,29 @@ export async function waitForJob(ctx: StudioContext, id: string, options: { time
   }
 }
 
+/** A finished export as the Export dialog lists it: the job as the editor reads it, its title, and when it finished. */
+export type FinishedExport = EditorJob & { title: string; finishedAt: string }
+
+/**
+ * A video's finished exports whose files are still kept (KEEP.exports, sweep.ts), the newest export first: every member's, as the
+ * files are the workspace's. The Export dialog lists them so a finished export stays reachable after the dialog
+ * closes, another export starts or the page reloads.
+ */
+export async function videoExports(ctx: StudioContext, videoId: string, now = Date.now()): Promise<{ exports: FinishedExport[] }> {
+  if (!isUuid(videoId)) throw notFoundError('Video not found')
+  const rows = must(
+    await ctx.supabase.from('studio_job').select(LIGHT_FIELDS).eq('workspace_id', ctx.workspaceId).eq('video_id', videoId).eq('kind', 'export').eq('status', 'completed')
+      .gte('updated_at', new Date(now - KEEP.exports).toISOString()).order('created_at', { ascending: false }).limit(20),
+    'read the exports',
+  ) as LightRow[] | null
+  return {
+    exports: (rows ?? []).map(fromLight).flatMap((row) => {
+      const job = toEditorJob(row)
+      return job.downloadUrl ? [{ ...job, title: typeof row.input.title === 'string' ? row.input.title : 'video', finishedAt: row.updated_at }] : []
+    }),
+  }
+}
+
 /** The person's export or transcription still going, if any (the editor picks it back up when it opens). */
 export async function activeJob(ctx: StudioContext, userId: string): Promise<EditorJob | null> {
   const rows = must(
@@ -285,6 +309,8 @@ export async function failJob(deps: WorkerDeps, jobId: string, workerId: string,
   if (failed && held.kind === 'export') await deliverEndedExport(deps, jobId)
   // A product capture's import that ended without its file: its product job is told (products.ts). Never throws.
   if ((cancelled || failed || late) && held.kind === 'import') await settleProductCapture(deps, jobId, { error: failed ? error : CANCELLED })
+  // A recording's import that ended: when it was the last, the recording is finished now (recordings.ts). Never throws.
+  if ((cancelled || failed || late) && held.kind === 'import') await settleRecording(deps, held)
   return { ok: true }
 }
 
@@ -314,6 +340,7 @@ export async function completeJob(deps: WorkerDeps, jobId: string, workerId: str
     if (row.kind === 'export') await deliverEndedExport(deps, jobId)
     if (row.kind === 'import') await settleProductCapture(deps, jobId, { error: reason })
     await dropUpload(deps, row)
+    if (row.kind === 'import') await settleRecording(deps, row)
     throw new StudioError(reason, 422, 'RESULT_REFUSED')
   }
   const done = must(
@@ -328,11 +355,12 @@ export async function completeJob(deps: WorkerDeps, jobId: string, workerId: str
   ) as { id: string }[] | null
   if (!done?.length) throw conflictError('This worker does not hold that job any more.', 'NOT_HELD')
   // The consumed upload goes only once the job is recorded as done, never while the job could still be taken back.
-  await dropUpload(deps, row)
+  await dropUpload(deps, row, true)
   // A finished export goes to whoever queued it, the way the app delivers finished work (delivery.ts). Never throws.
   if (row.kind === 'export') await deliverEndedExport(deps, jobId)
   // A product capture whose import outlasted the capture route's wait is filed now (products.ts). Never throws.
   if (row.kind === 'import' && filed.asset) await settleProductCapture(deps, jobId, { asset: filed.asset as EditorAsset })
+  if (row.kind === 'import') await settleRecording(deps, row)
   return { ok: true }
 }
 
@@ -380,14 +408,31 @@ async function chargeLateResult(deps: WorkerDeps, jobId: string, workerId: strin
   }
 }
 
-/** Remove the upload an import, slides or sound-import job was given (missing is fine; a failure to remove is logged, the sweep retries). */
-async function dropUpload(deps: WorkerDeps, row: Pick<JobRow, 'id' | 'kind' | 'workspace_id'>): Promise<void> {
+/**
+ * Remove the upload an import, slides or sound-import job was given (missing is fine; a failure to remove is logged, the
+ * sweep retries). A track of a take uploaded while it was recorded (`live/…`, live-takes.ts) goes only once it is
+ * `imported`: a recording brought back after a crash keeps its pieces when its import fails, until the sweep.
+ */
+async function dropUpload(deps: WorkerDeps, row: Pick<JobRow, 'id' | 'kind' | 'workspace_id'>, imported = false): Promise<void> {
   if (row.kind !== 'import' && row.kind !== 'slides' && row.kind !== 'sound-import') return
   try {
     const found = must(await deps.supabase.from('studio_job').select('upload:input->>uploadKey').eq('id', row.id).maybeSingle(), 'read that job') as { upload: string | null } | null
     if (found?.upload && /^uploads\/[0-9a-f-]{36}$/.test(found.upload)) await deleteBlob(jobContext(deps, row), found.upload)
+    else if (found?.upload && imported && row.kind === 'import' && found.upload.startsWith('live/')) await (await import('./live-takes')).dropLiveTrack(jobContext(deps, row), found.upload)
   } catch (error) {
     console.error('[studio] removing an upload failed:', error instanceof Error ? error.message : error)
+  }
+}
+
+/** An import that belongs to a recording (its provenance names it) ended: the recording is told (recordings.ts). Never throws. */
+async function settleRecording(deps: WorkerDeps, row: Pick<JobRow, 'id' | 'workspace_id'>): Promise<void> {
+  try {
+    const found = must(await deps.supabase.from('studio_job').select('provenance:input->provenance').eq('id', row.id).maybeSingle(), 'read that job') as { provenance: { recording?: unknown } | null } | null
+    const recording = found?.provenance?.recording
+    if (typeof recording !== 'string') return
+    await (await import('./recordings')).recordingImportEnded(deps.supabase, deps.storage, row.workspace_id, recording)
+  } catch (error) {
+    console.error('[studio] finishing a recording failed:', error instanceof Error ? error.message : error)
   }
 }
 

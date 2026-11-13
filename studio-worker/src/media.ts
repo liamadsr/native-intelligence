@@ -188,6 +188,18 @@ export function conformRate(p: Probe): 30 | 60 {
   return Number.isFinite(average) && average > 45 ? 60 : 30
 }
 
+/**
+ * The rate a recording is conformed to when its rate is at most (`conform.fit`): `most` (60) when its frames came more
+ * than 45 a second on average, else 30, read from its packets' times (any container, also a browser's WebM that does
+ * not say how long it is). Too few frames to tell: `most`. Pure.
+ */
+export function fitRate(stamps: number[], most: 30 | 60): 30 | 60 {
+  if (most === 30 || stamps.length < 2) return most
+  const span = stamps[stamps.length - 1]! - stamps[0]!
+  if (!(span > 0.5)) return most
+  return (stamps.length - 1) / span > 45 ? 60 : 30
+}
+
 /** Packet timestamps (seconds, one per line, any order) into presentation order. */
 export function parseStamps(text: string): number[] {
   return text

@@ -25,7 +25,8 @@
  *               Companies, Contacts, Deals · Outreach: Prospecting,
  *               Sequences, Campaigns · Calendar: Captures": one icon per
  *               page group (./page-groups.ts), its member pages in its
- *               sub-nav in the page panel.
+ *               sub-nav in the page panel. Liam, 11-13: the Studio is
+ *               Outreach's last member, no icon of its own.
  *
  * The person's bar (Liam, 11-09: "customise the navigation like move them up
  * and down, right click and pin and unpin them … a setting icon that lets me

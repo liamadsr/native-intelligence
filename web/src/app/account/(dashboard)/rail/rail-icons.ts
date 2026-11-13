@@ -10,6 +10,9 @@
  * Sequences (Send in the `/` menu) wears ListOrdered in the sub-nav, the
  * steps of a sequence, two rows never sharing the group's glyph by accident.
  *
+ * Liam, 11-13: the Studio joins Outreach (no rail icon of its own); its
+ * Clapperboard is its row's in Outreach's sub-nav.
+ *
  * Liam, 11-11: Drive (Docs, Knowledge, Files, Tables) wears HardDrive, its members
  * the icons they had; Agents (Agents & skills, Flows, Evals) keeps Agents &
  * skills' Sparkles, its namesake member's.
@@ -58,8 +61,6 @@ export const RAIL_ICONS: Readonly<Record<RailPageId, LucideIcon>> = {
   'team-chat': MessagesSquare,
   actions: ListChecks,
   calendar: Calendar,
-  // Studio (migration 620): videos and ads, its own icon after the Calendar group.
-  studio: Clapperboard,
   contacts: Contact,
   outreach: Send,
   seo: SearchCheck,
@@ -79,6 +80,8 @@ export const GROUP_PAGE_ICONS: Readonly<Record<string, LucideIcon>> = {
   prospecting: Telescope,
   sequences: ListOrdered,
   campaigns: Megaphone,
+  // Studio (migration 620): videos and ads, Outreach's last member (Liam, 11-13).
+  studio: Clapperboard,
   // SEO: Site audit (the group wears SearchCheck; the audit, a page scanned).
   'seo-audit': ScanSearch,
   'seo-keywords': KeyRound,

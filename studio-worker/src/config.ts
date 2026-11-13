@@ -11,7 +11,8 @@
  *   STUDIO_WORKER_POLL_MS      how often it asks for work when idle (default 2000).
  *   STUDIO_WORK_DIR            scratch and the asset cache (default <tmp>/studio-worker).
  *   STUDIO_CACHE_BYTES         the asset cache's bound (default 5 GB).
- *   STUDIO_RENDER_CONCURRENCY  Chrome tabs per render (default 2).
+ *   STUDIO_RENDER_CONCURRENCY  Chrome tabs per render (default: from the CPUs the worker is given,
+ *                              renderTabs below).
  *   STUDIO_CHROME              a Chrome headless shell to use: the executable, or a
  *                              folder it is somewhere inside (default: Remotion's own).
  *   STUDIO_ENGINE_DIR          the engine's folder (default ../web/src/lib/studio/engine
@@ -37,7 +38,8 @@
  *   STUDIO_CODE_SCENES         whether renders run code scenes' code (in their locked frame, ./scenes.ts):
  *                              on/off (also 1/0, true/false). Default on outside production, off in production.
  */
-import { hostname, tmpdir } from 'node:os'
+import { readFileSync } from 'node:fs'
+import { availableParallelism, hostname, tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { StudioJobKind } from '../../web/src/lib/studio/server/job-contract.ts'
@@ -84,6 +86,43 @@ function int(env: NodeJS.ProcessEnv, name: string, fallback: number, min: number
   return Number.isFinite(n) && n >= min && n <= max ? n : fallback
 }
 
+/**
+ * The CPUs a container's quota allows (cgroup v2 `cpu.max`, else v1's `cpu.cfs_quota_us` over `cpu.cfs_period_us`),
+ * rounded up, or null when there is no quota (or no cgroup: macOS). Compose's `cpus: "4"` is such a quota: the
+ * machine's cores all stay visible, so counting them would say 12 where 4 may be used.
+ */
+export function cgroupCpus(read: (path: string) => string | null = readOrNull): number | null {
+  const v2 = read('/sys/fs/cgroup/cpu.max')?.trim().split(/\s+/)
+  if (v2 && v2.length === 2) return v2[0] === 'max' ? null : quota(Number(v2[0]), Number(v2[1]))
+  const q = read('/sys/fs/cgroup/cpu/cpu.cfs_quota_us') ?? read('/sys/fs/cgroup/cpu,cpuacct/cpu.cfs_quota_us')
+  const p = read('/sys/fs/cgroup/cpu/cpu.cfs_period_us') ?? read('/sys/fs/cgroup/cpu,cpuacct/cpu.cfs_period_us')
+  return q !== null && p !== null ? quota(Number(q.trim()), Number(p.trim())) : null
+}
+const quota = (q: number, p: number) => (Number.isFinite(q) && Number.isFinite(p) && q > 0 && p > 0 ? Math.max(1, Math.ceil(q / p - 1e-9)) : null)
+function readOrNull(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch {
+    return null
+  }
+}
+
+/** The CPUs this process may use: the cores it may run on, bounded by a container's quota. */
+export function availableCpus(): number {
+  const cores = availableParallelism()
+  return Math.max(1, Math.min(cores, cgroupCpus() ?? cores))
+}
+
+/**
+ * Chrome tabs per render for `cpus` CPUs: one fewer than the CPUs (the encoder and Chrome's own threads need the
+ * rest), at least 1, at most 4. Measured on the export of a 20 s 2504×1438 60 fps recording with a camera bubble
+ * (deploy/studio/README.md, "Export speed"): every tab past the first adds work per frame (each decoded frame is
+ * handed to every tab), so beyond about 4 tabs a render gets slower however many cores there are. Pure.
+ */
+export function renderTabs(cpus: number): number {
+  return Math.max(1, Math.min(4, Math.floor(cpus) - 1))
+}
+
 /** A switch setting: on/off, 1/0, true/false, yes/no (case aside); unset is `fallback`, anything else null. */
 function onOff(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boolean | null {
   const v = setting(env, name)?.toLowerCase()
@@ -94,7 +133,7 @@ function onOff(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boolean
 }
 
 /** The settings, or what is wrong with them (each a sentence). */
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig | { problems: string[] } {
+export function loadConfig(env: NodeJS.ProcessEnv = process.env, cpus: () => number = availableCpus): WorkerConfig | { problems: string[] } {
   const problems: string[] = []
   const production = env.NODE_ENV === 'production'
   const appUrl = setting(env, 'STUDIO_APP_URL') ?? 'http://localhost:3000'
@@ -120,7 +159,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig |
     pollMs: int(env, 'STUDIO_WORKER_POLL_MS', 2000, 200, 60_000),
     workDir: resolve(setting(env, 'STUDIO_WORK_DIR') ?? resolve(tmpdir(), 'studio-worker')),
     cacheBytes: Number(setting(env, 'STUDIO_CACHE_BYTES') ?? 5 * gb) > 0 ? Math.floor(Number(setting(env, 'STUDIO_CACHE_BYTES') ?? 5 * gb)) : 5 * gb,
-    renderConcurrency: int(env, 'STUDIO_RENDER_CONCURRENCY', 2, 1, 16),
+    renderConcurrency: int(env, 'STUDIO_RENDER_CONCURRENCY', 0, 1, 16) || renderTabs(cpus()),
     chrome: setting(env, 'STUDIO_CHROME'),
     engineDir: resolve(setting(env, 'STUDIO_ENGINE_DIR') ?? resolve(PACKAGE_DIR, '../web/src/lib/studio/engine')),
     healthPort: int(env, 'STUDIO_HEALTH_PORT', 9092, 0, 65535),

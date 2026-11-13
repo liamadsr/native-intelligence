@@ -61,7 +61,7 @@ describe('the Studio sweep', () => {
     const recentJob = job('export', 'completed', 24 * 89)
     const openJob = job('export', 'running', 24 * 100)
 
-    expect(await sweep()).toEqual({ pendingWrites: 2, uploads: 3, stills: 1, exports: 1, jobs: 1 })
+    expect(await sweep()).toEqual({ pendingWrites: 2, uploads: 3, stills: 1, exports: 1, jobs: 1, liveTracks: 0 })
     expect(await has(`assets/${'a'.repeat(64)}.mp4`)).toBe(true)
     expect(await has('thumbs/v.jpg')).toBe(true)
     expect(env.storage.objects.has(`${WS}/thumbs/v.jpg/0`)).toBe(true)
@@ -81,7 +81,7 @@ describe('the Studio sweep', () => {
     expect(env.tables.studio_job!.map((j) => j.id)).toEqual(expect.arrayContaining([recentJob, openJob]))
 
     // Idempotent: a second run finds nothing.
-    expect(await sweep()).toEqual({ pendingWrites: 0, uploads: 0, stills: 0, exports: 0, jobs: 0 })
+    expect(await sweep()).toEqual({ pendingWrites: 0, uploads: 0, stills: 0, exports: 0, jobs: 0, liveTracks: 0 })
   })
 
   it('does a bounded amount a run, and the next run takes the rest', async () => {

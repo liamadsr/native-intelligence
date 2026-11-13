@@ -3,9 +3,14 @@
 //   POST /recordings     {screen, camera?, microphone?, systemAudio?, trace?, transcript?, punch? | beats?}
 //   GET  /recordings/:id
 //
-// Each file is imported by the worker (an `import` job): the screen conformed to 60 fps with its input trace, the
-// camera to 30 fps, the microphone and the system sound as audio. The app waits for those jobs (up to ~100 s on the
-// POST, a few seconds on each GET); once they are done it builds the edit exactly as a finished take always opened:
+// A browser take arrives as tracks uploaded while it recorded (`live/<take>/<role>`, live-takes.ts), sealed here; a
+// take whose window closed mid-way is brought back from what arrived (recoverTake).
+//
+// Each file is imported by the worker (an `import` job): the screen conformed to 60 fps (30 when it was recorded at 45
+// fps or fewer) with its input trace, the camera to 30 fps, the microphone and the system sound as audio. The app
+// waits for those jobs (up to ~100 s on the POST, a few seconds on each GET), and the worker's end of the last one
+// builds it too (recordingImportEnded), so a take is finished even when nobody waits on it. The edit is built exactly
+// as a finished take always opened:
 //
 //   - one clip of the whole screen take (the first cut by what was shown, from the trace's focus changes, when the
 //     take has a source to cut to),
@@ -30,20 +35,30 @@ import { scheduleProject } from '../engine/timeline'
 import type { CameraSlot } from '../engine/storyboard'
 import { getAssets, importTimedTranscript } from './assets'
 import { commitBlob } from './blobs'
-import { isUuid, type StudioContext } from './context'
+import { isUuid, must, type StudioContext } from './context'
 import { conflictError, notFoundError, StudioError } from './errors'
 import type { ImportInput } from './job-contract'
+import { closeLiveTake, isLiveKey, parseLiveKey, sealLiveTrack, sealStoppedTake, TRACK_MAX_PIECES, type SealedTrack } from './live-takes'
 import { getRecord, putRecord } from './records'
 import { createVideo, openVideo, saveVideo } from './videos'
 
 // ---- what the recorder sends ----------------------------------------------------------------------------------
 
-/** An upload of this person's, as POST /uploads named it. */
-const uploadKey = z.string().regex(/^uploads\/[0-9a-f-]{36}$/, 'Upload the file first')
+/**
+ * An upload of this person's, as POST /uploads named it, or a track of a take uploaded while it was recorded
+ * (`live/<take>/<role>`, live-takes.ts).
+ */
+const uploadKey = z.string().refine((key) => /^uploads\/[0-9a-f-]{36}$/.test(key) || isLiveKey(key), 'Upload the file first')
 const fileName = z.string().trim().min(1).max(240)
 const offset = z.number().finite().min(-3600).max(3600)
-const MainFileSchema = z.object({ uploadKey, name: fileName }).strict()
-const SyncedFileSchema = z.object({ uploadKey, name: fileName, offsetSeconds: offset }).strict()
+/**
+ * A live track: how many pieces the recorder sent (every one must be in storage before the take is queued), and
+ * `partial` when it stopped sending before the recording's end (the Studio refused the rest).
+ */
+const pieces = z.number().int().min(1).max(TRACK_MAX_PIECES).optional()
+const partial = z.literal(true).optional()
+const MainFileSchema = z.object({ uploadKey, name: fileName, pieces, partial }).strict()
+const SyncedFileSchema = z.object({ uploadKey, name: fileName, offsetSeconds: offset, pieces, partial }).strict()
 const WordSchema = z.object({ text: z.string().trim().min(1).max(500), startMs: z.number().finite().nonnegative(), endMs: z.number().finite().nonnegative() }).strict()
 const projectId = z.string().refine(isUuid, 'Not a video id')
 
@@ -330,6 +345,12 @@ const COLLECTION = 'recordings'
 type RecordingRecord = {
   id: string
   createdAt: string
+  /** Who recorded it: the video is built as theirs, also when the worker's finished import builds it. */
+  ownerId?: string | null
+  /** The take it came from, when it was uploaded while it was recorded (live-takes.ts). */
+  takeId?: string
+  /** True when it was brought back after the recording stopped unexpectedly (its end may be missing). */
+  recovered?: boolean
   status: 'importing' | 'building' | 'done' | 'failed'
   /** Who is building it right now (a token), so two polls don't build twice. */
   claim: string | null
@@ -405,29 +426,123 @@ async function claim(ctx: StudioContext, record: RecordingRecord): Promise<Recor
 type Jobs = typeof import('./jobs')
 const jobsModule = (): Promise<Jobs> => import('./jobs')
 
-/** Queue the imports of a finished take and answer once it is an edit (or still processing after `waitMs`). */
-export async function startRecording(ctx: StudioContext, body: unknown, waitMs = 100_000): Promise<RecordingAnswer> {
+/**
+ * Queue the imports of a finished take and answer once it is an edit (or still processing after `waitMs`). A file is
+ * an upload (committed here: every part in storage) or a track of a take uploaded while it was recorded (sealed
+ * here: every piece the recorder says it sent in storage at its length; one take, the person's own, each track under
+ * its own role).
+ */
+export async function startRecording(ctx: StudioContext, body: unknown, waitMs = 100_000, options: { recovered?: boolean } = {}): Promise<RecordingAnswer> {
   const input = RecordingInputSchema.parse(body)
   const keys = ROLES.flatMap((role) => (input[role] ? [input[role]!.uploadKey] : []))
   if (new Set(keys).size !== keys.length) throw new StudioError('Each file of a take is its own upload.')
+  const takes = new Set<string>()
+  for (const role of ROLES) {
+    const live = input[role] ? parseLiveKey(input[role]!.uploadKey) : null
+    if (!live) continue
+    if (live.role !== role) throw new StudioError('Each track of a take goes under its own role.')
+    takes.add(live.takeId)
+  }
+  if (takes.size > 1) throw new StudioError('The tracks of a take come from one recording.')
   // Every upload must be complete before anything is queued.
-  for (const key of keys) await commitBlob(ctx, key)
+  const sealed: Partial<Record<Role, SealedTrack>> = {}
+  for (const role of ROLES) {
+    const file = input[role]
+    if (!file) continue
+    if (isLiveKey(file.uploadKey)) {
+      const track = await sealLiveTrack(ctx, file.uploadKey, options.recovered ? undefined : (file.pieces ?? 'all'), { cut: file.partial === true })
+      if (!track) throw new StudioError(`Nothing of the ${role === 'systemAudio' ? 'system sound' : role} was saved.`)
+      sealed[role] = track
+    } else await commitBlob(ctx, file.uploadKey)
+  }
   const { queueJob } = await jobsModule()
   const id = randomUUID()
   const jobs: Partial<Record<Role, string>> = {}
   const queue = async (role: Role, extra: Partial<ImportInput>) => {
     const file = input[role]
     if (!file) return
-    const row = await queueJob(ctx, 'import', { uploadKey: file.uploadKey, name: file.name, provenance: { recording: id, role, recorder: input.recorder }, ...extra })
+    const live = sealed[role]
+    const hint = live?.seconds || input.durationSeconds
+    const row = await queueJob(ctx, 'import', {
+      uploadKey: file.uploadKey,
+      name: file.name,
+      provenance: { recording: id, role, recorder: input.recorder, ...(live ? { live: true } : {}) },
+      ...(live && !live.complete ? { partial: true } : {}),
+      ...(hint ? { durationHint: Math.round(hint) } : {}),
+      ...extra,
+    })
     jobs[role] = row.id
   }
-  await queue('screen', { conform: { fps: 60 }, sourceCursorHidden: input.sourceCursorHidden, ...(input.trace ? { trace: input.trace } : {}) })
+  // The screen at 60 fps when it was recorded that fast, else 30 (no frame is made up to fill 60).
+  await queue('screen', { conform: { fps: 60, fit: true }, sourceCursorHidden: input.sourceCursorHidden, ...(input.trace ? { trace: input.trace } : {}) })
   await queue('camera', { conform: { fps: 30 }, sourceCursorHidden: false })
   await queue('microphone', { sourceCursorHidden: false })
   await queue('systemAudio', { sourceCursorHidden: false })
-  const record: RecordingRecord = { id, createdAt: new Date().toISOString(), status: 'importing', claim: null, claimedAt: null, input, jobs }
+  const takeId = [...takes][0]
+  const record: RecordingRecord = {
+    id, createdAt: new Date().toISOString(), ownerId: ctx.userId, ...(takeId ? { takeId } : {}), ...(options.recovered ? { recovered: true } : {}),
+    status: 'importing', claim: null, claimedAt: null, input, jobs,
+  }
   await putRecord(ctx, COLLECTION, id, record)
+  if (takeId) await closeLiveTake(ctx, takeId, id)
   return advanceRecording(ctx, id, waitMs)
+}
+
+/**
+ * Bring back a take whose recording stopped before it was finished (the window closed, the app or the machine
+ * crashed): every track is sealed from the pieces that arrived and the take becomes a new video, as a finished take
+ * does. The camera and the sound keep the place on the screen's clock they said when they started.
+ */
+export async function recoverTake(ctx: StudioContext, takeId: string, waitMs = 0): Promise<RecordingAnswer> {
+  const { take, tracks } = await sealStoppedTake(ctx, takeId)
+  const at = new Date(take.createdAt)
+  const file = (role: Role) => tracks.find((track) => track.role === role)
+  const synced = (role: Exclude<Role, 'screen'>) => {
+    const track = file(role)
+    return track ? { [role]: { uploadKey: track.key, name: track.name, offsetSeconds: Math.max(-3600, Math.min(3600, track.offsetSeconds ?? 0)) } } : {}
+  }
+  const screen = file('screen')!
+  return startRecording(ctx, {
+    title: `${takeTitle(at)} (recovered)`,
+    recorder: take.recorder,
+    screen: { uploadKey: screen.key, name: screen.name },
+    ...synced('camera'),
+    ...synced('microphone'),
+    ...synced('systemAudio'),
+    ...(screen.seconds ? { durationSeconds: screen.seconds } : {}),
+  }, waitMs, { recovered: true })
+}
+
+/** The person's recordings of the last day, newest first: those still being prepared show where they stand. */
+export async function listRecordings(ctx: StudioContext, now = Date.now()): Promise<{ recordings: RecordingView[] }> {
+  if (!ctx.userId) return { recordings: [] }
+  const rows = must(
+    await ctx.supabase.from('studio_record').select('key, value').eq('workspace_id', ctx.workspaceId).eq('collection', COLLECTION).eq('value->>ownerId', ctx.userId)
+      .gte('updated_at', new Date(now - 24 * 3600_000).toISOString()).order('updated_at', { ascending: false }).limit(10),
+    'read your recordings',
+  ) as { key: string; value: RecordingRecord }[] | null
+  const out: RecordingView[] = []
+  for (const { value } of rows ?? []) {
+    if (value.status === 'done' || value.status === 'failed') out.push(view(value, 1, value.status === 'done' ? 'Ready' : 'Failed'))
+    else out.push((await advanceRecording(ctx, value.id, 0).catch(() => ({ recording: view(value, 0, 'Preparing your recording') }))).recording)
+  }
+  return { recordings: out }
+}
+
+/**
+ * One of a recording's imports ended (the worker completed or failed it): when it was the last, the video is built
+ * now, so a take finishes even when nobody is waiting on it (the person closed the dialog, or the page). Never throws.
+ */
+export async function recordingImportEnded(supabase: StudioContext['supabase'], storage: StudioContext['storage'], workspaceId: string, recordingId: unknown): Promise<void> {
+  try {
+    if (!isUuid(recordingId)) return
+    const base: StudioContext = { supabase, storage, workspaceId, userId: null }
+    const record = await getRecord<RecordingRecord>(base, COLLECTION, recordingId)
+    if (!record || record.status === 'done' || record.status === 'failed') return
+    await advanceRecording({ ...base, userId: record.ownerId ?? null }, recordingId, 0)
+  } catch (error) {
+    console.error('[studio] finishing a recording after its import failed:', error instanceof Error ? error.message : error)
+  }
 }
 
 /** Where a recording stands; builds its edit once the imports are done. `waitMs`: how long to wait for them here. */

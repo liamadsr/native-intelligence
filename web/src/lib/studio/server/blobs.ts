@@ -199,8 +199,15 @@ export async function blobPartUrls(ctx: StudioContext, blob: StoredBlob, seconds
   return storageOf(ctx).signRead(paths, seconds, download)
 }
 
-/** A committed blob as the worker reads it: a link per part. 404 when there is none. */
+/** A take's track uploaded while it was recorded (live-takes.ts): `live/<take id>/<role>`. */
+const LIVE_PREFIX = 'live/'
+
+/**
+ * A committed blob as the worker reads it: a link per part. 404 when there is none. A track of a take uploaded while
+ * it was recorded is read the same way, once it is sealed: a link per piece, each piece its own length.
+ */
 export async function readBlob(ctx: StudioContext, key: string, seconds = READ_LINK_SECONDS): Promise<BlobRead> {
+  if (checkBlobKey(key).startsWith(LIVE_PREFIX)) return (await import('./live-takes')).readLiveTrack(ctx, key, seconds)
   const blob = await getBlob(ctx, key)
   if (!blob) throw notFoundError('There is no file under that key.')
   const urls = await blobPartUrls(ctx, blob, seconds)
@@ -264,6 +271,8 @@ export function jobOwnsKey(job: WritingJob, key: string): boolean {
  */
 export async function workerWriteFence(ctx: StudioContext, job: WritingJob, key: string, write: { sha256?: string | null } | null = null): Promise<{ exists: StoredBlob | null }> {
   key = checkBlobKey(key)
+  // A take's pieces are the person's own upload, never a worker's to write.
+  if (key.startsWith(LIVE_PREFIX)) throw conflictError("That file is stored already, and this job may not replace it.", 'NOT_YOURS')
   const asset = ASSET_KEY.exec(key)
   if (asset && write && write.sha256 !== asset[1]) throw conflictError('A library file is stored under the hash of its bytes: state that hash.', 'NOT_YOURS')
   const committed = await getBlob(ctx, key)

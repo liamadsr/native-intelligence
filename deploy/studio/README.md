@@ -32,9 +32,10 @@ the render bundle (made once per version of the engine's code, a few seconds), a
 job's scratch, removed when the job ends. Nothing in it needs a backup: deleting the
 volume while the worker is stopped only means files are fetched again.
 
-**What it may use.** At most 4 CPUs and 6 GB: a render is Chrome drawing frames in 2 tabs
-and FFmpeg encoding them, as fast as it is given cores. Shared memory is 1 GB (Chrome keeps
-pages there). The root is read-only; scratch is the volume and a 2 GB `/tmp`.
+**What it may use.** At most 4 CPUs and 6 GB: a render is Chrome drawing frames in 3 tabs (the
+worker reads the CPU quota and opens one tab fewer) and FFmpeg encoding them. Shared memory is
+1 GB (Chrome keeps pages there). The root is read-only; scratch is the volume and a 2 GB `/tmp`.
+"Export speed" below has what an export costs and what more CPUs would buy.
 
 **What it may reach.** Everything it opens is a stranger's file: an upload, a deck. FFmpeg
 and ffprobe open inputs as local files and pipes only (`-protocol_whitelist file,pipe` on
@@ -64,6 +65,88 @@ person-segmentation model and a face detector shipped in the image, behind the s
 individuals and companies of up to three people; larger companies need a company licence
 ([remotion.dev/license](https://www.remotion.dev/license)). Running this worker means
 complying with it.
+
+## Export speed
+
+Measured on 2026-11-13 on a made-up project shaped like the first slow export in production (a 20.2 s
+2504×1438 60 fps screen recording, a 1080p 30 fps camera as the round bubble, a microphone track; 1212
+frames), on an M2 Max: through the real worker against the fake app, and with Remotion's own render calls
+timed frame by frame. Production's worker had rendered that export at 1.6 frames a second with its 4 CPUs
+full, so 12.6 minutes for 20 seconds.
+
+**Why it was slow.** On Linux the worker asked Chrome for `swangle`: a GPU emulated on the CPU
+(SwiftShader). Chrome then composites every frame of the 2504×1438 page, the video canvases and the
+screenshot through that emulated GPU: 0.84 CPU-seconds a frame, 95 % of it Chrome. The same render
+composited in software (`gl: 'swiftshader'`, which leaves Chrome without a GPU process) costs 0.19.
+
+| Per frame, software drawing (the server's case) | Before: `swangle`, 2 tabs | After: software, 3 tabs |
+| --- | --- | --- |
+| The page drawing the frame, video decode included (per tab) | 184 ms | 70 ms |
+| The screenshot, handed to FFmpeg in shared memory (per tab) | 239 ms | 104 ms |
+| Chrome's CPU | 0.80 s | 0.13 s |
+| The encoder's CPU (x264 `medium` before, `veryfast` after) | 0.043 s | 0.03 s |
+| All CPU | 0.84 s | 0.19 s |
+| Frames a second on the Mac | 4.3 | 15.7 |
+
+Of the 0.19 CPU-seconds (measured by leaving parts out): the page and its encoding 0.08, the screen
+recording's decode and draw 0.065, the camera bubble 0.07 (a 1080p frame decoded, handed to every tab and
+drawn for a 403 px circle). Bundling (4–6 s) happens once per engine version; staging from the cache 2 s;
+the closing decode check 1–2 s.
+
+**What changed** (`studio-worker/src/render.ts`, `config.ts`, `jobs/export.ts`):
+- Software compositing on Linux, `swangle` kept only for a video with code scenes (whose code might use WebGL).
+  4.5× less CPU a frame. Nothing the engine draws uses WebGL.
+- Tabs from the CPUs the worker may use (the container's quota, not the machine's 12 cores): one fewer than
+  the CPUs, 1 to 4. On the Mac, software drawing: 2 tabs 12.2 fps (2.0 CPUs busy), 3 tabs 15.7 (3.0), 4 tabs
+  16.2 (3.5), 6 tabs 15.8 and 8 tabs 11.3 with 0.30 and 0.39 CPU-seconds a frame: Remotion decodes each video
+  in one tab and hands every frame to all the others, so each tab past the first adds work to every frame, and
+  one export never keeps more than about 3.5 CPUs busy.
+- BT.709, tagged: the export's colours are now the preview's (below), converted by FFmpeg's scaler instead of
+  zscale (0.01 instead of 0.08 CPU-seconds a frame for the conversion).
+- x264 `veryfast` instead of `medium` at the same CRF 18: the encoder's CPU down 35 %, the file 11 % smaller,
+  46.2 instead of 47.0 dB against the recording (SSIM 0.9988 between the two).
+
+**Colour, found on the way.** Chrome turns a recording into RGB as BT.709 (what the preview shows), and
+Remotion's default turned that back into YUV as BT.601 without saying so, so a player (which reads an
+untagged HD video as BT.709) showed saturated colours shifted: a green at 216 came out at 183. Exports
+before this change measured 30.5 dB against their recording; after, 46.2 dB. Videos exported before keep
+the shift.
+
+**What the server should do now** (a model: production's 1.6 frames a second calibrates one CPU-second
+there at about 2.8 of the Mac's): at 4 CPUs with 3 tabs about 5.6 frames a second, so 20 s of 60 fps
+2504×1438 video in about 3.6 minutes instead of 12.6, and 30 minutes of it (108,000 frames) in about 5.4
+hours instead of 19. More CPUs do not help one export (4 tabs would need about 3.5 CPUs and give about
+5.8 frames a second); 8 CPUs would let two exports run at once (`STUDIO_WORKER_CONCURRENCY=2`), each as
+fast as one alone, with twice the memory. Not measured on the server itself: Linux's software
+compositing, and the 2.8.
+
+**Measured, not worth it:** each tab decoding its own frames (0.31 CPU-seconds a frame, worse);
+`OffthreadVideo` (0.57, 7.4 fps); JPEG or PNG frames and their quality (no effect: Remotion 4.0.534
+hands frames to FFmpeg in shared memory); more than 4 tabs (above).
+
+**The FFmpeg path: designed, prototyped, not built.** Most exports are a recording with a camera bubble
+and cuts and nothing drawn by React. FFmpeg alone could compose those: a prototype of the 20 s project took
+0.04 CPU-seconds a frame (a fifth of Chrome's; by the same model roughly 30 frames a second on the
+server's 4 CPUs), showed the right
+source frame in every frame (checked against the neighbouring frames), and came 46 dB from Chrome's export
+outside the bubble and 33 dB inside it (SSIM 0.98). The design:
+- Only for a project that is nothing else (default deny): no layers, captions, cut-outs, slides, layouts,
+  automation, zooms, motion, chosen transitions or platform format; the recording at the output's size and
+  rate with no padding, radius or drawn pointer; the camera only as a still bubble; every source BT.709 (or
+  untagged) and limited range. Anything else, or any failure, goes to Chrome.
+- One FFmpeg pass per clip (the source cut by frame number; a jump cut's soft blend from the held frame),
+  all encoded alike and joined without re-encoding; the bubble drawn as Chrome draws it: the camera sampled
+  bilinearly at the exact fractional place (Chrome does not filter it, and a filtered scale came only 25 dB
+  close), a circle mask antialiased from the same geometry.
+- The sound from Remotion itself (an audio-only render of the same project), joined to the picture.
+- The risks: every place it imitates Chrome (sampling, the round trip through RGB, the blend done in YUV)
+  is an approximation; the engine's timing (`presenterPieces`, `cutVideoPlan`) would have a second
+  implementation unless those move out of the React modules; any new engine feature must be refused by the
+  whitelist. It needs a frame-for-frame check of both paths over every kind of plain project (cuts, speed,
+  bubble shapes, offsets) before it draws a real export.
+
+Exporting at 30 fps (enough for most screen recordings) would halve every number above; it is a product
+decision, not a setting the editor offers.
 
 ## First start
 

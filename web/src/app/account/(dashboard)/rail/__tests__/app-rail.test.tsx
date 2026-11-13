@@ -99,9 +99,8 @@ describe('the app rail', () => {
       // Drive: Docs, Knowledge, Files · Calendar: Captures (Liam, 11-11): one icon each.
       // Projects and Initiatives nest under Tasks (Liam, 11-11): no icons of their own.
       'drive', 'mail', 'team-chat', 'actions', 'calendar',
-      // Studio (migration 620): its own icon after the Calendar group.
-      'studio',
-      // Contacts: Companies, Contacts, Deals · Outreach: Prospecting, Sequences, Campaigns (Liam, 11-11).
+      // Contacts: Companies, Contacts, Deals · Outreach: Prospecting, Sequences, Campaigns (Liam, 11-11),
+      // and the Studio (Liam, 11-13: "part of the outreach page"): no icon of its own.
       // SEO: Site audit (one icon; its sections join it as they land).
       'contacts', 'outreach', 'seo',
       // Agents: Agents & skills, Flows, Evals (Liam, 11-11). Teams nests under
@@ -178,14 +177,27 @@ describe('the app rail', () => {
     expect(item('calendar')).not.toBeNull()
   })
 
-  it('leaves out the Studio for a guest of the workspace (its routes refuse a guest), and keeps it for a member', async () => {
+  it('has no Studio icon (Outreach’s page now); Outreach opens the Studio for a member who used it last, never for a guest (its routes refuse a guest)', async () => {
+    const studio = CARD_PAGES.find((p) => p.slug === 'studio')!.spec(new Date()) as CardSpec
+    const opened = async () => {
+      const asked: OpenCardRequest[] = []
+      const listen = (e: Event) => asked.push((e as CustomEvent<OpenCardRequest>).detail)
+      window.addEventListener(OPEN_CARD_EVENT, listen)
+      await act(async () => item('outreach')!.click())
+      window.removeEventListener(OPEN_CARD_EVENT, listen)
+      return asked.map((r) => r.spec.kind)
+    }
+    localStorage.setItem(GROUP_LAST_PAGE_KEY, JSON.stringify({ outreach: 'studio' }))
     await render()
-    expect(item('studio')).not.toBeNull()
+    expect(item('studio')).toBeNull()
+    expect(await opened()).toEqual([studio.kind])
     act(() => root.unmount())
     root = createRoot(container)
     guest.current = true
     await render()
     expect(item('studio')).toBeNull()
+    expect(item('outreach')).not.toBeNull()
+    expect(await opened()).toEqual(['prospecting'])
     expect(item('team-chat')).not.toBeNull()
   })
 
@@ -326,7 +338,7 @@ const savedBar = () => {
   return last ? JSON.parse(String((last[1] as RequestInit).body)).rail_pages : undefined
 }
 const DEFAULT_BAR = [
-  'drive', 'mail', 'team-chat', 'actions', 'calendar', 'studio',
+  'drive', 'mail', 'team-chat', 'actions', 'calendar',
   'contacts', 'outreach', 'seo',
   'agents',
 ]
@@ -385,7 +397,7 @@ describe('the person’s bar', () => {
     })
     expect(bar().slice(0, 5)).toEqual(['drive', 'mail', 'team-chat', 'calendar', 'actions'])
     expect(document.activeElement).toBe(item('calendar'))
-    expect(container.querySelector('[data-app-rail-announce]')?.textContent).toBe('Calendar moved to 4 of 10')
+    expect(container.querySelector('[data-app-rail-announce]')?.textContent).toBe('Calendar moved to 4 of 9')
     expect(lines()).toBe(0)
     await act(async () => {
       item('calendar')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true, cancelable: true }))
@@ -413,7 +425,7 @@ describe('the person’s bar', () => {
     expect(panel.querySelector('[data-app-rail-customize-row="projects"]')).toBeNull()
     expect(panel.querySelector('[data-app-rail-customize-row="initiatives"]')).toBeNull()
     // The page groups, not their members (Liam, 11-11).
-    for (const member of ['companies', 'deals', 'captures', 'prospecting', 'sequences', 'campaigns', 'docs', 'knowledge', 'files', 'tables', 'flows', 'evals']) expect(panel.querySelector(`[data-app-rail-customize-row="${member}"]`)).toBeNull()
+    for (const member of ['companies', 'deals', 'captures', 'prospecting', 'sequences', 'campaigns', 'studio', 'docs', 'knowledge', 'files', 'tables', 'flows', 'evals']) expect(panel.querySelector(`[data-app-rail-customize-row="${member}"]`)).toBeNull()
     const toggle = (id: string) => panel.querySelector<HTMLButtonElement>(`[data-app-rail-customize-row="${id}"] [role="switch"]`)!
     expect(toggle('outreach').getAttribute('aria-checked')).toBe('true')
     expect(toggle('outreach').getAttribute('aria-label')).toBe('Show Outreach in the bar')
@@ -422,8 +434,8 @@ describe('the person’s bar', () => {
     await act(async () => toggle('outreach').click())
     expect(item('outreach')).toBeNull()
     expect(toggle('outreach').getAttribute('aria-checked')).toBe('false')
-    // A hidden group is saved as all its members.
-    expect(savedBar()).toEqual({ order: [], hidden: ['prospecting', 'sequences', 'campaigns'] })
+    // A hidden group is saved as all its members (the Studio too, Liam, 11-13).
+    expect(savedBar()).toEqual({ order: [], hidden: ['prospecting', 'sequences', 'campaigns', 'studio'] })
     await act(async () => toggle('outreach').click())
     expect(item('outreach')).not.toBeNull()
     await act(async () => toggle('mail').click())
@@ -587,7 +599,7 @@ describe('page groups (Liam, 11-11: "Contacts: Companies, Contacts, Deals · Out
 
   it('one icon per group, the group’s label and icon, no member icons', async () => {
     await render()
-    for (const member of ['companies', 'deals', 'captures', 'prospecting', 'sequences', 'campaigns']) expect(item(member), member).toBeNull()
+    for (const member of ['companies', 'deals', 'captures', 'prospecting', 'sequences', 'campaigns', 'studio']) expect(item(member), member).toBeNull()
     expect(item('contacts')!.getAttribute('aria-label')).toBe('Contacts')
     expect(item('contacts')!.querySelector('svg.lucide-contact')).not.toBeNull()
     expect(item('outreach')!.getAttribute('aria-label')).toBe('Outreach')
@@ -615,6 +627,17 @@ describe('page groups (Liam, 11-11: "Contacts: Companies, Contacts, Deals · Out
     await render()
     expect((await opens('calendar')).map((r) => r.spec.title)).toEqual(['Captures'])
     expect((await opens('outreach')).map((r) => r.spec)).toEqual([ownSpec('prospecting')])
+  })
+
+  it('lights Outreach while the Studio’s own card is in front, and remembers the Studio as Outreach’s last used (Liam, 11-13)', async () => {
+    await render()
+    await act(async () => {
+      releases.push(holdFrontCard({ id: 'studio-1', spec: ownSpec('studio'), close: () => {} }))
+    })
+    expect(lit()).toEqual(['outreach'])
+    expect(JSON.parse(localStorage.getItem(GROUP_LAST_PAGE_KEY)!)).toEqual({ outreach: 'studio' })
+    await act(async () => releases.pop()!())
+    expect((await opens('outreach')).map((r) => r.spec)).toEqual([ownSpec('studio')])
   })
 
   it('lights the group while any member page’s own card is in front, and keeps it for a record opened from inside', async () => {
@@ -660,15 +683,15 @@ describe('page groups (Liam, 11-11: "Contacts: Companies, Contacts, Deals · Out
     }))
     await render()
     // Drive where Docs was; Agents where Flows was, its first member saved.
-    // Studio, not in the saved order, lands after Calendar (its default place). SEO came after this bar
-    // was saved too: a page it doesn't mention, shown, after the rest.
-    expect(bar()).toEqual(['contacts', 'calendar', 'studio', 'drive', 'mail', 'team-chat', 'actions', 'agents', 'seo'])
+    // Outreach stays hidden: the Studio joined it after this bar was saved (Liam, 11-13). SEO came after this
+    // bar was saved too: a page it doesn't mention, shown, after the rest.
+    expect(bar()).toEqual(['contacts', 'calendar', 'drive', 'mail', 'team-chat', 'actions', 'agents', 'seo'])
     // The next save keeps rail ids in the order, and a hidden group as its members.
     await rightClick('mail')
     await pick('unpin')
     expect(savedBar()).toEqual({
       order: ['contacts', 'calendar', 'drive', 'mail', 'team-chat', 'actions', 'agents', 'outreach'],
-      hidden: ['prospecting', 'sequences', 'campaigns', 'mail'],
+      hidden: ['prospecting', 'sequences', 'campaigns', 'studio', 'mail'],
     })
   })
 
@@ -679,7 +702,7 @@ describe('page groups (Liam, 11-11: "Contacts: Companies, Contacts, Deals · Out
     expect((await opens('outreach')).map((r) => r.spec)).toEqual([ownSpec('sequences')])
     act(() => root.unmount())
     root = createRoot(container)
-    edition.current = withEffectiveSurface(getEdition('full'), { prospecting: 'off', sequences: 'off', campaigns: 'off', crm: 'off' })
+    edition.current = withEffectiveSurface(getEdition('full'), { prospecting: 'off', sequences: 'off', campaigns: 'off', studio: 'off', crm: 'off' })
     await render()
     expect(item('outreach')).toBeNull()
     expect(item('contacts')).toBeNull()

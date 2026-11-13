@@ -221,6 +221,9 @@ export function fakeStorage() {
     async upload(path, bytes, contentType) {
       objects.set(path, { bytes: new Uint8Array(bytes), type: contentType })
     },
+    async head(path, bytes) {
+      return objects.get(path)?.bytes.slice(0, bytes) ?? new Uint8Array(0)
+    },
   }
   return storage
 }

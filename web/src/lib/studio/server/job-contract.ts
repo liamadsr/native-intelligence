@@ -78,7 +78,12 @@ export type StudioJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'c
 
 // ---- what each kind is given and gives back ----------------------------------------------------------------
 
-/** import: `uploadKey` is the blob the browser (or the desktop app) uploaded. */
+/**
+ * import: `uploadKey` is the blob the browser (or the desktop app) uploaded: `uploads/<id>`, or a track of a take
+ * uploaded while it was recorded, `live/<take id>/<role>` (live-takes.ts). A live track is read like any blob, a link
+ * per piece in order, but its pieces are as long as the recorder made them (each part says its own `bytes`) and it has
+ * no sha256 until the worker reads it.
+ */
 export type ImportInput = {
   uploadKey: string
   name: string
@@ -86,8 +91,18 @@ export type ImportInput = {
   trace?: unknown
   /** True when the recording hid the system cursor, so the editor may draw its own from the trace. */
   sourceCursorHidden?: boolean
-  /** Recorded files are conformed to a constant frame rate; uploads that already are stay untouched. */
-  conform?: { fps: 30 | 60 }
+  /**
+   * Recorded files are conformed to a constant frame rate; uploads that already are stay untouched. With `fit`, `fps`
+   * is the most: a recording whose average rate is 45 fps or less is conformed to 30 (no frame is made up to fill 60).
+   */
+  conform?: { fps: 30 | 60; fit?: boolean }
+  /**
+   * The recording stopped before its end was saved (a window that closed mid-take, brought back afterwards): its last
+   * piece may end mid-frame. The conform then reads past damage at the end instead of refusing the file.
+   */
+  partial?: boolean
+  /** About how long the recording is, in seconds, when the app knows (time limits; a browser's WebM does not say). */
+  durationHint?: number
   provenance?: Record<string, unknown>
 }
 /** The worker wrote blob `asset.file` (assets/<sha256>.<ext>) before completing. The app registers the asset. */

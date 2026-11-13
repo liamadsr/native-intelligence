@@ -5,10 +5,14 @@
  * Liam's reference order first:
  *
  *   your work   Drive (Docs, Knowledge, Files, Tables), Mail, Team chat, My Actions,
- *               Calendar (+ Captures), Studio
+ *               Calendar (+ Captures)
  *   customers   Contacts (Companies, Contacts, Deals),
- *               Outreach (Prospecting, Sequences, Campaigns)
+ *               Outreach (Prospecting, Sequences, Campaigns, Studio)
  *   agents      Agents (Agents & skills, Flows, Evals)
+ *
+ * Liam, 11-13: the Studio "should be part of the outreach page": a member of
+ * Outreach (./page-groups.ts), no icon of its own. A bar saved while it had
+ * one still loads (currentPrefs: its id is dropped from the saved order).
  *
  * Liam, 11-11: "Drive: Docs, Knowledge, and a new page that shows all
  * available files … Agents: Agents & Skills, Flows, Evals": two more groups,
@@ -89,10 +93,8 @@ export const RAIL_PAGES: readonly RailPageDef[] = [
   def('actions', 'work'),
   // Calendar: Captures (Liam, 11-11).
   groupDef('calendar', 'work'),
-  // Studio (migration 620): videos and ads. One page; its sub-nav lists its
-  // Studio projects and videos (page-panel/studio-panel.tsx; Liam, 11-12).
-  def('studio', 'work'),
-  // Contacts: Companies, Contacts, Deals · Outreach: Prospecting, Sequences, Campaigns (Liam, 11-11).
+  // Contacts: Companies, Contacts, Deals · Outreach: Prospecting, Sequences, Campaigns (Liam, 11-11),
+  // and the Studio (Liam, 11-13: "part of the outreach page").
   groupDef('contacts', 'customers'),
   groupDef('outreach', 'customers'),
   // SEO: Site audit, and its next sections as they land (./page-groups.ts).
@@ -304,14 +306,25 @@ const railIdOf = (id: string): RailPageId => GROUP_OF_PAGE.get(id) ?? id
  *           (the bar saves a hidden group so: storedHidden), so a person
  *           who hid Deals alone still has the Contacts icon. Other ids as
  *           they are.
+ *
+ * A member that had an icon of its own before it joined its group (the
+ * Studio, page-groups.ts formerRailPages) was saved for that icon: its id is
+ * dropped from the order (Outreach stays where the person had it, not where
+ * they had the Studio), and a group hidden before it joined stays hidden
+ * (every OTHER member hidden is enough).
  */
 function currentPrefs(prefs: RailPrefs): RailPrefs {
-  const order = [...new Set(prefs.order.map(railIdOf))]
+  const order = [...new Set(prefs.order.filter((id) => !FORMER_RAIL_PAGES.has(id)).map(railIdOf))]
   const saved = new Set(prefs.hidden)
   const hidden = new Set(prefs.hidden.filter((id) => !GROUP_OF_PAGE.has(id)))
-  for (const group of Object.values(PAGE_GROUPS)) if (group.members.every((slug) => saved.has(slug))) hidden.add(group.id)
+  for (const group of Object.values(PAGE_GROUPS)) {
+    if (group.members.every((slug) => saved.has(slug) || group.formerRailPages?.includes(slug))) hidden.add(group.id)
+  }
   return { order, hidden: [...hidden] }
 }
+
+/** Group members that had a rail icon of their own before they joined (page-groups.ts formerRailPages). */
+const FORMER_RAIL_PAGES: ReadonlySet<string> = new Set(Object.values(PAGE_GROUPS).flatMap((g) => g.formerRailPages ?? []))
 
 /** Hidden rail ids as the bar saves them: a group as every one of its members' ids (currentPrefs reads it back). */
 const storedHidden = (hidden: readonly RailPageId[]): string[] => hidden.flatMap((id) => (isPageGroupId(id) ? PAGE_GROUPS[id].members : [id]))

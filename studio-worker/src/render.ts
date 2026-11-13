@@ -19,6 +19,7 @@ import { join, resolve } from 'node:path'
 import type { EditorProject } from '../../web/src/lib/studio/engine/contracts.ts'
 import type { WorkerConfig } from './config.ts'
 import { buildSceneRuntime, RUNTIME_PATH } from './engine.ts'
+import { projectScenes } from './scenes.ts'
 
 export const COMPOSITION_ID = 'EditorVideo'
 const ENGINE_FILE = /\.(tsx?|css|json)$/
@@ -179,11 +180,51 @@ export class Renderer {
     }
   }
 
-  /** Options every Remotion call shares. */
-  async common(log: Log): Promise<{ browserExecutable: string | null; timeoutInMilliseconds: number; logLevel: 'warn'; chromiumOptions: { gl: 'swangle' | null } }> {
-    // On Linux (the container) swangle: software WebGL that works with no GPU. Elsewhere Remotion's own default.
-    return { browserExecutable: await this.chrome(log), timeoutInMilliseconds: 120_000, logLevel: 'warn', chromiumOptions: { gl: process.platform === 'linux' ? 'swangle' : null } }
+  /** Options every Remotion call shares, for a render of `project` (glFor). */
+  async common(log: Log, project?: EditorProject): Promise<{ browserExecutable: string | null; timeoutInMilliseconds: number; logLevel: 'warn'; chromiumOptions: { gl: GlBackend } }> {
+    return { browserExecutable: await this.chrome(log), timeoutInMilliseconds: 120_000, logLevel: 'warn', chromiumOptions: { gl: glFor(process.platform, project) } }
   }
+}
+
+/**
+ * How an export is encoded (renderMedia's options).
+ * - BT.709, tagged as such: Chrome turns a recording's YUV into RGB as BT.709 (what the preview shows), and Remotion's
+ *   default turned that RGB back into YUV as BT.601 with no tag, so players, which read an untagged HD video as BT.709,
+ *   showed saturated colours shifted (a recording's green at 216 came out at 183). Measured on a made-up recording:
+ *   the export against the recording 30.5 dB before, 46 dB with this.
+ * - x264 `veryfast`, not its default `medium`: 35 % less encoder CPU (12 % of a render's), 0.8 dB less against the
+ *   recording at the same CRF 18 (46.2 against 47.0 dB, both far past what an eye tells apart), a file 11 % smaller.
+ */
+export const EXPORT_ENCODING = { codec: 'h264', audioCodec: 'aac', pixelFormat: 'yuv420p', crf: 18, x264Preset: 'veryfast', colorSpace: 'bt709' } as const
+
+/**
+ * Remotion converts each frame to BT.709 with zscale; FFmpeg's own scaler does the same conversion for a third of the
+ * CPU (the conversion's cost went from 0.08 to 0.01 CPU-seconds a frame at 2504×1438). For renderMedia's
+ * `ffmpegOverride`. The file then says BT.709 primaries and matrix, and keeps the sRGB transfer Chrome's screenshots
+ * arrive with (what every export said before; zscale would have written BT.709, and Remotion's FFmpeg has no filter to
+ * relabel it). Should Remotion's arguments change shape, nothing matches and zscale stays: slower, not wrong. Pure.
+ */
+export const BT709_SWSCALE = 'scale=out_color_matrix=bt709:out_range=tv'
+export function bt709WithSwscale({ args }: { type: string; args: string[] }): string[] {
+  return args.map((a) => a.replace(/zscale=matrix=709:range=limited[^,]*/, BT709_SWSCALE))
+}
+
+export type GlBackend = 'swangle' | 'swiftshader' | null
+
+/**
+ * How Chrome draws a render. Off Linux (a Mac): Chrome's own choice, the GPU. On Linux (the container, no GPU):
+ * - `swiftshader`, the default: Remotion passes `--use-gl=swiftshader`, a GL Chrome no longer has, so its GPU process
+ *   gives up at start ("Requested GL implementation … not found", "Exiting GPU process due to errors during
+ *   initialization" in a verbose log) and Chrome composites the page in software, which is its fast path with no GPU.
+ *   There is no WebGL then; nothing the engine draws uses it.
+ * - `swangle` (SwiftShader behind ANGLE: a GPU emulated on the CPU, so WebGL works) only for a video with code scenes,
+ *   whose code is the agent's and might draw with WebGL. It is about four times the CPU per frame: everything Chrome
+ *   composites goes through the emulated GPU (measured, deploy/studio/README.md, "Export speed").
+ * Pure.
+ */
+export function glFor(platform: NodeJS.Platform, project?: EditorProject): GlBackend {
+  if (platform !== 'linux') return null
+  return project && projectScenes(project).length > 0 ? 'swangle' : 'swiftshader'
 }
 
 /**

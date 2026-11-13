@@ -46,7 +46,7 @@ export async function renderFrames(
     try {
       if (codeScenes === 'run') await stageScenes(ctx, project, serveUrl)
       const { openBrowser, renderStill, selectComposition, makeCancelSignal } = await import('@remotion/renderer')
-      const common = await ctx.renderer.common(ctx.log)
+      const common = await ctx.renderer.common(ctx.log, project)
       const browser = await openBrowser('chrome', { browserExecutable: common.browserExecutable, chromiumOptions: common.chromiumOptions, logLevel: common.logLevel })
       const { cancel, cancelSignal } = makeCancelSignal()
       const onAbort = () => cancel()

@@ -1,5 +1,7 @@
-import { studioKeys } from '../studio-env';
+import { studioPortal } from '../studio-env';
 import React from 'react';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
+import { DialogOverlay } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { Icon, type IconName } from './icons';
@@ -17,19 +19,36 @@ export function NumberField({label, value, min = 0, max, step = .1, onChange}: {
 export function Toggle({label, checked, onChange}: {label: string; checked: boolean; onChange: (v: boolean) => void}) {
   return <label className="toggle-row">{label}<input className="toggle" type="checkbox" aria-label={label} checked={checked} onChange={(e) => onChange(e.target.checked)}/></label>;
 }
-export function Modal({title, close, children, wide}: {title: string; close: () => void; children: React.ReactNode; wide?: boolean}) {
-  const headingId = React.useId();
-  const ref = React.useRef<HTMLDivElement>(null);
-  React.useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    ref.current?.focus();
-    const handle = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); close(); }
-      if (e.key === 'Tab') { const els = Array.from(ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),a[href]') ?? []); const first = els[0], last = els.at(-1); if (!first || !last) return; if (e.shiftKey && (document.activeElement === first || document.activeElement === ref.current)) { e.preventDefault(); last.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); } }
-    };
-    studioKeys.addEventListener('keydown', handle); return () => { studioKeys.removeEventListener('keydown', handle); previous?.focus(); };
-  }, [close]);
-  return <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}><div className={wide ? "modal modal-wide" : "modal"} ref={ref} role="dialog" aria-modal="true" aria-labelledby={headingId} tabIndex={-1}><div className="modal-heading"><h2 id={headingId}>{title}</h2><IconButton icon="close" label="Close dialog" onClick={close}/></div>{children}</div></div>;
+/**
+ * A Studio dialog, made the way the app makes its dialogs (src/components/ui/dialog): Radix's dialog, its overlay
+ * over the whole window (the card's title bar and the app around it included, not only the Studio), Escape and a
+ * click outside close it, the focus stays inside while it is open and goes back to where it was after. It is drawn
+ * in the Studio's own layer at the end of the document (studioPortal), which wears the Studio's class, so the
+ * Studio's stylesheet reaches it; inside the Studio's card it would only dim the card.
+ *
+ * `description`: one line under the title, read out with it. `className`: the dialog's own section of studio.css.
+ */
+export function Modal({title, description, close, children, wide, className}: {title: string; description?: React.ReactNode; close: () => void; children: React.ReactNode; wide?: boolean; className?: string}) {
+  const container = typeof document === 'undefined' ? null : studioPortal();
+  // Where the focus was when it opened, to give it back when it closes (the Studio opens these from its own buttons
+  // and menus, not from a Radix trigger, so Radix has nothing of its own to return to).
+  const [opener] = React.useState(() => typeof document === 'undefined' ? null : document.activeElement as HTMLElement | null);
+  return <DialogPrimitive.Root open onOpenChange={open => { if (!open) close(); }}>
+    <DialogPrimitive.Portal container={container}>
+      <DialogOverlay className="st-dialog-overlay" />
+      <DialogPrimitive.Content className={cn('modal', wide && 'modal-wide', className)} {...(description ? {} : { 'aria-describedby': undefined })} onOpenAutoFocus={event => {
+        // The first control, never Close (a dialog that has nothing else takes the focus itself).
+        event.preventDefault();
+        const content = event.currentTarget as HTMLElement, first = content.querySelector<HTMLElement>('button:not(.modal-close):not(:disabled),[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),summary');
+        (first ?? content).focus({ preventScroll: true });
+      }} onCloseAutoFocus={event => { event.preventDefault(); if (opener?.isConnected) opener.focus({ preventScroll: true }); }}>
+        <div className="modal-heading"><div className="modal-titles"><DialogPrimitive.Title asChild><h2>{title}</h2></DialogPrimitive.Title>{description ? <DialogPrimitive.Description className="modal-description">{description}</DialogPrimitive.Description> : null}</div></div>
+        {children}
+        {/* Last, as the app's dialogs have it: opening one puts the focus on its first control, not on Close. */}
+        <DialogPrimitive.Close asChild><IconButton icon="close" label="Close dialog" className="modal-close"/></DialogPrimitive.Close>
+      </DialogPrimitive.Content>
+    </DialogPrimitive.Portal>
+  </DialogPrimitive.Root>;
 }
 export function Waveform({values}: {values: number[]}) {
   if (!values.length) return null;
