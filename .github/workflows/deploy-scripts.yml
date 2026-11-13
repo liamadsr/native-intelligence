@@ -23,6 +23,9 @@ on:
       - 'web/src/lib/calls/caller.ts'
       # deploy/sandbox/tests pins the sandbox image to the app's version of the agent framework:
       - 'web/package.json'
+      # and the sandboxes' resolver to the names the coding agent allows, and to the address it points a narrowed sandbox at:
+      - 'web/agents/coding-agent/sandbox.ts'
+      - 'web/agents/coding-agent/lib/runtime-sandbox.ts'
 
 permissions:
   contents: read
@@ -41,4 +44,4 @@ jobs:
       - run: /usr/bin/python3 -m unittest discover -s deploy/supabase/tests -v
       - run: /usr/bin/python3 -m unittest discover -s deploy/sandbox/tests -v
       - run: for f in deploy/app/auto-deploy.sh deploy/app/check-settings.sh deploy/app/pull-settings.sh deploy/supabase/set-secret.sh deploy/livekit/make-keys.sh deploy/livekit/test-token.sh deploy/livekit/test-egress.sh deploy/sandbox/setup.sh deploy/sandbox/check.sh deploy/sandbox/tunnel.sh deploy/server/setup.sh; do bash -n "$f"; done
-      - run: sh -n deploy/sandbox/guard.sh
+      - run: sh -n deploy/sandbox/guard.sh && sh -n deploy/sandbox/resolver.sh
