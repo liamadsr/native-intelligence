@@ -138,6 +138,37 @@ describe('email arrivals', () => {
     expect(down.has('x')).toBe(true)
   })
 
+  it('Outlook: keyed on the internetMessageId, so a message that moved folders (a new Graph id) fires once', async () => {
+    const graph = (graphId: string) =>
+      vi.fn(async (url: string) => {
+        if (url.includes('mailFolders/junkemail')) return new Response(JSON.stringify({ id: 'junk-folder' }))
+        expect(url).toContain('internetMessageId')
+        return new Response(JSON.stringify({ parentFolderId: url.includes(graphId) ? 'archive-folder' : 'inbox-folder', internetMessageId: '<ref-881@acme.example>' }))
+      }) as unknown as typeof fetch
+    const input = { userId: 'u-ana', workspaceId: WS, provider: 'microsoft' as const, accountId: 'acct-1', threadIds: ['c1'], mailboxEmail: 'ana@fernhill.example', now: NOW, getAccessToken: async () => 'tok' }
+    // The same mail, first in the inbox, then (after an inbox rule moved it) under a new Graph id.
+    const before = await emailArrivals(db([ROW('c1', { provider: 'microsoft' })]), input, { fetchImpl: graph('none') })
+    const after = await emailArrivals(db([ROW('c1', { provider: 'microsoft', provider_message_id: 'c1-moved' })]), input, { fetchImpl: graph('c1-moved') })
+    expect(before[0].messageId).not.toBe(after[0].messageId)
+    for (const arrivals of [before, after]) {
+      await emitEmailReceived({ workspaceId: WS, userId: 'u-ana', provider: 'microsoft', accountId: 'acct-1', arrivals, firedAt: '2026-11-16T15:00:00Z' })
+    }
+    const ids = (sent.events as Array<Array<{ id: string }>>).map((batch) => batch[0].id)
+    expect(ids).toEqual(['email-received:u-ana:imid:<ref-881@acme.example>', 'email-received:u-ana:imid:<ref-881@acme.example>'])
+  })
+
+  it('Outlook: no internetMessageId from Graph keys on the Graph id, as before', async () => {
+    const fetchImpl = (async (url: string) =>
+      url.includes('mailFolders/junkemail') ? new Response(JSON.stringify({ id: 'junk-folder' })) : new Response(JSON.stringify({ parentFolderId: 'inbox-folder' }))) as unknown as typeof fetch
+    const out = await emailArrivals(
+      db([ROW('c1', { provider: 'microsoft' })]),
+      { userId: 'u-ana', workspaceId: WS, provider: 'microsoft', accountId: 'acct-1', threadIds: ['c1'], mailboxEmail: null, now: NOW, getAccessToken: async () => 'tok' },
+      { fetchImpl },
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0].stableId).toBeUndefined()
+  })
+
   it('one event per arrived message, keyed on the person and the message id', async () => {
     const n = await emitEmailReceived({
       workspaceId: WS,

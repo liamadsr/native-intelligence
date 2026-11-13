@@ -18,9 +18,13 @@ type Send = (events: Array<{ name: string; id: string; data: Record<string, unkn
  *   - recent (ARRIVAL_WINDOW_MS): an old thread touched for the first time
  *     (a label added to mail from before the import) is not new mail.
  * The first import and a full re-index never come through triage, so they
- * never emit. One event per arrived message, keyed on the provider's message
- * id, so a re-delivered push fires once. Only when the mailbox's person has an
- * enabled email_received loop in the workspace (nothing is read otherwise).
+ * never emit. One event per arrived message, keyed on a STABLE id of it, so
+ * a re-delivered push fires once: Gmail's message id; for Outlook the
+ * message's internetMessageId (its RFC 822 Message-ID), read in the same
+ * Graph call as the Junk check, because Graph's own message id changes when
+ * the message moves folders (an inbox rule, an archive), which would fire the
+ * loop again for the same mail. Only when the mailbox's person has an enabled
+ * email_received loop in the workspace (nothing is read otherwise).
  */
 
 /** How recent an arrival's newest message must be. */
@@ -30,8 +34,11 @@ const EXCLUDED_FOLDERS = new Set(['spam', 'trash', 'drafts', 'sent'])
 
 export interface EmailArrival {
   threadId: string
+  /** The provider's message id (Graph's changes when an Outlook message moves). */
   messageId: string
   fromEmail: string | null
+  /** The id the event is keyed on when it differs from messageId: an Outlook message's internetMessageId. */
+  stableId?: string
 }
 
 interface IndexRow {
@@ -43,10 +50,32 @@ interface IndexRow {
   last_message_at: string | null
 }
 
+/** Where an arrived Outlook message sits, and its stable id. */
+export interface OutlookMessagePlace {
+  junk: boolean
+  /** The message's internetMessageId (stable across folder moves), or null when Graph gave none. */
+  internetMessageId: string | null
+}
+
 /** Which arrived Outlook messages sit in Junk. Fails CLOSED: a message Graph won't place counts as junk. */
 export async function outlookJunkMessageIds(accessToken: string, messageIds: string[], fetchImpl: typeof fetch = fetch): Promise<Set<string>> {
-  const junk = new Set<string>()
-  if (messageIds.length === 0) return junk
+  const places = await outlookMessagePlaces(accessToken, messageIds, fetchImpl)
+  return new Set([...places].filter(([, p]) => p.junk).map(([id]) => id))
+}
+
+/**
+ * Each arrived Outlook message's folder (Junk or not) and internetMessageId,
+ * one Graph read per message. Fails CLOSED on the folder: a message Graph
+ * won't place counts as junk.
+ */
+export async function outlookMessagePlaces(
+  accessToken: string,
+  messageIds: string[],
+  fetchImpl: typeof fetch = fetch,
+): Promise<Map<string, OutlookMessagePlace>> {
+  const places = new Map<string, OutlookMessagePlace>()
+  if (messageIds.length === 0) return places
+  const junkPlace: OutlookMessagePlace = { junk: true, internetMessageId: null }
   const headers = { Authorization: `Bearer ${accessToken}` }
   let junkFolder: string | null = null
   try {
@@ -60,18 +89,20 @@ export async function outlookJunkMessageIds(accessToken: string, messageIds: str
   }
   for (const id of messageIds) {
     if (!junkFolder) {
-      junk.add(id)
+      places.set(id, junkPlace)
       continue
     }
     try {
-      const res = await fetchImpl(`https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(id)}?$select=parentFolderId`, { headers })
-      const folder = res.ok ? ((await res.json()) as { parentFolderId?: unknown }).parentFolderId : null
-      if (typeof folder !== 'string' || folder === junkFolder) junk.add(id)
+      const res = await fetchImpl(`https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(id)}?$select=parentFolderId,internetMessageId`, { headers })
+      const body = res.ok ? ((await res.json()) as { parentFolderId?: unknown; internetMessageId?: unknown }) : null
+      const folder = body?.parentFolderId
+      const internetMessageId = typeof body?.internetMessageId === 'string' && body.internetMessageId.trim() ? body.internetMessageId.trim() : null
+      places.set(id, { junk: typeof folder !== 'string' || folder === junkFolder, internetMessageId })
     } catch {
-      junk.add(id)
+      places.set(id, junkPlace)
     }
   }
-  return junk
+  return places
 }
 
 /**
@@ -126,8 +157,19 @@ export async function emailArrivals(
     if (input.provider === 'microsoft' && arrivals.length) {
       const token = input.getAccessToken ? await input.getAccessToken() : null
       if (!token) return []
-      const junk = await outlookJunkMessageIds(token, arrivals.map((a) => a.messageId), deps.fetchImpl)
-      return arrivals.filter((a) => !junk.has(a.messageId))
+      const places = await outlookMessagePlaces(token, arrivals.map((a) => a.messageId), deps.fetchImpl)
+      const stable = new Set<string>()
+      const out: EmailArrival[] = []
+      for (const a of arrivals) {
+        const place = places.get(a.messageId)
+        if (!place || place.junk) continue
+        // Keyed on the internetMessageId when Graph gave one (a moved message keeps it).
+        const key = place.internetMessageId ? `imid:${place.internetMessageId}` : null
+        if (key && stable.has(key)) continue
+        if (key) stable.add(key)
+        out.push(key ? { ...a, stableId: key } : a)
+      }
+      return out
     }
     return arrivals
   } catch (err) {
@@ -136,13 +178,13 @@ export async function emailArrivals(
   }
 }
 
-/** The event for one arrived message (its id is the message's: a re-delivered push fires once). */
+/** The event for one arrived message (its id is the message's stable id: a re-delivered push, or a moved Outlook message, fires once). */
 export function emailReceivedEvent(
   args: { workspaceId: string; userId: string; provider: 'google' | 'microsoft'; accountId: string | null; arrival: EmailArrival; firedAt: string },
 ) {
   return {
     name: 'flow/email.received',
-    id: `email-received:${args.userId}:${args.arrival.messageId}`,
+    id: `email-received:${args.userId}:${args.arrival.stableId ?? args.arrival.messageId}`,
     data: {
       workspace_id: args.workspaceId,
       user_id: args.userId,
