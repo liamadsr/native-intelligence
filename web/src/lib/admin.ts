@@ -1,4 +1,5 @@
-import { createClient as createSupabaseClient, type SupabaseClient, type User } from '@supabase/supabase-js'
+import type { SupabaseClient, User } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { adminEmails, isAdminEmail } from './admin-emails'
@@ -67,7 +68,7 @@ export async function hasAdminAssurance(
  */
 export function getServiceClient(options?: { agentFor?: string | null }) {
   const agentFor = options?.agentFor
-  return createSupabaseClient(
+  return createStatelessClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     agentFor ? { global: { headers: agentActivityHeaders(agentFor) } } : undefined,
@@ -116,10 +117,10 @@ export async function getAdminServiceClient() {
   if (!config.url() || !config.serviceRoleKey()) {
     env = 'development'
     const fallback = SUPABASE_CONFIGS.development
-    return createSupabaseClient(fallback.url(), fallback.serviceRoleKey())
+    return createStatelessClient(fallback.url(), fallback.serviceRoleKey())
   }
 
-  return createSupabaseClient(config.url(), config.serviceRoleKey())
+  return createStatelessClient(config.url(), config.serviceRoleKey())
 }
 
 /**

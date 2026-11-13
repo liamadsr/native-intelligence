@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { createClient as createBareClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { browserOrigin } from '@/lib/auth/post-auth-redirect'
 import { demoSupabaseTarget, isDemoUserEmail, isLocalHostname } from '@/lib/demo/demo-workspace-guard'
 import { createClient } from '@/lib/supabase/server'
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
   // Redeem the token on a client that keeps nothing, so no cookie is written
   // until we know whose session it is. Only the demo person's is then set on
   // the browser; anyone else's is dropped, never stored.
-  const bare = createBareClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  const bare = createStatelessClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   })
   const { data, error } = await bare.auth.verifyOtp({ token_hash: tokenHash, type: 'magiclink' })

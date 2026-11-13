@@ -15,7 +15,7 @@
  * every former `buildRedirect('oauth/error', …)` is now an `{ ok: false }`
  * result the caller renders as a redirect (web) or JSON (desktop).
  */
-import { createClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { OAUTH_CONFIG, getScopesForCapability, getRedirectUri, isPkceProvider, type OAuthProvider, type OAuthCapability } from '@/lib/oauth/config'
 import { pkceVerifier } from '@/lib/oauth/pkce'
 import { startConnectedImport } from '@/lib/crm/import/connected'
@@ -129,7 +129,7 @@ export async function completeOAuthConnect(input: CompleteConnectInput): Promise
     const email = await getUserEmail(provider, tokens.access_token)
 
     // Store tokens using service role
-    const supabase = createClient(
+    const supabase = createStatelessClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )
