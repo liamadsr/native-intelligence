@@ -1,5 +1,5 @@
 /**
- * Migration 644: joining a workspace. Pins the file: the three service-only
+ * Migration 645: joining a workspace. Pins the file: the three service-only
  * tables (RLS on, no policies, everything revoked from anon and
  * authenticated and nothing granted back), listed domains stored lowercased
  * ASCII with a plain (not unique) index, the token's shape, member.joined_via
@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest'
 import { latestDefinition } from '@/test/migration-sql'
 
 const DIR = join(process.cwd(), 'supabase/migrations')
-const FILE = '644_workspace_join.sql'
+const FILE = '645_workspace_join.sql'
 const SQL = readFileSync(join(DIR, FILE), 'utf8')
 const STATEMENTS = SQL.split('\n')
   .filter((l) => !l.trim().startsWith('--'))
@@ -28,10 +28,10 @@ const STATEMENTS = SQL.split('\n')
   .filter(Boolean)
 const BODY = STATEMENTS.join(';\n')
 
-describe('migration 644', () => {
-  it('is the only 644, holds no backslash, and takes its locks with a timeout', () => {
+describe('migration 645', () => {
+  it('is the only 645, holds no backslash, and takes its locks with a timeout', () => {
     const numbers = readdirSync(DIR).map((f) => Number(f.split('_')[0]))
-    expect(numbers.filter((n) => n === 644)).toHaveLength(1)
+    expect(numbers.filter((n) => n === 645)).toHaveLength(1)
     expect(SQL).not.toContain('\\')
     expect(STATEMENTS[0]).toBe("SET LOCAL lock_timeout = '5s'")
   })
@@ -102,7 +102,7 @@ describe('migration 644', () => {
     ).blocks.join('\n')
     expect(before).not.toBe('')
     const added = [
-      '  -- Joining (644): the source\'s link, listed domains and switches end with',
+      '  -- Joining (645): the source\'s link, listed domains and switches end with',
       '  -- it. They are never handed to the destination, which keeps its own.',
       '  DELETE FROM public.workspace_join_link WHERE workspace_id = p_source;',
       '  DELETE FROM public.workspace_join_domain WHERE workspace_id = p_source;',

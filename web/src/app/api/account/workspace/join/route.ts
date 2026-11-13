@@ -1,5 +1,5 @@
 /**
- * The current workspace's joining settings (migration 644):
+ * The current workspace's joining settings (migration 645):
  *
  *   GET    what the caller may see: the switches, the listed domains, and
  *          the link's address only when they may copy it (owners and admins;

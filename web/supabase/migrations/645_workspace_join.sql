@@ -1,5 +1,5 @@
 -- ============================================================
--- 644: Getting a team into a workspace
+-- 645: Getting a team into a workspace
 -- ============================================================
 -- Three ways in besides the emailed invite, all OFF until an owner or admin
 -- switches them on (src/lib/workspace-join/):
@@ -63,7 +63,7 @@ revoke all on table public.workspace_join_settings from anon, authenticated;
 grant all on table public.workspace_join_settings to service_role;
 
 comment on table public.workspace_join_settings is
-  'The members_can_invite switch (644). Service role only.';
+  'The members_can_invite switch (645). Service role only.';
 
 -- ------------------------------------------------------------
 -- 2. The domains people may join by, with one click
@@ -99,7 +99,7 @@ revoke all on table public.workspace_join_domain from anon, authenticated;
 grant all on table public.workspace_join_domain to service_role;
 
 comment on table public.workspace_join_domain is
-  'Domains whose verified addresses may join this workspace with one click (644). Service role only; the app derives each from the verified address of the owner or admin who switched it on.';
+  'Domains whose verified addresses may join this workspace with one click (645). Service role only; the app derives each from the verified address of the owner or admin who switched it on.';
 
 -- ------------------------------------------------------------
 -- 3. The shareable link
@@ -127,7 +127,7 @@ revoke all on table public.workspace_join_link from anon, authenticated;
 grant all on table public.workspace_join_link to service_role;
 
 comment on table public.workspace_join_link is
-  'A workspace''s reusable invite link (/join/<token>). Service role only (644): the token is read through an API route that checks the caller''s role, never from the workspace row.';
+  'A workspace''s reusable invite link (/join/<token>). Service role only (645): the token is read through an API route that checks the caller''s role, never from the workspace row.';
 
 -- ------------------------------------------------------------
 -- 4. How each member joined
@@ -137,7 +137,7 @@ alter table public.member
     constraint member_joined_via_check check (joined_via is null or joined_via in ('invite', 'link', 'domain'));
 
 comment on column public.member.joined_via is
-  'How this person joined: invite, link or domain (644). Null for owners and for everyone who joined before 644. Written by the server only.';
+  'How this person joined: invite, link or domain (645). Null for owners and for everyone who joined before 645. Written by the server only.';
 
 -- The server (service role, or no request at all) writes it; a client's
 -- update that changes it is refused. Fires only when the column is named in
@@ -161,7 +161,7 @@ end;
 $$;
 
 comment on function public.member_guard_joined_via() is
-  'BEFORE UPDATE OF joined_via on member (644). Unless the caller is the service role or has no request context, joined_via never changes.';
+  'BEFORE UPDATE OF joined_via on member (645). Unless the caller is the service role or has no request context, joined_via never changes.';
 
 drop trigger if exists member_guard_joined_via on public.member;
 create trigger member_guard_joined_via
@@ -181,7 +181,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
 DECLARE r record; n int; v_out jsonb := '{}'::jsonb;
 BEGIN
-  -- Joining (644): the source's link, listed domains and switches end with
+  -- Joining (645): the source's link, listed domains and switches end with
   -- it. They are never handed to the destination, which keeps its own.
   DELETE FROM public.workspace_join_link WHERE workspace_id = p_source;
   DELETE FROM public.workspace_join_domain WHERE workspace_id = p_source;

@@ -20,9 +20,9 @@ describe('migration 421: cloud_browser', () => {
 
   it('keeps cloud_browser out of the workspace merge re-stamp (in the latest definition)', () => {
     const { file, blocks } = latestDefinition('_wsmerge_generic_restamp')
-    // 473 (deals) redefines it to fold deals first, and 644 (joining) to drop
+    // 473 (deals) redefines it to fold deals first, and 645 (joining) to drop
     // the source's join link and domain claim, both keeping this list as is.
-    expect(['421_cloud_browser.sql', '473_deals_pipelines_custom_fields.sql', '644_workspace_join.sql']).toContain(file)
+    expect(['421_cloud_browser.sql', '473_deals_pipelines_custom_fields.sql', '645_workspace_join.sql']).toContain(file)
     expect(blocks.join('\n')).toContain("NOT IN ('workspace', 'workspace_move_log', 'workspace_merge', 'cloud_browser')")
   })
 })

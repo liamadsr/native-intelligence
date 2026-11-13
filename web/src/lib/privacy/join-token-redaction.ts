@@ -1,5 +1,5 @@
 /**
- * A workspace join link (/join/<token>, migration 644) lets anyone holding it
+ * A workspace join link (/join/<token>, migration 645) lets anyone holding it
  * into the workspace, so its token must never reach analytics or error
  * reports. These helpers blank it in any string, plain or URL-encoded (as it
  * appears in a `redirect=` value, once or twice encoded), and walk an event

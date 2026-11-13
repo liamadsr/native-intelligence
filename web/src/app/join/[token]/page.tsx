@@ -13,7 +13,7 @@ export const metadata = {
 }
 
 /**
- * A workspace's shareable invite link (/join/<token>, migration 644). Signed
+ * A workspace's shareable invite link (/join/<token>, migration 645). Signed
  * out, the page sends the person through sign-in and back here (the
  * invite_redirect cookie, src/lib/auth/post-auth-redirect.ts); signed in, one
  * click joins (POST /api/account/workspace/join/accept). A link that is off,

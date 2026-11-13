@@ -91,7 +91,7 @@ interface Member {
   role: string
   email: string
   created_at: string
-  /** How they joined (migration 644): 'invite', 'link', 'domain', or null. */
+  /** How they joined (migration 645): 'invite', 'link', 'domain', or null. */
   joined_via?: string | null
 }
 

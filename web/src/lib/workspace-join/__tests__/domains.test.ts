@@ -65,9 +65,9 @@ describe('blocked domains', () => {
     for (const d of ['comcast.net', 'duck.com']) expect(isFreeEmailDomain(`someone@${d}`), d).toBe(true)
   })
 
-  it('does not touch the signup gate’s SQL list either: 644 does not restate it, and relays are not in it', () => {
+  it('does not touch the signup gate’s SQL list either: 645 does not restate it, and relays are not in it', () => {
     const { file, blocks } = latestDefinition('is_free_email_domain')
-    expect(file).not.toBe('644_workspace_join.sql')
+    expect(file).not.toBe('645_workspace_join.sql')
     const sql = blocks.join('\n')
     expect(sql).toContain("'gmail.com'")
     expect(sql).toContain("'comcast.net'")

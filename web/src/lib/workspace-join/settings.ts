@@ -1,5 +1,5 @@
 /**
- * The joining switches, listed domains and the join link (migration 644).
+ * The joining switches, listed domains and the join link (migration 645).
  * All three tables are the service role's alone, so every read and write
  * here takes the service client; the API routes check the caller's role first.
  *

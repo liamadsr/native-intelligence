@@ -31,7 +31,7 @@ export async function GET() {
  *
  * Owners and admins invite as admin, member or guest. A member may invite
  * too while the workspace's "members can invite people" switch is on
- * (migration 644), as member or guest only; guests never can. The rule is
+ * (migration 645), as member or guest only; guests never can. The rule is
  * decideInvite (src/lib/workspace-join/roles.ts). A member's invite is
  * written with the service role, since invite RLS (028) lets only owners and
  * admins write; an owner's or admin's still goes through their own session.

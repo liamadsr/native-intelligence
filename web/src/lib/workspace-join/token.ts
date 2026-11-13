@@ -1,6 +1,6 @@
 /**
  * A workspace join link's token: 32 bytes from the CSPRNG, base64url (43
- * url-safe characters, 256 bits). Migration 644's CHECK accepts 22 to 128
+ * url-safe characters, 256 bits). Migration 645's CHECK accepts 22 to 128
  * url-safe characters, so anything shorter than 128 bits is refused there too.
  */
 import { randomBytes } from 'node:crypto'

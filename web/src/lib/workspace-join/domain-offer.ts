@@ -2,7 +2,7 @@
  * Join by email domain, with one click.
  *
  * A workspace's owners and admins list their own verified domain
- * (workspace_join_domain, migration 644). After signing in, a person whose
+ * (workspace_join_domain, migration 645). After signing in, a person whose
  * VERIFIED address is on a listed domain is shown those workspaces on
  * /join/team, each with a Join button and a "Not now". Nobody is ever added
  * without the click.
