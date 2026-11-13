@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClientOptions } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient, type SupabaseClientOptions } from '@supabase/supabase-js'
 
 /**
  * The auth settings every server-side supabase-js client needs.
@@ -31,7 +31,7 @@ type ClientOptions = SupabaseClientOptions<'public'>
  * refresh ticker back on). Server code never imports supabase-js's `createClient`
  * directly: `__tests__/stateless.test.ts` fails if it does.
  */
-export function createStatelessClient(url: string, key: string, options?: ClientOptions) {
+export function createStatelessClient(url: string, key: string, options?: ClientOptions): SupabaseClient {
   return createClient(url, key, {
     ...options,
     auth: { ...options?.auth, ...STATELESS_AUTH },

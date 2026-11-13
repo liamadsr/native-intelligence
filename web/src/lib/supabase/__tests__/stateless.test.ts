@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { createStatelessClient, STATELESS_AUTH } from '@/lib/supabase/stateless'
 
 // supabase-js's auth client, in Node, starts its token auto-refresh ticker
@@ -23,7 +23,7 @@ function refreshTickerCalls(spy: { mock: { calls: unknown[][] } }) {
 }
 
 describe('createStatelessClient', () => {
-  const made: Array<ReturnType<typeof createClient>> = []
+  const made: SupabaseClient[] = []
   afterEach(async () => {
     // A default client's ticker would keep running between tests otherwise.
     await Promise.all(made.splice(0).map((c) => c.auth.stopAutoRefresh()))
