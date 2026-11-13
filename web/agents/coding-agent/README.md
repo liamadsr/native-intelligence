@@ -111,8 +111,10 @@ and at run time alike (the build and the running agent must agree;
    hosted platform, or one URL without the other, refuses to load.
    **What production uses since 2026-11-12** (the settings on the server, a build
    and a roll-out). `scripts/runtime-conformance.mts` has passed against the real
-   runtime and a sandbox has been started from production's container; no whole
-   coding run has been watched on it yet (`deploy/README.md`, "The coding agent").
+   runtime, and a whole coding run was watched on it on 2026-11-13 (started from
+   chat: clone and push through the git gate, pull request opened, sandbox removed
+   at the end); the `restricted` and `isolated` levels have not run on it
+   (`deploy/README.md`, "The coding agent").
    Two things this runtime does differently from the hosted one, both seen on it:
    - A narrowed level (`restricted`, `isolated`) is a list of allowed names, and
      with any name allowed the runtime leaves the sandbox's resolver (8.8.8.8)

@@ -63,8 +63,11 @@ Read this before reporting anything as live or touching production. The code gui
   gate token sits inside the sandbox, so the gate takes it only from the sandbox
   server's addresses (`AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES`). Proven live on
   2026-11-12: a sandbox started from production's coding agent container, and the
-  gate's address rule from both sides. NOT yet proven: a whole coding run on our
-  runtime, and the `restricted` and `isolated` levels on any sandbox ("The coding
+  gate's address rule from both sides. Proven live on 2026-11-13: a whole coding run
+  on our runtime, started from chat (the clone and the push through the git gate from
+  the sandbox server's address, the reviewer's approval, the pull request, the sandbox
+  removed at the end; its level was not read: `trusted` unless its environment narrows
+  it). NOT yet proven: the `restricted` and `isolated` levels on any sandbox ("The coding
   agent" in `deploy/README.md` lists the checks to do first; on our runtime a narrowed
   level still leaves the sandbox's DNS resolver reachable, so `isolated` does not yet
   mean "nothing gets out"). On the hosted service a `trusted` run was proven live on
