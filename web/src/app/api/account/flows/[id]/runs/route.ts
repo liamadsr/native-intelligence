@@ -5,10 +5,15 @@
  * guarantees that one run is in the response even when it has aged out of the
  * page — a notification deep link lands on a specific run, which may be older
  * than the newest N. The included run is appended (it is older than the page).
+ *
+ * A loop on its owner's mail, chat or documents: only its owner reads its runs
+ * (migration 640's policy, restated here in code). Anyone else gets no runs
+ * and `owner_only: true`, which the history pane says in words.
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspaceMember } from '@/lib/api-auth'
 import { notFound, serverError } from '@/lib/api-errors'
+import { OWNER_ONLY_RUNS_NOTE, canReadFlowRuns } from '@/lib/flows/types'
 
 const RUN_SELECT = `
   id, flow_id, triggered_by_action_id, status,
@@ -24,17 +29,20 @@ export async function GET(
 ) {
   const auth = await requireWorkspaceMember()
   if (auth instanceof Response) return auth
-  const { supabase, workspaceId } = auth
+  const { supabase, user, workspaceId } = auth
   const { id } = await params
 
   // Verify the flow belongs to this workspace before exposing run history.
   const { data: flow } = await supabase
     .from('flow')
-    .select('id')
+    .select('id, trigger_type, created_by')
     .eq('id', id)
     .eq('workspace_id', workspaceId)
     .maybeSingle()
   if (!flow) return notFound('Flow not found')
+  if (!canReadFlowRuns(flow as { trigger_type?: string; created_by?: string | null }, user.id)) {
+    return NextResponse.json({ runs: [], owner_only: true, note: OWNER_ONLY_RUNS_NOTE })
+  }
 
   const url = new URL(request.url)
   const limitRaw = Number.parseInt(url.searchParams.get('limit') ?? '20', 10)

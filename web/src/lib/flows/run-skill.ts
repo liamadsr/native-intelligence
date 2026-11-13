@@ -62,6 +62,7 @@ import { resolveWorkspaceEdition } from '@/lib/editions'
 import { workspaceWordsSection } from '@/lib/customers/business-words'
 import type { RunSkillExecutor, RunSkillExecutionResult } from './runner'
 import type { RequestSummary, RunSkillActionConfig, VerdictLedger } from './types'
+import { isOwnerEventTrigger } from './types'
 import { connectorInstruction, isStructuredConnector, parseConnectorOutput, type PostSurface, type StructuredConnector } from './output-connectors'
 import { deliverConnectorItems } from './deliver-connector'
 import { runReadOutsideText, type ToolRead } from './run-outside-reads'
@@ -543,7 +544,11 @@ export interface SkillRunSpec {
    * a draft to anyone else is refused.
    */
   askedBy?: { askers: Array<{ email: string; name: string | null; company: string | null }> }
-  /** P9: the report document is private to the loop's owner (the newsletter draft). */
+  /**
+   * The report document is private to the loop's owner: P9's newsletter
+   * draft, and every run of a loop on the owner's own mail, chat or
+   * documents (what it writes summarizes them).
+   */
   privateReport?: boolean
 }
 
@@ -1012,9 +1017,18 @@ async function assembleSkillRun(
       ...(ctx.readOutsideText ? { readOutsideBefore: true } : {}),
       ...(material?.postWeek ? { postWeek: material.postWeek } : {}),
       ...(material?.askedBy ? { askedBy: material.askedBy } : {}),
-      ...(material?.privateReport ? { privateReport: true } : {}),
+      ...(reportIsPrivate(material, ctx.trigger) ? { privateReport: true } : {}),
     },
   }
+}
+
+/**
+ * Whether the run's report document is private to the loop's owner: the
+ * material asked for it (P9's newsletter draft), or the fire came from the
+ * owner's own mail, chat or documents, which its report summarizes.
+ */
+export function reportIsPrivate(material: { privateReport?: boolean } | null | undefined, trigger: { type?: unknown } | null | undefined): boolean {
+  return !!material?.privateReport || isOwnerEventTrigger(trigger?.type)
 }
 
 /**

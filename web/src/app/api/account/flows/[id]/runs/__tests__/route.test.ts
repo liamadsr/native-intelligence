@@ -13,6 +13,7 @@ import { readJson } from '@/test/integration'
 const hoisted = vi.hoisted(() => ({
   page: [] as Array<{ id: string }>,
   extra: null as { id: string } | null,
+  flow: { id: 'flow-1' } as Record<string, unknown>,
   /** Every (table, eq-args) pair the route issued, in order. */
   queries: [] as Array<{ table: string; eqs: unknown[][]; terminal: 'list' | 'maybeSingle' }>,
 }))
@@ -32,7 +33,7 @@ function makeFakeSupabase() {
         // The flow fence + the include lookup end in maybeSingle.
         maybeSingle: vi.fn(async () => {
           hoisted.queries.push({ table, eqs, terminal: 'maybeSingle' })
-          if (table === 'flow') return { data: { id: 'flow-1' }, error: null }
+          if (table === 'flow') return { data: hoisted.flow, error: null }
           return { data: hoisted.extra, error: null }
         }),
         // The page query is awaited directly.
@@ -65,6 +66,7 @@ beforeEach(() => {
   hoisted.queries.length = 0
   hoisted.page = [{ id: 'run-3' }, { id: 'run-2' }]
   hoisted.extra = null
+  hoisted.flow = { id: 'flow-1' }
 })
 
 describe('GET /api/account/flows/[id]/runs — include', () => {
@@ -100,6 +102,34 @@ describe('GET /api/account/flows/[id]/runs — include', () => {
     hoisted.extra = null
     const res = await GET(req('?include=run-foreign'), { params })
     const body = await readJson<{ runs: Array<{ id: string }> }>(res)
+    expect(body.runs.map((r) => r.id)).toEqual(['run-3', 'run-2'])
+  })
+})
+
+describe("GET /api/account/flows/[id]/runs — the owner's event loops", () => {
+  for (const trigger_type of ['email_received', 'chat_message', 'document_created']) {
+    it(`${trigger_type}: another member gets no runs and the owner_only note, and no run is read`, async () => {
+      hoisted.flow = { id: 'flow-1', trigger_type, created_by: 'user-owner' }
+      const res = await GET(req('?include=run-old'), { params })
+      expect(res.status).toBe(200)
+      const body = await readJson<{ runs: unknown[]; owner_only?: boolean; note?: string }>(res)
+      expect(body.runs).toEqual([])
+      expect(body.owner_only).toBe(true)
+      expect(body.note).toMatch(/Only this loop's owner/)
+      expect(hoisted.queries.filter((q) => q.table === 'flow_run')).toHaveLength(0)
+    })
+
+    it(`${trigger_type}: its owner reads them`, async () => {
+      hoisted.flow = { id: 'flow-1', trigger_type, created_by: 'user-1' }
+      const body = await readJson<{ runs: Array<{ id: string }>; owner_only?: boolean }>(await GET(req(), { params }))
+      expect(body.runs.map((r) => r.id)).toEqual(['run-3', 'run-2'])
+      expect(body.owner_only).toBeUndefined()
+    })
+  }
+
+  it("any other loop's runs stay readable by every member", async () => {
+    hoisted.flow = { id: 'flow-1', trigger_type: 'schedule', created_by: 'user-owner' }
+    const body = await readJson<{ runs: Array<{ id: string }> }>(await GET(req(), { params }))
     expect(body.runs.map((r) => r.id)).toEqual(['run-3', 'run-2'])
   })
 })

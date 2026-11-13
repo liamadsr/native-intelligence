@@ -30,6 +30,54 @@ export type FlowTriggerType =
 export const OWNER_EVENT_TRIGGER_TYPES = ['email_received', 'chat_message', 'document_created'] as const
 export type OwnerEventTriggerType = (typeof OWNER_EVENT_TRIGGER_TYPES)[number]
 
+/** One of the owner's event triggers (their mail, chat, documents). */
+export function isOwnerEventTrigger(triggerType: unknown): triggerType is OwnerEventTriggerType {
+  return typeof triggerType === 'string' && (OWNER_EVENT_TRIGGER_TYPES as readonly string[]).includes(triggerType)
+}
+
+/**
+ * Whether `userId` may read this loop's runs and what they produced (flow_run
+ * rows, their step results and output previews). A loop on the owner's event
+ * triggers summarizes the owner's own mail, DMs or documents: only its owner
+ * (created_by) reads its runs. Every other loop's runs are the workspace's,
+ * as before. The same rule as migration 640's flow_run read policy, for the
+ * reads that run on the service role.
+ */
+export function canReadFlowRuns(flow: { trigger_type?: unknown; created_by?: string | null } | null | undefined, userId: string | null | undefined): boolean {
+  if (!flow) return false
+  if (!isOwnerEventTrigger(flow.trigger_type)) return true
+  return !!userId && flow.created_by === userId
+}
+
+/**
+ * A loop's trigger config as `viewer` may see it. The owner's event triggers
+ * name the owner's own things: the channel a chat loop watches (possibly a
+ * DM) and the sender a mail loop waits for. Anyone but the owner gets the
+ * config without them ("a channel"; a mail loop's sender filter left out).
+ * Every other trigger, and the owner, get it as stored.
+ */
+export function triggerConfigForViewer(
+  triggerType: unknown,
+  config: unknown,
+  isOwner: boolean,
+): Record<string, unknown> {
+  const cfg = (config && typeof config === 'object' ? config : {}) as Record<string, unknown>
+  if (isOwner || !isOwnerEventTrigger(triggerType)) return cfg
+  if (triggerType === 'chat_message') {
+    const { channel_id, ...rest } = cfg
+    return { ...rest, channel: channel_id === null || channel_id === undefined ? 'any channel' : 'a channel' }
+  }
+  if (triggerType === 'email_received') {
+    const { from: _from, ...rest } = cfg
+    void _from
+    return rest
+  }
+  return cfg
+}
+
+/** What a member who may not read a loop's runs is told instead of them. */
+export const OWNER_ONLY_RUNS_NOTE = "Only this loop's owner can see its runs: it starts on their own mail, chat or documents."
+
 export type FlowActionType = 'http_post' | 'run_skill' | 'run_agent' | 'archive_capture' | 'call_tool' | 'run_local_agent'
 
 /**

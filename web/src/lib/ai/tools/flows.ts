@@ -130,6 +130,7 @@ import type {
   RunSkillActionConfig,
   ScheduleTriggerConfig,
 } from '@/lib/flows/types'
+import { OWNER_ONLY_RUNS_NOTE, canReadFlowRuns, triggerConfigForViewer } from '@/lib/flows/types'
 import {
   approvedFlowCard,
   classifyStepEdit,
@@ -998,7 +999,12 @@ async function resolveFlowTeam(
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
-function describeTrigger(type: string, cfg: FlowTriggerConfig): string {
+/**
+ * The trigger in words. `isOwner` false (the reader is not the loop's owner):
+ * the owner's event triggers leave out what is the owner's own, the channel a
+ * chat loop watches (possibly a DM) and a mail loop's sender filter.
+ */
+export function describeTrigger(type: string, cfg: FlowTriggerConfig, isOwner = true): string {
   switch (type) {
     case 'schedule': {
       const s = cfg as ScheduleTriggerConfig
@@ -1028,16 +1034,21 @@ function describeTrigger(type: string, cfg: FlowTriggerConfig): string {
     case 'quote_received':
       return "When a customer's quote arrives from the website"
     case 'email_received': {
+      if (!isOwner) return "When new email arrives in its owner's inbox"
       const from = (cfg as EmailReceivedTriggerConfig).from
       return `When new mail arrives in your inbox${from ? ` from ${from}` : ''}`
     }
     case 'chat_message': {
       const c = cfg as ChatMessageTriggerConfig
+      if (!isOwner) {
+        if (c.channel_id === null) return 'When someone @mentions its owner in any team chat channel'
+        return `When someone ${c.mentions_only ? '@mentions its owner' : 'posts'} in a channel`
+      }
       if (c.channel_id === null) return 'When someone @mentions you in any team chat channel'
       return `When someone ${c.mentions_only ? '@mentions you' : 'posts'} in the team chat channel ${c.channel_id}`
     }
     case 'document_created':
-      return 'When someone creates a document you can see'
+      return isOwner ? 'When someone creates a document you can see' : 'When someone creates a document its owner can see'
     default: {
       const e = cfg as EntityStatusChangeTriggerConfig
       return `When ${e.entity_type ?? 'action'} status moves${e.from_status_id ? ` from ${e.from_status_id}` : ''} to ${e.to_status_id}`
@@ -1135,8 +1146,10 @@ function flowReport(args: {
   enabled: boolean
   awaiting: boolean
   nextRunAt: string | null | undefined
+  /** The caller owns the loop (default): else the owner's own trigger details stay out. */
+  isOwner?: boolean
 }): Record<string, unknown> {
-  const parts = [`${describeTrigger(args.triggerType, args.config)} → ${args.actions.map((a) => describeAction(a, args.skillNames)).join('; ')}`]
+  const parts = [`${describeTrigger(args.triggerType, args.config, args.isOwner ?? true)} → ${args.actions.map((a) => describeAction(a, args.skillNames)).join('; ')}`]
   if (args.triggerType === 'schedule' && args.nextRunAt) {
     parts.push(`next run ${localTime(args.nextRunAt, (args.config as ScheduleTriggerConfig).timezone)}`)
   }
@@ -1451,7 +1464,17 @@ export function createFlowTools(
         const rows = (data || []) as Array<Record<string, unknown>>
         const owners = await flowOwners(supabase, workspaceId, rows.map((r) => (r.created_by as string | null) ?? null))
         return {
-          flows: rows.map((row) => ({ ...toPublicFlow(row), owner: ownerOf(row.created_by as string | null, owners) })),
+          flows: rows.map((row) => {
+            const flow = toPublicFlow(row)
+            // The owner's event loops: their channel and sender filter are the owner's to see.
+            const isOwner = row.created_by === userId
+            return {
+              ...flow,
+              trigger_config: triggerConfigForViewer(flow.trigger_type, flow.trigger_config, isOwner) as typeof flow.trigger_config,
+              trigger: describeTrigger(flow.trigger_type, flow.trigger_config, isOwner),
+              owner: ownerOf(row.created_by as string | null, owners),
+            }
+          }),
         }
       },
     }),
@@ -1900,7 +1923,9 @@ export function createFlowTools(
         if (service && previousBotId && previousBotId !== updates.ai_team_member_id) {
           await retireWorkBotIfUnused(service, { workspaceId: targetWs, teammateId: previousBotId })
         }
-        const flow = toPublicFlow(data as Record<string, unknown>)
+        const stored = toPublicFlow(data as Record<string, unknown>)
+        // The owner's event loops: their channel and sender filter are the owner's to see.
+        const flow = { ...stored, trigger_config: triggerConfigForViewer(stored.trigger_type, stored.trigger_config, ownerId === userId) as typeof stored.trigger_config }
         // A non-owner can't switch on a risky loop alone (F1 review): it runs
         // as its owner, with their data and connections, so the card is the
         // RUN-AS owner's to accept, in their queue (its creator while still a
@@ -1936,6 +1961,7 @@ export function createFlowTools(
             // person's yes (or, raised below, their card).
             awaiting: changesWhatRuns && !card,
             nextRunAt,
+            isOwner: ownerId === userId,
           }),
           ...cardReport,
           ...brief,
@@ -2248,7 +2274,7 @@ export function createFlowTools(
         let q = supabase
           .from('flow_run')
           .select(
-            'id, flow_id, triggered_by_action_id, status, action_results, request_summary, response_status_code, response_body_preview, error_message, fired_at, duration_ms, flow:flow!inner(workspace_id, name)',
+            'id, flow_id, triggered_by_action_id, status, action_results, request_summary, response_status_code, response_body_preview, error_message, fired_at, duration_ms, flow:flow!inner(workspace_id, name, trigger_type, created_by)',
           )
           .eq('flow.workspace_id', runsWs)
           .order('fired_at', { ascending: false })
@@ -2257,7 +2283,19 @@ export function createFlowTools(
         if (status) q = q.eq('status', status)
         const { data, error } = await q
         if (error) return { error: error.message }
-        return { runs: data || [], count: (data || []).length, ...(runsWs !== workspaceId ? { workspace_id: runsWs } : {}) }
+        // A loop on the owner's mail, chat or documents: its runs are the
+        // owner's alone (migration 640's policy, restated for any client).
+        type RunRow = Record<string, unknown> & { flow?: { workspace_id?: string; name?: string | null; trigger_type?: string; created_by?: string | null } | null }
+        const rows = (data || []) as RunRow[]
+        const readable = rows.filter((r) => canReadFlowRuns(r.flow, userId))
+        const hidden = rows.length - readable.length
+        const runs = readable.map(({ flow, ...run }) => ({ ...run, flow: flow ? { workspace_id: flow.workspace_id, name: flow.name ?? null } : null }))
+        return {
+          runs,
+          count: runs.length,
+          ...(hidden ? { note: OWNER_ONLY_RUNS_NOTE } : {}),
+          ...(runsWs !== workspaceId ? { workspace_id: runsWs } : {}),
+        }
       },
     }),
 
@@ -2269,14 +2307,18 @@ export function createFlowTools(
         const { data, error } = await supabase
           .from('flow_run')
           .select(
-            'id, flow_id, triggered_by_action_id, status, action_results, request_summary, response_status_code, response_body_preview, error_message, fired_at, duration_ms, flow:flow!inner(workspace_id, name, actions)',
+            'id, flow_id, triggered_by_action_id, status, action_results, request_summary, response_status_code, response_body_preview, error_message, fired_at, duration_ms, flow:flow!inner(workspace_id, name, actions, trigger_type, created_by)',
           )
           .eq('id', run_id)
           .maybeSingle()
         if (error) return { success: false, error: 'Could not read that run. Try again.' }
-        const row = data as (Record<string, unknown> & { flow?: { workspace_id?: string; name?: string | null; actions?: unknown } | null }) | null
+        const row = data as
+          | (Record<string, unknown> & { flow?: { workspace_id?: string; name?: string | null; actions?: unknown; trigger_type?: string; created_by?: string | null } | null })
+          | null
         const runWs = row?.flow?.workspace_id
         if (!row || !runWs) return { success: false, error: 'Run not found' }
+        // The owner's event loops: their runs are the owner's alone.
+        if (!canReadFlowRuns(row.flow, userId)) return { success: false, error: OWNER_ONLY_RUNS_NOTE }
         // The run's own workspace: the caller must be a member (and, fenced, it must be this one).
         if (runWs !== workspaceId) {
           if (strictWorkspace) return { success: false, error: 'Run not found' }
