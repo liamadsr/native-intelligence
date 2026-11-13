@@ -3,9 +3,9 @@
  * tables (RLS on, no policies, everything revoked from anon and
  * authenticated and nothing granted back), listed domains stored lowercased
  * ASCII with a plain (not unique) index, the token's shape, member.joined_via
- * with its CHECK and its guard, is_free_email_domain restated from 241 with
- * the relay and ISP domains added, and the merge re-stamp restated from 473
- * with only the three deletes added. Re-runnable, bounded, no backslash.
+ * with its CHECK and its guard, the signup gate's is_free_email_domain left
+ * alone, and the merge re-stamp restated from 473 with only the three
+ * deletes added. Re-runnable, bounded, no backslash.
  *
  * The SQL was also applied twice on PGlite (a real Postgres engine, one
  * connection, stubbed roles and auth schema) with RLS, grants, the unique
@@ -67,13 +67,9 @@ describe('migration 644', () => {
     expect(BODY).toContain('members_can_invite boolean not null default false')
   })
 
-  it('is_free_email_domain: 241 restated with relay and ISP domains, still the auth admin\'s to call', () => {
-    const fn = STATEMENTS.find((s) => s.startsWith('CREATE OR REPLACE FUNCTION public.is_free_email_domain(p_domain text)'))!
-    expect(fn).toContain("RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path = '' AS $$ SELECT lower(coalesce(p_domain, '')) = ANY (ARRAY[")
-    for (const d of ['gmail.com', 'privaterelay.appleid.com', 'mozmail.com', 'addy.io', 'spectrum.net', 'bigpond.com', 'getnada.com']) {
-      expect(fn, d).toContain(`'${d}'`)
-    }
-    expect(STATEMENTS).toContain('GRANT EXECUTE ON FUNCTION public.is_free_email_domain(text) TO supabase_auth_admin')
+  it('leaves the signup gate alone: no is_free_email_domain here', () => {
+    expect(STATEMENTS.some((st) => /function public\.is_free_email_domain/i.test(st))).toBe(false)
+    expect(BODY).not.toMatch(/is_free_email_domain\(/)
   })
 
   it('the link: a unique url-safe token of at least 128 bits, off by default', () => {
@@ -121,7 +117,6 @@ describe('migration 644', () => {
   it('changes nothing else that already exists', () => {
     const touched = STATEMENTS.filter((s) => /^(create or replace function|alter table|drop|create trigger)/i.test(s))
     expect(touched.map((s) => s.slice(0, 80))).toEqual([
-      'CREATE OR REPLACE FUNCTION public.is_free_email_domain(p_domain text) RETURNS boolean LANGUAGE sql IMMUTABLE SE',
       'alter table public.workspace_join_settings enable row level security',
       'alter table public.workspace_join_domain enable row level security',
       'alter table public.workspace_join_link enable row level security',

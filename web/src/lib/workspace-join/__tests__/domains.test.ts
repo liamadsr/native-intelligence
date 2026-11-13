@@ -1,12 +1,20 @@
 /**
  * Which domain a workspace may list for join-by-domain: the blocked-domain
- * list (public, relay/alias, ISP) and its SQL twin, ASCII normalising, and
- * the rule that the domain is always the switching admin's own verified one.
+ * list (public, relay/alias, ISP), kept apart from the signup gate's list
+ * (which must not change who can sign up), ASCII normalising, and the rule
+ * that the domain is always the switching admin's own verified one.
  */
 import { describe, expect, it } from 'vitest'
-import { FREE_EMAIL_DOMAINS } from '@/lib/auth/work-email'
+import { FREE_EMAIL_DOMAINS, isFreeEmailDomain, isWorkEmail } from '@/lib/auth/work-email'
 import { latestDefinition } from '@/test/migration-sql'
-import { addressDomain, claimRefusalText, claimableDomain, isPublicEmailDomain, normalizeDomain } from '../domains'
+import {
+  JOIN_BLOCKED_DOMAINS,
+  addressDomain,
+  claimRefusalText,
+  claimableDomain,
+  isPublicEmailDomain,
+  normalizeDomain,
+} from '../domains'
 
 const verified = (email: string, provider = 'email') => ({
   email,
@@ -36,18 +44,34 @@ describe('blocked domains', () => {
     ['consumer ISPs', ISP],
   ])('refuses %s', (_label, list) => {
     for (const d of list) {
-      expect(FREE_EMAIL_DOMAINS.has(d), d).toBe(true)
+      expect(JOIN_BLOCKED_DOMAINS.has(d), d).toBe(true)
       expect(isPublicEmailDomain(d), d).toBe(true)
       expect(claimableDomain(verified(`someone@${d}`)), d).toMatchObject({ ok: false, reason: 'public_provider' })
     }
   })
 
-  it('holds the same list as public.is_free_email_domain, its newest definition', () => {
+  it('takes in every signup-blocked domain', () => {
+    for (const d of FREE_EMAIL_DOMAINS) expect(JOIN_BLOCKED_DOMAINS.has(d), d).toBe(true)
+  })
+
+  it('leaves the signup gate as it is: a relay address still signs up, the ISP list is main’s', () => {
+    // Apple Hide-My-Email ("Continue with Apple") and the other relays are blocked for joining only.
+    for (const d of ['privaterelay.appleid.com', 'mozmail.com', 'simplelogin.com', 'addy.io', 'spectrum.net', 'btinternet.com', 'bigpond.com']) {
+      expect(FREE_EMAIL_DOMAINS.has(d), d).toBe(false)
+      expect(isWorkEmail(`someone@${d}`), d).toBe(true)
+      expect(claimableDomain(verified(`someone@${d}`)), d).toMatchObject({ ok: false, reason: 'public_provider' })
+    }
+    // comcast.net and duck.com were refused at signup before this change, and still are.
+    for (const d of ['comcast.net', 'duck.com']) expect(isFreeEmailDomain(`someone@${d}`), d).toBe(true)
+  })
+
+  it('does not touch the signup gate’s SQL list either: 644 does not restate it, and relays are not in it', () => {
     const { file, blocks } = latestDefinition('is_free_email_domain')
-    expect(file).toBe('644_workspace_join.sql')
-    const sql = blocks.join('\n').replace(/--[^\n]*/g, '')
-    const inSql = new Set([...sql.matchAll(/'([a-z0-9.-]+\.[a-z]+)'/g)].map((m) => m[1]))
-    expect([...inSql].sort()).toEqual([...FREE_EMAIL_DOMAINS].sort())
+    expect(file).not.toBe('644_workspace_join.sql')
+    const sql = blocks.join('\n')
+    expect(sql).toContain("'gmail.com'")
+    expect(sql).toContain("'comcast.net'")
+    for (const d of ['privaterelay.appleid.com', 'mozmail.com', 'spectrum.net']) expect(sql, d).not.toContain(`'${d}'`)
   })
 
   it('reads case and spaces loosely, and leaves company domains alone', () => {

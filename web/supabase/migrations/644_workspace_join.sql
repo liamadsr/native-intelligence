@@ -30,12 +30,6 @@
 -- writes it: member inserts are server-only already (306), and a trigger
 -- refuses a client update that changes it.
 --
--- public.is_free_email_domain is restated from its newest definition (241)
--- with relay and alias services and more consumer ISPs added. It is the
--- signup gate's list (hook_require_work_email, 241/242) and the agent-link
--- check's (436). Mirror of FREE_EMAIL_DOMAINS in src/lib/auth/work-email.ts
--- (a test compares them), which the app checks before listing a domain.
---
 -- A workspace merge must not hand the source's link or listed domains to the
 -- destination (that would open the merged workspace without anyone there
 -- switching it on), and the generic re-stamp would otherwise collide on
@@ -51,62 +45,7 @@
 SET LOCAL lock_timeout = '5s';
 
 -- ------------------------------------------------------------
--- 1. Public, relay and ISP mail domains (restated from 241)
--- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.is_free_email_domain(p_domain text)
-RETURNS boolean
-LANGUAGE sql IMMUTABLE
-SET search_path = ''
-AS $$
-  SELECT lower(coalesce(p_domain, '')) = ANY (ARRAY[
-    -- Google
-    'gmail.com','googlemail.com',
-    -- Microsoft
-    'outlook.com','outlook.co.uk','hotmail.com','hotmail.co.uk','hotmail.fr',
-    'live.com','live.co.uk','msn.com',
-    -- Yahoo
-    'yahoo.com','yahoo.co.uk','yahoo.fr','yahoo.de','yahoo.ca','yahoo.com.au',
-    'ymail.com','rocketmail.com',
-    -- Apple
-    'icloud.com','me.com','mac.com',
-    -- Privacy-first / other consumer providers
-    'proton.me','protonmail.com','protonmail.ch','pm.me',
-    'tutanota.com','tuta.io','tuta.com',
-    'hey.com','fastmail.com','fastmail.fm','duck.com',
-    'aol.com','mail.com','email.com','zoho.com','zohomail.com',
-    'gmx.com','gmx.de','gmx.net','web.de','t-online.de',
-    'yandex.com','yandex.ru','mail.ru','bk.ru','inbox.ru','list.ru',
-    'qq.com','163.com','126.com','sina.com','foxmail.com',
-    'naver.com','daum.net','hanmail.net',
-    'rediffmail.com','laposte.net','orange.fr','wanadoo.fr','free.fr','sfr.fr',
-    'libero.it','virgilio.it','seznam.cz','op.pl','wp.pl','interia.pl',
-    -- US ISP mailboxes
-    'comcast.net','att.net','sbcglobal.net','verizon.net','bellsouth.net',
-    'cox.net','charter.net','earthlink.net','optonline.net',
-    -- Disposable / throwaway
-    'mailinator.com','guerrillamail.com','10minutemail.com','temp-mail.org',
-    'yopmail.com','sharklasers.com','trashmail.com','getnada.com',
-    -- Relay and alias services (644): one domain shared by strangers
-    'privaterelay.appleid.com','mozmail.com','relay.firefox.com',
-    'simplelogin.com','simplelogin.co','slmail.me','aleeas.com',
-    'anonaddy.com','anonaddy.me','addy.io','passmail.net','passmail.com',
-    'passinbox.com','33mail.com',
-    -- More consumer ISP mailboxes (644)
-    'spectrum.net','rr.com','roadrunner.com','frontier.com','windstream.net',
-    'centurylink.net','xfinity.com','btinternet.com','sky.com','virginmedia.com',
-    'ntlworld.com','talktalk.net','blueyonder.co.uk','shaw.ca','rogers.com',
-    'bell.net','sympatico.ca','telus.net','videotron.ca','optusnet.com.au',
-    'bigpond.com','bigpond.net.au','iinet.net.au'
-  ])
-$$;
-
-COMMENT ON FUNCTION public.is_free_email_domain(text) IS
-  'True for free-mail, personal, relay/alias, ISP and disposable domains: no new account may be made on one (signup hook), and no workspace may list one for join-by-domain. Mirror of FREE_EMAIL_DOMAINS in src/lib/auth/work-email.ts (644).';
-
-GRANT EXECUTE ON FUNCTION public.is_free_email_domain(text) TO supabase_auth_admin;
-
--- ------------------------------------------------------------
--- 2. The switches
+-- 1. The switches
 -- ------------------------------------------------------------
 -- One row per workspace once anyone changes a switch; no row reads as off.
 create table if not exists public.workspace_join_settings (
@@ -127,15 +66,17 @@ comment on table public.workspace_join_settings is
   'The members_can_invite switch (644). Service role only.';
 
 -- ------------------------------------------------------------
--- 3. The domains people may join by, with one click
+-- 2. The domains people may join by, with one click
 -- ------------------------------------------------------------
 -- One row per listed domain. Stored lowercased and in ASCII (an IDN is
 -- listed in its punycode form). Not unique across workspaces: the sign-in
 -- lookup by domain (the index below) may find several, and the person
--- chooses. A public or relay provider is refused by the app when listing,
--- and never looked up at sign-in (so a domain added to the list later is
--- inert). Not a CHECK on is_free_email_domain: a list that grows would make
--- old rows fail it, and a dump would no longer restore.
+-- chooses. A public, relay or ISP provider is refused by the app when
+-- listing (JOIN_BLOCKED_DOMAINS, src/lib/workspace-join/domains.ts) and
+-- never looked up at sign-in, so a domain added to that list later is inert.
+-- Not a CHECK: the list is the app's, a growing list would make old rows
+-- fail it (and a dump would no longer restore), and only the service role
+-- writes here. is_free_email_domain (the signup gate's list) is untouched.
 create table if not exists public.workspace_join_domain (
   workspace_id uuid not null references public.workspace (id) on delete cascade,
   domain text not null,
@@ -161,7 +102,7 @@ comment on table public.workspace_join_domain is
   'Domains whose verified addresses may join this workspace with one click (644). Service role only; the app derives each from the verified address of the owner or admin who switched it on.';
 
 -- ------------------------------------------------------------
--- 4. The shareable link
+-- 3. The shareable link
 -- ------------------------------------------------------------
 -- One row per workspace once the link is first switched on. The token is
 -- made by the app with a CSPRNG (32 bytes, base64url: 43 characters); the
@@ -189,7 +130,7 @@ comment on table public.workspace_join_link is
   'A workspace''s reusable invite link (/join/<token>). Service role only (644): the token is read through an API route that checks the caller''s role, never from the workspace row.';
 
 -- ------------------------------------------------------------
--- 5. How each member joined
+-- 4. How each member joined
 -- ------------------------------------------------------------
 alter table public.member
   add column if not exists joined_via text
@@ -231,7 +172,7 @@ create trigger member_guard_joined_via
 revoke execute on function public.member_guard_joined_via() from public, anon, authenticated;
 
 -- ------------------------------------------------------------
--- 6. A workspace merge drops the source's link, domains and switches
+-- 5. A workspace merge drops the source's link, domains and switches
 -- ------------------------------------------------------------
 -- Restated in full from 473, with only the three deletes added.
 CREATE OR REPLACE FUNCTION public._wsmerge_generic_restamp(p_source uuid, p_dest uuid)
