@@ -246,3 +246,24 @@ describe('the floor', () => {
     expect(s.pieces.at(-1)!.bytes).toBeLessThan(PIECE_MIN_BYTES)
   })
 })
+
+describe('a piece the Studio finds too small', () => {
+  it('ends that track’s upload where it stands and never stops the recording', async () => {
+    const s = studio()
+    const { live, failed, time } = take(s.api)
+    await live.open('browser', { screen: 'Screen.webm', microphone: 'Mic.webm' })
+    const mic = live.tracks.get('microphone')!
+    mic.push(chunk(2000), 1)
+    time.advance(PIECE_SECONDS * 1000)
+    mic.push(chunk(2000), 1 + PIECE_SECONDS)
+    await new Promise((r) => setTimeout(r, 0))
+    s.failures.push(new LiveError('A piece of a recording, but the last, holds at least 1024 bytes.', 400, 'TOO_SMALL'))
+    time.advance(1000)
+    mic.push(chunk(2000), 2 + PIECE_SECONDS)
+    time.advance(PIECE_SECONDS * 1000)
+    mic.push(chunk(2000), 2 + 2 * PIECE_SECONDS)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(failed).toEqual([])
+    expect(await mic.finish()).toMatchObject({ pieces: 1, complete: false })
+  })
+})

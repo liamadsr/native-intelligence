@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isAccountRedirectPath, isInviteRedirectPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '../login-redirect'
+import { accountRedirectTarget, isAccountRedirectPath, isInviteRedirectPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '../login-redirect'
 import { APP_DOMAINS } from '@/lib/app-url'
 
 // The hosted app answers on two domains while it moves (src/lib/app-url.ts): every case below runs on each.
@@ -113,6 +113,27 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
       expect(isAccountRedirectPath('/account')).toBe(true)
       for (const no of ['/accountx', '/account//evil.example', '/account\\evil.example', 'https://evil.example/account', '//evil.example/account', '/s/abc']) expect(isAccountRedirectPath(no), no).toBe(false)
       expect(resolvePostAuthRedirect('/accountx', ORIGIN)).toBe('/account')
+    })
+
+    it('reads an account target as a browser would: dot segments, tabs, line breaks and look-alikes are refused', () => {
+      const bad = [
+        '/account/../anything', '/account/%2e%2e/anything', '/account/%2E%2E/%2e%2e/x', '/account/./../x',
+        '/account/../\t/evil.example', '/account/..\t/evil.example', '/account\n', '/account/\r\n../x', '/acc\tount',
+        '//evil.example/account', '/account//evil.example', '/account/..//evil.example', '/\\evil.example/account', '/account\\..\\x',
+        '/account@evil.example', '/account.evil', '/accountx', 'account', 'https://evil.example/account', '',
+      ]
+      for (const path of bad) {
+        expect(accountRedirectTarget(path), JSON.stringify(path)).toBeNull()
+        expect(resolvePostAuthRedirect(path, ORIGIN), JSON.stringify(path)).toBe('/account')
+      }
+    })
+
+    it('returns the parsed account path, never the raw value; a nested redirect stays a query of /account', () => {
+      expect(accountRedirectTarget('/account')).toBe('/account')
+      expect(accountRedirectTarget('/account/settings/./x?a=1#h')).toBe('/account/settings/x?a=1#h')
+      expect(accountRedirectTarget('/account?redirect=//evil.example')).toBe('/account?redirect=//evil.example')
+      expect(new URL(accountRedirectTarget('/account?redirect=//evil.example')!, ORIGIN).origin).toBe(ORIGIN)
+      expect(accountRedirectTarget('/account?page=studio&video=a b')).toBe('/account?page=studio&video=a%20b')
     })
 
     it("keeps an agent link's connect link, so a new account lands back on the request", () => {

@@ -1,7 +1,7 @@
 'use client'
 
 import { Link } from '@/components/link'
-import { isAccountRedirectPath, isInviteRedirectPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '@/lib/auth/login-redirect'
+import { accountRedirectTarget, isInviteRedirectPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '@/lib/auth/login-redirect'
 import { Logo } from '@/components/logo'
 import { Button } from '@/components/ui/button'
 import {
@@ -148,10 +148,10 @@ export function LoginForm({
     } else if (redirectPath.startsWith('/s/') && !redirectPath.includes('//')) {
       // Share-link redirect — back to the shared view after auth
       document.cookie = `share_redirect=${encodeURIComponent(redirectPath)};path=/;max-age=600;samesite=lax${securePart}`
-    } else if (isAccountRedirectPath(redirectPath)) {
+    } else if (accountRedirectTarget(redirectPath)) {
       // A page of the app and its deep link (the Studio export the desktop app sent the person to download here):
       // back there after an OAuth sign-in too.
-      document.cookie = `account_redirect=${encodeURIComponent(redirectPath)};path=/;max-age=600;samesite=lax${securePart}`
+      document.cookie = `account_redirect=${encodeURIComponent(accountRedirectTarget(redirectPath)!)};path=/;max-age=600;samesite=lax${securePart}`
     } else {
       // MCP OAuth flow — back to the authorize endpoint after login (this
       // origin's only: src/lib/auth/login-redirect.ts)
@@ -253,6 +253,8 @@ export function LoginForm({
       ? await completeDesktopSignIn(callback, supabase)
       : ({ ok: false, error: 'auth_failed', description: null } as const)
     if (outcome.ok) {
+      // This sign-in ends on /account: a deep link left for an OAuth sign-in in a browser is not this one's.
+      document.cookie = 'account_redirect=;path=/;max-age=0'
       // Keep the button busy through the navigation.
       router.push('/account')
       return

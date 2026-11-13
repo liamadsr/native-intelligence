@@ -56,6 +56,14 @@ function pickerTypes(fileName: string): { types?: { description: string; accept:
   return type ? { types: [{ description: type[0], accept: { [type[1]]: [`.${ext}`] } }] } : {};
 }
 
+/** A stored Studio file's own link on this site (/api/account/studio/file/…), absolute, or null for anything else. */
+function studioFileLink(url: string): string | null {
+  try {
+    const link = new URL(url, window.location.origin);
+    return link.origin === window.location.origin && link.pathname.startsWith('/api/account/studio/file/') ? link.toString() : null;
+  } catch { return null; }
+}
+
 /** How this page saves a file of this size (unknown: the desktop app asks the file first, see saveExport). */
 export function saveWay(bytes?: number | null): SaveWay {
   if (isDesktopApp()) return typeof bytes === 'number' && bytes > 0 && bytes <= DESKTOP_SAVE_LIMIT ? 'desktop' : 'desktop-browser';
@@ -105,7 +113,8 @@ export async function saveExport(file: ExportFile, way?: SaveWay): Promise<SaveR
   }
   if (way === 'desktop-browser') {
     // The browser downloads it with its own session: the app opened on this export, or the file's own link.
-    const link = file.arrival ? exportArrivalLink(window.location.origin, file.arrival) : new URL(url, window.location.origin).toString();
+    const link = file.arrival ? exportArrivalLink(window.location.origin, file.arrival) : studioFileLink(url);
+    if (!link) throw new Error('This file cannot be opened in your browser from here.');
     if (!await openInSystemBrowser(link)) throw new Error('Your browser could not be opened. Try again.');
     return { kind: 'browser', name: fileName };
   }

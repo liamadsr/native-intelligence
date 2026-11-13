@@ -404,11 +404,19 @@ async function loadRecord(ctx: StudioContext, id: string): Promise<RecordingReco
 }
 
 /**
+ * How long a build may hold its claim before another caller may take it over. A build is a handful of database writes
+ * (a transcript registered, a video saved or placed with a version kept), seconds in practice; this is far past the
+ * longest one could take, and past every request's own time limit (300 s), so a build still running is never built a
+ * second time beside it. A claim held this long was lost (its process stopped) and is taken over.
+ */
+export const BUILD_CLAIM_MS = 10 * 60_000
+
+/**
  * Take the right to build: the record moves from importing to building only if nobody else holds it (or the one who
- * did has been gone two minutes). Answers the claimed record, or null.
+ * did has held it BUILD_CLAIM_MS). Answers the claimed record, or null.
  */
 async function claim(ctx: StudioContext, record: RecordingRecord): Promise<RecordingRecord | null> {
-  const stale = record.status === 'building' && (!record.claimedAt || Date.now() - Date.parse(record.claimedAt) > 120_000)
+  const stale = record.status === 'building' && (!record.claimedAt || Date.now() - Date.parse(record.claimedAt) > BUILD_CLAIM_MS)
   if (record.status !== 'importing' && !stale) return null
   const token = randomUUID()
   const next: RecordingRecord = { ...record, status: 'building', claim: token, claimedAt: new Date().toISOString() }
@@ -633,18 +641,40 @@ export async function advanceRecording(ctx: StudioContext, id: string, waitMs = 
     const media: TakeMedia = { screen, camera: synced('camera'), microphone: synced('microphone'), systemAudio: synced('systemAudio') }
     const lost = (['camera', 'microphone', 'systemAudio'] as const).filter((role) => claimed.jobs[role] && !media[role])
     const note = lost.length ? `The ${lost.map((role) => (role === 'systemAudio' ? 'system sound' : role)).join(' and ')} could not be added to this take.` : undefined
+    // Built as the person who recorded it: only while they are still a member of the workspace, not a guest.
+    if (claimed.ownerId && !(await activeMember(ctx, claimed.ownerId))) throw new StudioError(NOT_A_MEMBER)
     const built = await buildRecording(ctx, claimed, media)
     const done: RecordingRecord = { ...claimed, ...built, status: 'done', claim: null, claimedAt: null, ...(note ? { note } : {}) }
-    await putRecord(ctx, COLLECTION, id, done)
+    if (!(await endClaim(ctx, claimed, done))) return answerDone(ctx, await loadRecord(ctx, id))
     await settleTake(ctx, done)
     return answerDone(ctx, done)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'The recording could not be put together.'
     const failed: RecordingRecord = { ...claimed, status: 'failed', claim: null, claimedAt: null, error: message.slice(0, 1000) }
-    await putRecord(ctx, COLLECTION, id, failed)
+    if (!(await endClaim(ctx, claimed, failed))) return { recording: view(await loadRecord(ctx, id), 1, 'Failed') }
     await settleTake(ctx, failed)
     return { recording: view(failed, 1, 'Failed') }
   }
+}
+
+/** What a recording by someone no longer in the workspace answers. */
+export const NOT_A_MEMBER = 'The person who recorded this is no longer a member of this workspace, so it was not made into a video.'
+
+/** Whether someone is a member of the workspace who is not a guest. */
+async function activeMember(ctx: StudioContext, userId: string): Promise<boolean> {
+  const row = must(await ctx.supabase.from('member').select('role').eq('workspace_id', ctx.workspaceId).eq('user_id', userId).maybeSingle(), 'check who recorded it') as { role?: string | null } | null
+  return !!row && row.role !== 'guest'
+}
+
+/** Write a build's end only while it still holds its claim (one taken over after BUILD_CLAIM_MS does not). */
+async function endClaim(ctx: StudioContext, claimed: RecordingRecord, next: RecordingRecord): Promise<boolean> {
+  const moved = must(
+    await ctx.supabase.from('studio_record').update({ value: next, updated_at: new Date().toISOString() })
+      .eq('workspace_id', ctx.workspaceId).eq('collection', COLLECTION).eq('key', claimed.id).eq('value->>claim', claimed.claim!)
+      .select('key'),
+    'save the recording',
+  ) as { key: string }[] | null
+  return !!moved?.length
 }
 
 /**
@@ -659,7 +689,8 @@ async function settleTake(ctx: StudioContext, record: RecordingRecord): Promise<
     const take = await getRecord<TakeRecord>(ctx, 'live-takes', record.takeId)
     if (take && take.recordingId === record.id) await retireLiveTake(ctx, take)
   } catch (error) {
-    console.error('[studio] removing a recording’s pieces failed (the sweep retries):', error instanceof Error ? error.message : error)
+    // The sweep's week-old pass settles the take on its own (live-takes.ts recordingSettled), whatever failed here.
+    console.error('[studio] settling a recording’s take failed (the sweep settles it later):', error instanceof Error ? error.message : error)
   }
 }
 

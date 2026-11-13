@@ -12,7 +12,7 @@ import {
   type GoogleSignInTransaction,
   type GoogleTokens,
 } from '@/lib/auth/google-sign-in'
-import { browserOrigin, postAuthRedirect } from '@/lib/auth/post-auth-redirect'
+import { browserOrigin, dropAccountRedirect, postAuthRedirect } from '@/lib/auth/post-auth-redirect'
 import { WORK_EMAIL_REQUIRED_ERROR_CODE, isWorkEmailRejection } from '@/lib/auth/work-email'
 import { sessionTokenHash } from '@/lib/chatgpt/account'
 import { createClient } from '@/lib/supabase/server'
@@ -140,10 +140,10 @@ function signInErrorCode(error: AuthError | null): string {
   return isWorkEmailRejection(error?.message) ? WORK_EMAIL_REQUIRED_ERROR_CODE : 'auth_failed'
 }
 
-/** Clear the one-time transaction cookie on every outcome. */
+/** Clear the one-time transaction cookie, and the account redirect (post-auth-redirect.ts), on every outcome. */
 function finish(response: NextResponse): NextResponse {
   response.cookies.set(GOOGLE_TRANSACTION_COOKIE, '', { path: GOOGLE_TRANSACTION_PATH, maxAge: 0 })
-  return response
+  return dropAccountRedirect(response)
 }
 
 function fail(request: NextRequest, tx: GoogleSignInTransaction | null, error: string): NextResponse {

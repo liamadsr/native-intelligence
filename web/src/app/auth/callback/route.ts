@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse, type NextRequest } from 'next/server'
 import { authCallbackErrorCode } from '@/lib/auth/callback-error'
-import { postAuthRedirect } from '@/lib/auth/post-auth-redirect'
+import { dropAccountRedirect, postAuthRedirect } from '@/lib/auth/post-auth-redirect'
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     redirectUrl.pathname = '/login'
     redirectUrl.search = ''
     redirectUrl.searchParams.set('error', authCallbackErrorCode(searchParams))
-    return NextResponse.redirect(redirectUrl)
+    return dropAccountRedirect(NextResponse.redirect(redirectUrl))
   }
 
   const supabase = await createClient()
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     // An email link opened in a browser other than the one that asked for
     // it has no PKCE verifier here (src/app/auth/confirm/route.ts).
     redirectUrl.searchParams.set('error', error.code === 'pkce_code_verifier_not_found' ? 'other_browser' : 'auth_failed')
-    return NextResponse.redirect(redirectUrl)
+    return dropAccountRedirect(NextResponse.redirect(redirectUrl))
   }
 
   // NOTE: signup/login event tracking is NOT done here. It lives in the

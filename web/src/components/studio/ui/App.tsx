@@ -49,7 +49,7 @@ import { PreviewLayerControls } from './PreviewLayerControls';
 import { RecordDialog, type PunchTarget } from './RecordDialog';
 import { plainStep } from './record-steps';
 import { ExportDialog, exportFor, type ExportReceipt } from './ExportDialog';
-import { ARRIVAL_WORDS, arriveAtExport, clearExportArrival, readExportArrival } from './export-arrival';
+import { arrivalNotice, useExportArrival } from './export-arrival';
 import { exportFileName, saveExport } from './save-export';
 import { prompterFor, slotFor } from '@/lib/studio/engine/storyboard';
 import { askAgentInChat, editorChatNote, type EditorChatLink } from './chat-note';
@@ -514,17 +514,11 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
   const closeDialog=useCallback(()=>setDialog(null),[]);
   // Arriving from the desktop app to download a large export here (export-arrival.ts): once the video is open, its
   // finished export is downloaded once through this browser's session and shown in the Export dialog.
-  const [exportNotice,setExportNotice]=useState<{tone:'ok'|'warn';text:string}|null>(null),arriving=useRef(false);
-  useEffect(()=>{if(!project||arriving.current)return;const jobId=readExportArrival(window.location.search);if(!jobId)return;arriving.current=true;
-    void arriveAtExport(jobId,project.id,{getJob:id=>request<{job:EditorJob}>(`/api/account/studio/jobs/${encodeURIComponent(id)}`).then(r=>r.job),
-      download:async done=>{await saveExport({url:done.downloadUrl!,fileName:exportFileName(done.downloadUrl!,project.title||'video')},'downloads');}}).then(outcome=>{
-      arriving.current=false;
-      if(outcome.kind==='open-video'){navigate(async()=>{await openProject(outcome.videoId);});return;}
-      clearExportArrival();
-      if('job' in outcome&&outcome.job)setJob(outcome.job);
-      setExportNotice(outcome.kind==='started'?{tone:'ok',text:ARRIVAL_WORDS.started}:outcome.kind==='again'?{tone:'ok',text:ARRIVAL_WORDS.again}:{tone:'warn',text:outcome.text});
-      setDialog('export');});
-  },[project?.id]);// eslint-disable-line react-hooks/exhaustive-deps
+  const [exportNotice,setExportNotice]=useState<{tone:'ok'|'warn';text:string}|null>(null);
+  useExportArrival(project?.id??null,{openVideo:id=>new Promise<boolean>(resolve=>navigate(async()=>{resolve(await openProject(id));})),
+    getJob:id=>request<{job:EditorJob}>(`/api/account/studio/jobs/${encodeURIComponent(id)}`).then(r=>r.job),
+    download:async done=>{await saveExport({url:done.downloadUrl!,fileName:exportFileName(done.downloadUrl!,project?.title||'video')},'downloads');},
+    show:shown=>{if('job' in shown&&shown.job)setJob(shown.job);setExportNotice(arrivalNotice(shown));setDialog('export');}});
   useEffect(()=>{if(!job||job.status!=='running')return;let alive=true;let timer:ReturnType<typeof setTimeout>;const poll=async()=>{try{const result=await request<{job:EditorJob}>(`/api/account/studio/jobs/${job.id}`);if(!alive)return;setJob(result.job);if(result.job.status==='failed')say(result.job.error??'The export failed. Try again.',true);if(result.job.status==='completed'&&result.job.kind==='export'){const done=result.job,of=done.videoId??(exportReceiptRef.current?.jobId===done.id?exportReceiptRef.current.projectId:null);
   // Open goes to the video it was made from, whichever is open now.
   say('Your export is ready to save.',false,{open:()=>{if(!of||currentRef.current?.id===of){setDialog('export');return;}navigate(async()=>{if(await openProject(of))setDialog('export');});}});}if(result.job.status==='running')timer=setTimeout(poll,700);}catch(e){if(alive){say(errorText(e),true);timer=setTimeout(poll,2500);}}};timer=setTimeout(poll,700);return()=>{alive=false;clearTimeout(timer);};},[job?.id,job?.status,append,say]);

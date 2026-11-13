@@ -98,6 +98,14 @@ describe('in the desktop app', () => {
     await expect(saveExport(FILE)).rejects.toThrow('exports are kept for 30 days')
   })
 
+  it('opens nothing but a stored Studio file of this site in the browser', async () => {
+    desktop(); server(75 * 1024 * 1024)
+    openInSystemBrowser.mockResolvedValue(true)
+    for (const url of ['https://evil.example/api/account/studio/file/w/x.mp4', '/somewhere/else.mp4', 'javascript:alert(1)'])
+      await expect(saveExport({ url, fileName: 'x.mp4', bytes: 75 * 1024 * 1024 }), url).rejects.toThrow('This file cannot be opened in your browser from here.')
+    expect(openInSystemBrowser).not.toHaveBeenCalled()
+  })
+
   it('says the browser could not be opened', async () => {
     desktop(); server(75 * 1024 * 1024)
     openInSystemBrowser.mockResolvedValue(false)

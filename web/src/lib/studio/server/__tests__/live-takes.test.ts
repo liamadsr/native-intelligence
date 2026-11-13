@@ -8,8 +8,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { commitBlob, createBlobWrite, readBlob, workerWriteFence } from '../blobs'
 import { workerBlobRead } from '../http'
 import { claimJob, completeJob, failJob, queueJob } from '../jobs'
-import { discardLiveTake, LINK_SAFE_MS, livePiece, MAX_RESENDS, PIECE_MAX_BYTES, PIECE_MIN_BYTES, QUIET_MS, recordingContainer, savedTakes, sealLiveTrack, startLiveTake, TAKES, TRACKS } from '../live-takes'
-import { advanceRecording, listRecordings, recoverTake, startRecording } from '../recordings'
+import { discardLiveTake, LINK_SAFE_MS, LINK_WRITE_MAX, livePiece, retireLiveTake, SMALL_PIECES_MAX, unclaimLiveTake, type TakeRecord, MAX_RESENDS, PIECE_MAX_BYTES, PIECE_MIN_BYTES, QUIET_MS, recordingContainer, savedTakes, sealLiveTrack, startLiveTake, TAKES, TRACKS } from '../live-takes'
+import { advanceRecording, BUILD_CLAIM_MS, listRecordings, NOT_A_MEMBER, recoverTake, startRecording } from '../recordings'
+import { getRecords } from '../records'
 import { sweepStudio } from '../sweep'
 import type { StudioContext } from '../context'
 import { AVA, fakeContext, OTHER_WS, WS } from './fake'
@@ -18,7 +19,8 @@ const BEN = 'b2b2b2b2-1111-4222-8333-777777777777'
 
 let env: ReturnType<typeof fakeContext>
 beforeEach(() => {
-  env = fakeContext()
+  // The person recording is a member of the workspace (a recording is built only for one).
+  env = fakeContext({ member: [{ id: 'm-ava', workspace_id: WS, user_id: AVA, role: 'member' }] })
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
 })
 const deps = () => ({ supabase: env.ctx.supabase, storage: env.ctx.storage })
@@ -237,7 +239,8 @@ describe('finishing a take', () => {
     // no link of it can write; then the sweep takes the pieces, the space and the records.
     expect(statusOf(take.id)).toBe('dropped')
     expect(env.storage.objects.has(`${WS}/live/${take.id}/screen/0`)).toBe(true)
-    expect(pendingOf(take.keys.screen!)).toBeTruthy()
+    // Its space is not counted twice beside the video's: every piece is stored, so nothing is held.
+    expect(pendingOf(take.keys.screen!)).toBeUndefined()
     await sweepStudio(env.ctx.supabase, { storage: env.storage, now: new Date(linksGone()) })
     expect([...env.storage.objects.keys()].some((path) => path.includes(`live/${take.id}/`))).toBe(false)
     expect(pendingOf(take.keys.screen!)).toBeUndefined()
@@ -374,8 +377,8 @@ describe('the length of what is stored', () => {
     expect(env.storage.putLink({ url: first.url!, headers: first.headers! }, filler(50 * 1024 ** 2))).toBe(false)
     expect(env.storage.putLink(last, filler(50 * 1024 ** 2))).toBe(false)
     await expect(livePiece(env.ctx, take.id, { role: 'screen', index: 2, bytes: 2000 })).rejects.toMatchObject({ code: 'TAKE_CLOSED' })
-    // The space stays held until the pieces go.
-    expect(pendingOf(take.keys.screen!)).toBeTruthy()
+    // Nothing of the space is held: every link's piece is stored, and a stored piece cannot grow.
+    expect(pendingOf(take.keys.screen!)).toBeUndefined()
     // Within the links' life the sweep leaves them; past it, everything goes.
     await sweepStudio(env.ctx.supabase, { storage: env.storage })
     expect(env.storage.objects.has(`${WS}/live/${take.id}/screen/0`)).toBe(true)
@@ -392,12 +395,13 @@ describe('the length of what is stored', () => {
     expect([...env.storage.objects.keys()].some((path) => path.includes('/live/'))).toBe(false)
   })
 
-  it('refuses a piece but the last below the floor, so links cannot be collected for next to nothing', async () => {
+  it('refuses a piece but the last below the floor past a few, so links cannot be collected for next to nothing', async () => {
     const take = await newTake(env.ctx, ['screen'])
-    await send(take.id, 'screen', 0, mp4(PIECE_MIN_BYTES - 1))
-    await expect(livePiece(env.ctx, take.id, { role: 'screen', index: 1, bytes: 2000 })).rejects.toMatchObject({ status: 400, code: 'TOO_SMALL' })
+    for (let i = 0; i < SMALL_PIECES_MAX; i++) await send(take.id, 'screen', i, i ? filler(PIECE_MIN_BYTES - 1) : mp4(PIECE_MIN_BYTES - 1))
+    await send(take.id, 'screen', SMALL_PIECES_MAX, filler(PIECE_MIN_BYTES - 1))
+    await expect(livePiece(env.ctx, take.id, { role: 'screen', index: SMALL_PIECES_MAX + 1, bytes: 2000 })).rejects.toMatchObject({ status: 400, code: 'TOO_SMALL' })
     // A last piece may be any size: it is sealed as it is.
-    await expect(startRecording(env.ctx, { screen: { uploadKey: take.keys.screen, name: 'Screen.mp4', pieces: 1 } }, 0)).resolves.toBeTruthy()
+    await expect(startRecording(env.ctx, { screen: { uploadKey: take.keys.screen, name: 'Screen.mp4', pieces: SMALL_PIECES_MAX + 1 } }, 0)).resolves.toBeTruthy()
   })
 })
 
@@ -657,5 +661,116 @@ describe('a recording is its person’s', () => {
     const { recording } = await startRecording(env.ctx, { screen: { uploadKey: take.keys.screen, name: 'Screen.mp4', pieces: 1 } }, 0)
     await expect(advanceRecording(as(BEN), recording.id, 0)).rejects.toMatchObject({ status: 404 })
     await expect(advanceRecording(env.ctx, recording.id, 0)).resolves.toMatchObject({ recording: { id: recording.id } })
+  })
+})
+
+// ---- the final review ---------------------------------------------------------------------------------------------
+
+const DAY = 24 * 3600_000
+const ago = (ms: number) => new Date(Date.now() - ms).toISOString()
+const takeRow = (takeId: string) => env.tables.studio_record!.find((r) => r.collection === TAKES && r.key === takeId)
+
+/** A take put straight into the tables: a screen track of one stored piece, last written `trackAge` ago. */
+function storedTake(n: number, value: Record<string, unknown>, trackAge: number) {
+  const id = `6f6f6f6f-1111-4222-8333-${String(n).padStart(12, '0')}`
+  const rows = env.tables.studio_record ??= []
+  rows.push({ workspace_id: WS, collection: TAKES, key: id, value: { id, ownerId: AVA, createdAt: ago(trackAge), recorder: 'browser', status: 'recording', tracks: { screen: { name: 'S.webm' } }, ...value }, updated_at: ago(trackAge) })
+  rows.push({ workspace_id: WS, collection: TRACKS, key: `${id}:screen`, value: { takeId: id, role: 'screen', n: 1, pieces: [2000], times: [4], bytes: 2000, reserved: 0, offsetSeconds: 0, seconds: 4, resends: 0, updatedAt: ago(trackAge) }, updated_at: ago(trackAge) })
+  env.storage.put(`${WS}/live/${id}/screen/0`, webm(2000))
+  return id
+}
+
+describe('the week-old pass, settled', () => {
+  it('clears a take offered back more than a week ago, and keeps one offered back lately', async () => {
+    const old = storedTake(1, { failedRecordingId: 'r', reopenedAt: ago(8 * DAY) }, 8 * DAY)
+    const recent = storedTake(2, { failedRecordingId: 'r', reopenedAt: ago(DAY) }, 8 * DAY)
+    const counts = await sweepStudio(env.ctx.supabase, { storage: env.storage })
+    expect(counts.liveTracks).toBe(1)
+    expect(takeRow(old)).toBeUndefined()
+    expect(env.storage.objects.has(`${WS}/live/${old}/screen/0`)).toBe(false)
+    expect(takeRow(recent)).toBeTruthy()
+  })
+
+  it('settles a take whose recording ended but whose settle never ran', async () => {
+    const made = storedTake(3, { status: 'finished', recordingId: '7a7a7a7a-1111-4222-8333-000000000001' }, DAY)
+    const failed = storedTake(4, { status: 'finished', recordingId: '7a7a7a7a-1111-4222-8333-000000000002' }, DAY)
+    env.tables.studio_record!.push(
+      { workspace_id: WS, collection: 'recordings', key: '7a7a7a7a-1111-4222-8333-000000000001', value: { id: '7a7a7a7a-1111-4222-8333-000000000001', status: 'done' }, updated_at: ago(DAY) },
+      { workspace_id: WS, collection: 'recordings', key: '7a7a7a7a-1111-4222-8333-000000000002', value: { id: '7a7a7a7a-1111-4222-8333-000000000002', status: 'failed' }, updated_at: ago(DAY) },
+    )
+    await sweepStudio(env.ctx.supabase, { storage: env.storage })
+    // Made: its links are long past, so its pieces go at once. Not made: offered back.
+    expect(takeRow(made)).toBeUndefined()
+    expect((takeRow(failed)!.value as { status: string; failedRecordingId?: string }).status).toBe('recording')
+  })
+
+  it('puts the tracks it keeps back in the line, so the ones behind them are reached', async () => {
+    for (let i = 0; i < 101; i++) storedTake(100 + i, { failedRecordingId: 'r', reopenedAt: ago(DAY) }, 9 * DAY)
+    const abandoned = storedTake(999, {}, 8 * DAY)
+    await sweepStudio(env.ctx.supabase, { storage: env.storage })
+    await sweepStudio(env.ctx.supabase, { storage: env.storage })
+    expect(takeRow(abandoned)).toBeUndefined()
+    expect(env.tables.studio_record!.filter((r) => r.collection === TAKES)).toHaveLength(101)
+  })
+})
+
+describe('space held by a thrown-away take', () => {
+  it('is only what a link not yet written could store, released at once otherwise', async () => {
+    const take = await newTake(env.ctx, ['screen', 'camera'])
+    await send(take.id, 'screen', 0, mp4(2000))
+    // The camera's piece was signed but never sent: its link could still store up to the storage's cap.
+    await livePiece(env.ctx, take.id, { role: 'camera', index: 0, bytes: 2000 })
+    expect(pendingOf(take.keys.screen!)!.bytes).toBe(64 * 1024 ** 2)
+    await discardLiveTake(env.ctx, take.id)
+    expect(pendingOf(take.keys.screen!)).toBeUndefined()
+    expect(pendingOf(take.keys.camera!)!.bytes).toBe(LINK_WRITE_MAX)
+  })
+})
+
+describe('a take’s status is written only from what was read', () => {
+  it('does not drop a take claimed for a recording meanwhile, nor give a dropped take back', async () => {
+    const take = await newTake(env.ctx, ['screen'])
+    await send(take.id, 'screen', 0, mp4(2000))
+    const read = (await getRecords<TakeRecord>(env.ctx, TAKES, [take.id])).get(take.id)!
+    const { recording } = await startRecording(env.ctx, { screen: { uploadKey: take.keys.screen, name: 'Screen.mp4', pieces: 1 } }, 0)
+    await expect(retireLiveTake(env.ctx, read)).rejects.toMatchObject({ code: 'BUSY' })
+    expect((takeRow(take.id)!.value as { status: string }).status).toBe('finished')
+    // Dropped (its recording made), then an unclaim of that recording: it stays dropped.
+    const finished = (await getRecords<TakeRecord>(env.ctx, TAKES, [take.id])).get(take.id)!
+    await retireLiveTake(env.ctx, finished)
+    await unclaimLiveTake(env.ctx, read, recording.id)
+    expect(statusOf(take.id)).toBe('dropped')
+  })
+})
+
+describe('a recording by someone no longer in the workspace', () => {
+  it('is not made into a video, and its take is offered back', async () => {
+    const take = await newTake(env.ctx, ['screen'])
+    await send(take.id, 'screen', 0, mp4(2000))
+    const { recording } = await startRecording(env.ctx, { screen: { uploadKey: take.keys.screen, name: 'Screen.mp4', pieces: 1 } }, 0)
+    env.tables.member = [{ id: 'm-ava', workspace_id: WS, user_id: AVA, role: 'guest' }]
+    const job = (await claimJob(deps(), 'w', ['import']))!
+    await finishImport(job.id, 'w', asset('a'))
+    const record = env.tables.studio_record!.find((r) => r.collection === 'recordings' && r.key === recording.id)!.value as { status: string; error: string }
+    expect(record).toMatchObject({ status: 'failed', error: NOT_A_MEMBER })
+    expect(env.tables.studio_video ?? []).toEqual([])
+    expect(statusOf(take.id)).toBe('recording')
+  })
+})
+
+describe('a build in progress', () => {
+  it('is not taken over while it may still be running', async () => {
+    const take = await newTake(env.ctx, ['screen'])
+    await send(take.id, 'screen', 0, mp4(2000))
+    const { recording } = await startRecording(env.ctx, { screen: { uploadKey: take.keys.screen, name: 'Screen.mp4', pieces: 1 } }, 0)
+    const job = (await claimJob(deps(), 'w', ['import']))!
+    await finishImport(job.id, 'w', asset('a'))
+    // Another caller is building it, for three minutes so far.
+    const row = env.tables.studio_record!.find((r) => r.collection === 'recordings' && r.key === recording.id)!
+    Object.assign(row.value as object, { status: 'building', claim: 'someone-else', claimedAt: ago(3 * 60_000) })
+    const answer = await advanceRecording(env.ctx, recording.id, 0)
+    expect(answer.recording.status).toBe('processing')
+    expect(row.value).toMatchObject({ status: 'building', claim: 'someone-else' })
+    expect(BUILD_CLAIM_MS).toBeGreaterThanOrEqual(5 * 60_000)
   })
 })

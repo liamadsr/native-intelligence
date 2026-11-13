@@ -30,6 +30,17 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
       for (const evil of ['//evil.example/account', 'https://evil.example/account', '/accountx', '/account//evil.example']) expect(location(postAuthRedirect(request({ account_redirect: evil }))), evil).toBe(`https://${DOMAIN}/account`)
     })
 
+    it('clears the account redirect whichever way the sign-in ends, so it never waits for the next one', () => {
+      const link = '/account?page=studio&video=aaaaaaaa-1111-4222-8333-444444444444&export=bbbbbbbb-1111-4222-8333-444444444444'
+      for (const winner of [{ invite_redirect: '/invite/tok' }, { share_redirect: '/s/abc' }, { mcp_redirect: '/api/mcp/oauth/authorize?x=1' }, {}]) {
+        const res = postAuthRedirect(request({ ...winner, account_redirect: link }))
+        expect(cleared(res, 'account_redirect'), JSON.stringify(winner)).toBe(true)
+      }
+      // A dot segment in the cookie is not followed: it lands on /account.
+      expect(location(postAuthRedirect(request({ account_redirect: '/account/../anything' })))).toBe(`https://${DOMAIN}/account`)
+      expect(location(postAuthRedirect(request({ account_redirect: '/account/./settings' })))).toBe(`https://${DOMAIN}/account/settings`)
+    })
+
     it('honours an invite redirect and clears it', () => {
       const res = postAuthRedirect(request({ invite_redirect: '/invite/tok' }))
       expect(location(res)).toBe(`https://${DOMAIN}/invite/tok`)

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { isAccountRedirectPath, isInviteRedirectPath, mcpRedirectTarget } from '@/lib/auth/login-redirect'
+import { accountRedirectTarget, isInviteRedirectPath, mcpRedirectTarget } from '@/lib/auth/login-redirect'
 
 /**
  * Where a successful web sign-in lands, shared by the OAuth callbacks
@@ -21,6 +21,23 @@ import { isAccountRedirectPath, isInviteRedirectPath, mcpRedirectTarget } from '
  * from the host the browser used).
  */
 export function postAuthRedirect(request: NextRequest, origin: string = request.nextUrl.origin): NextResponse {
+  // The account redirect is for this sign-in only: whichever way it ends, it never waits for the next one.
+  return dropAccountRedirect(chooseRedirect(request, origin))
+}
+
+/** The cookie the login form leaves for a page of the app to return to (/login?redirect=/account…). */
+export const ACCOUNT_REDIRECT_COOKIE = 'account_redirect'
+
+/**
+ * Clear the account redirect on a sign-in's way out, done or failed: a cookie left behind would send a later
+ * sign-in in this browser to an old deep link (one that downloads an export, say).
+ */
+export function dropAccountRedirect<R extends NextResponse>(response: R): R {
+  response.cookies.delete(ACCOUNT_REDIRECT_COOKIE)
+  return response
+}
+
+function chooseRedirect(request: NextRequest, origin: string): NextResponse {
   const redirectUrl = new URL(request.nextUrl.pathname, origin)
 
   const inviteRedirect = request.cookies.get('invite_redirect')?.value
@@ -75,12 +92,8 @@ export function postAuthRedirect(request: NextRequest, origin: string = request.
   }
 
   // A page of the app (/account and its deep links), same-site only.
-  const accountRedirect = request.cookies.get('account_redirect')?.value
-  if (accountRedirect) {
-    const response = NextResponse.redirect(new URL(isAccountRedirectPath(accountRedirect) ? accountRedirect : '/account', origin))
-    response.cookies.delete('account_redirect')
-    return response
-  }
+  const accountRedirect = request.cookies.get(ACCOUNT_REDIRECT_COOKIE)?.value
+  if (accountRedirect) return NextResponse.redirect(new URL(accountRedirectTarget(accountRedirect) ?? '/account', origin))
 
   redirectUrl.pathname = '/account'
   redirectUrl.search = ''

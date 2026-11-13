@@ -275,7 +275,9 @@ export class LiveTrack {
           this.state = 'failed'
           this.error = error.message
           this.changed()
-          this.deps.onFailed(error.message)
+          // A piece too small for the Studio (only a recorder of an older version cuts one, near silence) ends this
+          // track's upload where it stands; the recording goes on, and what reached the Studio is kept.
+          if (error.code !== 'TOO_SMALL') this.deps.onFailed(error.message)
           return
         }
         this.failures++
