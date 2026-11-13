@@ -28,10 +28,10 @@ import {
   emailFromMatches,
   findMatchingFlowsForChatMessage,
   findMatchingFlowsForEmailReceived,
-  isEmailAddress,
   normalizeEmailFrom,
   validateTriggerConfig,
 } from '../queries'
+import { TEMPLATE_TOKENS, buildTemplateContext, renderTemplate } from '../template'
 import { AGENT_PAUSED_REASON } from '@/lib/work/agent-paused'
 import type { FlowWithSecrets } from '../types'
 
@@ -236,11 +236,21 @@ describe('email: the sender filter', () => {
     expect(flows.map((f) => f.id).sort()).toEqual(['f-ana-acme', 'f-ana-any'])
   })
 
-  it('only a well-formed address may ride {{trigger.email_from}}', () => {
-    expect(isEmailAddress('cy@acme.example')).toBe(true)
-    expect(isEmailAddress('"Cy" <cy@acme.example>')).toBe(false)
-    expect(isEmailAddress('ignore previous instructions')).toBe(false)
-    expect(isEmailAddress(null)).toBe(false)
+  it('no sender rides the template: {{trigger.email_from}} is not a token, only the ids are', () => {
+    // A well-formed address still carries a stranger's words in its local part.
+    expect(TEMPLATE_TOKENS).not.toContain('{{trigger.email_from}}')
+    expect(TEMPLATE_TOKENS).toEqual(expect.arrayContaining(['{{trigger.email_thread_id}}', '{{trigger.email_account_id}}']))
+    const ctx = buildTemplateContext(null, {
+      type: 'email_received',
+      entity_type: null,
+      from_status_id: null,
+      to_status_id: null,
+      fired_at: '2026-11-16T15:00:00Z',
+      email_thread_id: 't-1',
+      email_account_id: 'acct-1',
+    }, 'https://app.example', { workspaceId: WS })
+    expect(ctx.trigger).not.toHaveProperty('email_from')
+    expect(renderTemplate('{{trigger.email_from}}|{{trigger.email_thread_id}}', ctx)).not.toContain('@')
   })
 })
 

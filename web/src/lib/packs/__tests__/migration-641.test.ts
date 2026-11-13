@@ -180,6 +180,26 @@ describe('migration 641', () => {
     for (const t of [core, recipe]) expect(t).toContain('`day_of_month` 1 to 28')
   })
 
+  it("rewrites the flows playbook's description, 324's, to name the new triggers (one line, at most 200 characters)", () => {
+    const old = /\$desc\$(How Dial8's flows \(loops\)[^$]*)\$desc\$/.exec(readMigration('324_workflows_skill.sql'))?.[1]
+    expect(old).toContain('status, schedule, capture and calendar triggers')
+    const m = /UPDATE public\.recipe\s+SET description = \$desc\$([^$]*)\$desc\$,\s+updated_at = now\(\)\s+WHERE id = '1ef0c12f-5d78-41ef-ab12-714512fa03cd'::uuid\s+AND slug = 'flows-playbook'\s+AND is_system\s+AND description IS DISTINCT FROM \$desc\$([^$]*)\$desc\$;/.exec(sql)
+    expect(m, 'the description update').not.toBeNull()
+    const [, next, guard] = m!
+    expect(guard).toBe(next)
+    expect(next).not.toBe(old)
+    expect(next.length).toBeLessThanOrEqual(200)
+    expect(next).not.toContain('\n')
+    for (const word of ['status', 'schedule', 'capture', 'calendar', 'quote', 'mail', 'chat', 'document']) expect(next, word).toContain(word)
+    expect(next).toContain('mail, chat and document triggers')
+    expect(sql).toContain("AND description LIKE '%mail, chat and document triggers%'")
+  })
+
+  it('never offers the sender as a template variable', () => {
+    expect(sql).not.toContain('trigger.email_from')
+    expect((TEMPLATE_TOKENS as readonly string[]).includes('{{trigger.email_from}}')).toBe(false)
+  })
+
   it('puts ids in templates, never words, and names the tool that reads each', () => {
     for (const t of [text(FLOWS.id), text(RECIPE.id)]) {
       for (const [token, tool] of [
@@ -218,7 +238,7 @@ describe('migration 641', () => {
     const body = uncommented(sql).replace(/\$pb\$[\s\S]*?\$pb\$/g, "''").replace(/\s+/g, ' ')
     expect(sql.includes(String.fromCharCode(92))).toBe(false)
     expect(body).toContain("SET LOCAL lock_timeout = '5s';")
-    expect(body.match(/\bUPDATE public\.\w+/g)).toEqual(['UPDATE public.recipe'])
+    expect(body.match(/\bUPDATE public\.\w+/g)).toEqual(['UPDATE public.recipe', 'UPDATE public.recipe'])
     expect(body).toContain('WHERE r.id = p.id AND r.slug = p.slug AND r.is_system AND r.system_prompt IS DISTINCT FROM p.system_prompt;')
     expect(body).not.toMatch(/\b(DELETE\s+FROM|TRUNCATE|INSERT\s+INTO|DROP|ALTER)\b/i)
     for (const { id, slug } of [FLOWS, RECIPE, SEO]) {

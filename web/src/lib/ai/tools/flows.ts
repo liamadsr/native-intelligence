@@ -256,12 +256,12 @@ const triggerInputSchema = z
       ),
     time: z.string().optional().describe('schedule: 24h "HH:mm" in timezone. Required for daily, weekdays, weekly and monthly.'),
     weekday: z.number().optional().describe('schedule, weekly: 0 Sunday … 6 Saturday.'),
-    day_of_month: z.number().optional().describe('schedule, monthly (required): 1-28 (later days are not in every month: for "the last day" use cron).'),
+    day_of_month: z.number().optional().describe('schedule, monthly (required): 1-28 (later days are not in every month). "The last day of the month" can\'t be built exactly, cron included: offer the 28th, or the 1st of the next month.'),
     cron: z
       .string()
       .optional()
       .describe(
-        'schedule, cron (required): 5 fields "minute hour day-of-month month day-of-week" in timezone, with *, lists, ranges and steps; day-of-week 0-7 (0 and 7 Sunday). E.g. "0 */2 * * 1-5" every 2 hours on weekdays, "30 8 1,15 * *" the 1st and 15th at 8:30. When both day fields are set, a day matching EITHER runs (classic cron). At most every 15 minutes, and it must run within a year.',
+        'schedule, cron (required): 5 fields "minute hour day-of-month month day-of-week" in timezone, with *, lists, ranges and steps; day-of-week 0-7 (0 and 7 Sunday). E.g. "0 */2 * * 1-5" every 2 hours on weekdays, "30 8 1,15 * *" the 1st and 15th at 8:30. When both day fields are restricted (anything but a bare *, so */2 counts), a day matching EITHER runs (classic cron); otherwise a day must match both. At most every 15 minutes, and it must run within a year.',
       ),
     run_at: z
       .string()
@@ -290,7 +290,7 @@ const triggerInputSchema = z
     email_from: z
       .string()
       .optional()
-      .describe('email_received: only mail from this sender: an address ("ana@acme.example") or a domain ("acme.example" or "@acme.example"). Omit for any sender.'),
+      .describe('email_received: only mail from this sender: an address ("ana@acme.example") or a domain ("acme.example" or "@acme.example"). Omit for any sender. It matches the mail\'s From address, which anyone can write: it is not proof of who sent it, so never let it stand in for trusting the mail.'),
     channel_id: z
       .string()
       .nullable()

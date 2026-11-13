@@ -344,6 +344,7 @@ function TriggerConfig({
             onChange={(e) => setTrigger({ email_from: e.target.value })}
             placeholder="Anyone (or an address or domain)"
           />
+          <p className="mt-1 text-xs text-muted-foreground">Matches the mail’s From address, which anyone can write: it is not proof of who sent it.</p>
         </Field>
       )}
       {t.kind === 'chat_message' && <ChatMessageTriggerFields trigger={t} setTrigger={setTrigger} members={members} />}
@@ -886,7 +887,7 @@ function ActionConfig({
 /** The fire's own tokens a step may use, per trigger (ids only for the event triggers: a step reads the item with a tool). */
 const TRIGGER_TOKENS: Partial<Record<FlowTriggerType, string[]>> = {
   capture_processed: ['{{trigger.capture.title}}', '{{capture.id}}'],
-  email_received: ['{{trigger.email_thread_id}}', '{{trigger.email_account_id}}', '{{trigger.email_from}}'],
+  email_received: ['{{trigger.email_thread_id}}', '{{trigger.email_account_id}}'],
   chat_message: ['{{trigger.chat_message_id}}', '{{trigger.chat_channel_id}}', '{{trigger.chat_thread_root_id}}'],
   document_created: ['{{trigger.document_id}}'],
 }

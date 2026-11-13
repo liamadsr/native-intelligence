@@ -1382,11 +1382,6 @@ export function normalizeEmailFrom(raw: unknown): string | Error {
   return EMAIL_DOMAIN_RE.test(value) ? value : new Error('trigger_config.from must be an address ("ana@acme.example") or a domain ("acme.example" or "@acme.example")')
 }
 
-/** True when `address` is a well-formed email address (what may ride `{{trigger.email_from}}`). */
-export function isEmailAddress(address: unknown): address is string {
-  return typeof address === 'string' && address.length <= 254 && EMAIL_ADDRESS_RE.test(address)
-}
-
 /**
  * Validate an email_received trigger_config: an optional sender filter
  * (normalizeEmailFrom). Nothing else: it fires for the loop owner's own

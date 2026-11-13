@@ -88,10 +88,13 @@ export interface TemplateContext {
     capture: { id: string; title: string | null } | null
     /** A quote_received fire's quote (`{{trigger.quote_id}}`); null otherwise. */
     quote_id: string | null
-    /** An email_received fire's thread, account and (a well-formed) sender address; null otherwise. */
+    /**
+     * An email_received fire's thread and account; null otherwise. Ids only:
+     * no sender, whose address (its local part too) is a stranger's text. A
+     * step reads the mail, sender included, with read_email.
+     */
     email_thread_id: string | null
     email_account_id: string | null
-    email_from: string | null
     /** A chat_message fire's message, channel and thread root; null otherwise. */
     chat_message_id: string | null
     chat_channel_id: string | null
@@ -161,10 +164,9 @@ export const TEMPLATE_TOKENS = [
   '{{trigger.fired_at}}',
   // quote_received fires only: the quote's id (read it with get_quote)
   '{{trigger.quote_id}}',
-  // email_received fires only: ids to read the mail with read_email (never its words), and the sender's address
+  // email_received fires only: ids to read the mail with read_email (never its words, nor its sender)
   '{{trigger.email_thread_id}}',
   '{{trigger.email_account_id}}',
-  '{{trigger.email_from}}',
   // chat_message fires only: ids to read it with read_team_chat_message (never its words)
   '{{trigger.chat_message_id}}',
   '{{trigger.chat_channel_id}}',
@@ -467,7 +469,6 @@ export function buildTemplateContext(
       quote_id: trigger.quote_id ?? null,
       email_thread_id: trigger.email_thread_id ?? null,
       email_account_id: trigger.email_account_id ?? null,
-      email_from: trigger.email_from ?? null,
       chat_message_id: trigger.chat_message_id ?? null,
       chat_channel_id: trigger.chat_channel_id ?? null,
       chat_thread_root_id: trigger.chat_thread_root_id ?? null,

@@ -20,7 +20,6 @@ import {
   findMatchingFlowsForEmailReceived,
   findMatchingFlowsForPrStatusChange,
   findMatchingFlowsForQuoteReceived,
-  isEmailAddress,
   findMatchingFlowsForStatusChange,
   loadFlowForDispatch,
   loadRunnerEntityData,
@@ -1550,8 +1549,8 @@ export const flowDispatchOnEmailReceived = inngest.createFunction(
       fired_at: fired_at ?? new Date().toISOString(),
       email_thread_id: thread_id,
       email_account_id: account_id ?? null,
-      // Only a well-formed address rides the template; never a display name.
-      email_from: isEmailAddress(from_email) ? from_email : null,
+      // No sender: its address is a stranger's text (the local part too). The
+      // from filter above used it; a step reads it with read_email.
     }
     const out = await runEntitylessFires(supabase, step, {
       fireId: event.id ?? null,

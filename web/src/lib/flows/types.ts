@@ -932,8 +932,6 @@ export interface TriggerContext {
   email_thread_id?: string | null
   /** An email_received fire: the connected account it arrived in (`{{trigger.email_account_id}}`). */
   email_account_id?: string | null
-  /** An email_received fire: the sender's address, only when it is a well-formed address (`{{trigger.email_from}}`). */
-  email_from?: string | null
   /** A chat_message fire: the message (`{{trigger.chat_message_id}}`). */
   chat_message_id?: string | null
   /** A chat_message fire: its channel (`{{trigger.chat_channel_id}}`). */

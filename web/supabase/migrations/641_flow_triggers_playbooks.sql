@@ -35,8 +35,9 @@
 -- "The first Monday of the month" is said to be impossible to build exactly
 -- (cron's either-day rule makes "1-7" with Monday every Monday too), as are
 -- every other week and the last day of the month: the agent offers monthly on
--- a date or weekly instead. Descriptions, configs and every other line stay
--- byte for byte.
+-- a date or weekly instead. Configs and every other line stay byte for byte.
+-- Of the descriptions only the flows playbook's changes (324's, which named
+-- only the older triggers): it names the new ones too.
 --
 -- Applied by hand, from this file: to DEV, then to PROD on the owner's word,
 -- with the app code that has the new triggers (and after 640). Without it the
@@ -177,6 +178,15 @@ WHERE r.id = p.id
   AND r.is_system
   AND r.system_prompt IS DISTINCT FROM p.system_prompt;
 
+-- The flows playbook's description (324's) named only the older triggers.
+UPDATE public.recipe
+SET description = $desc$How Dial8's flows (loops) work and how to build them safely: status, schedule, capture, calendar, quote, mail, chat and document triggers, HTTP and skill actions, why one didn't fire. Loads in flows.$desc$,
+    updated_at = now()
+WHERE id = '1ef0c12f-5d78-41ef-ab12-714512fa03cd'::uuid
+  AND slug = 'flows-playbook'
+  AND is_system
+  AND description IS DISTINCT FROM $desc$How Dial8's flows (loops) work and how to build them safely: status, schedule, capture, calendar, quote, mail, chat and document triggers, HTTP and skill actions, why one didn't fire. Loads in flows.$desc$;
+
 -- Fail loudly, never silently: every row must be there (a wrong id would
 -- update nothing) and must now hold the new text. A second run updates
 -- nothing and passes every check.
@@ -188,6 +198,7 @@ BEGIN
        AND system_prompt LIKE '%email_received%'
        AND system_prompt LIKE '%`day_of_month`%'
        AND system_prompt NOT LIKE '%No cron expressions%'
+       AND description LIKE '%mail, chat and document triggers%'
   ) THEN
     RAISE EXCEPTION '641: the system flows-playbook (1ef0c12f-5d78-41ef-ab12-714512fa03cd) is not there or was not rewritten';
   END IF;
