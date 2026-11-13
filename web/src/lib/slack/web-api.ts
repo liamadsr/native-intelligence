@@ -1,6 +1,6 @@
 /**
- * The few Slack Web API methods Native Intelligence calls, with a bot token from Connect
- * (./connect.ts). Plain fetch, no SDK: each method is one POST.
+ * The few Slack Web API methods Native Intelligence calls, with a team's stored bot
+ * token (./bot-token.ts). Plain fetch, no SDK: each method is one POST.
  *
  * Rate limits (docs/plans/slack-connect.md §3): apps outside the Slack
  * Marketplace get very low limits on conversations.history and

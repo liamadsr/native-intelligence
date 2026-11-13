@@ -1,12 +1,11 @@
 /**
- * Slack's Events API envelope, as Vercel Connect forwards it
- * (docs/plans/slack-connect.md §3, §4 piece 4). Pure: no I/O.
+ * Slack's Events API envelope, as Slack sends it to /api/slack/events. Pure:
+ * no I/O.
  *
- * Connect verifies Slack's signature at its intake and forwards the raw
- * event body to /api/slack/events with a Vercel OIDC token; the route
- * verifies that token, then this reads the body. Nothing here trusts the body
- * for WHO a sender is beyond what Slack put in it after Connect checked
- * Slack's signature: the team, the user id, the channel.
+ * The route verifies Slack's own signature over the raw body first
+ * (./signature.ts), then this reads the body. Nothing here trusts the body
+ * for WHO a sender is beyond what Slack put in it under that signature: the
+ * team, the user id, the channel.
  */
 
 /** What an inbound Slack payload asks Native Intelligence to do. */
@@ -39,7 +38,14 @@ export type SlackInbound =
       /** A Slack Connect channel: people from another company read the reply. */
       sharedExternally: boolean
     }
-  | { kind: 'uninstalled'; eventId: string; teamId: string }
+  | {
+      /** The app was removed from the team, or its bot token revoked. */
+      kind: 'uninstalled'
+      eventId: string
+      teamId: string
+      /** When Slack says it happened (ms), when it says; an install written after then is not undone. */
+      eventTime: number | null
+    }
   | { kind: 'ignore'; reason: string }
 
 const TEAM_ID = /^T[A-Z0-9]{2,30}$/
@@ -55,7 +61,7 @@ const PERSON_SUBTYPES: ReadonlySet<string> = new Set(['file_share', 'thread_broa
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 
 /**
- * Read a forwarded payload. `appId` is our app (config.ts slackAppId): an
+ * Read a payload Slack sent (its signature already checked). `appId` is our app (config.ts slackAppId): an
  * event for any other app is ignored. Never throws.
  */
 export function parseSlackPayload(raw: unknown, appId: string): SlackInbound {
@@ -76,7 +82,9 @@ export function parseSlackPayload(raw: unknown, appId: string): SlackInbound {
   switch (event.type) {
     case 'app_uninstalled':
     case 'tokens_revoked':
-      return event.type === 'tokens_revoked' && !revokesBot(event) ? { kind: 'ignore', reason: 'user_tokens_revoked' } : { kind: 'uninstalled', eventId, teamId }
+      return event.type === 'tokens_revoked' && !revokesBot(event)
+        ? { kind: 'ignore', reason: 'user_tokens_revoked' }
+        : { kind: 'uninstalled', eventId, teamId, eventTime: eventTimeMs(body.event_time) }
     case 'message':
       return parseMessage(event, { eventId, teamId })
     case 'app_mention':
@@ -84,6 +92,11 @@ export function parseSlackPayload(raw: unknown, appId: string): SlackInbound {
     default:
       return { kind: 'ignore', reason: `event:${str(event.type) || 'none'}` }
   }
+}
+
+/** The envelope's event_time (Unix seconds) in ms, or null when it has none. */
+function eventTimeMs(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 1_000_000_000 && value < 100_000_000_000 ? value * 1000 : null
 }
 
 /** tokens_revoked names bot tokens under `tokens.bot`; only those end the installation. */

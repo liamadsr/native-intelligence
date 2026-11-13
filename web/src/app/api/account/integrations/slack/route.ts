@@ -2,22 +2,23 @@
  * GET    /api/account/integrations/slack            the Settings card's state
  * DELETE /api/account/integrations/slack?team=T…     disconnect a Slack workspace (admins)
  *
- * docs/plans/slack-connect.md §4 piece 3. GET answers `{ configured: false }`
- * when this deployment has no Slack connector, and the card hides. Otherwise
- * it lists the Slack workspaces bound to the current Native Intelligence workspace, the
- * person's own link in each, and whether they may add or remove one.
+ * GET answers `{ configured: false }` when this deployment has no Slack app
+ * set up (src/lib/slack/config.ts), and the card says so. Otherwise it lists
+ * the Slack workspaces bound to the current Native Intelligence workspace,
+ * the person's own link in each, and whether they may add or remove one.
  *
- * Disconnect removes the installation from Vercel Connect (its bot token stops
- * working) and marks the row revoked. The people's links stay on the row, so
- * connecting the same Slack workspace again brings them back. When Connect
- * can't revoke it, nothing is marked: a row marked revoked while Connect still
- * holds the token would let the team be bound to another workspace.
+ * Disconnect revokes the team's bot token at Slack (auth.revoke, best effort)
+ * and deletes the stored token (src/lib/slack/bot-token.ts), then marks the
+ * row revoked. The people's links stay on the row, so adding the same Slack
+ * workspace again brings them back. When the stored token can't be deleted,
+ * nothing is marked: a row marked revoked while the app still holds the token
+ * would let the team be bound to another workspace.
  */
 import { getServiceClient } from '@/lib/admin'
 import { requireWorkspaceMember } from '@/lib/api-auth'
 import { apiError, badRequest, forbidden, notFound, serverError } from '@/lib/api-errors'
-import { slackAppId, slackSelfInstallOpen, slackConfigured } from '@/lib/slack/config'
-import { revokeSlackInstallation } from '@/lib/slack/connect'
+import { revokeSlackBotToken } from '@/lib/slack/bot-token'
+import { slackAppId, slackConfigured } from '@/lib/slack/config'
 import { INSTALLING_ROLES, LINKING_ROLES, getInstallation, installationsForWorkspace, linksForUser, markInstallationRevoked } from '@/lib/slack/store'
 
 const TEAM_ID = /^T[A-Z0-9]{2,30}$/
@@ -48,7 +49,6 @@ export async function GET() {
       configured: true,
       appId: slackAppId(),
       canInstall: INSTALLING_ROLES.has(role),
-      selfInstallOpen: slackSelfInstallOpen(),
       canLink: LINKING_ROLES.has(role),
       installations: installations.map((i) => {
         const mine = links.find((l) => l.slack_team_id === i.slack_team_id)
@@ -87,8 +87,8 @@ export async function DELETE(request: Request) {
   if (!installation || installation.workspace_id !== auth.workspaceId || installation.status !== 'active') {
     return notFound('That Slack workspace is not connected here')
   }
-  // Connect first: once it forgets the installation, nothing can post as the bot there.
-  const revoked = await revokeSlackInstallation(installation.connect_installation_id)
+  // The token first: once it is gone, nothing can post as the bot there.
+  const revoked = await revokeSlackBotToken(teamId)
   if (revoked === 'failed') return apiError('Could not disconnect Slack right now. Try again.', { status: 502, code: 'SLACK_REVOKE_FAILED' })
   if (!(await markInstallationRevoked(svc, teamId, auth.workspaceId))) return serverError('Could not disconnect Slack')
   return Response.json({ ok: true })

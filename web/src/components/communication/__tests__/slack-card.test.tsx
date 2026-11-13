@@ -20,7 +20,7 @@ const calls: string[] = []
 const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
   calls.push(`${init?.method ?? 'GET'} ${url}`)
   if (url === '/api/account/integrations/slack') {
-    return Response.json({ configured, appId: 'A1', canInstall: true, canLink: true, selfInstallOpen: false, installations: configured ? [{ teamId: 'T1', teamName: 'Acme', teamDomain: 'acme', myLink }] : [] })
+    return Response.json({ configured, appId: 'A1', canInstall: true, canLink: true, installations: configured ? [{ teamId: 'T1', teamName: 'Acme', teamDomain: 'acme', myLink }] : [] })
   }
   if (url === '/api/account/integrations/slack/link-code') return Response.json({ code: 'K7Q2-9XPL', expiresAt: '2026-10-24T22:00:00Z' })
   if (url.startsWith('/api/account/integrations/slack/link?team=')) {

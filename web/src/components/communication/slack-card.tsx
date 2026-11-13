@@ -24,7 +24,7 @@ import { cn } from '@/lib/utils'
 import { REACH_LINK, REACH_PILL, REACH_PRIMARY, ReachCard, ReachFoot, ReachHeading, ReachLead } from './reach-card'
 
 export function SlackCard({ name }: { name: string }) {
-  const { state, loading, installing, linkCode, codeTeam, makingCode, busyTeam, confirmTeam, setConfirmTeam, copied, error, fetchState, installations, makeCode, install, unlink, disconnect, copyCode, connected, slackHref } =
+  const { state, loading, installing, linkCode, codeTeam, makingCode, busyTeam, confirmTeam, setConfirmTeam, copied, error, notice, fetchState, installations, makeCode, install, unlink, disconnect, copyCode, connected, slackHref } =
     useSlackConnector()
   const mine = installations.filter((team) => team.myLink)
   const unlinked = installations.filter((team) => !team.myLink)
@@ -141,19 +141,9 @@ export function SlackCard({ name }: { name: string }) {
               {!connected && (
                 <p className="mt-4 text-balance text-xs text-muted-foreground">
                   Native Intelligence not in your Slack yet?{' '}
-                  {state.selfInstallOpen ? (
-                    <button type="button" onClick={() => void install()} disabled={installing} className={REACH_LINK}>
-                      Add it to Slack
-                    </button>
-                  ) : (
-                    <>
-                      Email{' '}
-                      <a href="mailto:liam@dial8.ai" className={REACH_LINK}>
-                        liam@dial8.ai
-                      </a>{' '}
-                      and we&apos;ll add it.
-                    </>
-                  )}
+                  <button type="button" onClick={() => void install()} disabled={installing} className={REACH_LINK} data-slack-install="">
+                    Add it to Slack
+                  </button>
                 </p>
               )}
             </>
@@ -161,6 +151,12 @@ export function SlackCard({ name }: { name: string }) {
             <ReachLead>Someone who manages this Native Intelligence workspace sets up Slack first. Then you can link your account here.</ReachLead>
           )}
         </section>
+      )}
+
+      {notice && !error && (
+        <p role="status" className="mt-4 text-sm text-muted-foreground">
+          {notice}
+        </p>
       )}
 
       {error && (

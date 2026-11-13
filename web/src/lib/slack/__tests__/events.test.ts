@@ -58,8 +58,15 @@ describe('parseSlackPayload', () => {
   })
 
   it('reads an uninstall, and a bot token revocation, as the end of the installation', () => {
-    expect(parseSlackPayload(envelope({ type: 'app_uninstalled' }), APP)).toEqual({ kind: 'uninstalled', eventId: 'Ev1', teamId: 'T111' })
-    expect(parseSlackPayload(envelope({ type: 'tokens_revoked', tokens: { bot: ['UBOT'] } }), APP)).toMatchObject({ kind: 'uninstalled' })
+    expect(parseSlackPayload(envelope({ type: 'app_uninstalled' }), APP)).toEqual({ kind: 'uninstalled', eventId: 'Ev1', teamId: 'T111', eventTime: null })
+    expect(parseSlackPayload(envelope({ type: 'tokens_revoked', tokens: { bot: ['UBOT'] } }, { event_time: 1_800_000_000 }), APP)).toEqual({
+      kind: 'uninstalled',
+      eventId: 'Ev1',
+      teamId: 'T111',
+      eventTime: 1_800_000_000_000,
+    })
+    // An event_time that isn't Unix seconds is not trusted as one.
+    expect(parseSlackPayload(envelope({ type: 'app_uninstalled' }, { event_time: '1800000000' }), APP)).toMatchObject({ eventTime: null })
     expect(parseSlackPayload(envelope({ type: 'tokens_revoked', tokens: { oauth: ['U1'] } }), APP)).toMatchObject({ kind: 'ignore' })
   })
 })

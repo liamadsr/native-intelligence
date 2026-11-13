@@ -1,5 +1,5 @@
 /**
- * The Slack intake's trust decisions (docs/plans/slack-connect.md §2, §4):
+ * The Slack intake's trust decisions:
  * who links, who binds a Slack team, and who gets only a reply.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -49,7 +49,6 @@ const liveInstall = (workspaceId = WS) => ({
   enterprise_id: null,
   workspace_id: workspaceId,
   installed_by_user_id: USER,
-  connect_installation_id: TEAM,
   bot_user_id: 'UBOT',
   status: 'active' as const,
   created_at: '2026-10-21T00:00:00Z',
@@ -59,9 +58,9 @@ function makeDeps(over: Partial<SlackInboundDeps> = {}) {
   const posts: Array<{ token: string; channel: string; text: string }> = []
   const whispers: Array<{ channel: string; user: string; text: string; thread_ts?: string }> = []
   const deps: SlackInboundDeps = {
-    verifyInstallation: vi.fn(async () => ({ token: 'xoxb-new', installationId: TEAM })),
+    verifyInstallation: vi.fn(async () => ({ token: 'xoxb-new' })),
     botToken: vi.fn(async () => 'xoxb-live'),
-    installationIdForTeam: (teamId) => teamId,
+    dropToken: vi.fn(async () => true),
     slack: {
       authTest: vi.fn(async () => ({ ok: true as const, team_id: TEAM, team: 'Acme', user_id: 'UBOT' })),
       teamInfo: vi.fn(async () => ({ ok: true as const, team: { id: TEAM, name: 'Acme', domain: 'acme' } })),
@@ -99,7 +98,7 @@ describe('a link code', () => {
     expect(await handleSlackInbound(svc, dm('K7Q4-M3PX'), deps)).toBe('bound_and_linked')
 
     expect(deps.verifyInstallation).toHaveBeenCalledWith(TEAM)
-    expect(store.bindInstallation).toHaveBeenCalledWith(svc, expect.objectContaining({ teamId: TEAM, workspaceId: WS, userId: USER, installationId: TEAM, botUserId: 'UBOT', teamName: 'Acme' }))
+    expect(store.bindInstallation).toHaveBeenCalledWith(svc, expect.objectContaining({ teamId: TEAM, workspaceId: WS, userId: USER, botUserId: 'UBOT', teamName: 'Acme' }))
     expect(store.linkSlackUser).toHaveBeenCalledWith(svc, { teamId: TEAM, slackUserId: 'U222', userId: USER, slackUserName: 'liam' })
     expect(posts).toEqual([{ token: 'xoxb-new', channel: 'D333', text: SLACK_REPLIES.boundAndLinked('Acme') }])
   })
@@ -140,7 +139,7 @@ describe('a link code', () => {
     expect(posts.at(-1)?.text).toBe(SLACK_REPLIES.otherWorkspace())
   })
 
-  it("never binds a team whose Connect token is another team's", async () => {
+  it("never binds a team whose stored token is another team's", async () => {
     store.getInstallation.mockResolvedValue(null)
     store.redeemLinkCode.mockResolvedValue({ userId: USER, workspaceId: WS })
     store.memberRole.mockResolvedValue('owner')
@@ -152,7 +151,7 @@ describe('a link code', () => {
     expect(store.linkSlackUser).not.toHaveBeenCalled()
   })
 
-  it('never binds a team Connect has no installation for', async () => {
+  it('never binds a team the app holds no token for', async () => {
     store.getInstallation.mockResolvedValue(null)
     store.redeemLinkCode.mockResolvedValue({ userId: USER, workspaceId: WS })
     store.memberRole.mockResolvedValue('owner')
@@ -312,10 +311,25 @@ describe('any other DM', () => {
 })
 
 describe('an uninstall', () => {
-  it('marks the installation revoked', async () => {
+  it('marks the installation revoked and deletes the stored token', async () => {
     const { deps } = makeDeps()
-    expect(await handleSlackInbound(svc, { kind: 'uninstalled', eventId: 'Ev2', teamId: TEAM }, deps)).toBe('uninstalled')
-    expect(store.markInstallationRevoked).toHaveBeenCalledWith(svc, TEAM)
+    expect(await handleSlackInbound(svc, { kind: 'uninstalled', eventId: 'Ev2', teamId: TEAM, eventTime: null }, deps)).toBe('uninstalled')
+    expect(store.markInstallationRevoked).toHaveBeenCalledWith(svc, TEAM, undefined, { writtenBefore: undefined })
+    expect(deps.dropToken).toHaveBeenCalledWith(TEAM, { writtenBefore: undefined })
+  })
+
+  it('spares an install written after the event (a new install, then a late event for the old token)', async () => {
+    const { deps } = makeDeps()
+    const at = Date.UTC(2026, 10, 13, 12, 0, 0)
+    await handleSlackInbound(svc, { kind: 'uninstalled', eventId: 'Ev3', teamId: TEAM, eventTime: at }, deps)
+    const writtenBefore = new Date(at).toISOString()
+    expect(store.markInstallationRevoked).toHaveBeenCalledWith(svc, TEAM, undefined, { writtenBefore })
+    expect(deps.dropToken).toHaveBeenCalledWith(TEAM, { writtenBefore })
+  })
+
+  it('still answers uninstalled when the token could not be deleted (logged)', async () => {
+    const { deps } = makeDeps({ dropToken: vi.fn(async () => false) })
+    expect(await handleSlackInbound(svc, { kind: 'uninstalled', eventId: 'Ev4', teamId: TEAM, eventTime: null }, deps)).toBe('uninstalled')
   })
 })
 

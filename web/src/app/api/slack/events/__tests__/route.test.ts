@@ -1,23 +1,17 @@
 /**
- * The Slack events route's own boundaries: the Connect OIDC token, our app
- * only, dedupe before any work, the work after the response.
+ * The Slack events route's own boundaries: Slack's signature over the raw
+ * body and nothing else, our app only, the url_verification challenge only
+ * after a good signature, dedupe before any work, the work after the response.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { SLACK_TEST_APP_ID, slackSignatureHeaders, stubSlackEnv } from '@/test/slack'
 
 const m = vi.hoisted(() => ({
-  verify: vi.fn(),
-  verifierOptions: [] as unknown[],
   firstDelivery: vi.fn(),
   handle: vi.fn(),
   afterFns: [] as Array<() => Promise<void>>,
 }))
 
-vi.mock('@vercel/connect/chat', () => ({
-  createConnectWebhookVerifier: (options: unknown) => {
-    m.verifierOptions.push(options)
-    return m.verify
-  },
-}))
 vi.mock('next/server', async (importOriginal) => ({
   ...(await importOriginal<typeof import('next/server')>()),
   after: (fn: () => Promise<void>) => m.afterFns.push(fn),
@@ -31,7 +25,7 @@ vi.mock('@/lib/slack/store', () => ({ firstDelivery: m.firstDelivery, purgeOldEv
 
 import { POST } from '../route'
 
-const APP = 'A0C9N6VPYLF'
+const APP = SLACK_TEST_APP_ID
 const dmEvent = {
   type: 'event_callback',
   api_app_id: APP,
@@ -40,68 +34,26 @@ const dmEvent = {
   event: { type: 'message', channel_type: 'im', user: 'U222', channel: 'D333', ts: '1700000000.000100', text: 'hi' },
 }
 
-const req = (body: unknown, auth = 'Bearer oidc') =>
-  new Request('https://nativeintelligence.dev/api/slack/events', { method: 'POST', headers: { authorization: auth, 'content-type': 'application/json' }, body: JSON.stringify(body) })
+/** A request as Slack sends it: signed over the exact body, unless `headers` says otherwise. */
+const req = (body: unknown, headers?: Record<string, string>) => {
+  const raw = JSON.stringify(body)
+  return new Request('https://nativeintelligence.dev/api/slack/events', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(headers ?? slackSignatureHeaders(raw)) },
+    body: raw,
+  })
+}
 
 beforeEach(() => {
-  vi.stubEnv('SLACK_CONNECTOR', 'slack/ni-public')
-  vi.stubEnv('SLACK_APP_ID', APP)
-  m.verify.mockReset().mockResolvedValue(true)
+  stubSlackEnv()
   m.firstDelivery.mockReset().mockResolvedValue(true)
   m.handle.mockReset().mockResolvedValue('person_dm')
   m.afterFns.length = 0
-  m.verifierOptions.length = 0
 })
+afterEach(() => vi.unstubAllEnvs())
 
 describe('POST /api/slack/events', () => {
-  it('refuses a request whose Connect OIDC token does not verify, before reading anything', async () => {
-    m.verify.mockRejectedValue(new Error('bad token'))
-    const res = await POST(req(dmEvent))
-    expect(res.status).toBe(401)
-    expect(m.firstDelivery).not.toHaveBeenCalled()
-    expect(m.afterFns).toHaveLength(0)
-  })
-
-  it("checks the token against the deployment's own project on Vercel, and CONNECT_PROJECT_ID off it", async () => {
-    vi.stubEnv('CONNECT_PROJECT_ID', '')
-    await POST(req(dmEvent))
-    vi.stubEnv('CONNECT_PROJECT_ID', 'prj_madeup0001')
-    await POST(req(dmEvent))
-    vi.stubEnv('CONNECT_PROJECT_ID', '')
-    expect(m.verifierOptions).toEqual([undefined, { projectId: 'prj_madeup0001', environment: 'production' }])
-  })
-
-  it('refuses every event (401) when CONNECT_ENVIRONMENT holds a *', async () => {
-    vi.stubEnv('CONNECT_PROJECT_ID', 'prj_madeup0001')
-    vi.stubEnv('CONNECT_ENVIRONMENT', '*')
-    const res = await POST(req(dmEvent))
-    vi.stubEnv('CONNECT_PROJECT_ID', '')
-    vi.stubEnv('CONNECT_ENVIRONMENT', '')
-    expect(res.status).toBe(401)
-    expect(m.verify).not.toHaveBeenCalled()
-    expect(m.firstDelivery).not.toHaveBeenCalled()
-  })
-
-  it('is off (503) when the deployment has no Slack app configured', async () => {
-    vi.stubEnv('SLACK_APP_ID', '')
-    const res = await POST(req(dmEvent))
-    expect(res.status).toBe(503)
-    expect(m.verify).not.toHaveBeenCalled()
-  })
-
-  it('answers url_verification', async () => {
-    const res = await POST(req({ type: 'url_verification', challenge: 'xyz' }))
-    expect(await res.json()).toEqual({ challenge: 'xyz' })
-  })
-
-  it("acks another app's event without doing anything", async () => {
-    const res = await POST(req({ ...dmEvent, api_app_id: 'A999' }))
-    expect(res.status).toBe(200)
-    expect(m.firstDelivery).not.toHaveBeenCalled()
-    expect(m.afterFns).toHaveLength(0)
-  })
-
-  it('records the event, acks, and does the work after the response', async () => {
+  it('takes a request signed by Slack: records the event, acks, and does the work after the response', async () => {
     const res = await POST(req(dmEvent))
     expect(res.status).toBe(200)
     expect(m.firstDelivery).toHaveBeenCalledWith(expect.anything(), 'Ev1', 'T111')
@@ -109,6 +61,53 @@ describe('POST /api/slack/events', () => {
     expect(m.afterFns).toHaveLength(1)
     await m.afterFns[0]()
     expect(m.handle).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ kind: 'dm', slackUserId: 'U222' }), expect.anything())
+  })
+
+  it('refuses a request with no signature, a wrong one, or a stale one, before reading anything', async () => {
+    const raw = JSON.stringify(dmEvent)
+    const cases: Array<Record<string, string>> = [
+      {},
+      slackSignatureHeaders(raw, { secret: '00000000000000000000000000000000' }),
+      slackSignatureHeaders(raw, { at: Date.now() - 6 * 60_000 }),
+      // Signed over another body.
+      slackSignatureHeaders(JSON.stringify({ ...dmEvent, event_id: 'Ev2' })),
+    ]
+    for (const headers of cases) {
+      const res = await POST(req(dmEvent, headers))
+      expect(res.status).toBe(401)
+    }
+    expect(m.firstDelivery).not.toHaveBeenCalled()
+    expect(m.afterFns).toHaveLength(0)
+  })
+
+  it('refuses the old forwarded bearer on its own', async () => {
+    const res = await POST(req(dmEvent, { authorization: 'Bearer made-up-oidc-token' }))
+    expect(res.status).toBe(401)
+    expect(m.firstDelivery).not.toHaveBeenCalled()
+  })
+
+  it('answers url_verification only under a good signature', async () => {
+    const challenge = { type: 'url_verification', challenge: 'xyz' }
+    expect(await (await POST(req(challenge))).json()).toEqual({ challenge: 'xyz' })
+    const unsigned = await POST(req(challenge, {}))
+    expect(unsigned.status).toBe(401)
+    expect(await unsigned.text()).not.toContain('xyz')
+  })
+
+  it('is off (503) when any of the four Slack settings is missing or malformed', async () => {
+    for (const over of [{ SLACK_APP_ID: '' }, { SLACK_CLIENT_ID: '' }, { SLACK_CLIENT_SECRET: 'short' }, { SLACK_SIGNING_SECRET: '' }]) {
+      stubSlackEnv(over)
+      const res = await POST(req(dmEvent))
+      expect(res.status).toBe(503)
+    }
+    expect(m.firstDelivery).not.toHaveBeenCalled()
+  })
+
+  it("acks another app's event without doing anything", async () => {
+    const res = await POST(req({ ...dmEvent, api_app_id: 'A999' }))
+    expect(res.status).toBe(200)
+    expect(m.firstDelivery).not.toHaveBeenCalled()
+    expect(m.afterFns).toHaveLength(0)
   })
 
   it('does nothing for a retried event', async () => {

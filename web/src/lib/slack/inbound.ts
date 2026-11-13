@@ -1,8 +1,7 @@
 /**
- * What Native Intelligence does with a verified Slack event (docs/plans/slack-connect.md §2,
- * §4 pieces 2 and 4). The events route verifies the forwarded request,
- * dedupes it and acks Slack, then hands the parsed event here (after the
- * response).
+ * What Native Intelligence does with a verified Slack event. The events route
+ * verifies Slack's signature, dedupes the event and acks Slack, then hands
+ * the parsed event here (after the response).
  *
  * Who is speaking is decided here, at intake, from what Slack verified (the
  * team, the user id) and what Native Intelligence holds (the installation row, the
@@ -55,12 +54,12 @@ type Mention = Extract<SlackInbound, { kind: 'mention' }>
 
 /** The outside calls the handler makes; the route passes the real ones, tests fakes. */
 export interface SlackInboundDeps {
-  /** Connect: check a team's installation (token + its id), null when Connect has none. */
-  verifyInstallation: (teamId: string) => Promise<{ token: string; installationId: string } | null>
-  /** Connect: the bot token for an installation id. */
-  botToken: (installationId: string) => Promise<string>
-  /** Connect: the installation id a team is addressed by before it is bound. */
-  installationIdForTeam: (teamId: string) => string
+  /** Check a team's installation: its stored bot token, which Slack confirms is that team's; null when there is none. */
+  verifyInstallation: (teamId: string) => Promise<{ token: string } | null>
+  /** The stored bot token of a team (./bot-token.ts). Throws when there is none. */
+  botToken: (teamId: string) => Promise<string>
+  /** Delete a team's stored bot token (the app was removed); `writtenBefore` spares a newer install's. */
+  dropToken: (teamId: string, opts: { writtenBefore?: string }) => Promise<boolean>
   slack: {
     authTest: (token: string) => Promise<SlackApiResult<SlackAuthTest>>
     teamInfo: (token: string) => Promise<SlackApiResult<SlackTeamInfo>>
@@ -107,7 +106,7 @@ export const SLACK_REPLIES = {
   outsider: () => "I only answer people in this Slack workspace who've linked their Native Intelligence account.",
   sharedChannel: () => "I don't answer in channels shared with another company: your Native Intelligence agent would be answering where they read it. Message me directly instead.",
   unboundTeam: () =>
-    `This Slack workspace isn't connected to Native Intelligence yet. A Native Intelligence admin connects it: open Settings > Connectors > Slack in Native Intelligence and send me the code shown there. ${settingsLink()}`,
+    `This Slack workspace isn't connected to Native Intelligence yet. A Native Intelligence admin connects it from Settings > Connectors > Slack in Native Intelligence: Add to Slack there, or send me the code shown there. ${settingsLink()}`,
   codeRejected: () => `That code didn't work: it's used, expired or mistyped. Make a new one in Native Intelligence: ${settingsLink()}`,
   tooManyCodes: () => 'Too many wrong codes. Try again in an hour.',
   needsSlackAdmin: () =>
@@ -130,9 +129,15 @@ export async function handleSlackInbound(svc: Svc, inbound: SlackInbound, deps: 
         return await handleDm(svc, inbound, deps)
       case 'mention':
         return await handleMention(svc, inbound, deps)
-      case 'uninstalled':
-        await markInstallationRevoked(svc, inbound.teamId)
+      case 'uninstalled': {
+        // Only what was written before the event: a new install since then stays.
+        const writtenBefore = inbound.eventTime === null ? undefined : new Date(inbound.eventTime).toISOString()
+        await markInstallationRevoked(svc, inbound.teamId, undefined, { writtenBefore })
+        if (!(await deps.dropToken(inbound.teamId, { writtenBefore }))) {
+          console.warn('[slack/inbound] bot token not deleted', { teamId: inbound.teamId })
+        }
         return 'uninstalled'
+      }
       default:
         // Challenges are answered by the route.
         return 'ignored'
@@ -151,7 +156,7 @@ async function handleDm(svc: Svc, dm: Dm, deps: SlackInboundDeps): Promise<Slack
   if (live?.bot_user_id && live.bot_user_id === dm.slackUserId) return 'ignored'
 
   const reply = async (text: string, token?: string | null) => {
-    const t = token ?? (await tokenFor(dm.teamId, live, deps))
+    const t = token ?? (await tokenFor(dm.teamId, deps))
     if (!t) return
     const sent = await deps.slack.post(t, { channel: dm.channel, text })
     if (!sent.ok) console.warn('[slack/inbound] reply failed', { teamId: dm.teamId, error: sent.error })
@@ -174,14 +179,14 @@ async function handleDm(svc: Svc, dm: Dm, deps: SlackInboundDeps): Promise<Slack
   if (!link) {
     // A guest's DM (or their invite code) is answered by the guests' own intake.
     if (deps.onUnlinkedDm) {
-      const token = await tokenFor(dm.teamId, live, deps)
+      const token = await tokenFor(dm.teamId, deps)
       if (token && (await deps.onUnlinkedDm({ dm, installation: live, token }))) return 'guest_dm'
     }
     await reply(SLACK_REPLIES.unknownSender())
     return 'unknown_sender'
   }
   if (!deps.onPersonDm) return 'person_dm'
-  const token = await tokenFor(dm.teamId, live, deps)
+  const token = await tokenFor(dm.teamId, deps)
   if (!token) return 'failed'
   await deps.onPersonDm({ dm, installation: live, link, token })
   return 'person_dm'
@@ -198,7 +203,7 @@ async function handleMention(svc: Svc, mention: Mention, deps: SlackInboundDeps)
   if (live?.bot_user_id && live.bot_user_id === mention.slackUserId) return 'ignored'
 
   const whisper = async (text: string) => {
-    const token = await tokenFor(mention.teamId, live, deps)
+    const token = await tokenFor(mention.teamId, deps)
     if (!token) return
     const sent = await deps.slack.ephemeral(token, { channel: mention.channel, user: mention.slackUserId, text, thread_ts: mention.threadTs })
     if (!sent.ok) console.warn('[slack/inbound] notice failed', { teamId: mention.teamId, error: sent.error })
@@ -227,10 +232,10 @@ async function handleMention(svc: Svc, mention: Mention, deps: SlackInboundDeps)
   return 'person_mention'
 }
 
-/** The bot token to answer a team with: its row's installation, else the id it would have. Null when Connect has none. */
-async function tokenFor(teamId: string, live: SlackInstallation | null, deps: SlackInboundDeps): Promise<string | null> {
+/** The bot token to answer a team with (stored per team, bound or not). Null when there is none. */
+async function tokenFor(teamId: string, deps: SlackInboundDeps): Promise<string | null> {
   try {
-    return await deps.botToken(live?.connect_installation_id ?? deps.installationIdForTeam(teamId))
+    return await deps.botToken(teamId)
   } catch (error) {
     console.warn('[slack/inbound] no bot token', { teamId, error: error instanceof Error ? error.message : String(error) })
     return null
@@ -264,16 +269,15 @@ async function redeemCode(
   }
 
   // The token to read the sender with (and, for a new team, the proof that
-  // Connect holds an installation for exactly this team).
+  // the app is installed in exactly this team).
   let token: string | null
-  let verifiedInstallationId: string | null = null
   const live = installation?.status === 'active' ? installation : null
   if (live) {
     if (live.workspace_id !== owner.workspaceId) {
       await reply(SLACK_REPLIES.otherWorkspace())
       return 'code_rejected'
     }
-    token = await tokenFor(dm.teamId, live, deps)
+    token = await tokenFor(dm.teamId, deps)
   } else {
     // The team is new (or was disconnected): only an admin's code binds it.
     if (!INSTALLING_ROLES.has(role)) {
@@ -286,7 +290,6 @@ async function redeemCode(
       return 'code_rejected'
     }
     token = verified.token
-    verifiedInstallationId = verified.installationId
   }
   if (!token) return 'failed'
 
@@ -326,7 +329,6 @@ async function redeemCode(
       enterpriseId: validEnterprise((team.ok ? team.team?.enterprise_id : undefined) ?? auth.enterprise_id),
       workspaceId: owner.workspaceId,
       userId: owner.userId,
-      installationId: verifiedInstallationId ?? deps.installationIdForTeam(dm.teamId),
       botUserId: typeof auth.user_id === 'string' && /^[UW][A-Z0-9]{2,30}$/.test(auth.user_id) ? auth.user_id : null,
     })
     if (!bind.ok) {

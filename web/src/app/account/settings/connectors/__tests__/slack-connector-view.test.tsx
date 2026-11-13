@@ -2,8 +2,9 @@
 /**
  * Slack's page under Settings › Connectors (slack-connector-view.tsx):
  *
- *   • back from Slack's install it makes the first code once, and a failure
- *     stays a failure (no retry loop of POSTs);
+ *   • back from Slack's install it says how it ended, in plain words, and
+ *     takes the result off the address (no code is made by itself);
+ *   • Add to Slack asks for the install with this page to come back to;
  *   • linked in one Slack workspace, linking another sends the person to
  *     that workspace, and the code step ends when that link lands;
  *   • a failed first read says so and can be tried again.
@@ -24,7 +25,9 @@ const net = {
   state: null as Record<string, unknown> | null,
   getStatus: 200,
   codeStatus: 200,
+  installStatus: 200,
   calls: [] as string[],
+  bodies: [] as string[],
 }
 const slack = (installations: Team[], over: Record<string, unknown> = {}) => ({
   configured: true,
@@ -54,12 +57,18 @@ beforeEach(() => {
   net.state = null
   net.getStatus = 200
   net.codeStatus = 200
+  net.installStatus = 200
   net.calls = []
+  net.bodies = []
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (url: string, init?: { method?: string }) => {
+    vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
       const method = init?.method ?? 'GET'
       net.calls.push(`${method} ${url}`)
+      if (init?.body) net.bodies.push(init.body)
+      if (url === '/api/account/integrations/slack/install') {
+        return new Response(JSON.stringify(net.installStatus === 200 ? { url: 'https://slack.com/oauth/v2/authorize?x=1' } : { error: 'nope' }), { status: net.installStatus })
+      }
       if (url === '/api/account/integrations/slack/link-code') {
         return new Response(JSON.stringify({ code: 'K7Q4M2', expiresAt: '2026-10-22T19:00:00Z' }), { status: net.codeStatus })
       }
@@ -79,14 +88,42 @@ afterEach(() => {
 })
 
 describe('back from Slack’s install', () => {
-  it('makes the first code once, and a failed one is not retried by itself', async () => {
+  it('says it is connected, takes the result off the address, and makes no code by itself', async () => {
     window.history.replaceState({}, '', '/account/settings/connectors/slack?slack=installed')
-    net.state = slack([])
-    net.codeStatus = 500
+    net.state = slack([acme])
     await render()
-    expect(codePosts()).toBe(1)
-    expect(container.textContent).toContain("Couldn't make a code")
+    expect(container.textContent).toContain('Slack is connected')
     expect(window.location.search).toBe('')
+    expect(codePosts()).toBe(0)
+  })
+
+  it('says plainly why it did not connect', async () => {
+    window.history.replaceState({}, '', '/account/settings/connectors/slack?slack=other_workspace&tab=x')
+    net.state = slack([])
+    await render()
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('already connected to a different Native Intelligence workspace')
+    expect(window.location.search).toBe('?tab=x')
+  })
+
+  it('leaves an address it does not know alone', async () => {
+    window.history.replaceState({}, '', '/account/settings/connectors/slack?slack=<b>hi</b>')
+    net.state = slack([])
+    await render()
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(container.textContent).not.toContain('<b>hi</b>')
+  })
+})
+
+describe('Add to Slack', () => {
+  it('asks for the install, to come back to this page; a failure says so', async () => {
+    net.state = slack([])
+    net.installStatus = 502
+    await render()
+    await act(async () => button('Add to Slack')!.click())
+    await flush()
+    expect(net.calls).toContain('POST /api/account/integrations/slack/install')
+    expect(JSON.parse(net.bodies[0])).toEqual({ returnTo: '/account/settings/connectors/slack' })
+    expect(container.textContent).toContain("Couldn't start the Slack install")
   })
 })
 
