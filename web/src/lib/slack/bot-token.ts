@@ -33,10 +33,11 @@
  *   - an expired token is never handed out.
  * A token Slack calls dead (DEAD_TOKEN_ERRORS) is renewed once by a forced
  * refresh ({@link renewDeadSlackBotToken}). When there is no refresh token, or
- * Slack definitively refuses the refresh (`invalid_refresh_token`, or any
- * refusal once the token it would replace is dead or expired, with no newer
- * version found), the row is deleted at its version and the team reads as
- * "installation gone": Settings then asks for the app to be added again.
+ * Slack says the refresh token itself is no good (`invalid_refresh_token`,
+ * with no newer version found), the row is deleted at its version and the
+ * team reads as "installation gone": Settings then asks for the app to be
+ * added again. No other refusal deletes anything: a wrong client id or secret
+ * in this deployment's settings must never cost every workspace its token.
  *
  * A team with no stored token is "installation gone" ({@link isInstallationGone}):
  * the app is not in that Slack workspace (never added, or removed).
@@ -443,18 +444,22 @@ function refreshOnce(teamId: string, row: TokenRow, deps: SlackTokenDeps, dead: 
  * redeem the refresh token.
  */
 async function claimRefresh(svc: SupabaseClient, teamId: string, version: number, now: number): Promise<boolean> {
-  try {
-    const { data, error } = await svc
-      .from(TABLE)
-      .update({ refresh_claimed_until: new Date(now + CLAIM_MS).toISOString() })
-      .eq('slack_team_id', teamId)
-      .eq('version', version)
-      .or(`refresh_claimed_until.is.null,refresh_claimed_until.lt."${new Date(now).toISOString()}"`)
-      .select('version')
-    return !error && Array.isArray(data) && data.length === 1
-  } catch {
-    return false
+  const until = new Date(now + CLAIM_MS).toISOString()
+  // Two plain filters, one after the other, rather than one hand-written `or`
+  // expression: a row nobody claims, else a row whose claim has lapsed.
+  for (const free of ['unclaimed', 'lapsed'] as const) {
+    try {
+      const claim = svc.from(TABLE).update({ refresh_claimed_until: until }).eq('slack_team_id', teamId).eq('version', version)
+      const { data, error } = await (free === 'unclaimed'
+        ? claim.is('refresh_claimed_until', null)
+        : claim.lt('refresh_claimed_until', new Date(now).toISOString())
+      ).select('version')
+      if (!error && Array.isArray(data) && data.length === 1) return true
+    } catch {
+      // Not claimed.
+    }
   }
+  return false
 }
 
 async function releaseClaim(svc: SupabaseClient, teamId: string, version: number): Promise<void> {
@@ -514,10 +519,11 @@ async function refresh(teamId: string, row: TokenRow, deps: SlackTokenDeps, dead
     if (current) return current
     throw new SlackTokenError('slack: the bot token could not be renewed for now')
   }
-  // Slack refused it. Definitive when it says the refresh token is no good,
-  // or when the token it would replace is dead or expired: nothing works any more.
-  if (error === 'invalid_refresh_token' || dead || expired(row, deps.now())) {
-    console.warn('[slack/bot-token] token dead and not renewable; removed', { teamId })
+  // Slack refused it. Definitive only when it says the refresh token itself is
+  // no good. Any other refusal (a wrong client id or secret in this
+  // deployment's settings, say) is ours to put right and deletes nothing.
+  if (error === 'invalid_refresh_token') {
+    console.warn('[slack/bot-token] refresh token no good; removed', { teamId })
     await deleteRowAt(deps.svc, teamId, row.version)
     throw new SlackInstallationGoneError()
   }

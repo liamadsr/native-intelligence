@@ -89,11 +89,7 @@ function fakeDb() {
       eq: (col: string, v: unknown) => (filters.push((r) => r[col] === v), b),
       lt: (col: string, v: string) => (filters.push((r) => r[col] != null && String(r[col]) < v), b),
       in: (col: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[col])), b),
-      or: (expr: string) => {
-        const parts = expr.split(',').map((p) => /^(\w+)\.(is|lt)\.(.*)$/.exec(p)!)
-        filters.push((r) => parts.some(([, col, opr, v]) => (opr === 'is' ? r[col] == null : r[col] != null && String(r[col]) < v.replace(/^"|"$/g, ''))))
-        return b
-      },
+      is: (col: string, v: null) => (filters.push((r) => (v === null ? r[col] == null : r[col] === v)), b),
       insert: (row: Row) => ((op = 'insert'), (payload = row), b),
       delete: () => ((op = 'delete'), b),
       update: (row: Row) => ((op = 'update'), (payload = row), b),
@@ -417,17 +413,18 @@ describe('a rotating token', () => {
     expect(db.rows.has(TEAM)).toBe(false)
   })
 
-  it('another refusal: still valid, the token is used; once expired, any refusal deletes it', async () => {
+  it('a refusal that is about our own settings (a wrong client id): still valid, the token is used; once expired, an error, and the row STAYS', async () => {
     const db = fakeDb()
     await expiring(db)
     const slack = fakeSlack({ 'oauth.v2.access': () => ({ ok: false, error: 'invalid_client_id' }) })
     expect(await slackBotToken(TEAM, { svc: db.client, fetch: slack.fetch, now: () => NOW, sleep: noSleep })).toBe('xoxb-made-up-1')
     expect(db.rows.get(TEAM)!.refresh_claimed_until).toBeNull() // the claim is released
     forgetSlackBotToken(TEAM)
+    // A wrong setting in this deployment must never cost a workspace its token.
     await expect(slackBotToken(TEAM, { svc: db.client, fetch: slack.fetch, now: () => NOW + REFRESH_MARGIN_MS, sleep: noSleep })).rejects.toBeInstanceOf(
-      SlackInstallationGoneError,
+      SlackTokenError,
     )
-    expect(db.rows.has(TEAM)).toBe(false)
+    expect(db.rows.has(TEAM)).toBe(true)
   })
 
   it('a token that does not rotate is never refreshed', async () => {
@@ -463,14 +460,24 @@ describe('a dead token', () => {
     expect(db.rows.has(TEAM)).toBe(false)
   })
 
-  it('a refresh refused for a dead token deletes it', async () => {
+  it('a dead token whose refresh token Slack calls no good is deleted', async () => {
     const db = fakeDb()
     await stored(db, { refreshToken: 'xoxe-1-old', expiresAt: NOW + 6 * 3600_000 })
-    const slack = fakeSlack({ 'oauth.v2.access': () => ({ ok: false, error: 'invalid_client_id' }) })
+    const slack = fakeSlack({ 'oauth.v2.access': () => ({ ok: false, error: 'invalid_refresh_token' }) })
     await expect(renewDeadSlackBotToken(TEAM, 'xoxb-made-up-1', { svc: db.client, fetch: slack.fetch, now: () => NOW, sleep: noSleep })).rejects.toBeInstanceOf(
       SlackInstallationGoneError,
     )
     expect(db.rows.has(TEAM)).toBe(false)
+  })
+
+  it('a dead token whose refresh is refused for our own settings is an error, and the row stays', async () => {
+    const db = fakeDb()
+    await stored(db, { refreshToken: 'xoxe-1-old', expiresAt: NOW + 6 * 3600_000 })
+    const slack = fakeSlack({ 'oauth.v2.access': () => ({ ok: false, error: 'bad_client_secret' }) })
+    await expect(renewDeadSlackBotToken(TEAM, 'xoxb-made-up-1', { svc: db.client, fetch: slack.fetch, now: () => NOW, sleep: noSleep })).rejects.toBeInstanceOf(
+      SlackTokenError,
+    )
+    expect(db.rows.has(TEAM)).toBe(true)
   })
 })
 
