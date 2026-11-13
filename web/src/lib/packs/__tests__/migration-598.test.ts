@@ -67,7 +67,8 @@ describe('migration 598', () => {
       expect(sql.split(r.id).length - 1, r.slug).toBe(1)
       expect(r.slug, r.slug).toMatch(/^seo-[a-z-]+$/)
     }
-    const earlier = allShippedSkills().filter((s) => s.file !== FILE)
+    // 641 rewrote seo-report's text later: its row is still this file's.
+    const earlier = allShippedSkills().filter((s) => s.file !== FILE && s.file !== '641_flow_triggers_playbooks.sql')
     for (const r of ROWS) expect(earlier.some((s) => s.id === r.id || s.slug === r.slug), r.slug).toBe(false)
   })
 

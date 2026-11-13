@@ -78,6 +78,9 @@ export const PROMPT_REWRITE_MIGRATIONS = [
   '582_booking_links_in_calendar_playbook.sql',
   // Availability phase 5: several outside guests at once are a poll (offer_times' `recipients`), and its three tools.
   '584_polls_in_find_a_time.sql',
+  // The loop triggers and schedules of 640: mail, team chat and new documents; monthly, cron and once. The flows
+  // playbook (from 338 with 357, 361 and 400's edits), build-a-workflow (324 with 400's) and seo-report (598).
+  '641_flow_triggers_playbooks.sql',
 ] as const
 
 /**

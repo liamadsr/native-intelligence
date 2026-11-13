@@ -105,7 +105,8 @@ describe('migration 551', () => {
       [FIND_A_TIME, 'find-a-time'],
     ])
     // Only 553 (availability phase 2: teammates), 580 (phase 3a: offer_times), 582 (phase 4a: the calendar playbook's booking links) and 584 (phase 5: polls) rewrite them after this one.
-    expect(PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE) + 1)).toEqual([LATER, LATEST, NEWEST, POLLS])
+    // Of the later text-only rewrites, those that touch the calendar rows (641 rewrites the flows rows only).
+    expect(PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE) + 1).filter((f) => promptRewrites(f).some((r) => r.slug === 'calendar-playbook' || r.slug === 'find-a-time'))).toEqual([LATER, LATEST, NEWEST, POLLS])
     expect(PREFERRED_TOOLS_REWRITE_MIGRATIONS).toContain(FILE)
     // The calendar core's text was 338's (no rewrite between but 553), find-a-time's 325's.
     const between = PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf('338_skill_helper_lines.sql') + 1, PROMPT_REWRITE_MIGRATIONS.indexOf(FILE))

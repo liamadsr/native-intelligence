@@ -34,7 +34,8 @@ const BODY = sql
 describe('migration 582', () => {
   it('rewrites only the calendar playbook, by id and slug, after 580, with only 584 after it', () => {
     expect(rows.map((r) => [r.id, r.slug])).toEqual([[CALENDAR, 'calendar-playbook']])
-    expect(PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE) + 1)).toEqual([LATER])
+    // Of the later text-only rewrites, those that touch the calendar rows (641 rewrites the flows rows only).
+    expect(PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE) + 1).filter((f) => promptRewrites(f).some((r) => r.slug === 'calendar-playbook' || r.slug === 'find-a-time'))).toEqual([LATER])
     // Only text: the preferred tools stay as 551 and 580 left them.
     expect(PREFERRED_TOOLS_REWRITE_MIGRATIONS).not.toContain(FILE as never)
     expect(preferredToolsRewrites(FILE)).toEqual([])

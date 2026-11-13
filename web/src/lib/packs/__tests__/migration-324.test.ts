@@ -11,7 +11,7 @@ import { TOOL_CATEGORIES } from '@/lib/ai/tool-registry'
 import { FEATURES } from '@/lib/editions/manifest'
 import { estimateTokens } from '../memory'
 import { PACKS, playbookSlug } from '../registry'
-import { allSeededSkills, allShippedSkills, CORE_HELPER_LINE, OLD_CORE_HELPER_LINE, readMigration, seededSkills } from './playbook-seeds'
+import { allSeededSkills, allShippedSkills, CORE_HELPER_LINE, OLD_CORE_HELPER_LINE, promptRewrites, readMigration, seededSkills } from './playbook-seeds'
 
 const FILE = '324_workflows_skill.sql'
 const sql = readMigration(FILE)
@@ -35,14 +35,16 @@ describe('migration 324', () => {
     expect(rows.map((r) => ({ id: r.id, slug: r.slug, area: r.area }))).toEqual([CORE, RECIPE])
   })
 
-  it('rewrites the Flows core by its 319 id, and its text is the one that ships', () => {
+  it('rewrites the Flows core by its 319 id, and its text is the one later rewrites start from', () => {
     const before = seededSkills('319_area_playbooks.sql').find((r) => r.id === CORE.id)!
     expect(before.slug).toBe(CORE.slug)
     expect(CORE.slug).toBe(playbookSlug('flows'))
-    const shipped = allSeededSkills().find((r) => r.id === CORE.id)!
     // 338 swapped its helper line for the one every core now ships; the rest is 324's.
-    expect(shipped.file).toBe('338_skill_helper_lines.sql')
-    expect(shipped.prompt).toBe(by(CORE.slug).prompt.replace(OLD_CORE_HELPER_LINE, CORE_HELPER_LINE))
+    const s338 = promptRewrites('338_skill_helper_lines.sql').find((r) => r.id === CORE.id)!
+    expect(s338.prompt).toBe(by(CORE.slug).prompt.replace(OLD_CORE_HELPER_LINE, CORE_HELPER_LINE))
+    // 641 (the new triggers and schedules) rewrote it again: its text ships, and pins itself.
+    const shipped = allSeededSkills().find((r) => r.id === CORE.id)!
+    expect(shipped.file).toBe('641_flow_triggers_playbooks.sql')
     const s323 = seededSkills('323_feature_skills_v2.sql').find((r) => r.id === CORE.id)!
     expect(shipped.prompt).not.toBe(s323.prompt)
   })
