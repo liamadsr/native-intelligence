@@ -131,13 +131,19 @@ Built and tried on this server, **not set up on it yet**. Setting it up changes 
 2. *The app* points a sandbox on a list at the runtime's one resolver when it creates it (`web/agents/coding-agent/lib/runtime-sandbox.ts`, `NARROWED_RESOLVER`): the image's two are out of such a sandbox's reach. When that step fails, the app removes the sandbox.
 3. *The guard* ([`guard.sh`](guard.sh)), once `resolver.sh` has written its setting: a sandbox's lookups for that address go to this machine's resolver, and the rest is dropped or refused.
 
-The first two are harmless alone, and the third is the switch. Without the first two, the third would leave a sandbox asking that address for every name and getting only the allowed names answered. So `resolver.sh install` refuses unless a new sandbox carries the image's list and no sandbox is running.
+They go in that order, app first:
+
+- The app's part is harmless alone: with the image as it was, it writes what is already there.
+- The image needs the app's part. A narrowed sandbox from the new image, started by an app without it, asks two resolvers it cannot reach and looks nothing up. So this server's checkout is not moved to a commit with the new image, and `setup.sh` is not run from one, before the app is rolled out.
+- The guard's part is the switch, and it needs both. Without them a sandbox would ask that address for every name and get only the allowed names answered. So `resolver.sh install` refuses, the first time, unless a new sandbox carries the image's list and no sandbox is running or paused.
 
 **The names** are written in two places: the agent's list (`RESTRICTED_ALLOW_HOSTS` in `web/agents/coding-agent/sandbox.ts`) and the resolver's zones (the top of `resolver.sh`). [`tests/test_resolver.py`](tests/test_resolver.py) fails when only one of them moves. A zone answers for its name and for every name under it; every name under these is the service's own, so no lookup under them reaches a name server someone else runs.
 
+The resolver on this server holds the names it was installed with. After the list changes, or the app moves to another host: `git pull` here, then `sudo ./resolver.sh install <the app's host>` again (it writes the names anew and restarts the resolver; sandboxes may be running). Until then `check.sh` fails, saying the resolver's settings are not this checkout's.
+
 **To set it up**, in this order:
 
-1. The app's part is merged and rolled out on the app's server.
+1. The app's part is merged and rolled out on the app's server. Not before that:
 2. Here: `git pull` as the checkout's owner, then `sudo ./setup.sh` (it installs the guard that knows the resolver and builds the image again, since its definition changed) and `sudo ./check.sh`.
 3. When no sandbox is running:
 
@@ -145,18 +151,25 @@ The first two are harmless alone, and the third is the switch. Without the first
    sudo ./resolver.sh install <the app's host>
    ```
 
-   The host is the one the app's git gate answers on, as a plain name. The script installs the resolver (`unbound`, from Ubuntu, with the package's own unit masked so that nothing starts on port 53), starts it on port 5335 as `ni-sandbox-resolver`, opens that port to the sandboxes' range, and only then writes `/etc/ni-sandbox/resolver.env` and loads the guard.
+   The host is the one the app's git gate answers on, as a plain name in small letters. The script installs the resolver (`unbound`, from Ubuntu, with the package's own two units masked, so that nothing starts on port 53 or offers itself to this machine as its resolver), starts it on port 5335 as `ni-sandbox-resolver`, opens that port to the sandboxes' range, and only then writes `/etc/ni-sandbox/resolver.env` and loads the guard.
 4. `sudo ./check.sh`. It now also starts a narrowed sandbox and an open one and looks from inside ([`resolver_check.py`](resolver_check.py)).
 
 **To take it away:** `sudo ./resolver.sh remove`. The guard's rules go first, so lookups reach the runtime's resolver again, as before.
 
-**What changes for a sandbox with the open internet:** nothing, unless a program in it asks 8.8.8.8 by address. That address is this server's resolver for every sandbox, whatever its level, and over TCP it is refused.
+**What changes for a sandbox with the open internet.** That address is this server's resolver for every sandbox, whatever its level and whatever its image, and over TCP it is refused.
+
+- *From the coding agent's image:* nothing, unless a program in it asks 8.8.8.8 by address.
+- *From any other image* (the runtime's own base image, or one built here without a list of resolvers): it asks 8.8.8.8, the runtime's default, and so looks up the allowed names and no other. An image that needs more writes its own resolvers, as `image.py` does.
+- *While an image is built,* its steps ask 8.8.8.8 too. A step that fetches anything (packages, for one) must come after a step that writes the image's resolvers; in `image.py` that step is the first.
+
+`check.py` starts its sandbox from the base image, and gives it two public resolvers before its tries for that reason.
 
 **What it does not do.**
 
 - It does not tell one sandbox from another. Every narrowed sandbox may look up every allowed name, including one its own level does not let it reach; the runtime's proxy still refuses that connection.
 - Lookups over TCP are refused, not answered. The allowed names' answers fit in a datagram.
-- When the resolver is not running, a narrowed sandbox can look nothing up and its run fails. An open one does not notice.
+- When the resolver is not running, a narrowed sandbox can look nothing up and its run fails. An open one from the coding agent's image does not notice; one from an image without resolvers of its own looks nothing up either.
+- After the switch, a narrowed sandbox is refused another name at the lookup already. A check that such a name is "not reachable" then passes on that alone and no longer shows that the runtime's proxy refuses the connection; `web/agents/coding-agent/scripts/runtime-conformance.mts` is one. Asking by address, or with the name handed to the client, still shows the proxy's part.
 
 ## Memory, and how many sandboxes fit
 
@@ -189,7 +202,7 @@ They are not in a settings file. The runtime keeps them in one row of its own da
 - The framework's version in the image's name must be the one the app uses. They are written in two places, here and in `web/package.json`, and [`tests/test_image.py`](tests/test_image.py) fails when only one of them moves.
 - It is built when it is missing, when its definition changed, or when the disk limit did. A build only counts when a sandbox started from it passes the check below.
 - `check.sh` starts one sandbox from it and looks from inside: every tool the agent calls is there, in a login shell, from the workspace; the workspace is the sandbox user's own; the disk and the memory are what they should be; it asks the image's own resolvers and looks up a name with them.
-- Its resolvers are two ordinary public ones, written into the image, and they stay through a sandbox's start, a pause and a resume. Why they are not the runtime's own is under [The resolver](#the-resolver).
+- Its resolvers are two ordinary public ones, written into the image as its first step, and they stay through a sandbox's start, a pause and a resume. Why they are not the runtime's own, and why the step is first, is under [The resolver](#the-resolver).
 
 ## Day to day
 

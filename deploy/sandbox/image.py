@@ -40,9 +40,12 @@ RESOLV_CONF = "".join(f"nameserver {address}\n" for address in RESOLVERS)
 # Run in the image, in this order, as the user named. The runtime runs a
 # sandbox's commands as its own user ("user"), not the image's: the workspace
 # the agent works in has to be that user's.
+# The resolvers come first: while an image is built, its steps ask the runtime's
+# own resolver, which answers for the narrowed levels' names only once this
+# server's resolver is set up. A step that fetches anything must come after.
 STEPS = [
-    ("root", "mkdir -p /workspace && chown -R user:user /workspace"),
     ("root", "printf '" + RESOLV_CONF.replace("\n", "\\n") + "' > /etc/resolv.conf"),
+    ("root", "mkdir -p /workspace && chown -R user:user /workspace"),
 ]
 # What the agent's setup and its tools call (web/agents/coding-agent/sandbox.ts
 # and the framework's shell tool). git-lfs is not among them: the hosted image
@@ -150,10 +153,12 @@ def resolvers() -> int:
     # A sandbox started before the image had its list asks the runtime's own
     # resolver: once the guard sends that one to this server's, it could look
     # up nothing but the narrowed levels' names.
+    # The listing holds paused sandboxes too (seen on this runtime): one from
+    # before the list would wake up asking the runtime's own resolver.
     listing = Sandbox.list()
-    running = listing.next_items() if hasattr(listing, "next_items") else list(listing)
-    if running:
-        print(f"  {len(running)} sandbox(es) running: wait until none is")
+    there = listing.next_items() if hasattr(listing, "next_items") else list(listing)
+    if there:
+        print(f"  {len(there)} sandbox(es) running or paused: wait until none is")
         return 1
     sandbox = Sandbox.create(NAME, timeout=60)
     try:

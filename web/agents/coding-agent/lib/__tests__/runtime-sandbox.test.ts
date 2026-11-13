@@ -243,11 +243,21 @@ describe('the ni-runtime provider', () => {
       await implementation(fake).start(CTX, { networkPolicy: policyFor(level) }, ARTIFACT)
       expect(fake.calls.map((c) => c.kind)).toEqual(['create', 'commands.run'])
       expect(fake.sandboxes[0].runs.map((r) => r.command)).toEqual([POINT_AT_NARROWED_RESOLVER])
-      expect(fake.sandboxes[0].runs[0].options).toMatchObject({ cwd: '/', envs: {}, timeoutMs: 30_000 })
+      expect(fake.sandboxes[0].runs[0].options).toMatchObject({ user: 'root', cwd: '/', envs: {}, timeoutMs: 30_000 })
     }
-    // The command itself: root's file, the runtime's one resolver, nothing else in it.
-    expect(POINT_AT_NARROWED_RESOLVER).toBe(`sudo -n sh -c 'printf "nameserver ${NARROWED_RESOLVER}\\n" > /etc/resolv.conf'`)
+    // The command itself, byte for byte as the sandbox's shell gets it: the file holds the
+    // runtime's one resolver and nothing else, and is read back.
+    expect(POINT_AT_NARROWED_RESOLVER).toBe(
+      String.raw`printf 'nameserver 8.8.8.8\n' > /etc/resolv.conf && grep -qx 'nameserver 8.8.8.8' /etc/resolv.conf`,
+    )
     expect(NARROWED_RESOLVER).toBe('8.8.8.8')
+  })
+
+  it('only that first step runs as root: nothing the agent runs does', async () => {
+    const fake = fakeClient()
+    const { handle } = await implementation(fake).start(CTX, { networkPolicy: policyFor('isolated') }, ARTIFACT)
+    await handle.sandbox.run({ command: 'true' })
+    expect(fake.sandboxes[0].runs.map((r) => r.options.user)).toEqual(['root', undefined])
   })
 
   it('start() with the open internet, or with none, leaves the image\'s own resolvers alone', async () => {

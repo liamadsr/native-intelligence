@@ -102,8 +102,14 @@ class TheSettings(unittest.TestCase):
         self.assertIn("interface-automatic: yes", self.conf)
         self.assertIn("port: 5335", self.conf)
 
+    def test_only_the_sandboxes_and_this_machine_are_answered(self):
+        # The guard and the firewall keep everyone else from the port; so does the resolver itself.
+        allowed = re.findall(r"access-control: (\S+) (\w+)", self.conf)
+        self.assertEqual(allowed, [("0.0.0.0/0", "refuse"), ("127.0.0.0/8", "allow"), ("10.11.0.0/16", "allow")])
+
     def test_the_apps_host_is_a_plain_name(self):
-        for odd in ("", "https://app.example.com", "app.example.com/", "app.example.com:443", "*.example.com", 'x"\n\tlocal-zone: "." transparent', "localhost"):
+        second_line = 'app.example.com\n" refuse\nserver:\n\tlocal-zone: "." transparent\n#'
+        for odd in ("", "https://app.example.com", "app.example.com/", "app.example.com:443", "*.example.com", 'x"\n\tlocal-zone: "." transparent', "localhost", second_line, "app.example.com\n", "App.Example.com"):
             done = resolver("conf", odd)
             self.assertEqual(done.returncode, 2, f"{odd!r} was taken as a host")
             self.assertEqual(done.stdout, "")
@@ -182,9 +188,21 @@ class TheImage(unittest.TestCase):
         check = (SANDBOX / "resolver_check.py").read_text()
         self.assertIn(f'RESOLVER = "{named}"', check)
 
+    def test_the_checks_look_for_the_rules_by_the_names_the_guard_gives_them(self):
+        rules = guard_rules({"resolver.env": "RESOLVER_PORT=5335\n"})
+        check = (SANDBOX / "resolver_check.py").read_text()
+        for comment in ("sandbox-link-to-resolver-address", "sandbox-range-to-resolver-address"):
+            self.assertIn(f'comment "{comment}"', rules)
+        self.assertIn("sandbox-(?:link|range)-to-resolver-address", check)
+        # resolver.sh's own check asks for this chain by name.
+        self.assertIn("chain resolver_lookups {", rules)
+        self.assertIn("ni_sandbox_guard resolver_lookups", (SANDBOX / "resolver.sh").read_text())
+
     def test_the_image_is_built_with_that_list(self):
         written = [command for user, command in self.image.STEPS if "/etc/resolv.conf" in command]
         self.assertEqual(len(written), 1)
+        # First: while an image is built, a later step that fetches something asks the list, not the runtime's own resolver.
+        self.assertEqual(self.image.STEPS[0][1], written[0])
         for address in self.image.RESOLVERS:
             self.assertIn(f"nameserver {address}\\n", written[0])
         self.assertNotIn("%", written[0], "the list is printf's format: a percent sign would be read as one")

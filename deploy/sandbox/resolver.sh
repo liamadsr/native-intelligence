@@ -18,7 +18,8 @@
 # anything: a sandbox from an older image would ask that address for every name.
 #
 #   resolver.sh conf <the app's host> [port]   print the resolver's settings (the tests read this)
-#   sudo resolver.sh install <the app's host>  install it, start it, and have the guard use it
+#   sudo resolver.sh install <the app's host>  install it, start it, and have the guard use it;
+#                                              again after the names changed, to write them anew
 #   sudo resolver.sh check                     it runs, answers for an allowed name and refuses another
 #   sudo resolver.sh remove                    take it away again: the guard's rules first, then the service
 set -eu
@@ -38,7 +39,10 @@ unit=ni-sandbox-resolver.service
 guard=/usr/local/sbin/ni-sandbox-guard
 runtime_dir=/opt/e2b
 
+# One plain name and nothing else: it goes into the resolver's settings, where
+# a second line would be a setting of its own.
 host_ok() {
+	case "$1" in '' | *[!a-z0-9.-]*) return 1 ;; esac
 	printf '%s\n' "$1" | grep -Eq '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$'
 }
 
@@ -56,12 +60,15 @@ server:
 	do-daemonize: no
 	# Every address of this machine: a sandbox's lookup arrives at the address
 	# of its own link, and each sandbox has a link of its own. The guard lets
-	# only redirected lookups and this machine itself reach the port.
+	# only redirected lookups and this machine itself reach the port; the
+	# resolver itself answers no one but the sandboxes' range and loopback.
 	interface: 0.0.0.0
 	interface-automatic: yes
 	port: $2
 	do-ip6: no
-	access-control: 0.0.0.0/0 allow
+	access-control: 0.0.0.0/0 refuse
+	access-control: 127.0.0.0/8 allow
+	access-control: 10.11.0.0/16 allow
 	hide-identity: yes
 	hide-version: yes
 	# It asks the internet's name servers itself: no other resolver to depend
@@ -123,14 +130,16 @@ install() {
 	}
 	# A sandbox from an image without its own list of resolvers asks the
 	# runtime's one for every name, and would lose all but the allowed names:
-	# the image first, and no sandbox from before it.
-	if ! (set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" resolvers); then
-		echo "resolver: the coding agent's image is not built with its list of resolvers, or a sandbox is running: nothing was changed (run setup.sh, wait until no sandbox runs)." >&2
+	# the image first, and no sandbox from before it. Not asked again when the
+	# resolver is already set up and this run only changes its names.
+	if [ ! -r "$settings" ] && ! (set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" resolvers); then
+		echo "resolver: the coding agent's image is not built with its list of resolvers, or a sandbox is running or paused: nothing was changed (run setup.sh, wait until there is no sandbox)." >&2
 		exit 1
 	fi
-	# The package's own unit would start a resolver of its own on port 53:
-	# masked before the package arrives. Nothing else on this server is restarted.
-	systemctl mask unbound.service >/dev/null 2>&1 || true
+	# The package's own units would start a resolver on port 53 and offer it to
+	# this machine as its own: both masked before the package arrives. Nothing
+	# else on this server is restarted.
+	systemctl mask unbound.service unbound-resolvconf.service >/dev/null 2>&1 || true
 	NEEDRESTART_MODE=l DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y -qq unbound >/dev/null
 	mkdir -p /etc/ni-sandbox /etc/unbound
 	conf "$host" "$port_default" >"$conf_file.new"
@@ -141,6 +150,7 @@ install() {
 Description=The sandboxes' resolver: answers only for the names a narrowed sandbox may reach
 After=network-online.target
 Wants=network-online.target
+Before=docker.service ni-sandbox-runtime.service
 
 [Service]
 ExecStartPre=/usr/sbin/unbound-checkconf $conf_file
@@ -174,10 +184,15 @@ check() {
 	[ -r "$settings" ] || { echo "resolver: not set up on this server"; return 1; }
 	port="$(sed -n 's/^RESOLVER_PORT=\([0-9]\{4,5\}\)$/\1/p' "$settings")"
 	[ -n "$port" ] || { echo "resolver: $settings names no port" >&2; return 1; }
+	host="$(sed -n 's/^GATE_HOST=//p' "$settings")"
+	host_ok "$host" || { echo "resolver: $settings names no host" >&2; return 1; }
+	# Its names are written when it is installed: a list that changed in this
+	# checkout since is not the list it answers for.
+	conf "$host" "$port" | cmp -s - "$conf_file" || { echo "resolver: its settings are not the ones this checkout would write (the names changed?): sudo ./resolver.sh install $host" >&2; return 1; }
 	systemctl is-active --quiet "$unit" || { echo "resolver: $unit is not running" >&2; return 1; }
 	answers "$port" || { echo "resolver: it does not answer for an allowed name, or answers for another" >&2; return 1; }
 	nft list chain inet ni_sandbox_guard resolver_lookups >/dev/null 2>&1 || { echo "resolver: the guard does not send the sandboxes' lookups to it (sudo ni-sandbox-guard apply)" >&2; return 1; }
-	echo "resolver: runs, answers for the allowed names over UDP and TCP, refuses another name, and the guard sends the sandboxes' lookups to it"
+	echo "resolver: runs with this checkout's names, answers for an allowed name over UDP and TCP, refuses another name, and the guard sends the sandboxes' lookups to it"
 }
 
 remove() {
@@ -189,7 +204,7 @@ remove() {
 	rm -f "/etc/systemd/system/$unit" "$conf_file"
 	systemctl daemon-reload
 	ufw delete allow from 10.11.0.0/16 to any port "$port_default" proto udp >/dev/null 2>&1 || true
-	echo "resolver: removed (the package stays, its own unit masked)"
+	echo "resolver: removed (the package stays, its own units masked)"
 }
 
 case "${1:-}" in

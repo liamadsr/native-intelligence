@@ -122,8 +122,8 @@ const ALL_TRAFFIC = '0.0.0.0/0'
  * address; deploy/sandbox/tests pins the two together.
  */
 export const NARROWED_RESOLVER = '8.8.8.8'
-/** Run as the runtime's user, which may sudo: the file is root's. */
-export const POINT_AT_NARROWED_RESOLVER = `sudo -n sh -c 'printf "nameserver ${NARROWED_RESOLVER}\\n" > /etc/resolv.conf'`
+/** Run as root (the file is root's), and read back: a write that did not happen fails too. */
+export const POINT_AT_NARROWED_RESOLVER = `printf 'nameserver ${NARROWED_RESOLVER}\\n' > /etc/resolv.conf && grep -qx 'nameserver ${NARROWED_RESOLVER}' /etc/resolv.conf`
 
 // ── The client, as far as this file uses it ────────────────────────────────
 
@@ -159,6 +159,8 @@ export interface RuntimeCommandHandle {
 /** CommandStartOpts, background form. */
 export interface RuntimeCommandStartOptions {
   background: true
+  /** Only the provider's own first step runs as root; the agent's commands run as the runtime's user. */
+  user?: 'root'
   cwd: string
   envs: Record<string, string>
   /** 0: no limit (the client's default would cut a command at 60 s). */
@@ -664,6 +666,7 @@ export function createRuntimeSandboxImplementation(
         try {
           const pointed = await sbx.commands.run(POINT_AT_NARROWED_RESOLVER, {
             background: true,
+            user: 'root',
             cwd: '/',
             envs: {},
             timeoutMs: 30_000,

@@ -183,6 +183,11 @@ def main() -> int:
     subprocess.run([GUARD, "forget"], check=True)
     sandbox = Sandbox.create(timeout=180)
     try:
+        # From the runtime's base image, whose one resolver is the address this
+        # server's own resolver answers at once it is set up, for the narrowed
+        # levels' names only (README, "The resolver"). The tries below look up
+        # other names, so this sandbox asks two public resolvers instead.
+        sandbox.commands.run("printf 'nameserver 1.1.1.1\\nnameserver 9.9.9.9\\n' > /etc/resolv.conf", user="root", timeout=30)
         sandbox.files.write("/tmp/probe.py", PROBE)
         spec = {"straight": own + outside, "named": names, "sites": ["example.com", "one.one.one.one"], "udp": addresses, "udp_port": UDP_PORT, "clocks": clocks}
         sandbox.files.write("/tmp/spec.json", json.dumps(spec))
