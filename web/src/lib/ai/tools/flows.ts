@@ -1470,7 +1470,7 @@ export function createFlowTools(
             const isOwner = row.created_by === userId
             return {
               ...flow,
-              trigger_config: triggerConfigForViewer(flow.trigger_type, flow.trigger_config, isOwner) as typeof flow.trigger_config,
+              trigger_config: triggerConfigForViewer(flow.trigger_type, flow.trigger_config, isOwner) as unknown as typeof flow.trigger_config,
               trigger: describeTrigger(flow.trigger_type, flow.trigger_config, isOwner),
               owner: ownerOf(row.created_by as string | null, owners),
             }
@@ -1925,7 +1925,7 @@ export function createFlowTools(
         }
         const stored = toPublicFlow(data as Record<string, unknown>)
         // The owner's event loops: their channel and sender filter are the owner's to see.
-        const flow = { ...stored, trigger_config: triggerConfigForViewer(stored.trigger_type, stored.trigger_config, ownerId === userId) as typeof stored.trigger_config }
+        const flow = { ...stored, trigger_config: triggerConfigForViewer(stored.trigger_type, stored.trigger_config, ownerId === userId) as unknown as typeof stored.trigger_config }
         // A non-owner can't switch on a risky loop alone (F1 review): it runs
         // as its owner, with their data and connections, so the card is the
         // RUN-AS owner's to accept, in their queue (its creator while still a
