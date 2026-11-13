@@ -4,6 +4,7 @@
 // are videos: they sit in the Ads grid above.
 import React, { useCallback, useEffect, useState } from 'react'
 import { request } from './client'
+import { saveExport } from './save-export'
 
 type Finding = { level: 'error' | 'warn' | 'info'; rule: string; message: string }
 type Image = { size: string; assetId: string; file: string; width: number; height: number; url: string; findings: Finding[] }
@@ -13,7 +14,22 @@ type Batch = { batchId: string; title?: string; createdAt: string; errors: numbe
 
 const SIZE_LABEL: Record<string, string> = { square: '1:1', portrait: '4:5', story: '9:16', landscape: '1.91:1' }
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-const download = (url: string, name: string) => `${url}?download=${encodeURIComponent(name)}`
+/**
+ * Download, the same way a finished export is saved (./save-export.ts): a plain link does nothing in the desktop app,
+ * whose web view drops downloads.
+ */
+function Download({ url, name }: { url: string; name: string }) {
+  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null)
+  const save = () => {
+    if (busy) return
+    setBusy(true); setError(null)
+    void saveExport({ url: `${url}?download=${encodeURIComponent(name)}`, fileName: name }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => setBusy(false))
+  }
+  return <>
+    <button type="button" className="project-link static-download" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Download'}</button>
+    {error ? <span className="static-download-error" role="alert">{error}</span> : null}
+  </>
+}
 
 /** An ad's findings, errors first, each said once (sizes share most of them). */
 function findingsOf(ad: Ad): Finding[] {
@@ -68,7 +84,7 @@ export function StaticAdsSection({ projectId, refreshKey }: { projectId: string;
                       <a href={i.url} target="_blank" rel="noreferrer" title={`Open the ${SIZE_LABEL[i.size] ?? i.size} full size`}>
                         <img loading="lazy" src={i.url} alt={`${ad.id} ${i.size}`} style={{ aspectRatio: `${i.width} / ${i.height}` }} />
                       </a>
-                      <figcaption>{SIZE_LABEL[i.size] ?? i.size} <a href={download(i.url, `${b.batchId}-${ad.id}-${i.size}-${i.width}x${i.height}.png`)}>Download</a></figcaption>
+                      <figcaption>{SIZE_LABEL[i.size] ?? i.size} <Download url={i.url} name={`${b.batchId}-${ad.id}-${i.size}-${i.width}x${i.height}.png`} /></figcaption>
                     </figure>
                   ))}
                 </div>
@@ -90,7 +106,7 @@ export function StaticAdsSection({ projectId, refreshKey }: { projectId: string;
             <strong>{r.title}</strong>
             <span>{when(r.createdAt)} · {r.seconds.toFixed(1)} s · silent</span>
             <a className="project-link" href={r.links.reel} target="_blank" rel="noreferrer">Play</a>
-            <a className="project-link" href={download(r.links.reel, `${r.reelId}.mp4`)}>Download</a>
+            <Download url={r.links.reel} name={`${r.reelId}.mp4`} />
           </div>
           <a href={r.links.reel} target="_blank" rel="noreferrer"><img className="static-strip" loading="lazy" src={r.links.strip} alt={`${r.title}, stills`} /></a>
           {r.notes.length ? <ul className="static-notes">{r.notes.map((n) => <li key={n}>{n}</li>)}</ul> : null}

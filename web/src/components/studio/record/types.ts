@@ -147,6 +147,8 @@ export type TakeFile = {
   pieces?: number
   /** True when the Studio refused the end of this track: it holds only the start of the recording. */
   partial?: boolean
+  /** The frame rate the recorder asked for or the device said it gives (getSettings().frameRate), when it said. */
+  frameRate?: number
 }
 
 /** A word heard in the take, in milliseconds on the screen file's clock. */

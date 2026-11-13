@@ -1,7 +1,10 @@
 // Small pictures for the rows of a linked folder (local-folders.ts) that are on screen: a still drawn down to a
 // thumbnail, a frame from a video. Made in this page, two at a time, only for a row that is still wanted when its
 // turn comes, and kept as small JPEG object URLs (the most recent THUMBS_KEPT; older ones are let go). The file is
-// read through an object URL, never into memory whole, and a still larger than THUMB_MAX_BYTES gets no picture.
+// read through an object URL, never into memory whole; a still larger than THUMB_MAX_BYTES, or whose picture is over
+// MAX_PIXELS (local-images.ts, learnt before decoding), gets no picture.
+import { checkedPicture, MAX_PIXELS, type PictureSize } from './local-images';
+
 export const THUMBS_KEPT = 400;
 export const THUMB_MAX_BYTES = 40 * 1024 ** 2;
 const SIDE = 96, AT_ONCE = 2, VIDEO_WAIT_MS = 8000;
@@ -34,8 +37,22 @@ function toThumb(source: CanvasImageSource, width: number, height: number): Prom
   return new Promise(resolve => canvas.toBlob(blob => { canvas.width = canvas.height = 0; resolve(blob); }, 'image/jpeg', 0.8));
 }
 
-async function still(file: File): Promise<Blob | null> {
+/** A still's thumbnail. Its size is learnt first without decoding it (local-images.ts): a picture over MAX_PIXELS gets
+ *  none. Where the browser can, it decodes straight to the thumbnail's size (createImageBitmap with resizeWidth);
+ *  otherwise (an SVG, or a browser without resize options) through an <img>. */
+export async function stillThumb(file: File): Promise<Blob | null> {
   if (file.size > THUMB_MAX_BYTES) return null;
+  let size: PictureSize | null;
+  try { size = await checkedPicture(file, MAX_PIXELS); } catch { return null; }
+  if (!size) return null;
+  if (size.width > 0 && size.height > 0 && typeof createImageBitmap === 'function') {
+    const scale = Math.min(1, SIDE * 2 / Math.max(size.width, size.height));
+    const width = Math.max(1, Math.round(size.width * scale)), height = Math.max(1, Math.round(size.height * scale));
+    try {
+      const bitmap = await createImageBitmap(file, { resizeWidth: width, resizeHeight: height, resizeQuality: 'medium' });
+      try { return await toThumb(bitmap, width, height); } finally { bitmap.close(); }
+    } catch { /* an SVG, or no resize options here: the <img> below */ }
+  }
   const url = URL.createObjectURL(file);
   try { const img = new Image(); img.decoding = 'async'; img.src = url; await img.decode(); return await toThumb(img, img.naturalWidth || SIDE, img.naturalHeight || SIDE); }
   finally { URL.revokeObjectURL(url); }
@@ -67,7 +84,7 @@ export function localThumb(key: string, kind: 'image' | 'video', file: () => Pro
     skip: () => settle(null),
     run: async () => {
       try {
-        const blob = await (kind === 'image' ? still : frame)(await file());
+        const blob = await (kind === 'image' ? stillThumb : frame)(await file());
         if (!blob) { made.set(key, Promise.resolve(null)); trim(); settle(null); return; }
         const url = URL.createObjectURL(blob); urls.set(key, url); made.set(key, Promise.resolve(url)); trim(); settle(url);
       } catch { made.set(key, Promise.resolve(null)); trim(); settle(null); }

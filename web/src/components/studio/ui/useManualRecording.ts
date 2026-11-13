@@ -203,8 +203,8 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
     window.addEventListener('beforeunload', before);
     return () => window.removeEventListener('beforeunload', before);
   }, [busy]);
-  /** The takes kept on the Studio after their window closed mid-take. */
-  const refreshSavedTakes = useCallback(async () => { try { const takes = await listSavedTakes(); if (mounted.current) setSavedTakes(takes); } catch { /* an older server: nothing to offer */ } }, []);
+  /** The takes kept on the Studio after their window closed mid-take; never one this tab is still recording or sending (the Studio would refuse it, as still recording, but the dialog must not offer it). */
+  const refreshSavedTakes = useCallback(async () => { try { const takes = await listSavedTakes(); const mine = new Set((recorder.current as { liveTakeIds?: () => string[] } | null)?.liveTakeIds?.() ?? []); if (mounted.current) setSavedTakes(takes.filter(take => !mine.has(take.id))); } catch { /* an older server: nothing to offer */ } }, []);
   useEffect(() => { void refreshSavedTakes(); }, [refreshSavedTakes]);
   /** Make a saved take a new video from what reached the Studio, followed like a finished take. */
   const recoverSaved = useCallback(async (takeId: string) => {

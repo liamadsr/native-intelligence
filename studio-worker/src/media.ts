@@ -188,16 +188,31 @@ export function conformRate(p: Probe): 30 | 60 {
   return Number.isFinite(average) && average > 45 ? 60 : 30
 }
 
+/** A gap between frames shorter than this is the picture moving (a still screen sends a frame now and then). */
+export const MOVING_GAP = 0.1
+
 /**
- * The rate a recording is conformed to when its rate is at most (`conform.fit`): `most` (60) when its frames came more
- * than 45 a second on average, else 30, read from its packets' times (any container, also a browser's WebM that does
- * not say how long it is). Too few frames to tell: `most`. Pure.
+ * The rate a recording is conformed to when its rate is at most (`conform.fit`), read from its packets' times (any
+ * container, also a browser's WebM that does not say how long it is). A browser's screen capture sends frames only
+ * when the screen changes, so the average says little: a mostly still screen whose scrolling ran at 60 averages far
+ * below 45. The rate is judged while the picture moved: from the gaps shorter than MOVING_GAP, their median. Above
+ * 45 frames a second, `most` (60); else 30. `ceiling` (the rate the recorder asked for, or the device said it gives)
+ * caps it: at 45 or less, 30. Fewer than ten moving gaps (a picture that hardly moved): 30, unless the ceiling says
+ * more and there are too few frames at all to tell (then `most`). Pure.
  */
-export function fitRate(stamps: number[], most: 30 | 60): 30 | 60 {
-  if (most === 30 || stamps.length < 2) return most
-  const span = stamps[stamps.length - 1]! - stamps[0]!
-  if (!(span > 0.5)) return most
-  return (stamps.length - 1) / span > 45 ? 60 : 30
+export function fitRate(stamps: number[], most: 30 | 60, ceiling?: number): 30 | 60 {
+  if (most === 30) return 30
+  if (ceiling !== undefined && Number.isFinite(ceiling) && ceiling <= 45) return 30
+  if (stamps.length < 2) return most
+  const moving: number[] = []
+  for (let i = 1; i < stamps.length; i++) {
+    const gap = stamps[i]! - stamps[i - 1]!
+    if (gap > 0 && gap < MOVING_GAP) moving.push(gap)
+  }
+  if (moving.length < 10) return stamps.length < 10 ? most : 30
+  moving.sort((a, b) => a - b)
+  const median = moving[Math.floor(moving.length / 2)]!
+  return 1 / median > 45 ? 60 : 30
 }
 
 /** Packet timestamps (seconds, one per line, any order) into presentation order. */

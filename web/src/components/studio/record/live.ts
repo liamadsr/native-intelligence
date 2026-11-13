@@ -240,14 +240,15 @@ export class LiveTrack {
       const piece = this.queue[0]!
       try {
         const offset = this.deps.offset()
-        const link = await this.deps.api.post<{ url: string; headers: Record<string, string> }>(`${STUDIO_API}/live-takes/${encodeURIComponent(this.takeId!)}/pieces`, {
+        // `stored`: asked for again after its answer was lost, it is in storage already at its length: nothing to send.
+        const link = await this.deps.api.post<{ url?: string; headers?: Record<string, string>; stored?: boolean }>(`${STUDIO_API}/live-takes/${encodeURIComponent(this.takeId!)}/pieces`, {
           role: serverRole(this.role),
           index: piece.index,
           bytes: piece.blob.size,
           seconds: Math.round(piece.seconds * 1000) / 1000,
           ...(offset !== null && Number.isFinite(offset) ? { offsetSeconds: Math.round(offset * 1000) / 1000 } : {}),
         })
-        await this.deps.api.put(link.url, link.headers, piece.blob)
+        if (!link.stored) await this.deps.api.put(link.url!, link.headers ?? {}, piece.blob)
         this.queue.shift()
         this.uploadedBytes += piece.blob.size
         this.uploadedPieces = piece.index + 1
@@ -317,6 +318,11 @@ export class LiveTrack {
 /** The take on the server and its tracks. */
 export class LiveTake {
   id: string | null = null
+  /**
+   * The take's id, chosen here: a start sent again (its answer lost) is the same take on the server, never a second
+   * one left behind counting against the person's recordings at once.
+   */
+  readonly requestedId: string = globalThis.crypto.randomUUID()
   readonly tracks = new Map<TakeRole, LiveTrack>()
   /** True once the take exists on the server; false when it could not be made (every track then went local). */
   readonly ready: Promise<boolean>
@@ -331,11 +337,11 @@ export class LiveTake {
   }
 
   /** Make the take on the server (a few tries over about ten seconds); the pieces wait here meanwhile. */
-  async open(recorder: 'browser' | 'desktop', names: Partial<Record<TakeRole, string>>): Promise<boolean> {
-    const tracks = [...this.tracks.keys()].map((role) => ({ role: serverRole(role), name: names[role]! }))
+  async open(recorder: 'browser' | 'desktop', names: Partial<Record<TakeRole, string>>, frameRates: Partial<Record<TakeRole, number | undefined>> = {}): Promise<boolean> {
+    const tracks = [...this.tracks.keys()].map((role) => ({ role: serverRole(role), name: names[role]!, ...(frameRates[role] ? { frameRate: frameRates[role] } : {}) }))
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const { take } = await this.deps.api.post<{ take: { id: string; keys: Partial<Record<ServerRole, string>> } }>(`${STUDIO_API}/live-takes`, { recorder, tracks })
+        const { take } = await this.deps.api.post<{ take: { id: string; keys: Partial<Record<ServerRole, string>> } }>(`${STUDIO_API}/live-takes`, { id: this.requestedId, recorder, tracks })
         this.id = take.id
         for (const [role, track] of this.tracks) {
           const key = take.keys[serverRole(role)]

@@ -190,3 +190,40 @@ describe('the recording request', () => {
     expect(recordingRequest(finished, { screen: `live/${TAKE}/screen` }, { kind: 'new' }).screen).toEqual({ uploadKey: `live/${TAKE}/screen`, name: 'Screen.webm', pieces: 3, partial: true })
   })
 })
+
+describe('as review asked', () => {
+  it('sends nothing for a piece the Studio says is stored already, and starts the same take when a start is sent again', async () => {
+    const s = studio()
+    const bodies: Record<string, unknown>[] = []
+    const post = s.api.post.bind(s.api)
+    let answeredStored = false
+    s.api.post = async <T,>(path: string, body: unknown): Promise<T> => {
+      bodies.push(body as Record<string, unknown>)
+      if (path.endsWith('/pieces') && !answeredStored) {
+        answeredStored = true
+        return { index: (body as { index: number }).index, stored: true } as T
+      }
+      return post<T>(path, body)
+    }
+    s.failures.push(new LiveError('The Studio could not be reached.', 0))
+    const { live } = take(s.api)
+    await live.open('browser', { screen: 'Screen.webm', microphone: 'Mic.webm' }, { screen: 60 })
+    const starts = bodies.filter((b) => 'tracks' in b)
+    expect(starts).toHaveLength(2)
+    expect(starts[0]!.id).toBe(live.requestedId)
+    expect(starts[1]!.id).toBe(live.requestedId)
+    expect((starts[0]!.tracks as { role: string; frameRate?: number }[])[0]).toEqual({ role: 'screen', name: 'Screen.webm', frameRate: 60 })
+    const screen = live.tracks.get('screen')!
+    screen.push(chunk(50), 1)
+    expect(await screen.finish()).toMatchObject({ pieces: 1, complete: true })
+    expect(s.calls.filter((c) => c.startsWith('PUT'))).toEqual([])
+  })
+
+  it('names the frame rate the recorder asked for in the recording request', () => {
+    const finished: FinishedTake = {
+      kind: 'browser', sessionId: TAKE, trace: null, sourceCursorHidden: false, transcript: null, durationSeconds: 9,
+      files: [{ role: 'screen', name: 'Screen.webm', contentType: 'video/webm', bytes: 900, offsetSeconds: 0, durationSeconds: 9, uploadKey: `live/${TAKE}/screen`, pieces: 3, frameRate: 60 }],
+    }
+    expect(recordingRequest(finished, { screen: `live/${TAKE}/screen` }, { kind: 'new' }).screen).toEqual({ uploadKey: `live/${TAKE}/screen`, name: 'Screen.webm', pieces: 3, frameRate: 60 })
+  })
+})

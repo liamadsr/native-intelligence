@@ -7,7 +7,7 @@ import { exportPresets } from '@/lib/studio/engine/formats';
 import { request } from './client';
 import { Modal, StudioSelect } from './controls';
 import { Icon } from './icons';
-import { exportFileName, saveExport, saveWay, type SaveResult } from './save-export';
+import { exportFileName, saveExport, saveWay, type SaveResult, type SaveWay } from './save-export';
 
 /*
  * The Export dialog: what will be made and how big, then the render's progress, then the finished video and a way to
@@ -21,11 +21,26 @@ import { exportFileName, saveExport, saveWay, type SaveResult } from './save-exp
  */
 
 /** What the editor knows about the export it started (the job alone does not carry the title or size). */
-export type ExportReceipt = { jobId: string; title: string; width: number; height: number; fps: number; durationFrames: number };
+export type ExportReceipt = { jobId: string; projectId: string; title: string; width: number; height: number; fps: number; durationFrames: number };
+
+/**
+ * Which of the editor's export job is this video's. The editor keeps one export job whichever video is open; the
+ * dialog shows its progress or its result only on the video it was made from (the job names it; an unsaved draft's
+ * export is known by the receipt the editor took when it started it). Another video's export still rendering is
+ * said in one line instead.
+ */
+export function exportFor(job: EditorJob | null, receipt: ExportReceipt | null, projectId: string): { job: EditorJob | null; other: { title: string | null; progress: number } | null } {
+  if (!job || job.kind !== 'export') return { job: null, other: null };
+  const videoId = job.videoId ?? (receipt?.jobId === job.id ? receipt.projectId : null);
+  if (videoId === projectId) return { job, other: null };
+  return { job: null, other: job.status === 'running' ? { title: receipt?.jobId === job.id ? receipt.title : null, progress: job.progress } : null };
+}
 type Props = {
   project: EditorProject;
-  /** The editor's current job (any kind: only an export is read). */
+  /** This video's export job (exportFor), or null. */
   job: EditorJob | null;
+  /** Another video's export still rendering (exportFor). */
+  otherExport?: { title: string | null; progress: number } | null;
   receipt: ExportReceipt | null;
   /** 'native' or '1080'. */
   size: string;
@@ -37,7 +52,8 @@ type Props = {
   /** Something else is going on in the editor (saving, opening): Export waits. */
   busy: boolean;
   start: () => void;
-  cancel: () => void;
+  /** Ask the running export to stop; false when the request failed (the dialog says so). */
+  cancel: () => Promise<boolean>;
   close: () => void;
   /** Save the edit before the server makes a format from it; false when the save failed. */
   beforeServerEdit: () => Promise<boolean>;
@@ -52,15 +68,23 @@ const ratio = (w: number, h: number) => { const g = (a: number, b: number): numb
 /** An outline of a shape, `w` by `h`, fitted in a `box` px square. */
 const Shape = ({ w, h, box = 16 }: { w: number; h: number; box?: number }) => { const s = box / Math.max(w, h); return <span className="xd-shape-box" style={{ width: box, height: box }} aria-hidden="true"><span className="xd-shape" style={{ width: Math.max(4, Math.round(w * s)), height: Math.max(4, Math.round(h * s)) }} /></span>; };
 
-/** Where the video goes, in words, for this page's way of saving. */
+/** Where the video goes, in words, for this page's way of saving (the desktop app's depends on the size, not known yet). */
 function whereItGoes(): string {
-  return saveWay() === 'downloads'
-    ? 'When it is ready, you download it here. Your browser puts it in its downloads folder. We keep it for 30 days.'
-    : 'When it is ready, you choose where to save it on your computer. We keep it for 30 days.';
+  const way = saveWay();
+  return way === 'downloads' ? 'When it is ready, you download it here. Your browser puts it in its downloads folder. We keep it for 30 days.'
+    : way === 'picker' ? 'When it is ready, you choose where to save it on your computer. We keep it for 30 days.'
+    : 'When it is ready, you save it to your computer from here. We keep it for 30 days.';
+}
+/** What saving does, said before the person presses Save, for the way this file goes. */
+function howItSaves(way: SaveWay): string {
+  return way === 'downloads' ? 'Your browser saves it to its downloads folder, unless you set it to ask where.'
+    : way === 'desktop' ? 'You pick the folder and the name.'
+    : way === 'desktop-browser' ? 'It is too large to save from the app, so it opens in your browser and downloads to its downloads folder.'
+    : 'You pick the folder and the name.';
 }
 
 /** A finished export, as `GET projects/:id/exports` lists them (lib/studio/server/jobs.ts videoExports). */
-type FinishedExport = EditorJob & { title: string; finishedAt: string };
+type FinishedExport = EditorJob & { title: string; finishedAt: string; /** Its file is still within the 30 days it is kept (worked out as it is read). */ kept?: boolean };
 
 export function ExportDialog(props: Props) {
   const job = props.job?.kind === 'export' ? props.job : null;
@@ -69,16 +93,19 @@ export function ExportDialog(props: Props) {
   useEffect(() => setAgain(false), [job?.id]);
   // This video's finished exports, from the server: they stay reachable after the dialog closes, another export
   // starts, fails or is cancelled, and after a reload. Read again whenever an export ends.
-  const [finished, setFinished] = useState<FinishedExport[] | null>(null);
+  const [finished, setFinished] = useState<FinishedExport[] | null>(null), [listError, setListError] = useState(false), [reads, setReads] = useState(0);
   useEffect(() => {
     let alive = true;
-    void request<{ exports: FinishedExport[] }>(`/api/account/studio/projects/${encodeURIComponent(props.project.id)}/exports`).then(answer => { if (alive) setFinished(answer.exports ?? []); }).catch(() => { if (alive) setFinished([]); });
+    void request<{ exports: FinishedExport[] }>(`/api/account/studio/projects/${encodeURIComponent(props.project.id)}/exports`)
+      .then(answer => { if (!alive) return; const now = Date.now(); setFinished((answer.exports ?? []).map(item => ({ ...item, kept: Date.parse(item.finishedAt) > now - KEPT_MS }))); setListError(false); })
+      .catch(() => { if (alive) setListError(true); });
     return () => { alive = false; };
-  }, [props.project.id, job?.id, job?.status]);
+  }, [props.project.id, job?.id, job?.status, reads]);
   const view = job?.status === 'running' ? 'running' : job?.status === 'completed' && !again ? 'done' : 'setup';
   // The finished export the dialog is showing is not listed again under it.
   const others = (finished ?? []).filter(item => view !== 'done' || item.id !== job?.id);
-  const list = others.length ? <FinishedList items={others} heading={view === 'done' ? 'Earlier exports' : 'Ready to save'} /> : null;
+  const list = listError ? <p className="xd-error xd-list-error" role="alert"><Icon name="warning" size={14} /><span>Your finished exports could not be loaded.</span><Button size="sm" variant="ghost" className="st-app-button" onClick={() => setReads(n => n + 1)}>Try again</Button></p>
+    : others.length ? <FinishedList items={others} heading={view === 'done' ? 'Earlier exports' : 'Ready to save'} /> : null;
   const ended = !again && (job?.status === 'failed' || job?.status === 'cancelled') ? job : null;
   return <Modal title="Export video" description={<>“{props.project.title || 'Untitled video'}”</>} close={props.close} className="xd-dialog">
     {view === 'running' && job ? <Running {...props} job={job} list={list} /> : view === 'done' && job ? <Done {...props} job={job} list={list} again={() => setAgain(true)} /> : <Setup {...props} ended={ended} list={list} />}
@@ -86,22 +113,27 @@ export function ExportDialog(props: Props) {
 }
 
 /** Saving one finished export onto the computer: the button, then where it went (or why it did not). */
-function SaveExport({ url, title, big }: { url: string; title: string; big?: boolean }) {
-  const way = saveWay();
+function SaveExport({ job, title, big }: { job: EditorJob; title: string; big?: boolean }) {
+  const url = job.downloadUrl!, bytes = Number((job.result as { bytes?: unknown } | undefined)?.bytes) || null, way = saveWay(bytes);
   const [saving, setSaving] = useState(false), [saved, setSaved] = useState<SaveResult | null>(null), [error, setError] = useState<string | null>(null);
   const save = () => {
     if (saving) return;
     setSaving(true); setError(null);
     // Straight from the click: the browser's save picker opens only from one.
-    void saveExport(url, exportFileName(url, title), way).then(answer => { if (answer.kind !== 'cancelled') setSaved(answer); })
+    void saveExport({ url, fileName: exportFileName(url, title), bytes }).then(answer => { if (answer.kind !== 'cancelled') setSaved(answer); })
       .catch(cause => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => setSaving(false));
   };
-  const label = saving ? (way === 'desktop' ? 'Getting the video…' : 'Saving…') : way === 'downloads' ? (big ? 'Download MP4' : 'Download') : big ? (saved ? 'Save another copy…' : 'Save to your computer…') : 'Save…';
-  const said = saved ? <p className="xd-saved" role="status"><Icon name="check" size={14} /><span>{saved.kind === 'saved' ? (way === 'desktop' ? <>Saved to <code>{saved.where}</code></> : <>Saved as <code>{saved.where}</code> in the folder you chose.</>) : saved.kind === 'downloads' ? <>Sent to your browser’s downloads folder as <code>{saved.name}</code>.</> : null}</span></p> : null;
+  const label = saving ? (way === 'desktop' ? 'Getting the video…' : way === 'desktop-browser' ? 'Opening your browser…' : 'Saving…')
+    : way === 'downloads' ? (big ? 'Download MP4' : 'Download') : way === 'desktop-browser' ? (big ? 'Download in your browser' : 'Download…')
+    : big ? (saved ? 'Save another copy…' : 'Save to your computer…') : 'Save…';
+  const said = saved ? <p className="xd-saved" role="status"><Icon name="check" size={14} /><span>{saved.kind === 'saved' ? (way === 'desktop' ? <>Saved to <code>{saved.where}</code></> : <>Saved as <code>{saved.where}</code> in the folder you chose.</>)
+    : saved.kind === 'downloads' ? <>Sent to your browser’s downloads folder as <code>{saved.name}</code>.</>
+    : saved.kind === 'browser' ? <>Opened in your browser. It downloads to its downloads folder as <code>{saved.name}</code>.</> : null}</span></p> : null;
   const failed = error ? <p className="xd-error" role="alert"><Icon name="warning" size={14} /><span>{error}</span></p> : null;
+  const icon = way === 'downloads' || way === 'desktop-browser' ? 'download' : 'saveTo';
   return big
-    ? <><Button size="lg" className="st-app-button xd-save" disabled={saving} onClick={save}><Icon name={way === 'downloads' ? 'download' : 'saveTo'} />{label}</Button>{said}{failed}</>
-    : <><Button size="sm" variant="outline" className="st-app-button xd-row-save" disabled={saving} onClick={save}><Icon name={way === 'downloads' ? 'download' : 'saveTo'} />{label}</Button>{said || failed ? <div className="xd-row-said">{said}{failed}</div> : null}</>;
+    ? <><Button size="lg" className="st-app-button xd-save" data-autofocus="" disabled={saving} onClick={save}><Icon name={icon} />{label}</Button>{said}{failed}<p className="xd-note">{howItSaves(way)} We keep the video for 30 days, so you can save another copy until then.</p></>
+    : <><Button size="sm" variant="outline" className="st-app-button xd-row-save" disabled={saving} onClick={save} title={howItSaves(way)}><Icon name={icon} />{label}</Button>{said || failed ? <div className="xd-row-said">{said}{failed}</div> : null}</>;
 }
 
 /** What a finished export is: size, length, file size. */
@@ -111,6 +143,8 @@ function exportFacts(job: EditorJob, receipt?: ExportReceipt | null): string[] {
   const seconds = receipt ? receipt.durationFrames / receipt.fps : Number(result.durationSeconds);
   return [width > 0 && height > 0 ? `${width} × ${height}` : null, Number.isFinite(seconds) && seconds > 0 ? clock(seconds) : null, megabytes(result.bytes)].filter(Boolean) as string[];
 }
+/** How long an export's file is kept (lib/studio/server/sweep.ts). */
+const KEPT_MS = 30 * 24 * 3600 * 1000;
 const when = (iso: string) => { const at = new Date(iso); return Number.isNaN(at.getTime()) ? '' : at.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
 
 /** This video's finished exports, newest first, each with Save. */
@@ -120,7 +154,7 @@ function FinishedList({ items, heading }: { items: FinishedExport[]; heading: st
     <ul>{items.map(item => <li key={item.id}>
       <span className="xd-row-icon" aria-hidden="true"><Icon name="clip" size={16} /></span>
       <div className="xd-row-text"><span className="xd-row-title">{item.title}</span><span className="xd-facts">{[when(item.finishedAt), ...exportFacts(item)].filter(Boolean).map(fact => <span key={fact}>{fact}</span>)}</span></div>
-      {item.downloadUrl ? <SaveExport url={item.downloadUrl} title={item.title} /> : null}
+      {item.downloadUrl && item.kept !== false ? <SaveExport job={item} title={item.title} /> : <span className="xd-row-gone">No longer kept</span>}
     </li>)}</ul>
   </section>;
 }
@@ -130,6 +164,7 @@ function Setup(props: Props & { ended: EditorJob | null; list: React.ReactNode }
   const native = props.size === 'native', resolutionId = React.useId();
   return <div className="xd-setup">
     {props.ended ? <div className="xd-banner xd-banner-warn" role="alert"><Icon name="warning" /><div><strong>{props.ended.status === 'cancelled' ? 'The export was cancelled' : 'The export did not finish'}</strong><span>{props.ended.status === 'cancelled' ? 'Nothing new was made. Your finished exports are still here.' : props.ended.error ?? 'Something went wrong while rendering. Try again.'}</span></div></div> : null}
+    {props.otherExport ? <p className="xd-other" role="status"><Icon name="export" size={14} /><span>{props.otherExport.title ? `“${props.otherExport.title}”` : 'Another video'} is exporting ({Math.round(Math.max(0, Math.min(1, props.otherExport.progress)) * 100)}%). You can export this one too.</span></p> : null}
     {props.list}
     <div className="xd-product" aria-label="What the export makes">
       <span className="xd-product-icon" aria-hidden="true"><Icon name="clip" size={20} /></span>
@@ -154,7 +189,7 @@ function Setup(props: Props & { ended: EditorJob | null; list: React.ReactNode }
     <p className="xd-where"><Icon name="saveTo" size={16} /><span>{whereItGoes()}</span></p>
     <div className="xd-foot">
       <Button variant="ghost" className="st-app-button" onClick={props.close}>Cancel</Button>
-      <Button className="st-app-button" disabled={props.busy} onClick={props.start}><Icon name="export" />Export MP4</Button>
+      <Button className="st-app-button" data-autofocus="" disabled={props.busy} onClick={props.start}><Icon name="export" />Export MP4</Button>
     </div>
   </div>;
 }
@@ -191,33 +226,32 @@ function OtherFormats({ project, beforeServerEdit, openVideo, say }: Props) {
 function Running({ job, receipt, cancel, close, list }: Props & { job: EditorJob; list: React.ReactNode }) {
   const percent = Math.round(Math.max(0, Math.min(1, job.progress)) * 100), mine = receipt?.jobId === job.id ? receipt : null;
   // Asked to stop: the worker stops at its next step, which takes a moment; until then it says so.
-  const [stopping, setStopping] = useState(false);
+  const [stopping, setStopping] = useState(false), [stopFailed, setStopFailed] = useState(false);
+  const stop = () => { setStopping(true); setStopFailed(false); void cancel().then(asked => { if (!asked) { setStopping(false); setStopFailed(true); } }); };
   return <div className="xd-running">
     <div className="xd-progress-head"><span className="xd-progress-label" role="status">{stopping ? 'Stopping the export…' : percent ? 'Rendering your video' : 'Starting the render'}</span><span className="xd-progress-value">{percent}%</span></div>
     <div className={cn('xd-progress', stopping && 'xd-progress-stopping')} role="progressbar" aria-label="Export progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><span style={{ width: `${Math.max(2, percent)}%` }} /></div>
+    {stopFailed ? <p className="xd-error" role="alert"><Icon name="warning" size={14} /><span>The export could not be stopped. It is still rendering. Try again.</span></p> : null}
     <p className="xd-running-what">{mine ? <>An MP4 video · {mine.width} × {mine.height} · {clock(mine.durationFrames / mine.fps)}</> : 'An MP4 video of your saved edit'}</p>
     <p className="xd-note">You can close this and keep editing. The Export button shows how far it is. If you leave the Studio before it is done, you get a note in For you.</p>
     <p className="xd-where"><Icon name="saveTo" size={16} /><span>{whereItGoes()}</span></p>
     {list}
     <div className="xd-foot xd-foot-split">
-      <Button variant="ghost" className="st-app-button" disabled={stopping} onClick={() => { setStopping(true); cancel(); }}>Cancel export</Button>
-      <Button variant="secondary" className="st-app-button" onClick={close}>Keep editing</Button>
+      <Button variant="ghost" className="st-app-button" disabled={stopping} onClick={stop}>Cancel export</Button>
+      <Button variant="secondary" className="st-app-button" data-autofocus="" onClick={close}>Keep editing</Button>
     </div>
   </div>;
 }
 
 function Done({ job, receipt, close, again, list }: Props & { job: EditorJob; again: () => void; list: React.ReactNode }) {
   const mine = receipt?.jobId === job.id ? receipt : null, result = (job.result ?? {}) as Record<string, unknown>;
-  const facts = exportFacts(job, mine), title = mine?.title ?? (typeof result.title === 'string' ? result.title : 'video'), way = saveWay();
+  const facts = exportFacts(job, mine), title = mine?.title ?? (typeof result.title === 'string' ? result.title : 'video');
   return <div className="xd-done">
     <div className="xd-done-head">
       <span className="xd-done-icon" aria-hidden="true"><Icon name="done" size={22} /></span>
       <div><strong>{mine ? 'Your video is ready' : 'Your last export is ready'}</strong>{mine ? null : <span>The video from your last export.</span>}{facts.length ? <span className="xd-facts">{facts.map(fact => <span key={fact}>{fact}</span>)}</span> : null}</div>
     </div>
-    {job.downloadUrl ? <>
-      <SaveExport url={job.downloadUrl} title={title} big />
-      <p className="xd-note">{way === 'downloads' ? 'Your browser saves it to its downloads folder, unless you set it to ask where.' : way === 'desktop' ? 'You pick the folder and the name. It takes a moment to fetch the video first.' : 'You pick the folder and the name.'} We keep the video for 30 days, so you can save another copy until then.</p>
-    </> : <p className="xd-note">This export’s file is no longer kept. Exports are kept for 30 days. Export the video again.</p>}
+    {job.downloadUrl ? <SaveExport job={job} title={title} big /> : <p className="xd-note">This export’s file is no longer kept. Exports are kept for 30 days. Export the video again.</p>}
     {list}
     <div className="xd-foot xd-foot-split">
       <Button variant="ghost" className="st-app-button" onClick={again}>Change settings and export again</Button>

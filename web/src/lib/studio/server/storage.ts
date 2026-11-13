@@ -11,19 +11,39 @@ export const STUDIO_BUCKET = 'studio'
 export type SignedUpload = { url: string; headers: Record<string, string> }
 
 export type StudioStorage = {
-  /** A link to upload one object (replacing any already there). Valid about two hours. */
-  signUpload(path: string, contentType: string): Promise<SignedUpload>
+  /**
+   * A link to upload one object. Valid about two hours, and good for more than one PUT until then (storage checks the
+   * token, it does not use it up). With `upsert` (the default) a PUT replaces what is there; without, storage refuses
+   * a PUT over a stored object (KeyAlreadyExists), and a PUT after the object was removed stores it again.
+   */
+  signUpload(path: string, contentType: string, options?: { upsert?: boolean }): Promise<SignedUpload>
   /** Links to read objects, in the order asked, valid `seconds`. `download` makes the browser save it under that name. */
   signRead(paths: string[], seconds: number, download?: string): Promise<string[]>
   /** The objects directly under a folder, with their sizes (every one, however many: listed a page at a time). */
   list(folder: string): Promise<{ name: string; size: number }[]>
-  /** Remove objects (missing ones are fine). */
+  /** Remove objects (missing ones are fine): at most 1000 a call, as storage's delete route takes (removeAll sends more). */
   remove(paths: string[]): Promise<void>
   /** Store bytes the app holds itself (a generated canvas): one object. */
   upload(path: string, bytes: Uint8Array, contentType: string): Promise<void>
   /** The first `bytes` bytes of an object (fewer when it is shorter), to check what a file is. */
   head(path: string, bytes: number): Promise<Uint8Array>
+  /** An object's length in bytes, or null when there is none. */
+  size(path: string): Promise<number | null>
+  /** The folders directly under a folder ('' for the bucket's top), by name. */
+  folders(folder: string): Promise<string[]>
 }
+
+/** How many objects one remove call sends (storage's delete route takes at most 1000). */
+export const REMOVE_BATCH = 500
+
+/** Remove any number of objects, REMOVE_BATCH a call. */
+export async function removeAll(storage: Pick<StudioStorage, 'remove'>, paths: string[]): Promise<void> {
+  for (let at = 0; at < paths.length; at += REMOVE_BATCH) await storage.remove(paths.slice(at, at + REMOVE_BATCH))
+}
+
+/** True for storage's "no such object" answer. */
+const notFound = (error: { message?: string; status?: number; statusCode?: string } | null | undefined) =>
+  !!error && (error.status === 404 || error.statusCode === '404' || /not.?found/i.test(error.message ?? ''))
 
 /** How many objects one storage listing answers at most (Supabase Storage's own page size). */
 export const LIST_PAGE = 1000
@@ -51,13 +71,15 @@ async function firstBytes(body: ReadableStream<Uint8Array>, max: number): Promis
 export function supabaseStorage(supabase: SupabaseClient): StudioStorage {
   const bucket = () => supabase.storage.from(STUDIO_BUCKET)
   return {
-    async signUpload(path, contentType) {
-      const { data, error } = await bucket().createSignedUploadUrl(path, { upsert: true })
+    async signUpload(path, contentType, options) {
+      const upsert = options?.upsert !== false
+      const { data, error } = await bucket().createSignedUploadUrl(path, { upsert })
       if (error || !data) {
         console.error('[studio] sign upload failed:', error?.message)
         throw storeError('prepare the upload')
       }
-      return { url: data.signedUrl, headers: { 'content-type': contentType, 'x-upsert': 'true' } }
+      // The token carries `upsert` (storage reads it from the token, not from a header); the header only repeats it.
+      return { url: data.signedUrl, headers: { 'content-type': contentType, 'x-upsert': String(upsert) } }
     },
     async signRead(paths, seconds, download) {
       if (!paths.length) return []
@@ -100,6 +122,34 @@ export function supabaseStorage(supabase: SupabaseClient): StudioStorage {
         if ((data?.length ?? 0) < LIST_PAGE || offset > 1_000_000) return out
       }
     },
+    async size(path) {
+      const { data, error } = await bucket().createSignedUrl(path, 60)
+      if (notFound(error as never)) return null
+      if (error || !data) {
+        console.error('[studio] sign read failed:', error?.message)
+        throw storeError('check the upload')
+      }
+      // One byte asked for: storage answers 206 with the whole length in Content-Range ("bytes 0-0/12345").
+      const response = await fetch(data.signedUrl, { headers: { range: 'bytes=0-0' }, signal: AbortSignal.timeout(20_000) }).catch(() => null)
+      if (!response) throw storeError('check the upload')
+      await response.body?.cancel().catch(() => undefined)
+      if (response.status === 404 || response.status === 400) return null
+      const total = /\/(\d+)$/.exec(response.headers.get('content-range') ?? '')?.[1] ?? (response.status === 200 ? response.headers.get('content-length') : null)
+      if (!response.ok || total === null || total === undefined) throw storeError('check the upload')
+      return Number(total)
+    },
+    async folders(folder) {
+      const out: string[] = []
+      for (let offset = 0; ; offset += LIST_PAGE) {
+        const { data, error } = await bucket().list(folder || undefined, { limit: LIST_PAGE, offset, sortBy: { column: 'name', order: 'asc' } })
+        if (error) {
+          console.error('[studio] list failed:', error.message)
+          throw storeError('check the upload')
+        }
+        for (const item of data ?? []) if (item.id === null) out.push(item.name)
+        if ((data?.length ?? 0) < LIST_PAGE || offset > 1_000_000) return out
+      }
+    },
     async head(path, bytes) {
       const { data, error } = await bucket().createSignedUrl(path, 60)
       if (error || !data) {
@@ -111,11 +161,12 @@ export function supabaseStorage(supabase: SupabaseClient): StudioStorage {
       return firstBytes(response.body, bytes)
     },
     async remove(paths) {
-      if (!paths.length) return
-      const { error } = await bucket().remove(paths)
-      if (error) {
-        console.error('[studio] remove failed:', error.message)
-        throw storeError('remove that file')
+      for (let at = 0; at < paths.length; at += REMOVE_BATCH) {
+        const { error } = await bucket().remove(paths.slice(at, at + REMOVE_BATCH))
+        if (error) {
+          console.error('[studio] remove failed:', error.message)
+          throw storeError('remove that file')
+        }
       }
     },
     async upload(path, bytes, contentType) {

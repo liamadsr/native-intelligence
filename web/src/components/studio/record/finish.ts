@@ -54,7 +54,11 @@ export function recordingRequest(take: FinishedTake, keys: Partial<Record<TakeRo
   const screen = file('screen')
   if (!screen || !keys.screen) throw new Error('The screen recording was not uploaded.')
   // A track uploaded while it recorded says how many pieces it is: all of them must be on the Studio before it is queued.
-  const pieces = (f: TakeFile) => (f.uploadKey && f.pieces ? { pieces: f.pieces, ...(f.partial ? { partial: true as const } : {}) } : {})
+  const pieces = (f: TakeFile) => ({
+    ...(f.uploadKey && f.pieces ? { pieces: f.pieces, ...(f.partial ? { partial: true as const } : {}) } : {}),
+    // The most the track is conformed to (a screen judged by its moving frames is never made faster than this).
+    ...(f.frameRate && Number.isFinite(f.frameRate) && f.frameRate > 0 && f.frameRate <= 240 ? { frameRate: f.frameRate } : {}),
+  })
   const synced = (role: TakeRole) => {
     const f = file(role)
     const key = keys[role]

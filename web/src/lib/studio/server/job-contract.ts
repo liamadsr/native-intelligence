@@ -93,9 +93,11 @@ export type ImportInput = {
   sourceCursorHidden?: boolean
   /**
    * Recorded files are conformed to a constant frame rate; uploads that already are stay untouched. With `fit`, `fps`
-   * is the most: a recording whose average rate is 45 fps or less is conformed to 30 (no frame is made up to fill 60).
+   * is the most: a recording whose frames came 45 a second or fewer while it moved is conformed to 30 (no frame is
+   * made up to fill 60); a screen that was still between bursts of motion is judged by its bursts. `ceiling`: the
+   * frame rate the recorder asked for or the device said it gives; a recording is never conformed above it.
    */
-  conform?: { fps: 30 | 60; fit?: boolean }
+  conform?: { fps: 30 | 60; fit?: boolean; ceiling?: number }
   /**
    * The recording stopped before its end was saved (a window that closed mid-take, brought back afterwards): its last
    * piece may end mid-frame. The conform then reads past damage at the end instead of refusing the file.

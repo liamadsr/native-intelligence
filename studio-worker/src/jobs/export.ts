@@ -63,37 +63,44 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
     try {
       ctx.progress(0.2)
       const { selectComposition, renderMedia, makeCancelSignal } = await import('@remotion/renderer')
-      const common = await ctx.renderer.common(ctx.log, project)
       const inputProps = { ...inputPropsFor(project), fonts: fonts.faces }
-      const composition = await selectComposition({ serveUrl, id: COMPOSITION_ID, inputProps, ...common })
-      checkAborted(ctx.signal)
-      ctx.progress(0.25)
-      ctx.log(`Rendering ${composition.durationInFrames} frames at ${composition.width}×${composition.height}, ${composition.fps} fps (${ctx.config.renderConcurrency} tabs)`)
       const output = join(ctx.scratch, 'video.partial.mp4')
-      const { cancel, cancelSignal } = makeCancelSignal()
-      const onAbort = () => cancel()
-      ctx.signal.addEventListener('abort', onAbort, { once: true })
-      const started = Date.now()
-      try {
-        const renderProgress = stage(ctx, 0.25, 0.92)
-        await renderMedia({
-          serveUrl,
-          composition,
-          inputProps,
-          ...common,
-          ...EXPORT_ENCODING,
-          ffmpegOverride: bt709WithSwscale,
-          outputLocation: output,
-          concurrency: ctx.config.renderConcurrency,
-          cancelSignal,
-          onProgress: ({ progress }) => renderProgress(progress),
-        })
-      } catch (err) {
+      let started = Date.now()
+      // Software compositing that fails before the first frame is tried once more with swangle (render.ts, withGlFallback).
+      const composition = await ctx.renderer.withGlFallback(ctx.log, project, () => ctx.signal.aborted, async (common, frameDrawn) => {
+        const composition = await selectComposition({ serveUrl, id: COMPOSITION_ID, inputProps, ...common })
         checkAborted(ctx.signal)
-        throw err
-      } finally {
-        ctx.signal.removeEventListener('abort', onAbort)
-      }
+        ctx.progress(0.25)
+        ctx.log(`Rendering ${composition.durationInFrames} frames at ${composition.width}×${composition.height}, ${composition.fps} fps (${ctx.config.renderConcurrency} tabs)`)
+        const { cancel, cancelSignal } = makeCancelSignal()
+        const onAbort = () => cancel()
+        ctx.signal.addEventListener('abort', onAbort, { once: true })
+        started = Date.now()
+        try {
+          const renderProgress = stage(ctx, 0.25, 0.92)
+          await renderMedia({
+            serveUrl,
+            composition,
+            inputProps,
+            ...common,
+            ...EXPORT_ENCODING,
+            ffmpegOverride: bt709WithSwscale,
+            outputLocation: output,
+            concurrency: ctx.config.renderConcurrency,
+            cancelSignal,
+            onProgress: ({ progress, renderedFrames }) => {
+              if (renderedFrames > 0) frameDrawn()
+              renderProgress(progress)
+            },
+          })
+        } catch (err) {
+          checkAborted(ctx.signal)
+          throw err
+        } finally {
+          ctx.signal.removeEventListener('abort', onAbort)
+        }
+        return composition
+      })
       ctx.log(`Rendered in ${((Date.now() - started) / 1000).toFixed(1)} s`)
       checkAborted(ctx.signal)
 

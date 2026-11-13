@@ -683,23 +683,40 @@ describe('page groups (Liam, 11-11: "Contacts: Companies, Contacts, Deals · Out
     }))
     await render()
     // Drive where Docs was; Agents where Flows was, its first member saved.
-    // Outreach stays hidden: the Studio joined it after this bar was saved (Liam, 11-13). SEO came after this
-    // bar was saved too: a page it doesn't mention, shown, after the rest.
-    expect(bar()).toEqual(['contacts', 'calendar', 'drive', 'mail', 'team-chat', 'actions', 'agents', 'seo'])
+    // Outreach shows again: this bar hid its three pages but kept the Studio's own icon, and the Studio lives in
+    // Outreach now (11-13). SEO came after this bar was saved: a page it doesn't mention, shown, after the rest.
+    expect(bar()).toEqual(['contacts', 'calendar', 'drive', 'mail', 'team-chat', 'actions', 'agents', 'outreach', 'seo'])
     // The next save keeps rail ids in the order, and a hidden group as its members.
     await rightClick('mail')
     await pick('unpin')
     expect(savedBar()).toEqual({
       order: ['contacts', 'calendar', 'drive', 'mail', 'team-chat', 'actions', 'agents', 'outreach'],
-      hidden: ['prospecting', 'sequences', 'campaigns', 'studio', 'mail'],
+      hidden: ['mail'],
     })
   })
 
-  it('a group with one member on: its icon opens that member; with none: no icon', async () => {
+  it('a group with one member on: its icon is that page (its name and icon) and opens it; with none: no icon', async () => {
+    edition.current = withEffectiveSurface(getEdition('full'), { prospecting: 'off', campaigns: 'off', studio: 'off' })
+    await render()
+    expect(item('outreach')!.getAttribute('aria-label')).toBe('Sequences')
+    expect(item('outreach')!.querySelector('svg.lucide-list-ordered')).not.toBeNull()
+    expect((await opens('outreach')).map((r) => r.spec)).toEqual([ownSpec('sequences')])
+    // Only the Studio on: the Studio, Clapperboard, never "Outreach" with Send opening a video editor.
+    act(() => root.unmount())
+    root = createRoot(container)
+    edition.current = withEffectiveSurface(getEdition('full'), { prospecting: 'off', sequences: 'off', campaigns: 'off' })
+    await render()
+    expect(item('outreach')!.getAttribute('aria-label')).toBe('Studio')
+    expect(item('outreach')!.querySelector('svg.lucide-clapperboard')).not.toBeNull()
+    expect(item('outreach')!.querySelector('svg.lucide-send')).toBeNull()
+    expect((await opens('outreach')).map((r) => r.spec)).toEqual([ownSpec('studio')])
+    // Two on: the group's own name and icon again.
+    act(() => root.unmount())
+    root = createRoot(container)
     edition.current = withEffectiveSurface(getEdition('full'), { prospecting: 'off', campaigns: 'off' })
     await render()
     expect(item('outreach')!.getAttribute('aria-label')).toBe('Outreach')
-    expect((await opens('outreach')).map((r) => r.spec)).toEqual([ownSpec('sequences')])
+    expect(item('outreach')!.querySelector('svg.lucide-send')).not.toBeNull()
     act(() => root.unmount())
     root = createRoot(container)
     edition.current = withEffectiveSurface(getEdition('full'), { prospecting: 'off', sequences: 'off', campaigns: 'off', studio: 'off', crm: 'off' })

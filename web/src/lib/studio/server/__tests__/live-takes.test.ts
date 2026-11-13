@@ -6,8 +6,9 @@
 // what was left behind. Made-up people and bytes.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { commitBlob, createBlobWrite, readBlob, workerWriteFence } from '../blobs'
-import { claimJob, completeJob, failJob } from '../jobs'
-import { discardLiveTake, livePiece, PIECE_MAX_BYTES, QUIET_MS, recordingContainer, savedTakes, startLiveTake, TAKES, TRACKS } from '../live-takes'
+import { workerBlobRead } from '../http'
+import { claimJob, completeJob, failJob, queueJob } from '../jobs'
+import { discardLiveTake, livePiece, MAX_RESENDS, PIECE_MAX_BYTES, QUIET_MS, recordingContainer, savedTakes, sealLiveTrack, startLiveTake, TAKES, TRACKS } from '../live-takes'
 import { advanceRecording, listRecordings, recoverTake, startRecording } from '../recordings'
 import { sweepStudio } from '../sweep'
 import type { StudioContext } from '../context'
@@ -33,12 +34,14 @@ async function newTake(ctx: StudioContext = env.ctx, roles: ('screen' | 'camera'
   return (await startLiveTake(ctx, { recorder: 'browser', tracks: roles.map((role) => ({ role, name: names[role] })) })).take
 }
 
-/** The recorder's part for one piece: ask for its link, then PUT its bytes there. */
+/** The recorder's part for one piece: ask for its link, then PUT its bytes there (as storage takes a PUT on a signed link). */
 async function send(takeId: string, role: string, index: number, bytes: Uint8Array, extra: Record<string, unknown> = {}, ctx: StudioContext = env.ctx) {
-  const link = await livePiece(ctx, takeId, { role, index, bytes: bytes.byteLength, seconds: (index + 1) * 4, ...extra })
-  env.storage.put(link.url.replace('fake://upload/', ''), bytes)
+  const link = (await livePiece(ctx, takeId, { role, index, bytes: bytes.byteLength, seconds: (index + 1) * 4, ...extra })) as { index: number; url?: string; headers?: Record<string, string>; stored?: boolean }
+  if (link.url) env.storage.putLink({ url: link.url, headers: link.headers! }, bytes)
   return link
 }
+/** Later than any take recorded in a test has gone quiet for. */
+const later = () => Date.now() + QUIET_MS + 1000
 
 const pendingOf = (key: string) => env.tables.studio_record!.find((r) => r.collection === 'blob-writes' && r.key === key)?.value as { bytes: number } | undefined
 const asset = (n: string, extra: Record<string, unknown> = {}) => ({
@@ -84,7 +87,7 @@ describe('pieces', () => {
     const take = await newTake()
     const link = await send(take.id, 'screen', 0, mp4(1000))
     expect(link.url).toBe(`fake://upload/${WS}/live/${take.id}/screen/0`)
-    expect(link.headers['content-type']).toBe('application/octet-stream')
+    expect(link.headers!['content-type']).toBe('application/octet-stream')
     expect(pendingOf(`live/${take.id}/screen`)!.bytes).toBe(64 * 1024 ** 2)
     await send(take.id, 'screen', 1, filler(500))
     const track = env.tables.studio_record!.find((r) => r.collection === TRACKS && r.key === `${take.id}:screen`)!.value as { n: number; pieces: number[]; bytes: number; seconds: number }
@@ -207,7 +210,7 @@ describe('finishing a take', () => {
     await expect(startRecording(env.ctx, { ...body(take), camera: { ...body(take).camera, uploadKey: other.keys.camera } }, 0)).rejects.toThrow('The tracks of a take come from one recording.')
   })
 
-  it('removes the pieces once imported, and finishes the recording when its last import ends, with nobody waiting', async () => {
+  it('finishes the recording when its last import ends, with nobody waiting, and then removes the take’s pieces', async () => {
     const take = await newTake(env.ctx, ['screen', 'microphone'])
     await send(take.id, 'screen', 0, mp4(300))
     await send(take.id, 'microphone', 0, webm(50), { offsetSeconds: -0.1 })
@@ -217,14 +220,16 @@ describe('finishing a take', () => {
     }, 0)
     const screenJob = (await claimJob(deps(), 'w', ['import']))!
     await finishImport(screenJob.id, 'w', asset('a'))
-    expect([...env.storage.objects.keys()].some((path) => path.includes(`live/${take.id}/screen/`))).toBe(false)
-    expect(pendingOf(take.keys.screen!)).toBeUndefined()
+    // Imported, but the recording is not made yet: every piece is kept until it is.
+    expect(env.storage.objects.has(`${WS}/live/${take.id}/screen/0`)).toBe(true)
     expect((await listRecordings(env.ctx)).recordings[0]).toMatchObject({ id: recording.id, status: 'processing' })
     // The microphone's import fails: the recording is finished without it, by the worker's own call.
     const micJob = (await claimJob(deps(), 'w', ['import']))!
     await failJob(deps(), micJob.id, 'w', 'The file could not be read')
-    // A failed import keeps its pieces (a take brought back after a crash may be tried again) until the sweep.
-    expect(env.storage.objects.has(`${WS}/live/${take.id}/microphone/0`)).toBe(true)
+    // Made: the take's pieces, the space they held and its records go (the note says what could not be added).
+    expect([...env.storage.objects.keys()].some((path) => path.includes(`live/${take.id}/`))).toBe(false)
+    expect(pendingOf(take.keys.screen!)).toBeUndefined()
+    expect(env.tables.studio_record!.filter((r) => r.collection === TAKES || r.collection === TRACKS)).toEqual([])
     const done = env.tables.studio_record!.find((r) => r.collection === 'recordings' && r.key === recording.id)!.value as { status: string; projectId?: string; note?: string; ownerId: string }
     expect(done).toMatchObject({ status: 'done', ownerId: AVA, note: 'The microphone could not be added to this take.' })
     expect(env.tables.studio_video!.find((v) => v.id === done.projectId)).toMatchObject({ created_by: AVA })
@@ -252,11 +257,11 @@ describe('a take whose window closed', () => {
     // Piece 3 was signed but its upload never arrived; piece 4 did: only the unbroken run counts.
     await livePiece(env.ctx, take.id, { role: 'screen', index: 2, bytes: 100, seconds: 12 })
     await send(take.id, 'microphone', 0, webm(50), { offsetSeconds: -0.1 })
-    const answer = await recoverTake(env.ctx, take.id)
+    const answer = await recoverTake(env.ctx, take.id, 0, later())
     expect(answer.recording.status).toBe('processing')
     const jobs = env.tables.studio_job!
     const screen = jobs.find((j) => (j.input as { provenance: { role: string } }).provenance.role === 'screen')!.input as Record<string, unknown>
-    expect(screen).toMatchObject({ uploadKey: take.keys.screen, partial: true, durationHint: 12 })
+    expect(screen).toMatchObject({ uploadKey: take.keys.screen, partial: true, durationHint: 8 })
     const mic = jobs.find((j) => (j.input as { provenance: { role: string } }).provenance.role === 'microphone')!.input as Record<string, unknown>
     expect(mic).toMatchObject({ uploadKey: take.keys.microphone, partial: true })
     // The camera sent nothing: it is left out.
@@ -274,7 +279,7 @@ describe('a take whose window closed', () => {
   it('is refused when nothing of the screen arrived, and can be thrown away', async () => {
     const take = await newTake()
     await send(take.id, 'camera', 0, webm(100))
-    await expect(recoverTake(env.ctx, take.id)).rejects.toThrow('Nothing of the screen was saved, so there is no recording to bring back.')
+    await expect(recoverTake(env.ctx, take.id, 0, later())).rejects.toThrow('Nothing of the screen was saved, so there is no recording to bring back.')
     await expect(discardLiveTake(as(BEN), take.id)).rejects.toMatchObject({ status: 404 })
     await discardLiveTake(env.ctx, take.id)
     expect([...env.storage.objects.keys()].some((path) => path.includes(`live/${take.id}/`))).toBe(false)
@@ -300,5 +305,223 @@ describe('the worker and the sweep', () => {
     expect(await sweep(8 * day)).toMatchObject({ liveTracks: 1 })
     expect(env.storage.objects.has(`${WS}/live/${take.id}/screen/0`)).toBe(false)
     expect(env.tables.studio_record!.filter((r) => [TAKES, TRACKS, 'blob-writes'].includes(String(r.collection)))).toEqual([])
+  })
+})
+
+// ---- what review found -------------------------------------------------------------------------------------------
+
+describe('the length of what is stored', () => {
+  it('signs pieces without replacing: a piece stored once is answered as stored when it is asked for again', async () => {
+    const take = await newTake(env.ctx, ['screen'])
+    const first = await send(take.id, 'screen', 0, mp4(100))
+    expect(first.headers!['x-upsert']).toBe('false')
+    // A second PUT on the same link is refused by storage: nothing replaces a stored piece.
+    expect(env.storage.putLink({ url: first.url!, headers: first.headers! }, filler(5000))).toBe(false)
+    // Asked for again (the answer to the PUT was lost): it is there at its length, so nothing is to be sent.
+    expect(await livePiece(env.ctx, take.id, { role: 'screen', index: 0, bytes: 100 })).toEqual({ index: 0, stored: true })
+  })
+
+  it('stops the take where a piece was stored at another length than it was declared with, and removes that piece', async () => {
+    const take = await newTake(env.ctx, ['screen'])
+    await send(take.id, 'screen', 0, mp4(100))
+    const second = (await livePiece(env.ctx, take.id, { role: 'screen', index: 1, bytes: 100, seconds: 8 })) as { url: string; headers: Record<string, string> }
+    env.storage.putLink({ url: second.url!, headers: second.headers! }, filler(50 * 1024 ** 2))
+    await expect(livePiece(env.ctx, take.id, { role: 'screen', index: 2, bytes: 100 })).rejects.toMatchObject({ status: 409, code: 'PIECE_MISMATCH' })
+    expect(env.storage.objects.has(`${WS}/live/${take.id}/screen/1`)).toBe(false)
+    await expect(livePiece(env.ctx, take.id, { role: 'screen', index: 1, bytes: 100 })).rejects.toMatchObject({ code: 'PIECE_MISMATCH' })
+    // What came before is kept: the recorder's count (it believes it sent 2) is read as far as storage has it.
+    await startRecording(env.ctx, { screen: { uploadKey: take.keys.screen, name: 'Screen.mp4', pieces: 2 } }, 0)
+    expect(env.tables.studio_job![0]!.input).toMatchObject({ uploadKey: take.keys.screen, partial: true })
+    expect((await readBlob(env.ctx, take.keys.screen!)).parts.map((p) => p.bytes)).toEqual([100])
+  })
+
+  it('stops the take where a piece the recorder moved past was never stored', async () => {
+    const take = await newTake(env.ctx, ['screen'])
+    await livePiece(env.ctx, take.id, { role: 'screen', index: 0, bytes: 100 })
+    await expect(livePiece(env.ctx, take.id, { role: 'screen', index: 1, bytes: 100 })).rejects.toMatchObject({ code: 'PIECE_MISMATCH' })
+  })
+
+  it('signs the same piece again only so many times', async () => {
+    const take = await newTake(env.ctx, ['screen'])
+    await livePiece(env.ctx, take.id, { role: 'screen', index: 0, bytes: 100 })
+    for (let i = 0; i < MAX_RESENDS; i++) await livePiece(env.ctx, take.id, { role: 'screen', index: 0, bytes: 100 })
+    await expect(livePiece(env.ctx, take.id, { role: 'screen', index: 0, bytes: 100 })).rejects.toMatchObject({ status: 409, code: 'TOO_MANY_RESENDS' })
+  })
+
+  it('sweeps pieces no take points to (put again on a link still good after the take was thrown away)', async () => {
+    const take = await newTake(env.ctx, ['screen'])
+    const link = await send(take.id, 'screen', 0, mp4(100))
+    await discardLiveTake(env.ctx, take.id)
+    expect(env.storage.putLink({ url: link.url!, headers: link.headers! }, mp4(100))).toBe(true)
+    expect(await sweepStudio(env.ctx.supabase, { storage: env.storage })).toMatchObject({ liveTracks: 1 })
+    expect([...env.storage.objects.keys()].some((path) => path.includes('/live/'))).toBe(false)
+  })
+})
+
+describe('a long take', () => {
+  /** A track of `n` pieces of 10 bytes, as if recorded for an hour and more. */
+  async function longTrack(n: number) {
+    const take = await newTake(env.ctx, ['screen'])
+    const track = env.tables.studio_record!.find((r) => r.collection === TRACKS)!.value as { n: number; pieces: number[]; times: number[]; bytes: number }
+    Object.assign(track, { n, pieces: Array(n).fill(10), times: Array.from({ length: n }, (_, i) => i * 4), bytes: n * 10 })
+    for (let i = 0; i < n; i++) env.storage.put(`${WS}/live/${take.id}/screen/${i}`, i ? filler(10) : mp4(16))
+    return take
+  }
+
+  it('removes more pieces than storage deletes at once, in several calls', async () => {
+    const take = await longTrack(1201)
+    await discardLiveTake(env.ctx, take.id)
+    expect([...env.storage.objects.keys()].some((path) => path.includes('/live/'))).toBe(false)
+    expect(Math.max(...env.storage.removeCalls)).toBeLessThanOrEqual(1000)
+  })
+
+  it('keeps the records when the pieces cannot be listed, and removes every piece it knows of when the listing misses some', async () => {
+    const take = await longTrack(3)
+    env.storage.failList = true
+    await expect(discardLiveTake(env.ctx, take.id)).rejects.toThrow()
+    expect(env.tables.studio_record!.some((r) => r.collection === TRACKS)).toBe(true)
+    env.storage.failList = false
+    const list = env.storage.list.bind(env.storage)
+    env.storage.list = async () => []
+    await discardLiveTake(env.ctx, take.id)
+    env.storage.list = list
+    expect([...env.storage.objects.keys()].some((path) => path.includes('/live/'))).toBe(false)
+  })
+})
+
+describe('one take, one recording', () => {
+  async function recordedScreen() {
+    const take = await newTake(env.ctx, ['screen'])
+    await send(take.id, 'screen', 0, mp4(100))
+    await send(take.id, 'screen', 1, filler(100))
+    return take
+  }
+
+  it('answers a second POST /recordings for a take with the recording it already made', async () => {
+    const take = await recordedScreen()
+    const body = { screen: { uploadKey: take.keys.screen, name: 'Screen.mp4', pieces: 2 } }
+    const first = await startRecording(env.ctx, body, 0)
+    const again = await startRecording(env.ctx, body, 0)
+    expect(again.recording.id).toBe(first.recording.id)
+    expect(env.tables.studio_job).toHaveLength(1)
+    expect(env.tables.studio_record!.filter((r) => r.collection === 'recordings')).toHaveLength(1)
+  })
+
+  it('refuses a count above what was sealed', async () => {
+    const take = await recordedScreen()
+    await recoverTake(env.ctx, take.id, 0, later())
+    await expect(sealLiveTrack(env.ctx, take.keys.screen!, 3)).rejects.toMatchObject({ code: 'UPLOAD_INCOMPLETE' })
+  })
+
+  it('does not bring back a take that may still be recording', async () => {
+    const take = await recordedScreen()
+    await expect(recoverTake(env.ctx, take.id, 0, Date.now())).rejects.toMatchObject({ status: 409, code: 'STILL_RECORDING' })
+    // Pieces still go up.
+    await expect(send(take.id, 'screen', 2, filler(100))).resolves.toBeTruthy()
+  })
+
+  it('makes a retried start of the same take the same take, and counts only takes still recording against the limit', async () => {
+    const id = '7c7c7c7c-1111-4222-8333-888888888888'
+    const body = { id, recorder: 'browser', tracks: [{ role: 'screen', name: 'Screen.webm' }] }
+    const first = (await startLiveTake(env.ctx, body)).take
+    expect((await startLiveTake(env.ctx, body)).take).toEqual(first)
+    expect(env.tables.studio_record!.filter((r) => r.collection === TAKES)).toHaveLength(1)
+    await expect(startLiveTake(as(BEN), body)).rejects.toMatchObject({ status: 409 })
+    // Fifty-one takes left behind do not block a new one; three still recording do.
+    const old = new Date(Date.now() - 2 * QUIET_MS).toISOString()
+    const age = () => { for (const r of env.tables.studio_record!) if (r.collection === TRACKS) r.updated_at = old }
+    age()
+    for (let i = 0; i < 51; i++) {
+      await newTake(env.ctx, ['screen'])
+      age()
+    }
+    await newTake(env.ctx, ['screen'])
+    await newTake(env.ctx, ['screen'])
+    await newTake(env.ctx, ['screen'])
+    await expect(newTake(env.ctx, ['screen'])).rejects.toMatchObject({ status: 429 })
+  })
+})
+
+describe('a recording that could not be made', () => {
+  it('offers its take back with every piece kept, to bring back again or throw away', async () => {
+    const take = await newTake(env.ctx, ['screen', 'microphone'])
+    await send(take.id, 'screen', 0, mp4(300))
+    await send(take.id, 'microphone', 0, webm(50))
+    await startRecording(env.ctx, { screen: { uploadKey: take.keys.screen, name: 'Screen.mp4', pieces: 1 }, microphone: { uploadKey: take.keys.microphone, name: 'Mic.m4a', offsetSeconds: 0, pieces: 1 } }, 0)
+    const mic = (await claimJob(deps(), 'w', ['import']))!
+    const screen = (await claimJob(deps(), 'w', ['import']))!
+    const [micJob, screenJob] = (mic.input as unknown as { provenance: { role: string } }).provenance.role === 'microphone' ? [mic, screen] : [screen, mic]
+    await finishImport(micJob.id, 'w', asset('b', { kind: 'audio', name: 'Mic.m4a', file: `assets/${'b'.repeat(64)}.m4a`, width: undefined, height: undefined, sourceFps: undefined, sourceFrames: undefined, hasAudio: true }))
+    await failJob(deps(), screenJob.id, 'w', 'The file could not be read')
+    expect([...env.storage.objects.keys()].filter((path) => path.includes(`/live/${take.id}/`))).toHaveLength(2)
+    const { takes } = await savedTakes(env.ctx, later())
+    expect(takes.map((t) => t.id)).toEqual([take.id])
+    // Brought back: imported again from the same pieces, read as far as they go.
+    await recoverTake(env.ctx, take.id, 0, later())
+    const again = env.tables.studio_job!.filter((j) => j.status === 'queued')
+    expect(again.map((j) => j.input)).toEqual(expect.arrayContaining([expect.objectContaining({ uploadKey: take.keys.screen, partial: true })]))
+  })
+})
+
+describe('bringing a take back', () => {
+  it('leaves out a track that is not a recording, and seals nothing when nothing of the screen arrived', async () => {
+    const take = await newTake(env.ctx, ['screen', 'camera'])
+    await send(take.id, 'screen', 0, mp4(100))
+    await send(take.id, 'camera', 0, new TextEncoder().encode('not a recording at all'))
+    await expect(recoverTake(env.ctx, take.id, 0, later())).resolves.toMatchObject({ recording: { status: 'processing' } })
+    expect(env.tables.studio_job!.map((j) => (j.input as { provenance: { role: string } }).provenance.role)).toEqual(['screen'])
+
+    const empty = await newTake(env.ctx, ['screen', 'camera'])
+    await send(empty.id, 'camera', 0, webm(100))
+    await expect(recoverTake(env.ctx, empty.id, 0, later())).rejects.toThrow(/Nothing of the screen/)
+    const camera = env.tables.studio_record!.find((r) => r.collection === TRACKS && r.key === `${empty.id}:camera`)!.value as { sealed?: unknown }
+    expect(camera.sealed).toBeUndefined()
+  })
+})
+
+describe('the sweep and the worker, as reviewed', () => {
+  it('clears a take’s held space whose track is gone, and is not starved by takes’ space', async () => {
+    const old = new Date(Date.now() - 3 * 24 * 3600_000).toISOString()
+    const rows = env.tables.studio_record ??= []
+    for (let i = 0; i < 520; i++) rows.push({ workspace_id: WS, collection: 'blob-writes', key: `live/0a0a0a0a-1111-4222-8333-${String(i).padStart(12, '0')}/screen`, value: { bytes: 1 }, updated_at: old })
+    rows.push({ workspace_id: WS, collection: 'blob-writes', key: 'uploads/0d0d0d0d-1111-4222-8333-999999999999', value: { bytes: 1 }, updated_at: new Date(Date.now() - 2 * 24 * 3600_000).toISOString() })
+    await sweepStudio(env.ctx.supabase, { storage: env.storage })
+    expect(env.tables.studio_record!.find((r) => r.key === 'uploads/0d0d0d0d-1111-4222-8333-999999999999')).toBeUndefined()
+    await sweepStudio(env.ctx.supabase, { storage: env.storage })
+    expect(env.tables.studio_record!.filter((r) => String(r.key).startsWith('live/'))).toEqual([])
+  })
+
+  it('lets a worker read a take’s track only for the job that names it', async () => {
+    const take = await newTake(env.ctx, ['screen'])
+    await send(take.id, 'screen', 0, mp4(100))
+    await startRecording(env.ctx, { screen: { uploadKey: take.keys.screen, name: 'Screen.mp4', pieces: 1 } }, 0)
+    const other = await queueJob(env.ctx, 'import', { uploadKey: 'uploads/0e0e0e0e-1111-4222-8333-999999999999', name: 'x.mp4' })
+    await claimJob(deps(), 'w', ['import'])
+    const own = await claimJob(deps(), 'w', ['import'])
+    const read = (jobId: string) => workerBlobRead(new Request('http://localhost/x', { method: 'POST', headers: { authorization: 'Bearer dev-studio-worker', 'content-type': 'application/json' }, body: JSON.stringify({ jobId, workerId: 'w', key: take.keys.screen }) }), deps())
+    const jobs = [own!.id, other.id].sort()
+    const screenJob = env.tables.studio_job!.find((j) => (j.input as { uploadKey: string }).uploadKey === take.keys.screen)!.id as string
+    expect((await read(screenJob)).status).toBe(200)
+    expect((await read(jobs.find((id) => id !== screenJob)!)).status).toBe(409)
+  })
+
+  it('answers the worker first and finishes the recording after', async () => {
+    const take = await newTake(env.ctx, ['screen'])
+    await send(take.id, 'screen', 0, mp4(100))
+    const { recording } = await startRecording(env.ctx, { screen: { uploadKey: take.keys.screen, name: 'Screen.mp4', pieces: 1 } }, 0)
+    const job = (await claimJob(deps(), 'w', ['import']))!
+    const later: (() => Promise<void>)[] = []
+    const write = await createBlobWrite(env.ctx, { key: asset('a').file, bytes: 100, contentType: 'video/mp4', sha256: 'a'.repeat(64) })
+    for (const part of write.parts) env.storage.put(part.url.replace('fake://upload/', ''), filler(part.bytes))
+    await commitBlob(env.ctx, asset('a').file)
+    await completeJob({ ...deps(), defer: (task) => later.push(task) }, job.id, 'w', { asset: asset('a', { provenance: { rawBytes: 100, rawSha256: 'f'.repeat(64) } }) })
+    const record = () => env.tables.studio_record!.find((r) => r.collection === 'recordings' && r.key === recording.id)!.value as { status: string }
+    expect(record().status).toBe('importing')
+    expect(env.storage.objects.has(`${WS}/live/${take.id}/screen/0`)).toBe(true)
+    for (const task of later) await task()
+    expect(record().status).toBe('done')
+    expect(env.storage.objects.has(`${WS}/live/${take.id}/screen/0`)).toBe(false)
+    // The original's size and hash come from what the worker read.
+    expect(env.tables.studio_job!.find((j) => j.id === job.id)!.result).toMatchObject({ rawBytes: 100, rawSha256: 'f'.repeat(64) })
   })
 })

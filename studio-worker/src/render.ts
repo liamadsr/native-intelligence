@@ -79,10 +79,16 @@ export class Renderer {
   private browser: Promise<string | null> | null = null
   /** Bundles a render is using now (so a newer bundle does not delete them under it). */
   private readonly inUse = new Map<string, number>()
+  /** Software compositing failed once (withGlFallback): every later render in this process asks for `swangle`. */
+  private glFellBack = false
 
-  constructor(config: WorkerConfig, assetsDir: string) {
+  private readonly platform: NodeJS.Platform
+
+  /** `platform`: the system Chrome runs on (a test's stand-in; glFor). */
+  constructor(config: WorkerConfig, assetsDir: string, platform: NodeJS.Platform = process.platform) {
     this.config = config
     this.assetsDir = assetsDir
+    this.platform = platform
   }
 
   /** The Chrome to render in: STUDIO_CHROME when set (a file, or a folder it is inside), else Remotion's own, fetched once. */
@@ -180,15 +186,50 @@ export class Renderer {
     }
   }
 
-  /** Options every Remotion call shares, for a render of `project` (glFor). */
+  /** Options every Remotion call shares, for a render of `project` (glFor, or `swangle` once software compositing failed here). */
   async common(log: Log, project?: EditorProject): Promise<{ browserExecutable: string | null; timeoutInMilliseconds: number; logLevel: 'warn'; chromiumOptions: { gl: GlBackend } }> {
-    return { browserExecutable: await this.chrome(log), timeoutInMilliseconds: 120_000, logLevel: 'warn', chromiumOptions: { gl: glFor(process.platform, project) } }
+    const gl = glFor(this.platform, project)
+    return { browserExecutable: await this.chrome(log), timeoutInMilliseconds: 120_000, logLevel: 'warn', chromiumOptions: { gl: gl === 'swiftshader' && this.glFellBack ? 'swangle' : gl } }
   }
+
+  /**
+   * A render (`attempt`, handed the shared options and a callback to call once a frame is drawn) that, should Chrome
+   * not start or fail before its first frame with software compositing (glFallbackWanted), is made once more with
+   * `swangle`, and every later render of this process starts with `swangle`. The good case pays nothing.
+   */
+  async withGlFallback<T>(log: Log, project: EditorProject | undefined, aborted: () => boolean,
+    attempt: (common: Awaited<ReturnType<Renderer['common']>>, frameDrawn: () => void) => Promise<T>): Promise<T> {
+    const common = await this.common(log, project)
+    let frames = 0
+    try {
+      return await attempt(common, () => { frames++ })
+    } catch (err) {
+      if (!glFallbackWanted(err, { gl: common.chromiumOptions.gl, framesDrawn: frames, aborted: aborted() })) throw err
+      this.glFellBack = true
+      log(`Chrome failed with software compositing before its first frame (${firstLine(err)}): rendering with swangle (slower) from now on in this worker`)
+      return attempt(await this.common(log, project), () => {})
+    }
+  }
+}
+
+const firstLine = (err: unknown) => String((err as Error)?.message ?? err).split('\n')[0]!.slice(0, 200)
+
+/**
+ * Whether a render that failed should be made again with `swangle`: only when it asked for software compositing
+ * (`swiftshader`), drew no frame, was not cancelled, and failed the way a browser that cannot start or whose GPU
+ * process takes it down fails (a launch error, the browser or page gone, a GL or GPU message). A render error of the
+ * page itself (a delayRender timeout, a media it cannot read, a scene that throws) is not retried. Pure.
+ */
+export function glFallbackWanted(err: unknown, at: { gl: GlBackend; framesDrawn: number; aborted: boolean }): boolean {
+  if (at.gl !== 'swiftshader' || at.framesDrawn > 0 || at.aborted) return false
+  const text = `${(err as Error)?.name ?? ''} ${(err as Error)?.message ?? String(err)}`
+  if (/delayRender|cancel|Cannot decode|could not be decoded|Unknown container|Network error|ENOSPC/i.test(text)) return false
+  return /Failed to launch the browser|browser process (exited|crashed)|Browser (closed|has disconnected|was closed)|Target closed|Session closed|Page crashed|crashed|Timed out after \d+ ?ms while (trying to connect|waiting for the WS endpoint)|GPU process|gpu_init|viz_main|GL implementation|SwiftShader|ANGLE|\bEGL\b|WebGL/i.test(text)
 }
 
 /**
  * How an export is encoded (renderMedia's options).
- * - BT.709, tagged as such: Chrome turns a recording's YUV into RGB as BT.709 (what the preview shows), and Remotion's
+ * - BT.709 (matrix and primaries; bt709WithSwscale says what the file is labelled): Chrome turns a recording's YUV into RGB as BT.709 (what the preview shows), and Remotion's
  *   default turned that RGB back into YUV as BT.601 with no tag, so players, which read an untagged HD video as BT.709,
  *   showed saturated colours shifted (a recording's green at 216 came out at 183). Measured on a made-up recording:
  *   the export against the recording 30.5 dB before, 46 dB with this.
@@ -200,9 +241,11 @@ export const EXPORT_ENCODING = { codec: 'h264', audioCodec: 'aac', pixelFormat: 
 /**
  * Remotion converts each frame to BT.709 with zscale; FFmpeg's own scaler does the same conversion for a third of the
  * CPU (the conversion's cost went from 0.08 to 0.01 CPU-seconds a frame at 2504×1438). For renderMedia's
- * `ffmpegOverride`. The file then says BT.709 primaries and matrix, and keeps the sRGB transfer Chrome's screenshots
- * arrive with (what every export said before; zscale would have written BT.709, and Remotion's FFmpeg has no filter to
- * relabel it). Should Remotion's arguments change shape, nothing matches and zscale stays: slower, not wrong. Pure.
+ * `ffmpegOverride`. What the file then says (H.264 VUI and the MP4's `colr`, read back with ffprobe): primaries BT.709,
+ * matrix BT.709, limited range, transfer IEC 61966-2-1 (sRGB). Remotion still passes `-color_trc:v bt709`, but the
+ * screenshots arrive labelled sRGB and FFmpeg writes the frames' label; zscale relabelled them BT.709, and Remotion's
+ * FFmpeg has no filter that relabels. Every export said sRGB before this too. Should Remotion's arguments change shape,
+ * nothing matches and zscale stays: slower, not wrong. Pure.
  */
 export const BT709_SWSCALE = 'scale=out_color_matrix=bt709:out_range=tv'
 export function bt709WithSwscale({ args }: { type: string; args: string[] }): string[] {

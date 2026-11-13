@@ -13,8 +13,9 @@ import { isDesktopApp } from '@/lib/platform';
 import { finishedJob, importFile, request } from './client';
 import { Icon, type IconName } from './icons';
 import { isMenuKey, useContextMenu, type MenuItem } from './ContextMenu';
-import { importableFile, isLocalPlace, LocalFolderError, localFolders, type LocalPlaceView } from './local-folders';
+import { importableFile, isLocalPlace, LocalFolderError, localFolders, localFoldersFor, type LocalPlaceView } from './local-folders';
 import { forgetThumbs, localThumb } from './local-thumbs';
+import { checkedPicture, PictureTooLarge } from './local-images';
 
 export type BrowserKind = 'folder' | 'video' | 'image' | 'audio' | 'font' | 'document' | 'other';
 type Place = { id: string; name: string; path: string; available: boolean; local?: LocalPlaceView };
@@ -28,6 +29,7 @@ const ADDABLE: BrowserKind[] = ['video', 'image', 'audio'];
 const FILTERS: { kind: BrowserKind | null; label: string }[] = [{ kind: null, label: 'All' }, { kind: 'video', label: 'Video' }, { kind: 'image', label: 'Images' }, { kind: 'audio', label: 'Sound' }];
 const ICONS: Record<BrowserKind, IconName> = { folder: 'folder', video: 'clip', image: 'image', audio: 'audio', font: 'type', document: 'transcript', other: 'file' };
 const NO_LOCALS: LocalPlaceView[] = [];
+const noLocals = () => NO_LOCALS, noSubscribe = () => () => {};
 const q = (place: string, path: string) => `place=${encodeURIComponent(place)}&path=${encodeURIComponent(path)}`;
 const thumbUrl = (place: string, path: string) => `/api/account/studio/browser/thumb?${q(place, path)}`;
 const fileUrl = (place: string, path: string) => `/api/account/studio/browser/file?${q(place, path)}`;
@@ -59,8 +61,11 @@ export async function browserImport(item: BrowserItem): Promise<{ asset: EditorA
 }
 
 export function BrowserPanel({ add, disabled, notify }: { add: (item: BrowserItem) => void; disabled: boolean; notify: (text: string, error?: boolean) => void }) {
-  const [folders] = useState(localFolders);
-  const locals = useSyncExternalStore(folders.subscribe, folders.places, () => NO_LOCALS);
+  // The folders on this computer are the signed-in person's (in every workspace of theirs); none until that is known.
+  const user = useSignedInUser();
+  // Started as soon as it is made: its remembered list is read at once, so a remembered place is there to open.
+  const folders = useMemo(() => { if (!user) return null; const store = localFoldersFor(user); void store.start(); return store; }, [user]);
+  const locals = useSyncExternalStore(folders?.subscribe ?? noSubscribe, folders?.places ?? noLocals, noLocals);
   const [serverPlaces, setServerPlaces] = useState<Place[] | null>(null);
   const [placeId, setPlaceId] = useState<string | null>(() => stored('ni:studio:browser.place', null));
   const [tree, setTree] = useState<Record<string, Entry[]>>({});
@@ -83,13 +88,12 @@ export function BrowserPanel({ add, disabled, notify }: { add: (item: BrowserIte
   const localPlaces = useMemo<Place[]>(() => locals.map(l => ({ id: l.id, name: l.name, path: '', available: l.status === 'ready', local: l })), [locals]);
   const places = useMemo(() => [...(serverPlaces ?? []), ...localPlaces], [serverPlaces, localPlaces]);
   const place = places.find(p => p.id === placeId) ?? null;
-  const support = folders.support();
+  const support = folders?.support() ?? 'files';
 
-  useEffect(() => { void folders.start(); }, [folders]);
   const loadPlaces = useCallback(async () => { const { places } = await request<{ places: Place[] }>('/api/account/studio/browser/places'); setServerPlaces(places); }, []);
   useEffect(() => { void loadPlaces().catch(e => { setServerPlaces([]); fail(e); }); }, [loadPlaces, fail]);
   // Once the places are known, a remembered place that is gone gives way to the first one.
-  useEffect(() => { if (serverPlaces && (!placeId || !places.some(p => p.id === placeId))) setPlaceId(places[0]?.id ?? null); }, [serverPlaces, places, placeId]);
+  useEffect(() => { if (serverPlaces && user !== undefined && (!placeId || !places.some(p => p.id === placeId))) setPlaceId(places[0]?.id ?? null); }, [serverPlaces, user, places, placeId]);
   useEffect(() => keep('ni:studio:browser.place', placeId), [placeId]);
   useEffect(() => keep('ni:studio:browser.filter', filter), [filter]);
   useEffect(() => keep('ni:studio:browser.autoplay', autoPlay), [autoPlay]);
@@ -99,6 +103,7 @@ export function BrowserPanel({ add, disabled, notify }: { add: (item: BrowserIte
     if (!placeId) return;
     const key = `${placeId}:${path}`;
     if (isLocalPlace(placeId)) {
+      if (!folders) return;
       try {
         const listing = await folders.listFolder(placeId, path);
         setTree(t => ({ ...t, [key]: listing.entries.map(e => ({ ...e, placeId })) }));
@@ -120,7 +125,7 @@ export function BrowserPanel({ add, disabled, notify }: { add: (item: BrowserIte
   useEffect(() => {
     if (!query.trim()) { setResults(null); setSearchCut(false); return; }
     if (placeId && isLocalPlace(placeId)) {
-      if (!place?.available) { setResults(null); return; }
+      if (!place?.available || !folders) { setResults(null); return; }
       const stop = new AbortController(), name = place.name, id = placeId;
       const timer = setTimeout(() => {
         void folders.search(id, query, { kind: filter, signal: stop.signal })
@@ -169,10 +174,10 @@ export function BrowserPanel({ add, disabled, notify }: { add: (item: BrowserIte
   const open = (id: string) => { setPlaceId(id); setQuery(''); };
 
   // Folders on this computer.
-  const addFolder = async () => { try { const linked = await folders.add(); if (linked) { open(linked.id); setReload(n => n + 1); } } catch (e) { fail(e); } };
-  const chooseAgain = async (p: Place) => { try { const linked = await folders.chooseAgain(p.id); if (linked) { forgetThumbs(`${p.id}:`); open(p.id); setReload(n => n + 1); } } catch (e) { fail(e); } };
-  const allow = async (p: Place) => { if (await folders.allow(p.id)) open(p.id); else say.current(`The browser did not allow reading “${p.name}”.`, true); };
-  const removeLocal = async (p: Place) => { forgetThumbs(`${p.id}:`); await folders.remove(p.id); say.current(`“${p.name}” is no longer in the Browser. The folder and its files stay where they are.`); };
+  const addFolder = async () => { if (!folders) return; try { const linked = await folders.add(); if (linked) { open(linked.id); setReload(n => n + 1); } } catch (e) { fail(e); } };
+  const chooseAgain = async (p: Place) => { if (!folders) return; try { const linked = await folders.chooseAgain(p.id); if (linked) { forgetThumbs(`${p.id}:`); open(p.id); setReload(n => n + 1); } } catch (e) { fail(e); } };
+  const allow = async (p: Place) => { if (!folders) return; if (await folders.allow(p.id)) open(p.id); else say.current(`The browser did not allow reading “${p.name}”.`, true); };
+  const removeLocal = async (p: Place) => { if (!folders) return; forgetThumbs(`${p.id}:`); await folders.remove(p.id); say.current(`“${p.name}” is no longer in the Browser. The folder and its files stay where they are.`); };
 
   // Right-click menus: a place, and a file in the list.
   const placeMenu = (event: React.MouseEvent | React.KeyboardEvent, p: Place) => {
@@ -239,11 +244,13 @@ export function BrowserPanel({ add, disabled, notify }: { add: (item: BrowserIte
       <nav className="ab-places" aria-label="Places">
         <div className="ab-head">Places</div>
         {(serverPlaces ?? []).map(placeRow)}
+        {folders ? <>
         <div className="ab-head ab-head-local">This computer</div>
         {localPlaces.map(placeRow)}
         <button className="ab-add" onClick={() => void addFolder()} title={support === 'kept' ? 'Link a folder. This browser keeps the link.' : 'Link a folder until the page reloads.'}>
           <Icon name="plus" size={12} /><span>{support === 'files' ? 'Add files from this computer' : 'Add a folder from this computer'}</span></button>
-        <p className="ab-local-note">Nothing leaves this computer until you add a file.</p>
+        <p className="ab-local-note">Nothing leaves this computer until you add a file. An added file goes to this workspace’s Studio library.</p>
+        </> : null}
       </nav>
       <div className="ab-list" ref={listRef} tabIndex={0} onKeyDown={onKey} role="tree" aria-label={place ? place.name : 'Files'}>
         {!serverPlaces ? <div className="ab-empty"><Icon name="folder" size={22} /><p>Loading…</p></div>
@@ -267,6 +274,7 @@ export function BrowserPanel({ add, disabled, notify }: { add: (item: BrowserIte
             </div>;
           })}
           {results && searchCut ? <div className="ab-cut">Showing the first {count(results.length)} matches. Type more to narrow it down.</div> : null}
+          {local?.cut && !results ? <div className="ab-cut ab-session-note">“{local.name}” holds {count(local.cut.total)} files. The Browser keeps the first {count(local.cut.kept)}. Link a smaller folder inside it to see the rest.</div> : null}
           {local?.mode === 'session' && !results ? <div className="ab-cut ab-session-note">Linked until the page reloads. After that, choose the folder again.</div> : null}</>}
       </div>
     </div>
@@ -279,6 +287,19 @@ export function BrowserPanel({ add, disabled, notify }: { add: (item: BrowserIte
       window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
     }} />
   </aside>;
+}
+
+/** The signed-in person's id (undefined while it is looked up, null when nobody is signed in). */
+function useSignedInUser(): string | null | undefined {
+  const [user, setUser] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    void import('@/lib/supabase/client').then(({ createClient }) => createClient().auth.getSession())
+      .then(({ data }) => { if (live) setUser(data.session?.user?.id ?? null); })
+      .catch(() => { if (live) setUser(null); });
+    return () => { live = false; };
+  }, []);
+  return user;
 }
 
 /** A row's small picture for a file on this computer, made once the row scrolls into view (local-thumbs.ts). */
@@ -308,27 +329,35 @@ function LocalThumb({ place, entry, root }: { place: string; entry: Entry; root:
 function Preview({ entry, owner, info, autoPlay, setAutoPlay, add, disabled, onMeta }: { entry: Entry | null; owner: string | null; info: Info | null; autoPlay: boolean; setAutoPlay: (v: boolean) => void; add: (e: Entry) => void; disabled: boolean; onMeta: (meta: Partial<Info>) => void }) {
   const media = useRef<HTMLVideoElement & HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false), [time, setTime] = useState(0), [text, setText] = useState<string | null>(null), [font, setFont] = useState<string | null>(null);
-  const [localSrc, setLocalSrc] = useState<string | null>(null);
+  const [localSrc, setLocalSrc] = useState<string | null>(null), [tooLarge, setTooLarge] = useState<string | null>(null);
   const local = isLocalPlace(owner);
   useEffect(() => { const t = () => { const m = media.current; if (m) { if (m.paused) void m.play().catch(() => {}); else m.pause(); } }; window.addEventListener('ni-studio-browser-preview-toggle', t); return () => window.removeEventListener('ni-studio-browser-preview-toggle', t); }, []);
   useEffect(() => {
-    setText(null); setFont(null); setTime(0); setLocalSrc(null);
+    setText(null); setFont(null); setTime(0); setLocalSrc(null); setTooLarge(null);
     if (!entry || !owner || entry.kind === 'folder') return;
     const family = `ni-studio-browser-${Math.abs([...`${owner}:${entry.path}`].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7))}`;
-    const loadFont = (face: FontFace) => void face.load().then(f => { (document.fonts as unknown as { add(face: FontFace): void }).add(f); setFont(family); }).catch(() => setFont(null));
+    const fonts = document.fonts as unknown as { add(face: FontFace): void; delete(face: FontFace): boolean };
+    let live = true, url: string | null = null, added: FontFace | null = null;
+    // A previewed font is the page's only while it is previewed.
+    const loadFont = (face: FontFace) => void face.load().then(f => { if (!live) return; fonts.add(f); added = f; setFont(family); }).catch(() => { if (live) setFont(null); });
+    const done = () => { live = false; if (url) URL.revokeObjectURL(url); if (added) fonts.delete(added); };
     if (!local) {
-      if (entry.kind === 'document' && /\.(md|txt|json|csv)$/i.test(entry.name)) void fetch(fileUrl(owner, entry.path)).then(r => r.text()).then(t => setText(t.slice(0, 4000))).catch(() => {});
+      if (entry.kind === 'document' && /\.(md|txt|json|csv)$/i.test(entry.name)) void fetch(fileUrl(owner, entry.path)).then(r => r.text()).then(t => { if (live) setText(t.slice(0, 4000)); }).catch(() => {});
       if (entry.kind === 'font') loadFont(new FontFace(family, `url(${fileUrl(owner, entry.path)})`));
-      return;
+      return done;
     }
-    let live = true, url: string | null = null;
-    void localFolders().file(owner, entry.path).then(file => {
+    void localFolders().file(owner, entry.path).then(async file => {
       if (!live) return;
+      // A still is measured before it is shown: an enormous picture is never decoded (local-images.ts).
+      if (entry.kind === 'image') {
+        try { await checkedPicture(file); } catch (error) { if (live && error instanceof PictureTooLarge) setTooLarge(`${count(error.size.width)} × ${count(error.size.height)}`); if (error instanceof PictureTooLarge) return; }
+        if (!live) return;
+      }
       if (ADDABLE.includes(entry.kind)) { url = URL.createObjectURL(file); setLocalSrc(url); }
       else if (entry.kind === 'document' && /\.(md|txt|json|csv)$/i.test(entry.name)) void file.slice(0, 4000).text().then(t => { if (live) setText(t); });
       else if (entry.kind === 'font' && file.size <= 8 * 1024 ** 2) void file.arrayBuffer().then(buffer => { if (live) loadFont(new FontFace(family, buffer)); });
     }).catch(() => {});
-    return () => { live = false; if (url) URL.revokeObjectURL(url); };
+    return done;
   }, [entry, owner, local]);
   if (!entry || !owner) return <div className="ab-preview empty"><span>Select a file to preview it</span></div>;
   const src = local ? localSrc : fileUrl(owner, entry.path), meta = [info?.width ? `${info.width}×${info.height}` : '', clock(info?.durationSeconds), entry.kind === 'image' ? '' : info?.codec?.toUpperCase() ?? '', bytes(info?.size ?? entry.size)].filter(Boolean).join(' · ');
@@ -336,7 +365,8 @@ function Preview({ entry, owner, info, autoPlay, setAutoPlay, add, disabled, onM
   const measured = (m: HTMLVideoElement | HTMLAudioElement) => { if (local) onMeta({ durationSeconds: Number.isFinite(m.duration) ? m.duration : undefined, ...('videoWidth' in m && m.videoWidth ? { width: m.videoWidth, height: m.videoHeight } : {}) }); };
   return <div className={`ab-preview k-${entry.kind}`}>
     <div className="ab-stage">
-      {entry.kind === 'image' ? (local ? (src ? <img src={src} alt={entry.name} onLoad={e => onMeta({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })} /> : null) : <img src={/\.svg$/i.test(entry.name) ? src! : thumbUrl(owner, entry.path)} alt={entry.name} />)
+      {tooLarge ? <div className="ab-none ab-too-large"><Icon name="image" size={26} /><small>Too large to preview: {tooLarge} pixels</small></div>
+        : entry.kind === 'image' ? (local ? (src ? <img src={src} alt={entry.name} onLoad={e => onMeta({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })} /> : null) : <img src={/\.svg$/i.test(entry.name) ? src! : thumbUrl(owner, entry.path)} alt={entry.name} />)
         : entry.kind === 'video' ? (src ? <video key={src} ref={media} src={src} poster={!local && entry.thumbnail ? thumbUrl(owner, entry.path) : undefined} muted={!autoPlay} loop playsInline autoPlay onLoadedMetadata={e => measured(e.currentTarget)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onClick={e => { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); }} /> : null)
         : entry.kind === 'audio' ? <div className={`ab-wave${local ? ' plain' : ''}`} onClick={e => { const m = media.current, r = e.currentTarget.getBoundingClientRect(); if (m && duration) { m.currentTime = (e.clientX - r.left) / r.width * duration; void m.play().catch(() => {}); } }}>
             {local ? <b aria-hidden="true" /> : <img src={thumbUrl(owner, entry.path)} alt="" onError={ev => { (ev.target as HTMLImageElement).style.visibility = 'hidden'; }} />}<i style={{ left: `${duration ? time / duration * 100 : 0}%` }} />

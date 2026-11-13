@@ -150,8 +150,15 @@ export function savedLine(tracks: ReadonlyArray<LiveTrackStatus>): { tone: 'ok' 
     return { tone: 'warn', text: `Connection dropped. Kept here${waiting >= 2 ? ` (${waiting} s so far)` : ''}, and it goes up when the connection is back.` }; }
   if (tracks.some(track => track.state === 'local')) return { tone: 'quiet', text: 'Kept on this computer. It uploads after Stop.' };
   if (tracks.some(track => track.state === 'connecting')) return { tone: 'quiet', text: 'Connecting to the Studio…' };
+  // Going up, but not every recorder hands its pieces over as often as asked (WebKit can hold them): "saved" only
+  // when little is still on this computer.
+  const unsent = Math.round(Math.max(0, ...tracks.filter(track => track.state === 'live').map(track => track.unsavedSeconds || 0)));
+  if (unsent > UNSENT_OK_SECONDS) return { tone: 'quiet', text: `Saving as you record. ${unsent} s not sent yet.` };
   return { tone: 'ok', text: 'Saved as you record' };
 }
+
+/** Seconds recorded but not yet sent that still count as "saved as you record" (a piece or two on its way). */
+export const UNSENT_OK_SECONDS = 5;
 
 /** Prepared on the Studio after the upload: the files are up (or there were none to send from here). */
 const uploadsDone = (uploads: ReadonlyArray<{ done?: boolean; fraction?: number }>) => uploads.every(item => item.done || (item.fraction ?? 0) >= 1);
@@ -187,10 +194,13 @@ function LiveTake({ session, close, ...props }: Props & { session: RecordingSess
     : session.status === 'countdown' ? (kind === 'desktop' ? 'Switch to what you are recording. The floating Stop bar stays on top and out of the picture.' : 'Switch to what you are sharing. Stop here, or end the share from the browser’s own bar.')
     : recording ? (kind === 'desktop' ? 'Use your app as usual. Your clicks and typing are timed for zooms. Stop from the floating bar or here.' : 'Use what you are sharing. Come back here to stop, or end the share from the browser’s bar.')
     : uploading ? 'Keep this window open until the files are up.'
-    : 'The Studio finishes the video even if you close this. You get a note when it is ready.';
-  return <div className="rd-live" role="status">
-    <div className={cn('rd-live-hero', `rd-live-${session.status}`)}>
-      {session.status === 'countdown' ? <><span className="rd-live-label">Starting in</span><span className="rd-live-big" aria-live="assertive">{Math.max(1, session.countdownRemaining ?? 1)}</span></>
+    : 'You can close this: the Studio finishes the video on its own. It then shows in your videos, and here under Record.';
+  // What a screen reader is told: the state in a few words, not the clock (it changes four times a second).
+  const state = session.status === 'countdown' ? `Starting in ${Math.max(1, session.countdownRemaining ?? 1)}` : recording ? 'Recording' : uploading ? 'Uploading the last of the recording' : preparing ? `Making it a video: ${plainStep(session.step)}` : 'Getting ready';
+  return <div className="rd-live">
+    <span className="sr-only" role="status">{state}</span>
+    <div className={cn('rd-live-hero', `rd-live-${session.status}`)} aria-hidden={session.status === 'countdown' ? true : undefined}>
+      {session.status === 'countdown' ? <><span className="rd-live-label">Starting in</span><span className="rd-live-big">{Math.max(1, session.countdownRemaining ?? 1)}</span></>
         : recording ? <><span className="rd-live-label"><span className="rd-live-dot" aria-hidden="true" />Recording</span><span className="rd-live-big">{clockLabel(session.elapsedMs)}</span>{session.microphone ? <Meter level={session.level} /> : null}</>
         : uploading ? <><span className="rd-live-label">Saving your recording</span><span className="rd-live-step">Uploading the last of it</span></>
         : preparing ? <><span className="rd-live-label">Making it a video</span><span className="rd-live-step">{plainStep(session.step)}</span>
@@ -206,8 +216,8 @@ function LiveTake({ session, close, ...props }: Props & { session: RecordingSess
       <div className="rd-foot-actions">
         {session.status === 'preparing' || session.status === 'countdown' ? <Button variant="ghost" className="st-app-button" onClick={() => void rec.cancel(session.id)}>Cancel</Button> : null}
         {recording ? <><Button variant="ghost" className="st-app-button" disabled={rec.working} onClick={() => void rec.cancel(session.id)}>Cancel and discard</Button>
-          <Button variant="destructive" className="st-app-button rd-stop" disabled={rec.working} onClick={() => void rec.stop(session.id)}><span className="rd-square" aria-hidden="true" />Stop recording</Button></> : null}
-        {preparing ? <><span /><Button variant="secondary" className="st-app-button" onClick={close}>Keep working</Button></> : null}
+          <Button variant="destructive" className="st-app-button rd-stop" data-autofocus="" disabled={rec.working} onClick={() => void rec.stop(session.id)}><span className="rd-square" aria-hidden="true" />Stop recording</Button></> : null}
+        {preparing ? <><span /><Button variant="secondary" className="st-app-button" data-autofocus="" onClick={close}>Keep working</Button></> : null}
       </div>
     </div>}
   </div>;
@@ -220,6 +230,23 @@ const takeTime = (iso: string) => { const at = new Date(iso); if (Number.isNaN(a
 export const lengthWords = (seconds: number) => { const s = Math.max(0, Math.round(seconds)), m = Math.floor(s / 60), r = s % 60;
   const part = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
   return m ? (r ? `${part(m, 'minute')} ${part(r, 'second')}` : part(m, 'minute')) : part(r, 'second'); };
+
+/**
+ * A take whose window closed before it was finished, kept on the Studio: make it a video, or throw it away. Throwing it
+ * away is for good, so it asks once more first.
+ */
+function SavedTakeBanner({ take, recording: rec }: { take: { id: string; createdAt: string; seconds: number }; recording: ManualRecording }) {
+  const [confirming, setConfirming] = useState(false);
+  return <div className="rd-banner rd-banner-warn rd-banner-recover" role="group" aria-label="A recording that stopped before it was finished">
+    <Icon name="warning" />
+    {confirming
+      ? <div><strong>Discard this recording for good?</strong><span>The {lengthWords(take.seconds)} saved on the Studio are deleted. This cannot be undone.</span></div>
+      : <div><strong>A recording from {takeTime(take.createdAt)} stopped before it was finished</strong><span>{lengthWords(take.seconds)} {Math.round(take.seconds) === 1 ? 'was' : 'were'} saved on the Studio.</span></div>}
+    <div className="rd-banner-buttons">{confirming
+      ? <><Button size="sm" variant="ghost" className="st-app-button" onClick={() => setConfirming(false)}>Keep it</Button><Button size="sm" variant="destructive" className="st-app-button" disabled={rec.working} onClick={() => void rec.discardSaved(take.id)}>Discard for good</Button></>
+      : <><Button size="sm" variant="ghost" className="st-app-button" disabled={rec.working} onClick={() => setConfirming(true)}>Discard…</Button><Button size="sm" className="st-app-button" disabled={rec.working || !!rec.active} onClick={() => void rec.recoverSaved(take.id)}>Make it a video</Button></>}</div>
+  </div>;
+}
 
 /** Recordings the Studio is still making into videos (this tab's, an earlier tab's, before a reload), and their progress. */
 function PreparingElsewhere({ open }: { open: (session: RecordingSession) => void }) {
@@ -297,11 +324,7 @@ function Setup(props: Props) {
   const sharedKind = shared ? (shared.surface === 'browser' ? 'Sharing a browser tab' : shared.surface === 'window' ? 'Sharing a window' : shared.surface === 'monitor' ? 'Sharing your whole screen' : 'Sharing') : '';
 
   return <div className="rd-setup">
-    {(rec.savedTakes ?? []).map(take => <div key={take.id} className="rd-banner rd-banner-warn rd-banner-recover" role="status">
-      <Icon name="warning" />
-      <div><strong>A recording from {takeTime(take.createdAt)} stopped before it was finished</strong><span>{lengthWords(take.seconds)} {Math.round(take.seconds) === 1 ? 'was' : 'were'} saved on the Studio.</span></div>
-      <div className="rd-banner-buttons"><Button size="sm" variant="ghost" className="st-app-button" disabled={rec.working} onClick={() => void rec.discardSaved(take.id)}>Discard</Button><Button size="sm" className="st-app-button" disabled={rec.working || !!rec.active} onClick={() => void rec.recoverSaved(take.id)}>Make it a video</Button></div>
-    </div>)}
+    {(rec.savedTakes ?? []).map(take => <SavedTakeBanner key={take.id} take={take} recording={rec} />)}
     <PreparingElsewhere open={props.open} />
     {props.punch ? <div className="rd-banner rd-banner-punch" role="status"><span className="rd-banner-dot" aria-hidden="true" /><div><strong>{props.punch.beatIds?.length ? 'Recording into beats' : 'Punch in'}</strong><span>{props.punch.label}</span></div></div> : null}
     {session && terminal(session) && session.status !== 'cancelled' && (!props.punch || session.punch) ? <div className={cn('rd-banner', session.status === 'completed' ? 'rd-banner-ok' : 'rd-banner-warn')} role="status">
@@ -329,7 +352,7 @@ function Setup(props: Props) {
             <div className="rd-screen-text"><span className="rd-screen-name" title={shared.label}>{sharedName}</span><span className="rd-screen-kind">{sharedKind}</span></div>
             <div className="rd-screen-actions"><Button variant="ghost" size="sm" className="st-app-button" disabled={locked} onClick={() => rec.clearShare()}>Stop sharing</Button><Button variant="outline" size="sm" className="st-app-button" disabled={locked} onClick={() => void rec.chooseShare(prefs.shareSound)}>Change</Button></div>
           </div>
-        : <button type="button" className="rd-screen rd-screen-pick" disabled={locked} onClick={() => void rec.chooseShare(prefs.shareSound)}>
+        : <button type="button" className="rd-screen rd-screen-pick" data-autofocus="" disabled={locked} onClick={() => void rec.chooseShare(prefs.shareSound)}>
             <span className="rd-screen-icon" aria-hidden="true"><Icon name="share" size={20} /></span>
             <span className="rd-screen-text"><span className="rd-screen-name">Choose what to share</span><span className="rd-screen-kind">A tab, a window or your whole screen. Nothing records until you press Start.</span></span>
             <span className="rd-screen-go" aria-hidden="true"><Icon name="chevronRight" /></span>
@@ -389,7 +412,7 @@ function Setup(props: Props) {
     <div className="rd-foot">
       <span className={cn('rd-foot-hint', !ready && 'rd-foot-blocked')} id={hintId}>{hint}</span>
       <div className="rd-foot-actions">
-        <Button className="st-app-button rd-start" disabled={!ready || locked} aria-describedby={hintId} onClick={begin}><span className="rd-start-dot" aria-hidden="true" />Start recording</Button>
+        <Button className="st-app-button rd-start" data-autofocus="" disabled={!ready || locked} aria-describedby={hintId} onClick={begin}><span className="rd-start-dot" aria-hidden="true" />Start recording</Button>
       </div>
     </div>
   </div>;

@@ -3,6 +3,7 @@
 // this folder. Kept apart from the route files so tests can call them with their own clients.
 import type { z } from 'zod'
 import { apiError, badRequest, notFound, unauthorized } from '@/lib/api-errors'
+import { conflictError } from './errors'
 import { checkBlobKey, commitBlob, createBlobWrite, dropPendingWrite, getBlob, readBlob, workerWriteFence } from './blobs'
 import { noteWorker } from './capabilities'
 import type { StudioContext } from './context'
@@ -106,11 +107,19 @@ export async function workerFail(request: Request, jobId: string, deps: WorkerDe
   return run(() => failJob(deps, jobId, body.workerId, body.error))
 }
 
-/** POST blobs/read {jobId, workerId, key} → BlobRead, inside the held job's workspace. */
+/**
+ * POST blobs/read {jobId, workerId, key} → BlobRead, inside the held job's workspace. A take's track (`live/…`) only
+ * for the job that names it as its upload: a worker never reads another recording of the workspace through it.
+ */
 export async function workerBlobRead(request: Request, deps: WorkerDeps): Promise<Response> {
   const body = await workerBody(request, BlobReadBody)
   if (body instanceof Response) return body
-  return run(async () => readBlob(jobContext(deps, await heldJob(deps, body.jobId, body.workerId)), body.key))
+  return run(async () => {
+    const live = body.key.startsWith('live/')
+    const job = await heldJob(deps, body.jobId, body.workerId, live)
+    if (live && (job.input as { uploadKey?: unknown } | null)?.uploadKey !== body.key) throw conflictError("That recording is not this job's to read.", 'NOT_YOURS')
+    return readBlob(jobContext(deps, job), body.key)
+  })
 }
 
 /**

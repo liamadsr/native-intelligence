@@ -12,7 +12,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import {
-  addable, fileAt, folderSupport, importableFile, indexFiles, kindOf, LIMITS, listLocal, LocalFolderError, LocalFolders, readSaved, searchLocal,
+  addable, fileAt, pickWithInput, folderSupport, importableFile, indexFiles, kindOf, LIMITS, listLocal, LocalFolderError, LocalFolders, readSaved, searchLocal,
   handleSource, type DirHandleLike, type FileHandleLike, type FileLike, type HandleStore, type LocalDeps,
 } from '../local-folders'
 
@@ -54,7 +54,7 @@ const handleStore = (): HandleStore => ({ get: async id => trip.get(id), put: as
 function memory() { const data = new Map<string, string>(); return { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => { data.set(k, v) } } }
 let ids = 0
 function deps(over: Partial<LocalDeps> = {}): LocalDeps {
-  return { storage: memory(), handles: handleStore(), support: () => 'kept', pickDirectory: async () => null, pickFiles: async () => null, newId: () => `id-${++ids}`, ...over }
+  return { user: 'u-ana', storage: memory(), handles: handleStore(), support: () => 'kept', pickDirectory: async () => null, pickFiles: async () => null, newId: () => `id-${++ids}`, ...over }
 }
 const HOLIDAY: Tree = { 'clip 10.mp4': 4_000_000, 'clip 2.mp4': 3_000_000, '.DS_Store': 10, stills: { 'beach.heic': 2_000_000, 'map.png': 120_000 }, 'Music': { 'theme.wav': 9_000_000 }, 'notes.md': 300 }
 
@@ -196,7 +196,7 @@ describe('LocalFolders', () => {
     const linked = await first.add()
     expect(linked).toMatchObject({ existing: false })
     expect(first.places()).toEqual([{ id: linked!.id, name: 'Holiday', mode: 'kept', status: 'ready' }])
-    expect(readSaved(storage)).toEqual([{ id: linked!.id, name: 'Holiday', mode: 'kept' }])
+    expect(readSaved(storage, 'u-ana')).toEqual([{ id: linked!.id, name: 'Holiday', mode: 'kept' }])
     expect((await first.listFolder(linked!.id, '')).entries).toHaveLength(5)
 
     // The page reloads: the browser wants the person's OK again.
@@ -216,7 +216,7 @@ describe('LocalFolders', () => {
     await store.start(); const kept = await store.add()
     const again = new LocalFolders(deps({ storage })); await again.start()
     expect(again.place(kept!.id)?.status).toBe('ready')
-    trip.delete(kept!.id)
+    trip.delete(`u-ana:${kept!.id}`)
     const later = new LocalFolders(deps({ storage })); await later.start()
     expect(later.place(kept!.id)?.status).toBe('missing')
   })
@@ -236,7 +236,7 @@ describe('LocalFolders', () => {
     const linked = await first.add()
     expect(first.place(linked!.id)).toMatchObject({ name: 'Holiday', mode: 'session', status: 'ready' })
     expect((await first.listFolder(linked!.id, '')).entries.map(e => e.name)).toEqual(['stills', 'clip 2.mp4'])
-    expect(readSaved(storage)).toEqual([{ id: linked!.id, name: 'Holiday', mode: 'session' }])
+    expect(readSaved(storage, 'u-ana')).toEqual([{ id: linked!.id, name: 'Holiday', mode: 'session' }])
 
     // Reloaded: only the name is left. It is not shown as linked, and its files can't be reached.
     const pickFiles = vi.fn(async () => picked({ 'Holiday/clip 3.mp4': 4 }))
@@ -245,7 +245,7 @@ describe('LocalFolders', () => {
     expect(second.place(linked!.id)?.status).toBe('choose-again')
     await expect(second.file(linked!.id, 'clip 2.mp4')).rejects.toMatchObject({ reason: 'missing' })
     expect(await second.chooseAgain(linked!.id)).toEqual({ id: linked!.id, existing: true })
-    expect(pickFiles).toHaveBeenCalledWith(true)
+    expect(pickFiles).toHaveBeenCalledWith(true, expect.any(Function))
     expect(second.place(linked!.id)?.status).toBe('ready')
     expect((await second.listFolder(linked!.id, '')).entries.map(e => e.name)).toEqual(['clip 3.mp4'])
   })
@@ -271,7 +271,7 @@ describe('LocalFolders', () => {
     const pickFiles = vi.fn(async () => [sealed('one.mp3', 1)] as FileLike[])
     const store = new LocalFolders(deps({ support: () => 'files', pickFiles }))
     await store.start(); const linked = await store.add()
-    expect(pickFiles).toHaveBeenCalledWith(false)
+    expect(pickFiles).toHaveBeenCalledWith(false, expect.any(Function))
     expect(store.place(linked!.id)).toMatchObject({ name: 'Chosen files', mode: 'session', flat: true })
   })
 
@@ -297,15 +297,15 @@ describe('LocalFolders', () => {
     const storage = memory(), store = new LocalFolders(deps({ storage }))
     await store.start()
     expect(await store.add()).toBeNull()
-    expect(readSaved(storage)).toEqual([])
+    expect(readSaved(storage, 'u-ana')).toEqual([])
   })
 
   it('removing forgets the folder and its handle; the folder itself is untouched', async () => {
     const storage = memory(), store = new LocalFolders(deps({ storage, pickDirectory: async () => dir('Removed', { 'a.png': 1 }) }))
     await store.start(); const linked = await store.add()
-    expect(trip.has(linked!.id)).toBe(true)
+    expect(trip.has(`u-ana:${linked!.id}`)).toBe(true)
     await store.remove(linked!.id)
-    expect(store.places()).toEqual([]); expect(readSaved(storage)).toEqual([]); expect(trip.has(linked!.id)).toBe(false)
+    expect(store.places()).toEqual([]); expect(readSaved(storage, 'u-ana')).toEqual([]); expect(trip.has(`u-ana:${linked!.id}`)).toBe(false)
   })
 
   it('a kept folder the browser stops allowing asks again; a gone one is missing', async () => {
@@ -320,9 +320,105 @@ describe('LocalFolders', () => {
 
   it('a remembered list that is not ours is ignored', () => {
     const storage = memory()
-    storage.setItem('ni:studio:browser.local-folders.v1', JSON.stringify([{ id: 'library', name: 'x', mode: 'kept' }, { id: 'local:1', name: 'Ok', mode: 'session' }, 'junk']))
-    expect(readSaved(storage)).toEqual([{ id: 'local:1', name: 'Ok', mode: 'session' }])
-    storage.setItem('ni:studio:browser.local-folders.v1', '{not json')
-    expect(readSaved(storage)).toEqual([])
+    storage.setItem('ni:studio:browser.local-folders.v2:u-ana', JSON.stringify([{ id: 'library', name: 'x', mode: 'kept' }, { id: 'local:1', name: 'Ok', mode: 'session' }, 'junk']))
+    expect(readSaved(storage, 'u-ana')).toEqual([{ id: 'local:1', name: 'Ok', mode: 'session' }])
+    storage.setItem('ni:studio:browser.local-folders.v2:u-ana', '{not json')
+    expect(readSaved(storage, 'u-ana')).toEqual([])
   })
 })
+
+// ── Review fixes ─────────────────────────────────────────────────────────────
+
+describe('the folders are the signed-in person’s', () => {
+  it('each person on a device has their own list and handles; one person’s list is the same in every workspace', async () => {
+    const storage = memory(), handles = handleStore()
+    const ana = new LocalFolders(deps({ user: 'u-ana', storage, handles, pickDirectory: async () => dir('Ana shoot', { 'a.png': 1 }) }))
+    await ana.start(); const linked = await ana.add()
+    expect(trip.has(`u-ana:${linked!.id}`)).toBe(true)
+    const ben = new LocalFolders(deps({ user: 'u-ben', storage, handles }))
+    await ben.start()
+    expect(ben.places()).toEqual([])
+    expect(readSaved(storage, 'u-ben')).toEqual([])
+    // Ana again (another workspace of hers, or after a reload): her folder is there.
+    const anaAgain = new LocalFolders(deps({ user: 'u-ana', storage, handles })); await anaAgain.start()
+    expect(anaAgain.places().map(p => p.name)).toEqual(['Ana shoot'])
+  })
+})
+
+/** Plain stand-ins for the files of a huge folder input (indexing reads names, sizes and dates only). */
+const many = (n: number, root = 'Home') => Array.from({ length: n }, (_, i) => ({ name: `f${i}.png`, size: 1, lastModified: 0, webkitRelativePath: `${root}/d${i % 50}/f${i}.png` }) as unknown as FileLike)
+
+describe('a folder input that hands over too much', () => {
+  it('keeps at most the cap and says how many there were', () => {
+    const index = indexFiles(many(12), 5)
+    expect(index).toMatchObject({ count: 5, total: 12, truncated: true })
+    expect([...index.files.keys()]).toHaveLength(5)
+  })
+  it('a linked folder past the cap says it was cut', async () => {
+    const store = new LocalFolders(deps({ support: () => 'session', pickFiles: async () => many(LIMITS.indexed + 7) }))
+    await store.start(); const linked = await store.add()
+    expect(store.place(linked!.id)?.cut).toEqual({ kept: LIMITS.indexed, total: LIMITS.indexed + 7 })
+  })
+  it('a folder far too large is refused, and nothing is linked', async () => {
+    const huge = many(1, 'Home'); huge.length = LIMITS.refused + 1
+    const store = new LocalFolders(deps({ support: () => 'session', pickFiles: async () => huge }))
+    await store.start()
+    await expect(store.add()).rejects.toThrow(/“Home” holds 500,001 files, too many to link/)
+    expect(store.places()).toEqual([])
+  })
+})
+
+describe('pickWithInput', () => {
+  function stage() {
+    const listeners: Record<string, (() => void)[]> = {}, focus: (() => void)[] = []
+    const input = { type: '', multiple: false, hidden: false, webkitdirectory: false, files: null as unknown, removed: 0,
+      addEventListener: (type: string, fn: () => void) => { (listeners[type] ??= []).push(fn) }, click() {}, remove() { this.removed++ } }
+    const doc = { createElement: () => input, body: { appendChild: () => input } } as unknown as Document
+    const win = { addEventListener: (_: string, fn: () => void) => { focus.push(fn) }, removeEventListener: (_: string, fn: () => void) => { focus.splice(focus.indexOf(fn), 1) } }
+    const fire = (type: string) => { for (const fn of listeners[type] ?? []) fn() }
+    return { input, doc, win, fire, focus }
+  }
+  it('settles as cancelled when the window gets its focus back and nothing comes (a WebKit with no cancel event)', async () => {
+    vi.useFakeTimers()
+    try {
+      const { input, doc, win, focus } = stage(), late = vi.fn()
+      const picked = pickWithInput(true, { doc, win, late, settleMs: 1000 })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(input.webkitdirectory).toBe(true)
+      focus.forEach(fn => fn())
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(await picked).toBeNull()
+      expect(input.removed).toBe(1)
+      expect(focus).toHaveLength(0)
+    } finally { vi.useRealTimers() }
+  })
+  it('a folder that comes after that is not lost', async () => {
+    vi.useFakeTimers()
+    try {
+      const { input, doc, win, fire, focus } = stage(), late = vi.fn()
+      const picked = pickWithInput(true, { doc, win, late, settleMs: 1000 })
+      await vi.advanceTimersByTimeAsync(0); focus.forEach(fn => fn()); await vi.advanceTimersByTimeAsync(1000)
+      expect(await picked).toBeNull()
+      const files = pickedFiles(); input.files = files; fire('change')
+      expect(late).toHaveBeenCalledWith(files)
+    } finally { vi.useRealTimers() }
+  })
+  it('settles on the choice, or on the cancel event, and takes its input out', async () => {
+    const one = stage(), files = pickedFiles()
+    const chosen = pickWithInput(true, { doc: one.doc, win: one.win })
+    one.input.files = files; one.fire('change')
+    expect(await chosen).toEqual(files); expect(one.input.removed).toBe(1)
+    const two = stage(), cancelled = pickWithInput(false, { doc: two.doc, win: two.win })
+    two.fire('cancel')
+    expect(await cancelled).toBeNull(); expect(two.input.removed).toBe(1); expect(two.input.webkitdirectory).toBe(false)
+  })
+  it('a late folder is linked by the store', async () => {
+    let late: ((files: FileLike[]) => void) | null = null
+    const store = new LocalFolders(deps({ support: () => 'session', pickFiles: async (_, l) => { late = l; return null } }))
+    await store.start()
+    expect(await store.add()).toBeNull()
+    late!(picked({ 'Slow/a.png': 1 }))
+    expect(store.places().map(p => p.name)).toEqual(['Slow'])
+  })
+})
+const pickedFiles = () => picked({ 'Holiday/a.png': 1 })

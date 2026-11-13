@@ -6,8 +6,8 @@
  *
  * The Studio is one of Outreach's pages (Liam, 11-13: "it should be part of the outreach page"): the sub-nav
  * beside the app's rail switches between Outreach's pages, so the Studio's own navigation (its Projects and videos,
- * the Studio project's overview, the video's Overview, Storyboard, Cast and Edit) is its own pages rail down its
- * right side, always there (components/studio/ui/AppRail.tsx).
+ * the Studio project's overview, the video's Overview, Storyboard, Cast and Edit) is its own pages rail, a column of
+ * icons down its left edge, always there (components/studio/ui/AppRail.tsx).
  *
  * The editor is a large bundle with a video player in it, and it measures the window as it mounts: it loads the
  * first time a Studio card is opened, in the browser only, never on the server.

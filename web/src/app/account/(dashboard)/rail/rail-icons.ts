@@ -52,7 +52,7 @@ import {
   Workflow,
   type LucideIcon,
 } from 'lucide-react'
-import type { RailPageId } from './rail-pages'
+import type { OfferedRailPage, RailPageId } from './rail-pages'
 
 /** Each rail item's icon: a page's, or a group's. */
 export const RAIL_ICONS: Readonly<Record<RailPageId, LucideIcon>> = {
@@ -99,4 +99,13 @@ export const GROUP_PAGE_ICONS: Readonly<Record<string, LucideIcon>> = {
   agents: Sparkles,
   flows: Workflow,
   evals: FlaskConical,
+}
+
+/**
+ * The page a rail item stands for when it is a page group with exactly one member on here: that member's slug, whose
+ * icon it wears (GROUP_PAGE_ICONS) as it wears its name (rail-pages.ts railPagesFor). Outreach with only the Studio on
+ * is the Studio, Clapperboard, not "Outreach" with Send opening a video editor. Null: a page, or a group of two or more.
+ */
+export function loneMemberSlug(entry: Pick<OfferedRailPage, 'members'>): string | null {
+  return entry.members?.length === 1 ? entry.members[0]!.slug : null
 }

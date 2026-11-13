@@ -4,20 +4,26 @@
 //
 //   pending writes      older than 24 h: an upload links that was never committed (its parts, and its record);
 //                       a take's tracks (`live/…`) are not touched here, see live tracks
-//   live tracks         a take's pieces (live-takes.ts) with no new piece for 7 days: a take never finished nor
+//   live tracks         a take's pieces (live-takes.ts sweepLiveTakes) with no new piece for 7 days: a take never
+//                       finished nor brought back, or one offered back after its recording could not be made; space
+//                       held for a track that is gone; takes stopped a day ago with nothing of the screen; and pieces
+//                       in storage no take points to
 //                       brought back, or a recording whose import failed (a finished import removes its own)
 //   uploads/*           older than 24 h, or whose job (import, slides, sound-import) ended without using it (one an
 //                       open job names is kept, whatever its kind)
 //   stills/*            older than 7 days: the frames the agent looked at
 //   exports/*           older than 30 days: the job row still says it was exported; its link answers 404 with why
 //   studio_job rows     finished, failed or cancelled more than 90 days ago
+//   download links      past their end (download-links.ts: a link used after it ended removes itself; one never
+//                       used would stay)
 //
 // Every run does a bounded amount of work (SWEEP_LIMIT objects in all) and is idempotent: what one run leaves the
 // next takes. Works across workspaces with the service role, one workspace's context per object.
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { deleteBlob, getBlob, PENDING, type StoredBlob } from './blobs'
 import { must, type StudioContext } from './context'
-import { dropLiveTrack, liveKey, TRACKS, type TrackRecord } from './live-takes'
+import { DOWNLOAD_LINKS } from './download-links'
+import { sweepLiveTakes } from './live-takes'
 import type { StudioStorage } from './storage'
 
 /** How many objects (files, pending writes, job rows) one run handles at most. */
@@ -29,7 +35,7 @@ const DAY = 24 * HOUR
 export const KEEP = { pending: DAY, uploads: DAY, stills: 7 * DAY, exports: 30 * DAY, jobs: 90 * DAY, live: 7 * DAY } as const
 
 /** What one run removed. */
-export type SweepCounts = { pendingWrites: number; uploads: number; stills: number; exports: number; jobs: number; liveTracks: number }
+export type SweepCounts = { pendingWrites: number; uploads: number; stills: number; exports: number; jobs: number; liveTracks: number; downloadLinks: number }
 
 type BlobRef = { workspace_id: string; key: string }
 
@@ -69,7 +75,7 @@ export async function sweepStudio(supabase: SupabaseClient, options: { now?: Dat
   const now = options.now?.getTime() ?? Date.now()
   const before = (ms: number) => new Date(now - ms).toISOString()
   let left = options.limit ?? SWEEP_LIMIT
-  const counts: SweepCounts = { pendingWrites: 0, uploads: 0, stills: 0, exports: 0, jobs: 0, liveTracks: 0 }
+  const counts: SweepCounts = { pendingWrites: 0, uploads: 0, stills: 0, exports: 0, jobs: 0, liveTracks: 0, downloadLinks: 0 }
   const remove = async (ref: BlobRef): Promise<boolean> => {
     left--
     try {
@@ -84,13 +90,13 @@ export async function sweepStudio(supabase: SupabaseClient, options: { now?: Dat
   // 1. Pending writes never committed. One that would replace a committed file only loses its record: the file stays.
   if (left > 0) {
     const pending = must(
-      await supabase.from('studio_record').select('workspace_id, key').eq('collection', PENDING).lt('updated_at', before(KEEP.pending)).order('updated_at').limit(left),
+      // A take's track holds its space as a pending write for as long as the take is kept (step 5), so its rows are
+      // left out here, in the query: however many there are, they never crowd out the others.
+      await supabase.from('studio_record').select('workspace_id, key').eq('collection', PENDING).not('key', 'like', 'live/%').lt('updated_at', before(KEEP.pending)).order('updated_at').limit(left),
       'list pending writes',
     ) as BlobRef[] | null
     for (const ref of pending ?? []) {
       if (left <= 0) break
-      // A take's track holds its space as a pending write for as long as the take is kept: the live step below.
-      if (ref.key.startsWith('live/')) continue
       const ctx = contextOf(supabase, options.storage, ref.workspace_id)
       // A failed read is not "not committed": removing then would take a stored file's parts. Skipped: the next run tries.
       const committed = await committedOrUnknown(ctx, ref.key)
@@ -140,25 +146,31 @@ export async function sweepStudio(supabase: SupabaseClient, options: { now?: Dat
     }
   }
 
-  // 5. A take's tracks left behind: no new piece (and no seal) for KEEP.live.
+  // 5. What takes leave behind (live-takes.ts sweepLiveTakes).
   if (left > 0) {
+    const live = await sweepLiveTakes({ supabase, storage: options.storage }, { now, keepMs: KEEP.live, budget: left })
+    left -= live.used
+    counts.liveTracks += live.removed
+  }
+
+  // 6. Download links past their end (their records only: the files are the exports' own).
+  if (left > 0) {
+    const ended = new Date(now).toISOString()
     const rows = must(
-      await supabase.from('studio_record').select('workspace_id, key, value').eq('collection', TRACKS).lt('updated_at', before(KEEP.live)).order('updated_at').limit(Math.min(left, 100)),
-      'list old recording tracks',
-    ) as { workspace_id: string; key: string; value: TrackRecord }[] | null
-    for (const row of rows ?? []) {
-      if (left <= 0) break
-      left--
-      try {
-        await dropLiveTrack(contextOf(supabase, options.storage, row.workspace_id), liveKey(row.value.takeId, row.value.role))
-        counts.liveTracks++
-      } catch (error) {
-        console.error(`[studio-sweep] couldn't remove recording track ${row.key}:`, error instanceof Error ? error.message : error)
-      }
+      await supabase.from('studio_record').select('workspace_id, key').eq('collection', DOWNLOAD_LINKS).lt('value->>expiresAt', ended).order('updated_at').limit(left),
+      'list ended download links',
+    ) as BlobRef[] | null
+    const keys = (rows ?? []).map((row) => row.key)
+    for (let at = 0; at < keys.length; at += 100) {
+      const chunk = keys.slice(at, at + 100)
+      // The end checked again in the delete: a link is never removed before it ends.
+      must(await supabase.from('studio_record').delete().eq('collection', DOWNLOAD_LINKS).in('key', chunk).lt('value->>expiresAt', ended), 'remove ended download links')
+      counts.downloadLinks += chunk.length
+      left -= chunk.length
     }
   }
 
-  // 6. Job rows long finished.
+  // 7. Job rows long finished.
   if (left > 0) {
     const rows = must(
       await supabase.from('studio_job').select('id').in('status', ['completed', 'failed', 'cancelled']).lt('updated_at', before(KEEP.jobs)).order('updated_at').limit(left),

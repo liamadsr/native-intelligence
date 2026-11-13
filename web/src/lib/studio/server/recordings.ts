@@ -38,7 +38,7 @@ import { commitBlob } from './blobs'
 import { isUuid, must, type StudioContext } from './context'
 import { conflictError, notFoundError, StudioError } from './errors'
 import type { ImportInput } from './job-contract'
-import { closeLiveTake, isLiveKey, parseLiveKey, sealLiveTrack, sealStoppedTake, TRACK_MAX_PIECES, type SealedTrack } from './live-takes'
+import { claimLiveTake, dropLiveTake, isLiveKey, loadTake, parseLiveKey, reopenLiveTake, sealLiveTrack, sealStoppedTake, TRACK_MAX_PIECES, unclaimLiveTake, type SealedTrack, type TakeRecord } from './live-takes'
 import { getRecord, putRecord } from './records'
 import { createVideo, openVideo, saveVideo } from './videos'
 
@@ -57,8 +57,10 @@ const offset = z.number().finite().min(-3600).max(3600)
  */
 const pieces = z.number().int().min(1).max(TRACK_MAX_PIECES).optional()
 const partial = z.literal(true).optional()
-const MainFileSchema = z.object({ uploadKey, name: fileName, pieces, partial }).strict()
-const SyncedFileSchema = z.object({ uploadKey, name: fileName, offsetSeconds: offset, pieces, partial }).strict()
+/** The frame rate the recorder asked for or the device said it gives (getSettings().frameRate): the most it is conformed to. */
+const frameRate = z.number().finite().positive().max(240).optional()
+const MainFileSchema = z.object({ uploadKey, name: fileName, pieces, partial, frameRate }).strict()
+const SyncedFileSchema = z.object({ uploadKey, name: fileName, offsetSeconds: offset, pieces, partial, frameRate }).strict()
 const WordSchema = z.object({ text: z.string().trim().min(1).max(500), startMs: z.number().finite().nonnegative(), endMs: z.number().finite().nonnegative() }).strict()
 const projectId = z.string().refine(isUuid, 'Not a video id')
 
@@ -444,6 +446,10 @@ export async function startRecording(ctx: StudioContext, body: unknown, waitMs =
     takes.add(live.takeId)
   }
   if (takes.size > 1) throw new StudioError('The tracks of a take come from one recording.')
+  const takeId = [...takes][0]
+  // A take is made into one recording: asked again (the answer was lost, "Try again"), the one it became answers.
+  const take: TakeRecord | null = takeId ? await loadTake(ctx, takeId) : null
+  if (take?.status === 'finished' && take.recordingId) return existingRecording(ctx, take.recordingId, waitMs)
   // Every upload must be complete before anything is queued.
   const sealed: Partial<Record<Role, SealedTrack>> = {}
   for (const role of ROLES) {
@@ -457,6 +463,34 @@ export async function startRecording(ctx: StudioContext, body: unknown, waitMs =
   }
   const { queueJob } = await jobsModule()
   const id = randomUUID()
+  // Take the take for this recording before anything is queued: of two requests at once, one queues, the other answers its recording.
+  if (take && !(await claimLiveTake(ctx, take, id))) {
+    const now = await loadTake(ctx, take.id)
+    if (now.status === 'finished' && now.recordingId) return existingRecording(ctx, now.recordingId, waitMs)
+    throw conflictError('This recording changed while it was being saved. Try again.')
+  }
+  try {
+    return await queueRecording(ctx, input, sealed, id, takeId, options, queueJob, waitMs)
+  } catch (error) {
+    if (take) await unclaimLiveTake(ctx, take, id).catch(() => undefined)
+    throw error
+  }
+}
+
+/** The answer for a recording a take already became (one being made may not be written yet: it is being prepared). */
+async function existingRecording(ctx: StudioContext, recordingId: string, waitMs: number): Promise<RecordingAnswer> {
+  try {
+    return await advanceRecording(ctx, recordingId, Math.min(waitMs, 4_000))
+  } catch (error) {
+    if (error instanceof StudioError && error.status === 404) return { recording: { id: recordingId, status: 'processing', progress: 0, step: 'Preparing your recording' } }
+    throw error
+  }
+}
+
+async function queueRecording(
+  ctx: StudioContext, input: RecordingInput, sealed: Partial<Record<Role, SealedTrack>>, id: string, takeId: string | undefined,
+  options: { recovered?: boolean }, queueJob: Jobs['queueJob'], waitMs: number,
+): Promise<RecordingAnswer> {
   const jobs: Partial<Record<Role, string>> = {}
   const queue = async (role: Role, extra: Partial<ImportInput>) => {
     const file = input[role]
@@ -473,18 +507,18 @@ export async function startRecording(ctx: StudioContext, body: unknown, waitMs =
     })
     jobs[role] = row.id
   }
-  // The screen at 60 fps when it was recorded that fast, else 30 (no frame is made up to fill 60).
-  await queue('screen', { conform: { fps: 60, fit: true }, sourceCursorHidden: input.sourceCursorHidden, ...(input.trace ? { trace: input.trace } : {}) })
+  // The screen at 60 fps when its frames came that fast while it moved, else 30 (no frame is made up to fill 60); never
+  // above the rate the recorder asked for.
+  const ceiling = input.screen.frameRate ?? sealed.screen?.frameRate
+  await queue('screen', { conform: { fps: 60, fit: true, ...(ceiling ? { ceiling } : {}) }, sourceCursorHidden: input.sourceCursorHidden, ...(input.trace ? { trace: input.trace } : {}) })
   await queue('camera', { conform: { fps: 30 }, sourceCursorHidden: false })
   await queue('microphone', { sourceCursorHidden: false })
   await queue('systemAudio', { sourceCursorHidden: false })
-  const takeId = [...takes][0]
   const record: RecordingRecord = {
     id, createdAt: new Date().toISOString(), ownerId: ctx.userId, ...(takeId ? { takeId } : {}), ...(options.recovered ? { recovered: true } : {}),
     status: 'importing', claim: null, claimedAt: null, input, jobs,
   }
   await putRecord(ctx, COLLECTION, id, record)
-  if (takeId) await closeLiveTake(ctx, takeId, id)
   return advanceRecording(ctx, id, waitMs)
 }
 
@@ -493,8 +527,8 @@ export async function startRecording(ctx: StudioContext, body: unknown, waitMs =
  * crashed): every track is sealed from the pieces that arrived and the take becomes a new video, as a finished take
  * does. The camera and the sound keep the place on the screen's clock they said when they started.
  */
-export async function recoverTake(ctx: StudioContext, takeId: string, waitMs = 0): Promise<RecordingAnswer> {
-  const { take, tracks } = await sealStoppedTake(ctx, takeId)
+export async function recoverTake(ctx: StudioContext, takeId: string, waitMs = 0, now = Date.now()): Promise<RecordingAnswer> {
+  const { take, tracks } = await sealStoppedTake(ctx, takeId, now)
   const at = new Date(take.createdAt)
   const file = (role: Role) => tracks.find((track) => track.role === role)
   const synced = (role: Exclude<Role, 'screen'>) => {
@@ -505,7 +539,7 @@ export async function recoverTake(ctx: StudioContext, takeId: string, waitMs = 0
   return startRecording(ctx, {
     title: `${takeTitle(at)} (recovered)`,
     recorder: take.recorder,
-    screen: { uploadKey: screen.key, name: screen.name },
+    screen: { uploadKey: screen.key, name: screen.name, ...(screen.frameRate ? { frameRate: screen.frameRate } : {}) },
     ...synced('camera'),
     ...synced('microphone'),
     ...synced('systemAudio'),
@@ -566,6 +600,7 @@ export async function advanceRecording(ctx: StudioContext, id: string, waitMs = 
   if (screenRow && (screenRow.status === 'failed' || screenRow.status === 'cancelled')) {
     record = { ...record, status: 'failed', error: screenRow.error || 'The screen recording could not be imported.' }
     await putRecord(ctx, COLLECTION, id, record)
+    await settleTake(ctx, record)
     return { recording: view(record, 1, 'Failed') }
   }
   if (!all.every((row) => finished(row.status))) {
@@ -595,12 +630,30 @@ export async function advanceRecording(ctx: StudioContext, id: string, waitMs = 
     const built = await buildRecording(ctx, claimed, media)
     const done: RecordingRecord = { ...claimed, ...built, status: 'done', claim: null, claimedAt: null, ...(note ? { note } : {}) }
     await putRecord(ctx, COLLECTION, id, done)
+    await settleTake(ctx, done)
     return answerDone(ctx, done)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'The recording could not be put together.'
     const failed: RecordingRecord = { ...claimed, status: 'failed', claim: null, claimedAt: null, error: message.slice(0, 1000) }
     await putRecord(ctx, COLLECTION, id, failed)
+    await settleTake(ctx, failed)
     return { recording: view(failed, 1, 'Failed') }
+  }
+}
+
+/**
+ * A recording made from a take ended. Made: the take's pieces go (the video holds the recording now; a track whose
+ * import failed goes too, and the recording's note says so). Not made: every piece is kept and the take is offered
+ * back, to be brought back again or thrown away; that keeps the person's footage when the Studio failed it. Never throws.
+ */
+async function settleTake(ctx: StudioContext, record: RecordingRecord): Promise<void> {
+  if (!record.takeId) return
+  try {
+    if (record.status === 'failed') return await reopenLiveTake(ctx, record.takeId, record.id)
+    const take = await getRecord<TakeRecord>(ctx, 'live-takes', record.takeId)
+    if (take && take.recordingId === record.id) await dropLiveTake(ctx, take)
+  } catch (error) {
+    console.error('[studio] removing a recording’s pieces failed (the sweep retries):', error instanceof Error ? error.message : error)
   }
 }
 

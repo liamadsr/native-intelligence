@@ -19,7 +19,7 @@ import type { FilmPage } from '../FilmPages'
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let root: Root | null = null, host: HTMLElement | null = null
-afterEach(() => { act(() => root?.unmount()); host?.remove(); root = null; host = null })
+afterEach(() => { act(() => root?.unmount()); host?.remove(); root = null; host = null; vi.restoreAllMocks() })
 
 type Props = Parameters<typeof AppRail>[0]
 function render(over: Partial<Props> = {}) {
@@ -51,7 +51,8 @@ describe('the Studio’s pages rail', () => {
     }
   })
 
-  it('shows a page’s name in the app’s tooltip on keyboard focus, with ⌘O for Projects and videos', async () => {
+  it('shows a page’s name in the app’s tooltip on keyboard focus, with ⌘O for Projects and videos on a Mac', async () => {
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel')
     render()
     await act(async () => { item('projects').focus() })
     const tip = await vi.waitFor(() => {
@@ -61,6 +62,20 @@ describe('the Studio’s pages rail', () => {
     })
     expect(tip.textContent).toContain('Projects and videos⌘O')
     expect(tip.querySelector('kbd')!.textContent).toBe('⌘O')
+    expect(item('projects').getAttribute('aria-keyshortcuts')).toBe('Meta+O')
+  })
+
+  it('says Ctrl+O on Windows and Linux, in the tooltip and to assistive technology', async () => {
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Win32')
+    render()
+    expect(item('projects').getAttribute('aria-keyshortcuts')).toBe('Control+O')
+    await act(async () => { item('projects').focus() })
+    const tip = await vi.waitFor(() => {
+      const el = document.querySelector<HTMLElement>('[data-rail-tooltip="projects"] kbd')
+      if (!el) throw new Error('no tooltip yet')
+      return el
+    })
+    expect(tip.textContent).toBe('Ctrl+O')
   })
 
   it('says which page is on screen, and only that one', () => {
@@ -85,7 +100,6 @@ describe('the Studio’s pages rail', () => {
     expect(props.openPage).toHaveBeenCalledWith('project')
     act(() => item('projects').click())
     expect(props.openProjects).toHaveBeenCalledTimes(1)
-    expect(item('projects').getAttribute('aria-keyshortcuts')).toBe('Meta+O Control+O')
   })
 
   it('without a video: only Projects and videos; during a presenter take: nothing', () => {
@@ -96,20 +110,10 @@ describe('the Studio’s pages rail', () => {
   })
 })
 
-describe('the rail in the Studio', () => {
-  const ui = join(__dirname, '..')
-  const app = readFileSync(join(ui, 'App.tsx'), 'utf8')
-  const css = readFileSync(join(ui, 'studio.css'), 'utf8')
-
-  it('is always mounted: nothing hands its navigation to the app’s sub-nav any more (Outreach’s now)', () => {
-    expect(app).toContain('<AppRail ')
-    expect(app).not.toMatch(/navInPanel/)
-    // First in the row: right after the <main> opens, before the editor's own column.
-    expect(app.indexOf('<AppRail ')).toBeLessThan(app.indexOf('<div className="app-main">'))
-    expect(app.indexOf('<AppRail ')).toBeGreaterThan(app.indexOf('<main className="app with-rail"'))
-    // A page pressed in the rail closes the chooser over it.
-    expect(app).toMatch(/openPage=\{id=>leaveSettings\(\(\)=>\{setChooserOpen\(false\);setPage\(id\);\}\)\}/)
-  })
+// Mounting, order and the chooser as a page are checked on the rendered shell (./studio-shell.test.tsx). What jsdom
+// cannot lay out (where the rail is drawn and how it looks) is checked on the stylesheet's own rules here.
+describe('the rail’s stylesheet', () => {
+  const css = readFileSync(join(__dirname, '..', 'studio.css'), 'utf8')
 
   it('is drawn down the Studio’s left edge on the page’s own ground (no fill, no edge, no reordering), and the chooser beside it leaves it uncovered', () => {
     const rail = /\.ni-studio \.app-rail\{([^}]*)\}/.exec(css)![1]!

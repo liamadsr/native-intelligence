@@ -550,19 +550,27 @@ describe('the Studio in Outreach (Liam, 11-13: "I think it should be part of the
     const studioOnly = railPagesFor(pagesOf(withEffectiveSurface(full, { prospecting: 'off', sequences: 'off', campaigns: 'off' }))).find((p) => p.def.id === 'outreach')!
     expect(studioOnly.members!.map((m) => m.slug)).toEqual(['studio'])
     expect(studioOnly.page.slug).toBe('studio')
+    // (c) One member on: the item is that page, by its own name (one rule for every group).
+    expect(studioOnly.label).toBe('Studio')
+    const seqOnly = railPagesFor(pagesOf(withEffectiveSurface(full, { prospecting: 'off', campaigns: 'off', studio: 'off' }))).find((p) => p.def.id === 'outreach')!
+    expect(seqOnly.label).toBe('Sequences')
+    const docsOnly = railPagesFor(pagesOf().filter((p) => !['knowledge', 'files', 'tables'].includes(p.slug))).find((p) => p.def.id === 'drive')!
+    expect(docsOnly.label).toBe('Docs')
+    expect(noStudio.label).toBe('Outreach')
   })
 
-  it('loads a bar saved while the Studio had its own icon: its id moves nothing, a hidden Outreach stays hidden', () => {
+  it('loads a bar saved while the Studio had its own icon (decided 11-13): its id moves nothing; Outreach shows unless the Studio was hidden too', () => {
     // The Studio dragged to the top: Outreach keeps its own place (not the Studio's).
     expect(all({ order: ['studio', 'mail'], hidden: [] }).indexOf('outreach')).toBe(ids.indexOf('outreach'))
     expect(all({ order: ['studio', 'mail'], hidden: [] })).toHaveLength(ids.length)
-    // The Studio unpinned alone: Outreach still on the bar.
+    // (a) Outreach hidden, the Studio's icon kept: the person chose to see the Studio, which lives in Outreach now.
+    expect(shown({ order: [], hidden: ['prospecting', 'sequences', 'campaigns'] })).toContain('outreach')
+    // Outreach and the Studio both hidden: still hidden.
+    expect(shown({ order: [], hidden: ['prospecting', 'sequences', 'campaigns', 'studio'] })).not.toContain('outreach')
+    // (b) Only the Studio hidden: Outreach on the bar, the Studio a row in its sub-nav.
     expect(shown({ order: [], hidden: ['studio'] })).toContain('outreach')
-    // Outreach hidden before the Studio joined it (its three members' ids): still hidden.
-    expect(shown({ order: [], hidden: ['prospecting', 'sequences', 'campaigns'] })).not.toContain('outreach')
-    // Pinned again: all four go.
-    expect(setRailPagePinned({ order: [], hidden: ['prospecting', 'sequences', 'campaigns'] }, 'outreach', true)).toEqual({ order: [], hidden: [] })
     // The next save drops the Studio's old id from the order.
     expect(moveRailPage({ order: ['studio', 'mail'], hidden: [] }, ids, 'agents', 0)!.order).not.toContain('studio')
   })
+
 })

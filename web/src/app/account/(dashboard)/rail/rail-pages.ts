@@ -135,7 +135,7 @@ export interface OfferedRailPage {
 /**
  * The rail's pages this workspace offers (`offered`: pagesFor's), in the
  * rail's order. A group with none of its members on is left out; with one,
- * its icon opens that one (no sub-nav: nothing to switch between).
+ * its item is that page (its name and icon; no sub-nav: nothing to switch between).
  */
 export function railPagesFor(offered: readonly OfferedPage[]): OfferedRailPage[] {
   const bySlug = new Map(offered.map((p) => [p.slug, p]))
@@ -145,7 +145,9 @@ export function railPagesFor(offered: readonly OfferedPage[]): OfferedRailPage[]
       const members = def.members.map((slug) => bySlug.get(slug)).filter((p): p is OfferedPage => !!p)
       if (!members.length) continue
       const group = PAGE_GROUPS[def.id as PageGroupId]
-      const label = (group.labelFrom && bySlug.get(group.labelFrom)?.label) || group.label
+      // One member on here: the item is that page, in its words (and its icon: rail-icons.ts railItemIcon), whatever
+      // the group is called; two or more: the group's name (a member's in the workspace's words where it takes one).
+      const label = members.length === 1 ? members[0].label : (group.labelFrom && bySlug.get(group.labelFrom)?.label) || group.label
       out.push({ def, page: bySlug.get(def.slug) ?? members[0], label, members })
       continue
     }
@@ -310,16 +312,15 @@ const railIdOf = (id: string): RailPageId => GROUP_OF_PAGE.get(id) ?? id
  * A member that had an icon of its own before it joined its group (the
  * Studio, page-groups.ts formerRailPages) was saved for that icon: its id is
  * dropped from the order (Outreach stays where the person had it, not where
- * they had the Studio), and a group hidden before it joined stays hidden
- * (every OTHER member hidden is enough).
+ * they had the Studio). Hidden follows the one rule above: a person who hid
+ * Outreach but kept the Studio's icon still sees Outreach (the Studio lives
+ * there now); one who hid both still has it hidden.
  */
 function currentPrefs(prefs: RailPrefs): RailPrefs {
   const order = [...new Set(prefs.order.filter((id) => !FORMER_RAIL_PAGES.has(id)).map(railIdOf))]
   const saved = new Set(prefs.hidden)
   const hidden = new Set(prefs.hidden.filter((id) => !GROUP_OF_PAGE.has(id)))
-  for (const group of Object.values(PAGE_GROUPS)) {
-    if (group.members.every((slug) => saved.has(slug) || group.formerRailPages?.includes(slug))) hidden.add(group.id)
-  }
+  for (const group of Object.values(PAGE_GROUPS)) if (group.members.every((slug) => saved.has(slug))) hidden.add(group.id)
   return { order, hidden: [...hidden] }
 }
 

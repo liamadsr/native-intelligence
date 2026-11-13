@@ -26,6 +26,8 @@ type Track = {
   stopped: Promise<void>
   width?: number
   height?: number
+  /** The frame rate the device said it gives (getSettings().frameRate): the most the track is conformed to. */
+  frameRate?: number
 }
 
 /**
@@ -133,6 +135,16 @@ export class BrowserRecorder implements Recorder {
   constructor(private readonly api: LiveApi = fetchApi) {}
 
   /** What is being shared, if anything. */
+  /**
+   * The ids on the Studio of the takes this recorder holds: the one recording, and those stopped whose last pieces may
+   * still be going up. A take of these is never offered back as stopped (another tab may be bringing it back).
+   */
+  liveTakeIds(): string[] {
+    const ids = [...this.stopped.values()].map((live) => live.id ?? live.requestedId)
+    if (this.live) ids.push(this.live.id ?? this.live.requestedId)
+    return ids
+  }
+
   get share(): SharedSurface | null {
     return this.surface
   }
@@ -299,13 +311,13 @@ export class BrowserRecorder implements Recorder {
     this.ticker = setInterval(() => this.tick(), 250)
     // The take is made on the Studio once the recorders say what they record into (their file names); pieces wait here meanwhile.
     const createdAt = this.createdAt
-    void started(tracks).then(() => live.open('browser', Object.fromEntries(tracks.map((track) => [track.role, takeFileName(track.role, extensionFor(track.type), createdAt)]))))
+    void started(tracks).then(() => live.open('browser', Object.fromEntries(tracks.map((track) => [track.role, takeFileName(track.role, extensionFor(track.type), createdAt)])), Object.fromEntries(tracks.map((track) => [track.role, track.frameRate]))))
   }
 
   /** One MediaRecorder for one source, noting when it really started. */
   private track(role: TakeRole, stream: MediaStream, type: string | null, options: MediaRecorderOptions, width?: number, height?: number): Track {
     const recorder = new MediaRecorder(stream, { ...options, ...(type ? { mimeType: type } : {}) })
-    const track: Track = { role, recorder, stream, type: recorder.mimeType || type || (role === 'microphone' ? 'audio/webm' : 'video/webm'), sink: null, startedAt: null, stoppedAt: null, stopped: Promise.resolve(), width, height }
+    const track: Track = { role, recorder, stream, type: recorder.mimeType || type || (role === 'microphone' ? 'audio/webm' : 'video/webm'), sink: null, startedAt: null, stoppedAt: null, stopped: Promise.resolve(), width, height, frameRate: stream.getVideoTracks()[0]?.getSettings().frameRate }
     track.stopped = new Promise<void>((resolve) => {
       recorder.addEventListener('stop', () => {
         track.stoppedAt = performance.now()
@@ -401,6 +413,7 @@ export class BrowserRecorder implements Recorder {
         durationSeconds: Math.max(0, (ended - started) / 1000),
         ...(track.width ? { width: track.width } : {}),
         ...(track.height ? { height: track.height } : {}),
+        ...(track.frameRate ? { frameRate: track.frameRate } : {}),
         ...(kept ? { blob: kept } : pieces.key ? { uploadKey: pieces.key } : {}),
       })
     }

@@ -7,7 +7,8 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AppClient } from '../src/app-client.ts'
@@ -31,7 +32,15 @@ test('the rate a fitted recording is conformed to: from its frames’ times', ()
   assert.equal(fitRate(at(30, 3), 60), 30)
   assert.equal(fitRate(at(60, 3), 30), 30, 'never above the most')
   assert.equal(fitRate([0], 60), 60, 'too few frames to tell')
-  assert.equal(fitRate(at(60, 0.2), 60), 60, 'too short to tell')
+  assert.equal(fitRate(at(60, 0.2), 60), 60, 'twelve frames moving at 60')
+  // A mostly still screen (a frame every half second) with two seconds of scrolling at 60: judged by its scrolling.
+  const bursty = [...at(2, 4), ...at(60, 2).map((t) => 4 + t), ...at(2, 4).map((t) => 6 + t)]
+  assert.equal(fitRate(bursty, 60), 60)
+  // Never above what the recorder asked for or the device gives.
+  assert.equal(fitRate(bursty, 60, 30), 30)
+  assert.equal(fitRate(at(60, 3), 60, 60), 60)
+  // A picture that hardly moved: 30 is as good.
+  assert.equal(fitRate(at(2, 10), 60), 30)
 })
 
 /** Cut a file into pieces of uneven lengths, as a recorder's seconds come out. */
@@ -141,6 +150,36 @@ test('a take brought back after a crash, cut off mid-piece, becomes a recording 
     assert.ok((asset.durationSeconds ?? 0) > 1.5 && (asset.durationSeconds ?? 0) < 3.5, `duration ${asset.durationSeconds}`)
     assert.ok(logs.some((l) => /stopped before it was finished/.test(l)), logs.join(' | '))
     assert.ok(EditorAssetSchema.safeParse(asset).success)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+/** A font FFmpeg can draw text with, on this machine (macOS) or in the worker's image (Debian), or null. */
+const FONT = ['/System/Library/Fonts/Supplemental/Arial.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', '/Library/Fonts/Arial.ttf'].find((path) => existsSync(path)) ?? null
+
+test('a mostly still screen with bursts of scrolling at 60 fps is conformed to 60, and its small text stays sharp', { skip: FONT ? false : 'no font to draw text with' }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'studio-live-'))
+  try {
+    // Lines of 14 px text that scroll for a second in every three at 60 fps; a frame every half second otherwise,
+    // as a browser's screen capture sends them (only when the screen changes).
+    const words = 'the studio records your screen while you talk through a change to the pricing table'.split(' ')
+    const text = Array.from({ length: 60 }, (_, i) => Array.from({ length: 16 }, (_, j) => words[(i * 7 + j * 3) % words.length]).join(' ')).join('\n')
+    await writeFile(join(dir, 'text.txt'), text)
+    const source = join(dir, 'screen.mp4')
+    await run('ffmpeg', [
+      '-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=white:s=1280x720:r=60:d=6',
+      '-vf', `drawtext=fontfile='${FONT}':textfile='text.txt':fontsize=14:fontcolor=0x222222:line_spacing=6:x=20:y='20-if(lt(mod(t,3),1),mod(t,3)*120,120)-floor(t/3)*120',select='lt(mod(t,3),1)+not(mod(n,30))'`,
+      '-fps_mode', 'vfr', '-c:v', 'libx264', '-preset', 'ultrafast', '-b:v', '8M', '-pix_fmt', 'yuv420p', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', '-y', source,
+    ], { cwd: dir })
+    const { asset, cached } = await importPieces(dir, cut(await readFile(source), [40_000, 17_000]), { name: 'Screen recording.mp4', conform: { fps: 60, fit: true, ceiling: 60 } })
+    assert.equal(asset.sourceFps, 60, 'scrolling at 60 is kept at 60')
+    // The text against the take, frame for frame on the 60 fps grid.
+    const { stderr } = await run('ffmpeg', ['-nostdin', '-i', cached, '-i', source, '-lavfi', '[1]fps=60,format=yuv420p,split[r1][r2];[0]split[d1][d2];[d1][r1]psnr;[d2][r2]ssim', '-f', 'null', '-'])
+    const psnr = Number(/PSNR.*average:([0-9.]+)/.exec(stderr)?.[1])
+    const ssim = Number(/SSIM.*All:([0-9.]+)/.exec(stderr)?.[1])
+    assert.ok(psnr > 48, `PSNR ${psnr}`)
+    assert.ok(ssim > 0.999, `SSIM ${ssim}`)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

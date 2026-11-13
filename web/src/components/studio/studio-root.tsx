@@ -8,7 +8,7 @@
  * files are served from; a workspace switch remounts it (the key), since everything it holds (the open video, its
  * undo history, the library) belongs to the workspace it was opened in.
  *
- * Its navigation is its own pages rail down its right side, always there (./ui/AppRail.tsx): the app's sub-nav
+ * Its navigation is its own pages rail, a column of icons down its left edge, always there (./ui/AppRail.tsx): the app's sub-nav
  * beside its rail switches between Outreach's pages, the Studio one of them (Liam, 11-13).
  *
  * If something in the editor breaks, the page says so with a way back instead of going blank: the edit is saved

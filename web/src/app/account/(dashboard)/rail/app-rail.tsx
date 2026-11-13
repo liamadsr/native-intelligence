@@ -108,7 +108,7 @@ import {
 } from './rail-pages'
 import { startRailDrag } from './rail-drag'
 import { groupOpenSlug, isPageGroupId } from './page-groups'
-import { RAIL_ICONS } from './rail-icons'
+import { GROUP_PAGE_ICONS, RAIL_ICONS, loneMemberSlug } from './rail-icons'
 import { useSelectedPlace } from './selected-place'
 import { PagePanelToggle } from '../page-panel/page-panel-toggle'
 
@@ -197,7 +197,7 @@ function commit(next: RailPrefs | null): boolean {
 
 /** A page's icon in the bar: a click opens it, a drag or Alt+↑/↓ moves it, a right-click offers its menu. */
 function PageButton({
-  entry: { def, label },
+  entry,
   index,
   count,
   active,
@@ -217,7 +217,8 @@ function PageButton({
   onCustomize: () => void
   onMenuClosed: (event: Event) => void
 }) {
-  const Icon = RAIL_ICONS[def.id] ?? LayoutList
+  const { def, label } = entry
+  const Icon = GROUP_PAGE_ICONS[loneMemberSlug(entry) ?? ''] ?? RAIL_ICONS[def.id] ?? LayoutList
   return (
     <ContextMenu modal={false}>
       <Tooltip>
@@ -316,8 +317,9 @@ function CustomizeBar({
           <p className="mt-0.5 text-xs text-muted-foreground">Hidden pages still open from Search and /.</p>
         </div>
         <ul className="min-h-0 flex-1 overflow-y-auto">
-          {layout.all.map(({ def, label }) => {
-            const Icon = RAIL_ICONS[def.id] ?? LayoutList
+          {layout.all.map((entry) => {
+            const { def, label } = entry
+            const Icon = GROUP_PAGE_ICONS[loneMemberSlug(entry) ?? ''] ?? RAIL_ICONS[def.id] ?? LayoutList
             return (
               <li key={def.id} data-app-rail-customize-row={def.id}>
                 <label className="flex cursor-pointer items-center gap-2.5 rounded-xl px-2 py-1.5 text-sm hover:bg-accent/60">

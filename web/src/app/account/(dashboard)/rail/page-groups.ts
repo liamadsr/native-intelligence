@@ -43,7 +43,7 @@ export interface PageGroupDef {
    * Members that had a rail icon of their own before they joined the group
    * (the Studio, 11-13). A bar saved before then names them for that icon,
    * not for the group: rail-pages.ts currentPrefs drops them from the saved
-   * order, and a group hidden then (its other members all hidden) stays hidden.
+   * order (a hidden one still counts toward hiding the group).
    */
   formerRailPages?: readonly string[]
 }
@@ -53,7 +53,8 @@ export const PAGE_GROUPS: Readonly<Record<PageGroupId, PageGroupDef>> = {
   contacts: { id: 'contacts', label: 'Contacts', labelFrom: 'contacts', members: ['companies', 'contacts', 'deals'], defaultMember: 'contacts' },
   // Liam, 11-13: the Studio is "part of the outreach page": its last member,
   // no rail icon of its own any more. Its own pages (Overview, Storyboard,
-  // Cast, Edit) are down its right side, inside its card (components/studio/ui/AppRail.tsx).
+  // Cast, Edit) are a column of icons down its left edge, inside its card
+  // (components/studio/ui/AppRail.tsx).
   outreach: { id: 'outreach', label: 'Outreach', members: ['prospecting', 'sequences', 'campaigns', 'studio'], defaultMember: 'prospecting', formerRailPages: ['studio'] },
   // SEO: one page per section (the `seo` feature's `seo` view). Site audit
   // today; each new section is one more slug here. With one member the rail

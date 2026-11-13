@@ -67,7 +67,7 @@ export const runImport: JobHandler<'import'> = async (ctx) => {
       const seconds = Number(video.duration ?? first.format.duration) || input.durationHint || 600
       // One pass over the packets' times: the rate the take was recorded at, and whether it is on the grid already.
       const stamps = await videoStamps(upload, ctx.signal)
-      const fps = input.conform.fit ? fitRate(stamps, input.conform.fps) : input.conform.fps
+      const fps = input.conform.fit ? fitRate(stamps, input.conform.fps, input.conform.ceiling) : input.conform.fps
       // A take already on the grid, in H.264 inside MP4, is kept byte for byte.
       const keep = !input.partial && type.extension === 'mp4' && video.codec_name === 'h264' && onFrameGrid(stamps, fps)
       if (!keep) {

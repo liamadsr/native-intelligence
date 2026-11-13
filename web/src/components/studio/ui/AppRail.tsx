@@ -17,6 +17,7 @@
 // First in the row and in the reading order: a page's navigation comes before its content.
 import React from 'react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useModKeyLabel } from '@/lib/hotkeys';
 import { filmPages, type FilmPage } from './FilmPages';
 import { Icon, type IconName } from './icons';
 
@@ -51,9 +52,11 @@ export function AppRail({ page, hasProject, chooserOpen, settingsOpen, locked, o
 }) {
   const onFilm = hasProject && !settingsOpen && !chooserOpen;
   const off = !hasProject || locked;
+  // ⌘O on a Mac, Ctrl+O elsewhere (the app's own label, lib/hotkeys.ts); the Studio's handler takes either key.
+  const openKeys = useModKeyLabel('O'), mac = openKeys.startsWith('⌘');
   return <TooltipProvider delayDuration={300} skipDelayDuration={200}>
     <nav className="app-rail" aria-label="Studio pages" data-studio-rail="">
-      <RailItem id="projects" icon="folder" label={RAIL_LABELS.projects} shortcut="⌘O" keys="Meta+O Control+O" current={chooserOpen} disabled={locked} onClick={openProjects} />
+      <RailItem id="projects" icon="folder" label={RAIL_LABELS.projects} shortcut={openKeys} keys={mac ? 'Meta+O' : 'Control+O'} current={chooserOpen} disabled={locked} onClick={openProjects} />
       <span className="rail-sep" aria-hidden="true" />
       <RailItem id="project" icon={PAGE_ICONS.project} label={RAIL_LABELS.project} current={onFilm && page === 'project'} disabled={off} onClick={() => openPage('project')} />
       <span className="rail-sep" aria-hidden="true" />

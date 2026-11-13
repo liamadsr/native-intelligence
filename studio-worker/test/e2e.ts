@@ -313,9 +313,9 @@ async function main() {
     console.log(`[e2e] export vs source: PSNR ${pictureDb.toFixed(1)} dB; mean volume ${exportVolume.toFixed(1)} dBFS (source ${meanVolume(video).toFixed(1)})`)
     // Its colours too: written as BT.601 with no tag (Remotion's default), a made-up BT.709 recording's export measured 30.5 dB.
     assert.ok(pictureDb > 38, `the export's picture is the source's, colours included (PSNR ${pictureDb})`)
-    const tags = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v', '-show_entries', 'stream=color_space,color_primaries,color_transfer', '-of', 'json', mp4], { encoding: 'utf8' })).streams[0]
-    // BT.709 matrix and primaries; the transfer stays the sRGB of Chrome's screenshots (src/render.ts, bt709WithSwscale).
-    assert.deepEqual([tags.color_space, tags.color_primaries, tags.color_transfer], ['bt709', 'bt709', 'iec61966-2-1'], 'the export says it is BT.709')
+    const tags = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v', '-show_entries', 'stream=color_space,color_primaries,color_transfer,color_range', '-of', 'json', mp4], { encoding: 'utf8' })).streams[0]
+    // BT.709 matrix and primaries, limited range; the transfer stays the sRGB of Chrome's screenshots (src/render.ts, bt709WithSwscale).
+    assert.deepEqual([tags.color_space, tags.color_primaries, tags.color_transfer, tags.color_range], ['bt709', 'bt709', 'iec61966-2-1', 'tv'], 'the export says it is BT.709')
     assert.ok(Math.abs(exportVolume - meanVolume(video)) < 3, 'the export carries the source tone')
     const bundleLine = output.find((l) => l.includes('Bundled in'))
     const renderLine = output.find((l) => l.includes('Rendered in'))

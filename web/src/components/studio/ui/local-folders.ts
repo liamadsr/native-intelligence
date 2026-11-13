@@ -16,6 +16,8 @@
 // the Studio library through the same upload and import as a file dropped on the editor (client.ts importFile), with
 // the server's size and type checks. Nothing leaves this computer before that.
 import type { BrowserKind } from './BrowserPanel';
+import { checkedPicture, MAX_PIXELS, PictureTooLarge, type PictureSize } from './local-images';
+import { onTabStateWipe } from '@/app/account/(dashboard)/main-chat/state-wipe';
 
 export type LocalMode = 'kept' | 'session';
 export type FolderSupport = 'kept' | 'session' | 'files';
@@ -24,7 +26,8 @@ export type FolderSupport = 'kept' | 'session' | 'files';
 export type LocalStatus = 'checking' | 'ready' | 'ask' | 'choose-again' | 'missing';
 /** `flat`: files the person picked one by one (no folder), listed together. */
 export type LocalPlace = { id: string; name: string; mode: LocalMode; flat?: boolean };
-export type LocalPlaceView = LocalPlace & { status: LocalStatus };
+/** `cut`: a folder input's folder held more files than the Browser keeps (LIMITS.indexed): how many it kept. */
+export type LocalPlaceView = LocalPlace & { status: LocalStatus; cut?: { kept: number; total: number } };
 export type LocalEntry = { name: string; path: string; kind: BrowserKind; size?: number; modified?: number; addable?: boolean };
 /** `total`: how many items the folder holds, when it was counted to the end. */
 export type LocalListing = { entries: LocalEntry[]; truncated: boolean; total: number | null };
@@ -33,10 +36,16 @@ export type LocalSearch = { results: LocalEntry[]; truncated: boolean };
 export const LOCAL_PREFIX = 'local:';
 export const isLocalPlace = (id: string | null | undefined): boolean => typeof id === 'string' && id.startsWith(LOCAL_PREFIX);
 /** folder: items shown per folder; names: names read from one folder before giving up on counting; results and
- *  visited: a search's matches and the items it looks through; depth: how deep a search goes. */
-export const LIMITS = { folder: 2000, names: 20_000, results: 300, visited: 20_000, depth: 12 };
+ *  visited: a search's matches and the items it looks through; depth: how deep a search goes; indexed: files kept
+ *  from what a folder input hands over; refused: more than this and the folder is not linked at all. */
+export const LIMITS = { folder: 2000, names: 20_000, results: 300, visited: 20_000, depth: 12, indexed: 50_000, refused: 500_000 };
 export type Limits = typeof LIMITS;
-const SAVED = 'ni:studio:browser.local-folders.v1';
+/** The linked folders are the signed-in person's: one list per person on this device (`<prefix><user id>`), shared by
+ *  all their workspaces, since a folder on their computer is theirs rather than a workspace's. It sits under the
+ *  Studio's `ni:studio:` prefix, which the sign-out wipe clears (main-chat/state-wipe.ts). */
+export const SAVED_PREFIX = 'ni:studio:browser.local-folders.v2:';
+/** Where kept folder handles live, keyed `<user id>:<place id>`. The sign-out wipe deletes the whole database. */
+export const HANDLE_DB = 'ni-studio-local-folders';
 
 const KINDS: Record<string, BrowserKind> = Object.fromEntries([
   ...['mp4', 'mov', 'm4v', 'webm', 'mkv'].map(e => [e, 'video']),
@@ -86,16 +95,18 @@ export type DirHandleLike = {
 };
 /** A file from a folder input: its path inside the chosen folder, the folder's own name first. */
 export type FileLike = File & { webkitRelativePath?: string };
-export type FileIndex = { root: string | null; dirs: Map<string, LocalEntry[]>; files: Map<string, FileLike>; count: number };
+/** `total`: how many files the input handed over; `truncated`: more than `limit` of them were left out. */
+export type FileIndex = { root: string | null; dirs: Map<string, LocalEntry[]>; files: Map<string, FileLike>; count: number; total: number; truncated: boolean };
 /** A folder handle (with the handles met while listing it, so a file is reached without walking again), or the
  *  files a folder input handed over. */
 export type LocalSource = { type: 'handle'; root: DirHandleLike; handles: Map<string, FileHandleLike | DirHandleLike> } | { type: 'files'; index: FileIndex };
 export const handleSource = (root: DirHandleLike): LocalSource => ({ type: 'handle', root, handles: new Map() });
 
-/** The files of a folder input, as folders and files by path. Reads names, sizes and dates only. */
-export function indexFiles(list: ArrayLike<FileLike>): FileIndex {
+/** The files of a folder input, as folders and files by path, at most `limit` of them (the rest are let go, so a huge
+ *  folder is not held in memory). Reads names, sizes and dates only. */
+export function indexFiles(list: ArrayLike<FileLike>, limit: number = LIMITS.indexed): FileIndex {
   const dirs = new Map<string, LocalEntry[]>([['', []]]), files = new Map<string, FileLike>();
-  let root: string | null = null, count = 0;
+  let root: string | null = null, count = 0, truncated = false;
   const ensure = (path: string) => {
     if (dirs.has(path)) return;
     const cut = path.lastIndexOf('/'), parent = cut < 0 ? '' : path.slice(0, cut);
@@ -106,12 +117,13 @@ export function indexFiles(list: ArrayLike<FileLike>): FileIndex {
     if (parts.length > 1) { root ??= parts[0]!; parts.shift(); }
     if (!parts.length || parts.some(hidden)) continue;
     const path = parts.join('/'); if (files.has(path)) continue;
+    if (count >= limit) { truncated = true; break; }
     const parent = parts.slice(0, -1).join('/'); ensure(parent);
     dirs.get(parent)!.push(fileEntry(parts.at(-1)!, path, file.size, file.lastModified));
     files.set(path, file); count++;
   }
   for (const entries of dirs.values()) entries.sort(byName);
-  return { root, dirs, files, count };
+  return { root, dirs, files, count, total: list.length, truncated };
 }
 
 /** A folder the person linked is gone, or the page may no longer read it. */
@@ -230,14 +242,17 @@ export async function fileAt(source: LocalSource, path: string): Promise<File> {
 
 // ── Getting a file ready for the importer ────────────────────────────────────────
 
-/** Draw a still the importer does not take (HEIC, TIFF, GIF, AVIF, BMP, SVG) as a PNG or JPEG. Browser only. */
-export async function convertStill(file: File): Promise<File> {
+/** Draw a still the importer does not take (HEIC, TIFF, GIF, AVIF, BMP, SVG) as a PNG or JPEG. Browser only. Its size
+ *  is learnt before anything is decoded (local-images.ts), and a picture over MAX_PIXELS is refused unopened. */
+export async function convertStill(file: File, measure?: (file: Blob) => Promise<PictureSize | null>): Promise<File> {
+  const size = await checkedPicture(file, MAX_PIXELS, measure);
+  if (!size) throw new Error(`${file.name} can’t be read here. Save it as a JPEG or PNG first, then add it.`);
   const url = URL.createObjectURL(file);
   try {
     const img = new Image(); img.src = url;
     await img.decode().catch(() => { throw new Error(`${file.name} can’t be read here. Save it as a JPEG or PNG first, then add it.`); });
-    const w = img.naturalWidth || 1600, h = img.naturalHeight || 900;
-    if (w * h > 50_000_000) throw new Error(`${file.name} is too large a picture to turn into a JPEG here. Save a smaller copy first.`);
+    const w = img.naturalWidth || size.width || 1600, h = img.naturalHeight || size.height || 900;
+    if (w * h > MAX_PIXELS) throw new PictureTooLarge(file.name, { width: w, height: h });
     const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
     canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
     const alpha = /\.(svg|gif)$/i.test(file.name), type = alpha ? 'image/png' : 'image/jpeg';
@@ -250,7 +265,7 @@ export async function convertStill(file: File): Promise<File> {
 
 /** The file to upload for `file`: itself, an M4V under an MP4 name (the same bytes, nothing copied), or a converted
  *  still. Anything else can be previewed but not added. */
-export async function importableFile(file: File, convert: (file: File) => Promise<File> = convertStill): Promise<File> {
+export async function importableFile(file: File, convert: (file: File) => Promise<File> = f => convertStill(f)): Promise<File> {
   const ext = extOf(file.name);
   if (IMPORTABLE.has(ext)) return file;
   if (ext === 'm4v') return new File([file], `${file.name.slice(0, -4)}.mp4`, { type: 'video/mp4', lastModified: file.lastModified });
@@ -263,23 +278,23 @@ export async function importableFile(file: File, convert: (file: File) => Promis
 export type HandleStore = { get(id: string): Promise<DirHandleLike | undefined>; put(id: string, handle: DirHandleLike): Promise<void>; delete(id: string): Promise<void> };
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>;
 
-/** The linked folders this browser remembers: names and how each is linked, never a file. */
-export function readSaved(storage: StorageLike | null): LocalPlace[] {
+/** The linked folders this device remembers for `user`: names and how each is linked, never a file. */
+export function readSaved(storage: StorageLike | null, user: string): LocalPlace[] {
   try {
-    const raw = storage?.getItem(SAVED), list = raw ? JSON.parse(raw) as unknown : [];
+    const raw = storage?.getItem(`${SAVED_PREFIX}${user}`), list = raw ? JSON.parse(raw) as unknown : [];
     if (!Array.isArray(list)) return [];
     return list.filter((p): p is LocalPlace => !!p && typeof p.id === 'string' && isLocalPlace(p.id) && typeof p.name === 'string' && (p.mode === 'kept' || p.mode === 'session'))
       .map(p => ({ id: p.id, name: p.name.slice(0, 200), mode: p.mode, ...(p.flat ? { flat: true } : {}) }));
   } catch { return []; }
 }
-function writeSaved(storage: StorageLike | null, list: LocalPlace[]) {
-  try { storage?.setItem(SAVED, JSON.stringify(list.map(({ id, name, mode, flat }) => ({ id, name, mode, ...(flat ? { flat } : {}) })))); } catch { /* private mode: linked for this visit */ }
+function writeSaved(storage: StorageLike | null, user: string, list: LocalPlace[]) {
+  try { storage?.setItem(`${SAVED_PREFIX}${user}`, JSON.stringify(list.map(({ id, name, mode, flat }) => ({ id, name, mode, ...(flat ? { flat } : {}) })))); } catch { /* private mode: linked for this visit */ }
 }
 
 /** Folder handles in IndexedDB (a handle can be stored there and nowhere else). */
 export function indexedDbHandles(idb: IDBFactory = indexedDB): HandleStore {
   const open = () => new Promise<IDBDatabase>((resolve, reject) => {
-    const request = idb.open('ni-studio-local-folders', 1);
+    const request = idb.open(HANDLE_DB, 1);
     request.onupgradeneeded = () => { request.result.createObjectStore('handles'); };
     request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
   });
@@ -302,13 +317,16 @@ export function indexedDbHandles(idb: IDBFactory = indexedDB): HandleStore {
 // ── The linked folders ───────────────────────────────────────────────────────────
 
 export type LocalDeps = {
+  /** The signed-in person: the list and the handles are theirs. */
+  user: string;
   storage: StorageLike | null;
   handles: HandleStore;
   support: () => FolderSupport;
   /** The browser's folder picker; null when the person cancels. */
   pickDirectory: () => Promise<DirHandleLike | null>;
-  /** A file input (a folder input when `folders`); null when the person cancels. */
-  pickFiles: (folders: boolean) => Promise<FileLike[] | null>;
+  /** A file input (a folder input when `folders`); null when the person cancels. `late` takes files that come after
+   *  the picker was taken as cancelled (pickWithInput). */
+  pickFiles: (folders: boolean, late: (files: FileLike[]) => void) => Promise<FileLike[] | null>;
   newId: () => string;
 };
 export type AddResult = { id: string; existing: boolean } | null;
@@ -326,20 +344,22 @@ export class LocalFolders {
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   places = () => this.list;
   support = () => this.deps.support();
-  private set(list: LocalPlaceView[]) { this.list = list; writeSaved(this.deps.storage, list); for (const l of this.listeners) l(); }
+  private set(list: LocalPlaceView[]) { this.list = list; writeSaved(this.deps.storage, this.deps.user, list); for (const l of this.listeners) l(); }
   private patch(id: string, change: Partial<LocalPlaceView>) { this.set(this.list.map(p => p.id === id ? { ...p, ...change } : p)); }
   place(id: string) { return this.list.find(p => p.id === id) ?? null; }
+  /** A handle's key in the store: the person's, then the place's. */
+  private key(id: string) { return `${this.deps.user}:${id}`; }
 
   /** Read the remembered folders: a kept one is ready when the browser still lets the page read it, waits for the
    *  person's OK when it asks again, and is missing when its handle is gone; a session one is ready only if it was
    *  chosen since this page opened. */
   start(): Promise<void> {
     this.started ??= (async () => {
-      const saved = readSaved(this.deps.storage);
+      const saved = readSaved(this.deps.storage, this.deps.user);
       this.set(saved.map(p => ({ ...p, status: p.mode === 'kept' ? 'checking' : this.sources.has(p.id) ? 'ready' : 'choose-again' })));
       await Promise.all(saved.filter(p => p.mode === 'kept').map(async p => {
         let handle: DirHandleLike | undefined;
-        try { handle = await this.deps.handles.get(p.id); } catch { handle = undefined; }
+        try { handle = await this.deps.handles.get(this.key(p.id)); } catch { handle = undefined; }
         if (!handle) { this.patch(p.id, { status: 'missing' }); return; }
         let state: PermissionState = 'prompt';
         try { state = (await handle.queryPermission?.({ mode: 'read' })) ?? 'granted'; } catch { state = 'prompt'; }
@@ -362,7 +382,7 @@ export class LocalFolders {
       }
       if (!fallback) return handle ? this.keep(handle) : null;
     }
-    const files = await this.deps.pickFiles(support !== 'files');
+    const files = await this.deps.pickFiles(support !== 'files', late => { try { this.adopt(late); } catch { /* an empty or far too large folder: nothing to link */ } });
     return files ? this.adopt(files) : null;
   }
 
@@ -378,7 +398,7 @@ export class LocalFolders {
     const id = `${LOCAL_PREFIX}${this.deps.newId()}`;
     // A browser that can't keep the handle (storage full or blocked) still has the folder until the page reloads.
     let kept = true;
-    try { await this.deps.handles.put(id, handle); } catch { kept = false; }
+    try { await this.deps.handles.put(this.key(id), handle); } catch { kept = false; }
     this.sources.set(id, handleSource(handle));
     this.set([...this.list, { id, name: handle.name || 'Folder', mode: kept ? 'kept' : 'session', status: 'ready' }]);
     return { id, existing: false };
@@ -386,18 +406,22 @@ export class LocalFolders {
 
   /** Files from a folder input. A folder with the same name waiting to be chosen again takes them. */
   private adopt(files: FileLike[], into?: string): AddResult {
+    if (files.length > LIMITS.refused) {
+      const root = (files[0]?.webkitRelativePath ?? '').split('/')[0];
+      throw new Error(`${root ? `“${root}”` : 'That folder'} holds ${files.length.toLocaleString('en-US')} files, too many to link. Choose a smaller folder inside it.`);
+    }
     const index = indexFiles(files);
     if (!index.count) throw new Error(index.root ? `“${index.root}” has nothing in it the Studio can list.` : 'That folder has no files in it, so there is nothing to link.');
     const name = index.root ?? 'Chosen files', flat = !index.root;
     const target = into ? this.place(into) : this.list.find(p => p.mode === 'session' && p.name === name && p.status !== 'ready') ?? null;
     if (target) {
       this.sources.set(target.id, { type: 'files', index });
-      this.patch(target.id, { name, status: 'ready', mode: 'session', ...(flat ? { flat } : { flat: undefined }) });
+      this.patch(target.id, { name, status: 'ready', mode: 'session', ...(flat ? { flat } : { flat: undefined }), cut: index.truncated ? { kept: index.count, total: index.total } : undefined });
       return { id: target.id, existing: true };
     }
     const id = `${LOCAL_PREFIX}${this.deps.newId()}`;
     this.sources.set(id, { type: 'files', index });
-    this.set([...this.list, { id, name, mode: 'session', status: 'ready', ...(flat ? { flat } : {}) }]);
+    this.set([...this.list, { id, name, mode: 'session', status: 'ready', ...(flat ? { flat } : {}), ...(index.truncated ? { cut: { kept: index.count, total: index.total } } : {}) }]);
     return { id, existing: false };
   }
 
@@ -417,12 +441,12 @@ export class LocalFolders {
     const support = this.deps.support();
     if (place.mode === 'kept' && support === 'kept') {
       const handle = await this.deps.pickDirectory(); if (!handle) return null;
-      await this.deps.handles.put(id, handle);
+      await this.deps.handles.put(this.key(id), handle);
       this.waiting.delete(id); this.sources.set(id, handleSource(handle));
       this.patch(id, { name: handle.name || place.name, status: 'ready' });
       return { id, existing: true };
     }
-    const files = await this.deps.pickFiles(support !== 'files');
+    const files = await this.deps.pickFiles(support !== 'files', late => { try { this.adopt(late, id); } catch { /* as above */ } });
     return files ? this.adopt(files, id) : null;
   }
 
@@ -430,7 +454,7 @@ export class LocalFolders {
   async remove(id: string) {
     this.sources.delete(id); this.waiting.delete(id);
     this.set(this.list.filter(p => p.id !== id));
-    await this.deps.handles.delete(id).catch(() => {});
+    await this.deps.handles.delete(this.key(id)).catch(() => {});
   }
 
   /** A folder that could not be read: gone, or no longer allowed. */
@@ -455,17 +479,31 @@ export class LocalFolders {
 
 // ── The page's own ───────────────────────────────────────────────────────────────
 
-/** The browser's folder input, hidden; it is put in the page while it opens (Safari wants it there). */
-export function pickWithInput(folders: boolean, doc: Document = document): Promise<FileLike[] | null> {
+/** The browser's folder input, hidden; it is put in the page while it opens (Safari wants it there) and taken out
+ *  when it settles. A WebKit without the input's `cancel` event says nothing when the person cancels, so the window
+ *  getting its focus back with no change for `settleMs` is taken as a cancel. A folder the browser is still reading
+ *  then (a big one can take a while) is not lost: its files go to `late`. */
+export function pickWithInput(folders: boolean, options: { doc?: Document; win?: { addEventListener(type: 'focus', listener: () => void): void; removeEventListener(type: 'focus', listener: () => void): void }; late?: (files: FileLike[]) => void; settleMs?: number } = {}): Promise<FileLike[] | null> {
+  const doc = options.doc ?? document, win = options.win ?? window, settleMs = options.settleMs ?? 1500;
   return new Promise(resolve => {
     const input = doc.createElement('input');
     input.type = 'file'; input.multiple = true; input.hidden = true;
     if (folders) (input as HTMLInputElement & { webkitdirectory: boolean }).webkitdirectory = true;
-    let done = false;
-    const finish = (files: FileLike[] | null) => { if (done) return; done = true; input.remove(); resolve(files); };
-    input.addEventListener('change', () => finish(Array.from(input.files ?? []) as FileLike[]));
+    let done = false, timer: ReturnType<typeof setTimeout> | null = null;
+    const onFocus = () => { if (timer) clearTimeout(timer); timer = setTimeout(() => finish(null), settleMs); };
+    const finish = (files: FileLike[] | null) => {
+      if (done) return; done = true;
+      if (timer) clearTimeout(timer); win.removeEventListener('focus', onFocus); input.remove(); resolve(files);
+    };
+    input.addEventListener('change', () => {
+      const files = Array.from(input.files ?? []) as FileLike[];
+      if (done) { if (files.length) options.late?.(files); return; }
+      finish(files);
+    });
     input.addEventListener('cancel', () => finish(null));
     doc.body.appendChild(input); input.click();
+    // Listen once the picker is up: opening it may itself move the focus.
+    setTimeout(() => { if (!done) win.addEventListener('focus', onFocus); }, 0);
   });
 }
 
@@ -475,16 +513,31 @@ async function pickDirectory(): Promise<DirHandleLike | null> {
   catch (error) { if ((error as { name?: string })?.name === 'AbortError') return null; throw error; }
 }
 
-let shared: LocalFolders | null = null;
-/** This page's linked folders (one list for every Browser panel the page opens). */
+const stores = new Map<string, LocalFolders>();
+let current: LocalFolders | null = null;
+// Signing out drops what the page holds in memory too (the files of folder inputs, the handles).
+onTabStateWipe(() => { stores.clear(); current = null; });
+
+/** The signed-in person's linked folders on this page (one list for every Browser panel the page opens). */
+export function localFoldersFor(user: string): LocalFolders {
+  let store = stores.get(user);
+  if (!store) {
+    store = new LocalFolders({
+      user,
+      storage: (() => { try { return window.localStorage; } catch { return null; } })(),
+      handles: typeof indexedDB === 'undefined' ? { get: async () => undefined, put: async () => {}, delete: async () => {} } : indexedDbHandles(),
+      support: () => folderSupport(window as unknown as SupportEnv),
+      pickDirectory,
+      pickFiles: (folders, late) => pickWithInput(folders, { late }),
+      newId: () => typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
+    });
+    stores.set(user, store);
+  }
+  current = store;
+  return store;
+}
+/** The linked folders the Browser panel last opened (for adding a file, its preview and its thumbnail). */
 export function localFolders(): LocalFolders {
-  shared ??= new LocalFolders({
-    storage: (() => { try { return window.localStorage; } catch { return null; } })(),
-    handles: typeof indexedDB === 'undefined' ? { get: async () => undefined, put: async () => {}, delete: async () => {} } : indexedDbHandles(),
-    support: () => folderSupport(window as unknown as SupportEnv),
-    pickDirectory,
-    pickFiles: folders => pickWithInput(folders),
-    newId: () => typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
-  });
-  return shared;
+  if (!current) throw new LocalFolderError('The folders on this computer are not open just now. Open the Browser again.', 'missing');
+  return current;
 }

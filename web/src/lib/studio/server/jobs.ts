@@ -151,6 +151,7 @@ export function toEditorJob(row: JobRow): EditorJob {
     logs: Array.isArray(row.logs) ? row.logs.map(String) : [],
     ...(row.error ? { error: row.error } : {}),
     ...(row.result ? { result: row.result } : {}),
+    ...(row.video_id ? { videoId: row.video_id } : {}),
   }
   if (row.status === 'queued' && !job.logs.length) job.logs = ['Waiting for the Studio worker…']
   if (row.kind === 'export' && row.status === 'completed' && typeof row.result?.key === 'string') {
@@ -237,7 +238,13 @@ export async function activeJob(ctx: StudioContext, userId: string): Promise<Edi
 // ---- the worker's side ---------------------------------------------------------------------------------------
 
 /** What the worker routes run with: a service-role client (and storage, for tests). No workspace until a job is read. */
-export type WorkerDeps = { supabase: SupabaseClient; storage?: StudioStorage }
+/**
+ * What the worker routes run with: a service-role client (and storage, for tests). `defer` runs work after the answer
+ * (the routes pass Next's `after`, which on our own server runs once the response is sent): what a finished job sets
+ * off (a recording put together, its pieces removed) never holds the worker's request. Without it, the work runs
+ * before answering (tests).
+ */
+export type WorkerDeps = { supabase: SupabaseClient; storage?: StudioStorage; defer?: (task: () => Promise<void>) => void }
 
 /** The context of the workspace a job belongs to, acting for nobody (the worker). */
 export const jobContext = (deps: WorkerDeps, row: Pick<JobRow, 'workspace_id'>): StudioContext => ({ supabase: deps.supabase, storage: deps.storage, workspaceId: row.workspace_id, userId: null })
@@ -310,7 +317,7 @@ export async function failJob(deps: WorkerDeps, jobId: string, workerId: string,
   // A product capture's import that ended without its file: its product job is told (products.ts). Never throws.
   if ((cancelled || failed || late) && held.kind === 'import') await settleProductCapture(deps, jobId, { error: failed ? error : CANCELLED })
   // A recording's import that ended: when it was the last, the recording is finished now (recordings.ts). Never throws.
-  if ((cancelled || failed || late) && held.kind === 'import') await settleRecording(deps, held)
+  if ((cancelled || failed || late) && held.kind === 'import') await later(deps, () => settleRecording(deps, held))
   return { ok: true }
 }
 
@@ -340,7 +347,7 @@ export async function completeJob(deps: WorkerDeps, jobId: string, workerId: str
     if (row.kind === 'export') await deliverEndedExport(deps, jobId)
     if (row.kind === 'import') await settleProductCapture(deps, jobId, { error: reason })
     await dropUpload(deps, row)
-    if (row.kind === 'import') await settleRecording(deps, row)
+    if (row.kind === 'import') await later(deps, () => settleRecording(deps, row))
     throw new StudioError(reason, 422, 'RESULT_REFUSED')
   }
   const done = must(
@@ -355,12 +362,12 @@ export async function completeJob(deps: WorkerDeps, jobId: string, workerId: str
   ) as { id: string }[] | null
   if (!done?.length) throw conflictError('This worker does not hold that job any more.', 'NOT_HELD')
   // The consumed upload goes only once the job is recorded as done, never while the job could still be taken back.
-  await dropUpload(deps, row, true)
+  await dropUpload(deps, row)
   // A finished export goes to whoever queued it, the way the app delivers finished work (delivery.ts). Never throws.
   if (row.kind === 'export') await deliverEndedExport(deps, jobId)
   // A product capture whose import outlasted the capture route's wait is filed now (products.ts). Never throws.
   if (row.kind === 'import' && filed.asset) await settleProductCapture(deps, jobId, { asset: filed.asset as EditorAsset })
-  if (row.kind === 'import') await settleRecording(deps, row)
+  if (row.kind === 'import') await later(deps, () => settleRecording(deps, row))
   return { ok: true }
 }
 
@@ -410,21 +417,27 @@ async function chargeLateResult(deps: WorkerDeps, jobId: string, workerId: strin
 
 /**
  * Remove the upload an import, slides or sound-import job was given (missing is fine; a failure to remove is logged, the
- * sweep retries). A track of a take uploaded while it was recorded (`live/…`, live-takes.ts) goes only once it is
- * `imported`: a recording brought back after a crash keeps its pieces when its import fails, until the sweep.
+ * sweep retries). A track of a take uploaded while it was recorded (`live/…`, live-takes.ts) is not removed here: its
+ * take goes when its recording is made, or is offered back when it is not (recordings.ts settleTake).
  */
-async function dropUpload(deps: WorkerDeps, row: Pick<JobRow, 'id' | 'kind' | 'workspace_id'>, imported = false): Promise<void> {
+async function dropUpload(deps: WorkerDeps, row: Pick<JobRow, 'id' | 'kind' | 'workspace_id'>): Promise<void> {
   if (row.kind !== 'import' && row.kind !== 'slides' && row.kind !== 'sound-import') return
   try {
     const found = must(await deps.supabase.from('studio_job').select('upload:input->>uploadKey').eq('id', row.id).maybeSingle(), 'read that job') as { upload: string | null } | null
     if (found?.upload && /^uploads\/[0-9a-f-]{36}$/.test(found.upload)) await deleteBlob(jobContext(deps, row), found.upload)
-    else if (found?.upload && imported && row.kind === 'import' && found.upload.startsWith('live/')) await (await import('./live-takes')).dropLiveTrack(jobContext(deps, row), found.upload)
   } catch (error) {
     console.error('[studio] removing an upload failed:', error instanceof Error ? error.message : error)
   }
 }
 
 /** An import that belongs to a recording (its provenance names it) ended: the recording is told (recordings.ts). Never throws. */
+/** Run `task` after the answer when the route can (deps.defer), else now. Never throws. */
+async function later(deps: WorkerDeps, task: () => Promise<void>): Promise<void> {
+  const safe = () => task().catch((error) => console.error('[studio] work after a job failed:', error instanceof Error ? error.message : error))
+  if (deps.defer) deps.defer(safe)
+  else await safe()
+}
+
 async function settleRecording(deps: WorkerDeps, row: Pick<JobRow, 'id' | 'workspace_id'>): Promise<void> {
   try {
     const found = must(await deps.supabase.from('studio_job').select('provenance:input->provenance').eq('id', row.id).maybeSingle(), 'read that job') as { provenance: { recording?: unknown } | null } | null
@@ -474,8 +487,12 @@ async function fileResult(ctx: StudioContext, row: JobRow, raw: unknown): Promis
       const input = row.input as ImportInput
       const registered = await registerAsset(ctx, await ownAsset(ctx, result.asset, 'imported file'))
       // The upload itself is removed once the job is recorded as done (completeJob).
+      // The original's size and hash: the stored upload's, or (a take sent in pieces has no hash until joined) what the worker read.
       const upload = input.conform ? await getBlob(ctx, input.uploadKey).catch(() => null) : null
-      return { asset: registered, ...(input.conform ? { rawBytes: upload?.bytes ?? 0, rawSha256: upload?.sha256 ?? '' } : {}) }
+      const read = (registered.provenance ?? {}) as { rawBytes?: unknown; rawSha256?: unknown }
+      const rawBytes = upload?.bytes ?? (typeof read.rawBytes === 'number' ? read.rawBytes : 0)
+      const rawSha256 = upload?.sha256 ?? (typeof read.rawSha256 === 'string' ? read.rawSha256 : '')
+      return { asset: registered, ...(input.conform ? { rawBytes, rawSha256 } : {}) }
     }
     case 'export': {
       // Under this attempt's own folder (job-contract.ts), so a worker that lost the job can't stand in for the next.

@@ -27,7 +27,12 @@ export function Toggle({label, checked, onChange}: {label: string; checked: bool
  * Studio's stylesheet reaches it; inside the Studio's card it would only dim the card.
  *
  * `description`: one line under the title, read out with it. `className`: the dialog's own section of studio.css.
+ * The focus goes to the content's `data-autofocus` control when it opens (its primary or safe action), else to the
+ * dialog itself: never to a Cancel, a Discard or Close.
  */
+/** What a dialog's content marks as where the focus goes when it opens (an enabled control). */
+export const AUTOFOCUS = '[data-autofocus]:not(:disabled)';
+
 export function Modal({title, description, close, children, wide, className}: {title: string; description?: React.ReactNode; close: () => void; children: React.ReactNode; wide?: boolean; className?: string}) {
   const container = typeof document === 'undefined' ? null : studioPortal();
   // Where the focus was when it opened, to give it back when it closes (the Studio opens these from its own buttons
@@ -37,10 +42,11 @@ export function Modal({title, description, close, children, wide, className}: {t
     <DialogPrimitive.Portal container={container}>
       <DialogOverlay className="st-dialog-overlay" />
       <DialogPrimitive.Content className={cn('modal', wide && 'modal-wide', className)} {...(description ? {} : { 'aria-describedby': undefined })} onOpenAutoFocus={event => {
-        // The first control, never Close (a dialog that has nothing else takes the focus itself).
+        // The control the dialog names (`data-autofocus`: its primary or safe action), else the dialog itself, so
+        // Enter or Space never lands on Cancel, Discard or Close by accident.
         event.preventDefault();
-        const content = event.currentTarget as HTMLElement, first = content.querySelector<HTMLElement>('button:not(.modal-close):not(:disabled),[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),summary');
-        (first ?? content).focus({ preventScroll: true });
+        const content = event.currentTarget as HTMLElement;
+        (content.querySelector<HTMLElement>(AUTOFOCUS) ?? content).focus({ preventScroll: true });
       }} onCloseAutoFocus={event => { event.preventDefault(); if (opener?.isConnected) opener.focus({ preventScroll: true }); }}>
         <div className="modal-heading"><div className="modal-titles"><DialogPrimitive.Title asChild><h2>{title}</h2></DialogPrimitive.Title>{description ? <DialogPrimitive.Description className="modal-description">{description}</DialogPrimitive.Description> : null}</div></div>
         {children}

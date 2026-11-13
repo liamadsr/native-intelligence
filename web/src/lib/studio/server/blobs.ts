@@ -10,7 +10,7 @@ import { BlobKey, STUDIO_PART_BYTES, blobObject, blobParts, type BlobRead, type 
 import { must, type StudioContext } from './context'
 import { conflictError, notFoundError, StudioError } from './errors'
 import { allowedType } from './media-types'
-import { supabaseStorage, type StudioStorage } from './storage'
+import { removeAll, supabaseStorage, type StudioStorage } from './storage'
 
 export type StoredBlob = { key: string; bytes: number; parts: number; partBytes: number; contentType: string; sha256: string | null }
 
@@ -177,7 +177,7 @@ export async function commitBlob(ctx: StudioContext, key: string): Promise<Store
   }
   // Parts left from an earlier, longer file under the same key.
   const stale = listed.filter((item) => /^\d+$/.test(item.name) && Number(item.name) >= parts.length).map((item) => `${ctx.workspaceId}/${key}/${item.name}`)
-  if (stale.length) await storage.remove(stale).catch(() => undefined)
+  if (stale.length) await removeAll(storage, stale).catch(() => undefined)
   const row = {
     workspace_id: ctx.workspaceId,
     key,
@@ -223,7 +223,7 @@ export async function deleteBlob(ctx: StudioContext, key: string): Promise<void>
   const listed = await storage.list(`${ctx.workspaceId}/${key}`).catch(() => [])
   const names = new Set(listed.map((item) => item.name))
   for (let index = 0; index < (blob?.parts ?? 0); index++) names.add(String(index))
-  await storage.remove([...names].map((name) => `${ctx.workspaceId}/${key}/${name}`))
+  await removeAll(storage, [...names].map((name) => `${ctx.workspaceId}/${key}/${name}`))
   must(await ctx.supabase.from('studio_blob').delete().eq('workspace_id', ctx.workspaceId).eq('key', key), 'remove that file')
   must(await ctx.supabase.from('studio_record').delete().eq('workspace_id', ctx.workspaceId).eq('collection', PENDING).eq('key', key), 'remove that file')
 }

@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { cgroupCpus, loadConfig, renderTabs } from '../src/config.ts'
-import { BT709_SWSCALE, bt709WithSwscale, EXPORT_ENCODING, glFor } from '../src/render.ts'
+import { BT709_SWSCALE, bt709WithSwscale, EXPORT_ENCODING, glFallbackWanted, glFor, Renderer } from '../src/render.ts'
 
 const files = (map: Record<string, string>) => (path: string) => map[path] ?? null
 
@@ -64,4 +64,69 @@ test("an export's frames are converted to BT.709 by FFmpeg's scaler, not zscale;
   assert.equal(BT709_SWSCALE, 'scale=out_color_matrix=bt709:out_range=tv', 'only filters Remotion\'s own FFmpeg has')
   assert.equal(EXPORT_ENCODING.colorSpace, 'bt709')
   assert.equal(EXPORT_ENCODING.crf, 18)
+})
+
+test('a render is tried again with swangle only when software compositing failed to start or before its first frame', () => {
+  const sw = { gl: 'swiftshader' as const, framesDrawn: 0, aborted: false }
+  for (const message of [
+    'Failed to launch the browser process!\n[0101/000000.000000:FATAL:gpu_init.cc] Requested GL implementation (gl=none,angle=none) not found',
+    'Protocol error (Target.createTarget): Target closed',
+    'Page crashed!',
+    'Browser closed unexpectedly',
+    'Timed out after 25000 ms while trying to connect to the browser!',
+    'Exiting GPU process due to errors during initialization',
+  ]) assert.equal(glFallbackWanted(new Error(message), sw), true, message)
+  for (const message of [
+    'A delayRender() "Extracting frame at time 1.5" was called but not cleared after 120000ms',
+    'Cannot decode https://x/assets/a.mp4',
+    'renderMedia() got cancelled',
+    'TypeError: Cannot read properties of undefined (reading \'width\')',
+    'ENOSPC: no space left on device',
+  ]) assert.equal(glFallbackWanted(new Error(message), sw), false, message)
+  const crash = new Error('Page crashed!')
+  assert.equal(glFallbackWanted(crash, { ...sw, framesDrawn: 40 }), false, 'a crash after frames were drawn is not the GL backend')
+  assert.equal(glFallbackWanted(crash, { ...sw, aborted: true }), false, 'a cancelled render is not tried again')
+  assert.equal(glFallbackWanted(crash, { ...sw, gl: 'swangle' }), false, 'swangle has nothing to fall back to')
+  assert.equal(glFallbackWanted(crash, { ...sw, gl: null }), false, "a Mac's own choice is left alone")
+})
+
+test('the fallback runs the render once more with swangle and is kept for every later render; a render error is thrown as it is', async () => {
+  const config = loadConfig({ STUDIO_CHROME: process.execPath }, () => 4)
+  assert.ok(!('problems' in config))
+  const renderer = new Renderer(config as Exclude<typeof config, { problems: string[] }>, '/nonexistent', 'linux')
+  const logs: string[] = []
+  const log = (l: string) => logs.push(l)
+  const seen: (string | null)[] = []
+  // (A function, so assert.deepEqual's narrowing of `seen` does not reach the pushes.)
+  const saw = (gl: string | null) => { seen.push(gl) }
+
+  // A genuine render error: thrown, not retried, nothing remembered.
+  await assert.rejects(renderer.withGlFallback(log, undefined, () => false, async (common) => {
+    saw(common.chromiumOptions.gl)
+    throw new Error('A delayRender() "Loading font" was called but not cleared after 120000ms')
+  }), /delayRender/)
+  assert.deepEqual(seen, ['swiftshader'])
+  assert.equal((await renderer.common(log)).chromiumOptions.gl, 'swiftshader')
+
+  // Chrome cannot start with software compositing: one more try with swangle, one log line.
+  seen.length = 0
+  const done = await renderer.withGlFallback(log, undefined, () => false, async (common) => {
+    saw(common.chromiumOptions.gl)
+    if (common.chromiumOptions.gl === 'swiftshader') throw new Error('Failed to launch the browser process! Requested GL implementation not found')
+    return 'rendered'
+  })
+  assert.equal(done, 'rendered')
+  assert.deepEqual(seen, ['swiftshader', 'swangle'])
+  assert.equal(logs.filter((l) => l.includes('swangle')).length, 1)
+
+  // Remembered: the next render starts with swangle and pays no failed attempt.
+  seen.length = 0
+  await renderer.withGlFallback(log, undefined, () => false, async (common) => { saw(common.chromiumOptions.gl) })
+  assert.deepEqual(seen, ['swangle'])
+
+  // A failure of the swangle try itself is thrown (no third try).
+  const fresh = new Renderer(config as Exclude<typeof config, { problems: string[] }>, '/nonexistent', 'linux')
+  let tries = 0
+  await assert.rejects(fresh.withGlFallback(log, undefined, () => false, async () => { tries++; throw new Error('Page crashed!') }), /Page crashed/)
+  assert.equal(tries, 2)
 })

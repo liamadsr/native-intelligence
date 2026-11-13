@@ -129,7 +129,16 @@ export function fakeDb(tables: Record<string, Row[]> = {}, options: { queueFunct
       lt: (k: string, v: string) => (filters.push((r) => String(read(r, k) ?? '') < v), chain),
       gte: (k: string, v: string) => (filters.push((r) => String(read(r, k) ?? '') >= v), chain),
       like: (k: string, pattern: string) => (filters.push((r) => new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*')}$`).test(String(read(r, k) ?? ''))), chain),
-      not: (k: string, operator: string, v: unknown) => (filters.push((r) => (operator === 'is' ? (read(r, k) ?? null) !== v : read(r, k) !== v)), chain),
+      not: (k: string, operator: string, v: unknown) => (
+        filters.push((r) =>
+          operator === 'is'
+            ? (read(r, k) ?? null) !== v
+            : operator === 'like'
+              ? !new RegExp(`^${String(v).replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*')}$`).test(String(read(r, k) ?? ''))
+              : read(r, k) !== v,
+        ),
+        chain
+      ),
       in: (k: string, vs: unknown[]) => (filters.push((r) => vs.includes(read(r, k))), chain),
       is: (k: string, v: unknown) => (filters.push((r) => (read(r, k) ?? null) === v), chain),
       order: (key: string, opts?: { ascending?: boolean }) => ((sort = { key, ascending: opts?.ascending !== false }), chain),
@@ -197,25 +206,63 @@ export function fakeDb(tables: Record<string, Row[]> = {}, options: { queueFunct
   return { tables, client: { from, rpc } as unknown as SupabaseClient }
 }
 
-/** A bucket in memory. `put` stands in for the browser's (or worker's) PUT to an upload link. */
+/**
+ * A bucket in memory. `put` stands in for the browser's (or worker's) PUT to an upload link; `putLink` PUTs through a
+ * signed link as storage does: a link signed without upsert is refused when the object is there already (and, like
+ * storage's, it stays good for another PUT once the object is gone). `remove` takes at most 1000 paths a call, as
+ * storage's delete route allows; `failList` makes listings fail.
+ */
 export function fakeStorage() {
   const objects = new Map<string, { bytes: Uint8Array; type: string }>()
-  const storage: StudioStorage & { put(path: string, bytes: Uint8Array): void; objects: typeof objects } = {
+  const upserts = new Map<string, boolean>()
+  const storage: StudioStorage & {
+    put(path: string, bytes: Uint8Array): void
+    putLink(link: { url: string; headers: Record<string, string> }, bytes: Uint8Array): boolean
+    objects: typeof objects
+    failList: boolean
+    removeCalls: number[]
+  } = {
     objects,
+    failList: false,
+    removeCalls: [],
     put(path, bytes) {
       objects.set(path, { bytes, type: 'application/octet-stream' })
     },
-    async signUpload(path, contentType) {
-      return { url: `fake://upload/${path}`, headers: { 'content-type': contentType, 'x-upsert': 'true' } }
+    putLink(link, bytes) {
+      const path = link.url.replace('fake://upload/', '')
+      if (link.headers['x-upsert'] !== 'true' && objects.has(path)) return false
+      objects.set(path, { bytes, type: 'application/octet-stream' })
+      return true
+    },
+    async signUpload(path, contentType, options) {
+      const upsert = options?.upsert !== false
+      upserts.set(path, upsert)
+      return { url: `fake://upload/${path}`, headers: { 'content-type': contentType, 'x-upsert': String(upsert) } }
+    },
+    async size(path) {
+      return objects.get(path)?.bytes.byteLength ?? null
+    },
+    async folders(folder) {
+      const prefix = folder ? `${folder}/` : ''
+      const names = new Set<string>()
+      for (const p of objects.keys()) {
+        if (!p.startsWith(prefix)) continue
+        const rest = p.slice(prefix.length).split('/')
+        if (rest.length > 1) names.add(rest[0]!)
+      }
+      return [...names]
     },
     async signRead(paths) {
       return paths.map((p) => `fake://read/${p}`)
     },
     async list(folder) {
+      if (storage.failList) throw new Error('Storage could not list that folder.')
       const prefix = `${folder}/`
       return [...objects.entries()].filter(([p]) => p.startsWith(prefix) && !p.slice(prefix.length).includes('/')).map(([p, o]) => ({ name: p.slice(prefix.length), size: o.bytes.byteLength }))
     },
     async remove(paths) {
+      if (paths.length > 1000) throw new Error('At most 1000 objects can be deleted per request.')
+      storage.removeCalls.push(paths.length)
       for (const p of paths) objects.delete(p)
     },
     async upload(path, bytes, contentType) {

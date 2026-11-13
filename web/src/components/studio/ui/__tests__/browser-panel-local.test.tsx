@@ -23,6 +23,9 @@ vi.mock('../client', () => ({
   importFile: (file: File) => importFile(file),
 }))
 
+// The signed-in person: the linked folders are theirs.
+vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({ auth: { getSession: async () => ({ data: { session: { user: { id: 'u-ana' } } } }) } }) }))
+
 let root: Root | null = null, host: HTMLElement | null = null
 const flush = async (ms = 0) => { await act(async () => { await new Promise(r => setTimeout(r, ms)) }) }
 const file = (path: string, size: number) => { const f = new File([], path.split('/').at(-1)!); Object.defineProperty(f, 'size', { value: size }); Object.defineProperty(f, 'webkitRelativePath', { value: path }); return f }
@@ -35,7 +38,7 @@ async function render(add = vi.fn()) {
   const { BrowserPanel, browserImport } = await import('../BrowserPanel')
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host)
   await act(async () => { root!.render(<BrowserPanel add={add} disabled={false} notify={() => {}} />) })
-  await flush()
+  await flush(); await flush()
   return { add, browserImport }
 }
 /** The folder the person "chooses" in the hidden folder input the panel opens. */
@@ -56,18 +59,21 @@ beforeEach(() => {
 })
 afterEach(() => { act(() => root?.unmount()); host?.remove(); document.body.innerHTML = ''; root = null; host = null; importFile.mockClear() })
 
+const pngHeader = (w: number, h: number) => { const b = new Uint8Array(33); b.set([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]); new DataView(b.buffer).setUint32(16, w); new DataView(b.buffer).setUint32(20, h); return b }
+const withBytes = (path: string, data: Uint8Array) => { const f = new File([data as BlobPart], path.split('/').at(-1)!); Object.defineProperty(f, 'webkitRelativePath', { value: path }); return f }
+
 describe('Browser panel: a folder on this computer', () => {
   it('offers to add a folder under the places, and says nothing leaves the computer first', async () => {
     await render()
     expect(text()).toContain('This computer')
     expect(button('Add a folder from this computer')).toBeTruthy()
-    expect(text()).toContain('Nothing leaves this computer until you add a file.')
+    expect(text()).toContain('Nothing leaves this computer until you add a file. An added file goes to this workspace’s Studio library.')
   })
 
   it('lists, searches and adds files from a chosen folder, uploading only what is added', async () => {
     const { add, browserImport } = await render()
     await act(async () => { button('Add a folder from this computer')!.click() })
-    const map = file('Holiday/stills/map.png', 120_000)
+    const map = withBytes('Holiday/stills/map.png', pngHeader(1600, 1000))
     await choose([file('Holiday/clip 2.mp4', 3_000_000), map, file('Holiday/theme.aiff', 10), file('Holiday/.DS_Store', 1)])
 
     const place = [...host!.querySelectorAll('.ab-place.local')]
@@ -112,7 +118,7 @@ describe('Browser panel: a folder on this computer', () => {
   })
 
   it('after a reload, a folder given for one visit offers “Choose it again”, then opens what is chosen', async () => {
-    localStorage.setItem('ni:studio:browser.local-folders.v1', JSON.stringify([{ id: 'local:trip', name: 'Holiday', mode: 'session' }]))
+    localStorage.setItem('ni:studio:browser.local-folders.v2:u-ana', JSON.stringify([{ id: 'local:trip', name: 'Holiday', mode: 'session' }]))
     localStorage.setItem('ni:studio:browser.place', JSON.stringify('local:trip'))
     await render()
     expect(host!.querySelector('.ab-place.local')!.className).toContain('s-choose-again')
@@ -126,11 +132,42 @@ describe('Browser panel: a folder on this computer', () => {
   })
 
   it('removes a folder from the Browser', async () => {
-    localStorage.setItem('ni:studio:browser.local-folders.v1', JSON.stringify([{ id: 'local:trip', name: 'Holiday', mode: 'session' }]))
+    localStorage.setItem('ni:studio:browser.local-folders.v2:u-ana', JSON.stringify([{ id: 'local:trip', name: 'Holiday', mode: 'session' }]))
     await render()
     await act(async () => { button('Remove Holiday from the Browser')!.click() })
     await flush()
     expect(host!.querySelector('.ab-place.local')).toBeNull()
-    expect(JSON.parse(localStorage.getItem('ni:studio:browser.local-folders.v1')!)).toEqual([])
+    expect(JSON.parse(localStorage.getItem('ni:studio:browser.local-folders.v2:u-ana')!)).toEqual([])
+  })
+
+  it('does not preview an enormous picture, and says why', async () => {
+    await render()
+    await act(async () => { button('Add a folder from this computer')!.click() })
+    await choose([withBytes('Holiday/huge.png', pngHeader(40000, 40000)), withBytes('Holiday/fine.png', pngHeader(800, 600))])
+    await act(async () => { row('huge.png')!.click() })
+    await flush(20)
+    expect(text()).toContain('Too large to preview: 40,000 × 40,000 pixels')
+    expect(host!.querySelector('.ab-stage img')).toBeNull()
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+    await act(async () => { row('fine.png')!.click() })
+    await flush(20)
+    expect(host!.querySelector<HTMLImageElement>('.ab-stage img')!.getAttribute('src')).toBe('blob:preview')
+  })
+
+  it('a previewed font is taken out of the page when the preview moves on', async () => {
+    const faces: unknown[] = [], fonts = { add: vi.fn((f: unknown) => { faces.push(f) }), delete: vi.fn() }
+    Object.defineProperty(document, 'fonts', { value: fonts, configurable: true })
+    vi.stubGlobal('FontFace', class { constructor(readonly family: string, readonly source: unknown) {} load() { return Promise.resolve(this) } })
+    try {
+      await render()
+      await act(async () => { button('Add a folder from this computer')!.click() })
+      await choose([withBytes('Type/Display.woff2', new Uint8Array(8)), withBytes('Type/notes.md', new Uint8Array(4))])
+      await act(async () => { row('Display.woff2')!.click() })
+      await flush(20)
+      expect(fonts.add).toHaveBeenCalledTimes(1)
+      await act(async () => { row('notes.md')!.click() })
+      await flush(20)
+      expect(fonts.delete).toHaveBeenCalledWith(faces[0])
+    } finally { vi.unstubAllGlobals() }
   })
 })

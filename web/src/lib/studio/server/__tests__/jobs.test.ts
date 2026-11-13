@@ -138,6 +138,8 @@ describe('jobs', () => {
     const { job } = await startExport(env.ctx, video)
     const claimed = await claimJob(deps(), 'w', ['export'])
     expect(claimed).toMatchObject({ id: job.id, videoId: video.id, input: { title: 'Spring / launch' } })
+    // The job names its video, so the editor shows it only on that video's Export dialog.
+    expect(job.videoId).toBe(video.id)
     const key = `exports/${job.id}/${claimed!.attempts}/video.mp4`
     putAll(await createBlobWrite(env.ctx, { key, bytes: 30, contentType: 'video/mp4' }))
     await commitBlob(env.ctx, key)
