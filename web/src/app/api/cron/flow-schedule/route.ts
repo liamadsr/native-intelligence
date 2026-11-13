@@ -42,7 +42,10 @@ export const maxDuration = 60
  *   its workspace's autonomy is off (the dispatcher's own kill switch check)
  *   it is not claimed: the dispatcher would only ledger the fire as paused,
  *   and the switched-off loop would never run. It stays due and fires on the
- *   first tick after autonomy is back on (`held` counts them).
+ *   first tick after autonomy is back on. One-time loops are scanned apart
+ *   from recurring ones, leaving out paused workspaces, so held ones never
+ *   take a due loop's place in the 200-row scan; the per-row check is the
+ *   backstop (`held` counts what it holds).
  *
  *   CALENDAR PASS (GEN-136) — scans ALL enabled calendar_event flows (not just
  *   due ones) because a calendar flow's next_run_at is derived from synced
@@ -175,20 +178,34 @@ async function runSchedulePass(
   supabase: ReturnType<typeof getServiceClient>,
   now: Date,
 ): Promise<{ due: number; fired: number; lost: number; errored: number; held: number }> {
-  const { data: due, error } = await supabase
-    .from('flow')
-    .select('id, workspace_id, trigger_config, next_run_at')
-    .eq('trigger_type', 'schedule')
-    .eq('enabled', true)
-    .not('next_run_at', 'is', null)
-    .lte('next_run_at', now.toISOString())
+  // Two scans, 200 rows each. A one-time loop held by its workspace's kill
+  // switch stays due (see the header), so it must never take a recurring
+  // loop's place in the queue: recurring schedules are read on their own,
+  // and one-time loops on theirs, leaving out the workspaces whose autonomy
+  // is off (they would only be held). The per-row check below stays the
+  // backstop (and the dispatcher's own rule, fail-open).
+  const dueScan = () =>
+    supabase
+      .from('flow')
+      .select('id, workspace_id, trigger_config, next_run_at')
+      .eq('trigger_type', 'schedule')
+      .eq('enabled', true)
+      .not('next_run_at', 'is', null)
+      .lte('next_run_at', now.toISOString())
+  const recurring = await dueScan()
+    .or('trigger_config->>cadence.is.null,trigger_config->>cadence.neq.once')
     .order('next_run_at', { ascending: true })
     .limit(200)
-
-  if (error) {
-    console.error('[flow-schedule cron] schedule due-scan failed:', error.message)
+  if (recurring.error) {
+    console.error('[flow-schedule cron] schedule due-scan failed:', recurring.error.message)
     return { due: 0, fired: 0, lost: 0, errored: 1, held: 0 }
   }
+  const paused = await pausedWorkspaceIds(supabase)
+  let onceScan = dueScan().eq('trigger_config->>cadence', 'once')
+  if (paused.length) onceScan = onceScan.not('workspace_id', 'in', `(${paused.join(',')})`)
+  const once = await onceScan.order('next_run_at', { ascending: true }).limit(200)
+  if (once.error) console.error('[flow-schedule cron] one-time due-scan failed:', once.error.message)
+  const due = [...(recurring.data ?? []), ...(once.error ? [] : (once.data ?? []))]
 
   let fired = 0
   let lost = 0
@@ -197,7 +214,7 @@ async function runSchedulePass(
   // The dispatcher's kill switch check (door flow_dispatch, fail-open), once per workspace.
   const autonomyOff = agentPausedCache(supabase, 'flow_dispatch')
 
-  for (const flow of due ?? []) {
+  for (const flow of due) {
     try {
       const cfg = flow.trigger_config as ScheduleTriggerConfig
 
@@ -251,7 +268,22 @@ async function runSchedulePass(
     }
   }
 
-  return { due: due?.length ?? 0, fired, lost, errored, held }
+  return { due: due.length, fired, lost, errored, held }
+}
+
+/**
+ * The workspaces whose autonomy is off (agent_autonomy.mode 'off', what the
+ * kill switch reads), for the one-time scan to leave out. Empty on a failed
+ * read: the scan then holds them row by row, as before.
+ */
+async function pausedWorkspaceIds(supabase: ReturnType<typeof getServiceClient>): Promise<string[]> {
+  try {
+    const { data, error } = await supabase.from('workspace').select('id').eq('settings->agent_autonomy->>mode', 'off').limit(1000)
+    if (error || !Array.isArray(data)) return []
+    return (data as Array<{ id?: unknown }>).flatMap((r) => (typeof r.id === 'string' && /^[\w-]+$/.test(r.id) ? [r.id] : []))
+  } catch {
+    return []
+  }
 }
 
 /**
