@@ -43,9 +43,9 @@ export function isCallCapture(row: { notes_channel_id?: string | null } | null |
   return typeof row?.notes_channel_id === 'string' && row.notes_channel_id.length > 0
 }
 
-/** The turn types the fence holds for: the live turns. (The end-of-call pass on a call's capture is not fenced here.) */
+/** The turn types the fence holds for. The end-of-call pass included (it reads the same words, as the same owner). */
 export function callCaptureFenceApplies(turnType: 'copilot' | 'notes' | 'batch'): boolean {
-  return turnType === 'notes' || turnType === 'copilot'
+  return turnType === 'notes' || turnType === 'copilot' || turnType === 'batch'
 }
 
 /**

@@ -89,7 +89,7 @@ describe('which capture is a call’s', () => {
     expect(isCallCapture({ notes_channel_id: null })).toBe(false)
     expect(isCallCapture({})).toBe(false)
     expect(isCallCapture(null)).toBe(false)
-    for (const t of ['notes', 'copilot'] as const) expect(fenceCallCapture({ notes_channel_id: CHANNEL }, t)).toBe(true)
+    for (const t of ['notes', 'copilot', 'batch'] as const) expect(fenceCallCapture({ notes_channel_id: CHANNEL }, t)).toBe(true)
     expect(fenceCallCapture({ notes_channel_id: null }, 'notes')).toBe(false)
   })
 })
@@ -120,6 +120,9 @@ describe('the tool map of a notes turn on a call’s capture (the real factories
   it('the same ceiling the tool route and the spec re-derive', () => {
     const { ceiling } = computeLiveAgentCeiling({ turnType: 'notes', assistOnly: false, agentConfig: BUILTIN_ASSISTANT_TOOL_SELECTION, callCapture: true })
     expect([...ceiling].sort()).toEqual(ALLOWED)
+    // The end-of-call pass on a call's capture: the same fence.
+    const batch = computeLiveAgentCeiling({ turnType: 'batch', assistOnly: false, agentConfig: BUILTIN_ASSISTANT_TOOL_SELECTION, callCapture: true })
+    expect([...batch.ceiling].sort()).toEqual(ALLOWED)
   })
 
   it('an ordinary capture keeps its whole surface', () => {
