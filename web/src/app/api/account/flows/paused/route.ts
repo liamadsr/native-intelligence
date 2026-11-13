@@ -9,9 +9,9 @@ import { NextResponse } from 'next/server'
 import { requireWorkspaceMember } from '@/lib/api-auth'
 import { serverError } from '@/lib/api-errors'
 import { PAUSED_WINDOW_MS, buildPausedFlows, type PausedFlowRunRow } from '@/lib/flows/paused-flows'
-import { canReadFlowRuns } from '@/lib/flows/types'
+import { canReadFlowRun } from '@/lib/flows/types'
 
-const RUN_SELECT = 'id, flow_id, status, fired_at, error_message, action_results, flow!inner(id, name, workspace_id, trigger_type, created_by)'
+const RUN_SELECT = 'id, flow_id, status, fired_at, error_message, action_results, private_to, flow!inner(id, name, workspace_id)'
 const SCAN_LIMIT = 150
 
 export async function GET() {
@@ -28,10 +28,7 @@ export async function GET() {
     .order('fired_at', { ascending: false })
     .limit(SCAN_LIMIT)
   if (error) return serverError(error.message)
-  // The owner's event loops' runs are the owner's alone (migration 640), in code too.
-  const rows = ((data ?? []) as unknown as PausedFlowRunRow[]).filter((r) => {
-    const flow = (Array.isArray(r.flow) ? r.flow[0] : r.flow) as { trigger_type?: string; created_by?: string | null } | null | undefined
-    return canReadFlowRuns(flow, user.id)
-  })
+  // A run stamped private to someone else is theirs alone (migration 640), in code too.
+  const rows = ((data ?? []) as unknown as Array<PausedFlowRunRow & { private_to?: string | null }>).filter((r) => canReadFlowRun(r, user.id))
   return NextResponse.json({ paused_flows: buildPausedFlows(rows) })
 }

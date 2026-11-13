@@ -65,6 +65,7 @@ import { decideReconcileSkip } from '@/lib/flows/reconcile-decision'
 import { AGENT_PAUSED_REASON, checkAgentPaused } from '@/lib/work/agent-paused'
 import { DEFAULT_APP_URL } from '@/lib/app-url'
 import { isOnceFire } from '@/lib/flows/schedule'
+import { flowRunPrivateTo } from '@/lib/flows/types'
 
 const APP_BASE_URL =
   process.env.NEXT_PUBLIC_APP_URL ??
@@ -354,6 +355,8 @@ export async function ledgerPausedFires(
     fireId: string | null
     source: WorkSource
     triggeredByActionId?: string | null
+    /** The fire's trigger type: an owner event trigger's skip row is stamped private to the loop's owner (flowRunPrivateTo). */
+    triggerType?: string
   },
 ): Promise<void> {
   const now = Date.now()
@@ -370,6 +373,7 @@ export async function ledgerPausedFires(
         action_results,
         ...legacySnapshotFromResults(action_results),
         response_body_preview: AGENT_PAUSED_REASON,
+        ...privateToColumn(args.triggerType, flow.created_by),
       })
     } catch {
       /* best-effort ledger */
@@ -440,6 +444,16 @@ async function startFlowWork(
     flowRunId: args.flowRunId ?? null,
     source: { flow_id: args.flow.id, ...args.source },
   })
+}
+
+/**
+ * The flow_run `private_to` stamp (migration 640) for a fire of this trigger
+ * run as `runAsUserId`: present only for the owner's event triggers, so every
+ * other insert's row is exactly what it was.
+ */
+function privateToColumn(triggerType: string | undefined, runAsUserId: string | null | undefined): { private_to?: string } {
+  const privateTo = flowRunPrivateTo(triggerType, runAsUserId ?? null)
+  return privateTo ? { private_to: privateTo } : {}
 }
 
 /**
@@ -1372,7 +1386,7 @@ export async function runEntitylessFires(
   // The kill switch (A5): autonomy off runs no loop. Ledgered per flow.
   const paused = await step.run('kill-switch', () => checkAgentPaused(supabase, workspaceId, 'flow_dispatch'))
   if (paused) {
-    await step.run('ledger-paused-fires', () => ledgerPausedFires(supabase, { workspaceId, flows, fireId, source }))
+    await step.run('ledger-paused-fires', () => ledgerPausedFires(supabase, { workspaceId, flows, fireId, source, triggerType: trigger.type }))
     return { dispatched: 0, skipped: 'agent_paused' }
   }
 
@@ -1384,7 +1398,7 @@ export async function runEntitylessFires(
       // per-workspace concurrency (2), accepted (eventFireCapState).
       const state = await step.run(`cap-${flow.id}`, async () => {
         const s = await eventFireCapState(supabase, flow.id)
-        if (s === 'capped') await ledgerSkippedFire(supabase, { workspaceId, flow, fireId, source, reason: EVENT_CAP_SKIP_REASON })
+        if (s === 'capped') await ledgerSkippedFire(supabase, { workspaceId, flow, fireId, source, reason: EVENT_CAP_SKIP_REASON, triggerType: trigger.type })
         return s
       })
       if (state !== 'ok') {
@@ -1412,7 +1426,17 @@ export async function runEntitylessFires(
         },
       )
       const { status, action_results } = ran
-      await insertFlowRunOnce(supabase, { id: flowRunId, flow_id: flow.id, triggered_by_action_id: null, status, action_results, ...legacySnapshotFromResults(action_results) })
+      // Stamped with who alone may read it (the run-as owner, for the owner's
+      // event triggers): the run's, whatever the loop becomes later.
+      await insertFlowRunOnce(supabase, {
+        id: flowRunId,
+        flow_id: flow.id,
+        triggered_by_action_id: null,
+        status,
+        action_results,
+        ...legacySnapshotFromResults(action_results),
+        ...privateToColumn(trigger.type, flow.created_by),
+      })
       await backfillCardRunLink(supabase, fireId, flowRunId)
       await keepRunState(supabase, {
         flowRunId,
@@ -1444,6 +1468,7 @@ async function ledgerSkippedFire(
     fireId: string | null
     source: WorkSource
     reason: string
+    triggerType?: string
   },
 ): Promise<void> {
   const action_results = skippedActionResults(args.flow.actions, args.reason)
@@ -1457,6 +1482,7 @@ async function ledgerSkippedFire(
       action_results,
       ...legacySnapshotFromResults(action_results),
       response_body_preview: args.reason,
+      ...privateToColumn(args.triggerType, args.flow.created_by),
     })
   } catch {
     /* best-effort ledger */

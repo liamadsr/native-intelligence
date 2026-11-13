@@ -1,7 +1,7 @@
 /**
- * GET /api/account/flows/paused: a loop on its owner's mail, chat or documents
- * never shows in another member's banner (its runs are the owner's alone,
- * migration 640), while every other loop's pause still does.
+ * GET /api/account/flows/paused: a run stamped private to someone (a fire of
+ * their own mail, chat or documents, migration 640) never shows in another
+ * member's banner, while every other loop's pause still does.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { readJson } from '@/test/integration'
@@ -10,8 +10,8 @@ const LIMIT_ERROR = 'AI usage limit reached for this plan'
 const now = new Date().toISOString()
 
 const runs = [
-  { id: 'r1', flow_id: 'f-mail', status: 'failed', fired_at: now, error_message: LIMIT_ERROR, action_results: [], flow: { id: 'f-mail', name: 'Mail digest', workspace_id: 'ws-1', trigger_type: 'email_received', created_by: 'user-owner' } },
-  { id: 'r2', flow_id: 'f-daily', status: 'failed', fired_at: now, error_message: LIMIT_ERROR, action_results: [], flow: { id: 'f-daily', name: 'Daily brief', workspace_id: 'ws-1', trigger_type: 'schedule', created_by: 'user-owner' } },
+  { id: 'r1', flow_id: 'f-mail', status: 'failed', fired_at: now, error_message: LIMIT_ERROR, action_results: [], private_to: 'user-owner', flow: { id: 'f-mail', name: 'Mail digest', workspace_id: 'ws-1' } },
+  { id: 'r2', flow_id: 'f-daily', status: 'failed', fired_at: now, error_message: LIMIT_ERROR, action_results: [], private_to: null, flow: { id: 'f-daily', name: 'Daily brief', workspace_id: 'ws-1' } },
 ]
 
 const caller = vi.hoisted(() => ({ id: 'user-teammate' }))
@@ -28,7 +28,7 @@ vi.mock('@/lib/api-auth', () => ({
 const { GET } = await import('@/app/api/account/flows/paused/route')
 
 describe('GET /api/account/flows/paused', () => {
-  it("leaves another member's event loop out", async () => {
+  it("leaves out another member's stamped run", async () => {
     caller.id = 'user-teammate'
     const body = await readJson<{ paused_flows: Array<{ flow_id: string }> }>(await GET())
     expect(body.paused_flows.map((p) => p.flow_id)).toEqual(['f-daily'])

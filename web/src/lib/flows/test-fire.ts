@@ -112,6 +112,35 @@ export function prTestTrigger(config: Record<string, unknown> | null | undefined
   return { type: 'pr_status_changed', entity_type: 'action', from_status_id: null, to_status_id: prSampleState(config), fired_at: firedAt }
 }
 
+/**
+ * A test's trigger for a loop with no triggering entity (schedule, capture,
+ * calendar, quote, and the owner's mail, chat and document loops): its own
+ * type, with the ids its template reads naming items that aren't there (the
+ * read tools say so). Shared by chat's test_flow (runDryTestFire) and the
+ * editor's Test (the fire route), so both build the same fire.
+ */
+export function entitylessTestTrigger(triggerType: string, config: Record<string, unknown> | null | undefined, firedAt: string): TriggerContext {
+  return {
+    type: triggerType as TriggerContext['type'],
+    entity_type: null,
+    from_status_id: null,
+    to_status_id: null,
+    fired_at: firedAt,
+    // A quote loop's test names a quote that isn't there: get_quote says so.
+    ...(triggerType === 'quote_received' ? { quote_id: SYNTH_ID } : {}),
+    // The event loops' tests name items that aren't there: the read tools say so.
+    ...(triggerType === 'email_received' ? { email_thread_id: SYNTH_ID, email_account_id: null } : {}),
+    ...(triggerType === 'chat_message'
+      ? {
+          chat_message_id: SYNTH_ID,
+          chat_channel_id: ((config ?? {}) as { channel_id?: string | null }).channel_id ?? SYNTH_ID,
+          chat_thread_root_id: null,
+        }
+      : {}),
+    ...(triggerType === 'document_created' ? { document_id: SYNTH_ID } : {}),
+  }
+}
+
 /** What to test against: a real entity (status / PR loops) or capture (capture loops) of the workspace. */
 export interface TestFireSample {
   entity_id?: string
@@ -204,25 +233,7 @@ export async function runDryTestFire(args: {
       fired_at: firedAt,
     }
   } else {
-    trigger = {
-      type: flow.trigger_type as TriggerContext['type'],
-      entity_type: null,
-      from_status_id: null,
-      to_status_id: null,
-      fired_at: firedAt,
-      // A quote loop's test names a quote that isn't there: get_quote says so.
-      ...(flow.trigger_type === 'quote_received' ? { quote_id: SYNTH_ID } : {}),
-      // The event loops' tests name items that aren't there: the read tools say so.
-      ...(flow.trigger_type === 'email_received' ? { email_thread_id: SYNTH_ID, email_account_id: null } : {}),
-      ...(flow.trigger_type === 'chat_message'
-        ? {
-            chat_message_id: SYNTH_ID,
-            chat_channel_id: ((flow.trigger_config ?? {}) as { channel_id?: string | null }).channel_id ?? SYNTH_ID,
-            chat_thread_root_id: null,
-          }
-        : {}),
-      ...(flow.trigger_type === 'document_created' ? { document_id: SYNTH_ID } : {}),
-    }
+    trigger = entitylessTestTrigger(flow.trigger_type, flow.trigger_config, firedAt)
     if (flow.trigger_type === 'capture_processed') {
       if (sample?.capture_id) {
         const { data } = await supabase

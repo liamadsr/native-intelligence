@@ -40,7 +40,7 @@ export function FlowRunHistory({
     fetch(`/api/account/flows/${flowId}/runs?limit=20${include}`)
       .then((r) => r.json())
       .then((j) => {
-        // A loop on its owner's mail, chat or documents: only its owner sees its runs.
+        // Runs of a loop on someone's own mail, chat or documents are theirs alone: the note says so.
         if (!cancelled) setState({ flowId, runs: j.runs || [], ownerOnly: j.owner_only ? (typeof j.note === 'string' ? j.note : '') : null })
       })
       .catch(() => {
@@ -75,11 +75,11 @@ export function FlowRunHistory({
     )
   }
 
-  if (ownerOnly !== null) {
+  if (ownerOnly !== null && runs.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-1 px-3 py-6 text-center">
         <Clock className="h-4 w-4 text-muted-foreground" />
-        <p className="text-xs text-muted-foreground">{ownerOnly || "Only this loop's owner can see its runs."}</p>
+        <p className="text-xs text-muted-foreground">{ownerOnly || 'Only the person a run of this loop ran for can see it.'}</p>
       </div>
     )
   }
@@ -97,6 +97,7 @@ export function FlowRunHistory({
 
   return (
     <ul className="space-y-1 p-2">
+      {ownerOnly !== null && <li className="px-1 pb-1 text-xs text-muted-foreground">{ownerOnly || 'Only the person a run of this loop ran for can see it.'}</li>}
       {runs.map((run) => {
         const highlighted = run.id === highlightRunId
         // The highlight is part of the key so a row re-mounts (and so re-derives

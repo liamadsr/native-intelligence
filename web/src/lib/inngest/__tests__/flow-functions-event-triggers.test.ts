@@ -144,6 +144,8 @@ describe('email_received', () => {
     expect(out).toMatchObject({ dispatched: 0, skipped: 'agent_paused' })
     expect(h.runFlow).not.toHaveBeenCalled()
     expect(tables.flow_run.map((r) => r.response_body_preview)).toEqual([AGENT_PAUSED_REASON])
+    // Even the paused row is the owner's alone.
+    expect(tables.flow_run[0].private_to).toBe('u-ana')
   })
 
   it('the cap: a capped loop is skipped with a reason the history shows; quiet within the hour', async () => {
@@ -228,6 +230,8 @@ describe('quote_received, through the shared helper', () => {
     h.cap = 'capped' // not consulted for quotes
     expect(await run('flow-dispatch-on-quote-received', event)).toEqual({ dispatched: 1, quote_id: 'q-1' })
     expect(triggerOf()).toMatchObject({ type: 'quote_received', quote_id: 'q-1' })
+    // A workspace loop's run is not stamped: every member reads it.
+    expect(tables.flow_run[0]).not.toHaveProperty('private_to')
     // A retry of the same fire lands on the same run id.
     const first = tables.flow_run[0].id
     tables.flow_run.length = 0

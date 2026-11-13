@@ -5,7 +5,10 @@
  * against the usual in-memory Supabase double. Only the run itself (the
  * executors, the work ledger) is stubbed. In one fire: the loop whose owner
  * can read the item runs; the one whose owner can't is never touched; the one
- * at its daily cap is ledgered as a skip, once an hour. Made-up people.
+ * at its daily cap is ledgered as a skip, once an hour; each row is stamped
+ * private to the loop's owner (flow_run.private_to). After a loop is handed
+ * to someone else, it fires for the NEW owner's mailbox and what they can
+ * see, never the old owner's. Made-up people.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -113,8 +116,9 @@ describe('chat_message: real matcher, visibility and cap in one fire', () => {
     expect(h.runFlow).toHaveBeenCalledTimes(1)
     const rows = newRows()
     expect(rows.map((r) => r.flow_id).sort()).toEqual(['f-ana', 'f-ben'])
-    expect(rows.find((r) => r.flow_id === 'f-ben')).toMatchObject({ response_body_preview: EVENT_CAP_SKIP_REASON })
+    expect(rows.find((r) => r.flow_id === 'f-ben')).toMatchObject({ response_body_preview: EVENT_CAP_SKIP_REASON, private_to: 'u-ben' })
     expect(rows.find((r) => r.flow_id === 'f-ana')?.response_body_preview).not.toBe(EVENT_CAP_SKIP_REASON)
+    expect(rows.find((r) => r.flow_id === 'f-ana')).toMatchObject({ private_to: 'u-ana' })
     expect(rows.some((r) => r.flow_id === 'f-cy')).toBe(false)
   })
 
@@ -166,5 +170,45 @@ describe('document_created: real matcher, visibility and cap in one fire', () =>
     tables.flow.push(loop('f-ana', 'u-ana', 'document_created'))
     expect(await run('flow-dispatch-on-document-created', event)).toEqual({ dispatched: 0 })
     expect(h.runFlow).not.toHaveBeenCalled()
+  })
+})
+
+describe('after a loop is handed to someone else', () => {
+  const hand = (id: string, to: string) => {
+    const f = tables.flow.find((r) => r.id === id)!
+    f.created_by = to
+  }
+
+  it("email: it fires on the NEW owner's new mail, stamped to them, and no longer on the old owner's", async () => {
+    tables.flow.push(loop('f-mail', 'u-ana', 'email_received'))
+    hand('f-mail', 'u-ben')
+    const mail = (user: string) => ({
+      id: `email-received:${user}:m-1`,
+      data: { workspace_id: WS, user_id: user, account_id: 'acct-1', thread_id: 't-1', message_id: 'm-1', from_email: 'cy@acme.example', fired_at: '2026-11-16T15:00:00Z' },
+    })
+    expect(await run('flow-dispatch-on-email-received', mail('u-ana'))).toMatchObject({ dispatched: 0 })
+    expect(h.runFlow).not.toHaveBeenCalled()
+    expect(await run('flow-dispatch-on-email-received', mail('u-ben'))).toMatchObject({ dispatched: 1 })
+    expect(newRows()).toEqual([expect.objectContaining({ flow_id: 'f-mail', private_to: 'u-ben' })])
+  })
+
+  it("chat: what the NEW owner can read decides (Cy can't read the design channel; Ben can)", async () => {
+    const event = { id: 'chat-message:msg-1', data: { workspace_id: WS, message_id: 'msg-1', channel_id: CH_DESIGN, fired_at: '2026-11-16T15:00:00Z' } }
+    tables.flow.push(loop('f-chat', 'u-ana', 'chat_message', { channel_id: CH_DESIGN, mentions_only: false }))
+    hand('f-chat', 'u-cy')
+    expect(await run('flow-dispatch-on-chat-message', event)).toMatchObject({ dispatched: 0 })
+    hand('f-chat', 'u-ben')
+    expect(await run('flow-dispatch-on-chat-message', event)).toMatchObject({ dispatched: 1 })
+    expect(newRows()).toEqual([expect.objectContaining({ flow_id: 'f-chat', private_to: 'u-ben' })])
+  })
+
+  it("documents: what the NEW owner can see decides (Cy can't see doc-1)", async () => {
+    const event = { id: 'document-created:doc-1', data: { workspace_id: WS, document_id: 'doc-1' } }
+    tables.flow.push(loop('f-doc', 'u-ana', 'document_created'))
+    hand('f-doc', 'u-cy')
+    expect(await run('flow-dispatch-on-document-created', event)).toEqual({ dispatched: 0 })
+    hand('f-doc', 'u-ben')
+    expect(await run('flow-dispatch-on-document-created', event)).toMatchObject({ dispatched: 1 })
+    expect(newRows()).toEqual([expect.objectContaining({ flow_id: 'f-doc', private_to: 'u-ben' })])
   })
 })

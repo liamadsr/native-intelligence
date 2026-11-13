@@ -3,16 +3,16 @@
  * widened check keeps every earlier trigger type (458's list) and adds the
  * three new ones, every trigger the app builds is allowed, it is the newest
  * definition of the check, it is bounded and re-runnable, and holds no
- * backslash. And the flow_run read policy: restated as the newest
- * definition, still a workspace-member read for every other loop, and
- * owner-only for exactly the app's owner event triggers.
+ * backslash. And the flow_run read fence: a nullable private_to stamp on
+ * each run, and 107's policy restated as the newest definition, still a
+ * workspace-member read, now with a stamped run readable only by its user.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { migrationsInOrder } from '@/test/migration-sql'
 import { FLOW_TOOL_TRIGGER_TYPES } from '@/lib/ai/tools/flows'
-import { OWNER_EVENT_TRIGGER_TYPES, canReadFlowRuns } from '@/lib/flows/types'
+import { OWNER_EVENT_TRIGGER_TYPES, canReadFlowRun, flowRunPrivateTo } from '@/lib/flows/types'
 
 const SQL = readFileSync(join(process.cwd(), 'supabase/migrations/640_flow_event_triggers.sql'), 'utf8')
 const BODY = SQL.split('\n')
@@ -52,7 +52,10 @@ describe('migration 640', () => {
     expect(BODY).toContain("SET LOCAL lock_timeout = '5s';")
     expect(BODY).toContain('alter table public.flow drop constraint if exists flow_trigger_type_check;')
     expect(BODY.indexOf('drop constraint if exists flow_trigger_type_check')).toBeLessThan(BODY.indexOf('add constraint flow_trigger_type_check'))
-    expect(BODY).not.toMatch(/create table|add column|create (unique )?index/i)
+    expect(BODY).not.toMatch(/create table|create (unique )?index/i)
+    // One column, nullable, no default, no foreign key (a removed user's runs stay private, never public).
+    expect(BODY.match(/add column/gi)).toHaveLength(1)
+    expect(BODY).toContain('alter table public.flow_run add column if not exists private_to uuid;')
   })
 
   describe('the flow_run read policy', () => {
@@ -69,14 +72,13 @@ describe('migration 640', () => {
       expect(defining.map((m) => m.file)).toEqual(['107_flows.sql', '640_flow_event_triggers.sql'])
     })
 
-    it("keeps 107's member read and fences exactly the owner event triggers to created_by", () => {
+    it("keeps 107's member read and adds the run's own stamp, never the loop's current trigger or owner", () => {
       const m = POLICY.exec(BODY)
       expect(m, 'the policy is created').not.toBeNull()
       const using = m![1]
       expect(using).toContain('select 1 from public.flow f where f.id = flow_run.flow_id and public.is_workspace_member(f.workspace_id)')
-      const list = /f\.trigger_type not in \(([^)]*)\) or f\.created_by = auth\.uid\(\)/.exec(using)
-      expect(list, 'the owner-only clause').not.toBeNull()
-      expect(list![1].split(',').map((v) => v.trim().replace(/^'|'$/g, ''))).toEqual([...OWNER_EVENT_TRIGGER_TYPES])
+      expect(using).toContain('and (flow_run.private_to is null or flow_run.private_to = auth.uid())')
+      expect(using).not.toMatch(/trigger_type|created_by/)
     })
 
     it("keepRunState's table (step outputs, parked runs) stays server-only: no migration grants it a policy", () => {
@@ -86,15 +88,18 @@ describe('migration 640', () => {
       expect(defining?.sql).toMatch(/alter table public\.flow_run_state enable row level security;\s*revoke all on public\.flow_run_state from anon, authenticated;/)
     })
 
-    it('canReadFlowRuns, the code twin, agrees', () => {
+    it('the stamp: the run-as user for exactly the owner event triggers; canReadFlowRun, the code twin, agrees', () => {
       for (const t of OWNER_EVENT_TRIGGER_TYPES) {
-        expect(canReadFlowRuns({ trigger_type: t, created_by: 'u-owner' }, 'u-owner')).toBe(true)
-        expect(canReadFlowRuns({ trigger_type: t, created_by: 'u-owner' }, 'u-teammate')).toBe(false)
-        expect(canReadFlowRuns({ trigger_type: t, created_by: null }, 'u-teammate')).toBe(false)
-        expect(canReadFlowRuns({ trigger_type: t, created_by: 'u-owner' }, null)).toBe(false)
+        expect(flowRunPrivateTo(t, 'u-owner')).toBe('u-owner')
+        expect(flowRunPrivateTo(t, null)).toBeNull()
       }
-      for (const t of EARLIER) expect(canReadFlowRuns({ trigger_type: t, created_by: 'u-owner' }, 'u-teammate')).toBe(true)
-      expect(canReadFlowRuns(null, 'u-owner')).toBe(false)
+      for (const t of EARLIER) expect(flowRunPrivateTo(t, 'u-owner')).toBeNull()
+      expect(canReadFlowRun({ private_to: 'u-owner' }, 'u-owner')).toBe(true)
+      expect(canReadFlowRun({ private_to: 'u-owner' }, 'u-teammate')).toBe(false)
+      expect(canReadFlowRun({ private_to: 'u-owner' }, null)).toBe(false)
+      expect(canReadFlowRun({ private_to: null }, 'u-teammate')).toBe(true)
+      expect(canReadFlowRun({}, 'u-teammate')).toBe(true)
+      expect(canReadFlowRun(null, 'u-owner')).toBe(false)
     })
   })
 })

@@ -1,10 +1,12 @@
 /**
  * The owner's event loops (email_received, chat_message, document_created)
- * summarize the owner's own mail, DMs and documents, so their runs are the
- * owner's alone, whatever client the tools run on (migration 640's policy,
- * restated in code): list_flow_runs leaves them out for anyone else (with a
- * note), get_flow_run refuses them, and every other loop's runs stay the
- * workspace's. list_flows and update_flow show another member's loop without
+ * summarize the owner's own mail, DMs and documents, so each of their runs is
+ * stamped private to the person it ran as (flow_run.private_to), whatever
+ * client the tools run on (migration 640's policy, restated in code):
+ * list_flow_runs leaves them out for anyone else (with a note), get_flow_run
+ * refuses them, and every other run stays the workspace's. The stamp is the
+ * run's: after the loop's trigger changes or it is handed to someone else,
+ * its old runs stay hidden. list_flows and update_flow show another member's loop without
  * its channel or sender filter ("a channel", "new email"). Made-up people.
  */
 import { describe, expect, it, vi } from 'vitest'
@@ -33,18 +35,20 @@ function run(id: string, flowId: string) {
   return {
     id,
     flow_id: flowId,
+    // Stamped at insert: a fire of an event loop is its run-as owner's alone.
+    private_to: flow.trigger_type === 'schedule' ? null : flow.created_by,
     status: 'success',
     action_results: [{ action_id: 'a1', response_body_preview: flow.trigger_type === 'schedule' ? 'The daily brief' : 'Summary of the private thread' }],
     fired_at: '2026-11-10T09:00:00Z',
     // The embed, and its filter key as memoryDb reads it.
-    flow: { workspace_id: WS, name: flow.name, actions: [], trigger_type: flow.trigger_type, created_by: flow.created_by },
+    flow: { workspace_id: WS, name: flow.name, actions: [] },
     'flow.workspace_id': WS,
   }
 }
 
-function tools(userId: string) {
+function tools(userId: string, flowRows: Array<Record<string, unknown>> = flows) {
   const db = memoryDb({
-    flow: flows.map((f) => ({ ...f })),
+    flow: flowRows.map((f) => ({ ...f })),
     flow_run: [run('r-mail', 'f-mail'), run('r-chat', 'f-chat'), run('r-daily', 'f-daily')],
     member: [
       { id: 'm-ana', workspace_id: WS, user_id: OWNER, display_name: 'Ana Fernhill', role: 'member' },
@@ -58,7 +62,7 @@ describe("list_flow_runs / get_flow_run: the owner's event loops", () => {
   it('another member sees only the workspace loop runs, with a note', async () => {
     const out = await tools(TEAMMATE).list_flow_runs.execute({}, EXEC)
     expect((out.runs as Array<{ id: string }>).map((r) => r.id)).toEqual(['r-daily'])
-    expect(out.note).toMatch(/Only this loop's owner/)
+    expect(out.note).toMatch(/Only the person a run of this loop ran for/)
     expect(JSON.stringify(out)).not.toContain('private thread')
   })
 
@@ -81,7 +85,7 @@ describe("list_flow_runs / get_flow_run: the owner's event loops", () => {
     for (const id of ['r-mail', 'r-chat']) {
       const out = await t.get_flow_run.execute({ run_id: id }, EXEC)
       expect(out.success).toBe(false)
-      expect(String(out.error)).toMatch(/Only this loop's owner/)
+      expect(String(out.error)).toMatch(/Only the person a run of this loop ran for/)
       expect(JSON.stringify(out)).not.toContain('private thread')
     }
     expect((await t.get_flow_run.execute({ run_id: 'r-daily' }, EXEC)).success).toBe(true)
@@ -91,6 +95,24 @@ describe("list_flow_runs / get_flow_run: the owner's event loops", () => {
     const out = await tools(OWNER).get_flow_run.execute({ run_id: 'r-mail' }, EXEC)
     expect(out.success).toBe(true)
     expect(JSON.stringify(out)).toContain('private thread')
+    expect(out.run).not.toHaveProperty('private_to')
+  })
+
+  it("the trigger changed to a schedule: the old mail runs stay Ana's", async () => {
+    const changed = flows.map((f) => (f.id === 'f-mail' ? { ...f, trigger_type: 'schedule', trigger_config: { kind: 'schedule', cadence: 'daily', time: '09:00', timezone: 'UTC' } } : f))
+    const t = tools(TEAMMATE, changed)
+    expect((await t.get_flow_run.execute({ run_id: 'r-mail' }, EXEC)).success).toBe(false)
+    expect(JSON.stringify(await t.list_flow_runs.execute({ flow_id: 'f-mail' }, EXEC))).not.toContain('private thread')
+  })
+
+  it("the loop handed to Bo: Ana's old runs stay hers, never the new owner's", async () => {
+    const handed = flows.map((f) => ({ ...f, created_by: TEAMMATE }))
+    const bo = tools(TEAMMATE, handed)
+    for (const id of ['r-mail', 'r-chat']) expect((await bo.get_flow_run.execute({ run_id: id }, EXEC)).success).toBe(false)
+    const listed = await bo.list_flow_runs.execute({}, EXEC)
+    expect((listed.runs as Array<{ id: string }>).map((r) => r.id)).toEqual(['r-daily'])
+    // Ana still reads her own, though the loop is no longer hers.
+    expect((await tools(OWNER, handed).get_flow_run.execute({ run_id: 'r-mail' }, EXEC)).success).toBe(true)
   })
 })
 

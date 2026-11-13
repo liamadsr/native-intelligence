@@ -36,17 +36,36 @@ export function isOwnerEventTrigger(triggerType: unknown): triggerType is OwnerE
 }
 
 /**
- * Whether `userId` may read this loop's runs and what they produced (flow_run
- * rows, their step results and output previews). A loop on the owner's event
- * triggers summarizes the owner's own mail, DMs or documents: only its owner
- * (created_by) reads its runs. Every other loop's runs are the workspace's,
- * as before. The same rule as migration 640's flow_run read policy, for the
+ * Who alone may read a run, stamped on its flow_run row (`private_to`, migration
+ * 640) when the row is written: the run-as user of a fire of the owner's event
+ * triggers (their mail, DMs, documents: the run's step results summarize
+ * them). Null for every other fire: the workspace's members read it. The stamp
+ * belongs to the RUN, so changing the loop's trigger or handing it to someone
+ * else later exposes none of its old runs.
+ */
+export function flowRunPrivateTo(triggerType: unknown, runAsUserId: string | null | undefined): string | null {
+  return isOwnerEventTrigger(triggerType) && runAsUserId ? runAsUserId : null
+}
+
+/**
+ * Whether `userId` may read this run and what it produced: a stamped run only
+ * its `private_to` user, any other the workspace (membership is the caller's
+ * own check). The same rule as migration 640's flow_run read policy, for the
  * reads that run on the service role.
  */
-export function canReadFlowRuns(flow: { trigger_type?: unknown; created_by?: string | null } | null | undefined, userId: string | null | undefined): boolean {
-  if (!flow) return false
-  if (!isOwnerEventTrigger(flow.trigger_type)) return true
-  return !!userId && flow.created_by === userId
+export function canReadFlowRun(run: { private_to?: string | null } | null | undefined, userId: string | null | undefined): boolean {
+  if (!run) return false
+  if (!run.private_to) return true
+  return !!userId && run.private_to === userId
+}
+
+/**
+ * Whether the history of this loop is (mostly) another person's to read: a
+ * loop on the owner's event triggers, seen by someone other than its owner.
+ * Only for the note a history shows; what is read is decided per run.
+ */
+export function flowRunsAreSomeoneElses(flow: { trigger_type?: unknown; created_by?: string | null } | null | undefined, userId: string | null | undefined): boolean {
+  return !!flow && isOwnerEventTrigger(flow.trigger_type) && flow.created_by !== userId
 }
 
 /**
@@ -76,7 +95,7 @@ export function triggerConfigForViewer(
 }
 
 /** What a member who may not read a loop's runs is told instead of them. */
-export const OWNER_ONLY_RUNS_NOTE = "Only this loop's owner can see its runs: it starts on their own mail, chat or documents."
+export const OWNER_ONLY_RUNS_NOTE = "Only the person a run of this loop ran for can see it: it starts on their own mail, chat or documents."
 
 export type FlowActionType = 'http_post' | 'run_skill' | 'run_agent' | 'archive_capture' | 'call_tool' | 'run_local_agent'
 

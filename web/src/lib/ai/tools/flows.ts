@@ -130,7 +130,7 @@ import type {
   RunSkillActionConfig,
   ScheduleTriggerConfig,
 } from '@/lib/flows/types'
-import { OWNER_ONLY_RUNS_NOTE, canReadFlowRuns, triggerConfigForViewer } from '@/lib/flows/types'
+import { OWNER_ONLY_RUNS_NOTE, canReadFlowRun, triggerConfigForViewer } from '@/lib/flows/types'
 import {
   approvedFlowCard,
   classifyStepEdit,
@@ -2274,7 +2274,7 @@ export function createFlowTools(
         let q = supabase
           .from('flow_run')
           .select(
-            'id, flow_id, triggered_by_action_id, status, action_results, request_summary, response_status_code, response_body_preview, error_message, fired_at, duration_ms, flow:flow!inner(workspace_id, name, trigger_type, created_by)',
+            'id, flow_id, triggered_by_action_id, status, action_results, request_summary, response_status_code, response_body_preview, error_message, fired_at, duration_ms, private_to, flow:flow!inner(workspace_id, name)',
           )
           .eq('flow.workspace_id', runsWs)
           .order('fired_at', { ascending: false })
@@ -2283,13 +2283,14 @@ export function createFlowTools(
         if (status) q = q.eq('status', status)
         const { data, error } = await q
         if (error) return { error: error.message }
-        // A loop on the owner's mail, chat or documents: its runs are the
-        // owner's alone (migration 640's policy, restated for any client).
-        type RunRow = Record<string, unknown> & { flow?: { workspace_id?: string; name?: string | null; trigger_type?: string; created_by?: string | null } | null }
+        // A run stamped private to someone (a fire of their own mail, chat
+        // or documents) is theirs alone (migration 640's policy, restated
+        // for any client), whatever the loop is now.
+        type RunRow = Record<string, unknown> & { private_to?: string | null; flow?: { workspace_id?: string; name?: string | null } | null }
         const rows = (data || []) as RunRow[]
-        const readable = rows.filter((r) => canReadFlowRuns(r.flow, userId))
+        const readable = rows.filter((r) => canReadFlowRun(r, userId))
         const hidden = rows.length - readable.length
-        const runs = readable.map(({ flow, ...run }) => ({ ...run, flow: flow ? { workspace_id: flow.workspace_id, name: flow.name ?? null } : null }))
+        const runs = readable.map(({ private_to: _p, flow, ...run }) => (void _p, { ...run, flow: flow ? { workspace_id: flow.workspace_id, name: flow.name ?? null } : null }))
         return {
           runs,
           count: runs.length,
@@ -2307,18 +2308,18 @@ export function createFlowTools(
         const { data, error } = await supabase
           .from('flow_run')
           .select(
-            'id, flow_id, triggered_by_action_id, status, action_results, request_summary, response_status_code, response_body_preview, error_message, fired_at, duration_ms, flow:flow!inner(workspace_id, name, actions, trigger_type, created_by)',
+            'id, flow_id, triggered_by_action_id, status, action_results, request_summary, response_status_code, response_body_preview, error_message, fired_at, duration_ms, private_to, flow:flow!inner(workspace_id, name, actions)',
           )
           .eq('id', run_id)
           .maybeSingle()
         if (error) return { success: false, error: 'Could not read that run. Try again.' }
         const row = data as
-          | (Record<string, unknown> & { flow?: { workspace_id?: string; name?: string | null; actions?: unknown; trigger_type?: string; created_by?: string | null } | null })
+          | (Record<string, unknown> & { private_to?: string | null; flow?: { workspace_id?: string; name?: string | null; actions?: unknown } | null })
           | null
         const runWs = row?.flow?.workspace_id
         if (!row || !runWs) return { success: false, error: 'Run not found' }
-        // The owner's event loops: their runs are the owner's alone.
-        if (!canReadFlowRuns(row.flow, userId)) return { success: false, error: OWNER_ONLY_RUNS_NOTE }
+        // A run stamped private to someone else is theirs alone.
+        if (!canReadFlowRun(row, userId)) return { success: false, error: OWNER_ONLY_RUNS_NOTE }
         // The run's own workspace: the caller must be a member (and, fenced, it must be this one).
         if (runWs !== workspaceId) {
           if (strictWorkspace) return { success: false, error: 'Run not found' }
@@ -2331,7 +2332,8 @@ export function createFlowTools(
           if (a && typeof a.id === 'string') steps.set(a.id, describeAction(a, new Map()))
         }
         const results = (Array.isArray(row.action_results) ? row.action_results : []) as Array<Record<string, unknown>>
-        const { flow: flowEmbed, ...run } = row
+        const { flow: flowEmbed, private_to: _privateTo, ...run } = row
+        void _privateTo
         return {
           success: true,
           run: {
