@@ -134,21 +134,31 @@ export function x264Args(): string[] {
  * frame on the grid, the sound resampled onto the picture's clock. Sizes are
  * made even (H.264 in 4:2:0 needs it).
  */
-export async function conformVideo(input: string, out: string, fps: 30 | 60, opts: { seconds?: number; signal?: AbortSignal; lenient?: boolean } = {}): Promise<void> {
-  // `lenient`: a recording cut short (a crash mid-take) may end mid-frame; damage there is read past, not refused.
+export async function conformVideo(input: string, out: string, fps: 30 | 60, opts: { seconds?: number; signal?: AbortSignal; lenient?: boolean; threads?: number } = {}): Promise<void> {
+  await run('ffmpeg', ['-nostdin', ...conformArgs(input, out, fps, opts)], { timeout: mediaTimeout(opts.seconds ?? 600, 6), maxBuffer: 4 * 1024 * 1024, signal: opts.signal })
+}
+
+/**
+ * The arguments of a conform, one place for both ways it runs: from a file (an import after Stop) and from a pipe fed
+ * piece by piece while the take records (`input` 'pipe:0', jobs/live-import.ts). Given the same bytes and the same
+ * threads, the two write the same file, byte for byte. `lenient`: a recording cut short (a crash mid-take) may end
+ * mid-frame; damage there is read past, not refused (a live take is always read so: it may stop anywhere). `threads`:
+ * the threads of the whole conform, decoder (before `-i`), filters (`-filter_threads`) and encoder alike (default: as
+ * many as each picks, about one a core). Pure.
+ */
+export function conformArgs(input: string, out: string, fps: 30 | 60, opts: { lenient?: boolean; threads?: number } = {}): string[] {
   const strict = opts.lenient ? ['-err_detect', 'ignore_err'] : ['-xerror']
-  await run(
-    'ffmpeg',
-    [
-      '-nostdin', '-v', 'error', ...strict, '-fflags', '+genpts', '-y', '-i', input,
-      '-map', '0:v:0', '-map', '0:a:0?',
-      '-vf', `fps=${fps},scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p`, '-fps_mode', 'cfr',
-      ...x264Args(), '-g', String(fps),
-      '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-ac', '2', '-af', 'aresample=async=1:first_pts=0',
-      '-movflags', '+faststart', out,
-    ],
-    { timeout: mediaTimeout(opts.seconds ?? 600, 6), maxBuffer: 4 * 1024 * 1024, signal: opts.signal },
-  )
+  const threads = opts.threads ? String(opts.threads) : null
+  return [
+    '-v', 'error', ...strict, '-fflags', '+genpts', '-y',
+    ...(threads ? ['-filter_threads', threads, '-threads', threads] : []), '-i', input,
+    '-map', '0:v:0', '-map', '0:a:0?',
+    '-vf', `fps=${fps},scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p`, '-fps_mode', 'cfr',
+    ...(threads ? ['-threads', threads] : []),
+    ...x264Args(), '-g', String(fps),
+    '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-ac', '2', '-af', 'aresample=async=1:first_pts=0',
+    '-movflags', '+faststart', out,
+  ]
 }
 
 /**

@@ -25,5 +25,8 @@ export function MediaVideo({ alpha, maxCanvasSinkFrameSize, durationInFrames, ..
     return <Html5Video src={props.src} trimBefore={props.trimBefore} playbackRate={props.playbackRate} muted={props.muted} volume={props.volume}
       pauseWhenBuffering={false} acceptableTimeShiftInSeconds={0.25} style={{ objectFit: 'fill', ...props.style }} />;
   }
-  return <DecodedVideo {...props} durationInFrames={durationInFrames} maxCanvasSinkFrameSize={maxCanvasSinkFrameSize} />;
+  // Callers give the timeline frames the footage plays for; @remotion/media's durationInFrames counts source frames (at
+  // the composition's fps) from trimBefore, so a clip played at 2x needs twice as many, or it goes blank half way.
+  const sourceFrames = durationInFrames === undefined ? undefined : Math.ceil(durationInFrames * (props.playbackRate ?? 1) - 1e-9);
+  return <DecodedVideo {...props} durationInFrames={sourceFrames} maxCanvasSinkFrameSize={maxCanvasSinkFrameSize} />;
 }

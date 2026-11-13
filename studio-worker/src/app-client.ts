@@ -14,7 +14,7 @@ import { createReadStream } from 'node:fs'
 import { mkdir, open, rename, rm, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { backoffMs, sleep } from './backoff.ts'
-import type { BlobRead, BlobWrite, ClaimedJob, StudioJobKind } from '../../web/src/lib/studio/server/job-contract.ts'
+import type { BlobRead, BlobWrite, ClaimedJob, LivePieces, StudioJobKind } from '../../web/src/lib/studio/server/job-contract.ts'
 
 /** A request the app did not take. `retry`: it may take it later (the app or the network failed). */
 export class AppError extends Error {
@@ -179,6 +179,19 @@ export class AppClient {
       await rm(partial, { force: true })
       throw err
     }
+  }
+
+  /** What a live-import job reads next of its own track (job-contract.ts live/pieces); `check`: with the declared lengths below `after`. */
+  async livePieces(jobId: string, after: number, check = false): Promise<LivePieces> {
+    return this.post<LivePieces>('live/pieces', { jobId, after, ...(check ? { check } : {}) })
+  }
+
+  /**
+   * One piece of a take's track, whole and of its stated length, once (no retry here: a piece the app listed may not
+   * be readable yet, and the caller asks again later).
+   */
+  downloadPiece(url: string, bytes: number, signal?: AbortSignal): Promise<Buffer> {
+    return this.downloadPart(url, bytes, signal)
   }
 
   private async downloadPart(url: string, bytes: number, signal?: AbortSignal): Promise<Buffer> {

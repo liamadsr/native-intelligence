@@ -35,6 +35,10 @@ services:
       STUDIO_WORKER_ID: studio-worker
       STUDIO_WORKER_KINDS: ${STUDIO_WORKER_KINDS:-}
       STUDIO_WORKER_CONCURRENCY: ${STUDIO_WORKER_CONCURRENCY:-1}
+      # Preparing recordings while they record (README.md, "Live slots"). Empty or 0: off, every recording is
+      # prepared after Stop. Turning it on is the owner's call, with more CPUs below first.
+      STUDIO_LIVE_SLOTS: ${STUDIO_LIVE_SLOTS:-0}
+      STUDIO_LIVE_THREADS: ${STUDIO_LIVE_THREADS:-}
       # Empty: Chrome tabs per render from the CPUs below (the CPUs less one, 1 to 4; README.md, "Export speed").
       STUDIO_RENDER_CONCURRENCY: ${STUDIO_RENDER_CONCURRENCY:-}
       STUDIO_CACHE_BYTES: ${STUDIO_CACHE_BYTES:-5368709120}
@@ -52,6 +56,9 @@ services:
       STUDIO_EARSHOT_DIR: ${STUDIO_EARSHOT_DIR:-}
       # Renders run code scenes' code (studio-worker/README.md, "Code scenes"). Empty: off here (production).
       STUDIO_CODE_SCENES: ${STUDIO_CODE_SCENES:-}
+      # A video that is only a recording, its cuts and its camera bubble is composed by FFmpeg, not
+      # drawn in Chrome (README.md, "Export speed"). Empty: on; `off` sends every export to Chrome.
+      STUDIO_FAST_EXPORT: ${STUDIO_FAST_EXPORT:-}
     volumes:
       # The asset cache, the render bundle and each job's scratch. Safe to delete while
       # the worker is stopped: it is all made again.

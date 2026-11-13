@@ -135,28 +135,131 @@ once more with `swangle`, the log says so in one line, and the worker keeps usin
 `OffthreadVideo` (0.57, 7.4 fps); JPEG or PNG frames and their quality (no effect: Remotion 4.0.534
 hands frames to FFmpeg in shared memory); more than 4 tabs (above).
 
-**The FFmpeg path: designed, prototyped, not built.** Most exports are a recording with a camera bubble
-and cuts and nothing drawn by React. FFmpeg alone could compose those: a prototype of the 20 s project took
-0.04 CPU-seconds a frame (a fifth of Chrome's on the Mac; not measured on Linux), showed the right
-source frame in every frame (checked against the neighbouring frames), and came 46 dB from Chrome's export
-outside the bubble and 33 dB inside it (SSIM 0.98). The design:
-- Only for a project that is nothing else (default deny): no layers, captions, cut-outs, slides, layouts,
-  automation, zooms, motion, chosen transitions or platform format; the recording at the output's size and
-  rate with no padding, radius or drawn pointer; the camera only as a still bubble; every source BT.709 (or
-  untagged) and limited range. Anything else, or any failure, goes to Chrome.
-- One FFmpeg pass per clip (the source cut by frame number; a jump cut's soft blend from the held frame),
-  all encoded alike and joined without re-encoding; the bubble drawn as Chrome draws it: the camera sampled
-  bilinearly at the exact fractional place (Chrome does not filter it, and a filtered scale came only 25 dB
-  close), a circle mask antialiased from the same geometry.
-- The sound from Remotion itself (an audio-only render of the same project), joined to the picture.
-- The risks: every place it imitates Chrome (sampling, the round trip through RGB, the blend done in YUV)
-  is an approximation; the engine's timing (`presenterPieces`, `cutVideoPlan`) would have a second
-  implementation unless those move out of the React modules; any new engine feature must be refused by the
-  whitelist. It needs a frame-for-frame check of both paths over every kind of plain project (cuts, speed,
-  bubble shapes, offsets) before it draws a real export.
+**The FFmpeg export (built; `STUDIO_FAST_EXPORT`, on by default).** Most exports are a recording with a camera
+bubble and cuts and nothing drawn by React; those are composed by FFmpeg (`studio-worker/src/fast-export.ts`,
+`fast-export-run.ts`), the rest drawn by Chrome as above. The job's log says which: `Composing … with FFmpeg (the
+fast export, …)`, or `Rendering in Chrome: <the first reason>`.
+
+- *What goes through* (default deny: one function, `fastExportPlan`, over the whole project; any other part, any key
+  it does not know, any value outside these, and the whole export is Chrome's): 30 or 60 fps; the recording at the
+  video's size and rate (MP4, H.264 yuv420p, BT.709 or untagged, limited range, from time 0); clips of it with cuts
+  and their soft blend, starting anywhere in the take, at 1x (2x in 60 fps videos); no zoom, motion, hold, chosen
+  transition, layout, layer, caption, cut-out, slide, extra source, automation, platform format or drawn pointer;
+  a look with no padding, inset, window radius or camera fill (background none, solid or gradient, any shadow or
+  blur, all hidden under the full-frame recording); the camera synced to the take, as a still round or
+  rounded-square bubble anywhere inside the frame, uncropped, its own sound off, 30 fps in a 30 or 60 fps video
+  or 60 fps in a 30 fps one; any sound (mixed here when it can be, otherwise by Remotion: below).
+- *How it draws*: each clip's frames are the source frames @remotion/media would show (its rule, the latest frame
+  at or before the clip's time with a millisecond's grace, replayed and checked frame by frame against what the
+  FFmpeg graph will pick before anything runs); a jump cut's blend as `cutVideoPlan` lays it; the camera's timing
+  from `presenterPieces` (now in the engine's `presenter-pieces.ts`, the one copy the editor and the worker both
+  use), sampled bilinearly at Chrome's fractional place under an antialiased circle or rounded-square mask; one
+  FFmpeg pass per clip with the Chrome path's encoder settings and labels, joined without re-encoding.
+- *The sound* (`studio-worker/src/fast-sound.ts`), mixed as Remotion mixes it: the layers are the composition's own
+  (the engine's `sound-layers.ts`, which `composition.tsx` now draws from too: each recording's sound under its
+  clips with the cut fades, each audio track's segments with gain and fades); for every frame of a layer the file's
+  samples from the frame's time to the next frame's, turned into 16 bits as Chrome turns float audio into them (×32768
+  below zero, ×32767 above, the fraction dropped), at the frame's level truncated, nothing at level 0, each piece at
+  its frame's place, the layers summed and clipped. Two things only Remotion's own mix gives, so the fast export asks
+  it for them in one shared browser: the first ~100 ms of a file played from its very start, where Chrome's AAC
+  decoder starts cold (448 samples of silence, then its ramp), spliced in; and a few frames (each layer that starts
+  mid-video and one 80 % in), compared, with Remotion's whole mix taking over if they differ by more than 2 steps
+  RMS or 64 at a sample (Chrome's AAC decoder and FFmpeg's round differently: on the made-up voices one sample in a
+  thousand by one step; on a pure tone one in eight by up to 14 steps, -97 dBFS RMS). Sources it mixes: 48 kHz AAC
+  or PCM, mono or stereo, at 1x (a clip at 2x is silent in Remotion's mix as here: its sound is muted), no ducking.
+  Otherwise the sound is Remotion's mix of the same video without its silent pictures, in stretches rendered at
+  once (one browser each) and joined to the sample.
+- *Proof* (`studio-worker/test/fast-export-e2e.ts`: made-up videos exported by the real worker both ways, every
+  frame compared): a 2504×1438 60 fps take with a 30 fps camera; the same cut at odd frames, starting mid-take, a 2x
+  stretch, a rounded bubble top left, a camera offset between frames, a gradient look with shadow and blur; a
+  1366×766 30 fps take with a 60 fps camera top right on a solid look; the 60 fps take with no camera; the 30 fps
+  take cut, a rounded bubble bottom left, a negative camera offset. In every frame the fast frame matches Chrome's
+  same frame better than its neighbours, inside and outside the bubble. Worst frames: outside the bubble 44.5 dB,
+  SSIM 0.998; inside 27.7 dB, SSIM 0.941 (the camera is a sharp test card with one-pixel checkerboards and noise,
+  drawn five times smaller without filtering by Chrome; side by side the same picture). Thresholds: 40 dB and 0.99
+  outside, 27 dB and 0.93 inside. The sound, against Remotion's own mix of the same video sample for sample: the
+  same length to the sample, offset 0 at every layer's start, level within 0.0001 dB, 28–108 samples a step apart
+  (residual 115–117 dB below the sound). Thresholds: length equal, offset 0, 0.1 dB, residual under -90 dBFS, no
+  sample more than 32 steps apart. One of the five has no camera and a cut (below).
+- *At run time*: a failure, or a failed check, and the export goes through Chrome, with the reason in the log.
+  The check: the frame count, then two or three frames (the first with the bubble, a blended one, one late) drawn by
+  Chrome and compared with the file (34 dB, bubble 25 dB; the wrong camera frame scores about 22). Chrome (one
+  browser for the whole fast export) draws them, and the sound's windows, while FFmpeg draws the picture.
+  The log gives every stage's time: `Fast export: Chrome started …`, `sound mixed in …`, `picture …, alongside it
+  the sound … and Chrome's check frames …; joining …, comparing …`, `Composed in …`, `Decode check in …`,
+  `Stored in …`.
+- *Speed* (a Mac with Chrome's GPU off, as on the server; the 20 s project, `test/export-bench.ts`): plain, Chrome
+  47.9 s (0.153 CPU-seconds a frame) against FFmpeg 8.3 s (0.039); with cuts and a 2x stretch, 34.8 s (0.166)
+  against 8.4 s (0.045). FFmpeg's stages, plain: Chrome started 0.3 s; picture 4.6 s, alongside it the sound 2.9 s
+  (mixed in 0.2 s, Remotion's windows 2.5 s) and the check frames 1.4 s; joining 1.0 s; comparing 0.9 s; decode
+  check 0.4 s. On Linux at 4 CPUs (the image, measured before the sound was mixed here) the Chrome path took 125.6
+  s and the fast path 110.8 s, nearly all of it Remotion mixing the sound in Chrome: that is what this mix removes.
+- *Found on the way, both in the Chrome path and both fixed*: (1) a clip played faster went black for the last
+  part of it in Chrome's export and in the editor's preview in a Chromium browser: at 2x the second half, at 4x the
+  last three quarters, at 1.25x the last fifth (`media-video.tsx` gave @remotion/media the clip's timeline length
+  where it counts source frames; the camera bubble and video layers over such a clip went black with it). Every
+  export with a sped-up clip made before the fix has it. (2) Under a jump cut's blend the outgoing shot's held last
+  frame came out as an earlier frame of the take (source frame 132 where 179 belonged, a 175-frame clip); a hold at a
+  clip's end did the same. The hold froze the clip's whole video on its last frame, and @remotion/media asked for
+  frame 127 of the clip instead of 174; it is now a one-frame video at that frame (`motion-layers.tsx`). Not every
+  cut showed it (a 94-frame clip held the right frame), so earlier exports may or may not; the editor's preview was
+  not checked.
+- *Not built*: mixing the two (FFmpeg for the plain stretches, Chrome for the rest, joined). It would need each
+  stretch to start on a keyframe with the encoder's state reset, the same x264 settings both sides, the blend at a
+  join drawn by one of them, and the sound mixed once for the whole video; until then a video with anything drawn
+  is all Chrome's.
 
 Exporting at 30 fps (enough for most screen recordings) would halve every number above; it is a product
 decision, not a setting the editor offers.
+
+## Live slots
+
+Off by default (`STUDIO_LIVE_SLOTS=0`). On, a browser take's video tracks (screen, camera) are prepared while they
+record: a `live-import` job per track, taken only by a live slot, reads each piece as it is uploaded and pipes it into
+one FFmpeg with the import's own arguments (studio-worker/README.md, the `live-import` row). At Stop only the last
+seconds are left, and the conformed file's measuring, hashing and storing. When the live slots are busy, or there are
+none, a take is prepared after Stop as before; a live job that fails gives way to that ordinary import.
+
+What it makes is what the import would make, or nothing: the screen's rate is the import's own rule, decided once
+enough of the picture has moved and checked on the whole take after the seal (a disagreement fails the job: it takes
+a take whose motion changes character after its first seconds, and costs the time live would have saved, never a
+wrong rate); a take sealed whole with damage FFmpeg read past fails it (the strict import decides); the app refuses
+its result when its bytes or pieces are not the sealed track's. It always re-encodes, where the import keeps an MP4
+already on the frame grid byte for byte. At Stop a running live job is kept only when it has fed at least half the
+take (recordings.ts `LIVE_REUSE_SHARE`, measured below): what it has left runs at its lower priority and threads.
+A live job runs at most 2 h 30 min and ends when no piece comes for 3 minutes; a workspace has at most 4 live jobs
+queued or running (two takes), later takes are prepared after Stop.
+
+Measured on the Mac (Apple silicon, other work running; a made-up 10-minute take at 2504×1438, its frames 43 a second
+on average, conformed to 60 fps, ultrafast CRF 26, 267 MB):
+
+- After Stop, live slot ON, when the live job kept up: the last piece fed and the encoder closed, the `+faststart`
+  rewrite, measuring and hashing side by side, and the end decode check: **2.05 s** (storing the 267 MB file is on top:
+  a copy on the same disk took 0.23 s; storing it through Storage on the server is not measured).
+- Live slot OFF: the whole conform after Stop, 4 encoder threads: **185.6 s**, then the same tail (about 2 s).
+- The live job caught up with the 10 minutes in under 260 s on 4 threads: about 0.43 of real time on the Mac.
+- The check of the screen's rate after the seal (every frame time of the whole take, then the rule): 0.13 s on another
+  made-up 10-minute 2.5K take (268 MB, MP4 or Matroska alike), beside the encoder's close: the 2 s above stand.
+- Whether a live job behind at Stop is worth keeping, on that take: the live conform (`nice`, 4 threads for decoder,
+  filters and encoder) 54.7 s, the import's (every thread) 26.7 s. Keeping a job is sooner once it has fed more
+  than 1 − 26.7/54.7 of the take: about half. Capping the decoder's and filters' threads changed nothing on this H.264 take (54.0 s
+  either way, about 5 cores busy): it bounds them on a take whose decoding is heavier.
+
+Expected from Stop to an editable video on the Mac, all steps included (the last piece's upload, the worker's 1.5 s
+poll, storing the file, putting the video together, the dialog's 1.5 s poll): ON about 5 s for 1 minute, 7 to 10 s for
+10 minutes, 10 to 15 s for 30 minutes (extrapolated); OFF about 25 s, 4 to 5 minutes and 13 to 15 minutes (the camera,
+conformed after the screen, adds about a third).
+
+**What production needs for it.** The server's CPUs did the same conform 3 to 5 times slower than the Mac (the
+owner's 20 s take, studio-worker/README.md). So to keep up in real time a 60 fps 2504×1438 screen needs about 5 to 9
+CPUs of its own, a 30 fps screen about half that, a 1080p camera about 1 to 2. Recommendation: `STUDIO_LIVE_SLOTS=2`
+(screen and camera of one take), `STUDIO_LIVE_THREADS=4`, and the container's `cpus` raised from 4 to about 8 (memory
+6 GB is enough: a live job holds one FFmpeg and its pieces on disk). With that, a 30 fps screen and the camera keep up;
+a 60 fps 2.5K screen runs at roughly half to three quarters of real time, so a backlog of a quarter to half the take is
+left at Stop: still several times sooner than now (a job less than half way along is replaced by the ordinary import,
+which on the server's fewer cores is closer to the live job's speed, so the line could be lower there). Live jobs run under `nice`, so an export beside them gets the CPU
+first. Not measured on the server: one take there settles these numbers. Turning it on is the owner's call: set the two
+settings in `.env`, raise `cpus` in compose.yaml, and restart the worker (`sudo docker compose up -d --no-build`).
 
 ## First start
 

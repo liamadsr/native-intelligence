@@ -38,7 +38,7 @@ import { commitBlob } from './blobs'
 import { isUuid, must, type StudioContext } from './context'
 import { conflictError, notFoundError, StudioError } from './errors'
 import type { ImportInput } from './job-contract'
-import { claimLiveTake, isLiveKey, retireLiveTake, loadTake, parseLiveKey, reopenLiveTake, sealLiveTrack, sealStoppedTake, TRACK_MAX_PIECES, unclaimLiveTake, type SealedTrack, type TakeRecord } from './live-takes'
+import { claimLiveTake, isLiveKey, retireLiveTake, stopLiveJobs, loadTake, parseLiveKey, reopenLiveTake, sealLiveTrack, sealStoppedTake, TRACK_MAX_PIECES, unclaimLiveTake, type SealedTrack, type TakeRecord } from './live-takes'
 import { getRecord, putRecord } from './records'
 import { createVideo, openVideo, saveVideo } from './videos'
 
@@ -359,6 +359,10 @@ type RecordingRecord = {
   claimedAt: string | null
   input: RecordingInput
   jobs: Partial<Record<Role, string>>
+  /** Moved on by one with every change of `jobs` after the start (a live job's fallback), so two never cross. */
+  rev?: number
+  /** Tracks whose job is the take's live job, and the ordinary import each would get if that job fails. */
+  live?: { roles: Role[]; fallbacks: Partial<Record<Role, ImportInput>> }
   /** Once built: where it went and what it is made of. */
   projectId?: string
   placed?: 'new' | 'punch' | 'beats'
@@ -478,7 +482,7 @@ export async function startRecording(ctx: StudioContext, body: unknown, waitMs =
     throw conflictError('This recording changed while it was being saved. Try again.')
   }
   try {
-    return await queueRecording(ctx, input, sealed, id, takeId, options, queueJob, waitMs)
+    return await queueRecording(ctx, input, sealed, id, takeId, options, queueJob, waitMs, take)
   } catch (error) {
     if (take) await unclaimLiveTake(ctx, take, id).catch(() => undefined)
     throw error
@@ -497,22 +501,44 @@ async function existingRecording(ctx: StudioContext, recordingId: string, waitMs
 
 async function queueRecording(
   ctx: StudioContext, input: RecordingInput, sealed: Partial<Record<Role, SealedTrack>>, id: string, takeId: string | undefined,
-  options: { recovered?: boolean }, queueJob: Jobs['queueJob'], waitMs: number,
+  options: { recovered?: boolean }, queueJob: Jobs['queueJob'], waitMs: number, take: TakeRecord | null = null,
 ): Promise<RecordingAnswer> {
   const jobs: Partial<Record<Role, string>> = {}
+  // The tracks prepared while they recorded: their live job is the track's import, and the import it would otherwise
+  // have is kept, to be queued if that job fails (the live path is only ever a head start).
+  const live: NonNullable<RecordingRecord['live']> = { roles: [], fallbacks: {} }
+  // Which live jobs become their track's import, decided first; the others stop BEFORE any import is queued, so a
+  // workspace near its job cap is not refused for jobs about to go.
+  const reusable: Partial<Record<Role, string>> = {}
+  if (take?.liveJobs && !input.trace) {
+    for (const role of ['screen', 'camera'] as const) {
+      const liveJob = take.liveJobs[role]
+      if (liveJob && input[role] && (await reusableLiveJob(ctx, liveJob))) reusable[role] = liveJob
+    }
+  }
+  if (take?.liveJobs) for (const jobId of Object.values(take.liveJobs)) if (jobId && !Object.values(reusable).includes(jobId)) await stopLiveJobs(ctx, { liveJobs: { screen: jobId } })
   const queue = async (role: Role, extra: Partial<ImportInput>) => {
     const file = input[role]
     if (!file) return
-    const live = sealed[role]
-    const hint = live?.seconds || input.durationSeconds
-    const row = await queueJob(ctx, 'import', {
+    const sealedTrack = sealed[role]
+    const hint = sealedTrack?.seconds || input.durationSeconds
+    const importInput: ImportInput = {
       uploadKey: file.uploadKey,
       name: file.name,
-      provenance: { recording: id, role, recorder: input.recorder, ...(live ? { live: true } : {}) },
-      ...(live && !live.complete ? { partial: true } : {}),
+      provenance: { recording: id, role, recorder: input.recorder, ...(sealedTrack ? { live: true } : {}) },
+      ...(sealedTrack && !sealedTrack.complete ? { partial: true } : {}),
       ...(hint ? { durationHint: Math.round(hint) } : {}),
       ...extra,
-    })
+    }
+    const liveJob = reusable[role]
+    if (liveJob) {
+      await joinLiveJob(ctx, liveJob, { recording: id, role, recorder: input.recorder, live: true })
+      jobs[role] = liveJob
+      live.roles.push(role)
+      live.fallbacks[role] = importInput
+      return
+    }
+    const row = await queueJob(ctx, 'import', importInput)
     jobs[role] = row.id
   }
   // The screen at 60 fps when its frames came that fast while it moved, else 30 (no frame is made up to fill 60); never
@@ -524,7 +550,7 @@ async function queueRecording(
   await queue('systemAudio', { sourceCursorHidden: false })
   const record: RecordingRecord = {
     id, createdAt: new Date().toISOString(), ownerId: ctx.userId, ...(takeId ? { takeId } : {}), ...(options.recovered ? { recovered: true } : {}),
-    status: 'importing', claim: null, claimedAt: null, input, jobs,
+    status: 'importing', claim: null, claimedAt: null, input, jobs, rev: 0, ...(live.roles.length ? { live } : {}),
   }
   await putRecord(ctx, COLLECTION, id, record)
   return advanceRecording(ctx, id, waitMs)
@@ -607,7 +633,35 @@ export async function advanceRecording(ctx: StudioContext, id: string, waitMs = 
     const left = until - Date.now()
     rows.set(role, left > 1200 ? await waitForJob(ctx, jobId, { timeoutMs: left, everyMs: 1000 }) : await jobRow(ctx, jobId))
   }
+  // A live job that failed (or was handed out again with no live worker left to take it): its track falls back to
+  // the ordinary import it would have had.
+  for (const role of record.live?.roles ?? []) {
+    const row = rows.get(role)
+    if (!row) continue
+    // Queued again after Stop (its worker went quiet): it gains nothing from being live any more.
+    if (row.status === 'failed' || row.status === 'cancelled' || row.status === 'queued') {
+      try {
+        record = await fallBack(ctx, record, role, row.status === 'queued' ? row.id : null)
+        rows.set(role, await jobRow(ctx, record.jobs[role]!))
+      } catch (error) {
+        // Refused at the workspace's job cap, say: asked again on the next look (the sweep looks every hour), for
+        // FALLBACK_GIVE_UP_MS after the recording started. Then the track ends as its live job did (failed), so the
+        // recording is settled without it (a screen that never came fails it) instead of waiting for ever.
+        console.error('[studio] a recording’s track could not fall back to its import yet:', error instanceof Error ? error.message : error)
+        if (Date.now() - Date.parse(record.createdAt) > FALLBACK_GIVE_UP_MS) {
+          record = await fallBack(ctx, record, role, null, { giveUp: true })
+          rows.set(role, await jobRow(ctx, record.jobs[role]!))
+        }
+      }
+    }
+  }
+  // A track whose live job ended without it and whose ordinary import could not be queued yet is still to come.
+  const stillLive = new Set(record.live?.roles ?? [])
   const finished = (status: string) => status === 'completed' || status === 'failed' || status === 'cancelled'
+  for (const role of stillLive) {
+    const row = rows.get(role)
+    if (row && row.status !== 'completed' && finished(row.status)) rows.set(role, { ...row, status: 'running' })
+  }
   const all = [...rows.values()]
   const progress = all.length ? all.reduce((sum, row) => sum + (finished(row.status) ? 1 : Number(row.progress) || 0), 0) / all.length : 0
   const screenRow = rows.get('screen')
@@ -655,6 +709,62 @@ export async function advanceRecording(ctx: StudioContext, id: string, waitMs = 
     await settleTake(ctx, failed)
     return { recording: view(failed, 1, 'Failed') }
   }
+}
+
+/**
+ * How far along a running live job must be, at Stop, to be kept as its track's import: the share of the declared
+ * pieces it has fed its FFmpeg (it reports that as its progress). After Stop a live job keeps its lower priority and
+ * its STUDIO_LIVE_THREADS (FFmpeg's threads are fixed when it starts), so what it has left runs slower than an ordinary
+ * import would run the whole take: keeping a job at share p is sooner when (1 - p) / live speed < 1 / import speed,
+ * that is p > 1 - live speed / import speed. Measured on a made-up 10-minute 2.5K screen take (Mac, 18 cores): the live
+ * conform (nice, 4 threads) 54.7 s, the import's 26.7 s, so p > 0.51. On a server with fewer cores the two are closer
+ * and the line lower; the import also waits for a media slot and downloads the take first. Half way it is.
+ */
+export const LIVE_REUSE_SHARE = 0.5
+
+/** Whether a take's live job can be its track's import: done, or running and far enough along; nobody asked it to stop. */
+async function reusableLiveJob(ctx: StudioContext, jobId: string): Promise<boolean> {
+  const { jobRow } = await jobsModule()
+  const row = await jobRow(ctx, jobId).catch(() => null)
+  if (!row || row.cancel_requested) return false
+  return row.status === 'completed' || (row.status === 'running' && Number(row.progress) >= LIVE_REUSE_SHARE)
+}
+
+/** Name the recording on a live job's input, so its end is followed up as the recording's (jobs.ts settleRecording). */
+async function joinLiveJob(ctx: StudioContext, jobId: string, provenance: Record<string, unknown>): Promise<void> {
+  const row = must(await ctx.supabase.from('studio_job').select('input').eq('workspace_id', ctx.workspaceId).eq('id', jobId).maybeSingle(), 'save the recording') as { input: Record<string, unknown> } | null
+  if (!row) return
+  const input = { ...row.input, provenance: { ...((row.input.provenance as Record<string, unknown> | undefined) ?? {}), ...provenance } }
+  must(await ctx.supabase.from('studio_job').update({ input }).eq('workspace_id', ctx.workspaceId).eq('id', jobId), 'save the recording')
+}
+
+/**
+ * Queue a track's ordinary import in place of its failed live job, once: the record moves on only from the revision it
+ * was read at (a second caller at once cancels the import it queued and reads the first one's).
+ */
+/** How long after a recording starts a track whose live job ended keeps asking for its ordinary import. */
+export const FALLBACK_GIVE_UP_MS = 24 * 3_600_000
+
+/** A live track's ordinary import in place of its live job (cancelled first), or with `giveUp`, none: it ends as the live job did. */
+async function fallBack(ctx: StudioContext, record: RecordingRecord, role: Role, stop: string | null, options: { giveUp?: boolean } = {}): Promise<RecordingRecord> {
+  const { queueJob, cancelJob } = await jobsModule()
+  if (stop) await cancelJob(ctx, stop).catch(() => undefined)
+  const input = record.live?.fallbacks[role]
+  if (!input) return record
+  const row = options.giveUp ? null : await queueJob(ctx, 'import', input)
+  const next: RecordingRecord = {
+    ...record,
+    jobs: row ? { ...record.jobs, [role]: row.id } : record.jobs,
+    live: { roles: record.live!.roles.filter((r) => r !== role), fallbacks: record.live!.fallbacks },
+    rev: (record.rev ?? 0) + 1,
+  }
+  let query = ctx.supabase.from('studio_record').update({ value: next, updated_at: new Date().toISOString() })
+    .eq('workspace_id', ctx.workspaceId).eq('collection', COLLECTION).eq('key', record.id)
+  query = record.rev === undefined ? query.is('value->>rev', null) : query.eq('value->>rev', String(record.rev))
+  const moved = must(await query.select('key'), 'save the recording') as { key: string }[] | null
+  if (moved?.length) return next
+  if (row) await cancelJob(ctx, row.id).catch(() => undefined)
+  return loadRecord(ctx, record.id)
 }
 
 /** What a recording by someone no longer in the workspace answers. */

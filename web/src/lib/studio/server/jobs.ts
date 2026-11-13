@@ -158,7 +158,7 @@ export function toEditorJob(row: JobRow): EditorJob {
     const title = typeof row.input?.title === 'string' ? row.input.title : 'video'
     job.downloadUrl = `${fileUrl(row.workspace_id, row.result.key)}?download=${encodeURIComponent(fileName(title, 'mp4'))}`
   }
-  if ((row.kind === 'import' || row.kind === 'slides') && row.result?.asset) job.asset = row.result.asset as EditorAsset
+  if ((row.kind === 'import' || row.kind === 'live-import' || row.kind === 'slides') && row.result?.asset) job.asset = row.result.asset as EditorAsset
   if (row.kind === 'transcribe') {
     const asset = (row.input as TranscribeInput).asset
     if (asset) {
@@ -182,9 +182,13 @@ export async function getJob(ctx: StudioContext, id: string): Promise<EditorJob>
 /** Ask a job to stop: a queued one is cancelled at once, a running one when its worker next reports. */
 export async function cancelJob(ctx: StudioContext, id: string): Promise<EditorJob> {
   const row = await jobRow(ctx, id)
+  let running = row.status === 'running'
   if (row.status === 'queued') {
-    must(await ctx.supabase.from('studio_job').update({ cancel_requested: true, status: 'cancelled', error: CANCELLED }).eq('id', id).eq('workspace_id', ctx.workspaceId).eq('status', 'queued'), 'cancel that job')
-  } else if (row.status === 'running') {
+    const cancelled = must(await ctx.supabase.from('studio_job').update({ cancel_requested: true, status: 'cancelled', error: CANCELLED }).eq('id', id).eq('workspace_id', ctx.workspaceId).eq('status', 'queued').select('id'), 'cancel that job') as { id: string }[] | null
+    // Claimed between the read and the cancel: it runs now, so the cancel is asked of its worker.
+    if (!cancelled?.length) running = (await jobRow(ctx, id)).status === 'running'
+  }
+  if (running) {
     must(await ctx.supabase.from('studio_job').update({ cancel_requested: true }).eq('id', id).eq('workspace_id', ctx.workspaceId), 'cancel that job')
   }
   return getJob(ctx, id)
@@ -317,7 +321,7 @@ export async function failJob(deps: WorkerDeps, jobId: string, workerId: string,
   // A product capture's import that ended without its file: its product job is told (products.ts). Never throws.
   if ((cancelled || failed || late) && held.kind === 'import') await settleProductCapture(deps, jobId, { error: failed ? error : CANCELLED })
   // A recording's import that ended: when it was the last, the recording is finished now (recordings.ts). Never throws.
-  if ((cancelled || failed || late) && held.kind === 'import') await later(deps, () => settleRecording(deps, held))
+  if ((cancelled || failed || late) && (held.kind === 'import' || held.kind === 'live-import')) await later(deps, () => settleRecording(deps, held))
   return { ok: true }
 }
 
@@ -347,7 +351,7 @@ export async function completeJob(deps: WorkerDeps, jobId: string, workerId: str
     if (row.kind === 'export') await deliverEndedExport(deps, jobId)
     if (row.kind === 'import') await settleProductCapture(deps, jobId, { error: reason })
     await dropUpload(deps, row)
-    if (row.kind === 'import') await later(deps, () => settleRecording(deps, row))
+    if (row.kind === 'import' || row.kind === 'live-import') await later(deps, () => settleRecording(deps, row))
     throw new StudioError(reason, 422, 'RESULT_REFUSED')
   }
   const done = must(
@@ -367,7 +371,7 @@ export async function completeJob(deps: WorkerDeps, jobId: string, workerId: str
   if (row.kind === 'export') await deliverEndedExport(deps, jobId)
   // A product capture whose import outlasted the capture route's wait is filed now (products.ts). Never throws.
   if (row.kind === 'import' && filed.asset) await settleProductCapture(deps, jobId, { asset: filed.asset as EditorAsset })
-  if (row.kind === 'import') await later(deps, () => settleRecording(deps, row))
+  if (row.kind === 'import' || row.kind === 'live-import') await later(deps, () => settleRecording(deps, row))
   return { ok: true }
 }
 
@@ -493,6 +497,17 @@ async function fileResult(ctx: StudioContext, row: JobRow, raw: unknown): Promis
       const rawBytes = upload?.bytes ?? (typeof read.rawBytes === 'number' ? read.rawBytes : 0)
       const rawSha256 = upload?.sha256 ?? (typeof read.rawSha256 === 'string' ? read.rawSha256 : '')
       return { asset: registered, ...(input.conform ? { rawBytes, rawSha256 } : {}) }
+    }
+    case 'live-import': {
+      // A take's track prepared while it recorded: its asset as an import's; the original's size and hash, what the worker read.
+      // What the worker joined must be the sealed track exactly: its bytes and its pieces (a local copy torn by a crash,
+      // or anything else, is refused, and the recording falls back to the ordinary import).
+      const asset = await ownAsset(ctx, result.asset, 'recording')
+      const said = (asset.provenance ?? {}) as { rawBytes?: unknown; rawSha256?: unknown; rawPieces?: unknown }
+      const sealed = await (await import('./live-takes')).sealedTrack(ctx, (row.input as { uploadKey?: string }).uploadKey ?? '')
+      if (!sealed || said.rawBytes !== sealed.bytes || said.rawPieces !== sealed.count) throw new StudioError('The recording prepared while it recorded is not the recording that was saved.')
+      const registered = await registerAsset(ctx, asset)
+      return { asset: registered, rawBytes: sealed.bytes, rawSha256: typeof said.rawSha256 === 'string' ? said.rawSha256 : '' }
     }
     case 'export': {
       // Under this attempt's own folder (job-contract.ts), so a worker that lost the job can't stand in for the next.

@@ -8,7 +8,7 @@ import { checkBlobKey, commitBlob, createBlobWrite, dropPendingWrite, getBlob, r
 import { noteWorker } from './capabilities'
 import type { StudioContext } from './context'
 import { serveBlob, type PartFetch } from './files'
-import { BlobCommitBody, BlobReadBody, BlobWriteBody, ClaimBody, CompleteBody, FailBody, ProgressBody } from './job-contract'
+import { BlobCommitBody, BlobReadBody, BlobWriteBody, ClaimBody, CompleteBody, FailBody, LivePiecesBody, ProgressBody } from './job-contract'
 import { claimJob, completeJob, failJob, heldJob, jobContext, reportProgress, type WorkerDeps } from './jobs'
 import { dispatch, errorResponse } from './router'
 import { studioRoutes } from './routes'
@@ -151,5 +151,19 @@ export async function workerBlobCommit(request: Request, deps: WorkerDeps): Prom
     if (exists) await dropPendingWrite(ctx, exists.key)
     else await commitBlob(ctx, body.key)
     return { ok: true }
+  })
+}
+
+/**
+ * POST live/pieces {jobId, workerId, after} → LivePieces: what the held live-import job reads next of its own track
+ * (live-takes.ts liveWorkerPieces), inside the job's workspace. Any other job is refused (409 NOT_YOURS).
+ */
+export async function workerLivePieces(request: Request, deps: WorkerDeps): Promise<Response> {
+  const body = await workerBody(request, LivePiecesBody)
+  if (body instanceof Response) return body
+  return run(async () => {
+    const job = await heldJob(deps, body.jobId, body.workerId, true)
+    const { liveWorkerPieces } = await import('./live-takes')
+    return liveWorkerPieces(jobContext(deps, job), job, body.after, Date.now(), body.check === true)
   })
 }

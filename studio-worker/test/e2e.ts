@@ -390,7 +390,9 @@ async function main() {
     assert.equal(cancelled.error, 'Cancelled')
 
     // A longer edit (the clip four times over), cancelled in the middle of its render.
-    const long = parseEditorProject({ ...project, id: 'e2e-long', clips: [1, 2, 3, 4].map((n) => ({ ...project.clips[0]!, id: `clip-${n}` })) })
+    // Padding keeps it off the FFmpeg export (fast-export.ts), which would finish before these cancels land: they are
+    // the Chrome render's cancels.
+    const long = parseEditorProject({ ...project, id: 'e2e-long', presentation: { ...project.presentation, padding: 24 }, clips: [1, 2, 3, 4].map((n) => ({ ...project.clips[0]!, id: `clip-${n}` })) })
     const midway = app.queue('export', { project: long, title: 'Cancelled while rendering' })
     await until(() => midway.progress.some((p) => p > 0.3) || midway.status !== 'running' && midway.status !== 'queued', 180_000)
     midway.cancelRequested = true

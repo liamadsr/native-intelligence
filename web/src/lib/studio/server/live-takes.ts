@@ -32,7 +32,7 @@
 // studio_workspace_bytes already counts. Pieces live where a blob's parts do: `<workspace>/live/<take>/<role>/<n>`.
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { blobObject, type BlobRead } from './job-contract'
+import { blobObject, type BlobRead, type LivePieces } from './job-contract'
 import { PENDING, READ_LINK_SECONDS, storageOf, workspaceByteLimit, workspaceBytes, type PendingWrite } from './blobs'
 import { isUuid, must, type StudioContext } from './context'
 import { conflictError, notFoundError, StudioError } from './errors'
@@ -108,6 +108,8 @@ export type TakeRecord = {
   droppedAt?: string
   tracks: Partial<Record<LiveRole, { name: string; frameRate?: number }>>
   recordingId?: string
+  /** The live-import jobs preparing its video tracks while it records (one per track), when a live worker was there. */
+  liveJobs?: Partial<Record<'screen' | 'camera', string>>
   /** A recording made from it that could not be made (it was offered back): its id. */
   failedRecordingId?: string
   /** When it was offered back after that recording could not be made (the sweep keeps it a week from then). */
@@ -250,7 +252,104 @@ export async function startLiveTake(ctx: StudioContext, body: unknown, now = Dat
     const track: TrackRecord = { takeId: id, role, n: 0, pieces: [], times: [], bytes: 0, reserved: 0, offsetSeconds: role === 'screen' ? 0 : null, seconds: 0, resends: 0, updatedAt: at }
     await putRecord(ctx, TRACKS, trackKey(id, role), track)
   }
+  await followLive(ctx, take)
   return { take: takeView(take) }
+}
+
+/**
+ * The frame rate a track is prepared at while it records, before its frames can be counted: the camera at 30; the
+ * screen at 60 when the recorder said it gives 50 or more frames a second (or said nothing), else 30. Pure.
+ */
+export function liveRate(role: 'screen' | 'camera', frameRate: number | undefined): 30 | 60 {
+  if (role === 'camera') return 30
+  return frameRate === undefined || frameRate >= 50 ? 60 : 30
+}
+
+/**
+ * Prepare a browser take's video tracks while it records, when a worker with live slots is there (it says
+ * `liveImport`): a live-import job per track. Live preparing is only ever a head start: a take not followed (no live
+ * worker, its slots busy, the job refused at the workspace's cap) is prepared after Stop, as always. Never throws.
+ */
+async function followLive(ctx: StudioContext, take: TakeRecord): Promise<void> {
+  try {
+    if (take.recorder !== 'browser') return
+    const { workerCan } = await import('./capabilities')
+    if (!workerCan('liveImport')) return
+    const { queueJob } = await import('./jobs')
+    // A few takes at once per workspace at most: past them, a take is prepared after Stop, and the workspace's job
+    // cap stays for its own exports and imports.
+    const open = must(
+      await ctx.supabase.from('studio_job').select('id').eq('workspace_id', ctx.workspaceId).eq('kind', 'live-import').in('status', ['queued', 'running']).limit(MAX_LIVE_JOBS),
+      'start the recording',
+    ) as { id: string }[] | null
+    if ((open?.length ?? 0) + 2 > MAX_LIVE_JOBS) return
+    const liveJobs: NonNullable<TakeRecord['liveJobs']> = {}
+    for (const role of ['screen', 'camera'] as const) {
+      const track = take.tracks[role]
+      if (!track) continue
+      const row = await queueJob(ctx, 'live-import', {
+        uploadKey: liveKey(take.id, role),
+        name: track.name,
+        // The screen by the import's own rule on the frames that come (as `fit` does after Stop), never above the
+        // rate the recorder reported; the camera at 30, as its import is.
+        conform: role === 'screen' ? { fps: 60, fit: true, ...(track.frameRate ? { ceiling: track.frameRate } : {}) } : { fps: liveRate(role, track.frameRate) },
+        sourceCursorHidden: false,
+        provenance: { take: take.id, role, recorder: take.recorder, live: true },
+      })
+      liveJobs[role] = row.id
+    }
+    if (Object.keys(liveJobs).length) await moveTake(ctx, take, { ...take, liveJobs })
+  } catch (error) {
+    console.error('[studio] preparing a recording while it records could not start (it is prepared after Stop):', error instanceof Error ? error.message : error)
+  }
+}
+
+/** The most live-import jobs one workspace may have waiting or running: two takes' screen and camera. */
+export const MAX_LIVE_JOBS = 4
+
+/** The sealed run of a track by its live key, acting for nobody (the worker's result checked against it), or null. */
+export async function sealedTrack(ctx: StudioContext, key: string): Promise<{ count: number; bytes: number } | null> {
+  const parsed = parseLiveKey(key)
+  if (!parsed) return null
+  const track = await getRecord<TrackRecord>(ctx, TRACKS, trackKey(parsed.takeId, parsed.role))
+  return track?.sealed ? { count: track.sealed.count, bytes: track.sealed.bytes } : null
+}
+
+/** Stop a take's live jobs (thrown away, or prepared the ordinary way instead). Never throws. */
+export async function stopLiveJobs(ctx: StudioContext, take: Pick<TakeRecord, 'liveJobs'>, keep?: string): Promise<void> {
+  const ids = Object.values(take.liveJobs ?? {}).filter((id): id is string => !!id && id !== keep)
+  if (!ids.length) return
+  const { cancelJob } = await import('./jobs')
+  for (const id of ids) await cancelJob(ctx, id).catch(() => undefined)
+}
+
+/**
+ * What a live-import job reads next (job-contract.ts LivePieces): only the job named for the track of its own input
+ * (`uploadKey`), only pieces surely stored (all declared but the newest; the newest once storage has it at its
+ * length), at most 200 an answer. Acts for nobody (the worker's request).
+ */
+export async function liveWorkerPieces(ctx: StudioContext, job: { id: string; kind: string; input: Record<string, unknown> | null }, after: number, now = Date.now(), check = false): Promise<LivePieces> {
+  const key = typeof job.input?.uploadKey === 'string' ? job.input.uploadKey : ''
+  const parsed = job.kind === 'live-import' ? parseLiveKey(key) : null
+  if (!parsed || (parsed.role !== 'screen' && parsed.role !== 'camera')) throw conflictError("That recording is not this job's to read.", 'NOT_YOURS')
+  const take = await getRecord<TakeRecord>(ctx, TAKES, parsed.takeId)
+  if (!take || take.status === 'dropped') return { pieces: [], declared: 0, sealed: null, state: 'dropped', quietMs: 0 }
+  if (take.liveJobs?.[parsed.role] !== job.id) throw conflictError("That recording is not this job's to read.", 'NOT_YOURS')
+  const track = await getRecord<TrackRecord>(ctx, TRACKS, trackKey(parsed.takeId, parsed.role))
+  if (!track) return { pieces: [], declared: 0, sealed: null, state: 'dropped', quietMs: 0 }
+  const storage = storageOf(ctx)
+  let ready = track.sealed ? track.sealed.count : Math.max(0, track.n - 1)
+  if (!track.sealed && track.n > 0 && after <= track.n - 1 && (await storage.size(blobObject(ctx.workspaceId, key, track.n - 1))) === track.pieces[track.n - 1]) ready = track.n
+  const indexes = Array.from({ length: Math.max(0, Math.min(ready, after + 200) - after) }, (_, i) => after + i)
+  const urls = indexes.length ? await storage.signRead(indexes.map((index) => blobObject(ctx.workspaceId, key, index)), READ_LINK_SECONDS) : []
+  return {
+    pieces: indexes.map((index, i) => ({ index, bytes: track.pieces[index]!, url: urls[i]! })),
+    declared: track.n,
+    ...(check ? { lengths: track.pieces.slice(0, after) } : {}),
+    sealed: track.sealed ? { count: track.sealed.count, complete: track.sealed.complete } : null,
+    state: take.status,
+    quietMs: Math.max(0, now - Date.parse(track.updatedAt)),
+  }
 }
 
 const PieceSchema = z
@@ -596,6 +695,8 @@ export async function retireLiveTake(ctx: StudioContext, take: TakeRecord, now =
   // Only from the state it was read in: a take claimed for a recording meanwhile is not dropped under it.
   if (take.status !== 'dropped' && !(await moveTake(ctx, take, { ...take, status: 'dropped', droppedAt: new Date(now).toISOString() })))
     throw conflictError('This recording changed while it was being thrown away. Try again.', 'BUSY')
+  // A take thrown away while it was being prepared stops being prepared (a made recording's job has ended already).
+  if (take.status === 'recording') await stopLiveJobs(ctx, take)
   if (now - (await lastSigned(ctx, take)) >= LINK_SAFE_MS) return removeLiveTakeNow(ctx, take)
   await holdOnlyWhatLinksCanWrite(ctx, take)
 }

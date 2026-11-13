@@ -13,6 +13,7 @@
 //   blobs/read            {jobId, workerId, key}                   -> BlobRead
 //   blobs/write           {jobId, workerId, key, bytes, contentType, sha256?} -> BlobWrite
 //   blobs/commit          {jobId, workerId, key}                   -> {ok: true}
+//   live/pieces           {jobId, workerId, after}                 -> LivePieces (a live-import job's own track)
 //
 // A blob is one stored file under a key inside the job's workspace ("assets/<sha256>.<ext>",
 // "uploads/<id>", "exports/<job id>/<attempt>/video.mp4", "thumbs/<video id>.jpg", "stills/<job id>/<n>.png"). A job's
@@ -71,7 +72,13 @@ export const STUDIO_JOB_KINDS = [
   'revoice',      // a library asset's speech re-spoken in another voice, its timing kept (spends)
   'sound-effect', // designed sound effects from a description, as library assets (spends)
   'music',        // music beds from a description, as library assets (spends)
+  // A take prepared while it records (live-takes.ts): one per video track, queued when the take starts, taken only by
+  // a worker's live slots (STUDIO_LIVE_SLOTS), never by its media or provider slots.
+  'live-import',  // a track's pieces piped into one FFmpeg as they arrive, conformed as `import` would, a library asset at the end
 ] as const
+
+/** The kinds only a worker's live slots take. */
+export const LIVE_JOB_KINDS: readonly StudioJobKind[] = ['live-import']
 export type StudioJobKind = (typeof STUDIO_JOB_KINDS)[number]
 
 export type StudioJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
@@ -109,6 +116,17 @@ export type ImportInput = {
 }
 /** The worker wrote blob `asset.file` (assets/<sha256>.<ext>) before completing. The app registers the asset. */
 export type ImportResult = { asset: EditorAsset }
+
+/**
+ * live-import: a video track of a take being recorded, `uploadKey` its live key (`live/<take>/<role>`). The worker asks
+ * the app for the track's pieces as they arrive (live/pieces below), pipes them in order into one FFmpeg with the
+ * conform arguments `import` uses, and ends when the track is sealed and every piece is in. Its rate is the import's:
+ * `conform.fps`, or with `conform.fit` the import's own rule (`fitRate`) on the frames that came, decided once enough of
+ * the picture has moved and checked again on the whole take after the seal: when the two disagree the job fails, and
+ * the ordinary import decides. Its result is an import's, with `rawBytes` and `rawPieces` the app checks against the
+ * sealed track.
+ */
+export type LiveImportInput = Omit<ImportInput, 'partial' | 'durationHint' | 'trace'> & { conform: NonNullable<ImportInput['conform']> }
 
 /**
  * A font face an export needs: `file` is the blob key of a woff2 file in the job's workspace
@@ -180,6 +198,7 @@ export type StudioJobIO = {
   revoice: { input: RevoiceInput; result: RevoiceWorkerResult | AudioUndelivered }
   'sound-effect': { input: SoundEffectInput; result: GeneratedAudioWorkerResult | AudioUndelivered }
   music: { input: MusicInput; result: GeneratedAudioWorkerResult | AudioUndelivered }
+  'live-import': { input: LiveImportInput; result: ImportResult }
 }
 
 // ---- the worker's routes -----------------------------------------------------------------------------------
@@ -225,6 +244,25 @@ export const BlobWriteBody = z.object({
 /** PUT each part's bytes to its url with the given headers; a part is partBytes long but the last. */
 export type BlobWrite = { key: string; partBytes: number; parts: { index: number; bytes: number; url: string; headers: Record<string, string> }[] }
 export const BlobCommitBody = z.object({ jobId: z.string().uuid(), workerId: z.string().min(1).max(120), key: blobKey })
+
+/**
+ * live/pieces {jobId, workerId, after} -> LivePieces: the held live-import job's own track, the pieces from index
+ * `after` that are surely in storage (every declared piece but the newest, and the newest once storage has it at its
+ * length), each with a read link. `sealed`: the track was handed to a recording (or brought back): `count` pieces make
+ * it, `complete` false when it stopped before its end (read past damage at the end). `state` `dropped`: the take was
+ * thrown away, stop. `quietMs`: how long since its newest piece was declared.
+ */
+export const LivePiecesBody = z.object({ jobId: z.string().uuid(), workerId: z.string().min(1).max(120), after: z.number().int().min(0).max(100_000), check: z.boolean().optional() })
+export type LivePieces = {
+  pieces: { index: number; bytes: number; url: string }[]
+  /** How many pieces the track declares so far. */
+  declared: number
+  /** With `check`: the declared length of every piece below `after` (a worker resuming from its own copy compares). */
+  lengths?: number[]
+  sealed: { count: number; complete: boolean } | null
+  state: 'recording' | 'finished' | 'dropped'
+  quietMs: number
+}
 export { blobKey as BlobKey }
 
 /** The parts a file of `bytes` is cut into. An empty file is one empty part. */

@@ -4,18 +4,17 @@ import { Audio } from '@remotion/media';
 import { MediaVideo, useCheapEffects } from './media-video';
 import { AbsoluteFill, Img, Sequence, staticFile, useCurrentFrame, useRemotionEnvironment, useVideoConfig } from 'remotion';
 import type { EditorProject } from './contracts';
-import { projectDuration, scheduleProject, sourceTimeSeconds, type ScheduledClip } from './timeline';
+import { scheduleProject, sourceTimeSeconds, type ScheduledClip } from './timeline';
 import { transcriptWords } from './transcript';
-import { duckGain, voiceSpans } from './ducking';
 import { deliveredProject } from './formats';
-import { segmentLevel } from './audio-mix';
 import { zoomAmount } from './zoom';
 import { evaluateMotionAtFrame } from './motion';
 import { motionWindowStyle, previewVideoFrameWidth, primaryRect, sourceCropRect } from './motion-render';
 import { MotionLayers, PrimaryClipMedia } from './motion-layers';
 import { PresenterLayer } from './presenter';
 import { clipView, fitRect, isCameraSource, layoutTiles, slideForClipFrame, syncedTake, type Rect, type ShotSource } from './shots';
-import { cutAudioPlan, cutVideoPlan, cutVolume, dipOpacity, dipPlan, type Dip } from './cuts';
+import { cutVideoPlan, dipOpacity, dipPlan, type Dip } from './cuts';
+import { soundLayers } from './sound-layers';
 import { automationValue } from './automation';
 import { LayerStack } from './layers-render';
 import { CodeScenesContext, type CodeScenes } from './scene-layer';
@@ -177,9 +176,9 @@ function EditorFrame({ project, fonts }: { project: EditorProject; fonts?: FontF
   loadFaces(fonts, assetPath);
   const bg = project.presentation.background, background = bg.kind === 'gradient' ? `linear-gradient(${bg.angle}deg,${bg.color},${bg.color2})` : bg.kind === 'solid' ? bg.color : '#000';
   const image = bg.kind === 'image' ? project.assets.find((a) => a.id === bg.assetId) : null;
-  const frames = projectDuration(project), schedule = scheduleProject(project), videoPlan = cutVideoPlan(project, schedule);
+  const schedule = scheduleProject(project), videoPlan = cutVideoPlan(project, schedule);
   const dips = React.useMemo(() => dipPlan(project, schedule), [project]);
-  const ducking = project.audioTracks.some(t => t.role === 'music' && t.duck), spans = React.useMemo(() => ducking ? voiceSpans(project) : [], [project, ducking]);
+  const sound = React.useMemo(() => soundLayers(project), [project]);
   return <AbsoluteFill style={{ backgroundColor: '#000' }}>
     <AbsoluteFill style={{ background, ...(image ? { backgroundImage: `url(${assetPath(image.file)})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}),
       filter: `blur(${project.presentation.blur}px)`, transform: project.presentation.blur ? 'scale(1.08)' : undefined }} />
@@ -188,10 +187,10 @@ function EditorFrame({ project, fonts }: { project: EditorProject; fonts?: FontF
       <SourceClip scheduled={s} project={project} assetPath={assetPath} extend={videoPlan[index]!.extend} fadeIn={videoPlan[index]!.fadeIn} playOn={videoPlan[index]!.playOn} />
     </Sequence>)}
     {/* Clip sound lives in its own layer so every cut crossfades instead of clicking or dropping out. */}
-    {cutAudioPlan(project, schedule).map(plan => { const s = schedule.find(item => item.clip.id === plan.clipId)!;
-      return <Sequence key={`audio-${plan.clipId}`} from={plan.from} durationInFrames={plan.duration} premountFor={Math.min(project.output.fps, plan.from)}>
-        <Audio src={assetPath(s.asset.file)} trimBefore={Math.max(0, plan.trimBefore)} playbackRate={s.clip.playbackRate} volume={(f: number) => cutVolume(plan, f) * automationValue(project, 'volume', plan.from + f)} />
-      </Sequence>; })}
+    {/* The layers (and the audio tracks' below) come from sound-layers.ts, which the worker's FFmpeg export mixes too. */}
+    {sound.filter(layer => layer.key.startsWith('audio-')).map(layer => <Sequence key={layer.key} from={layer.from} durationInFrames={layer.duration} premountFor={layer.premountFor}>
+      <Audio src={assetPath(project.assets.find(a => a.id === layer.assetId)!.file)} trimBefore={layer.trimBefore} playbackRate={layer.playbackRate} volume={layer.volume} />
+    </Sequence>)}
     <PresenterLayer project={project} assetPath={assetPath}/>
     {/* The cut-out pass decodes the footage a second time: only when a layer actually sits behind the subject. */}
     {project.cutouts?.length && project.layers?.some(layer => layer.behind) ? <>
@@ -206,10 +205,9 @@ function EditorFrame({ project, fonts }: { project: EditorProject; fonts?: FontF
     </> : null}
     <LayerStack project={project} assetPath={assetPath} />
     <DipLayer dips={dips} />
-    {project.audioTracks.filter(track => !track.muted).flatMap(track => track.segments.filter(segment => segment.startFrame < frames).map(segment => <Sequence key={segment.id} from={segment.startFrame} premountFor={Math.min(project.output.fps * 2, segment.startFrame)} durationInFrames={Math.min(frames - segment.startFrame, Math.max(1, Math.round((segment.trimEndSeconds - segment.trimStartSeconds) * project.output.fps)))}>
-      <Audio src={assetPath(project.assets.find(a => a.id === segment.assetId)!.file)} trimBefore={segment.trimStartSeconds * project.output.fps}
-        volume={(f: number) => track.gain * segmentLevel(segment, f, project.output.fps) * (track.role === 'music' && track.duck ? duckGain(spans, segment.startFrame + f, project.output.fps, track.duck) : 1)} />
-    </Sequence>))}
+    {sound.filter(layer => !layer.key.startsWith('audio-')).map(layer => <Sequence key={layer.key} from={layer.from} premountFor={layer.premountFor} durationInFrames={layer.duration}>
+      <Audio src={assetPath(project.assets.find(a => a.id === layer.assetId)!.file)} trimBefore={layer.trimBefore} volume={layer.volume} />
+    </Sequence>)}
     <EditorCaptions project={project} />
   </AbsoluteFill>;
 }
