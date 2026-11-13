@@ -25,7 +25,11 @@
 --                     Storage), 'stored' (seen, with its size), 'deleted'
 --                     (removed: at its time, or with its call). expires_at is
 --                     the session's start plus 30 days, for every take of it:
---                     the same day for everyone, no setting, no tier.
+--                     the same day for everyone, no setting, no tier. From
+--                     then on the file is not played or linked any more (the
+--                     read policy and the app's route both say so), whenever
+--                     the daily sweep gets to removing it. grants counts the
+--                     upload links given for the take.
 --                     deleted_at is kept, so the capture can say when.
 --                     Server only: the capture's page reads it through the
 --                     app's route, which first reads the capture as the
@@ -35,10 +39,17 @@
 --                     the source has no place for it (not a call, the call or
 --                     its row gone) or it is already past its 30 days;
 --                     'stored' when that take is in already; 'taken' when the
---                     session is another producer's; 'too_large'; 'unknown'.
+--                     session is another producer's; 'too_large'; 'too_many'
+--                     (a session takes at most 10 takes, a take at most 200
+--                     links: whoever holds the feed's secret cannot pile files
+--                     onto a capture); 'unknown'. The app signs each link for
+--                     that one path, without overwrite: a file once uploaded
+--                     is never replaced.
 --   capture_feed_audio_stored(...)  the producer says it uploaded: the row is
 --                     'stored' only if Storage has the object (its size from
---                     Storage's own row), else 'missing' (upload again).
+--                     Storage's own row) with the type the grant named, else
+--                     'missing' (upload again) or 'invalid' (not the file the
+--                     take said it would be: dropped, swept at its 30 days).
 --   capture_audio_settle(max_rows)  the sweep: a pending row whose object
 --                     landed an hour ago is stored (the producer died between
 --                     its upload and its word).
@@ -48,7 +59,13 @@
 --   capture_audio_orphans(max_rows)  the sweep: audio objects no row keeps
 --                     (their capture was deleted, which deletes the row).
 --   capture_audio_capture_of(name)  for the read policy below only: the
---                     capture a stored audio object belongs to.
+--                     capture a stored audio object belongs to, while it is
+--                     kept. A signed-in person may call it (the policy runs as
+--                     them); it leaks nothing they could use: it answers only
+--                     for a whole path, whose last part is a random id handed
+--                     to nobody but the capture's readers (in their signed
+--                     links), and what it answers is a capture id, which the
+--                     captures table's own RLS still keeps from anyone else.
 --   storage policy "team call audio read"  a stored audio object is read by
 --                     whoever may read its capture now (the captures table's
 --                     own RLS, as them: for a call's notes, the owner and the
@@ -85,6 +102,7 @@ create table if not exists public.capture_audio (
   offset_ms bigint not null default 0 check (offset_ms >= 0),
   path text not null check (char_length(path) between 1 and 300),
   content_type text not null check (content_type in ('audio/mp4', 'audio/ogg')),
+  grants integer not null default 1 check (grants >= 0),
   state text not null default 'pending' check (state in ('pending', 'stored', 'deleted')),
   bytes bigint check (bytes is null or bytes >= 0),
   duration_ms bigint check (duration_ms is null or duration_ms >= 0),
@@ -171,9 +189,14 @@ begin
       return query select 'not_wanted'::text, a.id, null::text, a.expires_at;
       return;
     end if;
+    -- A retry asks for a fresh link every time; a few days of them at most.
+    if a.grants >= 200 then
+      return query select 'too_many'::text, a.id, null::text, a.expires_at;
+      return;
+    end if;
+    -- The file it will be: its size and length may be said again; its type is the first grant's.
     update public.capture_audio x
-       set bytes = p_bytes, duration_ms = p_duration_ms, offset_ms = p_offset_ms,
-           content_type = p_content_type, updated_at = now()
+       set bytes = p_bytes, duration_ms = p_duration_ms, grants = x.grants + 1, updated_at = now()
      where x.id = a.id;
     return query select 'granted'::text, a.id, a.path, a.expires_at;
     return;
@@ -198,8 +221,8 @@ begin
 
   select coalesce(max(x.part), -1) + 1 into next_part from public.capture_audio x where x.session_id = s.id;
   -- A bound on takes per session (a producer leaving and coming back, each time a new file).
-  if next_part >= 50 then
-    return query select 'too_large'::text, null::uuid, null::text, null::timestamptz;
+  if next_part >= 10 then
+    return query select 'too_many'::text, null::uuid, null::text, null::timestamptz;
     return;
   end if;
 
@@ -224,6 +247,7 @@ declare
   s public.capture_feed_session%rowtype;
   a public.capture_audio%rowtype;
   size bigint;
+  kind text;
 begin
   select * into s from public.capture_feed_session x where x.id = p_session;
   if not found then
@@ -248,11 +272,15 @@ begin
     return;
   end if;
   -- Storage's own row says it is there, and how large.
-  select (o.metadata ->> 'size')::bigint into size
+  select (o.metadata ->> 'size')::bigint, o.metadata ->> 'mimetype' into size, kind
     from storage.objects o
    where o.bucket_id = 'team-call-recordings' and o.name = a.path;
   if size is null or size < 1 then
     return query select 'missing'::text, a.id, null::bigint, a.expires_at;
+    return;
+  end if;
+  if kind is distinct from a.content_type then
+    return query select 'invalid'::text, a.id, null::bigint, a.expires_at;
     return;
   end if;
   update public.capture_audio x
@@ -332,8 +360,11 @@ $$;
 
 -- ── Who may read a stored file ──────────────────────────────────────────────
 
--- The capture a stored audio object belongs to. Only what the read policy needs: the policy then
--- reads that capture as the person, so the captures table's own RLS decides.
+-- The capture a stored audio object belongs to, while it is kept (past its 30 days it is read by no
+-- one, swept or not). Only what the read policy needs: the policy then reads that capture as the
+-- person, so the captures table's own RLS decides. Callable by a signed-in person because the
+-- policy runs as them; it answers only for an exact path, whose last part is a random id that only
+-- the capture's readers are ever handed, so it tells nobody anything they could not read already.
 create or replace function public.capture_audio_capture_of(object_name text)
 returns uuid
 language sql
@@ -341,7 +372,7 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select a.capture_id from public.capture_audio a where a.path = object_name and a.state = 'stored';
+  select a.capture_id from public.capture_audio a where a.path = object_name and a.state = 'stored' and a.expires_at > now();
 $$;
 
 drop policy if exists "team call audio read" on storage.objects;

@@ -79,7 +79,7 @@ export function CallAudioPlayer({
   captureId: string
   file: CaptureAudioView
   label: string
-  /** The day it will be deleted, said for this one ('one'), for all the parts above too ('several': under the last), or not here (null). */
+  /** The day it will be deleted, said for this one ('one'), for every part when they share it ('several': under the last), or not here (null). */
   note?: 'one' | 'several' | null
 }) {
   const audio = useRef<HTMLAudioElement | null>(null)
@@ -87,30 +87,67 @@ export function CallAudioPlayer({
   const [at, setAt] = useState(0)
   const [length, setLength] = useState(file.durationMs ?? 0)
   const [downloading, setDownloading] = useState(false)
-  const retried = useRef(false)
+  // The person asked for sound (Play), until they pause or it ends: a link renewed mid-listen plays on.
+  const wantPlay = useRef(false)
+  // Where to go on from once a renewed link's file is loaded.
+  const resumeAt = useRef<number | null>(null)
+  // Links renewed in a row without one loading: a second failure in a row gives up.
+  const renewals = useRef(0)
+
+  const cantPlay = () => {
+    wantPlay.current = false
+    resumeAt.current = null
+    setState('idle')
+    toast('That audio can’t be played.')
+  }
+
+  /** A fresh link (an hour long), the file loading from `resume` (seconds) once it can. */
+  const load = async (resume: number | null): Promise<boolean> => {
+    const el = audio.current
+    const url = await audioLink(captureId, file.id, 'play')
+    if (!el || !url) return false
+    resumeAt.current = resume
+    el.src = url
+    return true
+  }
 
   const start = async () => {
     const el = audio.current
     if (!el) return
     if (state === 'playing') {
+      wantPlay.current = false
       el.pause()
       return
     }
-    if (!el.src) {
+    wantPlay.current = true
+    if (!el.getAttribute('src')) {
       setState('loading')
-      const url = await audioLink(captureId, file.id, 'play')
-      if (!url) {
-        setState('idle')
-        toast('That audio can’t be played.')
-        return
-      }
-      el.src = url
+      if (!(await load(null))) return cantPlay()
     }
     try {
       await el.play()
     } catch {
       setState('paused')
     }
+  }
+
+  /**
+   * The hour's link ran out while it played (or was paused): a fresh one, the place kept, and on
+   * where it was if it was playing. As often as an hour passes; a fresh link that fails to load
+   * too gives up and says so.
+   */
+  const renew = async () => {
+    const el = audio.current
+    if (!el) return
+    if (renewals.current >= 1) {
+      renewals.current = 0
+      return cantPlay()
+    }
+    renewals.current++
+    const at = resumeAt.current ?? el.currentTime
+    setState('loading')
+    if (!(await load(Number.isFinite(at) ? at : 0))) return cantPlay()
+    el.load()
   }
 
   const download = async () => {
@@ -194,25 +231,27 @@ export function CallAudioPlayer({
         ref={audio}
         preload="none"
         onPlay={() => setState('playing')}
-        onPause={() => setState('paused')}
-        onEnded={() => setState('paused')}
+        onPause={() => setState((s) => (s === 'loading' ? s : 'paused'))}
+        onEnded={() => {
+          wantPlay.current = false
+          setState('paused')
+        }}
         onTimeUpdate={(e) => setAt(e.currentTarget.currentTime * 1000)}
         onLoadedMetadata={(e) => {
-          const d = e.currentTarget.duration
+          const el = e.currentTarget
+          const d = el.duration
           if (Number.isFinite(d) && d > 0) setLength(d * 1000)
+          renewals.current = 0
+          const resume = resumeAt.current
+          resumeAt.current = null
+          if (resume === null) return
+          // A renewed link: back to where it was, and on if it was playing.
+          el.currentTime = resume
+          setAt(resume * 1000)
+          if (wantPlay.current) void el.play().catch(() => setState('paused'))
+          else setState('paused')
         }}
-        onError={() => {
-          // The hour's link ran out while the page was open: one fresh link, then give up.
-          const el = audio.current
-          if (!el || retried.current) {
-            setState('idle')
-            return
-          }
-          retried.current = true
-          el.removeAttribute('src')
-          el.load()
-          void start()
-        }}
+        onError={() => void renew()}
         className="hidden"
       />
     </div>
@@ -235,9 +274,12 @@ export function CallAudioRow({ captureId, metadata }: { captureId: string; metad
   const files = useCaptureAudio(captureId, metadata?.source === 'team_call')
   if (!files || files.length === 0) return null
   const several = files.length > 1
-  // Every part of a call is deleted the same day (30 days from the call): said once, under the last kept one.
+  // Each file goes on its own day (30 days from the start of the round it was heard in). When the
+  // kept ones share one day it is said once, under the last; when they differ, each says its own.
+  const ready = files.filter((f) => f.state === 'ready')
   const lastReady = files.map((f) => f.state).lastIndexOf('ready')
-  const readyCount = files.filter((f) => f.state === 'ready').length
+  const oneDay = new Set(ready.map((f) => audioDay(f.expiresAt))).size <= 1
+  const noteFor = (i: number): 'one' | 'several' | null => (files[i].state !== 'ready' ? null : !oneDay ? 'one' : i !== lastReady ? null : ready.length > 1 ? 'several' : 'one')
   return (
     <div data-capture-call-audio-files="" className="py-0.5">
       {files.map((f, i) => (
@@ -246,7 +288,7 @@ export function CallAudioRow({ captureId, metadata }: { captureId: string; metad
           captureId={captureId}
           file={f}
           label={several ? `Call audio, part ${i + 1}` : 'Call audio'}
-          note={i !== lastReady ? null : readyCount > 1 ? 'several' : 'one'}
+          note={noteFor(i)}
         />
       ))}
     </div>

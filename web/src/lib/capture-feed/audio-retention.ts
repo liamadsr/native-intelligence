@@ -17,9 +17,13 @@
  * It never touches anything but 650's audio files: the bucket's notes and
  * recordings are ./notes-retention's (src/lib/team-calls/), and a person's
  * own captures keep no sound at all. Logs carry counts only.
+ *
+ * It runs whatever TEAM_CALL_AUDIO says: files kept before the switch went
+ * off are still deleted on their day. On a database without migration 650
+ * yet it does nothing, says so once per process, and the job succeeds.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { CAPTURE_AUDIO_BUCKET } from './audio'
+import { CAPTURE_AUDIO_BUCKET, missingFromDatabase } from './audio'
 
 export const AUDIO_RETENTION_BATCH = 200
 
@@ -27,6 +31,15 @@ export interface AudioRetentionResult {
   settled: number
   deleted: number
   orphans: number
+  /** Migration 650 is not on this database yet: nothing was done. */
+  skipped?: true
+}
+
+let saidMissing = false
+
+/** For a test: say "650 is missing" again. */
+export function __forgetSaidMissing(): void {
+  saidMissing = false
 }
 
 async function remove(svc: SupabaseClient, paths: string[]): Promise<void> {
@@ -55,6 +68,11 @@ export async function expireCallAudio(svc: SupabaseClient, deps: { now?: () => D
 
   // 1. Landed, never said.
   const { data: settled, error: settleError } = await svc.rpc('capture_audio_settle', { max_rows: AUDIO_RETENTION_BATCH })
+  if (settleError && missingFromDatabase(settleError)) {
+    if (!saidMissing) console.info('[call-audio-retention] skipped: migration 650 is not applied to this database')
+    saidMissing = true
+    return { ...result, skipped: true }
+  }
   if (settleError) throw new Error(`call audio retention: settle failed: ${settleError.message}`)
   result.settled = typeof settled === 'number' ? settled : 0
 

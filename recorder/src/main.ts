@@ -166,7 +166,7 @@ async function stopAll(signal: string): Promise<void> {
   console.info(`[recorder] ${signal}: leaving ${calls.size} call(s), sessions kept for the next process`)
   shutdown.abort()
   await Promise.all([...calls.values()].map((r) => r.stop('shutdown', { flushMs: 15_000 })))
-  await audio?.stop()
+  await audio?.stop(5_000)
   health.close()
   await dispose().catch(() => undefined)
   process.exit(0)

@@ -7,10 +7,15 @@
  *     from the feed session's start) is its place in the file, after the
  *     take's offset. Where nobody spoke there is silence; nothing is ever
  *     squeezed out or stretched.
- *   - Each track's frames run on from where its last one ended, so 10 ms
- *     frames arriving a little early or late do not click. A track whose
- *     frames drift more than DRIFT_MS from the wall clock (a mute, a reconnect,
- *     a stall) is placed again at the time its frame arrived.
+ *   - Each track's frames run on from where its last one ended: a track's
+ *     frames are its own clock, so 10 ms frames arriving a little early or
+ *     late do not click, and a burst after a stall (the event loop busy, a
+ *     garbage collection) lands where it was heard, not on top of what came
+ *     after it. A muted track's frames move its clock on without sound
+ *     (`skip`). Only a real gap moves a track: frames that stopped coming for
+ *     more than GAP_MS (a stall that long is past the window anyway) are
+ *     placed again where the wall clock says. A track running ahead of the
+ *     wall clock is held to DRIFT_MS ahead.
  *   - Frames are summed into a window of the last `capacityMs` and written out
  *     `latencyMs` behind the wall clock, in order, once: what arrives later
  *     than that for a stretch already written is dropped (counted in `late`).
@@ -20,8 +25,10 @@
  *   - Sums are clamped to 16 bits (several people at once never wrap around).
  */
 
-/** A track this far from where its frames should be is placed again. */
+/** A track this far ahead of the wall clock is held back to it. */
 export const DRIFT_MS = 120
+/** A track this far behind the wall clock had a real gap (its frames stopped): placed again. */
+export const GAP_MS = 1_000
 
 export interface MixerOptions {
   sampleRate: number
@@ -72,14 +79,26 @@ export class Mixer {
     return this.flushed
   }
 
+  /** Where a track's next `n` samples go, its last heard at `endWallMs`; its clock moved past them. */
+  private place(key: string, n: number, endWallMs: number): number {
+    const expected = this.sampleAt(endWallMs) - n
+    let start = this.cursors.get(key)
+    if (start === undefined || expected - start > (GAP_MS * this.rate) / 1000) start = expected
+    else if (start - expected > (DRIFT_MS * this.rate) / 1000) start = expected + Math.round((DRIFT_MS * this.rate) / 1000)
+    this.cursors.set(key, start + n)
+    return start
+  }
+
+  /** A frame of a track that adds no sound (it is muted): its clock moves on, so its next sound lands in place. */
+  skip(key: string, samples: number, endWallMs: number): void {
+    if (samples > 0) this.place(key, samples, endWallMs)
+  }
+
   /** One frame of one track, whose last sample was heard at `endWallMs`. */
   push(key: string, pcm: Int16Array, endWallMs: number): void {
     const n = pcm.length
     if (n === 0) return
-    const expected = this.sampleAt(endWallMs) - n
-    let start = this.cursors.get(key)
-    if (start === undefined || Math.abs(start - expected) > (DRIFT_MS * this.rate) / 1000) start = expected
-    this.cursors.set(key, start + n)
+    const start = this.place(key, n, endWallMs)
     // Ahead of the window (a frame stamped far in the future): what is held goes out first.
     if (start + n > this.flushed + this.cap) this.flushTo(start + n - this.cap)
     let from = 0

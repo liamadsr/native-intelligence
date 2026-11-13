@@ -9,7 +9,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { memoryDb } from '@/test/memory-db'
-import { CAPTURE_AUDIO_LINK_TTL_SECONDS, audioDownloadName, audioViewOf, captureAudioFor, captureAudioLink } from '../audio'
+import { CAPTURE_AUDIO_LINK_TTL_SECONDS, audioDownloadName, audioViewOf, captureAudioFor, captureAudioLink, missingFromDatabase } from '../audio'
 
 const CAPTURE = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const OTHER = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
@@ -64,6 +64,9 @@ describe('what the page shows of a file', () => {
     expect(audioViewOf(row('a', { state: 'deleted', deleted_at: '2026-12-14T04:17:00.000Z' }), NOW)).toMatchObject({ state: 'deleted', deletedAt: '2026-12-14T04:17:00.000Z' })
     expect(audioViewOf(row('a', { state: 'deleted', stored_at: null, deleted_at: '2026-12-14T04:17:00.000Z' }), NOW)).toBeNull()
   })
+  it('kept but past its day, before the sweep: deleted on that day (what the person was shown)', () => {
+    expect(audioViewOf(row('a', {}), Date.parse('2026-12-13T10:00:01.000Z'))).toMatchObject({ state: 'deleted', deletedAt: '2026-12-13T10:00:00.000Z' })
+  })
   it('pending: being saved for a day, then nothing', () => {
     expect(audioViewOf(row('a', { state: 'pending', stored_at: null, created_at: new Date(NOW - 60_000).toISOString() }), NOW)?.state).toBe('saving')
     expect(audioViewOf(row('a', { state: 'pending', stored_at: null, created_at: new Date(NOW - 25 * 3600_000).toISOString() }), NOW)).toBeNull()
@@ -99,6 +102,11 @@ describe('a link to one file', () => {
     expect(audioDownloadName('2026-11-13T10:59:00Z', 0, false, 'audio/mp4')).toBe('Call audio 2026-11-13.m4a')
     expect(audioDownloadName(null, 0, false, 'audio/ogg')).toBe('Call audio.ogg')
   })
+  it('never once its day has passed, even before the sweep removed it', async () => {
+    svcTables.capture_audio.push(row('a', {}))
+    expect(await captureAudioLink(person, svc, CAPTURE, 'a', 'play', Date.parse('2026-12-13T10:00:00.000Z'))).toBeNull()
+    expect(await captureAudioLink(person, svc, CAPTURE, 'a', 'play', Date.parse('2026-12-13T09:59:00.000Z'))).not.toBeNull()
+  })
   it('never for a file deleted or not yet kept, another capture’s, or a capture the person may not read', async () => {
     svcTables.capture_audio.push(row('d', { state: 'deleted', deleted_at: '2026-12-14T04:17:00Z' }), row('p', { state: 'pending', stored_at: null }), row('x', { capture_id: OTHER }))
     expect(await captureAudioLink(person, svc, CAPTURE, 'd', 'play')).toBeNull()
@@ -106,5 +114,16 @@ describe('a link to one file', () => {
     expect(await captureAudioLink(person, svc, CAPTURE, 'x', 'play')).toBeNull()
     expect(await captureAudioLink(person, svc, OTHER, 'x', 'play')).toBeNull()
     expect(signed).toEqual([])
+  })
+})
+
+describe('a database without migration 650', () => {
+  it('reads Postgres’s and PostgREST’s "not there" as missing, and nothing else', () => {
+    expect(missingFromDatabase({ code: '42883', message: 'function public.capture_audio_settle(integer) does not exist' })).toBe(true)
+    expect(missingFromDatabase({ code: 'PGRST202', message: 'Could not find the function public.capture_audio_due' })).toBe(true)
+    expect(missingFromDatabase({ code: 'PGRST205', message: "Could not find the table 'public.capture_audio'" })).toBe(true)
+    expect(missingFromDatabase({ code: '42P01', message: 'relation "public.capture_audio" does not exist' })).toBe(true)
+    expect(missingFromDatabase({ code: '57014', message: 'canceling statement due to statement timeout' })).toBe(false)
+    expect(missingFromDatabase(null)).toBe(false)
   })
 })

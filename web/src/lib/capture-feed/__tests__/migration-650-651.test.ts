@@ -8,8 +8,9 @@
  * run them, except the read policy's helper; the files are kept 30 days from
  * the session's start, in the call's folder of the recordings bucket under
  * audio/; the read policy reads the capture as the person. 651 touches only
- * buckets without a limit. Run on PGlite (applied twice, the functions
- * exercised with rows, the policy as a signed-in person); this pins the text.
+ * buckets without a limit. web/scripts/check-capture-audio-sql.mjs runs both
+ * on PGlite (applied twice, the functions exercised with rows, the policy as
+ * a signed-in person); this pins the text in the suite.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -72,12 +73,13 @@ describe('migrations 650 and 651', () => {
     expect(flat(A).match(/to authenticated/g)?.length).toBe(2) // the helper's grant, and the policy itself
   })
 
-  it('kept 30 days from the session’s start, in the call’s folder under audio/, at most 2 GB, 50 takes a session', () => {
+  it('kept 30 days from the session’s start, in the call’s folder under audio/, at most 2 GB, 10 takes a session, 200 links a take', () => {
     const g = flat(definition(A, 'capture_feed_audio_grant'))
     expect(g).toContain("keep_until := s.started_at + interval '30 days';")
     expect(g).toContain("channel::text || '/' || s.source_ref::text || '/audio/' || new_id::text")
     expect(g).toContain('p_bytes > 2147483648')
-    expect(g).toContain('next_part >= 50')
+    expect(g).toContain('next_part >= 10')
+    expect(g).toContain('if a.grants >= 200 then')
     expect(g).toContain('s.producer_id is distinct from p_producer_id')
     expect(g).toContain("if s.source_kind <> 'team_call' then")
   })
@@ -86,6 +88,8 @@ describe('migrations 650 and 651', () => {
     const s = flat(definition(A, 'capture_feed_audio_stored'))
     expect(s).toContain("from storage.objects o where o.bucket_id = 'team-call-recordings' and o.name = a.path;")
     expect(s).toContain("return query select 'missing'::text")
+    // Of the type its grant named: anything else is never kept.
+    expect(s).toContain('if kind is distinct from a.content_type then')
   })
 
   it('the sweep’s reads touch only audio files: due by expires_at, orphans under audio/ an hour old', () => {
@@ -100,7 +104,7 @@ describe('migrations 650 and 651', () => {
     expect(t).toContain(
       `create policy "team call audio read" on storage.objects for select to authenticated using ( bucket_id = 'team-call-recordings' and split_part(name, '/', 3) = 'audio' and exists (select 1 from public.captures c where c.id = public.capture_audio_capture_of(name)) );`,
     )
-    expect(flat(definition(A, 'capture_audio_capture_of'))).toContain("where a.path = object_name and a.state = 'stored'")
+    expect(flat(definition(A, 'capture_audio_capture_of'))).toContain("where a.path = object_name and a.state = 'stored' and a.expires_at > now()")
   })
 
   it('651 gives today’s 50 MB to every bucket without a limit, and touches no other', () => {

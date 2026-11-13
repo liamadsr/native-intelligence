@@ -128,14 +128,14 @@ describe('the grant', () => {
       upload: {
         url: `https://sb.example.test/storage/v1/object/upload/sign/team-call-recordings/${PATH}?token=one-time`,
         method: 'PUT',
-        headers: { 'content-type': 'audio/mp4', 'x-upsert': 'true', 'cache-control': 'max-age=3600' },
+        headers: { 'content-type': 'audio/mp4', 'x-upsert': 'false', 'cache-control': 'max-age=3600' },
       },
       expiresAt: '2026-12-13T10:00:00.000Z',
     })
     expect(h.rpcs).toEqual([
       ['capture_feed_audio_grant', { p_session: SESSION, p_producer_id: 'recorder', p_take: 't-1', p_offset_ms: 1200, p_duration_ms: 3_600_000, p_bytes: 14_500_000, p_content_type: 'audio/mp4' }],
     ])
-    expect(h.signed).toEqual([{ bucket: 'team-call-recordings', path: PATH, opts: { upsert: true } }])
+    expect(h.signed).toEqual([{ bucket: 'team-call-recordings', path: PATH, opts: { upsert: false } }])
   })
 
   it('anything but granted: no upload, nothing signed (the producer drops its file)', async () => {

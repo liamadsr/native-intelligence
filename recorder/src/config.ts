@@ -19,8 +19,10 @@
  *   RECORDER_AUDIO_DIR        where takes are written (default
  *                             /var/lib/recorder/audio, the service's volume).
  *   RECORDER_FFMPEG           the encoder (default `ffmpeg`, in the image).
- *   RECORDER_AUDIO_MIN_FREE_MB  no new take with less free on that disk
- *                             (default 2048).
+ *   RECORDER_AUDIO_MIN_FREE_MB  the disk's free space never goes under this
+ *                             because of the recorder (default 2048).
+ *   RECORDER_AUDIO_MAX_MB     the most its takes hold on that disk together
+ *                             (default 4096).
  */
 
 export interface RecorderConfig {
@@ -35,7 +37,7 @@ export interface RecorderConfig {
   /** The most one call is heard (3 hours of notes, and a margin; the app stops it first). */
   maxCallMs: number
   /** Keeping the calls' sound (null: off). */
-  audio: { dir: string; ffmpeg: string; minFreeBytes: number } | null
+  audio: { dir: string; ffmpeg: string; minFreeBytes: number; maxHeldBytes: number } | null
 }
 
 /** Deepgram's live endpoint, as the person's own app uses it (web/src/lib/deepgram-stream.ts), with finals only and no diarization: one track is one known speaker. */
@@ -90,6 +92,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RecorderConfig
             dir: setting(env, 'RECORDER_AUDIO_DIR') ?? '/var/lib/recorder/audio',
             ffmpeg: setting(env, 'RECORDER_FFMPEG') ?? 'ffmpeg',
             minFreeBytes: int(env, 'RECORDER_AUDIO_MIN_FREE_MB', 2048, 0, 1_000_000) * 1024 * 1024,
+            maxHeldBytes: int(env, 'RECORDER_AUDIO_MAX_MB', 4096, 1, 1_000_000) * 1024 * 1024,
           }
         : null,
   }

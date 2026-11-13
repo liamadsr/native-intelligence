@@ -57,14 +57,17 @@
  *   POST /api/internal/capture-feed/sessions/<id>/audio
  *     { producer, take, offsetMs, durationMs, bytes, contentType }
  *     → { outcome, upload?: { url, method: 'PUT', headers }, expiresAt }.
- *     'granted': PUT the file's bytes to `url` (one use, soon: ask again for
- *     every attempt); 'stored' (that take is in already), 'not_wanted' (the
- *     app keeps no sound of this session: the switch, the source, or past
- *     its 30 days), 'too_large', 'taken', 'unknown': drop the file.
+ *     'granted': PUT the file's bytes to `url` (one use, soon, never
+ *     overwriting: ask again for every attempt; a refusal because the file
+ *     is there already is settled by `stored`); 'stored' (that take is in
+ *     already), 'not_wanted' (the app keeps no sound of this session: the
+ *     switch, the source, or past its 30 days), 'too_large', 'too_many' (10
+ *     takes a session, 200 links a take), 'taken', 'unknown': drop the file.
  *     `take`: the producer's own key for the file, the same for every retry.
  *   POST /api/internal/capture-feed/sessions/<id>/audio/stored
  *     { producer, take } → { outcome, expiresAt }: the upload is done.
- *     'stored' once Storage has it; 'missing': upload it again.
+ *     'stored' once Storage has it, of the type the grant named; 'missing':
+ *     upload it again; 'invalid' (another type): drop it.
  *
  * Times: every `atMs`, `startMs` and `endMs` is milliseconds from the
  * session's `startedAt` (the app's clock), so a producer that restarts goes

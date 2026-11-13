@@ -11,7 +11,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { memoryDb } from '@/test/memory-db'
-import { AUDIO_RETENTION_BATCH, expireCallAudio } from '../audio-retention'
+import { vi } from 'vitest'
+import { AUDIO_RETENTION_BATCH, __forgetSaidMissing, expireCallAudio } from '../audio-retention'
 import { sweepCallAudio } from '@/lib/team-calls/notes-retention'
 
 const NOW = new Date('2026-12-14T04:17:00.000Z')
@@ -99,5 +100,25 @@ describe('569’s sweep of files whose call is gone', () => {
     await sweepCallAudio(svc569, { now: () => NOW })
     expect(removed).toEqual([['ch/call/audio/a1.m4a', 'ch/call/recording/r.mp4']])
     expect(tables.capture_audio[0]).toMatchObject({ state: 'deleted', deleted_at: NOW.toISOString() })
+  })
+})
+
+describe('before migration 650 (code rolled out first)', () => {
+  it('skips, says so once, and the daily job does not fail', async () => {
+    __forgetSaidMissing()
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    const noAudio = Object.assign(Object.create(svc), {
+      rpc: async (name: string) => {
+        rpcs.push([name, {}])
+        if (name === 'team_call_recordings_orphans') return { data: [{ name: 'ch/call/notes/n.ogg' }], error: null }
+        return { data: null, error: { code: 'PGRST202', message: `Could not find the function public.${name}(max_rows) in the schema cache` } }
+      },
+    }) as SupabaseClient
+    expect(await expireCallAudio(noAudio, { now: () => NOW })).toEqual({ settled: 0, deleted: 0, orphans: 0, skipped: true })
+    expect(await expireCallAudio(noAudio, { now: () => NOW })).toMatchObject({ skipped: true })
+    expect(info.mock.calls.filter((c) => String(c[0]).includes('migration 650')).length).toBe(1)
+    expect(rpcs.map(([n]) => n)).toEqual(['capture_audio_settle', 'capture_audio_settle'])
+    expect(removed).toEqual([])
+    info.mockRestore()
   })
 })

@@ -4,7 +4,7 @@ import { chmodSync, mkdtempSync, readFileSync, readdirSync, writeFileSync, statS
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Mixer, DRIFT_MS } from '../src/mixer.ts'
-import { AudioKeeper, encodeArgs, takeKey, type UploadPort } from '../src/audio.ts'
+import { AudioKeeper, diskAllows, encodeArgs, takeKey, type UploadPort } from '../src/audio.ts'
 import { AppClient, AppError, type FeedSession } from '../src/app-client.ts'
 import { loadConfig } from '../src/config.ts'
 
@@ -46,15 +46,47 @@ test('mixer: a frame lands at the wall-clock time it was heard, frames that foll
   assert.equal(out.get(first + 480) ?? 0, 0)
 })
 
-test('mixer: a track that drifts past DRIFT_MS (a mute, a stall) is placed again at its time; silence in between', () => {
+test('mixer: a muted stretch moves the track’s clock on without sound; its next words land where they were said', () => {
   const { m, out } = mixer()
   m.push('a', frame(100), 1010)
-  // Nothing for 2 s (muted), then a frame heard at 3.01 s.
-  m.push('a', frame(200), 3010 + DRIFT_MS / 10)
+  // Muted for 2 s: its frames still come, and add nothing.
+  for (let t = 1020; t <= 3000; t += 10) m.skip('a', 160, t)
+  m.push('a', frame(200), 3010)
   m.finish(6000)
   assert.equal(out.get(sample(1000)), 100)
   assert.equal(out.get(sample(2000)) ?? 0, 0)
-  assert.equal(out.get(sample(3000 + DRIFT_MS / 10)), 200)
+  assert.equal(out.get(sample(3000)), 200)
+})
+
+test('mixer: frames that stopped coming for more than GAP_MS (a real gap) are placed again at their time', () => {
+  const { m, out } = mixer()
+  m.push('a', frame(100), 1010)
+  m.push('a', frame(200), 3010)
+  m.finish(6000)
+  assert.equal(out.get(sample(1010)) ?? 0, 0, 'not run on from the first frame')
+  assert.equal(out.get(sample(3000)), 200)
+})
+
+test('mixer: a burst after a stall (the event loop busy) lands where it was heard, each frame once, nothing doubled', () => {
+  const { m, out } = mixer()
+  // 50 frames in real time, then 400 ms of stall: the next 40 frames all arrive at once.
+  for (let k = 0; k < 50; k++) m.push('a', frame(k + 1), 1010 + k * 10)
+  for (let k = 50; k < 90; k++) m.push('a', frame(k + 1), 1500 + 400)
+  // Back in real time.
+  for (let k = 90; k < 120; k++) m.push('a', frame(k + 1), 1010 + k * 10)
+  m.finish(4000)
+  for (const k of [0, 49, 50, 70, 89, 90, 119]) assert.equal(out.get(sample(1000 + k * 10) + 5), k + 1, `frame ${k}`)
+  assert.equal(m.late, 0)
+})
+
+test('mixer: a track running ahead of the wall clock is held to DRIFT_MS ahead', () => {
+  const { m, out } = mixer()
+  // 40 frames (400 ms) arriving within the same instant: no frame lands more than DRIFT_MS after it was heard.
+  for (let k = 0; k < 40; k++) m.push('a', frame(k + 1), 1010)
+  m.finish(4000)
+  let last = 0
+  for (const [at, v] of out) if (v !== 0) last = Math.max(last, at)
+  assert.ok(last <= sample(1010 + DRIFT_MS) + 160, `last sample at ${last}`)
 })
 
 test('mixer: two people at once are summed, clamped to 16 bits, never wrapped', () => {
@@ -133,7 +165,7 @@ test('settings: audio off unless RECORDER_AUDIO=on; its folder, encoder and free
   assert.ok(!('missing' in off) && off.audio === null)
   const on = loadConfig({ ...base, RECORDER_AUDIO: 'on' })
   assert.ok(!('missing' in on))
-  assert.deepEqual(on.audio, { dir: '/var/lib/recorder/audio', ffmpeg: 'ffmpeg', minFreeBytes: 2048 * 1024 * 1024 })
+  assert.deepEqual(on.audio, { dir: '/var/lib/recorder/audio', ffmpeg: 'ffmpeg', minFreeBytes: 2048 * 1024 * 1024, maxHeldBytes: 4096 * 1024 * 1024 })
   const custom = loadConfig({ ...base, RECORDER_AUDIO: 'ON', RECORDER_AUDIO_DIR: '/data/a', RECORDER_AUDIO_MIN_FREE_MB: '10' })
   assert.ok(!('missing' in custom) && custom.audio?.dir === '/data/a' && custom.audio.minFreeBytes === 10 * 1024 * 1024)
 })
@@ -167,7 +199,7 @@ interface FakeApp {
   failUploads: number
 }
 
-function keeperWith(dir: string, app: FakeApp, opts: { ffmpeg?: string; minFreeBytes?: number } = {}) {
+function keeperWith(dir: string, app: FakeApp, opts: { ffmpeg?: string; minFreeBytes?: number; maxHeldBytes?: number; putStatus?: number } = {}) {
   const client = new AppClient({
     appUrl: 'http://app.test',
     secret: 's',
@@ -191,10 +223,10 @@ function keeperWith(dir: string, app: FakeApp, opts: { ffmpeg?: string; minFreeB
     put: async (url, path, bytes) => {
       if (app.failUploads-- > 0) throw new Error('connection reset')
       app.uploads.push({ url, bytes, body: readFileSync(path) })
-      return 200
+      return opts.putStatus ?? 200
     },
   }
-  return new AudioKeeper({ dir, ffmpeg: opts.ffmpeg ?? fakeEncoder(dir), minFreeBytes: opts.minFreeBytes ?? 0 }, client, { uploads, retry: { baseMs: 5, maxMs: 10 }, leftoverGraceMs: 60_000 })
+  return new AudioKeeper({ dir, ffmpeg: opts.ffmpeg ?? fakeEncoder(dir), minFreeBytes: opts.minFreeBytes ?? 0, maxHeldBytes: opts.maxHeldBytes ?? 1024 ** 3 }, client, { uploads, retry: { baseMs: 5, maxMs: 10 }, leftoverGraceMs: 60_000 })
 }
 const newApp = (): FakeApp => ({ grants: [], stored: [], answers: {}, failGrants: 0, uploads: [], failUploads: 0 })
 const session = (over: Partial<FeedSession> = {}): FeedSession => ({ id: SESSION, startedAt: new Date(Date.now() - 5000).toISOString(), round: 1, captureId: 'c', guests: [], audio: true, ...over })
@@ -414,4 +446,85 @@ test('the app client: the audio requests carry the feed’s producer, and a gran
   assert.equal((await c.audioStored(SESSION, 't1')).outcome, 'missing')
   assert.equal(sent[1].url, `https://app.example.test/api/internal/capture-feed/sessions/${SESSION}/audio/stored`)
   void AppError
+})
+
+test('disk: a take is written only while the disk has its floor free and the recorder holds under its cap', () => {
+  const settings = { minFreeBytes: 2048, maxHeldBytes: 4096 }
+  assert.equal(diskAllows({ freeBytes: 2048, heldBytes: 0 }, settings), true)
+  assert.equal(diskAllows({ freeBytes: 2047, heldBytes: 0 }, settings), false)
+  assert.equal(diskAllows({ freeBytes: 1e12, heldBytes: 4096 }, settings), false)
+})
+
+test('keeper: no take opens once the recorder holds its cap', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rec-audio-'))
+  const k = keeperWith(dir, newApp(), { maxHeldBytes: 1 })
+  await k.start()
+  // The stand-in encoder itself is a file in the folder: already over a 1-byte cap.
+  assert.equal(await k.openTake(session()), null)
+  await k.stop()
+})
+
+test('keeper: a take being written stops when the disk runs short, keeping (and handing on) what it has; the notes are not its to stop', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'rec-audio-'))
+  const app = newApp()
+  const k = keeperWith(dir, app)
+  await k.start()
+  const take = await k.openTake(session())
+  await sleep(1100)
+  talk(take!, 700)
+  // The disk fills up mid-call: the next look (sped up here) says so.
+  ;(k as unknown as { diskOk: () => Promise<boolean> }).diskOk = async () => false
+  ;(take as unknown as { lastDiskLook: number }).lastDiskLook = 0
+  await until(() => take!.stoppedForDisk)
+  talk(take!, 900) // after the stop: not written
+  await until(() => app.stored.length === 1)
+  const body = app.uploads[0].body
+  const pcm16 = new Int16Array(body.buffer, body.byteOffset, body.length / 2)
+  assert.ok(pcm16.includes(700), 'what was heard before is kept')
+  assert.ok(!pcm16.includes(900), 'nothing after the stop')
+  await take!.end('finish') // the call's own end later: the same, once
+  assert.equal(app.grants.length, 1)
+  await k.stop()
+  void t
+})
+
+test('keeper: an upload Storage refuses because it has the file already (an answer lost) is settled by the app’s "stored"', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rec-audio-'))
+  const app = newApp()
+  const k = keeperWith(dir, app, { putStatus: 409 })
+  await k.start()
+  const take = await k.openTake(session())
+  await sleep(1100)
+  talk(take!, 500)
+  await take!.end('finish')
+  await until(() => app.stored.length === 1 && files(dir).length === 0)
+  assert.equal(app.grants.length, 1)
+  await k.stop()
+})
+
+test('keeper: stray files an hour old are removed (temporary ones cut off, files whose state is gone); a take’s own files never are', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rec-audio-'))
+  const k = keeperWith(dir, newApp())
+  await k.start()
+  const take = await k.openTake(session())
+  const old = (Date.now() - 2 * 3600_000) / 1000
+  const { utimesSync } = await import('node:fs')
+  for (const name of ['t-x.json.tmp', 't-x.m4a.part', 't-orphan.pcm', 't-orphan.m4a', 't-new.m4a.part']) writeFileSync(join(dir, name), 'x')
+  for (const name of ['t-x.json.tmp', 't-x.m4a.part', 't-orphan.pcm', 't-orphan.m4a']) utimesSync(join(dir, name), old, old)
+  utimesSync(join(dir, `${take!.meta.take}.pcm`), old, old)
+  assert.equal(await k.sweepStrays(), 4)
+  const left = files(dir).sort()
+  assert.deepEqual(left, [`${take!.meta.take}.json`, `${take!.meta.take}.pcm`, 't-new.m4a.part'].sort())
+  await take!.end('finish')
+  await k.stop()
+})
+
+test('keeper: a shutdown never waits past its bound on a worker that hangs', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rec-audio-'))
+  const k = keeperWith(dir, newApp())
+  await k.start()
+  ;(k as unknown as { worker: Promise<void> }).worker = new Promise(() => undefined)
+  const t0 = Date.now()
+  await k.stop(200)
+  assert.ok(Date.now() - t0 < 1000)
 })

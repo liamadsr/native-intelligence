@@ -66,6 +66,22 @@ export const SAMPLE_RATE = 16_000
 export const CONNECT_TIMEOUT_MS = 20_000
 /** How often the call's words go to the app: one write to the capture per call this often, not one per sentence. */
 export const DELIVERY_EVERY_MS = 4_000
+/** The longest opening the call's sound may take before the call goes on without it (a disk that hangs). */
+export const AUDIO_OPEN_MS = 2_000
+/** The longest finishing it may take before the call leaves without waiting for it. */
+export const AUDIO_END_MS = 5_000
+
+/** `p`'s value, or `timeout` once `ms` passed first (`p` goes on, unwatched). */
+export function within<T>(p: Promise<T>, ms: number): Promise<T | typeof TIMEOUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    p.finally(() => clearTimeout(timer)),
+    new Promise<typeof TIMEOUT>((resolve) => {
+      timer = setTimeout(() => resolve(TIMEOUT), ms)
+    }),
+  ])
+}
+export const TIMEOUT = Symbol('timeout')
 
 export interface CallDeps {
   client: AppClient
@@ -77,7 +93,12 @@ export interface CallDeps {
   /** Deepgram's sockets (a test's fake). */
   socket?: SocketFactory
   /** Keeps the calls' sound (null: off in this process). */
-  audio?: AudioKeeper | null
+  audio?: Pick<AudioKeeper, 'openTake'> | null
+  /** How long opening and finishing the sound may take (a test's shorter ones). */
+  audioOpenMs?: number
+  audioEndMs?: number
+  /** The room (a test's stand-in). */
+  room?: Room
 }
 
 interface Listener {
@@ -96,7 +117,7 @@ export class CallRecorder {
   readonly job: Job
   readonly session: FeedSession
   private readonly deps: CallDeps
-  private readonly room = new Room()
+  private readonly room: Room
   private readonly delivery: Delivery
   private readonly listeners = new Map<string, Listener>()
   private readonly startedAtMs: number
@@ -113,6 +134,7 @@ export class CallRecorder {
     this.job = job
     this.session = session
     this.deps = deps
+    this.room = deps.room ?? new Room()
     this.startedAtMs = Date.parse(session.startedAt)
     this.guests = new Set((session.guests ?? []).map((g) => g.toLowerCase()))
     this.delivery = new Delivery(
@@ -183,10 +205,19 @@ export class CallRecorder {
       clearTimeout(timer)
     }
     console.info(`[recorder] call=${this.job.callId} session=${this.session.id} round=${this.session.round} joined`)
-    // The sound's take, from now (or the one a restart left, going on): before the first frame.
-    if (!this.stopping) this.audio = (await this.deps.audio?.openTake(this.session).catch(() => null)) ?? null
+    // The sound's take, from now (or the one a restart left, going on): before the first frame,
+    // and never for longer than AUDIO_OPEN_MS. A disk that hangs leaves the call heard without
+    // its sound; a take that opens later than that is finished at once (it heard nothing).
+    if (!this.stopping && this.deps.audio) {
+      const opening = this.deps.audio.openTake(this.session).catch(() => null)
+      const opened = await within(opening, this.deps.audioOpenMs ?? AUDIO_OPEN_MS)
+      if (opened === TIMEOUT) {
+        console.warn(`[recorder] call=${this.job.callId} session=${this.session.id} audio not opened in time: the call goes on without its sound`)
+        void opening.then((late) => late?.end('finish').catch(() => undefined))
+      } else this.audio = opened
+    }
     // Stopped while the take was opening: it ends with the call (nothing was heard into it).
-    if (this.stopping && this.audio) void this.audio.end('finish')
+    if (this.stopping && this.audio) void this.audio.end('finish').catch(() => undefined)
     if (this.audio) console.info(`[recorder] call=${this.job.callId} session=${this.session.id} audio take=${this.audio.meta.take}`)
     for (const p of room.remoteParticipants.values()) {
       this.joined(p)
@@ -277,8 +308,12 @@ export class CallRecorder {
       for (;;) {
         const { value: frame, done } = await l.reader.read()
         if (done || this.listeners.get(l.trackSid) !== l) break
-        if (l.muted) continue
         const now = Date.now()
+        if (l.muted) {
+          // No sound, but the member's place in the call's sound moves on with the call.
+          if (l.member && frame.sampleRate === SAMPLE_RATE) this.audio?.skip(l.trackSid, frame.samplesPerChannel, now)
+          continue
+        }
         const durationMs = (frame.samplesPerChannel / frame.sampleRate) * 1000
         l.deepgram.write(frame.data, now - durationMs, durationMs)
         if (l.member && frame.sampleRate === SAMPLE_RATE) this.audio?.push(l.trackSid, frame.data, now)
@@ -324,11 +359,17 @@ export class CallRecorder {
     this.stopping = (async () => {
       for (const t of this.timers) clearInterval(t)
       await Promise.all([...this.listeners.keys()].map((sid) => this.closeListener(sid)))
-      // The take finished (or, at a shutdown, paused for the next process) beside the last words.
-      const [delivered] = await Promise.all([
-        this.delivery.flush(opts.flushMs ?? 15_000),
-        this.audio?.end(why === 'shutdown' ? 'pause' : 'finish').catch((err) => console.warn(`[recorder] call=${this.job.callId} audio not finished:`, err instanceof Error ? err.message.slice(0, 120) : 'unknown')),
-      ])
+      // The take finished (or, at a shutdown, paused for the next process) beside the last words,
+      // and never waited on past AUDIO_END_MS: a disk that hangs never keeps the call from saying
+      // `end`, its slot from being freed, or a shutdown from finishing. A take cut off that way is
+      // left as it is, for the next start to finish.
+      const audio = this.audio
+      const ending = audio ? within(audio.end(why === 'shutdown' ? 'pause' : 'finish'), this.deps.audioEndMs ?? AUDIO_END_MS).catch((err) => {
+        console.warn(`[recorder] call=${this.job.callId} audio not finished:`, err instanceof Error ? err.message.slice(0, 120) : 'unknown')
+        return null
+      }) : null
+      const [delivered, ended] = await Promise.all([this.delivery.flush(opts.flushMs ?? 15_000), ending])
+      if (ended === TIMEOUT) console.warn(`[recorder] call=${this.job.callId} session=${this.session.id} audio not finished in time: left for the next start`)
       if (!delivered) console.warn(`[recorder] call=${this.job.callId} session=${this.session.id} left with ${this.delivery.pending} deliveries unsent`)
       if (why !== 'shutdown') await this.deps.client.end(this.session.id, why).catch(() => false)
       await this.room.disconnect().catch(() => undefined)

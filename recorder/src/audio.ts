@@ -30,9 +30,18 @@
  *     take's state is a small JSON file beside it), for MAX_TAKE_AGE_MS; the
  *     app's 'not_wanted' (the switch went off, the session is too old),
  *     'stored', 'too_large' or 'taken' drop the local copy at once.
- *   - It never fills the disk: no take starts with less than the minimum
- *     free, and a write that fails ends that take's sound (the call's notes
- *     go on).
+ *   - It never fills the disk. The volume shares the server's disk with the
+ *     database, so the recorder holds at most `maxHeldBytes` across all its
+ *     takes (raw and encoded, on the disk's own count of what they take), and
+ *     never lets the disk's free space fall under `minFreeBytes`: no take
+ *     starts past either, and each take being written looks again every
+ *     DISK_CHECK_MS and stops there (its sound so far is kept and handed on;
+ *     the call's notes go on). A write that fails ends that take's sound too.
+ *   - A disk that hangs never holds up a call: ./call.ts gives opening a take
+ *     and finishing one a few seconds each, then goes on without the sound
+ *     (a take left half-written is finished by the next start).
+ *   - Stray files (half-written temporary ones, a file whose state is gone)
+ *     are removed at the start and after each upload, once an hour old.
  *
  * Logs carry ids, counts and sizes. Never a link, never a key.
  */
@@ -61,12 +70,30 @@ export const LEFTOVER_GRACE_MS = 3 * 60_000
 export const MAX_TAKE_AGE_MS = 3 * 24 * 60 * 60_000
 /** A take shorter than this, or with no sound in it, is not kept. */
 export const MIN_TAKE_MS = 1_000
+/** How often a take being written looks at the disk again (and how long a look is good for). */
+export const DISK_CHECK_MS = 30_000
+/** A stray file this old is removed (a temporary one cut off, a raw or encoded file without its state). */
+export const STRAY_MAX_AGE_MS = 60 * 60_000
 export const AUDIO_CONTENT_TYPE = 'audio/mp4'
 
 export interface AudioSettings {
   dir: string
   ffmpeg: string
+  /** The disk's free space never goes under this because of the recorder. */
   minFreeBytes: number
+  /** The most the recorder holds on its volume across all its takes. */
+  maxHeldBytes: number
+}
+
+/** What the disk has room for now: free on the disk, and held by the recorder's takes. */
+export interface DiskState {
+  freeBytes: number
+  heldBytes: number
+}
+
+/** May a take be written now? Pure. */
+export function diskAllows(state: DiskState, settings: Pick<AudioSettings, 'minFreeBytes' | 'maxHeldBytes'>): boolean {
+  return state.freeBytes >= settings.minFreeBytes && state.heldBytes < settings.maxHeldBytes
 }
 
 type TakeState = 'recording' | 'finished' | 'encoded'
@@ -155,6 +182,10 @@ export class CallAudio {
   private readonly file: PcmFile
   private readonly timer: ReturnType<typeof setInterval>
   private ended: Promise<void> | null = null
+  private lastDiskLook = Date.now()
+  private looking = false
+  /** It stopped itself: the disk was short (its sound so far is kept). */
+  stoppedForDisk = false
 
   constructor(keeper: AudioKeeper, meta: TakeMeta, file: PcmFile, fromSample: number) {
     this.keeper = keeper
@@ -168,7 +199,26 @@ export class CallAudio {
       capacityMs: MIX_WINDOW_MS,
       write: (at, pcm) => this.file.write(at, pcm),
     })
-    this.timer = setInterval(() => this.mixer.drain(Date.now()), MIX_DRAIN_MS)
+    this.timer = setInterval(() => this.tick(), MIX_DRAIN_MS)
+  }
+
+  private tick(): void {
+    const now = Date.now()
+    this.mixer.drain(now)
+    if (this.looking || now - this.lastDiskLook < DISK_CHECK_MS) return
+    this.lastDiskLook = now
+    this.looking = true
+    // A look that never answers (a stalled disk) only means no further look: the call goes on.
+    void this.keeper
+      .diskOk()
+      .then((ok) => {
+        if (ok || this.ended) return
+        this.stoppedForDisk = true
+        console.warn(`[recorder] session=${this.meta.sessionId} audio stopped here: the disk is short (the sound so far is kept)`)
+        void this.end('finish').catch(() => undefined)
+      })
+      .catch(() => undefined)
+      .finally(() => (this.looking = false))
   }
 
   get failed(): boolean {
@@ -179,6 +229,12 @@ export class CallAudio {
   push(trackSid: string, pcm: Int16Array, endWallMs: number): void {
     if (this.ended || this.file.failed) return
     this.mixer.push(trackSid, pcm, endWallMs)
+  }
+
+  /** A muted member's frame: no sound, but their clock moves on (their next words land in place). */
+  skip(trackSid: string, samples: number, endWallMs: number): void {
+    if (this.ended || this.file.failed) return
+    this.mixer.skip(trackSid, samples, endWallMs)
   }
 
   /** A track ended. */
@@ -254,6 +310,7 @@ export class AudioKeeper {
   private wake: (() => void) | null = null
   private worker: Promise<void> | null = null
   private encoder: ReturnType<typeof spawn> | null = null
+  private disk: { at: number; state: DiskState } | null = null
   /** For tests and the health answer. */
   readonly counts = { granted: 0, stored: 0, dropped: 0, failed: 0 }
 
@@ -298,6 +355,7 @@ export class AudioKeeper {
         setTimeout(() => void this.leftoverDue(meta.sessionId), this.leftoverGraceMs).unref()
       } else this.enqueue(meta.take)
     }
+    await this.sweepStrays()
     console.info(`[recorder] audio on: ${this.queue.length} take(s) to hand on, ${this.leftovers.size} left mid-call`)
     this.worker = this.work()
     return true
@@ -332,10 +390,9 @@ export class AudioKeeper {
       meta = leftover
     } else {
       try {
-        const fs = await statfs(this.settings.dir)
-        const free = Number(fs.bavail) * Number(fs.bsize)
-        if (free < this.settings.minFreeBytes) {
-          console.warn(`[recorder] session=${session.id} audio not kept: ${Math.round(free / 1048576)} MB free`)
+        const state = await this.diskState(true)
+        if (!diskAllows(state, this.settings)) {
+          console.warn(`[recorder] session=${session.id} audio not kept: ${Math.round(state.freeBytes / 1048576)} MB free, ${Math.round(state.heldBytes / 1048576)} MB held`)
           return null
         }
       } catch {
@@ -356,7 +413,13 @@ export class AudioKeeper {
     }
     try {
       const { file, samples } = await PcmFile.open(this.pcmPath(meta.take), (err) => console.warn(`[recorder] session=${session.id} audio write failed, its sound ends here:`, err.message.slice(0, 120)))
-      await this.saveMeta(meta)
+      try {
+        await this.saveMeta(meta)
+      } catch (err) {
+        // Its state could not be written: the file is closed again, never left open.
+        await file.close(samples).catch(() => undefined)
+        throw err
+      }
       this.open.add(meta.take)
       if (leftover) console.info(`[recorder] session=${session.id} audio: take taken up again at ${Math.round(samples / 16)} ms`)
       return new CallAudio(this, meta, file, samples)
@@ -364,6 +427,48 @@ export class AudioKeeper {
       console.warn(`[recorder] session=${session.id} audio not kept:`, err instanceof Error ? err.message.slice(0, 120) : 'unknown')
       return null
     }
+  }
+
+  /**
+   * Free space on the volume's disk, and what the takes hold on it (each file's blocks: a raw file's
+   * silence holds none). A look is good for DISK_CHECK_MS unless `fresh`.
+   */
+  async diskState(fresh = false): Promise<DiskState> {
+    if (!fresh && this.disk && Date.now() - this.disk.at < DISK_CHECK_MS) return this.disk.state
+    const fs = await statfs(this.settings.dir)
+    let held = 0
+    for (const name of await readdir(this.settings.dir)) {
+      const st = await stat(join(this.settings.dir, name)).catch(() => null)
+      if (st?.isFile()) held += st.blocks > 0 ? st.blocks * 512 : st.size
+    }
+    const state = { freeBytes: Number(fs.bavail) * Number(fs.bsize), heldBytes: held }
+    this.disk = { at: Date.now(), state }
+    return state
+  }
+
+  /** May takes go on being written (the free-space floor, and the cap on what the recorder holds)? */
+  async diskOk(): Promise<boolean> {
+    return diskAllows(await this.diskState(), this.settings)
+  }
+
+  /** Files no take owns, or temporary ones cut off, an hour old or more: removed. Bounded per run. */
+  async sweepStrays(nowMs: number = Date.now()): Promise<number> {
+    const names = await readdir(this.settings.dir).catch(() => [] as string[])
+    const states = new Set(names.filter((n) => n.endsWith('.json')).map((n) => n.slice(0, -5)))
+    let removed = 0
+    for (const name of names.slice(0, 2000)) {
+      if (name.endsWith('.json')) continue
+      const temporary = name.endsWith('.tmp') || name.endsWith('.part')
+      const take = name.replace(/\.(json\.tmp|m4a\.part|pcm|m4a)$/, '')
+      if (this.open.has(take)) continue
+      if (!temporary && (take === name || states.has(take))) continue
+      const st = await stat(join(this.settings.dir, name)).catch(() => null)
+      if (!st?.isFile() || nowMs - st.mtimeMs < STRAY_MAX_AGE_MS) continue
+      await rm(join(this.settings.dir, name), { force: true }).catch(() => undefined)
+      removed++
+    }
+    if (removed > 0) console.info(`[recorder] audio: ${removed} stray file(s) removed`)
+    return removed
   }
 
   released(take: string): void {
@@ -437,7 +542,10 @@ export class AudioKeeper {
       const current = meta
       try {
         const done = await this.step(current)
-        if (done) this.queue.splice(this.queue.indexOf(current.take), 1)
+        if (done) {
+          this.queue.splice(this.queue.indexOf(current.take), 1)
+          await this.sweepStrays().catch(() => 0)
+        }
       } catch (err) {
         if (this.stopping.signal.aborted) break
         this.counts.failed++
@@ -524,8 +632,10 @@ export class AudioKeeper {
       await this.drop(meta.take, 'too large for Storage')
       return true
     }
-    if (status < 200 || status >= 300) throw new AppError(`upload answered ${status}`, status, null)
+    // Refused (409: Storage has that object already, from an attempt whose answer was lost; a grant
+    // never overwrites): the app is asked whether it is in, and only its "stored" settles it.
     const stored = await this.client.audioStored(meta.sessionId, meta.take)
+    if ((status < 200 || status >= 300) && stored.outcome !== 'stored') throw new AppError(`upload answered ${status}`, status, null)
     if (stored.outcome === 'missing') throw new AppError('the app did not find the upload', 503, null)
     if (stored.outcome === 'stored') {
       this.counts.stored++
@@ -538,10 +648,11 @@ export class AudioKeeper {
   }
 
   /** A shutdown: the encode or upload under way is stopped (the next process does it again); takes stay on disk. */
-  async stop(): Promise<void> {
+  async stop(boundMs = 5_000): Promise<void> {
     this.stopping.abort()
     this.wake?.()
     this.encoder?.kill('SIGKILL')
-    await this.worker?.catch(() => undefined)
+    // A disk that hangs never holds up the shutdown: what is left is picked up by the next start.
+    await Promise.race([this.worker?.catch(() => undefined), sleep(boundMs)])
   }
 }

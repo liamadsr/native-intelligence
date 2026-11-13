@@ -163,6 +163,11 @@ case "$public" in
 	https://*) ;;
 	*) problem "SUPABASE_PUBLIC_URL must start with https://" ;;
 esac
+case "$(value STORAGE_FILE_SIZE_LIMIT)" in
+	'') ;;
+	*[!0-9]*) problem "STORAGE_FILE_SIZE_LIMIT must be a number of bytes, or empty for 50 MB" ;;
+	*) [ "$(value STORAGE_FILE_SIZE_LIMIT)" -le 52428800 ] || note "STORAGE_FILE_SIZE_LIMIT is above 50 MB: right only once migration 651 is applied and no bucket is without a limit of its own (../README.md step 23, \"Call audio files\", A1)" ;;
+esac
 perms="$(stat -c '%a %U' "$real")"
 [ "$perms" = "600 root" ] || problem "stack/.env is $perms; it must be 600 root (sudo chown root:root stack/.env && sudo chmod 600 stack/.env)"
 [ ! -e "$here/stack/.env.old" ] || note "stack/.env.old is left over from generate-keys.sh. Delete it: it holds the previous values."
