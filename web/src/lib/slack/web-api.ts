@@ -1,6 +1,6 @@
 /**
- * The few Slack Web API methods Native Intelligence calls, with a bot token from Connect
- * (./connect.ts). Plain fetch, no SDK: each method is one POST.
+ * The few Slack Web API methods Native Intelligence calls, with a team's stored bot
+ * token (./bot-token.ts). Plain fetch, no SDK: each method is one POST.
  *
  * Rate limits (docs/plans/slack-connect.md §3): apps outside the Slack
  * Marketplace get very low limits on conversations.history and
@@ -93,7 +93,24 @@ export interface SlackUserInfo {
     is_owner?: boolean
     is_primary_owner?: boolean
     profile?: { display_name?: string; real_name?: string }
+    /** Enterprise Grid: the workspaces of the organization this user belongs to. */
+    enterprise_user?: { id?: string; enterprise_id?: string; teams?: string[] }
   }
+}
+
+/**
+ * Whether Slack names this user a member of `teamId`: their home team, or, in
+ * an Enterprise Grid organization, one of the workspaces in
+ * `enterprise_user.teams` (a Grid admin's home team can be another workspace).
+ * No team named at all counts as the team asked about (users.info was called
+ * with that team's own token). A stranger, a bot or a deactivated account never
+ * counts.
+ */
+export function isSlackTeamMember(user: SlackUserInfo['user'] | undefined, teamId: string): boolean {
+  if (!user || user.is_stranger || user.is_bot || user.deleted) return false
+  if (!user.team_id || user.team_id === teamId) return true
+  const teams = user.enterprise_user?.teams
+  return Array.isArray(teams) && teams.includes(teamId)
 }
 
 /** A Slack user's name to show (display name, else real name, else handle). */
