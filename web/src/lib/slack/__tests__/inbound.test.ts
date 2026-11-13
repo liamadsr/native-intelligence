@@ -60,7 +60,7 @@ function makeDeps(over: Partial<SlackInboundDeps> = {}) {
   const deps: SlackInboundDeps = {
     verifyInstallation: vi.fn(async () => ({ token: 'xoxb-new' })),
     botToken: vi.fn(async () => 'xoxb-live'),
-    dropToken: vi.fn(async () => true),
+    dropToken: vi.fn(async () => 'deleted' as const),
     slack: {
       authTest: vi.fn(async () => ({ ok: true as const, team_id: TEAM, team: 'Acme', user_id: 'UBOT' })),
       teamInfo: vi.fn(async () => ({ ok: true as const, team: { id: TEAM, name: 'Acme', domain: 'acme' } })),
@@ -311,25 +311,50 @@ describe('any other DM', () => {
 })
 
 describe('an uninstall', () => {
-  it('marks the installation revoked and deletes the stored token', async () => {
+  const removal = (reason: 'app_uninstalled' | 'tokens_revoked', eventTime: number | null = null): SlackInbound => ({ kind: 'uninstalled', eventId: 'Ev2', teamId: TEAM, reason, eventTime })
+
+  it('app_uninstalled deletes the stored token and marks the installation revoked', async () => {
     const { deps } = makeDeps()
-    expect(await handleSlackInbound(svc, { kind: 'uninstalled', eventId: 'Ev2', teamId: TEAM, eventTime: null }, deps)).toBe('uninstalled')
-    expect(store.markInstallationRevoked).toHaveBeenCalledWith(svc, TEAM, undefined, { writtenBefore: undefined })
-    expect(deps.dropToken).toHaveBeenCalledWith(TEAM, { writtenBefore: undefined })
+    expect(await handleSlackInbound(svc, removal('app_uninstalled'), deps)).toBe('uninstalled')
+    expect(deps.dropToken).toHaveBeenCalledWith(TEAM, { installedBefore: undefined })
+    expect(store.markInstallationRevoked).toHaveBeenCalledWith(svc, TEAM)
+    expect(deps.verifyInstallation).not.toHaveBeenCalled()
   })
 
-  it('spares an install written after the event (a new install, then a late event for the old token)', async () => {
-    const { deps } = makeDeps()
+  it('spares an install made after the event: neither its token nor the installation is touched', async () => {
+    const { deps } = makeDeps({ dropToken: vi.fn(async () => 'newer' as const) })
     const at = Date.UTC(2026, 10, 13, 12, 0, 0)
-    await handleSlackInbound(svc, { kind: 'uninstalled', eventId: 'Ev3', teamId: TEAM, eventTime: at }, deps)
-    const writtenBefore = new Date(at).toISOString()
-    expect(store.markInstallationRevoked).toHaveBeenCalledWith(svc, TEAM, undefined, { writtenBefore })
-    expect(deps.dropToken).toHaveBeenCalledWith(TEAM, { writtenBefore })
+    expect(await handleSlackInbound(svc, removal('app_uninstalled', at), deps)).toBe('still_installed')
+    expect(deps.dropToken).toHaveBeenCalledWith(TEAM, { installedBefore: new Date(at).toISOString() })
+    expect(store.markInstallationRevoked).not.toHaveBeenCalled()
   })
 
-  it('still answers uninstalled when the token could not be deleted (logged)', async () => {
-    const { deps } = makeDeps({ dropToken: vi.fn(async () => false) })
-    expect(await handleSlackInbound(svc, { kind: 'uninstalled', eventId: 'Ev4', teamId: TEAM, eventTime: null }, deps)).toBe('uninstalled')
+  it('tokens_revoked with a working token (rotation retiring an old one) is ignored', async () => {
+    const { deps } = makeDeps()
+    expect(await handleSlackInbound(svc, removal('tokens_revoked'), deps)).toBe('still_installed')
+    expect(deps.verifyInstallation).toHaveBeenCalledWith(TEAM)
+    expect(deps.dropToken).not.toHaveBeenCalled()
+    expect(store.markInstallationRevoked).not.toHaveBeenCalled()
+  })
+
+  it('tokens_revoked when the app has no working token removes it', async () => {
+    const { deps } = makeDeps({ verifyInstallation: vi.fn(async () => null) })
+    expect(await handleSlackInbound(svc, removal('tokens_revoked'), deps)).toBe('uninstalled')
+    expect(deps.dropToken).toHaveBeenCalled()
+    expect(store.markInstallationRevoked).toHaveBeenCalledWith(svc, TEAM)
+  })
+
+  it('tokens_revoked when Slack cannot be asked changes nothing', async () => {
+    const { deps } = makeDeps({ verifyInstallation: vi.fn(async () => Promise.reject(new Error('slack down'))) })
+    expect(await handleSlackInbound(svc, removal('tokens_revoked'), deps)).toBe('failed')
+    expect(deps.dropToken).not.toHaveBeenCalled()
+    expect(store.markInstallationRevoked).not.toHaveBeenCalled()
+  })
+
+  it('still marks the installation revoked when the token could not be deleted (logged)', async () => {
+    const { deps } = makeDeps({ dropToken: vi.fn(async () => 'failed' as const) })
+    expect(await handleSlackInbound(svc, removal('app_uninstalled'), deps)).toBe('uninstalled')
+    expect(store.markInstallationRevoked).toHaveBeenCalled()
   })
 })
 

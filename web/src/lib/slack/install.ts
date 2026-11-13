@@ -16,8 +16,9 @@
  * route checked the state and the cookie): the starter must still be an admin
  * of the workspace; the code is exchanged at oauth.v2.access; Slack's answer
  * must be ok, for OUR app, a bot token, for one team, and not an
- * organization-wide install (refused). The token is stored (./bot-token.ts),
- * and then the team is bound to the starter's workspace under the same rules
+ * organization-wide install (refused); Slack's auth.test with the token must
+ * name that team. Only then is the token stored (./bot-token.ts), and then
+ * the team is bound to the starter's workspace under the same rules
  * as a link code's binding (./inbound.ts redeemCode, ./store.ts
  * bindInstallation):
  *   - a team live in ANOTHER workspace stays there ('other_workspace');
@@ -39,7 +40,7 @@ import type { SaveSlackBotTokenInput, SlackOAuthGrant } from './bot-token'
 import { SLACK_BOT_SCOPES, SLACK_SETTINGS_PATH, slackAppId, slackClientId, slackRedirectUri } from './config'
 import type { SlackInstallResult } from './install-result'
 import { INSTALLING_ROLES, bindInstallation, getInstallation, linkSlackUser, memberRole } from './store'
-import { slackUserName, type SlackApiResult, type SlackAuthTest, type SlackTeamInfo, type SlackUserInfo } from './web-api'
+import { isSlackTeamMember, slackUserName, type SlackApiResult, type SlackAuthTest, type SlackTeamInfo, type SlackUserInfo } from './web-api'
 
 /** The `capability` a Slack install's state carries; the callback takes no other. */
 export const SLACK_INSTALL_CAPABILITY = 'slack_install'
@@ -150,6 +151,15 @@ export async function completeSlackInstall(
     }
     const teamId = grant.teamId
     const token = grant.botToken
+
+    // The token must be this team's own, as Slack itself confirms, before it
+    // is stored: never store (nor bind) a team on another team's word.
+    const [auth, team] = await Promise.all([deps.slack.authTest(token), deps.slack.teamInfo(token)])
+    if (!auth.ok || auth.team_id !== teamId) {
+      console.warn('[slack/install] auth.test does not name the team', { teamId, error: auth.ok ? 'other_team' : auth.error })
+      return 'failed'
+    }
+
     const now = deps.now?.() ?? Date.now()
     const saved = await deps.saveToken({
       teamId,
@@ -159,22 +169,17 @@ export async function completeSlackInstall(
       expiresAt: grant.expiresIn === null ? null : now + grant.expiresIn * 1000,
       botUserId: grant.botUserId,
       scopes: grant.scopes,
+      installedAt: now,
     })
     if (!saved) return 'failed'
 
-    // The token must be this team's own: never bind a team on another team's word.
-    const [auth, team] = await Promise.all([deps.slack.authTest(token), deps.slack.teamInfo(token)])
-    if (!auth.ok || auth.team_id !== teamId) {
-      console.warn('[slack/install] auth.test does not name the team', { teamId, error: auth.ok ? 'other_team' : auth.error })
-      return 'failed'
-    }
-
     // The Slack user who ran the install, as Slack knows them: a stranger, a
     // bot, a deactivated account or another team's user is never linked, and
-    // never counts as this team's admin.
+    // never counts as this team's admin. In an Enterprise Grid organization a
+    // member's home team can be another workspace (enterprise_user.teams).
     const info = grant.authedUserId ? await deps.slack.userInfo(token, grant.authedUserId) : null
     const user = info?.ok ? info.user : undefined
-    const member = user && !user.is_stranger && !user.is_bot && !user.deleted && (!user.team_id || user.team_id === teamId) ? user : undefined
+    const member = isSlackTeamMember(user, teamId) ? user : undefined
     const slackAdmin = Boolean(member && (member.is_admin || member.is_owner || member.is_primary_owner))
 
     const existing = await getInstallation(svc, teamId)

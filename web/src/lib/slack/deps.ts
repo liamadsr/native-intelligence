@@ -5,7 +5,7 @@
  */
 import 'server-only'
 import { getServiceClient } from '@/lib/admin'
-import { deleteSlackBotToken, forgetSlackBotToken, slackBotToken, verifySlackInstallation } from './bot-token'
+import { deleteSlackBotToken, renewDeadSlackBotToken, slackBotToken, verifySlackInstallation } from './bot-token'
 import type { SlackInboundDeps } from './inbound'
 import type { SlackTurnSlack } from './turn'
 import {
@@ -34,7 +34,12 @@ export function slackInboundDeps(extra: Partial<SlackInboundDeps> = {}): SlackIn
   }
 }
 
-/** A call made with a team's token; a token Slack calls dead is dropped from the cache, so the next call reads the row again. */
+/**
+ * A call made with a team's stored token. When Slack calls the token dead, it
+ * is renewed once (renewDeadSlackBotToken: the row's newer token, or one forced
+ * refresh) and the call tried once more; a token that can't be renewed is
+ * deleted there, so the team reads as "add the app again" in Settings.
+ */
 async function withTeamToken<T extends object>(teamId: string, call: (token: string) => Promise<SlackApiResult<T>>): Promise<SlackApiResult<T>> {
   let token: string
   try {
@@ -43,8 +48,14 @@ async function withTeamToken<T extends object>(teamId: string, call: (token: str
     return { ok: false, error: 'no_token' }
   }
   const result = await call(token)
-  if (!result.ok && DEAD_TOKEN_ERRORS.has(result.error)) forgetSlackBotToken(teamId)
-  return result
+  if (result.ok || !DEAD_TOKEN_ERRORS.has(result.error)) return result
+  let renewed: string
+  try {
+    renewed = await renewDeadSlackBotToken(teamId, token)
+  } catch {
+    return result
+  }
+  return renewed === token ? result : call(renewed)
 }
 
 /**
@@ -60,7 +71,8 @@ export async function openSlackDm(teamId: string, slackUserId: string): Promise<
 /**
  * The Slack calls a turn makes in one team (./turn.ts). The bot token is read
  * per call (cached briefly in process); no token is
- * `{ ok: false, error: 'no_token' }`, never a throw.
+ * `{ ok: false, error: 'no_token' }`, never a throw; a dead one is renewed
+ * once and the call retried.
  */
 export function slackTurnSlack(teamId: string): SlackTurnSlack {
   return {

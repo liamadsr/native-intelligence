@@ -15,19 +15,32 @@
  *                         must carry its signature. A secret: never logged.
  *
  * All four from the Slack app's own settings (Basic Information). Slack is
- * on only when all four are set and well formed; otherwise every Slack route
- * answers that Slack is not set up, and the Settings card says so.
+ * on only when all four are set and well formed (the secrets: 32 to 128
+ * hexadecimal characters, the same rule deploy/app/check_settings.py holds
+ * them to); otherwise every Slack route answers that Slack is not set up, the
+ * Settings card says so, and a malformed one is logged once by name.
  */
 
 import { appUrl } from '@/lib/app-url'
 
 const APP_ID = /^A[A-Z0-9]{2,30}$/
 const CLIENT_ID = /^[0-9]{3,20}\.[0-9]{3,20}$/
-const SECRET = /^[0-9a-f]{32}$/i
+/** Slack's client and signing secrets: hexadecimal, 32 today; up to 128 accepted, either case. */
+const SECRET = /^[0-9a-f]{32,128}$/i
+
+const warned = new Set<string>()
 
 function setting(name: string, shape: RegExp): string | null {
   const value = process.env[name]?.trim()
-  return value && shape.test(value) ? value : null
+  if (!value) return null
+  if (shape.test(value)) return value
+  // Set but not in the shape the app takes: Slack is off. Said once per process,
+  // by name only (deploy/app/check_settings.py says it before a roll-out).
+  if (!warned.has(name)) {
+    warned.add(name)
+    console.warn('[slack/config] setting is malformed; Slack is off', { setting: name })
+  }
+  return null
 }
 
 /** Our Slack app's id, or null when unset or malformed. */

@@ -117,7 +117,7 @@ describe('finishing the install', () => {
           select: () => b,
           eq: () => b,
           maybeSingle: async () => ({ data: null, error: null }),
-          upsert: async (row: Record<string, unknown>) => (rows.push(row), { error: null }),
+          insert: async (row: Record<string, unknown>) => (rows.push(row), { error: null }),
         }
         return b
       },
@@ -128,7 +128,7 @@ describe('finishing the install', () => {
 
     expect(deps.exchange).toHaveBeenCalledWith('made-up-code')
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ slack_team_id: TEAM, app_id: SLACK_TEST_APP_ID, bot_user_id: 'U0BOT0001', version: 1, refresh_token_enc: null, expires_at: null })
+    expect(rows[0]).toMatchObject({ slack_team_id: TEAM, app_id: SLACK_TEST_APP_ID, bot_user_id: 'U0BOT0001', version: 1, refresh_token_enc: null, expires_at: null, installed_at: new Date(Date.UTC(2026, 10, 13, 12, 0, 0)).toISOString() })
     expect(JSON.stringify(rows[0])).not.toContain('xoxb-made-up-install')
     expect(decryptCredential(rows[0].bot_token_enc as string)).toBe('xoxb-made-up-install')
     expect(store.bindInstallation).toHaveBeenCalledWith(svc, {
@@ -228,10 +228,48 @@ describe('finishing the install', () => {
     expect(store.linkSlackUser).not.toHaveBeenCalled()
   })
 
-  it("never binds when the token's auth.test names another team", async () => {
+  it("never stores (nor binds) a token Slack's auth.test does not confirm for the team", async () => {
+    for (const authTest of [
+      vi.fn(async () => ({ ok: true as const, team_id: 'T0OTHER01' })),
+      vi.fn(async () => ({ ok: false as const, error: 'invalid_auth' })),
+    ]) {
+      const deps = makeDeps()
+      deps.slack.authTest = authTest
+      expect(await completeSlackInstall(svc, { code: 'c', userId: USER, workspaceId: WS }, deps)).toBe('failed')
+      expect(deps.saveToken).not.toHaveBeenCalled()
+    }
+    expect(store.bindInstallation).not.toHaveBeenCalled()
+  })
+
+  it('asks auth.test before it stores the token', async () => {
+    const order: string[] = []
     const deps = makeDeps()
-    deps.slack.authTest = vi.fn(async () => ({ ok: true as const, team_id: 'T0OTHER01' }))
-    expect(await completeSlackInstall(svc, { code: 'c', userId: USER, workspaceId: WS }, deps)).toBe('failed')
+    const authTest = deps.slack.authTest
+    deps.slack.authTest = vi.fn(async (t: string) => (order.push('auth.test'), authTest(t)))
+    deps.saveToken = vi.fn(async () => (order.push('save'), true))
+    expect(await completeSlackInstall(svc, { code: 'c', userId: USER, workspaceId: WS }, deps)).toBe('installed')
+    expect(order).toEqual(['auth.test', 'save'])
+    expect(deps.saveToken).toHaveBeenCalledWith(expect.objectContaining({ installedAt: Date.UTC(2026, 10, 13, 12, 0, 0) }))
+  })
+
+  it('Enterprise Grid: an admin whose home team is another workspace of the organization counts as a member of this one', async () => {
+    const deps = makeDeps()
+    deps.slack.userInfo = vi.fn(async () => ({
+      ok: true as const,
+      user: { id: 'U0ADMIN01', team_id: 'T0HOME001', is_admin: true, enterprise_user: { id: 'U0ADMIN01', enterprise_id: 'E0MADEUP1', teams: ['T0HOME001', TEAM] } },
+    }))
+    expect(await completeSlackInstall(svc, { code: 'c', userId: USER, workspaceId: WS }, deps)).toBe('installed')
+    expect(store.bindInstallation).toHaveBeenCalled()
+    expect(store.linkSlackUser).toHaveBeenCalledWith(svc, expect.objectContaining({ slackUserId: 'U0ADMIN01' }))
+  })
+
+  it('Enterprise Grid: an admin of another workspace of the organization, not of this one, is not', async () => {
+    const deps = makeDeps()
+    deps.slack.userInfo = vi.fn(async () => ({
+      ok: true as const,
+      user: { id: 'U0ADMIN01', team_id: 'T0HOME001', is_admin: true, enterprise_user: { teams: ['T0HOME001'] } },
+    }))
+    expect(await completeSlackInstall(svc, { code: 'c', userId: USER, workspaceId: WS }, deps)).toBe('added')
     expect(store.bindInstallation).not.toHaveBeenCalled()
   })
 

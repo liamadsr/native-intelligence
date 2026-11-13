@@ -1,7 +1,9 @@
 /**
  * Migration 643: Slack's bot tokens. Pins the security shape (RLS on, no
  * policy, every privilege taken from clients), the columns bot-token.ts
- * reads and writes, re-runnability, and no backslash.
+ * reads and writes (the refresh claim and installed_at included), the trigger
+ * that takes a team's token with its live installation, re-runnability, and
+ * no backslash. Applied twice on PGlite too (see the report of the change).
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -52,7 +54,23 @@ describe('migration 643', () => {
 
   it('has every column bot-token.ts reads or writes', () => {
     const read = /const ROW_COLUMNS = '([^']+)'/.exec(STORE)![1].split(',').map((c) => c.trim())
-    const written = ['app_id', 'updated_at']
+    const written = ['app_id', 'updated_at', 'refresh_claimed_until', 'installed_at']
     for (const c of [...read, ...written]) expect(TABLE, c).toMatch(new RegExp(`[( ,]${c} `))
+  })
+
+  it('has the refresh claim and installed_at, also on a table an earlier run made', () => {
+    expect(TABLE).toContain('refresh_claimed_until timestamptz,')
+    expect(TABLE).toContain('installed_at timestamptz not null default now(),')
+    expect(BODY).toContain('alter table public.slack_bot_token add column if not exists refresh_claimed_until timestamptz;')
+    expect(BODY).toContain('alter table public.slack_bot_token add column if not exists installed_at timestamptz not null default now();')
+  })
+
+  it('takes a team’s token when its LIVE installation row is deleted, re-runnably, as the service role’s own trigger', () => {
+    const fn = BODY.slice(BODY.indexOf('create or replace function public.slack_installation_gone_trigger()'), BODY.indexOf('revoke all on function public.slack_installation_gone_trigger()'))
+    expect(fn).toContain('returns trigger language plpgsql security definer set search_path = public, pg_temp')
+    expect(fn).toContain("if old.status = 'active' then delete from public.slack_bot_token where slack_team_id = old.slack_team_id; end if; return old;")
+    expect(BODY).toContain('revoke all on function public.slack_installation_gone_trigger() from public, anon, authenticated;')
+    expect(BODY).toContain('drop trigger if exists slack_installation_gone on public.slack_installation;')
+    expect(BODY).toContain('create trigger slack_installation_gone after delete on public.slack_installation for each row execute function public.slack_installation_gone_trigger();')
   })
 })

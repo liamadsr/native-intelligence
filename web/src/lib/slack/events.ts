@@ -39,11 +39,13 @@ export type SlackInbound =
       sharedExternally: boolean
     }
   | {
-      /** The app was removed from the team, or its bot token revoked. */
+      /** The app was removed from the team (`app_uninstalled`), or a bot token revoked (`tokens_revoked`). */
       kind: 'uninstalled'
       eventId: string
       teamId: string
-      /** When Slack says it happened (ms), when it says; an install written after then is not undone. */
+      /** Which: a revocation may be rotation retiring an old token, so it is checked first (./inbound.ts). */
+      reason: 'app_uninstalled' | 'tokens_revoked'
+      /** When Slack says it happened (ms), when it says; an install made after then is not undone. */
       eventTime: number | null
     }
   | { kind: 'ignore'; reason: string }
@@ -84,7 +86,7 @@ export function parseSlackPayload(raw: unknown, appId: string): SlackInbound {
     case 'tokens_revoked':
       return event.type === 'tokens_revoked' && !revokesBot(event)
         ? { kind: 'ignore', reason: 'user_tokens_revoked' }
-        : { kind: 'uninstalled', eventId, teamId, eventTime: eventTimeMs(body.event_time) }
+        : { kind: 'uninstalled', eventId, teamId, reason: event.type, eventTime: eventTimeMs(body.event_time) }
     case 'message':
       return parseMessage(event, { eventId, teamId })
     case 'app_mention':

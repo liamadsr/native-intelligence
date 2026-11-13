@@ -15,8 +15,15 @@
 --                     CREDENTIAL_ENCRYPTION_KEY: the database never sees
 --                     them in the clear. `version` moves on with every write,
 --                     so a refresh writes only over the row it read (compare
---                     and set). Deleted when the app is removed from the team
---                     or disconnected in Settings.
+--                     and set). `refresh_claimed_until`: the one container
+--                     redeeming the refresh token claims the row first (a
+--                     refresh token is spent once). `installed_at`: when the
+--                     install (not a refresh) wrote it, so an uninstall event
+--                     from before a new install leaves the new one alone.
+--                     Deleted when the app is removed from the team, when the
+--                     token is dead and can't be renewed, on Disconnect in
+--                     Settings, and when a live installation row of the team
+--                     is deleted (a workspace deleted: the trigger below).
 --
 -- Security: row level security on, and NO policy: no client reads or writes
 -- a row, whoever they are. Every privilege is revoked from anon and
@@ -53,9 +60,17 @@ create table if not exists public.slack_bot_token (
   scopes text not null default '' check (char_length(scopes) <= 1000),
   -- Moves on with every write: a refresh writes only over the version it read.
   version bigint not null default 1 check (version >= 1),
+  -- Set while one container redeems the refresh token; cleared by its write.
+  refresh_claimed_until timestamptz,
+  -- When an install wrote the token (a refresh never moves it).
+  installed_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- A table made by an earlier run of this file gains the later columns.
+alter table public.slack_bot_token add column if not exists refresh_claimed_until timestamptz;
+alter table public.slack_bot_token add column if not exists installed_at timestamptz not null default now();
 
 comment on table public.slack_bot_token is
   'Slack (643): the bot token (and refresh token) of each Slack team the app is installed in, encrypted by the app. Service role only.';
@@ -69,6 +84,35 @@ alter table public.slack_bot_token enable row level security;
 
 revoke all on table public.slack_bot_token from public, anon, authenticated;
 grant select, insert, update, delete on table public.slack_bot_token to service_role;
+
+-- ── A live installation deleted: its team's token goes with it ─────────────
+-- A workspace deleted cascades to its slack_installation rows; the team's bot
+-- token must not outlive them. Only a LIVE row takes the token: a revoked row
+-- had its token deleted when it was revoked, and a revoked row deleted while
+-- another workspace binds the team (store.ts bindInstallation) must not take
+-- the token that install just stored. Security definer because the table is
+-- the service role's only and a cascade may run as whoever deleted the
+-- workspace; it only ever deletes the one team's row.
+create or replace function public.slack_installation_gone_trigger()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if old.status = 'active' then
+    delete from public.slack_bot_token where slack_team_id = old.slack_team_id;
+  end if;
+  return old;
+end;
+$$;
+
+revoke all on function public.slack_installation_gone_trigger() from public, anon, authenticated;
+
+drop trigger if exists slack_installation_gone on public.slack_installation;
+create trigger slack_installation_gone
+  after delete on public.slack_installation
+  for each row execute function public.slack_installation_gone_trigger();
 
 comment on column public.slack_installation.connect_installation_id is
   'Since 643 always the Slack team id, and read by nothing: an installation is addressed by slack_team_id, its bot token kept in slack_bot_token.';

@@ -12,18 +12,23 @@ const m = vi.hoisted(() => ({
   getInstallation: vi.fn(),
   markInstallationRevoked: vi.fn(),
   revoke: vi.fn(),
+  stored: vi.fn(),
+  installations: vi.fn(),
+  links: vi.fn(),
 }))
 
 vi.mock('@/lib/api-auth', () => ({ requireWorkspaceMember: m.auth }))
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({}) }))
-vi.mock('@/lib/slack/bot-token', () => ({ revokeSlackBotToken: m.revoke }))
+vi.mock('@/lib/slack/bot-token', () => ({ revokeSlackBotToken: m.revoke, teamsWithStoredToken: m.stored }))
 vi.mock('@/lib/slack/store', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/slack/store')>()),
   getInstallation: m.getInstallation,
   markInstallationRevoked: m.markInstallationRevoked,
+  installationsForWorkspace: m.installations,
+  linksForUser: m.links,
 }))
 
-import { DELETE } from '../route'
+import { DELETE, GET } from '../route'
 import { POST as INSTALL } from '../install/route'
 import { verifyOAuthState } from '@/lib/oauth/state'
 
@@ -48,6 +53,7 @@ beforeEach(() => {
   m.getInstallation.mockResolvedValue({ slack_team_id: TEAM, workspace_id: WS, status: 'active' })
   m.markInstallationRevoked.mockResolvedValue(true)
   m.revoke.mockResolvedValue('revoked')
+  m.links.mockResolvedValue([])
 })
 afterEach(() => vi.unstubAllEnvs())
 
@@ -104,5 +110,31 @@ describe('DELETE …/slack?team=', () => {
     expect((await DELETE(disconnectReq())).status).toBe(404)
     expect((await DELETE(disconnectReq('nope'))).status).toBe(400)
     expect(m.revoke).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET …/slack', () => {
+  const installation = (teamId: string, teamName: string) => ({ slack_team_id: teamId, team_name: teamName, team_domain: '', workspace_id: WS, status: 'active', created_at: '2026-11-01T00:00:00Z' })
+
+  it('says, per connected Slack workspace, whether the app holds its token (false: add it again)', async () => {
+    m.installations.mockResolvedValue([installation(TEAM, 'Acme'), installation('T0OLDWAY1', 'Beta')])
+    m.stored.mockResolvedValue(new Set([TEAM]))
+    const res = await GET()
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { installations: Array<{ teamId: string; tokenStored: boolean }> }
+    expect(m.stored).toHaveBeenCalledWith(expect.anything(), [TEAM, 'T0OLDWAY1'])
+    expect(body.installations.map((i) => [i.teamId, i.tokenStored])).toEqual([
+      [TEAM, true],
+      ['T0OLDWAY1', false],
+    ])
+    expect(body).not.toHaveProperty('selfInstallOpen')
+  })
+
+  it('a failed read of the tokens is an error, not a false "connected"', async () => {
+    m.installations.mockResolvedValue([installation(TEAM, 'Acme')])
+    m.stored.mockRejectedValue(new Error('down'))
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect((await GET()).status).toBe(500)
+    err.mockRestore()
   })
 })

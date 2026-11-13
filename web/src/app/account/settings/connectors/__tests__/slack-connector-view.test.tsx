@@ -20,7 +20,7 @@ vi.mock('../../../(dashboard)/side-panels/connections-section', () => ({ RowIcon
 
 const { SlackConnectorView } = await import('../slack-connector-view')
 
-type Team = { teamId: string; teamName: string; teamDomain: string; myLink: { slackUserName: string } | null }
+type Team = { teamId: string; teamName: string; teamDomain: string; tokenStored?: boolean; myLink: { slackUserName: string } | null }
 const net = {
   state: null as Record<string, unknown> | null,
   getStatus: 200,
@@ -148,6 +148,30 @@ describe('linking one more Slack workspace', () => {
     await render()
     expect(button('Unlink me from Acme')).toBeDefined()
     expect(button('Disconnect Beta')).toBeDefined()
+  })
+})
+
+describe('a connected Slack workspace whose token the app does not hold', () => {
+  it('says the app must be added to it again, with Add to Slack for an admin, and offers no linking there', async () => {
+    net.state = slack([acme, { ...beta, tokenStored: false }])
+    await render()
+    const row = container.querySelector('[data-slack-team="T2"]')!
+    expect(row.hasAttribute('data-slack-readd')).toBe(true)
+    expect(row.textContent).toContain('has to be added to this Slack workspace again')
+    expect(button('Add Native Intelligence to Beta again')).toBeDefined()
+    expect(button('Link my account in Beta')).toBeUndefined()
+    // The other workspace is as before.
+    expect(container.querySelector('[data-slack-team="T1"]')!.hasAttribute('data-slack-readd')).toBe(false)
+    await act(async () => button('Add Native Intelligence to Beta again')!.click())
+    await flush()
+    expect(net.calls).toContain('POST /api/account/integrations/slack/install')
+  })
+
+  it('tells someone who is not an admin to ask one', async () => {
+    net.state = slack([{ ...beta, tokenStored: false }], { canInstall: false })
+    await render()
+    expect(container.textContent).toContain('Ask an admin of this workspace to add it')
+    expect(button('Add Native Intelligence to Beta again')).toBeUndefined()
   })
 })
 

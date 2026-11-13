@@ -34,7 +34,9 @@ describe('slackConfigured', () => {
       { SLACK_CLIENT_ID: '1234567890' },
       { SLACK_CLIENT_SECRET: 'too-short' },
       { SLACK_CLIENT_SECRET: 'zz23456789abcdef0123456789abcdef' },
-      { SLACK_SIGNING_SECRET: '0123456789abcdef0123456789abcdef00' },
+      { SLACK_SIGNING_SECRET: '0123456789abcdef0123456789abcdeg' },
+      { SLACK_SIGNING_SECRET: 'a'.repeat(129) },
+      { SLACK_CLIENT_SECRET: 'a'.repeat(31) },
     ]
     for (const over of bad) {
       stubSlackEnv(over)
@@ -42,6 +44,26 @@ describe('slackConfigured', () => {
     }
     stubSlackEnv({ SLACK_APP_ID: 'nope', SLACK_CLIENT_ID: 'nope', SLACK_CLIENT_SECRET: 'nope', SLACK_SIGNING_SECRET: 'nope' })
     expect([slackAppId(), slackClientId(), slackClientSecret(), slackSigningSecret()]).toEqual([null, null, null, null])
+  })
+
+  it('takes secrets of 32 to 128 hexadecimal characters, either case (the same rule as the settings check)', () => {
+    for (const secret of ['0123456789ABCDEF0123456789abcdef', 'a'.repeat(64), 'F'.repeat(128)]) {
+      stubSlackEnv({ SLACK_CLIENT_SECRET: secret, SLACK_SIGNING_SECRET: secret })
+      expect(slackConfigured(), String(secret.length)).toBe(true)
+    }
+  })
+
+  it('says by name, once, that a setting is malformed, never its value', async () => {
+    vi.resetModules()
+    const fresh = await import('../config')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    stubSlackEnv({ SLACK_CLIENT_ID: 'made-up-wrong-value' })
+    fresh.slackConfigured()
+    fresh.slackConfigured()
+    const calls = warn.mock.calls.filter((c) => JSON.stringify(c).includes('SLACK_CLIENT_ID'))
+    expect(calls).toHaveLength(1)
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('made-up-wrong-value')
+    warn.mockRestore()
   })
 
   it('asks for exactly the bot scopes, and returns to our own callback', () => {

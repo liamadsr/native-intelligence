@@ -117,19 +117,14 @@ export async function bindInstallation(svc: Svc, input: BindInstallationInput): 
   return error ? { ok: false, reason: 'failed' } : { ok: true, rebound: false }
 }
 
-/**
- * Mark a team's installation revoked (uninstalled in Slack, or disconnected in
- * Native Intelligence). `writtenBefore` (ISO) leaves a row bound or re-bound
- * after then alone: an uninstall event from before a new install never undoes it.
- */
-export async function markInstallationRevoked(svc: Svc, teamId: string, workspaceId?: string, opts: { writtenBefore?: string } = {}): Promise<boolean> {
+/** Mark a team's installation revoked (uninstalled in Slack, or disconnected in Native Intelligence). */
+export async function markInstallationRevoked(svc: Svc, teamId: string, workspaceId?: string): Promise<boolean> {
   let query = svc
     .from('slack_installation')
     .update({ status: 'revoked', revoked_at: new Date().toISOString() })
     .eq('slack_team_id', teamId)
     .eq('status', 'active')
   if (workspaceId) query = query.eq('workspace_id', workspaceId)
-  if (opts.writtenBefore) query = query.lt('updated_at', opts.writtenBefore)
   const { error } = await query
   return !error
 }

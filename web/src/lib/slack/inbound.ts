@@ -46,11 +46,12 @@ import {
   type SlackInstallation,
   type SlackUserLink,
 } from './store'
-import { slackUserName, type SlackApiResult, type SlackAuthTest, type SlackTeamInfo, type SlackUserInfo } from './web-api'
+import { isSlackTeamMember, slackUserName, type SlackApiResult, type SlackAuthTest, type SlackTeamInfo, type SlackUserInfo } from './web-api'
 
 type Svc = SupabaseClient
 type Dm = Extract<SlackInbound, { kind: 'dm' }>
 type Mention = Extract<SlackInbound, { kind: 'mention' }>
+type Removal = Extract<SlackInbound, { kind: 'uninstalled' }>
 
 /** The outside calls the handler makes; the route passes the real ones, tests fakes. */
 export interface SlackInboundDeps {
@@ -58,8 +59,8 @@ export interface SlackInboundDeps {
   verifyInstallation: (teamId: string) => Promise<{ token: string } | null>
   /** The stored bot token of a team (./bot-token.ts). Throws when there is none. */
   botToken: (teamId: string) => Promise<string>
-  /** Delete a team's stored bot token (the app was removed); `writtenBefore` spares a newer install's. */
-  dropToken: (teamId: string, opts: { writtenBefore?: string }) => Promise<boolean>
+  /** Delete a team's stored bot token (the app was removed); `installedBefore` spares a newer install's ('newer'). */
+  dropToken: (teamId: string, opts: { installedBefore?: string }) => Promise<'deleted' | 'none' | 'newer' | 'failed'>
   slack: {
     authTest: (token: string) => Promise<SlackApiResult<SlackAuthTest>>
     teamInfo: (token: string) => Promise<SlackApiResult<SlackTeamInfo>>
@@ -95,6 +96,7 @@ export type SlackInboundOutcome =
   | 'person_mention'
   | 'shared_channel'
   | 'uninstalled'
+  | 'still_installed'
   | 'ignored'
   | 'failed'
 
@@ -129,15 +131,8 @@ export async function handleSlackInbound(svc: Svc, inbound: SlackInbound, deps: 
         return await handleDm(svc, inbound, deps)
       case 'mention':
         return await handleMention(svc, inbound, deps)
-      case 'uninstalled': {
-        // Only what was written before the event: a new install since then stays.
-        const writtenBefore = inbound.eventTime === null ? undefined : new Date(inbound.eventTime).toISOString()
-        await markInstallationRevoked(svc, inbound.teamId, undefined, { writtenBefore })
-        if (!(await deps.dropToken(inbound.teamId, { writtenBefore }))) {
-          console.warn('[slack/inbound] bot token not deleted', { teamId: inbound.teamId })
-        }
-        return 'uninstalled'
-      }
+      case 'uninstalled':
+        return await handleRemoval(svc, inbound, deps)
       default:
         // Challenges are answered by the route.
         return 'ignored'
@@ -146,6 +141,24 @@ export async function handleSlackInbound(svc: Svc, inbound: SlackInbound, deps: 
     console.error('[slack/inbound] failed', { kind: inbound.kind, error: error instanceof Error ? error.message : String(error) })
     return 'failed'
   }
+}
+
+/**
+ * The app removed from a team, or a bot token revoked. A `tokens_revoked` may
+ * be token rotation retiring an old token, so it is believed only when the app
+ * really has no working token left (verifyInstallation: auth.test, after one
+ * forced refresh of a dead token). Then the token is deleted and the
+ * installation marked revoked, unless an install was made after the event
+ * (its token is spared, and so is the installation).
+ */
+async function handleRemoval(svc: Svc, removal: Removal, deps: SlackInboundDeps): Promise<SlackInboundOutcome> {
+  if (removal.reason === 'tokens_revoked' && (await deps.verifyInstallation(removal.teamId))) return 'still_installed'
+  const installedBefore = removal.eventTime === null ? undefined : new Date(removal.eventTime).toISOString()
+  const dropped = await deps.dropToken(removal.teamId, { installedBefore })
+  if (dropped === 'newer') return 'still_installed'
+  if (dropped === 'failed') console.warn('[slack/inbound] bot token not deleted', { teamId: removal.teamId })
+  await markInstallationRevoked(svc, removal.teamId)
+  return 'uninstalled'
 }
 
 async function handleDm(svc: Svc, dm: Dm, deps: SlackInboundDeps): Promise<SlackInboundOutcome> {
@@ -300,7 +313,7 @@ async function redeemCode(
     await reply(SLACK_REPLIES.failed(), token)
     return 'failed'
   }
-  if (user.user?.is_stranger || (user.user?.team_id && user.user.team_id !== dm.teamId) || user.user?.is_bot || user.user?.deleted) {
+  if (!isSlackTeamMember(user.user, dm.teamId)) {
     await reply(SLACK_REPLIES.outsider(), token)
     return 'outsider'
   }

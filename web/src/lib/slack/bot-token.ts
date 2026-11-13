@@ -2,8 +2,9 @@
  * The bot token of each Slack team the app is installed in (migration 643,
  * `slack_bot_token`): stored by the install (./install.ts), read for every
  * call the bot makes, refreshed when the Slack app has token rotation on, and
- * deleted when the app is removed (an `app_uninstalled` or `tokens_revoked`
- * event, or Disconnect in Settings).
+ * deleted when the app is removed (an `app_uninstalled` event, a
+ * `tokens_revoked` one after the token is checked, or Disconnect in Settings)
+ * or the token is dead for good.
  *
  * At rest the bot token and the refresh token are encrypted with the helper
  * every other stored credential uses (src/lib/crypto/credentials.ts,
@@ -16,15 +17,26 @@
  * theirs until it lapses.
  *
  * Token rotation: when Slack's install answer carries `expires_in`, the token
- * expires (12 hours) and a refresh token comes with it. A token within
- * {@link REFRESH_MARGIN_MS} of expiry is refreshed first, with
- * oauth.v2.access and `grant_type=refresh_token`, one refresh at a time per
- * team in this process, and written back only over the version it was read
- * at (compare and set). Another container may refresh the same team at the
- * same moment: whoever writes second finds the row moved on and uses what is
- * there, and when Slack refuses a refresh token another container already
- * spent, the row is read again (a few times, briefly) and the newer token
- * used. A token that is still valid is used when a refresh fails.
+ * expires (12 hours) and a refresh token comes with it, which Slack takes
+ * once. The web and worker containers both call Slack, so a refresh is made
+ * safe across them:
+ *   - a token within {@link REFRESH_MARGIN_MS} of expiry is refreshed first,
+ *     one refresh at a time per team in this process;
+ *   - before redeeming the refresh token a container CLAIMS the row
+ *     (`refresh_claimed_until`, a compare and set on the version and a lapsed
+ *     claim); only the claimer calls Slack. One that loses the claim reads the
+ *     row again a few times for the new version, and meanwhile uses the
+ *     current token while it is still valid;
+ *   - the new tokens are written only over the version read, clearing the
+ *     claim; a write that errors is retried, and if it still fails the new
+ *     token is kept in this process until it expires (logged);
+ *   - an expired token is never handed out.
+ * A token Slack calls dead (DEAD_TOKEN_ERRORS) is renewed once by a forced
+ * refresh ({@link renewDeadSlackBotToken}). When there is no refresh token, or
+ * Slack definitively refuses the refresh (`invalid_refresh_token`, or any
+ * refusal once the token it would replace is dead or expired, with no newer
+ * version found), the row is deleted at its version and the team reads as
+ * "installation gone": Settings then asks for the app to be added again.
  *
  * A team with no stored token is "installation gone" ({@link isInstallationGone}):
  * the app is not in that Slack workspace (never added, or removed).
@@ -37,7 +49,7 @@ import { slackClientId, slackClientSecret } from './config'
 import { DEAD_TOKEN_ERRORS, slackApi, type SlackAuthTest } from './web-api'
 
 const TABLE = 'slack_bot_token'
-const ROW_COLUMNS = 'slack_team_id, bot_token_enc, refresh_token_enc, expires_at, bot_user_id, scopes, version'
+const ROW_COLUMNS = 'slack_team_id, bot_token_enc, refresh_token_enc, expires_at, bot_user_id, scopes, version, refresh_claimed_until, installed_at'
 const OAUTH_ACCESS_URL = 'https://slack.com/api/oauth.v2.access'
 const TIMEOUT_MS = 8_000
 const TEAM_ID = /^T[A-Z0-9]{2,30}$/
@@ -50,8 +62,25 @@ export const CACHE_MS = 60_000
 export const REFRESH_MARGIN_MS = 5 * 60_000
 /** A refresh that failed while the token is still valid is tried again after this long. */
 const RETRY_REFRESH_MS = 30_000
-/** After a refused refresh, the row is read again after each of these waits, looking for another container's write. */
+/** After a refused or lost refresh, the row is read again after each of these waits, looking for another container's write. */
 const REREAD_WAITS_MS = [250, 750, 1_500]
+/** How long one container's claim on a refresh lasts. */
+const CLAIM_MS = 30_000
+/** A refreshed token's write that errors is tried again after each of these waits. */
+const WRITE_RETRY_WAITS_MS = [200, 600, 1_500]
+/** How often an install's save is tried while other writers keep moving the row. */
+const SAVE_ATTEMPTS = 4
+/** A refresh that failed for these reasons failed on the way, not at Slack's word. */
+const TRANSIENT_ERRORS: ReadonlySet<string> = new Set([
+  'request_failed',
+  'ratelimited',
+  'not_configured',
+  'bad_answer',
+  'internal_error',
+  'fatal_error',
+  'service_unavailable',
+  'request_timeout',
+])
 
 /** Thrown when no bot token is stored for a team: the app is not (or no longer) installed there. */
 export class SlackInstallationGoneError extends Error {
@@ -99,6 +128,8 @@ interface TokenRow {
   bot_user_id: string | null
   scopes: string
   version: number
+  refresh_claimed_until: string | null
+  installed_at: string
 }
 
 // ── Slack's oauth.v2.access ─────────────────────────────────────────────────
@@ -210,14 +241,37 @@ function expiresAtMs(row: TokenRow): number | null {
   return Number.isFinite(t) ? t : null
 }
 
-/** The row's bot token, decrypted, cached until the cache lapses or the refresh margin begins. */
-function tokenFromRow(teamId: string, row: TokenRow, now: number): string {
-  const token = decryptCredential(row.bot_token_enc)
+function expired(row: TokenRow, now: number): boolean {
   const expires = expiresAtMs(row)
-  const until = Math.min(now + CACHE_MS, expires === null ? Infinity : expires - REFRESH_MARGIN_MS)
+  return expires !== null && expires <= now
+}
+
+/** Cache a token for at most `maxMs`, and never into its refresh margin (so never past its expiry). */
+function cacheToken(teamId: string, token: string, expiresAt: number | null, now: number, maxMs: number = CACHE_MS): void {
+  const until = Math.min(now + maxMs, expiresAt === null ? Infinity : expiresAt - REFRESH_MARGIN_MS)
   if (until > now) cache.set(teamId, { token, until })
   else cache.delete(teamId)
+}
+
+/** The row's bot token, decrypted and cached; null when it has expired (an expired token is never handed out). */
+function tokenFromRow(teamId: string, row: TokenRow, now: number): string | null {
+  if (expired(row, now)) {
+    cache.delete(teamId)
+    return null
+  }
+  const token = decryptCredential(row.bot_token_enc)
+  cacheToken(teamId, token, expiresAtMs(row), now)
   return token
+}
+
+/** Delete the row at the version it was read at (a newer install is never deleted). Best effort. */
+async function deleteRowAt(svc: SupabaseClient, teamId: string, version: number): Promise<void> {
+  forgetSlackBotToken(teamId)
+  try {
+    await svc.from(TABLE).delete().eq('slack_team_id', teamId).eq('version', version)
+  } catch {
+    // The token is unusable either way.
+  }
 }
 
 export interface SaveSlackBotTokenInput {
@@ -229,64 +283,101 @@ export interface SaveSlackBotTokenInput {
   expiresAt: number | null
   botUserId: string | null
   scopes: string
+  /** When the install happened (ms); now when absent. */
+  installedAt?: number
 }
 
 /**
  * Store a team's bot token from an install (encrypted), replacing any earlier
- * one; the version moves on, so a refresh that read the old row cannot write
- * over it. True when stored. Never throws.
+ * one and stamping `installed_at`. The version moves on atomically: the row
+ * is updated only at the version just read (retried when another writer moved
+ * it), or inserted when there is none (retried when another insert won), so a
+ * refresh that read the old row can't write over it, nor it over a refresh.
+ * True when stored. Never throws.
  */
 export async function saveSlackBotToken(svc: SupabaseClient, input: SaveSlackBotTokenInput): Promise<boolean> {
+  forgetSlackBotToken(input.teamId)
   try {
-    const existing = await readRow(svc, input.teamId)
-    const { error } = await svc.from(TABLE).upsert(
-      {
-        slack_team_id: input.teamId,
-        app_id: input.appId,
-        bot_token_enc: encryptCredential(input.botToken),
-        refresh_token_enc: input.refreshToken ? encryptCredential(input.refreshToken) : null,
-        expires_at: input.expiresAt === null ? null : new Date(input.expiresAt).toISOString(),
-        bot_user_id: input.botUserId,
-        scopes: input.scopes.slice(0, 1000),
-        version: (existing?.version ?? 0) + 1,
-      },
-      { onConflict: 'slack_team_id' },
-    )
-    forgetSlackBotToken(input.teamId)
-    if (error) {
+    const fields = {
+      app_id: input.appId,
+      bot_token_enc: encryptCredential(input.botToken),
+      refresh_token_enc: input.refreshToken ? encryptCredential(input.refreshToken) : null,
+      expires_at: input.expiresAt === null ? null : new Date(input.expiresAt).toISOString(),
+      bot_user_id: input.botUserId,
+      scopes: input.scopes.slice(0, 1000),
+      refresh_claimed_until: null,
+      installed_at: new Date(input.installedAt ?? Date.now()).toISOString(),
+    }
+    for (let attempt = 0; attempt < SAVE_ATTEMPTS; attempt++) {
+      const existing = await readRow(svc, input.teamId)
+      if (existing) {
+        const { data, error } = await svc
+          .from(TABLE)
+          .update({ ...fields, version: existing.version + 1 })
+          .eq('slack_team_id', input.teamId)
+          .eq('version', existing.version)
+          .select('version')
+        if (error) {
+          console.warn('[slack/bot-token] save failed', { teamId: input.teamId, code: error.code })
+          return false
+        }
+        if (Array.isArray(data) && data.length === 1) return true
+        continue // another writer moved the row on: read it again
+      }
+      const { error } = await svc.from(TABLE).insert({ slack_team_id: input.teamId, ...fields, version: 1 })
+      if (!error) return true
+      if (error.code === '23505') continue // another insert won: update that one
       console.warn('[slack/bot-token] save failed', { teamId: input.teamId, code: error.code })
       return false
     }
-    return true
+    console.warn('[slack/bot-token] save failed: the row kept moving', { teamId: input.teamId })
+    return false
   } catch (error) {
     console.warn('[slack/bot-token] save failed', { teamId: input.teamId, error: error instanceof Error ? error.name : 'error' })
     return false
+  } finally {
+    forgetSlackBotToken(input.teamId)
   }
 }
 
+/** What deleting a team's token did. */
+export type SlackTokenDeleteOutcome = 'deleted' | 'none' | 'newer' | 'failed'
+
 /**
- * Delete a team's stored token (the app was removed). `writtenBefore` (ISO)
- * deletes only a row written before then: an event from before a new install
- * never deletes the new install's token. True when nothing failed (a row
- * already gone counts). Never throws.
+ * Delete a team's stored token (the app was removed). `installedBefore` (ISO)
+ * deletes only a token installed before then: an event from before a new
+ * install never deletes the new install's token ('newer'). Never throws.
  */
-export async function deleteSlackBotToken(svc: SupabaseClient, teamId: string, opts: { writtenBefore?: string } = {}): Promise<boolean> {
+export async function deleteSlackBotToken(svc: SupabaseClient, teamId: string, opts: { installedBefore?: string } = {}): Promise<SlackTokenDeleteOutcome> {
   forgetSlackBotToken(teamId)
   try {
     let query = svc.from(TABLE).delete().eq('slack_team_id', teamId)
-    if (opts.writtenBefore) query = query.lt('updated_at', opts.writtenBefore)
-    const { error } = await query
-    return !error
+    if (opts.installedBefore) query = query.lt('installed_at', opts.installedBefore)
+    const { data, error } = await query.select('slack_team_id')
+    if (error) return 'failed'
+    if (Array.isArray(data) && data.length > 0) return 'deleted'
+    if (!opts.installedBefore) return 'none'
+    return (await readRow(svc, teamId)) ? 'newer' : 'none'
   } catch {
-    return false
+    return 'failed'
   }
+}
+
+/** Which of these teams have a stored token (the app is installed there). Throws on a failed read. */
+export async function teamsWithStoredToken(svc: SupabaseClient, teamIds: readonly string[]): Promise<Set<string>> {
+  if (teamIds.length === 0) return new Set()
+  const { data, error } = await svc.from(TABLE).select('slack_team_id').in('slack_team_id', [...teamIds])
+  if (error) throw new SlackTokenError('slack: bot token read failed')
+  return new Set(((data ?? []) as Array<{ slack_team_id: string }>).map((r) => r.slack_team_id))
 }
 
 // ── Getting a token ─────────────────────────────────────────────────────────
 
 /**
- * A team's bot token. Throws {@link SlackInstallationGoneError} when none is
- * stored, {@link SlackTokenError} when it can't be read or renewed.
+ * A team's bot token, never an expired one. Throws
+ * {@link SlackInstallationGoneError} when none is stored (or the stored one is
+ * dead and can't be renewed: its row is then deleted), {@link SlackTokenError}
+ * when it can't be read or renewed for now.
  */
 export async function slackBotToken(teamId: string, partial: Partial<SlackTokenDeps> = {}): Promise<string> {
   const now = (partial.now ?? Date.now)()
@@ -298,78 +389,194 @@ export async function slackBotToken(teamId: string, partial: Partial<SlackTokenD
     cache.delete(teamId)
     throw new SlackInstallationGoneError()
   }
+  return tokenOrRenew(teamId, row, deps, false)
+}
+
+/**
+ * Slack called `deadToken` dead (DEAD_TOKEN_ERRORS): a token to try once more
+ * with. The row's token when it has moved on since; otherwise one forced
+ * refresh. No refresh token, or a refresh definitively refused: the row is
+ * deleted and this throws {@link SlackInstallationGoneError}.
+ */
+export async function renewDeadSlackBotToken(teamId: string, deadToken: string, partial: Partial<SlackTokenDeps> = {}): Promise<string> {
+  forgetSlackBotToken(teamId)
+  const deps = withDefaults(partial)
+  const row = await readRow(deps.svc, teamId)
+  if (!row) throw new SlackInstallationGoneError()
+  const dead = decryptCredential(row.bot_token_enc) === deadToken
+  return tokenOrRenew(teamId, row, deps, dead)
+}
+
+async function tokenOrRenew(teamId: string, row: TokenRow, deps: SlackTokenDeps, dead: boolean): Promise<string> {
+  const now = deps.now()
   const expires = expiresAtMs(row)
-  if (expires !== null && row.refresh_token_enc && expires - REFRESH_MARGIN_MS <= now) {
-    return refreshOnce(teamId, row, deps)
+  const due = dead || (expires !== null && expires - REFRESH_MARGIN_MS <= now)
+  if (!due) {
+    const token = tokenFromRow(teamId, row, now)
+    if (token) return token
   }
-  return tokenFromRow(teamId, row, now)
+  if (row.refresh_token_enc) return refreshOnce(teamId, row, deps, dead)
+  // No way to renew it.
+  if (dead || expired(row, now)) {
+    await deleteRowAt(deps.svc, teamId, row.version)
+    throw new SlackInstallationGoneError()
+  }
+  const token = tokenFromRow(teamId, row, now)
+  if (token) return token
+  throw new SlackInstallationGoneError()
 }
 
 /** One refresh at a time per team in this process; concurrent callers share it. */
-function refreshOnce(teamId: string, row: TokenRow, deps: SlackTokenDeps): Promise<string> {
+function refreshOnce(teamId: string, row: TokenRow, deps: SlackTokenDeps, dead: boolean): Promise<string> {
   const running = refreshing.get(teamId)
   if (running) return running
-  const promise = refresh(teamId, row, deps).finally(() => {
+  const promise = refresh(teamId, row, deps, dead).finally(() => {
     if (refreshing.get(teamId) === promise) refreshing.delete(teamId)
   })
   refreshing.set(teamId, promise)
   return promise
 }
 
-async function refresh(teamId: string, row: TokenRow, deps: SlackTokenDeps): Promise<string> {
-  const answer = await slackOauthAccess({ grant_type: 'refresh_token', refresh_token: decryptCredential(row.refresh_token_enc!) }, { fetch: deps.fetch })
-  const grant = answer.ok ? answer.grant : null
-  if (grant && grant.tokenType === 'bot' && grant.botToken && (!grant.teamId || grant.teamId === teamId)) {
-    const now = deps.now()
-    const { data, error } = await deps.svc
+/**
+ * Claim the row for one refresh: only at the version read, and only when no
+ * other container holds an unexpired claim. True when this container may
+ * redeem the refresh token.
+ */
+async function claimRefresh(svc: SupabaseClient, teamId: string, version: number, now: number): Promise<boolean> {
+  try {
+    const { data, error } = await svc
       .from(TABLE)
-      .update({
-        bot_token_enc: encryptCredential(grant.botToken),
-        // Slack sends a new refresh token with each refresh; keep the old one if it ever doesn't.
-        refresh_token_enc: grant.refreshToken ? encryptCredential(grant.refreshToken) : row.refresh_token_enc,
-        expires_at: grant.expiresIn === null ? null : new Date(now + grant.expiresIn * 1000).toISOString(),
-        ...(grant.botUserId ? { bot_user_id: grant.botUserId } : {}),
-        ...(grant.scopes ? { scopes: grant.scopes } : {}),
-        version: row.version + 1,
-      })
+      .update({ refresh_claimed_until: new Date(now + CLAIM_MS).toISOString() })
       .eq('slack_team_id', teamId)
-      .eq('version', row.version)
+      .eq('version', version)
+      .or(`refresh_claimed_until.is.null,refresh_claimed_until.lt."${new Date(now).toISOString()}"`)
       .select('version')
-    if (!error && Array.isArray(data) && data.length === 1) {
-      cache.set(teamId, { token: grant.botToken, until: Math.min(now + CACHE_MS, grant.expiresIn === null ? Infinity : now + grant.expiresIn * 1000 - REFRESH_MARGIN_MS) })
-      return grant.botToken
-    }
-    // Another writer moved the row on first (a refresh elsewhere, or a new install): theirs stands.
-    const fresh = await readRow(deps.svc, teamId)
-    if (!fresh) throw new SlackInstallationGoneError()
-    return tokenFromRow(teamId, fresh, deps.now())
+    return !error && Array.isArray(data) && data.length === 1
+  } catch {
+    return false
   }
+}
 
-  // Refused (often: another container spent this refresh token first) or unreachable.
-  console.warn('[slack/bot-token] refresh refused', { teamId, error: answer.ok ? 'bad_grant' : answer.error })
+async function releaseClaim(svc: SupabaseClient, teamId: string, version: number): Promise<void> {
+  try {
+    await svc.from(TABLE).update({ refresh_claimed_until: null }).eq('slack_team_id', teamId).eq('version', version)
+  } catch {
+    // It lapses by itself.
+  }
+}
+
+/** Read the row again after each short wait, for another writer's newer version. Null when none came. */
+async function rereadForNewer(teamId: string, row: TokenRow, deps: SlackTokenDeps): Promise<TokenRow | null> {
   for (const wait of REREAD_WAITS_MS) {
     await deps.sleep(wait)
     const fresh = await readRow(deps.svc, teamId)
     if (!fresh) throw new SlackInstallationGoneError()
-    if (fresh.version !== row.version) return tokenFromRow(teamId, fresh, deps.now())
+    if (fresh.version !== row.version) return fresh
   }
-  const expires = expiresAtMs(row)
+  return null
+}
+
+/** The current token while it is still valid (and not known dead), tried again after a short while. */
+function stillValid(teamId: string, row: TokenRow, deps: SlackTokenDeps, dead: boolean): string | null {
   const now = deps.now()
-  if (expires !== null && expires > now) {
-    // Not renewed, but still valid: use it, and try again after a short while (not on every call).
-    const token = decryptCredential(row.bot_token_enc)
-    cache.set(teamId, { token, until: Math.min(now + RETRY_REFRESH_MS, expires) })
-    return token
+  if (dead || expired(row, now)) return null
+  const token = decryptCredential(row.bot_token_enc)
+  cacheToken(teamId, token, null, now, Math.min(RETRY_REFRESH_MS, (expiresAtMs(row) ?? Infinity) - now))
+  return token
+}
+
+async function refresh(teamId: string, row: TokenRow, deps: SlackTokenDeps, dead: boolean): Promise<string> {
+  if (!(await claimRefresh(deps.svc, teamId, row.version, deps.now()))) {
+    // Another container is redeeming it: wait for its write.
+    const fresh = await rereadForNewer(teamId, row, deps)
+    const newer = fresh ? tokenFromRow(teamId, fresh, deps.now()) : null
+    if (newer) return newer
+    const current = stillValid(teamId, row, deps, dead)
+    if (current) return current
+    throw new SlackTokenError('slack: the bot token is being renewed elsewhere')
   }
-  throw new SlackTokenError('slack: the bot token expired and could not be renewed')
+
+  const answer = await slackOauthAccess({ grant_type: 'refresh_token', refresh_token: decryptCredential(row.refresh_token_enc!) }, { fetch: deps.fetch })
+  const grant = answer.ok ? answer.grant : null
+  // A refresh answer may leave out token_type; it must carry a token, for this team.
+  if (grant && grant.botToken && (grant.tokenType === null || grant.tokenType === 'bot') && (!grant.teamId || grant.teamId === teamId)) {
+    return writeRefreshed(teamId, row, grant, grant.botToken, deps)
+  }
+
+  const error = answer.ok ? 'bad_grant' : answer.error
+  console.warn('[slack/bot-token] refresh refused', { teamId, error })
+  await releaseClaim(deps.svc, teamId, row.version)
+  const fresh = await rereadForNewer(teamId, row, deps)
+  const newer = fresh ? tokenFromRow(teamId, fresh, deps.now()) : null
+  if (newer) return newer
+  if (TRANSIENT_ERRORS.has(error)) {
+    const current = stillValid(teamId, row, deps, dead)
+    if (current) return current
+    throw new SlackTokenError('slack: the bot token could not be renewed for now')
+  }
+  // Slack refused it. Definitive when it says the refresh token is no good,
+  // or when the token it would replace is dead or expired: nothing works any more.
+  if (error === 'invalid_refresh_token' || dead || expired(row, deps.now())) {
+    console.warn('[slack/bot-token] token dead and not renewable; removed', { teamId })
+    await deleteRowAt(deps.svc, teamId, row.version)
+    throw new SlackInstallationGoneError()
+  }
+  const current = stillValid(teamId, row, deps, dead)
+  if (current) return current
+  throw new SlackTokenError('slack: the bot token could not be renewed')
+}
+
+/**
+ * Write a refreshed token over the version that was read, clearing the claim.
+ * A write that errors is retried; one that still fails keeps the new token in
+ * this process until it expires (the refresh token it came with is spent, so
+ * dropping it would lose the team). Zero rows matched: a new install moved
+ * the row on, and its token stands.
+ */
+async function writeRefreshed(teamId: string, row: TokenRow, grant: SlackOAuthGrant, token: string, deps: SlackTokenDeps): Promise<string> {
+  const now = deps.now()
+  const expiresAt = grant.expiresIn === null ? null : now + grant.expiresIn * 1000
+  const patch = {
+    bot_token_enc: encryptCredential(token),
+    // Slack sends a new refresh token with each refresh; keep the old one if it ever doesn't.
+    refresh_token_enc: grant.refreshToken ? encryptCredential(grant.refreshToken) : row.refresh_token_enc,
+    expires_at: expiresAt === null ? null : new Date(expiresAt).toISOString(),
+    ...(grant.botUserId ? { bot_user_id: grant.botUserId } : {}),
+    ...(grant.scopes ? { scopes: grant.scopes } : {}),
+    version: row.version + 1,
+    refresh_claimed_until: null,
+  }
+  for (let attempt = 0; attempt <= WRITE_RETRY_WAITS_MS.length; attempt++) {
+    if (attempt > 0) await deps.sleep(WRITE_RETRY_WAITS_MS[attempt - 1])
+    let result: { data: unknown; error: unknown }
+    try {
+      result = await deps.svc.from(TABLE).update(patch).eq('slack_team_id', teamId).eq('version', row.version).select('version')
+    } catch (error) {
+      result = { data: null, error }
+    }
+    if (result.error) continue
+    if (Array.isArray(result.data) && result.data.length === 1) {
+      cacheToken(teamId, token, expiresAt, now)
+      return token
+    }
+    const fresh = await readRow(deps.svc, teamId)
+    if (!fresh) throw new SlackInstallationGoneError()
+    const theirs = tokenFromRow(teamId, fresh, deps.now())
+    if (theirs) return theirs
+    break
+  }
+  console.error('[slack/bot-token] refreshed token not stored; kept in this process until it expires', { teamId })
+  cache.set(teamId, { token, until: expiresAt === null ? now + CACHE_MS : expiresAt - 1_000 })
+  return token
 }
 
 // ── Checking and removing an installation ───────────────────────────────────
 
 /**
- * Check a team's installation before binding it: a token is stored for it,
- * and Slack's auth.test with that token names the same team. Returns the
- * token, or null when none is stored, Slack calls it dead, or it names
+ * Check a team's installation: a token is stored for it, and Slack's
+ * auth.test with that token names the same team. A token Slack calls dead is
+ * renewed once (renewDeadSlackBotToken) and checked again. Returns the token,
+ * or null when none is stored, it is dead and can't be renewed, or it names
  * another team. Throws when Slack could not be asked.
  */
 export async function verifySlackInstallation(teamId: string, partial: Partial<SlackTokenDeps> = {}): Promise<{ token: string } | null> {
@@ -380,21 +587,32 @@ export async function verifySlackInstallation(teamId: string, partial: Partial<S
     if (isInstallationGone(error)) return null
     throw error
   }
-  const auth = await slackApi<SlackAuthTest>('auth.test', token, {}, { fetch: partial.fetch })
-  if (!auth.ok) {
-    if (DEAD_TOKEN_ERRORS.has(auth.error)) {
+  let auth = await slackApi<SlackAuthTest>('auth.test', token, {}, { fetch: partial.fetch })
+  if (!auth.ok && DEAD_TOKEN_ERRORS.has(auth.error)) {
+    try {
+      token = await renewDeadSlackBotToken(teamId, token, partial)
+    } catch (error) {
+      if (isInstallationGone(error)) return null
+      throw error
+    }
+    auth = await slackApi<SlackAuthTest>('auth.test', token, {}, { fetch: partial.fetch })
+    if (!auth.ok && DEAD_TOKEN_ERRORS.has(auth.error)) {
       forgetSlackBotToken(teamId)
       return null
     }
-    throw new SlackTokenError(`slack: auth.test failed (${auth.error})`)
   }
+  if (!auth.ok) throw new SlackTokenError(`slack: auth.test failed (${auth.error})`)
   return auth.team_id === teamId ? { token } : null
 }
 
 /**
- * Remove the app's token for a team (Disconnect in Settings): Slack's
- * auth.revoke with it, best effort, then the stored row deleted. 'gone' when
- * none was stored; 'failed' only when the row could not be deleted. Never throws.
+ * Disconnect in Settings: Slack's auth.revoke with the team's bot token, best
+ * effort, then the stored row deleted. Per Slack, revoking a bot token does
+ * not uninstall the app from the workspace (it stays listed there), and with
+ * token rotation it revokes that one access token; what makes the app stop
+ * answering is that this app no longer holds a token for the team. 'gone'
+ * when none was stored; 'failed' only when the row could not be deleted.
+ * Never throws.
  */
 export async function revokeSlackBotToken(teamId: string, partial: Partial<SlackTokenDeps> = {}): Promise<'revoked' | 'gone' | 'failed'> {
   let deps: SlackTokenDeps
@@ -414,5 +632,5 @@ export async function revokeSlackBotToken(teamId: string, partial: Partial<Slack
     const revoked = await slackApi<{ revoked?: boolean }>('auth.revoke', token, {}, { fetch: deps.fetch })
     if (!revoked.ok && !DEAD_TOKEN_ERRORS.has(revoked.error)) console.warn('[slack/bot-token] auth.revoke failed', { teamId, error: revoked.error })
   }
-  return (await deleteSlackBotToken(deps.svc, teamId)) ? 'revoked' : 'failed'
+  return (await deleteSlackBotToken(deps.svc, teamId)) === 'failed' ? 'failed' : 'revoked'
 }

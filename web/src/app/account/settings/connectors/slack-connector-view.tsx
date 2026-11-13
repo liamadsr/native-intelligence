@@ -47,6 +47,8 @@ interface SlackState {
     teamId: string
     teamName: string
     teamDomain: string
+    /** False: connected here, but the app holds no token for it (connected the old way, or its token died): add it again. */
+    tokenStored?: boolean
     /** alertsOn: the "needs your OK" DMs (null: unknown, no switch). */
     myLink: { slackUserName: string; alertsOn?: boolean | null } | null
   }>
@@ -391,6 +393,39 @@ export function SlackConnectorContent({ compact = false }: { compact?: boolean }
                   {installations.map((team) => {
                     const name = team.teamName || team.teamDomain || team.teamId
                     const busy = busyTeam === team.teamId
+                    if (team.tokenStored === false) {
+                      // Connected, but the app holds no token there: it can't answer until it is added again.
+                      return (
+                        <li key={team.teamId} data-slack-team={team.teamId} data-slack-readd="" className="flex items-center gap-3 px-4 py-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {state.canInstall
+                                ? 'Native Intelligence has to be added to this Slack workspace again before it answers there. Everyone’s links come back with it.'
+                                : 'Native Intelligence has to be added to this Slack workspace again before it answers there. Ask an admin of this workspace to add it.'}
+                            </p>
+                          </div>
+                          {state.canInstall && (
+                            <Button size="sm" className="h-7 shrink-0 px-3 text-xs" disabled={installing} aria-label={`Add Native Intelligence to ${name} again`} onClick={() => void install()}>
+                              {installing && <Loader2 aria-hidden className="mr-1 h-3 w-3 animate-spin motion-reduce:animate-none" />}
+                              Add to Slack
+                            </Button>
+                          )}
+                          {state.canInstall && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="h-7 shrink-0 px-3 text-xs"
+                              disabled={busy}
+                              aria-label={`Disconnect ${name}`}
+                              onClick={() => setConfirmTeam({ teamId: team.teamId, teamName: name })}
+                            >
+                              Disconnect
+                            </Button>
+                          )}
+                        </li>
+                      )
+                    }
                     return (
                       <li key={team.teamId} data-slack-team={team.teamId} className="flex items-center gap-3 px-4 py-3">
                         <div className="min-w-0 flex-1">

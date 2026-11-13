@@ -26,8 +26,11 @@ import { REACH_LINK, REACH_PILL, REACH_PRIMARY, ReachCard, ReachFoot, ReachHeadi
 export function SlackCard({ name }: { name: string }) {
   const { state, loading, installing, linkCode, codeTeam, makingCode, busyTeam, confirmTeam, setConfirmTeam, copied, error, notice, fetchState, installations, makeCode, install, unlink, disconnect, copyCode, connected, slackHref } =
     useSlackConnector()
-  const mine = installations.filter((team) => team.myLink)
-  const unlinked = installations.filter((team) => !team.myLink)
+  // A team connected here with no stored token can't answer: it is listed apart, to be added again.
+  const live = installations.filter((team) => team.tokenStored !== false)
+  const readd = installations.filter((team) => team.tokenStored === false)
+  const mine = live.filter((team) => team.myLink)
+  const unlinked = live.filter((team) => !team.myLink)
   const teamName = (team: { teamName: string; teamDomain: string; teamId: string }) => team.teamName || team.teamDomain || team.teamId
 
   const openInSlack = slackHref && (
@@ -81,7 +84,7 @@ export function SlackCard({ name }: { name: string }) {
           </ReachLead>
           {openInSlack && <div className="mt-6">{openInSlack}</div>}
           <ReachFoot>
-            {installations.map((team) => (
+            {live.map((team) => (
               <p key={team.teamId} data-slack-team={team.teamId}>
                 <span className="text-foreground">{teamName(team)}</span>
                 <span aria-hidden className="mx-2">·</span>
@@ -150,6 +153,23 @@ export function SlackCard({ name }: { name: string }) {
           ) : (
             <ReachLead>Someone who manages this Native Intelligence workspace sets up Slack first. Then you can link your account here.</ReachLead>
           )}
+        </section>
+      )}
+
+      {state?.configured && readd.length > 0 && (
+        <section data-slack-readd="" className="mt-6 space-y-2 text-sm text-muted-foreground">
+          {readd.map((team) => (
+            <p key={team.teamId} data-slack-readd-team={team.teamId}>
+              Native Intelligence has to be added to {teamName(team)}&apos;s Slack again before it answers there.{' '}
+              {state.canInstall ? (
+                <button type="button" onClick={() => void install()} disabled={installing} className={REACH_LINK} aria-label={`Add Native Intelligence to ${teamName(team)} again`}>
+                  Add it to Slack
+                </button>
+              ) : (
+                'Ask an admin of this workspace to add it.'
+              )}
+            </p>
+          ))}
         </section>
       )}
 
