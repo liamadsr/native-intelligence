@@ -217,6 +217,16 @@ export function quoteIsTheirs(speakers: readonly QuoteSpeaker[], memberId: strin
   return !!one.participant_id && one.source === 'call_roster' && one.member_id === memberId
 }
 
+/**
+ * Was this quote said by a member of the workspace, each line of it by their
+ * own roster row (never a guest, never a name in the text)? A call's decision
+ * or milestone is filed without a person's click only then (the live agent's
+ * route): one a guest said stays a suggestion.
+ */
+export function quoteSaidByMembers(speakers: readonly QuoteSpeaker[]): boolean {
+  return speakers.length > 0 && speakers.every((s) => !!s.participant_id && s.source === 'call_roster' && !!s.member_id)
+}
+
 /** Who said this quote on this capture (the service role: the segments are the server's). Fails closed: an error is nobody. */
 export async function quoteSpeakers(svc: SupabaseClient, captureId: string, quote: string | null | undefined): Promise<QuoteSpeaker[]> {
   if (!quote || !quote.trim()) return []

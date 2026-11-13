@@ -62,7 +62,7 @@ import {
   type AgentToolSelection,
 } from '@/lib/live-agent/read-tool-names'
 import { computeLiveAgentCeiling, type LiveAgentTurnType } from '@/lib/live-agent/ceiling'
-import { callCaptureFenceApplies } from '@/lib/live-agent/call-capture-fence'
+import { callCaptureFenceApplies, callCaptureGuidance } from '@/lib/live-agent/call-capture-fence'
 import {
   ASSISTANT_PERSONA,
   RECIPE_PREAMBLE,
@@ -748,10 +748,11 @@ export async function buildDynamicContext(
   /** `talks`: a turn that can speak (a live copilot turn), which also gets
    *  the call playbook and "What you've already told them this call". Off for
    *  batch and notes turns. `callCapture`: a fenced turn on a call's capture
-   *  (./call-capture-fence.ts), which gets none of the requester's own
-   *  context: no earlier meetings of the series, no pre-call brief, no
-   *  playbook (the notes are everyone's in the conversation). */
-  opts: { talks?: boolean; callCapture?: boolean } = {},
+   *  (./call-capture-fence.ts), which gets what it may do on the shared notes
+   *  and none of the requester's own context: no chat with them, no earlier
+   *  meetings of the series, no pre-call brief, no playbook (the notes are
+   *  everyone's in the conversation). `endOfCall`: it is the end-of-call pass. */
+  opts: { talks?: boolean; callCapture?: boolean; endOfCall?: boolean } = {},
 ): Promise<string> {
   const parts: string[] = []
 
@@ -907,6 +908,13 @@ export async function buildDynamicContext(
   }
   parts.push(statusParts.join('\n'))
 
+  // A call's capture (./call-capture-fence.ts): what this turn may do on the shared notes, and
+  // nothing of the requester's own (no chat with them, no earlier meetings, no brief, no playbook).
+  if (opts.callCapture) {
+    parts.push(callCaptureGuidance(opts.endOfCall === true))
+    return parts.join('\n\n')
+  }
+
   // ── Live chat with the user (talk-back → ambient steering, plan WS-1g) ──
   // If the user has been chatting with the agent in the capture's conversation,
   // fold their DIRECTIVES into this ambient turn so "focus on X, skip the Y
@@ -927,12 +935,9 @@ export async function buildDynamicContext(
 
   // The call playbook's reads (below) do not depend on the series or the
   // brief, so they start now and overlap both. They never throw.
-  const playbookState = opts.talks && !opts.callCapture
+  const playbookState = opts.talks
     ? loadCallPlaybookState(sb, { workspaceId, userId: requesterUserId, captureId })
     : null
-
-  // A call's capture: nothing of the requester's own beyond this point.
-  if (opts.callCapture) return parts.join('\n\n')
 
   // ── Previous occurrences of this recurring meeting (series thread) ──
   const priorBlock = await buildPriorOccurrencesBlock(sb, workspaceId, captureId, requesterUserId)

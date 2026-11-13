@@ -34,6 +34,7 @@ import {
   assigneeResolvedViaSpeakerMap,
   callRosterSetsSpeakers,
   quoteIsTheirs,
+  quoteSaidByMembers,
   quoteSpeakers,
   type SelfBindingState,
 } from '@/lib/live-agent/self-binding'
@@ -1077,6 +1078,20 @@ export async function POST(req: Request) {
                 if (!binding.bound) isMineExplicit = false
               }
             }
+          }
+
+          // A call the recorder heard: a decision or milestone is filed without a person's click
+          // only when the line it was quoted from was said by a member (their own roster row), as
+          // an action is only when said by its assignee. One a guest said, or no line said, stays
+          // a suggestion for the owner to accept.
+          if (
+            SELF_BINDING_GATE_ENABLED &&
+            (change.entity_type === 'decision' || change.entity_type === 'milestone') &&
+            (await isCallCapture()) &&
+            !quoteSaidByMembers(await quoteSpeakers(getServiceClient(), capture_id, change.trigger_quote))
+          ) {
+            ledger.staged(change.id, 'a call’s decision not said by a member — pending review')
+            continue
           }
 
           // The shared gate (W-1) makes the auto-apply DECISION: confidence floor,

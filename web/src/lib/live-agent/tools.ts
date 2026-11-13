@@ -1,5 +1,6 @@
 import { tool } from 'ai'
 import { CALL_CAPTURE_CHANGE_REFUSAL, callCaptureChangeAllowed } from './call-capture-fence'
+import { quoteIsTheirs, quoteSpeakers } from './self-binding'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { namespacedToolName } from '@/lib/mcp-client/adapter'
@@ -127,6 +128,10 @@ export function createLiveAgentTools(
 ) {
   void _currentMemberName
   const isEvalCapture = options.isEvalCapture === true
+  // A call's capture (./call-capture-fence.ts): its words are anyone's in the call and what its
+  // turns attribute is read by the whole conversation, so people resolve to members only.
+  const callCapture = options.callCapture === true
+  const personScope = { contacts: !callCapture }
 
   // The capture's own date, fetched once and memoized across all propose_change
   // calls in this tool set's lifetime (captureId is fixed). Used by GEN-138's
@@ -222,6 +227,7 @@ export function createLiveAgentTools(
         if (params.speaker_label) {
           const viaLabel = await resolvePersonForCapture(
             supabase, workspaceId, captureId, params.speaker_label, userId,
+            personScope,
           )
           if (viaLabel.viaSpeakerMap && !viaLabel.unresolvedLabel) {
             assigneeName = viaLabel.name
@@ -236,6 +242,7 @@ export function createLiveAgentTools(
         if (!assigneeResolution && params.assignee_name) {
           const person = await resolvePersonForCapture(
             supabase, workspaceId, captureId, params.assignee_name, userId,
+            personScope,
           )
           if (person.unresolvedLabel) {
             // An unassigned technical label is not a person — never store it
@@ -606,6 +613,7 @@ export function createLiveAgentTools(
           if (params.assignee_name) {
             const person = await resolvePersonForCapture(
               supabase, workspaceId, captureId, params.assignee_name, userId,
+              personScope,
             )
             if (person.unresolvedLabel) {
               resolvedAssigneeName = null
@@ -860,6 +868,7 @@ export function createLiveAgentTools(
         // one-hop graph query; a contact is linked via an `about` edge instead.
         const person = await resolvePersonForCapture(
           supabase, workspaceId, captureId, person_name, userId,
+          personScope,
         )
         if (person.unresolvedLabel) {
           // A claim attributed to an unassigned technical label is noise the
@@ -915,29 +924,61 @@ export function createLiveAgentTools(
         ]
 
         if (embedding) {
-          const { data: matches } = await supabase.rpc('match_claims', {
-            p_workspace_id: workspaceId,
-            p_embedding: `[${embedding.join(',')}]`,
-            p_limit: 1,
-            p_threshold: COMMITMENT_DEDUPE_THRESHOLD,
-            p_type: null,
-            p_confirmation: null,
-            p_status: 'active',
-            p_min_confidence: null,
+          const matchClaims = async (requester: string | null, limit: number) => {
+            const { data } = await supabase.rpc('match_claims', {
+              p_workspace_id: workspaceId,
+              p_embedding: `[${embedding!.join(',')}]`,
+              p_limit: limit,
+              p_threshold: COMMITMENT_DEDUPE_THRESHOLD,
+              p_type: null,
+              p_confirmation: null,
+              p_status: 'active',
+              p_min_confidence: null,
+              p_requesting_user_id: requester,
+            })
+            return ((data ?? []) as Array<{ claim_id: string }>).map((m) => m.claim_id)
+          }
+          let existingId: string | null = null
+          if (callCapture) {
+            // A call's capture is private to its owner by visibility, but read by the whole
+            // conversation: matching what its owner can see would attach this capture to the
+            // owner's PRIVATE claims (a private chat, a private meeting) and so widen them to the
+            // conversation, on what anyone in the call said. So it matches only claims everyone
+            // can already read, or claims this same capture already sources (re-filed in a later
+            // turn). Anything else is a new claim, and the answer says nothing of the owner's.
+            const shared = await matchClaims(null, 1)
+            existingId = shared[0] ?? null
+            if (!existingId && captureOwnerId) {
+              const owned = await matchClaims(captureOwnerId, 5)
+              if (owned.length > 0) {
+                const { data: here } = await supabase
+                  .from('claim_source')
+                  .select('claim_id')
+                  .eq('source_type', 'capture')
+                  .eq('source_id', captureId)
+                  .in('claim_id', owned)
+                const fromHere = new Set(((here ?? []) as Array<{ claim_id: string }>).map((r) => r.claim_id))
+                existingId = owned.find((id) => fromHere.has(id)) ?? null
+              }
+            }
+          } else {
             // Only claims this capture's audience can already see: a hit gets
             // the capture attached, and attaching a wider source would widen
             // the claim (a private chat claim must not turn shared because a
             // workspace meeting said the same thing). Private capture → its
             // owner; workspace capture → NULL (shared claims only).
-            p_requesting_user_id: dedupeRequesterFor({
-              sourceType: 'capture',
-              ownerUserId: captureOwnerId,
-              captureVisibility,
-              links: dedupeLinks,
-            }),
-          })
-          if (matches && matches.length > 0) {
-            const existingId = (matches[0] as { claim_id: string }).claim_id
+            const matches = await matchClaims(
+              dedupeRequesterFor({
+                sourceType: 'capture',
+                ownerUserId: captureOwnerId,
+                captureVisibility,
+                links: dedupeLinks,
+              }),
+              1,
+            )
+            existingId = matches[0] ?? null
+          }
+          if (existingId) {
             // Duplicate — grow the existing claim's provenance (idempotent)
             // rather than creating a second claim.
             await attachClaimProvenance(supabase, {
@@ -977,7 +1018,13 @@ export function createLiveAgentTools(
         const policy =
           autoAcceptPolicy ??
           (await resolveClaimsAutoAcceptPolicy(supabase, workspaceId))
-        const autoAccept = shouldAutoAccept('claims', confidence ?? null, policy)
+        // A call's capture: confirmed only when the line was said by the member it is about (the
+        // call's roster says who said every line, as for actions), never on a name anyone said:
+        // "Rosa committed to paying the invoice", said by a guest, stays a suggestion.
+        const saidByThem = callCapture
+          ? !!subjectMemberId && quoteIsTheirs(await quoteSpeakers(supabase, captureId, trigger_quote), subjectMemberId)
+          : true
+        const autoAccept = saidByThem && shouldAutoAccept('claims', confidence ?? null, policy)
 
         const { data: claim, error } = await supabase
           .from('claim')
