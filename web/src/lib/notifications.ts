@@ -77,6 +77,12 @@ export const NOTIFICATION_TYPES = [
   // click opens it. Written by src/lib/meeting-links/store.ts notifyHostWaiting
   // only (never through createNotification).
   'meeting_waiting',
+  // A message the person scheduled to send later could not be sent (migration
+  // 642): its draft was gone, the mailbox refused it, or the send could not
+  // be confirmed. Self-targeted (no actor); targets the scheduled send
+  // (target_type 'email_draft', which opens Mail's Drafts, where the draft
+  // still is unless it was gone). Written by src/lib/email/scheduled-send.ts.
+  'email_send_failed',
 ] as const
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]

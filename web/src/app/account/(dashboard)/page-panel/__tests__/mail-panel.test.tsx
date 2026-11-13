@@ -168,12 +168,12 @@ describe('the Mail sub-nav', () => {
     expect(panel()!.getAttribute('data-page-panel-mode')).toBe('room')
     expect(keys()).toEqual([
       'account:all', 'account:acct-work', 'account:acct-home', 'connect',
-      'folder:inbox', 'folder:review', 'folder:starred', 'folder:drafts', 'folder:sent',
+      'folder:inbox', 'folder:review', 'folder:starred', 'folder:drafts', 'folder:scheduled', 'folder:sent',
       'folder:archive', 'folder:spam', 'folder:trash',
     ])
     expect(rows().map((r) => r.querySelector('[data-mail-label]')!.textContent)).toEqual([
       'All accounts', 'sam@northwind.example', 'sam@home.example', 'Connect another account',
-      'Inbox', 'To review', 'Starred', 'Drafts', 'Sent', 'Archive', 'Spam', 'Trash',
+      'Inbox', 'To review', 'Starred', 'Drafts', 'Scheduled', 'Sent', 'Archive', 'Spam', 'Trash',
     ])
     expect(headings()).toEqual(['Accounts'])
     // The everyday folders, then (a section of their own) where mail is put away.

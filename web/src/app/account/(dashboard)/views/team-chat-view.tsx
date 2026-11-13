@@ -38,7 +38,7 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { Bell, BellOff, Check, ChevronLeft, Hash, Lock, MessageSquare, MessageSquareReply, Pencil, Plus, RotateCw, Trash2, Users, Video, X } from 'lucide-react'
+import { Bell, BellOff, Check, ChevronLeft, CircleCheck, Hash, Lock, MessageSquare, MessageSquareReply, Pencil, Plus, RotateCw, Trash2, Users, Video, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -95,6 +95,7 @@ import { setTeamChatOnScreen } from '@/lib/team-chat/on-screen'
 import type { TeamChatNotifyLevel } from '@/lib/team-chat/notify'
 import { mentionOpens, openMention } from '@/lib/entity-links/open-mention'
 import { EntityContextMenu } from '@/components/entities/entity-actions-menu'
+import { makeTaskFromEntity, messageTaskLabel } from '@/lib/entities/actions'
 import { MENTION_PICKER_KINDS, menuRowMention, type MenuSearchRow } from '@/lib/search/menu-search'
 import { parseSharedRecords, toastSharedRecords } from '@/lib/entity-access/share-toast'
 import { useTeamCalls } from '@/components/team-calls/team-calls-provider'
@@ -1924,6 +1925,16 @@ function MessageRow({
               <MessageSquareReply className="h-3.5 w-3.5" />
             </button>
           )}
+          {/* A task about this message, anyone's ("Follow up: <its first line>"), linked to it, opened at once so its title can be checked; the server checks the person reads its channel. */}
+          <button
+            type="button"
+            onClick={() => void makeTaskFromEntity({ type: 'team_chat_message', id: message.id, label: messageTaskLabel(message.body) }, undefined, { openNow: true })}
+            aria-label="Make a task"
+            title="Make a task"
+            className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <CircleCheck className="h-3.5 w-3.5" />
+          </button>
           {mine && message.body && !isCall && (
             <button type="button" onClick={onEdit} aria-label="Edit message" title="Edit" className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
               <Pencil className="h-3.5 w-3.5" />

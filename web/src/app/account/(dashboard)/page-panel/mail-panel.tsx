@@ -70,7 +70,7 @@ import { usePendingMove } from './pending-move'
 
 /** The folders as the sub-nav groups them: the everyday ones, then (after a gap) where mail is put away. */
 export const MAIL_PANEL_FOLDER_GROUPS: readonly (readonly string[])[] = [
-  ['inbox', 'review', 'starred', 'drafts', 'sent'],
+  ['inbox', 'review', 'starred', 'drafts', 'scheduled', 'sent'],
   ['archive', 'spam', 'trash'],
 ]
 

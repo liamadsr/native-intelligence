@@ -68,6 +68,8 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { DateTimePicker } from '@/components/ui/datetime-picker'
 import { EmailRecipientInput } from '@/components/email/email-recipient-input'
+import { SendLaterButton } from '@/components/email/send-later-button'
+import { scheduleSend } from '@/lib/email/send-later'
 import { cn } from '@/lib/utils'
 import { useModKeyLabel } from '@/lib/hotkeys'
 import { useTeams } from '@/app/account/teams-context'
@@ -891,6 +893,27 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
   }
 
   function handleCancelEmail() {
+    resetForm()
+    setOpen(false)
+  }
+
+  // Send later: the message is saved as a draft in the picked mailbox and sent
+  // at `at` (src/lib/email/send-later.ts). Scheduled, the composer closes and
+  // the toast says when, with Undo (a normal draft again).
+  async function handleScheduleEmail(at: Date) {
+    if (emailTo.length === 0 || !emailAccountId) return
+    const row = await scheduleSend(
+      {
+        account_id: emailAccountId,
+        to: emailTo,
+        cc: emailCc.length > 0 ? emailCc : undefined,
+        bcc: emailBcc.length > 0 ? emailBcc : undefined,
+        subject: emailSubject,
+        body_html: plainTextToHtml(emailBody),
+      },
+      at,
+    )
+    if (!row) return
     resetForm()
     setOpen(false)
   }
@@ -2228,6 +2251,14 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
                 />
                 Create more
               </label>
+              )}
+              {/* Send later, beside Send: a time picked, the composer closes. */}
+              {entityType === 'email' && (
+                <SendLaterButton
+                  className="h-8 px-3"
+                  disabled={!canCreate || creating || emailSending || !emailAccountId}
+                  onSchedule={handleScheduleEmail}
+                />
               )}
               <TooltipProvider delayDuration={300}>
                 <Tooltip>

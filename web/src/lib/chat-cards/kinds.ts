@@ -108,7 +108,8 @@ export interface CalendarCardSpec {
 // ── Mail (P2) ───────────────────────────────────────────────────────────────
 
 /** The Mail page's folders (email-layout.tsx), in its order. */
-export const MAIL_FOLDERS = ['inbox', 'starred', 'sent', 'drafts', 'archive', 'spam', 'trash'] as const
+// 'scheduled' is send later's folder (642): the person's scheduled sends, not a mailbox folder.
+export const MAIL_FOLDERS = ['inbox', 'starred', 'sent', 'drafts', 'scheduled', 'archive', 'spam', 'trash'] as const
 export type MailFolder = (typeof MAIL_FOLDERS)[number]
 
 /**

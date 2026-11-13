@@ -178,3 +178,22 @@ describe('mailboxDraftState', () => {
     expect(mailboxDraftState(t([]), null)).toBe('unknown')
   })
 })
+
+describe('refreshHeldThreads — a send scheduled on the thread (send later)', () => {
+  it('leaves the thread alone: no read, no re-draft, no release, the draft kept', async () => {
+    db.seed('email_scheduled_send', [{ id: 's1', user_id: 'u1', thread_id: 't1', status: 'scheduled' }])
+    readThread.mockResolvedValue(thread(msg('m1', 'sam@x.com'), msg('pd1', 'liam@dial8.ai', { isDraft: true }), msg('m2', 'sam@x.com')))
+    expect(await run()).toEqual({ redrafted: [], staled: 0, released: 0 })
+    expect(readThread).not.toHaveBeenCalled()
+    expect(generate).not.toHaveBeenCalled()
+    expect(deleteMailboxDraft).not.toHaveBeenCalled()
+    expect(db.rows('email_draft').map((d) => d.id)).toEqual(['d1'])
+  })
+
+  it('a cancelled or sent schedule leaves the thread to its usual refresh', async () => {
+    db.seed('email_scheduled_send', [{ id: 's1', user_id: 'u1', thread_id: 't1', status: 'cancelled' }])
+    readThread.mockResolvedValue(thread(msg('m1', 'sam@x.com'), msg('pd1', 'liam@dial8.ai', { isDraft: true }), msg('m2', 'sam@x.com')))
+    generate.mockResolvedValue({ drafts: [{ id: 'd2', email_thread_id: 'i1', created_at: 'now' }], count: 1 })
+    expect((await run()).redrafted).toHaveLength(1)
+  })
+})

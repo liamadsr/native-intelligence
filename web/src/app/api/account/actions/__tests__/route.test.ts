@@ -585,6 +585,22 @@ describe('POST /api/account/actions', () => {
       expect(hoisted.actionsInsert).not.toHaveBeenCalled()
     })
 
+    it('links a task to the person’s own email thread, read from its owner column, never the mention fence', async () => {
+      hoisted.fromHandlers.set('email_thread_index', singleResultChain({ data: { id: DOC }, error: null }))
+      const res = await POST(actionReq({ title: 'Follow up: Contract redlines', about: { type: 'email_thread', id: DOC } }))
+      expect(res.status).toBe(200)
+      expect(mentionFence.calls).toBe(0)
+      expect(linkUpserts).toEqual([expect.objectContaining({ source_type: 'action', target_type: 'email_thread', target_id: DOC, relation: 'about' })])
+    })
+
+    it('makes no task about a teammate’s email thread (no row of theirs comes back)', async () => {
+      hoisted.fromHandlers.set('email_thread_index', singleResultChain({ data: null, error: null }))
+      const res = await POST(actionReq({ title: 'Follow up', about: { type: 'email_thread', id: DOC } }))
+      expect(res.status).toBe(400)
+      expect(hoisted.actionsInsert).not.toHaveBeenCalled()
+      expect(linkUpserts).toEqual([])
+    })
+
     it('writes no edge and says nothing of one when there is no about', async () => {
       const res = await POST(actionReq({ title: 'Plain task' }))
       expect(await readJson<Record<string, unknown>>(res)).not.toHaveProperty('about_linked')

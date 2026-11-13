@@ -260,3 +260,18 @@ describe('typing', () => {
     expect(rt.sent).toEqual([{ type: 'broadcast', event: 'typing', payload: { member_id: 'm-me', thread: null, typing: true } }])
   })
 })
+
+describe('make a task from a message', () => {
+  it('a teammate’s message offers Make a task beside Reply in thread: "Follow up: <first line>", linked about the message', async () => {
+    await render()
+    const button = row('root-1').querySelector<HTMLButtonElement>('button[aria-label="Make a task"]')!
+    expect(button).not.toBeNull()
+    // The toolbar's own look: the same classes as Reply in thread beside it.
+    expect(button.className).toBe(row('root-1').querySelector<HTMLButtonElement>('button[aria-label="Reply in thread"]')!.className)
+    await act(async () => button.click())
+    await settle()
+    expect(requests.filter((r) => r.url === '/api/account/actions')).toEqual([
+      { url: '/api/account/actions', method: 'POST', body: { title: 'Follow up: Shall we ship on Friday?', about: { type: 'team_chat_message', id: 'root-1' } } },
+    ])
+  })
+})

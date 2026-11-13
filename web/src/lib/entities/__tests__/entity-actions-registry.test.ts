@@ -19,6 +19,8 @@ import {
   entityLink,
   isArchivedRow,
   supportedEntityActions,
+  isTaskAboutType,
+  TASK_ABOUT_ONLY_TYPES,
 } from '../entity-actions-registry'
 
 const ids = ENTITY_REGISTRY.map((e) => e.id as EntityType)
@@ -100,12 +102,23 @@ describe('ENTITY_ACTIONS', () => {
     }
   })
 
-  it('shares and makes tasks only for kinds a mention may name', () => {
+  it('shares only kinds a mention may name, and makes tasks only from those and mail', () => {
     for (const id of ids) {
       const d = ENTITY_ACTIONS[id]
       if (d.share) expect(isMentionableType(id) && d.open !== null, `${id} share`).toBe(true)
-      if (d.makeTask) expect(isMentionableType(id), `${id} makeTask`).toBe(true)
+      if (d.makeTask) expect(isTaskAboutType(id), `${id} makeTask`).toBe(true)
     }
+    // Mail is the one kind a task may be about that no one can @-mention.
+    expect(ids.filter((id) => ENTITY_ACTIONS[id].makeTask && !isMentionableType(id))).toEqual(['email_thread'])
+    expect([...TASK_ABOUT_ONLY_TYPES]).toEqual(['email_thread'])
+    expect(isMentionableType('email_thread')).toBe(false)
+  })
+
+  it('a team chat message and an email thread make tasks; mail offers nothing else but Copy ID', () => {
+    expect(ENTITY_ACTIONS.team_chat_message.makeTask).toBe(true)
+    expect(ENTITY_ACTIONS.email_thread.makeTask).toBe(true)
+    expect(supportedEntityActions('email_thread')).toEqual(['copy_id', 'make_task'])
+    expect(supportedEntityActions('team_chat_message')).toContain('make_task')
   })
 })
 

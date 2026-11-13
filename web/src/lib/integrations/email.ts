@@ -10,6 +10,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { threadCopyWorkspaceIds, type ReadableEmailAccount } from '@/lib/email/account-scope'
 import { draftRowsFor, markHoldsSending, releaseDraftRows, restoreHolds, stampMailReview, type HeldDraftRow } from '@/lib/email/hold'
 import { deferDraftRewrite, readDraftForRewrite } from '@/lib/evals/flywheel/draft-rewrite'
+import { cancelSchedulesForDraft } from '@/lib/email/scheduled-refs'
 
 export interface EmailMessage {
   id: string
@@ -162,6 +163,8 @@ interface ProviderDraftSent {
   folder: string
   to: string[]
   subject: string
+  /** The draft's own id where it differs from its message's (Gmail): a schedule may name it. */
+  draftRef?: string | null
 }
 
 type ProviderDraftOutcome = ProviderDraftSent | Extract<SendProviderDraftResult, { ok: false }>
@@ -195,12 +198,17 @@ export async function sendProviderDraft(
   providerThreadId: string,
   draftMessageId: string,
   edits: DraftEdits | null = null,
+  opts: { accountId?: string | null } = {},
 ): Promise<SendProviderDraftResult> {
   if (!isProviderId(providerThreadId) || !isProviderId(draftMessageId)) return NOT_FOUND
   // The route checked them; checked again because they go into MIME headers.
   if (edits && parseDraftEdits(edits) === 'invalid') throw new Error('Draft edits are not well formed')
 
-  const mailbox = await mailboxForThread(userId, workspaceId, providerThreadId)
+  // `accountId` pins the mailbox (a scheduled send names the one its draft was
+  // saved in, which a new message's thread is not yet indexed under).
+  const mailbox = opts.accountId
+    ? await pinnedMailbox(userId, opts.accountId)
+    : await mailboxForThread(userId, workspaceId, providerThreadId)
   if (!mailbox) throw new Error('No email integration connected')
 
   // The holding pattern: the hold behind this draft goes 'sending' while the
@@ -229,6 +237,10 @@ export async function sendProviderDraft(
   }
 
   await settleSentDraft(userId, workspaceId, providerThreadId, draftMessageId, outcome, rows)
+  // Sent by hand (or by its own schedule, whose row is 'sending' and left
+  // alone): a schedule still waiting on this draft is cancelled, so no
+  // "wasn't sent" notice comes later.
+  await cancelSchedulesForDraft(supabase, userId, [draftMessageId, outcome.draftRef])
   // Sent: a heavy rewrite of an agent draft becomes an eval candidate (a score
   // and pointers, never the text), after the response and never failing it.
   if (edits && draftBefore) deferDraftRewrite(supabase, { userId, providerThreadId, draft: draftBefore, sentBody: edits.body })
@@ -269,6 +281,8 @@ export async function discardProviderDraft(
       ? await discardGmailDraft(mailbox.token, providerThreadId, draftMessageId)
       : await discardOutlookDraft(mailbox.token, providerThreadId, draftMessageId)
   if (!discarded) return NOT_FOUND
+  // Discarded by hand: a schedule waiting on it is cancelled (Gmail names the draft by its own id).
+  await cancelSchedulesForDraft(getServiceClient(), userId, [draftMessageId, typeof discarded === 'string' ? discarded : null])
 
   const threadRemains = await settleDiscardedDraft(userId, workspaceId, mailbox, providerThreadId, draftMessageId)
   return { ok: true, threadRemains }
@@ -320,6 +334,7 @@ export async function updateProviderDraft(
   providerThreadId: string,
   draftMessageId: string,
   revision: DraftRevision,
+  opts: { flatten?: boolean } = {},
 ): Promise<UpdateProviderDraftResult> {
   if (!isProviderId(providerThreadId) || !isProviderId(draftMessageId)) return NOT_FOUND
 
@@ -328,8 +343,8 @@ export async function updateProviderDraft(
 
   const updated =
     mailbox.provider === 'google'
-      ? await updateGmailDraft(mailbox, providerThreadId, draftMessageId, revision)
-      : await updateOutlookDraft(mailbox.token, providerThreadId, draftMessageId, revision)
+      ? await updateGmailDraft(mailbox, providerThreadId, draftMessageId, revision, opts)
+      : await updateOutlookDraft(mailbox.token, providerThreadId, draftMessageId, revision, opts)
   if (!updated.ok) return updated
 
   try {
@@ -368,6 +383,7 @@ async function updateGmailDraft(
   threadId: string,
   messageId: string,
   revision: DraftRevision,
+  opts: { flatten?: boolean } = {},
 ): Promise<DraftUpdateOutcome> {
   const meta = await gmailDraftOnThread(
     mailbox.token,
@@ -380,7 +396,8 @@ async function updateGmailDraft(
   const headers = payload?.headers ?? []
   const header = (name: string) => headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? ''
   // Attachments or inline images: a plain-text rewrite would drop them.
-  if (GMAIL_RICH_CONTENT_TYPE.test(payload?.mimeType ?? '') || GMAIL_RICH_CONTENT_TYPE.test(header('Content-Type'))) {
+  // Flattened (send later's edit, as Send with edits does), it goes as text.
+  if (!opts.flatten && GMAIL_RICH_CONTENT_TYPE.test(payload?.mimeType ?? '') || GMAIL_RICH_CONTENT_TYPE.test(header('Content-Type'))) {
     return { ok: false, reason: 'rich' }
   }
   const addressesIn = (name: string) => parseEmailAddresses(header(name)).map((a) => a.email)
@@ -421,13 +438,16 @@ async function updateOutlookDraft(
   threadId: string,
   messageId: string,
   revision: DraftRevision,
+  opts: { flatten?: boolean } = {},
 ): Promise<DraftUpdateOutcome> {
   const meta = await outlookDraftOnThread(token, threadId, messageId, ['subject', 'toRecipients', 'ccRecipients', 'body'])
   if (!meta) return NOT_FOUND
   // An HTML body was written or edited in Outlook (Native Intelligence writes text): a
   // plain-text rewrite would drop its signature, formatting and quoted chain.
   const bodyType = (meta.body as { contentType?: unknown } | undefined)?.contentType
-  if (typeof bodyType === 'string' && bodyType.toLowerCase() === 'html') return { ok: false, reason: 'rich' }
+  // Flattened (send later's edit): written as text, exactly as Send with edits
+  // writes it; the editor already says "Sent as plain text".
+  if (!opts.flatten && typeof bodyType === 'string' && bodyType.toLowerCase() === 'html') return { ok: false, reason: 'rich' }
   const addresses = (list: unknown) =>
     ((Array.isArray(list) ? list : []) as Array<{ emailAddress?: { address?: string } }>)
       .map((r) => r.emailAddress?.address ?? '')
@@ -455,8 +475,8 @@ async function updateOutlookDraft(
   return { ok: true, messageId, edits }
 }
 
-/** True when the draft is gone: deleted now, or by the time the delete landed. False when it is no draft on the thread. */
-async function discardGmailDraft(token: string, threadId: string, messageId: string): Promise<boolean> {
+/** The draft's own id when it is gone: deleted now, or by the time the delete landed. False when it is no draft on the thread. */
+async function discardGmailDraft(token: string, threadId: string, messageId: string): Promise<string | false> {
   if (!(await gmailDraftOnThread(token, threadId, messageId, 'format=minimal'))) return false
   // The draft endpoints take the draft's own id, which is not its message's.
   const draftId = await gmailDraftIdFor(token, messageId)
@@ -465,7 +485,7 @@ async function discardGmailDraft(token: string, threadId: string, messageId: str
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` },
   })
-  if (res.ok || res.status === 404) return true
+  if (res.ok || res.status === 404) return draftId
   throw new Error(`Gmail draft delete error: ${res.status}`)
 }
 
@@ -553,6 +573,39 @@ async function mailboxForThread(
     if (fallback) return { provider: p, token: fallback.token, email: fallback.email ?? null }
   }
   return null
+}
+
+export type PinnedMailbox = { provider: 'google' | 'microsoft'; token: string; email: string | null }
+
+/**
+ * ONE mailbox the person named (a connected email account of theirs):
+ * 'not_connected' when it is not theirs, not an email account, or gone;
+ * 'unreachable' when it is theirs but no valid token came back (a refresh
+ * that failed, maybe for now). Throws when the account can't be read. The
+ * user_id filter is the fence: this reads on the service client.
+ */
+export async function pinnedMailboxState(userId: string, accountId: string): Promise<PinnedMailbox | 'not_connected' | 'unreachable'> {
+  const { data: account, error } = await getServiceClient()
+    .from('connected_account')
+    .select('provider, capability')
+    .eq('id', accountId)
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) throw new Error(`connected account unreadable: ${error.message}`)
+  const row = account as { provider?: unknown; capability?: unknown } | null
+  if (!row || row.capability !== 'email' || (row.provider !== 'google' && row.provider !== 'microsoft')) return 'not_connected'
+  const found = await getValidTokenForAccount(accountId)
+  return found ? { provider: row.provider, token: found.token, email: found.email ?? null } : 'unreachable'
+}
+
+/** The same mailbox, or null when it can't be used now for any reason. */
+export async function pinnedMailbox(userId: string, accountId: string): Promise<PinnedMailbox | null> {
+  try {
+    const state = await pinnedMailboxState(userId, accountId)
+    return typeof state === 'string' ? null : state
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -672,6 +725,7 @@ async function sendGmailDraft(
     folder: mapGmailLabelsToFolder(labels),
     to,
     subject,
+    draftRef: draftId,
   }
 }
 

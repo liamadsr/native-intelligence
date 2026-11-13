@@ -284,3 +284,12 @@ describe('discardProviderDraft — Outlook', () => {
     expect(fake.rows('email_thread_index')[0]).toMatchObject({ provider_message_id: DRAFT, is_draft: true })
   })
 })
+
+describe('discardProviderDraft — a draft with a send scheduled, discarded by hand', () => {
+  it('cancels the waiting schedule naming it, so no "wasn’t sent" notice comes later', async () => {
+    seedGmailThread()
+    fake.seed('email_scheduled_send', [{ id: 's-1', user_id: 'user-1', provider_draft_id: 'r-7', status: 'scheduled', to_emails: ['simon@harborline.io'], subject: 'Re' }])
+    await discardProviderDraft('user-1', WS, 'thr-1', 'm-draft')
+    expect(fake.rows('email_scheduled_send')[0]).toMatchObject({ status: 'cancelled', to_emails: null, subject: null })
+  })
+})
