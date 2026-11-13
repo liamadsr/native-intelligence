@@ -49,14 +49,17 @@ const THREAD = {
 let container: HTMLDivElement
 let root: Root
 let posts: Array<Record<string, unknown>>
+let waiting: unknown[]
 const flush = () => act(async () => void (await new Promise((r) => setTimeout(r, 0))))
 
 beforeEach(() => {
   posts = []
+  waiting = []
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.startsWith('/api/account/email/scheduled?thread_id=')) return new Response(JSON.stringify({ scheduled: waiting }))
       if (url === '/api/account/email/scheduled') {
         const body = JSON.parse(String(init?.body))
         posts.push(body)
@@ -93,5 +96,24 @@ describe('EmailThreadDetail — Send later on a draft', () => {
     ])
     expect(posts[0]).not.toHaveProperty('edits')
     expect(toasts.success).toHaveBeenCalledWith(expect.stringMatching(/^Scheduled for Tomorrow, 8:00 AM$/), expect.anything())
+  })
+
+  it('a draft with a send waiting shows "Scheduled · <time>"; after scheduling, the badge shows too', async () => {
+    const at = new Date()
+    at.setDate(at.getDate() + 1)
+    at.setHours(8, 0, 0, 0)
+    waiting = [{ id: 'sched-1', status: 'scheduled', send_at: at.toISOString(), thread_id: 'thr-1' }]
+    await act(async () => root.render(h(EmailThreadDetail, { threadId: 'thr-1' } as never)))
+    await flush()
+    await flush()
+    const badges = [...container.querySelectorAll('[data-scheduled-badge]')]
+    expect(badges.map((b) => b.textContent)).toEqual(['Scheduled · Tomorrow, 8:00 AM'])
+  })
+
+  it('no badge without a waiting send', async () => {
+    await act(async () => root.render(h(EmailThreadDetail, { threadId: 'thr-1' } as never)))
+    await flush()
+    await flush()
+    expect(container.querySelector('[data-scheduled-badge]')).toBeNull()
   })
 })

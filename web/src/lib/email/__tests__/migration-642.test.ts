@@ -60,10 +60,19 @@ describe('migration 642', () => {
     expect(BODY).not.toMatch(/for (insert|update|delete|all)\b/)
   })
 
-  it('indexes the sweep’s due rows, the folder’s reads and the mailbox key', () => {
-    expect(BODY).toContain("create index if not exists email_scheduled_send_due_idx on public.email_scheduled_send (send_at) where status in ('scheduled', 'sending');")
+  it('indexes the sweep’s due, claimed and done rows, the folder’s reads and the mailbox key; one waiting row per draft', () => {
+    expect(BODY).toContain("create index if not exists email_scheduled_send_due_idx on public.email_scheduled_send (send_at) where status = 'scheduled';")
+    expect(BODY).toContain("create index if not exists email_scheduled_send_claimed_idx on public.email_scheduled_send (claimed_at) where status = 'sending';")
+    expect(BODY).toContain("create index if not exists email_scheduled_send_done_idx on public.email_scheduled_send (send_at) where status in ('sent', 'cancelled', 'failed');")
+    expect(BODY).toContain("create unique index if not exists email_scheduled_send_one_per_draft_key on public.email_scheduled_send (user_id, provider_draft_id) where status = 'scheduled';")
     expect(BODY).toContain('create index if not exists email_scheduled_send_owner_idx on public.email_scheduled_send (user_id, workspace_id, send_at);')
     expect(BODY).toContain('create index if not exists email_scheduled_send_account_idx on public.email_scheduled_send (account_id);')
+  })
+
+  it('counts pre-send tries (bounded) and stamps the claim', () => {
+    expect(TABLE).toContain('claimed_at timestamptz null')
+    expect(TABLE).toContain('attempts integer not null default 0')
+    expect(TABLE).toContain('check (attempts between 0 and 10)')
   })
 
   it('adds email_send_failed to 572’s notification types, the app’s list, and is the newest word on the check', () => {

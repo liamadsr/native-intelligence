@@ -324,6 +324,47 @@ describe('make a task from this', () => {
   })
 })
 
+describe('makeTaskFromEntity — openNow (an email thread, a chat message)', () => {
+  const MSG = { type: 'team_chat_message', id: 'msg-1', label: 'Can you send the deck?' }
+
+  it('opens the new task at once (its title can be checked and renamed), and the toast’s action is Undo', async () => {
+    replies.push({ status: 200, body: { action: { id: 'a-7' } } })
+    expect(await makeTaskFromEntity(MSG, deps, { openNow: true })).toBe('a-7')
+    expect(opened).toEqual([{ type: 'action', id: 'a-7', title: 'Follow up: Can you send the deck?' }])
+    expect(toasts[0]).toMatchObject({ kind: 'success', message: 'Task made' })
+    expect(toasts[0].undo).toBeTypeOf('function')
+    expect(toasts[0].open).toBeUndefined()
+  })
+
+  it('Undo deletes the task and tells the lists', async () => {
+    replies.push({ status: 200, body: { action: { id: 'a-7' } } }, { status: 200, body: { success: true } })
+    await makeTaskFromEntity(MSG, deps, { openNow: true })
+    toasts[0].undo!()
+    await new Promise((r) => setTimeout(r, 0))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(calls[1]).toMatchObject({ url: '/api/account/actions/a-7', method: 'DELETE' })
+    expect(events).toContainEqual({ kind: 'deleted', entityType: 'action', id: 'a-7' })
+    expect(toasts[1]).toMatchObject({ kind: 'success', message: 'Task deleted' })
+  })
+
+  it('an Undo the route refuses (not an owner or admin) is said; the task stays, open to rename', async () => {
+    replies.push({ status: 200, body: { action: { id: 'a-7' } } }, { status: 403, body: { error: 'Only a workspace owner or admin can delete an action' } })
+    await makeTaskFromEntity(MSG, deps, { openNow: true })
+    toasts[0].undo!()
+    await new Promise((r) => setTimeout(r, 0))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(toasts[1]).toEqual({ kind: 'error', message: 'Only a workspace owner or admin can delete an action' })
+    expect(events.some((e) => e.kind === 'deleted')).toBe(false)
+  })
+
+  it('without openNow nothing opens until Open is pressed', async () => {
+    replies.push({ status: 200, body: { action: { id: 'a-8' } } })
+    await makeTaskFromEntity(MSG, deps)
+    expect(opened).toEqual([])
+    expect(toasts[0].open).toBeTypeOf('function')
+  })
+})
+
 describe('runEntityAction', () => {
   it('routes each direct action', async () => {
     await runEntityAction('copy_id', DOC, {}, deps)

@@ -543,3 +543,20 @@ describe('sendProviderDraft — pinned to one mailbox (a scheduled send)', () =>
     expect(calls).toEqual([])
   })
 })
+
+describe('sendProviderDraft — a draft with a send scheduled, sent by hand', () => {
+  it('cancels the waiting schedule naming it (Gmail’s draft id), clearing its words; one being sent is left alone', async () => {
+    seedGmailThread()
+    fake.seed('email_scheduled_send', [
+      { id: 's-1', user_id: 'user-1', provider_draft_id: 'r-7', status: 'scheduled', to_emails: ['simon@harborline.io'], subject: 'Re' },
+      { id: 's-2', user_id: 'user-1', provider_draft_id: 'r-7', status: 'sending', to_emails: ['simon@harborline.io'], subject: 'Re' },
+      { id: 's-3', user_id: 'user-1', provider_draft_id: 'r-other', status: 'scheduled', to_emails: [], subject: 'Other' },
+    ])
+    await sendProviderDraft('user-1', WS, 'thr-1', 'm-draft')
+    expect(fake.rows('email_scheduled_send').map((r) => [r.id, r.status, r.subject])).toEqual([
+      ['s-1', 'cancelled', null],
+      ['s-2', 'sending', 'Re'],
+      ['s-3', 'scheduled', 'Other'],
+    ])
+  })
+})

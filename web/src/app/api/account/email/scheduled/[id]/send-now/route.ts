@@ -4,8 +4,8 @@
  * still 'scheduled': it is taken to 'sending' in one conditional update (its
  * time moved to now), so its timed event and the sweep send nothing after.
  * `{ outcome: 'sent' }`; a send that fails is the row's 'failed' with its
- * reason (`{ outcome: 'failed', error }`, 502); 409 when it was no longer
- * waiting.
+ * reason (502); a mailbox not reached before the send puts it back a few
+ * minutes later (503); 409 when it was no longer waiting.
  */
 import { NextResponse } from 'next/server'
 import { requireWorkspace } from '@/lib/api-auth'
@@ -30,6 +30,8 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   const outcome = await sendScheduledEmail(id, { userId: user.id, immediate: true })
   if (outcome === 'sent') return NextResponse.json({ outcome })
   if (outcome === 'skipped') return conflict('It is already being sent, or was sent')
+  // Not reached before the send: it waits a few minutes and tries again on its own.
+  if (outcome === 'retrying') return apiError('Your mailbox could not be reached. It will try again in a few minutes.', { status: 503, code: 'RETRYING' })
   const after = await ownScheduledSend(defaultScheduledSendDeps, user.id, workspaceId, id)
   return apiError(after?.error ?? 'It was not sent', { status: 502, code: 'SEND_FAILED' })
 }

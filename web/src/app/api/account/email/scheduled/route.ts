@@ -3,7 +3,8 @@
  *
  * GET  the caller's scheduled sends in this workspace that the Scheduled
  *      folder lists ('scheduled', 'sending', and 'failed' until dismissed),
- *      soonest first, read on their own session (RLS: the owner only).
+ *      soonest first, read on their own session (RLS: the owner only);
+ *      `?thread_id=` only those on one thread (the thread view's badge).
  *      `{ scheduled: [...] }`, never a draft's provider id.
  *
  * POST schedule one. `send_at` (an ISO time, in the future, within a year),
@@ -21,6 +22,7 @@
 import { NextResponse } from 'next/server'
 import { requireWorkspace } from '@/lib/api-auth'
 import { badRequest, notFound, serverError } from '@/lib/api-errors'
+import { isProviderId } from '@/lib/email/provider-drafts'
 import { MAX_DRAFT_BODY, MAX_DRAFT_RECIPIENTS, MAX_DRAFT_SUBJECT, isDraftAddress, parseDraftEdits } from '@/lib/email/draft-edits'
 import {
   LISTED_STATUSES,
@@ -34,18 +36,20 @@ import {
 
 export const maxDuration = 30
 
-export async function GET() {
+export async function GET(request?: Request) {
   const auth = await requireWorkspace()
   if (auth instanceof Response) return auth
   const { supabase, user, workspaceId } = auth
-  const { data, error } = await supabase
+  const threadId = request ? new URL(request.url).searchParams.get('thread_id') : null
+  if (threadId !== null && !isProviderId(threadId)) return badRequest('Invalid thread_id')
+  let query = supabase
     .from('email_scheduled_send')
     .select(SCHEDULED_SEND_PUBLIC_COLUMNS)
     .eq('user_id', user.id)
     .eq('workspace_id', workspaceId)
     .in('status', [...LISTED_STATUSES])
-    .order('send_at', { ascending: true })
-    .limit(200)
+  if (threadId) query = query.eq('thread_id', threadId)
+  const { data, error } = await query.order('send_at', { ascending: true }).limit(200)
   if (error) return serverError('Could not read your scheduled emails')
   return NextResponse.json({ scheduled: data ?? [] })
 }

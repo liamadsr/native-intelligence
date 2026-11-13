@@ -17,9 +17,19 @@
 -- any due row it missed. Each takes the row from 'scheduled' to 'sending'
 -- with one conditional update before anything goes out, so a row is sent at
 -- most once whoever gets to it first; then 'sent', or 'failed' with a short
--- reason (the person is told with an 'email_send_failed' notification).
+-- reason (the person is told with an 'email_send_failed' notification, which
+-- opens Mail's Scheduled folder).
 -- 'cancelled' is Undo, or Cancel in the Scheduled folder: the draft stays in
 -- the mailbox, a normal draft.
+--
+-- A pre-send error (the mailbox could not be reached, its token not refreshed)
+-- puts the row back to 'scheduled' a little later (5, 15, then 45 minutes;
+-- `attempts` counts them), then fails it; an error during the send itself
+-- fails it at once (the mail may have gone). `claimed_at` is when a sender
+-- took it: a row 'sending' an hour after that was cut off mid-send. Rows that
+-- are done are purged after 30 days; to_emails and subject are cleared on
+-- sent and on cancel (a failed row keeps them until dismissed, so its owner
+-- sees which one failed).
 --
 -- RLS: the owner reads their own rows (user_id = auth.uid()); nothing else
 -- reads them, and only the server writes them (the service role, after the
@@ -49,11 +59,14 @@ create table if not exists public.email_scheduled_send (
   status text not null default 'scheduled',
   error text null,
   sent_at timestamptz null,
+  claimed_at timestamptz null,
+  attempts integer not null default 0,
   created_at timestamptz not null default now(),
   constraint email_scheduled_send_provider_check check (provider in ('google', 'microsoft')),
   constraint email_scheduled_send_status_check check (status in ('scheduled', 'sending', 'sent', 'failed', 'cancelled')),
   constraint email_scheduled_send_draft_id_check check (char_length(provider_draft_id) between 1 and 512),
-  constraint email_scheduled_send_error_check check (error is null or char_length(error) <= 300)
+  constraint email_scheduled_send_error_check check (error is null or char_length(error) <= 300),
+  constraint email_scheduled_send_attempts_check check (attempts between 0 and 10)
 );
 
 comment on table public.email_scheduled_send is
@@ -62,7 +75,22 @@ comment on table public.email_scheduled_send is
 -- The sweep: due rows, oldest first.
 create index if not exists email_scheduled_send_due_idx
   on public.email_scheduled_send (send_at)
-  where status in ('scheduled', 'sending');
+  where status = 'scheduled';
+
+-- The sweep: rows cut off mid-send, by when they were taken.
+create index if not exists email_scheduled_send_claimed_idx
+  on public.email_scheduled_send (claimed_at)
+  where status = 'sending';
+
+-- One waiting schedule per draft: scheduling it again moves that one.
+create unique index if not exists email_scheduled_send_one_per_draft_key
+  on public.email_scheduled_send (user_id, provider_draft_id)
+  where status = 'scheduled';
+
+-- What is left is purged after 30 days (sent, cancelled, failed).
+create index if not exists email_scheduled_send_done_idx
+  on public.email_scheduled_send (send_at)
+  where status in ('sent', 'cancelled', 'failed');
 
 -- The Scheduled folder: a person's rows in a workspace.
 create index if not exists email_scheduled_send_owner_idx

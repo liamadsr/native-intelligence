@@ -6,7 +6,9 @@
  * a normal draft in Drafts), and the ones that failed, with why, until
  * dismissed. Drawn in the thread list's own row style. Reads
  * GET /api/account/email/scheduled (their own rows only), and again after
- * each change.
+ * each change, when the window gets focus back, and just after the soonest
+ * listed send time passes (one timer, no polling). Mail's search box filters
+ * it here, by recipient and subject.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
@@ -20,6 +22,21 @@ import { cancelScheduledSend, scheduledForLabel, type ScheduledSendView } from '
 interface ScheduledListProps {
   /** Bump to read again (the page's refresh). */
   refreshKey?: number
+  /** Mail's search text: rows whose recipients or subject hold it. */
+  search?: string
+}
+
+/** The longest the next-send timer waits before looking again (setTimeout's own limit is ~24.8 days). */
+const MAX_TIMER_MS = 6 * 60 * 60 * 1000
+
+/** Rows whose recipients or subject hold every word of `search` (any case). Pure. */
+export function filterScheduled(rows: readonly ScheduledSendView[], search: string): ScheduledSendView[] {
+  const words = search.toLowerCase().split(/\s+/).filter(Boolean)
+  if (!words.length) return [...rows]
+  return rows.filter((r) => {
+    const text = `${(r.to_emails ?? []).join(' ')} ${r.subject ?? ''}`.toLowerCase()
+    return words.every((w) => text.includes(w))
+  })
 }
 
 async function errorOf(res: Response, fallback: string): Promise<string> {
@@ -27,7 +44,7 @@ async function errorOf(res: Response, fallback: string): Promise<string> {
   return typeof data?.error === 'string' && data.error ? data.error : fallback
 }
 
-export function ScheduledList({ refreshKey = 0 }: ScheduledListProps) {
+export function ScheduledList({ refreshKey = 0, search = '' }: ScheduledListProps) {
   const [rows, setRows] = useState<ScheduledSendView[] | null>(null)
   const [failedToLoad, setFailedToLoad] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -48,6 +65,26 @@ export function ScheduledList({ refreshKey = 0 }: ScheduledListProps) {
   useEffect(() => {
     void load()
   }, [load, refreshKey])
+
+  // Back to the window: read again (a send may have gone, or failed, meanwhile).
+  useEffect(() => {
+    const onFocus = () => void load()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [load])
+
+  // Just after the soonest waiting send's time: read again, once.
+  const nextAt = (rows ?? [])
+    .filter((r) => r.status === 'scheduled')
+    .map((r) => Date.parse(r.send_at))
+    .filter((t) => Number.isFinite(t))
+    .sort((a, b) => a - b)[0]
+  useEffect(() => {
+    if (nextAt === undefined) return
+    const wait = Math.min(Math.max(nextAt - Date.now(), 0) + 15_000, MAX_TIMER_MS)
+    const t = setTimeout(() => void load(), wait)
+    return () => clearTimeout(t)
+  }, [nextAt, load])
 
   const act = async (id: string, run: () => Promise<void>) => {
     if (busyId) return
@@ -94,11 +131,12 @@ export function ScheduledList({ refreshKey = 0 }: ScheduledListProps) {
     )
   }
 
-  if (rows.length === 0) {
+  const shown = filterScheduled(rows, search)
+  if (shown.length === 0) {
     return (
       <div className="flex h-64 flex-col items-center justify-center text-muted-foreground" data-scheduled-list="empty">
         <Clock className="mb-2 h-8 w-8 opacity-50" />
-        <p className="text-sm">{failedToLoad ? 'Could not read your scheduled emails' : 'Nothing scheduled'}</p>
+        <p className="text-sm">{failedToLoad ? 'Could not read your scheduled emails' : rows.length ? 'No scheduled email matches' : 'Nothing scheduled'}</p>
       </div>
     )
   }
@@ -107,7 +145,7 @@ export function ScheduledList({ refreshKey = 0 }: ScheduledListProps) {
   return (
     <ScrollArea className="h-full">
       <div className="py-1" data-scheduled-list="">
-        {rows.map((row) => {
+        {shown.map((row) => {
           const failed = row.status === 'failed'
           const sending = row.status === 'sending'
           const busy = busyId === row.id

@@ -921,7 +921,7 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
 
   // The Scheduled folder is the person's scheduled sends (no thread list behind it).
   const threadList = effectiveFolder === 'scheduled' && !labelId ? (
-    <ScheduledList refreshKey={refreshKey} />
+    <ScheduledList refreshKey={refreshKey} search={search} />
   ) : (
     <EmailThreadList
       folder={labelId ? 'all' : effectiveFolder}

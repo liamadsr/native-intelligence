@@ -916,7 +916,7 @@ export async function saveDraftToProvider(
     /** The picked From mailbox; pins the draft to it, as sendEmail's account_id does. */
     account_id?: string | null
   },
-): Promise<{ draft_id: string }> {
+): Promise<{ draft_id: string; thread_id: string | null }> {
   // The picked From account wins (as on send); otherwise a reply draft belongs
   // in its thread's own mailbox (Gmail files it on the thread there).
   const token = params.account_id
@@ -925,6 +925,8 @@ export async function saveDraftToProvider(
   if (!token) throw new Error('No email integration connected')
 
   let draftId: string
+  // The draft's thread (Gmail's thread, Graph's conversation): a schedule keeps it, so Mail can show it.
+  let threadId: string | null = null
 
   if (token.provider === 'google') {
     const rawEmail = buildRawEmail({
@@ -958,6 +960,7 @@ export async function saveDraftToProvider(
     if (!res.ok) throw new Error(`Gmail draft error: ${res.status}`)
     const data = await res.json()
     draftId = data.id
+    threadId = typeof data.message?.threadId === 'string' ? data.message.threadId : null
   } else {
     const res = await fetch(
       'https://graph.microsoft.com/v1.0/me/messages',
@@ -980,9 +983,10 @@ export async function saveDraftToProvider(
     if (!res.ok) throw new Error(`Outlook draft error: ${res.status}`)
     const data = await res.json()
     draftId = data.id
+    threadId = typeof data.conversationId === 'string' ? data.conversationId : null
   }
 
-  return { draft_id: draftId }
+  return { draft_id: draftId, thread_id: threadId }
 }
 
 // ---------------------------------------------------------------------------

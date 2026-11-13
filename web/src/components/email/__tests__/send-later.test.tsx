@@ -17,7 +17,7 @@ vi.mock('sonner', () => ({ toast: toasts }))
 
 import { SendLaterButton } from '../send-later-button'
 import { DraftEditor } from '../draft-editor'
-import { ScheduledList } from '../scheduled-list'
+import { ScheduledList, filterScheduled } from '../scheduled-list'
 
 const FRIDAY = new Date(2026, 10, 13, 10, 0)
 
@@ -156,5 +156,40 @@ describe('ScheduledList', () => {
     rows = []
     await renderList()
     expect(container.textContent).toContain('Nothing scheduled')
+  })
+
+  it('Mail’s search filters it by recipient and subject', async () => {
+    await act(async () => root.render(h(ScheduledList, { search: 'invoice' })))
+    await flush()
+    await flush()
+    expect([...container.querySelectorAll('[data-scheduled-row]')].map((r) => r.getAttribute('data-scheduled-row'))).toEqual(['s-2'])
+    expect(filterScheduled(rows as never, 'DANA harborline').map((r) => r.id)).toEqual(['s-1'])
+    expect(filterScheduled(rows as never, '').map((r) => r.id)).toEqual(['s-1', 's-2'])
+    await act(async () => root.render(h(ScheduledList, { search: 'nothing-like-this' })))
+    expect(container.textContent).toContain('No scheduled email matches')
+  })
+
+  it('reads again when the window gets focus back', async () => {
+    await renderList()
+    const before = requests.filter((r) => r.url === '/api/account/email/scheduled').length
+    await act(async () => void window.dispatchEvent(new Event('focus')))
+    await flush()
+    expect(requests.filter((r) => r.url === '/api/account/email/scheduled').length).toBe(before + 1)
+  })
+
+  it('reads again just after the soonest send time passes (one timer, no polling)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      rows = [{ ...(rows[0] as object), send_at: new Date(Date.now() + 60_000).toISOString() }]
+      await renderList()
+      const before = requests.filter((r) => r.url === '/api/account/email/scheduled').length
+      await act(async () => void vi.advanceTimersByTime(30_000))
+      expect(requests.filter((r) => r.url === '/api/account/email/scheduled').length).toBe(before)
+      await act(async () => void vi.advanceTimersByTime(60_000))
+      await flush()
+      expect(requests.filter((r) => r.url === '/api/account/email/scheduled').length).toBe(before + 1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

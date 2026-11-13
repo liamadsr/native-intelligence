@@ -37,6 +37,8 @@ describe('openNotificationTarget', () => {
   it('mail: the Mail card on the folder', () => {
     openNotificationTarget({ type: 'mail', id: 'drafts', title: 'Drafts' }, { foreignWorkspaceId: null })
     expect(opened[0].spec).toMatchObject({ kind: 'mail', mail: { folder: 'drafts' } })
+    openNotificationTarget({ type: 'mail', id: 'scheduled', title: 'A scheduled email wasn’t sent' }, { foreignWorkspaceId: null })
+    expect(opened[1].spec).toMatchObject({ kind: 'mail', mail: { folder: 'scheduled' } })
   })
 
   it('a sequence: its Sequences card', () => {

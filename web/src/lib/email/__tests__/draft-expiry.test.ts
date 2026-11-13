@@ -153,3 +153,37 @@ describe('expireAutomaticDrafts', () => {
     expect(await expireAutomaticDrafts(db, new Date(NOW))).toEqual({ age: 0, eventPassed: 0 })
   })
 })
+
+const { memoryDb } = await import('@/test/memory-db')
+
+describe('expireAutomaticDrafts — a draft with a send scheduled (send later)', () => {
+  const draft = (id: string, thread: string) => ({
+    id, user_id: 'u', account_id: 'acct', hold_id: null, provider_draft_id: `m-${id}`, provider_thread_id: thread,
+    subject: 'Re: Pricing', body_text: 'Thanks', created_at: '2026-10-01T10:00:00Z', status: 'pending_review', 'metadata->>origin': 'automatic',
+  })
+
+  it('is never swept; one on another thread still is', async () => {
+    const tables: Record<string, Array<Record<string, unknown>>> = {
+      email_draft: [draft('kept', 't-scheduled'), draft('swept', 't-other')],
+      email_scheduled_send: [{ id: 's1', user_id: 'u', thread_id: 't-scheduled', status: 'scheduled' }],
+    }
+    const deleteMailboxDraft = vi.fn(async () => true)
+    const out = await expireAutomaticDrafts(memoryDb(tables), new Date('2026-10-27T12:00:00Z'), { deleteMailboxDraft, resolveWork: async () => {} })
+    expect(out).toEqual({ age: 1, eventPassed: 0 })
+    expect(tables.email_draft.map((d) => d.id)).toEqual(['kept'])
+    expect(deleteMailboxDraft).toHaveBeenCalledTimes(1)
+    expect(deleteMailboxDraft).toHaveBeenCalledWith('u', 'acct', 'm-swept')
+  })
+
+  it('sweeps nothing when the schedules cannot be read (fail closed)', async () => {
+    const tables: Record<string, Array<Record<string, unknown>>> = { email_draft: [draft('a', 't-1')] }
+    const db = memoryDb(tables)
+    const from = db.from.bind(db)
+    ;(db as unknown as { from: (t: string) => unknown }).from = (t: string) =>
+      t === 'email_scheduled_send' ? { select: () => { throw new Error('down') } } : from(t)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(await expireAutomaticDrafts(db, new Date('2026-10-27T12:00:00Z'), { deleteMailboxDraft: vi.fn(), resolveWork: async () => {} })).toEqual({ age: 0, eventPassed: 0 })
+    expect(tables.email_draft).toHaveLength(1)
+    warn.mockRestore()
+  })
+})

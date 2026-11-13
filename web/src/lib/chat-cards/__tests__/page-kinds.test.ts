@@ -94,7 +94,7 @@ describe('show input: mail', () => {
 
   it('names the fix for each mistake', () => {
     const cases: Array<[unknown, RegExp]> = [
-      [{ folder: 'important' }, /mail\.folder: 'important' is not a folder\. Use one of: inbox, starred, sent, drafts, archive, spam, trash/],
+      [{ folder: 'important' }, /mail\.folder: 'important' is not a folder\. Use one of: inbox, starred, sent, drafts, scheduled, archive, spam, trash/],
       [{ search: 42 }, /mail\.search: plain text/],
       [{ thread_id: '' }, /mail\.thread_id: the thread_id from list_emails, read_email or search/],
       [{ accounts: [''] }, /mail\.accounts/],

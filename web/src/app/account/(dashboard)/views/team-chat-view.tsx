@@ -1925,10 +1925,10 @@ function MessageRow({
               <MessageSquareReply className="h-3.5 w-3.5" />
             </button>
           )}
-          {/* A task about this message, anyone's ("Follow up: <its first line>"), linked to it; the server checks the person reads its channel. */}
+          {/* A task about this message, anyone's ("Follow up: <its first line>"), linked to it, opened at once so its title can be checked; the server checks the person reads its channel. */}
           <button
             type="button"
-            onClick={() => void makeTaskFromEntity({ type: 'team_chat_message', id: message.id, label: messageTaskLabel(message.body) })}
+            onClick={() => void makeTaskFromEntity({ type: 'team_chat_message', id: message.id, label: messageTaskLabel(message.body) }, undefined, { openNow: true })}
             aria-label="Make a task"
             title="Make a task"
             className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"

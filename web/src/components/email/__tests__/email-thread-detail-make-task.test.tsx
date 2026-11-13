@@ -19,6 +19,8 @@ vi.mock('@/components/read-aloud/listen-target', () => ({ ListenTarget: () => nu
 vi.mock('@/lib/labels/use-scoped-labels', () => ({
   useScopedLabels: () => ({ labels: [], grouped: [], loading: false }),
 }))
+const cards = vi.hoisted(() => ({ opened: [] as unknown[] }))
+vi.mock('@/lib/chat-cards/open-card', () => ({ openTarget: (target: unknown) => (cards.opened.push(target), true) }))
 
 import { EmailThreadDetail } from '../email-thread-detail'
 
@@ -67,6 +69,7 @@ async function render() {
 const makeTaskButton = () => container.querySelector<HTMLButtonElement>('button[data-make-task]')
 
 beforeEach(() => {
+  cards.opened = []
   posts = []
   thread = threadWith({})
   vi.stubGlobal(
@@ -91,14 +94,18 @@ afterEach(async () => {
 })
 
 describe('EmailThreadDetail — make a task', () => {
-  it('makes "Follow up: <subject>", linked about the thread', async () => {
+  it('makes "Follow up: <subject>", linked about the thread, and opens it at once (the subject is in its title), with Undo', async () => {
     await render()
     await act(async () => makeTaskButton()!.click())
     await flush()
     expect(posts).toEqual([
       { url: '/api/account/actions', body: { title: 'Follow up: Contract redlines', about: { type: 'email_thread', id: INDEX_ID } } },
     ])
-    expect(toasts.success).toHaveBeenCalledWith('Task made', expect.objectContaining({ description: 'Follow up: Contract redlines' }))
+    expect(cards.opened).toEqual([{ type: 'action', id: 'a-1', title: 'Follow up: Contract redlines' }])
+    expect(toasts.success).toHaveBeenCalledWith(
+      'Task made',
+      expect.objectContaining({ description: 'Follow up: Contract redlines', action: expect.objectContaining({ label: 'Undo' }) }),
+    )
   })
 
   it('falls back to the sender when the thread has no subject', async () => {

@@ -28,6 +28,8 @@ import { updateProviderDraft } from '@/lib/integrations/email'
 import { gmailDraftIdFor } from '@/lib/email/provider-drafts'
 import {
   FAILURE,
+  PURGE_AFTER_MS,
+  RETRY_AFTER_MS,
   STALE_SENDING_MS,
   cancelScheduledSend,
   dismissScheduledSend,
@@ -51,7 +53,7 @@ let sent: Array<{ args: unknown[] }>
 let notices: Array<Record<string, unknown>>
 let fetches: string[]
 let replies: Map<string, { status: number; body: unknown }>
-let mailbox: { provider: 'google' | 'microsoft'; token: string; email: string | null } | null
+let mailbox: { provider: 'google' | 'microsoft'; token: string; email: string | null } | 'not_connected' | 'unreachable' | Error
 let sendResult: { ok: true; threadId: string; messageId: string | null } | { ok: false; reason: 'not_found' | 'no_recipients' } | Error
 let queued: string[]
 let deps: ScheduledSendDeps
@@ -70,6 +72,8 @@ const row = (over: Row): Row => ({
   status: 'scheduled',
   error: null,
   sent_at: null,
+  claimed_at: null,
+  attempts: 0,
   created_at: ago(3_600_000),
   ...over,
 })
@@ -94,7 +98,10 @@ beforeEach(() => {
   deps = {
     db: () => db,
     now: () => NOW,
-    mailbox: async () => mailbox,
+    mailbox: async () => {
+      if (mailbox instanceof Error) throw mailbox
+      return mailbox
+    },
     fetch: (async (url: string) => {
       fetches.push(url)
       const r = replies.get(url) ?? { status: 404, body: {} }
@@ -192,7 +199,7 @@ describe('sendScheduledEmail', () => {
     tables.email_scheduled_send.push(row({}), row({ id: 'sched-2' }))
     sendResult = new Error('Gmail draft send error: 500')
     expect(await sendScheduledEmail('sched-1', {}, deps)).toBe('failed')
-    mailbox = null
+    mailbox = 'not_connected'
     expect(await sendScheduledEmail('sched-2', {}, deps)).toBe('failed')
     expect(tables.email_scheduled_send.map((r) => r.error)).toEqual([FAILURE.refused, FAILURE.mailbox])
     expect(notices).toHaveLength(2)
@@ -213,13 +220,17 @@ describe('sweepScheduledSends', () => {
       order.push(tables.email_scheduled_send.find((r) => r.status === 'sending')!.id as string)
       return send(...args)
     }) as typeof send
-    expect(await sweepScheduledSends(deps)).toEqual({ sent: 2, failed: 0, skipped: 0, stale: 0 })
+    expect(await sweepScheduledSends(deps)).toEqual({ sent: 2, failed: 0, retrying: 0, skipped: 0, stale: 0, purged: 0 })
     expect(order).toEqual(['older', 'newer'])
     expect(tables.email_scheduled_send.find((r) => r.id === 'future')!.status).toBe('scheduled')
   })
 
   it('fails a row cut off mid-send long ago, and never sends it again', async () => {
-    tables.email_scheduled_send.push(row({ id: 'stuck', status: 'sending', send_at: ago(STALE_SENDING_MS + 60_000) }), row({ id: 'busy', status: 'sending', send_at: ago(60_000) }))
+    // Measured from the claim, not the time it was due: 'busy' was due long ago but was only just taken.
+    tables.email_scheduled_send.push(
+      row({ id: 'stuck', status: 'sending', send_at: ago(STALE_SENDING_MS * 3), claimed_at: ago(STALE_SENDING_MS + 60_000) }),
+      row({ id: 'busy', status: 'sending', send_at: ago(STALE_SENDING_MS * 3), claimed_at: ago(60_000) }),
+    )
     expect(await sweepScheduledSends(deps)).toMatchObject({ stale: 1, sent: 0 })
     expect(tables.email_scheduled_send.map((r) => [r.id, r.status, r.error])).toEqual([
       ['stuck', 'failed', FAILURE.unconfirmed],
@@ -234,7 +245,7 @@ describe('scheduling', () => {
   const AT = new Date('2026-11-14T13:00:00.000Z')
 
   it('a new message: saved as a draft in the picked mailbox (Gmail’s draft id kept), scheduled and queued', async () => {
-    vi.mocked(saveDraftToProvider).mockResolvedValue({ draft_id: 'r-5559876' })
+    vi.mocked(saveDraftToProvider).mockResolvedValue({ draft_id: 'r-5559876', thread_id: null })
     const result = await scheduleNewMessage(
       { userId: ME, workspaceId: WS, accountId: MAILBOX, to: ['dana@harborline.example'], cc: ['lee@harborline.example'], subject: 'Q4 renewal', bodyHtml: '<p>Hi</p>', sendAt: AT },
       deps,
@@ -249,7 +260,7 @@ describe('scheduling', () => {
   })
 
   it('a new message from a mailbox that is not the person’s: refused, nothing saved', async () => {
-    mailbox = null
+    mailbox = 'not_connected'
     const result = await scheduleNewMessage({ userId: ME, workspaceId: WS, accountId: 'acct-theirs', to: ['dana@harborline.example'], subject: 'Hi', bodyHtml: '', sendAt: AT }, deps)
     expect(result).toMatchObject({ ok: false, reason: 'account' })
     expect(saveDraftToProvider).not.toHaveBeenCalled()
@@ -291,5 +302,142 @@ describe('the owner’s changes', () => {
     expect(await dismissScheduledSend('user-them', WS, 'sched-1', deps)).toEqual({ ok: false, reason: 'not_found' })
     expect(await dismissScheduledSend(ME, WS, 'sched-1', deps)).toEqual({ ok: true })
     expect(tables.email_scheduled_send.map((r) => r.id)).toEqual(['waiting'])
+  })
+})
+
+describe('errors before the send are tried again; errors in it never are', () => {
+  it('a mailbox that answers 503 when the draft is looked for: back to scheduled 5 minutes later, queued, nobody told', async () => {
+    tables.email_scheduled_send.push(row({}))
+    replies.set('https://gmail.test/v1/users/me/drafts/r-5551234?format=minimal', { status: 503, body: {} })
+    expect(await sendScheduledEmail('sched-1', {}, deps)).toBe('retrying')
+    expect(tables.email_scheduled_send[0]).toMatchObject({
+      status: 'scheduled', attempts: 1, claimed_at: null, send_at: new Date(NOW.getTime() + RETRY_AFTER_MS[0]).toISOString(), error: null,
+    })
+    expect(queued).toEqual(['sched-1'])
+    expect(sent).toEqual([])
+    expect(notices).toEqual([])
+  })
+
+  it('a token that would not refresh, or an account that can’t be read: tried again, 15 then 45 minutes later', async () => {
+    tables.email_scheduled_send.push(row({ attempts: 1 }), row({ id: 'sched-2', attempts: 2 }))
+    mailbox = 'unreachable'
+    expect(await sendScheduledEmail('sched-1', {}, deps)).toBe('retrying')
+    mailbox = new Error('connected account unreadable: timeout')
+    expect(await sendScheduledEmail('sched-2', {}, deps)).toBe('retrying')
+    expect(tables.email_scheduled_send.map((r) => [r.attempts, r.send_at])).toEqual([
+      [2, new Date(NOW.getTime() + RETRY_AFTER_MS[1]).toISOString()],
+      [3, new Date(NOW.getTime() + RETRY_AFTER_MS[2]).toISOString()],
+    ])
+  })
+
+  it('once the tries run out it fails, saying the mailbox could not be reached (never "no longer connected")', async () => {
+    tables.email_scheduled_send.push(row({ attempts: RETRY_AFTER_MS.length }))
+    mailbox = 'unreachable'
+    expect(await sendScheduledEmail('sched-1', {}, deps)).toBe('failed')
+    expect(tables.email_scheduled_send[0]).toMatchObject({ status: 'failed', error: FAILURE.unreachable })
+    expect(notices).toHaveLength(1)
+  })
+
+  it('an error in the send itself fails at once and is never tried again (the mail may have gone)', async () => {
+    tables.email_scheduled_send.push(row({}))
+    sendResult = new Error('Gmail draft send error: 502')
+    expect(await sendScheduledEmail('sched-1', {}, deps)).toBe('failed')
+    expect(tables.email_scheduled_send[0]).toMatchObject({ status: 'failed', attempts: 0, error: FAILURE.refused })
+    expect(queued).toEqual([])
+  })
+
+  it('the claim stamps claimed_at', async () => {
+    tables.email_scheduled_send.push(row({}))
+    sendResult = { ok: false, reason: 'not_found' }
+    await sendScheduledEmail('sched-1', {}, deps)
+    expect(tables.email_scheduled_send[0].claimed_at).toBe(NOW.toISOString())
+  })
+
+  it('a failure that changed no row tells nobody (another hand settled it first)', async () => {
+    tables.email_scheduled_send.push(row({}))
+    deps.sendDraft = (async () => {
+      tables.email_scheduled_send[0].status = 'sent'
+      throw new Error('late error')
+    }) as ScheduledSendDeps['sendDraft']
+    expect(await sendScheduledEmail('sched-1', {}, deps)).toBe('failed')
+    expect(tables.email_scheduled_send[0].status).toBe('sent')
+    expect(notices).toEqual([])
+  })
+})
+
+describe('privacy: no words kept once done, and nothing kept long', () => {
+  it('cancel clears the recipients and subject; a failed row keeps them until dismissed', async () => {
+    tables.email_scheduled_send.push(row({}), row({ id: 'sched-2' }))
+    await cancelScheduledSend(ME, WS, 'sched-1', deps)
+    replies.clear()
+    await sendScheduledEmail('sched-2', {}, deps)
+    expect(tables.email_scheduled_send.map((r) => [r.status, r.to_emails, r.subject])).toEqual([
+      ['cancelled', null, null],
+      ['failed', ['dana@harborline.example'], 'Q4 renewal'],
+    ])
+  })
+
+  it('the sweep deletes rows done more than 30 days ago, and keeps the rest', async () => {
+    const old = ago(PURGE_AFTER_MS + 60_000)
+    tables.email_scheduled_send.push(
+      row({ id: 'old-sent', status: 'sent', send_at: old, to_emails: null, subject: null }),
+      row({ id: 'old-cancelled', status: 'cancelled', send_at: old }),
+      row({ id: 'old-failed', status: 'failed', send_at: old }),
+      row({ id: 'recent-failed', status: 'failed', send_at: ago(60_000) }),
+    )
+    expect((await sweepScheduledSends(deps)).purged).toBe(3)
+    expect(tables.email_scheduled_send.map((r) => r.id)).toEqual(['recent-failed'])
+  })
+})
+
+describe('scheduling a draft again, an agent’s draft, and a schedule that can’t be saved', () => {
+  const AT = new Date('2026-11-14T13:00:00.000Z')
+  const LATER = new Date('2026-11-16T13:00:00.000Z')
+  beforeEach(() => {
+    tables.email_thread_index.push({ user_id: ME, workspace_id: WS, provider_thread_id: 'thr-9', account_id: MAILBOX, provider: 'google' })
+    vi.mocked(gmailDraftIdFor).mockResolvedValue('r-5550001')
+  })
+
+  it('the same draft scheduled twice keeps one row, moved to the new time', async () => {
+    await scheduleExistingDraft({ userId: ME, workspaceId: WS, threadId: 'thr-9', draftMessageId: 'msg-1', edits: null, sendAt: AT }, deps)
+    await scheduleExistingDraft({ userId: ME, workspaceId: WS, threadId: 'thr-9', draftMessageId: 'msg-1', edits: null, sendAt: LATER }, deps)
+    expect(tables.email_scheduled_send).toHaveLength(1)
+    expect(tables.email_scheduled_send[0]).toMatchObject({ status: 'scheduled', send_at: LATER.toISOString(), provider_draft_id: 'r-5550001' })
+    expect(queued).toHaveLength(2)
+  })
+
+  it('an agent’s draft leaves review once scheduled (approved), re-pointed at the edited message', async () => {
+    tables.email_draft = [{ id: 'd-1', user_id: ME, provider_draft_id: 'msg-old', status: 'pending_review' }]
+    vi.mocked(updateProviderDraft).mockResolvedValue({ ok: true, threadId: 'thr-9', messageId: 'msg-new', edits: { to: ['dana@harborline.example'], cc: [], subject: 'Re: Q4', body: 'Tuesday works.' } })
+    const edits = { to: ['dana@harborline.example'], cc: [], subject: 'Re: Q4', body: 'Tuesday works.' }
+    await scheduleExistingDraft({ userId: ME, workspaceId: WS, threadId: 'thr-9', draftMessageId: 'msg-old', edits, sendAt: AT }, deps)
+    expect(tables.email_draft[0]).toMatchObject({ status: 'approved', provider_draft_id: 'msg-new' })
+    // Flattened to text, as Send with edits sends it: an Outlook HTML draft isn't refused.
+    expect(updateProviderDraft).toHaveBeenCalledWith(ME, WS, 'thr-9', 'msg-old', expect.any(Object), { flatten: true })
+  })
+
+  it('a new message whose schedule can’t be saved: the draft it just saved is deleted, so a retry makes no second one', async () => {
+    vi.mocked(saveDraftToProvider).mockResolvedValue({ draft_id: 'r-5559876', thread_id: 'thr-new' })
+    const db = deps.db()
+    deps.db = () =>
+      ({
+        from: (t: string) => {
+          const chain = db.from(t) as unknown as Record<string, unknown>
+          if (t !== 'email_scheduled_send') return chain
+          return { ...chain, insert: () => ({ select: () => ({ single: async () => ({ data: null, error: { message: 'down' } }) }) }) }
+        },
+      }) as unknown as ReturnType<ScheduledSendDeps['db']>
+    replies.set('https://gmail.test/v1/users/me/drafts/r-5559876', { status: 204, body: {} })
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const result = await scheduleNewMessage({ userId: ME, workspaceId: WS, accountId: MAILBOX, to: ['dana@harborline.example'], subject: 'Hi', bodyHtml: '', sendAt: AT }, deps)
+    error.mockRestore()
+    expect(result).toMatchObject({ ok: false, reason: 'failed' })
+    expect(fetches).toContain('https://gmail.test/v1/users/me/drafts/r-5559876')
+  })
+
+  it('a new message keeps its draft’s thread, so Mail can show the badge there', async () => {
+    vi.mocked(saveDraftToProvider).mockResolvedValue({ draft_id: 'r-5559876', thread_id: 'thr-new' })
+    await scheduleNewMessage({ userId: ME, workspaceId: WS, accountId: MAILBOX, to: ['dana@harborline.example'], subject: 'Hi', bodyHtml: '', sendAt: AT }, deps)
+    expect(tables.email_scheduled_send[0]).toMatchObject({ thread_id: 'thr-new', provider_draft_id: 'r-5559876' })
   })
 })

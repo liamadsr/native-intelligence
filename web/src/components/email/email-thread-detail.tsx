@@ -314,7 +314,8 @@ export function EmailThreadDetail({
     const sender = thread.messages.find((m) => !m.isDraft)?.from ?? null
     setMakingTask(true)
     try {
-      await makeTaskFromEntity({ type: 'email_thread', id: thread.indexId, label: emailTaskLabel(thread.subject, sender) })
+      // Opened at once: its title carries the mail's subject, and teammates can see the task.
+      await makeTaskFromEntity({ type: 'email_thread', id: thread.indexId, label: emailTaskLabel(thread.subject, sender) }, undefined, { openNow: true })
     } finally {
       setMakingTask(false)
     }
@@ -345,6 +346,26 @@ export function EmailThreadDetail({
   const draftBusyRef = useRef(false)
   const shownThreadRef = useRef(threadId)
   shownThreadRef.current = threadId
+  // The thread's waiting send, if any (send later): its draft shows "Scheduled · <time>".
+  // Read with the thread, and again after a schedule, a send or a discard.
+  const [scheduledAt, setScheduledAt] = useState<string | null>(null)
+  const loadScheduled = useCallback(async () => {
+    const forThread = threadId
+    try {
+      const res = await fetch(`/api/account/email/scheduled?thread_id=${encodeURIComponent(forThread)}`, { cache: 'no-store' })
+      if (!res.ok) return
+      const data = (await res.json()) as { scheduled?: Array<{ status?: string; send_at?: string }> }
+      const waiting = (data.scheduled ?? []).find((r) => r.status === 'scheduled' && typeof r.send_at === 'string')
+      if (shownThreadRef.current === forThread) setScheduledAt(waiting?.send_at ?? null)
+    } catch {
+      // No badge: nothing else depends on it.
+    }
+  }, [threadId])
+  useEffect(() => {
+    setScheduledAt(null)
+    void loadScheduled()
+  }, [loadScheduled, reloadKey])
+
   const handleSendDraft = useCallback(
     async (draftId: string, edits?: DraftEdits) => {
       if (draftBusyRef.current) return
@@ -359,6 +380,8 @@ export function EmailThreadDetail({
         })
         if (res.ok) {
           toast.success('Email sent')
+          // Sent by hand: its schedule, if any, was cancelled.
+          if (shownThreadRef.current === sentThreadId) setScheduledAt(null)
           onDraftSent?.(sentThreadId)
         } else {
           const data = await res.json().catch(() => ({}))
@@ -393,6 +416,7 @@ export function EmailThreadDetail({
         at,
       )
       if (row && edits && shownThreadRef.current === scheduledThreadId) loadThread({ background: true })
+      if (row && shownThreadRef.current === scheduledThreadId) setScheduledAt(row.send_at)
       return !!row
     },
     [threadId, loadThread],
@@ -416,6 +440,7 @@ export function EmailThreadDetail({
         const data = await res.json().catch(() => ({}))
         if (res.ok) {
           toast.success('Draft discarded')
+          if (shownThreadRef.current === discardedThreadId) setScheduledAt(null)
           const threadRemains = data.thread_remains !== false
           onDraftDiscarded?.(discardedThreadId, threadRemains)
           if (!threadRemains) return
@@ -682,6 +707,7 @@ export function EmailThreadDetail({
               onSend={message.isDraft ? (edits) => handleSendDraft(message.id, edits) : undefined}
               sending={sendingDraftId === message.id}
               onSendLater={message.isDraft ? (at, edits) => handleScheduleDraft(message, at, edits) : undefined}
+              scheduledAt={message.isDraft ? scheduledAt : null}
               onDiscard={message.isDraft ? () => handleDiscardDraft(message.id) : undefined}
               discarding={discardingDraftId === message.id}
             />

@@ -348,8 +348,19 @@ export function messageTaskLabel(body: string | null | undefined): string {
  * A new task about the record: POST /api/account/actions with `about`, which
  * fences the record and links the task to it ('about'). Toasts with Open.
  * The new task's id, or null.
+ *
+ * `openNow` (an email thread, a chat message: the title carries words from
+ * something private, the mail's subject or a DM's first line, and teammates
+ * can see the task): the task opens at once, so the person sees its title and
+ * can rename it, and the toast's one action is Undo, which deletes it (a
+ * delete the route refuses, a member's who is not an owner or admin, is said,
+ * and the open card is where they rename it).
  */
-export async function makeTaskFromEntity(ref: EntityRef, deps: EntityActionDeps = defaultEntityActionDeps): Promise<string | null> {
+export async function makeTaskFromEntity(
+  ref: EntityRef,
+  deps: EntityActionDeps = defaultEntityActionDeps,
+  opts: { openNow?: boolean } = {},
+): Promise<string | null> {
   if (!entityActionsDescriptor(ref.type)?.makeTask) return null
   const title = taskTitleFor(ref.label)
   const res = await send(deps, ref, '/api/account/actions', 'POST', { title, about: { type: ref.type, id: ref.id } })
@@ -365,13 +376,28 @@ export async function makeTaskFromEntity(ref: EntityRef, deps: EntityActionDeps 
   if (!id) return null
   deps.emitCreated({ entityType: 'action', id })
   deps.emitCreated({ entityType: 'entity_link' })
-  deps.toast.success('Task made', {
-    description: title,
-    action: {
-      label: 'Open',
-      onClick: () => void deps.openTarget({ type: 'action', id, title }, { from: 'entity_menu', workspaceId: ref.workspaceId ?? null }),
-    },
-  })
+  const open = () => void deps.openTarget({ type: 'action', id, title }, { from: 'entity_menu', workspaceId: ref.workspaceId ?? null })
+  if (opts.openNow) {
+    open()
+    deps.toast.success('Task made', {
+      description: title,
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          void send(deps, ref, recordPath('actions', id), 'DELETE').then(async (r) => {
+            if (!r?.ok) {
+              deps.toast.error(await why(r, "Couldn't delete the task. Rename it or move it to Canceled."))
+              return
+            }
+            deps.emitDeleted({ entityType: 'action', id })
+            deps.toast.success('Task deleted')
+          })
+        },
+      },
+    })
+    return id
+  }
+  deps.toast.success('Task made', { description: title, action: { label: 'Open', onClick: open } })
   return id
 }
 

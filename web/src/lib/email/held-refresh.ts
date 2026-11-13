@@ -7,6 +7,7 @@ import { automatedThreadReason } from './automated-sender'
 import { ownedMailbox } from './thread-mailbox'
 import { deleteDraftInMailbox } from './provider-drafts'
 import type { ArrivalDraft } from './arrival-drafts'
+import { scheduledThreadKeys } from './scheduled-refs'
 
 /**
  * A new message on a held thread (Liam, 2026-10-15: "re-draft if untouched,
@@ -28,6 +29,8 @@ import type { ArrivalDraft } from './arrival-drafts'
  *     no-reply notice: ./automated-sender.ts): no draft is written for it; the
  *     copy is refreshed and the draft stays as it was (it still answers the
  *     person who wrote before).
+ *   - a send is scheduled on the thread (send later): left alone entirely; the
+ *     person already said yes to their draft (./scheduled-refs.ts).
  * Never throws: a thread that fails is left for the next push.
  */
 
@@ -107,6 +110,8 @@ export async function refreshHeldThreads(
     try {
       const hold = await findHold(supabase, { userId: input.userId, accountId: input.accountId, providerThreadId: threadId })
       if (!hold || hold.status === 'sending') continue
+      // A send scheduled here: its draft is the person's yes, never re-drafted or released (unreadable: throws, left alone).
+      if ((await scheduledThreadKeys(supabase, [input.userId], [threadId])).size) continue
 
       const thread = await readThread(input.userId, threadId, hold.workspace_id, { accountId: hold.account_id, provider: hold.provider })
       if (!thread) {

@@ -182,4 +182,11 @@ describe('updateProviderDraft — Outlook', () => {
     expect(await updateProviderDraft('user-1', WS, 'thr-1', 'm-draft', { body: 'Formal.' })).toEqual({ ok: false, reason: 'rich' })
     expect(writes()).toEqual([])
   })
+
+  it('flattened (send later’s edit), an HTML draft is written as text, exactly as Send with edits writes it', async () => {
+    ;(graphMessage.body as Record<string, unknown>).body = { contentType: 'html', content: '<p>Hi</p><div>Sig</div>' }
+    const out = await updateProviderDraft('user-1', WS, 'thr-1', 'm-draft', { body: 'Formal.' }, { flatten: true })
+    expect(out).toMatchObject({ ok: true, messageId: 'm-draft' })
+    expect(JSON.parse(writes()[0].body!)).toMatchObject({ body: { contentType: 'Text', content: 'Formal.' } })
+  })
 })

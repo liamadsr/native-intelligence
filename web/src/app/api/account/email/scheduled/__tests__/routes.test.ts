@@ -144,6 +144,14 @@ describe('GET /api/account/email/scheduled (list)', () => {
   })
 })
 
+describe('GET ?thread_id= (the thread view’s badge)', () => {
+  it('narrows to one thread; a thread id that is not a provider id is a 400', async () => {
+    await GET(new Request('http://x/api/account/email/scheduled?thread_id=thr-9'))
+    expect(listQuery.calls).toContainEqual(['eq:thread_id', 'thr-9'])
+    expect((await GET(new Request('http://x/api/account/email/scheduled?thread_id=../x'))).status).toBe(400)
+  })
+})
+
 describe('cancel, send now, dismiss: the caller’s own row only', () => {
   it('cancel: ok, someone else’s or unknown is 404, one already going is 409', async () => {
     lib.cancelScheduledSend.mockResolvedValueOnce({ ok: true })
@@ -170,6 +178,14 @@ describe('cancel, send now, dismiss: the caller’s own row only', () => {
     lib.ownScheduledSend.mockResolvedValueOnce({ ...ROW, status: 'sent' })
     expect((await SEND_NOW(new Request('http://x'), params())).status).toBe(409)
     expect(lib.sendScheduledEmail).not.toHaveBeenCalled()
+  })
+
+  it('send now: a mailbox not reached before the send is a 503; it tries again on its own', async () => {
+    lib.ownScheduledSend.mockResolvedValueOnce(ROW)
+    lib.sendScheduledEmail.mockResolvedValue('retrying')
+    const res = await SEND_NOW(new Request('http://x'), params())
+    expect(res.status).toBe(503)
+    expect(await res.json()).toMatchObject({ code: 'RETRYING' })
   })
 
   it('send now: a send that fails answers with the row’s reason', async () => {
