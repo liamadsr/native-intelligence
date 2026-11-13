@@ -121,8 +121,13 @@ and at run time alike (the build and the running agent must agree;
      open to it on every port. Nothing else off the list is reachable, an allowed
      name cannot be used as a mask for another server, and a bare address is
      refused; but any name can be looked up, so data can leave through lookups,
-     slowly. Until that is closed (`deploy/sandbox/README.md`, "Known gaps"),
-     `isolated` on this runtime does not mean "nothing gets out".
+     slowly. The sandbox server's own resolver closes it
+     (`deploy/sandbox/README.md`, "The resolver": built and tried, not set up
+     there yet); until it is, `isolated` on this runtime does not mean "nothing
+     gets out". That one resolver is also the only one such a sandbox can
+     reach, so the provider points a sandbox on a list at it when it creates
+     it (`NARROWED_RESOLVER`); the image's own resolvers are for a sandbox
+     with the open internet.
    - A sandbox lives 60 minutes from the agent's last use of it and six hours in
      all, and is then removed with what is in it. The hosted one is stopped and
      kept instead. A run whose agent is away for an hour loses its sandbox and

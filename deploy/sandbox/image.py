@@ -5,6 +5,9 @@
                            (an image keeps the limit it was built under)
     image.py check <GiB>   start one sandbox from it and see that the agent would
                            find what it needs, that much free disk included
+    image.py resolvers     for resolver.sh, before it has the guard send lookups
+                           to this server's resolver: no sandbox is running, and
+                           a new one carries the list of resolvers below
 
 Run by setup.sh and check.sh, as root, with the runtime's key in the environment.
 
@@ -24,11 +27,22 @@ BASE = "ghcr.io/vercel/eve:0.79.1"
 # for as long as it runs (README, "Memory, and how many sandboxes fit").
 CPUS = 2
 MEMORY_MB = 4096
+# The resolvers a sandbox from this image asks: two ordinary public ones, for
+# a sandbox with the open internet. Not the one the runtime itself gives a
+# sandbox (8.8.8.8): that address is the one it opens to a sandbox narrowed to
+# a list of names, and with resolver.sh set up, lookups for it are answered by
+# this server's own resolver, for the narrowed levels' names only (README,
+# "The resolver"). A narrowed sandbox cannot reach the two below; the app
+# points it at that one address when it creates it
+# (web/agents/coding-agent/lib/runtime-sandbox.ts, NARROWED_RESOLVER).
+RESOLVERS = ["1.1.1.1", "9.9.9.9"]
+RESOLV_CONF = "".join(f"nameserver {address}\n" for address in RESOLVERS)
 # Run in the image, in this order, as the user named. The runtime runs a
 # sandbox's commands as its own user ("user"), not the image's: the workspace
 # the agent works in has to be that user's.
 STEPS = [
     ("root", "mkdir -p /workspace && chown -R user:user /workspace"),
+    ("root", "printf '" + RESOLV_CONF.replace("\n", "\\n") + "' > /etc/resolv.conf"),
 ]
 # What the agent's setup and its tools call (web/agents/coding-agent/sandbox.ts
 # and the framework's shell tool). git-lfs is not among them: the hosted image
@@ -94,6 +108,10 @@ def check(min_free_gib: int) -> int:
         workspace = out("bash -lc 'cd /workspace && touch .ni-check && rm .ni-check && echo writable'")
         home = out("bash -lc 'printf %s \"$HOME\"'")
         free_kb = out("df -k --output=avail /workspace | tail -1")
+        resolvers = out("awk '$1 == \"nameserver\" { print $2 }' /etc/resolv.conf | paste -sd, -")
+        # Not one of the narrowed levels' names: a sandbox with the open internet
+        # looks it up all the same, at its own resolvers.
+        elsewhere = out("getent hosts example.org | wc -l")
         memory_kb = out("awk '/^MemTotal:/ { print $2 }' /proc/meminfo")
     finally:
         sandbox.kill()
@@ -107,6 +125,12 @@ def check(min_free_gib: int) -> int:
     if not home.startswith("/"):
         print(f"  no home folder for the sandbox's user: {home!r}")
         ok = False
+    if resolvers != ",".join(RESOLVERS):
+        print(f"  a sandbox asks the resolvers {resolvers or 'none'}, not {','.join(RESOLVERS)}: was the image built before it had that list? (sudo rm {RECORD}, then setup.sh)")
+        ok = False
+    if elsewhere in ("", "0") or not elsewhere.isdigit():
+        print("  a sandbox with the whole internet cannot look up a name outside the narrowed levels' names")
+        ok = False
     free_gib = int(free_kb) // 1048576 if free_kb.isdigit() else -1
     if free_gib < min_free_gib:
         print(f"  only {free_gib} GiB of free disk in a sandbox, {min_free_gib} wanted: was the image built before the limit was raised? (sudo rm {RECORD}, then setup.sh)")
@@ -116,8 +140,31 @@ def check(min_free_gib: int) -> int:
         print(f"  a sandbox has {memory_mib} MiB of memory, {MEMORY_MB} wanted")
         ok = False
     if ok:
-        print(f"  a sandbox from {NAME}: every tool the agent calls is there, the workspace is its own, {free_gib} GiB of disk free, {memory_mib} MiB of memory")
+        print(f"  a sandbox from {NAME}: every tool the agent calls is there, the workspace is its own, {free_gib} GiB of disk free, {memory_mib} MiB of memory, {len(RESOLVERS)} resolvers")
     return 0 if ok else 1
+
+
+def resolvers() -> int:
+    from e2b import Sandbox
+
+    # A sandbox started before the image had its list asks the runtime's own
+    # resolver: once the guard sends that one to this server's, it could look
+    # up nothing but the narrowed levels' names.
+    listing = Sandbox.list()
+    running = listing.next_items() if hasattr(listing, "next_items") else list(listing)
+    if running:
+        print(f"  {len(running)} sandbox(es) running: wait until none is")
+        return 1
+    sandbox = Sandbox.create(NAME, timeout=60)
+    try:
+        have = (sandbox.commands.run("awk '$1 == \"nameserver\" { print $2 }' /etc/resolv.conf | paste -sd, -", timeout=30).stdout or "").strip()
+    finally:
+        sandbox.kill()
+    if have != ",".join(RESOLVERS):
+        print(f"  a new sandbox asks the resolvers {have or 'none'}, not {','.join(RESOLVERS)}: build the image first (setup.sh)")
+        return 1
+    print(f"  no sandbox is running, and a new one asks {have}")
+    return 0
 
 
 def main() -> int:
@@ -127,7 +174,9 @@ def main() -> int:
         return build(number)
     if action == "check" and number is not None:
         return check(number)
-    print("usage: image.py build <the runtime's free-disk limit, MiB> | check <GiB of free disk a sandbox must have>", file=sys.stderr)
+    if action == "resolvers":
+        return resolvers()
+    print("usage: image.py build <the runtime's free-disk limit, MiB> | check <GiB of free disk a sandbox must have> | resolvers", file=sys.stderr)
     return 2
 
 

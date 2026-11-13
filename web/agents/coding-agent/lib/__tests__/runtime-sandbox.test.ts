@@ -19,6 +19,8 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createRuntimeSandboxImplementation,
   createRuntimeSession,
+  NARROWED_RESOLVER,
+  POINT_AT_NARROWED_RESOLVER,
   runtimeNetworkOptions,
   RuntimeSandbox,
   SANDBOX_LIFETIME_MS,
@@ -229,8 +231,40 @@ describe('the ni-runtime provider', () => {
       await handle.sandbox.run({ command: 'true' })
       await handle.sandbox.writeTextFile({ path: 'a.txt', content: 'x' })
       expect(fake.calls.filter((c) => c.kind === 'create')).toHaveLength(1)
-      expect(fake.calls.map((c) => c.kind)).toEqual(['create', 'commands.run', 'files.write'])
+      // On a list, one command of the provider's own comes first (the next test); nothing else is added.
+      const onAList = 'network' in runtimeNetworkOptions(policy)
+      expect(fake.calls.map((c) => c.kind)).toEqual(['create', ...(onAList ? ['commands.run'] : []), 'commands.run', 'files.write'])
     }
+  })
+
+  it('start() on an allow list points the sandbox at the one resolver it can reach, before anything else runs in it', async () => {
+    for (const level of ['restricted', 'isolated', 'something-new']) {
+      const fake = fakeClient()
+      await implementation(fake).start(CTX, { networkPolicy: policyFor(level) }, ARTIFACT)
+      expect(fake.calls.map((c) => c.kind)).toEqual(['create', 'commands.run'])
+      expect(fake.sandboxes[0].runs.map((r) => r.command)).toEqual([POINT_AT_NARROWED_RESOLVER])
+      expect(fake.sandboxes[0].runs[0].options).toMatchObject({ cwd: '/', envs: {}, timeoutMs: 30_000 })
+    }
+    // The command itself: root's file, the runtime's one resolver, nothing else in it.
+    expect(POINT_AT_NARROWED_RESOLVER).toBe(`sudo -n sh -c 'printf "nameserver ${NARROWED_RESOLVER}\\n" > /etc/resolv.conf'`)
+    expect(NARROWED_RESOLVER).toBe('8.8.8.8')
+  })
+
+  it('start() with the open internet, or with none, leaves the image\'s own resolvers alone', async () => {
+    for (const policy of [policyFor('trusted'), 'allow-all' as const, 'deny-all' as const]) {
+      const fake = fakeClient()
+      await implementation(fake).start(CTX, { networkPolicy: policy }, ARTIFACT)
+      expect(fake.calls.map((c) => c.kind)).toEqual(['create'])
+    }
+  })
+
+  it('start() removes the sandbox when it cannot be pointed at its resolver, and says so without the key', async () => {
+    const fake = fakeClient({ script: () => ({ exitCode: 1 }) })
+    const started = implementation(fake).start(CTX, { networkPolicy: policyFor('restricted') }, ARTIFACT)
+    await expect(started).rejects.toThrow(/could not point sandbox sbx_madeup1 at the one resolver/)
+    await started.catch((err: unknown) => expect(leaksKey(String(err))).toBe(false))
+    expect(fake.calls.map((c) => c.kind)).toEqual(['create', 'commands.run', 'kill'])
+    expect(fake.live.has('sbx_madeup1')).toBe(false)
   })
 
   it('start() with a header rule throws BEFORE anything is created, and never without a policy', async () => {
