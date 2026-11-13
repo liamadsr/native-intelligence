@@ -48,8 +48,15 @@ Read this before reporting anything as live or touching production. The code gui
   array in `web/vercel.json`: after changing it, run `node deploy/app/cron/generate.mjs`
   and commit `deploy/app/cron/crontab` with it (the image build and CI fail when the two
   disagree).
-- **Still at the earlier host, on purpose:** Slack's connector, the cloud browser's
-  sandboxes, the AI Gateway, and DNS. The cloud browser's sandboxes run on that host's
+- **Still at the earlier host, on purpose:** the cloud browser's sandboxes, the AI
+  Gateway, and DNS. Slack is not on that list any more: the code talks to Slack
+  directly with our own Slack app since the change that replaced the connector
+  (`web/src/lib/slack/`, migration 643). That is live only once migration 643 is
+  applied, the four `SLACK_*` settings are in the server's `.env`, that code is
+  rolled out, the Slack app points at us, and each Slack workspace has added the app
+  again ("Slack" under "Day to day" in [`deploy/README.md`](deploy/README.md)); until
+  then the code that serves may still reach Slack through the earlier host's
+  connector. The cloud browser's sandboxes run on that host's
   sandbox service with `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and
   `SANDBOX_PROJECT_ID`, which is why those three stay in the server's `.env`.
 - **The coding agent's sandbox runs on our own sandbox server since 2026-11-12**
