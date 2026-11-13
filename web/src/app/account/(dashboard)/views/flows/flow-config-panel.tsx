@@ -256,7 +256,7 @@ export function FlowConfigPanel({
 
 const TRIGGER_DESCRIPTIONS: Record<FlowTriggerType, string> = {
   entity_status_change: 'Fires when the selected entity moves into the target status.',
-  schedule: 'Fires on a recurring schedule. Runs for the whole workspace — no team needed.',
+  schedule: 'Fires on a schedule, or once at a time you pick. Runs for the whole workspace — no team needed.',
   capture_processed:
     'Fires after a capture finishes batch processing. Runs for the whole workspace — no team needed.',
   calendar_event:
