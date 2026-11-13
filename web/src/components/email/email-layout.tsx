@@ -55,6 +55,7 @@ import type { EmailReplyRequest } from '@/lib/email/reply-in-chat'
 import { getJsonOnce } from '@/lib/email/inflight-get'
 import { publishMailCard, unpublishMailCard } from '@/components/chat-cards/mail-card-controls'
 import { MAIL_FOLDER_ENTRIES as folders, type FolderCounts } from './mail-folders'
+import { ScheduledList } from './scheduled-list'
 import { useOwnSubnavShown } from '@/app/account/(dashboard)/page-panel/subnav-on-screen'
 
 const EMAIL_THREADS_CHANNEL = 'email-threads-realtime'
@@ -634,6 +635,8 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
     setActiveFolder(folder)
     setSelectedThread(null)
     setLabelId(null)
+    // Scheduled lists no threads: j/k have nothing to move through there.
+    if (folder === 'scheduled') setThreads([])
   }, [])
 
   const handleThreadsLoaded = useCallback((list: EmailThread[]) => {
@@ -916,7 +919,10 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
     </Button>
   )
 
-  const threadList = (
+  // The Scheduled folder is the person's scheduled sends (no thread list behind it).
+  const threadList = effectiveFolder === 'scheduled' && !labelId ? (
+    <ScheduledList refreshKey={refreshKey} />
+  ) : (
     <EmailThreadList
       folder={labelId ? 'all' : effectiveFolder}
       onThreadSelect={handleThreadSelect}

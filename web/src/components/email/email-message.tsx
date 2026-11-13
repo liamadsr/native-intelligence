@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import type { DraftEdits } from '@/lib/email/draft-edits'
 import { DraftEditor, draftFormattingLost, draftTextOf } from './draft-editor'
+import { SendLaterButton } from './send-later-button'
 import { EmailContent } from './email-content'
 import { Linkify } from '@/components/ui/linkify'
 
@@ -81,6 +82,11 @@ interface EmailMessageProps {
   onSend?: (edits?: DraftEdits) => void
   /** This draft's send is in flight. */
   sending?: boolean
+  /**
+   * Send later (draft messages only): as shown, or with its editor's edits, at
+   * the time picked. Resolves true once scheduled (the editor then closes).
+   */
+  onSendLater?: (at: Date, edits?: DraftEdits) => Promise<boolean>
   /** Discards this draft (draft messages only), once the user confirms: it is deleted from the mailbox. */
   onDiscard?: () => void
   /** This draft's discard is in flight. */
@@ -93,6 +99,7 @@ export function EmailMessage({
   onReply,
   onSend,
   sending = false,
+  onSendLater,
   onDiscard,
   discarding = false,
 }: EmailMessageProps) {
@@ -206,6 +213,14 @@ export function EmailMessage({
             }}
             sending={sending}
             onSend={(edits) => onSend(edits)}
+            onSendLater={
+              onSendLater
+                ? async (edits, at) => {
+                    // Scheduled: the composer closes; the draft waits in the mailbox.
+                    if (await onSendLater(at, edits)) setEditing(false)
+                  }
+                : undefined
+            }
             onCancel={() => setEditing(false)}
           />
         </div>
@@ -261,6 +276,7 @@ export function EmailMessage({
                 {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                 {sending ? 'Sending…' : 'Send'}
               </Button>
+              {onSendLater && <SendLaterButton disabled={busy} onSchedule={(at) => onSendLater(at)} />}
               {editable && (
                 <Button
                   variant="ghost"

@@ -40,6 +40,7 @@ import { emailThreadToSentences, type ThreadSpeechMessage } from '@/lib/read-alo
 import type { DraftEdits } from '@/lib/email/draft-edits'
 import type { EmailReplyRequest } from '@/lib/email/reply-in-chat'
 import { emailTaskLabel, makeTaskFromEntity } from '@/lib/entities/actions'
+import { scheduleSend } from '@/lib/email/send-later'
 import { EmailMessage, type EmailMessageData } from './email-message'
 
 interface EmailLabel {
@@ -376,6 +377,27 @@ export function EmailThreadDetail({
     [threadId, loadThread, onDraftSent],
   )
 
+  // Send a draft on this thread later (its Send later, as shown or as edited):
+  // scheduled from the thread's own mailbox; the toast's Undo leaves it a
+  // normal draft. The pane reloads (an edit gave the draft new words).
+  const handleScheduleDraft = useCallback(
+    async (message: EmailMessageData, at: Date, edits?: DraftEdits): Promise<boolean> => {
+      const scheduledThreadId = threadId
+      const row = await scheduleSend(
+        {
+          thread_id: scheduledThreadId,
+          draft_id: message.id,
+          ...(edits ? { edits } : {}),
+          shown: { to: [...message.to, ...message.cc].map((r) => r.email), subject: message.subject },
+        },
+        at,
+      )
+      if (row && edits && shownThreadRef.current === scheduledThreadId) loadThread({ background: true })
+      return !!row
+    },
+    [threadId, loadThread],
+  )
+
   // Discard a draft on this thread (the message's Discard, once confirmed). The
   // pane shows the thread without it; a thread that was nothing but the draft
   // is gone, and the parent closes it.
@@ -659,6 +681,7 @@ export function EmailThreadDetail({
               }
               onSend={message.isDraft ? (edits) => handleSendDraft(message.id, edits) : undefined}
               sending={sendingDraftId === message.id}
+              onSendLater={message.isDraft ? (at, edits) => handleScheduleDraft(message, at, edits) : undefined}
               onDiscard={message.isDraft ? () => handleDiscardDraft(message.id) : undefined}
               discarding={discardingDraftId === message.id}
             />

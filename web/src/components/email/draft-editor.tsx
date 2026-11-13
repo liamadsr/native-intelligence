@@ -5,6 +5,7 @@ import { Loader2, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { EmailRecipientInput } from './email-recipient-input'
+import { SendLaterButton } from './send-later-button'
 import {
   MAX_DRAFT_BODY,
   MAX_DRAFT_RECIPIENTS,
@@ -19,6 +20,8 @@ interface DraftEditorProps {
   initial: DraftEdits
   sending: boolean
   onSend: (edits: DraftEdits) => void
+  /** Send later: the draft, as edited, at the time picked (absent: not offered). */
+  onSendLater?: (edits: DraftEdits, at: Date) => void | Promise<unknown>
   onCancel: () => void
 }
 
@@ -27,7 +30,7 @@ interface DraftEditorProps {
  * plain text. Send sends what is here (the draft itself is updated as it goes
  * out); Cancel leaves the draft as it was. Cmd/Ctrl+Enter sends.
  */
-export function DraftEditor({ initial, sending, onSend, onCancel }: DraftEditorProps) {
+export function DraftEditor({ initial, sending, onSend, onSendLater, onCancel }: DraftEditorProps) {
   const [to, setTo] = useState(initial.to)
   const [cc, setCc] = useState(initial.cc)
   const [showCc, setShowCc] = useState(initial.cc.length > 0)
@@ -99,6 +102,7 @@ export function DraftEditor({ initial, sending, onSend, onCancel }: DraftEditorP
           {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
           {sending ? 'Sending…' : 'Send'}
         </Button>
+        {onSendLater && <SendLaterButton disabled={!canSend} onSchedule={(at) => onSendLater(edits, at)} />}
         <Button variant="ghost" size="sm" onClick={onCancel} disabled={sending}>
           Cancel
         </Button>
