@@ -19,15 +19,16 @@ const when = (iso: string) => new Date(iso).toLocaleString(undefined, { month: '
  * whose web view drops downloads.
  */
 function Download({ url, name }: { url: string; name: string }) {
-  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null), [opened, setOpened] = useState(false)
   const save = () => {
     if (busy) return
     setBusy(true); setError(null)
-    void saveExport({ url: `${url}?download=${encodeURIComponent(name)}`, fileName: name }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => setBusy(false))
+    void saveExport({ url: `${url}?download=${encodeURIComponent(name)}`, fileName: name }).then((result) => setOpened(result.kind === 'browser')).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => setBusy(false))
   }
   return <>
     <button type="button" className="project-link static-download" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Download'}</button>
     {error ? <span className="static-download-error" role="alert">{error}</span> : null}
+    {opened ? <span className="static-download-note" role="status">Opened in your browser: it downloads there if you are signed in.</span> : null}
   </>
 }
 

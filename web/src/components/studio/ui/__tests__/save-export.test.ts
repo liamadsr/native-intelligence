@@ -10,7 +10,8 @@ const saveFile = vi.fn()
 const openInSystemBrowser = vi.fn()
 vi.mock('@/lib/tauri-bridge', () => ({ tauriBridge: { saveFile: (...args: unknown[]) => saveFile(...args) } }))
 vi.mock('@/lib/open-external', () => ({ openInSystemBrowser: (...args: unknown[]) => openInSystemBrowser(...args) }))
-import { DESKTOP_SAVE_LIMIT, exportFileName, fileKeyOf, saveExport, saveWay } from '../save-export'
+import { DESKTOP_SAVE_LIMIT, exportFileName, saveExport, saveWay } from '../save-export'
+import { isAccountRedirectPath, resolvePostAuthRedirect } from '@/lib/auth/login-redirect'
 
 const WS = '0b0b0b0b-1111-4222-8333-444444444444'
 const URL_ = `/api/account/studio/file/${WS}/exports/j1/1/video.mp4?download=Spring%20launch.mp4`
@@ -23,7 +24,6 @@ function server(bytes: number | 'gone', extra: { lengthHeader?: boolean } = {}) 
   vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET'
     calls.push({ url: input, method, ...(typeof init?.body === 'string' ? { body: init.body } : {}) })
-    if (input === '/api/account/studio/file-links') return Response.json({ url: '/api/studio/download/' + 'T'.repeat(32), expiresAt: '' })
     if (bytes === 'gone') return Response.json({ error: GONE }, { status: 404 })
     const headers: Record<string, string> = extra.lengthHeader === false ? {} : { 'content-length': String(bytes) }
     return new Response(method === 'HEAD' ? null : new Uint8Array(bytes).fill(3), { headers })
@@ -39,11 +39,9 @@ afterEach(() => { vi.unstubAllGlobals(); saveFile.mockReset(); openInSystemBrows
 const desktop = () => vi.stubGlobal('window', { __TAURI__: {}, location: { origin: 'https://app.example' } })
 
 describe('names and keys', () => {
-  it('takes the name the link asks for, else the title made safe; and the stored key from the link', () => {
+  it('takes the name the link asks for, else the title made safe', () => {
     expect(exportFileName(URL_, 'ignored')).toBe('Spring launch.mp4')
     expect(exportFileName('/x/video.mp4', 'Q3 / review: final')).toBe('Q3 review final.mp4')
-    expect(fileKeyOf(URL_)).toBe('exports/j1/1/video.mp4')
-    expect(fileKeyOf('https://elsewhere.example/video.mp4')).toBeNull()
   })
 })
 
@@ -59,23 +57,39 @@ describe('in the desktop app', () => {
     expect(openInSystemBrowser).not.toHaveBeenCalled()
   })
 
-  it('never builds a number array for a large file: it opens a download link in the browser', async () => {
+  const VIDEO = 'aaaaaaaa-1111-4222-8333-444444444444', JOB = 'bbbbbbbb-1111-4222-8333-444444444444', SPACE = 'cccccccc-1111-4222-8333-444444444444'
+  const ARRIVAL = { videoId: VIDEO, jobId: JOB, workspaceId: SPACE }
+
+  it('never builds a number array for a large export: the browser opens the Studio on it, signed in there', async () => {
     desktop(); server(75 * 1024 * 1024)
     openInSystemBrowser.mockResolvedValue(true)
     expect(saveWay(DESKTOP_SAVE_LIMIT + 1)).toBe('desktop-browser')
-    expect(await saveExport({ ...FILE, bytes: 75 * 1024 * 1024 })).toEqual({ kind: 'browser', name: 'Spring launch.mp4' })
+    expect(await saveExport({ ...FILE, bytes: 75 * 1024 * 1024, arrival: ARRIVAL })).toEqual({ kind: 'browser', name: 'Spring launch.mp4' })
     expect(saveFile).not.toHaveBeenCalled()
-    // The file itself is never fetched here; only the link is asked for.
-    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/account/studio/file-links'])
-    expect(JSON.parse(calls[0]!.body!)).toEqual({ key: 'exports/j1/1/video.mp4', name: 'Spring launch.mp4' })
-    expect(openInSystemBrowser).toHaveBeenCalledWith(`https://app.example/api/studio/download/${'T'.repeat(32)}`)
+    // Nothing is fetched here: not the file, not a link.
+    expect(calls).toEqual([])
+    const opened = new URL(openInSystemBrowser.mock.calls[0]![0] as string)
+    expect(opened.origin + opened.pathname).toBe('https://app.example/login')
+    // Sign-in sends the person on to the video's deep link with the export, in its workspace.
+    const back = opened.searchParams.get('redirect')!
+    expect(back).toBe(`/account?page=studio&video=${VIDEO}&export=${JOB}&workspace=${SPACE}`)
+    expect(isAccountRedirectPath(back)).toBe(true)
+    expect(resolvePostAuthRedirect(back, 'https://app.example')).toBe(back)
+  })
+
+  it('opens a large stored file that is not an export at its own link in the browser', async () => {
+    desktop(); server(75 * 1024 * 1024)
+    openInSystemBrowser.mockResolvedValue(true)
+    expect((await saveExport({ ...FILE, bytes: 75 * 1024 * 1024 })).kind).toBe('browser')
+    expect(openInSystemBrowser).toHaveBeenCalledWith(`https://app.example${URL_}`)
+    expect(saveFile).not.toHaveBeenCalled()
   })
 
   it('asks the size when the job did not say it, and says so when the file is gone', async () => {
     desktop(); server(30 * 1024 * 1024)
     openInSystemBrowser.mockResolvedValue(true)
-    expect((await saveExport(FILE)).kind).toBe('browser')
-    expect(calls[0]).toMatchObject({ method: 'HEAD' })
+    expect((await saveExport({ ...FILE, arrival: ARRIVAL })).kind).toBe('browser')
+    expect(calls.map((c) => c.method)).toEqual(['HEAD'])
     calls = []; server(2000)
     saveFile.mockResolvedValueOnce(null)
     expect(await saveExport(FILE)).toEqual({ kind: 'cancelled' })
@@ -87,7 +101,7 @@ describe('in the desktop app', () => {
   it('says the browser could not be opened', async () => {
     desktop(); server(75 * 1024 * 1024)
     openInSystemBrowser.mockResolvedValue(false)
-    await expect(saveExport({ ...FILE, bytes: 75 * 1024 * 1024 })).rejects.toThrow('Your browser could not be opened')
+    await expect(saveExport({ ...FILE, bytes: 75 * 1024 * 1024, arrival: ARRIVAL })).rejects.toThrow('Your browser could not be opened')
   })
 })
 

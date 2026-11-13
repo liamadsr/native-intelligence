@@ -38,7 +38,7 @@ import { commitBlob } from './blobs'
 import { isUuid, must, type StudioContext } from './context'
 import { conflictError, notFoundError, StudioError } from './errors'
 import type { ImportInput } from './job-contract'
-import { claimLiveTake, dropLiveTake, isLiveKey, loadTake, parseLiveKey, reopenLiveTake, sealLiveTrack, sealStoppedTake, TRACK_MAX_PIECES, unclaimLiveTake, type SealedTrack, type TakeRecord } from './live-takes'
+import { claimLiveTake, isLiveKey, retireLiveTake, loadTake, parseLiveKey, reopenLiveTake, sealLiveTrack, sealStoppedTake, TRACK_MAX_PIECES, unclaimLiveTake, type SealedTrack, type TakeRecord } from './live-takes'
 import { getRecord, putRecord } from './records'
 import { createVideo, openVideo, saveVideo } from './videos'
 
@@ -579,9 +579,15 @@ export async function recordingImportEnded(supabase: StudioContext['supabase'], 
   }
 }
 
-/** Where a recording stands; builds its edit once the imports are done. `waitMs`: how long to wait for them here. */
+/**
+ * Where a recording stands; builds its edit once the imports are done. `waitMs`: how long to wait for them here. A
+ * person reaches only their own recording (another's answers not found); the worker's follow-up and the sweep act for
+ * nobody. It is always built as the person who recorded it.
+ */
 export async function advanceRecording(ctx: StudioContext, id: string, waitMs = 4_000): Promise<RecordingAnswer> {
   let record = await loadRecord(ctx, id)
+  if (ctx.userId && record.ownerId && record.ownerId !== ctx.userId) throw notFoundError('Recording not found')
+  if (record.ownerId) ctx = { ...ctx, userId: record.ownerId }
   if (record.status === 'done') return answerDone(ctx, record)
   if (record.status === 'failed') return { recording: view(record, 1, 'Failed') }
   const { waitForJob, jobRow } = await jobsModule()
@@ -651,7 +657,7 @@ async function settleTake(ctx: StudioContext, record: RecordingRecord): Promise<
   try {
     if (record.status === 'failed') return await reopenLiveTake(ctx, record.takeId, record.id)
     const take = await getRecord<TakeRecord>(ctx, 'live-takes', record.takeId)
-    if (take && take.recordingId === record.id) await dropLiveTake(ctx, take)
+    if (take && take.recordingId === record.id) await retireLiveTake(ctx, take)
   } catch (error) {
     console.error('[studio] removing a recording’s pieces failed (the sweep retries):', error instanceof Error ? error.message : error)
   }

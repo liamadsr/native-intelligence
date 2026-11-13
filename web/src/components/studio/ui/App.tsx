@@ -49,6 +49,8 @@ import { PreviewLayerControls } from './PreviewLayerControls';
 import { RecordDialog, type PunchTarget } from './RecordDialog';
 import { plainStep } from './record-steps';
 import { ExportDialog, exportFor, type ExportReceipt } from './ExportDialog';
+import { ARRIVAL_WORDS, arriveAtExport, clearExportArrival, readExportArrival } from './export-arrival';
+import { exportFileName, saveExport } from './save-export';
 import { prompterFor, slotFor } from '@/lib/studio/engine/storyboard';
 import { askAgentInChat, editorChatNote, type EditorChatLink } from './chat-note';
 import { CostChip } from './CostChip';
@@ -510,6 +512,19 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
     try{const remote=await request<{projectDigest:string}>(`/api/account/studio/projects/${encodeURIComponent(current.id)}/digest`);if(currentRef.current?.id!==current.id)return;
       projectDigest.current=remote.projectDigest;failedSaveSignature.current='';setSaveError(null);setAgentUpdate(null);void save();}catch(error){say(errorText(error),true);}};
   const closeDialog=useCallback(()=>setDialog(null),[]);
+  // Arriving from the desktop app to download a large export here (export-arrival.ts): once the video is open, its
+  // finished export is downloaded once through this browser's session and shown in the Export dialog.
+  const [exportNotice,setExportNotice]=useState<{tone:'ok'|'warn';text:string}|null>(null),arriving=useRef(false);
+  useEffect(()=>{if(!project||arriving.current)return;const jobId=readExportArrival(window.location.search);if(!jobId)return;arriving.current=true;
+    void arriveAtExport(jobId,project.id,{getJob:id=>request<{job:EditorJob}>(`/api/account/studio/jobs/${encodeURIComponent(id)}`).then(r=>r.job),
+      download:async done=>{await saveExport({url:done.downloadUrl!,fileName:exportFileName(done.downloadUrl!,project.title||'video')},'downloads');}}).then(outcome=>{
+      arriving.current=false;
+      if(outcome.kind==='open-video'){navigate(async()=>{await openProject(outcome.videoId);});return;}
+      clearExportArrival();
+      if('job' in outcome&&outcome.job)setJob(outcome.job);
+      setExportNotice(outcome.kind==='started'?{tone:'ok',text:ARRIVAL_WORDS.started}:outcome.kind==='again'?{tone:'ok',text:ARRIVAL_WORDS.again}:{tone:'warn',text:outcome.text});
+      setDialog('export');});
+  },[project?.id]);// eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{if(!job||job.status!=='running')return;let alive=true;let timer:ReturnType<typeof setTimeout>;const poll=async()=>{try{const result=await request<{job:EditorJob}>(`/api/account/studio/jobs/${job.id}`);if(!alive)return;setJob(result.job);if(result.job.status==='failed')say(result.job.error??'The export failed. Try again.',true);if(result.job.status==='completed'&&result.job.kind==='export'){const done=result.job,of=done.videoId??(exportReceiptRef.current?.jobId===done.id?exportReceiptRef.current.projectId:null);
   // Open goes to the video it was made from, whichever is open now.
   say('Your export is ready to save.',false,{open:()=>{if(!of||currentRef.current?.id===of){setDialog('export');return;}navigate(async()=>{if(await openProject(of))setDialog('export');});}});}if(result.job.status==='running')timer=setTimeout(poll,700);}catch(e){if(alive){say(errorText(e),true);timer=setTimeout(poll,2500);}}};timer=setTimeout(poll,700);return()=>{alive=false;clearTimeout(timer);};},[job?.id,job?.status,append,say]);
@@ -562,7 +577,7 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
   {dialog==='record'?<RecordDialog title={punch?.beatIds?"Record into beats":punch?"Punch in":"New recording"} close={()=>{setPunch(null);if(!manual.active)manual.clearShare();closeDialog();}} cameraInputs={project?.storyboard?(()=>{const c=project.storyboard!.inputs?.cameras??{};return{main:c.A?.deviceId??null,extras:(['B','C','D'] as const).flatMap(k=>c[k]?[c[k]!.deviceId]:[])};})():null}
     setCameraInputs={project?.storyboard?(main)=>change(p=>{if(!p.storyboard)return p;const cameras:Record<string,{deviceId:string;name:string}>={...(p.storyboard.inputs?.cameras??{})};if(main)cameras.A={deviceId:main.id,name:main.name};else delete cameras.A;
       return{...p,storyboard:{...p.storyboard,inputs:{...(p.storyboard.inputs??{}),cameras}}};}):undefined} punch={punch} recording={manual} start={async options=>{await startManualRecording(options);}} open={session=>void openManualProject(session)}/>:null}
-  {dialog==='export'&&project?<ExportDialog project={project} job={exportHere.job} otherExport={exportHere.other} receipt={exportReceipt} size={exportSize} setSize={setExportSize} output={exportProject()?.output??project.output} durationFrames={duration} busy={!!busy||running} start={()=>void startExport()} cancel={async()=>{const current=exportHere.job;if(!current)return false;try{const v=await request<{job:EditorJob}>(`/api/account/studio/jobs/${current.id}/cancel`,{});setJob(v.job);return true;}catch{return false;}}} close={closeDialog} beforeServerEdit={saveAll} openVideo={id=>{closeDialog();void openProject(id);}} say={say}/>:null}
+  {dialog==='export'&&project?<ExportDialog project={project} job={exportHere.job} otherExport={exportHere.other} notice={exportNotice} receipt={exportReceipt} size={exportSize} setSize={setExportSize} output={exportProject()?.output??project.output} durationFrames={duration} busy={!!busy||running} start={()=>void startExport()} cancel={async()=>{const current=exportHere.job;if(!current)return false;try{const v=await request<{job:EditorJob}>(`/api/account/studio/jobs/${current.id}/cancel`,{});setJob(v.job);return true;}catch{return false;}}} close={()=>{setExportNotice(null);closeDialog();}} beforeServerEdit={saveAll} openVideo={id=>{closeDialog();void openProject(id);}} say={say}/>:null}
   </div>
   {chooserShown?<ProjectChooser currentProjectId={project?.id??null} currentTitle={project?.title} refreshKey={`${projects.length}:${project?.id}:${saved.length}`} disabled={!!busy||presenter.active} canClose={!!project} close={()=>setChooserOpen(false)}
     onProject={projectId=>navigate(async()=>{if(await openProject(projectId))setChooserOpen(false);})} onRecord={()=>{setChooserOpen(false);setPunch(null);setDialog('record');void manual.refreshSessions();}} onNew={()=>{setChooserOpen(false);setDialog('new-project');}} onRenameCurrent={title=>change(p=>({...p,title}))}

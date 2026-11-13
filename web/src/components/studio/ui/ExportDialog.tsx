@@ -7,6 +7,7 @@ import { exportPresets } from '@/lib/studio/engine/formats';
 import { request } from './client';
 import { Modal, StudioSelect } from './controls';
 import { Icon } from './icons';
+import { studioWorkspaceId } from '../studio-env';
 import { exportFileName, saveExport, saveWay, type SaveResult, type SaveWay } from './save-export';
 
 /*
@@ -39,6 +40,8 @@ type Props = {
   project: EditorProject;
   /** This video's export job (exportFor), or null. */
   job: EditorJob | null;
+  /** What arriving to download this export said (./export-arrival.ts): shown at the top. */
+  notice?: { tone: 'ok' | 'warn'; text: string } | null;
   /** Another video's export still rendering (exportFor). */
   otherExport?: { title: string | null; progress: number } | null;
   receipt: ExportReceipt | null;
@@ -79,7 +82,7 @@ function whereItGoes(): string {
 function howItSaves(way: SaveWay): string {
   return way === 'downloads' ? 'Your browser saves it to its downloads folder, unless you set it to ask where.'
     : way === 'desktop' ? 'You pick the folder and the name.'
-    : way === 'desktop-browser' ? 'It is too large to save from the app, so it opens in your browser and downloads to its downloads folder.'
+    : way === 'desktop-browser' ? 'It is too large to save from the app. Your browser opens the Studio and downloads it; you may need to sign in there once.'
     : 'You pick the folder and the name.';
 }
 
@@ -105,30 +108,31 @@ export function ExportDialog(props: Props) {
   // The finished export the dialog is showing is not listed again under it.
   const others = (finished ?? []).filter(item => view !== 'done' || item.id !== job?.id);
   const list = listError ? <p className="xd-error xd-list-error" role="alert"><Icon name="warning" size={14} /><span>Your finished exports could not be loaded.</span><Button size="sm" variant="ghost" className="st-app-button" onClick={() => setReads(n => n + 1)}>Try again</Button></p>
-    : others.length ? <FinishedList items={others} heading={view === 'done' ? 'Earlier exports' : 'Ready to save'} /> : null;
+    : others.length ? <FinishedList items={others} projectId={props.project.id} heading={view === 'done' ? 'Earlier exports' : 'Ready to save'} /> : null;
   const ended = !again && (job?.status === 'failed' || job?.status === 'cancelled') ? job : null;
   return <Modal title="Export video" description={<>“{props.project.title || 'Untitled video'}”</>} close={props.close} className="xd-dialog">
+    {props.notice ? <p className={cn('xd-notice', props.notice.tone === 'ok' ? 'xd-saved' : 'xd-error')} role="status"><Icon name={props.notice.tone === 'ok' ? 'check' : 'warning'} size={14} /><span>{props.notice.text}</span></p> : null}
     {view === 'running' && job ? <Running {...props} job={job} list={list} /> : view === 'done' && job ? <Done {...props} job={job} list={list} again={() => setAgain(true)} /> : <Setup {...props} ended={ended} list={list} />}
   </Modal>;
 }
 
 /** Saving one finished export onto the computer: the button, then where it went (or why it did not). */
-function SaveExport({ job, title, big }: { job: EditorJob; title: string; big?: boolean }) {
+function SaveExport({ job, title, projectId, big }: { job: EditorJob; title: string; projectId: string; big?: boolean }) {
   const url = job.downloadUrl!, bytes = Number((job.result as { bytes?: unknown } | undefined)?.bytes) || null, way = saveWay(bytes);
   const [saving, setSaving] = useState(false), [saved, setSaved] = useState<SaveResult | null>(null), [error, setError] = useState<string | null>(null);
   const save = () => {
     if (saving) return;
     setSaving(true); setError(null);
     // Straight from the click: the browser's save picker opens only from one.
-    void saveExport({ url, fileName: exportFileName(url, title), bytes }).then(answer => { if (answer.kind !== 'cancelled') setSaved(answer); })
+    void saveExport({ url, fileName: exportFileName(url, title), bytes, arrival: { videoId: job.videoId ?? projectId, jobId: job.id, workspaceId: studioWorkspaceId() } }).then(answer => { if (answer.kind !== 'cancelled') setSaved(answer); })
       .catch(cause => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => setSaving(false));
   };
   const label = saving ? (way === 'desktop' ? 'Getting the video…' : way === 'desktop-browser' ? 'Opening your browser…' : 'Saving…')
-    : way === 'downloads' ? (big ? 'Download MP4' : 'Download') : way === 'desktop-browser' ? (big ? 'Download in your browser' : 'Download…')
+    : way === 'downloads' ? (big ? 'Download MP4' : 'Download') : way === 'desktop-browser' ? (big ? 'Open in your browser to download' : 'Open in browser…')
     : big ? (saved ? 'Save another copy…' : 'Save to your computer…') : 'Save…';
   const said = saved ? <p className="xd-saved" role="status"><Icon name="check" size={14} /><span>{saved.kind === 'saved' ? (way === 'desktop' ? <>Saved to <code>{saved.where}</code></> : <>Saved as <code>{saved.where}</code> in the folder you chose.</>)
     : saved.kind === 'downloads' ? <>Sent to your browser’s downloads folder as <code>{saved.name}</code>.</>
-    : saved.kind === 'browser' ? <>Opened in your browser. It downloads to its downloads folder as <code>{saved.name}</code>.</> : null}</span></p> : null;
+    : saved.kind === 'browser' ? <>Opened in your browser. The download starts there, in its downloads folder, once you are signed in.</> : null}</span></p> : null;
   const failed = error ? <p className="xd-error" role="alert"><Icon name="warning" size={14} /><span>{error}</span></p> : null;
   const icon = way === 'downloads' || way === 'desktop-browser' ? 'download' : 'saveTo';
   return big
@@ -148,13 +152,13 @@ const KEPT_MS = 30 * 24 * 3600 * 1000;
 const when = (iso: string) => { const at = new Date(iso); return Number.isNaN(at.getTime()) ? '' : at.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
 
 /** This video's finished exports, newest first, each with Save. */
-function FinishedList({ items, heading }: { items: FinishedExport[]; heading: string }) {
+function FinishedList({ items, projectId, heading }: { items: FinishedExport[]; projectId: string; heading: string }) {
   return <section className="xd-finished" aria-label={heading}>
     <h3 className="xd-section">{heading}<span>Kept for 30 days</span></h3>
     <ul>{items.map(item => <li key={item.id}>
       <span className="xd-row-icon" aria-hidden="true"><Icon name="clip" size={16} /></span>
       <div className="xd-row-text"><span className="xd-row-title">{item.title}</span><span className="xd-facts">{[when(item.finishedAt), ...exportFacts(item)].filter(Boolean).map(fact => <span key={fact}>{fact}</span>)}</span></div>
-      {item.downloadUrl && item.kept !== false ? <SaveExport job={item} title={item.title} /> : <span className="xd-row-gone">No longer kept</span>}
+      {item.downloadUrl && item.kept !== false ? <SaveExport job={item} title={item.title} projectId={projectId} /> : <span className="xd-row-gone">No longer kept</span>}
     </li>)}</ul>
   </section>;
 }
@@ -243,7 +247,8 @@ function Running({ job, receipt, cancel, close, list }: Props & { job: EditorJob
   </div>;
 }
 
-function Done({ job, receipt, close, again, list }: Props & { job: EditorJob; again: () => void; list: React.ReactNode }) {
+function Done(props: Props & { job: EditorJob; again: () => void; list: React.ReactNode }) {
+  const { job, receipt, close, again, list } = props;
   const mine = receipt?.jobId === job.id ? receipt : null, result = (job.result ?? {}) as Record<string, unknown>;
   const facts = exportFacts(job, mine), title = mine?.title ?? (typeof result.title === 'string' ? result.title : 'video');
   return <div className="xd-done">
@@ -251,7 +256,7 @@ function Done({ job, receipt, close, again, list }: Props & { job: EditorJob; ag
       <span className="xd-done-icon" aria-hidden="true"><Icon name="done" size={22} /></span>
       <div><strong>{mine ? 'Your video is ready' : 'Your last export is ready'}</strong>{mine ? null : <span>The video from your last export.</span>}{facts.length ? <span className="xd-facts">{facts.map(fact => <span key={fact}>{fact}</span>)}</span> : null}</div>
     </div>
-    {job.downloadUrl ? <SaveExport job={job} title={title} big /> : <p className="xd-note">This export’s file is no longer kept. Exports are kept for 30 days. Export the video again.</p>}
+    {job.downloadUrl ? <SaveExport job={job} title={title} projectId={props.project.id} big /> : <p className="xd-note">This export’s file is no longer kept. Exports are kept for 30 days. Export the video again.</p>}
     {list}
     <div className="xd-foot xd-foot-split">
       <Button variant="ghost" className="st-app-button" onClick={again}>Change settings and export again</Button>

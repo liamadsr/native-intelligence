@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isInviteRedirectPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '../login-redirect'
+import { isAccountRedirectPath, isInviteRedirectPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '../login-redirect'
 import { APP_DOMAINS } from '@/lib/app-url'
 
 // The hosted app answers on two domains while it moves (src/lib/app-url.ts): every case below runs on each.
@@ -104,6 +104,15 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
       for (const evil of ['//evil.example/account', 'https://evil.example/api/mcp/x', '/somewhere-else', '/invite//evil.example', '/link//evil.example']) {
         expect(resolvePostAuthRedirect(evil, ORIGIN), evil).toBe('/account')
       }
+    })
+
+    it('keeps a page of the app with its deep link (the Studio export a desktop download opens), and nothing like it', () => {
+      const link = '/account?page=studio&video=aaaaaaaa-1111-4222-8333-444444444444&export=bbbbbbbb-1111-4222-8333-444444444444'
+      expect(resolvePostAuthRedirect(link, ORIGIN)).toBe(link)
+      expect(isAccountRedirectPath(link)).toBe(true)
+      expect(isAccountRedirectPath('/account')).toBe(true)
+      for (const no of ['/accountx', '/account//evil.example', '/account\\evil.example', 'https://evil.example/account', '//evil.example/account', '/s/abc']) expect(isAccountRedirectPath(no), no).toBe(false)
+      expect(resolvePostAuthRedirect('/accountx', ORIGIN)).toBe('/account')
     })
 
     it("keeps an agent link's connect link, so a new account lands back on the request", () => {

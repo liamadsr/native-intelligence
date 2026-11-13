@@ -4,7 +4,7 @@
 // Stop. And the POST /recordings body names how many pieces each track is.
 import { describe, expect, it } from 'vitest'
 import { recordingRequest } from '../finish'
-import { GIVE_UP_AFTER_STOP_MS, LiveError, LiveTake, PIECE_MAX_BYTES, PIECE_SECONDS, backoffMs, piecesOf, type LiveApi } from '../live'
+import { GIVE_UP_AFTER_STOP_MS, LiveError, LiveTake, PIECE_MAX_BYTES, PIECE_MIN_BYTES, PIECE_SECONDS, backoffMs, piecesOf, type LiveApi } from '../live'
 import type { FinishedTake, TakeRole } from '../types'
 
 const TAKE = '5a5a5a5a-1111-4222-8333-999999999999'
@@ -72,15 +72,15 @@ describe('a live take', () => {
     const screen = live.tracks.get('screen')!
     for (let second = 1; second <= 9; second++) {
       time.advance(1000)
-      screen.push(chunk(100), second)
+      screen.push(chunk(1000), second)
     }
     await new Promise((r) => setTimeout(r, 0))
     // A piece went up once four seconds had gathered after its first chunk; the last four seconds wait for Stop.
-    expect(s.pieces.filter((p) => p.role === 'screen').map((p) => [p.index, p.bytes, p.seconds])).toEqual([[0, 500, 5]])
-    expect(screen.status()).toMatchObject({ state: 'live', recordedBytes: 900, uploadedBytes: 500, unsavedSeconds: 4 })
+    expect(s.pieces.filter((p) => p.role === 'screen').map((p) => [p.index, p.bytes, p.seconds])).toEqual([[0, 5000, 5]])
+    expect(screen.status()).toMatchObject({ state: 'live', recordedBytes: 9000, uploadedBytes: 5000, unsavedSeconds: 4 })
     const done = await screen.finish()
     expect(done).toEqual({ key: `live/${TAKE}/screen`, pieces: 2, complete: true })
-    expect([...s.stored.entries()]).toEqual([['fake://screen/0', 500], ['fake://screen/1', 400]])
+    expect([...s.stored.entries()]).toEqual([['fake://screen/0', 5000], ['fake://screen/1', 4000]])
     expect(screen.status().state).toBe('done')
   })
 
@@ -91,7 +91,8 @@ describe('a live take', () => {
     const screen = live.tracks.get('screen')!
     screen.push(chunk(PIECE_MAX_BYTES + 10), 1)
     await screen.finish()
-    expect(s.pieces.map((p) => p.bytes)).toEqual([PIECE_MAX_BYTES, 10])
+    // Cut in two equal halves: no small tail the Studio would refuse.
+    expect(s.pieces.map((p) => p.bytes)).toEqual([PIECE_MAX_BYTES / 2 + 5, PIECE_MAX_BYTES / 2 + 5])
   })
 
   it('tells the Studio where the microphone sits on the screen’s clock', async () => {
@@ -134,15 +135,15 @@ describe('a live take', () => {
     const { live, failed, time } = take(s.api)
     await live.open('browser', { screen: 'Screen.webm', microphone: 'Mic.webm' })
     const screen = live.tracks.get('screen')!
-    screen.push(chunk(100), 1)
+    screen.push(chunk(1000), 1)
     time.advance(PIECE_SECONDS * 1000)
-    screen.push(chunk(100), 1 + PIECE_SECONDS)
+    screen.push(chunk(1000), 1 + PIECE_SECONDS)
     await new Promise((r) => setTimeout(r, 0))
     s.failures.push(new LiveError('This workspace’s Studio is full.', 413, 'QUOTA'))
     time.advance(1000)
-    screen.push(chunk(100), 2 + PIECE_SECONDS)
+    screen.push(chunk(1000), 2 + PIECE_SECONDS)
     time.advance(PIECE_SECONDS * 1000)
-    screen.push(chunk(100), 2 + 2 * PIECE_SECONDS)
+    screen.push(chunk(1000), 2 + 2 * PIECE_SECONDS)
     await new Promise((r) => setTimeout(r, 0))
     expect(failed).toEqual(['This workspace’s Studio is full.'])
     expect(await screen.finish()).toEqual({ key: `live/${TAKE}/screen`, pieces: 1, complete: false })
@@ -225,5 +226,23 @@ describe('as review asked', () => {
       files: [{ role: 'screen', name: 'Screen.webm', contentType: 'video/webm', bytes: 900, offsetSeconds: 0, durationSeconds: 9, uploadKey: `live/${TAKE}/screen`, pieces: 3, frameRate: 60 }],
     }
     expect(recordingRequest(finished, { screen: `live/${TAKE}/screen` }, { kind: 'new' }).screen).toEqual({ uploadKey: `live/${TAKE}/screen`, name: 'Screen.webm', pieces: 3, frameRate: 60 })
+  })
+})
+
+describe('the floor', () => {
+  it('never cuts a piece smaller than the Studio takes, however long it gathered; the last piece may be any size', async () => {
+    const s = studio()
+    const { live, time } = take(s.api)
+    await live.open('browser', { screen: 'Screen.webm', microphone: 'Mic.webm' })
+    const mic = live.tracks.get('microphone')!
+    for (let second = 1; second <= 12; second++) {
+      time.advance(1000)
+      mic.push(chunk(100), second)
+    }
+    await new Promise((r) => setTimeout(r, 0))
+    expect(s.pieces.map((p) => p.bytes as number).every((bytes) => bytes >= PIECE_MIN_BYTES)).toBe(true)
+    mic.push(chunk(10), 13)
+    await mic.finish()
+    expect(s.pieces.at(-1)!.bytes).toBeLessThan(PIECE_MIN_BYTES)
   })
 })

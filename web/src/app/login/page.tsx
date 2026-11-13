@@ -4,6 +4,7 @@ import { resolveSignupInvite } from '@/lib/admin/signup-invites'
 import { isGoogleSignInEnabled } from '@/lib/auth/google-sign-in'
 import { isChatGptSignInEnabled } from '@/lib/chatgpt/config'
 import { redirect } from 'next/navigation'
+import { isAccountRedirectPath } from '@/lib/auth/login-redirect'
 import { LoginForm } from './login-form'
 
 export const metadata = {
@@ -32,6 +33,8 @@ export default async function AccountLoginPage({
     ) {
       redirect(redirectParam)
     }
+    // Already signed in, sent here with a page of the app (a deep link the desktop app opened in this browser): go there.
+    if (redirectParam && isAccountRedirectPath(redirectParam)) redirect(redirectParam)
     redirect('/account')
   }
 

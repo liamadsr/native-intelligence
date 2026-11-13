@@ -55,6 +55,14 @@ export function isInviteRedirectPath(path: string): boolean {
 }
 
 /**
+ * A page of the app itself: /account, its pages and their deep links (`/account?page=studio&video=<id>&export=<id>`,
+ * the link the desktop app opens in the person's browser to download a large export there). Same-site paths only.
+ */
+export function isAccountRedirectPath(path: string): boolean {
+  return /^\/account(?:[/?#]|$)/.test(path) && !path.includes('//') && !path.includes('\\')
+}
+
+/**
  * Where a password sign-in (or an instant sign-up) sends the person: the MCP
  * authorize step to resume, an invite (or connect link) or a shared page, or a page in the app;
  * anything else is /account.
@@ -64,7 +72,7 @@ export function resolvePostAuthRedirect(redirectPath: string | null, origin: str
   const mcp = mcpRedirectTarget(redirectPath, origin)
   if (mcp) return mcp
   if (redirectPath.includes('//')) return '/account'
-  if (isInviteRedirectPath(redirectPath) || redirectPath.startsWith('/s/') || redirectPath.startsWith('/account')) {
+  if (isInviteRedirectPath(redirectPath) || redirectPath.startsWith('/s/') || isAccountRedirectPath(redirectPath)) {
     return redirectPath
   }
   return '/account'

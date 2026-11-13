@@ -9,8 +9,11 @@
  *                    `save_file` command), where the person picks the folder and the name. The released app's command
  *                    takes the whole file as a JSON array of numbers (about 16 bytes of memory per byte of video on the
  *                    way), so only a small file goes this way.
- *   desktop-browser  the desktop app, a larger file: a short-lived download link (POST file-links) opened in the
- *                    person's own browser, which downloads it to its downloads folder. Nothing large is held in the page.
+ *   desktop-browser  the desktop app, a larger file: the person's own browser opens the app on that export
+ *                    (./export-arrival.ts), signed in there (they may need to sign in once), and downloads it to its
+ *                    downloads folder through the same signed-in file route. Nothing large is held in this page.
+ *                    A stored file that is not an export (a reel) opens its own link in that browser instead, which
+ *                    needs the browser to be signed in already.
  *   picker           a browser with a save picker (Chrome, Edge): the person picks the folder and the name first, then the
  *                    file streams straight into it.
  *   downloads        any other browser: a plain download, which the browser puts in its downloads folder (or asks, if the
@@ -21,21 +24,15 @@
 import { downloadFile } from '@/lib/download';
 import { openInSystemBrowser } from '@/lib/open-external';
 import { isDesktopApp } from '@/lib/platform';
+import { exportArrivalLink } from './export-arrival';
 
 export type SaveWay = 'desktop' | 'desktop-browser' | 'picker' | 'downloads';
 export type SaveResult = { kind: 'saved'; where: string } | { kind: 'downloads'; name: string } | { kind: 'browser'; name: string } | { kind: 'cancelled' };
-/** What is saved: a stored file's link (/api/account/studio/file/<workspace>/<key>), the name to give it, its size when known. */
-export type ExportFile = { url: string; fileName: string; bytes?: number | null };
-
-/** The stored file's key, from its link. */
-export function fileKeyOf(url: string): string | null {
-  try {
-    const path = new URL(url, 'http://studio.invalid').pathname, prefix = '/api/account/studio/file/';
-    if (!path.startsWith(prefix)) return null;
-    const key = path.slice(prefix.length).split('/').slice(1).map(decodeURIComponent).join('/');
-    return key || null;
-  } catch { return null; }
-}
+/**
+ * What is saved: a stored file's link (/api/account/studio/file/<workspace>/<key>), the name to give it, its size when
+ * known, and for a finished export where the browser should arrive to download it (desktop-browser).
+ */
+export type ExportFile = { url: string; fileName: string; bytes?: number | null; arrival?: { videoId: string; jobId: string; workspaceId: string | null } };
 
 /**
  * The largest export handed to the desktop app's Save panel. Its `save_file` takes the bytes as a JSON array of numbers:
@@ -107,12 +104,9 @@ export async function saveExport(file: ExportFile, way?: SaveWay): Promise<SaveR
     return path ? { kind: 'saved', where: path } : { kind: 'cancelled' };
   }
   if (way === 'desktop-browser') {
-    const key = fileKeyOf(url);
-    if (!key) throw new Error('This file cannot be downloaded from here.');
-    const minted = await fetch('/api/account/studio/file-links', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, name: fileName }) });
-    if (!minted.ok) throw await failure(minted);
-    const { url: link } = await minted.json() as { url: string };
-    if (!await openInSystemBrowser(new URL(link, window.location.origin).toString())) throw new Error('Your browser could not be opened. Try again.');
+    // The browser downloads it with its own session: the app opened on this export, or the file's own link.
+    const link = file.arrival ? exportArrivalLink(window.location.origin, file.arrival) : new URL(url, window.location.origin).toString();
+    if (!await openInSystemBrowser(link)) throw new Error('Your browser could not be opened. Try again.');
     return { kind: 'browser', name: fileName };
   }
   const pick = way === 'picker' ? picker() : null;

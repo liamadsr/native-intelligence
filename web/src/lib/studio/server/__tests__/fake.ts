@@ -60,6 +60,9 @@ function project(row: Row, fields: string): Row {
   return out
 }
 
+/** The most values one `.in()` may list before the request would pass the gateway's URL limit. */
+export const MAX_IN = 200
+
 /** `queueFunction: false` stands for a database without migration 627 (no studio_queue_job). */
 export function fakeDb(tables: Record<string, Row[]> = {}, options: { queueFunction?: boolean } = {}) {
   const queueFunction = options.queueFunction !== false
@@ -73,11 +76,13 @@ export function fakeDb(tables: Record<string, Row[]> = {}, options: { queueFunct
     let max = Infinity
     let offset = 0
     let sort: { key: string; ascending: boolean } | null = null
+    let tooLong = false
     const fresh = (input: Row): Row => {
       const at = nowIso()
       return { ...(DEFAULTS[table]?.() ?? {}), ...(KEYS[table] ? {} : { id: randomUUID() }), created_at: at, updated_at: at, ...clone(input) }
     }
     const run = async (): Promise<{ data: Row[] | null; error: { message: string; code?: string } | null }> => {
+      if (tooLong) return { data: null, error: { message: 'URI too long', code: '414' } }
       const out = (rows: Row[]) => ({ data: rows.map((r) => project(r, fields)), error: null })
       if (op.kind === 'insert') {
         const made = op.rows.map(fresh)
@@ -139,7 +144,8 @@ export function fakeDb(tables: Record<string, Row[]> = {}, options: { queueFunct
         ),
         chain
       ),
-      in: (k: string, vs: unknown[]) => (filters.push((r) => vs.includes(read(r, k))), chain),
+      // A list that long would pass the gateway's URL limit (a uuid is 37 characters of the query string).
+      in: (k: string, vs: unknown[]) => (vs.length > MAX_IN ? (tooLong = true) : filters.push((r) => vs.includes(read(r, k))), chain),
       is: (k: string, v: unknown) => (filters.push((r) => (read(r, k) ?? null) === v), chain),
       order: (key: string, opts?: { ascending?: boolean }) => ((sort = { key, ascending: opts?.ascending !== false }), chain),
       limit: (n: number) => ((max = n), chain),

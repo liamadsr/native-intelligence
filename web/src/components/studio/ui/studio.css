@@ -1811,3 +1811,5 @@
 .ni-studio .xd-dialog .xd-row-gone{font-size:12px;color:var(--st-text-faint)}
 .ni-studio figcaption .static-download{margin-left:4px;padding:0 4px;font-size:inherit;text-decoration:underline;text-underline-offset:2px}
 .ni-studio .static-download-error{display:block;font-size:12px;line-height:16px;color:var(--st-danger-text)}
+.ni-studio .xd-dialog p.xd-notice{margin:0 0 16px}
+.ni-studio .static-download-note{display:block;font-size:12px;line-height:16px;color:var(--st-text-faint)}

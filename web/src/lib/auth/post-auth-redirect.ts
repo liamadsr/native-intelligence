@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { isInviteRedirectPath, mcpRedirectTarget } from '@/lib/auth/login-redirect'
+import { isAccountRedirectPath, isInviteRedirectPath, mcpRedirectTarget } from '@/lib/auth/login-redirect'
 
 /**
  * Where a successful web sign-in lands, shared by the OAuth callbacks
@@ -11,6 +11,9 @@ import { isInviteRedirectPath, mcpRedirectTarget } from '@/lib/auth/login-redire
  *   share_redirect   /s/<token>
  *   mcp_redirect     /api/mcp/… or /mcp/… on this origin (full URL or
  *                    path), the MCP OAuth authorize step to resume
+ *   account_redirect a page of the app with its deep link (/account?…), such
+ *                    as the Studio export the desktop app sent the person
+ *                    here to download
  * Anything else, or no cookie, lands on /account.
  *
  * `origin` is where relative targets resolve; it defaults to the request's
@@ -68,6 +71,14 @@ export function postAuthRedirect(request: NextRequest, origin: string = request.
     }
     const response = NextResponse.redirect(new URL('/account', origin))
     response.cookies.delete('mcp_redirect')
+    return response
+  }
+
+  // A page of the app (/account and its deep links), same-site only.
+  const accountRedirect = request.cookies.get('account_redirect')?.value
+  if (accountRedirect) {
+    const response = NextResponse.redirect(new URL(isAccountRedirectPath(accountRedirect) ? accountRedirect : '/account', origin))
+    response.cookies.delete('account_redirect')
     return response
   }
 

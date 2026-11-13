@@ -17,6 +17,11 @@ import type { LiveTrackState, LiveTrackStatus, TakeRole } from './types'
 export const PIECE_SECONDS = 4
 /** A piece is cut early once it holds this much (a sharp screen at 12 Mbit/s makes about 6 MB in 4 s). */
 export const PIECE_TARGET_BYTES = 8 * 1024 ** 2
+/**
+ * The least a piece but the last may hold (the Studio refuses less). A silent microphone makes about 2 KB in four
+ * seconds: a piece is not cut below this however long it took to gather; the last piece, at Stop, may be any size.
+ */
+export const PIECE_MIN_BYTES = 1024
 /** The longest piece the Studio takes. */
 export const PIECE_MAX_BYTES = 16 * 1024 ** 2
 /** After Stop, how long the last pieces may keep failing before the take is handed back to be tried again. */
@@ -85,11 +90,17 @@ export const fetchApi: LiveApi = {
   },
 }
 
-/** Pieces of at most `max` bytes from a run of chunks, in order: the chunks are joined, and a run longer than `max` is cut. Pure. */
+/**
+ * Pieces of at most `max` bytes from a run of chunks, in order: the chunks are joined, and a run longer than `max` is
+ * cut into equal pieces (never a small tail, which the Studio would refuse as a piece but the last). Pure.
+ */
 export function piecesOf(chunks: Blob[], max = PIECE_MAX_BYTES): Blob[] {
   const joined = new Blob(chunks)
+  if (!joined.size) return []
+  const count = Math.ceil(joined.size / max)
+  const size = Math.ceil(joined.size / count)
   const out: Blob[] = []
-  for (let at = 0; at < joined.size; at += max) out.push(joined.slice(at, Math.min(joined.size, at + max)))
+  for (let at = 0; at < joined.size; at += size) out.push(joined.slice(at, Math.min(joined.size, at + size)))
   return out
 }
 
@@ -147,7 +158,7 @@ export class LiveTrack {
     this.recordedBytes += chunk.size
     this.recordedSeconds = Math.max(this.recordedSeconds, seconds)
     this.bufferStartedAt ??= this.deps.now()
-    if (this.bufferBytes >= PIECE_TARGET_BYTES || this.deps.now() - this.bufferStartedAt >= PIECE_SECONDS * 1000) this.cut()
+    if (this.bufferBytes >= PIECE_MIN_BYTES && (this.bufferBytes >= PIECE_TARGET_BYTES || this.deps.now() - this.bufferStartedAt >= PIECE_SECONDS * 1000)) this.cut()
     this.changed()
   }
 

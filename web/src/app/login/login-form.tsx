@@ -1,7 +1,7 @@
 'use client'
 
 import { Link } from '@/components/link'
-import { isInviteRedirectPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '@/lib/auth/login-redirect'
+import { isAccountRedirectPath, isInviteRedirectPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '@/lib/auth/login-redirect'
 import { Logo } from '@/components/logo'
 import { Button } from '@/components/ui/button'
 import {
@@ -148,6 +148,10 @@ export function LoginForm({
     } else if (redirectPath.startsWith('/s/') && !redirectPath.includes('//')) {
       // Share-link redirect — back to the shared view after auth
       document.cookie = `share_redirect=${encodeURIComponent(redirectPath)};path=/;max-age=600;samesite=lax${securePart}`
+    } else if (isAccountRedirectPath(redirectPath)) {
+      // A page of the app and its deep link (the Studio export the desktop app sent the person to download here):
+      // back there after an OAuth sign-in too.
+      document.cookie = `account_redirect=${encodeURIComponent(redirectPath)};path=/;max-age=600;samesite=lax${securePart}`
     } else {
       // MCP OAuth flow — back to the authorize endpoint after login (this
       // origin's only: src/lib/auth/login-redirect.ts)
@@ -382,6 +386,8 @@ export function LoginForm({
     }
 
     const target = resolvePostAuthRedirect(redirectPath, window.location.origin)
+    // Used here: an OAuth sign-in later must not find it.
+    document.cookie = 'account_redirect=;path=/;max-age=0'
     // The MCP authorize step is an API route: a full page load, not the
     // client router, and its cookie is spent.
     if (isMcpTarget(target)) {
@@ -443,6 +449,8 @@ export function LoginForm({
     }
 
     const target = resolvePostAuthRedirect(redirectPath, window.location.origin)
+    // Used here: an OAuth sign-in later must not find it.
+    document.cookie = 'account_redirect=;path=/;max-age=0'
     // The MCP authorize step is an API route: a full page load, not the
     // client router, and its cookie is spent.
     if (isMcpTarget(target)) {

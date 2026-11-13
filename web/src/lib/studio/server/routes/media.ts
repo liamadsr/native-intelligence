@@ -4,7 +4,6 @@
 // one-call import answered; otherwise, or when the job is still running, it answers {job} to poll.
 import { attachTranscript, importTimedTranscript, listAssets } from '../assets'
 import { videoExports } from '../jobs'
-import { mintFileLink } from '../download-links'
 import { importPresenter, importSlides, importUpload, jobStatus, listSlideDecks, startExport, startUpload, stopJob } from '../media'
 import { route, type StudioRoute } from '../router'
 
@@ -28,8 +27,6 @@ export const mediaRoutes: StudioRoute[] = [
   route('POST', 'export', async ({ ctx, body }) => startExport(ctx, (await body()).project)),
   route('GET', 'jobs/:id', async ({ ctx, params }) => jobStatus(ctx, params.id!)),
   route('POST', 'jobs/:id/cancel', async ({ ctx, params }) => stopJob(ctx, params.id!)),
-  // A short-lived link that downloads a stored file without a session (download-links.ts): {key, name}.
-  route('POST', 'file-links', async ({ ctx, body }) => mintFileLink(ctx, await body())),
   // A video's finished exports still kept, newest first (the Export dialog's list).
   route('GET', 'projects/:id/exports', async ({ ctx, params }) => videoExports(ctx, params.id!)),
 ]

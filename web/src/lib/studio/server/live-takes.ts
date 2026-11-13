@@ -66,6 +66,19 @@ export const QUIET_MS = 90_000
 export const RESERVE_STEP = 64 * 1024 ** 2
 /** How many times a track's pieces may be signed again (an upload that failed, an answer that was lost). */
 export const MAX_RESENDS = 50
+/**
+ * The least a piece but the last may hold. The recorder's pieces are about four seconds: a silent microphone's are
+ * about 2 KB (Opus, 4 s) to 3 KB (AAC), a screen's or a camera's far more, and the recorder never cuts one smaller
+ * (live.ts). It keeps piece links from being collected for next to nothing.
+ */
+export const PIECE_MIN_BYTES = 1024
+/**
+ * How long a piece's upload link may still work after it was signed: storage's signed upload links last two hours
+ * (storage-js; the token is checked, not used up), plus an hour's margin. A removed piece's path could be written
+ * again through its link until then, so a take's pieces are removed only once its last link is this old
+ * (retireLiveTake); until then they stay, and storage refuses a PUT over a stored piece (links are signed without upsert).
+ */
+export const LINK_SAFE_MS = 3 * 3600_000
 
 export const TAKES = 'live-takes'
 export const TRACKS = 'live-tracks'
@@ -78,8 +91,11 @@ export type TakeRecord = {
   /**
    * recording: pieces may still come, or it stopped before it was finished (offered back once quiet).
    * finished: handed to a recording (`recordingId`); no more pieces.
+   * dropped: thrown away, or its recording made; its pieces stay until its links can no longer write (retireLiveTake).
    */
-  status: 'recording' | 'finished'
+  status: 'recording' | 'finished' | 'dropped'
+  /** When it was dropped. */
+  droppedAt?: string
   tracks: Partial<Record<LiveRole, { name: string; frameRate?: number }>>
   recordingId?: string
   /** A recording made from it that could not be made (it was offered back): its id. */
@@ -136,11 +152,11 @@ async function loadTrack(ctx: StudioContext, take: TakeRecord, role: LiveRole): 
   return track
 }
 
-/** Write a track only if nobody moved it on since it was read (its piece count and resend count as read). */
+/** Write a track only if nobody moved it on since it was read (its piece count and resend count as read) and it is not sealed. */
 async function moveTrack(ctx: StudioContext, before: TrackRecord, next: TrackRecord): Promise<boolean> {
   const query = ctx.supabase.from('studio_record').update({ value: next, updated_at: new Date().toISOString() })
       .eq('workspace_id', ctx.workspaceId).eq('collection', TRACKS).eq('key', trackKey(before.takeId, before.role))
-      .eq('value->>n', String(before.n))
+      .eq('value->>n', String(before.n)).is('value->sealed', null)
   const exact = before.resends === undefined ? query.is('value->>resends', null) : query.eq('value->>resends', String(before.resends))
   const moved = must(
     await exact.select('key'),
@@ -255,11 +271,12 @@ async function holdTrackSpace(ctx: StudioContext, key: string, before: number, r
 const MISMATCH = (index: number) => `Piece ${index + 1} of the recording was not stored as it was sent, so the recording stopped there. What came before it is kept.`
 
 /**
- * A piece was not in storage at its declared length: it is removed, the track's declaration ends before it, and the
- * track takes no more pieces. Throws the conflict that stops the recorder.
+ * A piece was not in storage at its declared length: its bytes are replaced by an empty object (the path stays taken,
+ * so its link, still good for a while, cannot store anything there again), the track's declaration ends before it,
+ * and the track takes no more pieces. Throws the conflict that stops the recorder.
  */
 async function stopAt(ctx: StudioContext, track: TrackRecord, index: number, key: string): Promise<never> {
-  await storageOf(ctx).remove([blobObject(ctx.workspaceId, key, index)]).catch(() => undefined)
+  await storageOf(ctx).upload(blobObject(ctx.workspaceId, key, index), new Uint8Array(0), 'application/octet-stream').catch(() => undefined)
   const kept = track.pieces.slice(0, index)
   const next: TrackRecord = {
     ...track,
@@ -311,6 +328,9 @@ export async function livePiece(ctx: StudioContext, takeId: string, body: unknow
   if (input.index < track.n) throw conflictError(`Piece ${input.index + 1} was sent already.`, 'OUT_OF_ORDER')
   if (input.index > track.n) throw conflictError(`Piece ${track.n + 1} must be sent before piece ${input.index + 1}.`, 'OUT_OF_ORDER')
   if (track.n >= TRACK_MAX_PIECES) throw new StudioError('This recording has as many pieces as one can hold. Stop it and start another.', 413, 'TOO_LARGE')
+  // A piece followed by another is not the last: it holds at least PIECE_MIN_BYTES (the recorder never cuts one smaller).
+  if (track.n > 0 && track.pieces[track.n - 1]! < PIECE_MIN_BYTES)
+    throw new StudioError(`A piece of a recording, but the last, holds at least ${PIECE_MIN_BYTES} bytes.`, 400, 'TOO_SMALL')
   // The recorder asks for piece n only once piece n-1 went up: it must be in storage, at the length it was declared with.
   if (track.n > 0 && (await storage.size(path(track.n - 1))) !== track.pieces[track.n - 1]) return stopAt(ctx, track, track.n - 1, key)
   const bytes = track.bytes + input.bytes
@@ -385,6 +405,7 @@ export async function sealLiveTrack(ctx: StudioContext, key: string, stated?: nu
   const parsed = parseLiveKey(key)
   if (!parsed) throw new StudioError('That is not a recording track.')
   const take = await loadTake(ctx, parsed.takeId)
+  if (take.status === 'dropped') throw notFoundError('That recording is not here.')
   const track = await loadTrack(ctx, take, parsed.role)
   if (track.sealed) {
     if (typeof stated === 'number' && !track.stopped && stated > track.sealed.count)
@@ -423,7 +444,8 @@ export async function sealLiveTrack(ctx: StudioContext, key: string, stated?: nu
   const at = new Date().toISOString()
   // Complete: the recorder said how many it sent, and it sent the whole recording (not `cut` short by a refusal).
   const sealed: TrackRecord = { ...track, sealed: { count, bytes, complete: expected !== undefined && !options.cut, at } }
-  await putRecord(ctx, TRACKS, trackKey(take.id, parsed.role), sealed)
+  // Only over the track as it was read: a piece signed meanwhile (or another seal) makes this one try again.
+  if (!(await moveTrack(ctx, track, sealed))) throw conflictError('This recording changed while it was being saved. Try again.', 'BUSY')
   // The space held shrinks to what the track is (until the recording is made and it goes).
   must(
     await ctx.supabase.from('studio_record').update({ value: { bytes, partBytes: PIECE_MAX_BYTES, contentType: allowedType(typeForName(take.tracks[parsed.role]!.name)), sha256: null, createdAt: at, token: 'live' } satisfies PendingWrite, updated_at: at })
@@ -469,7 +491,8 @@ export async function reopenLiveTake(ctx: StudioContext, takeId: string, recordi
     for (const role of LIVE_ROLES) {
       if (!take.tracks[role]) continue
       const track = await getRecord<TrackRecord>(ctx, TRACKS, trackKey(takeId, role))
-      if (track?.sealed?.complete) await putRecord(ctx, TRACKS, trackKey(takeId, role), { ...track, sealed: { ...track.sealed, complete: false } })
+      // Written again in any case: the week the sweep keeps a track starts again from being offered back.
+      if (track) await putRecord(ctx, TRACKS, trackKey(takeId, role), track.sealed ? { ...track, sealed: { ...track.sealed, complete: false } } : track)
     }
     const { recordingId: _gone, ...rest } = take
     void _gone
@@ -523,10 +546,31 @@ export async function dropLiveTrack(ctx: StudioContext, key: string): Promise<vo
   if (!left?.length) await deleteRecord(ctx, TAKES, parsed.takeId)
 }
 
-/** Remove every track of a take (and so the take). */
-export async function dropLiveTake(ctx: StudioContext, take: Pick<TakeRecord, 'id' | 'tracks'>): Promise<void> {
+/** Remove every track of a take (and so the take), now. Only once no link of it can write any more (retireLiveTake). */
+async function removeLiveTakeNow(ctx: StudioContext, take: Pick<TakeRecord, 'id' | 'tracks'>): Promise<void> {
   for (const role of LIVE_ROLES) if (take.tracks[role]) await dropLiveTrack(ctx, liveKey(take.id, role))
   await deleteRecord(ctx, TAKES, take.id)
+}
+
+/** When a link for a piece of this take was last signed (each signing writes its track). */
+async function lastSigned(ctx: StudioContext, take: Pick<TakeRecord, 'id' | 'tracks' | 'createdAt'>): Promise<number> {
+  const roles = LIVE_ROLES.filter((role) => take.tracks[role])
+  const tracks = [...(await getRecords<TrackRecord>(ctx, TRACKS, roles.map((role) => trackKey(take.id, role)))).values()]
+  // Each track is written when the take starts and at every signing: its newest write is the newest link.
+  if (!tracks.length) return Date.parse(take.createdAt)
+  return Math.max(...tracks.map((track) => Date.parse(track.updatedAt)))
+}
+
+/**
+ * Throw a take's pieces away (a discard, a recording made of it, a take the sweep clears). When no link of it can
+ * write any more (LINK_SAFE_MS since the last was signed), everything goes now. Otherwise the take is marked dropped:
+ * no piece is signed, sealed or offered back, its space stays held and its pieces stay in storage, where a link still
+ * good cannot store anything over them; the sweep removes them once the last link is LINK_SAFE_MS old.
+ */
+export async function retireLiveTake(ctx: StudioContext, take: TakeRecord, now = Date.now()): Promise<void> {
+  if (now - (await lastSigned(ctx, take)) >= LINK_SAFE_MS) return removeLiveTakeNow(ctx, take)
+  if (take.status === 'dropped') return
+  await putRecord(ctx, TAKES, take.id, { ...take, status: 'dropped', droppedAt: new Date(now).toISOString() } satisfies TakeRecord)
 }
 
 /** A take that stopped before it was finished, as the Record dialog offers it back. */
@@ -625,7 +669,7 @@ export async function sealStoppedTake(ctx: StudioContext, takeId: string, now = 
 export async function discardLiveTake(ctx: StudioContext, takeId: string): Promise<{ ok: true }> {
   const take = await loadTake(ctx, takeId)
   if (take.status === 'finished') throw conflictError('This recording is being made into a video already.', 'TAKE_CLOSED')
-  await dropLiveTake(ctx, take)
+  if (take.status !== 'dropped') await retireLiveTake(ctx, take)
   return { ok: true }
 }
 
@@ -655,7 +699,21 @@ export async function sweepLiveTakes(base: Pick<StudioContext, 'supabase' | 'sto
       return false
     }
   }
-  // Tracks left a week.
+  // Takes dropped whose last link can no longer write: their pieces go now.
+  if (left > 0) {
+    const rows = must(
+      await base.supabase.from('studio_record').select('workspace_id, value').eq('collection', TAKES).eq('value->>status', 'dropped').order('updated_at').limit(Math.min(left, 100)),
+      'list dropped recordings',
+    ) as { workspace_id: string; value: TakeRecord }[] | null
+    for (const row of rows ?? []) {
+      if (left <= 0) break
+      const ctx = sweepContext(base, row.workspace_id)
+      if (options.now - (await lastSigned(ctx, row.value).catch(() => options.now)) < LINK_SAFE_MS) continue
+      if (await tryIt(`recording ${row.value.id}`, () => removeLiveTakeNow(ctx, row.value))) removed++
+    }
+  }
+  // Tracks left a week. A track whose take became a recording that is not finished yet is finished first (the work
+  // after the worker's answer may have been lost): its footage is never cleared while its recording could still use it.
   if (left > 0) {
     const rows = must(
       await base.supabase.from('studio_record').select('workspace_id, key, value').eq('collection', TRACKS).lt('updated_at', before(options.keepMs)).order('updated_at').limit(Math.min(left, 100)),
@@ -663,7 +721,17 @@ export async function sweepLiveTakes(base: Pick<StudioContext, 'supabase' | 'sto
     ) as { workspace_id: string; key: string; value: TrackRecord }[] | null
     for (const row of rows ?? []) {
       if (left <= 0) break
-      if (await tryIt(`recording track ${row.key}`, () => dropLiveTrack(sweepContext(base, row.workspace_id), liveKey(row.value.takeId, row.value.role)))) removed++
+      const ctx = sweepContext(base, row.workspace_id)
+      const done = await tryIt(`recording track ${row.key}`, async () => {
+        const take = await getRecord<TakeRecord>(ctx, TAKES, row.value.takeId)
+        if (take?.status === 'finished' && take.recordingId && !(await recordingSettled(ctx, take))) throw new Error('its recording is not finished yet')
+        // Settled: made (its take dropped), or offered back (kept a week more): read the take again.
+        const now = await getRecord<TakeRecord>(ctx, TAKES, row.value.takeId)
+        if (now?.status === 'recording' && now.failedRecordingId) return
+        if (now?.status === 'finished') throw new Error('its take is still being made into a recording')
+        await dropLiveTrack(ctx, liveKey(row.value.takeId, row.value.role))
+      })
+      if (done) removed++
     }
   }
   // Space held for a track that is gone (a take thrown away while a piece was being signed).
@@ -693,35 +761,67 @@ export async function sweepLiveTakes(base: Pick<StudioContext, 'supabase' | 'sto
       const ctx = sweepContext(base, row.workspace_id)
       const screen = await getRecord<TrackRecord>(ctx, TRACKS, trackKey(row.value.id, 'screen')).catch(() => undefined)
       if (screen === undefined || (screen && screen.n > 0) || options.now - Date.parse(screen?.updatedAt ?? row.value.createdAt) < 24 * 3600_000) continue
-      if (await tryIt(`recording ${row.value.id}`, () => dropLiveTake(ctx, row.value))) removed++
+      if (await tryIt(`recording ${row.value.id}`, () => retireLiveTake(ctx, row.value, options.now))) removed++
     }
   }
-  // Pieces no take points to.
+  // Pieces no take points to: each workspace's live folders against its take records, a hundred at a time. A run
+  // starts at a different workspace each hour, so all are reached however many there are; a workspace that cannot be
+  // read is skipped (the next run tries again), never the rest.
   if (left > 0) {
     const storage = storageOf(sweepContext(base, ''))
     let workspaces: string[] = []
     try {
-      workspaces = (await storage.folders('')).filter(isUuid)
+      workspaces = (await storage.folders('')).filter(isUuid).sort()
     } catch (error) {
       console.error("[studio-sweep] couldn't list the bucket:", error instanceof Error ? error.message : error)
     }
-    for (const workspaceId of workspaces) {
-      if (left <= 0) break
+    const start = workspaces.length ? Math.floor(options.now / 3600_000) % workspaces.length : 0
+    for (let i = 0; i < workspaces.length && left > 0; i++) {
+      const workspaceId = workspaces[(start + i) % workspaces.length]!
       left--
-      const takeIds = (await storage.folders(`${workspaceId}/live`).catch(() => [] as string[])).filter(isUuid)
-      if (!takeIds.length) continue
-      const known = await getRecords(sweepContext(base, workspaceId), TAKES, takeIds)
-      for (const takeId of takeIds.filter((id) => !known.has(id))) {
-        if (left <= 0) break
-        const done = await tryIt(`pieces of ${takeId}`, async () => {
-          for (const role of await storage.folders(`${workspaceId}/live/${takeId}`)) {
-            const folder = `${workspaceId}/live/${takeId}/${role}`
-            await removeAll(storage, (await storage.list(folder)).map((item) => `${folder}/${item.name}`))
-          }
-        })
-        if (done) removed++
+      try {
+        const ctx = sweepContext(base, workspaceId)
+        const takeIds = (await storage.folders(`${workspaceId}/live`)).filter(isUuid)
+        const orphans: string[] = []
+        for (let at = 0; at < takeIds.length; at += 100) {
+          const chunk = takeIds.slice(at, at + 100)
+          const known = await getRecords(ctx, TAKES, chunk)
+          orphans.push(...chunk.filter((id) => !known.has(id)))
+        }
+        for (const takeId of orphans) {
+          if (left <= 0) break
+          // Asked again one by one before anything goes: never a live take's pieces.
+          if (await getRecord(ctx, TAKES, takeId)) continue
+          const done = await tryIt(`pieces of ${takeId}`, async () => {
+            for (const role of await storage.folders(`${workspaceId}/live/${takeId}`)) {
+              const folder = `${workspaceId}/live/${takeId}/${role}`
+              await removeAll(storage, (await storage.list(folder)).map((item) => `${folder}/${item.name}`))
+            }
+          })
+          if (done) removed++
+        }
+      } catch (error) {
+        console.error(`[studio-sweep] couldn't check the recordings of workspace ${workspaceId}; skipped:`, error instanceof Error ? error.message : error)
       }
     }
   }
   return { removed, used: options.budget - left }
+}
+
+/**
+ * Whether the recording a take became is finished (made or not made), after giving it the chance (the worker's end of
+ * its last import may never have been followed up). A recording record that never came to be gives the take back.
+ */
+async function recordingSettled(ctx: StudioContext, take: TakeRecord): Promise<boolean> {
+  const recordings = await import('./recordings')
+  const status = async () => (await getRecord<{ status: string }>(ctx, 'recordings', take.recordingId!))?.status
+  const first = await status()
+  if (first === undefined) {
+    await reopenLiveTake(ctx, take.id, take.recordingId!)
+    return true
+  }
+  if (first === 'done' || first === 'failed') return true
+  await recordings.recordingImportEnded(ctx.supabase, ctx.storage, ctx.workspaceId, take.recordingId)
+  const after = await status()
+  return after === 'done' || after === 'failed'
 }

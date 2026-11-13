@@ -22,6 +22,14 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
       expect(location(postAuthRedirect(request()))).toBe(`https://${DOMAIN}/account`)
     })
 
+    it('honours a page of the app with its deep link, clears it, and refuses anything else', () => {
+      const link = '/account?page=studio&video=aaaaaaaa-1111-4222-8333-444444444444&export=bbbbbbbb-1111-4222-8333-444444444444'
+      const res = postAuthRedirect(request({ account_redirect: link }))
+      expect(location(res)).toBe(`https://${DOMAIN}${link}`)
+      expect(cleared(res, 'account_redirect')).toBe(true)
+      for (const evil of ['//evil.example/account', 'https://evil.example/account', '/accountx', '/account//evil.example']) expect(location(postAuthRedirect(request({ account_redirect: evil }))), evil).toBe(`https://${DOMAIN}/account`)
+    })
+
     it('honours an invite redirect and clears it', () => {
       const res = postAuthRedirect(request({ invite_redirect: '/invite/tok' }))
       expect(location(res)).toBe(`https://${DOMAIN}/invite/tok`)
