@@ -48,6 +48,13 @@ const DAY_MS = 24 * 60 * 60 * 1000
  * already says so). Skip rows (this cap's, the kill switch's) are not runs.
  * Fails OPEN on a read error, like the dormancy gate: a transient failure
  * never silently drops a fire.
+ *
+ * Accepted overshoot: the count here and the run's flow_run row (written when
+ * the run ends) are not one atomic step, so fires running side by side can
+ * each see room under the cap. The dispatchers run at most 2 at a time per
+ * workspace (their Inngest concurrency), so a loop can go over the cap by up
+ * to 2 runs a day. That is accepted: the cap guards cost, not correctness,
+ * and a lock or a counter row would cost more than the runs it saves.
  */
 export async function eventFireCapState(
   supabase: SupabaseClient,

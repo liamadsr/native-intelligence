@@ -1380,6 +1380,8 @@ export async function runEntitylessFires(
   let capped = 0
   for (const flow of flows) {
     if (args.cap) {
+      // Not atomic with the run's flow_run row: may overshoot by the
+      // per-workspace concurrency (2), accepted (eventFireCapState).
       const state = await step.run(`cap-${flow.id}`, async () => {
         const s = await eventFireCapState(supabase, flow.id)
         if (s === 'capped') await ledgerSkippedFire(supabase, { workspaceId, flow, fireId, source, reason: EVENT_CAP_SKIP_REASON })

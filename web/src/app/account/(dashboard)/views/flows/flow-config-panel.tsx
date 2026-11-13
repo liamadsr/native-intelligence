@@ -644,7 +644,8 @@ function ChatMessageTriggerFields({
   }, [])
   const memberName = (id: string | null) => members.find((m) => m.id === id)?.display_name?.trim() || 'a teammate'
   const label = (c: PickableChannel) => (c.kind === 'channel' ? `#${c.name ?? 'channel'}` : c.kind === 'dm' ? `Direct message with ${memberName(c.dm_member_id)}` : (c.name ?? 'Meeting chat'))
-  // A saved channel that isn't in the list (left since, or still loading) still shows.
+  // A saved channel that isn't in the list still shows: as loading until the
+  // list is in, then as one the person can no longer see (left since).
   const known = !trigger.chat_channel_id || trigger.chat_channel_id === ANY_CHANNEL || (channels ?? []).some((c) => c.id === trigger.chat_channel_id)
   return (
     <>
@@ -655,7 +656,7 @@ function ChatMessageTriggerFields({
           </SelectTrigger>
           <SelectContent>
             {trigger.mentions_only && <SelectItem value={ANY_CHANNEL}>Any channel</SelectItem>}
-            {!known && <SelectItem value={trigger.chat_channel_id}>A channel you can no longer see</SelectItem>}
+            {!known && <SelectItem value={trigger.chat_channel_id}>{channels === null ? 'Loading…' : 'A channel you can no longer see'}</SelectItem>}
             {(channels ?? []).map((c) => (
               <SelectItem key={c.id} value={c.id}>
                 {label(c)}

@@ -245,7 +245,6 @@ function cityOf(timeZone: string): string {
   return (timeZone.split('/').pop() ?? timeZone).replace(/_/g, ' ')
 }
 
-/** 30 → "30 minutes", 60 → "an hour", 120 → "2 hours", 90 → "90 minutes". */
 /** 1 → "1st", 2 → "2nd", 23 → "23rd". */
 function ordinal(n: number): string {
   const tens = n % 100
@@ -253,6 +252,7 @@ function ordinal(n: number): string {
   return `${n}${['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`
 }
 
+/** 30 → "30 minutes", 60 → "an hour", 120 → "2 hours", 90 → "90 minutes". */
 function span(minutes: number): string {
   if (minutes === 60) return 'an hour'
   if (minutes % 60 === 0) return `${minutes / 60} hours`
