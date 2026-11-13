@@ -546,7 +546,9 @@ class CallRecorder(unittest.TestCase):
             self.assertEqual(cs.group(name), "may be empty")
             check = cs.CHECKS[name]
             self.assertEqual(check(dict(self.ENV, TEAM_CALL_RECORDER="on", **{name: "on"}), {}), (None, None))
-            for wrong in ("1", "true", "ON"):
+            # As the app reads it: trimmed, any case.
+            self.assertEqual(check(dict(self.ENV, TEAM_CALL_RECORDER="on", **{name: " ON "}), {}), (None, None))
+            for wrong in ("1", "true", "yes"):
                 ok, note = check(dict(self.ENV, TEAM_CALL_RECORDER="on", **{name: wrong}), {})
                 self.assertIs(ok, False, wrong)
                 self.assertIn("only on", note)

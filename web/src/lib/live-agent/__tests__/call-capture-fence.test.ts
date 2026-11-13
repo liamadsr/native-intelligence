@@ -1,0 +1,189 @@
+/**
+ * The fence on a call's capture (src/lib/live-agent/call-capture-fence.ts):
+ * what anyone says in a call is untrusted, the turn runs as the capture's
+ * owner, and its notes are read by the whole conversation, so a turn on a
+ * call's capture holds only what writing the shared notes needs. Proven on
+ * the REAL surfaces, not a stub of them:
+ *
+ *   - the tool MAP a notes turn gets (assembleLiveAgentToolSet over the real
+ *     createLiveAgentTools and buildLiveAgentReadTools factories): exactly the
+ *     record's writers and three structural reads, no owner-private read, no
+ *     connected-app proposal, no web;
+ *   - the eve spec rebuilt for a notes turn on a call's capture
+ *     (rebuildLiveAgentSpec, which reads the capture row): the same ceiling,
+ *     web off, no canon registry, none of the requester's own context;
+ *   - propose_change on a call's capture: new action items, decisions and
+ *     milestones only;
+ *   - an ordinary capture is untouched by any of it.
+ */
+import { describe, expect, it, vi } from 'vitest'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ToolSet } from 'ai'
+import { createFakeSupabase, meetingFixture, FIX, type FakeQuery } from './helpers/live-turn-fixture'
+
+vi.mock('server-only', () => ({}))
+
+const { createLiveAgentTools } = await import('../tools')
+const { buildLiveAgentReadTools } = await import('../read-tools')
+const { assembleLiveAgentToolSet } = await import('../turn-composition')
+const { computeLiveAgentCeiling } = await import('../ceiling')
+const { BUILTIN_ASSISTANT_TOOL_SELECTION } = await import('../read-tool-names')
+const { rebuildLiveAgentSpec } = await import('../live-agent-spec')
+const { CALL_CAPTURE_CHANGE_REFUSAL, fenceCallCapture, isCallCapture } = await import('../call-capture-fence')
+
+const CHANNEL = 'chan-call-1'
+const stub = {} as SupabaseClient
+
+/** What a notes turn on a call's capture may call: the record's own writers and three structural reads. */
+const ALLOWED = [
+  'propose_change',
+  'edit_proposal',
+  'dismiss_proposal',
+  'record_commitment',
+  'set_capture_title',
+  'write_summary',
+  'update_summary',
+  'list_workspace_members',
+  'list_labels',
+  'list_workflow_states',
+].sort()
+
+/** Owner-private reads and actions a spoken instruction must not reach. */
+const WITHHELD = [
+  'read_email',
+  'list_emails',
+  'get_email_summary',
+  'get_email_drafts',
+  'get_calendar_events',
+  'get_upcoming_meetings',
+  'get_meeting_prep',
+  'get_document',
+  'list_documents',
+  'read_canon',
+  'get_attachment_content',
+  'read_chat_file',
+  'list_attachments',
+  'get_package',
+  'list_packages',
+  'deep_search',
+  'search',
+  'find',
+  'get_capture_transcript',
+  'list_captures',
+  'search_claims',
+  'get_contact',
+  'list_contacts',
+  'search_contacts',
+  'search_projects',
+  'get_project_details',
+  'propose_mcp_call',
+  'say_to_user',
+  'ask_user',
+  'load_skill',
+  'direct_notes',
+]
+
+describe('which capture is a call’s', () => {
+  it('one with a notes channel (the server’s own column), and only then', () => {
+    expect(isCallCapture({ notes_channel_id: CHANNEL })).toBe(true)
+    expect(isCallCapture({ notes_channel_id: null })).toBe(false)
+    expect(isCallCapture({})).toBe(false)
+    expect(isCallCapture(null)).toBe(false)
+    for (const t of ['notes', 'copilot'] as const) expect(fenceCallCapture({ notes_channel_id: CHANNEL }, t)).toBe(true)
+    expect(fenceCallCapture({ notes_channel_id: null }, 'notes')).toBe(false)
+  })
+})
+
+describe('the tool map of a notes turn on a call’s capture (the real factories)', () => {
+  const stagingTools = createLiveAgentTools('u', stub, 'w', 'c', null, null)
+  const readTools = buildLiveAgentReadTools('u', stub, 'w')
+  const webTools = { web_search: { description: 'the web' } } as unknown as ToolSet
+  const build = (callCapture: boolean) =>
+    assembleLiveAgentToolSet({
+      allStagingTools: stagingTools,
+      readTools,
+      webTools,
+      turnType: 'notes',
+      assistOnly: false,
+      agentConfig: BUILTIN_ASSISTANT_TOOL_SELECTION,
+      packageBlock: null,
+      callCapture,
+    })
+
+  it('holds exactly the record’s writers and three structural reads (plus search_tools over them)', () => {
+    const { tools } = build(true)
+    expect(Object.keys(tools).filter((n) => n !== 'search_tools').sort()).toEqual(ALLOWED)
+    for (const name of WITHHELD) expect(Object.keys(tools), name).not.toContain(name)
+    expect(Object.keys(tools)).not.toContain('web_search')
+  })
+
+  it('the same ceiling the tool route and the spec re-derive', () => {
+    const { ceiling } = computeLiveAgentCeiling({ turnType: 'notes', assistOnly: false, agentConfig: BUILTIN_ASSISTANT_TOOL_SELECTION, callCapture: true })
+    expect([...ceiling].sort()).toEqual(ALLOWED)
+  })
+
+  it('an ordinary capture keeps its whole surface', () => {
+    const { tools } = build(false)
+    for (const name of ['read_email', 'get_document', 'deep_search', 'propose_mcp_call', 'search_contacts']) expect(Object.keys(tools)).toContain(name)
+    expect(Object.keys(tools)).toContain('web_search')
+  })
+})
+
+describe('the spec eve runs for a notes turn on a call’s capture (rebuilt from the capture row)', () => {
+  /** The fixture's capture, as a call's: its notes channel set. */
+  const callFixture = () => {
+    const base = meetingFixture()
+    return (q: FakeQuery) => {
+      const r = base(q)
+      if (q.table === 'captures' && q.columns.includes('is_eval') && r.data && !Array.isArray(r.data)) {
+        return { ...r, data: { ...(r.data as Record<string, unknown>), notes_channel_id: CHANNEL } }
+      }
+      return r
+    }
+  }
+  const claims = {
+    captureId: FIX.captureId,
+    workspaceId: FIX.workspaceId,
+    userId: FIX.userId,
+    currentMemberId: FIX.memberId,
+    turnType: 'notes' as const,
+    model: 'deepseek-v4-flash',
+    isEvalCapture: false,
+    allowAutoArchive: false,
+    exp: Date.now() + 60_000,
+  }
+
+  it('the fenced ceiling, no web, none of the requester’s own context', async () => {
+    const spec = await rebuildLiveAgentSpec(claims, { supabase: createFakeSupabase(callFixture()).client })
+    expect(spec).not.toBeNull()
+    expect([...spec!.ceiling].sort()).toEqual(ALLOWED)
+    expect(spec!.webAccess).toBe(false)
+  })
+
+  it('an ordinary capture’s spec is unchanged by the fence', async () => {
+    const spec = await rebuildLiveAgentSpec(claims, { supabase: createFakeSupabase(meetingFixture()).client })
+    expect(spec!.ceiling).toContain('read_email')
+    expect(spec!.ceiling).toContain('propose_mcp_call')
+  })
+})
+
+describe('propose_change on a call’s capture', () => {
+  const tools = createLiveAgentTools('u', stub, 'w', 'c', null, null, null, null, null, { callCapture: true }) as unknown as Record<
+    string,
+    { execute: (input: Record<string, unknown>, ctx: unknown) => Promise<unknown> }
+  >
+
+  it('refuses anything but a new action item, decision or milestone, before touching anything', async () => {
+    for (const [change_type, entity_type] of [
+      ['send_email', 'contact'],
+      ['update', 'action'],
+      ['assign', 'action'],
+      ['delete', 'action'],
+      ['create', 'contact'],
+      ['update', 'project'],
+    ]) {
+      const out = await tools.propose_change.execute({ change_type, entity_type, display_text: 'x' }, { toolCallId: 't', messages: [] })
+      expect(out, `${change_type}:${entity_type}`).toEqual({ success: false, error: CALL_CAPTURE_CHANGE_REFUSAL })
+    }
+  })
+})

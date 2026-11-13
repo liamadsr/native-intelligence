@@ -1,24 +1,33 @@
 /**
  * A call's live notes as the in-call panel shows them (src/lib/team-calls/
- * live-notes.ts): the agent's state read from the capture's metadata (655's
- * live_notes), the summary drawn as headings, bullets and lines with its
- * anchors and markup taken out, one plain status line, nothing drawn when
- * there is nothing to show, and a guest's lines cut down to the three fields
- * they may carry.
+ * live-notes.ts): the agent's state read from 655's live notes row ("writing"
+ * only while the running turn's lease lasts), the summary drawn as headings,
+ * bullets and lines with its anchors and markup taken out, one plain status
+ * line, nothing drawn when there is nothing to show, and a guest's lines cut
+ * down to the three fields they may carry.
  */
 import { describe, expect, it } from 'vitest'
-import { guestLinesOf, hasLiveNotes, liveNotesOf, liveNotesStateOf, liveNotesStatusLine, summaryBlocks } from '../live-notes'
+import { guestLinesOf, hasLiveNotes, liveNotesOf, liveNotesStateOf, liveNotesStatusLine, liveNotesWriting, summaryBlocks } from '../live-notes'
 
 const NOW = Date.parse('2026-11-13T15:00:00Z')
 
 describe('the agent’s state', () => {
-  it('reads 655’s live_notes, and nothing else', () => {
-    expect(liveNotesStateOf({ live_notes: { state: 'ready', at: '2026-11-13T14:58:00Z', turns: 4 } })).toEqual({ phase: 'ready', at: '2026-11-13T14:58:00Z', reason: null })
-    expect(liveNotesStateOf({ live_notes: { state: 'stopped', reason: 'bound' } })).toEqual({ phase: 'stopped', at: null, reason: 'bound' })
-    expect(liveNotesStateOf({ live_notes: { state: 'dancing' } })).toBeNull()
-    expect(liveNotesStateOf({ source: 'team_call' })).toBeNull()
+  it('reads 655’s live notes row, and nothing else', () => {
+    expect(liveNotesStateOf({ state: 'ready', state_at: '2026-11-13T14:58:00Z' })).toEqual({ phase: 'ready', at: '2026-11-13T14:58:00Z', until: null, reason: null })
+    expect(liveNotesStateOf({ state: 'stopped', reason: 'bound' })).toEqual({ phase: 'stopped', at: null, until: null, reason: 'bound' })
+    expect(liveNotesStateOf({ state: 'idle' })).toBeNull()
+    expect(liveNotesStateOf({ state: 'dancing' })).toBeNull()
     expect(liveNotesStateOf(null)).toBeNull()
-    expect(liveNotesOf({ ai_summary: null, metadata: null })).toEqual({ summary: '', state: null })
+    expect(liveNotesOf({ summary: null, state: 'idle' })).toEqual({ summary: '', state: null })
+  })
+
+  it('writing only while the running turn’s lease lasts: a dead process never shows writing for ever', () => {
+    const working = { phase: 'working' as const, at: '2026-11-13T14:56:00Z', reason: null }
+    expect(liveNotesWriting({ ...working, until: '2026-11-13T15:01:00Z' }, NOW)).toBe(true)
+    expect(liveNotesWriting({ ...working, until: '2026-11-13T14:59:00Z' }, NOW)).toBe(false)
+    expect(liveNotesStatusLine({ ...working, until: '2026-11-13T14:59:00Z' }, NOW)).toBe('Updated 4 minutes ago')
+    expect(hasLiveNotes({ summary: '', state: { ...working, until: '2026-11-13T14:59:00Z' } }, NOW)).toBe(false)
+    expect(hasLiveNotes({ summary: '', state: { ...working, until: '2026-11-13T15:01:00Z' } }, NOW)).toBe(true)
   })
 })
 

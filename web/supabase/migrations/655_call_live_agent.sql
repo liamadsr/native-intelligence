@@ -7,58 +7,95 @@
 -- arrive (src/lib/team-calls/live-turns.ts), as the capture's owner, with no
 -- device in the loop and whoever is in the call. This file is the record
 -- that keeps those turns throttled, one at a time across every app process,
--- bounded per call, and stopped at the call's end.
+-- bounded per call, stopped at the call's end, and the narrow row the people
+-- in the call read the notes from.
 -- ============================================================
---   team_call_live_agent  one row per call capture the live agent writes:
---                      its lease (the one turn running now, whichever
---                      process runs it: lease_id, lease_until), how far into
---                      the capture's transcript the turns have read
---                      (done_offset, in characters: what a turn that went
---                      through has sent; a failed turn leaves it, so its
---                      words go with the next one), how many turns ran
---                      (turns, the cost bound per call), when the last one
---                      started (the throttle), the failures (failures,
---                      failures_in_row: a run of them stops the agent for
---                      the call), and its state: 'idle' (no turn yet),
---                      'working' (a turn is running), 'ready' (the last one
---                      went through), 'failed' (the last one did not), or
---                      'stopped' (no more turns for this capture:
---                      stop_reason says why: the call ended, its capture was
---                      closed, the owner may no longer read the
---                      conversation, the bound was reached, a run of
---                      failures, or the owner's usage ran out).
+--   team_call_live_agent  one row per call capture the live agent writes
+--                      (server only). A turn has two stages, kept apart so a
+--                      queue that backs up makes the notes slower, never
+--                      stops them:
+--                        queued   the claim handed a turn to the queue
+--                                 (queued_id, queued_until): nothing more is
+--                                 offered for the capture while it waits;
+--                                 nothing is counted.
+--                        running  the queued turn began (its run started):
+--                                 lease_id, lease_until; only now is it a
+--                                 turn (turns, the bound per call) and the
+--                                 throttle's clock (last_turn_at). A queued
+--                                 turn that waited past queued_until is
+--                                 stale when it starts: skipped, never a
+--                                 failure, never a turn; the next claim
+--                                 queues a fresh one with the same words.
+--                      done_offset: how far into the capture's transcript
+--                      the turns have read (in characters: what a turn that
+--                      went through, or whose answer never came back, has
+--                      sent; a failed turn leaves it, so its words go with
+--                      the next one); done_tail: a fingerprint of the
+--                      characters just before it, so a transcript that was
+--                      rewritten under it (never expected while the
+--                      recorder fills it: every person's write is refused
+--                      then, src/lib/capture-feed/transcript.ts) starts a
+--                      fresh window rather than sending text from the
+--                      middle of a line. failures, failures_in_row: a run
+--                      of failed turns that ran stops the agent for the
+--                      call. state: 'idle', 'working', 'ready', 'failed' or
+--                      'stopped' (stop_reason: the call ended, its capture
+--                      was closed, the owner may no longer read the
+--                      conversation, the bound, a run of failures, or the
+--                      owner's usage).
+--   team_call_live_notes  what the people in the call read: per call capture
+--                      the summary as the live agent last wrote it (a copy
+--                      of captures.ai_summary, kept by a trigger), and the
+--                      agent's state (state, state_at, until: when a running
+--                      turn's lease runs out, so a dead process never shows
+--                      "writing" for ever; turns, reason). Small on purpose:
+--                      the panel follows this row over Realtime instead of
+--                      the capture's own row, which carries the whole
+--                      transcript and changes with every batch of words.
+--                      Read by a signed-in person only when they may read
+--                      the capture itself (its policy asks captures, under
+--                      the capture's own read rules, 566's conversation
+--                      fence included), so it reaches no one the capture
+--                      does not.
 --
 -- Functions (the service role's alone; definers, search_path pinned):
---   team_call_live_turn_claim(capture, ...)  may a turn start now? It locks
---     the row, checks the call (live, this capture its current one, notes
---     on), the capture (open, its owner still in the conversation and the
---     workspace) and the bound, then the throttle: not within
---     min_interval_seconds of the last turn's start, never with fewer than
---     min_chars new characters, and with fewer than ready_chars only once
---     quiet_seconds have passed. A turn that may start takes the lease for
---     lease_seconds and counts.
---   team_call_live_turn_window(capture, lease, ...)  the words the turn
---     holding the lease sends: from done_offset on (at most max_chars, cut
---     at a line's end), and up to context_chars before it as context.
---     Nothing once the lease is not this turn's; nothing once the call is
---     over, and the agent is stopped then.
---   team_call_live_turn_release(capture, lease, outcome, ...)  the turn is
---     over: 'ok' moves done_offset to what it sent; 'failed' leaves it;
---     'stopped' ends the agent for the capture. A lease that is no longer
---     this turn's (it ran out and another took it) changes nothing.
---   team_call_live_turn_busy(capture)  is a turn running now (the call's
---     finish waits for it before the end-of-meeting pass).
+--   team_call_live_turn_claim(capture, ...)  may a turn be queued now? It
+--     locks the row, checks the call (live, this capture its current one,
+--     notes on), the capture (open, its owner still in the conversation and
+--     the workspace) and the bound, refuses while a turn is queued or
+--     running, then the throttle: not within min_interval_seconds of the
+--     last turn's start, never with fewer than min_chars new characters,
+--     and with fewer than ready_chars only once quiet_seconds have passed.
+--     A turn that may be queued gets a queue mark for queue_seconds.
+--   team_call_live_turn_begin(capture, queued, ...)  the queued turn's run
+--     starts: it becomes the running turn (the lease for lease_seconds) and
+--     counts, once; 'stale' when the mark ran out or is not this one.
+--   team_call_live_turn_unqueue(capture, queued)  a turn that was never
+--     handed over (the send failed): the mark is taken back, nothing counted.
+--   team_call_live_turn_window(capture, lease, ...)  the words the running
+--     turn sends: from done_offset on (at most max_chars, cut at a line's
+--     end), and up to context_chars before it as context. Nothing once the
+--     lease is not this turn's; nothing once the call is over, and the agent
+--     is stopped then.
+--   team_call_live_turn_release(capture, lease, outcome, ...)  the running
+--     turn is over: 'ok' moves done_offset to what it sent; 'unknown' (its
+--     answer never came back: the route may still be writing) moves it too,
+--     so the words are never sent twice, and keeps the lease to its end, so
+--     the call's finish still waits for it; 'failed' leaves it; 'stopped'
+--     ends the agent for the capture. A lease that is no longer this turn's
+--     changes nothing ('stale').
+--   team_call_live_turn_busy(capture)  is a turn RUNNING now (a queued one
+--     is not: the call's finish waits only for a turn that can still write).
 --
--- What the people who can read the capture see of it: captures.metadata's
--- live_notes key ({ state, at, turns, reason }), written by claim and
--- release, so it reaches a reader's screen with the capture's row over
--- Realtime, as the fed transcript and the summary do, fenced as the capture
--- is (566's policy). The notes themselves are the capture's summary, which
--- the live agent's own tools write.
---
--- RLS on the new table; no client has a grant on it. Additive. Idempotent.
--- Safe on a live database with the deployed app running: one new empty
--- table and new functions; the deployed app never calls them. No
+-- RLS on both new tables; team_call_live_agent has no client grant;
+-- team_call_live_notes is the signed-in person's to read only (SELECT, its
+-- one policy), published to Realtime. Additive. Idempotent. Safe on a live
+-- database with the deployed app running: two new empty tables, a trigger on
+-- captures that acts only on a call's capture with a live notes row (none
+-- until the switch is on), and new functions the deployed app never calls.
+-- The new tables' foreign keys and the trigger take a brief lock on captures,
+-- team_call and workspace: apply it with no call live (lock_timeout bounds
+-- the wait to 5 s; past it the file rolls back and can be applied again). No
 -- backslashes anywhere in this file (one MCP transport decodes escapes).
 -- ------------------------------------------------------------
 
@@ -76,12 +113,16 @@ create table if not exists public.team_call_live_agent (
   failures integer not null default 0 check (failures >= 0),
   failures_in_row integer not null default 0 check (failures_in_row >= 0),
   done_offset integer not null default 0 check (done_offset >= 0),
+  done_tail text,
+  queued_id uuid,
+  queued_until timestamptz,
   lease_id uuid,
   lease_until timestamptz,
   last_turn_at timestamptz,
   last_ok_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  constraint team_call_live_agent_queue check ((queued_id is null) = (queued_until is null)),
   constraint team_call_live_agent_lease check ((lease_id is null) = (lease_until is null)),
   constraint team_call_live_agent_stopped check ((state = 'stopped') = (stop_reason is not null))
 );
@@ -92,23 +133,85 @@ revoke all on table public.team_call_live_agent from anon, authenticated;
 grant select, insert, update, delete on table public.team_call_live_agent to service_role;
 
 comment on table public.team_call_live_agent is
-  'The live agent''s turns on a call''s capture, run by the server as the words arrive (655): the lease, the throttle, the bound, the stop. Server only.';
+  'The live agent''s turns on a call''s capture, run by the server as the words arrive (655): queued and running turns, the throttle, the bound, the stop. Server only.';
 
--- What a reader of the capture sees of the agent: merged into the capture's metadata (never
--- replacing it), so it travels with the row over Realtime.
-create or replace function public.team_call_live_notes_stamp(target_capture uuid, notes_state text, turn_count integer, reason text)
+create table if not exists public.team_call_live_notes (
+  capture_id uuid primary key references public.captures(id) on delete cascade,
+  workspace_id uuid not null references public.workspace(id) on delete cascade,
+  summary text not null default '',
+  state text not null default 'idle' check (state in ('idle', 'working', 'ready', 'failed', 'stopped')),
+  state_at timestamptz not null default now(),
+  until timestamptz,
+  turns integer not null default 0 check (turns >= 0),
+  reason text check (reason is null or char_length(reason) <= 40),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.team_call_live_notes enable row level security;
+revoke all on table public.team_call_live_notes from anon, authenticated;
+grant select on table public.team_call_live_notes to authenticated;
+grant select, insert, update, delete on table public.team_call_live_notes to service_role;
+
+-- Read only by someone who may read the capture itself: the subquery runs under the capture's own
+-- read policies as the reader (566's conversation fence included), so the notes reach no one the
+-- capture does not, and lose a reader the moment the capture does.
+drop policy if exists team_call_live_notes_read on public.team_call_live_notes;
+create policy team_call_live_notes_read on public.team_call_live_notes
+  for select to authenticated
+  using (exists (select 1 from public.captures c where c.id = team_call_live_notes.capture_id));
+
+comment on table public.team_call_live_notes is
+  'A call''s shared live notes as the people in it read them (655): the summary the live agent wrote and its state. Read only by who may read the capture.';
+
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'team_call_live_notes') then
+      alter publication supabase_realtime add table public.team_call_live_notes;
+    end if;
+  end if;
+end $$;
+
+-- The agent's state, as the readers see it (the narrow row; made the first time, with the summary).
+create or replace function public.team_call_live_notes_stamp(target_capture uuid, notes_state text, notes_until timestamptz, turn_count integer, reason text)
 returns void
 language sql
 security definer
 set search_path = public, pg_temp
 as $$
-  update public.captures x
-     set metadata = coalesce(x.metadata, '{}'::jsonb)
-                    || jsonb_build_object('live_notes', jsonb_strip_nulls(jsonb_build_object('state', notes_state, 'at', now(), 'turns', turn_count, 'reason', reason)))
-   where x.id = target_capture;
+  insert into public.team_call_live_notes (capture_id, workspace_id, summary, state, state_at, until, turns, reason, updated_at)
+  select x.id, x.workspace_id, coalesce(x.ai_summary, ''), notes_state, now(), notes_until, turn_count, reason, now()
+    from public.captures x
+   where x.id = target_capture
+  on conflict (capture_id) do update
+     set state = excluded.state, state_at = excluded.state_at, until = excluded.until,
+         turns = excluded.turns, reason = excluded.reason, updated_at = excluded.updated_at;
 $$;
 
--- Stop the agent for a capture, once (the row locked by the caller).
+-- The summary the live agent writes on a call's capture, copied to the narrow row the readers follow.
+-- Only a call's capture (notes_channel_id) that has a live notes row: nothing for any other capture.
+create or replace function public.team_call_live_notes_summary_sync()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  update public.team_call_live_notes n
+     set summary = coalesce(new.ai_summary, ''), updated_at = now()
+   where n.capture_id = new.id;
+  return new;
+end;
+$$;
+
+drop trigger if exists team_call_live_notes_summary_sync on public.captures;
+create trigger team_call_live_notes_summary_sync
+  after update of ai_summary on public.captures
+  for each row
+  when (new.notes_channel_id is not null and old.ai_summary is distinct from new.ai_summary)
+  execute function public.team_call_live_notes_summary_sync();
+
+-- Stop the agent for a capture, once.
 create or replace function public.team_call_live_turn_stop(target_capture uuid, reason text)
 returns integer
 language plpgsql
@@ -119,13 +222,50 @@ declare
   n integer;
 begin
   update public.team_call_live_agent a
-     set state = 'stopped', stop_reason = left(reason, 40), lease_id = null, lease_until = null, updated_at = now()
+     set state = 'stopped', stop_reason = left(reason, 40), lease_id = null, lease_until = null,
+         queued_id = null, queued_until = null, updated_at = now()
    where a.capture_id = target_capture and a.state <> 'stopped'
   returning a.turns into n;
   if n is not null then
-    perform public.team_call_live_notes_stamp(target_capture, 'stopped', n, left(reason, 40));
+    perform public.team_call_live_notes_stamp(target_capture, 'stopped', null, n, left(reason, 40));
   end if;
   return coalesce(n, 0);
+end;
+$$;
+
+-- Why no turn may run on this capture any more ('call_ended', 'owner_out'), or null. The row is locked
+-- by the caller; the call is the capture's (587's record of every capture a call made).
+create or replace function public.team_call_live_turn_unwanted(target_capture uuid, call_ref uuid)
+returns text
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  c public.team_call%rowtype;
+  cap_workspace uuid;
+  cap_owner uuid;
+  cap_ended timestamptz;
+  cap_locked boolean;
+  cap_owner_out boolean;
+begin
+  select * into c from public.team_call t where t.id = call_ref;
+  select x.workspace_id, x.user_id, x.ended_at, coalesce(x.is_transcript_locked, false), coalesce(x.notes_owner_out, false)
+    into cap_workspace, cap_owner, cap_ended, cap_locked, cap_owner_out
+    from public.captures x
+   where x.id = target_capture;
+  if c.id is null or cap_workspace is null or c.status <> 'live' or c.capture_id is distinct from target_capture
+     or cap_ended is not null or cap_locked then
+    return 'call_ended';
+  end if;
+  -- A turn runs as the capture's owner: one who may no longer read the conversation (568), or who
+  -- left the workspace, writes nothing more into it.
+  if cap_owner is null or cap_owner_out
+     or not exists (select 1 from public.member m where m.user_id = cap_owner and m.workspace_id = cap_workspace) then
+    return 'owner_out';
+  end if;
+  return null;
 end;
 $$;
 
@@ -136,7 +276,7 @@ create or replace function public.team_call_live_turn_claim(
   ready_chars integer,
   quiet_seconds integer,
   max_turns integer,
-  lease_seconds integer
+  queue_seconds integer
 )
 returns table (outcome text, lease uuid, turn_no integer)
 language plpgsql
@@ -147,17 +287,13 @@ as $$
 declare
   c public.team_call%rowtype;
   cap_workspace uuid;
-  cap_owner uuid;
-  cap_ended timestamptz;
-  cap_locked boolean;
-  cap_owner_out boolean;
   cap_length integer;
   r public.team_call_live_agent%rowtype;
+  unwanted text;
   fresh integer;
   since double precision;
   made uuid;
 begin
-  -- The call this capture is of (587's record of every capture a call made).
   select t.* into c
     from public.team_call_capture tc
     join public.team_call t on t.id = tc.call_id
@@ -168,8 +304,7 @@ begin
     return query select 'not_a_call'::text, null::uuid, 0;
     return;
   end if;
-  select x.workspace_id, x.user_id, x.ended_at, coalesce(x.is_transcript_locked, false), coalesce(x.notes_owner_out, false), char_length(coalesce(x.transcript, ''))
-    into cap_workspace, cap_owner, cap_ended, cap_locked, cap_owner_out, cap_length
+  select x.workspace_id, char_length(coalesce(x.transcript, '')) into cap_workspace, cap_length
     from public.captures x
    where x.id = target_capture;
   if cap_workspace is null then
@@ -186,18 +321,9 @@ begin
     return query select 'stopped'::text, null::uuid, r.turns;
     return;
   end if;
-  -- The call is over, or this capture is no longer the call's (closed by hand, or another round's):
-  -- no turn ever again for it.
-  if c.status <> 'live' or c.capture_id is distinct from target_capture or cap_ended is not null or cap_locked then
-    perform public.team_call_live_turn_stop(target_capture, 'call_ended');
-    return query select 'stopped'::text, null::uuid, r.turns;
-    return;
-  end if;
-  -- A turn runs as the capture's owner: one who may no longer read the conversation (568), or who
-  -- left the workspace, writes nothing more into it.
-  if cap_owner is null or cap_owner_out
-     or not exists (select 1 from public.member m where m.user_id = cap_owner and m.workspace_id = cap_workspace) then
-    perform public.team_call_live_turn_stop(target_capture, 'owner_out');
+  unwanted := public.team_call_live_turn_unwanted(target_capture, c.id);
+  if unwanted is not null then
+    perform public.team_call_live_turn_stop(target_capture, unwanted);
     return query select 'stopped'::text, null::uuid, r.turns;
     return;
   end if;
@@ -211,12 +337,15 @@ begin
     return query select 'notes_off'::text, null::uuid, r.turns;
     return;
   end if;
-  if r.lease_until is not null and r.lease_until > now() then
+  -- One at a time: a turn running, or one waiting in the queue.
+  if (r.lease_until is not null and r.lease_until > now()) or (r.queued_until is not null and r.queued_until > now()) then
     return query select 'busy'::text, null::uuid, r.turns;
     return;
   end if;
 
-  fresh := cap_length - r.done_offset;
+  -- A transcript shorter than where the turns stopped was rewritten under them: all of it is new
+  -- (the window starts it afresh, team_call_live_turn_window).
+  fresh := case when cap_length < r.done_offset then cap_length else cap_length - r.done_offset end;
   since := extract(epoch from (now() - coalesce(r.last_turn_at, r.created_at)));
   if r.last_turn_at is not null and since < min_interval_seconds then
     return query select 'too_soon'::text, null::uuid, r.turns;
@@ -233,16 +362,94 @@ begin
 
   made := gen_random_uuid();
   update public.team_call_live_agent a
-     set lease_id = made,
+     set queued_id = made,
+         queued_until = now() + make_interval(secs => greatest(queue_seconds, 60)),
+         updated_at = now()
+   where a.capture_id = target_capture;
+  return query select 'queued'::text, made, r.turns;
+end;
+$$;
+
+create or replace function public.team_call_live_turn_begin(target_capture uuid, queued uuid, lease_seconds integer, max_turns integer)
+returns table (outcome text, turn_no integer)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+#variable_conflict use_column
+declare
+  r public.team_call_live_agent%rowtype;
+  unwanted text;
+begin
+  select a.* into r from public.team_call_live_agent a where a.capture_id = target_capture for update;
+  if not found then
+    return query select 'stale'::text, 0;
+    return;
+  end if;
+  if r.state = 'stopped' then
+    return query select 'stopped'::text, r.turns;
+    return;
+  end if;
+  -- Not this mark (another one, or this one already began: a run that starts twice sends once), or
+  -- it waited too long in the queue: skipped, never counted, never a failure.
+  if r.queued_id is distinct from queued or r.queued_until <= now() then
+    if r.queued_id = queued then
+      update public.team_call_live_agent a set queued_id = null, queued_until = null, updated_at = now() where a.capture_id = target_capture;
+    end if;
+    return query select 'stale'::text, r.turns;
+    return;
+  end if;
+  unwanted := public.team_call_live_turn_unwanted(target_capture, r.call_id);
+  if unwanted is not null then
+    perform public.team_call_live_turn_stop(target_capture, unwanted);
+    return query select 'stopped'::text, r.turns;
+    return;
+  end if;
+  if r.turns >= max_turns then
+    perform public.team_call_live_turn_stop(target_capture, 'bound');
+    return query select 'stopped'::text, r.turns;
+    return;
+  end if;
+  update public.team_call_live_agent a
+     set lease_id = queued,
          lease_until = now() + make_interval(secs => greatest(lease_seconds, 30)),
+         queued_id = null,
+         queued_until = null,
          last_turn_at = now(),
          turns = a.turns + 1,
          state = 'working',
          updated_at = now()
    where a.capture_id = target_capture;
-  perform public.team_call_live_notes_stamp(target_capture, 'working', r.turns + 1, null);
-  return query select 'claimed'::text, made, r.turns + 1;
+  perform public.team_call_live_notes_stamp(target_capture, 'working', now() + make_interval(secs => greatest(lease_seconds, 30)), r.turns + 1, null);
+  return query select 'running'::text, r.turns + 1;
 end;
+$$;
+
+create or replace function public.team_call_live_turn_unqueue(target_capture uuid, queued uuid)
+returns boolean
+language sql
+security definer
+set search_path = public, pg_temp
+as $$
+  with taken as (
+    update public.team_call_live_agent a
+       set queued_id = null, queued_until = null, updated_at = now()
+     where a.capture_id = target_capture and a.queued_id = queued
+    returning 1
+  )
+  select exists (select 1 from taken);
+$$;
+
+-- The 200 characters before an offset, as a fingerprint (md5) of where the turns stopped reading.
+create or replace function public.team_call_live_turn_tail(tx text, at_offset integer)
+returns text
+language sql
+immutable
+security definer
+set search_path = public, pg_temp
+as $$
+  select case when at_offset <= 0 then null
+              else md5(substring(tx from greatest(1, at_offset - 199) for least(200, at_offset))) end;
 $$;
 
 create or replace function public.team_call_live_turn_window(target_capture uuid, turn_lease uuid, max_chars integer, context_chars integer)
@@ -259,8 +466,9 @@ declare
   ctx text;
   cut integer;
   start_at integer;
+  done integer;
 begin
-  select a.* into r from public.team_call_live_agent a where a.capture_id = target_capture;
+  select a.* into r from public.team_call_live_agent a where a.capture_id = target_capture for update;
   if not found or r.lease_id is distinct from turn_lease or r.lease_until <= now() then
     return;
   end if;
@@ -277,23 +485,38 @@ begin
     return;
   end if;
 
-  w := substring(tx from r.done_offset + 1 for greatest(max_chars, 1));
+  -- The transcript is appended to only, while the recorder fills it (no person may write it then).
+  -- Should it ever have been rewritten under the turns (shorter than where they stopped, or other
+  -- text before that point), start a fresh window at its newest max_chars, from a whole line, rather
+  -- than send text from the middle of one.
+  done := r.done_offset;
+  if done > 0 and (char_length(tx) < done or public.team_call_live_turn_tail(tx, done) is distinct from r.done_tail) then
+    done := greatest(0, char_length(tx) - greatest(max_chars, 1));
+    if done > 0 and strpos(substring(tx from done + 1), chr(10)) > 0 then
+      done := done + strpos(substring(tx from done + 1), chr(10));
+    end if;
+    update public.team_call_live_agent a
+       set done_offset = done, done_tail = public.team_call_live_turn_tail(tx, done), updated_at = now()
+     where a.capture_id = target_capture;
+  end if;
+
+  w := substring(tx from done + 1 for greatest(max_chars, 1));
   -- More waits beyond the cap: end at the last whole line, so no line is split between two turns.
-  if char_length(tx) - r.done_offset > char_length(w) then
+  if char_length(tx) - done > char_length(w) then
     cut := strpos(reverse(w), chr(10));
     if cut > 0 and cut < char_length(w) then
       w := left(w, char_length(w) - cut + 1);
     end if;
   end if;
 
-  start_at := greatest(0, r.done_offset - greatest(context_chars, 0));
-  ctx := substring(tx from start_at + 1 for r.done_offset - start_at);
+  start_at := greatest(0, done - greatest(context_chars, 0));
+  ctx := substring(tx from start_at + 1 for done - start_at);
   -- Context cut mid-line starts at the next whole line.
   if start_at > 0 and strpos(ctx, chr(10)) > 0 then
     ctx := substring(ctx from strpos(ctx, chr(10)) + 1);
   end if;
 
-  return query select r.done_offset, r.done_offset + char_length(w), ctx, w;
+  return query select done, done + char_length(w), ctx, w;
 end;
 $$;
 
@@ -313,9 +536,10 @@ as $$
 #variable_conflict use_column
 declare
   r public.team_call_live_agent%rowtype;
-  cap_length integer;
+  tx text;
+  read_to integer;
 begin
-  if turn_outcome not in ('ok', 'failed', 'stopped') then
+  if turn_outcome not in ('ok', 'unknown', 'failed', 'stopped') then
     raise exception 'live turns: unknown outcome' using errcode = '22023';
   end if;
   select a.* into r from public.team_call_live_agent a where a.capture_id = target_capture for update;
@@ -328,18 +552,22 @@ begin
     return 'stopped';
   end if;
 
-  if turn_outcome = 'ok' then
-    select char_length(coalesce(x.transcript, '')) into cap_length from public.captures x where x.id = target_capture;
+  if turn_outcome in ('ok', 'unknown') then
+    select coalesce(x.transcript, '') into tx from public.captures x where x.id = target_capture;
+    read_to := greatest(r.done_offset, least(coalesce(sent_to, r.done_offset), char_length(coalesce(tx, ''))));
+    -- 'unknown': the turn's answer never came back, and the route may still be writing. Its words
+    -- count as sent (never twice), and its lease stays to its end, so the call's finish waits.
     update public.team_call_live_agent a
-       set done_offset = greatest(a.done_offset, least(coalesce(sent_to, a.done_offset), coalesce(cap_length, a.done_offset))),
+       set done_offset = read_to,
+           done_tail = public.team_call_live_turn_tail(tx, read_to),
            failures_in_row = 0,
-           last_ok_at = now(),
+           last_ok_at = case when turn_outcome = 'ok' then now() else a.last_ok_at end,
            state = 'ready',
-           lease_id = null,
-           lease_until = null,
+           lease_id = case when turn_outcome = 'ok' then null else a.lease_id end,
+           lease_until = case when turn_outcome = 'ok' then null else a.lease_until end,
            updated_at = now()
      where a.capture_id = target_capture;
-    perform public.team_call_live_notes_stamp(target_capture, 'ready', r.turns, null);
+    perform public.team_call_live_notes_stamp(target_capture, 'ready', null, r.turns, null);
     return 'ready';
   end if;
 
@@ -359,7 +587,7 @@ begin
          lease_until = null,
          updated_at = now()
    where a.capture_id = target_capture;
-  perform public.team_call_live_notes_stamp(target_capture, 'failed', r.turns, null);
+  perform public.team_call_live_notes_stamp(target_capture, 'failed', null, r.turns, null);
   return 'failed';
 end;
 $$;
@@ -377,15 +605,25 @@ as $$
   );
 $$;
 
-revoke all on function public.team_call_live_notes_stamp(uuid, text, integer, text) from public, anon, authenticated;
+revoke all on function public.team_call_live_notes_stamp(uuid, text, timestamptz, integer, text) from public, anon, authenticated;
+revoke all on function public.team_call_live_notes_summary_sync() from public, anon, authenticated;
 revoke all on function public.team_call_live_turn_stop(uuid, text) from public, anon, authenticated;
+revoke all on function public.team_call_live_turn_unwanted(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.team_call_live_turn_claim(uuid, integer, integer, integer, integer, integer, integer) from public, anon, authenticated;
+revoke all on function public.team_call_live_turn_begin(uuid, uuid, integer, integer) from public, anon, authenticated;
+revoke all on function public.team_call_live_turn_unqueue(uuid, uuid) from public, anon, authenticated;
+revoke all on function public.team_call_live_turn_tail(text, integer) from public, anon, authenticated;
 revoke all on function public.team_call_live_turn_window(uuid, uuid, integer, integer) from public, anon, authenticated;
 revoke all on function public.team_call_live_turn_release(uuid, uuid, text, integer, text, integer) from public, anon, authenticated;
 revoke all on function public.team_call_live_turn_busy(uuid) from public, anon, authenticated;
-grant execute on function public.team_call_live_notes_stamp(uuid, text, integer, text) to service_role;
+grant execute on function public.team_call_live_notes_stamp(uuid, text, timestamptz, integer, text) to service_role;
+grant execute on function public.team_call_live_notes_summary_sync() to service_role;
 grant execute on function public.team_call_live_turn_stop(uuid, text) to service_role;
+grant execute on function public.team_call_live_turn_unwanted(uuid, uuid) to service_role;
 grant execute on function public.team_call_live_turn_claim(uuid, integer, integer, integer, integer, integer, integer) to service_role;
+grant execute on function public.team_call_live_turn_begin(uuid, uuid, integer, integer) to service_role;
+grant execute on function public.team_call_live_turn_unqueue(uuid, uuid) to service_role;
+grant execute on function public.team_call_live_turn_tail(text, integer) to service_role;
 grant execute on function public.team_call_live_turn_window(uuid, uuid, integer, integer) to service_role;
 grant execute on function public.team_call_live_turn_release(uuid, uuid, text, integer, text, integer) to service_role;
 grant execute on function public.team_call_live_turn_busy(uuid) to service_role;

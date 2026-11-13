@@ -764,12 +764,13 @@ def check_team_call_recorder(env, _opts):
 def check_needs_recorder(name, what):
     """`on` or empty, and `on` only with the call recorder on: the app reads the switch only
     where the recorder takes the notes (web/src/lib/team-calls/live-turns.ts, event-link.ts).
-    Whether its migration is applied is not visible from here; the step's check is."""
+    Read as the app reads it (trimmed, any case: `ON` is on there too). Whether its
+    migration is applied is not visible from here; the step's check is."""
     def check(env, _opts):
         value = env[name].strip()
-        if value != "on":
+        if value.lower() != "on":
             return False, "is %r: only on, or empty for off" % (value[:12],)
-        if env.get("TEAM_CALL_RECORDER", "").strip() != "on":
+        if env.get("TEAM_CALL_RECORDER", "").strip().lower() != "on":
             return False, "on without TEAM_CALL_RECORDER=on: %s only where the call recorder takes the notes" % what
         return None, None
     return check

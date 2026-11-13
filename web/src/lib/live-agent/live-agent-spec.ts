@@ -68,6 +68,7 @@ import {
 } from '@/lib/live-agent/turn-composition'
 import type { LiveAgentTokenClaims } from '@/lib/live-agent/live-agent-run-token'
 import { buildLiveAgentProductFactsBlock } from '@/lib/live-agent/product-facts'
+import { fenceCallCapture } from '@/lib/live-agent/call-capture-fence'
 
 /** One advertised tool, as it rides the spec wire. */
 export interface LiveAgentCeilingTool {
@@ -131,7 +132,7 @@ export interface LiveAgentSpec {
  * `captures_select` predicate that RLS applies to the route's user session.
  */
 const CAPTURE_COLUMNS =
-  'id, title, ai_summary, team_id, project_id, participants, user_id, package_ids, is_eval, visibility'
+  'id, title, ai_summary, team_id, project_id, participants, user_id, package_ids, is_eval, visibility, notes_channel_id'
 
 export interface LiveAgentCaptureRow {
   id: string
@@ -145,6 +146,8 @@ export interface LiveAgentCaptureRow {
   is_eval: boolean | null
   /** 'workspace' | 'private' (mig 223; NOT NULL, default 'workspace'). */
   visibility: string | null
+  /** Set on a call's capture only (566; the server's alone): ./call-capture-fence.ts. */
+  notes_channel_id?: string | null
 }
 
 export interface LiveAgentTurnState {
@@ -164,6 +167,8 @@ export interface LiveAgentTurnState {
   batchUserNotes: string
   /** The attached-package manifest (null when none, batch, or not loaded). */
   packageBlock: string | null
+  /** The turn is fenced on a call's capture (./call-capture-fence.ts), read from the row. */
+  callCapture: boolean
 }
 
 export interface LoadTurnStateOptions {
@@ -250,7 +255,8 @@ export async function loadLiveAgentTurnState(
     batchUserNotes = ((tx as { user_notes?: string | null } | null)?.user_notes || '').trim()
   }
 
-  const packageBlock = opts.packages
+  const callCapture = fenceCallCapture(capture, claims.turnType)
+  const packageBlock = opts.packages && !callCapture
     ? await buildLiveAgentPackageBlock(supabase, claims.userId, capture.package_ids ?? [], isBatch)
     : null
 
@@ -280,6 +286,7 @@ export async function loadLiveAgentTurnState(
     assistOnly,
     batchUserNotes,
     packageBlock,
+    callCapture,
   }
 }
 
@@ -344,11 +351,11 @@ function describe(name: string, entry: CatalogEntry | undefined): string {
  * rows come back beside the catalog.
  */
 export async function loadLiveLookupsForTurn(
-  state: Pick<LiveAgentTurnState, 'supabase' | 'claims' | 'isEvalCapture'>,
+  state: Pick<LiveAgentTurnState, 'supabase' | 'claims' | 'isEvalCapture'> & { callCapture?: boolean },
   opts: { credentials?: boolean } = {},
 ): Promise<{ lookups: LiveLookupTool[]; servers: ConnectedMcpServerRow[] }> {
   const { claims } = state
-  if (claims.mcpLookups !== true) return { lookups: [], servers: [] }
+  if (claims.mcpLookups !== true || state.callCapture) return { lookups: [], servers: [] }
   if (!liveLookupsAllowed({ turnType: claims.turnType, isEvalCapture: state.isEvalCapture })) {
     return { lookups: [], servers: [] }
   }
@@ -395,7 +402,8 @@ export async function rebuildLiveAgentSpec(
   // the search model, agents/live-agent/lib/chatgpt-plan-model.ts), so no
   // Gateway switch takes it away; an eval capture still has none.
   const planModel = planModelFromSlug(claims.model)
-  const webAccess = planModel !== null ? !state.isEvalCapture : liveAgentWebAccess(state.isEvalCapture)
+  // A call's capture reads nothing from the web (./call-capture-fence.ts).
+  const webAccess = state.callCapture ? false : planModel !== null ? !state.isEvalCapture : liveAgentWebAccess(state.isEvalCapture)
   const composed = composeLiveAgentSystemPrompt({
     recipe: state.recipe,
     assistOnly: state.assistOnly,
@@ -411,7 +419,7 @@ export async function rebuildLiveAgentSpec(
   // composed prefix above stays the one the route composed. A batch pass
   // extracts what was said and states nothing, so it reads none. '' when the
   // workspace has no canon (the frozen fixture's workspaces have none).
-  const canon = state.isBatch
+  const canon = state.isBatch || state.callCapture
     ? ''
     : await canonRegistrySection(state.supabase, {
         workspaceId: claims.workspaceId,
@@ -428,6 +436,7 @@ export async function rebuildLiveAgentSpec(
     assistOnly: state.assistOnly,
     agentConfig: personaToolSelection(state.recipe),
     mcpLookups: lookups.map((l) => l.name),
+    callCapture: state.callCapture,
   })
   const coreToolNames = computeLiveAgentCoreToolNames(ceiling, state.packageBlock !== null)
 
@@ -546,12 +555,14 @@ export async function rebuildLiveAgentContextBlock(
     claims.captureId,
     state.currentMemberName,
     claims.userId,
-    { talks: !isBatch && !state.notesRole },
+    { talks: !isBatch && !state.notesRole, callCapture: state.callCapture },
   )
-  const externalMcpBlock = await buildExternalMcpContext(supabase, claims.userId, {
-    assistOnly: state.assistOnly,
-    lookups: liveLookupsAllowed({ turnType: claims.turnType, isEvalCapture: state.isEvalCapture }),
-  })
+  const externalMcpBlock = state.callCapture
+    ? ''
+    : await buildExternalMcpContext(supabase, claims.userId, {
+        assistOnly: state.assistOnly,
+        lookups: liveLookupsAllowed({ turnType: claims.turnType, isEvalCapture: state.isEvalCapture }),
+      })
 
   const captureState = serializeCaptureForPrompt(
     {

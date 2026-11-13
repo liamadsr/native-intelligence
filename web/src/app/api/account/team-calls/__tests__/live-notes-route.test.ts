@@ -18,7 +18,7 @@ const CHANNEL = '33333333-3333-4333-8333-333333333333'
 const ROSA = 'user-rosa'
 const THEO = 'user-theo'
 
-const h = vi.hoisted(() => ({ user: 'user-rosa', reads: [] as string[], service: 0 }))
+const h = vi.hoisted(() => ({ user: 'user-rosa', reads: [] as string[], service: 0, noRow: false }))
 
 /** The person's client: rows as RLS shows them to that person (Rosa is in the conversation; Theo is not). */
 function personClient() {
@@ -34,11 +34,9 @@ function personClient() {
           if (table === 'team_call')
             return { data: { id: CALL, channel_id: CHANNEL, status: 'live', capture_id: CAPTURE, ringing: [], declined: [], room: 'r', workspace_id: 'ws' }, error: null }
           if (table === 'team_chat_channel') return { data: { kind: 'meeting', archived_at: null }, error: null }
-          if (table === 'captures')
-            return {
-              data: { id: CAPTURE, ai_summary: '## Summary\nThe pilot starts Monday.', metadata: { source: 'team_call', live_notes: { state: 'ready', at: '2026-11-13T14:58:00Z', turns: 3 } } },
-              error: null,
-            }
+          if (table === 'team_call_live_notes')
+            return { data: h.noRow ? null : { summary: '## Summary\nThe pilot starts Monday.', state: 'ready', state_at: '2026-11-13T14:58:00Z', until: null, reason: null }, error: null }
+          if (table === 'captures') return { data: { id: CAPTURE, ai_summary: 'Before any turn.' }, error: null }
           return { data: null, error: null }
         },
       }
@@ -81,9 +79,20 @@ describe('the call’s live notes', () => {
     expect(await res.json()).toEqual({
       captureId: CAPTURE,
       summary: '## Summary\nThe pilot starts Monday.',
-      state: { phase: 'ready', at: '2026-11-13T14:58:00Z', reason: null },
+      state: { phase: 'ready', at: '2026-11-13T14:58:00Z', until: null, reason: null },
     })
-    expect(h.reads).toContain('captures')
+    // The small notes row, not the capture's whole row.
+    expect(h.reads).toContain('team_call_live_notes')
+    expect(h.reads).not.toContain('captures')
+    expect(h.service).toBe(0)
+  })
+
+  it('before the first turn: the capture’s own summary, as the person reads it', async () => {
+    h.user = ROSA
+    h.noRow = true
+    const body = await (await GET(new Request('https://app.test/x'), params())).json()
+    h.noRow = false
+    expect(body).toEqual({ captureId: CAPTURE, summary: 'Before any turn.', state: null })
     expect(h.service).toBe(0)
   })
 

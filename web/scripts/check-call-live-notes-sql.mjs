@@ -55,8 +55,17 @@ let checks = 0
 const ok = (cond, msg) => { assert.ok(cond, msg); checks++ }
 const eq = (a, b, msg) => { assert.deepEqual(a, b, msg); checks++ }
 const one = async (sql, params = []) => (await db.query(sql, params)).rows[0]
-const claim = (min = 20, minChars = 60, ready = 600, quiet = 30, max = 300, lease = 300) =>
-  one(`select * from team_call_live_turn_claim($1, $2, $3, $4, $5, $6, $7)`, [CAPTURE, min, minChars, ready, quiet, max, lease])
+const claim = (capture = CAPTURE) => one(`select * from team_call_live_turn_claim($1, 20, 60, 600, 30, 300, 600)`, [capture])
+const begin = (lease, capture = CAPTURE) => one(`select * from team_call_live_turn_begin($1, $2, 300, 300)`, [capture, lease])
+const release = (lease, outcome, sentTo, capture = CAPTURE) =>
+  one(`select team_call_live_turn_release($1, $2, $3, $4, null, 3) as s`, [capture, lease, outcome, sentTo])
+/** Queue a turn and start its run at once (no queue in between). */
+const turn = async (capture = CAPTURE) => {
+  const q = await claim(capture)
+  if (q.outcome !== 'queued') return q
+  const b = await begin(q.lease, capture)
+  return { ...b, lease: q.lease }
+}
 const agent = () => one(`select * from team_call_live_agent where capture_id = $1`, [CAPTURE])
 const say = (text) => db.query(`update captures set transcript = coalesce(transcript, '') || $2 where id = $1`, [CAPTURE, text])
 const line = (who, n) => `[${who}] ${'word '.repeat(n).trim()}\n`
@@ -91,7 +100,7 @@ try {
       starts_at timestamptz, ends_at timestamptz, revoked_at timestamptz, booking_id uuid, calendar_event_id text,
       calendar_account_id uuid, calendar_event_kind text);
     create table meeting_guest (id uuid primary key, meeting_id uuid, workspace_id uuid, channel_id uuid, name text, state text,
-      call_id uuid, in_call boolean default false, first_joined_at timestamptz, decided_at timestamptz, requested_at timestamptz default now());
+      call_id uuid, in_call boolean default false, first_joined_at timestamptz, left_at timestamptz, decided_at timestamptz, requested_at timestamptz default now());
     create table capture_feed_segment (session_id uuid, capture_id uuid, key text, speaker_key text, said_at timestamptz, text text, primary key (session_id, key));
     create table capture_feed_speaker (capture_id uuid, speaker_key text, label text, primary key (capture_id, speaker_key));
     create table entity_access (entity_type text, entity_id uuid, grantee_kind text, grantee_channel_id uuid, level text);
@@ -117,16 +126,24 @@ try {
   }
 
   // ── The catalogue's rules ──────────────────────────────────────────────────
-  const rls = await one(`select relrowsecurity from pg_class where relname = 'team_call_live_agent'`)
-  ok(rls.relrowsecurity === true, 'RLS on the new table')
-  ok(!!(await one(`select 1 as x from information_schema.columns where table_name = 'team_call_live_agent' and column_name = 'workspace_id'`)), 'workspace_id on the new table')
-  for (const role of ['anon', 'authenticated']) {
-    const g = await db.query(`select privilege_type from information_schema.role_table_grants where table_name = 'team_call_live_agent' and grantee = $1`, [role])
-    eq(g.rows.length, 0, `${role} has no grant on the new table`)
+  for (const table of ['team_call_live_agent', 'team_call_live_notes']) {
+    const rls = await one(`select relrowsecurity from pg_class where relname = $1`, [table])
+    ok(rls.relrowsecurity === true, `RLS on ${table}`)
+    ok(!!(await one(`select 1 as x from information_schema.columns where table_name = $1 and column_name = 'workspace_id'`, [table])), `workspace_id on ${table}`)
+    const anon = await db.query(`select privilege_type from information_schema.role_table_grants where table_name = $1 and grantee = 'anon'`, [table])
+    eq(anon.rows.length, 0, `anon has no grant on ${table}`)
+    const auth = (await db.query(`select privilege_type from information_schema.role_table_grants where table_name = $1 and grantee = 'authenticated'`, [table])).rows.map((r) => r.privilege_type)
+    eq(auth, table === 'team_call_live_notes' ? ['SELECT'] : [], `authenticated: ${table === 'team_call_live_notes' ? 'SELECT at most' : 'nothing'} on ${table}`)
+    const uniques = await db.query(`select indexdef from pg_indexes where tablename = $1 and indexdef ilike '%unique%' and indexdef ilike '%workspace_id%'`, [table])
+    eq(uniques.rows.length, 0, `no unique index carries workspace_id on ${table}`)
+    const policies = (await db.query(`select cmd from pg_policies where tablename = $1`, [table])).rows.map((r) => r.cmd)
+    ok(policies.every((c) => c === 'SELECT'), `every policy on ${table} is a SELECT policy`)
   }
-  const uniques = await db.query(`select indexdef from pg_indexes where tablename = 'team_call_live_agent' and indexdef ilike '%unique%' and indexdef ilike '%workspace_id%'`)
-  eq(uniques.rows.length, 0, 'no unique index carries workspace_id')
-  const fns = ['team_call_live_notes_stamp', 'team_call_live_turn_stop', 'team_call_live_turn_claim', 'team_call_live_turn_window', 'team_call_live_turn_release', 'team_call_live_turn_busy', 'team_call_capture_link_event', 'team_call_guest_notes']
+  const fns = [
+    'team_call_live_notes_stamp', 'team_call_live_notes_summary_sync', 'team_call_live_turn_stop', 'team_call_live_turn_unwanted',
+    'team_call_live_turn_claim', 'team_call_live_turn_begin', 'team_call_live_turn_unqueue', 'team_call_live_turn_tail',
+    'team_call_live_turn_window', 'team_call_live_turn_release', 'team_call_live_turn_busy', 'team_call_capture_link_event', 'team_call_guest_notes',
+  ]
   for (const f of fns) {
     const p = await one(`select p.oid, p.prosecdef, p.proconfig from pg_proc p where p.proname = $1`, [f])
     ok(p.prosecdef === true, `${f} is a definer`)
@@ -153,87 +170,128 @@ try {
     insert into team_call values ('${CALL}', '${WS}', '${CHANNEL}', 'live', true, '${CAPTURE}');
     insert into team_call_capture (call_id, capture_id, workspace_id) values ('${CALL}', '${CAPTURE}', '${WS}');
   `)
+  const notesRow = () => one(`select * from team_call_live_notes where capture_id = $1`, [CAPTURE])
 
   // ── The throttle ───────────────────────────────────────────────────────────
   eq((await claim()).outcome, 'too_few_words', 'nothing said: no turn')
   await say(line('Dana Ortiz', 14))
   eq((await claim()).outcome, 'waiting', 'a few words, just now: wait for more')
   await say(line('Rosa Lind', 120)) // past ready_chars
-  const first = await claim()
-  eq(first.outcome, 'claimed', 'enough words: a turn starts')
-  eq(first.turn_no, 1, 'the first turn')
+  const queued = await claim()
+  eq(queued.outcome, 'queued', 'enough words: a turn is queued')
+  eq((await agent()).turns, 0, 'a queued turn is not counted')
+  ok((await one(`select team_call_live_turn_busy($1) as b`, [CAPTURE])).b === false, 'a queued turn is not running: the finish does not wait for it')
+  eq((await claim()).outcome, 'busy', 'nothing more is queued while one waits')
+  const first = await begin(queued.lease)
+  eq(first.outcome, 'running', 'its run starts: now it is the running turn')
+  eq(first.turn_no, 1, 'and the first turn, counted now')
+  eq((await begin(queued.lease)).outcome, 'stale', 'a run that starts twice sends once')
+  eq((await agent()).turns, 1, 'and counts once')
   eq((await agent()).state, 'working', 'working while it runs')
-  eq((await one(`select metadata from captures where id = $1`, [CAPTURE])).metadata.live_notes.state, 'working', 'readers see it working')
-  eq((await one(`select metadata from captures where id = $1`, [CAPTURE])).metadata.source, 'team_call', 'the stamp keeps the rest of the metadata')
+  const working = await notesRow()
+  eq(working.state, 'working', 'readers see it working')
+  ok(new Date(working.until).getTime() > Date.now() + 200_000, 'until the running turn’s lease runs out (a dead process never shows working for ever)')
 
-  // ── Single flight: a second caller while the lease is held ────────────────
+  // ── Single flight: a second caller while the turn runs ────────────────────
   const second = await claim()
   eq(second.outcome, 'busy', 'a second caller is refused while a turn runs')
   ok(second.lease === null, 'and gets no lease')
-  ok((await one(`select team_call_live_turn_busy($1) as b`, [CAPTURE])).b === true, 'busy while leased')
+  ok((await one(`select team_call_live_turn_busy($1) as b`, [CAPTURE])).b === true, 'busy while running')
 
   // The window: everything since the last turn, at most max_chars, cut at a line's end.
-  const win = await one(`select * from team_call_live_turn_window($1, $2, 100000, 2000)`, [CAPTURE, first.lease])
+  const win = await one(`select * from team_call_live_turn_window($1, $2, 100000, 2000)`, [CAPTURE, queued.lease])
   eq(win.from_offset, 0, 'the window starts where no turn has read')
   ok(win.words.includes('[Dana Ortiz]') && win.words.includes('[Rosa Lind]'), 'and holds every new line')
-  const capped = await one(`select * from team_call_live_turn_window($1, $2, 100, 2000)`, [CAPTURE, first.lease])
+  const capped = await one(`select * from team_call_live_turn_window($1, $2, 100, 2000)`, [CAPTURE, queued.lease])
   ok(capped.words.endsWith('\n') && capped.words.split('\n').filter(Boolean).length === 1, 'a capped window ends at a whole line')
   const stranger = await db.query(`select * from team_call_live_turn_window($1, $2, 100000, 2000)`, [CAPTURE, id(99)])
   eq(stranger.rows.length, 0, 'no window for a lease that is not the turn’s')
 
-  eq((await one(`select team_call_live_turn_release($1, $2, 'ok', $3, null, 3) as s`, [CAPTURE, first.lease, win.to_offset])).s, 'ready', 'the turn went through')
+  eq((await release(queued.lease, 'ok', win.to_offset)).s, 'ready', 'the turn went through')
   eq((await agent()).done_offset, win.to_offset, 'its words are read')
-  eq((await one(`select metadata from captures where id = $1`, [CAPTURE])).metadata.live_notes.state, 'ready', 'readers see it ready')
+  eq((await notesRow()).state, 'ready', 'readers see it ready')
   ok((await one(`select team_call_live_turn_busy($1) as b`, [CAPTURE])).b === false, 'not busy once released')
 
   await say(line('Dana Ortiz', 150))
-  eq((await claim()).outcome, 'too_soon', 'a turn at most every min_interval seconds')
+  eq((await claim()).outcome, 'too_soon', 'a turn at most every min_interval seconds, from the last one’s start')
   await ago(25)
-  await db.query(`update captures set transcript = transcript || $2 where id = $1`, [CAPTURE, ''])
-  // 150 words is past ready: after the interval it runs.
-  const third = await claim()
-  eq(third.outcome, 'claimed', 'past the interval with enough words: a turn')
+  const third = await turn()
+  eq(third.outcome, 'running', 'past the interval with enough words: a turn')
 
-  // ── A lease that ran out: another caller takes over; the late one changes nothing ──
+  // ── A running turn's lease that ran out: another takes over; the late one changes nothing ──
   await db.query(`update team_call_live_agent set lease_until = now() - interval '1 second' where capture_id = $1`, [CAPTURE])
   await ago(25)
-  const taker = await claim()
-  eq(taker.outcome, 'claimed', 'a lease that ran out is taken again')
-  eq((await one(`select team_call_live_turn_release($1, $2, 'ok', 999999, null, 3) as s`, [CAPTURE, third.lease])).s, 'stale', 'the late turn is stale')
+  const taker = await turn()
+  eq(taker.outcome, 'running', 'a lease that ran out is taken again')
+  eq((await release(third.lease, 'ok', 999999)).s, 'stale', 'the late turn is stale')
   eq((await agent()).done_offset, win.to_offset, 'a stale release moves nothing')
 
   // ── A failing turn: skipped, its words kept for the next ───────────────────
-  eq((await one(`select team_call_live_turn_release($1, $2, 'failed', 999999, null, 3) as s`, [CAPTURE, taker.lease])).s, 'failed', 'a failed turn')
+  eq((await release(taker.lease, 'failed', 999999)).s, 'failed', 'a failed turn')
   eq((await agent()).done_offset, win.to_offset, 'a failed turn reads nothing')
-  eq((await one(`select metadata from captures where id = $1`, [CAPTURE])).metadata.live_notes.state, 'failed', 'readers see it failed')
+  eq((await notesRow()).state, 'failed', 'readers see it failed')
   await ago(25)
-  const retry = await claim()
-  eq(retry.outcome, 'claimed', 'the next turn')
+  const retry = await turn()
+  eq(retry.outcome, 'running', 'the next turn')
   const retryWin = await one(`select * from team_call_live_turn_window($1, $2, 100000, 2000)`, [CAPTURE, retry.lease])
   eq(retryWin.from_offset, win.to_offset, 'starts where the last good turn stopped: the failed turn’s words go with it')
   ok(retryWin.context.length > 0 && retryWin.context.length <= 2000, 'with the lines before it as context')
-  eq((await one(`select team_call_live_turn_release($1, $2, 'failed', 0, null, 3) as s`, [CAPTURE, retry.lease])).s, 'failed', 'two in a row')
-  await ago(25)
-  const third2 = await claim()
-  eq((await one(`select team_call_live_turn_release($1, $2, 'failed', 0, null, 3) as s`, [CAPTURE, third2.lease])).s, 'stopped', 'three in a row stop the agent for the call')
+
+  // ── An answer that never came back: the words are sent once, the lease held to its end ──
+  eq((await release(retry.lease, 'unknown', retryWin.to_offset)).s, 'ready', 'a turn whose answer never came')
+  eq((await agent()).done_offset, retryWin.to_offset, 'its words count as sent: never sent twice')
+  ok((await one(`select team_call_live_turn_busy($1) as b`, [CAPTURE])).b === true, 'and its lease is kept, so the finish still waits for it')
+  eq((await agent()).failures_in_row, 0, 'not a failure')
+  await db.query(`update team_call_live_agent set lease_id = null, lease_until = null where capture_id = $1`, [CAPTURE])
+
+  // Three failed turns that ran stop the agent for the call.
+  for (let n = 1; n <= 3; n++) {
+    await say(line('Rosa Lind', 130))
+    await ago(25)
+    const t = await turn()
+    eq(t.outcome, 'running', `failing turn ${n} runs`)
+    eq((await release(t.lease, 'failed', 0)).s, n < 3 ? 'failed' : 'stopped', n < 3 ? `failure ${n}` : 'three in a row stop the agent for the call')
+  }
   eq((await agent()).stop_reason, 'failing', 'and say why')
   eq((await claim()).outcome, 'stopped', 'no more turns once stopped')
 
-  // ── The bound per call ─────────────────────────────────────────────────────
-  await db.query(`update team_call_live_agent set state = 'ready', stop_reason = null, failures_in_row = 0, turns = 300, last_turn_at = now() - interval '1 hour' where capture_id = $1`, [CAPTURE])
-  const bound = await claim(20, 60, 600, 30, 300)
-  eq(bound.outcome, 'stopped', 'at the bound: no turn')
+  // ── A queued turn that waited too long: stale, never a failure, never a turn ──
+  const reset = () => db.query(`update team_call_live_agent set state = 'ready', stop_reason = null, turns = 1, failures_in_row = 0, last_turn_at = now() - interval '1 hour', lease_id = null, lease_until = null, queued_id = null, queued_until = null where capture_id = $1`, [CAPTURE])
+  await reset()
+  const late = await claim()
+  eq(late.outcome, 'queued', 'queued')
+  // Past the running lease's 300 s: still its mark, so it runs (the queue's own bound is longer).
+  await db.query(`update team_call_live_agent set queued_until = now() + interval '5 minutes' where capture_id = $1`, [CAPTURE])
+  eq((await begin(late.lease)).outcome, 'running', 'a turn queued past 300 s still runs and counts')
+  await release(late.lease, 'ok', 0)
+  await ago(25)
+  const tooLate = await claim()
+  await db.query(`update team_call_live_agent set queued_until = now() - interval '1 second' where capture_id = $1`, [CAPTURE])
+  const turnsBefore = (await agent()).turns
+  eq((await begin(tooLate.lease)).outcome, 'stale', 'a turn that waited past the queue’s bound is stale when it starts')
+  const afterStale = await agent()
+  eq(afterStale.turns, turnsBefore, 'not counted')
+  eq(afterStale.failures_in_row, 0, 'not a failure')
+  ok(afterStale.queued_id === null, 'and its mark is gone')
+  eq((await claim()).outcome, 'queued', 'the next claim queues a fresh one with the same words')
+  // A turn that was never handed over: taken back, nothing counted.
+  const notSent = (await agent()).queued_id
+  ok((await one(`select team_call_live_turn_unqueue($1, $2) as b`, [CAPTURE, notSent])).b === true, 'a send that failed takes its mark back')
+  eq((await agent()).failures_in_row, 0, 'not a failure')
+
+  // ── The bound per call: turns that ran ─────────────────────────────────────
+  await db.query(`update team_call_live_agent set turns = 300, last_turn_at = now() - interval '1 hour' where capture_id = $1`, [CAPTURE])
+  eq((await claim()).outcome, 'stopped', 'at the bound: no turn')
   eq((await agent()).stop_reason, 'bound', 'stopped by the bound')
-  eq((await one(`select metadata from captures where id = $1`, [CAPTURE])).metadata.live_notes.reason, 'bound', 'readers are told')
+  eq((await notesRow()).reason, 'bound', 'readers are told')
 
   // ── No dependence on anyone in the call; the owner's own standing counts ───
-  const reset = () => db.query(`update team_call_live_agent set state = 'ready', stop_reason = null, turns = 1, failures_in_row = 0, last_turn_at = now() - interval '1 hour', lease_id = null, lease_until = null where capture_id = $1`, [CAPTURE])
   await reset()
   // The stubs hold no call participant at all: who is in the call now is never read.
   ok(!(await one(`select to_regclass('public.team_call_participant') as t`)).t, 'no participant table exists here')
-  const ownerGone = await claim()
-  eq(ownerGone.outcome, 'claimed', 'turns run whoever is in the call (the owner having left it included)')
-  await db.query(`select team_call_live_turn_release($1, $2, 'ok', 0, null, 3)`, [CAPTURE, ownerGone.lease])
+  const ownerGone = await turn()
+  eq(ownerGone.outcome, 'running', 'turns run whoever is in the call (the owner having left it included)')
+  await release(ownerGone.lease, 'ok', 0)
   await reset()
   await db.query(`update captures set notes_owner_out = true where id = $1`, [CAPTURE])
   eq((await claim()).outcome, 'stopped', 'an owner who may no longer read the conversation writes nothing more')
@@ -247,36 +305,66 @@ try {
   eq((await agent()).state, 'ready', 'and not stopped')
   await db.query(`update team_call set notes = true where id = $1`, [CALL])
 
+  // ── A transcript rewritten under the turns: a fresh window, never the middle of a line ──
+  const goodTurn = await turn()
+  const goodWin = await one(`select * from team_call_live_turn_window($1, $2, 100000, 2000)`, [CAPTURE, goodTurn.lease])
+  await release(goodTurn.lease, 'ok', goodWin.to_offset)
+  await db.query(`update captures set transcript = $2 where id = $1`, [CAPTURE, line('Dana Ortiz', 30) + line('Rosa Lind', 40)])
+  await ago(25)
+  const afterEdit = await turn()
+  const editWin = await one(`select * from team_call_live_turn_window($1, $2, 100000, 2000)`, [CAPTURE, afterEdit.lease])
+  ok(editWin.words.startsWith('[Dana Ortiz]') || editWin.words.startsWith('[Rosa Lind]'), 'a rewritten transcript starts a fresh window at a whole line')
+  await release(afterEdit.lease, 'ok', editWin.to_offset)
+
   // ── The call's end stops it, and a turn still running gets no words ───────
-  const lastTurn = await claim()
-  eq(lastTurn.outcome, 'claimed', 'a turn during the call')
+  await say(line('Dana Ortiz', 150))
+  await ago(25)
+  const lastTurn = await turn()
+  eq(lastTurn.outcome, 'running', 'a turn during the call')
   await db.query(`update team_call set status = 'ended' where id = $1`, [CALL])
   eq((await db.query(`select * from team_call_live_turn_window($1, $2, 100000, 2000)`, [CAPTURE, lastTurn.lease])).rows.length, 0, 'once the call ended a running turn reads nothing')
   eq((await agent()).stop_reason, 'call_ended', 'and the agent is stopped then')
-  eq((await one(`select team_call_live_turn_release($1, $2, 'failed', 0, null, 3) as s`, [CAPTURE, lastTurn.lease])).s, 'stale', 'the running turn’s release changes nothing')
+  eq((await release(lastTurn.lease, 'failed', 0)).s, 'stale', 'the running turn’s release changes nothing')
   eq((await claim()).outcome, 'stopped', 'and no turn starts')
-  // A call that ends with no turn running is stopped by the next look.
-  await db.query(`update team_call_live_agent set state = 'ready', stop_reason = null where capture_id = $1`, [CAPTURE])
-  eq((await claim()).outcome, 'stopped', 'the claim stops it too')
+  // A call that ends with a turn still queued: its run starts and stops.
+  await db.query(`update team_call_live_agent set state = 'ready', stop_reason = null, queued_id = $2, queued_until = now() + interval '5 minutes' where capture_id = $1`, [CAPTURE, id(98)])
+  eq((await begin(id(98))).outcome, 'stopped', 'a queued turn whose call ended does not run')
   eq((await agent()).stop_reason, 'call_ended', 'call_ended')
   await db.query(`update team_call set status = 'live' where id = $1`, [CALL])
 
   // ── The shared notes reach the conversation and no one else ────────────────
   await db.query(`update captures set ai_summary = '## Summary' || chr(10) || 'The pilot starts Monday.' where id = $1`, [CAPTURE])
+  eq((await notesRow()).summary, '## Summary\nThe pilot starts Monday.', 'the summary the agent wrote is copied to the narrow row')
   const asUser = async (userId, fn) => {
     await db.exec(`set role authenticated`)
     await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userId])
     try { return await fn() } finally { await db.exec(`reset role`); await db.query(`select set_config('request.jwt.claim.sub', '', false)`) }
   }
-  const readAs = (u) => asUser(u, () => db.query(`select ai_summary, metadata from captures where id = $1`, [CAPTURE]))
+  const readAs = (u) => asUser(u, () => db.query(`select summary, state from team_call_live_notes where capture_id = $1`, [CAPTURE]))
+  const readCaptureAs = (u) => asUser(u, () => db.query(`select ai_summary from captures where id = $1`, [CAPTURE]))
   const rosaRead = await readAs(ROSA_USER)
   eq(rosaRead.rows.length, 1, 'a member of the conversation who is not the owner reads the notes')
-  ok(rosaRead.rows[0].ai_summary.includes('pilot'), 'the summary')
-  eq(rosaRead.rows[0].metadata.live_notes.state, 'stopped', 'and the agent’s state')
+  ok(rosaRead.rows[0].summary.includes('pilot'), 'the summary')
+  eq(rosaRead.rows[0].state, 'stopped', 'and the agent’s state')
+  eq((await readCaptureAs(ROSA_USER)).rows.length, 1, 'as they read the capture itself')
   eq((await readAs(OUTSIDER_USER)).rows.length, 0, 'a workspace member outside the conversation reads nothing')
+  eq((await readCaptureAs(OUTSIDER_USER)).rows.length, 0, 'nor the capture')
   await db.query(`delete from team_chat_member where member_id = $1`, [ROSA])
   eq((await readAs(ROSA_USER)).rows.length, 0, 'taken out of the conversation: nothing')
   await db.query(`insert into team_chat_member values ($1, $2)`, [CHANNEL, ROSA])
+  // Another capture's summary never reaches a notes row.
+  await db.query(`insert into captures (id, workspace_id, user_id, title, ai_summary) values ($1, $2, $3, 'Mine', 'private')`, [id(50), WS, OWNER_USER])
+  await db.query(`update captures set ai_summary = 'still private' where id = $1`, [id(50)])
+  eq((await one(`select count(*)::int as n from team_call_live_notes`)).n, 1, 'only a call capture with live notes has a notes row')
+
+  // ── What a reader's screen receives on each change: the capture's row against the narrow one ──
+  const hour = Array.from({ length: 900 }, (_, i) => line(i % 2 ? 'Rosa Lind' : 'Dana Ortiz', 9)).join('') // ~ an hour of talk, 4 s batches
+  await db.query(`update captures set transcript = $2 where id = $1`, [CAPTURE, hour])
+  const sizes = await one(`
+    select (select octet_length(row_to_json(c)::text) from captures c where c.id = $1) as capture_row,
+           (select octet_length(row_to_json(n)::text) from team_call_live_notes n where n.capture_id = $1) as notes_row`, [CAPTURE])
+  ok(sizes.notes_row < sizes.capture_row / 20, `the narrow row is a small fraction of the capture's (${sizes.notes_row} vs ${sizes.capture_row} bytes)`)
+  console.log(`payload per change after about an hour of talk: capture row ${sizes.capture_row} bytes, live notes row ${sizes.notes_row} bytes`)
 
   // ── 656: the meeting's calendar event ──────────────────────────────────────
   const link = async () => (await one(`select team_call_capture_link_event($1) as r`, [CAPTURE])).r
@@ -344,6 +432,15 @@ try {
   eq(removed.lines.length, 0, 'and nothing')
   await db.query(`update meeting_guest set state = 'left', in_call = false where id = $1`, [GUEST])
   eq((await guest()).allowed, false, 'left: refused')
+  // Dropped off or closed the tab: LiveKit's leave (574) sets in_call false and left_at, the state stays 'admitted'.
+  await db.query(`update meeting_guest set state = 'admitted', in_call = false, left_at = now() - interval '1 minute' where id = $1`, [GUEST])
+  const dropped = await guest()
+  eq(dropped.allowed, false, 'admitted but out of the room for a minute (dropped off, tab closed): refused')
+  eq(dropped.lines.length, 0, 'and nothing')
+  await db.query(`update meeting_guest set left_at = now() - interval '10 seconds' where id = $1`, [GUEST])
+  eq((await guest()).allowed, true, 'out of the room for a few seconds (a reconnect): still reads')
+  await db.query(`update meeting_guest set left_at = null where id = $1`, [GUEST])
+  eq((await guest()).allowed, false, 'let in but never in the room: refused')
   await db.query(`update meeting_guest set state = 'admitted', in_call = true where id = $1`, [GUEST])
   await db.query(`update team_call set status = 'ended' where id = $1`, [CALL])
   eq((await guest()).allowed, false, 'the call ended: refused')
@@ -353,6 +450,64 @@ try {
   await db.query(`update captures set ended_at = null where id = $1`, [CAPTURE])
   await db.query(`update meeting set revoked_at = now() where id = $1`, [MEETING])
   eq((await guest()).allowed, false, 'the link revoked: refused')
+
+  // ── More calls than turns may run at once: the notes get slower, never stop ──
+  // The real claim, begin, window and release, against a modelled queue: Inngest runs at most
+  // LIMIT turns at once and one per capture (team-call-live-turns.ts's concurrency), each turn's
+  // route takes RUN_TICKS ticks, and the clock moves TICK virtual seconds a tick (every timestamp
+  // the functions read is moved back by as much). Each call talks without a pause.
+  {
+    const CALLS = 12, LIMIT = 5, TICK = 20, RUN_TICKS = 8, TICKS = 90
+    const caps = []
+    for (let i = 0; i < CALLS; i++) {
+      const cap = id(1000 + i), call = id(2000 + i)
+      caps.push(cap)
+      await db.query(`insert into captures (id, workspace_id, user_id, title, transcript, notes_channel_id) values ($1, $2, $3, 'Busy call', '', $4)`, [cap, WS, OWNER_USER, CHANNEL])
+      await db.query(`insert into team_call values ($1, $2, $3, 'live', true, $4)`, [call, WS, CHANNEL, cap])
+      await db.query(`insert into team_call_capture (call_id, capture_id, workspace_id) values ($1, $2, $3)`, [call, cap, WS])
+    }
+    const queue = [], running = []
+    let started = 0, stale = 0, maxWaitTicks = 0
+    for (let t = 0; t < TICKS; t++) {
+      for (const cap of caps) {
+        await db.query(`update captures set transcript = transcript || $2 where id = $1`, [cap, line('Rosa Lind', 50)])
+        const q = await claim(cap)
+        if (q.outcome === 'queued') queue.push({ cap, lease: q.lease, at: t })
+      }
+      while (running.length < LIMIT) {
+        const i = queue.findIndex((e) => !running.some((r) => r.cap === e.cap))
+        if (i < 0) break
+        const [e] = queue.splice(i, 1)
+        maxWaitTicks = Math.max(maxWaitTicks, t - e.at)
+        const b = await begin(e.lease, e.cap)
+        if (b.outcome !== 'running') {
+          stale++
+          continue
+        }
+        started++
+        const w = await one(`select * from team_call_live_turn_window($1, $2, 16000, 2400)`, [e.cap, e.lease])
+        running.push({ cap: e.cap, lease: e.lease, to: w.to_offset, left: RUN_TICKS })
+      }
+      for (const r of [...running]) {
+        if (--r.left > 0) continue
+        await release(r.lease, 'ok', r.to, r.cap)
+        running.splice(running.indexOf(r), 1)
+      }
+      await db.query(
+        `update team_call_live_agent set created_at = created_at - make_interval(secs => $1), last_turn_at = last_turn_at - make_interval(secs => $1),
+                queued_until = queued_until - make_interval(secs => $1), lease_until = lease_until - make_interval(secs => $1)
+          where capture_id = any($2::uuid[])`,
+        [TICK, caps],
+      )
+    }
+    const rows = (await db.query(`select * from team_call_live_agent where capture_id = any($1::uuid[])`, [caps])).rows
+    ok(maxWaitTicks * TICK > 300, `turns waited in the queue past the old 300 s lease (${maxWaitTicks * TICK} s at most)`)
+    eq(rows.filter((r) => r.state === 'stopped').length, 0, 'no call’s notes stopped')
+    eq(rows.reduce((n, r) => n + r.failures, 0), 0, 'no failure was counted')
+    eq(rows.reduce((n, r) => n + r.turns, 0), started, 'only turns that ran were counted')
+    ok(rows.every((r) => r.turns >= 3 && r.done_offset > 0), `every call’s notes kept moving (fewest turns: ${Math.min(...rows.map((r) => r.turns))})`)
+    console.log(`backlog: ${CALLS} calls, ${LIMIT} at once, ${TICKS * TICK / 60} virtual minutes: ${started} turns ran, ${stale} stale starts skipped, longest wait ${maxWaitTicks * TICK} s, turns per call ${Math.min(...rows.map((r) => r.turns))}-${Math.max(...rows.map((r) => r.turns))}`)
+  }
 
   console.log(`migrations 655-657: ${checks} checks passed`)
 } finally {

@@ -1,4 +1,5 @@
 import { tool } from 'ai'
+import { CALL_CAPTURE_CHANGE_REFUSAL, callCaptureChangeAllowed } from './call-capture-fence'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { namespacedToolName } from '@/lib/mcp-client/adapter'
@@ -74,6 +75,14 @@ export interface LiveAgentToolOptions {
    * CALL, which the eval trace already records.
    */
   isEvalCapture?: boolean
+  /**
+   * This tool set writes a call's capture (./call-capture-fence.ts): its words
+   * are anyone's in the call, and its notes everyone's in the conversation.
+   * propose_change then stages only new action items, decisions and
+   * milestones; any other change (an update, an assignment, a delete, an
+   * email draft, a CRM contact) is refused as a normal tool result.
+   */
+  callCapture?: boolean
 }
 
 /** search_contacts returns at most this many (visible) contacts. */
@@ -193,6 +202,10 @@ export function createLiveAgentTools(
         label_ids: z.array(z.string()).nullable().optional().describe('Label IDs to attach to the action. Use list_labels to find available label IDs.'),
       }),
       execute: async (params) => {
+        // A call's capture proposes only what the call itself produced (./call-capture-fence.ts).
+        if (options.callCapture === true && !callCaptureChangeAllowed(params.change_type, params.entity_type)) {
+          return { success: false, error: CALL_CAPTURE_CHANGE_REFUSAL }
+        }
         // Resolve who the assignee actually is. Precedence:
         //   1. speaker_label → the capture's voice-ID speaker map. Deterministic
         //      ownership ('speaker_label' provenance) — the only provenance the

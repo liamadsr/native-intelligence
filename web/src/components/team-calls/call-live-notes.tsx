@@ -8,9 +8,11 @@
  *     line saying what the agent is doing ("Writing as people speak…",
  *     "Updated 2 minutes ago", a turn that failed, the notes paused). Open
  *     shows the whole capture in the app's own capture panel, beside the
- *     call. Read once from the call's live-notes route, then followed on the
- *     capture's row over Realtime, the road the fed transcript takes to the
- *     capture page: no timer, no polling.
+ *     call. Read once from the call's live-notes route, then followed over
+ *     Realtime on 655's small live notes row (never the capture's own row,
+ *     which carries the whole transcript and changes with every batch of
+ *     words): no polling. One timer at most, at the running turn's end, so a
+ *     turn whose process died stops reading "writing".
  *   - A meeting guest (src/components/meeting-links/guest-meeting.tsx): only
  *     what has been said since they were let in, never the summary
  *     (src/lib/team-calls/live-notes.ts says why). Closed until they open
@@ -26,8 +28,9 @@ import { cn } from '@/lib/utils'
 import {
   guestLinesOf,
   hasLiveNotes,
-  liveNotesStateOf,
+  liveNotesOf,
   liveNotesStatusLine,
+  liveNotesWriting,
   summaryBlocks,
   type GuestNoteLine,
   type LiveNotes,
@@ -39,10 +42,10 @@ import {
 export function CallLiveNotesView({ notes, onOpen, now }: { notes: LiveNotes | null; onOpen?: () => void; now?: number }) {
   const [open, setOpen] = useState(true)
   const blocks = useMemo(() => summaryBlocks(notes?.summary ?? ''), [notes?.summary])
-  if (!notes || !hasLiveNotes(notes)) return null
+  if (!notes || !hasLiveNotes(notes, now)) return null
   const status = liveNotesStatusLine(notes.state, now)
   const failed = notes.state?.phase === 'failed'
-  const working = notes.state?.phase === 'working'
+  const working = liveNotesWriting(notes.state, now)
   return (
     <section data-team-call-live-notes={notes.state?.phase ?? 'ready'} aria-label="Live notes" className="mt-2 rounded-2xl border border-border bg-muted/40 px-3 py-2.5">
       <div className="flex items-center gap-2">
@@ -90,9 +93,19 @@ export function CallLiveNotesView({ notes, onOpen, now }: { notes: LiveNotes | n
   )
 }
 
-/** The call's live notes for someone in it: read once, then followed over Realtime. */
+/** The call's live notes for someone in it: read once, then followed over Realtime on the small notes row. */
 export function CallLiveNotes({ callId, captureId, onOpen }: { callId: string; captureId: string; onOpen?: () => void }) {
   const [notes, setNotes] = useState<LiveNotes | null>(null)
+  // Re-drawn once when a running turn's lease runs out (its process may have died): no loop.
+  const [, setTick] = useState(0)
+  const until = notes?.state?.phase === 'working' && notes.state.until ? Date.parse(notes.state.until) : Number.NaN
+  useEffect(() => {
+    if (!Number.isFinite(until)) return
+    const wait = until - Date.now()
+    if (wait <= 0) return
+    const timer = setTimeout(() => setTick((n) => n + 1), Math.min(wait + 500, 10 * 60_000))
+    return () => clearTimeout(timer)
+  }, [until])
   useEffect(() => {
     let alive = true
     setNotes(null)
@@ -111,15 +124,10 @@ export function CallLiveNotes({ callId, captureId, onOpen }: { callId: string; c
       client = supabase as unknown as { removeChannel: (c: never) => unknown }
       channel = supabase
         .channel(`call-live-notes:${captureId}:${Math.random().toString(36).slice(2)}`)
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'captures', filter: `id=eq.${captureId}` }, (payload) => {
-          const row = payload.new as { ai_summary?: string | null; metadata?: unknown }
-          const summary = typeof row.ai_summary === 'string' ? row.ai_summary : null
-          const state = liveNotesStateOf(row.metadata)
-          // The row comes again with every transcript batch: keep the same object when nothing changed.
-          setNotes((prev) => {
-            const next = { summary: summary ?? prev?.summary ?? '', state: state ?? prev?.state ?? null }
-            return prev && prev.summary === next.summary && prev.state?.phase === next.state?.phase && prev.state?.at === next.state?.at ? prev : next
-          })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'team_call_live_notes', filter: `capture_id=eq.${captureId}` }, (payload) => {
+          const row = payload.new as Parameters<typeof liveNotesOf>[0] | null
+          if (!row || typeof row !== 'object' || !('state' in row)) return
+          setNotes(liveNotesOf(row))
         })
         .subscribe()
     })

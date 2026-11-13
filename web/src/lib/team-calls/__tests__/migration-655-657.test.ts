@@ -40,11 +40,19 @@ describe('migrations 655-657', () => {
     for (const n of ['655', '656', '657']) expect(all.filter((f) => f.startsWith(`${n}_`))).toHaveLength(1)
   })
 
-  it('the new table has RLS on and no client grant', () => {
+  it('the new tables have RLS on; the agent’s record no client grant, the notes row a reader’s SELECT under the capture’s own rules', () => {
     const sql = bodyOf(read(FILES[0]))
-    expect(sql).toContain('alter table public.team_call_live_agent enable row level security;')
-    expect(sql).toContain('revoke all on table public.team_call_live_agent from anon, authenticated;')
+    for (const t of ['team_call_live_agent', 'team_call_live_notes']) {
+      expect(sql).toContain(`alter table public.${t} enable row level security;`)
+      expect(sql).toContain(`revoke all on table public.${t} from anon, authenticated;`)
+    }
     expect(sql).not.toMatch(/grant [a-z, ]+ on table public\.team_call_live_agent to (anon|authenticated)/i)
+    expect(sql).toContain('grant select on table public.team_call_live_notes to authenticated;')
+    expect(sql).not.toMatch(/grant (insert|update|delete)[a-z, ]* on table public\.team_call_live_notes to (anon|authenticated)/i)
+    // Its one policy is a read, and it asks the capture itself (566's fence applies through it).
+    const policies = [...sql.matchAll(/create policy (\w+) on public\.team_call_live_notes\s+for (\w+)/gi)]
+    expect(policies.map((m) => m[2].toLowerCase())).toEqual(['select'])
+    expect(sql).toContain('using (exists (select 1 from public.captures c where c.id = team_call_live_notes.capture_id));')
   })
 
   it('every function is the service role’s alone, a definer with a pinned search_path', () => {

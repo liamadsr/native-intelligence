@@ -51,6 +51,8 @@ import { needsMineCheck } from '@/lib/live-agent/mine-check'
 import { syncProposalsCard } from '@/lib/live-agent/conversation-writer'
 import { liveTurnTypeFromRequest } from '@/lib/live-agent/ceiling'
 import { liveLookupsAllowed } from '@/lib/live-agent/mcp-lookups'
+import { fenceCallCapture, isCallCapture } from '@/lib/live-agent/call-capture-fence'
+import { verifyCallTurnKey } from '@/lib/live-agent/call-turn-key'
 import { internalSecret, liveRecentTail, mintLiveAgentRunToken } from '@/lib/live-agent/live-agent-run-token'
 import { selectRiderOmissions } from '@/lib/live-agent/riders'
 import {
@@ -250,7 +252,7 @@ export async function POST(req: Request) {
     const [captureRes, proposalsRes, appliedRes] = await Promise.all([
       supabase
         .from('captures')
-        .select('id, title, ai_summary, team_id, project_id, participants, user_id, package_ids, is_eval')
+        .select('id, title, ai_summary, team_id, project_id, participants, user_id, package_ids, is_eval, notes_channel_id')
         .eq('id', capture_id)
         .eq('workspace_id', workspaceId)
         .single(),
@@ -292,6 +294,24 @@ export async function POST(req: Request) {
     //   * web search is off (non-deterministic, and Exa spend is invisible under
     //     skipBilling) and the read surface omits private captures.
     const isEvalCapture = (capture as { is_eval?: boolean | null }).is_eval === true
+
+    // ── A call's capture (src/lib/live-agent/call-capture-fence.ts) ─────────────
+    // Its words are anyone's in the call, its notes everyone's in the
+    // conversation. Its live turns are the server's alone (src/lib/team-calls/
+    // live-turns.ts signs each with a key only the server can make): a
+    // person's own app never drives a second agent on it, whatever binds it to
+    // a recording. And a fenced turn holds only what writing the shared notes
+    // needs: no packages, no connected-app catalog, none of the requester's
+    // own context, no web.
+    const turnTypeForFence = liveTurnTypeFromRequest(mode, live_role)
+    const onCallCapture = isCallCapture(capture as { notes_channel_id?: string | null })
+    if (onCallCapture && !isBatch && !verifyCallTurnKey(capture_id, (body as { call_turn_key?: unknown }).call_turn_key)) {
+      return Response.json(
+        { error: 'This call’s live notes are written on the server', code: 'CALL_CAPTURE_SERVER_TURNS' },
+        { status: 409 },
+      )
+    }
+    const callFenced = fenceCallCapture(capture as { notes_channel_id?: string | null }, turnTypeForFence)
 
     // Self-heal the capture OWNER's identity anchor (is_self participant row)
     // for captures created before self-identity shipped, and for any create
@@ -459,7 +479,7 @@ export async function POST(req: Request) {
       currentMemberName,
       user.id,
       // A copilot turn speaks, so it also sees what it already told the user.
-      { talks: !isBatch && !notesRole },
+      { talks: !isBatch && !notesRole, callCapture: callFenced },
     )
 
     // ── Attached context packages ("+ Packages" chip, mig 239) — LIVE ONLY ──
@@ -472,7 +492,7 @@ export async function POST(req: Request) {
     // never an ACL. get_package is promoted into the initial active tools
     // below whenever the manifest is non-empty, so the pull needs no
     // search_tools discovery round-trip.
-    const packageBlock = isBatch
+    const packageBlock = isBatch || callFenced
       ? null
       : buildPackageManifestBlock(
           await loadAttachedPackages(supabase, user.id, (capture.package_ids as string[] | null) ?? []),
@@ -636,10 +656,12 @@ export async function POST(req: Request) {
     // routes read them, scoped to the session's own user id: a lookup turn
     // builds the person's GitHub server from their GitHub token, and the token
     // columns are the service role's alone (migration 466).
-    const { block: externalMcpBlock, lookups: mcpLookups } = await loadLiveMcpContext(getServiceClient(), user.id, {
-      assistOnly,
-      lookups: liveLookupsAllowed({ turnType: liveTurnTypeFromRequest(mode, live_role), isEvalCapture }),
-    })
+    const { block: externalMcpBlock, lookups: mcpLookups } = callFenced
+      ? { block: '', lookups: [] as Awaited<ReturnType<typeof loadLiveMcpContext>>['lookups'] }
+      : await loadLiveMcpContext(getServiceClient(), user.id, {
+          assistOnly,
+          lookups: liveLookupsAllowed({ turnType: liveTurnTypeFromRequest(mode, live_role), isEvalCapture }),
+        })
 
     // The message: Block 2 (dynamic context + connected MCP servers + product
     // facts + package manifest + capture state with the corrections log) then

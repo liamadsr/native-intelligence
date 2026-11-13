@@ -155,6 +155,8 @@ export async function POST(request: Request) {
     assistOnly: state.assistOnly,
     agentConfig: personaToolSelection(state.recipe),
     mcpLookups: lookups.map((l) => l.name),
+    // A call's capture, read from its row (src/lib/live-agent/call-capture-fence.ts).
+    callCapture: state.callCapture,
   })
   if (toolName !== 'search_tools' && !ceiling.has(toolName)) {
     return NextResponse.json(
@@ -235,7 +237,7 @@ export async function POST(request: Request) {
     state.currentMemberId,
     state.currentMemberName,
     resolveClaimsAutoAcceptPolicyFromSettings(state.workspaceSettings),
-    { isEvalCapture },
+    { isEvalCapture, ...(state.callCapture ? { callCapture: true } : {}) },
   )
   const readTools = buildLiveAgentReadTools(
     claims.userId,
@@ -254,6 +256,7 @@ export async function POST(request: Request) {
     assistOnly: state.assistOnly,
     agentConfig: personaToolSelection(state.recipe),
     packageBlock: null,
+    callCapture: state.callCapture,
   })
 
   // Own-property lookup only: never reach an inherited member off Object.prototype.

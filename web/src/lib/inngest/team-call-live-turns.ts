@@ -4,9 +4,11 @@ import { CALL_LIVE_TURN_EVENT, LIVE_TURN_QUIET_SECONDS, offerLiveTurn, runLiveTu
 import { inngest } from './client'
 
 /**
- * team-calls/live-turn → one live agent turn on a call's capture, holding the
- * lease the claim gave it (src/lib/team-calls/live-turns.ts, migration 655):
- * the words since the last good turn go to the live agent's route as the
+ * team-calls/live-turn → one live agent turn on a call's capture, the turn the
+ * claim queued (src/lib/team-calls/live-turns.ts, migration 655): when this
+ * run starts the turn begins (and only then counts), or it is stale (it waited
+ * too long in the queue, or this run started twice) and nothing is sent; the
+ * words since the last good turn go to the live agent's route as the
  * capture's owner, and the lease comes back with what became of them. Then,
  * QUIET_SECONDS later, one more look: words said at the end of the turn that
  * nobody followed up on are sent too, so the notes catch up when the room goes

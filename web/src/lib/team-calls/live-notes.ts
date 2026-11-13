@@ -2,15 +2,18 @@
  * A call's shared live notes, as the in-call panel shows them (phase 2). Pure,
  * for the server's route and the browser alike.
  *
- *   - Members of the call's conversation read the capture itself: its
- *     summary, which the live agent writes as people speak, and the agent's
- *     state (655's captures.metadata.live_notes), both on the capture's row,
- *     so Realtime brings every change to the panel as it brings the fed
- *     transcript to the capture page.
+ *   - Members of the call's conversation read 655's team_call_live_notes row:
+ *     the summary the live agent last wrote and its state, small on purpose.
+ *     The panel follows that row over Realtime, not the capture's own row,
+ *     which carries the whole transcript and changes with every batch of
+ *     words. The row is read only by who may read the capture (its policy
+ *     asks the capture, under 566's conversation fence).
  *   - A meeting guest reads only the call's own words (657: the lines heard
- *     since they were let in). Never the summary: the agent that writes it
- *     also reads the workspace (its people, earlier meetings, documents), so
- *     nothing in it can be promised to come from this call alone.
+ *     since they were let in, while they are in the room). Never the
+ *     summary: even fenced (src/lib/live-agent/call-capture-fence.ts), the
+ *     agent that writes it is the owner's, and its wording can carry the
+ *     workspace's names (its members, labels, workflow states), so nothing
+ *     in it can be promised to come from this call alone.
  */
 
 export type LiveNotesPhase = 'working' | 'ready' | 'failed' | 'stopped'
@@ -19,6 +22,8 @@ export interface LiveNotesState {
   phase: LiveNotesPhase
   /** When the agent last changed state (ISO). */
   at: string | null
+  /** While working: when the running turn's lease runs out (ISO). Past it, nothing is still writing. */
+  until?: string | null
   /** Why it stopped: 'bound', 'failing', 'usage', 'call_ended', 'owner_out', 'refused'. */
   reason: string | null
 }
@@ -30,18 +35,33 @@ export interface LiveNotes {
 
 const PHASES: readonly LiveNotesPhase[] = ['working', 'ready', 'failed', 'stopped']
 
-/** The agent's state from a capture's metadata, or null before its first turn. */
-export function liveNotesStateOf(metadata: unknown): LiveNotesState | null {
-  const raw = (metadata as { live_notes?: unknown } | null | undefined)?.live_notes as { state?: unknown; at?: unknown; reason?: unknown } | undefined
-  if (!raw || typeof raw !== 'object') return null
-  const phase = PHASES.find((p) => p === raw.state)
-  if (!phase) return null
-  return { phase, at: typeof raw.at === 'string' ? raw.at : null, reason: typeof raw.reason === 'string' ? raw.reason : null }
+/** A team_call_live_notes row as the database (or Realtime) hands it over. */
+export interface LiveNotesRow {
+  summary?: string | null
+  state?: string | null
+  state_at?: string | null
+  until?: string | null
+  reason?: string | null
 }
 
-/** A capture row's live notes. */
-export function liveNotesOf(row: { ai_summary?: string | null; metadata?: unknown }): LiveNotes {
-  return { summary: row.ai_summary ?? '', state: liveNotesStateOf(row.metadata) }
+/** The agent's state from a live notes row, or null before its first turn ('idle'). */
+export function liveNotesStateOf(row: LiveNotesRow | null | undefined): LiveNotesState | null {
+  if (!row) return null
+  const phase = PHASES.find((p) => p === row.state)
+  if (!phase) return null
+  return { phase, at: row.state_at ?? null, until: row.until ?? null, reason: row.reason ?? null }
+}
+
+/** A live notes row's notes. */
+export function liveNotesOf(row: LiveNotesRow): LiveNotes {
+  return { summary: row.summary ?? '', state: liveNotesStateOf(row) }
+}
+
+/** Is the agent writing now: working, and its running turn's lease not run out (a dead process never writes for ever)? */
+export function liveNotesWriting(state: LiveNotesState | null, now: number = Date.now()): boolean {
+  if (state?.phase !== 'working') return false
+  const until = state.until ? Date.parse(state.until) : Number.NaN
+  return !Number.isFinite(until) || until > now
 }
 
 export type SummaryBlock = { kind: 'heading' | 'bullet' | 'text'; text: string }
@@ -100,8 +120,12 @@ function ago(at: string | null, now: number): string | null {
 export function liveNotesStatusLine(state: LiveNotesState | null, now: number = Date.now()): string | null {
   if (!state) return null
   switch (state.phase) {
-    case 'working':
-      return 'Writing as people speak…'
+    case 'working': {
+      if (liveNotesWriting(state, now)) return 'Writing as people speak…'
+      // Its turn's lease ran out (a process that died mid-turn): say when they last changed, not "writing".
+      const when = ago(state.at, now)
+      return when ? `Updated ${when}` : null
+    }
     case 'ready': {
       const when = ago(state.at, now)
       return when ? `Updated ${when}` : 'Up to date'
@@ -115,10 +139,10 @@ export function liveNotesStatusLine(state: LiveNotesState | null, now: number = 
 }
 
 /** Is there anything to show? A panel with nothing renders nothing. */
-export function hasLiveNotes(notes: LiveNotes | null): boolean {
+export function hasLiveNotes(notes: LiveNotes | null, now: number = Date.now()): boolean {
   if (!notes) return false
   if (summaryBlocks(notes.summary).length > 0) return true
-  return notes.state?.phase === 'working' || notes.state?.phase === 'failed' || (notes.state?.phase === 'stopped' && notes.state.reason !== 'call_ended')
+  return liveNotesWriting(notes.state, now) || notes.state?.phase === 'failed' || (notes.state?.phase === 'stopped' && notes.state.reason !== 'call_ended')
 }
 
 /** A line a guest sees: who said it, and what. */

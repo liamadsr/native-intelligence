@@ -14,12 +14,13 @@
 --     { allowed, lines: [{ at, speaker, text }] }, newest max_lines at most
 --     (500 at most), in the order they were said. allowed is true only
 --     while the guest is let in (574's state 'admitted') to the meeting's
---     live call, by the link they came in on (its token's hash, as 574's
+--     live call and in its room now (in_call; or out of it for under 30 s,
+--     a reconnect), by the link they came in on (its token's hash, as 574's
 --     poll checks it), the meeting not revoked, notes on and the capture
---     still open. A guest who left, was removed or declined, a call that
---     ended, a capture closed by hand, another meeting's link: allowed
---     false and no lines. Nothing here outlives the call: once it ends the
---     guest reads nothing.
+--     still open. A guest who left, dropped off or closed the tab, was
+--     removed or declined, a call that ended, a capture closed by hand,
+--     another meeting's link: allowed false and no lines. Nothing here
+--     outlives the call: once it ends the guest reads nothing.
 --
 -- The service role's alone (the guest's route checks the guest's signed
 -- cookie first, as every guest route does); a definer, search_path pinned.
@@ -51,6 +52,12 @@ begin
     join public.meeting y on y.id = x.meeting_id
    where x.id = target_guest and y.token_hash = token_digest;
   if not found or g.state <> 'admitted' or g.call_id is null then
+    return jsonb_build_object('allowed', false, 'lines', '[]'::jsonb);
+  end if;
+  -- In the room now. A guest who dropped off or closed the tab stays 'admitted' (574: LiveKit's leave
+  -- sets in_call false and left_at, and only Leave changes the state), so it is the room that
+  -- decides: out of it for more than a short grace (a reconnect), they read nothing.
+  if not g.in_call and (g.left_at is null or g.left_at < now() - interval '30 seconds') then
     return jsonb_build_object('allowed', false, 'lines', '[]'::jsonb);
   end if;
   select * into m from public.meeting x where x.id = g.meeting_id;

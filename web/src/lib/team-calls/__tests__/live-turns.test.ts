@@ -2,14 +2,18 @@
  * The live agent on a call's capture, the app's side (src/lib/team-calls/
  * live-turns.ts). Off unless TEAM_CALL_LIVE_AGENT=on with the recorder on.
  * The feed's hook answers at once and does its work after the segments
- * route has answered; a turn is handed to Inngest only when 655's claim gave
- * it the lease, so two callers at once start one turn; a send that fails
- * gives the lease back. A turn runs the live agent's own route as the
- * capture's owner, as the paired note-taker (it writes the record, never
- * talks), with the words the lease holds; it never reads who is in the call.
- * One that fails is skipped (its words stay for the next); a usage wall or a
- * refusal stops the agent for the call; nothing throws. The SQL itself
- * (throttle, lease, bound, the call's end) is proven on PGlite by
+ * route has answered. A turn is queued only when 655's claim gave it a mark,
+ * so two callers at once queue one turn; a send that fails takes the mark
+ * back (no failure). A turn's run begins once: a mark that waited too long,
+ * or a run started twice, is stale and skipped, never counted, never a
+ * failure, and sends nothing. A turn runs the live agent's own route as the
+ * capture's owner, as the paired note-taker, signed with the capture's
+ * call-turn key, with the words the lease holds; it never reads who is in the
+ * call. One that fails is skipped (its words stay for the next); one whose
+ * answer never came back counts its words as sent (never twice) and keeps its
+ * lease; a usage wall or a refusal stops the agent for the call; nothing
+ * throws. The SQL itself (throttle, queue and lease, bound, the call's end, a
+ * backlog of more calls than run at once) is proven on PGlite by
  * scripts/check-call-live-notes-sql.mjs.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -31,6 +35,7 @@ vi.mock('next/server', async (orig) => ({
 vi.mock('@/lib/inngest/client', () => ({ inngest: { send: async (e: unknown) => void h.sent.push(e) } }))
 
 const { callLiveTurnsHook, offerLiveTurn, runLiveTurn, teamCallLiveAgentOn, CALL_LIVE_TURN_EVENT, LIVE_TURN_MAX_FAILURES_IN_ROW } = await import('../live-turns')
+const { verifyCallTurnKey } = await import('@/lib/live-agent/call-turn-key')
 
 const CAPTURE = '11111111-1111-4111-8111-111111111111'
 const LEASE = '22222222-2222-4222-8222-222222222222'
@@ -83,8 +88,11 @@ function fakeDb(rpc: Record<string, (args: Record<string, unknown>) => unknown>,
   return db
 }
 
-const claimed = (turn = 1) => [{ outcome: 'claimed', lease: LEASE, turn_no: turn }]
+const queued = (turn = 0) => [{ outcome: 'queued', lease: LEASE, turn_no: turn }]
 const window = (over: Record<string, unknown> = {}) => [{ from_offset: 100, to_offset: 400, context: '[Dana Ortiz] Earlier words\n', words: '[Rosa Lind] New words\n', ...over }]
+/** A turn whose run begins, with these window and release answers. */
+const turnDb = (rpc: Record<string, (args: Record<string, unknown>) => unknown> = {}) =>
+  fakeDb({ team_call_live_turn_begin: () => [{ outcome: 'running', turn_no: 1 }], team_call_live_turn_window: () => window(), team_call_live_turn_release: () => 'ready', ...rpc })
 
 let saved: NodeJS.ProcessEnv
 beforeEach(() => {
@@ -115,9 +123,9 @@ describe('the feed hook', () => {
     expect(db.rpcs).toEqual([])
   })
 
-  it('answers at once and offers the turn after the route has answered', async () => {
+  it('answers at once and queues the turn after the route has answered', async () => {
     Object.assign(process.env, ON)
-    const db = fakeDb({ team_call_live_turn_claim: () => claimed() })
+    const db = fakeDb({ team_call_live_turn_claim: () => queued() })
     const started = performance.now()
     await callLiveTurnsHook(db.svc, { sessionId: 's', captureId: CAPTURE, accepted: 3, transcriptLength: 900 })
     // Nothing touched the database in the route's own time: the claim waits for after().
@@ -130,8 +138,8 @@ describe('the feed hook', () => {
   })
 })
 
-describe('offering a turn', () => {
-  it('sends a turn only when the claim gave the lease', async () => {
+describe('queuing a turn', () => {
+  it('sends a turn only when the claim queued one', async () => {
     for (const outcome of ['busy', 'too_soon', 'too_few_words', 'waiting', 'notes_off', 'stopped', 'not_a_call']) {
       h.sent = []
       const db = fakeDb({ team_call_live_turn_claim: () => [{ outcome, lease: null, turn_no: 4 }] })
@@ -140,7 +148,7 @@ describe('offering a turn', () => {
     }
   })
 
-  it('passes the cadence and the bound to the claim', async () => {
+  it('passes the cadence, the bound and the queue’s wait to the claim', async () => {
     const db = fakeDb({ team_call_live_turn_claim: () => [{ outcome: 'too_soon', lease: null, turn_no: 1 }] })
     await offerLiveTurn(db.svc, CAPTURE)
     expect(db.rpcs[0][1]).toEqual({
@@ -150,30 +158,31 @@ describe('offering a turn', () => {
       ready_chars: 600,
       quiet_seconds: 30,
       max_turns: 300,
-      lease_seconds: 300,
+      queue_seconds: 600,
     })
   })
 
-  it('two callers at once start one turn: the second finds the lease held', async () => {
-    // The lease as 655 holds it: the first claim takes it, every other claim while it is held is busy.
+  it('two callers at once queue one turn: the second finds it queued', async () => {
+    // As 655 holds it: the first claim queues, every other claim while it waits or runs is busy.
     let held: string | null = null
     const db = fakeDb({
       team_call_live_turn_claim: () => {
-        if (held) return [{ outcome: 'busy', lease: null, turn_no: 1 }]
+        if (held) return [{ outcome: 'busy', lease: null, turn_no: 0 }]
         held = LEASE
-        return claimed()
+        return queued()
       },
     })
     const outcomes = await Promise.all([offerLiveTurn(db.svc, CAPTURE), offerLiveTurn(db.svc, CAPTURE)])
-    expect(outcomes.sort()).toEqual(['busy', 'claimed'])
+    expect(outcomes.sort()).toEqual(['busy', 'queued'])
     expect(h.sent).toHaveLength(1)
   })
 
-  it('a send that fails gives the lease back as a failed turn, and never throws', async () => {
-    const db = fakeDb({ team_call_live_turn_claim: () => claimed(), team_call_live_turn_release: () => 'failed' })
+  it('a send that fails takes the mark back: no failure counted, and never throws', async () => {
+    const db = fakeDb({ team_call_live_turn_claim: () => queued(), team_call_live_turn_unqueue: () => true })
     const out = await offerLiveTurn(db.svc, CAPTURE, { send: async () => Promise.reject(new Error('inngest down')) })
-    expect(out).toBe('claimed')
-    expect(db.rpcs.find(([n]) => n === 'team_call_live_turn_release')?.[1]).toMatchObject({ turn_lease: LEASE, turn_outcome: 'failed', reason: 'not_sent' })
+    expect(out).toBe('queued')
+    expect(db.rpcs.map(([n]) => n)).toEqual(['team_call_live_turn_claim', 'team_call_live_turn_unqueue'])
+    expect(db.rpcs[1][1]).toEqual({ target_capture: CAPTURE, queued: LEASE })
   })
 
   it('a claim that cannot be read is skipped', async () => {
@@ -186,25 +195,37 @@ describe('offering a turn', () => {
 describe('a turn', () => {
   const release = (db: FakeDb) => db.rpcs.find(([n]) => n === 'team_call_live_turn_release')?.[1]
 
-  it('runs the live agent as the capture’s owner with the lease’s words, then reads them', async () => {
-    const db = fakeDb({ team_call_live_turn_window: () => window(), team_call_live_turn_release: () => 'ready' })
+  it('begins, runs the live agent as the capture’s owner with the lease’s words, then reads them', async () => {
+    const db = turnDb()
     const posts: unknown[] = []
     const out = await runLiveTurn(db.svc, { captureId: CAPTURE, lease: LEASE }, { postTurn: async (a) => (posts.push(a), 200) })
     expect(out).toBe('ok')
+    expect(db.rpcs[0]).toEqual(['team_call_live_turn_begin', { target_capture: CAPTURE, queued: LEASE, lease_seconds: 300, max_turns: 300 }])
     expect(posts).toEqual([{ captureId: CAPTURE, ownerId: OWNER, workspaceId: WS, recentChunks: ['[Dana Ortiz] Earlier words\n', '[Rosa Lind] New words\n'] }])
     expect(release(db)).toMatchObject({ turn_outcome: 'ok', sent_to: 400, max_failures_in_row: LIVE_TURN_MAX_FAILURES_IN_ROW })
   })
 
+  it('a stale mark (it waited too long in the queue, or its run started twice) sends nothing and counts nothing', async () => {
+    for (const outcome of ['stale', 'stopped']) {
+      const db = turnDb({ team_call_live_turn_begin: () => [{ outcome, turn_no: 3 }] })
+      const posts: unknown[] = []
+      expect(await runLiveTurn(db.svc, { captureId: CAPTURE, lease: LEASE }, { postTurn: async (a) => (posts.push(a), 200) })).toBe(outcome)
+      expect(posts).toEqual([])
+      // No window read, no release: nothing for the failure count to see.
+      expect(db.rpcs.map(([n]) => n)).toEqual(['team_call_live_turn_begin'])
+    }
+  })
+
   it('never reads who is in the call: the owner having left changes nothing', async () => {
-    const db = fakeDb({ team_call_live_turn_window: () => window(), team_call_live_turn_release: () => 'ready' })
+    const db = turnDb()
     await runLiveTurn(db.svc, { captureId: CAPTURE, lease: LEASE }, { postTurn: async () => 200 })
     expect(db.tables).toEqual(['captures'])
-    expect(db.rpcs.map(([n]) => n)).toEqual(['team_call_live_turn_window', 'team_call_live_turn_release'])
+    expect(db.rpcs.map(([n]) => n)).toEqual(['team_call_live_turn_begin', 'team_call_live_turn_window', 'team_call_live_turn_release'])
   })
 
   it('a turn that fails is skipped: its words stay unread for the next, and nothing throws', async () => {
     for (const fail of [async () => 500, async () => 504, async () => Promise.reject(new Error('socket hang up'))]) {
-      const db = fakeDb({ team_call_live_turn_window: () => window(), team_call_live_turn_release: () => 'failed' })
+      const db = turnDb({ team_call_live_turn_release: () => 'failed' })
       const out = await runLiveTurn(db.svc, { captureId: CAPTURE, lease: LEASE }, { postTurn: fail as () => Promise<number> })
       expect(out).toBe('failed')
       const r = release(db)
@@ -213,30 +234,37 @@ describe('a turn', () => {
     }
   })
 
+  it('an answer that never came back: its words count as sent (never twice), its lease is kept', async () => {
+    const db = turnDb()
+    expect(await runLiveTurn(db.svc, { captureId: CAPTURE, lease: LEASE }, { postTurn: async () => 'timeout' })).toBe('unknown')
+    expect(release(db)).toMatchObject({ turn_outcome: 'unknown', sent_to: 400 })
+  })
+
   it('the owner’s usage running out, or the route refusing them, stops the agent for the call', async () => {
     for (const [status, reason] of [[429, 'usage'], [402, 'usage'], [403, 'refused']] as const) {
-      const db = fakeDb({ team_call_live_turn_window: () => window(), team_call_live_turn_release: () => 'stopped' })
+      const db = turnDb({ team_call_live_turn_release: () => 'stopped' })
       expect(await runLiveTurn(db.svc, { captureId: CAPTURE, lease: LEASE }, { postTurn: async () => status })).toBe('stopped')
       expect(release(db)).toMatchObject({ turn_outcome: 'stopped', reason })
     }
   })
 
   it('once the call is over the turn sends nothing (655 stopped the agent; its release is stale)', async () => {
-    const db = fakeDb({ team_call_live_turn_window: () => [], team_call_live_turn_release: () => 'stale' })
+    const db = turnDb({ team_call_live_turn_window: () => [], team_call_live_turn_release: () => 'stale' })
     const posts: unknown[] = []
     expect(await runLiveTurn(db.svc, { captureId: CAPTURE, lease: LEASE }, { postTurn: async (a) => (posts.push(a), 200) })).toBe('stopped')
     expect(posts).toEqual([])
   })
 
   it('a window with no words reads ahead without a model call', async () => {
-    const db = fakeDb({ team_call_live_turn_window: () => window({ words: '  ' }), team_call_live_turn_release: () => 'ready' })
+    const db = turnDb({ team_call_live_turn_window: () => window({ words: '  ' }) })
     const posts: unknown[] = []
     expect(await runLiveTurn(db.svc, { captureId: CAPTURE, lease: LEASE }, { postTurn: async (a) => (posts.push(a), 200) })).toBe('empty')
     expect(posts).toEqual([])
   })
 
-  it('posts the live agent’s own route as the owner, as the paired note-taker, and revokes the token after', async () => {
-    const db = fakeDb({ team_call_live_turn_window: () => window(), team_call_live_turn_release: () => 'ready' })
+  it('posts the live agent’s own route as the owner, as the paired note-taker, signed with the capture’s key, and revokes the token after', async () => {
+    process.env.LIVE_AGENT_INTERNAL_SECRET = 'live-agent-secret-for-the-test-0123456789'
+    const db = turnDb()
     const calls: Array<{ url: string; init: RequestInit }> = []
     const realFetch = globalThis.fetch
     globalThis.fetch = (async (url: string, init: RequestInit) => {
@@ -250,12 +278,16 @@ describe('a turn', () => {
     }
     expect(calls).toHaveLength(1)
     expect(calls[0].url).toMatch(/\/api\/ai\/live-agent$/)
-    expect(JSON.parse(String(calls[0].init.body))).toEqual({
+    const body = JSON.parse(String(calls[0].init.body))
+    expect(body).toMatchObject({
       capture_id: CAPTURE,
       recent_chunks: ['[Dana Ortiz] Earlier words\n', '[Rosa Lind] New words\n'],
       mode: 'live',
       live_role: 'notes',
     })
+    // The key the route asks for on a call's capture: this capture's, and no other's.
+    expect(verifyCallTurnKey(CAPTURE, body.call_turn_key)).toBe(true)
+    expect(verifyCallTurnKey(LEASE, body.call_turn_key)).toBe(false)
     expect((calls[0].init.headers as Record<string, string>).Authorization).toMatch(/^Bearer nid_/)
     // The owner's token, pinned to the capture's workspace, and gone once the turn is over.
     expect(db.inserted[0]).toMatchObject({ user_id: OWNER, active_workspace_id: WS })
