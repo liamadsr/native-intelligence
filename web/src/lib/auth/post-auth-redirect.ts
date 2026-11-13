@@ -11,13 +11,18 @@ import { isInviteRedirectPath, mcpRedirectTarget } from '@/lib/auth/login-redire
  *   share_redirect   /s/<token>
  *   mcp_redirect     /api/mcp/… or /mcp/… on this origin (full URL or
  *                    path), the MCP OAuth authorize step to resume
- * Anything else, or no cookie, lands on /account.
+ * Anything else lands on /account; no cookie lands on `options.home`
+ * (default /account).
  *
  * `origin` is where relative targets resolve; it defaults to the request's
  * own (pass browserOrigin() where the dev server's reported origin differs
  * from the host the browser used).
  */
-export function postAuthRedirect(request: NextRequest, origin: string = request.nextUrl.origin): NextResponse {
+export function postAuthRedirect(
+  request: NextRequest,
+  origin: string = request.nextUrl.origin,
+  options: { home?: string } = {},
+): NextResponse {
   const redirectUrl = new URL(request.nextUrl.pathname, origin)
 
   const inviteRedirect = request.cookies.get('invite_redirect')?.value
@@ -71,7 +76,9 @@ export function postAuthRedirect(request: NextRequest, origin: string = request.
     return response
   }
 
-  redirectUrl.pathname = '/account'
+  // No redirect cookie: home, which is /account unless the caller names
+  // another same-site page (the join-by-domain page, src/lib/workspace-join).
+  redirectUrl.pathname = options.home ?? '/account'
   redirectUrl.search = ''
   return NextResponse.redirect(redirectUrl)
 }

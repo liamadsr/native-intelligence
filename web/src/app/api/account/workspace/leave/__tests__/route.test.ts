@@ -23,6 +23,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const hoisted = vi.hoisted(() => ({
   getCurrentWorkspaceId: vi.fn(async () => 'ws-active'),
   cookieDelete: vi.fn(),
+  recordLeftWorkspace: vi.fn(async (..._args: unknown[]) => {}),
 }))
 
 type Op = { table: string; kind: 'select' | 'update' | 'delete'; filters: Array<[string, string, unknown]>; values?: unknown }
@@ -62,6 +63,8 @@ vi.mock('@/lib/workspace', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/workspace')>()
   return { ...actual, getCurrentWorkspaceId: hoisted.getCurrentWorkspaceId }
 })
+// Leaving is remembered on the account first (join-by-domain never offers it again).
+vi.mock('@/lib/workspace-join/marks', () => ({ recordLeftWorkspace: hoisted.recordLeftWorkspace }))
 vi.mock('next/headers', () => ({
   headers: async () => new Map(),
   cookies: async () => ({ delete: hoisted.cookieDelete }),
@@ -86,6 +89,8 @@ beforeEach(() => {
   service.ops.length = 0
   hoisted.getCurrentWorkspaceId.mockResolvedValue('ws-active')
   hoisted.cookieDelete.mockClear()
+  hoisted.recordLeftWorkspace.mockReset()
+  hoisted.recordLeftWorkspace.mockResolvedValue(undefined)
 })
 
 describe('POST /api/account/workspace/leave', () => {
@@ -116,6 +121,16 @@ describe('POST /api/account/workspace/leave', () => {
       ],
     })
     expect(service.ops.map((o) => o.table)).toEqual(['member'])
+    // Remembered on their account, so join-by-domain never offers it again.
+    expect(hoisted.recordLeftWorkspace).toHaveBeenCalledWith(service.client, 'user-1', 'ws-other')
+  })
+
+  it('stays in when leaving cannot be remembered: nothing deleted, a 500', async () => {
+    memberRow = { id: 'member-9', role: 'member' }
+    hoisted.recordLeftWorkspace.mockRejectedValueOnce(new Error('auth down'))
+    const res = await POST(makeRequest({ workspace_id: 'ws-other' }))
+    expect(res.status).toBe(500)
+    expect(service.ops).toEqual([])
   })
 
   it('returns 403 when the user is not a member of the target workspace, and changes nothing', async () => {
@@ -123,6 +138,7 @@ describe('POST /api/account/workspace/leave', () => {
     const res = await POST(makeRequest({ workspace_id: 'ws-other' }))
     expect(res.status).toBe(403)
     expect(service.ops).toEqual([])
+    expect(hoisted.recordLeftWorkspace).not.toHaveBeenCalled()
   })
 
   it('blocks owners from leaving, and changes nothing', async () => {

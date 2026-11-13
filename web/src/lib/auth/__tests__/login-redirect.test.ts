@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isInviteRedirectPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '../login-redirect'
+import { isInviteRedirectPath, isJoinLinkPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '../login-redirect'
 import { APP_DOMAINS } from '@/lib/app-url'
 
 // The hosted app answers on two domains while it moves (src/lib/app-url.ts): every case below runs on each.
@@ -111,6 +111,18 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
       expect(isInviteRedirectPath('/link/abc')).toBe(true)
       expect(isInviteRedirectPath('/invite/tok')).toBe(true)
       for (const no of ['/linkx/abc', '/link//evil.example', 'https://evil.example/link/abc', '/s/abc']) expect(isInviteRedirectPath(no), no).toBe(false)
+    })
+
+    it("keeps a workspace's join link, so a signed-out person comes back to join", () => {
+      expect(resolvePostAuthRedirect('/join/Ab0_-Ab0_-Ab0_-Ab0_-Ab0_-', ORIGIN)).toBe('/join/Ab0_-Ab0_-Ab0_-Ab0_-Ab0_-')
+      expect(isInviteRedirectPath('/join/abc')).toBe(true)
+      expect(isJoinLinkPath('/join/abc')).toBe(true)
+      // An emailed invite is not a join link (the signup gate exempts only the former).
+      expect(isJoinLinkPath('/invite/tok')).toBe(false)
+      for (const no of ['/joinx/abc', '/join//evil.example', 'https://evil.example/join/abc']) {
+        expect(isInviteRedirectPath(no), no).toBe(false)
+        expect(resolvePostAuthRedirect(no, ORIGIN), no).toBe('/account')
+      }
     })
   })
 })

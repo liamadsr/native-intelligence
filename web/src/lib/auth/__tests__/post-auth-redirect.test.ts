@@ -35,6 +35,18 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
       expect(location(postAuthRedirect(request({ invite_redirect: '/link//evil.example' })))).toBe(`https://${DOMAIN}/account`)
     })
 
+    it('lands on a home the caller names when there is no redirect cookie, and only then', () => {
+      expect(location(postAuthRedirect(request(), undefined, { home: '/join/team' }))).toBe(`https://${DOMAIN}/join/team`)
+      expect(location(postAuthRedirect(request({ invite_redirect: '/invite/tok' }), undefined, { home: '/join/team' }))).toBe(`https://${DOMAIN}/invite/tok`)
+    })
+
+    it("honours a workspace join link through the invite cookie, so sign-in comes back to join", () => {
+      const res = postAuthRedirect(request({ invite_redirect: '/join/Ab0_-Ab0_-Ab0_-Ab0_-Ab0_-' }))
+      expect(location(res)).toBe(`https://${DOMAIN}/join/Ab0_-Ab0_-Ab0_-Ab0_-Ab0_-`)
+      expect(cleared(res, 'invite_redirect')).toBe(true)
+      expect(location(postAuthRedirect(request({ invite_redirect: '/join//evil.example' })))).toBe(`https://${DOMAIN}/account`)
+    })
+
     it('honours a share redirect, and refuses a path outside its family', () => {
       expect(location(postAuthRedirect(request({ share_redirect: '/s/abc' })))).toBe(`https://${DOMAIN}/s/abc`)
       expect(location(postAuthRedirect(request({ share_redirect: '//evil.example/s/x' })))).toBe(`https://${DOMAIN}/account`)
