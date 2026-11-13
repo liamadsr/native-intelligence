@@ -636,13 +636,14 @@ def trouble(status):
 
 
 # Our own Slack app (web/src/lib/slack/config.ts): the app takes Slack as set up only
-# when all four are set and well formed, so the check holds them to the same shapes.
+# when all four are set and well formed, so the check holds them to the same shapes
+# (keep the two rules identical; the app logs a malformed one by name and turns Slack off).
 # Nothing is asked of Slack: none of the four can be proven there without an install.
 SLACK_SETTINGS = {
     "SLACK_APP_ID": (r"A[A-Z0-9]{2,30}", "not an app id (A and capitals or digits, from Basic Information, App Credentials)"),
     "SLACK_CLIENT_ID": (r"[0-9]{3,20}\.[0-9]{3,20}", "not a client id (digits.digits, from Basic Information, App Credentials)"),
-    "SLACK_CLIENT_SECRET": (r"[0-9a-fA-F]{32}", "not a client secret (32 hexadecimal characters, from Basic Information, App Credentials)"),
-    "SLACK_SIGNING_SECRET": (r"[0-9a-fA-F]{32}", "not a signing secret (32 hexadecimal characters, from Basic Information, App Credentials)"),
+    "SLACK_CLIENT_SECRET": (r"[0-9a-fA-F]{32,128}", "not a client secret (32 to 128 hexadecimal characters, from Basic Information, App Credentials)"),
+    "SLACK_SIGNING_SECRET": (r"[0-9a-fA-F]{32,128}", "not a signing secret (32 to 128 hexadecimal characters, from Basic Information, App Credentials)"),
 }
 
 

@@ -193,9 +193,30 @@ class Slack(unittest.TestCase):
                 self.assertIn(missing, note)
                 self.assertIn("all four or none", note)
 
+    def test_secrets_of_32_to_128_hex_characters_either_case(self):
+        for value in ("0123456789ABCDEF0123456789abcdef", "a" * 64, "F" * 128):
+            for name in ("SLACK_CLIENT_SECRET", "SLACK_SIGNING_SECRET"):
+                self.assertEqual(self.run_check(name, dict(self.ENV, **{name: value})), (None, None), (name, len(value)))
+        for value in ("a" * 31, "a" * 129, "g" * 32):
+            for name in ("SLACK_CLIENT_SECRET", "SLACK_SIGNING_SECRET"):
+                self.assertIs(self.run_check(name, dict(self.ENV, **{name: value}))[0], False, (name, value[:3]))
+
+    def test_the_same_shapes_as_the_app(self):
+        # web/src/lib/slack/config.ts holds the same four rules: keep them identical.
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+                               "web", "src", "lib", "slack", "config.ts")) as f:
+            config = f.read()
+        self.assertIn("const APP_ID = /^A[A-Z0-9]{2,30}$/", config)
+        self.assertIn("const CLIENT_ID = /^[0-9]{3,20}\\.[0-9]{3,20}$/", config)
+        self.assertIn("const SECRET = /^[0-9a-f]{32,128}$/i", config)
+        self.assertEqual(cs.SLACK_SETTINGS["SLACK_APP_ID"][0], r"A[A-Z0-9]{2,30}")
+        self.assertEqual(cs.SLACK_SETTINGS["SLACK_CLIENT_ID"][0], r"[0-9]{3,20}\.[0-9]{3,20}")
+        self.assertEqual(cs.SLACK_SETTINGS["SLACK_CLIENT_SECRET"][0], r"[0-9a-fA-F]{32,128}")
+        self.assertEqual(cs.SLACK_SETTINGS["SLACK_SIGNING_SECRET"][0], r"[0-9a-fA-F]{32,128}")
+
     def test_a_malformed_one_is_wrong_and_never_shown(self):
         bad = {"SLACK_APP_ID": "T0NOTANAPP", "SLACK_CLIENT_ID": "made-up-client", "SLACK_CLIENT_SECRET": "made-up-secret-value",
-               "SLACK_SIGNING_SECRET": "0123456789abcdef0123456789abcdef00"}
+               "SLACK_SIGNING_SECRET": "0123456789abcdef0123456789abcdeg"}
         for name, value in bad.items():
             ok, note = self.run_check(name, dict(self.ENV, **{name: value}))
             self.assertIs(ok, False, name)

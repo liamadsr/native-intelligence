@@ -53,8 +53,9 @@ Read this before reporting anything as live or touching production. The code gui
   directly with our own Slack app since the change that replaced the connector
   (`web/src/lib/slack/`, migration 643). That is live only once migration 643 is
   applied, the four `SLACK_*` settings are in the server's `.env`, that code is
-  rolled out, the Slack app points at us, and each Slack workspace has added the app
-  again ("Slack" under "Day to day" in [`deploy/README.md`](deploy/README.md)); until
+  rolled out, the Slack app points at us, the old connector is deleted, and each Slack
+  workspace has added the app again ("Slack" under "Day to day" in
+  [`deploy/README.md`](deploy/README.md)); until
   then the code that serves may still reach Slack through the earlier host's
   connector. The cloud browser's sandboxes run on that host's
   sandbox service with `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and
