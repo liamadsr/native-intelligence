@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClientOptions } from '@supabase/supabase-js'
 
 /**
  * The auth settings every server-side supabase-js client needs.
@@ -20,7 +20,10 @@ export const STATELESS_AUTH = {
   detectSessionInUrl: false,
 } as const
 
-type ClientOptions = NonNullable<Parameters<typeof createClient>[2]>
+// The 'public' schema, as a bare createClient(url, key) infers it: a looser type here
+// would make the client a SupabaseClient<any, 'public', string>, which callers typed
+// with the plain SupabaseClient do not accept.
+type ClientOptions = SupabaseClientOptions<'public'>
 
 /**
  * `createClient` from supabase-js for server code: the same arguments, with
