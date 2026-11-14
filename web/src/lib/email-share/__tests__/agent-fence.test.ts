@@ -117,16 +117,53 @@ describe('the share routes', () => {
     expect(refuseBearer(new NextRequest('https://app.example/api/account/email/shares/x'))).toBeNull()
   })
 
-  it('every share route checks the caller through shareCaller (Bearer refused) before anything else', () => {
+  it('every share route checks the caller (Bearer refused) before it reaches the share layer', () => {
     const root = join(process.cwd(), 'src/app/api/account/email/shares')
     const routes = walk(root).filter((f) => f.endsWith('route.ts'))
     expect(routes.length).toBe(4)
     for (const file of routes) {
       const src = readFileSync(file, 'utf8')
-      const handlers = src.match(/export async function (GET|POST|DELETE|PATCH|PUT)\b/g) ?? []
+      const handlers = [...src.matchAll(/export async function (GET|POST|DELETE|PATCH|PUT)\b/g)]
       expect(handlers.length, file).toBeGreaterThan(0)
-      expect(src.match(/await shareCaller\(request\)/g)?.length, file).toBe(handlers.length)
+      handlers.forEach((h, n) => {
+        const body = src.slice(h.index, handlers[n + 1]?.index ?? src.length)
+        const check = body.indexOf('await shareCaller(request)')
+        const reach = body.search(/createEmailShare|readShareCard|readSharedThread|readSharedAttachment|revokeEmailShare|listThreadShares|listShareTargets|defaultEmailShareDeps/)
+        expect(check, `${file} ${h[1]}`).toBeGreaterThan(-1)
+        expect(reach, `${file} ${h[1]}`).toBeGreaterThan(check)
+      })
     }
+  })
+
+  it('in the service, the access check runs before any mailbox call', () => {
+    const src = readFileSync(join(process.cwd(), 'src/lib/email-share/service.ts'), 'utf8')
+    const fn = (name: string) => {
+      const at = src.indexOf(`export async function ${name}(`)
+      expect(at, name).toBeGreaterThan(-1)
+      const next = src.indexOf('\nexport ', at + 1)
+      return src.slice(at, next === -1 ? src.length : next)
+    }
+    const before = (body: string, first: string | RegExp, then: RegExp, label: string) => {
+      const a = typeof first === 'string' ? body.indexOf(first) : body.search(first)
+      const b = body.search(then)
+      expect(a, `${label}: ${String(first)}`).toBeGreaterThan(-1)
+      expect(b, `${label}: ${String(then)}`).toBeGreaterThan(a)
+    }
+    // Who may read: the channel rule, then revoked, then the mailbox.
+    const access = fn('shareAccess')
+    before(access, "rpc('team_chat_can_read'", /deps\.mailbox\(/, 'shareAccess')
+    before(access, 'if (share.revoked_at)', /deps\.mailbox\(/, 'shareAccess')
+    expect(access).not.toMatch(/deps\.provider/)
+    for (const name of ['readShareCard', 'readSharedThread', 'readSharedAttachment']) {
+      const body = fn(name)
+      before(body, 'await shareAccess(', /deps\.provider|cardSummary\(|\.mailbox\b/, name)
+      before(body, "if ('ok' in access) return access", /deps\.provider|cardSummary\(/, name)
+    }
+    // Who may share: the post rule and the owner, then the mailbox.
+    const share = fn('createEmailShare')
+    before(share, "rpc('team_chat_can_post'", /deps\.mailbox\(/, 'createEmailShare')
+    before(share, 'await ownThread(', /deps\.mailbox\(/, 'createEmailShare')
+    before(share, 'await deps.mailbox(', /deps\.provider\.threadIds/, 'createEmailShare')
   })
 })
 
@@ -138,17 +175,43 @@ function walk(dir: string): string[] {
   })
 }
 
+/** A reference to the share's reader, by any path form: alias, relative, dynamic import, require, the directory itself. */
+const READER_REF = /email-share(?:\/(?:service|provider|http|sanitize|index)(?:\.[cm]?[jt]sx?)?)?['"`]/
+/** The table's name as a string ('email_share', or inside a query string), never its column email_share_id. */
+const TABLE_STRING = /(['"`])[^'"`\n]*\bemail_share\b[^'"`\n]*\1/
+
 describe('tripwire: only the share routes reach a share’s mail', () => {
-  it('no agent, tool, MCP, loop, job or chat code imports the share reader', () => {
+  it('catches every form of reaching for it (the patterns themselves)', () => {
+    for (const line of [
+      "import { readSharedThread } from '@/lib/email-share/service'",
+      "import { liveSharedMessage } from '../../email-share/provider'",
+      "import { shareCaller } from '../email-share/http.ts'",
+      "const m = await import('@/lib/email-share/service')",
+      "const m = require('../../lib/email-share/provider')",
+      'const m = await import(`@/lib/email-share/service`)',
+      "export * from '@/lib/email-share'",
+    ]) {
+      expect(READER_REF.test(line), line).toBe(true)
+    }
+    expect(READER_REF.test("import { EMAIL_SHARE_AGENT_NOTICE } from '@/lib/email-share/types'")).toBe(false)
+    for (const line of ["svc.from('email_share')", 'svc.from("email_share").select()', "const q = 'select id from email_share where id = $1'", 'db.from(`email_share`)']) {
+      expect(TABLE_STRING.test(line), line).toBe(true)
+    }
+    expect(TABLE_STRING.test("select('id, email_share_id')")).toBe(false)
+  })
+
+  it('no agent, tool, MCP, loop, job or chat code reaches the share reader or its table', () => {
     const cwd = process.cwd()
-    const files = [...walk(join(cwd, 'src')), ...walk(join(cwd, 'agents'))].filter((f) => /\.(ts|tsx)$/.test(f) && !f.includes('__tests__'))
-    const readers = /from ['"](@\/lib\/email-share\/(service|provider|http)|\.\.?\/(service|provider|http))['"]/
-    const offenders = files.filter((f) => {
+    const files = [...walk(join(cwd, 'src')), ...walk(join(cwd, 'agents'))].filter((f) => /\.(c|m)?(t|j)sx?$/.test(f))
+    const allowed = (rel: string) => rel.startsWith('src/lib/email-share/') || rel.startsWith('src/app/api/account/email/shares/')
+    const offenders: string[] = []
+    for (const f of files) {
       const rel = relative(cwd, f)
-      if (rel.startsWith('src/lib/email-share/') || rel.startsWith('src/app/api/account/email/shares/')) return false
+      if (allowed(rel)) continue
       const src = readFileSync(f, 'utf8')
-      return /email-share/.test(src) && readers.test(src)
-    })
-    expect(offenders.map((f) => relative(cwd, f))).toEqual([])
+      if (READER_REF.test(src)) offenders.push(`${rel}: imports the share reader`)
+      if (TABLE_STRING.test(src)) offenders.push(`${rel}: names the email_share table`)
+    }
+    expect(offenders).toEqual([])
   })
 })

@@ -8,15 +8,18 @@
  *        label, message } the caller's own thread shared into a channel or DM
  *        they may post in: its message ids read live and frozen, and a
  *        message authored by them posted with it (their note, else "Shared an
- *        email"). Its notifications are asked for after the answer, as any
- *        message's; no agent turn and no chat_message loop is started by it.
+ *        email"). A link in the note gets its preview and the message its
+ *        notifications after the answer, as any message's; no agent turn and
+ *        no chat_message loop is started by it. 503 { code: 'busy' } when the
+ *        mailbox can't answer now.
  * Bearer callers are refused (src/lib/email-share/http.ts). Logs carry ids and
  * counts, never the mail.
  */
 import { after, type NextRequest } from 'next/server'
 import { badRequest } from '@/lib/api-errors'
 import { createEmailShare, defaultEmailShareDeps, listThreadShares } from '@/lib/email-share/service'
-import { noStore, shareCaller, shareFailure } from '@/lib/email-share/http'
+import { noStore, shareCaller, shareError, shareFailure } from '@/lib/email-share/http'
+import { firstLink, requestLinkPreview } from '@/lib/team-chat/link-preview'
 import { requestTeamChatNotify } from '@/lib/team-chat/notify'
 
 export async function GET(request: NextRequest) {
@@ -51,16 +54,17 @@ export async function POST(request: NextRequest) {
       note: input.note,
     })
   } catch (err) {
-    // The error's name only, never its message (nothing of the mail or the note reaches a log).
-    console.error('[email-share] share failed:', err instanceof Error ? err.name : 'unknown')
-    return shareFailure({ ok: false, status: 500, code: 'failed', error: "Couldn't share it" })
+    // A busy mailbox is 503 (try again); the error's name only is logged.
+    return shareError(err, 'share', "Couldn't share it")
   }
   if (!result.ok) {
     console.info(`[email-share] share refused code=${result.code}`)
     return shareFailure(result)
   }
   console.info(`[email-share] shared share=${result.shareId} channel=${result.message.channel_id} messages=${result.messageCount}`)
-  const messageId = result.message.id
-  after(() => requestTeamChatNotify(messageId))
+  const message = result.message
+  // A link in the note gets its preview, as any message's does; then its notifications.
+  if (firstLink(message.body)) after(() => requestLinkPreview(message))
+  after(() => requestTeamChatNotify(message.id))
   return noStore({ share: { id: result.shareId }, label: result.label, message: result.message }, { status: 201 })
 }

@@ -88,11 +88,12 @@ describe('the picker', () => {
       }
       if (url === '/api/account/email/shares' && method === 'POST') return respond(201, { share: { id: SHARE }, label: '#sales', message: { id: 'msg-1' } })
       if (url === `/api/account/email/shares/${SHARE}` && method === 'DELETE') return respond(200, { ok: true })
+      if (url === '/api/account/team-chat/messages/msg-1' && method === 'DELETE') return respond(200, { ok: true })
       return respond(404, {})
     }
   })
 
-  it('lists channels and DMs, warns where guests read, and shares with the note; Undo un-shares', async () => {
+  it('lists channels and DMs, warns where guests read, and shares with the note; Undo deletes its message (which un-shares)', async () => {
     const onShared = vi.fn()
     const onUndone = vi.fn()
     const onOpenChange = vi.fn()
@@ -117,8 +118,21 @@ describe('the picker', () => {
     const undo = toasts.success.mock.calls[0][1].action.onClick as () => void
     await act(async () => undo())
     await flush()
-    expect(calls.some((c) => c.method === 'DELETE' && c.url === `/api/account/email/shares/${SHARE}`)).toBe(true)
+    // The message goes (the trigger revokes the share): no "No longer shared" stub left in the channel.
+    expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.url)).toEqual(['/api/account/team-chat/messages/msg-1'])
     expect(onUndone).toHaveBeenCalled()
+  })
+
+  it('Undo falls back to un-sharing when the message can’t be deleted', async () => {
+    const base = routes
+    routes = (url, method) => (url.startsWith('/api/account/team-chat/messages/') ? respond(500, {}) : base(url, method))
+    await render(h(EmailShareDialog, { open: true, onOpenChange: vi.fn(), thread: { threadId: 'thr-1' } }))
+    await act(async () => $<HTMLButtonElement>(`[data-share-target="${SALES}"]`)!.click())
+    await act(async () => $<HTMLButtonElement>('[data-share-submit]')!.click())
+    await flush()
+    await act(async () => (toasts.success.mock.calls[0][1].action.onClick as () => void)())
+    await flush()
+    expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.url)).toEqual(['/api/account/team-chat/messages/msg-1', `/api/account/email/shares/${SHARE}`])
   })
 
   it('a refused share says why and keeps the dialog open', async () => {
@@ -211,6 +225,7 @@ describe('the card in team chat', () => {
     subject: 'Northwind renewal terms',
     mine: false,
     missing: 1,
+    blockedImages: 0,
     messages: [
       {
         id: 'm-1',
@@ -248,6 +263,51 @@ describe('the card in team chat', () => {
     // Read-only: no reply, send or forward.
     expect(dialog.querySelector('[title="Reply with AI"]')).toBeNull()
     expect(dialog.textContent).not.toMatch(/Reply|Forward|Send/)
+  })
+
+  it('remote images: "Load images" reads it again with them', async () => {
+    routes = (url) =>
+      url.endsWith('?view=card')
+        ? respond(200, live)
+        : url === `/api/account/email/shares/${SHARE}`
+          ? respond(200, { ...thread, blockedImages: 2 })
+          : url === `/api/account/email/shares/${SHARE}?images=1`
+            ? respond(200, { ...thread, blockedImages: 0 })
+            : respond(404, {})
+    await render(h(EmailShareCard, { shareId: SHARE }))
+    await act(async () => $<HTMLButtonElement>('[data-email-share-open]')!.click())
+    await flush()
+    expect($('[data-email-share-images]')?.textContent).toContain('Images from outside were not loaded.')
+    await act(async () => $<HTMLButtonElement>('[data-email-share-load-images]')!.click())
+    await flush()
+    expect(calls.map((c) => c.url)).toContain(`/api/account/email/shares/${SHARE}?images=1`)
+    expect($('[data-email-share-images]')).toBeNull()
+  })
+
+  it('a busy mailbox: "Couldn’t load right now · Retry" on the card and in the thread, never "no longer available"', async () => {
+    let up = false
+    routes = (url) => {
+      if (!up) return respond(503, { error: 'Couldn’t load right now', code: 'busy' })
+      return url.endsWith('?view=card') ? respond(200, live) : respond(200, thread)
+    }
+    await render(h(EmailShareCard, { shareId: SHARE }))
+    expect($('[data-email-share-busy]')?.textContent).toContain('Couldn’t load right now')
+    expect(text()).not.toContain('no longer available')
+    up = true
+    await act(async () => $<HTMLButtonElement>('[data-email-share-retry]')!.click())
+    await flush()
+    expect($(`[data-email-share-card="${SHARE}"]`)!.getAttribute('data-state')).toBe('live')
+
+    up = false
+    await act(async () => $<HTMLButtonElement>('[data-email-share-open]')!.click())
+    await flush()
+    const dialog = $('[data-email-share-thread]')!
+    expect(dialog.querySelector('[data-email-share-busy]')).not.toBeNull()
+    expect(dialog.textContent).not.toContain('no longer available')
+    up = true
+    await act(async () => dialog.querySelector<HTMLButtonElement>('[data-email-share-retry]')!.click())
+    await flush()
+    expect($('[data-email-share-thread]')!.textContent).toContain('Our counter is 12% off list.')
   })
 
   it('the owner gets a menu to un-share', async () => {

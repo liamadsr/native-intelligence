@@ -4,8 +4,8 @@
  * Share to chat (migration 646): the owner shares their email thread into a
  * channel or DM they can post in, with a note in their own words. Readers
  * there read it live from the owner's mailbox; nothing of the mail is stored
- * (src/lib/email-share). The toast says where it went, and its Undo
- * un-shares.
+ * (src/lib/email-share). The toast says where it went, and its Undo deletes
+ * the message it posted (which un-shares, leaving no stub in the channel).
  *
  * Opened from the thread view's toolbar (EmailShareDialog), and from the one
  * entity actions menu for an email thread (openEmailShareDialog, which mounts
@@ -49,8 +49,27 @@ async function errorOf(res: Response, fallback: string): Promise<string> {
 }
 
 /**
+ * Take back a share made a moment ago (the toast's Undo): its chat message is
+ * deleted, which un-shares it (migration 646's trigger), so the channel keeps
+ * no "No longer shared" stub. Should that delete fail, the share is still
+ * ended. True when it went.
+ */
+export async function undoEmailShare(shareId: string, messageId: string | null): Promise<boolean> {
+  if (messageId) {
+    try {
+      const res = await fetch(`/api/account/team-chat/messages/${encodeURIComponent(messageId)}`, { method: 'DELETE' })
+      if (res.ok) return true
+    } catch {
+      // Un-shared below instead.
+    }
+  }
+  return unshareEmail(shareId)
+}
+
+/**
  * Share the thread to one target. Toasts "Shared to <label>" with Undo
- * (un-share), or why it couldn't. Resolves the share's id, or null.
+ * (the message goes, and the share with it), or why it couldn't. Resolves the
+ * share's id, or null.
  */
 export async function shareEmailThread(
   thread: EmailShareThreadRef,
@@ -79,8 +98,9 @@ export async function shareEmailThread(
     toast.error(await errorOf(res, "Couldn't share it"))
     return null
   }
-  const data = (await res.json().catch(() => null)) as { share?: { id?: unknown }; label?: unknown } | null
+  const data = (await res.json().catch(() => null)) as { share?: { id?: unknown }; label?: unknown; message?: { id?: unknown } } | null
   const shareId = typeof data?.share?.id === 'string' ? data.share.id : null
+  const messageId = typeof data?.message?.id === 'string' ? data.message.id : null
   const label = typeof data?.label === 'string' ? data.label : target.label
   toast.success(`Shared to ${label}`, {
     ...(shareId
@@ -88,7 +108,7 @@ export async function shareEmailThread(
           action: {
             label: 'Undo',
             onClick: () => {
-              void unshareEmail(shareId).then((ok) => {
+              void undoEmailShare(shareId, messageId).then((ok) => {
                 if (ok) opts.onUndone?.()
                 else toast.error("Couldn't un-share it")
               })

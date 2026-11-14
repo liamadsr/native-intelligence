@@ -77,6 +77,10 @@ describe('migration 646', () => {
     expect(revoke).toContain('security definer set search_path = public, pg_temp')
     expect(revoke).toContain('update public.email_share set revoked_at = now() where id = new.email_share_id and revoked_at is null;')
     expect(BODY).toContain('after update of deleted_at on public.team_chat_message for each row execute function public.team_chat_message_email_share_revoke();')
+    // Trigger functions only: no client may call either directly.
+    for (const fn of ['team_chat_message_email_share_guard', 'team_chat_message_email_share_revoke']) {
+      expect(BODY).toContain(`revoke all on function public.${fn}() from public, anon, authenticated;`)
+    }
   })
 
   it('has every column the service reads and writes, and team chat reads the message’s share', () => {

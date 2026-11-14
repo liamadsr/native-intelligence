@@ -12,6 +12,7 @@ import {
   liveSharedSummary,
   liveThreadMessageIds,
   parseAddressList,
+  ShareProviderBusyError,
   type FetchLike,
 } from '../provider'
 
@@ -75,6 +76,12 @@ describe('the thread’s message ids, at share time', () => {
       ],
     ])
     expect(await liveThreadMessageIds(GMAIL, 'gt-1', fn)).toEqual(['a', 'b'])
+  })
+
+  it('Graph: freezes the NEWEST messages, as Gmail does (newest first from Graph, then oldest first)', async () => {
+    const { fn, calls } = stub([[/\/me\/messages\?\$filter=/, () => json({ value: [{ id: 'x3' }, { id: 'x2' }, { id: 'x1' }] })]])
+    expect(await liveThreadMessageIds(GRAPH, 'conv-1', fn)).toEqual(['x1', 'x2', 'x3'])
+    expect(calls[0].url).toContain('$orderby=receivedDateTime desc&$top=100')
   })
 
   it('Graph: immutable ids, drafts left out; a failed read is null', async () => {
@@ -182,6 +189,55 @@ describe('one attachment', () => {
     expect(file).toMatchObject({ name: 'terms.pdf', mimeType: 'application/pdf' })
     expect(await new Response(file!.body as ReadableStream).text()).toBe('%PDF-1.7')
     expect(await liveSharedAttachment(GRAPH, 'x1', 'conv-1', 'A9', graph.fn)).toBeNull()
+  })
+})
+
+describe('not found vs. busy', () => {
+  it('404, and Graph’s 400 for an id it can’t read, are null: the mail is gone', async () => {
+    expect(await liveSharedMessage(GMAIL, 'g1', 'gt-1', stub([[/./, () => json({}, 404)]]).fn)).toBeNull()
+    expect(await liveSharedMessage(GRAPH, 'x1', 'conv-1', stub([[/./, () => json({ error: { code: 'ErrorInvalidIdMalformed' } }, 400)]]).fn)).toBeNull()
+    expect(await liveSharedSummary(GRAPH, 'x1', 'conv-1', stub([[/./, () => json({}, 404)]]).fn)).toBeNull()
+  })
+
+  it('429, 5xx, a 401 mid-refresh, a network error or a garbled answer throw busy: never "no longer available"', async () => {
+    for (const status of [429, 500, 503, 401]) {
+      const { fn } = stub([[/./, () => json({}, status)]])
+      await expect(liveSharedMessage(GMAIL, 'g1', 'gt-1', fn), String(status)).rejects.toBeInstanceOf(ShareProviderBusyError)
+      await expect(liveSharedSummary(GRAPH, 'x1', 'conv-1', fn), String(status)).rejects.toBeInstanceOf(ShareProviderBusyError)
+      await expect(liveThreadMessageIds(GRAPH, 'conv-1', fn), String(status)).rejects.toBeInstanceOf(ShareProviderBusyError)
+      await expect(liveSharedAttachment(GMAIL, 'g1', 'gt-1', '1', fn), String(status)).rejects.toBeInstanceOf(ShareProviderBusyError)
+    }
+    const down: FetchLike = vi.fn(async () => {
+      throw new TypeError('fetch failed')
+    })
+    await expect(liveSharedMessage(GMAIL, 'g1', 'gt-1', down)).rejects.toBeInstanceOf(ShareProviderBusyError)
+    const garbled = stub([[/./, () => new Response('<html>oops</html>', { status: 200 })]])
+    await expect(liveSharedMessage(GMAIL, 'g1', 'gt-1', garbled.fn)).rejects.toBeInstanceOf(ShareProviderBusyError)
+  })
+
+  it('the busy error names the provider and status only', async () => {
+    const err = await liveSharedMessage(GMAIL, 'g1', 'gt-1', stub([[/./, () => json({ error: 'Renewal terms for dana@harborline.example' }, 503)]]).fn).catch((e) => e)
+    expect(err).toBeInstanceOf(ShareProviderBusyError)
+    expect(err.message).toBe('google mailbox busy (503)')
+  })
+})
+
+describe('remote images in a shared body', () => {
+  const html = '<p>Hi</p><img src="https://track.example/p.gif" alt="logo"><img src="data:image/png;base64,iVBORw0KGgo=" alt="inline">'
+  const withHtml = () => stub([[/messages\/g1\?format=full/, () => json(gmailMessage({ payload: { partId: '', mimeType: 'text/html', headers: [], body: { data: b64(html) } } }))]]).fn
+
+  it('are left out and counted by default, the alt and data: images kept', async () => {
+    const m = await liveSharedMessage(GMAIL, 'g1', 'gt-1', withHtml())
+    expect(m!.blockedImages).toBe(1)
+    expect(m!.bodyHtml).not.toContain('track.example')
+    expect(m!.bodyHtml).toContain('alt="logo"')
+    expect(m!.bodyHtml).toContain('data:image/png')
+  })
+
+  it('come when asked for', async () => {
+    const m = await liveSharedMessage(GMAIL, 'g1', 'gt-1', withHtml(), { images: true })
+    expect(m!.blockedImages).toBe(0)
+    expect(m!.bodyHtml).toContain('https://track.example/p.gif')
   })
 })
 

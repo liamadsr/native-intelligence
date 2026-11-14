@@ -10,7 +10,7 @@
  */
 import type { NextRequest } from 'next/server'
 import { defaultEmailShareDeps, readSharedAttachment } from '@/lib/email-share/service'
-import { contentDisposition, downloadType, isShareFailure, shareCaller, shareFailure } from '@/lib/email-share/http'
+import { contentDisposition, downloadType, isShareFailure, shareCaller, shareError, shareFailure } from '@/lib/email-share/http'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -34,7 +34,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     console.info(`[email-share] attachment share=${id}`)
     return new Response(file.body as BodyInit, { status: 200, headers })
   } catch (err) {
-    console.error(`[email-share] attachment share=${id} failed:`, err instanceof Error ? err.name : 'unknown')
-    return shareFailure({ ok: false, status: 500, code: 'failed', error: "Couldn't download that file" })
+    return shareError(err, `attachment share=${id}`, "Couldn't download that file")
   }
 }

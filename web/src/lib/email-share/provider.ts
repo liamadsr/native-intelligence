@@ -9,12 +9,53 @@
  * (`Prefer: IdType="ImmutableId"`), so a message the owner files keeps the id
  * the share froze.
  *
- * Nothing here logs or throws a subject, a body or an address: a failed read
- * is null (or an Error naming the provider and a status).
+ * A read that finds nothing (404; Graph's 400 for an id it can't read, which
+ * is how a moved-away or malformed id answers) is null: the mail is gone.
+ * Anything else that fails (429, 5xx, a 401 while the token is refreshed, a
+ * network error) throws {@link ShareProviderBusyError}: it may work in a
+ * moment, so it is never "no longer available" and never cached. Nothing here
+ * logs or throws a subject, a body or an address.
  */
 import type { EmailShareAddress, EmailShareAttachment, EmailShareMessage } from './types'
 import { EMAIL_SHARE_MAX_MESSAGES } from './types'
 import { htmlToText, sanitizeSharedEmailHtml } from './sanitize'
+
+/** The mailbox didn't answer now (rate limit, outage, token refresh): try again. Names the provider and a status only. */
+export class ShareProviderBusyError extends Error {
+  constructor(
+    readonly provider: 'google' | 'microsoft',
+    readonly status: number | null,
+  ) {
+    super(`${provider} mailbox busy${status ? ` (${status})` : ''}`)
+    this.name = 'ShareProviderBusyError'
+  }
+}
+
+/**
+ * One provider call: the answer when it is ok, null when the provider says the
+ * thing isn't there, else ShareProviderBusyError (a network error too).
+ */
+async function call(fetchImpl: FetchLike, provider: 'google' | 'microsoft', url: string, init: RequestInit): Promise<Response | null> {
+  let res: Response
+  try {
+    res = await fetchImpl(url, init)
+  } catch {
+    throw new ShareProviderBusyError(provider, null)
+  }
+  if (res.ok) return res
+  if (res.status === 404) return null
+  if (provider === 'microsoft' && res.status === 400) return null
+  throw new ShareProviderBusyError(provider, res.status)
+}
+
+/** A body as JSON; one that won't parse is a provider failure, not a gone message. */
+async function body<T>(res: Response, provider: 'google' | 'microsoft'): Promise<T> {
+  try {
+    return (await res.json()) as T
+  } catch {
+    throw new ShareProviderBusyError(provider, res.status)
+  }
+}
 
 export interface ShareMailbox {
   provider: 'google' | 'microsoft'
@@ -40,31 +81,34 @@ function auth(token: string, extra: Record<string, string> = {}): RequestInit {
 /**
  * The ids of the thread's messages as the mailbox holds it now, oldest first,
  * drafts left out (a draft is never shared), at most EMAIL_SHARE_MAX_MESSAGES
- * (the newest). Null when the thread can't be read.
+ * (the newest, on either provider). Null when the thread isn't there; throws
+ * ShareProviderBusyError when the mailbox can't answer now.
  */
 export async function liveThreadMessageIds(mailbox: ShareMailbox, threadId: string, fetchImpl: FetchLike = fetch): Promise<string[] | null> {
-  try {
-    if (mailbox.provider === 'google') {
-      const res = await fetchImpl(`${GMAIL}/threads/${encodeURIComponent(threadId)}?format=minimal`, auth(mailbox.token))
-      if (!res.ok) return null
-      const data = (await res.json()) as { messages?: Array<{ id?: string; labelIds?: string[]; internalDate?: string }> }
-      const ids = (data.messages ?? [])
-        .filter((m) => typeof m.id === 'string' && !(m.labelIds ?? []).includes('DRAFT'))
-        .sort((a, b) => Number(a.internalDate ?? 0) - Number(b.internalDate ?? 0))
-        .map((m) => m.id as string)
-      return ids.slice(-EMAIL_SHARE_MAX_MESSAGES)
-    }
-    const filter = encodeURIComponent(`conversationId eq '${threadId.replace(/'/g, "''")}'`)
-    const res = await fetchImpl(
-      `${GRAPH}/messages?$filter=${filter}&$select=id,isDraft,receivedDateTime&$orderby=receivedDateTime asc&$top=${EMAIL_SHARE_MAX_MESSAGES}`,
-      auth(mailbox.token, IMMUTABLE),
-    )
-    if (!res.ok) return null
-    const data = (await res.json()) as { value?: Array<{ id?: string; isDraft?: boolean }> }
-    return (data.value ?? []).filter((m) => typeof m.id === 'string' && m.isDraft !== true).map((m) => m.id as string)
-  } catch {
-    return null
+  if (mailbox.provider === 'google') {
+    const res = await call(fetchImpl, 'google', `${GMAIL}/threads/${encodeURIComponent(threadId)}?format=minimal`, auth(mailbox.token))
+    if (!res) return null
+    const data = await body<{ messages?: Array<{ id?: string; labelIds?: string[]; internalDate?: string }> }>(res, 'google')
+    const ids = (data.messages ?? [])
+      .filter((m) => typeof m.id === 'string' && !(m.labelIds ?? []).includes('DRAFT'))
+      .sort((a, b) => Number(a.internalDate ?? 0) - Number(b.internalDate ?? 0))
+      .map((m) => m.id as string)
+    return ids.slice(-EMAIL_SHARE_MAX_MESSAGES)
   }
+  // The newest EMAIL_SHARE_MAX_MESSAGES, then oldest first (as Gmail's).
+  const filter = encodeURIComponent(`conversationId eq '${threadId.replace(/'/g, "''")}'`)
+  const res = await call(
+    fetchImpl,
+    'microsoft',
+    `${GRAPH}/messages?$filter=${filter}&$select=id,isDraft,receivedDateTime&$orderby=receivedDateTime desc&$top=${EMAIL_SHARE_MAX_MESSAGES}`,
+    auth(mailbox.token, IMMUTABLE),
+  )
+  if (!res) return null
+  const data = await body<{ value?: Array<{ id?: string; isDraft?: boolean }> }>(res, 'microsoft')
+  return (data.value ?? [])
+    .filter((m) => typeof m.id === 'string' && m.isDraft !== true)
+    .map((m) => m.id as string)
+    .reverse()
 }
 
 // ── One shared message (on open) ────────────────────────────────────────────
@@ -183,60 +227,71 @@ const GRAPH_ATTACHMENTS = '$expand=attachments($select=id,name,size,contentType,
 
 async function gmailMessage(mailbox: ShareMailbox, messageId: string, threadId: string, format: 'full' | 'metadata', fetchImpl: FetchLike): Promise<GmailMessage | null> {
   const query = format === 'full' ? 'format=full' : 'format=metadata&metadataHeaders=Subject&metadataHeaders=From'
-  const res = await fetchImpl(`${GMAIL}/messages/${encodeURIComponent(messageId)}?${query}`, auth(mailbox.token))
-  if (!res.ok) return null
-  const msg = (await res.json()) as GmailMessage
+  const res = await call(fetchImpl, 'google', `${GMAIL}/messages/${encodeURIComponent(messageId)}?${query}`, auth(mailbox.token))
+  if (!res) return null
+  const msg = await body<GmailMessage>(res, 'google')
   // Still the shared thread's, and not turned into a draft.
   if (msg.id !== messageId || msg.threadId !== threadId || (msg.labelIds ?? []).includes('DRAFT')) return null
   return msg
 }
 
 async function graphMessage(mailbox: ShareMailbox, messageId: string, threadId: string, select: string, fetchImpl: FetchLike): Promise<GraphMessage | null> {
-  const res = await fetchImpl(`${GRAPH}/messages/${encodeURIComponent(messageId)}?$select=${select}`, auth(mailbox.token, IMMUTABLE))
-  if (!res.ok) return null
-  const msg = (await res.json()) as GraphMessage
+  const res = await call(fetchImpl, 'microsoft', `${GRAPH}/messages/${encodeURIComponent(messageId)}?$select=${select}`, auth(mailbox.token, IMMUTABLE))
+  if (!res) return null
+  const msg = await body<GraphMessage>(res, 'microsoft')
   if (msg.id !== messageId || msg.conversationId !== threadId || msg.isDraft === true) return null
   return msg
 }
 
-/** One shared message, whole and read-only (bodies sanitized). Null when it is gone or no longer the thread's. */
-export async function liveSharedMessage(mailbox: ShareMailbox, messageId: string, threadId: string, fetchImpl: FetchLike = fetch): Promise<EmailShareMessage | null> {
-  try {
-    if (mailbox.provider === 'google') {
-      const msg = await gmailMessage(mailbox, messageId, threadId, 'full', fetchImpl)
-      if (!msg) return null
-      const headers = msg.payload?.headers
-      const html = gmailBody(msg.payload, 'text/html')
-      const text = gmailBody(msg.payload, 'text/plain')
-      return {
-        id: messageId,
-        from: parseAddress(header(headers, 'From')),
-        to: parseAddressList(header(headers, 'To')),
-        cc: parseAddressList(header(headers, 'Cc')),
-        date: msg.internalDate ? new Date(Number(msg.internalDate)).toISOString() : header(headers, 'Date'),
-        subject: header(headers, 'Subject'),
-        bodyHtml: html ? sanitizeSharedEmailHtml(html) : null,
-        bodyText: text ?? (html ? htmlToText(html) : null),
-        attachments: gmailAttachments(msg.payload),
-      }
-    }
-    const msg = await graphMessage(mailbox, messageId, threadId, `${GRAPH_SELECT}&${GRAPH_ATTACHMENTS}`, fetchImpl)
+/**
+ * One shared message, whole and read-only (bodies sanitized: remote images and
+ * CSS `url(...)` left out unless `images`, the count of what was left out in
+ * `blockedImages`). Null when it is gone or no longer the thread's.
+ */
+export async function liveSharedMessage(
+  mailbox: ShareMailbox,
+  messageId: string,
+  threadId: string,
+  fetchImpl: FetchLike = fetch,
+  opts: { images?: boolean } = {},
+): Promise<EmailShareMessage | null> {
+  const clean = (html: string) => sanitizeSharedEmailHtml(html, { images: opts.images === true })
+  if (mailbox.provider === 'google') {
+    const msg = await gmailMessage(mailbox, messageId, threadId, 'full', fetchImpl)
     if (!msg) return null
-    const isHtml = msg.body?.contentType?.toLowerCase() === 'html'
-    const content = msg.body?.content ?? ''
+    const headers = msg.payload?.headers
+    const html = gmailBody(msg.payload, 'text/html')
+    const text = gmailBody(msg.payload, 'text/plain')
+    const sanitized = html ? clean(html) : null
     return {
       id: messageId,
-      from: graphAddress(msg.from),
-      to: (msg.toRecipients ?? []).map(graphAddress),
-      cc: (msg.ccRecipients ?? []).map(graphAddress),
-      date: msg.receivedDateTime ?? '',
-      subject: msg.subject ?? '',
-      bodyHtml: isHtml && content ? sanitizeSharedEmailHtml(content) : null,
-      bodyText: isHtml ? (content ? htmlToText(content) : null) : content || null,
-      attachments: graphFiles(msg.attachments),
+      from: parseAddress(header(headers, 'From')),
+      to: parseAddressList(header(headers, 'To')),
+      cc: parseAddressList(header(headers, 'Cc')),
+      date: msg.internalDate ? new Date(Number(msg.internalDate)).toISOString() : header(headers, 'Date'),
+      subject: header(headers, 'Subject'),
+      bodyHtml: sanitized?.html ?? null,
+      bodyText: text ?? (html ? htmlToText(html) : null),
+      attachments: gmailAttachments(msg.payload),
+      blockedImages: sanitized?.blocked ?? 0,
     }
-  } catch {
-    return null
+  }
+  const msg = await graphMessage(mailbox, messageId, threadId, `${GRAPH_SELECT}&${GRAPH_ATTACHMENTS}`, fetchImpl)
+  if (!msg) return null
+  const isHtml = msg.body?.contentType?.toLowerCase() === 'html'
+  const content = msg.body?.content ?? ''
+  const sanitized = isHtml && content ? clean(content) : null
+  return {
+    id: messageId,
+    from: graphAddress(msg.from),
+    to: (msg.toRecipients ?? []).map(graphAddress),
+    cc: (msg.ccRecipients ?? []).map(graphAddress),
+    date: msg.receivedDateTime ?? '',
+    subject: msg.subject ?? '',
+    bodyHtml: sanitized?.html ?? null,
+    bodyText: isHtml ? (content ? htmlToText(content) : null) : content || null,
+    attachments: graphFiles(msg.attachments),
+    blockedImages: sanitized?.blocked ?? 0,
   }
 }
 
@@ -247,22 +302,18 @@ export async function liveSharedSummary(
   threadId: string,
   fetchImpl: FetchLike = fetch,
 ): Promise<{ subject: string; from: string; firstLine: string } | null> {
-  try {
-    if (mailbox.provider === 'google') {
-      const msg = await gmailMessage(mailbox, messageId, threadId, 'metadata', fetchImpl)
-      if (!msg) return null
-      return {
-        subject: header(msg.payload?.headers, 'Subject'),
-        from: parseAddress(header(msg.payload?.headers, 'From')).email,
-        firstLine: firstLine(decodeEntities(msg.snippet ?? '')),
-      }
-    }
-    const msg = await graphMessage(mailbox, messageId, threadId, 'id,conversationId,isDraft,subject,from,bodyPreview', fetchImpl)
+  if (mailbox.provider === 'google') {
+    const msg = await gmailMessage(mailbox, messageId, threadId, 'metadata', fetchImpl)
     if (!msg) return null
-    return { subject: msg.subject ?? '', from: graphAddress(msg.from).email, firstLine: firstLine(msg.bodyPreview ?? '') }
-  } catch {
-    return null
+    return {
+      subject: header(msg.payload?.headers, 'Subject'),
+      from: parseAddress(header(msg.payload?.headers, 'From')).email,
+      firstLine: firstLine(decodeEntities(msg.snippet ?? '')),
+    }
   }
+  const msg = await graphMessage(mailbox, messageId, threadId, 'id,conversationId,isDraft,subject,from,bodyPreview', fetchImpl)
+  if (!msg) return null
+  return { subject: msg.subject ?? '', from: graphAddress(msg.from).email, firstLine: firstLine(msg.bodyPreview ?? '') }
 }
 
 /** The first line of a preview, one line, at most 160 characters. */
@@ -299,35 +350,35 @@ export async function liveSharedAttachment(
   key: string,
   fetchImpl: FetchLike = fetch,
 ): Promise<SharedAttachmentFile | null> {
-  try {
-    if (mailbox.provider === 'google') {
-      const msg = await gmailMessage(mailbox, messageId, threadId, 'full', fetchImpl)
-      if (!msg) return null
-      const part = gmailPart(msg.payload, key)
-      if (!part?.filename || !part.body?.attachmentId) return null
-      if ((part.body.size ?? 0) > SHARE_ATTACHMENT_MAX_BYTES) return null
-      const res = await fetchImpl(
-        `${GMAIL}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(part.body.attachmentId)}`,
-        auth(mailbox.token),
-      )
-      if (!res.ok) return null
-      const data = ((await res.json()) as { data?: unknown }).data
-      if (typeof data !== 'string') return null
-      const bytes = new Uint8Array(Buffer.from(data, 'base64url'))
-      if (bytes.byteLength > SHARE_ATTACHMENT_MAX_BYTES) return null
-      return { name: part.filename, mimeType: part.mimeType || 'application/octet-stream', size: bytes.byteLength, body: bytes }
-    }
-    const msg = await graphMessage(mailbox, messageId, threadId, `id,conversationId,isDraft&${GRAPH_ATTACHMENTS}`, fetchImpl)
+  if (mailbox.provider === 'google') {
+    const msg = await gmailMessage(mailbox, messageId, threadId, 'full', fetchImpl)
     if (!msg) return null
-    const file = graphFiles(msg.attachments).find((a) => a.key === key)
-    if (!file || file.size > SHARE_ATTACHMENT_MAX_BYTES) return null
-    const res = await fetchImpl(
-      `${GRAPH}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(key)}/$value`,
-      auth(mailbox.token, IMMUTABLE),
+    const part = gmailPart(msg.payload, key)
+    if (!part?.filename || !part.body?.attachmentId) return null
+    if ((part.body.size ?? 0) > SHARE_ATTACHMENT_MAX_BYTES) return null
+    const res = await call(
+      fetchImpl,
+      'google',
+      `${GMAIL}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(part.body.attachmentId)}`,
+      auth(mailbox.token),
     )
-    if (!res.ok || !res.body) return null
-    return { name: file.name, mimeType: file.mimeType, size: file.size || null, body: res.body }
-  } catch {
-    return null
+    if (!res) return null
+    const data = (await body<{ data?: unknown }>(res, 'google')).data
+    if (typeof data !== 'string') return null
+    const bytes = new Uint8Array(Buffer.from(data, 'base64url'))
+    if (bytes.byteLength > SHARE_ATTACHMENT_MAX_BYTES) return null
+    return { name: part.filename, mimeType: part.mimeType || 'application/octet-stream', size: bytes.byteLength, body: bytes }
   }
+  const msg = await graphMessage(mailbox, messageId, threadId, `id,conversationId,isDraft&${GRAPH_ATTACHMENTS}`, fetchImpl)
+  if (!msg) return null
+  const file = graphFiles(msg.attachments).find((a) => a.key === key)
+  if (!file || file.size > SHARE_ATTACHMENT_MAX_BYTES) return null
+  const res = await call(
+    fetchImpl,
+    'microsoft',
+    `${GRAPH}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(key)}/$value`,
+    auth(mailbox.token, IMMUTABLE),
+  )
+  if (!res?.body) return null
+  return { name: file.name, mimeType: file.mimeType, size: file.size || null, body: res.body }
 }

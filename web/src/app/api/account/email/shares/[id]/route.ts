@@ -1,12 +1,15 @@
 /**
  * /api/account/email/shares/[id] (migration 646): one shared thread.
- *   GET  ?view=card → EmailShareCardView: the card in chat (its state, the
- *        sender from the index, the subject and first line read live).
+ *   GET  ?view=card → EmailShareCardView: the card in chat (its state, and
+ *        the newest shared message's sender, subject and first line, read
+ *        live).
  *   GET  → EmailShareThreadView: the thread read-only, ONLY its frozen
  *        messages, read live from the owner's mailbox with the owner's token
  *        (from, to, cc, date, subject, the body sanitized, attachment names
- *        and sizes). 410 { code: 'revoked' } once un-shared, 410 { code:
- *        'unavailable' } when the mailbox can't give it any more.
+ *        and sizes). Remote images and CSS urls are left out (counted in
+ *        `blockedImages`) unless `?images=1`. 410 { code: 'revoked' } once
+ *        un-shared, 410 { code: 'unavailable' } when the mailbox can't give
+ *        it any more, 503 { code: 'busy' } when it can't answer now.
  *   DELETE → { ok } un-share: the owner's alone; access ends at once.
  * Every read is checked first (src/lib/email-share/service.ts shareAccess):
  * same workspace, the caller may read the share's channel, not revoked.
@@ -15,7 +18,7 @@
  */
 import type { NextRequest } from 'next/server'
 import { defaultEmailShareDeps, readShareCard, readSharedThread, revokeEmailShare } from '@/lib/email-share/service'
-import { isShareFailure, noStore, shareCaller, shareFailure } from '@/lib/email-share/http'
+import { isShareFailure, noStore, shareCaller, shareError, shareFailure } from '@/lib/email-share/http'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -29,12 +32,11 @@ export async function GET(request: NextRequest, { params }: Params) {
       const card = await readShareCard(deps, caller, id)
       return isShareFailure(card) ? shareFailure(card) : noStore(card)
     }
-    const thread = await readSharedThread(deps, caller, id)
+    const images = request.nextUrl.searchParams.get('images') === '1'
+    const thread = await readSharedThread(deps, caller, id, { images })
     return isShareFailure(thread) ? shareFailure(thread) : noStore(thread)
   } catch (err) {
-    // The error's name only: a provider's message may quote the mail.
-    console.error(`[email-share] read share=${id} failed:`, err instanceof Error ? err.name : 'unknown')
-    return shareFailure({ ok: false, status: 500, code: 'failed', error: "Couldn't open this email" })
+    return shareError(err, `read share=${id}`, "Couldn't open this email")
   }
 }
 

@@ -138,6 +138,9 @@ begin
 end;
 $$;
 
+-- Trigger functions only: nobody calls them directly (a trigger fires
+-- without its invoker holding EXECUTE).
+revoke all on function public.team_chat_message_email_share_guard() from public, anon, authenticated;
 revoke all on function public.team_chat_message_email_share_revoke() from public, anon, authenticated;
 
 drop trigger if exists team_chat_message_email_share_revoke on public.team_chat_message;

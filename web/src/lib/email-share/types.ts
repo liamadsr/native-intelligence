@@ -45,6 +45,12 @@ export const EMAIL_SHARE_REVOKED_TEXT = 'No longer shared'
 /** What they say when the owner's mailbox can't give the mail any more. */
 export const EMAIL_SHARE_UNAVAILABLE_TEXT = 'This email is no longer available'
 
+/** What a card and the read-only view say when the mailbox can't answer now (it may in a moment). */
+export const EMAIL_SHARE_BUSY_TEXT = 'Couldn’t load right now'
+
+/** What a non-owner hears when they try to share someone else's thread. */
+export const EMAIL_SHARE_NOT_OWNER_TEXT = 'Only the mail’s owner can share it'
+
 /** The warning before sharing somewhere people outside the workspace (guests) read. */
 export const EMAIL_SHARE_OUTSIDE_WARNING = 'People outside the workspace are in this channel'
 
@@ -78,7 +84,7 @@ export interface EmailShareCardView {
   state: EmailShareState
   /** The reader is the mail's owner: the card offers Un-share. */
   mine: boolean
-  /** The sender's address, as the thread index holds it. Null when not live. */
+  /** The sender's address of the newest SHARED message, read live (never a later, private reply's). Null when not live. */
   sender: string | null
   /** Read live from the mailbox; null when not live. */
   subject: string | null
@@ -113,6 +119,8 @@ export interface EmailShareMessage {
   bodyHtml: string | null
   bodyText: string | null
   attachments: EmailShareAttachment[]
+  /** Remote images and CSS urls left out of bodyHtml (the view offers "Load images"). */
+  blockedImages?: number
 }
 
 /** A shared thread as the read-only view shows it. */
@@ -123,6 +131,8 @@ export interface EmailShareThreadView {
   messages: EmailShareMessage[]
   /** Frozen messages the mailbox no longer has (each one "no longer available"). */
   missing: number
+  /** Remote images and CSS urls left out across the messages; 0 when there were none, or they were asked for. */
+  blockedImages: number
 }
 
 /** The message words a share posts: the note as typed (tidied), or the default line. */

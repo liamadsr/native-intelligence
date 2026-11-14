@@ -21,7 +21,7 @@ import {
   type ShareCaller,
 } from '../service'
 import type { EmailShareMessage } from '../types'
-import type { ShareMailbox } from '../provider'
+import { ShareProviderBusyError, type ShareMailbox } from '../provider'
 
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({}) }))
 
@@ -56,6 +56,8 @@ let postable: Record<string, Set<string>>
 /** The owner's mailbox: the thread's messages now, and whether the token still works. */
 let threadNow: string[]
 let mailboxUp: boolean
+/** The provider answers 429/503 for now. */
+let busy: boolean
 let messages: Record<string, EmailShareMessage & { threadId: string }>
 let deps: EmailShareDeps
 
@@ -120,7 +122,12 @@ beforeEach(() => {
   postable = { [OWNER]: new Set([SALES, MEETING, DM_GUEST]), [READER]: new Set([SALES]), [OUTSIDER]: new Set() }
   threadNow = ['m1', 'm2']
   mailboxUp = true
-  messages = { m1: message('m1'), m2: message('m2', { bodyText: 'Sounds good.', bodyHtml: null }), m3: message('m3', { bodyText: 'A private follow-up.' }) }
+  busy = false
+  messages = {
+    m1: message('m1', { blockedImages: 2 }),
+    m2: message('m2', { from: { name: 'Avery Stone', email: 'avery@northwind.example' }, bodyText: 'Sounds good.', bodyHtml: null, blockedImages: 1 }),
+    m3: message('m3', { from: { name: 'Erin Holt', email: 'erin@contoso.example' }, bodyText: 'A private follow-up.' }),
+  }
   const mailbox: ShareMailbox = { provider: 'google', token: 'tok-owner' }
   deps = {
     svc: memoryDb(tables),
@@ -129,13 +136,15 @@ beforeEach(() => {
     ),
     provider: {
       threadIds: vi.fn(async (_m, threadId: string) => (threadId === 'thr-1' ? [...threadNow] : null)),
-      message: vi.fn(async (_m, id: string, threadId: string) => {
+      message: vi.fn(async (_m, id: string, threadId: string, opts?: { images?: boolean }) => {
+        if (busy) throw new ShareProviderBusyError('google', 429)
         const m = messages[id]
         if (!m || m.threadId !== threadId) return null
         const { threadId: _t, ...rest } = m
-        return rest
+        return opts?.images ? { ...rest, blockedImages: 0 } : rest
       }),
       summary: vi.fn(async (_m, id: string, threadId: string) => {
+        if (busy) throw new ShareProviderBusyError('google', 503)
         const m = messages[id]
         return m && m.threadId === threadId ? { subject: m.subject, from: m.from.email, firstLine: (m.bodyText ?? '').split('\n')[0] } : null
       }),
@@ -203,10 +212,15 @@ describe('sharing', () => {
     }
   })
 
-  it('only the owner shares: another member naming the thread gets "not found", and nothing is written', async () => {
+  it('only the owner shares: another member gets "only the mail’s owner" (by its index id) or "not found", and nothing is written', async () => {
     readable[READER].add(PRIVATE)
     postable[READER].add(PRIVATE)
-    expect(await createEmailShare(deps, reader(), { indexId: INDEX, channelId: SALES })).toMatchObject({ ok: false, status: 404 })
+    expect(await createEmailShare(deps, reader(), { indexId: INDEX, channelId: SALES })).toMatchObject({
+      ok: false,
+      status: 403,
+      code: 'not_owner',
+      error: 'Only the mail’s owner can share it',
+    })
     expect(await createEmailShare(deps, reader(), { threadId: 'thr-1', channelId: SALES })).toMatchObject({ ok: false, status: 404 })
     expect(await createEmailShare(deps, reader(), { threadId: 'thr-1', accountId: ACCOUNT, channelId: SALES })).toMatchObject({ ok: false, status: 404 })
     expect(tables.email_share).toHaveLength(0)
@@ -297,15 +311,50 @@ describe('reading', () => {
     expect(await readSharedThread(deps, reader(), shareId)).toMatchObject({ missing: 1 })
   })
 
-  it('the card: the sender from the index, subject and first line live, a few seconds cached in process only', async () => {
+  it('the card: the newest SHARED message’s sender, subject and first line, live; a few seconds cached in process only', async () => {
     const { shareId } = await shareToSales()
+    // A private reply after the share rewrites the index's sender: the card never shows it.
+    threadNow = ['m1', 'm2', 'm3']
+    tables.email_thread_index[0].from_email = 'erin@contoso.example'
     const card = await readShareCard(deps, reader(), shareId, 1_000)
-    expect(card).toEqual({ id: shareId, state: 'live', mine: false, sender: 'dana@harborline.example', subject: SUBJECT, firstLine: 'Sounds good.', messageCount: 2 })
+    expect(card).toEqual({ id: shareId, state: 'live', mine: false, sender: 'avery@northwind.example', subject: SUBJECT, firstLine: 'Sounds good.', messageCount: 2 })
+    expect(JSON.stringify(card)).not.toContain('erin@contoso.example')
     await readShareCard(deps, reader(), shareId, 2_000)
     expect(deps.provider.summary).toHaveBeenCalledTimes(1)
     await readShareCard(deps, reader(), shareId, 10_000)
     expect(deps.provider.summary).toHaveBeenCalledTimes(2)
     expect(await readShareCard(deps, owner(), shareId, 10_500)).toMatchObject({ mine: true })
+  })
+})
+
+describe('a mailbox that can’t answer now', () => {
+  it('is never "no longer available": the read throws busy (the route answers 503), and a failed card summary is not cached', async () => {
+    const { shareId } = await shareToSales()
+    busy = true
+    await expect(readSharedThread(deps, reader(), shareId)).rejects.toBeInstanceOf(ShareProviderBusyError)
+    await expect(readShareCard(deps, reader(), shareId, 1_000)).rejects.toBeInstanceOf(ShareProviderBusyError)
+    busy = false
+    // Asked again at once (nothing failed was kept), and live.
+    expect(await readShareCard(deps, reader(), shareId, 1_100)).toMatchObject({ state: 'live' })
+  })
+
+  it('a gone summary is not cached either', async () => {
+    const { shareId } = await shareToSales()
+    const saved = { ...messages }
+    delete messages.m1
+    delete messages.m2
+    expect(await readShareCard(deps, reader(), shareId, 1_000)).toMatchObject({ state: 'unavailable' })
+    Object.assign(messages, saved)
+    expect(await readShareCard(deps, reader(), shareId, 1_100)).toMatchObject({ state: 'live' })
+  })
+})
+
+describe('remote images', () => {
+  it('are left out by default and counted; asked for, they come', async () => {
+    const { shareId } = await shareToSales()
+    expect(await readSharedThread(deps, reader(), shareId)).toMatchObject({ blockedImages: 3 })
+    expect(await readSharedThread(deps, reader(), shareId, { images: true })).toMatchObject({ blockedImages: 0 })
+    expect(deps.provider.message).toHaveBeenLastCalledWith(expect.anything(), 'm2', 'thr-1', { images: true })
   })
 })
 

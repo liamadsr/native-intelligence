@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import {
+  EMAIL_SHARE_BUSY_TEXT,
   EMAIL_SHARE_REVOKED_TEXT,
   EMAIL_SHARE_UNAVAILABLE_TEXT,
   type EmailShareCardView,
@@ -28,7 +29,20 @@ import {
 import { EmailMessage, type EmailMessageData } from './email-message'
 import { unshareEmail } from './email-share-dialog'
 
-type CardState = { kind: 'idle' } | { kind: 'loading' } | { kind: 'card'; card: EmailShareCardView } | { kind: 'hidden' }
+type CardState = { kind: 'idle' } | { kind: 'loading' } | { kind: 'card'; card: EmailShareCardView } | { kind: 'hidden' } | { kind: 'busy' }
+
+/** "Couldn't load right now · Retry": the mailbox didn't answer now (503 busy, or no answer at all). */
+function BusyLine({ onRetry }: { onRetry: () => void }) {
+  return (
+    <p className="text-sm text-muted-foreground" data-email-share-busy="">
+      {EMAIL_SHARE_BUSY_TEXT}
+      <span aria-hidden> · </span>
+      <button type="button" onClick={onRetry} className="font-medium text-foreground underline-offset-2 hover:underline" data-email-share-retry="">
+        Retry
+      </button>
+    </p>
+  )
+}
 
 const shareUrl = (id: string) => `/api/account/email/shares/${encodeURIComponent(id)}`
 
@@ -65,10 +79,12 @@ export function EmailShareCard({ shareId }: { shareId: string }) {
     setState((s) => (s.kind === 'card' ? s : { kind: 'loading' }))
     try {
       const res = await fetch(`${shareUrl(shareId)}?view=card`, { cache: 'no-store' })
+      if (res.status === 503 || res.status >= 500) return setState({ kind: 'busy' })
       if (!res.ok) return setState({ kind: 'hidden' })
       setState({ kind: 'card', card: (await res.json()) as EmailShareCardView })
     } catch {
-      setState({ kind: 'hidden' })
+      // No answer at all: maybe in a moment, never "no longer available".
+      setState({ kind: 'busy' })
     }
   }, [shareId])
   const ref = useOnVisible<HTMLDivElement>(load)
@@ -90,7 +106,9 @@ export function EmailShareCard({ shareId }: { shareId: string }) {
         </span>
         <div className="min-w-0 flex-1">
           {card === null ? (
-            state.kind === 'hidden' ? (
+            state.kind === 'busy' ? (
+              <BusyLine onRetry={() => void load()} />
+            ) : state.kind === 'hidden' ? (
               <p className="text-sm text-muted-foreground">{EMAIL_SHARE_UNAVAILABLE_TEXT}</p>
             ) : (
               <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -158,30 +176,39 @@ function asMessageData(m: EmailShareMessage, shareId: string): EmailMessageData 
   }
 }
 
-type ThreadState = { kind: 'loading' } | { kind: 'thread'; thread: EmailShareThreadView } | { kind: 'closed'; text: string }
+type ThreadState = { kind: 'loading' } | { kind: 'thread'; thread: EmailShareThreadView; images: boolean } | { kind: 'closed'; text: string } | { kind: 'busy' }
 
-/** The shared thread, read-only, read live when it opens. */
+/**
+ * The shared thread, read-only, read live when it opens. Remote images stay
+ * out until the reader asks ("Load images", which reads it again with them).
+ */
 export function EmailShareThreadDialog({ shareId, onClose, onGone }: { shareId: string; onClose: () => void; onGone?: () => void }) {
   const [state, setState] = useState<ThreadState>({ kind: 'loading' })
-  useEffect(() => {
-    let cancelled = false
-    fetch(shareUrl(shareId), { cache: 'no-store' })
-      .then(async (res) => {
-        if (cancelled) return
-        if (res.ok) return setState({ kind: 'thread', thread: (await res.json()) as EmailShareThreadView })
+  const gone = useRef(onGone)
+  gone.current = onGone
+  const read = useCallback(
+    async (images: boolean, isCurrent: () => boolean = () => true) => {
+      try {
+        const res = await fetch(`${shareUrl(shareId)}${images ? '?images=1' : ''}`, { cache: 'no-store' })
+        if (!isCurrent()) return
+        if (res.ok) return setState({ kind: 'thread', thread: (await res.json()) as EmailShareThreadView, images })
+        if (res.status >= 500) return setState({ kind: 'busy' })
         const data = (await res.json().catch(() => ({}))) as { code?: string }
         setState({ kind: 'closed', text: data.code === 'revoked' ? EMAIL_SHARE_REVOKED_TEXT : EMAIL_SHARE_UNAVAILABLE_TEXT })
-        onGone?.()
-      })
-      .catch(() => {
-        if (!cancelled) setState({ kind: 'closed', text: EMAIL_SHARE_UNAVAILABLE_TEXT })
-      })
+        gone.current?.()
+      } catch {
+        if (isCurrent()) setState({ kind: 'busy' })
+      }
+    },
+    [shareId],
+  )
+  useEffect(() => {
+    let current = true
+    void read(false, () => current)
     return () => {
-      cancelled = true
+      current = false
     }
-    // onGone is the card's reload: once per open is enough.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shareId])
+  }, [read])
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -198,8 +225,23 @@ export function EmailShareThreadDialog({ shareId, onClose, onGone }: { shareId: 
             </p>
           ) : state.kind === 'closed' ? (
             <p className="text-sm text-muted-foreground" role="status">{state.text}</p>
+          ) : state.kind === 'busy' ? (
+            <BusyLine
+              onRetry={() => {
+                setState({ kind: 'loading' })
+                void read(false)
+              }}
+            />
           ) : (
             <>
+              {!state.images && state.thread.blockedImages > 0 && (
+                <p className="flex items-center gap-2 text-xs text-muted-foreground" data-email-share-images="">
+                  Images from outside were not loaded.
+                  <button type="button" onClick={() => void read(true)} className="font-medium text-foreground underline-offset-2 hover:underline" data-email-share-load-images="">
+                    Load images
+                  </button>
+                </p>
+              )}
               {state.thread.missing > 0 && (
                 <p className="text-xs text-muted-foreground" data-email-share-missing="">
                   {state.thread.missing === 1 ? '1 message is' : `${state.thread.missing} messages are`} no longer available.

@@ -36,6 +36,7 @@ import {
   type ShareMailbox,
 } from './provider'
 import {
+  EMAIL_SHARE_NOT_OWNER_TEXT,
   EMAIL_SHARE_REVOKED_TEXT,
   EMAIL_SHARE_UNAVAILABLE_TEXT,
   emailShareBody,
@@ -59,7 +60,7 @@ export interface EmailShareDeps {
   mailbox: (ownerUserId: string, accountId: string, workspaceId: string) => Promise<ShareMailbox | null>
   provider: {
     threadIds: (mailbox: ShareMailbox, threadId: string) => Promise<string[] | null>
-    message: (mailbox: ShareMailbox, messageId: string, threadId: string) => Promise<EmailShareMessage | null>
+    message: (mailbox: ShareMailbox, messageId: string, threadId: string, opts?: { images?: boolean }) => Promise<EmailShareMessage | null>
     summary: (mailbox: ShareMailbox, messageId: string, threadId: string) => Promise<{ subject: string; from: string; firstLine: string } | null>
     attachment: (mailbox: ShareMailbox, messageId: string, threadId: string, key: string) => Promise<SharedAttachmentFile | null>
   }
@@ -76,7 +77,7 @@ export function defaultEmailShareDeps(): EmailShareDeps {
     },
     provider: {
       threadIds: (m, t) => liveThreadMessageIds(m, t),
-      message: (m, id, t) => liveSharedMessage(m, id, t),
+      message: (m, id, t, opts) => liveSharedMessage(m, id, t, fetch, opts),
       summary: (m, id, t) => liveSharedSummary(m, id, t),
       attachment: (m, id, t, key) => liveSharedAttachment(m, id, t, key),
     },
@@ -96,6 +97,7 @@ const fail = (status: number, code: string, error: string): ShareFailure => ({ o
 const NOT_FOUND = fail(404, 'not_found', 'Not found')
 const UNAVAILABLE = fail(410, 'unavailable', EMAIL_SHARE_UNAVAILABLE_TEXT)
 const REVOKED = fail(410, 'revoked', EMAIL_SHARE_REVOKED_TEXT)
+const NOT_OWNER = fail(403, 'not_owner', EMAIL_SHARE_NOT_OWNER_TEXT)
 
 interface ShareRow {
   id: string
@@ -165,8 +167,13 @@ interface ThreadRef {
   indexId: string | null
 }
 
-/** The caller's OWN thread, in this workspace: never another person's (they get "not found"). */
-async function ownThread(deps: EmailShareDeps, caller: ShareCaller, input: Pick<ShareInput, 'indexId' | 'threadId' | 'accountId'>): Promise<ThreadRef | null> {
+/**
+ * The caller's OWN thread, in this workspace: never another person's. A
+ * thread index row of another member here (the entity menu names one by its
+ * id) is 'not_owner', so the menu can say only its owner shares it; anything
+ * else that isn't theirs is null ("not found").
+ */
+async function ownThread(deps: EmailShareDeps, caller: ShareCaller, input: Pick<ShareInput, 'indexId' | 'threadId' | 'accountId'>): Promise<ThreadRef | 'not_owner' | null> {
   const columns = 'id, user_id, workspace_id, account_id, provider, provider_thread_id'
   type IndexRow = { id: string; user_id: string; workspace_id: string; account_id: string | null; provider: 'google' | 'microsoft'; provider_thread_id: string }
   let row: IndexRow | null = null
@@ -186,7 +193,8 @@ async function ownThread(deps: EmailShareDeps, caller: ShareCaller, input: Pick<
     row = ((data ?? []) as IndexRow[])[0] ?? null
   }
   if (row) {
-    if (row.user_id !== caller.userId || row.workspace_id !== caller.workspaceId) return null
+    if (row.workspace_id !== caller.workspaceId) return null
+    if (row.user_id !== caller.userId) return 'not_owner'
     return { accountId: row.account_id, provider: row.provider, providerThreadId: row.provider_thread_id, indexId: row.id }
   }
   // A thread the index doesn't hold (an older search result): only in a mailbox of theirs this workspace may read.
@@ -227,6 +235,7 @@ export async function createEmailShare(deps: EmailShareDeps, caller: ShareCaller
   if (postError || canPost !== true) return fail(403, 'forbidden', "You can't post there")
 
   const thread = await ownThread(deps, caller, input)
+  if (thread === 'not_owner') return NOT_OWNER
   if (!thread) return fail(404, 'not_found', 'Email not found')
   if (!thread.accountId) return fail(409, 'no_mailbox', 'Reconnect this mailbox to share from it')
   const mailbox = await deps.mailbox(caller.userId, thread.accountId, caller.workspaceId)
@@ -324,22 +333,29 @@ export async function shareAccess(deps: EmailShareDeps, caller: ShareCaller, sha
 /** The card's subject and first line, a few seconds in this process only (never stored). */
 export const CARD_CACHE_MS = 5_000
 const CARD_CACHE_MAX = 200
-const cardCache = new Map<string, { at: number; value: { subject: string; firstLine: string; from: string } | null }>()
+const cardCache = new Map<string, { at: number; value: { subject: string; firstLine: string; from: string } }>()
 
 /** For tests. */
 export function clearShareCardCache(): void {
   cardCache.clear()
 }
 
+/**
+ * The newest FROZEN message the mailbox still has (a few tried, newest first):
+ * its subject, sender and first line. Never the thread index's sender, which
+ * is the whole thread's newest (a later, private reply's). Only a summary
+ * that was read is cached; a gone one or a provider failure (which throws
+ * ShareProviderBusyError) is asked again next time.
+ */
 async function cardSummary(deps: EmailShareDeps, share: ShareRow, mailbox: ShareMailbox, now: number) {
   const hit = cardCache.get(share.id)
   if (hit && now - hit.at < CARD_CACHE_MS) return hit.value
   let value: { subject: string; firstLine: string; from: string } | null = null
-  // The newest shared message the mailbox still has (a few tried, newest first).
   for (const id of [...share.message_ids].reverse().slice(0, 3)) {
     value = await deps.provider.summary(mailbox, id, share.provider_thread_id)
     if (value) break
   }
+  if (!value) return null
   if (cardCache.size >= CARD_CACHE_MAX) cardCache.delete(cardCache.keys().next().value as string)
   cardCache.set(share.id, { at: now, value })
   return value
@@ -353,19 +369,22 @@ export async function readShareCard(deps: EmailShareDeps, caller: ShareCaller, s
   if (access.kind !== 'live') return closed(access.kind)
   const summary = await cardSummary(deps, access.share, access.mailbox, now)
   if (!summary) return closed('unavailable')
-  let sender: string | null = null
-  if (access.share.thread_index_id) {
-    const { data } = await deps.svc.from('email_thread_index').select('from_email').eq('id', access.share.thread_index_id).maybeSingle<{ from_email: string | null }>()
-    sender = data?.from_email ?? null
-  }
-  return { ...base, state: 'live', sender: sender || summary.from || null, subject: summary.subject || '(no subject)', firstLine: summary.firstLine || null }
+  return { ...base, state: 'live', sender: summary.from || null, subject: summary.subject || '(no subject)', firstLine: summary.firstLine || null }
 }
 
 /** At most this many of a share's messages are read from the mailbox at once. */
 const READ_CONCURRENCY = 4
 
-/** The shared thread, read-only: only its frozen messages, read live. */
-export async function readSharedThread(deps: EmailShareDeps, caller: ShareCaller, shareId: string): Promise<EmailShareThreadView | ShareFailure> {
+/**
+ * The shared thread, read-only: only its frozen messages, read live. Remote
+ * images stay out unless the reader asks (`images`).
+ */
+export async function readSharedThread(
+  deps: EmailShareDeps,
+  caller: ShareCaller,
+  shareId: string,
+  opts: { images?: boolean } = {},
+): Promise<EmailShareThreadView | ShareFailure> {
   const access = await shareAccess(deps, caller, shareId)
   if ('ok' in access) return access
   if (access.kind !== 'live') return access.kind === 'revoked' ? REVOKED : UNAVAILABLE
@@ -374,12 +393,13 @@ export async function readSharedThread(deps: EmailShareDeps, caller: ShareCaller
   const read: Array<EmailShareMessage | null> = new Array(ids.length).fill(null)
   for (let i = 0; i < ids.length; i += READ_CONCURRENCY) {
     const batch = ids.slice(i, i + READ_CONCURRENCY)
-    const got = await Promise.all(batch.map((id) => deps.provider.message(mailbox, id, share.provider_thread_id)))
+    const got = await Promise.all(batch.map((id) => deps.provider.message(mailbox, id, share.provider_thread_id, { images: opts.images === true })))
     got.forEach((m, j) => (read[i + j] = m))
   }
   const messages = read.filter((m): m is EmailShareMessage => !!m)
   if (messages.length === 0) return UNAVAILABLE
-  return { id: share.id, subject: messages[0].subject || '(no subject)', mine: access.mine, messages, missing: ids.length - messages.length }
+  const blockedImages = messages.reduce((n, m) => n + (m.blockedImages ?? 0), 0)
+  return { id: share.id, subject: messages[0].subject || '(no subject)', mine: access.mine, messages, missing: ids.length - messages.length, blockedImages }
 }
 
 /** One attachment of one of the share's frozen messages, by the key its read listed. */
@@ -409,7 +429,7 @@ export async function listThreadShares(
   input: Pick<ShareInput, 'indexId' | 'threadId' | 'accountId'>,
 ): Promise<EmailShareChip[]> {
   const thread = await ownThread(deps, caller, input)
-  if (!thread) return []
+  if (!thread || thread === 'not_owner') return []
   const { data } = await deps.svc
     .from('email_share')
     .select('id, channel_id, created_at')
