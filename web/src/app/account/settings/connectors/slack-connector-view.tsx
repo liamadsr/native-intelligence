@@ -36,7 +36,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { SLACK_APP_ENTRY } from '@/lib/integrations/catalog'
-import { holdDesktopSlackClaim } from '@/lib/integrations/desktop-oauth-claims'
+import { dropDesktopSlackClaim, holdDesktopSlackClaim } from '@/lib/integrations/desktop-oauth-claims'
 import { onSlackInstallCallback } from '@/lib/navigation-events'
 import { isDesktopApp } from '@/lib/platform'
 import { SLACK_INSTALL_RESULT_PARAM, parseSlackInstallResult, slackInstallMessage, type SlackInstallResult } from '@/lib/slack/install-result'
@@ -102,6 +102,11 @@ export function SlackConnectorView() {
  * (SlackConnectorContent) and the agent panel's Slack tab
  * (components/communication/slack-card.tsx), so the two never drift.
  */
+/** What the page says while a desktop install is being finished in the person's browser. */
+const FINISH_IN_BROWSER = 'Finish adding Native Intelligence to Slack in your browser. This page updates by itself.'
+/** How long that line waits for an answer: the life of the claim it waits for (desktop-oauth-claims.ts). */
+const FINISH_IN_BROWSER_MS = 15 * 60 * 1000
+
 export function useSlackConnector() {
   const [state, setState] = useState<SlackState | null>(null)
   const [loading, setLoading] = useState(true)
@@ -129,13 +134,27 @@ export function useSlackConnector() {
     }
   }, [])
 
+  // Desktop: the wait for an install being finished in the person's browser.
+  // Nothing comes back when they walk away from Slack's page, so the line that
+  // says to finish there is taken down when its claim could no longer land.
+  const waiting = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const stopWaiting = useCallback(() => {
+    if (waiting.current !== null) clearTimeout(waiting.current)
+    waiting.current = null
+  }, [])
+  useEffect(() => stopWaiting, [stopWaiting])
+
   // How an install ended, in plain words: back on this page with `?slack=`, or
   // claimed by this window in the desktop app.
-  const showInstallResult = useCallback((result: SlackInstallResult) => {
-    const message = slackInstallMessage(result)
-    setNotice(message.ok ? message.text : null)
-    setError(message.ok ? null : message.text)
-  }, [])
+  const showInstallResult = useCallback(
+    (result: SlackInstallResult) => {
+      stopWaiting()
+      const message = slackInstallMessage(result)
+      setNotice(message.ok ? message.text : null)
+      setError(message.ok ? null : message.text)
+    },
+    [stopWaiting],
+  )
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -221,10 +240,23 @@ export function useSlackConnector() {
         // the person's own browser, which hands the install back to this
         // window by deep link. Only this window holds the secret to claim it.
         holdDesktopSlackClaim(data.state, data.claimSecret)
-        const { openUrl } = await import('@tauri-apps/plugin-opener')
-        await openUrl(data.url)
+        try {
+          const { openUrl } = await import('@tauri-apps/plugin-opener')
+          await openUrl(data.url)
+        } catch {
+          // Slack's page never opened: nothing can come back for this install.
+          dropDesktopSlackClaim(data.state)
+          setError("Couldn't open Slack in your browser. Try again.")
+          setInstalling(false)
+          return
+        }
         setInstalling(false)
-        setNotice('Finish adding Native Intelligence to Slack in your browser. This page updates by itself.')
+        setNotice(FINISH_IN_BROWSER)
+        stopWaiting()
+        waiting.current = setTimeout(() => {
+          waiting.current = null
+          setNotice((now) => (now === FINISH_IN_BROWSER ? null : now))
+        }, FINISH_IN_BROWSER_MS)
         return
       }
       window.location.assign(data.url)

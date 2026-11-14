@@ -18,7 +18,7 @@ import { createRoot, type Root } from 'react-dom/client'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-const desk = vi.hoisted(() => ({ on: false, openUrl: vi.fn(async (_url: string) => {}), hold: vi.fn() }))
+const desk = vi.hoisted(() => ({ on: false, openUrl: vi.fn(async (_url: string) => {}), hold: vi.fn(), drop: vi.fn() }))
 
 vi.mock('../../settings-shell', () => ({ useSettingsNavigate: () => vi.fn() }))
 vi.mock('../../../(dashboard)/side-panels/connections-section', () => ({ RowIcon: () => null }))
@@ -30,6 +30,7 @@ vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: desk.openUrl }))
 vi.mock('@/lib/integrations/desktop-oauth-claims', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/integrations/desktop-oauth-claims')>()),
   holdDesktopSlackClaim: desk.hold,
+  dropDesktopSlackClaim: desk.drop,
 }))
 
 const { SlackConnectorView } = await import('../slack-connector-view')
@@ -78,6 +79,7 @@ beforeEach(() => {
   desk.on = false
   desk.openUrl.mockReset().mockResolvedValue(undefined)
   desk.hold.mockReset()
+  desk.drop.mockReset()
   net.calls = []
   net.bodies = []
   vi.stubGlobal(
@@ -174,6 +176,32 @@ describe('Add to Slack in the desktop app', () => {
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       'Finish adding Native Intelligence to Slack in your browser. This page updates by itself.',
     )
+  })
+
+  it("when the person's browser can't be opened, says so, drops the claim it held, and leaves no hint", async () => {
+    desk.openUrl.mockRejectedValue(new Error('no opener'))
+    net.state = slack([])
+    await render()
+    await act(async () => installButton().click())
+    await flush()
+    expect(desk.drop).toHaveBeenCalledWith('desk.state')
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Couldn't open Slack in your browser")
+    expect(container.querySelector('[role="status"]')).toBeNull()
+    expect(installButton().disabled).toBe(false)
+  })
+
+  it('takes the hint down when nothing came back within the life of its claim', async () => {
+    net.state = slack([])
+    await render()
+    const timers = vi.spyOn(globalThis, 'setTimeout')
+    await act(async () => installButton().click())
+    await flush()
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('Finish adding Native Intelligence to Slack in your browser')
+    const wait = timers.mock.calls.find(([, ms]) => ms === 15 * 60 * 1000)
+    expect(wait).toBeDefined()
+    await act(async () => (wait![0] as () => void)())
+    expect(container.querySelector('[role="status"]')).toBeNull()
+    timers.mockRestore()
   })
 
   it('an answer without its state or claim secret starts nothing', async () => {

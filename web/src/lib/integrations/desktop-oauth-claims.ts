@@ -191,6 +191,11 @@ export function holdDesktopSlackClaim(state: string, claimSecret: string): void 
   pendingSlack.set(state, { claimSecret, at: now })
 }
 
+/** Forget a held Slack claim: Slack's page never opened, so nothing can come back for it. */
+export function dropDesktopSlackClaim(state: string): void {
+  pendingSlack.delete(state)
+}
+
 function takeDesktopSlackClaim(state: string): string | null {
   const claim = pendingSlack.get(state)
   pendingSlack.delete(state)
