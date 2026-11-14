@@ -3,23 +3,27 @@ import { loadFrameworkProgrammaticModule as loadProgrammaticModule, memoizeModul
 import * as imported_module_0 from "../../../agent.ts";
 import * as imported_module_1 from "../../../channels/eve.ts";
 import * as imported_module_2 from "../../../memory/profile.ts";
-import * as imported_module_5 from "../../../hooks/person-messages.ts";
-import * as imported_module_6 from "../../../hooks/reply-backup.ts";
-import * as imported_module_7 from "../../../hooks/usage-limit-gate.ts";
-import * as imported_module_8 from "../../../instructions/expertise.ts";
-import * as imported_module_9 from "../../../instructions/persona.ts";
-import * as imported_module_10 from "../../../instructions/plan.ts";
-import * as imported_module_11 from "../../../instructions/turn-context.ts";
-import * as imported_module_12 from "../../../sandbox.ts";
-import * as imported_module_13 from "../../../tools/ask_user.ts";
-import * as imported_module_14 from "../../../tools/bash.ts";
-import * as imported_module_15 from "../../../tools/finish.ts";
-import * as imported_module_16 from "../../../tools/no_reply.ts";
-import * as imported_module_17 from "../../../tools/read_file.ts";
-import * as imported_module_18 from "../../../tools/request_folder_access.ts";
-import * as imported_module_19 from "../../../tools/update_plan.ts";
-import * as imported_module_20 from "../../../tools/workspace_tools.ts";
-import * as imported_module_21 from "../../../tools/write_file.ts";
+import * as imported_module_5 from "../../../hooks/context-reset.ts";
+import * as imported_module_6 from "../../../hooks/person-messages.ts";
+import * as imported_module_7 from "../../../hooks/reply-backup.ts";
+import * as imported_module_8 from "../../../hooks/usage-limit-gate.ts";
+import * as imported_module_9 from "../../../instructions/context-reset.ts";
+import * as imported_module_10 from "../../../instructions/expertise.ts";
+import * as imported_module_11 from "../../../instructions/persona.ts";
+import * as imported_module_12 from "../../../instructions/plan.ts";
+import * as imported_module_13 from "../../../instructions/turn-context.ts";
+import * as imported_module_14 from "../../../sandbox.ts";
+import * as imported_module_15 from "../../../tools/ask_user.ts";
+import * as imported_module_16 from "../../../tools/bash.ts";
+import * as imported_module_17 from "../../../tools/finish.ts";
+import * as imported_module_18 from "../../../tools/mark_urgent.ts";
+import * as imported_module_19 from "../../../tools/no_reply.ts";
+import * as imported_module_20 from "../../../tools/read_file.ts";
+import * as imported_module_21 from "../../../tools/request_folder_access.ts";
+import * as imported_module_22 from "../../../tools/studio_product.ts";
+import * as imported_module_23 from "../../../tools/update_plan.ts";
+import * as imported_module_24 from "../../../tools/workspace_tools.ts";
+import * as imported_module_25 from "../../../tools/write_file.ts";
 
 const module_0 = memoizeModuleNamespaceFactories(imported_module_0);
 const module_1 = memoizeModuleNamespaceFactories(imported_module_1);
@@ -43,6 +47,10 @@ const module_18 = memoizeModuleNamespaceFactories(imported_module_18);
 const module_19 = memoizeModuleNamespaceFactories(imported_module_19);
 const module_20 = memoizeModuleNamespaceFactories(imported_module_20);
 const module_21 = memoizeModuleNamespaceFactories(imported_module_21);
+const module_22 = memoizeModuleNamespaceFactories(imported_module_22);
+const module_23 = memoizeModuleNamespaceFactories(imported_module_23);
+const module_24 = memoizeModuleNamespaceFactories(imported_module_24);
+const module_25 = memoizeModuleNamespaceFactories(imported_module_25);
 
 export const moduleMap = Object.freeze({
   "nodes": Object.freeze({
@@ -53,23 +61,27 @@ export const moduleMap = Object.freeze({
                   "memory/profile.ts": module_2,
                   "eve:memory-wrapper:tools/profile.ts:from:memory/profile.ts": module_3,
                   "eve:root-defaults:channels/home.ts": module_4,
-                  "hooks/person-messages.ts": module_5,
-                  "hooks/reply-backup.ts": module_6,
-                  "hooks/usage-limit-gate.ts": module_7,
-                  "instructions/expertise.ts": module_8,
-                  "instructions/persona.ts": module_9,
-                  "instructions/plan.ts": module_10,
-                  "instructions/turn-context.ts": module_11,
-                  "sandbox.ts": module_12,
-                  "tools/ask_user.ts": module_13,
-                  "tools/bash.ts": module_14,
-                  "tools/finish.ts": module_15,
-                  "tools/no_reply.ts": module_16,
-                  "tools/read_file.ts": module_17,
-                  "tools/request_folder_access.ts": module_18,
-                  "tools/update_plan.ts": module_19,
-                  "tools/workspace_tools.ts": module_20,
-                  "tools/write_file.ts": module_21
+                  "hooks/context-reset.ts": module_5,
+                  "hooks/person-messages.ts": module_6,
+                  "hooks/reply-backup.ts": module_7,
+                  "hooks/usage-limit-gate.ts": module_8,
+                  "instructions/context-reset.ts": module_9,
+                  "instructions/expertise.ts": module_10,
+                  "instructions/persona.ts": module_11,
+                  "instructions/plan.ts": module_12,
+                  "instructions/turn-context.ts": module_13,
+                  "sandbox.ts": module_14,
+                  "tools/ask_user.ts": module_15,
+                  "tools/bash.ts": module_16,
+                  "tools/finish.ts": module_17,
+                  "tools/mark_urgent.ts": module_18,
+                  "tools/no_reply.ts": module_19,
+                  "tools/read_file.ts": module_20,
+                  "tools/request_folder_access.ts": module_21,
+                  "tools/studio_product.ts": module_22,
+                  "tools/update_plan.ts": module_23,
+                  "tools/workspace_tools.ts": module_24,
+                  "tools/write_file.ts": module_25
                 })
             })
     })
