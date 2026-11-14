@@ -31,6 +31,10 @@
  * /opt/e2b/sdk.env): bring it into the environment without showing it, never
  * by pasting it onto a command line that is echoed or kept in a history.
  *
+ * It also prints what list, getInfo and the traffic port say during a pause
+ * and a resume, and checks that traffic never wakes a paused sandbox: the
+ * backend's "listed running but silent" handling rests on those answers.
+ *
  * What it cannot reproduce: the runtime restarting under a running sandbox
  * (deploy/sandbox/README.md: it "still listed it as running"). It kills one
  * behind the client's back instead and prints what connect and a command say.
@@ -214,7 +218,7 @@ async function identity(): Promise<Handle | null> {
     return `${id}, template ${template}, ends in ${minutesLeft(i)} min`
   })
   if (!handle) return null
-  await check('the lifetime’s end pauses it (auto-pause accepted) and traffic never wakes it', async () => {
+  await check('the lifetime’s end pauses it (auto-pause accepted) and auto-resume is off', async () => {
     const i = await info(await idOf(name))
     expect(i.lifecycle?.onTimeout === 'pause', `lifecycle ${JSON.stringify(i.lifecycle ?? null)}`)
     expect(i.lifecycle?.autoResume === false, `autoResume ${String(i.lifecycle?.autoResume)}`)
@@ -261,6 +265,27 @@ async function network(h: Handle) {
     }
   }
   await check('mac: private and link-local addresses refused', privateRefused)
+  const relayHost = new URL(relayOrigin).hostname
+  await check('mac: the relay host’s name on ANOTHER public address (domain fronting) is refused', async () => {
+    const other = new URL(blockedUrl).hostname
+    const ip = (await sh(h, `timeout 3 node -e "require('dns').lookup(process.argv[1], (e, a) => console.log(e ? '' : a))" '${other}' || true`)).trim()
+    expect(ip, `could not look up ${other} to get another address`)
+    const fronted = (await sh(h, `curl -sk -m 5 -o /dev/null -w '%{http_code}' --connect-to ${relayHost}:443:${ip}:443 https://${relayHost}/ || true`)).trim() || '000'
+    expect(!reached(fronted), `the runtime let ${relayHost} through to ${ip} (HTTP ${fronted})`)
+    return `${relayHost} → ${ip}: ${fronted}`
+  })
+  await check('mac: what else the runtime lets out (printed: the relay host on other ports, a bare address, the resolvers off port 53)', async () => {
+    const probes: [string, string][] = [
+      [`http://${relayHost}:80/`, 'relay host :80'],
+      [`https://${relayHost}:8443/`, 'relay host :8443'],
+      ['https://1.1.1.1/', 'resolver 1.1.1.1 :443'],
+      ['https://9.9.9.9/', 'resolver 9.9.9.9 :443'],
+      ['https://8.8.8.8/', 'default resolver 8.8.8.8 :443'],
+    ]
+    const seen: string[] = []
+    for (const [url, what] of probes) seen.push(`${what} ${await reach(h, url, 4)}`)
+    return seen.join('; ')
+  })
   await check('the token file is 0600 in a 0700 directory, and in no process’s command line or environment', async () => {
     const modes = (await sh(h, `stat -c '%a' ${CLOUD_BROWSER.relayTokenDir} ${CLOUD_BROWSER.relayTokenFile}`)).trim().split('\n')
     expect(modes[0] === '700' && modes[1] === '600', `modes ${modes.join(' ')}`)
@@ -339,6 +364,57 @@ async function browser(name: string, h0: Handle) {
   })
 }
 
+/** A GET to port 4000 of `id` through the traffic address, routed by header: its status (0: no answer). */
+const hubStatus = (id: string) => traffic('/health', { 'E2b-Sandbox-Id': id, 'E2b-Sandbox-Port': String(CLOUD_BROWSER.hubPort) }).then(r => r.status, () => 0)
+const echoServer = (h: Handle) => h.exec('node', ['-e', `require('http').createServer((q, s) => s.end('ni-hub-' + q.url)).listen(${CLOUD_BROWSER.hubPort}, '0.0.0.0')`], { detached: true })
+
+/**
+ * What list, getInfo and the traffic port say while a pause and a resume are
+ * under way (polled every 100 ms), and whether traffic wakes a paused sandbox.
+ * These decide whether the backend's handling of a "listed running but silent"
+ * sandbox matches the runtime.
+ */
+async function transitions() {
+  const name = `${prefix}transitions`
+  let h: Handle | undefined
+  if (!(await check('start a sandbox for the pause and resume observations', async () => {
+    h = (await backend.getOrCreate(name, signal())).sandbox
+    await echoServer(h)
+    await sleep(1_000)
+  }))) return
+  const id = await idOf(name)
+  const watch = async (what: string, act: () => Promise<unknown>) => {
+    const t0 = Date.now()
+    const seen: string[] = []
+    let last = ''
+    let done = false
+    const acting = act().finally(() => { done = true })
+    let after = 0
+    while (!done || after++ < 20) {
+      const [i, listed, status] = await Promise.all([
+        info(id).then(x => `${x.state}@${new Date(x.startedAt).getTime()}`, (e: unknown) => nameOf(e)),
+        mine(name).then(l => l.map(x => x.state).join('+') || 'absent', (e: unknown) => nameOf(e)),
+        hubStatus(id),
+      ])
+      const now = `getInfo ${i}, list ${listed}, port 4000 ${status}`
+      if (now !== last) { seen.push(`${Date.now() - t0} ms: ${now}${done ? ' (call returned)' : ''}`); last = now }
+      await sleep(100)
+    }
+    await acting
+    return `${what}: ${seen.join(' | ')}`
+  }
+  await check('during a pause (printed)', () => watch('pause', () => h!.stop(AbortSignal.timeout(CLOUD_BROWSER.stopTimeoutMs))))
+  await check('traffic to a PAUSED sandbox’s port 4000 never wakes it', async () => {
+    expect((await info(id)).state === 'paused', 'it is not paused')
+    const statuses = [await hubStatus(id), await hubStatus(id)]
+    await sleep(3_000)
+    const after = await info(id)
+    expect(after.state === 'paused', `traffic woke it (now ${after.state})`)
+    return `port 4000 answered ${statuses.join(', ')} while paused`
+  })
+  await check('during a resume (printed)', () => watch('resume', async () => { h = (await backend.getOrCreate(name, signal())).sandbox }))
+}
+
 async function killedBehindItsBack() {
   const name = `${prefix}killed`
   let h: Handle | undefined
@@ -366,6 +442,7 @@ try {
     await network(handle)
     await browser(`${prefix}a`, handle)
   }
+  await transitions()
   await killedBehindItsBack()
 } catch (err) {
   failures++
