@@ -153,7 +153,8 @@ fn app_commands_are_granted_to_the_apps_origins_only() {
         serde_json::from_str(&read_source(dir.join("capabilities").join(file)).unwrap()).unwrap()
     };
     assert_eq!(read("default.json")["remote"]["urls"], serde_json::json!(["https://nativeintelligence.dev/*", "https://dial8.ai/*"]));
-    assert_eq!(read("dev.json")["remote"]["urls"], serde_json::json!(["http://localhost:3000/*"]));
+    // The local dev server, and a second checkout's on :3001 (NI_DEV_PORT; debug builds only).
+    assert_eq!(read("dev.json")["remote"]["urls"], serde_json::json!(["http://localhost:3000/*", "http://localhost:3001/*"]));
 }
 
 /// The HUD's back-to-the-capture button: the recording window raises itself
@@ -433,12 +434,17 @@ fn studio_recorder_commands_never_take_a_path() {
             "studio_recorder_cancel",
             "studio_recorder_discard",
             "studio_recorder_hide_control",
+            "studio_recorder_link_live",
             "studio_recorder_permissions",
+            "studio_recorder_plan_pieces",
+            "studio_recorder_put_piece",
             "studio_recorder_request_permissions",
+            "studio_recorder_segments",
             "studio_recorder_show_control",
             "studio_recorder_start",
             "studio_recorder_stop",
             "studio_recorder_targets",
+            "studio_recorder_unfinished_takes",
             "studio_recorder_upload",
         ]
     );

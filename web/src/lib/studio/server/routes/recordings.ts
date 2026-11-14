@@ -9,10 +9,11 @@
 //
 //   POST   /live-takes                    {recorder, tracks:[{role, name}]} -> {take: {id, keys, pieceMaxBytes}}
 //   GET    /live-takes                    the person's takes that stopped before they were finished -> {takes}
+//   GET    /live-takes/:id                where one of the person's takes stands, track by track -> {take}
 //   POST   /live-takes/:id/pieces         {role, index, bytes, seconds?, offsetSeconds?} -> {index, url, headers}
 //   POST   /live-takes/:id/recover[?wait=1] one of those made a video from what arrived -> {recording, project?, projectDigest?}
 //   DELETE /live-takes/:id                throw a take away
-import { discardLiveTake, livePiece, savedTakes, startLiveTake } from '../live-takes'
+import { discardLiveTake, livePiece, liveTakeState, savedTakes, startLiveTake } from '../live-takes'
 import { advanceRecording, listRecordings, recoverTake, startRecording, switchBeatTake } from '../recordings'
 import { route, type StudioRoute } from '../router'
 
@@ -29,6 +30,7 @@ export const recordingRoutes: StudioRoute[] = [
   }),
   route('POST', 'live-takes', async ({ ctx, body }) => startLiveTake(ctx, await body())),
   route('GET', 'live-takes', async ({ ctx }) => savedTakes(ctx)),
+  route('GET', 'live-takes/:id', async ({ ctx, params }) => liveTakeState(ctx, params.id!)),
   route('POST', 'live-takes/:id/pieces', async ({ ctx, params, body }) => livePiece(ctx, params.id!, await body())),
   route('POST', 'live-takes/:id/recover', async ({ ctx, params, url }) => recoverTake(ctx, params.id!, waits(url) ? 100_000 : 0)),
   route('DELETE', 'live-takes/:id', async ({ ctx, params }) => discardLiveTake(ctx, params.id!)),

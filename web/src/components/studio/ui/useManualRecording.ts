@@ -206,6 +206,12 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
   /** The takes kept on the Studio after their window closed mid-take; never one this tab is still recording or sending (the Studio would refuse it, as still recording, but the dialog must not offer it). */
   const refreshSavedTakes = useCallback(async () => { try { const takes = await listSavedTakes(); const mine = new Set((recorder.current as { liveTakeIds?: () => string[] } | null)?.liveTakeIds?.() ?? []); if (mounted.current) setSavedTakes(takes.filter(take => !mine.has(take.id))); } catch { /* an older server: nothing to offer */ } }, []);
   useEffect(() => { void refreshSavedTakes(); }, [refreshSavedTakes]);
+  /** The Mac app: send what a quit or a crash kept on this computer from going up, then offer those takes back. */
+  useEffect(() => {
+    if (recorderState.state !== 'desktop') return;
+    const desktop = recorder.current as { sendUnfinished?: () => Promise<number> } | null;
+    void desktop?.sendUnfinished?.().then(sent => { if (sent && mounted.current) void refreshSavedTakes(); });
+  }, [recorderState.state, refreshSavedTakes]);
   /** Make a saved take a new video from what reached the Studio, followed like a finished take. */
   const recoverSaved = useCallback(async (takeId: string) => {
     const saved = savedTakes.find(item => item.id === takeId);

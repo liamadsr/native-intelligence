@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { commitBlob, createBlobWrite, readBlob, workerWriteFence } from '../blobs'
 import { workerBlobRead } from '../http'
 import { claimJob, completeJob, failJob, queueJob } from '../jobs'
-import { discardLiveTake, LINK_SAFE_MS, LINK_WRITE_MAX, livePiece, retireLiveTake, SMALL_PIECES_MAX, unclaimLiveTake, type TakeRecord, MAX_RESENDS, PIECE_MAX_BYTES, PIECE_MIN_BYTES, QUIET_MS, recordingContainer, savedTakes, sealLiveTrack, startLiveTake, TAKES, TRACKS } from '../live-takes'
+import { discardLiveTake, LINK_SAFE_MS, LINK_WRITE_MAX, livePiece, liveTakeState, retireLiveTake, SMALL_PIECES_MAX, unclaimLiveTake, type TakeRecord, MAX_RESENDS, PIECE_MAX_BYTES, PIECE_MIN_BYTES, QUIET_MS, recordingContainer, savedTakes, sealLiveTrack, startLiveTake, TAKES, TRACKS } from '../live-takes'
 import { advanceRecording, BUILD_CLAIM_MS, listRecordings, NOT_A_MEMBER, recoverTake, startRecording } from '../recordings'
 import { getRecords } from '../records'
 import { sweepStudio } from '../sweep'
@@ -121,6 +121,29 @@ describe('pieces', () => {
     await expect(livePiece(as(BEN), take.id, { role: 'screen', index: 0, bytes: 10 })).rejects.toMatchObject({ status: 404 })
     await expect(livePiece(as(null), take.id, { role: 'screen', index: 0, bytes: 10 })).rejects.toMatchObject({ status: 403 })
     await expect(livePiece(env.ctx, 'not-a-take', { role: 'screen', index: 0, bytes: 10 })).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('says where a take stands, track by track, to the person alone: declared, stored from the first, sealed', async () => {
+    const take = await newTake(env.ctx, ['screen', 'microphone'])
+    await send(take.id, 'screen', 0, mp4(6000))
+    await send(take.id, 'screen', 1, filler(4000))
+    // Declared, never stored (the recorder crashed before its PUT).
+    await livePiece(env.ctx, take.id, { role: 'screen', index: 2, bytes: 3000 })
+    expect((await liveTakeState(env.ctx, take.id)).take).toEqual({
+      id: take.id,
+      status: 'recording',
+      tracks: [
+        { role: 'screen', declared: 3, stored: 2, bytes: 10000, sealed: false, stopped: false },
+        { role: 'microphone', declared: 0, stored: 0, bytes: 0, sealed: false, stopped: false },
+      ],
+    })
+    await expect(liveTakeState(as(BEN), take.id)).rejects.toMatchObject({ status: 404 })
+    await expect(liveTakeState(as(null), take.id)).rejects.toMatchObject({ status: 403 })
+    // The same piece again, with its length, goes on from there; with another length it is refused, as ever.
+    await expect(livePiece(env.ctx, take.id, { role: 'screen', index: 2, bytes: 2999 })).rejects.toMatchObject({ code: 'OUT_OF_ORDER' })
+    const link = (await livePiece(env.ctx, take.id, { role: 'screen', index: 2, bytes: 3000 })) as { url: string; headers: Record<string, string> }
+    env.storage.putLink(link, filler(3000))
+    expect((await liveTakeState(env.ctx, take.id)).take.tracks[0]).toMatchObject({ declared: 3, stored: 3, bytes: 13000 })
   })
 
   it('gives one of two requests for the same piece the piece, and the other a conflict to try again', async () => {

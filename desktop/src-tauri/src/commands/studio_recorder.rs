@@ -16,7 +16,20 @@
 //! - events `studio-recorder://status` { sessionId, elapsedMs, bytes, levels },
 //!   `studio-recorder://stopped` (the stop payload, or { sessionId, cancelled }),
 //!   `studio-recorder://error` { sessionId?, message, fatal },
-//!   `studio-recorder://upload` { sessionId, role, uploadedBytes, totalBytes, partsDone, partsTotal }.
+//!   `studio-recorder://upload` { sessionId, role, uploadedBytes, totalBytes, partsDone, partsTotal },
+//!   `studio-recorder://segment` { sessionId, role, index, kind, offset, length, endSeconds, startPts }.
+//!
+//! Uploads while recording: the sidecar writes each file in segments and says
+//! so (`segment`). The page, which holds the person's session, asks the Studio
+//! for a link per piece (live-takes.ts); the bytes go from here, never through
+//! the web view: the page first plans its pieces as byte ranges of the file
+//! ([`studio_recorder_plan_pieces`], kept in the take's folder before any is
+//! declared, so a take resumed after a crash cuts them the same), then has a
+//! planned piece sent to its link ([`studio_recorder_put_piece`]). A piece is
+//! only ever whole segments the index lists, and goes only to the app's own
+//! storage. The take's id on the Studio is kept beside it (`live.json`), so a
+//! take cut short by a quit or a crash is found again
+//! ([`studio_recorder_unfinished_takes`]) and its missing pieces sent.
 //!
 //! What the page can choose is deliberately narrow: what to record (a display
 //! or window id, device ids, flags). It never names a path: each take's files
@@ -39,7 +52,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, SystemTime};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -60,6 +73,7 @@ pub const STATUS_EVENT: &str = "studio-recorder://status";
 pub const STOPPED_EVENT: &str = "studio-recorder://stopped";
 pub const ERROR_EVENT: &str = "studio-recorder://error";
 pub const UPLOAD_EVENT: &str = "studio-recorder://upload";
+pub const SEGMENT_EVENT: &str = "studio-recorder://segment";
 
 /// A take's folder under the app's cache dir.
 const TAKES_DIR: &str = "studio-takes";
@@ -108,6 +122,8 @@ pub struct StudioRecorder {
     /// Serializes start/stop/cancel/discard, so a Stop from the control and
     /// one from the Studio page settle on one result.
     lifecycle: Mutex<()>,
+    /// Serializes writes to the take folders' piece plans.
+    plans: StdMutex<()>,
 }
 
 impl StudioRecorder {
@@ -252,6 +268,21 @@ fn on_event(app: &AppHandle, value: Value) {
                     "sessionId": value.get("sessionId"),
                     "message": value.get("message"),
                     "fatal": value.get("fatal").and_then(Value::as_bool).unwrap_or(false),
+                }),
+            );
+        }
+        Some("segment") => {
+            let _ = app.emit(
+                SEGMENT_EVENT,
+                json!({
+                    "sessionId": value.get("sessionId"),
+                    "role": value.get("role"),
+                    "index": value.get("index"),
+                    "kind": value.get("kind"),
+                    "offset": value.get("offset"),
+                    "length": value.get("length"),
+                    "endSeconds": value.get("endSeconds"),
+                    "startPts": value.get("startPts"),
                 }),
             );
         }
@@ -885,12 +916,7 @@ pub async fn studio_recorder_upload(app: AppHandle, session_id: String, role: St
         .map_err(|e| refusal("io", e))?
         .map_err(|e| refusal("io", e))?;
 
-    let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(20))
-        // A redirect could carry the bytes to a host the allowlist never saw.
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| refusal("upload", e))?;
+    let client = upload_client()?;
     let total: u64 = ranges.iter().map(|r| r.1).sum();
     let uploaded = Arc::new(AtomicU64::new(0));
     let done = Arc::new(AtomicU64::new(0));
@@ -936,6 +962,288 @@ pub async fn studio_recorder_upload(app: AppHandle, session_id: String, role: St
         "sha256": sha256,
         "parts": etags.into_iter().map(|(index, etag)| json!({ "index": index, "etag": etag })).collect::<Vec<_>>(),
     }))
+}
+
+// ---- uploads while recording ------------------------------------------------------------
+
+/// The longest piece the Studio takes (web/src/lib/studio/server/live-takes.ts `PIECE_MAX_BYTES`).
+const PIECE_MAX_BYTES: u64 = 16 * 1024 * 1024;
+/// The take's id on the Studio, beside its files.
+const LIVE_FILE: &str = "live.json";
+
+/// A take's file for a role: the sidecar's own names (Recorder.swift); none for any other role.
+fn role_file(role: &str) -> Option<&'static str> {
+    match role {
+        "screen" => Some("screen.mp4"),
+        "camera" => Some("camera.mp4"),
+        "microphone" => Some("microphone.m4a"),
+        "system-audio" => Some("system-audio.m4a"),
+        _ => None,
+    }
+}
+
+/// One whole segment of a take's file, as its index (`<file>.segments`) lists it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Segment {
+    pub index: usize,
+    pub kind: String,
+    pub offset: u64,
+    pub length: u64,
+    pub end_seconds: Option<f64>,
+}
+
+/// The segments an index lists, in order: whole lines only, the init segment
+/// first, each starting where the one before ended, none past `file_len`. A
+/// torn last line, or bytes the index does not count yet (a crash between the
+/// sidecar's two writes), are left out. Pure.
+pub fn parse_segments(text: &str, file_len: u64) -> Vec<Segment> {
+    let whole = text.rfind('\n').map_or("", |i| &text[..=i]);
+    let mut out: Vec<Segment> = Vec::new();
+    let mut end = 0u64;
+    for line in whole.lines() {
+        let fields: Vec<&str> = line.split(' ').collect();
+        if fields.len() < 3 || (fields[0] == "init") != out.is_empty() || !matches!(fields[0], "init" | "media") {
+            break;
+        }
+        let (Ok(offset), Ok(length)) = (fields[1].parse::<u64>(), fields[2].parse::<u64>()) else { break };
+        if offset != end || length == 0 || offset.checked_add(length).map_or(true, |e| e > file_len) {
+            break;
+        }
+        let end_seconds = fields.get(3).and_then(|v| v.parse::<f64>().ok()).filter(|v| v.is_finite());
+        out.push(Segment { index: out.len(), kind: fields[0].to_string(), offset, length, end_seconds });
+        end = offset + length;
+    }
+    out
+}
+
+/// A piece of a track as the page planned it: bytes `[offset, offset + length)`
+/// of the file, `seconds` recorded at its end, the track's offset on the screen's clock.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlannedPiece {
+    pub index: u64,
+    pub offset: u64,
+    pub length: u64,
+    #[serde(default)]
+    pub seconds: f64,
+    #[serde(default)]
+    pub offset_seconds: Option<f64>,
+}
+
+/// A plan file's pieces: whole lines, numbered from 0, end to end from byte 0. Pure.
+pub fn parse_plan(text: &str) -> Vec<PlannedPiece> {
+    let whole = text.rfind('\n').map_or("", |i| &text[..=i]);
+    let mut out: Vec<PlannedPiece> = Vec::new();
+    let mut end = 0u64;
+    for line in whole.lines() {
+        let Ok(piece) = serde_json::from_str::<PlannedPiece>(line) else { break };
+        if piece.index != out.len() as u64 || piece.offset != end {
+            break;
+        }
+        end = piece.offset + piece.length;
+        out.push(piece);
+    }
+    out
+}
+
+/// The pieces of `new` that extend `plan` (one already planned must be planned
+/// the same). Each is the next one, starts where the one before ended, holds
+/// 1 byte to [`PIECE_MAX_BYTES`] and ends within the whole segments
+/// (`indexed`). Pure.
+pub fn extend_plan(plan: &[PlannedPiece], new: &[PlannedPiece], indexed: u64) -> Result<Vec<PlannedPiece>, String> {
+    let mut next = plan.len() as u64;
+    let mut end = plan.last().map_or(0, |p| p.offset + p.length);
+    let mut added = Vec::new();
+    for piece in new {
+        if piece.index < plan.len() as u64 {
+            if plan[piece.index as usize] != *piece {
+                return Err(refusal("conflict", format!("piece {} was planned otherwise", piece.index)));
+            }
+            continue;
+        }
+        if piece.index != next || piece.offset != end {
+            return Err(refusal("conflict", format!("piece {} does not follow the plan", piece.index)));
+        }
+        if piece.length == 0 || piece.length > PIECE_MAX_BYTES {
+            return Err(refusal("bad-request", format!("piece {} must hold 1 byte to 16 MB", piece.index)));
+        }
+        if piece.offset + piece.length > indexed {
+            return Err(refusal("bad-request", format!("piece {} reaches past what the recorder has written", piece.index)));
+        }
+        if !piece.seconds.is_finite() || piece.seconds < 0.0 || piece.offset_seconds.is_some_and(|o| !o.is_finite() || o.abs() > 3600.0) {
+            return Err(refusal("bad-request", format!("piece {} has a bad time", piece.index)));
+        }
+        end = piece.offset + piece.length;
+        next += 1;
+        added.push(piece.clone());
+    }
+    Ok(added)
+}
+
+/// A take's folder by its session id: this run's, or one left by an earlier run
+/// (only a UUID-named folder directly under the takes dir).
+fn take_folder(app: &AppHandle, session_id: &str) -> Result<PathBuf, String> {
+    if !valid_session_id(session_id) {
+        return Err(refusal("not-found", "no such take"));
+    }
+    if let Some(take) = app.state::<StudioRecorder>().takes.lock().unwrap().get(session_id) {
+        return Ok(take.dir.clone());
+    }
+    let dir = takes_dir(app)?.join(session_id);
+    if dir.is_dir() {
+        Ok(dir)
+    } else {
+        Err(refusal("not-found", "no such take"))
+    }
+}
+
+/// A role's file in a take folder and its whole segments.
+fn segments_of(dir: &Path, role: &str) -> Result<(PathBuf, Vec<Segment>), String> {
+    let name = role_file(role).ok_or_else(|| refusal("bad-request", format!("no such role {role}")))?;
+    let file = dir.join(name);
+    let len = std::fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
+    let index = std::fs::read_to_string(dir.join(format!("{name}.segments"))).unwrap_or_default();
+    Ok((file, parse_segments(&index, len)))
+}
+
+fn indexed_end(segments: &[Segment]) -> u64 {
+    segments.last().map_or(0, |s| s.offset + s.length)
+}
+
+fn plan_of(dir: &Path, role: &str) -> Vec<PlannedPiece> {
+    parse_plan(&std::fs::read_to_string(dir.join(format!("pieces-{role}.jsonl"))).unwrap_or_default())
+}
+
+/// The whole segments of a take's file so far: `{segments, bytes}` (bytes: where the last one ends).
+#[tauri::command]
+pub async fn studio_recorder_segments(app: AppHandle, session_id: String, role: String) -> Result<Value, String> {
+    let dir = take_folder(&app, &session_id)?;
+    let (_, segments) = segments_of(&dir, &role)?;
+    Ok(json!({ "bytes": indexed_end(&segments), "segments": segments }))
+}
+
+/// Remember the take's id on the Studio beside its files (once: another id is refused).
+#[tauri::command]
+pub async fn studio_recorder_link_live(app: AppHandle, session_id: String, take_id: String) -> Result<(), String> {
+    let dir = take_folder(&app, &session_id)?;
+    if uuid::Uuid::parse_str(&take_id).is_err() {
+        return Err(refusal("bad-request", "not a take id"));
+    }
+    let path = dir.join(LIVE_FILE);
+    if let Ok(text) = std::fs::read_to_string(&path) {
+        let known = serde_json::from_str::<Value>(&text).ok().and_then(|v| v.get("takeId").and_then(Value::as_str).map(str::to_string));
+        return if known.as_deref() == Some(take_id.as_str()) { Ok(()) } else { Err(refusal("conflict", "the take is linked to another recording")) };
+    }
+    let tmp = dir.join(format!("{LIVE_FILE}.tmp"));
+    std::fs::write(&tmp, json!({ "takeId": take_id }).to_string()).map_err(|e| refusal("io", e))?;
+    std::fs::rename(&tmp, &path).map_err(|e| refusal("io", e))
+}
+
+/// Plan pieces of a track before the page declares them to the Studio: kept
+/// in the take's folder (`pieces-<role>.jsonl`), so pieces sent after a crash
+/// are the very ones declared before it. Answers how many are planned.
+#[tauri::command]
+pub async fn studio_recorder_plan_pieces(app: AppHandle, session_id: String, role: String, pieces: Vec<PlannedPiece>) -> Result<Value, String> {
+    let dir = take_folder(&app, &session_id)?;
+    let (_, segments) = segments_of(&dir, &role)?;
+    let recorder = app.state::<StudioRecorder>();
+    let _plans = recorder.plans.lock().unwrap();
+    let plan = plan_of(&dir, &role);
+    let added = extend_plan(&plan, &pieces, indexed_end(&segments))?;
+    if !added.is_empty() {
+        use std::io::Write;
+        let lines: String = added.iter().map(|p| format!("{}\n", serde_json::to_string(p).unwrap_or_default())).collect();
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join(format!("pieces-{role}.jsonl")))
+            .map_err(|e| refusal("io", e))?;
+        file.write_all(lines.as_bytes()).and_then(|_| file.sync_data()).map_err(|e| refusal("io", e))?;
+    }
+    Ok(json!({ "planned": plan.len() + added.len() }))
+}
+
+/// Send planned piece `index` of a track to its signed link (the app's own
+/// storage only, no redirect, the storage headers only). `{bytes}`.
+#[tauri::command]
+pub async fn studio_recorder_put_piece(
+    app: AppHandle,
+    session_id: String,
+    role: String,
+    index: u64,
+    url: String,
+    headers: HashMap<String, String>,
+) -> Result<Value, String> {
+    let dir = take_folder(&app, &session_id)?;
+    let (file, segments) = segments_of(&dir, &role)?;
+    let piece = plan_of(&dir, &role)
+        .into_iter()
+        .nth(index as usize)
+        .ok_or_else(|| refusal("not-found", format!("piece {index} was not planned")))?;
+    if piece.offset + piece.length > indexed_end(&segments) {
+        return Err(refusal("bad-request", format!("piece {index} reaches past what the recorder has written")));
+    }
+    if !allowed_upload_url(&url) {
+        return Err(refusal("bad-request", "a URL the app won't upload to"));
+    }
+    let body = read_range(&file, piece.offset, piece.length).await.map_err(|e| refusal("io", e))?;
+    let client = upload_client()?;
+    let part = UploadPart { index, bytes: piece.length, url, headers };
+    put_part(&client, &part, body).await?;
+    Ok(json!({ "bytes": piece.length }))
+}
+
+/// Takes in the takes folder that were linked to a recording on the Studio and
+/// are not recording in this run: what is left to send after a quit or a crash.
+/// `{takes: [{sessionId, takeId, state, tracks: [{role, bytes, seconds, plan}]}]}`.
+#[tauri::command]
+pub async fn studio_recorder_unfinished_takes(app: AppHandle) -> Result<Value, String> {
+    let base = takes_dir(&app)?;
+    let recording: Vec<String> = {
+        let recorder = app.state::<StudioRecorder>();
+        let takes = recorder.takes.lock().unwrap();
+        takes.iter().filter(|(_, t)| t.stopped.is_none()).map(|(id, _)| id.clone()).collect()
+    };
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(&base) else { return Ok(json!({ "takes": [] })) };
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        let Some(session_id) = dir.file_name().and_then(|n| n.to_str()).filter(|n| valid_session_id(n)).map(str::to_string) else { continue };
+        if recording.contains(&session_id) {
+            continue;
+        }
+        let Some(take_id) = std::fs::read_to_string(dir.join(LIVE_FILE))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .and_then(|v| v.get("takeId").and_then(Value::as_str).map(str::to_string))
+        else {
+            continue;
+        };
+        let take = std::fs::read_to_string(dir.join("take.json")).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok());
+        let state = take.as_ref().and_then(|v| v.get("state").and_then(Value::as_str)).unwrap_or("recording").to_string();
+        let mut tracks = Vec::new();
+        for role in ["screen", "camera", "microphone", "system-audio"] {
+            let (file, segments) = segments_of(&dir, role)?;
+            if !file.exists() {
+                continue;
+            }
+            tracks.push(json!({ "role": role, "bytes": indexed_end(&segments), "seconds": segments.last().and_then(|s| s.end_seconds),
+                                "plan": plan_of(&dir, role) }));
+        }
+        out.push(json!({ "sessionId": session_id, "takeId": take_id, "state": state, "tracks": tracks }));
+    }
+    Ok(json!({ "takes": out }))
+}
+
+/// The client every upload uses: no redirect (a redirect could carry the bytes
+/// to a host the allowlist never saw).
+fn upload_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| refusal("upload", e))
 }
 
 // ---- the recording control -------------------------------------------------------------
@@ -1092,6 +1400,64 @@ mod tests {
 
     fn part(index: u64, bytes: u64) -> UploadPart {
         UploadPart { index, bytes, url: "https://sb.nativeintelligence.dev/x".into(), headers: HashMap::new() }
+    }
+
+    #[test]
+    fn segments_are_whole_lines_end_to_end_within_the_file() {
+        let index = "init 0 600\nmedia 600 1000 2.000000\nmedia 1600 900 4.000000\nmedia 2500 70";
+        let got = parse_segments(index, 2500);
+        assert_eq!(got.len(), 3, "the torn last line is left out");
+        assert_eq!(got[1], Segment { index: 1, kind: "media".into(), offset: 600, length: 1000, end_seconds: Some(2.0) });
+        // Bytes the file does not hold yet, a gap, a media segment first: the list stops there.
+        assert_eq!(parse_segments(index, 2000).len(), 2);
+        assert_eq!(parse_segments("init 0 600\nmedia 601 10 1\n", 10_000).len(), 1);
+        assert!(parse_segments("media 0 600 1\n", 10_000).is_empty());
+        assert!(parse_segments("init 0 600\ninit 600 10\n", 10_000).len() == 1);
+        assert!(parse_segments("", 10).is_empty());
+    }
+
+    /// The index the recorder's own writer made for a test take (studio-worker/test/fixtures/recorder, made by
+    /// the sidecar's WriterTests): every segment read, end to end, to the file's last byte.
+    #[test]
+    fn the_recorders_own_index_reads_to_the_end_of_its_file() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../studio-worker/test/fixtures/recorder");
+        let index = std::fs::read_to_string(dir.join("screen.mp4.segments")).unwrap();
+        let len = std::fs::metadata(dir.join("screen.mp4")).unwrap().len();
+        let segments = parse_segments(&index, len);
+        assert_eq!(segments.len(), index.lines().count());
+        assert_eq!(segments[0].kind, "init");
+        assert_eq!(indexed_end(&segments), len);
+        assert!(segments.iter().skip(1).all(|s| s.end_seconds.is_some()));
+    }
+
+    fn planned(index: u64, offset: u64, length: u64) -> PlannedPiece {
+        PlannedPiece { index, offset, length, seconds: index as f64 * 4.0, offset_seconds: Some(0.25) }
+    }
+
+    #[test]
+    fn a_plan_only_grows_end_to_end_within_the_written_segments() {
+        let plan = vec![planned(0, 0, 2000), planned(1, 2000, 3000)];
+        assert_eq!(extend_plan(&plan, &[planned(2, 5000, 1000)], 6000).unwrap(), vec![planned(2, 5000, 1000)]);
+        // The same piece planned again changes nothing; planned otherwise, it is refused.
+        assert!(extend_plan(&plan, &[planned(1, 2000, 3000)], 6000).unwrap().is_empty());
+        assert!(extend_plan(&plan, &[planned(1, 2000, 2999)], 6000).is_err());
+        // A gap, a skipped index, past the written segments, too large, empty.
+        assert!(extend_plan(&plan, &[planned(2, 5001, 10)], 6000).is_err());
+        assert!(extend_plan(&plan, &[planned(3, 5000, 10)], 6000).is_err());
+        assert!(extend_plan(&plan, &[planned(2, 5000, 1001)], 6000).is_err());
+        assert!(extend_plan(&plan, &[planned(2, 5000, PIECE_MAX_BYTES + 1)], u64::MAX / 2).is_err());
+        assert!(extend_plan(&plan, &[planned(2, 5000, 0)], 6000).is_err());
+        let text: String = [planned(0, 0, 10), planned(1, 10, 5), planned(3, 15, 5)].iter().map(|p| serde_json::to_string(p).unwrap() + "\n").collect();
+        assert_eq!(parse_plan(&text), vec![planned(0, 0, 10), planned(1, 10, 5)], "a plan read back stops at a break");
+        assert_eq!(parse_plan(&(text.clone() + "{\"index\":3")), parse_plan(&text), "a torn last line is not a piece");
+    }
+
+    #[test]
+    fn only_the_sidecars_own_files_have_a_role() {
+        assert_eq!(role_file("screen"), Some("screen.mp4"));
+        assert_eq!(role_file("system-audio"), Some("system-audio.m4a"));
+        assert_eq!(role_file("../screen"), None);
+        assert_eq!(role_file("trace"), None);
     }
 
     #[test]

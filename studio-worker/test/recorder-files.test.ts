@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { copyFile, mkdir, mkdtemp, rm, stat } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileSha256 } from '../src/app-client.ts'
@@ -211,9 +211,24 @@ test('a take that breaks a rule is conformed as before, and the log says which r
   })
 })
 
-test('a take cut short by a crash is conformed, as before', async () => {
+test('a take brought back after a crash is kept when it ends on a whole segment, conformed when it ends mid-segment', async () => {
   await withDir(async (dir) => {
-    const { logs } = await importFile(dir, fixture('screen.mp4'), { name: 'Screen.mp4', conform: { fps: 60, fit: true }, partial: true })
-    assert.ok(logs.some((l) => /Conforming the recording/.test(l)), logs.join(' | '))
+    const source = fixture('screen.mp4')
+    const index = (await readFile(source.replace(/screen\.mp4$/, 'screen.mp4.segments'), 'utf8').catch(() => null))
+    // The recorder's own index: the end of its second media segment is a cut a crash can leave (whole segments only).
+    const bytes = await readFile(source)
+    const segments = (index ?? '').trim().split('\n').map((l) => l.split(' ').map(Number))
+    const boundary = segments.length >= 3 ? segments[2]![1]! + segments[2]![2]! : 0
+    assert.ok(boundary > 0 && boundary < bytes.length, 'the fixture has more than two media segments')
+    const whole = join(dir, 'whole.mp4')
+    await writeFile(whole, bytes.subarray(0, boundary))
+    const kept = await importFile(dir, whole, { name: 'Screen.mp4', conform: { fps: 60, fit: true }, partial: true })
+    assert.ok(kept.logs.some((l) => /kept, its frames copied/.test(l)), kept.logs.join(' | '))
+    assert.equal(kept.asset.sourceFrames, 240, 'its first two 2 s segments at 60 fps')
+    const torn = join(dir, 'torn.mp4')
+    await writeFile(torn, bytes.subarray(0, boundary + Math.floor((segments[3]?.[2] ?? 20_000) / 2)))
+    const conformed = await importFile(dir, torn, { name: 'Screen.mp4', conform: { fps: 60, fit: true }, partial: true })
+    assert.ok(conformed.logs.some((l) => /not kept as it is/.test(l)), conformed.logs.join(' | '))
+    assert.ok(conformed.logs.some((l) => /Conforming the recording .*read as far as it goes/.test(l)), conformed.logs.join(' | '))
   })
 })

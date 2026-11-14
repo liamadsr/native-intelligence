@@ -15,7 +15,9 @@
  * ffprobe shows it holds everything the editor and the fast export rely on
  * (recorder-files.ts readyProblem); any check that fails, and it is conformed.
  * A recording brought back after a crash (`input.partial`) may
- * end mid-frame: its conform reads past damage at the end. A browser's WebM or
+ * end mid-frame: it is kept only when every check passes all the same (the
+ * Mac app's pieces end on whole segments), else its conform reads past damage
+ * at the end. A browser's WebM or
  * Matroska that does not say how long it is is copied into a fresh file first,
  * which writes its duration and index.
  *
@@ -75,7 +77,9 @@ export const runImport: JobHandler<'import'> = async (ctx) => {
       const stamps = await videoStamps(upload, ctx.signal)
       const fps = input.conform.fit ? fitRate(stamps, input.conform.fps, input.conform.ceiling) : input.conform.fps
       // A take already what the conform would make (the Mac app's recorder writes it so) is kept, its frames copied.
-      const kept = !input.partial && type.extension === 'mp4' ? await keepRecording(upload, join(ctx.scratch, 'kept.mp4'), fps, seconds, ctx) : null
+      // Also one brought back after a crash: the Mac app's pieces are whole segments, so it ends on a whole frame;
+      // one that does not (cut mid-segment) fails a check and is conformed, reading past the damage at its end.
+      const kept = type.extension === 'mp4' ? await keepRecording(upload, join(ctx.scratch, 'kept.mp4'), fps, seconds, ctx) : null
       if (kept) {
         if (kept !== upload) {
           provenance.rawSha256 = read.sha256

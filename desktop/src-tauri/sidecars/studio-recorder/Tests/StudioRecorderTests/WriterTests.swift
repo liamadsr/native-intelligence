@@ -195,6 +195,25 @@ final class WriterTests: XCTestCase {
         XCTAssertEqual(segments.last?.endSeconds ?? 0, Double(frames) / 60, accuracy: 0.001)
     }
 
+    /// A 16-inch MacBook Pro's full screen (3472x2266) at 60 fps is H.264 (level 5.2) and passes every check; past 4096
+    /// pixels a side the writer picks HEVC, which the import conforms.
+    func testLargeScreenStaysH264() async throws {
+        XCTAssertEqual(videoSettings(width: 4096, height: 2560, fps: 60, screen: true).codec, "h264")
+        XCTAssertEqual(videoSettings(width: 4112, height: 2658, fps: 60, screen: true).codec, "hevc")
+        XCTAssertEqual(videoSettings(width: 5120, height: 2880, fps: 60, screen: true).codec, "hevc")
+        let path = dir.appendingPathComponent("screen-3472x2266.mp4").path
+        let grid = try GridVideo(path: path, width: 3472, height: 2266, fps: 60, screen: true)
+        grid.patience = 20_000
+        XCTAssertEqual(grid.codec, "h264")
+        let pictures = [bgra(3472, 2266, 0, p3: true), bgra(3472, 2266, 40, p3: true)]
+        for n in 0..<90 { grid.put(pictures[n % 2]) }
+        let problem = await grid.finish()
+        XCTAssertNil(problem)
+        try assertEditorReady(path, fps: 60, frames: 90, width: 3472, height: 2266)
+        try? FileManager.default.removeItem(atPath: path)
+        try? FileManager.default.removeItem(atPath: path + ".segments")
+    }
+
     /// A camera through its TrackWriter: 4:2:0 pictures at an uneven ~24 fps, one held from before the take, written at 30.
     func testCameraOnTheGrid() async throws {
         let path = dir.appendingPathComponent("camera.mp4").path

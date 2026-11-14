@@ -23,6 +23,10 @@ import type {
   StudioUploadPart,
   StudioUploadProgressEvent,
   StudioUploadResult,
+  StudioPlannedPiece,
+  StudioSegment,
+  StudioSegmentEvent,
+  StudioUnfinishedTake,
 } from "./studio/recorder-bridge-types";
 
 // ── Types matching Rust audio::types ────────────────────────────
@@ -1439,6 +1443,7 @@ export const STUDIO_RECORDER_STATUS_EVENT = "studio-recorder://status";
 export const STUDIO_RECORDER_STOPPED_EVENT = "studio-recorder://stopped";
 export const STUDIO_RECORDER_ERROR_EVENT = "studio-recorder://error";
 export const STUDIO_RECORDER_UPLOAD_EVENT = "studio-recorder://upload";
+export const STUDIO_RECORDER_SEGMENT_EVENT = "studio-recorder://segment";
 
 const STUDIO_UNAVAILABLE = "The Studio recorder runs only in a Native Intelligence desktop app that has it.";
 
@@ -1553,6 +1558,26 @@ export const studioRecorder = {
       hasSession(raw) && typeof (raw as Record<string, unknown>).uploadedBytes === "number", cb),
   /** The same as onUpload. */
   onUploadProgress: (cb: (event: StudioUploadProgressEvent) => void) => studioRecorder.onUpload(cb),
+  // ── Uploads while recording (an app without them answers code "unavailable": the take uploads after Stop). ──
+  /** A whole segment of a take's file is on disk. */
+  onSegment: (cb: (event: StudioSegmentEvent) => void) =>
+    onStudioEvent(STUDIO_RECORDER_SEGMENT_EVENT, (raw): raw is StudioSegmentEvent =>
+      hasSession(raw) && typeof (raw as Record<string, unknown>).offset === "number" && typeof (raw as Record<string, unknown>).length === "number", cb),
+  /** Every whole segment of a take's file so far (`bytes`: where the last one ends). */
+  segments: (sessionId: string, role: StudioFileRole) =>
+    invokeStudio<{ bytes: number; segments: StudioSegment[] }>("studio_recorder_segments", { sessionId, role }, (raw) =>
+      isObject(raw) && Array.isArray(raw.segments)),
+  /** Keep the take's id on the Studio beside its files (so a take cut short is found again). */
+  linkLive: (sessionId: string, takeId: string) => invokeStudio<void>("studio_recorder_link_live", { sessionId, takeId }, () => true),
+  /** Write down pieces of a track (byte ranges of its file) before the Studio is told of them. */
+  planPieces: (sessionId: string, role: StudioFileRole, pieces: StudioPlannedPiece[]) =>
+    invokeStudio<{ planned: number }>("studio_recorder_plan_pieces", { sessionId, role, pieces }),
+  /** Send planned piece `index` of a track from the disk to its signed link. */
+  putPiece: (sessionId: string, role: StudioFileRole, index: number, url: string, headers: Record<string, string>) =>
+    invokeStudio<{ bytes: number }>("studio_recorder_put_piece", { sessionId, role, index, url, headers }),
+  /** Takes on this computer linked to a take on the Studio and not recording now: what a quit or a crash left to send. */
+  unfinishedTakes: () =>
+    invokeStudio<{ takes: StudioUnfinishedTake[] }>("studio_recorder_unfinished_takes", undefined, (raw) => isObject(raw) && Array.isArray(raw.takes)),
 };
 
 // ── Studio: exports on this computer, and saving an export (studio_local_*, studio_export_*) ──

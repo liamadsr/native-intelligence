@@ -269,8 +269,8 @@ final class TrackWriter: @unchecked Sendable {
     private(set) var width = 0, height = 0
     private(set) var codec = "h264"
     var failure: String?
-    /// Called once the file exists (its first segment is on the way).
-    var onOpen: ((SegmentFile) -> Void)?
+    /// Called once the file exists (its first segment is on the way), with the host seconds of its time 0.
+    var onOpen: ((SegmentFile, Double) -> Void)?
     init(role: String, kind: String, sourceID: String, name: String, path: String, gate: CaptureGate) {
         self.role = role; self.kind = kind; self.sourceID = sourceID; self.name = name; self.path = path; self.gate = gate
     }
@@ -302,7 +302,7 @@ final class TrackWriter: @unchecked Sendable {
             let video = try GridVideo(path: path, width: width, height: height, fps: fps, screen: kind == "window", scaleToFit: true)
             codec = video.codec
             grid = video; origin = seconds
-            onOpen?(video.file)
+            onOpen?(video.file, seconds)
         } catch let f as Fail { failure = "Could not create the \(kind) track: \(f.message)" } catch { failure = error.localizedDescription }
     }
     /// Windows only send pictures when they change: the last one is held until
@@ -353,8 +353,8 @@ final class AudioFileWriter: @unchecked Sendable {
     var fileStart: Double? { firstPTS.map { $0 - aacPrimingSeconds } }
     private(set) var lastPTS: Double?
     var failure: String?
-    /// Called once the file exists.
-    var onOpen: ((SegmentFile) -> Void)?
+    /// Called once the file exists, with the host seconds of its time 0 as it plays.
+    var onOpen: ((SegmentFile, Double) -> Void)?
     init(role: String, path: String, channels: Int, gate: CaptureGate) {
         self.role = role; self.path = path; self.channels = channels; self.gate = gate
     }
@@ -392,7 +392,7 @@ final class AudioFileWriter: @unchecked Sendable {
             guard newWriter.startWriting() else { failure = newWriter.error?.localizedDescription ?? "Could not start the \(role) track"; return }
             newWriter.startSession(atSourceTime: .zero)
             writer = newWriter; input = newInput; file = segments; firstPTS = seconds
-            onOpen?(segments)
+            onOpen?(segments, seconds - aacPrimingSeconds)
         } catch let f as Fail { failure = f.message } catch { failure = error.localizedDescription }
     }
     func finish() async -> [String: Any] {

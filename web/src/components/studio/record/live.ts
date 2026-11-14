@@ -4,7 +4,9 @@
 // crash or a closed window loses only the last few seconds, and Stop has only the last piece left to send.
 //
 // Joined in order, the pieces are byte for byte what the recorder wrote: WebM from Chromium, fragmented MP4 from
-// WebKit. A piece stays on this device until storage has it; while the connection is down the pieces wait and go up
+// WebKit or from the Mac app's recorder. The Mac app's pieces are byte ranges of its files (FileRange): their bytes
+// never come into the page, the app sends each one from its disk (desktop.ts gives the track `send` and `plan`).
+// A piece stays on this device until storage has it; while the connection is down the pieces wait and go up
 // when it is back. When the Studio cannot take the recording at all (an older server, too many recordings at once),
 // every piece stays here and the take uploads after Stop, as it always did. When it refuses the rest of a take (no
 // space left, the take was finished elsewhere), what reached it is kept and the recording stops.
@@ -26,6 +28,12 @@ export const PIECE_MIN_BYTES = 1024
 export const PIECE_MAX_BYTES = 16 * 1024 ** 2
 /** After Stop, how long the last pieces may keep failing before the take is handed back to be tried again. */
 export const GIVE_UP_AFTER_STOP_MS = 120_000
+
+/** A stretch of a file the Mac app holds, by its place in the file: its bytes stay on the computer. */
+export type FileRange = { offset: number; size: number }
+/** What a piece is made of: bytes here (the browser's recorder) or a stretch of a file on the computer. */
+export type PieceBody = Blob | FileRange
+const isBlob = (body: PieceBody): body is Blob => typeof (body as Blob).slice === 'function'
 
 /** The server's name for a role. */
 export type ServerRole = 'screen' | 'camera' | 'microphone' | 'systemAudio'
@@ -92,22 +100,43 @@ export const fetchApi: LiveApi = {
 
 /**
  * Pieces of at most `max` bytes from a run of chunks, in order: the chunks are joined, and a run longer than `max` is
- * cut into equal pieces (never a small tail, which the Studio would refuse as a piece but the last). Pure.
+ * cut into equal pieces (never a small tail, which the Studio would refuse as a piece but the last). Chunks that are
+ * stretches of a file must follow on from each other. Pure.
  */
-export function piecesOf(chunks: Blob[], max = PIECE_MAX_BYTES): Blob[] {
-  const joined = new Blob(chunks)
-  if (!joined.size) return []
-  const count = Math.ceil(joined.size / max)
-  const size = Math.ceil(joined.size / count)
-  const out: Blob[] = []
-  for (let at = 0; at < joined.size; at += size) out.push(joined.slice(at, Math.min(joined.size, at + size)))
+export function piecesOf(chunks: Blob[], max?: number): Blob[]
+export function piecesOf(chunks: FileRange[], max?: number): FileRange[]
+export function piecesOf(chunks: PieceBody[], max?: number): PieceBody[]
+export function piecesOf(chunks: PieceBody[], max = PIECE_MAX_BYTES): PieceBody[] {
+  if (!chunks.length) return []
+  if (chunks.every(isBlob)) {
+    const joined = new Blob(chunks)
+    return equalParts(joined.size, max).map(([at, end]) => joined.slice(at, end))
+  }
+  const ranges = chunks as FileRange[]
+  for (let i = 1; i < ranges.length; i++) {
+    if (isBlob(ranges[i]!) || ranges[i]!.offset !== ranges[i - 1]!.offset + ranges[i - 1]!.size) throw new Error('The recording’s segments do not follow on from each other.')
+  }
+  const start = ranges[0]!.offset
+  return equalParts(ranges.reduce((n, r) => n + r.size, 0), max).map(([at, end]) => ({ offset: start + at, size: end - at }))
+}
+
+/** `[start, end)` of each of the equal parts, at most `max` long, that `total` bytes are cut into. Pure. */
+function equalParts(total: number, max: number): [number, number][] {
+  if (!total) return []
+  const count = Math.ceil(total / max)
+  const size = Math.ceil(total / count)
+  const out: [number, number][] = []
+  for (let at = 0; at < total; at += size) out.push([at, Math.min(total, at + size)])
   return out
 }
+
+const sizeOf = (body: PieceBody) => (isBlob(body) ? body.size : body.size)
 
 /** How long to wait before trying again, after `failures` failures in a row: 1 s doubling to 15 s. Pure. */
 export const backoffMs = (failures: number) => Math.min(15_000, 1000 * 2 ** Math.max(0, failures - 1))
 
-type Piece = { index: number; blob: Blob; seconds: number }
+/** A piece of a track: its number, what it is made of, and how many seconds the track had recorded at its end. */
+export type Piece = { index: number; body: PieceBody; seconds: number }
 
 /** What a track leans on: the calls, the clock, and the recorder's word on where this track sits on the screen's clock. */
 export type TrackDeps = {
@@ -119,6 +148,15 @@ export type TrackDeps = {
   /** The server refused the rest of the take: the recording should stop. */
   onFailed: (message: string) => void
   onChange: () => void
+  /** Send a piece's bytes to its link (default: the piece is a Blob here, put there with `api.put`). */
+  send?: (piece: Piece, link: { url: string; headers: Record<string, string> }) => Promise<void>
+  /** Keep the pieces just cut, before any of them is declared to the Studio (the Mac app writes them down on its disk). */
+  plan?: (pieces: Piece[]) => Promise<void>
+  /**
+   * How long a piece gathers before it is cut (default PIECE_SECONDS). The Mac app's chunks are whole segments of
+   * about two seconds already: 0 makes each one a piece (once it holds PIECE_MIN_BYTES), so Stop leaves less to send.
+   */
+  pieceSeconds?: number
 }
 
 /** One track's pieces on their way to the server. */
@@ -132,7 +170,7 @@ export class LiveTrack {
   /** How many pieces, from the first, are on the server. */
   uploadedPieces = 0
   private takeId: string | null = null
-  private buffer: Blob[] = []
+  private buffer: PieceBody[] = []
   private bufferBytes = 0
   private bufferStartedAt: number | null = null
   private queue: Piece[] = []
@@ -145,27 +183,35 @@ export class LiveTrack {
   private failingSince: number | null = null
   private gaveUp = false
   private waiters: (() => void)[] = []
+  /** The pieces cut so far, written down (`deps.plan`): a piece is declared only once this settles. */
+  private planning: Promise<void> = Promise.resolve()
 
   constructor(readonly role: TakeRole, private readonly deps: TrackDeps) {
     this.label = LABELS[role]
   }
 
   /** A chunk the recorder made, `seconds` into this track. */
-  push(chunk: Blob, seconds: number): void {
-    if (!chunk.size || this.state === 'failed' || this.closed) return
+  push(chunk: PieceBody, seconds: number): void {
+    if (!sizeOf(chunk) || this.state === 'failed' || this.closed) return
     this.buffer.push(chunk)
-    this.bufferBytes += chunk.size
-    this.recordedBytes += chunk.size
+    this.bufferBytes += sizeOf(chunk)
+    this.recordedBytes += sizeOf(chunk)
     this.recordedSeconds = Math.max(this.recordedSeconds, seconds)
     this.bufferStartedAt ??= this.deps.now()
-    if (this.bufferBytes >= PIECE_MIN_BYTES && (this.bufferBytes >= PIECE_TARGET_BYTES || this.deps.now() - this.bufferStartedAt >= PIECE_SECONDS * 1000)) this.cut()
+    if (this.bufferBytes >= PIECE_MIN_BYTES && (this.bufferBytes >= PIECE_TARGET_BYTES || this.deps.now() - this.bufferStartedAt >= (this.deps.pieceSeconds ?? PIECE_SECONDS) * 1000)) this.cut()
     this.changed()
   }
 
   /** The chunks gathered so far become pieces, in line to go up. */
   private cut(): void {
     if (!this.buffer.length) return
-    for (const blob of piecesOf(this.buffer)) this.queue.push({ index: this.nextIndex++, blob, seconds: this.recordedSeconds })
+    const made = piecesOf(this.buffer).map((body) => ({ index: this.nextIndex++, body, seconds: this.recordedSeconds }))
+    this.queue.push(...made)
+    if (this.deps.plan) {
+      const plan = this.deps.plan
+      this.planning = this.planning.then(() => plan(made))
+      this.planning.catch(() => undefined)
+    }
     this.buffer = []
     this.bufferBytes = 0
     this.bufferStartedAt = null
@@ -209,7 +255,26 @@ export class LiveTrack {
   /** A local track's bytes, whole (it never sent a piece). */
   localBlob(type: string): Blob {
     this.cut()
-    return new Blob(this.queue.map((piece) => piece.blob), { type })
+    return new Blob(this.queue.map((piece) => piece.body).filter(isBlob), { type })
+  }
+
+  /**
+   * Go on with a take a quit or a crash cut short (the Mac app kept it on its disk): `planned` are the pieces it wrote
+   * down before declaring any, `stored` how many of them, from the first, the Studio has. Those after go up as they
+   * were planned (the last declared one again, with its length: the Studio answers `stored` or a link); new chunks
+   * pushed afterwards follow them.
+   */
+  resume(planned: Piece[], stored: number): void {
+    const kept = planned.slice(0, stored)
+    this.nextIndex = planned.length
+    this.queue = planned.slice(stored)
+    this.uploadedPieces = stored
+    this.uploadedBytes = kept.reduce((n, piece) => n + sizeOf(piece.body), 0)
+    this.recordedBytes = planned.reduce((n, piece) => n + sizeOf(piece.body), 0)
+    this.recordedSeconds = planned.reduce((n, piece) => Math.max(n, piece.seconds), 0)
+    this.uploadedSeconds = kept.reduce((n, piece) => Math.max(n, piece.seconds), 0)
+    this.changed()
+    this.kick()
   }
 
   status(): LiveTrackStatus {
@@ -250,18 +315,27 @@ export class LiveTrack {
     while (this.queue.length && (this.state === 'live' || this.state === 'retrying')) {
       const piece = this.queue[0]!
       try {
+        try {
+          await this.planning
+        } catch (cause) {
+          throw new LiveError(`The recording’s pieces could not be kept on this computer${cause instanceof Error ? `: ${cause.message}` : ''}.`, 400, 'NOT_PLANNED')
+        }
         const offset = this.deps.offset()
         // `stored`: asked for again after its answer was lost, it is in storage already at its length: nothing to send.
         const link = await this.deps.api.post<{ url?: string; headers?: Record<string, string>; stored?: boolean }>(`${STUDIO_API}/live-takes/${encodeURIComponent(this.takeId!)}/pieces`, {
           role: serverRole(this.role),
           index: piece.index,
-          bytes: piece.blob.size,
+          bytes: sizeOf(piece.body),
           seconds: Math.round(piece.seconds * 1000) / 1000,
           ...(offset !== null && Number.isFinite(offset) ? { offsetSeconds: Math.round(offset * 1000) / 1000 } : {}),
         })
-        if (!link.stored) await this.deps.api.put(link.url!, link.headers ?? {}, piece.blob)
+        if (!link.stored) {
+          if (this.deps.send) await this.deps.send(piece, { url: link.url!, headers: link.headers ?? {} })
+          else if (isBlob(piece.body)) await this.deps.api.put(link.url!, link.headers ?? {}, piece.body)
+          else throw new LiveError('This piece of the recording has nothing to send it.', 400)
+        }
         this.queue.shift()
-        this.uploadedBytes += piece.blob.size
+        this.uploadedBytes += sizeOf(piece.body)
         this.uploadedPieces = piece.index + 1
         this.uploadedSeconds = piece.seconds
         this.failures = 0
@@ -343,10 +417,22 @@ export class LiveTake {
 
   constructor(
     roles: TakeRole[],
-    private readonly deps: Omit<TrackDeps, 'offset'> & { offset: (role: TakeRole) => number | null },
+    private readonly deps: Omit<TrackDeps, 'offset' | 'send' | 'plan'> & {
+      offset: (role: TakeRole) => number | null
+      send?: (role: TakeRole, piece: Piece, link: { url: string; headers: Record<string, string> }) => Promise<void>
+      plan?: (role: TakeRole, pieces: Piece[]) => Promise<void>
+    },
   ) {
     this.ready = new Promise((resolve) => (this.settle = resolve))
-    for (const role of roles) this.tracks.set(role, new LiveTrack(role, { ...deps, offset: () => deps.offset(role) }))
+    for (const role of roles) {
+      const { send, plan } = deps
+      this.tracks.set(role, new LiveTrack(role, {
+        ...deps,
+        offset: () => deps.offset(role),
+        send: send ? (piece, link) => send(role, piece, link) : undefined,
+        plan: plan ? (pieces) => plan(role, pieces) : undefined,
+      }))
+    }
   }
 
   /** Make the take on the server (a few tries over about ten seconds); the pieces wait here meanwhile. */

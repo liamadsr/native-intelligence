@@ -59,12 +59,60 @@ describe('pieces', () => {
     expect(piecesOf([chunk(10)], 4).map((b) => b.size)).toEqual([4, 4, 2])
     expect(piecesOf([]).length).toBe(0)
   })
+  it('joins stretches of a file the same way, and refuses stretches that do not follow on', () => {
+    expect(piecesOf([{ offset: 0, size: 600 }, { offset: 600, size: 400 }])).toEqual([{ offset: 0, size: 1000 }])
+    expect(piecesOf([{ offset: 100, size: 10 }], 4)).toEqual([{ offset: 100, size: 4 }, { offset: 104, size: 4 }, { offset: 108, size: 2 }])
+    expect(() => piecesOf([{ offset: 0, size: 10 }, { offset: 11, size: 10 }])).toThrow(/follow on/)
+  })
   it('waits longer after each failure, up to 15 s', () => {
     expect([1, 2, 3, 4, 5, 9].map(backoffMs)).toEqual([1000, 2000, 4000, 8000, 15000, 15000])
   })
 })
 
 describe('a live take', () => {
+  it('writes pieces down before it declares them, and sends them through the recorder', async () => {
+    const s = studio()
+    const time = clock()
+    const order: string[] = []
+    const live = new LiveTake(['screen'], {
+      api: s.api, now: time.now, sleep: time.sleep, offset: () => 0, onFailed: () => undefined, onChange: () => undefined,
+      plan: async (_role, pieces) => {
+        await Promise.resolve()
+        order.push(...pieces.map((p) => `plan ${p.index}`))
+      },
+      send: async (_role, piece) => {
+        order.push(`send ${piece.index}`)
+      },
+    })
+    await live.open('desktop', { screen: 'Screen.mp4' })
+    const screen = live.tracks.get('screen')!
+    screen.push({ offset: 0, size: 2000 }, 2)
+    time.advance(5000)
+    screen.push({ offset: 2000, size: 3000 }, 4)
+    const done = await screen.finish()
+    expect(done).toEqual({ key: `live/${TAKE}/screen`, pieces: 1, complete: true })
+    expect(order).toEqual(['plan 0', 'send 0'])
+    expect(s.pieces).toEqual([expect.objectContaining({ role: 'screen', index: 0, bytes: 5000 })])
+  })
+
+  it('declares nothing it could not write down: the track stops, what came before is kept', async () => {
+    const s = studio()
+    const time = clock()
+    const live = new LiveTake(['screen'], {
+      api: s.api, now: time.now, sleep: time.sleep, offset: () => 0, onFailed: () => undefined, onChange: () => undefined,
+      plan: async () => {
+        throw new Error('the disk is full')
+      },
+      send: async () => undefined,
+    })
+    await live.open('desktop', { screen: 'Screen.mp4' })
+    const screen = live.tracks.get('screen')!
+    screen.push({ offset: 0, size: 5000 }, 4)
+    await expect(screen.finish()).rejects.toThrow(/could not be kept on this computer: the disk is full/)
+    expect(screen.state).toBe('failed')
+    expect(s.pieces).toEqual([])
+  })
+
   it('sends a piece every few seconds, in order, and at Stop only the last one', async () => {
     const s = studio()
     const { live, time } = take(s.api)

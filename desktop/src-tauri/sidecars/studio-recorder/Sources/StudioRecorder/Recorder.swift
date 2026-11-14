@@ -207,6 +207,20 @@ final class MicSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @un
 
 // MARK: - the take
 
+/// Each segment of `file`, once on disk, as a `segment` event: the app uploads
+/// it while the take records (its bytes are `offset`, `length` in the file).
+/// `startPts`: the host seconds of the file's time 0, the take's clock.
+func announce(_ file: SegmentFile, sessionId: String, role: String, start: @escaping () -> Double?) {
+    file.onSegment = { record in
+        var event = record.json
+        event["event"] = "segment"
+        event["sessionId"] = sessionId
+        event["role"] = role
+        event["startPts"] = jsonNumber(start())
+        emit(event)
+    }
+}
+
 final class Take: @unchecked Sendable {
     let options: StartOptions
     let gate = CaptureGate()
@@ -336,6 +350,7 @@ final class Recorder: @unchecked Sendable {
                 throw Fail("The selected microphone is not connected.", code: "device")
             }
             let writer = AudioFileWriter(role: "microphone", path: take.file("microphone.m4a"), channels: 1, gate: take.gate)
+            writer.onOpen = { file, start in announce(file, sessionId: options.sessionId, role: "microphone") { start } }
             let sink = MicSink(writer: writer, pcmPath: options.transcriptionPcm ? take.file("mic-16k.f32") : nil)
             let session = AVCaptureSession()
             session.beginConfiguration()
@@ -366,6 +381,7 @@ final class Recorder: @unchecked Sendable {
             }
             let track = TrackWriter(role: role, kind: "camera", sourceID: device.uniqueID, name: device.localizedName,
                                     path: take.file("\(role).mp4"), gate: take.gate)
+            track.onOpen = { file, start in announce(file, sessionId: options.sessionId, role: role) { start } }
             let session = AVCaptureSession()
             session.beginConfiguration()
             session.sessionPreset = .high
@@ -422,13 +438,16 @@ final class Recorder: @unchecked Sendable {
 
         let screen = try ScreenRecorder(path: take.file("screen.mp4"), width: width, height: height, fps: options.fps)
         if options.systemAudio {
-            screen.systemAudio = AudioFileWriter(role: "system-audio", path: take.file("system-audio.m4a"), channels: 2, gate: take.gate)
+            let systemAudio = AudioFileWriter(role: "system-audio", path: take.file("system-audio.m4a"), channels: 2, gate: take.gate)
+            systemAudio.onOpen = { file, start in announce(file, sessionId: options.sessionId, role: "system-audio") { start } }
+            screen.systemAudio = systemAudio
         }
         let sessionId = options.sessionId
         screen.onFailure = { message in
             emit(["event": "error", "sessionId": sessionId, "message": message, "fatal": true])
         }
         take.screen = screen
+        announce(screen.grid.file, sessionId: sessionId, role: "screen") { [weak screen] in screen?.firstPTS }
 
         let config = SCStreamConfiguration()
         config.width = width
@@ -457,6 +476,7 @@ final class Recorder: @unchecked Sendable {
             let role = "window-\(i + 1)"
             let track = TrackWriter(role: role, kind: "window", sourceID: String(id), name: name.isEmpty ? "Window" : name,
                                     path: take.file("\(role).mp4"), gate: take.gate)
+            track.onOpen = { file, start in announce(file, sessionId: options.sessionId, role: role) { start } }
             let windowFilter = SCContentFilter(desktopIndependentWindow: window)
             let windowConfig = SCStreamConfiguration()
             let windowScale = Double(windowFilter.pointPixelScale)

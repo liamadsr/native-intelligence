@@ -5,6 +5,8 @@
 //   POST   /live-takes                 {id?, recorder, tracks:[{role, name, frameRate?}]}  -> {take}
 //   POST   /live-takes/:id/pieces      {role, index, bytes, seconds?, offsetSeconds?} -> {index, url, headers} | {index, stored}
 //   GET    /live-takes                 the person's takes that stopped before they were finished (to bring back)
+//   GET    /live-takes/:id             where one of the person's takes stands, track by track (the Mac app sends what a
+//                                      quit or a crash left on the computer from there)
 //   POST   /live-takes/:id/recover     one of those made a video from what arrived    -> RecordingAnswer
 //   DELETE /live-takes/:id             thrown away: its pieces, its records, the space it held
 //
@@ -724,6 +726,32 @@ async function holdOnlyWhatLinksCanWrite(ctx: StudioContext, take: TakeRecord): 
       )
     } else must(await ctx.supabase.from('studio_record').delete().eq('workspace_id', ctx.workspaceId).eq('collection', PENDING).eq('key', key), 'save the recording')
   }
+}
+
+/** One of the person's takes as it stands: per track, the pieces declared and those surely stored (from the first). */
+export type LiveTakeState = {
+  id: string
+  status: TakeRecord['status']
+  tracks: { role: LiveRole; declared: number; stored: number; bytes: number; sealed: boolean; stopped: boolean }[]
+}
+
+/**
+ * Where one of the person's takes stands (only the person's own: anything else is not found), for a recorder that kept
+ * the take on its own disk and sends what a quit or a crash kept from going up: it goes on from `stored`, through
+ * livePiece and its fences as ever. Reads only.
+ */
+export async function liveTakeState(ctx: StudioContext, takeId: string): Promise<{ take: LiveTakeState }> {
+  const take = await loadTake(ctx, takeId)
+  const roles = LIVE_ROLES.filter((role) => take.tracks[role])
+  const records = await getRecords<TrackRecord>(ctx, TRACKS, roles.map((role) => trackKey(take.id, role)))
+  const tracks: LiveTakeState['tracks'] = []
+  for (const role of roles) {
+    const track = records.get(trackKey(take.id, role))
+    if (!track) continue
+    const stored = take.status === 'dropped' ? 0 : await storedRun(ctx, track)
+    tracks.push({ role, declared: track.n, stored, bytes: track.pieces.slice(0, stored).reduce((a, b) => a + b, 0), sealed: !!track.sealed, stopped: !!track.stopped })
+  }
+  return { take: { id: take.id, status: take.status, tracks } }
 }
 
 /** A take that stopped before it was finished, as the Record dialog offers it back. */
