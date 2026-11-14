@@ -1,8 +1,8 @@
 // Takes kept on this computer that are not settled: shown to the person where saved takes are listed (the Record
 // dialog), each with its size, what is wrong in plain words, Try again and Discard. The app never removes such a take
 // by its age (studio_recorder.rs sweep): it stays until it is filed (and the Studio holds every byte) or discarded.
-import type { Settled } from './filing'
-import { CHANGED_ELSEWHERE, OWED_UNKNOWN, type ProvisionalRecord } from './provisional'
+import { wordsOwed, type Settled } from './filing'
+import { CHANGED_ELSEWHERE, OWED_CHANGED, OWED_UNKNOWN, type ProvisionalRecord } from './provisional'
 
 /** A take folder as studio_recorder_unfinished_takes lists it. */
 export type ListedTake = {
@@ -109,9 +109,11 @@ export function localTakeRows(listed: ListedTake[], records: ProvisionalRecord[]
       // Owed, but the owed edit itself was not kept: nothing here can put it on, only letting go (asked first).
       if (record.saveOwed && !record.owedEdit) return row(`${OWED_UNKNOWN} ${LET_GO} removes this recording from this computer once the Studio holds every byte of it.`, { kind: 'none' }, record.projectId, { alt: letGo })
       if (record.saveOwed) {
-        return row(`${failed === CHANGED_ELSEWHERE ? 'The video has changed since these edits were made, so they were not put on it.' : 'The video is made, but your last edits may not have reached it.'} Put my edits on it saves them onto the video, never over changes made there since. ${LET_GO} removes this recording and those edits from this computer once the Studio holds every byte of it.`,
+        return row(`${failed === OWED_CHANGED || failed === CHANGED_ELSEWHERE ? 'The video has changed since these edits were made, so they were not put on it.' : 'The video is made, but your last edits may not have reached it.'} Put my edits on it saves them onto the video, never over changes made there since. ${LET_GO} removes this recording and those edits from this computer once the Studio holds every byte of it.`,
           { kind: 'adopt', projectId: record.projectId }, record.projectId, { label: 'Put my edits on it', alt: letGo })
       }
+      // Held back only by the Mac's words still on their way: the words are named, not the bytes.
+      if (wordsOwed(record)) return row('The video is made, but the words the Mac heard have not reached the Studio yet, so this recording is kept on this computer until they do.', { kind: 'release', projectId: record.projectId }, record.projectId)
       return row('The video is made, but the Studio does not hold every byte of this recording yet, so its files are kept on this computer.', { kind: 'release', projectId: record.projectId }, record.projectId)
     }
     if (!take.takeId) {
@@ -122,6 +124,28 @@ export function localTakeRows(listed: ListedTake[], records: ProvisionalRecord[]
     return row('Part of this recording is on the Studio and the rest is on this computer. Try again makes it a video from all of it.', { kind: 'recover', takeId: take.takeId })
   })
 }
+
+/**
+ * The takes being uploaded or made into a video now ("Preparing your recording"): in the set only while `during` runs,
+ * so a take whose upload failed is listed again (with Try again and Discard) once it stopped.
+ */
+export function takesInFlight() {
+  const ids = new Set<string>()
+  return {
+    ids: (): ReadonlySet<string> => ids,
+    async during<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
+      ids.add(sessionId)
+      try {
+        return await work()
+      } finally {
+        ids.delete(sessionId)
+      }
+    },
+  }
+}
+
+/** The take kept for Try again, only when it is the one of the session asked about (`id`): else null. Pure. */
+export const keptFor = <T extends { id: string }>(kept: T | null, id: string): T | null => (kept && kept.id === id ? kept : null)
 
 /** What this page knows of a listed take, to tell whether it may be discarded now (inUseReason). */
 export type InUse = {

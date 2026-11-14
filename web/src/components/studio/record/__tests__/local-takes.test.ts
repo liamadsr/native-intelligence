@@ -2,7 +2,7 @@
 // size, what is wrong in plain words, and what Try again does. Nothing such a take holds is removed by its age
 // (studio_recorder.rs sweep), so every one of them must show here. Made-up takes.
 import { describe, expect, it } from 'vitest'
-import { inUseReason, listedTakes, localTakeActions, localTakeRows, OPEN_ELSEWHERE, sizeWords, type LocalTakeDeps, type LocalTakeRow } from '../local-takes'
+import { inUseReason, keptFor, listedTakes, localTakeActions, localTakeRows, OPEN_ELSEWHERE, sizeWords, takesInFlight, type LocalTakeDeps, type LocalTakeRow } from '../local-takes'
 import { CHANGED_ELSEWHERE, type ProvisionalRecord } from '../provisional'
 
 const S = (n: number) => `${n}f0f0f0f-1111-4222-8333-444444444444`
@@ -250,5 +250,31 @@ describe('the fifth review', () => {
     expect(row.action).toEqual({ kind: 'none' })
     expect(row.problem).toMatch(/^The video is made, but your last edits may not have reached it, and this computer did not keep a copy of them beside the recording. Open the video to check them./)
     expect(row.alt?.label).toBe('Let go of the files')
+  })
+})
+
+describe('the sixth review', () => {
+  it('a take is hidden only while its upload runs: once it failed, it is listed again', async () => {
+    const flights = takesInFlight()
+    const listed = listedTakes({ takes: [take(1, { stop: { files: [] } })] })
+    let during: string[] = []
+    await flights.during(S(1), async () => { during = localTakeRows(listed, [], new Set(), () => true, flights.ids()).map((r) => r.sessionId); throw new Error('The upload failed.') }).catch(() => undefined)
+    expect(during).toEqual([])
+    expect(localTakeRows(listed, [], new Set(), () => true, flights.ids()).map((r) => r.sessionId)).toEqual([S(1)])
+  })
+
+  it('an adopted take held back only by the Mac’s words says so, not that the Studio lacks bytes', () => {
+    const words = [{ text: 'Hello', startMs: 500, endMs: 900 }]
+    const row = localTakeRows(listedTakes({ takes: [take(1, { hasDraft: true })] }), [record(1, { state: 'adopted', recordingId: 'r-1', heard: words })])[0]!
+    expect(row.problem).toBe('The video is made, but the words the Mac heard have not reached the Studio yet, so this recording is kept on this computer until they do.')
+    const sent = localTakeRows(listedTakes({ takes: [take(1, { hasDraft: true })] }), [record(1, { state: 'adopted', recordingId: 'r-1', heard: words, wordsSent: true })])[0]!
+    expect(sent.problem).toMatch(/does not hold every byte/)
+  })
+
+  it('Discard and Try again on a session act only on the take that session kept', () => {
+    const kept = { id: 'session-a', take: 'take of a' }
+    expect(keptFor(kept, 'session-a')).toBe(kept)
+    expect(keptFor(kept, 'session-b')).toBeNull()
+    expect(keptFor(null, 'session-a')).toBeNull()
   })
 })

@@ -242,9 +242,11 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
   // While a filed take's save is owed, the owed edit itself is kept beside the take (with the digest its save goes over):
   // the Record dialog's "Put my edits on it" saves that, never an older draft.
   useEffect(()=>{const p=project;if(!dirty||!p)return;const draftId=serverSaveOwed.current.draftOf(p.id);if(draftId===undefined)return;
-    const timer=setTimeout(()=>{const now=currentRef.current;if(now?.id!==p.id||!serverSaveOwed.current.has(p.id))return;const over=projectDigest.current;
-      void manual.records()?.update(draftId,r=>r.saveOwed?{...r,owedEdit:now,...(over?{owedDigest:over}:{})}:r).catch(()=>undefined);},600);
-    return()=>clearTimeout(timer);},[dirty,serialized]);// eslint-disable-line react-hooks/exhaustive-deps
+    const write=()=>{const now=currentRef.current;if(now?.id!==p.id||!serverSaveOwed.current.has(p.id))return;const over=projectDigest.current;
+      void manual.records()?.update(draftId,r=>r.saveOwed?{...r,owedEdit:now,...(over?{owedDigest:over}:{})}:r).catch(()=>undefined);};
+    // The page going (a reload, a closed window) writes it at once rather than losing the last 600 ms.
+    const timer=setTimeout(write,600),leave=()=>{clearTimeout(timer);write();};window.addEventListener('pagehide',leave);
+    return()=>{clearTimeout(timer);window.removeEventListener('pagehide',leave);};},[dirty,serialized]);// eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{if(!dirty)return;const timer=setTimeout(()=>{try{localStorage.setItem(draftKey,serializeRecoveryDraft(project!,projectDigest.current,savedRef.current));}catch{say('The browser could not keep a recovery copy. Save the video to keep these edits.',true);}},600);return()=>clearTimeout(timer);},[dirty,serialized,say]);
   useEffect(()=>{const before=(e:BeforeUnloadEvent)=>{if(dirty||profileDirty||recordingLock.current){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',before);return()=>window.removeEventListener('beforeunload',before);},[dirty,profileDirty]);
   useEffect(()=>{const node=stage.current;if(!node)return;const observer=new ResizeObserver(entries=>{const box=entries[0]?.contentRect;if(box&&box.width>0&&box.height>0)setPreviewBox({width:Math.max(100,box.width-48),height:Math.max(100,box.height-28)});});observer.observe(node);return()=>observer.disconnect();},[!!project]);
@@ -460,7 +462,8 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
     const editing=stillOpen();
     // The open draft as it is now goes beside the take first (its 750 ms autosave may not have run): what is kept there
     // is never older than what is carried on.
-    if(editing&&currentRef.current)await records.update(projectId,r=>({...r,draft:currentRef.current!})).catch(()=>undefined);
+    const shownNow=editing?currentRef.current:null;
+    if(shownNow)await records.update(projectId,r=>({...r,draft:shownNow})).catch(()=>undefined);
     const kept=(await store.get(projectId).catch(()=>null))??record;
     const hrefs=draftHrefs.current.get(projectId)??{};
     let adopted:ReturnType<typeof adoptFiled>;

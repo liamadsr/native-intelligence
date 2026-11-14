@@ -441,7 +441,7 @@ describe('the third review', () => {
     const { filer, s, m, store } = setup()
     await s.api.post('/x/recordings?wait=1', {})
     await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1', state: 'adopted', saveOwed: true, wordsSent: true })
-    expect((await filer.release(PROJECT)).note).toMatch(/not saved onto its video yet/)
+    expect((await filer.release(PROJECT)).note).toMatch(/not saved onto its video yet, so its files are kept on this computer. Record lists it: Put my edits on it saves them there./)
     expect(m.folders.has(SESSION)).toBe(true)
     // The save landed (App.tsx clears saveOwed through the same keeper): the files go.
     void filer.records.update(PROJECT, (r) => ({ ...r, saveOwed: undefined }))
@@ -596,5 +596,40 @@ describe('the fifth review', () => {
     expect(settled.safe).toBe(false) // the Studio lacks the microphone: the files stay
     expect(m.folders.has(SESSION)).toBe(true)
     expect((await store.get(PROJECT))!.state).toBe('adopted')
+  })
+})
+
+describe('the sixth review', () => {
+  const words = [{ text: 'Hello', startMs: 500, endMs: 900 }, { text: 'there', startMs: 1000, endMs: 1400 }]
+
+  it('words sent to a recording that failed go again to the one brought back after a reload (its recover sends none)', async () => {
+    const { filer, s, store } = setup()
+    // r-1 had the words, then failed (its id cleared); the take is on the Studio as a live take.
+    await draftRecord(store, SESSION, PROJECT, { recordingId: null, takeId: 'take-1', heard: words, wordsSent: true })
+    await filer.resume((await store.get(PROJECT))!)
+    for (let i = 0; i < 30; i++) await tick()
+    const posts = s.log.filter((l) => l.endsWith('/words'))
+    expect(posts).toHaveLength(1)
+    expect(posts[0]).toContain(`recordings/${(await store.get(PROJECT))!.recordingId}/words`)
+    expect((await store.get(PROJECT))!.wordsSent).toBe(true)
+  })
+
+  it('Try again on the same recording three times counts at most one miss on this page (never gives the words up by itself)', async () => {
+    const { filer, s, store, leases } = setup()
+    await s.api.post('/x/recordings?wait=1', {})
+    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1', state: 'failed', failed: 'gave up following', heard: words })
+    await leases.hold(SESSION)
+    const post = s.api.post.bind(s.api)
+    s.api.post = (async <T,>(url: string, body?: unknown): Promise<T> => {
+      if (url.endsWith('/words')) throw Object.assign(new Error('Recording not found'), { status: 404, code: 'NOT_FOUND' })
+      return post<T>(url, body)
+    }) as FilingApi['post']
+    for (let press = 0; press < 3; press++) {
+      await store.put({ ...(await store.get(PROJECT))!, state: 'failed' })
+      await filer.refile(PROJECT)
+      for (let i = 0; i < 20; i++) await tick()
+    }
+    expect((await store.get(PROJECT))!.wordsMisses).toBe(1)
+    expect((await store.get(PROJECT))!.wordsRefused).toBeUndefined()
   })
 })

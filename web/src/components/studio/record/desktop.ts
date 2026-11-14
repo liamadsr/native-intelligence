@@ -609,11 +609,6 @@ export class DesktopRecorder implements Recorder {
     return this.live && this.sessionId ? [this.sessionId] : []
   }
 
-  /** The takes this recorder still has: recording, or stopped and not yet let go of (being uploaded, made into a video). */
-  ownedSessions(): string[] {
-    return [...this.stopped.keys(), ...(this.sessionId ? [this.sessionId] : [])]
-  }
-
   /** The ids on the Studio of the takes this recorder holds (never offered back as stopped: they are being sent). */
   liveTakeIds(): string[] {
     const ids = [...this.stopped.values()].map((live) => live.id ?? live.requestedId)

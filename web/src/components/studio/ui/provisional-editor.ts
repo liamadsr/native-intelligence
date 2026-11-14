@@ -1,8 +1,8 @@
 // The editor's side of a Mac take opened before it was filed (record/provisional.ts, record/filing.ts): pure steps
 // App.tsx takes, kept here so they are tested as they run.
 import type { EditorProject, EditorTranscript } from '@/lib/studio/engine/contracts'
-import { adoptFiled, CHANGED_ELSEWHERE, OWED_UNKNOWN, withoutTranscripts, type DraftStore, type ProvisionalRecord } from '../record/provisional'
-export { CHANGED_ELSEWHERE, OWED_UNKNOWN }
+import { adoptFiled, CHANGED_ELSEWHERE, OWED_CHANGED, OWED_UNKNOWN, withoutTranscripts, type DraftStore, type ProvisionalRecord } from '../record/provisional'
+export { CHANGED_ELSEWHERE, OWED_CHANGED, OWED_UNKNOWN }
 import type { Settled } from '../record/filing'
 
 export type History = { past: EditorProject[]; current: EditorProject; future: EditorProject[]; group?: number | null }
@@ -233,8 +233,10 @@ export async function adoptKept(deps: AdoptDeps, projectId: string): Promise<Ado
   if (adopted.edited) {
     const conflict = async (): Promise<Adopted> => {
       // Noted beside the take, so the Record dialog says what is wrong (not that Try again puts the edits on).
-      await deps.records.update(projectId, (r) => ({ ...r, failed: CHANGED_ELSEWHERE })).catch(() => undefined)
-      return { outcome: 'conflict', message: CHANGED_ELSEWHERE, recovery: { project, digest: server.projectDigest, base: JSON.stringify(server.project) } }
+      // Owed edits made in the editor after it was filed: the video changed since they were made, not "while filed".
+      const message = owed ? OWED_CHANGED : CHANGED_ELSEWHERE
+      await deps.records.update(projectId, (r) => ({ ...r, failed: message })).catch(() => undefined)
+      return { outcome: 'conflict', message, recovery: { project, digest: server.projectDigest, base: JSON.stringify(server.project) } }
     }
     // The video is already this edit (with, at most, the Mac's late words on it): an earlier save landed, only its answer
     // or the note after it was lost. Nothing to save.

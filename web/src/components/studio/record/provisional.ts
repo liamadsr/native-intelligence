@@ -451,6 +451,9 @@ export function provisionalRecord(draft: Draft, info: { sessionId: string; takeI
 /** What a filed take whose video changed elsewhere says (the editor's notice, and the Record dialog's row). */
 export const CHANGED_ELSEWHERE = 'This video changed somewhere else while the recording was being filed, so your edits were not put on it. They are kept on this computer.'
 
+/** What an owed save says when the video changed since its edits were made (the editor's notice, and the row). */
+export const OWED_CHANGED = 'The video has changed since these edits were made, so they were not put on it. They are kept on this computer.'
+
 /** What an owed save whose edit this computer did not keep says (never that it saved them). */
 export const OWED_UNKNOWN = 'The video is made, but your last edits may not have reached it, and this computer did not keep a copy of them beside the recording. Open the video to check them.'
 

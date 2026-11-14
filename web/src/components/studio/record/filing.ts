@@ -317,10 +317,15 @@ export class Filer {
 
   /** Follow a handed-over recording until made (or failed). */
   private async follow(projectId: string, recordingId: string, first?: RecordingAnswer, wordsSent?: boolean): Promise<void> {
-    // A new recording (the one before failed and the take was made again): its words are owed to it afresh.
-    const fresh = (r: ProvisionalRecord) => (r.recordingId && r.recordingId !== recordingId) || (!r.recordingId && (r.wordsMisses || r.wordsRefused))
-    await this.records.update(projectId, (r) => ({ ...r, ...(fresh(r) ? { wordsSent: undefined, wordsRefused: undefined, wordsMisses: undefined } : {}), recordingId, ...(wordsSent ? { wordsSent } : {}) })).catch(() => undefined)
-    this.wordsStopped.delete(projectId)
+    // A new recording (none before, or the one before failed and the take was made again: both failure paths clear the
+    // id first): its words are owed to it afresh, unless they went with its request (`wordsSent`). Following the same
+    // recording again (Try again) changes nothing, so this page's stop and its misses stand.
+    let fresh = false
+    await this.records.update(projectId, (r) => {
+      fresh = r.recordingId !== recordingId
+      return { ...r, ...(fresh ? { wordsSent: undefined, wordsRefused: undefined, wordsMisses: undefined } : {}), recordingId, ...(wordsSent ? { wordsSent } : {}) }
+    }).catch(() => undefined)
+    if (fresh) this.wordsStopped.delete(projectId)
     void this.ensureWords(projectId)
     let answer = first
     let failures = 0
@@ -572,7 +577,7 @@ export class Filer {
     if (record.state === 'filed') await this.records.update(projectId, (r) => ({ ...r, state: 'adopted', saveOwed: undefined })).catch(() => undefined)
     // Adopted in the open editor, its edits not saved over the Studio's yet: kept until they are (or the person, told to
     // check the video, lets go anyway).
-    if (record.saveOwed && !options.anyway) return { safe: false, note: 'Your last edits to this recording are not saved onto its video yet, so its files are kept on this computer.' }
+    if (record.saveOwed && !options.anyway) return { safe: false, note: 'Your last edits to a recording are not saved onto its video yet, so its files are kept on this computer. Record lists it: Put my edits on it saves them there.' }
     const settled = await releaseWhenSafe(this.deps, record.recordingId, record.sessionId)
     if (settled.safe) {
       this.takes.delete(projectId)

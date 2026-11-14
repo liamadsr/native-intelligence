@@ -13,7 +13,7 @@ import { createVideo, openVideo, saveVideo } from '@/lib/studio/server/videos'
 import { fakeContext } from '@/lib/studio/server/__tests__/fake'
 import { adoptFiled, withoutTranscripts, filedAssets, hrefsFor, localTakeHref, matchWords, memoryDraftStore, nativeDraftStore, provisionalDraft, provisionalRecord, swapAssets, withWords, type LocalMedia } from '../provisional'
 import type { FinishedTake } from '../types'
-import { adoptKept, CHANGED_ELSEWHERE, markEditorAdopted, OWED_UNKNOWN } from '../../ui/provisional-editor'
+import { adoptKept, CHANGED_ELSEWHERE, markEditorAdopted, OWED_CHANGED, OWED_UNKNOWN } from '../../ui/provisional-editor'
 
 const KEY = 'k'.repeat(64)
 
@@ -510,5 +510,16 @@ describe('the fifth review: the edit that is owed is the one saved', () => {
     expect((await adoptKept({ store, records: recordsOf(store), ...real, save, release }, PROJECT)).outcome).toBe('saved')
     expect(save).not.toHaveBeenCalled()
     expect((await store.get(PROJECT))!.failed).toBeUndefined()
+  })
+
+  it('owed edits over a video that changed since they were made: said as such, never "while the recording was being filed"', async () => {
+    const store = memoryDraftStore()
+    const studio = await carriedOn(store, edit, (p) => ({ ...p, title: 'Mine' }))
+    await saveVideo(env.ctx, { ...studio.project, title: 'Changed since' }, studio.digest)
+    const release = vi.fn(async () => ({ safe: true }))
+    const result = await adoptKept({ store, records: recordsOf(store), ...real, release }, PROJECT)
+    expect(result).toMatchObject({ outcome: 'conflict', message: OWED_CHANGED })
+    expect((await store.get(PROJECT))!.failed).toBe(OWED_CHANGED)
+    expect(release).not.toHaveBeenCalled()
   })
 })

@@ -3,7 +3,7 @@ import type { EditorProject } from '@/lib/studio/engine/contracts';
 import { openRecorder, listBrowserDevices, unlockDeviceLabels, uploadTake, submitTake, recordingRequest, plainError, listSavedTakes, discardSavedTake, recoverSavedTake, type BrowserRecorder, type DesktopRecorder, type DeviceOption, type EndReason, type FinishedTake, type LiveTrackStatus, type Recorder, type RecorderPermissionName, type RecorderPermissions, type RecorderTargets, type SavedTake, type ScreenChoice, type SharedSurface, type TakePlacement, type UploadProgress, type RecordingAnswer } from '../record';
 import { nativeDraftStore, provisionalRecord, type Draft, type DraftBridge, type DraftStore, type FilingState } from '../record/provisional';
 import { Filer, localTracks, settleRecording, type FilingApi, type Settled } from '../record/filing';
-import { inUseReason, listedTakes, localTakeActions, localTakeRows, type LocalTakeRow } from '../record/local-takes';
+import { inUseReason, keptFor, listedTakes, localTakeActions, localTakeRows, takesInFlight, type LocalTakeRow } from '../record/local-takes';
 import { normalizeStop, takesBeingSent } from '../record/desktop';
 import type { TakeWord } from '../record/types';
 import { request } from './client';
@@ -56,7 +56,9 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
   const filer = useRef<Filer | null>(null);
   /** Words that arrived after a draft opened, by video id, for the editor to take in (App.tsx). */
   const [heard, setHeard] = useState<Record<string, TakeWord[]>>({});
-  const mounted = useRef(true), operation = useRef(false), current = useRef<string | null>(null), pending = useRef<{ take: FinishedTake; placement: TakePlacement; title?: string } | null>(null);
+  const mounted = useRef(true), operation = useRef(false), current = useRef<string | null>(null), pending = useRef<{ id: string; take: FinishedTake; placement: TakePlacement; title?: string } | null>(null);
+  /** The takes a "Preparing your recording" finish is uploading or having made now (never listed under Record meanwhile). */
+  const inFlight = useRef(takesInFlight());
   const take = useRef<{ placement: TakePlacement; title?: string } | null>(null);
   const stopWords = useRef<(() => void) | null>(null), leaveRef = useRef<(() => void) | null>(null), notifyRef = useRef(notify);
   notifyRef.current = notify;
@@ -168,9 +170,9 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
         return;
       }
     }
-    pending.current = { take, placement, ...(title ? { title } : {}) };
+    pending.current = { id, take, placement, ...(title ? { title } : {}) };
     patch(id, { status: 'finalizing', step: 'Uploading', retry: false, error: undefined });
-    try {
+    await inFlight.current.during(take.sessionId, async () => { try {
       const keys = await uploadTake(rec, take, files => { if (mounted.current) setUploads(files); });
       if (mounted.current) setLiveTracks([]);
       patch(id, { step: 'Preparing your recording', ...(take.note ? { note: take.note } : {}) });
@@ -188,7 +190,7 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
       if (mounted.current) setUploads([]);
     } catch (cause) {
       patch(id, { status: 'failed', step: undefined, retry: true, error: `The take is kept on this device, but it could not be saved: ${message(cause)}` });
-    }
+    } });
   }, [patch, drafts]);
   const finishRef = useRef(finish); finishRef.current = finish;
 
@@ -253,7 +255,8 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
     const rec = recorder.current;
     if (current.current !== id) {
       // A failed take kept for Try again: throw it away.
-      const kept = pending.current;
+      // Only the take this session kept (another session's banner never discards it).
+      const kept = keptFor(pending.current, id);
       if (kept && rec) { pending.current = null; await rec.discard(kept.take).catch(() => {}); patch(id, { status: 'cancelled', retry: false }); }
       return;
     }
@@ -263,7 +266,7 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
     patch(id, { status: 'cancelled', level: null });
   }, [patch]);
   /** Send a kept take again after its upload or processing failed. */
-  const retry = useCallback(async (id: string) => { const kept = pending.current; if (!kept) return; await finish(id, kept.take, kept.placement, kept.title); }, [finish]);
+  const retry = useCallback(async (id: string) => { const kept = keptFor(pending.current, id); if (!kept) return; await finish(id, kept.take, kept.placement, kept.title); }, [finish]);
   /** Teleprompter: the line moved on (or is being retaken), noted on the screen file's clock. */
   const mark = useCallback((value: { beat?: number; retake?: number }) => { const at = screenStart.current; if (at === null) return; marks.current = [...marks.current, { ms: Math.max(0, Math.round(performance.now() - at)), ...value }]; }, []);
   const refreshSessions = useCallback(async () => { await refreshTargets(); void refreshLocalTakesRef.current(); }, [refreshTargets]);
@@ -325,7 +328,7 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
       const onStudio = new Set(savedTakesRef.current.map(take => take.id));
       // Takes this recorder still has, and the one a running "Preparing your recording" upload is sending: never listed
       // (Discard would delete them under the upload; Try again would make a second video).
-      const owned = new Set([...(desktop.ownedSessions?.() ?? []), ...(pending.current ? [pending.current.take.sessionId] : [])]);
+      const owned = inFlight.current.ids();
       const rows = localTakeRows(listedTakes(raw).filter(take => !recording.has(take.sessionId)), records, busyHere(), sessionId => desktop.leases.holds(sessionId), owned);
       if (mounted.current) setLocalTakes(rows.filter(row => !(row.action.kind === 'recover' && onStudio.has(row.action.takeId))));
     } catch { /* an app without the list: nothing to show */ }
