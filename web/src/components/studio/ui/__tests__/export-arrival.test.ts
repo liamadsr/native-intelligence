@@ -134,6 +134,8 @@ describe('the Studio’s wiring (useExportArrival, as App.tsx calls it)', () => 
 })
 
 describe('the public download link it replaced', () => {
+  // It reads every source file of the app: under a second alone, past 5 s on a busy machine running the full suite.
+  // Hence the longer limit.
   it('is referenced nowhere in the app', () => {
     const root = join(__dirname, '../../../..')
     const hits: string[] = []
@@ -146,5 +148,5 @@ describe('the public download link it replaced', () => {
     } }
     walk(root)
     expect(hits).toEqual([])
-  })
+  }, 60_000)
 })
