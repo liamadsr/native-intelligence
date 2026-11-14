@@ -346,6 +346,44 @@ final class WriterTests: XCTestCase {
         }
     }
 
+    /// An encoder that stops taking pieces partway through a fill: what went in counts, the next buffer fills only the
+    /// rest. In all, exactly the gap (and the place of the buffer that could not go in) is silence, and the sound after
+    /// it keeps its time.
+    func testAFillCutShortIsNeverFilledTwice() async throws {
+        let (writer, path) = microphone("microphone-cut.m4a")
+        let gapFrom = 47 * 1024, gapTo = gapFrom + 117 * 1024 // about 2.5 s missing, on buffer edges
+        var cut = false
+        var first = 0, skipped = 0, refusing = false, pieces = 0
+        writer.takes = { piece in
+            guard refusing, CMSampleBufferGetNumSamples(piece) >= 2048 else { return true }
+            pieces += 1
+            return pieces <= 1 // one second of silence goes in, then the encoder is busy
+        }
+        while first < 48_000 * 5 {
+            let at = 9000 + Double(first) / 48_000
+            if first >= gapFrom && first < gapTo { skipped += 1; first += 1024; continue }
+            if first == gapTo {
+                // The first buffer after the gap: the fill is cut short and the buffer itself does not go in.
+                refusing = true
+                XCTAssertFalse(writer.append(pcm(first: first, count: 1024, seconds: at), hostSeconds: at))
+                cut = true
+                refusing = false
+                skipped += 1
+            } else {
+                try await feed(writer, pcm(first: first, count: 1024, seconds: at), at: at)
+            }
+            first += 1024
+        }
+        let row = await writer.finish()
+        XCTAssertTrue(cut && pieces >= 2, "the fill was cut short")
+        XCTAssertNil(row["error"], "\(row)")
+        XCTAssertEqual(row["silenceFilledSeconds"] as? Double ?? 0, Double(skipped * 1024) / 48_000, accuracy: 0.0005, "the gap once, never again")
+        let decoded = try decode(path)
+        var error = 0.0
+        for m in 200_000..<204_000 { error += pow(Double(decoded[m]) - Self.chirp(m - 2112), 2) }
+        XCTAssertLessThan(error / 4000, 1e-6, "the sound after the gap kept its time")
+    }
+
     /// Timestamps that wobble by up to 3 ms either way, over thousands of buffers: no silence put in.
     func testJitterFillsNothing() async throws {
         let (writer, _) = microphone("microphone-jitter.m4a")

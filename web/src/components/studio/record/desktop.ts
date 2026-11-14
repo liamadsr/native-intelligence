@@ -515,16 +515,17 @@ async function sendAll(native: StudioRecorderBridge, api: LiveApi, skip: Readonl
       if (server.stopped) {
         // The Studio stopped taking this track's pieces (it said why when it was recorded): the whole file goes up as an
         // ordinary upload, named when the take is brought back. Until then the folder is never thrown away.
-        if (wholeTracks(takeId)[server.role] || state.whole?.includes(server.role)) continue
+        // Skipped only once the Studio says it is bound: a bind that failed is tried again at the next launch.
+        if (state.whole?.includes(server.role)) continue
         try {
           const audio = role === 'microphone' || role === 'system-audio'
           const ticket = await api.post<{ uploadKey: string; parts: unknown[] }>(`${STUDIO_API}/uploads`, {
             name: desktopFileName(role, ROLE_EXT[role], new Date()), bytes: num(t.bytes), contentType: audio ? 'audio/mp4' : 'video/mp4',
           })
           await native.upload(sessionId, role, ticket.parts as UploadPart[])
-          // Bound to the take on the Studio (whoever brings it back gets the whole track), and kept here as well.
+          // Bound to the take on the Studio first (whoever brings it back gets the whole track); noted here only then.
+          await api.post(`${STUDIO_API}/live-takes/${encodeURIComponent(takeId)}/whole`, { role: server.role, uploadKey: ticket.uploadKey })
           keepWhole(takeId, server.role, ticket.uploadKey)
-          await api.post(`${STUDIO_API}/live-takes/${encodeURIComponent(takeId)}/whole`, { role: server.role, uploadKey: ticket.uploadKey }).catch(() => undefined)
           went = true
         } catch {
           // Tried again the next time the Studio opens.
@@ -592,6 +593,11 @@ export class DesktopRecorder implements Recorder {
     leases?: PageLeases,
   ) {
     this.leases = leases ?? new PageLeases(native)
+  }
+
+  /** The takes this recorder is recording now (never listed as kept on this computer). */
+  liveSessions(): string[] {
+    return this.live && this.sessionId ? [this.sessionId] : []
   }
 
   /** The ids on the Studio of the takes this recorder holds (never offered back as stopped: they are being sent). */

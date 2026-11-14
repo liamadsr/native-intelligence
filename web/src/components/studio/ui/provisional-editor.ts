@@ -1,7 +1,7 @@
 // The editor's side of a Mac take opened before it was filed (record/provisional.ts, record/filing.ts): pure steps
 // App.tsx takes, kept here so they are tested as they run.
 import type { EditorProject } from '@/lib/studio/engine/contracts'
-import { adoptFiled, type DraftStore, type ProvisionalRecord } from '../record/provisional'
+import { adoptFiled, withoutTranscripts, type DraftStore, type ProvisionalRecord } from '../record/provisional'
 import type { Settled } from '../record/filing'
 
 export type History = { past: EditorProject[]; current: EditorProject; future: EditorProject[]; group?: number | null }
@@ -93,24 +93,48 @@ export type AdoptDeps = {
   read: (projectId: string) => Promise<{ project: EditorProject; projectDigest: string }>
   save: (projectId: string, project: EditorProject, digest: string) => Promise<unknown>
   release: (projectId: string) => Promise<Settled>
+  /** Wait (with a limit) for the Mac's words to reach the Studio: true when nothing is left to wait for. */
+  waitWords?: () => Promise<boolean>
 }
 export type Adopted =
-  | { outcome: 'gone' | 'taken' | 'saved'; settled?: Settled }
+  | { outcome: 'gone' | 'already' }
+  | { outcome: 'taken' | 'saved'; settled?: Settled; wordsLater: boolean }
   | { outcome: 'conflict'; message: string; recovery: { project: EditorProject; digest: string; base: string } }
   | { outcome: 'network' | 'failed' | 'unreadable'; message: string }
 
+/** What the person is told when the words had not reached the Studio when the edit was carried on. */
+export const WORDS_LATER = 'The words the Mac heard are still on their way to the Studio: they appear in the video when they arrive (corrections made to them before then are not kept).'
+
+/**
+ * The editor carried a filed take on from the Studio's copies: the record says so (`adopted`) with the digest of the
+ * Studio's edit it was carried on from, before the editor goes on. A later launch then never saves the old draft over
+ * the video (adoptKept refuses). Throws when the record could not be written: the editor does not carry on then.
+ */
+export async function markEditorAdopted(records: AdoptDeps['records'], projectId: string, digest: string): Promise<void> {
+  const kept = await records.update(projectId, (r) => ({ ...r, state: 'adopted', studioDigest: r.studioDigest ?? digest }))
+  if (!kept || kept.state !== 'adopted') throw new Error('this computer could not note that the recording is filed')
+}
+
 /**
  * A filed take whose draft is not open: not edited, the Studio's edit is taken as it is; edited, the draft moved onto
- * the Studio's copies is saved over it with its digest. Only once that is done is the record marked `adopted` and the
- * files let go (when the Studio holds every byte of them). A save refused because the video changed elsewhere, or one
- * that never reached the Studio, keeps the record and the take: the edit is offered back, or tried again.
+ * the Studio's copies is saved over it with its digest, only over the edit the Studio first filed (never over a video
+ * changed since, nor when the editor already carried it on: `already`). The words still on their way are waited for
+ * first; past the wait the edit goes on without the transcript made here (the words follow). Only once that is done is
+ * the record marked `adopted` and the files let go (when the Studio holds every byte of them). A save refused because
+ * the video changed elsewhere, or one that never reached the Studio, keeps the record and the take: the edit is
+ * offered back, or tried again.
  */
 export async function adoptKept(deps: AdoptDeps, projectId: string): Promise<Adopted> {
-  const record = await deps.store.get(projectId).catch(() => null)
+  let record = await deps.store.get(projectId).catch(() => null)
   if (!record) return { outcome: 'gone' }
+  if (record.state === 'adopted') return { outcome: 'already' }
+  if (deps.waitWords) {
+    await deps.waitWords()
+    record = (await deps.store.get(projectId).catch(() => null)) ?? record
+  }
   let server: { project: EditorProject; projectDigest: string }
   try {
-    server = await deps.read(projectId)
+    server = await deps.read(record.filedAs ?? projectId)
   } catch (error) {
     return { outcome: 'unreadable', message: `The recording is filed, but its video could not be read yet (${text(error)}). Your edits are kept on this computer.` }
   }
@@ -122,22 +146,27 @@ export async function adoptKept(deps: AdoptDeps, projectId: string): Promise<Ado
     await deps.records.update(projectId, (r) => ({ ...r, failed: message })).catch(() => undefined)
     return { outcome: 'failed', message }
   }
+  const wordsLater = adopted.unregistered.length > 0
+  const project = withoutTranscripts(adopted.project, adopted.unregistered)
   if (adopted.edited) {
-    // Saved over the Studio's edit only as the Studio first filed it: a video changed since (another device, between two
-    // tries) is never written over; the edit is offered back instead.
-    const conflict = { outcome: 'conflict' as const, message: 'This video changed somewhere else while the recording was being filed. Your edits are kept on this computer.', recovery: { project: adopted.project, digest: server.projectDigest, base: JSON.stringify(server.project) } }
+    const conflict = { outcome: 'conflict' as const, message: 'This video changed somewhere else while the recording was being filed. Your edits are kept on this computer.', recovery: { project, digest: server.projectDigest, base: JSON.stringify(server.project) } }
     if (record.studioDigest && record.studioDigest !== server.projectDigest) return conflict
-    if (!record.studioDigest) await deps.records.update(projectId, (r) => ({ ...r, studioDigest: server.projectDigest })).catch(() => undefined)
+    if (!record.studioDigest) {
+      const noted = await deps.records.update(projectId, (r) => ({ ...r, studioDigest: server.projectDigest })).catch(() => null)
+      if (!noted?.studioDigest) return { outcome: 'failed', message: 'The recording is filed, but this computer could not note it, so your edits were not saved onto it yet. They are kept on this computer.' }
+    }
     try {
-      await deps.save(projectId, adopted.project, server.projectDigest)
+      await deps.save(server.project.id, project, server.projectDigest)
     } catch (error) {
       const kind = saveRefusal(error)
       if (kind === 'conflict') return conflict
       return { outcome: kind === 'network' ? 'network' : 'failed', message: kind === 'network' ? 'The recording is filed, but the Studio could not be reached to save your edits onto it. They are kept on this computer.' : `The recording is filed, but your edits could not be saved onto it (${text(error)}). They are kept on this computer.` }
     }
   }
-  await deps.records.update(projectId, (r) => ({ ...r, state: 'adopted' })).catch(() => undefined)
-  return { outcome: adopted.edited ? 'saved' : 'taken', settled: await deps.release(projectId) }
+  const marked = await deps.records.update(projectId, (r) => ({ ...r, state: 'adopted' })).catch(() => null)
+  // Not noted: the files stay (a later launch finds the video changed since its first read, and never saves again).
+  if (marked?.state !== 'adopted') return { outcome: adopted.edited ? 'saved' : 'taken', wordsLater }
+  return { outcome: adopted.edited ? 'saved' : 'taken', settled: await deps.release(projectId), wordsLater }
 }
 
 const text = (error: unknown) => (error instanceof Error ? error.message : String(error)).replace(/\.$/, '')

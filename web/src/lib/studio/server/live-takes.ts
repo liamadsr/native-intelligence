@@ -35,7 +35,7 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { blobObject, type BlobRead, type LivePieces } from './job-contract'
-import { PENDING, READ_LINK_SECONDS, storageOf, workspaceByteLimit, workspaceBytes, type PendingWrite } from './blobs'
+import { ownPendingUpload, PENDING, READ_LINK_SECONDS, storageOf, workspaceByteLimit, workspaceBytes, type PendingWrite } from './blobs'
 import { isUuid, must, type StudioContext } from './context'
 import { conflictError, notFoundError, StudioError } from './errors'
 import { allowedType, typeForName } from './media-types'
@@ -777,7 +777,8 @@ export async function bindWholeUpload(ctx: StudioContext, takeId: string, body: 
   if (!take.tracks[input.role]) throw new StudioError('That track is not part of this recording.')
   if (take.whole?.[input.role] === input.uploadKey) return { ok: true }
   if (take.status !== 'recording') throw conflictError('This recording was brought back already.', 'TAKE_CLOSED')
-  if (!(await getRecord(ctx, PENDING, input.uploadKey))) throw new StudioError('Upload the file first.')
+  // Only the person's own upload, not used yet.
+  if (!(await ownPendingUpload(ctx, input.uploadKey))) throw new StudioError('Upload the file first.')
   if (!(await moveTake(ctx, take, { ...take, whole: { ...take.whole, [input.role]: input.uploadKey } }))) throw conflictError('This recording changed meanwhile. Try again.', 'BUSY')
   return { ok: true }
 }

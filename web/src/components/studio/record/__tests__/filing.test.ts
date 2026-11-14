@@ -34,14 +34,19 @@ function studio() {
   let uploads = 0
   const behave = {
     /** What the next POST /recordings does: made whole, made without the microphone (its bytes differed), or refused. */
-    next: [] as ('whole' | 'mic-differs' | 'mic-fails' | 'screen-differs')[],
+    next: [] as ('whole' | 'mic-differs' | 'mic-fails' | 'screen-differs' | 'fails' | 'elsewhere')[],
+    /** How many POST /words fail first (the Studio busy making it, no connection). */
+    wordsFail: 0,
+    /** POST /recover answers with no code this many times (a Studio that keeps erroring). */
+    recoverErrors: 0,
     /** A track sent again imports (true) or fails again. */
     attachWorks: true,
     /** What GET /recordings/:id answers before it is made (rounds of `processing`). */
     processingRounds: 0,
   }
   const made = (id: string, kind: string, input: Record<string, unknown>): RecordingView => {
-    const base = { id, status: 'done' as const, progress: 1, step: 'Done', projectId: input.projectId as string }
+    const base = { id, status: 'done' as const, progress: 1, step: 'Done', projectId: kind === 'elsewhere' ? '9e9e9e9e-1111-4222-8333-444444444444' : (input.projectId as string) }
+    if (kind === 'fails') return { ...base, status: 'failed', error: 'The screen recording could not be imported.' } as RecordingView
     if (kind === 'mic-differs') return { ...base, lost: [{ role: 'microphone', reason: BYTES_DIFFER }], received: { screen: { sha256: hex('a'), bytes: 5_000 } }, note: `The microphone could not be added to this take: ${BYTES_DIFFER}.` }
     if (kind === 'mic-fails') return { ...base, lost: [{ role: 'microphone', reason: 'The file could not be read' }], received: { screen: { sha256: hex('a'), bytes: 5_000 } }, note: 'The microphone could not be added to this take: The file could not be read.' }
     return { ...base, received: { screen: { sha256: hex('a'), bytes: 5_000 }, microphone: { sha256: hex('c'), bytes: 1_600 } } }
@@ -79,12 +84,14 @@ function studio() {
         return { recording: recordings.get(id)! } as T
       }
       if (url.endsWith('/words')) {
+        if (behave.wordsFail > 0) { behave.wordsFail--; throw Object.assign(new Error('The recording is being put together. Try again in a moment.'), { code: 'BUSY' }) }
         const id = /recordings\/([^/]+)\/words/.exec(url)![1]!
         const r = recordings.get(id)!
         if (!r.input?.transcript) r.input = { ...r.input, transcript: b }
         return { recording: r } as T
       }
       if (url.endsWith('/recover')) {
+        if (behave.recoverErrors > 0) { behave.recoverErrors--; throw new Error('Something went wrong on the Studio.') }
         const id = `r-${recordings.size + 1}`
         recordings.set(id, { ...made(id, behave.next.shift() ?? 'whole', b), input: b })
         return { recording: recordings.get(id)! } as T
@@ -123,8 +130,10 @@ function setup(s = studio(), m = mac(), store = memoryDraftStore(), holder = 'pa
   const filed: string[] = []
   const uploaded: { session: string; whole: boolean }[] = []
   const order: string[] = []
+  const leases = new PageLeases(m.native, holder, 1e9)
+  const kept: string[] = []
   const filer = new Filer({
-    store, api: s.api, native: m.native, leases: new PageLeases(m.native, holder, 1e9), sleep: none, alive: () => true,
+    store, api: s.api, native: m.native, leases, sleep: none, alive: () => true, onKept: (_id, note) => kept.push(note),
     uploadTake: async (take, whole) => {
       uploaded.push({ session: take.sessionId, whole })
       if (whole) for (const f of take.files) await m.native.upload(take.sessionId, f.role)
@@ -134,7 +143,7 @@ function setup(s = studio(), m = mac(), store = memoryDraftStore(), holder = 'pa
     onState: (projectId, state) => { states[projectId] = state },
     onFiled: (projectId) => filed.push(projectId),
   })
-  return { filer, s, m, store, states, filed, uploaded, order }
+  return { filer, s, m, store, states, filed, uploaded, order, leases, kept }
 }
 
 async function draftRecord(store: ReturnType<typeof memoryDraftStore>, sessionId: string, projectId: string, extra: Partial<ProvisionalRecord> = {}) {
@@ -266,8 +275,9 @@ describe('each take is filed on its own', () => {
 describe('words that come after Stop', () => {
   const words = [{ text: 'Hello', startMs: 500, endMs: 900 }, { text: 'there', startMs: 1000, endMs: 1400 }]
   it('before the recording is handed over: they go with it, and into the record (base and draft)', async () => {
-    const { filer, s, store } = setup()
+    const { filer, s, store, leases } = setup()
     await draftRecord(store, SESSION, PROJECT)
+    await leases.hold(SESSION) // the page that recorded it holds it from Start
     await filer.heardRaw(SESSION, { words })
     const record = (await store.get(PROJECT))!
     expect(record.base.transcripts[0]!.words.map((w) => w.text)).toEqual(['Hello', 'there'])
@@ -297,5 +307,117 @@ describe('settling never waits when asked for one look', () => {
     expect((await settleRecording({ api: s.api, native: m.native, sleep }, 'r-1', SESSION, { rounds: 1 })).safe).toBe(false)
     expect(sleep).not.toHaveBeenCalled()
     expect(m.folders.has(SESSION)).toBe(true)
+  })
+})
+
+describe('the second review', () => {
+  const words = [{ text: 'Hello', startMs: 500, endMs: 900 }, { text: 'there', startMs: 1000, endMs: 1400 }]
+
+  it('after a restart, Try again on a recording that failed brings the take back again (never follows the failed one)', async () => {
+    const { filer, s, store, states, filed } = setup()
+    s.behave.next = ['fails']
+    await draftRecord(store, SESSION, PROJECT, { takeId: 'take-1' })
+    await filer.resume((await store.get(PROJECT))!)
+    for (let i = 0; i < 20; i++) await tick()
+    expect(states[PROJECT]?.failed).toMatch(/could not be filed: The screen recording could not be imported/)
+    expect((await store.get(PROJECT))!.recordingId).toBeNull()
+    // A restart: a new page, the record as kept.
+    const again = setup(s, mac(), store)
+    s.behave.next = ['whole']
+    await again.filer.resume((await store.get(PROJECT))!)
+    await again.filer.refile(PROJECT)
+    expect(s.log.filter((l) => l.endsWith('/recover'))).toHaveLength(2)
+    expect(again.filed).toEqual([PROJECT])
+    expect(filed).toEqual([])
+  })
+
+  it('Try again on a recording still being made follows it, never uploads the take again (no "video taken")', async () => {
+    const { filer, s, store, uploaded, filed } = setup()
+    await draftRecord(store, SESSION, PROJECT)
+    await s.api.post('/x/recordings?wait=1', { projectId: PROJECT })
+    await store.put({ ...(await store.get(PROJECT))!, recordingId: 'r-1', state: 'failed', failed: 'gave up following' })
+    await filer.refile(PROJECT)
+    expect(uploaded).toEqual([])
+    expect(filed).toEqual([PROJECT])
+  })
+
+  it('bringing a take back ends, plainly, when the Studio keeps erroring (no code), with Try again', async () => {
+    const { filer, s, store, states } = setup()
+    s.behave.recoverErrors = 1_000
+    await draftRecord(store, SESSION, PROJECT, { takeId: 'take-1' })
+    await filer.resume((await store.get(PROJECT))!)
+    for (let i = 0; i < 20; i++) await tick()
+    expect(states[PROJECT]?.failed).toMatch(/Something went wrong on the Studio/)
+    expect(s.log.filter((l) => l.endsWith('/recover')).length).toBeLessThan(5)
+  })
+
+  it('words the Studio could not take yet (busy, no connection) are sent again until they are, and again after a restart', async () => {
+    const { filer, s, store, leases } = setup()
+    s.behave.wordsFail = 3
+    await draftRecord(store, SESSION, PROJECT)
+    await leases.hold(SESSION)
+    await filer.start(takeOf(SESSION), PROJECT, 't')
+    await filer.heardRaw(SESSION, { words })
+    for (let i = 0; i < 30; i++) await tick()
+    expect(s.log.filter((l) => l.endsWith('/words'))).toHaveLength(4)
+    expect((await store.get(PROJECT))!.wordsSent).toBe(true)
+    // A record whose words never reached the Studio (the page closed first): its next page sends them, whatever its state.
+    await store.put({ ...(await store.get(PROJECT))!, wordsSent: false, state: 'adopted' })
+    const next = setup(s, mac(), store, 'page-b')
+    await next.filer.resume((await store.get(PROJECT))!)
+    for (let i = 0; i < 30; i++) await tick()
+    expect(s.log.filter((l) => l.endsWith('/words'))).toHaveLength(5)
+  })
+
+  it('words that come between Stop and the record being kept reach the record and the editor, not only the request', async () => {
+    const { filer, store, leases } = setup()
+    const take = takeOf(SESSION)
+    await leases.hold(SESSION)
+    await filer.heardRaw(SESSION, { words }, 0) // no record yet
+    await draftRecord(store, SESSION, PROJECT)
+    await filer.start(take, PROJECT, 't')
+    const record = (await store.get(PROJECT))!
+    expect(record.heard?.map((w) => w.text)).toEqual(['Hello', 'there'])
+    expect(record.draft.transcripts[0]!.words.map((w) => w.text)).toEqual(['Hello', 'there'])
+  })
+
+  it('a window that does not hold the take never writes its draft nor sends its words', async () => {
+    const m = mac()
+    const store = memoryDraftStore()
+    const a = setup(studio(), m, store, 'page-a')
+    const b = setup(a.s, m, store, 'page-b')
+    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1' })
+    await a.leases.hold(SESSION)
+    await b.filer.heardRaw(SESSION, { words })
+    expect((await store.get(PROJECT))!.heard).toBeUndefined()
+    expect(a.s.log.filter((l) => l.endsWith('/words'))).toEqual([])
+  })
+
+  it('waits for the words before the edit is carried on, at most as long as asked', async () => {
+    const { filer, store } = setup()
+    await draftRecord(store, SESSION, PROJECT)
+    expect(await filer.wordsSettled(PROJECT, 3_000)).toBe(false) // still being read on the Mac, never came
+    await store.put({ ...(await store.get(PROJECT))!, heard: words, wordsSent: true })
+    expect(await filer.wordsSettled(PROJECT, 3_000)).toBe(true)
+  })
+
+  it('a take brought back elsewhere first: the recording names another video, and it is adopted under that one', async () => {
+    const { filer, s, store, filed } = setup()
+    s.behave.next = ['elsewhere']
+    await draftRecord(store, SESSION, PROJECT)
+    await filer.start(takeOf(SESSION), PROJECT, 't')
+    expect(filed).toEqual([PROJECT])
+    expect((await store.get(PROJECT))!.filedAs).toBe('9e9e9e9e-1111-4222-8333-444444444444')
+  })
+
+  it('files kept when a resumed adopted take is let go of: the note is said, never thrown away', async () => {
+    const { filer, s, store, kept } = setup()
+    s.behave.next = ['mic-fails']
+    s.behave.attachWorks = false
+    await s.api.post('/x/recordings?wait=1', {})
+    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1', state: 'adopted' })
+    await filer.resume((await store.get(PROJECT))!)
+    for (let i = 0; i < 50; i++) await tick()
+    expect(kept[0]).toMatch(/microphone/)
   })
 })

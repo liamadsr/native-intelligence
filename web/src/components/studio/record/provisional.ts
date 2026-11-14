@@ -232,15 +232,21 @@ export function swapAssets(project: EditorProject, filed: Filed[], options: { tr
   // A transcript made here becomes the one the Studio registered for the same voice. Its words are matched by text and
   // time (within WORD_MATCH_MS), not by position: the two can differ by a word at either end (the recorder's and the
   // Studio's lengths of the file clip the words a little differently), and a correction stays on its word.
+  // The Studio has no transcript of that voice yet (its words are still on their way): the one made here stays, on the
+  // Studio's voice (`kept`: the Studio refuses to save it until it registered the words, adoptFiled says so).
   const wordMap = new Map<string, string>()
   next.transcripts = next.transcripts.flatMap((t) => {
     const made = filed.find((f) => f.final.id === t.assetId && t.id === transcriptIdOf(f.provisional.sha256))
     if (!made) return missing.has(t.assetId) ? [] : [t]
     const studio = options.transcripts?.find((x) => x.assetId === t.assetId)
-    if (!studio) return []
+    if (!studio) return [t]
     for (const [from, to] of matchWords(t.words, studio.words)) wordMap.set(from, to)
     return [studio]
   })
+  // A transcript the Studio has of a track the draft has none for (the draft opened before the words came): kept too.
+  for (const studio of options.transcripts ?? []) {
+    if (filed.some((f) => f.final.id === studio.assetId) && !next.transcripts.some((t) => t.assetId === studio.assetId)) next.transcripts.push(studio)
+  }
   const words = new Set(next.transcripts.flatMap((t) => t.words.map((w) => w.id)))
   next.captionCorrections = Object.fromEntries(Object.entries(next.captionCorrections).flatMap(([word, text]) => {
     const to = wordMap.get(word) ?? word
@@ -289,13 +295,23 @@ export function swapAssets(project: EditorProject, filed: Filed[], options: { tr
  * computer (`local`: the Studio's file name → the computer's href) and the provisional names to forget. Pure; throws
  * as swapAssets.
  */
-export function adoptFiled(record: Pick<ProvisionalRecord, 'assets' | 'base'>, draft: EditorProject, server: EditorProject, hrefs: Record<string, string> = {}): { project: EditorProject; edited: boolean; local: Record<string, string>; forget: string[]; missing: EditorAsset[] } {
+export function adoptFiled(record: Pick<ProvisionalRecord, 'assets' | 'base'>, draft: EditorProject, server: EditorProject, hrefs: Record<string, string> = {}): { project: EditorProject; edited: boolean; local: Record<string, string>; forget: string[]; missing: EditorAsset[]; unregistered: string[] } {
   const { filed, missing } = filedAssets(record.assets, server)
   const edited = JSON.stringify(draft) !== JSON.stringify(record.base)
-  const project = edited ? swapAssets(draft, filed, { transcripts: server.transcripts, missing }) : server
+  // Under the Studio's id: the take may have been made into another video than the draft's (brought back elsewhere).
+  const project = edited ? { ...swapAssets(draft, filed, { transcripts: server.transcripts, missing }), id: server.id } : server
+  // Transcripts made here that the Studio has not registered (its words still on their way): saving waits for them.
+  const unregistered = project.transcripts.filter((t) => !server.transcripts.some((x) => x.id === t.id)).map((t) => t.id)
   const local: Record<string, string> = {}
   for (const f of filed) if (f.kept && hrefs[f.provisional.file]) local[f.final.file] = hrefs[f.provisional.file]!
-  return { project, edited, local, forget: record.assets.map((a) => a.file), missing }
+  return { project, edited, local, forget: record.assets.map((a) => a.file), missing, unregistered }
+}
+
+/** `project` without the transcripts `ids` (and the corrections on their words): what the Studio takes as it is. */
+export function withoutTranscripts(project: EditorProject, ids: string[]): EditorProject {
+  if (!ids.length) return project
+  const gone = new Set(project.transcripts.filter((t) => ids.includes(t.id)).flatMap((t) => t.words.map((w) => w.id)))
+  return EditorProjectSchema.parse({ ...project, transcripts: project.transcripts.filter((t) => !ids.includes(t.id)), captionCorrections: Object.fromEntries(Object.entries(project.captionCorrections).filter(([word]) => !gone.has(word))) })
 }
 
 // ---- kept on this computer until filed ------------------------------------------------------------------------------
@@ -332,6 +348,8 @@ export type ProvisionalRecord = {
   heard?: TakeWord[]
   /** The words the Mac heard reached the Studio. */
   wordsSent?: boolean
+  /** The video the Studio made the take into, when not the draft's own (it was brought back elsewhere first). */
+  filedAs?: string
   /** The Studio's edit as first read once filed (its digest): the draft is saved over that one only. */
   studioDigest?: string
   /** The take as the recorder handed it over (what files it whole when it never reached the Studio). */

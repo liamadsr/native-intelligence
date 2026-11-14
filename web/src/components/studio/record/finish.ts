@@ -116,10 +116,11 @@ export async function submitTake(body: ReturnType<typeof recordingRequest> & { p
  * Make a take that stopped before it was finished into a new video, from the pieces that reached the Studio, and
  * follow it as submitTake does.
  */
-export async function recoverSavedTake(id: string, onProgress: (view: RecordingView) => void, isAlive: () => boolean = () => true, projectId?: string): Promise<RecordingAnswer> {
+export async function recoverSavedTake(id: string, onProgress: (view: RecordingView) => void, isAlive: () => boolean = () => true, projectId?: string, sha256?: Record<string, string>): Promise<RecordingAnswer> {
   // A track the Mac app sent whole after the Studio stopped taking its pieces is bound to the take on the Studio
-  // (POST /live-takes/:id/whole, desktop.ts sendAll): the Studio uses it in place of its pieces.
-  return follow(await request<RecordingAnswer>(`${STUDIO_API}/live-takes/${encodeURIComponent(id)}/recover?wait=1`, { ...(projectId ? { projectId } : {}) }), onProgress, isAlive)
+  // (POST /live-takes/:id/whole, desktop.ts sendAll): the Studio uses it in place of its pieces. `sha256`: the Mac's
+  // hash of each file on this computer: a track the Studio holds less of is then lost, and sent again whole.
+  return follow(await request<RecordingAnswer>(`${STUDIO_API}/live-takes/${encodeURIComponent(id)}/recover?wait=1`, { ...(projectId ? { projectId } : {}), ...(sha256 && Object.keys(sha256).length ? { sha256 } : {}) }), onProgress, isAlive)
 }
 
 /** The person's recordings of the last day, newest first; those still being prepared say how far along they are. */

@@ -381,9 +381,14 @@ describe('a Mac take uploaded while it records', () => {
     recorder.dispose()
     await record(m, time, 12, 16, false)
 
+    // The first launch's bind never reaches the Studio: nothing is noted, and the next launch sends it again.
+    const failingBind: LiveApi = { ...studioApi(), post: (path, body) => (path.endsWith('/whole') ? Promise.reject(new TypeError('Failed to fetch')) : studioApi().post(path, body)) }
+    await new DesktopRecorder(m.bridge, failingBind, clock()).sendUnfinished()
+    expect((await liveTakeState(env.ctx, takeId)).take.whole).toEqual([])
+    expect(localStorage.getItem(`ni-studio-whole:${takeId}`)).toBeNull()
     const next = new DesktopRecorder(m.bridge, studioApi(), clock())
     expect(await next.sendUnfinished()).toBe(1)
-    expect(m.calls).toContain('whole microphone')
+    expect(m.calls.filter((c) => c === 'whole microphone')).toHaveLength(2)
     const later = Date.now() + QUIET_MS + 1000
     // Bound to the take on the Studio itself (POST /live-takes/:id/whole): whoever brings it back gets the whole track.
     expect((await liveTakeState(env.ctx, takeId)).take.whole).toEqual(['microphone'])

@@ -405,6 +405,8 @@ final class AudioFileWriter: @unchecked Sendable {
     var failure: String?
     /// Called once the file exists, with the host seconds of its time 0 as it plays.
     var onOpen: ((SegmentFile, Double) -> Void)?
+    /// Whether the encoder takes `piece` now, besides its own readiness (tests stand in for a busy encoder here).
+    var takes: (CMSampleBuffer) -> Bool = { _ in true }
     init(role: String, path: String, channels: Int, gate: CaptureGate) {
         self.role = role; self.path = path; self.channels = channels; self.gate = gate
     }
@@ -430,7 +432,9 @@ final class AudioFileWriter: @unchecked Sendable {
         if let expected {
             let jump = seconds - expected
             if jump >= max(0.5 * duration, 0.010) && jump <= silenceFillMaxSeconds {
-                // Missing sound: silence of the same length, in pieces of at most a second, all or nothing.
+                // Missing sound: silence of the same length, in pieces of at most a second. Each piece that goes in moves
+                // `expected` on by its length: should the encoder stop taking them partway, the next buffer fills only
+                // what is still missing (never the whole gap again).
                 var left = jump, quiet: [CMSampleBuffer] = []
                 var at = writtenSeconds
                 while left > 0.5 / pcm.rate {
@@ -440,15 +444,16 @@ final class AudioFileWriter: @unchecked Sendable {
                     at += Double(frames) / pcm.rate; left -= Double(frames) / pcm.rate
                 }
                 for piece in quiet {
-                    guard input.isReadyForMoreMediaData, input.append(piece) else { drops += 1; return false }
+                    guard input.isReadyForMoreMediaData, takes(piece), input.append(piece) else { drops += 1; return false }
                     let added = Double(CMSampleBufferGetNumSamples(piece)) / pcm.rate
                     writtenSeconds += added; filledSeconds += added
+                    self.expected = (self.expected ?? seconds) + added
                 }
                 // The file has reached this buffer's start: should it not go in now, it is not filled for twice.
                 self.expected = seconds
             }
         }
-        guard input.isReadyForMoreMediaData, let onFile = shifted(sample, by: writtenSeconds - stamp), input.append(onFile) else {
+        guard input.isReadyForMoreMediaData, takes(sample), let onFile = shifted(sample, by: writtenSeconds - stamp), input.append(onFile) else {
             // Its place is filled with silence by the next buffer.
             drops += 1; return false
         }

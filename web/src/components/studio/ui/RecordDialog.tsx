@@ -1,3 +1,4 @@
+import { sizeWords, type LocalTakeRow } from '../record/local-takes';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -248,6 +249,23 @@ function SavedTakeBanner({ take, recording: rec }: { take: { id: string; created
   </div>;
 }
 
+/**
+ * A take kept on this computer that is not settled (record/local-takes.ts): its size, what is wrong in plain words,
+ * Try again and Discard (for good, so it asks once more first).
+ */
+export function LocalTakeBanner({ row, retry, discard, busy }: { row: LocalTakeRow; retry: (row: LocalTakeRow) => void; discard: (sessionId: string) => void; busy?: boolean }) {
+  const [confirming, setConfirming] = useState(false);
+  return <div className="rd-banner rd-banner-warn rd-banner-recover" role="group" aria-label="A recording kept on this computer">
+    <Icon name="warning" />
+    {confirming
+      ? <div><strong>Discard this recording for good?</strong><span>Its {sizeWords(row.bytes)} on this computer are deleted. This cannot be undone.</span></div>
+      : <div><strong>A recording{row.at ? ` from ${takeTime(row.at)}` : ''} is kept on this computer ({sizeWords(row.bytes)})</strong><span>{row.problem}</span></div>}
+    <div className="rd-banner-buttons">{confirming
+      ? <><Button size="sm" variant="ghost" className="st-app-button" onClick={() => setConfirming(false)}>Keep it</Button><Button size="sm" variant="destructive" className="st-app-button" disabled={busy} onClick={() => discard(row.sessionId)}>Discard for good</Button></>
+      : <><Button size="sm" variant="ghost" className="st-app-button" disabled={busy} onClick={() => setConfirming(true)}>Discard…</Button>{row.action.kind !== 'none' ? <Button size="sm" className="st-app-button" disabled={busy} onClick={() => retry(row)}>Try again</Button> : null}</>}</div>
+  </div>;
+}
+
 /** Recordings the Studio is still making into videos (this tab's, an earlier tab's, before a reload), and their progress. */
 function PreparingElsewhere({ open }: { open: (session: RecordingSession) => void }) {
   const [items, setItems] = useState<RecordingView[]>([]), seen = useRef(new Set<string>());
@@ -325,6 +343,7 @@ function Setup(props: Props) {
 
   return <div className="rd-setup">
     {(rec.savedTakes ?? []).map(take => <SavedTakeBanner key={take.id} take={take} recording={rec} />)}
+    {(rec.localTakes ?? []).map(row => <LocalTakeBanner key={row.sessionId} row={row} retry={row => void rec.retryLocal(row)} discard={id => void rec.discardLocal(id)} busy={rec.working} />)}
     <PreparingElsewhere open={props.open} />
     {props.punch ? <div className="rd-banner rd-banner-punch" role="status"><span className="rd-banner-dot" aria-hidden="true" /><div><strong>{props.punch.beatIds?.length ? 'Recording into beats' : 'Punch in'}</strong><span>{props.punch.label}</span></div></div> : null}
     {session && terminal(session) && session.status !== 'cancelled' && (!props.punch || session.punch) ? <div className={cn('rd-banner', session.status === 'completed' ? 'rd-banner-ok' : 'rd-banner-warn')} role="status">

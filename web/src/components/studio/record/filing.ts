@@ -222,7 +222,20 @@ export type FilerDeps = {
   onFiled: (projectId: string, recordingId: string) => void
   /** Words that arrived after the draft opened, for the editor (its draft and history take them too). */
   onWords?: (projectId: string, words: TakeWord[]) => void
+  /** A take's files were kept when they were to go (the Studio does not hold every byte): why, in plain words. */
+  onKept?: (projectId: string, note: string) => void
 }
+
+/** The waits between tries at sending the words, then a minute at a time until they are sent. */
+const WORD_RETRIES_MS = [2_000, 5_000, 10_000, 30_000, 60_000]
+/** How long a take is brought back for (its last pieces still arriving, no connection) before it says it could not be. */
+const BRING_BACK_ROUNDS = 40
+
+/** A failure that is only the connection (tried again), as against the Studio's answer. */
+const onlyTheConnection = (cause: unknown) => cause instanceof TypeError || (cause as { code?: unknown } | null)?.code === 'NETWORK'
+
+/** The recording the Studio made from the take failed: the take is made again from a fresh copy (never followed again). */
+class RecordingFailed extends Error {}
 
 /** The words sent with a recording (as its build reads them). */
 const wordsBody = (words: TakeWord[]) => ({ words: words.slice(0, 40_000).map((w) => ({ text: w.text, startMs: w.startMs, endMs: w.endMs })) })
@@ -232,6 +245,7 @@ export class Filer {
   private takes = new Map<string, { take: FinishedTake; title: string }>()
   private running = new Set<string>()
   private words = new Map<string, TakeWord[]>()
+  private sendingWords = new Set<string>()
   readonly records: ReturnType<typeof recordKeeper>
   constructor(private readonly deps: FilerDeps) {
     this.records = recordKeeper(deps.store)
@@ -247,6 +261,9 @@ export class Filer {
   async start(take: FinishedTake, projectId: string, title: string): Promise<void> {
     this.takes.set(projectId, { take, title })
     await this.deps.leases.hold(take.sessionId)
+    // Words that came between Stop and the record being kept: into it now (they reached only memory until then).
+    const early = this.words.get(take.sessionId)
+    if (early?.length) await this.heard(take.sessionId, early)
     await this.file(projectId, false)
   }
 
@@ -276,19 +293,25 @@ export class Filer {
   /** Follow a handed-over recording until made (or failed). */
   private async follow(projectId: string, recordingId: string, first?: RecordingAnswer, wordsSent?: boolean): Promise<void> {
     await this.records.update(projectId, (r) => ({ ...r, recordingId, ...(wordsSent ? { wordsSent } : {}) })).catch(() => undefined)
-    await this.sendWords(projectId)
+    void this.ensureWords(projectId)
     let answer = first
     let failures = 0
     while (this.deps.alive()) {
       if (answer) {
         const view = answer.recording
         if (view.status === 'done') {
-          await this.records.update(projectId, (r) => ({ ...r, state: 'filed', failed: undefined })).catch(() => undefined)
+          // Made into its draft's video, or (brought back elsewhere first) into another: adopted under the Studio's id.
+          const filedAs = view.projectId && view.projectId !== projectId ? view.projectId : undefined
+          await this.records.update(projectId, (r) => ({ ...r, state: 'filed', failed: undefined, ...(filedAs ? { filedAs } : {}) })).catch(() => undefined)
           this.deps.onState(projectId, null)
           this.deps.onFiled(projectId, recordingId)
           return
         }
-        if (view.status === 'failed') throw new Error(view.error ?? 'the Studio could not make it')
+        if (view.status === 'failed') {
+          // Never followed again: Try again makes it from a fresh copy (brought back, or uploaded whole).
+          await this.records.update(projectId, (r) => ({ ...r, recordingId: null })).catch(() => undefined)
+          throw new RecordingFailed(view.error ?? 'the Studio could not make it')
+        }
         this.deps.onState(projectId, { projectId, fraction: 0.85 + 0.15 * view.progress, step: 'Filing the recording' })
       }
       await this.deps.sleep(1500)
@@ -309,17 +332,18 @@ export class Filer {
    * that holds it (false).
    */
   async resume(record: ProvisionalRecord): Promise<boolean> {
+    if (!(await this.deps.leases.hold(record.sessionId))) return false
+    // Words not yet on the Studio go now, whatever the take's state.
+    void this.ensureWords(record.projectId)
     if (record.state === 'adopted') {
       // The edit is on the Studio: only the files are left, and they go once the Studio holds every byte of them.
-      if (await this.deps.leases.hold(record.sessionId)) void this.release(record.projectId)
+      void this.release(record.projectId).then((settled) => { if (!settled.safe && settled.note) this.deps.onKept?.(record.projectId, settled.note) })
       return true
     }
     if (record.state === 'filed') {
-      if (!(await this.deps.leases.hold(record.sessionId))) return false
       if (record.recordingId) this.deps.onFiled(record.projectId, record.recordingId)
       return true
     }
-    if (!(await this.deps.leases.hold(record.sessionId))) return false
     // Words that came while no page listened are kept beside the take.
     if (!record.heard?.length && typeof this.deps.native.words === 'function') {
       void Promise.resolve(this.deps.native.words(record.sessionId)).then((answer) => {
@@ -356,6 +380,7 @@ export class Filer {
           await this.file(projectId, true)
           return
         }
+        if (round >= BRING_BACK_ROUNDS) throw new Error('the Studio has not taken the rest of it yet. Check the connection, then try again')
         this.deps.onState(projectId, { projectId, fraction: 0.85, step: 'Sending the rest of the recording' })
         // Its last pieces first: a take brought back before they arrive would be made from less than was recorded.
         await this.deps.sendUnfinished().catch(() => 0)
@@ -366,8 +391,9 @@ export class Filer {
           await this.follow(projectId, answer.recording.id, answer)
           return
         } catch (cause) {
-          const code = (cause as { code?: string }).code
-          if (code !== 'STILL_RECORDING' && code !== undefined && code !== 'NETWORK' && round > 2) throw cause
+          // Still arriving from this computer, or no connection: tried again for a while. Anything else is said.
+          if (cause instanceof RecordingFailed) throw cause
+          if ((cause as { code?: string }).code !== 'STILL_RECORDING' && !onlyTheConnection(cause)) throw cause
         }
         await this.deps.sleep(15_000)
       }
@@ -383,17 +409,18 @@ export class Filer {
    * it refused); a take this run does not have is brought back as after a restart.
    */
   async refile(projectId: string): Promise<void> {
-    const record = await this.records.update(projectId, (r) => ({ ...r, state: 'filing', failed: undefined })).catch(() => null)
-    if (this.takes.has(projectId) && !record?.recordingId) return this.file(projectId, true)
-    if (record?.recordingId) {
-      // Handed over and failed: the Studio makes it again from a fresh copy only when this run still has the take.
-      const kept = this.takes.get(projectId)
-      if (kept) {
-        await this.records.update(projectId, (r) => ({ ...r, recordingId: null })).catch(() => undefined)
-        return this.file(projectId, true)
-      }
+    let record = await this.records.update(projectId, (r) => ({ ...r, state: 'filing', failed: undefined })).catch(() => null)
+    if (!record) return
+    if (record.recordingId) {
+      // Handed over: followed again while the Studio is still making it (or no answer now); made again from a fresh
+      // copy only when its recording failed.
+      const view = await this.deps.api.get<RecordingAnswer>(recordingUrl(record.recordingId)).then((a) => a.recording, () => null)
+      if (view?.status !== 'failed') return this.bringBack(projectId)
+      record = await this.records.update(projectId, (r) => ({ ...r, recordingId: null })).catch(() => null)
+      if (!record) return
     }
-    if (record) await this.bringBack(projectId)
+    if (this.takes.has(projectId)) return this.file(projectId, true)
+    await this.bringBack(projectId)
   }
 
   /** The app's words event (or its kept words.json): moved onto the screen's clock with the take's own shift. */
@@ -410,7 +437,8 @@ export class Filer {
 
   /** The Mac's words arrived (after Stop): into the record, to the editor, and to the Studio once it has the recording. */
   async heard(sessionId: string, words: TakeWord[], known?: ProvisionalRecord): Promise<void> {
-    if (!words.length) return
+    // Only the page that holds the take takes its words in (the event reaches every window): one writer of its draft.
+    if (!words.length || !this.deps.leases.holds(sessionId)) return
     this.words.set(sessionId, words)
     const record = known ?? (await this.deps.store.list().catch(() => [] as ProvisionalRecord[])).find((r) => r.sessionId === sessionId)
     if (!record) return
@@ -418,19 +446,47 @@ export class Filer {
       return { ...r, base: withWords(r.base, r.assets, r, words), draft: withWords(r.draft, r.assets, r, words), heard: words }
     }).catch(() => undefined)
     this.deps.onWords?.(record.projectId, words)
-    await this.sendWords(record.projectId)
+    void this.ensureWords(record.projectId)
   }
 
-  /** The words reach the Studio once: on the recording (made or not); never twice. */
-  private async sendWords(projectId: string): Promise<void> {
-    const record = await this.deps.store.get(projectId).catch(() => null)
-    const words = record ? (this.words.get(record.sessionId) ?? record.heard) : undefined
-    if (!record?.recordingId || record.wordsSent || !words?.length) return
+  /**
+   * The words reach the Studio once, on the recording (made or not): tried again (the Studio busy making it, no
+   * connection) until they are sent, while the page is open; again at the next resume otherwise.
+   */
+  async ensureWords(projectId: string): Promise<void> {
+    if (this.sendingWords.has(projectId)) return
+    this.sendingWords.add(projectId)
     try {
-      await this.deps.api.post(`${recordingUrl(record.recordingId)}/words`, wordsBody(words))
-      await this.records.update(projectId, (r) => ({ ...r, wordsSent: true }))
-    } catch {
-      // Tried again when the recording is next followed.
+      for (let attempt = 0; this.deps.alive(); attempt++) {
+        const record = await this.deps.store.get(projectId).catch(() => null)
+        const words = record ? (this.words.get(record.sessionId) ?? record.heard) : undefined
+        // Nothing to send, sent already, or not handed over yet (they go with the recording then).
+        if (!record?.recordingId || record.wordsSent || !words?.length) return
+        try {
+          await this.deps.api.post(`${recordingUrl(record.recordingId)}/words`, wordsBody(words))
+          await this.records.update(projectId, (r) => ({ ...r, wordsSent: true }))
+          return
+        } catch {
+          await this.deps.sleep(WORD_RETRIES_MS[Math.min(attempt, WORD_RETRIES_MS.length - 1)]!)
+        }
+      }
+    } finally {
+      this.sendingWords.delete(projectId)
+    }
+  }
+
+  /**
+   * Wait (at most `limitMs`) until the words the Mac is still reading have come and reached the Studio, so the edit
+   * carried on from the Studio's copies has them: true when nothing is left to wait for.
+   */
+  async wordsSettled(projectId: string, limitMs: number, every = 1000): Promise<boolean> {
+    for (let waited = 0; ; waited += every) {
+      const record = await this.deps.store.get(projectId).catch(() => null)
+      if (!record) return true
+      const waiting = record.heard?.length ? !record.wordsSent : !!record.take?.wordsPending && !record.wordsSent
+      if (!waiting) return true
+      if (waited >= limitMs || !this.deps.alive()) return false
+      await this.deps.sleep(every)
     }
   }
 

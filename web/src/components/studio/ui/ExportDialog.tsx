@@ -81,7 +81,7 @@ type Props = {
   busy: boolean;
   /**
    * The Mac app's take opened before the Studio filed it (record/provisional.ts): Export waits for it, says so with how
-   * far it is, and opens by itself once filed. `failed`: why it could not be filed (with Try again).
+   * far it is; Export can be started once filed. `failed`: why it could not be filed (with Try again).
    */
   filing?: { fraction: number; failed?: string } | null;
   retryFiling?: () => void;
@@ -352,7 +352,7 @@ function FilingNotice({ filing, retry }: { filing: { fraction: number; failed?: 
     ? <div className="xd-banner xd-banner-warn" role="alert"><Icon name="warning" /><div><strong>Export waits for the recording</strong><span>{filing.failed}</span>
         {retry ? <div className="xd-banner-actions"><Button size="sm" className="st-app-button" onClick={retry}>Try again</Button></div> : null}</div></div>
     : <div className="xd-banner" role="status"><Icon name="export" /><div><strong>Export is ready when the recording has finished uploading</strong>
-        <span>{percent}% there. You can keep editing: Export opens by itself.</span>
+        <span>{percent}% there. You can keep editing: Export can be started here once it has finished.</span>
         <div className="xd-filing-bar" role="progressbar" aria-label="Recording filed" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><span style={{ width: `${percent}%` }} /></div></div></div>;
 }
 

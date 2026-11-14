@@ -28,7 +28,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { TraceSchema, type EditorAsset, type EditorProject, type EditorTranscript } from '../engine/contracts'
 import { getAssets, importTimedTranscript } from './assets'
-import { commitBlob } from './blobs'
+import { commitBlob, ownPendingUpload } from './blobs'
 import { isUuid, must, type StudioContext } from './context'
 import { conflictError, notFoundError, StudioError } from './errors'
 import type { ImportInput } from './job-contract'
@@ -593,6 +593,19 @@ async function fallBack(ctx: StudioContext, record: RecordingRecord, role: Role,
   return loadRecord(ctx, record.id)
 }
 
+/**
+ * Write `next` over a recording only while it is still `before` (its `rev`, which every such write moves on): two
+ * writers never lose each other's change. False when it changed meanwhile.
+ */
+async function moveRecording(ctx: StudioContext, before: RecordingRecord, next: RecordingRecord): Promise<boolean> {
+  const value: RecordingRecord = { ...next, rev: (before.rev ?? 0) + 1 }
+  let query = ctx.supabase.from('studio_record').update({ value, updated_at: new Date().toISOString() })
+    .eq('workspace_id', ctx.workspaceId).eq('collection', COLLECTION).eq('key', before.id)
+  query = before.rev === undefined ? query.is('value->>rev', null) : query.eq('value->>rev', String(before.rev))
+  const moved = must(await query.select('key'), 'save the recording') as { key: string }[] | null
+  return !!moved?.length
+}
+
 /** What a recording by someone no longer in the workspace answers. */
 export const NOT_A_MEMBER = 'The person who recorded this is no longer a member of this workspace, so it was not made into a video.'
 
@@ -743,7 +756,8 @@ async function settleAttached(ctx: StudioContext, record: RecordingRecord): Prom
       ...(placed ? { received: { ...next.received, [role]: receivedOf(asset!) }, ...(role === 'microphone' && asset!.hasAudio ? { voiceAssetId: asset!.id } : {}) } : {}),
     }
   }
-  if (next !== record) await putRecord(ctx, COLLECTION, record.id, next)
+  // Written only over the record as it was read: another writer meanwhile wins, and its record is answered.
+  if (next !== record && !(await moveRecording(ctx, record, next))) return loadRecord(ctx, record.id)
   return next
 }
 
@@ -785,8 +799,10 @@ export async function attachTrack(ctx: StudioContext, id: string, body: unknown)
   if (record.status !== 'done') throw conflictError('The recording is not made yet. Try again in a moment.', 'NOT_DONE')
   if (record.attaching?.[input.role]) return advanceRecording(ctx, id, 0)
   if (!record.lost?.some((l) => l.role === input.role)) throw conflictError(`The ${roleWord(input.role)} is in the video already.`, 'NOT_LOST')
+  // Only the person's own upload, not used yet (never another person's file in the workspace).
+  if (!(await ownPendingUpload(ctx, input.uploadKey))) throw new StudioError('Upload the file first.')
   await commitBlob(ctx, input.uploadKey)
-  const { queueJob } = await jobsModule()
+  const { queueJob, cancelJob } = await jobsModule()
   const name = record.input[input.role]?.name ?? `${roleWord(input.role)}.${input.role === 'camera' ? 'mp4' : 'm4a'}`
   const row = await queueJob(ctx, 'import', {
     uploadKey: input.uploadKey, name, sourceCursorHidden: false,
@@ -794,7 +810,10 @@ export async function attachTrack(ctx: StudioContext, id: string, body: unknown)
     ...(input.role === 'camera' ? { conform: { fps: 30 } } : {}),
     ...(input.sha256 ? { expectSha256: input.sha256 } : {}),
   })
-  await putRecord(ctx, COLLECTION, id, { ...record, attaching: { ...record.attaching, [input.role]: { jobId: row.id, ...(input.sha256 ? { sha256: input.sha256 } : {}) } } })
+  if (!(await moveRecording(ctx, record, { ...record, attaching: { ...record.attaching, [input.role]: { jobId: row.id, ...(input.sha256 ? { sha256: input.sha256 } : {}) } } }))) {
+    await cancelJob(ctx, row.id).catch(() => undefined)
+    throw conflictError('The recording changed meanwhile. Try again in a moment.', 'BUSY')
+  }
   return advanceRecording(ctx, id, 0)
 }
 
@@ -815,7 +834,7 @@ export async function addRecordingWords(ctx: StudioContext, id: string, body: un
   if (record.status === 'importing') {
     // Only over the record as it was read, unclaimed: a build that took it meanwhile reads the words on the next try.
     const moved = must(
-      await ctx.supabase.from('studio_record').update({ value: { ...record, input }, updated_at: new Date().toISOString() })
+      await (record.rev === undefined ? ctx.supabase.from('studio_record').update({ value: { ...record, input, rev: 1 }, updated_at: new Date().toISOString() }).is('value->>rev', null) : ctx.supabase.from('studio_record').update({ value: { ...record, input, rev: record.rev + 1 }, updated_at: new Date().toISOString() }).eq('value->>rev', String(record.rev)))
         .eq('workspace_id', ctx.workspaceId).eq('collection', COLLECTION).eq('key', id).eq('value->>status', 'importing').is('value->>claim', null).select('key'),
       'save the recording',
     ) as { key: string }[] | null
@@ -846,7 +865,7 @@ export async function addRecordingWords(ctx: StudioContext, id: string, body: un
       }
     }
   }
-  await putRecord(ctx, COLLECTION, id, { ...record, input, ...(media ? { media: { ...media, ...(transcriptId ? { transcriptId } : {}) } } : {}) })
+  if (!(await moveRecording(ctx, record, { ...record, input, ...(media ? { media: { ...media, ...(transcriptId ? { transcriptId } : {}) } } : {}) }))) throw conflictError('The recording changed meanwhile. Try again in a moment.', 'BUSY')
   return advanceRecording(ctx, id, 0)
 }
 

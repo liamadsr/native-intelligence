@@ -6,6 +6,7 @@
 // what was left behind. Made-up people and bytes.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { commitBlob, createBlobWrite, readBlob, workerWriteFence } from '../blobs'
+import { StudioError } from '../errors'
 import { workerBlobRead } from '../http'
 import { claimJob, completeJob, failJob, queueJob } from '../jobs'
 import { bindWholeUpload, discardLiveTake, LINK_SAFE_MS, LINK_WRITE_MAX, livePiece, liveTakeState, retireLiveTake, SMALL_PIECES_MAX, unclaimLiveTake, type TakeRecord, MAX_RESENDS, PIECE_MAX_BYTES, PIECE_MIN_BYTES, QUIET_MS, recordingContainer, savedTakes, sealLiveTrack, startLiveTake, TAKES, TRACKS } from '../live-takes'
@@ -849,6 +850,9 @@ describe('a track that did not make it, sent again', () => {
     // Sent again from the computer, whole, under a new upload: imported, and placed in the video as its voice.
     await expect(attachTrack(env.ctx, recording.id, { role: 'camera', uploadKey: await upload(10) })).rejects.toMatchObject({ code: 'NOT_LOST' })
     await expect(attachTrack(as(BEN), recording.id, { role: 'microphone', uploadKey: await upload(10) })).rejects.toMatchObject({ status: 404 })
+    // Another person's upload in the workspace is never put into this recording.
+    const theirs = await createBlobWrite(as(BEN), { key: `uploads/${crypto.randomUUID()}`, bytes: 50, contentType: 'audio/mp4' })
+    await expect(attachTrack(env.ctx, recording.id, { role: 'microphone', uploadKey: theirs.key })).rejects.toThrow('Upload the file first.')
     const key = await upload(50)
     const sent = (await attachTrack(env.ctx, recording.id, { role: 'microphone', uploadKey: key, sha256: claimed })).recording
     expect(sent.attaching).toEqual(['microphone'])
@@ -891,11 +895,25 @@ describe('a track that did not make it, sent again', () => {
     const key = await upload(80)
     await expect(bindWholeUpload(env.ctx, take.id, { role: 'microphone', uploadKey: 'uploads/00000000-0000-4000-8000-000000000000' })).rejects.toThrow('Upload the file first.')
     await expect(bindWholeUpload(as(BEN), take.id, { role: 'microphone', uploadKey: key })).rejects.toMatchObject({ status: 404 })
+    // Another person's upload in the workspace is never bound to this take.
+    const theirs = await createBlobWrite(as(BEN), { key: `uploads/${crypto.randomUUID()}`, bytes: 80, contentType: 'audio/mp4' })
+    await expect(bindWholeUpload(env.ctx, take.id, { role: 'microphone', uploadKey: theirs.key })).rejects.toThrow('Upload the file first.')
     await bindWholeUpload(env.ctx, take.id, { role: 'microphone', uploadKey: key })
     expect((await liveTakeState(env.ctx, take.id)).take.whole).toEqual(['microphone'])
     await recoverTake(env.ctx, take.id, 0, later(), undefined, { screen: 'd'.repeat(64) })
     const inputs = env.tables.studio_job!.map((j) => j.input as { uploadKey: string; expectSha256?: string; provenance: { role: string } })
     expect(inputs.find((i) => i.provenance.role === 'microphone')!.uploadKey).toBe(key)
     expect(inputs.find((i) => i.provenance.role === 'screen')!.expectSha256).toBe('d'.repeat(64))
+  })
+})
+
+describe('a take the engine cannot build', () => {
+  it('is answered as the Studio’s own 400, in plain words', async () => {
+    const { buildTakeProject } = await import('../recordings')
+    const audio = { id: 'a'.repeat(64), name: 'Microphone.m4a', kind: 'audio', file: `assets/${'a'.repeat(64)}.m4a`, sha256: 'a'.repeat(64), bytes: 100, durationSeconds: 10, hasAudio: true, sourceCursorHidden: false }
+    let error: unknown
+    try { buildTakeProject({ id: crypto.randomUUID(), title: 't', media: { screen: audio as never, camera: null, microphone: null, systemAudio: null }, transcript: null }) } catch (e) { error = e }
+    expect(error).toBeInstanceOf(StudioError)
+    expect(error).toMatchObject({ status: 400 })
   })
 })

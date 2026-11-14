@@ -75,6 +75,10 @@ pub const ERROR_EVENT: &str = "studio-recorder://error";
 pub const UPLOAD_EVENT: &str = "studio-recorder://upload";
 pub const SEGMENT_EVENT: &str = "studio-recorder://segment";
 pub const WORDS_EVENT: &str = "studio-recorder://words";
+/// Written into a take folder the page let go of, before it is removed (the sweep finishes a removal cut short).
+const RELEASED_FILE: &str = "released";
+/// The stop payload (without the trace), kept beside the take: what files a take no page has again (after a restart).
+const STOPPED_FILE: &str = "stopped.json";
 /// The on-device words of a stopped take, beside its files.
 const WORDS_FILE: &str = "words.json";
 /// The editor's draft of a take opened before the Studio filed it, beside its files (record/provisional.ts).
@@ -325,8 +329,11 @@ fn valid_session_id(id: &str) -> bool {
     uuid::Uuid::parse_str(id).is_ok()
 }
 
-/// Remove take folders older than [`KEEP_TAKES_FOR`] (by their last write).
-/// Only UUID-named folders directly under `base` are touched.
+/// Finish removing take folders the page let go of ([`RELEASED_FILE`]: the Studio holds every byte of the take, or
+/// the person discarded it) and remove folders older than [`KEEP_TAKES_FOR`] that hold no recording at all. A folder
+/// with a recording in it is never removed by age: a take that is not settled (a draft, a lost track, a failed
+/// filing, never sent) stays until the person files or discards it, and the Record dialog lists it (the page's
+/// local takes, from [`studio_recorder_unfinished_takes`]). Only UUID-named folders directly under `base` are touched.
 pub fn sweep(base: &Path, keep_for: Duration, now: SystemTime) -> usize {
     let Ok(entries) = std::fs::read_dir(base) else { return 0 };
     let oldest = now.checked_sub(keep_for).unwrap_or(SystemTime::UNIX_EPOCH);
@@ -338,8 +345,13 @@ pub fn sweep(base: &Path, keep_for: Duration, now: SystemTime) -> usize {
         if !named || !meta.is_dir() {
             continue;
         }
+        let released = path.join(RELEASED_FILE).exists();
+        let recorded = ["screen", "camera", "microphone", "system-audio"]
+            .iter()
+            .filter_map(|role| role_file(role))
+            .any(|name| std::fs::metadata(path.join(name)).is_ok_and(|m| m.len() > 0));
         let written = meta.modified().unwrap_or(now);
-        if written < oldest && std::fs::remove_dir_all(&path).is_ok() {
+        if (released || (!recorded && written < oldest)) && std::fs::remove_dir_all(&path).is_ok() {
             removed += 1;
         }
     }
@@ -721,6 +733,11 @@ pub async fn studio_recorder_stop(app: AppHandle, session_id: String) -> Result<
     if let Some(take) = recorder.takes.lock().unwrap().get_mut(&session_id) {
         take.stopped = Some(stopped.clone());
         take.words_pending = words_pending;
+        let mut kept = stopped.clone();
+        if let Some(map) = kept.as_object_mut() {
+            map.remove("trace");
+        }
+        let _ = write_atomic(&take.dir.join(STOPPED_FILE), kept.to_string().as_bytes());
     }
     let _ = app.emit(STOPPED_EVENT, &stopped);
     log_to_file(&format!("[studio-recorder] take {session_id} stopped"));
@@ -791,6 +808,8 @@ fn remove_take_dir(app: &AppHandle, dir: &Path) {
     let ours = dir.parent() == Some(base.as_path())
         && dir.file_name().and_then(|n| n.to_str()).is_some_and(valid_session_id);
     if ours {
+        // Marked first: a removal cut short (a file held open, a quit) is finished by the next sweep, never kept.
+        let _ = std::fs::write(dir.join(RELEASED_FILE), b"");
         let _ = std::fs::remove_dir_all(dir);
     }
 }
@@ -1100,7 +1119,8 @@ fn write_link(dir: &Path, link: &LiveLink) -> Result<(), String> {
 /// Replace a file with `bytes`, on disk before it is renamed into place (a reader never sees half; a crash leaves the old).
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     use std::io::Write;
-    let tmp = path.with_extension("tmp");
+    // A temporary name of its own for each write: two writers never share one (each rename is whole).
+    let tmp = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4().simple()));
     let mut file = std::fs::File::create(&tmp).map_err(|e| refusal("io", e))?;
     file.write_all(bytes).and_then(|_| file.sync_all()).map_err(|e| refusal("io", e))?;
     std::fs::rename(&tmp, path).map_err(|e| refusal("io", e))
@@ -1566,8 +1586,13 @@ pub fn unfinished_in(base: &Path, busy: &std::collections::HashSet<String>, sign
         if !tracks.iter().any(|t| t["role"] == "screen") {
             continue;
         }
+        // A draft is the page's only when it reads as one: a torn or unreadable draft never hides the take.
+        let draft = std::fs::read_to_string(dir.join(DRAFT_FILE)).ok();
+        let draft_ok = draft.as_deref().and_then(|t| serde_json::from_str::<Value>(t).ok()).is_some_and(|v| v.is_object());
+        let stop = std::fs::read_to_string(dir.join(STOPPED_FILE)).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).unwrap_or(Value::Null);
+        let modified = std::fs::metadata(&dir).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64);
         out.push(json!({ "sessionId": session_id, "takeId": link.take_id, "state": state, "tracks": tracks,
-                         "hasDraft": dir.join(DRAFT_FILE).exists() }));
+                         "hasDraft": draft_ok, "draftUnreadable": draft.is_some() && !draft_ok, "stop": stop, "modifiedMs": modified }));
     }
     out
 }
@@ -1855,7 +1880,8 @@ pub fn serve_take_file<R: tauri::Runtime>(
 /// the recorder keeps for the on-device words). `{tracks: [{role, sha256, bytes}], waveform}`.
 #[tauri::command]
 pub async fn studio_recorder_take_media(app: AppHandle, session_id: String) -> Result<Value, String> {
-    let dir = take_folder(&app, &session_id)?;
+    // Another account's take on this Mac: not even its hashes or its waveform.
+    let (dir, _) = sendable_take(&app, &session_id, Need::Any)?;
     // The hashes the recorder kept as it wrote each file (its stop payload): Stop never reads a file again for them.
     let known: HashMap<String, String> = app
         .state::<StudioRecorder>()
@@ -2321,6 +2347,32 @@ mod tests {
         let busy: std::collections::HashSet<String> = [SESSION.to_string()].into();
         assert!(!listed(&busy, Some("user-1")).iter().any(|(id, _)| id == SESSION), "a take a live page holds is that page's");
         assert!(listed(&none, None).is_empty(), "nobody signed in: nothing to send");
+        // A draft that reads as one is the page's; a torn one never hides the take (it is said, and the take goes on).
+        let row = |session: &str| unfinished_in(base.path(), &none, Some("user-1")).into_iter().find(|t| t["sessionId"] == session).unwrap();
+        std::fs::write(base.path().join(SESSION).join(DRAFT_FILE), br#"{"v":2}"#).unwrap();
+        assert_eq!((row(SESSION)["hasDraft"].clone(), row(SESSION)["draftUnreadable"].clone()), (json!(true), json!(false)));
+        std::fs::write(base.path().join(SESSION).join(DRAFT_FILE), br#"{"v":2,"draft":{"cli"#).unwrap();
+        assert_eq!((row(SESSION)["hasDraft"].clone(), row(SESSION)["draftUnreadable"].clone()), (json!(false), json!(true)));
+        // The stop payload kept beside it files a take no page has again.
+        std::fs::write(base.path().join("3f3f3f3f-1111-4222-8333-444444444444").join(STOPPED_FILE), br#"{"files":[]}"#).unwrap();
+        assert_eq!(row("3f3f3f3f-1111-4222-8333-444444444444")["stop"], json!({ "files": [] }));
+    }
+
+    #[test]
+    fn two_writers_of_a_draft_never_tear_it() {
+        let base = tempfile::tempdir().unwrap();
+        let path = base.path().join(DRAFT_FILE);
+        let a = "{\"v\":2,\"who\":\"a\",\"pad\":\"".to_string() + &"a".repeat(200_000) + "\"}";
+        let b = "{\"v\":2,\"who\":\"b\",\"pad\":\"".to_string() + &"b".repeat(200_000) + "\"}";
+        std::thread::scope(|scope| {
+            for text in [&a, &b] {
+                let path = &path;
+                scope.spawn(move || for _ in 0..50 { write_atomic(path, text.as_bytes()).unwrap(); });
+            }
+        });
+        let kept = std::fs::read_to_string(&path).unwrap();
+        assert!(kept == a || kept == b, "whole, one writer's or the other's");
+        assert_eq!(std::fs::read_dir(base.path()).unwrap().count(), 1, "no temporary file left behind");
     }
 
     #[test]
@@ -2557,9 +2609,25 @@ mod tests {
         let other = base.path().join("not-a-take");
         std::fs::create_dir_all(&old).unwrap();
         std::fs::create_dir_all(&other).unwrap();
-        let later = SystemTime::now() + Duration::from_secs(4 * 24 * 60 * 60);
-        assert_eq!(sweep(base.path(), KEEP_TAKES_FOR, later), 1);
-        assert!(!old.exists());
+        // Old takes with a recording in them: one with a draft, one with nothing else (never filed, a lost track, a
+        // failed filing: the folder cannot tell, and none of them is the Studio's yet). Kept, however old.
+        let drafted = base.path().join(uuid::Uuid::new_v4().to_string());
+        let unsettled = base.path().join(uuid::Uuid::new_v4().to_string());
+        for dir in [&drafted, &unsettled] {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("screen.mp4"), b"recorded").unwrap();
+        }
+        std::fs::write(drafted.join(DRAFT_FILE), b"{}").unwrap();
+        // Let go of by the page (the Studio holds every byte, or the person discarded it), its removal cut short.
+        let released = base.path().join(uuid::Uuid::new_v4().to_string());
+        std::fs::create_dir_all(&released).unwrap();
+        std::fs::write(released.join("microphone.m4a"), b"recorded").unwrap();
+        std::fs::write(released.join(RELEASED_FILE), b"").unwrap();
+        let later = SystemTime::now() + Duration::from_secs(400 * 24 * 60 * 60);
+        assert_eq!(sweep(base.path(), KEEP_TAKES_FOR, later), 2);
+        assert!(!old.exists(), "an old folder with no recording in it");
+        assert!(!released.exists(), "a take let go of");
+        assert!(drafted.exists() && unsettled.exists(), "a take with a recording is never removed by its age");
         assert!(other.exists(), "only UUID-named take folders are ever removed");
         let fresh = base.path().join(uuid::Uuid::new_v4().to_string());
         std::fs::create_dir_all(&fresh).unwrap();

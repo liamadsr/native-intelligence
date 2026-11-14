@@ -15,7 +15,7 @@ import { removeAll, supabaseStorage, type StudioStorage } from './storage'
 export type StoredBlob = { key: string; bytes: number; parts: number; partBytes: number; contentType: string; sha256: string | null }
 
 /** A pending write, kept until it is committed (studio_record, collection PENDING). */
-export type PendingWrite = { bytes: number; partBytes: number; contentType: string; sha256: string | null; createdAt: string; token?: string }
+export type PendingWrite = { bytes: number; partBytes: number; contentType: string; sha256: string | null; createdAt: string; token?: string; uploader?: string }
 /** The studio_record collection pending writes are kept in (sweep.ts clears old ones; migration 625 sums them). */
 export const PENDING = 'blob-writes'
 
@@ -144,7 +144,7 @@ export async function createBlobWrite(
   const partBytes = input.partBytes ?? STUDIO_PART_BYTES
   // Only a media type the Studio serves inline is kept (media-types.ts); anything else is stored as opaque bytes.
   const contentType = allowedType(input.contentType)
-  await reserveSpace(ctx, key, { bytes: input.bytes, partBytes, contentType, sha256: input.sha256 ?? null, createdAt: new Date().toISOString() })
+  await reserveSpace(ctx, key, { bytes: input.bytes, partBytes, contentType, sha256: input.sha256 ?? null, createdAt: new Date().toISOString(), ...(ctx.userId ? { uploader: ctx.userId } : {}) })
   const parts = blobParts(input.bytes, partBytes)
   const storage = storageOf(ctx)
   // One part keeps its real type (served straight from storage); parts of a larger file are opaque bytes.
@@ -288,3 +288,12 @@ export async function workerWriteFence(ctx: StudioContext, job: WritingJob, key:
 
 /** The uploads key for a new browser upload. */
 export const uploadKey = (id: string) => `uploads/${id}`
+
+/**
+ * The person's own upload, not yet committed (a pending write they started): what a recording's track may be bound
+ * to. Another person's upload in the workspace, or one already used, is not.
+ */
+export async function ownPendingUpload(ctx: StudioContext, key: string): Promise<boolean> {
+  const row = must(await ctx.supabase.from('studio_record').select('value').eq('workspace_id', ctx.workspaceId).eq('collection', PENDING).eq('key', checkBlobKey(key)).maybeSingle(), 'check the upload') as { value: PendingWrite } | null
+  return !!row && !!ctx.userId && row.value.uploader === ctx.userId
+}

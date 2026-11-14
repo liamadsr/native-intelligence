@@ -11,9 +11,9 @@ import { buildTakeProject, voiceAsset, wordsOnVoiceClock, type TakeMedia } from 
 import { registerAsset, registerTranscript, toTranscript } from '@/lib/studio/server/assets'
 import { createVideo, openVideo, saveVideo } from '@/lib/studio/server/videos'
 import { fakeContext } from '@/lib/studio/server/__tests__/fake'
-import { adoptFiled, filedAssets, hrefsFor, localTakeHref, matchWords, memoryDraftStore, nativeDraftStore, provisionalDraft, provisionalRecord, swapAssets, withWords, type LocalMedia } from '../provisional'
+import { adoptFiled, withoutTranscripts, filedAssets, hrefsFor, localTakeHref, matchWords, memoryDraftStore, nativeDraftStore, provisionalDraft, provisionalRecord, swapAssets, withWords, type LocalMedia } from '../provisional'
 import type { FinishedTake } from '../types'
-import { adoptKept } from '../../ui/provisional-editor'
+import { adoptKept, markEditorAdopted } from '../../ui/provisional-editor'
 
 const KEY = 'k'.repeat(64)
 
@@ -52,7 +52,7 @@ const draftOf = () => provisionalDraft({ take, media, projectId: PROJECT, title:
  * of what they read), registered; the transcript it registers from the words the Mac heard; and the edit it builds.
  * `conformed`: the screen was conformed, not kept (another file, two frames fewer).
  */
-async function studioFiles(options: { conformed?: boolean; noCamera?: boolean } = {}) {
+async function studioFiles(options: { conformed?: boolean; noCamera?: boolean; noWords?: boolean } = {}) {
   const asset = (provisional: EditorAsset, sha: string, extra: Partial<EditorAsset> = {}, kept = true): EditorAsset => ({
     ...provisional, id: sha, sha256: sha, file: `assets/${sha}.${provisional.kind === 'audio' ? 'm4a' : 'mp4'}`, bytes: provisional.bytes - 100,
     provenance: { recording: 'r-1', role: (provisional.provenance as { role: string }).role, recorder: 'desktop', rawSha256: provisional.sha256, ...(kept ? (provisional.kind === 'video' ? { keptAtFps: provisional.sourceFps } : {}) : { normalizedCfrFps: 60 }) },
@@ -68,7 +68,7 @@ async function studioFiles(options: { conformed?: boolean; noCamera?: boolean } 
   const takeMedia: TakeMedia = { screen: finals.screen, camera: finals.camera ? { asset: finals.camera, offsetSeconds: 0.25 } : null, microphone: { asset: finals.microphone, offsetSeconds: -0.044 }, systemAudio: null }
   const voice = voiceAsset(takeMedia)!
   const words = wordsOnVoiceClock(take.transcript!.words, voice)
-  const transcript = await registerTranscript(env.ctx, toTranscript(voice.asset, { words, text: words.map((w) => w.text).join(' ') }, 'imported', hex('9'), 'Microphone imported transcript'))
+  const transcript = options.noWords ? null : await registerTranscript(env.ctx, toTranscript(voice.asset, { words, text: words.map((w) => w.text).join(' ') }, 'imported', hex('9'), 'Microphone imported transcript'))
   const project = buildTakeProject({ id: PROJECT, title: 'Recording · 14 Nov', media: takeMedia, transcript })
   await createVideo(env.ctx, project)
   const opened = await openVideo(env.ctx, PROJECT)
@@ -315,5 +315,67 @@ describe('words that arrive after Stop', () => {
     expect(both.title).toBe('Edited')
     // An untouched draft whose base took the words too is still not edited: the Studio's own edit is taken.
     expect(JSON.stringify(withWords(record.draft, record.assets, record, late))).toBe(JSON.stringify(withHeard))
+  })
+})
+
+describe('the second review', () => {
+  const recordsOf = (store: ReturnType<typeof memoryDraftStore>) => ({ update: async (id: string, fn: (r: NonNullable<Awaited<ReturnType<typeof store.get>>>) => unknown) => { const r = await store.get(id); const next = r && (fn(r) as typeof r); if (next) await store.put(next); return next } })
+
+  it('carried on in the editor, then the other version loaded and nothing saved: a later launch never saves the old draft over the video', async () => {
+    const draft = draftOf()
+    const store = memoryDraftStore()
+    await store.put({ ...provisionalRecord(draft, { sessionId: SESSION, takeId: null, title: 't', files: take.files }), draft: edit(draft.project), recordingId: 'r-1', state: 'filed' })
+    const studio = await studioFiles()
+    const records = recordsOf(store)
+    // The editor carries it on: noted beside the take before it goes on.
+    await markEditorAdopted(records, PROJECT, studio.digest)
+    expect((await store.get(PROJECT))!).toMatchObject({ state: 'adopted', studioDigest: studio.digest })
+    // The person then loads the other version (words added by the Studio, another device) and saves nothing.
+    await saveVideo(env.ctx, { ...studio.project, title: 'Their title' }, studio.digest)
+    const save = vi.fn(async () => undefined)
+    const release = vi.fn(async () => ({ safe: true }))
+    const result = await adoptKept({ store, records, read: () => openVideo(env.ctx, PROJECT), save, release }, PROJECT)
+    expect(result.outcome).toBe('already')
+    expect(save).not.toHaveBeenCalled()
+    expect((await openVideo(env.ctx, PROJECT)).project.title).toBe('Their title')
+    // A record that could not be noted stops the editor from carrying on (it says so, with Try again).
+    const failing = memoryDraftStore()
+    failing.failing = true
+    await expect(markEditorAdopted(recordsOf(failing), PROJECT, studio.digest)).rejects.toThrow('could not note')
+  })
+
+  it('the Studio has no words of the voice yet: the draft keeps its own (and its corrections), said as not yet registered', async () => {
+    const draft = draftOf()
+    const record = provisionalRecord(draft, { sessionId: SESSION, takeId: null, title: 't', files: take.files })
+    const studio = await studioFiles({ noWords: true })
+    const adopted = adoptFiled(record, edit(draft.project), studio.project)
+    const word = draft.project.transcripts[0]!.words[1]!
+    expect(adopted.project.transcripts).toHaveLength(1)
+    expect(adopted.project.transcripts[0]!.assetId).toBe(hex('f'))
+    expect(adopted.project.captionCorrections).toEqual({ [word.id]: 'there,' })
+    expect(adopted.unregistered).toEqual([adopted.project.transcripts[0]!.id])
+    // Saved without them only past the wait (the words follow to the Studio): what is saved is what it takes.
+    await saveVideo(env.ctx, withoutTranscripts(adopted.project, adopted.unregistered), studio.digest)
+  })
+
+  it('the draft has no words but the Studio has (they came after the draft opened): the Studio’s are kept', async () => {
+    const silent = { ...take, transcript: null }
+    const draft = provisionalDraft({ take: silent, media, projectId: PROJECT, title: 't' })!
+    const record = provisionalRecord(draft, { sessionId: SESSION, takeId: null, title: 't', files: take.files })
+    const studio = await studioFiles()
+    const edited = EditorProjectSchema.parse({ ...draft.project, title: 'Edited' })
+    const adopted = adoptFiled(record, edited, studio.project)
+    expect(adopted.project.transcripts).toEqual(studio.project.transcripts)
+    expect(adopted.unregistered).toEqual([])
+    await saveVideo(env.ctx, adopted.project, studio.digest)
+  })
+
+  it('made into another video than the draft’s (brought back elsewhere): adopted under the Studio’s id', async () => {
+    const draft = draftOf()
+    const record = provisionalRecord(draft, { sessionId: SESSION, takeId: null, title: 't', files: take.files })
+    const studio = await studioFiles()
+    const other = { ...studio.project, id: '9e9e9e9e-1111-4222-8333-444444444444' }
+    expect(adoptFiled(record, edit(draft.project), other).project.id).toBe(other.id)
+    expect(adoptFiled(record, draft.project, other).project.id).toBe(other.id)
   })
 })
