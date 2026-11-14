@@ -40,7 +40,55 @@ function raw(pngs: Buffer[], crop: string | null): Buffer {
 }
 const psnr = (a: Float64Array | Buffer, b: Float64Array | Buffer) => { let e = 0; for (let i = 0; i < a.length; i++) e += (a[i]! - b[i]!) ** 2; e /= a.length; return e === 0 ? 99 : 10 * Math.log10(255 ** 2 / e) }
 
+/**
+ * `tip` mode: how Chrome places a tip just left of (or above) the frame, a negative CSS length. Each x is drawn as the
+ * whole composition (the pointer partly outside the frame), and the values whose pictures are the same to the bit are
+ * grouped: whether Chrome takes -0.068 px as -0.0625 (its 1/64 unit, toward zero) or as -0.125 (floored to 1/16 as
+ * drawnState does) decides which picture the export must lay there.
+ *
+ *   node --import tsx test/pointer-probe.ts tip
+ */
+async function tipProbe() {
+  const W = 320, H = 240, FPS = 60, S = 1
+  const dir = await mkdtemp(join(tmpdir(), 'studio-pointer-tip-'))
+  const cache = join(dir, 'cache', 'assets'), media = join(dir, 'media')
+  await mkdir(cache, { recursive: true }); await mkdir(media)
+  ff(['-f', 'lavfi', '-i', `color=c=0x23232b:s=${W}x${H}:r=${FPS}:d=${S}`, '-vf', 'format=yuv420p', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '14', join(media, 's.mp4')])
+  const s = await cached(cache, join(media, 's.mp4'))
+  const loaded = loadConfig({ ...process.env, STUDIO_WORK_DIR: join(dir, 'work'), NODE_ENV: 'test', STUDIO_COMPOSITOR: 'off' }, () => 4)
+  if ('problems' in loaded) throw new Error(loaded.problems.join('; '))
+  const renderer = new Renderer(loaded, cache)
+  const { serveUrl } = await renderer.bundle(() => {})
+  const { selectComposition, renderStill } = await import('@remotion/renderer')
+  const at = (x: number, y: number, style: 'arrow' | 'glass') => parseEditorProject({ schemaVersion: 4, id: 'tip', title: 'Tip', output: { width: W, height: H, fps: FPS },
+    assets: [{ id: 's', kind: 'video', name: 'Screen.mp4', ...s, width: W, height: H, sourceFps: FPS, sourceFrames: FPS * S, durationSeconds: S, hasAudio: false, sourceCursorHidden: true,
+      trace: { viewport: { width: W / 2, height: H / 2, scale: 2 }, cursor: [[0, x / 2, y / 2]], actions: [] } }],
+    clips: [{ id: 'a', assetId: 's', trimStartSourceFrame: 0, trimEndSourceFrame: FPS * S, audio: { muted: true, gain: 1 }, holdEndFrames: 0, zooms: [], motion: neutralMotion(),
+      playbackRate: 1, dismissedActionIndices: [], view: { main: 'screen', bubble: false } }],
+    presentation: structuredClone(defaultPresentation), cursor: { style, size: 18, clickFeedback: false },
+    transcripts: [], captions: { ...defaultCaptions }, captionCorrections: {}, voiceoverDraft: { text: '', targetClipIds: [] }, audioTracks: [], presenterTrack: null }) as EditorProject
+  const common = await renderer.common(() => {}, at(1, 1, 'arrow'))
+  const hashOf = async (p: EditorProject, name: string) => {
+    const inputProps = inputPropsFor(p), comp = await selectComposition({ serveUrl, id: COMPOSITION_ID, inputProps, ...common })
+    const out = join(dir, `${name}.png`)
+    await renderStill({ serveUrl, composition: comp, inputProps, ...common, frame: 0, output: out, imageFormat: 'png' })
+    return createHash('md5').update(raw([await readFile(out)], null)).digest('hex').slice(0, 10)
+  }
+  // Values around the sixteenths just left of 0 (and, for the same picture's place, just right of a whole pixel).
+  const xs = [-0.0625, -0.068, -0.1, -0.125, -0.13, -0.19, -0.1875, -0.25, 0.0625, 0.125, 0.25, 0.5, 3]
+  for (const style of ['arrow', 'glass'] as const) for (const axis of ['x', 'y'] as const) {
+    const groups = new Map<string, number[]>()
+    for (const v of xs) {
+      const h = await hashOf(axis === 'x' ? at(v, 120, style) : at(160, v, style), `${style}-${axis}-${v}`)
+      groups.set(h, [...(groups.get(h) ?? []), v])
+    }
+    console.log(`[tip] ${style} ${axis}: ${[...groups.values()].map((g) => `{${g.join(', ')}}`).join(' ')}`)
+  }
+  await rm(dir, { recursive: true, force: true })
+}
+
 async function main() {
+  if (process.argv[2] === 'tip') return tipProbe()
   const style = (process.argv[2] ?? 'arrow') as 'arrow' | 'glass'
   const W = Number(process.argv[3] ?? 1280), H = Math.round(W * 2266 / 3472 / 2) * 2, FPS = 60, S = 4
   const dir = await mkdtemp(join(tmpdir(), 'studio-pointer-probe-'))

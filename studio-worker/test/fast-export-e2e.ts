@@ -37,10 +37,11 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { FakeApp, type FakeJob } from './fake-app.ts'
 import { edgeTrace, madeUpTrace } from './pointer-fixtures.ts'
-import { fastExportPlan, hashTaps, segmentArgs, FAST_ENCODER } from '../src/fast-export.ts'
+import { fastExportPlan, hashTaps, segmentArgs } from '../src/fast-export.ts'
 import { artInside, heldBox, maskedPsnr, pointerBoxes, pointerLayers, pointerSamples } from '../src/fast-export-run.ts'
 import { checkFloor, encoderArgs, type EncoderProfile } from '../src/encoders.ts'
 import { runBuffer } from '../src/media.ts'
+import { setTools } from '../src/platform.ts'
 import { chromePointerArt, layerWindow, lookup, placements } from '../src/fast-pointer.ts'
 import { parseEditorProject, defaultCaptions, defaultPresentation } from '../src/engine.ts'
 import type { EditorAsset, EditorProject } from '../../web/src/lib/studio/engine/contracts.ts'
@@ -64,14 +65,38 @@ const SECRET = 'fast-e2e-secret-not-real-0123456789abcdef'
  * them. Circles are capped at half the side. (The mask itself against Chrome's on flat colours: test/mask-e2e.ts.)
  */
 /** The glass on every frame, before the encoder (see where it is used: under the run-time floor, and why). */
-export const EVERY_FRAME_GLASS_DB = 33
+/**
+ * The pointer on every frame, before the encoder, against Chrome (pointerEveryFrame), where the run-time check's floor
+ * alone either flaps or says nothing; each from the numbers of the Mac (VideoToolbox) and Linux (the worker's image) runs:
+ * - `edgeMaxDiff`: a frame whose pointer's picture is mostly outside the frame (artInside under `edgeInside`) is held to
+ *   every sample of its mask within this many levels of Chrome's, not to the floor: there what shows is a sliver, and on
+ *   one frame of edgearrow60 (293) Chrome drew the top of a click ring cut by the frame's bottom about a pixel narrower
+ *   than the same ring whole (30.23 dB on the Mac, 29.92 on Linux, against a floor of 30; the frames on either side 38.8
+ *   and 42.7). Right pointers there differ by 23 levels at most (90 such frames); a ring or an arrow missing or a pixel
+ *   off is the ring's or the arrow's whole contrast over the screen (60 levels and more).
+ * - The glass: its floor (34.5) on every frame but at most `glassAllowance` of them, none under `glassHardDb`. Where it
+ *   crosses the made-up screen's dark sidebar the right glass scored 33.02 to 34.2 dB (Mac and Linux: 2 of 144 frames,
+ *   2 of 135, 1 of 259 at most); a glass 2 px off scored 25 to 34 at every sampled frame, so on a whole clip it is under
+ *   the floor far more often than 2 % of frames; the other look scored 10 to 17 and a frame late 21 to 31.
+ */
+export const EVERY_FRAME = { edgeInside: 0.25, edgeMaxDiff: 40, glassHardDb: 32, glassAllowance: (frames: number) => Math.max(3, Math.ceil(frames * 0.02)) }
 export const THRESHOLDS = { outsideDb: 40, outsideSsim: 0.99, bubbleDb: 27, bubbleSsim: 0.93, soundLagMs: 0.5, soundLevelDb: 0.5, mixLevelDb: 0.1, mixResidualDbfs: -90, mixWorstStep: 32, edgeInnerDb: 23, edgeOuterDb: 30 }
 
 const ff = (args: string[]) => execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-y', ...args], { stdio: ['ignore', 'inherit', 'inherit'] })
+/**
+ * The FFmpeg the export itself runs (STUDIO_FFMPEG: the desktop's build, or the image's), for every run here that does what
+ * the export does (the pointer's pictures, the clips' graphs and taps, Chrome's stills made 4:2:0) and with the run's own
+ * encoder (STUDIO_FAST_ENCODER). The made-up media, the imports and the measuring (psnr, ssim, extractplanes, the sound)
+ * stay with the FFmpeg on PATH: they need x264 or filters the desktop's build does not carry.
+ */
+const OWN_FFMPEG = process.env.STUDIO_FFMPEG || 'ffmpeg'
+const ownEncoder = (w: number, h: number, fps: number) => encoderArgs((process.env.STUDIO_FAST_ENCODER ?? 'x264') as EncoderProfile, w, h, fps)
 const TAGS = ['-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv']
 const TO709 = 'scale=out_color_matrix=bt709:out_range=tv,format=yuv420p'
 
 async function main() {
+  // runBuffer and run (media.ts) in this process go to the export's FFmpeg, as the worker's do.
+  if (process.env.STUDIO_FFMPEG) setTools({ ffmpeg: process.env.STUDIO_FFMPEG, ffprobe: process.env.STUDIO_FFPROBE || null })
   const dir = await mkdtemp(join(tmpdir(), 'studio-fast-e2e-'))
   const media = join(dir, 'media')
   await mkdir(media, { recursive: true })
@@ -165,7 +190,7 @@ async function main() {
     // ---- the sound itself: FFmpeg's mix against Remotion's, sample for sample (in this process) ------------------------
     const soundRows = new Map<string, Record<string, unknown>>()
     const pointerWrong = new Map<string, Record<string, number[]>>()
-    const pointerEvery = new Map<string, { frames: number[]; scores: number[]; restill: { frame: number; near: number; still: number }[] }>()
+    const pointerEvery = new Map<string, { frames: number[]; scores: number[]; inside: number[]; maxDiff: number[]; restill: { frame: number; near: number; still: number }[] }>()
     /** The run-time check's pointer floor for a case's look, with the encoder this proof uses. */
     const floorOf = (c: Case) => checkFloor((process.env.STUDIO_FAST_ENCODER ?? 'x264') as EncoderProfile).pointer[c.project.cursor.style as 'arrow' | 'glass']
     {
@@ -282,17 +307,17 @@ async function main() {
         for (const f of samples) {
           const b = pointerBox(f)!, png = join(scratch, `still-${f}.png`)
           await renderStill({ serveUrl, composition: comp, inputProps, ...common, frame: f, output: png, imageFormat: 'png' })
-          stillOf.set(f, execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-i', png, '-vf', `scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,crop=${b.bw}:${b.bh}:${b.bx}:${b.by}`, '-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-'], { maxBuffer: 1 << 26 }))
+          stillOf.set(f, execFileSync(OWN_FFMPEG, ['-nostdin', '-v', 'error', '-i', png, '-vf', `scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,crop=${b.bw}:${b.bh}:${b.bx}:${b.by}`, '-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-'], { maxBuffer: 1 << 26 }))
         }
         const scores: Record<string, number[]> = {}
         const local = samples.map((f) => f - seg.startFrame)
         for (const [label, v] of Object.entries(variants)) {
           const out = join(scratch, `${label.replace(/ /g, '-')}.mp4`), tapFile = join(scratch, `${label.replace(/ /g, '-')}.yuv`)
-          const args = segmentArgs({ ...seg, blend: seg.blend ? { ...seg.blend, pointer: null } : null }, plan.fps, (f) => join(workDir, 'cache', f), out, undefined, FAST_ENCODER,
+          const args = segmentArgs({ ...seg, blend: seg.blend ? { ...seg.blend, pointer: null } : null }, plan.fps, (f) => join(workDir, 'cache', f), out, undefined, ownEncoder(plan.width, plan.height, plan.fps),
             { layer: v.layer, held: null, tap: { frames: local, file: tapFile, cx: layer.layer.cx, cy: layer.layer.cy, cw: layer.layer.cw, ch: layer.layer.ch } })
           const k = args.indexOf('-filter_complex'), graph = join(scratch, 'graph.txt')
           await writeFile(graph, args[k + 1]!)
-          execFileSync('ffmpeg', [...args.slice(0, k), '-filter_complex_script', graph, ...args.slice(k + 2)], { stdio: ['ignore', 'inherit', 'inherit'] })
+          execFileSync(OWN_FFMPEG, [...args.slice(0, k), '-filter_complex_script', graph, ...args.slice(k + 2)], { stdio: ['ignore', 'inherit', 'inherit'] })
           const tap = await readFile(tapFile), taps = hashTaps(local, seg.frames)
           scores[label] = samples.map((f) => {
             const b = pointerBox(f)!, size = b.bw * b.bh * 1.5, at = taps.indexOf(f - seg.startFrame)
@@ -307,17 +332,17 @@ async function main() {
         // window of edgearrow60, a frame whose pointer is right before the encoder).
         const near = join(scratch, 'chrome-near.mp4')
         await renderMedia({ serveUrl, composition: comp, inputProps, ...common, ...EXPORT_ENCODING, crf: 1, imageFormat: 'png', ffmpegOverride: bt709WithSwscale, outputLocation: near })
-        const every = { frames: [] as number[], scores: [] as number[], restill: [] as { frame: number; near: number; still: number }[] }
+        const every = { frames: [] as number[], scores: [] as number[], inside: [] as number[], maxDiff: [] as number[], restill: [] as { frame: number; near: number; still: number }[] }
         for (const [si, x] of plan.segments.entries()) {
           const lay = layers.get(si)
           if (!x.pointer || !lay) continue
           const all = Array.from({ length: x.frames }, (_, l) => l), tapFile = join(scratch, `every-${si}.yuv`), { cw, ch } = lay.layer, size = cw * ch * 1.5
-          const args = segmentArgs(x, plan.fps, (f) => join(workDir, 'cache', f), join(scratch, `every-${si}.mp4`), undefined, FAST_ENCODER, { layer: lay.layer, held: lay.held, tap: { frames: all, file: tapFile } })
+          const args = segmentArgs(x, plan.fps, (f) => join(workDir, 'cache', f), join(scratch, `every-${si}.mp4`), undefined, ownEncoder(plan.width, plan.height, plan.fps), { layer: lay.layer, held: lay.held, tap: { frames: all, file: tapFile } })
           const k = args.indexOf('-filter_complex'), graph = join(scratch, `every-${si}.graph`)
           await writeFile(graph, args[k + 1]!)
-          execFileSync('ffmpeg', [...args.slice(0, k), '-filter_complex_script', graph, ...args.slice(k + 2)], { stdio: ['ignore', 'inherit', 'inherit'] })
+          execFileSync(OWN_FFMPEG, [...args.slice(0, k), '-filter_complex_script', graph, ...args.slice(k + 2)], { stdio: ['ignore', 'inherit', 'inherit'] })
           const when: string = `round(t*${plan.fps})`
-          const theirs: Buffer = execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-i', near, '-vf', `trim=start_frame=${x.startFrame}:end_frame=${x.startFrame + x.frames},setpts=PTS-STARTPTS,`
+          const theirs: Buffer = execFileSync(OWN_FFMPEG, ['-nostdin', '-v', 'error', '-i', near, '-vf', `trim=start_frame=${x.startFrame}:end_frame=${x.startFrame + x.frames},setpts=PTS-STARTPTS,`
             + `crop=w=${cw}:h=${ch}:x='${lookup(lay.layer.cx, when)}':y='${lookup(lay.layer.cy, when)}',format=yuv420p`, '-fps_mode', 'passthrough', '-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-'], { maxBuffer: 1 << 30 })
           const mine = await readFile(tapFile)
           assert.equal(mine.length, x.frames * size, `${c.name}: clip ${si + 1}'s tap of every frame`)
@@ -326,18 +351,22 @@ async function main() {
             const b = boxes.get(x.startFrame + l)
             if (!b) continue
             const f = x.startFrame + l, drawn = mine.subarray(l * size, (l + 1) * size)
-            let score = maskedPsnr(drawn, theirs.subarray(l * size, (l + 1) * size), cw, ch, b.mask)
+            let reference = theirs.subarray(l * size, (l + 1) * size)
+            let score = maskedPsnr(drawn, reference, cw, ch, b.mask)
             // Under the floor against the CRF 1 render: scored again against Chrome's PNG still of that frame, the reference
             // the run-time check and its floors use (CRF 1 is near lossless, not lossless: the glass's margin is a dB or two).
             if (score < floorOf(c)) {
               const png = join(scratch, `every-still-${f}.png`)
               await renderStill({ serveUrl, composition: comp, inputProps, ...common, frame: f, output: png, imageFormat: 'png' })
-              const still = execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-i', png, '-vf', `scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,crop=${b.bw}:${b.bh}:${b.bx}:${b.by}`, '-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-'], { maxBuffer: 1 << 26 })
+              const still = execFileSync(OWN_FFMPEG, ['-nostdin', '-v', 'error', '-i', png, '-vf', `scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,crop=${b.bw}:${b.bh}:${b.bx}:${b.by}`, '-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-'], { maxBuffer: 1 << 26 })
               every.restill.push({ frame: f, near: +score.toFixed(2), still: +maskedPsnr(drawn, still, cw, ch, b.mask).toFixed(2) })
               score = maskedPsnr(drawn, still, cw, ch, b.mask)
+              reference = still
             }
             every.frames.push(f)
             every.scores.push(score)
+            every.inside.push(artInside(x.pointer.states[l]!, x.pointer, plan))
+            every.maxDiff.push(maskedMaxDiff(drawn, reference, cw, ch, b.mask))
           }
         }
         pointerEvery.set(c.name, every)
@@ -388,18 +417,23 @@ async function main() {
           // The pointer on every frame its own window is checked on, before the encoder: at or above the look's floor.
           const every = pointerEvery.get(c.name)
           if (every) {
-            const floorDb = floorOf(c), glass = c.project.cursor.style === 'glass'
-            // The arrow: the run-time check's floor on every frame. The glass: EVERY_FRAME_GLASS_DB, under its floor (34.5),
-            // calibrated: where it crosses the made-up screen's dark sidebar (a sharp dark to light edge under its blur) the
-            // right glass scored 33.1 to 34.2 dB on 4 of 540 frames (VideoToolbox run, against Chrome's PNG stills too), the
-            // same as against the CRF 1 render. The run-time check would fall back to Chrome on such a frame (safe). For the
-            // glass this bound catches gross errors (the other look scored 10 to 17 dB, a frame late 21 to 31 where it moves),
-            // not a pointer a pixel or two off (2 px off: 25 to 34): the floor itself cannot tell those apart there either.
-            const bound = glass ? EVERY_FRAME_GLASS_DB : floorDb
+            const floorDb = floorOf(c), glass = c.project.cursor.style === 'glass', n = every.frames.length, E = EVERY_FRAME
+            const edge = (k: number) => every.inside[k]! < E.edgeInside
             const q = [...every.scores].sort((x, y) => x - y), worst = every.scores.indexOf(q[0]!)
-            const under = every.frames.filter((_, k) => !(every.scores[k]! >= floorDb))
-            row.pointerEveryFrame = { restill: every.restill, n: q.length, min: +q[0]!.toFixed(2), frame: every.frames[worst], p05: +q[Math.floor(q.length * 0.05)]!.toFixed(2), median: +q[Math.floor(q.length / 2)]!.toFixed(2), floor: floorDb, bound, underFloor: under }
-            if (!(q.length > 0) || every.scores.some((v) => !(v >= bound))) throw new Error(`${c.name}: frame ${every.frames[worst]}'s pointer scores ${q[0]?.toFixed(2)} dB before the encoder, under ${bound} dB`)
+            const under = every.frames.filter((_, k) => !(every.scores[k]! >= floorDb) && !(edge(k) && !glass))
+            const edges = every.frames.flatMap((f, k) => (edge(k) ? [{ frame: f, db: +every.scores[k]!.toFixed(2), maxDiff: every.maxDiff[k]! }] : []))
+            row.pointerEveryFrame = { n, min: +q[0]!.toFixed(2), frame: every.frames[worst], p05: +q[Math.floor(q.length * 0.05)]!.toFixed(2), median: +q[Math.floor(q.length / 2)]!.toFixed(2), floor: floorDb,
+              underFloor: under, edgeFrames: edges.length, edgeWorst: edges.sort((a, b) => b.maxDiff - a.maxDiff)[0] ?? null, restill: every.restill }
+            if (!(n > 0)) throw new Error(`${c.name}: no frame's pointer was compared`)
+            if (!glass) {
+              // The arrow: the floor on every frame it mostly shows; on the others every masked sample within edgeMaxDiff.
+              const bad = every.frames.findIndex((_, k) => (edge(k) ? !(every.maxDiff[k]! <= E.edgeMaxDiff) : !(every.scores[k]! >= floorDb)))
+              if (bad >= 0) throw new Error(`${c.name}: frame ${every.frames[bad]}'s pointer ${edge(bad) ? `differs by ${every.maxDiff[bad]} levels (mostly outside the frame: at most ${E.edgeMaxDiff})` : `scores ${every.scores[bad]!.toFixed(2)} dB, under ${floorDb}`} before the encoder`)
+            } else {
+              // The glass: never under glassHardDb; under the floor on at most glassAllowance frames.
+              if (q[0]! < E.glassHardDb) throw new Error(`${c.name}: frame ${every.frames[worst]}'s glass scores ${q[0]!.toFixed(2)} dB before the encoder, under ${E.glassHardDb}`)
+              if (under.length > E.glassAllowance(n)) throw new Error(`${c.name}: the glass is under ${floorDb} dB on ${under.length} of ${n} frames (at most ${E.glassAllowance(n)}): ${under.join(', ')}`)
+            }
           }
           // The pointer drawn wrong scores below the run-time check's floor where that check samples; the right one above it.
           const wrong = pointerWrong.get(c.name)
@@ -439,7 +473,7 @@ async function main() {
           const wrong: Record<string, { inner: number; outer: number }> = {}
           for (const dr of process.env.STUDIO_FAST_E2E_SWEEP ? [-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2].filter((d) => b.radius + d <= b.square.side / 2) : b.radius * 2 >= b.square.side - 1e-9 ? [-2] : [-2, 2]) {
             const out = join(dir, `${c.name}-radius${dr}.mp4`)
-            execFileSync('ffmpeg', segmentArgs({ ...seg, blend: seg.blend, bubble: { ...b, radius: b.radius + dr } }, plan.fps, (f) => join(workDir, 'cache', f), out), { stdio: ['ignore', 'inherit', 'inherit'] })
+            execFileSync(OWN_FFMPEG, segmentArgs({ ...seg, blend: seg.blend, bubble: { ...b, radius: b.radius + dr } }, plan.fps, (f) => join(workDir, 'cache', f), out, undefined, ownEncoder(plan.width, plan.height, plan.fps)), { stdio: ['ignore', 'inherit', 'inherit'] })
             const y = lumaBox(out, g)
             wrong[`${dr > 0 ? '+' : ''}${dr}px`] = bands(y, seg.startFrame)
           }
@@ -593,6 +627,19 @@ function pointerWindows(project: EditorProject): { cw: number; ch: number; cx: n
     }
   }
   return { cw, ch, cx, cy, shown, moving }
+}
+/** The largest difference between two 4:2:0 windows over a mask's pixels (a chroma sample where any of its four counts). */
+function maskedMaxDiff(a: Buffer, b: Buffer, w: number, h: number, mask: Buffer): number {
+  let m = 0
+  for (let i = 0; i < w * h; i++) if (mask[i]) m = Math.max(m, Math.abs(a[i]! - b[i]!))
+  for (let p = 0; p < 2; p++) {
+    const base = w * h + p * (w / 2) * (h / 2)
+    for (let y = 0; y < h / 2; y++) for (let x = 0; x < w / 2; x++) {
+      if (!(mask[2 * y * w + 2 * x] || mask[2 * y * w + 2 * x + 1] || mask[(2 * y + 1) * w + 2 * x] || mask[(2 * y + 1) * w + 2 * x + 1])) continue
+      m = Math.max(m, Math.abs(a[base + y * (w / 2) + x]! - b[base + y * (w / 2) + x]!))
+    }
+  }
+  return m
 }
 /** Everything but the bubble: the bubble's box painted black in both. */
 const excludeCrop = (W: number, H: number, b: { x: number; y: number; w: number; h: number }) => `drawbox=x=${b.x - 4}:y=${b.y - 4}:w=${b.w + 8}:h=${b.h + 8}:color=black:t=fill`
