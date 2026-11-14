@@ -209,6 +209,14 @@ export async function touchCloudBrowser(ref: CloudBrowserRef): Promise<void> {
 export type StopOutcome = 'stopped' | 'already_stopped' | 'missing' | 'changed'
 
 /**
+ * The row's stop. On the runtime backend the row keeps its session (the last
+ * sandbox's id), so the copy that holds the profile is the one woken next
+ * (runtime-browser.ts chooseSandbox); the hosted backend clears it, as always.
+ */
+const markStopped = (backend: CloudBrowserBackend, ref: CloudBrowserRef, reason: string) =>
+  backend.kind === 'runtime' ? store.markStopped(ref, reason, { keepSession: true }) : store.markStopped(ref, reason)
+
+/**
  * Stop `ref`'s browser gracefully: close Chrome first (its last ~30 s of cookie
  * writes reach disk, and no stale profile lock is left), then stop the VM,
  * which keeps its disk. `seen` is the sweep's reading of the row: if the
@@ -221,11 +229,11 @@ export async function stopCloudBrowser(ref: CloudBrowserRef, reason: StopReason 
   const name = nameFor(ref)
   const sandbox = await backend.get(name)
   if (!sandbox) {
-    await store.markStopped(ref, reason)
+    await markStopped(backend, ref, reason)
     return 'missing'
   }
   if (sandbox.state === 'stopped') {
-    await store.markStopped(ref, reason)
+    await markStopped(backend, ref, reason)
     return 'already_stopped'
   }
   // Never resuming a VM that stopped in the meantime: this must never wake one.
@@ -233,7 +241,7 @@ export async function stopCloudBrowser(ref: CloudBrowserRef, reason: StopReason 
     .catch(() => {})
   // If this throws, the row stays "stopping" and the next sweep retries it.
   await sandbox.stop(AbortSignal.timeout(CLOUD_BROWSER.stopTimeoutMs))
-  await store.markStopped(ref, reason)
+  await markStopped(backend, ref, reason)
   // The Mac lets go of its exit (it would only knock on a sleeping hub).
   await ringComputer(ref, 'browser-down')
   return 'stopped'

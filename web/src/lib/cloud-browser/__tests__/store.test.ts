@@ -18,7 +18,7 @@ vi.mock('@/lib/supabase/service', () => ({
       const call: Call = { table, ops: [] }
       const index = db.calls.push(call) - 1
       const chain: Record<string, unknown> = {}
-      for (const m of ['select', 'insert', 'upsert', 'update', 'delete', 'match', 'eq', 'is', 'in', 'lt', 'order', 'limit', 'like']) {
+      for (const m of ['select', 'insert', 'upsert', 'update', 'delete', 'match', 'eq', 'is', 'in', 'lt', 'order', 'limit', 'like', 'or']) {
         chain[m] = (...args: unknown[]) => { call.ops.push([m, ...args]); return chain }
       }
       const result = () => Promise.resolve({ error: null, ...((db.results[index] ?? { data: null }) as object) })
@@ -99,6 +99,11 @@ describe('markStopped', () => {
     has(0, 'update', { status: 'stopped', session_id: null, stop_reason: 'idle', driver: 'agent', exit_mode: null, exit_device_id: null, exit_connected_at: null })
     has(0, 'eq', 'status', 'stopping')
   })
+
+  it('on the runtime backend keeps the session: the row still names the sandbox its profile is in', async () => {
+    await store.markStopped(ref, 'idle', { keepSession: true })
+    has(0, 'update', { status: 'stopped', stop_reason: 'idle', driver: 'agent', exit_mode: null, exit_device_id: null, exit_connected_at: null })
+  })
 })
 
 describe('listStopCandidates', () => {
@@ -110,6 +115,9 @@ describe('listStopCandidates', () => {
   it('asks for stuck stops, near-cap sessions, stuck starts and idle browsers with the right cutoffs', async () => {
     await store.listStopCandidates(NOW)
     has(0, 'eq', 'status', 'stopping'); has(0, 'lt', 'updated_at', iso(CLOUD_BROWSER.stoppingStaleMs))
+    // An expiry's claim is left alone far longer: its destroy may still be on its way.
+    has(0, 'or', `stop_reason.is.null,stop_reason.neq.expiring,updated_at.lt."${iso(CLOUD_BROWSER.expiringStaleMs)}"`)
+    expect(CLOUD_BROWSER.expiringStaleMs).toBe(30 * 60_000)
     has(1, 'eq', 'status', 'running'); has(1, 'lt', 'started_at', iso(CLOUD_BROWSER.sessionTimeoutMs - CLOUD_BROWSER.stopBeforeTimeoutMs))
     has(2, 'eq', 'status', 'starting'); has(2, 'lt', 'last_active_at', iso(CLOUD_BROWSER.startingStaleMs))
     has(3, 'eq', 'status', 'running'); has(3, 'lt', 'last_active_at', iso(CLOUD_BROWSER.idleStopMs))

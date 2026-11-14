@@ -93,9 +93,11 @@ export async function markStopping(ref: CloudBrowserRef, seen: StopCandidate | n
  * writes), so it keeps that, and a late write here can't hide a live VM.
  * A stopped browser is the agent's again: a take-over never outlives its session.
  */
-export async function markStopped(ref: CloudBrowserRef, reason: string): Promise<void> {
+export async function markStopped(ref: CloudBrowserRef, reason: string, options: { keepSession?: boolean } = {}): Promise<void> {
   // A stopped browser has no tunnel and starts again in cloud mode (its new relay's hub does).
-  const { error } = await db().update({ status: 'stopped', session_id: null, stop_reason: reason.slice(0, 64), driver: 'agent',
+  // `keepSession` (the runtime backend): the row keeps naming the sandbox its profile is in,
+  // which chooses the copy to wake. Every reader of a session checks the status first.
+  const { error } = await db().update({ status: 'stopped', ...(options.keepSession ? {} : { session_id: null }), stop_reason: reason.slice(0, 64), driver: 'agent',
     exit_mode: null, exit_device_id: null, exit_connected_at: null })
     .match(own(ref)).eq('status', 'stopping')
   check(error, 'mark stopped')
@@ -268,7 +270,9 @@ export async function listStopCandidates(now = Date.now()): Promise<StopCandidat
   const capCutoff = iso(CLOUD_BROWSER.sessionTimeoutMs - CLOUD_BROWSER.stopBeforeTimeoutMs)
   const limit = CLOUD_BROWSER.maxStopsPerSweep
   const [stopping, nearCap, starting, idle] = await Promise.all([
-    db().select(COLUMNS).eq('status', 'stopping').lt('updated_at', iso(CLOUD_BROWSER.stoppingStaleMs)).limit(limit),
+    // An expiry's claim only much later: its destroy may still be on its way (claimUnusedForExpiry).
+    db().select(COLUMNS).eq('status', 'stopping').lt('updated_at', iso(CLOUD_BROWSER.stoppingStaleMs))
+      .or(`stop_reason.is.null,stop_reason.neq.${EXPIRING},updated_at.lt."${iso(CLOUD_BROWSER.expiringStaleMs)}"`).limit(limit),
     db().select(COLUMNS).eq('status', 'running').lt('started_at', capCutoff).order('started_at', { ascending: true }).limit(limit),
     db().select(COLUMNS).eq('status', 'starting').lt('last_active_at', iso(CLOUD_BROWSER.startingStaleMs)).limit(limit),
     db().select(COLUMNS).eq('status', 'running').lt('last_active_at', iso(CLOUD_BROWSER.idleStopMs))

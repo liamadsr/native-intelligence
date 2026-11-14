@@ -76,6 +76,17 @@ export const CLOUD_BROWSER = {
   runStartFile: '/tmp/cloud-browser-run-start',
   /** At most this many browsers unused past snapshotTtlMs are removed per reconcile (the runtime backend). */
   maxExpiriesPerReconcile: 50,
+  /**
+   * The expiry's claim (`stopping` / `expiring`, store.ts) is left alone by the
+   * sweep's stuck-stopping retry this long, not stoppingStaleMs: a destroy
+   * still on its way must never be un-claimed (then an ensure could wake a copy
+   * about to be killed). Each runtime call of a destroy is bounded by
+   * destroyRequestTimeoutMs, so a destroy ends far inside it.
+   */
+  expiringStaleMs: 30 * MINUTE,
+  destroyRequestTimeoutMs: 15 * SECOND,
+  /** The runtime backend's one root step (runtime-browser.ts CLOSE_USR_LOCAL): well inside ensureTimeoutMs. */
+  rootStepTimeoutMs: 20 * SECOND,
 } as const
 
 /**

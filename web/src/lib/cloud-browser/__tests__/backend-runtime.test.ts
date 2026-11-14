@@ -130,7 +130,7 @@ const rt = vi.hoisted(() => {
       events.push(`connect ${sandboxId}`)
       return instance(box)
     }),
-    kill: vi.fn(async (sandboxId: string) => {
+    kill: vi.fn(async (sandboxId: string, _options?: Record<string, unknown>) => {
       events.push(`kill ${sandboxId}`)
       return boxes.delete(sandboxId)
     }),
@@ -333,14 +333,49 @@ describe('ensure on the runtime backend', () => {
     expect(only().timeouts).toEqual([])
   })
 
-  it('replaces a sandbox STILL listed running with the same start after the whole wait, still silent (the runtime restarted under it)', async () => {
-    const dead = rt.add(META, { dead: 'not-running' })
+  it('a sandbox STILL silent after the whole wait is never killed: a fresh one is created beside it, which the row then names', async () => {
+    const dead = rt.add(META, { dead: 'not-running', startedAt: new Date(0) })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const out = await host.ensureCloudBrowser(ref)
     expect(out.created).toBe(true)
-    expect(rt.boxes.has(dead.sandboxId)).toBe(false)
-    expect(out.hubOrigin).toBe(`https://${only().sandboxId}.hub.test`)
-    expect(warn).toHaveBeenCalledTimes(1)
+    expect(rt.Sandbox.kill).not.toHaveBeenCalled()
+    expect(rt.boxes.has(dead.sandboxId)).toBe(true)
+    // The fresh one did not give way to the silent one, however old it is.
+    const fresh = [...rt.boxes.values()].find(b => b.sandboxId !== dead.sandboxId)!
+    expect(out.hubOrigin).toBe(`https://${fresh.sandboxId}.hub.test`)
+    expect(out.sessionId.startsWith(`${fresh.sandboxId}.`)).toBe(true)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('leaving it, starting a fresh one beside it'), expect.stringContaining(dead.sandboxId))
+  })
+
+  it('the reviewer’s case: a pause outlasting the wait, on the sandbox the row names, never kills it', async () => {
+    // Listed running and silent for far longer than the wait; the row names it.
+    const box = rt.add(META, { dead: 'not-running', pausingFor: 10_000, runStart: '1700000000005' })
+    store.sessionOfSandboxName.mockResolvedValue(`${box.sandboxId}.1700000000005`)
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const out = await host.ensureCloudBrowser(ref)
+    expect(rt.Sandbox.kill).not.toHaveBeenCalled()
+    expect(rt.boxes.has(box.sandboxId)).toBe(true)
+    expect(out.created).toBe(true)
+    // Its pause lands later: the next ensure chooses by the row, which now names the fresh one.
+    box.pausingFor = undefined
+    box.state = 'paused'
+    box.dead = undefined
+    store.sessionOfSandboxName.mockResolvedValue(out.sessionId)
+    const again = await host.ensureCloudBrowser(ref)
+    expect(again.sessionId).toBe(out.sessionId)
+    expect(rt.boxes.has(box.sandboxId)).toBe(true)
+  })
+
+  it('two paused copies: the row’s is woken whatever its age; with no row id, the NEWEST', async () => {
+    const old = rt.add(META, { state: 'paused', startedAt: new Date(Date.now() - 21 * 24 * 3600_000) })
+    const recent = rt.add(META, { state: 'paused', startedAt: new Date(Date.now() - 3600_000) })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect((await host.ensureCloudBrowser(ref)).hubOrigin).toBe(`https://${recent.sandboxId}.hub.test`)
+    expect(old.state).toBe('paused')
+    recent.state = 'paused'
+    store.sessionOfSandboxName.mockResolvedValue(`${old.sandboxId}.1`)
+    expect((await host.ensureCloudBrowser(ref)).hubOrigin).toBe(`https://${old.sandboxId}.hub.test`)
+    expect(rt.Sandbox.kill).not.toHaveBeenCalled()
   })
 
   it('a sandbox being paused (listed running, not answering) is never killed: it is woken once its pause lands', async () => {
@@ -508,7 +543,8 @@ describe('stop and delete on the runtime backend', () => {
     expect(rt.events.indexOf(`pause ${box.sandboxId}`)).toBeGreaterThan(stopAt)
     expect(box.state).toBe('paused')
     expect(rt.boxes.has(box.sandboxId)).toBe(true)
-    expect(store.markStopped).toHaveBeenCalledWith(ref, 'idle')
+    // The row keeps naming the sandbox its profile is in.
+    expect(store.markStopped).toHaveBeenCalledWith(ref, 'idle', { keepSession: true })
   })
 
   it('never wakes a paused sandbox to stop it, and records a missing one', async () => {
@@ -533,6 +569,9 @@ describe('stop and delete on the runtime backend', () => {
     expect(await host.deleteCloudBrowser(ref)).toEqual({ snapshotsDeleted: 0 })
     expect(rt.Sandbox.kill).toHaveBeenCalledWith(a.sandboxId, expect.anything())
     expect(rt.Sandbox.kill).toHaveBeenCalledWith(b.sandboxId, expect.anything())
+    // Every call of a destroy is bounded (the expiry's claim outlasts it).
+    for (const [, options] of rt.Sandbox.kill.mock.calls) expect(options).toMatchObject({ requestTimeoutMs: 15_000 })
+    expect(rt.Sandbox.list.mock.calls.at(-1)![0]).toMatchObject({ requestTimeoutMs: 15_000 })
     expect(rt.boxes.has(keep.sandboxId)).toBe(true)
     expect(store.deleteRow).toHaveBeenCalledWith(ref)
   })
@@ -654,7 +693,10 @@ describe('the one root step: /usr/local closed on every new sandbox', () => {
     expect(box.lines.filter(l => l.user === 'root').map(l => l.line)).toEqual([CLOSE_USR_LOCAL])
     const startAt = box.lines.findIndex(l => l.line.includes('/opt/cloud-browser/start.sh'))
     expect(startAt).toBeGreaterThan(0)
-    expect(CLOSE_USR_LOCAL).toMatch(/^chown -R -h root:root \/usr\/local && chmod -R go-w \/usr\/local && /)
+    // The symlink test FIRST: chown and chmod follow a link given on their command line.
+    expect(CLOSE_USR_LOCAL.split(' && ').slice(0, 3)).toEqual(['test ! -L /usr/local', 'chown -R -h root:root /usr/local', 'chmod -R go-w /usr/local'])
+    // A dangling link (or one readlink cannot resolve) counts as open.
+    expect(CLOSE_USR_LOCAL).toContain(`t=$(readlink -f "$1") && [ -e "$t" ] && [ "$(stat -c %u "$t")" = 0 ] && [ $(( 0$(stat -c %a "$t") & 022 )) = 0 ] || echo "$1"`)
     expect(CLOSE_USR_LOCAL).toMatch(/&& echo closed$/)
   })
 
