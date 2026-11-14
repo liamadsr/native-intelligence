@@ -1,8 +1,7 @@
 /**
  * The ONE Seatbelt profile around a worker's whole agent process tree: the
- * ACP adapter, the person's CLI, every command it runs, and the stdio MCP
- * proxy. ACP has no standard way to turn an agent's own tools off, so the
- * agent works in the folder itself and this profile is the fence.
+ * person's CLI and every command it runs. The agent works in the folder with
+ * its own tools (its shell, its file edits), so this profile is the fence.
  *
  * Same style as ../../lib/seatbelt.ts: `(allow default)`, then take away, the
  * last matching rule winning:
@@ -36,7 +35,9 @@
  *   - pinned (no rename, replacement, removal or `chmod`; writing inside still
  *     works): the folder, its home and the folders made in it, its temp
  *     folder, the real keychain folder and the real folder of each login file.
- *     Without that a root could be moved aside, filled, and moved back;
+ *     Without that a root could be moved aside, filled, and moved back. The
+ *     roots it writes in still answer a writability check (`access(W_OK)`, which
+ *     Seatbelt checks as file-write-data on the folder itself) truthfully;
  *   - reads: the real HOME, /Users, /Volumes, /private/var/folders and
  *     /private/tmp are denied, then re-opened for its home, its temp folder,
  *     the folder (and the repository's `.git` in an edit job), the read-only
@@ -237,6 +238,10 @@ export function buildAgentProfile(input: AgentProfileInput): string {
     ...(noLinks ? [`(deny file-link ${noLinks})`] : []),
     // Pinned last: the roots themselves, never their contents.
     `(deny file-write* ${pinned.map((p) => `(literal ${sbplString(p)})`).join(' ')})`,
+    // access(2) with W_OK on a folder is checked as file-write-data, and nothing else writes a folder's data: re-opened
+    // for the roots it may write in, so a writability check answers yes there (SQLite looks for a temp folder this way,
+    // and Codex 0.169's state database needs one) while the pin's rename, replacement, removal and chmod stay refused.
+    `(allow file-write-data ${[...new Set([...writableRoots, ...(input.homeFolders ?? [])].map(norm))].map((p) => `(literal ${sbplString(p)})`).join(' ')})`,
     `(deny file-read-data ${readDenied})`,
     `(allow file-read-data ${reads})`,
     // A read job's secret files, contents and stat (an edit job's worktree is a fresh checkout of tracked files).
@@ -260,8 +265,8 @@ export function buildAgentProfile(input: AgentProfileInput): string {
 }
 
 /**
- * The read-only roots the agent needs: `extra` (the Node runtime and the
- * adapter install folders) wherever they are, and the CLI's install and the
+ * The read-only roots the agent needs: `extra` (the Node runtime, for a CLI
+ * that is a Node script) wherever it is, and the CLI's install and the
  * tool PATH's dirs where the profile denies reads (under HOME, /Users,
  * /Volumes, /private/var/folders, /private/tmp). An install under a `node_modules` folder
  * (an npm global install) gets that whole `node_modules`, since a package's

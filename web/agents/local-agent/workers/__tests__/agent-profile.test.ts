@@ -23,7 +23,7 @@ const base: AgentProfileInput = {
   home: '/Users/p',
   agentHome: `${JOB}/home`,
   homeFolders: [`${JOB}/home`, `${JOB}/home/.demo`],
-  agentTmp: '/private/tmp/dial8-acp-abc',
+  agentTmp: '/private/tmp/dial8-agent-abc',
   mode: 'read',
   folder: '/Users/p/code/app',
   readRoots: ['/Users/p/.local/share/claude/versions', '/Applications/NI.app/Contents/Resources/node'],
@@ -131,7 +131,7 @@ describe('buildAgentProfile', () => {
     expect(p).toContain('(allow network-outbound (remote tcp "*:443"))')
     expect(p).toContain('(allow network-outbound (remote ip "localhost:*"))')
     expect(p).toContain('(path-literal "/private/var/run/mDNSResponder")')
-    expect(p).toMatch(/\(local unix-socket \(subpath "\/private\/tmp\/dial8-acp-abc"\)\)/)
+    expect(p).toMatch(/\(local unix-socket \(subpath "\/private\/tmp\/dial8-agent-abc"\)\)/)
     expect(p).toContain('(allow network-bind network-inbound (local ip "localhost:*"))')
     expect(p.match(/allow network/g)).toHaveLength(5)
     // Listening: local addresses only (which, in this language, includes the wildcard address); no remote host form.
@@ -241,7 +241,10 @@ describe('buildAgentProfile', () => {
     const pin = lines.findIndex((l) => l.startsWith('(deny file-write* (literal'))
     expect(pin).toBeGreaterThan(lines.findIndex((l) => l.startsWith('(deny file-write* (regex')))
     for (const d of ['/Users/p/code/app', base.agentHome, `${JOB}/home/.demo`, base.agentTmp, '/Users/p/Library/Keychains', '/Users/p/.demo']) expect(lines[pin]).toContain(`(literal "${d}")`)
-    expect(lines.slice(pin + 1).some((l) => l.startsWith('(allow file-write'))).toBe(false)
+    // After the pin, only file-write-data on the roots it writes in (what access(W_OK) checks), never another write.
+    const after = lines.slice(pin + 1).filter((l) => l.startsWith('(allow file-write'))
+    expect(after).toEqual([`(allow file-write-data (literal "${base.agentHome}") (literal "${base.agentTmp}") (literal "/Users/p/Library/Keychains") (literal "${JOB}/home/.demo"))`])
+    expect(after[0]).not.toContain('/Users/p/code/app') // a read job's folder answers "not writable"
   })
 
   it('keeps signals, process details and arguments to its own processes, and the rest of the app out', () => {
@@ -270,11 +273,11 @@ describe('buildAgentProfile', () => {
 describe('agentReadRoots', () => {
   const real = (p: string) => p
   it('reads the extras, a native install folder, an npm global node_modules, and the tool PATH where reads are denied', () => {
-    expect(agentReadRoots({ bin: '/Users/p/.local/share/claude/versions/2.1.311', toolPath: '/Users/p/.local/bin:/usr/bin', home: '/Users/p', extra: ['/opt/node', '/x/acp'] }, real, () => false)).toEqual([
+    expect(agentReadRoots({ bin: '/Users/p/.local/share/claude/versions/2.1.311', toolPath: '/Users/p/.local/bin:/usr/bin', home: '/Users/p', extra: ['/opt/node', '/x/node'] }, real, () => false)).toEqual([
       '/Users/p/.local/bin',
       '/Users/p/.local/share/claude/versions',
       '/opt/node',
-      '/x/acp',
+      '/x/node',
     ])
     expect(agentReadRoots({ bin: '/Users/p/.npm-global/lib/node_modules/@openai/codex/bin/codex.js', toolPath: '/opt/homebrew/bin', home: '/Users/p', extra: [] }, real, () => false)).toEqual(['/Users/p/.npm-global/lib/node_modules'])
     expect(agentReadRoots({ bin: '/private/tmp/x/node_modules/@openai/codex/bin/codex.js', toolPath: '/opt/homebrew/bin', home: '/Users/p', extra: [] }, real, () => false)).toEqual(['/private/tmp/x/node_modules'])
@@ -616,7 +619,7 @@ describe.runIf(onMac)('the profile under sandbox-exec (darwin)', () => {
     fence = join(real, 'Library/Application Support/ni/local-agent/fence')
     put(join(fence, 'job_kernel'), '')
     put(join(fence, 'job_kernel.open'), '')
-    agentTmp = realpathSync(mkdtempSync('/private/tmp/dial8-acp-test-'))
+    agentTmp = realpathSync(mkdtempSync('/private/tmp/dial8-agent-test-'))
     // A repository with a tracked agent config, and a linked worktree for the edit job, made outside the sandbox.
     const repo = join(real, 'repo')
     put(join(repo, 'README.md'), '# Repo\n')
@@ -926,6 +929,12 @@ describe.runIf(onMac)('the profile under sandbox-exec (darwin)', () => {
       }
     })
 
+    it('answers a writability check (access W_OK) truthfully on the roots it writes in, and no more', async () => {
+      const roots = [wt, agentHome, agentTmp, join(agentHome, '.demo'), join(real, '.demo'), join(real, 'project')]
+      const r = await sh(profile, roots.map((d) => `test -w "${d}" && echo yes || echo no`).join('; '), wt)
+      expect(r.out.trim().split('\n')).toEqual(['yes', 'yes', 'yes', 'yes', 'no', 'no'])
+    })
+
     it("can't run the reviewer's chain: settings and a hook built in its home, the worktree moved aside, its home moved in", async () => {
       const H = agentHome
       await sh(profile, `echo '{"hooks":{}}' > "${H}/.claude/settings.json"; mkdir -p "${H}/.husky" && echo evil > "${H}/.husky/pre-commit"; mv "${wt}" "${agentTmp}/w"; mv "${agentTmp}/w/.git" "${H}/.git"; mv "${H}" "${wt}"`, agentTmp)
@@ -978,7 +987,7 @@ describe.runIf(onMac && !!codexBin)('Codex saves its login file under the profil
   it('replaces the real auth.json atomically, keeps the private link, and makes nothing else in the real folder', async () => {
     const { nodeRuntimeRoot } = await import('../../lib/host-folder-sandbox')
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-codex-save-')))
-    const tmp = realpathSync(mkdtempSync('/private/tmp/dial8-acp-test-'))
+    const tmp = realpathSync(mkdtempSync('/private/tmp/dial8-agent-test-'))
     try {
       const real = join(root, 'home')
       mkdirSync(join(real, '.codex'), { recursive: true })
@@ -1038,7 +1047,7 @@ describe.runIf(onMac && process.env.LA_TEST_NETWORK === '1')('HTTPS tools under 
   it('curl, git ls-remote, npm view, Python urllib and Node https all work; so does a local server', async () => {
     const { nodeRuntimeRoot } = await import('../../lib/host-folder-sandbox')
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'la-net-')))
-    const tmp = realpathSync(mkdtempSync('/private/tmp/dial8-acp-test-'))
+    const tmp = realpathSync(mkdtempSync('/private/tmp/dial8-agent-test-'))
     try {
       const real = fakeRealHome(root)
       const job = join(real, 'Library/Application Support/ni/local-agent/jobs/net')
