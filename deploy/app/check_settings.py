@@ -165,14 +165,21 @@ def group(name):
     return "needed"
 
 
+def stray_exports(text):
+    """The earlier host's variables on `export NAME=value` lines. envfile.py writes no
+    such line and parse_env reads none, but Compose does, and a file made for a shell
+    has them: so these are looked for apart, to be reported with the others."""
+    lines = [m.group(1) for m in (re.match(r"export[ \t]+(.*)$", line) for line in text.split("\n")) if m]
+    return {n: v for n, v in parse_env("\n".join(lines)).items() if n in MUST_BE_ABSENT}
+
+
 # --- reading the file as Compose reads it -------------------------------------------
 
 def parse_env(text):
-    """The values of a Compose env file, in the forms envfile.py writes, and with the
-    `export ` a line copied from a shell file may start with (Compose reads those too)."""
+    """The values of a Compose env file, in the forms envfile.py writes."""
     values = {}
     for line in text.split("\n"):
-        m = re.match(r"(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$", line)
+        m = re.match(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)$", line)
         if not m:
             continue
         name, v = m.groups()
@@ -950,7 +957,9 @@ def main(argv):
             sys.exit("check_settings: unknown argument %s" % a)
         i += 1
     with open(path) as f:
-        env = parse_env(f.read())
+        text = f.read()
+    env = parse_env(text)
+    exported = stray_exports(text)
 
     if opts["fill"] and not env.get("GPT_LIVE_TRUNK_SECRET") and "GPT_LIVE_TRUNK_SECRET" in env:
         found = trunk_secrets_at_twilio(env)
@@ -974,7 +983,7 @@ def main(argv):
                     results[name] = check(env, opts)
                 except Exception as e:  # a check that cannot run says so; it never shows a value
                     results[name] = (None, "could not be checked: %s" % type(e).__name__)
-    lines, blockers, unchecked = report(env, results)
+    lines, blockers, unchecked = report({**env, **{n: v for n, v in exported.items() if not env.get(n)}}, results)
     total = len(env)
     empty = sum(1 for v in env.values() if v == "")
     print("%s: %d settings, %d empty, %d holding a stand-in." % (path, total, empty, sum(1 for v in env.values() if v.startswith("rehearsal-"))))

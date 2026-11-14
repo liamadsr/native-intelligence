@@ -44,8 +44,10 @@ class ParseEnv(unittest.TestCase):
         env = cs.parse_env("A=plain\nB='quoted value'\nC=\"line\\n\"\nD=\nE=bare # a comment\n# F=no\n")
         self.assertEqual(env, {"A": "plain", "B": "quoted value", "C": "line\n", "D": "", "E": "bare"})
 
-    def test_reads_an_exported_line_as_compose_does(self):
-        self.assertEqual(cs.parse_env("export VERCEL_ENV=made-up\nexport\tA='b'\nexported=1\n"), {"VERCEL_ENV": "made-up", "A": "b", "exported": "1"})
+    def test_an_exported_line_is_not_a_setting_but_the_earlier_hosts_are_found_on_one(self):
+        text = "export VERCEL_ENV=made-up\nexport\tVERCEL_URL='b'\nexport CRON_SECRET=made-up\nexported=1\nVERCEL=1\n"
+        self.assertEqual(cs.parse_env(text), {"exported": "1", "VERCEL": "1"})
+        self.assertEqual(cs.stray_exports(text), {"VERCEL_ENV": "made-up", "VERCEL_URL": "b"})
 
 
 class Groups(unittest.TestCase):
@@ -661,6 +663,22 @@ class Report(unittest.TestCase):
         self.assertNotIn(secret, text)
         self.assertIn("NOT MET (2)", text)
         self.assertIn("VERCEL_ENV is set", text)
+
+    def test_an_exported_line_of_theirs_blocks_too(self):
+        secret = "made-up-value-that-must-not-show"
+        with tempfile.NamedTemporaryFile("w", suffix=".env", delete=False) as f:
+            f.write("CRON_SECRET=made-up\nexport VERCEL_OIDC_TOKEN=\"%s\"\nexport VERCEL_URL=\n" % secret)
+        try:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                cs.main(["check_settings.py", f.name, "--names-only"])
+        finally:
+            os.unlink(f.name)
+        text = out.getvalue()
+        self.assertNotIn(secret, text)
+        self.assertIn("NOT MET (1)", text)
+        self.assertIn("VERCEL_OIDC_TOKEN is set", text)
+        self.assertRegex(text, r"VERCEL_URL +empty +harmless")
 
     def test_a_proof_that_could_not_run_blocks(self):
         env = {"CREDENTIAL_ENCRYPTION_KEY": "made-up", "RUN_SKILL_INTERNAL_SECRET": "made-up", "EMAIL_FROM": "made-up"}

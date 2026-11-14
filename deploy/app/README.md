@@ -396,14 +396,15 @@ either: eve's sandbox provider reads them, and here the sandboxes' project and t
 are `SANDBOX_PROJECT_ID` and `SANDBOX_TEAM_ID`. The app itself tells production
 from development by `NODE_ENV` (`web/src/lib/app-env.ts`).
 
-Those, and what the code falls back to from the same host (`VERCEL_TARGET_ENV`,
-`VERCEL_URL`, `VERCEL_ORG_ID`, `VERCEL_TOKEN`, `VERCEL_OIDC_TOKEN`), are refused, not
+Those, `VERCEL_TARGET_ENV` and `VERCEL_URL` (read the same way), and what the code
+falls back to from the same host (`VERCEL_ORG_ID`, `VERCEL_TOKEN`,
+`VERCEL_OIDC_TOKEN`), are refused, not
 only unwanted: they come along with a file made for that host, and one such line in
 `.env` would reach every container. `entrypoint.sh` holds the list, says what reads
 each, and starts no role with one set. `deploy.sh` reads that list and stops first:
 before a build, and before a roll-out without one (`--no-build`, `--rollback`, by the
 list of the image going into service, so going back to an image from before the
-refusal is never held). Otherwise a roll-out would stop the agents and start
+refusal is never held; an image it cannot read stops it). Otherwise a roll-out would stop the agents and start
 replacements that refuse to run. `check-settings.sh` reports the line and counts it
 against Gate 1. Empty counts as unset, and no value is shown.
 `VERCEL_GIT_COMMIT_SHA` is not one of them: it is the name the app reads the build's

@@ -76,7 +76,7 @@ class RefusesTheEarlierHostsVariables(unittest.TestCase):
 
 class OneList(unittest.TestCase):
     def test_the_entrypoint_holds_it_and_the_settings_check_copies_it(self):
-        line = re.search(r'^EARLIER_HOST_VARIABLES="([A-Z_ ]+)"$', read("entrypoint.sh"), re.M)
+        line = re.search(r'^EARLIER_HOST_VARIABLES="([A-Z0-9_ ]+)"$', read("entrypoint.sh"), re.M)
         self.assertIsNotNone(line)
         self.assertEqual(tuple(line.group(1).split()), NAMES)
         self.assertEqual(tuple(cs.MUST_BE_ABSENT), NAMES)
@@ -135,13 +135,20 @@ class DeployRefusesBeforeAnythingRuns(unittest.TestCase):
         return subprocess.run(["bash", "-c", script], cwd=self.dir.name, env=env, capture_output=True, text=True, timeout=60)
 
     def test_the_checkout_and_a_new_image_name_the_list_and_an_old_image_names_none(self):
-        r = self.sh('refused_by_checkout; echo "[$(refused_by_image ni-app:live)]"; echo "[$(refused_by_image ni-app:previous)]"; '
-                    'echo "[$(refused_by_image ni-app:gone)]"')
-        self.assertEqual(r.stdout.splitlines(), [" ".join(NAMES), "[%s]" % " ".join(NAMES), "[]", "[]", "passed"], r.stderr)
+        r = self.sh('refused_by_checkout; echo "[$(refused_by_image ni-app:live)]"; echo "[$(refused_by_image ni-app:previous)]"')
+        self.assertEqual(r.stdout.splitlines(), [" ".join(NAMES), "[%s]" % " ".join(NAMES), "[]", "passed"], r.stderr)
+
+    def test_an_image_that_cannot_be_read_stops_the_roll_out(self):
+        # Not taken for an image from before the refusal.
+        self.stack({"VERCEL_ENV": VALUE})
+        r = self.sh('refused="$(refused_by_image ni-app:gone)"; refuse_earlier_host_variables "$refused"')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("cannot read entrypoint.sh from the image ni-app:gone", r.stderr)
+        self.assertNotIn("passed", r.stdout)
 
     def test_a_set_one_stops_every_mode_by_name_alone(self):
         for call in ('refused="$(refused_by_checkout)"; refuse_earlier_host_variables "$refused"',    # deploy, --build-only
-                     'refuse_earlier_host_variables "$(refused_by_image ni-app:live)"'):  # --no-build, --rollback to a new image
+                     'refused="$(refused_by_image ni-app:live)"; refuse_earlier_host_variables "$refused"'):  # --no-build, --rollback to a new image
             for name in NAMES:
                 with self.subTest(call=call, name=name):
                     self.stack({"NEXT_PUBLIC_APP_URL": "https://app.example", name: VALUE, "VERCEL_GIT_COMMIT_SHA": "0123456789ab"})
@@ -159,7 +166,7 @@ class DeployRefusesBeforeAnythingRuns(unittest.TestCase):
     def test_a_clean_file_passes(self):
         # Empty and absent (Compose gives a bare name as null) both count as unset.
         self.stack({"NEXT_PUBLIC_APP_URL": "https://app.example", "VERCEL": "", "VERCEL_ENV": None, "VERCEL_GIT_COMMIT_SHA": "0123456789ab"})
-        for call in ('refused="$(refused_by_checkout)"; refuse_earlier_host_variables "$refused"', 'refuse_earlier_host_variables "$(refused_by_image ni-app:live)"'):
+        for call in ('refused="$(refused_by_checkout)"; refuse_earlier_host_variables "$refused"', 'refused="$(refused_by_image ni-app:live)"; refuse_earlier_host_variables "$refused"'):
             r = self.sh(call)
             self.assertEqual((r.returncode, r.stdout), (0, "passed\n"), r.stderr)
         self.stack({})
@@ -167,7 +174,7 @@ class DeployRefusesBeforeAnythingRuns(unittest.TestCase):
 
     def test_going_back_to_an_image_from_before_the_refusal_is_not_held(self):
         self.stack({"VERCEL_ENV": VALUE})
-        r = self.sh('refuse_earlier_host_variables "$(refused_by_image ni-app:previous)"')
+        r = self.sh('refused="$(refused_by_image ni-app:previous)"; refuse_earlier_host_variables "$refused"')
         self.assertEqual((r.returncode, r.stdout), (0, "passed\n"), r.stderr)
 
     def test_a_file_that_cannot_be_read_stops_it(self):
@@ -191,8 +198,10 @@ class DeployRefusesBeforeAnythingRuns(unittest.TestCase):
         self.assertIn('\trefused="$(refused_by_checkout)"\n\trefuse_earlier_host_variables "$refused"\n', check[:check.index("\n}\n")])
         # The check it stands beside is still there.
         self.assertIn("cannot read the checkout's commit", check[:check.index("\n}\n")])
+        # Never as an argument: a failure inside "$(...)" there goes unnoticed.
+        self.assertNotIn('refuse_earlier_host_variables "$(', deploy)
         self.assertLess(build.index("check_build_settings"), build.index("build_web"))
-        ask = 'refuse_earlier_host_variables "$(refused_by_image %s)"'
+        ask = '\trefused="$(refused_by_image %s)"\n\trefuse_earlier_host_variables "$refused"\n'
         self.assertLess(no_build.index(ask % "ni-app:live"), no_build.index("rollout"))
         # Before the tags move, so a refused rollback changes nothing.
         self.assertLess(rollback.index(ask % "ni-app:previous"), rollback.index("docker tag"))

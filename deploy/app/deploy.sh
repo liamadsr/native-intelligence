@@ -119,7 +119,9 @@ check_image_url() { # check_image_url <image>
 # starts. Checked before a build against the checkout's entrypoint, and before a
 # roll-out without a build against the entrypoint of the image going into service:
 # an image from before the refusal names none, so going back to it is never held.
-refused_names() { sed -n 's/^EARLIER_HOST_VARIABLES="\([A-Z_ ]*\)"$/\1/p'; }
+# (Callers assign the list first: a failure inside "$(...)" given as an argument
+# would go unnoticed.)
+refused_names() { sed -n 's/^EARLIER_HOST_VARIABLES="\([A-Z0-9_ ]*\)"$/\1/p'; }
 refused_by_checkout() {
 	local names
 	names="$(refused_names <entrypoint.sh)"
@@ -127,7 +129,11 @@ refused_by_checkout() {
 	echo "$names"
 }
 refused_by_image() { # refused_by_image <image>
-	docker run --rm --network none --entrypoint cat "$1" /app/deploy/app/entrypoint.sh 2>/dev/null | refused_names
+	local script
+	# An image that cannot be read is not an image from before the refusal: stop.
+	script="$(docker run --rm --network none --entrypoint cat "$1" /app/deploy/app/entrypoint.sh 2>/dev/null)" ||
+		die "cannot read entrypoint.sh from the image $1 (docker run), so cannot tell what it refuses."
+	printf '%s\n' "$script" | refused_names
 }
 # Dies when .env gives web one of the names (every container reads the same file).
 # Names only: a value is never printed.
@@ -151,7 +157,6 @@ check_build_settings() {
 		[ -n "$(build_arg "$name")" ] || missing="$missing $name"
 	done
 	[ -z "$missing" ] || die "empty in .env:$missing."
-	# (Assigned first: a failure inside "$(...)" as an argument would go unnoticed.)
 	local refused
 	refused="$(refused_by_checkout)"
 	refuse_earlier_host_variables "$refused"
@@ -283,7 +288,8 @@ deploy | build-only)
 no-build)
 	docker image inspect ni-app:live >/dev/null 2>&1 || die "there is no image ni-app:live yet; build first."
 	check_image_url ni-app:live
-	refuse_earlier_host_variables "$(refused_by_image ni-app:live)"
+	refused="$(refused_by_image ni-app:live)"
+	refuse_earlier_host_variables "$refused"
 	rollout
 	;;
 rollback)
@@ -292,7 +298,8 @@ rollback)
 	# is the rehearsal's, built for the test address. Going back from there is
 	# ../README.md step 22, not this.
 	check_image_url ni-app:previous
-	refuse_earlier_host_variables "$(refused_by_image ni-app:previous)"
+	refused="$(refused_by_image ni-app:previous)"
+	refuse_earlier_host_variables "$refused"
 	say "Going back to ni-app:previous"
 	# Swap the two tags, so that a second --rollback goes forward again.
 	docker tag ni-app:live ni-app:rollback-swap
