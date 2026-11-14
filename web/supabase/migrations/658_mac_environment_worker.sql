@@ -162,3 +162,6 @@ alter table public.local_agent_session validate constraint local_agent_session_w
 
 comment on column public.local_agent_session.worker is
   'Which coding agent the job runs on (658): its Mac''s choice (environment.worker) when the chat agent started it, or what the person picked for a card''s Start, then fixed. Null: Native Intelligence''s own agent. The claim hands it to the Mac, which runs it or refuses, and never falls back.';
+
+-- The data API reads its schema again: the new columns are known at once.
+notify pgrst, 'reload schema';

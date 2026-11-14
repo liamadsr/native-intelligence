@@ -815,10 +815,13 @@ export async function settleActionRunStatus(svc: Svc, before: DbSession | null, 
   }
 }
 
-/** The card a Mac job works: its action_id (migration 659), else its key's (before 659, the column absent). */
+/**
+ * The card a Mac job works: its action_id (migration 659), else its key's:
+ * before 659 the column is absent, and a job that older code started between
+ * 659 and the roll-out has the column empty.
+ */
 function cardOf(r: Pick<DbSession, 'idempotency_key'> & { action_id?: string | null }): string | null {
-  if (r.action_id !== undefined) return r.action_id ?? null
-  return actionIdOfJobKey(r.idempotency_key)
+  return r.action_id ?? actionIdOfJobKey(r.idempotency_key)
 }
 
 /** The run a card job's own moves are recorded as (agent-finish.ts moveCardForRun). */

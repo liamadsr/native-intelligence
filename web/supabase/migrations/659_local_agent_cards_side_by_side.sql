@@ -6,9 +6,12 @@
 -- database, as 647; the dev database holds it under the name
 -- local_agent_cards_side_by_side.
 --
--- ⛔ PROD ORDER: either order is safe for the code that ships with it, which
--- runs before and after this is applied ("Before it is applied", below);
--- cards share a folder only once both are in. Apply it after 658. Older code
+-- ⛔ PROD ORDER: apply this BEFORE rolling out the code that ships with it,
+-- after 658, and shortly before the roll-out, not hours earlier. That code
+-- does run without it ("Before it is applied", below), but with one loss: a
+-- chat start no longer ends a card's idle job in its folder, nor a card's
+-- Start a chat's idle job, so 419's index refuses the start as FOLDER_BUSY
+-- until the idle job is stopped or reaped. Older code
 -- (before this branch) relies on 419's index to close its one-per-folder
 -- race: never roll the app back past this branch while 659 is applied
 -- without first putting 419's index back (the down note at the end).
@@ -79,7 +82,10 @@
 -- insert names action_id, PostgREST answers that it doesn't know the column
 -- (PGRST204), and the code inserts again without it; 419's index refuses a
 -- second card's job in a folder, which the code turns into today's
--- FOLDER_BUSY naming the first card. Nothing else changes.
+-- FOLDER_BUSY naming the first card. One more thing changes: an idle job in
+-- the other lane (a card's edit job for a chat start, any other job for a
+-- card's Start) is no longer ended to make room, so that start is refused
+-- as FOLDER_BUSY too (PROD ORDER, above).
 --
 -- Checked by hand on 2026-11-14 (PGlite, a real Postgres engine, from a
 -- scratch install outside the repo: it is in no lockfile here, so the
@@ -183,3 +189,6 @@ begin
   end if;
 end
 $$;
+
+-- The data API reads its schema again: the new columns are known at once.
+notify pgrst, 'reload schema';
