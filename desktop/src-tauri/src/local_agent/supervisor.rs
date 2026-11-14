@@ -119,6 +119,13 @@ pub enum JobEvent {
         run_id: String,
         outcome: Box<super::push::PushOutcome>,
     },
+    /// A coding agent's workspace tool call was answered (the actor's own
+    /// task, [`super::workspace_tools`]): `line` goes to its stdin if the
+    /// call is still waiting in the same run.
+    ToolAnswered {
+        id: String,
+        line: String,
+    },
 }
 
 #[derive(Debug)]
@@ -146,6 +153,8 @@ enum Ctl {
 
 /// The actor's handle on a running launcher. Dropping it closes stdin.
 pub struct Handle {
+    /// The launcher's pid, which leads its process group.
+    pub pid: u32,
     lines: mpsc::Sender<String>,
     stop: Option<oneshot::Sender<()>>,
     ctl: mpsc::UnboundedSender<Ctl>,
@@ -235,6 +244,7 @@ pub fn spawn(spec: SpawnSpec, to_actor: mpsc::Sender<JobMsg>) -> std::io::Result
         spec.gen
     ));
     Ok(Handle {
+        pid,
         lines: lines_tx,
         stop: Some(stop_tx),
         ctl: ctl_tx,
@@ -284,12 +294,21 @@ async fn read_stdout(job_id: String, gen: u64, stdout: ChildStdout, to_actor: mp
     let mut reader = BufReader::new(stdout);
     let mut buf = Vec::new();
     loop {
-        match read_capped_line(&mut reader, &mut buf, MAX_LINE_BYTES).await {
+        // A coding agent's `tool_call` may be up to 1 MB; every other line
+        // keeps [`MAX_LINE_BYTES`], as before.
+        match read_capped_line(&mut reader, &mut buf, super::workspace_tools::CALL_LINE_MAX).await {
             Ok(CappedLine::Line(line)) => {
                 if line.trim().is_empty() {
                     continue;
                 }
-                match parse_line(&line) {
+                let parsed = parse_line(&line);
+                if line.len() > MAX_LINE_BYTES
+                    && !matches!(parsed, Ok(Inbound::ToolCall(_)) | Ok(Inbound::BadToolCall(_)))
+                {
+                    crate::log_to_file(&format!("[local-agent:{job_id}] skipped a {}-byte stdout line", line.len()));
+                    continue;
+                }
+                match parsed {
                     Ok(msg) => {
                         let msg = JobMsg {
                             job_id: job_id.clone(),

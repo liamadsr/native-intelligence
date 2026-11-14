@@ -1557,6 +1557,8 @@ describe.runIf(onMac)('a symlinked toolchain home (darwin)', { timeout: 30_000 }
     put(join(home, 'toolchains', 'cargo', 'credentials.toml'), 'cargo-token-probe\n')
     put(join(home, 'toolchains', 'cargo', 'bin', 'tool.txt'), 'tool-ok\n')
     put(join(home, 'toolchains', 'cargo', '.npmrc'), 'npmrc-probe\n')
+    put(join(home, 'toolchains', 'cargo', 'versions', '3.12', 'pip.conf'), 'pip-conf-probe\n')
+    put(join(home, 'toolchains', 'cargo', '.netrc'), 'netrc-probe\n')
     symlinkSync(join(home, 'toolchains', 'cargo'), join(home, '.cargo'))
     mkdirSync(join(root, 'tmp'))
     cfg = await resolveHostFolder({ folder: join(home, 'toolchains'), mode: 'read', toolPath: TOOL_PATH }, { sessionId: 'wrun_toolchain_real', home, tmpRoot: join(root, 'tmp') })
@@ -1567,11 +1569,13 @@ describe.runIf(onMac)('a symlinked toolchain home (darwin)', { timeout: 30_000 }
     rmSync(root, { recursive: true, force: true })
   })
 
-  it('denies credentials.toml and .npmrc through the real place, and reads the rest', async () => {
+  it('denies credentials.toml, .npmrc, pip.conf and .netrc through the real place, and reads the rest', async () => {
     expect(cfg.profileInput.toolchainRealpaths).toEqual([join(home, 'toolchains', 'cargo')])
-    const closed = await session.run({ command: 'cat cargo/credentials.toml; cat cargo/.npmrc; cat Cargo/Credentials.TOML' })
+    const closed = await session.run({
+      command: 'cat cargo/credentials.toml; cat cargo/.npmrc; cat Cargo/Credentials.TOML; cat cargo/versions/3.12/pip.conf; cat cargo/.netrc',
+    })
     expect(closed.stdout).not.toMatch(/probe/)
-    expect(closed.stderr.match(/Operation not permitted/g)?.length).toBe(3)
+    expect(closed.stderr.match(/Operation not permitted/g)?.length).toBe(5)
     expect((await session.run({ command: 'cat cargo/bin/tool.txt' })).stdout).toBe('tool-ok\n')
   })
 })

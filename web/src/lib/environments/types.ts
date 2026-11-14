@@ -43,6 +43,87 @@ export const BASE_BRANCH_FORBIDDEN_RE = /(^HEAD$|^refs\/|[.][.]|\/\/|@[{]|[.]loc
 /** owner/repo, as GitHub allows them (migration 420's check). */
 export const REPO_FULL_NAME_RE = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/
 
+/**
+ * Who does a Mac's work (migration 658, environment.worker): a coding agent's
+ * id from the Mac app's registry (a lowercase letter, then up to 31 lowercase
+ * letters, digits or `-`, the Mac's own rule), or null for Native
+ * Intelligence's own agent. The server checks only this shape; the Mac
+ * refuses an id it doesn't offer, with its own sentence.
+ */
+export const WORKER_ID_RE = /^[a-z][a-z0-9-]{0,31}$/
+
+/** What the selector calls our own agent. */
+export const NATIVE_WORKER_LABEL = 'Native Intelligence'
+
+/** Where the person switches a coding agent on, in the Mac app. */
+export const WORKER_SWITCH_HINT = 'Switch one on in the Mac app’s menu: Local Agents → Coding Agents.'
+
+/** A coding agent a Mac offers right now (`local_agent_status`'s `workers`): its id and its name. */
+export interface MacWorkerOffer {
+  id: string
+  label: string
+}
+
+/**
+ * A database answer that means "this column isn't there yet" (migration 658
+ * not applied, or applied but PostgREST's schema cache not reloaded):
+ * Postgres' undefined_column (42703), or PostgREST's unknown column
+ * (PGRST204).
+ */
+export function isMissingColumnError(error: { code?: string | null } | null | undefined): boolean {
+  return error?.code === '42703' || error?.code === 'PGRST204'
+}
+
+export function isWorkerId(v: unknown): v is string {
+  return typeof v === 'string' && WORKER_ID_RE.test(v)
+}
+
+/** At most this many offered agents are kept for a Mac (environment.offered_workers). */
+export const OFFERED_WORKERS_MAX = 16
+/** An offered agent's label, at most this many characters. */
+export const WORKER_LABEL_MAX = 40
+
+/**
+ * A Mac's offered agents as the server keeps them (migration 658): an array
+ * of {id, label}, each id in the worker-id shape, each label a short line of
+ * plain text (control characters dropped, trimmed, at most 40 characters),
+ * every other key dropped, an id kept once, at most 16. An entry whose label
+ * is empty after that, or reads as our own agent's name (trimmed, any case:
+ * a look-alike a page could report), is dropped. Anything that isn't an
+ * array: null (not known).
+ */
+export function cleanWorkerOffers(raw: unknown): MacWorkerOffer[] | null {
+  if (!Array.isArray(raw)) return null
+  const out: MacWorkerOffer[] = []
+  const seen = new Set<string>()
+  for (const item of raw.slice(0, 64)) {
+    if (out.length >= OFFERED_WORKERS_MAX) break
+    if (!item || typeof item !== 'object') continue
+    const { id, label } = item as { id?: unknown; label?: unknown }
+    if (!isWorkerId(id) || seen.has(id)) continue
+    const text = typeof label === 'string' ? Array.from(label.replace(/\p{C}+/gu, ' ').replace(/\s+/g, ' ').trim()).slice(0, WORKER_LABEL_MAX).join('').trim() : ''
+    if (!text || text.toLocaleLowerCase('en') === NATIVE_WORKER_LABEL.toLocaleLowerCase('en')) continue
+    seen.add(id)
+    out.push({ id, label: text })
+  }
+  return out
+}
+
+/**
+ * A worker's name: the Mac's label when it offers it, else one made from the
+ * id (`claude-code` → `Claude Code`), for a saved choice the page can't ask
+ * the Mac about.
+ */
+export function workerLabel(id: string, offers: readonly MacWorkerOffer[] | null | undefined = null): string {
+  const offered = offers?.find((w) => w.id === id)?.label
+  if (offered) return offered
+  return id
+    .split('-')
+    .filter(Boolean)
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
 export function isNetworkAccess(v: unknown): v is NetworkAccess {
   return typeof v === 'string' && (NETWORK_ACCESS as readonly string[]).includes(v)
 }
@@ -111,6 +192,18 @@ export interface MacEnvironment {
    * app branches from HEAD whatever is set.
    */
   supportsBaseBranch: boolean
+  /**
+   * Who does the chat agent's work on this Mac (migration 658): a coding
+   * agent's id (the person's own account on that Mac), or null for Native
+   * Intelligence's own agent. Absent: an older server (read as null).
+   */
+  worker?: string | null
+  /**
+   * The coding agents this Mac offers, as its app last reported them
+   * (migration 658, its heartbeat): what a page that isn't on that Mac may
+   * offer. Null or absent: not known.
+   */
+  offeredWorkers?: MacWorkerOffer[] | null
   folders: MacFolder[]
   createdAt: string
   updatedAt: string

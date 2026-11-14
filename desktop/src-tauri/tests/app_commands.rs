@@ -282,6 +282,7 @@ fn local_agent_commands_are_granted_and_never_take_a_path() {
         "local_agent_stop",
         "local_agent_resume",
         "local_agent_events",
+        "local_agent_diff",
         "local_agent_device",
         "local_agent_set_model_token",
     ];
@@ -355,6 +356,7 @@ fn every_local_agent_command_is_pinned() {
         "local_agent_stop",
         "local_agent_resume",
         "local_agent_events",
+        "local_agent_diff",
     ]
     .into_iter()
     .map(String::from)

@@ -40,7 +40,11 @@ import {
   isBaseBranch,
   isNetworkAccess,
   isRepoFullName,
+  cleanWorkerOffers,
+  isMissingColumnError,
+  isWorkerId,
   macEnvironmentName,
+  workerLabel,
   utf8Bytes,
   type CloudEnvironment,
   type Environment,
@@ -227,6 +231,29 @@ function cleanSetting(v: unknown, what: 'base branch' | 'linked repo'): string |
  * seen by the heartbeat before the environment existed (between migration
  * 420 and the deploy) gets its environment here, once.
  */
+
+/** Whether the "no worker column yet" line was logged (once per process). */
+let workerColumnMissingLogged = false
+
+/**
+ * The person's Mac environments, with who does each one's work (migration
+ * 658). Before that migration is applied the column isn't there: read once
+ * more without it (every worker null, our own agent), so code rolled out
+ * first breaks no environments surface.
+ */
+async function macEnvironmentRows(svc: Svc, userId: string) {
+  const read = (fields: string) => svc.from('environment').select(fields).eq('kind', 'mac').eq('owner_user_id', userId)
+  const first = await read('id, name, device_id, worker, offered_workers, created_at, updated_at')
+  if (!isMissingColumnError(first.error)) return first
+  if (!workerColumnMissingLogged) {
+    workerColumnMissingLogged = true
+    console.warn('[environments] environment.worker is missing (migration 658 not applied): every Mac reads as Native Intelligence’s own agent')
+  }
+  const again = await read('id, name, device_id, created_at, updated_at')
+  // No column, no choice: every Mac reads as Native Intelligence's own agent.
+  return { ...again, data: again.data ? (again.data as unknown as Array<Record<string, unknown>>).map((r) => ({ ...r, worker: null, offered_workers: null })) : again.data }
+}
+
 export async function listMacs(svc: Svc, userId: string): Promise<MacEnvironment[]> {
   const [devices, envs, folders] = await Promise.all([
     svc
@@ -235,7 +262,7 @@ export async function listMacs(svc: Svc, userId: string): Promise<MacEnvironment
       .eq('user_id', userId)
       .is('removed_at', null)
       .order('last_seen_at', { ascending: false }),
-    svc.from('environment').select('id, name, device_id, created_at, updated_at').eq('kind', 'mac').eq('owner_user_id', userId),
+    macEnvironmentRows(svc, userId),
     svc.from('device_folder').select('id, device_id, label, mode, is_git').eq('user_id', userId).is('revoked_at', null).order('label', { ascending: true }),
   ])
   if (devices.error) throw new Error(`devices read failed: ${devices.error.message}`)
@@ -255,8 +282,9 @@ export async function listMacs(svc: Svc, userId: string): Promise<MacEnvironment
     }
   }
 
-  const byDevice = new Map<string, { id: string; name: string; created_at: string; updated_at: string }>()
-  for (const e of (envs.data ?? []) as Array<{ id: string; name: string; device_id: string; created_at: string; updated_at: string }>) {
+  type MacRow = { id: string; name: string; worker?: string | null; offered_workers?: unknown; created_at: string; updated_at: string }
+  const byDevice = new Map<string, MacRow>()
+  for (const e of (envs.data ?? []) as unknown as Array<MacRow & { device_id: string }>) {
     byDevice.set(e.device_id, e)
   }
 
@@ -290,6 +318,8 @@ export async function listMacs(svc: Svc, userId: string): Promise<MacEnvironment
       lastSeenAt: d.last_seen_at ?? null,
       online: isOnline(d.last_seen_at, now),
       supportsBaseBranch: hasCapability(d.capabilities, 'baseBranch'),
+      worker: isWorkerId(env.worker) ? env.worker : null,
+      offeredWorkers: cleanWorkerOffers(env.offered_workers),
       folders: macFolders,
       createdAt: env.created_at,
       updatedAt: env.updated_at,
@@ -427,7 +457,54 @@ function inUse(use: { projects: number; workspaceDefault: boolean }, verb: 'arch
 }
 
 /**
- * Change an environment. A Mac: its name only, by its owner. A cloud one:
+ * Who does a Mac's work (migration 658): `undefined` leaves it, null or ''
+ * is Native Intelligence's own agent, else a worker id in the Mac's shape.
+ * Only the shape is checked here: the Mac refuses an id it doesn't offer.
+ */
+export function cleanWorker(v: unknown): string | null | undefined {
+  if (v === undefined) return undefined
+  if (v === null || v === '') return null
+  if (!isWorkerId(v)) throw new EnvironmentError('bad_request', 'worker must be a coding agent’s id (like claude-code), or null for Native Intelligence')
+  return v
+}
+
+/** A worker change before migration 658 is applied (409 details.code). */
+export const WORKER_NOT_AVAILABLE_CODE = 'WORKER_NOT_AVAILABLE'
+export const WORKER_NOT_AVAILABLE_REASON =
+  'Choosing who does a Mac’s work isn’t available on this server yet (its database hasn’t been updated). Nothing changed: Native Intelligence’s own agent does the work.'
+
+/** A worker the Mac didn't offer when it last said (409 details.code). */
+export const WORKER_NOT_OFFERED_CODE = 'WORKER_NOT_OFFERED'
+
+/**
+ * Refuse a coding agent the Mac didn't list in its last report
+ * (environment.offered_workers): the Mac would refuse it anyway, so the
+ * person hears why now. Throws an EnvironmentError.
+ */
+export async function assertMacOffers(svc: Svc, environmentId: string, worker: string): Promise<void> {
+  const { data, error } = await svc.from('environment').select('offered_workers').eq('id', environmentId).maybeSingle()
+  if (isMissingColumnError(error)) throw new EnvironmentError('conflict', WORKER_NOT_AVAILABLE_REASON, { code: WORKER_NOT_AVAILABLE_CODE })
+  if (error) throw new Error(`offered agents read failed: ${error.message}`)
+  const offers = cleanWorkerOffers((data as { offered_workers?: unknown } | null)?.offered_workers)
+  if (offers?.some((w) => w.id === worker)) return
+  throw new EnvironmentError(
+    'conflict',
+    offers === null
+      ? 'This Mac hasn’t told Native Intelligence which coding agents it offers yet. Open Native Intelligence on it, then choose again.'
+      : `This Mac doesn’t offer ${workerLabel(worker)} right now. Switch it on in the Mac app’s menu: Local Agents → Coding Agents, then choose again.`,
+    { code: WORKER_NOT_OFFERED_CODE },
+  )
+}
+
+/** What updateEnvironment may change: a cloud environment's fields, or a Mac's name and worker. */
+export interface EnvironmentPatchInput extends CloudFieldsInput {
+  /** A Mac only: who does its work (cleanWorker). */
+  worker?: unknown
+}
+
+/**
+ * Change an environment. A Mac: its name and who does its work (worker), by
+ * its owner. A cloud one:
  * name, network, env vars, setup script and sharing, by its creator or a
  * workspace admin. One a project or the workspace default uses stays
  * shared (409 ENVIRONMENT_IN_USE; migration 420's environment_guard says
@@ -435,7 +512,7 @@ function inUse(use: { projects: number; workspaceDefault: boolean }, verb: 'arch
  */
 export async function updateEnvironment(
   svc: Svc,
-  args: { userId: string; workspaceId: string; environmentId: string; patch: CloudFieldsInput },
+  args: { userId: string; workspaceId: string; environmentId: string; patch: EnvironmentPatchInput },
 ): Promise<Environment> {
   const row = await loadEnvironmentRow(svc, args.environmentId)
   if (!row) throw new EnvironmentError('not_found', 'Environment not found')
@@ -443,17 +520,27 @@ export async function updateEnvironment(
   if (row.kind === 'mac') {
     // A removed Mac's environment is archived: it reads as missing until the Mac comes back.
     if (row.owner_user_id !== args.userId || row.archived_at) throw new EnvironmentError('not_found', 'Environment not found')
-    const { name, ...rest } = args.patch
+    const { name, worker, ...rest } = args.patch
     if (Object.values(rest).some((v) => v !== undefined)) {
-      throw new EnvironmentError('bad_request', 'A Mac environment has only a name; its folders and their modes are set on the Mac')
+      throw new EnvironmentError('bad_request', 'A Mac environment has only a name and who does its work; its folders and their modes are set on the Mac')
     }
-    if (name === undefined) throw new EnvironmentError('bad_request', 'No fields to update')
+    if (name === undefined && worker === undefined) throw new EnvironmentError('bad_request', 'No fields to update')
+    const updates: Record<string, unknown> = {}
+    if (name !== undefined) updates.name = cleanName(name)
+    const cleanedWorker = cleanWorker(worker)
+    if (cleanedWorker !== undefined) updates.worker = cleanedWorker
+    // A coding agent only from what the Mac last said it offers (its heartbeat's list).
+    if (typeof cleanedWorker === 'string') await assertMacOffers(svc, row.id, cleanedWorker)
     const { error } = await svc
       .from('environment')
-      .update({ name: cleanName(name) })
+      .update(updates)
       .eq('id', row.id)
       .eq('kind', 'mac')
       .eq('owner_user_id', args.userId)
+    // Before migration 658 there is nowhere to keep the choice: a clear refusal, not a bare 500.
+    if (isMissingColumnError(error) && 'worker' in updates) {
+      throw new EnvironmentError('conflict', WORKER_NOT_AVAILABLE_REASON, { code: WORKER_NOT_AVAILABLE_CODE })
+    }
     if (error) throw new Error(`mac environment rename failed: ${error.message}`)
   } else {
     if (row.workspace_id !== args.workspaceId || row.archived_at) throw new EnvironmentError('not_found', 'Environment not found')
@@ -462,7 +549,9 @@ export async function updateEnvironment(
     if (!cloudEditable(row, args.userId, role)) {
       throw new EnvironmentError('forbidden', 'Only the person who made this environment or a workspace admin can change it')
     }
-    const fields = cleanCloudFields(args.patch)
+    const { worker, ...cloudPatch } = args.patch
+    if (worker !== undefined) throw new EnvironmentError('bad_request', 'Only a Mac chooses who does its work; a cloud environment’s work runs in its sandbox')
+    const fields = cleanCloudFields(cloudPatch)
     const updates: Record<string, unknown> = {}
     if (fields.name !== undefined) updates.name = fields.name
     if (fields.networkAccess !== undefined) updates.network_access = fields.networkAccess

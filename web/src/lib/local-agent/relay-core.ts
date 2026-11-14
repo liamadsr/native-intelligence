@@ -14,8 +14,11 @@
  * - **Pending** (doorbell, 5 s poll, focus): GET /device/pending, then
  *   - start: claim (CAS; a 409 is skipped) → `local_agent_start` with the
  *     session id as the job id and the claim's mode, token, resume and, for
- *     an edit job on a desktop that resolves one, its base branch (E3). A
- *     grant Rust doesn't hold, or an edit on a read grant, reports `failed`;
+ *     an edit job on a desktop that resolves one, its base branch (E3), and
+ *     the coding agent the person chose for this Mac (`worker`, migration
+ *     658). A grant Rust doesn't hold, an edit on a read grant, or a worker
+ *     on a desktop that lists none reports `failed`; so does Rust's own
+ *     refusal of a start (a worker it doesn't offer: its sentence, as is);
  *   - messages: prefixed `[From the Dial8 agent]` / `[From <first name>]`
  *     (the local agent's instructions), sent to the live job, resumed first
  *     when no launcher runs it, then acked;
@@ -63,7 +66,7 @@ import type {
   LocalAgentStartArgs,
   LocalAgentStatus,
 } from '@/lib/tauri-bridge'
-import { isBaseBranch } from '@/lib/environments/types'
+import { isBaseBranch, isWorkerId } from '@/lib/environments/types'
 
 // ── Tunables ────────────────────────────────────────────────────────────────
 
@@ -107,6 +110,23 @@ export const GRANT_GONE = 'This folder is no longer granted on your Mac.'
 export const GRANT_READ_ONLY = 'This folder is read-only on your Mac, so the local agent can’t make changes in it.'
 export const NO_LOCAL_JOB = 'Your Mac no longer has this local agent, so the message couldn’t reach it.'
 const START_FAILED = 'The local agent couldn’t start on your Mac.'
+/** What the Mac answers a start that waited in its line when it was stopped, or local agents were turned off or quit (the desktop's QUEUE_DROPPED). */
+export const QUEUE_DROPPED = 'stopped while it waited for a free slot on this Mac'
+/** What a reloaded page says of a start that left the Mac's line without beginning, its reason gone with the page that started it. */
+export const LEFT_LINE_UNSAID =
+  'It left the line on your Mac without starting, and its reason went with the page that started it (the page was reloaded while it waited). Press Start again.'
+/** How long the drain waits for a start's answer before it finishes it off the drain (the Mac holding it in line). */
+export const START_INLINE_MS = 3_000
+const STILL_WAITING = Symbol('still waiting')
+/**
+ * The job is meant for the person's own coding agent (migration 658), and
+ * this Mac's app can't run one: it fails with this rather than run on Native
+ * Intelligence's agent instead.
+ */
+export const WORKER_UNSUPPORTED =
+  'This job is set to run on your own coding agent, and the Native Intelligence app on this Mac can’t run one yet. Update the app, or pick Native Intelligence in the toggle under the chat’s message box.'
+/** The claim named a worker that isn't a coding agent's id: refused, never run on ours. */
+export const WORKER_INVALID = 'This job names a coding agent Native Intelligence doesn’t recognise, so it didn’t start.'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /** What the events route accepts as a kind (device.ts sanitizeEvent). */
@@ -374,11 +394,13 @@ export function nextUploadChunk(
 /**
  * POST /device's body: the device, its grants, the jobs Rust runs now, what
  * this desktop says it can do (`capabilities`: `baseBranch` when its status
- * says so, environments E3), and `rejoin` after a folder was added here.
+ * says so, environments E3), the coding agents it offers (`workers`, when
+ * its status lists them, migration 658), and `rejoin` after a folder was
+ * added here.
  */
 export function heartbeatBody(
   device: LocalAgentDevice,
-  status: Pick<LocalAgentStatus, 'grants' | 'jobs' | 'baseBranch'>,
+  status: Pick<LocalAgentStatus, 'grants' | 'jobs' | 'baseBranch' | 'workers'>,
   ignored: ReadonlySet<string> = new Set(),
   rejoin = false,
 ): Record<string, unknown> {
@@ -389,7 +411,11 @@ export function heartbeatBody(
     appVersion: device.appVersion,
     grants: status.grants.map((g) => ({ grantId: g.id, label: g.label, path: g.path, mode: g.mode, isGit: g.isGit })),
     liveJobIds: status.jobs.filter((j) => j.live && UUID_RE.test(j.id) && !ignored.has(j.id)).map((j) => j.id),
+    // The jobs the Mac holds in its line for a free slot: the server says "queued" for them, and keeps them alive.
+    queuedJobIds: status.jobs.filter((j) => j.queued === true && UUID_RE.test(j.id) && !ignored.has(j.id)).map((j) => j.id),
     capabilities: status.baseBranch === true ? ['baseBranch'] : [],
+    // The coding agents this Mac offers (migration 658): mirrored on its environment, so a page elsewhere can offer them.
+    ...(Array.isArray(status.workers) ? { workers: status.workers.map((w) => ({ id: w.id, label: w.label })) } : {}),
     ...(rejoin ? { rejoin: true } : {}),
   }
 }
@@ -423,6 +449,12 @@ interface Claim {
   localModel: boolean | null
   /** An edit job's base branch (E3), a local branch name; null: HEAD (and an older server). */
   baseBranch: string | null
+  /**
+   * The coding agent to run it on (migration 658): an id, 'invalid' when the
+   * server sent something that isn't one, null for Native Intelligence's own
+   * agent (and an older server).
+   */
+  worker: string | 'invalid' | null
 }
 
 interface ServerSession {
@@ -490,6 +522,8 @@ function parseClaim(body: unknown, pending: PendingStart): Claim {
     localModel: typeof b.localModel === 'boolean' ? b.localModel : null,
     // The server's pattern again (the Mac checks it a third time): a name, never a ref expression.
     baseBranch: isBaseBranch(b.baseBranch) ? b.baseBranch : null,
+    // Never dropped to null when malformed: null would run the job on our agent instead of theirs.
+    worker: b.worker === undefined || b.worker === null ? null : isWorkerId(b.worker) ? b.worker : 'invalid',
   }
 }
 
@@ -600,6 +634,12 @@ export function createLocalAgentRelay(deps: RelayDeps): LocalAgentRelay {
   const detached = new Set<string>()
   /** Stops for sessions being claimed: carried out once the start lands. */
   const stopWanted = new Set<string>()
+  /**
+   * Starts the Mac holds in its line that no start of THIS relay waits for (a
+   * page reloaded while they waited): their outcome is reported here instead,
+   * by the session's claimed run (the server's runId).
+   */
+  const adoptedLine = new Map<string, string>()
 
   let device: LocalAgentDevice | null = null
   let disposed = false
@@ -1054,6 +1094,8 @@ export function createLocalAgentRelay(deps: RelayDeps): LocalAgentRelay {
     if (!claimable(s) || !hasRoom(s, ctx)) return false
 
     claiming.add(id)
+    // Waiting in the Mac's line: the rest is finished off the drain, which keeps the claim.
+    let handedOff = false
     try {
       const provisional = newRunId()
       const res = await call('POST', `${API}/sessions/${id}/claim`, {
@@ -1061,6 +1103,8 @@ export function createLocalAgentRelay(deps: RelayDeps): LocalAgentRelay {
         runId: provisional,
         // The Mac's model for this launch, when the desktop says (teammate plan: C1 narrows the tools by it).
         ...(typeof ctx.status.localModel === 'boolean' ? { localModel: ctx.status.localModel } : {}),
+        // This relay hands the claim's `worker` to the Mac (or refuses it): the server fails a worker job for a page that doesn't say so.
+        workers: true,
       })
       claimCooldown.set(id, clock.now() + CLAIM_COOLDOWN_MS)
       if (!res.ok) return false
@@ -1073,7 +1117,16 @@ export function createLocalAgentRelay(deps: RelayDeps): LocalAgentRelay {
         track.serverRunId = provisional
         track.runId = provisional
         const grant = ctx.status.grants.find((g) => g.id === claim.grantId)
-        const refusal = !grant ? GRANT_GONE : claim.mode === 'edit' && grant.mode !== 'edit' ? GRANT_READ_ONLY : null
+        const refusal = !grant
+          ? GRANT_GONE
+          : claim.mode === 'edit' && grant.mode !== 'edit'
+            ? GRANT_READ_ONLY
+            : claim.worker === 'invalid'
+              ? WORKER_INVALID
+              : // A desktop that doesn't list coding agents would ignore `worker` and run ours: refused instead.
+                claim.worker && !Array.isArray(ctx.status.workers)
+                ? WORKER_UNSUPPORTED
+                : null
         if (refusal) {
           await postState(id, { runId: provisional, status: 'failed', error: refusal })
           return false
@@ -1089,42 +1142,96 @@ export function createLocalAgentRelay(deps: RelayDeps): LocalAgentRelay {
           ...(claim.localModel === null ? {} : { localModel: claim.localModel }),
           // An edit job's base (E3): only to a desktop that resolves one; it checks the name itself.
           ...(claim.baseBranch && claim.mode === 'edit' && ctx.status.baseBranch === true ? { baseBranch: claim.baseBranch } : {}),
+          // The person's own coding agent (migration 658): the Mac runs it or answers its own refusal, posted below as the failure.
+          ...(claim.worker && claim.worker !== 'invalid' ? { worker: claim.worker } : {}),
         }
-        let started = stopWanted.has(id) ? null : await bridge.start(args)
-        // Refused for now (a confirm is up on the Mac): the claim is ours, so try again in a while.
-        for (const ms of offDrain ? START_RETRY_MS : []) {
-          if (!started || started.ok || !isTransientSendError(started.error) || disposed) break
-          await pause(ms)
-          started = stopWanted.has(id) ? null : await bridge.start(args)
+        /** The start's answer, and what follows it: a stop that came meanwhile wins, a refusal is posted, a run is bound. */
+        const finish = async (first: LocalAgentResult<LocalAgentRun> | null, retries: readonly number[], waited = false): Promise<boolean> => {
+          let started = first
+          // Refused for now (a confirm is up on the Mac): the claim is ours, so try again in a while.
+          for (const ms of retries) {
+            if (!started || started.ok || !isTransientSendError(started.error) || disposed) break
+            await pause(ms)
+            started = stopWanted.has(id) ? null : await bridge.start(args)
+          }
+          // A stop came while it was claimed (or waited in line on the Mac): it wins, whatever the start did.
+          if (stopWanted.delete(id) || !started) {
+            if (started?.ok) await bridge.stop(id)
+            else await postState(id, { runId: provisional, status: 'cancelled' })
+            return false
+          }
+          if (!started.ok) {
+            // Dropped from the Mac's line (stopped there, local agents off, the app quitting): ended, not failed.
+            if (started.error === QUEUE_DROPPED) await postState(id, { runId: provisional, status: 'cancelled', error: started.error })
+            else await postState(id, { runId: provisional, status: 'failed', error: started.error || START_FAILED })
+            return false
+          }
+          const runId = started.value.runId ?? provisional
+          track.runId = runId
+          if (runId !== provisional) {
+            // The hold passes to the rebind: uploads wait until it lands, the drain doesn't.
+            rebindHeld(track, runId, provisional, release ?? undefined)
+            release = null
+          }
+          // A start that waited in the Mac's line: a fresh token at once (the one it
+          // began on may be hours old); else the claim's, refreshed on schedule.
+          if (waited) void refreshToken(track)
+          else if (claim.modelToken) scheduleTokenRefresh(track, claim.modelToken, claim.modelTokenExpiresAt)
+          ctx.live.add(id)
+          return true
         }
-        // A stop came while it was claimed: it wins, whatever the start did.
-        if (stopWanted.delete(id) || !started) {
-          if (started?.ok) await bridge.stop(id)
-          else await postState(id, { runId: provisional, status: 'cancelled' })
-          return false
-        }
-        if (!started.ok) {
-          await postState(id, { runId: provisional, status: 'failed', error: started.error || START_FAILED })
-          return false
-        }
-        const runId = started.value.runId ?? provisional
-        track.runId = runId
-        if (runId !== provisional) {
-          // The hold passes to the rebind: uploads wait until it lands, the drain doesn't.
-          rebindHeld(track, runId, provisional, release)
-          release = null
-        }
+        const startCall = stopWanted.has(id) ? null : bridge.start(args)
+        if (offDrain || !startCall) return await finish(startCall && (await startCall), offDrain ? START_RETRY_MS : [])
+        // On the drain, a start the Mac doesn't answer at once is waiting in its
+        // line for a free slot (or on the person): it finishes off the drain,
+        // still claimed (a stop meanwhile reaches it, and it is never claimed
+        // again), so stops and messages for other jobs never wait behind it.
+        const first = await settleWithin(startCall, START_INLINE_MS)
+        if (first !== STILL_WAITING) return await finish(first, [])
+        handedOff = true
+        const held = release
+        release = null
+        // While it waits in the Mac's line its token is kept fresh as a running
+        // job's is (set_model_token): the Mac begins it on the newest one.
         if (claim.modelToken) scheduleTokenRefresh(track, claim.modelToken, claim.modelTokenExpiresAt)
-        ctx.live.add(id)
-        return true
+        detach(id, async () => {
+          release = held
+          try {
+            return await finish(await startCall, [], true)
+          } finally {
+            release?.()
+            claiming.delete(id)
+            stopWanted.delete(id)
+          }
+        })
+        return false
       } finally {
         release?.()
       }
     } finally {
-      claiming.delete(id)
-      // A stop for a claim that never landed (a 409, say) has nothing to stop.
-      stopWanted.delete(id)
+      if (!handedOff) {
+        claiming.delete(id)
+        // A stop for a claim that never landed (a 409, say) has nothing to stop.
+        stopWanted.delete(id)
+      }
     }
+  }
+
+  /** `p`'s answer, or STILL_WAITING when it hasn't come within `ms` (the relay's clock). */
+  function settleWithin<T>(p: Promise<T>, ms: number): Promise<T | typeof STILL_WAITING> {
+    return new Promise((resolve) => {
+      const handle = clock.setTimeout(() => resolve(STILL_WAITING), ms)
+      void p.then(
+        (v) => {
+          clock.clearTimeout(handle)
+          resolve(v)
+        },
+        () => {
+          clock.clearTimeout(handle)
+          resolve(STILL_WAITING)
+        },
+      )
+    })
   }
 
   /** Respawn a job no launcher runs (with a fresh token), and rebind its run.
@@ -1258,6 +1365,46 @@ export function createLocalAgentRelay(deps: RelayDeps): LocalAgentRelay {
     }
   }
 
+  /**
+   * A freshly loaded relay takes over the starts the Mac holds in its line
+   * for a session this person claimed (an earlier page's): began, it binds
+   * the run as any reloaded job (readopt: gap-fill and rebind); gone from the
+   * line without beginning (stopped on the Mac, local agents off, the app
+   * quitting), it reports `cancelled` with the Mac's sentence. A start this
+   * relay still waits for (claiming) reports its own outcome.
+   */
+  async function followLine(status: LocalAgentStatus) {
+    for (const job of status.jobs) {
+      if (job.queued !== true || !UUID_RE.test(job.id) || claiming.has(job.id) || adoptedLine.has(job.id) || ignored.has(job.id)) continue
+      const res = await call('GET', `${API}/sessions/${job.id}?limit=1`)
+      const session = res.ok ? parseSession(res.body) : null
+      if (session?.status === 'starting' && session.runId) {
+        adoptedLine.set(job.id, session.runId)
+        // Its token's age is unknown (an earlier page claimed it): a fresh one
+        // now, then on schedule, so it begins on a live token however long it waits.
+        const track = tracks.get(job.id)
+        if (track) void refreshToken(track)
+        else adoptTrack(job.id)
+      }
+    }
+    for (const [id, runId] of [...adoptedLine]) {
+      const job = status.jobs.find((j) => j.id === id)
+      if (job?.queued === true) continue
+      adoptedLine.delete(id)
+      if (job) {
+        // It began: bind its run as any job found after a reload.
+        const track = tracks.get(id)
+        if (track) readopt(track)
+        else adoptTrack(id)
+      } else {
+        // Gone without beginning, and its start answered the earlier page: its
+        // reason is lost with that page. A stop from here is said by stopOne
+        // (a clean cancel); anything else is a failure, said plainly.
+        await postState(id, { runId, status: 'failed', error: LEFT_LINE_UNSAID })
+      }
+    }
+  }
+
   async function stopOne(sessionId: string, ctx: DrainCtx) {
     const last = stopIssued.get(sessionId)
     if (last !== undefined && clock.now() - last < STOP_RETRY_MS) return
@@ -1270,6 +1417,18 @@ export function createLocalAgentRelay(deps: RelayDeps): LocalAgentRelay {
       return
     }
     const job = ctx.status.jobs.find((j) => j.id === sessionId)
+    // Waiting in the Mac's line for a start no relay here waits for (a page
+    // reloaded meanwhile): Rust drops it from the line without an event, so
+    // its end is said here, as a clean cancel.
+    const adoptedRun = adoptedLine.get(sessionId)
+    if (job?.queued === true && adoptedRun) {
+      const stopped = await bridge.stop(sessionId)
+      if (stopped.ok) {
+        adoptedLine.delete(sessionId)
+        await postState(sessionId, { runId: adoptedRun, status: 'cancelled' })
+        return
+      }
+    }
     if (job?.live || ctx.live.has(sessionId)) {
       // Rust's `cancelled` status event settles the session.
       const stopped = await bridge.stop(sessionId)
@@ -1285,16 +1444,19 @@ export function createLocalAgentRelay(deps: RelayDeps): LocalAgentRelay {
   }
 
   /** A coding agent's job Rust has no launcher for: its start or revival
-   *  waits for the person's yes on the Mac. */
+   *  MAY wait on the person (the Mac asks once per agent per folder and
+   *  remembers the answer), so it runs off the drain, where a confirm never
+   *  holds anything else up. Most launches don't ask at all. */
   function waitsOnPerson(status: LocalAgentStatus, sessionId: string): boolean {
     const job = status.jobs.find((j) => j.id === sessionId)
     return !!job?.worker && !job.live
   }
 
-  /** The person is being asked already: by our own launch off the drain, or
-   *  a confirm Rust reports up. One at a time; Rust refuses a second. */
+  /** The person is being asked right now: only while Rust reports a
+   *  confirm up (`asking`). Then another worker launch waits (Rust would
+   *  refuse a second confirm); otherwise they go ahead side by side. */
   function personAsked(status: LocalAgentStatus): boolean {
-    return detached.size > 0 || status.jobs.some((j) => j.asking === true)
+    return status.jobs.some((j) => j.asking === true)
   }
 
   /** Run `work` off the drain (it settles and reports on its own); the
@@ -1323,6 +1485,7 @@ export function createLocalAgentRelay(deps: RelayDeps): LocalAgentRelay {
     if (!res.ok || disposed) return
     const pending = parsePending(res.body)
     const ctx: DrainCtx = { status, live: new Set() }
+    await followLine(status)
 
     // Stops first: never behind a start or a message, either of which can
     // wait on the person.

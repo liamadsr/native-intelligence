@@ -122,7 +122,8 @@ describe('startWorkOnMac', () => {
     expect(await run({ folderId: NOTES })).toMatchObject({ status: 'started', folder: 'notes', edits: false })
     expect(db.tables.local_agent_session[0]).toMatchObject({ folder_id: NOTES, mode: 'read' })
     expect(String(db.tables.local_agent_session[0].request)).toContain(WORK_JOB_READ_CLOSING)
-    expect(await run({ folderId: DOCS })).toMatchObject({ status: 'started', folder: 'docs', edits: false })
+    // Another card (one live job per card, migration 659).
+    expect(await run({ folderId: DOCS, action: { ...action, id: 'cccccccc-cccc-4ccc-8ccc-cccccccccc02', identifier: 'GEN-8' } })).toMatchObject({ status: 'started', folder: 'docs', edits: false })
     expect(db.tables.local_agent_session.find((s) => s.folder_id === DOCS)).toMatchObject({ mode: 'read' })
   })
 

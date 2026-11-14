@@ -78,6 +78,9 @@ import { turnOutsideReadTools } from '@/lib/chat/turn-outside-reads'
 import { isTimeZone } from '@/lib/chat-cards/calendar'
 import type { CreateToolsOptions } from '@/lib/ai/tools'
 import { gateRiskyCall, type GateRequest, type HeldCallOutput } from '@/lib/safety/action-review'
+import { outwardHoldOf } from '@/lib/safety/outward-gate'
+import { bareToolName } from '@/lib/mcp/tool-names'
+import { BOOK_QUOTE_TOOL, SEND_QUOTE_TOOL } from '@/lib/customers/quote-reply-input'
 import {
   UNATTENDED_TOOL_OPTIONS,
   createToolApproval,
@@ -86,6 +89,9 @@ import {
 } from '@/lib/safety/approvals'
 import { attendedOnlyToolsDeniedTo, decideAction, type CallerClass } from '@/lib/safety/caller'
 import { macNativeToolEntries } from './agent-seams'
+import { readSessionWorker } from './session-worker'
+import { workerLabel } from '@/lib/environments/types'
+import { workerCeiling } from './worker-tools'
 import { LOCAL_AGENT_MODEL_SLUG, checkSessionToken, type TokenSessionRow } from './relay'
 import type { ModelTokenClaims } from './tokens'
 import { MAC_WEB_TOOL_DEFINITIONS, MAC_WEB_TOOL_NAMES } from './web-tools'
@@ -148,6 +154,12 @@ export interface MacSession {
   /** For its cards: "Native Intelligence on <deviceName>", in <folderLabel>. */
   deviceName: string
   folderLabel: string
+  /**
+   * The person's own coding agent doing the work (migration 658), or null for
+   * Native Intelligence's own agent. A worker's job has no spec and no model relay; its
+   * tools are the board's alone (worker-tools.ts).
+   */
+  worker: string | null
 }
 
 /** A verified Mac body call: its token, its job, its caller class. */
@@ -203,6 +215,12 @@ export async function authorizeMacBody(request: Request, svc: SupabaseClient): P
   if (!session.conversation_id) {
     return conflict('This local agent has no conversation to work in', undefined, 'NO_CONVERSATION')
   }
+  let worker: string | null
+  try {
+    worker = await readSessionWorker(svc, session.id, session.user_id)
+  } catch {
+    return apiError('This local agent’s coding agent can’t be read', { status: 503, code: 'UNAVAILABLE' })
+  }
   return {
     claims,
     session: {
@@ -218,9 +236,18 @@ export async function authorizeMacBody(request: Request, svc: SupabaseClient): P
       localModel: session.local_model,
       deviceName: session.device?.name?.trim() || 'your Mac',
       folderLabel: session.folder?.label?.trim() || 'a shared folder',
+      worker,
     },
     caller: macCallerClass(session.started_by, session.idempotency_key),
   }
+}
+
+/** The code a door answers a worker's job with when it serves only Native Intelligence's own agent. */
+export const WORKER_JOB_CODE = 'WORKER_JOB'
+
+/** A door that serves only Native Intelligence's own agent, asked by a job on the person's own coding agent. */
+export function workerJobRefusal(): Response {
+  return conflict('This job runs on your own coding agent: it has no Native Intelligence agent here.', undefined, WORKER_JOB_CODE)
 }
 
 /**
@@ -287,6 +314,24 @@ export function macCeiling(
   return out
 }
 
+/**
+ * A worker job's ceiling (the owner's "everything", 2026-11-14): what Native Intelligence's
+ * own agent on the Mac has for the same caller class (macCeiling: the main
+ * chat's ceiling with the edition and the workspace's limits, the person's
+ * connected tools, minus the Mac's exclusions and the attended-only tools
+ * the class is denied), less the server-run web tools (the coding agent has
+ * its own, on the person's plan; ours would run on our account) and the
+ * Mac's own teammate tools (the adapter has its manager tools). The tools
+ * list's pinned tools and the tool route's check both come from it.
+ */
+export function macWorkerCeiling(
+  chatCeiling: ReadonlySet<string> | readonly string[] | null,
+  externalMcpToolNames: readonly string[],
+  opts: { caller: CallerClass; localModel: boolean },
+): Set<string> {
+  return workerCeiling(macCeiling(chatCeiling, externalMcpToolNames, opts), [...MAC_WEB_TOOL_NAMES, ...macNativeToolEntries().map((t) => t.name)])
+}
+
 // ── The call context ────────────────────────────────────────────────────────
 
 /**
@@ -308,6 +353,8 @@ export interface MacApprovalJob {
   sessionId: string
   deviceName: string
   folderLabel: string
+  /** The person's own coding agent doing the job, by its label (its cards name it). */
+  workerLabel?: string
 }
 
 /**
@@ -323,7 +370,12 @@ export function macApprovalContext(body: MacBody): ApprovalContext {
   // `localAgent` rides as JSON on tool_approval.context; ApprovalContext names it once WS-D adds it.
   const context: ApprovalContext & { localAgent: MacApprovalJob } = {
     tools,
-    localAgent: { sessionId: body.session.id, deviceName: body.session.deviceName, folderLabel: body.session.folderLabel },
+    localAgent: {
+      sessionId: body.session.id,
+      deviceName: body.session.deviceName,
+      folderLabel: body.session.folderLabel,
+      ...(body.session.worker ? { workerLabel: workerLabel(body.session.worker) } : {}),
+    },
   }
   return context
 }
@@ -355,6 +407,8 @@ export function macCreateToolsOptions(
     searchDefaultWindow: 'past_4_weeks',
     flowContext: { turnReadOutside: () => turnOutsideReadTools(turnKey) },
     ...(isTimeZone(scope.timeZone) ? { timeZone: scope.timeZone } : {}),
+    // A coding agent's context and logs are a third-party vendor's: an attachment's signed link lives 10 minutes there.
+    ...(body.session.worker ? { signedUrlTtlSeconds: WORKER_SIGNED_URL_TTL_SECONDS } : {}),
     ...(unattended
       ? {
           omitPrivateCaptures: true,
@@ -365,6 +419,9 @@ export function macCreateToolsOptions(
       : {}),
   }
 }
+
+/** How long an attachment's signed link lives for a job on the person's own coding agent. */
+export const WORKER_SIGNED_URL_TTL_SECONDS = 600
 
 /** How many of the person's own words the reviewer reads (reviewPersonMessages keeps 3). */
 const PERSON_WORDS_MAX = 3
@@ -477,40 +534,103 @@ export function withMacConfirmWording(tools: Record<string, Tool>, _svc: Supabas
 }
 
 /**
- * A local model's gate (the integration notes' "Local-model Macs"): every
+ * Internal writes a coding agent's call holds as the person's card, like a
+ * risky one: each makes or reopens a link or page that people outside the
+ * workspace can open without signing in (a planted instruction must not be
+ * able to open one). What belongs here: a tool whose effect is such a link
+ * or page. Native Intelligence's own agent runs them as before.
+ *   create_booking_link     a standing page anyone books the person's time from
+ *   update_booking_link     turns such a page back on (or changes it)
+ *   create_quote_form_link  the secret URL a website's quote form posts to
+ *   connect_link            a link that connects an account to the person's workspace
+ */
+export const WORKER_HELD_PUBLIC_TOOLS: ReadonlySet<string> = new Set(['create_booking_link', 'update_booking_link', 'create_quote_form_link', 'connect_link'])
+
+/**
+ * Tools that raise their OWN card whenever the call isn't that card's replay
+ * (their words or state pinned on the approval): a coding agent's call takes
+ * that flow, never the generic hold, whose approval their replay would refuse.
+ */
+export const WORKER_OWN_CARD_TOOLS: ReadonlySet<string> = new Set([
+  'launch_sequence',
+  'launch_campaign',
+  'delete_document',
+  'delete_bot',
+  'merge_bots',
+  'disconnect',
+  'delete_flow',
+  'transfer_flow_owner',
+  'request_flow_takeover',
+])
+
+/** Tools that run only as their own outward card's replay: with no card to raise, the tool refuses itself (nothing reaches anyone). */
+const RUNS_ONLY_AS_OWN_CARD: ReadonlySet<string> = new Set([SEND_QUOTE_TOOL, BOOK_QUOTE_TOOL])
+
+/**
+ * A local model's gate (the integration notes' "Local-model Macs"), and a
+ * job on the person's own coding agent's (migration 658's worker): every
  * RISKY call (outward, delete, automation-write, an outside tool) is held as
  * the person's card (asked in their home thread), whatever the reviewer would
  * say; for an unattended job it is refused NEEDS_PERSON (no one is there to
  * answer). Internal writes aren't risky: they run, through the usual gate
  * (apply with undo). Not a local model: the usual gate.
+ *
+ * For a coding agent, also: the public-link tools ({@link WORKER_HELD_PUBLIC_TOOLS})
+ * are held as risky; a tool with its own card takes it, so the person's yes
+ * then really runs it: the self-carding tools ({@link WORKER_OWN_CARD_TOOLS})
+ * run and raise their own, and a call the outward gate makes its own card for
+ * (a quote, a time offer, a payment link, a Studio spend, an unsubscribe, a
+ * post, an invite, a connected app's write) goes through gateRiskyCall, which
+ * raises that card (never the reviewer's allow: the outward hold comes first).
  */
 export function localModelGate(body: MacBody): typeof gateRiskyCall {
-  if (!body.session.localModel) return gateRiskyCall
-  return async <T,>(request: GateRequest, run: () => Promise<T>) => {
-    if (!request.sideEffect) return gateRiskyCall(request, run)
+  const worker = body.session.worker
+  // A job on the person's own coding agent is held like a local model: a
+  // third-party agent with outbound network, reading repositories nobody
+  // vetted, is at least as exposed to planted instructions.
+  if (!body.session.localModel && !worker) return gateRiskyCall
+  const label = worker ? `${workerLabel(worker)} on ${body.session.deviceName}` : `Native Intelligence on ${body.session.deviceName}`
+  const why = worker
+    ? `${label} (in ${body.session.folderLabel}) is your own coding agent, so anything that changes or sends something outside your workspace, opens a public link, or deletes, waits for you.`
+    : `${label} (in ${body.session.folderLabel}) is running on a model on your Mac, so anything that changes or sends something outside your workspace waits for you.`
+  return async <T,>(gateRequest: GateRequest, run: () => Promise<T>) => {
+    const name = bareToolName(gateRequest.toolName)
+    const sideEffect = gateRequest.sideEffect ?? (worker && WORKER_HELD_PUBLIC_TOOLS.has(name) ? 'external-write' : null)
+    const ownCard = !!worker && WORKER_OWN_CARD_TOOLS.has(name)
+    if (!sideEffect && !ownCard) return gateRiskyCall(gateRequest, run)
+    const request = { ...gateRequest, sideEffect }
     if (decideAction(body.caller, 'outward', request.toolName) !== 'ask') {
       const output: HeldCallOutput = {
         success: false,
         code: 'NEEDS_PERSON',
         approval_id: null,
-        message: `Nothing ran. On a model on the Mac, ${request.toolName} needs the person's yes, and nobody is here to give it. Say what you would have done.`,
+        message: worker
+          ? `Nothing ran. From ${label}, ${request.toolName} needs the person's yes, and nobody is here to give it. Do not retry it; say in your finish summary what you would have done.`
+          : `Nothing ran. On a model on the Mac, ${request.toolName} needs the person's yes, and nobody is here to give it. Say what you would have done.`,
       }
       return { held: true as const, output }
+    }
+    if (worker) {
+      // Its own card, raised by the tool itself: the person's yes replays it.
+      if (ownCard) return { held: false as const, value: await run() }
+      // The outward gate's own card (gateRiskyCall raises it before any review).
+      const own = await outwardHoldOf({ userId: request.userId, workspaceId: request.workspaceId, toolName: request.toolName, input: request.input, externalTool: request.externalTool })
+      if (own || RUNS_ONLY_AS_OWN_CARD.has(name)) return gateRiskyCall(request, run)
     }
     const held = await createToolApproval(request.approval.supabase, {
       door: request.door,
       userId: request.userId,
       workspaceId: request.workspaceId,
       toolName: request.toolName,
-      sideEffect: request.sideEffect,
+      sideEffect: sideEffect as NonNullable<GateRequest['sideEffect']>,
       input: request.input,
       conversationId: request.approval.conversationId ?? null,
       context: request.approval.context,
-      reason: 'local_model',
+      reason: worker ? 'coding_agent' : 'local_model',
       personMessageSeq: request.personMessageSeq ?? null,
       card: {
         title: `Approve ${request.toolName}?`,
-        why: `Native Intelligence on ${body.session.deviceName} (in ${body.session.folderLabel}) is running on a model on your Mac, so anything that changes or sends something outside your workspace waits for you. This runs ${request.toolName} once, with exactly the inputs below.`,
+        why: `${why} This runs ${request.toolName} once, with exactly the inputs below.`,
       },
     })
     const output: HeldCallOutput = {

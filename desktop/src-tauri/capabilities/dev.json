@@ -60,6 +60,7 @@
     "allow-is-cursor-over-hud",
     "allow-list-input-devices",
     "allow-local-agent-device",
+    "allow-local-agent-diff",
     "allow-local-agent-events",
     "allow-local-agent-pick-folder",
     "allow-local-agent-remove-grant",
