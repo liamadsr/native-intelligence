@@ -91,8 +91,10 @@ test('each thing not proven sends the export to Chrome, with a reason', () => {
     ['an unsynced camera', (p) => { delete p.presenterTrack.sync }, /synced/],
     ['punched-in takes', (p) => { p.presenterTrack.takes = [{ screenAssetId: 'a', assetId: 'b', offsetSeconds: 0 }] }, /takes/],
     ['a 60 fps camera in a 60 fps video', (p) => { p.assets[1] = video('b', 1920, 1080, 60, 400) }, /60 fps in a 60/],
-    // The arrow and the glass are drawn (fast-pointer.ts): a look that is neither is not.
-    ['a pointer of another look', (p) => { p.assets[0].sourceCursorHidden = true; p.assets[0].trace = { viewport: { width: 1280, height: 720, scale: 1 }, cursor: [[0, 1, 1]], actions: [] }; p.cursor.style = 'beam' }, /beam pointer/],
+    // The arrow and the glass are drawn (fast-pointer.ts), from fields of the trace it knows: one it does not (the schema
+    // passes a trace's and its actions' extra fields through) is not drawn here.
+    ['a pointer whose trace has a field this path does not know', (p) => { p.assets[0].sourceCursorHidden = true; p.cursor.style = 'arrow'
+      p.assets[0].trace = { viewport: { width: 1280, height: 720, scale: 1 }, cursor: [[0, 1, 1]], actions: [{ t: 10, end: 20, kind: 'click', label: 'Click', box: null, pressure: 0.4 }] } }, /trace has pressure, which this path does not know/],
     ['a recording at another size', (p) => { p.output = { width: 1920, height: 1080, fps: 60 } }, /size/],
     ['a recording at another rate', (p) => { p.output.fps = 30 }, /rate/],
     ['24 fps', (p) => { p.output.fps = 24; p.assets[0] = video('a', 1280, 720, 24, 144) }, /24 fps/],

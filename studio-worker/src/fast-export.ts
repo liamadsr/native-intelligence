@@ -26,7 +26,7 @@
  */
 import { createRequire } from 'node:module'
 import type { EditorAsset, EditorClip, EditorProject } from '../../web/src/lib/studio/engine/contracts.ts'
-import { clipPointer, lookup, pointerFilters, type PointerLayer, type PointerPlan, type PointerState } from './fast-pointer.ts'
+import { clipPointer, lookup, pointerBudgetProblem, pointerFilters, type PointerLayer, type PointerPlan, type PointerState } from './fast-pointer.ts'
 
 const require = createRequire(import.meta.url)
 // Each by its own literal path, so a bundler (scripts/build-local-runner.ts) takes exactly these files in.
@@ -72,6 +72,11 @@ const PRESENTATION_KEYS = new Set(['background', 'blur', 'padding', 'inset', 'ra
 const PRESENTER_KEYS = new Set(['id', 'assetId', 'audio', 'segments', 'sync', 'style', 'takes'])
 const SEGMENT_KEYS = new Set(['id', 'startFrame', 'endFrame', 'sourceStartFrame', 'visual', 'tracks'])
 const VISUAL_KEYS = new Set(['rect', 'crop', 'scale', 'tiltX', 'tiltY', 'rotateZ', 'opacity'])
+/** The pointer's settings, and the fields of a recording's trace the pointer is drawn from (pointer.ts) or that the desktop recorder writes beside them (recorder-bridge-types.ts, StudioTrace). */
+const CURSOR_KEYS = new Set(['style', 'size', 'clickFeedback'])
+const TRACE_KEYS = new Set(['viewport', 'cursor', 'actions', 'version', 'clock', 'focus', 'durationMs', 'mode', 'warnings'])
+const VIEWPORT_KEYS = new Set(['x', 'y', 'width', 'height', 'scale'])
+const ACTION_KEYS = new Set(['t', 'end', 'kind', 'label', 'box', 'button'])
 /** Output rates, clip speeds, camera rates and bubble shapes tested. */
 export const PROVEN = { fps: [30, 60],
   /** Clip speed in video rate. */
@@ -106,6 +111,8 @@ export function fastExportPlan(project: EditorProject): FastPlan | { reason: str
   if (!empty(project.sources)) return deny('it has extra recorded windows or cameras')
   if (project.slideDeck) return deny('it has a slide deck')
   if ((project.automation?.lanes ?? []).some((lane) => lane.points.length > 0)) return deny('it has automation (zoom, pan, slide, blur, volume…)')
+  const cursorUnknown = unknownKey(project.cursor, CURSOR_KEYS, 'The pointer')
+  if (cursorUnknown) return deny(cursorUnknown)
   const pr = project.presentation
   const presentationUnknown = unknownKey(pr, PRESENTATION_KEYS, 'The look')
   if (presentationUnknown) return deny(presentationUnknown)
@@ -196,6 +203,11 @@ export function fastExportPlan(project: EditorProject): FastPlan | { reason: str
   if (!audible(project)) return deny('it has no sound (that case is not tested)')
   const pointers = segments.flatMap((x) => (x.pointer ? [x.pointer] : []))
   if (pointers.some((x) => x.size !== pointers[0]!.size)) return deny("its recordings' pointers are drawn at different sizes")
+  // Bounded before Chrome draws anything (fast-pointer.ts, POINTER_LIMITS): the pictures, their bytes, a clip's places.
+  if (pointers.length) {
+    const why = pointerBudgetProblem(pointers[0]!, segments.map((x) => ({ states: x.pointer?.states ?? null, held: x.blend?.pointer ?? null })), W, H)
+    if (why) return deny(why)
+  }
   for (const seg of segments) {
     const why = realiseProblem(seg.screen, fps) ?? (seg.bubble ? realiseProblem(seg.bubble.camera, fps) : null)
     if (why) return deny(why)
@@ -208,7 +220,14 @@ function screenProblem(asset: EditorAsset, project: EditorProject): string | nul
   if (asset.kind !== 'video' || !/\.mp4$/.test(asset.file) || !asset.sourceFrames) return 'its recording is not an MP4 video'
   if (asset.width !== width || asset.height !== height) return 'its recording is not the size of the video'
   if (asset.sourceFps !== fps) return 'its recording is not at the video\'s frame rate'
-  if (asset.sourceCursorHidden && (asset.trace?.cursor?.length ?? 0) > 0 && project.cursor.style !== 'none' && !(PROVEN.pointers as readonly string[]).includes(project.cursor.style)) return `it draws a ${project.cursor.style} pointer`
+  const drawn = asset.sourceCursorHidden && (asset.trace?.cursor?.length ?? 0) > 0 && project.cursor.style !== 'none'
+  if (drawn && !(PROVEN.pointers as readonly string[]).includes(project.cursor.style)) return `it draws a ${project.cursor.style} pointer`
+  if (drawn) {
+    const t = asset.trace!
+    const why = unknownKey(t, TRACE_KEYS, "Its recording's pointer trace") ?? unknownKey(t.viewport, VIEWPORT_KEYS, "Its recording's pointer area")
+    if (why) return why
+    for (const a of t.actions) { const extra = unknownKey(a, ACTION_KEYS, "An action in its recording's trace"); if (extra) return extra }
+  }
   return null
 }
 
@@ -349,7 +368,9 @@ export function bubbleSampling(g: ReturnType<typeof bubbleGeometry>): string {
 
 /** One clip's FFmpeg arguments (inputs as files under `dir`, the asset cache's parent), writing `out`. */
 export function segmentArgs(seg: SegmentPlan, fps: number, path: (file: string) => string, out: string, hashes?: FrameHashes, encoder: string[] = FAST_ENCODER,
-  pointer?: { layer: PointerLayer; held: PointerLayer | null; tap?: { frames: number[]; file: string; cx?: number[]; cy?: number[]; cw?: number; ch?: number } | null }): string[] {
+  pointer?: { layer: PointerLayer; held: PointerLayer | null; tap?: { frames: number[]; file: string; cx?: number[]; cy?: number[]; cw?: number; ch?: number } | null
+    /** The held pointer's check: its window after the blend, on a few blended frames, raw 4:2:0 (fast-export-run.ts). */
+    heldTap?: { frames: number[]; file: string } | null }): string[] {
   const inputs: string[] = [], graph: string[] = [], extra: string[] = []
   let n = 0
   const input = (file: string, srcFps: number, first: number, last: number) => { inputs.push(...seekArgs({ srcFps }, first, last), '-i', path(file)); return n++ }
@@ -364,7 +385,7 @@ export function segmentArgs(seg: SegmentPlan, fps: number, path: (file: string) 
   let screenOut = hashes?.screen.length ? 'scr0k' : 'scr0'
   // The pointer, on the screen itself: under the blend (a cut's two pointers fade as their pictures do) and the bubble.
   if (pointer) {
-    graph.push(...pointerFilters('ptr', screenOut, 'scrp', list(pointer.layer.sprites), pointer.layer.blur ? list(pointer.layer.blur) : null, pointer.layer, fps))
+    graph.push(...pointerFilters('ptr', screenOut, 'scrp', list(pointer.layer.sprites), list(pointer.layer.masks), pointer.layer.blur ? list(pointer.layer.blur) : null, pointer.layer, fps))
     screenOut = 'scrp'
     // The pointer's check (fast-export-run.ts): its window on a few frames as drawn, before any encoder, raw 4:2:0, every
     // HASH_STRIDE-th frame's too (hashTaps: the output must not wait long for its next frame).
@@ -383,13 +404,20 @@ export function segmentArgs(seg: SegmentPlan, fps: number, path: (file: string) 
     const a = `min(1\\,(round(T*${fps})+1)/${f + 1})`
     let heldIn = `${held}:v`
     if (pointer?.held) {
-      graph.push(`[${heldIn}]trim=end_frame=1,setpts=0[held0]`, ...pointerFilters('hptr', 'held0', 'held1', list(pointer.held.sprites), pointer.held.blur ? list(pointer.held.blur) : null, pointer.held, fps))
+      graph.push(`[${heldIn}]trim=end_frame=1,setpts=0[held0]`, ...pointerFilters('hptr', 'held0', 'held1', list(pointer.held.sprites), list(pointer.held.masks), pointer.held.blur ? list(pointer.held.blur) : null, pointer.held, fps))
       heldIn = 'held1'
     }
     graph.push(`[${heldIn}]trim=end_frame=1,setpts=0,loop=loop=${f - 1}:size=1:start=0,settb=1/${fps},setpts=N[held]`,
       `[${screenOut}]split[sa][sb]`, `[sa]trim=end_frame=${f},settb=1/${fps},setpts=N[head]`, `[sb]trim=start_frame=${f},setpts=PTS-STARTPTS[tail]`,
       `[head][held]blend=all_expr='A*${a}+B*(1-${a})'[mixed]`, `[mixed][tail]concat=n=2:v=1:a=0[scr1]`)
     screenOut = 'scr1'
+    // The held pointer's check: its window after the blend (the outgoing frame and its pointer fading out under the
+    // incoming one), as drawn, before any encoder.
+    if (pointer?.held && pointer.heldTap?.frames.length) {
+      graph.push(`[scr1]split[scr1q][htapin]`, `[htapin]${selectFrames(pointer.heldTap.frames)},crop=w=${pointer.held.cw}:h=${pointer.held.ch}:x=${pointer.held.cx[0]}:y=${pointer.held.cy[0]},format=yuv420p[htap]`)
+      extra.push('-map', '[htap]', '-fps_mode', 'passthrough', '-f', 'rawvideo', pointer.heldTap.file)
+      screenOut = 'scr1q'
+    }
   }
   // Every stream counted in whole frames on one clock, so the overlay pairs frames by number, not by rounded times.
   graph.push(`[${screenOut}]settb=1/${fps},setpts=N[scrN]`)

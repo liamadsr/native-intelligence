@@ -27,7 +27,8 @@ import { parseEditorProject } from '../engine.ts'
 import { stageAssets } from '../assets.ts'
 import { masterFile } from '../master.ts'
 import { mediaTimeout, probe, run, runBuffer } from '../media.ts'
-import { chromePointerArt, SPRITE_FPS, SPRITE_TABS } from '../fast-pointer.ts'
+import { chromePointerArt, SPRITE_FPS } from '../fast-pointer.ts'
+import { availableCpus } from '../config.ts'
 import { bt709WithSwscale, COMPOSITION_ID, EXPORT_ENCODING, inputPropsFor, unstagedNeeds } from '../render.ts'
 import { stageFonts } from '../fonts.ts'
 import { checkCodeScenes, stageScenes } from '../scenes.ts'
@@ -48,6 +49,18 @@ export function whyNotHeld(err: unknown, max = 400): string {
   const last = parts.length > 1 ? parts.at(-1)!.slice(0, Math.floor(max / 2)) : ''
   return last ? `${line.slice(0, max - last.length - 5)} … | ${last}` : `${line.slice(0, max - 1)}…`
 }
+
+/** What a fast export leaves in its scratch folder (removed before Chrome renders instead): its parts, its checked frames, the pointer's files (scratch/pointer/). */
+export const FAST_LEFTOVERS = /^(fast-|video\.fast\.|pointer$)/
+
+/**
+ * The Chrome tabs the pointer's pictures are drawn in, all passes together: their own budget, not the export's (its tabs
+ * are bounded for full frames, gigabytes each at 5K; a pointer tab draws a window of a few hundred pixels:
+ * fast-pointer.ts, spriteProject): the CPUs this process may use (a container's quota), at most POINTER_TABS, at least 1;
+ * a lower STUDIO_RENDER_CONCURRENCY someone set still wins. Pure.
+ */
+export const POINTER_TABS = 8
+export const spriteTabs = (cpus: number, said: number | null | undefined = null) => Math.max(1, Math.min(POINTER_TABS, Math.floor(cpus), said ?? Infinity))
 
 export function frozenProject(value: unknown) {
   try {
@@ -150,10 +163,12 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
               ctx.log(`Fast export: ${await composeSound({ project, frames: plan.frames, fps: plan.fps, path: (file) => join(dirname(ctx.cache.dir), file), out, scratch: ctx.scratch,
                 probe: (file) => probes.get(file) ?? null, remotion: async (r, o) => { await window(r, o) }, whole, signal: ctx.signal, log: ctx.log })}`)
             },
-            // The pointer's states, drawn by Chrome in a made-up video of the pointer alone (fast-pointer.ts).
-            pointerArt: chromePointerArt({ project, serveUrl, common: shared, assetsDir: ctx.cache.dir, scratch: ctx.scratch, signal: ctx.signal, concurrency: SPRITE_TABS,
-              encode: (w, h) => encoderArgs(ctx.config.fastEncoder, w, h, SPRITE_FPS, ctx.config.encoderRung), run: (file, args, o) => runBuffer(file, args, { signal: o.signal, input: o.input, maxBuffer: 1 << 30 }),
-              remotion: { renderFrames, selectComposition }, inputProps: (p) => inputPropsFor(p), compositionId: COMPOSITION_ID, cancelSignal }),
+            // The pointer's states, drawn by Chrome in a made-up video of the pointer alone (fast-pointer.ts), in tabs of their
+            // own shared by all its passes (spriteTabs: the CPU quota, at most 8). Its pictures go to disk: what FFmpeg prints
+            // here is a line of hashes at most.
+            pointerArt: chromePointerArt({ project, serveUrl, common: shared, assetsDir: ctx.cache.dir, scratch: ctx.scratch, signal: ctx.signal, tabs: spriteTabs(availableCpus(), ctx.config.renderConcurrencySaid),
+              encode: (w, h) => encoderArgs(ctx.config.fastEncoder, w, h, SPRITE_FPS, ctx.config.encoderRung), run: (file, args, o) => runBuffer(file, args, { signal: o.signal, input: o.input, timeout: o.timeout }),
+              remotion: { renderFrames, selectComposition }, inputProps: (p) => inputPropsFor(p), compositionId: COMPOSITION_ID, cancelSignal, log: ctx.log }),
             stills: async (frames) => {
               const out = new Map<number, string>()
               for (const frame of frames) {
@@ -171,7 +186,7 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
           ctx.log(`The fast export did not hold (${whyNotHeld(err)}): rendering in Chrome instead`)
           output = join(ctx.scratch, 'video.partial.mp4')
           // Its parts, picture, sound and checked frames (two to three times the video's size) go before Chrome starts.
-          for (const name of await readdir(ctx.scratch).catch(() => [] as string[])) if (/^(fast-|video\.fast\.)/.test(name)) await removeQuietly(join(ctx.scratch, name))
+          for (const name of await readdir(ctx.scratch).catch(() => [] as string[])) if (FAST_LEFTOVERS.test(name)) await removeQuietly(join(ctx.scratch, name))
         } finally {
           ctx.signal.removeEventListener('abort', onAbort)
           await browser?.close({ silent: true }).catch(() => undefined)

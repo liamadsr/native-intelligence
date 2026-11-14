@@ -14,7 +14,10 @@
  * (neither a multiple of 16), cuts at odd frames with their blend, a take starting mid-source, a 2x stretch, the bubble
  * in each corner, round and rounded, a 30 fps camera in a 60 fps video and a 60 fps one in a 30 fps video, a camera
  * whose offset falls between frames, two looks (the default; a gradient background with a shadow and a blur), the
- * recording's own sound with cut fades, and a microphone track.
+ * recording's own sound with cut fades, and a microphone track; the recorded pointer (arrow and glass, clicks on and
+ * off, through cuts, blends and a 2x clip, along every edge and corner of the frame, at the usual size and a large one),
+ * its run-time check (its window the source's outside the pointer, the held pointer under a blend) and wrong pointers
+ * that check must catch.
  *
  *   STUDIO_CHROME=<a headless shell folder> node --import tsx test/fast-export-e2e.ts
  *
@@ -33,9 +36,9 @@ import { dirname, join, resolve } from 'node:path'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { FakeApp, type FakeJob } from './fake-app.ts'
-import { madeUpTrace } from './pointer-fixtures.ts'
+import { edgeTrace, madeUpTrace } from './pointer-fixtures.ts'
 import { fastExportPlan, hashTaps, segmentArgs, FAST_ENCODER } from '../src/fast-export.ts'
-import { maskedPsnr, pointerLayers, pointerSamples } from '../src/fast-export-run.ts'
+import { artInside, heldBox, maskedPsnr, pointerBoxes, pointerLayers, pointerSamples } from '../src/fast-export-run.ts'
 import { checkFloor, encoderArgs, type EncoderProfile } from '../src/encoders.ts'
 import { runBuffer } from '../src/media.ts'
 import { chromePointerArt, layerWindow, lookup, placements } from '../src/fast-pointer.ts'
@@ -228,39 +231,41 @@ async function main() {
         const common = await renderer.common(() => {}, c.project)
         const scratch = join(dir, `${c.name}-pointer`)
         await mkdir(scratch, { recursive: true })
-        const art = chromePointerArt({ project: c.project, serveUrl, common, assetsDir: join(workDir, 'cache', 'assets'), scratch, signal: new AbortController().signal, concurrency: 4,
+        const art = chromePointerArt({ project: c.project, serveUrl, common, assetsDir: join(workDir, 'cache', 'assets'), scratch, signal: new AbortController().signal, tabs: 3,
           encode: (w, h) => encoderArgs((process.env.STUDIO_FAST_ENCODER ?? 'x264') as EncoderProfile, w, h, 60), run: (file, args, o) => runBuffer(file, args, { signal: o.signal, input: o.input, maxBuffer: 1 << 30 }),
           remotion: { renderFrames, selectComposition }, inputProps: (p) => inputPropsFor(p), compositionId: COMPOSITION_ID })
-        const { layers, box: pointerBox } = await pointerLayers({ plan, pointerArt: art, log: () => {} } as never, scratch)
-        // The clip the check samples a pointer in (the first such), and those frames.
+        // The clip the check samples a pointer in (the first such), and those frames (its own pointer's, not the held one's).
         const sampled = pointerSamples(plan)
-        const i = Math.max(0, plan.segments.findIndex((x) => x.pointer && sampled.some((f) => f >= x.startFrame && f < x.startFrame + x.frames)))
-        const seg = plan.segments[i]!, layer = layers.get(i)!
+        const i = Math.max(0, plan.segments.findIndex((x) => x.pointer && sampled.some((f) => f >= x.startFrame + (x.blend?.frames ?? 0) && f < x.startFrame + x.frames)))
+        const seg = plan.segments[i]!, own = pointerBoxes(seg, plan)
         // STUDIO_FAST_E2E_POINTER_ALL=1: every third frame of that clip whose pointer is checked (a calibration of the floors), not only the sampled ones.
-        const samples = process.env.STUDIO_FAST_E2E_POINTER_ALL
-          ? Array.from({ length: seg.frames }, (_, l) => seg.startFrame + l).filter((f, k) => k % 3 === 0 && pointerBox(f) && (seg.pointer?.states[f - seg.startFrame - 1] ?? null) !== null)
-          : sampled.filter((f) => f >= seg.startFrame && f < seg.startFrame + seg.frames)
+        const wanted = process.env.STUDIO_FAST_E2E_POINTER_ALL
+          ? Array.from({ length: seg.frames }, (_, l) => seg.startFrame + l).filter((f, k) => k % 3 === 0 && own[f - seg.startFrame] && (seg.pointer?.states[f - seg.startFrame - 1] ?? null) !== null)
+          : sampled.filter((f) => f >= seg.startFrame + (seg.blend?.frames ?? 0) && f < seg.startFrame + seg.frames)
+        const { layers, boxes } = await pointerLayers({ plan, pointerArt: art, log: () => {} }, scratch, wanted)
+        const layer = layers.get(i)!, samples = wanted.filter((f) => boxes.has(f)), pointerBox = (f: number) => boxes.get(f)
                 const late = async (file: string | null, name: string) => {
           if (!file) return null
           const l = (await readFile(file, 'utf8')).trim().split('\n'), out = join(scratch, name)
           await writeFile(out, [l[0]!, ...l.slice(0, -1)].join('\n') + '\n')
           return out
         }
-        const lateList = (await late(layer.layer.sprites, 'late.txt'))!, lateBlur = await late(layer.layer.blur, 'late-blur.txt')
+        const lateList = (await late(layer.layer.sprites, 'late.txt'))!, lateMasks = (await late(layer.layer.masks, 'late-masks.txt'))!, lateBlur = await late(layer.layer.blur, 'late-blur.txt')
         // The other look's pictures in the same places (the glass for the arrow, the arrow for the glass): the wrong art.
         const other = { ...c.project, cursor: { ...c.project.cursor, style: c.project.cursor.style === 'glass' ? 'arrow' : 'glass' } } as EditorProject
         const otherPlan = fastExportPlan(other) as Extract<ReturnType<typeof fastExportPlan>, { segments: unknown }>
         const otherScratch = join(scratch, 'other')
         await mkdir(otherScratch, { recursive: true })
-        const otherArt = chromePointerArt({ project: other, serveUrl, common, assetsDir: join(workDir, 'cache', 'assets'), scratch: otherScratch, signal: new AbortController().signal, concurrency: 4,
+        const otherArt = chromePointerArt({ project: other, serveUrl, common, assetsDir: join(workDir, 'cache', 'assets'), scratch: otherScratch, signal: new AbortController().signal, tabs: 3,
           encode: (w, h) => encoderArgs((process.env.STUDIO_FAST_ENCODER ?? 'x264') as EncoderProfile, w, h, 60), run: (file, args, o) => runBuffer(file, args, { signal: o.signal, input: o.input, maxBuffer: 1 << 30 }),
           remotion: { renderFrames, selectComposition }, inputProps: (p) => inputPropsFor(p), compositionId: COMPOSITION_ID })
-        const otherLayer = (await pointerLayers({ plan: otherPlan, pointerArt: otherArt, log: () => {} } as never, otherScratch)).layers.get(i)!
+        const otherLayer = (await pointerLayers({ plan: otherPlan, pointerArt: otherArt, log: () => {} }, otherScratch, [])).layers.get(i)!
         const variants = {
           right: layer,
           'the other look': otherLayer,
           '2px off': { ...layer, layer: { ...layer.layer, cx: layer.layer.cx.map((x) => x + 2) } },
-          'a frame late': { ...layer, layer: { ...layer.layer, sprites: lateList, blur: lateBlur, cx: [layer.layer.cx[0]!, ...layer.layer.cx.slice(0, -1)], cy: [layer.layer.cy[0]!, ...layer.layer.cy.slice(0, -1)] } },
+          'a frame late': { ...layer, layer: { ...layer.layer, sprites: lateList, masks: lateMasks, blur: lateBlur, cx: [layer.layer.cx[0]!, ...layer.layer.cx.slice(0, -1)], cy: [layer.layer.cy[0]!, ...layer.layer.cy.slice(0, -1)],
+            shown: [layer.layer.shown[0]!, ...layer.layer.shown.slice(0, -1)] } },
         }
         // As the run-time check measures (fast-export-run.ts): the window as drawn, before the encoder (the tap), against
         // Chrome's still of the frame, over the pixels the pointer's picture covers or blurs.
@@ -300,6 +305,15 @@ async function main() {
         assert.ok(o.fastLog.some((l) => /with FFmpeg \(the fast export/.test(l)), `${c.name}: the fast export did not run: ${o.fastLog.filter((l) => /Chrome|fast export/.test(l)).join(' | ')}`)
         assert.ok(o.fastLog.some((l) => /^Composed in/.test(l)), `${c.name}: the fast export fell back: ${o.fastLog.filter((l) => /fast export|Chrome/.test(l)).join(' | ')}`)
         assert.ok(o.chromeLog.some((l) => /Rendering in Chrome: STUDIO_FAST_EXPORT is off/.test(l)))
+        // The pointer's checks ran: every checked window of a clip's own pointer is the source's outside the pixels the
+        // pointer touches, to the bit (before the encoder); a blend with a held pointer has its own check.
+        if (c.project.cursor.style !== 'none' && pointerWindows(c.project)) {
+          const own = o.fastLog.filter((l) => /^Fast export check.*, pointer [\d.]+ dB/.test(l))
+          assert.ok(own.length > 0 && own.every((l) => /the rest of its window the source's to the bit/.test(l)), `${c.name}: a checked pointer window was not the source's outside the pointer: ${own.join(' | ')}`)
+          const plan = fastExportPlan(c.project) as Extract<ReturnType<typeof fastExportPlan>, { segments: unknown }>
+          if (plan.segments.some((x) => heldBox(x, plan))) assert.ok(o.fastLog.some((l) => /, held pointer [\d.]+ dB/.test(l)), `${c.name}: no held pointer was checked`)
+          row.pointerChecks = own.length + o.fastLog.filter((l) => /, held pointer [\d.]+ dB/.test(l)).length
+        }
         const frames = [count(o.chrome), count(o.fast)]
         row.frames = frames[0]
         assert.equal(frames[1], frames[0], `${c.name}: frame count`)
@@ -317,7 +331,8 @@ async function main() {
           const shown = (k: number) => pw.shown[k] && k > 0 && k < pw.shown.length - 1
           row.pointerDb = worstOf(p0.psnr.map((v, k) => (shown(k) ? v : Infinity)))
           // A pointer a frame late or early scores better against Chrome's neighbouring frame: none may.
-          const late = p0.psnr.map((v, k) => (shown(k) && pw.moving[k] ? Math.max(pM.psnr[k] ?? -Infinity, pP.psnr[k] ?? -Infinity) - v : -Infinity))
+          // (As for the whole frame: a window already within 60 dB of Chrome's is not asked which neighbour it is nearer.)
+          const late = p0.psnr.map((v, k) => (shown(k) && pw.moving[k] && v < 60 ? Math.max(pM.psnr[k] ?? -Infinity, pP.psnr[k] ?? -Infinity) - v : -Infinity))
           row.pointerNeighbourMarginDb = +(-Math.max(...late)).toFixed(2)
           if (Math.max(...late) > 0.5) throw new Error(`${c.name}: frame ${late.indexOf(Math.max(...late))}'s pointer matches a neighbouring frame of Chrome's better`)
           // The pointer drawn wrong scores below the run-time check's floor where that check samples; the right one above it.
@@ -330,7 +345,9 @@ async function main() {
             if (process.env.STUDIO_FAST_E2E_POINTER_ALL) row.pointerCalibration = Object.fromEntries(Object.entries(wrong).filter(([k]) => k !== 'frames').map(([k, v]) => [k, stats(v)]))
             row.pointerCheck = { frames: wrong.frames, right: right.map((v) => +v.toFixed(2)), ...Object.fromEntries(Object.entries(wrong).filter(([k]) => k !== 'frames' && k !== 'right').map(([k, v]) => [k, v.map((x) => +x.toFixed(2))])) }
             if (right.some((v) => v < floorDb)) throw new Error(`${c.name}: the pointer's window scores below the check's floor at a sampled frame`)
-            for (const [k, v] of Object.entries(wrong)) if (k !== 'frames' && k !== 'right' && v.some((x) => x >= floorDb)) throw new Error(`${c.name}: a pointer ${k} would pass the check`)
+            // The check fails the export when any of its frames is under the floor: a wrong pointer must be under it at one at
+            // least (the glass over flat light content, half past an edge, changes too little there to tell; elsewhere it does).
+            for (const [k, v] of Object.entries(wrong)) if (k !== 'frames' && k !== 'right' && v.every((x) => x >= floorDb)) throw new Error(`${c.name}: a pointer ${k} would pass the check`)
           }
         }
         // The right frame everywhere: no neighbour scores better (by more than 0.5 dB, for frames that do not change).
@@ -410,10 +427,10 @@ type Case = { name: string; project: EditorProject; bubbleBox?: { x: number; y: 
 function buildCases(A: Record<'screen60' | 'screen30' | 'cam30' | 'cam60' | 'mic' | 'screen60u' | 'screen30u' | 'cam30u' | 'screen60d', EditorAsset>): Case[] {
   const make = (o: { name: string; screen: EditorAsset; camera: EditorAsset; clips: { from: number; to: number; rate?: number; muted?: boolean }[]; corner: 'tl' | 'tr' | 'bl' | 'br';
     style?: { shape: 'circle' | 'rounded'; radius: number }; offset: number; look?: 'default' | 'gradient' | 'solid'; mic?: boolean; noCamera?: boolean; micFades?: boolean
-    pointer?: { style: 'arrow' | 'glass'; click: boolean } }): Case => {
+    pointer?: { style: 'arrow' | 'glass'; click: boolean; size?: number; edges?: boolean } }): Case => {
     const typing = o.clips.filter((c) => (c.rate ?? 1) > 1).map((c) => ({ t: c.from / o.screen.sourceFps! * 1000, end: c.to / o.screen.sourceFps! * 1000, kind: 'type', label: 'Typing', box: null }))
     // A pointer recorded as a desktop take records it: a trace in points (half the pixels), the pointer hidden in the picture.
-    const pointerTrace = o.pointer ? madeUpTrace(o.screen.sourceFrames! / o.screen.sourceFps!, { width: o.screen.width! / 2, height: o.screen.height! / 2, scale: 2 }, 900, 300) : null
+    const pointerTrace = o.pointer ? (o.pointer.edges ? edgeTrace : madeUpTrace)(o.screen.sourceFrames! / o.screen.sourceFps!, { width: o.screen.width! / 2, height: o.screen.height! / 2, scale: 2 }, 900, 300) : null
     const screen = pointerTrace
       ? { ...o.screen, sourceCursorHidden: true, trace: { ...pointerTrace, actions: [...pointerTrace.actions, ...typing].sort((a, b) => a.t - b.t) } }
       : typing.length
@@ -429,7 +446,7 @@ function buildCases(A: Record<'screen60' | 'screen30' | 'cam30' | 'cam60' | 'mic
       schemaVersion: 4, id: `fast-${o.name}`, title: o.name, output: { width: W, height: H, fps }, assets: [screen, o.camera, ...(o.mic ? [A.mic] : [])],
       clips: o.clips.map((c, i) => ({ id: `clip-${i}`, assetId: screen.id, trimStartSourceFrame: c.from, trimEndSourceFrame: c.to, audio: { muted: !!c.muted || !screen.hasAudio || (c.rate ?? 1) > 1, gain: 1 },
         holdEndFrames: 0, zooms: [], motion: neutralMotion(), playbackRate: c.rate ?? 1, dismissedActionIndices: [], view: { main: 'screen', bubble: true } })),
-      presentation, cursor: o.pointer ? { style: o.pointer.style, size: 18, clickFeedback: o.pointer.click } : { style: 'none', size: 18, clickFeedback: false }, audioTracks: [], presenterTrack: null, transcripts: [], captions: { ...defaultCaptions },
+      presentation, cursor: o.pointer ? { style: o.pointer.style, size: o.pointer.size ?? 18, clickFeedback: o.pointer.click } : { style: 'none', size: 18, clickFeedback: false }, audioTracks: [], presenterTrack: null, transcripts: [], captions: { ...defaultCaptions },
       captionCorrections: {}, voiceoverDraft: { text: '', targetClipIds: [] },
     } as unknown as EditorProject
     const total = scheduleProject(project).reduce((n, s) => Math.max(n, s.startFrame + s.durationFrames), 0)
@@ -473,6 +490,10 @@ function buildCases(A: Record<'screen60' | 'screen30' | 'cam30' | 'cam60' | 'mic
     make({ name: 'glasscuts60', screen: s60, camera: A.cam30, clips: [{ from: 4, to: 120 }, { from: 141, to: 221, rate: 2 }, { from: 233, to: 350 }], corner: 'tl', style: { shape: 'rounded', radius: 0.25 },
       offset: 0.05, mic: true, pointer: { style: 'glass', click: true } }),
     make({ name: 'glass30', screen: s30, camera: A.cam30, clips: [{ from: 0, to: 90 }, { from: 101, to: 180 }], corner: 'tr', offset: 0, mic: true, pointer: { style: 'glass', click: false } }),
+    // The pointer along every edge and through every corner (its window kept inside the frame, the pointer partly
+    // outside it, the glass's blur at the frame's border): the arrow at its usual size, the glass large (40, 80 px drawn).
+    make({ name: 'edgearrow60', screen: s60, camera: A.cam30, clips: [{ from: 0, to: s60.sourceFrames! }], corner: 'br', offset: 0.1, mic: true, pointer: { style: 'arrow', click: true, edges: true } }),
+    make({ name: 'edgeglass30', screen: s30, camera: A.cam30, clips: [{ from: 0, to: 95 }, { from: 104, to: 180 }], corner: 'tl', offset: 0, mic: true, pointer: { style: 'glass', click: true, size: 40, edges: true } }),
     make({ name: 'arrowcut30', screen: s30, camera: A.cam30, clips: [{ from: 2, to: 100 }, { from: 120, to: 175 }], corner: 'bl', offset: 0.05, mic: true, pointer: { style: 'arrow', click: false } }),
     { ...make({ name: 'delayed60', screen: A.screen60d, camera: A.cam30, clips: [{ from: 0, to: 300 }], corner: 'br', offset: 0, noCamera: true }), remotionSound: /the sound mixed by Remotion \(a sound starts at 0\.2\d* s in its file/ },
   ]
@@ -499,7 +520,8 @@ function pointerWindows(project: EditorProject): { cw: number; ch: number; cx: n
       // Under a blend two pointers show, and under the bubble none: those frames are measured with the rest of the picture.
       const q = seg.bubble && l >= seg.bubble.offset ? seg.bubble.square : null
       const underBubble = !!q && places[l]!.cx < q.x + q.side && places[l]!.cx + cw > q.x && places[l]!.cy < q.y + q.side && places[l]!.cy + ch > q.y
-      shown[f] = !!st && l >= (seg.blend?.frames ?? 0) && !underBubble
+      // A pointer past the frame's edge shows nothing to compare (every neighbour scores alike): only one it mostly shows.
+      shown[f] = !!st && l >= (seg.blend?.frames ?? 0) && !underBubble && artInside(st, look, plan) > 0.25
       const before = seg.pointer!.states[l - 1]
       moving[f] = !!st && !!before && (Math.abs(st.x - before.x) + Math.abs(st.y - before.y) > 2 || st.ring !== before.ring || st.press !== before.press)
     }

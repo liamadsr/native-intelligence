@@ -16,7 +16,7 @@ import { createRequire } from 'node:module'
 import { parseEditorProject, defaultCaptions, defaultPresentation } from '../src/engine.ts'
 import { loadConfig } from '../src/config.ts'
 import { Renderer, inputPropsFor, COMPOSITION_ID } from '../src/render.ts'
-import { chromePointerArt, clipPointer, spriteCrop, stateKey, SPRITE_TABS, type PointerState } from '../src/fast-pointer.ts'
+import { chromePointerArt, clipPointer, spriteCrop, stateKey, type PointerState } from '../src/fast-pointer.ts'
 import { runBuffer } from '../src/media.ts'
 import { madeUpTrace } from './pointer-fixtures.ts'
 import type { EditorProject } from '../../web/src/lib/studio/engine/contracts.ts'
@@ -83,7 +83,7 @@ async function main() {
   const crop = spriteCrop(plan.size)
   const win = `crop=${crop.w}:${crop.h}:${crop.x}:${crop.y}`
   // The sprites as the export draws them (fast-pointer.ts chromePointerArt), the plain pictures encoded nearly losslessly.
-  const art = chromePointerArt({ project: real, serveUrl, common, assetsDir: cache, scratch: dir, signal: new AbortController().signal, concurrency: SPRITE_TABS,
+  const art = chromePointerArt({ project: real, serveUrl, common, assetsDir: cache, scratch: dir, signal: new AbortController().signal, tabs: 3,
     encode: () => ['-c:v', 'libx264', '-preset', 'slow', '-crf', '1', '-g', '60'], run: (file, args, o) => runBuffer(file, args, { signal: o.signal, input: o.input, maxBuffer: 1 << 30 }),
     remotion: { renderFrames, selectComposition }, inputProps: (p) => inputPropsFor(p), compositionId: COMPOSITION_ID })
   const px = crop.w * crop.h * 3

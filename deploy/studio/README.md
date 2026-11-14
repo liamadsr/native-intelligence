@@ -144,7 +144,7 @@ fast export, …)`, or `Rendering in Chrome: <the first reason>`.
   it does not know, any value outside these, and the whole export is Chrome's): 30 or 60 fps; the recording at the
   video's size and rate (MP4, H.264 yuv420p, BT.709 or untagged, limited range, from time 0); clips of it with cuts
   and their soft blend, starting anywhere in the take, at 1x (2x in 60 fps videos); the recorded pointer (arrow or
-  glass, with or without click feedback, at one size); no zoom, motion, hold, chosen transition, layout, layer,
+  glass, with or without click feedback, at one size, within the pointer's bounds below); no zoom, motion, hold, chosen transition, layout, layer,
   caption, cut-out, slide, extra source, automation or platform format;
   a look with no padding, inset, window radius or camera fill (background none, solid or gradient, any shadow or
   blur, all hidden under the full-frame recording); the camera synced to the take, as a still round or
@@ -160,8 +160,22 @@ fast export, …)`, or `Rendering in Chrome: <the first reason>`.
   each frame, drawn with pictures Chrome itself draws (`studio-worker/src/fast-pointer.ts`: each state the video
   needs, once, in a small made-up video of the pointer over black, white and, for the glass, a checkerboard; from
   them each pixel's coverage, colour and how much of the blurred picture the glass takes), laid in a small RGB window
-  around the pointer on every frame (the glass's blur by `gblur`), under the blend and the bubble; one
-  FFmpeg pass per clip with the Chrome path's encoder settings and labels, joined without re-encoding.
+  around the pointer on every frame (the glass's blur by `gblur`), of which only the pixels the pointer touches go
+  back on the frame (every other one stays the source's to the bit; nothing at all on a frame without a pointer),
+  under the blend and the bubble; one FFmpeg pass per clip with the Chrome path's encoder settings and labels,
+  joined without re-encoding.
+- *The pointer's bounds and checks*: refused in the plan, before Chrome starts, with the reason in the log, above
+  4,000 distinct pictures, 256 MB of them held, or 30,000 places of its window in one clip (`POINTER_LIMITS` in
+  `fast-pointer.ts`). Chrome draws the pictures at the window's own size (140 px a side for the usual pointer on a
+  3472×2266 take, 550 for the largest), in tabs of their own shared by every pass: the CPUs the worker may use (its
+  container's quota), at most 8, fewer when `STUDIO_RENDER_CONCURRENCY` says fewer. Each picture goes straight to
+  disk; the made-up recordings sit in the job's scratch folder and are gone after the job, or after a crash at the
+  worker's next start. An FFmpeg without what the pointer needs (`gblur`, `alphamerge`, the `rawvideo` muxer and the
+  rest) is refused before Chrome draws anything. The run-time check compares the pointer as drawn, before the
+  encoder, against Chrome's still: per clip near its start and its end, in a click's ring, and the held one under a
+  blend, preferring frames where the frame shows it mostly whole. It also requires the rest of its window to be the
+  source's to the bit, and the glass's measured blur to be about 0.8 inside its disk (a flattened checkerboard would
+  draw it with none).
 - *What the files must be* (checked before anything runs): H.264 yuv420p, colour BT.709 or not said (an untagged
   take, as a browser's conformed by the worker arrives, is read by Chrome as BT.709 limited range: proven), square
   pixels, not turned, starting at 0, and every source frame the plan shows on its file's frame grid (within 0.25 ms,

@@ -96,6 +96,45 @@ export function runBuffer(file: string, args: string[], opts: RunOptions = {}): 
   })
 }
 
+/**
+ * The names an FFmpeg build lists: `-filters` (each line its flags, its name, its pads as `V->V`) or `-muxers` /
+ * `-demuxers` (after the `--` line, each line its flags and its names, comma separated). Pure.
+ */
+export function listedNames(text: string, kind: 'filters' | 'formats'): Set<string> {
+  const out = new Set<string>()
+  const lines = text.split('\n')
+  if (kind === 'filters') {
+    for (const l of lines) { const m = /^\s*[.A-Z|]{3}\s+(\S+)\s+\S*->\S*/.exec(l); if (m) out.add(m[1]!) }
+    return out
+  }
+  const start = lines.findIndex((l) => /^\s*-{2,}\s*$/.test(l))
+  // Three flag columns (D, E, d), then the names: " D d lavfi", "  E  mp4".
+  for (const l of lines.slice(start + 1)) { const m = /^ [D. ][E. ][d. ] +(\S+)/.exec(l); if (m) for (const n of m[1]!.split(',')) out.add(n) }
+  return out
+}
+
+export interface FfmpegComponents { filters: Set<string>; muxers: Set<string>; demuxers: Set<string> }
+const listed = new Map<string, Promise<FfmpegComponents>>()
+/** What the configured FFmpeg has (filters, muxers, demuxers), asked once per binary. */
+export function ffmpegComponents(signal?: AbortSignal): Promise<FfmpegComponents> {
+  const key = toolPath('ffmpeg')
+  let p = listed.get(key)
+  if (!p) {
+    const ask = async (flag: string) => (await run('ffmpeg', ['-hide_banner', flag], { signal, timeout: 30_000 })).stdout
+    p = Promise.all([ask('-filters'), ask('-muxers'), ask('-demuxers')]).then(([f, m, d]) => ({ filters: listedNames(f, 'filters'), muxers: listedNames(m, 'formats'), demuxers: listedNames(d, 'formats') }))
+    p.catch(() => listed.delete(key))
+    listed.set(key, p)
+  }
+  return p
+}
+
+/** What of `needs` a build lacks, in plain words ("the gblur filter", "the gblur filter and the rawvideo muxer"), or null. Pure. */
+export function missingComponents(have: FfmpegComponents, needs: { filters: string[]; muxers: string[]; demuxers: string[] }): string | null {
+  const gone = [...needs.filters.filter((n) => !have.filters.has(n)).map((n) => `the ${n} filter`), ...needs.muxers.filter((n) => !have.muxers.has(n)).map((n) => `the ${n} muxer`),
+    ...needs.demuxers.filter((n) => !have.demuxers.has(n)).map((n) => `the ${n} demuxer`)]
+  return gone.length ? (gone.length === 1 ? gone[0]! : `${gone.slice(0, -1).join(', ')} and ${gone.at(-1)}`) : null
+}
+
 /** Time limits grow with the media: a long recording must never fail just for being long. */
 export const mediaTimeout = (seconds: number, perSecond = 3) => Math.max(180_000, Math.ceil(seconds * perSecond * 1000) + 60_000)
 

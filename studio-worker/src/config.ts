@@ -66,6 +66,8 @@ export interface WorkerConfig {
   workDir: string
   cacheBytes: number
   renderConcurrency: number
+  /** STUDIO_RENDER_CONCURRENCY when it is set (1 to 16), else null: a limit someone chose, which the pointer's own tabs keep too. */
+  renderConcurrencySaid?: number | null
   chrome: string | null
   engineDir: string
   healthPort: number
@@ -220,6 +222,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cpus: () => num
     workDir: resolve(setting(env, 'STUDIO_WORK_DIR') ?? resolve(tmpdir(), 'studio-worker')),
     cacheBytes: Number(setting(env, 'STUDIO_CACHE_BYTES') ?? 5 * gb) > 0 ? Math.floor(Number(setting(env, 'STUDIO_CACHE_BYTES') ?? 5 * gb)) : 5 * gb,
     renderConcurrency: int(env, 'STUDIO_RENDER_CONCURRENCY', 0, 1, 16) || renderTabs(cpus()),
+    renderConcurrencySaid: int(env, 'STUDIO_RENDER_CONCURRENCY', 0, 1, 16) || null,
     chrome: setting(env, 'STUDIO_CHROME'),
     engineDir: resolve(setting(env, 'STUDIO_ENGINE_DIR') ?? resolve(PACKAGE_DIR, '../web/src/lib/studio/engine')),
     healthPort: int(env, 'STUDIO_HEALTH_PORT', 9092, 0, 65535),

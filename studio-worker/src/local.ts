@@ -101,10 +101,18 @@ export function localConfig(o: Pick<LocalRun, 'appUrl' | 'workDir' | 'cacheBytes
     ...(o.cacheBytes ? { STUDIO_CACHE_BYTES: String(o.cacheBytes) } : {}),
     STUDIO_FFMPEG: ffmpeg, STUDIO_FFPROBE: ffprobe,
     ...(o.bundleDir ? { STUDIO_BUNDLE_DIR: o.bundleDir } : {}), ...(o.chrome ? { STUDIO_CHROME: o.chrome } : {}),
+    // Tabs said by whoever started the runner (runLocal keeps them: localRenderTabs).
+    ...(process.env.STUDIO_RENDER_CONCURRENCY?.trim() ? { STUDIO_RENDER_CONCURRENCY: process.env.STUDIO_RENDER_CONCURRENCY.trim() } : {}),
   }
   const c = loadConfig(env, () => 4)
   if ('problems' in c) throw new JobError(`This computer's export is not set up: ${c.problems.join('; ')}`)
   return c
+}
+
+/** The tabs a local export renders in: STUDIO_RENDER_CONCURRENCY when it is set to a number the worker takes (1 to 16), else `auto` (localTabs). Pure over its inputs. */
+export function localRenderTabs(env: NodeJS.ProcessEnv, auto: () => number): number {
+  const n = Number.parseInt(env.STUDIO_RENDER_CONCURRENCY?.trim() ?? '', 10)
+  return Number.isFinite(n) && n >= 1 && n <= 16 ? n : auto()
 }
 
 /** Why a destination cannot be written, or null. */
@@ -197,8 +205,9 @@ export async function runLocal(o: LocalRun): Promise<{ file: string; result: Exp
     o.emit({ type: 'encoder', profile: probe.profile, rung: probe.rung, tried: probe.tried })
     if (!probe.rung) throw new JobError(`This computer cannot encode the video (${probe.tried.map((t) => `${t.rung}: ${t.why}`).join('; ')}): export it on the server`)
     config.encoderRung = probe.rung
-    // Tabs for this computer and this video's size (config.ts, localTabs; the server's rule is its CPU quota).
-    config.renderConcurrency = localTabs({ cores: availableParallelism(), memoryBytes: totalmem(), width: out.width, height: out.height })
+    // Tabs for this computer and this video's size (config.ts, localTabs; the server's rule is its CPU quota), unless
+    // STUDIO_RENDER_CONCURRENCY says how many (localConfig keeps it).
+    config.renderConcurrency = localRenderTabs(process.env, () => localTabs({ cores: availableParallelism(), memoryBytes: totalmem(), width: out.width, height: out.height }))
     const cache = new AssetCache(join(config.workDir, 'cache', 'assets'), config.cacheBytes)
     await cache.init()
     let file = ''
