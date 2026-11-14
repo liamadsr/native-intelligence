@@ -122,6 +122,8 @@ describe('the chat agent’s dynamic load_skill has the name to itself (eve dist
     expect(readFileSync(join(distSrc, 'protocol/catalog-tools.js'), 'utf8')).toContain('SKILL_TOOL_NAME=`eve__skill`')
   })
 
+  // Reads every .js file of eve's dist synchronously (~1,900 files): fast alone,
+  // past 5 s on a busy machine running the full suite.
   it('eve treats `load_skill` only as a retired name (eval guidance, replay of old skill loads)', () => {
     const readers = jsFiles(distSrc)
       .filter((f) => readFileSync(f, 'utf8').includes('`load_skill`'))
@@ -129,7 +131,7 @@ describe('the chat agent’s dynamic load_skill has the name to itself (eve dist
       .filter((f) => !f.startsWith('chunks/'))
       .sort()
     expect(readers).toEqual(['evals/reported-tool-name.js', 'protocol/message-version.js'])
-  })
+  }, 60_000)
 
   it('the chat agent has no framework slot file and names its own dynamic tool load_skill', () => {
     const agentDir = join(repoRoot, 'agents/chat-agent/tools')

@@ -131,6 +131,11 @@ async function loadSandboxModule() {
   return await import('../../sandbox')
 }
 
+// Every test resets modules (beforeEach), so whichever test imports sandbox.ts
+// first pays a cold import: fast alone, past 5 s on a busy machine running the
+// full suite. Every describe below takes this timeout.
+const COLD_IMPORT = { timeout: 30_000 }
+
 beforeEach(() => {
   pushUrlNow = PUSH_URL
   // No hosted-sandbox settings unless a test sets them (they choose the provider
@@ -156,7 +161,7 @@ afterEach(() => {
   vi.doUnmock('../runtime-sandbox')
 })
 
-describe('coding-agent sandbox selector — on Vercel', () => {
+describe('coding-agent sandbox selector — on Vercel', COLD_IMPORT, () => {
   function mockVercel(calls: Call[], fake?: FakeOpts) {
     const envOptions: unknown[] = []
     const env = {
@@ -595,7 +600,7 @@ describe('coding-agent sandbox selector — on Vercel', () => {
   })
 })
 
-describe('coding-agent sandbox selector — off Vercel', () => {
+describe('coding-agent sandbox selector — off Vercel', COLD_IMPORT, () => {
   beforeEach(() => {
     // Off Vercel regardless of the host env (Vercel's build env sets VERCEL=1;
     // Boolean('') is false). And never let the real Vercel provider load.
@@ -880,7 +885,7 @@ describe('coding-agent sandbox selector — off Vercel', () => {
   })
 })
 
-describe('coding-agent sandbox selector — off Vercel WITH the hosted sandbox\'s settings (the app\'s own server)', () => {
+describe('coding-agent sandbox selector — off Vercel WITH the hosted sandbox\'s settings (the app\'s own server)', COLD_IMPORT, () => {
   const ACCESS = 'madeup_access_token_0123456789'
   const CREDS = { token: ACCESS, teamId: 'team_madeup0001', projectId: 'prj_madeup0001' }
 
@@ -1001,7 +1006,7 @@ describe('coding-agent sandbox selector — off Vercel WITH the hosted sandbox\'
   })
 })
 
-describe('coding-agent sandbox selector — on our own runtime (SANDBOX_RUNTIME_* set)', () => {
+describe('coding-agent sandbox selector — on our own runtime (SANDBOX_RUNTIME_* set)', COLD_IMPORT, () => {
   const API_URL = 'http://10.200.77.2:3000'
   const TRAFFIC_URL = 'http://10.200.77.2:3002'
   const RUNTIME_KEY = 'e2b_0123456789abcdef0123456789abcdef'
@@ -1232,7 +1237,7 @@ describe('coding-agent sandbox selector — on our own runtime (SANDBOX_RUNTIME_
   })
 })
 
-describe('ownRuntimeSettings', () => {
+describe('ownRuntimeSettings', COLD_IMPORT, () => {
   it('both URLs → the trimmed pair and the template; neither (or blank) → null; one → throws', async () => {
     vi.stubEnv('VERCEL', '1')
     mockVercelNoop()
@@ -1248,7 +1253,7 @@ describe('ownRuntimeSettings', () => {
   })
 })
 
-describe('hostedSandboxCredentials', () => {
+describe('hostedSandboxCredentials', COLD_IMPORT, () => {
   it('all three → the trimmed set; none (or blank) → null; some → throws', async () => {
     vi.stubEnv('VERCEL', '1')
     mockVercelNoop()
@@ -1264,7 +1269,7 @@ describe('hostedSandboxCredentials', () => {
   })
 })
 
-describe('sessionNetworkPolicy', () => {
+describe('sessionNetworkPolicy', COLD_IMPORT, () => {
   it('fails closed to deny-all without a spec', async () => {
     vi.stubEnv('VERCEL', '1')
     mockVercelNoop()
@@ -1273,7 +1278,7 @@ describe('sessionNetworkPolicy', () => {
   })
 })
 
-describe('requireDefinedNetworkPolicy (the guard every open goes through)', () => {
+describe('requireDefinedNetworkPolicy (the guard every open goes through)', COLD_IMPORT, () => {
   it('refuses an absent policy and passes any defined one through unchanged', async () => {
     vi.stubEnv('VERCEL', '1')
     mockVercelNoop()
@@ -1315,7 +1320,7 @@ function mockVercelNoop() {
   }))
 }
 
-describe('envHookCommand — a `bash -lc` shell (eve runs commands this way) sees the user env', () => {
+describe('envHookCommand — a `bash -lc` shell (eve runs commands this way) sees the user env', COLD_IMPORT, () => {
   // Real bash in a throwaway HOME: the only honest way to pin shell startup semantics.
   async function runHook(seed: Record<string, string>) {
     const { mkdtempSync, writeFileSync } = await import('node:fs')
