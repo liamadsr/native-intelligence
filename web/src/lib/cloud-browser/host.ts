@@ -123,9 +123,12 @@ async function startRelay(backend: CloudBrowserBackend, sandbox: BackendSandbox,
   // A new key restarts the relay as a new build would: its hub must check the current key.
   const build = verifyKey ? `${relayAppVersion()}+${createHash('sha256').update(verifyKey).digest('hex').slice(0, 12)}` : relayAppVersion()
   // Detached: a command that leaves a process running never counts as finished.
-  // Where the backend keeps the relay's token in the VM, the relay is told the file.
+  // Where the backend keeps the relay's token in the VM, the relay is told the
+  // file; where its proxy writes the Mac's address elsewhere, the header. The
+  // hosted backend passes neither (the relay's defaults).
+  const extra = backend.relayTokenFile || backend.hubClientAddressHeader ? [backend.relayTokenFile ?? '', backend.hubClientAddressHeader ?? ''] : []
   await sandbox.exec('bash', ['-c', RELAY_START, 'relay-start', origin, build, CLOUD_BROWSER.relayDir,
-    String(CLOUD_BROWSER.hubPort), name, verifyKey, exitMode, ...(backend.relayTokenFile ? [backend.relayTokenFile] : [])], { detached: true, signal })
+    String(CLOUD_BROWSER.hubPort), name, verifyKey, exitMode, ...extra], { detached: true, signal })
   const deadline = Date.now() + CLOUD_BROWSER.relayStartTimeoutMs
   // With a hub, it counts as started once the hub answers too: the live view connects right after.
   const probe = relayProbeScript(CLOUD_BROWSER.relayDir, verifyKey ? CLOUD_BROWSER.hubPort : null)

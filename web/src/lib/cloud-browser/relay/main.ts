@@ -16,14 +16,16 @@
  * server's public key:
  *   node relay.mjs --origin https://browser-relay.nativeintelligence.dev --hub-port 4000 --sandbox <name> --viewer-key <spki>
  * and, on the runtime backend, `--token-file <path>`: where the server keeps
- * the relay's token in the VM (client.ts; never the token itself).
+ * the relay's token in the VM (client.ts; never the token itself), and
+ * `--client-address-header x-real-ip`: where the hub reads the Mac's address
+ * (exit.ts ClientAddressHeader).
  * It exits when the app has moved to another build, and the next start fetches
  * the new one.
  */
 import { CloudBrowser } from '../cdp/browser'
 import { CLOUD_BROWSER } from '../config'
 import { readRelayTokenFile, RelayClient, RelayRestart } from './client'
-import { startExit, type ExitMode } from './exit'
+import { CLIENT_ADDRESS_HEADERS, startExit, type ClientAddressHeader, type ExitMode } from './exit'
 import { exitControl } from './exit-control'
 import { startHub } from './hub'
 import { runClaimed, type RelayState } from './runner'
@@ -48,7 +50,7 @@ async function connect(port: number): Promise<CloudBrowser> {
 }
 
 export async function runRelay(options: { origin: string; version: string; cdpPort: number; signal: AbortSignal
-  hub?: { port: number; sandbox: string; verifyKey: string }; exitMode?: ExitMode; tokenFile?: string }) {
+  hub?: { port: number; sandbox: string; verifyKey: string }; exitMode?: ExitMode; tokenFile?: string; clientAddressHeader?: ClientAddressHeader }) {
   const tokenFile = options.tokenFile
   const client = new RelayClient(options.origin, options.version, fetch, tokenFile ? () => readRelayTokenFile(tokenFile) : undefined)
   const state: RelayState = { browser: await connect(options.cdpPort), client, agentPage: null }
@@ -56,7 +58,8 @@ export async function runRelay(options: { origin: string; version: string; cdpPo
   // (its /exit). It starts in the mode the row had (the host passes it), and the controller decides from there.
   const bootMode: ExitMode = options.hub && options.exitMode === 'mac' ? 'mac' : 'cloud'
   const exit = startExit({ sandbox: options.hub?.sandbox ?? '', verifyKey: options.hub?.verifyKey ?? '', socksPort: CLOUD_BROWSER.socksPort,
-    refusedHosts: [new URL(options.origin).hostname], mode: bootMode, log })
+    refusedHosts: [new URL(options.origin).hostname], mode: bootMode, log,
+    ...(options.clientAddressHeader ? { clientAddressHeader: options.clientAddressHeader } : {}) })
   state.exit = exitControl({ exit, bootMode, capable: !!options.hub, report: (mode, tunnel) => client.setExit(mode, tunnel) })
   void state.exit.sync()
   // Stopping (a new build's relay is starting) frees the hub's port at once.
@@ -116,7 +119,10 @@ if (process.argv[1]?.endsWith('relay.mjs')) {
   for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => controller.abort())
   const hubPort = Number(arg('hub-port')), sandbox = arg('sandbox'), verifyKey = arg('viewer-key')
   const tokenFile = arg('token-file')
+  // Only a header the relay knows; anything else is the default (the hosted service's).
+  const clientAddressHeader = CLIENT_ADDRESS_HEADERS.find(header => header === arg('client-address-header'))
   runRelay({ origin, version, cdpPort: Number(arg('cdp') ?? 9222), signal: controller.signal, exitMode: arg('exit-mode') === 'mac' ? 'mac' : 'cloud',
-    ...(hubPort && sandbox && verifyKey ? { hub: { port: hubPort, sandbox, verifyKey } } : {}), ...(tokenFile ? { tokenFile } : {}) })
+    ...(hubPort && sandbox && verifyKey ? { hub: { port: hubPort, sandbox, verifyKey } } : {}), ...(tokenFile ? { tokenFile } : {}),
+    ...(clientAddressHeader ? { clientAddressHeader } : {}) })
     .then(() => process.exit(0), error => { log('relay.crashed', { message: error instanceof Error ? error.message : String(error) }); process.exit(1) })
 }

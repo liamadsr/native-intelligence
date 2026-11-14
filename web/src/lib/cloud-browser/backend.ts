@@ -67,6 +67,12 @@ export interface CloudBrowserBackend {
   /** Where the relay reads its token in the VM (an extra argument to the relay's start), or null when it never does. */
   readonly relayTokenFile: string | null
   /**
+   * The header the hub must read the Mac's address from (relay/exit.ts
+   * ClientAddressHeader), or null for the relay's default (`x-forwarded-for`,
+   * the hosted service's proxy writes it).
+   */
+  readonly hubClientAddressHeader: 'x-real-ip' | null
+  /**
    * Whether the reconcile must remove browsers unused past snapshotTtlMs itself
    * (the hosted service does it by its snapshots' expiry).
    */

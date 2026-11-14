@@ -12,11 +12,12 @@ import { RELAY_MARK_HEADER } from './relay-token'
  * viewer key, the exit mode its browser had (C4: a new relay starts in it),
  * and, on a backend that keeps the relay's token in the VM (the runtime), the
  * PATH of the token file (never the token: a command line is readable by
- * every process of the VM's user); and by scripts/cloud-browser/live-check on
- * a test sandbox.
+ * every process of the VM's user) and the header the hub reads the Mac's
+ * address from (`x-real-ip` there; relay/exit.ts ClientAddressHeader); and by
+ * scripts/cloud-browser/live-check on a test sandbox.
  */
 export const RELAY_START = `set -u
-ORIGIN="$1"; BUILD="$2"; DIR="$3"; HUB_PORT="$4"; SANDBOX="$5"; VIEWER_KEY="$6"; EXIT_MODE="\${7:-cloud}"; TOKEN_FILE="\${8:-}"
+ORIGIN="$1"; BUILD="$2"; DIR="$3"; HUB_PORT="$4"; SANDBOX="$5"; VIEWER_KEY="$6"; EXIT_MODE="\${7:-cloud}"; TOKEN_FILE="\${8:-}"; CLIENT_ADDRESS_HEADER="\${9:-}"
 exec 9>/tmp/cloud-browser-relay.lock
 flock -w 30 9 || exit 1
 if [ -n "$VIEWER_KEY" ]; then
@@ -44,7 +45,8 @@ done
 rm -f "$DIR/failed"; echo "$BUILD" > "$DIR/build"
 if [ -n "$VIEWER_KEY" ]; then HUB="--hub-port $HUB_PORT --sandbox $SANDBOX --viewer-key $VIEWER_KEY"; else HUB=""; fi
 if [ -n "$TOKEN_FILE" ]; then TOKEN="--token-file $TOKEN_FILE"; else TOKEN=""; fi
-setsid node "$DIR/relay.mjs" --origin "$ORIGIN" --exit-mode "$EXIT_MODE" $HUB $TOKEN </dev/null >>/tmp/cloud-browser-relay.log 2>&1 9>&- &`
+case "$CLIENT_ADDRESS_HEADER" in x-real-ip|x-forwarded-for) CLIENT="--client-address-header $CLIENT_ADDRESS_HEADER" ;; *) CLIENT="" ;; esac
+setsid node "$DIR/relay.mjs" --origin "$ORIGIN" --exit-mode "$EXIT_MODE" $HUB $TOKEN $CLIENT </dev/null >>/tmp/cloud-browser-relay.log 2>&1 9>&- &`
 
 /**
  * What startRelay reads back after RELAY_START: one `key=value` line each, so

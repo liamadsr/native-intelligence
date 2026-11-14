@@ -204,6 +204,7 @@ function wrap(sandbox: Sandbox): BackendSandbox {
 export const hostedBackend: CloudBrowserBackend = {
   kind: 'hosted',
   relayTokenFile: null,
+  hubClientAddressHeader: null,
   expiresUnused: false,
   async getOrCreate(name, signal) {
     const { sandbox, created } = await getOrCreate(name, signal)
