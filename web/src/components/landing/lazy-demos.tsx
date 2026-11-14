@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import type { ChatDemoExchange } from './chat-demo'
 import type { CaptureDemoVariant } from './capture-demo'
 import type { LiveAgentScenario } from './live-agent-demo'
+import type { StreamAction } from './action-stream-demo'
 
 /** A slot that mounts `children` once it is within `margin` of the viewport. */
 function NearViewport({ height, children, className }: { height: number; children: React.ReactNode; className?: string }) {
@@ -68,4 +69,4 @@ export const SpeakerIdDemo = lazyDemo(() => import('./speaker-id-demo').then((m)
 export const LiveAgentDemo = lazyDemo<{ scenario?: LiveAgentScenario }>(() => import('./live-agent-demo').then((m) => m.LiveAgentDemo), 560)
 export const ContextPackageDemo = lazyDemo(() => import('./context-package-demo').then((m) => m.ContextPackageDemo), 480)
 export const ExecutionDemo = lazyDemo(() => import('./execution-demo').then((m) => m.ExecutionDemo), 510)
-export const ActionStreamDemo = lazyDemo(() => import('./action-stream-demo').then((m) => m.ActionStreamDemo), 460)
+export const ActionStreamDemo = lazyDemo<{ pool?: readonly StreamAction[] }>(() => import('./action-stream-demo').then((m) => m.ActionStreamDemo), 460)

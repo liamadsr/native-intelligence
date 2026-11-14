@@ -118,9 +118,7 @@ function CheckItem({ children }: { children: React.ReactNode }) {
 // Section 1: Hero
 function Hero() {
   const posthog = usePostHog()
-  // `&edition=brain` at /company-brain, and whatever the homepage switch
-  // declares when this component is its `company-brain` A/B bucket. See
-  // components/signup-href.ts.
+  // `&edition=brain` at /company-brain. See components/signup-href.tsx.
   const signupHref = useSignupHref()
 
   return (

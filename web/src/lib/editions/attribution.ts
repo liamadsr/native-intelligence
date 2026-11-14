@@ -135,22 +135,24 @@ export interface ConsumeResult {
 /**
  * What a fresh signup with NO attribution cookie is stamped with.
  *
- * Sales is the lead GTM motion: `/` is the sales pitch (see
- * src/app/sales-page.tsx), and every other landing pitch — /meeting-notes,
- * /company-brain, and the homepage's other A/B arms — attributes through its
- * own CTAs' cookie (see components/signup-href.tsx). So a cookieless
- * signup is not an unknown-origin signup — it is most likely a sales signup
- * whose cookie went missing, or one that arrived by a path with no CTA at all
- * (/pricing, /docs, a direct /login link). Stamping `sales` describes the
- * funnel that actually leads; leaving it unstamped would silently resolve the
- * workspace to `full` and understate the sales edition's real acquisition.
+ * `full`, the whole app: since 2026-11-14 `/` pitches one workspace for the
+ * whole company (src/app/workspace-page.tsx) and its CTAs carry no edition,
+ * so a homepage signup arrives cookieless on purpose and gets the whole app.
+ * The persona pitches (/meeting-notes, /company-brain) still attribute through
+ * their own CTAs' cookie (see components/signup-href.tsx). A signup from a
+ * page with no attributed CTA (/pricing, /docs, a direct /login link) gets
+ * `full` too. It is still STAMPED rather than left unset, so analytics can
+ * tell a default signup (`source: 'default'`) from an older workspace.
+ *
+ * (From the sales pivot until 2026-11-14 this was `sales`, when `/` was the
+ * sales pitch.)
  *
  * This is ONLY a default for the cookieless case. A cookie naming a different
  * edition still wins outright, and — critically — this default is applied
  * strictly INSIDE the same two gates the cookie path passes through. It cannot
  * touch an existing workspace or a sign-in; see the module header.
  */
-export const DEFAULT_SIGNUP_EDITION = 'sales'
+export const DEFAULT_SIGNUP_EDITION = 'full'
 
 /**
  * Read the attribution cookie and, if this is a genuinely new signup whose

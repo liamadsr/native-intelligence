@@ -6,19 +6,20 @@ import { Link } from './link'
 import { Logo } from './logo'
 import { useSignupHref } from './signup-href'
 
-// Anchors into the landing page at `/` (src/app/sales-page.tsx). These hrefs
-// are a contract with that page's section ids — it says so in its header. They
-// previously pointed at ids on the classic landing page (#live-agents,
-// #project-management, #execution), which the sales pivot deleted; those links
-// had become no-op jumps to the top of the page.
+// Anchors into the landing page at `/` (src/app/workspace-page.tsx). These
+// hrefs are a contract with that page's section ids — it says so in its
+// header. Earlier landing pages used other ids (#features, #team on the sales
+// page; #live-agents, #project-management on the classic one), which became
+// no-op jumps to the top of the page once those pages were retired.
 //
 // Names and descriptions describe what each section ACTUALLY shows, so the
 // dropdown never promises a section the visitor won't recognize on arrival.
-const FEATURES = [
-  { name: 'Live Call Intelligence', description: 'Your company’s knowledge, surfaced while you sell', href: '/#features' },
-  { name: 'Team Knowledge', description: 'What one rep learns, every rep knows', href: '/#team' },
+export const FEATURES = [
+  { name: 'One Workspace', description: 'Mail, chat, meetings, docs, tasks and customers', href: '/#workspace' },
+  { name: 'Shared Memory', description: 'Everything your team says, remembered with its source', href: '/#memory' },
+  { name: 'Agents', description: 'Tasks, follow-ups and code, done for you', href: '/#agents' },
   { name: 'Desktop App', description: 'Capture every call — no bot joins the meeting', href: '/#desktop' },
-  { name: 'CRM & Integrations', description: 'A self-updating CRM that syncs with your stack', href: '/#integrations' },
+  { name: 'Integrations', description: 'Gmail, Outlook, Slack, your CRM, and MCP', href: '/#integrations' },
 ]
 
 function NavDropdown({ label, items }: {

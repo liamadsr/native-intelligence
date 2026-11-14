@@ -46,23 +46,23 @@ function blogSection(): string {
 function buildLlmsTxt(): string {
   return `# Native Intelligence
 
-> Native Intelligence is the end-to-end AI sales platform. It turns everything a sales team knows — playbooks, product knowledge, competitors, pricing, deal history — into intelligence every rep can use live on the call, in a heads-up display only their side can see. No bot joins the meeting. Afterwards the CRM updates itself, follow-ups are queued, and what the call taught goes back into the team's shared context.
+> Native Intelligence is one workspace for a whole company, where meetings, mail, chat, docs, tasks and customers share one memory, and agents use that memory to do the busywork. Calls are captured by a desktop app, so no bot joins the meeting.
 
-Native Intelligence combines live call intelligence, a self-updating CRM (contacts, companies, deals, interaction history), email sequences, meeting capture, Linear-style project management, and AI execution in one workspace (web app + native macOS and iOS apps, Windows waitlist). Live agents listen to calls and update deals, actions, and the knowledge base in real time. Every action item carries the full context of why it exists — the call it came from, the decision behind it, and who is responsible — so agents can execute with no prompt engineering. Syncs two-way with HubSpot, Attio, and Affinity for teams keeping their existing CRM. The entire workspace is exposed over the Model Context Protocol (MCP), so external agents and tools can read and act on your work. Free 7-day trial (card required); Pro is $99 per user/month; every teammate gets their own 7-day trial, then their seat is paid. Teams and enterprises via sales for volume pricing.
+Native Intelligence brings a team's everyday tools into one app: email (Gmail and Outlook), team chat and calls, calendar and booking links, bot-free meeting capture with a live agent, tasks, projects and initiatives, docs, tables and files, and a CRM (companies, contacts, deals). Everything the team says and writes feeds a shared knowledge graph of decisions, commitments and facts, each with its source, so anyone can ask a question and get an answer drawn from calls, threads and documents at once. Agents act on that memory: they turn commitments into tasks, keep projects and customer records current, run flows on triggers (a new email, a channel message, a new document, a finished meeting, a schedule), and take on tasks such as writing code and opening a pull request. The workspace also includes a Studio for videos and ads and an SEO area, and the whole workspace is exposed over the Model Context Protocol (MCP). Web app plus a native macOS app for capture (Windows coming). Free 7-day trial (card required); Pro is $99 per user/month; every teammate gets their own 7-day trial, then their seat is paid. Teams and enterprises via sales for volume pricing.
 
 ## Key concepts
 
-- **Live Call Intelligence**: A live agent listens with the team's full shared context — playbooks, product knowledge, competitors, deal history — and surfaces the right piece during the call in a heads-up display only the rep can see.
-- **Shared Context Packages**: Product knowledge, pricing, objection plays, battlecards, demo scripts, and playbooks packaged and shared across the team, so every rep sells with the same knowledge behind them.
-- **Workspaces & Teams**: Multi-tenant workspaces with roles and team-scoped workflows.
-- **Captures**: Call and meeting recordings with AI transcription, automatic action-item extraction, and decision tracking. No bot joins the call — the desktop app records from the rep's side.
-- **Live Agents**: Agents that listen to conversations and update deals, projects, actions, and the knowledge base in real time.
-- **Actions**: Tasks and issues with team-scoped identifiers (like ENG-42), custom workflow states, priorities, and assignees — including AI team members.
-- **Projects & Initiatives**: Work organized into projects with milestones, rolled up under strategic initiatives.
-- **AI Execution**: Action items can be handed to AI coding agents that start with full meeting context, write code, and open pull requests.
-- **CRM & Sequences**: Contacts, companies, deals, interaction history, and voice identification — populated from your actual calls, with notes and deal stages updating themselves after each one. Email sequences for outbound. Two-way sync with HubSpot, Attio, and Affinity, or use the built-in CRM outright.
-- **Email & Calendar**: Gmail/Outlook sync with AI-drafted replies; multi-provider calendar with meeting-to-capture linking.
-- **MCP & Integrations**: Connect existing tools or bring your own agents; the full workspace is available via the Model Context Protocol.
+- **One workspace**: Mail, chat and calls, calendar, meetings, tasks and projects, docs and tables, and customers in one app, organized into workspaces and teams with roles.
+- **Shared memory**: A knowledge graph built from the team's conversations and documents: decisions, commitments, open questions and facts, each with provenance.
+- **Captures**: Call and meeting recordings with transcription, notes, and the tasks and decisions they produced. No bot joins the call; the desktop app records from the user's side.
+- **Live agent**: An agent that listens during a call, looks things up in the workspace, answers questions in a heads-up display only the user sees, and stages next steps.
+- **Tasks and projects**: Tasks with team-scoped identifiers (like ENG-42), custom workflow states, priorities and assignees, organized into projects and initiatives. Tasks can come from calls, email threads and chat messages.
+- **Mail**: Gmail and Outlook in the workspace, with drafted replies, send later, and tasks from a thread.
+- **Team chat and calls**: Channels, direct messages and calls for the team, with agents taking part.
+- **Docs, tables and files**: Rich-text documents, user tables and files in one drive that agents can read and edit.
+- **CRM**: Companies, contacts, deals and interaction history, filled in from calls. Two-way sync with HubSpot, Attio and Affinity, or use the built-in CRM.
+- **Agents, skills and flows**: Agents with teachable skills, flows that run on triggers or schedules, and evals to test an agent before relying on it. Coding agents start with the full context of a task and open pull requests.
+- **MCP and integrations**: Connect Gmail, Outlook, Google Calendar and Slack, or bring your own AI tools (Claude, ChatGPT, Cursor) to the workspace over MCP.
 
 ## Documentation
 
@@ -70,7 +70,7 @@ ${docsSection()}
 
 ## Pages
 
-- [Home](${BASE}): The sales platform pitch — live call intelligence, self-updating CRM, and the team knowledge loop.
+- [Home](${BASE}): One workspace for the whole company: shared memory across meetings, mail, chat, docs, tasks and customers, and agents that do the busywork.
 - [Pricing](${BASE}/pricing): 7-day free trial (card required), Pro, and Enterprise plans.
 - [AI Work Environment](${BASE}/ai-work-environment): What an AI work environment is and how Native Intelligence implements one.
 - [Blog](${BASE}/blog): Product updates and writing.
@@ -86,7 +86,7 @@ ${blogSection()}
 
 ## Get started
 
-${hasDownload() ? `- [Download for macOS](${BASE}/api/download): Native desktop app.\n` : ''}- [Sign up](${BASE}): Create a workspace and start capturing meetings.
+${hasDownload() ? `- [Download for macOS](${BASE}/api/download): Native desktop app.\n` : ''}- [Sign up](${BASE}): Create a workspace for your team.
 
 ## Links
 

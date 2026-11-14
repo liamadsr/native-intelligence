@@ -7,10 +7,9 @@
  * copy — every section is a heading plus one or two sentences, never a
  * paragraph block.
  *
- * Lives alongside the other two variants (landing-page.tsx, company-brain/
- * company-brain-page.tsx) and shares their section scaffolding. Served at
- * /meeting-notes directly and at / via the PostHog `landing-page-variant`
- * flag (variant key: 'note-taker') — see src/app/landing-variant-switch.tsx.
+ * A persona pitch served at /meeting-notes only. It was also an arm of the
+ * homepage's PostHog A/B switch (`landing-page-variant`) until that switch was
+ * retired on 2026-11-14; the homepage is src/app/workspace-page.tsx.
  */
 
 import { Footer } from '@/components/footer'
