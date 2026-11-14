@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -7,10 +7,15 @@ import { join } from 'node:path'
  *   - it skips every request without a `Bearer d8eval_…` token, so the other
  *     entries see exactly what they saw before;
  *   - an eval bearer is refused unless EVE_EVAL_AUTH_ENABLED is exactly '1', the
- *     deployment is provably preview/development/local (an unknown env, or
- *     VERCEL without VERCEL_ENV, is production), the database is DEV's by
- *     hostname, the secret is set (32+ chars) and matches, and the fixture ids
- *     are set; the 401 never echoes why;
+ *     deployment is provably not production, the database is DEV's by hostname,
+ *     the secret is set (32+ chars) and matches, and the fixture ids are set;
+ *     the 401 never echoes why;
+ *   - "provably not production" off Vercel is a dev server: EVE_DEV exactly '1'
+ *     and NODE_ENV not 'production'. Our own server sets no Vercel variable, so
+ *     its live copy and a rehearsal copy (NI_LIVE empty, production's database)
+ *     are refused whatever NI_LIVE says, and so is any built agent. Where a
+ *     Vercel variable is set, only preview/development pass (an unknown env, or
+ *     VERCEL without VERCEL_ENV, is production);
  *   - the principal must be the fixture's auth user (by email, service role), in
  *     a marked, single-member fixture workspace with its user's conversation (a
  *     query error refuses; a failure is never cached);
@@ -91,6 +96,7 @@ import {
   EVAL_TOKEN_TTL_MS,
   evalAuthDisabledReason,
   evalRunnerAuth,
+  isNonProductionDeployment,
   mintEvalRunToken,
   resetEvalFixtureCache,
 } from '../eval-auth'
@@ -129,6 +135,9 @@ beforeEach(() => {
   delete process.env.VERCEL_ENV
   delete process.env.VERCEL_TARGET_ENV
   delete process.env.VERCEL
+  delete process.env.NI_LIVE
+  // A local dev server, as `next dev` boots it: `eve dev` sets EVE_DEV=1.
+  process.env.EVE_DEV = '1'
   db.authEmail = 'evals@dial8-evals.test'
   db.workspace = { id: WS, settings: { eval_fixture: true } }
   db.members = [{ user_id: USER }]
@@ -138,6 +147,19 @@ beforeEach(() => {
   db.calls = 0
   resetEvalFixtureCache()
 })
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+  delete process.env.EVE_DEV
+  delete process.env.NI_LIVE
+})
+
+/** Our own server's containers: the image sets NODE_ENV=production, the entrypoint refuses EVE_DEV=1, no Vercel variable. */
+function onOurServer(live: boolean) {
+  vi.stubEnv('NODE_ENV', 'production')
+  delete process.env.EVE_DEV
+  if (live) process.env.NI_LIVE = '1'
+}
 
 describe('evalRunnerAuth: skips everything that is not an eval bearer', () => {
   it.each([
@@ -166,6 +188,14 @@ describe('evalRunnerAuth: every switch must be on (fail closed)', () => {
     ['an unknown deployment env', () => (process.env.VERCEL_ENV = 'staging'), 'production'],
     ['an unknown target env on a preview', () => ((process.env.VERCEL_ENV = 'preview'), (process.env.VERCEL_TARGET_ENV = 'qa')), 'production'],
     ['VERCEL set without VERCEL_ENV', () => (process.env.VERCEL = '1'), 'production'],
+    ['our server, the live copy (NI_LIVE=1)', () => onOurServer(true), 'production'],
+    ['our server, a rehearsal copy (NI_LIVE empty, production’s database)', () => onOurServer(false), 'production'],
+    ['our server with a stray EVE_DEV=1', () => (onOurServer(true), (process.env.EVE_DEV = '1')), 'production'],
+    ['a rehearsal copy with a stray EVE_DEV=1', () => (onOurServer(false), (process.env.EVE_DEV = '1')), 'production'],
+    ['a built agent on a developer’s machine (`eve start`: no EVE_DEV)', () => delete process.env.EVE_DEV, 'production'],
+    ['a built agent with NODE_ENV=production and EVE_DEV=1', () => vi.stubEnv('NODE_ENV', 'production'), 'production'],
+    ['EVE_DEV "true", not "1"', () => (process.env.EVE_DEV = 'true'), 'production'],
+    ['an empty EVE_DEV', () => (process.env.EVE_DEV = ''), 'production'],
     ['the PROD database', () => (process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://bzfthjzyzevjokbuhqci.supabase.co'), 'not_dev_database'],
     ['another Supabase host', () => (process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co'), 'not_dev_database'],
     ['a host that only contains the DEV ref', () => (process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://edrjddsxjoigpbecqgfb.supabase.co.evil.example'), 'not_dev_database'],
@@ -193,14 +223,32 @@ describe('evalRunnerAuth: every switch must be on (fail closed)', () => {
     expect(db.calls).toBe(0)
   })
 
-  it('a preview, development or local deployment with every switch on is enabled', () => {
+  it('a local dev server (EVE_DEV=1, NODE_ENV development or unset) with every switch on is enabled', () => {
     expect(evalAuthDisabledReason()).toBeNull()
+    vi.stubEnv('NODE_ENV', 'development')
+    expect(evalAuthDisabledReason()).toBeNull()
+    vi.stubEnv('NODE_ENV', undefined)
+    expect(evalAuthDisabledReason()).toBeNull()
+  })
+
+  it('a Vercel preview or development deployment is judged by its Vercel variables alone', () => {
+    delete process.env.EVE_DEV
+    vi.stubEnv('NODE_ENV', 'production')
     for (const env of ['preview', 'development']) {
       process.env.VERCEL = '1'
       process.env.VERCEL_ENV = env
       process.env.VERCEL_TARGET_ENV = env
       expect(evalAuthDisabledReason()).toBeNull()
     }
+  })
+
+  it('NI_LIVE opens nothing and shuts nothing: a dev server is one with or without it', () => {
+    process.env.NI_LIVE = '1'
+    expect(evalAuthDisabledReason()).toBeNull()
+    expect(isNonProductionDeployment({ NODE_ENV: 'production' })).toBe(false)
+    expect(isNonProductionDeployment({ NODE_ENV: 'production', NI_LIVE: '' })).toBe(false)
+    expect(isNonProductionDeployment({ NODE_ENV: 'production', NI_LIVE: '1' })).toBe(false)
+    expect(isNonProductionDeployment({} as NodeJS.ProcessEnv)).toBe(false)
   })
 
   it.each([['a wrong secret', 'eval-secret-0123456789abcdef0123456788'], ['an empty secret', ''], ['a longer secret', `${EVAL_SECRET}x`]])(

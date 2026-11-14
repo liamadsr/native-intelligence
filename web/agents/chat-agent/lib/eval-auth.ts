@@ -13,13 +13,32 @@
  *      Any other request skips this entry (null), so the person, device and
  *      server entries are untouched.
  *   2. The path is switched on: EVE_EVAL_AUTH_ENABLED is exactly '1'; the
- *      deployment is provably not production: VERCEL_ENV is 'preview' or
- *      'development', or VERCEL_ENV and VERCEL are both unset (a local server),
- *      and VERCEL_TARGET_ENV, when set, is 'preview' or 'development' too (eve
- *      itself treats any other value as production); and the app's database is
- *      DEV's (NEXT_PUBLIC_SUPABASE_URL's hostname, ./eval-fixture-identity.ts).
- *      Otherwise an eval bearer is refused 401 with a generic message (the
- *      reason is logged, never echoed), and never passed down the walk.
+ *      deployment is provably not production (below); and the app's database
+ *      is DEV's (NEXT_PUBLIC_SUPABASE_URL's hostname,
+ *      ./eval-fixture-identity.ts). Otherwise an eval bearer is refused 401
+ *      with a generic message (the reason is logged, never echoed), and never
+ *      passed down the walk.
+ *
+ *      What "provably not production" means. Production runs on our own
+ *      server, where VERCEL and VERCEL_ENV are never set, so their absence
+ *      proves nothing. Off Vercel the door opens only on a development server:
+ *        - EVE_DEV is exactly '1', the flag `eve dev` sets on its own
+ *          processes (`next dev` boots `eve dev`) and the one eve itself goes
+ *          by: off Vercel, eve counts every process without it as production.
+ *          The server's entrypoint refuses to start with it
+ *          (deploy/app/entrypoint.sh);
+ *        - and NODE_ENV is not 'production', which the server's image sets for
+ *          every container, so one stray EVE_DEV there still opens nothing.
+ *      Both hold on the live copy and on a rehearsal copy alike. NI_LIVE is
+ *      deliberately not the signal: a rehearsal copy (NI_LIVE empty) runs on
+ *      production's database. A built agent (`eve build`, `eve start`) is
+ *      refused wherever it runs, a developer's machine included: evals run
+ *      against a dev server.
+ *      Where VERCEL_ENV or VERCEL is set, the earlier host's rule stands,
+ *      because eve reads those as a deployment there: VERCEL_ENV must be
+ *      'preview' or 'development' (VERCEL without VERCEL_ENV is refused), and
+ *      VERCEL_TARGET_ENV, when set, must be one of the two as well (eve
+ *      treats any other value as production).
  *   3. The secret matches EVE_EVAL_SECRET (at least 32 characters), compared
  *      in constant time.
  *   4. The principal is the configured fixture, and the fixture is provably a
@@ -78,20 +97,24 @@ export interface EvalPrincipal {
 
 export type EvalDisabledReason = 'flag_off' | 'production' | 'not_dev_database' | 'secret_missing' | 'principal_missing'
 
-/** The only deployment environments the door opens on. Anything else counts as production, as eve counts it. */
+/** The only Vercel environments the door opens on. Anything else counts as production, as eve counts it. */
 const NON_PRODUCTION_ENVS: ReadonlySet<string> = new Set(['preview', 'development'])
 
 /**
- * True only when the deployment is provably not production: VERCEL_ENV is
- * preview or development, or neither VERCEL_ENV nor VERCEL is set (a local
- * server); and VERCEL_TARGET_ENV, when set, is preview or development. An
- * unknown value, or VERCEL set without VERCEL_ENV, fails closed. Pure.
+ * True only when the deployment is provably not production (condition 2 in the
+ * header). Off Vercel (neither VERCEL_ENV nor VERCEL set): EVE_DEV is exactly
+ * '1' and NODE_ENV is not 'production', so our server, live or rehearsal, and
+ * any built agent refuse. Where a Vercel variable is set: VERCEL_ENV is preview
+ * or development, and VERCEL_TARGET_ENV, when set, is too; an unknown value, or
+ * VERCEL set without VERCEL_ENV, fails closed. Pure.
  */
 export function isNonProductionDeployment(env: NodeJS.ProcessEnv = process.env): boolean {
   const vercelEnv = env.VERCEL_ENV
   if (vercelEnv !== undefined && vercelEnv !== '') {
     if (!NON_PRODUCTION_ENVS.has(vercelEnv)) return false
   } else if (env.VERCEL !== undefined && env.VERCEL !== '') {
+    return false
+  } else if (env.EVE_DEV !== '1' || env.NODE_ENV === 'production') {
     return false
   }
   const target = env.VERCEL_TARGET_ENV

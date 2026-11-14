@@ -123,8 +123,11 @@ makes **no model call of its own**:
 
 ## Run them
 
-Against a local dev server on port 3001, or a DEV preview. Never production:
-the eval entry refuses `VERCEL_ENV=production` whatever the flag says.
+Against a local dev server on port 3001. Never production, and never a built
+server: off Vercel the eval entry opens only on a dev server (`EVE_DEV=1`, which
+`next dev` sets on the agents it boots, and `NODE_ENV` not `production`), so
+our own server refuses, the live copy and a rehearsal copy alike, whatever the
+flag says. It still refuses `VERCEL_ENV=production`.
 
 1. Once, create the fixture on DEV and note the three ids it prints:
 
