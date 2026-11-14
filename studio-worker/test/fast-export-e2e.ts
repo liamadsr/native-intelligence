@@ -27,12 +27,18 @@
  * sources before the encoder whichever FFmpeg runs it.
  */
 import { spawn, spawnSync, execFileSync } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { FakeApp, type FakeJob } from './fake-app.ts'
+import { madeUpTrace } from './pointer-fixtures.ts'
+import { fastExportPlan, hashTaps, segmentArgs, FAST_ENCODER } from '../src/fast-export.ts'
+import { maskedPsnr, pointerLayers, pointerSamples } from '../src/fast-export-run.ts'
+import { checkFloor, encoderArgs, type EncoderProfile } from '../src/encoders.ts'
+import { runBuffer } from '../src/media.ts'
+import { chromePointerArt, layerWindow, lookup, placements } from '../src/fast-pointer.ts'
 import { parseEditorProject, defaultCaptions, defaultPresentation } from '../src/engine.ts'
 import type { EditorAsset, EditorProject } from '../../web/src/lib/studio/engine/contracts.ts'
 
@@ -73,7 +79,10 @@ async function main() {
     ...(sound ? [...(soundDelay ? ['-itsoffset', String(soundDelay)] : []), '-f', 'lavfi', '-i', `aevalsrc='0.2*sin(2*PI*(500+60*t)*t)':s=48000:d=${S}`] : []),
     '-filter_complex', `[0:v]format=rgb24,drawbox=x=0:y=0:w=${Math.round(w * 0.14)}:h=${h}:color=0x23232b:t=fill,drawbox=x=${Math.round(w * 0.18)}:y=${Math.round(h * 0.1)}:w=${Math.round(w * 0.36)}:h=${Math.round(h * 0.04)}:color=0x5b3fd0:t=fill[bg];`
       + `[1:v]format=rgb24[p];[bg][p]overlay=x=${Math.round(w * 0.4)}:y=${Math.round(h * 0.36)}:format=rgb[o];[o]drawtext=text='%{n}':x=20:y=${h - 80}:fontsize=60:fontcolor=white:box=1:boxcolor=black,${TO709}[v]`,
-    '-map', '[v]', ...(sound ? ['-map', '2:a', '-c:a', 'aac', '-b:a', '160k'] : []), ...(tags ? TAGS : []), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-g', String(fps), file])
+    // A take with its sound delayed is written as a recorder writes one, no B-frames (frames stored in time order), so the
+    // import keeps it as it came, sound offset and all (recorder-files.ts readyProblem); the others are conformed.
+    '-map', '[v]', ...(sound ? ['-map', '2:a', '-c:a', 'aac', '-b:a', '160k'] : []), ...(tags ? TAGS : []), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-g', String(fps),
+    ...(soundDelay ? ['-bf', '0'] : []), file])
   const camera = (file: string, w: number, h: number, fps: number, tags = true) => ff(['-f', 'lavfi', '-i', `testsrc2=s=${w}x${h}:r=${fps}:d=${S + 1}`,
     '-vf', `format=rgb24,noise=alls=10:allf=t,drawtext=text='%{n}':x=${w * 0.4}:y=${h * 0.35}:fontsize=${Math.round(h / 4)}:fontcolor=white:box=1:boxcolor=black,${TO709}`,
     ...(tags ? TAGS : []), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-g', String(fps), file])
@@ -150,6 +159,7 @@ async function main() {
 
     // ---- the sound itself: FFmpeg's mix against Remotion's, sample for sample (in this process) ------------------------
     const soundRows = new Map<string, Record<string, unknown>>()
+    const pointerWrong = new Map<string, Record<string, number[]>>()
     {
       const { Renderer, inputPropsFor, COMPOSITION_ID, EXPORT_ENCODING, bt709WithSwscale } = await import('../src/render.ts')
       const { loadConfig } = await import('../src/config.ts')
@@ -209,6 +219,76 @@ async function main() {
           levelDb: +(10 * Math.log10(eb / ea)).toFixed(4), residualDb: er ? +(10 * Math.log10(er / ea)).toFixed(1) : -Infinity,
           residualDbfs: er ? +(10 * Math.log10(er / n / 32768 ** 2)).toFixed(1) : -Infinity })
       }
+      // The pointer drawn wrong, to show the run-time check would catch it: the same clip with its pointer 2 px to the
+      // right, and with every frame showing the frame before's pointer; each scored at the frames the check samples.
+      for (const c of cases) {
+        const plan = fastExportPlan(c.project)
+        if (!('segments' in plan) || !plan.segments.some((x) => x.pointer)) continue
+        const { renderFrames, selectComposition } = await import('@remotion/renderer')
+        const common = await renderer.common(() => {}, c.project)
+        const scratch = join(dir, `${c.name}-pointer`)
+        await mkdir(scratch, { recursive: true })
+        const art = chromePointerArt({ project: c.project, serveUrl, common, assetsDir: join(workDir, 'cache', 'assets'), scratch, signal: new AbortController().signal, concurrency: 4,
+          encode: (w, h) => encoderArgs((process.env.STUDIO_FAST_ENCODER ?? 'x264') as EncoderProfile, w, h, 60), run: (file, args, o) => runBuffer(file, args, { signal: o.signal, input: o.input, maxBuffer: 1 << 30 }),
+          remotion: { renderFrames, selectComposition }, inputProps: (p) => inputPropsFor(p), compositionId: COMPOSITION_ID })
+        const { layers, box: pointerBox } = await pointerLayers({ plan, pointerArt: art, log: () => {} } as never, scratch)
+        // The clip the check samples a pointer in (the first such), and those frames.
+        const sampled = pointerSamples(plan)
+        const i = Math.max(0, plan.segments.findIndex((x) => x.pointer && sampled.some((f) => f >= x.startFrame && f < x.startFrame + x.frames)))
+        const seg = plan.segments[i]!, layer = layers.get(i)!
+        // STUDIO_FAST_E2E_POINTER_ALL=1: every third frame of that clip whose pointer is checked (a calibration of the floors), not only the sampled ones.
+        const samples = process.env.STUDIO_FAST_E2E_POINTER_ALL
+          ? Array.from({ length: seg.frames }, (_, l) => seg.startFrame + l).filter((f, k) => k % 3 === 0 && pointerBox(f) && (seg.pointer?.states[f - seg.startFrame - 1] ?? null) !== null)
+          : sampled.filter((f) => f >= seg.startFrame && f < seg.startFrame + seg.frames)
+                const late = async (file: string | null, name: string) => {
+          if (!file) return null
+          const l = (await readFile(file, 'utf8')).trim().split('\n'), out = join(scratch, name)
+          await writeFile(out, [l[0]!, ...l.slice(0, -1)].join('\n') + '\n')
+          return out
+        }
+        const lateList = (await late(layer.layer.sprites, 'late.txt'))!, lateBlur = await late(layer.layer.blur, 'late-blur.txt')
+        // The other look's pictures in the same places (the glass for the arrow, the arrow for the glass): the wrong art.
+        const other = { ...c.project, cursor: { ...c.project.cursor, style: c.project.cursor.style === 'glass' ? 'arrow' : 'glass' } } as EditorProject
+        const otherPlan = fastExportPlan(other) as Extract<ReturnType<typeof fastExportPlan>, { segments: unknown }>
+        const otherScratch = join(scratch, 'other')
+        await mkdir(otherScratch, { recursive: true })
+        const otherArt = chromePointerArt({ project: other, serveUrl, common, assetsDir: join(workDir, 'cache', 'assets'), scratch: otherScratch, signal: new AbortController().signal, concurrency: 4,
+          encode: (w, h) => encoderArgs((process.env.STUDIO_FAST_ENCODER ?? 'x264') as EncoderProfile, w, h, 60), run: (file, args, o) => runBuffer(file, args, { signal: o.signal, input: o.input, maxBuffer: 1 << 30 }),
+          remotion: { renderFrames, selectComposition }, inputProps: (p) => inputPropsFor(p), compositionId: COMPOSITION_ID })
+        const otherLayer = (await pointerLayers({ plan: otherPlan, pointerArt: otherArt, log: () => {} } as never, otherScratch)).layers.get(i)!
+        const variants = {
+          right: layer,
+          'the other look': otherLayer,
+          '2px off': { ...layer, layer: { ...layer.layer, cx: layer.layer.cx.map((x) => x + 2) } },
+          'a frame late': { ...layer, layer: { ...layer.layer, sprites: lateList, blur: lateBlur, cx: [layer.layer.cx[0]!, ...layer.layer.cx.slice(0, -1)], cy: [layer.layer.cy[0]!, ...layer.layer.cy.slice(0, -1)] } },
+        }
+        // As the run-time check measures (fast-export-run.ts): the window as drawn, before the encoder (the tap), against
+        // Chrome's still of the frame, over the pixels the pointer's picture covers or blurs.
+        const { renderStill } = await import('@remotion/renderer')
+        const inputProps = inputPropsFor(c.project), comp = await selectComposition({ serveUrl, id: COMPOSITION_ID, inputProps, ...common })
+        const stillOf = new Map<number, Buffer>()
+        for (const f of samples) {
+          const b = pointerBox(f)!, png = join(scratch, `still-${f}.png`)
+          await renderStill({ serveUrl, composition: comp, inputProps, ...common, frame: f, output: png, imageFormat: 'png' })
+          stillOf.set(f, execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-i', png, '-vf', `scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,crop=${b.bw}:${b.bh}:${b.bx}:${b.by}`, '-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-'], { maxBuffer: 1 << 26 }))
+        }
+        const scores: Record<string, number[]> = {}
+        const local = samples.map((f) => f - seg.startFrame)
+        for (const [label, v] of Object.entries(variants)) {
+          const out = join(scratch, `${label.replace(/ /g, '-')}.mp4`), tapFile = join(scratch, `${label.replace(/ /g, '-')}.yuv`)
+          const args = segmentArgs({ ...seg, blend: seg.blend ? { ...seg.blend, pointer: null } : null }, plan.fps, (f) => join(workDir, 'cache', f), out, undefined, FAST_ENCODER,
+            { layer: v.layer, held: null, tap: { frames: local, file: tapFile, cx: layer.layer.cx, cy: layer.layer.cy, cw: layer.layer.cw, ch: layer.layer.ch } })
+          const k = args.indexOf('-filter_complex'), graph = join(scratch, 'graph.txt')
+          await writeFile(graph, args[k + 1]!)
+          execFileSync('ffmpeg', [...args.slice(0, k), '-filter_complex_script', graph, ...args.slice(k + 2)], { stdio: ['ignore', 'inherit', 'inherit'] })
+          const tap = await readFile(tapFile), taps = hashTaps(local, seg.frames)
+          scores[label] = samples.map((f) => {
+            const b = pointerBox(f)!, size = b.bw * b.bh * 1.5, at = taps.indexOf(f - seg.startFrame)
+            return maskedPsnr(tap.subarray(at * size, (at + 1) * size), stillOf.get(f)!, b.bw, b.bh, b.mask)
+          })
+        }
+        pointerWrong.set(c.name, { frames: samples, ...scores })
+      }
       release()
     }
 
@@ -228,6 +308,31 @@ async function main() {
         const at = (off: number, crop: string) => perFrame(o.fast, o.chrome, off, crop)
         const out0 = at(0, outside), outM = at(-1, outside), outP = at(1, outside)
         const bub0 = box ? at(0, crop(box)) : null, bubM = box ? at(-1, crop(box)) : null, bubP = box ? at(1, crop(box)) : null
+        const worstOf = (xs: number[]) => xs.reduce((m, x, i) => (x < m.v ? { v: x, frame: i } : m), { v: Infinity, frame: -1 })
+        // The pointer: its window on every frame (where fast-pointer.ts puts it), against Chrome's same frame and its neighbours.
+        const pw = pointerWindows(c.project)
+        if (pw) {
+          const when = `round(t*${c.project.output.fps})`, win = `crop=w=${pw.cw}:h=${pw.ch}:x='${lookup(pw.cx, when)}':y='${lookup(pw.cy, when)}'`
+          const p0 = at(0, win), pM = at(-1, win), pP = at(1, win)
+          const shown = (k: number) => pw.shown[k] && k > 0 && k < pw.shown.length - 1
+          row.pointerDb = worstOf(p0.psnr.map((v, k) => (shown(k) ? v : Infinity)))
+          // A pointer a frame late or early scores better against Chrome's neighbouring frame: none may.
+          const late = p0.psnr.map((v, k) => (shown(k) && pw.moving[k] ? Math.max(pM.psnr[k] ?? -Infinity, pP.psnr[k] ?? -Infinity) - v : -Infinity))
+          row.pointerNeighbourMarginDb = +(-Math.max(...late)).toFixed(2)
+          if (Math.max(...late) > 0.5) throw new Error(`${c.name}: frame ${late.indexOf(Math.max(...late))}'s pointer matches a neighbouring frame of Chrome's better`)
+          // The pointer drawn wrong scores below the run-time check's floor where that check samples; the right one above it.
+          const wrong = pointerWrong.get(c.name)
+          if (wrong) {
+            const right = wrong.right!
+            // The floor of the encoder this proof's fast exports used, for this look.
+            const floorDb = checkFloor((process.env.STUDIO_FAST_ENCODER ?? 'x264') as EncoderProfile).pointer[c.project.cursor.style as 'arrow' | 'glass']
+            const stats = (xs: number[]) => { const q = [...xs].sort((x, y) => x - y); return { n: q.length, min: +q[0]!.toFixed(2), p05: +q[Math.floor(q.length * 0.05)]!.toFixed(2), median: +q[Math.floor(q.length / 2)]!.toFixed(2), max: +q.at(-1)!.toFixed(2) } }
+            if (process.env.STUDIO_FAST_E2E_POINTER_ALL) row.pointerCalibration = Object.fromEntries(Object.entries(wrong).filter(([k]) => k !== 'frames').map(([k, v]) => [k, stats(v)]))
+            row.pointerCheck = { frames: wrong.frames, right: right.map((v) => +v.toFixed(2)), ...Object.fromEntries(Object.entries(wrong).filter(([k]) => k !== 'frames' && k !== 'right').map(([k, v]) => [k, v.map((x) => +x.toFixed(2))])) }
+            if (right.some((v) => v < floorDb)) throw new Error(`${c.name}: the pointer's window scores below the check's floor at a sampled frame`)
+            for (const [k, v] of Object.entries(wrong)) if (k !== 'frames' && k !== 'right' && v.some((x) => x >= floorDb)) throw new Error(`${c.name}: a pointer ${k} would pass the check`)
+          }
+        }
         // The right frame everywhere: no neighbour scores better (by more than 0.5 dB, for frames that do not change).
         for (let k = 1; k < out0.psnr.length - 1; k++) {
           const better = (cur: number[], m: number[], p: number[]) => Math.max(m[k] ?? -Infinity, p[k] ?? -Infinity) > cur[k]! + 0.5 && cur[k]! < 60
@@ -304,10 +409,16 @@ type Case = { name: string; project: EditorProject; bubbleBox?: { x: number; y: 
 
 function buildCases(A: Record<'screen60' | 'screen30' | 'cam30' | 'cam60' | 'mic' | 'screen60u' | 'screen30u' | 'cam30u' | 'screen60d', EditorAsset>): Case[] {
   const make = (o: { name: string; screen: EditorAsset; camera: EditorAsset; clips: { from: number; to: number; rate?: number; muted?: boolean }[]; corner: 'tl' | 'tr' | 'bl' | 'br';
-    style?: { shape: 'circle' | 'rounded'; radius: number }; offset: number; look?: 'default' | 'gradient' | 'solid'; mic?: boolean; noCamera?: boolean; micFades?: boolean }): Case => {
-    const screen = o.clips.some((c) => (c.rate ?? 1) > 1)
-      ? { ...o.screen, trace: { viewport: { width: o.screen.width!, height: o.screen.height!, scale: 1 }, cursor: [], actions: o.clips.filter((c) => (c.rate ?? 1) > 1).map((c) => ({ t: c.from / o.screen.sourceFps! * 1000, end: c.to / o.screen.sourceFps! * 1000, kind: 'type', label: 'Typing', box: null })) } }
-      : o.screen
+    style?: { shape: 'circle' | 'rounded'; radius: number }; offset: number; look?: 'default' | 'gradient' | 'solid'; mic?: boolean; noCamera?: boolean; micFades?: boolean
+    pointer?: { style: 'arrow' | 'glass'; click: boolean } }): Case => {
+    const typing = o.clips.filter((c) => (c.rate ?? 1) > 1).map((c) => ({ t: c.from / o.screen.sourceFps! * 1000, end: c.to / o.screen.sourceFps! * 1000, kind: 'type', label: 'Typing', box: null }))
+    // A pointer recorded as a desktop take records it: a trace in points (half the pixels), the pointer hidden in the picture.
+    const pointerTrace = o.pointer ? madeUpTrace(o.screen.sourceFrames! / o.screen.sourceFps!, { width: o.screen.width! / 2, height: o.screen.height! / 2, scale: 2 }, 900, 300) : null
+    const screen = pointerTrace
+      ? { ...o.screen, sourceCursorHidden: true, trace: { ...pointerTrace, actions: [...pointerTrace.actions, ...typing].sort((a, b) => a.t - b.t) } }
+      : typing.length
+        ? { ...o.screen, trace: { viewport: { width: o.screen.width!, height: o.screen.height!, scale: 1 }, cursor: [], actions: typing } }
+        : o.screen
     const W = screen.width!, H = screen.height!, fps = screen.sourceFps!
     const side = Math.min(W * 0.22, H * 0.28), w = side / W, h = side / H
     const x = o.corner.endsWith('r') ? 1 - w - 0.04 : 0.04, y = o.corner.startsWith('b') ? 1 - h - 0.04 : 0.04
@@ -318,7 +429,7 @@ function buildCases(A: Record<'screen60' | 'screen30' | 'cam30' | 'cam60' | 'mic
       schemaVersion: 4, id: `fast-${o.name}`, title: o.name, output: { width: W, height: H, fps }, assets: [screen, o.camera, ...(o.mic ? [A.mic] : [])],
       clips: o.clips.map((c, i) => ({ id: `clip-${i}`, assetId: screen.id, trimStartSourceFrame: c.from, trimEndSourceFrame: c.to, audio: { muted: !!c.muted || !screen.hasAudio || (c.rate ?? 1) > 1, gain: 1 },
         holdEndFrames: 0, zooms: [], motion: neutralMotion(), playbackRate: c.rate ?? 1, dismissedActionIndices: [], view: { main: 'screen', bubble: true } })),
-      presentation, cursor: { style: 'none', size: 18, clickFeedback: false }, audioTracks: [], presenterTrack: null, transcripts: [], captions: { ...defaultCaptions },
+      presentation, cursor: o.pointer ? { style: o.pointer.style, size: 18, clickFeedback: o.pointer.click } : { style: 'none', size: 18, clickFeedback: false }, audioTracks: [], presenterTrack: null, transcripts: [], captions: { ...defaultCaptions },
       captionCorrections: {}, voiceoverDraft: { text: '', targetClipIds: [] },
     } as unknown as EditorProject
     const total = scheduleProject(project).reduce((n, s) => Math.max(n, s.startFrame + s.durationFrames), 0)
@@ -356,6 +467,13 @@ function buildCases(A: Record<'screen60' | 'screen30' | 'cam30' | 'cam60' | 'mic
     make({ name: 'untagged60', screen: A.screen60u, camera: A.cam30u, clips: [{ from: 0, to: 250 }, { from: 271, to: 360 }], corner: 'br', offset: 0.1, mic: true }),
     make({ name: 'untagged30', screen: A.screen30u, camera: A.cam30u, clips: [{ from: 0, to: 180 }], corner: 'tl', style: { shape: 'rounded', radius: 0.2 }, offset: 0.05, mic: true }),
     // The recording's sound starts 0.3 s after its picture: not mixed here (Remotion places it by its time), the picture still is.
+    // The recorded pointer (fast-pointer.ts): the arrow with click feedback, its path through the bubble; the glass through
+    // cuts, a 2x clip and a blend, with and without click feedback; at 60 and 30 fps.
+    make({ name: 'pointer60', screen: s60, camera: A.cam30, clips: [{ from: 0, to: s60.sourceFrames! }], corner: 'br', offset: 0.1, mic: true, pointer: { style: 'arrow', click: true } }),
+    make({ name: 'glasscuts60', screen: s60, camera: A.cam30, clips: [{ from: 4, to: 120 }, { from: 141, to: 221, rate: 2 }, { from: 233, to: 350 }], corner: 'tl', style: { shape: 'rounded', radius: 0.25 },
+      offset: 0.05, mic: true, pointer: { style: 'glass', click: true } }),
+    make({ name: 'glass30', screen: s30, camera: A.cam30, clips: [{ from: 0, to: 90 }, { from: 101, to: 180 }], corner: 'tr', offset: 0, mic: true, pointer: { style: 'glass', click: false } }),
+    make({ name: 'arrowcut30', screen: s30, camera: A.cam30, clips: [{ from: 2, to: 100 }, { from: 120, to: 175 }], corner: 'bl', offset: 0.05, mic: true, pointer: { style: 'arrow', click: false } }),
     { ...make({ name: 'delayed60', screen: A.screen60d, camera: A.cam30, clips: [{ from: 0, to: 300 }], corner: 'br', offset: 0, noCamera: true }), remotionSound: /the sound mixed by Remotion \(a sound starts at 0\.2\d* s in its file/ },
   ]
 }
@@ -365,6 +483,29 @@ function count(file: string): number {
   return Number(execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-count_packets', '-show_entries', 'stream=nb_read_packets', '-of', 'csv=p=0', file], { encoding: 'utf8' }).trim())
 }
 const crop = (b: { x: number; y: number; w: number; h: number }) => `crop=${b.w}:${b.h}:${b.x}:${b.y}`
+/** The pointer's window on every frame of the video (fast-pointer.ts's placement), whether it shows, and whether it moved since the frame before. */
+function pointerWindows(project: EditorProject): { cw: number; ch: number; cx: number[]; cy: number[]; shown: boolean[]; moving: boolean[] } | null {
+  const plan = fastExportPlan(project)
+  if (!('segments' in plan)) return null
+  const segs = plan.segments.filter((x) => x.pointer)
+  if (!segs.length) return null
+  const look = segs[0]!.pointer!, { cw, ch } = layerWindow(look)
+  const cx: number[] = Array(plan.frames).fill(0), cy: number[] = Array(plan.frames).fill(0), shown: boolean[] = Array(plan.frames).fill(false), moving: boolean[] = Array(plan.frames).fill(false)
+  for (const seg of segs) {
+    const places = placements(seg.pointer!.states, look, plan.width, plan.height)
+    for (const [l, st] of seg.pointer!.states.entries()) {
+      const f = seg.startFrame + l
+      cx[f] = places[l]!.cx; cy[f] = places[l]!.cy
+      // Under a blend two pointers show, and under the bubble none: those frames are measured with the rest of the picture.
+      const q = seg.bubble && l >= seg.bubble.offset ? seg.bubble.square : null
+      const underBubble = !!q && places[l]!.cx < q.x + q.side && places[l]!.cx + cw > q.x && places[l]!.cy < q.y + q.side && places[l]!.cy + ch > q.y
+      shown[f] = !!st && l >= (seg.blend?.frames ?? 0) && !underBubble
+      const before = seg.pointer!.states[l - 1]
+      moving[f] = !!st && !!before && (Math.abs(st.x - before.x) + Math.abs(st.y - before.y) > 2 || st.ring !== before.ring || st.press !== before.press)
+    }
+  }
+  return { cw, ch, cx, cy, shown, moving }
+}
 /** Everything but the bubble: the bubble's box painted black in both. */
 const excludeCrop = (W: number, H: number, b: { x: number; y: number; w: number; h: number }) => `drawbox=x=${b.x - 4}:y=${b.y - 4}:w=${b.w + 8}:h=${b.h + 8}:color=black:t=fill`
 /** PSNR and SSIM of every frame of `a` against `b` shifted by `off` frames (b's frame k+off against a's frame k). */

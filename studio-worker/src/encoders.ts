@@ -66,11 +66,20 @@ export function encoderArgs(profile: EncoderProfile, width: number, height: numb
  * inside the bubble. A hardware encoder at its quality here loses more on fine detail than x264 at CRF 18 (a made-up
  * test card at 1280×720 checked at 34.9 dB with VideoToolbox, about 43 with x264), so its whole-frame floor is lower;
  * the timing is checked bit for bit before the encoder (the frame hashes), and a wrong camera frame still scores
- * about 22 in the bubble.
+ * about 22 in the bubble. The pointer: below.
  */
-export function checkFloor(profile: EncoderProfile): { frame: number; bubble: number } {
-  return profile === 'videotoolbox' || profile === 'mf' ? { frame: 30, bubble: 25 } : { frame: 34, bubble: 25 }
+export type PointerFloor = { arrow: number; glass: number }
+export function checkFloor(profile: EncoderProfile): { frame: number; bubble: number; pointer: PointerFloor } {
+  return profile === 'videotoolbox' || profile === 'mf' ? { frame: 30, bubble: 25, pointer: POINTER_FLOOR } : { frame: 34, bubble: 25, pointer: POINTER_FLOOR }
 }
+/**
+ * The pointer's floors, per look: its window as FFmpeg's graph drew it, before any encoder (so the same with every
+ * encoder), against Chrome's still of the frame, over the pixels its picture covers or blurs (fast-export-run.ts).
+ * Measured on made-up takes (test/fast-export-e2e.ts, every third frame of a clip, its calibration run):
+ * the right arrow 44.4 dB at worst, the arrow 2 px off 12.8 at best, a frame late (where it moves) 10.4; the right glass
+ * 35.8 at worst (46 and more on most frames), the glass 2 px off 33.5 at best, a frame late 33.2.
+ */
+export const POINTER_FLOOR: PointerFloor = { arrow: 30, glass: 34.5 }
 
 /** The profile for this machine when none is set: VideoToolbox on a Mac, Media Foundation on Windows, x264 elsewhere. Pure. */
 export function defaultProfile(platform: NodeJS.Platform): EncoderProfile {

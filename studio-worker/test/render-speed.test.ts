@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cgroupCpus, loadConfig, renderTabs } from '../src/config.ts'
+import { cgroupCpus, loadConfig, renderTabs, localTabs } from '../src/config.ts'
 import { BT709_SWSCALE, bt709WithSwscale, EXPORT_ENCODING, glFallbackWanted, glFor, Renderer } from '../src/render.ts'
 
 const files = (map: Record<string, string>) => (path: string) => map[path] ?? null
@@ -129,4 +129,14 @@ test('the fallback runs the render once more with swangle and is kept for every 
   let tries = 0
   await assert.rejects(fresh.withGlFallback(log, undefined, () => false, async () => { tries++; throw new Error('Page crashed!') }), /Page crashed/)
   assert.equal(tries, 2)
+})
+
+test("a person's computer: at most 3 tabs, one per 4 cores, their memory at most a quarter of the computer's", () => {
+  const GB = 2 ** 30, big = { width: 3472, height: 2266 }
+  assert.equal(localTabs({ cores: 18, memoryBytes: 64 * GB, ...big }), 3)
+  assert.equal(localTabs({ cores: 8, memoryBytes: 16 * GB, ...big }), 2)
+  assert.equal(localTabs({ cores: 8, memoryBytes: 8 * GB, ...big }), 1)
+  assert.equal(localTabs({ cores: 4, memoryBytes: 64 * GB, ...big }), 1)
+  assert.equal(localTabs({ cores: 12, memoryBytes: 16 * GB, width: 1920, height: 1080 }), 3)
+  assert.equal(localTabs({ cores: 2, memoryBytes: 4 * GB, width: 1920, height: 1080 }), 1)
 })

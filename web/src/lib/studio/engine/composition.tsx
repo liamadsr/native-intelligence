@@ -17,6 +17,7 @@ import { cutVideoPlan, dipOpacity, dipPlan, type Dip } from './cuts';
 import { soundLayers } from './sound-layers';
 import { automationValue } from './automation';
 import { LayerStack } from './layers-render';
+import { pointerAt as pointerAt_, clickAt, pressScale, CLICK_RING_MS } from './pointer';
 import { CodeScenesContext, type CodeScenes } from './scene-layer';
 import { loadFaces, type FontFace } from './font-faces';
 import { CutoutPass, gradeFilter, passAsset, useCutoutPass } from './cutout-pass';
@@ -58,20 +59,13 @@ function SourceClip({ scheduled, project, assetPath, extend = 0, fadeIn = 0, pla
   const angle = p.shadow.angle * Math.PI / 180;
   const trace = asset.sourceCursorHidden && view.main === 'screen' ? asset.trace : undefined;
   const ms = sourceTimeSeconds(clip, asset, frame, fps) * 1000;
-  let pointer: [number, number] | null = null, pointerAt: [number, number] | null = null;
-  if (trace?.cursor.length && ms >= trace.cursor[0]![0]) {
-    const samples = trace.cursor; let lo = 0, hi = samples.length - 1;
-    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (samples[mid]![0] <= ms) lo = mid; else hi = mid; }
-    const a = samples[lo]!, b = samples[hi]!;
-    const mix = b[0] === a[0] || b[0] - a[0] > 100 ? 0 : Math.max(0, Math.min(1, (ms - a[0]) / (b[0] - a[0])));
-    const point = ms >= b[0] ? b : [ms, a[1] + (b[1] - a[1]) * mix, a[2] + (b[2] - a[2]) * mix];
-    pointer = [point[1]! / trace.viewport.width * paneW, point[2]! / trace.viewport.height * paneH];
-    pointerAt = [point[1]! / trace.viewport.width, point[2]! / trace.viewport.height];
-  }
-  const click = frame < playbackFrames && project.cursor.clickFeedback && trace?.actions.filter((a) => a.kind === 'click' && a.t <= ms && ms - a.t < 220).at(-1);
-  const clickProgress = click ? (ms - click.t) / 220 : null;
+  // The worker's FFmpeg export draws the same pointer from the same functions (pointer.ts; studio-worker/src/fast-pointer.ts).
+  const pointerAt = trace ? pointerAt_(trace, ms) : null;
+  const pointer: [number, number] | null = pointerAt ? [pointerAt[0] * paneW, pointerAt[1] * paneH] : null;
+  const click = frame < playbackFrames && project.cursor.clickFeedback && trace && clickAt(trace, ms);
+  const clickProgress = click ? (ms - click.t) / CLICK_RING_MS : null;
   const size = project.cursor.size * (trace ? paneW / trace.viewport.width : 1);
-  const press = click && ms - click.t < 100 ? 1 - 0.12 * Math.sin(Math.PI * (ms - click.t) / 100) : 1;
+  const press = pressScale(click, ms);
   // Main-picture automation: slide (whips), rotation, blur and opacity move the whole shot as one.
   const shiftX = automationValue(project, 'shiftX', timelineFrame), shiftY = automationValue(project, 'shiftY', timelineFrame), rotate = automationValue(project, 'rotate', timelineFrame);
   const blur = automationValue(project, 'blur', timelineFrame), opacity = automationValue(project, 'opacity', timelineFrame);

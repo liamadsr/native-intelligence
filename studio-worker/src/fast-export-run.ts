@@ -10,14 +10,16 @@
  * Any error or a failed check throws (and stops the other branches); the export job then renders the whole video in
  * Chrome instead, after removing what this left in its scratch folder.
  */
-import { readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { POINTER_FLOOR, type PointerFloor } from './encoders.ts'
 import { join } from 'node:path'
-import { probe, run } from './media.ts'
+import { probe, run, runBuffer } from './media.ts'
 import { concatLine } from './platform.ts'
+import { drawnState, layerWindow, placed, placements, png, spriteCrop, stateKey, type PointerLayer, type PointerPlan, type PointerState, type Sprite } from './fast-pointer.ts'
 import { FAST_ENCODER, hashTaps, planFiles, segmentArgs, sourcesFit, stampsFit, bubbleGeometry, bubbleSampling, type FastPlan, type SegmentPlan } from './fast-export.ts'
 
-/** The least a sampled frame may score against Chrome's drawing of it: the whole frame, and inside the bubble. */
-export const CHECK_DB = { frame: 34, bubble: 25 }
+/** The least a sampled frame may score against Chrome's drawing of it: the whole frame, inside the bubble, the pointer's window. */
+export const CHECK_DB = { frame: 34, bubble: 25, pointer: POINTER_FLOOR }
 
 export interface FastRun {
   plan: FastPlan
@@ -36,7 +38,9 @@ export interface FastRun {
   /** The picture's encoder arguments (encoders.ts, encoderArgs; given, so the encoder stays out of the render version): the Chrome path's x264 unless said. */
   encoder?: string[]
   /** What a checked frame must score with that encoder (encoders.ts, checkFloor): CHECK_DB unless said. */
-  checkDb?: { frame: number; bubble: number }
+  checkDb?: { frame: number; bubble: number; pointer: PointerFloor }
+  /** The pointer's pictures for these states (drawn states, each once), drawn by Chrome (fast-pointer.ts, drawPointerStates). */
+  pointerArt?: (o: { plan: Pick<PointerPlan, 'size' | 'style'>; states: PointerState[] }) => Promise<Sprite[]>
 }
 
 const timeout = (frames: number, fps: number) => Math.max(180_000, Math.ceil((frames / fps) * 20_000))
@@ -84,6 +88,9 @@ export async function composeFast(r: FastRun): Promise<string> {
   const wav = join(scratch, 'fast-sound.wav'), frames = sampleFrames(plan, change)
   const times = { picture: 0, sound: 0, chromeFrames: 0 }
   const hashes = plan.segments.map((seg, i) => ({ ...hashFrames(seg, change), screenOut: join(scratch, `fast-${i}-screen.md5`), cameraOut: join(scratch, `fast-${i}-camera.md5`) }))
+  // Where the pointer is compared at the check (set once its pictures are drawn).
+  let pointerBox: (frame: number) => PointerBox | null = () => null
+  const pointerTaps = new Map<number, { file: string; index: number }>()
   const chrome = (async () => {
     const a = Date.now()
     await r.sound(wav)
@@ -100,9 +107,16 @@ export async function composeFast(r: FastRun): Promise<string> {
   const picture = (async () => {
     const parts: string[] = []
     let done = 0
+    // The pointer's pictures first (Chrome draws each of its states once), then its layers' files.
+    const { layers, box } = await pointerLayers(r, scratch)
+    pointerBox = box
     for (const [i, seg] of plan.segments.entries()) {
       const out = join(scratch, `fast-${i}.mp4`)
-      await run('ffmpeg', segmentArgs(seg, plan.fps, r.path, out, seg.bubble ? hashes[i] : { ...hashes[i]!, camera: [] }, r.encoder ?? FAST_ENCODER),
+      // The pointer's checked frames in this clip: their windows as drawn, before the encoder (the tap).
+      const checked = frames.filter((f) => f >= seg.startFrame && f < seg.startFrame + seg.frames && box(f)).map((f) => f - seg.startFrame)
+      const layer = layers.get(i), tap = layer && checked.length ? { frames: checked, file: join(scratch, `fast-${i}-pointer.yuv`) } : null
+      if (tap) for (const l of checked) pointerTaps.set(seg.startFrame + l, { file: tap.file, index: hashTaps(checked, seg.frames).indexOf(l) })
+      await run('ffmpeg', await scripted(segmentArgs(seg, plan.fps, r.path, out, seg.bubble ? hashes[i] : { ...hashes[i]!, camera: [] }, r.encoder ?? FAST_ENCODER, layer ? { ...layer, tap } : undefined), join(scratch, `fast-${i}.graph`)),
         { timeout: timeout(seg.frames, plan.fps), maxBuffer: 4 * 1024 * 1024, signal })
       parts.push(out)
       done += seg.frames
@@ -133,7 +147,7 @@ export async function composeFast(r: FastRun): Promise<string> {
   await run('ffmpeg', ['-nostdin', '-v', 'error', '-y', '-i', pictureFile, '-i', wav, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy',
     '-c:a', 'aac', '-b:a', '320k', '-ar', '48000', '-movflags', '+faststart', output], { timeout: timeout(plan.frames, plan.fps), maxBuffer: 4 * 1024 * 1024, signal })
   const t2 = Date.now()
-  await check(r, output, frames, stills)
+  await check(r, output, frames, stills, pointerBox, pointerTaps)
   const checked = hashes.reduce((n, h) => n + h.screen.length + h.camera.length, 0)
   r.log(`Fast export: picture ${secs(0, times.picture)} s, alongside it the sound ${secs(0, times.sound)} s and Chrome's check frames ${secs(0, times.chromeFrames)} s; ${checked} source frames matched bit for bit; joining ${secs(t1, t2)} s, comparing ${secs(t2, Date.now())} s`)
   r.progress(1)
@@ -210,11 +224,46 @@ export function sampleFrames(plan: FastPlan, change: (file: string, index: numbe
     if (size > most.size) most = { frame: seg.startFrame + l, size }
   }
   out.add(most.frame)
+  for (const f of pointerSamples(plan)) out.add(f)
   return [...out].sort((a, b) => a - b)
 }
 
+/**
+ * The frames whose pointer is checked against Chrome's (pointerCheck): where it moves most from the frame before (a
+ * pointer a frame early or late is far from Chrome's there), and well into a click's ring when there is one; only
+ * where it is seen whole (past a blend, its window not under the bubble). Pure.
+ */
+export function pointerSamples(plan: FastPlan): number[] {
+  let move: { frame: number; d: number } | null = null, ring: { frame: number; d: number } | null = null
+  for (const seg of plan.segments) {
+    const box = pointerBoxes(seg, plan)
+    for (const [l, s] of (seg.pointer?.states ?? []).entries()) {
+      const before = seg.pointer!.states[l - 1]
+      if (!s || !box[l] || !before) continue
+      const d = Math.hypot(s.x - before.x, s.y - before.y)
+      if (d > 0 && (!move || d > move.d)) move = { frame: seg.startFrame + l, d }
+      if (s.ring !== null && (!ring || Math.abs(s.ring - 0.35) < ring.d)) ring = { frame: seg.startFrame + l, d: Math.abs(s.ring - 0.35) }
+    }
+  }
+  return [...new Set([move?.frame, ring?.frame].filter((f): f is number => f !== undefined))]
+}
+
+/** A clip's pointer window on each frame when it is seen whole there (inside the frame, past the blend, not under the bubble), else null. Pure. */
+export function pointerBoxes(seg: SegmentPlan, plan: Pick<FastPlan, 'width' | 'height'>): ({ bx: number; by: number; bw: number; bh: number } | null)[] {
+  if (!seg.pointer) return []
+  const { cw, ch } = layerWindow(seg.pointer), places = placements(seg.pointer.states, seg.pointer, plan.width, plan.height)
+  const q = seg.bubble ? bubbleGeometry(seg.bubble) : null
+  return seg.pointer.states.map((s, l) => {
+    if (!s || l < (seg.blend?.frames ?? 0)) return null
+    const p = places[l]!, crop = spriteCrop(seg.pointer!.size), x = p.cx + p.ix, y = p.cy + p.iy
+    if (x < 0 || y < 0 || x + crop.w > plan.width || y + crop.h > plan.height) return null
+    if (q && l >= seg.bubble!.offset && p.cx < q.bx + q.bw && p.cx + cw > q.bx && p.cy < q.by + q.bh && p.cy + ch > q.by) return null
+    return { bx: p.cx, by: p.cy, bw: cw, bh: ch }
+  })
+}
+
 /** The file's frame count, and the sampled frames against Chrome's drawing of them. */
-async function check(r: FastRun, file: string, frames: number[], stills: Map<number, string>): Promise<void> {
+async function check(r: FastRun, file: string, frames: number[], stills: Map<number, string>, pointerBox: (frame: number) => PointerBox | null, taps: Map<number, { file: string; index: number }>): Promise<void> {
   const { plan, signal } = r
   const { stdout } = await run('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-count_packets', '-show_entries', 'stream=nb_read_packets', '-of', 'csv=p=0', file], { signal })
   // The first number: ffprobe adds a column for side data some files carry.
@@ -227,9 +276,19 @@ async function check(r: FastRun, file: string, frames: number[], stills: Map<num
     const g = seg.bubble ? bubbleGeometry(seg.bubble) : null
     const whole = await psnr(png, file, frame, plan.fps, null, signal)
     const bubble = g && frame >= seg.startFrame + seg.bubble!.offset ? await psnr(png, file, frame, plan.fps, g, signal) : Infinity
-    r.log(`Fast export check, frame ${frame}: ${whole.toFixed(1)} dB${Number.isFinite(bubble) ? `, bubble ${bubble.toFixed(1)} dB` : ''} against Chrome`)
+    // The pointer: its window as the graph drew it (the tap, before the encoder: the encoder is the whole frame's
+    // check) against Chrome's, over the pixels its picture covers or blurs.
+    const box = pointerBox(frame), tap = taps.get(frame)
+    let pointer = Infinity
+    if (box && tap) {
+      const size = box.bw * box.bh * 1.5, drawn = (await readFile(tap.file)).subarray(tap.index * size, (tap.index + 1) * size)
+      const chrome = await runBuffer('ffmpeg', ['-nostdin', '-v', 'error', '-i', png, '-vf', `scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,crop=${box.bw}:${box.bh}:${box.bx}:${box.by}`,
+        '-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-'], { signal })
+      pointer = drawn.length === size && chrome.length === size ? maskedPsnr(drawn, chrome, box.bw, box.bh, box.mask) : NaN
+    }
+    r.log(`Fast export check, frame ${frame}: ${whole.toFixed(1)} dB${Number.isFinite(bubble) ? `, bubble ${bubble.toFixed(1)} dB` : ''}${Number.isFinite(pointer) ? `, pointer ${pointer.toFixed(1)} dB` : ''} against Chrome`)
     const floor = r.checkDb ?? CHECK_DB
-    if (!(whole >= floor.frame) || !(bubble >= floor.bubble)) throw new Error(`frame ${frame} is not Chrome's (${whole.toFixed(1)} dB, bubble ${bubble.toFixed(1)} dB)`)
+    if (!(whole >= floor.frame) || !(bubble >= floor.bubble) || !(pointer >= floor.pointer[seg.pointer?.style ?? 'arrow'])) throw new Error(`frame ${frame} is not Chrome's (${whole.toFixed(1)} dB, bubble ${bubble.toFixed(1)} dB${Number.isFinite(pointer) ? `, pointer ${pointer.toFixed(1)} dB` : ''})`)
   }
 }
 
@@ -295,3 +354,101 @@ export async function joinWavs(parts: { file: string; samples: number }[], out: 
   header.write('data', 20 + fmt!.length, 'latin1'); header.writeUInt32LE(data.length, 24 + fmt!.length)
   await writeFile(out, Buffer.concat([header, data]))
 }
+
+/** A long filter graph (a pointer's per-frame places) moved to a file: a command line has a length limit (32 KB on Windows). */
+async function scripted(args: string[], file: string): Promise<string[]> {
+  const i = args.indexOf('-filter_complex')
+  if (i < 0 || args[i + 1]!.length < 4000) return args
+  await writeFile(file, args[i + 1]!)
+  return [...args.slice(0, i), '-filter_complex_script', file, ...args.slice(i + 2)]
+}
+
+/**
+ * Each clip's pointer layer (and its blend's held pointer), as files: the states drawn by Chrome once each
+ * (r.pointerArt), each frame's window picture (and the glass's blur weights) a PNG written once per distinct picture
+ * and place, and concat lists naming them frame by frame. Keyed by clip index; empty without a pointer.
+ */
+export async function pointerLayers(r: FastRun, scratch: string): Promise<{ layers: Map<number, { layer: PointerLayer; held: PointerLayer | null }>; box: (frame: number) => PointerBox | null }> {
+  const { plan } = r, out = new Map<number, { layer: PointerLayer; held: PointerLayer | null }>()
+  const plans = plan.segments.flatMap((s) => (s.pointer ? [s.pointer] : []))
+  if (!plans.length) return { layers: out, box: () => null }
+  if (!r.pointerArt) throw new Error('the pointer cannot be drawn here')
+  const look = { size: plans[0]!.size, style: plans[0]!.style }
+  const unique = new Map<string, PointerState>()
+  for (const seg of plan.segments) for (const s of [...(seg.pointer?.states ?? []), seg.blend?.pointer ?? null]) if (s && !unique.has(stateKey(s))) unique.set(stateKey(s), drawnState(s))
+  const keys = [...unique.keys()]
+  const t0 = Date.now()
+  const sprites = await r.pointerArt({ plan: look, states: keys.map((k) => unique.get(k)!) })
+  const t1 = Date.now()
+  const index = new Map(keys.map((k, i) => [k, i]))
+  const { cw, ch, sigma } = layerWindow(look), glass = look.style === 'glass'
+  const written = new Map<string, { sprite: string; blur: string }>()
+  const dir = join(scratch, 'pointer')
+  await mkdir(dir, { recursive: true })
+  const files = async (sprite: Sprite | null, ix: number, iy: number, id: string) => {
+    const key = `${id}@${ix},${iy}`
+    let f = written.get(key)
+    if (!f) {
+      f = { sprite: join(dir, `p${written.size}.png`), blur: join(dir, `b${written.size}.png`) }
+      await writeFile(f.sprite, png(cw, ch, placed(sprite, 'rgba', cw, ch, ix, iy), 4))
+      if (glass) await writeFile(f.blur, png(cw, ch, placed(sprite, 'blur', cw, ch, ix, iy), 1))
+      written.set(key, f)
+    }
+    return f
+  }
+  const layerOf = async (states: (PointerState | null)[], name: string): Promise<PointerLayer> => {
+    const places = placements(states, look, plan.width, plan.height), sprite: string[] = [], blur: string[] = []
+    for (const [l, s] of states.entries()) {
+      const k = s ? index.get(stateKey(s))! : -1
+      const f = await files(k >= 0 ? sprites[k]! : null, places[l]!.ix, places[l]!.iy, String(k))
+      sprite.push(f.sprite); blur.push(f.blur)
+    }
+    const listOf = async (names: string[], suffix: string) => { const file = join(dir, `${name}-${suffix}.txt`); await writeFile(file, names.map(concatLine).join('\n') + '\n'); return file }
+    return { cw, ch, sigma, cx: places.map((p) => p.cx), cy: places.map((p) => p.cy), sprites: await listOf(sprite, 'sprites'), blur: glass ? await listOf(blur, 'blur') : null }
+  }
+  for (const [i, seg] of plan.segments.entries()) {
+    const held = seg.blend?.pointer
+    const layer = seg.pointer ? await layerOf(seg.pointer.states, `clip${i}`) : null
+    const heldLayer = held ? await layerOf([held], `held${i}`) : null
+    if (layer || heldLayer) out.set(i, { layer: layer ?? await layerOf(Array(seg.frames).fill(null), `clip${i}`), held: heldLayer })
+  }
+  r.log(`Fast export: the pointer's ${keys.length} pictures drawn by Chrome in ${((t1 - t0) / 1000).toFixed(1)} s, its ${written.size} window pictures written in ${((Date.now() - t1) / 1000).toFixed(1)} s`)
+  // Where the check compares the pointer: its window on that frame, and in it the pixels its picture covers or blurs
+  // (POINTER_MASK and more): the glass changes little of what is under it, its rim and shadow move with it.
+  const box = (frame: number): PointerBox | null => {
+    const seg = plan.segments.find((x) => frame >= x.startFrame && frame < x.startFrame + x.frames)
+    const l = seg ? frame - seg.startFrame : -1, s = seg?.pointer?.states[l]
+    if (!seg || !s || !pointerBoxes(seg, plan)[l]) return null
+    const sp = sprites[index.get(stateKey(s))!]!, p = placements([s], look, plan.width, plan.height)[0]!
+    const cover = placed(sp, 'rgba', cw, ch, p.ix, p.iy), blur = glass ? placed(sp, 'blur', cw, ch, p.ix, p.iy) : null
+    const mask = Buffer.alloc(cw * ch)
+    let area = 0
+    for (let i = 0; i < cw * ch; i++) if (cover[i * 4 + 3]! >= POINTER_MASK || (blur && blur[i]! >= POINTER_MASK)) { mask[i] = 1; area++ }
+    return area ? { bx: p.cx, by: p.cy, bw: cw, bh: ch, mask, area } : null
+  }
+  return { layers: out, box }
+}
+
+type Box = { bx: number; by: number; bw: number; bh: number }
+/** Where a frame's pointer is compared: its window, and the mask in it (1 where a pixel counts). */
+export type PointerBox = Box & { mask: Buffer; area: number }
+/** A pixel counts in the pointer's comparison when the picture covers or blurs it this much (of 255): 15 %. */
+export const POINTER_MASK = 38
+/**
+ * PSNR of two 4:2:0 pictures (w×h, planar) over a mask's pixels (`mask` w×h, 1 where a pixel counts; a chroma sample
+ * counts when any of its four does), the planes weighted by their counted samples as FFmpeg's psnr weighs them. Pure.
+ */
+export function maskedPsnr(a: Buffer, b: Buffer, w: number, h: number, mask: Buffer): number {
+  let err = 0, n = 0
+  for (let i = 0; i < w * h; i++) if (mask[i]) { const d = a[i]! - b[i]!; err += d * d; n++ }
+  for (let p = 0; p < 2; p++) {
+    const base = w * h + p * (w / 2) * (h / 2)
+    for (let y = 0; y < h / 2; y++) for (let x = 0; x < w / 2; x++) {
+      if (!(mask[2 * y * w + 2 * x] || mask[2 * y * w + 2 * x + 1] || mask[(2 * y + 1) * w + 2 * x] || mask[(2 * y + 1) * w + 2 * x + 1])) continue
+      const d = a[base + y * (w / 2) + x]! - b[base + y * (w / 2) + x]!; err += d * d; n++
+    }
+  }
+  if (!n) return NaN
+  return err === 0 ? Infinity : 10 * Math.log10((255 * 255 * n) / err)
+}
+

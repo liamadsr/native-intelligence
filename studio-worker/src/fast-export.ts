@@ -1,7 +1,8 @@
 /**
- * The FFmpeg export: a video that is a recording with its camera bubble, cut and sped up, and nothing drawn by React,
- * composed by FFmpeg alone instead of screenshotted out of Chrome frame by frame. On a Mac the 20 s production-shaped
- * video took 14.5 s instead of 38.4 s and 60 % of the CPU; most of what is left is the sound (fast-export-run.ts).
+ * The FFmpeg export: a video that is a recording with its camera bubble and its pointer, cut and sped up, and nothing
+ * else drawn by React, composed by FFmpeg instead of screenshotted out of Chrome frame by frame. On a Mac the 20 s
+ * production-shaped video took 14.5 s instead of 38.4 s and 60 % of the CPU; most of what is left is the sound
+ * (fast-export-run.ts).
  *
  * Default deny. `fastExportPlan` lets a project through only when every part of it is one this path was proven to draw
  * as Chrome draws it (test/fast-export-e2e.ts renders made-up projects both ways and compares every frame; the list is
@@ -13,6 +14,8 @@
  *   the clip's time, a millisecond's grace), realised by FFmpeg's fps filter from timestamps placed so it picks the
  *   same frames (realise), checked frame by frame against remotionFrame before anything runs;
  * - a jump cut inside one recording: the outgoing frame held while the next clip fades in over it (cutVideoPlan);
+ * - the recorded pointer (fast-pointer.ts): where the engine's pointer.ts puts it on each frame, with pictures Chrome
+ *   draws of each of its states, laid on the screen before the blend and the bubble;
  * - the camera bubble (presenterPieces): the camera sampled bilinearly at the exact fractional place Chrome draws it
  *   (Chrome does not filter the scaled canvas), under a circle or rounded-square mask antialiased from the same
  *   geometry;
@@ -23,6 +26,7 @@
  */
 import { createRequire } from 'node:module'
 import type { EditorAsset, EditorClip, EditorProject } from '../../web/src/lib/studio/engine/contracts.ts'
+import { clipPointer, lookup, pointerFilters, type PointerLayer, type PointerPlan, type PointerState } from './fast-pointer.ts'
 
 const require = createRequire(import.meta.url)
 // Each by its own literal path, so a bundler (scripts/build-local-runner.ts) takes exactly these files in.
@@ -50,9 +54,11 @@ export interface SegmentPlan {
   startFrame: number
   frames: number
   screen: StreamPlan
-  /** A jump cut's blend: the previous clip's last shown frame held under the first `frames` frames. */
-  blend: { file: string; srcFps: number; index: number; frames: number } | null
+  /** A jump cut's blend: the previous clip's last shown frame held under the first `frames` frames, with that frame's pointer. */
+  blend: { file: string; srcFps: number; index: number; frames: number; pointer: PointerState | null } | null
   bubble: BubblePlan | null
+  /** The recorded pointer, drawn on the screen before the blend and the bubble (fast-pointer.ts). */
+  pointer: PointerPlan | null
 }
 export interface FastPlan { width: number; height: number; fps: number; frames: number; segments: SegmentPlan[] }
 
@@ -71,7 +77,9 @@ export const PROVEN = { fps: [30, 60],
   /** Clip speed in video rate. */
   rates: ['1@30', '1@60', '2@60'], shapes: ['circle', 'rounded'], backgrounds: ['none', 'solid', 'gradient'],
   /** Camera rate in video rate: a 30 fps camera in 60 and 30 fps videos, a 60 fps one in a 30 fps video. */
-  camera: ['30@60', '30@30', '60@30'] } as const
+  camera: ['30@60', '30@30', '60@30'],
+  /** The pointer's looks drawn (fast-pointer.ts): each with and without click feedback, through cuts and a 2x clip. */
+  pointers: ['arrow', 'glass'] } as const
 
 const unknownKey = (value: object | undefined | null, known: Set<string>, where: string) => {
   const extra = Object.keys(value ?? {}).filter((k) => !known.has(k) && (value as Record<string, unknown>)[k] !== undefined)
@@ -136,9 +144,9 @@ export function fastExportPlan(project: EditorProject): FastPlan | { reason: str
     if (fadeIn > 0) {
       const prev = segments[index - 1]!
       if (fadeIn >= s.durationFrames) return deny(`clip ${index + 1} is shorter than its blend`)
-      blend = { file: prev.screen.file, srcFps: prev.screen.srcFps, index: prev.screen.map.at(-1)!, frames: fadeIn }
+      blend = { file: prev.screen.file, srcFps: prev.screen.srcFps, index: prev.screen.map.at(-1)!, frames: fadeIn, pointer: prev.pointer?.states.at(-1) ?? null }
     }
-    segments.push({ clipId: clip.id, startFrame: s.startFrame, frames: s.durationFrames, screen, blend, bubble: null })
+    segments.push({ clipId: clip.id, startFrame: s.startFrame, frames: s.durationFrames, screen, blend, bubble: null, pointer: clipPointer(project, clip, asset, s.durationFrames) })
   }
 
   const track = project.presenterTrack
@@ -186,6 +194,8 @@ export function fastExportPlan(project: EditorProject): FastPlan | { reason: str
     }
   }
   if (!audible(project)) return deny('it has no sound (that case is not tested)')
+  const pointers = segments.flatMap((x) => (x.pointer ? [x.pointer] : []))
+  if (pointers.some((x) => x.size !== pointers[0]!.size)) return deny("its recordings' pointers are drawn at different sizes")
   for (const seg of segments) {
     const why = realiseProblem(seg.screen, fps) ?? (seg.bubble ? realiseProblem(seg.bubble.camera, fps) : null)
     if (why) return deny(why)
@@ -198,7 +208,7 @@ function screenProblem(asset: EditorAsset, project: EditorProject): string | nul
   if (asset.kind !== 'video' || !/\.mp4$/.test(asset.file) || !asset.sourceFrames) return 'its recording is not an MP4 video'
   if (asset.width !== width || asset.height !== height) return 'its recording is not the size of the video'
   if (asset.sourceFps !== fps) return 'its recording is not at the video\'s frame rate'
-  if (asset.sourceCursorHidden && (asset.trace?.cursor?.length ?? 0) > 0 && project.cursor.style !== 'none') return 'it draws a pointer'
+  if (asset.sourceCursorHidden && (asset.trace?.cursor?.length ?? 0) > 0 && project.cursor.style !== 'none' && !(PROVEN.pointers as readonly string[]).includes(project.cursor.style)) return `it draws a ${project.cursor.style} pointer`
   return null
 }
 
@@ -338,10 +348,13 @@ export function bubbleSampling(g: ReturnType<typeof bubbleGeometry>): string {
 }
 
 /** One clip's FFmpeg arguments (inputs as files under `dir`, the asset cache's parent), writing `out`. */
-export function segmentArgs(seg: SegmentPlan, fps: number, path: (file: string) => string, out: string, hashes?: FrameHashes, encoder: string[] = FAST_ENCODER): string[] {
+export function segmentArgs(seg: SegmentPlan, fps: number, path: (file: string) => string, out: string, hashes?: FrameHashes, encoder: string[] = FAST_ENCODER,
+  pointer?: { layer: PointerLayer; held: PointerLayer | null; tap?: { frames: number[]; file: string; cx?: number[]; cy?: number[]; cw?: number; ch?: number } | null }): string[] {
   const inputs: string[] = [], graph: string[] = [], extra: string[] = []
   let n = 0
   const input = (file: string, srcFps: number, first: number, last: number) => { inputs.push(...seekArgs({ srcFps }, first, last), '-i', path(file)); return n++ }
+  // A pointer layer's pictures: FFmpeg concat lists of PNG files, one entry a frame.
+  const list = (file: string) => { inputs.push('-f', 'concat', '-safe', '0', '-i', file); return n++ }
   const scr = input(seg.screen.file, seg.screen.srcFps, seg.screen.map[0]!, seg.screen.map.at(-1)!)
   graph.push(`[${scr}:v]${realise(seg.screen, fps, seg.frames)}[scr0]`)
   if (hashes?.screen.length) {
@@ -349,12 +362,31 @@ export function segmentArgs(seg: SegmentPlan, fps: number, path: (file: string) 
     extra.push('-map', '[scrhash]', '-fps_mode', 'passthrough', '-f', 'framemd5', hashes.screenOut)
   }
   let screenOut = hashes?.screen.length ? 'scr0k' : 'scr0'
+  // The pointer, on the screen itself: under the blend (a cut's two pointers fade as their pictures do) and the bubble.
+  if (pointer) {
+    graph.push(...pointerFilters('ptr', screenOut, 'scrp', list(pointer.layer.sprites), pointer.layer.blur ? list(pointer.layer.blur) : null, pointer.layer, fps))
+    screenOut = 'scrp'
+    // The pointer's check (fast-export-run.ts): its window on a few frames as drawn, before any encoder, raw 4:2:0, every
+    // HASH_STRIDE-th frame's too (hashTaps: the output must not wait long for its next frame).
+    if (pointer.tap?.frames.length) {
+      const at = `round(t*${fps})`
+      // (The window where the check expects the pointer: the layer's own unless said, as a proof of a wrong layer says it.)
+      graph.push(`[scrp]split[scrq][ptapin]`, `[ptapin]${selectFrames(pointer.tap.frames)},crop=w=${pointer.tap.cw ?? pointer.layer.cw}:h=${pointer.tap.ch ?? pointer.layer.ch}:x='${lookup(pointer.tap.cx ?? pointer.layer.cx, at)}':y='${lookup(pointer.tap.cy ?? pointer.layer.cy, at)}',format=yuv420p[ptap]`)
+      extra.push('-map', '[ptap]', '-fps_mode', 'passthrough', '-f', 'rawvideo', pointer.tap.file)
+      screenOut = 'scrq'
+    }
+  }
   if (seg.blend) {
     const b = seg.blend, f = b.frames
     const held = input(b.file, b.srcFps, b.index, b.index)
     // The frame's number from its time, both inputs on one 1/fps clock (blend's own N counts from 1): the k-th blended frame is (k + 1) / (f + 1) in, as SourceClip fades it.
     const a = `min(1\\,(round(T*${fps})+1)/${f + 1})`
-    graph.push(`[${held}:v]trim=end_frame=1,setpts=0,loop=loop=${f - 1}:size=1:start=0,settb=1/${fps},setpts=N[held]`,
+    let heldIn = `${held}:v`
+    if (pointer?.held) {
+      graph.push(`[${heldIn}]trim=end_frame=1,setpts=0[held0]`, ...pointerFilters('hptr', 'held0', 'held1', list(pointer.held.sprites), pointer.held.blur ? list(pointer.held.blur) : null, pointer.held, fps))
+      heldIn = 'held1'
+    }
+    graph.push(`[${heldIn}]trim=end_frame=1,setpts=0,loop=loop=${f - 1}:size=1:start=0,settb=1/${fps},setpts=N[held]`,
       `[${screenOut}]split[sa][sb]`, `[sa]trim=end_frame=${f},settb=1/${fps},setpts=N[head]`, `[sb]trim=start_frame=${f},setpts=PTS-STARTPTS[tail]`,
       `[head][held]blend=all_expr='A*${a}+B*(1-${a})'[mixed]`, `[mixed][tail]concat=n=2:v=1:a=0[scr1]`)
     screenOut = 'scr1'

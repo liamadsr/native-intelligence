@@ -22,10 +22,10 @@ import { mkdir, rename, stat, copyFile } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join } from 'node:path'
-import { homedir } from 'node:os'
+import { availableParallelism, homedir, totalmem } from 'node:os'
 import { AppClient, AppError } from './app-client.ts'
 import { AssetCache } from './cache.ts'
-import { loadConfig, type WorkerConfig } from './config.ts'
+import { loadConfig, localTabs, type WorkerConfig } from './config.ts'
 import { defaultProfile, type EncoderProfile } from './encoders.ts'
 import { JobError, type JobContext } from './jobs/context.ts'
 import { runExport } from './jobs/export.ts'
@@ -197,6 +197,8 @@ export async function runLocal(o: LocalRun): Promise<{ file: string; result: Exp
     o.emit({ type: 'encoder', profile: probe.profile, rung: probe.rung, tried: probe.tried })
     if (!probe.rung) throw new JobError(`This computer cannot encode the video (${probe.tried.map((t) => `${t.rung}: ${t.why}`).join('; ')}): export it on the server`)
     config.encoderRung = probe.rung
+    // Tabs for this computer and this video's size (config.ts, localTabs; the server's rule is its CPU quota).
+    config.renderConcurrency = localTabs({ cores: availableParallelism(), memoryBytes: totalmem(), width: out.width, height: out.height })
     const cache = new AssetCache(join(config.workDir, 'cache', 'assets'), config.cacheBytes)
     await cache.init()
     let file = ''

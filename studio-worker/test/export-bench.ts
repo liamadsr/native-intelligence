@@ -15,6 +15,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
+import { madeUpTrace } from './pointer-fixtures.ts'
 import { FakeApp } from './fake-app.ts'
 import { parseEditorProject, defaultCaptions, defaultPresentation } from '../src/engine.ts'
 import type { EditorAsset, EditorProject } from '../../web/src/lib/studio/engine/contracts.ts'
@@ -25,8 +26,9 @@ const { scheduleProject } = require('../../web/src/lib/studio/engine/timeline.ts
 
 const ROOT = resolve(import.meta.dirname, '..')
 const SECRET = 'bench-secret-not-real-0123456789abcdef'
-const SECONDS = 20.2
-const variant = process.argv[2] === 'cuts' ? 'cuts' : 'plain'
+const variant = process.argv[2] === 'cuts' ? 'cuts' : process.argv[2] === 'desktop' ? 'desktop' : 'plain'
+// `desktop`: a take as the desktop recorder makes them (the first real one: 15.7 s at 3472×2266, the pointer drawn as glass with clicks).
+const SECONDS = variant === 'desktop' ? 15.7 : 20.2, W = variant === 'desktop' ? 3472 : 2504, H = variant === 'desktop' ? 2266 : 1438
 const paths = process.argv[3] === 'chrome' ? [false] : process.argv[3] === 'fast' ? [true] : [false, true]
 const ff = (args: string[]) => execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-y', ...args], { stdio: ['ignore', 'inherit', 'inherit'] })
 const TAGS = ['-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv']
@@ -37,9 +39,10 @@ async function main() {
   const workDir = resolve(process.env.STUDIO_E2E_WORK_DIR ?? join(tmpdir(), 'studio-worker-e2e-work'))
   await mkdir(join(dir, 'media'), { recursive: true })
   const screen = join(dir, 'media/screen.mp4'), camera = join(dir, 'media/camera.mp4'), mic = join(dir, 'media/mic.m4a')
-  ff(['-f', 'lavfi', '-i', `color=c=0xf2f3f6:s=2504x1438:r=60:d=${SECONDS}`, '-f', 'lavfi', '-i', `testsrc2=s=1200x700:r=60:d=${SECONDS}`, '-filter_complex',
-    `[0:v]format=rgb24,drawbox=x=0:y=0:w=360:h=1438:color=0x23232b:t=fill,drawbox=x=440:y=160:w=900:h=60:color=0x5b3fd0:t=fill[bg];[1:v]format=rgb24[p];[bg][p]overlay=x=1000:y=520:format=rgb,`
-      + `drawtext=text='%{n}':x=60:y=1300:fontsize=90:fontcolor=white:box=1:boxcolor=black,${TO709}[v]`, '-map', '[v]', ...TAGS, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-g', '60', screen])
+  const k = W / 2504
+  ff(['-f', 'lavfi', '-i', `color=c=0xf2f3f6:s=${W}x${H}:r=60:d=${SECONDS}`, '-f', 'lavfi', '-i', `testsrc2=s=${Math.round(1200 * k)}x${Math.round(700 * k)}:r=60:d=${SECONDS}`, '-filter_complex',
+    `[0:v]format=rgb24,drawbox=x=0:y=0:w=${Math.round(360 * k)}:h=${H}:color=0x23232b:t=fill,drawbox=x=${Math.round(440 * k)}:y=${Math.round(160 * k)}:w=${Math.round(900 * k)}:h=${Math.round(60 * k)}:color=0x5b3fd0:t=fill[bg];[1:v]format=rgb24[p];[bg][p]overlay=x=${Math.round(1000 * k)}:y=${Math.round(520 * k)}:format=rgb,`
+      + `drawtext=text='%{n}':x=60:y=${H - 138}:fontsize=90:fontcolor=white:box=1:boxcolor=black,${TO709}[v]`, '-map', '[v]', ...TAGS, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-g', '60', screen])
   ff(['-f', 'lavfi', '-i', `testsrc2=s=1920x1080:r=30:d=${SECONDS}`, '-vf', `format=rgb24,noise=alls=10:allf=t,${TO709}`, ...TAGS, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-g', '30', camera])
   ff(['-f', 'lavfi', '-i', `aevalsrc='0.5*sin(2*PI*(180+40*sin(1.3*t)+25*t)*t)':s=48000:d=${SECONDS}`, '-c:a', 'aac', '-b:a', '160k', mic])
 
@@ -102,6 +105,8 @@ function buildProject(A: { screen: EditorAsset; camera: EditorAsset; mic: Editor
     zooms: [], motion: neutralMotion(), playbackRate: 1, dismissedActionIndices: [], view: { main: 'screen', bubble: true } }
   let screen = A.screen
   let clips = [clip]
+  // The desktop recorder's take: the pointer hidden in the picture and recorded in points (half the pixels on a Retina screen).
+  if (variant === 'desktop') screen = { ...screen, sourceCursorHidden: true, trace: madeUpTrace(SECONDS, { width: W / 2, height: H / 2, scale: 2 }) }
   if (variant === 'cuts') {
     screen = { ...screen, trace: { viewport: { width: W, height: H, scale: 1 }, cursor: [], actions: [{ t: 480 / 60 * 1000, end: 735 / 60 * 1000, kind: 'type', label: 'Typing', box: null }] } }
     clips = [{ ...clip, id: 'a', trimStartSourceFrame: 7, trimEndSourceFrame: 363 }, { ...clip, id: 'b', trimStartSourceFrame: 487, trimEndSourceFrame: 729, playbackRate: 2 },
@@ -109,9 +114,9 @@ function buildProject(A: { screen: EditorAsset; camera: EditorAsset; mic: Editor
   }
   const side = Math.min(W * 0.22, H * 0.28), w = side / W, h = side / H
   let project = { schemaVersion: 4, id: 'bench', title: 'Bench', output: { width: W, height: H, fps }, assets: [screen, A.camera, A.mic], clips,
-    presentation: structuredClone(defaultPresentation), cursor: { style: 'none', size: 18, clickFeedback: false }, audioTracks: [], transcripts: [], captions: { ...defaultCaptions },
+    presentation: structuredClone(defaultPresentation), cursor: variant === 'desktop' ? { style: 'glass', size: 18, clickFeedback: true } : { style: 'none', size: 18, clickFeedback: false }, audioTracks: [], transcripts: [], captions: { ...defaultCaptions },
     captionCorrections: {}, voiceoverDraft: { text: '', targetClipIds: [] },
-    presenterTrack: { id: 'presenter', assetId: A.camera.id, audio: { muted: true, gain: 1 }, segments: [{ id: 'seg', startFrame: 15, endFrame: 1212, sourceStartFrame: 0,
+    presenterTrack: { id: 'presenter', assetId: A.camera.id, audio: { muted: true, gain: 1 }, segments: [{ id: 'seg', startFrame: 15, endFrame: Math.round(SECONDS * 60), sourceStartFrame: 0,
       visual: { ...structuredClone(neutralMotionVisual), rect: { x: 1 - w - 0.04, y: 1 - h - 0.04, width: w, height: h } }, tracks: [] }], sync: { screenAssetId: screen.id, offsetSeconds: 0.25 } },
   } as unknown as EditorProject
   const segments = scheduleProject(project).filter((s) => s.clip.playbackRate === 1).map((s, i) => {

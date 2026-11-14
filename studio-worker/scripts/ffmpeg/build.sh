@@ -49,11 +49,11 @@ rm -rf "$src" && tar -xf "$tarball" -C "$work"
 
 # ---- what the export path uses (studio-worker/scripts/ffmpeg/README.md says where each comes from) -------------------
 FILTERS="buffer,buffersink,abuffer,abuffersink,null,anull,format,aformat,scale,aresample,trim,atrim,setpts,asetpts,copy"   # the CLI's own
-FILTERS="$FILTERS,settb,fps,tpad,split,select,concat,loop,color,geq,pad,fillborders,v360,crop,alphamerge,overlay,blend,setsar,setparams,sidedata" # the composition
+FILTERS="$FILTERS,settb,fps,tpad,split,select,concat,loop,color,geq,pad,fillborders,v360,crop,alphamerge,overlay,blend,setsar,setparams,sidedata,gblur" # the composition
 FILTERS="$FILTERS,psnr,testsrc2"            # the checks and the encoder probe
 FILTERS="$FILTERS,ebur128,loudnorm,volume"  # mastering
 DEMUXERS="mov,matroska,wav,mp3,ogg,flac,aac,concat,image2,image2pipe,image_png_pipe,image_jpeg_pipe,image_webp_pipe"
-MUXERS="mp4,mov,null,framemd5,pcm_f32le,wav"
+MUXERS="mp4,mov,null,framemd5,pcm_f32le,wav,rawvideo"
 DECODERS="h264,aac,pcm_s16le,pcm_f32le,mjpeg,png,wrapped_avframe"
 ENCODERS="aac,pcm_f32le,pcm_s16le,rawvideo,wrapped_avframe"
 PARSERS="h264,aac,mjpeg,png"

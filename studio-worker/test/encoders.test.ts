@@ -48,8 +48,8 @@ test('a bitrate from pixels and rate, never under 4 Mb/s; the profile by machine
 
 test("the run-time check's floor follows the encoder", async () => {
   const { checkFloor } = await import('../src/encoders.ts')
-  assert.deepEqual(checkFloor('x264'), { frame: 34, bubble: 25 })
-  assert.deepEqual(checkFloor('videotoolbox'), { frame: 30, bubble: 25 })
+  assert.deepEqual(checkFloor('x264'), { frame: 34, bubble: 25, pointer: { arrow: 30, glass: 34.5 } })
+  assert.deepEqual(checkFloor('videotoolbox'), { frame: 30, bubble: 25, pointer: { arrow: 30, glass: 34.5 } })
 })
 
 test("the Chrome path's pipe labels its picture as every export, without the JPEGs' ICC profile", async () => {

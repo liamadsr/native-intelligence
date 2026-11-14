@@ -26,7 +26,8 @@ import { dirname, join } from 'node:path'
 import { parseEditorProject } from '../engine.ts'
 import { stageAssets } from '../assets.ts'
 import { masterFile } from '../master.ts'
-import { mediaTimeout, probe, run } from '../media.ts'
+import { mediaTimeout, probe, run, runBuffer } from '../media.ts'
+import { chromePointerArt, SPRITE_FPS, SPRITE_TABS } from '../fast-pointer.ts'
 import { bt709WithSwscale, COMPOSITION_ID, EXPORT_ENCODING, inputPropsFor, unstagedNeeds } from '../render.ts'
 import { stageFonts } from '../fonts.ts'
 import { checkCodeScenes, stageScenes } from '../scenes.ts'
@@ -83,7 +84,7 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
     })
     try {
       ctx.progress(0.2)
-      const { selectComposition, renderMedia, renderStill, openBrowser, makeCancelSignal } = await import('@remotion/renderer')
+      const { selectComposition, renderMedia, renderStill, renderFrames, openBrowser, makeCancelSignal } = await import('@remotion/renderer')
       const inputProps = { ...inputPropsFor(project), fonts: fonts.faces }
       let output = join(ctx.scratch, 'video.partial.mp4')
       let started = Date.now()
@@ -149,6 +150,10 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
               ctx.log(`Fast export: ${await composeSound({ project, frames: plan.frames, fps: plan.fps, path: (file) => join(dirname(ctx.cache.dir), file), out, scratch: ctx.scratch,
                 probe: (file) => probes.get(file) ?? null, remotion: async (r, o) => { await window(r, o) }, whole, signal: ctx.signal, log: ctx.log })}`)
             },
+            // The pointer's states, drawn by Chrome in a made-up video of the pointer alone (fast-pointer.ts).
+            pointerArt: chromePointerArt({ project, serveUrl, common: shared, assetsDir: ctx.cache.dir, scratch: ctx.scratch, signal: ctx.signal, concurrency: SPRITE_TABS,
+              encode: (w, h) => encoderArgs(ctx.config.fastEncoder, w, h, SPRITE_FPS, ctx.config.encoderRung), run: (file, args, o) => runBuffer(file, args, { signal: o.signal, input: o.input, maxBuffer: 1 << 30 }),
+              remotion: { renderFrames, selectComposition }, inputProps: (p) => inputPropsFor(p), compositionId: COMPOSITION_ID, cancelSignal }),
             stills: async (frames) => {
               const out = new Map<number, string>()
               for (const frame of frames) {

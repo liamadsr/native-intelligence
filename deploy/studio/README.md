@@ -143,8 +143,9 @@ fast export, …)`, or `Rendering in Chrome: <the first reason>`.
 - *What goes through* (default deny: one function, `fastExportPlan`, over the whole project; any other part, any key
   it does not know, any value outside these, and the whole export is Chrome's): 30 or 60 fps; the recording at the
   video's size and rate (MP4, H.264 yuv420p, BT.709 or untagged, limited range, from time 0); clips of it with cuts
-  and their soft blend, starting anywhere in the take, at 1x (2x in 60 fps videos); no zoom, motion, hold, chosen
-  transition, layout, layer, caption, cut-out, slide, extra source, automation, platform format or drawn pointer;
+  and their soft blend, starting anywhere in the take, at 1x (2x in 60 fps videos); the recorded pointer (arrow or
+  glass, with or without click feedback, at one size); no zoom, motion, hold, chosen transition, layout, layer,
+  caption, cut-out, slide, extra source, automation or platform format;
   a look with no padding, inset, window radius or camera fill (background none, solid or gradient, any shadow or
   blur, all hidden under the full-frame recording); the camera synced to the take, as a still round or
   rounded-square bubble anywhere inside the frame, uncropped, its own sound off, 30 fps in a 30 or 60 fps video
@@ -155,7 +156,11 @@ fast export, …)`, or `Rendering in Chrome: <the first reason>`.
   from `presenterPieces` (now in the engine's `presenter-pieces.ts`, the one copy the editor and the worker both
   use), sampled bilinearly at Chrome's fractional place (FFmpeg's `v360`, flat to flat: LGPL, so the desktop's own
   FFmpeg build has it; `perspective` did it before and is GPL-only) under a circle or rounded-square mask snapped to
-  whole pixels as Chrome snaps the bubble's clip; one
+  whole pixels as Chrome snaps the bubble's clip; the recorded pointer where the engine's `pointer.ts` puts it on
+  each frame, drawn with pictures Chrome itself draws (`studio-worker/src/fast-pointer.ts`: each state the video
+  needs, once, in a small made-up video of the pointer over black, white and, for the glass, a checkerboard; from
+  them each pixel's coverage, colour and how much of the blurred picture the glass takes), laid in a small RGB window
+  around the pointer on every frame (the glass's blur by `gblur`), under the blend and the bubble; one
   FFmpeg pass per clip with the Chrome path's encoder settings and labels, joined without re-encoding.
 - *What the files must be* (checked before anything runs): H.264 yuv420p, colour BT.709 or not said (an untagged
   take, as a browser's conformed by the worker arrives, is read by Chrome as BT.709 limited range: proven), square

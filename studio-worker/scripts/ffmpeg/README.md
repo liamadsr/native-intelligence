@@ -36,11 +36,11 @@ separate processes; nothing of ours links them. Each program is about 5.5 MB str
 | Kind | Components | Used by |
 |---|---|---|
 | filters | buffer, buffersink, abuffer, abuffersink, null, anull, format, aformat, scale, aresample, trim, atrim, setpts, asetpts, copy | the CLI itself (format conversion, `-ss`/`-t`) |
-| | settb, fps, tpad, split, select, concat, loop, color, geq, pad, fillborders, v360, crop, alphamerge, overlay, blend, setsar, setparams, sidedata | the fast export's graph (`fast-export.ts`) and the Chrome path's pipe (`chrome-pipe.ts`) |
+| | settb, fps, tpad, split, select, concat, loop, color, geq, pad, fillborders, v360, crop, alphamerge, overlay, blend, setsar, setparams, sidedata, gblur | the fast export's graph (`fast-export.ts`, the pointer: `fast-pointer.ts`) and the Chrome path's pipe (`chrome-pipe.ts`) |
 | | psnr, testsrc2 | the run-time checks and the encoder probe |
 | | ebur128, loudnorm, volume | mastering (`master.ts`) |
-| demuxers | mov, matroska, wav, mp3, ogg, flac, aac, concat, image2, image2pipe, image_png_pipe, image_jpeg_pipe, image_webp_pipe; the lavfi input device | the files a project names, the clips' join, Chrome's stills and frames, the probe |
-| muxers | mp4, mov, null, framemd5, pcm_f32le, wav | the export, the checks, the frame hashes, the sound read |
+| demuxers | mov, matroska, wav, mp3, ogg, flac, aac, concat, image2, image2pipe, image_png_pipe, image_jpeg_pipe, image_webp_pipe; the lavfi input device | the files a project names, the clips' join, Chrome's stills and frames, the pointer's pictures (concat lists of PNGs), the probe |
+| muxers | mp4, mov, null, framemd5, pcm_f32le, wav, rawvideo | the export, the checks, the frame hashes, the sound read, the pointer's check (its window before the encoder, and Chrome's) |
 | decoders | h264, aac, pcm_s16le, pcm_f32le, mjpeg, png, wrapped_avframe | sources, Chrome's JPEGs and PNGs, the probe's frames |
 | encoders | h264_videotoolbox (macOS) or h264_mf (Windows), aac, pcm_f32le, pcm_s16le, rawvideo, wrapped_avframe | the picture, the sound, the hashes, the null output |
 | parsers | h264, aac, mjpeg, png | |

@@ -63,7 +63,7 @@ test('cuts in one recording blend at the cut, a 2x stretch takes every other fra
   assert.deepEqual(a!.screen.map.slice(0, 2), [7, 8])
   assert.equal(a!.screen.map.at(-1), 100)
   assert.deepEqual(b!.screen.map.slice(0, 3), [121, 123, 125])
-  assert.deepEqual(b!.blend, { file: a!.screen.file, srcFps: 60, index: 100, frames: 7 })
+  assert.deepEqual(b!.blend, { file: a!.screen.file, srcFps: 60, index: 100, frames: 7, pointer: null })
   assert.equal(c!.blend!.index, b!.screen.map.at(-1))
   assert.equal(p.frames, 94 + 33 + 122)
 })
@@ -91,7 +91,8 @@ test('each thing not proven sends the export to Chrome, with a reason', () => {
     ['an unsynced camera', (p) => { delete p.presenterTrack.sync }, /synced/],
     ['punched-in takes', (p) => { p.presenterTrack.takes = [{ screenAssetId: 'a', assetId: 'b', offsetSeconds: 0 }] }, /takes/],
     ['a 60 fps camera in a 60 fps video', (p) => { p.assets[1] = video('b', 1920, 1080, 60, 400) }, /60 fps in a 60/],
-    ['a drawn pointer', (p) => { p.assets[0].sourceCursorHidden = true; p.assets[0].trace = { viewport: { width: 1280, height: 720, scale: 1 }, cursor: [[0, 1, 1]], actions: [] }; p.cursor.style = 'arrow' }, /pointer/],
+    // The arrow and the glass are drawn (fast-pointer.ts): a look that is neither is not.
+    ['a pointer of another look', (p) => { p.assets[0].sourceCursorHidden = true; p.assets[0].trace = { viewport: { width: 1280, height: 720, scale: 1 }, cursor: [[0, 1, 1]], actions: [] }; p.cursor.style = 'beam' }, /beam pointer/],
     ['a recording at another size', (p) => { p.output = { width: 1920, height: 1080, fps: 60 } }, /size/],
     ['a recording at another rate', (p) => { p.output.fps = 30 }, /rate/],
     ['24 fps', (p) => { p.output.fps = 24; p.assets[0] = video('a', 1280, 720, 24, 144) }, /24 fps/],

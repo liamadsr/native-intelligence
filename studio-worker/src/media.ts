@@ -14,6 +14,8 @@ export interface RunOptions {
   env?: NodeJS.ProcessEnv
   /** The folder it runs in (a filter graph names its files relative to it). */
   cwd?: string
+  /** What it reads on standard input (runBuffer). */
+  input?: Buffer
 }
 
 /** A tool's run that did not succeed: the tool, why, and the end of what it said. */
@@ -82,12 +84,15 @@ export function run(file: string, args: string[], opts: RunOptions = {}): Promis
 /** Run a tool whose standard output is binary (raw samples). */
 export function runBuffer(file: string, args: string[], opts: RunOptions = {}): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    execFile(toolPath(file), fenceInputs(file, args), { timeout: opts.timeout ?? 180_000, maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024, signal: opts.signal, encoding: 'buffer', windowsHide: true }, (err, stdout, stderr) => {
+    const child = execFile(toolPath(file), fenceInputs(file, args), { timeout: opts.timeout ?? 180_000, maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024, signal: opts.signal, encoding: 'buffer', windowsHide: true }, (err, stdout, stderr) => {
       if (!err) return resolve(stdout)
       if (opts.signal?.aborted) return reject(new ToolError(`${file} stopped: the job was cancelled`, 'ABORT_ERR'))
       const e = err as NodeJS.ErrnoException & { killed?: boolean }
       reject(new ToolError(`${file.replace(/^.*\//, '')} failed${how(e)}${tailOf(stderr)}`, e.code ?? null))
     })
+    child.stdin?.on('error', () => {})
+    if (opts.input) child.stdin?.end(opts.input)
+    else child.stdin?.end()
   })
 }
 

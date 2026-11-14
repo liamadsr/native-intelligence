@@ -150,6 +150,20 @@ export function renderTabs(cpus: number): number {
   return Math.max(1, Math.min(4, Math.floor(cpus) - 1))
 }
 
+/**
+ * Chrome tabs for an export on a person's own computer (the local runner, local.ts), from its cores, its memory and the
+ * video's size. Measured on a Mac with 18 cores and 64 GB (test/tabs-bench.ts: a 3472×2266 60 fps take with its pointer
+ * and a bubble, through the Chrome path with VideoToolbox): 8.2 frames a second with 1 tab, 11.7 with 2, 12.3 with 3,
+ * 12.4 with 6, then slower (10.8 with 9, 9.4 with 12); each tab about 1.7 GB at that size (some 216 bytes a pixel);
+ * FFmpeg alone took the same frames at about 110 a second, so Chrome (one GPU process for every tab) is the limit, not
+ * the cores. Drawing on the CPU instead (swangle) was 1.4 frames a second with 4 tabs. So: at most 3 tabs, one per 4
+ * cores (a computer someone is using keeps the rest), and the tabs' memory at most a quarter of the computer's. Pure.
+ */
+export function localTabs(o: { cores: number; memoryBytes: number; width: number; height: number }): number {
+  const perTab = 216 * o.width * o.height
+  return Math.max(1, Math.min(3, Math.floor(o.cores / 4), Math.floor(o.memoryBytes / 4 / perTab)))
+}
+
 /** A switch setting: on/off, 1/0, true/false, yes/no (case aside); unset is `fallback`, anything else null. */
 function onOff(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boolean | null {
   const v = setting(env, name)?.toLowerCase()
