@@ -1,8 +1,8 @@
 // The editor's side of a Mac take opened before it was filed (record/provisional.ts, record/filing.ts): pure steps
 // App.tsx takes, kept here so they are tested as they run.
 import type { EditorProject, EditorTranscript } from '@/lib/studio/engine/contracts'
-import { adoptFiled, CHANGED_ELSEWHERE, withoutTranscripts, type DraftStore, type ProvisionalRecord } from '../record/provisional'
-export { CHANGED_ELSEWHERE }
+import { adoptFiled, CHANGED_ELSEWHERE, OWED_UNKNOWN, withoutTranscripts, type DraftStore, type ProvisionalRecord } from '../record/provisional'
+export { CHANGED_ELSEWHERE, OWED_UNKNOWN }
 import type { Settled } from '../record/filing'
 
 export type History = { past: EditorProject[]; current: EditorProject; future: EditorProject[]; group?: number | null }
@@ -114,9 +114,12 @@ export const WORDS_ARRIVED = 'The words the Mac heard have arrived. They are in 
  * over the video (adoptKept refuses). `saveOwed`: the editor's edits are still to be saved over the Studio's (the files
  * and the record stay until they are). Throws when the record could not be written: the editor does not carry on then.
  */
-export async function markEditorAdopted(records: AdoptDeps['records'], projectId: string, digest: string, saveOwed = false, studio?: EditorProject): Promise<ProvisionalRecord> {
+export async function markEditorAdopted(records: AdoptDeps['records'], projectId: string, digest: string, saveOwed = false, studio?: EditorProject, owedEdit?: EditorProject): Promise<ProvisionalRecord> {
   const note = studio ? await studioNote(studio) : {}
-  const kept = await records.update(projectId, (r) => ({ ...r, state: 'adopted', ...(r.studioDigest ? {} : { studioDigest: digest, ...note }), failed: undefined, ...(saveOwed ? { saveOwed: true } : { saveOwed: undefined }) }))
+  // Owed: the edit itself is kept too (on the Studio's assets), with the digest its save goes over, so the Record
+  // dialog's "Put my edits on it" saves what is owed, never an older draft (App.tsx keeps it up to date).
+  const owed = (r: ProvisionalRecord) => (saveOwed ? { saveOwed: true, ...(owedEdit ? { owedEdit, owedDigest: r.studioDigest ?? digest } : {}) } : { saveOwed: undefined, owedEdit: undefined, owedDigest: undefined })
+  const kept = await records.update(projectId, (r) => ({ ...r, state: 'adopted', ...(r.studioDigest ? {} : { studioDigest: digest, ...note }), failed: undefined, ...owed(r) }))
   if (!kept || kept.state !== 'adopted') throw new Error('this computer could not keep a note of it')
   return kept
 }
@@ -211,9 +214,13 @@ export async function adoptKept(deps: AdoptDeps, projectId: string): Promise<Ado
   } catch (error) {
     return { outcome: 'unreadable', message: `The recording is filed, but its video could not be read yet (${text(error)}). Your edits are kept on this computer.` }
   }
-  let adopted: ReturnType<typeof adoptFiled>
+  // Owed by the editor that carried it on: the owed edit itself (already on the Studio's assets), saved over the digest
+  // the editor last saved at. Not kept (an older record): nothing here may claim it saved them.
+  const owed = record.state === 'adopted' && !!record.saveOwed
+  if (owed && !record.owedEdit) return { outcome: 'failed', message: OWED_UNKNOWN }
+  let adopted: { edited: boolean; unregistered: string[]; project: EditorProject }
   try {
-    adopted = adoptFiled(record, record.draft, server.project)
+    adopted = owed ? { edited: true, unregistered: [], project: record.owedEdit! } : adoptFiled(record, record.draft, server.project)
   } catch (error) {
     const message = `The recording is filed, but your edits could not be moved onto it (${text(error)}). They are kept on this computer.`
     await deps.records.update(projectId, (r) => ({ ...r, failed: message })).catch(() => undefined)
@@ -221,6 +228,8 @@ export async function adoptKept(deps: AdoptDeps, projectId: string): Promise<Ado
   }
   const wordsLater = adopted.unregistered.length > 0
   const project = withoutTranscripts(adopted.project, adopted.unregistered)
+  // The Studio's edit the save goes over: the one the editor last saved at when owed, else the one first filed.
+  const over = owed ? (record.owedDigest ?? record.studioDigest) : record.studioDigest
   if (adopted.edited) {
     const conflict = async (): Promise<Adopted> => {
       // Noted beside the take, so the Record dialog says what is wrong (not that Try again puts the edits on).
@@ -232,9 +241,9 @@ export async function adoptKept(deps: AdoptDeps, projectId: string): Promise<Ado
     const landed = sameProject(server.project, project) || !!lateTranscripts(project, server.project)
     if (!landed) {
       let save = project
-      if (record.studioDigest && record.studioDigest !== server.projectDigest) {
+      if (over && over !== server.projectDigest) {
         // Changed since its first filing only by the Mac's late words: they go into the edit, which is saved over it.
-        const late = await onlyLateWordsSince(record, server.project)
+        const late = over === record.studioDigest ? await onlyLateWordsSince(record, server.project) : null
         if (!late) return conflict()
         save = withTranscripts(project, late)
       }
@@ -252,10 +261,30 @@ export async function adoptKept(deps: AdoptDeps, projectId: string): Promise<Ado
       }
     }
   }
-  const marked = await deps.records.update(projectId, (r) => ({ ...r, state: 'adopted', saveOwed: undefined, failed: undefined })).catch(() => null)
+  const marked = await deps.records.update(projectId, (r) => ({ ...r, state: 'adopted', saveOwed: undefined, owedEdit: undefined, owedDigest: undefined, failed: undefined })).catch(() => null)
   // Not noted: the files stay (a later launch finds the video changed since its first read, and never saves again).
   if (marked?.state !== 'adopted') return { outcome: adopted.edited ? 'saved' : 'taken', wordsLater }
   return { outcome: adopted.edited ? 'saved' : 'taken', settled: await deps.release(projectId), wordsLater }
+}
+
+/**
+ * The saves this page owes over the Studio's edit: only for takes this page's editor carried on (never read back from
+ * the records at a launch: a later save of the same video, from the Studio's copy, is not the owed edit landing).
+ */
+export class OwedSaves {
+  private owed = new Map<string, string>()
+  /** The editor carried `draftId` on as `videoId`, its edit still to be saved. */
+  carriedOn(videoId: string, draftId: string): void { this.owed.set(videoId, draftId) }
+  has(videoId: string): boolean { return this.owed.has(videoId) }
+  draftOf(videoId: string): string | undefined { return this.owed.get(videoId) }
+  /** A save of `videoId` from this editor landed: what was owed is saved (true when something was owed). */
+  async saved(videoId: string, records: AdoptDeps['records'] | null): Promise<boolean> {
+    const draftId = this.owed.get(videoId)
+    if (draftId === undefined) return false
+    this.owed.delete(videoId)
+    await records?.update(draftId, (r) => ({ ...r, state: 'adopted', saveOwed: undefined, owedEdit: undefined, owedDigest: undefined })).catch(() => undefined)
+    return true
+  }
 }
 
 const text = (error: unknown) => (error instanceof Error ? error.message : String(error)).replace(/\.$/, '')

@@ -59,7 +59,7 @@ describe('the third review: Try again and Discard never lose an edit', () => {
   })
 
   it('an adopted take whose last save may not have landed offers to put the edits on it first, then to let go', () => {
-    const row = one({}, { state: 'adopted', recordingId: 'r-1', saveOwed: true })!
+    const row = one({}, { state: 'adopted', recordingId: 'r-1', saveOwed: true, owedEdit: {} as never })!
     expect(row.action).toEqual({ kind: 'adopt', projectId: 'p-1' })
     expect(row.label).toBe('Put my edits on it')
     expect(row.alt).toEqual({ action: { kind: 'release', projectId: 'p-1', anyway: true }, label: 'Let go of the files' })
@@ -89,7 +89,10 @@ describe('the third review: Try again and Discard never lose an edit', () => {
   })
 
   it('says when Discard deletes the edits too, and leaves out a take the editor has open', () => {
-    expect(one({}, { state: 'failed' })!.edits).toBe(true)
+    const edited = { base: { title: 'Take' }, draft: { title: 'Launch walkthrough' } } as unknown as Partial<ProvisionalRecord>
+    expect(one({}, { state: 'failed', ...edited })!.edits).toBe(true)
+    // Not edited since it was built: Discard deletes no edits (none were made).
+    expect(one({}, { state: 'filed', base: { title: 'Take' }, draft: { title: 'Take' } } as unknown as Partial<ProvisionalRecord>)!.edits).toBe(false)
     expect(localTakeRows(listedTakes({ takes: [take(2, { stop: { files: [] } })] }), [])[0]!.edits).toBe(false)
     expect(one({}, { state: 'failed' }, new Set(['p-1']))).toBeUndefined()
   })
@@ -105,7 +108,9 @@ describe('the fourth review: the rows say what is true', () => {
 
   it('a filed take whose video changed elsewhere names the conflict; one whose edits could not be moved says so', () => {
     const conflict = one({}, { state: 'filed', recordingId: 'r-1', failed: CHANGED_ELSEWHERE })!
-    expect(conflict.problem).toBe(`${CHANGED_ELSEWHERE} Try again offers to open the video with them, so you can choose.`)
+    expect(conflict.problem).toBe(`${CHANGED_ELSEWHERE} Try again offers to open the video with them, so you can choose. Let go of the files removes this recording and those edits from this computer once the Studio holds every byte of it.`)
+    // It can be settled without Discard: letting go (asked first) waits for the Studio to hold every byte.
+    expect(conflict.alt).toEqual({ action: { kind: 'release', projectId: 'p-1', anyway: true }, label: 'Let go of the files' })
     expect(conflict.problem).not.toMatch(/puts them on it/)
     const moved = one({}, { state: 'filed', recordingId: 'r-1', failed: 'The recording is filed, but your edits could not be moved onto it (no picture). They are kept on this computer.' })!
     expect(moved.problem).toMatch(/could not be moved onto it .* Try again tries once more\.$/)
@@ -212,5 +217,38 @@ describe('why a listed take cannot be discarded now (what the hook hands Discard
     expect(inUseReason(S(1), { ...none, sending: new Set([S(1)]) })).toMatch(/being sent to the Studio now/)
     expect(inUseReason(S(1), { ...none, records: [record(1, { state: 'failed' })], open: new Set(['p-1']) })).toMatch(/open in the editor/)
     expect(inUseReason(S(1), { ...none, records: [record(1, { state: 'failed' })], open: new Set(['p-2']) })).toBeNull()
+  })
+})
+
+describe('the fifth review', () => {
+  it('a take this page’s recorder still has (uploading, being made into a video the classic way) gets no row', () => {
+    const listed = listedTakes({ takes: [take(1, { stop: { files: [] } }), take(2, { takeId: 'take-2' }), take(3, { hasDraft: true })] })
+    const owned = new Set([S(1), S(2), S(3)])
+    // Owned with a record: its filing is listed as before (a failed one, say).
+    const rows = localTakeRows(listed, [record(3, { state: 'failed', failed: 'Could not be filed.' })], new Set(), () => true, owned)
+    expect(rows.map((r) => r.sessionId)).toEqual([S(3)])
+    expect(localTakeRows(listed, [], new Set(), () => false).map((r) => r.sessionId)).toEqual([S(1), S(2), S(3)]) // not owned: listed
+  })
+
+  it('an action never lets go of a hold this page had before it (its recorder’s, its filing’s)', async () => {
+    const calls: string[] = []
+    const actions = localTakeActions({
+      refile: async () => undefined, adopt: async () => undefined, release: async () => ({ safe: true }), recover: async () => { throw new Error('Recover failed.') },
+      fileWhole: async () => undefined, records: async () => [], discard: async () => void calls.push('discard'), inUse: async () => null,
+      holdTake: async () => true, letGoTake: async (id) => void calls.push(`let go ${id.slice(0, 2)}`), holdsTake: () => true,
+      notify: () => undefined, refresh: () => undefined,
+    })
+    const row: LocalTakeRow = { sessionId: S(1), bytes: 1, at: null, problem: '', action: { kind: 'recover', takeId: 'take-1' }, edits: false }
+    await actions.retry(row)
+    await actions.retry({ ...row, action: { kind: 'file-whole' } })
+    await actions.discard(S(1))
+    expect(calls).toEqual(['discard'])
+  })
+
+  it('owed but its edit was not kept beside the take: no "Put my edits on it", only letting go (asked first)', () => {
+    const row = localTakeRows(listedTakes({ takes: [take(1, { hasDraft: true })] }), [record(1, { state: 'adopted', recordingId: 'r-1', saveOwed: true })])[0]!
+    expect(row.action).toEqual({ kind: 'none' })
+    expect(row.problem).toMatch(/^The video is made, but your last edits may not have reached it, and this computer did not keep a copy of them beside the recording. Open the video to check them./)
+    expect(row.alt?.label).toBe('Let go of the files')
   })
 })

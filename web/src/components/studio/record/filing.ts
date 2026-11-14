@@ -248,6 +248,9 @@ export function wordsRefusal(cause: unknown): 'final' | 'missing' | null {
   if (status === 400 || status === 403 || status === 413) return 'final'
   return status === 404 ? 'missing' : null
 }
+/** The Mac's words still owed to the Studio: heard (or still being read) and neither sent nor given up. */
+export const wordsOwed = (r: Pick<ProvisionalRecord, 'heard' | 'take' | 'wordsSent' | 'wordsRefused'>) => !r.wordsSent && !r.wordsRefused && (!!r.heard?.length || !!r.take?.wordsPending)
+
 /** How many pages (launches, reloads) must find the recording missing before its words are given up. */
 export const WORDS_MISSES_FOR_GOOD = 3
 
@@ -314,7 +317,10 @@ export class Filer {
 
   /** Follow a handed-over recording until made (or failed). */
   private async follow(projectId: string, recordingId: string, first?: RecordingAnswer, wordsSent?: boolean): Promise<void> {
-    await this.records.update(projectId, (r) => ({ ...r, recordingId, ...(wordsSent ? { wordsSent } : {}) })).catch(() => undefined)
+    // A new recording (the one before failed and the take was made again): its words are owed to it afresh.
+    const fresh = (r: ProvisionalRecord) => (r.recordingId && r.recordingId !== recordingId) || (!r.recordingId && (r.wordsMisses || r.wordsRefused))
+    await this.records.update(projectId, (r) => ({ ...r, ...(fresh(r) ? { wordsSent: undefined, wordsRefused: undefined, wordsMisses: undefined } : {}), recordingId, ...(wordsSent ? { wordsSent } : {}) })).catch(() => undefined)
+    this.wordsStopped.delete(projectId)
     void this.ensureWords(projectId)
     let answer = first
     let failures = 0
@@ -508,7 +514,9 @@ export class Filer {
         if (!record?.recordingId || record.wordsSent || record.wordsRefused || this.wordsStopped.has(projectId) || !words?.length) return
         try {
           await this.deps.api.post(`${recordingUrl(record.recordingId)}/words`, wordsBody(words))
-          await this.records.update(projectId, (r) => ({ ...r, wordsSent: true }))
+          const sent = await this.records.update(projectId, (r) => ({ ...r, wordsSent: true }))
+          // An adopted take whose files waited for its words: they may go now.
+          if (sent?.state === 'adopted' && !sent.saveOwed && this.deps.leases.holds(sent.sessionId)) void this.release(projectId).then((settled) => { if (!settled.safe && settled.note) this.deps.onKept?.(projectId, settled.note) })
           return
         } catch (cause) {
           const refusal = wordsRefusal(cause)
@@ -556,8 +564,12 @@ export class Filer {
     // Read after every change already asked of the record (a save that just landed clears `saveOwed`).
     const record = await this.records.update(projectId, (r) => r).catch(() => null)
     if (!record?.recordingId) return { safe: false, note: 'The recording is not filed yet: its files are kept on this computer.' }
-    // Only once the edit is on the Studio: a filed take's record is its edit, and it goes with the folder.
-    if (record.state !== 'adopted') return { safe: false, note: 'Your edits are not on the video yet, so this recording and its edits are kept on this computer.' }
+    // Only once the edit is on the Studio: a filed take's record is its edit, and it goes with the folder. Asked anyway
+    // (the person chose to let go of a take whose video changed elsewhere): noted as settled, and let go as any other.
+    if (record.state !== 'adopted' && !(options.anyway && record.state === 'filed')) return { safe: false, note: 'Your edits are not on the video yet, so this recording and its edits are kept on this computer.' }
+    // The Mac's words still on their way (kept beside the take, in words.json): the files wait for them.
+    if (wordsOwed(record)) return { safe: false, note: 'The words the Mac heard have not reached the Studio yet, so this recording is kept on this computer until they do.' }
+    if (record.state === 'filed') await this.records.update(projectId, (r) => ({ ...r, state: 'adopted', saveOwed: undefined })).catch(() => undefined)
     // Adopted in the open editor, its edits not saved over the Studio's yet: kept until they are (or the person, told to
     // check the video, lets go anyway).
     if (record.saveOwed && !options.anyway) return { safe: false, note: 'Your last edits to this recording are not saved onto its video yet, so its files are kept on this computer.' }

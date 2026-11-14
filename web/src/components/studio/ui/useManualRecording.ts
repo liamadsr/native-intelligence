@@ -323,7 +323,10 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
       // nor a take shown already as kept on the Studio (its banner brings it back with the files here).
       const recording = new Set([...(desktop.liveSessions?.() ?? []), ...takesBeingSent()]);
       const onStudio = new Set(savedTakesRef.current.map(take => take.id));
-      const rows = localTakeRows(listedTakes(raw).filter(take => !recording.has(take.sessionId)), records, busyHere(), sessionId => desktop.leases.holds(sessionId));
+      // Takes this recorder still has, and the one a running "Preparing your recording" upload is sending: never listed
+      // (Discard would delete them under the upload; Try again would make a second video).
+      const owned = new Set([...(desktop.ownedSessions?.() ?? []), ...(pending.current ? [pending.current.take.sessionId] : [])]);
+      const rows = localTakeRows(listedTakes(raw).filter(take => !recording.has(take.sessionId)), records, busyHere(), sessionId => desktop.leases.holds(sessionId), owned);
       if (mounted.current) setLocalTakes(rows.filter(row => !(row.action.kind === 'recover' && onStudio.has(row.action.takeId))));
     } catch { /* an app without the list: nothing to show */ }
   }, [drafts]);
@@ -362,6 +365,7 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
     },
     holdTake: sessionId => (recorder.current as DesktopRecorder).leases.hold(sessionId),
     letGoTake: sessionId => (recorder.current as DesktopRecorder).leases.release(sessionId),
+    holdsTake: sessionId => (recorder.current as DesktopRecorder).leases.holds(sessionId),
     notify: (text, error) => notifyRef.current(text, error),
     refresh: () => void refreshLocalTakesRef.current(),
     onBusy: ids => { if (mounted.current) setLocalBusy(ids); },

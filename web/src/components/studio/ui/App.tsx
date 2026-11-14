@@ -49,7 +49,7 @@ import { PreviewLayerControls } from './PreviewLayerControls';
 import { RecordDialog, type PunchTarget } from './RecordDialog';
 import { setLocalAsset } from '@/lib/studio/engine/asset-base';
 import { adoptFiled, hrefsFor, withoutTranscripts, withWords, type ProvisionalRecord } from '../record/provisional';
-import { adoptKept, carriedDigest, remoteAddedTranscripts, saveOwedAfter, historyWithWords, lateTranscripts, markEditorAdopted, notSavedHere, rewriteHistory, saveRefusal, whenIdle, withRetries, withTranscripts, WORDS_ARRIVED, WORDS_LATER } from './provisional-editor';
+import { adoptKept, carriedDigest, OwedSaves, remoteAddedTranscripts, saveOwedAfter, historyWithWords, lateTranscripts, markEditorAdopted, notSavedHere, rewriteHistory, saveRefusal, whenIdle, withRetries, withTranscripts, WORDS_ARRIVED, WORDS_LATER } from './provisional-editor';
 import { plainStep } from './record-steps';
 import { ExportDialog, exportFor, type ExportChoice, type ExportReceipt } from './ExportDialog';
 import { continueOnComputer, destinationOf, finishOnServer, finishedWords, startOnComputer, whenSavedHere } from './local-export';
@@ -101,7 +101,7 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
   /** Where an open draft's files play from (made from this run's key when it opened; never stored). */
   const draftHrefs=useRef(new Map<string,Record<string,string>>());
   /** Filed takes whose edit is yet to be saved over the Studio's (the video's id → its draft's): their record and files stay until it is. */
-  const serverSaveOwed=useRef(new Map<string,string>());
+  const serverSaveOwed=useRef(new OwedSaves());
   /** Videos carried on before the Mac's words reached the Studio: the transcript the Studio adds later is folded in, never a conflict. */
   const lateWords=useRef(new Set<string>());
   /** Filed takes the open editor waits on the Mac's words for (the header says so). */
@@ -239,6 +239,12 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
   const restoreRecovery=(asCopy:boolean)=>{const offer=recoveryOffer;if(!offer)return;setRecoveryOffer(null);
     navigate(()=>{if(!asCopy&&offer.same&&offer.base){load(offer.draft,offer.base.digest);setSaved(offer.base.signature);savedRef.current=offer.base.signature;}else{load(recoveryCopy(offer.draft,id()),null);setSaved('');savedRef.current='';}setChooserOpen(false);});};
   useEffect(()=>{let alive=true; bootstrap(openVideoId).then(data=>{if(!alive)return;setStudioCapabilities((data as {capabilities?:unknown}).capabilities);setProjects(data.projects);setPresets(data.presets);const project0=data.project;if(openVideoId&&project0?.id!==openVideoId){askedVideo.current=openVideoId;void openProject(openVideoId);}if(!project0){setHistory(null);return;}const opened={...data,project:project0,projectDigest:data.projectDigest??''};load(opened.project,opened.projectDigest);if((data.job?.kind==='transcribe'||data.job?.kind==='model-download'))transcription.restore(data.job,opened.project,data.assets);else if(data.job?.kind==='export')setJob(data.job);if(data.job?.status==='running'&&data.job.kind==='export')setDialog('export');try{const raw=localStorage.getItem(draftKey);if(raw){const recovered=parseRecoveryDraft(raw);if(JSON.stringify(recovered.project)!==JSON.stringify(opened.project))offerRecovery(recovered,opened.project,opened.projectDigest);}}catch{/* A bad browser draft never prevents opening a saved project. */}}).catch(e=>{if(!alive)return;if((e as {code?:string}).code==='STUDIO_NOT_SET_UP'){setNotSetUp(true);return;}say(errorText(e),true);}).finally(()=>alive&&setBusy(null));return()=>{alive=false;};},[load,say]);
+  // While a filed take's save is owed, the owed edit itself is kept beside the take (with the digest its save goes over):
+  // the Record dialog's "Put my edits on it" saves that, never an older draft.
+  useEffect(()=>{const p=project;if(!dirty||!p)return;const draftId=serverSaveOwed.current.draftOf(p.id);if(draftId===undefined)return;
+    const timer=setTimeout(()=>{const now=currentRef.current;if(now?.id!==p.id||!serverSaveOwed.current.has(p.id))return;const over=projectDigest.current;
+      void manual.records()?.update(draftId,r=>r.saveOwed?{...r,owedEdit:now,...(over?{owedDigest:over}:{})}:r).catch(()=>undefined);},600);
+    return()=>clearTimeout(timer);},[dirty,serialized]);// eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{if(!dirty)return;const timer=setTimeout(()=>{try{localStorage.setItem(draftKey,serializeRecoveryDraft(project!,projectDigest.current,savedRef.current));}catch{say('The browser could not keep a recovery copy. Save the video to keep these edits.',true);}},600);return()=>clearTimeout(timer);},[dirty,serialized,say]);
   useEffect(()=>{const before=(e:BeforeUnloadEvent)=>{if(dirty||profileDirty||recordingLock.current){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',before);return()=>window.removeEventListener('beforeunload',before);},[dirty,profileDirty]);
   useEffect(()=>{const node=stage.current;if(!node)return;const observer=new ResizeObserver(entries=>{const box=entries[0]?.contentRect;if(box&&box.width>0&&box.height>0)setPreviewBox({width:Math.max(100,box.width-48),height:Math.max(100,box.height-28)});});observer.observe(node);return()=>observer.disconnect();},[!!project]);
@@ -277,7 +283,7 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
         savedRef.current=JSON.stringify(result.project);setSaved(savedRef.current);
         failedSaveSignature.current='';setSaveError(null);
         // A filed take's edit is now on the Studio: its record and files may go (once the Studio holds every byte).
-        {const draftId=serverSaveOwed.current.get(p.id);if(draftId!==undefined){serverSaveOwed.current.delete(p.id);void manual.records()?.update(draftId,r=>({...r,state:'adopted',saveOwed:undefined})).catch(()=>undefined);}}
+        void serverSaveOwed.current.saved(p.id,manual.records());
         setProjects(list=>[...list.filter(v=>v.id!==p.id),{id:p.id,title:p.title}]);
         try{const current=currentRef.current;if(current&&JSON.stringify(current)!==savedRef.current)localStorage.setItem(draftKey,serializeRecoveryDraft(current,projectDigest.current,savedRef.current));else localStorage.removeItem(draftKey);}catch{}
         return true;
@@ -452,6 +458,9 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
     catch(error){say(`The recording is filed, but its video could not be read yet (${errorText(error)}). Your edits are kept on this computer.`,true,{retry:()=>void retryAdopt(projectId)});return false;}
     if(stillOpen())await whenIdle(idle,stillOpen,ms=>new Promise(resolve=>setTimeout(resolve,ms)));
     const editing=stillOpen();
+    // The open draft as it is now goes beside the take first (its 750 ms autosave may not have run): what is kept there
+    // is never older than what is carried on.
+    if(editing&&currentRef.current)await records.update(projectId,r=>({...r,draft:currentRef.current!})).catch(()=>undefined);
     const kept=(await store.get(projectId).catch(()=>null))??record;
     const hrefs=draftHrefs.current.get(projectId)??{};
     let adopted:ReturnType<typeof adoptFiled>;
@@ -467,7 +476,7 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
       // was a word correction dropped with its transcript has nothing to save, and nothing would ever clear the flag).
       const owed=saveOwedAfter(adopted.edited,adopted.project,server.project);
       let marked:ProvisionalRecord;
-      try{marked=await markEditorAdopted(records,projectId,server.projectDigest,owed,server.project);}
+      try{marked=await markEditorAdopted(records,projectId,server.projectDigest,owed,server.project,owed?adopted.project:undefined);}
       catch(error){say(`The recording is filed, but ${errorText(error)}. Your edits are kept here.`,true,{retry:()=>void retryAdopt(projectId)});return false;}
       const swap=(p:EditorProject)=>{try{const moved=adoptFiled(kept,p,server.project,hrefs);return withoutTranscripts(moved.project,moved.unregistered);}catch{return null;}};
       // Every step moved onto the Studio's copies: undo never brings a provisional one back, and never skips a step.
@@ -483,7 +492,7 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
       provisionalOpen.current=null;setProvisionalId(null);draftHrefs.current.delete(projectId);
       // Edited: the editor is now ahead of the Studio's copy and saves over it (with its digest) as any edit; until that
       // save succeeds the record and the take stay. Not edited: nothing to save.
-      if(owed)serverSaveOwed.current.set(adopted.project.id,projectId);
+      if(owed)serverSaveOwed.current.carriedOn(adopted.project.id,projectId);
       playedLocally.current.set(adopted.project.id,{sessionId:kept.sessionId,draftId:projectId,files:[...Object.keys(adopted.local),...adopted.forget]});
       // The voice has no words yet (the Mac heard none): transcribe it now that the Studio has it.
       const voice=server.project.assets.find(asset=>asset.hasAudio&&!server.project.transcripts.some(t=>t.assetId===asset.id));
@@ -612,8 +621,8 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
   },[project?.id]);// eslint-disable-line react-hooks/exhaustive-deps
   // After a restart: a take opened before it was filed is still here, and can be opened now (it files by itself).
   useEffect(()=>{const store=manual.drafts;if(!store)return;void store.list().then(records=>{
-    // Edits an earlier page carried on but had not saved over the Studio's yet: the next save of that video lets the files go.
-    for(const r of records)if(r.state==='adopted'&&r.saveOwed)serverSaveOwed.current.set(r.filedAs??r.projectId,r.projectId);
+    // Edits an earlier page carried on but never saved stay owed: the Record dialog offers them ("Put my edits on it"). A
+    // later save of that video from the Studio's copy is not them landing, so nothing here clears them.
     const record=records.find(r=>r.state==='filing'||r.state==='failed');if(!record)return;
     say(record.failed??'A recording is still being filed. You can open it now: Export is ready once it has finished uploading.',!!record.failed,{open:()=>navigate(async()=>{const latest=await store.get(record.projectId).catch(()=>null);if(latest)await openDraft(latest);})});}).catch(()=>undefined);
   },[manual.drafts]);// eslint-disable-line react-hooks/exhaustive-deps
@@ -684,7 +693,7 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
       const added=remoteAddedTranscripts(saved,remote.project),add=(p:EditorProject)=>withTranscripts(p,added);
       projectDigest.current=remote.projectDigest;failedSaveSignature.current='';setSaveError(null);setAgentUpdate(null);lateWords.current.delete(current.id);
       // With words to carry over, the history takes them (undo keeps them) and the autosave saves it; else saved now.
-      if(add(current)!==current){setHistory(h=>h&&h.current.id===current.id?historyWithWords(h,add):h);say(WORDS_ARRIVED);}else void save();}catch(error){say(errorText(error),true);}};
+      if(add(current)!==current){setHistory(h=>h&&h.current.id===current.id?historyWithWords(h,add):h);say('The words added to the other version are kept in yours.');}else void save();}catch(error){say(errorText(error),true);}};
   const closeDialog=useCallback(()=>setDialog(null),[]);
   // Arriving from the desktop app to download a large export here (export-arrival.ts): once the video is open, its
   // finished export is downloaded once through this browser's session and shown in the Export dialog.

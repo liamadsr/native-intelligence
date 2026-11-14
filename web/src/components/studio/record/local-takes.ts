@@ -2,7 +2,7 @@
 // dialog), each with its size, what is wrong in plain words, Try again and Discard. The app never removes such a take
 // by its age (studio_recorder.rs sweep): it stays until it is filed (and the Studio holds every byte) or discarded.
 import type { Settled } from './filing'
-import { CHANGED_ELSEWHERE, type ProvisionalRecord } from './provisional'
+import { CHANGED_ELSEWHERE, OWED_UNKNOWN, type ProvisionalRecord } from './provisional'
 
 /** A take folder as studio_recorder_unfinished_takes lists it. */
 export type ListedTake = {
@@ -68,15 +68,18 @@ const andList = (words: string[]) => (words.length > 1 ? `${words.slice(0, -1).j
  * One row for each take kept on this computer that is not on its way by itself: what is wrong, in plain words, and
  * what Try again does. `skip`: video ids this page is filing now or has open (left out: their editor says how it goes).
  * `heldHere`: takes this page holds (one it is filing has a draft before this page has read its record: never shown as
- * a lost edit meanwhile). Pure.
+ * a lost edit meanwhile). `owned`: takes this page's recorder still has (stopped and being uploaded or made into a video
+ * the classic way, "Preparing your recording"): left out unless they have a record (then their filing is listed). Pure.
  */
-export function localTakeRows(listed: ListedTake[], records: ProvisionalRecord[], skip: ReadonlySet<string> = new Set(), heldHere: (sessionId: string) => boolean = () => false): LocalTakeRow[] {
+export function localTakeRows(listed: ListedTake[], records: ProvisionalRecord[], skip: ReadonlySet<string> = new Set(), heldHere: (sessionId: string) => boolean = () => false, owned: ReadonlySet<string> = new Set()): LocalTakeRow[] {
   return listed.flatMap((take) => {
     const bytes = take.tracks.reduce((n, t) => n + t.bytes, 0)
     const at = take.modifiedMs ? new Date(take.modifiedMs).toISOString() : null
     const record = take.otherAccount ? undefined : records.find((r) => r.sessionId === take.sessionId)
-    // Edits only on this computer: a draft not yet on the video (an adopted take's are on it, unless its last save is owed).
-    const edits = record ? record.state !== 'adopted' || !!record.saveOwed : take.hasDraft || take.draftUnreadable
+    if (!record && owned.has(take.sessionId)) return []
+    // Edits only on this computer: a draft changed from the take as built and not yet on the video (an adopted take's
+    // are on it, unless its last save is owed).
+    const edits = record ? (record.state === 'adopted' ? !!record.saveOwed : JSON.stringify(record.draft) !== JSON.stringify(record.base)) : take.hasDraft || take.draftUnreadable
     const row = (problem: string, action: LocalTakeAction, projectId?: string, more: Pick<LocalTakeRow, 'label' | 'alt'> = {}): LocalTakeRow[] => [{ sessionId: take.sessionId, bytes, at, problem, action, edits, ...more, ...(projectId ? { projectId } : {}) }]
     if (take.otherAccount) return row('This recording was made while another account was signed in, so it cannot be filed from this one.', { kind: 'none' })
     if (take.screenMissing) {
@@ -97,15 +100,17 @@ export function localTakeRows(listed: ListedTake[], records: ProvisionalRecord[]
       const failed = record.failed?.trim()
       if (record.state === 'failed') return row(failed ?? 'This recording could not be filed.', { kind: 'refile', projectId: record.projectId }, record.projectId)
       if (record.state === 'filing') return row('This recording has not been filed yet.', { kind: 'refile', projectId: record.projectId }, record.projectId)
+      const letGo = { action: { kind: 'release', projectId: record.projectId, anyway: true } as LocalTakeAction, label: LET_GO }
       if (record.state === 'filed') {
-        return row(failed
-          ? `${failed} ${failed === CHANGED_ELSEWHERE ? 'Try again offers to open the video with them, so you can choose.' : 'Try again tries once more.'}`
-          : 'Filed. Your edits are not on the video yet. Try again puts them on it.', { kind: 'adopt', projectId: record.projectId }, record.projectId)
+        // Changed elsewhere: Try again offers the edits back; letting go is the other way to settle it (asked first).
+        if (failed === CHANGED_ELSEWHERE) return row(`${failed} Try again offers to open the video with them, so you can choose. ${LET_GO} removes this recording and those edits from this computer once the Studio holds every byte of it.`, { kind: 'adopt', projectId: record.projectId }, record.projectId, { alt: letGo })
+        return row(failed ? `${failed} Try again tries once more.` : 'Filed. Your edits are not on the video yet. Try again puts them on it.', { kind: 'adopt', projectId: record.projectId }, record.projectId)
       }
+      // Owed, but the owed edit itself was not kept: nothing here can put it on, only letting go (asked first).
+      if (record.saveOwed && !record.owedEdit) return row(`${OWED_UNKNOWN} ${LET_GO} removes this recording from this computer once the Studio holds every byte of it.`, { kind: 'none' }, record.projectId, { alt: letGo })
       if (record.saveOwed) {
-        return row(`${failed === CHANGED_ELSEWHERE ? 'This video changed somewhere else since it was filed, so your last edits were not put on it.' : 'The video is made, but your last edits may not have reached it.'} Put my edits on it saves them onto the video, never over changes made there since. Let go of the files removes this recording and those edits from this computer once the Studio holds every byte of it.`,
-          { kind: 'adopt', projectId: record.projectId }, record.projectId,
-          { label: 'Put my edits on it', alt: { action: { kind: 'release', projectId: record.projectId, anyway: true }, label: 'Let go of the files' } })
+        return row(`${failed === CHANGED_ELSEWHERE ? 'The video has changed since these edits were made, so they were not put on it.' : 'The video is made, but your last edits may not have reached it.'} Put my edits on it saves them onto the video, never over changes made there since. ${LET_GO} removes this recording and those edits from this computer once the Studio holds every byte of it.`,
+          { kind: 'adopt', projectId: record.projectId }, record.projectId, { label: 'Put my edits on it', alt: letGo })
       }
       return row('The video is made, but the Studio does not hold every byte of this recording yet, so its files are kept on this computer.', { kind: 'release', projectId: record.projectId }, record.projectId)
     }
@@ -151,11 +156,16 @@ export type LocalTakeDeps = {
   /** This page's hold on the take (PageLeases): false when another window holds it. */
   holdTake: (sessionId: string) => Promise<boolean>
   letGoTake: (sessionId: string) => Promise<void>
+  /** Whether this page holds the take already (its recorder or its filing): an action never lets go of such a hold. */
+  holdsTake?: (sessionId: string) => boolean
   notify: (text: string, error?: boolean) => void
   refresh: () => void
   /** The takes being acted on now (their buttons wait). */
   onBusy?: (sessionIds: string[]) => void
 }
+
+/** The second action that lets go of a take's files and edits (asked once more first, RecordDialog.tsx). */
+export const LET_GO = 'Let go of the files'
 
 /** What the person is told when another window has the take. */
 export const OPEN_ELSEWHERE = 'This recording is open in another window.'
@@ -181,8 +191,11 @@ export function localTakeActions(deps: LocalTakeDeps) {
       deps.refresh()
     }
   }
-  const hold = async (sessionId: string) => {
+  /** Hold the take for the action: a function that lets go after it, or does nothing when the hold was this page's before. */
+  const hold = async (sessionId: string): Promise<() => Promise<void>> => {
+    const had = deps.holdsTake?.(sessionId) ?? false
     if (!(await deps.holdTake(sessionId))) throw new Error(OPEN_ELSEWHERE)
+    return had ? async () => undefined : () => deps.letGoTake(sessionId)
   }
   return {
     busy: (sessionId: string) => busy.has(sessionId),
@@ -195,14 +208,14 @@ export function localTakeActions(deps: LocalTakeDeps) {
         const settled = await deps.release(action.projectId, !!action.anyway)
         if (!settled.safe && settled.note) deps.notify(settled.note, true)
       } else if (action.kind === 'recover') {
-        await hold(row.sessionId)
+        const letGo = await hold(row.sessionId)
         try {
           await deps.recover(action.takeId)
         } finally {
-          await deps.letGoTake(row.sessionId)
+          await letGo()
         }
       } else if (action.kind === 'file-whole') {
-        await hold(row.sessionId)
+        const letGo = await hold(row.sessionId)
         let filing = false
         try {
           if ((await deps.records()).some((r) => r.sessionId === row.sessionId)) throw new Error('This recording is being made into a video already.')
@@ -210,18 +223,18 @@ export function localTakeActions(deps: LocalTakeDeps) {
           // Filed behind the editor now (its record kept): its filing holds it from here.
           filing = (await deps.records().catch(() => [])).some((r) => r.sessionId === row.sessionId)
         } finally {
-          if (!filing) await deps.letGoTake(row.sessionId)
+          if (!filing) await letGo()
         }
       }
     }),
     discard: (sessionId: string) => run(sessionId, async () => {
       const why = await deps.inUse(sessionId)
       if (why) throw new Error(why)
-      await hold(sessionId)
+      const letGo = await hold(sessionId)
       try {
         await deps.discard(sessionId)
       } finally {
-        await deps.letGoTake(sessionId)
+        await letGo()
       }
     }),
   }

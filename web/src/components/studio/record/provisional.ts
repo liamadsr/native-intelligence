@@ -357,6 +357,9 @@ export type ProvisionalRecord = {
    * this record stay until that save lands (Filer.release waits for it).
    */
   saveOwed?: boolean
+  /** That owed edit itself (on the Studio's assets), and the Studio's digest its save goes over. */
+  owedEdit?: EditorProject
+  owedDigest?: string
   /** The video the Studio made the take into, when not the draft's own (it was brought back elsewhere first). */
   filedAs?: string
   /** The Studio's edit as first read once filed (its digest): the draft is saved over that one only. */
@@ -447,6 +450,9 @@ export function provisionalRecord(draft: Draft, info: { sessionId: string; takeI
 
 /** What a filed take whose video changed elsewhere says (the editor's notice, and the Record dialog's row). */
 export const CHANGED_ELSEWHERE = 'This video changed somewhere else while the recording was being filed, so your edits were not put on it. They are kept on this computer.'
+
+/** What an owed save whose edit this computer did not keep says (never that it saved them). */
+export const OWED_UNKNOWN = 'The video is made, but your last edits may not have reached it, and this computer did not keep a copy of them beside the recording. Open the video to check them.'
 
 /** How far the filing is, for the editor's notices: 0 to 1, and a sentence. */
 export type FilingState = { projectId: string; fraction: number; step: string; failed?: string }

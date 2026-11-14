@@ -181,7 +181,7 @@ describe('the files on this computer go only once the Studio holds every byte of
     expect(m.log).toContain(`upload microphone of ${SESSION.slice(0, 4)}`)
     // The editor's path (Filer.release after the edit is on the Studio).
     const { filer, store } = setup(s, m)
-    await draftRecord(store, SESSION_2, PROJECT_2, { recordingId: 'r-2', state: 'adopted' })
+    await draftRecord(store, SESSION_2, PROJECT_2, { recordingId: 'r-2', state: 'adopted', wordsSent: true })
     await s.api.post('/x/recordings?wait=1', {})
     const settled = await filer.release(PROJECT_2)
     expect(settled.safe).toBe(false)
@@ -196,7 +196,7 @@ describe('the files on this computer go only once the Studio holds every byte of
     await filer.start(takeOf(SESSION), PROJECT, 't')
     expect(filed).toEqual([PROJECT])
     expect(s.recordings.get('r-1')!.note).toContain(BYTES_DIFFER)
-    await store.put({ ...(await store.get(PROJECT))!, state: 'adopted' })
+    await store.put({ ...(await store.get(PROJECT))!, state: 'adopted', wordsSent: true })
     const settled = await filer.release(PROJECT)
     expect(settled.safe).toBe(true)
     expect(s.log.filter((l) => l.startsWith('  attach'))).toEqual(['  attach microphone uploads/0e0e0e0e-1111-4222-8333-000000000001 with the recorder’s hash'])
@@ -243,7 +243,7 @@ describe('each take is filed on its own', () => {
     expect(s.log.find((l) => l.includes('/recover'))).toBeTruthy()
     // Brought back from fewer bytes than recorded (the Studio's screen is short): never let go of.
     s.recordings.set('r-1', { ...s.recordings.get('r-1')!, received: { screen: { sha256: hex('9'), bytes: 4_000 }, microphone: { sha256: hex('c'), bytes: 1_600 } } })
-    await store.put({ ...(await store.get(PROJECT))!, state: 'adopted' })
+    await store.put({ ...(await store.get(PROJECT))!, state: 'adopted', wordsSent: true })
     expect((await filer.release(PROJECT)).safe).toBe(false)
     expect(m.folders.has(SESSION)).toBe(true)
   })
@@ -416,7 +416,7 @@ describe('the second review', () => {
     s.behave.next = ['mic-fails']
     s.behave.attachWorks = false
     await s.api.post('/x/recordings?wait=1', {})
-    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1', state: 'adopted' })
+    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1', state: 'adopted', wordsSent: true })
     await filer.resume((await store.get(PROJECT))!)
     for (let i = 0; i < 50; i++) await tick()
     expect(kept[0]).toMatch(/microphone/)
@@ -440,7 +440,7 @@ describe('the third review', () => {
   it('an adopted take whose edits are still to be saved over the Studio’s keeps its files, until the person lets go anyway', async () => {
     const { filer, s, m, store } = setup()
     await s.api.post('/x/recordings?wait=1', {})
-    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1', state: 'adopted', saveOwed: true })
+    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1', state: 'adopted', saveOwed: true, wordsSent: true })
     expect((await filer.release(PROJECT)).note).toMatch(/not saved onto its video yet/)
     expect(m.folders.has(SESSION)).toBe(true)
     // The save landed (App.tsx clears saveOwed through the same keeper): the files go.
@@ -448,7 +448,7 @@ describe('the third review', () => {
     expect((await filer.release(PROJECT)).safe).toBe(true)
     expect(m.folders.has(SESSION)).toBe(false)
     // Asked anyway (the row told the person to check the video first).
-    await draftRecord(store, SESSION_2, PROJECT_2, { recordingId: 'r-1', state: 'adopted', saveOwed: true })
+    await draftRecord(store, SESSION_2, PROJECT_2, { recordingId: 'r-1', state: 'adopted', saveOwed: true, wordsSent: true })
     expect((await filer.release(PROJECT_2, { anyway: true })).safe).toBe(true)
   })
 
@@ -556,5 +556,45 @@ describe('the third review', () => {
     await draftRecord(store, SESSION, PROJECT)
     await filer.start(takeOf(SESSION), PROJECT, 't')
     expect(await filer.wordsSettled(PROJECT, 0)).toBe(true)
+  })
+})
+
+describe('the fifth review', () => {
+  const words = [{ text: 'Hello', startMs: 500, endMs: 900 }, { text: 'there', startMs: 1000, endMs: 1400 }]
+
+  it('the files wait for the Mac’s words (kept beside the take) until they reach the Studio or are given up', async () => {
+    const { filer, s, m, store } = setup()
+    await s.api.post('/x/recordings?wait=1', {})
+    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1', state: 'adopted', heard: words, wordsMisses: 1 })
+    const kept = await filer.release(PROJECT)
+    expect(kept.safe).toBe(false)
+    expect(kept.note).toMatch(/words the Mac heard have not reached the Studio yet/)
+    expect(m.folders.has(SESSION)).toBe(true)
+    await store.put({ ...(await store.get(PROJECT))!, wordsSent: true })
+    expect((await filer.release(PROJECT)).safe).toBe(true)
+  })
+
+  it('a recording made again after the first failed is owed the words afresh (a miss or a no for the old one does not count)', async () => {
+    const { filer, s, store, leases } = setup()
+    await draftRecord(store, SESSION, PROJECT, { recordingId: null, heard: words, wordsMisses: 2, wordsRefused: true })
+    await leases.hold(SESSION)
+    await filer.start(takeOf(SESSION), PROJECT, 't')
+    for (let i = 0; i < 20; i++) await tick()
+    expect(s.log.filter((l) => l.endsWith('/words'))).toHaveLength(1)
+    expect((await store.get(PROJECT))!).toMatchObject({ wordsSent: true })
+    expect((await store.get(PROJECT))!.wordsRefused).toBeUndefined()
+  })
+
+  it('letting go of a filed take whose video changed elsewhere settles it, once the Studio holds every byte', async () => {
+    const { filer, s, m, store } = setup()
+    s.behave.next = ['mic-fails']
+    s.behave.attachWorks = false
+    await s.api.post('/x/recordings?wait=1', {})
+    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1', state: 'filed', wordsSent: true })
+    expect((await filer.release(PROJECT)).safe).toBe(false) // never without being asked
+    const settled = await filer.release(PROJECT, { anyway: true })
+    expect(settled.safe).toBe(false) // the Studio lacks the microphone: the files stay
+    expect(m.folders.has(SESSION)).toBe(true)
+    expect((await store.get(PROJECT))!.state).toBe('adopted')
   })
 })

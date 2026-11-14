@@ -13,7 +13,7 @@ import { createVideo, openVideo, saveVideo } from '@/lib/studio/server/videos'
 import { fakeContext } from '@/lib/studio/server/__tests__/fake'
 import { adoptFiled, withoutTranscripts, filedAssets, hrefsFor, localTakeHref, matchWords, memoryDraftStore, nativeDraftStore, provisionalDraft, provisionalRecord, swapAssets, withWords, type LocalMedia } from '../provisional'
 import type { FinishedTake } from '../types'
-import { adoptKept, CHANGED_ELSEWHERE, markEditorAdopted } from '../../ui/provisional-editor'
+import { adoptKept, CHANGED_ELSEWHERE, markEditorAdopted, OWED_UNKNOWN } from '../../ui/provisional-editor'
 
 const KEY = 'k'.repeat(64)
 
@@ -449,7 +449,8 @@ describe('the fourth review: a filed take is never stuck', () => {
     const store = memoryDraftStore()
     await filedRecord(store)
     const studio = await studioFiles()
-    await markEditorAdopted(recordsOf(store), PROJECT, studio.digest, true, studio.project)
+    const moved = adoptFiled((await store.get(PROJECT))!, (await store.get(PROJECT))!.draft, studio.project).project
+    await markEditorAdopted(recordsOf(store), PROJECT, studio.digest, true, studio.project, moved)
     expect((await store.get(PROJECT))!.saveOwed).toBe(true)
     const release = vi.fn(async () => ({ safe: true }))
     expect((await adoptKept({ store, records: recordsOf(store), ...real, release }, PROJECT)).outcome).toBe('saved')
@@ -457,5 +458,57 @@ describe('the fourth review: a filed take is never stuck', () => {
     expect((await store.get(PROJECT))!).toMatchObject({ state: 'adopted' })
     expect((await store.get(PROJECT))!.saveOwed).toBeUndefined()
     expect((await adoptKept({ store, records: recordsOf(store), ...real, release }, PROJECT)).outcome).toBe('already')
+  })
+})
+
+describe('the fifth review: the edit that is owed is the one saved', () => {
+  const recordsOf = (store: ReturnType<typeof memoryDraftStore>) => ({ update: async (id: string, fn: (r: NonNullable<Awaited<ReturnType<typeof store.get>>>) => unknown) => { const r = await store.get(id); const next = r && (fn(r) as typeof r); if (next) await store.put(next); return next } })
+  const real = { read: () => openVideo(env.ctx, PROJECT), save: (_id: string, p: EditorProject, digest: string) => saveVideo(env.ctx, p, digest) }
+  /** A take carried on in the open editor with its save owed: `draft` as last kept beside it, `owed` the editor's edit. */
+  const carriedOn = async (store: ReturnType<typeof memoryDraftStore>, draft: (p: EditorProject) => EditorProject, owed: ((p: EditorProject) => EditorProject) | null) => {
+    const built = draftOf()
+    await store.put({ ...provisionalRecord(built, { sessionId: SESSION, takeId: null, title: 't', files: take.files }), draft: draft(built.project), recordingId: 'r-1', state: 'filed' })
+    const studio = await studioFiles()
+    const moved = owed ? EditorProjectSchema.parse({ ...owed(adoptFiled((await store.get(PROJECT))!, built.project, studio.project).project) }) : undefined
+    await markEditorAdopted(recordsOf(store), PROJECT, studio.digest, true, studio.project, moved)
+    return studio
+  }
+
+  it('edits made after the take was carried on (never in the draft beside it) are what Put my edits on it saves', async () => {
+    const store = memoryDraftStore()
+    await carriedOn(store, edit, (p) => ({ ...edit(p), title: 'Edited after it was carried on' }))
+    const release = vi.fn(async () => ({ safe: true }))
+    expect((await adoptKept({ store, records: recordsOf(store), ...real, release }, PROJECT)).outcome).toBe('saved')
+    expect((await openVideo(env.ctx, PROJECT)).project.title).toBe('Edited after it was carried on')
+  })
+
+  it('the only edit came just before it was carried on (the draft beside it never had it): saved, never taken as unedited', async () => {
+    const store = memoryDraftStore()
+    await carriedOn(store, (p) => p, (p) => ({ ...p, title: 'The last edit' }))
+    const release = vi.fn(async () => ({ safe: true }))
+    expect((await adoptKept({ store, records: recordsOf(store), ...real, release }, PROJECT)).outcome).toBe('saved')
+    expect((await openVideo(env.ctx, PROJECT)).project.title).toBe('The last edit')
+  })
+
+  it('owed, but the owed edit was not kept: it never claims to have saved them, and lets nothing go', async () => {
+    const store = memoryDraftStore()
+    await carriedOn(store, edit, null)
+    const release = vi.fn(async () => ({ safe: true }))
+    const save = vi.fn(real.save)
+    const result = await adoptKept({ store, records: recordsOf(store), ...real, save, release }, PROJECT)
+    expect(result).toEqual({ outcome: 'failed', message: OWED_UNKNOWN })
+    expect(save).not.toHaveBeenCalled()
+    expect(release).not.toHaveBeenCalled()
+  })
+
+  it('the owed save landed but the note after it was lost: the video is the owed edit, so it is done (never "changed elsewhere")', async () => {
+    const store = memoryDraftStore()
+    const studio = await carriedOn(store, edit, (p) => ({ ...p, title: 'Saved from the editor' }))
+    await saveVideo(env.ctx, (await store.get(PROJECT))!.owedEdit!, studio.digest)
+    const release = vi.fn(async () => ({ safe: true }))
+    const save = vi.fn(real.save)
+    expect((await adoptKept({ store, records: recordsOf(store), ...real, save, release }, PROJECT)).outcome).toBe('saved')
+    expect(save).not.toHaveBeenCalled()
+    expect((await store.get(PROJECT))!.failed).toBeUndefined()
   })
 })

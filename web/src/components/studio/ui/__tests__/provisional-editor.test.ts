@@ -3,7 +3,7 @@
 // every step, reading a filed video again after a failure, and what the header says when the draft cannot be kept.
 import { describe, expect, it, vi } from 'vitest'
 import type { EditorProject } from '@/lib/studio/engine/contracts'
-import { carriedDigest, historyWithWords, lateTranscripts, markEditorAdopted, notSavedHere, remoteAddedTranscripts, rewriteHistory, saveOwedAfter, saveRefusal, whenIdle, withRetries, withTranscripts, type History } from '../provisional-editor'
+import { carriedDigest, historyWithWords, lateTranscripts, markEditorAdopted, notSavedHere, OwedSaves, remoteAddedTranscripts, rewriteHistory, saveOwedAfter, saveRefusal, whenIdle, withRetries, withTranscripts, type History } from '../provisional-editor'
 
 const step = (title: string) => ({ id: 'p', title }) as unknown as EditorProject
 const titles = (h: History) => ({ past: h.past.map((p) => p.title), current: h.current.title, future: h.future.map((p) => p.title) })
@@ -108,5 +108,27 @@ describe('the third review', () => {
     expect((await markEditorAdopted(records, 'p', 'now', false)).saveOwed).toBeUndefined()
     kept = null
     await expect(markEditorAdopted(records, 'p', 'now')).rejects.toThrow('this computer could not keep a note of it')
+  })
+})
+
+describe('the fifth review: only the editor that carried a take on clears what it owes', () => {
+  const store = () => {
+    let kept: Record<string, unknown> = { projectId: 'draft', state: 'adopted', saveOwed: true, owedEdit: { title: 'Owed' } }
+    return { get: () => kept, records: { update: async (_id: string, fn: (r: never) => unknown) => (kept = fn(kept as never) as Record<string, unknown>) as never } }
+  }
+  it('a page that opened the video from the Studio’s copy and saved it never clears the owed edit', async () => {
+    const s = store()
+    const owed = new OwedSaves() // a new page after a reload: nothing carried on here
+    expect(await owed.saved('video', s.records)).toBe(false)
+    expect(s.get()).toMatchObject({ saveOwed: true, owedEdit: { title: 'Owed' } })
+  })
+  it('the editor that carried it on clears it when its save lands', async () => {
+    const s = store()
+    const owed = new OwedSaves()
+    owed.carriedOn('video', 'draft')
+    expect(await owed.saved('video', s.records)).toBe(true)
+    expect(s.get().saveOwed).toBeUndefined()
+    expect(s.get().owedEdit).toBeUndefined()
+    expect(owed.has('video')).toBe(false)
   })
 })

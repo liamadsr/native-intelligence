@@ -254,15 +254,20 @@ function SavedTakeBanner({ take, recording: rec }: { take: { id: string; created
  * Try again and Discard (for good, so it asks once more first).
  */
 export function LocalTakeBanner({ row, retry, discard, busy }: { row: LocalTakeRow; retry: (row: LocalTakeRow, alt?: boolean) => void; discard: (sessionId: string) => void; busy?: boolean }) {
-  const [confirming, setConfirming] = useState(false);
+  // What is being asked once more: Discard, or the row's second action (letting go of the files deletes them too).
+  const [confirming, setConfirming] = useState<null | 'discard' | 'alt'>(null);
   return <div className="rd-banner rd-banner-warn rd-banner-recover" role="group" aria-label="A recording kept on this computer">
     <Icon name="warning" />
-    {confirming
+    {confirming === 'discard'
       ? <div><strong>Discard this recording for good?</strong><span>{row.edits ? `Its ${sizeWords(row.bytes)} on this computer and the edits made to it are deleted.` : `Its ${sizeWords(row.bytes)} on this computer are deleted.`} This cannot be undone.</span></div>
-      : <div><strong>A recording{row.at ? ` from ${takeTime(row.at)}` : ''} is kept on this computer ({sizeWords(row.bytes)})</strong><span>{row.problem}</span></div>}
+      : confirming === 'alt'
+        ? <div><strong>Let go of this recording for good?</strong><span>{row.edits ? `Its ${sizeWords(row.bytes)} on this computer and the edits made to it are deleted` : `Its ${sizeWords(row.bytes)} on this computer are deleted`} once the Studio holds every byte of it. Until then they are kept. This cannot be undone.</span></div>
+        : <div><strong>A recording{row.at ? ` from ${takeTime(row.at)}` : ''} is kept on this computer ({sizeWords(row.bytes)})</strong><span>{row.problem}</span></div>}
     <div className="rd-banner-buttons">{confirming
-      ? <><Button size="sm" variant="ghost" className="st-app-button" onClick={() => setConfirming(false)}>Keep it</Button><Button size="sm" variant="destructive" className="st-app-button" disabled={busy} onClick={() => discard(row.sessionId)}>Discard for good</Button></>
-      : <><Button size="sm" variant="ghost" className="st-app-button" disabled={busy} onClick={() => setConfirming(true)}>Discard…</Button>{row.alt ? <Button size="sm" variant="ghost" className="st-app-button" disabled={busy} onClick={() => retry(row, true)}>{row.alt.label}</Button> : null}{row.action.kind !== 'none' ? <Button size="sm" className="st-app-button" disabled={busy} onClick={() => retry(row)}>{row.label ?? 'Try again'}</Button> : null}</>}</div>
+      ? <><Button size="sm" variant="ghost" className="st-app-button" onClick={() => setConfirming(null)}>Keep it</Button>{confirming === 'discard'
+          ? <Button size="sm" variant="destructive" className="st-app-button" disabled={busy} onClick={() => discard(row.sessionId)}>Discard for good</Button>
+          : <Button size="sm" variant="destructive" className="st-app-button" disabled={busy} onClick={() => { setConfirming(null); retry(row, true); }}>Let go for good</Button>}</>
+      : <><Button size="sm" variant="ghost" className="st-app-button" disabled={busy} onClick={() => setConfirming('discard')}>Discard…</Button>{row.alt ? <Button size="sm" variant="ghost" className="st-app-button" disabled={busy} onClick={() => setConfirming('alt')}>{`${row.alt.label}…`}</Button> : null}{row.action.kind !== 'none' ? <Button size="sm" className="st-app-button" disabled={busy} onClick={() => retry(row)}>{row.label ?? 'Try again'}</Button> : null}</>}</div>
   </div>;
 }
 
