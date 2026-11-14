@@ -278,15 +278,12 @@ export interface DeviceAskEveResult {
 /**
  * The app's own origin for this server-to-server call — the SAME resolution the
  * chat-agent uses to call back into the internal routes (spec-client.ts
- * appBaseUrl): the exact deployment first (VERCEL_URL, so a preview never talks
- * to production's eve runtime), else the configured app URL, else local dev.
+ * appBaseUrl): the configured app URL, else local dev.
  * Deliberately NEVER derived from the incoming request's Host / X-Forwarded-Host:
  * this request carries the caller's credential, and a spoofable header must not
  * pick where it goes.
  */
 export function deviceAskAppBaseUrl(): string {
-  const vercelUrl = process.env.VERCEL_URL
-  if (vercelUrl) return `https://${vercelUrl}`
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 }
 
@@ -380,7 +377,6 @@ export async function runDeviceAskViaEve(args: {
     // 'device' kind).
     const ctx = Buffer.from(JSON.stringify({}), 'utf8').toString('base64url')
 
-    const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
     client = new Client({
       host: `${args.appBaseUrl ?? deviceAskAppBaseUrl()}${CHAT_AGENT_MOUNT}`,
       ...('bearer' in args.credential ? { auth: { bearer: args.credential.bearer } } : {}),
@@ -392,8 +388,6 @@ export async function runDeviceAskViaEve(args: {
         [WORKSPACE_HEADER]: args.workspaceId,
         [CHAT_RUN_TOKEN_HEADER]: token,
         [CHAT_RUN_CTX_HEADER]: ctx,
-        // Vercel Deployment Protection guards the deployment URL on previews.
-        ...(bypass ? { 'x-vercel-protection-bypass': bypass } : {}),
       },
       // Never let the credential-bearing headers follow a redirect elsewhere.
       redirect: 'error',

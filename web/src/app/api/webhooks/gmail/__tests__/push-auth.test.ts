@@ -30,7 +30,7 @@ beforeEach(() => {
   vi.stubEnv('GMAIL_PUSH_SERVICE_ACCOUNT', SA)
   vi.stubEnv('GMAIL_PUSH_AUDIENCE', '')
   vi.stubEnv('GMAIL_WEBHOOK_TOKEN', '')
-  vi.stubEnv('VERCEL_ENV', 'production')
+  vi.stubEnv('NODE_ENV', 'production')
 })
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -188,7 +188,6 @@ describe('verifyGmailPush until GMAIL_PUSH_SERVICE_ACCOUNT is set: the static ?t
 
   it('fails closed with no token in production, and lets local dev in', async () => {
     expect(await verifyGmailPush(push())).toBe(false)
-    vi.stubEnv('VERCEL_ENV', '')
     vi.stubEnv('NODE_ENV', 'test')
     expect(await verifyGmailPush(push())).toBe(true)
   })

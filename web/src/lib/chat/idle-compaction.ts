@@ -76,7 +76,7 @@ import {
   type ChatRunTokenClaims,
 } from '@/lib/chat/chat-run-token'
 import { CHAT_USAGE_FEATURE } from '@/lib/chat/chat-usage-meter'
-import { eveDispatchOrigin, protectionBypassHeaders } from '@/lib/eve/dispatch-origin'
+import { eveDispatchOrigin } from '@/lib/eve/dispatch-origin'
 import { isAreaKey } from '@/lib/packs/registry'
 import type { ChatSessionActivityData } from '@/lib/chat/idle-compaction-signal'
 import { TEAMMATE_REPORT_KIND } from '@/lib/chat/teammate-report'
@@ -509,7 +509,6 @@ export function makeIdleCompactionClient(args: { secret: string; token: string }
   return new Client({
     host: `${eveDispatchOrigin()}${CHAT_AGENT_MOUNT}`,
     headers: {
-      ...protectionBypassHeaders(),
       [CHAT_RUN_SECRET_HEADER]: args.secret,
       [CHAT_RUN_TOKEN_HEADER]: args.token,
     },

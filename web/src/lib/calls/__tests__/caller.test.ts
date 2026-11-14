@@ -63,7 +63,6 @@ describe('callerIdAttested (STIR/SHAKEN)', () => {
   it('logs header names only, and skips attestation only in local dev when asked', () => {
     expect(sipHeaderNames([from, { name: 'X-Twilio-VerStat', value: 'secret-ish' }, { name: 'from', value: 'x' }])).toBe('from,x-twilio-verstat')
     expect(devSkipsAttestation({ NODE_ENV: 'development', GPT_LIVE_DEV_SKIP_ATTESTATION: '1' })).toBe(true)
-    expect(devSkipsAttestation({ NODE_ENV: 'development', GPT_LIVE_DEV_SKIP_ATTESTATION: '1', VERCEL_ENV: 'preview' })).toBe(false)
     expect(devSkipsAttestation({ NODE_ENV: 'production', GPT_LIVE_DEV_SKIP_ATTESTATION: '1' })).toBe(false)
     expect(devSkipsAttestation({ NODE_ENV: 'development' })).toBe(false)
   })
@@ -105,8 +104,6 @@ describe('resolveCallCaller', () => {
   it('is nobody for an unlinked number outside local dev, whatever the dev mapping says', async () => {
     expect(await resolveCallCaller(supabase, '+14155550100', {})).toBeNull()
     expect(await resolveCallCaller(supabase, '+14155550100', { ...DEV, NODE_ENV: 'production' })).toBeNull()
-    // Any Vercel deployment, preview or not.
-    expect(await resolveCallCaller(supabase, '+14155550100', { ...DEV, VERCEL_ENV: 'preview' })).toBeNull()
   })
 
   it('in local dev, maps the one configured number to its member', async () => {

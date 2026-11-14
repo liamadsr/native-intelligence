@@ -6,9 +6,11 @@ import { withEve } from 'eve/next'
  * The deployment's build id (as /api/version and NEXT_PUBLIC_BUILD_ID report
  * it). Stamped on every /api response as `x-ni-build`, so an open window
  * notices a new deploy from the responses it already gets and reloads when
- * idle (src/lib/deploy-reload.ts). Empty off Vercel.
+ * idle (src/lib/deploy-reload.ts). It is the first eight characters of the commit
+ * the build was made from, which the image build passes as VERCEL_GIT_COMMIT_SHA
+ * (deploy/app/Dockerfile; the name is the earlier host's). Empty without one.
  */
-const BUILD_ID = process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 8) ?? ''
+const BUILD_ID = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 8) ?? ''
 
 // The domains the hosted app is served on. This file cannot import TypeScript,
 // so the list is repeated from src/lib/app-url.ts (APP_DOMAINS); a test keeps
@@ -113,17 +115,6 @@ export async function headers() {
     headers.push({ source: '/api/:path*', headers: [{ key: 'x-ni-build', value: BUILD_ID }, { key: 'x-dial8-build', value: BUILD_ID }] })
   }
 
-  // Keep Vercel preview deployments out of the search index. VERCEL_ENV is
-  // 'production' | 'preview' | 'development'; it's only set on Vercel. Any
-  // non-production Vercel deploy gets a blanket X-Robots-Tag: noindex so the
-  // preview URL can't be crawled or indexed.
-  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production') {
-    headers.push({
-      source: '/:path*',
-      headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }],
-    })
-  }
-
   return headers
 }
 
@@ -153,18 +144,13 @@ const nextConfig = {
   ...(process.env.NEXT_DEV_TURBOPACK_ROOT
     ? { turbopack: { root: process.env.NEXT_DEV_TURBOPACK_ROOT } }
     : {}),
-  // Expose Vercel's deployment environment to the browser bundle so the client
-  // Sentry init can tell production from preview. NODE_ENV is 'production' for
-  // both deployed environments, so without this preview client errors would
-  // leak into Sentry.
   env: {
-    NEXT_PUBLIC_VERCEL_ENV: process.env.VERCEL_ENV,
     // The build id the browser bundle was built for (as /api/version reports
     // it): the desktop bots overlay reloads when the main window's differs
     // (src/lib/build-id.ts).
     NEXT_PUBLIC_BUILD_ID: BUILD_ID,
     // The commit itself, for the desktop automation bridge's info().buildId
-    // (src/lib/automation): empty off Vercel.
+    // (src/lib/automation): empty in a build without one.
     NEXT_PUBLIC_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA ?? '',
     // Whether each desktop download is set, for the buttons and links that
     // offer it (src/lib/app-download.ts hides one whose file isn't).
@@ -219,7 +205,7 @@ const nextConfig = {
 const withMDX = createMDX()
 
 /**
- * Sentry's build plugin (source-map upload, Vercel cron monitors), only when
+ * Sentry's build plugin (source-map upload), only when
  * the deployment reports to a Sentry: NEXT_PUBLIC_SENTRY_DSN set. Without a
  * DSN the config is left as it is, so the build neither needs Sentry nor
  * uploads anything. Source maps go up only with SENTRY_ORG and SENTRY_PROJECT
@@ -259,12 +245,6 @@ export function withSentry(config, env = process.env) {
     // tunnelRoute: "/monitoring",
 
     webpack: {
-      // Enables automatic instrumentation of Vercel Cron Monitors. (Does not yet work with App Router route handlers.)
-      // See the following for more information:
-      // https://docs.sentry.io/product/crons/
-      // https://vercel.com/docs/cron-jobs
-      automaticVercelMonitors: true,
-
       // Tree-shaking options for reducing bundle size
       treeshake: {
         // Automatically tree-shake Sentry logger statements to reduce bundle size
@@ -276,9 +256,10 @@ export function withSentry(config, env = process.env) {
 
 const sentryWrapped = withSentry(withMDX(nextConfig))
 
-// Mount the eve agents into this Next app: same origin, one dev server, one
-// Vercel deploy. In dev, withEve boots an eve dev server per agent alongside
-// `next dev` and rewrites the eve routes to them. See docs/plans/eve-migration-plan.md.
+// Mount the eve agents into this Next app: same origin, one dev server. In dev,
+// withEve boots an eve dev server per agent alongside `next dev` and rewrites the
+// eve routes to them. In production each agent is its own container behind the
+// same origin (deploy/app). See docs/plans/eve-migration-plan.md.
 //
 // Those dev servers run with `--no-default-extensions` (patches/eve+0.79.1.patch;
 // withEve has no option for it): `eve dev` otherwise mounts eve's bundled
@@ -313,21 +294,13 @@ const sentryWrapped = withSentry(withMDX(nextConfig))
 // package.json: eve's project-root lookup stops at the nearest one, and one
 // without `eve` fails `eve dev` with "No eve project contains ...".)
 //
-// Mount names become Vercel Build Output service names as `eve-<name>`, and
-// Vercel requires that name to "contain only lowercase letters, hyphens, and
-// underscores" — NO DIGITS anywhere. A mount named `web2` → `eve-web2` is
-// rejected at build on the `2`. Every mount below is digit-free.
-//
 // No agent root may live at a directory literally named `agent`: eve's
 // project discovery (discover/project.js) treats any directory with that
 // exact basename as a nested agent whose appRoot is its PARENT, so a mount at
-// ./agent resolves appRoot to the REPO ROOT and `eve build` emits its Vercel
-// Build Output to <repo>/.vercel/output instead of <serviceRoot>/.vercel/output
-// — which Vercel's per-service build (@vercel/static-build) rejects with
-// "No Output Directory named '.output' found" (vercel/eve#472). Roots under
-// agents/<name> hit the flat-agent-root branch instead and emit correctly
-// into their own directory, which the service build accepts as Build Output
-// API v3.
+// ./agent resolves appRoot to the REPO ROOT and `eve build` writes its output
+// there instead of into the agent's own directory (vercel/eve#472). Roots under
+// agents/<name> hit the flat-agent-root branch instead and build into their own
+// directory, where deploy/app/build-agents.sh expects each one.
 export default withEve(sentryWrapped, {
   agents: {
     'onboarding-researcher': './agents/onboarding-researcher',

@@ -13,7 +13,7 @@ async function scope(overrides = {}) {
   const scopePath = join(directory, 'scope.json'), outputDir = join(directory, 'logs')
   await writeFile(scopePath, JSON.stringify({ userId: context.userId, workspaceId: context.workspaceId,
     expiresAt: new Date(Date.now() + 60_000).toISOString(), outputDir, ...overrides }))
-  vi.stubEnv('NODE_ENV', 'development'); vi.stubEnv('VERCEL', '')
+  vi.stubEnv('NODE_ENV', 'development')
   vi.stubEnv('NI_BROWSER_TRACE_SCOPE_FILE', scopePath)
   vi.spyOn(console, 'info').mockImplementation(() => {})
   return join(outputDir, context.runId + '.jsonl')

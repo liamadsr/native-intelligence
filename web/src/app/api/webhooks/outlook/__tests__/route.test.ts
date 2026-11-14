@@ -75,7 +75,6 @@ describe('POST /api/webhooks/outlook', () => {
 
   it('drops everything when no secret is configured, in any environment', async () => {
     vi.stubEnv('OUTLOOK_WEBHOOK_SECRET', '')
-    vi.stubEnv('VERCEL_ENV', '')
     vi.stubEnv('NODE_ENV', 'development')
     await POST(notify(ACCOUNT.id))
     await POST(notify(`:${ACCOUNT.id}`))

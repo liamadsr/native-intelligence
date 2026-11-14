@@ -49,7 +49,7 @@ import { Client } from 'eve/client'
 import type { HandleMessageStreamEvent } from 'eve/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createTaskSession, retireTaskSession } from '@/lib/eve/task-session'
-import { eveDispatchOrigin, protectionBypassHeaders } from '@/lib/eve/dispatch-origin'
+import { eveDispatchOrigin } from '@/lib/eve/dispatch-origin'
 import { createTurnBoundary } from '@/lib/eve/turn-boundary'
 import {
   mintAgentRunToken,
@@ -227,13 +227,11 @@ function codingAgentClient(args: {
 }): Client {
   const { secret, agentRunId, workspaceId, userId } = args
   const runToken = mintAgentRunToken({ agentRunId, workspaceId, userId })
-  // eveDispatchOrigin: THIS deployment on Vercel (never the production domain
-  // from a preview), through Deployment Protection when a bypass secret is set.
+  // eveDispatchOrigin: the app's own address, where the agents are mounted.
   return new Client({
     host: `${eveDispatchOrigin()}${CODING_AGENT_MOUNT}`,
     auth: { bearer: secret },
     headers: {
-      ...protectionBypassHeaders(),
       [AGENT_RUN_SECRET_HEADER]: secret,
       [AGENT_RUN_TOKEN_HEADER]: runToken,
       [AGENT_RUN_WORKSPACE_HEADER]: workspaceId,

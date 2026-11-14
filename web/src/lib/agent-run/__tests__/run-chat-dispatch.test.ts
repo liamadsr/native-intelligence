@@ -33,7 +33,7 @@ vi.mock('@/lib/flows/skill-run-token', () => ({
 vi.mock('@/lib/flows/run-skill-eve', () => ({
   skillRunnerClient: (args: Record<string, unknown>) => (skillClientArgs.push(args), { sessions: { attach: (id: string, opts: unknown) => (attachSpy(id, opts), { id }) } }),
 }))
-vi.mock('@/lib/eve/dispatch-origin', () => ({ eveDispatchOrigin: () => 'https://app.test', protectionBypassHeaders: () => ({}) }))
+vi.mock('@/lib/eve/dispatch-origin', () => ({ eveDispatchOrigin: () => 'https://app.test' }))
 vi.mock('@/lib/supabase/service', () => ({
   getServiceClient: () => ({
     from: (table: string) => ({

@@ -44,9 +44,10 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ??= 'test-service-role-key'
 // way). Rejecting immediately preserves the same failure surface (supabase-js
 // reports "TypeError: fetch failed") without touching the network.
 //
-// Match the RESOLVED env value, not just the placeholder literal: on a Vercel
-// build (`vitest run && next build`) the real prod NEXT_PUBLIC_SUPABASE_URL +
-// SUPABASE_SERVICE_ROLE_KEY are injected, the `??=` defaults never assign, and
+// Match the RESOLVED env value, not just the placeholder literal: in a shell
+// that carries the app's real settings (`npm run build` is `vitest run && next
+// build`, and a build has them) the real NEXT_PUBLIC_SUPABASE_URL +
+// SUPABASE_SERVICE_ROLE_KEY are there, the `??=` defaults never assign, and
 // a literal-only guard would silently let an unmocked suite do authenticated
 // I/O against PROD. Suites that stub fetch themselves override this wrapper.
 const supabaseTestUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -80,8 +81,8 @@ globalThis.fetch = ((input: Parameters<typeof fetch>[0], init?: RequestInit) => 
 // The same fence for Realtime. supabase-js opens its websocket at the first
 // `channel(...).subscribe()`, so a suite that renders a component binding a
 // postgres_changes channel (`createClient().channel(...)`, `useRowChanges`)
-// without mocking it would hold a REAL socket to the resolved host — on a
-// Vercel build, prod — for as long as the run lasts. In jsdom the connection's
+// without mocking it would hold a REAL socket to the resolved host (with real
+// settings in the shell, production) for as long as the run lasts. In jsdom the connection's
 // events then trip undici's "event must be an instance of Event" check as an
 // uncaught exception, and vitest exits 1 although every test passed.
 //
@@ -114,76 +115,66 @@ if (typeof RealWebSocket === 'function') {
   })
 }
 
-// Scrub deployment runtime flags so tests never inherit them from the host.
-// Vercel injects the project's env vars (e.g. the eve agents' internal
-// secrets) into the BUILD environment, and `npm run build` runs this test
-// suite — so without this, a test driving the real run-skill/agent-run/chat
-// control flow can mint real tokens and make live network calls (the salvage
-// suite failed exactly this way: its "timed out" assertion received the production site's
-// production 404 HTML). Tests that need one of these set it explicitly per-test.
+// Scrub the app's settings so tests never inherit them from the shell. A build
+// has the real ones (the eve agents' internal secrets among them) and `npm run
+// build` runs this suite first, so without this a test driving the real
+// run-skill/agent-run/chat control flow can mint real tokens and make live
+// network calls (the salvage suite failed exactly this way: its "timed out"
+// assertion received the production site's 404 HTML). Tests that need one of
+// these set it explicitly per-test.
 for (const flag of [
   'RUN_SKILL_INTERNAL_SECRET',
   'AGENT_RUN_INTERNAL_SECRET',
   'CHAT_INTERNAL_SECRET',
   'UTILITY_INTERNAL_SECRET',
   'LIVE_AGENT_INTERNAL_SECRET',
-  // The agent spec-clients pin internal calls to the deployment's own origin
-  // via VERCEL_URL (+ bypass header) — both injected into Vercel's BUILD env,
-  // where this suite runs. Scrub them so URL assertions are host-independent.
-  'VERCEL_URL',
+  // The cloud browser hands this to its sandbox's network policy when set
+  // (src/lib/cloud-browser/host.ts). A test that needs it sets it itself.
   'VERCEL_AUTOMATION_BYPASS_SECRET',
   // Gateway usage-tracking rollout (docs/plans/gateway-usage-tracking.md):
   // the tagging/reporting flags flip real behavior (providerOptions on every
   // model call, admin dashboard source), and AI_GATEWAY_API_KEY would let an
-  // unmocked test make a LIVE (billed) /v1/report call from the build's test
-  // gate. Tests covering these set them explicitly per-test.
+  // unmocked test make a LIVE (billed) /v1/report call from a build's test
+  // run. Tests covering these set them explicitly per-test.
   'GATEWAY_USER_TAGGING',
   'JEV_INPUT_USD_PER_MILLION',
   'GATEWAY_USAGE_REPORTING',
   'AI_GATEWAY_API_KEY',
   // The gateway client's other credential. With no API key it takes the
-  // host's short-lived token from VERCEL_OIDC_TOKEN, and the BUILD env always
-  // has one. Left in place, a test that reaches a model or an embedding
+  // short-lived token in VERCEL_OIDC_TOKEN (local development's, from `vercel env
+  // pull`). Left in place, a test that reaches a model or an embedding
   // without a mock makes a LIVE (billed) call during a production build and
   // then tries to record the spend. A document edit's re-index did exactly
   // that: one real embedding, a refused `billing/usage-log-failed` send, and a
   // failed build on a test that passes everywhere else. A test that needs the
   // token sets it itself.
   'VERCEL_OIDC_TOKEN',
-  // The gmail/outlook webhook routes fail CLOSED (401) when their secret is
-  // unset in a production-like env — detected via VERCEL_ENV, which Vercel
-  // injects into the BUILD env where this suite runs. Scrub it (and the
-  // secrets, also injected) so the suites exercise the documented dev-open
-  // default; tests covering fail-closed set VERCEL_ENV explicitly per-test.
+  // eve and the code that fences it read these two: eve's provider selection
+  // keys off VERCEL (agents/coding-agent/sandbox.ts reads it at module load),
+  // the agents' localDevOffVercel() and the eval door off either, and the cloud
+  // browser's relay origin off VERCEL_ENV. An inherited value flips those in any
+  // test that does not pin it. Tests that need one set it explicitly per-test.
   'VERCEL_ENV',
-  // The same answer under the name Vercel gives it for the browser, injected
-  // into the build beside VERCEL_ENV. app-env.ts reads it second, so with only
-  // VERCEL_ENV scrubbed every test still ran "in production" during a
-  // production build, and module-level code that fails closed there
-  // (src/lib/supabase/project.ts) threw in the build's test run only.
-  'NEXT_PUBLIC_VERCEL_ENV',
-  // VERCEL=1 is also injected into the build env. eve's provider selection
-  // keys off it (agents/coding-agent/sandbox.ts reads it at module load), so an
-  // inherited value flips module-level provider choice in any test that does not
-  // pin it. Tests that need it set it explicitly per-test.
   'VERCEL',
+  // The gmail/outlook webhook routes fail CLOSED (401) when their secret is
+  // unset in a built app. Scrub the secrets so the suites exercise the
+  // documented dev-open default; tests covering fail-closed set them per-test.
   'GMAIL_WEBHOOK_TOKEN',
   'OUTLOOK_WEBHOOK_SECRET',
   // trackServerEvent constructs a REAL posthog-node client (flushAt:1 → an
-  // immediate live /batch/ request) whenever this key is set — and it IS set
-  // in the Vercel build env where this suite runs, so any route test that
+  // immediate live /batch/ request) whenever this key is set, and a build has
+  // it, so any route test that
   // forgets to mock @/lib/posthog would emit fake product events into the
   // production project. Scrubbed → getPostHogServerClient() returns null.
   // posthog-auth-session.test.ts sets its own value per-test.
   'NEXT_PUBLIC_POSTHOG_KEY',
-  // NEXT_PUBLIC_APP_URL is the production address in the Vercel BUILD env
-  // where this suite runs. The eve dispatch origin
-  // (src/lib/eve/dispatch-origin.ts) and the utility spec-client fall back to
-  // it off Vercel, so an inherited value turns their localhost URL assertions
-  // into the production host (and points unmocked internal calls at prod). Tests that need
-  // a value set it explicitly per-test.
+  // NEXT_PUBLIC_APP_URL is the production address in a build. The eve dispatch
+  // origin (src/lib/eve/dispatch-origin.ts) and the agents' spec-clients read
+  // it, so an inherited value turns their localhost URL assertions into the
+  // production host (and points unmocked internal calls at prod). Tests that
+  // need a value set it explicitly per-test.
   'NEXT_PUBLIC_APP_URL',
-  // Inngest. The Vercel BUILD env carries the production event + signing keys,
+  // Inngest. A build has the production event + signing keys,
   // and the Inngest client reads them ONCE, when `@/lib/inngest/client` first
   // loads. With the key present, any test whose code path reached a real
   // `inngest.send` (record.ts's defaultSend was one) POSTed a REAL event to
