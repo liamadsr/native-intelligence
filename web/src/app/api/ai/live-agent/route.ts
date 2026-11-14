@@ -859,6 +859,9 @@ export async function POST(req: Request) {
       // A call's server turn past its lease: usage is logged, nothing is written (the call's finish
       // may be running the end-of-meeting pass by now).
       const aborted = abortedIn || (callTurnNotAfter !== undefined && Date.now() > callTurnNotAfter)
+      // Asked again before each write below: no write begins past the lease's end (655's busy holds
+      // the end-of-meeting pass back 30 s past it, so one begun just before lands first).
+      const leaseOver = () => callTurnNotAfter !== undefined && Date.now() >= callTurnNotAfter
 
       // Exa spend visibility, same shape as the chat route. web_search is
       // provider-executed, so its cost rides on the tool RESULT
@@ -1091,6 +1094,14 @@ export async function POST(req: Request) {
         for (const change of candidates || []) {
           const key = `${change.change_type}:${change.entity_type}`
 
+          // A call's server turn: no write begins past its lease's end, a race-damp mark or an
+          // apply alike (checked first, before each, not once at finalize's start). What is left
+          // stays pending for the end-of-meeting pass.
+          if (leaseOver()) {
+            ledger.staged(change.id, 'the call turn’s lease ended — pending review')
+            continue
+          }
+
           // A call's capture: a follow-up email draft (send_email, the end-of-call pass only) is
           // always staged for its owner's click, whatever the workspace's allow_external says (with
           // it on, send_email:action rides the actions rule and would otherwise be applied). So is
@@ -1196,10 +1207,8 @@ export async function POST(req: Request) {
             }
           }
 
-          // A call's server turn: no write begins past its lease's end (checked before each, not
-          // once at finalize's start). 655's busy holds the end-of-meeting pass back 30 s past that
-          // end, so a write begun just before it lands first. The rest stay pending for the pass.
-          if (callTurnNotAfter !== undefined && Date.now() >= callTurnNotAfter) {
+          // The lease's end again, just before the apply (the gate's reads above take time too).
+          if (leaseOver()) {
             ledger.staged(change.id, 'the call turn’s lease ended — pending review')
             continue
           }
@@ -1284,7 +1293,10 @@ export async function POST(req: Request) {
       // request client runs as `authenticated` for real captures and would be
       // denied). workspaceId/capture_id are request-context-authenticated above
       // (workspace resolved server-side; capture fetched fenced to it). An empty
-      // pass writes nothing. Never fails the live turn.
+      // pass writes nothing. Never fails the live turn. Kept past a call turn's lease's end: it
+      // records what this turn did (applied and staged), and only INSERTS rows of its own (a new
+      // extraction_pass row and a new Activity item), so it cannot touch the board, a proposal, or
+      // the end-of-meeting pass's own rows.
       await ledger.flush({
         workspaceId,
         captureId: capture_id,
@@ -1404,8 +1416,9 @@ export async function POST(req: Request) {
     // whatever is still pending expires: the meeting's record is written.
     // Skipped when aborted: a turn that did not complete leaves them pending
     // for the next one. Service-role (clients hold no write grant); never fails
-    // the turn.
-    if (!aborted && (directives.length > 0 || isBatch)) {
+    // the turn. Skipped too past a call turn's lease's end: the end-of-meeting
+    // pass reads (and then expires) them.
+    if (!aborted && !leaseOver() && (directives.length > 0 || isBatch)) {
       try {
         const service = getServiceClient()
         if (directives.length > 0) {

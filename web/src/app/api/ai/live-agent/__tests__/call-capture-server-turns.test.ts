@@ -36,6 +36,31 @@ const h = vi.hoisted(() => ({
   applied: [] as string[],
   applyTakesMs: 0,
   clockShift: 0,
+  /** Proposals the race damp would withhold (by id), and what it marked. */
+  dampIds: [] as string[],
+  damped: [] as string[],
+  /** The turn's pending directives, and what it marked consumed. */
+  directives: [] as Array<Record<string, unknown>>,
+  consumed: [] as string[],
+  log: [] as Array<{ table: string; op: string }>,
+}))
+
+vi.mock('@/lib/proposed-changes/auto-accept-race-damp', async (orig) => ({
+  ...(await orig<typeof import('@/lib/proposed-changes/auto-accept-race-damp')>()),
+  RACE_DAMP_ENABLED: true,
+  fetchRaceCandidates: async () => [],
+  shouldRefuseAutoAccept: (p: { title?: string | null }) =>
+    h.dampIds.includes(String(p.title)) ? { refuse: true, matched_action_id: 'act-near', note: 'near-duplicate' } : { refuse: false },
+  markRaceDamped: async (_sb: unknown, change: { id: string }) => {
+    h.damped.push(change.id)
+  },
+}))
+vi.mock('@/lib/live-agent/directives', async (orig) => ({
+  ...(await orig<typeof import('@/lib/live-agent/directives')>()),
+  loadPendingDirectives: async () => h.directives,
+  consumeDirectives: async (_svc: unknown, args: { ids: string[] }) => {
+    h.consumed.push(...args.ids)
+  },
 }))
 
 vi.mock('next/server', async (orig) => ({ ...(await orig<typeof import('next/server')>()), after: () => {} }))
@@ -83,9 +108,9 @@ const { POST } = await import('../route')
 const { callTurnKey } = await import('@/lib/live-agent/call-turn-key')
 
 /** The fixture's capture as a call's (its notes channel set), or an ordinary one; the call live or over. */
-function useDb(call: boolean) {
+function seedDb(call: boolean) {
   const base = meetingFixture()
-  h.client = createFakeSupabase((q: FakeQuery) => {
+  const fake = createFakeSupabase((q: FakeQuery) => {
     if (q.table === 'rpc:team_call_live_turn_busy') return { data: h.turnBusy, error: null }
     if (q.table === 'proposed_change' && q.op === 'select' && q.columns === '*' && eqValue(q, 'status') === 'pending') return { data: h.pending, error: null }
     if (q.table === 'proposed_change' && q.op === 'update') return { data: { id: eqValue(q, 'id') }, error: null }
@@ -101,7 +126,9 @@ function useDb(call: boolean) {
       return { ...r, data: { ...(r.data as Record<string, unknown>), notes_channel_id: 'chan-call-1' } }
     }
     return r
-  }).client
+  })
+  h.client = fake.client
+  h.log = fake.log as Array<{ table: string; op: string }>
 }
 
 const post = (body: Record<string, unknown>) =>
@@ -120,12 +147,30 @@ beforeEach(() => {
   h.applied = []
   h.applyTakesMs = 0
   h.clockShift = 0
+  h.dampIds = []
+  h.damped = []
+  h.directives = []
+  h.consumed = []
   vi.restoreAllMocks()
 })
 
+/** Two member decisions, the first apply taking `firstTakesMs` of a lease that ends in 60 s. */
+function nearTheEnd(firstTakesMs: number) {
+  h.lease.until = Date.now() + 60_000
+  h.applyTakesMs = firstTakesMs
+  h.clockShift = 0
+  h.pending = ['d1', 'd2'].map((id) => ({
+    id, change_type: 'create', entity_type: 'decision', status: 'pending', confidence: 0.97, title: id, display_text: id,
+    sort_order: 0, trigger_quote: 'We decided to ship on Monday', extra: { is_explicitly_stated: true },
+  }))
+  seedDb(true)
+  const realNow = Date.now.bind(Date)
+  vi.spyOn(Date, 'now').mockImplementation(() => realNow() + h.clockShift)
+}
+
 describe('a call’s capture: the server’s live agent alone', () => {
   it('a person’s app driving live turns on it is refused, before any session', async () => {
-    useDb(true)
+    seedDb(true)
     for (const role of [undefined, 'notes']) {
       const res = await post({ recent_chunks: ['Rosa Lind: I will send the contract'], ...(role ? { live_role: role } : {}) })
       expect(res.status).toBe(409)
@@ -135,7 +180,7 @@ describe('a call’s capture: the server’s live agent alone', () => {
   })
 
   it('the server’s own turn, holding the running lease, runs, and its tools stop at the lease’s end', async () => {
-    useDb(true)
+    seedDb(true)
     const res = await serverTurn()
     expect(res.status).toBe(200)
     expect(h.sessions).toBe(1)
@@ -143,6 +188,39 @@ describe('a call’s capture: the server’s live agent alone', () => {
     expect(h.minted[0].notAfter).toBe(h.lease.until)
     // And the lease itself: the tool route takes its calls only while it is held.
     expect(h.minted[0].callTurnLease).toBe(h.lease.id)
+  })
+
+  it('past the lease’s end no race-damp mark is written either (the check is at the top of the loop)', async () => {
+    h.dampIds = ['d2']
+    nearTheEnd(70_000) // d1's apply ends past the lease's end
+    expect((await serverTurn()).status).toBe(200)
+    expect(h.applied).toEqual(['d1'])
+    expect(h.damped).toEqual([])
+    // The control: with time to spare, d2 reaches the race damp and is marked.
+    h.applied = []
+    nearTheEnd(0)
+    h.dampIds = ['d2']
+    expect((await serverTurn()).status).toBe(200)
+    expect(h.damped).toEqual(['d2'])
+  })
+
+  it('past the lease’s end its directives are not marked consumed (the end-of-meeting pass reads them)', async () => {
+    h.directives = [{ id: 'dir-1', capture_id: FIX.captureId, source: 'talk_back', text: 'Dana owns the budget', status: 'pending', created_at: new Date().toISOString(), consumed_at: null }]
+    nearTheEnd(70_000)
+    expect((await serverTurn()).status).toBe(200)
+    expect(h.consumed).toEqual([])
+    // The control: in time, they are consumed.
+    nearTheEnd(0)
+    expect((await serverTurn()).status).toBe(200)
+    expect(h.consumed).toEqual(['dir-1'])
+  })
+
+  it('past the lease’s end the pass ledger is still recorded: insert-only rows of its own (what the turn did)', async () => {
+    nearTheEnd(70_000)
+    expect((await serverTurn()).status).toBe(200)
+    expect(h.log.some((q) => q.table === 'extraction_pass' && q.op === 'insert')).toBe(true)
+    // It touches no proposal after the end: the only proposal write is d1's own apply (mocked), none for d2.
+    expect(h.applied).toEqual(['d1'])
   })
 
   it('its finalize begins no write past the lease’s end: what is left stays pending for the pass', async () => {
@@ -153,7 +231,7 @@ describe('a call’s capture: the server’s live agent alone', () => {
       id, change_type: 'create', entity_type: 'decision', status: 'pending', confidence: 0.97, title: id, display_text: id,
       sort_order: 0, trigger_quote: 'We decided to ship on Monday', extra: { is_explicitly_stated: true },
     }))
-    useDb(true)
+    seedDb(true)
     const realNow = Date.now.bind(Date)
     vi.spyOn(Date, 'now').mockImplementation(() => realNow() + h.clockShift)
     const res = await serverTurn()
@@ -164,13 +242,13 @@ describe('a call’s capture: the server’s live agent alone', () => {
     h.applied = []
     h.applyTakesMs = 0
     h.clockShift = 0
-    useDb(true)
+    seedDb(true)
     expect((await serverTurn()).status).toBe(200)
     expect(h.applied).toEqual(['d1', 'd2', 'd3'])
   })
 
   it('a replayed key of an earlier turn, another capture’s key, or a lease that ran out: refused', async () => {
-    useDb(true)
+    seedDb(true)
     // An earlier turn's lease and key, replayed: not the running lease.
     expect((await serverTurn('lease-earlier')).status).toBe(409)
     // The running lease with another capture's key.
@@ -184,31 +262,31 @@ describe('a call’s capture: the server’s live agent alone', () => {
   })
 
   it('Reprocess (a batch) needs no key, but waits for the call: refused while its notes are live', async () => {
-    useDb(true)
+    seedDb(true)
     const live = await post({ mode: 'batch' })
     expect(live.status).toBe(409)
     expect(await live.json()).toMatchObject({ code: 'CALL_NOTES_LIVE', error: 'This call is still taking notes. Reprocess it once the call has ended.' })
     expect(h.sessions).toBe(0)
     h.callLive = false
-    useDb(true)
+    seedDb(true)
     expect((await post({ mode: 'batch' })).status).not.toBe(409)
   })
 
   it('Reprocess after the call ended, while its last turn still holds its lease: refused the same way', async () => {
     h.callLive = false
     h.turnBusy = true
-    useDb(true)
+    seedDb(true)
     const res = await post({ mode: 'batch' })
     expect(res.status).toBe(409)
     expect(await res.json()).toMatchObject({ code: 'CALL_NOTES_LIVE', error: 'This call is still finishing its notes. Reprocess it in a few minutes.' })
     expect(h.sessions).toBe(0)
     h.turnBusy = false
-    useDb(true)
+    seedDb(true)
     expect((await post({ mode: 'batch' })).status).not.toBe(409)
   })
 
   it('an ordinary capture’s live turns need no key', async () => {
-    useDb(false)
+    seedDb(false)
     const res = await post({ recent_chunks: ['Rosa Lind: I will send the contract today'] })
     expect(res.status).toBe(200)
     expect(h.sessions).toBe(1)

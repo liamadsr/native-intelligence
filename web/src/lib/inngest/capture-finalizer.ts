@@ -166,9 +166,32 @@ export const finalizeAbandonedCapture = inngest.createFunction(
 )
 
 /**
+ * The live agent's route said a call's capture is still being written (409
+ * CALL_NOTES_LIVE: its call live, or its last server turn still holding its
+ * lease): the batch is not refused, only early. A plain Error, so Inngest
+ * retries it; the call's finish (team-call-notes.ts) catches it and waits
+ * again itself, so the pass is never lost.
+ */
+export class CallNotesLiveError extends Error {
+  constructor(detail: string) {
+    super(`capture finalizer: batch not yet (409 CALL_NOTES_LIVE) ${detail}`)
+    this.name = 'CallNotesLiveError'
+  }
+}
+
+function callNotesLiveCode(body: string): boolean {
+  try {
+    return (JSON.parse(body) as { code?: unknown })?.code === 'CALL_NOTES_LIVE'
+  } catch {
+    return false
+  }
+}
+
+/**
  * The canonical end-of-meeting batch, as the owner. 'completed' once the route
  * answered 2xx (its finalize has run), 'in_flight' when it is still going past
- * BATCH_WAIT_MS. A usage wall or a refusal never retries; any other failure
+ * BATCH_WAIT_MS. A usage wall or a refusal never retries; a call's capture not
+ * yet free (409 CALL_NOTES_LIVE) throws CallNotesLiveError; any other failure
  * throws so Inngest retries the step (a re-run batch is what Reprocess does).
  */
 export async function runOwnerBatch(
@@ -187,7 +210,11 @@ export async function runOwnerBatch(
           signal: AbortSignal.timeout(BATCH_WAIT_MS),
         })
         if (res.ok) return 'completed' as const
-        const text = (await res.text().catch(() => '')).slice(0, 300)
+        const full = await res.text().catch(() => '')
+        const text = full.slice(0, 300)
+        // A call's capture whose last live turn still holds its lease (or whose call is still
+        // live): not a refusal but a "not yet". Retryable, never dropped (CallNotesLiveError).
+        if (res.status === 409 && callNotesLiveCode(full)) throw new CallNotesLiveError(text)
         if (res.status >= 400 && res.status < 500 && res.status !== 408) {
           throw new NonRetriableError(`capture finalizer: batch refused (${res.status}) ${text}`)
         }

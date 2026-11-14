@@ -15,14 +15,27 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const CALL = '77777777-7777-4777-8777-777777777777'
 const CAPTURE = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 
-const h = vi.hoisted(() => ({ on: true, busy: [] as boolean[], calls: [] as string[], lease: null as null | (() => boolean) }))
+const h = vi.hoisted(() => ({ on: true, busy: [] as boolean[], calls: [] as string[], lease: null as null | (() => boolean), notYet: 0 }))
 
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({}) }))
 vi.mock('@/lib/inngest/client', () => ({ inngest: { createFunction: () => ({}) } }))
-vi.mock('../capture-finalizer', () => ({
-  runOwnerBatch: async () => (h.calls.push('batch'), 'completed'),
-  postExtraction: async () => void h.calls.push('post'),
-}))
+vi.mock('../capture-finalizer', () => {
+  class CallNotesLiveError extends Error {}
+  return {
+    CallNotesLiveError,
+    runOwnerBatch: async () => {
+      // The route's "not yet" (409 CALL_NOTES_LIVE), as many times as asked.
+      if (h.notYet > 0) {
+        h.notYet--
+        h.calls.push('batch:not-yet')
+        throw new CallNotesLiveError('a live turn still holds the lease')
+      }
+      h.calls.push('batch')
+      return 'completed'
+    },
+    postExtraction: async () => void h.calls.push('post'),
+  }
+})
 vi.mock('@/lib/team-calls/egress', () => ({ teamCallEgressConfig: () => null, liveKitEgress: () => ({}) }))
 vi.mock('@/lib/team-calls/fed-notes', () => ({
   FED_TAIL_CAP_MS: 120_000,
@@ -42,7 +55,7 @@ vi.mock('@/lib/team-calls/live-turns', async (orig) => ({
   },
 }))
 
-const { runTeamCallNotesFinish, LIVE_TURN_SETTLE_ROUNDS, FED_POLL } = await import('../team-call-notes')
+const { runTeamCallNotesFinish, LIVE_TURN_SETTLE_ROUNDS, FED_POLL, CALL_BATCH_ATTEMPTS } = await import('../team-call-notes')
 const { LIVE_TURN_LEASE_SECONDS, LIVE_TURN_BUSY_MARGIN_SECONDS } = await import('@/lib/team-calls/live-turns')
 
 function step() {
@@ -57,6 +70,7 @@ beforeEach(() => {
   h.busy = []
   h.calls = []
   h.lease = null
+  h.notYet = 0
 })
 
 /**
@@ -153,9 +167,42 @@ describe('the finish and a live turn still running', () => {
     expect(h.calls).toEqual(['busy?', 'sleep:live-turn-wait', 'busy?', 'sleep:live-turn-wait', 'busy?', 'batch', 'post'])
   })
 
-  it('with the live agent off, nothing is read and nothing waits', async () => {
+  it('with the live agent off and no lease held: one look, nothing waits', async () => {
     h.on = false
     await runTeamCallNotesFinish({ event: { data: { callId: CALL } }, step: step() })
-    expect(h.calls).toEqual(['batch', 'post'])
+    expect(h.calls).toEqual(['busy?', 'batch', 'post'])
+  })
+
+  it('with the live agent off and no row to read (655 not applied): one look, nothing waits', async () => {
+    h.on = false
+    h.lease = () => {
+      throw new Error('function does not exist')
+    }
+    await runTeamCallNotesFinish({ event: { data: { callId: CALL } }, step: step() })
+    expect(h.calls).toEqual(['busy?', 'batch', 'post'])
+  })
+
+  it('the switch turned off while the call was live, a turn cut by the roll-out still holding its lease: waited out, then the pass runs (never dropped)', async () => {
+    h.on = false
+    endedCallWithRunningTurn({ releasedAfterLooks: 3 })
+    await runTeamCallNotesFinish({ event: { data: { callId: CALL } }, step: step() })
+    expect(looks()).toBe(4)
+    expect(h.calls.slice(-2)).toEqual(['batch', 'post'])
+  })
+
+  it('the route answers "not yet" (409 CALL_NOTES_LIVE): the finish waits again and asks again, and the pass runs', async () => {
+    h.on = false
+    h.notYet = 1
+    await runTeamCallNotesFinish({ event: { data: { callId: CALL } }, step: step() })
+    expect(h.calls).toEqual(['busy?', 'batch:not-yet', 'busy?', 'batch', 'post'])
+  })
+
+  it('"not yet" every time: after CALL_BATCH_ATTEMPTS waits the finish throws a plain error, so Inngest retries it (the pass is not dropped)', async () => {
+    h.notYet = CALL_BATCH_ATTEMPTS
+    const err = await runTeamCallNotesFinish({ event: { data: { callId: CALL } }, step: step() }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect((err as Error).name).not.toBe('NonRetriableError')
+    expect(h.calls.filter((c) => c === 'batch:not-yet')).toHaveLength(CALL_BATCH_ATTEMPTS)
+    expect(h.calls).not.toContain('post')
   })
 })
