@@ -1,103 +1,99 @@
 /**
- * Slack as a customer connection (docs/plans/slack-connect.md): the
- * deployment's settings. Neither SLACK_* one is a secret. The Slack app's secrets
- * (client secret, signing secret, verification token) live ONLY in the
- * Vercel Connect connector, and bot tokens come from Connect at runtime
- * (./connect.ts). Nothing in this app ever holds them.
+ * Slack as a customer connection: the deployment's settings. The app talks to
+ * Slack directly with our own Slack app: Slack's OAuth v2 install
+ * (./install.ts), the bot tokens it gives, stored encrypted per Slack team
+ * (./bot-token.ts, migration 644), and Slack's own signature on every request
+ * Slack sends here (./signature.ts).
  *
- *   SLACK_CONNECTOR  the Connect connector (uid like `slack/ni-public`, or
- *                    its `scl_…` id). Unset: Slack is off, and the Settings
- *                    card doesn't show.
- *   SLACK_APP_ID     our Slack app's id (A…). The events route drops any
- *                    payload whose api_app_id isn't this (fails closed).
+ *   SLACK_APP_ID          our Slack app's id (A…). An install, an event or a
+ *                         button click for any other app is refused.
+ *   SLACK_CLIENT_ID       the app's client id (digits.digits), sent in the
+ *                         authorize link and with every token exchange.
+ *   SLACK_CLIENT_SECRET   the app's client secret. A secret: never logged.
+ *   SLACK_SIGNING_SECRET  the app's signing secret: every request Slack sends
+ *                         to /api/slack/events and /api/slack/interactivity
+ *                         must carry its signature. A secret: never logged.
  *
- * Off Vercel (our own server) the app has no Vercel OIDC token, so it reaches
- * Connect with these instead. Unset (on Vercel): the OIDC token, as before.
- *
- *   CONNECT_ACCESS_TOKEN  a Vercel access token scoped to the team the
- *                         connector is in. Connect refuses it as the bearer
- *                         of a token request, so it is used only to make a
- *                         short-lived project token (./connect-auth.ts),
- *                         which every Connect call sends instead of the
- *                         OIDC token. A secret: never logged.
- *   CONNECT_PROJECT_ID    the Vercel project the connector is attached to
- *                         (prj_…). Required with CONNECT_ACCESS_TOKEN: the
- *                         project token is made for it. A forwarded request's
- *                         OIDC token must name it too, instead of
- *                         VERCEL_PROJECT_ID.
- *   CONNECT_TEAM_ID       the team of that project (team_…), sent with the
- *                         project-token request when set. Optional.
- *   CONNECT_ENVIRONMENT   the environment that token must name, instead of
- *                         VERCEL_TARGET_ENV / VERCEL_ENV. `production` when
- *                         unset; read only with CONNECT_PROJECT_ID.
- *
- * A `*` in either of the last two refuses every forwarded request.
+ * All four from the Slack app's own settings (Basic Information). Slack is
+ * on only when all four are set and well formed (the secrets: 32 to 128
+ * hexadecimal characters, the same rule deploy/app/check_settings.py holds
+ * them to); otherwise every Slack route answers that Slack is not set up, the
+ * Settings card says so, and a malformed one is logged once by name.
  */
 
 import { appUrl } from '@/lib/app-url'
 
-/** The Connect connector, or null when Slack is not set up on this deployment. */
-export function slackConnector(): string | null {
-  const value = process.env.SLACK_CONNECTOR?.trim()
-  return value ? value : null
+const APP_ID = /^A[A-Z0-9]{2,30}$/
+const CLIENT_ID = /^[0-9]{3,20}\.[0-9]{3,20}$/
+/** Slack's client and signing secrets: hexadecimal, 32 today; up to 128 accepted, either case. */
+const SECRET = /^[0-9a-f]{32,128}$/i
+
+const warned = new Set<string>()
+
+function setting(name: string, shape: RegExp): string | null {
+  const value = process.env[name]?.trim()
+  if (!value) return null
+  if (shape.test(value)) return value
+  // Set but not in the shape the app takes: Slack is off. Said once per process,
+  // by name only (deploy/app/check_settings.py says it before a roll-out).
+  if (!warned.has(name)) {
+    warned.add(name)
+    console.warn('[slack/config] setting is malformed; Slack is off', { setting: name })
+  }
+  return null
 }
 
-/** The access token the project token is made with (./connect-auth.ts), or null to use the Vercel OIDC token. */
-export function connectAccessToken(): string | null {
-  const value = process.env.CONNECT_ACCESS_TOKEN?.trim()
-  return value ? value : null
-}
-
-/** The project the connector is attached to, or null when unset. */
-export function connectProjectId(): string | null {
-  const value = process.env.CONNECT_PROJECT_ID?.trim()
-  return value ? value : null
-}
-
-/** The team of that project, or null when unset. */
-export function connectTeamId(): string | null {
-  const value = process.env.CONNECT_TEAM_ID?.trim()
-  return value ? value : null
-}
-
-/**
- * The project and environment a forwarded request's OIDC token must name, or
- * undefined for the verifier's own defaults (VERCEL_PROJECT_ID, VERCEL_ENV).
- * 'refuse' when either setting holds a `*`: the verifier reads `*` as "any",
- * so such a value must close the check, never widen it.
- */
-export function connectForwardTarget(): { projectId: string; environment: string } | 'refuse' | undefined {
-  const projectId = process.env.CONNECT_PROJECT_ID?.trim()
-  const environment = process.env.CONNECT_ENVIRONMENT?.trim()
-  if (projectId?.includes('*') || environment?.includes('*')) return 'refuse'
-  if (!projectId) return undefined
-  return { projectId, environment: environment || 'production' }
-}
-
-/** Our Slack app's id, or null when unset. */
+/** Our Slack app's id, or null when unset or malformed. */
 export function slackAppId(): string | null {
-  const value = process.env.SLACK_APP_ID?.trim()
-  return value && /^A[A-Z0-9]{2,30}$/.test(value) ? value : null
+  return setting('SLACK_APP_ID', APP_ID)
 }
 
-/** True when this deployment can install, link and answer Slack. */
+/** The Slack app's client id, or null when unset or malformed. */
+export function slackClientId(): string | null {
+  return setting('SLACK_CLIENT_ID', CLIENT_ID)
+}
+
+/** The Slack app's client secret, or null when unset or malformed. Never log it. */
+export function slackClientSecret(): string | null {
+  return setting('SLACK_CLIENT_SECRET', SECRET)
+}
+
+/** The Slack app's signing secret, or null when unset or malformed. Never log it. */
+export function slackSigningSecret(): string | null {
+  return setting('SLACK_SIGNING_SECRET', SECRET)
+}
+
+/** True when this deployment can install, link and answer Slack: all four settings, well formed. */
 export function slackConfigured(): boolean {
-  return slackConnector() !== null && slackAppId() !== null
+  return slackAppId() !== null && slackClientId() !== null && slackClientSecret() !== null && slackSigningSecret() !== null
 }
 
 /**
- * True once people can add Native Intelligence to a new Slack workspace from Settings
- * (`SLACK_SELF_INSTALL=1`): Connect's installation requests are feature-gated
- * per Vercel team, so until Vercel turns them on, workspaces are added from
- * the Connect dashboard and the page hides "Add to Slack".
+ * The bot scopes the install asks for, exactly: read mentions and DMs, open
+ * and write DMs, react, and read the team and its people (the link checks).
  */
-export function slackSelfInstallOpen(): boolean {
-  return process.env.SLACK_SELF_INSTALL?.trim() === '1'
-}
+export const SLACK_BOT_SCOPES: readonly string[] = [
+  'app_mentions:read',
+  'chat:write',
+  'im:history',
+  'im:read',
+  'im:write',
+  'reactions:write',
+  'team:read',
+  'users:read',
+]
 
-/** The app's public origin, for links the bot sends and Connect's return URL. */
+/** Where Slack sends the person back after the install (listed in the Slack app's OAuth settings). */
+export const SLACK_OAUTH_CALLBACK_PATH = '/api/slack/oauth/callback'
+
+/** The app's public origin, for links the bot sends and the install's redirect. */
 export function appOrigin(): string {
   return appUrl()
+}
+
+/** The install's redirect_uri: the app's public origin and the callback path. */
+export function slackRedirectUri(): string {
+  return `${appOrigin()}${SLACK_OAUTH_CALLBACK_PATH}`
 }
 
 /** Slack's page under Settings › Connectors (slack-connector-view.tsx). */

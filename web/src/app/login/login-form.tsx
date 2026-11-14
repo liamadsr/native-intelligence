@@ -1,7 +1,7 @@
 'use client'
 
 import { Link } from '@/components/link'
-import { accountRedirectTarget, isInviteRedirectPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '@/lib/auth/login-redirect'
+import { accountRedirectTarget, isInviteRedirectPath, isJoinLinkPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '@/lib/auth/login-redirect'
 import { Logo } from '@/components/logo'
 import { Button } from '@/components/ui/button'
 import {
@@ -84,9 +84,10 @@ export function LoginForm({
   // Arrived from an invite link (or an agent link's connect link). Invited addresses are exempt from the
   // work-email rule (the server hook checks for a pending invite), so the
   // form must not refuse them inline or nag them with the hint.
+  // A join link (/join/<token>) names no address, so it is not exempt.
   const viaInvite =
     !!invitedEmail ||
-    (!!redirectPath && isInviteRedirectPath(redirectPath))
+    (!!redirectPath && isInviteRedirectPath(redirectPath) && !isJoinLinkPath(redirectPath))
   const editionParam = searchParams.get('edition')
   // A refused signup (work-email hook) should land back on the SIGNUP form
   // so the message reads as feedback on what they just tried, not a sign-in.

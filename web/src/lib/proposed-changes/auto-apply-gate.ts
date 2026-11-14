@@ -81,7 +81,7 @@ export type GateDecision = 'apply' | 'stage'
 
 /** External side effects (email / mcp / the external entity) never auto-apply on
  *  confidence — they wait for an explicit human click unless policy allows it. */
-function isExternal(p: GateProposal): boolean {
+export function isExternal(p: GateProposal): boolean {
   return (
     p.change_type === 'send_email' ||
     p.change_type === 'mcp_call' ||

@@ -101,6 +101,9 @@ export async function resolveNotificationDetailPanel(
     }
   }
 
+  // A scheduled email that wasn't sent (642): Mail's Scheduled folder, where its reason shows.
+  if (notification.type === 'email_send_failed') return { type: 'mail', id: 'scheduled', title: notification.title || title }
+
   if (!targetType || !targetId) return null
 
   switch (targetType) {

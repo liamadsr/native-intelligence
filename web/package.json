@@ -91,7 +91,6 @@
     "@tiptap/react": "^2.27.2",
     "@types/dompurify": "^3.0.5",
     "@types/sanitize-html": "^2.16.1",
-    "@vercel/connect": "^2.4.1",
     "@vercel/sandbox": "^2.2.1",
     "acorn": "^8.16.0",
     "ai": "^7.0.141",

@@ -54,14 +54,24 @@
  *   - any other allow list      → deny 0.0.0.0/0, allow exactly the listed host
  *                                 names (wildcards such as *.githubusercontent.com
  *                                 are passed as they are; the runtime takes them).
- * What a list does NOT close (seen on the runtime, 2026-11-12): once any host
- * is allowed, the runtime also opens the sandbox's resolver (8.8.8.8) to it, on
- * every port. A sandbox on a list can therefore look up any name and talk to
- * that resolver, and data can leave that way, slowly (deploy/sandbox/README.md,
- * "Known gaps"). 'deny-all' has no such opening. What a list DOES close, also
- * seen there: an allowed name cannot be used as a mask for another server (the
- * runtime's proxy looks the name up itself), a bare address is refused, and
- * the level is still in force after a pause and a resume.
+ * What a list does NOT close by itself (seen on the runtime, 2026-11-12): once
+ * any host is allowed, the runtime also opens one resolver (8.8.8.8) to the
+ * sandbox, on every port. A sandbox on a list could therefore look up any name
+ * and talk to that resolver, and data could leave that way, slowly. The sandbox
+ * server closes it when its own resolver is set up (deploy/sandbox/README.md,
+ * "The resolver"): lookups for that address are answered there, for the names
+ * the lists hold and no other, and nothing else reaches the address. Until it
+ * is set up the opening is there. 'deny-all' has no such opening.
+ *
+ * That one resolver is also the only one such a sandbox can reach. The image's
+ * own are ordinary public ones, for a sandbox with the open internet, so
+ * start() points a sandbox on a list at NARROWED_RESOLVER before anything else
+ * runs in it, and removes the sandbox when that fails.
+ *
+ * What a list DOES close, also seen there: an allowed name cannot be used as a
+ * mask for another server (the runtime's proxy looks the name up itself), a
+ * bare address is refused, and the level is still in force after a pause and a
+ * resume.
  *
  * Lifetime: a sandbox lives 60 minutes from its last resume and, whatever is
  * asked later, at most the runtime's own limit from its start (six hours as
@@ -106,6 +116,14 @@ export const SESSION_METADATA_KEY = 'eveSessionId'
 const AGENT_ENV: Readonly<Record<string, string>> = { AI_AGENT: 'eve' }
 /** Everything: the denyOut entry that makes an allow list the only way out. */
 const ALL_TRAFFIC = '0.0.0.0/0'
+/**
+ * The one resolver the runtime opens to a sandbox on an allow list, and so the
+ * only one it can ask (see the header). deploy/sandbox/guard.sh names the same
+ * address; deploy/sandbox/tests pins the two together.
+ */
+export const NARROWED_RESOLVER = '8.8.8.8'
+/** Run as root (the file is root's), and read back: a write that did not happen fails too. */
+export const POINT_AT_NARROWED_RESOLVER = `printf 'nameserver ${NARROWED_RESOLVER}\\n' > /etc/resolv.conf && grep -qx 'nameserver ${NARROWED_RESOLVER}' /etc/resolv.conf`
 
 // ── The client, as far as this file uses it ────────────────────────────────
 
@@ -141,6 +159,8 @@ export interface RuntimeCommandHandle {
 /** CommandStartOpts, background form. */
 export interface RuntimeCommandStartOptions {
   background: true
+  /** Only the provider's own first step runs as root; the agent's commands run as the runtime's user. */
+  user?: 'root'
   cwd: string
   envs: Record<string, string>
   /** 0: no limit (the client's default would cut a command at 60 s). */
@@ -640,6 +660,26 @@ export function createRuntimeSandboxImplementation(
         })
       } catch (err) {
         throw failure(`could not create a sandbox from ${template}`, err, key)
+      }
+      if (network.network) {
+        // On a list: the image's resolvers are out of this sandbox's reach.
+        try {
+          const pointed = await sbx.commands.run(POINT_AT_NARROWED_RESOLVER, {
+            background: true,
+            user: 'root',
+            cwd: '/',
+            envs: {},
+            timeoutMs: 30_000,
+            retainOutput: false,
+            onStdout: () => {},
+            onStderr: () => {},
+          })
+          await pointed.wait()
+        } catch (err) {
+          // Not left behind: it could look nothing up, and nothing would remove it for an hour.
+          await kill(sbx.sandboxId, 'could not remove sandbox').catch(() => {})
+          throw failure(`could not point sandbox ${sbx.sandboxId} at the one resolver its network level leaves it`, err, key)
+        }
       }
       return { handle: handleFor(sbx), state: { sandboxId: sbx.sandboxId, version: 1 } }
     },

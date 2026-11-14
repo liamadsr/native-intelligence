@@ -6,7 +6,8 @@
  *   select (columns ignored; `{ count: 'exact', head: true }` answers a count),
  *   insert (one row or many; id and created_at filled), update, delete,
  *   upsert (one row or many, `{ onConflict: 'a,b' }`: a row matching on those
- *   columns is updated, else inserted),
+ *   columns is updated, else inserted; `ignoreDuplicates: true` leaves a
+ *   matching row as it is),
  *   eq, neq, in, is, gt, gte, lt, lte, not(col, 'is', null), contains,
  *   ilike ('%suffix' / 'prefix%' / '%mid%'), or('a.eq.x,b.cs.{"y"},c.is.null'),
  *   order (strings or numbers), limit, range (fetchAllRows' pages), single,
@@ -61,7 +62,7 @@ function compare(a: unknown, b: unknown): number {
 export function memoryDb(tables: Record<string, Row[]>, unique: Record<string, (a: Row, b: Row) => boolean> = {}): SupabaseClient {
   const from = (table: string) => {
     const filters: Filter[] = []
-    let op: { kind: 'select' } | { kind: 'insert'; rows: Row[] } | { kind: 'upsert'; rows: Row[]; on: string[] } | { kind: 'update'; patch: Row } | { kind: 'delete' } = { kind: 'select' }
+    let op: { kind: 'select' } | { kind: 'insert'; rows: Row[] } | { kind: 'upsert'; rows: Row[]; on: string[]; ignore: boolean } | { kind: 'update'; patch: Row } | { kind: 'delete' } = { kind: 'select' }
     let head = false
     let max = Infinity
     let offset = 0
@@ -83,6 +84,9 @@ export function memoryDb(tables: Record<string, Row[]>, unique: Record<string, (
         for (const input of op.rows) {
           const on = op.on
           const existing = on.length ? rows().find((r) => on.every((k) => r[k] === input[k])) : undefined
+          if (existing && op.ignore) {
+            continue
+          }
           const next = existing ? { ...existing, ...input } : { id: randomUUID(), created_at: new Date().toISOString(), ...input }
           if (rows().some((r) => r !== existing && unique[table]?.(r, next))) return { data: null, error: { message: 'duplicate key', code: '23505' } }
           if (existing) Object.assign(existing, input)
@@ -115,8 +119,13 @@ export function memoryDb(tables: Record<string, Row[]>, unique: Record<string, (
     const chain: Record<string, unknown> = {
       select: (_cols?: string, opts?: { count?: string; head?: boolean }) => ((head = opts?.head === true), chain),
       insert: (input: Row | Row[]) => ((op = { kind: 'insert', rows: Array.isArray(input) ? input : [input] }), chain),
-      upsert: (input: Row | Row[], opts?: { onConflict?: string }) => (
-        (op = { kind: 'upsert', rows: Array.isArray(input) ? input : [input], on: (opts?.onConflict ?? '').split(',').map((k) => k.trim()).filter(Boolean) }), chain
+      upsert: (input: Row | Row[], opts?: { onConflict?: string; ignoreDuplicates?: boolean }) => (
+        (op = {
+          kind: 'upsert',
+          rows: Array.isArray(input) ? input : [input],
+          on: (opts?.onConflict ?? '').split(',').map((k) => k.trim()).filter(Boolean),
+          ignore: opts?.ignoreDuplicates === true,
+        }), chain
       ),
       update: (patch: Row) => ((op = { kind: 'update', patch }), chain),
       delete: () => ((op = { kind: 'delete' }), chain),

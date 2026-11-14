@@ -521,3 +521,42 @@ describe('sendProviderDraft — Outlook', () => {
     expect(sends()[0].auth).toBe('Bearer m-default-tok')
   })
 })
+
+describe('sendProviderDraft — pinned to one mailbox (a scheduled send)', () => {
+  it('sends from the account named, not the thread’s index (a new message’s thread is not indexed yet)', async () => {
+    fake.seed('connected_account', [{ id: 'acct-side', user_id: 'user-1', provider: 'google', capability: 'email' }])
+    accountTokens['acct-side'] = { token: 'side-tok', email: 'me@fernhill.example', accountId: 'acct-side' }
+    const result = await sendProviderDraft('user-1', WS, 'thr-1', 'm-draft', null, { accountId: 'acct-side' })
+    expect(result).toEqual({ ok: true, threadId: 'thr-1', messageId: 'm-sent' })
+    expect(calls.every((c) => c.auth === 'Bearer side-tok')).toBe(true)
+  })
+
+  it('refuses an account that is not the user’s, or not a mail account: nothing is read or sent', async () => {
+    fake.seed('connected_account', [
+      { id: 'acct-theirs', user_id: 'user-2', provider: 'google', capability: 'email' },
+      { id: 'acct-cal', user_id: 'user-1', provider: 'google', capability: 'calendar' },
+    ])
+    accountTokens['acct-theirs'] = { token: 'their-tok', email: 'them@harborline.example', accountId: 'acct-theirs' }
+    accountTokens['acct-cal'] = { token: 'cal-tok', email: 'me@fernhill.example', accountId: 'acct-cal' }
+    await expect(sendProviderDraft('user-1', WS, 'thr-1', 'm-draft', null, { accountId: 'acct-theirs' })).rejects.toThrow('No email integration connected')
+    await expect(sendProviderDraft('user-1', WS, 'thr-1', 'm-draft', null, { accountId: 'acct-cal' })).rejects.toThrow('No email integration connected')
+    expect(calls).toEqual([])
+  })
+})
+
+describe('sendProviderDraft — a draft with a send scheduled, sent by hand', () => {
+  it('cancels the waiting schedule naming it (Gmail’s draft id), clearing its words; one being sent is left alone', async () => {
+    seedGmailThread()
+    fake.seed('email_scheduled_send', [
+      { id: 's-1', user_id: 'user-1', provider_draft_id: 'r-7', status: 'scheduled', to_emails: ['simon@harborline.io'], subject: 'Re' },
+      { id: 's-2', user_id: 'user-1', provider_draft_id: 'r-7', status: 'sending', to_emails: ['simon@harborline.io'], subject: 'Re' },
+      { id: 's-3', user_id: 'user-1', provider_draft_id: 'r-other', status: 'scheduled', to_emails: [], subject: 'Other' },
+    ])
+    await sendProviderDraft('user-1', WS, 'thr-1', 'm-draft')
+    expect(fake.rows('email_scheduled_send').map((r) => [r.id, r.status, r.subject])).toEqual([
+      ['s-1', 'cancelled', null],
+      ['s-2', 'sending', 'Re'],
+      ['s-3', 'scheduled', 'Other'],
+    ])
+  })
+})

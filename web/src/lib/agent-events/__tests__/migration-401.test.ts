@@ -45,7 +45,7 @@ describe('migration 401', () => {
   it('re-adds the notification type check with exactly the app’s types, after deleting the dead types’ rows', () => {
     const types = /notification_type_check check \(type = any \(array\[([^\]]*)\]\)\)/.exec(BODY)?.[1].split(',').map((t) => t.trim().replace(/'/g, '')) ?? []
     // 407 (merge workspaces, phase 2) added workspace_merged after this file, 443 agent_check_in, 452 agent_look_ahead and 454 agent_message.
-    expect(types).toEqual(NOTIFICATION_TYPES.filter((t) => t !== 'workspace_merged' && t !== 'agent_check_in' && t !== 'agent_look_ahead' && t !== 'agent_message' && t !== 'team_chat_message' && t !== 'meeting_waiting'))
+    expect(types).toEqual(NOTIFICATION_TYPES.filter((t) => t !== 'workspace_merged' && t !== 'agent_check_in' && t !== 'agent_look_ahead' && t !== 'agent_message' && t !== 'team_chat_message' && t !== 'meeting_waiting' && t !== 'email_send_failed'))
     const dead = /delete from public\.notification where type in \(([^)]*)\)/.exec(BODY)?.[1].split(',').map((t) => t.trim().replace(/'/g, '')) ?? []
     expect(dead).toHaveLength(13)
     for (const t of dead) expect(NOTIFICATION_TYPES as readonly string[]).not.toContain(t)

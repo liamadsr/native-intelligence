@@ -16,7 +16,7 @@ import {
   RACE_DAMP_ENABLED,
 } from '@/lib/proposed-changes/auto-accept-race-damp'
 import { resolveTrustPolicyFromSettings } from '@/lib/proposed-changes/trust-policy'
-import { decideAutoApply, gateModeForCapture } from '@/lib/proposed-changes/auto-apply-gate'
+import { decideAutoApply, gateModeForCapture, isExternal as isExternalProposal } from '@/lib/proposed-changes/auto-apply-gate'
 import { resolveWorkspaceEditionFromSettings } from '@/lib/editions'
 import { fetchWorkspaceSettings } from '@/lib/workspace-settings'
 import { ExtractionLedgerRecorder } from '@/lib/proposed-changes/extraction-ledger'
@@ -34,6 +34,7 @@ import {
   assigneeResolvedViaSpeakerMap,
   callRosterSetsSpeakers,
   quoteIsTheirs,
+  quoteSaidByMembers,
   quoteSpeakers,
   type SelfBindingState,
 } from '@/lib/live-agent/self-binding'
@@ -51,6 +52,9 @@ import { needsMineCheck } from '@/lib/live-agent/mine-check'
 import { syncProposalsCard } from '@/lib/live-agent/conversation-writer'
 import { liveTurnTypeFromRequest } from '@/lib/live-agent/ceiling'
 import { liveLookupsAllowed } from '@/lib/live-agent/mcp-lookups'
+import { fenceCallCapture, isCallCapture, isCallCapture as isCallCaptureRow } from '@/lib/live-agent/call-capture-fence'
+import { verifyCallTurnKey } from '@/lib/live-agent/call-turn-key'
+import { callLiveTurnBusy, callNotesLive, callTurnLeaseUntil } from '@/lib/team-calls/call-turn-state'
 import { internalSecret, liveRecentTail, mintLiveAgentRunToken } from '@/lib/live-agent/live-agent-run-token'
 import { selectRiderOmissions } from '@/lib/live-agent/riders'
 import {
@@ -250,7 +254,7 @@ export async function POST(req: Request) {
     const [captureRes, proposalsRes, appliedRes] = await Promise.all([
       supabase
         .from('captures')
-        .select('id, title, ai_summary, team_id, project_id, participants, user_id, package_ids, is_eval')
+        .select('id, title, ai_summary, team_id, project_id, participants, user_id, package_ids, is_eval, notes_channel_id')
         .eq('id', capture_id)
         .eq('workspace_id', workspaceId)
         .single(),
@@ -292,6 +296,57 @@ export async function POST(req: Request) {
     //   * web search is off (non-deterministic, and Exa spend is invisible under
     //     skipBilling) and the read surface omits private captures.
     const isEvalCapture = (capture as { is_eval?: boolean | null }).is_eval === true
+
+    // ── A call's capture (src/lib/live-agent/call-capture-fence.ts) ─────────────
+    // Its words are anyone's in the call, its notes everyone's in the
+    // conversation. Its live turns are the server's alone (src/lib/team-calls/
+    // live-turns.ts signs each with a key only the server can make): a
+    // person's own app never drives a second agent on it, whatever binds it to
+    // a recording. And a fenced turn holds only what writing the shared notes
+    // needs: no packages, no connected-app catalog, none of the requester's
+    // own context, no web.
+    const turnTypeForFence = liveTurnTypeFromRequest(mode, live_role)
+    const onCallCapture = isCallCapture(capture as { notes_channel_id?: string | null })
+    // A server turn holds the capture's running lease (655): its key is bound to that lease, and the
+    // lease must be the one running now, so a replayed or late turn is refused. Its tools stop at the
+    // lease's end (the run token's notAfter), and so does its finalize.
+    let callTurnNotAfter: number | undefined
+    let callTurnLease: string | undefined
+    if (onCallCapture && !isBatch) {
+      const turnLease = (body as { call_turn_lease?: unknown }).call_turn_lease
+      const leaseUntil =
+        verifyCallTurnKey(capture_id, turnLease, (body as { call_turn_key?: unknown }).call_turn_key)
+          ? await callTurnLeaseUntil(capture_id, turnLease as string)
+          : null
+      if (!leaseUntil) {
+        return Response.json(
+          { error: 'This call’s live notes are written on the server', code: 'CALL_CAPTURE_SERVER_TURNS' },
+          { status: 409 },
+        )
+      }
+      callTurnNotAfter = leaseUntil
+      callTurnLease = turnLease as string
+    }
+    // The end-of-meeting pass (Reprocess) on a call's capture waits for the call: while the call's
+    // notes are being written live, a pass would run beside the server's turns (it replaces the
+    // pending proposals and rewrites the summary). The call's own finish runs it when the call ends.
+    // And for its last turn: one still holding its lease once the call ended (655's busy, its
+    // margin included) is still writing.
+    if (onCallCapture && isBatch) {
+      if (await callNotesLive(capture_id)) {
+        return Response.json(
+          { error: 'This call is still taking notes. Reprocess it once the call has ended.', code: 'CALL_NOTES_LIVE' },
+          { status: 409 },
+        )
+      }
+      if (await callLiveTurnBusy(capture_id)) {
+        return Response.json(
+          { error: 'This call is still finishing its notes. Reprocess it in a few minutes.', code: 'CALL_NOTES_LIVE' },
+          { status: 409 },
+        )
+      }
+    }
+    const callFenced = fenceCallCapture(capture as { notes_channel_id?: string | null }, turnTypeForFence)
 
     // Self-heal the capture OWNER's identity anchor (is_self participant row)
     // for captures created before self-identity shipped, and for any create
@@ -459,7 +514,7 @@ export async function POST(req: Request) {
       currentMemberName,
       user.id,
       // A copilot turn speaks, so it also sees what it already told the user.
-      { talks: !isBatch && !notesRole },
+      { talks: !isBatch && !notesRole, callCapture: callFenced, endOfCall: isBatch },
     )
 
     // ── Attached context packages ("+ Packages" chip, mig 239) — LIVE ONLY ──
@@ -472,7 +527,7 @@ export async function POST(req: Request) {
     // never an ACL. get_package is promoted into the initial active tools
     // below whenever the manifest is non-empty, so the pull needs no
     // search_tools discovery round-trip.
-    const packageBlock = isBatch
+    const packageBlock = isBatch || callFenced
       ? null
       : buildPackageManifestBlock(
           await loadAttachedPackages(supabase, user.id, (capture.package_ids as string[] | null) ?? []),
@@ -636,10 +691,12 @@ export async function POST(req: Request) {
     // routes read them, scoped to the session's own user id: a lookup turn
     // builds the person's GitHub server from their GitHub token, and the token
     // columns are the service role's alone (migration 466).
-    const { block: externalMcpBlock, lookups: mcpLookups } = await loadLiveMcpContext(getServiceClient(), user.id, {
-      assistOnly,
-      lookups: liveLookupsAllowed({ turnType: liveTurnTypeFromRequest(mode, live_role), isEvalCapture }),
-    })
+    const { block: externalMcpBlock, lookups: mcpLookups } = callFenced
+      ? { block: '', lookups: [] as Awaited<ReturnType<typeof loadLiveMcpContext>>['lookups'] }
+      : await loadLiveMcpContext(getServiceClient(), user.id, {
+          assistOnly,
+          lookups: liveLookupsAllowed({ turnType: liveTurnTypeFromRequest(mode, live_role), isEvalCapture }),
+        })
 
     // The message: Block 2 (dynamic context + connected MCP servers + product
     // facts + package manifest + capture state with the corrections log) then
@@ -748,6 +805,8 @@ export async function POST(req: Request) {
       ...(recentTail !== undefined ? { recentTail } : {}),
       // The riders the prompt does without (riders.ts); absent → the full prompt.
       ...(riderOmit.length > 0 ? { omit: riderOmit } : {}),
+      // A call's server turn: its tools stop at its lease's end.
+      ...(callTurnNotAfter !== undefined && callTurnLease !== undefined ? { notAfter: callTurnNotAfter, callTurnLease } : {}),
     })
     // mintLiveAgentRunToken throws when no secret is configured, so it is set.
     const client = liveAgentEveClient({
@@ -795,8 +854,14 @@ export async function POST(req: Request) {
     // alter their workspace. The tools' own DB writes (proposals/summary staged
     // during generation) remain — those are recoverable/visible and the user can
     // Reprocess; what we must not do is auto-COMMIT on their behalf unprompted.
-    const finalize = async (gen: GenResult, aborted = false) => {
+    const finalize = async (gen: GenResult, abortedIn = false) => {
       const result = gen
+      // A call's server turn past its lease: usage is logged, nothing is written (the call's finish
+      // may be running the end-of-meeting pass by now).
+      const aborted = abortedIn || (callTurnNotAfter !== undefined && Date.now() > callTurnNotAfter)
+      // Asked again before each write below: no write begins past the lease's end (655's busy holds
+      // the end-of-meeting pass back 30 s past it, so one begun just before lands first).
+      const leaseOver = () => callTurnNotAfter !== undefined && Date.now() >= callTurnNotAfter
 
       // Exa spend visibility, same shape as the chat route. web_search is
       // provider-executed, so its cost rides on the tool RESULT
@@ -977,9 +1042,12 @@ export async function POST(req: Request) {
     //   * DECISIONS / MILESTONES: per-class threshold PLUS the D2 explicitness
     //     rule — only items the model marked explicitly stated ("we decided X")
     //     auto-apply; inferred leanings stay pending for review.
-    //   * EXTERNALS (send_email, mcp_call): ALWAYS staged as drafts for an
-    //     explicit click — never auto-fired (NORTH-STAR invariant 5). This is
-    //     an intentional change from the old allow_external auto-fire.
+    //   * EXTERNALS (send_email, mcp_call): staged as drafts for an explicit
+    //     click unless the workspace's trust policy sets allow_external; with it
+    //     set, an mcp_call or an 'external' entity still stages (no bucket), but
+    //     send_email:action rides the actions rule (its entity_type) and can
+    //     apply (an empty draft for the owner, nothing sent). On a call's
+    //     capture every external stages, whatever the policy (below).
     // Fully reversible (and still editable): applied items carry auto_accepted
     // and the agent can edit_proposal / dismiss_proposal them afterward. Best
     // effort — a failure here never breaks the live turn.
@@ -1013,13 +1081,35 @@ export async function POST(req: Request) {
         let selfBindingPromise: Promise<SelfBindingState> | null = null
         const getSelfBinding = () =>
           (selfBindingPromise ??= resolveSelfBinding(supabase, capture_id, currentMemberId))
-        // A call the recorder heard (migration 587): its roster says exactly who said every line, so
-        // ownership is read from the line an action was quoted from, never from a name. Read once.
+        // A call's capture (the fence's own test, its notes_channel_id), or a call the recorder heard
+        // (587's roster): who said a line is read from the roster, never from a name. A call's capture
+        // from before the roster has no line anyone is known to have said, so nothing on it is filed
+        // without a click (an action, a decision, a milestone all stay suggestions). Read once.
         let callRosterPromise: Promise<boolean> | null = null
-        const isCallCapture = () => (callRosterPromise ??= callRosterSetsSpeakers(supabase, capture_id))
+        const isCallCapture = () =>
+          (callRosterPromise ??= isCallCaptureRow(capture as { notes_channel_id?: string | null })
+            ? Promise.resolve(true)
+            : callRosterSetsSpeakers(supabase, capture_id))
 
         for (const change of candidates || []) {
           const key = `${change.change_type}:${change.entity_type}`
+
+          // A call's server turn: no write begins past its lease's end, a race-damp mark or an
+          // apply alike (checked first, before each, not once at finalize's start). What is left
+          // stays pending for the end-of-meeting pass.
+          if (leaseOver()) {
+            ledger.staged(change.id, 'the call turn’s lease ended — pending review')
+            continue
+          }
+
+          // A call's capture: a follow-up email draft (send_email, the end-of-call pass only) is
+          // always staged for its owner's click, whatever the workspace's allow_external says (with
+          // it on, send_email:action rides the actions rule and would otherwise be applied). So is
+          // anything external.
+          if (isCallCaptureRow(capture as { notes_channel_id?: string | null }) && isExternalProposal(change)) {
+            ledger.staged(change.id, 'a call’s draft — staged for its owner')
+            continue
+          }
 
           // Resolve the me-ownership signal the shared gate needs for ACTIONS.
           // Assignable items (create:action / assign:action) are user-scoped:
@@ -1055,6 +1145,20 @@ export async function POST(req: Request) {
                 if (!binding.bound) isMineExplicit = false
               }
             }
+          }
+
+          // A call the recorder heard: a decision or milestone is filed without a person's click
+          // only when the line it was quoted from was said by a member (their own roster row), as
+          // an action is only when said by its assignee. One a guest said, or no line said, stays
+          // a suggestion for the owner to accept.
+          if (
+            SELF_BINDING_GATE_ENABLED &&
+            (change.entity_type === 'decision' || change.entity_type === 'milestone') &&
+            (await isCallCapture()) &&
+            !quoteSaidByMembers(await quoteSpeakers(getServiceClient(), capture_id, change.trigger_quote))
+          ) {
+            ledger.staged(change.id, 'a call’s decision not said by a member — pending review')
+            continue
           }
 
           // The shared gate (W-1) makes the auto-apply DECISION: confidence floor,
@@ -1103,6 +1207,11 @@ export async function POST(req: Request) {
             }
           }
 
+          // The lease's end again, just before the apply (the gate's reads above take time too).
+          if (leaseOver()) {
+            ledger.staged(change.id, 'the call turn’s lease ended — pending review')
+            continue
+          }
           // applyChange only knows handlers for supported keys; unsupported
           // ones return an error and are skipped (stay pending).
           const applied = await applyChange(
@@ -1184,7 +1293,10 @@ export async function POST(req: Request) {
       // request client runs as `authenticated` for real captures and would be
       // denied). workspaceId/capture_id are request-context-authenticated above
       // (workspace resolved server-side; capture fetched fenced to it). An empty
-      // pass writes nothing. Never fails the live turn.
+      // pass writes nothing. Never fails the live turn. Kept past a call turn's lease's end: it
+      // records what this turn did (applied and staged), and only INSERTS rows of its own (a new
+      // extraction_pass row and a new Activity item), so it cannot touch the board, a proposal, or
+      // the end-of-meeting pass's own rows.
       await ledger.flush({
         workspaceId,
         captureId: capture_id,
@@ -1304,8 +1416,9 @@ export async function POST(req: Request) {
     // whatever is still pending expires: the meeting's record is written.
     // Skipped when aborted: a turn that did not complete leaves them pending
     // for the next one. Service-role (clients hold no write grant); never fails
-    // the turn.
-    if (!aborted && (directives.length > 0 || isBatch)) {
+    // the turn. Skipped too past a call turn's lease's end: the end-of-meeting
+    // pass reads (and then expires) them.
+    if (!aborted && !leaseOver() && (directives.length > 0 || isBatch)) {
       try {
         const service = getServiceClient()
         if (directives.length > 0) {

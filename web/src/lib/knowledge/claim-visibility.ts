@@ -779,21 +779,36 @@ export function provenanceLinksReachEveryone(links: readonly DedupeLink[] | null
  * | sourceType     | condition                       | requester   |
  * |----------------|---------------------------------|-------------|
  * | any            | a link reaches everyone         | null        |
+ * | capture        | a call's (notes_channel_id)     | null        |
  * | capture        | visibility = 'private'          | owner       |
  * | capture        | 'workspace' / unknown           | null        |
  * | conversation   | (a chat is its owner's)         | owner       |
+ * | attachment     | parent is a call's capture      | null        |
  * | attachment     | parent capture is 'private'     | owner       |
  * | attachment     | no parent / workspace / unknown | null        |
  * | document, external_url, anything else             | null        |
  *
  * `ownerUserId` is the capture's (or the attachment's parent capture's, or the
  * chat's) `user_id`; a missing owner yields null.
+ *
+ * A call's capture (its `notes_channel_id` set: `callCapture`, or
+ * `parentCallCapture` for a file on one) is null whatever its visibility: it is
+ * private to its owner, but what it says came from anyone in the call (a
+ * meeting's guest included), so a match on the owner's PRIVATE claims would
+ * attach the call's words to them, and its answer would tell the call what the
+ * owner holds. A caller that must still find this capture's own earlier claims
+ * (owner-only, as their one source is this private capture) looks for them
+ * among the claims this same capture already sources.
  */
 export function dedupeRequesterFor(args: {
   sourceType: string
   ownerUserId: string | null | undefined
   captureVisibility?: string | null
   parentCaptureVisibility?: string | null
+  /** A call's capture (notes_channel_id set): only claims everyone can already read. */
+  callCapture?: boolean
+  /** An attachment on a call's capture: as callCapture. */
+  parentCallCapture?: boolean
   /** A document source's visibility (369): a private one is its creator's. */
   documentVisibility?: string | null
   links?: readonly DedupeLink[] | null
@@ -802,10 +817,12 @@ export function dedupeRequesterFor(args: {
   const owner = typeof args.ownerUserId === 'string' && args.ownerUserId.length > 0 ? args.ownerUserId : null
   switch (args.sourceType) {
     case 'capture':
+      if (args.callCapture) return null
       return args.captureVisibility === 'private' ? owner : null
     case CONVERSATION_SOURCE_TYPE:
       return owner
     case 'attachment':
+      if (args.parentCallCapture) return null
       return args.parentCaptureVisibility === 'private' ? owner : null
     case 'document':
       return args.documentVisibility === 'private' ? owner : null

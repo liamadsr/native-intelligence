@@ -13,6 +13,12 @@ import { launchWorkItem, planWorkItem, workRunDispatchEventId, type WorkItemPlan
 import { resetAgentRunMirrorCaches } from '../agent-run-mirror'
 
 vi.mock('@/lib/inngest/client', () => ({ inngest: { send: vi.fn() } }))
+// A failed dispatch tells the person (work/notify.ts → createNotification, on its own service
+// client): a no-op here, never the network.
+vi.mock('@/lib/notifications', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/notifications')>()),
+  createNotification: async () => {},
+}))
 const touchSpy = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => 1))
 vi.mock('../touch', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../touch')>()),

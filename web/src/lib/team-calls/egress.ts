@@ -54,7 +54,9 @@ export function teamCallFeatures(env: NodeJS.ProcessEnv = process.env): TeamCall
   const recorder = teamCallRecorderOn(env)
   const egress = !!teamCallEgressConfig(env)
   if (!recorder && !egress) return NO_CALL_FEATURES
-  return { notes: recorder || !!env.DEEPGRAM_API_KEY?.trim(), recording: egress && on('TEAM_CALL_RECORDING', env), liveNotes: recorder }
+  // The live agent writes the notes as people speak (TEAM_CALL_LIVE_AGENT, src/lib/team-calls/live-turns.ts): said only when on.
+  const liveAgent = recorder && on('TEAM_CALL_LIVE_AGENT', env)
+  return { notes: recorder || !!env.DEEPGRAM_API_KEY?.trim(), recording: egress && on('TEAM_CALL_RECORDING', env), liveNotes: recorder, ...(liveAgent ? { liveAgent: true } : {}) }
 }
 
 /** The most recordings at once across the server (TEAM_CALL_RECORDING_MAX, default 1). */

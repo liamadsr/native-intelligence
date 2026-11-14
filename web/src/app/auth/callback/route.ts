@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse, type NextRequest } from 'next/server'
 import { authCallbackErrorCode } from '@/lib/auth/callback-error'
 import { dropAccountRedirect, postAuthRedirect } from '@/lib/auth/post-auth-redirect'
+import { hasDomainOfferAtSignIn } from '@/lib/workspace-join/domain-offer'
+import { JOIN_OFFER_PAGE, markCheckedThisSignIn } from '@/lib/workspace-join/sign-in-check'
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
@@ -19,7 +21,7 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = await createClient()
-  const { error } = await supabase.auth.exchangeCodeForSession(code)
+  const { data, error } = await supabase.auth.exchangeCodeForSession(code)
 
   if (error) {
     redirectUrl.pathname = '/login'
@@ -34,6 +36,12 @@ export async function GET(request: NextRequest) {
   // `trackAuthSession`), the one choke-point every auth method passes through —
   // including password logins that never reach this OAuth-only callback.
 
-  // Invite, share-link or MCP redirect cookie, else /account.
-  return postAuthRedirect(request)
+  // Join by email domain (src/lib/workspace-join/domain-offer.ts), once per
+  // sign-in: when a workspace on the person's verified domain is on offer,
+  // home is the page that offers it (one click each; nobody is added here).
+  // Never fails the sign-in.
+  const offer = await hasDomainOfferAtSignIn(data?.user)
+
+  // Invite, share-link or MCP redirect cookie, else home.
+  return markCheckedThisSignIn(postAuthRedirect(request, undefined, offer ? { home: JOIN_OFFER_PAGE } : {}), data?.user)
 }

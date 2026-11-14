@@ -90,7 +90,7 @@ describe('migrations 560-561', () => {
   it('560: notification.type and target_type are what the app writes; one per message per person', () => {
     const types = quoted(/notification_type_check check \(type = any \(array\[([^\]]*)\]\)\)/.exec(flat(REACH))?.[1] ?? '')
     // 572 widens it again (meeting_waiting, src/lib/meeting-links/__tests__/migration-572.test.ts).
-    expect(types).toEqual(NOTIFICATION_TYPES.filter((t) => t !== 'meeting_waiting'))
+    expect(types).toEqual(NOTIFICATION_TYPES.filter((t) => t !== 'meeting_waiting' && t !== 'email_send_failed'))
     expect(quoted(/notification_target_type_check check \(target_type in \(([^)]*)\)\)/.exec(flat(REACH))?.[1] ?? '')).toContain('team_chat_message')
     expect(flat(REACH)).toContain("create unique index if not exists notification_team_chat_message_key on public.notification (recipient_id, target_id) where type = 'team_chat_message';")
   })

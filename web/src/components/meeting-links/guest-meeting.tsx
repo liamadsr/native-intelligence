@@ -22,7 +22,10 @@
  *      at once (the permission event), holds their microphone and shows the
  *      notice; "Join with microphone" records their go and gives it back.
  *      With no member left in the call, the page says the host has left (the
- *      sweeper ends a call left to guests after a few minutes).
+ *      sweeper ends a call left to guests after a few minutes). Where the
+ *      call's notes are shown in the call (TEAM_CALL_LIVE_AGENT), the guest
+ *      can open what has been said since they came in: the call's own words
+ *      only, never the members' summary, and only while they are in it.
  *
  * Nothing runs without a reason: no animation loop, no timer while hidden.
  */
@@ -34,6 +37,7 @@ import { cn } from '@/lib/utils'
 import { TeamCallSession, type CallEnd, type CallSnapshot, type TeamCallJoin } from '@/lib/team-calls/call-session'
 import { MEETING_GUEST_NAME_MAX, MEETING_LOBBY_POLL_MS, cleanGuestName } from '@/lib/meeting-links/shape'
 import { CallBadges, IconButton, TileView, callErrorLine, deviceNotice, initialsOf } from '@/components/team-calls/call-tiles'
+import { GuestCallNotes } from '@/components/team-calls/call-live-notes'
 
 type Done = 'declined' | 'removed' | 'left' | 'ended' | 'inactive' | 'full' | 'limited' | 'early' | 'elsewhere' | 'error'
 
@@ -97,6 +101,7 @@ export function GuestMeeting({
   recording,
   notesOffered = false,
   liveNotes = false,
+  liveAgent = false,
 }: {
   token: string
   title: string
@@ -107,6 +112,8 @@ export function GuestMeeting({
   notesOffered?: boolean
   /** The notes are the call recorder's: DTX stays on, and a mute only mutes. */
   liveNotes?: boolean
+  /** The call's notes are shown in the call (phase 2): to a guest, what has been said since they came in. */
+  liveAgent?: boolean
 }) {
   const base = `/m/${token}`
   const [phase, setPhase] = useState<Phase>({ kind: 'entry' })
@@ -293,7 +300,8 @@ export function GuestMeeting({
     finish('left')
   }, [base, finish])
 
-  if (phase.kind === 'call') return <GuestCall session={phase.session} title={title} onNow={onNow} hostGone={membersInCall === 0} />
+  if (phase.kind === 'call')
+    return <GuestCall session={phase.session} title={title} onNow={onNow} hostGone={membersInCall === 0} notesBase={liveAgent ? base : undefined} />
 
 
   return (
@@ -438,7 +446,7 @@ function useSnapshot(session: TeamCallSession): CallSnapshot {
 }
 
 /** The guest in the call: everyone in it, their own controls, Leave. Nothing of the workspace. */
-function GuestCall({ session, title, onNow, hostGone }: { session: TeamCallSession; title: string; onNow: OnNow; hostGone: boolean }) {
+function GuestCall({ session, title, onNow, hostGone, notesBase }: { session: TeamCallSession; title: string; onNow: OnNow; hostGone: boolean; notesBase?: string }) {
   const snap = useSnapshot(session)
   const screens = snap.tiles.filter((t) => t.kind === 'screen')
   const people = snap.tiles.filter((t) => t.kind === 'person')
@@ -507,6 +515,8 @@ function GuestCall({ session, title, onNow, hostGone }: { session: TeamCallSessi
             {n}
           </p>
         ))}
+        {/* The call's own words since they came in, never the members' summary (src/lib/team-calls/live-notes.ts). */}
+        {notesBase && onNow.notes && snap.phase === 'connected' && <GuestCallNotes base={notesBase} />}
         {snap.needsAudioStart && (
           <button
             type="button"

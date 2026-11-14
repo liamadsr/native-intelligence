@@ -104,6 +104,7 @@ export const ROUTES: Readonly<Record<string, RouteRule>> = {
   docs: page('The documentation.'),
   'forgot-password': page('Asks for a reset; the reset then ends on the domain it was asked from.'),
   invite: page('A workspace invite link; sign-in from it happens on the domain it was opened on.'),
+  join: page('A workspace\'s shareable invite link; sign-in from it happens on the domain it was opened on.'),
   l: page('A single-use link sent by text; its button posts to the API of the domain it was loaded from.'),
   link: page('An agent\'s connect link; sign-in from it happens on the domain it was opened on.'),
   login: page('Sign-in starts on the domain the page is on, and returns there.'),

@@ -1,4 +1,5 @@
-import { createClient as createSupabaseClient, type AuthError } from '@supabase/supabase-js'
+import type { AuthError } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { NextResponse, type NextRequest } from 'next/server'
 import { getServiceClient, isAuthorizedAdmin } from '@/lib/admin'
 import { deepLinkPage, escapeHtml } from '@/lib/auth/deep-link-page'
@@ -13,6 +14,8 @@ import {
   type GoogleTokens,
 } from '@/lib/auth/google-sign-in'
 import { browserOrigin, dropAccountRedirect, postAuthRedirect } from '@/lib/auth/post-auth-redirect'
+import { hasDomainOfferAtSignIn } from '@/lib/workspace-join/domain-offer'
+import { JOIN_OFFER_PAGE, markCheckedThisSignIn } from '@/lib/workspace-join/sign-in-check'
 import { WORK_EMAIL_REQUIRED_ERROR_CODE, isWorkEmailRejection } from '@/lib/auth/work-email'
 import { sessionTokenHash } from '@/lib/chatgpt/account'
 import { createClient } from '@/lib/supabase/server'
@@ -74,7 +77,11 @@ export async function GET(request: NextRequest) {
     return finish(NextResponse.redirect(new URL('/admin', browserOrigin(request))))
   }
 
-  return finish(postAuthRedirect(request, browserOrigin(request)))
+  // Join by email domain (src/lib/workspace-join/domain-offer.ts), once per sign-in; never fails the sign-in.
+  const offer = await hasDomainOfferAtSignIn(data.user)
+  return finish(
+    markCheckedThisSignIn(postAuthRedirect(request, browserOrigin(request), offer ? { home: JOIN_OFFER_PAGE } : {}), data.user),
+  )
 }
 
 /**
@@ -89,7 +96,7 @@ async function finishDesktop(
   tx: GoogleSignInTransaction,
   tokens: GoogleTokens,
 ): Promise<NextResponse> {
-  const verifier = createSupabaseClient(
+  const verifier = createStatelessClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } },
@@ -120,7 +127,7 @@ async function finishDesktop(
   )
 }
 
-type GoogleAuth = Pick<ReturnType<typeof createSupabaseClient>['auth'], 'signInWithIdToken'>
+type GoogleAuth = Pick<ReturnType<typeof createStatelessClient>['auth'], 'signInWithIdToken'>
 
 /** Supabase checks the ID token's signature, issuer, audience (its Google
  *  provider's client), expiry, `at_hash` against the access token, and the

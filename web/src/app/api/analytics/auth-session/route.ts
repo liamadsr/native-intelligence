@@ -15,6 +15,8 @@ import {
 import { getCurrentWorkspaceIdSafe } from '@/lib/workspace'
 import { getServiceClient } from '@/lib/supabase/service'
 import { seedSignupLoops } from '@/lib/flows/seed-signup-loops'
+import { hasDomainOfferAtSignIn } from '@/lib/workspace-join/domain-offer'
+import { JOIN_CHECK_COOKIE, checkedThisSignIn, markCheckedThisSignIn } from '@/lib/workspace-join/sign-in-check'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 
@@ -115,7 +117,17 @@ export async function POST() {
     }
   }
 
-  const res = NextResponse.json({ tracked: Boolean(authEvent) })
+  // Join by email domain (src/lib/workspace-join/domain-offer.ts), once per
+  // sign-in on its own marker (sign-in-check.ts). The server callbacks
+  // already checked an OAuth or email-link sign-in; this is how a password
+  // or desktop sign-in, finished in the browser, is checked. `joinOffer`
+  // sends the page to /join/team, where the person chooses (nobody is added
+  // here).
+  const joinChecked = checkedThisSignIn(cookieStore.get(JOIN_CHECK_COOKIE)?.value, user)
+  const joinOffer = joinChecked ? false : await hasDomainOfferAtSignIn(user)
+
+  const res = NextResponse.json({ tracked: Boolean(authEvent), ...(joinOffer ? { joinOffer: true } : {}) })
+  if (!joinChecked) markCheckedThisSignIn(res, user)
   if (editionAttribution.shouldClear) {
     res.cookies.set(SIGNUP_EDITION_COOKIE, '', { path: '/', maxAge: 0 })
   }

@@ -57,6 +57,8 @@ export interface CaptureDetail {
   /** Context packages attached via the "+ Packages" chip (mig 240). Empty =
    *  no package context injected into this capture's live agent. */
   package_ids: string[]
+  /** Set on a call's capture only (566; the server's column): the fence's own test (call-capture-fence.ts). */
+  notes_channel_id?: string | null
   created_at: string
   updated_at: string
 }

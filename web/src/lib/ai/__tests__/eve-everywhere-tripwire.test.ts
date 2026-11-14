@@ -955,6 +955,8 @@ describe('eve-everywhere: no in-process model call outside the allowlist', () =>
     for (const sub of Object.keys(EVE_REFUSED_NAMES)) expect(EVE_SUBPATH_ALLOWSET.has(sub), sub).toBe(true)
   })
 
+  // Walks eve's dist import graph (eveModelPath) and imports eve/evals cold: fast
+  // alone, past 5 s on a busy machine running the full suite.
   it('keeps EVALS_EVE_NAMES honest (real exports of the installed eve, each still imported under evals/, none reaching a model)', async () => {
     const modules: Record<string, Record<string, unknown>> = {
       'eve/evals': await import('eve/evals'),
@@ -978,8 +980,10 @@ describe('eve-everywhere: no in-process model call outside the allowlist', () =>
     const types = readFileSync(join(EVE_ROOT, 'dist/src/evals/types.d.ts'), 'utf8')
     expect(types).toMatch(/readonly judge: JudgeContext/)
     expect(types).toMatch(/score\(evaluation: ScoreInput\): AssertionHandle/)
-  })
+  }, 60_000)
 
+  // Walks eve's dist import graph from every export: fast alone, past 5 s on a
+  // busy machine running the full suite.
   it("every installed eve export that reaches decide() or a provider model is refused by rule 4 or name-pinned", () => {
     const reaching = eveExports()
       .map(([sub, entry]) => ({ sub, path: eveModelPath(entry) }))
@@ -992,8 +996,9 @@ describe('eve-everywhere: no in-process model call outside the allowlist', () =>
       .filter((e) => !EVE_INPROCESS_MODULE.test(e.sub) && !Object.hasOwn(EVE_REFUSED_NAMES, e.sub))
       .map((e) => `${e.sub}: ${e.path!.join(' -> ')}`)
     expect(unclassified, 'classify each: refuse it in EVE_INPROCESS_MODULE or pin its model-running names').toEqual([])
-  })
+  }, 60_000)
 
+  // The same dist import-graph walk, from three entries: slow on a busy machine.
   it('the rule-4 reasons still hold in the installed eve (eval runner judges in process; approval exports auto)', () => {
     // eve/evals does not import decide() itself; the runner that executes a defineEval's t.judge() does.
     expect(eveModelPath('dist/src/evals/runner/execute-task.js')).not.toBeNull()
@@ -1004,7 +1009,7 @@ describe('eve-everywhere: no in-process model call outside the allowlist', () =>
     // eve/evals/expect (pure matchers) never reaches a model, so it is classifiable as allowed when adopted.
     const expectEntry = eveExports().find(([sub]) => sub === 'eve/evals/expect')
     expect(expectEntry && eveModelPath(expectEntry[1])).toBeNull()
-  })
+  }, 60_000)
 
   it('embeddings stay on embed()/embedMany(), which this rule deliberately allows', () => {
     const facts = scan(join(ROOT, 'src/lib/ai/embeddings.ts'))

@@ -3,9 +3,11 @@
  *
  * `svc` is always a SERVICE-ROLE client. The tables have read-only RLS for
  * people (their own links, their workspace's installations) and no client
- * write policies, so every write goes through here, after the Slack events
- * route verified the forwarded request or an account route authenticated the
- * person. Every function scopes by the ids it is given.
+ * write policies, so every write goes through here, after the Slack routes
+ * verified Slack's signature, the install callback verified its state, or an
+ * account route authenticated the person. Every function scopes by the ids it
+ * is given. An installation is addressed by its Slack team id everywhere: the
+ * bot token is stored under it (./bot-token.ts, migration 644).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { LINK_CODE_TTL_MS, linkCodeHash, newLinkCode, normalizeLinkCode } from './link-code'
@@ -19,7 +21,6 @@ export interface SlackInstallation {
   enterprise_id: string | null
   workspace_id: string
   installed_by_user_id: string | null
-  connect_installation_id: string
   bot_user_id: string | null
   status: 'active' | 'revoked'
   created_at: string
@@ -34,7 +35,7 @@ export interface SlackUserLink {
 }
 
 const INSTALLATION_COLUMNS =
-  'slack_team_id, team_name, team_domain, enterprise_id, workspace_id, installed_by_user_id, connect_installation_id, bot_user_id, status, created_at'
+  'slack_team_id, team_name, team_domain, enterprise_id, workspace_id, installed_by_user_id, bot_user_id, status, created_at'
 const LINK_COLUMNS = 'slack_team_id, slack_user_id, user_id, slack_user_name, linked_at'
 
 /** Workspace roles that may link their own Slack account (a guest may not). */
@@ -70,7 +71,6 @@ export interface BindInstallationInput {
   enterpriseId: string | null
   workspaceId: string
   userId: string
-  installationId: string
   botUserId: string | null
 }
 
@@ -101,7 +101,8 @@ export async function bindInstallation(svc: Svc, input: BindInstallationInput): 
     team_domain: input.teamDomain.slice(0, 200),
     enterprise_id: input.enterpriseId,
     workspace_id: input.workspaceId,
-    connect_installation_id: input.installationId,
+    // An old NOT NULL column from 412, read by nothing since 644: always the team id.
+    connect_installation_id: input.teamId,
     bot_user_id: input.botUserId,
     status: 'active' as const,
     revoked_at: null,
@@ -233,7 +234,7 @@ const EVENT_KEEP_MS = 2 * 24 * 60 * 60_000
 
 /**
  * Record an event id. True when this is its first delivery, false for a
- * retry Slack (or Connect) sent again. Throws when the write failed for any
+ * retry Slack sent again. Throws when the write failed for any
  * other reason (the route answers 500 so the event is retried).
  */
 export async function firstDelivery(svc: Svc, eventId: string, teamId: string): Promise<boolean> {

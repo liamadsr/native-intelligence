@@ -25,7 +25,7 @@
  * CLIENT-BUNDLE SAFE, like the registry: plain data and pure functions only.
  */
 import type { EntityType } from '@/lib/knowledge/entity-registry'
-import { isMentionableType } from '@/lib/entity-links/mentionable'
+import { isMentionableType, type MentionableType } from '@/lib/entity-links/mentionable'
 
 /**
  * Where a kind's Open lands (src/lib/chat-cards/open-card.ts OpenTarget):
@@ -70,7 +70,11 @@ export interface EntityActionsDescriptor {
   readonly archive: EntityArchive
   /** Share to a team-chat channel: a message that @-mentions it (writes the `mentions` edge). A mentionable kind with an `open`. */
   readonly share: boolean
-  /** Make a task from this: a new action linked `about` it (POST /api/account/actions `about`). A mentionable kind. */
+  /**
+   * Make a task from this: a new action linked `about` it (POST
+   * /api/account/actions `about`). A mentionable kind, or one of
+   * TASK_ABOUT_ONLY_TYPES (mail, its owner's alone).
+   */
   readonly makeTask: boolean
 }
 
@@ -277,7 +281,11 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
   // ── Parts of something else, or nothing a person opens on its own.
   claim: inert('A fact is confirmed, disputed or superseded in Knowledge.'),
   cycle: inert("A cycle is its team's, run from the board."),
-  email_thread: inert('Mail is shown to no one but its owner.'),
+  // Mail is its owner's alone, so nothing but Copy ID, and Make a task: from
+  // the thread view, only by the mail's owner (task-about.ts canMakeTaskAbout
+  // reads email_thread_index's owner). The 'about' edge to it is hidden from
+  // everyone else (entity_link's read policy, migrations 500/501).
+  email_thread: { ...inert('Mail is shown to no one but its owner.'), makeTask: true },
   attachment: inert('An attachment lives on its record.'),
   member: inert('A member is a person in the workspace.'),
   conversation: inert("A chat with the agent is its person's own."),
@@ -301,6 +309,19 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
 /** The menu's actions, in the order it lists them. */
 export const ENTITY_ACTION_IDS = ['open', 'copy_link', 'copy_id', 'rename', 'share', 'make_task', 'archive', 'restore'] as const
 export type EntityActionId = (typeof ENTITY_ACTION_IDS)[number]
+
+/**
+ * The kinds a task may be about that are NOT mentionable: mail. A person may
+ * make a task about their own email thread, but no one can @-mention mail
+ * (migration 341: it is shown to no one but its owner).
+ */
+export const TASK_ABOUT_ONLY_TYPES = ['email_thread'] as const
+export type TaskAboutOnlyType = (typeof TASK_ABOUT_ONLY_TYPES)[number]
+
+/** A kind a task may be about: a mentionable one, or mail. */
+export function isTaskAboutType(type: unknown): type is MentionableType | TaskAboutOnlyType {
+  return isMentionableType(type) || (typeof type === 'string' && (TASK_ABOUT_ONLY_TYPES as readonly string[]).includes(type))
+}
 
 export function entityActionsDescriptor(type: string): EntityActionsDescriptor | undefined {
   return (ENTITY_ACTIONS as Record<string, EntityActionsDescriptor | undefined>)[type]
@@ -328,7 +349,7 @@ export function supportedEntityActions(type: string, state: EntityActionState = 
   out.push('copy_id')
   if (d.rename) out.push('rename')
   if (d.share && d.open && isMentionableType(type)) out.push('share')
-  if (d.makeTask && isMentionableType(type)) out.push('make_task')
+  if (d.makeTask && isTaskAboutType(type)) out.push('make_task')
   if (d.archive.kind !== 'none') out.push(state.archived ? 'restore' : 'archive')
   return out
 }

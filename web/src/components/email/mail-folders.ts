@@ -11,7 +11,7 @@
  *
  * Client-safe and light (icons only), so the panel needn't load the page.
  */
-import { Archive, FileEdit, Inbox, MailCheck, Send, ShieldAlert, Star, Trash2, type LucideIcon } from 'lucide-react'
+import { Archive, Clock, FileEdit, Inbox, MailCheck, Send, ShieldAlert, Star, Trash2, type LucideIcon } from 'lucide-react'
 
 /** The folders' counts, as /api/account/email/counts answers them. */
 export interface FolderCounts {
@@ -41,6 +41,9 @@ export const MAIL_FOLDER_ENTRIES: readonly MailFolderEntry[] = [
   { id: 'starred', label: 'Starred', icon: Star, countKey: 'starred' },
   { id: 'sent', label: 'Sent', icon: Send, countKey: null },
   { id: 'drafts', label: 'Drafts', icon: FileEdit, countKey: 'drafts' },
+  // Send later (migration 642): the person's messages waiting to go, and the
+  // ones that failed (scheduled-list.tsx; not a mailbox folder, so no count).
+  { id: 'scheduled', label: 'Scheduled', icon: Clock, countKey: null },
   { id: 'archive', label: 'Archive', icon: Archive, countKey: null },
   { id: 'spam', label: 'Spam', icon: ShieldAlert, countKey: null },
   { id: 'trash', label: 'Trash', icon: Trash2, countKey: null },

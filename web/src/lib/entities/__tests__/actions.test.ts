@@ -20,6 +20,8 @@ import {
   shareEntityToChannel,
   shareMentionLabel,
   taskTitleFor,
+  emailTaskLabel,
+  messageTaskLabel,
   type EntityActionDeps,
 } from '../actions'
 
@@ -289,6 +291,77 @@ describe('make a task from this', () => {
   it('titles the task after what it follows up on', () => {
     expect(taskTitleFor('  Weekly   sync ')).toBe('Follow up: Weekly sync')
     expect(taskTitleFor('')).toBe('Follow up: this')
+  })
+
+  it('an email thread follows up on its subject, else its sender', () => {
+    const sender = { name: 'Dana Whitfield', email: 'dana@harborline.example' }
+    expect(taskTitleFor(emailTaskLabel('  Q4   renewal ', sender))).toBe('Follow up: Q4 renewal')
+    expect(taskTitleFor(emailTaskLabel('', sender))).toBe('Follow up: Dana Whitfield')
+    expect(taskTitleFor(emailTaskLabel('(no subject)', sender))).toBe('Follow up: Dana Whitfield')
+    expect(taskTitleFor(emailTaskLabel(null, { name: null, email: 'dana@harborline.example' }))).toBe('Follow up: dana@harborline.example')
+    expect(taskTitleFor(emailTaskLabel(undefined, null))).toBe('Follow up: this')
+  })
+
+  it('a chat message follows up on its first line with words, cut at 80 characters', () => {
+    expect(taskTitleFor(messageTaskLabel('\n  Can you send the   deck?\nThanks!'))).toBe('Follow up: Can you send the deck?')
+    const long = 'word '.repeat(40)
+    const label = messageTaskLabel(long)
+    expect(label.length).toBeLessThanOrEqual(80)
+    expect(label.endsWith('…')).toBe(true)
+    expect(messageTaskLabel('')).toBe('')
+    expect(taskTitleFor(messageTaskLabel('   '))).toBe('Follow up: this')
+  })
+
+  it('makes a task about an email thread and a chat message, linked to each', async () => {
+    replies.push({ status: 200, body: { action: { id: 'a-1' } } }, { status: 200, body: { action: { id: 'a-2' } } })
+    const thread = '0f8fad5b-d9cb-469f-a165-70867728950e'
+    expect(await makeTaskFromEntity({ type: 'email_thread', id: thread, label: emailTaskLabel('Contract redlines', null) }, deps)).toBe('a-1')
+    expect(await makeTaskFromEntity({ type: 'team_chat_message', id: 'msg-1', label: messageTaskLabel('Ship the beta?') }, deps)).toBe('a-2')
+    expect(calls.map((c) => c.body)).toEqual([
+      { title: 'Follow up: Contract redlines', about: { type: 'email_thread', id: thread } },
+      { title: 'Follow up: Ship the beta?', about: { type: 'team_chat_message', id: 'msg-1' } },
+    ])
+  })
+})
+
+describe('makeTaskFromEntity — openNow (an email thread, a chat message)', () => {
+  const MSG = { type: 'team_chat_message', id: 'msg-1', label: 'Can you send the deck?' }
+
+  it('opens the new task at once (its title can be checked and renamed), and the toast’s action is Undo', async () => {
+    replies.push({ status: 200, body: { action: { id: 'a-7' } } })
+    expect(await makeTaskFromEntity(MSG, deps, { openNow: true })).toBe('a-7')
+    expect(opened).toEqual([{ type: 'action', id: 'a-7', title: 'Follow up: Can you send the deck?' }])
+    expect(toasts[0]).toMatchObject({ kind: 'success', message: 'Task made' })
+    expect(toasts[0].undo).toBeTypeOf('function')
+    expect(toasts[0].open).toBeUndefined()
+  })
+
+  it('Undo deletes the task and tells the lists', async () => {
+    replies.push({ status: 200, body: { action: { id: 'a-7' } } }, { status: 200, body: { success: true } })
+    await makeTaskFromEntity(MSG, deps, { openNow: true })
+    toasts[0].undo!()
+    await new Promise((r) => setTimeout(r, 0))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(calls[1]).toMatchObject({ url: '/api/account/actions/a-7', method: 'DELETE' })
+    expect(events).toContainEqual({ kind: 'deleted', entityType: 'action', id: 'a-7' })
+    expect(toasts[1]).toMatchObject({ kind: 'success', message: 'Task deleted' })
+  })
+
+  it('an Undo the route refuses (not an owner or admin) is said; the task stays, open to rename', async () => {
+    replies.push({ status: 200, body: { action: { id: 'a-7' } } }, { status: 403, body: { error: 'Only a workspace owner or admin can delete an action' } })
+    await makeTaskFromEntity(MSG, deps, { openNow: true })
+    toasts[0].undo!()
+    await new Promise((r) => setTimeout(r, 0))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(toasts[1]).toEqual({ kind: 'error', message: 'Only a workspace owner or admin can delete an action' })
+    expect(events.some((e) => e.kind === 'deleted')).toBe(false)
+  })
+
+  it('without openNow nothing opens until Open is pressed', async () => {
+    replies.push({ status: 200, body: { action: { id: 'a-8' } } })
+    await makeTaskFromEntity(MSG, deps)
+    expect(opened).toEqual([])
+    expect(toasts[0].open).toBeTypeOf('function')
   })
 })
 

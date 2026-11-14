@@ -1,4 +1,5 @@
 import { Fragment } from 'react'
+import { CompareLinks } from '@/components/compare-links'
 import { Footer } from '@/components/footer'
 import { Navbar } from '@/components/navbar'
 import { PageLayout } from '@/components/page-layout'
@@ -222,6 +223,11 @@ export default function PricingPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* Every comparison one click from pricing (the home page links here). */}
+            <div className="mt-12">
+              <CompareLinks label="Switching tools? See how Native Intelligence compares with" centered />
             </div>
           </div>
         </div>

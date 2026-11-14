@@ -1,25 +1,22 @@
 /**
  * POST /api/slack/events
  *
- * The Slack trigger destination (docs/plans/slack-connect.md §4 piece 4):
- * Vercel Connect verifies Slack's signature at its intake and forwards each
- * event of our Slack app here, from every Slack workspace the app is in.
- * Register it with `vercel connect attach <connector> --triggers
- * --trigger-path /api/slack/events`.
+ * Our Slack app's Event Subscriptions request URL: Slack sends each event of
+ * the app here, from every Slack workspace the app is in.
  *
  * ── The security boundaries this route owns ─────────────────────────────
- * 1. AUTH: Connect attaches a Vercel OIDC token (`Authorization: Bearer`);
- *    it must verify against Vercel's JWKS for THIS project and environment
- *    (verifyConnectForward: the deployment's own on Vercel, CONNECT_PROJECT_ID
- *    and CONNECT_ENVIRONMENT off it). Not the Slack signing secret: this app
- *    never holds it. Fails closed: no project/environment, no event.
+ * 1. AUTH: Slack's own signature (X-Slack-Signature over the RAW body, with
+ *    SLACK_SIGNING_SECRET; the timestamp within five minutes), checked
+ *    before anything in the body is read (src/lib/slack/signature.ts).
+ *    Nothing else is accepted. Fails closed: Slack not configured, no event.
  * 2. APP: the payload's api_app_id must be ours (SLACK_APP_ID). Any other
- *    app's event is dropped.
+ *    app's event is dropped. Slack's url_verification challenge is answered
+ *    only after the signature passed.
  * 3. DEDUPE: Slack retries an event it got no answer to within 3 s, so the
  *    event id is recorded first (slack_event) and a repeat is answered 200
  *    with nothing done. A failed dedupe write answers 500, so it is retried.
  * 4. SPEED: the route answers as soon as the event is recorded; the work
- *    (lookups, Connect, Slack replies, a turn) runs after the response.
+ *    (lookups, Slack replies, a turn) runs after the response.
  *
  * Who is speaking is decided after that, from the team and user Slack put
  * in the event and what Native Intelligence holds (src/lib/slack/inbound.ts). This route
@@ -28,11 +25,11 @@
 import { after } from 'next/server'
 import { getServiceClient } from '@/lib/admin'
 import { apiError, badRequest, serverError, unauthorized } from '@/lib/api-errors'
-import { slackAppId, slackConnector } from '@/lib/slack/config'
+import { slackAppId, slackConfigured } from '@/lib/slack/config'
 import { slackInboundDeps, slackTurnSlack } from '@/lib/slack/deps'
 import { parseSlackPayload } from '@/lib/slack/events'
-import { verifyConnectForward } from '@/lib/slack/forwarded'
 import { handleSlackInbound } from '@/lib/slack/inbound'
+import { verifySlackSignature } from '@/lib/slack/signature'
 import { firstDelivery, linkAttemptsBlocked, purgeOldEvents, recordFailedLinkAttempt } from '@/lib/slack/store'
 import { handlePersonDm } from '@/lib/slack/person-dm'
 import { handleGuestSlackDm, supabaseGuestSlackDeps } from '@/lib/guests/slack'
@@ -46,18 +43,15 @@ const MAX_BODY_BYTES = 512 * 1024
 
 export async function POST(request: Request) {
   const appId = slackAppId()
-  if (!appId || !slackConnector()) {
+  if (!appId || !slackConfigured()) {
     return apiError('Slack is not set up on this deployment', { status: 503, code: 'SLACK_NOT_CONFIGURED' })
   }
 
   const body = await request.text()
   if (body.length > MAX_BODY_BYTES) return apiError('Payload too large', { status: 413, code: 'PAYLOAD_TOO_LARGE' })
 
-  try {
-    await verifyConnectForward(request, body)
-  } catch {
-    return unauthorized()
-  }
+  // Slack's signature over the raw body, before anything in it is read.
+  if (!verifySlackSignature(request.headers, body)) return unauthorized()
 
   let raw: unknown
   try {
@@ -91,7 +85,7 @@ export async function POST(request: Request) {
         // already, so nothing retries a failed intake: the person is told
         // instead of hearing nothing.
         onPersonDm: async ({ dm, installation, link }) => {
-          const slack = slackTurnSlack(installation.connect_installation_id)
+          const slack = slackTurnSlack(installation.slack_team_id)
           try {
             const handled = await handlePersonDm(svc, { dm, installation, link }, slack)
             if (handled !== 'queued') console.log('[slack/events] dm handled', { teamId: dm.teamId, handled })
@@ -104,7 +98,7 @@ export async function POST(request: Request) {
         // invite code binding them), answered by the guests' intake; anything
         // else falls through to the "link your account" reply.
         onUnlinkedDm: async ({ dm, installation, token }) => {
-          const slack = slackTurnSlack(installation.connect_installation_id)
+          const slack = slackTurnSlack(installation.slack_team_id)
           try {
             const handled = await handleGuestSlackDm(
               { teamId: dm.teamId, slackUserId: dm.slackUserId, workspaceId: installation.workspace_id, text: dm.text },
@@ -129,7 +123,7 @@ export async function POST(request: Request) {
         // A linked person's @mention in a channel thread: a turn in THEIR OWN
         // conversation for that thread, answered in the thread.
         onPersonMention: async ({ mention, installation, link }) => {
-          const slack = slackTurnSlack(installation.connect_installation_id)
+          const slack = slackTurnSlack(installation.slack_team_id)
           try {
             const delivered = await deliverSlackMention(svc, { mention, installation, link }, slack)
             if (delivered !== 'queued') console.log('[slack/events] mention not queued', { teamId: mention.teamId, delivered })

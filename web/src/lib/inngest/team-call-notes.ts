@@ -19,7 +19,7 @@ import {
   type NotesWritten,
 } from '@/lib/team-calls/notes-store'
 import { sweepCallAudio } from '@/lib/team-calls/notes-retention'
-import { postExtraction, runOwnerBatch } from './capture-finalizer'
+import { CallNotesLiveError, postExtraction, runOwnerBatch } from './capture-finalizer'
 import {
   FED_TAIL_CAP_MS,
   fedNotesStatus,
@@ -31,6 +31,7 @@ import {
   type FedNotesStatus,
   type FedNotesWritten,
 } from '@/lib/team-calls/fed-notes'
+import { LIVE_TURN_BUSY_MARGIN_SECONDS, LIVE_TURN_LEASE_SECONDS, liveTurnBusy, teamCallLiveAgentOn } from '@/lib/team-calls/live-turns'
 
 /**
  * A call's notes, after the call (calls plan, phase 6; src/lib/team-calls/
@@ -180,13 +181,102 @@ async function runFedNotesFinish(callId: string, fed: FedNotesStatus, step: Note
   const { captureId, ownerUserId, workspaceId } = written
   let batch: unknown = 'none'
   if (written.spoke) {
-    batch = await step.run('batch', () => runOwnerBatch(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId }))
+    batch = await runCallBatch(captureId, { workspaceId, ownerId: ownerUserId }, step)
     if (batch === 'in_flight') await step.sleep('let-batch-settle', '11m')
   }
   await step.run('post-extraction', () => postExtraction(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId, captureProcessed: !written.spoke }))
   await step.run('pass-done', () => markPassDone(getServiceClient(), captureId))
   console.info(`[team-call-notes] call=${callId} capture=${captureId} outcome=written via=recorder batch=${String(batch)}`)
   return { status: 'ready', captureId }
+}
+
+/**
+ * How many times the finish looks for a live turn still running on the
+ * capture, FED_POLL apart: past a whole lease and busy()'s margin after it
+ * (each round also sleeps, so the wait outlasts both), since a running turn's
+ * tools may write until its lease's end (the run token's notAfter) and a write
+ * its finalize began just before that end lands within the margin.
+ */
+export const LIVE_TURN_SETTLE_ROUNDS = Math.ceil((LIVE_TURN_LEASE_SECONDS + LIVE_TURN_BUSY_MARGIN_SECONDS) / 5) + 2
+
+/**
+ * The live agent's last turn on the capture, still running when the call
+ * ended (src/lib/team-calls/live-turns.ts): the end-of-meeting pass waits
+ * for it, so the turn's writes never land beside or on top of the pass's.
+ * No new turn starts once the call ended (655 stops the agent then), and the
+ * stop keeps a RUNNING turn's lease, so busy() stays true until the turn
+ * gives it back or it runs out (at most LIVE_TURN_LEASE_SECONDS, plus busy()'s
+ * margin); past that its tools write nothing (their token stops at the
+ * lease's end, and the tool route takes a call only while the lease is held)
+ * and the route takes no turn on it. A read that fails counts as busy (the
+ * wait is bounded anyway), and the log says so. With the live agent off it
+ * still looks once: a lease left by a turn the switch's roll-out cut is
+ * waited out the same way; no row to read (655 not applied) waits for nothing.
+ */
+async function waitForLiveTurn(captureId: string, step: NotesRunContext['step'], prefix = '') {
+  const switchOn = teamCallLiveAgentOn()
+  let unread = 0
+  for (let round = 0; round < LIVE_TURN_SETTLE_ROUNDS; round++) {
+    const look = await step.run(`${prefix}live-turn-look-${round}`, () =>
+      liveTurnBusy(getServiceClient(), captureId).then(
+        (busy) => (busy ? 'busy' : 'free'),
+        () => 'unread',
+      ),
+    )
+    if (look === 'free') return
+    // With the switch off (turned off, perhaps, while this call was live), a turn cut by the
+    // roll-out may still hold its lease: a lease seen is waited out as with it on. One that cannot
+    // be read is no lease (655 not applied, or nothing ever ran): the pass runs, as it always did.
+    if (!switchOn && round === 0 && look === 'unread') return
+    if (look === 'unread') unread++
+    await step.sleep(`${prefix}live-turn-wait-${round}`, FED_POLL)
+  }
+  // Say which it was: the lease could not be read (counted as busy), or a turn held it the whole wait.
+  console.warn(
+    unread === LIVE_TURN_SETTLE_ROUNDS
+      ? `[team-call-notes] capture=${captureId} the live turn's lease could not be read in ${unread} looks; the end-of-meeting pass runs now`
+      : `[team-call-notes] capture=${captureId} the end-of-meeting pass runs after waiting out a live turn's lease (${unread} of ${LIVE_TURN_SETTLE_ROUNDS} looks unread)`,
+  )
+}
+
+/** How many times the finish asks for its batch, each after a wait for the last live turn, while the route answers "not yet". */
+export const CALL_BATCH_ATTEMPTS = 3
+
+/**
+ * The end-of-meeting pass on a call's capture: wait for its last live turn,
+ * then the batch. The live agent's route answers 409 CALL_NOTES_LIVE while a
+ * turn still holds the capture's lease (the switch flipped off mid-call, a
+ * lease seen only just): that is "not yet", so the finish waits again (a whole
+ * lease and its margin each time) and asks again. The first
+ * CALL_BATCH_ATTEMPTS - 1 answers of "not yet" are kept as the step's result
+ * (memoised: a replay never asks again); on the last attempt the "not yet"
+ * escapes its step, so Inngest retries THAT step (the finish's retries: 2),
+ * each retry asking the route again. So the route is asked up to
+ * CALL_BATCH_ATTEMPTS + 2 times; if every answer is "not yet", the finish
+ * fails and its onFailure locks the notes as they are (the recorder's
+ * capture) or leaves the pass pending for the sweeper (one closed by hand).
+ * A lease ends at most LIVE_TURN_LEASE_SECONDS after the call ended (no turn
+ * begins once it has), so the second wait already outlasts any.
+ */
+async function runCallBatch(captureId: string, args: { workspaceId: string; ownerId: string }, step: NotesRunContext['step']) {
+  for (let attempt = 0; attempt < CALL_BATCH_ATTEMPTS; attempt++) {
+    const last = attempt === CALL_BATCH_ATTEMPTS - 1
+    const prefix = attempt === 0 ? '' : `batch-again-${attempt}-`
+    await waitForLiveTurn(captureId, step, prefix)
+    const out = await step.run(attempt === 0 ? 'batch' : `batch-again-${attempt}`, async () => {
+      try {
+        return await runOwnerBatch(getServiceClient(), { captureId, ...args })
+      } catch (err) {
+        // The last "not yet" escapes the step: Inngest's step retry asks the route again.
+        if (err instanceof CallNotesLiveError && !last) return 'not_yet' as const
+        throw err
+      }
+    })
+    if (out !== 'not_yet') return out
+    console.warn(`[team-call-notes] capture=${captureId} batch not yet (a live turn still holds the lease), attempt ${attempt + 1} of ${CALL_BATCH_ATTEMPTS}`)
+  }
+  // Unreachable: the last attempt returns its batch or throws from inside its step.
+  throw new Error(`team call notes: capture=${captureId} still not free after ${CALL_BATCH_ATTEMPTS} waits`)
 }
 
 /** A capture of the call its owner closed by hand: finished now, then the pass a recorded meeting gets, as its owner. */
@@ -196,7 +286,7 @@ async function runClosedCaptureFinish(callId: string, captureId: string, step: N
   const { ownerUserId, workspaceId } = finished
   let batch: unknown = 'none'
   if (finished.spoke) {
-    batch = await step.run('batch', () => runOwnerBatch(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId }))
+    batch = await runCallBatch(captureId, { workspaceId, ownerId: ownerUserId }, step)
     if (batch === 'in_flight') await step.sleep('let-batch-settle', '11m')
   }
   await step.run('post-extraction', () => postExtraction(getServiceClient(), { captureId, workspaceId, ownerId: ownerUserId, captureProcessed: !finished.spoke }))

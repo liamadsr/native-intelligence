@@ -14,15 +14,20 @@ import { accountRedirectTarget, isInviteRedirectPath, mcpRedirectTarget } from '
  *   account_redirect a page of the app with its deep link (/account?…), such
  *                    as the Studio export the desktop app sent the person
  *                    here to download
- * Anything else, or no cookie, lands on /account.
+ * Anything else lands on /account; no cookie lands on `options.home`
+ * (default /account).
  *
  * `origin` is where relative targets resolve; it defaults to the request's
  * own (pass browserOrigin() where the dev server's reported origin differs
  * from the host the browser used).
  */
-export function postAuthRedirect(request: NextRequest, origin: string = request.nextUrl.origin): NextResponse {
+export function postAuthRedirect(
+  request: NextRequest,
+  origin: string = request.nextUrl.origin,
+  options: { home?: string } = {},
+): NextResponse {
   // The account redirect is for this sign-in only: whichever way it ends, it never waits for the next one.
-  return dropAccountRedirect(chooseRedirect(request, origin))
+  return dropAccountRedirect(chooseRedirect(request, origin, options))
 }
 
 /** The cookie the login form leaves for a page of the app to return to (/login?redirect=/account…). */
@@ -37,7 +42,7 @@ export function dropAccountRedirect<R extends NextResponse>(response: R): R {
   return response
 }
 
-function chooseRedirect(request: NextRequest, origin: string): NextResponse {
+function chooseRedirect(request: NextRequest, origin: string, options: { home?: string }): NextResponse {
   const redirectUrl = new URL(request.nextUrl.pathname, origin)
 
   const inviteRedirect = request.cookies.get('invite_redirect')?.value
@@ -91,11 +96,14 @@ function chooseRedirect(request: NextRequest, origin: string): NextResponse {
     return response
   }
 
-  // A page of the app (/account and its deep links), same-site only.
+  // A page of the app (/account and its deep links), same-site only. A redirect cookie like the others: it wins
+  // over `options.home` (the person is following a link to somewhere in particular).
   const accountRedirect = request.cookies.get(ACCOUNT_REDIRECT_COOKIE)?.value
   if (accountRedirect) return NextResponse.redirect(new URL(accountRedirectTarget(accountRedirect) ?? '/account', origin))
 
-  redirectUrl.pathname = '/account'
+  // No redirect cookie: home, which is /account unless the caller names
+  // another same-site page (the join-by-domain page, src/lib/workspace-join).
+  redirectUrl.pathname = options.home ?? '/account'
   redirectUrl.search = ''
   return NextResponse.redirect(redirectUrl)
 }

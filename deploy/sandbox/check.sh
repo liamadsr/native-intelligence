@@ -14,6 +14,7 @@ runtime_dir=/opt/e2b
 settings=/etc/ni-sandbox/runtime.env
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 tunnel_settings=/etc/ni-sandbox/tunnel.env
+resolver_settings=/etc/ni-sandbox/resolver.env
 limits=/etc/ni-sandbox/limits.env
 failed=0
 notes=0
@@ -75,6 +76,16 @@ if [ -r "$tunnel_settings" ]; then
 	tunnel_public="$(sed -n 's/^TUNNEL_PEER_PUBLIC=//p' "$tunnel_settings")"
 fi
 
+# The sandboxes' resolver, when resolver.sh has set one up here: without it a
+# sandbox narrowed to a list of names can still look up any name.
+resolver_port=""
+if [ -r "$resolver_settings" ]; then
+	resolver_port="$(sed -n 's/^RESOLVER_PORT=//p' "$resolver_settings")"
+	if out="$("$here/resolver.sh" check 2>&1)"; then ok "$out"; else bad "$out"; fi
+else
+	note "no resolver of this server's own: a sandbox narrowed to a list of names can still look up any name (README, \"The resolver\")"
+fi
+
 # 2. The firewall: nothing comes in but SSH, the sandboxes' own range and, with a tunnel, its two rules.
 status="$(ufw status verbose 2>/dev/null)"
 if echo "$status" | grep -q '^Status: active' && echo "$status" | grep -q 'deny (incoming)'; then
@@ -98,7 +109,11 @@ if [ -n "$tunnel_if" ]; then
 		grep -v -E "^${tunnel_port}/udp +ALLOW IN +${tunnel_public//./\\.}( |\$)" |
 		grep -v -E "^3000,3002/tcp on ${tunnel_if} +ALLOW IN +${tunnel_peer//./\\.}( |\$)" || true)"
 fi
-if [ -z "$open" ]; then ok "its rules open SSH, the sandboxes' way out${tunnel_if:+ and the tunnel}, nothing else"; else bad "the firewall's rules open more than SSH, the sandboxes' way out${tunnel_if:+ and the tunnel}:"; echo "$open" | sed 's/^/        /'; fi
+if [ -n "$resolver_port" ]; then
+	# The resolver's port, for the sandboxes' range alone (and of that, the guard takes only redirected lookups).
+	open="$(echo "$open" | grep -v -E "^${resolver_port}/udp +ALLOW IN +10\.11\.0\.0/16" || true)"
+fi
+if [ -z "$open" ]; then ok "its rules open SSH, the sandboxes' way out${tunnel_if:+ and the tunnel}${resolver_port:+ and the sandboxes' resolver}, nothing else"; else bad "the firewall's rules open more than SSH, the sandboxes' way out${tunnel_if:+ and the tunnel}${resolver_port:+ and the sandboxes' resolver}:"; echo "$open" | sed 's/^/        /'; fi
 # Docker opens the ports its containers publish whatever ufw says, so those are looked at apart.
 published="$(docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null | tr ',' '\n' | grep -E -- '->' | grep -v -E '(^| )127\.0\.0\.1:' || true)"
 if [ -z "$published" ]; then ok "no container publishes a port beyond loopback"; else bad "a container publishes a port beyond loopback (open to the internet, whatever the firewall says):"; echo "$published" | sed 's/^/        /'; fi
@@ -193,6 +208,14 @@ if [ -r "$runtime_dir/sdk.env" ] && [ -x "$runtime_dir/.venv/bin/python" ]; then
 		ok "the coding agent's image holds what the agent needs"
 	else
 		bad "the coding agent's image is missing or not as it should be (run setup.sh)"
+	fi
+	# The resolver, from inside a narrowed sandbox and one with the whole internet.
+	if [ -n "$resolver_port" ]; then
+		if (set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/resolver_check.py"); then
+			ok "a narrowed sandbox looks up the allowed names and no other, and reaches its resolver's address in no other way; a sandbox with the whole internet looks up everything"
+		else
+			bad "the resolver's check from inside two sandboxes did not pass"
+		fi
 	fi
 else
 	bad "no client or key for the check from inside a sandbox (run setup.sh)"

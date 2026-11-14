@@ -1,18 +1,16 @@
 /**
  * POST /api/slack/interactivity
  *
- * Slack's Interactivity request URL (docs/plans/slack-connect.md §4 piece 6):
- * the Approve / Decline buttons on a Native Intelligence approval posted in Slack
- * (src/lib/slack/approvals.ts). Slack posts `payload=<json>` (form-encoded),
- * type `block_actions`.
+ * Our Slack app's Interactivity request URL: the Approve / Decline buttons
+ * on a Native Intelligence approval posted in Slack (src/lib/slack/approvals.ts).
+ * Slack posts `payload=<json>` (form-encoded), type `block_actions`.
  *
  * ── The security boundaries this route owns ─────────────────────────────
- * 1. AUTH, either of two (the other is not consulted):
- *    - Vercel Connect forwarded it: a Vercel OIDC bearer for this project and
- *      environment (verifyConnectForward), as on the events route;
- *    - Slack sent it here directly (Interactivity pointed at this URL): its
- *      X-Slack-Signature, with SLACK_SIGNING_SECRET (src/lib/slack/signature.ts).
- *    Neither verifies: 401, nothing read.
+ * 1. AUTH: Slack's own signature (X-Slack-Signature over the RAW body, with
+ *    SLACK_SIGNING_SECRET; the timestamp within five minutes,
+ *    src/lib/slack/signature.ts), checked before the body is parsed. Nothing
+ *    else is accepted: no signature, a wrong one or a stale one is 401, and
+ *    nothing is read.
  * 2. APP: api_app_id must be ours.
  * 3. WHO: the clicker is mapped to a Native Intelligence user only through their link in
  *    that Slack team, in a live installation; a Slack Connect outsider never
@@ -28,8 +26,7 @@ import { after } from 'next/server'
 import { getServiceClient } from '@/lib/admin'
 import { apiError, badRequest, unauthorized } from '@/lib/api-errors'
 import { APPROVE_ACTION, parseButtonClick, settleApprovalFromSlack, settleLine, settledBlocks, type SlackButtonClick } from '@/lib/slack/approvals'
-import { slackAppId, slackConnector } from '@/lib/slack/config'
-import { verifyConnectForward } from '@/lib/slack/forwarded'
+import { slackAppId, slackConfigured } from '@/lib/slack/config'
 import { verifySlackSignature } from '@/lib/slack/signature'
 import { getInstallation, linkForSlackUser, memberIdOf } from '@/lib/slack/store'
 
@@ -39,23 +36,13 @@ const MAX_BODY_BYTES = 256 * 1024
 
 export async function POST(request: Request) {
   const appId = slackAppId()
-  if (!appId || !slackConnector()) return apiError('Slack is not set up on this deployment', { status: 503, code: 'SLACK_NOT_CONFIGURED' })
+  if (!appId || !slackConfigured()) return apiError('Slack is not set up on this deployment', { status: 503, code: 'SLACK_NOT_CONFIGURED' })
 
   const body = await request.text()
   if (body.length > MAX_BODY_BYTES) return apiError('Payload too large', { status: 413, code: 'PAYLOAD_TOO_LARGE' })
 
-  let verified = false
-  if (request.headers.get('authorization')) {
-    try {
-      await verifyConnectForward(request, body)
-      verified = true
-    } catch {
-      verified = false
-    }
-  } else {
-    verified = verifySlackSignature(request.headers, body)
-  }
-  if (!verified) return unauthorized()
+  // Slack's signature over the raw body, before anything in it is read.
+  if (!verifySlackSignature(request.headers, body)) return unauthorized()
 
   let raw: unknown
   try {

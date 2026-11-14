@@ -1,26 +1,31 @@
 /**
  * Data module powering the /vs/[competitor] comparison pages.
  *
- * Every factual cell here was verified against each vendor's published
- * material in July 2026. Where a vendor's capability is nuanced (e.g. a
- * competitor extracts action items but only pushes them to an external tool),
- * the copy says so explicitly rather than overclaiming. Prices are quoted as
- * "per their published pricing" and can drift — keep the `verifiedAt` note in
- * mind when editing.
+ * The pages are written for sales teams choosing a tool, and each one targets the
+ * search people actually type ("gong alternative", "otter ai alternative").
+ *
+ * Every factual cell about a vendor was checked against that vendor's own
+ * published material (product pages, pricing pages, help centers, changelogs) in
+ * November 2026; each entry's `verifiedAt` says when, and the page prints it.
+ * Prices and plan names drift: re-check them before editing a cell.
  *
  * Honesty rules baked into this data:
- *  - We never claim a competitor lacks transcription, summaries, or capture.
- *  - We acknowledge each competitor's genuine strengths in `theirStrengths`.
- *  - The differentiator rows are precise: "a real task tracker (identifiers,
- *    boards, cycles)" and "agents that execute (code, PRs, docs)" — not vague
- *    claims that competitors have "no tasks" or "no agents."
+ *  - Credit what each vendor genuinely does well, in `theirStrengths`.
+ *  - State tier limits, betas and add-ons ("Business plan", "labeled beta").
+ *    Never call something missing that the vendor ships on a higher plan.
+ *  - Where a capability could not be found in published material, say what the
+ *    vendor does offer rather than asserting a gap.
+ *  - Our own price and trial come from the billing constants, so they cannot
+ *    drift from what checkout charges.
  */
+import { SEAT_PRICE_USD, TRIAL_DAYS } from '@/lib/billing/access'
 
 export const VS_COMPETITOR_SLUGS = [
+  'gong',
   'granola',
-  'fathom',
   'otter',
   'fireflies',
+  'fathom',
 ] as const
 
 export type CompetitorSlug = (typeof VS_COMPETITOR_SLUGS)[number]
@@ -48,21 +53,19 @@ export interface Competitor {
   name: string
   /** Their homepage, for an honest outbound reference. */
   site: string
+  /** Who the page is for, ending in "sales teams": the H1 reads "The {name} alternative for {audience}". */
+  audience: string
+  /** Month and year the vendor facts were last checked, e.g. "November 2026". */
+  verifiedAt: string
   /** One-line description of what they are, used in the subhead. */
   tagline: string
-  /** SEO title — kept short. */
+  /** SEO title: "{Name} Alternative for … | Native Intelligence", at most 60 characters. */
   metaTitle: string
-  /** SEO description ~150 chars. */
+  /** SEO description, 70 to 160 characters. */
   metaDescription: string
   /** 2–3 sentence honest verdict. First sentence credits them. */
   verdict: string
-  /** Their published starting price, quoted conservatively. */
-  startingPrice: string
-  /** Platforms they run on, as verified. */
-  platforms: string
-  /** How they capture audio (bot vs bot-free), as verified. */
-  capture: string
-  /** The comparison matrix rows (competitor column). */
+  /** The comparison matrix rows (competitor column): price, platforms and capture live here. */
   matrix: MatrixRow[]
   /** Honest bullets — what the competitor genuinely does better. */
   theirStrengths: { title: string; body: string }[]
@@ -70,29 +73,28 @@ export interface Competitor {
   faqs: Faq[]
 }
 
-// Native Intelligence's own facts, verified against pricing/page copy in this repo. Reused as
-// the left column across every comparison so the story stays consistent.
+// Native Intelligence's own facts. Reused as the left column across every comparison so
+// the story stays consistent; the price and trial come from billing.
 const NI = {
-  startingPrice: '14-day free trial, then $99 per user / month (Pro)',
   // Compact form used inside the comparison matrix price cell.
-  startingPriceShort: '14-day trial, then $99/user/mo',
+  startingPriceShort: `${TRIAL_DAYS}-day trial, then $${SEAT_PRICE_USD}/user/mo`,
   platforms: 'macOS + iOS apps, plus web (Windows waitlist)',
-  capture: 'Bot-free — the desktop app captures audio locally; nothing joins the call',
 }
+
+/** Our seat price in prose: "$99 per seat a month". */
+const SEAT = `$${SEAT_PRICE_USD} per seat a month`
 
 // Rows that describe Native Intelligence and are identical across every competitor. The
 // competitor cell is filled in per-vendor below.
 type SharedRowKey =
   | 'botFree'
-  | 'transcription'
-  | 'summaries'
-  | 'taskTracker'
-  | 'liveProjects'
+  | 'liveHelp'
+  | 'dealHistory'
   | 'crm'
-  | 'executingAgents'
-  | 'mcp'
-  | 'emailDrafting'
-  | 'knowledgeGraph'
+  | 'crmSync'
+  | 'followUps'
+  | 'playbook'
+  | 'transcripts'
   | 'platforms'
   | 'price'
 
@@ -102,44 +104,36 @@ const NI_ROW: Record<SharedRowKey, { feature: string; detail?: string; ni: Cell 
     detail: 'No bot joins the call as a participant',
     ni: true,
   },
-  transcription: {
-    feature: 'Live transcription',
+  liveHelp: {
+    feature: 'Live help during the call',
+    detail: 'Your playbook, pricing and battlecards on screen while you talk, visible only to you',
     ni: true,
   },
-  summaries: {
-    feature: 'AI summaries',
-    ni: true,
-  },
-  taskTracker: {
-    feature: 'Action items become tracked work',
-    detail: 'A real task system with identifiers, boards, and cycles',
-    ni: true,
-  },
-  liveProjects: {
-    feature: 'Projects that update from conversations',
+  dealHistory: {
+    feature: 'Ask about any deal’s history',
+    detail: 'What was promised, what is blocking and what happens next',
     ni: true,
   },
   crm: {
-    feature: 'Self-updating CRM from calls',
+    feature: 'CRM that updates itself after calls',
+    detail: 'Notes, next steps and deal stages, with no data entry',
     ni: true,
   },
-  executingAgents: {
-    feature: 'AI agents that execute',
-    detail: 'Agents that write code, open PRs, and draft docs',
+  crmSync: {
+    feature: 'Works with your CRM',
+    ni: 'Built-in CRM, two-way HubSpot sync, Attio and Affinity',
+  },
+  followUps: {
+    feature: 'Follow-up emails drafted for you',
     ni: true,
   },
-  mcp: {
-    feature: 'Workspace exposed over MCP',
-    detail: 'Bring your own agents; connect external MCP servers',
+  playbook: {
+    feature: 'One shared sales playbook',
+    detail: 'Product, pricing, objections and battlecards, shared with every rep',
     ni: true,
   },
-  emailDrafting: {
-    feature: 'Email drafting',
-    ni: true,
-  },
-  knowledgeGraph: {
-    feature: 'Persistent knowledge-graph memory',
-    detail: 'Facts, decisions, and commitments accumulate with provenance',
+  transcripts: {
+    feature: 'Transcripts and AI summaries',
     ni: true,
   },
   platforms: {
@@ -157,146 +151,146 @@ function row(key: SharedRowKey, competitor: Cell): MatrixRow {
   return { feature: base.feature, detail: base.detail, ni: base.ni, competitor }
 }
 
-// What Native Intelligence argues it does that notetakers stop short of. Shared across pages
-// because the structural difference is the same regardless of competitor.
+// What Native Intelligence does for the rep on the call. Shared across pages, and the
+// same claims the home page makes.
 export const NI_STRENGTHS: { title: string; body: string }[] = [
   {
-    title: 'Meetings become tracked work, not just notes',
-    body: 'Action items land in a real task system — identifiers like ENG-42, boards, workflow states, and cycles — so follow-ups are worked, not just written down and forgotten in a summary.',
+    title: 'Help on the call, not just notes after it',
+    body: 'A live agent listens with your product, pricing, playbook and the customer’s history, and brings the right piece into a panel only you can see, while you are still talking.',
   },
   {
-    title: 'Projects and CRM stay current on their own',
-    body: 'Conversations update project status and contact history automatically. Your CRM fills itself in from calls instead of waiting for someone to log it after the fact.',
+    title: 'A CRM that fills itself in',
+    body: 'Notes, next steps and deal stages update the moment you hang up, in the built-in CRM or two-way with HubSpot. Your pipeline stays current because your team is already talking to customers.',
   },
   {
-    title: 'Agents that actually do the work',
-    body: 'Native Intelligence hands actions to AI agents that execute — writing code, opening pull requests, drafting documents — with the full context of the meeting that created the task.',
+    title: 'Every deal’s history, one question away',
+    body: 'New rep on the account? Ask what was promised, what is blocking and what happens next, drawn from every call and email your team has had.',
   },
   {
-    title: 'One knowledge graph, open over MCP',
-    body: 'Every meeting, doc, and email feeds a persistent knowledge graph you can search, and the whole workspace is exposed over MCP so you can point your own agents at it.',
+    title: 'One shared playbook for the whole team',
+    body: 'Product knowledge, pricing, objection plays and battlecards live in one shared package, so every rep sells with what your best rep knows.',
   },
 ]
 
 export const COMPETITORS: Record<CompetitorSlug, Competitor> = {
-  granola: {
-    slug: 'granola',
-    name: 'Granola',
-    site: 'https://www.granola.ai',
-    tagline: 'the polished, bot-free AI notepad for meetings',
-    metaTitle: 'Native Intelligence vs Granola: notes vs. work that ships (2026)',
-    metaDescription:
-      'Granola takes beautiful bot-free meeting notes. Native Intelligence turns those meetings into tracked tasks, live projects, a self-updating CRM, and agents that execute.',
-    verdict:
-      'Granola is genuinely excellent at what it does: bot-free, beautifully designed AI notes that feel effortless, plus an AI chat that already knows your meetings, and integrations that push into tools like HubSpot and Attio. The difference is architectural. In Granola the meeting output is a note and a chat you export from; with Native Intelligence the meeting output is the tracker — action items become tracked tasks with identifiers and boards, projects and a native CRM update themselves, and agents pick up the work, all in the same system.',
-    startingPrice: 'Free, then $14 per user / month (Business, monthly), per their published pricing (July 2026)',
-    platforms: 'macOS desktop app, with a mobile app for phone calls',
-    capture: 'Bot-free — captures audio locally, like Native Intelligence',
+  gong: {
+    slug: 'gong',
+    name: 'Gong',
+    site: 'https://www.gong.io',
+    audience: 'small sales teams',
+    verifiedAt: 'November 2026',
+    tagline: 'the revenue AI platform built for mid-size and enterprise sales orgs',
+    metaTitle: 'Gong Alternative for Small Sales Teams | Native Intelligence',
+    metaDescription: `A Gong alternative for small sales teams: calls recorded without a bot, live help on the call, and a CRM that updates itself. ${SEAT}.`,
+    verdict: `Gong is the category leader for revenue teams: mature call recording and analytics, deal boards, forecasting and coaching at scale, and a Leader in Gartner’s 2026 Magic Quadrant for revenue action orchestration. It is built and priced for larger orgs: quote-only, a per-seat license plus a platform fee, usually on annual or multi-year contracts. Native Intelligence is for the small team that wants help on the call itself: no bot on any call, your playbook on screen while you talk, and a CRM that fills itself in, at ${SEAT}.`,
     matrix: [
-      row('botFree', true),
-      row('transcription', true),
-      row('summaries', true),
-      row('taskTracker', 'Notes and chat only — no built-in task tracker'),
-      row('liveProjects', false),
-      row('crm', 'Integrations (HubSpot, Attio, Affinity) — not a native CRM'),
-      row('executingAgents', 'AI chat that answers; does not execute work'),
-      row('mcp', 'MCP integration on Business+'),
-      row('emailDrafting', 'Via templates and integrations'),
-      row('knowledgeGraph', false),
-      row('platforms', 'macOS + mobile'),
-      row('price', 'Free, then $14/user/mo (Business, monthly)'),
+      row('botFree', 'Only via Zoom’s own recording; a bot joins Meet, Teams, Webex'),
+      row('liveHelp', 'In-Zoom app: live notes, transcript and talk-time stats'),
+      row('dealHistory', true),
+      row('crm', 'Fills mapped Salesforce, HubSpot or Dynamics fields (AI credits)'),
+      row('crmSync', 'Salesforce, HubSpot, Dynamics 365; no CRM of its own'),
+      row('followUps', 'Drafted on any plan; sending from Gong needs Engage'),
+      row('playbook', 'AI role-play training (Gong Enable)'),
+      row('transcripts', true),
+      row('platforms', 'Web, iOS, Android, plus an in-Zoom app'),
+      row('price', 'Quote only: per seat plus a platform fee'),
     ],
     theirStrengths: [
       {
-        title: 'Craft and polish',
-        body: 'Granola is one of the best-designed notetakers on the market. The notes feel effortless, and the bot-free capture is a genuinely nicer experience than a bot dialing into your call.',
+        title: 'Forecasting and pipeline',
+        body: 'Gong Forecast rolls up the team’s forecast and adds AI deal and revenue predictions. Native Intelligence does not forecast; if that is what you need, Gong is the stronger tool.',
       },
       {
-        title: 'A polished mobile app',
-        body: 'Granola’s mobile app for in-person and phone conversations is mature and widely used. Native Intelligence ships an iOS app as well, but Granola’s mobile experience has had longer to bake.',
+        title: 'Proven at scale',
+        body: 'More than 5,000 companies use Gong, and Gartner named it a Leader in its 2026 Magic Quadrant for revenue action orchestration, rated highest on ability to execute.',
       },
       {
-        title: 'A focused, mature note-and-chat product',
-        body: 'If all you want is excellent notes plus a chat that knows your meetings, Granola does exactly that without the surface area of a full work system.',
+        title: 'Capture almost anywhere',
+        body: 'Gong records every major conferencing tool, many phone systems and in-person meetings from its mobile app, and supports Salesforce, HubSpot and Dynamics in depth. It works for reps on any computer; Native Intelligence’s bot-free capture runs on the Mac.',
       },
     ],
     faqs: [
       {
-        q: 'Does Granola create tasks from meetings?',
-        a: 'Granola extracts and organizes notes and lets you chat with them, but it does not have a built-in task tracker with identifiers, boards, and cycles. It relies on integrations to push items into other tools. Native Intelligence turns action items into tracked work inside the same system.',
+        q: 'Does Gong use a meeting bot?',
+        a: 'On Google Meet, Microsoft Teams and Webex, yes: the Gong bot joins the call as a participant. On Zoom, admins can record through Zoom’s own recording instead. Native Intelligence records from your Mac, so nothing joins any call.',
       },
       {
-        q: 'Does Native Intelligence use a meeting bot?',
-        a: 'No. Like Granola, Native Intelligence captures audio locally through its macOS desktop app — nothing joins your call as a participant.',
+        q: 'Is Gong worth it for a small sales team?',
+        a: `Gong does not publish prices: it quotes a per-seat license plus a platform fee, usually on annual or multi-year contracts, and some AI features use credits. For a large revenue org that needs forecasting, that buys a lot. A small team that mainly wants help on calls and a CRM that stays current can try Native Intelligence free for ${TRIAL_DAYS} days, then pay ${SEAT}.`,
       },
       {
-        q: 'Can Granola update my project status or CRM automatically?',
-        a: 'Granola focuses on notes and chat and integrates with tools like HubSpot and Attio, but it does not maintain live projects or a self-updating CRM. In Native Intelligence, conversations update project status and contact history on their own.',
+        q: 'Does Gong give live help on calls?',
+        a: 'Gong’s app inside Zoom lets reps take notes, mark moments and see how the conversation is going. We found no live playbook, pricing or battlecard prompts in its published material. Native Intelligence’s live agent puts those on your screen while you talk, visible only to you.',
+      },
+      {
+        q: 'Can I keep HubSpot with either tool?',
+        a: 'Yes. Gong integrates with HubSpot, Salesforce and Dynamics 365. Native Intelligence syncs two-way with HubSpot, also works with Attio and Affinity, or you can use its built-in CRM.',
       },
       {
         q: 'Which should I choose?',
-        a: 'If you want the most polished bot-free notepad and chat, Granola is a great pick. If you want meetings to feed a task system, live projects, a CRM, and agents that execute the work, that is what Native Intelligence is built for.',
+        a: 'If you run a large revenue team and need forecasting and analytics across thousands of calls, Gong is the stronger fit. If you are a small team that wants help on every call and a CRM that keeps itself current, without an annual contract, choose Native Intelligence.',
       },
     ],
   },
 
-  fathom: {
-    slug: 'fathom',
-    name: 'Fathom',
-    site: 'https://www.fathom.ai',
-    tagline: 'the free-friendly AI notetaker with strong CRM sync',
-    metaTitle: 'Native Intelligence vs Fathom: notes vs. executed work (2026)',
+  granola: {
+    slug: 'granola',
+    name: 'Granola',
+    site: 'https://www.granola.ai',
+    audience: 'sales teams',
+    verifiedAt: 'November 2026',
+    tagline: 'the polished, bot-free AI notepad for meetings',
+    metaTitle: 'Granola Alternative for Sales Teams | Native Intelligence',
     metaDescription:
-      'Fathom is a generous AI notetaker with clean CRM sync. Native Intelligence turns meetings into tracked tasks, live projects, a native CRM, and agents that execute the work.',
+      'A Granola alternative for sales: bot-free calls like Granola, plus live help while you talk and a CRM that updates itself after every call.',
     verdict:
-      'Fathom is a genuinely strong notetaker — a usable free tier, clean AI summaries, action items, follow-up emails, reliable CRM syncing into HubSpot and Salesforce, and action-item push into task tools like Asana. The difference is architectural: those are exports out of a notes product. With Native Intelligence the meeting output is the tracker — the same meeting becomes tracked tasks with identifiers and boards, projects and a native CRM stay current on their own, and actions go to agents that execute — all in one system, with nothing to route into afterward.',
-    startingPrice: 'Free tier, then Premium at $20/user/mo (monthly), per their published pricing (July 2026)',
-    platforms: 'Web plus a Mac desktop app; bot-free capture is in beta on Mac',
-    capture: 'Bot by default, with bot-free capture in beta on Mac',
+      'Granola is one of the best-made notetakers there is: capture without a bot on every major platform, notes that feel effortless, a chat that knows your meetings, and Briefs that remind you who you are meeting and what you discussed last time. It is built around the note. Native Intelligence is built around the sale: help on screen while you talk, every deal’s history one question away, and a CRM that updates its own fields when you hang up, instead of a note you share by hand.',
     matrix: [
-      row('botFree', 'Bot by default; bot-free in beta on Mac'),
-      row('transcription', true),
-      row('summaries', true),
-      row('taskTracker', 'Action items in notes, pushed to tools like Asana — no native tracker'),
-      row('liveProjects', false),
-      row('crm', 'CRM syncing (HubSpot, Salesforce) — not a native CRM'),
-      row('executingAgents', 'Meeting assistant answers; does not execute work'),
-      row('mcp', 'ChatGPT and Claude integrations; not an MCP workspace'),
-      row('emailDrafting', 'AI follow-up emails (Premium+)'),
-      row('knowledgeGraph', false),
-      row('platforms', 'Web + Mac'),
-      row('price', 'Free, then $20/user/mo (monthly)'),
+      row('botFree', true),
+      row('liveHelp', 'Ask its chat a question mid-meeting'),
+      row('dealHistory', 'Chat across meetings by person or company'),
+      row('crm', 'Notes shared to HubSpot by hand, or via Zapier'),
+      row('crmSync', 'HubSpot, Attio, Affinity (Business); Salesforce (Enterprise)'),
+      row('followUps', true),
+      row('playbook', 'Shared team notes and templates'),
+      row('transcripts', true),
+      row('platforms', 'Mac, Windows, iOS, Android, Apple Watch'),
+      row('price', 'Free, then $14/user/mo (Business)'),
     ],
     theirStrengths: [
       {
-        title: 'A genuinely generous free plan',
-        body: 'Fathom offers unlimited recordings and transcripts on its free tier with a monthly cap on AI summaries. For solo users who mostly want recordings and transcripts, that is hard to beat.',
+        title: 'Craft and polish',
+        body: 'Granola is one of the best-designed notetakers on the market. The notes feel effortless, and capture without a bot is a nicer experience than a bot joining your call.',
       },
       {
-        title: 'Solid CRM syncing',
-        body: 'Fathom syncs call notes and fields into HubSpot and Salesforce cleanly, with deal and customer views on higher tiers. If your workflow lives in an existing CRM, that sync is well done.',
+        title: 'On every device',
+        body: 'Granola runs on Mac, Windows, iPhone, Android and Apple Watch. Native Intelligence covers macOS, iOS and the web, with Windows on a waitlist.',
       },
       {
-        title: 'Follow-up emails and coaching',
-        body: 'AI-drafted follow-up emails and call-coaching metrics are strong for sales teams that want polish on outbound and rep feedback.',
+        title: 'Briefs before you start',
+        body: 'When you open a meeting’s note, Granola shows who you are meeting and what you discussed last time.',
+      },
+      {
+        title: 'A much lower price',
+        body: 'Granola has a free plan, and Business is $14 per user a month. If you only need excellent notes, that is hard to argue with.',
       },
     ],
     faqs: [
       {
-        q: 'Does Fathom create tasks from meetings?',
-        a: 'Fathom extracts AI action items into your notes, can send follow-up emails, and pushes action items into task tools like Asana, but it does not include its own built-in task tracker with identifiers, boards, and cycles. Native Intelligence turns action items into tracked work inside the same system, with nothing to route into afterward.',
+        q: 'Does Granola use a meeting bot?',
+        a: 'No. Like Native Intelligence, Granola records your microphone and system audio on your device, so nothing joins the call.',
       },
       {
-        q: 'Does Fathom use a meeting bot?',
-        a: 'By default Fathom sends a visible bot to join your call, though it has a bot-free capture mode in beta on Mac. Native Intelligence is bot-free by design — its desktop app captures audio locally and nothing joins the call.',
+        q: 'Can Granola help me during a sales call?',
+        a: 'You can ask Granola’s chat a question mid-meeting, such as what you missed. Native Intelligence’s live agent follows the call and puts the right piece of your playbook, pricing or battlecards on your screen without being asked.',
       },
       {
-        q: 'Does Native Intelligence sync to my CRM like Fathom?',
-        a: 'Native Intelligence has a native CRM that updates itself from calls — contacts, companies, and interaction history — rather than only syncing fields into a third-party CRM. If you are committed to HubSpot or Salesforce, Fathom’s sync is a strength.',
+        q: 'Does Granola update my CRM?',
+        a: 'Granola connects to HubSpot, Attio and Affinity on its Business plan (Salesforce on Enterprise), and you share a note to HubSpot by hand; its HubSpot integration does not map custom fields. Native Intelligence updates notes, next steps and deal stages itself after each call, in its own CRM or two-way with HubSpot.',
       },
       {
         q: 'Which should I choose?',
-        a: 'For a generous notetaker with clean CRM sync, Fathom is a strong pick. If you want meetings to become tracked tasks, live projects, and work that agents execute, Native Intelligence is built for that loop.',
+        a: 'If you want the most polished notes on every device at a low price, choose Granola. If you sell for a living and want help on the call and a CRM that keeps itself current, choose Native Intelligence.',
       },
     ],
   },
@@ -305,59 +299,55 @@ export const COMPETITORS: Record<CompetitorSlug, Competitor> = {
     slug: 'otter',
     name: 'Otter.ai',
     site: 'https://otter.ai',
-    tagline: 'the established transcription platform with sales agents',
-    metaTitle: 'Native Intelligence vs Otter.ai: transcripts vs. tracked work (2026)',
+    audience: 'sales teams',
+    verifiedAt: 'November 2026',
+    tagline: 'the established transcription platform, now with sales features',
+    metaTitle: 'Otter.ai Alternative for Sales Teams | Native Intelligence',
     metaDescription:
-      'Otter.ai is a mature transcription platform with sales agents. Native Intelligence turns meetings into tracked tasks, live projects, a CRM, and agents that execute.',
-    verdict:
-      'Otter.ai is a mature, widely adopted platform with excellent live transcription, broad app coverage, and a growing suite of domain agents like its SDR and sales notetaker agents. Where it differs from Native Intelligence is scope. Otter is built around the transcript and specialized sales workflows; Native Intelligence is built around the whole loop — turning any meeting into tracked tasks with identifiers and boards, keeping projects and CRM current, and running general agents that execute code, PRs, and docs.',
-    startingPrice: 'Free (300 min/mo), then Pro at $16.99/user/mo (monthly), per their published pricing (July 2026)',
-    platforms: 'macOS, Windows, web, iOS, Android, and a Chrome extension',
-    capture: 'Uses a meeting bot (OtterPilot) that joins Zoom, Teams, and Meet',
+      'An Otter.ai alternative for sales teams: live help on every call, deal history on request, and a CRM that updates itself, with no bot joining.',
+    verdict: `Otter.ai is a mature, widely used platform with excellent transcription, apps on every platform, and a Live Assist feature that shows reps private tip cards from their own playbooks and battlecards during a call. Live Assist and Otter’s sales notetaker are Enterprise features. Native Intelligence puts live help, every deal’s history and a CRM that updates itself into one seat at ${SEAT}, and records every call from your Mac without a bot.`,
     matrix: [
-      row('botFree', 'Uses the OtterPilot bot to join calls'),
-      row('transcription', true),
-      row('summaries', true),
-      row('taskTracker', 'Action items in notes — no built-in task tracker'),
-      row('liveProjects', false),
-      row('crm', 'Salesforce / HubSpot integrations — not a native CRM'),
-      row('executingAgents', 'Sales/SDR agents (narrow domain); no code/PR/doc agents'),
-      row('mcp', false),
-      row('emailDrafting', 'Via AI chat and agents'),
-      row('knowledgeGraph', false),
-      row('platforms', 'Mac, Windows, web, iOS, Android'),
-      row('price', 'Free, then $16.99/user/mo (monthly)'),
+      row('botFree', 'Bot-free through its Mac and Windows apps; a bot for web meetings'),
+      row('liveHelp', 'Live Assist tip cards from your playbooks (Enterprise only)'),
+      row('dealHistory', 'AI chat across meetings, capped per plan'),
+      row('crm', 'Syncs call notes to Salesforce and HubSpot (user limits by plan)'),
+      row('crmSync', 'Salesforce, HubSpot (Pro and up, with user limits)'),
+      row('followUps', true),
+      row('playbook', 'Playbooks and battlecards power Live Assist (Enterprise)'),
+      row('transcripts', true),
+      row('platforms', 'Mac, Windows, web, iOS, Android, Chrome'),
+      row('price', 'Free, then $16.99/user/mo (Pro, monthly)'),
     ],
     theirStrengths: [
       {
         title: 'Broad platform coverage',
-        body: 'Otter runs on Mac, Windows, web, iOS, Android, and Chrome. Native Intelligence covers macOS, iOS, and web (Windows is waitlist-only), so if you need Windows or Android today, Otter’s reach is wider.',
+        body: 'Otter runs on Mac, Windows, web, iOS, Android and Chrome. Native Intelligence covers macOS, iOS and the web (Windows is waitlist-only), so if your reps use Windows or Android today, Otter reaches further.',
       },
       {
         title: 'Mature, reliable transcription',
-        body: 'Otter has been doing real-time transcription for years, with strong live-caption and speaker-identification features and a large, established user base.',
+        body: 'Otter has been doing real-time transcription for years, with strong live captions and speaker identification and a large, established user base.',
       },
       {
-        title: 'Domain sales agents',
-        body: 'Otter ships specialized agents — an autonomous SDR agent that runs live demos and qualifies leads, plus a sales notetaker. For website lead-gen and sales workflows specifically, those are real capabilities.',
+        title: 'Live Assist for enterprise teams',
+        body: 'Otter’s Live Assist shows reps private, real-time tip cards drawn from their uploaded playbooks and battlecards, inside Zoom, Meet, Teams or its desktop app. It is the closest match to our live panel, on Otter’s Enterprise plan.',
       },
     ],
     faqs: [
       {
-        q: 'Does Otter.ai create tasks from meetings?',
-        a: 'Otter surfaces action items in its notes and offers sales-focused agents, but it does not include a built-in task tracker with identifiers, boards, and cycles. Native Intelligence turns action items into tracked work in the same system.',
+        q: 'Does Otter.ai use a meeting bot?',
+        a: 'For web meetings, yes: the Otter Notetaker joins Zoom, Teams and Meet as a participant. Its Mac and Windows desktop apps can also record without a bot. Native Intelligence records every call from your Mac, so nothing joins.',
       },
       {
-        q: 'Does Native Intelligence use a meeting bot like Otter?',
-        a: 'No. Otter uses the OtterPilot bot, which joins your Zoom, Teams, or Meet call as a participant. Native Intelligence captures audio locally through its desktop app — nothing joins the call.',
+        q: 'Can Otter help me during a sales call?',
+        a: 'Yes, on its Enterprise plan: Live Assist shows private tip cards from your playbooks and battlecards. In Native Intelligence, live help comes with every seat: your playbook, pricing and battlecards on screen while you talk, visible only to you.',
       },
       {
-        q: 'Otter has AI agents — how is Native Intelligence different?',
-        a: 'Otter’s agents are domain-specific for sales — running demos, qualifying leads, and taking sales notes. Native Intelligence’s agents are general executors: they take an action from a meeting and write code, open pull requests, or draft documents with the full meeting context.',
+        q: 'Does Otter update my CRM?',
+        a: 'Otter integrates with Salesforce and HubSpot and syncs call notes there, with user limits by plan. Native Intelligence updates notes, next steps and deal stages after every call, in its own CRM or two-way with HubSpot.',
       },
       {
         q: 'Which should I choose?',
-        a: 'For broad platform coverage, mature transcription, and sales-agent workflows, Otter is a solid choice. If you want meetings to become tracked tasks, live projects, a self-updating CRM, and general agents that execute, that is Native Intelligence.',
+        a: `For transcription on every platform, or an enterprise rollout with Live Assist, Otter is a solid choice. For a small team that wants live help, deal history and a self-updating CRM in one seat at ${SEAT}, choose Native Intelligence.`,
       },
     ],
   },
@@ -366,64 +356,118 @@ export const COMPETITORS: Record<CompetitorSlug, Competitor> = {
     slug: 'fireflies',
     name: 'Fireflies.ai',
     site: 'https://fireflies.ai',
-    tagline: 'the integration-rich meeting assistant with a bot',
-    metaTitle: 'Native Intelligence vs Fireflies.ai: notes vs. tracked work (2026)',
+    audience: 'sales teams',
+    verifiedAt: 'November 2026',
+    tagline: 'the integration-rich meeting assistant',
+    metaTitle: 'Fireflies Alternative for Sales Teams | Native Intelligence',
     metaDescription:
-      'Fireflies.ai is an integration-rich meeting assistant. Native Intelligence turns meetings into tracked tasks, live projects, a native CRM, and agents that execute.',
-    verdict:
-      'Fireflies.ai is a capable, integration-heavy meeting assistant — unlimited transcription and summaries, an action-item feature, AskFred search, and a deep catalog of integrations that push tasks into tools like Asana, Jira, and Trello. The structural difference is where the work lives. Fireflies extracts items and hands them off to other systems; Native Intelligence keeps the whole loop in one place — tracked tasks with identifiers and boards, live projects, a native CRM that updates from calls, and agents that execute the work.',
-    startingPrice: 'Free, then Pro at $10/user/mo (billed annually), per their published pricing (July 2026)',
-    platforms: 'macOS, Windows, web, iOS, Android, and a Chrome extension',
-    capture: 'Uses the Fred bot to auto-join calendar meetings',
+      'A Fireflies.ai alternative for sales teams: no bot in your calls, your playbook on screen while you talk, and a CRM that updates itself.',
+    verdict: `Fireflies.ai is a capable meeting assistant with the broadest ecosystem here, more than 240 integrations, and sales features on its Business plan: Autofill drafts for your CRM, Deal Intelligence for HubSpot and Salesforce, and Sales Assist answers from your knowledge base during calls. Most of that sits on Business, and Sales Assist needs its bot in the call. Native Intelligence records every call without a bot, puts your playbook on screen while you talk, and updates the CRM itself, in one seat at ${SEAT}.`,
     matrix: [
-      row('botFree', 'Uses the Fred bot to join calls'),
-      row('transcription', true),
-      row('summaries', true),
-      row('taskTracker', 'Action items pushed to Asana/Jira/Trello — no native tracker'),
-      row('liveProjects', false),
-      row('crm', 'CRM integrations — not a native CRM'),
-      row('executingAgents', 'AskFred / voice agents answer; do not execute work'),
-      row('mcp', false),
-      row('emailDrafting', 'Via AI outputs and integrations'),
-      row('knowledgeGraph', false),
-      row('platforms', 'Mac, Windows, web, iOS, Android'),
-      row('price', 'Free, then $10/user/mo (billed annually; more month-to-month)'),
+      row('botFree', 'Bot by default; its desktop app and Chrome extension skip it'),
+      row('liveHelp', 'Live Assist on paid plans; Sales Assist on bot calls (Business)'),
+      row('dealHistory', 'Ask about a deal via Deal Intelligence (Business)'),
+      row('crm', 'Autofill drafts CRM updates for the rep to review (Business)'),
+      row('crmSync', 'Salesforce, HubSpot, Zoho and others; no CRM of its own'),
+      row('followUps', 'Drafted from templates with AI Skills (Business)'),
+      row('playbook', 'An uploaded knowledge base feeds Sales Assist (Business)'),
+      row('transcripts', true),
+      row('platforms', 'Mac, Windows, web, iOS, Android, Chrome'),
+      row('price', 'Free, then $18/user/mo (Pro, monthly)'),
     ],
     theirStrengths: [
       {
-        title: 'A deep integration catalog',
-        body: 'Fireflies connects to an enormous range of tools and can push action items into Asana, Jira, Trello, Monday, and more. If your work already lives in those tools, that breadth is a real advantage.',
+        title: 'A huge integration catalog',
+        body: 'Fireflies lists more than 240 integrations, including Salesforce, HubSpot and Zoho. If your work already lives in many tools, that breadth is a real advantage.',
       },
       {
         title: 'Broad platform and conferencing coverage',
-        body: 'Fireflies works across Zoom, Meet, Teams, and Webex, with mobile apps and a Chrome extension. Its reach across meeting platforms is wide.',
+        body: 'Fireflies works across Zoom, Meet, Teams and Webex, with Mac and Windows apps, mobile apps and a Chrome extension.',
       },
       {
-        title: 'Search and analytics across meetings',
-        body: 'AskFred search, smart topics, and conversation intelligence on higher tiers give sales and research teams strong ways to mine past calls.',
+        title: 'Deal questions on Business',
+        body: 'On its Business plan, Deal Intelligence lets reps ask about a specific HubSpot or Salesforce deal, and Autofill drafts the CRM update for review.',
       },
     ],
     faqs: [
       {
-        q: 'Does Fireflies.ai create tasks from meetings?',
-        a: 'Fireflies extracts action items and can push them into external tools like Asana, Jira, and Trello, but it does not have a built-in task tracker with identifiers, boards, and cycles. Native Intelligence keeps the tracked task system inside the same product.',
+        q: 'Does Fireflies.ai use a meeting bot?',
+        a: 'By default, yes: the Fred bot joins your calendar meetings. Its desktop app and Chrome extension can record without a bot, but those recordings keep no audio or speaker labels. Native Intelligence records every call from your Mac, so nothing joins.',
       },
       {
-        q: 'Does Fireflies use a meeting bot?',
-        a: 'Yes. Fireflies uses the Fred bot, which auto-joins your calendar meetings as a participant. Native Intelligence is bot-free — its desktop app captures audio locally and nothing joins the call.',
+        q: 'Can Fireflies help me during a sales call?',
+        a: 'Fireflies offers Live Assist on paid plans, and on Business, Sales Assist answers questions from your knowledge base during calls its bot attends. Native Intelligence’s live agent puts your playbook, pricing and battlecards on your screen during any call, without a bot.',
       },
       {
-        q: 'Fireflies integrates with my PM tools — why would I want Native Intelligence’s tracker?',
-        a: 'Integrations move an item into another system where it lives separately from the meeting. Native Intelligence keeps the task, the meeting that created it, the project it belongs to, and the agent that can execute it in one connected workspace.',
+        q: 'Does Fireflies update my CRM?',
+        a: 'On its Business plan, Autofill drafts field updates for HubSpot or Salesforce that the rep reviews and sends. Native Intelligence updates notes, next steps and deal stages itself after every call, in its own CRM or two-way with HubSpot.',
       },
       {
         q: 'Which should I choose?',
-        a: 'If you want the widest set of integrations and to keep work in your existing PM tools, Fireflies is a strong fit. If you want meetings to become tracked work, live projects, a CRM, and executed output in one system, choose Native Intelligence.',
+        a: 'If you want the widest set of integrations and are fine with a bot in your calls, Fireflies is a strong fit. If you want help on every call and a CRM that keeps itself current, without a bot, choose Native Intelligence.',
+      },
+    ],
+  },
+
+  fathom: {
+    slug: 'fathom',
+    name: 'Fathom',
+    site: 'https://www.fathom.ai',
+    audience: 'sales teams',
+    verifiedAt: 'November 2026',
+    tagline: 'the AI notetaker with a generous free plan and CRM sync, now part of Superhuman',
+    metaTitle: 'Fathom Alternative for Sales Teams | Native Intelligence',
+    metaDescription:
+      'A Fathom alternative for sales teams: no bot on any call, your playbook on screen while you talk, and a CRM that updates itself after every call.',
+    verdict: `Fathom is a strong, generous notetaker, now part of Superhuman: a usable free plan, clean summaries and follow-up emails, and on its Business plan a Deal View that gathers every call on a HubSpot or Salesforce deal with an AI summary and field sync. It joins calls with a bot by default, and its live help today is a running summary, with real-time coaching announced. Native Intelligence records every call without a bot, puts your playbook on screen while you talk, and updates the CRM after each call, in one seat at ${SEAT}.`,
+    matrix: [
+      row('botFree', 'Bot by default; bot-free on Mac'),
+      row('liveHelp', 'Live summaries on Mac; real-time coaching announced'),
+      row('dealHistory', 'Deal View and Ask Fathom on a deal (Business)'),
+      row('crm', 'Summaries pushed to your CRM; field sync on Business only'),
+      row('crmSync', 'HubSpot, Salesforce, Planhat; no CRM of its own'),
+      row('followUps', true),
+      row('playbook', 'Scorecards against your sales method (Business)'),
+      row('transcripts', true),
+      row('platforms', 'Web and Mac'),
+      row('price', 'Free, then $20/user/mo (Premium, monthly)'),
+    ],
+    theirStrengths: [
+      {
+        title: 'A genuinely generous free plan',
+        body: 'Fathom’s free plan records and transcribes your calls, with limits on its AI features. For a solo rep who mostly wants recordings, that is hard to beat.',
+      },
+      {
+        title: 'Deal View for HubSpot and Salesforce',
+        body: 'On the Business plan, Fathom gathers every call on a deal into one page with an AI deal summary, and syncs fields into HubSpot and Salesforce.',
+      },
+      {
+        title: 'A lower entry price',
+        body: 'Premium is $20 per user a month ($16 billed annually), and Business is $34 ($25 billed annually).',
+      },
+    ],
+    faqs: [
+      {
+        q: 'Does Fathom use a meeting bot?',
+        a: 'By default, yes: a bot joins your call. On Mac, Fathom also offers capture without a bot. Native Intelligence records every call from your Mac, so nothing joins.',
+      },
+      {
+        q: 'Can Fathom help me during a sales call?',
+        a: 'Fathom shows a running summary on Mac during the call and has announced real-time coaching. Native Intelligence’s live agent puts your playbook, pricing and battlecards on your screen while you talk, visible only to you.',
+      },
+      {
+        q: 'Does Fathom update my CRM?',
+        a: 'Fathom pushes call summaries to HubSpot and Salesforce, and syncs CRM fields on its Business plan. Native Intelligence updates notes, next steps and deal stages after every call, in its own CRM or two-way with HubSpot.',
+      },
+      {
+        q: 'Which should I choose?',
+        a: 'For a generous notetaker with a free plan and HubSpot or Salesforce sync, Fathom is a strong pick. For help during the call and a CRM that keeps itself current, with no bot, choose Native Intelligence.',
       },
     ],
   },
 }
 
+/** The listed vendor for a slug; never an inherited property ("constructor", "toString"). */
 export function getCompetitor(slug: string): Competitor | undefined {
-  return (COMPETITORS as Record<string, Competitor>)[slug]
+  return Object.hasOwn(COMPETITORS, slug) ? COMPETITORS[slug as CompetitorSlug] : undefined
 }

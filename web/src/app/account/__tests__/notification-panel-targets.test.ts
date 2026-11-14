@@ -165,4 +165,10 @@ describe('resolveNotificationDetailPanel — the work ledger (migration 273 targ
       await resolveNotificationDetailPanel(digest({ target_type: 'sequence', target_id: 'seq-1', title: 'Outreach paused', body: 'mailbox gone' })),
     ).toEqual({ type: 'sequence', id: 'seq-1', title: 'Outreach paused' })
   })
+
+  it('a scheduled email that wasn’t sent opens Mail on Scheduled, where its reason shows', async () => {
+    expect(
+      await resolveNotificationDetailPanel(digest({ type: 'email_send_failed', target_type: 'email_draft', target_id: 'sched-1', title: 'A scheduled email wasn’t sent' })),
+    ).toEqual({ type: 'mail', id: 'scheduled', title: 'A scheduled email wasn’t sent' })
+  })
 })

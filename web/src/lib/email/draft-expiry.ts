@@ -3,6 +3,7 @@ import { releaseHold } from './hold'
 import { ownedMailbox } from './thread-mailbox'
 import { deleteDraftInMailbox } from './provider-drafts'
 import { resolveWorkForDeliverable } from '@/lib/work/resolve'
+import { scheduleKey, scheduledThreadKeys } from './scheduled-refs'
 
 /**
  * Automatic drafts nobody acted on stop waiting (Liam, 2026-10-27, GEN-1164:
@@ -20,7 +21,9 @@ import { resolveWorkForDeliverable } from '@/lib/work/resolve'
  * with it when no other draft rests on it, the draft in the mailbox by the id
  * Native Intelligence saved (an edit made in Gmail has a new id and stays), and its work
  * item stops waiting. A draft whose hold is mid-send is left alone. Drafts the
- * person asked for (chat, Generate) and their own are never swept.
+ * person asked for (chat, Generate) and their own are never swept, nor one on
+ * a thread with a send scheduled (send later, ./scheduled-refs.ts: the person
+ * said yes to it; when that read fails, none is swept this run).
  * Runs in the hourly `email-hold-expiry` (src/lib/inngest/email-functions.ts).
  */
 
@@ -115,6 +118,7 @@ interface DraftRow extends ExpiringDraft {
   account_id: string | null
   hold_id: string | null
   provider_draft_id: string | null
+  provider_thread_id?: string | null
 }
 
 export interface DraftExpiryDeps {
@@ -143,7 +147,7 @@ export async function expireAutomaticDrafts(
   try {
     const { data, error } = await supabase
       .from('email_draft')
-      .select('id, user_id, account_id, hold_id, provider_draft_id, subject, body_text, created_at')
+      .select('id, user_id, account_id, hold_id, provider_draft_id, provider_thread_id, subject, body_text, created_at')
       .eq('status', 'pending_review')
       .eq('metadata->>origin', 'automatic')
       .order('created_at', { ascending: true })
@@ -155,7 +159,22 @@ export async function expireAutomaticDrafts(
     return out
   }
   const nowMs = now.getTime()
-  const due = rows.map((row) => ({ row, why: draftExpiry(row, nowMs) })).filter((d) => d.why !== null).slice(0, MAX_EXPIRED_PER_RUN)
+  const expiring = rows.map((row) => ({ row, why: draftExpiry(row, nowMs) })).filter((d) => d.why !== null)
+  // A draft with a send scheduled is the person's: never swept. Unreadable: none is.
+  let scheduled: Set<string>
+  try {
+    scheduled = await scheduledThreadKeys(
+      supabase,
+      expiring.map((d) => d.row.user_id),
+      expiring.map((d) => d.row.provider_thread_id ?? ''),
+    )
+  } catch (err) {
+    console.warn('[email-drafts] expiry skipped (scheduled sends unreadable):', err instanceof Error ? err.message : err)
+    return out
+  }
+  const due = expiring
+    .filter((d) => !(d.row.provider_thread_id && scheduled.has(scheduleKey(d.row.user_id, d.row.provider_thread_id))))
+    .slice(0, MAX_EXPIRED_PER_RUN)
   for (const { row, why } of due) {
     try {
       // Mid-send: the send settles it (hold.ts markHoldsSending).

@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import { createClient } from '@supabase/supabase-js'
+import { createStatelessClient } from '@/lib/supabase/stateless'
 import { agentActivityHeaders } from '@/lib/activity-actor'
 import { appHost } from '@/lib/app-url'
 import { mcpBaseUrl } from '@/lib/mcp/base-url'
@@ -26,7 +26,7 @@ export function generateClientId(): string {
 }
 
 function getServiceClient(headers?: Record<string, string>) {
-  return createClient(
+  return createStatelessClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false, autoRefreshToken: false }, ...(headers ? { global: { headers } } : {}) },

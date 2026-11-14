@@ -33,3 +33,4 @@
 15 * * * * node /app/deploy/app/cron/call.mjs /api/cron/studio-sweep
 */15 * * * * node /app/deploy/app/cron/call.mjs /api/cron/seo-rank-checks
 7 * * * * node /app/deploy/app/cron/call.mjs /api/cron/seo-ai-visibility
+*/5 * * * * node /app/deploy/app/cron/call.mjs /api/cron/email-scheduled-send

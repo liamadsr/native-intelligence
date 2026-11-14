@@ -138,7 +138,7 @@ describe('migration 454, part C: the router', () => {
   it("notification.type is 452's list plus agent_message: exactly the app's types", () => {
     expect(notificationTypes(BODY)).toEqual([...notificationTypes(read('452_look_ahead.sql')), 'agent_message'])
     // 560 adds team_chat_message (src/lib/team-chat/__tests__/migration-560.test.ts), 572 meeting_waiting.
-    expect(notificationTypes(BODY)).toEqual(NOTIFICATION_TYPES.filter((t) => t !== 'team_chat_message' && t !== 'meeting_waiting'))
+    expect(notificationTypes(BODY)).toEqual(NOTIFICATION_TYPES.filter((t) => t !== 'team_chat_message' && t !== 'meeting_waiting' && t !== 'email_send_failed'))
   })
 
   it('was the newest word on every check it widens until 560', () => {

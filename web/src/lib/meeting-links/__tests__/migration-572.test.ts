@@ -163,9 +163,10 @@ describe('migrations 572-575 and 585', () => {
   it('572: a meeting’s conversation is its own kind, its notice a notification type the app knows; the newest word on both checks', () => {
     const body = flat(FILES.conversations)
     const types = [...(/notification_type_check check \(type = any \(array\[([^\]]*)\]\)\)/.exec(body)?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map((v) => v[1])
-    expect(types).toEqual([...NOTIFICATION_TYPES])
+    // 642 (send later) adds 'email_send_failed' after it, and is the newest word on the type check since.
+    expect(types).toEqual(NOTIFICATION_TYPES.filter((t) => t !== 'email_send_failed'))
     const newest = (re: RegExp) => [...migrationsInOrder()].reverse().find((m) => re.test(m.sql))!.file
-    expect(newest(/add constraint notification_type_check/i)).toBe('572_meeting_conversations.sql')
+    expect(newest(/add constraint notification_type_check/i)).toBe('642_email_scheduled_send.sql')
     expect(newest(/add constraint notification_target_type_check/i)).toBe('572_meeting_conversations.sql')
     expect(body).toContain("check (kind in ('channel', 'dm', 'meeting'))")
     expect(body).toContain("(kind = 'meeting' and name is not null and char_length(name) between 1 and 80 and dm_key is null and team_id is null)")
