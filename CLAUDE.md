@@ -55,12 +55,15 @@ Read this before reporting anything as live or touching production. The code gui
   connector is revoked and deleted, and a Slack workspace is connected with
   "Add to Slack" in Settings › Connectors › Slack: from a browser, or from the
   desktop app, where the install is finished in the person's browser and claimed
-  by the window that started it. Proven live on 2026-11-14: an install from a
-  browser (bot token stored, the Slack workspace bound again) and a direct
-  message to the bot, answered. NOT yet proven: an install started in the
-  desktop app. "Slack" under "Day to day" in
-  [`deploy/README.md`](deploy/README.md) has the set-up, for a stand-in server
-  or a move. The cloud browser's sandboxes run on that host's
+  by the window that started it. Proven live on 2026-11-14, and only these: the
+  connector's revocation arriving as Slack's own events (the workspace was
+  marked disconnected), an install from a browser (bot token stored, the Slack
+  workspace bound again) and a direct message to the bot, answered. NOT yet
+  proven: an install started in the desktop app, a mention in a channel, a
+  button click (`/api/slack/interactivity`), a second Slack workspace. "Slack"
+  under "Day to day" in [`deploy/README.md`](deploy/README.md) is the record of
+  the switch and says what a move to another address needs. The cloud browser's
+  sandboxes run on that host's
   sandbox service with `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and
   `SANDBOX_PROJECT_ID`, which is why those three stay in the server's `.env`.
 - **The coding agent's sandbox runs on our own sandbox server since 2026-11-12**

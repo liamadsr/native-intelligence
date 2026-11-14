@@ -202,7 +202,7 @@ class Slack(unittest.TestCase):
         # Said once, on the client secret: the signing secret's own check stays quiet.
         self.assertEqual(self.run_check("SLACK_SIGNING_SECRET", env), (None, None))
         # Spaces around either value are trimmed first, as the app trims them.
-        spaced = dict(env, SLACK_CLIENT_SECRET=" %s\n" % env["SLACK_CLIENT_SECRET"])
+        spaced = dict(env, SLACK_CLIENT_SECRET=" %s\n" % env["SLACK_CLIENT_SECRET"], SLACK_SIGNING_SECRET="%s " % env["SLACK_SIGNING_SECRET"])
         self.assertIs(self.run_check("SLACK_CLIENT_SECRET", spaced)[0], False)
 
     def test_secrets_of_32_to_128_hex_characters_either_case(self):
