@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseSlackPayload, slackTextToPlain } from '../events'
 
-const APP = 'A0C9N6VPYLF'
+const APP = 'A0EXAMPLE01'
 
 function envelope(event: Record<string, unknown>, extra: Record<string, unknown> = {}) {
   return { type: 'event_callback', api_app_id: APP, team_id: 'T111', event_id: 'Ev1', event, ...extra }

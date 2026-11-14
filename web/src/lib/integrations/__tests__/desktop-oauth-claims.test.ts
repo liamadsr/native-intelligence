@@ -160,6 +160,15 @@ describe('claimDesktopSlackInstall (Slack installs)', () => {
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
+  it('a link alone never brings good news: without a claim it is cancelled or failed, whatever it says', async () => {
+    const fetchImpl = okSlack()
+    for (const said of ['installed', 'connected', 'added', 'session'] as const) {
+      holdDesktopSlackClaim(SLACK.state, 's')
+      expect(await claimDesktopSlackInstall({ state: SLACK.state, error: said }, fetchImpl)).toEqual({ state: 'slack.state', result: 'failed' })
+    }
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
   it("a refusal reports the route's result; an unknown answer or a network failure is 'failed'", async () => {
     holdDesktopSlackClaim(SLACK.state, 's')
     const refused = vi.fn(async () => new Response(JSON.stringify({ result: 'session' }), { status: 403 }))

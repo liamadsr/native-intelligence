@@ -207,8 +207,10 @@ export interface DesktopSlackClaimOutcome {
 /**
  * Finish a desktop Slack install from its deep link: null when this window
  * didn't start it (never claimed). A link without a sealed code (Slack
- * refused, or the callback did) ends this window's install with the link's
- * `error` result, without a claim; otherwise the claim route's result.
+ * refused, or the callback did) ends this window's install without a claim,
+ * as cancelled or failed: the only two things the callback says that way. Any
+ * app on the machine can open a link, so a link's own word is never taken for
+ * more than that; good news is only ever what the claim route answers.
  */
 export async function claimDesktopSlackInstall(
   link: { state: string; sealed?: string | null; error?: SlackInstallResult | null },
@@ -217,7 +219,7 @@ export async function claimDesktopSlackInstall(
   const claimSecret = takeDesktopSlackClaim(link.state)
   if (!claimSecret) return null
   const { state } = link
-  if (!link.sealed) return { state, result: link.error ?? 'failed' }
+  if (!link.sealed) return { state, result: link.error === 'denied' ? 'denied' : 'failed' }
   try {
     const res = await fetchImpl('/api/slack/oauth/claim', {
       method: 'POST',

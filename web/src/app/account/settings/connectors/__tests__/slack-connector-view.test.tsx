@@ -47,7 +47,7 @@ const net = {
 }
 const slack = (installations: Team[], over: Record<string, unknown> = {}) => ({
   configured: true,
-  appId: 'A0C9N6VPYLF',
+  appId: 'A0EXAMPLE01',
   canInstall: true,
   canLink: true,
   installations,
