@@ -112,6 +112,37 @@ check_image_url() { # check_image_url <image>
 		die "$1 was built for '${got:-an unknown address}', but .env says NEXT_PUBLIC_APP_URL=$want. Build again (sudo ./deploy.sh), or put the address back in .env."
 }
 
+# --- the earlier host's own variables ---
+# entrypoint.sh starts no role with one of them set (it says why, and holds the one
+# list), so a roll-out onto a .env that has one would replace what runs with
+# containers that refuse to start: the agents are stopped before their replacement
+# starts. Checked before a build against the checkout's entrypoint, and before a
+# roll-out without a build against the entrypoint of the image going into service:
+# an image from before the refusal names none, so going back to it is never held.
+refused_names() { sed -n 's/^EARLIER_HOST_VARIABLES="\([A-Z_ ]*\)"$/\1/p'; }
+refused_by_checkout() {
+	local names
+	names="$(refused_names <entrypoint.sh)"
+	[ -n "$names" ] || die "cannot read EARLIER_HOST_VARIABLES from entrypoint.sh."
+	echo "$names"
+}
+refused_by_image() { # refused_by_image <image>
+	docker run --rm --network none --entrypoint cat "$1" /app/deploy/app/entrypoint.sh 2>/dev/null | refused_names
+}
+# Dies when .env gives web one of the names (every container reads the same file).
+# Names only: a value is never printed.
+refuse_earlier_host_variables() { # refuse_earlier_host_variables "<names>"
+	local found
+	[ -n "$1" ] || return 0
+	# shellcheck disable=SC2086
+	found="$(compose config --format json 2>/dev/null |
+		python3 -I -c "import json,sys; env=json.load(sys.stdin)['services']['web'].get('environment') or {}; print(' '.join(n for n in sys.argv[1:] if env.get(n)))" $1)" ||
+		die "cannot read .env (docker compose config) to look for the earlier host's variables."
+	[ -z "$found" ] ||
+		die "set in .env: $found. The earlier host's own, and no container starts with one (entrypoint.sh). Remove the line(s)."
+}
+# --- end ---
+
 # The settings that `next build` compiles in must be there before ten minutes are
 # spent on a build that cannot work.
 check_build_settings() {
@@ -120,13 +151,10 @@ check_build_settings() {
 		[ -n "$(build_arg "$name")" ] || missing="$missing $name"
 	done
 	[ -z "$missing" ] || die "empty in .env:$missing."
-	# entrypoint.sh starts no role with one of the earlier host's own variables set
-	# (it says why): a roll-out with one in .env would replace what runs with
-	# containers that refuse to start. The value is never printed.
-	for name in VERCEL VERCEL_ENV VERCEL_TARGET_ENV VERCEL_PROJECT_ID VERCEL_TEAM_ID; do
-		[ -z "$(setting "$name")" ] ||
-			die "$name is set in .env. It is the earlier host's own variable, and no container starts with it (entrypoint.sh). Remove the line."
-	done
+	# (Assigned first: a failure inside "$(...)" as an argument would go unnoticed.)
+	local refused
+	refused="$(refused_by_checkout)"
+	refuse_earlier_host_variables "$refused"
 	[ -n "$commit" ] || die "cannot read the checkout's commit (git rev-parse in $repo, as $owner)."
 }
 
@@ -255,6 +283,7 @@ deploy | build-only)
 no-build)
 	docker image inspect ni-app:live >/dev/null 2>&1 || die "there is no image ni-app:live yet; build first."
 	check_image_url ni-app:live
+	refuse_earlier_host_variables "$(refused_by_image ni-app:live)"
 	rollout
 	;;
 rollback)
@@ -263,6 +292,7 @@ rollback)
 	# is the rehearsal's, built for the test address. Going back from there is
 	# ../README.md step 22, not this.
 	check_image_url ni-app:previous
+	refuse_earlier_host_variables "$(refused_by_image ni-app:previous)"
 	say "Going back to ni-app:previous"
 	# Swap the two tags, so that a second --rollback goes forward again.
 	docker tag ni-app:live ni-app:rollback-swap

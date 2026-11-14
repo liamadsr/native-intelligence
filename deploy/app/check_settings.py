@@ -120,14 +120,18 @@ MAY_BE_EMPTY = {
 SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}
 
 # The earlier host's own variables: no line of .env.example, and entrypoint.sh starts
-# no role with one set (it says why; tests/test_entrypoint.py holds the lists equal).
-# They arrive with a file its tooling wrote (`vercel env pull`).
+# no role with one set (it says why and holds the list; tests/test_entrypoint.py keeps
+# this copy equal to it). They come along with a file made for that host.
 MUST_BE_ABSENT = {
     "VERCEL": "the app and the agents would take this server for a deployment at the earlier host",
     "VERCEL_ENV": "the app and the agents would take this server for a deployment at the earlier host",
     "VERCEL_TARGET_ENV": "the agents would take this server for a deployment at the earlier host",
-    "VERCEL_PROJECT_ID": "the agents' sandbox provider would take it for the sandboxes' project (here SANDBOX_PROJECT_ID)",
-    "VERCEL_TEAM_ID": "the agents' sandbox provider would take it for the sandboxes' team (here SANDBOX_TEAM_ID)",
+    "VERCEL_URL": "the agents' workflow runtime would take it for its own address",
+    "VERCEL_PROJECT_ID": "what the agents fall back to for a sandbox's project (here SANDBOX_PROJECT_ID, handed over explicitly)",
+    "VERCEL_TEAM_ID": "what the agents fall back to for a sandbox's team (here SANDBOX_TEAM_ID, handed over explicitly)",
+    "VERCEL_ORG_ID": "what the agents fall back to for a sandbox's team (here SANDBOX_TEAM_ID, handed over explicitly)",
+    "VERCEL_TOKEN": "what the agents fall back to for a sandbox's token (here SANDBOX_ACCESS_TOKEN, handed over explicitly)",
+    "VERCEL_OIDC_TOKEN": "a short-lived token the agents and the AI Gateway calls fall back to (here SANDBOX_ACCESS_TOKEN and AI_GATEWAY_API_KEY)",
 }
 
 # What is off while a needed one is empty, where it is not obvious from the name.
@@ -164,10 +168,11 @@ def group(name):
 # --- reading the file as Compose reads it -------------------------------------------
 
 def parse_env(text):
-    """The values of a Compose env file, in the forms envfile.py writes."""
+    """The values of a Compose env file, in the forms envfile.py writes, and with the
+    `export ` a line copied from a shell file may start with (Compose reads those too)."""
     values = {}
     for line in text.split("\n"):
-        m = re.match(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)$", line)
+        m = re.match(r"(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$", line)
         if not m:
             continue
         name, v = m.groups()

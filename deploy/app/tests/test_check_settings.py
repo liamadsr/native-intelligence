@@ -44,6 +44,9 @@ class ParseEnv(unittest.TestCase):
         env = cs.parse_env("A=plain\nB='quoted value'\nC=\"line\\n\"\nD=\nE=bare # a comment\n# F=no\n")
         self.assertEqual(env, {"A": "plain", "B": "quoted value", "C": "line\n", "D": "", "E": "bare"})
 
+    def test_reads_an_exported_line_as_compose_does(self):
+        self.assertEqual(cs.parse_env("export VERCEL_ENV=made-up\nexport\tA='b'\nexported=1\n"), {"VERCEL_ENV": "made-up", "A": "b", "exported": "1"})
+
 
 class Groups(unittest.TestCase):
     def test_groups(self):
@@ -624,11 +627,11 @@ class Report(unittest.TestCase):
 
     def test_the_earlier_hosts_variables_block_when_set(self):
         env = {"CRON_SECRET": "made-up", "VERCEL": "1", "VERCEL_ENV": "made-up-env", "VERCEL_TARGET_ENV": "",
-               "VERCEL_PROJECT_ID": "rehearsal-made-up", "VERCEL_GIT_COMMIT_SHA": "made-up"}
+               "VERCEL_PROJECT_ID": "rehearsal-made-up", "VERCEL_OIDC_TOKEN": "made-up", "VERCEL_GIT_COMMIT_SHA": "made-up"}
         lines, blockers, unchecked = cs.report(env, {})
         self.assertEqual(blockers, [
             "%s is set: no container starts with it (entrypoint.sh); remove the line" % n
-            for n in ("VERCEL", "VERCEL_ENV", "VERCEL_PROJECT_ID")
+            for n in ("VERCEL", "VERCEL_ENV", "VERCEL_PROJECT_ID", "VERCEL_OIDC_TOKEN")
         ])
         text = "\n".join(lines)
         self.assertIn("Must not be here (the earlier host's own):", text)
