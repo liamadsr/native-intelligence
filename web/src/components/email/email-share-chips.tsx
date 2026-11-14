@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Send } from 'lucide-react'
 import type { EmailShareChip } from '@/lib/email-share/types'
-import { unshareEmail, type EmailShareThreadRef } from './email-share-dialog'
+import { revokeEmailShareLink, unshareEmail, type EmailShareThreadRef } from './email-share-dialog'
 
 function sharesUrl(thread: EmailShareThreadRef): string | null {
   const params = new URLSearchParams()
@@ -48,26 +48,48 @@ export function EmailShareChips({ thread, reloadKey = 0 }: { thread: EmailShareT
         <span
           key={s.id}
           data-email-share-chip={s.id}
+          data-kind={s.kind}
           className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 px-2 py-0.5 text-xs text-violet-700 dark:text-violet-300"
         >
           <Send className="h-3 w-3" />
-          Shared to {s.label}
+          {s.kind === 'link' ? 'Link' : `Shared to ${s.label}`}
           <span aria-hidden>·</span>
-          <button
-            type="button"
-            data-email-unshare={s.id}
-            className="font-medium underline-offset-2 hover:underline"
-            onClick={async () => {
-              setShares((prev) => prev.filter((x) => x.id !== s.id))
-              if (await unshareEmail(s.id)) toast.success(`Un-shared from ${s.label}`)
-              else {
-                toast.error("Couldn't un-share it")
-                void load()
-              }
-            }}
-          >
-            Un-share
-          </button>
+          {s.kind === 'link' ? (
+            <button
+              type="button"
+              data-email-revoke-link={s.id}
+              className="font-medium underline-offset-2 hover:underline"
+              onClick={async () => {
+                setShares((prev) => prev.filter((x) => x.id !== s.id))
+                if (await revokeEmailShareLink(s.id)) {
+                  toast.success('Link revoked. Every share made from it has ended.')
+                  // Its shares in chats end with it: their chips go too.
+                  void load()
+                } else {
+                  toast.error("Couldn't revoke the link")
+                  void load()
+                }
+              }}
+            >
+              Revoke
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-email-unshare={s.id}
+              className="font-medium underline-offset-2 hover:underline"
+              onClick={async () => {
+                setShares((prev) => prev.filter((x) => x.id !== s.id))
+                if (await unshareEmail(s.id)) toast.success(`Un-shared from ${s.label}`)
+                else {
+                  toast.error("Couldn't un-share it")
+                  void load()
+                }
+              }}
+            >
+              Un-share
+            </button>
+          )}
         </span>
       ))}
     </>

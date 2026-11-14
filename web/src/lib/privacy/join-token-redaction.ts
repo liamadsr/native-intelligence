@@ -9,6 +9,10 @@
  * string, headers, breadcrumbs, transaction name and tags.
  *
  * `/join/team` (the join-by-domain page) carries no secret and is kept.
+ *
+ * An email share link (/mail/s/<token>, migration 646) is blanked the same
+ * way: it grants nothing on its own, but it names someone's mail thread, so
+ * its token never reaches analytics or error reports either.
  */
 
 const REDACTED = 'redacted'
@@ -21,10 +25,20 @@ const PLAIN = /((?:^|[=&?"'\s(,]|\/\/[^/\s?#"']+))(\/join\/)(?!team(?![A-Za-z0-9
 // a redirect= value holding the path, or a whole encoded URL.
 const ENCODED = /((?:^|[=&?"'\s(,]|%(?:25)*2F%(?:25)*2F[^%/\s?#&"']+))(%(?:25)*2Fjoin%(?:25)*2F)(?!team(?![A-Za-z0-9_-]))[A-Za-z0-9_-]+/gi
 
-/** The string with every join-link token blanked. Cheap when there is nothing to do. */
+// /mail/s/<token> the same ways: plain, and encoded once or twice.
+const MAIL_PLAIN = /((?:^|[=&?"'\s(,]|\/\/[^/\s?#"']+))(\/mail\/s\/)[A-Za-z0-9_-]+/g
+// The link's API (/api/account/email/shares/links/<token>), in a fetch breadcrumb or a server event's URL.
+const MAIL_API = /(\/api\/account\/email\/shares\/links\/)[A-Za-z0-9_-]+/g
+const MAIL_ENCODED = /((?:^|[=&?"'\s(,]|%(?:25)*2F%(?:25)*2F[^%/\s?#&"']+))(%(?:25)*2Fmail%(?:25)*2Fs%(?:25)*2F)[A-Za-z0-9_-]+/gi
+
+/** The string with every join-link and email-share-link token blanked. Cheap when there is nothing to do. */
 export function redactJoinTokens(value: string): string {
-  if (!/join/i.test(value)) return value
-  return value.replace(PLAIN, `$1$2${REDACTED}`).replace(ENCODED, `$1$2${REDACTED}`)
+  let out = value
+  if (/join/i.test(out)) out = out.replace(PLAIN, `$1$2${REDACTED}`).replace(ENCODED, `$1$2${REDACTED}`)
+  if (/mail/i.test(out)) {
+    out = out.replace(MAIL_PLAIN, `$1$2${REDACTED}`).replace(MAIL_ENCODED, `$1$2${REDACTED}`).replace(MAIL_API, `$1${REDACTED}`)
+  }
+  return out
 }
 
 const MAX_DEPTH = 12
@@ -63,6 +77,11 @@ export function scrubPostHogEvent<T extends { properties?: unknown; $set?: unkno
 /** Sentry `beforeSend` / `beforeSendTransaction` / `beforeBreadcrumb`: the same, for its event shapes. */
 export function scrubSentryEvent<T>(event: T): T {
   return scrubJoinTokens(event)
+}
+
+/** An email share link's own page (/mail/s/<token>): no pageview at all. */
+export function isEmailShareLinkPage(pathname: string): boolean {
+  return pathname.startsWith('/mail/s/')
 }
 
 /** A join link's own page (/join/<token>), not the join-by-domain page (/join/team). */

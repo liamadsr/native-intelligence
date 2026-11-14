@@ -19,6 +19,7 @@ const BODY = SQL.split('\n')
   .join('\n')
   .replace(/\s+/g, ' ')
 const TABLE = BODY.slice(BODY.indexOf('create table if not exists public.email_share ('), BODY.indexOf('create index if not exists email_share_owner_thread_idx'))
+const LINK_TABLE = BODY.slice(BODY.indexOf('create table if not exists public.email_share_link ('), BODY.indexOf('create index if not exists email_share_link_owner_thread_idx'))
 const SERVICE = readFileSync(join(process.cwd(), 'src/lib/email-share/service.ts'), 'utf8')
 
 describe('migration 646', () => {
@@ -75,7 +76,9 @@ describe('migration 646', () => {
     expect(BODY).toContain('before insert or update on public.team_chat_message for each row execute function public.team_chat_message_email_share_guard();')
     const revoke = BODY.slice(BODY.indexOf('create or replace function public.team_chat_message_email_share_revoke()'), BODY.indexOf('revoke all on function public.team_chat_message_email_share_revoke()'))
     expect(revoke).toContain('security definer set search_path = public, pg_temp')
-    expect(revoke).toContain('update public.email_share set revoked_at = now() where id = new.email_share_id and revoked_at is null;')
+    // Every share the message carries (several pasted links), not only its email_share_id.
+    expect(revoke).toContain('if new.deleted_at is not null and old.deleted_at is null then')
+    expect(revoke).toContain('update public.email_share set revoked_at = now() where (id = new.email_share_id or team_chat_message_id = new.id) and revoked_at is null;')
     expect(BODY).toContain('after update of deleted_at on public.team_chat_message for each row execute function public.team_chat_message_email_share_revoke();')
     // Trigger functions only: no client may call either directly.
     for (const fn of ['team_chat_message_email_share_guard', 'team_chat_message_email_share_revoke']) {
@@ -87,5 +90,33 @@ describe('migration 646', () => {
     const read = /const SHARE_COLUMNS =\s*'([^']+)'/.exec(SERVICE)![1].split(',').map((c) => c.trim())
     for (const c of [...read, 'shared_by_member_id']) expect(TABLE, c).toMatch(new RegExp(`[( ,]${c} `))
     expect(TEAM_CHAT_MESSAGE_COLUMNS.split(',').map((c) => c.trim())).toContain('email_share_id')
+  })
+
+  it('the share link: ids and a random token only, the service role’s alone, re-runnable over the first version', () => {
+    const columns = [...LINK_TABLE.matchAll(/[(,] ([a-z_]+) (uuid|text|text\[\]|timestamptz) /g)].map((m) => m[1])
+    expect(columns).toEqual([
+      'id',
+      'token',
+      'workspace_id',
+      'owner_user_id',
+      'account_id',
+      'provider',
+      'provider_thread_id',
+      'thread_index_id',
+      'message_ids',
+      'created_at',
+      'revoked_at',
+    ])
+    expect(LINK_TABLE).not.toMatch(/subject|snippet|body|from_|_email|_name|address|html|preview/)
+    expect(LINK_TABLE).toContain("token text not null unique check (token ~ '^[A-Za-z0-9_-]{22,128}$')")
+    expect(BODY).toContain('alter table public.email_share_link enable row level security;')
+    expect(BODY).toContain('revoke all on table public.email_share_link from public, anon, authenticated;')
+    expect(BODY).toContain('grant select, insert, update, delete on table public.email_share_link to service_role;')
+    expect(BODY).not.toMatch(/grant [a-z, ]+ on table public\.email_share_link to (anon|authenticated)/)
+    // Added to a database that has the first version (hosted DEV), re-runnably.
+    expect(BODY).toContain('add column if not exists link_id uuid references public.email_share_link(id) on delete set null;')
+    expect(BODY).toContain('drop index if exists public.email_share_message_key;')
+    expect(BODY).toContain('create unique index if not exists email_share_message_link_key on public.email_share (team_chat_message_id, link_id)')
+    expect(BODY.indexOf('create table if not exists public.email_share_link (')).toBeLessThan(BODY.indexOf('add column if not exists link_id'))
   })
 })

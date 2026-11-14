@@ -16,6 +16,7 @@ import {
   Tag,
   X,
   Send,
+  Link2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -43,7 +44,7 @@ import type { EmailReplyRequest } from '@/lib/email/reply-in-chat'
 import { emailTaskLabel, makeTaskFromEntity } from '@/lib/entities/actions'
 import { scheduleSend } from '@/lib/email/send-later'
 import { EmailMessage, type EmailMessageData } from './email-message'
-import { EmailShareDialog } from './email-share-dialog'
+import { EmailShareDialog, copyEmailShareLink } from './email-share-dialog'
 import { EmailShareChips } from './email-share-chips'
 
 interface EmailLabel {
@@ -666,6 +667,23 @@ export function EmailThreadDetail({
             </TooltipTrigger>
             <TooltipContent>Share to chat</TooltipContent>
           </Tooltip>
+
+          {/* Copy link: paste it in a chat by hand to share there (it grants nothing on its own). */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                aria-label="Copy link"
+                data-email-copy-link=""
+                onClick={() => void copyEmailShareLink({ threadId, accountId, indexId: thread.indexId ?? null }, { onMade: bumpShares })}
+              >
+                <Link2 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Copy link to share in a chat</TooltipContent>
+          </Tooltip>
         </TooltipProvider>
 
       </div>
@@ -751,6 +769,7 @@ export function EmailThreadDetail({
         thread={{ threadId, accountId, indexId: thread.indexId ?? null }}
         onShared={bumpShares}
         onUndone={bumpShares}
+        onLinkMade={bumpShares}
       />
 
     </div>

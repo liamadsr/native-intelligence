@@ -18,11 +18,24 @@ vi.mock('sonner', () => ({ toast: toasts }))
 vi.mock('next/dynamic', () => ({ default: () => () => null }))
 vi.mock('@/components/read-aloud/listen-target', () => ({ ListenTarget: () => null }))
 vi.mock('@/lib/labels/use-scoped-labels', () => ({ useScopedLabels: () => ({ labels: [], grouped: [], loading: false }) }))
+const clip = vi.hoisted(() => ({ copied: [] as string[] }))
+vi.mock('@/lib/clipboard', async (orig) => ({
+  ...(await orig<typeof import('@/lib/clipboard')>()),
+  copyDeferredTextToClipboard: async (text: Promise<string>) => {
+    try {
+      clip.copied.push(await text)
+      return true
+    } catch {
+      return false
+    }
+  },
+}))
 
 import { EmailShareDialog } from '../email-share-dialog'
 import { EmailShareChips } from '../email-share-chips'
 import { EmailShareCard } from '../email-share-card'
 import { EmailThreadDetail } from '../email-thread-detail'
+import { EmailShareLinkView } from '../email-share-link-view'
 
 const SHARE = '0f8fad5b-d9cb-469f-a165-70867728950e'
 const SALES = '11111111-1111-4111-8111-111111111111'
@@ -41,6 +54,7 @@ const $ = <T extends Element = HTMLElement>(sel: string) => document.body.queryS
 const text = () => document.body.textContent ?? ''
 
 beforeEach(() => {
+  clip.copied = []
   calls = []
   routes = () => respond(404, { error: 'Not found' })
   vi.stubGlobal(
@@ -152,7 +166,7 @@ describe('the owner’s chips', () => {
   it('one chip per share, "Shared to #sales · Un-share"; Un-share ends it', async () => {
     routes = (url, method) => {
       if (url.startsWith('/api/account/email/shares?') && method === 'GET') {
-        return respond(200, { shares: [{ id: SHARE, channelId: SALES, label: '#sales', createdAt: '2026-11-14T10:00:00Z' }] })
+        return respond(200, { shares: [{ id: SHARE, kind: 'share', channelId: SALES, label: '#sales', createdAt: '2026-11-14T10:00:00Z' }] })
       }
       if (method === 'DELETE') return respond(200, { ok: true })
       return respond(404, {})
@@ -171,6 +185,88 @@ describe('the owner’s chips', () => {
     routes = () => respond(200, { shares: [] })
     await render(h(EmailShareChips, { thread: { threadId: 'thr-1' } }))
     expect($('[data-email-share-chip]')).toBeNull()
+  })
+})
+
+const LINK_ID = '77777777-7777-4777-8777-777777777777'
+const LINK_URL = 'https://app.northwind.example/mail/s/TokenOne_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+
+describe('copied links', () => {
+  it('Copy link in the picker: copies the link and says what to do with it', async () => {
+    routes = (url, method) =>
+      url.endsWith('/targets') ? respond(200, { targets: [] }) : url === '/api/account/email/shares/links' && method === 'POST' ? respond(201, { link: { id: LINK_ID }, url: LINK_URL, reused: false }) : respond(404, {})
+    const onLinkMade = vi.fn()
+    await render(h(EmailShareDialog, { open: true, onOpenChange: vi.fn(), thread: { threadId: 'thr-1', accountId: 'acc-1' }, onLinkMade }))
+    await act(async () => $<HTMLButtonElement>('[data-share-copy-link]')!.click())
+    await flush()
+    expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ threadId: 'thr-1', accountId: 'acc-1' })
+    expect(clip.copied).toEqual([LINK_URL])
+    expect(toasts.success).toHaveBeenCalledWith('Link copied. Paste it in a chat to share this email there.')
+    expect(onLinkMade).toHaveBeenCalled()
+  })
+
+  it('a refused link says why and copies nothing', async () => {
+    routes = (url) => (url.endsWith('/targets') ? respond(200, { targets: [] }) : respond(403, { error: 'Only the mail’s owner can share it' }))
+    await render(h(EmailShareDialog, { open: true, onOpenChange: vi.fn(), thread: { indexId: 'idx-1' } }))
+    await act(async () => $<HTMLButtonElement>('[data-share-copy-link]')!.click())
+    await flush()
+    expect(clip.copied).toEqual([])
+    expect(toasts.error).toHaveBeenCalledWith('Only the mail’s owner can share it')
+  })
+
+  it('the chips list the link: "Link · Revoke" ends it', async () => {
+    routes = (url, method) => {
+      if (url.startsWith('/api/account/email/shares?')) return respond(200, { shares: [{ id: LINK_ID, kind: 'link', channelId: null, label: 'Link', createdAt: '2026-11-14T10:00:00Z' }] })
+      if (method === 'DELETE') return respond(200, { ok: true, revokedShares: 2 })
+      return respond(404, {})
+    }
+    await render(h(EmailShareChips, { thread: { threadId: 'thr-1' } }))
+    expect($(`[data-email-share-chip="${LINK_ID}"]`)?.textContent).toBe('Link·Revoke')
+    await act(async () => $<HTMLButtonElement>(`[data-email-revoke-link="${LINK_ID}"]`)!.click())
+    await flush()
+    expect(calls.some((c) => c.method === 'DELETE' && c.url === `/api/account/email/shares/links/${LINK_ID}`)).toBe(true)
+    expect(toasts.success).toHaveBeenCalledWith('Link revoked. Every share made from it has ended.')
+  })
+})
+
+describe('the link’s page', () => {
+  const TOKEN = 'TokenOne_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  const msg = { id: 'm-1', from: { name: 'Dana Whitfield', email: 'dana@harborline.example' }, to: [], cc: [], date: '2026-11-10T15:00:00Z', subject: 'Northwind renewal terms', bodyHtml: null, bodyText: 'Our counter is 12% off list.', attachments: [] }
+  const page = async (answer: Response) => {
+    routes = () => answer
+    await render(h(EmailShareLinkView, { token: TOKEN }))
+    expect(calls[0].url).toBe(`/api/account/email/shares/links/${TOKEN}`)
+    return $('[data-email-share-link-page]')!
+  }
+
+  it('the owner sees their thread', async () => {
+    const el = await page(respond(200, { state: 'owner', revoked: false, thread: { subject: 'Northwind renewal terms', messages: [msg], missing: 0, blockedImages: 0 } }))
+    expect(el.getAttribute('data-email-share-link-page')).toBe('owner')
+    expect(el.textContent).toContain('Our counter is 12% off list.')
+    expect(el.className).toContain('ph-no-capture')
+  })
+
+  it('a teammate who can read a chat it is in sees it read-only', async () => {
+    const el = await page(respond(200, { state: 'shared', thread: { id: SHARE, mine: false, subject: 'Northwind renewal terms', messages: [msg], missing: 0, blockedImages: 0 } }))
+    expect(el.getAttribute('data-email-share-link-page')).toBe('shared')
+    expect(el.textContent).toContain('Shared from a teammate’s mailbox, read-only.')
+  })
+
+  it('anyone else, or signed out: only that it is shared in chat', async () => {
+    let el = await page(respond(200, { state: 'outside' }))
+    expect(el.textContent).toContain('This email is shared in chat. Ask the person who shared it.')
+    expect(el.textContent).not.toContain('Northwind')
+    await act(async () => root.unmount())
+    root = createRoot(container)
+    calls = []
+    el = await page(respond(401, { error: 'Unauthorized' }))
+    expect($('[data-email-share-link-outside]')).not.toBeNull()
+  })
+
+  it('a malformed token never asks', async () => {
+    await render(h(EmailShareLinkView, { token: null }))
+    expect(calls).toEqual([])
+    expect($('[data-email-share-link-outside]')).not.toBeNull()
   })
 })
 
@@ -203,7 +299,7 @@ describe('the thread view', () => {
       metadata: { needs_reply: false, auto_classified: null, linked_capture_id: null },
     }
     routes = (url) => {
-      if (url.startsWith('/api/account/email/shares?')) return respond(200, { shares: [{ id: SHARE, channelId: SALES, label: '#sales', createdAt: '2026-11-14T10:00:00Z' }] })
+      if (url.startsWith('/api/account/email/shares?')) return respond(200, { shares: [{ id: SHARE, kind: 'share', channelId: SALES, label: '#sales', createdAt: '2026-11-14T10:00:00Z' }] })
       if (url.endsWith('/labels')) return respond(200, { labels: [] })
       if (url.startsWith('/api/account/email/shares/targets')) return respond(200, { targets: [] })
       if (url.startsWith('/api/account/email/scheduled')) return respond(200, { scheduled: [] })
@@ -211,6 +307,7 @@ describe('the thread view', () => {
     }
     await render(h(EmailThreadDetail, { threadId: 'thr-1' } as never))
     expect($('button[data-email-share]')).not.toBeNull()
+    expect($('button[data-email-copy-link]')).not.toBeNull()
     expect($(`[data-email-share-chip="${SHARE}"]`)?.textContent).toContain('Shared to #sales')
     await act(async () => $<HTMLButtonElement>('button[data-email-share]')!.click())
     await flush()

@@ -28,11 +28,12 @@ import {
 } from '@/lib/email-share/types'
 import { EmailMessage, type EmailMessageData } from './email-message'
 import { unshareEmail } from './email-share-dialog'
+import { emailShareLinkTokens } from '@/lib/email-share/links'
 
 type CardState = { kind: 'idle' } | { kind: 'loading' } | { kind: 'card'; card: EmailShareCardView } | { kind: 'hidden' } | { kind: 'busy' }
 
 /** "Couldn't load right now · Retry": the mailbox didn't answer now (503 busy, or no answer at all). */
-function BusyLine({ onRetry }: { onRetry: () => void }) {
+export function BusyLine({ onRetry }: { onRetry: () => void }) {
   return (
     <p className="text-sm text-muted-foreground" data-email-share-busy="">
       {EMAIL_SHARE_BUSY_TEXT}
@@ -156,11 +157,54 @@ export function EmailShareCard({ shareId }: { shareId: string }) {
   )
 }
 
+/**
+ * A shared thread's messages, read-only: "Load images" when remote images
+ * were left out, how many shared messages are gone, and each message (an
+ * attachment downloads through `attachmentHref`, when there is one).
+ */
+export function EmailShareMessages({
+  thread,
+  images,
+  onLoadImages,
+  attachmentHref,
+}: {
+  thread: Pick<EmailShareThreadView, 'messages' | 'missing' | 'blockedImages'>
+  images: boolean
+  onLoadImages: () => void
+  attachmentHref?: (messageId: string, key: string) => string | null
+}) {
+  return (
+    <>
+      {!images && thread.blockedImages > 0 && (
+        <p className="flex items-center gap-2 text-xs text-muted-foreground" data-email-share-images="">
+          Images from outside were not loaded.
+          <button type="button" onClick={onLoadImages} className="font-medium text-foreground underline-offset-2 hover:underline" data-email-share-load-images="">
+            Load images
+          </button>
+        </p>
+      )}
+      {thread.missing > 0 && (
+        <p className="text-xs text-muted-foreground" data-email-share-missing="">
+          {thread.missing === 1 ? '1 message is' : `${thread.missing} messages are`} no longer available.
+        </p>
+      )}
+      {thread.messages.map((m, i) => (
+        <EmailMessage
+          key={m.id}
+          message={asMessageData(m)}
+          defaultExpanded={i === thread.messages.length - 1}
+          attachmentHref={attachmentHref ? (a) => (a.key ? attachmentHref(m.id, a.key) : null) : undefined}
+        />
+      ))}
+    </>
+  )
+}
+
 /** A shared message as the mail view's message draws it: read-only, never unread, starred or a draft. */
-function asMessageData(m: EmailShareMessage, shareId: string): EmailMessageData {
+function asMessageData(m: EmailShareMessage): EmailMessageData {
   return {
     id: m.id,
-    threadId: shareId,
+    threadId: '',
     from: m.from,
     to: m.to,
     cc: m.cc,
@@ -233,34 +277,47 @@ export function EmailShareThreadDialog({ shareId, onClose, onGone }: { shareId: 
               }}
             />
           ) : (
-            <>
-              {!state.images && state.thread.blockedImages > 0 && (
-                <p className="flex items-center gap-2 text-xs text-muted-foreground" data-email-share-images="">
-                  Images from outside were not loaded.
-                  <button type="button" onClick={() => void read(true)} className="font-medium text-foreground underline-offset-2 hover:underline" data-email-share-load-images="">
-                    Load images
-                  </button>
-                </p>
-              )}
-              {state.thread.missing > 0 && (
-                <p className="text-xs text-muted-foreground" data-email-share-missing="">
-                  {state.thread.missing === 1 ? '1 message is' : `${state.thread.missing} messages are`} no longer available.
-                </p>
-              )}
-              {state.thread.messages.map((m, i) => (
-                <EmailMessage
-                  key={m.id}
-                  message={asMessageData(m, shareId)}
-                  defaultExpanded={i === state.thread.messages.length - 1}
-                  attachmentHref={(a) =>
-                    a.key ? `${shareUrl(shareId)}/attachment?message=${encodeURIComponent(m.id)}&key=${encodeURIComponent(a.key)}` : null
-                  }
-                />
-              ))}
-            </>
+            <EmailShareMessages
+              thread={state.thread}
+              images={state.images}
+              onLoadImages={() => void read(true)}
+              attachmentHref={(messageId, key) => `${shareUrl(shareId)}/attachment?message=${encodeURIComponent(messageId)}&key=${encodeURIComponent(key)}`}
+            />
           )}
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * The email cards a team chat message carries: its share (a picker share, or
+ * the first link its author pasted), and, when its words hold several share
+ * links, one card for each share they made (read for the channel's readers).
+ */
+export function EmailShareCards({ message }: { message: { id: string; body: string; email_share_id?: string | null } }) {
+  const several = emailShareLinkTokens(message.body).length > 1
+  const [ids, setIds] = useState<string[] | null>(null)
+  useEffect(() => {
+    if (!several || !message.email_share_id) return
+    let cancelled = false
+    fetch(`/api/account/email/shares?message=${encodeURIComponent(message.id)}`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : { ids: [] }))
+      .then((d: { ids?: unknown }) => {
+        if (!cancelled) setIds(Array.isArray(d.ids) ? d.ids.filter((x): x is string => typeof x === 'string') : [])
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [several, message.id, message.email_share_id])
+  if (!message.email_share_id) return null
+  const all = ids && ids.length > 0 ? ids : [message.email_share_id]
+  return (
+    <>
+      {all.map((id) => (
+        <EmailShareCard key={id} shareId={id} />
+      ))}
+    </>
   )
 }

@@ -23,7 +23,10 @@
  * error: logs carry ids and counts only.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { randomBytes } from 'node:crypto'
 import { getServiceClient } from '@/lib/admin'
+import { appUrl } from '@/lib/app-url'
+import { emailShareLinkPath, isEmailShareLinkToken } from './links'
 import { ownedMailbox } from '@/lib/email/thread-mailbox'
 import { readableWorkspaceEmailAccounts } from '@/lib/email/account-scope'
 import { TEAM_CHAT_MESSAGE_COLUMNS, dmOtherMember, isUuid, type TeamChatMessage } from '@/lib/team-chat/types'
@@ -389,17 +392,28 @@ export async function readSharedThread(
   if ('ok' in access) return access
   if (access.kind !== 'live') return access.kind === 'revoked' ? REVOKED : UNAVAILABLE
   const { share, mailbox } = access
-  const ids = share.message_ids
+  const view = await readFrozen(deps, mailbox, share.provider_thread_id, share.message_ids, opts)
+  return view ? { id: share.id, mine: access.mine, ...view } : UNAVAILABLE
+}
+
+/** Only these frozen messages, read live from the owner's mailbox; null when none of them is there any more. */
+async function readFrozen(
+  deps: EmailShareDeps,
+  mailbox: ShareMailbox,
+  threadId: string,
+  ids: readonly string[],
+  opts: { images?: boolean },
+): Promise<Omit<EmailShareThreadView, 'id' | 'mine'> | null> {
   const read: Array<EmailShareMessage | null> = new Array(ids.length).fill(null)
   for (let i = 0; i < ids.length; i += READ_CONCURRENCY) {
     const batch = ids.slice(i, i + READ_CONCURRENCY)
-    const got = await Promise.all(batch.map((id) => deps.provider.message(mailbox, id, share.provider_thread_id, { images: opts.images === true })))
+    const got = await Promise.all(batch.map((id) => deps.provider.message(mailbox, id, threadId, { images: opts.images === true })))
     got.forEach((m, j) => (read[i + j] = m))
   }
   const messages = read.filter((m): m is EmailShareMessage => !!m)
-  if (messages.length === 0) return UNAVAILABLE
+  if (messages.length === 0) return null
   const blockedImages = messages.reduce((n, m) => n + (m.blockedImages ?? 0), 0)
-  return { id: share.id, subject: messages[0].subject || '(no subject)', mine: access.mine, messages, missing: ids.length - messages.length, blockedImages }
+  return { subject: messages[0].subject || '(no subject)', messages, missing: ids.length - messages.length, blockedImages }
 }
 
 /** One attachment of one of the share's frozen messages, by the key its read listed. */
@@ -440,7 +454,23 @@ export async function listThreadShares(
     .order('created_at', { ascending: true })
     .limit(50)
   const rows = (data ?? []) as Array<{ id: string; channel_id: string; created_at: string }>
-  if (rows.length === 0) return []
+  const { data: linkRows } = await deps.svc
+    .from('email_share_link')
+    .select('id, created_at')
+    .eq('owner_user_id', caller.userId)
+    .eq('workspace_id', caller.workspaceId)
+    .eq('provider_thread_id', thread.providerThreadId)
+    .is('revoked_at', null)
+    .order('created_at', { ascending: true })
+    .limit(20)
+  const links: EmailShareChip[] = ((linkRows ?? []) as Array<{ id: string; created_at: string }>).map((l) => ({
+    id: l.id,
+    kind: 'link',
+    channelId: null,
+    label: 'Link',
+    createdAt: l.created_at,
+  }))
+  if (rows.length === 0) return links
   const { data: channels } = await deps.svc
     .from('team_chat_channel')
     .select('id, kind, name, dm_key')
@@ -449,10 +479,11 @@ export async function listThreadShares(
   const needNames = [...byId.values()].some((c) => c.kind === 'dm')
   const names = needNames ? await memberNames(deps.svc, caller.workspaceId) : new Map()
   const nameOf = new Map([...names].map(([id, m]) => [id, m.name]))
-  return rows.map((r) => {
+  const shares = rows.map((r): EmailShareChip => {
     const c = byId.get(r.channel_id)
-    return { id: r.id, channelId: r.channel_id, label: c ? channelLabel(c, caller.memberId, nameOf) : 'a conversation', createdAt: r.created_at }
+    return { id: r.id, kind: 'share', channelId: r.channel_id, label: c ? channelLabel(c, caller.memberId, nameOf) : 'a conversation', createdAt: r.created_at }
   })
+  return [...shares, ...links]
 }
 
 /**
@@ -489,4 +520,172 @@ export async function listShareTargets(deps: EmailShareDeps, caller: ShareCaller
     return { id: c.id, kind: c.kind as 'channel' | 'dm', label: channelLabel(c, caller.memberId, nameOf), outside }
   })
   return targets.sort((a, b) => (a.kind === b.kind ? a.label.localeCompare(b.label) : a.kind === 'channel' ? -1 : 1))
+}
+
+// ── A message's shares (several pasted links) ───────────────────────────────
+
+/**
+ * The live shares a team chat message carries, oldest first, for a reader of
+ * its channel (asked as them): a message with several pasted links draws a
+ * card for each. Anyone else: none.
+ */
+export async function listMessageShares(deps: EmailShareDeps, caller: ShareCaller, messageId: string): Promise<string[]> {
+  if (!isUuid(messageId)) return []
+  const { data: message } = await deps.svc.from('team_chat_message').select('id, channel_id, workspace_id').eq('id', messageId).maybeSingle<{ id: string; channel_id: string; workspace_id: string }>()
+  if (!message || message.workspace_id !== caller.workspaceId) return []
+  const { data: canRead, error } = await caller.supabase.rpc('team_chat_can_read', { ch: message.channel_id })
+  if (error || canRead !== true) return []
+  const { data } = await deps.svc
+    .from('email_share')
+    .select('id, created_at')
+    .eq('team_chat_message_id', messageId)
+    .order('created_at', { ascending: true })
+    .limit(10)
+  return ((data ?? []) as Array<{ id: string }>).map((r) => r.id)
+}
+
+// ── Share links (copied, pasted into a chat by hand) ────────────────────────
+
+/** A new link token: 32 bytes from the CSPRNG, base64url (43 characters, 256 bits). */
+export function newShareLinkToken(): string {
+  return randomBytes(32).toString('base64url')
+}
+
+export type ShareLinkResult = { ok: true; linkId: string; token: string; url: string; reused: boolean } | ShareFailure
+
+const sameIds = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((id, i) => id === b[i])
+
+/**
+ * Copy link: the caller's own thread's link, its message ids read live and
+ * frozen now. An open link for the same thread and the same messages is
+ * handed back again (one link per message set); a new reply since makes a
+ * new link. It grants nothing until its owner pastes it in a chat.
+ */
+export async function createShareLink(
+  deps: EmailShareDeps,
+  caller: ShareCaller,
+  input: Pick<ShareInput, 'indexId' | 'threadId' | 'accountId'>,
+  newToken: () => string = newShareLinkToken,
+): Promise<ShareLinkResult> {
+  const thread = await ownThread(deps, caller, input)
+  if (thread === 'not_owner') return NOT_OWNER
+  if (!thread) return fail(404, 'not_found', 'Email not found')
+  if (!thread.accountId) return fail(409, 'no_mailbox', 'Reconnect this mailbox to share from it')
+  const mailbox = await deps.mailbox(caller.userId, thread.accountId, caller.workspaceId)
+  if (!mailbox || mailbox.provider !== thread.provider) return fail(409, 'no_mailbox', 'This mailbox is disconnected. Reconnect it to share from it.')
+  const messageIds = await deps.provider.threadIds(mailbox, thread.providerThreadId)
+  if (!messageIds || messageIds.length === 0) return UNAVAILABLE
+  const url = (token: string) => `${appUrl()}${emailShareLinkPath(token)}`
+
+  const { data: open } = await deps.svc
+    .from('email_share_link')
+    .select('id, token, account_id, message_ids')
+    .eq('owner_user_id', caller.userId)
+    .eq('workspace_id', caller.workspaceId)
+    .eq('provider_thread_id', thread.providerThreadId)
+    .is('revoked_at', null)
+    .order('created_at', { ascending: false })
+    .limit(20)
+  const same = ((open ?? []) as Array<{ id: string; token: string; account_id: string | null; message_ids: string[] }>).find(
+    (l) => l.account_id === thread.accountId && sameIds(l.message_ids, messageIds),
+  )
+  if (same) return { ok: true, linkId: same.id, token: same.token, url: url(same.token), reused: true }
+
+  const token = newToken()
+  const { data: link, error } = await deps.svc
+    .from('email_share_link')
+    .insert({
+      token,
+      workspace_id: caller.workspaceId,
+      owner_user_id: caller.userId,
+      account_id: thread.accountId,
+      provider: thread.provider,
+      provider_thread_id: thread.providerThreadId,
+      thread_index_id: thread.indexId,
+      message_ids: messageIds,
+    })
+    .select('id')
+    .single<{ id: string }>()
+  if (error || !link) return fail(500, 'failed', "Couldn't make a link")
+  return { ok: true, linkId: link.id, token, url: url(token), reused: false }
+}
+
+/** Revoke a link (the owner's alone): it binds nothing from now on, and every share made from it ends at once. */
+export async function revokeShareLink(deps: EmailShareDeps, caller: ShareCaller, linkId: string): Promise<{ ok: true; revokedShares: number } | ShareFailure> {
+  if (!isUuid(linkId)) return NOT_FOUND
+  const { data: link } = await deps.svc
+    .from('email_share_link')
+    .select('id, owner_user_id, workspace_id, revoked_at')
+    .eq('id', linkId)
+    .maybeSingle<{ id: string; owner_user_id: string; workspace_id: string; revoked_at: string | null }>()
+  if (!link || link.workspace_id !== caller.workspaceId || link.owner_user_id !== caller.userId) return NOT_FOUND
+  const at = new Date().toISOString()
+  if (!link.revoked_at) {
+    const { error } = await deps.svc.from('email_share_link').update({ revoked_at: at }).eq('id', linkId).is('revoked_at', null)
+    if (error) return fail(500, 'failed', "Couldn't revoke the link")
+  }
+  const { data: ended, error } = await deps.svc.from('email_share').update({ revoked_at: at }).eq('link_id', linkId).is('revoked_at', null).select('id')
+  if (error) return fail(500, 'failed', "Couldn't revoke the link")
+  return { ok: true, revokedShares: (ended ?? []).length }
+}
+
+/** What a link's page shows the person opening it. */
+export type ShareLinkPage =
+  | { state: 'owner'; revoked: boolean; thread: Omit<EmailShareThreadView, 'id' | 'mine'> | null }
+  | { state: 'shared'; thread: EmailShareThreadView }
+  | { state: 'unavailable' }
+  | { state: 'outside' }
+
+/**
+ * The link's page (/mail/s/<token>), for whoever opens it (signed in; their
+ * own RLS client asks team chat's read rule). The owner: their thread's
+ * frozen messages. A member of the link's workspace who may read a chat
+ * where a live share from this link sits: that share, through the share
+ * reader and its checks. Anyone else, an unknown token, or a revoked link
+ * for anyone but its owner: 'outside', with nothing of the mail and nothing
+ * about the link.
+ */
+export async function resolveShareLink(
+  deps: EmailShareDeps,
+  viewer: { supabase: SupabaseClient; userId: string },
+  token: string,
+  opts: { images?: boolean } = {},
+): Promise<ShareLinkPage> {
+  if (!isEmailShareLinkToken(token)) return { state: 'outside' }
+  const { data: link } = await deps.svc
+    .from('email_share_link')
+    .select('id, workspace_id, owner_user_id, account_id, provider, provider_thread_id, message_ids, revoked_at')
+    .eq('token', token)
+    .maybeSingle<{ id: string; workspace_id: string; owner_user_id: string; account_id: string | null; provider: 'google' | 'microsoft'; provider_thread_id: string; message_ids: string[]; revoked_at: string | null }>()
+  if (!link) return { state: 'outside' }
+  const { data: member } = await deps.svc.from('member').select('id').eq('workspace_id', link.workspace_id).eq('user_id', viewer.userId).maybeSingle<{ id: string }>()
+  if (!member) return { state: 'outside' }
+
+  if (link.owner_user_id === viewer.userId) {
+    const mailbox = link.account_id ? await deps.mailbox(link.owner_user_id, link.account_id, link.workspace_id) : null
+    if (!mailbox || mailbox.provider !== link.provider) return { state: 'owner', revoked: !!link.revoked_at, thread: null }
+    return { state: 'owner', revoked: !!link.revoked_at, thread: await readFrozen(deps, mailbox, link.provider_thread_id, link.message_ids, opts) }
+  }
+  if (link.revoked_at) return { state: 'outside' }
+
+  const { data: shares } = await deps.svc
+    .from('email_share')
+    .select('id, channel_id, created_at')
+    .eq('link_id', link.id)
+    .eq('workspace_id', link.workspace_id)
+    .is('revoked_at', null)
+    .order('created_at', { ascending: true })
+    .limit(50)
+  const caller: ShareCaller = { supabase: viewer.supabase, userId: viewer.userId, workspaceId: link.workspace_id, memberId: member.id }
+  for (const share of (shares ?? []) as Array<{ id: string; channel_id: string }>) {
+    const view = await readSharedThread(deps, caller, share.id, opts)
+    if (!isFailure(view)) return { state: 'shared', thread: view }
+    // Not readable by them (404): the next chat it sits in. Readable but gone: say so.
+    if (view.status === 410) return { state: 'unavailable' }
+  }
+  return { state: 'outside' }
+}
+
+function isFailure(value: unknown): value is ShareFailure {
+  return !!value && typeof value === 'object' && (value as { ok?: unknown }).ok === false
 }

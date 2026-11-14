@@ -69,8 +69,11 @@ export interface EmailShareTarget {
 
 /** Where a thread is shared, for its owner's chips. */
 export interface EmailShareChip {
+  /** The share's id, or the link's (kind 'link'). */
   id: string
-  channelId: string
+  /** A share in a chat ("Shared to #sales · Un-share"), or a copied link ("Link · Revoke"). */
+  kind: 'share' | 'link'
+  channelId: string | null
   label: string
   createdAt: string
 }

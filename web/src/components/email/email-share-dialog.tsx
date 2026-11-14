@@ -14,13 +14,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { toast } from 'sonner'
-import { AlertTriangle, Hash, Loader2, User } from 'lucide-react'
+import { AlertTriangle, Hash, Link2, Loader2, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { EMAIL_SHARE_NOTE_MAX, EMAIL_SHARE_OUTSIDE_WARNING, type EmailShareTarget } from '@/lib/email-share/types'
+import { EMAIL_SHARE_LINK_COPIED } from '@/lib/email-share/links'
+import { copyDeferredTextToClipboard } from '@/lib/clipboard'
 
 /** The thread to share: the thread view knows its provider id (and mailbox), the entity menu its index row. */
 export interface EmailShareThreadRef {
@@ -45,6 +47,61 @@ async function errorOf(res: Response, fallback: string): Promise<string> {
     return typeof data.error === 'string' && data.error ? data.error : fallback
   } catch {
     return fallback
+  }
+}
+
+/**
+ * Copy link: the thread's share link (made, or the open one for the same
+ * messages), copied for pasting into a chat by hand. It grants nothing until
+ * its owner posts it in a chat. Toasts what to do with it, or why it
+ * couldn't. True when copied.
+ */
+export async function copyEmailShareLink(thread: EmailShareThreadRef, opts: { onMade?: () => void } = {}): Promise<boolean> {
+  let why = "Couldn't make a link"
+  const url = (async () => {
+    const res = await fetch('/api/account/email/shares/links', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...(thread.threadId ? { threadId: thread.threadId } : {}),
+        ...(thread.indexId ? { indexId: thread.indexId } : {}),
+        ...(thread.accountId ? { accountId: thread.accountId } : {}),
+      }),
+    })
+    if (!res.ok) {
+      why = await errorOf(res, why)
+      throw new Error('no link')
+    }
+    const data = (await res.json().catch(() => null)) as { url?: unknown } | null
+    if (typeof data?.url !== 'string') throw new Error('no link')
+    opts.onMade?.()
+    return data.url
+  })()
+  // Started inside the click (WKWebView and Safari allow the write only then), the link filled in when it comes.
+  const copied = await copyDeferredTextToClipboard(url)
+  const made = await url.then(
+    () => true,
+    () => false,
+  )
+  if (!made) {
+    toast.error(why)
+    return false
+  }
+  if (!copied) {
+    toast.error("Couldn't copy the link")
+    return false
+  }
+  toast.success(EMAIL_SHARE_LINK_COPIED)
+  return true
+}
+
+/** Revoke a copied link (the owner's): it binds nothing from now on, and every share made from it ends. */
+export async function revokeEmailShareLink(linkId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/account/email/shares/links/${encodeURIComponent(linkId)}`, { method: 'DELETE' })
+    return res.ok
+  } catch {
+    return false
   }
 }
 
@@ -126,6 +183,7 @@ export function EmailShareDialog({
   thread,
   onShared,
   onUndone,
+  onLinkMade,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -134,6 +192,8 @@ export function EmailShareDialog({
   onShared?: (shareId: string) => void
   /** Its toast's Undo un-shared it. */
   onUndone?: () => void
+  /** Copy link made (or reused) a link (the thread view reloads its chips). */
+  onLinkMade?: () => void
 }) {
   const [targets, setTargets] = useState<EmailShareTarget[] | null>(null)
   const [query, setQuery] = useState('')
@@ -233,7 +293,17 @@ export function EmailShareDialog({
           placeholder="Add a note (optional)"
           aria-label="Note"
         />
-        <DialogFooter>
+        <DialogFooter className="sm:justify-between">
+          <Button
+            type="button"
+            variant="ghost"
+            className="gap-1.5 text-muted-foreground sm:mr-auto"
+            onClick={() => void copyEmailShareLink(thread, { onMade: onLinkMade })}
+            data-share-copy-link=""
+          >
+            <Link2 className="h-3.5 w-3.5" />
+            Copy link
+          </Button>
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>

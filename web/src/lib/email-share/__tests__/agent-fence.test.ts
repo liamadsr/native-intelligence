@@ -123,15 +123,20 @@ describe('the share routes', () => {
   it('every share route checks the caller (Bearer refused) before it reaches the share layer', () => {
     const root = join(process.cwd(), 'src/app/api/account/email/shares')
     const routes = walk(root).filter((f) => f.endsWith('route.ts'))
-    expect(routes.length).toBe(4)
+    expect(routes.length).toBe(6)
     for (const file of routes) {
       const src = readFileSync(file, 'utf8')
       const handlers = [...src.matchAll(/export async function (GET|POST|DELETE|PATCH|PUT)\b/g)]
       expect(handlers.length, file).toBeGreaterThan(0)
       handlers.forEach((h, n) => {
         const body = src.slice(h.index, handlers[n + 1]?.index ?? src.length)
-        const check = body.indexOf('await shareCaller(request)')
-        const reach = body.search(/createEmailShare|readShareCard|readSharedThread|readSharedAttachment|revokeEmailShare|listThreadShares|listShareTargets|defaultEmailShareDeps/)
+        // The caller check (device tokens refused): shareCaller, or (the link's page, any member of its workspace) refuseBearer then requireUser.
+        const caller = body.indexOf('await shareCaller(request)')
+        const page = body.indexOf('refuseBearer(request)') > -1 && body.indexOf('await requireUser()') > body.indexOf('refuseBearer(request)') ? body.indexOf('await requireUser()') : -1
+        const check = caller > -1 ? caller : page
+        const reach = body.search(
+          /createEmailShare|readShareCard|readSharedThread|readSharedAttachment|revokeEmailShare|listThreadShares|listShareTargets|listMessageShares|createShareLink|revokeShareLink|resolveShareLink|defaultEmailShareDeps/,
+        )
         expect(check, `${file} ${h[1]}`).toBeGreaterThan(-1)
         expect(reach, `${file} ${h[1]}`).toBeGreaterThan(check)
       })
@@ -181,7 +186,11 @@ function walk(dir: string): string[] {
 /** A reference to the share's reader, by any path form: alias, relative, dynamic import, require, the directory itself. */
 const READER_REF = /email-share(?:\/(?:service|provider|http|sanitize|index)(?:\.[cm]?[jt]sx?)?)?['"`]/
 /** The table's name as a string ('email_share', or inside a query string), never its column email_share_id. */
-const TABLE_STRING = /(['"`])[^'"`\n]*\bemail_share\b[^'"`\n]*\1/
+const TABLE_STRING = /(['"`])[^'"`\n]*\bemail_share(?:_link)?\b[^'"`\n]*\1/
+/** The link binder (reads email_share_link, makes shares, never reads mail). */
+const BINDER_REF = /email-share\/bind(?:\.[cm]?[jt]sx?)?['"`]/
+/** The one place outside the share's own code that may bind pasted links: the message post route. */
+const POST_ROUTE = 'src/app/api/account/team-chat/channels/[id]/messages/route.ts'
 
 describe('tripwire: only the share routes reach a share’s mail', () => {
   it('catches every form of reaching for it (the patterns themselves)', () => {
@@ -201,6 +210,9 @@ describe('tripwire: only the share routes reach a share’s mail', () => {
       expect(TABLE_STRING.test(line), line).toBe(true)
     }
     expect(TABLE_STRING.test("select('id, email_share_id')")).toBe(false)
+    expect(TABLE_STRING.test("svc.from('email_share_link').select('token')")).toBe(true)
+    expect(BINDER_REF.test("import { bindEmailShareLinks } from '@/lib/email-share/bind'")).toBe(true)
+    expect(BINDER_REF.test("await import('../../lib/email-share/bind.ts')")).toBe(true)
   })
 
   it('no agent, tool, MCP, loop, job or chat code reaches the share reader or its table', () => {
@@ -213,8 +225,20 @@ describe('tripwire: only the share routes reach a share’s mail', () => {
       if (allowed(rel)) continue
       const src = readFileSync(f, 'utf8')
       if (READER_REF.test(src)) offenders.push(`${rel}: imports the share reader`)
-      if (TABLE_STRING.test(src)) offenders.push(`${rel}: names the email_share table`)
+      if (TABLE_STRING.test(src)) offenders.push(`${rel}: names the email_share or email_share_link table`)
+      if (BINDER_REF.test(src) && rel !== POST_ROUTE) offenders.push(`${rel}: binds share links`)
     }
     expect(offenders).toEqual([])
+  })
+})
+
+describe('the link binder', () => {
+  it('reads link and share rows only: no mailbox read, no share reader', () => {
+    const src = readFileSync(join(process.cwd(), 'src/lib/email-share/bind.ts'), 'utf8')
+    expect(src).not.toMatch(/from ['"`]\.\/(service|provider|http|sanitize)['"`]/)
+    expect(src).not.toMatch(/liveShared|liveThreadMessageIds|readEmailThread|gmail|graph\.microsoft/i)
+    // Its only importer outside the share's code is the post route.
+    const post = readFileSync(join(process.cwd(), POST_ROUTE), 'utf8')
+    expect(BINDER_REF.test(post)).toBe(true)
   })
 })

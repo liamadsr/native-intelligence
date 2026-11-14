@@ -3,7 +3,10 @@
  * chat, read live, store no mail (src/lib/email-share).
  *   GET  ?thread=<provider thread id>&account=<mailbox> | ?index=<index row id>
  *        → { shares: EmailShareChip[] } where the caller's OWN thread is
- *        shared now (the thread view's chips). Anyone else's thread: none.
+ *        shared now, and its open links (the thread view's chips). Anyone
+ *        else's thread: none.
+ *   GET  ?message=<team chat message id> → { ids } the shares a message
+ *        carries (several pasted links), for a reader of its channel.
  *   POST { threadId | indexId, accountId?, channelId, note? } → { share,
  *        label, message } the caller's own thread shared into a channel or DM
  *        they may post in: its message ids read live and frozen, and a
@@ -17,7 +20,7 @@
  */
 import { after, type NextRequest } from 'next/server'
 import { badRequest } from '@/lib/api-errors'
-import { createEmailShare, defaultEmailShareDeps, listThreadShares } from '@/lib/email-share/service'
+import { createEmailShare, defaultEmailShareDeps, listMessageShares, listThreadShares } from '@/lib/email-share/service'
 import { noStore, shareCaller, shareError, shareFailure } from '@/lib/email-share/http'
 import { firstLink, requestLinkPreview } from '@/lib/team-chat/link-preview'
 import { requestTeamChatNotify } from '@/lib/team-chat/notify'
@@ -26,6 +29,8 @@ export async function GET(request: NextRequest) {
   const caller = await shareCaller(request)
   if (caller instanceof Response) return caller
   const params = request.nextUrl.searchParams
+  const messageId = params.get('message')
+  if (messageId) return noStore({ ids: await listMessageShares(defaultEmailShareDeps(), caller, messageId) })
   const shares = await listThreadShares(defaultEmailShareDeps(), caller, {
     threadId: params.get('thread'),
     accountId: params.get('account'),
