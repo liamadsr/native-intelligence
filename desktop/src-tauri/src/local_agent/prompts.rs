@@ -58,7 +58,6 @@ use serde_json::Value;
 
 use super::folder;
 use super::push::{Change, Changed};
-use super::workers::Worker;
 
 pub const PUSH_ALLOW: &str = "Push and open PR";
 pub const PUSH_DENY: &str = "Not now";
@@ -88,6 +87,10 @@ const SHOWN_BASE: usize = super::git::MAX_BASE_BRANCH;
 const SHOWN_FILE: usize = 100;
 /// A worker's task in its confirm.
 const SHOWN_REQUEST: usize = 300;
+/// The start of a pull request's description in its push prompt, and how
+/// many of the issues it closes are named.
+const SHOWN_BODY: usize = 280;
+const SHOWN_CLOSES: usize = 5;
 
 /// Folders of credentials: each entry's realpath is read-protected too, as
 /// dotfile managers (Mackup, stow) symlink them into synced folders.
@@ -144,10 +147,120 @@ pub struct NativePrompt {
 }
 
 /// `push`'s detail.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct PushAsk {
     pub title: String,
     pub body: String,
+    /// This repository's issues the description closes when merged (`#12`),
+    /// once [`PushAsk::made_inert`]: the prompt lists them.
+    pub closes: Vec<String>,
+    /// Mentions, other repositories' closing references or hidden comments
+    /// were made inert: the prompt says so.
+    pub inert: bool,
+    /// The description holds HTML (left as it is): the prompt says so.
+    pub html: bool,
+}
+
+/// GitHub's longest pull request body, in characters.
+const GITHUB_MAX_BODY: usize = 65_536;
+
+/// `text` made inert ([`super::pr_text`]), at most `max` characters: the
+/// text is cut BEFORE the change (a cut never splits a code span the change
+/// made), shorter each round until the result fits.
+fn inert_within(text: &str, repo: Option<&str>, max: usize) -> super::pr_text::Inert {
+    let mut keep = text.chars().count();
+    loop {
+        let source = if keep < text.chars().count() { cut(text, keep.max(1)) } else { text.to_string() };
+        let made = super::pr_text::make_inert(&source, repo, super::pr_text::Kind::Description);
+        let len = made.text.chars().count();
+        if len <= max || keep <= 1 {
+            return made;
+        }
+        // Over by `len - max`: drop at least that much of the source (more
+        // when a comment ate the cut part).
+        keep = keep.saturating_sub((len - max).max(keep / 8).max(1));
+    }
+}
+
+impl PushAsk {
+    /// Every push goes through here before it is asked about (our own
+    /// agent's and a coding agent's alike): the title and description made
+    /// inert for the pull request's repository (`host/owner/name`, when
+    /// known), and the description's same-repository closing references
+    /// kept for the prompt to list.
+    pub fn made_inert(self, repo: Option<&str>) -> PushAsk {
+        let slug = repo.and_then(|r| r.split_once('/')).map(|(_, slug)| slug);
+        let title = inert_within(&self.title, slug, MAX_TITLE);
+        let body = inert_within(&self.body, slug, GITHUB_MAX_BODY);
+        // The title's too: on a squash merge it becomes the commit's
+        // subject, and closes what it names.
+        let mut closes: Vec<String> = Vec::new();
+        for c in title.closes.iter().chain(body.closes.iter()) {
+            if !closes.contains(c) {
+                closes.push(c.clone());
+            }
+        }
+        let inert = title.changed() || body.changed();
+        // Spaces a removed comment left, collapsed; never [`one_line`],
+        // which would drop the zero-width spaces that keep mentions inert.
+        let title = match title.text.split_whitespace().collect::<Vec<_>>().join(" ") {
+            t if t.is_empty() => super::git::DEFAULT_SUBJECT.to_string(),
+            t => t,
+        };
+        PushAsk {
+            html: body.html,
+            title,
+            inert,
+            body: body.text,
+            closes,
+        }
+    }
+
+    /// The prompt's lines about the description: its start (whitespace
+    /// collapsed), the issues it closes, and whether anything was made inert.
+    fn described(&self) -> String {
+        let mut parts = Vec::new();
+        let flat = one_line(&self.body);
+        if !flat.is_empty() {
+            let n = flat.chars().count();
+            if n <= SHOWN_BODY {
+                parts.push(format!("Description: {flat}"));
+            } else {
+                let start: String = flat.chars().take(SHOWN_BODY).collect();
+                parts.push(format!("Description: {}\u{2026} ({} characters)", start.trim_end(), thousands(n)));
+            }
+        }
+        let mut notes = Vec::new();
+        if !self.closes.is_empty() {
+            let shown: Vec<&str> = self.closes.iter().take(SHOWN_CLOSES).map(String::as_str).collect();
+            let more = self.closes.len().saturating_sub(SHOWN_CLOSES);
+            let more = if more > 0 { format!(" and {more} more") } else { String::new() };
+            notes.push(format!("Closes when merged: {}{more}", shown.join(", ")));
+        }
+        if self.inert {
+            notes.push("Mentions, other repositories' issue links and hidden comments in it were made inert.".to_string());
+        }
+        if self.html {
+            notes.push("It contains HTML: some of it may be collapsed or not shown as written.".to_string());
+        }
+        if !notes.is_empty() {
+            parts.push(notes.join("\n"));
+        }
+        parts.join("\n\n")
+    }
+}
+
+/// 2340 → "2,340".
+fn thousands(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
 }
 
 impl PushAsk {
@@ -169,6 +282,7 @@ impl PushAsk {
         Ok(PushAsk {
             title: cut(&title, MAX_TITLE),
             body: cut(&body, MAX_BODY),
+            ..PushAsk::default()
         })
     }
 }
@@ -726,6 +840,9 @@ fn changed_lines(c: &Changed) -> String {
 /// request?": what the push goes on top of. The body says what it sends:
 /// "only that commit", or also the earlier commits the remote doesn't have
 /// (then it is drawn as a warning), and then the files the job changed.
+/// Between the title and that, the description as it will be published
+/// ([`PushAsk::made_inert`]): its start, the issues it closes, and a line
+/// when anything in it was made inert.
 pub fn push_prompt(at: &PushWhere<'_>, ask: &PushAsk) -> NativePrompt {
     let short: String = at.commit.chars().take(7).collect();
     let from = at
@@ -739,9 +856,13 @@ pub fn push_prompt(at: &PushWhere<'_>, ask: &PushAsk) -> NativePrompt {
             shown(at.repo.unwrap_or(at.remote), 80)
         ),
         body: format!(
-            "\u{201C}{}\u{201D}\n\nCommit {short}, from Native Intelligence's agent in {}. This runs git push to {} with your \
+            "\u{201C}{}\u{201D}\n\n{}Commit {short}, from Native Intelligence's agent in {}. This runs git push to {} with your \
              own git login, and pushes {}.\n\n{}",
             shown(&ask.title, SHOWN_TITLE),
+            match ask.described() {
+                d if d.is_empty() => d,
+                d => format!("{d}\n\n"),
+            },
             shown(at.label, 60),
             shown(at.remote, 40),
             what_it_sends(at),
@@ -787,20 +908,20 @@ pub enum WorkerLaunch<'a> {
 }
 
 /// "Let Claude Code work in site?" (a resume: "continue"), before the
-/// person's own CLI runs for a cloud agent or a loop (P1-1). The folder, the
-/// worker, the job's request and the message are Rust's; it says a yes also
-/// covers the follow-up messages of the next `yes_for`. Deny is the default,
-/// and no answer within `wait` is a no.
+/// person's own CLI first runs in a folder for a cloud agent or a loop
+/// (P1-1). The folder, the worker's `name` (its label in the bundle's
+/// registry, plain ASCII words), the job's request and the message are
+/// Rust's; it says a yes is remembered for this folder until the worker is
+/// switched off ([`super::starts`]). Deny is the default, and no answer
+/// within `wait` is a no.
 pub fn worker_prompt(
-    worker: Worker,
+    name: &str,
     label: &str,
     path: &str,
     request: &str,
     launch: WorkerLaunch<'_>,
-    yes_for: Duration,
     wait: Duration,
 ) -> NativePrompt {
-    let name = worker.name();
     let task = format!("\u{201C}{}\u{201D}", shown(request, SHOWN_REQUEST));
     let (verb, what) = match launch {
         WorkerLaunch::Start => ("work", format!("Its task: {task}")),
@@ -820,10 +941,11 @@ pub fn worker_prompt(
         title: format!("Let {name} {verb} in {}?", shown(label, 60)),
         body: format!(
             "A Native Intelligence cloud agent or one of your loops wants to run your own {name}, on your own account and with \
-             network access, in {}.\n\n{what}\n\nA yes also lets it run the follow-up messages Native Intelligence sends it for \
-             the next {}; then Native Intelligence asks again. With no answer within {}, it doesn't run.",
+             network access, in {}.\n\n{what}\n\nA yes is remembered for this folder: {name} can then work here whenever \
+             Native Intelligence asks, without asking again, until you switch {name} off in the menu bar. That covers \
+             reading and, when you have shared the folder for editing, changing files there. With no answer within {}, it \
+             doesn't run.",
             shown(path, SHOWN_PATH),
-            super::human(yes_for),
             super::human(wait)
         ),
         allow: format!("Run {name}"),
@@ -1318,6 +1440,7 @@ mod tests {
         let ask = PushAsk {
             title: "Fix the login redirect".into(),
             body: String::new(),
+            ..PushAsk::default()
         };
         let files = Changed {
             files: vec![("src/login.ts".into(), Change::Modified)],
@@ -1390,6 +1513,7 @@ mod tests {
         let ask = PushAsk {
             title: "Fix it".into(),
             body: String::new(),
+            ..PushAsk::default()
         };
         static NONE: Changed = Changed {
             files: Vec::new(),
@@ -1442,11 +1566,104 @@ mod tests {
         assert!(long.title.contains(&format!("(from {longest})")), "{}", long.title);
     }
 
+    fn push_where<'a>(files: &'a Changed) -> PushWhere<'a> {
+        PushWhere {
+            branch: "dial8/site-1234abcd",
+            commit: "0123456789abcdef0123456789abcdef01234567",
+            remote: "origin",
+            repo: Some("github.com/Acme/site"),
+            label: "site",
+            base: None,
+            sends: super::super::push::Sends { job: 1, earlier: 0 },
+            files,
+        }
+    }
+
+    #[test]
+    fn push_prompts_show_the_description_as_it_will_be_published() {
+        let files = Changed {
+            files: Vec::new(),
+            total: 0,
+        };
+        let at = push_where(&files);
+        let asked = |title: &str, body: &str| {
+            let ask = PushAsk::parse(&json!({"title": title, "body": body})).unwrap().made_inert(at.repo);
+            (push_prompt(&at, &ask).body, ask)
+        };
+        // A short one, whitespace collapsed; nothing else to say.
+        let (p, ask) = asked("Fix it", "Fixes the login\n\n  redirect.");
+        assert!(p.contains("\n\nDescription: Fixes the login redirect.\n\nCommit 0123456"), "{p}");
+        assert!(!p.contains("Closes when merged") && !p.contains("inert"), "{p}");
+        assert_eq!(ask.body, "Fixes the login\n\n  redirect.");
+        // No description: no line.
+        let (p, _) = asked("Fix it", "");
+        assert!(p.starts_with("\u{201C}Fix it\u{201D}\n\nCommit 0123456"), "{p}");
+        // A long one: its start, and how long it is.
+        let (p, _) = asked("Fix it", &"word ".repeat(468));
+        let line = p.lines().find(|l| l.starts_with("Description: ")).unwrap();
+        assert!(line.ends_with("\u{2026} (2,339 characters)"), "{line}");
+        assert!(line.chars().count() < 280 + 40, "{line}");
+        // This repository's closing references stay, and are listed.
+        let (p, ask) = asked("Fix it", "fixes #12, Closes: #40, resolves acme/site#40");
+        assert!(p.contains("\nCloses when merged: #12, #40\n\nCommit"), "{p}");
+        assert_eq!(ask.body, "fixes #12, Closes: #40, resolves acme/site#40");
+        let many: String = (1..=8).map(|n| format!("fixes #{n} ")).collect();
+        let (p, _) = asked("Fix it", &many);
+        assert!(p.contains("Closes when merged: #1, #2, #3, #4, #5 and 3 more"), "{p}");
+        // Mentions, other repositories and hidden text: inert, and one line says so.
+        let (p, ask) = asked(
+            "Fix it for @alice",
+            "cc @acme/core <!-- @hidden --> fixes other/repo#3, see https://github.com/x/y/issues/1",
+        );
+        assert_eq!(ask.title, "Fix it for @\u{200B}alice", "the break survives the title's clean-up");
+        assert_eq!(ask.body, "cc @\u{200B}acme/core  fixes other/repo issue 3, see https://github.com/x/y/issues/1");
+        assert!(ask.inert && ask.closes.is_empty());
+        assert!(p.starts_with("\u{201C}Fix it for @alice\u{201D}"), "{p}");
+        assert!(p.contains("Description: cc @acme/core fixes other/repo issue 3"), "{p}");
+        assert!(p.contains("\nMentions, other repositories' issue links and hidden comments in it were made inert.\n\nCommit"), "{p}");
+        assert!(!p.contains("@hidden"), "hidden text is gone: {p}");
+        // HTML: said, never stripped.
+        let (p, ask) = asked("Fix it", "<details><summary>Logs</summary>long</details>");
+        assert!(ask.html && ask.body.contains("<details>"));
+        assert!(p.contains("\nIt contains HTML: some of it may be collapsed or not shown as written.\n\nCommit"), "{p}");
+        let (p, _) = asked("Fix it", "a < b, and `<b>` in code");
+        assert!(!p.contains("HTML"), "{p}");
+        // The title's closers are listed too (a squash merge's subject),
+        // once each, under the same cap.
+        let (p, ask) = asked("Fix login, fixes #12", "closes #12 and resolves #3");
+        assert_eq!(ask.closes, ["#12", "#3"]);
+        assert!(p.contains("\nCloses when merged: #12, #3\n"), "{p}");
+        assert!(ask.title.contains("fixes #12"), "published as written: {}", ask.title);
+        let (p, _) = asked("fixes #1, fixes #2, fixes #3", "fixes #4 fixes #5 fixes #6 fixes #2");
+        assert!(p.contains("Closes when merged: #1, #2, #3, #4, #5 and 1 more"), "{p}");
+        // Spelled closers and HTML blocks: listed all the same.
+        let (p, _) = asked("Fix it", "fixes \\#12\n\n<details>\nfixes &#35;40 and `closes #41`\n</details>");
+        assert!(p.contains("\nCloses when merged: #12, #40, #41\n"), "{p}");
+        // Hidden text only: the title falls back, the body is empty.
+        let (_, ask) = asked("<!-- x -->", "<!-- y -->");
+        assert_eq!((ask.title.as_str(), ask.body.as_str()), (super::super::git::DEFAULT_SUBJECT, ""));
+    }
+
+    #[test]
+    fn a_long_description_stays_within_githubs_limit_once_inert() {
+        // 60,000 characters (the most a push takes) of mentions: each grows by one.
+        let ask = PushAsk::parse(&json!({"title": "t", "body": "@ab ".repeat(15_000)})).unwrap();
+        assert_eq!(ask.body.chars().count(), 60_000);
+        let made = ask.made_inert(Some("github.com/o/r"));
+        assert!(made.body.chars().count() <= GITHUB_MAX_BODY, "{}", made.body.chars().count());
+        assert_eq!(made.body.matches('@').count(), made.body.matches("@\u{200B}").count(), "every mention made inert");
+        assert_eq!(made.clone().made_inert(Some("github.com/o/r")).body, made.body, "idempotent");
+        assert_eq!(thousands(2_340), "2,340");
+        assert_eq!(thousands(60_000), "60,000");
+        assert_eq!(thousands(999), "999");
+    }
+
     #[test]
     fn push_prompts_list_the_files_the_job_changed() {
         let ask = PushAsk {
             title: "Fix it".into(),
             body: String::new(),
+            ..PushAsk::default()
         };
         let deep = format!("src/{}/main.rs", "d".repeat(200));
         let files = Changed {
@@ -1485,14 +1702,12 @@ mod tests {
 
     #[test]
     fn a_workers_confirm_says_who_asks_where_and_what_for() {
-        let hour = Duration::from_secs(3600);
         let p = worker_prompt(
-            Worker::ClaudeCode,
+            "Claude Code",
             "site",
             "/Users/x/code/site",
             "Fix the\nlogin \u{202E}redirect",
             WorkerLaunch::Start,
-            hour,
             Duration::from_secs(120),
         );
         assert_eq!(p.title, "Let Claude Code work in site?");
@@ -1500,21 +1715,21 @@ mod tests {
             p.body,
             "A Native Intelligence cloud agent or one of your loops wants to run your own Claude Code, on your own account and \
              with network access, in /Users/x/code/site.\n\nIts task: \u{201C}Fix the login redirect\u{201D}\n\n\
-             A yes also lets it run the follow-up messages Native Intelligence sends it for the next 60 min; then Native Intelligence asks \
-             again. With no answer within 2 min, it doesn't run."
+             A yes is remembered for this folder: Claude Code can then work here whenever Native Intelligence asks, without \
+             asking again, until you switch Claude Code off in the menu bar. That covers reading and, when you have shared \
+             the folder for editing, changing files there. With no answer within 2 min, it doesn't run."
         );
         assert_eq!((p.allow.as_str(), p.deny.as_str()), ("Run Claude Code", WORKER_DENY));
         assert_eq!(alert_buttons(&p), (WORKER_DENY, "Run Claude Code"), "deny is the default");
         assert!(p.warning);
         let again = worker_prompt(
-            Worker::Codex,
+            "Codex",
             "site",
             "/s",
             "x",
             WorkerLaunch::Resume {
                 message: Some("now add\nthe \u{202E}tests"),
             },
-            hour,
             Duration::from_secs(30),
         );
         assert_eq!(again.title, "Let Codex continue in site?");
@@ -1525,27 +1740,25 @@ mod tests {
         );
         assert!(again.body.ends_with("within 30 s, it doesn't run."), "{}", again.body);
         let blind = worker_prompt(
-            Worker::Codex,
+            "Codex",
             "site",
             "/s",
             "x",
             WorkerLaunch::Resume { message: None },
-            hour,
             Duration::from_secs(30),
         );
         assert!(blind.body.contains("It continues with a new message from Native Intelligence."), "{}", blind.body);
         let long = worker_prompt(
-            Worker::Codex,
+            "Codex",
             "s",
             "/s",
             &"w".repeat(1_000),
             WorkerLaunch::Resume {
                 message: Some(&"m".repeat(1_000)),
             },
-            hour,
             Duration::from_secs(60),
         );
-        assert!(long.body.chars().count() < 1_000, "{}", long.body);
+        assert!(long.body.chars().count() < 1_100, "{}", long.body);
     }
 
     fn read_check(home: &Path, p: &Path) -> Result<PathBuf, String> {

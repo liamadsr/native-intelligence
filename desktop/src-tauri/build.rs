@@ -62,6 +62,7 @@ const APP_COMMANDS: &[&str] = &[
     "is_cursor_over_hud",
     "list_input_devices",
     "local_agent_device",
+    "local_agent_diff",
     "local_agent_events",
     "local_agent_pick_folder",
     "local_agent_remove_grant",

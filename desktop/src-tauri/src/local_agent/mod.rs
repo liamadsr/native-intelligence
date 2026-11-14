@@ -162,8 +162,10 @@ mod cmdlog;
 pub mod commands;
 mod config;
 mod device;
+mod fence;
 mod folder;
 mod git;
+mod pr_text;
 mod prompts;
 mod protocol;
 mod push;
@@ -176,6 +178,7 @@ mod supervisor;
 #[cfg(all(test, unix))]
 mod tests;
 pub(crate) mod workers;
+mod workspace_tools;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -198,6 +201,7 @@ use prompts::{Access, FenceAsk, FenceRules, NativePrompt, PushAsk};
 use protocol::{prompt_answer_line, resume_line, send_line, start_line, token_line, Inbound, Policy, PromptKind};
 use push::{PushCtx, PushOutcome, PushPlan};
 use ring::{Entry, Ring, RING_CAP};
+pub use git::JobDiff;
 pub use runtime::RuntimeStatus;
 use runtime::{Runtime, RuntimeSpec};
 use starts::StartWindow;
@@ -223,6 +227,11 @@ const MAX_SESSION_ID: usize = 256;
 /// Largest single event kept and emitted. The launcher truncates tool input
 /// to 2 KB and output to 4 KB, so this only catches a broken launcher.
 const MAX_EVENT_BYTES: usize = 64 * 1024;
+/// Event kinds only Rust writes: `branch` (a commit landed), `pull_request`
+/// (a push's outcome) and `prompt` (a prompt asked and answered). The
+/// launcher and the coding agents' adapter never send them (they ask with a
+/// `prompt` LINE, not an event); one that arrives as an event is dropped.
+const RUST_OWN_KINDS: &[&str] = &["branch", "pull_request", "prompt"];
 /// Rings kept for jobs without a process (each up to [`RING_CAP`] events).
 const MAX_RINGS: usize = 20;
 /// Launcher messages queued toward the actor.
@@ -385,9 +394,6 @@ pub(crate) struct Timing {
     /// the launch is refused. The server's claim lives on the Mac's
     /// heartbeat meanwhile (the job is reported live).
     pub worker_confirm: Duration,
-    /// How long a yes lets a worker run, follow-up messages and all; then
-    /// it is parked, and resuming it asks again.
-    pub worker_yes_for: Duration,
     /// After a no (or no answer), how long a folder's workers aren't asked
     /// about again.
     pub worker_backoff: Duration,
@@ -407,7 +413,6 @@ impl Default for Timing {
             idle_check_every: Duration::from_secs(30),
             prompt_timeout: Duration::from_secs(5 * 60),
             worker_confirm: Duration::from_secs(2 * 60),
-            worker_yes_for: Duration::from_secs(60 * 60),
             worker_backoff: Duration::from_secs(10 * 60),
         }
     }
@@ -473,7 +478,23 @@ impl Paths {
         self.tmp_root.join(id)
     }
 
-    /// Where edit jobs' worktrees live: `~/.dial8/worktrees/<jobId>`.
+    /// A worker's fence markers ([`fence`]): `<root>/fence/<jobId>` and
+    /// `<jobId>.open`, beside `jobs/`, never inside a job's folder (the agent's
+    /// private home is there, and writable to it).
+    fn fence_dir(&self) -> PathBuf {
+        self.root.join("fence")
+    }
+
+    /// Where edit jobs' worktrees live: `~/.dial8/worktrees/<jobId>`, one per
+    /// job, so several jobs edit one repository at once, each on its own
+    /// branch, and each job's fence opens only its own.
+    ///
+    /// Windows (not built yet; local agents are macOS-only): the root would
+    /// be under `%LOCALAPPDATA%` rather than HOME (shorter paths: git there
+    /// still trips on MAX_PATH), and tidying ([`Actor::tidy_candidates`])
+    /// must expect `git worktree remove` to fail while any process (an
+    /// editor, an indexer, antivirus) holds a file open in the worktree:
+    /// such a worktree is kept and tried again the next day.
     fn worktrees(&self) -> PathBuf {
         self.home.join(".dial8").join("worktrees")
     }
@@ -542,7 +563,8 @@ pub struct StartArgs {
     pub mode: Option<String>,
     pub model_token: Option<String>,
     pub resume: Option<ResumeArgs>,
-    /// `claude-code` or `codex` ([`workers`]); absent: eve.
+    /// A coding agent's id in the bundle's registry (`claude-code`;
+    /// [`workers`]); absent: eve.
     pub worker: Option<String>,
     /// The model mode the server recorded for the session (`localModel`):
     /// a job keeps it ([`workers`]); absent: whatever this Mac uses now.
@@ -563,7 +585,9 @@ struct Checked {
     mode: Option<GrantMode>,
     token: Option<String>,
     resume: Option<ResumeArgs>,
-    worker: Option<workers::Worker>,
+    /// A worker id of the right shape; whether the bundle's registry lists
+    /// it is [`LocalAgentService::check_start`]'s.
+    worker: Option<String>,
     local_model: Option<bool>,
     /// As sent: checked only if a worktree is made for it ([`Actor::plan_start`]).
     base_branch: Option<String>,
@@ -590,7 +614,13 @@ impl StartArgs {
             mode,
             token,
             resume: self.resume,
-            worker: self.worker.as_deref().map(workers::Worker::parse).transpose()?,
+            worker: match self.worker {
+                Some(w) => {
+                    workers::check_worker_id(&w)?;
+                    Some(w)
+                }
+                None => None,
+            },
             local_model: self.local_model,
             base_branch: self.base_branch,
         })
@@ -617,7 +647,12 @@ pub struct JobSummary {
     /// ready (its worktree, or its worker's confirm): the relay keeps the
     /// server's lease on it meanwhile.
     pub live: bool,
-    /// The worker it runs on (`claude-code`, `codex`): its launches wait on
+    /// It waits in line for a free slot on this Mac (every one taken by a
+    /// running job): it starts by itself when one frees. `status` is
+    /// `starting` and `live` is true meanwhile.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub queued: bool,
+    /// The worker it runs on (a registry id, `claude-code`): its launches wait on
     /// the person's confirm, so the relay runs them off its drain.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worker: Option<String>,
@@ -666,6 +701,12 @@ pub struct StatusReport {
     /// older app sends no field, so the web shows its base-branch field only
     /// for a Mac that has it (and an older one keeps branching from HEAD).
     pub base_branch: bool,
+    /// L4: the coding agents a start may name in `worker` right now, as
+    /// Rust last looked ([`workers::WorkerOffer`]: `id`, `label`): in the
+    /// bundle's registry, allowed on this Mac, the CLI on the login shell's
+    /// PATH, and the relay chosen. Empty: none (a start naming one is
+    /// refused with a sentence for the person). A start checks it all again.
+    pub workers: Vec<workers::WorkerOffer>,
 }
 
 /// What `local_agent_start` and `local_agent_resume` answer.
@@ -690,7 +731,149 @@ enum Plan {
     /// Already running: the start is a no-op (a retried claim, a reload).
     Live(StartResult),
     Launch(LaunchPlan),
+    /// Every slot is taken by a running job: it waits in line on this Mac
+    /// ([`Actor::wake_queue`]), and the handler plans it again when woken.
+    Queued { job_id: String, wake: oneshot::Receiver<()> },
 }
+
+/// A start waiting for a free slot ([`Plan::Queued`]): what the status
+/// reports of it meanwhile (`queued: true`, `live: true`, `starting`).
+struct Queued {
+    grant_id: String,
+    request: String,
+    mode: GrantMode,
+    worker: Option<String>,
+    created_at: String,
+    /// Its place in line: first come, first served.
+    seq: u64,
+    /// `None` once woken: its handler is planning it again.
+    wake: Option<oneshot::Sender<()>>,
+    /// When it was woken: a retry that never came is dropped after
+    /// [`QUEUE_RETRY_WITHIN`].
+    woken_at: Option<Instant>,
+}
+
+/// A start whose session token ran out while it waited in line, and the
+/// page sent no newer one.
+const TOKEN_RAN_OUT: &str =
+    "its session ran out while it waited for a free slot on this Mac; start it again";
+
+/// Whether a model relay token (`la1.<base64url JSON {exp, …}>.<sig>`, the
+/// server's) has expired by `now` (unix seconds), with a minute to spare.
+/// Read here only to refuse a launch that would fail; the server checks it.
+/// A token of another shape is never called expired.
+pub fn token_expired(token: &str, now: u64) -> bool {
+    token_exp(token).is_some_and(|exp| exp <= now + 60)
+}
+
+/// A model relay token's `exp` (unix seconds), if it is of the server's shape.
+pub fn token_exp(token: &str) -> Option<u64> {
+    use base64::Engine;
+    let mut parts = token.split('.');
+    let (Some("la1"), Some(body)) = (parts.next(), parts.next()) else { return None };
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(body.trim_end_matches('='))
+        .ok()?;
+    serde_json::from_slice::<Value>(&bytes).ok()?.get("exp")?.as_u64()
+}
+
+/// A start or resume of a job whose worktree is being tidied right now.
+const TIDYING: &str = "this job's worktree is being tidied up on this Mac; try again in a moment";
+/// How long a job that isn't finished must have been idle before its
+/// worktree may be tidied (still only if that loses nothing: [`git::tidy_decision`]).
+pub const TIDY_IDLE_FOR: Duration = Duration::from_secs(14 * 24 * 60 * 60);
+/// How often worktrees are tidied: at app start, then at most this often.
+pub const TIDY_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Why a job's worktree may be looked at for tidying, or `None`. `last`:
+/// when the job or anything in its worktree folder last changed (ms).
+/// - its job ended for good (`failed`, `cancelled`);
+/// - any other job (`completed` only ends a turn: it still takes
+///   follow-ups), and a job that is gone, only after [`TIDY_IDLE_FOR`]
+///   without a change;
+/// - never a job that runs, starts, waits in line, commits or pushes (`busy`).
+pub fn tidy_eligible(job: Option<&Job>, busy: bool, last: u64, now: u64) -> Option<&'static str> {
+    if busy {
+        return None;
+    }
+    let idle = now.saturating_sub(last) >= TIDY_IDLE_FOR.as_millis() as u64;
+    let Some(job) = job else {
+        return idle.then_some("its job is gone, and nothing in it changed for 14 days");
+    };
+    if job.push_running.is_some() {
+        return None;
+    }
+    if matches!(job.status, JobStatus::Failed | JobStatus::Cancelled) {
+        return Some("its job ended");
+    }
+    idle.then_some("its job has been idle for 14 days")
+}
+
+/// When anything in `dir` last changed (ms), its links not followed: the
+/// newest modification of it and what it holds, at most `limit` entries
+/// looked at. `None` past that limit, or when it can't be read: then it
+/// counts as changed now.
+pub fn newest_change(dir: &Path, limit: usize) -> Option<u64> {
+    let ms = |m: &std::fs::Metadata| {
+        m.modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_millis() as u64)
+    };
+    let mut newest = ms(&std::fs::symlink_metadata(dir).ok()?);
+    let mut todo = vec![dir.to_path_buf()];
+    let mut seen = 0usize;
+    while let Some(d) = todo.pop() {
+        for entry in std::fs::read_dir(&d).ok()? {
+            let entry = entry.ok()?;
+            seen += 1;
+            if seen > limit {
+                return None;
+            }
+            let meta = std::fs::symlink_metadata(entry.path()).ok()?;
+            newest = newest.max(ms(&meta));
+            if meta.is_dir() {
+                todo.push(entry.path());
+            }
+        }
+    }
+    Some(newest)
+}
+
+/// Entries [`newest_change`] looks at in one worktree, at most.
+const TIDY_WALK_LIMIT: usize = 200_000;
+
+/// A worktree the actor found worth a look ([`Actor::tidy_candidates`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TidyCandidate {
+    pub job_id: String,
+    pub dir: PathBuf,
+    /// `Some(job's last stamp)`: due only after [`TIDY_IDLE_FOR`] with
+    /// nothing in the folder changed either ([`tidy_due`]); `None`: its job
+    /// ended, no wait.
+    pub since: Option<u64>,
+}
+
+/// The candidates that are due: blocking (a walk of each folder that must
+/// have sat still), so the tidy task runs it, never the actor.
+pub fn tidy_due(list: Vec<TidyCandidate>, now: u64) -> Vec<(String, PathBuf)> {
+    list.into_iter()
+        .filter(|c| match c.since {
+            None => true,
+            Some(since) => {
+                let last = since.max(newest_change(&c.dir, TIDY_WALK_LIMIT).unwrap_or(now));
+                now.saturating_sub(last) >= TIDY_IDLE_FOR.as_millis() as u64
+            }
+        })
+        .map(|c| (c.job_id, c.dir))
+        .collect()
+}
+
+/// How long a woken start has to come back before its place is given up.
+const QUEUE_RETRY_WITHIN: Duration = Duration::from_secs(30);
+/// What a start that waited in line answers when it was stopped, or local
+/// agents were turned off or quit, before a slot freed.
+const QUEUE_DROPPED: &str = "stopped while it waited for a free slot on this Mac";
 
 struct LaunchPlan {
     job_id: String,
@@ -713,16 +896,16 @@ struct Confirm {
 
 /// A confirm's outcome: yes, or why not and who decided (the command log
 /// says "you" for a no, "dial8" when nobody answered).
-type Answer = Result<(), (Who, String)>;
+type Answer = Result<String, (Who, String)>;
 
 impl Confirm {
     /// The person's yes, or why not: a no, the alert gone without one, or
     /// no answer within its wait.
     async fn answered(self) -> Answer {
         match tokio::time::timeout(self.wait, self.answer).await {
-            Ok(Ok(true)) => Ok(()),
-            Ok(_) => Err((Who::You, starts::denied(self.worker))),
-            Err(_) => Err((Who::App, starts::unanswered(self.worker, self.wait))),
+            Ok(Ok(true)) => Ok(self.worker.id),
+            Ok(_) => Err((Who::You, starts::denied(&self.worker.label))),
+            Err(_) => Err((Who::App, starts::unanswered(&self.worker.label, self.wait))),
         }
     }
 }
@@ -736,7 +919,8 @@ enum Admit {
     /// Told (or confirmed) before, in this run of the app or an earlier one:
     /// a revival, told nothing new.
     Announced,
-    /// The person said yes to its confirm (a worker's).
+    /// The person said yes to its confirm (a worker's), just now: the yes
+    /// is remembered for that worker in that folder ([`starts`]).
     Confirmed,
 }
 
@@ -750,6 +934,8 @@ struct EditPlan {
     /// branch (checked by [`git::check_base_branch`]) or HEAD, or the
     /// commit a job with a record started from.
     base: git::Base,
+    /// A job Rust has no record of: its branch must be new.
+    fresh: bool,
 }
 
 /// An edit job's worktree, ready.
@@ -771,6 +957,8 @@ struct Preparing {
     mode: GrantMode,
     worker: Option<workers::Worker>,
     created_at: String,
+    /// An edit job's branch: a new job never gets one another job has.
+    branch: Option<String>,
 }
 
 /// What a running edit job needs for its commits and its push.
@@ -821,6 +1009,8 @@ enum Cmd {
     },
     PlanStart {
         args: Checked,
+        /// The job's worker as the handler found it in the registry.
+        worker: Option<workers::Worker>,
         reply: Reply<Plan>,
     },
     Launch {
@@ -828,6 +1018,8 @@ enum Cmd {
         plan: LaunchPlan,
         prepared: Result<Option<Prepared>, String>,
         launch: LaunchConfig,
+        /// A coding agent's workspace tools list ([`workspace_tools`]).
+        tools: Option<Vec<u8>>,
         reply: Reply<StartResult>,
     },
     SetToken {
@@ -850,6 +1042,8 @@ enum Cmd {
     PlanResume {
         job_id: String,
         message: Option<String>,
+        /// The job's worker as the handler found it in the registry.
+        worker: Option<workers::Worker>,
         reply: Reply<Option<Confirm>>,
     },
     Resume {
@@ -860,6 +1054,8 @@ enum Cmd {
         answer: Option<Answer>,
         /// Sent once the launcher reports its session ([`ResumeMessage`]).
         message: Option<(String, Policy)>,
+        /// A coding agent's workspace tools list ([`workspace_tools`]).
+        tools: Option<Vec<u8>>,
         reply: Reply<StartResult>,
     },
     Events {
@@ -874,6 +1070,42 @@ enum Cmd {
     },
     /// The model choice and what was found on this Mac ([`workers`]).
     Workers(workers::Cmd),
+    /// The worktrees to look at now, if it is due ([`Actor::tidy_candidates`]).
+    TidyCandidates {
+        reply: oneshot::Sender<Vec<TidyCandidate>>,
+    },
+    /// Hold the due ones for tidying ([`Actor::claim_tidy`]).
+    TidyClaim {
+        due: Vec<(String, PathBuf)>,
+        reply: oneshot::Sender<Vec<(String, PathBuf)>>,
+    },
+    /// An edit job's worktree, git folder and starting commit, for its diff.
+    DiffTarget {
+        job_id: String,
+        reply: Reply<(PathBuf, PathBuf, String)>,
+    },
+    /// The newest token stored for a job ([`Actor::set_token`]).
+    StoredToken {
+        job_id: String,
+        reply: oneshot::Sender<Option<String>>,
+    },
+    /// Tests: as if a day had passed since the last tidying.
+    #[cfg(test)]
+    ForgetTidied {
+        reply: oneshot::Sender<()>,
+    },
+    /// What tidying them did.
+    Tidied {
+        results: Vec<(String, Result<git::Tidy, String>)>,
+    },
+    /// Whether app start left logins to return ([`Actor::sweep_fences_at_start`]).
+    LeftoverLogins {
+        reply: oneshot::Sender<bool>,
+    },
+    /// Return them, with a launch config ([`Actor::return_leftover_logins`]).
+    ReturnLeftoverLogins {
+        launch: LaunchConfig,
+    },
     Shutdown {
         reply: oneshot::Sender<()>,
     },
@@ -946,6 +1178,8 @@ impl LocalAgentService {
         // The tray's Model and Coding Agents submenus follow this Mac ([`workers`]).
         if enabled {
             tauri::async_runtime::spawn(workers::watch(service.cmds.clone(), resolver.clone()));
+            tauri::async_runtime::spawn(return_leftover_logins(service.cmds.clone(), resolver.clone()));
+            tauri::async_runtime::spawn(tidy_worktrees(service.cmds.clone(), resolver.clone()));
         }
         // The login shell probe takes seconds: run it now, not on first start.
         if resolver.has_dev_config() {
@@ -989,6 +1223,7 @@ impl LocalAgentService {
             pushes: HashMap::new(),
             log,
             tokens: HashMap::new(),
+            tools_lists: HashMap::new(),
             rings: HashMap::new(),
             cmds: rx,
             job_rx,
@@ -1001,6 +1236,11 @@ impl LocalAgentService {
             shutdown: None,
             last_tray: None,
             l4: workers::L4::default(),
+            fence: fence::Ops::default(),
+            leftover_logins: Vec::new(),
+            queued: HashMap::new(),
+            queue_seq: 0,
+            tidying: HashSet::new(),
             starts: StartWindow::new(starts::MAX_REMOTE_STARTS_PER_HOUR, starts::START_WINDOW),
             refused_workers: HashMap::new(),
         };
@@ -1029,6 +1269,7 @@ impl LocalAgentService {
         let r = self.resolver.resolve(false).await;
         let snap = self.ask(|reply| Cmd::Snapshot { reply }).await?;
         let local_model = self.uses_local_model(r.agent_dir.as_deref()).await;
+        let workers = self.offered_workers().await;
         Ok(StatusReport {
             available: r.available() && !snap.off,
             reason: if snap.off { Some(OFF.into()) } else { r.reason },
@@ -1041,6 +1282,7 @@ impl LocalAgentService {
             runtime: r.packaged.then(|| self.resolver.runtime().status()),
             local_model,
             base_branch: true,
+            workers,
         })
     }
 
@@ -1128,15 +1370,36 @@ impl LocalAgentService {
         let args = args.check()?;
         // L4: the model and worker it runs on, refused here when they can't be.
         let run = self.check_start(&args, &launch).await?;
-        let mut plan = match self
-            .ask(|reply| Cmd::PlanStart {
-                args: args.clone(),
-                reply,
-            })
-            .await??
-        {
-            Plan::Live(running) => return Ok(running),
-            Plan::Launch(plan) => plan,
+        let worker = run.as_ref().and_then(|r| r.worker.as_ref()).map(|w| w.worker.clone());
+        let mut args = args;
+        let mut plan = loop {
+            match self
+                .ask(|reply| Cmd::PlanStart {
+                    args: args.clone(),
+                    worker: worker.clone(),
+                    reply,
+                })
+                .await??
+            {
+                Plan::Live(running) => return Ok(running),
+                Plan::Launch(plan) => break plan,
+                // In line for a slot: planned again, under the same id, once woken.
+                Plan::Queued { job_id, wake } => {
+                    args.job_id = Some(job_id.clone());
+                    wake.await.map_err(|_| QUEUE_DROPPED.to_string())?;
+                    // Its turn: the newest token the page sent meanwhile
+                    // (`local_agent_set_model_token`), and only a live one.
+                    if let Some(stored) = self.ask(|reply| Cmd::StoredToken { job_id, reply }).await? {
+                        let later = |t: &str| token_exp(t).unwrap_or(u64::MAX);
+                        if args.token.as_deref().is_none_or(|t| later(&stored) >= later(t)) {
+                            args.token = Some(stored);
+                        }
+                    }
+                    if args.token.as_deref().is_some_and(|t| token_expired(t, starts::now_ms() / 1000)) {
+                        return Err(TOKEN_RAN_OUT.into());
+                    }
+                }
+            }
         };
         self.stash_run(&plan.job_id, run);
         // A worker runs only after the person's yes on this Mac, and nothing
@@ -1145,16 +1408,22 @@ impl LocalAgentService {
             plan.answer = Some(confirm.answered().await);
         }
         let prepared = match (&plan.edit, &plan.answer) {
-            (Some(edit), None | Some(Ok(()))) => prepare_edit(&Git::from_launch(&launch), edit, &plan.job_id)
+            (Some(edit), None | Some(Ok(_))) => prepare_edit(&Git::from_launch(&launch), edit, &plan.job_id)
                 .await
                 .map(Some),
             _ => Ok(None),
+        };
+        // A coding agent's workspace tools, once the person said yes.
+        let tools = match (&worker, &plan.answer) {
+            (Some(_), None | Some(Ok(_))) => tools_list(&plan.job_id, &launch, args.token.as_deref()).await,
+            _ => None,
         };
         self.ask(|reply| Cmd::Launch {
             args,
             plan,
             prepared,
             launch,
+            tools,
             reply,
         })
         .await?
@@ -1225,12 +1494,14 @@ impl LocalAgentService {
             )),
         };
         // L4: as for a start ([`workers`]).
-        self.check_resume(&job_id, local_model, &launch).await?;
+        let worker = self.check_resume(&job_id, local_model, &launch).await?;
+        let has_worker = worker.is_some();
         // The hour's cap, and a worker's yes, as for a start ([`starts`]).
         let confirm = self
             .ask(|reply| Cmd::PlanResume {
                 job_id: job_id.clone(),
                 message: message.as_ref().map(|(text, _)| text.clone()),
+                worker,
                 reply,
             })
             .await??;
@@ -1238,15 +1509,45 @@ impl LocalAgentService {
             Some(confirm) => Some(confirm.answered().await),
             None => None,
         };
+        // A coding agent's workspace tools, with the freshest token the job
+        // holds (this resume's, or the one kept for it).
+        let tools = match (has_worker, &answer) {
+            (true, None | Some(Ok(_))) => {
+                let token = match &token {
+                    Some(t) => Some(t.clone()),
+                    None => self
+                        .ask(|reply| Cmd::StoredToken {
+                            job_id: job_id.clone(),
+                            reply,
+                        })
+                        .await
+                        .ok()
+                        .flatten(),
+                };
+                tools_list(&job_id, &launch, token.as_deref()).await
+            }
+            _ => None,
+        };
         self.ask(|reply| Cmd::Resume {
             job_id,
             launch,
             token,
             answer,
             message,
+            tools,
             reply,
         })
         .await?
+    }
+
+    /// `local_agent_diff`: what changed in an edit job's worktree since the
+    /// commit it started from ([`git::JobDiff`]), read-only, while it runs
+    /// or after. Only a job of this Mac's own state, in its own worktree.
+    pub async fn diff(&self, job_id: String) -> Result<JobDiff, String> {
+        let (worktree, git_dir, base) = self.ask(|reply| Cmd::DiffTarget { job_id, reply }).await??;
+        git::check_worktree(&worktree, &git_dir)?;
+        let git = Git::plain(&self.resolver.home_str(), &self.resolver.shell_path().await);
+        git.job_diff(&worktree, &base).await
     }
 
     pub async fn events(&self, job_id: String, since: u64) -> Result<Vec<Entry>, String> {
@@ -1355,6 +1656,19 @@ pub(crate) fn exit_outcome(
 }
 
 /// Make (or find) an edit job's worktree. Runs in the command handler.
+/// A coding agent's workspace tools list for this launch (board step 4,
+/// [`workspace_tools::fetch_list`]), from the launch config's origin; none,
+/// with one log line (never the token), when it can't be had.
+async fn tools_list(job_id: &str, launch: &LaunchConfig, token: Option<&str>) -> Option<Vec<u8>> {
+    match workspace_tools::fetch_list(&launch.api_origin, token).await {
+        Ok(list) => Some(list),
+        Err(why) => {
+            crate::log_to_file(&format!("[local-agent:{job_id}] no workspace tools for this run: {why}"));
+            None
+        }
+    }
+}
+
 async fn prepare_edit(git: &Git, edit: &EditPlan, job_id: &str) -> Result<Prepared, String> {
     let git_dir = git.repo_git_dir(&edit.repo).await?;
     let worktree = git
@@ -1365,6 +1679,7 @@ async fn prepare_edit(git: &Git, edit: &EditPlan, job_id: &str) -> Result<Prepar
             job_id,
             &edit.branch,
             &edit.base,
+            edit.fresh,
         )
         .await?;
     Ok(Prepared { worktree, git_dir })
@@ -1400,6 +1715,10 @@ struct Live {
     last_active: Instant,
     /// A message went to it and no status has come back yet.
     awaiting_turn_since: Option<Instant>,
+    /// The loopback port its `ready` line named (our own agent's eve
+    /// server; a worker's adapter names none): closed to workers launched
+    /// later ([`Actor::closed_ports`]).
+    port: Option<u16>,
     /// The launcher's open `prompt`: one at a time.
     prompt: Option<OpenPrompt>,
     /// Paths the person opened to this run with a fence prompt. Memory only,
@@ -1419,9 +1738,30 @@ struct Live {
     /// L4: the worker this run is ([`workers`]): never sent the session
     /// token, and its fence is never widened.
     worker: Option<workers::Worker>,
-    /// A worker's yes lasts until then ([`Timing::worker_yes_for`]); then it
-    /// is parked, mid-turn or not.
-    yes_until: Option<Instant>,
+    /// A worker's `--return-logins`, run once its fence is swept empty
+    /// ([`fence::end_of_run`]).
+    logins: Option<fence::LoginReturn>,
+    /// An event of a kind only Rust writes ([`RUST_OWN_KINDS`]) came from
+    /// the agent's side and was dropped: logged the first time only.
+    own_kind_logged: bool,
+    /// The app's origin, for a coding agent's workspace tool calls (the
+    /// launch config's, never the job's or the agent's).
+    api_origin: String,
+    /// A coding agent's workspace tool calls with the server, by id
+    /// ([`workspace_tools`]): aborted on a stop or the run's end.
+    tool_calls: HashMap<String, tokio::task::AbortHandle>,
+    /// A malformed `tool_call` was dropped: logged the first time only.
+    bad_tool_call_logged: bool,
+}
+
+impl Live {
+    /// A stop or the run's end: every workspace tool call is aborted, and
+    /// nothing more is written for them.
+    fn abort_tool_calls(&mut self) {
+        for (_, call) in self.tool_calls.drain() {
+            call.abort();
+        }
+    }
 }
 
 /// A `prompt` the launcher waits on.
@@ -1540,6 +1880,68 @@ struct Shutdown {
 }
 
 /// Owns everything: the persisted state, the running launchers, the rings.
+/// Tidy edit jobs' worktrees ([`Actor::tidy_candidates`]): looked at at app
+/// start and every hour after, done when a day has passed since the last
+/// time (relaunches included). Git runs as for a commit, from the person's
+/// login shell PATH; nothing that holds work is removed ([`git::tidy_decision`]).
+async fn tidy_worktrees(cmds: mpsc::UnboundedSender<Cmd>, resolver: Arc<Resolver>) {
+    loop {
+        let (tx, rx) = oneshot::channel();
+        if cmds.send(Cmd::TidyCandidates { reply: tx }).is_err() {
+            return;
+        }
+        let Ok(list) = rx.await else { return };
+        let home = resolver.home_str();
+        // The person's Trash, through the system's own call.
+        let trash = git::Trash::System;
+        // A tidy cut short by a quit: its folder put back, or sent on.
+        let root = Path::new(&home).join(".dial8").join("worktrees");
+        let t = trash.clone();
+        let _ = tokio::task::spawn_blocking(move || git::recover_stranded(&root, &t)).await;
+        if !list.is_empty() {
+            let due = tokio::task::spawn_blocking(move || tidy_due(list, starts::now_ms()))
+                .await
+                .unwrap_or_default();
+            let (tx, rx) = oneshot::channel();
+            if cmds.send(Cmd::TidyClaim { due, reply: tx }).is_err() {
+                return;
+            }
+            let Ok(list) = rx.await else { return };
+            let git = Git::plain(&home, &resolver.shell_path().await);
+            let mut results = Vec::with_capacity(list.len());
+            for (job_id, dir) in list {
+                let result = match git::worktree_repo(&dir) {
+                    Ok((_, repo)) => git.tidy_worktree(&repo, &dir, &trash).await,
+                    Err(e) => Err(e),
+                };
+                results.push((job_id, result));
+            }
+            if cmds.send(Cmd::Tidied { results }).is_err() {
+                return;
+            }
+        }
+        tokio::time::sleep(Duration::from_secs(60 * 60)).await;
+    }
+}
+
+/// After app start: if a worker job's fence was swept as a leftover, get a
+/// launch config (only then: in packaged mode it may wait on the runtime)
+/// and have the actor return its logins ([`Actor::return_leftover_logins`]).
+async fn return_leftover_logins(cmds: mpsc::UnboundedSender<Cmd>, resolver: Arc<Resolver>) {
+    let (tx, rx) = oneshot::channel();
+    if cmds.send(Cmd::LeftoverLogins { reply: tx }).is_err() || !rx.await.unwrap_or(false) {
+        return;
+    }
+    match resolver.resolve(true).await.launch {
+        Some(launch) => {
+            let _ = cmds.send(Cmd::ReturnLeftoverLogins { launch });
+        }
+        None => crate::log_to_file(
+            "[local-agent] coding agents' logins left from the last run can't be returned: local agents aren't set up",
+        ),
+    }
+}
+
 pub(crate) struct Actor {
     host: Arc<dyn Host>,
     paths: Paths,
@@ -1560,6 +1962,9 @@ pub(crate) struct Actor {
     /// Each job's latest model relay token, for its next launch. Memory only:
     /// never written to state.json.
     tokens: HashMap<String, String>,
+    /// A coding agent's workspace tools list, fetched for its next launch
+    /// (board step 4, [`workspace_tools`]): taken by [`Actor::launch`].
+    tools_lists: HashMap<String, Vec<u8>>,
     rings: HashMap<String, Ring>,
     cmds: mpsc::UnboundedReceiver<Cmd>,
     job_rx: mpsc::Receiver<JobMsg>,
@@ -1579,6 +1984,17 @@ pub(crate) struct Actor {
     last_tray: Option<TrayView>,
     /// The model choice, the workers' yes and what Rust found ([`workers`]).
     l4: workers::L4,
+    /// A worker's fence: its sweep and its login return ([`fence`]; tests swap them).
+    fence: fence::Ops,
+    /// Worktrees being tidied right now ([`Actor::tidy_candidates`]): their
+    /// jobs can't start or resume until it is done.
+    tidying: HashSet<String>,
+    /// Starts waiting for a free slot, by job id ([`Plan::Queued`]).
+    queued: HashMap<String, Queued>,
+    queue_seq: u64,
+    /// Jobs whose fence was swept clean at app start, waiting for a launch
+    /// config to return their logins ([`Actor::return_leftover_logins`]).
+    leftover_logins: Vec<String>,
     /// The cap over the jobs started in the last hour ([`starts`]; their
     /// stamps are in state.json).
     starts: StartWindow,
@@ -1613,10 +2029,10 @@ impl Actor {
                 _ = idle_tick.tick(), if !self.live.is_empty() && !self.closing => {
                     let now = Instant::now();
                     self.park_idle(now);
-                    self.park_expired_yes(now);
                 }
             }
             self.finish_shutdown_if_done();
+            self.wake_queue();
             self.publish_tray();
             if !cmds_open && self.live.is_empty() {
                 break;
@@ -1703,6 +2119,9 @@ impl Actor {
         }
         self.state.off = off;
         self.save();
+        if off {
+            self.drop_queue();
+        }
         if !off {
             crate::log_to_file("[local-agent] turned on on this Mac");
             return Ok(());
@@ -1750,7 +2169,251 @@ impl Actor {
             self.save();
         }
         self.report_interrupted_pushes();
+        self.sweep_fences_at_start();
         self.load_l4();
+    }
+
+    /// The worktrees to tidy now: none unless a day has passed since the
+    /// last time (state.json `tidiedAt`). Each named one is a folder of
+    /// `~/.dial8/worktrees` (not a link) whose job is eligible
+    /// ([`tidy_eligible`]); its job can't start or resume until
+    /// [`Actor::tidied`].
+    fn tidy_candidates(&mut self, now: u64) -> Vec<TidyCandidate> {
+        // state.json couldn't be read: every job would look gone. Nothing.
+        if !self.enabled || !self.writable || self.closing || !self.tidying.is_empty() {
+            return Vec::new();
+        }
+        if self.state.tidied_at.is_some_and(|t| now.saturating_sub(t) < TIDY_EVERY.as_millis() as u64 && t <= now) {
+            return Vec::new();
+        }
+        self.state.tidied_at = Some(now);
+        self.save();
+        let Ok(entries) = std::fs::read_dir(self.paths.worktrees()) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for entry in entries.flatten() {
+            let Ok(id) = entry.file_name().into_string() else { continue };
+            if !is_safe_id(&id) || !entry.file_type().is_ok_and(|t| t.is_dir()) {
+                continue;
+            }
+            // Cheap checks first, here; the walk of its folder is the tidy
+            // task's ([`tidy_due`]), off this actor.
+            let job = self.state.job(&id);
+            let since = self.job_stamp(job);
+            if tidy_eligible(job, self.tidy_busy(&id), since, now).is_none() {
+                continue;
+            }
+            let ended = job.is_some_and(|j| matches!(j.status, JobStatus::Failed | JobStatus::Cancelled));
+            out.push(TidyCandidate {
+                job_id: id,
+                dir: entry.path(),
+                since: (!ended).then_some(since),
+            });
+        }
+        out
+    }
+
+    /// What [`LocalAgentService::diff`] reads: a job this Mac has a record
+    /// of, an edit job with its worktree and the commit it started from.
+    fn diff_target(&self, job_id: &str) -> Result<(PathBuf, PathBuf, String), String> {
+        if !is_safe_id(job_id) {
+            return Err("bad job id".into());
+        }
+        let job = self.state.job(job_id).ok_or("unknown job")?;
+        if job.mode != GrantMode::Edit {
+            return Err("only an edit job has changes to show".into());
+        }
+        let worktree = job.worktree.as_deref().ok_or("this job has no worktree")?;
+        let git_dir = job.git_dir.as_deref().ok_or("this job has no worktree")?;
+        let base = job.base_commit.clone().ok_or("this job's starting commit isn't known")?;
+        let worktree = PathBuf::from(worktree);
+        if !worktree.starts_with(self.paths.worktrees()) {
+            return Err("this job's worktree isn't one of Native Intelligence's".into());
+        }
+        Ok((worktree, PathBuf::from(git_dir), base))
+    }
+
+    /// When a job last did anything, by its own stamps (ms; 0 for none).
+    fn job_stamp(&self, job: Option<&Job>) -> u64 {
+        let stamp = |s: Option<&str>| {
+            s.and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                .map_or(0, |t| t.timestamp_millis().max(0) as u64)
+        };
+        job.map_or(0, |j| stamp(j.ended_at.as_deref()).max(stamp(Some(&j.created_at))))
+    }
+
+    /// The job runs, starts, waits in line or commits.
+    fn tidy_busy(&self, id: &str) -> bool {
+        self.live.contains_key(id) || self.preparing.contains_key(id) || self.queued.contains_key(id) || self.committing.contains(id)
+    }
+
+    /// The tidy task's due worktrees ([`tidy_due`]), checked again now: a
+    /// job that became busy, or did something, meanwhile is left alone. The
+    /// rest are held ([`TIDYING`]) until [`Actor::tidied`].
+    fn claim_tidy(&mut self, due: Vec<(String, PathBuf)>, now: u64) -> Vec<(String, PathBuf)> {
+        let mut out = Vec::new();
+        for (id, dir) in due {
+            let job = self.state.job(&id);
+            match tidy_eligible(job, self.tidy_busy(&id), self.job_stamp(job), now) {
+                Some(why) => {
+                    crate::log_to_file(&format!("[local-agent:{id}] tidying its worktree ({why})"));
+                    self.tidying.insert(id.clone());
+                    out.push((id, dir));
+                }
+                None => {}
+            }
+        }
+        out
+    }
+
+    /// What tidying did: logged per job, and one banner when anything went
+    /// to the Trash. A moved worktree is no longer the job's (a resume says
+    /// so; a start under its id makes it again from its branch, kept unless
+    /// merged).
+    fn tidied(&mut self, results: Vec<(String, Result<git::Tidy, String>)>) {
+        let mut moved = 0;
+        for (id, result) in results {
+            self.tidying.remove(&id);
+            let from = self.paths.worktrees().join(&id);
+            let what = match &result {
+                Ok(git::Tidy::Trashed { to, branch_deleted }) => {
+                    moved += 1;
+                    format!(
+                        "moved its worktree {} to the Trash as {}{}",
+                        from.display(),
+                        to.display(),
+                        if *branch_deleted { "; its branch was merged and is deleted" } else { "; its branch is kept" }
+                    )
+                }
+                Ok(git::Tidy::Kept(why)) => format!("kept its worktree: {why}"),
+                Err(e) => format!("kept its worktree: it couldn't be checked ({e})"),
+            };
+            crate::log_to_file(&format!("[local-agent:{id}] {what}"));
+            if self.state.job(&id).is_some() {
+                self.log.append(&id, Who::App, &what);
+            }
+            if let (Ok(git::Tidy::Trashed { .. }), Some(job)) = (&result, self.state.job_mut(&id)) {
+                job.worktree = None;
+            }
+        }
+        self.save();
+        if moved > 0 {
+            self.host.notify(
+                &format!("Moved {moved} old agent worktree{} to the Trash", if moved == 1 { "" } else { "s" }),
+                "Their jobs had ended or sat idle, and nothing in them was uncommitted or only there. Their files \
+                 are in the Trash; each job's branch is still in its repository, so the work can be checked out \
+                 again from it.",
+            );
+        }
+    }
+
+    /// Nothing runs yet: whatever is still in a job's fence from the last
+    /// run of the app goes, and the markers of jobs that no longer exist
+    /// with it (after the sweep; never when state.json couldn't be read).
+    /// A worker job swept clean here gets its logins back once a launch
+    /// config can be had ([`Actor::return_leftover_logins`]).
+    fn sweep_fences_at_start(&mut self) {
+        // No run is live yet: no coding agent's tools list is wanted.
+        if self.writable {
+            workspace_tools::clear_lists(&self.paths.root);
+        }
+        let dir = self.paths.fence_dir();
+        for id in fence::marked_jobs(&dir) {
+            let swept = (self.fence.sweep)(&dir, &id, fence::Scope::All);
+            match self.state.job(&id) {
+                Some(job) if job.worker.is_some() && swept.clean => self.leftover_logins.push(id),
+                Some(_) => {}
+                None if self.writable => {
+                    if swept.clean {
+                        crate::log_to_file(&format!(
+                            "[local-agent:{id}] no record of this job: its coding agent's login can't be returned"
+                        ));
+                    }
+                    fence::remove_markers(&dir, &id);
+                }
+                None => {}
+            }
+        }
+    }
+
+    /// The app-start leftovers' logins ([`Actor::sweep_fences_at_start`]),
+    /// with this moment's launch config: each job not running again is swept
+    /// once more and, if empty, gets `--return-logins` with the environment
+    /// its launch would have.
+    fn return_leftover_logins(&mut self, launch: &LaunchConfig) {
+        for id in std::mem::take(&mut self.leftover_logins) {
+            if self.live.contains_key(&id) || self.preparing.contains_key(&id) {
+                continue;
+            }
+            match self.leftover_login_return(&id, launch) {
+                Ok(run) => {
+                    fence::end_of_run(&self.fence, &self.paths.fence_dir(), &id, Some(&run));
+                }
+                Err(e) => crate::log_to_file(&format!(
+                    "[local-agent:{id}] the coding agent's login can't be returned: {e}"
+                )),
+            }
+        }
+    }
+
+    /// Our own loopback listeners' ports known right now, for a worker's
+    /// `LOCAL_AGENT_CLOSED_PORTS`: every running job's eve server (from its
+    /// `ready` line) and, in a build that has it, the automation bridge. A
+    /// second line only: each listener has its own secret, and a port opened
+    /// after the worker launched isn't in it.
+    pub(super) fn closed_ports(&self) -> Vec<u16> {
+        let mut ports: Vec<u16> = self.live.values().filter_map(|l| l.port).collect();
+        #[cfg(any(debug_assertions, feature = "automation-bridge"))]
+        ports.extend(crate::automation::bound_port());
+        ports.sort_unstable();
+        ports.dedup();
+        ports
+    }
+
+    /// `--return-logins` for a job that isn't running, from its record.
+    fn leftover_login_return(&self, job_id: &str, launch: &LaunchConfig) -> Result<fence::LoginReturn, String> {
+        let job = self.state.job(job_id).ok_or("no record of the job")?;
+        let worker = job.worker.as_deref().ok_or("not a coding agent's job")?;
+        let (folder, extra_read) = match job.mode {
+            GrantMode::Edit => (
+                self.recheck_worktree(Path::new(job.worktree.as_deref().ok_or("its worktree is unknown")?))?,
+                Some(job.git_dir.clone().ok_or("its repository is unknown")?),
+            ),
+            GrantMode::Read => {
+                let grant = self.state.grant(&job.grant_id).ok_or("its folder is no longer shared")?;
+                (self.recheck_grant(grant)?, None)
+            }
+        };
+        let mut run = workers::login_run_for(launch, worker)?;
+        run.closed_ports = self.closed_ports();
+        let fences = self.paths.fence_dir();
+        run.fence_dir = fences.to_str().ok_or("the fence folder's path is not valid UTF-8")?.to_string();
+        let tmp = self.paths.job_tmp(job_id);
+        create_private_dir(&tmp).map_err(|e| format!("its temp folder: {e}"))?;
+        let tmp = canonical_or(tmp);
+        let spec = workers::RunSpec {
+            model: workers::ModelChoice::Relay,
+            worker: Some(run),
+        };
+        let env = config::launcher_env(
+            launch,
+            LaunchEnv {
+                job_id,
+                folder: &folder,
+                mode: job.mode.as_str(),
+                tmpdir: tmp.to_str().ok_or("its temp folder's path is not valid UTF-8")?,
+                model_token: None,
+                extra_read: extra_read.as_deref(),
+                run: Some(&spec),
+            },
+        );
+        Ok(fence::LoginReturn {
+            program: launch.node.clone(),
+            args: vec![spec.entry(launch).into_os_string(), "--return-logins".into()],
+            cwd: self.paths.job_dir(job_id),
+            env,
+        })
     }
 
     fn save(&self) {
@@ -1779,16 +2442,18 @@ impl Actor {
             Cmd::RemoveGrant { grant_id, reply } => {
                 let _ = reply.send(self.remove_grant(&grant_id));
             }
-            Cmd::PlanStart { args, reply } => {
-                let _ = reply.send(self.plan_start(&args));
+            Cmd::PlanStart { args, worker, reply } => {
+                let _ = reply.send(self.plan_start(&args, worker));
             }
             Cmd::Launch {
                 args,
                 plan,
                 prepared,
                 launch,
+                tools,
                 reply,
             } => {
+                self.keep_tools_list(&plan.job_id, tools);
                 let _ = reply.send(self.launch_start(&args, plan, prepared, &launch));
             }
             Cmd::SetToken { job_id, token, reply } => {
@@ -1805,8 +2470,13 @@ impl Actor {
             Cmd::Stop { job_id, reply } => {
                 let _ = reply.send(self.stop(&job_id));
             }
-            Cmd::PlanResume { job_id, message, reply } => {
-                let _ = reply.send(self.plan_resume(&job_id, message.as_deref()));
+            Cmd::PlanResume {
+                job_id,
+                message,
+                worker,
+                reply,
+            } => {
+                let _ = reply.send(self.plan_resume(&job_id, message.as_deref(), worker));
             }
             Cmd::Resume {
                 job_id,
@@ -1814,8 +2484,12 @@ impl Actor {
                 token,
                 answer,
                 message,
+                tools,
                 reply,
-            } => match self.resume(&job_id, &launch, token, answer) {
+            } => match {
+                self.keep_tools_list(&job_id, tools);
+                self.resume(&job_id, &launch, token, answer)
+            } {
                 Ok((prior, run_id)) => self.await_resume(&job_id, prior, run_id, message, reply),
                 Err(e) => {
                     let _ = reply.send(Err(e));
@@ -1828,6 +2502,28 @@ impl Actor {
                 let _ = reply.send(self.set_off(off));
             }
             Cmd::Workers(cmd) => self.on_workers(cmd),
+            Cmd::TidyCandidates { reply } => {
+                let _ = reply.send(self.tidy_candidates(starts::now_ms()));
+            }
+            Cmd::Tidied { results } => self.tidied(results),
+            Cmd::TidyClaim { due, reply } => {
+                let _ = reply.send(self.claim_tidy(due, starts::now_ms()));
+            }
+            Cmd::DiffTarget { job_id, reply } => {
+                let _ = reply.send(self.diff_target(&job_id));
+            }
+            Cmd::StoredToken { job_id, reply } => {
+                let _ = reply.send(self.tokens.get(&job_id).cloned());
+            }
+            #[cfg(test)]
+            Cmd::ForgetTidied { reply } => {
+                self.state.tidied_at = None;
+                let _ = reply.send(());
+            }
+            Cmd::LeftoverLogins { reply } => {
+                let _ = reply.send(!self.leftover_logins.is_empty());
+            }
+            Cmd::ReturnLeftoverLogins { launch } => self.return_leftover_logins(&launch),
             Cmd::Shutdown { reply } => self.begin_shutdown(reply),
         }
     }
@@ -1865,7 +2561,8 @@ impl Actor {
                 ended_at: j.ended_at.clone(),
                 session_id: j.session_id.clone(),
                 stream_index: j.stream_index,
-                live: self.live.contains_key(&j.id) || readying(&j.id),
+                live: self.live.contains_key(&j.id) || readying(&j.id) || self.queued.contains_key(&j.id),
+                queued: self.queued.contains_key(&j.id),
                 worker: j.worker.clone(),
                 asking: asking(&j.id),
                 parked: j.parked && !self.live.contains_key(&j.id),
@@ -1901,7 +2598,8 @@ impl Actor {
                 session_id: None,
                 stream_index: None,
                 live: true,
-                worker: p.worker.map(|w| w.as_str().to_string()),
+                queued: false,
+                worker: p.worker.as_ref().map(|w| w.id.clone()),
                 asking: p.confirming,
                 parked: false,
                 last_seq: self.evicted_seq.get(id).copied().unwrap_or(0),
@@ -1911,8 +2609,36 @@ impl Actor {
                 pull_request: None,
             })
             .collect();
+        // Starts waiting in line for a slot, in their order.
+        let mut waiting: Vec<(&String, &Queued)> = self
+            .queued
+            .iter()
+            .filter(|(id, _)| self.state.job(id).is_none() && !self.preparing.contains_key(*id))
+            .collect();
+        waiting.sort_by_key(|(_, q)| q.seq);
         new.sort_by(|a, b| a.id.cmp(&b.id));
         jobs.extend(new);
+        jobs.extend(waiting.into_iter().map(|(id, q)| JobSummary {
+            id: id.clone(),
+            grant_id: q.grant_id.clone(),
+            request: q.request.clone(),
+            mode: q.mode,
+            status: JobStatus::Starting,
+            created_at: q.created_at.clone(),
+            ended_at: None,
+            session_id: None,
+            stream_index: None,
+            live: true,
+            queued: true,
+            worker: q.worker.clone(),
+            asking: false,
+            parked: false,
+            last_seq: self.evicted_seq.get(id).copied().unwrap_or(0),
+            run_id: None,
+            branch: None,
+            commit: None,
+            pull_request: None,
+        }));
         // isGit as the folder is now (a stat per grant).
         let grants = self
             .state
@@ -2082,26 +2808,45 @@ impl Actor {
         }
     }
 
+    /// Wake the first start in line when a slot is free, or an idle job can
+    /// be parked for it: one at a time, so it takes the slot before the next.
+    fn wake_queue(&mut self) {
+        let now = Instant::now();
+        self.queued
+            .retain(|_, q| q.woken_at.is_none_or(|t| now.duration_since(t) < QUEUE_RETRY_WITHIN));
+        if self.queued.is_empty() || self.queued.values().any(|q| q.wake.is_none()) {
+            return;
+        }
+        if self.closing || self.state.off {
+            self.drop_queue();
+            return;
+        }
+        if self.slots_taken() >= MAX_RUNNING && self.idle_jobs(now, "").is_empty() {
+            return;
+        }
+        let Some(first) = self.queued.iter().min_by_key(|(_, q)| q.seq).map(|(id, _)| id.clone()) else {
+            return;
+        };
+        let q = self.queued.get_mut(&first).expect("listed");
+        if q.wake.take().is_some_and(|tx| tx.send(()).is_ok()) {
+            q.woken_at = Some(now);
+        } else {
+            self.queued.remove(&first);
+        }
+    }
+
+    /// Every start in line is refused ([`QUEUE_DROPPED`]): off, or quitting.
+    fn drop_queue(&mut self) {
+        for (id, _) in self.queued.drain() {
+            crate::log_to_file(&format!("[local-agent:{id}] dropped from the line for a slot"));
+        }
+    }
+
     /// Park every job idle for [`Timing::idle_park_after`].
     fn park_idle(&mut self, now: Instant) {
         let idle = idle_too_long(self.idle_jobs(now, ""), now, self.timing.idle_park_after);
         for id in idle {
             self.park(&id, "idle");
-        }
-    }
-
-    /// Park every worker whose yes has run out ([`Timing::worker_yes_for`]),
-    /// mid-turn or not: its next message has to resume it, and that asks
-    /// the person again.
-    fn park_expired_yes(&mut self, now: Instant) {
-        let expired: Vec<String> = self
-            .live
-            .iter()
-            .filter(|(_, l)| l.stop.is_none() && l.yes_until.is_some_and(|t| now >= t))
-            .map(|(id, _)| id.clone())
-            .collect();
-        for id in expired {
-            self.park(&id, "its yes on this Mac ran out");
         }
     }
 
@@ -2114,6 +2859,7 @@ impl Actor {
         crate::log_to_file(&format!("[local-agent:{job_id}] parking ({why})"));
         self.log.append(job_id, Who::Job, &format!("parked ({why})"));
         live.stop = Some(StopKind::Park);
+        live.abort_tool_calls();
         live.handle.stop();
         live.handle
             .escalate(self.timing.stop_term_after, self.timing.stop_kill_after);
@@ -2121,8 +2867,20 @@ impl Actor {
 
     /// Check a start against the grant and the job's own record, and reserve
     /// its slot; an edit job's worktree is made next, outside the actor.
-    fn plan_start(&mut self, args: &Checked) -> Result<Plan, String> {
+    /// `worker`: the job's, as the handler found it in the bundle's registry.
+    fn plan_start(&mut self, args: &Checked, worker: Option<workers::Worker>) -> Result<Plan, String> {
         let job_id = args.job_id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        // Waiting in line: a second start for it (a retried claim) is
+        // refused; its own handler, woken, plans it again in its place.
+        let place = match self.queued.get(&job_id) {
+            Some(q) if q.wake.is_some() => return Err("this job is already waiting for a free slot on this Mac".into()),
+            Some(q) => Some(q.seq),
+            None => None,
+        };
+        self.queued.remove(&job_id);
+        if self.tidying.contains(&job_id) {
+            return Err(TIDYING.into());
+        }
         let existing = self.state.job(&job_id).cloned();
         if let Some(job) = &existing {
             if job.grant_id != args.grant_id {
@@ -2131,7 +2889,9 @@ impl Actor {
             if args.mode.is_some_and(|m| m != job.mode) {
                 return Err(format!("this job runs in {} mode", job.mode.as_str()));
             }
-            workers::check_same_worker(job.worker.as_deref(), args.worker)?;
+            workers::check_same_worker(job.worker.as_deref(), args.worker.as_deref(), |r| {
+                worker.as_ref().filter(|w| w.id == r).map(|w| w.label.clone())
+            })?;
         }
         if let Some(live) = self.live.get(&job_id) {
             if live.stop.is_some() {
@@ -2167,10 +2927,22 @@ impl Actor {
                 if !folder::is_git_root(Path::new(&folder)) {
                     return Err("edits need the folder to be a git repository's root".into());
                 }
-                let branch = existing
-                    .as_ref()
-                    .and_then(|j| j.branch.clone())
-                    .unwrap_or_else(|| git::branch_name(&grant.label, &job_id));
+                // A new job's branch: never one another job (recorded, or
+                // being made right now) has, however alike their ids start.
+                let taken = |b: &str| {
+                    self.state.jobs.iter().any(|j| j.branch.as_deref() == Some(b))
+                        || self.preparing.values().any(|p| p.branch.as_deref() == Some(b))
+                };
+                let branch = match existing.as_ref().and_then(|j| j.branch.clone()) {
+                    Some(b) => b,
+                    None => {
+                        let short = git::branch_name(&grant.label, &job_id);
+                        match git::fresh_branch(&short, &job_id) {
+                            Some(longer) if taken(&short) => longer,
+                            _ => short,
+                        }
+                    }
+                };
                 // Only a new job's worktree starts from the base it names. A
                 // job Rust has a record of keeps the worktree it has, and if
                 // that and its branch are both gone, starts again from its
@@ -2193,17 +2965,20 @@ impl Actor {
                     root: self.paths.worktrees(),
                     branch,
                     base,
+                    fresh: existing.is_none(),
                 })
             }
         };
-        // The job's worker, the one it keeps or the one this start names.
-        let worker = args.worker.or_else(|| {
-            existing
-                .as_ref()
-                .and_then(|j| j.worker.as_deref())
-                .and_then(|w| workers::Worker::parse(w).ok())
-        });
-        if worker.is_some() {
+        // The job's worker, the one it keeps or the one this start names:
+        // the handler's lookup of it, unless that changed since.
+        let worker = workers::same_worker(
+            existing.as_ref().and_then(|j| j.worker.as_deref()).or(args.worker.as_deref()),
+            worker,
+        )?;
+        // A worker the person said yes to in this folder before runs like
+        // our own agent: told and bounded, not asked ([`starts`]).
+        let ask = worker.as_ref().is_some_and(|w| !self.worker_remembered(&w.id, &grant.path));
+        if ask {
             self.check_can_ask(&grant.id)?;
         }
         // A job the person was told of lately isn't counted again.
@@ -2212,12 +2987,36 @@ impl Actor {
         if !announced {
             self.check_starts(&job_id, now)?;
         }
-        self.make_room(&job_id)?;
+        if self.make_room(&job_id).is_err() {
+            // Every slot runs a job: wait in line, keeping its place.
+            let (tx, wake) = oneshot::channel();
+            let seq = place.unwrap_or_else(|| {
+                self.queue_seq += 1;
+                self.queue_seq
+            });
+            if place.is_none() {
+                crate::log_to_file(&format!("[local-agent:{job_id}] waiting for a free slot ({MAX_RUNNING} running)"));
+            }
+            self.queued.insert(
+                job_id.clone(),
+                Queued {
+                    grant_id: grant.id.clone(),
+                    request: existing.as_ref().map_or(args.request.clone(), |j| j.request.clone()),
+                    mode,
+                    worker: worker.as_ref().map(|w| w.id.clone()),
+                    created_at: existing.as_ref().map_or_else(now_stamp, |j| j.created_at.clone()),
+                    seq,
+                    wake: Some(tx),
+                    woken_at: None,
+                },
+            );
+            return Ok(Plan::Queued { job_id, wake });
+        }
         if !announced {
             self.count_start(&job_id, now);
         }
         let request = existing.as_ref().map_or(args.request.as_str(), |j| j.request.as_str());
-        let confirm = worker.map(|w| {
+        let confirm = worker.clone().filter(|_| ask).map(|w| {
             let launch = match existing.as_ref().is_some_and(|j| j.session_id.is_some()) || args.resume.is_some() {
                 true => prompts::WorkerLaunch::Resume { message: None },
                 false => prompts::WorkerLaunch::Start,
@@ -2234,6 +3033,7 @@ impl Actor {
                 mode,
                 worker,
                 created_at: existing.as_ref().map_or_else(now_stamp, |j| j.created_at.clone()),
+                branch: edit.as_ref().map(|e| e.branch.clone()),
             },
         );
         Ok(Plan::Launch(LaunchPlan {
@@ -2296,17 +3096,16 @@ impl Actor {
     ) -> Confirm {
         let wait = self.timing.worker_confirm;
         let prompt = prompts::worker_prompt(
-            worker,
+            &worker.label,
             &grant.label,
             &grant.path,
             request,
             launch,
-            self.timing.worker_yes_for,
             wait,
         );
         crate::log_to_file(&format!("[local-agent:{job_id}] asking: {}", prompt.title));
         self.log
-            .append(job_id, Who::Ask, &format!("{}: {}", worker.as_str(), prompt.title));
+            .append(job_id, Who::Ask, &format!("{}: {}", worker.id, prompt.title));
         let (tx, answer) = oneshot::channel();
         self.host.ask(&prompt, wait, tx);
         Confirm { worker, answer, wait }
@@ -2320,8 +3119,12 @@ impl Actor {
         match answer {
             None if announced => Ok(Admit::Announced),
             None => Ok(Admit::Told { resumed }),
-            Some(Ok(())) => {
-                self.log.append(job_id, Who::You, "allowed the coding agent to run");
+            Some(Ok(worker)) => {
+                self.log.append(job_id, Who::You, "allowed the coding agent to work in this folder");
+                // Remembered for this worker in this folder ([`starts`]).
+                if let Some(grant) = self.state.grant(grant_id).cloned() {
+                    self.remember_worker_folder(&worker, &grant.path);
+                }
                 Ok(Admit::Confirmed)
             }
             Some(Err((who, why))) => {
@@ -2333,20 +3136,101 @@ impl Actor {
         }
     }
 
-    /// The banner for a launch nobody on this Mac confirmed ([`starts`]).
-    fn tell_started(&self, job_id: &str, mode: GrantMode, resumed: bool) {
+    /// The banner for a launch nobody on this Mac confirmed just now
+    /// ([`starts`]); `agent`, a worker's label.
+    fn tell_started(&self, job_id: &str, mode: GrantMode, resumed: bool, agent: Option<&str>) {
         let label = self
             .state
             .job(job_id)
             .and_then(|j| self.state.grant(&j.grant_id))
             .map_or("a folder", |g| g.label.as_str());
-        let (title, body) = starts::started_notice(label, mode, resumed);
+        let (title, body) = starts::started_notice(label, mode, resumed, agent);
         self.host.notify(&title, &body);
     }
 
     /// Launch a planned start: a new job, or one Rust already has a record
     /// of (resumed from its own session), or one only the server remembers
     /// (resumed from `resume`).
+    /// The list a launch of `job_id` gets ([`Actor::launch`]): this one, or
+    /// none (never an earlier launch's).
+    fn keep_tools_list(&mut self, job_id: &str, tools: Option<Vec<u8>>) {
+        match tools {
+            Some(list) => self.tools_lists.insert(job_id.to_string(), list),
+            None => self.tools_lists.remove(job_id),
+        };
+    }
+
+    /// A coding agent's `tool_call` (board step 4, [`workspace_tools`]):
+    /// posted with the job's freshest token, answered on its stdin. Only a
+    /// live worker run that isn't stopping; at most
+    /// [`workspace_tools::MAX_IN_FLIGHT`] at once.
+    fn on_tool_call(&mut self, job_id: &str, gen: u64, call: workspace_tools::ToolCall) {
+        let token = self.tokens.get(job_id).cloned();
+        let tx = self.job_tx.clone();
+        let Some(live) = self.live.get_mut(job_id) else { return };
+        if live.worker.is_none() || live.stop.is_some() {
+            return;
+        }
+        let answer_now = |live: &Live, line: String| {
+            if live.handle.send_line(line).is_err() {
+                crate::log_to_file(&format!("[local-agent:{job_id}] a workspace tool's answer couldn't be written"));
+            }
+        };
+        if live.tool_calls.contains_key(&call.id) {
+            crate::log_to_file(&format!("[local-agent:{job_id}] workspace tool call {} is with the server already", call.id));
+            return;
+        }
+        if live.tool_calls.len() >= workspace_tools::MAX_IN_FLIGHT {
+            let line = workspace_tools::err_line(
+                &call.id,
+                &format!(
+                    "{} workspace tool calls are running already; wait for one to finish.",
+                    workspace_tools::MAX_IN_FLIGHT
+                ),
+                Some("BUSY"),
+            );
+            return answer_now(live, line);
+        }
+        let Some(token) = token else {
+            let line = workspace_tools::err_line(
+                &call.id,
+                "This job has no Native Intelligence session to run the tool with.",
+                Some("UNAVAILABLE"),
+            );
+            return answer_now(live, line);
+        };
+        let origin = live.api_origin.clone();
+        let body = workspace_tools::call_body(
+            &call,
+            workspace_tools::session_id_for(job_id),
+            workspace_tools::time_zone(),
+        );
+        let (id, job) = (call.id.clone(), job_id.to_string());
+        let task = tokio::spawn(async move {
+            let line = workspace_tools::call(&origin, &token, &call, body).await;
+            let _ = tx
+                .send(JobMsg {
+                    job_id: job,
+                    gen,
+                    event: JobEvent::ToolAnswered { id: call.id, line },
+                })
+                .await;
+        });
+        live.tool_calls.insert(id, task.abort_handle());
+    }
+
+    /// A workspace tool call's answer: written only if the call still waits
+    /// in this run (not stopped, not aborted).
+    fn on_tool_answered(&mut self, job_id: &str, id: &str, line: String) {
+        let Some(live) = self.live.get_mut(job_id) else { return };
+        if live.tool_calls.remove(id).is_none() || live.stop.is_some() {
+            return;
+        }
+        if live.handle.send_line(line).is_err() {
+            crate::log_to_file(&format!("[local-agent:{job_id}] a workspace tool's answer couldn't be written"));
+        }
+    }
+
     fn launch_start(
         &mut self,
         args: &Checked,
@@ -2393,7 +3277,7 @@ impl Actor {
         if is_new {
             let mut job = Job::new(&job_id, &grant.id, &args.request, JobStatus::Starting, &now_stamp());
             job.mode = plan.mode;
-            job.worker = args.worker.map(|w| w.as_str().to_string());
+            job.worker = args.worker.clone();
             if let Some(r) = &args.resume {
                 job.session_id = Some(r.eve_session_id.clone());
                 job.stream_index = Some(r.stream_index);
@@ -2451,8 +3335,15 @@ impl Actor {
             Err(e) => {
                 if is_new {
                     self.state.jobs.retain(|j| j.id != job_id);
-                    let _ = std::fs::remove_dir(self.paths.job_dir(&job_id));
-                    let _ = std::fs::remove_dir(self.paths.job_tmp(&job_id));
+                    // Its markers go with it: `launch` has swept its fence
+                    // and returned its logins already ([`fence::end_of_run`]).
+                    fence::remove_markers(&self.paths.fence_dir(), &job_id);
+                    // The job's folder may hold a worker's private home, with
+                    // links to the person's keychain folder and login (and any
+                    // the agent made): `remove_dir_all` removes a link, never
+                    // what it points at.
+                    let _ = std::fs::remove_dir_all(self.paths.job_dir(&job_id));
+                    let _ = std::fs::remove_dir_all(self.paths.job_tmp(&job_id));
                 }
                 self.save();
                 Err(e)
@@ -2474,7 +3365,8 @@ impl Actor {
     }
 
     fn set_token(&mut self, job_id: &str, token: String) -> Result<(), String> {
-        if self.state.job(job_id).is_none() && !self.preparing.contains_key(job_id) {
+        // A start waiting in line keeps its newest token for when its turn comes.
+        if self.state.job(job_id).is_none() && !self.preparing.contains_key(job_id) && !self.queued.contains_key(job_id) {
             return Err("unknown job".into());
         }
         if let Some(live) = self.live.get(job_id) {
@@ -2494,6 +3386,9 @@ impl Actor {
     /// with a session, in a folder still shared.
     fn resumable(&self, job_id: &str) -> Result<(Job, Grant), String> {
         let job = self.state.job(job_id).cloned().ok_or("unknown job")?;
+        if self.tidying.contains(job_id) {
+            return Err(TIDYING.into());
+        }
         if self.live.contains_key(job_id) {
             return Err("this job is already running".into());
         }
@@ -2514,9 +3409,17 @@ impl Actor {
 
     /// Before a resume launches ([`starts`]): it counts against the hour's
     /// cap, and a worker's puts its confirm up, holding a slot meanwhile.
-    fn plan_resume(&mut self, job_id: &str, message: Option<&str>) -> Result<Option<Confirm>, String> {
+    /// `worker`: the job's, as the handler found it in the bundle's registry.
+    fn plan_resume(
+        &mut self,
+        job_id: &str,
+        message: Option<&str>,
+        worker: Option<workers::Worker>,
+    ) -> Result<Option<Confirm>, String> {
         let (job, grant) = self.resumable(job_id)?;
-        let worker = job.worker.as_deref().and_then(|w| workers::Worker::parse(w).ok());
+        let worker = workers::same_worker(job.worker.as_deref(), worker)?;
+        // Asked only where the person hasn't said yes to it before ([`starts`]).
+        let worker = worker.filter(|w| !self.worker_remembered(&w.id, &grant.path));
         if worker.is_some() {
             self.check_can_ask(&grant.id)?;
         }
@@ -2537,7 +3440,7 @@ impl Actor {
         };
         let confirm = self.confirm_worker(
             job_id,
-            worker,
+            worker.clone(),
             &grant,
             &job.request,
             prompts::WorkerLaunch::Resume { message },
@@ -2552,6 +3455,7 @@ impl Actor {
                 mode: job.mode,
                 worker: Some(worker),
                 created_at: job.created_at.clone(),
+                branch: job.branch.clone(),
             },
         );
         Ok(Some(confirm))
@@ -2707,9 +3611,28 @@ impl Actor {
             return Err("bad job id".into());
         }
         // L4: the model and worker the handler checked, re-checked now.
-        let run = self.run_spec(job_id)?;
-        if run.worker.is_some() && admit != Admit::Confirmed {
-            return Err(starts::NOT_CONFIRMED.into());
+        let mut run = self.run_spec(job_id)?;
+        // A worker runs on the person's yes: just given, or remembered for it
+        // in this folder (checked again now: it may have been switched off).
+        if let Some(w) = &run.worker {
+            let remembered = self
+                .state
+                .job(job_id)
+                .and_then(|j| self.state.grant(&j.grant_id))
+                .is_some_and(|g| self.worker_remembered(&w.worker.id, &g.path));
+            if admit != Admit::Confirmed && !remembered {
+                return Err(starts::NOT_CONFIRMED.into());
+            }
+        }
+        // A worker's fence markers, made before it is spawned ([`fence`]),
+        // and the loopback ports its fence is to keep away from.
+        let list = self.tools_lists.remove(job_id);
+        workspace_tools::remove_list(&self.paths.root, job_id);
+        if let Some(w) = run.worker.as_mut() {
+            let dir = self.paths.fence_dir();
+            fence::make_markers(&dir, job_id).map_err(|e| format!("can't make the job's fence markers: {e}"))?;
+            w.fence_dir = dir.to_str().ok_or("the fence folder's path is not valid UTF-8")?.to_string();
+            w.closed_ports = self.closed_ports();
         }
         let extra_read = match &edit {
             Some(e) => Some(
@@ -2726,6 +3649,19 @@ impl Actor {
         create_private_dir(&tmp).map_err(|e| format!("can't create the job's temp folder: {e}"))?;
         let tmp = canonical_or(tmp);
         let tmp = tmp.to_str().ok_or("the temp folder's path is not valid UTF-8")?;
+        // A coding agent's workspace tools, as the server listed them for
+        // this launch ([`workspace_tools`]); our own agent never gets any.
+        if let (Some(w), Some(list)) = (run.worker.as_mut(), list) {
+            w.tools_file = match workspace_tools::write_list(&self.paths.root, job_id, &list) {
+                Ok(path) => path.to_str().map(str::to_string),
+                Err(e) => {
+                    crate::log_to_file(&format!(
+                        "[local-agent:{job_id}] no workspace tools for this run: the list couldn't be written ({e})"
+                    ));
+                    None
+                }
+            };
+        }
         self.next_gen += 1;
         let gen = self.next_gen;
         let run_id = uuid::Uuid::new_v4().to_string();
@@ -2741,6 +3677,13 @@ impl Actor {
                 run: Some(&run),
             },
         );
+        // A worker's logins go back with its own adapter and environment.
+        let logins = run.worker.is_some().then(|| fence::LoginReturn {
+            program: launch.node.clone(),
+            args: vec![run.entry(launch).into_os_string(), "--return-logins".into()],
+            cwd: dir.clone(),
+            env: env.clone(),
+        });
         let spec = SpawnSpec {
             job_id: job_id.to_string(),
             gen,
@@ -2749,11 +3692,20 @@ impl Actor {
             cwd: dir,
             env,
         };
-        let handle =
-            supervisor::spawn(spec, self.job_tx.clone()).map_err(|e| format!("could not start the launcher: {e}"))?;
+        // A worker that never got going ends like one that exited: sweep,
+        // then its logins, before its caller may remove the folder.
+        let failed = |actor: &Self, why: String| {
+            workspace_tools::remove_list(&actor.paths.root, job_id);
+            if logins.is_some() {
+                fence::end_of_run(&actor.fence, &actor.paths.fence_dir(), job_id, logins.as_ref());
+            }
+            why
+        };
+        let handle = supervisor::spawn(spec, self.job_tx.clone())
+            .map_err(|e| failed(self, format!("could not start the launcher: {e}")))?;
         if handle.send_line(first).is_err() {
             handle.kill_now();
-            return Err("the launcher closed its input at once".into());
+            return Err(failed(self, "the launcher closed its input at once".into()));
         }
         crate::log_to_file(&format!(
             "[local-agent:{job_id}] run {run_id} ({}, {})",
@@ -2779,8 +3731,13 @@ impl Actor {
                 tools_running: HashSet::new(),
                 never_write: Arc::new(never_write(launch)),
                 git: Git::from_launch(launch),
-                worker: run.worker.as_ref().map(|w| w.worker),
-                yes_until: (admit == Admit::Confirmed).then(|| Instant::now() + self.timing.worker_yes_for),
+                worker: run.worker.as_ref().map(|w| w.worker.clone()),
+                logins,
+                port: None,
+                own_kind_logged: false,
+                api_origin: launch.api_origin.clone(),
+                tool_calls: HashMap::new(),
+                bad_tool_call_logged: false,
             },
         );
         if let Some(job) = self.state.job_mut(job_id) {
@@ -2803,22 +3760,12 @@ impl Actor {
         );
         self.ensure_ring(job_id);
         if let Admit::Told { resumed } = admit {
-            self.tell_started(job_id, mode, resumed);
+            self.tell_started(job_id, mode, resumed, run.worker.as_ref().map(|w| w.worker.label.as_str()));
         }
         Ok(run_id)
     }
 
     fn send(&mut self, job_id: &str, text: String, policy: Policy) -> Result<(), String> {
-        // A worker's yes covers its follow-ups for so long: then it is parked,
-        // and the relay's retry resumes it, which asks the person again.
-        let expired = self
-            .live
-            .get(job_id)
-            .is_some_and(|l| l.stop.is_none() && l.yes_until.is_some_and(|t| Instant::now() >= t));
-        if expired {
-            self.park(job_id, "its yes on this Mac ran out");
-            return Err(starts::YES_RAN_OUT.into());
-        }
         let Some(live) = self.live.get_mut(job_id) else {
             return Err(if self.state.job(job_id).is_some() {
                 "this job isn't running; resume it first".into()
@@ -2842,6 +3789,10 @@ impl Actor {
     }
 
     fn stop(&mut self, job_id: &str) -> Result<(), String> {
+        if self.queued.remove(job_id).is_some() {
+            crate::log_to_file(&format!("[local-agent:{job_id}] stopped while it waited for a free slot"));
+            return Ok(());
+        }
         if let Some(p) = self.preparing.get_mut(job_id) {
             p.stopped = true;
             return Ok(());
@@ -2854,6 +3805,7 @@ impl Actor {
                 crate::log_to_file(&format!("[local-agent:{job_id}] stop requested"));
                 self.log.append(job_id, Who::Job, "stop requested");
                 live.stop = Some(StopKind::User);
+                live.abort_tool_calls();
                 live.handle.stop();
                 live.handle
                     .escalate(self.timing.stop_term_after, self.timing.stop_kill_after);
@@ -2902,6 +3854,9 @@ impl Actor {
                     None => format!("eve {}", eve_version.as_deref().unwrap_or("?")),
                 };
                 crate::log_to_file(&format!("[local-agent:{job_id}] ready on 127.0.0.1:{port} ({what})"));
+                if let (Some(live), Ok(port)) = (self.live.get_mut(&job_id), u16::try_from(port)) {
+                    live.port = (port != 0).then_some(port);
+                }
             }
             JobEvent::Line(Inbound::Session {
                 session_id,
@@ -2946,6 +3901,16 @@ impl Actor {
             }
             JobEvent::Line(Inbound::Event(event)) => self.on_event(&job_id, event),
             JobEvent::Line(Inbound::Prompt { id, kind, detail }) => self.on_prompt(&job_id, id, kind, &detail),
+            JobEvent::Line(Inbound::ToolCall(call)) => self.on_tool_call(&job_id, gen, call),
+            JobEvent::Line(Inbound::BadToolCall(field)) => {
+                if let Some(live) = self.live.get_mut(&job_id).filter(|l| !l.bad_tool_call_logged) {
+                    live.bad_tool_call_logged = true;
+                    crate::log_to_file(&format!(
+                        "[local-agent:{job_id}] dropped a tool_call with a bad {field} (later ones are dropped without a line)"
+                    ));
+                }
+            }
+            JobEvent::ToolAnswered { id, line } => self.on_tool_answered(&job_id, &id, line),
             JobEvent::ConfirmTimeout => self.confirm_resume(&job_id),
             JobEvent::Exited(info) => self.on_exit(&job_id, &info),
             JobEvent::Committed { .. }
@@ -2958,6 +3923,18 @@ impl Actor {
 
     fn on_event(&mut self, job_id: &str, event: Value) {
         let kind = event["kind"].as_str().unwrap_or_default().to_string();
+        // Rust's own record (a branch, a pull request, a prompt's answer):
+        // never taken from the agent's side, ours or a coding agent's.
+        if RUST_OWN_KINDS.contains(&kind.as_str()) {
+            if let Some(live) = self.live.get_mut(job_id).filter(|l| !l.own_kind_logged) {
+                live.own_kind_logged = true;
+                crate::log_to_file(&format!(
+                    "[local-agent:{job_id}] dropped a {kind:?} event from the agent: only Native Intelligence writes those \
+                     (later ones are dropped without a line)"
+                ));
+            }
+            return;
+        }
         // Logged and tracked even when the event is too big to keep.
         if kind == "tool" || kind == "tool_result" {
             self.log_tool(job_id, &kind, &event);
@@ -3036,11 +4013,33 @@ impl Actor {
             edit.worktree.display()
         ));
         self.committing.insert(job_id.to_string());
-        let (tx, id) = (self.job_tx.clone(), job_id.to_string());
+        // A coding agent's commit is checked again for what the fence keeps
+        // out ([`git::worker_commit_refuses`]); our own agent's isn't.
+        let worker = self.state.job(job_id).is_some_and(|j| j.worker.is_some())
+            || self.live.get(job_id).is_some_and(|l| l.worker.is_some());
+        // And first, nothing of its fence outside the adapter's tree may race
+        // the commit ([`fence`]); the agent itself keeps its session.
+        //
+        // Known limit: what the agent left running inside its own tree (a
+        // command it put in the background) is spared, so it may still be
+        // writing while the commit runs. That can't slip anything unchecked
+        // in: the commit takes the index as staged, and the staged index is
+        // what [`git::worker_commit_refuses`] checked; a later write stays
+        // in the worktree, for the next commit (and its check).
+        let sweep = worker.then(|| match self.live.get(job_id) {
+            Some(live) => fence::Scope::OutsideTree(live.handle.pid),
+            None => fence::Scope::All,
+        });
+        let (tx, id, fences, sweeper) =
+            (self.job_tx.clone(), job_id.to_string(), self.paths.fence_dir(), self.fence.sweep.clone());
         tokio::spawn(async move {
+            if let Some(scope) = sweep {
+                let job = id.clone();
+                let _ = tokio::task::spawn_blocking(move || sweeper(&fences, &job, scope)).await;
+            }
             let result = edit
                 .git
-                .commit(&edit.worktree, &edit.git_dir, edit.base.as_deref(), &summary)
+                .commit(&edit.worktree, &edit.git_dir, edit.base.as_deref(), &summary, worker)
                 .await;
             let _ = tx
                 .send(JobMsg {
@@ -3099,6 +4098,16 @@ impl Actor {
         let Some(mut live) = self.live.remove(job_id) else {
             return;
         };
+        // Its workspace tool calls end with it, and its tools list goes.
+        live.abort_tool_calls();
+        workspace_tools::remove_list(&self.paths.root, job_id);
+        // A worker's adapter is gone, for whatever reason (a stop or a park
+        // ends here too): whatever is left in its fence goes with it, before
+        // anything else (a relaunch, the commit) can happen ([`fence`]).
+        // Then, once the fence is seen empty, its logins go back.
+        if live.worker.is_some() {
+            fence::end_of_run(&self.fence, &self.paths.fence_dir(), job_id, live.logins.as_ref());
+        }
         let (current, has_session) = self
             .state
             .job(job_id)
@@ -3325,9 +4334,15 @@ impl Actor {
         }
         let has_commit = job.commit.is_some();
         let commit_running = self.committing.contains(job_id);
-        let live = self.live.get(job_id).ok_or("this job isn't running")?;
+        let live = self.live.get_mut(job_id).ok_or("this job isn't running")?;
         if live.edit.is_none() {
             return Err(not_edit.into());
+        }
+        if live.worker.is_some() {
+            // A coding agent's push isn't one of its tool calls: the adapter
+            // asks once its turn is over, so calls it never closed are stale
+            // and must not hold the commit back until the prompt expires.
+            live.tools_running.clear();
         }
         let commit_pending = live.pending_commit.is_some();
         if commit_running || commit_pending {
@@ -3456,6 +4471,9 @@ impl Actor {
                 Ok::<_, String>((target, sends, files))
             };
             let result = checked.await.map(|(target, sends, files)| {
+                // What is asked about is exactly what is published: made
+                // inert here, for every push (our own agent's too).
+                let ask = ask.made_inert(target.repo.as_deref());
                 let prompt = prompts::push_prompt(
                     &prompts::PushWhere {
                         branch: &branch,
@@ -3890,6 +4908,7 @@ impl Actor {
 
     fn begin_shutdown(&mut self, reply: oneshot::Sender<()>) {
         self.closing = true;
+        self.drop_queue();
         if let Some(sd) = &mut self.shutdown {
             sd.replies.push(reply);
             return;
@@ -3908,6 +4927,7 @@ impl Actor {
             if live.stop.is_none() {
                 live.stop = Some(StopKind::AppExit);
             }
+            live.abort_tool_calls();
             live.handle.stop();
         }
         let now = Instant::now();

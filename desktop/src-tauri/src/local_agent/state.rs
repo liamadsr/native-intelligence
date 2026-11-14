@@ -174,8 +174,9 @@ pub struct Job {
     /// Its idle launcher was parked: `waiting` with no process, resumable.
     #[serde(default, skip_serializing_if = "is_false")]
     pub parked: bool,
-    /// The worker it runs on instead of eve (`claude-code`, `codex`;
-    /// [`super::workers`]). A string, so a newer app's never breaks the file.
+    /// The worker it runs on instead of eve: its id in the bundle's
+    /// registry (`claude-code`; [`super::workers`]). A string, so an id a
+    /// later registry drops never breaks the file (its job is refused).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker: Option<String>,
     /// When the person was last told it started (a banner) or said yes to
@@ -231,6 +232,11 @@ pub struct StateFile {
     /// relaunch (which the page can ask for) never empties the hour.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub starts: Vec<StartStamp>,
+    /// When edit jobs' worktrees were last tidied (ms since the Unix epoch;
+    /// `super::Actor::tidy_candidates`): at most once a day, relaunches
+    /// included.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tidied_at: Option<u64>,
 }
 
 fn current_version() -> u32 {
@@ -246,6 +252,7 @@ impl Default for StateFile {
             jobs: Vec::new(),
             off: false,
             starts: Vec::new(),
+            tidied_at: None,
         }
     }
 }

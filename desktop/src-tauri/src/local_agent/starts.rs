@@ -12,11 +12,12 @@
 //! one: the yes in a worker's confirm ([`super::prompts::worker_prompt`]),
 //! drawn by Rust, which no page can give ([`super::Admit`]).
 //!
-//! - **Told**: a job's first launch the person didn't confirm puts up a
-//!   banner in Notification Center, in Rust's words ([`started_notice`]):
-//!   which folder, and that a cloud agent or a loop started it. The job is
-//!   then announced (`Job::announced`, in state.json): its later launches,
-//!   the revivals the person's own messages cause, aren't told again.
+//! - **Told**: a job's first launch the person didn't confirm just now puts
+//!   up a banner in Notification Center, in Rust's words ([`started_notice`]):
+//!   which folder, which agent when it is a worker, and that a cloud agent or
+//!   a loop started it. The job is then announced (`Job::announced`, in
+//!   state.json): its later launches, the revivals the person's own messages
+//!   cause, aren't told again.
 //! - **Bounded**: at most [`MAX_REMOTE_STARTS_PER_HOUR`] jobs started in any
 //!   hour ([`StartWindow`]; a worker's counts before it is asked), counted
 //!   once each, by wall clock, in state.json, so neither a relaunch (which
@@ -24,21 +25,29 @@
 //!   refused with [`cap_refusal`], which the relay reports to the server like
 //!   any failed start, and the person gets one banner ([`cap_notice`]) each
 //!   time the hour fills.
-//! - **Confirmed**: a worker (the person's own `claude` or `codex`, with
-//!   network access) runs only after a yes, for every launch, start or
-//!   resume; no answer within [`super::Timing::worker_confirm`] is a no, one
-//!   confirm is up at a time ([`ONE_CONFIRM`]), and after a no (or no answer)
-//!   that folder's workers aren't asked about again for
-//!   [`super::Timing::worker_backoff`] ([`backed_off`]). A yes lasts
-//!   [`super::Timing::worker_yes_for`]: the worker takes the follow-up
-//!   messages Native Intelligence sends meanwhile (the confirm says so), and then it is
-//!   parked, so the next message resumes it and the person is asked again.
+//! - **Confirmed, once per agent and folder**: a worker (the person's own
+//!   coding agent CLI, with network access) runs in a folder only after the
+//!   person said yes to THAT worker in THAT folder, in its native confirm.
+//!   The yes is remembered (model.json `workerFolders`, by worker id and the
+//!   folder's realpath; written by Rust only, never sent to or read from the
+//!   page; `workers::Actor::remember_worker_folder`) and covers every later
+//!   job there, read or edit, start or resume, across relaunches: those are
+//!   then told and bounded like our own agent's, and the job takes follow-up
+//!   messages for as long as it lives. It is never a yes for another worker,
+//!   another folder (a parent or a sub-folder included), or a folder whose
+//!   path now resolves elsewhere. It is for the path: a folder deleted and
+//!   made again at the same path keeps it. It covers reading and, once the
+//!   folder is shared for editing, changes (the confirm says so). Switching the worker off in the menu bar
+//!   forgets all of its folders. Where there is no yes yet: no answer within
+//!   [`super::Timing::worker_confirm`] is a no, one confirm is up at a time
+//!   ([`ONE_CONFIRM`]), and after a no (or no answer) that folder's workers
+//!   aren't asked about again for [`super::Timing::worker_backoff`]
+//!   ([`backed_off`]). A no is not remembered beyond that.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::prompts::shown;
 use super::state::{GrantMode, StartStamp};
-use super::workers::Worker;
 
 /// Jobs started in any hour, at most. A folder runs one agent at a time and
 /// a loop's schedule fires at most hourly (a fire on a busy folder joins the
@@ -58,12 +67,9 @@ pub fn still_announced(at: Option<u64>, now: u64) -> bool {
 /// A worker's start while another worker's confirm is still up.
 pub const ONE_CONFIRM: &str =
     "another coding agent is waiting for the person's answer on this Mac; try again once it's answered";
-/// A worker launch without a yes (never reached: the start asks first).
+/// A worker launch without a yes (reached only when the remembered yes went
+/// between the start's check and the launch: the worker switched off).
 pub const NOT_CONFIRMED: &str = "a coding agent runs only after the person says yes on this Mac";
-/// A message to a worker whose yes has run out: it is being parked, and
-/// the relay's retry ("try again") resumes it, which asks the person again.
-pub const YES_RAN_OUT: &str = "this coding agent's yes on this Mac has run out and it is being parked; try again in \
-                               a moment, and the person is asked again";
 /// How much of a label a banner shows, in characters.
 const SHOWN_LABEL: usize = 60;
 
@@ -135,19 +141,31 @@ impl StartWindow {
     }
 }
 
-/// The banner for a launch nobody on this Mac confirmed: (title, body).
-pub fn started_notice(label: &str, mode: GrantMode, resumed: bool) -> (String, String) {
+/// The banner for a launch nobody on this Mac confirmed just now: (title,
+/// body). `agent`: a worker's label (from the bundle's registry), for a
+/// worker the person said yes to in this folder before.
+pub fn started_notice(label: &str, mode: GrantMode, resumed: bool, agent: Option<&str>) -> (String, String) {
     let verb = if resumed { "resumed" } else { "started" };
     let what = match mode {
         GrantMode::Read => "to read this folder",
         GrantMode::Edit => "to make changes on its own branch",
     };
-    (
-        format!("Agent {verb} in {}", shown(label, SHOWN_LABEL)),
-        format!(
-            "A Native Intelligence cloud agent or one of your loops {verb} it, {what}. You can stop it from the menu bar's Local Agents menu."
+    let folder = shown(label, SHOWN_LABEL);
+    match agent.map(|a| shown(a, SHOWN_LABEL)) {
+        None => (
+            format!("Agent {verb} in {folder}"),
+            format!(
+                "A Native Intelligence cloud agent or one of your loops {verb} it, {what}. You can stop it from the menu bar's Local Agents menu."
+            ),
         ),
-    )
+        Some(agent) => (
+            format!("{agent} {verb} in {folder} for Native Intelligence"),
+            format!(
+                "A Native Intelligence cloud agent or one of your loops {verb} your own {agent}, {what}, as you allowed for \
+                 this folder. You can stop it from the menu bar's Local Agents menu, or switch {agent} off there."
+            ),
+        ),
+    }
 }
 
 /// The banner when the hour's starts run out: (title, body).
@@ -171,18 +189,15 @@ pub fn cap_refusal(max: usize, wait: Duration) -> String {
     )
 }
 
-/// A worker's confirm answered no (or closed without a yes).
-pub fn denied(worker: Worker) -> String {
-    format!("{} didn't run: the person said no on this Mac", worker.name())
+/// A worker's confirm answered no (or closed without a yes); `name`, its
+/// registry label.
+pub fn denied(name: &str) -> String {
+    format!("{name} didn't run: the person said no on this Mac")
 }
 
 /// A worker's confirm nobody answered in time.
-pub fn unanswered(worker: Worker, wait: Duration) -> String {
-    format!(
-        "{} didn't run: nobody answered on this Mac within {}",
-        worker.name(),
-        super::human(wait)
-    )
+pub fn unanswered(name: &str, wait: Duration) -> String {
+    format!("{name} didn't run: nobody answered on this Mac within {}", super::human(wait))
 }
 
 /// A worker's start in a folder where the person just said no (or didn't
@@ -277,20 +292,31 @@ mod tests {
 
     #[test]
     fn the_words_say_which_folder_and_who_started_it() {
-        let (title, body) = started_notice("native-intelligence", GrantMode::Read, false);
+        let (title, body) = started_notice("native-intelligence", GrantMode::Read, false, None);
         assert_eq!(title, "Agent started in native-intelligence");
         assert_eq!(
             body,
             "A Native Intelligence cloud agent or one of your loops started it, to read this folder. You can stop it from \
              the menu bar's Local Agents menu."
         );
-        let (title, body) = started_notice("site", GrantMode::Edit, true);
+        let (title, body) = started_notice("site", GrantMode::Edit, true, None);
         assert_eq!(title, "Agent resumed in site");
         assert!(body.contains("resumed it, to make changes on its own branch"), "{body}");
-        let (odd, _) = started_notice("a\u{202E}b\ncd", GrantMode::Read, false);
+        let (odd, _) = started_notice("a\u{202E}b\ncd", GrantMode::Read, false, None);
         assert_eq!(odd, "Agent started in ab cd", "no invisible or control characters");
-        let (long, _) = started_notice(&"n".repeat(200), GrantMode::Read, false);
+        let (long, _) = started_notice(&"n".repeat(200), GrantMode::Read, false, None);
         assert!(long.chars().count() < 100 && long.ends_with('\u{2026}'), "{long}");
+        // A worker the person allowed in this folder: the banner names it.
+        let (title, body) = started_notice("site", GrantMode::Read, false, Some("Claude Code"));
+        assert_eq!(title, "Claude Code started in site for Native Intelligence");
+        assert_eq!(
+            body,
+            "A Native Intelligence cloud agent or one of your loops started your own Claude Code, to read this folder, \
+             as you allowed for this folder. You can stop it from the menu bar's Local Agents menu, or switch Claude \
+             Code off there."
+        );
+        let (long, _) = started_notice("site", GrantMode::Read, false, Some(&"n".repeat(200)));
+        assert!(long.chars().count() < 110 && long.contains("\u{2026} started in site"), "{long}");
 
         let (title, body) = cap_notice(20);
         assert_eq!(title, "Refusing more local agents for now");
@@ -303,15 +329,14 @@ mod tests {
         );
         assert!(cap_refusal(20, Duration::from_millis(10)).ends_with("in 1 min"));
         assert_eq!(
-            denied(Worker::ClaudeCode),
+            denied("Claude Code"),
             "Claude Code didn't run: the person said no on this Mac"
         );
         assert_eq!(
-            unanswered(Worker::Codex, Duration::from_secs(120)),
+            unanswered("Codex", Duration::from_secs(120)),
             "Codex didn't run: nobody answered on this Mac within 2 min"
         );
         assert!(backed_off(Duration::from_secs(590)).ends_with("about one there for 10 min"));
         assert!(backed_off(Duration::from_secs(60)).contains("didn't run and won't be tried again"));
-        assert!(YES_RAN_OUT.contains("try again"), "the relay retries a send on it");
     }
 }
