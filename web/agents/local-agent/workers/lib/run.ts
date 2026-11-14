@@ -1,6 +1,6 @@
 /**
  * One worker job, end to end: the process the desktop spawns instead of the
- * launcher when a job asks for an ACP agent (workers/acp.ts).
+ * launcher when a job asks for the person's own coding agent (workers/worker.ts).
  *
  *   1. One adapter per job dir: the same exclusive `O_EXLOCK` on
  *      `<cwd>/.launcher.lock` the launcher takes, so a launcher and a worker
@@ -11,7 +11,9 @@
  *   3. The agent's private home, `<job dir>/home`, with the person's login
  *      linked in (agent-home.ts), its temp folder, and the manager tools as an MCP server
  *      on 127.0.0.1 (mcp-http.ts).
- *   4. The agent under its one profile (agent-profile.ts), and ACP
+ *   4. The driver and its link (driver.ts, agent-link.ts), given two ways to
+ *      start the person's CLI, both under the one profile (agent-profile.ts):
+ *      the long-lived agent, and a short command (its version). The link's
  *      `initialize`. Any failure is a `fatal` with a sentence, before `ready`.
  *   5. `ready`, then the stdin lines, one at a time, in order (like the
  *      launcher's chain).
@@ -32,13 +34,13 @@ import { MANAGER_TOOLS, createManagerTools } from './manager-tools.js'
 import { TOOL_RESULT_LINE_MAX, createWorkspaceBridge, loadToolsFile, type WorkspaceBridge } from './workspace-tools.js'
 import { workspaceSection } from './instructions.js'
 import { startManagerMcp, type ManagerMcpServer } from './mcp-http.js'
-import { agentEnv, killBelow, processesBelow, spawnSandboxed } from './process.js'
+import { agentEnv, killBelow, processesBelow, runSandboxed, spawnSandboxed } from './process.js'
 import { toolchainEnv } from './toolchains.js'
 import { MAX_LINE_BYTES, createLineSplitter, parseInbound, serializeLine, type OutboundMessage } from './protocol.js'
-import { agentLaunch, loadRegistry, type Registry } from './registry.js'
+import { entryEnv, loadRegistry, type Registry } from './registry.js'
 
 /** Where each job's agent temp folder is made (mkdtemp), removed at exit: short, because Claude Code keeps unix sockets there. */
-export const AGENT_TMP_PREFIX = '/private/tmp/dial8-acp-'
+export const AGENT_TMP_PREFIX = '/private/tmp/dial8-agent-'
 
 /** macOS open(2) O_EXLOCK (<fcntl.h>); Node does not export it. */
 const O_EXLOCK = 0x20
@@ -67,7 +69,7 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-export async function runWorker(opts: { env?: WorkerEnv; registry?: Registry; entryScript?: string } = {}): Promise<void> {
+export async function runWorker(opts: { env?: WorkerEnv; registry?: Registry } = {}): Promise<void> {
   const env = opts.env ?? process.env
   const write = (msg: OutboundMessage) => process.stdout.write(serializeLine(msg))
   const log = (line: string) => process.stderr.write(`${line}\n`)
@@ -95,7 +97,7 @@ export async function runWorker(opts: { env?: WorkerEnv; registry?: Registry; en
     await new Promise((r) => setTimeout(r, 150))
     killBelow(started)
     // No login repair here: a process that left the tree may still run until the desktop's sweep, which then
-    // runs `acp.mjs --return-logins` (agent-home.ts). And teardown never throws: a surviving process can race it.
+    // runs `worker.mjs --return-logins` (agent-home.ts). And teardown never throws: a surviving process can race it.
     try {
       if (agentTmp) rmSync(agentTmp, { recursive: true, force: true })
     } catch (err) {
@@ -192,18 +194,10 @@ export async function runWorker(opts: { env?: WorkerEnv; registry?: Registry; en
     if (exiting) return
 
     const node = realpathSync(process.execPath)
-    const entryScript = realpathSync(opts.entryScript ?? process.argv[1])
-    // The adapter's own script must be where the registry says, inside LOCAL_AGENT_ACP_DIR.
-    for (const a of agentLaunch(entry, { node, acpDir: launch.acpDir, cli: launch.bin, tmp: '', home: '' }).command.slice(1)) {
-      if (a.startsWith(`${launch.acpDir}/`) && !(realpathOrNull(a) ?? '').startsWith(`${launch.acpDir}/`)) {
-        throw new WorkerLaunchError(`${label}'s ACP adapter is not installed in LOCAL_AGENT_ACP_DIR (${a}): run install-agents.sh`)
-      }
-    }
-
     const prepared = prepareAgentHome(realpathSync(process.cwd()), launch.home, entry)
     const agentHome = prepared.home
     agentTmp = realpathSync(mkdtempSync(AGENT_TMP_PREFIX))
-    const { command: argv, env: extraEnv } = agentLaunch(entry, { node, acpDir: launch.acpDir, cli: launch.bin, tmp: agentTmp, home: agentHome })
+    const extraEnv = entryEnv(entry, { cli: launch.bin, tmp: agentTmp, home: agentHome })
     // The agent can call the tools only once it runs, and it runs only after the driver exists.
     const manager = createManagerTools((event, pullRequest) => driver?.onManagerEvent(event, pullRequest), launch.mode)
     // The workspace tools, read once: no file (or a bad one) and the job runs as without.
@@ -219,7 +213,8 @@ export async function runWorker(opts: { env?: WorkerEnv; registry?: Registry; en
     if (exiting) return
 
     const readRoots = agentReadRoots(
-      { bin: launch.bin, toolPath: launch.toolPath, home: launch.home, extra: [(await nodeRuntimeRoot(node)).runtime, launch.acpDir, dirname(entryScript)] },
+      // This Node, for a CLI that is a `#!/usr/bin/env node` script (an npm install of Codex).
+      { bin: launch.bin, toolPath: launch.toolPath, home: launch.home, extra: [(await nodeRuntimeRoot(node)).runtime] },
       realpathOrNull,
       existsSync,
     )
@@ -247,14 +242,22 @@ export async function runWorker(opts: { env?: WorkerEnv; registry?: Registry; en
       // The person's toolchains (read-only), then the registry entry's own settings.
       { ...toolchainEnv(launch.home, existsSync), ...extraEnv },
     )
-    const child = spawnSandboxed(profile, argv, { cwd: launch.folder, env: environment })
+    // The person's CLI, run as the desktop found it (realpath), never looked up on PATH: argv is `[CLI, ...args]`.
+    const sandboxed = { cwd: launch.folder, env: environment }
+    const launchers = {
+      spawn: (args: readonly string[]) => {
+        // A stop meanwhile: teardown is under way and would miss a process started now.
+        if (exiting) throw new Error('the job is ending')
+        return spawnSandboxed(profile, [launch.bin, ...args], sandboxed)
+      },
+      run: (args: readonly string[], timeoutMs: number) => runSandboxed(profile, [launch.bin, ...args], { ...sandboxed, timeoutMs }),
+    }
     driver = new WorkerDriver(
-      child,
       {
         entry,
         mode: launch.mode,
         cwd: launch.folder,
-        mcp: { url: mcp.url, port: mcp.port, token: mcp.token, proxy: { command: node, args: [entryScript, '--mcp-proxy'] } },
+        mcp: { url: mcp.url, token: mcp.token },
         ...(workspaceText !== undefined ? { workspaceInstructions: workspaceText } : {}),
       },
       {
@@ -265,11 +268,12 @@ export async function runWorker(opts: { env?: WorkerEnv; registry?: Registry; en
         fatal,
         ask: (kind, detail) => prompts.ask(kind, detail),
       },
+      { launchers },
     )
     ;({ version } = await driver.initialize().catch((err: unknown) => {
       throw new WorkerLaunchError(message(err))
     }))
-    log(`[worker] ${label} (ACP adapter ${version}) in ${launch.mode} mode; manager tools on 127.0.0.1:${mcp.port}`)
+    log(`[worker] ${label} ${version} in ${launch.mode} mode; manager tools on 127.0.0.1:${mcp.port}`)
   } catch (err) {
     if (exiting) return // the stop ended the launch: not a failure to report
     return fatal(err instanceof WorkerLaunchError || err instanceof AgentHomeError ? err.message : `${label} could not start: ${message(err)}`)
@@ -281,7 +285,7 @@ export async function runWorker(opts: { env?: WorkerEnv; registry?: Registry; en
 }
 
 /**
- * `acp.mjs --return-logins`, run by the desktop UNSANDBOXED after it has
+ * `worker.mjs --return-logins`, run by the desktop UNSANDBOXED after it has
  * swept the job's processes (cwd: the job dir; LOCAL_AGENT_WORKER, HOME):
  * puts back what the agent saved beside its login links (agent-home.ts). One
  * line, `{"type":"logins","returned":<n>}` and exit 0, or `fatal` and exit 1.

@@ -1,5 +1,6 @@
 /**
- * Process plumbing for a worker: run the agent under its profile, keep the
+ * Process plumbing for a worker: run the person's CLI under its profile (the
+ * long-lived agent, and short commands such as its `--version`), keep the
  * tail of its stderr for error messages, and kill what a job left behind.
  *
  * The agent is NOT detached: it stays in the adapter's process group, which
@@ -40,6 +41,33 @@ export type AgentChild = ChildProcessByStdio<Writable, Readable, Readable>
 export function spawnSandboxed(profile: string, argv: readonly string[], opts: { cwd: string; env: Record<string, string> }): AgentChild {
   // A built-from-scratch env: cast because Next's global types make ProcessEnv require NODE_ENV (never set here).
   return spawn(SANDBOX_EXEC, ['-p', profile, ...argv], { cwd: opts.cwd, env: opts.env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'] })
+}
+
+/** The most a short command's stdout or stderr is kept (a version line is all that is wanted). */
+const RUN_OUTPUT_LIMIT = 64 * 1024
+
+/**
+ * Run a short command under the profile (the CLI's `--version`) and collect
+ * what it wrote; killed after `timeoutMs`. Its stdin is closed at once.
+ */
+export function runSandboxed(profile: string, argv: readonly string[], opts: { cwd: string; env: Record<string, string>; timeoutMs: number }): Promise<{ code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(SANDBOX_EXEC, ['-p', profile, ...argv], { cwd: opts.cwd, env: opts.env as NodeJS.ProcessEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8').on('data', (d: string) => (stdout = (stdout + d).slice(0, RUN_OUTPUT_LIMIT)))
+    child.stderr.setEncoding('utf8').on('data', (d: string) => (stderr = (stderr + d).slice(-RUN_OUTPUT_LIMIT)))
+    const timer = setTimeout(() => child.kill('SIGKILL'), opts.timeoutMs)
+    timer.unref?.()
+    child.once('error', (err) => {
+      clearTimeout(timer)
+      reject(err)
+    })
+    child.once('close', (code, signal) => {
+      clearTimeout(timer)
+      resolve({ code, signal, stdout, stderr })
+    })
+  })
 }
 
 /** The last `limit` characters a stream wrote, for an error message. */

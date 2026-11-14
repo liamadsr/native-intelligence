@@ -8,7 +8,7 @@
  *
  * What differs for a worker:
  *   - `ready` carries `port: 0` (no server listens for the desktop) and
- *     names the worker and its ACP adapter's version instead of eve's;
+ *     names the worker and its CLI's version instead of eve's;
  *   - `token` lines are read and dropped: a worker uses its vendor's model on
  *     the person's own account, never the Native Intelligence relay, and passes nothing on;
  *   - a worker sends only `push` prompts (C3/C5, after a `finish` with a pull
@@ -69,12 +69,13 @@ export const MAX_EVENT_BYTES = 64 * 1024
 export const MAX_SESSION_ID = 256
 
 /**
- * A worker session id: what the agent's `session/new` answered, carried back
- * to it in JSON (`session/resume`, `session/load`) and never on a command
- * line. ACP ids are arbitrary strings, so this is only a safe, bounded shape:
- * letters, digits and `._:-`, starting with a letter or digit, at most
- * MAX_SESSION_ID characters (both agents use UUIDs today). The desktop keeps
- * its own rule for the ids it stores.
+ * A worker session id: what the link answered for a new session (a UUID of
+ * ours for Claude Code, Codex's thread id), handed back to it on a resume.
+ * This is only a safe, bounded shape: letters, digits and `._:-`, starting
+ * with a letter or digit (never an option), at most MAX_SESSION_ID
+ * characters. Claude Code's link takes only a UUID, the one id that reaches
+ * a command line (`--resume`); Codex's travels in JSON. The desktop keeps its
+ * own rule for the ids it stores.
  */
 export const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/
 

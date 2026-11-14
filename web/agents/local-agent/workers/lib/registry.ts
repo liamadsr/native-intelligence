@@ -1,18 +1,14 @@
 /**
  * The agents a worker job can run, as data (../registry.json, bundled into
- * acp.mjs). The adapter has no code for any one agent: everything that
- * differs between them is an entry here, keyed by the worker id the desktop
- * sends (`LOCAL_AGENT_WORKER`).
+ * worker.mjs), keyed by the worker id the desktop sends (`LOCAL_AGENT_WORKER`).
+ * How each CLI is spoken to is its link's code (agent-link.ts); everything
+ * else that differs between them is an entry here.
  *
  *   label        the agent's name in sentences ("Claude Code")
  *   cli          the executable the desktop looks up on PATH (LOCAL_AGENT_WORKER_BIN's name)
- *   command      the ACP adapter's argv: `$NODE` (this Node), `$ACP_DIR`
- *                (LOCAL_AGENT_ACP_DIR, where install-agents.sh put the
- *                packages), `$CLI` (the person's CLI, realpath)
+ *   driver       the link that starts and speaks to that CLI: `claude-stream`
+ *                (claude-stream.ts) or `codex-app-server` (codex-app-server.ts)
  *   env          extra environment: `$CLI`, `$TMP` (the agent's temp folder), `$HOME` (its private home)
- *   sessionMode  set with `session/set_mode` after the session exists (the
- *                mode in which the agent's own sandbox is off: it cannot nest
- *                inside ours on macOS)
  *   homeFolders  the agent's own state folders, made empty in its private
  *                home before it starts (`.claude`): their names are ones the
  *                profile never lets it create, so it couldn't make them itself
@@ -21,20 +17,21 @@
  *                (`files`: each linked into the private home, with the
  *                `scratch` names its atomic save makes beside it)
  *   signInHint   the sentence for a person whose agent is not signed in
- *   packages     the npm package and exact version of its ACP adapter (install-agents.sh)
  */
 import raw from '../registry.json'
+
+/** The links a registry entry can name (driver.ts LINKS). */
+export const DRIVERS = ['claude-stream', 'codex-app-server'] as const
+export type DriverName = (typeof DRIVERS)[number]
 
 export interface RegistryEntry {
   readonly label: string
   readonly cli: string
-  readonly command: readonly string[]
+  readonly driver: DriverName
   readonly env: Readonly<Record<string, string>>
-  readonly sessionMode?: string
   readonly homeFolders: readonly string[]
   readonly login: { readonly keychain?: boolean; readonly files: readonly LoginFile[] }
   readonly signInHint: string
-  readonly packages: Readonly<Record<string, string>>
 }
 
 /** One login file of the real HOME, shared into the private home by a link; nothing else of its folder is. */
@@ -55,11 +52,6 @@ const NAME = /^(?!\.\.?$)[A-Za-z0-9._-]+$/
 const SCRATCH = /^(?!\.\.?$)[A-Za-z0-9._*-]+$/
 /** Environment names the adapter sets itself or that carry Native Intelligence's own settings: never from a registry entry. */
 const RESERVED_ENV = /^(HOME|PATH|TMPDIR|NO_BROWSER|USER|LOGNAME|SHELL|LOCAL_AGENT_.*|NI_.*)$/
-/** An exact version: no ranges, so what runs is what was reviewed. */
-const EXACT_VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
-const PACKAGE = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/
-
-const COMMAND_VARS = ['NODE', 'ACP_DIR', 'CLI'] as const
 const ENV_VARS = ['CLI', 'TMP', 'HOME'] as const
 
 function placeholders(s: string): string[] {
@@ -86,9 +78,8 @@ export function parseRegistry(input: unknown): Registry {
     const label = str(id, r.label, 'label')
     const cli = str(id, r.cli, 'cli')
     if (cli.includes('/')) fail(id, 'cli is a name, not a path')
-    if (!Array.isArray(r.command) || r.command.length === 0) fail(id, 'command must be a non-empty array')
-    const command = r.command.map((c, i) => str(id, c, `command[${i}]`))
-    for (const c of command) for (const p of placeholders(c)) if (!(COMMAND_VARS as readonly string[]).includes(p)) fail(id, `command uses $${p}`)
+    const driver = r.driver
+    if (typeof driver !== 'string' || !(DRIVERS as readonly string[]).includes(driver)) fail(id, `driver must be one of ${DRIVERS.join(', ')}`)
     const env: Record<string, string> = {}
     if (r.env !== undefined) {
       if (!r.env || typeof r.env !== 'object' || Array.isArray(r.env)) fail(id, 'env must be an object')
@@ -100,7 +91,6 @@ export function parseRegistry(input: unknown): Registry {
         env[k] = v
       }
     }
-    const sessionMode = r.sessionMode === undefined ? undefined : str(id, r.sessionMode, 'sessionMode')
     const login = (r.login ?? {}) as Record<string, unknown>
     if (typeof login !== 'object' || Array.isArray(login)) fail(id, 'login must be an object')
     if (login.keychain !== undefined && typeof login.keychain !== 'boolean') fail(id, 'login.keychain must be a boolean')
@@ -120,21 +110,14 @@ export function parseRegistry(input: unknown): Registry {
     const homeFolders = r.homeFolders === undefined ? [] : r.homeFolders
     if (!Array.isArray(homeFolders) || !homeFolders.every((h) => typeof h === 'string' && NAME.test(h) && h.startsWith('.'))) fail(id, 'homeFolders must be hidden folder names')
     const signInHint = str(id, r.signInHint, 'signInHint')
-    if (!r.packages || typeof r.packages !== 'object' || Array.isArray(r.packages) || Object.keys(r.packages).length === 0) fail(id, 'packages must name the ACP adapter')
-    for (const [name, version] of Object.entries(r.packages)) {
-      if (!PACKAGE.test(name)) fail(id, `package name ${JSON.stringify(name)}`)
-      if (typeof version !== 'string' || !EXACT_VERSION.test(version)) fail(id, `package ${name} needs an exact version`)
-    }
     out[id] = {
       label,
       cli,
-      command,
+      driver: driver as DriverName,
       env,
-      ...(sessionMode === undefined ? {} : { sessionMode }),
       homeFolders: homeFolders as string[],
       login: { ...(login.keychain ? { keychain: true } : {}), files },
       signInHint,
-      packages: r.packages as Record<string, string>,
     }
   }
   return out
@@ -162,9 +145,7 @@ export function expand(s: string, vars: Readonly<Record<string, string>>): strin
   return s.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (whole, name: string) => vars[name] ?? whole)
 }
 
-/** The entry's argv and environment for one launch. */
-export function agentLaunch(entry: RegistryEntry, vars: { node: string; acpDir: string; cli: string; tmp: string; home: string }) {
-  const command = entry.command.map((c) => expand(c, { NODE: vars.node, ACP_DIR: vars.acpDir, CLI: vars.cli }))
-  const env = Object.fromEntries(Object.entries(entry.env).map(([k, v]) => [k, expand(v, { CLI: vars.cli, TMP: vars.tmp, HOME: vars.home })]))
-  return { command, env }
+/** The entry's extra environment for one launch. */
+export function entryEnv(entry: RegistryEntry, vars: { cli: string; tmp: string; home: string }): Record<string, string> {
+  return Object.fromEntries(Object.entries(entry.env).map(([k, v]) => [k, expand(v, { CLI: vars.cli, TMP: vars.tmp, HOME: vars.home })]))
 }

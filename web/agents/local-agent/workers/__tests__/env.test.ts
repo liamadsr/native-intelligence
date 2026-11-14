@@ -15,7 +15,7 @@ let env: Record<string, string>
 
 beforeAll(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), 'la-worker-env-')))
-  for (const d of ['home/project', 'home/repo/.git', 'tmp', 'bin', 'acp', 'fence', 'fence-half']) mkdirSync(join(root, d), { recursive: true })
+  for (const d of ['home/project', 'home/repo/.git', 'tmp', 'bin', 'fence', 'fence-half']) mkdirSync(join(root, d), { recursive: true })
   writeFileSync(join(root, 'bin/claude-2.1'), '#!/bin/sh\n')
   chmodSync(join(root, 'bin/claude-2.1'), 0o755)
   symlinkSync(join(root, 'bin/claude-2.1'), join(root, 'bin/claude'))
@@ -36,7 +36,6 @@ beforeAll(() => {
     LOCAL_AGENT_DIR: '/bundle',
     LOCAL_AGENT_WORKER: 'claude-code',
     LOCAL_AGENT_WORKER_BIN: join(root, 'bin/claude'),
-    LOCAL_AGENT_ACP_DIR: join(root, 'acp'),
     LOCAL_AGENT_FENCE_DIR: join(root, 'fence'),
   }
 })
@@ -48,7 +47,6 @@ describe('workerLaunchFromEnv', () => {
       worker: 'claude-code',
       entry: REGISTRY['claude-code'],
       bin: join(root, 'bin/claude-2.1'),
-      acpDir: join(root, 'acp'),
       fenceDir: join(root, 'fence'),
       closedPorts: [],
       jobId: 'job_1',
@@ -65,11 +63,9 @@ describe('workerLaunchFromEnv', () => {
     [{ LOCAL_AGENT_WORKER: 'aider' }, /no worker is called "aider"/],
     [{ LOCAL_AGENT_WORKER: 'toString' }, /no worker is called "toString"/],
     [{ LOCAL_AGENT_WORKER: 'codex' }, /not Codex's CLI \(codex\)/],
-    [{ LOCAL_AGENT_ACP_DIR: '' }, /LOCAL_AGENT_ACP_DIR is missing/],
     [{ LOCAL_AGENT_FENCE_DIR: '' }, /did not set up its fence marker \(LOCAL_AGENT_FENCE_DIR is missing/],
     [{ LOCAL_AGENT_FENCE_DIR: 'fence' }, /not absolute/],
     [{ LOCAL_AGENT_FENCE_DIR: '/nope/fence' }, /fence marker \(\/nope\/fence does not exist/],
-    [{ LOCAL_AGENT_ACP_DIR: '/nope/acp' }, /LOCAL_AGENT_ACP_DIR does not exist/],
     [{ LOCAL_AGENT_LOCAL_MODEL_BASE_URL: 'http://127.0.0.1:11434/v1', LOCAL_AGENT_LOCAL_MODEL_ID: 'qwen3' }, /keep the model on the Mac/],
     [{ LOCAL_AGENT_JOB_ID: '../x' }, /JOB_ID/],
     [{ LOCAL_AGENT_MODE: 'write' }, /unsupported mode/],
@@ -89,6 +85,10 @@ describe('workerLaunchFromEnv', () => {
   it('refuses a CLI that is not executable, and a folder that is not a realpath', () => {
     expect(() => workerLaunchFromEnv({ ...env, LOCAL_AGENT_WORKER_BIN: join(root, 'bin/noexec/claude') }, REGISTRY)).toThrow(/not an executable file/)
     expect(() => workerLaunchFromEnv({ ...env, LOCAL_AGENT_FOLDER: `${join(root, 'home')}/./project` }, REGISTRY)).toThrow(/realpath/)
+  })
+
+  it("ignores an older desktop's LOCAL_AGENT_ACP_DIR, whatever it holds", () => {
+    expect(workerLaunchFromEnv({ ...env, LOCAL_AGENT_ACP_DIR: '/nope/acp' }, REGISTRY)).toEqual(workerLaunchFromEnv(env, REGISTRY))
   })
 
   it('takes edit mode with the repository .git', () => {

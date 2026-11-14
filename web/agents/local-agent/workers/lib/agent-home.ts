@@ -32,7 +32,7 @@
  *     keeps a refresh token the agent already spent; a link is dropped; a
  *     folder is left in the job dir and reported; anything else is unlinked.
  *     The link is then put back. This runs at the next launch and in
- *     `acp.mjs --return-logins`, which the desktop runs after its sweep of
+ *     `worker.mjs --return-logins`, which the desktop runs after its sweep of
  *     the job's processes; never at the adapter's own teardown, when a
  *     process that left the tree may still be running;
  *   - a second name of the real login file that is one of its scratch names
@@ -182,7 +182,7 @@ export function settleLoginLink(jobDir: string, at: string, file: string, log: (
 }
 
 /**
- * `acp.mjs --return-logins`: settle every login link of `entry` in this job's
+ * `worker.mjs --return-logins`: settle every login link of `entry` in this job's
  * home, the job's processes being gone. The number of logins put back.
  */
 export function returnLoginFiles(jobDir: string, realHome: string, entry: Pick<RegistryEntry, 'login'>, log: (line: string) => void): number {
