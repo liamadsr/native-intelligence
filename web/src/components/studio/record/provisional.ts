@@ -348,6 +348,13 @@ export type ProvisionalRecord = {
   heard?: TakeWord[]
   /** The words the Mac heard reached the Studio. */
   wordsSent?: boolean
+  /** The Studio refused the words for good (the recording is gone, or another person's): never sent again. */
+  wordsRefused?: boolean
+  /**
+   * `adopted` in the open editor, its edits still to be saved over the Studio's (App.tsx serverSaveOwed): the files and
+   * this record stay until that save lands (Filer.release waits for it).
+   */
+  saveOwed?: boolean
   /** The video the Studio made the take into, when not the draft's own (it was brought back elsewhere first). */
   filedAs?: string
   /** The Studio's edit as first read once filed (its digest): the draft is saved over that one only. */

@@ -445,6 +445,10 @@ function forgetWhole(takeId: string) {
 }
 
 let sending: Promise<number> | null = null
+/** The take sendAll is working on now (its folder must not be discarded under it). */
+const beingSent = new Set<string>()
+/** The takes on this computer being sent on now (sendUnfinishedTakes): the Record dialog never offers them. */
+export const takesBeingSent = (): ReadonlySet<string> => beingSent
 
 /**
  * What a quit or a crash kept from going up: each take on this computer linked to a take on the Studio still being
@@ -456,6 +460,7 @@ let sending: Promise<number> | null = null
 export function sendUnfinishedTakes(native: StudioRecorderBridge, api: LiveApi = fetchApi, skip: ReadonlySet<string> = new Set(), holder?: string, wait: (ms: number) => Promise<void> = sleep): Promise<number> {
   sending ??= sendAll(native, api, skip, holder, wait).finally(() => {
     sending = null
+    beingSent.clear()
   })
   return sending
 }
@@ -475,7 +480,11 @@ async function sendAll(native: StudioRecorderBridge, api: LiveApi, skip: Readonl
     const local = obj(value)
     const sessionId = str(local.sessionId)
     const takeId = str(local.takeId)
-    if (!sessionId || !takeId || skip.has(sessionId)) continue
+    // Another account's take is listed for its size only: never sent from this one.
+    if (!sessionId || !takeId || skip.has(sessionId) || local.otherAccount === true) continue
+    // One take at a time (one run at a time): this one until the next, or the run's end.
+    beingSent.clear()
+    beingSent.add(sessionId)
     let state: LiveTakeState
     try {
       state = (await api.get<{ take: LiveTakeState }>(`${STUDIO_API}/live-takes/${encodeURIComponent(takeId)}`)).take

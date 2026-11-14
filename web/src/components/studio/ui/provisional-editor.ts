@@ -1,6 +1,6 @@
 // The editor's side of a Mac take opened before it was filed (record/provisional.ts, record/filing.ts): pure steps
 // App.tsx takes, kept here so they are tested as they run.
-import type { EditorProject } from '@/lib/studio/engine/contracts'
+import type { EditorProject, EditorTranscript } from '@/lib/studio/engine/contracts'
 import { adoptFiled, withoutTranscripts, type DraftStore, type ProvisionalRecord } from '../record/provisional'
 import type { Settled } from '../record/filing'
 
@@ -103,16 +103,50 @@ export type Adopted =
   | { outcome: 'network' | 'failed' | 'unreadable'; message: string }
 
 /** What the person is told when the words had not reached the Studio when the edit was carried on. */
-export const WORDS_LATER = 'The words the Mac heard are still on their way to the Studio: they appear in the video when they arrive (corrections made to them before then are not kept).'
+export const WORDS_LATER = 'The words the Mac heard are still on their way to the Studio. They are added to this video when they arrive (corrections made to them before then are not kept).'
+/** What the person is told when those words reached the open video. */
+export const WORDS_ARRIVED = 'The words the Mac heard have arrived. They are in the Words tab.'
 
 /**
  * The editor carried a filed take on from the Studio's copies: the record says so (`adopted`) with the digest of the
- * Studio's edit it was carried on from, before the editor goes on. A later launch then never saves the old draft over
- * the video (adoptKept refuses). Throws when the record could not be written: the editor does not carry on then.
+ * Studio's edit it was first carried on from, before the editor goes on. A later launch then never saves the old draft
+ * over the video (adoptKept refuses). `saveOwed`: the editor's edits are still to be saved over the Studio's (the files
+ * and the record stay until they are). Throws when the record could not be written: the editor does not carry on then.
  */
-export async function markEditorAdopted(records: AdoptDeps['records'], projectId: string, digest: string): Promise<void> {
-  const kept = await records.update(projectId, (r) => ({ ...r, state: 'adopted', studioDigest: r.studioDigest ?? digest }))
-  if (!kept || kept.state !== 'adopted') throw new Error('this computer could not note that the recording is filed')
+export async function markEditorAdopted(records: AdoptDeps['records'], projectId: string, digest: string, saveOwed = false): Promise<ProvisionalRecord> {
+  const kept = await records.update(projectId, (r) => ({ ...r, state: 'adopted', studioDigest: r.studioDigest ?? digest, ...(saveOwed ? { saveOwed: true } : { saveOwed: undefined }) }))
+  if (!kept || kept.state !== 'adopted') throw new Error('this computer could not keep a note of it')
+  return kept
+}
+
+/**
+ * The digest an edited draft carried on in the open editor is saved over: the Studio's edit as first filed. When the
+ * video changed on the Studio since (the agent, another window), its save is refused and the person chooses which
+ * version to keep, never the Studio's changes silently overwritten. Not edited: nothing is saved, the Studio's as read.
+ */
+export function carriedDigest(record: Pick<ProvisionalRecord, 'studioDigest'>, serverDigest: string, edited: boolean): string {
+  return edited && record.studioDigest ? record.studioDigest : serverDigest
+}
+
+/** Keys sorted, so two copies of a project compare equal whatever order their fields came in. */
+const canonical = (value: unknown): string => JSON.stringify(value, (_key, v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))) : v))
+
+/**
+ * The transcripts the Studio added to a video since the editor's saved copy, when that is all that changed (the Mac's
+ * words arriving after the edit carried on without them, recordings.ts addRecordingWords): null when anything else
+ * changed too (a real edit elsewhere: the person chooses). Pure.
+ */
+export function lateTranscripts(saved: EditorProject, remote: EditorProject): EditorTranscript[] | null {
+  const added = remote.transcripts.filter((t) => !saved.transcripts.some((x) => x.id === t.id))
+  if (!added.length) return null
+  const rest = { ...remote, transcripts: remote.transcripts.filter((t) => !added.includes(t)) }
+  return canonical(rest) === canonical(saved) ? added : null
+}
+
+/** `project` with the transcripts `add` of voices it has and has no transcript of yet. Pure. */
+export function withTranscripts(project: EditorProject, add: EditorTranscript[]): EditorProject {
+  const fresh = add.filter((t) => project.assets.some((a) => a.id === t.assetId) && !project.transcripts.some((x) => x.id === t.id || x.assetId === t.assetId))
+  return fresh.length ? { ...project, transcripts: [...project.transcripts, ...fresh] } : project
 }
 
 /**
@@ -153,7 +187,7 @@ export async function adoptKept(deps: AdoptDeps, projectId: string): Promise<Ado
     if (record.studioDigest && record.studioDigest !== server.projectDigest) return conflict
     if (!record.studioDigest) {
       const noted = await deps.records.update(projectId, (r) => ({ ...r, studioDigest: server.projectDigest })).catch(() => null)
-      if (!noted?.studioDigest) return { outcome: 'failed', message: 'The recording is filed, but this computer could not note it, so your edits were not saved onto it yet. They are kept on this computer.' }
+      if (!noted?.studioDigest) return { outcome: 'failed', message: 'The recording is filed, but this computer could not keep a note of it, so your edits were not saved onto it yet. They are kept on this computer.' }
     }
     try {
       await deps.save(server.project.id, project, server.projectDigest)

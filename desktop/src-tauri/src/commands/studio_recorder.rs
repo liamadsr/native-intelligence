@@ -330,10 +330,11 @@ fn valid_session_id(id: &str) -> bool {
 }
 
 /// Finish removing take folders the page let go of ([`RELEASED_FILE`]: the Studio holds every byte of the take, or
-/// the person discarded it) and remove folders older than [`KEEP_TAKES_FOR`] that hold no recording at all. A folder
-/// with a recording in it is never removed by age: a take that is not settled (a draft, a lost track, a failed
-/// filing, never sent) stays until the person files or discards it, and the Record dialog lists it (the page's
-/// local takes, from [`studio_recorder_unfinished_takes`]). Only UUID-named folders directly under `base` are touched.
+/// the person discarded it) and remove folders older than [`KEEP_TAKES_FOR`] that hold no recording the Record dialog
+/// can show ([`listable_take`]: a screen file with a whole segment). A folder with such a recording is never removed by
+/// age: a take that is not settled (a draft, a lost track, a failed filing, never sent, another account's) stays until
+/// the person files or discards it, and the Record dialog lists it (the page's local takes, from
+/// [`studio_recorder_unfinished_takes`]). Only UUID-named folders directly under `base` are touched.
 pub fn sweep(base: &Path, keep_for: Duration, now: SystemTime) -> usize {
     let Ok(entries) = std::fs::read_dir(base) else { return 0 };
     let oldest = now.checked_sub(keep_for).unwrap_or(SystemTime::UNIX_EPOCH);
@@ -346,10 +347,8 @@ pub fn sweep(base: &Path, keep_for: Duration, now: SystemTime) -> usize {
             continue;
         }
         let released = path.join(RELEASED_FILE).exists();
-        let recorded = ["screen", "camera", "microphone", "system-audio"]
-            .iter()
-            .filter_map(|role| role_file(role))
-            .any(|name| std::fs::metadata(path.join(name)).is_ok_and(|m| m.len() > 0));
+        // Kept by age only when the Record dialog shows it: never a folder kept for ever that nobody sees.
+        let recorded = listable_take(&path);
         let written = meta.modified().unwrap_or(now);
         if (released || (!recorded && written < oldest)) && std::fs::remove_dir_all(&path).is_ok() {
             removed += 1;
@@ -1546,9 +1545,10 @@ pub async fn studio_recorder_put_piece(
 }
 
 /// Takes on this computer that are not being recorded or sent by a live page: what a quit, a crash or a reload left to
-/// send. Only the signed-in account's (a take whose account is not known yet is listed too: sending it makes it
-/// theirs); another account's stays on disk, untouched, until its own sweep. A take that never reached the Studio
-/// while it recorded (offline: no take id) is listed too, to be filed whole.
+/// send. The signed-in account's (a take whose account is not known yet is listed too: sending it makes it theirs)
+/// with what sending it needs; another account's only by its size (`otherAccount`: never sent from this one, Discard
+/// only), since the sweep keeps it as long as it is listed. A take that never reached the Studio while it recorded
+/// (offline: no take id) is listed too, to be filed whole.
 /// `{takes: [{sessionId, takeId, state, tracks: [{role, bytes, seconds, startPts, plan}]}]}`.
 #[tauri::command]
 pub async fn studio_recorder_unfinished_takes(app: AppHandle, holder: Option<String>) -> Result<Value, String> {
@@ -1560,15 +1560,33 @@ pub async fn studio_recorder_unfinished_takes(app: AppHandle, holder: Option<Str
     Ok(json!({ "takes": unfinished_in(&base, &busy, signed_in_user(&app).as_deref()) }))
 }
 
-/// [`studio_recorder_unfinished_takes`] over a takes folder: every UUID-named take folder with a file, not in `busy`,
-/// whose account is the one signed in (or not known yet). Pure but for reading the folder.
+/// Whether a take folder holds a recording the Record dialog can show: its screen file with a whole segment indexed.
+/// The sweep keeps by age exactly these ([`sweep`]), and [`unfinished_in`] lists every one of them.
+pub fn listable_take(dir: &Path) -> bool {
+    segments_of(dir, "screen").is_ok_and(|(file, segments)| file.exists() && !segments.is_empty())
+}
+
+/// [`studio_recorder_unfinished_takes`] over a takes folder: every UUID-named take folder with a screen segment
+/// ([`listable_take`]), not in `busy`; another account's by its size only (`otherAccount`). Nothing while nobody is signed
+/// in. Pure but for reading the folder.
 pub fn unfinished_in(base: &Path, busy: &std::collections::HashSet<String>, signed_in: Option<&str>) -> Vec<Value> {
     let mut out = Vec::new();
     let Ok(entries) = std::fs::read_dir(base) else { return out };
     for entry in entries.flatten() {
         let dir = entry.path();
         let Some(session_id) = dir.file_name().and_then(|n| n.to_str()).filter(|n| valid_session_id(n)).map(str::to_string) else { continue };
-        if busy.contains(&session_id) || !entry.file_type().is_ok_and(|t| t.is_dir()) || account_check(read_owner(&dir).as_deref(), signed_in).is_err() || signed_in.is_none() {
+        if busy.contains(&session_id) || !entry.file_type().is_ok_and(|t| t.is_dir()) || signed_in.is_none() || !listable_take(&dir) {
+            continue;
+        }
+        if account_check(read_owner(&dir).as_deref(), signed_in).is_err() {
+            // Another account's take: its size and age, nothing it holds (no take id, no stop payload, no draft).
+            let tracks: Vec<Value> = ["screen", "camera", "microphone", "system-audio"].iter().filter_map(|role| {
+                let (file, segments) = segments_of(&dir, role).ok()?;
+                (file.exists() && !segments.is_empty()).then(|| json!({ "role": role, "bytes": indexed_end(&segments) }))
+            }).collect();
+            let modified = std::fs::metadata(&dir).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64);
+            out.push(json!({ "sessionId": session_id, "takeId": Value::Null, "state": "other-account", "tracks": tracks, "otherAccount": true,
+                             "hasDraft": false, "draftUnreadable": false, "stop": Value::Null, "modifiedMs": modified }));
             continue;
         }
         let link = read_link(&dir).unwrap_or_default();
@@ -2341,9 +2359,12 @@ mod tests {
         };
         assert_eq!(listed(&none, Some("user-1")), vec![
             (SESSION.to_string(), json!(TAKE)),
+            ("1f1f1f1f-1111-4222-8333-444444444444".to_string(), Value::Null),
             ("2f2f2f2f-1111-4222-8333-444444444444".to_string(), json!(TAKE)),
             ("3f3f3f3f-1111-4222-8333-444444444444".to_string(), Value::Null),
-        ], "another account's take is left alone; one with no account yet and an offline one are listed");
+        ], "another account's take is listed without its take id; one with no account yet and an offline one are listed");
+        let other = unfinished_in(base.path(), &none, Some("user-1")).into_iter().find(|t| t["sessionId"] == "1f1f1f1f-1111-4222-8333-444444444444").unwrap();
+        assert_eq!((other["otherAccount"].clone(), other["stop"].clone(), other["tracks"].clone()), (json!(true), Value::Null, json!([{ "role": "screen", "bytes": 1600 }])), "another account's take: its size only");
         let busy: std::collections::HashSet<String> = [SESSION.to_string()].into();
         assert!(!listed(&busy, Some("user-1")).iter().any(|(id, _)| id == SESSION), "a take a live page holds is that page's");
         assert!(listed(&none, None).is_empty(), "nobody signed in: nothing to send");
@@ -2615,17 +2636,27 @@ mod tests {
         let unsettled = base.path().join(uuid::Uuid::new_v4().to_string());
         for dir in [&drafted, &unsettled] {
             std::fs::create_dir_all(dir).unwrap();
-            std::fs::write(dir.join("screen.mp4"), b"recorded").unwrap();
+            std::fs::write(dir.join("screen.mp4"), vec![1u8; 1600]).unwrap();
+            std::fs::write(dir.join("screen.mp4.segments"), "init 0 600\nmedia 600 1000 2.000000\n").unwrap();
         }
         std::fs::write(drafted.join(DRAFT_FILE), b"{}").unwrap();
+        // Old folders the Record dialog could never show (a crash before the first screen segment, a failed screen
+        // writer): they go by age, as before, never kept for ever unseen.
+        let unindexed = base.path().join(uuid::Uuid::new_v4().to_string());
+        std::fs::create_dir_all(&unindexed).unwrap();
+        std::fs::write(unindexed.join("screen.mp4"), b"recorded").unwrap();
+        let no_screen = base.path().join(uuid::Uuid::new_v4().to_string());
+        std::fs::create_dir_all(&no_screen).unwrap();
+        std::fs::write(no_screen.join("microphone.m4a"), b"recorded").unwrap();
         // Let go of by the page (the Studio holds every byte, or the person discarded it), its removal cut short.
         let released = base.path().join(uuid::Uuid::new_v4().to_string());
         std::fs::create_dir_all(&released).unwrap();
         std::fs::write(released.join("microphone.m4a"), b"recorded").unwrap();
         std::fs::write(released.join(RELEASED_FILE), b"").unwrap();
         let later = SystemTime::now() + Duration::from_secs(400 * 24 * 60 * 60);
-        assert_eq!(sweep(base.path(), KEEP_TAKES_FOR, later), 2);
+        assert_eq!(sweep(base.path(), KEEP_TAKES_FOR, later), 4);
         assert!(!old.exists(), "an old folder with no recording in it");
+        assert!(!unindexed.exists() && !no_screen.exists(), "an old folder with no screen segment the dialog could show");
         assert!(!released.exists(), "a take let go of");
         assert!(drafted.exists() && unsettled.exists(), "a take with a recording is never removed by its age");
         assert!(other.exists(), "only UUID-named take folders are ever removed");
@@ -2633,5 +2664,32 @@ mod tests {
         std::fs::create_dir_all(&fresh).unwrap();
         assert_eq!(sweep(base.path(), KEEP_TAKES_FOR, SystemTime::now()), 0);
         assert!(fresh.exists());
+    }
+
+    #[test]
+    fn every_take_the_sweep_keeps_by_age_is_listed_in_the_record_dialog() {
+        let base = tempfile::tempdir().unwrap();
+        let linked = LiveLink { take_id: Some(TAKE.into()), ..LiveLink::default() };
+        // This account's, one with no account yet, another account's, an offline one with a draft.
+        take_dir(base.path(), SESSION, Some("user-1"), Some(linked.clone()));
+        take_dir(base.path(), "1f1f1f1f-1111-4222-8333-444444444444", None, Some(linked.clone()));
+        take_dir(base.path(), "2f2f2f2f-1111-4222-8333-444444444444", Some("user-2"), Some(linked));
+        let drafted = take_dir(base.path(), "3f3f3f3f-1111-4222-8333-444444444444", Some("user-1"), None);
+        std::fs::write(drafted.join(DRAFT_FILE), br#"{"v":2}"#).unwrap();
+        // Folders the dialog cannot show: a screen file with no segment indexed, a microphone alone.
+        let unindexed = base.path().join("4f4f4f4f-1111-4222-8333-444444444444");
+        std::fs::create_dir_all(&unindexed).unwrap();
+        std::fs::write(unindexed.join("screen.mp4"), b"recorded").unwrap();
+        let no_screen = base.path().join("5f5f5f5f-1111-4222-8333-444444444444");
+        std::fs::create_dir_all(&no_screen).unwrap();
+        std::fs::write(no_screen.join("microphone.m4a"), b"recorded").unwrap();
+        let later = SystemTime::now() + Duration::from_secs(400 * 24 * 60 * 60);
+        sweep(base.path(), KEEP_TAKES_FOR, later);
+        let mut kept: Vec<String> = std::fs::read_dir(base.path()).unwrap().flatten().filter_map(|e| e.file_name().to_str().map(str::to_string)).collect();
+        kept.sort();
+        let mut listed: Vec<String> = unfinished_in(base.path(), &std::collections::HashSet::new(), Some("user-1")).into_iter().map(|t| t["sessionId"].as_str().unwrap().to_string()).collect();
+        listed.sort();
+        assert_eq!(kept, listed, "every folder kept is shown, and only those");
+        assert_eq!(kept.len(), 4);
     }
 }

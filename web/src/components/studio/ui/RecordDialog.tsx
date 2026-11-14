@@ -258,7 +258,7 @@ export function LocalTakeBanner({ row, retry, discard, busy }: { row: LocalTakeR
   return <div className="rd-banner rd-banner-warn rd-banner-recover" role="group" aria-label="A recording kept on this computer">
     <Icon name="warning" />
     {confirming
-      ? <div><strong>Discard this recording for good?</strong><span>Its {sizeWords(row.bytes)} on this computer are deleted. This cannot be undone.</span></div>
+      ? <div><strong>Discard this recording for good?</strong><span>{row.edits ? `Its ${sizeWords(row.bytes)} on this computer and the edits made to it are deleted.` : `Its ${sizeWords(row.bytes)} on this computer are deleted.`} This cannot be undone.</span></div>
       : <div><strong>A recording{row.at ? ` from ${takeTime(row.at)}` : ''} is kept on this computer ({sizeWords(row.bytes)})</strong><span>{row.problem}</span></div>}
     <div className="rd-banner-buttons">{confirming
       ? <><Button size="sm" variant="ghost" className="st-app-button" onClick={() => setConfirming(false)}>Keep it</Button><Button size="sm" variant="destructive" className="st-app-button" disabled={busy} onClick={() => discard(row.sessionId)}>Discard for good</Button></>
@@ -343,7 +343,7 @@ function Setup(props: Props) {
 
   return <div className="rd-setup">
     {(rec.savedTakes ?? []).map(take => <SavedTakeBanner key={take.id} take={take} recording={rec} />)}
-    {(rec.localTakes ?? []).map(row => <LocalTakeBanner key={row.sessionId} row={row} retry={row => void rec.retryLocal(row)} discard={id => void rec.discardLocal(id)} busy={rec.working} />)}
+    {(rec.localTakes ?? []).map(row => <LocalTakeBanner key={row.sessionId} row={row} retry={row => void rec.retryLocal(row)} discard={id => void rec.discardLocal(id)} busy={rec.working || (rec.localBusy ?? []).includes(row.sessionId)} />)}
     <PreparingElsewhere open={props.open} />
     {props.punch ? <div className="rd-banner rd-banner-punch" role="status"><span className="rd-banner-dot" aria-hidden="true" /><div><strong>{props.punch.beatIds?.length ? 'Recording into beats' : 'Punch in'}</strong><span>{props.punch.label}</span></div></div> : null}
     {session && terminal(session) && session.status !== 'cancelled' && (!props.punch || session.punch) ? <div className={cn('rd-banner', session.status === 'completed' ? 'rd-banner-ok' : 'rd-banner-warn')} role="status">

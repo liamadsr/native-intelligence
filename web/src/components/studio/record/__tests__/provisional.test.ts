@@ -341,7 +341,7 @@ describe('the second review', () => {
     // A record that could not be noted stops the editor from carrying on (it says so, with Try again).
     const failing = memoryDraftStore()
     failing.failing = true
-    await expect(markEditorAdopted(recordsOf(failing), PROJECT, studio.digest)).rejects.toThrow('could not note')
+    await expect(markEditorAdopted(recordsOf(failing), PROJECT, studio.digest)).rejects.toThrow('could not keep a note of it')
   })
 
   it('the Studio has no words of the voice yet: the draft keeps its own (and its corrections), said as not yet registered', async () => {

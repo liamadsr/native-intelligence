@@ -17,8 +17,9 @@ export async function request<T>(path: string, body?: unknown): Promise<T> {
 function said<T>(method: string, path: string, answer: T): T { noteStudioCall(method, path); return answer; }
 async function decode<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({ error: `Request failed (${response.status})` }));
-  // The code travels with the sentence: the Studio shows a page of its own for some (STUDIO_NOT_SET_UP).
-  if (!response.ok) throw Object.assign(new Error(typeof data.error === 'string' ? data.error : `Request failed (${response.status})`), { code: typeof data.code === 'string' ? data.code : undefined });
+  // The code travels with the sentence: the Studio shows a page of its own for some (STUDIO_NOT_SET_UP). The status
+  // tells a no that asking again will not change (a 4xx) from a passing one.
+  if (!response.ok) throw Object.assign(new Error(typeof data.error === 'string' ? data.error : `Request failed (${response.status})`), { code: typeof data.code === 'string' ? data.code : undefined, status: response.status });
   return data as T;
 }
 /** What the Studio opens with. `videoId`: the video to open on, when the page was asked for one (else the most recent). */

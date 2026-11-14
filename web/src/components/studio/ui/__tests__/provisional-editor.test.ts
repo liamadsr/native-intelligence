@@ -3,7 +3,7 @@
 // every step, reading a filed video again after a failure, and what the header says when the draft cannot be kept.
 import { describe, expect, it, vi } from 'vitest'
 import type { EditorProject } from '@/lib/studio/engine/contracts'
-import { historyWithWords, notSavedHere, rewriteHistory, saveRefusal, whenIdle, withRetries, type History } from '../provisional-editor'
+import { carriedDigest, historyWithWords, lateTranscripts, markEditorAdopted, notSavedHere, rewriteHistory, saveRefusal, whenIdle, withRetries, withTranscripts, type History } from '../provisional-editor'
 
 const step = (title: string) => ({ id: 'p', title }) as unknown as EditorProject
 const titles = (h: History) => ({ past: h.past.map((p) => p.title), current: h.current.title, future: h.future.map((p) => p.title) })
@@ -57,5 +57,41 @@ describe('what a failure says', () => {
   })
   it('a draft that could not be kept on this computer says "Not saved" and why', () => {
     expect(notSavedHere(new Error('The disk is full.'))).toBe('Not saved: the edit could not be kept on this computer (The disk is full).')
+  })
+})
+
+describe('the third review', () => {
+  const transcript = (id: string, assetId: string) => ({ id, assetId, words: [{ id: `${id}-w0`, text: 'Hello', startMs: 0, endMs: 400 }] })
+  const video = (extra: Record<string, unknown> = {}) => ({ id: 'v', title: 'Take', assets: [{ id: 'screen' }, { id: 'voice' }], transcripts: [], captionCorrections: {}, ...extra }) as unknown as EditorProject
+
+  it('the Mac’s words added to the video meanwhile are folded in (whatever order its fields came in), never a conflict', () => {
+    const saved = video()
+    const remote = { transcripts: [transcript('t-voice', 'voice')], captionCorrections: {}, assets: [{ id: 'screen' }, { id: 'voice' }], title: 'Take', id: 'v' } as unknown as EditorProject
+    expect(lateTranscripts(saved, remote)?.map((t) => t.id)).toEqual(['t-voice'])
+    // Anything else changed too (a real edit elsewhere): the person chooses.
+    expect(lateTranscripts(saved, { ...remote, title: 'Renamed by the agent' })).toBeNull()
+    expect(lateTranscripts(saved, saved)).toBeNull()
+  })
+
+  it('the words go into each step that has the voice and no transcript of it yet', () => {
+    const added = [transcript('t-voice', 'voice')] as unknown as EditorProject['transcripts']
+    expect(withTranscripts(video(), added).transcripts.map((t) => t.id)).toEqual(['t-voice'])
+    expect(withTranscripts(video({ transcripts: [transcript('mine', 'voice')] }), added).transcripts.map((t) => t.id)).toEqual(['mine'])
+    expect(withTranscripts(video({ assets: [{ id: 'screen' }] }), added).transcripts).toEqual([])
+  })
+
+  it('an edited draft is saved over the Studio’s edit as first filed (a video changed since refuses it)', () => {
+    expect(carriedDigest({ studioDigest: 'first' }, 'now', true)).toBe('first')
+    expect(carriedDigest({ studioDigest: 'first' }, 'now', false)).toBe('now')
+    expect(carriedDigest({}, 'now', true)).toBe('now')
+  })
+
+  it('carried on in the open editor with edits to save: the record says so, keeps the first digest, and says plainly when it could not be noted', async () => {
+    let kept: Record<string, unknown> | null = { state: 'filed', studioDigest: 'first' }
+    const records = { update: async (_id: string, fn: (r: never) => unknown) => (kept = kept ? (fn(kept as never) as Record<string, unknown>) : null) as never }
+    expect(await markEditorAdopted(records, 'p', 'now', true)).toMatchObject({ state: 'adopted', studioDigest: 'first', saveOwed: true })
+    expect((await markEditorAdopted(records, 'p', 'now', false)).saveOwed).toBeUndefined()
+    kept = null
+    await expect(markEditorAdopted(records, 'p', 'now')).rejects.toThrow('this computer could not keep a note of it')
   })
 })

@@ -4,7 +4,7 @@
 // proved against its code in lib/studio/server/__tests__/live-takes.test.ts ('a track that did not make it, sent
 // again', 'the Mac's words arriving after the take'). Made-up take, hashes and words.
 import { describe, expect, it, vi } from 'vitest'
-import { compareFiled, Filer, PageLeases, releaseWhenSafe, settleRecording, type FilingApi, type LocalTrack } from '../filing'
+import { compareFiled, Filer, PageLeases, refusedForGood, releaseWhenSafe, settleRecording, type FilingApi, type LocalTrack } from '../filing'
 import { memoryDraftStore, provisionalDraft, provisionalRecord, type ProvisionalRecord } from '../provisional'
 import type { FinishedTake, TakeRole } from '../types'
 import type { RecordingView } from '@/lib/studio/server/recordings'
@@ -117,7 +117,7 @@ function mac() {
       held.set(session, holder)
       return { held: true }
     },
-    words: async () => ({ transcript: null, pending: false }),
+    words: async (): Promise<{ transcript: unknown; pending: boolean }> => ({ transcript: null, pending: false }),
   }
   return { native, log, folders, held }
 }
@@ -419,5 +419,84 @@ describe('the second review', () => {
     await filer.resume((await store.get(PROJECT))!)
     for (let i = 0; i < 50; i++) await tick()
     expect(kept[0]).toMatch(/microphone/)
+  })
+})
+
+describe('the third review', () => {
+  const words = [{ text: 'Hello', startMs: 500, endMs: 900 }, { text: 'there', startMs: 1000, endMs: 1400 }]
+
+  it('a filed take, its edit not on the video yet, is never let go of: its record and edit stay', async () => {
+    const { filer, s, m, store } = setup()
+    await s.api.post('/x/recordings?wait=1', {})
+    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1', state: 'filed' })
+    const settled = await filer.release(PROJECT)
+    expect(settled.safe).toBe(false)
+    expect(settled.note).toMatch(/Your edits are not on the video yet/)
+    expect(m.log).not.toContain(`discard ${SESSION.slice(0, 4)}`)
+    expect(m.folders.has(SESSION)).toBe(true)
+  })
+
+  it('an adopted take whose edits are still to be saved over the Studio’s keeps its files, until the person lets go anyway', async () => {
+    const { filer, s, m, store } = setup()
+    await s.api.post('/x/recordings?wait=1', {})
+    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1', state: 'adopted', saveOwed: true })
+    expect((await filer.release(PROJECT)).note).toMatch(/not saved onto its video yet/)
+    expect(m.folders.has(SESSION)).toBe(true)
+    // The save landed (App.tsx clears saveOwed through the same keeper): the files go.
+    void filer.records.update(PROJECT, (r) => ({ ...r, saveOwed: undefined }))
+    expect((await filer.release(PROJECT)).safe).toBe(true)
+    expect(m.folders.has(SESSION)).toBe(false)
+    // Asked anyway (the row told the person to check the video first).
+    await draftRecord(store, SESSION_2, PROJECT_2, { recordingId: 'r-1', state: 'adopted', saveOwed: true })
+    expect((await filer.release(PROJECT_2, { anyway: true })).safe).toBe(true)
+  })
+
+  it('words kept beside a filed or adopted take reach its recording after a reload', async () => {
+    for (const state of ['filed', 'adopted'] as const) {
+      const { filer, s, m, store } = setup()
+      m.native.words = async () => ({ transcript: { words }, pending: false })
+      await s.api.post('/x/recordings?wait=1', {})
+      await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1', state, take: { ...takeOf(SESSION), transcript: null } })
+      await filer.resume((await store.get(PROJECT))!)
+      for (let i = 0; i < 30; i++) await tick()
+      expect(s.log.filter((l) => l.endsWith('/words'))).toHaveLength(1)
+      expect((await store.get(PROJECT))!.wordsSent).toBe(true)
+    }
+  })
+
+  it('no words kept and none still being read: nothing to wait for (never the full minute)', async () => {
+    const { filer, store } = setup()
+    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1', state: 'filed' })
+    expect((await store.get(PROJECT))!.take?.wordsPending).toBe(true)
+    await filer.resume((await store.get(PROJECT))!)
+    for (let i = 0; i < 20; i++) await tick()
+    expect(await filer.wordsSettled(PROJECT, 0)).toBe(true)
+  })
+
+  it('words the Studio refuses for good are never sent again (a deleted recording, another member)', async () => {
+    const { filer, s, store, leases } = setup()
+    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-gone', heard: words })
+    await leases.hold(SESSION)
+    const post = s.api.post.bind(s.api)
+    let tries = 0
+    s.api.post = (async <T,>(url: string, body?: unknown): Promise<T> => {
+      // Refused a few times, then taken (so a filing that asks for ever is caught by the count, never hangs the test).
+      if (url.endsWith('/words')) { if (++tries <= 5) throw Object.assign(new Error('Recording not found'), { status: 404, code: 'NOT_FOUND' }); return {} as T }
+      return post<T>(url, body)
+    }) as FilingApi['post']
+    await filer.ensureWords(PROJECT)
+    expect(tries).toBe(1)
+    expect((await store.get(PROJECT))!.wordsRefused).toBe(true)
+    expect(await filer.wordsSettled(PROJECT, 0)).toBe(true)
+    await filer.ensureWords(PROJECT)
+    expect(tries).toBe(1)
+  })
+
+  it('a busy Studio or no connection is tried again (only a 4xx other than BUSY is for good)', () => {
+    expect(refusedForGood(Object.assign(new Error('x'), { status: 409, code: 'BUSY' }))).toBe(false)
+    expect(refusedForGood(Object.assign(new Error('x'), { status: 429 }))).toBe(false)
+    expect(refusedForGood(new TypeError('Failed to fetch'))).toBe(false)
+    expect(refusedForGood(Object.assign(new Error('x'), { status: 500 }))).toBe(false)
+    expect(refusedForGood(Object.assign(new Error('x'), { status: 403, code: 'FORBIDDEN' }))).toBe(true)
   })
 })

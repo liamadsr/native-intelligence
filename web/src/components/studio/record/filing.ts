@@ -234,6 +234,15 @@ const BRING_BACK_ROUNDS = 40
 /** A failure that is only the connection (tried again), as against the Studio's answer. */
 const onlyTheConnection = (cause: unknown) => cause instanceof TypeError || (cause as { code?: unknown } | null)?.code === 'NETWORK'
 
+/**
+ * The Studio's answer is a no that asking again will not change: a 4xx (the client's `status`, ui/client.ts) other than
+ * BUSY (the recording is being put together), a timeout or too many requests.
+ */
+export const refusedForGood = (cause: unknown) => {
+  const { status, code } = (cause ?? {}) as { status?: unknown; code?: unknown }
+  return typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 429 && code !== 'BUSY'
+}
+
 /** The recording the Studio made from the take failed: the take is made again from a fresh copy (never followed again). */
 class RecordingFailed extends Error {}
 
@@ -333,6 +342,15 @@ export class Filer {
    */
   async resume(record: ProvisionalRecord): Promise<boolean> {
     if (!(await this.deps.leases.hold(record.sessionId))) return false
+    // Words that came while no page listened are kept beside the take (words.json), whatever the take's state: a filed
+    // or adopted take's words still go to its recording. Nothing heard and nothing still being read: nothing to wait for.
+    if (!record.heard?.length && !record.wordsSent && typeof this.deps.native.words === 'function') {
+      void Promise.resolve(this.deps.native.words(record.sessionId)).then(async (answer) => {
+        const said = (answer ?? null) as { transcript?: unknown; pending?: unknown } | null
+        if (said?.transcript) await this.heardRaw(record.sessionId, said.transcript)
+        if (said?.pending === false) await this.records.update(record.projectId, (r) => (r.heard?.length || !r.take?.wordsPending ? r : { ...r, take: { ...r.take, wordsPending: false } }))
+      }).catch(() => undefined)
+    }
     // Words not yet on the Studio go now, whatever the take's state.
     void this.ensureWords(record.projectId)
     if (record.state === 'adopted') {
@@ -343,13 +361,6 @@ export class Filer {
     if (record.state === 'filed') {
       if (record.recordingId) this.deps.onFiled(record.projectId, record.recordingId)
       return true
-    }
-    // Words that came while no page listened are kept beside the take.
-    if (!record.heard?.length && typeof this.deps.native.words === 'function') {
-      void Promise.resolve(this.deps.native.words(record.sessionId)).then((answer) => {
-        const transcript = (answer as { transcript?: unknown } | null)?.transcript
-        if (transcript) return this.heardRaw(record.sessionId, transcript)
-      }).catch(() => undefined)
     }
     if (record.state === 'failed') {
       this.deps.onState(record.projectId, { projectId: record.projectId, fraction: 0, step: 'Not filed', failed: record.failed ?? 'Not filed.' })
@@ -460,13 +471,18 @@ export class Filer {
       for (let attempt = 0; this.deps.alive(); attempt++) {
         const record = await this.deps.store.get(projectId).catch(() => null)
         const words = record ? (this.words.get(record.sessionId) ?? record.heard) : undefined
-        // Nothing to send, sent already, or not handed over yet (they go with the recording then).
-        if (!record?.recordingId || record.wordsSent || !words?.length) return
+        // Nothing to send, sent already or refused for good, or not handed over yet (they go with the recording then).
+        if (!record?.recordingId || record.wordsSent || record.wordsRefused || !words?.length) return
         try {
           await this.deps.api.post(`${recordingUrl(record.recordingId)}/words`, wordsBody(words))
           await this.records.update(projectId, (r) => ({ ...r, wordsSent: true }))
           return
-        } catch {
+        } catch (cause) {
+          // The Studio's own no (the recording is gone, another person's, words it cannot read): never asked again.
+          if (refusedForGood(cause)) {
+            await this.records.update(projectId, (r) => ({ ...r, wordsRefused: true })).catch(() => undefined)
+            return
+          }
           await this.deps.sleep(WORD_RETRIES_MS[Math.min(attempt, WORD_RETRIES_MS.length - 1)]!)
         }
       }
@@ -483,7 +499,7 @@ export class Filer {
     for (let waited = 0; ; waited += every) {
       const record = await this.deps.store.get(projectId).catch(() => null)
       if (!record) return true
-      const waiting = record.heard?.length ? !record.wordsSent : !!record.take?.wordsPending && !record.wordsSent
+      const waiting = record.wordsRefused ? false : record.heard?.length ? !record.wordsSent : !!record.take?.wordsPending && !record.wordsSent
       if (!waiting) return true
       if (waited >= limitMs || !this.deps.alive()) return false
       await this.deps.sleep(every)
@@ -494,9 +510,15 @@ export class Filer {
    * The editor has carried on from the Studio's copies (and saved over the Studio's edit when it was changed): the take's
    * files go once the Studio holds every byte of them, else they stay and `note` says why.
    */
-  async release(projectId: string): Promise<Settled> {
-    const record = await this.deps.store.get(projectId).catch(() => null)
+  async release(projectId: string, options: { anyway?: boolean } = {}): Promise<Settled> {
+    // Read after every change already asked of the record (a save that just landed clears `saveOwed`).
+    const record = await this.records.update(projectId, (r) => r).catch(() => null)
     if (!record?.recordingId) return { safe: false, note: 'The recording is not filed yet: its files are kept on this computer.' }
+    // Only once the edit is on the Studio: a filed take's record is its edit, and it goes with the folder.
+    if (record.state !== 'adopted') return { safe: false, note: 'Your edits are not on the video yet, so this recording and its edits are kept on this computer.' }
+    // Adopted in the open editor, its edits not saved over the Studio's yet: kept until they are (or the person, told to
+    // check the video, lets go anyway).
+    if (record.saveOwed && !options.anyway) return { safe: false, note: 'Your last edits to this recording are not saved onto its video yet, so its files are kept on this computer.' }
     const settled = await releaseWhenSafe(this.deps, record.recordingId, record.sessionId)
     if (settled.safe) {
       this.takes.delete(projectId)

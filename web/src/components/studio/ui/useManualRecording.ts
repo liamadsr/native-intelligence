@@ -3,8 +3,8 @@ import type { EditorProject } from '@/lib/studio/engine/contracts';
 import { openRecorder, listBrowserDevices, unlockDeviceLabels, uploadTake, submitTake, recordingRequest, plainError, listSavedTakes, discardSavedTake, recoverSavedTake, type BrowserRecorder, type DesktopRecorder, type DeviceOption, type EndReason, type FinishedTake, type LiveTrackStatus, type Recorder, type RecorderPermissionName, type RecorderPermissions, type RecorderTargets, type SavedTake, type ScreenChoice, type SharedSurface, type TakePlacement, type UploadProgress, type RecordingAnswer } from '../record';
 import { nativeDraftStore, provisionalRecord, type Draft, type DraftBridge, type DraftStore, type FilingState } from '../record/provisional';
 import { Filer, localTracks, settleRecording, type FilingApi, type Settled } from '../record/filing';
-import { listedTakes, localTakeRows, type LocalTakeRow } from '../record/local-takes';
-import { normalizeStop } from '../record/desktop';
+import { listedTakes, localTakeActions, localTakeRows, type LocalTakeRow } from '../record/local-takes';
+import { normalizeStop, takesBeingSent } from '../record/desktop';
 import type { TakeWord } from '../record/types';
 import { request } from './client';
 
@@ -302,49 +302,76 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
 
   /** Takes kept on this computer that are not settled (record/local-takes.ts): listed in the Record dialog. */
   const [localTakes, setLocalTakes] = useState<LocalTakeRow[]>([]);
+  /** The listed takes being acted on now (their buttons wait). */
+  const [localBusy, setLocalBusy] = useState<string[]>([]);
+  /** The editor's Try again on a filed take whose edit is not on the video yet (App.tsx retryAdopt). */
+  const adoptWith = useRef<((projectId: string) => Promise<void>) | null>(null);
+  /** The video ids of takes the editor has open (App.tsx): never listed, never discarded under it. */
+  const inUseWith = useRef<() => ReadonlySet<string>>(() => new Set());
+  const savedTakesRef = useRef(savedTakes); savedTakesRef.current = savedTakes;
+  /** What this page is filing now, or has open in the editor (the editor says how it goes). */
+  const busyHere = () => new Set([...Object.entries(filingRef.current).filter(([, state]) => !state.failed).map(([id]) => id), ...inUseWith.current()]);
   const refreshLocalTakes = useCallback(async () => {
     const rec = recorder.current;
     if (rec?.kind !== 'desktop' || !drafts) return;
     const desktop = rec as DesktopRecorder, list = desktop.app.unfinishedTakes;
     if (typeof list !== 'function') return;
     try {
-      const [raw, records] = await Promise.all([list(desktop.leases.holder), drafts.list().catch(() => [])]);
-      // What this page is filing or recording now is not listed (the editor and the live bar say how it goes).
-      const now = new Set(Object.entries(filingRef.current).filter(([, state]) => !state.failed).map(([id]) => id));
-      const recording = new Set((desktop.liveSessions?.() ?? []));
-      if (mounted.current) setLocalTakes(localTakeRows(listedTakes(raw).filter(take => !recording.has(take.sessionId)), records, now));
+      // Not caught: without the records, a take's draft would read as lost.
+      const [raw, records] = await Promise.all([list(desktop.leases.holder), drafts.list()]);
+      // What this page is recording or sending on now is not listed (the live bar and the next launch say how it goes),
+      // nor a take shown already as kept on the Studio (its banner brings it back with the files here).
+      const recording = new Set([...(desktop.liveSessions?.() ?? []), ...takesBeingSent()]);
+      const onStudio = new Set(savedTakesRef.current.map(take => take.id));
+      const rows = localTakeRows(listedTakes(raw).filter(take => !recording.has(take.sessionId)), records, busyHere());
+      if (mounted.current) setLocalTakes(rows.filter(row => !(row.action.kind === 'recover' && onStudio.has(row.action.takeId))));
     } catch { /* an app without the list: nothing to show */ }
   }, [drafts]);
   const filingRef = useRef(filing); filingRef.current = filing;
   refreshLocalTakesRef.current = refreshLocalTakes;
+  const draftsRef = useRef(drafts); draftsRef.current = drafts;
+  /** Try again and Discard on the listed takes: one at a time per take (record/local-takes.ts localTakeActions). */
+  const localActions = useRef<ReturnType<typeof localTakeActions> | null>(null);
+  localActions.current ??= localTakeActions({
+    refile: async projectId => { await filer.current?.refile(projectId); },
+    adopt: async projectId => { if (adoptWith.current) await adoptWith.current(projectId); else markFiledRef.current(projectId); },
+    release: async (projectId, anyway) => filer.current ? filer.current.release(projectId, { anyway }) : { safe: false },
+    recover: async takeId => {
+      const desktop = recorder.current as DesktopRecorder;
+      // Its last pieces first (and a take the Studio has every byte of goes by itself): only what is left is brought back.
+      await desktop.sendUnfinished().catch(() => 0);
+      const still = listedTakes(await desktop.app.unfinishedTakes?.(desktop.leases.holder).catch(() => null)).some(take => take.takeId === takeId);
+      if (!still) { notifyRef.current('This recording was settled with the Studio already, so nothing was left to bring back.'); return; }
+      await recoverSavedRef.current(takeId);
+    },
+    fileWhole: async row => {
+      const desktop = recorder.current as DesktopRecorder;
+      const raw = (await desktop.app.unfinishedTakes?.(desktop.leases.holder)) as unknown;
+      const stop = listedTakes(raw).find(take => take.sessionId === row.sessionId)?.stop;
+      if (!stop) throw new Error('Its files could not be described.');
+      // A new video from the files on this computer (a punch-in or beats take too: where it was meant to go is not kept).
+      const id = crypto.randomUUID(), take = normalizeStop(row.sessionId, stop, row.at ? new Date(row.at) : new Date());
+      setSessions(all => [{ id, status: 'finalizing', createdAt: row.at ?? new Date().toISOString(), camera: take.files.some(f => f.role === 'camera'), microphone: take.files.some(f => f.role === 'microphone'), elapsedMs: Math.round(take.durationSeconds * 1000), step: 'Uploading' } as RecordingSession, ...all].slice(0, 20));
+      await finishRef.current(id, take, { kind: 'new' });
+    },
+    records: async () => (draftsRef.current ? draftsRef.current.list() : []),
+    discard: async sessionId => { const desktop = recorder.current as DesktopRecorder; await desktop.app.discard(sessionId); await desktop.leases.release(sessionId); },
+    inUse: async sessionId => {
+      const desktop = recorder.current as DesktopRecorder;
+      if (takesBeingSent().has(sessionId) || desktop.liveSessions?.().includes(sessionId)) return 'This recording is being sent to the Studio now. Try again in a moment.';
+      const record = (await (draftsRef.current?.list() ?? Promise.resolve([]))).find(r => r.sessionId === sessionId);
+      if (record && busyHere().has(record.projectId)) return 'This recording is open in the editor. Leave its video first, then discard it.';
+      if (!(await desktop.leases.hold(sessionId))) return 'This recording is open in another window.';
+      return null;
+    },
+    notify: (text, error) => notifyRef.current(text, error),
+    refresh: () => void refreshLocalTakesRef.current(),
+    onBusy: ids => { if (mounted.current) setLocalBusy(ids); },
+  });
   /** Try again on a take kept on this computer: filed (or let go of, once the Studio holds every byte), from what it is. */
-  const retryLocal = useCallback(async (row: LocalTakeRow) => {
-    const rec = recorder.current, filing = filer.current;
-    if (rec?.kind !== 'desktop') return;
-    const desktop = rec as DesktopRecorder;
-    try {
-      if (row.action.kind === 'refile' && filing) await filing.refile(row.action.projectId);
-      else if (row.action.kind === 'release' && filing) { const settled = await filing.release(row.action.projectId); if (!settled.safe && settled.note) notify(settled.note, true); }
-      else if (row.action.kind === 'recover') await recoverSavedRef.current(row.action.takeId);
-      else if (row.action.kind === 'file-whole') {
-        const raw = (await desktop.app.unfinishedTakes?.(desktop.leases.holder)) as unknown;
-        const stop = listedTakes(raw).find(take => take.sessionId === row.sessionId)?.stop;
-        if (!stop) throw new Error('Its files could not be described.');
-        // A new video from the files on this computer (a punch-in or beats take too: where it was meant to go is not kept).
-        const id = crypto.randomUUID(), take = normalizeStop(row.sessionId, stop, row.at ? new Date(row.at) : new Date());
-        setSessions(all => [{ id, status: 'finalizing', createdAt: row.at ?? new Date().toISOString(), camera: take.files.some(f => f.role === 'camera'), microphone: take.files.some(f => f.role === 'microphone'), elapsedMs: Math.round(take.durationSeconds * 1000), step: 'Uploading' } as RecordingSession, ...all].slice(0, 20));
-        await finishRef.current(id, take, { kind: 'new' });
-      }
-    } catch (cause) { notify(message(cause), true); }
-    finally { void refreshLocalTakes(); }
-  }, [notify, refreshLocalTakes]);
+  const retryLocal = useCallback(async (row: LocalTakeRow) => { if (recorder.current?.kind === 'desktop') await localActions.current!.retry(row); }, []);
   /** Discard a take kept on this computer, for good (the person asked twice). */
-  const discardLocal = useCallback(async (sessionId: string) => {
-    const rec = recorder.current;
-    if (rec?.kind !== 'desktop') return;
-    try { await (rec as DesktopRecorder).app.discard(sessionId); } catch (cause) { notify(message(cause), true); }
-    finally { void refreshLocalTakes(); }
-  }, [notify, refreshLocalTakes]);
+  const discardLocal = useCallback(async (sessionId: string) => { if (recorder.current?.kind === 'desktop') await localActions.current!.discard(sessionId); }, []);
   /** Make a saved take a new video from what reached the Studio, followed like a finished take. */
   const recoverSaved = useCallback(async (takeId: string) => {
     const saved = savedTakes.find(item => item.id === takeId);
@@ -375,7 +402,7 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
   const openPartial = useCallback(async (id: string): Promise<EditorProject | null> => { void id; return null; }, []);
 
   return { recorderState, targets, permissions, browserDevices, share, sessions, selected, active, selectedId, setSelectedId, loadingTargets, working, error, uploads, liveTracks, savedTakes, filing, filed,
-    drafts, heard, openElsewhere, records: () => filer.current?.records ?? null, localTakes, refreshLocalTakes, retryLocal, discardLocal,
+    drafts, heard, openElsewhere, records: () => filer.current?.records ?? null, localTakes, localBusy, refreshLocalTakes, retryLocal, discardLocal, adoptWith, inUseWith,
     wordsSettled: (projectId: string, limitMs: number) => filer.current ? filer.current.wordsSettled(projectId, limitMs) : Promise.resolve(true),
     refreshTargets, refreshSessions, checkPermissions, requestPermissions, unlockDevices, chooseShare, clearShare, start, stop, cancel, retry, mark, openPartial, refreshSavedTakes, recoverSaved, discardSaved, refile, adopted, releaseTake, wordsTaken, takeKey };
 }

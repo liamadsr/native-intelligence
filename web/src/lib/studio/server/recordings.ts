@@ -128,7 +128,11 @@ type RecordingRecord = {
   claimedAt: string | null
   input: RecordingInput
   jobs: Partial<Record<Role, string>>
-  /** Moved on by one with every change of `jobs` after the start (a live job's fallback), so two never cross. */
+  /**
+   * Moved on by one by each write that goes through moveRecording (attachTrack, settleAttached, addRecordingWords) or
+   * queues a live job's fallback, so two such writers never cross. A build's claim, its end (endClaim) and a failed build's
+   * write do not move it: each writer here also checks the status it read, which those writes change.
+   */
   rev?: number
   /** Tracks whose job is the take's live job, and the ordinary import each would get if that job fails. */
   live?: { roles: Role[]; fallbacks: Partial<Record<Role, ImportInput>> }
@@ -594,8 +598,9 @@ async function fallBack(ctx: StudioContext, record: RecordingRecord, role: Role,
 }
 
 /**
- * Write `next` over a recording only while it is still `before` (its `rev`, which every such write moves on): two
- * writers never lose each other's change. False when it changed meanwhile.
+ * Write `next` over a recording only while its `rev` is still `before`'s (every write through here moves it on): two
+ * such writers never lose each other's change. False when it changed meanwhile. The writes that do not move `rev` (a
+ * build's claim, endClaim, a failed build) change the status, so a caller must also check the status it read.
  */
 async function moveRecording(ctx: StudioContext, before: RecordingRecord, next: RecordingRecord): Promise<boolean> {
   const value: RecordingRecord = { ...next, rev: (before.rev ?? 0) + 1 }
