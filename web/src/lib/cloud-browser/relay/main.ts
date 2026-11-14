@@ -15,12 +15,14 @@
  * `startRelay`) with the app's origin, and the hub's port, sandbox and the
  * server's public key:
  *   node relay.mjs --origin https://browser-relay.nativeintelligence.dev --hub-port 4000 --sandbox <name> --viewer-key <spki>
+ * and, on the runtime backend, `--token-file <path>`: where the server keeps
+ * the relay's token in the VM (client.ts; never the token itself).
  * It exits when the app has moved to another build, and the next start fetches
  * the new one.
  */
 import { CloudBrowser } from '../cdp/browser'
 import { CLOUD_BROWSER } from '../config'
-import { RelayClient, RelayRestart } from './client'
+import { readRelayTokenFile, RelayClient, RelayRestart } from './client'
 import { startExit, type ExitMode } from './exit'
 import { exitControl } from './exit-control'
 import { startHub } from './hub'
@@ -46,8 +48,9 @@ async function connect(port: number): Promise<CloudBrowser> {
 }
 
 export async function runRelay(options: { origin: string; version: string; cdpPort: number; signal: AbortSignal
-  hub?: { port: number; sandbox: string; verifyKey: string }; exitMode?: ExitMode }) {
-  const client = new RelayClient(options.origin, options.version)
+  hub?: { port: number; sandbox: string; verifyKey: string }; exitMode?: ExitMode; tokenFile?: string }) {
+  const tokenFile = options.tokenFile
+  const client = new RelayClient(options.origin, options.version, fetch, tokenFile ? () => readRelayTokenFile(tokenFile) : undefined)
   const state: RelayState = { browser: await connect(options.cdpPort), client, agentPage: null }
   // Chrome's only way out (`--proxy-server`), so it runs with or without a hub; a Mac can only connect through the hub
   // (its /exit). It starts in the mode the row had (the host passes it), and the controller decides from there.
@@ -112,7 +115,8 @@ if (process.argv[1]?.endsWith('relay.mjs')) {
   const controller = new AbortController()
   for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => controller.abort())
   const hubPort = Number(arg('hub-port')), sandbox = arg('sandbox'), verifyKey = arg('viewer-key')
+  const tokenFile = arg('token-file')
   runRelay({ origin, version, cdpPort: Number(arg('cdp') ?? 9222), signal: controller.signal, exitMode: arg('exit-mode') === 'mac' ? 'mac' : 'cloud',
-    ...(hubPort && sandbox && verifyKey ? { hub: { port: hubPort, sandbox, verifyKey } } : {}) })
+    ...(hubPort && sandbox && verifyKey ? { hub: { port: hubPort, sandbox, verifyKey } } : {}), ...(tokenFile ? { tokenFile } : {}) })
     .then(() => process.exit(0), error => { log('relay.crashed', { message: error instanceof Error ? error.message : String(error) }); process.exit(1) })
 }
