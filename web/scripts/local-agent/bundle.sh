@@ -69,8 +69,10 @@ banner="import { createRequire as __niRequire } from 'node:module'; const requir
 cp "$stage/agents/local-agent/launcher/server-guard.ts" "$out/launcher/server-guard.ts"
 cp -R "$stage/agents/chat-agent/.output" "$out/.output"
 
-# The workers (L4): the adapter, the registry and the agents' adapters.
-build_workers "$stage" "$out"
+# The workers (L4): our adapter and the registry, WITHOUT the agents' own
+# adapters (mac-body.sh build_workers): what ships holds no one else's
+# packages, so this bundle declares no `workers` (below).
+build_workers "$stage" "$out" no-adapters
 # The Studio's product-component runner, beside the server (tools/studio_product.ts).
 build_studio "$stage" "$out/.output/studio"
 capabilities=()
