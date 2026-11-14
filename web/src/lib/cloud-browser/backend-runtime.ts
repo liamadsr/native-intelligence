@@ -10,4 +10,4 @@ export function createRuntimeBackend(deps: RuntimeBackendDeps = {}): RuntimeClou
   return createRuntimeBrowserBackend({ readSession: ref => store.readSession(ref), sessionOfName: name => store.sessionOfSandboxName(name), ...deps })
 }
 
-export { chooseSandbox, commandLine, firstOf, METADATA_KIND, RUNTIME_TIMING, runtimeNetworkFor, runtimeSessionId, sandboxIdOfSession, shellQuote } from './runtime-browser'
+export { chooseSandbox, CLOSE_USR_LOCAL, commandLine, USR_LOCAL_CLOSED, firstOf, METADATA_KIND, RUNTIME_TIMING, runtimeNetworkFor, runtimeSessionId, sandboxIdOfSession, shellQuote } from './runtime-browser'

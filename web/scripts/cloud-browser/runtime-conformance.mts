@@ -218,6 +218,21 @@ async function identity(): Promise<Handle | null> {
     return `${id}, template ${template}, ends in ${minutesLeft(i)} min`
   })
   if (!handle) return null
+  await check('after the create, /usr/local is root’s alone: nothing in it writable by group or others, the default user cannot write there, and sudo -n fails', async () => {
+    const h = handle!
+    const open = (await sh(h, `find /usr/local ! -type l \\( -perm /022 -o ! -user root \\) -print 2>&1 | head -5`)).trim()
+    expect(open === '', `still open: ${open}`)
+    const who = (await sh(h, 'id -un; id -u')).trim().split('\n')
+    expect(who[1] !== '0', `commands run as root (${who[0]})`)
+    for (const target of ['/usr/local/bin/ni-conformance-probe', '/usr/local/ni-conformance-probe']) {
+      const wrote = (await sh(h, `touch ${target} 2>/dev/null && echo wrote || echo refused`)).trim()
+      expect(wrote === 'refused', `the default user could write ${target}`)
+    }
+    const seed = (await sh(h, `printf 'local %s; ' "$(stat -c '%U %a' /usr/local)"; for f in /usr/local/bin/e2b-seed-certs /usr/local/bin/e2b-chrony-source; do printf '%s %s; ' "$f" "$(stat -c '%U %a' "$f" 2>/dev/null || echo absent)"; done`)).trim()
+    const sudo = (await sh(h, 'sudo -n true 2>/dev/null && echo sudo-works || echo sudo-refused')).trim()
+    expect(sudo === 'sudo-refused', 'sudo -n true succeeded: the default user can become root')
+    return `as ${who[0]}; ${seed} ${sudo}`
+  })
   await check('the lifetime’s end pauses it (auto-pause accepted) and auto-resume is off', async () => {
     const i = await info(await idOf(name))
     expect(i.lifecycle?.onTimeout === 'pause', `lifecycle ${JSON.stringify(i.lifecycle ?? null)}`)
@@ -337,6 +352,8 @@ async function browser(name: string, h0: Handle) {
     h = woken.sandbox
     const out = (await sh(h, `cat /tmp/ni-conformance-marker; kill -0 ${pid} 2>/dev/null && echo ' alive'`)).trim()
     expect(out === 'here alive', `after the wake: ${JSON.stringify(out)}`)
+    const open = (await sh(h, `find /usr/local ! -type l \\( -perm /022 -o ! -user root \\) -print 2>&1 | head -3`)).trim()
+    expect(open === '', `after a pause and a wake /usr/local is open again: ${open}`)
   })
   await check('the lifetime after a wake', async () => {
     const i = await info(await idOf(name))

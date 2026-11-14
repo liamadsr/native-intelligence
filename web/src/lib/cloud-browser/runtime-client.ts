@@ -74,6 +74,8 @@ export interface RuntimeCommandHandle {
 /** CommandStartOpts, background form (every command here is started this way, then waited for or let go). */
 export interface RuntimeCommandStartOptions {
   background: true
+  /** Only the backend's one root step (runtime-browser.ts CLOSE_USR_LOCAL); everything else runs as the template's user. */
+  user?: 'root'
   cwd?: string
   /** 0: no limit (the client's default would cut a command at 60 s). */
   timeoutMs?: number

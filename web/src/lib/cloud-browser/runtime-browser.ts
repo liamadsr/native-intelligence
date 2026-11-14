@@ -92,6 +92,30 @@ import type { CloudBrowserExitMode, CloudBrowserRef, CloudBrowserStatus } from '
  * the VM's user through /proc). The relay reads it at each request
  * (relay/client.ts). What that costs and what makes up for it: relay-routes.ts.
  *
+ * ── The one root command ───────────────────────────────────────────────────
+ * The runtime's last build phase runs `chmod -R 777 /usr/local` after the
+ * image's own steps (runtime a958dfe4, template/build/phases/finalize/configure.sh),
+ * and root runs two of the runtime's programs from /usr/local/bin
+ * (e2b-seed-certs before every envd start, e2b-chrony-source at boot). A
+ * process that escaped Chrome could plant a program there for root to run.
+ * No build step of ours can close it, so every NEWLY CREATED browser sandbox,
+ * before start.sh (before any page can load), gets CLOSE_USR_LOCAL as root:
+ * /usr/local and everything in it owned by root and writable by root alone,
+ * and then checked. If that fails, that sandbox (just created by this call,
+ * handed to nobody) is killed and the ensure fails. This is the only command
+ * the browser backend ever runs as root (on a create, and as the repair of a
+ * take-up below).
+ * A sandbox taken up again (woken, or reused while running) is not closed
+ * again: it keeps its own disk, so what was closed stays closed. It is only
+ * CHECKED, as the template's user (USR_LOCAL_CLOSED), and closed as root only
+ * if found open (a create whose step and whose removal both failed, or a
+ * racing create's sandbox whose own step has not run yet); a take-up never
+ * kills. Nothing at the pinned runtime reopens it on a boot or an envd start:
+ * the 777 is applied once, at the template's build; the boot units
+ * (envd.service / envd.openrc, e2b-seed-certs, e2b-chrony-source) change no
+ * modes there, and envd writes its CA files 0644 / 0755 / 0700
+ * (envd/internal/host/cacerts.go). A runtime upgrade must be read again for this.
+ *
  * The API key never enters metadata, a command or its env, and every error
  * this file throws has it cut out.
  *
@@ -100,6 +124,30 @@ import type { CloudBrowserExitMode, CloudBrowserRef, CloudBrowserStatus } from '
  */
 
 export const METADATA_KIND = 'cloud-browser'
+
+/**
+ * The one command run as root (see the header): /usr/local owned by root and
+ * writable by root alone, then checked: it is no symlink; nothing in it (links
+ * aside: `chmod -R` does not follow them and `find -perm` would read the
+ * link's own mode) is group- or world-writable or owned by anyone but root;
+ * and no link in it leads to a file that is. Prints `closed` only when all hold.
+ */
+export const CLOSE_USR_LOCAL = [
+  'chown -R -h root:root /usr/local',
+  'chmod -R go-w /usr/local',
+  'test ! -L /usr/local',
+  'test -z "$(find /usr/local ! -type l \\( -perm /022 -o ! -user root \\) -print -quit)"',
+  `test -z "$(find /usr/local -type l -exec sh -c 't=$(readlink -f "$1") || exit 0; [ -e "$t" ] || exit 0; [ "$(stat -c %u "$t")" = 0 ] && [ $(( 0$(stat -c %a "$t") & 022 )) = 0 ] || echo "$1"' _ {} \\; | head -1)"`,
+  'echo closed',
+].join(' && ')
+
+/**
+ * The cheap check on a sandbox that is taken up again (woken, or reused while
+ * running), run as the template's user, never root: nothing in /usr/local
+ * (links aside) is group- or world-writable or owned by anyone but root. A
+ * find that could not read everything is no proof, so it is not `closed`.
+ */
+export const USR_LOCAL_CLOSED = 'out=$(find /usr/local ! -type l \\( -perm /022 -o ! -user root \\) -print -quit) && test -z "$out" && echo closed'
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -375,9 +423,32 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
     }
   }
 
+  /** The root step (CLOSE_USR_LOCAL) on `inst`: true when it printed `closed`. */
+  async function closeUsrLocal(inst: RuntimeSandboxInstance, signal?: AbortSignal): Promise<boolean> {
+    const root = await inst.commands.run(CLOSE_USR_LOCAL, { background: true, user: 'root', cwd: '/', timeoutMs: 120_000, ...(signal ? { signal } : {}) })
+    return ((await root.wait()).stdout ?? '').trim() === 'closed'
+  }
+
+  /**
+   * A sandbox taken up again: /usr/local checked (as the template's user); if
+   * it is open (a create whose own step failed and whose removal failed too,
+   * or a racing create's not yet run), the root step closes it. Never a kill:
+   * if it still is not closed, an error to retry.
+   */
+  async function keepClosed(s: CloudBrowserRuntimeSettings, inst: RuntimeSandboxInstance, signal?: AbortSignal): Promise<void> {
+    let ok = false
+    try {
+      ok = (await run(inst, USR_LOCAL_CLOSED, { signal })).trim() === 'closed' || (await closeUsrLocal(inst, signal))
+    } catch (err) {
+      throw failure(`could not check /usr/local in sandbox ${inst.sandboxId}`, err, s.apiKey)
+    }
+    if (!ok) throw new Error(`cloud browser (runtime): /usr/local in sandbox ${inst.sandboxId} is writable by others and could not be closed; try again`)
+  }
+
   /** A woken (paused, now resumed by connect) sandbox: a whole lifetime from now, and a new run. */
   async function woken(s: CloudBrowserRuntimeSettings, inst: RuntimeSandboxInstance, signal: AbortSignal): Promise<BackendSandbox> {
     const startedAt = new Date()
+    await keepClosed(s, inst, signal)
     try {
       await inst.setTimeout(CLOUD_BROWSER.sessionTimeoutMs, { signal })
       await markRunStart(inst, startedAt, signal)
@@ -419,7 +490,10 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
     const inst = await connect(s, id, signal)
     if (!inst) return null
     const alive = await probe(s, inst, signal)
-    if (alive.alive) return handle(s, { sandboxId: id, state: 'running', startedAt: alive.startedAt ?? new Date(startMs) }, inst)
+    if (alive.alive) {
+      await keepClosed(s, inst, signal)
+      return handle(s, { sandboxId: id, state: 'running', startedAt: alive.startedAt ?? new Date(startMs) }, inst)
+    }
     const last = await infoOf(s, id)
     if (!last) return null
     if (last.state !== 'running' || new Date(last.startedAt).getTime() !== startMs) throw new Error(`cloud browser (runtime): sandbox ${id} changed while starting; try again`)
@@ -434,7 +508,10 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
     if (!inst) return null
     if (info.state === 'paused') return woken(s, inst, signal)
     const alive = await probe(s, inst, signal)
-    if (alive.alive) return handle(s, { sandboxId: info.sandboxId, state: 'running', startedAt: alive.startedAt ?? new Date(info.startedAt) }, inst)
+    if (alive.alive) {
+      await keepClosed(s, inst, signal)
+      return handle(s, { sandboxId: info.sandboxId, state: 'running', startedAt: alive.startedAt ?? new Date(info.startedAt) }, inst)
+    }
     return settleSilent(s, info, signal)
   }
 
@@ -474,6 +551,18 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
         if (!used) throw new Error(`cloud browser (runtime): the other sandbox for ${name} is gone; try again`)
         return { sandbox: used, created: false }
       }
+    }
+    // Before start.sh, so before any page loads: the one root step (see the header).
+    let closed = false
+    try {
+      closed = await closeUsrLocal(inst, signal)
+    } catch (err) {
+      await kill(s, mine).catch(() => {})
+      throw failure(`could not close /usr/local in the new sandbox ${mine} (removed)`, err, s.apiKey)
+    }
+    if (!closed) {
+      await kill(s, mine).catch(() => {})
+      throw new Error(`cloud browser (runtime): /usr/local in the new sandbox ${mine} is still writable by others (removed)`)
     }
     const startedAt = new Date()
     try {

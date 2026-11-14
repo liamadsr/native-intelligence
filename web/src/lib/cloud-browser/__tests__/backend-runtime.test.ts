@@ -26,8 +26,10 @@ const rt = vi.hoisted(() => {
     dead?: 'not-running' | 'unreachable'
     /** Being paused: the runtime still lists it running for this many more getInfo calls, then paused (and resumable). */
     pausingFor?: number
+    /** /usr/local still open in it (the root step never ran, or failed). */
+    usrLocalOpen?: boolean
     files: Map<string, string>
-    lines: { line: string; detached: boolean; envs: unknown }[]
+    lines: { line: string; detached: boolean; envs: unknown; user?: string }[]
     network: unknown[]
     timeouts: number[]
     runStart?: string
@@ -38,7 +40,9 @@ const rt = vi.hoisted(() => {
   const creates: { template: string; options: Record<string, unknown> }[] = []
   let seq = 0
   /** Runs inside create(), before it returns: a concurrent caller's create, for the race tests. */
-  const hooks = { duringCreate: null as null | (() => void), createError: null as null | Error }
+  const hooks = { duringCreate: null as null | (() => void), createError: null as null | Error,
+    /** How the root step on a new sandbox goes: it closes /usr/local, it fails, or it runs but leaves it open. */
+    close: 'ok' as 'ok' | 'throw' | 'open', closeLine: '', checkLine: '' }
   const named = (name: string, message: string) => Object.assign(new Error(message), { name })
 
   /** The words of a command line the backend built with shellQuote. */
@@ -50,6 +54,12 @@ const rt = vi.hoisted(() => {
   }
 
   function answer(box: Box, line: string): string {
+    if (line === hooks.closeLine) {
+      if (hooks.close === 'open') return ''
+      box.usrLocalOpen = false
+      return 'closed\n'
+    }
+    if (line === hooks.checkLine) return box.usrLocalOpen ? '' : 'closed\n'
     if (line.startsWith('cat /tmp/cloud-browser-run-start')) return box.runStart ?? ''
     const runStart = /^printf '%s' (\d+) > \/tmp\/cloud-browser-run-start$/.exec(line)
     if (runStart) { box.runStart = runStart[1]; return '' }
@@ -71,10 +81,11 @@ const rt = vi.hoisted(() => {
     return {
       sandboxId: box.sandboxId,
       commands: {
-        run: async (line: string, options: { timeoutMs?: number; envs?: unknown }) => {
+        run: async (line: string, options: { timeoutMs?: number; envs?: unknown; user?: string }) => {
           if (!boxes.has(box.sandboxId) || box.state !== 'running' || box.dead === 'not-running') throw named('SandboxNotRunningError', 'The sandbox is not running')
           if (box.dead === 'unreachable') throw named('SandboxUnreachableError', 'The sandbox could not be reached')
-          box.lines.push({ line, detached: options.timeoutMs === 0, envs: options.envs })
+          box.lines.push({ line, detached: options.timeoutMs === 0, envs: options.envs, ...(options.user ? { user: options.user } : {}) })
+          if (line === hooks.closeLine && hooks.close === 'throw') throw Object.assign(new Error('exit status 1'), { name: 'CommandExitError', exitCode: 1 })
           events.push(`run ${box.sandboxId} ${line}`)
           const stdout = answer(box, line)
           return { pid: 1, wait: async () => ({ exitCode: 0, stdout, stderr: '' }), disconnect: async () => {} }
@@ -148,7 +159,7 @@ const rt = vi.hoisted(() => {
       return { sandboxId, metadata: { ...b.metadata }, state: b.state, startedAt: b.startedAt }
     }),
   }
-  return { boxes, events, creates, hooks, Sandbox, add, words, named, reset() { boxes.clear(); events.length = 0; creates.length = 0; seq = 0; hooks.duringCreate = null; hooks.createError = null } }
+  return { boxes, events, creates, hooks, Sandbox, add, words, named, reset() { boxes.clear(); events.length = 0; creates.length = 0; seq = 0; hooks.duringCreate = null; hooks.createError = null; hooks.close = 'ok' } }
 })
 vi.mock('@/lib/cloud-browser/runtime-client', () => ({ loadRuntimeBrowserClient: async () => ({ Sandbox: rt.Sandbox }) }))
 // The hosted service is never called on this backend.
@@ -182,7 +193,9 @@ vi.mock('@/lib/browser-agent/queue', () => ({ ringComputer: async () => {} }))
 const host = await import('@/lib/cloud-browser/host')
 const { cloudBrowserSandboxName } = await import('@/lib/cloud-browser/ids')
 const { verifyBrowserRelayToken } = await import('@/lib/cloud-browser/relay-token')
-const { chooseSandbox, firstOf, RUNTIME_TIMING, runtimeNetworkFor, sandboxIdOfSession } = await import('@/lib/cloud-browser/backend-runtime')
+const { chooseSandbox, CLOSE_USR_LOCAL, firstOf, RUNTIME_TIMING, runtimeNetworkFor, sandboxIdOfSession, USR_LOCAL_CLOSED } = await import('@/lib/cloud-browser/backend-runtime')
+rt.hooks.closeLine = CLOSE_USR_LOCAL
+rt.hooks.checkLine = USR_LOCAL_CLOSED
 // The waits, short: what they decide is tested, not how long they last.
 Object.assign(RUNTIME_TIMING, { deadWaitMs: 60, deadPollMs: 5, probeRetryMs: 1 })
 
@@ -630,5 +643,70 @@ describe('the image’s resolvers', () => {
     expect(runtimeNetworkFor('mac', 'https://r.test').dnsServers).toEqual([...CLOUD_BROWSER_IMAGE_RESOLVERS])
     // cloud mode holds no domain, so the runtime opens no resolver for it: none is sent.
     expect(runtimeNetworkFor('cloud', 'https://r.test')).not.toHaveProperty('dnsServers')
+  })
+})
+
+describe('the one root step: /usr/local closed on every new sandbox', () => {
+  it('runs as root, first, before start.sh, and is the only command that ever runs as root', async () => {
+    await host.ensureCloudBrowser(ref)
+    const box = only()
+    expect(box.lines[0]).toMatchObject({ line: CLOSE_USR_LOCAL, user: 'root' })
+    expect(box.lines.filter(l => l.user === 'root').map(l => l.line)).toEqual([CLOSE_USR_LOCAL])
+    const startAt = box.lines.findIndex(l => l.line.includes('/opt/cloud-browser/start.sh'))
+    expect(startAt).toBeGreaterThan(0)
+    expect(CLOSE_USR_LOCAL).toMatch(/^chown -R -h root:root \/usr\/local && chmod -R go-w \/usr\/local && /)
+    expect(CLOSE_USR_LOCAL).toMatch(/&& echo closed$/)
+  })
+
+  it.each(['throw', 'open'] as const)('a step that %s kills THAT new sandbox and fails the ensure, before start.sh', async (how) => {
+    rt.hooks.close = how
+    await expect(host.ensureCloudBrowser(ref)).rejects.toThrow(/\/usr\/local in the new sandbox sbx1/)
+    expect(rt.Sandbox.kill.mock.calls.map(c => c[0])).toEqual(['sbx1'])
+    expect(rt.boxes.size).toBe(0)
+    expect(store.markRunning).not.toHaveBeenCalled()
+    expect(rt.events.some(e => e.includes('/opt/cloud-browser/start.sh'))).toBe(false)
+  })
+
+  it('a wake runs no root command and never kills, even when the step would fail', async () => {
+    const box = rt.add(META, { state: 'paused' })
+    rt.hooks.close = 'throw'
+    expect((await host.ensureCloudBrowser(ref)).created).toBe(false)
+    expect(box.lines.some(l => l.user === 'root')).toBe(false)
+    expect(rt.Sandbox.kill).not.toHaveBeenCalled()
+    // A running one reused: the same.
+    expect((await host.ensureCloudBrowser(ref)).created).toBe(false)
+    expect(box.lines.some(l => l.user === 'root')).toBe(false)
+  })
+
+  it('a take-up only checks, as the template’s user; a create that gives way runs no root step in the other', async () => {
+    let theirs = ''
+    rt.hooks.duringCreate = () => {
+      rt.hooks.duringCreate = null
+      theirs = rt.add(META, { startedAt: new Date(0) }).sandboxId
+    }
+    await host.ensureCloudBrowser(ref)
+    const lines = rt.boxes.get(theirs)!.lines
+    expect(lines.some(l => l.user === 'root')).toBe(false)
+    expect(lines.find(l => l.line === USR_LOCAL_CLOSED)).toMatchObject({ line: USR_LOCAL_CLOSED })
+    expect(lines.find(l => l.line === USR_LOCAL_CLOSED)!.user).toBeUndefined()
+  })
+
+  it('a sandbox taken up with /usr/local open (its own step never ran) is closed as root, never killed', async () => {
+    const box = rt.add(META, { state: 'paused', usrLocalOpen: true })
+    expect((await host.ensureCloudBrowser(ref)).created).toBe(false)
+    expect(box.lines.filter(l => l.user === 'root').map(l => l.line)).toEqual([CLOSE_USR_LOCAL])
+    expect(box.usrLocalOpen).toBe(false)
+    // Closed before start.sh.
+    expect(box.lines.findIndex(l => l.user === 'root')).toBeLessThan(box.lines.findIndex(l => l.line.includes('/opt/cloud-browser/start.sh')))
+    expect(rt.Sandbox.kill).not.toHaveBeenCalled()
+  })
+
+  it('… and one that cannot be closed fails the ensure (to retry), still never killed', async () => {
+    const box = rt.add(META, { usrLocalOpen: true })
+    rt.hooks.close = 'open'
+    await expect(host.ensureCloudBrowser(ref)).rejects.toThrow(/could not be closed; try again/)
+    expect(rt.boxes.has(box.sandboxId)).toBe(true)
+    expect(rt.Sandbox.kill).not.toHaveBeenCalled()
+    expect(box.lines.some(l => l.line.includes('/opt/cloud-browser/start.sh'))).toBe(false)
   })
 })
