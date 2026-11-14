@@ -36,7 +36,7 @@ export const maxDuration = 300
  * SAFETY_NET_MARGIN_MS but not older than SAFETY_NET_LOOKBACK_MS, through the
  * same gates and the same daily cap.
  *
- * Exposed as GET because Vercel cron issues GET requests; POST is kept for
+ * Exposed as GET because the server's cron issues GET requests; POST is kept for
  * manual/legacy invocation.
  */
 async function run() {

@@ -11,7 +11,7 @@ export const maxDuration = 60
  * rule, its bounds and what it never touches are in
  * src/lib/local-agent/retention.ts.
  *
- * Schedule: daily via Vercel cron at 03:40 UTC (vercel.json), GET with
+ * Schedule: daily from the server's cron at 03:40 UTC (vercel.json), GET with
  * `Authorization: Bearer ${CRON_SECRET}`.
  */
 export async function GET(request: NextRequest) {

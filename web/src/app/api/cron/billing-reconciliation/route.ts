@@ -27,7 +27,7 @@ import * as Sentry from '@sentry/nextjs'
  *
  * Findings are returned and, when non-trivial, alerted to Sentry.
  *
- * Schedule: weekly via Vercel cron.
+ * Schedule: weekly from the server's cron.
  */
 export const maxDuration = 120
 

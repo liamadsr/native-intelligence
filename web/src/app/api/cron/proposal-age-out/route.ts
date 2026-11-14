@@ -28,7 +28,7 @@ export const maxDuration = 60
  * - **Explicit (`workspace=id,id`)**: the supervised/manual path — sweep exactly
  *   those ids, each with its own AGE_OUT_BATCH cap (unchanged v1 behavior).
  *
- * Vercel cron issues GET with `Authorization: Bearer ${CRON_SECRET}`.
+ * The server's cron issues GET with `Authorization: Bearer ${CRON_SECRET}`.
  */
 export async function GET(request: NextRequest) {
   const denied = requireCronSecret(request)
