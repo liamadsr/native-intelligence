@@ -553,8 +553,9 @@ class CallRecorder(unittest.TestCase):
         _, blockers, _ = cs.report({"TEAM_CALL_RECORDER": "", "CAPTURE_FEED_SECRET": ""}, {})
         self.assertEqual(blockers, [])
 
-    def test_the_phase_two_switches(self):
-        for name in ("TEAM_CALL_LIVE_AGENT", "TEAM_CALL_EVENT_LINK"):
+    def test_the_switches_that_need_the_recorder(self):
+        # Phase 2's two, and phase 4's audio files.
+        for name in ("TEAM_CALL_LIVE_AGENT", "TEAM_CALL_EVENT_LINK", "TEAM_CALL_AUDIO"):
             self.assertEqual(cs.group(name), "may be empty")
             check = cs.CHECKS[name]
             self.assertEqual(check(dict(self.ENV, TEAM_CALL_RECORDER="on", **{name: "on"}), {}), (None, None))
