@@ -69,14 +69,18 @@ export function relayRequestAddressAllowed(request: Request, policy: RelayAddres
  *    sandbox server's public addresses), checked before the token is read;
  *  - the browser the token names (its user and workspace) is `starting` or
  *    `running` in its row: a stopped browser's token is worth nothing, even
- *    before it expires.
+ *    before it expires;
+ *  - the token says it was minted for the runtime (`backend: 'runtime'`). Such
+ *    a token is refused on the hosted backend, so one left in a runtime VM's
+ *    file is worth nothing after a switch back.
  * What that proves: the request came from our sandbox server while that
  * person's browser was up. What it does NOT prove: that it came from THIS
  * sandbox (every sandbox there shares the server's addresses), so a token
  * copied into another sandbox on that server works for as long as the
  * browser runs. And a full escape from Chrome's process (to the relay's
- * user, which Chrome runs as too) could read the token, which the hosted
- * design made impossible: there the token never entered the VM.
+ * user, which Chrome runs as too, and which normally has passwordless sudo:
+ * root in the VM) could read the token, which the hosted design made
+ * impossible: there the token never entered the VM.
  */
 export async function requireAcceptedRelay(request: Request): Promise<BrowserRelayClaims | Response> {
   let runtime: boolean
@@ -89,7 +93,11 @@ export async function requireAcceptedRelay(request: Request): Promise<BrowserRel
   }
   if (runtime && !relayRequestAddressAllowed(request)) return unauthorized()
   const claims = requireBrowserRelay(request)
-  if (claims instanceof Response || !runtime) return claims
+  if (claims instanceof Response) return claims
+  // A token from a runtime VM is good only on the runtime backend, and only such a token is good there:
+  // after a switch back to hosted, the tokens left in runtime VMs' files are worth nothing.
+  if ((claims.backend === 'runtime') !== runtime) return unauthorized()
+  if (!runtime) return claims
   const status = await store.readStatus({ userId: claims.userId, workspaceId: claims.workspaceId }).catch(() => null)
   return status === 'starting' || status === 'running' ? claims : unauthorized()
 }
