@@ -90,6 +90,10 @@ earshot = "=1.2.2"
 # The Mac exit for the agent's cloud browser (web/docs/plans/cloud-browser.md, C4):
 # its own crate so its tests build without the app.
 browser-exit = { path = "crates/browser-exit" }
+# Unpacking the Studio's pinned downloads (studio_local/unzip.rs: Node on
+# Windows, Chrome's headless shell, our FFmpeg). Already in the tree through
+# tauri-plugin-updater; deflate through flate2 (above). MIT.
+zip = { version = "4.6", default-features = false, features = ["deflate-flate2"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
@@ -144,6 +148,10 @@ windows = { version = "0.58", features = [
     "Win32_System_SystemInformation",
     "Win32_System_Registry",
     "Wdk_System_SystemServices",
+    # The Studio's computer export: its runner held in a Job Object with
+    # kill-on-close (studio_local/procs.rs).
+    "Win32_System_JobObjects",
+    "Win32_Security",
 ] }
 
 [dev-dependencies]

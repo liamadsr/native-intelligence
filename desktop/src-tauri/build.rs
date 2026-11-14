@@ -149,6 +149,16 @@ const APP_COMMANDS: &[&str] = &[
     "studio_recorder_stop",
     "studio_recorder_targets",
     "studio_recorder_upload",
+    "studio_export_pick_destination",
+    "studio_export_reveal",
+    "studio_export_save_parts",
+    "studio_local_export_cancel",
+    "studio_local_export_events",
+    "studio_local_export_start",
+    "studio_local_prepare",
+    "studio_local_status",
+    "studio_export_save_cancel",
+    "studio_local_export_save_again",
 ];
 
 /// Release builds read capabilities/default.json alone; debug builds add

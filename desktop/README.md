@@ -164,6 +164,36 @@ signature and the installer's own VERSIONINFO, then wait for the person's "Resta
 (`src-tauri/src/app_update.rs`). The plan, and what works on Windows in each phase, is in
 `web/docs/plans/windows-desktop.md`.
 
+## Studio exports on this computer
+
+`src-tauri/src/studio_local/` runs a Studio export on the person's own computer (macOS on Apple
+silicon, Windows x64) with the Studio's local runner (`studio-worker/src/local-main.ts`), and saves
+any export, made here or on the server, to a place picked in the native save panel. Commands:
+`studio_local_{status, prepare, export_start, export_cancel, export_events, export_save_again}` and
+`studio_export_{pick_destination, save_parts, save_cancel, reveal}` (web `src/lib/tauri-bridge.ts`,
+`studioLocalExport`). Saved places are remembered for "Show in Finder / Explorer" in
+`<app data>/studio-local/saved.json` (owner only, 200 at most, 90 days).
+
+- **What ships in the app:** the runner (`runner.cjs`, its packages, a prebuilt render bundle), built
+  from this checkout's `studio-worker` at build time by `scripts/studio-runner.sh` into
+  `src-tauri/target/studio-runner/` (about 47 MB, never committed) and staged into
+  `Contents/Resources/studio-runner/` (macOS) or the installer's `studio-runner/` (Windows,
+  `.github/workflows/windows.yml`). `release.sh` builds it from committed source and checks the staged
+  copy file by file against its `STUDIO_RUNNER.json`. `dev.sh` and `build.sh` stage one only if it was
+  built: `TAURI_DIR=$PWD/src-tauri; source scripts/studio-runner.sh; studio_runner_build`.
+- **What is downloaded on first use, pinned and checked:** Node (the local agent's
+  `local_agent/runtime.json`, shared), Chrome's headless shell and our FFmpeg with ffprobe
+  (`studio_local/components.json`). FFmpeg's pin is a placeholder until its build is hosted; until then
+  the status says FFmpeg is not available for this version yet.
+- **Trying it in a debug build:** `NI_STUDIO_FFMPEG_DIR=/opt/homebrew/bin` (a folder with `ffmpeg` and
+  `ffprobe`) and `NI_STUDIO_RUNNER_DIR=<a folder built by studio-worker/scripts/build-local-runner.ts>`.
+  Both are read only by a debug build.
+- **Process control:** macOS: the runner leads its own process group, and the app also tracks and
+  kills its descendants (FFmpeg and Chrome run in groups of their own); a watchdog given to Node stops
+  the runner if the app dies. Windows: a Job Object with kill-on-close.
+- **Not fenced:** the runner, Chrome and FFmpeg run with the person's own rights. No Seatbelt profile
+  on macOS yet; Windows has no equivalent.
+
 ## Config Toggle: Dev vs Production
 
 The only thing that changes between dev and prod is `frontendDist` in `src-tauri/tauri.conf.json`:

@@ -130,6 +130,28 @@ jobs:
           assert n == 1, "Cargo.lock has no dial8-desktop entry"
           open(k, "w", encoding="utf-8", newline="").write(s)
           PY
+      # The Studio's local runner (desktop/scripts/studio-runner.sh), built
+      # from this commit's studio-worker and shipped in the installer's
+      # resources (studio-runner/, mapped in Build config). Before the
+      # notices: its NOTICES.txt is folded into them. Node, Chrome and FFmpeg
+      # are downloaded by the app on first use, pinned.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      - name: Studio runner
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          set -euo pipefail
+          (cd ../web && npm ci --no-audit --no-fund)
+          (cd ../studio-worker && npm ci --no-audit --no-fund)
+          python3() { python "$@"; }
+          TAURI_DIR="$PWD/src-tauri"
+          source scripts/studio-runner.sh
+          mode=dev
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then mode=release; fi
+          studio_runner_build "$mode"
+          studio_runner_verify src-tauri/target/studio-runner "$mode"
       - name: Third-party notices
         # scripts/licenses.sh, as the Mac bundle's: the Windows crate graph,
         # the Rust standard library and the resources' notices, into one
@@ -163,7 +185,10 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $bundle = @{
             createUpdaterArtifacts = $false
-            resources = @{ 'target/windows-licenses/THIRD_PARTY_NOTICES.txt' = 'Licenses/THIRD_PARTY_NOTICES.txt' }
+            resources = @{
+              'target/windows-licenses/THIRD_PARTY_NOTICES.txt' = 'Licenses/THIRD_PARTY_NOTICES.txt'
+              'target/studio-runner/' = 'studio-runner/'
+            }
           }
           if ($env:SIGN -eq 'true') {
             $tools = "$env:RUNNER_TEMP\signing"

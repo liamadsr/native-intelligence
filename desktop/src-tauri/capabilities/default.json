@@ -155,6 +155,16 @@
     "allow-studio-recorder-start",
     "allow-studio-recorder-stop",
     "allow-studio-recorder-targets",
-    "allow-studio-recorder-upload"
+    "allow-studio-recorder-upload",
+    "allow-studio-export-pick-destination",
+    "allow-studio-export-reveal",
+    "allow-studio-export-save-parts",
+    "allow-studio-local-export-cancel",
+    "allow-studio-local-export-events",
+    "allow-studio-local-export-start",
+    "allow-studio-local-prepare",
+    "allow-studio-local-status",
+    "allow-studio-export-save-cancel",
+    "allow-studio-local-export-save-again"
   ]
 }

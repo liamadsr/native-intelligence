@@ -24,6 +24,7 @@ mod settings;
 mod sidecar;
 mod sleep_guard;
 mod state;
+mod studio_local;
 mod sysctl;
 mod tray;
 mod voice;
@@ -934,6 +935,16 @@ pub fn run() {
             commands::studio_recorder::studio_recorder_discard,
             commands::studio_recorder::studio_recorder_show_control,
             commands::studio_recorder::studio_recorder_hide_control,
+            studio_local::commands::studio_local_status,
+            studio_local::commands::studio_local_prepare,
+            studio_local::commands::studio_local_export_start,
+            studio_local::commands::studio_local_export_cancel,
+            studio_local::commands::studio_local_export_events,
+            studio_local::commands::studio_export_pick_destination,
+            studio_local::commands::studio_export_save_parts,
+            studio_local::commands::studio_export_reveal,
+            studio_local::commands::studio_export_save_cancel,
+            studio_local::commands::studio_local_export_save_again,
         ])
         .setup(|app| {
             log_to_file("[setup] starting");
@@ -951,6 +962,10 @@ pub fn run() {
             // Local agents (macOS): an idle actor; it marks jobs the last
             // run left live as interrupted, then waits for commands.
             app.manage(local_agent::LocalAgentService::spawn(app.handle().clone()));
+            // Studio exports on this computer: idle until a studio_local_* or
+            // studio_export_* command; shares the local agent's pinned Node.
+            let node = app.state::<local_agent::LocalAgentService>().runtime();
+            app.manage(studio_local::StudioLocal::new(app.handle().clone(), node));
             app.manage(browser_exit::BrowserExitService::default());
             // Studio takes (screen, camera, microphone): idle until the first
             // studio_recorder_* command starts its sidecar.
