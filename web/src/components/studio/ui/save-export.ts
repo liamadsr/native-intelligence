@@ -26,7 +26,7 @@
 import { downloadFile } from '@/lib/download';
 import { openInSystemBrowser } from '@/lib/open-external';
 import { isDesktopApp } from '@/lib/platform';
-import { studioLocalExport } from '@/lib/tauri-bridge';
+import { studioLocalExport, studioRefusal } from '@/lib/tauri-bridge';
 import { exportArrivalLink } from './export-arrival';
 import { isMissingCommand } from './local-export';
 
@@ -114,30 +114,51 @@ export async function exportPartsOf(videoId: string, jobId: string): Promise<Exp
   return await response.json() as ExportPartsAnswer;
 }
 
+/** What a save tells its caller while it runs: the place the person picked (the app's save events name it). */
+export type SaveHooks = { onPicked?: (destinationId: string) => void };
+/** The app's refusal as a sentence for the person (its code dropped). */
+const sentence = (error: unknown) => new Error(studioRefusal(error).message);
+
 /**
  * The desktop app's own save: the person picks the place, then the app streams the export's parts into it (any size,
  * nothing held in the page). Null when this app has no such command, or the file is not an export (the other ways then).
+ * The app's links expire: a save refused for that (`links-expired`) asks for fresh ones and goes again, once. A save the
+ * person cancelled (`cancelled`, studio_export_save_cancel) answers cancelled.
  */
-async function saveThroughApp(file: ExportFile): Promise<SaveResult | null> {
-  if (!file.arrival) return null;
+async function saveThroughApp(file: ExportFile, hooks: SaveHooks = {}): Promise<SaveResult | null> {
+  const arrival = file.arrival;
+  if (!arrival) return null;
   // The parts first: they say the file is still there, and its cleaned name is what the save panel offers.
-  const parts = await exportPartsOf(file.arrival.videoId, file.arrival.jobId);
+  let parts = await exportPartsOf(arrival.videoId, arrival.jobId);
   let picked: { destinationId: string; name: string } | null;
   try { picked = await studioLocalExport.pickDestination(parts.name || file.fileName); }
-  catch (error) { if (isMissingCommand(error)) return null; throw error; }
+  catch (error) { if (isMissingCommand(error)) return null; throw sentence(error); }
   if (!picked) return { kind: 'cancelled' };
-  const saved = await studioLocalExport.saveParts({ destinationId: picked.destinationId, parts: parts.parts.map(part => ({ url: part.url, bytes: part.bytes })), bytes: parts.bytes, ...(parts.sha256 ? { sha256: parts.sha256 } : {}) });
-  return { kind: 'saved', where: saved.name || picked.name, destinationId: picked.destinationId };
+  const destinationId = picked.destinationId;
+  hooks.onPicked?.(destinationId);
+  const save = (answer: ExportPartsAnswer) => studioLocalExport.saveParts({
+    destinationId, videoId: arrival.videoId, jobId: arrival.jobId,
+    parts: answer.parts.map(part => ({ url: part.url, bytes: part.bytes })), bytes: answer.bytes, ...(answer.sha256 ? { sha256: answer.sha256 } : {}),
+  });
+  for (let attempt = 0; ; attempt++) {
+    try { const saved = await save(parts); return { kind: 'saved', where: saved.name || picked.name, destinationId }; }
+    catch (error) {
+      const { code } = studioRefusal(error);
+      if (code === 'cancelled') return { kind: 'cancelled' };
+      if (code !== 'links-expired' || attempt > 0) throw sentence(error);
+      parts = await exportPartsOf(arrival.videoId, arrival.jobId);
+    }
+  }
 }
 
 /**
  * Save an export. Call it straight from a click: the browser's save picker opens only then. `way` is worked out from
  * the size when not given. Throws a sentence the dialog can show.
  */
-export async function saveExport(file: ExportFile, way?: SaveWay): Promise<SaveResult> {
+export async function saveExport(file: ExportFile, way?: SaveWay, hooks?: SaveHooks): Promise<SaveResult> {
   const { url, fileName } = file;
   if (way === 'desktop-parts') {
-    const saved = await saveThroughApp(file);
+    const saved = await saveThroughApp(file, hooks);
     if (saved) return saved;
     way = undefined;
   }

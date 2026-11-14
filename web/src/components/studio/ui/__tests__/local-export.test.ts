@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EditorJob } from '@/lib/studio/engine/api'
 import type { EditorProject } from '@/lib/studio/engine/contracts'
 import { STUDIO_RENDER_VERSION } from '@/lib/studio/engine/render-version'
-import type { StudioLocalStatus } from '@/lib/tauri-bridge'
+import { studioRefusal, type StudioLocalStatus } from '@/lib/tauri-bridge'
 import {
   LOCAL_WORDS, STALL_MS, capabilityFor, capabilityOf, continueOnComputer, destinationOf, emptyRunner, finishOnServer, foldEvents, localView,
   readLocalCapability, revealLabel, savesParts, startOnComputer,
@@ -21,6 +21,7 @@ const project = { id: 'v1', title: 'Spring launch', layers: [] } as unknown as E
 const JOB = 'bbbbbbbb-1111-4222-8333-444444444444'
 const job = (over: Partial<EditorJob> = {}): EditorJob => ({ id: JOB, kind: 'export', where: 'computer', status: 'running', progress: 0, logs: [], ...over })
 const destination = { destinationId: 'd1', name: 'Spring launch.mp4' }
+const noPick = vi.fn(async () => null)
 
 describe('what this computer can do', () => {
   it('in a browser, nothing is said: it exports on the server as before', async () => {
@@ -67,7 +68,7 @@ describe('starting on this computer', () => {
   it('queues it for this computer and hands the token to the app, with where to save it and uploading on', async () => {
     const start = vi.fn(async () => undefined)
     const request = requests({ '/api/account/studio/export:computer': { job: job(), local: { token: 'tok' } } })
-    expect(await startOnComputer(project, destination, { request, bridge: { start } })).toEqual({ job: job() })
+    expect(await startOnComputer(project, destination, { request, bridge: { start }, pick: noPick })).toEqual({ job: job() })
     expect(start).toHaveBeenCalledWith({ jobId: JOB, token: 'tok', destinationId: 'd1', upload: true })
     expect(destinationOf(JOB)).toEqual(destination)
   })
@@ -77,16 +78,16 @@ describe('starting on this computer', () => {
     const server = job({ id: 'srv', where: 'server' })
     const request = requests({ '/api/account/studio/export:computer': refused, '/api/account/studio/export': { job: server } })
     const start = vi.fn()
-    expect(await startOnComputer(project, destination, { request, bridge: { start } })).toEqual({ job: server, notice: refused.message })
+    expect(await startOnComputer(project, destination, { request, bridge: { start }, pick: noPick })).toEqual({ job: server, notice: refused.message })
     expect(start).not.toHaveBeenCalled()
     const tooMany = Object.assign(new Error('You have 2 exports open on your computers.'), { code: 'TOO_MANY_LOCAL' })
-    await expect(startOnComputer(project, destination, { request: requests({ '/api/account/studio/export:computer': tooMany }), bridge: { start } })).rejects.toThrow('2 exports open')
+    await expect(startOnComputer(project, destination, { request: requests({ '/api/account/studio/export:computer': tooMany }), bridge: { start }, pick: noPick })).rejects.toThrow('2 exports open')
   })
 
   it('moves it to the server when the app cannot start it', async () => {
     const moved = job({ id: 'srv', where: 'server' })
     const request = requests({ '/api/account/studio/export:computer': { job: job(), local: { token: 'tok' } }, [`/api/account/studio/jobs/${JOB}/to-server`]: { job: moved, replaces: JOB } })
-    expect(await startOnComputer(project, destination, { request, bridge: { start: async () => { throw new Error('Command studio_local_export_start not found') } } })).toEqual({ job: moved, notice: LOCAL_WORDS.failedStart })
+    expect(await startOnComputer(project, destination, { request, bridge: { start: async () => { throw new Error('Command studio_local_export_start not found') } }, pick: noPick })).toEqual({ job: moved, notice: LOCAL_WORDS.failedStart })
   })
 })
 
@@ -112,7 +113,7 @@ describe('what the dialog shows of it', () => {
     localStorage.setItem('ni:studio:local-export-destinations', JSON.stringify({ [JOB]: destination }))
     const start = vi.fn(async () => undefined)
     const request = vi.fn(async () => ({ token: 'fresh' })) as unknown as <T>(path: string, body?: unknown) => Promise<T>
-    await continueOnComputer(JOB, { request, bridge: { start } })
+    await continueOnComputer(JOB, 'Spring launch.mp4', { request, bridge: { start }, pick: noPick })
     expect(request).toHaveBeenCalledWith(`/api/account/studio/jobs/${JOB}/local-token`, {})
     expect(start).toHaveBeenCalledWith({ jobId: JOB, token: 'fresh', destinationId: 'd1', upload: true })
     // The app speaks again: rendering.
@@ -165,5 +166,91 @@ describe('what the dialog shows of it', () => {
 
   it('done and kept on this computer only', () => {
     expect(localView(job({ status: 'completed', progress: 1, kept: 'computer' }), emptyRunner(), at, at, 'Spring launch.mp4')).toEqual({ kind: 'done', savedName: 'Spring launch.mp4', uploaded: false })
+  })
+
+  it('every run begins with started: what the app said of an earlier run is dropped, the seq kept', () => {
+    const failed = foldEvents(emptyRunner(), [{ jobId: JOB, seq: 4, kind: 'progress', progress: 0.7 }, { jobId: JOB, seq: 5, kind: 'failed', message: 'The disk is full.' }], at)
+    expect(localView(job(), failed, at, at).kind).toBe('failed')
+    const again = foldEvents(failed, [{ jobId: JOB, seq: 6, kind: 'started' }], at + 10)
+    expect(again).toEqual({ ...emptyRunner(), seq: 6, lastAt: at + 10 })
+    expect(localView(job(), again, at, at + 20)).toEqual({ kind: 'rendering', progress: 0, waiting: false })
+    // A done, then a new run: not saved any more until the app says so again.
+    const done = foldEvents(emptyRunner(), [{ jobId: JOB, seq: 1, kind: 'done', savedName: 'a.mp4' }, { jobId: JOB, seq: 2, kind: 'started' }], at)
+    expect(done.done).toBe(false)
+    expect(done.savedName).toBeNull()
+  })
+
+  it('after done only progress, logs and the upload count: a saved export whose upload failed is saved, kept here, with the app’s sentence', () => {
+    const saved = foldEvents(emptyRunner(), [
+      { jobId: JOB, seq: 1, kind: 'started' },
+      { jobId: JOB, seq: 2, kind: 'done', savedName: 'Spring launch.mp4' },
+      { jobId: JOB, seq: 3, kind: 'progress', progress: 0.2 },
+      { jobId: JOB, seq: 4, kind: 'failed', message: 'should not count' },
+      { jobId: JOB, seq: 5, kind: 'cancelled' },
+      { jobId: JOB, seq: 6, kind: 'upload-failed', message: 'The upload stopped: the network went away.' },
+    ], at)
+    expect(saved).toMatchObject({ done: true, failed: null, cancelled: false, progress: 1, uploadFailed: 'The upload stopped: the network went away.' })
+    const view = { kind: 'done', savedName: 'Spring launch.mp4', uploaded: false, note: 'The upload stopped: the network went away.' }
+    // While the server still has it running, and after it marked it failed or cancelled: saved, never failed.
+    expect(localView(job(), saved, at, at)).toEqual(view)
+    expect(localView(job({ status: 'failed', error: 'The upload did not arrive.' }), saved, at, at)).toEqual(view)
+    expect(localView(job({ status: 'cancelled' }), saved, at, at)).toEqual(view)
+    // Saved and the upload went through.
+    const uploaded = foldEvents(emptyRunner(), [{ jobId: JOB, seq: 1, kind: 'done', savedName: 'a.mp4' }, { jobId: JOB, seq: 2, kind: 'uploaded' }], at)
+    expect(uploaded.uploaded).toBe(true)
+    expect(localView(job({ status: 'failed', error: 'The file did not arrive.' }), uploaded, at, at)).toEqual({ kind: 'done', savedName: 'a.mp4', uploaded: false, note: 'The file did not arrive.' })
+  })
+})
+
+describe('a place the app no longer takes', () => {
+  const queued = { job: job(), local: { token: 'tok' } }
+  const request = (vi.fn(async (path: string) => path.endsWith('/local-token') ? { token: 'fresh' } : queued)) as unknown as <T>(path: string, body?: unknown) => Promise<T>
+  const refusing = (code: string) => vi.fn(async (args: { destinationId: string }) => { if (args.destinationId === 'd1') throw new Error(`${code}: That place was used already.`) })
+
+  it('reads the app’s refusals: a code and a sentence, the sentence alone shown', () => {
+    expect(studioRefusal(new Error('used: That place was used already.'))).toEqual({ code: 'used', message: 'That place was used already.' })
+    expect(studioRefusal('unknown-destination: The app does not know that place.')).toEqual({ code: 'unknown-destination', message: 'The app does not know that place.' })
+    expect(studioRefusal(new Error('KEPT_ON_COMPUTER: This export is kept on the computer that made it.'))).toEqual({ code: 'KEPT_ON_COMPUTER', message: 'This export is kept on the computer that made it.' })
+    expect(studioRefusal(new Error('Something broke'))).toEqual({ code: null, message: 'Something broke' })
+  })
+
+  it('a second export with a place already used asks where to save again (suggesting the same name), never the server', async () => {
+    for (const code of ['used', 'unknown-destination']) {
+      const start = refusing(code), pick = vi.fn(async () => ({ destinationId: 'd2', name: 'Spring launch 2.mp4' }))
+      expect(await startOnComputer(project, destination, { request, bridge: { start }, pick })).toEqual({ job: job() })
+      expect(pick).toHaveBeenCalledWith('Spring launch.mp4')
+      expect(start).toHaveBeenLastCalledWith({ jobId: JOB, token: 'tok', destinationId: 'd2', upload: true })
+      expect(destinationOf(JOB)).toEqual({ destinationId: 'd2', name: 'Spring launch 2.mp4' })
+      expect(request).not.toHaveBeenCalledWith(`/api/account/studio/jobs/${JOB}/to-server`, expect.anything())
+    }
+    // The panel closed: the export waits for this computer, saying so.
+    const closed = await startOnComputer(project, destination, { request, bridge: { start: refusing('used') }, pick: noPick })
+    expect(closed).toEqual({ job: job(), notice: LOCAL_WORDS.needsPlace })
+  })
+
+  it('other refusals from the app move it to the server with the app’s own sentence', async () => {
+    const moved = job({ id: 'srv', where: 'server' })
+    const req = (vi.fn(async (path: string) => path.endsWith('/to-server') ? { job: moved, replaces: JOB } : queued)) as unknown as <T>(path: string, body?: unknown) => Promise<T>
+    const busy = async () => { throw new Error('busy: Another export is running in the app.') }
+    expect(await startOnComputer(project, destination, { request: req, bridge: { start: busy }, pick: noPick })).toEqual({ job: moved, notice: `Another export is running in the app. ${LOCAL_WORDS.onServerNow}` })
+  })
+
+  it('continue after the app was quit: the save panel opens again and it starts with the new place; a closed panel leaves it waiting', async () => {
+    localStorage.setItem('ni:studio:local-export-destinations', JSON.stringify({ [JOB]: destination }))
+    const start = refusing('unknown-destination'), pick = vi.fn(async () => ({ destinationId: 'd3', name: 'Spring launch.mp4' }))
+    expect(await continueOnComputer(JOB, 'Spring launch.mp4', { request, bridge: { start }, pick })).toBe('started')
+    expect(pick).toHaveBeenCalledWith('Spring launch.mp4')
+    expect(start).toHaveBeenLastCalledWith({ jobId: JOB, token: 'fresh', destinationId: 'd3', upload: true })
+    expect(destinationOf(JOB)?.destinationId).toBe('d3')
+    // Nothing remembered (another browser profile): the panel first; never a start without a place.
+    localStorage.clear()
+    const none = vi.fn(async () => undefined)
+    expect(await continueOnComputer(JOB, 'Spring launch.mp4', { request, bridge: { start: none }, pick: noPick })).toBe('cancelled')
+    expect(none).not.toHaveBeenCalled()
+    // A place the app refuses and a closed panel: still waiting, the place kept.
+    localStorage.setItem('ni:studio:local-export-destinations', JSON.stringify({ [JOB]: destination }))
+    const used = refusing('used')
+    expect(await continueOnComputer(JOB, 'Spring launch.mp4', { request, bridge: { start: used }, pick: noPick })).toBe('cancelled')
+    expect(used).toHaveBeenCalledTimes(1)
   })
 })

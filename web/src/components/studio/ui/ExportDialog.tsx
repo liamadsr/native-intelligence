@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { EditorJob } from '@/lib/studio/engine/api';
@@ -9,9 +9,9 @@ import { Modal, StudioSelect } from './controls';
 import { Icon } from './icons';
 import { studioWorkspaceId } from '../studio-env';
 import { exportFileName, saveExport, saveWay, type SaveResult, type SaveWay } from './save-export';
-import { studioLocalExport, type StudioExportDestination } from '@/lib/tauri-bridge';
-import { LocalDone, LocalRunning, LocalWhere, forgetLocalCapability, platformOf, useLocalCapability, useRunner } from './ExportLocal';
-import { destinationOf, localView, revealLabel, savesParts, type LocalCapability } from './local-export';
+import { studioLocalExport, studioRefusal, type StudioExportDestination } from '@/lib/tauri-bridge';
+import { LocalDone, LocalRunning, LocalWhere, RevealButton, forgetLocalCapability, platformOf, useLocalCapability, useRunner } from './ExportLocal';
+import { destinationOf, isMissingCommand, localView, savesParts, sizeWords, type LocalCapability, type LocalView, type RunnerState } from './local-export';
 
 /*
  * The Export dialog: what will be made and how big, then the render's progress, then the finished video and a way to
@@ -49,6 +49,8 @@ type Local = {
   serverOnly: boolean;
   destination: StudioExportDestination | null;
   choose: () => Promise<StudioExportDestination | null>;
+  /** An export started with the chosen place: the app takes a place once, so the next export asks again. */
+  used: () => void;
   prepare: () => Promise<boolean>;
   downloading: boolean;
   received: { bytes: number; total: number } | null;
@@ -81,8 +83,11 @@ type Props = {
   start: (choice?: ExportChoice) => void;
   /** "Finish on the server" for an export on this computer that waits for it: null when done, else why not. */
   moveToServer?: (jobId: string) => Promise<string | null>;
-  /** "Continue on this computer": a new token handed to the app. Null when done, else why not. */
-  continueHere?: (jobId: string) => Promise<string | null>;
+  /**
+   * "Continue on this computer": a new token handed to the app, with where to save (the save panel opens, suggesting
+   * `suggestedName`, when the app no longer knows the place). Null when done or the panel was closed, else why not.
+   */
+  continueHere?: (jobId: string, suggestedName: string) => Promise<string | null>;
   /** Ask the running export to stop; false when the request failed (the dialog says so). */
   cancel: () => Promise<boolean>;
   close: () => void;
@@ -138,6 +143,9 @@ export function ExportDialog(props: Props) {
   const [capabilityAgain, setCapabilityAgain] = useState(0);
   const capability = useLocalCapability(props.project, capabilityAgain);
   const [destination, setDestination] = useState<StudioExportDestination | null>(null), [serverOnly, setServerOnly] = useState(false);
+  // An export on this computer: what its app has said, which decides whether it is saved (./local-export.ts localView).
+  const here = job?.where === 'computer' ? job : null, { runner, openedAt, now } = useRunner(here?.id ?? null);
+  const localNow = here ? localView(here, runner, openedAt, now, null, !!destinationOf(here.id)) : null;
   const [downloading, setDownloading] = useState(false), [received, setReceived] = useState<{ bytes: number; total: number } | null>(null), [localError, setLocalError] = useState<string | null>(null);
   const local: Local = {
     capability, serverOnly, destination, downloading, received, error: localError, platform: platformOf(capability),
@@ -145,41 +153,71 @@ export function ExportDialog(props: Props) {
     choose: async () => {
       setLocalError(null);
       try { const picked = await studioLocalExport.pickDestination(exportFileName('', props.project.title || 'video')); if (picked) setDestination(picked); return picked ?? destination; }
-      catch (error) { setLocalError(error instanceof Error ? error.message : String(error)); return null; }
+      catch (error) { setLocalError(studioRefusal(error).message); return null; }
     },
+    used: () => setDestination(null),
     prepare: async () => {
       setDownloading(true); setLocalError(null);
       const sizes = new Map<string, { bytes: number; total: number }>();
       const stop = studioLocalExport.onPrepare(event => { sizes.set(event.component, { bytes: event.receivedBytes, total: event.totalBytes });
         setReceived([...sizes.values()].reduce((sum, item) => ({ bytes: sum.bytes + item.bytes, total: sum.total + item.total }), { bytes: 0, total: 0 })); });
       try { await studioLocalExport.prepare(); forgetLocalCapability(); setCapabilityAgain(n => n + 1); return true; }
-      catch (error) { setLocalError(`The download did not finish: ${error instanceof Error ? error.message : String(error)}`); return false; }
+      catch (error) { setLocalError(`The download did not finish. ${studioRefusal(error).message}`); return false; }
       finally { stop(); setDownloading(false); }
     },
   };
-  const view = job?.status === 'running' ? 'running' : job?.status === 'completed' && !again ? 'done' : 'setup';
+  // Saved on this computer is done, whatever became of its upload (never failed or cancelled).
+  const view = localNow?.kind === 'done' ? (again ? 'setup' : 'done') : job?.status === 'running' ? 'running' : job?.status === 'completed' && !again ? 'done' : 'setup';
   // The finished export the dialog is showing is not listed again under it.
   const others = (finished ?? []).filter(item => view !== 'done' || item.id !== job?.id);
   const list = listError ? <p className="xd-error xd-list-error" role="alert"><Icon name="warning" size={14} /><span>Your finished exports could not be loaded.</span><Button size="sm" variant="ghost" className="st-app-button" onClick={() => setReads(n => n + 1)}>Try again</Button></p>
     : others.length ? <FinishedList items={others} projectId={props.project.id} platform={local.platform} parts={capability ? savesParts(capability) : false} heading={view === 'done' ? 'Earlier exports' : 'Ready to save'} /> : null;
-  const ended = !again && (job?.status === 'failed' || job?.status === 'cancelled') ? job : null;
+  const ended = !again && localNow?.kind !== 'done' && (job?.status === 'failed' || job?.status === 'cancelled') ? job : null;
   return <Modal title="Export video" description={<>“{props.project.title || 'Untitled video'}”</>} close={props.close} className="xd-dialog">
     {props.notice ? <p className={cn('xd-notice', props.notice.tone === 'ok' ? 'xd-saved' : 'xd-error')} role="status"><Icon name={props.notice.tone === 'ok' ? 'check' : 'warning'} size={14} /><span>{props.notice.text}</span></p> : null}
-    {view === 'running' && job ? (job.where === 'computer' ? <RunningHere {...props} job={job} local={local} /> : <Running {...props} job={job} list={list} />)
-      : view === 'done' && job ? <Done {...props} job={job} list={list} local={local} again={() => setAgain(true)} /> : <Setup {...props} ended={ended} list={list} local={local} />}
+    {view === 'running' && job ? (job.where === 'computer' && localNow ? <RunningHere {...props} job={job} local={local} view={localNow} /> : <Running {...props} job={job} list={list} />)
+      : view === 'done' && job ? <Done {...props} job={job} list={list} local={local} localDone={localNow?.kind === 'done' ? localNow : null} again={() => setAgain(true)} /> : <Setup {...props} ended={ended} list={list} local={local} />}
   </Modal>;
+}
+
+/** A save through the app (desktop-parts): how much of the file has arrived, while it runs. */
+type SaveProgress = { received: number; total: number };
+/**
+ * The app's save events for the place picked (studio-local://save), while `destinationId` is set. Cancel shows once
+ * the app has said something of the save (an app that says so has studio_export_save_cancel).
+ */
+function useSaveProgress(destinationId: string | null): SaveProgress | null {
+  const [progress, setProgress] = useState<SaveProgress | null>(null);
+  useEffect(() => {
+    setProgress(null);
+    if (!destinationId) return;
+    return studioLocalExport.onSave(event => { if (event.destinationId === destinationId) setProgress({ received: Math.max(0, event.receivedBytes), total: Math.max(0, event.totalBytes) }); });
+  }, [destinationId]);
+  return progress;
 }
 
 /** Saving one finished export onto the computer: the button, then where it went (or why it did not). */
 function SaveExport({ job, title, projectId, big, parts = false }: { job: EditorJob; title: string; projectId: string; big?: boolean; parts?: boolean }) {
   const url = job.downloadUrl!, bytes = Number((job.result as { bytes?: unknown } | undefined)?.bytes) || null, way = saveWay(bytes, parts);
   const [saving, setSaving] = useState(false), [saved, setSaved] = useState<SaveResult | null>(null), [error, setError] = useState<string | null>(null);
+  // Through the app: the place it saves to (its events name it), and whether Cancel works in this app.
+  const [savingTo, setSavingTo] = useState<string | null>(null), [canCancel, setCanCancel] = useState(true), [cancelling, setCancelling] = useState(false);
+  const progress = useSaveProgress(savingTo), alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const save = () => {
     if (saving) return;
-    setSaving(true); setError(null);
+    setSaving(true); setError(null); setCancelling(false);
     // Straight from the click: the browser's save picker opens only from one.
-    void saveExport({ url, fileName: exportFileName(url, title), bytes, arrival: { videoId: job.videoId ?? projectId, jobId: job.id, workspaceId: studioWorkspaceId() } }, way === 'desktop-parts' ? way : undefined).then(answer => { if (answer.kind !== 'cancelled') setSaved(answer); })
-      .catch(cause => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => setSaving(false));
+    void saveExport({ url, fileName: exportFileName(url, title), bytes, arrival: { videoId: job.videoId ?? projectId, jobId: job.id, workspaceId: studioWorkspaceId() } }, way === 'desktop-parts' ? way : undefined, { onPicked: id => { if (alive.current) setSavingTo(id); } })
+      // A cancelled save (the panel closed, or Cancel) leaves the row as it was.
+      .then(answer => { if (alive.current && answer.kind !== 'cancelled') setSaved(answer); })
+      .catch(cause => { if (alive.current) setError(cause instanceof Error ? cause.message : String(cause)); })
+      .finally(() => { if (alive.current) { setSaving(false); setSavingTo(null); } });
+  };
+  const cancel = () => {
+    if (!savingTo) return;
+    setCancelling(true);
+    void studioLocalExport.saveCancel(savingTo).catch(cause => { if (!alive.current) return; setCancelling(false); if (isMissingCommand(cause)) setCanCancel(false); else setError(studioRefusal(cause).message); });
   };
   const label = saving ? (way === 'desktop' || way === 'desktop-parts' ? 'Getting the video…' : way === 'desktop-browser' ? 'Opening your browser…' : 'Saving…')
     : way === 'downloads' ? (big ? 'Download MP4' : 'Download') : way === 'desktop-browser' ? (big ? 'Open in your browser to download' : 'Open in browser…')
@@ -189,9 +227,15 @@ function SaveExport({ job, title, projectId, big, parts = false }: { job: Editor
     : saved.kind === 'browser' ? <>Opened in your browser. The download starts there, in its downloads folder, once you are signed in.</> : null}</span></p> : null;
   const failed = error ? <p className="xd-error" role="alert"><Icon name="warning" size={14} /><span>{error}</span></p> : null;
   const icon = way === 'downloads' || way === 'desktop-browser' ? 'download' : 'saveTo';
+  const percent = progress && progress.total > 0 ? Math.round(Math.min(1, progress.received / progress.total) * 100) : 0;
+  const saveBar = saving && progress ? <div className="xd-save-progress">
+    <div className="xd-progress" role="progressbar" aria-label="Saving the video" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><span style={{ width: `${Math.max(2, percent)}%` }} /></div>
+    <span className="xd-local-meta">{cancelling ? 'Stopping…' : `${sizeWords(progress.received)} of ${sizeWords(progress.total)}`}</span>
+    {canCancel ? <Button size="sm" variant="ghost" className="st-app-button" disabled={cancelling} onClick={cancel}>Cancel</Button> : null}
+  </div> : null;
   return big
-    ? <><Button size="lg" className="st-app-button xd-save" data-autofocus="" disabled={saving} onClick={save}><Icon name={icon} />{label}</Button>{said}{failed}<p className="xd-note">{howItSaves(way)} We keep the video for 30 days, so you can save another copy until then.</p></>
-    : <><Button size="sm" variant="outline" className="st-app-button xd-row-save" disabled={saving} onClick={save} title={howItSaves(way)}><Icon name={icon} />{label}</Button>{said || failed ? <div className="xd-row-said">{said}{failed}</div> : null}</>;
+    ? <><Button size="lg" className="st-app-button xd-save" data-autofocus="" disabled={saving} onClick={save}><Icon name={icon} />{progress && saving ? 'Saving…' : label}</Button>{saveBar}{said}{failed}<p className="xd-note">{howItSaves(way)} We keep the video for 30 days, so you can save another copy until then.</p></>
+    : <><Button size="sm" variant="outline" className="st-app-button xd-row-save" disabled={saving} onClick={save} title={howItSaves(way)}><Icon name={icon} />{progress && saving ? 'Saving…' : label}</Button>{saveBar}{said || failed ? <div className="xd-row-said">{said}{failed}</div> : null}</>;
 }
 
 /** What a finished export is: size, length, file size. */
@@ -210,12 +254,11 @@ const when = (iso: string) => { const at = new Date(iso); return Number.isNaN(at
  * saved it (it knows the place), else where it is.
  */
 function KeptRow({ jobId, platform }: { jobId: string; platform: 'macos' | 'windows' | 'other' }) {
-  const destination = destinationOf(jobId), [error, setError] = useState<string | null>(null);
+  const destination = destinationOf(jobId);
   if (!destination) return <span className="xd-row-kept"><span className="xd-row-gone">Kept on the computer it was made on</span></span>;
   return <span className="xd-row-kept">
     <span className="xd-row-gone" title={destination.name}>Saved here as <strong className="xd-file">{destination.name}</strong></span>
-    <Button size="sm" variant="outline" className="st-app-button xd-row-save" onClick={() => { setError(null); void studioLocalExport.reveal(destination.destinationId).catch(() => setError('The file could not be shown. It may have been moved.')); }}>{revealLabel(platform)}</Button>
-    {error ? <span className="xd-saved-error">{error}</span> : null}
+    <RevealButton destinationId={destination.destinationId} platform={platform} variant="outline" />
   </span>;
 }
 
@@ -243,6 +286,7 @@ function Setup(props: Props & { ended: EditorJob | null; list: React.ReactNode; 
     if (!destination) return;
     if (preparing && !await local.prepare()) return;
     props.start({ where: 'computer', destination });
+    local.used();
   };
   const exportLabel = local.downloading ? 'Downloading…' : preparing && local.capability?.kind === 'prepare' ? `Download ${sizeWordsOf(local.capability.bytes)} and export` : 'Export MP4';
   const native = props.size === 'native', resolutionId = React.useId();
@@ -331,22 +375,24 @@ function Running({ job, receipt, cancel, close, list }: Props & { job: EditorJob
 }
 
 /** An export running on this computer, or waiting for it: from the job and the app's own events. */
-function RunningHere(props: Props & { job: EditorJob; local: Local }) {
-  const { job } = props, { runner, openedAt, now } = useRunner(job.id);
+function RunningHere(props: Props & { job: EditorJob; local: Local; view: LocalView }) {
+  const { job, view } = props;
   const [stopping, setStopping] = useState(false), [working, setWorking] = useState(false), [error, setError] = useState<string | null>(null);
-  const view = localView(job, runner, openedAt, now, null, !!destinationOf(job.id));
   const act = async (run: () => Promise<string | null> | undefined) => { setWorking(true); setError(null); const why = await run(); setWorking(false); if (why) setError(why); };
   if (view.kind === 'done' || view.kind === 'cancelled') return null;
   return <LocalRunning view={view} job={job} platform={props.local.platform} actions={{
     stopping, working, error, close: props.close,
     cancel: () => { setStopping(true); setError(null); void props.cancel().then(asked => { if (!asked) { setStopping(false); setError('The export could not be stopped. It is still running. Try again.'); } }); },
-    continueHere: () => void act(() => props.continueHere?.(job.id)),
+    continueHere: () => void act(() => props.continueHere?.(job.id, exportFileName('', props.project.title || 'video'))),
     finishOnServer: () => void act(() => props.moveToServer?.(job.id)),
     exportOnServer: () => props.start(),
   }} />;
 }
 
-function Done(props: Props & { job: EditorJob; again: () => void; list: React.ReactNode; local: Local }) {
+/** What a finished export made on this computer shows when its app said nothing more (the file saved, the upload done or not). */
+const SAVED: RunnerState = { seq: -1, lastAt: null, progress: null, savedName: null, failed: null, cancelled: false, done: true, uploaded: false, uploadFailed: null };
+
+function Done(props: Props & { job: EditorJob; again: () => void; list: React.ReactNode; local: Local; localDone: Extract<LocalView, { kind: 'done' }> | null }) {
   const { job, receipt, close, again, list } = props;
   const mine = receipt?.jobId === job.id ? receipt : null, result = (job.result ?? {}) as Record<string, unknown>;
   const facts = exportFacts(job, mine), title = mine?.title ?? (typeof result.title === 'string' ? result.title : 'video');
@@ -355,7 +401,7 @@ function Done(props: Props & { job: EditorJob; again: () => void; list: React.Re
       <span className="xd-done-icon" aria-hidden="true"><Icon name="done" size={22} /></span>
       <div><strong>{mine ? 'Your video is ready' : 'Your last export is ready'}</strong>{mine ? null : <span>The video from your last export.</span>}{facts.length ? <span className="xd-facts">{facts.map(fact => <span key={fact}>{fact}</span>)}</span> : null}</div>
     </div>
-    {job.where === 'computer' ? <LocalDone view={localView(job, { seq: -1, lastAt: null, progress: null, savedName: null, failed: null, cancelled: false, done: true }, 0, 0) as Extract<ReturnType<typeof localView>, { kind: 'done' }>} job={job} platform={props.local.platform} />
+    {job.where === 'computer' ? <LocalDone view={props.localDone ?? localView(job, SAVED, 0, 0) as Extract<LocalView, { kind: 'done' }>} job={job} platform={props.local.platform} />
       : job.downloadUrl ? <SaveExport job={job} title={title} projectId={props.project.id} parts={props.local.capability ? savesParts(props.local.capability) : false} big /> : <p className="xd-note">This export’s file is no longer kept. Exports are kept for 30 days. Export the video again.</p>}
     {list}
     <div className="xd-foot xd-foot-split">

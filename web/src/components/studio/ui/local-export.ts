@@ -21,7 +21,7 @@
 import type { EditorJob } from '@/lib/studio/engine/api';
 import type { EditorProject } from '@/lib/studio/engine/contracts';
 import { STUDIO_RENDER_VERSION } from '@/lib/studio/engine/render-version';
-import type { StudioExportDestination, StudioLocalExportEvent, StudioLocalStatus } from '@/lib/tauri-bridge';
+import { studioRefusal, type StudioExportDestination, type StudioLocalExportEvent, type StudioLocalStatus } from '@/lib/tauri-bridge';
 
 /** What this computer can do for an export. */
 export type LocalCapability =
@@ -38,6 +38,10 @@ export const LOCAL_WORDS = {
   failedStart: 'This computer could not start the export, so it runs on our server instead.',
   stalled: 'This computer stopped working on the export: it may have slept, or the app was quit.',
   elsewhere: 'It runs in the Native Intelligence app on the computer that started it, and is saved there.',
+  onServerNow: 'It runs on our server instead.',
+  unknownPlace: 'The app no longer knows where this file is.',
+  needsPlace: 'The export waits on this computer until you choose where to save it. Continue it from here.',
+  uploadFailed: 'It could not be uploaded for sharing.',
 } as const;
 
 /** Whether an error is a desktop command this build does not have (or may not call). */
@@ -78,7 +82,7 @@ export const savesParts = (capability: LocalCapability) => capability.kind === '
 
 export type LocalBridge = {
   status: () => Promise<StudioLocalStatus>;
-  start: (args: { jobId: string; token: string; destinationId?: string; upload: boolean }) => Promise<void>;
+  start: (args: { jobId: string; token: string; destinationId: string; upload: boolean }) => Promise<void>;
   cancel: (jobId: string) => Promise<void>;
   pickDestination: (suggestedName: string) => Promise<StudioExportDestination | null>;
 };
@@ -104,12 +108,35 @@ type Request = <T>(path: string, body?: unknown) => Promise<T>;
 type Started = { job: EditorJob; notice?: string };
 const codeOf = (error: unknown) => (error as { code?: string } | null)?.code;
 
+/** A place the app no longer takes (used once already, or forgotten with the app's last run): ask where to save again. */
+const asksAgain = (error: unknown) => { const code = studioRefusal(error).code; return code === 'used' || code === 'unknown-destination'; };
+/** Open the save panel (the name suggested); null when the person closes it. */
+export type PickPlace = (suggestedName: string) => Promise<StudioExportDestination | null>;
+
+/**
+ * Hand job `jobId` to the app with `token`, saved at `destination`. A place the app no longer takes (`used`,
+ * `unknown-destination`) opens the save panel again, suggesting the same name, and starts with the new one. Answers the
+ * place it started with, or null when the person closed the panel (the export then waits for this computer).
+ */
+async function startWith(jobId: string, token: string, destination: StudioExportDestination, deps: { bridge: Pick<LocalBridge, 'start'>; pick: PickPlace }, upload: boolean): Promise<StudioExportDestination | null> {
+  try { await deps.bridge.start({ jobId, token, destinationId: destination.destinationId, upload }); return destination; }
+  catch (error) {
+    if (!asksAgain(error)) throw error;
+    const again = await deps.pick(destination.name);
+    if (!again) return null;
+    await deps.bridge.start({ jobId, token, destinationId: again.destinationId, upload });
+    return again;
+  }
+}
+
 /**
  * Export `project` on this computer, saved at `destination`, uploaded for sharing unless `upload` is false. A video the
  * server refuses for the computer (another render version, code scenes), or an app that cannot start the job, is
- * exported on the server instead; `notice` then says why. Throws what the server said for anything else (too many).
+ * exported on the server instead; `notice` then says why. A place the app no longer takes asks where to save again
+ * (startWith), never the server: a closed panel leaves the export waiting for this computer, saying so. Throws what
+ * the server said for anything else (too many).
  */
-export async function startOnComputer(project: EditorProject, destination: StudioExportDestination | null, deps: { request: Request; bridge: Pick<LocalBridge, 'start'> }, upload = true): Promise<Started> {
+export async function startOnComputer(project: EditorProject, destination: StudioExportDestination, deps: { request: Request; bridge: Pick<LocalBridge, 'start'>; pick: PickPlace }, upload = true): Promise<Started> {
   let queued: { job: EditorJob; local?: { token: string } };
   try { queued = await deps.request('/api/account/studio/export', { project, where: 'computer', renderVersion: STUDIO_RENDER_VERSION }); }
   catch (error) {
@@ -118,22 +145,37 @@ export async function startOnComputer(project: EditorProject, destination: Studi
     const server = await deps.request<{ job: EditorJob }>('/api/account/studio/export', { project });
     return { job: server.job, notice: error instanceof Error && error.message ? error.message : code === 'CODE_SCENES' ? LOCAL_WORDS.codeScenes : LOCAL_WORDS.otherVersion };
   }
-  if (destination) rememberDestination(queued.job.id, destination);
+  // Remembered first: an export waiting for a place is still this computer's (Continue asks for one).
+  rememberDestination(queued.job.id, destination);
   try {
     if (!queued.local?.token) throw new Error('no token');
-    await deps.bridge.start({ jobId: queued.job.id, token: queued.local.token, ...(destination ? { destinationId: destination.destinationId } : {}), upload });
+    const started = await startWith(queued.job.id, queued.local.token, destination, deps, upload);
+    if (!started) return { job: queued.job, notice: LOCAL_WORDS.needsPlace };
+    if (started !== destination) rememberDestination(queued.job.id, started);
     return { job: queued.job };
-  } catch {
-    const moved = await finishOnServer(queued.job.id, deps.request);
-    return { job: moved.job, notice: LOCAL_WORDS.failedStart };
+  } catch (error) {
+    // The app's own sentence when it said why (busy, updating, its encoder missing), else ours.
+    const moved = await finishOnServer(queued.job.id, deps.request), said = studioRefusal(error);
+    return { job: moved.job, notice: said.code && said.message ? `${said.message} ${LOCAL_WORDS.onServerNow}` : LOCAL_WORDS.failedStart };
   }
 }
 
-/** "Continue on this computer": a new token for the job, handed to the app with where it was to be saved. */
-export async function continueOnComputer(jobId: string, deps: { request: Request; bridge: Pick<LocalBridge, 'start'> }, upload = true): Promise<void> {
+/**
+ * "Continue on this computer": a new token for the job, handed to the app with where it was to be saved; a place the
+ * app no longer knows (it was quit since), or none remembered, opens the save panel first. 'cancelled' when the person
+ * closed it (the export keeps waiting). Throws the app's or the server's refusal.
+ */
+export async function continueOnComputer(jobId: string, suggestedName: string, deps: { request: Request; bridge: Pick<LocalBridge, 'start'>; pick: PickPlace }, upload = true): Promise<'started' | 'cancelled'> {
+  let destination = destinationOf(jobId);
+  if (!destination) {
+    destination = await deps.pick(suggestedName);
+    if (!destination) return 'cancelled';
+  }
   const { token } = await deps.request<{ token: string }>(`/api/account/studio/jobs/${encodeURIComponent(jobId)}/local-token`, {});
-  const destination = destinationOf(jobId);
-  await deps.bridge.start({ jobId, token, ...(destination ? { destinationId: destination.destinationId } : {}), upload });
+  const started = await startWith(jobId, token, destination, deps, upload);
+  if (!started) return 'cancelled';
+  rememberDestination(jobId, started);
+  return 'started';
 }
 
 /**
@@ -158,16 +200,30 @@ export async function finishOnServer(jobId: string, request: Request, bridge?: P
 export const STALL_MS = 30_000;
 
 /** What the app has said about one export (its events folded). */
-export type RunnerState = { seq: number; lastAt: number | null; progress: number | null; savedName: string | null; failed: string | null; cancelled: boolean; done: boolean };
-export const emptyRunner = (): RunnerState => ({ seq: -1, lastAt: null, progress: null, savedName: null, failed: null, cancelled: false, done: false });
-/** Fold the app's events into what it has said, in order, each once. */
+export type RunnerState = {
+  seq: number; lastAt: number | null; progress: number | null; savedName: string | null; failed: string | null; cancelled: boolean;
+  /** The file is saved on this computer. */
+  done: boolean;
+  /** After `done`: uploaded for sharing, or the upload failed (the app's sentence). */
+  uploaded: boolean; uploadFailed: string | null;
+};
+export const emptyRunner = (): RunnerState => ({ seq: -1, lastAt: null, progress: null, savedName: null, failed: null, cancelled: false, done: false, uploaded: false, uploadFailed: null });
+/**
+ * Fold the app's events into what it has said, in order, each once. `started` begins a run: what the app said of an
+ * earlier run of the job is dropped (the seq stays). Once the file is saved (`done`) it stays saved: only progress,
+ * logs and the upload's outcome count after it, never a failure or a stop.
+ */
 export function foldEvents(state: RunnerState, events: readonly StudioLocalExportEvent[], at: number): RunnerState {
   let next = state;
   for (const event of [...events].sort((a, b) => a.seq - b.seq)) {
     if (event.seq <= next.seq) continue;
     next = { ...next, seq: event.seq, lastAt: at };
-    if (event.kind === 'progress' && typeof event.progress === 'number') next.progress = Math.max(0, Math.min(1, event.progress));
+    if (event.kind === 'started') { next = { ...emptyRunner(), seq: event.seq, lastAt: at }; continue; }
+    if (event.kind === 'progress' && typeof event.progress === 'number' && !next.done) next.progress = Math.max(0, Math.min(1, event.progress));
     if (event.kind === 'done') next = { ...next, done: true, progress: 1, savedName: event.savedName ?? next.savedName };
+    if (event.kind === 'uploaded' && next.done) next.uploaded = true;
+    if (event.kind === 'upload-failed' && next.done) next.uploadFailed = event.message?.trim() || LOCAL_WORDS.uploadFailed;
+    if (next.done) continue;
     if (event.kind === 'failed') next.failed = event.message?.trim() || 'The export failed on this computer.';
     if (event.kind === 'cancelled') next.cancelled = true;
   }
@@ -181,7 +237,8 @@ export type LocalView =
   /** Running on another computer: this device did not start it and its app has said nothing of it. */
   | { kind: 'elsewhere'; progress: number }
   | { kind: 'uploading'; savedName: string | null }
-  | { kind: 'done'; savedName: string | null; uploaded: boolean }
+  /** Saved here; uploaded for sharing, or not (`note`: why not, the app's or the server's sentence, in small text). */
+  | { kind: 'done'; savedName: string | null; uploaded: boolean; note?: string }
   | { kind: 'failed'; message: string }
   | { kind: 'cancelled' };
 
@@ -195,6 +252,9 @@ export type LocalView =
 export function localView(job: EditorJob, runner: RunnerState, openedAt: number, now: number, savedName: string | null = null, startedHere = true): LocalView {
   const name = runner.savedName ?? savedName;
   if (job.status === 'completed') return { kind: 'done', savedName: name, uploaded: job.kept !== 'computer' && !!job.downloadUrl };
+  // Saved on this computer: saved, whatever became of the upload (never "did not finish").
+  if (runner.done && runner.uploadFailed) return { kind: 'done', savedName: name, uploaded: false, note: runner.uploadFailed };
+  if (runner.done && job.status !== 'running') return { kind: 'done', savedName: name, uploaded: false, ...(job.error ? { note: job.error } : {}) };
   if (job.status === 'failed') return { kind: 'failed', message: job.error?.trim() || runner.failed || 'The export failed on this computer.' };
   if (job.status === 'cancelled') return { kind: 'cancelled' };
   if (runner.failed) return { kind: 'failed', message: runner.failed };

@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import type { EditorJob } from '@/lib/studio/engine/api';
 import type { EditorProject } from '@/lib/studio/engine/contracts';
 import { isDesktopApp } from '@/lib/platform';
-import { studioLocalExport, type StudioExportDestination } from '@/lib/tauri-bridge';
+import { studioLocalExport, studioRefusal, type StudioExportDestination } from '@/lib/tauri-bridge';
 import { Icon } from './icons';
 import {
   LOCAL_WORDS, capabilityFor, destinationOf, emptyRunner, foldEvents, localView, readLocalCapability, revealLabel, sizeWords,
@@ -128,13 +128,29 @@ export function LocalRunning({ view, job, actions, platform }: {
   </div>;
 }
 
+/**
+ * Show in Finder or Explorer for a file the app saved. An app that no longer knows the place (`unknown-destination`:
+ * it was reinstalled, or forgot it) says so once, in plain words, and the button goes; any other failure says the file
+ * could not be shown.
+ */
+export function RevealButton({ destinationId, platform, variant = 'ghost' }: { destinationId: string; platform: 'macos' | 'windows' | 'other'; variant?: 'ghost' | 'outline' }) {
+  const [said, setSaid] = useState<{ gone: boolean; text: string } | null>(null);
+  if (said?.gone) return <span className="xd-local-note">{said.text}</span>;
+  return <>
+    <Button size="sm" variant={variant} className={cn('st-app-button', variant === 'outline' && 'xd-row-save')} onClick={() => {
+      setSaid(null);
+      void studioLocalExport.reveal(destinationId).catch(error => setSaid(studioRefusal(error).code === 'unknown-destination'
+        ? { gone: true, text: LOCAL_WORDS.unknownPlace } : { gone: false, text: 'The file could not be shown. It may have been moved.' }));
+    }}>{revealLabel(platform)}</Button>
+    {said ? <span className="xd-saved-error">{said.text}</span> : null}
+  </>;
+}
+
 /** "Saved to <name>", with the button that shows the file in Finder or Explorer. */
 export function SavedHere({ name, destinationId, platform }: { name: string | null; destinationId: string | null; platform: 'macos' | 'windows' | 'other' }) {
-  const [error, setError] = useState<string | null>(null);
   if (!name) return null;
   return <p className="xd-saved xd-saved-here" role="status"><Icon name="check" size={14} /><span>Saved to <strong className="xd-file">{name}</strong></span>
-    {destinationId ? <Button size="sm" variant="ghost" className="st-app-button" onClick={() => { setError(null); void studioLocalExport.reveal(destinationId).catch(() => setError('The file could not be shown. It may have been moved.')); }}>{revealLabel(platform)}</Button> : null}
-    {error ? <span className="xd-saved-error">{error}</span> : null}</p>;
+    {destinationId ? <RevealButton destinationId={destinationId} platform={platform} /> : null}</p>;
 }
 
 /** A finished export made on this computer: where it was saved, and whether it is also in the Studio. */
@@ -142,7 +158,8 @@ export function LocalDone({ view, job, platform }: { view: Extract<LocalView, { 
   const destination = destinationOf(job.id);
   return <>
     <SavedHere name={view.savedName ?? destination?.name ?? null} destinationId={destination?.destinationId ?? null} platform={platform} />
-    <p className="xd-note">{view.uploaded ? 'Also in the Studio, kept for 30 days, to share or save again.' : 'Kept on this computer only: nothing was uploaded.'}</p>
+    <p className="xd-note">{view.uploaded ? 'Also in the Studio, kept for 30 days, to share or save again.' : view.note ? 'Kept on this computer only.' : 'Kept on this computer only: nothing was uploaded.'}</p>
+    {view.note && !view.uploaded ? <p className="xd-local-note">{view.note}</p> : null}
   </>;
 }
 

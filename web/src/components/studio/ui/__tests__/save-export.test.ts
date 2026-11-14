@@ -10,7 +10,7 @@ const saveFile = vi.fn()
 const openInSystemBrowser = vi.fn()
 const pickDestination = vi.fn()
 const saveParts = vi.fn()
-vi.mock('@/lib/tauri-bridge', () => ({ tauriBridge: { saveFile: (...args: unknown[]) => saveFile(...args) }, studioLocalExport: { pickDestination: (...args: unknown[]) => pickDestination(...args), saveParts: (...args: unknown[]) => saveParts(...args) } }))
+vi.mock('@/lib/tauri-bridge', async (actual) => ({ studioRefusal: (await actual<typeof import('@/lib/tauri-bridge')>()).studioRefusal, tauriBridge: { saveFile: (...args: unknown[]) => saveFile(...args) }, studioLocalExport: { pickDestination: (...args: unknown[]) => pickDestination(...args), saveParts: (...args: unknown[]) => saveParts(...args) } }))
 vi.mock('@/lib/open-external', () => ({ openInSystemBrowser: (...args: unknown[]) => openInSystemBrowser(...args) }))
 import { DESKTOP_SAVE_LIMIT, exportFileName, saveExport, saveWay } from '../save-export'
 import { isAccountRedirectPath, resolvePostAuthRedirect } from '@/lib/auth/login-redirect'
@@ -131,7 +131,7 @@ describe('in a desktop app with its own save (studio_export_save_parts)', () => 
     expect(saveWay(2_400_000_000, true)).toBe('desktop-parts')
     expect(await saveExport({ ...FILE, bytes: 2_400_000_000, arrival: ARRIVAL }, 'desktop-parts')).toEqual({ kind: 'saved', where: 'Spring launch.mp4', destinationId: 'd1' })
     expect(pickDestination).toHaveBeenCalledWith('Spring launch.mp4')
-    expect(saveParts).toHaveBeenCalledWith({ destinationId: 'd1', parts: [{ url: 'https://store.example/p0', bytes: 2_000_000_000 }, { url: 'https://store.example/p1', bytes: 400_000_000 }], bytes: 2_400_000_000, sha256: 'ab'.repeat(32) })
+    expect(saveParts).toHaveBeenCalledWith({ destinationId: 'd1', videoId: VIDEO, jobId: JOB, parts: [{ url: 'https://store.example/p0', bytes: 2_000_000_000 }, { url: 'https://store.example/p1', bytes: 400_000_000 }], bytes: 2_400_000_000, sha256: 'ab'.repeat(32) })
     expect(calls.map((c) => c.url)).toEqual([partsRoute])
     expect(saveFile).not.toHaveBeenCalled()
     expect(openInSystemBrowser).not.toHaveBeenCalled()
@@ -148,6 +148,25 @@ describe('in a desktop app with its own save (studio_export_save_parts)', () => 
       : new Response(new Uint8Array(1000), { headers: { 'content-length': '1000' } })))
     saveFile.mockResolvedValueOnce('/Users/someone/Movies/Spring launch.mp4')
     expect(await saveExport({ ...FILE, bytes: 1000, arrival: ARRIVAL }, 'desktop-parts')).toEqual({ kind: 'saved', where: '/Users/someone/Movies/Spring launch.mp4' })
+  })
+
+  it('tells the dialog the place picked (its save events name it); a cancelled save saves nothing; links that expired are asked for again, once', async () => {
+    desktop()
+    partsServer(Response.json({ name: 'Spring launch.mp4', bytes: 1000, from: 0, expiresAt: '', parts: [{ index: 0, url: 'https://store.example/p0', bytes: 1000 }] }))
+    pickDestination.mockResolvedValue({ destinationId: 'd7', name: 'Spring launch.mp4' })
+    const onPicked = vi.fn()
+    saveParts.mockRejectedValueOnce(new Error('cancelled: The save was stopped.'))
+    expect(await saveExport({ ...FILE, arrival: ARRIVAL }, 'desktop-parts', { onPicked })).toEqual({ kind: 'cancelled' })
+    expect(onPicked).toHaveBeenCalledWith('d7')
+    calls = []
+    saveParts.mockRejectedValueOnce(new Error('links-expired: The links ran out.')).mockResolvedValueOnce({ name: 'Spring launch.mp4' })
+    expect(await saveExport({ ...FILE, arrival: ARRIVAL }, 'desktop-parts')).toEqual({ kind: 'saved', where: 'Spring launch.mp4', destinationId: 'd7' })
+    expect(calls.map((c) => c.url)).toEqual([partsRoute, partsRoute])
+    // Expired twice, or any other refusal: its sentence alone, without the code.
+    saveParts.mockReset().mockRejectedValue(new Error('links-expired: The links ran out.'))
+    await expect(saveExport({ ...FILE, arrival: ARRIVAL }, 'desktop-parts')).rejects.toThrow(/^The links ran out\.$/)
+    saveParts.mockReset().mockRejectedValue(new Error('io: The disk is full.'))
+    await expect(saveExport({ ...FILE, arrival: ARRIVAL }, 'desktop-parts')).rejects.toThrow(/^The disk is full\.$/)
   })
 
   it('says the server’s words when there is nothing to save, and a plain sentence for a bad request', async () => {
