@@ -353,6 +353,13 @@ These came with the server: the earlier host had no such settings.
   sandbox server's `/opt/e2b/sdk.env`, moved without being shown. The URLs and the
   key go together. `check_settings.py` proves the group against the runtime
   (its health check, and a listing of its sandboxes with the key).
+- `CLOUD_BROWSER_BACKEND`, `CLOUD_BROWSER_RUNTIME_TEMPLATE`, `CLOUD_BROWSER_HUB_DOMAIN`,
+  `BROWSER_RELAY_ALLOWED_ADDRESSES`: the cloud browser on that same runtime, off while
+  `CLOUD_BROWSER_BACKEND` is empty (`../README.md`, "The cloud browser", has the
+  switch and the way back). With it `runtime`, web gets `SANDBOX_RUNTIME_KEY` too
+  (`compose.yaml`), and `check_settings.py` wants the runtime's group, the other
+  three, the browser's image on the runtime and the edge's two settings
+  (`../edge/.env`) to match; the hosted service's four are then no longer needed.
 - `AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES`: read by web. When set, the app's git gate
   takes a coding run's credential only from these addresses (comma or space
   separated): the sandbox server's public IPv4 and IPv6. On our own runtime that

@@ -25,6 +25,14 @@ services:
       # LiveKit's signalling (../livekit). The same kind of default as APP_HOSTS:
       # until it is set, no certificate is asked for a name with no DNS record yet.
       LIVEKIT_HOST: ${LIVEKIT_HOST:-http://livekit.invalid}
+      # The cloud browsers' names on our own sandbox server, one under this per
+      # browser (Caddyfile, last block). The same kind of default: until it is
+      # set, the block is for names no request carries and nothing is issued.
+      CLOUD_BROWSER_HUB_DOMAIN: ${CLOUD_BROWSER_HUB_DOMAIN:-cloud-browser.invalid}
+      # Where those go: the sandbox runtime's traffic port, through the private
+      # tunnel (<tunnel address>:3002). The default is a closed port in this
+      # container: 502, and nothing leaves.
+      CLOUD_BROWSER_TRAFFIC_UPSTREAM: ${CLOUD_BROWSER_TRAFFIC_UPSTREAM:-127.0.0.1:9}
     volumes:
       # The folder, not the file: git replaces a file when it updates it, and
       # a single-file mount would keep showing the old one until a restart.

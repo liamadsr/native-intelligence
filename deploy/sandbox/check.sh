@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Checks the sandbox server from the inside: the guard, the firewall, the
 # runtime, the memory set aside for sandboxes, and, from inside a real
-# sandbox, that this machine cannot be reached. It changes nothing except
-# for the one sandbox it starts and removes.
+# sandbox, that this machine cannot be reached; and that each image holds what
+# it must. It changes nothing except for the sandboxes it starts and removes,
+# one at a time (each needs room in the memory pool while it runs).
 #
 #   sudo ./check.sh
 #
@@ -165,6 +166,23 @@ if [ -f "$runtime_dir/compose.yaml" ]; then
 	done
 	if [ -z "$down" ]; then ok "the runtime's nine services are running, and healthy where they say"; else bad "the runtime is not all up:$down"; fi
 	if passes systemctl is-enabled ni-sandbox-runtime.service; then ok "it starts after every boot"; else bad "it does not start after a boot (run setup.sh)"; fi
+	# The running cloud browsers are paused before the runtime stops: the unit
+	# must be enabled AND active (a stopped one has nothing to do at shutdown),
+	# ordered after Docker (so it stops before it) and part of it, and run the
+	# program this checkout has.
+	unit=ni-sandbox-pause-browsers.service
+	order="$(systemctl show "$unit" -p After -p PartOf --value 2>/dev/null | tr '\n' ' ')"
+	if passes systemctl is-enabled "$unit" && passes systemctl is-active "$unit" &&
+		case "$order" in *docker.service*docker.service*) true ;; *) false ;; esac &&
+		[ -x /usr/local/sbin/ni-sandbox-pause-browsers ] && cmp -s "$here/pause_browsers.py" /usr/local/lib/ni-sandbox/pause_browsers.py; then
+		if out="$(/usr/local/sbin/ni-sandbox-pause-browsers --list 2>&1)"; then
+			ok "running cloud browsers are paused before the runtime or Docker stops ($out)"
+		else
+			bad "the unit that pauses cloud browsers cannot ask the runtime for them: $out"
+		fi
+	else
+		bad "running cloud browsers would end with the runtime: $unit is not installed, enabled and active as setup.sh leaves it (run setup.sh)"
+	fi
 else
 	bad "no runtime in $runtime_dir (run setup.sh)"
 fi
@@ -204,10 +222,16 @@ if [ -r "$runtime_dir/sdk.env" ] && [ -x "$runtime_dir/.venv/bin/python" ]; then
 	fi
 	# The coding agent's image: one sandbox from it, looked at from inside. The
 	# limit is asked for less two GiB, for what the image itself takes.
-	if [ -n "$want_disk" ] && (set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" check "$((want_disk / 1024 - 2))"); then
+	if [ -n "$want_disk" ] && (set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" check "$((want_disk / 1024 - 2))" ni-coding-agent); then
 		ok "the coding agent's image holds what the agent needs"
 	else
 		bad "the coding agent's image is missing or not as it should be (run setup.sh)"
+	fi
+	# The cloud browser's image: one sandbox from it, Chrome started and stopped in it.
+	if [ -n "$want_disk" ] && (set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" check "$((want_disk / 1024 - 2))" ni-cloud-browser); then
+		ok "the cloud browser's image starts Chrome and stops it, with a profile of the sandbox user's own"
+	else
+		bad "the cloud browser's image is missing or not as it should be (run setup.sh)"
 	fi
 	# The resolver, from inside a narrowed sandbox and one with the whole internet.
 	if [ -n "$resolver_port" ]; then

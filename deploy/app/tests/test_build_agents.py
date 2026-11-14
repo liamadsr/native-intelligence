@@ -368,7 +368,7 @@ class ComposeGivesThemOnlyToTheirReaders(unittest.TestCase):
             with open(os.path.join(d, ".env"), "w") as f:
                 f.write("NEXT_PUBLIC_APP_URL=https://app.example.com\n")
                 f.writelines("%s=%s\n" % kv for kv in env.items())
-            clean = {k: v for k, v in os.environ.items() if k not in NAMES + RUNTIME_NAMES and k != "NI_CODING_AGENT_SANDBOX"}
+            clean = {k: v for k, v in os.environ.items() if k not in NAMES + RUNTIME_NAMES + ("NI_CODING_AGENT_SANDBOX", "CLOUD_BROWSER_BACKEND")}
             out = subprocess.run(["docker", "compose", "config", "--format", "json"], cwd=d, env=clean,
                                  capture_output=True, text=True, check=True).stdout
             return json.loads(out)
@@ -408,6 +408,27 @@ class ComposeGivesThemOnlyToTheirReaders(unittest.TestCase):
         args = self.config(dict(RUNTIME, SANDBOX_RUNTIME_TEMPLATE="my-template"))["services"]["web"]["build"]["args"]
         self.assertEqual(args["NI_CODING_AGENT_RUNTIME"], "runtime/my-template")
         self.assertEqual(args["SANDBOX_RUNTIME_TEMPLATE"], "my-template")
+
+    def test_with_the_cloud_browser_on_our_runtime_web_gets_the_key_too_and_no_one_else(self):
+        # Web alone runs the cloud browser on our runtime: its routes, and the two
+        # cloud browser jobs cron calls at http://web:3000. Not the worker, not cron.
+        for backend in ("runtime", "hosted"):
+            services = self.config(dict(CREDS, **RUNTIME, SANDBOX_RUNTIME_KEY=RUNTIME_KEY, CLOUD_BROWSER_BACKEND=backend))["services"]
+            for name, service in services.items():
+                if name == "proxy":
+                    continue
+                env = service.get("environment", {})
+                want = RUNTIME_KEY if name in ("agent-coding-agent", "web") else ""
+                self.assertEqual(env.get("SANDBOX_RUNTIME_KEY"), want, (backend, name))
+                # The hosted three still reach their readers, web among them.
+                for key in NAMES:
+                    self.assertEqual(env.get(key), CREDS[key] if name in self.READERS else "", (backend, name, key))
+            self.assertNotIn(RUNTIME_KEY, json.dumps(services["web"]["build"]))
+            self.assertNotIn("CLOUD_BROWSER_BACKEND", services["web"]["build"]["args"])
+        # Without the switch, web holds what it held before: no key.
+        services = self.config(dict(CREDS, **RUNTIME, SANDBOX_RUNTIME_KEY=RUNTIME_KEY, CLOUD_BROWSER_BACKEND=""))["services"]
+        self.assertEqual(services["web"]["environment"]["SANDBOX_RUNTIME_KEY"], "")
+        self.assertEqual(services["agent-coding-agent"]["environment"]["SANDBOX_RUNTIME_KEY"], RUNTIME_KEY)
 
     def test_both_sets_the_runtime_argument_names_the_own_runtime_and_the_hosted_three_still_reach_their_readers(self):
         services = self.config(dict(CREDS, **RUNTIME, SANDBOX_RUNTIME_KEY=RUNTIME_KEY))["services"]

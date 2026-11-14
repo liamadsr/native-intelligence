@@ -22,8 +22,10 @@
 #   4. a unit that starts the runtime after every boot;
 #   5. the client (requirements.txt, every file pinned by its hash) and the
 #      key the checks use (check.sh);
-#   6. the runtime's limits: how much disk a sandbox gets and how long it may live;
-#   7. the coding agent's image (image.py).
+#   6. the unit that pauses the running cloud browsers before the runtime stops
+#      (pause_browsers.py);
+#   7. the runtime's limits: how much disk a sandbox gets and how long it may live;
+#   8. the images: the coding agent's and the cloud browser's (image.py).
 #
 # It handles one secret, the runtime's own API key, which the runtime makes on
 # its first start: it is copied to a file only root can read and never shown.
@@ -63,7 +65,7 @@ say() { printf '\n== %s\n' "$*"; }
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 [ "$(id -u)" = 0 ] || die "run it with sudo."
-[ -f "$here/guard.sh" ] && [ -f "$here/requirements.txt" ] && [ -f "$here/image.py" ] || die "run it from the repository's checkout (guard.sh, requirements.txt and image.py must be beside it)."
+[ -f "$here/guard.sh" ] && [ -f "$here/requirements.txt" ] && [ -f "$here/image.py" ] && [ -f "$here/pause_browsers.py" ] || die "run it from the repository's checkout (guard.sh, requirements.txt, image.py and pause_browsers.py must be beside it)."
 [ -c /dev/kvm ] || die "no /dev/kvm here. Prepare the server first: deploy/server/setup.sh --role sandbox."
 command -v docker >/dev/null 2>&1 || die "Docker is missing. Prepare the server first: deploy/server/setup.sh --role sandbox."
 # Read whole before it is looked at: a reader that leaves early closes the
@@ -198,7 +200,8 @@ echo "in $runtime_dir, checksums verified"
 say "Memory for sandboxes: $pool_gib of this machine's $mem_gib GiB"
 install -d -m 755 -o root -g root "$(dirname "$settings")"
 # The runtime counts in pages of 2 MiB.
-write_if_changed "$settings" <<EOF || true
+settings_changed=0
+write_if_changed "$settings" <<EOF && settings_changed=1
 HUGEPAGES=$((pool_gib * 512))
 EOF
 cat "$settings"
@@ -231,6 +234,14 @@ systemctl enable ni-sandbox-runtime.service >/dev/null 2>&1
 if [ "$changed" = 1 ]; then
 	(cd "$runtime_dir" && set -a && . "$settings" && set +a && docker compose pull --quiet)
 fi
+# Another version or another memory size replaces the runtime's containers, which
+# ends every running sandbox: the cloud browsers are paused first, each after its
+# own stop script (pause_browsers.py), so that their people stay signed in. Coding
+# runs are not: they end, as before. Nothing to pause on the first run.
+if { [ "$changed" = 1 ] || [ "$settings_changed" = 1 ]; } && [ -r "$runtime_dir/sdk.env" ] && [ -x "$runtime_dir/.venv/bin/python" ]; then
+	"$runtime_dir/.venv/bin/python" -I "$here/pause_browsers.py" ||
+		echo "setup: not every cloud browser could be paused (above): those end with the runtime's restart." >&2
+fi
 # Runs "up": the first time it prepares the machine, fetches what it needs and
 # builds the base image (a few minutes); later it only puts right what is not.
 systemctl restart ni-sandbox-runtime.service
@@ -252,6 +263,47 @@ mv -f "$runtime_dir/sdk.env.new" "$runtime_dir/sdk.env"
 chown root:root "$runtime_dir/sdk.env"
 chmod 600 "$runtime_dir/sdk.env"
 echo "client $SDK_VERSION; the key is in $runtime_dir/sdk.env (root only)"
+
+say "Running cloud browsers are paused before the runtime stops"
+# A restart of the runtime, or of the machine, ends every running sandbox and
+# keeps the paused ones. This unit pauses each running cloud browser first,
+# after its own stop script, when it is stopped: before Docker at every
+# shutdown and reboot (it is ordered after Docker, so it stops before it), and
+# whenever Docker is stopped or restarted (PartOf). Coding sandboxes are left
+# alone. Its own time limit, and the unit's, keep a shutdown from waiting long.
+install -d -m 755 -o root -g root /usr/local/lib/ni-sandbox
+install -m 644 -o root -g root "$here/pause_browsers.py" /usr/local/lib/ni-sandbox/pause_browsers.py
+write_if_changed /usr/local/sbin/ni-sandbox-pause-browsers 755 <<EOF || true
+#!/bin/sh
+# Installed by deploy/sandbox/setup.sh: pause every running cloud browser on
+# this server, each after its own stop script (--list: only say how many run).
+exec $runtime_dir/.venv/bin/python -I /usr/local/lib/ni-sandbox/pause_browsers.py "\$@"
+EOF
+if write_if_changed /etc/systemd/system/ni-sandbox-pause-browsers.service <<'EOF'
+[Unit]
+Description=Sandbox server: pause the running cloud browsers before the runtime stops
+After=docker.service ni-sandbox-runtime.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/usr/local/sbin/ni-sandbox-pause-browsers
+# pause_browsers.py gives itself 90 s in all.
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
+EOF
+then
+	systemctl daemon-reload
+fi
+systemctl enable ni-sandbox-pause-browsers.service >/dev/null 2>&1
+# Started, never restarted here: its stop is what pauses the browsers.
+systemctl start ni-sandbox-pause-browsers.service
+/usr/local/sbin/ni-sandbox-pause-browsers --list ||
+	echo "setup: the unit is in place, but the runtime could not be asked for its browsers just now: check.sh tries again." >&2
 
 say "The runtime's limits: $((LIMIT_DISK_MIB / 1024)) GiB of disk for a sandbox, $LIMIT_HOURS hours at most"
 # The runtime keeps them in one row of its own database, not in a settings
@@ -287,8 +339,16 @@ say "The coding agent's image"
 # Built on this server, by the runtime itself, from the agent framework's own
 # base image. The first build fetches that image (about 600 MB) and takes a
 # few minutes; afterwards it is only built again when its definition changes.
-(set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" build "$LIMIT_DISK_MIB") ||
+(set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" build "$LIMIT_DISK_MIB" ni-coding-agent) ||
 	die "the coding agent's image was not built."
+
+say "The cloud browser's image"
+# The same way, from a Node image and the cloud browser's own scripts
+# (web/scripts/cloud-browser/base). The first build fetches that image and
+# Chrome and takes a few minutes. Nothing uses it until the app's
+# CLOUD_BROWSER_BACKEND is runtime (../README.md, "The cloud browser").
+(set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" build "$LIMIT_DISK_MIB" ni-cloud-browser) ||
+	die "the cloud browser's image was not built."
 
 say "Done"
 echo "Now run: sudo ./check.sh"

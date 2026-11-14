@@ -7,6 +7,8 @@
 #   SUPABASE_HOST  a pass-through to SUPABASE_UPSTREAM
 #   APP_HOSTS      the app (../app), once it runs on this server
 #   LIVEKIT_HOST   LiveKit's signalling, for calls (../livekit)
+#   CLOUD_BROWSER_HUB_DOMAIN  one name per cloud browser under it, when they run
+#                  on our own sandbox server (CLOUD_BROWSER_TRAFFIC_UPSTREAM)
 #
 # Check a change before reloading:
 #   sudo docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile
@@ -39,6 +41,19 @@
 			read_header 1m
 			idle 15m
 		}
+	}
+
+	# On-demand certificates, used by the cloud browsers' block at the end and
+	# by nothing else: only a site with `tls { on_demand }` gets a certificate
+	# at the first handshake for a name, and every other site here keeps its
+	# ordinary certificates, obtained at start. Before asking the certificate
+	# authority for a name, Caddy asks the app (a GET with ?domain=<name>; a 2xx
+	# is yes, anything else, a redirect or no answer within 10 s is no), the same
+	# way it reaches the app's own site: the stack's proxy over ni-edge. While
+	# the app is down no new name gets a certificate; names that have one keep
+	# being served from it.
+	on_demand_tls {
+		ask http://ni-app-proxy:8080/api/internal/cloud-browser/tls-ask
 	}
 }
 
@@ -223,6 +238,11 @@
 	@www header_regexp www Host ^www\.(.+)$
 	redir @www https://{re.www.1}{uri} 308
 
+	# The question the edge asks before a cloud browser's certificate (the
+	# global on_demand_tls above) is the edge's alone: from outside it is no
+	# page at all.
+	respond /api/internal/cloud-browser/tls-ask* 404
+
 	reverse_proxy ni-app-proxy:8080 {
 		import proxy
 
@@ -273,5 +293,88 @@
 		# by themselves, and the media, which does not pass through Caddy,
 		# keeps flowing meanwhile.
 		stream_close_delay 4h
+	}
+}
+
+# ---------------------------------------------------------------------------
+# The cloud browsers on our own sandbox server
+#
+# One public name per browser: https://<sandbox id>.<CLOUD_BROWSER_HUB_DOMAIN>,
+# which the app hands out when its browsers run on our own sandbox server
+# (CLOUD_BROWSER_BACKEND=runtime in ../app/.env). Each goes to that sandbox's
+# hub (port 4000 inside it, its live view and its exit's WebSocket), through
+# the runtime's traffic port over the private tunnel
+# (CLOUD_BROWSER_TRAFFIC_UPSTREAM, the tunnel address and 3002).
+#
+# Certificates are obtained on demand, one per name, at the first handshake
+# for it, and only for a name the app says is one of its browsers (the global
+# on_demand_tls above). Not a wildcard certificate: that needs the DNS
+# challenge, so a key for the DNS provider on this server, and the DNS
+# provider's keys are not limited to DNS (../README.md, "The cloud browser").
+#
+# What is let through, and how:
+# - Only a name whose first label has the shape of the runtime's sandbox ids
+#   (20 lowercase letters and digits), and only as the name the connection's
+#   certificate was made for (the TLS server name, not the Host header, which
+#   a client writes as it likes). Anything else is answered 404 here and never
+#   reaches the tunnel.
+# - Only port 4000 of that sandbox, whatever the client sends: the routing
+#   headers are set here, and the runtime's traffic port takes them only when
+#   the Host it is sent is an address (packages/shared/pkg/proxy/host.go in the
+#   runtime), so Host becomes the upstream's address and port.
+# - The client's address goes in X-Real-IP, replacing any the client sent. The
+#   runtime's traffic port drops X-Forwarded-For on its way to the sandbox (it
+#   is a Go reverse proxy with a Rewrite function that sets none), so the hub
+#   reads X-Real-IP there.
+# - WebSockets pass, and are not cut for being quiet: no read or write limit
+#   on this transport, unlike the snippet above. A reload keeps the open ones
+#   on the old configuration for up to 4 hours (as LiveKit's block does).
+#
+# Until CLOUD_BROWSER_HUB_DOMAIN is set this block is for
+# *.cloud-browser.invalid, names no request carries: a handshake that names one
+# anyway makes Caddy ask the app, which says no, and nothing is issued.
+# ---------------------------------------------------------------------------
+https://*.{$CLOUD_BROWSER_HUB_DOMAIN:cloud-browser.invalid} {
+	tls {
+		on_demand
+	}
+
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				# The hub's viewer tokens travel in headers or in the first
+				# WebSocket message; anything token-like in the address is
+				# kept out all the same.
+				request>uri multi_regexp {
+					regexp "([?&](token|access_token|key|secret|signature|sig)=)[^&]*" "${1}REDACTED"
+					regexp "[A-Za-z0-9_-]{32,}" "REDACTED"
+				}
+			}
+		}
+	}
+
+	@hub vars_regexp hub {http.request.tls.server_name} ^([a-z0-9]{20})\.{$CLOUD_BROWSER_HUB_DOMAIN:cloud-browser.invalid}$
+	handle @hub {
+		reverse_proxy {$CLOUD_BROWSER_TRAFFIC_UPSTREAM:127.0.0.1:9} {
+			header_up Host {upstream_hostport}
+			header_up E2b-Sandbox-Id {re.hub.1}
+			header_up E2b-Sandbox-Port 4000
+			header_up X-Real-IP {remote_host}
+			# The runtime's per-sandbox traffic token is the app's to send, never a client's.
+			header_up -E2b-Traffic-Access-Token
+
+			flush_interval -1
+			stream_close_delay 4h
+
+			transport http {
+				dial_timeout 10s
+			}
+		}
+	}
+
+	handle {
+		respond 404
 	}
 }
