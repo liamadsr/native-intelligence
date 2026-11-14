@@ -17,6 +17,7 @@ import {
   type AutoAcceptPolicy,
 } from '@/lib/knowledge/auto-accept'
 import { dedupeRequesterFor, provenanceLinksReachEveryone } from '@/lib/knowledge/claim-visibility'
+import { isCallCapture } from '@/lib/live-agent/call-capture-fence'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { inngest } from './client'
@@ -229,6 +230,9 @@ export const claimExtraction = inngest.createFunction(
         captureVisibility: string | null
         parentCaptureVisibility: string | null
         documentVisibility?: string | null
+        /** A call's capture (notes_channel_id): shared claims only (dedupeRequesterFor). */
+        callCapture?: boolean
+        parentCallCapture?: boolean
       } = { ownerUserId: null, captureVisibility: null, parentCaptureVisibility: null }
       const read = await (async () => {
         // eventAt = the source's real-world event time (ISO), forward-filled onto
@@ -276,12 +280,13 @@ export const claimExtraction = inngest.createFunction(
             if (noteId) {
               const { data: parent } = await supabase
                 .from('captures')
-                .select('visibility, user_id')
+                .select('visibility, user_id, notes_channel_id')
                 .eq('id', noteId)
                 .eq('workspace_id', data.workspaceId)
                 .maybeSingle()
               audience.parentCaptureVisibility = (parent?.visibility as string | null) ?? null
               audience.ownerUserId = (parent?.user_id as string | null) ?? null
+              audience.parentCallCapture = isCallCapture(parent as { notes_channel_id?: string | null } | null)
             }
             const { data: chunks } = await supabase
               .from('attachment_chunks')
@@ -316,13 +321,14 @@ export const claimExtraction = inngest.createFunction(
             // any legacy content.
             const { data: row } = await supabase
               .from('captures')
-              .select('title, content, ai_summary, project_id, started_at, visibility, user_id')
+              .select('title, content, ai_summary, project_id, started_at, visibility, user_id, notes_channel_id')
               .eq('id', data.sourceId)
               .eq('workspace_id', data.workspaceId)
               .maybeSingle()
             if (!row) return result
             audience.captureVisibility = (row.visibility as string | null) ?? null
             audience.ownerUserId = (row.user_id as string | null) ?? null
+            audience.callCapture = isCallCapture(row as { notes_channel_id?: string | null })
             const body =
               (row.ai_summary as string | null) ||
               (row.content as string | null) ||
@@ -426,8 +432,45 @@ export const claimExtraction = inngest.createFunction(
           ...audience,
           links: sourceAnchorLinks(read.projectId, read.companyId),
         }),
+        // A call's capture: its own earlier claims (owner-only, their one source this private
+        // capture) are found among the claims this same capture already sources, as its owner.
+        sameSourceOwner: data.sourceType === 'capture' && audience.callCapture ? audience.ownerUserId : null,
       }
     })
+
+    /**
+     * The dedupe match: claims this source's audience can already see; for a
+     * call's capture, else one of the claims this capture itself already sources
+     * (a Reprocess re-files the same claims, never a second copy of each).
+     */
+    type ClaimMatch = { claim_id: string; confirmation?: string | null; confidence?: number | null }
+    const matchDuplicate = async (embedding: number[], requester: string | null): Promise<ClaimMatch | null> => {
+      const match = (who: string | null, limit: number) =>
+        supabase.rpc('match_claims', {
+          p_workspace_id: data.workspaceId,
+          p_embedding: `[${embedding.join(',')}]`,
+          p_limit: limit,
+          p_threshold: DEDUPE_THRESHOLD,
+          p_type: null,
+          p_confirmation: null,
+          p_status: 'active',
+          p_min_confidence: null,
+          p_requesting_user_id: who,
+        })
+      const { data: matches } = await match(requester, 1)
+      const first = ((matches ?? []) as ClaimMatch[])[0] ?? null
+      if (first || !fetched.sameSourceOwner || !data.sourceId) return first
+      const owned = ((await match(fetched.sameSourceOwner, 5)).data ?? []) as ClaimMatch[]
+      if (owned.length === 0) return null
+      const { data: here } = await supabase
+        .from('claim_source')
+        .select('claim_id')
+        .eq('source_type', 'capture')
+        .eq('source_id', data.sourceId)
+        .in('claim_id', owned.map((m) => m.claim_id))
+      const fromHere = new Set(((here ?? []) as Array<{ claim_id: string }>).map((r) => r.claim_id))
+      return owned.find((m) => fromHere.has(m.claim_id)) ?? null
+    }
 
     const sourceText = fetched.text
     const sourceProjectId = fetched.projectId
@@ -543,18 +586,10 @@ export const claimExtraction = inngest.createFunction(
         // source attached, and under the any-visible-source rule attaching a
         // wider source would widen the claim. So a private chat claim is matched
         // by its owner's private sources only; a workspace meeting or document
-        // that says the same thing forks a new shared claim instead.
-        const { data: matches } = await supabase.rpc('match_claims', {
-          p_workspace_id: data.workspaceId,
-          p_embedding: `[${embedding.join(',')}]`,
-          p_limit: 1,
-          p_threshold: DEDUPE_THRESHOLD,
-          p_type: null,
-          p_confirmation: null,
-          p_status: 'active',
-          p_min_confidence: null,
-          p_requesting_user_id: fetched.dedupeRequester,
-        })
+        // that says the same thing forks a new shared claim instead. A call's
+        // capture matches shared claims, or its own earlier ones (matchDuplicate).
+        const duplicate = await matchDuplicate(embedding, fetched.dedupeRequester)
+        const matches = duplicate ? [duplicate] : null
 
         // Provenance shared by both the dedupe and new-claim branches:
         // a `cites` source row (with excerpt) for the originating source, plus
@@ -848,21 +883,11 @@ export const claimExtraction = inngest.createFunction(
         const foldRequester = provenanceLinksReachEveryone(provLinks)
           ? null
           : fetched.dedupeRequester
-        const { data: matches } = await supabase.rpc('match_claims', {
-          p_workspace_id: data.workspaceId,
-          p_embedding: `[${embedding.join(',')}]`,
-          p_limit: 1,
-          p_threshold: DEDUPE_THRESHOLD,
-          p_type: null,
-          p_confirmation: null,
-          p_status: 'active',
-          p_min_confidence: null,
-          p_requesting_user_id: foldRequester,
-        })
+        const folded = await matchDuplicate(embedding, foldRequester)
 
-        if (matches && matches.length > 0) {
+        if (folded) {
           await attachClaimProvenance(supabase, {
-            claimId: matches[0].claim_id as string,
+            claimId: folded.claim_id,
             workspaceId: data.workspaceId,
             memberId,
             sources: provSources,

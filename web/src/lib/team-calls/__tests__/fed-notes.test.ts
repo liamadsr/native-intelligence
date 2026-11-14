@@ -29,6 +29,7 @@ const h = vi.hoisted(() => ({
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => h.svc }))
 vi.mock('@/lib/inngest/client', () => ({ inngest: { createFunction: () => ({}) } }))
 vi.mock('@/lib/inngest/capture-finalizer', () => ({
+  CallNotesLiveError: class CallNotesLiveError extends Error {},
   runOwnerBatch: async (_svc: unknown, args: { captureId: string; ownerId: string }) => {
     h.calls.push(`batch:${args.captureId}:${args.ownerId}`)
     return 'completed'
@@ -164,7 +165,8 @@ describe('the finish, for the recorder’s notes', () => {
     expect(out).toEqual({ status: 'ready', captureId: CAPTURE })
     expect(h.calls).toEqual([`batch:${CAPTURE}:u-rosa`, `post:${CAPTURE}:false`])
     // The pass is marked done, so the sweeper never asks for it again.
-    expect(h.rpcs.map(([name]) => name)).toEqual(['team_call_capture_lock', 'team_call_capture_pass_done'])
+    // One look for a lease a live turn may hold (the live agent off here: no row, nothing waited).
+    expect(h.rpcs.map(([name]) => name)).toEqual(['team_call_capture_lock', 'team_call_live_turn_busy', 'team_call_capture_pass_done'])
   })
 
   it('waits for the recorder’s last words (its end), looking every few seconds, then locks', async () => {
@@ -210,6 +212,8 @@ describe('the finish, for the recorder’s notes', () => {
     expect(out).toEqual({ status: 'ready', captureId: EARLIER })
     expect(h.rpcs).toEqual([
       ['team_call_capture_finish', { target_capture: EARLIER }],
+      // One look for a lease a live turn may hold (the live agent off here: no row, nothing waited).
+      ['team_call_live_turn_busy', { target_capture: EARLIER }],
       ['team_call_capture_pass_done', { target_capture: EARLIER }],
     ])
     expect(h.calls).toEqual([`batch:${EARLIER}:u-rosa`, `post:${EARLIER}:false`])

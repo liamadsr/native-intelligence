@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { NonRetriableError } from 'inngest'
 import { inngest } from './client'
 import { getServiceClient } from '@/lib/admin'
-import { generateDeviceToken } from '@/lib/device-tokens'
+import { withOwnerRunToken } from '@/lib/captures/owner-run-token'
 import { resolveDefaultAgentSlugFromSettings } from '@/lib/live-agent/default-agent'
 import { fetchWorkspaceSettings } from '@/lib/workspace-settings'
 import { indexCaptureFinished } from '@/lib/ai/index-capture-finished'
@@ -166,51 +166,66 @@ export const finalizeAbandonedCapture = inngest.createFunction(
 )
 
 /**
+ * The live agent's route said a call's capture is still being written (409
+ * CALL_NOTES_LIVE: its call live, or its last server turn still holding its
+ * lease): the batch is not refused, only early. A plain Error, so Inngest
+ * retries it; the call's finish (team-call-notes.ts) catches it and waits
+ * again itself, so the pass is never lost.
+ */
+export class CallNotesLiveError extends Error {
+  constructor(detail: string) {
+    super(`capture finalizer: batch not yet (409 CALL_NOTES_LIVE) ${detail}`)
+    this.name = 'CallNotesLiveError'
+  }
+}
+
+function callNotesLiveCode(body: string): boolean {
+  try {
+    return (JSON.parse(body) as { code?: unknown })?.code === 'CALL_NOTES_LIVE'
+  } catch {
+    return false
+  }
+}
+
+/**
  * The canonical end-of-meeting batch, as the owner. 'completed' once the route
  * answered 2xx (its finalize has run), 'in_flight' when it is still going past
- * BATCH_WAIT_MS. A usage wall or a refusal never retries; any other failure
+ * BATCH_WAIT_MS. A usage wall or a refusal never retries; a call's capture not
+ * yet free (409 CALL_NOTES_LIVE) throws CallNotesLiveError; any other failure
  * throws so Inngest retries the step (a re-run batch is what Reprocess does).
  */
 export async function runOwnerBatch(
   service: SupabaseClient,
   args: { captureId: string; workspaceId: string; ownerId: string },
 ): Promise<'completed' | 'in_flight'> {
-  const { token, hash, displayPrefix } = generateDeviceToken()
-  const { data: minted, error } = await service
-    .from('device_token')
-    .insert({
-      user_id: args.ownerId,
-      active_workspace_id: args.workspaceId,
-      name: `Finish capture ${args.captureId.slice(0, 8)}`,
-      token_hash: hash,
-      token_prefix: displayPrefix,
-      expires_at: new Date(Date.now() + RUN_TOKEN_TTL_MS).toISOString(),
-    })
-    .select('id')
-    .single<{ id: string }>()
-  if (error || !minted) throw new Error(`capture finalizer: token mint failed: ${error?.message ?? 'no row'}`)
-
-  try {
-    const res = await fetch(`${appBaseUrl()}/api/ai/live-agent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ capture_id: args.captureId, mode: 'batch', allow_auto_archive: false }),
-      signal: AbortSignal.timeout(BATCH_WAIT_MS),
-    })
-    if (res.ok) return 'completed'
-    const text = (await res.text().catch(() => '')).slice(0, 300)
-    if (res.status >= 400 && res.status < 500 && res.status !== 408) {
-      throw new NonRetriableError(`capture finalizer: batch refused (${res.status}) ${text}`)
-    }
-    if (res.status === 503) throw new NonRetriableError(`capture finalizer: batch refused (503) ${text}`)
-    throw new Error(`capture finalizer: batch failed (${res.status}) ${text}`)
-  } catch (err) {
-    if (err instanceof Error && err.name === 'TimeoutError') return 'in_flight'
-    throw err
-  } finally {
-    const { error: revokeError } = await service.from('device_token').delete().eq('id', minted.id)
-    if (revokeError) console.warn('[capture-finalizer] token revoke failed:', revokeError.message)
-  }
+  return withOwnerRunToken(
+    service,
+    { ownerId: args.ownerId, workspaceId: args.workspaceId, name: `Finish capture ${args.captureId.slice(0, 8)}`, ttlMs: RUN_TOKEN_TTL_MS },
+    async (token) => {
+      try {
+        const res = await fetch(`${appBaseUrl()}/api/ai/live-agent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ capture_id: args.captureId, mode: 'batch', allow_auto_archive: false }),
+          signal: AbortSignal.timeout(BATCH_WAIT_MS),
+        })
+        if (res.ok) return 'completed' as const
+        const full = await res.text().catch(() => '')
+        const text = full.slice(0, 300)
+        // A call's capture whose last live turn still holds its lease (or whose call is still
+        // live): not a refusal but a "not yet". Retryable, never dropped (CallNotesLiveError).
+        if (res.status === 409 && callNotesLiveCode(full)) throw new CallNotesLiveError(text)
+        if (res.status >= 400 && res.status < 500 && res.status !== 408) {
+          throw new NonRetriableError(`capture finalizer: batch refused (${res.status}) ${text}`)
+        }
+        if (res.status === 503) throw new NonRetriableError(`capture finalizer: batch refused (503) ${text}`)
+        throw new Error(`capture finalizer: batch failed (${res.status}) ${text}`)
+      } catch (err) {
+        if (err instanceof Error && err.name === 'TimeoutError') return 'in_flight' as const
+        throw err
+      }
+    },
+  )
 }
 
 /** Did the batch finish (its finalize stamps batch_processed_at)? */

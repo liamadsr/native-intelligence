@@ -106,6 +106,10 @@ MAY_BE_EMPTY = {
     # The call recorder (../livekit's recorder service; ../README.md step 23, "The call recorder").
     "TEAM_CALL_RECORDER": "a switch: empty is off (call notes are Egress's, or there are none)",
     "CAPTURE_FEED_SECRET": "empty: the call recorder cannot reach the app (make-keys.sh in ../livekit makes it)",
+    # Phase 2 of the call recorder (../README.md step 23, "Live notes during a call").
+    "TEAM_CALL_LIVE_AGENT": "a switch: empty is off (a call's notes are written when it ends, none during it)",
+    "TEAM_CALL_EVENT_LINK": "a switch: empty is off (a meeting's call capture is not linked to its calendar event)",
+    # Phase 4 of the call recorder (../README.md step 23, "Call audio files").
     "TEAM_CALL_AUDIO": "a switch: empty is off (a call heard by the recorder keeps its transcript, no audio file)",
     # The SEO pages' search data (DataForSEO). The site audit needs none.
     "DATAFORSEO_API_KEY": "empty: keyword, ranking and backlink lookups are off (the site audit still works)",
@@ -759,16 +763,19 @@ def check_team_call_recorder(env, _opts):
     return None, None
 
 
-def check_team_call_audio(env, _opts):
-    """`on` or empty, and `on` only with the recorder on: only the recorder makes the
-    file. Whether its own RECORDER_AUDIO is on, and Storage's limit raised, is not
-    visible from here; step 23's "Call audio files" test call is the proof."""
-    value = env["TEAM_CALL_AUDIO"].strip()
-    if value != "on":
-        return False, "is %r: only on, or empty for off" % (value[:12],)
-    if env.get("TEAM_CALL_RECORDER", "").strip() != "on":
-        return False, "on without TEAM_CALL_RECORDER=on: only the call recorder makes a call's audio file"
-    return None, None
+def check_needs_recorder(name, what):
+    """`on` or empty, and `on` only with the call recorder on: the app reads the switch only
+    where the recorder takes the notes (web/src/lib/team-calls/live-turns.ts, event-link.ts).
+    Read as the app reads it (trimmed, any case: `ON` is on there too). Whether its
+    migration is applied is not visible from here; the step's check is."""
+    def check(env, _opts):
+        value = env[name].strip()
+        if value.lower() != "on":
+            return False, "is %r: only on, or empty for off" % (value[:12],)
+        if env.get("TEAM_CALL_RECORDER", "").strip().lower() != "on":
+            return False, "on without TEAM_CALL_RECORDER=on: %s only where the call recorder takes the notes" % what
+        return None, None
+    return check
 
 
 # The internal secrets the capture feed's must differ from (web/src/lib/eve/internal-secret.ts).
@@ -816,7 +823,11 @@ CHECKS = {
     "AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES": check_gate_addresses,
     "TEAM_CALL_RECORDER": check_team_call_recorder,
     "CAPTURE_FEED_SECRET": check_capture_feed_secret,
-    "TEAM_CALL_AUDIO": check_team_call_audio,
+    "TEAM_CALL_LIVE_AGENT": check_needs_recorder("TEAM_CALL_LIVE_AGENT", "the live agent writes a call's notes"),
+    "TEAM_CALL_EVENT_LINK": check_needs_recorder("TEAM_CALL_EVENT_LINK", "a call's capture takes its meeting's event"),
+    # Only the call recorder makes a call's audio file (web/src/lib/team-calls/recorder.ts's teamCallAudioOn,
+    # read the same way). Its own RECORDER_AUDIO and Storage's raised limit are not visible from here.
+    "TEAM_CALL_AUDIO": check_needs_recorder("TEAM_CALL_AUDIO", "a call's audio file is made"),
 }
 
 

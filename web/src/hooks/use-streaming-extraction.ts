@@ -161,6 +161,11 @@ export function useStreamingExtraction(opts: UseStreamingExtractionOptions = {})
         // unchanged; the caller can fall back / toast.
         let message = 'Extraction failed. Please try again.'
         if (res.status === 403) message = 'Only the capture owner can process this meeting.'
+        // A call still taking notes (the server writes them live): the route says so, plainly.
+        if (res.status === 409) {
+          const body = (await res.json().catch(() => null)) as { code?: string; error?: string } | null
+          if (body?.code === 'CALL_NOTES_LIVE' && body.error) message = body.error
+        }
         throw new Error(message)
       }
 

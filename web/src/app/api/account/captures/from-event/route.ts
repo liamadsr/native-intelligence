@@ -152,7 +152,7 @@ export async function POST(request: NextRequest) {
   }
 
   const LIVE_ROW_FIELDS =
-    'id, transcript, occurrence_start, started_at, recorded_at, updated_at, metadata, series_key, ical_uid, calendar_provider, organizer_email, meeting_url'
+    'id, transcript, occurrence_start, started_at, recorded_at, updated_at, metadata, series_key, ical_uid, calendar_provider, organizer_email, meeting_url, notes_channel_id'
 
   interface LiveRow {
     id: string
@@ -167,7 +167,20 @@ export async function POST(request: NextRequest) {
     calendar_provider: string | null
     organizer_email: string | null
     meeting_url: string | null
+    /** Set on a call's capture (566): the call recorder fills it, nobody's device. */
+    notes_channel_id?: string | null
   }
+
+  // A call's capture holds this event (migration 656 links a meeting link's call capture to its
+  // calendar event): the call is being captured already, by the server, and a device never records
+  // into it (its transcript is the call's, and its live notes the server's). Say so, never reuse it.
+  const callCapturesIt = (row: { id: string; notes_channel_id?: string | null } | null | undefined) =>
+    row?.notes_channel_id
+      ? NextResponse.json(
+          { error: 'This meeting’s call is already taking notes', code: 'CALL_CAPTURES_MEETING', capture_id: row.id },
+          { status: 409 },
+        )
+      : null
 
   const isReusable = (row: LiveRow) =>
     !row.transcript?.trim() || sameInstant(row.occurrence_start, identity.occurrenceStart)
@@ -221,6 +234,9 @@ export async function POST(request: NextRequest) {
     .limit(1)
     .maybeSingle<LiveRow>()
 
+  const heldByCall = callCapturesIt(live)
+  if (heldByCall) return heldByCall
+
   const liveHasText = !!live?.transcript?.trim()
   if (live && liveHasText && isReusable(live)) {
     return reuseRow(live)
@@ -234,7 +250,7 @@ export async function POST(request: NextRequest) {
     const now = Date.now()
     const { data: recent } = await supabaseAdmin
       .from('captures')
-      .select('id, transcript, occurrence_start, ended_at, metadata')
+      .select('id, transcript, occurrence_start, ended_at, metadata, notes_channel_id')
       .eq('calendar_event_id', calendar_event_id)
       .eq('user_id', user.id)
       .eq('workspace_id', workspaceId)
@@ -242,8 +258,9 @@ export async function POST(request: NextRequest) {
       .gte('ended_at', new Date(now - RESUME_RECENT_LOOKBACK_MS).toISOString())
       .order('ended_at', { ascending: false })
       .limit(1)
-      .maybeSingle<Pick<LiveRow, 'id' | 'transcript' | 'occurrence_start' | 'metadata'> & { ended_at: string }>()
-    if (recent?.transcript?.trim() && sameInstant(recent.occurrence_start, identity.occurrenceStart)) {
+      .maybeSingle<Pick<LiveRow, 'id' | 'transcript' | 'occurrence_start' | 'metadata' | 'notes_channel_id'> & { ended_at: string }>()
+    // A call's capture is never resumed by a device.
+    if (!recent?.notes_channel_id && recent?.transcript?.trim() && sameInstant(recent.occurrence_start, identity.occurrenceStart)) {
       const finalizedAt = (recent.metadata?.finalized as { at?: unknown } | undefined)?.at
       const closedAt = Date.parse(typeof finalizedAt === 'string' ? finalizedAt : recent.ended_at)
       if (now - closedAt <= RESUME_RECENT_WINDOW_MS) {
@@ -335,6 +352,8 @@ export async function POST(request: NextRequest) {
         .is('ended_at', null)
         .limit(1)
         .maybeSingle<LiveRow>()
+      const winnerIsCall = callCapturesIt(winner)
+      if (winnerIsCall) return winnerIsCall
       if (winner && isReusable(winner)) {
         return reuseRow(winner)
       }

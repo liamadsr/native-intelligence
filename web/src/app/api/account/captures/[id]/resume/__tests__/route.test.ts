@@ -11,6 +11,7 @@
  *     finished, not read as the earlier one's), other metadata kept;
  *   - a transcript-less placeholder for the same event is archived out of the
  *     way; a live capture with text is refused (409);
+ *   - a call's capture is never resumed (409 CALL_CAPTURE_NO_RECORDING);
  *   - only the caller's own capture (404 otherwise).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -94,6 +95,15 @@ describe('POST resume', () => {
     const res = await call()
     expect(res.status).toBe(409)
     expect(fake.rows('captures').find((r) => r.id === 'cap-1')!.ended_at).not.toBeNull()
+  })
+
+  it('refuses (409) a call’s capture: the call recorder fills it, no device records into it', async () => {
+    fake.seed('captures', [capture({ notes_channel_id: 'chan-call-1', calendar_event_id: null, metadata: { source: 'team_call' } })])
+    const res = await call()
+    expect(res.status).toBe(409)
+    expect(await readJson(res)).toMatchObject({ code: 'CALL_CAPTURE_NO_RECORDING' })
+    // Nothing unlocked.
+    expect(fake.rows('captures')[0]).toMatchObject({ is_transcript_locked: true, ended_at: '2026-10-19T20:52:34.102581+00:00' })
   })
 
   it('404s for a capture that is not the caller’s', async () => {

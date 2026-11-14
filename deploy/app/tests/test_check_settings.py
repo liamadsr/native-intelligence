@@ -541,19 +541,23 @@ class CallRecorder(unittest.TestCase):
         _, blockers, _ = cs.report({"TEAM_CALL_RECORDER": "", "CAPTURE_FEED_SECRET": ""}, {})
         self.assertEqual(blockers, [])
 
-    def test_the_audio_switch(self):
-        self.assertEqual(cs.group("TEAM_CALL_AUDIO"), "may be empty")
-        check = cs.CHECKS["TEAM_CALL_AUDIO"]
-        self.assertEqual(check(dict(self.ENV, TEAM_CALL_RECORDER="on", TEAM_CALL_AUDIO="on"), {}), (None, None))
-        for wrong in ("1", "true", "ON"):
-            ok, note = check(dict(self.ENV, TEAM_CALL_RECORDER="on", TEAM_CALL_AUDIO=wrong), {})
-            self.assertIs(ok, False, wrong)
-            self.assertIn("only on", note)
-        ok, note = check(dict(self.ENV, TEAM_CALL_RECORDER="", TEAM_CALL_AUDIO="on"), {})
-        self.assertIs(ok, False)
-        self.assertIn("TEAM_CALL_RECORDER", note)
-        _, blockers, _ = cs.report({"TEAM_CALL_AUDIO": ""}, {})
-        self.assertEqual(blockers, [])
+    def test_the_switches_that_need_the_recorder(self):
+        # Phase 2's two, and phase 4's audio files.
+        for name in ("TEAM_CALL_LIVE_AGENT", "TEAM_CALL_EVENT_LINK", "TEAM_CALL_AUDIO"):
+            self.assertEqual(cs.group(name), "may be empty")
+            check = cs.CHECKS[name]
+            self.assertEqual(check(dict(self.ENV, TEAM_CALL_RECORDER="on", **{name: "on"}), {}), (None, None))
+            # As the app reads it: trimmed, any case.
+            self.assertEqual(check(dict(self.ENV, TEAM_CALL_RECORDER="on", **{name: " ON "}), {}), (None, None))
+            for wrong in ("1", "true", "yes"):
+                ok, note = check(dict(self.ENV, TEAM_CALL_RECORDER="on", **{name: wrong}), {})
+                self.assertIs(ok, False, wrong)
+                self.assertIn("only on", note)
+            ok, note = check(dict(self.ENV, TEAM_CALL_RECORDER="", **{name: "on"}), {})
+            self.assertIs(ok, False)
+            self.assertIn("TEAM_CALL_RECORDER", note)
+            _, blockers, _ = cs.report({name: ""}, {})
+            self.assertEqual(blockers, [])
 
     def test_the_secret_is_its_own(self):
         self.assertEqual(cs.group("CAPTURE_FEED_SECRET"), "may be empty")
