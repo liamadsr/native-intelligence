@@ -8,13 +8,19 @@ down, each running browser is told to close Chrome (its stop script, which
 writes Chrome's cookies and session to disk) and then paused. The app resumes
 it on its next use as it resumes any paused browser.
 
-    ni-sandbox-pause-browsers           pause them, within the time below
-    ni-sandbox-pause-browsers --list    say how many are running; changes nothing
+    ni-sandbox-pause-browsers            pause them, within the time below, listing
+                                         again after each pass until none runs
+    ni-sandbox-pause-browsers --hold     the same, with the runtime first closed to
+                                         the app until it is restarted, so that
+                                         none can be resumed in between (Hold)
+    ni-sandbox-pause-browsers --release  open the runtime to the app again
+    ni-sandbox-pause-browsers --list     say how many are running; changes nothing
 
-Run by the unit ni-sandbox-pause-browsers when it stops (before Docker, at every
-shutdown and reboot, and whenever Docker is stopped or restarted), by setup.sh
-before it replaces the runtime, and by hand before anything else that restarts
-it. Installed by setup.sh to /usr/local/lib/ni-sandbox/; the command of that
+--hold is for what a restart of the runtime follows: the unit
+ni-sandbox-pause-browsers when it stops (before Docker, at every shutdown and
+reboot, and whenever Docker is stopped or restarted) and setup.sh before it
+replaces the runtime. Without it, by hand: for the way back (deploy/README.md,
+"The cloud browser"), when the app no longer resumes them. Installed by setup.sh to /usr/local/lib/ni-sandbox/; the command of that
 name reads the runtime's key from /opt/e2b/sdk.env and runs this with the
 client in /opt/e2b/.venv.
 
@@ -47,6 +53,13 @@ LEAST_SECONDS = 5
 # of them fit in one round.
 AT_ONCE = 4
 LISTING_PAGES = 20
+# Passes at most: after each one the browsers are listed again, and one that was
+# resumed meanwhile is paused in the next.
+ROUNDS = 5
+# How long the runtime stays closed to the app at most, if nothing else opens it
+# (Hold, below).
+RELEASE_AFTER = 600
+NFT = "/usr/sbin/nft"
 
 
 def running_browsers(api) -> list:
@@ -97,34 +110,127 @@ def settle(api, sandbox_id: str, deadline: float, clock) -> tuple:
     return sandbox_id, True, note + ", paused"
 
 
-def pause_all(api, budget: float = BUDGET_SECONDS, at_once: int = AT_ONCE, clock=time.monotonic, say=print) -> int:
+def pause_all(api, budget: float = BUDGET_SECONDS, at_once: int = AT_ONCE, clock=time.monotonic, say=print,
+              door=None, rounds: int = ROUNDS) -> int:
     """Every running browser, at most `at_once` at a time, all within `budget`
-    seconds. 0 when every browser found was paused, 1 otherwise."""
+    seconds, listed again after each pass and paused again until a listing shows
+    none running: a browser the app resumed meanwhile is paused in the next pass.
+    With a `door` (--hold), the runtime is closed to the app first, so that from
+    then on nothing can resume one at all (the Hold below). 0 when a listing
+    showed none running at the end, 1 otherwise."""
     deadline = clock() + budget
-    try:
-        ids = running_browsers(api)
-    except Exception as error:
-        say("pause-browsers: the runtime could not be asked for its browsers (%s): none paused" % type(error).__name__)
-        return 1
-    if not ids:
-        say("pause-browsers: no browser is running")
-        return 0
-    say("pause-browsers: %d browser(s) running, pausing them" % len(ids))
-    pool = ThreadPoolExecutor(max_workers=max(1, min(at_once, len(ids))))
-    futures = {pool.submit(settle, api, i, deadline, clock): i for i in ids}
-    done, late = wait(futures, timeout=max(0.0, deadline - clock()) + 1)
-    # Never waits for a call that hangs past the deadline: whatever is still
-    # going is left to the unit's own limit, and to the runtime's restart.
-    pool.shutdown(wait=False, cancel_futures=True)
-    paused = 0
-    for future in done:
-        sandbox_id, ok, note = future.result()
-        paused += ok
-        say("  %s: %s" % (sandbox_id, note))
-    for future in late:
-        say("  %s: still being stopped or paused when the time was up" % futures[future])
-    say("pause-browsers: %d of %d paused" % (paused, len(ids)))
-    return 0 if paused == len(ids) else 1
+    if door is not None:
+        door.close(say)
+    paused = set()
+    left = None
+    pass_no = 0
+    while True:
+        try:
+            ids = running_browsers(api)
+        except Exception as error:
+            say("pause-browsers: the runtime could not be asked for its browsers (%s): %s" % (
+                type(error).__name__, "none paused" if not paused else "%d paused before that" % len(paused)))
+            return 1
+        if not ids:
+            left = 0
+            if pass_no == 0:
+                say("pause-browsers: no browser is running")
+            break
+        if pass_no >= rounds or deadline - clock() < LEAST_SECONDS:
+            left = len(ids)
+            say("pause-browsers: out of %s with %d browser(s) still running: those end with the restart" % (
+                "passes" if pass_no >= rounds else "time", left))
+            break
+        pass_no += 1
+        say("pause-browsers: %d browser(s) running, pausing them%s" % (len(ids), "" if pass_no == 1 else " (pass %d)" % pass_no))
+        pool = ThreadPoolExecutor(max_workers=max(1, min(at_once, len(ids))))
+        futures = {pool.submit(settle, api, i, deadline, clock): i for i in ids}
+        done, late = wait(futures, timeout=max(0.0, deadline - clock()) + 1)
+        # Never waits for a call that hangs past the deadline: whatever is still
+        # going is left to the unit's own limit, and to the runtime's restart.
+        pool.shutdown(wait=False, cancel_futures=True)
+        for future in done:
+            sandbox_id, ok, note = future.result()
+            if ok:
+                paused.add(sandbox_id)
+            say("  %s: %s" % (sandbox_id, note))
+        if late:
+            for future in late:
+                say("  %s: still being stopped or paused when the time was up" % futures[future])
+            left = len(late)
+            say("pause-browsers: out of time with %d browser(s) still being paused" % left)
+            break
+    say("pause-browsers: %d paused, %s" % (len(paused), "none left running" if left == 0 else "%d left running" % left))
+    return 0 if left == 0 else 1
+
+
+class Hold:
+    """Closes the runtime to the app for the length of a restart, so that no
+    browser can be resumed between the last listing and the runtime going down.
+
+    The app reaches the runtime only through the tunnel, on two ports: the API
+    (3000), which resumes a sandbox when asked to connect to it, and the traffic
+    port (3002). A firewall table of this tool's own refuses both, from anywhere
+    but this machine's loopback, ahead of the guard. This tool and the runtime's
+    own parts keep using loopback, so the listings after the close still work,
+    and a listing that shows none running is final: nothing can wake one after it.
+
+    The table is not the guard's: the guard's timer does not take it away. What
+    does, so that it is never left in place:
+      - the unit's start (ExecStart), after every boot and after Docker and the
+        runtime are back from a restart (the unit is ordered after both);
+      - setup.sh, right after its restart of the runtime, failed or not;
+      - a timer set before the table is loaded, RELEASE_AFTER seconds later,
+        for every other case (the tool killed, a person stopping the unit by hand);
+      - a reboot (firewall tables do not outlive one);
+      - by hand: ni-sandbox-pause-browsers --release.
+    While it is in place, every call from the app to the runtime is refused: the
+    coding agent's included. A restart ends its running sandboxes anyway."""
+
+    TABLE = "ni_sandbox_hold"
+    RULES = """table inet ni_sandbox_hold
+delete table inet ni_sandbox_hold
+table inet ni_sandbox_hold {
+	chain inbound {
+		type filter hook input priority -200; policy accept;
+		iifname != "lo" tcp dport { 3000, 3002 } counter reject with tcp reset comment "held-for-a-restart"
+	}
+}
+"""
+
+    def __init__(self, run=None, now=time.time):
+        import subprocess
+
+        self.run = run or (lambda args, **kw: subprocess.run(args, capture_output=True, text=True, **kw))
+        self.now = now
+
+    def stopping(self) -> bool:
+        done = self.run(["systemctl", "is-system-running"])
+        return (done.stdout or "").strip() == "stopping"
+
+    def close(self, say=print) -> bool:
+        # The way back first: a table nobody can take away is never loaded.
+        unit = "ni-sandbox-hold-release-%d" % int(self.now())
+        timer = self.run(["systemd-run", "--quiet", "--collect", "--unit=" + unit, "--on-active=%d" % RELEASE_AFTER,
+                          NFT, "delete", "table", "inet", self.TABLE])
+        if timer.returncode != 0 and not self.stopping():
+            say("pause-browsers: no timer could be set to open the runtime again: it is left open to the app (a resume during the restart stays possible)")
+            return False
+        loaded = self.run([NFT, "-f", "-"], input=self.RULES)
+        if loaded.returncode != 0:
+            say("pause-browsers: the runtime could not be closed to the app (%s): it stays open" % (loaded.stderr or "").strip()[:120])
+            return False
+        say("pause-browsers: the runtime is closed to the app until it is restarted (or for %d s at most)" % RELEASE_AFTER)
+        return True
+
+    def open(self, say=print) -> bool:
+        listed = self.run([NFT, "list", "table", "inet", self.TABLE])
+        if listed.returncode != 0:
+            say("pause-browsers: the runtime is not closed to the app")
+            return True
+        gone = self.run([NFT, "delete", "table", "inet", self.TABLE])
+        say("pause-browsers: the runtime is open to the app again" if gone.returncode == 0 else "pause-browsers: could not open the runtime again")
+        return gone.returncode == 0
 
 
 def read_key_file(path: str) -> dict:
@@ -143,6 +249,9 @@ def read_key_file(path: str) -> dict:
 
 
 def main(argv) -> int:
+    if argv[1:] == ["--release"]:
+        # Needs no key and no client: the table is this machine's own.
+        return 0 if Hold().open() else 1
     key_file = os.environ.get("NI_SANDBOX_KEY_FILE", "/opt/e2b/sdk.env")
     try:
         os.environ.update(read_key_file(key_file))
@@ -159,10 +268,10 @@ def main(argv) -> int:
             return 1
         print("pause-browsers: %d browser(s) running" % len(ids))
         return 0
-    if argv[1:]:
-        print("usage: ni-sandbox-pause-browsers [--list]", file=sys.stderr)
+    if argv[1:] not in ([], ["--hold"]):
+        print("usage: ni-sandbox-pause-browsers [--hold | --release | --list]", file=sys.stderr)
         return 2
-    code = pause_all(e2b)
+    code = pause_all(e2b, door=Hold() if argv[1:] == ["--hold"] else None)
     sys.stdout.flush()
     # Calls still hanging in their threads are not waited for.
     os._exit(code)

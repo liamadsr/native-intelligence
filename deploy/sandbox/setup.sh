@@ -246,13 +246,19 @@ fi
 # ends every running sandbox: the cloud browsers are paused first, each after its
 # own stop script (pause_browsers.py), so that their people stay signed in. Coding
 # runs are not: they end, as before. Nothing to pause on the first run.
+# --hold closes the runtime to the app first (pause_browsers.py, Hold), so that the
+# live app cannot resume a browser between the last listing and the restart right
+# below; nothing slow comes in between. The restart is followed by --release,
+# whether it worked or not.
 if { [ "$changed" = 1 ] || [ "$settings_changed" = 1 ]; } && [ -r "$runtime_dir/sdk.env" ] && [ -x "$runtime_dir/.venv/bin/python" ]; then
-	"$runtime_dir/.venv/bin/python" -I "$here/pause_browsers.py" ||
+	"$runtime_dir/.venv/bin/python" -I "$here/pause_browsers.py" --hold ||
 		echo "setup: not every cloud browser could be paused (above): those end with the runtime's restart." >&2
 fi
 # Runs "up": the first time it prepares the machine, fetches what it needs and
 # builds the base image (a few minutes); later it only puts right what is not.
-systemctl restart ni-sandbox-runtime.service
+release_hold() { nft delete table inet ni_sandbox_hold >/dev/null 2>&1 || true; }
+systemctl restart ni-sandbox-runtime.service || { release_hold; die "the runtime did not start again (above); it is open to the app again."; }
+release_hold
 (cd "$runtime_dir" && docker compose ps --format '  {{.Service}}: {{.Status}}')
 
 say "The client and the key the checks use"
@@ -298,8 +304,12 @@ PartOf=docker.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/true
-ExecStop=/usr/local/sbin/ni-sandbox-pause-browsers
+# Started after the runtime (at boot, and when Docker and the runtime come back
+# from a restart): the runtime is opened to the app again, should a stop have
+# left it closed (pause_browsers.py, Hold). "-": nothing to open is no failure.
+ExecStart=-/usr/sbin/nft delete table inet ni_sandbox_hold
+# Closes the runtime to the app, then pauses until a listing shows none running.
+ExecStop=/usr/local/sbin/ni-sandbox-pause-browsers --hold
 # pause_browsers.py gives itself 90 s in all.
 TimeoutStopSec=120
 

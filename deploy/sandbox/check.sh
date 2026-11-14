@@ -170,6 +170,10 @@ if [ -f "$runtime_dir/compose.yaml" ]; then
 	# must be enabled AND active (a stopped one has nothing to do at shutdown),
 	# ordered after Docker (so it stops before it) and part of it, and run the
 	# program this checkout has.
+	# A hold left in place (pause_browsers.py, Hold) keeps the app from the runtime.
+	if passes nft list table inet ni_sandbox_hold; then
+		bad "the runtime is closed to the app, as for a restart that did not finish: sudo ni-sandbox-pause-browsers --release"
+	fi
 	unit=ni-sandbox-pause-browsers.service
 	order="$(systemctl show "$unit" -p After -p PartOf --value 2>/dev/null | tr '\n' ' ')"
 	if passes systemctl is-enabled "$unit" && passes systemctl is-active "$unit" &&
