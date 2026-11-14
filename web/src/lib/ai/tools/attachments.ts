@@ -32,6 +32,8 @@ export function createAttachmentTools(
   // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
   // was shared with the person stays theirs, never their guest's.
   omitGrants = false,
+  /** How long a signed link lives (CreateToolsOptions.signedUrlTtlSeconds): an hour, unless the caller says. */
+  signedUrlTtlSeconds = 3600,
 ) {
   // Attachments are shared workspace rows, but one on a capture is only as
   // visible as that capture (RLS `attachments_workspace_select`, migration
@@ -458,7 +460,7 @@ export function createAttachmentTools(
           const buffer = Buffer.from(await fileData.arrayBuffer())
           const { data: urlData } = await supabase.storage
             .from('attachments')
-            .createSignedUrl(attachment.storage_path, 3600)
+            .createSignedUrl(attachment.storage_path, signedUrlTtlSeconds)
 
           return {
             success: true,
@@ -475,7 +477,7 @@ export function createAttachmentTools(
         // For binary files, return a signed URL
         const { data: urlData, error: urlError } = await supabase.storage
           .from('attachments')
-          .createSignedUrl(attachment.storage_path, 3600)
+          .createSignedUrl(attachment.storage_path, signedUrlTtlSeconds)
 
         if (urlError || !urlData?.signedUrl) {
           return { success: false, error: urlError?.message || 'Failed to generate URL' }

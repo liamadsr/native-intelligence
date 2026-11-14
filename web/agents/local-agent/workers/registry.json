@@ -1,0 +1,56 @@
+{
+  "claude-code": {
+    "label": "Claude Code",
+    "cli": "claude",
+    "command": [
+      "$NODE",
+      "$ACP_DIR/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"
+    ],
+    "env": {
+      "CLAUDE_CODE_EXECUTABLE": "$CLI",
+      "CLAUDE_CODE_TMPDIR": "$TMP",
+      "DISABLE_AUTOUPDATER": "1"
+    },
+    "homeFolders": [
+      ".claude"
+    ],
+    "login": {
+      "keychain": true
+    },
+    "signInHint": "Claude Code isn't signed in on this Mac. Open Terminal, run `claude`, then `/login`.",
+    "packages": {
+      "@agentclientprotocol/claude-agent-acp": "0.107.0"
+    }
+  },
+  "codex": {
+    "label": "Codex",
+    "cli": "codex",
+    "command": [
+      "$NODE",
+      "$ACP_DIR/node_modules/@agentclientprotocol/codex-acp/dist/index.js"
+    ],
+    "env": {
+      "CODEX_PATH": "$CLI"
+    },
+    "sessionMode": "agent-full-access",
+    "homeFolders": [
+      ".codex"
+    ],
+    "login": {
+      "files": [
+        {
+          "path": ".codex/auth.json",
+          "scratch": [
+            ".codex/.auth-*",
+            ".codex/auth.json.lock",
+            ".codex/auth.lock"
+          ]
+        }
+      ]
+    },
+    "signInHint": "Codex isn't signed in on this Mac. Open Terminal and run `codex login`.",
+    "packages": {
+      "@agentclientprotocol/codex-acp": "2.6.0"
+    }
+  }
+}

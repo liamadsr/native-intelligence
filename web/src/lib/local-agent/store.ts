@@ -17,11 +17,13 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { completeActionsForMergedPr, moveCardForRun, type CardRun } from '@/lib/actions/agent-finish'
+import { fetchPrMetadata } from '@/lib/github/pr-metadata'
 import { ensureMacEnvironment, macEnvironmentId } from '@/lib/environments/mac'
-import { isBaseBranch, isRepoFullName } from '@/lib/environments/types'
+import { isBaseBranch, isMissingColumnError, isRepoFullName, isWorkerId } from '@/lib/environments/types'
 import { ringDoorbell } from './doorbell'
 import { macTeammateName } from './teammate'
-import { IDLE_REASON, LOOP_EXPIRED_REASON } from './transcript-view'
+import { CARD_EXPIRED_REASON, IDLE_REASON, LOOP_EXPIRED_REASON } from './transcript-view'
 import {
   EXPIRED_REASON,
   moveTurn,
@@ -112,6 +114,20 @@ export interface SessionRow {
    * else with no positive marker.
    */
   attended?: boolean
+  /**
+   * Migration 658: the coding agent it runs on (the person's own, on their
+   * Mac), stamped when the chat agent started it; null: Native
+   * Intelligence's own agent.
+   */
+  worker?: string | null
+  /**
+   * The person asked for it with a card's Start (an action job's key): its
+   * opening request is labelled as theirs, though the job runs unattended
+   * (started_by stays 'agent': the reviewer's rule for such jobs).
+   */
+  requestedByPerson?: boolean
+  /** Migration 659: claimed, and waiting in the Mac's own line for a free slot (it runs 3 at once). */
+  queuedOnMac?: boolean
 }
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -211,6 +227,12 @@ export interface DbSession {
   environment_id?: string | null
   /** Migration 420 (E3): an edit job's base branch, stamped when it started (null: HEAD). */
   base_branch?: string | null
+  /** Migration 658: the coding agent it runs on, stamped when it started (null: Native Intelligence's own agent). */
+  worker?: string | null
+  /** Migration 659: the action (card) whose Start made it, or null (a chat's, a loop's). Absent before 659. */
+  action_id?: string | null
+  /** Migration 659: when the Mac first reported it waiting in its line for a free slot (claimed, not begun), or null. */
+  mac_queued_at?: string | null
   created_at: string
   updated_at: string
   folder?: { label?: string | null; grant_id?: string | null; revoked_at?: string | null } | null
@@ -271,6 +293,10 @@ export function toSessionRow(r: DbSession): SessionRow {
     prUrl: typeof r.pr_url === 'string' && r.pr_url ? r.pr_url : null,
     localModel: r.local_model === true,
     attended: isAttendedSession(r),
+    // Only when it has one: a session on our own agent reads as it always did.
+    ...(isWorkerId(r.worker) ? { worker: r.worker } : {}),
+    ...(isActionJobKey(r.idempotency_key) ? { requestedByPerson: true } : {}),
+    ...(r.status === 'starting' && r.mac_queued_at ? { queuedOnMac: true } : {}),
   }
 }
 
@@ -324,6 +350,8 @@ export function ledgerSessionOf(r: DbSession): LedgerSession {
     currentTurn: r.current_turn ?? 1,
     currentTrackedJobId: r.current_tracked_job_id,
     trackedJobId: r.tracked_job_id,
+    worker: isWorkerId(r.worker) ? r.worker : null,
+    actionId: ACTION_JOB_ID_RE.exec(r.idempotency_key ?? '')?.[1]?.toLowerCase() ?? null,
   }
 }
 
@@ -418,7 +446,7 @@ export async function reapIfStale(svc: Svc, r: DbSession, now = Date.now()): Pro
   const to = staleness(r, now)
   if (!to) return r
   const at = nowIso(now)
-  const reason = to === 'idle' ? IDLE_REASON : isUnattendedKey(r.idempotency_key) ? LOOP_EXPIRED_REASON : EXPIRED_REASON
+  const reason = to === 'idle' ? IDLE_REASON : isActionJobKey(r.idempotency_key) ? CARD_EXPIRED_REASON : isUnattendedKey(r.idempotency_key) ? LOOP_EXPIRED_REASON : EXPIRED_REASON
   const patch =
     to === 'interrupted'
       ? { status: 'interrupted' as const, lease_expires_at: null }
@@ -638,6 +666,25 @@ async function sessionByKey(svc: Svc, userId: string, key: string): Promise<DbSe
 export const FOLDER_HOLDING_STATUSES: readonly LocalAgentStatus[] = ['queued', 'starting', 'running', 'waiting', 'interrupted']
 /** Migration 419's index; a unique violation naming it is a start that lost the race. */
 export const FOLDER_LIVE_INDEX = 'local_agent_session_one_live_per_folder'
+/**
+ * Migration 659's two indexes that replace it: one live job per action, and
+ * one live job per folder outside the cards' edit lane. A violation of any of
+ * the three means another start won a race: decide again.
+ */
+export const ACTION_LIVE_INDEX = 'local_agent_session_one_live_per_action'
+export const FOLDER_LANE_INDEX = 'local_agent_session_one_live_per_folder_lane'
+const LIVE_INDEXES = [FOLDER_LIVE_INDEX, ACTION_LIVE_INDEX, FOLDER_LANE_INDEX]
+
+/**
+ * At most this many cards' jobs on one Mac at a time that run or wait for a
+ * slot (queued, starting, running, interrupted mid-turn): the Mac runs 3 at
+ * once (relay-core MAX_BUSY_JOBS, the desktop's MAX_RUNNING) and keeps the
+ * rest queued until a slot frees, so 3 more may wait. Idle cards (their turn
+ * ended) don't count: the Mac parks them, and they stay for follow-ups.
+ */
+export const CARD_JOBS_PER_MAC_MAX = 6
+/** The refusal's code (details.code) when a Mac already holds CARD_JOBS_PER_MAC_MAX cards' jobs. */
+export const MAC_FULL_CODE = 'MAC_FULL'
 /** Why an idle agent ended when a start took its folder (the panel shows it), by who started: another chat, this chat, a loop. */
 export const REPLACED_REASON = 'Another chat started Native Intelligence in this folder.'
 export const REPLACED_BY_THIS_CHAT_REASON = 'A new request in this chat started Native Intelligence in this folder.'
@@ -654,7 +701,7 @@ export const SESSION_CHANGED_CODE = 'SESSION_CHANGED'
  * mode, it waits on the person's answer (a loop's request never answers it),
  * a stop was asked, or it kept changing as the start tried to join it.
  */
-export type FolderBusyReason = 'other_chat' | 'read_only' | 'other_mode' | 'asking' | 'stopping' | 'changing'
+export type FolderBusyReason = 'other_chat' | 'read_only' | 'other_mode' | 'asking' | 'stopping' | 'changing' | 'other_worker'
 
 /**
  * A session a loop started (WS-D, src/lib/local-agent/unattended.ts
@@ -767,6 +814,90 @@ export async function settleActionRunStatus(svc: Svc, before: DbSession | null, 
     console.warn('[local-agent] settling the action’s run status failed:', err instanceof Error ? err.message : err)
   }
 }
+
+/**
+ * The card a Mac job works: its action_id (migration 659), else its key's:
+ * before 659 the column is absent, and a job that older code started between
+ * 659 and the roll-out has the column empty.
+ */
+function cardOf(r: Pick<DbSession, 'idempotency_key'> & { action_id?: string | null }): string | null {
+  return r.action_id ?? actionIdOfJobKey(r.idempotency_key)
+}
+
+/** The run a card job's own moves are recorded as (agent-finish.ts moveCardForRun). */
+function cardRunOf(r: Pick<DbSession, 'id' | 'user_id' | 'created_at'>): CardRun {
+  return { userId: r.user_id, id: r.id, beganAt: r.created_at }
+}
+
+/**
+ * A card's Mac job began (its first word from the Mac took it out of queued /
+ * starting): the card moves out of Backlog / Todo to the team's first started
+ * state, as the person's agent (moveCardForRun: skipped when they moved it by
+ * hand since the Start). Best-effort, never throws.
+ */
+export async function moveCardOnBegin(svc: Svc, before: Pick<DbSession, 'status'>, after: DbSession): Promise<void> {
+  if (before.status !== 'queued' && before.status !== 'starting') return
+  if (after.status !== 'running' && after.status !== 'waiting' && after.status !== 'interrupted') return
+  const actionId = cardOf(after)
+  if (!actionId) return
+  await moveCardForRun(svc, { actionId, workspaceId: after.workspace_id, move: 'begin', run: cardRunOf(after) })
+}
+
+/**
+ * A card's Mac job opened its pull request (the server route or the Mac's
+ * own gh): the pull request is linked to the card the way a cloud run's is
+ * (action_github_pr, the same conflict key as the outcome route), so the
+ * card shows its state and checks through the GitHub webhook's sync, and the
+ * card moves to review as the person's agent. Best-effort, never throws.
+ */
+async function linkCardPullRequest(svc: Svc, row: DbSession, url: string, opts: { readState: boolean }): Promise<void> {
+  const actionId = cardOf(row)
+  const repo = repoOfPullRequestUrl(url)
+  const number = /\/pull\/(\d+)$/.exec(url)?.[1]
+  if (!actionId || !repo || !number) return
+  try {
+    const { error } = await svc.from('action_github_pr').upsert(
+      {
+        workspace_id: row.workspace_id,
+        action_id: actionId,
+        pr_url: url,
+        repo_full_name: repo,
+        pr_number: Number(number),
+        head_branch: row.branch ?? null,
+        created_by: row.user_id,
+      },
+      { onConflict: 'action_id,repo_full_name,pr_number' },
+    )
+    if (error) console.warn('[local-agent] linking the pull request to its card failed:', error.message)
+  } catch (err) {
+    console.warn('[local-agent] linking the pull request to its card failed:', err instanceof Error ? err.message : err)
+  }
+  // Its present state, when the person's GitHub sign-in can read it: a pull
+  // request merged before the Mac reported it (the merge's webhook passed
+  // while there was no row) completes the card now, on the merge's own path.
+  // Unreadable: the row stays as it is (open, ours: it holds the card until
+  // the webhook speaks).
+  const meta = opts.readState ? await fetchPrMetadata(svc, repo, Number(number), row.user_id, { requireToken: true, timeoutMs: PR_STATE_TIMEOUT_MS }) : null
+  if (meta && (meta.state === 'open' || meta.state === 'closed' || meta.state === 'merged')) {
+    const { error } = await svc
+      .from('action_github_pr')
+      .update({ pr_state: meta.state, pr_draft: meta.draft === true, ...(meta.title ? { pr_title: meta.title } : {}), last_synced_at: nowIso() })
+      .eq('action_id', actionId)
+      .eq('repo_full_name', repo)
+      .eq('pr_number', Number(number))
+    if (error) console.warn('[local-agent] storing the pull request’s state failed:', error.message)
+    else if (meta.state === 'merged') {
+      await completeActionsForMergedPr(svc, url)
+      return
+    }
+    // Closed without merging already: nothing for the card to wait on.
+    if (meta.state === 'closed') return
+  }
+  await moveCardForRun(svc, { actionId, workspaceId: row.workspace_id, move: 'review', run: cardRunOf(row) })
+}
+
+/** The pull request's state read when it is recorded (the server route answers the Mac within 30 s; its own GitHub calls take up to 23). */
+const PR_STATE_TIMEOUT_MS = 4_000
 
 /**
  * A pull request that landed after the job's turn settled (a push the person
@@ -898,7 +1029,8 @@ async function liveInFolder(svc: Svc, userId: string, folderId: string): Promise
     .eq('folder_id', folderId)
     .in('status', FOLDER_HOLDING_STATUSES as LocalAgentStatus[])
     .order('created_at', { ascending: false })
-    .limit(5)
+    // Cards' edit jobs live side by side here (migration 659): room for them and the folder's own.
+    .limit(20)
   if (error) throw new Error(`local agent sessions read failed: ${error.message}`)
   const now = Date.now()
   const out: DbSession[] = []
@@ -942,6 +1074,46 @@ type ClaimInput = {
   startedBy: 'agent' | 'person'
   idempotencyKey?: string
   personWords?: readonly string[]
+  /**
+   * A chat start's agent, the Mac's choice read before the join decision
+   * (migration 658): `undefined` for every other start (no rule about agents);
+   * null for Native Intelligence's own agent, else a coding agent's id. A live
+   * job on another agent is never joined: idle, it ends and a new one starts;
+   * busy, the start is refused (FOLDER_BUSY, other_worker).
+   */
+  chosenWorker?: string | null
+}
+
+/**
+ * A card's EDIT job (migration 659): an action's Start in edit mode, which
+ * works in its own git worktree on the Mac, so cards' edit jobs live side by
+ * side in one folder. Everything else (a chat's job, a loop's, a card's READ
+ * job, which works in the folder itself) keeps one live job per folder.
+ */
+function isCardEditJob(r: { idempotency_key?: string | null; mode: LocalAgentMode }): boolean {
+  return actionIdOfJobKey(r.idempotency_key) !== null && r.mode === 'edit'
+}
+
+/**
+ * A card's job named for a sentence: its identifier ("card ENG-42"), read
+ * from the action its key names; null for any other job, or when it can't be
+ * read (the sentence then says "one of your actions").
+ */
+async function cardNameOf(svc: Svc, cur: DbSession): Promise<string | null> {
+  const actionId = actionIdOfJobKey(cur.idempotency_key)
+  if (!actionId) return null
+  try {
+    const { data } = await svc.from('actions').select('identifier').eq('id', actionId).maybeSingle()
+    const identifier = (data as { identifier?: unknown } | null)?.identifier
+    return typeof identifier === 'string' && identifier.trim() ? `card ${identifier.trim()}` : null
+  } catch {
+    return null
+  }
+}
+
+/** Which agent does a job's work, as a sentence names it (the server knows only the id, never its label). */
+export function agentNamed(worker: string | null | undefined): string {
+  return worker ? `the person’s own coding agent (${worker})` : 'Native Intelligence’s own agent'
 }
 
 /** Who took the folder from an idle session, in the words its ended line shows. */
@@ -952,13 +1124,15 @@ function replacedReason(cur: DbSession, input: ClaimInput): string {
 }
 
 /** The FOLDER_BUSY refusal, naming the folder's agent (only what names it: its request and words may be another chat's). */
-function folderBusy(cur: DbSession | null, input: ClaimInput, reason: FolderBusyReason): LocalAgentError {
+function folderBusy(cur: DbSession | null, input: ClaimInput, reason: FolderBusyReason, card: string | null = null): LocalAgentError {
   const name = macTeammateName(cur?.device?.name)
   const label = cur?.folder?.label || 'this folder'
   const whose = !cur
     ? ''
     : isActionJobKey(cur.idempotency_key)
-      ? ' for one of your actions'
+      ? card
+        ? ` for ${card}`
+        : ' for one of your actions'
       : isLoopKey(cur.idempotency_key)
         ? ' for one of your loops'
         : (cur.conversation_id ?? null) === (input.conversationId ?? null)
@@ -975,11 +1149,13 @@ function folderBusy(cur: DbSession | null, input: ClaimInput, reason: FolderBusy
             ? `${name} in ${label} is stopping. One agent works in a folder at a time: try again once it has stopped.`
             : reason === 'changing'
               ? `${name} in ${label} changed as this started. One agent works in a folder at a time: try again in a moment.`
-              : `${name} is already working in ${label}${whose}. One agent works in a folder at a time: wait for it to finish, or stop it first.`
+              : reason === 'other_worker'
+                ? `${name} is already working in ${label}${whose} on ${agentNamed(cur?.worker)}, and this Mac is now set to ${agentNamed(input.chosenWorker)}. One agent works in a folder at a time: wait for it to finish, or stop it, before starting again.`
+                : `${name} is already working in ${label}${whose}. One agent works in a folder at a time: wait for it to finish, or stop it first.`
   return new LocalAgentError('conflict', message, {
     code: FOLDER_BUSY_CODE,
     reason,
-    ...(cur ? { session: { id: cur.id, teammate: name, folder: label, status: cur.status, mode: cur.mode } } : {}),
+    ...(cur ? { session: { id: cur.id, teammate: name, folder: label, status: cur.status, mode: cur.mode, worker: cur.worker ?? null } } : {}),
   })
 }
 
@@ -1002,7 +1178,13 @@ async function claimFolder(svc: Svc, input: ClaimInput): Promise<{ joined: DbSes
   let changed: DbSession | null = null
   for (let round = 0; round < 2; round++) {
     changed = null
-    for (const cur of await liveInFolder(svc, input.userId, input.folderId)) {
+    // The start's lane (migration 659): a card's edit job meets only its own
+    // action's jobs (other cards work beside it, each in its worktree); any
+    // other start never meets a card's edit job (it neither joins nor ends it).
+    const myAction = actionIdOfJobKey(input.idempotencyKey)
+    const cardEdit = myAction !== null && input.mode === 'edit'
+    const inLane = (cur: DbSession) => (cardEdit ? actionIdOfJobKey(cur.idempotency_key) === myAction : !isCardEditJob(cur))
+    for (const cur of (await liveInFolder(svc, input.userId, input.folderId)).filter(inLane)) {
       // The same start again (two Start presses at once share one key, and
       // the other one's insert landed between our key check and here): it is
       // this start's own job, never a second turn of it.
@@ -1017,9 +1199,12 @@ async function claimFolder(svc: Svc, input: ClaimInput): Promise<{ joined: DbSes
       }
       const modeFits = loop ? cur.mode === input.mode : MODE_RANK[cur.mode] >= MODE_RANK[input.mode]
       const asking = loop && cur.last_signal === 'ask'
+      // A chat start never joins a job on another agent than the Mac's choice
+      // (migration 658): the work would silently go on with the old one.
+      const otherWorker = input.chosenWorker !== undefined && (cur.worker ?? null) !== input.chosenWorker
       // A job being stopped never takes another turn: the stop would refuse
       // its calls and the request would be lost. Idle, it ends; else it's busy.
-      if (sameKind && !cur.stop_requested_at && modeFits && !asking) {
+      if (sameKind && !cur.stop_requested_at && modeFits && !asking && !otherWorker) {
         try {
           const sent = await addMessage(svc, {
             userId: input.userId,
@@ -1047,21 +1232,28 @@ async function claimFolder(svc: Svc, input: ClaimInput): Promise<{ joined: DbSes
       // included, or the person's finished jobs would hold a folder for a day.
       // An ending that lost to a write since the read (a message, the Mac)
       // decides again, as a join does.
+      // Inside a lane an idle job ends to make room, as it always did, whoever
+      // started it (a chat, a loop, a card's read job). A card's EDIT job is
+      // in no one else's lane (inLane above): never joined or ended by another
+      // start, and it ends nothing of anyone else's (migration 659).
       if (await isIdle(svc, cur)) {
         if (await endIdle(svc, cur, replacedReason(cur, input))) continue
         changed = cur
         break
       }
+      const card = await cardNameOf(svc, cur)
       const reason: FolderBusyReason = !sameKind
         ? 'other_chat'
-        : cur.stop_requested_at
+        : otherWorker
+          ? 'other_worker'
+          : cur.stop_requested_at
           ? 'stopping'
           : asking
             ? 'asking'
             : loop
               ? 'other_mode'
               : 'read_only'
-      throw folderBusy(cur, input, reason)
+      throw folderBusy(cur, input, reason, card)
     }
     if (!changed) return null
   }
@@ -1099,6 +1291,107 @@ async function sessionBaseBranch(svc: Svc, folder: DbFolder, mode: LocalAgentMod
   }
   const branch = (data as { base_branch?: unknown } | null)?.base_branch
   return isBaseBranch(branch) ? branch : null
+}
+
+/**
+ * Who the person chose to do the work on this folder's Mac (migration 658,
+ * environment.worker): a coding agent's id, or null for Native
+ * Intelligence's own agent. Unlike the environment id above, a read that
+ * fails THROWS: a job the person meant for their own agent must never start
+ * on ours instead (it would spend our models when they chose theirs). Only a
+ * missing column (migration 658 not applied yet) reads as null: no choice can
+ * have been saved without it.
+ */
+async function sessionWorker(svc: Svc, userId: string, folder: DbFolder): Promise<string | null> {
+  const { data, error } = await svc
+    .from('environment')
+    .select('worker')
+    .eq('kind', 'mac')
+    .eq('owner_user_id', userId)
+    .eq('device_id', folder.device_id)
+    .maybeSingle()
+  if (error) {
+    if (isMissingColumnError(error)) return null
+    throw new Error(`mac worker read failed: ${error.message}`)
+  }
+  const worker = (data as { worker?: unknown } | null)?.worker
+  if (worker === null || worker === undefined) return null
+  // The column's CHECK holds the shape; anything else is refused, never read as "ours".
+  if (!isWorkerId(worker)) throw new Error('mac worker read failed: not a worker id')
+  return worker
+}
+
+
+/**
+ * A card's edit job needs room on its Mac (migration 659): at most
+ * CARD_JOBS_PER_MAC_MAX cards' jobs there that run or wait for a slot (by
+ * their key, so it holds before 659 too). Over it: refused, saying so (the
+ * Mac queues up to that many itself, each for the unattended queue's 15
+ * minutes). A failed read refuses nothing: the Mac still runs 3 at a time.
+ */
+/** The statuses that hold one of a Mac's card places: it runs, or waits for a slot. Idle (`waiting`) ones don't: the Mac parks them, and a follow-up to one is a message, never a new start. */
+const CARD_PLACE_STATUSES: LocalAgentStatus[] = ['queued', 'starting', 'running', 'interrupted']
+
+/** The person's card jobs on this Mac that hold a place, oldest first; null when the read failed. */
+async function cardPlaces(svc: Svc, userId: string, deviceId: string): Promise<Array<{ id: string }> | null> {
+  const { data, error } = await svc
+    .from('local_agent_session')
+    .select('id, created_at')
+    .eq('user_id', userId)
+    .eq('device_id', deviceId)
+    .in('status', CARD_PLACE_STATUSES)
+    .like('idempotency_key', `${ACTION_JOB_KEY_PREFIX}%`)
+    // created_at, then id: two jobs made in the same instant still have one order.
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
+    .limit(100)
+  if (error) {
+    console.warn('[local-agent] counting the Mac’s card jobs failed:', error.message)
+    return null
+  }
+  return (data ?? []) as Array<{ id: string }>
+}
+
+function macFull(folder: DbFolder): LocalAgentError {
+  const mac = folder.device?.name || 'your Mac'
+  return new LocalAgentError(
+    'conflict',
+    `${CARD_JOBS_PER_MAC_MAX} cards are already running or waiting their turn on ${mac}. Press Start on this one when one of them finishes.`,
+    { code: MAC_FULL_CODE },
+  )
+}
+
+async function assertMacHasRoom(svc: Svc, userId: string, folder: DbFolder): Promise<void> {
+  const places = await cardPlaces(svc, userId, folder.device_id)
+  if (places && places.length >= CARD_JOBS_PER_MAC_MAX) throw macFull(folder)
+}
+
+/**
+ * After the insert, the same count again: two Starts at once can both pass
+ * the count before either inserts. A job that took the Mac over the ceiling
+ * (one of the newest past it) is cancelled before anything sees it, and the
+ * start answers MAC_FULL. Oldest first wins, so exactly the ceiling stays.
+ */
+async function giveBackOverCeiling(svc: Svc, userId: string, folder: DbFolder, rowId: string): Promise<void> {
+  const places = await cardPlaces(svc, userId, folder.device_id)
+  if (!places) return
+  const at = places.findIndex((p) => p.id === rowId)
+  if (at < CARD_JOBS_PER_MAC_MAX) return
+  const err = macFull(folder)
+  const { data: given, error } = await svc
+    .from('local_agent_session')
+    .update({ status: 'cancelled', error: err.message, ended_at: nowIso(), lease_expires_at: null })
+    .eq('id', rowId)
+    .eq('user_id', userId)
+    .eq('status', 'queued')
+    .select('id')
+  if (error) {
+    console.warn('[local-agent] giving back a start over the ceiling failed:', error.message)
+    return
+  }
+  // The Mac took it already (claimed, running): it stands, and the start is not refused.
+  if (((given ?? []) as unknown[]).length === 0) return
+  throw err
 }
 
 /** Why a start on a removed Mac is refused (environments, "Remove this Mac"). */
@@ -1151,6 +1444,23 @@ export async function createSession(
      * start with nobody expecting it.
      */
     queuedTtlMs?: number
+    /**
+     * Run it on the coding agent the person chose for the folder's Mac
+     * (migration 658, environment.worker), stamped on the session: the chat
+     * agent's starts (start_local_agent). Absent or false: Native
+     * Intelligence's own agent, as every other start (an action's Start, a
+     * work card, a loop) runs today. A join keeps the agent the running job
+     * already has.
+     */
+    macWorker?: boolean
+    /**
+     * An agent the person chose for THIS start (migration 658): a coding
+     * agent's id, or null for Native Intelligence's own agent. Wins over
+     * `macWorker`. Only a person's own click passes it (an action's Start:
+     * src/app/api/account/actions/[id]/start-agent); the same join rule and
+     * refusals as a chat start apply.
+     */
+    explicitWorker?: string | null
   },
   attempt = 0,
 ): Promise<{ session: SessionRow; created: boolean; deviceOnline: boolean; joined?: true }> {
@@ -1178,7 +1488,17 @@ export async function createSession(
   if (!input.conversationId) throw new LocalAgentError('bad_request', 'A local agent needs a conversation to report in')
   await assertConversation(svc, input.userId, input.conversationId)
 
-  const joined = await claimFolder(svc, { ...input, request })
+  // The start's agent is read BEFORE the join decision: a live job on
+  // another agent is never joined (claimFolder's chosenWorker). An explicit
+  // choice (a person's click) wins; else a chat start reads the Mac's.
+  if (input.explicitWorker !== undefined && input.explicitWorker !== null && !isWorkerId(input.explicitWorker)) {
+    throw new LocalAgentError('bad_request', 'worker must be a coding agent’s id, or null for Native Intelligence')
+  }
+  const chosen: string | null | undefined =
+    input.explicitWorker !== undefined ? input.explicitWorker : input.macWorker ? await sessionWorker(svc, input.userId, folder) : undefined
+  const worker = chosen ?? null
+  const { macWorker: _macWorker, explicitWorker: _explicitWorker, ...claim } = input
+  const joined = await claimFolder(svc, { ...claim, request, ...(chosen !== undefined ? { chosenWorker: chosen } : {}) })
   if (joined) {
     return {
       session: toSessionRow(joined.joined),
@@ -1188,45 +1508,56 @@ export async function createSession(
     }
   }
 
+  // A card's job (migration 659): its action, on the row; and a card's edit
+  // job counts against the Mac's ceiling of cards that run or wait for a slot.
+  const actionId = actionIdOfJobKey(input.idempotencyKey)
+  if (actionId && input.mode === 'edit') await assertMacHasRoom(svc, input.userId, folder)
+
   const now = Date.now()
   const [environmentId, baseBranch] = await Promise.all([
     sessionEnvironmentId(svc, input.userId, folder),
     sessionBaseBranch(svc, folder, input.mode),
   ])
-  const { data, error } = await svc
-    .from('local_agent_session')
-    .insert({
-      user_id: input.userId,
-      workspace_id: input.workspaceId,
-      device_id: folder.device_id,
-      folder_id: folder.id,
-      ...(environmentId ? { environment_id: environmentId } : {}),
-      ...(baseBranch ? { base_branch: baseBranch } : {}),
-      conversation_id: input.conversationId,
-      started_by: input.startedBy,
-      mode: input.mode,
-      request,
-      status: 'queued',
-      expires_at: nowIso(now + queuedTtlOf(input.queuedTtlMs)),
-      idempotency_key: input.idempotencyKey ?? null,
-    })
-    .select(SESSION_SELECT)
-    .maybeSingle()
+  const values = {
+    user_id: input.userId,
+    workspace_id: input.workspaceId,
+    device_id: folder.device_id,
+    folder_id: folder.id,
+    ...(environmentId ? { environment_id: environmentId } : {}),
+    ...(baseBranch ? { base_branch: baseBranch } : {}),
+    ...(worker ? { worker } : {}),
+    conversation_id: input.conversationId,
+    started_by: input.startedBy,
+    mode: input.mode,
+    request,
+    status: 'queued',
+    expires_at: nowIso(now + queuedTtlOf(input.queuedTtlMs)),
+    idempotency_key: input.idempotencyKey ?? null,
+  }
+  const insert = (row: Record<string, unknown>) => svc.from('local_agent_session').insert(row).select(SESSION_SELECT).maybeSingle()
+  let { data, error } = await insert(actionId ? { ...values, action_id: actionId } : values)
+  // Before migration 659 there is no action_id column: the key still says the action.
+  if (actionId && isMissingColumnError(error)) ({ data, error } = await insert(values))
   if (error || !data) {
     if (error?.code === UNIQUE_VIOLATION && input.idempotencyKey) {
       const existing = await sessionByKey(svc, input.userId, input.idempotencyKey)
       if (existing) return { session: toSessionRow(existing), created: false, deviceOnline: isOnline(existing.device?.last_seen_at) }
     }
-    // Another start in this folder won the race (migration 419's index): decide again against it.
-    // Lost twice, the folder is busy with whoever keeps winning.
-    if (error?.code === UNIQUE_VIOLATION && `${error.message ?? ''} ${(error as { details?: string }).details ?? ''}`.includes(FOLDER_LIVE_INDEX)) {
+    // Another start won the race (419's index, or 659's two): decide again against it.
+    // Lost twice, the folder is busy with whoever keeps winning. Before 659
+    // a second card in the folder lands here every time (419's index takes
+    // one live job per folder): today's FOLDER_BUSY, naming the card's job.
+    const said = `${error?.message ?? ''} ${(error as { details?: string } | null)?.details ?? ''}`
+    if (error?.code === UNIQUE_VIOLATION && LIVE_INDEXES.some((name) => said.includes(name))) {
       if (attempt === 0) return createSession(svc, input, 1)
       const [winner] = await liveInFolder(svc, input.userId, input.folderId)
-      throw folderBusy(winner ?? null, { ...input, request }, 'changing')
+      const othersCard = !!winner && actionIdOfJobKey(winner.idempotency_key) !== null && actionIdOfJobKey(winner.idempotency_key) !== actionId
+      throw folderBusy(winner ?? null, { ...input, request }, othersCard ? 'other_chat' : 'changing', winner ? await cardNameOf(svc, winner) : null)
     }
     throw new Error(`local agent session insert failed: ${error?.message ?? 'no row'}`)
   }
   let row = data as DbSession
+  if (actionId && input.mode === 'edit') await giveBackOverCeiling(svc, input.userId, folder, row.id)
   // "Remove this Mac" marks the device before it looks for live jobs: one it
   // marked while this start was between its check and its insert is seen
   // here (the insert's own read of the device), so the start ends and is
@@ -1835,7 +2166,19 @@ export async function askTeammate(
  * tolerant: before the migration the column is missing, and the PR is still
  * open and reported; only the session doesn't keep it.
  */
-export async function recordPullRequest(svc: Svc, userId: string, sessionId: string, url: string): Promise<boolean> {
+export async function recordPullRequest(
+  svc: Svc,
+  userId: string,
+  sessionId: string,
+  url: string,
+  /**
+   * `openedHere`: the server route opened it a moment ago (open-pull-request.ts):
+   * its state needs no read, and the route's own GitHub calls already take up
+   * to 23 s of the desktop's 30 s wait. A pull request the Mac's `gh` opened
+   * is read (linkCardPullRequest), since it may have merged before the Mac said.
+   */
+  opts: { openedHere?: boolean } = {},
+): Promise<boolean> {
   const { data, error } = await svc
     .from('local_agent_session')
     .update({ pr_url: url })
@@ -1851,6 +2194,7 @@ export async function recordPullRequest(svc: Svc, userId: string, sessionId: str
   const row = data as DbSession
   await linkFolderRepo(svc, row, url)
   await settleLatePullRequest(svc, row)
+  await linkCardPullRequest(svc, row, url, { readState: !opts.openedHere })
   return true
 }
 

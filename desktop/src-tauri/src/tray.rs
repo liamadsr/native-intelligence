@@ -47,7 +47,7 @@ const LOCAL_AGENTS_TOGGLE: &str = "local-agents-toggle";
 const LOCAL_AGENT_STOP: &str = "local-agent-stop-";
 /// + [`ModelChoice::menu_id`].
 const LOCAL_AGENT_MODEL: &str = "local-agent-model:";
-/// + [`Worker::as_str`](crate::local_agent::workers::Worker::as_str).
+/// + a worker's registry id ([`Worker::id`](crate::local_agent::workers::Worker::id)).
 const LOCAL_AGENT_WORKER: &str = "local-agent-worker:";
 const QUIT: &str = "quit";
 /// Windows only: the notices the installer carries (Licenses/
@@ -453,8 +453,8 @@ fn append_local_agents(menu: &Menu<tauri::Wry>, app: &AppHandle) {
 }
 
 /// Local Agents → Model and → Coding Agents (teammate-agent L4): Native Intelligence or a
-/// model on Ollama or LM Studio on this Mac, and the person's yes to Claude
-/// Code and Codex. Each only when there is something to pick
+/// model on Ollama or LM Studio on this Mac, and the person's yes to each
+/// coding agent the bundle's registry lists. Each only when there is something to pick
 /// ([`crate::local_agent::workers::L4View`]). Native only, like the switch:
 /// no webview command changes them.
 fn append_l4_submenu(
@@ -956,14 +956,15 @@ fn handle_native_menu_event(app: &AppHandle, id: &str) {
             });
         }
         _ if id.starts_with(LOCAL_AGENT_WORKER) => {
-            let Ok(worker) = crate::local_agent::workers::Worker::parse(&id[LOCAL_AGENT_WORKER.len()..]) else {
+            let worker = id[LOCAL_AGENT_WORKER.len()..].to_string();
+            if !crate::local_agent::workers::is_worker_id(&worker) {
                 return;
-            };
+            }
             let allowed = LOCAL_AGENTS
                 .lock()
                 .unwrap()
                 .as_ref()
-                .is_some_and(|v| v.l4.workers.contains(&(worker, true)));
+                .is_some_and(|v| v.l4.worker_allowed(&worker));
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 let Some(svc) = app.try_state::<LocalAgentService>() else { return };

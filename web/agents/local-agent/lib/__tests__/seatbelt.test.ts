@@ -135,12 +135,13 @@ describe('buildSeatbeltProfile (read mode)', () => {
     expect(SYSTEM_READ_FILES).toEqual(['/', '/private/var/db/xcode_select_link', '/private/etc/localtime', '/private/etc/hosts', '/Library/Preferences/com.apple.dt.Xcode.plist'])
   })
 
-  it('denies credentials* files near the top of a toolchain dir and npmrc files anywhere under one, in any letter case, after the allow', () => {
+  it('denies credentials* files near the top of a toolchain dir, and npmrc, pip config and .netrc files anywhere under one, in any letter case, after the allow', () => {
     const { job } = reads()
     const roots = '^/Users/p/(\\.nvm|\\.cargo|\\.rustup|\\.bun|\\.local|\\.volta|go|\\.pyenv)/'
     // After the folder's secret files (deny, placeholders back).
     expect(lines[job + 3]).toBe(
-      `(deny file-read-data (regex #"${roots}([^/]+/)?([^/]+/)?[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll][Ss][^/]*$") (regex #"${roots}(.*/)?\\.?[Nn][Pp][Mm][Rr][Cc]$"))`,
+      `(deny file-read-data (regex #"${roots}([^/]+/)?([^/]+/)?[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll][Ss][^/]*$") (regex #"${roots}(.*/)?\\.?[Nn][Pp][Mm][Rr][Cc]$") ` +
+        `(regex #"${roots}(.*/)?[Pp][Ii][Pp]\\.[Cc][Oo][Nn][Ff]$") (regex #"${roots}(.*/)?[Pp][Ii][Pp]\\.[Ii][Nn][Ii]$") (regex #"${roots}(.*/)?\\.[Nn][Ee][Tt][Rr][Cc]$"))`,
     )
   })
 

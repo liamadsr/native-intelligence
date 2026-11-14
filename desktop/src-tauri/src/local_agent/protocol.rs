@@ -66,6 +66,12 @@ pub enum Inbound {
         kind: PromptKind,
         detail: Value,
     },
+    /// A coding agent's workspace tool call (board step 4,
+    /// [`super::workspace_tools`]): never an event.
+    ToolCall(super::workspace_tools::ToolCall),
+    /// A `tool_call` line that failed its checks (the field named): dropped,
+    /// logged once per run.
+    BadToolCall(&'static str),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -151,6 +157,10 @@ pub fn parse_line(line: &str) -> Result<Inbound, LineError> {
                 detail: obj.remove("detail").unwrap_or(Value::Null),
             })
         }
+        "tool_call" => Ok(match super::workspace_tools::ToolCall::parse(&mut obj) {
+            Ok(call) => Inbound::ToolCall(call),
+            Err(field) => Inbound::BadToolCall(field),
+        }),
         _ => Err(LineError::Unknown(ty)),
     }
 }
@@ -185,7 +195,7 @@ pub fn truncate(s: &str, max: usize) -> String {
 /// request or message holding one would reach the launcher in fragments and
 /// the job would hang in `starting`. They can only occur inside strings, where
 /// the `\u2028` / `\u2029` escapes are the same JSON.
-fn to_line(v: Value) -> String {
+pub(super) fn to_line(v: Value) -> String {
     v.to_string()
         .replace('\u{2028}', "\\u2028")
         .replace('\u{2029}', "\\u2029")

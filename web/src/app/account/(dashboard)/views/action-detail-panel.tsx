@@ -58,6 +58,41 @@ const CloudRunView = dynamic(() => import('./cloud-run-view').then((m) => m.Clou
   ),
 })
 import { canShowCloudRunTab, cloudRunTabMarker } from './cloud-run-gate'
+import { StartAgentWith } from '@/components/environments/start-agent-with'
+// Lazy too: the Mac job's panel mounts its transcript stream only when opened.
+const LocalAgentPanel = dynamic(() => import('@/components/local-agent/local-agent-panel').then((m) => m.LocalAgentPanel), {
+  ssr: false,
+  loading: () => (
+    <div className="flex flex-1 items-center justify-center">
+      <ThinkingOrb state="breathing" size={20} theme="auto" />
+    </div>
+  ),
+})
+
+/** The person's own job for this action on their Mac (GET …/actions/[id]/mac-job), as the panel opens it. */
+export interface ActionMacJob {
+  sessionId: string
+  status: string
+  /** The coding agent doing the work (migration 658), or null for Native Intelligence's own agent. */
+  worker: string | null
+  deviceName: string
+  folderLabel: string
+  live: boolean
+}
+
+/** A route answer as the job, or null. Pure. */
+export function parseActionMacJob(json: unknown): ActionMacJob | null {
+  const j = (json as { job?: unknown } | null)?.job as Record<string, unknown> | null | undefined
+  if (!j || typeof j.sessionId !== 'string' || typeof j.status !== 'string') return null
+  return {
+    sessionId: j.sessionId,
+    status: j.status,
+    worker: typeof j.worker === 'string' && j.worker ? j.worker : null,
+    deviceName: typeof j.deviceName === 'string' ? j.deviceName : '',
+    folderLabel: typeof j.folderLabel === 'string' ? j.folderLabel : '',
+    live: j.live === true,
+  }
+}
 import { isAgentRunLive } from '@/lib/agent-run/types'
 import {
   Select,
@@ -103,6 +138,7 @@ import {
   Paperclip,
   MessageCircleQuestion,
   AlarmClock,
+  Laptop,
 } from 'lucide-react'
 import {
   Tooltip,
@@ -123,6 +159,7 @@ import {
 import { useSettingsOverlay } from '../settings-overlay'
 import { SiGithub } from '@icons-pack/react-simple-icons'
 import { cn } from '@/lib/utils'
+import { workerLabel } from '@/lib/environments/types'
 import { CustomFieldsGroup } from '@/components/crm/custom-fields-group'
 import { ReferencedIn } from '@/components/entity-links/referenced-in'
 import { RecordHistory } from '@/components/entity-links/record-history'
@@ -280,9 +317,9 @@ export function trustedCachedLinks(
   return links.every((l) => typeof l?.id === 'string') ? links : undefined
 }
 
-/** The panel's inner views: the action, its Cloud run, and the agents that worked on it (row 10). */
-type PanelView = 'details' | 'cloud' | 'agents'
-const panelViewOf = (section: string | undefined): PanelView =>
+/** The panel's inner views: the action, its Cloud run, its job on the person's Mac, and the agents that worked on it (row 10). */
+type PanelView = 'details' | 'cloud' | 'mac' | 'agents'
+const panelViewOf = (section: string | undefined): Exclude<PanelView, 'mac'> =>
   section === 'cloud' ? 'cloud' : section === 'agents' ? 'agents' : 'details'
 
 export function ActionDetailPanel({
@@ -583,6 +620,12 @@ export function ActionDetailPanel({
   const [linkingPr, setLinkingPr] = useState(false)
   const [prError, setPrError] = useState('')
   const [startingAgent, setStartingAgent] = useState(false)
+  // Who does this Start's work on the person's Mac (StartAgentWith): undefined
+  // while there is nothing to choose (the Start then sends none: the Mac's
+  // saved choice applies). Never stored on the action: the run records it.
+  const [startWorker, setStartWorker] = useState<string | null | undefined>(undefined)
+  // The person's own job for this action on their Mac, when a Start put one there.
+  const [macJob, setMacJob] = useState<ActionMacJob | null>(null)
   // Detail panel view switcher. 'cloud' shows the run surface (coding logs or a
   // Loops v3 work run) and is only offered when this action can have a
   // server-side run.
@@ -594,10 +637,19 @@ export function ActionDetailPanel({
   // `section` deep-link so section:'cloud' (Activity row / work-run
   // notification) still lands on the run.
   const controlledSection = !!onSectionChange
-  const [localPanelView, setLocalPanelView] = useState<PanelView>(panelViewOf(section))
-  const panelView: PanelView = controlledSection ? panelViewOf(section) : localPanelView
+  const [localPanelView, setLocalPanelView] = useState<Exclude<PanelView, 'mac'>>(panelViewOf(section))
+  // The Mac job's view is the panel's own (a host's section names only
+  // cloud and agents): any other view, or the host moving the section, leaves it.
+  const [macViewOpen, setMacViewOpen] = useState(false)
+  useEffect(() => setMacViewOpen(false), [section])
+  const panelView: PanelView = macViewOpen ? 'mac' : controlledSection ? panelViewOf(section) : localPanelView
   const setPanelView = useCallback(
     (next: PanelView) => {
+      if (next === 'mac') {
+        setMacViewOpen(true)
+        return
+      }
+      setMacViewOpen(false)
       if (onSectionChange) onSectionChange(next === 'details' ? undefined : next)
       else setLocalPanelView(next)
     },
@@ -899,6 +951,27 @@ export function ActionDetailPanel({
       .catch(() => {})
     return () => { cancelled = true }
   }, [actionId, action?.agent_run_status])
+
+  // The person's own Mac job for this action (an earlier Start on their Mac):
+  // the "working" affordance and the Mac tab open it. Read again when the
+  // run status moves, like the server runs above.
+  // Read again when the Mac view opens, so its tab says how the job is now.
+  const macViewShown = panelView === 'mac'
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/account/actions/${actionId}/mac-job`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        // A job once known for this action stays (the route always has its latest; a failed read changes nothing).
+        if (!cancelled) setMacJob((prev) => parseActionMacJob(d) ?? prev)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [actionId, action?.agent_run_status, macViewShown])
+  // Another action's job never shows on this one.
+  useEffect(() => setMacJob(null), [actionId])
 
   // Fetch sub-actions
   useEffect(() => {
@@ -1389,7 +1462,11 @@ export function ActionDetailPanel({
     if (!action || !action.assignee_ai_member_id) return
     setStartingAgent(true)
     try {
-      const res = await fetch(`/api/account/actions/${actionId}/start-agent`, { method: 'POST' })
+      const res = await fetch(`/api/account/actions/${actionId}/start-agent`, {
+        method: 'POST',
+        // Who does the work on the person's Mac, when they chose (StartAgentWith); none: the Mac's saved choice.
+        ...(startWorker !== undefined ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ worker: startWorker }) } : {}),
+      })
       if (!res.ok) {
         const error = ((await res.json().catch(() => ({}))) as { error?: string })?.error
         // A refusal (4xx: ACTION_BUSY, a teammate's job already running; no
@@ -1401,12 +1478,31 @@ export function ActionDetailPanel({
         }
         throw new Error(error || 'start failed')
       }
-      const started = (await res.json().catch(() => null)) as { mode?: string; mac?: string } | null
-      // On your Mac ("Run my work here"): it runs there, not in the cloud-run
-      // view, and the server marks it working itself (read back here, the
+      const started = (await res.json().catch(() => null)) as {
+        mode?: string
+        mac?: string
+        folder?: string
+        sessionId?: string
+        agent?: string | null
+      } | null
+      // On your Mac ("Run my work here"): it runs there, so its own panel
+      // opens (the transcript, Stop, its pull request), not the cloud-run
+      // view. The server marks it working itself (read back here, the
       // entity bus brings it too).
       if (started?.mode === 'mac') {
-        toast.success(started.mac ? `Started on ${started.mac}` : 'Running on your Mac')
+        if (started.sessionId) {
+          setMacJob({
+            sessionId: started.sessionId,
+            status: 'starting',
+            worker: typeof started.agent === 'string' && started.agent ? started.agent : null,
+            deviceName: started.mac ?? '',
+            folderLabel: started.folder ?? '',
+            live: true,
+          })
+          setPanelView('mac')
+        } else {
+          toast.success(started.mac ? `Started on ${started.mac}` : 'Running on your Mac')
+        }
         refetchAgentFields()
         return
       }
@@ -1517,13 +1613,16 @@ export function ActionDetailPanel({
         </div>
       )}
       {/* Sub-header toolbar — action buttons (matches left panel toolbar height) */}
-      <div className="flex h-10 shrink-0 items-center px-3">
+      {/* A container: the Start's "with" label shortens when the toolbar is tight. */}
+      <div className="@container/actiontoolbar flex h-10 shrink-0 items-center px-3">
         {/* View switcher — pill tabs matching the project detail panel. Offered
             whenever this action can carry a server-side run: an AI assignee
             (coding run), a workspace-kind run (Loops v3 work run — reachable even
             after it completes), or a currently-live run status. */}
         {action && (
-          <div className="flex items-center gap-1">
+          // The tabs keep their labels whole (the Start's "with" collapses to an icon
+          // first); only then do they scroll, never pushing the toolbar's icons out.
+          <div className="flex min-w-0 shrink items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <button
               onClick={() => setPanelView('details')}
               className={cn(
@@ -1564,6 +1663,23 @@ export function ActionDetailPanel({
               )}
             </button>
             )}
+            {macJob && (
+              <button
+                onClick={() => setPanelView('mac')}
+                data-action-mac-tab=""
+                className={cn(
+                  'inline-flex shrink-0 items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-colors whitespace-nowrap',
+                  panelView === 'mac'
+                    ? 'bg-foreground text-background border-foreground font-medium'
+                    : 'bg-background text-muted-foreground border-border hover:bg-muted hover:text-foreground',
+                )}
+              >
+                <Laptop className="h-3 w-3" />
+                {macJob.worker ? workerLabel(macJob.worker) : 'On your Mac'}
+                {/* Only a job that is starting or running spins; one idle for a message doesn't. */}
+                {(macJob.status === 'starting' || macJob.status === 'running') && <Loader2 data-action-mac-tab-working="" className="h-3 w-3 animate-spin" />}
+              </button>
+            )}
             <button
               onClick={() => setPanelView('agents')}
               className={cn(
@@ -1593,7 +1709,7 @@ export function ActionDetailPanel({
             Waiting on you
           </button>
         )}
-        <WindowActions reveal={reminderOpen} className="ml-auto flex items-center gap-1">
+        <WindowActions reveal={reminderOpen} className="ml-auto flex shrink-0 items-center gap-1">
           {saving && <span className="text-xs text-muted-foreground">Saving...</span>}
           {/* Listen mode (desktop only): where this action stands, then its
                     description, spoken as it opens. No button of its own: the
@@ -1626,6 +1742,16 @@ export function ActionDetailPanel({
           </ReminderPickerPopover>
           {/* Agent run control — only when this action is assigned to an agent.
                     Idle/failed = launch button; working/PR-opened = status icon. */}
+          {/* Who does the work when Start runs on the person's Mac as a coding job (the route's own rule); nothing to choose: nothing shown, and Start sends no choice. */}
+          {action?.assignee_ai_member_id && action.agent_run_status !== 'working' && action.agent_run_status !== 'pr_open' && (
+            <StartAgentWith
+              actionId={action.id}
+              enabled
+              value={startWorker}
+              onChange={setStartWorker}
+              disabled={startingAgent}
+            />
+          )}
           {action?.assignee_ai_member_id && (
             <TooltipProvider delayDuration={200}>
               <Tooltip>
@@ -1634,12 +1760,13 @@ export function ActionDetailPanel({
                     // Running — click to jump to the Cloud run view, where the
                     // Stop button lives. Spinner doubles as the affordance.
                     <PreferenceActionButton
-                      label="View the running cloud job"
+                      label={macJob?.live ? 'View the job on your Mac' : 'View the running cloud job'}
                       variant="ghost"
                       size="sm"
                       className="h-7 w-7 p-0 text-primary hover:text-primary"
-                      onClick={() => setPanelView('cloud')}
-                      aria-label="View the running cloud job"
+                      // A job on the person's Mac opens its own panel; a cloud run, the cloud-run view.
+                      onClick={() => setPanelView(macJob?.live ? 'mac' : 'cloud')}
+                      aria-label={macJob?.live ? 'View the job on your Mac' : 'View the running cloud job'}
                     >
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     </PreferenceActionButton>
@@ -1814,6 +1941,11 @@ export function ActionDetailPanel({
           <div className="mx-auto w-full max-w-[736px] px-5">
             <EntityActivitySection entityType="action" entityId={actionId} />
           </div>
+        </div>
+      ) : panelView === 'mac' && macJob ? (
+        // The same inset as Details' reading column.
+        <div data-action-mac-job={macJob.sessionId} className="mx-auto flex min-h-0 w-full max-w-[736px] flex-1 flex-col px-8 pb-4">
+          <LocalAgentPanel key={macJob.sessionId} sessionId={macJob.sessionId} />
         </div>
       ) : panelView === 'cloud' && canShowCloudTab ? (
         <CloudRunView

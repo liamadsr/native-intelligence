@@ -20,6 +20,7 @@ export {
   MAC_BUSY_REASON,
   archiveEnvironment,
   cleanCloudFields,
+  cleanWorker,
   createCloudEnvironment,
   getDefault,
   getEnvironment,
@@ -31,4 +32,5 @@ export {
   updateEnvironment,
   type CloudFields,
   type CloudFieldsInput,
+  type EnvironmentPatchInput,
 } from './store'

@@ -98,6 +98,12 @@ import type { ApprovalContext } from '@/lib/safety/approvals'
  */
 export interface CreateToolsOptions {
   /**
+   * How long an attachment's signed link lives, in seconds (get_attachment_content,
+   * search, deep_search): an hour when absent. A job on the person's own coding
+   * agent passes 10 minutes: the link goes into a third-party vendor's context and logs.
+   */
+  signedUrlTtlSeconds?: number
+  /**
    * Who reads list_bot_work and get_bot_item (one face, always-on-agent §2c):
    * the chat agent itself (`agent`, the default: its own face's lines in the
    * first person) or a client acting for the person over MCP (`person`: "Your
@@ -512,7 +518,7 @@ export function createTools(
     }),
     ...createCommentTools(userId, supabase, workspaceId, omitPrivate, strict, createPolicy, omitGrants, editGrants),
     ...createDashboardTools(userId, supabase, workspaceId, omitPrivate),
-    ...createSearchTools(userId, supabase, workspaceId, omitPrivate, options?.searchDefaultWindow ?? 'all_time', strict, options?.nowContext?.readable === true, omitGrants),
+    ...createSearchTools(userId, supabase, workspaceId, omitPrivate, options?.searchDefaultWindow ?? 'all_time', strict, options?.nowContext?.readable === true, omitGrants, options?.signedUrlTtlSeconds),
     ...createNotificationTools(userId, supabase, workspaceId),
     // One team chat message and its thread, read as the caller (none on a guest's or a linked agent's turn).
     ...createTeamChatTools(userId, supabase, workspaceId, { strictWorkspace: strict, omitGrants }),
@@ -530,7 +536,7 @@ export function createTools(
     // jobs they say are done, each sending that customer the link once.
     ...createReviewTools(userId, supabase, workspaceId, strict, { unattended: options?.unattended === true, omitGrants }),
     ...createEmailManagementTools(userId, supabase, workspaceId, accessToken),
-    ...createAttachmentTools(userId, supabase, workspaceId, strict, omitPrivate, omitGrants),
+    ...createAttachmentTools(userId, supabase, workspaceId, strict, omitPrivate, omitGrants, options?.signedUrlTtlSeconds),
     // The browser zone: a schedule loop with no timezone takes the person's.
     // The chat's conversation counts the flow cards it raises (approval caps);
     // a replayed approval runs the stored change (F1, ../flows/flow-approvals.ts).

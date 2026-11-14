@@ -38,7 +38,7 @@ import {
   startInEnvironment,
 } from '../start'
 import { ACTION_REQUEST_PREFIX, unattendedRequestText } from '@/lib/local-agent/unattended'
-import { LOCAL_AGENT_MESSAGE_MAX_BYTES, LOCAL_AGENT_REQUEST_MAX_BYTES } from '@/lib/local-agent/store'
+import { LOCAL_AGENT_MESSAGE_MAX_BYTES, LOCAL_AGENT_REQUEST_MAX_BYTES, QUEUED_TTL_MS } from '@/lib/local-agent/store'
 import { EnvironmentError, RUN_ENVIRONMENT_UNUSABLE_CODE, type MacFolder } from '../types'
 import { UNATTENDED_QUEUED_TTL_MS, isUnattendedSession, parseActionJobKey, unattendedToolReview, type UnattendedDeps } from '@/lib/local-agent/unattended'
 import { isAttendedSession } from '@/lib/local-agent/store'
@@ -212,8 +212,10 @@ describe('startActionOnMac', () => {
     expect(parseActionJobKey(s.idempotency_key as string)).toMatchObject({ actionId: ACTION })
     expect(String(s.request)).toMatch(/^\[From one of your actions\] Work on the Native Intelligence action ENG-42/)
     expect(String(s.request)).toContain('[END UNTRUSTED CONTENT]')
-    // The short queue: a Mac that sleeps right after the check never runs it hours later.
-    expect(Date.parse(s.expires_at as string) - Date.now()).toBeLessThanOrEqual(UNATTENDED_QUEUED_TTL_MS)
+    // A card waits its turn for a free slot on the Mac (its badge says "queued"), as long as a person's job may:
+    // migration 659. A loop's job keeps the short queue (UNATTENDED_QUEUED_TTL_MS).
+    expect(Date.parse(s.expires_at as string) - Date.now()).toBeLessThanOrEqual(QUEUED_TTL_MS)
+    expect(Date.parse(s.expires_at as string) - Date.now()).toBeGreaterThan(UNATTENDED_QUEUED_TTL_MS)
     // Unattended everywhere it is asked.
     expect(isUnattendedSession(s as never)).toBe(true)
     expect(isAttendedSession(s as never)).toBe(false)

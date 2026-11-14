@@ -11,6 +11,11 @@ import {
   CLAIM_COOLDOWN_MS,
   GRANT_GONE,
   GRANT_READ_ONLY,
+  WORKER_INVALID,
+  WORKER_UNSUPPORTED,
+  QUEUE_DROPPED,
+  START_INLINE_MS,
+  LEFT_LINE_UNSAID,
   POLL_MS,
   RUST_TEXT_MAX_BYTES,
   createLocalAgentRelay,
@@ -131,6 +136,8 @@ function makeBridge(log: LogLine[], init: { grants?: LocalAgentGrant[]; jobs?: L
     localModel: undefined as boolean | undefined,
     /** The desktop resolves an edit job's base branch (environments E3); undefined: an older desktop. */
     baseBranch: undefined as boolean | undefined,
+    /** The coding agents it offers a start (migration 658's choice); undefined: a desktop that can't run them. */
+    workers: undefined as Array<{ id: string; label: string }> | undefined,
   }
   let listener: ((e: LocalAgentEventEnvelope) => void) | null = null
   const emit = (e: LocalAgentEventEnvelope) => listener?.(e)
@@ -146,6 +153,7 @@ function makeBridge(log: LogLine[], init: { grants?: LocalAgentGrant[]; jobs?: L
       jobs: state.jobs,
       ...(state.localModel === undefined ? {} : { localModel: state.localModel }),
       ...(state.baseBranch === undefined ? {} : { baseBranch: state.baseBranch }),
+      ...(state.workers === undefined ? {} : { workers: state.workers }),
     })),
     start: vi.fn(async (args: LocalAgentStartArgs): Promise<LocalAgentResult<{ jobId: string; runId: string }>> => {
       log.push(`start ${args.jobId}`)
@@ -409,6 +417,8 @@ describe('relay-core helpers', () => {
         { grantId: 'g2', label: 'g2', path: '/Users/me/code/g2', mode: 'edit', isGit: true },
       ],
       liveJobIds: [S1],
+      // None waits in the Mac's line (sent every beat, so the server clears it when the line empties).
+      queuedJobIds: [],
       // No `baseBranch` in the status: an older desktop, which branches from HEAD.
       capabilities: [],
     })
@@ -470,7 +480,7 @@ describe('relay: pending → claim → start', () => {
     })
     const order = h.log.filter((l) => /claim|^start|state|events/.test(l))
     expect(order).toEqual([
-      `POST /sessions/${S1}/claim {"deviceId":"${DEVICE.deviceId}","runId":"claim-1"}`,
+      `POST /sessions/${S1}/claim {"deviceId":"${DEVICE.deviceId}","runId":"claim-1","workers":true}`,
       `start ${S1}`,
       `POST /sessions/${S1}/state {"runId":"run-A","previousRunId":"claim-1","deviceId":"${DEVICE.deviceId}"}`,
       `POST /sessions/${S1}/events {"runId":"run-A","events":[{"seq":1,"event":{"kind":"status","status":"starting"}}]}`,
@@ -485,7 +495,7 @@ describe('relay: pending → claim → start', () => {
       },
     })
     await h.relay.flushAll()
-    expect(h.server.requests.find((r) => r.path.endsWith('/claim'))?.body).toEqual({ deviceId: DEVICE.deviceId, runId: 'claim-1', localModel: true })
+    expect(h.server.requests.find((r) => r.path.endsWith('/claim'))?.body).toEqual({ deviceId: DEVICE.deviceId, runId: 'claim-1', localModel: true, workers: true })
   })
 
   it('a 409 on claim is skipped, and not retried until the cool-down passes', async () => {
@@ -866,8 +876,7 @@ describe('relay: messages and stops', () => {
     expect(h.bridge.start).not.toHaveBeenCalled()
   })
 
-  it('asks the person about one coding agent at a time; the other’s message waits, unacked', async () => {
-    let answer: (v: { ok: true; value: { jobId: string; runId: string } }) => void = () => {}
+  it('two coding agents whose yes the Mac remembers revive side by side: nothing waits on the person unless a confirm is up', async () => {
     const h = await boot({
       jobs: [
         job(S1, { live: false, status: 'waiting', sessionId: 'ses-1', worker: 'claude-code' }),
@@ -879,21 +888,11 @@ describe('relay: messages and stops', () => {
           { id: 'm1', sessionId: S1, text: 'One.', policy: 'queue', author: 'person' },
           { id: 'm2', sessionId: S2, text: 'Two.', policy: 'queue', author: 'person' },
         ]
-        x.bridge.resume.mockImplementationOnce(() => new Promise((r) => (answer = r)))
       },
     })
-    expect(h.bridge.resume.mock.calls.map((c) => c[0])).toEqual([S1])
-    await h.relay.ring()
-    expect(h.bridge.resume.mock.calls.map((c) => c[0]), 'never two confirms at once').toEqual([S1])
-    expect(h.server.posts('/ack')).toEqual([])
-    // The first answered: the drain runs again, and the second is asked.
-    answer({ ok: true, value: { jobId: S1, runId: 'run-B' } })
     await settle()
-    expect(h.bridge.resume.mock.calls.map((c) => c[0])).toEqual([S1, S2])
-    expect(h.server.posts('/ack').map((r) => [r.path.split('/')[4], r.body])).toEqual([
-      ['m1', { ok: true }],
-      ['m2', { ok: true }],
-    ])
+    expect(h.bridge.resume.mock.calls.map((c) => c[0]).sort()).toEqual([S1, S2].sort())
+    expect(h.server.posts('/ack').map((r) => r.path.split('/')[4]).sort()).toEqual(['m1', 'm2'])
   })
 
   it('a confirm already up on the Mac leaves a coding agent’s message pending, never failed', async () => {
@@ -984,6 +983,42 @@ describe('relay: messages and stops', () => {
       },
     })
     expect(startArgs(read)).not.toHaveProperty('baseBranch')
+  })
+
+  it('runs a job on the coding agent the person chose for this Mac (migration 658), and never on ours instead', async () => {
+    const workerClaim = (worker: unknown) => (x: Harness) => {
+      x.server.state.pending.start = [pendingStart(S1)]
+      const claimBody = x.server.state.claimBody
+      x.server.state.claimBody = (id: string) => ({ ...claimBody(id), worker })
+    }
+    const startArgs = (h: { bridge: { start: { mock: { calls: unknown[][] } } } }) => h.bridge.start.mock.calls[0][0] as LocalAgentStartArgs
+    // A desktop that lists coding agents gets the id; the Mac checks it against its own list.
+    const offered = await boot({ setup: (x) => { workerClaim('claude-code')(x); x.state.workers = [{ id: 'claude-code', label: 'Claude Code' }] } })
+    expect(startArgs(offered)).toMatchObject({ jobId: S1, worker: 'claude-code' })
+    // Listed or not, the Mac decides: one it doesn't offer is still sent, and its own sentence comes back as the failure.
+    const notOffered = await boot({
+      setup: (x) => {
+        workerClaim('codex')(x)
+        x.state.workers = []
+        x.bridge.start.mockResolvedValueOnce({ ok: false, unavailable: false, error: 'Codex isn’t switched on on this Mac (Local Agents → Coding Agents)' } as never)
+      },
+    })
+    expect(startArgs(notOffered)).toMatchObject({ worker: 'codex' })
+    expect(notOffered.bridge.start).toHaveBeenCalledTimes(1)
+    expect(notOffered.server.posts('/state')[0].body).toEqual({ runId: 'claim-1', status: 'failed', error: 'Codex isn’t switched on on this Mac (Local Agents → Coding Agents)' })
+    // A desktop too old to list coding agents would ignore `worker` and run ours: failed instead, nothing started.
+    const older = await boot({ setup: workerClaim('claude-code') })
+    expect(older.bridge.start).not.toHaveBeenCalled()
+    expect(older.server.posts('/state')[0].body).toEqual({ runId: 'claim-1', status: 'failed', error: WORKER_UNSUPPORTED })
+    // Something that isn't an id is refused, never read as "ours".
+    const bad = await boot({ setup: (x) => { workerClaim('Claude Code')(x); x.state.workers = [{ id: 'claude-code', label: 'Claude Code' }] } })
+    expect(bad.bridge.start).not.toHaveBeenCalled()
+    expect(bad.server.posts('/state')[0].body).toEqual({ runId: 'claim-1', status: 'failed', error: WORKER_INVALID })
+    // No worker (our own agent, or an older server): nothing extra in the start.
+    const ours = await boot({ setup: (x) => { workerClaim(null)(x); x.state.workers = [{ id: 'claude-code', label: 'Claude Code' }] } })
+    expect(startArgs(ours)).not.toHaveProperty('worker')
+    const olderServer = await boot({ setup: (x) => (x.server.state.pending.start = [pendingStart(S1)]) })
+    expect(startArgs(olderServer)).not.toHaveProperty('worker')
   })
 
   it('starts and resumes on the model the server recorded (teammate plan): the desktop launches on it or refuses', async () => {
@@ -1169,5 +1204,170 @@ describe('relay: model token', () => {
     })
     expect(h.server.posts('/model-token')).toHaveLength(1)
     expect(h.bridge.setModelToken).toHaveBeenCalledWith(S1, 'la1.tok-2.mac')
+  })
+})
+
+describe('relay: the Mac’s own line for a free slot (board step 2)', () => {
+  const TIDYING = "this job's worktree is being tidied up on this Mac; try again in a moment"
+  /** The Mac holds S1's start in its line: the call answers only when `answer` is called. */
+  const heldStart = (x: Harness, setAnswer: (fn: (v: unknown) => void) => void) => {
+    x.server.state.pending.start = [pendingStart(S1)]
+    x.bridge.start.mockImplementationOnce(() => new Promise((r) => setAnswer(r as (v: unknown) => void)) as never)
+  }
+
+  it('a start the Mac holds in line finishes off the drain: other work goes on, and it is never claimed or started twice', async () => {
+    let answer: (v: unknown) => void = () => {}
+    const h = await boot({
+      jobs: [job(S2, { status: 'waiting', live: false })],
+      setup: (x) => {
+        heldStart(x, (fn) => (answer = fn))
+        x.server.state.sessions.set(S2, { status: 'waiting', runId: 'run-A', lastDeviceSeq: null })
+      },
+    })
+    expect(h.bridge.start).toHaveBeenCalledTimes(1)
+    // The Mac doesn't answer at once: after a moment the drain goes on without it.
+    await h.clock.advance(START_INLINE_MS)
+    await settle()
+    h.server.state.pending.messages = [{ id: 'm2', sessionId: S2, text: 'Next.', policy: 'queue', author: 'agent' }]
+    await h.relay.ring()
+    await settle()
+    expect(h.server.posts('/ack').map((r) => r.path.split('/')[4])).toEqual(['m2'])
+    // The server still lists S1 (in this fake): it is held, so never claimed or started again.
+    await h.relay.ring()
+    await settle()
+    expect(h.server.posts('/claim')).toHaveLength(1)
+    expect(h.bridge.start).toHaveBeenCalledTimes(1)
+    // A slot frees: the Mac begins it, and the relay binds its run.
+    answer({ ok: true, value: { jobId: S1, runId: 'run-Q' } })
+    await settle()
+    expect(h.server.posts('/state').some((r) => (r.body as { runId?: string }).runId === 'run-Q')).toBe(true)
+    expect(h.server.posts('/state').some((r) => (r.body as { status?: string }).status === 'failed')).toBe(false)
+  })
+
+  it('its model token stays fresh while it waits in the Mac’s line, and is refreshed at once when it begins', async () => {
+    // Short-lived tokens (8 minutes) so the fake clock stays fast; the job waits three lifetimes.
+    const LIFE = 8 * 60_000
+    let answer: (v: unknown) => void = () => {}
+    const h = await boot({
+      setup: (x) => {
+        heldStart(x, (fn) => (answer = fn))
+        const claim = x.server.state.claimBody
+        x.server.state.claimBody = (id) => ({ ...claim(id), modelToken: 'la1.tok-1.mac', modelTokenExpiresAt: new Date(T0 + LIFE).toISOString() })
+        x.server.on('POST', /\/model-token$/, () => ({
+          status: 200,
+          body: { modelToken: `la1.tok-${++x.server.state.tokens}.mac`, expiresAt: new Date(x.clock.now() + LIFE).toISOString() },
+        }))
+      },
+    })
+    h.server.state.pending.start = []
+    h.state.jobs = [job(S1, { status: 'starting', live: true, queued: true })]
+    await h.clock.advance(START_INLINE_MS)
+    await settle()
+    await h.clock.advance(3 * LIFE)
+    const during = h.server.posts('/model-token').length
+    expect(during).toBeGreaterThanOrEqual(3)
+    expect(h.bridge.setModelToken).toHaveBeenLastCalledWith(S1, `la1.tok-${during + 1}.mac`)
+    // It begins: one more, at once, whatever the schedule said.
+    const lastRefreshAt = h.clock.now()
+    answer({ ok: true, value: { jobId: S1, runId: 'claim-1' } })
+    await settle()
+    expect(h.server.posts('/model-token')).toHaveLength(during + 1)
+    expect(h.bridge.setModelToken).toHaveBeenLastCalledWith(S1, `la1.tok-${during + 2}.mac`)
+    expect(h.clock.now()).toBe(lastRefreshAt)
+  })
+
+  it('the heartbeat names the jobs waiting in the Mac’s line (they stay live, so their lease is renewed)', () => {
+    const body = heartbeatBody(DEVICE, { grants: [], jobs: [job(S1, { status: 'starting', live: true, queued: true }), job(S2)] })
+    expect(body).toMatchObject({ liveJobIds: [S1, S2], queuedJobIds: [S1] })
+  })
+
+  it('a stop while it waits in the Mac’s line: stopped there, and the session cancelled, never failed', async () => {
+    let answer: (v: unknown) => void = () => {}
+    const h = await boot({ setup: (x) => heldStart(x, (fn) => (answer = fn)) })
+    await h.clock.advance(START_INLINE_MS)
+    await settle()
+    h.server.state.pending.start = []
+    h.state.jobs = [job(S1, { status: 'starting', live: true, queued: true })]
+    h.server.state.pending.stops = [{ sessionId: S1 }]
+    await h.relay.ring()
+    await settle()
+    expect(h.bridge.stop.mock.calls.map((c) => c[0])).toEqual([S1])
+    answer({ ok: false, unavailable: false, error: QUEUE_DROPPED })
+    await settle()
+    expect(h.server.posts('/state').map((r) => (r.body as { status?: string }).status)).toEqual(['cancelled'])
+  })
+
+  it('stopped on the Mac itself (the tray, local agents off): ended with the Mac’s sentence, not a failure', async () => {
+    let answer: (v: unknown) => void = () => {}
+    const h = await boot({ setup: (x) => heldStart(x, (fn) => (answer = fn)) })
+    await h.clock.advance(START_INLINE_MS)
+    await settle()
+    answer({ ok: false, unavailable: false, error: QUEUE_DROPPED })
+    await settle()
+    expect(h.server.posts('/state').map((r) => r.body)).toEqual([{ runId: 'claim-1', status: 'cancelled', error: QUEUE_DROPPED }])
+  })
+
+  /** The page reloads while S1 waits in the Mac's line: a new relay over the same Mac and server. */
+  async function reloadedWhileWaiting() {
+    const h = await boot({
+      setup: (x) => {
+        heldStart(x, () => {})
+        x.server.on('POST', /\/model-token$/, () => ({ status: 200, body: { modelToken: `la1.tok-${++x.server.state.tokens}.mac`, expiresAt: null } }))
+      },
+    })
+    await h.clock.advance(START_INLINE_MS)
+    await settle()
+    h.relay.dispose()
+    h.server.state.pending.start = []
+    h.state.jobs = [job(S1, { status: 'starting', live: true, queued: true, runId: null })]
+    h.server.state.sessions.set(S1, { status: 'starting', runId: 'claim-1', lastDeviceSeq: null })
+    h.server.requests.length = 0
+    const fresh = createLocalAgentRelay({ fetch: h.server.fetch, bridge: h.bridge, clock: h.clock, personName: () => 'Ana', newRunId: () => 'claim-new' })
+    relays.push(fresh)
+    await fresh.start()
+    await settle()
+    return { ...h, fresh }
+  }
+
+  it('after a reload, the new relay takes over a start waiting in the Mac’s line: a fresh token at once', async () => {
+    const h = await reloadedWhileWaiting()
+    expect(h.server.posts('/model-token').length).toBeGreaterThanOrEqual(1)
+    expect(h.bridge.setModelToken).toHaveBeenCalledWith(S1, expect.stringMatching(/^la1\.tok-\d+\.mac$/))
+    expect(h.server.posts('/claim')).toEqual([])
+  })
+
+  it('after a reload, one that leaves the line without beginning (not stopped from here) is a failure said plainly, never “stopped”', async () => {
+    const h = await reloadedWhileWaiting()
+    h.state.jobs = []
+    await h.fresh.ring()
+    await settle()
+    expect(h.server.posts('/state').map((r) => r.body)).toEqual([{ runId: 'claim-1', status: 'failed', error: LEFT_LINE_UNSAID }])
+    expect(LEFT_LINE_UNSAID).not.toContain(QUEUE_DROPPED)
+  })
+
+  it('after a reload, a stop from the server ends it as a clean cancel', async () => {
+    const h = await reloadedWhileWaiting()
+    h.server.state.pending.stops = [{ sessionId: S1 }]
+    await h.fresh.ring()
+    await settle()
+    expect(h.bridge.stop.mock.calls.map((c) => c[0])).toEqual([S1])
+    expect(h.server.posts('/state').map((r) => r.body)).toEqual([{ runId: 'claim-1', status: 'cancelled' }])
+  })
+
+  it('the Mac’s other new sentences reach the person as they are', async () => {
+    const tidying = await boot({
+      setup: (x) => {
+        x.server.state.pending.start = [pendingStart(S1)]
+        x.bridge.start.mockResolvedValueOnce({ ok: false, unavailable: false, error: TIDYING } as never)
+      },
+    })
+    expect(tidying.server.posts('/state')[0].body).toEqual({ runId: 'claim-1', status: 'failed', error: TIDYING })
+    const already = await boot({
+      setup: (x) => {
+        x.server.state.pending.start = [pendingStart(S1)]
+        x.bridge.start.mockResolvedValueOnce({ ok: false, unavailable: false, error: 'this job is already waiting for a free slot on this Mac' } as never)
+      },
+    })
+    expect(already.server.posts('/state')[0].body).toMatchObject({ status: 'failed', error: 'this job is already waiting for a free slot on this Mac' })
   })
 })

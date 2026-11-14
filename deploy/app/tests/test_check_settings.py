@@ -168,6 +168,38 @@ class FakeHttp:
         cs.http = self.real
 
 
+class ChatGptPair(unittest.TestCase):
+    """"Continue with ChatGPT": the client id and its secret, both or neither."""
+
+    def run_check(self, name, env):
+        with FakeHttp([]) as fake:
+            result = cs.CHECKS[name](dict(env), {})
+        self.assertEqual(fake.calls, [])  # nothing is asked of OpenAI
+        return result
+
+    def test_both_set_is_quiet(self):
+        env = {"CHATGPT_CLIENT_ID": "oaiapp_madeup123", "CHATGPT_CLIENT_SECRET": "made-up-secret"}
+        for name in env:
+            self.assertEqual(self.run_check(name, env), (None, None))
+
+    def test_one_without_the_other_is_wrong(self):
+        ok, note = self.run_check("CHATGPT_CLIENT_ID", {"CHATGPT_CLIENT_ID": "oaiapp_madeup123", "CHATGPT_CLIENT_SECRET": " "})
+        self.assertIs(ok, False)
+        self.assertIn("CHATGPT_CLIENT_SECRET", note)
+        self.assertIn("no sign-in can finish", note)
+        ok, note = self.run_check("CHATGPT_CLIENT_SECRET", {"CHATGPT_CLIENT_SECRET": "made-up-secret"})
+        self.assertIs(ok, False)
+        self.assertIn("CHATGPT_CLIENT_ID", note)
+
+    def test_optional_and_reported_as_wrong_when_alone(self):
+        for name in ("CHATGPT_CLIENT_ID", "CHATGPT_CLIENT_SECRET", "CHATGPT_REDIRECT_URI"):
+            self.assertEqual(cs.group(name), "may be empty")
+        env = {"CHATGPT_CLIENT_ID": "oaiapp_madeup123", "CHATGPT_CLIENT_SECRET": "", "CHATGPT_REDIRECT_URI": ""}
+        lines, _blockers, _unchecked = cs.report(env, {"CHATGPT_CLIENT_ID": self.run_check("CHATGPT_CLIENT_ID", env)})
+        self.assertTrue(any("CHATGPT_CLIENT_ID" in line and "no sign-in can finish" in line for line in lines), lines)
+        self.assertNotIn("made", "\n".join(lines))  # never a value
+
+
 class Slack(unittest.TestCase):
     ENV = {"SLACK_APP_ID": "A0MADEUP01", "SLACK_CLIENT_ID": "1111111111.2222222222",
            "SLACK_CLIENT_SECRET": "c1" * 16, "SLACK_SIGNING_SECRET": "5e" * 16}

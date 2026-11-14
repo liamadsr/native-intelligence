@@ -443,6 +443,11 @@ impl Resolver {
         let _ = self.probe().await;
     }
 
+    /// HOME (canonical), as git outside a launch gets it.
+    pub(super) fn home_str(&self) -> String {
+        self.home.to_string_lossy().into_owned()
+    }
+
     /// The login shell's PATH, sanitized, else [`FALLBACK_PATH`].
     pub(super) async fn shell_path(&self) -> String {
         self.probe()

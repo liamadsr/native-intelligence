@@ -15,8 +15,11 @@
 //     module paths the bundlers leave in it (rolldown's `//#region <path>` and
 //     esbuild's `// <path>` comments) and in the agent-packages file, in the
 //     desktop's notices format, with each package's license files in
-//     licenses/<name>-<version>/. The desktop stages it with the app's other
-//     third-party notices.
+//     licenses/<name>-<version>/. The packages installed whole in the bundle's
+//     acp/node_modules (the workers' agent adapters, install-agents.sh) are
+//     listed from there, by their own package.json, and that folder is not
+//     scanned for module comments (they name the packages' own sources). The
+//     desktop stages it with the app's other third-party notices.
 //
 //   node bundle-notices.mjs --stamp <repo> <out-dir> <web-commit> <dirty> [<capabilities>]
 //     BUNDLE.json: the web commit it came from, eve's version, the Node major
@@ -58,9 +61,14 @@ function stamp(repo, outDir, commit, dirty, caps = '') {
 // `…/node_modules/a/node_modules/@b/c/dist/x.js` → `node_modules/a/node_modules/@b/c`.
 const PKG_PATH = /(?:^|[\s/])(node_modules\/(?:(?:@[^/\s]+\/)?[^/\s]+\/node_modules\/)*(?:@[^/\s]+\/)?[^/\s]+)\//g
 
+/** The installed packages folder a bundle carries whole (mac-body.sh build_workers). */
+const INSTALLED = join('acp', 'node_modules')
+
 function packagesIn(dir) {
   const found = new Set()
+  const installed = join(dir, INSTALLED) + '/'
   for (const p of walk(dir)) {
+    if (p.startsWith(installed)) continue
     if (!/\.(mjs|js|cjs)$/.test(p)) continue
     for (const line of readFileSync(p, 'utf8').split('\n')) {
       if (!line.startsWith('//')) continue
@@ -100,6 +108,23 @@ async function agentPackages(repo, agentDir, outFile) {
 
 const LICENSE_FILE = /^(licen[cs]e|notice|copying)(\.|-|$)/i
 
+/** Every package folder under an installed node_modules, nested ones too (`@scope/name`, `a/node_modules/b`). */
+function installedPackages(nodeModules) {
+  const out = []
+  if (!existsSync(nodeModules)) return out
+  for (const name of readdirSync(nodeModules).sort()) {
+    if (name.startsWith('.')) continue
+    const p = join(nodeModules, name)
+    if (!statSync(p).isDirectory()) continue
+    const dirs = name.startsWith('@') ? readdirSync(p).sort().map((n) => join(p, n)).filter((d) => statSync(d).isDirectory()) : [p]
+    for (const d of dirs) {
+      if (existsSync(join(d, 'package.json'))) out.push(d)
+      out.push(...installedPackages(join(d, 'node_modules')))
+    }
+  }
+  return out
+}
+
 function repoUrl(pkg) {
   const r = typeof pkg.repository === 'string' ? pkg.repository : pkg.repository?.url
   const url = (r ?? pkg.homepage ?? '').replace(/^git\+/, '').replace(/\.git$/, '').replace(/^git:\/\//, 'https://')
@@ -126,17 +151,21 @@ function notices(repo, licensesDir, agentPackagesFile) {
     '  downloads from nodejs.org on first use; Node.js is not part of the app)',
     '',
     'These files contain the open-source components below, bundled into the',
-    'agent\'s JavaScript. License paths are relative to this folder.',
+    'agent\'s JavaScript or installed as they are in acp/node_modules. License',
+    'paths are relative to this folder.',
     '',
   ]
   // Pass 1: every package, its license files copied beside NOTICES.txt.
   const pkgs = []
   const seen = new Set()
   const agentOwn = agentPackagesFile ? readFileSync(agentPackagesFile, 'utf8').split('\n').filter(Boolean) : []
-  for (const rel of [...new Set([...packagesIn(out), ...agentOwn])].sort()) {
-    const dir = join(repo, rel)
+  const dirs = [
+    ...[...new Set([...packagesIn(out), ...agentOwn])].sort().map((rel) => join(repo, rel)),
+    ...installedPackages(join(out, INSTALLED)),
+  ]
+  for (const dir of dirs) {
     const pj = join(dir, 'package.json')
-    if (!existsSync(pj)) throw new Error(`bundled package ${rel} has no package.json under ${repo}`)
+    if (!existsSync(pj)) throw new Error(`bundled package ${dir} has no package.json`)
     const pkg = JSON.parse(readFileSync(pj, 'utf8'))
     const key = `${pkg.name}@${pkg.version}`
     if (seen.has(key)) continue

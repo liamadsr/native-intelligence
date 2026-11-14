@@ -57,6 +57,12 @@ vi.mock('react-dnd', () => ({
 
 vi.mock('react-dnd-html5-backend', () => ({ HTML5Backend: {} }))
 
+// The shell's shared agent work (one tracked_job channel): null unless a test sets rows.
+const agentWork = vi.hoisted(() => ({ rows: null as Array<Record<string, unknown>> | null }))
+vi.mock('@/components/work/agent-work-provider', () => ({
+  useOptionalAgentWork: () => (agentWork.rows ? { work: { rows: agentWork.rows }, counts: new Map() } : null),
+}))
+
 // IntersectionObserver isn't implemented in jsdom. Inert stub so the sentinel
 // effect can construct/observe/disconnect without revealing more cards (we
 // assert the INITIAL window, before any intersection fires). We record the
@@ -127,6 +133,7 @@ afterEach(() => {
   act(() => root.unmount())
   container.remove()
   vi.clearAllMocks()
+  agentWork.rows = null
 })
 
 function renderBoard(
@@ -336,5 +343,31 @@ describe('ViewBoard progressive card rendering', () => {
     const uncheckedPayload = uncheckedSpec!.item()
     expect(uncheckedPayload.id).toBe('todo-0')
     expect(uncheckedPayload.ids).toEqual(['todo-0'])
+  })
+})
+
+describe('ViewBoard cards: the delegate’s run, as a list row shows it', () => {
+  const card = (over: Record<string, unknown>) => ({ id: 'act-1', title: 'Fix the export', ...over })
+
+  it('a card an agent is working shows its status; the person’s own coding agent is named', () => {
+    agentWork.rows = [{ status: 'running', source: { local_agent_action_id: 'act-1', worker: 'claude-code' } }]
+    renderBoard([
+      {
+        key: 'doing',
+        label: 'In Progress',
+        items: [
+          card({ assignee_ai_member_id: 'ai-1', agent_run_status: 'working' }),
+          card({ id: 'act-2', title: 'Tidy the README', assignee_ai_member_id: 'ai-1', agent_run_status: 'working' }),
+          card({ id: 'act-3', title: 'Nobody on it' }),
+        ],
+      },
+    ])
+    const badges = [...container.querySelectorAll('[data-delegate-work]')].map((el) => el.textContent)
+    expect(badges).toEqual(['Claude Code · working', 'working'])
+  })
+
+  it('nothing running: no badge, and the card is as it was', () => {
+    renderBoard([{ key: 'todo', label: 'Todo', items: [card({ assignee_ai_member_id: 'ai-1', agent_run_status: 'idle' })] }])
+    expect(container.querySelector('[data-delegate-work]')).toBeNull()
   })
 })

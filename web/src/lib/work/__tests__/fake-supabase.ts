@@ -525,6 +525,11 @@ export function makeFakeSupabase(opts: FakeSupabaseOptions = {}): FakeSupabase {
         ilikes.push([k, likeRegex(pattern)])
         return api
       },
+      // `.like(col, 'prefix:%')`: as ilike, but case-sensitive.
+      like: (k: string, pattern: string) => {
+        ilikes.push([k, new RegExp(likeRegex(pattern).source, 's')])
+        return api
+      },
       maybeSingle: async () => {
         const r = term()
         if (Array.isArray(r.data)) return { ...r, data: r.data[0] ?? null }

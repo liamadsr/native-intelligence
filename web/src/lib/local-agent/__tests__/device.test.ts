@@ -244,7 +244,8 @@ describe('claim', () => {
     expect(first).toMatchObject({ grantId: 'g1', mode: 'read', request: 'Take a look', resume: null })
     expect(db.tables.local_agent_session[0]).toMatchObject({ status: 'starting', run_id: 'p1' })
     expect(Date.parse(db.tables.local_agent_session[0].lease_expires_at as string)).toBeGreaterThan(Date.now())
-    expect(moves()).toEqual([{ type: 'step', text: 'Starting on your Mac' }])
+    // The ledger row stays queued until the Mac's first word (it may hold the job in its line).
+    expect(moves()).toEqual([])
     expect(await claimSession(db as never, USER, id, { deviceId: DEVICE, runId: 'p2' })).toBeNull()
     expect(await claimSession(db as never, OTHER, id, { deviceId: DEVICE, runId: 'p2' })).toBeNull()
   })

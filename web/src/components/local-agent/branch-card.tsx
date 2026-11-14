@@ -5,11 +5,12 @@
  * local agent's changes on, in a separate worktree on the Mac. The checkout's
  * own branch is untouched, and the branch is pushed (with its pull request)
  * only after the person's yes on the Mac (teammate plan C5): the thread's
- * pull request line says when it was. So the card says where the work is and
- * copies the branch name; it offers nothing else to do.
+ * pull request line says when it was. So the card says where the work is,
+ * copies the branch name and, inside a job's panel, opens its Changes
+ * (changes-view.tsx: read from that Mac, never stored).
  */
-import { memo, useState } from 'react'
-import { Check, Copy, GitBranch } from 'lucide-react'
+import { createContext, memo, useContext, useState } from 'react'
+import { Check, Copy, FileDiff, GitBranch } from 'lucide-react'
 import { copyTextToClipboard } from '@/lib/clipboard'
 import { cn } from '@/lib/utils'
 
@@ -28,8 +29,12 @@ export function branchStats(b: Pick<BranchCardProps, 'filesChanged' | 'insertion
   return `${files} · +${b.insertions} −${b.deletions}`
 }
 
+/** What the job's panel lets a branch card open: its Changes view. Absent outside a panel. */
+export const BranchCardActions = createContext<{ openChanges?: () => void }>({})
+
 export const BranchCard = memo(function BranchCard({ name, commit, filesChanged, insertions, deletions, className }: BranchCardProps) {
   const [copied, setCopied] = useState(false)
+  const { openChanges } = useContext(BranchCardActions)
   const copy = async () => {
     if (await copyTextToClipboard(name)) {
       setCopied(true)
@@ -57,6 +62,18 @@ export const BranchCard = memo(function BranchCard({ name, commit, filesChanged,
           {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
           {copied ? 'Copied' : 'Copy'}
         </button>
+        {openChanges && (
+          <button
+            type="button"
+            data-local-agent-branch-changes=""
+            onClick={openChanges}
+            title="Read what changed"
+            className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <FileDiff className="h-3 w-3" />
+            Changes
+          </button>
+        )}
       </div>
       <p className="mt-1 pl-[22px] text-muted-foreground">
         {branchStats({ filesChanged, insertions, deletions })}

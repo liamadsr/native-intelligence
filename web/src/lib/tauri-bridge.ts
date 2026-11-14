@@ -4,6 +4,7 @@
  */
 
 import { isDesktopApp } from "./platform";
+import { isWorkerId } from "./environments/types";
 import { disposeAll, listenScoped, toSafeUnlisten } from "./tauri-unlisten";
 import type { NudgeKind } from "./live-agent/nudge-channel";
 import type {
@@ -527,11 +528,18 @@ export interface LocalAgentJob {
    *  worktree, or a coding agent's confirm on the Mac). It can outlive a
    *  terminal status (`failed`), so Stop and send go by this, not by `status`. */
   live: boolean;
-  /** The coding agent it runs on (`claude-code`, `codex`): its launches wait
-   *  for the person's yes on the Mac. Absent: Native Intelligence's agent, or an older desktop. */
+  /** The coding agent it runs on (`claude-code`, `codex`). The Mac asks the
+   *  person once per agent per folder and remembers the answer: a launch
+   *  waits on them only while its confirm is up (`asking`). Absent: Native
+   *  Intelligence's agent, or an older desktop. */
   worker?: string | null;
-  /** Its coding agent's confirm is up on the Mac: another one's launch would
-   *  be refused for now. */
+  /** It waits in the Mac's own line for a free slot (every one of its 3 taken):
+   *  `status` reads `starting` and `live` true meanwhile, and it begins by
+   *  itself when a slot frees. Absent: not waiting (or an older desktop). */
+  queued?: boolean;
+  /** Its coding agent's confirm is up on the Mac (the first launch of that
+   *  agent in that folder): it waits on the person, and another one's launch
+   *  would be refused for now. */
   asking?: boolean;
   /** The highest event seq the desktop holds for it; null (or 0 on an L1
    *  desktop) before any. */
@@ -581,6 +589,19 @@ export interface LocalAgentStartArgs {
    *  and branches from, naming it in the push prompt. Absent or null: HEAD.
    *  Sent only to a desktop whose status says `baseBranch: true`. */
   baseBranch?: string | null;
+  /** The coding agent to run the job on instead of Native Intelligence's
+   *  agent (`claude-code`, `codex`: the person's own, chosen for this Mac,
+   *  migration 658): an id `local_agent_status`'s `workers` lists. The
+   *  desktop refuses an id it doesn't offer, with a sentence for the person,
+   *  and never falls back. Absent or null: Native Intelligence's agent. */
+  worker?: string | null;
+}
+
+/** A coding agent this Mac offers a start right now (`local_agent_status`'s
+ *  `workers`): switched on in the Mac app's menu, its CLI found. */
+export interface LocalAgentWorkerOffer {
+  id: string;
+  label: string;
 }
 
 /** What start and resume answer: the job and the launcher process now running
@@ -610,6 +631,10 @@ export interface LocalAgentStatus {
    *  server in its heartbeat (`capabilities`). Absent: an older desktop, which
    *  branches from HEAD. */
   baseBranch?: boolean;
+  /** The coding agents a start may name in `worker` right now (switched on
+   *  in the Mac app's menu, Local Agents → Coding Agents, and their CLI
+   *  found). An empty list: none. Absent: a desktop that can't run them. */
+  workers?: LocalAgentWorkerOffer[];
 }
 
 /** The launcher's NormalizedEvent (contract §1), plus the desktop's own
@@ -734,6 +759,7 @@ export function toLocalAgentJob(raw: unknown): LocalAgentJob | null {
     runId: nonEmptyString(r.runId),
     ...(nonEmptyString(r.worker) ? { worker: nonEmptyString(r.worker) } : {}),
     ...(r.asking === true ? { asking: true } : {}),
+    ...(r.queued === true ? { queued: true } : {}),
     branch: nonEmptyString(r.branch),
     commit: nonEmptyString(r.commit),
     createdAt: toLocalAgentTimestamp(r.createdAt),
@@ -752,6 +778,71 @@ export function toLocalAgentDevice(raw: unknown): LocalAgentDevice | null {
     name: nonEmptyString(r.name) ?? "Mac",
     platform: nonEmptyString(r.platform) ?? "macos",
     appVersion: typeof r.appVersion === "string" ? r.appVersion : "",
+  };
+}
+
+/** How a file changed on an edit job's branch (`local_agent_diff`). */
+export type LocalAgentDiffStatus = "added" | "modified" | "deleted" | "renamed";
+
+/** One file of `local_agent_diff`: a unified diff (`patch`) unless it is
+ *  binary, its name looks like it holds secrets, or the desktop cut it (the
+ *  limits: 300 files, 200 KB a file, 2 MB in all). */
+export interface LocalAgentDiffFile {
+  path: string;
+  /** A rename's old path. */
+  oldPath?: string;
+  status: LocalAgentDiffStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  /** The unified diff, or "" when the desktop listed the file without one. */
+  patch: string;
+}
+
+/** `local_agent_diff { jobId }`: an edit job's branch against its base,
+ *  read from the Mac on demand (nothing of it is kept on the server). */
+export interface LocalAgentDiff {
+  base: string;
+  head: string;
+  /** The desktop left files or text out (its limits). */
+  truncated: boolean;
+  files: LocalAgentDiffFile[];
+}
+
+const DIFF_STATUSES: ReadonlySet<string> = new Set<LocalAgentDiffStatus>(["added", "modified", "deleted", "renamed"]);
+
+function countOf(v: unknown): number {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0;
+}
+
+/** `local_agent_diff`'s answer → typed, or null when it isn't one. A
+ *  malformed file is dropped; the answer then counts as cut. */
+export function toLocalAgentDiff(raw: unknown): LocalAgentDiff | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  if (!Array.isArray(r.files)) return null;
+  const files: LocalAgentDiffFile[] = [];
+  for (const f of r.files) {
+    if (!f || typeof f !== "object") continue;
+    const x = f as Record<string, unknown>;
+    const path = nonEmptyString(x.path);
+    if (!path || typeof x.status !== "string" || !DIFF_STATUSES.has(x.status)) continue;
+    const oldPath = nonEmptyString(x.oldPath);
+    files.push({
+      path,
+      ...(oldPath ? { oldPath } : {}),
+      status: x.status as LocalAgentDiffStatus,
+      additions: countOf(x.additions),
+      deletions: countOf(x.deletions),
+      binary: x.binary === true,
+      patch: typeof x.patch === "string" && x.binary !== true ? x.patch : "",
+    });
+  }
+  return {
+    base: typeof r.base === "string" ? r.base : "",
+    head: typeof r.head === "string" ? r.head : "",
+    truncated: r.truncated === true || files.length < r.files.length,
+    files,
   };
 }
 
@@ -795,7 +886,18 @@ export function toLocalAgentStatus(raw: unknown): LocalAgentStatus | null {
     jobs: dedupe(r.jobs, toLocalAgentJob),
     ...localModelOf(r),
     ...(r.baseBranch === true ? { baseBranch: true } : {}),
+    ...(Array.isArray(r.workers) ? { workers: dedupe(r.workers, toLocalAgentWorkerOffer) } : {}),
   };
+}
+
+/** One of `workers` → typed: an id in the Mac's shape and a label; else null. */
+export function toLocalAgentWorkerOffer(raw: unknown): LocalAgentWorkerOffer | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const id = nonEmptyString(r.id);
+  if (!id || !isWorkerId(id)) return null;
+  const label = typeof r.label === "string" ? r.label.trim().slice(0, 64) : "";
+  return { id, label: label || id };
 }
 
 /** `localModel: true|false` or `model: { kind: "local" | "relay" }`, when the desktop says. */
@@ -2099,6 +2201,7 @@ export const tauriBridge = {
       if (a.modelToken) payload.modelToken = a.modelToken;
       if (typeof a.localModel === "boolean") payload.localModel = a.localModel;
       if (typeof a.baseBranch === "string" && a.baseBranch) payload.baseBranch = a.baseBranch;
+      if (typeof a.worker === "string" && a.worker) payload.worker = a.worker;
       if (a.resume) {
         payload.resume = { eveSessionId: a.resume.eveSessionId, streamIndex: a.resume.streamIndex };
       }
@@ -2118,6 +2221,12 @@ export const tauriBridge = {
 
     /** Cancel the current turn; the launcher then exits. */
     stop: (jobId: string) => invokeLocalAgent("local_agent_stop", { jobId }, ignoreLocalAgentReply),
+
+    /** An edit job's changes: its branch against its base, read from this
+     *  Mac (the Changes view). A desktop without the command answers
+     *  unavailable. */
+    diff: (jobId: string) =>
+      invokeLocalAgent<LocalAgentDiff>("local_agent_diff", { jobId }, (raw) => toLocalAgentDiff(raw) ?? LOCAL_AGENT_MALFORMED),
 
     /** Respawn the launcher on the job's stored session and stream cursor;
      *  `modelToken` replaces the one it had. Answers the new run. `message`:

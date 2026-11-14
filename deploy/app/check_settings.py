@@ -105,6 +105,10 @@ MAY_BE_EMPTY = {
     # The call recorder (../livekit's recorder service; ../README.md step 23, "The call recorder").
     "TEAM_CALL_RECORDER": "a switch: empty is off (call notes are Egress's, or there are none)",
     "CAPTURE_FEED_SECRET": "empty: the call recorder cannot reach the app (make-keys.sh in ../livekit makes it)",
+    # "Continue with ChatGPT" (web/src/lib/chatgpt/config.ts): optional, empty hides the option.
+    "CHATGPT_CLIENT_ID": "empty: \"Continue with ChatGPT\" is hidden (the free tier on a person's own ChatGPT plan with it)",
+    "CHATGPT_CLIENT_SECRET": "empty: \"Continue with ChatGPT\" can't finish a sign-in (both CHATGPT_CLIENT_ID and this, or neither)",
+    "CHATGPT_REDIRECT_URI": "empty: the app's own address + /auth/chatgpt/callback (it must be the callback registered with the client)",
     # Phase 2 of the call recorder (../README.md step 23, "Live notes during a call").
     "TEAM_CALL_LIVE_AGENT": "a switch: empty is off (a call's notes are written when it ends, none during it)",
     "TEAM_CALL_EVENT_LINK": "a switch: empty is off (a meeting's call capture is not linked to its calendar event)",
@@ -674,6 +678,25 @@ def check_slack(name):
     return check
 
 
+# "Continue with ChatGPT" (web/src/lib/chatgpt/config.ts): the partner client's id shows the
+# option, and its secret finishes the sign-in, so one without the other is a button that
+# fails. Nothing is asked of OpenAI.
+CHATGPT_PAIR = ("CHATGPT_CLIENT_ID", "CHATGPT_CLIENT_SECRET")
+
+
+def check_chatgpt_pair(name):
+    """One of the two set: wrong while the other is empty (both or neither)."""
+    other = CHATGPT_PAIR[1] if name == CHATGPT_PAIR[0] else CHATGPT_PAIR[0]
+
+    def check(env, _opts):
+        if not env.get(other, "").strip():
+            if name == "CHATGPT_CLIENT_ID":
+                return False, "set without CHATGPT_CLIENT_SECRET: the sign-in option shows, and no sign-in can finish (both or neither)"
+            return False, "set without CHATGPT_CLIENT_ID: the option stays hidden, so the secret is unused (both or neither)"
+        return None, None
+    return check
+
+
 def check_deepgram(env, _opts):
     status, body = http("https://api.deepgram.com/v1/projects", {"Authorization": "Token " + env["DEEPGRAM_API_KEY"].strip()})
     if status == 200 and (body or {}).get("projects"):
@@ -822,6 +845,8 @@ CHECKS = {
     "SLACK_CLIENT_ID": check_slack("SLACK_CLIENT_ID"),
     "SLACK_CLIENT_SECRET": check_slack("SLACK_CLIENT_SECRET"),
     "SLACK_SIGNING_SECRET": check_slack("SLACK_SIGNING_SECRET"),
+    "CHATGPT_CLIENT_ID": check_chatgpt_pair("CHATGPT_CLIENT_ID"),
+    "CHATGPT_CLIENT_SECRET": check_chatgpt_pair("CHATGPT_CLIENT_SECRET"),
     "DEEPGRAM_API_KEY": check_deepgram,
     "GPT_LIVE_API_KEY": check_openai,
     "LIVEKIT_URL": check_livekit,

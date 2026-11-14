@@ -36,6 +36,9 @@
  * `chatgpt-plan/<model>`. The Gateway path's usage check stays the one-argument
  * form, so a free user never reaches Native Intelligence's models, whatever the token says.
  *
+ * Never for a job on the person's own coding agent (migration 658's
+ * `worker`): 403 on both paths, whatever its token says (session-worker.ts).
+ *
  * Abuse bounds: at most MAX_CALLS_IN_FLIGHT calls per person at once (a
  * per-person slot, migration 410's local_agent_relay_acquire, freed when the
  * call settles or by its own expiry), and an idle session (24 h) is expired,
@@ -66,6 +69,7 @@ import {
 } from '@/lib/local-agent/relay'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { proxyPlanResponses, type PlanCallSettled } from '@/lib/chatgpt/plan-proxy'
+import { readSessionWorker } from '@/lib/local-agent/session-worker'
 import { CHATGPT_PLAN_PROVIDER, planModelSlug } from '@/lib/chatgpt/plan-models'
 
 export const runtime = 'nodejs'
@@ -231,6 +235,16 @@ export async function POST(request: Request, ctx: Ctx) {
   if (!checked.ok) return checked.response
   const { sid, uid } = checked.claims
   const row = checked.session
+  // A job on the person's own coding agent (migration 658) runs on their own
+  // account with its vendor: never on ours, on either path. A worker that
+  // can't be read is refused too.
+  try {
+    if (await readSessionWorker(svc, sid, uid)) {
+      return forbidden('This job runs on your own coding agent: it has no Native Intelligence model.')
+    }
+  } catch {
+    return apiError('Session check failed', { status: 503, code: 'UNAVAILABLE' })
+  }
   // The person's own ChatGPT plan (the free tier): its own path, never the Gateway.
   if (joined === RELAY_PLAN_PATH) return planCall(request, svc, { sid, uid, row })
 

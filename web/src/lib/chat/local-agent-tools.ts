@@ -50,6 +50,7 @@ import {
   TEAMMATE_CAP_CODE,
   addMessage,
   addThreadReport,
+  agentNamed,
   askTeammate,
   createSession,
   getSession,
@@ -148,12 +149,15 @@ function refusalOf(err: unknown, notFound: string): Output {
   if (err.code === 'not_found') return refused('NOT_FOUND', notFound)
   if (err.code === 'forbidden') return refused('FORBIDDEN', `${err.message}. Nothing was started.`)
   if (err.code === 'conflict') {
-    const details = (err.details ?? {}) as { code?: unknown; session?: { id: string; teammate: string; folder: string; status: string; mode: string } }
+    const details = (err.details ?? {}) as {
+      code?: unknown
+      session?: { id: string; teammate: string; folder: string; status: string; mode: string; worker?: string | null }
+    }
     if (details.code === TEAMMATE_CAP_CODE || details.code === REPORT_CAP_CODE) return refused(details.code, err.message)
     if (details.code === FOLDER_BUSY_CODE && details.session) {
       const busy = details.session
       return refused(FOLDER_BUSY_CODE, `${err.message} Nothing was started. Tell the person; stop_local_agent on that session_id ends it if they want this instead.`, {
-        busy: { session_id: busy.id, teammate: busy.teammate, folder: busy.folder, status: busy.status, mode: busy.mode },
+        busy: { session_id: busy.id, teammate: busy.teammate, folder: busy.folder, status: busy.status, mode: busy.mode, agent: busy.worker ?? NATIVE_AGENT },
       })
     }
     return refused('ENDED', err.message)
@@ -187,6 +191,7 @@ export function sessionView(s: SessionRow): Output {
     folder: s.folderLabel,
     device: s.deviceName || 'Mac',
     mode: s.mode,
+    ...(s.worker ? { worker: s.worker } : {}),
     status: s.status,
     last_signal: s.lastSignal,
     ...(s.lastSignalText ? { last_signal_text: clip(s.lastSignalText, 1000) } : {}),
@@ -280,6 +285,9 @@ export async function startLocalAgent(
       startedBy: 'agent',
       idempotencyKey: localAgentIdempotencyKey(claims.conversationId, launch),
       ...(launch.personWords?.length ? { personWords: launch.personWords } : {}),
+      // Who does the work on that Mac is the person's choice (migration 658),
+      // never the model's: the server reads it from the Mac's environment.
+      macWorker: true,
     })
     if (started.kind !== 'mac') throw new Error('expected a Mac job')
     const { kind: _kind, ...session } = started
@@ -300,6 +308,9 @@ export async function startLocalAgent(
     device,
     device_online: deviceOnline,
     mode: session.mode,
+    ...(session.worker ? { worker: session.worker, worker_note: workerNote(session.worker) } : {}),
+    // A join goes on with the job's own agent: always said which (an id; the server never knows its label).
+    ...(joined ? { agent: session.worker ?? NATIVE_AGENT } : {}),
     ...(session.trackedJobId ? { work_item_id: session.trackedJobId } : {}),
     ...(joined ? { joined: true } : created ? {} : { reused: true }),
     ...(fallback
@@ -315,12 +326,27 @@ export async function startLocalAgent(
         }
       : {}),
     note: joined
-      ? `${teammate} already works in ${session.folderLabel || 'that folder'} for this chat: the request went to it as its next turn (one agent per folder). It reports back in this chat.` +
+      ? `${teammate} already works in ${session.folderLabel || 'that folder'} for this chat, on ${agentNamed(session.worker)}: the request went to it as its next turn (one agent per folder). It reports back in this chat.` +
         (deviceOnline ? '' : ` ${device} is offline right now; it picks this up when the Mac is back.${fallback ? fallbackNote(fallback) : ''}`)
       : deviceOnline
         ? `Handed to ${teammate}: it starts as soon as the Mac picks it up and reports back in this chat. Tell the person it's working; don't claim anything is done.`
         : `${device} is offline: the request waits up to 6 hours for it to come online, then expires. Tell the person.${fallback ? fallbackNote(fallback) : ''}`,
   }
+}
+
+/** The `agent` a join names when Native Intelligence's own agent does the work (an underscore: never a coding agent's id). */
+export const NATIVE_AGENT = 'native_intelligence'
+
+/**
+ * What the model reads when the job runs on the person's own coding agent
+ * (the Mac's choice, migration 658): who does it, and that a refusal on the
+ * Mac is final (it never falls back to Native Intelligence's agent).
+ */
+export function workerNote(worker: string): string {
+  return (
+    `The person chose their own coding agent (${worker}, on their own account) to do the work on this Mac, so it runs there instead of Native Intelligence's agent. ` +
+    "If the Mac can't run it (switched off, not installed), the job fails with the Mac's reason: tell the person, don't start it again on your own."
+  )
 }
 
 /** A name the workspace wrote (a project, an environment), as quoted data on one line. */

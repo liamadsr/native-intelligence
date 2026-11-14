@@ -11,7 +11,9 @@
  * report chip and For you alike: every one of them opens the ledger row, and
  * the row's `source.local_agent_session_id` names the session.
  *
- *   header      the teammate, "Native Intelligence on <Mac>" (teammate plan C4), its
+ *   header      the teammate, "Native Intelligence on <Mac>" (teammate plan C4),
+ *               or the person's own coding agent ("Claude Code on <Mac>",
+ *               migration 658) when it does the work, its
  *               folder, whether it may edit, its status, its pull request, Stop
  *   transcript  the request, then everything since (transcript-rows.tsx),
  *               scrolling with the stream while you're at the bottom. Only
@@ -24,6 +26,13 @@
  *               (message_teammate) says Native Intelligence answers it, though you may too
  *   on the Mac  while a native question is open there (a push, a folder):
  *               "Waiting for you on your Mac" (invariant 5)
+ *   results     an edit job with a branch: "Conversation" and "Changes"
+ *               (changes-view.tsx, read from that Mac; the branch card opens
+ *               it too), and, once its turn ended with no pull request,
+ *               "Open pull request", which sends the job the follow-up that
+ *               asks for one (the agent writes it; the Mac still asks before
+ *               anything is pushed). From any device; hidden when the job
+ *               can't take a message
  *   composer    Steer / Queue, as you (local-agent-composer.tsx); an ended
  *               session says how to get a new one instead
  *
@@ -31,14 +40,16 @@
  * events and row, with a catch-up poll). Render cost stays flat: rows are
  * memoized per item and deltas land once per frame.
  */
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { ExternalLink, GitPullRequest, Laptop, Loader2, MessageCircleQuestion, Square } from 'lucide-react'
+import { OPEN_PULL_REQUEST_MESSAGE, offersPullRequest } from '@/lib/local-agent/changes'
 import { AgentIcon } from '@/components/agents/agent-icon'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { isGithubPullRequestUrl } from '@/lib/local-agent/pull-request'
 import { macTeammateName } from '@/lib/local-agent/teammate'
+import { workerLabel } from '@/lib/environments/types'
 import {
   canMessageSession,
   canStopSession,
@@ -51,6 +62,8 @@ import {
 import { useLocalAgentSession } from './use-local-agent-session'
 import { InboundBubble, TranscriptRow } from './transcript-rows'
 import { LocalAgentComposer } from './local-agent-composer'
+import { BranchCardActions } from './branch-card'
+import { ChangesView } from './changes-view'
 import type { PanelSession } from './session-api'
 
 /** Within this many px of the bottom, the transcript follows the stream. */
@@ -78,7 +91,9 @@ export function LocalAgentHeader({
 }) {
   const working = isWorking(session.status)
   const ended = isSessionEnded(session.status)
-  const teammate = macTeammateName(session.deviceName)
+  // Who does the work (migration 658): the person's own coding agent, named, or Native Intelligence on that Mac.
+  const worker = session.worker ?? null
+  const teammate = worker ? `${workerLabel(worker)} on ${session.deviceName || 'your Mac'}` : macTeammateName(session.deviceName)
   const prUrl = isGithubPullRequestUrl(session.prUrl) ? session.prUrl : null
   const prNumber = prUrl ? (/\/pull\/(\d+)$/.exec(prUrl)?.[1] ?? null) : null
   return (
@@ -86,7 +101,12 @@ export function LocalAgentHeader({
       <AgentIcon className="mt-0.5 h-4 w-4" />
       <div className="min-w-0 flex-1">
         <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
-          <span data-local-agent-teammate-name="" className="truncate" title={teammate}>
+          <span
+            data-local-agent-teammate-name=""
+            {...(worker ? { 'data-local-agent-worker': worker } : {})}
+            className="truncate"
+            title={worker ? `${teammate}: your own ${workerLabel(worker)} account does the work` : teammate}
+          >
             {teammate}
           </span>
           <span
@@ -105,7 +125,11 @@ export function LocalAgentHeader({
           </span>
           {working && <Loader2 aria-hidden className="h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none" />}
           <span data-local-agent-status-line="" className={cn('truncate', session.status === 'failed' && 'text-destructive')}>
-            {stopping ? 'Stopping…' : sessionStatusText(session.status, session.lastSignal)}
+            {stopping
+              ? 'Stopping…'
+              : session.queuedOnMac
+                ? `Queued on ${session.deviceName || 'your Mac'} · starts when a slot frees`
+                : sessionStatusText(session.status, session.lastSignal)}
             {session.status === 'failed' && session.error ? ` · ${session.error}` : null}
           </span>
         </p>
@@ -191,6 +215,35 @@ export function LocalAgentPanel({
     })
   }, [stop])
 
+  // An edit job's results: its conversation, or its Changes (read from the Mac).
+  const [view, setView] = useState<'conversation' | 'changes'>('conversation')
+  const openChanges = useCallback(() => setView('changes'), [])
+  // Only an edit job's branch has Changes to open (a read job's branch card offers none).
+  const resultsOn = session?.mode === 'edit' && !!session.branch
+  const branchActions = useMemo(() => (resultsOn ? { openChanges } : {}), [resultsOn, openChanges])
+  // "Open pull request" was pressed: hidden until the job works again (its turn on the request).
+  const [prAsked, setPrAsked] = useState<'sending' | 'sent' | null>(null)
+  const status = session?.status
+  useEffect(() => {
+    if (status && status !== 'waiting') setPrAsked(null)
+  }, [status])
+  const sendOne = useCallback(
+    async (text: string) => {
+      const requestId = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
+      return send(text, 'queue', requestId)
+    },
+    [send],
+  )
+  const askForPullRequest = useCallback(async () => {
+    setPrAsked('sending')
+    const res = await sendOne(OPEN_PULL_REQUEST_MESSAGE)
+    if (res.ok) setPrAsked('sent')
+    else {
+      setPrAsked(null)
+      toast.error(res.message)
+    }
+  }, [sendOne])
+
   if (error && !session) {
     return (
       <div data-local-agent-panel={sessionId} data-local-agent-error="" className={cn('flex flex-1 items-center justify-center p-6', className)}>
@@ -215,13 +268,54 @@ export function LocalAgentPanel({
   const lastPrompt = items.findLast((it): it is Extract<TranscriptItem, { type: 'prompt' }> => it.type === 'prompt')
   const waitingOnMac = !isSessionEnded(session.status) && !!lastPrompt && isPromptOpen(lastPrompt)
   const canMessage = canMessageSession(session.status)
-  const requestAuthor = session.startedBy === 'person' ? 'person' : 'agent'
+  const hasResults = resultsOn
+  const showChanges = hasResults && view === 'changes'
+  const offerPr = canMessage && offersPullRequest(session, { promptOpen: waitingOnMac })
+  // The person's own request: one they started here, or a card's Start they pressed. The chat agent's: its own.
+  const requestAuthor = session.startedBy === 'person' || session.requestedByPerson === true ? 'person' : 'agent'
 
   return (
     <div data-local-agent-panel={sessionId} data-local-agent-session-status={session.status} className={cn('flex h-full min-h-0 flex-col gap-3', className)}>
       {header && <LocalAgentHeader session={session} stopping={stopping} onStop={onStop} />}
 
+      {hasResults && (
+        <div role="tablist" aria-label="This job" data-local-agent-views="" className="flex shrink-0 items-center gap-1 text-xs">
+          {(['conversation', 'changes'] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              role="tab"
+              aria-selected={view === v}
+              data-local-agent-view={v}
+              onClick={() => setView(v)}
+              className={cn(
+                'rounded-md px-2 py-1 transition-colors',
+                view === v ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+              )}
+            >
+              {v === 'conversation' ? 'Conversation' : 'Changes'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {showChanges && (
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pr-1">
+          <ChangesView
+            sessionId={session.id}
+            deviceId={session.deviceId}
+            deviceName={session.deviceName}
+            branch={session.branch}
+            prUrl={session.prUrl}
+            canMessage={canMessage}
+            onSendNotes={sendOne}
+          />
+        </div>
+      )}
+
+      <BranchCardActions.Provider value={branchActions}>
       <div
+        hidden={showChanges}
         ref={scrollRef}
         role="log"
         aria-label="Conversation with the local agent"
@@ -255,8 +349,33 @@ export function LocalAgentPanel({
           </p>
         )}
       </div>
+      </BranchCardActions.Provider>
 
-      {waitingOnMac && (
+      {!showChanges && (offerPr || prAsked === 'sent') && (
+        <div data-local-agent-pr-offer={prAsked ?? ''} className="flex shrink-0 items-center gap-2 rounded-xl border border-border/60 bg-card/50 px-3 py-2 text-xs">
+          <GitPullRequest aria-hidden className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          {prAsked === 'sent' ? (
+            <p className="min-w-0 flex-1 text-foreground/80">Asked it to open a pull request. Your Mac asks you before anything is pushed.</p>
+          ) : (
+            <>
+              <p className="min-w-0 flex-1 text-foreground/80">The work is on its branch, with no pull request yet.</p>
+              <Button
+                size="sm"
+                variant="outline"
+                data-local-agent-open-pr=""
+                className="h-7 shrink-0 gap-1.5 text-xs"
+                disabled={prAsked === 'sending'}
+                onClick={() => void askForPullRequest()}
+              >
+                {prAsked === 'sending' ? <Loader2 className="h-3 w-3 animate-spin" /> : <GitPullRequest className="h-3 w-3" />}
+                Open pull request
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+
+      {!showChanges && waitingOnMac && (
         <div data-local-agent-on-mac="" className="flex shrink-0 items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
           <Laptop aria-hidden className="mt-px h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-400" />
           <p className="min-w-0 flex-1">
@@ -266,7 +385,7 @@ export function LocalAgentPanel({
         </div>
       )}
 
-      {asking && (
+      {!showChanges && asking && (
         <div
           data-local-agent-asking={askedTeammate ? 'teammate' : ''}
           className="flex shrink-0 items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs"
@@ -281,7 +400,7 @@ export function LocalAgentPanel({
         </div>
       )}
 
-      <div className="shrink-0">
+      <div className="shrink-0" hidden={showChanges}>
         {canMessage ? (
           <LocalAgentComposer onSend={send} working={live} asking={asking} autoFocus={autoFocus} />
         ) : (
