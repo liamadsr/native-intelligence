@@ -207,6 +207,13 @@ const nextConfig = {
     ]
   },
   skipTrailingSlashRedirect: true,
+  // The sandbox runtime's client (src/lib/cloud-browser/runtime-client.ts, the
+  // cloud browser's runtime backend) is required from node_modules, not bundled:
+  // it loads undici, glob and tar with an import the bundler cannot see
+  // (`import(/* webpackIgnore */ name)`), which, from a bundled chunk, would
+  // resolve another undici than its own (or none). Unbundled it runs exactly as
+  // under plain Node, where scripts/cloud-browser/runtime-conformance.mts checks it.
+  serverExternalPackages: ['e2b'],
   // The build's type check runs against tsconfig.build.json, which drops
   // tests, fixtures and scripts. Checking the full tsconfig.json (tests
   // included) ran past the default Node heap in next build's TypeScript step.

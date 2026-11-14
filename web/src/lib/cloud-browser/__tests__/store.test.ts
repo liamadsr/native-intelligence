@@ -18,7 +18,7 @@ vi.mock('@/lib/supabase/service', () => ({
       const call: Call = { table, ops: [] }
       const index = db.calls.push(call) - 1
       const chain: Record<string, unknown> = {}
-      for (const m of ['select', 'insert', 'upsert', 'update', 'delete', 'match', 'eq', 'is', 'in', 'lt', 'order', 'limit']) {
+      for (const m of ['select', 'insert', 'upsert', 'update', 'delete', 'match', 'eq', 'is', 'in', 'lt', 'order', 'limit', 'like', 'or']) {
         chain[m] = (...args: unknown[]) => { call.ops.push([m, ...args]); return chain }
       }
       const result = () => Promise.resolve({ error: null, ...((db.results[index] ?? { data: null }) as object) })
@@ -99,6 +99,11 @@ describe('markStopped', () => {
     has(0, 'update', { status: 'stopped', session_id: null, stop_reason: 'idle', driver: 'agent', exit_mode: null, exit_device_id: null, exit_connected_at: null })
     has(0, 'eq', 'status', 'stopping')
   })
+
+  it('on the runtime backend keeps the session: the row still names the sandbox its profile is in', async () => {
+    await store.markStopped(ref, 'idle', { keepSession: true })
+    has(0, 'update', { status: 'stopped', stop_reason: 'idle', driver: 'agent', exit_mode: null, exit_device_id: null, exit_connected_at: null })
+  })
 })
 
 describe('listStopCandidates', () => {
@@ -110,6 +115,9 @@ describe('listStopCandidates', () => {
   it('asks for stuck stops, near-cap sessions, stuck starts and idle browsers with the right cutoffs', async () => {
     await store.listStopCandidates(NOW)
     has(0, 'eq', 'status', 'stopping'); has(0, 'lt', 'updated_at', iso(CLOUD_BROWSER.stoppingStaleMs))
+    // An expiry's claim is left alone far longer: its destroy may still be on its way.
+    has(0, 'or', `stop_reason.is.null,stop_reason.neq.expiring,updated_at.lt."${iso(CLOUD_BROWSER.expiringStaleMs)}"`)
+    expect(CLOUD_BROWSER.expiringStaleMs).toBe(30 * 60_000)
     has(1, 'eq', 'status', 'running'); has(1, 'lt', 'started_at', iso(CLOUD_BROWSER.sessionTimeoutMs - CLOUD_BROWSER.stopBeforeTimeoutMs))
     has(2, 'eq', 'status', 'starting'); has(2, 'lt', 'last_active_at', iso(CLOUD_BROWSER.startingStaleMs))
     has(3, 'eq', 'status', 'running'); has(3, 'lt', 'last_active_at', iso(CLOUD_BROWSER.idleStopMs))
@@ -136,5 +144,65 @@ describe('sandboxNamesWithRows', () => {
     db.results = [{ data: [{ sandbox_name: 'browser-a' }] }]
     expect(await store.sandboxNamesWithRows(['browser-a', 'browser-b'])).toEqual(new Set(['browser-a']))
     has(0, 'in', 'sandbox_name', ['browser-a', 'browser-b'])
+  })
+})
+
+describe('the runtime backend’s reads and its expiry', () => {
+  it('reads the status and the session (the hub follows from it)', async () => {
+    db.results = [{ data: { status: 'running', session_id: 'abc.1' } }, { data: null }]
+    expect(await store.readSession(ref)).toEqual({ status: 'running', sessionId: 'abc.1' })
+    has(0, 'select', 'status, session_id')
+    has(0, 'match', ROW)
+    expect(await store.readSession(ref)).toBeNull()
+  })
+
+  it('lists stopped browsers unused since the cutoff, oldest first, bounded', async () => {
+    db.results = [{ data: [{ ...ROW, sandbox_name: 'b' }] }]
+    const cutoff = new Date('2026-09-01T00:00:00Z')
+    expect(await store.listUnusedStopped(cutoff, 50)).toEqual([{ ...ROW, sandbox_name: 'b' }])
+    has(0, 'eq', 'status', 'stopped')
+    has(0, 'lt', 'last_active_at', '2026-09-01T00:00:00.000Z')
+    has(0, 'order', 'last_active_at', { ascending: true })
+    has(0, 'limit', 50)
+  })
+
+  it('claims an unused browser for the expiry only from `stopped` with the same last activity, into a state no ensure starts', async () => {
+    db.results = [{ data: { user_id: 'u1' } }, { data: null }]
+    expect(await store.claimUnusedForExpiry(ref, '2026-08-01T00:00:00+00:00')).toBe(true)
+    has(0, 'update', { status: 'stopping', stop_reason: 'expiring' })
+    has(0, 'match', ROW)
+    has(0, 'eq', 'status', 'stopped')
+    has(0, 'eq', 'last_active_at', '2026-08-01T00:00:00+00:00')
+    // A person came back in between: the row moved, the claim fails.
+    expect(await store.claimUnusedForExpiry(ref, '2026-08-01T00:00:00+00:00')).toBe(false)
+  })
+
+  it('tells an ensure that the expiry holds the row, and deletes only a row it still holds', async () => {
+    db.results = [{ data: { status: 'stopping', stop_reason: 'expiring' } }, { data: { status: 'stopping', stop_reason: 'idle' } }, { data: { user_id: 'u1' } }]
+    expect(await store.isExpiring(ref)).toBe(true)
+    expect(await store.isExpiring(ref)).toBe(false)
+    expect(await store.deleteExpiringRow(ref)).toBe(true)
+    has(2, 'delete')
+    has(2, 'match', ROW)
+    has(2, 'eq', 'status', 'stopping')
+    has(2, 'eq', 'stop_reason', 'expiring')
+  })
+
+  it('reads the session of a browser by its sandbox name', async () => {
+    db.results = [{ data: { session_id: 'abc.1' } }, { data: null }]
+    expect(await store.sessionOfSandboxName('browser-x')).toBe('abc.1')
+    has(0, 'eq', 'sandbox_name', 'browser-x')
+    expect(await store.sessionOfSandboxName('browser-y')).toBeNull()
+  })
+
+  it('a hub is live when a starting or running row’s session starts with exactly `<id>.`', async () => {
+    db.results = [{ data: [{ user_id: 'u1' }] }, { data: [] }]
+    expect(await store.hubSessionLive('abc123')).toBe(true)
+    has(0, 'in', 'status', ['starting', 'running'])
+    has(0, 'like', 'session_id', 'abc123.%')
+    expect(await store.hubSessionLive('zzz999')).toBe(false)
+    // Never a pattern from a name: anything but the id's shape is no, without a query.
+    for (const bad of ['abc%', 'a_c', 'ABC', '', 'a.b']) expect(await store.hubSessionLive(bad)).toBe(false)
+    expect(db.calls).toHaveLength(2)
   })
 })
