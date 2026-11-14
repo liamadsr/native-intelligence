@@ -75,7 +75,11 @@
 --                     link the app makes as them after its own read. Nobody
 --                     else; never a public link. Clients never write here.
 --
--- RLS on the new table; no client has a grant on it. Additive. Idempotent.
+-- RLS on the new table; no client has a grant on it. Additive. Idempotent,
+-- also over its own earlier forms (pushed on this change's branch before it
+-- was merged; a development database may hold one): the grants column comes
+-- in if it is missing, and the one function whose result changed shape
+-- (capture_audio_settle, once a count) is dropped before it is made again.
 -- Safe on a live database with the deployed app running: one new empty
 -- table, new functions, one new read policy on storage.objects that matches
 -- no object yet. No backslashes anywhere in this file (one MCP transport
@@ -118,6 +122,9 @@ create table if not exists public.capture_audio (
     and (state <> 'stored' or stored_at is not null)
   )
 );
+
+-- An earlier form of this file had no grants column.
+alter table public.capture_audio add column if not exists grants integer not null default 1 check (grants >= 0);
 
 -- A take is found again by its key; a path is one file.
 create unique index if not exists capture_audio_take on public.capture_audio (session_id, take_key);
@@ -298,7 +305,12 @@ $$;
 -- same checks as capture_feed_audio_stored: the type its grant named, a size within the bucket's
 -- limit (the path is the take's own: the object is found by it). One that fails them is answered
 -- 'invalid', its row left as it is: the sweep removes the object, then marks the row deleted
--- (never kept, so the capture shows nothing of it).
+-- (never kept, so the capture shows nothing of it). One difference on purpose: an object with no
+-- size (or 0) is 'missing' to stored, which the producer answers by uploading again, and
+-- 'invalid' here, where nobody is left to upload it (Storage writes an object's row only once
+-- its body is in, with its size, so such a row is never an upload still on its way).
+-- An earlier form answered a count: Postgres cannot change a function's result in place.
+drop function if exists public.capture_audio_settle(integer);
 create or replace function public.capture_audio_settle(max_rows integer)
 returns table (outcome text, id uuid, path text)
 language plpgsql

@@ -34,8 +34,11 @@ function definition(sql: string, name: string): string {
 }
 
 describe('migrations 650 and 651', () => {
-  it('each one transaction with a lock timeout, no backslash, nothing destructive', () => {
-    for (const sql of [A, B]) {
+  it('each one transaction with a lock timeout, no backslash, nothing destructive (but the one function whose result changed shape, dropped to be made again)', () => {
+    const drop = 'drop function if exists public.capture_audio_settle(integer);'
+    expect(A.split(drop)).toHaveLength(2)
+    expect(A.indexOf(drop)).toBeLessThan(A.indexOf('create or replace function public.capture_audio_settle('))
+    for (const sql of [A.replace(drop, ''), B]) {
       const body = bodyOf(sql)
       expect(sql).not.toContain('\\')
       expect(body).toMatch(/^\s*begin;\s*SET LOCAL lock_timeout = '5s';/)

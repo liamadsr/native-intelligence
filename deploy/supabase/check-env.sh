@@ -178,7 +178,9 @@ esac
 # database when there is one here (one read-only query; nothing changes).
 limit="$(value STORAGE_FILE_SIZE_LIMIT)"
 case "$limit" in '' | *[!0-9]*) limit=0 ;; esac
-if [ "$limit" -gt 52428800 ] && command -v docker >/dev/null && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx supabase-db; then
+if [ "$limit" -gt 52428800 ] && ! { command -v docker >/dev/null && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx supabase-db; }; then
+	note "the buckets were not checked for a size limit of their own (no running supabase-db here): run this again on the server with the stack up"
+elif [ "$limit" -gt 52428800 ]; then
 	open_buckets="$(docker exec supabase-db psql -U postgres -d postgres -Atc "select string_agg(id, ', ' order by id) from storage.buckets where file_size_limit is null" 2>/dev/null || echo '?')"
 	case "$open_buckets" in
 		'') echo "  every bucket has a size limit of its own" ;;

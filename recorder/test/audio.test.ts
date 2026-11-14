@@ -58,13 +58,14 @@ test('mixer: a muted stretch moves the track’s clock on without sound; its nex
   assert.equal(out.get(sample(3000)), 200)
 })
 
-test('mixer: frames that stopped coming for more than GAP_MS (a real gap) are placed again at their time', () => {
+test('mixer: frames that stopped coming for more than GAP_MS (a real gap) are placed again at their time; the gap is not drift', () => {
   const { m, out } = mixer()
   m.push('a', frame(100), 1010)
   m.push('a', frame(200), 3010)
   m.finish(6000)
   assert.equal(out.get(sample(1010)) ?? 0, 0, 'not run on from the first frame')
   assert.equal(out.get(sample(3000)), 200)
+  assert.ok(m.maxDriftMs < 50, `furthest drift ${m.maxDriftMs}`)
 })
 
 test('mixer: a burst after a stall (the event loop busy) lands where it was heard, each frame once, nothing doubled', () => {

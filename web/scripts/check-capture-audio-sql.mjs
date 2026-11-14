@@ -9,6 +9,11 @@
  * file is applied twice (it must be re-runnable), then the catalogue rules, then the functions
  * with real rows, then the read policy as a signed-in person.
  *
+ * With CAPTURE_AUDIO_EARLIER set to earlier forms of 650 (files, separated by `:`; this change's
+ * branch pushed some before it was merged, and a development database may hold one), each is
+ * applied to a database of its own with a take in it, then today's file twice over it: it must
+ * apply, keep the take, add what the earlier form lacked, and answer in today's shapes.
+ *
  * PGlite runs one PostgreSQL connection: the row lock the grant takes is not exercised under real
  * concurrency. PostgREST's rpc shapes are not covered.
  */
@@ -28,7 +33,7 @@ const ok = (cond, msg, detail) => {
 }
 const q = async (sql, params) => (await db.query(sql, params)).rows
 
-await db.exec(`
+const STUBS = `
 create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
 create schema auth; create schema storage;
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.uid', true), '')::uuid $$;
@@ -52,7 +57,8 @@ create table storage.objects (id uuid primary key default gen_random_uuid(), buc
 alter table storage.objects enable row level security;
 grant select on storage.objects to authenticated;
 insert into storage.buckets (id, name, file_size_limit) values ('attachments', 'attachments', null), ('team-chat-files', 'team-chat-files', 10485760), ('workspace-merges', 'workspace-merges', 52428800), ('team-call-recordings', 'team-call-recordings', 2147483648), ('studio', 'studio', 2147483648);
-`)
+`
+await db.exec(STUBS)
 
 for (const f of ['650_capture_feed_audio.sql', '651_storage_bucket_limits.sql']) {
   const sql = await readFile(join(DIR, f), 'utf8')
@@ -207,5 +213,29 @@ await db.exec(`insert into public.captures values ('${CAP}', '${W}', '${OWNER}')
 ok((await grant('t', { session: await session({ kind: 'other_kind', round: 1 }) })).outcome === 'not_wanted', 'a source kind with no place for audio: not_wanted')
 ok((await grant('t', { session: await session({ round: 2, age: '31 days' }) })).outcome === 'not_wanted', 'a session over 30 days old: not_wanted')
 ok((await grant('t', { session: await session({ round: 3, ref: id(88) }) })).outcome === 'not_wanted', 'a session whose call is gone: not_wanted')
+
+// ── Over its earlier forms ──
+for (const earlier of (process.env.CAPTURE_AUDIO_EARLIER ?? '').split(':').filter(Boolean)) {
+  const old = new PGlite()
+  await old.exec(STUBS)
+  await old.exec(await readFile(earlier, 'utf8'))
+  await old.exec(`insert into public.workspace values ('${W}'); insert into public.captures values ('${CAP}', '${W}', '${OWNER}'); insert into public.team_call values ('${CALL}', '${CH}');`)
+  const S0 = (await old.query(`insert into public.capture_feed_session (workspace_id, capture_id, source_kind, source_ref, round, producer_kind, producer_id, started_at) values ($1, $2, 'team_call', $3, 1, 'livekit_recorder', 'recorder', now() - interval '2 hours') returning id`, [W, CAP, CALL])).rows[0].id
+  const kept = (await old.query(`select * from public.capture_feed_audio_grant($1, 'recorder', 'old.1', 0, 1000, 10, 'audio/mp4')`, [S0])).rows[0]
+  ok(kept.outcome === 'granted', `${earlier}: a take granted under the earlier form`)
+  const today = await readFile(join(DIR, '650_capture_feed_audio.sql'), 'utf8')
+  await old.exec(today)
+  await old.exec(today)
+  ok(true, `${earlier}: today's 650 applies over it, twice`)
+  ok((await old.query(`select count(*)::int as n from public.capture_audio where id = $1`, [kept.audio_id])).rows[0].n === 1, `${earlier}: its take is kept`)
+  ok((await old.query(`select 1 from information_schema.columns where table_name = 'capture_audio' and column_name = 'grants'`)).rows.length === 1, `${earlier}: the grants column is there`)
+  await old.query(`insert into storage.objects (bucket_id, name, metadata) values ('team-call-recordings', $1, '{"size": 10, "mimetype": "audio/mp4"}')`, [kept.path])
+  await old.query(`update public.capture_audio set created_at = now() - interval '2 hours' where id = $1`, [kept.audio_id])
+  const settled = (await old.query(`select * from public.capture_audio_settle(10)`)).rows
+  ok(settled.length === 1 && settled[0].outcome === 'stored' && settled[0].id === kept.audio_id, `${earlier}: settle answers in today's shape`, settled)
+  const regrant = (await old.query(`select * from public.capture_feed_audio_grant($1, 'recorder', 'old.2', 0, 1000, 10, 'audio/mp4')`, [S0])).rows[0]
+  ok(regrant.outcome === 'granted', `${earlier}: a new take is granted after it`)
+  await old.close()
+}
 
 console.log(`capture audio SQL: ${checks} checks passed`)

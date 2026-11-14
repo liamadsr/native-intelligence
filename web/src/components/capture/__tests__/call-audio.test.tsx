@@ -49,6 +49,8 @@ beforeEach(() => {
   })
 })
 afterEach(() => {
+  vi.restoreAllMocks()
+  toastMock.mockClear()
   act(() => root.unmount())
   container.remove()
   vi.unstubAllGlobals()
@@ -194,6 +196,14 @@ describe('CallAudioRow', () => {
     expect(plays).toEqual([0])
   })
 
+  /** Both of the player's clocks (the wall's and the page's steady one) move on by `ms`. */
+  function later(ms: number) {
+    const wall = Date.now
+    const steady = performance.now.bind(performance)
+    vi.spyOn(Date, 'now').mockImplementation(() => wall() + ms)
+    vi.spyOn(performance, 'now').mockImplementation(() => steady() + ms)
+  }
+
   /** The player's media element, as a browser's, with where it is and what was played from. */
   function media() {
     const el = container.querySelector('audio')!
@@ -218,14 +228,13 @@ describe('CallAudioRow', () => {
 
   it('a move along the bar on a link about to run out: a fresh link first, then on from there (a dead one would stall in WebKit, never failing)', async () => {
     files = [ready]
-    playLinkSeconds = 30 // under the minute's margin: as good as run out
     await mount(team)
     const m = media()
     await press()
     await tick()
     await fire(m.el, 'loadedmetadata')
     m.position = 100
-    playLinkSeconds = 3600
+    later(3_550_000) // 50 s left of its hour: inside the minute's margin
     await moveTo(1200)
     await tick()
     expect(m.el.getAttribute('src')).toContain('token=link-2')
@@ -249,7 +258,6 @@ describe('CallAudioRow', () => {
 
   it('Play after a pause past the link’s hour: a fresh link, on from the same place', async () => {
     files = [ready]
-    playLinkSeconds = 30
     await mount(team)
     const m = media()
     await press()
@@ -257,7 +265,7 @@ describe('CallAudioRow', () => {
     await fire(m.el, 'loadedmetadata')
     m.position = 754
     await press() // pause
-    playLinkSeconds = 3600
+    later(3_600_000) // paused for its whole hour
     await press() // play again, the link run out meanwhile
     await tick()
     expect(m.el.getAttribute('src')).toContain('token=link-2')
@@ -268,14 +276,13 @@ describe('CallAudioRow', () => {
 
   it('waiting on a link that ran out (WebKit stalls instead of failing): renewed, on from where it was', async () => {
     files = [ready]
-    playLinkSeconds = 30
     await mount(team)
     const m = media()
     await press()
     await tick()
     await fire(m.el, 'loadedmetadata')
     m.position = 3000
-    playLinkSeconds = 3600
+    later(3_600_000)
     await fire(m.el, 'stalled')
     await tick()
     expect(m.el.getAttribute('src')).toContain('token=link-2')
@@ -307,6 +314,108 @@ describe('CallAudioRow', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('two stall signals during one renewal (WebKit says stalled and waiting together): one fresh link, and it plays on', async () => {
+    files = [ready]
+    await mount(team)
+    const m = media()
+    await press()
+    await tick()
+    await fire(m.el, 'loadedmetadata')
+    m.position = 3000
+    later(3_600_000)
+    // Both arrive before the fresh link's fetch has answered.
+    await act(async () => {
+      m.el.dispatchEvent(new Event('waiting'))
+      m.el.dispatchEvent(new Event('stalled'))
+      m.el.dispatchEvent(new Event('error'))
+    })
+    await tick()
+    expect(requests.filter((r) => r.includes('as=play'))).toHaveLength(2)
+    await fire(m.el, 'loadedmetadata')
+    expect(m.plays.at(-1)).toBe(3000)
+    expect(toastMock).not.toHaveBeenCalled()
+    expect(container.querySelector('[data-capture-call-audio-play]')!.getAttribute('aria-label')).toBe('Pause call audio')
+  })
+
+  it('a link with under a minute of life (a file in its last minute) is fetched once and plays, not renewed in a loop', async () => {
+    files = [ready]
+    playLinkSeconds = 30
+    await mount(team)
+    const m = media()
+    await press()
+    await tick()
+    await fire(m.el, 'loadedmetadata')
+    for (let i = 0; i < 5; i++) {
+      await fire(m.el, 'waiting')
+      await fire(m.el, 'stalled')
+    }
+    expect(requests.filter((r) => r.includes('as=play'))).toHaveLength(1)
+    expect(m.plays).toEqual([0])
+  })
+
+  it('the device clock set back an hour: the link is still seen to run out (the page’s steady clock)', async () => {
+    files = [ready]
+    await mount(team)
+    const m = media()
+    await press()
+    await tick()
+    await fire(m.el, 'loadedmetadata')
+    m.position = 500
+    const wall = Date.now
+    const steady = performance.now.bind(performance)
+    vi.spyOn(Date, 'now').mockImplementation(() => wall() - 3_600_000)
+    vi.spyOn(performance, 'now').mockImplementation(() => steady() + 3_600_000)
+    await fire(m.el, 'stalled')
+    await tick()
+    expect(m.el.getAttribute('src')).toContain('token=link-2')
+  })
+
+  it('after a give-up, Play fetches a fresh link and plays again, from where it stopped', async () => {
+    files = [ready]
+    await mount(team)
+    const m = media()
+    await press()
+    await tick()
+    await fire(m.el, 'loadedmetadata')
+    m.position = 900
+    await fire(m.el, 'error') // the link failed: renewal with link 2
+    await tick()
+    await fire(m.el, 'error') // link 2 failed as well: give up
+    expect(toastMock).toHaveBeenCalledWith('That audio can’t be played.')
+    expect(m.el.getAttribute('src')).toBeNull()
+    const button = container.querySelector('[data-capture-call-audio-play]') as HTMLButtonElement
+    expect(button.disabled).toBe(false)
+    await press()
+    await tick()
+    expect(m.el.getAttribute('src')).toContain('token=link-3')
+    await fire(m.el, 'loadedmetadata')
+    expect(m.plays.at(-1)).toBe(900)
+    expect(button.getAttribute('aria-label')).toBe('Pause call audio')
+  })
+
+  it('gone while a renewal’s link is being fetched: no line said later, nothing left loading', async () => {
+    files = [ready]
+    let answer: (r: Response) => void = () => undefined
+    await mount(team)
+    const m = media()
+    await press()
+    await tick()
+    await fire(m.el, 'loadedmetadata')
+    vi.stubGlobal('fetch', (url: string) => {
+      requests.push(url)
+      return new Promise<Response>((r) => (answer = r))
+    })
+    later(3_600_000)
+    await fire(m.el, 'stalled')
+    await act(async () => root.render(<div />))
+    expect(m.el.getAttribute('src')).toBeNull()
+    expect(m.el.load).toHaveBeenCalled()
+    answer(new Response(JSON.stringify({ url: 'https://sb.example.test/x?token=late', expiresIn: 3600 })))
+    await tick()
+    expect(m.el.getAttribute('src')).toBeNull()
+    expect(toastMock).not.toHaveBeenCalled()
   })
 
   it('a fresh link that fails as well: it gives up and says so, nothing loops', async () => {

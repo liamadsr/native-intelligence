@@ -19,8 +19,9 @@
  *     reached the recorder: a burst after a stall catches up within itself,
  *     a loss never does), by moving it on: silence where the lost samples
  *     were, nothing dropped. A track running ahead of the wall clock is held
- *     to DRIFT_MS ahead. `maxDriftMs` is the furthest any track was from the
- *     wall clock (logged when a take ends).
+ *     to DRIFT_MS ahead. `maxDriftMs` is the furthest any track strayed from
+ *     the wall clock while its frames kept coming (a real gap is not counted;
+ *     logged when a take ends).
  *   - Frames are summed into a window of the last `capacityMs` and written out
  *     `latencyMs` behind the wall clock, in order, once: what arrives later
  *     than that for a stretch already written is dropped (counted in `late`).
@@ -96,7 +97,9 @@ export class Mixer {
     const expected = this.sampleAt(endWallMs) - n
     const ms = (samples: number) => (samples * 1000) / this.rate
     let start = this.cursors.get(key)
-    if (start !== undefined) this.maxDriftMs = Math.max(this.maxDriftMs, Math.abs(ms(expected - start)))
+    // Drift is how far a track's own clock strays while its frames keep coming: a real gap (frames
+    // that stopped for over GAP_MS, someone's network gone) is not drift and is left out.
+    if (start !== undefined && ms(expected - start) <= GAP_MS) this.maxDriftMs = Math.max(this.maxDriftMs, Math.abs(ms(expected - start)))
     const lagging = start !== undefined && ms(expected - start) > LAG_MS
     if (!lagging) this.behind.delete(key)
     else if (!this.behind.has(key)) this.behind.set(key, endWallMs)
