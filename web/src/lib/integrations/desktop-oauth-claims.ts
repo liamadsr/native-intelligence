@@ -15,6 +15,7 @@
  * Keyed by the exact signed state string the deep link carries back. Taking
  * an entry removes it: a code is claimed at most once from here.
  */
+import { parseSlackInstallResult, type SlackInstallResult } from '@/lib/slack/install-result'
 
 /** How long a started connect waits for its deep link (matches the state's 10-minute life). */
 const CLAIM_TTL_MS = 10 * 60 * 1000
@@ -165,8 +166,74 @@ export async function claimDesktopMcp(
   }
 }
 
+// ── Slack's install (the same idea for its own flow) ───────────────────────
+//
+// "Add to Slack" in the desktop app returns as dial8desktop://slack/complete
+// ?sealed&state (or slack/error?error&state). The install route gave this
+// window the state and its claim secret (src/app/api/account/integrations/
+// slack/install/route.ts); POST /api/slack/oauth/claim finishes it only for
+// that secret and the state's own signed-in person. Kept apart from the
+// other two: a different route, a different answer.
+
+const pendingSlack = new Map<string, PendingClaim>()
+
+/**
+ * How long a held Slack claim stays claimable: the state's 10 minutes plus
+ * the claim grace of 5 (src/lib/oauth/state.ts OAUTH_STATE_TTL_MS and
+ * CLAIM_GRACE_MS; not imported, which would bring server crypto into the bundle).
+ */
+const SLACK_CLAIM_TTL_MS = 15 * 60 * 1000
+
+/** Remember the claim secret for a desktop Slack install this window started. */
+export function holdDesktopSlackClaim(state: string, claimSecret: string): void {
+  const now = Date.now()
+  for (const [s, claim] of pendingSlack) if (now - claim.at > SLACK_CLAIM_TTL_MS) pendingSlack.delete(s)
+  pendingSlack.set(state, { claimSecret, at: now })
+}
+
+function takeDesktopSlackClaim(state: string): string | null {
+  const claim = pendingSlack.get(state)
+  pendingSlack.delete(state)
+  if (!claim || Date.now() - claim.at > SLACK_CLAIM_TTL_MS) return null
+  return claim.claimSecret
+}
+
+/** How a desktop Slack install ended (navigation-events.ts SlackInstallCallbackDetail). */
+export interface DesktopSlackClaimOutcome {
+  state: string
+  result: SlackInstallResult
+}
+
+/**
+ * Finish a desktop Slack install from its deep link: null when this window
+ * didn't start it (never claimed). A link without a sealed code (Slack
+ * refused, or the callback did) ends this window's install with the link's
+ * `error` result, without a claim; otherwise the claim route's result.
+ */
+export async function claimDesktopSlackInstall(
+  link: { state: string; sealed?: string | null; error?: SlackInstallResult | null },
+  fetchImpl: typeof fetch = fetch,
+): Promise<DesktopSlackClaimOutcome | null> {
+  const claimSecret = takeDesktopSlackClaim(link.state)
+  if (!claimSecret) return null
+  const { state } = link
+  if (!link.sealed) return { state, result: link.error ?? 'failed' }
+  try {
+    const res = await fetchImpl('/api/slack/oauth/claim', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sealed: link.sealed, state, claimSecret }),
+    })
+    const body = (await res.json().catch(() => null)) as { result?: unknown } | null
+    return { state, result: parseSlackInstallResult(typeof body?.result === 'string' ? body.result : null) ?? 'failed' }
+  } catch {
+    return { state, result: 'failed' }
+  }
+}
+
 /** Tests only. */
 export function resetDesktopOAuthClaimsForTests(): void {
   pending.clear()
   pendingMcp.clear()
+  pendingSlack.clear()
 }

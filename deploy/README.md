@@ -1565,7 +1565,7 @@ Three things that catch people out:
 
 ### Slack
 
-The app talks to Slack directly, with our own Slack app (`web/src/lib/slack/`): "Add to Slack" in Settings › Connectors › Slack is Slack's own OAuth install, run by the app (`/api/slack/oauth/callback`); each Slack workspace's bot token is stored in the app's database, encrypted with `CREDENTIAL_ENCRYPTION_KEY` (table `slack_bot_token`, migration 644, readable by the server only); every event and button click Slack sends must carry Slack's signature. Slack is on only when the four `SLACK_*` settings are in `app/.env`; while any is empty or malformed the app answers that Slack is not set up (and logs which one, by name).
+The app talks to Slack directly, with our own Slack app (`web/src/lib/slack/`): "Add to Slack" in Settings › Connectors › Slack is Slack's own OAuth install, run by the app (`/api/slack/oauth/callback`); from the desktop app the install is finished in the person's browser and handed back to the app, which claims it (`/api/slack/oauth/claim`), so the same redirect URL serves both; each Slack workspace's bot token is stored in the app's database, encrypted with `CREDENTIAL_ENCRYPTION_KEY` (table `slack_bot_token`, migration 644, readable by the server only); every event and button click Slack sends must carry Slack's signature. Slack is on only when the four `SLACK_*` settings are in `app/.env`; while any is empty or malformed the app answers that Slack is not set up (and logs which one, by name).
 
 What the owner does, once, in this order. **Slack is silent from step 2 until step 5**: events sent in between are lost.
 

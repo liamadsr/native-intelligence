@@ -16,9 +16,12 @@
  * here connected (the Slack workspace bound to this Native Intelligence
  * workspace, their own Slack account linked) with `?slack=<result>`, which
  * the page shows in plain words (src/lib/slack/install-result.ts) and then
- * takes off the address. Everyone else links their Slack account with a
- * one-time code they send the bot. A code from an admin also connects a Slack
- * workspace the app is already in.
+ * takes off the address. In the desktop app Slack's page opens in the
+ * person's own browser instead, which hands the install back to the app; the
+ * window that started it claims it (src/lib/integrations/desktop-oauth-claims.ts)
+ * and this page shows the result the same way. Everyone else links their Slack
+ * account with a one-time code they send the bot. A code from an admin also
+ * connects a Slack workspace the app is already in.
  *
  * Reads `GET /api/account/integrations/slack` (again on window focus: the
  * code is sent in Slack, so the link lands while this page is in the
@@ -33,7 +36,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { SLACK_APP_ENTRY } from '@/lib/integrations/catalog'
-import { SLACK_INSTALL_RESULT_PARAM, parseSlackInstallResult, slackInstallMessage } from '@/lib/slack/install-result'
+import { holdDesktopSlackClaim } from '@/lib/integrations/desktop-oauth-claims'
+import { onSlackInstallCallback } from '@/lib/navigation-events'
+import { isDesktopApp } from '@/lib/platform'
+import { SLACK_INSTALL_RESULT_PARAM, parseSlackInstallResult, slackInstallMessage, type SlackInstallResult } from '@/lib/slack/install-result'
 import { RowIcon } from '../../(dashboard)/side-panels/connections-section'
 import { useSettingsNavigate } from '../settings-shell'
 
@@ -123,13 +129,19 @@ export function useSlackConnector() {
     }
   }, [])
 
+  // How an install ended, in plain words: back on this page with `?slack=`, or
+  // claimed by this window in the desktop app.
+  const showInstallResult = useCallback((result: SlackInstallResult) => {
+    const message = slackInstallMessage(result)
+    setNotice(message.ok ? message.text : null)
+    setError(message.ok ? null : message.text)
+  }, [])
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const result = parseSlackInstallResult(params.get(SLACK_INSTALL_RESULT_PARAM))
     if (result) {
-      const message = slackInstallMessage(result)
-      if (message.ok) setNotice(message.text)
-      else setError(message.text)
+      showInstallResult(result)
       params.delete(SLACK_INSTALL_RESULT_PARAM)
       const rest = params.toString()
       window.history.replaceState({}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`)
@@ -138,7 +150,18 @@ export function useSlackConnector() {
     const onFocus = () => void fetchState()
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
-  }, [fetchState])
+  }, [fetchState, showInstallResult])
+
+  // Desktop: the install this window started, claimed after the person
+  // finished it in their browser (deep-link-handler.tsx).
+  useEffect(
+    () =>
+      onSlackInstallCallback(({ result }) => {
+        showInstallResult(result)
+        void fetchState()
+      }),
+    [fetchState, showInstallResult],
+  )
 
   // A newly linked account ends the code step: the install's first code, or
   // a link in one more Slack workspace while already linked in another.
@@ -173,17 +196,35 @@ export function useSlackConnector() {
   const install = async () => {
     setInstalling(true)
     setError(null)
+    const desktop = isDesktopApp()
     try {
       const res = await fetch('/api/account/integrations/slack/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // Slack's install comes back to this page (the settings page, or the agent panel's Slack tab).
-        body: JSON.stringify({ returnTo: window.location.pathname }),
+        body: JSON.stringify(desktop ? { returnTo: window.location.pathname, source: 'desktop' } : { returnTo: window.location.pathname }),
       })
-      const data = (await res.json().catch(() => null)) as { url?: string } | null
+      const data = (await res.json().catch(() => null)) as { url?: string; state?: string; claimSecret?: string } | null
       if (!res.ok || !data?.url) {
         setError("Couldn't start the Slack install. Try again.")
         setInstalling(false)
+        return
+      }
+      if (desktop) {
+        // Without its state and claim secret the install could never be finished here.
+        if (!data.state || !data.claimSecret) {
+          setError("Couldn't start the Slack install. Try again.")
+          setInstalling(false)
+          return
+        }
+        // The app keeps other sites out of its window: Slack's page opens in
+        // the person's own browser, which hands the install back to this
+        // window by deep link. Only this window holds the secret to claim it.
+        holdDesktopSlackClaim(data.state, data.claimSecret)
+        const { openUrl } = await import('@tauri-apps/plugin-opener')
+        await openUrl(data.url)
+        setInstalling(false)
+        setNotice('Finish adding Native Intelligence to Slack in your browser. This page updates by itself.')
         return
       }
       window.location.assign(data.url)
