@@ -1,0 +1,75 @@
+/**
+ * /api/account/email/shares (migration 646): share an email thread into team
+ * chat, read live, store no mail (src/lib/email-share).
+ *   GET  ?thread=<provider thread id>&account=<mailbox> | ?index=<index row id>
+ *        → { shares: EmailShareChip[] } where the caller's OWN thread is
+ *        shared now, and its open links (the thread view's chips). Anyone
+ *        else's thread: none.
+ *   GET  ?message=<team chat message id> → { ids } the shares a message
+ *        carries (several pasted links), for a reader of its channel.
+ *   POST { threadId | indexId, accountId?, channelId, note? } → { share,
+ *        label, message } the caller's own thread shared into a channel or DM
+ *        they may post in: its message ids read live and frozen, and a
+ *        message authored by them posted with it (their note, else "Shared an
+ *        email"). A link in the note gets its preview and the message its
+ *        notifications after the answer, as any message's; no agent turn and
+ *        no chat_message loop is started by it. 503 { code: 'busy' } when the
+ *        mailbox can't answer now.
+ * Bearer callers are refused (src/lib/email-share/http.ts). Logs carry ids and
+ * counts, never the mail.
+ */
+import { after, type NextRequest } from 'next/server'
+import { badRequest } from '@/lib/api-errors'
+import { createEmailShare, defaultEmailShareDeps, listMessageShares, listThreadShares } from '@/lib/email-share/service'
+import { noStore, shareCaller, shareError, shareFailure } from '@/lib/email-share/http'
+import { firstLink, requestLinkPreview } from '@/lib/team-chat/link-preview'
+import { requestTeamChatNotify } from '@/lib/team-chat/notify'
+
+export async function GET(request: NextRequest) {
+  const caller = await shareCaller(request)
+  if (caller instanceof Response) return caller
+  const params = request.nextUrl.searchParams
+  const messageId = params.get('message')
+  if (messageId) return noStore({ ids: await listMessageShares(defaultEmailShareDeps(), caller, messageId) })
+  const shares = await listThreadShares(defaultEmailShareDeps(), caller, {
+    threadId: params.get('thread'),
+    accountId: params.get('account'),
+    indexId: params.get('index'),
+  })
+  return noStore({ shares })
+}
+
+export async function POST(request: NextRequest) {
+  const caller = await shareCaller(request)
+  if (caller instanceof Response) return caller
+  let input: Record<string, unknown>
+  try {
+    input = await request.json()
+  } catch {
+    return badRequest('Invalid JSON body')
+  }
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+  let result: Awaited<ReturnType<typeof createEmailShare>>
+  try {
+    result = await createEmailShare(defaultEmailShareDeps(), caller, {
+      threadId: str(input.threadId),
+      indexId: str(input.indexId),
+      accountId: str(input.accountId),
+      channelId: str(input.channelId) ?? '',
+      note: input.note,
+    })
+  } catch (err) {
+    // A busy mailbox is 503 (try again); the error's name only is logged.
+    return shareError(err, 'share', "Couldn't share it")
+  }
+  if (!result.ok) {
+    console.info(`[email-share] share refused code=${result.code}`)
+    return shareFailure(result)
+  }
+  console.info(`[email-share] shared share=${result.shareId} channel=${result.message.channel_id} messages=${result.messageCount}`)
+  const message = result.message
+  // A link in the note gets its preview, as any message's does; then its notifications.
+  if (firstLink(message.body)) after(() => requestLinkPreview(message))
+  after(() => requestTeamChatNotify(message.id))
+  return noStore({ share: { id: result.shareId }, label: result.label, message: result.message }, { status: 201 })
+}

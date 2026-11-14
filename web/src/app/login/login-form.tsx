@@ -146,8 +146,8 @@ export function LoginForm({
     const securePart = window.location.protocol === 'https:' ? ';secure' : ''
     if (isInviteRedirectPath(redirectPath)) {
       document.cookie = `invite_redirect=${encodeURIComponent(redirectPath)};path=/;max-age=600;samesite=lax${securePart}`
-    } else if (redirectPath.startsWith('/s/') && !redirectPath.includes('//')) {
-      // Share-link redirect — back to the shared view after auth
+    } else if ((redirectPath.startsWith('/s/') || redirectPath.startsWith('/mail/s/')) && !redirectPath.includes('//')) {
+      // Share-link redirect (a shared page, or an email share link) — back to it after auth
       document.cookie = `share_redirect=${encodeURIComponent(redirectPath)};path=/;max-age=600;samesite=lax${securePart}`
     } else if (accountRedirectTarget(redirectPath)) {
       // A page of the app and its deep link (the Studio export the desktop app sent the person to download here):

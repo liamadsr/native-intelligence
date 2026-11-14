@@ -32,7 +32,7 @@ import { openTarget as openCardTarget, type OpenTarget } from '@/lib/chat-cards/
 import { emitEntityCreated, emitEntityDeleted, emitEntityUpdated, type EntityKind } from '@/lib/entity-events'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import { MENTION_LABEL_MAX } from '@/lib/entity-links/mentionable'
-import { entityActionsDescriptor, entityIdText, entityLink, type EntityActionId } from './entity-actions-registry'
+import { entityActionsDescriptor, entityIdText, entityLink, isLiveShareType, type EntityActionId } from './entity-actions-registry'
 import { parseSharedRecords, toastSharedRecords } from '@/lib/entity-access/share-toast'
 
 /** A record as a surface knows it: its kind, id, and the words it shows as. */
@@ -276,7 +276,8 @@ export async function loadShareChannels(
 export async function shareEntityToChannel(ref: EntityRef, channel: ShareChannel, deps: EntityActionDeps = defaultEntityActionDeps): Promise<boolean> {
   const d = entityActionsDescriptor(ref.type)
   const label = shareMentionLabel(ref.label)
-  if (!d?.share || !label) return false
+  // Mail is never @-mentioned: its Share is the live share (openEmailShareDialog).
+  if (!d?.share || !label || isLiveShareType(ref.type)) return false
   const res = await send(deps, ref, `/api/account/team-chat/channels/${encodeURIComponent(channel.id)}/messages`, 'POST', {
     body: `@${label}`,
     records: [{ type: ref.type, id: ref.id, label }],
