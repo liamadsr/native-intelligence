@@ -149,13 +149,16 @@ for (const flag of [
   // failed build on a test that passes everywhere else. A test that needs the
   // token sets it itself.
   'VERCEL_OIDC_TOKEN',
-  // eve and the code that fences it read these two: eve's provider selection
-  // keys off VERCEL (agents/coding-agent/sandbox.ts reads it at module load),
-  // the agents' localDevOffVercel() and the eval door off either, and the cloud
-  // browser's relay origin off VERCEL_ENV. An inherited value flips those in any
-  // test that does not pin it. Tests that need one set it explicitly per-test.
+  // eve and the code that fences it read these: eve's provider selection keys
+  // off VERCEL (agents/coding-agent/sandbox.ts reads it at module load), the
+  // agents' localDevOffVercel() and the eval door off VERCEL or VERCEL_ENV, the
+  // cloud browser's relay origin off VERCEL_ENV, and eve's workflow runtime
+  // takes VERCEL_URL as its own base address. An inherited value flips those in
+  // any test that does not pin it. Tests that need one set it explicitly
+  // per-test.
   'VERCEL_ENV',
   'VERCEL',
+  'VERCEL_URL',
   // The gmail/outlook webhook routes fail CLOSED (401) when their secret is
   // unset in a built app. Scrub the secrets so the suites exercise the
   // documented dev-open default; tests covering fail-closed set them per-test.

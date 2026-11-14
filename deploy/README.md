@@ -1000,14 +1000,14 @@ cd /opt/native-intelligence && git sparse-checkout add web
 cd /opt/native-intelligence/deploy/app && sudo install -m 600 -o root -g root .env.example .env
 ```
 
-At the move this file was filled by a script, `deploy/app/pull-settings.sh`: it copied in every production setting the earlier host would give out, with the test address as `NEXT_PUBLIC_APP_URL`. The script was removed afterwards, because that host's settings are frozen and no longer production's, and a run would write them over the live ones. A server set up today is filled by hand instead, from the password manager's copy of production's file:
+At the move this file was filled by a script, `deploy/app/pull-settings.sh`: it copied in every production setting the earlier host would give out, with the test address as `NEXT_PUBLIC_APP_URL`. The script was removed afterwards, because that host's settings are frozen and no longer production's, and a run would write them over the live ones. A server set up today is filled by hand instead, with the command below. What goes in for this step, a rehearsal:
 
 - `NEXT_PUBLIC_APP_URL`: the test address, here `https://test.nativeintelligence.dev`.
 - The Inngest keys: the same values as in `inngest/.env`. The two Supabase keys: the ones in `supabase/stack/.env`, or the app is refused by its database.
-- The three internal secrets that may be new (`AGENT_RUN_INTERNAL_SECRET`, `CHAT_INTERNAL_SECRET`, `LOCAL_AGENT_TOKEN_SECRET`): a long random value each.
-- The two the app cannot start without (`RUN_SKILL_INTERNAL_SECRET`, `BROWSER_INTERNAL_SECRET`): for a rehearsal a stand-in starting with `rehearsal-` will do, and the live copy refuses to start on one.
+- Every other setting production has: its value, from the password manager's copy of production's file.
+- Where a rehearsal does not have production's value yet, and only for a rehearsal: `RUN_SKILL_INTERNAL_SECRET` and `BROWSER_INTERNAL_SECRET`, which the app cannot start without, may hold a stand-in starting with `rehearsal-`; `AGENT_RUN_INTERNAL_SECRET`, `CHAT_INTERNAL_SECRET` and `LOCAL_AGENT_TOKEN_SECRET` may hold a new long random value.
 
-`check-settings.sh` (below, step 21) says what is still missing, by name. Nothing in its first group ("must be the value production already has") is needed for a rehearsal. `AI_GATEWAY_API_KEY` is, for any agent to answer: make a key for the server in the AI Gateway's settings and enter it, and the rest when you have them, with hidden typing:
+The switch (step 21) takes no stand-in: the live copy refuses to start on one, and Gate 1 there holds every value to production's. `check-settings.sh` (below, step 21) says what is still missing, by name. Nothing in its first group ("must be the value production already has") is needed for a rehearsal. `AI_GATEWAY_API_KEY` is, for any agent to answer: make a key for the server in the AI Gateway's settings and enter it, and the rest when you have them, with hidden typing:
 
 ```bash
 PULL_ENV_FILE=/opt/native-intelligence/deploy/app/.env deploy/supabase/set-secret.sh <user>@<server> AI_GATEWAY_API_KEY
@@ -1102,7 +1102,13 @@ The app's names move here from its current host. For the people using it, the sw
 - Know the current values of those records: they are the undo. Changing a record gives it a new id at that DNS host, so list the records again before an undo rather than using ids written down before.
 - `https://sb.nativeintelligence.dev/auth/v1/callback` and the app's redirect URLs are what they were: nothing in this step changes sign-in.
 
-**1. Build for production.** With the app still serving from its current host. Set `NEXT_PUBLIC_APP_URL` to production's address (the value it has on the current host), so that nothing of the rehearsal can stay behind; at the move, a second run of the script named in step 20 did this. Then build only:
+**1. Build for production.** With the app still serving from its current host. Set `NEXT_PUBLIC_APP_URL` to production's address (the value it has on the current host), so that nothing of the rehearsal can stay behind; at the move, a second run of the script named in step 20 did this. It is entered like any other setting (what is typed is hidden, though this one is no secret):
+
+```bash
+PULL_ENV_FILE=/opt/native-intelligence/deploy/app/.env deploy/supabase/set-secret.sh <user>@<server> NEXT_PUBLIC_APP_URL
+```
+
+Then build only:
 
 ```bash
 cd /opt/native-intelligence/deploy/app && sudo ./deploy.sh --build-only
@@ -1151,7 +1157,7 @@ Inngest calls the app at the address in `INNGEST_SDK_URL` (`inngest/.env`), toda
 
 **6. Afterwards.** Take the test name out: from `APP_HOSTS` (check and `up -d` as in step 4), from `ADDITIONAL_REDIRECT_URLS` in `supabase/stack/.env` (then `sudo sh run.sh recreate auth` there), and its DNS record. Otherwise a second production address stays open. Leave the current host's deployment running, with its cron jobs off, for a week: it is the undo. If builds there cost money, disconnect the repository from its project: its last deployment keeps running and stays the undo, frozen at that code, and a merge to `main` then builds nothing anywhere. Add `:compose.app.yaml` to `COMPOSE_FILE` in `backup/.env` and `sudo docker compose up -d --build` in `backup/` to back the agents up. Then retire it: remove the names from that project (they already point here), except the production domain Slack's connector forwards to (step 21, Gate 1) for as long as Slack still goes through the connector, and keep the team only for the cloud browser's sandboxes and the AI Gateway, which stay there, and the connector until then. Slack left the connector on 2026-11-14 and the connector is deleted ("Slack" under [Day to day](#day-to-day) has the record), so that exception has ended. After that neither the connector nor that domain is needed for Slack.
 
-**Later, each on its own: the app's address, then the forward.** This step keeps `NEXT_PUBLIC_APP_URL=https://dial8.ai`. Moving it to `https://nativeintelligence.dev` is a build here (step 1's pull with that value, then `sudo ./deploy.sh`) and the list in the pull request that made the address one setting ("When the setting moves"). Only after that, and after a sign-in on the new domain has been tried, can `NI_FORWARD_OLD_DOMAIN=307` in `app/.env` and `sudo ./deploy.sh --no-build` send people who open a `dial8.ai` page to the new domain (`web/src/lib/old-domain-forward.ts` has what it never touches; it does nothing while the address is still on `dial8.ai`). Emptying the value and the same command turn it off.
+**Later, each on its own: the app's address, then the forward.** This step keeps `NEXT_PUBLIC_APP_URL=https://dial8.ai`. Moving it to `https://nativeintelligence.dev` is a build here (`NEXT_PUBLIC_APP_URL` set to that value as in step 1, then `sudo ./deploy.sh`) and the list in the pull request that made the address one setting ("When the setting moves"). Only after that, and after a sign-in on the new domain has been tried, can `NI_FORWARD_OLD_DOMAIN=307` in `app/.env` and `sudo ./deploy.sh --no-build` send people who open a `dial8.ai` page to the new domain (`web/src/lib/old-domain-forward.ts` has what it never touches; it does nothing while the address is still on `dial8.ai`). Emptying the value and the same command turn it off.
 
 ## 22. The undo
 

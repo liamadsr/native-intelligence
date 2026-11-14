@@ -795,7 +795,7 @@ describe('runViaEve — the wall stops the server session', () => {
   }, 30_000) // the cold dynamic import of run-skill alone can pass 5 s on a loaded machine
 })
 
-describe('runViaEve — dispatch origin (this deployment, through Deployment Protection)', () => {
+describe('runViaEve — dispatch origin (the address in NEXT_PUBLIC_APP_URL)', () => {
   beforeEach(() => {
     process.env.RUN_SKILL_INTERNAL_SECRET = SECRET
     createTaskSessionMock.mockReset()

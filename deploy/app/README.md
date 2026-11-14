@@ -278,15 +278,25 @@ containers also refuse to start while a value in `.env` still starts with
 `.env` is filled without showing a value: `deploy/supabase/set-secret.sh` asks for
 each name with hidden typing (several names at once; an empty answer leaves that
 one as it is), from the password manager's copy of the file or from the provider
-that issued the value. `check-settings.sh` then says, without showing a value, which
-are set and, where the server can tell, which are right (`../README.md` step 21,
-Gate 1). At the move a script, `pull-settings.sh`, copied in what the earlier host
-would give out of its production settings. It was removed afterwards: those
-settings are frozen there and are no longer production's.
+that issued the value. From your own machine, and with this file named, because
+the script's own default is the Supabase stack's file:
+
+```bash
+PULL_ENV_FILE=/opt/native-intelligence/deploy/app/.env deploy/supabase/set-secret.sh <user>@<server> NAME ...
+```
+
+`check-settings.sh` then says, without showing a value, which are set and, where
+the server can tell, which are right (`../README.md` step 21, Gate 1). At the move
+a script, `pull-settings.sh`, copied in what the earlier host would give out of its
+production settings. It was removed afterwards: those settings are frozen there
+and are no longer production's.
 
 These tools only change values of lines that already exist in `.env`; none adds a
 line. A new setting's line is copied from `.env.example` by hand (`sudo nano .env`),
-then filled in.
+then filled in. None removes a line either: when a setting leaves `.env.example`
+nothing reads it any more, and its line is deleted from `.env` by hand. Until it
+is, `check-settings.sh` lists a name it no longer knows under "Needed", and counts
+an empty one as in the way.
 
 Some values must stay exactly what production already has, because what they sign
 or encrypt is already stored or held elsewhere:
@@ -381,8 +391,10 @@ Slack without an install. What the owner sets at Slack is in `../README.md`
 either it builds for that platform, and `VERCEL_ENV=development` beside `VERCEL`
 admits its development sign-in), the agents' `localDevOffVercel()` and the chat
 agent's eval door read them as a deployment there, and the cloud browser's relay
-origin reads `VERCEL_ENV`. The app itself tells production from development by
-`NODE_ENV` (`web/src/lib/app-env.ts`).
+origin reads `VERCEL_ENV`. `VERCEL_PROJECT_ID` and `VERCEL_TEAM_ID` are never set
+either: eve's sandbox provider reads them, and here the sandboxes' project and team
+are `SANDBOX_PROJECT_ID` and `SANDBOX_TEAM_ID`. The app itself tells production
+from development by `NODE_ENV` (`web/src/lib/app-env.ts`).
 
 Three more exist only here, for calls on this server's own LiveKit (`../livekit`,
 `../README.md` step 23): `LIVEKIT_URL` (the `wss://` address browsers connect to),
