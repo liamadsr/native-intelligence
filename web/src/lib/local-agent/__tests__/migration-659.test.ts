@@ -40,7 +40,7 @@ describe('migration 659 (text checks of the SQL file only: the SQL is not run he
     expect(SQL).not.toContain('\\')
     expect(STATEMENTS[0]).toBe("SET LOCAL lock_timeout = '5s'")
     expect(SQL).toContain('⛔ PROD ORDER')
-    expect(SQL).toContain('Both 658 and 659 will be renumbered at merge')
+    expect(SQL).toContain('NUMBER: 659, right after 658')
     expect(SQL).toContain('Checked by hand on 2026-11-14')
     expect(SQL).toContain('the warning branch: no new unique index')
     expect(SQL).toContain('reads wait too, not only its writes')

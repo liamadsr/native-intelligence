@@ -40,9 +40,9 @@ describe('migration 658 (text checks of the SQL file)', () => {
     expect(STATEMENTS[0]).toBe("SET LOCAL lock_timeout = '5s'")
   })
 
-  it('says it must be applied before the code that reads it, and that its number may move', () => {
+  it('says it must be applied before the code that reads it, and where its number came from', () => {
     expect(SQL).toContain('⛔ PROD ORDER: apply this BEFORE rolling out the app code')
-    expect(SQL).toMatch(/Another branch may take 658 first: if so, renumber this file/)
+    expect(SQL).toContain('NUMBER: 658 is the first free number after main')
   })
 
   it('a re-run is a no-op: columns if not exists, each CHECK added NOT VALID only when missing, then validated', () => {
