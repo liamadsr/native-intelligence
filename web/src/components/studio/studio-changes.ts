@@ -2,13 +2,12 @@
  * The Studio's list changed: a video or a Studio project was made, renamed,
  * moved, filed, taken out, duplicated or archived. Said by the Studio's own
  * calls to its server (./ui/client.ts) when one of them succeeds, and heard by
- * the Studio's sub-nav beside the rail
- * (app/account/(dashboard)/page-panel/studio-panel.tsx), which reads its list
- * again then, and only then (no polling).
+ * the Studio card (components/chat-cards/pages/studio-card.tsx), which reads
+ * the list again then, and only then (no polling: ./studio-list.ts), so the
+ * agent knows which Studio project the open video is in.
  *
  * A save of the open video's edit is not a change of the list (it happens
- * after every edit): a rename of the open video reaches the sub-nav as the
- * title the Studio says it has (studio-card-controls.ts).
+ * after every edit).
  *
  * Flat cost: one counter and a set of listeners. Client-safe.
  */

@@ -56,10 +56,12 @@ describe('the rail pages', () => {
 
   it('keep the reference order first, then the customers and the agents (Liam, 11-11: Drive and Agents took the plans section’s pages)', () => {
     expect(RAIL_PAGES.map((d) => d.id)).toEqual([
-      'drive', 'mail', 'team-chat', 'actions', 'calendar', 'studio',
+      'drive', 'mail', 'team-chat', 'actions', 'calendar',
       'contacts', 'outreach', 'seo',
       'agents',
     ])
+    // Liam, 11-13: the Studio is one of Outreach's pages, no icon of its own.
+    expect(RAIL_PAGES.map((d) => d.id)).not.toContain('studio')
     // Each group together, and no section left empty.
     const groups = RAIL_PAGES.map((d) => d.group)
     expect(groups.filter((g, i) => g !== groups[i - 1])).toEqual(['work', 'customers', 'agents'])
@@ -83,10 +85,12 @@ describe('the rail pages', () => {
   })
 
   it('leave out the Studio for a guest of the workspace (its routes refuse a guest), and nothing else', () => {
-    const forGuest = railPagesFor(pagesFor(full, { desktop: false, now: NOW, guest: true })).map((p) => p.def.id)
-    expect(offered().map((p) => p.def.id)).toContain('studio')
-    expect(forGuest).not.toContain('studio')
-    expect(forGuest).toEqual(offered().map((p) => p.def.id).filter((id) => id !== 'studio'))
+    const forGuest = railPagesFor(pagesFor(full, { desktop: false, now: NOW, guest: true }))
+    const members = (pages: ReturnType<typeof railPagesFor>, id: string) => pages.find((p) => p.def.id === id)!.members!.map((m) => m.slug)
+    expect(members(offered(), 'outreach')).toEqual(['prospecting', 'sequences', 'campaigns', 'studio'])
+    // Outreach stays for a guest, without its Studio row; every other icon as for a member.
+    expect(members(forGuest, 'outreach')).toEqual(['prospecting', 'sequences', 'campaigns'])
+    expect(forGuest.map((p) => p.def.id)).toEqual(offered().map((p) => p.def.id))
   })
 
   it('name a page in the workspace’s words', () => {
@@ -187,10 +191,10 @@ describe('the person’s bar (railLayout)', () => {
   it('puts a page the prefs don’t mention (new, or just turned on) in its default place, pinned', () => {
     // Saved before Calendar and Captures existed: calendar lands after actions, captures after it.
     const order = ['mail', 'drive', 'team-chat', 'actions', ...ids.filter((id) => !['mail', 'drive', 'team-chat', 'actions', 'calendar', 'captures'].includes(id))]
-    expect(all({ order, hidden: [] }).slice(0, 6)).toEqual(['mail', 'drive', 'team-chat', 'actions', 'calendar', 'studio'])
-    // Each after the page before it by default, wherever that one stands: Drive (first) first, Studio after Calendar.
+    expect(all({ order, hidden: [] }).slice(0, 6)).toEqual(['mail', 'drive', 'team-chat', 'actions', 'calendar', 'contacts'])
+    // Each after the page before it by default, wherever that one stands: Drive (first) first, Contacts after Calendar.
     const partial = all({ order: ['calendar', 'mail'], hidden: [] })
-    expect(partial.slice(0, 3)).toEqual(['drive', 'calendar', 'studio'])
+    expect(partial.slice(0, 3)).toEqual(['drive', 'calendar', 'contacts'])
     expect(partial.slice(partial.indexOf('mail'), partial.indexOf('mail') + 3)).toEqual(['mail', 'team-chat', 'actions'])
     expect(partial).toHaveLength(ids.length)
     expect(shown({ order: ['calendar', 'mail'], hidden: [] })).toContain('agents')
@@ -199,7 +203,7 @@ describe('the person’s bar (railLayout)', () => {
   it('skips saved ids the workspace doesn’t offer (a page turned off, one that is gone)', () => {
     const noMail = offered(withEffectiveSurface(full, { email: 'off' }))
     const layout = railLayout(noMail, { order: ['gone-page', 'mail', 'calendar', 'docs'], hidden: ['mail', 'gone-page'] })
-    expect(layout.all.map((p) => p.def.id).slice(0, 2)).toEqual(['calendar', 'studio'])
+    expect(layout.all.map((p) => p.def.id).slice(0, 2)).toEqual(['calendar', 'contacts'])
     expect(layout.all).toHaveLength(noMail.length)
     expect(layout.shown).toHaveLength(noMail.length)
     expect(all({ order: ['gone-page', 'mail', 'calendar', 'docs'], hidden: [] }, noMail)).not.toContain('mail')
@@ -222,8 +226,8 @@ describe('a bar saved while Projects and Initiatives had icons (Liam, 11-11: the
       'docs', 'mail', 'team-chat', 'actions', 'calendar', 'captures', 'projects', 'initiatives',
       'knowledge', 'flows', 'companies', 'contacts', 'deals', 'prospecting', 'sequences', 'campaigns', 'agents', 'evals', 'teams',
     ]
-    // Studio and SEO are newer than that order: each takes its default place (after Calendar; after Outreach).
-    expect(railLayout(pages, { order: oldDefault, hidden: [] }).all.map((p) => p.def.id)).toEqual(['drive', 'mail', 'team-chat', 'actions', 'calendar', 'studio', 'agents', 'contacts', 'outreach', 'seo'])
+    // SEO is newer than that order: it takes its default place (after Outreach).
+    expect(railLayout(pages, { order: oldDefault, hidden: [] }).all.map((p) => p.def.id)).toEqual(['drive', 'mail', 'team-chat', 'actions', 'calendar', 'agents', 'contacts', 'outreach', 'seo'])
     // Teams had an icon too (Liam, 11-11: it nests under My Actions now): its id is skipped, shown or hidden.
     expect(railLayout(pages, { order: oldDefault, hidden: ['teams'] }).shown.map((p) => p.def.id)).not.toContain('teams')
     expect(railLayout(pages, { order: oldDefault, hidden: ['teams'] }).shown).toHaveLength(pages.length)
@@ -348,7 +352,8 @@ describe('page groups (Liam, 11-11: "Contacts: Companies, Contacts, Deals · Out
   it('are declared once, members in Liam’s order, each with its default', () => {
     expect(Object.values(PAGE_GROUPS).map((g) => [g.id, g.label, g.members, g.defaultMember])).toEqual([
       ['contacts', 'Contacts', ['companies', 'contacts', 'deals'], 'contacts'],
-      ['outreach', 'Outreach', ['prospecting', 'sequences', 'campaigns'], 'prospecting'],
+      // Liam, 11-13: the Studio is "part of the outreach page", after Campaigns.
+      ['outreach', 'Outreach', ['prospecting', 'sequences', 'campaigns', 'studio'], 'prospecting'],
       ['seo', 'SEO', ['seo-audit', 'seo-keywords', 'seo-rankings', 'seo-search', 'seo-competitors', 'seo-backlinks', 'seo-ai-visibility', 'seo-local'], 'seo-audit'],
       ['calendar', 'Calendar', ['calendar', 'availability', 'captures'], 'calendar'],
       ['drive', 'Drive', ['docs', 'knowledge', 'files', 'tables'], 'docs'],
@@ -389,7 +394,7 @@ describe('page groups (Liam, 11-11: "Contacts: Companies, Contacts, Deals · Out
   })
 
   it('select the group for any member page’s own card (`/`, Search, a link: no redirect); a record from inside keeps it, one from home stays Home', () => {
-    for (const [slug, group] of [['deals', 'contacts'], ['companies', 'contacts'], ['contacts', 'contacts'], ['sequences', 'outreach'], ['campaigns', 'outreach'], ['captures', 'calendar'], ['calendar', 'calendar'], ['availability', 'calendar']] as const) {
+    for (const [slug, group] of [['deals', 'contacts'], ['companies', 'contacts'], ['contacts', 'contacts'], ['sequences', 'outreach'], ['campaigns', 'outreach'], ['studio', 'outreach'], ['captures', 'calendar'], ['calendar', 'calendar'], ['availability', 'calendar']] as const) {
       expect(pageOfCard(own(slug), NOW), slug).toBe(group)
       expect(nextSelectedPlace({ place: 'home', frontId: null }, { id: slug, spec: own(slug) }, false, NOW), slug).toBe(group)
     }
@@ -438,13 +443,13 @@ describe('a bar saved before the page groups (Liam, 11-11)', () => {
     expect(shown({ order: [], hidden: ['captures'] })).toContain('calendar')
     // A bar that hid Calendar before Availability joined it (Liam, 11-11) shows the group again, for its new member.
     expect(shown({ order: [], hidden: ['calendar', 'captures'] })).toContain('calendar')
-    expect(shown({ order: [], hidden: ['calendar', 'availability', 'captures', 'prospecting', 'sequences', 'campaigns'] })).toEqual(ids.filter((id) => id !== 'calendar' && id !== 'outreach'))
+    expect(shown({ order: [], hidden: ['calendar', 'availability', 'captures', 'prospecting', 'sequences', 'campaigns', 'studio'] })).toEqual(ids.filter((id) => id !== 'calendar' && id !== 'outreach'))
     expect(railLayout(pages, { order: [], hidden: ['deals'] }).custom).toBe(false)
   })
 
   it('saves a hidden group as all its members, and drops a lone member’s id at the next save', () => {
     expect(setRailPagePinned(null, 'contacts', false)).toEqual({ order: [], hidden: ['companies', 'contacts', 'deals'] })
-    expect(setRailPagePinned(null, 'outreach', false)).toEqual({ order: [], hidden: ['prospecting', 'sequences', 'campaigns'] })
+    expect(setRailPagePinned(null, 'outreach', false)).toEqual({ order: [], hidden: ['prospecting', 'sequences', 'campaigns', 'studio'] })
     expect(setRailPagePinned({ order: [], hidden: ['companies', 'contacts', 'deals'] }, 'contacts', true)).toEqual({ order: [], hidden: [] })
     expect(setRailPagePinned({ order: [], hidden: ['companies', 'contacts', 'deals'] }, 'contacts', false)).toBeNull()
     expect(setRailPagePinned({ order: [], hidden: ['deals'] }, 'mail', false)).toEqual({ order: [], hidden: ['mail'] })
@@ -453,7 +458,7 @@ describe('a bar saved before the page groups (Liam, 11-11)', () => {
     expect(moved.order).not.toContain('deals')
     expect(moved.hidden).toEqual(['calendar', 'availability', 'captures'])
     // Moving past a hidden group counts it hidden.
-    expect(moveRailPageBy({ order: [], hidden: ['calendar', 'availability', 'captures', 'studio'] }, ids, 'contacts', -1)!.order.slice(0, 5)).toEqual(['drive', 'mail', 'team-chat', 'contacts', 'actions'])
+    expect(moveRailPageBy({ order: [], hidden: ['calendar', 'availability', 'captures'] }, ids, 'contacts', -1)!.order.slice(0, 5)).toEqual(['drive', 'mail', 'team-chat', 'contacts', 'actions'])
   })
 })
 
@@ -486,10 +491,10 @@ describe('Drive and Agents (Liam, 11-11: "Drive: Docs, Knowledge, and a new page
   it('leave no empty section: the plans section is gone, and a section with nothing on draws nothing', () => {
     expect(RAIL_PAGES.some((d) => (d.group as string) === 'plans')).toBe(false)
     // CRM off: no customers section at all, the rest as they were.
-    const noCrm = railPagesFor(pagesOf(withEffectiveSurface(full, { crm: 'off', sequences: 'off', campaigns: 'off', prospecting: 'off', seo: 'off' })))
+    const noCrm = railPagesFor(pagesOf(withEffectiveSurface(full, { crm: 'off', sequences: 'off', campaigns: 'off', prospecting: 'off', studio: 'off', seo: 'off' })))
     expect([...new Set(noCrm.map((p) => p.def.group))]).toEqual(['work', 'agents'])
     // SEO sits with the customers: on alone, it keeps that section (and only itself in it).
-    const seoOnly = railPagesFor(pagesOf(withEffectiveSurface(full, { crm: 'off', sequences: 'off', campaigns: 'off', prospecting: 'off' })))
+    const seoOnly = railPagesFor(pagesOf(withEffectiveSurface(full, { crm: 'off', sequences: 'off', campaigns: 'off', prospecting: 'off', studio: 'off' })))
     expect(seoOnly.filter((p) => p.def.group === 'customers').map((p) => p.def.id)).toEqual(['seo'])
   })
 
@@ -504,4 +509,68 @@ describe('Drive and Agents (Liam, 11-11: "Drive: Docs, Knowledge, and a new page
     expect(shown({ order: [], hidden: ['agents', 'flows', 'evals'] })).not.toContain('agents')
     expect(setRailPagePinned(null, 'drive', false)).toEqual({ order: [], hidden: ['docs', 'knowledge', 'files', 'tables'] })
   })
+})
+
+describe('the Studio in Outreach (Liam, 11-13: "I think it should be part of the outreach page")', () => {
+  const pagesOf = (edition = full) => pagesFor(edition, { desktop: false, now: NOW })
+  const pages = offered()
+  const ids = pages.map((p) => p.def.id)
+  const all = (prefs: Parameters<typeof railLayout>[1]) => railLayout(pages, prefs).all.map((p) => p.def.id)
+  const shown = (prefs: Parameters<typeof railLayout>[1]) => railLayout(pages, prefs).shown.map((p) => p.def.id)
+
+  it('is Outreach’s last member, after Campaigns, with no icon of its own', () => {
+    expect(GROUP_OF_PAGE.get('studio')).toBe('outreach')
+    expect(PAGE_GROUPS.outreach.members.at(-1)).toBe('studio')
+    expect(ids).not.toContain('studio')
+    expect(offered().find((p) => p.def.id === 'outreach')!.members!.map((m) => m.slug)).toEqual(['prospecting', 'sequences', 'campaigns', 'studio'])
+  })
+
+  it('its own card selects Outreach and lights it; a Studio card on one video (a link, the agent) is not the page’s own', () => {
+    const studio = pagesOf().find((p) => p.slug === 'studio')!.spec(NOW)
+    expect(ownPageOfCard(studio, NOW)).toEqual({ id: 'outreach', slug: 'studio' })
+    expect(nextSelectedPlace({ place: 'home', frontId: null }, { id: 'card-studio', spec: studio }, false, NOW)).toBe('outreach')
+    expect(activeRailItem('outreach', offered())).toBe('outreach')
+    const onVideo = { kind: 'studio', title: 'Spring teaser', target: { type: 'studio_video', id: 'v-teaser', label: 'Spring teaser' } } as CardSpec
+    expect(pageOfCard(onVideo, NOW)).toBeNull()
+  })
+
+  it('is remembered as Outreach’s last used member, and opened again by Outreach’s icon', () => {
+    __resetPageGroupsForTests()
+    rememberGroupPage('studio')
+    expect(lastGroupPage('outreach')).toBe('studio')
+    expect(groupOpenSlug('outreach', ['prospecting', 'sequences', 'campaigns', 'studio'])).toBe('studio')
+    // Off here (a guest, or the Studio switched off): Outreach's default instead.
+    expect(groupOpenSlug('outreach', ['prospecting', 'sequences', 'campaigns'])).toBe('prospecting')
+    __resetPageGroupsForTests()
+  })
+
+  it('switched off in a workspace: Outreach without it; Outreach’s others off: Outreach opens the Studio alone', () => {
+    const noStudio = railPagesFor(pagesOf(withEffectiveSurface(full, { studio: 'off' }))).find((p) => p.def.id === 'outreach')!
+    expect(noStudio.members!.map((m) => m.slug)).toEqual(['prospecting', 'sequences', 'campaigns'])
+    const studioOnly = railPagesFor(pagesOf(withEffectiveSurface(full, { prospecting: 'off', sequences: 'off', campaigns: 'off' }))).find((p) => p.def.id === 'outreach')!
+    expect(studioOnly.members!.map((m) => m.slug)).toEqual(['studio'])
+    expect(studioOnly.page.slug).toBe('studio')
+    // (c) One member on: the item is that page, by its own name (one rule for every group).
+    expect(studioOnly.label).toBe('Studio')
+    const seqOnly = railPagesFor(pagesOf(withEffectiveSurface(full, { prospecting: 'off', campaigns: 'off', studio: 'off' }))).find((p) => p.def.id === 'outreach')!
+    expect(seqOnly.label).toBe('Sequences')
+    const docsOnly = railPagesFor(pagesOf().filter((p) => !['knowledge', 'files', 'tables'].includes(p.slug))).find((p) => p.def.id === 'drive')!
+    expect(docsOnly.label).toBe('Docs')
+    expect(noStudio.label).toBe('Outreach')
+  })
+
+  it('loads a bar saved while the Studio had its own icon (decided 11-13): its id moves nothing; Outreach shows unless the Studio was hidden too', () => {
+    // The Studio dragged to the top: Outreach keeps its own place (not the Studio's).
+    expect(all({ order: ['studio', 'mail'], hidden: [] }).indexOf('outreach')).toBe(ids.indexOf('outreach'))
+    expect(all({ order: ['studio', 'mail'], hidden: [] })).toHaveLength(ids.length)
+    // (a) Outreach hidden, the Studio's icon kept: the person chose to see the Studio, which lives in Outreach now.
+    expect(shown({ order: [], hidden: ['prospecting', 'sequences', 'campaigns'] })).toContain('outreach')
+    // Outreach and the Studio both hidden: still hidden.
+    expect(shown({ order: [], hidden: ['prospecting', 'sequences', 'campaigns', 'studio'] })).not.toContain('outreach')
+    // (b) Only the Studio hidden: Outreach on the bar, the Studio a row in its sub-nav.
+    expect(shown({ order: [], hidden: ['studio'] })).toContain('outreach')
+    // The next save drops the Studio's old id from the order.
+    expect(moveRailPage({ order: ['studio', 'mail'], hidden: [] }, ids, 'agents', 0)!.order).not.toContain('studio')
+  })
+
 })

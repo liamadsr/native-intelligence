@@ -31,8 +31,8 @@ export type JobHandler<K extends StudioJobKind> = (ctx: JobContext<K>) => Promis
 
 /** An error whose message is meant for the person, as it is. */
 export class JobError extends Error {
-  constructor(message: string) {
-    super(message)
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options)
     this.name = 'JobError'
   }
 }

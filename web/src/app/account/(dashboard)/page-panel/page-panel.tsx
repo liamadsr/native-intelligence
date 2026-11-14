@@ -95,7 +95,6 @@ import { HomeRecentsPanel } from './home-recents'
 import { TasksPanel } from './tasks-panel'
 import { MailPanel } from './mail-panel'
 import { TeamChatPanel } from './team-chat-panel'
-import { StudioPanel } from './studio-panel'
 import { PAGE_GROUP_PANELS } from './page-group-panel'
 import { PagePanelHeldContext, PagePanelSwapContext, pagePanelReserve } from './page-panel-frame'
 import type { PageKey, PagePanelProps } from './page-panel-types'
@@ -121,7 +120,11 @@ type PagePanel = ComponentType<PagePanelProps>
  * The page groups' (Liam, 11-11: "Contacts: Companies, Contacts, Deals ·
  * Outreach: Prospecting, Sequences, Campaigns · Calendar: Captures";
  * rail/page-groups.ts): each its sub-nav, a row per member page
- * (page-group-panel.tsx), there only with two members or more on.
+ * (page-group-panel.tsx), there only with two members or more on. The
+ * Studio is one of Outreach's rows (Liam, 11-13: "once we move it into the
+ * outreach page that's going to be used to switch to different pages"): it
+ * has no panel of its own, its projects and pages are inside its card
+ * (components/studio/ui/AppRail.tsx).
  */
 export const PAGE_PANELS: Readonly<{ home: PagePanel } & Partial<Record<RailPageId, PagePanel>>> = {
   home: HomeRecentsPanel,
@@ -133,10 +136,6 @@ export const PAGE_PANELS: Readonly<{ home: PagePanel } & Partial<Record<RailPage
   // Team chat's sub-nav (Liam, 11-11: "make the team-chat one look like
   // this"): team-chat-panel.tsx.
   'team-chat': TeamChatPanel,
-  // The Studio's sub-nav (Liam, 11-12: the Studio "needs to match the rest of
-  // our app"): its Studio projects and videos, the open video's pages;
-  // studio-panel.tsx. Its card draws no rail of its own while it shows.
-  studio: StudioPanel,
   ...PAGE_GROUP_PANELS,
 }
 

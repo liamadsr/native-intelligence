@@ -1,6 +1,6 @@
 /**
  * Which of the Studio's calls change its list of videos and Studio projects
- * (studio-changes.ts): those the Studio's sub-nav reads its list again for,
+ * (studio-changes.ts): those the Studio card reads its list again for,
  * and only those (never a save of an edit). Ids are made up.
  */
 import { afterEach, describe, expect, it } from 'vitest'

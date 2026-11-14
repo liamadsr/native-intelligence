@@ -10,6 +10,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { fakeContext, OTHER_WS, WS, AVA } from '@/lib/studio/server/__tests__/fake'
 import type { StudioContext } from '@/lib/studio/server/context'
 import { forgetStudioSwitches } from '@/lib/studio/server/auth'
+import { exportLinkSeconds } from '@/lib/studio/server/jobs'
 
 const h = vi.hoisted(() => ({
   ctx: null as unknown as StudioContext,
@@ -169,6 +170,78 @@ describe('the person’s route', () => {
     const generate = await at('voiceover/generate', json('POST', { text: 'Hi', allowPaid: false }))
     expect(generate.status).toBe(400)
     expect(await generate.json()).toMatchObject({ error: 'Choose a voice for narration first.', code: 'NO_VOICE' })
+  })
+})
+
+describe('a finished export’s parts, for the desktop app to download', () => {
+  /** A video, and an export job of it with its stored file: `bytes` in parts of 10. */
+  async function exported(options: { kind?: string; status?: string; result?: Record<string, unknown>; ageDays?: number; bytes?: number; sha256?: string | null } = {}) {
+    const made = await (await at('projects/blank', json('POST', { title: 'Spring / launch', seconds: 2, fps: 30 }))).json()
+    const video = made.project.id as string
+    const id = crypto.randomUUID()
+    const key = `exports/${id}/1/video.mp4`
+    const bytes = options.bytes ?? 25
+    ;(env.tables.studio_blob ??= []).push({ workspace_id: WS, key, bytes, parts: Math.ceil(bytes / 10), part_bytes: 10, content_type: 'video/mp4', sha256: options.sha256 ?? null })
+    ;(env.tables.studio_job ??= []).push({
+      id, workspace_id: WS, video_id: video, kind: options.kind ?? 'export', status: options.status ?? 'completed', progress: 1, logs: [], input: { title: 'Spring / launch' },
+      result: options.result ?? { key, bytes, width: 1920, height: 1080, fps: 30, durationSeconds: 2 }, error: null, cancel_requested: false, worker_id: 'w', attempts: 1, created_by: AVA,
+      created_at: new Date().toISOString(), updated_at: new Date(Date.now() - (options.ageDays ?? 0) * 86_400_000).toISOString(),
+    })
+    return { video, id, key }
+  }
+
+  it('answers the name, size and every part as a signed link, and from a part on', async () => {
+    const { video, id, key } = await exported({ sha256: 'a'.repeat(64) })
+    const res = await at(`projects/${video}/exports/${id}/parts`)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toMatchObject({ name: 'Spring launch.mp4', bytes: 25, sha256: 'a'.repeat(64), from: 0 })
+    expect(body.parts).toEqual([0, 1, 2].map((index) => ({ index, url: `fake://read/${WS}/${key}/${index}`, bytes: index < 2 ? 10 : 5 })))
+    expect(Date.parse(body.expiresAt)).toBeGreaterThan(Date.now() + 3500_000)
+    const later = await (await at(`projects/${video}/exports/${id}/parts?from=2`)).json()
+    expect(later).toMatchObject({ from: 2, parts: [{ index: 2, bytes: 5 }] })
+    expect((await at(`projects/${video}/exports/${id}/parts?from=3`)).status).toBe(400)
+    expect((await at(`projects/${video}/exports/${id}/parts?from=x`)).status).toBe(400)
+    // The links last for what is left at 2 Mbit/s, and a quarter of an hour: an hour at least, twelve at most.
+    // An hour, however large the file: a link works without a sign-in, and a long download asks again (`from`).
+    expect(exportLinkSeconds()).toBe(3600)
+  })
+
+  it('works for an export made on a computer and uploaded, and gives no hash the server does not hold', async () => {
+    const { video, id } = await exported({ kind: 'local-export' })
+    const body = await (await at(`projects/${video}/exports/${id}/parts`)).json()
+    expect(body.parts).toHaveLength(3)
+    expect(body).not.toHaveProperty('sha256')
+  })
+
+  it('refuses an export kept on the computer, another video’s, an import, one past its 30 days, and one not finished', async () => {
+    const kept = await exported({ kind: 'local-export', result: { kept: 'computer', bytes: 25, width: 1, height: 1, fps: 30, durationSeconds: 1 } })
+    const keptRes = await at(`projects/${kept.video}/exports/${kept.id}/parts`)
+    expect(keptRes.status).toBe(409)
+    expect(await keptRes.json()).toMatchObject({ code: 'KEPT_ON_COMPUTER' })
+    const other = await exported()
+    expect((await at(`projects/${kept.video}/exports/${other.id}/parts`)).status).toBe(404)
+    const imported = await exported({ kind: 'import' })
+    expect((await at(`projects/${imported.video}/exports/${imported.id}/parts`)).status).toBe(404)
+    const old = await exported({ ageDays: 31 })
+    expect(await (await at(`projects/${old.video}/exports/${old.id}/parts`)).json()).toMatchObject({ error: expect.stringMatching(/30 days/) })
+    const running = await exported({ status: 'running' })
+    expect((await at(`projects/${running.video}/exports/${running.id}/parts`)).status).toBe(404)
+  })
+
+  it('refuses another workspace’s export, a guest, and a workspace with the Studio switched off', async () => {
+    const { video, id } = await exported()
+    // The same job in another workspace: not here.
+    env.tables.studio_job!.find((j) => j.id === id)!.workspace_id = OTHER_WS
+    expect((await at(`projects/${video}/exports/${id}/parts`)).status).toBe(404)
+    env.tables.studio_job!.find((j) => j.id === id)!.workspace_id = WS
+    h.member = { role: 'guest' }
+    expect((await at(`projects/${video}/exports/${id}/parts`)).status).toBe(403)
+    h.member = { role: 'member' }
+    forgetStudioSwitches()
+    ;(env.tables as Record<string, unknown[]>).workspace = [{ id: WS, settings: { feature_overrides: { studio: 'off' } } }]
+    expect((await at(`projects/${video}/exports/${id}/parts`)).status).toBe(403)
+    forgetStudioSwitches()
   })
 })
 

@@ -1,5 +1,10 @@
 //! The Node the packaged local agent runs on (web
-//! docs/plans/local-agents.md, Packaging).
+//! docs/plans/local-agents.md, Packaging), and the Studio's computer export
+//! too ([`crate::studio_local`], which shares this one [`Runtime`]).
+//!
+//! One pin per computer (`runtime.json` `targets`): macOS on Apple silicon
+//! (a tar.xz, unpacked with `/usr/bin/tar`) and Windows x64 (a zip, unpacked
+//! by [`crate::studio_local::unzip`]: only `node.exe` and `LICENSE`).
 //!
 //! The agent's JS ships inside the signed app; Node doesn't (~120 MB, and
 //! most people never share a folder). It is downloaded on first use from
@@ -9,8 +14,8 @@
 //! - the tarball comes through the local modules' downloader
 //!   ([`assets::download_all`]: resumable, checked against the pinned
 //!   SHA-256, disk space checked first);
-//! - only `<prefix>/bin/node` and `<prefix>/LICENSE` are unpacked from it
-//!   (`/usr/bin/tar`), into `node.tmp/`;
+//! - only `<prefix>/<binary>` (`bin/node`, or `node.exe` on Windows) and
+//!   `<prefix>/LICENSE` are unpacked from it, into `node.tmp/`;
 //! - the binary is checked against its own pinned size and SHA-256, made
 //!   executable, and `node.tmp/` becomes `node/` in one rename; then the
 //!   tarball goes, and so does every other version.
@@ -59,6 +64,45 @@ pub struct RuntimeSpec {
     pub binary: BinarySpec,
 }
 
+/// `runtime.json`: one version, an archive per computer.
+#[derive(Debug, Clone, Deserialize)]
+struct RuntimeFile {
+    version: String,
+    targets: std::collections::BTreeMap<String, RuntimeTarget>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RuntimeTarget {
+    tarball: TarballSpec,
+    binary: BinarySpec,
+}
+
+/// How the archive is packed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+pub enum ArchiveKind {
+    #[default]
+    #[serde(rename = "tar.xz")]
+    TarXz,
+    #[serde(rename = "zip")]
+    Zip,
+}
+
+/// This computer's name in `runtime.json` (and the Studio's
+/// `components.json`): `darwin-arm64` or `win32-x64`, or None where nothing
+/// is pinned (an Intel Mac, Windows on Arm, Linux).
+pub fn current_target() -> Option<&'static str> {
+    target_of(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+/// [`current_target`] for a given OS and architecture. Pure.
+pub fn target_of(os: &str, arch: &str) -> Option<&'static str> {
+    match (os, arch) {
+        ("macos", "aarch64") => Some("darwin-arm64"),
+        ("windows", "x86_64") => Some("win32-x64"),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct TarballSpec {
     pub file: String,
@@ -67,19 +111,43 @@ pub struct TarballSpec {
     pub size: u64,
     /// The folder every entry in the tarball is under.
     pub prefix: String,
+    #[serde(default)]
+    pub archive: ArchiveKind,
 }
 
-/// `<prefix>/bin/node` inside the tarball.
+fn default_binary_path() -> String {
+    "bin/node".into()
+}
+
+/// `<prefix>/<path>` inside the archive.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct BinarySpec {
+    /// `bin/node`, or `node.exe` on Windows (forward slashes).
+    #[serde(default = "default_binary_path")]
+    pub path: String,
     pub sha256: String,
     pub size: u64,
 }
 
 impl RuntimeSpec {
-    /// `runtime.json`. A test pins that it parses.
+    /// `runtime.json`'s pin for this computer; where none is pinned, the
+    /// Mac's (the local agent runs on macOS only; whatever asks for this
+    /// elsewhere checks [`current_target`] first). A test pins that it parses.
     pub fn pinned() -> Self {
-        serde_json::from_str(RUNTIME_JSON).unwrap_or_else(|e| panic!("local_agent/runtime.json is invalid: {e}"))
+        Self::for_target(current_target().unwrap_or("darwin-arm64"))
+            .unwrap_or_else(|| panic!("local_agent/runtime.json has no darwin-arm64 target"))
+    }
+
+    /// `runtime.json`'s pin for `target` (`darwin-arm64`, `win32-x64`).
+    pub fn for_target(target: &str) -> Option<Self> {
+        let file: RuntimeFile =
+            serde_json::from_str(RUNTIME_JSON).unwrap_or_else(|e| panic!("local_agent/runtime.json is invalid: {e}"));
+        let t = file.targets.get(target)?.clone();
+        Some(Self {
+            version: file.version,
+            tarball: t.tarball,
+            binary: t.binary,
+        })
     }
 
     fn asset(&self) -> AssetSpec {
@@ -178,14 +246,20 @@ async fn remove_dir_if_any(dir: &Path) -> std::io::Result<()> {
     }
 }
 
-/// The client the runtime downloads with: the modules' user agent and
+/// The client the runtime downloads with (and the Studio's pinned
+/// downloads, studio_local/components.rs): the modules' user agent and
 /// connect timeout, plus a read timeout, so a stalled download fails the
-/// start instead of holding it for ever.
+/// start instead of holding it for ever. It follows NO redirect: a pin is
+/// fetched from the address checked, or not at all. None of the pinned
+/// addresses redirects (HEAD and ranged GET, 2026-11-13: nodejs.org,
+/// remotion.media and storage.googleapis.com each answer 200/206 at once),
+/// so no other host is needed; a pin that moves fails its download, loudly.
 pub fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .user_agent(concat!("NativeIntelligence-Desktop/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(20))
         .read_timeout(Duration::from_secs(60))
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap_or_default()
 }
@@ -207,9 +281,20 @@ impl Runtime {
         self.root.join(&self.spec.version)
     }
 
-    /// `<root>/<version>/node/bin/node` (its LICENSE: `node/LICENSE`).
+    /// `<root>/<version>/node/bin/node` (`node\node.exe` on Windows; its
+    /// LICENSE: `node/LICENSE`).
     pub fn node_path(&self) -> PathBuf {
-        self.dir().join(NODE_DIR).join("bin/node")
+        rel_join(&self.dir().join(NODE_DIR), &self.spec.binary.path)
+    }
+
+    /// The pinned archive's size, for a status's download estimate.
+    pub fn download_bytes(&self) -> u64 {
+        self.spec.tarball.size
+    }
+
+    /// The pinned binary's size (what the archive unpacks to, about).
+    pub fn unpacked_bytes(&self) -> u64 {
+        self.spec.binary.size
     }
 
     fn check(&self) -> Check {
@@ -341,13 +426,26 @@ impl Runtime {
         tokio::fs::create_dir_all(&tmp)
             .await
             .map_err(|e| format!("can't create {NODE_TMP}: {e}"))?;
-        unpack(&dir.join(&asset.file), &tmp, &self.spec.tarball.prefix).await?;
+        let bin = self.spec.binary.path.clone();
+        match self.spec.tarball.archive {
+            ArchiveKind::TarXz => unpack(&dir.join(&asset.file), &tmp, &self.spec.tarball.prefix, &bin).await?,
+            ArchiveKind::Zip => {
+                let (zip, into, prefix) = (dir.join(&asset.file), tmp.clone(), self.spec.tarball.prefix.clone());
+                let wanted = vec![bin.clone(), "LICENSE".to_string()];
+                tokio::task::spawn_blocking(move || {
+                    crate::studio_local::unzip::extract(&zip, &into, &prefix, Some(&wanted), u64::MAX)
+                })
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(|e| format!("unpacking failed: {e}"))?;
+            }
+        }
 
-        let unpacked = tmp.join("bin/node");
-        let meta = std::fs::symlink_metadata(&unpacked).map_err(|_| "the tarball had no bin/node".to_string())?;
+        let unpacked = rel_join(&tmp, &bin);
+        let meta = std::fs::symlink_metadata(&unpacked).map_err(|_| format!("the archive had no {bin}"))?;
         if !meta.is_file() || meta.len() != self.spec.binary.size {
             return Err(format!(
-                "bin/node is {} bytes, not the pinned {}",
+                "{bin} is {} bytes, not the pinned {}",
                 meta.len(),
                 self.spec.binary.size
             ));
@@ -357,7 +455,7 @@ impl Runtime {
             .await
             .unwrap_or(false);
         if !ok {
-            return Err("bin/node failed its checksum".into());
+            return Err(format!("{bin} failed its checksum"));
         }
         #[cfg(unix)]
         {
@@ -406,8 +504,14 @@ impl Runtime {
     }
 }
 
-/// Unpack only `<prefix>/bin/node` and `<prefix>/LICENSE` into `into`.
-async fn unpack(tarball: &Path, into: &Path, prefix: &str) -> Result<(), String> {
+/// `base` joined with a `/`-separated relative path, one component at a time
+/// (so `bin/node` is `bin\node` on Windows).
+fn rel_join(base: &Path, rel: &str) -> PathBuf {
+    rel.split('/').filter(|c| !c.is_empty()).fold(base.to_path_buf(), |p, c| p.join(c))
+}
+
+/// Unpack only `<prefix>/<binary>` and `<prefix>/LICENSE` into `into`.
+async fn unpack(tarball: &Path, into: &Path, prefix: &str, binary: &str) -> Result<(), String> {
     let mut cmd = tokio::process::Command::new(TAR);
     cmd.no_console();
     cmd.arg("-xJf")
@@ -415,7 +519,7 @@ async fn unpack(tarball: &Path, into: &Path, prefix: &str) -> Result<(), String>
         .arg("-C")
         .arg(into)
         .args(["--strip-components", "1"])
-        .arg(format!("{prefix}/bin/node"))
+        .arg(format!("{prefix}/{binary}"))
         .arg(format!("{prefix}/LICENSE"))
         .env_clear()
         .stdin(Stdio::null())
@@ -501,8 +605,10 @@ pub(crate) mod fixture {
                 sha256: sha(tarball),
                 size: tarball.len() as u64,
                 prefix: PREFIX.into(),
+                archive: ArchiveKind::TarXz,
             },
             binary: BinarySpec {
+                path: "bin/node".into(),
                 sha256: sha(node),
                 size: node.len() as u64,
             },
@@ -569,7 +675,9 @@ mod tests {
 
     #[test]
     fn the_pinned_runtime_is_self_consistent() {
-        let spec = RuntimeSpec::pinned();
+        let spec = RuntimeSpec::for_target("darwin-arm64").unwrap();
+        assert_eq!(spec.tarball.archive, ArchiveKind::TarXz);
+        assert_eq!(spec.binary.path, "bin/node");
         let t = &spec.tarball;
         assert!(spec.version.starts_with("v24."), "{}", spec.version);
         assert!(t.url.starts_with("https://nodejs.org/dist/"), "{}", t.url);
@@ -587,6 +695,32 @@ mod tests {
             "node unpacks bigger than its tarball"
         );
         assert!(is_safe_folder_name(&spec.version));
+    }
+
+    #[test]
+    fn the_windows_pin_is_self_consistent() {
+        let spec = RuntimeSpec::for_target("win32-x64").unwrap();
+        let mac = RuntimeSpec::for_target("darwin-arm64").unwrap();
+        let t = &spec.tarball;
+        assert_eq!(spec.version, mac.version, "one Node version on every computer");
+        assert_eq!(t.archive, ArchiveKind::Zip);
+        assert_eq!(spec.binary.path, "node.exe");
+        assert_eq!(t.url, format!("https://nodejs.org/dist/{}/{}", spec.version, t.file));
+        assert_eq!(t.prefix, format!("node-{}-win-x64", spec.version));
+        assert_eq!(t.file, format!("{}.zip", t.prefix));
+        assert!(is_hex64(&t.sha256) && is_hex64(&spec.binary.sha256));
+        assert!(spec.binary.size > t.size);
+        assert_eq!(RuntimeSpec::for_target("linux-x64"), None);
+    }
+
+    #[test]
+    fn targets_are_named_for_the_computers_pinned() {
+        assert_eq!(target_of("macos", "aarch64"), Some("darwin-arm64"));
+        assert_eq!(target_of("windows", "x86_64"), Some("win32-x64"));
+        assert_eq!(target_of("macos", "x86_64"), None);
+        assert_eq!(target_of("windows", "aarch64"), None);
+        assert_eq!(target_of("linux", "x86_64"), None);
+        assert_eq!(rel_join(Path::new("/a"), "bin/node"), Path::new("/a").join("bin").join("node"));
     }
 
     /// The pin against nodejs.org itself, through the real setup: downloads
@@ -679,6 +813,7 @@ mod tests {
         assert_eq!(runtime.ready_node().await, None);
         // And a size that doesn't match.
         runtime.spec.binary = BinarySpec {
+            path: "bin/node".into(),
             sha256: sha(NODE),
             size: NODE.len() as u64 + 1,
         };

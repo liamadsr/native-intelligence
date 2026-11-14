@@ -32,14 +32,34 @@ export const studioWorkspaceId = (): string | null => workspace
 
 let root: HTMLElement | null = null
 let portal: HTMLElement | null = null
+/**
+ * Every Studio root mounted now. More than one can be (a Studio card in two places at once, or one remounting while
+ * the old one goes): the shared layer stays while any of them does, and `root` is the newest one still in the page.
+ */
+const roots = new Set<HTMLElement>()
 
-/** The Studio page's root element, while it is mounted (studio-root.tsx sets and clears it). */
-export function setStudioRoot(element: HTMLElement | null): void {
-  root = element
-  if (!element && portal) {
+/** Forget roots no longer in the page; the layer goes with the last of them. */
+function prune(): void {
+  for (const element of roots) if (!element.isConnected) roots.delete(element)
+  if (root && !roots.has(root)) root = [...roots].at(-1) ?? null
+  if (!roots.size && portal) {
     portal.remove()
     portal = null
   }
+}
+
+/**
+ * A Studio root mounted (studio-root.tsx's ref), or one went (null: React does not say which). A root that went is
+ * still in the page while React detaches its ref, so the roots are counted again just after, when it is gone: one
+ * Studio closing never takes the layer, and a dialog open in it, from another.
+ */
+export function setStudioRoot(element: HTMLElement | null): void {
+  if (element) {
+    roots.add(element)
+    root = element
+    return
+  }
+  queueMicrotask(prune)
 }
 
 /** The layer the Studio's menus, popovers and dialogs are drawn in. */

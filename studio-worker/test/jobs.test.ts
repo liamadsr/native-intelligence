@@ -7,7 +7,7 @@ import { STUDIO_JOB_KINDS, TranscriptSchema } from '../src/engine.ts'
 const asset = { id: 'b'.repeat(64), sha256: 'b'.repeat(64), durationSeconds: 2 }
 
 test('settings: a development secret by default, none in production', () => {
-  const dev = loadConfig({})
+  const dev = loadConfig({}, () => 3)
   assert.ok(!('problems' in dev))
   if (!('problems' in dev)) {
     assert.equal(dev.secret, DEV_SECRET)

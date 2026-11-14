@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isInviteRedirectPath, isJoinLinkPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '../login-redirect'
+import { accountRedirectTarget, isAccountRedirectPath, isInviteRedirectPath, isJoinLinkPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '../login-redirect'
 import { APP_DOMAINS } from '@/lib/app-url'
 
 // The hosted app answers on two domains while it moves (src/lib/app-url.ts): every case below runs on each.
@@ -99,11 +99,43 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
       expect(resolvePostAuthRedirect(null, ORIGIN)).toBe('/account')
       expect(resolvePostAuthRedirect('/invite/tok', ORIGIN)).toBe('/invite/tok')
       expect(resolvePostAuthRedirect('/s/abc', ORIGIN)).toBe('/s/abc')
+      // An email share link, beside the stricter reading of an in-app target: both hold.
+      expect(resolvePostAuthRedirect('/mail/s/abc', ORIGIN)).toBe('/mail/s/abc')
       expect(resolvePostAuthRedirect('/account/settings', ORIGIN)).toBe('/account/settings')
       expect(isMcpTarget('/account/settings')).toBe(false)
-      for (const evil of ['//evil.example/account', 'https://evil.example/api/mcp/x', '/somewhere-else', '/invite//evil.example', '/link//evil.example']) {
+      for (const evil of ['//evil.example/account', 'https://evil.example/api/mcp/x', '/somewhere-else', '/invite//evil.example', '/link//evil.example', '/mail/s//evil.example', '/mail/x', '/account/../mail/s/abc']) {
         expect(resolvePostAuthRedirect(evil, ORIGIN), evil).toBe('/account')
       }
+    })
+
+    it('keeps a page of the app with its deep link (the Studio export a desktop download opens), and nothing like it', () => {
+      const link = '/account?page=studio&video=aaaaaaaa-1111-4222-8333-444444444444&export=bbbbbbbb-1111-4222-8333-444444444444'
+      expect(resolvePostAuthRedirect(link, ORIGIN)).toBe(link)
+      expect(isAccountRedirectPath(link)).toBe(true)
+      expect(isAccountRedirectPath('/account')).toBe(true)
+      for (const no of ['/accountx', '/account//evil.example', '/account\\evil.example', 'https://evil.example/account', '//evil.example/account', '/s/abc']) expect(isAccountRedirectPath(no), no).toBe(false)
+      expect(resolvePostAuthRedirect('/accountx', ORIGIN)).toBe('/account')
+    })
+
+    it('reads an account target as a browser would: dot segments, tabs, line breaks and look-alikes are refused', () => {
+      const bad = [
+        '/account/../anything', '/account/%2e%2e/anything', '/account/%2E%2E/%2e%2e/x', '/account/./../x',
+        '/account/../\t/evil.example', '/account/..\t/evil.example', '/account\n', '/account/\r\n../x', '/acc\tount',
+        '//evil.example/account', '/account//evil.example', '/account/..//evil.example', '/\\evil.example/account', '/account\\..\\x',
+        '/account@evil.example', '/account.evil', '/accountx', 'account', 'https://evil.example/account', '',
+      ]
+      for (const path of bad) {
+        expect(accountRedirectTarget(path), JSON.stringify(path)).toBeNull()
+        expect(resolvePostAuthRedirect(path, ORIGIN), JSON.stringify(path)).toBe('/account')
+      }
+    })
+
+    it('returns the parsed account path, never the raw value; a nested redirect stays a query of /account', () => {
+      expect(accountRedirectTarget('/account')).toBe('/account')
+      expect(accountRedirectTarget('/account/settings/./x?a=1#h')).toBe('/account/settings/x?a=1#h')
+      expect(accountRedirectTarget('/account?redirect=//evil.example')).toBe('/account?redirect=//evil.example')
+      expect(new URL(accountRedirectTarget('/account?redirect=//evil.example')!, ORIGIN).origin).toBe(ORIGIN)
+      expect(accountRedirectTarget('/account?page=studio&video=a b')).toBe('/account?page=studio&video=a%20b')
     })
 
     it("keeps an agent link's connect link, so a new account lands back on the request", () => {

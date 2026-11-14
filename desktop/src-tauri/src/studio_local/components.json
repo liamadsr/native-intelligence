@@ -1,0 +1,71 @@
+{
+  "comment": "What the Studio's computer export downloads on first use, pinned here and compiled into the app (studio_local/components.rs). Each archive is checked against its SHA-256 before it is unpacked, and each binary against its own after. Node is the local agent's pin (local_agent/runtime.json).",
+  "chrome": {
+    "comment": "Chrome's headless shell at the version the worker's Remotion is tested with (@remotion/renderer dist/browser/get-chrome-download-url.js TESTED_VERSION), from the same places Remotion downloads it: on a Mac with Apple silicon Remotion's own build (remotion.media), on Windows Google's Chrome for Testing. SHA-256s computed from the downloaded archives on 2026-11-13 (neither host publishes one). Bump with @remotion/renderer.",
+    "version": "157.0.8080.0",
+    "targets": {
+      "darwin-arm64": {
+        "file": "chromium-headless-shell-mac-arm64-157.0.8080.0.zip",
+        "url": "https://remotion.media/chromium-headless-shell-mac-arm64-157.0.8080.0.zip?clear",
+        "sha256": "3d9fd9a997915fa295ba6fbd66b2eaad2b9578101aa9dcde5e2eb737afa4f459",
+        "size": 179230663,
+        "prefix": "chrome-headless-shell-mac-arm64",
+        "unpackedBytes": 587948853,
+        "binaries": [
+          {
+            "role": "chrome",
+            "path": "chrome-headless-shell",
+            "sha256": "a6516527d27e69244beafc04f347fc90ef363c23598b951ae05fc96c999b7f54",
+            "size": 423657504
+          }
+        ]
+      },
+      "win32-x64": {
+        "file": "chrome-headless-shell-win64.zip",
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/157.0.8080.0/win64/chrome-headless-shell-win64.zip",
+        "sha256": "ad0fe78fbe0783035fd71f81cd876a2e81962a40ac7de6b4f7afcbeb00901c11",
+        "size": 125915690,
+        "prefix": "chrome-headless-shell-win64",
+        "unpackedBytes": 295289211,
+        "binaries": [
+          {
+            "role": "chrome",
+            "path": "chrome-headless-shell.exe",
+            "sha256": "c4d6a64a7af8db5081de3d66bd6957b8999b08064ce8254bb4f99d33d9170e3c",
+            "size": 221143040
+          }
+        ]
+      }
+    }
+  },
+  "ffmpeg": {
+    "comment": "PLACEHOLDER: our LGPL FFmpeg and ffprobe with the system encoders (VideoToolbox, Media Foundation), built by studio-worker/scripts and hosted by us. Not built yet: null url and hashes make the status say FFmpeg is not available for this version yet. Fill each target from the build's own output (a zip holding <prefix>/ffmpeg and <prefix>/ffprobe, .exe on Windows), with the archive's and each binary's SHA-256 and size.",
+    "version": "unreleased",
+    "targets": {
+      "darwin-arm64": {
+        "file": "studio-ffmpeg-darwin-arm64.zip",
+        "url": null,
+        "sha256": null,
+        "size": 0,
+        "prefix": "studio-ffmpeg-darwin-arm64",
+        "unpackedBytes": 0,
+        "binaries": [
+          { "role": "ffmpeg", "path": "ffmpeg", "sha256": null, "size": 0 },
+          { "role": "ffprobe", "path": "ffprobe", "sha256": null, "size": 0 }
+        ]
+      },
+      "win32-x64": {
+        "file": "studio-ffmpeg-win32-x64.zip",
+        "url": null,
+        "sha256": null,
+        "size": 0,
+        "prefix": "studio-ffmpeg-win32-x64",
+        "unpackedBytes": 0,
+        "binaries": [
+          { "role": "ffmpeg", "path": "ffmpeg.exe", "sha256": null, "size": 0 },
+          { "role": "ffprobe", "path": "ffprobe.exe", "sha256": null, "size": 0 }
+        ]
+      }
+    }
+  }
+}

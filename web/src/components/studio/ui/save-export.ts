@@ -1,0 +1,216 @@
+/**
+ * Saving a finished export (or any stored Studio file: an ad's image, a reel) onto the person's computer.
+ *
+ * An export is rendered by the Studio's worker and stored with the workspace's Studio files (kept 30 days,
+ * lib/studio/server/sweep.ts); its link (`EditorJob.downloadUrl`) answers the MP4 as an attachment. Getting it onto the
+ * computer goes one of five ways, whichever this page can do:
+ *
+ *   desktop-parts    the desktop app with its own save (studio_export_save_parts): the person picks the place, then the
+ *                    app streams the export's parts there (GET projects/:id/exports/:jobId/parts), any size.
+ *   desktop          the desktop app, a file up to DESKTOP_SAVE_LIMIT: its native Save panel (lib/download.ts → the
+ *                    `save_file` command), where the person picks the folder and the name. The released app's command
+ *                    takes the whole file as a JSON array of numbers (about 16 bytes of memory per byte of video on the
+ *                    way), so only a small file goes this way.
+ *   desktop-browser  the desktop app, a larger file: the person's own browser opens the app on that export
+ *                    (./export-arrival.ts), signed in there (they may need to sign in once), and downloads it to its
+ *                    downloads folder through the same signed-in file route. Nothing large is held in this page.
+ *                    A stored file that is not an export (a reel) opens its own link in that browser instead, which
+ *                    needs the browser to be signed in already.
+ *   picker           a browser with a save picker (Chrome, Edge): the person picks the folder and the name first, then the
+ *                    file streams straight into it.
+ *   downloads        any other browser: a plain download, which the browser puts in its downloads folder (or asks, if the
+ *                    person set it to).
+ *
+ * Every way checks the file is still there before it says anything was saved (an export older than 30 days is gone).
+ */
+import { downloadFile } from '@/lib/download';
+import { openInSystemBrowser } from '@/lib/open-external';
+import { isDesktopApp } from '@/lib/platform';
+import { studioLocalExport, studioRefusal } from '@/lib/tauri-bridge';
+import { exportArrivalLink } from './export-arrival';
+import { isMissingCommand } from './local-export';
+
+export type SaveWay = 'desktop-parts' | 'desktop' | 'desktop-browser' | 'picker' | 'downloads';
+export type SaveResult = { kind: 'saved'; where: string; destinationId?: string } | { kind: 'downloads'; name: string } | { kind: 'browser'; name: string } | { kind: 'cancelled' };
+/**
+ * What is saved: a stored file's link (/api/account/studio/file/<workspace>/<key>), the name to give it, its size when
+ * known, and for a finished export where the browser should arrive to download it (desktop-browser).
+ */
+export type ExportFile = { url: string; fileName: string; bytes?: number | null; arrival?: { videoId: string; jobId: string; workspaceId: string | null } };
+
+/**
+ * The largest export handed to the desktop app's Save panel. Its `save_file` takes the bytes as a JSON array of numbers:
+ * the file, an array of one number per byte, and that array as JSON text are all in memory at once (about 16 bytes per
+ * byte), so 20 MB costs about 320 MB for a moment. Above it the file goes through the browser.
+ */
+export const DESKTOP_SAVE_LIMIT = 20 * 1024 * 1024;
+
+type SaveHandle = { name: string; createWritable: () => Promise<WritableStream<Uint8Array>>; remove?: () => Promise<void> };
+type SavePicker = (options: { suggestedName?: string; types?: { description: string; accept: Record<string, string[]> }[] }) => Promise<SaveHandle>;
+const picker = (): SavePicker | null => {
+  const found = typeof window === 'undefined' ? undefined : (window as unknown as { showSaveFilePicker?: SavePicker }).showSaveFilePicker;
+  return typeof found === 'function' ? found.bind(window) : null;
+};
+
+/** What the save picker offers to save as, from the name's extension. */
+function pickerTypes(fileName: string): { types?: { description: string; accept: Record<string, string[]> }[] } {
+  const ext = /\.([a-z0-9]+)$/i.exec(fileName)?.[1]?.toLowerCase();
+  const known: Record<string, [string, string]> = { mp4: ['MP4 video', 'video/mp4'], png: ['PNG image', 'image/png'], jpg: ['JPEG image', 'image/jpeg'], jpeg: ['JPEG image', 'image/jpeg'], webm: ['WebM video', 'video/webm'] };
+  const type = ext ? known[ext] : undefined;
+  return type ? { types: [{ description: type[0], accept: { [type[1]]: [`.${ext}`] } }] } : {};
+}
+
+/** A stored Studio file's own link on this site (/api/account/studio/file/…), absolute, or null for anything else. */
+function studioFileLink(url: string): string | null {
+  try {
+    const link = new URL(url, window.location.origin);
+    return link.origin === window.location.origin && link.pathname.startsWith('/api/account/studio/file/') ? link.toString() : null;
+  } catch { return null; }
+}
+
+/**
+ * How this page saves a file of this size (unknown: the desktop app asks the file first, see saveExport). `parts`: the
+ * desktop app has its own save (studio_export_save_parts), which streams an export of any size into the file picked.
+ */
+export function saveWay(bytes?: number | null, parts = false): SaveWay {
+  if (isDesktopApp() && parts) return 'desktop-parts';
+  if (isDesktopApp()) return typeof bytes === 'number' && bytes > 0 && bytes <= DESKTOP_SAVE_LIMIT ? 'desktop' : 'desktop-browser';
+  return picker() ? 'picker' : 'downloads';
+}
+
+/** The file name an export's link asks for (its `download` parameter), else the title's. */
+export function exportFileName(url: string, title: string): string {
+  try {
+    const named = new URL(url, 'http://studio.invalid').searchParams.get('download');
+    if (named) return named;
+  } catch { /* a malformed link names nothing */ }
+  return `${title.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim() || 'video'}.mp4`;
+}
+
+async function failure(response: Response): Promise<Error> {
+  try {
+    const body = await response.json() as { error?: string; message?: string };
+    if (body.error || body.message) return new Error(body.error ?? body.message);
+  } catch { /* not JSON */ }
+  return new Error(response.status === 404 ? 'This export is no longer kept: exports are kept for 30 days. Export the video again.' : `The video could not be fetched (${response.status}).`);
+}
+
+/** The file's size, asked of the server without fetching it; throws the server's sentence when it is gone. */
+async function sizeOf(url: string): Promise<number | null> {
+  const response = await fetch(url, { method: 'HEAD' });
+  if (!response.ok) throw await failure(response);
+  const length = Number(response.headers.get('content-length'));
+  return Number.isFinite(length) && length > 0 ? length : null;
+}
+
+/** A finished export's stored file as the app downloads it (GET projects/:id/exports/:jobId/parts, lib/studio/server/jobs.ts). */
+export type ExportPartsAnswer = { name: string; bytes: number; sha256?: string; from: number; expiresAt: string; parts: { index: number; url: string; bytes: number }[] };
+export async function exportPartsOf(videoId: string, jobId: string): Promise<ExportPartsAnswer> {
+  const response = await fetch(`/api/account/studio/projects/${encodeURIComponent(videoId)}/exports/${encodeURIComponent(jobId)}/parts`);
+  // A bad request is ours to fix: the person reads only that it did not work. Every other refusal says why in the
+  // server's own words (kept on the computer it was made on, past its 30 days, a guest, the Studio off).
+  if (response.status === 400) throw new Error('The video could not be saved. Try again.');
+  if (!response.ok) throw await failure(response);
+  return await response.json() as ExportPartsAnswer;
+}
+
+/** What a save tells its caller while it runs: the place the person picked (the app's save events name it). */
+export type SaveHooks = { onPicked?: (destinationId: string) => void };
+/** The app's refusal as a sentence for the person (its code dropped). */
+const sentence = (error: unknown) => new Error(studioRefusal(error).message);
+
+/**
+ * The desktop app's own save: the person picks the place, then the app streams the export's parts into it (any size,
+ * nothing held in the page). Null when this app has no such command, or the file is not an export (the other ways then).
+ * The app's links expire: a save refused for that (`links-expired`) asks for fresh ones and goes again, once. A save the
+ * person cancelled (`cancelled`, studio_export_save_cancel) answers cancelled.
+ */
+async function saveThroughApp(file: ExportFile, hooks: SaveHooks = {}): Promise<SaveResult | null> {
+  const arrival = file.arrival;
+  if (!arrival) return null;
+  // The parts first: they say the file is still there, and its cleaned name is what the save panel offers.
+  let parts = await exportPartsOf(arrival.videoId, arrival.jobId);
+  let picked: { destinationId: string; name: string } | null;
+  try { picked = await studioLocalExport.pickDestination(parts.name || file.fileName); }
+  catch (error) { if (isMissingCommand(error)) return null; throw sentence(error); }
+  if (!picked) return { kind: 'cancelled' };
+  const destinationId = picked.destinationId;
+  hooks.onPicked?.(destinationId);
+  // The app asks the parts route again when the links run out, in the workspace the Studio is open in (without it the
+  // server would take the person's first workspace); without one it cannot, and saves with the links it has.
+  const relink = arrival.workspaceId ? { workspaceId: arrival.workspaceId, videoId: arrival.videoId, jobId: arrival.jobId } : {};
+  const save = (answer: ExportPartsAnswer) => studioLocalExport.saveParts({
+    destinationId, ...relink,
+    parts: answer.parts.map(part => ({ url: part.url, bytes: part.bytes })), bytes: answer.bytes, ...(answer.sha256 ? { sha256: answer.sha256 } : {}),
+  });
+  for (let attempt = 0; ; attempt++) {
+    try { const saved = await save(parts); return { kind: 'saved', where: saved.name || picked.name, destinationId }; }
+    catch (error) {
+      const { code } = studioRefusal(error);
+      if (code === 'cancelled') return { kind: 'cancelled' };
+      if (code !== 'links-expired' || attempt > 0) throw sentence(error);
+      parts = await exportPartsOf(arrival.videoId, arrival.jobId);
+    }
+  }
+}
+
+/**
+ * Save an export. Call it straight from a click: the browser's save picker opens only then. `way` is worked out from
+ * the size when not given. Throws a sentence the dialog can show.
+ */
+export async function saveExport(file: ExportFile, way?: SaveWay, hooks?: SaveHooks): Promise<SaveResult> {
+  const { url, fileName } = file;
+  if (way === 'desktop-parts') {
+    const saved = await saveThroughApp(file, hooks);
+    if (saved) return saved;
+    way = undefined;
+  }
+  if (isDesktopApp() && way !== 'desktop-browser') {
+    // The size decides the way: asked of the server when the job did not say (which also checks it is still kept).
+    const bytes = typeof file.bytes === 'number' && file.bytes > 0 ? file.bytes : await sizeOf(url);
+    way = saveWay(bytes);
+  }
+  way ??= saveWay(file.bytes);
+  if (way === 'desktop') {
+    const path = await downloadFile(url, fileName);
+    return path ? { kind: 'saved', where: path } : { kind: 'cancelled' };
+  }
+  if (way === 'desktop-browser') {
+    // The browser downloads it with its own session: the app opened on this export, or the file's own link.
+    const link = file.arrival ? exportArrivalLink(window.location.origin, file.arrival) : studioFileLink(url);
+    if (!link) throw new Error('This file cannot be opened in your browser from here.');
+    if (!await openInSystemBrowser(link)) throw new Error('Your browser could not be opened. Try again.');
+    return { kind: 'browser', name: fileName };
+  }
+  const pick = way === 'picker' ? picker() : null;
+  if (pick) {
+    let handle: SaveHandle;
+    try { handle = await pick({ suggestedName: fileName, ...pickerTypes(fileName) }); }
+    catch (cause) {
+      if ((cause as { name?: string })?.name === 'AbortError') return { kind: 'cancelled' };
+      // The picker refused this page (a frame, a policy): the plain download still works.
+      return saveExport(file, 'downloads');
+    }
+    const response = await fetch(url);
+    if (!response.ok || !response.body) {
+      // The picker made an empty file: take it away again.
+      await handle.remove?.().catch(() => undefined);
+      throw await failure(response);
+    }
+    const writable = await handle.createWritable();
+    try { await response.body.pipeTo(writable); }
+    catch (cause) { await writable.abort(cause).catch(() => undefined); throw new Error(`The video could not be saved: ${cause instanceof Error ? cause.message : String(cause)}`); }
+    return { kind: 'saved', where: handle.name };
+  }
+  // A plain link: the browser streams it to its downloads folder under the name the server gives it. Checked first,
+  // so a file that is gone says so instead of "sent".
+  await sizeOf(url);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  link.rel = 'noopener';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  return { kind: 'downloads', name: fileName };
+}

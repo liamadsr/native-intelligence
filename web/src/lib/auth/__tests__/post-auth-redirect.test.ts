@@ -22,6 +22,25 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
       expect(location(postAuthRedirect(request()))).toBe(`https://${DOMAIN}/account`)
     })
 
+    it('honours a page of the app with its deep link, clears it, and refuses anything else', () => {
+      const link = '/account?page=studio&video=aaaaaaaa-1111-4222-8333-444444444444&export=bbbbbbbb-1111-4222-8333-444444444444'
+      const res = postAuthRedirect(request({ account_redirect: link }))
+      expect(location(res)).toBe(`https://${DOMAIN}${link}`)
+      expect(cleared(res, 'account_redirect')).toBe(true)
+      for (const evil of ['//evil.example/account', 'https://evil.example/account', '/accountx', '/account//evil.example']) expect(location(postAuthRedirect(request({ account_redirect: evil }))), evil).toBe(`https://${DOMAIN}/account`)
+    })
+
+    it('clears the account redirect whichever way the sign-in ends, so it never waits for the next one', () => {
+      const link = '/account?page=studio&video=aaaaaaaa-1111-4222-8333-444444444444&export=bbbbbbbb-1111-4222-8333-444444444444'
+      for (const winner of [{ invite_redirect: '/invite/tok' }, { share_redirect: '/s/abc' }, { mcp_redirect: '/api/mcp/oauth/authorize?x=1' }, {}]) {
+        const res = postAuthRedirect(request({ ...winner, account_redirect: link }))
+        expect(cleared(res, 'account_redirect'), JSON.stringify(winner)).toBe(true)
+      }
+      // A dot segment in the cookie is not followed: it lands on /account.
+      expect(location(postAuthRedirect(request({ account_redirect: '/account/../anything' })))).toBe(`https://${DOMAIN}/account`)
+      expect(location(postAuthRedirect(request({ account_redirect: '/account/./settings' })))).toBe(`https://${DOMAIN}/account/settings`)
+    })
+
     it('honours an invite redirect and clears it', () => {
       const res = postAuthRedirect(request({ invite_redirect: '/invite/tok' }))
       expect(location(res)).toBe(`https://${DOMAIN}/invite/tok`)
@@ -38,6 +57,18 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
     it('lands on a home the caller names when there is no redirect cookie, and only then', () => {
       expect(location(postAuthRedirect(request(), undefined, { home: '/join/team' }))).toBe(`https://${DOMAIN}/join/team`)
       expect(location(postAuthRedirect(request({ invite_redirect: '/invite/tok' }), undefined, { home: '/join/team' }))).toBe(`https://${DOMAIN}/invite/tok`)
+    })
+
+    it('a page of the app the person was sent to wins over that home, is cleared either way, and a bad one falls to /account, not to the home', () => {
+      const link = '/account?page=studio&video=v1'
+      const res = postAuthRedirect(request({ account_redirect: link }), undefined, { home: '/join/team' })
+      expect(location(res)).toBe(`https://${DOMAIN}${link}`)
+      expect(cleared(res, 'account_redirect')).toBe(true)
+      const bad = postAuthRedirect(request({ account_redirect: '//evil.example/account' }), undefined, { home: '/join/team' })
+      expect(location(bad)).toBe(`https://${DOMAIN}/account`)
+      expect(cleared(bad, 'account_redirect')).toBe(true)
+      // With no account redirect the home still holds, and the cookie's clearing is harmless.
+      expect(cleared(postAuthRedirect(request(), undefined, { home: '/join/team' }), 'account_redirect')).toBe(true)
     })
 
     it("honours a workspace join link through the invite cookie, so sign-in comes back to join", () => {

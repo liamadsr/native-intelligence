@@ -168,7 +168,7 @@ mod prompts;
 mod protocol;
 mod push;
 mod ring;
-mod runtime;
+pub(crate) mod runtime;
 mod starts;
 mod state;
 mod supervisor;
@@ -1023,6 +1023,13 @@ impl LocalAgentService {
             .send(make(tx))
             .map_err(|_| "local agents have stopped".to_string())?;
         rx.await.map_err(|_| "local agents have stopped".to_string())
+    }
+
+    /// The pinned Node, shared with the Studio's computer export
+    /// ([`crate::studio_local`]): one download, one folder, one setup at a
+    /// time for both.
+    pub(crate) fn runtime(&self) -> Arc<Runtime> {
+        self.resolver.runtime().clone()
     }
 
     pub async fn status(&self) -> Result<StatusReport, String> {

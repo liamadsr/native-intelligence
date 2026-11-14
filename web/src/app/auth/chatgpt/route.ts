@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { browserOrigin } from '@/lib/auth/post-auth-redirect'
+import { browserOrigin, dropAccountRedirect } from '@/lib/auth/post-auth-redirect'
 import { chatGptClient, chatGptRedirectUri } from '@/lib/chatgpt/config'
 import {
   BIND_PATTERN,
@@ -22,12 +22,12 @@ import {
  */
 export async function GET(request: NextRequest) {
   const client = chatGptClient()
-  if (!client) return NextResponse.redirect(new URL('/login', browserOrigin(request)))
+  if (!client) return dropAccountRedirect(NextResponse.redirect(new URL('/login', browserOrigin(request))))
 
   const desktop = request.nextUrl.searchParams.get('desktop') === '1'
   const bind = request.nextUrl.searchParams.get('bind')
   if (desktop && !(bind && BIND_PATTERN.test(bind))) {
-    return NextResponse.redirect(new URL('/login?error=auth_failed', browserOrigin(request)))
+    return dropAccountRedirect(NextResponse.redirect(new URL('/login?error=auth_failed', browserOrigin(request))))
   }
 
   // The transaction cookie must be set on the host OpenAI calls back to, or

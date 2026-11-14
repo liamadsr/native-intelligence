@@ -86,6 +86,8 @@ source "$SCRIPT_DIR/scripts/sidecars.sh"
 source "$SCRIPT_DIR/scripts/licenses.sh"
 # The local agent bundle (Contents/Resources/local-agent).
 source "$SCRIPT_DIR/scripts/local-agent.sh"
+# The Studio's local runner (Contents/Resources/studio-runner), built from studio-worker.
+source "$SCRIPT_DIR/scripts/studio-runner.sh"
 # Preflight and retries for codesign's secure timestamp (Apple's timestamp
 # server, over the network).
 source "$SCRIPT_DIR/scripts/timestamp.sh"
@@ -470,6 +472,25 @@ if ! LOCAL_AGENT_FROM="$(local_agent_verify "$APP_PATH")"; then
 fi
 ok "Local agent staged: $LOCAL_AGENT_FROM"
 
+# The Studio's local runner (scripts/studio-runner.sh): built here from this
+# commit's studio-worker (committed source only; about 47 MB, not committed),
+# staged and checked file by file against its STUDIO_RUNNER.json. Its Node,
+# Chrome and FFmpeg are downloaded on first use, pinned.
+log "Building the Studio's local runner..."
+if ! studio_runner_build release; then
+    err "The Studio runner did not build (npm ci in studio-worker/ and web/, Node 24)"
+    exit 1
+fi
+if ! studio_runner_stage "$APP_PATH"; then
+    err "The Studio runner could not be staged"
+    exit 1
+fi
+if ! STUDIO_RUNNER_FROM="$(studio_runner_verify "$APP_PATH/Contents/Resources/studio-runner" release)"; then
+    err "The Studio runner failed its check"
+    exit 1
+fi
+ok "Studio runner staged: $STUDIO_RUNNER_FROM"
+
 # Third-party notices: the app's Rust crates, the Rust standard library and
 # every staged sidecar's own (each sidecar's build.sh writes them; one without
 # stops the release), folded into
@@ -481,7 +502,7 @@ if ! licenses_stage "$APP_PATH" release; then
     err "License notices could not be generated"
     exit 1
 fi
-if ! licenses_verify "$APP_PATH" dial8-desktop rust-std vad local-agent local-stt local-tts; then
+if ! licenses_verify "$APP_PATH" dial8-desktop rust-std vad local-agent local-stt local-tts studio-runner; then
     err "License notices are incomplete"
     exit 1
 fi

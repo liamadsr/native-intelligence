@@ -20,6 +20,7 @@ import {
   useState,
 } from 'react'
 import { OPEN_CARD_EVENT, PAGE_DEEP_LINK_PARAM, PAGE_DEEP_LINK_PLACES, cardForTarget, parseOpenCardRequest, type OpenCardRequest } from '@/lib/chat-cards/open-card'
+import { takeExportFromAddress } from '@/components/studio/ui/export-arrival'
 import { useSwitchWorkspace, useWorkspaceId } from '@/app/account/workspace-switcher'
 import { toast } from 'sonner'
 import { DEEP_LINK_TYPES } from '@/lib/entities/entity-actions-registry'
@@ -224,7 +225,14 @@ export function MainChatProvider({ children }: { children: React.ReactNode }) {
     // chat that will show it. The URL is stripped once it is parked or queued.
     try {
       const params = new URLSearchParams(window.location.search)
+      // A Studio export to download on arrival (components/studio/ui/export-arrival.ts): kept for the Studio only
+      // beside `page=studio&video=`, and taken off the address either way, so it never acts later.
+      const tookExport = takeExportFromAddress(params)
       const link = deepLinkCard(params)
+      if (!link && tookExport) {
+        const rest = params.toString()
+        window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''))
+      }
       if (link) {
         // A link naming its workspace waits for the real id, which says whether it is another one to switch to.
         if (workspaceId && !link.request.workspaceId) deliverTo(chatRef.current.chatSessionId, link.request)

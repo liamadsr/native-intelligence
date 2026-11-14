@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { EditorProject } from '@/lib/studio/engine/contracts';
-import { openRecorder, listBrowserDevices, unlockDeviceLabels, uploadTake, submitTake, recordingRequest, plainError, type BrowserRecorder, type DesktopRecorder, type DeviceOption, type EndReason, type FinishedTake, type Recorder, type RecorderPermissionName, type RecorderPermissions, type RecorderTargets, type ScreenChoice, type SharedSurface, type TakePlacement, type UploadProgress } from '../record';
+import { openRecorder, listBrowserDevices, unlockDeviceLabels, uploadTake, submitTake, recordingRequest, plainError, listSavedTakes, discardSavedTake, recoverSavedTake, type BrowserRecorder, type DesktopRecorder, type DeviceOption, type EndReason, type FinishedTake, type LiveTrackStatus, type Recorder, type RecorderPermissionName, type RecorderPermissions, type RecorderTargets, type SavedTake, type ScreenChoice, type SharedSurface, type TakePlacement, type UploadProgress } from '../record';
 
 /** One take in this tab, from Start until it is a video (or failed). Shaped like the session the editor's follow-ups read. */
 export type RecordingSession = { id: string; status: 'preparing' | 'countdown' | 'recording' | 'finalizing' | 'completed' | 'failed' | 'cancelled' | 'interrupted'; createdAt: string;
   camera: boolean; microphone: boolean; countdownRemaining?: number; elapsedMs: number; level?: number | null; note?: string; error?: string; step?: string;
+  /** While it is prepared on the Studio (after the upload): how far along, 0 to 1. */
+  progress?: number;
   punch?: { projectId: string; fromFrame: number; toFrame: number; beatIds?: string[] }; projectId?: string; screenAssetId?: string; voiceAssetId?: string; partialAssetId?: string;
   /** The take is kept on this device after a failed upload: Try again sends it again. */
   retry?: boolean };
@@ -32,6 +34,10 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploads, setUploads] = useState<UploadProgress[]>([]);
+  /** While a browser take records: each track's upload (what is on the Studio, what a crash would lose). */
+  const [liveTracks, setLiveTracks] = useState<LiveTrackStatus[]>([]);
+  /** Takes whose window closed before they were finished, kept on the Studio: offered back. */
+  const [savedTakes, setSavedTakes] = useState<SavedTake[]>([]);
   const mounted = useRef(true), operation = useRef(false), current = useRef<string | null>(null), pending = useRef<{ take: FinishedTake; placement: TakePlacement; title?: string } | null>(null);
   const take = useRef<{ placement: TakePlacement; title?: string } | null>(null);
   const marks = useRef<PrompterMark[]>([]), screenStart = useRef<number | null>(null), countdownCancel = useRef<(() => void) | null>(null), endedRef = useRef<(reason: EndReason) => void>(() => {});
@@ -99,8 +105,9 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
     patch(id, { status: 'finalizing', step: 'Uploading', retry: false, error: undefined });
     try {
       const keys = await uploadTake(rec, take, files => { if (mounted.current) setUploads(files); });
-      patch(id, { step: 'Preparing your recording' });
-      const answer = await submitTake(recordingRequest(take, keys, placement, title), view => patch(id, { step: view.step, ...(view.note ? { note: view.note } : {}) }), () => mounted.current);
+      if (mounted.current) setLiveTracks([]);
+      patch(id, { step: 'Preparing your recording', ...(take.note ? { note: take.note } : {}) });
+      const answer = await submitTake(recordingRequest(take, keys, placement, title), view => patch(id, { step: view.step, progress: view.progress, ...(view.note ? { note: view.note } : {}) }), () => mounted.current);
       if (answer.recording.status !== 'done') return;
       pending.current = null;
       await rec.discard(take).catch(() => {});
@@ -133,7 +140,7 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
     operation.current = true; setWorking(true); setError(null);
     const id = crypto.randomUUID(), punch = options.placement.kind === 'punch' ? { projectId: options.placement.projectId, fromFrame: options.placement.fromFrame, toFrame: options.placement.toFrame } : options.placement.kind === 'beats' ? { projectId: options.placement.projectId, fromFrame: 0, toFrame: 0, beatIds: options.placement.beatIds } : undefined;
     const session: RecordingSession = { id, status: 'preparing', createdAt: new Date().toISOString(), camera: options.cameraId !== false, microphone: options.microphoneId !== false, elapsedMs: 0, ...(punch ? { punch } : {}) };
-    setSessions(all => [session, ...all].slice(0, 20)); setSelectedId(id); current.current = id; marks.current = []; screenStart.current = null;
+    setSessions(all => [session, ...all].slice(0, 20)); setSelectedId(id); current.current = id; marks.current = []; screenStart.current = null; setLiveTracks([]);
     try {
       await rec.prepare({ screen: options.screen, camera: options.cameraId === false ? null : { deviceId: options.cameraId }, microphone: options.microphoneId === false ? null : { deviceId: options.microphoneId }, systemAudio: options.systemAudio, hideCursor: true });
       if (mounted.current) setWorking(false);
@@ -150,7 +157,7 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
         if (reason.kind !== 'error') notify(reason.kind === 'share-ended' ? 'Sharing ended, so the recording stopped.' : 'Recording stopped.');
         void stopTake(id, reason);
       };
-      await rec.start({ onStatus: status => { if (current.current === id) patch(id, { elapsedMs: status.elapsedMs, level: status.level }); }, onEnded: reason => endedRef.current(reason) });
+      await rec.start({ onStatus: status => { if (current.current !== id) return; patch(id, { elapsedMs: status.elapsedMs, level: status.level }); if (status.tracks && mounted.current) setLiveTracks(status.tracks); }, onEnded: reason => endedRef.current(reason) });
       screenStart.current = performance.now();
       patch(id, { status: 'recording', countdownRemaining: undefined, elapsedMs: 0 });
       return { ...session, status: 'recording' };
@@ -196,10 +203,28 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
     window.addEventListener('beforeunload', before);
     return () => window.removeEventListener('beforeunload', before);
   }, [busy]);
+  /** The takes kept on the Studio after their window closed mid-take; never one this tab is still recording or sending (the Studio would refuse it, as still recording, but the dialog must not offer it). */
+  const refreshSavedTakes = useCallback(async () => { try { const takes = await listSavedTakes(); const mine = new Set((recorder.current as { liveTakeIds?: () => string[] } | null)?.liveTakeIds?.() ?? []); if (mounted.current) setSavedTakes(takes.filter(take => !mine.has(take.id))); } catch { /* an older server: nothing to offer */ } }, []);
+  useEffect(() => { void refreshSavedTakes(); }, [refreshSavedTakes]);
+  /** Make a saved take a new video from what reached the Studio, followed like a finished take. */
+  const recoverSaved = useCallback(async (takeId: string) => {
+    const saved = savedTakes.find(item => item.id === takeId);
+    const id = crypto.randomUUID();
+    const session: RecordingSession = { id, status: 'finalizing', createdAt: saved?.createdAt ?? new Date().toISOString(), camera: !!saved?.tracks.some(track => track.role === 'camera'), microphone: !!saved?.tracks.some(track => track.role === 'microphone'), elapsedMs: Math.round((saved?.seconds ?? 0) * 1000), step: 'Bringing back your recording' };
+    setSessions(all => [session, ...all].slice(0, 20)); setSelectedId(id); setSavedTakes(all => all.filter(item => item.id !== takeId));
+    try {
+      const answer = await recoverSavedTake(takeId, view => patch(id, { step: view.step, progress: view.progress, ...(view.note ? { note: view.note } : {}) }), () => mounted.current);
+      if (answer.recording.status !== 'done') return;
+      const view = answer.recording;
+      patch(id, { status: 'completed', step: undefined, ...(view.projectId ? { projectId: view.projectId } : {}), ...(view.screenAssetId ? { screenAssetId: view.screenAssetId } : {}), ...(view.voiceAssetId ? { voiceAssetId: view.voiceAssetId } : {}), ...(view.note ? { note: view.note } : {}) });
+    } catch (cause) { patch(id, { status: 'failed', step: undefined, error: message(cause) }); void refreshSavedTakes(); }
+  }, [patch, refreshSavedTakes, savedTakes]);
+  /** Throw a saved take away for good. */
+  const discardSaved = useCallback(async (takeId: string) => { try { await discardSavedTake(takeId); if (mounted.current) setSavedTakes(all => all.filter(item => item.id !== takeId)); } catch (cause) { if (mounted.current) setError(message(cause)); } }, []);
   /** A partial take kept apart from a video does not exist with this recorder (a stopped take is always the whole take). */
   const openPartial = useCallback(async (id: string): Promise<EditorProject | null> => { void id; return null; }, []);
 
-  return { recorderState, targets, permissions, browserDevices, share, sessions, selected, active, selectedId, setSelectedId, loadingTargets, working, error, uploads,
-    refreshTargets, refreshSessions, checkPermissions, requestPermissions, unlockDevices, chooseShare, clearShare, start, stop, cancel, retry, mark, openPartial };
+  return { recorderState, targets, permissions, browserDevices, share, sessions, selected, active, selectedId, setSelectedId, loadingTargets, working, error, uploads, liveTracks, savedTakes,
+    refreshTargets, refreshSessions, checkPermissions, requestPermissions, unlockDevices, chooseShare, clearShare, start, stop, cancel, retry, mark, openPartial, refreshSavedTakes, recoverSaved, discardSaved };
 }
 export type ManualRecording = ReturnType<typeof useManualRecording>;

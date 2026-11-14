@@ -1,6 +1,7 @@
 /**
  * The rail's page groups (Liam, 11-11: "Contacts: Companies, Contacts, Deals
  * · Outreach: Prospecting, Sequences, Campaigns · Calendar: Captures";
+ * 11-13: the Studio joins Outreach, after Campaigns;
  * "Drive: Docs, Knowledge, and a new page that shows all available files …
  * Agents: Agents & Skills, Flows, Evals"): a few
  * `/` pages that share one icon on the app rail, switched between in the
@@ -38,12 +39,23 @@ export interface PageGroupDef {
   members: readonly string[]
   /** The member it opens on before one was used on this device. */
   defaultMember: string
+  /**
+   * Members that had a rail icon of their own before they joined the group
+   * (the Studio, 11-13). A bar saved before then names them for that icon,
+   * not for the group: rail-pages.ts currentPrefs drops them from the saved
+   * order (a hidden one still counts toward hiding the group).
+   */
+  formerRailPages?: readonly string[]
 }
 
 /** The groups (Liam, 11-11). */
 export const PAGE_GROUPS: Readonly<Record<PageGroupId, PageGroupDef>> = {
   contacts: { id: 'contacts', label: 'Contacts', labelFrom: 'contacts', members: ['companies', 'contacts', 'deals'], defaultMember: 'contacts' },
-  outreach: { id: 'outreach', label: 'Outreach', members: ['prospecting', 'sequences', 'campaigns'], defaultMember: 'prospecting' },
+  // Liam, 11-13: the Studio is "part of the outreach page": its last member,
+  // no rail icon of its own any more. Its own pages (Overview, Storyboard,
+  // Cast, Edit) are a column of icons down its left edge, inside its card
+  // (components/studio/ui/AppRail.tsx).
+  outreach: { id: 'outreach', label: 'Outreach', members: ['prospecting', 'sequences', 'campaigns', 'studio'], defaultMember: 'prospecting', formerRailPages: ['studio'] },
   // SEO: one page per section (the `seo` feature's `seo` view). Site audit
   // today; each new section is one more slug here. With one member the rail
   // shows just the icon, and the sub-nav appears once there are two.

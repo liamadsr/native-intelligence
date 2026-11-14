@@ -10,7 +10,7 @@ import { BlobKey, STUDIO_PART_BYTES, blobObject, blobParts, type BlobRead, type 
 import { must, type StudioContext } from './context'
 import { conflictError, notFoundError, StudioError } from './errors'
 import { allowedType } from './media-types'
-import { supabaseStorage, type StudioStorage } from './storage'
+import { removeAll, supabaseStorage, type StudioStorage } from './storage'
 
 export type StoredBlob = { key: string; bytes: number; parts: number; partBytes: number; contentType: string; sha256: string | null }
 
@@ -129,10 +129,15 @@ async function takeBack(ctx: StudioContext, key: string, token: string): Promise
   if (error) console.error('[studio] taking back a pending write failed:', error.message?.slice(0, 300))
 }
 
-/** Upload links for a file of `bytes`, one per part; commitBlob records it once every part is up. */
+/**
+ * Upload links for a file of `bytes`, one per part; commitBlob records it once every part is up. `upsert` false: a
+ * link never replaces a part already stored (storage refuses a PUT over one), so links held by a computer the Studio
+ * does not run (local-jobs.ts) can't swap a committed file's bytes afterwards. Default true, as the browser's and the
+ * desktop app's own uploads retry a part over itself.
+ */
 export async function createBlobWrite(
   ctx: StudioContext,
-  input: { key: string; bytes: number; contentType: string; sha256?: string | null; partBytes?: number },
+  input: { key: string; bytes: number; contentType: string; sha256?: string | null; partBytes?: number; upsert?: boolean },
 ): Promise<BlobWrite> {
   const key = checkBlobKey(input.key)
   if (!Number.isSafeInteger(input.bytes) || input.bytes < 0) throw new StudioError('A file size is a whole number of bytes.')
@@ -144,7 +149,7 @@ export async function createBlobWrite(
   const storage = storageOf(ctx)
   // One part keeps its real type (served straight from storage); parts of a larger file are opaque bytes.
   const partType = parts.length === 1 ? contentType : 'application/octet-stream'
-  const signed = await Promise.all(parts.map((part) => storage.signUpload(blobObject(ctx.workspaceId, key, part.index), partType)))
+  const signed = await Promise.all(parts.map((part) => storage.signUpload(blobObject(ctx.workspaceId, key, part.index), partType, { upsert: input.upsert !== false })))
   return { key, partBytes, parts: parts.map((part, i) => ({ ...part, url: signed[i]!.url, headers: signed[i]!.headers })) }
 }
 
@@ -177,7 +182,7 @@ export async function commitBlob(ctx: StudioContext, key: string): Promise<Store
   }
   // Parts left from an earlier, longer file under the same key.
   const stale = listed.filter((item) => /^\d+$/.test(item.name) && Number(item.name) >= parts.length).map((item) => `${ctx.workspaceId}/${key}/${item.name}`)
-  if (stale.length) await storage.remove(stale).catch(() => undefined)
+  if (stale.length) await removeAll(storage, stale).catch(() => undefined)
   const row = {
     workspace_id: ctx.workspaceId,
     key,
@@ -199,8 +204,15 @@ export async function blobPartUrls(ctx: StudioContext, blob: StoredBlob, seconds
   return storageOf(ctx).signRead(paths, seconds, download)
 }
 
-/** A committed blob as the worker reads it: a link per part. 404 when there is none. */
+/** A take's track uploaded while it was recorded (live-takes.ts): `live/<take id>/<role>`. */
+const LIVE_PREFIX = 'live/'
+
+/**
+ * A committed blob as the worker reads it: a link per part. 404 when there is none. A track of a take uploaded while
+ * it was recorded is read the same way, once it is sealed: a link per piece, each piece its own length.
+ */
 export async function readBlob(ctx: StudioContext, key: string, seconds = READ_LINK_SECONDS): Promise<BlobRead> {
+  if (checkBlobKey(key).startsWith(LIVE_PREFIX)) return (await import('./live-takes')).readLiveTrack(ctx, key, seconds)
   const blob = await getBlob(ctx, key)
   if (!blob) throw notFoundError('There is no file under that key.')
   const urls = await blobPartUrls(ctx, blob, seconds)
@@ -216,7 +228,7 @@ export async function deleteBlob(ctx: StudioContext, key: string): Promise<void>
   const listed = await storage.list(`${ctx.workspaceId}/${key}`).catch(() => [])
   const names = new Set(listed.map((item) => item.name))
   for (let index = 0; index < (blob?.parts ?? 0); index++) names.add(String(index))
-  await storage.remove([...names].map((name) => `${ctx.workspaceId}/${key}/${name}`))
+  await removeAll(storage, [...names].map((name) => `${ctx.workspaceId}/${key}/${name}`))
   must(await ctx.supabase.from('studio_blob').delete().eq('workspace_id', ctx.workspaceId).eq('key', key), 'remove that file')
   must(await ctx.supabase.from('studio_record').delete().eq('workspace_id', ctx.workspaceId).eq('collection', PENDING).eq('key', key), 'remove that file')
 }
@@ -264,6 +276,8 @@ export function jobOwnsKey(job: WritingJob, key: string): boolean {
  */
 export async function workerWriteFence(ctx: StudioContext, job: WritingJob, key: string, write: { sha256?: string | null } | null = null): Promise<{ exists: StoredBlob | null }> {
   key = checkBlobKey(key)
+  // A take's pieces are the person's own upload, never a worker's to write.
+  if (key.startsWith(LIVE_PREFIX)) throw conflictError("That file is stored already, and this job may not replace it.", 'NOT_YOURS')
   const asset = ASSET_KEY.exec(key)
   if (asset && write && write.sha256 !== asset[1]) throw conflictError('A library file is stored under the hash of its bytes: state that hash.', 'NOT_YOURS')
   const committed = await getBlob(ctx, key)

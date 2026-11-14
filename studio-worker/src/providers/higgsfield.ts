@@ -25,6 +25,7 @@
  * option); a media parameter must be a file the job staged in scratch; and a
  * price that is not a number above zero is no price.
  */
+import { tmpdir } from 'node:os'
 import type { ModelParamInfo, PlanBlock, QuoteTried, ShotQuote } from '../../../web/src/lib/studio/server/provider-contract.ts'
 import { applyQualityTier } from '../engine.ts'
 import { JobError, SpendUnknown } from '../jobs/context.ts'
@@ -55,7 +56,7 @@ export function toolRunner(bin: string, cwd?: string): HfRunner {
   return async (args, opts) => {
     let r
     try {
-      r = await runTool(bin, args, { env: toolEnv(), cwd: cwd ?? (process.env.TMPDIR || '/tmp'), timeout: opts.timeout, signal: opts.signal, maxBuffer: 32 * 1024 * 1024 })
+      r = await runTool(bin, args, { env: toolEnv(), cwd: cwd ?? tmpdir(), timeout: opts.timeout, signal: opts.signal, maxBuffer: 32 * 1024 * 1024 })
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') throw new JobError('The higgsfield tool is not installed where the Studio worker runs.')
       throw err

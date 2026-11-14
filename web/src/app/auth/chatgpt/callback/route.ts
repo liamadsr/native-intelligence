@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { getServiceClient } from '@/lib/admin'
 import { deepLinkPage, escapeHtml } from '@/lib/auth/deep-link-page'
-import { browserOrigin, postAuthRedirect } from '@/lib/auth/post-auth-redirect'
+import { browserOrigin, dropAccountRedirect, postAuthRedirect } from '@/lib/auth/post-auth-redirect'
 import { hasDomainOfferAtSignIn } from '@/lib/workspace-join/domain-offer'
 import { JOIN_OFFER_PAGE, markCheckedThisSignIn } from '@/lib/workspace-join/sign-in-check'
 import { resolveChatGptAccount, sessionTokenHash } from '@/lib/chatgpt/account'
@@ -109,10 +109,10 @@ export async function GET(request: NextRequest) {
   )
 }
 
-/** Clear the one-time transaction cookie on every outcome. */
+/** Clear the one-time transaction cookie, and the account redirect (post-auth-redirect.ts), on every outcome. */
 function finish(response: NextResponse): NextResponse {
   response.cookies.set(TRANSACTION_COOKIE, '', { path: '/auth/chatgpt', maxAge: 0 })
-  return response
+  return dropAccountRedirect(response)
 }
 
 function fail(request: NextRequest, tx: SignInTransaction | null, error: string): NextResponse {

@@ -1,15 +1,36 @@
 {
-  "comment": "The Node the packaged local agent runs on, downloaded on first use from nodejs.org and pinned here (compiled into the app). tarball: SHA-256 from nodejs.org's SHASUMS256.txt. binary: bin/node inside it, checked again before every launch's first use. Signed by the OpenJS Foundation (team HX7739G8FX). Bump: docs/plans/local-agents.md, Packaging.",
+  "comment": "The Node the packaged local agent and the Studio's computer export run on, downloaded on first use from nodejs.org and pinned here (compiled into the app), one archive per computer. archive: SHA-256 from nodejs.org's SHASUMS256.txt for this version. binary: the node executable inside it, checked again before every launch's first use (its hash taken from the archive itself). macOS: signed by the OpenJS Foundation (team HX7739G8FX). Bump: docs/plans/local-agents.md, Packaging.",
   "version": "v24.22.1",
-  "tarball": {
-    "file": "node-v24.22.1-darwin-arm64.tar.xz",
-    "url": "https://nodejs.org/dist/v24.22.1/node-v24.22.1-darwin-arm64.tar.xz",
-    "sha256": "654ba79de6155647e22321932b45f2a1ccb705976cc337c9b8e278beb085a628",
-    "size": 27518756,
-    "prefix": "node-v24.22.1-darwin-arm64"
-  },
-  "binary": {
-    "sha256": "6f32069480ec14d52b6d7b1f3c7124cfbbc46203abf5ddf5c65b127435f3f329",
-    "size": 122545856
+  "targets": {
+    "darwin-arm64": {
+      "tarball": {
+        "file": "node-v24.22.1-darwin-arm64.tar.xz",
+        "url": "https://nodejs.org/dist/v24.22.1/node-v24.22.1-darwin-arm64.tar.xz",
+        "sha256": "654ba79de6155647e22321932b45f2a1ccb705976cc337c9b8e278beb085a628",
+        "size": 27518756,
+        "prefix": "node-v24.22.1-darwin-arm64",
+        "archive": "tar.xz"
+      },
+      "binary": {
+        "path": "bin/node",
+        "sha256": "6f32069480ec14d52b6d7b1f3c7124cfbbc46203abf5ddf5c65b127435f3f329",
+        "size": 122545856
+      }
+    },
+    "win32-x64": {
+      "tarball": {
+        "file": "node-v24.22.1-win-x64.zip",
+        "url": "https://nodejs.org/dist/v24.22.1/node-v24.22.1-win-x64.zip",
+        "sha256": "d2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5",
+        "size": 37748064,
+        "prefix": "node-v24.22.1-win-x64",
+        "archive": "zip"
+      },
+      "binary": {
+        "path": "node.exe",
+        "sha256": "d702daa815eabbff763c7d3808e235cf031cf2ca70211b56847bc72f51e240e5",
+        "size": 93915464
+      }
+    }
   }
 }

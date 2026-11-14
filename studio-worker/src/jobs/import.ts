@@ -8,8 +8,12 @@
  * conformed as a recording is, to 60 fps when its average rate is above 45,
  * else 30, and the job log says so. A recording
  * (`input.conform`) is first made a steady 30 or 60 fps H.264/AAC MP4, unless it
- * already is one. A browser's WebM or Matroska that does not say how long it is
- * is copied into a fresh file first, which writes its duration and index.
+ * already is one; with `conform.fit` the rate is the most, and a recording whose
+ * frames came 45 a second or fewer on average is made 30 fps (no frame is made
+ * up to fill 60). A recording brought back after a crash (`input.partial`) may
+ * end mid-frame: its conform reads past damage at the end. A browser's WebM or
+ * Matroska that does not say how long it is is copied into a fresh file first,
+ * which writes its duration and index.
  *
  * A container with sound and no picture is audio whatever its name says (a
  * browser's microphone take: Opus in WebM, AAC in MP4): it is stored as the
@@ -24,7 +28,7 @@ import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { aacCopyable, audioToM4a, buildAsset, conformVideo, inspectFile, missingDuration, publishAsset, remux, verifyDecodes } from '../assets.ts'
 import { fileSha256 } from '../app-client.ts'
-import { audioOnly, conformRate, kindOfName, onFrameGrid, pictureStream, probe, TIMING_REFUSALS, UNSUPPORTED_TYPE, videoStamps } from '../media.ts'
+import { audioOnly, conformRate, fitRate, kindOfName, onFrameGrid, pictureStream, probe, TIMING_REFUSALS, UNSUPPORTED_TYPE, videoStamps } from '../media.ts'
 import { checkAborted, JobError, type JobHandler } from './context.ts'
 
 /** The longest upload taken, as the editor's own presenter import (2 GB). */
@@ -52,7 +56,7 @@ export const runImport: JobHandler<'import'> = async (ctx) => {
       const copy = aacCopyable(first, type.extension)
       ctx.log(`${input.name} has sound and no picture: importing it as audio, ${copy ? 'its AAC copied' : 'encoded as AAC'} into an .m4a`)
       const out = join(ctx.scratch, 'audio.m4a')
-      await audioToM4a(upload, out, { copy, seconds: Number(first.format.duration) || 600, signal: ctx.signal })
+      await audioToM4a(upload, out, { copy, seconds: Number(first.format.duration) || input.durationHint || 600, signal: ctx.signal })
       provenance.rawSha256 = read.sha256
       provenance.rawBytes = read.bytes
       file = out
@@ -60,14 +64,16 @@ export const runImport: JobHandler<'import'> = async (ctx) => {
     } else if (!video) {
       throw new JobError(input.conform && audioOnly(first) ? 'The recording has sound but no picture' : 'Media does not match its file type')
     } else if (input.conform) {
-      const seconds = Number(video.duration ?? first.format.duration) || 600
-      const fps = input.conform.fps
+      const seconds = Number(video.duration ?? first.format.duration) || input.durationHint || 600
+      // One pass over the packets' times: the rate the take was recorded at, and whether it is on the grid already.
+      const stamps = await videoStamps(upload, ctx.signal)
+      const fps = input.conform.fit ? fitRate(stamps, input.conform.fps, input.conform.ceiling) : input.conform.fps
       // A take already on the grid, in H.264 inside MP4, is kept byte for byte.
-      const keep = type.extension === 'mp4' && video.codec_name === 'h264' && onFrameGrid(await videoStamps(upload, ctx.signal), fps)
+      const keep = !input.partial && type.extension === 'mp4' && video.codec_name === 'h264' && onFrameGrid(stamps, fps)
       if (!keep) {
-        ctx.log(`Conforming the recording to a constant ${fps} fps (H.264/AAC)`)
+        ctx.log(`Conforming the recording to a constant ${fps} fps (H.264/AAC)${input.partial ? ': it stopped before it was finished, so its end is read as far as it goes' : ''}`)
         const out = join(ctx.scratch, 'conformed.mp4')
-        await conformVideo(upload, out, fps, { seconds, signal: ctx.signal })
+        await conformVideo(upload, out, fps, { seconds, signal: ctx.signal, lenient: input.partial === true })
         provenance.rawSha256 = read.sha256
         provenance.rawBytes = read.bytes
         provenance.normalizedCfrFps = fps

@@ -5,6 +5,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
+import { binaryNames, toolName, toolPath } from './platform.ts'
 
 export interface RunOptions {
   timeout?: number
@@ -36,7 +37,7 @@ export const PROTOCOL_WHITELIST = 'file,pipe'
  * (it is an input option), for ffprobe before everything (its one input). Other tools are untouched. Pure.
  */
 export function fenceInputs(file: string, args: readonly string[]): string[] {
-  const tool = file.replace(/^.*[\\/]/, '')
+  const tool = toolName(file)
   const fence = ['-protocol_whitelist', PROTOCOL_WHITELIST]
   if (tool === 'ffprobe') return args.includes('-protocol_whitelist') ? [...args] : [...fence, ...args]
   if (tool !== 'ffmpeg') return [...args]
@@ -48,16 +49,32 @@ export function fenceInputs(file: string, args: readonly string[]): string[] {
   return out
 }
 
+/**
+ * How a tool ended, for its error: its output past Node's read limit, stopped by us (its time limit), killed by a
+ * signal (SIGKILL with nothing on stderr is most often the system's memory limit), or its own exit status. Pure.
+ */
+export function how(e: { code?: unknown; signal?: unknown; killed?: boolean }): string {
+  if (e.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return ' (its output passed the read limit)'
+  if (e.killed) return ' (timed out)'
+  if (typeof e.signal === 'string' && e.signal) return ` (killed by ${e.signal}${e.signal === 'SIGKILL' ? ', most often the memory limit' : ''})`
+  if (typeof e.code === 'number') return ` (exit ${e.code})`
+  return ''
+}
+/** The last lines of a tool's stderr, on one line and bounded, for its error. Pure. */
+export function tailOf(stderr: unknown): string {
+  const tail = String(stderr ?? '').trim().split('\n').map((l) => l.trim()).filter(Boolean).slice(-4).join(' | ').slice(0, 600)
+  return tail ? `: ${tail}` : ''
+}
+
 /** Run a tool and collect its output. The signal kills it (a cancelled job), as does the timeout. */
 export function run(file: string, args: string[], opts: RunOptions = {}): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile(file, fenceInputs(file, args), { timeout: opts.timeout ?? 180_000, maxBuffer: opts.maxBuffer ?? 8 * 1024 * 1024, signal: opts.signal, env: opts.env, cwd: opts.cwd, encoding: 'utf8' }, (err, stdout, stderr) => {
+    execFile(toolPath(file), fenceInputs(file, args), { timeout: opts.timeout ?? 180_000, maxBuffer: opts.maxBuffer ?? 8 * 1024 * 1024, signal: opts.signal, env: opts.env, cwd: opts.cwd, encoding: 'utf8', windowsHide: true }, (err, stdout, stderr) => {
       if (!err) return resolve({ stdout, stderr })
       const e = err as NodeJS.ErrnoException & { killed?: boolean }
       if (opts.signal?.aborted) return reject(new ToolError(`${file} stopped: the job was cancelled`, 'ABORT_ERR'))
       if (e.code === 'ENOENT') return reject(new ToolError(`${file} is not installed`, 'ENOENT'))
-      const tail = String(stderr || '').trim().split('\n').slice(-4).join(' | ').slice(0, 600)
-      reject(new ToolError(`${file.replace(/^.*\//, '')} failed${e.killed ? ' (timed out)' : ''}${tail ? `: ${tail}` : ''}`, e.code ?? null))
+      reject(new ToolError(`${file.replace(/^.*\//, '')} failed${how(e)}${tailOf(stderr)}`, e.code ?? null))
     })
   })
 }
@@ -65,11 +82,11 @@ export function run(file: string, args: string[], opts: RunOptions = {}): Promis
 /** Run a tool whose standard output is binary (raw samples). */
 export function runBuffer(file: string, args: string[], opts: RunOptions = {}): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    execFile(file, fenceInputs(file, args), { timeout: opts.timeout ?? 180_000, maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024, signal: opts.signal, encoding: 'buffer' }, (err, stdout, stderr) => {
+    execFile(toolPath(file), fenceInputs(file, args), { timeout: opts.timeout ?? 180_000, maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024, signal: opts.signal, encoding: 'buffer', windowsHide: true }, (err, stdout, stderr) => {
       if (!err) return resolve(stdout)
       if (opts.signal?.aborted) return reject(new ToolError(`${file} stopped: the job was cancelled`, 'ABORT_ERR'))
-      const tail = String(stderr ?? '').trim().split('\n').slice(-4).join(' | ').slice(0, 600)
-      reject(new ToolError(`${file.replace(/^.*\//, '')} failed${tail ? `: ${tail}` : ''}`, (err as NodeJS.ErrnoException).code ?? null))
+      const e = err as NodeJS.ErrnoException & { killed?: boolean }
+      reject(new ToolError(`${file.replace(/^.*\//, '')} failed${how(e)}${tailOf(stderr)}`, e.code ?? null))
     })
   })
 }
@@ -81,9 +98,10 @@ export const mediaTimeout = (seconds: number, perSecond = 3) => Math.max(180_000
  * Where a tool is: on PATH, else the usual places Homebrew and Debian put it.
  * Null when it is nowhere.
  */
-export function findBinary(name: string, extra: string[] = [], env: NodeJS.ProcessEnv = process.env): string | null {
-  const dirs = [...(env.PATH ?? '').split(delimiter).filter(Boolean), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']
-  for (const candidate of [...extra, ...dirs.map((d) => join(d, name))]) if (existsSync(candidate)) return candidate
+export function findBinary(name: string, extra: string[] = [], env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string | null {
+  const dirs = [...(env.PATH ?? env.Path ?? '').split(platform === 'win32' ? ';' : delimiter).filter(Boolean), ...(platform === 'win32' ? [] : ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'])]
+  const names = binaryNames(name, platform, env.PATHEXT)
+  for (const candidate of [...extra, ...dirs.flatMap((d) => names.map((n) => join(d, n)))]) if (existsSync(candidate)) return candidate
   return null
 }
 
@@ -186,6 +204,33 @@ export function conformRate(p: Probe): 30 | 60 {
   let average = parseRate(picture?.avg_frame_rate)
   if (!(average > 0)) average = Number(picture?.nb_read_packets) / Number(picture?.duration ?? p.format.duration)
   return Number.isFinite(average) && average > 45 ? 60 : 30
+}
+
+/** A gap between frames shorter than this is the picture moving (a still screen sends a frame now and then). */
+export const MOVING_GAP = 0.1
+
+/**
+ * The rate a recording is conformed to when its rate is at most (`conform.fit`), read from its packets' times (any
+ * container, also a browser's WebM that does not say how long it is). A browser's screen capture sends frames only
+ * when the screen changes, so the average says little: a mostly still screen whose scrolling ran at 60 averages far
+ * below 45. The rate is judged while the picture moved: from the gaps shorter than MOVING_GAP, their median. Above
+ * 45 frames a second, `most` (60); else 30. `ceiling` (the rate the recorder asked for, or the device said it gives)
+ * caps it: at 45 or less, 30. Fewer than ten moving gaps (a picture that hardly moved): 30, unless the ceiling says
+ * more and there are too few frames at all to tell (then `most`). Pure.
+ */
+export function fitRate(stamps: number[], most: 30 | 60, ceiling?: number): 30 | 60 {
+  if (most === 30) return 30
+  if (ceiling !== undefined && Number.isFinite(ceiling) && ceiling <= 45) return 30
+  if (stamps.length < 2) return most
+  const moving: number[] = []
+  for (let i = 1; i < stamps.length; i++) {
+    const gap = stamps[i]! - stamps[i - 1]!
+    if (gap > 0 && gap < MOVING_GAP) moving.push(gap)
+  }
+  if (moving.length < 10) return stamps.length < 10 ? most : 30
+  moving.sort((a, b) => a - b)
+  const median = moving[Math.floor(moving.length / 2)]!
+  return 1 / median > 45 ? 60 : 30
 }
 
 /** Packet timestamps (seconds, one per line, any order) into presentation order. */
