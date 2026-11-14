@@ -49,15 +49,18 @@ Read this before reporting anything as live or touching production. The code gui
   and commit `deploy/app/cron/crontab` with it (the image build and CI fail when the two
   disagree).
 - **Still at the earlier host, on purpose:** the cloud browser's sandboxes, the AI
-  Gateway, and DNS. Slack is not on that list any more: the code talks to Slack
-  directly with our own Slack app since the change that replaced the connector
-  (`web/src/lib/slack/`, migration 644). That is live only once migration 644 is
-  applied, the four `SLACK_*` settings are in the server's `.env`, that code is
-  rolled out, the Slack app points at us, the old connector is deleted, and each Slack
-  workspace has added the app again ("Slack" under "Day to day" in
-  [`deploy/README.md`](deploy/README.md)); until
-  then the code that serves may still reach Slack through the earlier host's
-  connector. The cloud browser's sandboxes run on that host's
+  Gateway, and DNS. Slack is not on that list any more: since 2026-11-14 the
+  code talks to Slack directly with our own Slack app (`web/src/lib/slack/`,
+  migration 644). The Slack app's addresses point at us, the earlier host's
+  connector is revoked and deleted, and a Slack workspace is connected with
+  "Add to Slack" in Settings › Connectors › Slack: from a browser, or from the
+  desktop app, where the install is finished in the person's browser and claimed
+  by the window that started it. Proven live on 2026-11-14: an install from a
+  browser (bot token stored, the Slack workspace bound again). NOT yet proven:
+  a message answered by the bot through the new path, and an install started in
+  the desktop app. "Slack" under "Day to day" in
+  [`deploy/README.md`](deploy/README.md) has the set-up, for a stand-in server
+  or a move. The cloud browser's sandboxes run on that host's
   sandbox service with `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and
   `SANDBOX_PROJECT_ID`, which is why those three stay in the server's `.env`.
 - **The coding agent's sandbox runs on our own sandbox server since 2026-11-12**

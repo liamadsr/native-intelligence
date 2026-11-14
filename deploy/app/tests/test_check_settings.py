@@ -193,6 +193,18 @@ class Slack(unittest.TestCase):
                 self.assertIn(missing, note)
                 self.assertIn("all four or none", note)
 
+    def test_the_client_secret_must_not_be_the_signing_secret(self):
+        env = dict(self.ENV, SLACK_CLIENT_SECRET=self.ENV["SLACK_SIGNING_SECRET"])
+        ok, note = self.run_check("SLACK_CLIENT_SECRET", env)
+        self.assertIs(ok, False)
+        self.assertIn("SLACK_SIGNING_SECRET", note)
+        self.assertNotIn(self.ENV["SLACK_SIGNING_SECRET"], note)
+        # Said once, on the client secret: the signing secret's own check stays quiet.
+        self.assertEqual(self.run_check("SLACK_SIGNING_SECRET", env), (None, None))
+        # Spaces around either value are trimmed first, as the app trims them.
+        spaced = dict(env, SLACK_CLIENT_SECRET=" %s\n" % env["SLACK_CLIENT_SECRET"])
+        self.assertIs(self.run_check("SLACK_CLIENT_SECRET", spaced)[0], False)
+
     def test_secrets_of_32_to_128_hex_characters_either_case(self):
         for value in ("0123456789ABCDEF0123456789abcdef", "a" * 64, "F" * 128):
             for name in ("SLACK_CLIENT_SECRET", "SLACK_SIGNING_SECRET"):
