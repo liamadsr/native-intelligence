@@ -45,6 +45,34 @@ refuse_development_mode() {
     || die "EVE_DEV=1 puts the agents in development mode, which lets anyone in without credentials. Unset it."
 }
 
+# The earlier host's own variables. Nothing here sets them, but they come along with
+# a file made for that host (its tooling's env pull, a development machine's file),
+# and one such line in .env reaches every container. Each changes what the code
+# takes this server for, or is a credential it would fall back to, so no role starts
+# with one set (empty counts as unset). This line is the one list: deploy.sh reads
+# it, from the checkout before a build and from the image before a roll-out, and
+# tests/test_entrypoint.py holds check_settings.py's copy equal to it.
+# VERCEL_GIT_COMMIT_SHA is not one of them: it is the build's commit, below.
+# - VERCEL, VERCEL_ENV, VERCEL_TARGET_ENV: eve, the agents' localDevOffVercel() and
+#   the chat agent's eval door read them as a deployment at that host (eve admits its
+#   development sign-in on VERCEL with VERCEL_ENV=development), and the cloud
+#   browser's relay origin reads VERCEL_ENV.
+# - VERCEL_URL: eve's workflow runtime takes it for its own base address.
+# - VERCEL_PROJECT_ID, VERCEL_TEAM_ID, VERCEL_ORG_ID, VERCEL_TOKEN, VERCEL_OIDC_TOKEN:
+#   what eve falls back to for a sandbox's project, team and token, and the app for
+#   its AI Gateway credential (VERCEL_OIDC_TOKEN, when AI_GATEWAY_API_KEY is empty).
+#   Here those are SANDBOX_PROJECT_ID, SANDBOX_TEAM_ID, SANDBOX_ACCESS_TOKEN and
+#   AI_GATEWAY_API_KEY, handed over explicitly: a fallback must have nothing to find.
+EARLIER_HOST_VARIABLES="VERCEL VERCEL_ENV VERCEL_TARGET_ENV VERCEL_URL VERCEL_PROJECT_ID VERCEL_TEAM_ID VERCEL_ORG_ID VERCEL_TOKEN VERCEL_OIDC_TOKEN"
+refuse_earlier_host_variables() {
+  for refused in $EARLIER_HOST_VARIABLES; do
+    eval "value=\${$refused:-}"
+    [ -z "$value" ] \
+      || die "$refused is set. It is the earlier host's own variable, and this server must not carry it (entrypoint.sh says what reads it). Remove the line from .env."
+  done
+  unset refused value
+}
+
 # NI_LIVE=1 says that this copy of the app is the live one. Anything else, and the
 # copy acts only when asked: a second copy beside the live app, on the same database
 # and the same Inngest server (a rehearsal), must not do production's work twice.
@@ -82,7 +110,10 @@ fi
 
 role="$1"
 case "$role" in
-  web | worker | agent | cron) refuse_development_mode ;;
+  web | worker | agent | cron)
+    refuse_earlier_host_variables
+    refuse_development_mode
+    ;;
 esac
 case "$role" in
   web | worker)

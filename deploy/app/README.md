@@ -405,6 +405,20 @@ either: eve's sandbox provider reads them, and here the sandboxes' project and t
 are `SANDBOX_PROJECT_ID` and `SANDBOX_TEAM_ID`. The app itself tells production
 from development by `NODE_ENV` (`web/src/lib/app-env.ts`).
 
+Those, `VERCEL_TARGET_ENV` and `VERCEL_URL` (read the same way), and what the code
+falls back to from the same host (`VERCEL_ORG_ID`, `VERCEL_TOKEN`,
+`VERCEL_OIDC_TOKEN`), are refused, not
+only unwanted: they come along with a file made for that host, and one such line in
+`.env` would reach every container. `entrypoint.sh` holds the list, says what reads
+each, and starts no role with one set. `deploy.sh` reads that list and stops first:
+before a build, and before a roll-out without one (`--no-build`, `--rollback`, by the
+list of the image going into service, so going back to an image from before the
+refusal is never held; an image it cannot read stops it). Otherwise a roll-out would stop the agents and start
+replacements that refuse to run. `check-settings.sh` reports the line and counts it
+against Gate 1. Empty counts as unset, and no value is shown.
+`VERCEL_GIT_COMMIT_SHA` is not one of them: it is the name the app reads the build's
+commit by.
+
 Three more exist only here, for calls on this server's own LiveKit (`../livekit`,
 `../README.md` step 23): `LIVEKIT_URL` (the `wss://` address browsers connect to),
 `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` (the pair the app signs join tokens and
@@ -663,7 +677,7 @@ database: the one that hands over is switched off first (`../README.md`, step 21
 |---|---|
 | `Dockerfile`, `Dockerfile.dockerignore` | The image, built from the repository root. |
 | `build-agents.sh` | The eight `eve build`s, and the list of agents. |
-| `entrypoint.sh`, `healthcheck.mjs`, `eve-origin.mjs` | Starting a role, and checking it. |
+| `entrypoint.sh`, `healthcheck.mjs`, `eve-origin.mjs` | Starting a role, and checking it; `tests/test_entrypoint.py` tests what the entrypoint refuses from the earlier host. |
 | `cron/` | The crontab, its generator, and the one authenticated call each job makes. |
 | `proxy/Caddyfile` | The stack's router, on the server and in the test. |
 | `compose.yaml`, `.env.example` | The stack on the server, and its settings. |

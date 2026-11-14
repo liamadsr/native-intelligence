@@ -123,6 +123,21 @@ MAY_BE_EMPTY = {
 
 SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}
 
+# The earlier host's own variables: no line of .env.example, and entrypoint.sh starts
+# no role with one set (it says why and holds the list; tests/test_entrypoint.py keeps
+# this copy equal to it). They come along with a file made for that host.
+MUST_BE_ABSENT = {
+    "VERCEL": "the app and the agents would take this server for a deployment at the earlier host",
+    "VERCEL_ENV": "the app and the agents would take this server for a deployment at the earlier host",
+    "VERCEL_TARGET_ENV": "the agents would take this server for a deployment at the earlier host",
+    "VERCEL_URL": "the agents' workflow runtime would take it for its own address",
+    "VERCEL_PROJECT_ID": "what the agents fall back to for a sandbox's project (here SANDBOX_PROJECT_ID, handed over explicitly)",
+    "VERCEL_TEAM_ID": "what the agents fall back to for a sandbox's team (here SANDBOX_TEAM_ID, handed over explicitly)",
+    "VERCEL_ORG_ID": "what the agents fall back to for a sandbox's team (here SANDBOX_TEAM_ID, handed over explicitly)",
+    "VERCEL_TOKEN": "what the agents fall back to for a sandbox's token (here SANDBOX_ACCESS_TOKEN, handed over explicitly)",
+    "VERCEL_OIDC_TOKEN": "a short-lived token the agents and the AI Gateway calls fall back to (here SANDBOX_ACCESS_TOKEN and AI_GATEWAY_API_KEY)",
+}
+
 # What is off while a needed one is empty, where it is not obvious from the name.
 EMPTY_MEANS = {
     "SANDBOX_ACCESS_TOKEN": "the cloud browser does not start, and no coding run works unless our own sandbox runtime is set (SANDBOX_RUNTIME_*)",
@@ -143,6 +158,8 @@ EMPTY_MEANS = {
 
 
 def group(name):
+    if name in MUST_BE_ABSENT:
+        return "must be absent"
     if name in SWITCH:
         return "switch"
     if name in MUST_MATCH:
@@ -150,6 +167,14 @@ def group(name):
     if name in MAY_BE_EMPTY:
         return "may be empty"
     return "needed"
+
+
+def stray_exports(text):
+    """The earlier host's variables on `export NAME=value` lines. envfile.py writes no
+    such line and parse_env reads none, but Compose does, and a file made for a shell
+    has them: so these are looked for apart, to be reported with the others."""
+    lines = [m.group(1) for m in (re.match(r"export[ \t]+(.*)$", line) for line in text.split("\n")) if m]
+    return {n: v for n, v in parse_env("\n".join(lines)).items() if n in MUST_BE_ABSENT}
 
 
 # --- reading the file as Compose reads it -------------------------------------------
@@ -884,6 +909,16 @@ def report(env, results):
     checks that ran; ok is True, False, None (could not run), "nothing" (no
     stored data to prove it against) or "warn" (said, but blocks nothing)."""
     lines, blockers, unchecked = [], [], []
+    stray = [n for n in env if group(n) == "must be absent"]
+    if stray:
+        lines.append("")
+        lines.append("Must not be here (the earlier host's own):")
+        for n in stray:
+            if env[n] == "":
+                lines.append("   %-32s empty    harmless, but the line can go" % n)
+                continue
+            lines.append("   %-32s SET      remove the line: %s" % (n, MUST_BE_ABSENT[n]))
+            blockers.append("%s is set: no container starts with it (entrypoint.sh); remove the line" % n)
     for title, key in (("Must be the value production already has", "must match"), ("Needed (any working value)", "needed"),
                        ("May stay empty", "may be empty"), ("Set by the switch itself", "switch")):
         names = [n for n in env if group(n) == key]
@@ -947,7 +982,9 @@ def main(argv):
             sys.exit("check_settings: unknown argument %s" % a)
         i += 1
     with open(path) as f:
-        env = parse_env(f.read())
+        text = f.read()
+    env = parse_env(text)
+    exported = stray_exports(text)
 
     if opts["fill"] and not env.get("GPT_LIVE_TRUNK_SECRET") and "GPT_LIVE_TRUNK_SECRET" in env:
         found = trunk_secrets_at_twilio(env)
@@ -971,7 +1008,7 @@ def main(argv):
                     results[name] = check(env, opts)
                 except Exception as e:  # a check that cannot run says so; it never shows a value
                     results[name] = (None, "could not be checked: %s" % type(e).__name__)
-    lines, blockers, unchecked = report(env, results)
+    lines, blockers, unchecked = report({**env, **{n: v for n, v in exported.items() if not env.get(n)}}, results)
     total = len(env)
     empty = sum(1 for v in env.values() if v == "")
     print("%s: %d settings, %d empty, %d holding a stand-in." % (path, total, empty, sum(1 for v in env.values() if v.startswith("rehearsal-"))))
