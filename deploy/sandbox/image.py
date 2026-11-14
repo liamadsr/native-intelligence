@@ -1,10 +1,13 @@
 """The sandbox images this server's runtime starts from, built on it.
 
-    image.py build <MiB> [<image>]   build each image (or the one named) when it is
+    image.py wanted                  the images this server builds and checks: the
+                                     coding agent's always, the cloud browser's only
+                                     once setup.sh --with-browser has asked for it
+    image.py build <MiB> [<image>]   build each wanted image (or the one named) when it is
                                      missing, when its definition here changed, or
                                      when the runtime's free-disk limit did (an
                                      image keeps the limit it was built under)
-    image.py check <GiB> [<image>]   start one sandbox from each (or the one named)
+    image.py check <GiB> [<image>]   start one sandbox from each wanted one (or the one named)
                                      and see from inside that it is as it should be,
                                      that much free disk included
     image.py resolvers               for resolver.sh, before it has the guard send
@@ -97,9 +100,35 @@ BROWSER_SCRIPTS = ROOT / "web" / "scripts" / "cloud-browser" / "base"
 BROWSER_ENV_FILE = "/etc/opt/cloud-browser/env"
 BROWSER_PROFILE = "/home/user/profile"
 BROWSER_RECORD = Path("/etc/ni-sandbox/image.ni-cloud-browser")
+# The browser's image is opt-in: built and checked only once `setup.sh
+# --with-browser` has written this file, and from then on kept current by every
+# run. Not the record above: setup.sh removes the records when the disk limit
+# moves, and the choice must outlive that. Without it, setup.sh and check.sh do
+# for the coding agent exactly what they did before there was a second image.
+BROWSER_ENABLED = Path("/etc/ni-sandbox/browser.enabled")
 # What the browser's scripts and the app's relay start call (start.sh, stop.sh,
-# web/src/lib/cloud-browser/relay-start.ts).
-BROWSER_NEEDS = ["bash", "node", "curl", "Xvfb", "x11vnc", "pgrep", "pkill", "flock", "setsid", "nohup", "sudo"]
+# web/src/lib/cloud-browser/relay-start.ts). Not sudo: the image has none (below).
+BROWSER_NEEDS = ["bash", "node", "curl", "Xvfb", "x11vnc", "pgrep", "pkill", "flock", "setsid", "nohup"]
+# The last step: no way to root for the sandbox's user, so that a page that broke
+# out of Chrome is that user and no more. The runtime's build gives every image's
+# user "sudo" without a password, and its last phase (finalize, configure.sh in the
+# runtime) runs AFTER these steps and writes that rule again; so the sudo program
+# itself is removed, which finalize does not put back (it installs nothing). Root's
+# password, which the runtime's first phase empties (provision.sh, `passwd -d
+# root`; with Debian's `nullok`, `su` would then let anyone in), is locked: finalize
+# does not touch root's. Nothing the app or this server runs in a browser needs
+# root: start.sh, stop.sh and the relay run as the user, and the display's folder
+# is made here.
+# What this does NOT close, and cannot from a step: the same finalize phase makes
+# /usr/local writable by everyone (`chmod -R 777 /usr/local`), and two of the
+# runtime's own units run programs from /usr/local/bin as root
+# (envd.service's ExecStartPre e2b-seed-certs, and e2b-chrony-source), at a boot
+# and whenever envd is restarted. So the user can still put a program there that
+# root runs later. Closing that takes one root command per sandbox after it is
+# created (`chmod -R go-w /usr/local`, from the app, through the runtime's API);
+# the check below reports it (README, "The cloud browser's image").
+NO_ROOT_STEP = ("root", "SUDO_FORCE_REMOVE=yes DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq sudo && "
+                "passwd -l root && passwd -S root | grep -q ' L '")
 CHROME = "/opt/google/chrome/chrome"
 
 
@@ -128,6 +157,7 @@ def browser_steps() -> list:
         # The profile is the runtime user's own; and the display's socket folder
         # exists already, so start.sh does not need sudo for it.
         ("root", f"chown -R user:user {BROWSER_PROFILE} && chmod 700 {BROWSER_PROFILE} && install -d -m 1777 /tmp/.X11-unix"),
+        NO_ROOT_STEP,
     ]
     return steps
 
@@ -289,6 +319,9 @@ def check_browser(min_free_gib: int) -> int:
         # Read before Chrome first runs: what every person's browser starts from.
         contents = out(f"cd {BROWSER_PROFILE} && find . -mindepth 1 | sort | paste -sd, -")
         policies = out("cat /etc/opt/chrome/policies/managed/dial8.json")
+        # No way to root: no sudo that answers, without a password or otherwise.
+        sudo = out("sudo -n true </dev/null >/dev/null 2>&1 && echo yes || echo no")
+        local_writable = out("[ -w /usr/local/bin ] && echo yes || echo no")
         ok, free_gib, memory_mib = _common(out, image, BROWSER_RECORD, min_free_gib, BROWSER_PROFILE)
         started = out(BROWSER_START, timeout=90)
         stopped = out(BROWSER_STOP, timeout=60)
@@ -310,6 +343,12 @@ def check_browser(min_free_gib: int) -> int:
     if contents != "./Default,./Default/Preferences":
         print(f"  the profile in the image is not empty but for its seed: {contents[:200]}")
         ok = False
+    if sudo != "no":
+        print(f"  the sandbox user of {BROWSER_NAME} can use sudo ({sudo}): its last step did not hold")
+        ok = False
+    if local_writable == "yes":
+        # Said, not failed: the runtime's last phase does it after every step of ours.
+        print(f"  note: in {BROWSER_NAME} the sandbox user can write /usr/local/bin, from which root runs two of the runtime's programs (the image's comment says what closes it)")
     if "DownloadRestrictions" not in policies:
         print(f"  Chrome's policies are not in {BROWSER_NAME}")
         ok = False
@@ -323,7 +362,7 @@ def check_browser(min_free_gib: int) -> int:
         print(f"  stop.sh left Chrome or Xvfb running: {stopped[:120]}")
         ok = False
     if ok:
-        print(f"  a sandbox from {BROWSER_NAME}: Chrome answered on 127.0.0.1:9222 and stop.sh closed it, the profile is the user's own and holds only its seed, Node {node}, {free_gib} GiB of disk free, {memory_mib} MiB of memory, {len(RESOLVERS)} resolvers")
+        print(f"  a sandbox from {BROWSER_NAME}: Chrome answered on 127.0.0.1:9222 and stop.sh closed it, as the user, who has no sudo; the profile is the user's own and holds only its seed; Node {node}, {free_gib} GiB of disk free, {memory_mib} MiB of memory, {len(RESOLVERS)} resolvers")
     return 0 if ok else 1
 
 
@@ -332,6 +371,14 @@ IMAGES = {
     NAME: Image(NAME, BASE, CPUS, MEMORY_MB, lambda: STEPS, RECORD, lambda gib: check(gib)),
     BROWSER_NAME: Image(BROWSER_NAME, BROWSER_BASE, BROWSER_CPUS, BROWSER_MEMORY_MB, browser_steps, BROWSER_RECORD, lambda gib: check_browser(gib)),
 }
+
+
+def wanted(enabled: Path = None) -> list:
+    """The coding agent's image always; the browser's once it was asked for."""
+    names = [NAME]
+    if (enabled or BROWSER_ENABLED).exists():
+        names.append(BROWSER_NAME)
+    return names
 
 
 def resolvers() -> int:
@@ -362,7 +409,10 @@ def resolvers() -> int:
 def main() -> int:
     action = sys.argv[1] if len(sys.argv) > 1 else ""
     number = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else None
-    names = sys.argv[3:] or list(IMAGES)
+    if action == "wanted":
+        print(" ".join(wanted()))
+        return 0
+    names = sys.argv[3:] or wanted()
     if any(name not in IMAGES for name in names):
         print(f"image.py: no image by that name (there are {', '.join(IMAGES)})", file=sys.stderr)
         return 2
@@ -373,7 +423,7 @@ def main() -> int:
         return max(IMAGES[name].check(number) for name in names)
     if action == "resolvers":
         return resolvers()
-    print("usage: image.py build <the runtime's free-disk limit, MiB> [<image>] | check <GiB of free disk a sandbox must have> [<image>] | resolvers", file=sys.stderr)
+    print("usage: image.py wanted | build <the runtime's free-disk limit, MiB> [<image>] | check <GiB of free disk a sandbox must have> [<image>] | resolvers", file=sys.stderr)
     return 2
 
 

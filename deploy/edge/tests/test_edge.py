@@ -62,18 +62,33 @@ class TheCaddyfile(unittest.TestCase):
         self.assertIn("{$CLOUD_BROWSER_TRAFFIC_UPSTREAM:127.0.0.1:9}", self.hub)
 
     def test_only_port_4000_of_the_sandbox_the_certificate_names(self):
-        matcher = re.search(r"@hub vars_regexp hub \{http\.request\.tls\.server_name\} (\S+)", self.hub).group(1)
-        self.assertEqual(matcher, r"^([a-z0-9]{20})\.{$CLOUD_BROWSER_HUB_DOMAIN:cloud-browser.invalid}$")
-        pattern = re.compile(matcher.replace("{$CLOUD_BROWSER_HUB_DOMAIN:cloud-browser.invalid}", re.escape("browsers.example.com")))
+        matcher = re.search(r"@hub \{\n(.*?)\n\t\}", self.hub, re.S).group(1).splitlines()
+        matcher = [line.strip() for line in matcher]
+        # The server name must be the Host itself; the Host is this site's (one label under the domain, dots literal).
+        self.assertIn("vars {http.request.tls.server_name} {http.request.host}", matcher)
+        regexp = next(line for line in matcher if line.startswith("vars_regexp hub {http.request.tls.server_name} "))
+        pattern_text = regexp.split(" ", 3)[3]
+        # As Caddy sees it: no {$...} inside a regular expression (Caddy puts the value in as written).
+        self.assertNotIn("{$", pattern_text)
+        pattern = re.compile(pattern_text)
         self.assertEqual(pattern.match("abcdefghij0123456789.browsers.example.com").group(1), "abcdefghij0123456789")
-        for refused in ("abcdefghij0123456789.other.example.com", "ABCDEFGHIJ0123456789.browsers.example.com", "short.browsers.example.com",
-                        "4000-abcdefghij0123456789.browsers.example.com", "a.abcdefghij0123456789.browsers.example.com", ""):
+        for refused in ("ABCDEFGHIJ0123456789.browsers.example.com", "short.browsers.example.com", "abcdefghij012345678.x",
+                        "4000-abcdefghij0123456789.browsers.example.com", "abcdefghij0123456789x.browsers.example.com", ""):
             self.assertIsNone(pattern.match(refused), refused)
         for line in ("header_up Host {upstream_hostport}", "header_up E2b-Sandbox-Id {re.hub.1}", "header_up E2b-Sandbox-Port 4000",
                      "header_up X-Real-IP {remote_host}", "header_up -E2b-Traffic-Access-Token"):
             self.assertIn(line, self.hub)
         # Everything else is answered here.
         self.assertRegex(self.hub, r"handle \{\n\t\trespond 404\n\t\}")
+
+    def test_no_regular_expression_anywhere_holds_an_environment_value(self):
+        for line in CADDYFILE.splitlines():
+            if re.search(r"\b(header_regexp|vars_regexp|path_regexp|regexp)\b", line):
+                self.assertNotIn("{$", line, line)
+
+    def test_the_site_is_one_label_under_the_domain(self):
+        # Caddy's host matcher takes "*." as exactly one label, and the rest of the name as written.
+        self.assertIn("https://*.{$CLOUD_BROWSER_HUB_DOMAIN:cloud-browser.invalid}", self.blocks)
 
     def test_the_routing_is_the_clients_own(self):
         # What the runtime's clients send to the traffic port when it is given (sandboxUrl):

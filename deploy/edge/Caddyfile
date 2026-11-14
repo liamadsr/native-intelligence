@@ -315,9 +315,12 @@
 # What is let through, and how:
 # - Only a name whose first label has the shape of the runtime's sandbox ids
 #   (20 lowercase letters and digits), and only as the name the connection's
-#   certificate was made for (the TLS server name, not the Host header, which
-#   a client writes as it likes). Anything else is answered 404 here and never
-#   reaches the tunnel.
+#   certificate was made for: the TLS server name must be the Host itself, and
+#   the Host is one label under the hub's domain (this site's address, matched
+#   label by label, its dots literal). No regular expression holds the domain:
+#   Caddy puts {$...} values into the text as they are, so a dot there would
+#   match any character. Anything else is answered 404 here and never reaches
+#   the tunnel.
 # - Only port 4000 of that sandbox, whatever the client sends: the routing
 #   headers are set here, and the runtime's traffic port takes them only when
 #   the Host it is sent is an address (packages/shared/pkg/proxy/host.go in the
@@ -355,7 +358,10 @@ https://*.{$CLOUD_BROWSER_HUB_DOMAIN:cloud-browser.invalid} {
 		}
 	}
 
-	@hub vars_regexp hub {http.request.tls.server_name} ^([a-z0-9]{20})\.{$CLOUD_BROWSER_HUB_DOMAIN:cloud-browser.invalid}$
+	@hub {
+		vars {http.request.tls.server_name} {http.request.host}
+		vars_regexp hub {http.request.tls.server_name} ^([a-z0-9]{20})\.
+	}
 	handle @hub {
 		reverse_proxy {$CLOUD_BROWSER_TRAFFIC_UPSTREAM:127.0.0.1:9} {
 			header_up Host {upstream_hostport}

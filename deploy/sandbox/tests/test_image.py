@@ -155,6 +155,86 @@ class TheCloudBrowsersImage(unittest.TestCase):
         self.assertIn("stopScript: '/opt/cloud-browser/stop.sh'", config)
 
 
+class NoRootForTheBrowsersUser(unittest.TestCase):
+    def setUp(self):
+        self.image = load_image()
+
+    def test_the_last_step_removes_sudo_and_locks_root_for_the_browser_only(self):
+        browser = self.image.IMAGES["ni-cloud-browser"]
+        self.assertEqual(browser.steps[-1], self.image.NO_ROOT_STEP)
+        user, command = browser.steps[-1]
+        self.assertEqual(user, "root")
+        self.assertIn("apt-get purge", command)
+        self.assertIn(" sudo", command)
+        # Debian's sudo refuses to be removed with an empty root password unless told.
+        self.assertIn("SUDO_FORCE_REMOVE=yes", command)
+        self.assertIn("passwd -l root", command)
+        # Never the coding agent's.
+        for _, command in self.image.STEPS:
+            self.assertNotIn("purge", command)
+            self.assertNotIn("passwd", command)
+
+    def test_nothing_run_in_a_browser_needs_sudo(self):
+        self.assertNotIn("sudo", self.image.BROWSER_NEEDS)
+        self.assertNotIn("sudo", (BASE_SCRIPTS / "stop.sh").read_text())
+        relay = (ROOT / "web" / "src" / "lib" / "cloud-browser" / "relay-start.ts").read_text()
+        self.assertNotIn("sudo", relay)
+        # start.sh calls it only when the display's folder is missing, which the image makes.
+        start = (BASE_SCRIPTS / "start.sh").read_text()
+        sudo_lines = [l for l in start.splitlines() if "sudo" in l and not l.lstrip().startswith("#")]
+        self.assertEqual(sudo_lines, ["  sudo mkdir -p /tmp/.X11-unix && sudo chmod 1777 /tmp/.X11-unix"])
+        self.assertIn("install -d -m 1777 /tmp/.X11-unix", "\n".join(c for _, c in self.image.IMAGES["ni-cloud-browser"].steps))
+
+    def test_the_check_proves_sudo_fails(self):
+        source = (ROOT / "deploy" / "sandbox" / "image.py").read_text()
+        self.assertIn('sudo -n true', source)
+        self.assertIn('if sudo != "no":', source)
+
+
+class TheBrowsersImageIsOptIn(unittest.TestCase):
+    """The next ordinary setup.sh or check.sh on the live server does nothing new:
+    the browser's image is built and checked only once it was asked for."""
+
+    def setUp(self):
+        self.image = load_image()
+        self.setup = (ROOT / "deploy" / "sandbox" / "setup.sh").read_text()
+        self.check = (ROOT / "deploy" / "sandbox" / "check.sh").read_text()
+
+    def test_wanted_is_the_coding_agents_alone_until_asked(self):
+        with tempfile.TemporaryDirectory() as folder:
+            marker = Path(folder) / "browser.enabled"
+            self.assertEqual(self.image.wanted(marker), ["ni-coding-agent"])
+            marker.write_text("")
+            self.assertEqual(self.image.wanted(marker), ["ni-coding-agent", "ni-cloud-browser"])
+        self.assertEqual(str(self.image.BROWSER_ENABLED), "/etc/ni-sandbox/browser.enabled")
+        # Not under image.*, which setup.sh removes when the disk limit moves.
+        self.assertFalse(self.image.BROWSER_ENABLED.name.startswith("image."))
+        self.assertIn("rm -f /etc/ni-sandbox/image.*", self.setup)
+
+    def test_setup_builds_it_only_when_asked_and_its_failure_spares_the_coding_agent(self):
+        self.assertIn("--with-browser) with_browser=1; shift ;;", self.setup)
+        self.assertIn('browser_enabled=/etc/ni-sandbox/browser.enabled', self.setup)
+        marker_written = self.setup.index('install -m 644 -o root -g root /dev/null "$browser_enabled"')
+        self.assertIn('if [ "$with_browser" = 1 ] && [ ! -e "$browser_enabled" ]; then', self.setup[:marker_written])
+        build = self.setup.index('build "$LIMIT_DISK_MIB" ni-cloud-browser)')
+        self.assertLess(self.setup.index('if [ -e "$browser_enabled" ]; then'), build)
+        self.assertTrue(self.setup[build:].startswith('build "$LIMIT_DISK_MIB" ni-cloud-browser) || browser_failed=1'))
+        # The coding agent's comes first, and still stops the run when it fails.
+        coding = self.setup.index('build "$LIMIT_DISK_MIB" ni-coding-agent)')
+        self.assertLess(coding, build)
+        self.assertIn("die \"the coding agent's image was not built.\"", self.setup)
+        self.assertNotIn("die \"the cloud browser's image was not built.\"", self.setup)
+
+    def test_check_checks_it_only_once_asked_for(self):
+        at = self.check.index('check "$((want_disk / 1024 - 2))" ni-cloud-browser')
+        self.assertLess(self.check.rindex("if [ -e /etc/ni-sandbox/browser.enabled ]; then", 0, at), at)
+        self.assertIn("note \"the cloud browser's image is not built here (opt-in: sudo ./setup.sh --with-browser)\"", self.check)
+
+    def test_by_hand_the_default_is_what_is_wanted(self):
+        source = (ROOT / "deploy" / "sandbox" / "image.py").read_text()
+        self.assertIn("names = sys.argv[3:] or wanted()", source)
+
+
 class TheProfilesPlace(unittest.TestCase):
     """install.sh and start.sh find the profile the same way: in the file the image
     names it in, else where the hosted image has always had it."""

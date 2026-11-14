@@ -227,11 +227,17 @@ if [ -r "$runtime_dir/sdk.env" ] && [ -x "$runtime_dir/.venv/bin/python" ]; then
 	else
 		bad "the coding agent's image is missing or not as it should be (run setup.sh)"
 	fi
-	# The cloud browser's image: one sandbox from it, Chrome started and stopped in it.
-	if [ -n "$want_disk" ] && (set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" check "$((want_disk / 1024 - 2))" ni-cloud-browser); then
-		ok "the cloud browser's image starts Chrome and stops it, with a profile of the sandbox user's own"
+	# The cloud browser's image, once setup.sh --with-browser asked for it: one
+	# sandbox from it, Chrome started and stopped in it. Until then, nothing (no
+	# second sandbox from the pool the coding agent shares).
+	if [ -e /etc/ni-sandbox/browser.enabled ]; then
+		if [ -n "$want_disk" ] && (set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" check "$((want_disk / 1024 - 2))" ni-cloud-browser); then
+			ok "the cloud browser's image starts Chrome and stops it, with a profile of the sandbox user's own and no sudo"
+		else
+			bad "the cloud browser's image is missing or not as it should be (run setup.sh)"
+		fi
 	else
-		bad "the cloud browser's image is missing or not as it should be (run setup.sh)"
+		note "the cloud browser's image is not built here (opt-in: sudo ./setup.sh --with-browser)"
 	fi
 	# The resolver, from inside a narrowed sandbox and one with the whole internet.
 	if [ -n "$resolver_port" ]; then

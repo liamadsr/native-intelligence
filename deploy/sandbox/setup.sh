@@ -6,7 +6,7 @@
 # looks first and only changes what is missing.
 #
 #   cd /opt/native-intelligence/deploy/sandbox
-#   sudo ./setup.sh [--pool-gib <n>] [--upgrade]
+#   sudo ./setup.sh [--pool-gib <n>] [--upgrade] [--with-browser]
 #
 # --pool-gib  how much memory sandboxes may use between them, in GiB. The
 #             runtime reserves it when it starts and nothing else on the
@@ -14,6 +14,10 @@
 #             the machine's memory the first time.
 # --upgrade   replace an installed runtime by the one pinned below. This ends
 #             every running sandbox.
+# --with-browser  build the cloud browser's image too, now and on every later
+#             run (the choice is kept in /etc/ni-sandbox/browser.enabled). Without
+#             it, and until it is given once, nothing of the browser's image is
+#             built or checked: the coding agent's is all, as before.
 #
 # What it sets up, in this order (deploy/sandbox/README.md explains each):
 #   1. the guard, before anything that runs a sandbox;
@@ -25,7 +29,9 @@
 #   6. the unit that pauses the running cloud browsers before the runtime stops
 #      (pause_browsers.py);
 #   7. the runtime's limits: how much disk a sandbox gets and how long it may live;
-#   8. the images: the coding agent's and the cloud browser's (image.py).
+#   8. the images: the coding agent's, and the cloud browser's once asked for
+#      (--with-browser; image.py). A failure of the browser's never stops the
+#      coding agent's: it is built first, and the browser's after it.
 #
 # It handles one secret, the runtime's own API key, which the runtime makes on
 # its first start: it is copied to a file only root can read and never shown.
@@ -52,10 +58,12 @@ main() {
 trap 'echo "setup: stopped by a failing command at line $LINENO." >&2' ERR
 pool_gib=""
 upgrade=0
+with_browser=0
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--pool-gib) pool_gib="${2:?}"; shift 2 ;;
 	--upgrade) upgrade=1; shift ;;
+	--with-browser) with_browser=1; shift ;;
 	*) echo "Unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -265,6 +273,8 @@ chmod 600 "$runtime_dir/sdk.env"
 echo "client $SDK_VERSION; the key is in $runtime_dir/sdk.env (root only)"
 
 say "Running cloud browsers are paused before the runtime stops"
+# Installed whether or not the browser's image is: with no browser running it
+# lists the runtime's sandboxes once at a shutdown, finds none and is done.
 # A restart of the runtime, or of the machine, ends every running sandbox and
 # keeps the paused ones. This unit pauses each running cloud browser first,
 # after its own stop script, when it is stopped: before Docker at every
@@ -342,15 +352,31 @@ say "The coding agent's image"
 (set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" build "$LIMIT_DISK_MIB" ni-coding-agent) ||
 	die "the coding agent's image was not built."
 
-say "The cloud browser's image"
-# The same way, from a Node image and the cloud browser's own scripts
-# (web/scripts/cloud-browser/base). The first build fetches that image and
-# Chrome and takes a few minutes. Nothing uses it until the app's
-# CLOUD_BROWSER_BACKEND is runtime (../README.md, "The cloud browser").
-(set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" build "$LIMIT_DISK_MIB" ni-cloud-browser) ||
-	die "the cloud browser's image was not built."
+# The cloud browser's image: opt-in (--with-browser), and kept current once
+# asked for. The same way, from a Node image and the cloud browser's own
+# scripts (web/scripts/cloud-browser/base). The first build fetches that image
+# and Chrome and takes a few minutes, and its check holds a 4 GiB sandbox from
+# the pool the coding agent shares for up to three minutes. Nothing uses it
+# until the app's CLOUD_BROWSER_BACKEND is runtime (../README.md, "The cloud
+# browser"). Its failure is said, and the run ends in an error, with
+# everything above, the coding agent's image included, in place.
+browser_enabled=/etc/ni-sandbox/browser.enabled
+browser_failed=0
+if [ "$with_browser" = 1 ] && [ ! -e "$browser_enabled" ]; then
+	install -m 644 -o root -g root /dev/null "$browser_enabled"
+fi
+if [ -e "$browser_enabled" ]; then
+	say "The cloud browser's image"
+	(set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" build "$LIMIT_DISK_MIB" ni-cloud-browser) || browser_failed=1
+else
+	say "The cloud browser's image: not asked for (setup.sh --with-browser builds it)"
+fi
 
 say "Done"
+if [ "$browser_failed" = 1 ]; then
+	echo "setup: the cloud browser's image was not built (above). Everything else, the coding agent's image included, is in place." >&2
+	exit 1
+fi
 echo "Now run: sudo ./check.sh"
 }
 

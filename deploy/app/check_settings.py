@@ -110,6 +110,7 @@ MAY_BE_EMPTY = {
     # The cloud browser on our own sandbox runtime (../README.md, "The cloud browser"):
     # off until CLOUD_BROWSER_BACKEND=runtime, which then needs the other three.
     "CLOUD_BROWSER_BACKEND": "empty: the cloud browser runs on the hosted sandbox service, as before",
+    "CLOUD_BROWSER_RUNTIME_KEY": "empty: web holds no key of our own runtime (needed with CLOUD_BROWSER_BACKEND=runtime only)",
     "CLOUD_BROWSER_RUNTIME_TEMPLATE": "empty: ni-cloud-browser",
     "CLOUD_BROWSER_HUB_DOMAIN": "empty: no browser names of our own (needed with CLOUD_BROWSER_BACKEND=runtime)",
     "BROWSER_RELAY_ALLOWED_ADDRESSES": "empty: needed with CLOUD_BROWSER_BACKEND=runtime only (every relay is refused there without it)",
@@ -654,6 +655,7 @@ def check_gate_addresses(env, _opts):
 BROWSER_BACKEND = "CLOUD_BROWSER_BACKEND"
 BROWSER_TEMPLATE = "CLOUD_BROWSER_RUNTIME_TEMPLATE"
 BROWSER_TEMPLATE_DEFAULT = "ni-cloud-browser"
+BROWSER_KEY = "CLOUD_BROWSER_RUNTIME_KEY"
 HUB_DOMAIN = "CLOUD_BROWSER_HUB_DOMAIN"
 RELAY_ADDRESSES = "BROWSER_RELAY_ALLOWED_ADDRESSES"
 EDGE_UPSTREAM = "CLOUD_BROWSER_TRAFFIC_UPSTREAM"
@@ -721,7 +723,7 @@ def check_browser_backend(env, opts):
         return None, None
     if kind != "runtime":
         return False, "only hosted or runtime, or empty for hosted (the app refuses to open a browser with anything else)"
-    missing = [n for n in RUNTIME_GROUP + (HUB_DOMAIN, RELAY_ADDRESSES, "CLOUD_BROWSER_RELAY_ORIGIN") if not env.get(n, "").strip()]
+    missing = [n for n in RUNTIME_GROUP + (BROWSER_KEY, HUB_DOMAIN, RELAY_ADDRESSES, "CLOUD_BROWSER_RELAY_ORIGIN") if not env.get(n, "").strip()]
     if missing:
         return False, "runtime without %s: the cloud browser cannot start there" % ", ".join(missing)
     domain = hub_domain(env[HUB_DOMAIN])
@@ -744,6 +746,17 @@ def check_browser_backend(env, opts):
     if want is None or edge.get(EDGE_UPSTREAM, "").strip() != want:
         return False, "the edge's %s (../edge/.env) is not the address and port of SANDBOX_RUNTIME_TRAFFIC_URL: the browsers' names would not reach them" % EDGE_UPSTREAM
     return True, "set for our own runtime, with the edge's two settings to match (the runtime itself: SANDBOX_RUNTIME_API_URL's check)"
+
+
+def check_browser_key(env, _opts):
+    """The browser's copy of the runtime's key, which web alone gets: only with the
+    runtime backend, and the same value as SANDBOX_RUNTIME_KEY. Compared, never shown."""
+    if browser_backend(env) != "runtime":
+        return False, ("set while CLOUD_BROWSER_BACKEND is not runtime: web would hold a key that creates and removes "
+                       "every sandbox on our own runtime, for nothing. Empty it")
+    if not hmac.compare_digest(env[BROWSER_KEY].strip().encode(), env.get(RUNTIME_KEY, "").strip().encode()):
+        return False, "not the same value as SANDBOX_RUNTIME_KEY: web would be refused by the runtime"
+    return None, None
 
 
 def check_browser_template(env, _opts):
@@ -984,6 +997,7 @@ CHECKS = {
     "SANDBOX_RUNTIME_TEMPLATE": check_runtime_template,
     "AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES": check_gate_addresses,
     "CLOUD_BROWSER_BACKEND": check_browser_backend,
+    "CLOUD_BROWSER_RUNTIME_KEY": check_browser_key,
     "CLOUD_BROWSER_RUNTIME_TEMPLATE": check_browser_template,
     "CLOUD_BROWSER_HUB_DOMAIN": check_hub_domain,
     "BROWSER_RELAY_ALLOWED_ADDRESSES": check_relay_addresses,

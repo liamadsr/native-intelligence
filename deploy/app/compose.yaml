@@ -41,11 +41,15 @@ x-app: &app
     SANDBOX_TEAM_ID: ""
     SANDBOX_PROJECT_ID: ""
     # Our own sandbox runtime's API key, blanked the same way and given back to
-    # the coding agent (x-coding-agent-env), which reads it when it starts a
-    # sandbox, and to web once the cloud browser runs there too (x-web-env). Its
-    # two addresses and template are not secret: every container gets them from
-    # .env, and only those two read them.
+    # the coding agent alone (x-coding-agent-env), which reads it when it starts a
+    # sandbox. Its two addresses and template are not secret: every container gets
+    # them from .env, and only the coding agent and web read them.
     SANDBOX_RUNTIME_KEY: ""
+    # The cloud browser's copy of that key: a line of its own in .env, set only
+    # while the browser runs on our own runtime (check_settings.py holds it to that,
+    # and to the same value). Blanked here for every container; web alone gets it,
+    # under the name the app reads (x-web-env).
+    CLOUD_BROWSER_RUNTIME_KEY: ""
   # tini as PID 1: passes SIGTERM on and reaps what the servers leave behind.
   init: true
   # An agent and cron write nothing to the image: state is on the volumes below,
@@ -75,16 +79,18 @@ x-coding-agent-env: &coding-agent-env
   <<: *sandbox-env
   SANDBOX_RUNTIME_KEY: ${SANDBOX_RUNTIME_KEY:-}
 
-# web's: the hosted service's three, and our own runtime's key once the cloud
-# browser is set to run there (CLOUD_BROWSER_BACKEND set in .env; empty until then,
-# so that until that switch web holds no more than it did). Of the containers, web
-# alone runs the cloud browser on our runtime: its pages and API routes, and the
-# scheduler's two cloud browser jobs (/api/cron/cloud-browser-idle and -reconcile),
-# which cron calls at http://web:3000. The worker answers /api/inngest only, and no
-# Inngest function opens a browser, so it never gets the key.
+# web's: the hosted service's three, and our own runtime's key under the name the
+# app reads, from CLOUD_BROWSER_RUNTIME_KEY: a separate line, which .env holds only
+# while CLOUD_BROWSER_BACKEND is runtime (empty until then, so that web holds no
+# more than it did; Compose cannot compare the backend's value, a line of its own
+# can be checked). Of the containers, web alone runs the cloud browser on our
+# runtime: its pages and API routes, and the scheduler's two cloud browser jobs
+# (/api/cron/cloud-browser-idle and -reconcile), which cron calls at
+# http://web:3000. The worker answers /api/inngest only, and no Inngest function
+# opens a browser, so it never gets the key.
 x-web-env: &web-env
   <<: *sandbox-env
-  SANDBOX_RUNTIME_KEY: ${CLOUD_BROWSER_BACKEND:+${SANDBOX_RUNTIME_KEY:-}}
+  SANDBOX_RUNTIME_KEY: ${CLOUD_BROWSER_RUNTIME_KEY:-}
 
 # web and worker are the same server, and `next start` writes into its own folder
 # (its cache, the docs index, the pages it regenerates), so they are not read-only.

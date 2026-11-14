@@ -547,13 +547,15 @@ class CloudBrowserOnOurRuntime(unittest.TestCase):
         "NEXT_PUBLIC_APP_URL": "https://app.example.com",
         "CLOUD_BROWSER_RELAY_ORIGIN": "https://browser-relay.example.com",
         "CLOUD_BROWSER_BACKEND": "runtime",
+        "CLOUD_BROWSER_RUNTIME_KEY": OwnRuntime.KEY,
         "CLOUD_BROWSER_RUNTIME_TEMPLATE": "",
         "CLOUD_BROWSER_HUB_DOMAIN": "browsers.example.com",
         "BROWSER_RELAY_ALLOWED_ADDRESSES": "203.0.113.7 2001:db8::7",
         "CLOUD_BROWSER_BASE_SNAPSHOT_ID": "",
     })
     EDGE = {"CLOUD_BROWSER_HUB_DOMAIN": "browsers.example.com", "CLOUD_BROWSER_TRAFFIC_UPSTREAM": "10.200.77.2:3002"}
-    NAMES = ("CLOUD_BROWSER_BACKEND", "CLOUD_BROWSER_RUNTIME_TEMPLATE", "CLOUD_BROWSER_HUB_DOMAIN", "BROWSER_RELAY_ALLOWED_ADDRESSES")
+    NAMES = ("CLOUD_BROWSER_BACKEND", "CLOUD_BROWSER_RUNTIME_KEY", "CLOUD_BROWSER_RUNTIME_TEMPLATE", "CLOUD_BROWSER_HUB_DOMAIN",
+             "BROWSER_RELAY_ALLOWED_ADDRESSES")
 
     def setUp(self):
         self.folder = tempfile.mkdtemp()
@@ -596,10 +598,37 @@ class CloudBrowserOnOurRuntime(unittest.TestCase):
         self.assertIn("SANDBOX_ACCESS_TOKEN is empty", blockers)
 
     def test_only_the_two_values(self):
-        for wrong in ("vercel", "on", "1", "runtime2"):
-            ok, note = self.backend(dict(self.ENV, CLOUD_BROWSER_BACKEND=wrong))
+        for wrong in ("vercel", "on", "1", "runtime2", "runtme"):
+            env = dict(self.ENV, CLOUD_BROWSER_BACKEND=wrong, CLOUD_BROWSER_RUNTIME_KEY="")
+            ok, note = self.backend(env)
             self.assertIs(ok, False, wrong)
             self.assertIn("only hosted or runtime", note)
+            # And it blocks the gate, by name and never by value.
+            _, blockers, _ = cs.report(env, {"CLOUD_BROWSER_BACKEND": (ok, note)})
+            self.assertTrue(any(b.startswith("CLOUD_BROWSER_BACKEND:") for b in blockers), wrong)
+            self.assertFalse(any(wrong in b for b in blockers if wrong not in ("1", "on")))
+
+    def test_the_browsers_copy_of_the_key(self):
+        check = cs.CHECKS["CLOUD_BROWSER_RUNTIME_KEY"]
+        self.assertEqual(check(dict(self.ENV), {}), (None, None))
+        self.assertEqual(check(dict(self.ENV, CLOUD_BROWSER_RUNTIME_KEY=" %s\n" % self.KEY), {}), (None, None))
+        other = "e2b_" + "f" * 34
+        ok, note = check(dict(self.ENV, CLOUD_BROWSER_RUNTIME_KEY=other), {})
+        self.assertIs(ok, False)
+        self.assertIn("not the same value", note)
+        self.assertNotIn(other, note)
+        self.assertNotIn(self.KEY, note)
+        # Set with any backend but runtime: web would hold the key for nothing.
+        for backend in ("", "hosted", "runtme"):
+            ok, note = check(dict(self.ENV, CLOUD_BROWSER_BACKEND=backend), {})
+            self.assertIs(ok, False, backend)
+            self.assertIn("Empty it", note)
+            self.assertNotIn(self.KEY, note)
+            _, blockers, _ = cs.report(dict(self.ENV, CLOUD_BROWSER_BACKEND=backend), {"CLOUD_BROWSER_RUNTIME_KEY": (ok, note)})
+            self.assertTrue(any(b.startswith("CLOUD_BROWSER_RUNTIME_KEY:") for b in blockers), backend)
+        # Empty with the hosted backend: as today, nothing to say.
+        _, blockers, _ = cs.report(dict(self.ENV, CLOUD_BROWSER_BACKEND="", CLOUD_BROWSER_RUNTIME_KEY=""), {})
+        self.assertFalse(any("CLOUD_BROWSER_RUNTIME_KEY" in b for b in blockers))
 
     def test_runtime_with_everything_and_the_edge_to_match(self):
         ok, note = self.backend(self.ENV)
@@ -615,8 +644,8 @@ class CloudBrowserOnOurRuntime(unittest.TestCase):
         self.assertIn("not needed: the cloud browser runs on our own runtime", "\n".join(lines))
 
     def test_runtime_needs_each_of_them(self):
-        for name in ("SANDBOX_RUNTIME_API_URL", "SANDBOX_RUNTIME_TRAFFIC_URL", "SANDBOX_RUNTIME_KEY", "CLOUD_BROWSER_HUB_DOMAIN",
-                     "BROWSER_RELAY_ALLOWED_ADDRESSES", "CLOUD_BROWSER_RELAY_ORIGIN"):
+        for name in ("SANDBOX_RUNTIME_API_URL", "SANDBOX_RUNTIME_TRAFFIC_URL", "SANDBOX_RUNTIME_KEY", "CLOUD_BROWSER_RUNTIME_KEY",
+                     "CLOUD_BROWSER_HUB_DOMAIN", "BROWSER_RELAY_ALLOWED_ADDRESSES", "CLOUD_BROWSER_RELAY_ORIGIN"):
             ok, note = self.backend(dict(self.ENV, **{name: " "}))
             self.assertIs(ok, False, name)
             self.assertIn(name, note)
