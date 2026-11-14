@@ -54,7 +54,7 @@ import { liveTurnTypeFromRequest } from '@/lib/live-agent/ceiling'
 import { liveLookupsAllowed } from '@/lib/live-agent/mcp-lookups'
 import { fenceCallCapture, isCallCapture, isCallCapture as isCallCaptureRow } from '@/lib/live-agent/call-capture-fence'
 import { verifyCallTurnKey } from '@/lib/live-agent/call-turn-key'
-import { callNotesLive, callTurnLeaseUntil } from '@/lib/team-calls/call-turn-state'
+import { callLiveTurnBusy, callNotesLive, callTurnLeaseUntil } from '@/lib/team-calls/call-turn-state'
 import { internalSecret, liveRecentTail, mintLiveAgentRunToken } from '@/lib/live-agent/live-agent-run-token'
 import { selectRiderOmissions } from '@/lib/live-agent/riders'
 import {
@@ -311,6 +311,7 @@ export async function POST(req: Request) {
     // lease must be the one running now, so a replayed or late turn is refused. Its tools stop at the
     // lease's end (the run token's notAfter), and so does its finalize.
     let callTurnNotAfter: number | undefined
+    let callTurnLease: string | undefined
     if (onCallCapture && !isBatch) {
       const turnLease = (body as { call_turn_lease?: unknown }).call_turn_lease
       const leaseUntil =
@@ -324,15 +325,26 @@ export async function POST(req: Request) {
         )
       }
       callTurnNotAfter = leaseUntil
+      callTurnLease = turnLease as string
     }
     // The end-of-meeting pass (Reprocess) on a call's capture waits for the call: while the call's
     // notes are being written live, a pass would run beside the server's turns (it replaces the
     // pending proposals and rewrites the summary). The call's own finish runs it when the call ends.
-    if (onCallCapture && isBatch && (await callNotesLive(capture_id))) {
-      return Response.json(
-        { error: 'This call is still taking notes. Reprocess it once the call has ended.', code: 'CALL_NOTES_LIVE' },
-        { status: 409 },
-      )
+    // And for its last turn: one still holding its lease once the call ended (655's busy, its
+    // margin included) is still writing.
+    if (onCallCapture && isBatch) {
+      if (await callNotesLive(capture_id)) {
+        return Response.json(
+          { error: 'This call is still taking notes. Reprocess it once the call has ended.', code: 'CALL_NOTES_LIVE' },
+          { status: 409 },
+        )
+      }
+      if (await callLiveTurnBusy(capture_id)) {
+        return Response.json(
+          { error: 'This call is still finishing its notes. Reprocess it in a few minutes.', code: 'CALL_NOTES_LIVE' },
+          { status: 409 },
+        )
+      }
     }
     const callFenced = fenceCallCapture(capture as { notes_channel_id?: string | null }, turnTypeForFence)
 
@@ -794,7 +806,7 @@ export async function POST(req: Request) {
       // The riders the prompt does without (riders.ts); absent → the full prompt.
       ...(riderOmit.length > 0 ? { omit: riderOmit } : {}),
       // A call's server turn: its tools stop at its lease's end.
-      ...(callTurnNotAfter !== undefined ? { notAfter: callTurnNotAfter } : {}),
+      ...(callTurnNotAfter !== undefined && callTurnLease !== undefined ? { notAfter: callTurnNotAfter, callTurnLease } : {}),
     })
     // mintLiveAgentRunToken throws when no secret is configured, so it is set.
     const client = liveAgentEveClient({
@@ -1184,6 +1196,13 @@ export async function POST(req: Request) {
             }
           }
 
+          // A call's server turn: no write begins past its lease's end (checked before each, not
+          // once at finalize's start). 655's busy holds the end-of-meeting pass back 30 s past that
+          // end, so a write begun just before it lands first. The rest stay pending for the pass.
+          if (callTurnNotAfter !== undefined && Date.now() >= callTurnNotAfter) {
+            ledger.staged(change.id, 'the call turn’s lease ended — pending review')
+            continue
+          }
           // applyChange only knows handlers for supported keys; unsupported
           // ones return an error and are skipped (stay pending).
           const applied = await applyChange(

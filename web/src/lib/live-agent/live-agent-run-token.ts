@@ -164,6 +164,13 @@ export interface LiveAgentTokenClaims {
    * may be running the end-of-meeting pass by then).
    */
   notAfter?: number
+  /**
+   * The same server turn's lease (655's lease_id). The tool route takes a call
+   * only while that lease is still the capture's and unexpired: once the turn
+   * released it (its answer in), its session writes nothing more, even should
+   * its cancel not have landed. Present exactly when notAfter is.
+   */
+  callTurnLease?: string
   /** Epoch ms expiry. Verified on every internal route. */
   exp: number
 }
@@ -235,6 +242,9 @@ export function verifyLiveAgentRunToken(token: string | null | undefined): LiveA
   if (typeof claims.exp !== 'number' || claims.exp <= Date.now()) return null
   // A call's server turn: nothing past its lease's end.
   if (claims.notAfter !== undefined && (typeof claims.notAfter !== 'number' || claims.notAfter <= Date.now())) return null
+  if (claims.callTurnLease !== undefined && (typeof claims.callTurnLease !== 'string' || claims.callTurnLease.length === 0)) return null
+  // The two travel together: a lease without its end, or an end without its lease, is not ours.
+  if ((claims.callTurnLease === undefined) !== (claims.notAfter === undefined)) return null
   // A valid HMAC already proves WE minted it; the shape guard is defensive.
   if (
     typeof claims.captureId !== 'string' ||

@@ -12,8 +12,8 @@
  *     it when the call ends. A capture its owner closed by hand mid-call is
  *     not live, so its own finish (src/lib/inngest/team-call-notes.ts) runs.
  *
- * Each answers no (null, false) when it cannot read: a turn is refused, a
- * pass is let through (as it always was).
+ * Each answers no (null, false) when it cannot read: a turn or a tool call is
+ * refused, a pass is let through (as it always was).
  */
 import 'server-only'
 import { getServiceClient } from '@/lib/admin'
@@ -24,6 +24,37 @@ export async function callTurnLeaseUntil(captureId: string, lease: string): Prom
   if (error || typeof data !== 'string') return null
   const until = Date.parse(data)
   return Number.isFinite(until) && until > Date.now() ? until : null
+}
+
+/**
+ * Does this server turn still hold its lease (lease_id is it, lease_until not
+ * passed)? The tool route's question for each tool call a call's server turn
+ * makes: once the turn released its lease (its answer in), its session writes
+ * nothing more, whatever became of its cancel. The lease, not the agent's
+ * state: a turn still running when the call ended keeps its writes while the
+ * call's finish waits for it. False when it cannot read (the call is refused).
+ */
+export async function callTurnLeaseHeld(captureId: string, lease: string): Promise<boolean> {
+  const { data, error } = await getServiceClient()
+    .from('team_call_live_agent')
+    .select('lease_until')
+    .eq('capture_id', captureId)
+    .eq('lease_id', lease)
+    .maybeSingle<{ lease_until: string | null }>()
+  if (error || !data?.lease_until) return false
+  const until = Date.parse(data.lease_until)
+  return Number.isFinite(until) && until > Date.now()
+}
+
+/**
+ * Is a server turn still holding back this call's end-of-meeting pass (655's
+ * team_call_live_turn_busy: its lease, and a short margin past its end for a
+ * write already started)? False when it cannot read: before 655 is applied no
+ * server turn exists, and the owner's Reprocess runs as it always did.
+ */
+export async function callLiveTurnBusy(captureId: string): Promise<boolean> {
+  const { data, error } = await getServiceClient().rpc('team_call_live_turn_busy', { target_capture: captureId })
+  return !error && data === true
 }
 
 /** Is this call's capture being written live now (its call live, it the current capture, open)? */

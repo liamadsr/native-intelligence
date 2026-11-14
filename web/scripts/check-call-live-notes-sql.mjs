@@ -422,7 +422,12 @@ try {
   eq((await release(noAnswer.lease, 'unknown', 0)).s, 'stale', 'its answer never came back')
   ok((await busyNow()) === true, 'its lease is held to its end: the finish waits')
   await db.query(`update team_call_live_agent set lease_until = now() - interval '1 second' where capture_id = $1`, [CAPTURE])
-  ok((await busyNow()) === false, 'and once the lease ran out, the finish goes on (the turn’s tools stopped there: its token’s notAfter)')
+  ok((await busyNow()) === true, 'the lease just ran out: still held back for the margin (a write its finalize began before the end lands first)')
+  ok((await leaseUntil(noAnswer.lease)).u === null, 'though the route takes no turn on it')
+  await db.query(`update team_call_live_agent set lease_until = now() - interval '29 seconds' where capture_id = $1`, [CAPTURE])
+  ok((await busyNow()) === true, 'within 30 s of the lease’s end: still held back')
+  await db.query(`update team_call_live_agent set lease_until = now() - interval '31 seconds' where capture_id = $1`, [CAPTURE])
+  ok((await busyNow()) === false, 'and 30 s after the lease ran out, the finish goes on (the turn’s tools stopped at the end: its token’s notAfter)')
   // A stop by the turn itself (its owner's usage ran out): its own lease goes at once.
   await db.query(`update team_call set status = 'live' where id = $1`, [CALL])
   await reset()
@@ -635,7 +640,7 @@ try {
   if (EARLIER) {
     const forms = (await readdir(EARLIER)).filter((f) => f.endsWith('.sql'))
     const labels = [...new Set(forms.map((f) => f.split('-')[0]))]
-    ok(labels.length >= 2, `earlier forms given (${labels.join(', ')})`)
+    ok(labels.length >= 4, `earlier forms given (${labels.join(', ')})`)
     for (const label of labels) {
       const d2 = new PGlite()
       try {
@@ -650,8 +655,17 @@ try {
         await d2.query(`insert into team_call values ($1, $2, $3, 'live', true, $4)`, [CALL, WS, CHANNEL, CAPTURE])
         await d2.query(`insert into team_call_capture (call_id, capture_id, workspace_id) values ($1, $2, $3)`, [CALL, CAPTURE, WS])
         await d2.query(`insert into team_call_live_agent (capture_id, workspace_id, call_id, last_turn_at) values ($1, $2, $3, now() - interval '1 hour')`, [CAPTURE, WS, CALL])
-        const hadQueue = (await d2.query(`select 1 from information_schema.columns where table_name = 'team_call_live_agent' and column_name = 'queued_id'`)).rows.length > 0
-        if (hadQueue) await d2.query(`update team_call_live_agent set queued_id = $2, queued_until = now() + interval '5 minutes' where capture_id = $1`, [CAPTURE, id(77)])
+        const hasColumn = async (c) => (await d2.query(`select 1 from information_schema.columns where table_name = 'team_call_live_agent' and column_name = $1`, [c])).rows.length > 0
+        const hadQueue = await hasColumn('queued_id')
+        // A queued mark in that form's own shape (from c8c47a0c on, a mark carries its time).
+        if (hadQueue) {
+          await d2.query(
+            (await hasColumn('queued_at'))
+              ? `update team_call_live_agent set queued_id = $2, queued_at = now() - interval '5 minutes', queued_until = now() + interval '5 minutes' where capture_id = $1`
+              : `update team_call_live_agent set queued_id = $2, queued_until = now() + interval '5 minutes' where capture_id = $1`,
+            [CAPTURE, id(77)],
+          )
+        }
         for (const n of ['655_', '656_', '657_']) {
           const sql = await read(n)
           await d2.exec(sql)
@@ -668,6 +682,8 @@ try {
         const b = (await d2.query(`select * from team_call_live_turn_begin($1, $2, 300, 300)`, [CAPTURE, q.lease])).rows[0]
         eq(b.outcome, 'running', `(${label}) and the current begin`)
         ok((await d2.query(`select team_call_live_turn_lease_until($1, $2) as u`, [CAPTURE, q.lease])).rows[0].u !== null, `(${label}) and the lease check`)
+        await d2.query(`update team_call_live_agent set lease_until = now() - interval '10 seconds' where capture_id = $1`, [CAPTURE])
+        ok((await d2.query(`select team_call_live_turn_busy($1) as b`, [CAPTURE])).rows[0].b === true, `(${label}) and busy's margin past the lease's end`)
       } finally {
         await d2.close()
       }

@@ -8,6 +8,8 @@
  * out whole; a failed read counts as busy. With the live agent off, its
  * table is never read and nothing waits.
  */
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const CALL = '77777777-7777-4777-8777-777777777777'
@@ -41,7 +43,7 @@ vi.mock('@/lib/team-calls/live-turns', async (orig) => ({
 }))
 
 const { runTeamCallNotesFinish, LIVE_TURN_SETTLE_ROUNDS, FED_POLL } = await import('../team-call-notes')
-const { LIVE_TURN_LEASE_SECONDS } = await import('@/lib/team-calls/live-turns')
+const { LIVE_TURN_LEASE_SECONDS, LIVE_TURN_BUSY_MARGIN_SECONDS } = await import('@/lib/team-calls/live-turns')
 
 function step() {
   return {
@@ -105,8 +107,39 @@ describe('the finish and a live turn still running', () => {
     expect(looks()).toBe(LIVE_TURN_SETTLE_ROUNDS)
     // Each look is FED_POLL apart: together longer than a lease, past which the turn's tools write nothing.
     expect(FED_POLL).toBe('5s')
-    expect(LIVE_TURN_SETTLE_ROUNDS * 5).toBeGreaterThan(LIVE_TURN_LEASE_SECONDS)
+    expect(LIVE_TURN_SETTLE_ROUNDS * 5).toBeGreaterThan(LIVE_TURN_LEASE_SECONDS + LIVE_TURN_BUSY_MARGIN_SECONDS)
+    // The margin the wait counts is 655's own (busy()'s SQL).
+    const sql = readFileSync(join(process.cwd(), 'supabase/migrations/655_call_live_agent.sql'), 'utf8')
+    expect(sql).toContain(`a.lease_until > now() - interval '${LIVE_TURN_BUSY_MARGIN_SECONDS} seconds'`)
     expect(h.calls.slice(-2)).toEqual(['batch', 'post'])
+  })
+
+  it('every read failing: the pass runs after the bound, and the log says the lease could not be read', async () => {
+    h.lease = () => {
+      throw new Error('read failed')
+    }
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      await runTeamCallNotesFinish({ event: { data: { callId: CALL } }, step: step() })
+      expect(looks()).toBe(LIVE_TURN_SETTLE_ROUNDS)
+      expect(h.calls.slice(-2)).toEqual(['batch', 'post'])
+      const said = warn.mock.calls.map((c) => String(c[0])).join('\n')
+      expect(said).toContain('lease could not be read')
+      expect(said).not.toContain('never finished')
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('a lease held the whole wait: the log says the pass ran after waiting it out', async () => {
+    endedCallWithRunningTurn({ releasedAfterLooks: null })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      await runTeamCallNotesFinish({ event: { data: { callId: CALL } }, step: step() })
+      expect(warn.mock.calls.map((c) => String(c[0])).join('\n')).toContain("after waiting out a live turn's lease (0 of")
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('a busy read that fails counts as busy: the pass does not start beside a turn it could not see', async () => {

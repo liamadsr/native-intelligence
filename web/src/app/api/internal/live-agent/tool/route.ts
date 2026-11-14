@@ -91,6 +91,7 @@ import { liveTimeGuard } from '@/lib/live-agent/time-guard'
 import { LIVE_MCP_TOOL_PREFIX } from '@/lib/live-agent/read-tool-names'
 import { MCP_LIMIT_MESSAGE, claimLiveMcpCall, runLiveMcpLookup } from '@/lib/live-agent/mcp-lookups'
 import { trackServerEvent } from '@/lib/posthog'
+import { callTurnLeaseHeld } from '@/lib/team-calls/call-turn-state'
 import {
   extractInternalSecret,
   extractLiveAgentRunToken,
@@ -116,6 +117,17 @@ export async function POST(request: Request) {
   const claims = verifyLiveAgentRunToken(extractLiveAgentRunToken(request))
   if (!claims) {
     return NextResponse.json({ error: 'invalid or expired run token' }, { status: 401 })
+  }
+  // Gate 2b: a call's server turn (src/lib/team-calls/live-turns.ts) writes only while it holds its
+  // lease. Once released (its answer in), its session takes no more tool calls, even should its
+  // cancel not have landed: nothing writes beside the call's end-of-meeting pass. The lease, not
+  // the agent's state: a turn still running when the call ended keeps its writes (the finish waits
+  // for it). Read on every call; refused when it cannot be read.
+  if (claims.callTurnLease !== undefined && !(await callTurnLeaseHeld(claims.captureId, claims.callTurnLease))) {
+    return NextResponse.json(
+      { error: 'This call turn is over: its lease was released or ran out', code: 'CALL_TURN_LEASE_OVER' },
+      { status: 409 },
+    )
   }
 
   let body: ToolCallBody

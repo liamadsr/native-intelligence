@@ -106,7 +106,9 @@
 --     takes a server turn only while it holds the lease (its key is bound to
 --     the lease), and stops the turn's tools at the lease's end.
 --   team_call_live_turn_busy(capture)  is a turn RUNNING now (a queued one
---     is not: the call's finish waits only for a turn that can still write).
+--     is not: the call's finish waits only for a turn that can still write),
+--     or did its lease end less than 30 s ago (a write begun just before the
+--     end lands first)? A lease the turn released holds nothing back.
 --
 -- RLS on both new tables; team_call_live_agent has no client grant;
 -- team_call_live_notes is the signed-in person's to read only (SELECT, its
@@ -706,9 +708,11 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
+  -- 30 s past the lease's end: a write the turn began just before it (the route's finalize checks the
+  -- lease's end before each one) has landed before the call's end-of-meeting pass starts.
   select exists (
     select 1 from public.team_call_live_agent a
-     where a.capture_id = target_capture and a.lease_until is not null and a.lease_until > now()
+     where a.capture_id = target_capture and a.lease_until is not null and a.lease_until > now() - interval '30 seconds'
   );
 $$;
 

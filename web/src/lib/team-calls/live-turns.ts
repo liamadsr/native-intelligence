@@ -99,6 +99,8 @@ export const LIVE_TURN_QUEUE_SECONDS = 600
 export const LIVE_TURN_SUPERSEDE_SECONDS = 120
 /** A running turn's lease: past its own wall clock (the tick's 120 s, a retry, the route's start, this wait). */
 export const LIVE_TURN_LEASE_SECONDS = 300
+/** How long past a lease's end 655's busy() still holds the call's end-of-meeting pass back (its SQL says 30 s). */
+export const LIVE_TURN_BUSY_MARGIN_SECONDS = 30
 export const LIVE_TURN_MAX_WINDOW_CHARS = 16_000
 /** The lines before the window, as the owner's app sends its two earlier windows. */
 export const LIVE_TURN_CONTEXT_CHARS = 2_400

@@ -9,9 +9,11 @@
  * session: only the server holds the key, and the key is bound to the
  * running turn's lease, which must be the one running now. The server's own
  * turn runs, its tools stopping at its lease's end (the run token's
- * notAfter); a replayed key of an earlier turn, another capture's key, or a
- * turn whose lease ran out are refused. The owner's Reprocess (a batch) needs
- * no key, but waits for the call: refused while the call's notes are live.
+ * notAfter, and the lease itself for the tool route), its finalize beginning
+ * no write past that end; a replayed key of an earlier turn, another
+ * capture's key, or a turn whose lease ran out are refused. The owner's
+ * Reprocess (a batch) needs no key, but waits for the call: refused while the
+ * call's notes are live, and after it while its last turn holds its lease.
  * An ordinary capture's live turns need no key.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -25,8 +27,15 @@ const h = vi.hoisted(() => ({
   /** The running lease, and until when. */
   lease: { id: 'lease-now', until: 0 },
   callLive: true,
+  /** 655's busy(): the last turn still holding its lease (or within the margin after it). */
+  turnBusy: false,
   /** The claims each minted run token carried. */
-  minted: [] as Array<{ notAfter?: number }>,
+  minted: [] as Array<{ notAfter?: number; callTurnLease?: string }>,
+  /** Pending proposals finalize may auto-apply, and what it applied (each apply moves the clock by `applyTakesMs`). */
+  pending: [] as Array<Record<string, unknown>>,
+  applied: [] as string[],
+  applyTakesMs: 0,
+  clockShift: 0,
 }))
 
 vi.mock('next/server', async (orig) => ({ ...(await orig<typeof import('next/server')>()), after: () => {} }))
@@ -54,6 +63,14 @@ vi.mock('@/lib/live-agent/live-agent-run-token', async (orig) => {
     },
   }
 })
+vi.mock('@/lib/proposed-changes/apply-engine', async (orig) => ({
+  ...(await orig<typeof import('@/lib/proposed-changes/apply-engine')>()),
+  applyChange: async (_sb: unknown, change: { id: string }) => {
+    h.applied.push(change.id)
+    h.clockShift += h.applyTakesMs
+    return { success: true, entity_id: `ent-${change.id}` }
+  },
+}))
 vi.mock('@/lib/eve/task-session', () => ({
   createTaskSession: async () => {
     h.sessions++
@@ -69,6 +86,10 @@ const { callTurnKey } = await import('@/lib/live-agent/call-turn-key')
 function useDb(call: boolean) {
   const base = meetingFixture()
   h.client = createFakeSupabase((q: FakeQuery) => {
+    if (q.table === 'rpc:team_call_live_turn_busy') return { data: h.turnBusy, error: null }
+    if (q.table === 'proposed_change' && q.op === 'select' && q.columns === '*' && eqValue(q, 'status') === 'pending') return { data: h.pending, error: null }
+    if (q.table === 'proposed_change' && q.op === 'update') return { data: { id: eqValue(q, 'id') }, error: null }
+    if (q.table === 'rpc:capture_feed_quote_speakers') return { data: [{ participant_id: 'p-rosa', member_id: 'mem-rosa', source: 'call_roster' }], error: null }
     if (q.table === 'rpc:team_call_live_turn_lease_until') {
       const p = q.payload as { turn_lease: string }
       return { data: p.turn_lease === h.lease.id && h.lease.until > Date.now() ? new Date(h.lease.until).toISOString() : null, error: null }
@@ -94,6 +115,12 @@ beforeEach(() => {
   h.minted = []
   h.lease = { id: 'lease-now', until: Date.now() + 240_000 }
   h.callLive = true
+  h.turnBusy = false
+  h.pending = []
+  h.applied = []
+  h.applyTakesMs = 0
+  h.clockShift = 0
+  vi.restoreAllMocks()
 })
 
 describe('a call’s capture: the server’s live agent alone', () => {
@@ -114,6 +141,32 @@ describe('a call’s capture: the server’s live agent alone', () => {
     expect(h.sessions).toBe(1)
     expect(h.minted).toHaveLength(1)
     expect(h.minted[0].notAfter).toBe(h.lease.until)
+    // And the lease itself: the tool route takes its calls only while it is held.
+    expect(h.minted[0].callTurnLease).toBe(h.lease.id)
+  })
+
+  it('its finalize begins no write past the lease’s end: what is left stays pending for the pass', async () => {
+    // Three member decisions to file; each apply takes 40 s of the lease's last 60 s.
+    h.lease.until = Date.now() + 60_000
+    h.applyTakesMs = 40_000
+    h.pending = ['d1', 'd2', 'd3'].map((id) => ({
+      id, change_type: 'create', entity_type: 'decision', status: 'pending', confidence: 0.97, title: id, display_text: id,
+      sort_order: 0, trigger_quote: 'We decided to ship on Monday', extra: { is_explicitly_stated: true },
+    }))
+    useDb(true)
+    const realNow = Date.now.bind(Date)
+    vi.spyOn(Date, 'now').mockImplementation(() => realNow() + h.clockShift)
+    const res = await serverTurn()
+    expect(res.status).toBe(200)
+    // d1 begins at +0 s, d2 at +40 s (both before the end at +60 s); d3 would begin at +80 s: not begun.
+    expect(h.applied).toEqual(['d1', 'd2'])
+    // The control: with time to spare, all three are filed (so it was the lease's end that held d3).
+    h.applied = []
+    h.applyTakesMs = 0
+    h.clockShift = 0
+    useDb(true)
+    expect((await serverTurn()).status).toBe(200)
+    expect(h.applied).toEqual(['d1', 'd2', 'd3'])
   })
 
   it('a replayed key of an earlier turn, another capture’s key, or a lease that ran out: refused', async () => {
@@ -137,6 +190,19 @@ describe('a call’s capture: the server’s live agent alone', () => {
     expect(await live.json()).toMatchObject({ code: 'CALL_NOTES_LIVE', error: 'This call is still taking notes. Reprocess it once the call has ended.' })
     expect(h.sessions).toBe(0)
     h.callLive = false
+    useDb(true)
+    expect((await post({ mode: 'batch' })).status).not.toBe(409)
+  })
+
+  it('Reprocess after the call ended, while its last turn still holds its lease: refused the same way', async () => {
+    h.callLive = false
+    h.turnBusy = true
+    useDb(true)
+    const res = await post({ mode: 'batch' })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: 'CALL_NOTES_LIVE', error: 'This call is still finishing its notes. Reprocess it in a few minutes.' })
+    expect(h.sessions).toBe(0)
+    h.turnBusy = false
     useDb(true)
     expect((await post({ mode: 'batch' })).status).not.toBe(409)
   })

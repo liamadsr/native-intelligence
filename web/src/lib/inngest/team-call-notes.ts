@@ -31,7 +31,7 @@ import {
   type FedNotesStatus,
   type FedNotesWritten,
 } from '@/lib/team-calls/fed-notes'
-import { LIVE_TURN_LEASE_SECONDS, liveTurnBusy, teamCallLiveAgentOn } from '@/lib/team-calls/live-turns'
+import { LIVE_TURN_BUSY_MARGIN_SECONDS, LIVE_TURN_LEASE_SECONDS, liveTurnBusy, teamCallLiveAgentOn } from '@/lib/team-calls/live-turns'
 
 /**
  * A call's notes, after the call (calls plan, phase 6; src/lib/team-calls/
@@ -193,11 +193,12 @@ async function runFedNotesFinish(callId: string, fed: FedNotesStatus, step: Note
 
 /**
  * How many times the finish looks for a live turn still running on the
- * capture, FED_POLL apart: past a whole lease (each round also sleeps, so the
- * wait outlasts it), since a running turn's tools may write until its lease's
- * end (the run token's notAfter).
+ * capture, FED_POLL apart: past a whole lease and busy()'s margin after it
+ * (each round also sleeps, so the wait outlasts both), since a running turn's
+ * tools may write until its lease's end (the run token's notAfter) and a write
+ * its finalize began just before that end lands within the margin.
  */
-export const LIVE_TURN_SETTLE_ROUNDS = Math.ceil(LIVE_TURN_LEASE_SECONDS / 5) + 2
+export const LIVE_TURN_SETTLE_ROUNDS = Math.ceil((LIVE_TURN_LEASE_SECONDS + LIVE_TURN_BUSY_MARGIN_SECONDS) / 5) + 2
 
 /**
  * The live agent's last turn on the capture, still running when the call
@@ -205,20 +206,33 @@ export const LIVE_TURN_SETTLE_ROUNDS = Math.ceil(LIVE_TURN_LEASE_SECONDS / 5) + 
  * for it, so the turn's writes never land beside or on top of the pass's.
  * No new turn starts once the call ended (655 stops the agent then), and the
  * stop keeps a RUNNING turn's lease, so busy() stays true until the turn
- * gives it back or it runs out (at most LIVE_TURN_LEASE_SECONDS); past that
- * its tools write nothing (their token stops at the lease's end) and the
- * route takes no turn on it. A read that fails counts as busy (the wait is
- * bounded by the lease anyway). Only where the live agent is on: elsewhere
+ * gives it back or it runs out (at most LIVE_TURN_LEASE_SECONDS, plus busy()'s
+ * margin); past that its tools write nothing (their token stops at the
+ * lease's end, and the tool route takes a call only while the lease is held)
+ * and the route takes no turn on it. A read that fails counts as busy (the
+ * wait is bounded anyway), and the log says so. Only where the live agent is on: elsewhere
  * its table may not exist.
  */
 async function waitForLiveTurn(captureId: string, step: NotesRunContext['step']) {
   if (!teamCallLiveAgentOn()) return
+  let unread = 0
   for (let round = 0; round < LIVE_TURN_SETTLE_ROUNDS; round++) {
-    const busy = await step.run(`live-turn-look-${round}`, () => liveTurnBusy(getServiceClient(), captureId).catch(() => true))
-    if (!busy) return
+    const look = await step.run(`live-turn-look-${round}`, () =>
+      liveTurnBusy(getServiceClient(), captureId).then(
+        (busy) => (busy ? 'busy' : 'free'),
+        () => 'unread',
+      ),
+    )
+    if (look === 'free') return
+    if (look === 'unread') unread++
     await step.sleep(`live-turn-wait-${round}`, FED_POLL)
   }
-  console.warn(`[team-call-notes] capture=${captureId} the end-of-meeting pass runs beside a live turn that never finished`)
+  // Say which it was: the lease could not be read (counted as busy), or a turn held it the whole wait.
+  console.warn(
+    unread === LIVE_TURN_SETTLE_ROUNDS
+      ? `[team-call-notes] capture=${captureId} the live turn's lease could not be read in ${unread} looks; the end-of-meeting pass runs now`
+      : `[team-call-notes] capture=${captureId} the end-of-meeting pass runs after waiting out a live turn's lease (${unread} of ${LIVE_TURN_SETTLE_ROUNDS} looks unread)`,
+  )
 }
 
 /** A capture of the call its owner closed by hand: finished now, then the pass a recorded meeting gets, as its owner. */
