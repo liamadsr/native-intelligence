@@ -85,6 +85,7 @@ export default async function MeetingLinkPage({ params }: { params: Promise<{ to
         recording={live?.recording === 'on' || live?.recording === 'starting'}
         notesOffered={teamCallFeatures().notes}
         liveNotes={teamCallFeatures().liveNotes === true}
+        liveAgent={teamCallFeatures().liveAgent === true}
       />
     </div>
   )

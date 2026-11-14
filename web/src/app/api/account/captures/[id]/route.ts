@@ -35,6 +35,7 @@ const CAPTURE_META_FIELDS = `
   tags, metadata, ai_processed, ai_summary, status, is_pinned, recorded_at,
   started_at, ended_at, is_transcript_locked, project_id, team_id,
   live_mode, batch_processed_at, package_ids, created_at, updated_at, visibility,
+  notes_channel_id,
   project:projects!project_id(id, name)
 `
 

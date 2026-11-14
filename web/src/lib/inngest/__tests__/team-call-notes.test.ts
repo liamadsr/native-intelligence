@@ -29,6 +29,7 @@ const h = vi.hoisted(() => ({
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({}) }))
 vi.mock('@/lib/inngest/client', () => ({ inngest: { createFunction: () => ({}) } }))
 vi.mock('../capture-finalizer', () => ({
+  CallNotesLiveError: class CallNotesLiveError extends Error {},
   runOwnerBatch: async (_svc: unknown, args: { captureId: string; ownerId: string }) => {
     h.calls.push(`batch:${args.captureId}:${args.ownerId}`)
     return 'completed'

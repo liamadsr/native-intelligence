@@ -39,6 +39,7 @@ import {
   type AgentToolSelection,
 } from './read-tool-names'
 import { isChatNativeTool } from '@/lib/ai/tool-registry'
+import { CALL_CAPTURE_READ_TOOLS, CALL_CAPTURE_STAGING_TOOLS, callCaptureFenceApplies } from './call-capture-fence'
 import { attendedOnlyToolsDeniedTo } from '@/lib/safety/caller'
 
 /**
@@ -132,6 +133,12 @@ export interface LiveAgentCeilingInput {
    * Honored on a copilot turn only, and only for an `mcp__` name.
    */
   mcpLookups?: readonly string[]
+  /**
+   * The turn is on a call's capture (./call-capture-fence.ts: read from the
+   * capture row, never the request): it keeps only what writing the shared
+   * notes needs.
+   */
+  callCapture?: boolean
 }
 
 export interface LiveAgentCeiling {
@@ -196,6 +203,20 @@ export function computeLiveAgentCeiling(input: LiveAgentCeilingInput): LiveAgent
       ? (input.mcpLookups ?? []).filter((name) => name.startsWith(LIVE_MCP_TOOL_PREFIX))
       : [],
   )
+  // A call's capture: the record's own writers and three structural reads, nothing else
+  // (./call-capture-fence.ts says why, and what it costs). Applied last, so it only narrows.
+  if (input.callCapture && callCaptureFenceApplies(input.turnType)) {
+    const fencedStaging = staging.filter((name) => CALL_CAPTURE_STAGING_TOOLS.has(name))
+    const fencedPinned = pinnedReads.filter((name) => CALL_CAPTURE_READ_TOOLS.has(name))
+    const fencedRead = new Set([...read].filter((name) => CALL_CAPTURE_READ_TOOLS.has(name)))
+    return {
+      staging: fencedStaging,
+      pinnedReads: fencedPinned,
+      read: fencedRead,
+      mcpLookups: new Set<string>(),
+      ceiling: new Set<string>([...fencedStaging, ...fencedPinned, ...fencedRead]),
+    }
+  }
   return {
     staging,
     pinnedReads,

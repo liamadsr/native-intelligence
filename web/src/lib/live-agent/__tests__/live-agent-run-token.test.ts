@@ -231,6 +231,39 @@ describe('the optional recentTail claim (the shadow nudge.worth check)', () => {
   })
 })
 
+describe('the optional notAfter claim (a call’s server turn: its lease’s end)', () => {
+  beforeEach(() => {
+    process.env.LIVE_AGENT_INTERNAL_SECRET = 'live-secret'
+  })
+
+  it('verifies until the lease’s end, and no more after it, though the token’s own expiry is later', () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-24T12:00:00Z'))
+    const notAfter = Date.now() + 60_000
+    const token = mintLiveAgentRunToken({ ...CLAIMS, notAfter, callTurnLease: 'lease-1' })
+    expect(verifyLiveAgentRunToken(token)).toMatchObject({ notAfter, callTurnLease: 'lease-1' })
+    vi.setSystemTime(new Date(notAfter))
+    expect(verifyLiveAgentRunToken(token)).toBeNull()
+  })
+
+  it('absent means no lease (every other turn); a non-number end or a non-string lease is refused', () => {
+    expect(verifyLiveAgentRunToken(mintLiveAgentRunToken(CLAIMS))).not.toHaveProperty('notAfter')
+    const exp = Date.now() + 60_000
+    for (const bad of ['later', null, true]) {
+      expect(verifyLiveAgentRunToken(resign({ ...CLAIMS, exp, notAfter: bad, callTurnLease: 'lease-1' }, 'live-secret')), String(bad)).toBeNull()
+    }
+    for (const bad of [42, '', null]) {
+      expect(verifyLiveAgentRunToken(resign({ ...CLAIMS, exp, notAfter: exp, callTurnLease: bad }, 'live-secret')), String(bad)).toBeNull()
+    }
+  })
+
+  it('the lease and its end travel together: one without the other is not ours', () => {
+    const exp = Date.now() + 60_000
+    expect(verifyLiveAgentRunToken(resign({ ...CLAIMS, exp, notAfter: exp }, 'live-secret'))).toBeNull()
+    expect(verifyLiveAgentRunToken(resign({ ...CLAIMS, exp, callTurnLease: 'lease-1' }, 'live-secret'))).toBeNull()
+  })
+})
+
 describe('the optional omit claim (prompt riders, riders.ts)', () => {
   beforeEach(() => {
     process.env.LIVE_AGENT_INTERNAL_SECRET = 'live-secret'
