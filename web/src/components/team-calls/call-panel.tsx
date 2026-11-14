@@ -13,7 +13,9 @@
  * switch and a Record button in the controls, and while either is on, a
  * plain badge in the header and the bar for everyone in the call ("Notes
  * are on", "Recording"), static, no pulse; where the call recorder takes the
- * notes, the badge opens them, filling in as people speak. A person who joins a call with
+ * notes, the badge opens them, filling in as people speak, and where the live agent
+ * writes notes during the call (TEAM_CALL_LIVE_AGENT), they show under the tiles for
+ * everyone in it (./call-live-notes.tsx). A person who joins a call with
  * notes or a recording on sees a notice first; their microphone is sent
  * only once they choose to join with it.
  *
@@ -63,6 +65,7 @@ import {
 import type { CallDeviceKind, CallDeviceState, CallSnapshot, TeamCallSession } from '@/lib/team-calls/call-session'
 import { guestIdOfIdentity, waitingGuests, waitingLine, type MeetingGuest } from '@/lib/meeting-links/shape'
 import { CallBadges, IconButton, TileView, callErrorLine, deviceNotice } from './call-tiles'
+import { CallLiveNotes } from './call-live-notes'
 import type { ActiveTeamCall } from './team-calls-provider'
 import { useTeamCalls } from './team-calls-provider'
 
@@ -94,6 +97,14 @@ export function CallPanel({
   ) : (
     <CallWindow call={call} snap={snap} onMinimize={() => onMinimize(true)} onLeave={onLeave} />
   )
+}
+
+/** The call's capture, opened in the app's capture panel beside the call (the call panel stays). */
+function captureOpener(call: ActiveTeamCall, captureId: string): () => void {
+  return () => {
+    const target = entityOpenTarget('capture', captureId, call.label)
+    if (target) openTarget(target, { from: 'team_chat' })
+  }
 }
 
 /** The call's notes filling in now (the call recorder's capture, linked while notes are on): open them, the panel stays. */
@@ -249,6 +260,10 @@ function CallWindow({ call, snap, onMinimize, onLeave }: { call: ActiveTeamCall;
             <TileView key={t.key} tile={t} compact={screens.length > 0} action={t.guest && !t.isLocal ? <RemoveGuestButton identity={t.identity} name={t.name} /> : undefined} />
           ))}
         </div>
+        {/* The shared live notes the live agent writes on the server (phase 2), for everyone in the call. */}
+        {call.features.liveAgent && call.notes.capture_id && (
+          <CallLiveNotes callId={call.callId} captureId={call.notes.capture_id} onOpen={captureOpener(call, call.notes.capture_id)} />
+        )}
         {notices.map((n) => (
           <p key={n} className="mt-2 rounded-xl bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200" data-team-call-notice="">
             {n}

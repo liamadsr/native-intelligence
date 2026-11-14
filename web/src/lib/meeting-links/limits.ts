@@ -34,6 +34,8 @@ export const MEETING_LIMITS = {
   /** A lobby's polls, per guest (every 3 s is 20 a minute) and per address. */
   pollPerGuest: { bucket: 'poll:guest', max: 40, windowSeconds: 60 },
   pollPerAddress: { bucket: 'poll:addr', max: 240, windowSeconds: 60 },
+  /** A guest's reads of the call's notes while they are in it (every 8 s is under 8 a minute). */
+  notesPerGuest: { bucket: 'notes:guest', max: 20, windowSeconds: 60 },
   /** A guest's tokens (a join, a rejoin after a lost connection). */
   tokenPerGuest: { bucket: 'token:guest', max: 20, windowSeconds: 600 },
 } as const satisfies Record<string, MeetingLimit>

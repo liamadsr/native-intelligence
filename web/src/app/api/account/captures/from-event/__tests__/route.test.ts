@@ -466,6 +466,30 @@ describe('POST from-event', () => {
     })
   })
 
+  it('a meeting whose call capture holds the event (656): the call is taking notes, and no device records into it', async () => {
+    hoisted.state.live = { ...liveRow({ id: 'cap-call', transcript: '[Dana Ortiz] Welcome.', occurrence_start: '2026-08-11T17:00:00.000Z' }), notes_channel_id: 'chan-call' }
+    const res = await POST(req({ calendar_event_id: 'evt-call' }))
+    expect(res.status).toBe(409)
+    expect(await readJson<{ code: string; capture_id: string }>(res)).toMatchObject({ code: 'CALL_CAPTURES_MEETING', capture_id: 'cap-call' })
+    expect(hoisted.updateSpy).not.toHaveBeenCalled()
+    expect(hoisted.insertSpy).not.toHaveBeenCalled()
+  })
+
+  it('a call capture that ended moments ago is never resumed by a device', async () => {
+    hoisted.state.recent = {
+      id: 'cap-call',
+      transcript: '[Dana Ortiz] Welcome.',
+      occurrence_start: '2026-08-11T17:00:00.000Z',
+      ended_at: new Date(Date.now() - 60_000).toISOString(),
+      metadata: null,
+      notes_channel_id: 'chan-call',
+    }
+    const res = await POST(req({ calendar_event_id: 'evt-call' }))
+    const json = await readJson<{ resume?: boolean; created: boolean }>(res)
+    expect(json.resume).toBeUndefined()
+    expect(json.created).toBe(true)
+  })
+
   it('401s when unauthenticated', async () => {
     hoisted.getUser.mockResolvedValue({ data: { user: null } })
     const res = await POST(req({ calendar_event_id: 'evt-1' }))

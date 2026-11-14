@@ -257,6 +257,33 @@ describe('finalize-abandoned-capture', () => {
     expect(fake.rows('device_token')).toEqual([])
   })
 
+  it('a call’s capture not yet free (409 CALL_NOTES_LIVE) is retryable, never dropped; a 409 with another code stays a refusal', async () => {
+    const { CallNotesLiveError } = await import('@/lib/inngest/capture-finalizer')
+    fake.seed('captures', [capture()])
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 409,
+      text: async () => JSON.stringify({ code: 'CALL_NOTES_LIVE', error: 'This call is still finishing its notes. Reprocess it in a few minutes.' }),
+    })
+    const notYet = await finalize({ event: finalizeEvent, step: createStepMock() }).catch((e) => e)
+    expect(notYet).toBeInstanceOf(CallNotesLiveError)
+    expect(notYet).not.toBeInstanceOf(NonRetriableError)
+    expect(fake.rows('device_token')).toEqual([])
+
+    const fresh = () => {
+      fake = makeFakeSupabase()
+      fake.seed('member', [{ id: 'm-1', user_id: OWNER, workspace_id: WS }])
+      fake.seed('workspace', [{ id: WS, settings: {} }])
+      fake.seed('captures', [capture()])
+    }
+    fresh()
+    fetchMock.mockResolvedValue({ ok: false, status: 409, text: async () => JSON.stringify({ code: 'CALL_CAPTURE_SERVER_TURNS', error: 'no' }) })
+    await expect(finalize({ event: finalizeEvent, step: createStepMock() })).rejects.toBeInstanceOf(NonRetriableError)
+    fresh()
+    fetchMock.mockResolvedValue({ ok: false, status: 409, text: async () => 'not json' })
+    await expect(finalize({ event: finalizeEvent, step: createStepMock() })).rejects.toBeInstanceOf(NonRetriableError)
+  })
+
   it('a batch still running past the wait: waits for it to settle, then post-work only once it stamped', async () => {
     fake.seed('captures', [capture()])
     fetchMock.mockRejectedValue(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))

@@ -56,7 +56,12 @@ export async function fetchTeamCalls(): Promise<{ available: boolean; rings: Tea
     return {
       available: json.available === true,
       rings: Array.isArray(json.rings) ? json.rings : [],
-      features: { notes: json.features?.notes === true, recording: json.features?.recording === true, liveNotes: json.features?.liveNotes === true },
+      features: {
+        notes: json.features?.notes === true,
+        recording: json.features?.recording === true,
+        liveNotes: json.features?.liveNotes === true,
+        ...(json.features?.liveAgent === true ? { liveAgent: true } : {}),
+      },
     }
   } catch {
     return { available: false, rings: [], features: NO_CALL_FEATURES }

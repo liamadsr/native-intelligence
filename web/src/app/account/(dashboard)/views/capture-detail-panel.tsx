@@ -134,6 +134,7 @@ import { toast } from 'sonner'
 import { useEntityDetailSync, useEntityListSync } from '@/hooks/use-entity-sync'
 import { useRecordingPollFallback } from '@/hooks/use-recording-poll-fallback'
 import { emitEntityUpdated } from '@/lib/entity-events'
+import { isCallCapture } from '@/lib/live-agent/call-capture-fence'
 
 // Sentinel value for the agent <Select>. A null agentId means the built-in
 // "Assistant" persona (the general-purpose default, resolved server-side in
@@ -2183,6 +2184,10 @@ export function CaptureDetailPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [captureId])
 
+  // A call's capture: no device records into it. The same test as the resume route's and the
+  // fence's (its notes_channel_id, the server's own column).
+  const isCallCaptureRow = isCallCapture(capture)
+
   // Supabase Realtime: watch for ai_summary updates on this capture (from live agent)
   useEffect(() => {
     const supabase = createClient()
@@ -3077,8 +3082,10 @@ export function CaptureDetailPanel({
           )}
           {/* Resume — restart capture for this row (mic-only on web). Lives at
                       the top next to Reprocess now (moved out of the live-agent panel).
-                      Styled like the Share button. Hidden during an active recording. */}
-          {!isActiveRecording && (
+                      Styled like the Share button. Hidden during an active recording, and
+                      on a call's capture: the call recorder fills it on the server, and no
+                      device records into it (the resume route refuses it too). */}
+          {!isActiveRecording && !isCallCaptureRow && (
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>

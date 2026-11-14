@@ -628,7 +628,7 @@ describe('claimExtraction: dedupe is scoped to the new source audience', () => {
   const FACT = 'Acme renews in March.'
   const LONG = 'A sufficiently long body that clearly exceeds the forty character extraction floor.'
 
-  type Capture = { id: string; visibility: 'workspace' | 'private'; user_id: string; project_id?: string | null }
+  type Capture = { id: string; visibility: 'workspace' | 'private'; user_id: string; project_id?: string | null; notes_channel_id?: string | null }
   type Store = {
     captures: Record<string, Capture>
     conversations: Record<string, { id: string; user_id: string }>
@@ -762,6 +762,10 @@ describe('claimExtraction: dedupe is scoped to the new source audience', () => {
             return store.actions
               .filter((a) => a.source_capture_id === f.source_capture_id)
               .map((a) => ({ ...a, description: null, assignee_id: null }))
+          case 'claim_source':
+            return store.claimSources
+              .filter((s) => s.source_type === f.source_type && s.source_id === f.source_id)
+              .map((s) => ({ claim_id: s.claim_id }))
           default:
             return []
         }
@@ -879,6 +883,43 @@ describe('claimExtraction: dedupe is scoped to the new source audience', () => {
       const { matchCalls } = await run(store, data)
       expect(matchCalls).toHaveLength(1)
       expect(matchCalls[0]).toHaveProperty('p_requesting_user_id', expected)
+    })
+  })
+
+  describe('a call’s capture (its notes channel set): shared claims only, or its own earlier ones', () => {
+    const callCapture: Capture = { id: 'cap-call', visibility: 'private', user_id: OWNER, notes_channel_id: 'chan-call' }
+
+    it('never matches, nor attaches the call’s words to, the owner’s private claims', async () => {
+      const store = emptyStore()
+      seedPrivateChatClaim(store)
+      store.captures['cap-call'] = { ...callCapture }
+      const { result, matchCalls } = await run(store, { sourceType: 'capture', sourceId: 'cap-call' })
+      expect(matchCalls[0]).toHaveProperty('p_requesting_user_id', null)
+      expect(store.claimSources.filter((s) => s.claim_id === 'claim-chat').map((s) => s.source_type)).toEqual(['conversation'])
+      expect(result.inserted).toBe(1)
+      expect(result.duplicates).toBe(0)
+    })
+
+    it('a Reprocess finds the claims this same capture already sources (owner-only), and makes no second copy', async () => {
+      const store = emptyStore()
+      store.captures['cap-call'] = { ...callCapture }
+      const first = await run(store, { sourceType: 'capture', sourceId: 'cap-call' })
+      expect(first.result.inserted).toBe(1)
+      const again = await run(store, { sourceType: 'capture', sourceId: 'cap-call' })
+      expect(again.result.inserted).toBe(0)
+      expect(again.result.duplicates).toBe(1)
+      expect(store.claims).toHaveLength(1)
+      // The shared ask first, then the owner's, kept only to this capture's own claims.
+      expect(again.matchCalls.map((c) => c.p_requesting_user_id)).toEqual([null, OWNER])
+    })
+
+    it('with a private claim of the owner’s and none of its own: the owner’s ask finds nothing of this capture, a new claim', async () => {
+      const store = emptyStore()
+      seedPrivateChatClaim(store)
+      store.captures['cap-call'] = { ...callCapture }
+      const { result } = await run(store, { sourceType: 'capture', sourceId: 'cap-call' })
+      expect(result.inserted).toBe(1)
+      expect(store.claimSources.some((s) => s.claim_id === 'claim-chat' && s.source_type === 'capture')).toBe(false)
     })
   })
 

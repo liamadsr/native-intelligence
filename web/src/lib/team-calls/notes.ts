@@ -82,6 +82,12 @@ export interface TeamCallFeatures {
    * notes are LiveKit Egress's files, transcribed after the call.
    */
   liveNotes?: boolean
+  /**
+   * The live agent writes shared notes during the call, on the server
+   * (src/lib/team-calls/live-turns.ts): everyone in it can open them. Only
+   * where the recorder takes the notes.
+   */
+  liveAgent?: boolean
 }
 
 export const NO_CALL_FEATURES: TeamCallFeatures = { notes: false, recording: false, liveNotes: false }

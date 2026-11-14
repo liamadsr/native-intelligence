@@ -322,6 +322,10 @@ describe('dedupeRequesterFor', () => {
     ['private capture + decision link (not citable)', { sourceType: 'capture', ownerUserId: OWNER, captureVisibility: 'private', links: [decision] }, OWNER],
     ['private chat + project link', { sourceType: 'conversation', ownerUserId: OWNER, links: [project] }, null],
     ['private-parent attachment + project link', { sourceType: 'attachment', ownerUserId: OWNER, parentCaptureVisibility: 'private', links: [project] }, null],
+    // A call's capture: private to its owner, its words anyone's in the call: shared claims only.
+    ['a call’s capture (private)', { sourceType: 'capture', ownerUserId: OWNER, captureVisibility: 'private', callCapture: true }, null],
+    ['a call’s capture + member committed_to', { sourceType: 'capture', ownerUserId: OWNER, captureVisibility: 'private', callCapture: true, links: [member] }, null],
+    ['an attachment on a call’s capture', { sourceType: 'attachment', ownerUserId: OWNER, parentCaptureVisibility: 'private', parentCallCapture: true }, null],
   ]
 
   it.each(cases)('%s', (_label, args, expected) => {
