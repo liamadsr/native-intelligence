@@ -165,6 +165,12 @@ def browser_steps() -> list:
         # The profile is the runtime user's own; and the display's socket folder
         # exists already, so start.sh does not need sudo for it.
         ("root", f"chown -R user:user {BROWSER_PROFILE} && chmod 700 {BROWSER_PROFILE} && install -d -m 1777 /tmp/.X11-unix"),
+        # The base image's yarn: files under /opt that are not root's, reached by
+        # links in /usr/local/bin. The app closes /usr/local on every new browser
+        # and refuses one whose links lead to a file that is not root's alone
+        # (web/src/lib/cloud-browser/runtime-browser.ts, CLOSE_USR_LOCAL). Nothing
+        # in a browser uses yarn.
+        ("root", "rm -rf /opt/yarn-v* /usr/local/bin/yarn /usr/local/bin/yarnpkg"),
         NO_ROOT_STEP,
     ]
     return steps
@@ -332,6 +338,12 @@ def check_browser(min_free_gib: int) -> int:
         # No way to root: no sudo that answers, without a password or otherwise.
         sudo = out("sudo -n true </dev/null >/dev/null 2>&1 && echo yes || echo no")
         local_writable = out("[ -w /usr/local/bin ] && echo yes || echo no")
+        # What the app's own step will refuse (CLOSE_USR_LOCAL): a link under
+        # /usr/local to a file that is missing, not root's, or writable by others.
+        loose_links = out(
+            "find /usr/local -type l | while read -r l; do t=$(readlink -f \"$l\") && [ -e \"$t\" ] && "
+            "[ \"$(stat -c %u \"$t\")\" = 0 ] && [ $(( 0$(stat -c %a \"$t\") & 022 )) = 0 ] || printf '%s ' \"$l\"; done"
+        )
         ok, free_gib, memory_mib = _common(out, image, BROWSER_RECORD, min_free_gib, BROWSER_PROFILE)
         started = out(BROWSER_START, timeout=90)
         stopped = out(BROWSER_STOP, timeout=60)
@@ -355,6 +367,9 @@ def check_browser(min_free_gib: int) -> int:
         ok = False
     if sudo != "no":
         print(f"  the sandbox user of {BROWSER_NAME} can use sudo ({sudo}): its last step did not hold")
+        ok = False
+    if loose_links:
+        print(f"  in {BROWSER_NAME}, links under /usr/local lead to files that are not root's alone: {loose_links[:300]} (the app would refuse every new browser)")
         ok = False
     if local_writable == "yes":
         # Said, not failed: the runtime's last phase does it after every step of ours.
