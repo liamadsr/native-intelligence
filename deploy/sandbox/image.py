@@ -148,6 +148,14 @@ def browser_steps() -> list:
         ("root", "apt-get -q update && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq procps"),
         _write_file_step(BROWSER_ENV_FILE, f"CLOUD_BROWSER_PROFILE={BROWSER_PROFILE}\n"),
     ]
+    missing = [name for name in BROWSER_FILES if not (BROWSER_SCRIPTS / name).is_file()]
+    if missing:
+        # A server's checkout may hold only deploy/ (a sparse checkout): the
+        # browser's scripts live in the web app's folder.
+        raise SystemExit(
+            f"  {BROWSER_NAME}: its scripts are not in this checkout ({BROWSER_SCRIPTS}: {', '.join(missing)}). "
+            "As the checkout's owner, not root: git sparse-checkout add web/scripts/cloud-browser/base"
+        )
     for name in BROWSER_FILES:
         steps.append(_write_file_step(f"{staging}/{name}", (BROWSER_SCRIPTS / name).read_text()))
     steps += [
@@ -293,8 +301,10 @@ BROWSER_START = (
     "for _ in $(seq 150); do curl -s -m 1 http://127.0.0.1:9222/json/version | grep -q Browser && break; sleep 0.3; done; "
     "code=$(curl -s -m 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:9222/json/version); "
     # CDP on loopback only: a page in Chrome, or anything else, never reaches it from outside.
-    "wide=$(ss -Hltn | awk '$4 ~ /:9222$/ && $4 !~ /^127\\.0\\.0\\.1:/' | wc -l); "
-    "printf 'cdp=%s wide=%s failed=%s\\n' \"$code\" \"$wide\" \"$(head -c 160 /tmp/cloud-browser-start.failed 2>/dev/null | tr '\\n' ' ')\""
+    # Both loopbacks count: Chrome also takes [::1] when the machine has one.
+    "where=$(ss -Hltn | awk '$4 ~ /:9222$/ && $4 !~ /^(127\\.0\\.0\\.1|\\[::1\\]):/ { print $4 }' | paste -sd, -); "
+    "wide=$([ -z \"$where\" ] && echo 0 || echo 1); "
+    "printf 'cdp=%s wide=%s where=%s failed=%s\\n' \"$code\" \"$wide\" \"$where\" \"$(head -c 160 /tmp/cloud-browser-start.failed 2>/dev/null | tr '\\n' ' ')\""
 )
 BROWSER_STOP = (
     "bash /opt/cloud-browser/stop.sh >/dev/null 2>&1; "
@@ -356,7 +366,7 @@ def check_browser(min_free_gib: int) -> int:
         print(f"  start.sh did not bring Chrome up with CDP on 127.0.0.1:9222 (answered {fields.get('cdp', '?')}): {started[:240]}")
         ok = False
     elif fields.get("wide") != "0":
-        print("  CDP listens beyond loopback")
+        print(f"  CDP listens beyond loopback: {fields.get('where', '?')}")
         ok = False
     if fields.get("chrome") != "0" or fields.get("xvfb") != "0":
         print(f"  stop.sh left Chrome or Xvfb running: {stopped[:120]}")
