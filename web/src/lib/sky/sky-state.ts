@@ -8,9 +8,9 @@
  * The sky background draws from it; anything else that wants the conditions
  * reads useSkyState().
  *
- * With no location from the server (local dev, previews) the sun is placed
- * from the browser's UTC offset at a default latitude, and `approximate` is
- * true. Until the fetch answers, and whenever it fails, the weather is the
+ * With no location from the server (a time zone it does not know) the sun is
+ * placed from the browser's UTC offset at a default latitude, and `approximate`
+ * is true. Until the fetch answers, and whenever it fails, the weather is the
  * clear-sky default, whose `condition` and `temperatureC` are null.
  *
  * Launch: the last reading is remembered on the device (sky-cache.ts). On the
@@ -38,10 +38,10 @@ import { CLEAR_SKY, type SkyWeather } from './weather'
 import { loadSkyReading, saveSkyReading } from './sky-cache'
 
 export interface SkyState {
-  /** From the request's IP, rounded to ~11 km. Null when unknown. */
+  /** The time zone's principal city, rounded to ~11 km. Null when unknown. */
   location: SkyLocation | null
   city: string | null
-  /** ISO 3166-1 alpha-2 country of the request, null when unknown. */
+  /** ISO 3166-1 alpha-2 country of that place, null when unknown. */
   country: string | null
   weather: SkyWeather
   /** Degrees above the horizon, now. */
@@ -205,9 +205,8 @@ function markReady(): void {
 }
 
 /**
- * The route, with the browser's IANA time zone: where the request carries no
- * IP geolocation (local dev, a missing header) the server places it at the
- * zone's principal city instead. Exported for tests.
+ * The route, with the browser's IANA time zone: the server places the request
+ * at the zone's principal city. Exported for tests.
  */
 export function skyUrl(endpoint: string = ACCOUNT_SKY_ENDPOINT): string {
   let tz = ''

@@ -44,7 +44,7 @@ export const maxDuration = 60
  * passes the AI usage gate, at most MAX_RECONCILES_PER_CAPTURE times per
  * capture ever and 5 captures per tick, each fire a ledger row — and the
  * dispatcher re-checks capture visibility on a reconciled fire. Set
- * RECONCILER_ENABLED=false to switch it off. Vercel cron issues GET with
+ * RECONCILER_ENABLED=false to switch it off. The server's cron issues GET with
  * `Authorization: Bearer ${CRON_SECRET}`.
  */
 export async function GET(request: NextRequest) {

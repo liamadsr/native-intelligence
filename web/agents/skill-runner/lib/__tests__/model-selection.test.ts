@@ -164,7 +164,6 @@ describe('skill-runner model resolver — the person\'s own ChatGPT plan (the fr
     const env = { ...process.env }
     process.env.RUN_SKILL_INTERNAL_SECRET = 'agent-secret'
     process.env.NEXT_PUBLIC_APP_URL = 'http://127.0.0.1:3002'
-    delete process.env.VERCEL_URL
     const fetchMock = vi.fn(async () =>
       new Response('data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1}}}\n\n', {
         headers: { 'content-type': 'text/event-stream' },

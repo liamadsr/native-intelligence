@@ -503,7 +503,7 @@ describe('cancelEveCodingSession', () => {
     expect(opts.redirect).toBe('error')
   })
 
-  describe('dispatch origin (eveDispatchOrigin): THIS deployment, never production from a preview', () => {
+  describe('dispatch origin (eveDispatchOrigin): the address in NEXT_PUBLIC_APP_URL', () => {
     afterEach(() => vi.unstubAllEnvs())
 
     async function clientOptsFor() {
@@ -512,22 +512,16 @@ describe('cancelEveCodingSession', () => {
       return (ClientMock.mock.calls.at(-1) as unknown[])[0] as { host: string; headers: Record<string, string> }
     }
 
-    it('on Vercel: https://VERCEL_URL even when NEXT_PUBLIC_APP_URL is production, plus the protection bypass', async () => {
-      vi.stubEnv('VERCEL_URL', 'dial8-git-feature.vercel.app')
-      vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev')
-      vi.stubEnv('VERCEL_AUTOMATION_BYPASS_SECRET', 'bypass-123')
-      const opts = await clientOptsFor()
-      expect(opts.host).toBe('https://dial8-git-feature.vercel.app/eve/coding-agent')
-      expect(opts.headers['x-vercel-protection-bypass']).toBe('bypass-123')
-    })
-
-    it('off Vercel: NEXT_PUBLIC_APP_URL, and no bypass header without the secret', async () => {
-      vi.stubEnv('VERCEL_URL', '')
+    it('is NEXT_PUBLIC_APP_URL', async () => {
       vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://staging.example')
-      vi.stubEnv('VERCEL_AUTOMATION_BYPASS_SECRET', '')
       const opts = await clientOptsFor()
       expect(opts.host).toBe('https://staging.example/eve/coding-agent')
-      expect(opts.headers).not.toHaveProperty('x-vercel-protection-bypass')
+    })
+
+    it("is local dev's default without it", async () => {
+      vi.stubEnv('NEXT_PUBLIC_APP_URL', '')
+      const opts = await clientOptsFor()
+      expect(opts.host).toBe('http://localhost:3000/eve/coding-agent')
     })
   })
 

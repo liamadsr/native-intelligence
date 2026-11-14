@@ -171,28 +171,11 @@ function internalSecret(): string {
 }
 
 /**
- * The Next app's own origin. On Vercel, pin to THIS deployment's URL: the
- * internal routes ship with the same commit as this agent, so the deployment's
- * own origin is the only version-correct target (NEXT_PUBLIC_APP_URL points at
- * the canonical PROD domain — from a preview it would call OLD code that may
- * not even have these routes). In dev the eve sidecar and Next dev share
- * localhost:3000.
+ * The Next app's own origin: NEXT_PUBLIC_APP_URL (the internal routes are the
+ * app's). In dev the eve sidecar and Next dev share localhost:3000.
  */
 export function appBaseUrl(): string {
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-}
-
-/**
- * Vercel Deployment Protection guards preview URLs with SSO — including
- * server-to-server fetches like ours. When the project has "Protection Bypass
- * for Automation" enabled, Vercel injects this secret into every deployment;
- * sending it as a header lets the agent through. Absent (e.g. prod custom
- * domain, local dev) this contributes nothing.
- */
-function protectionBypassHeaders(): Record<string, string> {
-  const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
-  return secret ? { 'x-vercel-protection-bypass': secret } : {}
 }
 
 /**
@@ -205,18 +188,14 @@ export const GIT_PUSH_PATH = '/api/internal/agent-run/git'
 /**
  * The git gate URL a run's sandbox clones, fetches and pushes through (its
  * remote, push URL and `lfs.url` base): the app's PUBLIC origin
- * (NEXT_PUBLIC_APP_URL; production is not behind Vercel's deployment
- * protection). Never the deployment URL with a protection-bypass secret: the
- * sandbox must not be handed that secret or the cookie it buys. A deployment
- * whose public origin is protected refuses the clone (closed). Off Vercel
- * (NEXT_PUBLIC_APP_URL unset or local) it is the local app, which a local
+ * (NEXT_PUBLIC_APP_URL). Unset or local, it is the local app, which a local
  * sandbox VM may not reach: then the run cannot even clone (there is no
  * fallback that clones straight from GitHub), so a local run needs the app
  * reachable from the sandbox.
  *
- * Null on Vercel without NEXT_PUBLIC_APP_URL: the only other origin is the
- * deployment URL, which is protected, so every clone and push would fail with
- * Vercel's 401. The sandbox refuses to start such a run instead (sandbox.ts).
+ * Null on Vercel without NEXT_PUBLIC_APP_URL: a deployment there has no local
+ * app to fall back to. The sandbox refuses to start such a run instead
+ * (sandbox.ts).
  */
 export function gitGateUrl(): string | null {
   const publicOrigin = process.env.NEXT_PUBLIC_APP_URL
@@ -251,7 +230,6 @@ export async function fetchEveSpec(runToken: string): Promise<EveSpec | null> {
       headers: {
         [AGENT_RUN_SECRET_HEADER]: secret,
         [AGENT_RUN_TOKEN_HEADER]: runToken,
-        ...protectionBypassHeaders(),
       },
       redirect: 'error',
     })
@@ -298,7 +276,6 @@ export async function postEvent(
         'content-type': 'application/json',
         [AGENT_RUN_SECRET_HEADER]: secret,
         [AGENT_RUN_TOKEN_HEADER]: runToken,
-        ...protectionBypassHeaders(),
       },
       body: JSON.stringify({ kind, text }),
       redirect: 'error',
@@ -348,7 +325,6 @@ export async function postOutcome(
         'content-type': 'application/json',
         [AGENT_RUN_SECRET_HEADER]: secret,
         [AGENT_RUN_TOKEN_HEADER]: runToken,
-        ...protectionBypassHeaders(),
       },
       body: JSON.stringify(body),
       redirect: 'error',

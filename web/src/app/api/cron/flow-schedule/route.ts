@@ -25,10 +25,10 @@ export const maxDuration = 60
 
 /**
  * GET /api/cron/flow-schedule — the loop engine's clock (every 5 minutes,
- * vercel.json). Vercel cron is the ONLY tick for time-driven flows —
+ * vercel.json). The server's cron is the ONLY tick for time-driven flows —
  * deliberately NOT an Inngest cron, whose registration has silently failed
- * before (see /api/cron/weave); Vercel's scheduler is independent of Inngest
- * app-sync state.
+ * before (see /api/cron/weave); the server's scheduler is independent of
+ * Inngest app-sync state.
  *
  * Two passes, both keyed on flow.next_run_at and both firing via the same
  * `flow/schedule.due` event (the dispatcher accepts schedule + calendar_event):
@@ -70,7 +70,7 @@ export const maxDuration = 60
  * scheduler; every per-flow write below is still pinned to the flow's own
  * workspace_id.
  *
- * Vercel cron issues GET with `Authorization: Bearer ${CRON_SECRET}`.
+ * The server's cron issues GET with `Authorization: Bearer ${CRON_SECRET}`.
  */
 export async function GET(request: NextRequest) {
   // Fails CLOSED on an unset secret (see requireCronSecret). This pass performs

@@ -57,7 +57,7 @@ import type {
 } from 'eve/client'
 import { cancelTaskSession, createParkingRunSession, createTaskSession, retireTaskSession } from '@/lib/eve/task-session'
 import { classifyOneShot, createTurnBoundary, TURN_CANCELLED_CODE } from '@/lib/eve/turn-boundary'
-import { eveDispatchOrigin, protectionBypassHeaders } from '@/lib/eve/dispatch-origin'
+import { eveDispatchOrigin } from '@/lib/eve/dispatch-origin'
 import { mapEveTurnUsage } from '@/lib/chat/eve-usage'
 import { normalizeVerdict, verdictOutputSchema, verdictOutputSchemaFor } from './verdict-schema'
 import { connectorOutputSchema } from './output-connectors'
@@ -106,7 +106,6 @@ export function skillRunnerClient(args: { secret: string; runToken: string; work
     host: `${eveDispatchOrigin()}${SKILL_RUNNER_MOUNT}`,
     auth: { bearer: args.secret },
     headers: {
-      ...protectionBypassHeaders(),
       [RUN_SKILL_SECRET_HEADER]: args.secret,
       [RUN_SKILL_TOKEN_HEADER]: args.runToken,
       [RUN_SKILL_WORKSPACE_HEADER]: args.workspaceId,
@@ -397,12 +396,10 @@ export async function runViaEve(args: {
     ...(spec.readOutsideBefore ? { readOutsideBefore: true as const } : {}),
   }, { ttlMs: timeoutMs + RUN_TOKEN_WALL_MARGIN_MS })
 
-  // Same-DEPLOYMENT server-to-server client (eveDispatchOrigin: this deployment
-  // on Vercel, never the production domain from a preview), through Deployment
-  // Protection when a bypass secret is set. The shared secret authenticates us as
-  // the trusted internal caller; the run token scopes the session;
-  // redirect:'error' stops the credentialed headers from following a
-  // cross-origin redirect.
+  // Server-to-server client at the app's own address (eveDispatchOrigin). The
+  // shared secret authenticates us as the trusted internal caller; the run token
+  // scopes the session; redirect:'error' stops the credentialed headers from
+  // following a cross-origin redirect.
   const client = skillRunnerClient({ secret, runToken, workspaceId: spec.workspaceId, userId: spec.runAsUserId })
 
   // Arm the timeout BEFORE send so it covers the POST + the whole stream.

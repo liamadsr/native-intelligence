@@ -1,8 +1,7 @@
 /**
- * GET /api/account/sky: the IP geolocation headers place the request; without
- * them (local dev, a missing header) the browser's time zone stands in, at
- * its principal city, approximate; with neither, no location and the
- * clear-sky default.
+ * GET /api/account/sky: the browser's time zone places the request, at its
+ * principal city, approximate; without a known zone, no location and the
+ * clear-sky default. Nothing in the request's headers places it.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CLEAR_SKY, type SkyWeather } from '@/lib/sky/weather'
@@ -25,15 +24,7 @@ beforeEach(() => {
 })
 
 describe('GET /api/account/sky', () => {
-  it('places the request from the geolocation headers, ignoring the time zone', async () => {
-    const body = await get('?tz=Asia/Tokyo', { 'x-vercel-ip-latitude': '43.651', 'x-vercel-ip-longitude': '-79.383', 'x-vercel-ip-city': 'Toronto', 'x-vercel-ip-country': 'CA' })
-    expect(body.location).toEqual({ lat: 43.7, lon: -79.4, city: 'Toronto' })
-    expect(body.country).toBe('CA')
-    expect(fetched).toEqual([[43.7, -79.4]])
-    expect(body.weather.condition).toBe('Rain')
-  })
-
-  it("falls back to the time zone's principal city, approximate, with its real weather", async () => {
+  it("places the request at the time zone's principal city, approximate, with its real weather", async () => {
     const body = await get('?tz=America/Toronto')
     expect(body.location).toEqual({ lat: 43.7, lon: -79.4, city: 'Toronto', approximate: true })
     expect(body.country).toBe('CA')
@@ -41,10 +32,10 @@ describe('GET /api/account/sky', () => {
     expect(body.weather.condition).toBe('Rain')
   })
 
-  it("keeps the header's country when only the coordinates are missing", async () => {
-    const body = await get('?tz=Europe/Paris', { 'x-vercel-ip-country': 'BE' })
+  it('takes no place from a header a client can send', async () => {
+    const body = await get('?tz=Europe/Paris', { 'x-vercel-ip-latitude': '43.651', 'x-vercel-ip-longitude': '-79.383', 'x-vercel-ip-country': 'CA' })
     expect(body.location.city).toBe('Paris')
-    expect(body.country).toBe('BE')
+    expect(body.country).toBe('FR')
   })
 
   it('has no location and fetches nothing for an unknown time zone or none', async () => {

@@ -740,7 +740,7 @@ describe('rebuildChatSpec — gatewayTelemetry (Phase A)', () => {
 
   it('flag on: carries the user + feature/env/ws/runtime tags', async () => {
     vi.stubEnv('GATEWAY_USER_TAGGING', 'all')
-    vi.stubEnv('VERCEL_ENV', 'production')
+    vi.stubEnv('NODE_ENV', 'production')
     const spec = await rebuildChatSpec(claims({ userId: 'user-42', workspaceId: 'ws-9' }), {})
     expect(spec.gatewayTelemetry).toEqual({
       user: 'user-42',
@@ -751,7 +751,7 @@ describe('rebuildChatSpec — gatewayTelemetry (Phase A)', () => {
 
   it('flag on: present on the includeSkills return path too', async () => {
     vi.stubEnv('GATEWAY_USER_TAGGING', 'all')
-    vi.stubEnv('VERCEL_ENV', 'production')
+    vi.stubEnv('NODE_ENV', 'production')
     const spec = await rebuildChatSpec(claims(), {}, { includeSkills: true })
     expect(spec.gatewayTelemetry?.tags).toContain('feature:ai_chat')
     expect(spec.gatewayTelemetry?.tags).toContain('runtime:eve')
@@ -818,7 +818,7 @@ describe('rebuildChatSpec — the /api/device/ask surface', () => {
 
   it('tags Gateway attribution with the device_ask feature key', async () => {
     vi.stubEnv('GATEWAY_USER_TAGGING', 'all')
-    vi.stubEnv('VERCEL_ENV', 'production')
+    vi.stubEnv('NODE_ENV', 'production')
     const spec = await rebuildChatSpec(device(), {})
     expect(spec.gatewayTelemetry?.tags).toContain('feature:device_ask')
     expect(spec.gatewayTelemetry?.tags).not.toContain('feature:ai_chat')

@@ -10,7 +10,7 @@ import { requireCronSecret } from '@/lib/api-auth'
  * There is no polling sync: pushes and the Sync button keep mail fresh.
  */
 export async function GET(request: Request) {
-  // Verify the request is from Vercel Cron
+  // Verify the request is from the scheduler
   const denied = requireCronSecret(request)
   if (denied) return denied
 
