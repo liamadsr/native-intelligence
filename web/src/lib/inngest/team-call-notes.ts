@@ -247,26 +247,35 @@ export const CALL_BATCH_ATTEMPTS = 3
  * then the batch. The live agent's route answers 409 CALL_NOTES_LIVE while a
  * turn still holds the capture's lease (the switch flipped off mid-call, a
  * lease seen only just): that is "not yet", so the finish waits again (a whole
- * lease and its margin each time) and asks again, CALL_BATCH_ATTEMPTS times;
- * after that it throws a plain Error and Inngest retries the finish. A lease
- * ends at most LIVE_TURN_LEASE_SECONDS after the call ended (no turn begins
- * once it has), so the second wait already outlasts any.
+ * lease and its margin each time) and asks again. The first
+ * CALL_BATCH_ATTEMPTS - 1 answers of "not yet" are kept as the step's result
+ * (memoised: a replay never asks again); on the last attempt the "not yet"
+ * escapes its step, so Inngest retries THAT step (the finish's retries: 2),
+ * each retry asking the route again. So the route is asked up to
+ * CALL_BATCH_ATTEMPTS + 2 times; if every answer is "not yet", the finish
+ * fails and its onFailure locks the notes as they are (the recorder's
+ * capture) or leaves the pass pending for the sweeper (one closed by hand).
+ * A lease ends at most LIVE_TURN_LEASE_SECONDS after the call ended (no turn
+ * begins once it has), so the second wait already outlasts any.
  */
 async function runCallBatch(captureId: string, args: { workspaceId: string; ownerId: string }, step: NotesRunContext['step']) {
   for (let attempt = 0; attempt < CALL_BATCH_ATTEMPTS; attempt++) {
+    const last = attempt === CALL_BATCH_ATTEMPTS - 1
     const prefix = attempt === 0 ? '' : `batch-again-${attempt}-`
     await waitForLiveTurn(captureId, step, prefix)
     const out = await step.run(attempt === 0 ? 'batch' : `batch-again-${attempt}`, async () => {
       try {
         return await runOwnerBatch(getServiceClient(), { captureId, ...args })
       } catch (err) {
-        if (err instanceof CallNotesLiveError) return 'not_yet' as const
+        // The last "not yet" escapes the step: Inngest's step retry asks the route again.
+        if (err instanceof CallNotesLiveError && !last) return 'not_yet' as const
         throw err
       }
     })
     if (out !== 'not_yet') return out
     console.warn(`[team-call-notes] capture=${captureId} batch not yet (a live turn still holds the lease), attempt ${attempt + 1} of ${CALL_BATCH_ATTEMPTS}`)
   }
+  // Unreachable: the last attempt returns its batch or throws from inside its step.
   throw new Error(`team call notes: capture=${captureId} still not free after ${CALL_BATCH_ATTEMPTS} waits`)
 }
 

@@ -5,8 +5,11 @@
  * so its writes never land beside or on top of the pass's: also when the
  * recorder's last words, after the call ended, stopped the agent while the
  * turn ran (the stop keeps its lease); a lease never given back is waited
- * out whole; a failed read counts as busy. With the live agent off, its
- * table is never read and nothing waits.
+ * out whole; a failed read counts as busy. With the live agent off it looks
+ * once, and waits out a lease it sees. The route's "not yet" is asked again
+ * after a wait; on the last attempt it escapes its step, so a retry of the
+ * finish asks again (the steps are memoised as Inngest keeps them), and a
+ * finished batch never runs twice.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -15,7 +18,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const CALL = '77777777-7777-4777-8777-777777777777'
 const CAPTURE = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 
-const h = vi.hoisted(() => ({ on: true, busy: [] as boolean[], calls: [] as string[], lease: null as null | (() => boolean), notYet: 0 }))
+const h = vi.hoisted(() => ({ on: true, busy: [] as boolean[], calls: [] as string[], lease: null as null | (() => boolean), notYet: 0, postFails: 0 }))
 
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({}) }))
 vi.mock('@/lib/inngest/client', () => ({ inngest: { createFunction: () => ({}) } }))
@@ -33,7 +36,13 @@ vi.mock('../capture-finalizer', () => {
       h.calls.push('batch')
       return 'completed'
     },
-    postExtraction: async () => void h.calls.push('post'),
+    postExtraction: async () => {
+      if (h.postFails > 0) {
+        h.postFails--
+        throw new Error('post-extraction failed')
+      }
+      h.calls.push('post')
+    },
   }
 })
 vi.mock('@/lib/team-calls/egress', () => ({ teamCallEgressConfig: () => null, liveKitEgress: () => ({}) }))
@@ -58,11 +67,40 @@ vi.mock('@/lib/team-calls/live-turns', async (orig) => ({
 const { runTeamCallNotesFinish, LIVE_TURN_SETTLE_ROUNDS, FED_POLL, CALL_BATCH_ATTEMPTS } = await import('../team-call-notes')
 const { LIVE_TURN_LEASE_SECONDS, LIVE_TURN_BUSY_MARGIN_SECONDS } = await import('@/lib/team-calls/live-turns')
 
-function step() {
+/**
+ * Steps as Inngest runs them: a finished step's result is kept by its id and
+ * replayed on a retry of the function, never re-run; a step that threw is not
+ * kept, so the retry runs it again. A finished sleep is not slept again.
+ */
+function step(memo = new Map<string, unknown>()) {
   return {
-    run: async <T,>(_id: string, fn: () => Promise<T>) => fn(),
-    sleep: async (id: string) => void h.calls.push(`sleep:${id.replace(/-\d+$/, '')}`),
+    run: async <T,>(id: string, fn: () => Promise<T>): Promise<T> => {
+      if (memo.has(id)) return memo.get(id) as T
+      const out = await fn()
+      memo.set(id, out)
+      return out
+    },
+    sleep: async (id: string) => {
+      if (memo.has(`sleep:${id}`)) return
+      h.calls.push(`sleep:${id.replace(/-\d+$/, '')}`)
+      memo.set(`sleep:${id}`, null)
+    },
   }
+}
+
+/** The finish as Inngest runs it: a run that throws is retried (its `retries: 2`) with the same kept steps; a NonRetriableError is not. */
+async function finishWithRetries(data: Record<string, unknown>, retries = 2) {
+  const memo = new Map<string, unknown>()
+  let error: unknown = null
+  for (let run = 0; run <= retries; run++) {
+    try {
+      return { out: await runTeamCallNotesFinish({ event: { data }, step: step(memo) }), runs: run + 1, error: null }
+    } catch (err) {
+      error = err
+      if ((err as Error).name === 'NonRetriableError') break
+    }
+  }
+  return { out: null, runs: retries + 1, error }
 }
 
 beforeEach(() => {
@@ -71,6 +109,7 @@ beforeEach(() => {
   h.calls = []
   h.lease = null
   h.notYet = 0
+  h.postFails = 0
 })
 
 /**
@@ -197,12 +236,34 @@ describe('the finish and a live turn still running', () => {
     expect(h.calls).toEqual(['busy?', 'batch:not-yet', 'busy?', 'batch', 'post'])
   })
 
-  it('"not yet" every time: after CALL_BATCH_ATTEMPTS waits the finish throws a plain error, so Inngest retries it (the pass is not dropped)', async () => {
-    h.notYet = CALL_BATCH_ATTEMPTS
-    const err = await runTeamCallNotesFinish({ event: { data: { callId: CALL } }, step: step() }).catch((e: unknown) => e)
-    expect(err).toBeInstanceOf(Error)
-    expect((err as Error).name).not.toBe('NonRetriableError')
+  it('"not yet" on the last attempt escapes its step: the retry of the finish asks the route again, and the pass runs once', async () => {
+    h.notYet = CALL_BATCH_ATTEMPTS // the last attempt's first ask is "not yet" too; its retry is answered
+    const { out, runs } = await finishWithRetries({ callId: CALL })
+    expect(out).toMatchObject({ status: 'ready' })
+    expect(runs).toBe(2)
+    // Asked CALL_BATCH_ATTEMPTS times in the first run, and once more by the retry (the earlier
+    // attempts' "not yet" are kept steps: replayed, never asked again).
     expect(h.calls.filter((c) => c === 'batch:not-yet')).toHaveLength(CALL_BATCH_ATTEMPTS)
+    expect(h.calls.filter((c) => c === 'batch')).toHaveLength(1)
+    expect(h.calls.filter((c) => c === 'post')).toHaveLength(1)
+  })
+
+  it('"not yet" every time: the route is asked CALL_BATCH_ATTEMPTS + 2 times, then the finish fails (its onFailure locks the notes as they are)', async () => {
+    h.notYet = 100
+    const { out, runs, error } = await finishWithRetries({ callId: CALL })
+    expect(out).toBeNull()
+    expect(runs).toBe(3)
+    expect((error as Error).name).not.toBe('NonRetriableError')
+    expect(h.calls.filter((c) => c === 'batch:not-yet')).toHaveLength(CALL_BATCH_ATTEMPTS + 2)
     expect(h.calls).not.toContain('post')
+  })
+
+  it('a finished batch never runs twice: a retry after a later step failed replays it', async () => {
+    h.postFails = 1
+    const { out, runs } = await finishWithRetries({ callId: CALL })
+    expect(out).toMatchObject({ status: 'ready' })
+    expect(runs).toBe(2)
+    expect(h.calls.filter((c) => c === 'batch')).toHaveLength(1)
+    expect(h.calls.filter((c) => c === 'post')).toHaveLength(1)
   })
 })
