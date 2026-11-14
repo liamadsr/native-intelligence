@@ -9,6 +9,7 @@
 //! `uploaded` and `upload-failed` follow: never `failed` or `cancelled`.
 //! A run whose video was made but could not be put at its destination ends
 //! with `save-failed` (the video is kept, to be saved again), not `failed`.
+//! When the person then saves it again, a `done` follows that `save-failed`.
 
 use std::collections::VecDeque;
 

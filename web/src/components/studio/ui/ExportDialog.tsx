@@ -11,7 +11,7 @@ import { studioWorkspaceId } from '../studio-env';
 import { exportFileName, saveExport, saveWay, type SaveResult, type SaveWay } from './save-export';
 import { studioLocalExport, studioRefusal, type StudioExportDestination } from '@/lib/tauri-bridge';
 import { LocalDone, LocalRunning, LocalWhere, RevealButton, forgetLocalCapability, platformOf, useLocalCapability, useRunner } from './ExportLocal';
-import { destinationOf, isMissingCommand, localView, savesParts, sizeWords, type LocalCapability, type LocalView, type RunnerState } from './local-export';
+import { asSavedAgain, canSaveAgain, destinationOf, isMissingCommand, localView, markSavedAgain, rememberDestination, savesParts, sizeWords, type LocalCapability, type LocalView, type RunnerState } from './local-export';
 
 /*
  * The Export dialog: what will be made and how big, then the render's progress, then the finished video and a way to
@@ -145,7 +145,10 @@ export function ExportDialog(props: Props) {
   const [destination, setDestination] = useState<StudioExportDestination | null>(null), [serverOnly, setServerOnly] = useState(false);
   // An export on this computer: what its app has said, which decides whether it is saved (./local-export.ts localView).
   const here = job?.where === 'computer' ? job : null, { runner, openedAt, now } = useRunner(here?.id ?? null);
-  const localNow = here ? localView(here, runner, openedAt, now, null, !!destinationOf(here.id)) : null;
+  // A video saved again after the app could not save it (save-failed) reads as saved (local-export.ts asSavedAgain).
+  const [, setSavedAgain] = useState(0);
+  const localNow = here ? localView(here, asSavedAgain(here.id, runner), openedAt, now, null, !!destinationOf(here.id)) : null;
+  const made = localNow?.kind === 'done' || localNow?.kind === 'save-failed' ? localNow : null;
   const [downloading, setDownloading] = useState(false), [received, setReceived] = useState<{ bytes: number; total: number } | null>(null), [localError, setLocalError] = useState<string | null>(null);
   const local: Local = {
     capability, serverOnly, destination, downloading, received, error: localError, platform: platformOf(capability),
@@ -167,16 +170,16 @@ export function ExportDialog(props: Props) {
     },
   };
   // Saved on this computer is done, whatever became of its upload (never failed or cancelled).
-  const view = localNow?.kind === 'done' ? (again ? 'setup' : 'done') : job?.status === 'running' ? 'running' : job?.status === 'completed' && !again ? 'done' : 'setup';
+  const view = made ? (again ? 'setup' : 'done') : job?.status === 'running' ? 'running' : job?.status === 'completed' && !again ? 'done' : 'setup';
   // The finished export the dialog is showing is not listed again under it.
   const others = (finished ?? []).filter(item => view !== 'done' || item.id !== job?.id);
   const list = listError ? <p className="xd-error xd-list-error" role="alert"><Icon name="warning" size={14} /><span>Your finished exports could not be loaded.</span><Button size="sm" variant="ghost" className="st-app-button" onClick={() => setReads(n => n + 1)}>Try again</Button></p>
     : others.length ? <FinishedList items={others} projectId={props.project.id} platform={local.platform} parts={capability ? savesParts(capability) : false} heading={view === 'done' ? 'Earlier exports' : 'Ready to save'} /> : null;
-  const ended = !again && localNow?.kind !== 'done' && (job?.status === 'failed' || job?.status === 'cancelled') ? job : null;
+  const ended = !again && !made && (job?.status === 'failed' || job?.status === 'cancelled') ? job : null;
   return <Modal title="Export video" description={<>“{props.project.title || 'Untitled video'}”</>} close={props.close} className="xd-dialog">
     {props.notice ? <p className={cn('xd-notice', props.notice.tone === 'ok' ? 'xd-saved' : 'xd-error')} role="status"><Icon name={props.notice.tone === 'ok' ? 'check' : 'warning'} size={14} /><span>{props.notice.text}</span></p> : null}
     {view === 'running' && job ? (job.where === 'computer' && localNow ? <RunningHere {...props} job={job} local={local} view={localNow} /> : <Running {...props} job={job} list={list} />)
-      : view === 'done' && job ? <Done {...props} job={job} list={list} local={local} localDone={localNow?.kind === 'done' ? localNow : null} again={() => setAgain(true)} /> : <Setup {...props} ended={ended} list={list} local={local} />}
+      : view === 'done' && job ? <Done {...props} job={job} list={list} local={local} localDone={made} again={() => setAgain(true)} savedAgain={() => setSavedAgain(n => n + 1)} /> : <Setup {...props} ended={ended} list={list} local={local} />}
   </Modal>;
 }
 
@@ -379,7 +382,7 @@ function RunningHere(props: Props & { job: EditorJob; local: Local; view: LocalV
   const { job, view } = props;
   const [stopping, setStopping] = useState(false), [working, setWorking] = useState(false), [error, setError] = useState<string | null>(null);
   const act = async (run: () => Promise<string | null> | undefined) => { setWorking(true); setError(null); const why = await run(); setWorking(false); if (why) setError(why); };
-  if (view.kind === 'done' || view.kind === 'cancelled') return null;
+  if (view.kind === 'done' || view.kind === 'cancelled' || view.kind === 'save-failed') return null;
   return <LocalRunning view={view} job={job} platform={props.local.platform} actions={{
     stopping, working, error, close: props.close,
     cancel: () => { setStopping(true); setError(null); void props.cancel().then(asked => { if (!asked) { setStopping(false); setError('The export could not be stopped. It is still running. Try again.'); } }); },
@@ -390,10 +393,12 @@ function RunningHere(props: Props & { job: EditorJob; local: Local; view: LocalV
 }
 
 /** What a finished export made on this computer shows when its app said nothing more (the file saved, the upload done or not). */
-const SAVED: RunnerState = { seq: -1, lastAt: null, progress: null, savedName: null, failed: null, cancelled: false, done: true, uploaded: false, uploadFailed: null };
+const SAVED: RunnerState = { seq: -1, lastAt: null, progress: null, savedName: null, failed: null, cancelled: false, done: true, uploaded: false, uploadFailed: null, saveFailed: null };
 
-function Done(props: Props & { job: EditorJob; again: () => void; list: React.ReactNode; local: Local; localDone: Extract<LocalView, { kind: 'done' }> | null }) {
+function Done(props: Props & { job: EditorJob; again: () => void; list: React.ReactNode; local: Local; localDone: Extract<LocalView, { kind: 'done' | 'save-failed' }> | null; savedAgain: () => void }) {
   const { job, receipt, close, again, list } = props;
+  if (props.localDone?.kind === 'save-failed') return <SaveFailedHere {...props} view={props.localDone} />;
+  const localDone = props.localDone?.kind === 'done' ? props.localDone : null;
   const mine = receipt?.jobId === job.id ? receipt : null, result = (job.result ?? {}) as Record<string, unknown>;
   const facts = exportFacts(job, mine), title = mine?.title ?? (typeof result.title === 'string' ? result.title : 'video');
   return <div className="xd-done">
@@ -401,12 +406,57 @@ function Done(props: Props & { job: EditorJob; again: () => void; list: React.Re
       <span className="xd-done-icon" aria-hidden="true"><Icon name="done" size={22} /></span>
       <div><strong>{mine ? 'Your video is ready' : 'Your last export is ready'}</strong>{mine ? null : <span>The video from your last export.</span>}{facts.length ? <span className="xd-facts">{facts.map(fact => <span key={fact}>{fact}</span>)}</span> : null}</div>
     </div>
-    {job.where === 'computer' ? <LocalDone view={props.localDone ?? localView(job, SAVED, 0, 0) as Extract<LocalView, { kind: 'done' }>} job={job} platform={props.local.platform} />
+    {job.where === 'computer' && !localDone?.notHere ? <LocalDone view={localDone ?? localView(job, SAVED, 0, 0) as Extract<LocalView, { kind: 'done' }>} job={job} platform={props.local.platform} />
       : job.downloadUrl ? <SaveExport job={job} title={title} projectId={props.project.id} parts={props.local.capability ? savesParts(props.local.capability) : false} big /> : <p className="xd-note">This export’s file is no longer kept. Exports are kept for 30 days. Export the video again.</p>}
+    {localDone?.notHere && localDone.note ? <p className="xd-local-note">{localDone.note}</p> : null}
     {list}
     <div className="xd-foot xd-foot-split">
       <Button variant="ghost" className="st-app-button" onClick={again}>Change settings and export again</Button>
       <Button variant="secondary" className="st-app-button" onClick={close}>Done</Button>
+    </div>
+  </div>;
+}
+
+/**
+ * Made on this computer but not saved where the person chose (`save-failed`): the app's sentence, Save it again… (the
+ * save panel with the same name, then studio_local_export_save_again; the dialog then shows it saved) and, quieter,
+ * Export on our server instead. Once the app no longer keeps it (`gone`), its sentence and the server alone. An app
+ * without the command shows it as an export that did not finish.
+ */
+function SaveFailedHere(props: Props & { job: EditorJob; view: Extract<LocalView, { kind: 'save-failed' }>; list: React.ReactNode; local: Local; savedAgain: () => void }) {
+  const { job, view } = props;
+  const [support, setSupport] = useState<boolean | null>(null), [working, setWorking] = useState(false);
+  const [gone, setGone] = useState<string | null>(null), [error, setError] = useState<string | null>(null);
+  useEffect(() => { let alive = true; void canSaveAgain(studioLocalExport).then(found => { if (alive) setSupport(found); }); return () => { alive = false; }; }, []);
+  const saveAgain = async () => {
+    setWorking(true); setError(null);
+    try {
+      const picked = await studioLocalExport.pickDestination(destinationOf(job.id)?.name ?? exportFileName('', props.project.title || 'video'));
+      if (!picked) return;
+      const saved = await studioLocalExport.saveAgain({ jobId: job.id, destinationId: picked.destinationId });
+      const name = saved.name || picked.name;
+      rememberDestination(job.id, { destinationId: picked.destinationId, name });
+      markSavedAgain(job.id, name);
+      props.savedAgain();
+    } catch (cause) {
+      const said = studioRefusal(cause);
+      if (isMissingCommand(cause)) setSupport(false);
+      else if (said.code === 'gone') setGone(said.message);
+      else setError(said.message);
+    } finally { setWorking(false); }
+  };
+  if (support === false) return <LocalRunning view={{ kind: 'failed', message: view.message }} job={job} platform={props.local.platform} actions={{
+    stopping: false, working: false, error: null, close: props.close, cancel: () => undefined, continueHere: () => undefined, finishOnServer: () => undefined, exportOnServer: () => props.start(),
+  }} />;
+  return <div className="xd-done">
+    <div className="xd-banner xd-banner-warn" role="alert"><Icon name="warning" /><div><strong>The video was made, but it could not be saved there</strong><span>{gone ?? view.message}</span></div></div>
+    {gone ? null : <p className="xd-note">The app keeps the video on this computer for 3 days, so you can save it somewhere else.</p>}
+    {error ? <p className="xd-error" role="alert"><Icon name="warning" size={14} /><span>{error}</span></p> : null}
+    {props.list}
+    <div className="xd-foot xd-foot-split">
+      {gone ? <><Button variant="ghost" className="st-app-button" onClick={props.close}>Close</Button><Button className="st-app-button" data-autofocus="" onClick={() => props.start()}>Export on our server instead</Button></>
+        : <><Button variant="ghost" className="st-app-button" disabled={working} onClick={() => props.start()}>Export on our server instead</Button>
+          <Button className="st-app-button" data-autofocus="" disabled={working || support === null} onClick={() => void saveAgain()}><Icon name="saveTo" />{working ? 'Saving…' : 'Save it again…'}</Button></>}
     </div>
   </div>;
 }

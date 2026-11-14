@@ -1582,8 +1582,12 @@ export interface StudioLocalPrepareEvent { component: string; receivedBytes: num
 export interface StudioLocalExportEvent {
   jobId: string;
   seq: number;
-  /** `started` begins every run of a job; after `done` (the file saved) only progress, log, uploaded and upload-failed follow. */
-  kind: "started" | "progress" | "log" | "encoder" | "done" | "uploaded" | "upload-failed" | "failed" | "cancelled";
+  /**
+   * `started` begins every run of a job; after `done` (the file saved) only progress, log, uploaded and upload-failed
+   * follow. `save-failed` ends a run whose video was made but could not be put where the person chose: the app keeps
+   * it (3 days) to be saved again (`saveAgain`); it comes in place of `failed`.
+   */
+  kind: "started" | "progress" | "log" | "encoder" | "done" | "uploaded" | "upload-failed" | "save-failed" | "failed" | "cancelled";
   progress?: number;
   message?: string;
   savedName?: string;
@@ -1624,13 +1628,18 @@ export const studioLocalExport = {
   events: (jobId: string, sinceSeq: number) => desktopOnly(() => invoke<StudioLocalExportEvent[]>("studio_local_export_events", { jobId, sinceSeq })),
   onProgress: (cb: (event: StudioLocalExportEvent) => void) => onStudioEvent("studio-local://progress", isLocalEvent, cb),
   pickDestination: (suggestedName: string) => desktopOnly(() => invoke<StudioExportDestination | null>("studio_export_pick_destination", { suggestedName })),
-  /** Stream a server export's parts into the file picked; `videoId` and `jobId` let the app ask for new links when they run out. */
-  saveParts: (args: { destinationId: string; videoId: string; jobId: string; parts: { url: string; bytes: number }[]; bytes: number; sha256?: string }) =>
+  /**
+   * Stream a server export's parts into the file picked. With `workspaceId`, `videoId` and `jobId` (all three or none)
+   * the app asks the parts route for new links when they run out, in that workspace (its `x-workspace-id`).
+   */
+  saveParts: (args: { destinationId: string; workspaceId?: string; videoId?: string; jobId?: string; parts: { url: string; bytes: number }[]; bytes: number; sha256?: string }) =>
     desktopOnly(() => invoke<{ name: string }>("studio_export_save_parts", args)),
   onSave: (cb: (event: StudioExportSaveEvent) => void) => onStudioEvent("studio-local://save", isSaveEvent, cb),
   /** Stop a save through the app (idempotent); the save itself then refuses with `cancelled`. */
   saveCancel: (destinationId: string) => desktopOnly(() => invoke<void>("studio_export_save_cancel", { destinationId })),
   reveal: (destinationId: string) => desktopOnly(() => invoke<void>("studio_export_reveal", { destinationId })),
+  /** Save a video of this computer that could not be put in place (`save-failed`) into a newly picked place; refuses with `gone` once it is no longer kept. */
+  saveAgain: (args: { jobId: string; destinationId: string }) => desktopOnly(() => invoke<{ name: string }>("studio_local_export_save_again", args)),
 };
 
 // ── Public API ──────────────────────────────────────────────────

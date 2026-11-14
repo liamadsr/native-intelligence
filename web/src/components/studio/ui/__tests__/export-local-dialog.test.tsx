@@ -11,15 +11,16 @@ import type { EditorJob } from '@/lib/studio/engine/api'
 import type { EditorProject } from '@/lib/studio/engine/contracts'
 import { STUDIO_RENDER_VERSION } from '@/lib/studio/engine/render-version'
 
-const app = vi.hoisted(() => ({ status: vi.fn(), prepare: vi.fn(), onPrepare: vi.fn(), start: vi.fn(), cancel: vi.fn(), events: vi.fn(), onProgress: vi.fn(), pickDestination: vi.fn(), saveParts: vi.fn(), reveal: vi.fn(), onSave: vi.fn(), saveCancel: vi.fn() }))
+const app = vi.hoisted(() => ({ status: vi.fn(), prepare: vi.fn(), onPrepare: vi.fn(), start: vi.fn(), cancel: vi.fn(), events: vi.fn(), onProgress: vi.fn(), pickDestination: vi.fn(), saveParts: vi.fn(), reveal: vi.fn(), onSave: vi.fn(), saveCancel: vi.fn(), saveAgain: vi.fn() }))
 vi.mock('@/lib/tauri-bridge', async (actual) => ({ studioRefusal: (await actual<typeof import('@/lib/tauri-bridge')>()).studioRefusal, studioLocalExport: app, tauriBridge: {} }))
 vi.mock('@/lib/platform', () => ({ isDesktopApp: () => true }))
 const { ExportDialog } = await import('../ExportDialog')
 const { forgetLocalCapability } = await import('../ExportLocal')
+const { setStudioWorkspace } = await import('../../studio-env')
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const ready = { available: true, platform: 'macos', arch: 'arm64', components: { runtime: 'ready', chrome: 'ready', ffmpeg: 'ready' }, downloadBytes: 0, renderVersion: STUDIO_RENDER_VERSION }
-const JOB = 'bbbbbbbb-1111-4222-8333-444444444444', VIDEO = 'aaaaaaaa-1111-4222-8333-444444444444'
+const JOB = 'bbbbbbbb-1111-4222-8333-444444444444', VIDEO = 'aaaaaaaa-1111-4222-8333-444444444444', SPACE = 'cccccccc-1111-4222-8333-444444444444'
 const project = { id: VIDEO, title: 'Spring launch', layers: [], output: { width: 1920, height: 1080, fps: 30 } } as unknown as EditorProject
 
 let root: Root | null = null, host: HTMLElement | null = null
@@ -29,7 +30,7 @@ beforeEach(() => {
   app.onPrepare.mockReturnValue(() => {}); app.onProgress.mockReturnValue(() => {}); app.events.mockResolvedValue([]); app.reveal.mockResolvedValue(undefined); app.onSave.mockReturnValue(() => {})
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ exports: [], presets: [] })))
 })
-afterEach(() => { act(() => root?.unmount()); host?.remove(); root = null; host = null; vi.unstubAllGlobals(); localStorage.clear(); document.body.innerHTML = '' })
+afterEach(() => { setStudioWorkspace(null); act(() => root?.unmount()); host?.remove(); root = null; host = null; vi.unstubAllGlobals(); localStorage.clear(); document.body.innerHTML = '' })
 const settle = () => act(async () => { for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0)) })
 async function render(job: EditorJob | null, start = vi.fn(), extra: Record<string, unknown> = {}) {
   host = document.createElement('div'); document.body.appendChild(host)
@@ -232,10 +233,12 @@ describe('while it runs and after', () => {
     let refuse: (error: Error) => void = () => {}
     app.saveParts.mockImplementation(() => new Promise((_, reject) => { refuse = reject }))
     app.saveCancel.mockImplementation(async () => { refuse(new Error('cancelled: The save was stopped.')) })
+    // The workspace the Studio is open in: the app asks for new links there.
+    setStudioWorkspace(SPACE)
     await render({ ...running, where: 'server', status: 'completed', progress: 1, downloadUrl: '/api/account/studio/file/w/exports/x/1/video.mp4', result: { bytes: 412_000_000 } })
     await act(async () => { button('Save to your computer…').click() })
     await settle()
-    expect(app.saveParts).toHaveBeenCalledWith(expect.objectContaining({ destinationId: 'd5', videoId: VIDEO, jobId: JOB }))
+    expect(app.saveParts).toHaveBeenCalledWith(expect.objectContaining({ destinationId: 'd5', workspaceId: SPACE, videoId: VIDEO, jobId: JOB }))
     await act(async () => { emit!({ destinationId: 'other', receivedBytes: 1, totalBytes: 2 }) })
     expect(document.querySelector('.xd-save-progress')).toBeNull()
     await act(async () => { emit!({ destinationId: 'd5', receivedBytes: 103_000_000, totalBytes: 412_000_000 }) })
@@ -248,6 +251,80 @@ describe('while it runs and after', () => {
     expect(button('Save to your computer…').disabled).toBe(false)
     expect(text()).not.toContain('Saved to')
     expect(document.querySelector('[role="alert"]')).toBeNull()
+  })
+
+  describe('made, but not saved where the person chose (save-failed)', () => {
+    const made = (id: string, more: Record<string, unknown>[] = []) => [
+      { jobId: id, seq: 1, kind: 'started' }, { jobId: id, seq: 2, kind: 'progress', progress: 0.9 },
+      { jobId: id, seq: 3, kind: 'save-failed', message: 'The old file is open in another app, so it could not be replaced.' }, ...more]
+    const probeOk = (answer: (args: { jobId: string; destinationId: string }) => Promise<unknown>) =>
+      app.saveAgain.mockImplementation(async (args: { jobId: string; destinationId: string }) => { if (!args.jobId) throw new Error('bad-request: jobId is not an id'); return answer(args) })
+
+    it('says so with the app’s sentence; Save it again… opens the panel with the same name, then shows it saved with Show in Finder', async () => {
+      const id = 'save-again-1'
+      app.status.mockResolvedValue(ready)
+      localStorage.setItem('ni:studio:local-export-destinations', JSON.stringify({ [id]: { destinationId: 'd1', name: 'Spring launch.mp4' } }))
+      app.events.mockResolvedValue(made(id))
+      app.pickDestination.mockResolvedValue({ destinationId: 'd2', name: 'Spring launch.mp4' })
+      probeOk(async () => ({ name: 'Spring launch.mp4' }))
+      const start = await render({ ...running, id, status: 'failed', error: 'The video could not be saved.' })
+      expect(text()).toContain('The video was made, but it could not be saved there')
+      expect(text()).toContain('The old file is open in another app, so it could not be replaced.')
+      expect(text()).not.toContain('did not finish')
+      await act(async () => { button('Save it again…').click() })
+      await settle()
+      expect(app.pickDestination).toHaveBeenCalledWith('Spring launch.mp4')
+      expect(app.saveAgain).toHaveBeenLastCalledWith({ jobId: id, destinationId: 'd2' })
+      expect(text()).toContain('Saved to Spring launch.mp4')
+      await act(async () => { button('Show in Finder').click() })
+      expect(app.reveal).toHaveBeenCalledWith('d2')
+      expect(start).not.toHaveBeenCalled()
+    })
+
+    it('a closed panel leaves it as it was; once the app no longer keeps it, its sentence and the server alone', async () => {
+      const id = 'save-again-2'
+      app.status.mockResolvedValue(ready)
+      app.events.mockResolvedValue(made(id))
+      app.pickDestination.mockResolvedValueOnce(null).mockResolvedValue({ destinationId: 'd3', name: 'Spring launch.mp4' })
+      probeOk(async () => { throw new Error('gone: The video is no longer kept on this computer. Export it again.') })
+      const start = await render({ ...running, id })
+      await act(async () => { button('Save it again…').click() })
+      await settle()
+      expect(app.saveAgain).toHaveBeenCalledTimes(1)
+      expect(button('Save it again…')).toBeTruthy()
+      await act(async () => { button('Save it again…').click() })
+      await settle()
+      expect(text()).toContain('The video is no longer kept on this computer. Export it again.')
+      expect(text()).not.toContain('gone:')
+      expect(button('Save it again…')).toBeUndefined()
+      await act(async () => { button('Export on our server instead').click() })
+      expect(start).toHaveBeenCalledWith()
+    })
+
+    it('an app without the command: shown as an export that did not finish', async () => {
+      const id = 'save-again-3'
+      app.status.mockResolvedValue(ready)
+      app.events.mockResolvedValue(made(id))
+      app.saveAgain.mockRejectedValue(new Error('Command studio_local_export_save_again not found'))
+      await render({ ...running, id, status: 'failed' })
+      expect(text()).toContain('The export did not finish on this computer')
+      expect(text()).toContain('The old file is open in another app')
+      expect(button('Save it again…')).toBeUndefined()
+      expect(button('Export on our server instead')).toBeTruthy()
+    })
+
+    it('with the server’s copy there: the ordinary done view with Save…, the app’s sentence in small text', async () => {
+      const id = 'save-again-4'
+      app.status.mockResolvedValue(ready)
+      app.events.mockResolvedValue(made(id, [{ jobId: id, seq: 4, kind: 'uploaded' }]))
+      probeOk(async () => ({ name: 'x.mp4' }))
+      await render({ ...running, id, status: 'completed', progress: 1, downloadUrl: '/api/account/studio/file/w/exports/x/1/video.mp4', result: { bytes: 41_900_000 } })
+      expect(text()).toContain('export is ready')
+      expect(button('Save to your computer…')).toBeTruthy()
+      expect(document.querySelector('.xd-local-note')?.textContent).toBe('The old file is open in another app, so it could not be replaced.')
+      expect(button('Save it again…')).toBeUndefined()
+      expect(text()).not.toContain('Saved to')
+    })
   })
 
   it('failed on this computer: its sentence, and export on our server instead', async () => {

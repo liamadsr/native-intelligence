@@ -42,6 +42,7 @@ export const LOCAL_WORDS = {
   unknownPlace: 'The app no longer knows where this file is.',
   needsPlace: 'The export waits on this computer until you choose where to save it. Continue it from here.',
   uploadFailed: 'It could not be uploaded for sharing.',
+  saveFailed: 'The video was made, but it could not be saved where you chose.',
 } as const;
 
 /** Whether an error is a desktop command this build does not have (or may not call). */
@@ -102,6 +103,22 @@ export function rememberDestination(jobId: string, destination: StudioExportDest
 }
 export function destinationOf(jobId: string): StudioExportDestination | null {
   try { const found = (JSON.parse(localStorage.getItem(DESTINATIONS_KEY) ?? '{}') as Record<string, StudioExportDestination>)[jobId]; return found && typeof found.destinationId === 'string' && typeof found.name === 'string' ? found : null; } catch { return null; }
+}
+
+/**
+ * Exports whose video was saved again after `save-failed` (studio_local_export_save_again), this page: the app's events
+ * still end with `save-failed`, so the dialog reads them as saved with this name (asSavedAgain).
+ */
+const savedAgain = new Map<string, string>();
+/** Does this app have studio_local_export_save_again? Asked with no job (the app refuses it as a bad request, touching nothing). */
+export async function canSaveAgain(bridge: { saveAgain: (args: { jobId: string; destinationId: string }) => Promise<unknown> }): Promise<boolean> {
+  try { await bridge.saveAgain({ jobId: '', destinationId: '' }); return true; } catch (error) { return !isMissingCommand(error); }
+}
+export function markSavedAgain(jobId: string, name: string): void { savedAgain.set(jobId, name); }
+/** The app's events for `jobId`, as saved when it was saved again here. */
+export function asSavedAgain(jobId: string, runner: RunnerState): RunnerState {
+  const name = savedAgain.get(jobId);
+  return name !== undefined && runner.saveFailed !== null ? { ...runner, done: true, saveFailed: null, savedName: name } : runner;
 }
 
 type Request = <T>(path: string, body?: unknown) => Promise<T>;
@@ -206,12 +223,15 @@ export type RunnerState = {
   done: boolean;
   /** After `done`: uploaded for sharing, or the upload failed (the app's sentence). */
   uploaded: boolean; uploadFailed: string | null;
+  /** The video was made but could not be put where the person chose (the app's sentence): kept by the app, to be saved again. */
+  saveFailed: string | null;
 };
-export const emptyRunner = (): RunnerState => ({ seq: -1, lastAt: null, progress: null, savedName: null, failed: null, cancelled: false, done: false, uploaded: false, uploadFailed: null });
+export const emptyRunner = (): RunnerState => ({ seq: -1, lastAt: null, progress: null, savedName: null, failed: null, cancelled: false, done: false, uploaded: false, uploadFailed: null, saveFailed: null });
 /**
  * Fold the app's events into what it has said, in order, each once. `started` begins a run: what the app said of an
  * earlier run of the job is dropped (the seq stays). Once the file is saved (`done`) it stays saved: only progress,
- * logs and the upload's outcome count after it, never a failure or a stop.
+ * logs and the upload's outcome count after it, never a failure or a stop. `save-failed` (made, but not put where the
+ * person chose) ends a run the same way.
  */
 export function foldEvents(state: RunnerState, events: readonly StudioLocalExportEvent[], at: number): RunnerState {
   let next = state;
@@ -219,11 +239,15 @@ export function foldEvents(state: RunnerState, events: readonly StudioLocalExpor
     if (event.seq <= next.seq) continue;
     next = { ...next, seq: event.seq, lastAt: at };
     if (event.kind === 'started') { next = { ...emptyRunner(), seq: event.seq, lastAt: at }; continue; }
-    if (event.kind === 'progress' && typeof event.progress === 'number' && !next.done) next.progress = Math.max(0, Math.min(1, event.progress));
-    if (event.kind === 'done') next = { ...next, done: true, progress: 1, savedName: event.savedName ?? next.savedName };
-    if (event.kind === 'uploaded' && next.done) next.uploaded = true;
-    if (event.kind === 'upload-failed' && next.done) next.uploadFailed = event.message?.trim() || LOCAL_WORDS.uploadFailed;
-    if (next.done) continue;
+    // Made: saved where the person chose, or not (save-failed). Either way the run is over but for its upload.
+    const made = next.done || next.saveFailed !== null;
+    if (event.kind === 'progress' && typeof event.progress === 'number' && !made) next.progress = Math.max(0, Math.min(1, event.progress));
+    // `done` also follows `save-failed` when the person saved the kept video again: then it is saved.
+    if (event.kind === 'done' && (!made || next.saveFailed !== null)) next = { ...next, done: true, saveFailed: null, progress: 1, savedName: event.savedName ?? next.savedName };
+    if (event.kind === 'save-failed' && !made) next = { ...next, saveFailed: event.message?.trim() || LOCAL_WORDS.saveFailed, progress: 1 };
+    if (event.kind === 'uploaded' && made) next.uploaded = true;
+    if (event.kind === 'upload-failed' && made) next.uploadFailed = event.message?.trim() || LOCAL_WORDS.uploadFailed;
+    if (next.done || next.saveFailed !== null) continue;
     if (event.kind === 'failed') next.failed = event.message?.trim() || 'The export failed on this computer.';
     if (event.kind === 'cancelled') next.cancelled = true;
   }
@@ -237,8 +261,13 @@ export type LocalView =
   /** Running on another computer: this device did not start it and its app has said nothing of it. */
   | { kind: 'elsewhere'; progress: number }
   | { kind: 'uploading'; savedName: string | null }
-  /** Saved here; uploaded for sharing, or not (`note`: why not, the app's or the server's sentence, in small text). */
-  | { kind: 'done'; savedName: string | null; uploaded: boolean; note?: string }
+  /**
+   * Saved here; uploaded for sharing, or not (`note`: why not, the app's or the server's sentence, in small text).
+   * `notHere`: made, but not saved on this computer (save-failed) while the upload went through: saved from the Studio.
+   */
+  | { kind: 'done'; savedName: string | null; uploaded: boolean; note?: string; notHere?: true }
+  /** Made, but it could not be put where the person chose (the app's sentence): the app keeps it to be saved again. */
+  | { kind: 'save-failed'; message: string }
   | { kind: 'failed'; message: string }
   | { kind: 'cancelled' };
 
@@ -251,6 +280,11 @@ export type LocalView =
  */
 export function localView(job: EditorJob, runner: RunnerState, openedAt: number, now: number, savedName: string | null = null, startedHere = true): LocalView {
   const name = runner.savedName ?? savedName;
+  if (runner.saveFailed !== null) {
+    // The upload went through: the person saves it from the Studio, the app's sentence beside it.
+    if (job.status === 'completed' && job.downloadUrl && job.kept !== 'computer') return { kind: 'done', savedName: null, uploaded: true, note: runner.saveFailed, notHere: true };
+    return { kind: 'save-failed', message: runner.saveFailed };
+  }
   if (job.status === 'completed') return { kind: 'done', savedName: name, uploaded: job.kept !== 'computer' && !!job.downloadUrl };
   // Saved on this computer: saved, whatever became of the upload (never "did not finish").
   if (runner.done && runner.uploadFailed) return { kind: 'done', savedName: name, uploaded: false, note: runner.uploadFailed };

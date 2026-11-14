@@ -116,8 +116,8 @@ describe('in the desktop app', () => {
 })
 
 describe('in a desktop app with its own save (studio_export_save_parts)', () => {
-  const VIDEO = 'aaaaaaaa-1111-4222-8333-444444444444', JOB = 'bbbbbbbb-1111-4222-8333-444444444444'
-  const ARRIVAL = { videoId: VIDEO, jobId: JOB, workspaceId: null }
+  const VIDEO = 'aaaaaaaa-1111-4222-8333-444444444444', JOB = 'bbbbbbbb-1111-4222-8333-444444444444', SPACE = 'cccccccc-1111-4222-8333-444444444444'
+  const ARRIVAL = { videoId: VIDEO, jobId: JOB, workspaceId: SPACE }
   const partsRoute = `/api/account/studio/projects/${VIDEO}/exports/${JOB}/parts`
   function partsServer(answer: Response) {
     vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => { calls.push({ url: input, method: init?.method ?? 'GET' }); return input === partsRoute ? answer.clone() : new Response('no', { status: 500 }) }))
@@ -131,10 +131,24 @@ describe('in a desktop app with its own save (studio_export_save_parts)', () => 
     expect(saveWay(2_400_000_000, true)).toBe('desktop-parts')
     expect(await saveExport({ ...FILE, bytes: 2_400_000_000, arrival: ARRIVAL }, 'desktop-parts')).toEqual({ kind: 'saved', where: 'Spring launch.mp4', destinationId: 'd1' })
     expect(pickDestination).toHaveBeenCalledWith('Spring launch.mp4')
-    expect(saveParts).toHaveBeenCalledWith({ destinationId: 'd1', videoId: VIDEO, jobId: JOB, parts: [{ url: 'https://store.example/p0', bytes: 2_000_000_000 }, { url: 'https://store.example/p1', bytes: 400_000_000 }], bytes: 2_400_000_000, sha256: 'ab'.repeat(32) })
+    expect(saveParts).toHaveBeenCalledWith({ destinationId: 'd1', workspaceId: SPACE, videoId: VIDEO, jobId: JOB, parts: [{ url: 'https://store.example/p0', bytes: 2_000_000_000 }, { url: 'https://store.example/p1', bytes: 400_000_000 }], bytes: 2_400_000_000, sha256: 'ab'.repeat(32) })
     expect(calls.map((c) => c.url)).toEqual([partsRoute])
     expect(saveFile).not.toHaveBeenCalled()
     expect(openInSystemBrowser).not.toHaveBeenCalled()
+  })
+
+  it('the app asks for new links in the workspace the Studio is open in; without one it is given none of the three', async () => {
+    desktop()
+    partsServer(Response.json({ name: 'Spring launch.mp4', bytes: 1000, from: 0, expiresAt: '', parts: [{ index: 0, url: 'https://store.example/p0', bytes: 1000 }] }))
+    pickDestination.mockResolvedValue({ destinationId: 'd1', name: 'Spring launch.mp4' })
+    saveParts.mockResolvedValue({ name: 'Spring launch.mp4' })
+    await saveExport({ ...FILE, arrival: ARRIVAL }, 'desktop-parts')
+    expect(saveParts.mock.calls[0]![0]).toMatchObject({ workspaceId: SPACE, videoId: VIDEO, jobId: JOB })
+    await saveExport({ ...FILE, arrival: { ...ARRIVAL, workspaceId: null } }, 'desktop-parts')
+    const second = saveParts.mock.calls[1]![0] as Record<string, unknown>
+    expect(second).not.toHaveProperty('workspaceId')
+    expect(second).not.toHaveProperty('videoId')
+    expect(second).not.toHaveProperty('jobId')
   })
 
   it('a closed panel saves nothing; an app without the command saves as before', async () => {

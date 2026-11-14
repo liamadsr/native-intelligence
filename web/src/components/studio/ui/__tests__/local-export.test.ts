@@ -11,7 +11,7 @@ import type { EditorProject } from '@/lib/studio/engine/contracts'
 import { STUDIO_RENDER_VERSION } from '@/lib/studio/engine/render-version'
 import { studioRefusal, type StudioLocalStatus } from '@/lib/tauri-bridge'
 import {
-  LOCAL_WORDS, STALL_MS, capabilityFor, capabilityOf, continueOnComputer, destinationOf, emptyRunner, finishOnServer, foldEvents, localView,
+  LOCAL_WORDS, STALL_MS, asSavedAgain, canSaveAgain, capabilityFor, markSavedAgain, capabilityOf, continueOnComputer, destinationOf, emptyRunner, finishOnServer, foldEvents, localView,
   readLocalCapability, revealLabel, savesParts, startOnComputer,
 } from '../local-export'
 
@@ -252,5 +252,55 @@ describe('a place the app no longer takes', () => {
     const used = refusing('used')
     expect(await continueOnComputer(JOB, 'Spring launch.mp4', { request, bridge: { start: used }, pick: noPick })).toBe('cancelled')
     expect(used).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('made, but not saved where the person chose (save-failed)', () => {
+  const at = 1_000_000
+  const events = (...more: { kind: string; message?: string }[]) => [{ jobId: JOB, seq: 1, kind: 'started' }, { jobId: JOB, seq: 2, kind: 'progress', progress: 0.9 }, ...more.map((e, i) => ({ jobId: JOB, seq: 3 + i, ...e }))] as never
+
+  it('ends the run in place of failed: the app’s sentence, the video kept to be saved again; nothing after it fails or stops it', () => {
+    const runner = foldEvents(emptyRunner(), events({ kind: 'save-failed', message: 'The old file is open in another app.' }, { kind: 'failed', message: 'x' }, { kind: 'cancelled' }), at)
+    expect(runner).toMatchObject({ saveFailed: 'The old file is open in another app.', failed: null, cancelled: false, done: false })
+    for (const status of ['running', 'failed', 'cancelled'] as const)
+      expect(localView(job({ status }), runner, at, at)).toEqual({ kind: 'save-failed', message: 'The old file is open in another app.' })
+    // Kept on the computer only (no upload): still to be saved again.
+    expect(localView(job({ status: 'completed', kept: 'computer' }), runner, at, at).kind).toBe('save-failed')
+    // No sentence: ours.
+    expect(foldEvents(emptyRunner(), events({ kind: 'save-failed' }), at).saveFailed).toBe(LOCAL_WORDS.saveFailed)
+  })
+
+  it('with the upload through, the ordinary done view: saved from the Studio, the app’s sentence beside it', () => {
+    const runner = foldEvents(emptyRunner(), events({ kind: 'save-failed', message: 'The disk is full.' }, { kind: 'uploaded' }), at)
+    expect(runner.uploaded).toBe(true)
+    expect(localView(job({ status: 'completed', downloadUrl: '/api/account/studio/file/w/exports/x/1/video.mp4' }), runner, at, at))
+      .toEqual({ kind: 'done', savedName: null, uploaded: true, note: 'The disk is full.', notHere: true })
+  })
+
+  it('saved again here: read as saved with its new name; a new run is not', () => {
+    const runner = foldEvents(emptyRunner(), events({ kind: 'save-failed', message: 'The folder went away.' }), at)
+    expect(asSavedAgain(JOB, runner)).toBe(runner)
+    markSavedAgain(JOB, 'Spring launch (2).mp4')
+    expect(localView(job({ status: 'failed', error: 'Not saved.' }), asSavedAgain(JOB, runner), at, at)).toEqual({ kind: 'done', savedName: 'Spring launch (2).mp4', uploaded: false, note: 'Not saved.' })
+    expect(localView(job(), asSavedAgain(JOB, runner), at, at)).toEqual({ kind: 'uploading', savedName: 'Spring launch (2).mp4' })
+    const again = foldEvents(runner, [{ jobId: JOB, seq: 9, kind: 'started' }], at)
+    expect(asSavedAgain(JOB, again).done).toBe(false)
+  })
+
+  it('the app says `done` after `save-failed` once it is saved again: a page that reloads reads it as saved', () => {
+    // As replayed after a reload: the run's last word, then the save that followed it.
+    const replayed = foldEvents(emptyRunner(), events({ kind: 'save-failed', message: 'The disk is full.' }, { kind: 'done', savedName: 'Spring launch (3).mp4' }), at)
+    expect(replayed).toMatchObject({ done: true, saveFailed: null, savedName: 'Spring launch (3).mp4', failed: null, cancelled: false })
+    expect(localView(job({ status: 'completed', kept: 'computer' }), replayed, at, at)).toMatchObject({ kind: 'done', savedName: 'Spring launch (3).mp4', uploaded: false })
+    // A second `done` changes nothing more, and a failure after it still does not count.
+    const later = foldEvents(replayed, [{ jobId: JOB, seq: 50, kind: 'done', savedName: 'Other.mp4' }, { jobId: JOB, seq: 51, kind: 'failed', message: 'x' }], at)
+    expect(later).toMatchObject({ done: true, savedName: 'Spring launch (3).mp4', failed: null })
+  })
+
+  it('knows whether the app can save again, without touching anything', async () => {
+    const present = vi.fn(async () => { throw new Error('bad-request: jobId is not an id') })
+    expect(await canSaveAgain({ saveAgain: present })).toBe(true)
+    expect(present).toHaveBeenCalledWith({ jobId: '', destinationId: '' })
+    expect(await canSaveAgain({ saveAgain: async () => { throw new Error('Command studio_local_export_save_again not found') } })).toBe(false)
   })
 })

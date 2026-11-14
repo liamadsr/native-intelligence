@@ -778,7 +778,10 @@ impl StudioLocal {
         let placed = tokio::task::spawn_blocking(move || destinations::place_file(&kept, &c, &AtomicBool::new(false)))
             .await
             .unwrap_or_else(|e| Err(format!("write: {e}")))?;
-        Ok(placed.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or(claim.name))
+        let name = placed.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or(claim.name);
+        // Said as `done`, after the run's `save-failed`: a page that reloads then reads the export as saved.
+        self.event(job_id, Kind::Done, None, Some(format!("Saved to {name}")), Some(name.clone()));
+        Ok(name)
     }
 
     /// Stop `job_id` if it is the export running (else nothing: idempotent).

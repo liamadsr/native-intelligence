@@ -136,8 +136,11 @@ async function saveThroughApp(file: ExportFile, hooks: SaveHooks = {}): Promise<
   if (!picked) return { kind: 'cancelled' };
   const destinationId = picked.destinationId;
   hooks.onPicked?.(destinationId);
+  // The app asks the parts route again when the links run out, in the workspace the Studio is open in (without it the
+  // server would take the person's first workspace); without one it cannot, and saves with the links it has.
+  const relink = arrival.workspaceId ? { workspaceId: arrival.workspaceId, videoId: arrival.videoId, jobId: arrival.jobId } : {};
   const save = (answer: ExportPartsAnswer) => studioLocalExport.saveParts({
-    destinationId, videoId: arrival.videoId, jobId: arrival.jobId,
+    destinationId, ...relink,
     parts: answer.parts.map(part => ({ url: part.url, bytes: part.bytes })), bytes: answer.bytes, ...(answer.sha256 ? { sha256: answer.sha256 } : {}),
   });
   for (let attempt = 0; ; attempt++) {
