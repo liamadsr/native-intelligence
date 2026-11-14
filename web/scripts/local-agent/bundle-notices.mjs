@@ -15,11 +15,11 @@
 //     module paths the bundlers leave in it (rolldown's `//#region <path>` and
 //     esbuild's `// <path>` comments) and in the agent-packages file, in the
 //     desktop's notices format, with each package's license files in
-//     licenses/<name>-<version>/. The packages installed whole in the bundle's
-//     acp/node_modules (the workers' agent adapters, install-agents.sh) are
-//     listed from there, by their own package.json, and that folder is not
-//     scanned for module comments (they name the packages' own sources). The
-//     desktop stages it with the app's other third-party notices.
+//     licenses/<name>-<version>/. The packages installed whole in the bundle
+//     (the Studio runner's .output/studio/runner/node_modules) are listed from
+//     there, by their own package.json, and that folder is not scanned for
+//     module comments (they name the packages' own sources). The desktop
+//     stages it with the app's other third-party notices.
 //
 //   node bundle-notices.mjs --stamp <repo> <out-dir> <web-commit> <dirty> [<capabilities>]
 //     BUNDLE.json: the web commit it came from, eve's version, the Node major
@@ -62,14 +62,13 @@ function stamp(repo, outDir, commit, dirty, caps = '') {
 const PKG_PATH = /(?:^|[\s/])(node_modules\/(?:(?:@[^/\s]+\/)?[^/\s]+\/node_modules\/)*(?:@[^/\s]+\/)?[^/\s]+)\//g
 
 /**
- * The installed packages folders a bundle carries whole: the coding agents'
- * adapters (mac-body.sh build_workers) and the Studio runner's playwright-core
- * (agents/local-agent/studio/build.sh). Their files are not scanned for module
+ * The installed packages folders a bundle carries whole: the Studio runner's
+ * playwright-core (agents/local-agent/studio/build.sh). Their files are not scanned for module
  * comments: a package that ships its own pre-built bundle names packages in
  * them that were never installed here (its own notices file, shipped beside
  * it, covers those).
  */
-const INSTALLED = [join('acp', 'node_modules'), join('.output', 'studio', 'runner', 'node_modules')]
+const INSTALLED = [join('.output', 'studio', 'runner', 'node_modules')]
 
 function packagesIn(dir) {
   const found = new Set()
