@@ -138,3 +138,33 @@ describe('sandboxNamesWithRows', () => {
     has(0, 'in', 'sandbox_name', ['browser-a', 'browser-b'])
   })
 })
+
+describe('the runtime backend’s reads and its expiry', () => {
+  it('reads the status and the session (the hub follows from it)', async () => {
+    db.results = [{ data: { status: 'running', session_id: 'abc.1' } }, { data: null }]
+    expect(await store.readSession(ref)).toEqual({ status: 'running', sessionId: 'abc.1' })
+    has(0, 'select', 'status, session_id')
+    has(0, 'match', ROW)
+    expect(await store.readSession(ref)).toBeNull()
+  })
+
+  it('lists stopped browsers unused since the cutoff, oldest first, bounded', async () => {
+    db.results = [{ data: [{ ...ROW, sandbox_name: 'b' }] }]
+    const cutoff = new Date('2026-09-01T00:00:00Z')
+    expect(await store.listUnusedStopped(cutoff, 50)).toEqual([{ ...ROW, sandbox_name: 'b' }])
+    has(0, 'eq', 'status', 'stopped')
+    has(0, 'lt', 'last_active_at', '2026-09-01T00:00:00.000Z')
+    has(0, 'order', 'last_active_at', { ascending: true })
+    has(0, 'limit', 50)
+  })
+
+  it('deletes an expired browser’s row only if it is still stopped and untouched', async () => {
+    db.results = [{ data: { user_id: 'u1' } }, { data: null }]
+    expect(await store.deleteRowIfUnusedSince(ref, '2026-08-01T00:00:00+00:00')).toBe(true)
+    has(0, 'delete')
+    has(0, 'match', ROW)
+    has(0, 'eq', 'status', 'stopped')
+    has(0, 'eq', 'last_active_at', '2026-08-01T00:00:00+00:00')
+    expect(await store.deleteRowIfUnusedSince(ref, 'x')).toBe(false)
+  })
+})

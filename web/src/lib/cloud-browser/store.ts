@@ -108,6 +108,14 @@ export async function readStatus(ref: CloudBrowserRef): Promise<CloudBrowserStat
   return (data as { status?: CloudBrowserStatus } | null)?.status ?? null
 }
 
+/** The browser's state and its session as the host last recorded them (the runtime backend reads its hub from the session); null when it has never run. */
+export async function readSession(ref: CloudBrowserRef): Promise<{ status: CloudBrowserStatus; sessionId: string | null } | null> {
+  const { data, error } = await db().select('status, session_id').match(own(ref)).maybeSingle()
+  check(error, 'read session')
+  const row = data as { status?: CloudBrowserStatus; session_id?: string | null } | null
+  return row?.status ? { status: row.status, sessionId: row.session_id ?? null } : null
+}
+
 export type CloudBrowserDriver = 'agent' | 'person'
 
 /** What the computer card shows (C3): the browser's state and who drives it; null when the person has none yet. */
@@ -165,6 +173,28 @@ export async function readExitConnected(ref: CloudBrowserRef): Promise<string | 
 export async function deleteRow(ref: CloudBrowserRef): Promise<void> {
   const { error } = await db().delete().match(own(ref))
   check(error, 'delete')
+}
+
+/**
+ * Browsers stopped and unused since before `cutoff` (the runtime backend's
+ * expiry, host.ts reconcile), oldest first, at most `limit`.
+ */
+export async function listUnusedStopped(cutoff: Date, limit: number): Promise<CloudBrowserRow[]> {
+  const { data, error } = await db().select(COLUMNS).eq('status', 'stopped').lt('last_active_at', cutoff.toISOString())
+    .order('last_active_at', { ascending: true }).limit(limit)
+  check(error, 'list unused')
+  return (data ?? []) as CloudBrowserRow[]
+}
+
+/**
+ * Delete the row of a browser whose VM the expiry removed, only if it is still
+ * stopped and untouched since `lastActiveAt` (an ensure in between keeps it).
+ * True when it was deleted.
+ */
+export async function deleteRowIfUnusedSince(ref: CloudBrowserRef, lastActiveAt: string): Promise<boolean> {
+  const { data, error } = await db().delete().match(own(ref)).eq('status', 'stopped').eq('last_active_at', lastActiveAt).select('user_id').maybeSingle()
+  check(error, 'delete unused')
+  return data !== null
 }
 
 /** Whether a row owns this sandbox name (the orphan reconcile's question). */

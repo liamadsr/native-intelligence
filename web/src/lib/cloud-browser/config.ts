@@ -64,7 +64,95 @@ export const CLOUD_BROWSER = {
   /** A viewer token opens a connection within this long; a control one also ends input after it (C3). */
   viewTokenTtlMs: 60 * SECOND,
   controlTokenTtlMs: 10 * MINUTE,
+  /**
+   * The runtime backend only (backend-runtime.ts): the relay's token, which the
+   * server writes into the VM (that runtime cannot add a header on the way out).
+   * A 0700 directory under the relay's own, a 0600 file, written by the file API
+   * and renamed into place: never on a command line or in an environment.
+   */
+  relayTokenDir: '/tmp/cloud-browser-relay/secret',
+  relayTokenFile: '/tmp/cloud-browser-relay/secret/token',
+  /** The runtime backend only: when this run of the VM began (ms), so every ensure of one run records the same session. */
+  runStartFile: '/tmp/cloud-browser-run-start',
+  /** At most this many browsers unused past snapshotTtlMs are removed per reconcile (the runtime backend). */
+  maxExpiriesPerReconcile: 50,
 } as const
+
+/**
+ * Private, link-local and CGNAT ranges: a browser never reaches a home or
+ * cloud-internal network (loopback stays local). Both backends deny them in
+ * cloud mode (IPv4 only: the hosted API refuses an IPv6 range).
+ */
+export const CLOUD_BROWSER_PRIVATE_CIDRS: readonly string[] = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '169.254.0.0/16']
+
+// ── Which service runs the browsers ────────────────────────────────────────
+
+/** `hosted`: the earlier host's sandbox service (the default). `runtime`: our own sandbox server. */
+export type CloudBrowserBackendKind = 'hosted' | 'runtime'
+export const CLOUD_BROWSER_BACKEND_ENV = 'CLOUD_BROWSER_BACKEND'
+
+/**
+ * The backend `CLOUD_BROWSER_BACKEND` names, read now (never at module load).
+ * Unset or blank is `hosted`; any value other than the two throws, so a typo
+ * never quietly runs the browsers somewhere nobody meant.
+ */
+export function cloudBrowserBackendKind(env: Readonly<Record<string, string | undefined>> = process.env): CloudBrowserBackendKind {
+  const value = env[CLOUD_BROWSER_BACKEND_ENV]?.trim().toLowerCase() ?? ''
+  if (value === '' || value === 'hosted') return 'hosted'
+  if (value === 'runtime') return 'runtime'
+  throw new Error(`cloud browser: ${CLOUD_BROWSER_BACKEND_ENV} must be "hosted" or "runtime" (or unset), not "${value.slice(0, 32)}"`)
+}
+
+/** The settings the runtime backend reads. The address and key settings are the coding agent's too. */
+export const CLOUD_BROWSER_RUNTIME_ENVS = {
+  apiUrl: 'SANDBOX_RUNTIME_API_URL',
+  trafficUrl: 'SANDBOX_RUNTIME_TRAFFIC_URL',
+  apiKey: 'SANDBOX_RUNTIME_KEY',
+  template: 'CLOUD_BROWSER_RUNTIME_TEMPLATE',
+  hubDomain: 'CLOUD_BROWSER_HUB_DOMAIN',
+} as const
+export const CLOUD_BROWSER_RUNTIME_DEFAULT_TEMPLATE = 'ni-cloud-browser'
+
+export interface CloudBrowserRuntimeSettings {
+  apiUrl: string
+  trafficUrl: string
+  apiKey: string
+  template: string
+  /** A hub is `https://<sandbox id>.<hubDomain>` (no port: the desktop app refuses one). */
+  hubDomain: string
+}
+
+const HOSTNAME = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/
+
+/** CLOUD_BROWSER_HUB_DOMAIN as a bare lowercase host name, or null when unset or not one. */
+export function cloudBrowserHubDomain(env: Readonly<Record<string, string | undefined>> = process.env): string | null {
+  const value = env[CLOUD_BROWSER_RUNTIME_ENVS.hubDomain]?.trim().toLowerCase().replace(/\.$/, '') ?? ''
+  return HOSTNAME.test(value) ? value : null
+}
+
+/**
+ * Everything the runtime backend needs, read now. A missing setting is an error
+ * naming it (never its value), never a fall back to the hosted service.
+ */
+export function cloudBrowserRuntimeSettings(env: Readonly<Record<string, string | undefined>> = process.env): CloudBrowserRuntimeSettings {
+  const read = (name: string) => env[name]?.trim() ?? ''
+  const apiUrl = read(CLOUD_BROWSER_RUNTIME_ENVS.apiUrl).replace(/\/+$/, '')
+  const trafficUrl = read(CLOUD_BROWSER_RUNTIME_ENVS.trafficUrl).replace(/\/+$/, '')
+  const apiKey = read(CLOUD_BROWSER_RUNTIME_ENVS.apiKey)
+  const hubDomain = cloudBrowserHubDomain(env)
+  const missing: string[] = []
+  if (!apiUrl) missing.push(CLOUD_BROWSER_RUNTIME_ENVS.apiUrl)
+  if (!trafficUrl) missing.push(CLOUD_BROWSER_RUNTIME_ENVS.trafficUrl)
+  if (!apiKey) missing.push(CLOUD_BROWSER_RUNTIME_ENVS.apiKey)
+  if (!hubDomain) missing.push(CLOUD_BROWSER_RUNTIME_ENVS.hubDomain)
+  if (missing.length) {
+    throw new Error(`cloud browser (${CLOUD_BROWSER_BACKEND_ENV}=runtime): ${missing.join(', ')} not set${!hubDomain && read(CLOUD_BROWSER_RUNTIME_ENVS.hubDomain) ? ' (or not a host name)' : ''}`)
+  }
+  return { apiUrl, trafficUrl, apiKey, template: read(CLOUD_BROWSER_RUNTIME_ENVS.template) || CLOUD_BROWSER_RUNTIME_DEFAULT_TEMPLATE, hubDomain: hubDomain! }
+}
+
+/** The relay's addresses on the runtime backend: our sandbox server's public ones (relay-routes.ts). */
+export const BROWSER_RELAY_ALLOWED_ADDRESSES_ENV = 'BROWSER_RELAY_ALLOWED_ADDRESSES'
 
 /**
  * The production relay host: a dedicated alias of the app, so the run token
