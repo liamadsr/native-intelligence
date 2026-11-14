@@ -2,8 +2,8 @@
 // size, what is wrong in plain words, and what Try again does. Nothing such a take holds is removed by its age
 // (studio_recorder.rs sweep), so every one of them must show here. Made-up takes.
 import { describe, expect, it } from 'vitest'
-import { listedTakes, localTakeActions, localTakeRows, sizeWords, type LocalTakeDeps, type LocalTakeRow } from '../local-takes'
-import type { ProvisionalRecord } from '../provisional'
+import { inUseReason, listedTakes, localTakeActions, localTakeRows, OPEN_ELSEWHERE, sizeWords, type LocalTakeDeps, type LocalTakeRow } from '../local-takes'
+import { CHANGED_ELSEWHERE, type ProvisionalRecord } from '../provisional'
 
 const S = (n: number) => `${n}f0f0f0f-1111-4222-8333-444444444444`
 const take = (n: number, extra: Record<string, unknown> = {}) => ({ sessionId: S(n), takeId: null, state: 'recording', tracks: [{ role: 'screen', bytes: 40_000_000 }, { role: 'microphone', bytes: 2_000_000 }], hasDraft: false, draftUnreadable: false, stop: null, modifiedMs: Date.UTC(2026, 10, 14, 9, 41), ...extra })
@@ -49,8 +49,8 @@ describe('takes kept on this computer', () => {
 })
 
 describe('the third review: Try again and Discard never lose an edit', () => {
-  const one = (extra: Record<string, unknown>, rec?: Partial<ProvisionalRecord>, skip?: Set<string>) =>
-    localTakeRows(listedTakes({ takes: [take(1, { hasDraft: true, ...extra })] }), rec ? [record(1, rec)] : [], skip)[0]
+  const one = (extra: Record<string, unknown>, rec?: Partial<ProvisionalRecord>, skip?: Set<string>, held?: (s: string) => boolean) =>
+    localTakeRows(listedTakes({ takes: [take(1, { hasDraft: true, ...extra })] }), rec ? [record(1, rec)] : [], skip, held)[0]
 
   it('a filed take whose edit is not on the video yet is carried on, never let go of (its record is the edit)', () => {
     const row = one({}, { state: 'filed', recordingId: 'r-1' })!
@@ -58,10 +58,13 @@ describe('the third review: Try again and Discard never lose an edit', () => {
     expect(row.problem).toBe('Filed. Your edits are not on the video yet. Try again puts them on it.')
   })
 
-  it('an adopted take whose last save may not have landed says to check the video before letting go', () => {
+  it('an adopted take whose last save may not have landed offers to put the edits on it first, then to let go', () => {
     const row = one({}, { state: 'adopted', recordingId: 'r-1', saveOwed: true })!
-    expect(row.action).toEqual({ kind: 'release', projectId: 'p-1', anyway: true })
-    expect(row.problem).toMatch(/your last edits may not have reached it. Open the video to check them/)
+    expect(row.action).toEqual({ kind: 'adopt', projectId: 'p-1' })
+    expect(row.label).toBe('Put my edits on it')
+    expect(row.alt).toEqual({ action: { kind: 'release', projectId: 'p-1', anyway: true }, label: 'Let go of the files' })
+    expect(row.problem).toMatch(/your last edits may not have reached it. Put my edits on it saves them onto the video, never over changes made there since/)
+    expect(row.edits).toBe(true)
     expect(one({}, { state: 'adopted', recordingId: 'r-1' })!.action).toEqual({ kind: 'release', projectId: 'p-1' })
   })
 
@@ -92,6 +95,35 @@ describe('the third review: Try again and Discard never lose an edit', () => {
   })
 })
 
+describe('the fourth review: the rows say what is true', () => {
+  const one = (extra: Record<string, unknown>, rec?: Partial<ProvisionalRecord>, skip?: Set<string>, held?: (s: string) => boolean) =>
+    localTakeRows(listedTakes({ takes: [take(1, { hasDraft: true, ...extra })] }), rec ? [record(1, rec)] : [], skip, held)[0]
+
+  it('an adopted take whose edits are on the video: Discard deletes no edits', () => {
+    expect(one({}, { state: 'adopted', recordingId: 'r-1' })!.edits).toBe(false)
+  })
+
+  it('a filed take whose video changed elsewhere names the conflict; one whose edits could not be moved says so', () => {
+    const conflict = one({}, { state: 'filed', recordingId: 'r-1', failed: CHANGED_ELSEWHERE })!
+    expect(conflict.problem).toBe(`${CHANGED_ELSEWHERE} Try again offers to open the video with them, so you can choose.`)
+    expect(conflict.problem).not.toMatch(/puts them on it/)
+    const moved = one({}, { state: 'filed', recordingId: 'r-1', failed: 'The recording is filed, but your edits could not be moved onto it (no picture). They are kept on this computer.' })!
+    expect(moved.problem).toMatch(/could not be moved onto it .* Try again tries once more\.$/)
+  })
+
+  it('a take this page holds, whose record it has not read yet, is never shown as a lost edit', () => {
+    expect(one({}, undefined, undefined, (s) => s === S(1))).toBeUndefined()
+    expect(one({}, undefined, undefined, () => false)!.problem).toMatch(/could not be read/)
+  })
+
+  it('a take whose screen recording failed is listed with what is kept, Discard only', () => {
+    const row = localTakeRows(listedTakes({ takes: [take(3, { screenMissing: true, tracks: [{ role: 'microphone', bytes: 2_000_000 }, { role: 'camera', bytes: 9_000_000 }] })] }), [])[0]!
+    expect(row.action).toEqual({ kind: 'none' })
+    expect(row.problem).toBe('The screen recording failed, so this cannot be made into a video. Its microphone and camera are kept on this computer.')
+    expect(row.bytes).toBe(11_000_000)
+  })
+})
+
 describe('Try again and Discard on a listed take', () => {
   const deps = (extra: Partial<LocalTakeDeps> = {}) => {
     const calls: string[] = []
@@ -104,6 +136,8 @@ describe('Try again and Discard on a listed take', () => {
       records: async () => [],
       discard: async (id) => void calls.push(`discard ${id.slice(0, 2)}`),
       inUse: async () => null,
+      holdTake: async (id) => { calls.push(`hold ${id.slice(0, 2)}`); return true },
+      letGoTake: async (id) => void calls.push(`let go ${id.slice(0, 2)}`),
       notify: (text) => void calls.push(`said ${text}`),
       refresh: () => undefined,
       ...extra,
@@ -112,29 +146,46 @@ describe('Try again and Discard on a listed take', () => {
   }
   const whole: LocalTakeRow = { sessionId: S(1), bytes: 1, at: null, problem: '', action: { kind: 'file-whole' }, edits: false }
 
-  it('two presses of Try again on a take filed whole make one filing', async () => {
+  it('two presses of Try again on a take filed whole make one filing, the take held meanwhile', async () => {
     const { d, calls } = deps()
     const actions = localTakeActions(d)
     const first = actions.retry(whole)
     const second = actions.retry(whole)
     expect(actions.busy(S(1))).toBe(true)
     await Promise.all([first, second])
-    expect(calls.filter((c) => c.startsWith('file'))).toEqual(['file 1f'])
+    expect(calls).toEqual(['hold 1f', 'file 1f', 'let go 1f'])
     expect(actions.busy(S(1))).toBe(false)
+  })
+
+  it('a take another window holds is never filed whole nor brought back here (two windows never make two videos)', async () => {
+    const { d, calls } = deps({ holdTake: async () => false })
+    const actions = localTakeActions(d)
+    await actions.retry(whole)
+    await actions.retry({ ...whole, action: { kind: 'recover', takeId: 'take-1' } })
+    expect(calls).toEqual([`said ${OPEN_ELSEWHERE}`, `said ${OPEN_ELSEWHERE}`])
+  })
+
+  it('a take filed behind the editor keeps its hold (its filing has it); one brought back lets go', async () => {
+    let filed = false
+    const { d, calls } = deps({ fileWhole: async () => { filed = true }, records: async () => (filed ? [record(1, { state: 'filing' })] : []) })
+    const actions = localTakeActions(d)
+    await actions.retry(whole)
+    await actions.retry({ ...whole, action: { kind: 'recover', takeId: 'take-1' } })
+    expect(calls).toEqual(['hold 1f', 'hold 1f', 'recover take-1', 'let go 1f'])
   })
 
   it('a take that has a record already is never filed whole again (it is on its way)', async () => {
     const { d, calls } = deps({ records: async () => [record(1, { state: 'filing' })] })
     await localTakeActions(d).retry(whole)
-    expect(calls).toEqual(['said This recording is being made into a video already.'])
+    expect(calls.filter((c) => !c.startsWith('hold') && !c.startsWith('let go'))).toEqual(['said This recording is being made into a video already.'])
   })
 
-  it('a filed take is carried on, an adopted one let go of (anyway only when the row says so)', async () => {
+  it('a filed take is carried on, an adopted one let go of (anyway only when the row says so), the second action on request', async () => {
     const { d, calls } = deps()
     const actions = localTakeActions(d)
     await actions.retry({ ...whole, action: { kind: 'adopt', projectId: 'p-1' } })
     await actions.retry({ ...whole, action: { kind: 'release', projectId: 'p-1' } })
-    await actions.retry({ ...whole, action: { kind: 'release', projectId: 'p-1', anyway: true } })
+    await actions.retry({ ...whole, action: { kind: 'adopt', projectId: 'p-1' }, alt: { action: { kind: 'release', projectId: 'p-1', anyway: true }, label: 'Let go of the files' } }, true)
     expect(calls).toEqual(['adopt p-1', 'release p-1', 'release p-1 anyway'])
   })
 
@@ -142,5 +193,24 @@ describe('Try again and Discard on a listed take', () => {
     const { d, calls } = deps({ inUse: async () => 'This recording is open in the editor. Leave its video first, then discard it.' })
     await localTakeActions(d).discard(S(1))
     expect(calls).toEqual(['said This recording is open in the editor. Leave its video first, then discard it.'])
+  })
+
+  it('Discard holds the take, and lets go of it even when the discard fails (no hold left renewing)', async () => {
+    const { d, calls } = deps({ discard: async () => { throw new Error('The folder could not be removed.') } })
+    await localTakeActions(d).discard(S(1))
+    expect(calls).toEqual(['hold 1f', 'let go 1f', 'said The folder could not be removed.'])
+    const elsewhere = deps({ holdTake: async () => false })
+    await localTakeActions(elsewhere.d).discard(S(1))
+    expect(elsewhere.calls).toEqual([`said ${OPEN_ELSEWHERE}`])
+  })
+})
+
+describe('why a listed take cannot be discarded now (what the hook hands Discard)', () => {
+  const none = { sending: new Set<string>(), records: [] as ProvisionalRecord[], open: new Set<string>() }
+  it('being sent, recording, or open in the editor', () => {
+    expect(inUseReason(S(1), none)).toBeNull()
+    expect(inUseReason(S(1), { ...none, sending: new Set([S(1)]) })).toMatch(/being sent to the Studio now/)
+    expect(inUseReason(S(1), { ...none, records: [record(1, { state: 'failed' })], open: new Set(['p-1']) })).toMatch(/open in the editor/)
+    expect(inUseReason(S(1), { ...none, records: [record(1, { state: 'failed' })], open: new Set(['p-2']) })).toBeNull()
   })
 })

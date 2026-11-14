@@ -330,10 +330,10 @@ fn valid_session_id(id: &str) -> bool {
 }
 
 /// Finish removing take folders the page let go of ([`RELEASED_FILE`]: the Studio holds every byte of the take, or
-/// the person discarded it) and remove folders older than [`KEEP_TAKES_FOR`] that hold no recording the Record dialog
-/// can show ([`listable_take`]: a screen file with a whole segment). A folder with such a recording is never removed by
-/// age: a take that is not settled (a draft, a lost track, a failed filing, never sent, another account's) stays until
-/// the person files or discards it, and the Record dialog lists it (the page's local takes, from
+/// the person discarded it) and remove folders older than [`KEEP_TAKES_FOR`] that hold no recording at all
+/// ([`holds_recording`]). A folder with a recording in it is never removed by age: a take that is not settled (a draft,
+/// a lost track, a failed filing, never sent, another account's, one whose screen recording failed) stays until the
+/// person files or discards it, and the Record dialog lists every such folder (the page's local takes, from
 /// [`studio_recorder_unfinished_takes`]). Only UUID-named folders directly under `base` are touched.
 pub fn sweep(base: &Path, keep_for: Duration, now: SystemTime) -> usize {
     let Ok(entries) = std::fs::read_dir(base) else { return 0 };
@@ -347,8 +347,8 @@ pub fn sweep(base: &Path, keep_for: Duration, now: SystemTime) -> usize {
             continue;
         }
         let released = path.join(RELEASED_FILE).exists();
-        // Kept by age only when the Record dialog shows it: never a folder kept for ever that nobody sees.
-        let recorded = listable_take(&path);
+        // Kept by age only when it holds a recording, and every such folder is shown: never one kept for ever unseen.
+        let recorded = holds_recording(&path);
         let written = meta.modified().unwrap_or(now);
         if (released || (!recorded && written < oldest)) && std::fs::remove_dir_all(&path).is_ok() {
             removed += 1;
@@ -1560,33 +1560,46 @@ pub async fn studio_recorder_unfinished_takes(app: AppHandle, holder: Option<Str
     Ok(json!({ "takes": unfinished_in(&base, &busy, signed_in_user(&app).as_deref()) }))
 }
 
-/// Whether a take folder holds a recording the Record dialog can show: its screen file with a whole segment indexed.
-/// The sweep keeps by age exactly these ([`sweep`]), and [`unfinished_in`] lists every one of them.
-pub fn listable_take(dir: &Path) -> bool {
+/// Whether a take folder holds a recording: any of its files with bytes in it. The sweep keeps by age exactly these
+/// ([`sweep`]), and [`unfinished_in`] lists every one of them.
+pub fn holds_recording(dir: &Path) -> bool {
+    ["screen", "camera", "microphone", "system-audio"].iter().filter_map(|role| role_file(role)).any(|name| std::fs::metadata(dir.join(name)).is_ok_and(|m| m.len() > 0))
+}
+
+/// Whether a take folder's screen recording can make a video: its file with a whole segment indexed.
+pub fn screen_usable(dir: &Path) -> bool {
     segments_of(dir, "screen").is_ok_and(|(file, segments)| file.exists() && !segments.is_empty())
 }
 
-/// [`studio_recorder_unfinished_takes`] over a takes folder: every UUID-named take folder with a screen segment
-/// ([`listable_take`]), not in `busy`; another account's by its size only (`otherAccount`). Nothing while nobody is signed
-/// in. Pure but for reading the folder.
+/// A take's files by size alone (`{role, bytes}`): the indexed end of each, or the file's length when it has no index.
+fn sizes_of(dir: &Path) -> Vec<Value> {
+    ["screen", "camera", "microphone", "system-audio"].iter().filter_map(|role| {
+        let (file, segments) = segments_of(dir, role).ok()?;
+        let bytes = if segments.is_empty() { std::fs::metadata(&file).map(|m| m.len()).unwrap_or(0) } else { indexed_end(&segments) };
+        (bytes > 0).then(|| json!({ "role": role, "bytes": bytes }))
+    }).collect()
+}
+
+/// [`studio_recorder_unfinished_takes`] over a takes folder: every UUID-named take folder that holds a recording
+/// ([`holds_recording`]), not in `busy`. Another account's, and one whose screen recording cannot make a video
+/// (`screenMissing`), by their sizes only, with Discard only. Nothing while nobody is signed in. Pure but for reading the
+/// folder.
 pub fn unfinished_in(base: &Path, busy: &std::collections::HashSet<String>, signed_in: Option<&str>) -> Vec<Value> {
     let mut out = Vec::new();
     let Ok(entries) = std::fs::read_dir(base) else { return out };
     for entry in entries.flatten() {
         let dir = entry.path();
         let Some(session_id) = dir.file_name().and_then(|n| n.to_str()).filter(|n| valid_session_id(n)).map(str::to_string) else { continue };
-        if busy.contains(&session_id) || !entry.file_type().is_ok_and(|t| t.is_dir()) || signed_in.is_none() || !listable_take(&dir) {
+        if busy.contains(&session_id) || !entry.file_type().is_ok_and(|t| t.is_dir()) || signed_in.is_none() || !holds_recording(&dir) {
             continue;
         }
-        if account_check(read_owner(&dir).as_deref(), signed_in).is_err() {
-            // Another account's take: its size and age, nothing it holds (no take id, no stop payload, no draft).
-            let tracks: Vec<Value> = ["screen", "camera", "microphone", "system-audio"].iter().filter_map(|role| {
-                let (file, segments) = segments_of(&dir, role).ok()?;
-                (file.exists() && !segments.is_empty()).then(|| json!({ "role": role, "bytes": indexed_end(&segments) }))
-            }).collect();
+        let other = account_check(read_owner(&dir).as_deref(), signed_in).is_err();
+        if other || !screen_usable(&dir) {
+            // Another account's take, or one with no screen to make a video of: its sizes and age only (no take id, no
+            // stop payload, no draft), for Discard.
             let modified = std::fs::metadata(&dir).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64);
-            out.push(json!({ "sessionId": session_id, "takeId": Value::Null, "state": "other-account", "tracks": tracks, "otherAccount": true,
-                             "hasDraft": false, "draftUnreadable": false, "stop": Value::Null, "modifiedMs": modified }));
+            out.push(json!({ "sessionId": session_id, "takeId": Value::Null, "state": if other { "other-account" } else { "no-screen" }, "tracks": sizes_of(&dir),
+                             "otherAccount": other, "screenMissing": !other, "hasDraft": false, "draftUnreadable": false, "stop": Value::Null, "modifiedMs": modified }));
             continue;
         }
         let link = read_link(&dir).unwrap_or_default();
@@ -2640,8 +2653,8 @@ mod tests {
             std::fs::write(dir.join("screen.mp4.segments"), "init 0 600\nmedia 600 1000 2.000000\n").unwrap();
         }
         std::fs::write(drafted.join(DRAFT_FILE), b"{}").unwrap();
-        // Old folders the Record dialog could never show (a crash before the first screen segment, a failed screen
-        // writer): they go by age, as before, never kept for ever unseen.
+        // Old folders whose screen recording cannot make a video (a crash before the first screen segment, a failed screen
+        // writer): a person's microphone or camera in them is never deleted unseen. Kept, and listed (Discard only).
         let unindexed = base.path().join(uuid::Uuid::new_v4().to_string());
         std::fs::create_dir_all(&unindexed).unwrap();
         std::fs::write(unindexed.join("screen.mp4"), b"recorded").unwrap();
@@ -2654,9 +2667,9 @@ mod tests {
         std::fs::write(released.join("microphone.m4a"), b"recorded").unwrap();
         std::fs::write(released.join(RELEASED_FILE), b"").unwrap();
         let later = SystemTime::now() + Duration::from_secs(400 * 24 * 60 * 60);
-        assert_eq!(sweep(base.path(), KEEP_TAKES_FOR, later), 4);
+        assert_eq!(sweep(base.path(), KEEP_TAKES_FOR, later), 2);
         assert!(!old.exists(), "an old folder with no recording in it");
-        assert!(!unindexed.exists() && !no_screen.exists(), "an old folder with no screen segment the dialog could show");
+        assert!(unindexed.exists() && no_screen.exists(), "a folder with a recording but no usable screen is kept");
         assert!(!released.exists(), "a take let go of");
         assert!(drafted.exists() && unsettled.exists(), "a take with a recording is never removed by its age");
         assert!(other.exists(), "only UUID-named take folders are ever removed");
@@ -2676,7 +2689,7 @@ mod tests {
         take_dir(base.path(), "2f2f2f2f-1111-4222-8333-444444444444", Some("user-2"), Some(linked));
         let drafted = take_dir(base.path(), "3f3f3f3f-1111-4222-8333-444444444444", Some("user-1"), None);
         std::fs::write(drafted.join(DRAFT_FILE), br#"{"v":2}"#).unwrap();
-        // Folders the dialog cannot show: a screen file with no segment indexed, a microphone alone.
+        // Folders with no screen to make a video of: a screen file with no segment indexed, a microphone alone.
         let unindexed = base.path().join("4f4f4f4f-1111-4222-8333-444444444444");
         std::fs::create_dir_all(&unindexed).unwrap();
         std::fs::write(unindexed.join("screen.mp4"), b"recorded").unwrap();
@@ -2690,6 +2703,11 @@ mod tests {
         let mut listed: Vec<String> = unfinished_in(base.path(), &std::collections::HashSet::new(), Some("user-1")).into_iter().map(|t| t["sessionId"].as_str().unwrap().to_string()).collect();
         listed.sort();
         assert_eq!(kept, listed, "every folder kept is shown, and only those");
-        assert_eq!(kept.len(), 4);
+        assert_eq!(kept.len(), 6);
+        let rows = unfinished_in(base.path(), &std::collections::HashSet::new(), Some("user-1"));
+        let row = |id: &str| rows.iter().find(|t| t["sessionId"] == id).unwrap().clone();
+        assert_eq!((row("5f5f5f5f-1111-4222-8333-444444444444")["screenMissing"].clone(), row("5f5f5f5f-1111-4222-8333-444444444444")["tracks"].clone()), (json!(true), json!([{ "role": "microphone", "bytes": 8 }])), "its microphone, by size, Discard only");
+        assert_eq!(row("4f4f4f4f-1111-4222-8333-444444444444")["screenMissing"], json!(true));
+        assert_eq!(row(SESSION)["screenMissing"], Value::Null, "a take with its screen is listed as before");
     }
 }

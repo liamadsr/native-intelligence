@@ -3,7 +3,7 @@
 // every step, reading a filed video again after a failure, and what the header says when the draft cannot be kept.
 import { describe, expect, it, vi } from 'vitest'
 import type { EditorProject } from '@/lib/studio/engine/contracts'
-import { carriedDigest, historyWithWords, lateTranscripts, markEditorAdopted, notSavedHere, rewriteHistory, saveRefusal, whenIdle, withRetries, withTranscripts, type History } from '../provisional-editor'
+import { carriedDigest, historyWithWords, lateTranscripts, markEditorAdopted, notSavedHere, remoteAddedTranscripts, rewriteHistory, saveOwedAfter, saveRefusal, whenIdle, withRetries, withTranscripts, type History } from '../provisional-editor'
 
 const step = (title: string) => ({ id: 'p', title }) as unknown as EditorProject
 const titles = (h: History) => ({ past: h.past.map((p) => p.title), current: h.current.title, future: h.future.map((p) => p.title) })
@@ -78,6 +78,21 @@ describe('the third review', () => {
     expect(withTranscripts(video(), added).transcripts.map((t) => t.id)).toEqual(['t-voice'])
     expect(withTranscripts(video({ transcripts: [transcript('mine', 'voice')] }), added).transcripts.map((t) => t.id)).toEqual(['mine'])
     expect(withTranscripts(video({ assets: [{ id: 'screen' }] }), added).transcripts).toEqual([])
+  })
+
+  it('a save is owed only when the edit carried on differs from the Studio’s (a dropped word correction owes none)', () => {
+    expect(saveOwedAfter(true, video(), video())).toBe(false)
+    expect(saveOwedAfter(true, video({ title: 'Edited' }), video())).toBe(true)
+    expect(saveOwedAfter(false, video({ title: 'Edited' }), video())).toBe(false)
+  })
+
+  it('Keep mine carries over only the transcripts the other version added (never one this edit took away)', () => {
+    const saved = video({ transcripts: [transcript('old', 'screen')] })
+    const remote = video({ transcripts: [transcript('old', 'screen'), transcript('late', 'voice')] })
+    expect(remoteAddedTranscripts(saved, remote).map((t) => t.id)).toEqual(['late'])
+    expect(remoteAddedTranscripts(null, remote)).toEqual([])
+    // This edit removed the screen's transcript: it is not brought back; the voice's late words are added.
+    expect(withTranscripts(video(), remoteAddedTranscripts(saved, remote)).transcripts.map((t) => t.id)).toEqual(['late'])
   })
 
   it('an edited draft is saved over the Studio’s edit as first filed (a video changed since refuses it)', () => {

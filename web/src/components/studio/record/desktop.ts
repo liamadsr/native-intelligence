@@ -480,8 +480,8 @@ async function sendAll(native: StudioRecorderBridge, api: LiveApi, skip: Readonl
     const local = obj(value)
     const sessionId = str(local.sessionId)
     const takeId = str(local.takeId)
-    // Another account's take is listed for its size only: never sent from this one.
-    if (!sessionId || !takeId || skip.has(sessionId) || local.otherAccount === true) continue
+    // Another account's take, or one with no screen to make a video of, is listed for its size only: never sent.
+    if (!sessionId || !takeId || skip.has(sessionId) || local.otherAccount === true || local.screenMissing === true) continue
     // One take at a time (one run at a time): this one until the next, or the run's end.
     beingSent.clear()
     beingSent.add(sessionId)

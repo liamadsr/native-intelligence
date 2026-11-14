@@ -224,6 +224,8 @@ export type FilerDeps = {
   onWords?: (projectId: string, words: TakeWord[]) => void
   /** A take's files were kept when they were to go (the Studio does not hold every byte): why, in plain words. */
   onKept?: (projectId: string, note: string) => void
+  /** The Studio refused the Mac's words for good: said once, in plain words. */
+  onWordsDropped?: (projectId: string, note: string) => void
 }
 
 /** The waits between tries at sending the words, then a minute at a time until they are sent. */
@@ -235,13 +237,19 @@ const BRING_BACK_ROUNDS = 40
 const onlyTheConnection = (cause: unknown) => cause instanceof TypeError || (cause as { code?: unknown } | null)?.code === 'NETWORK'
 
 /**
- * The Studio's answer is a no that asking again will not change: a 4xx (the client's `status`, ui/client.ts) other than
- * BUSY (the recording is being put together), a timeout or too many requests.
+ * What the Studio's answer to the words means (the client's `status`, ui/client.ts): `final`, a no that asking again will
+ * not change (400 words it cannot read, 403 another person's, 413 too many); `missing`, a 404, which can also be this
+ * page looking in another workspace than the recording's (so it is final only after WORDS_MISSES_FOR_GOOD launches say
+ * so); null, anything else (BUSY, no connection, a 401 while the session renews, the Studio down): tried again.
  */
-export const refusedForGood = (cause: unknown) => {
+export function wordsRefusal(cause: unknown): 'final' | 'missing' | null {
   const { status, code } = (cause ?? {}) as { status?: unknown; code?: unknown }
-  return typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 429 && code !== 'BUSY'
+  if (code === 'BUSY') return null
+  if (status === 400 || status === 403 || status === 413) return 'final'
+  return status === 404 ? 'missing' : null
 }
+/** How many pages (launches, reloads) must find the recording missing before its words are given up. */
+export const WORDS_MISSES_FOR_GOOD = 3
 
 /** The recording the Studio made from the take failed: the take is made again from a fresh copy (never followed again). */
 class RecordingFailed extends Error {}
@@ -255,6 +263,10 @@ export class Filer {
   private running = new Set<string>()
   private words = new Map<string, TakeWord[]>()
   private sendingWords = new Set<string>()
+  /** Takes whose words this page stopped sending (their recording missing here): not waited for again by this page. */
+  private wordsStopped = new Set<string>()
+  /** Sessions whose recorder said it heard nothing (before their record was kept). */
+  private heardNothing = new Set<string>()
   readonly records: ReturnType<typeof recordKeeper>
   constructor(private readonly deps: FilerDeps) {
     this.records = recordKeeper(deps.store)
@@ -273,6 +285,7 @@ export class Filer {
     // Words that came between Stop and the record being kept: into it now (they reached only memory until then).
     const early = this.words.get(take.sessionId)
     if (early?.length) await this.heard(take.sessionId, early)
+    else if (this.heardNothing.has(take.sessionId)) await this.nothingHeard(take.sessionId)
     await this.file(projectId, false)
   }
 
@@ -434,11 +447,31 @@ export class Filer {
     await this.bringBack(projectId)
   }
 
-  /** The app's words event (or its kept words.json): moved onto the screen's clock with the take's own shift. */
+  /**
+   * The app's words event (or its kept words.json): moved onto the screen's clock with the take's own shift. The app sends
+   * one event per take, with no words (null) when it heard nothing, its model failed or ran out of time: nothing is left
+   * to wait for then.
+   */
   async heardRaw(sessionId: string, transcript: unknown, shiftMs?: number): Promise<void> {
     const record = (await this.deps.store.list().catch(() => [] as ProvisionalRecord[])).find((r) => r.sessionId === sessionId)
     const shift = shiftMs ?? this.takeOf(sessionId)?.wordsShiftMs ?? record?.take?.wordsShiftMs ?? 0
-    await this.heard(sessionId, wordsOnScreenClock(transcript, shift), record)
+    const words = wordsOnScreenClock(transcript, shift)
+    if (words.length) await this.heard(sessionId, words, record)
+    else await this.nothingHeard(sessionId, record)
+  }
+
+  /** The app's `studio-recorder://words` event, as it comes (`transcript` null when the recorder heard nothing). */
+  wordsEvent(event: { sessionId?: unknown; transcript?: unknown } | null | undefined): Promise<void> {
+    return typeof event?.sessionId === 'string' ? this.heardRaw(event.sessionId, event.transcript ?? null) : Promise.resolve()
+  }
+
+  /** The recorder heard nothing: the record waits for no words (only the page that holds the take writes it). */
+  private async nothingHeard(sessionId: string, known?: ProvisionalRecord): Promise<void> {
+    if (!this.deps.leases.holds(sessionId)) return
+    this.heardNothing.add(sessionId)
+    const record = known ?? (await this.deps.store.list().catch(() => [] as ProvisionalRecord[])).find((r) => r.sessionId === sessionId)
+    if (!record) return
+    await this.records.update(record.projectId, (r) => (r.heard?.length || !r.take?.wordsPending ? r : { ...r, take: { ...r.take, wordsPending: false } })).catch(() => undefined)
   }
 
   private takeOf(sessionId: string): FinishedTake | undefined {
@@ -472,15 +505,24 @@ export class Filer {
         const record = await this.deps.store.get(projectId).catch(() => null)
         const words = record ? (this.words.get(record.sessionId) ?? record.heard) : undefined
         // Nothing to send, sent already or refused for good, or not handed over yet (they go with the recording then).
-        if (!record?.recordingId || record.wordsSent || record.wordsRefused || !words?.length) return
+        if (!record?.recordingId || record.wordsSent || record.wordsRefused || this.wordsStopped.has(projectId) || !words?.length) return
         try {
           await this.deps.api.post(`${recordingUrl(record.recordingId)}/words`, wordsBody(words))
           await this.records.update(projectId, (r) => ({ ...r, wordsSent: true }))
           return
         } catch (cause) {
-          // The Studio's own no (the recording is gone, another person's, words it cannot read): never asked again.
-          if (refusedForGood(cause)) {
+          const refusal = wordsRefusal(cause)
+          // Missing here: this page stops (and does not wait on them again); a few launches in a row make it final.
+          if (refusal === 'missing') {
+            this.wordsStopped.add(projectId)
+            const counted = await this.records.update(projectId, (r) => ({ ...r, wordsMisses: (r.wordsMisses ?? 0) + 1 })).catch(() => null)
+            if ((counted?.wordsMisses ?? 0) < WORDS_MISSES_FOR_GOOD) return
+          }
+          // The Studio's own no (another person's, words it cannot read, or missing every time): never asked again, said once.
+          if (refusal) {
+            const before = record.wordsRefused
             await this.records.update(projectId, (r) => ({ ...r, wordsRefused: true })).catch(() => undefined)
+            if (!before) this.deps.onWordsDropped?.(projectId, `The words the Mac heard could not be added to this recording's video (${errorText(cause)}). You can transcribe it from the Words tab.`)
             return
           }
           await this.deps.sleep(WORD_RETRIES_MS[Math.min(attempt, WORD_RETRIES_MS.length - 1)]!)
@@ -499,7 +541,7 @@ export class Filer {
     for (let waited = 0; ; waited += every) {
       const record = await this.deps.store.get(projectId).catch(() => null)
       if (!record) return true
-      const waiting = record.wordsRefused ? false : record.heard?.length ? !record.wordsSent : !!record.take?.wordsPending && !record.wordsSent
+      const waiting = record.wordsRefused || this.wordsStopped.has(projectId) ? false : record.heard?.length ? !record.wordsSent : !!record.take?.wordsPending && !record.wordsSent
       if (!waiting) return true
       if (waited >= limitMs || !this.deps.alive()) return false
       await this.deps.sleep(every)

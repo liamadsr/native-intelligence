@@ -13,7 +13,7 @@ import { createVideo, openVideo, saveVideo } from '@/lib/studio/server/videos'
 import { fakeContext } from '@/lib/studio/server/__tests__/fake'
 import { adoptFiled, withoutTranscripts, filedAssets, hrefsFor, localTakeHref, matchWords, memoryDraftStore, nativeDraftStore, provisionalDraft, provisionalRecord, swapAssets, withWords, type LocalMedia } from '../provisional'
 import type { FinishedTake } from '../types'
-import { adoptKept, markEditorAdopted } from '../../ui/provisional-editor'
+import { adoptKept, CHANGED_ELSEWHERE, markEditorAdopted } from '../../ui/provisional-editor'
 
 const KEY = 'k'.repeat(64)
 
@@ -377,5 +377,85 @@ describe('the second review', () => {
     const other = { ...studio.project, id: '9e9e9e9e-1111-4222-8333-444444444444' }
     expect(adoptFiled(record, edit(draft.project), other).project.id).toBe(other.id)
     expect(adoptFiled(record, draft.project, other).project.id).toBe(other.id)
+  })
+})
+
+describe('the fourth review: a filed take is never stuck', () => {
+  const recordsOf = (store: ReturnType<typeof memoryDraftStore>, refuseAdopted = { on: false }) => ({ update: async (id: string, fn: (r: NonNullable<Awaited<ReturnType<typeof store.get>>>) => unknown) => {
+    const r = await store.get(id); const next = r && (fn(r) as typeof r)
+    if (next?.state === 'adopted' && refuseAdopted.on) throw new Error('The disk is full.')
+    if (next) await store.put(next); return next
+  } })
+  const filedRecord = async (store: ReturnType<typeof memoryDraftStore>) => {
+    const draft = draftOf()
+    await store.put({ ...provisionalRecord(draft, { sessionId: SESSION, takeId: null, title: 't', files: take.files }), draft: edit(draft.project), recordingId: 'r-1', state: 'filed' })
+  }
+  const real = { read: () => openVideo(env.ctx, PROJECT), save: (_id: string, p: EditorProject, digest: string) => saveVideo(env.ctx, p, digest) }
+
+  it('the save landed but its answer was lost: the next try sees the edit on the video and is done (never a conflict)', async () => {
+    const store = memoryDraftStore()
+    await filedRecord(store)
+    await studioFiles()
+    const release = vi.fn(async () => ({ safe: true }))
+    const lost = async (_id: string, p: EditorProject, digest: string) => { await saveVideo(env.ctx, p, digest); throw new TypeError('Failed to fetch') }
+    expect((await adoptKept({ store, records: recordsOf(store), ...real, save: lost, release }, PROJECT)).outcome).toBe('network')
+    const save = vi.fn(real.save)
+    const again = await adoptKept({ store, records: recordsOf(store), ...real, save, release }, PROJECT)
+    expect(again.outcome).toBe('saved')
+    expect(save).not.toHaveBeenCalled()
+    expect((await store.get(PROJECT))!.state).toBe('adopted')
+    expect(release).toHaveBeenCalledWith(PROJECT)
+  })
+
+  it('the save landed but the note after it could not be written: the next try is done, not a conflict', async () => {
+    const store = memoryDraftStore()
+    await filedRecord(store)
+    await studioFiles()
+    const release = vi.fn(async () => ({ safe: true }))
+    const refuse = { on: true }
+    expect((await adoptKept({ store, records: recordsOf(store, refuse), ...real, release }, PROJECT)).outcome).toBe('saved')
+    expect((await store.get(PROJECT))!.state).toBe('filed')
+    refuse.on = false
+    expect((await adoptKept({ store, records: recordsOf(store), ...real, release }, PROJECT)).outcome).toBe('saved')
+    expect((await store.get(PROJECT))!.state).toBe('adopted')
+  })
+
+  it('the save never reached the Studio, then the Mac’s late words moved the video: they go into the edit, which is saved', async () => {
+    const store = memoryDraftStore()
+    await filedRecord(store)
+    const studio = await studioFiles({ noWords: true })
+    const release = vi.fn(async () => ({ safe: true }))
+    expect((await adoptKept({ store, records: recordsOf(store), ...real, save: async () => { throw new TypeError('Failed to fetch') }, release }, PROJECT)).outcome).toBe('network')
+    // The Studio registers the words and adds them to the video (recordings.ts addRecordingWords).
+    const voice = studio.finals.microphone
+    const words = wordsOnVoiceClock(take.transcript!.words, { asset: voice, offsetSeconds: -0.044 })
+    const late = await registerTranscript(env.ctx, toTranscript(voice, { words, text: words.map((w) => w.text).join(' ') }, 'imported', hex('8'), 'Microphone imported transcript'))
+    const opened = await openVideo(env.ctx, PROJECT)
+    await saveVideo(env.ctx, { ...opened.project, transcripts: [...opened.project.transcripts, late] }, opened.projectDigest)
+    const result = await adoptKept({ store, records: recordsOf(store), ...real, release }, PROJECT)
+    expect(result.outcome).toBe('saved')
+    const now = (await openVideo(env.ctx, PROJECT)).project
+    expect(now.title).toBe('Launch walkthrough')
+    expect(now.transcripts.map((t) => t.id)).toContain(late.id)
+    // A real change made there since is still the person's choice: the row then names it.
+    await store.put({ ...(await store.get(PROJECT))!, state: 'filed' })
+    const latest = await openVideo(env.ctx, PROJECT)
+    await saveVideo(env.ctx, { ...latest.project, title: 'Their title' }, latest.projectDigest)
+    expect((await adoptKept({ store, records: recordsOf(store), ...real, release }, PROJECT)).outcome).toBe('conflict')
+    expect((await store.get(PROJECT))!.failed).toBe(CHANGED_ELSEWHERE)
+  })
+
+  it('adopted in the editor with its last edits owed: Put my edits on it saves them (and clears what was owed)', async () => {
+    const store = memoryDraftStore()
+    await filedRecord(store)
+    const studio = await studioFiles()
+    await markEditorAdopted(recordsOf(store), PROJECT, studio.digest, true, studio.project)
+    expect((await store.get(PROJECT))!.saveOwed).toBe(true)
+    const release = vi.fn(async () => ({ safe: true }))
+    expect((await adoptKept({ store, records: recordsOf(store), ...real, release }, PROJECT)).outcome).toBe('saved')
+    expect((await openVideo(env.ctx, PROJECT)).project.title).toBe('Launch walkthrough')
+    expect((await store.get(PROJECT))!).toMatchObject({ state: 'adopted' })
+    expect((await store.get(PROJECT))!.saveOwed).toBeUndefined()
+    expect((await adoptKept({ store, records: recordsOf(store), ...real, release }, PROJECT)).outcome).toBe('already')
   })
 })

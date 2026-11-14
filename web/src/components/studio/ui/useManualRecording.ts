@@ -3,7 +3,7 @@ import type { EditorProject } from '@/lib/studio/engine/contracts';
 import { openRecorder, listBrowserDevices, unlockDeviceLabels, uploadTake, submitTake, recordingRequest, plainError, listSavedTakes, discardSavedTake, recoverSavedTake, type BrowserRecorder, type DesktopRecorder, type DeviceOption, type EndReason, type FinishedTake, type LiveTrackStatus, type Recorder, type RecorderPermissionName, type RecorderPermissions, type RecorderTargets, type SavedTake, type ScreenChoice, type SharedSurface, type TakePlacement, type UploadProgress, type RecordingAnswer } from '../record';
 import { nativeDraftStore, provisionalRecord, type Draft, type DraftBridge, type DraftStore, type FilingState } from '../record/provisional';
 import { Filer, localTracks, settleRecording, type FilingApi, type Settled } from '../record/filing';
-import { listedTakes, localTakeActions, localTakeRows, type LocalTakeRow } from '../record/local-takes';
+import { inUseReason, listedTakes, localTakeActions, localTakeRows, type LocalTakeRow } from '../record/local-takes';
 import { normalizeStop, takesBeingSent } from '../record/desktop';
 import type { TakeWord } from '../record/types';
 import { request } from './client';
@@ -80,10 +80,10 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
           sendUnfinished: () => desktop.sendUnfinished(),
           onState: (projectId, next) => filingStateRef.current(projectId, next), onFiled: (projectId) => markFiledRef.current(projectId),
           onWords: (projectId, words) => { if (mounted.current) setHeard(all => ({ ...all, [projectId]: words })); },
-          onKept: (_projectId, note) => notifyRef.current(note, true) });
+          onKept: (_projectId, note) => notifyRef.current(note, true), onWordsDropped: (_projectId, note) => notifyRef.current(note, true) });
         // The words the Mac heard arrive after Stop: each take's filing takes them in.
         const words = (desktop.app as { onWords?: (cb: (event: { sessionId: string; transcript: unknown }) => void) => Promise<() => void> | (() => void) }).onWords;
-        if (typeof words === 'function') void Promise.resolve(words(event => { if (event.transcript) void filer.current?.heardRaw(event.sessionId, event.transcript); })).then(off => { if (!alive) off(); else stopWords.current = off; }).catch(() => undefined);
+        if (typeof words === 'function') void Promise.resolve(words(event => { void filer.current?.wordsEvent(event); })).then(off => { if (!alive) off(); else stopWords.current = off; }).catch(() => undefined);
         // The page goes (a reload, a closed window): its holds go at once, so the next page or another window takes over.
         const leave = () => desktop.leases.releaseAll(); window.addEventListener('pagehide', leave); leaveRef.current = () => window.removeEventListener('pagehide', leave);
         setDrafts(store); setRecorderState({ state: 'desktop' }); }
@@ -323,7 +323,7 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
       // nor a take shown already as kept on the Studio (its banner brings it back with the files here).
       const recording = new Set([...(desktop.liveSessions?.() ?? []), ...takesBeingSent()]);
       const onStudio = new Set(savedTakesRef.current.map(take => take.id));
-      const rows = localTakeRows(listedTakes(raw).filter(take => !recording.has(take.sessionId)), records, busyHere());
+      const rows = localTakeRows(listedTakes(raw).filter(take => !recording.has(take.sessionId)), records, busyHere(), sessionId => desktop.leases.holds(sessionId));
       if (mounted.current) setLocalTakes(rows.filter(row => !(row.action.kind === 'recover' && onStudio.has(row.action.takeId))));
     } catch { /* an app without the list: nothing to show */ }
   }, [drafts]);
@@ -355,21 +355,19 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
       await finishRef.current(id, take, { kind: 'new' });
     },
     records: async () => (draftsRef.current ? draftsRef.current.list() : []),
-    discard: async sessionId => { const desktop = recorder.current as DesktopRecorder; await desktop.app.discard(sessionId); await desktop.leases.release(sessionId); },
+    discard: async sessionId => { await (recorder.current as DesktopRecorder).app.discard(sessionId); },
     inUse: async sessionId => {
       const desktop = recorder.current as DesktopRecorder;
-      if (takesBeingSent().has(sessionId) || desktop.liveSessions?.().includes(sessionId)) return 'This recording is being sent to the Studio now. Try again in a moment.';
-      const record = (await (draftsRef.current?.list() ?? Promise.resolve([]))).find(r => r.sessionId === sessionId);
-      if (record && busyHere().has(record.projectId)) return 'This recording is open in the editor. Leave its video first, then discard it.';
-      if (!(await desktop.leases.hold(sessionId))) return 'This recording is open in another window.';
-      return null;
+      return inUseReason(sessionId, { sending: new Set([...takesBeingSent(), ...(desktop.liveSessions?.() ?? [])]), records: await (draftsRef.current?.list() ?? Promise.resolve([])), open: busyHere() });
     },
+    holdTake: sessionId => (recorder.current as DesktopRecorder).leases.hold(sessionId),
+    letGoTake: sessionId => (recorder.current as DesktopRecorder).leases.release(sessionId),
     notify: (text, error) => notifyRef.current(text, error),
     refresh: () => void refreshLocalTakesRef.current(),
     onBusy: ids => { if (mounted.current) setLocalBusy(ids); },
   });
   /** Try again on a take kept on this computer: filed (or let go of, once the Studio holds every byte), from what it is. */
-  const retryLocal = useCallback(async (row: LocalTakeRow) => { if (recorder.current?.kind === 'desktop') await localActions.current!.retry(row); }, []);
+  const retryLocal = useCallback(async (row: LocalTakeRow, alt = false) => { if (recorder.current?.kind === 'desktop') await localActions.current!.retry(row, alt); }, []);
   /** Discard a take kept on this computer, for good (the person asked twice). */
   const discardLocal = useCallback(async (sessionId: string) => { if (recorder.current?.kind === 'desktop') await localActions.current!.discard(sessionId); }, []);
   /** Make a saved take a new video from what reached the Studio, followed like a finished take. */

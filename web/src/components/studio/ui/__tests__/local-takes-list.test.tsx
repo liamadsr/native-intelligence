@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { LocalTakeBanner } from '../RecordDialog'
+import { LocalTakeBanner, RecordDialog } from '../RecordDialog'
 import type { LocalTakeRow } from '../../record/local-takes'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -47,11 +47,25 @@ describe('a take kept on this computer, in the Record dialog', () => {
     await click('Discard…')
     expect(document.body.textContent).toContain('Its 42 MB on this computer and the edits made to it are deleted. This cannot be undone.')
   })
-  it('its buttons wait while it is being worked on', async () => {
-    const retry = vi.fn()
-    await render(<LocalTakeBanner row={row} retry={retry} discard={vi.fn()} busy />)
-    expect(button('Try again')!.disabled).toBe(true)
-    expect(button('Discard…')!.disabled).toBe(true)
+  it('in the Record dialog, a take being worked on (the hook’s localBusy) waits; the others do not; its second action says what it does', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.includes('/recordings') ? { recordings: [] } : {})))
+    const noop = () => {}, anoop = async () => {}
+    const other: LocalTakeRow = { ...row, sessionId: '1f1f1f1f-1111-4222-8333-444444444444', problem: 'Owed.', action: { kind: 'adopt', projectId: 'p-2' }, label: 'Put my edits on it', alt: { action: { kind: 'release', projectId: 'p-2', anyway: true }, label: 'Let go of the files' } }
+    const retryLocal = vi.fn(anoop)
+    const rec = { recorderState: { state: 'desktop' }, targets: null, permissions: null, browserDevices: null, share: null, sessions: [], selected: null, active: null,
+      loadingTargets: false, working: false, error: null, uploads: [], liveTracks: [], savedTakes: [], localTakes: [row, other], localBusy: [row.sessionId], retryLocal, discardLocal: vi.fn(anoop),
+      refreshTargets: anoop, chooseShare: anoop, clearShare: noop, stop: anoop, cancel: anoop, retry: anoop, mark: noop, recoverSaved: anoop, discardSaved: anoop, unlockDevices: anoop, requestPermissions: anoop, checkPermissions: anoop }
+    await render(<RecordDialog title="New recording" close={noop} recording={rec as never} start={anoop} open={noop} />)
+    const groups = [...document.querySelectorAll('[aria-label="A recording kept on this computer"]')] as HTMLElement[]
+    const inGroup = (g: HTMLElement, name: string) => [...g.querySelectorAll('button')].find((b) => b.textContent === name)!
+    expect(inGroup(groups[0]!, 'Try again').disabled).toBe(true)
+    expect(inGroup(groups[0]!, 'Discard…').disabled).toBe(true)
+    expect(inGroup(groups[1]!, 'Put my edits on it').disabled).toBe(false)
+    await act(async () => { inGroup(groups[1]!, 'Let go of the files').click() })
+    expect(retryLocal).toHaveBeenCalledWith(other, true)
+    await act(async () => { inGroup(groups[1]!, 'Put my edits on it').click() })
+    expect(retryLocal).toHaveBeenLastCalledWith(other, undefined)
+    vi.unstubAllGlobals()
   })
   it('a take nothing can be made of offers Discard only', async () => {
     await render(<LocalTakeBanner row={{ ...row, action: { kind: 'none' } }} retry={vi.fn()} discard={vi.fn()} />)

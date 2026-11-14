@@ -4,7 +4,7 @@
 // proved against its code in lib/studio/server/__tests__/live-takes.test.ts ('a track that did not make it, sent
 // again', 'the Mac's words arriving after the take'). Made-up take, hashes and words.
 import { describe, expect, it, vi } from 'vitest'
-import { compareFiled, Filer, PageLeases, refusedForGood, releaseWhenSafe, settleRecording, type FilingApi, type LocalTrack } from '../filing'
+import { compareFiled, Filer, PageLeases, releaseWhenSafe, settleRecording, wordsRefusal, WORDS_MISSES_FOR_GOOD, type FilerDeps, type FilingApi, type LocalTrack } from '../filing'
 import { memoryDraftStore, provisionalDraft, provisionalRecord, type ProvisionalRecord } from '../provisional'
 import type { FinishedTake, TakeRole } from '../types'
 import type { RecordingView } from '@/lib/studio/server/recordings'
@@ -125,7 +125,7 @@ function mac() {
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 const none = async () => undefined
 
-function setup(s = studio(), m = mac(), store = memoryDraftStore(), holder = 'page-a') {
+function setup(s = studio(), m = mac(), store = memoryDraftStore(), holder = 'page-a', more: Partial<FilerDeps> = {}) {
   const states: Record<string, { failed?: string; step: string } | null> = {}
   const filed: string[] = []
   const uploaded: { session: string; whole: boolean }[] = []
@@ -142,6 +142,7 @@ function setup(s = studio(), m = mac(), store = memoryDraftStore(), holder = 'pa
     sendUnfinished: async () => { order.push('send the last pieces'); return 1 },
     onState: (projectId, state) => { states[projectId] = state },
     onFiled: (projectId) => filed.push(projectId),
+    ...more,
   })
   return { filer, s, m, store, states, filed, uploaded, order, leases, kept }
 }
@@ -473,15 +474,16 @@ describe('the third review', () => {
     expect(await filer.wordsSettled(PROJECT, 0)).toBe(true)
   })
 
-  it('words the Studio refuses for good are never sent again (a deleted recording, another member)', async () => {
-    const { filer, s, store, leases } = setup()
-    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-gone', heard: words })
+  it('words the Studio refuses for good are never sent again (another member), and the person is told once', async () => {
+    const dropped: string[] = []
+    const { filer, s, store, leases } = setup(studio(), mac(), memoryDraftStore(), 'page-a', { onWordsDropped: (_id, note) => void dropped.push(note) })
+    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-other', heard: words })
     await leases.hold(SESSION)
     const post = s.api.post.bind(s.api)
     let tries = 0
     s.api.post = (async <T,>(url: string, body?: unknown): Promise<T> => {
       // Refused a few times, then taken (so a filing that asks for ever is caught by the count, never hangs the test).
-      if (url.endsWith('/words')) { if (++tries <= 5) throw Object.assign(new Error('Recording not found'), { status: 404, code: 'NOT_FOUND' }); return {} as T }
+      if (url.endsWith('/words')) { if (++tries <= 5) throw Object.assign(new Error('Only the person recording can send a recording'), { status: 403, code: 'FORBIDDEN' }); return {} as T }
       return post<T>(url, body)
     }) as FilingApi['post']
     await filer.ensureWords(PROJECT)
@@ -490,13 +492,69 @@ describe('the third review', () => {
     expect(await filer.wordsSettled(PROJECT, 0)).toBe(true)
     await filer.ensureWords(PROJECT)
     expect(tries).toBe(1)
+    expect(dropped).toEqual(["The words the Mac heard could not be added to this recording's video (Only the person recording can send a recording). You can transcribe it from the Words tab."])
   })
 
-  it('a busy Studio or no connection is tried again (only a 4xx other than BUSY is for good)', () => {
-    expect(refusedForGood(Object.assign(new Error('x'), { status: 409, code: 'BUSY' }))).toBe(false)
-    expect(refusedForGood(Object.assign(new Error('x'), { status: 429 }))).toBe(false)
-    expect(refusedForGood(new TypeError('Failed to fetch'))).toBe(false)
-    expect(refusedForGood(Object.assign(new Error('x'), { status: 500 }))).toBe(false)
-    expect(refusedForGood(Object.assign(new Error('x'), { status: 403, code: 'FORBIDDEN' }))).toBe(true)
+  it('a recording missing here (maybe the wrong workspace open) stops this page only; words are given up after a few launches', async () => {
+    const s = studio()
+    const store = memoryDraftStore()
+    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-elsewhere', heard: words })
+    let tries = 0
+    const post = s.api.post.bind(s.api)
+    s.api.post = (async <T,>(url: string, body?: unknown): Promise<T> => {
+      if (url.endsWith('/words')) { if (++tries <= 10) throw Object.assign(new Error('Recording not found'), { status: 404, code: 'NOT_FOUND' }); return {} as T }
+      return post<T>(url, body)
+    }) as FilingApi['post']
+    for (let launch = 1; launch <= WORDS_MISSES_FOR_GOOD; launch++) {
+      const page = setup(s, mac(), store, `page-${launch}`)
+      await page.leases.hold(SESSION)
+      await page.filer.ensureWords(PROJECT)
+      await page.filer.ensureWords(PROJECT) // asked again on the same page: not counted again
+      expect(await page.filer.wordsSettled(PROJECT, 0)).toBe(true) // this page waits on them no more
+      expect((await store.get(PROJECT))!.wordsRefused).toBe(launch === WORDS_MISSES_FOR_GOOD ? true : undefined)
+    }
+    expect(tries).toBe(WORDS_MISSES_FOR_GOOD)
+  })
+
+  it('a busy Studio, no connection or a session renewing (401) is tried again; only 400, 403 and 413 are final, a 404 maybe', () => {
+    expect(wordsRefusal(Object.assign(new Error('x'), { status: 409, code: 'BUSY' }))).toBeNull()
+    expect(wordsRefusal(Object.assign(new Error('x'), { status: 429 }))).toBeNull()
+    expect(wordsRefusal(Object.assign(new Error('x'), { status: 401 }))).toBeNull()
+    expect(wordsRefusal(new TypeError('Failed to fetch'))).toBeNull()
+    expect(wordsRefusal(Object.assign(new Error('x'), { status: 500 }))).toBeNull()
+    expect(wordsRefusal(Object.assign(new Error('x'), { status: 409, code: 'NOT_LOST' }))).toBeNull()
+    expect(wordsRefusal(Object.assign(new Error('x'), { status: 403, code: 'FORBIDDEN' }))).toBe('final')
+    expect(wordsRefusal(Object.assign(new Error('x'), { status: 400 }))).toBe('final')
+    expect(wordsRefusal(Object.assign(new Error('x'), { status: 413 }))).toBe('final')
+    expect(wordsRefusal(Object.assign(new Error('x'), { status: 404 }))).toBe('missing')
+  })
+
+  it('the Mac heard nothing (its event says null): nothing to wait for, so adoption never waits the minute', async () => {
+    const { filer, store, leases } = setup()
+    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1', state: 'filed' })
+    expect(await filer.wordsSettled(PROJECT, 0)).toBe(false)
+    await leases.hold(SESSION)
+    await filer.wordsEvent({ sessionId: SESSION, transcript: null })
+    expect(await filer.wordsSettled(PROJECT, 0)).toBe(true)
+  })
+
+  it('a window that does not hold the take never writes it when the Mac heard nothing', async () => {
+    const m = mac()
+    const store = memoryDraftStore()
+    const a = setup(studio(), m, store, 'page-a')
+    const b = setup(a.s, m, store, 'page-b')
+    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1' })
+    await a.leases.hold(SESSION)
+    await b.filer.wordsEvent({ sessionId: SESSION, transcript: null })
+    expect((await store.get(PROJECT))!.take?.wordsPending).toBe(true)
+  })
+
+  it('heard nothing before the record was kept: the record waits for no words once it is', async () => {
+    const { filer, store, leases } = setup()
+    await leases.hold(SESSION)
+    await filer.wordsEvent({ sessionId: SESSION, transcript: null })
+    await draftRecord(store, SESSION, PROJECT)
+    await filer.start(takeOf(SESSION), PROJECT, 't')
+    expect(await filer.wordsSettled(PROJECT, 0)).toBe(true)
   })
 })

@@ -348,8 +348,10 @@ export type ProvisionalRecord = {
   heard?: TakeWord[]
   /** The words the Mac heard reached the Studio. */
   wordsSent?: boolean
-  /** The Studio refused the words for good (the recording is gone, or another person's): never sent again. */
+  /** The Studio refused the words for good (another person's, words it cannot read, missing every time): never sent again. */
   wordsRefused?: boolean
+  /** How many pages found the recording missing when sending the words (a 404 can be the wrong workspace open). */
+  wordsMisses?: number
   /**
    * `adopted` in the open editor, its edits still to be saved over the Studio's (App.tsx serverSaveOwed): the files and
    * this record stay until that save lands (Filer.release waits for it).
@@ -359,6 +361,10 @@ export type ProvisionalRecord = {
   filedAs?: string
   /** The Studio's edit as first read once filed (its digest): the draft is saved over that one only. */
   studioDigest?: string
+  /** That first read's transcript ids and its hash (provisional-editor.ts studioNote): what tells the Mac's late words,
+   *  added by the Studio since, from a real change made there. */
+  studioTranscripts?: string[]
+  studioBaseHash?: string
   /** The take as the recorder handed it over (what files it whole when it never reached the Studio). */
   take?: FinishedTake
 }
@@ -438,6 +444,9 @@ export function provisionalRecord(draft: Draft, info: { sessionId: string; takeI
     ...(info.take ? { take: { ...info.take, trace: null, transcript: null, files: info.take.files.map((f) => { const { pieces: _p, uploadKey: _k, ...rest } = f; void _p; void _k; return rest }) } } : {}),
   }
 }
+
+/** What a filed take whose video changed elsewhere says (the editor's notice, and the Record dialog's row). */
+export const CHANGED_ELSEWHERE = 'This video changed somewhere else while the recording was being filed, so your edits were not put on it. They are kept on this computer.'
 
 /** How far the filing is, for the editor's notices: 0 to 1, and a sentence. */
 export type FilingState = { projectId: string; fraction: number; step: string; failed?: string }

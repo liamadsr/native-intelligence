@@ -1,7 +1,8 @@
 // The editor's side of a Mac take opened before it was filed (record/provisional.ts, record/filing.ts): pure steps
 // App.tsx takes, kept here so they are tested as they run.
 import type { EditorProject, EditorTranscript } from '@/lib/studio/engine/contracts'
-import { adoptFiled, withoutTranscripts, type DraftStore, type ProvisionalRecord } from '../record/provisional'
+import { adoptFiled, CHANGED_ELSEWHERE, withoutTranscripts, type DraftStore, type ProvisionalRecord } from '../record/provisional'
+export { CHANGED_ELSEWHERE }
 import type { Settled } from '../record/filing'
 
 export type History = { past: EditorProject[]; current: EditorProject; future: EditorProject[]; group?: number | null }
@@ -113,8 +114,9 @@ export const WORDS_ARRIVED = 'The words the Mac heard have arrived. They are in 
  * over the video (adoptKept refuses). `saveOwed`: the editor's edits are still to be saved over the Studio's (the files
  * and the record stay until they are). Throws when the record could not be written: the editor does not carry on then.
  */
-export async function markEditorAdopted(records: AdoptDeps['records'], projectId: string, digest: string, saveOwed = false): Promise<ProvisionalRecord> {
-  const kept = await records.update(projectId, (r) => ({ ...r, state: 'adopted', studioDigest: r.studioDigest ?? digest, ...(saveOwed ? { saveOwed: true } : { saveOwed: undefined }) }))
+export async function markEditorAdopted(records: AdoptDeps['records'], projectId: string, digest: string, saveOwed = false, studio?: EditorProject): Promise<ProvisionalRecord> {
+  const note = studio ? await studioNote(studio) : {}
+  const kept = await records.update(projectId, (r) => ({ ...r, state: 'adopted', ...(r.studioDigest ? {} : { studioDigest: digest, ...note }), failed: undefined, ...(saveOwed ? { saveOwed: true } : { saveOwed: undefined }) }))
   if (!kept || kept.state !== 'adopted') throw new Error('this computer could not keep a note of it')
   return kept
 }
@@ -127,6 +129,30 @@ export async function markEditorAdopted(records: AdoptDeps['records'], projectId
 export function carriedDigest(record: Pick<ProvisionalRecord, 'studioDigest'>, serverDigest: string, edited: boolean): string {
   return edited && record.studioDigest ? record.studioDigest : serverDigest
 }
+
+/** What is noted of the Studio's edit as first read: its transcripts' ids and a hash of it (keys sorted). */
+export async function studioNote(project: EditorProject): Promise<{ studioTranscripts: string[]; studioBaseHash: string }> {
+  return { studioTranscripts: project.transcripts.map((t) => t.id), studioBaseHash: await sha256(canonical(project)) }
+}
+async function sha256(text: string): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * The Studio's video since its first filing changed only by transcripts it added (the Mac's late words): those, else null
+ * (a real change made there, or nothing noted to tell by). Pure but for hashing.
+ */
+export async function onlyLateWordsSince(record: Pick<ProvisionalRecord, 'studioTranscripts' | 'studioBaseHash'>, server: EditorProject): Promise<EditorTranscript[] | null> {
+  if (!record.studioTranscripts || !record.studioBaseHash) return null
+  const added = server.transcripts.filter((t) => !record.studioTranscripts!.includes(t.id))
+  if (!added.length) return null
+  const before = { ...server, transcripts: server.transcripts.filter((t) => !added.includes(t)) }
+  return (await sha256(canonical(before))) === record.studioBaseHash ? added : null
+}
+
+/** The same edit, whatever order its fields came in. */
+export const sameProject = (a: EditorProject, b: EditorProject) => canonical(a) === canonical(b)
 
 /** Keys sorted, so two copies of a project compare equal whatever order their fields came in. */
 const canonical = (value: unknown): string => JSON.stringify(value, (_key, v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))) : v))
@@ -141,6 +167,18 @@ export function lateTranscripts(saved: EditorProject, remote: EditorProject): Ed
   if (!added.length) return null
   const rest = { ...remote, transcripts: remote.transcripts.filter((t) => !added.includes(t)) }
   return canonical(rest) === canonical(saved) ? added : null
+}
+
+/**
+ * Whether the open editor still owes a save over the Studio's edit once it carried a filed take on: only when it will make
+ * one, its edit differing from the Studio's as the editor tells a change (an edit whose only change was dropped, such as a
+ * word correction on a transcript left out, has nothing to save). Pure.
+ */
+export const saveOwedAfter = (edited: boolean, project: EditorProject, server: EditorProject) => edited && JSON.stringify(project) !== JSON.stringify(server)
+
+/** The transcripts another version of a video added since the editor's saved copy (none known without one). Pure. */
+export function remoteAddedTranscripts(saved: EditorProject | null, remote: EditorProject): EditorTranscript[] {
+  return saved ? remote.transcripts.filter((t) => !saved.transcripts.some((x) => x.id === t.id)) : []
 }
 
 /** `project` with the transcripts `add` of voices it has and has no transcript of yet. Pure. */
@@ -161,7 +199,8 @@ export function withTranscripts(project: EditorProject, add: EditorTranscript[])
 export async function adoptKept(deps: AdoptDeps, projectId: string): Promise<Adopted> {
   let record = await deps.store.get(projectId).catch(() => null)
   if (!record) return { outcome: 'gone' }
-  if (record.state === 'adopted') return { outcome: 'already' }
+  // Adopted with its last edits still owed (the editor's save never landed): "Put my edits on it" goes on below.
+  if (record.state === 'adopted' && !record.saveOwed) return { outcome: 'already' }
   if (deps.waitWords) {
     await deps.waitWords()
     record = (await deps.store.get(projectId).catch(() => null)) ?? record
@@ -183,21 +222,37 @@ export async function adoptKept(deps: AdoptDeps, projectId: string): Promise<Ado
   const wordsLater = adopted.unregistered.length > 0
   const project = withoutTranscripts(adopted.project, adopted.unregistered)
   if (adopted.edited) {
-    const conflict = { outcome: 'conflict' as const, message: 'This video changed somewhere else while the recording was being filed. Your edits are kept on this computer.', recovery: { project, digest: server.projectDigest, base: JSON.stringify(server.project) } }
-    if (record.studioDigest && record.studioDigest !== server.projectDigest) return conflict
-    if (!record.studioDigest) {
-      const noted = await deps.records.update(projectId, (r) => ({ ...r, studioDigest: server.projectDigest })).catch(() => null)
-      if (!noted?.studioDigest) return { outcome: 'failed', message: 'The recording is filed, but this computer could not keep a note of it, so your edits were not saved onto it yet. They are kept on this computer.' }
+    const conflict = async (): Promise<Adopted> => {
+      // Noted beside the take, so the Record dialog says what is wrong (not that Try again puts the edits on).
+      await deps.records.update(projectId, (r) => ({ ...r, failed: CHANGED_ELSEWHERE })).catch(() => undefined)
+      return { outcome: 'conflict', message: CHANGED_ELSEWHERE, recovery: { project, digest: server.projectDigest, base: JSON.stringify(server.project) } }
     }
-    try {
-      await deps.save(server.project.id, project, server.projectDigest)
-    } catch (error) {
-      const kind = saveRefusal(error)
-      if (kind === 'conflict') return conflict
-      return { outcome: kind === 'network' ? 'network' : 'failed', message: kind === 'network' ? 'The recording is filed, but the Studio could not be reached to save your edits onto it. They are kept on this computer.' : `The recording is filed, but your edits could not be saved onto it (${text(error)}). They are kept on this computer.` }
+    // The video is already this edit (with, at most, the Mac's late words on it): an earlier save landed, only its answer
+    // or the note after it was lost. Nothing to save.
+    const landed = sameProject(server.project, project) || !!lateTranscripts(project, server.project)
+    if (!landed) {
+      let save = project
+      if (record.studioDigest && record.studioDigest !== server.projectDigest) {
+        // Changed since its first filing only by the Mac's late words: they go into the edit, which is saved over it.
+        const late = await onlyLateWordsSince(record, server.project)
+        if (!late) return conflict()
+        save = withTranscripts(project, late)
+      }
+      if (!record.studioDigest) {
+        const note = await studioNote(server.project)
+        const noted = await deps.records.update(projectId, (r) => ({ ...r, studioDigest: server.projectDigest, ...note })).catch(() => null)
+        if (!noted?.studioDigest) return { outcome: 'failed', message: 'The recording is filed, but this computer could not keep a note of it, so your edits were not saved onto it yet. They are kept on this computer.' }
+      }
+      try {
+        await deps.save(server.project.id, save, server.projectDigest)
+      } catch (error) {
+        const kind = saveRefusal(error)
+        if (kind === 'conflict') return conflict()
+        return { outcome: kind === 'network' ? 'network' : 'failed', message: kind === 'network' ? 'The recording is filed, but the Studio could not be reached to save your edits onto it. They are kept on this computer.' : `The recording is filed, but your edits could not be saved onto it (${text(error)}). They are kept on this computer.` }
+      }
     }
   }
-  const marked = await deps.records.update(projectId, (r) => ({ ...r, state: 'adopted' })).catch(() => null)
+  const marked = await deps.records.update(projectId, (r) => ({ ...r, state: 'adopted', saveOwed: undefined, failed: undefined })).catch(() => null)
   // Not noted: the files stay (a later launch finds the video changed since its first read, and never saves again).
   if (marked?.state !== 'adopted') return { outcome: adopted.edited ? 'saved' : 'taken', wordsLater }
   return { outcome: adopted.edited ? 'saved' : 'taken', settled: await deps.release(projectId), wordsLater }
