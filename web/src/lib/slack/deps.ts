@@ -1,12 +1,15 @@
 /**
- * The real outside calls behind ./inbound.ts and ./turn.ts: the stored bot
- * tokens (./bot-token.ts) and the Slack Web API. Tests pass fakes instead.
- * A team's installation is addressed by its Slack team id.
+ * The real outside calls behind ./inbound.ts, ./turn.ts and ./install.ts: the
+ * stored bot tokens (./bot-token.ts) and the Slack Web API. Tests pass fakes
+ * instead. A team's installation is addressed by its Slack team id.
  */
 import 'server-only'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { getServiceClient } from '@/lib/admin'
-import { deleteSlackBotToken, renewDeadSlackBotToken, slackBotToken, verifySlackInstallation } from './bot-token'
+import { deleteSlackBotToken, renewDeadSlackBotToken, saveSlackBotToken, slackBotToken, slackOauthAccess, verifySlackInstallation } from './bot-token'
+import { slackRedirectUri } from './config'
 import type { SlackInboundDeps } from './inbound'
+import type { SlackInstallDeps } from './install'
 import type { SlackTurnSlack } from './turn'
 import {
   DEAD_TOKEN_ERRORS,
@@ -31,6 +34,24 @@ export function slackInboundDeps(extra: Partial<SlackInboundDeps> = {}): SlackIn
       ephemeral: (token, message) => slackApi<object>('chat.postEphemeral', token, message, { json: true }),
     },
     ...extra,
+  }
+}
+
+/**
+ * The calls an install's finish makes (./install.ts completeSlackInstall),
+ * one set for both routes that finish one (the web callback and the desktop
+ * claim), so the two can't drift: the code exchanged with our own redirect
+ * URI, the token stored with this client.
+ */
+export function slackInstallDeps(svc: SupabaseClient): SlackInstallDeps {
+  return {
+    exchange: (code) => slackOauthAccess({ code, redirect_uri: slackRedirectUri() }),
+    saveToken: (input) => saveSlackBotToken(svc, input),
+    slack: {
+      authTest: (token) => slackApi<SlackAuthTest>('auth.test', token, {}),
+      teamInfo: (token) => slackApi<SlackTeamInfo>('team.info', token, {}),
+      userInfo: (token, user) => slackApi<SlackUserInfo>('users.info', token, { user }),
+    },
   }
 }
 

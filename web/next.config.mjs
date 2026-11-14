@@ -83,6 +83,16 @@ export async function headers() {
         { key: 'Permissions-Policy', value: 'microphone=(self), camera=(self), display-capture=(self), geolocation=()' },
       ],
     },
+    // An email share link's page (/mail/s/<token>, migration 646): someone's mail thread, kept out of
+    // the search index and out of the Referer of anything it links to, never cached.
+    {
+      source: '/mail/s/:path*',
+      headers: [
+        { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+        { key: 'Referrer-Policy', value: 'no-referrer' },
+        { key: 'Cache-Control', value: 'private, no-store' },
+      ],
+    },
     // Team calls inside the app (phases 5-7) turn the camera on and share screens.
     {
       source: '/account/:path*',

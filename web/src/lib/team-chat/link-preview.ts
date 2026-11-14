@@ -14,6 +14,7 @@
  * Privacy: the event carries the message id only; logs carry ids and
  * outcomes, never a URL or a word of the message.
  */
+import { isEmailShareLinkUrl } from '@/lib/email-share/links'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { inngest } from '@/lib/inngest/client'
 import { checkPublicUrl, fetchPublicPage, PublicFetchError, type PublicFetchOptions, type PublicPage } from '@/lib/link-preview/safe-fetch'
@@ -35,6 +36,8 @@ export function firstLink(body: string): string | null {
     // Sentence punctuation and unbalanced closing brackets at the end belong to the sentence.
     const url = trimLinkEnd(match[0])
     if (url.length > MAX_URL_CHARS) continue
+    // A share link to an email thread (migration 646) never unfurls: its page is the person's mail.
+    if (isEmailShareLinkUrl(url)) continue
     try {
       checkPublicUrl(url)
       return url

@@ -108,6 +108,7 @@ export const ROUTES: Readonly<Record<string, RouteRule>> = {
   l: page('A single-use link sent by text; its button posts to the API of the domain it was loaded from.'),
   link: page('An agent\'s connect link; sign-in from it happens on the domain it was opened on.'),
   login: page('Sign-in starts on the domain the page is on, and returns there.'),
+  mail: page('An email share link (/mail/s/<token>): the person opening it is read from the session of the domain it is on; its page reads the link through the API there.'),
   'meeting-notes': page('Marketing page.'),
   payments: page('A customer\'s payment and payment-setup pages, and where the payment provider returns; none of them reads a cookie.'),
   pricing: page('Marketing page.'),

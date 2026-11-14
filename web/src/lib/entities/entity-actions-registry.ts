@@ -68,7 +68,11 @@ export interface EntityActionsDescriptor {
    */
   readonly rename: { route: string; field: string } | null
   readonly archive: EntityArchive
-  /** Share to a team-chat channel: a message that @-mentions it (writes the `mentions` edge). A mentionable kind with an `open`. */
+  /**
+   * Share to a team-chat channel: a message that @-mentions it (writes the
+   * `mentions` edge), for a mentionable kind with an `open`; or, for a
+   * LIVE_SHARE_TYPES kind (mail), its live share (migration 646).
+   */
   readonly share: boolean
   /**
    * Make a task from this: a new action linked `about` it (POST
@@ -281,11 +285,14 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
   // ── Parts of something else, or nothing a person opens on its own.
   claim: inert('A fact is confirmed, disputed or superseded in Knowledge.'),
   cycle: inert("A cycle is its team's, run from the board."),
-  // Mail is its owner's alone, so nothing but Copy ID, and Make a task: from
-  // the thread view, only by the mail's owner (task-about.ts canMakeTaskAbout
-  // reads email_thread_index's owner). The 'about' edge to it is hidden from
-  // everyone else (entity_link's read policy, migrations 500/501).
-  email_thread: { ...inert('Mail is shown to no one but its owner.'), makeTask: true },
+  // Mail is its owner's alone, so nothing but Copy ID, Make a task (from the
+  // thread view, only by the mail's owner: task-about.ts canMakeTaskAbout
+  // reads email_thread_index's owner; the 'about' edge to it is hidden from
+  // everyone else, entity_link's read policy, migrations 500/501), and Share
+  // to chat: the owner shares it into a channel or DM, read live by its
+  // readers and stored nowhere (migration 646, src/lib/email-share). Its
+  // share is LIVE_SHARE_TYPES' flow, never a record @-mention.
+  email_thread: { ...inert('Mail is shown to no one but its owner.'), share: true, makeTask: true },
   attachment: inert('An attachment lives on its record.'),
   member: inert('A member is a person in the workspace.'),
   conversation: inert("A chat with the agent is its person's own."),
@@ -318,6 +325,19 @@ export type EntityActionId = (typeof ENTITY_ACTION_IDS)[number]
 export const TASK_ABOUT_ONLY_TYPES = ['email_thread'] as const
 export type TaskAboutOnlyType = (typeof TASK_ABOUT_ONLY_TYPES)[number]
 
+/**
+ * The kinds whose Share is not a record @-mention but a live share (migration
+ * 646): mail, shared by its owner into a channel or DM and read live from
+ * their mailbox, never stored (src/lib/email-share; the menu opens its
+ * dialog, src/components/email/email-share-dialog.tsx).
+ */
+export const LIVE_SHARE_TYPES = ['email_thread'] as const
+export type LiveShareType = (typeof LIVE_SHARE_TYPES)[number]
+
+export function isLiveShareType(type: unknown): type is LiveShareType {
+  return typeof type === 'string' && (LIVE_SHARE_TYPES as readonly string[]).includes(type)
+}
+
 /** A kind a task may be about: a mentionable one, or mail. */
 export function isTaskAboutType(type: unknown): type is MentionableType | TaskAboutOnlyType {
   return isMentionableType(type) || (typeof type === 'string' && (TASK_ABOUT_ONLY_TYPES as readonly string[]).includes(type))
@@ -348,7 +368,7 @@ export function supportedEntityActions(type: string, state: EntityActionState = 
   if (d.link && d.open) out.push('copy_link')
   out.push('copy_id')
   if (d.rename) out.push('rename')
-  if (d.share && d.open && isMentionableType(type)) out.push('share')
+  if (d.share && ((d.open && isMentionableType(type)) || isLiveShareType(type))) out.push('share')
   if (d.makeTask && isTaskAboutType(type)) out.push('make_task')
   if (d.archive.kind !== 'none') out.push(state.archived ? 'restore' : 'archive')
   return out

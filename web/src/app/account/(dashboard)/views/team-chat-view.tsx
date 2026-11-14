@@ -95,6 +95,10 @@ import { setTeamChatOnScreen } from '@/lib/team-chat/on-screen'
 import type { TeamChatNotifyLevel } from '@/lib/team-chat/notify'
 import { mentionOpens, openMention } from '@/lib/entity-links/open-mention'
 import { EntityContextMenu } from '@/components/entities/entity-actions-menu'
+import { EmailShareCards } from '@/components/email/email-share-card'
+import { isDefaultShareBody } from '@/lib/email-share/types'
+import { emailShareUnboundToast } from '@/lib/email-share/links'
+import { toast } from 'sonner'
 import { makeTaskFromEntity, messageTaskLabel } from '@/lib/entities/actions'
 import { MENTION_PICKER_KINDS, menuRowMention, type MenuSearchRow } from '@/lib/search/menu-search'
 import { parseSharedRecords, toastSharedRecords } from '@/lib/entity-access/share-toast'
@@ -940,6 +944,9 @@ export function TeamChatView({
         // A record the channel couldn't all see, now shared with it: say so, with Undo.
         const { shared, sharedWith } = parseSharedRecords(json)
         toastSharedRecords(shared, sharedWith)
+        // One of their own email share links didn't become a share here: say why (no mail in it).
+        const unbound = emailShareUnboundToast((json as { email_share_unbound?: unknown }).email_share_unbound)
+        if (unbound) toast.error(unbound)
       } catch {
         const fail = (list: Shown[] | undefined) => failPending(list, draft.clientId)
         if (draft.threadRootId) {
@@ -1866,7 +1873,7 @@ function MessageRow({
           <p className="text-[15px] italic leading-relaxed text-muted-foreground">This message was deleted.</p>
         ) : (
           <>
-            {message.body && (
+            {message.body && !(message.email_share_id && isDefaultShareBody(message.body)) && (
               <p className={cn('whitespace-pre-wrap break-words text-[15px] leading-relaxed text-foreground', pending === 'sending' && 'text-foreground/70')}>
                 {mentionSegments(message.body, [...labels, ...(message.record_mentions ?? []).map((r) => r.label)]).map((seg, i) => {
                   if (!seg.mention) return <LinkedText key={i} text={seg.text} />
@@ -1893,6 +1900,8 @@ function MessageRow({
                 {message.edited_at && <span className="ml-1 text-[11px] text-muted-foreground">(edited)</span>}
               </p>
             )}
+            {/* A shared email thread (migration 646), from the picker or a pasted link: read live by whoever reads here, stored nowhere. */}
+            {message.email_share_id && <EmailShareCards message={message} />}
             <MessageAttachments attachments={message.attachments} />
             <LinkPreviewCard preview={message.link_preview} />
             {pending === 'failed' && (

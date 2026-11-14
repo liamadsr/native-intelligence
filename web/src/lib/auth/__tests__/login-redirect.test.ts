@@ -99,9 +99,11 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
       expect(resolvePostAuthRedirect(null, ORIGIN)).toBe('/account')
       expect(resolvePostAuthRedirect('/invite/tok', ORIGIN)).toBe('/invite/tok')
       expect(resolvePostAuthRedirect('/s/abc', ORIGIN)).toBe('/s/abc')
+      // An email share link, beside the stricter reading of an in-app target: both hold.
+      expect(resolvePostAuthRedirect('/mail/s/abc', ORIGIN)).toBe('/mail/s/abc')
       expect(resolvePostAuthRedirect('/account/settings', ORIGIN)).toBe('/account/settings')
       expect(isMcpTarget('/account/settings')).toBe(false)
-      for (const evil of ['//evil.example/account', 'https://evil.example/api/mcp/x', '/somewhere-else', '/invite//evil.example', '/link//evil.example']) {
+      for (const evil of ['//evil.example/account', 'https://evil.example/api/mcp/x', '/somewhere-else', '/invite//evil.example', '/link//evil.example', '/mail/s//evil.example', '/mail/x', '/account/../mail/s/abc']) {
         expect(resolvePostAuthRedirect(evil, ORIGIN), evil).toBe('/account')
       }
     })

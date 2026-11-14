@@ -5,6 +5,9 @@
  *   • back from Slack's install it says how it ended, in plain words, and
  *     takes the result off the address (no code is made by itself);
  *   • Add to Slack asks for the install with this page to come back to;
+ *     in the desktop app it opens Slack's page in the person's own browser,
+ *     holds the claim for this window, and shows the result once the
+ *     install is claimed back here;
  *   • linked in one Slack workspace, linking another sends the person to
  *     that workspace, and the code step ends when that link lands;
  *   • a failed first read says so and can be tried again.
@@ -15,10 +18,23 @@ import { createRoot, type Root } from 'react-dom/client'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
+const desk = vi.hoisted(() => ({ on: false, openUrl: vi.fn(async (_url: string) => {}), hold: vi.fn(), drop: vi.fn() }))
+
 vi.mock('../../settings-shell', () => ({ useSettingsNavigate: () => vi.fn() }))
 vi.mock('../../../(dashboard)/side-panels/connections-section', () => ({ RowIcon: () => null }))
+vi.mock('@/lib/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/platform')>()),
+  isDesktopApp: () => desk.on,
+}))
+vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: desk.openUrl }))
+vi.mock('@/lib/integrations/desktop-oauth-claims', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/integrations/desktop-oauth-claims')>()),
+  holdDesktopSlackClaim: desk.hold,
+  dropDesktopSlackClaim: desk.drop,
+}))
 
 const { SlackConnectorView } = await import('../slack-connector-view')
+const { emitSlackInstallCallback } = await import('@/lib/navigation-events')
 
 type Team = { teamId: string; teamName: string; teamDomain: string; tokenStored?: boolean; myLink: { slackUserName: string } | null }
 const net = {
@@ -26,12 +42,13 @@ const net = {
   getStatus: 200,
   codeStatus: 200,
   installStatus: 200,
+  installBody: null as Record<string, unknown> | null,
   calls: [] as string[],
   bodies: [] as string[],
 }
 const slack = (installations: Team[], over: Record<string, unknown> = {}) => ({
   configured: true,
-  appId: 'A0C9N6VPYLF',
+  appId: 'A0EXAMPLE01',
   canInstall: true,
   canLink: true,
   installations,
@@ -58,6 +75,11 @@ beforeEach(() => {
   net.getStatus = 200
   net.codeStatus = 200
   net.installStatus = 200
+  net.installBody = null
+  desk.on = false
+  desk.openUrl.mockReset().mockResolvedValue(undefined)
+  desk.hold.mockReset()
+  desk.drop.mockReset()
   net.calls = []
   net.bodies = []
   vi.stubGlobal(
@@ -67,7 +89,8 @@ beforeEach(() => {
       net.calls.push(`${method} ${url}`)
       if (init?.body) net.bodies.push(init.body)
       if (url === '/api/account/integrations/slack/install') {
-        return new Response(JSON.stringify(net.installStatus === 200 ? { url: 'https://slack.com/oauth/v2/authorize?x=1' } : { error: 'nope' }), { status: net.installStatus })
+        const ok = net.installBody ?? { url: 'https://slack.com/oauth/v2/authorize?x=1' }
+        return new Response(JSON.stringify(net.installStatus === 200 ? ok : { error: 'nope' }), { status: net.installStatus })
       }
       if (url === '/api/account/integrations/slack/link-code') {
         return new Response(JSON.stringify({ code: 'K7Q4M2', expiresAt: '2026-10-22T19:00:00Z' }), { status: net.codeStatus })
@@ -124,6 +147,95 @@ describe('Add to Slack', () => {
     expect(net.calls).toContain('POST /api/account/integrations/slack/install')
     expect(JSON.parse(net.bodies[0])).toEqual({ returnTo: '/account/settings/connectors/slack' })
     expect(container.textContent).toContain("Couldn't start the Slack install")
+    // The web install is the page's own: nothing desktop about it.
+    expect(desk.hold).not.toHaveBeenCalled()
+    expect(desk.openUrl).not.toHaveBeenCalled()
+  })
+})
+
+describe('Add to Slack in the desktop app', () => {
+  const installButton = () => [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Add to Slack')!
+  const getReads = () => net.calls.filter((c) => c === 'GET /api/account/integrations/slack').length
+
+  beforeEach(() => {
+    desk.on = true
+    net.installBody = { url: 'https://slack.com/oauth/v2/authorize?x=2', state: 'desk.state', claimSecret: 'desk-secret' }
+  })
+
+  it("asks for a desktop install, holds its claim, opens Slack's page in the person's browser, and stops spinning with a hint", async () => {
+    net.state = slack([])
+    await render()
+    await act(async () => installButton().click())
+    await flush()
+    expect(JSON.parse(net.bodies[0])).toEqual({ returnTo: '/account/settings/connectors/slack', source: 'desktop' })
+    expect(desk.hold).toHaveBeenCalledWith('desk.state', 'desk-secret')
+    expect(desk.openUrl).toHaveBeenCalledWith('https://slack.com/oauth/v2/authorize?x=2')
+    expect(desk.hold.mock.invocationCallOrder[0]).toBeLessThan(desk.openUrl.mock.invocationCallOrder[0])
+    expect(installButton().disabled).toBe(false)
+    expect(container.querySelector('svg.animate-spin')).toBeNull()
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      'Finish adding Native Intelligence to Slack in your browser. This page updates by itself.',
+    )
+  })
+
+  it("when the person's browser can't be opened, says so, drops the claim it held, and leaves no hint", async () => {
+    desk.openUrl.mockRejectedValue(new Error('no opener'))
+    net.state = slack([])
+    await render()
+    await act(async () => installButton().click())
+    await flush()
+    expect(desk.drop).toHaveBeenCalledWith('desk.state')
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Couldn't open Slack in your browser")
+    expect(container.querySelector('[role="status"]')).toBeNull()
+    expect(installButton().disabled).toBe(false)
+  })
+
+  it('takes the hint down when nothing came back within the life of its claim', async () => {
+    net.state = slack([])
+    await render()
+    const timers = vi.spyOn(globalThis, 'setTimeout')
+    await act(async () => installButton().click())
+    await flush()
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('Finish adding Native Intelligence to Slack in your browser')
+    const wait = timers.mock.calls.find(([, ms]) => ms === 15 * 60 * 1000)
+    expect(wait).toBeDefined()
+    await act(async () => (wait![0] as () => void)())
+    expect(container.querySelector('[role="status"]')).toBeNull()
+    timers.mockRestore()
+  })
+
+  it('an answer without its state or claim secret starts nothing', async () => {
+    net.installBody = { url: 'https://slack.com/oauth/v2/authorize?x=2' }
+    net.state = slack([])
+    await render()
+    await act(async () => installButton().click())
+    await flush()
+    expect(desk.hold).not.toHaveBeenCalled()
+    expect(desk.openUrl).not.toHaveBeenCalled()
+    expect(container.textContent).toContain("Couldn't start the Slack install")
+  })
+
+  it("shows the claimed install's result as the page shows one from the address, and reads Slack's state again", async () => {
+    net.state = slack([])
+    await render()
+    await act(async () => installButton().click())
+    await flush()
+    const before = getReads()
+    net.state = slack([acme])
+    await act(async () => emitSlackInstallCallback({ state: 'desk.state', result: 'installed' }))
+    await flush()
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('Slack is connected')
+    expect(getReads()).toBe(before + 1)
+    expect(container.textContent).toContain('Acme')
+  })
+
+  it('a failed result says why, plainly', async () => {
+    net.state = slack([])
+    await render()
+    await act(async () => emitSlackInstallCallback({ state: 'desk.state', result: 'session' }))
+    await flush()
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('came back to a different browser')
+    expect(container.querySelector('[role="status"]')).toBeNull()
   })
 })
 

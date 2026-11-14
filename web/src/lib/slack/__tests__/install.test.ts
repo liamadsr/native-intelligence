@@ -22,7 +22,7 @@ vi.mock('@/lib/admin', () => ({
 
 import { SLACK_INSTALL_CAPABILITY, buildSlackInstall, completeSlackInstall, safeSlackReturnTo, type SlackInstallDeps } from '../install'
 import { readSlackGrant, saveSlackBotToken } from '../bot-token'
-import { verifyOAuthState } from '@/lib/oauth/state'
+import { claimHash, claimSecretMatches, verifyOAuthState } from '@/lib/oauth/state'
 import { decryptCredential } from '@/lib/crypto/credentials'
 
 const TEAM = 'T0MADEUP1'
@@ -92,7 +92,45 @@ describe('the authorize link', () => {
       source: 'web',
       returnTo: '/account/agents',
       origin: 'https://nativeintelligence.dev',
+      claim: null,
     })
+  })
+
+  it('a web install hands out no claim secret: its cookie is its binding', () => {
+    const start = buildSlackInstall({ userId: USER, workspaceId: WS, pageOrigin: 'https://nativeintelligence.dev', source: 'web' })
+    expect(start.claimSecret).toBeNull()
+    expect(buildSlackInstall({ userId: USER, workspaceId: WS }).claimSecret).toBeNull()
+  })
+
+  it("a desktop install's state is a desktop one, carries only the claim secret's hash, and names no page origin", () => {
+    const { url, state, nonce, claimSecret } = buildSlackInstall({
+      userId: USER,
+      workspaceId: WS,
+      returnTo: '/account/agents',
+      pageOrigin: 'https://nativeintelligence.dev',
+      source: 'desktop',
+    })
+    expect(typeof claimSecret).toBe('string')
+    expect(claimSecret!.length).toBeGreaterThanOrEqual(40)
+    expect(new URL(url).searchParams.get('state')).toBe(state)
+    const verified = verifyOAuthState(state)
+    expect(verified.ok && verified.data).toMatchObject({
+      nonce,
+      userId: USER,
+      workspaceId: WS,
+      capability: SLACK_INSTALL_CAPABILITY,
+      source: 'desktop',
+      claim: claimHash(claimSecret!),
+      origin: null,
+    })
+    // The secret itself is nowhere in the state or the link.
+    const payload = Buffer.from(state.slice(0, state.lastIndexOf('.')), 'base64url').toString()
+    expect(payload).not.toContain(claimSecret!)
+    expect(payload).not.toContain('"origin"')
+    expect(url).not.toContain(claimSecret!)
+    expect(verified.ok && claimSecretMatches(claimSecret, verified.data.claim)).toBe(true)
+    // Every install gets its own secret.
+    expect(buildSlackInstall({ userId: USER, workspaceId: WS, source: 'desktop' }).claimSecret).not.toBe(claimSecret)
   })
 
   it('returns only to a page in the account area', () => {

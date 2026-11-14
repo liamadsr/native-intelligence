@@ -66,7 +66,7 @@ function chooseRedirect(request: NextRequest, origin: string, options: { home?: 
   const shareRedirect = request.cookies.get('share_redirect')?.value
   if (shareRedirect) {
     const decoded = decodeURIComponent(shareRedirect)
-    if (decoded.startsWith('/s/') && !decoded.includes('//')) {
+    if ((decoded.startsWith('/s/') || decoded.startsWith('/mail/s/')) && !decoded.includes('//')) {
       redirectUrl.pathname = decoded
       redirectUrl.search = ''
       const response = NextResponse.redirect(redirectUrl)

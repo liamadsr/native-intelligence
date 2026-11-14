@@ -62,7 +62,8 @@ import {
   type EntityRef,
   type ShareChannel,
 } from '@/lib/entities/actions'
-import { supportedEntityActions, type EntityActionId } from '@/lib/entities/entity-actions-registry'
+import { isLiveShareType, supportedEntityActions, type EntityActionId } from '@/lib/entities/entity-actions-registry'
+import { openEmailShareDialog } from '@/components/email/email-share-dialog'
 
 /** What the surface knows about the record: archived or not, and its status now (an archive's undo puts it back). */
 export interface EntityMenuState {
@@ -173,6 +174,18 @@ export function EntityActionsMenuItems({ entity, state = {}, variant, onRename, 
       {actions.map((id, i) => {
         const Icon = ENTITY_ACTION_ICONS[id]
         const sep = i > 0 && GROUP[id] !== GROUP[actions[i - 1]] ? <P.Separator /> : null
+        if (id === 'share' && isLiveShareType(entity.type)) {
+          // Mail's Share is its live share (migration 646): the owner picks a channel or DM, with a note.
+          return (
+            <React.Fragment key={id}>
+              {sep}
+              <P.Item data-entity-action="share" onSelect={() => openEmailShareDialog({ indexId: entity.id })}>
+                <Icon className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+                Share to chat…
+              </P.Item>
+            </React.Fragment>
+          )
+        }
         if (id === 'share') {
           return (
             <React.Fragment key={id}>

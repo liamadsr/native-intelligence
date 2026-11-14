@@ -39,6 +39,8 @@ describe('plan models', () => {
   // The same rule over the code itself: a plan model written as a Gateway
   // slug (`openai/gpt-6.1-sol`) anywhere a model is chosen would be billed as
   // the plan's. Plan selections build `openai/${model}` from a plan, never a literal.
+  // It reads every source file of the app and the agents: under a second alone,
+  // past 5 s on a busy machine running the full suite. Hence the longer limit.
   it('names no plan model as a Gateway slug anywhere in the app or the agents', () => {
     const root = join(__dirname, '../../../..')
     const literal = /['"`]openai\/(gpt-6\.1-sol|gpt-6-luna)['"`]/
@@ -54,7 +56,7 @@ describe('plan models', () => {
     walk(join(root, 'src'))
     walk(join(root, 'agents'))
     expect(offenders).toEqual([])
-  })
+  }, 60_000)
 
   it('puts a person on their plan for an active or out-of-credits check only', () => {
     expect(isChatGptPlanUsage({ reason: 'chatgpt_plan' })).toBe(true)

@@ -6,8 +6,9 @@ import { isDesktopApp } from '@/lib/platform'
 import { createClient } from '@/lib/supabase/client'
 import { tauriBridge, getThisWebviewLabel } from '@/lib/tauri-bridge'
 import { listenScoped } from '@/lib/tauri-unlisten'
-import { emitMcpOAuthCallback, emitOAuthCallback, emitSoftNavigate } from '@/lib/navigation-events'
-import { claimDesktopMcp, claimDesktopOAuth } from '@/lib/integrations/desktop-oauth-claims'
+import { emitMcpOAuthCallback, emitOAuthCallback, emitSlackInstallCallback, emitSoftNavigate } from '@/lib/navigation-events'
+import { claimDesktopMcp, claimDesktopOAuth, claimDesktopSlackInstall } from '@/lib/integrations/desktop-oauth-claims'
+import { parseSlackInstallResult } from '@/lib/slack/install-result'
 import {
   DESKTOP_AUTH_SCHEME,
   completeDesktopSignIn,
@@ -208,6 +209,28 @@ export function DeepLinkHandler() {
               if (!outcome) return
               if (!outcome.success) console.error(`[deep-link-handler] MCP connect failed: ${outcome.error}`)
               emitMcpOAuthCallback({ ...outcome, phase: 'done' })
+            })
+            return
+          }
+
+          // Slack installs (dial8desktop://slack/complete or /error). UNGATED
+          // like the MCP branch: only the window holding the state's claim
+          // secret acts (desktop-oauth-claims.ts), so it settles once. No link
+          // reports a success by itself: success is only what a claim returns.
+          if (host === 'slack' || path.startsWith('/slack')) {
+            const state = url.searchParams.get('state')
+            if (!state) return
+            const isComplete = path === '/complete' || path === '/slack/complete'
+            const isError = path === '/error' || path === '/slack/error'
+            if (!isComplete && !isError) return
+            void claimDesktopSlackInstall({
+              state,
+              sealed: isComplete ? url.searchParams.get('sealed') : null,
+              error: parseSlackInstallResult(url.searchParams.get('error')) ?? 'failed',
+            }).then((outcome) => {
+              if (!outcome) return // another window's install, or nobody's
+              console.log(`[deep-link-handler] Slack install: ${outcome.result}`)
+              emitSlackInstallCallback(outcome)
             })
             return
           }

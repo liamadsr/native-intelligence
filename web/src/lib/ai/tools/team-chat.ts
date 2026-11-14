@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { wrapUntrusted } from '@/lib/email/untrusted'
 import { visiblePrivateKindIds } from '@/lib/knowledge/entity-fences'
+import { emailShareAgentText } from '@/lib/email-share/types'
 
 /**
  * read_team_chat_message: one team chat message (migration 474), the thread
@@ -23,6 +24,11 @@ import { visiblePrivateKindIds } from '@/lib/knowledge/entity-fences'
  * What people wrote is data: every message's words reach the model inside the
  * untrusted fence (kind CHAT). A teammate's message can't steer the reader's
  * agent, least of all a loop that runs as its owner.
+ *
+ * A message that carries a shared email (migration 646) reads as its note and
+ * "an email was shared" (`email_shared: true`), never the mail: the mail is
+ * read live, only by people, in the app (src/lib/email-share). No agent tool
+ * reads a share.
  */
 
 /** The most messages of a thread one read returns (the root, then the newest replies). */
@@ -46,9 +52,10 @@ interface MessageRow {
   created_at: string
   edited_at: string | null
   deleted_at: string | null
+  email_share_id?: string | null
 }
 
-const MESSAGE_COLUMNS = 'id, channel_id, workspace_id, author_kind, author_member_id, agent_name, thread_root_id, body, attachments, created_at, edited_at, deleted_at'
+const MESSAGE_COLUMNS = 'id, channel_id, workspace_id, author_kind, author_member_id, agent_name, thread_root_id, body, attachments, created_at, edited_at, deleted_at, email_share_id'
 
 function clip(text: string): string {
   return text.length <= MESSAGE_MAX_CHARS ? text : `${text.slice(0, MESSAGE_MAX_CHARS - 1).trimEnd()}…`
@@ -114,7 +121,11 @@ export function createTeamChatTools(
           ...(m.edited_at ? { edited: true } : {}),
           ...(m.deleted_at
             ? { deleted: true, text: null }
-            : { text: wrapUntrusted(clip(m.body ?? ''), 'CHAT'), files: Array.isArray(m.attachments) ? m.attachments.length : 0 }),
+            : {
+                text: wrapUntrusted(clip(emailShareAgentText(m.body, m.email_share_id)), 'CHAT'),
+                files: Array.isArray(m.attachments) ? m.attachments.length : 0,
+                ...(m.email_share_id ? { email_shared: true } : {}),
+              }),
           ...(m.id === msg.id ? { this_message: true } : {}),
         })
         return {

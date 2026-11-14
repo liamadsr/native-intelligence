@@ -201,6 +201,8 @@ describe('the hook points', () => {
       .filter((f) => f && !f.includes('__tests__'))
       .sort()
 
+  // Each of these greps all of src/: under a second alone, past 5 s on a busy
+  // machine running the full suite. Hence their longer limit.
   it('mail: only the incremental sync emits, after triage; never the first import or a full re-index', () => {
     expect(callers('emitEmailReceived')).toEqual(['src/lib/flows/emit-email-received.ts', 'src/lib/inngest/email-functions.ts'])
     const src = read('src/lib/inngest/email-functions.ts')
@@ -212,12 +214,12 @@ describe('the hook points', () => {
     expect(rebuild).not.toMatch(/emit|arrived/)
     expect(sync.indexOf("'emit-email-received'")).toBeGreaterThan(sync.indexOf("'index-and-triage'"))
     expect(sync).toMatch(/threadIds: triaged\.arrived/)
-  })
+  }, 60_000)
 
   it("chat: only the person's post route emits; the agent's reply path never does", () => {
     expect(callers('emitChatMessage')).toEqual(['src/app/api/account/team-chat/channels/[id]/messages/route.ts', 'src/lib/flows/emit-chat-message.ts'])
     expect(read('src/lib/team-chat/agent-turn.ts')).not.toMatch(/emitChatMessage|flow\/chat\.message/)
-  })
+  }, 60_000)
 
   it("documents: only the documents route's plain create emits; never an agent's create_document or a canon template", () => {
     expect(callers('emitDocumentCreated')).toEqual(['src/app/api/account/documents/route.ts', 'src/lib/flows/emit-document-created.ts'])
@@ -229,5 +231,5 @@ describe('the hook points', () => {
     const canonBranch = post.slice(post.indexOf('if (body.canon_template !== undefined)'), post.indexOf("const title = (body.title || 'Untitled Document')"))
     expect(canonBranch).toMatch(/return NextResponse\.json/)
     expect(canonBranch).not.toMatch(/emitDocumentCreated/)
-  })
+  }, 60_000)
 })

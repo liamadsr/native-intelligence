@@ -7,6 +7,7 @@ import { Suspense, useEffect } from 'react'
 import { isDesktopApp } from '@/lib/platform'
 import { PublicSky } from '@/components/sky/public-sky'
 import { isJoinLinkPage, scrubPostHogEvent } from '@/lib/privacy/join-token-redaction'
+import { isEmailShareLinkPage } from '@/lib/email-share/links'
 
 /**
  * Desktop-only escape hatch for a debugging session, read from localStorage —
@@ -89,9 +90,10 @@ function PostHogPageview() {
   const posthog = usePostHog()
 
   useEffect(() => {
-    // No pageview for a join link's page: its path is the link (the token
-    // would be blanked anyway; this keeps the view out altogether).
-    if (pathname && posthog && !pathname.startsWith('/hud/') && !pathname.startsWith('/l/') && !isJoinLinkPage(pathname)) {
+    // No pageview for a join link's or an email share link's page: its path
+    // is the link (the token would be blanked anyway; this keeps the view out
+    // altogether).
+    if (pathname && posthog && !pathname.startsWith('/hud/') && !pathname.startsWith('/l/') && !isJoinLinkPage(pathname) && !isEmailShareLinkPage(pathname)) {
       let url = window.origin + pathname
       if (searchParams.toString()) {
         url = url + '?' + searchParams.toString()

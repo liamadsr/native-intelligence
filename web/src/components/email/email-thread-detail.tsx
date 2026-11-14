@@ -15,6 +15,8 @@ import {
   ChevronDown,
   Tag,
   X,
+  Send,
+  Link2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -42,6 +44,8 @@ import type { EmailReplyRequest } from '@/lib/email/reply-in-chat'
 import { emailTaskLabel, makeTaskFromEntity } from '@/lib/entities/actions'
 import { scheduleSend } from '@/lib/email/send-later'
 import { EmailMessage, type EmailMessageData } from './email-message'
+import { EmailShareDialog, copyEmailShareLink } from './email-share-dialog'
+import { EmailShareChips } from './email-share-chips'
 
 interface EmailLabel {
   id: string
@@ -320,6 +324,13 @@ export function EmailThreadDetail({
       setMakingTask(false)
     }
   }, [thread, makingTask])
+
+  // Share to chat (migration 646): the owner shares this thread into a
+  // channel or DM, read live there, stored nowhere. The chips under the
+  // subject say where it is shared; a share or an Undo reloads them.
+  const [shareOpen, setShareOpen] = useState(false)
+  const [sharesKey, setSharesKey] = useState(0)
+  const bumpShares = useCallback(() => setSharesKey((k) => k + 1), [])
 
   const handleToggleStar = useCallback(async () => {
     const newStarred = !starred
@@ -639,6 +650,40 @@ export function EmailThreadDetail({
               <TooltipContent>Make a task</TooltipContent>
             </Tooltip>
           )}
+
+          {/* Share to chat: read live by the people there, never copied. */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                aria-label="Share to chat"
+                data-email-share=""
+                onClick={() => setShareOpen(true)}
+              >
+                <Send className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Share to chat</TooltipContent>
+          </Tooltip>
+
+          {/* Copy link: paste it in a chat by hand to share there (it grants nothing on its own). */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                aria-label="Copy link"
+                data-email-copy-link=""
+                onClick={() => void copyEmailShareLink({ threadId, accountId, indexId: thread.indexId ?? null }, { onMade: bumpShares })}
+              >
+                <Link2 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Copy link to share in a chat</TooltipContent>
+          </Tooltip>
         </TooltipProvider>
 
       </div>
@@ -661,6 +706,7 @@ export function EmailThreadDetail({
               {thread.contact.company && ` @ ${thread.contact.company.name}`}
             </span>
           )}
+          <EmailShareChips thread={{ threadId, accountId }} reloadKey={sharesKey} />
           {threadLabels.map((label) => (
             <Badge
               key={label.id}
@@ -716,6 +762,15 @@ export function EmailThreadDetail({
           {thread.indexId && <ThreadAgents threadIndexId={thread.indexId} />}
         </div>
       </ScrollArea>
+
+      <EmailShareDialog
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        thread={{ threadId, accountId, indexId: thread.indexId ?? null }}
+        onShared={bumpShares}
+        onUndone={bumpShares}
+        onLinkMade={bumpShares}
+      />
 
     </div>
   )

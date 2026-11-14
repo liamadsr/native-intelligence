@@ -49,6 +49,11 @@
  *        message asks for its notifications after the answer
  *        (src/lib/team-chat/notify.ts, migration 560): the DM, the people it
  *        mentions, the thread's people, whoever set the channel to all.
+ *        A share link to an email thread in the words (`/mail/s/<token>`,
+ *        migration 646), posted by the link's OWNER, becomes a share in this
+ *        channel or DM, read live (src/lib/email-share/bind.ts); the message
+ *        carries it and draws its card. Anyone else's link stays plain text,
+ *        and no link gets a preview.
  *        And it may start the workspace's chat_message loops
  *        (src/lib/flows/emit-chat-message.ts), after the answer too.
  * Reads and the post run as the person, under RLS; only the agent's turn,
@@ -80,6 +85,8 @@ import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { callViews } from '@/lib/team-calls/store'
 import { fenceRecordMentions, syncMessageMentions } from '@/lib/team-chat/record-mentions'
 import { tidyAttachments } from '@/lib/team-chat/files'
+import { emailShareLinkTokens } from '@/lib/email-share/links'
+import { bindEmailShareLinks, defaultBindDeps } from '@/lib/email-share/bind'
 import { shareMentionedRecords } from '@/lib/entity-access/share'
 import { dmOtherMember, isUuid, mentionsAssistantName, tidyBody, tidyMentionIds, TEAM_CHAT_MESSAGE_MAX } from '@/lib/team-chat/types'
 
@@ -199,6 +206,25 @@ export async function POST(request: NextRequest, { params }: Params) {
     // already has a grant for isn't granted again; the agent's turn and the
     // preview are events whose ids are the message's, so a second send of
     // either is dropped. They read what was stored, never this request's body.
+    // Share links in the words (migration 646): the author's OWN links become
+    // shares here, the message carrying the first one (its card draws, live);
+    // anyone else's stay plain text. Only on post, never on an edit: a replay
+    // of a message edited since is not bound (its words are the edit's), any
+    // other replay reuses what the first try made. The answer says why any of
+    // the author's own links made no share (`email_share_unbound`).
+    let emailShareUnbound: string[] = []
+    if (emailShareLinkTokens(message.body).length > 0 && !(replayed && message.edited_at)) {
+      const bound = await bindEmailShareLinks(defaultBindDeps(), {
+        workspaceId: auth.workspaceId,
+        authorUserId: auth.user.id,
+        authorMemberId: auth.member.id,
+        channel,
+        message,
+      })
+      if (bound.emailShareId) message.email_share_id = bound.emailShareId
+      emailShareUnbound = bound.unbound
+    }
+    const unboundField = emailShareUnbound.length > 0 ? { email_share_unbound: emailShareUnbound } : {}
     const stored = message.record_mentions ?? []
     if (stored.length > 0) {
       await syncMessageMentions(auth.supabase, { ...scope, messageId: message.id, memberId: auth.member.id, records: stored })
@@ -239,8 +265,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       await requestTeamChatNotify(message.id)
       await requestChatMessageLoops(auth.workspaceId, message)
     })
-    if (replayed) return NextResponse.json({ message, shared, shared_with, replayed: true })
-    return NextResponse.json({ message, shared, shared_with }, { status: 201 })
+    if (replayed) return NextResponse.json({ message, shared, shared_with, ...unboundField, replayed: true })
+    return NextResponse.json({ message, shared, shared_with, ...unboundField }, { status: 201 })
   } catch (err) {
     return teamChatErrorResponse(err, 'message post')
   }

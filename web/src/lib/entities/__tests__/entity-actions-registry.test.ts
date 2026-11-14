@@ -21,6 +21,8 @@ import {
   supportedEntityActions,
   isTaskAboutType,
   TASK_ABOUT_ONLY_TYPES,
+  LIVE_SHARE_TYPES,
+  isLiveShareType,
 } from '../entity-actions-registry'
 
 const ids = ENTITY_REGISTRY.map((e) => e.id as EntityType)
@@ -105,7 +107,8 @@ describe('ENTITY_ACTIONS', () => {
   it('shares only kinds a mention may name, and makes tasks only from those and mail', () => {
     for (const id of ids) {
       const d = ENTITY_ACTIONS[id]
-      if (d.share) expect(isMentionableType(id) && d.open !== null, `${id} share`).toBe(true)
+      // A share is a record @-mention, or mail's live share (migration 646).
+      if (d.share) expect((isMentionableType(id) && d.open !== null) || isLiveShareType(id), `${id} share`).toBe(true)
       if (d.makeTask) expect(isTaskAboutType(id), `${id} makeTask`).toBe(true)
     }
     // Mail is the one kind a task may be about that no one can @-mention.
@@ -114,10 +117,13 @@ describe('ENTITY_ACTIONS', () => {
     expect(isMentionableType('email_thread')).toBe(false)
   })
 
-  it('a team chat message and an email thread make tasks; mail offers nothing else but Copy ID', () => {
+  it('a team chat message and an email thread make tasks; mail offers nothing else but Copy ID and its live share', () => {
     expect(ENTITY_ACTIONS.team_chat_message.makeTask).toBe(true)
     expect(ENTITY_ACTIONS.email_thread.makeTask).toBe(true)
-    expect(supportedEntityActions('email_thread')).toEqual(['copy_id', 'make_task'])
+    // Share to chat (migration 646): read live, stored nowhere; never a record @-mention.
+    expect(ENTITY_ACTIONS.email_thread.share).toBe(true)
+    expect([...LIVE_SHARE_TYPES]).toEqual(['email_thread'])
+    expect(supportedEntityActions('email_thread')).toEqual(['copy_id', 'share', 'make_task'])
     expect(supportedEntityActions('team_chat_message')).toContain('make_task')
   })
 })

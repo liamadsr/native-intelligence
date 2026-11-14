@@ -661,6 +661,14 @@ def check_slack(name):
         missing = [other for other in SLACK_SETTINGS if other != name and not env.get(other, "").strip()]
         if missing:
             return False, "set without %s: all four or none (Slack stays off)" % ", ".join(missing)
+        # The check's own rule (the app does not compare the two): the two secrets
+        # have the same shape and sit in adjacent rows at Slack, so the same value in
+        # both means one was pasted twice. With the signing secret in both, Slack
+        # refuses every install (bad_client_secret) while its events still verify;
+        # with the client secret in both, installs work and the app refuses every
+        # event. Said once, here.
+        if name == "SLACK_CLIENT_SECRET" and env[name].strip() == env.get("SLACK_SIGNING_SECRET", "").strip():
+            return False, "the same value as SLACK_SIGNING_SECRET: one of the two was pasted into both (adjacent rows at Slack); Slack would refuse every install, or the app every event from Slack"
         return None, None
     return check
 

@@ -21,6 +21,8 @@ interface EmailAttachment {
   name: string
   size: number
   mimeType: string
+  /** A shared message's attachment key (migration 646): it downloads through the share. */
+  key?: string
 }
 
 interface EmailMessageData {
@@ -94,6 +96,8 @@ interface EmailMessageProps {
   onDiscard?: () => void
   /** This draft's discard is in flight. */
   discarding?: boolean
+  /** Where an attachment downloads from (a shared thread's, through its share); none: listed only. */
+  attachmentHref?: (attachment: EmailAttachment) => string | null
 }
 
 export function EmailMessage({
@@ -106,6 +110,7 @@ export function EmailMessage({
   scheduledAt = null,
   onDiscard,
   discarding = false,
+  attachmentHref,
 }: EmailMessageProps) {
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [editing, setEditing] = useState(false)
@@ -264,18 +269,38 @@ export function EmailMessage({
 
           {message.attachments && message.attachments.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
-              {message.attachments.map((att, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-2 text-xs border rounded-md px-2 py-1.5 bg-muted/30"
-                >
-                  <Paperclip className="h-3 w-3" />
-                  <span className="truncate max-w-[200px]">{att.name}</span>
-                  <span className="text-muted-foreground">
-                    {formatFileSize(att.size)}
-                  </span>
-                </div>
-              ))}
+              {message.attachments.map((att, i) => {
+                const href = attachmentHref?.(att) ?? null
+                const inner = (
+                  <>
+                    <Paperclip className="h-3 w-3" />
+                    <span className="truncate max-w-[200px]">{att.name}</span>
+                    <span className="text-muted-foreground">
+                      {formatFileSize(att.size)}
+                    </span>
+                  </>
+                )
+                return href ? (
+                  <a
+                    key={i}
+                    href={href}
+                    download={att.name}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-email-attachment-link=""
+                    className="flex items-center gap-2 text-xs border rounded-md px-2 py-1.5 bg-muted/30 hover:bg-muted"
+                  >
+                    {inner}
+                  </a>
+                ) : (
+                  <div
+                    key={i}
+                    className="flex items-center gap-2 text-xs border rounded-md px-2 py-1.5 bg-muted/30"
+                  >
+                    {inner}
+                  </div>
+                )
+              })}
             </div>
           )}
 
@@ -318,4 +343,4 @@ export function EmailMessage({
   )
 }
 
-export type { EmailMessageData }
+export type { EmailMessageData, EmailAttachment }

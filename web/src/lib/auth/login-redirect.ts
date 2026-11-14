@@ -103,7 +103,7 @@ export function resolvePostAuthRedirect(redirectPath: string | null, origin: str
   const mcp = mcpRedirectTarget(redirectPath, origin)
   if (mcp) return mcp
   if (redirectPath.includes('//')) return '/account'
-  if (isInviteRedirectPath(redirectPath) || redirectPath.startsWith('/s/')) return redirectPath
+  if (isInviteRedirectPath(redirectPath) || redirectPath.startsWith('/s/') || redirectPath.startsWith('/mail/s/')) return redirectPath
   return accountRedirectTarget(redirectPath) ?? '/account'
 }
 
