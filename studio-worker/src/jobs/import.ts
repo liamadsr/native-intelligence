@@ -10,7 +10,11 @@
  * (`input.conform`) is first made a steady 30 or 60 fps H.264/AAC MP4, unless it
  * already is one; with `conform.fit` the rate is the most, and a recording whose
  * frames came 45 a second or fewer on average is made 30 fps (no frame is made
- * up to fill 60). A recording brought back after a crash (`input.partial`) may
+ * up to fill 60). A recording already made so (the Mac app's recorder writes its
+ * pictures that way) is kept, its frames copied, not encoded: only once
+ * ffprobe shows it holds everything the editor and the fast export rely on
+ * (recorder-files.ts readyProblem); any check that fails, and it is conformed.
+ * A recording brought back after a crash (`input.partial`) may
  * end mid-frame: its conform reads past damage at the end. A browser's WebM or
  * Matroska that does not say how long it is is copied into a fresh file first,
  * which writes its duration and index.
@@ -19,7 +23,8 @@
  * browser's microphone take: Opus in WebM, AAC in MP4): it is stored as the
  * editor's audio, AAC in .m4a (AAC copied, anything else encoded), which also
  * writes the duration a browser's WebM leaves out. A recording to conform must
- * have a picture.
+ * have a picture. A fragmented M4A (the Mac app's microphone, written as it
+ * records) is copied into a plain one, its index at the front.
  *
  * The asset is named by the sha256 of its final bytes (`assets/<sha256>.<ext>`),
  * stored as that blob, kept in the cache, and handed back for the app to register.
@@ -28,7 +33,8 @@ import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { aacCopyable, audioToM4a, buildAsset, conformVideo, inspectFile, missingDuration, publishAsset, remux, verifyDecodes } from '../assets.ts'
 import { fileSha256 } from '../app-client.ts'
-import { audioOnly, conformRate, fitRate, kindOfName, onFrameGrid, pictureStream, probe, TIMING_REFUSALS, UNSUPPORTED_TYPE, videoStamps } from '../media.ts'
+import { audioOnly, conformRate, fitRate, kindOfName, pictureStream, probe, TIMING_REFUSALS, UNSUPPORTED_TYPE, videoStamps } from '../media.ts'
+import { fragmented, readyCheck, rewrap } from '../recorder-files.ts'
 import { checkAborted, JobError, type JobHandler } from './context.ts'
 
 /** The longest upload taken, as the editor's own presenter import (2 GB). */
@@ -68,9 +74,16 @@ export const runImport: JobHandler<'import'> = async (ctx) => {
       // One pass over the packets' times: the rate the take was recorded at, and whether it is on the grid already.
       const stamps = await videoStamps(upload, ctx.signal)
       const fps = input.conform.fit ? fitRate(stamps, input.conform.fps, input.conform.ceiling) : input.conform.fps
-      // A take already on the grid, in H.264 inside MP4, is kept byte for byte.
-      const keep = !input.partial && type.extension === 'mp4' && video.codec_name === 'h264' && onFrameGrid(stamps, fps)
-      if (!keep) {
+      // A take already what the conform would make (the Mac app's recorder writes it so) is kept, its frames copied.
+      const kept = !input.partial && type.extension === 'mp4' ? await keepRecording(upload, join(ctx.scratch, 'kept.mp4'), fps, seconds, ctx) : null
+      if (kept) {
+        if (kept !== upload) {
+          provenance.rawSha256 = read.sha256
+          provenance.rawBytes = read.bytes
+        }
+        provenance.keptAtFps = fps
+        file = kept
+      } else {
         ctx.log(`Conforming the recording to a constant ${fps} fps (H.264/AAC)${input.partial ? ': it stopped before it was finished, so its end is read as far as it goes' : ''}`)
         const out = join(ctx.scratch, 'conformed.mp4')
         await conformVideo(upload, out, fps, { seconds, signal: ctx.signal, lenient: input.partial === true })
@@ -86,6 +99,14 @@ export const runImport: JobHandler<'import'> = async (ctx) => {
       await remux(upload, out, ctx.signal)
       file = out
     }
+  } else if (type.kind === 'audio' && (await fragmentedMp4(upload, type.extension))) {
+    ctx.log('The sound was written as it recorded (fragmented): copying it into a plain M4A, untouched')
+    const out = join(ctx.scratch, 'rewrapped.m4a')
+    await rewrap(upload, out, { audioOnly: true, seconds: input.durationHint || 600, signal: ctx.signal })
+    provenance.rawSha256 = read.sha256
+    provenance.rawBytes = read.bytes
+    file = out
+    name = name.replace(/\.[^.]+$/, '') + '.m4a'
   }
   ctx.progress(0.6)
   checkAborted(ctx.signal)
@@ -133,4 +154,43 @@ export const runImport: JobHandler<'import'> = async (ctx) => {
   await publishAsset(ctx, asset, file)
   ctx.progress(1)
   return { asset }
+}
+
+/** An MP4-family file (by its name) written in fragments. */
+async function fragmentedMp4(path: string, extension: string): Promise<boolean> {
+  return ['mp4', 'mov', 'm4a'].includes(extension) && (await fragmented(path).catch(() => false))
+}
+
+/**
+ * The recording at `upload` kept as it is, when it already is what the conform would make at `fps`: checked
+ * (readyCheck), copied into a plain MP4 at `out` (a fragmented one: rewrap), and the copy checked again. Null, with
+ * the reason in the job's log, when any check fails: then it is conformed.
+ */
+async function keepRecording(upload: string, out: string, fps: 30 | 60, seconds: number, ctx: Parameters<JobHandler<'import'>>[0]): Promise<string | null> {
+  const why = await readyCheck(upload, fps, ctx.signal).catch((err: unknown) => {
+    checkAborted(ctx.signal)
+    return `it could not be read (${err instanceof Error ? err.message : String(err)})`
+  })
+  if (why) {
+    ctx.log(`The recording is not kept as it is: ${why}`)
+    return null
+  }
+  if (!(await fragmented(upload).catch(() => false))) {
+    ctx.log(`The recording is already a constant ${fps} fps H.264 MP4: kept as it is`)
+    return upload
+  }
+  try {
+    await rewrap(upload, out, { seconds, signal: ctx.signal })
+  } catch (err) {
+    checkAborted(ctx.signal)
+    ctx.log(`The recording is not kept as it is: it could not be copied (${err instanceof Error ? err.message : String(err)})`)
+    return null
+  }
+  const again = await readyCheck(out, fps, ctx.signal)
+  if (again) {
+    ctx.log(`The recording is not kept as it is: its copy failed a check (${again})`)
+    return null
+  }
+  ctx.log(`The recording is already a constant ${fps} fps H.264 MP4: kept, its frames copied into a plain MP4, nothing encoded`)
+  return out
 }

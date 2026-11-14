@@ -253,12 +253,6 @@ export function constantFrameTiming(stamps: number[], fps: number, extension: st
   return true
 }
 
-/** True when every frame sits on an exact 1/30 or 1/60 s grid (a take already at the rate it is conformed to). */
-export function onFrameGrid(stamps: number[], fps: 30 | 60): boolean {
-  if (stamps.length < 2) return false
-  return stamps.every((t, i) => !i || Math.abs(t - stamps[i - 1]! - 1 / fps) < 0.25 / fps)
-}
-
 export async function videoStamps(path: string, signal?: AbortSignal): Promise<number[]> {
   const { stdout } = await run('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time', '-of', 'csv=p=0', path], {
     timeout: 300_000,

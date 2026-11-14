@@ -30,7 +30,8 @@
  *     kept (STUDIO_WORK_DIR/live, outside the job's scratch), once the app has confirmed the copy's pieces are the
  *     ones declared. Any other end clears the copy: a worker stopping fails its jobs, so they are not handed out
  *     again. Copies left behind are removed after LOCAL_COPY_KEEP_MS, at worker start and when a live job starts.
- *   - The live path always re-encodes; an import after Stop keeps an MP4 already on the frame grid byte for byte.
+ *   - The live path always re-encodes; an import after Stop keeps a recording that already is what the conform would
+ *     make (recorder-files.ts), its frames copied.
  */
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'

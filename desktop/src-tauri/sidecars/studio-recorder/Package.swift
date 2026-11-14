@@ -22,5 +22,12 @@ let package = Package(
                 .linkedFramework("ScreenCaptureKit"),
             ]
         ),
+        // The writers fed made-up pictures and sound (no capture): the files
+        // they make are probed with ffprobe when it is installed.
+        .testTarget(
+            name: "StudioRecorderTests",
+            dependencies: ["studio-recorder"],
+            path: "Tests/StudioRecorderTests"
+        ),
     ]
 )

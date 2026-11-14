@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildAsset, measure, missingDuration } from '../src/assets.ts'
 import { AssetCache, evictionPlan } from '../src/cache.ts'
-import { constantFrameTiming, how, kindOfName, tailOf, onFrameGrid, parseProbe, parseRate, parseStamps, VARIABLE_RATE, waveformPeaks, type Probe } from '../src/media.ts'
+import { constantFrameTiming, how, kindOfName, tailOf, parseProbe, parseRate, parseStamps, VARIABLE_RATE, waveformPeaks, type Probe } from '../src/media.ts'
 import { parseLoudnorm, parseTruePeak } from '../src/master.ts'
 import { pngSize, unstagedNeeds } from '../src/render.ts'
 import { failureMessage } from '../src/runner.ts'
@@ -50,9 +50,6 @@ test('frame timing: a steady grid passes, a gap fails, WebM gets its millisecond
   const gap = [...grid.slice(0, 30), ...grid.slice(30).map((t) => t + 0.05)]
   assert.ok(!constantFrameTiming(gap, 30, 'mp4'))
   assert.deepEqual(parseStamps('0.066\n0.000,\n0.033\n\nN/A\n'), [0, 0.033, 0.066])
-  assert.ok(onFrameGrid(Array.from({ length: 10 }, (_, i) => i / 60), 60))
-  assert.ok(!onFrameGrid(Array.from({ length: 10 }, (_, i) => i / 60), 30))
-  assert.ok(!onFrameGrid([0], 30))
 })
 
 test('the waveform is the peak of each stretch, at most 600 bins, inside 0..1', () => {
