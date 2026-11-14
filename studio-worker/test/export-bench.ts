@@ -46,9 +46,13 @@ async function main() {
   const app = new FakeApp({ secret: SECRET, dir: join(dir, 'app'), partBytes: 32 * 1024 * 1024 })
   await app.start()
   for (const [k, f] of [['screen', screen], ['camera', camera], ['mic', mic]] as const) await app.putBlob(`uploads/${k}`, f, 'application/octet-stream')
-  const start = (fast: boolean) => spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env: {
-    ...process.env, NODE_ENV: 'production', STUDIO_APP_URL: app.url, STUDIO_WORKER_SECRET: SECRET, STUDIO_WORKER_ID: 'bench', STUDIO_WORK_DIR: workDir,
-    STUDIO_WORKER_POLL_MS: '200', STUDIO_HEALTH_PORT: '0', STUDIO_FAST_EXPORT: fast ? 'on' : 'off' } })
+  // STUDIO_FFMPEG / STUDIO_FFPROBE (the desktop's own build) for the exports only: the imports conform with x264.
+  const start = (fast: boolean, importing = false) => {
+    const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'production', STUDIO_APP_URL: app.url, STUDIO_WORKER_SECRET: SECRET, STUDIO_WORKER_ID: 'bench', STUDIO_WORK_DIR: workDir,
+      STUDIO_WORKER_POLL_MS: '200', STUDIO_HEALTH_PORT: '0', STUDIO_FAST_EXPORT: fast ? 'on' : 'off' }
+    if (importing) { delete env.STUDIO_FFMPEG; delete env.STUDIO_FFPROBE }
+    return spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env })
+  }
   const job = async (kind: 'import' | 'export', input: unknown) => {
     const j = app.queue(kind, input)
     await app.waitFor(j, 3 * 3600_000)
@@ -56,7 +60,7 @@ async function main() {
     return j
   }
   try {
-    let w = start(false); w.stdout.resume(); w.stderr.resume()
+    let w = start(false, true); w.stdout.resume(); w.stderr.resume()
     const A = {
       screen: ((await job('import', { uploadKey: 'uploads/screen', name: 'Screen.mp4', conform: { fps: 60 } })).result as { asset: EditorAsset }).asset,
       camera: ((await job('import', { uploadKey: 'uploads/camera', name: 'Camera.mp4', conform: { fps: 30 } })).result as { asset: EditorAsset }).asset,

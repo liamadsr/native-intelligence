@@ -287,7 +287,7 @@ export function bubbleGeometry(b: BubblePlan) {
   const qx = `abs(X+${bx}+0.5-${num(cx)})-${num(hx - r)}`, qy = `abs(Y+${by}+0.5-${num(cy)})-${num(hy - r)}`
   const d = `hypot(max(${qx}\\,0)\\,max(${qy}\\,0))+min(max(${qx}\\,${qy})\\,0)-${num(r)}`
   const mask = `255*clip(0.5-(${d})\\,0\\,1)`
-  return { bx, by, bw, bh, x0, y0, x1, y2, mask }
+  return { bx, by, bw, bh, x0, y0, x1, y2, mask, sc, cw: b.camera.width, ch: b.camera.height }
 }
 
 /**
@@ -299,13 +299,29 @@ export interface FrameHashes { screen: number[]; camera: number[]; screenOut: st
 
 const selectFrames = (frames: number[]) => `select='${frames.map((l) => `eq(n\\,${l})`).join('+')}'`
 
+/** Camera pixels the sampling reaches past each side (its edge pixels repeated there, as a clamped bilinear reads them). */
+export const SAMPLING_PAD = 8
+
 /**
- * The filters that sample the camera into the bubble's box (bilinear, at the exact fractional place), in the camera's
- * own yuv420p: pinned, or FFmpeg may add the alpha plane the mask needs before the sampling (the same pixels, a plane
- * more to sample).
+ * The filters that sample the camera into the bubble's box: bilinear, at the exact fractional place, the box only (in
+ * the camera's own yuv420p: pinned, or FFmpeg may add the alpha plane the mask needs before the sampling).
+ *
+ * FFmpeg's `v360` (LGPL; `perspective` did this before, and is GPL-only), flat picture to flat picture: an output pixel
+ * i's centre maps to the camera's (W − 1) / 2 × ((F (2i + 1) / w − F + h) / I + 1), a straight line in i, so F (the
+ * output's half field of view's tangent), I (the input's: 1, 90°) and h (the off-axis offset) are set for it to be
+ * x0 + i × sc: F = sc I w / (W − 1), h = I (2 x0 / (W − 1) − 1) − F / w + F; the same down. v360 marks a sample outside
+ * the picture as nothing: the camera is first padded with its own edge pixels (pad, fillborders smear), as a clamped
+ * bilinear reads past it. Against `perspective` on the bench camera: the luma within one step (59.7 dB), 2.7 times less
+ * CPU (it computes the box, not the whole frame). Pure.
  */
-export const bubbleSampling = (g: ReturnType<typeof bubbleGeometry>) =>
-  `format=yuv420p,perspective=x0=${num(g.x0)}:y0=${num(g.y0)}:x1=${num(g.x1)}:y1=${num(g.y0)}:x2=${num(g.x0)}:y2=${num(g.y2)}:x3=${num(g.x1)}:y3=${num(g.y2)}:interpolation=linear,crop=${g.bw}:${g.bh}:0:0,format=yuv420p`
+export function bubbleSampling(g: ReturnType<typeof bubbleGeometry>): string {
+  const p = SAMPLING_PAD, W = g.cw + 2 * p, H = g.ch + 2 * p, x0 = g.x0 + p, y0 = g.y0 + p
+  const fh = (g.sc * g.bw) / (W - 1), fv = (g.sc * g.bh) / (H - 1)
+  const h = (2 * x0) / (W - 1) - 1 - fh / g.bw + fh, v = (2 * y0) / (H - 1) - 1 - fv / g.bh + fv
+  const deg = (t: number) => num((2 * Math.atan(t) * 180) / Math.PI)
+  return `format=yuv420p,pad=${W}:${H}:${p}:${p},fillborders=left=${p}:right=${p}:top=${p}:bottom=${p}:mode=smear,`
+    + `v360=input=flat:output=flat:ih_fov=90:iv_fov=90:h_fov=${deg(fh)}:v_fov=${deg(fv)}:h_offset=${num(h)}:v_offset=${num(v)}:w=${g.bw}:h=${g.bh}:interp=linear,format=yuv420p`
+}
 
 /** One clip's FFmpeg arguments (inputs as files under `dir`, the asset cache's parent), writing `out`. */
 export function segmentArgs(seg: SegmentPlan, fps: number, path: (file: string) => string, out: string, hashes?: FrameHashes, encoder: string[] = FAST_ENCODER): string[] {

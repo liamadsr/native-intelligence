@@ -231,12 +231,21 @@ async function check(r: FastRun, file: string, frames: number[], stills: Map<num
 /** PSNR (dB, average over the planes) of a PNG still against one frame of a video, both as BT.709 YUV, optionally in a box. */
 async function psnr(png: string, video: string, frame: number, fps: number, box: { bx: number; by: number; bw: number; bh: number } | null, signal: AbortSignal): Promise<number> {
   const crop = box ? `,crop=${box.bw}:${box.bh}:${box.bx}:${box.by}` : ''
-  // The frame read from a seek half a frame before it (the decoder starts at the keyframe before), not decoded from the start.
-  const { stderr } = await run('ffmpeg', ['-nostdin', '-hide_banner', '-i', png, '-ss', (Math.max(0, frame - 0.5) / fps).toFixed(6), '-i', video, '-lavfi',
-    `[0:v]scale=out_color_matrix=bt709:out_range=tv,format=yuv420p${crop}[a];[1:v]setpts=PTS-STARTPTS,format=yuv420p${crop}[b];[a][b]psnr`,
-    '-frames:v', '1', '-f', 'null', '-'], { signal, maxBuffer: 4 * 1024 * 1024 })
-  const m = /average:([\d.]+|inf)/.exec(stderr)
-  return m ? (m[1] === 'inf' ? Infinity : Number(m[1])) : NaN
+  // The frame read from a seek half a frame before it (the decoder starts at the keyframe before), not decoded from the start,
+  // and only that frame: `-frames:v 1` stops the output, not the filter, and an FFmpeg that runs ahead (Debian's 5.1 does)
+  // compares the still with the frames after it too and averages them in. So the video side is cut to one frame, and the
+  // one comparison is read from psnr's per-frame lines (exactly one, or no score).
+  const { stdout } = await run('ffmpeg', ['-nostdin', '-v', 'error', '-i', png, '-ss', (Math.max(0, frame - 0.5) / fps).toFixed(6), '-i', video, '-lavfi',
+    `[0:v]scale=out_color_matrix=bt709:out_range=tv,format=yuv420p${crop}[a];[1:v]trim=end_frame=1,setpts=PTS-STARTPTS,format=yuv420p${crop}[b];[a][b]psnr=stats_file=-`,
+    '-f', 'null', '-'], { signal, maxBuffer: 4 * 1024 * 1024 })
+  return onePsnr(stdout)
+}
+
+/** The score of psnr's one per-frame line (stats_file), or NaN unless there is exactly one. Pure. */
+export function onePsnr(stats: string): number {
+  const scores = stats.split('\n').map((l) => /psnr_avg:(\S+)/.exec(l)?.[1]).filter((x): x is string => !!x)
+  if (scores.length !== 1) return NaN
+  return scores[0] === 'inf' ? Infinity : Number(scores[0])
 }
 
 /**

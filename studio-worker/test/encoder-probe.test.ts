@@ -9,6 +9,10 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { exportFacts, probeEncoder } from '../src/encoder-probe.ts'
+import { setTools } from '../src/platform.ts'
+
+// STUDIO_FFMPEG / STUDIO_FFPROBE: the probe and the facts run on that FFmpeg (the desktop's own build).
+setTools({ ffmpeg: process.env.STUDIO_FFMPEG, ffprobe: process.env.STUDIO_FFPROBE })
 
 const ff = (args: string[]) => execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-y', ...args], { stdio: ['ignore', 'ignore', 'inherit'] })
 const TAGS = ['-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'iec61966-2-1', '-color_range', 'tv']
@@ -41,6 +45,8 @@ test("this machine's encoder ladder: the first rung that makes a right file; non
     assert.deepEqual(none.tried.map((t) => t.rung), ['quality', 'bitrate', 'software'])
     assert.ok(none.tried.every((t) => !t.ok && t.why))
   }
+  // x264: where the FFmpeg has it (a developer's, the server's); the desktop's LGPL build has not, and says so.
+  const hasX264 = execFileSync(process.env.STUDIO_FFMPEG ?? 'ffmpeg', ['-hide_banner', '-encoders'], { encoding: 'utf8' }).includes('libx264')
   const x = await probeEncoder('x264', { width: 640, height: 360, fps: 30 }, dir)
-  assert.equal(x.rung, 'quality')
+  assert.equal(x.rung, hasX264 ? 'quality' : null)
 })

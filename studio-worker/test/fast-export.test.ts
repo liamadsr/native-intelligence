@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { fastExportPlan, placedSlot, realise, realiseProblem, remotionFrame, segmentArgs, soundOnly, sourcesFit, stampsFit, type FastPlan } from '../src/fast-export.ts'
-import { hashFrames, joinWavs, sampleFrames, soundRanges, usedFrames } from '../src/fast-export-run.ts'
+import { hashFrames, joinWavs, onePsnr, sampleFrames, soundRanges, usedFrames } from '../src/fast-export-run.ts'
 import { loadConfig } from '../src/config.ts'
 import { parseEditorProject, defaultCaptions, defaultPresentation } from '../src/engine.ts'
 import type { EditorProject } from '../../web/src/lib/studio/engine/contracts.ts'
@@ -244,4 +244,12 @@ test("the sound in consecutive stretches: whole frames each, joined to exactly t
   assert.equal(out.readUInt32LE(40), 2400 * 4)
   for (const i of [0, 799, 800, 801, 2399]) assert.equal(out.readInt16LE(44 + i * 4), i, `sample ${i} continues the one before`)
   await assert.rejects(joinWavs([{ file: join(dir, 'a.wav'), samples: 900 }], join(dir, 'x.wav')), /801 samples, not 900/)
+})
+
+test("a checked frame's score is psnr's one comparison, never an average with the frames after it", () => {
+  assert.equal(onePsnr('n:1 mse_avg:1.23 mse_y:1.10 mse_u:1.50 mse_v:1.60 psnr_avg:45.45 psnr_y:48.91 psnr_u:40.80 psnr_v:44.37\n'), 45.45)
+  assert.equal(onePsnr('n:1 mse_avg:0.00 psnr_avg:inf psnr_y:inf\n'), Infinity)
+  // FFmpeg ran ahead and compared the still with the next frames too: no score (the check fails closed).
+  assert.ok(Number.isNaN(onePsnr('n:1 psnr_avg:45.45\nn:2 psnr_avg:33.10\nn:3 psnr_avg:30.20\n')))
+  assert.ok(Number.isNaN(onePsnr('')))
 })

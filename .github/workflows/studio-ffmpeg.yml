@@ -1,0 +1,59 @@
+# The desktop app's own FFmpeg and ffprobe (an LGPL build: studio-worker/scripts/ffmpeg/README.md), built for macOS
+# arm64 and Windows x64. Run by hand only; it publishes nothing: each job prints the SHA-256 of what it made and keeps
+# it as this run's artifact, for a person to check and release.
+name: Studio FFmpeg (desktop)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-arm64:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build
+        run: studio-worker/scripts/ffmpeg/build.sh "$RUNNER_TEMP/studio-ffmpeg-macos-arm64"
+      - name: Package and hash
+        run: |
+          cd "$RUNNER_TEMP"
+          rm -rf studio-ffmpeg-macos-arm64/.build
+          tar -czf studio-ffmpeg-7.1.5-macos-arm64.tar.gz -C studio-ffmpeg-macos-arm64 .
+          cat studio-ffmpeg-macos-arm64/SHA256SUMS
+          shasum -a 256 studio-ffmpeg-7.1.5-macos-arm64.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: studio-ffmpeg-7.1.5-macos-arm64
+          path: ${{ runner.temp }}/studio-ffmpeg-7.1.5-macos-arm64.tar.gz
+          if-no-files-found: error
+
+  windows-x64:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      MSYSTEM: MINGW64
+      CHERE_INVOKING: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      # The runner's own MSYS2 (C:\msys64), no third-party action: the MinGW-w64 toolchain, NASM and a static zlib.
+      - name: Toolchain
+        shell: cmd
+        run: C:\msys64\usr\bin\bash.exe -lc "pacman -S --noconfirm --needed make diffutils tar xz mingw-w64-x86_64-gcc mingw-w64-x86_64-nasm mingw-w64-x86_64-pkgconf mingw-w64-x86_64-zlib"
+      - name: Build
+        shell: cmd
+        run: C:\msys64\usr\bin\bash.exe -lc "studio-worker/scripts/ffmpeg/build.sh \"$(cygpath -u '%RUNNER_TEMP%')/studio-ffmpeg-windows-x64\""
+      - name: Package and hash
+        shell: cmd
+        run: C:\msys64\usr\bin\bash.exe -lc "cd \"$(cygpath -u '%RUNNER_TEMP%')\" && rm -rf studio-ffmpeg-windows-x64/.build && cd studio-ffmpeg-windows-x64 && zip -qr ../studio-ffmpeg-7.1.5-windows-x64.zip . 2>/dev/null || (cd .. && tar -a -cf studio-ffmpeg-7.1.5-windows-x64.zip -C studio-ffmpeg-windows-x64 .); cd \"$(cygpath -u '%RUNNER_TEMP%')\" && cat studio-ffmpeg-windows-x64/SHA256SUMS && sha256sum studio-ffmpeg-7.1.5-windows-x64.zip"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: studio-ffmpeg-7.1.5-windows-x64
+          path: ${{ runner.temp }}/studio-ffmpeg-7.1.5-windows-x64.zip
+          if-no-files-found: error

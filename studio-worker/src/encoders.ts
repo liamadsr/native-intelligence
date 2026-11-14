@@ -7,7 +7,8 @@
  * - `mf`: Windows' own encoder (`h264_mf`, Media Foundation): its quality mode where the driver has one, otherwise a
  *   bitrate from the pixels and the frame rate (mfBitrate). Not measured here (no Windows machine): its floor is the
  *   same lossy checks as VideoToolbox's (test/encoder-check.ts).
- * - `lossless`: x264 at QP 0 (the proof: the frames as composed, before any lossy encoder).
+ * - `lossless`: x264 at QP 0 (the proof: the frames as composed, before any lossy encoder). Needs an FFmpeg with x264:
+ *   a developer's, never the desktop's LGPL build (scripts/ffmpeg), which has none.
  *
  * A hardware encoder is not bit-comparable with the Chrome path's x264 output, so the proof is in two steps: the
  * composed frames, encoded `lossless`, against Chrome's frame by frame (geometry and timing, test/fast-export-e2e.ts);

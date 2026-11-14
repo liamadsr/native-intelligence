@@ -95,15 +95,22 @@ export async function renderThroughPipe(o: {
   ff.on('error', () => {})
   ff.stdin.on('error', () => {})
   const exited = new Promise<number | null>((r) => ff.once('close', (code) => r(code)))
+  // FFmpeg gone before its input ended (an encoder it lacks, a crash): its stdin never drains again, so a write that
+  // waits for it would wait forever. Every write checks, and a wait for room ends when FFmpeg does.
+  let ended = false
+  const early = () => new Error(`ffmpeg stopped before the picture was done: ${stderr.trim().split('\n').slice(-2).join(' | ')}`)
+  void exited.then(() => { ended = true })
   // Frames come in any order from several tabs; FFmpeg takes them in order.
   const pending = new Map<number, Buffer>()
   let next = 0, written = 0
   const flush = async () => {
     while (pending.has(next)) {
+      if (ended) throw early()
       const buf = pending.get(next)!
       pending.delete(next)
       next++
-      if (!ff.stdin.write(buf)) await new Promise((r) => ff.stdin.once('drain', r))
+      if (!ff.stdin.write(buf)) await Promise.race([new Promise((r) => ff.stdin.once('drain', r)), exited])
+      if (ended) throw early()
       written++
       if (written === 1) o.frameDrawn()
       o.progress(written / c.durationInFrames)

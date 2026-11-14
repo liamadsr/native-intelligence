@@ -109,7 +109,21 @@ async function main() {
         let t = Date.now()
         await renderMedia({ serveUrl, composition: comp2, inputProps: props2, ...common, ...EXPORT_ENCODING, ffmpegOverride: bt709WithSwscale, outputLocation: theirs, concurrency: config.renderConcurrency, logLevel: 'error' })
         row.renderMediaSeconds = (Date.now() - t) / 1000
-        for (const profile of ['x264', defaultProfile(process.platform)] as const) {
+        // x264 only where this FFmpeg has it (the desktop's LGPL build does not, STUDIO_FFMPEG): then the pipe must fail at
+        // once on it, not wait for FFmpeg's input to drain after FFmpeg has gone.
+        const hasX264 = execFileSync(process.env.STUDIO_FFMPEG ?? 'ffmpeg', ['-hide_banner', '-encoders'], { encoding: 'utf8' }).includes('libx264')
+        if (!hasX264) {
+          t = Date.now()
+          const scratch = join(dir, 'scratch-missing')
+          await mkdir(scratch, { recursive: true })
+          const timer = new AbortController(), guard = setTimeout(() => timer.abort(), 120_000)
+          await assert.rejects(renderThroughPipe({ serveUrl, composition: comp2, inputProps: props2, common: { ...common, logLevel: 'error' }, concurrency: config.renderConcurrency,
+            encoder: encoderArgs('x264', comp2.width, comp2.height, comp2.fps), scratch, out: join(dir, 'ours-missing.mp4'), signal: timer.signal, progress: () => {}, frameDrawn: () => {} }),
+            (err: Error) => /ffmpeg stopped before the picture was done|failed encoding/.test(err.message) && !timer.signal.aborted)
+          clearTimeout(guard)
+          row['pipe without the encoder'] = { failedInSeconds: (Date.now() - t) / 1000 }
+        }
+        for (const profile of [...(hasX264 ? ['x264' as const] : []), defaultProfile(process.platform)]) {
           const ours = join(dir, `ours-${profile}.mp4`), scratch = join(dir, `scratch-${profile}`)
           await mkdir(scratch, { recursive: true })
           t = Date.now()

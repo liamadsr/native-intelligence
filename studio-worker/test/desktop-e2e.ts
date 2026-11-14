@@ -13,6 +13,9 @@
  * extractor): the package is not there, so that call throws and the job fails.
  *
  *   STUDIO_CHROME=<a headless shell folder> node --import tsx test/desktop-e2e.ts      (renders: one heavy run at a time)
+ *
+ * STUDIO_FFMPEG / STUDIO_FFPROBE: the FFmpeg the runner is given (the desktop's own build, scripts/ffmpeg/build.sh),
+ * and then nothing else on its PATH; this script's own made-up media still come from the FFmpeg on PATH.
  */
 import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -79,8 +82,9 @@ async function main() {
       const out = join(dir, `${name}.mp4`)
       const t0 = Date.now()
       const child = spawn(process.execPath, [join(runner, 'runner.cjs'), '--app', app.url, '--job', job.id, '--out', out, '--work', join(dir, 'work'),
-        '--ffmpeg', findBinary('ffmpeg')!, '--ffprobe', findBinary('ffprobe')!, '--bundle', join(build, 'render-bundle'), '--chrome', chrome, ...(upload ? [] : ['--no-upload'])],
-        { cwd: runner, stdio: ['pipe', 'pipe', 'pipe'], env: { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR } })
+        '--ffmpeg', process.env.STUDIO_FFMPEG ?? findBinary('ffmpeg')!, '--ffprobe', process.env.STUDIO_FFPROBE ?? findBinary('ffprobe')!, '--bundle', join(build, 'render-bundle'), '--chrome', chrome, ...(upload ? [] : ['--no-upload'])],
+        // With STUDIO_FFMPEG (the desktop's own build): no other FFmpeg the runner could reach on PATH.
+        { cwd: runner, stdio: ['pipe', 'pipe', 'pipe'], env: { PATH: process.env.STUDIO_FFMPEG ? '/usr/bin:/bin:/usr/sbin:/sbin' : process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR } })
       child.stdin.end(`${app.mintLocal(job)}\n`)
       let stdout = '', stderr = ''
       child.stdout.on('data', (d: Buffer) => { stdout += d })

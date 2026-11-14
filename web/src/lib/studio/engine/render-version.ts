@@ -20,7 +20,7 @@ export const RENDER_LEDGER: readonly { version: string; sources: string; chain: 
   { version: '2026-11-13.4', sources: '6d3fde2d8cb4005b55dd72360842c3751e33c33c6df7e8ca6b06a9310b7e5228', chain: 'fd1c3e92b9ebf9b026b24e6f6c9ebc9751d148c59679cf35c002efc0930cb927' },
   { version: '2026-11-14.1', sources: 'c3ba46c5e0028affc217384b63e1e3a6c0e22e562e541326558968471f9a2232', chain: '75ac91e9ab7f781baeedb263e22d9a09200bddefb539b0d83da83d7067f2c0ca' },
   { version: '2026-11-14.2', sources: 'a975c2bc4fdef2831b16791b99f271d675e680d0deeaa03dde7ad289291804a3', chain: '8c60d789b78b6e10f7275f0d9fbbb714301ee446f1983db71e892213ef751f29' },
-]
+  { version: '2026-11-14.3', sources: 'fd8f085c6f0f3dfdfd14ac1ae46333fd66164a1d1d6e6e71f65421a6d0c90e59', chain: '5e8e97e450136168f9f73fa1a3629b849765df47a6f7468b7fdc65706b7a18cb' },]
 
 /** The version in force: the ledger's last line. */
 export const STUDIO_RENDER_VERSION = RENDER_LEDGER[RENDER_LEDGER.length - 1]!.version

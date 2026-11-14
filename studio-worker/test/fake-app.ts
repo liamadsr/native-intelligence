@@ -67,6 +67,8 @@ export class FakeApp {
   url = ''
   /** When set, the next N requests to the app's routes answer 503 (the app restarting). */
   failNext = 0
+  /** When set, every part PUT to storage answers 500 (storage down: an upload that cannot go through). */
+  failUploads = false
   /**
    * The local-export tokens, as the app's signed ones work: each names its job and the attempt it holds (0: minted by
    * the editor, it can only take), and works until it runs out, whichever newer one exists.
@@ -344,6 +346,7 @@ export class FakeApp {
     }
     if (req.method === 'PUT') {
       const buf = await this.body(req)
+      if (this.failUploads) return this.send(res, 500, { error: 'Storage down' })
       await mkdir(join(this.dir, 'blobs', key!), { recursive: true })
       await writeFile(file, buf)
       return this.send(res, 200, { ok: true })

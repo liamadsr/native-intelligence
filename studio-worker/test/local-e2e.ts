@@ -8,7 +8,7 @@
  *   STUDIO_CHROME=<a headless shell folder> node --import tsx test/local-e2e.ts      (renders: one heavy run at a time)
  */
 import { spawn, execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -63,7 +63,7 @@ async function main() {
     const job = app.queue('local-export', input)
     const dest = join(dir, 'Local export.mp4')
     const t0 = Date.now()
-    await runLocal({ appUrl: app.url, token: app.mintLocal(job), jobId: job.id, destination: dest, workDir, chrome: process.env.STUDIO_CHROME, emit: (e) => events.push(e) })
+    await runLocal({ appUrl: app.url, token: app.mintLocal(job), jobId: job.id, destination: dest, workDir, chrome: process.env.STUDIO_CHROME, ffmpeg: process.env.STUDIO_FFMPEG, ffprobe: process.env.STUDIO_FFPROBE, emit: (e) => events.push(e) })
     const seconds = (Date.now() - t0) / 1000
     assert.equal(job.status, 'completed', job.error)
     assert.ok(existsSync(dest))
@@ -79,12 +79,43 @@ async function main() {
 
     // ---- a cancel from the app ---------------------------------------------------------------------------------------
     const job2 = app.queue('local-export', input)
-    const dest2 = join(dir, 'Cancelled.mp4')
-    const cancelling = setInterval(() => { if (job2.progress.length > 0) job2.cancelRequested = true }, 100)
-    await assert.rejects(runLocal({ appUrl: app.url, token: app.mintLocal(job2), jobId: job2.id, destination: dest2, workDir, chrome: process.env.STUDIO_CHROME, emit: () => {} }))
-    clearInterval(cancelling)
-    assert.equal(job2.status, 'cancelled')
-    assert.ok(!existsSync(dest2))
+    const dest2 = join(dir, 'Cancelled.mp4'), events2: LocalEvent[] = []
+    // Asked before it is taken: the first progress report (staging the files) answers it.
+    job2.cancelRequested = true
+    await assert.rejects(runLocal({ appUrl: app.url, token: app.mintLocal(job2), jobId: job2.id, destination: dest2, workDir, chrome: process.env.STUDIO_CHROME, ffmpeg: process.env.STUDIO_FFMPEG, ffprobe: process.env.STUDIO_FFPROBE, emit: (e) => events2.push(e) }))
+    const said2 = JSON.stringify(events2.filter((e) => e.type !== 'progress'))
+    assert.equal(job2.status, 'cancelled', said2)
+    assert.ok(!existsSync(dest2), said2)
+    assert.ok(!events2.some((e) => e.type === 'saved'), said2)
+    assert.equal((events2.find((e) => e.type === 'failed') as { cancelled?: boolean } | undefined)?.cancelled, true, said2)
+    // ---- the upload fails after the file is saved: the export is kept on this computer, not failed ------------------
+    const job3 = app.queue('local-export', input)
+    const dest3 = join(dir, 'Kept.mp4'), events3: LocalEvent[] = []
+    app.failUploads = true
+    await runLocal({ appUrl: app.url, token: app.mintLocal(job3), jobId: job3.id, destination: dest3, workDir, chrome: process.env.STUDIO_CHROME, ffmpeg: process.env.STUDIO_FFMPEG, ffprobe: process.env.STUDIO_FFPROBE, emit: (e) => events3.push(e) })
+    app.failUploads = false
+    assert.equal(job3.status, 'completed', job3.error)
+    assert.equal((job3.result as { kept?: string }).kept, 'computer')
+    assert.ok(existsSync(dest3))
+    const saved = events3.find((e) => e.type === 'saved') as { file: string; bytes: number } | undefined
+    assert.equal(saved?.file, dest3)
+    assert.ok(saved!.bytes > 0)
+    assert.ok(events3.some((e) => e.type === 'log' && /upload did not go through/.test(e.line)))
+    const done3 = events3.find((e) => e.type === 'done') as { uploaded: boolean } | undefined
+    assert.equal(done3?.uploaded, false)
+    assert.ok(events3.findIndex((e) => e.type === 'saved') < events3.findIndex((e) => e.type === 'done'))
+
+    // ---- the Studio takes the job back while it runs (moved to the server): it ends cancelled, nothing left behind ----
+    const job4 = app.queue('local-export', input)
+    const dest4 = join(dir, 'Moved.mp4'), events4: LocalEvent[] = []
+    const moving = setInterval(() => { if (job4.status === 'running') job4.status = 'queued' }, 20)
+    await assert.rejects(runLocal({ appUrl: app.url, token: app.mintLocal(job4), jobId: job4.id, destination: dest4, workDir, chrome: process.env.STUDIO_CHROME, ffmpeg: process.env.STUDIO_FFMPEG, ffprobe: process.env.STUDIO_FFPROBE, emit: (e) => events4.push(e) }))
+    clearInterval(moving)
+    const failed4 = events4.find((e) => e.type === 'failed') as { cancelled: boolean; code?: string } | undefined
+    assert.equal(failed4?.cancelled, true)
+    assert.equal(failed4?.code, 'NOT_HELD', 'the refusal code, for the desktop to match on')
+    assert.ok(!existsSync(dest4))
+    assert.deepEqual(readdirSync(dir).filter((n) => n.endsWith('.partial')), [], 'no partial copy left beside a destination')
     console.log('[local-e2e] all passed')
   } finally {
     await app.stop()

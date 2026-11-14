@@ -153,7 +153,9 @@ fast export, …)`, or `Rendering in Chrome: <the first reason>`.
   at or before the clip's time with a millisecond's grace, replayed and checked frame by frame against what the
   FFmpeg graph will pick before anything runs); a jump cut's blend as `cutVideoPlan` lays it; the camera's timing
   from `presenterPieces` (now in the engine's `presenter-pieces.ts`, the one copy the editor and the worker both
-  use), sampled bilinearly at Chrome's fractional place under an antialiased circle or rounded-square mask; one
+  use), sampled bilinearly at Chrome's fractional place (FFmpeg's `v360`, flat to flat: LGPL, so the desktop's own
+  FFmpeg build has it; `perspective` did it before and is GPL-only) under a circle or rounded-square mask snapped to
+  whole pixels as Chrome snaps the bubble's clip; one
   FFmpeg pass per clip with the Chrome path's encoder settings and labels, joined without re-encoding.
 - *What the files must be* (checked before anything runs): H.264 yuv420p, colour BT.709 or not said (an untagged
   take, as a browser's conformed by the worker arrives, is read by Chrome as BT.709 limited range: proven), square

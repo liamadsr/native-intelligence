@@ -89,7 +89,8 @@ function renderVersionHolds(): void {
 async function main() {
   const out = resolve(process.argv[2] ?? join(ROOT, '.local-runner'))
   const withBundle = !process.argv.includes('--no-bundle')
-  if (!process.argv.includes('--skip-version-check')) renderVersionHolds()
+  // --skip-version-check (or STUDIO_SKIP_RENDER_VERSION=1): only while a render change is being worked on, never for a release.
+  if (!process.argv.includes('--skip-version-check') && process.env.STUDIO_SKIP_RENDER_VERSION !== '1') renderVersionHolds()
   await rm(out, { recursive: true, force: true })
   const runner = join(out, 'runner')
   await mkdir(runner, { recursive: true })
@@ -135,7 +136,7 @@ async function main() {
     'Kept as packages (runner/node_modules):', ...packages, '',
     'Compiled into runner.cjs:', ...bundled.map((n) => `- ${n} (${licence(bundledDirs.get(n)!)})`), '',
     'Left out:', ...left.map((n) => `- ${n}: Remotion's FFmpeg build (GPL, with libx264, libx265 and libfdk-aac).`), '',
-    'Not in this folder, added by the desktop build: Node.js (MIT), FFmpeg and ffprobe (LGPL build, system encoders), Chrome headless shell (BSD-3-Clause and its own notices).',
+    'Not in this folder, added by the desktop build: Node.js (MIT); FFmpeg and ffprobe 7.1.5, an LGPL-2.1-or-later build with the system\'s H.264 encoder and no GPL or non-free part (scripts/ffmpeg/build.sh: its output carries LICENSE.LGPL-2.1.txt, NOTICE.md with the configure line, and the exact source in source/, which the release must carry or publish); Chrome headless shell (BSD-3-Clause and its own notices).',
     'Remotion (@remotion/*) is under the Remotion License: its terms are the owner\'s matter.', '',
   ].join('\n')
   await writeFile(join(out, 'NOTICES.md'), notices)

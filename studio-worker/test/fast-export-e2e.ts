@@ -19,11 +19,17 @@
  *   STUDIO_CHROME=<a headless shell folder> node --import tsx test/fast-export-e2e.ts
  *
  * Renders: one heavy run at a time. STUDIO_FAST_E2E_KEEP=1 keeps the files; STUDIO_FAST_E2E_CASES=a,b runs some.
+ *
+ * STUDIO_FFMPEG / STUDIO_FFPROBE: the fast export's worker runs that FFmpeg alone (the desktop's LGPL build: run it
+ * with STUDIO_FAST_ENCODER=videotoolbox, it has no x264). STUDIO_FAST_ENCODER=lossless (the frames before any lossy
+ * encoder) needs x264 at QP 0, so that run uses an FFmpeg that has it (a developer's Homebrew one, on PATH) and not
+ * STUDIO_FFMPEG; the composition's filters are the same in both, and every export's frames are hashed against their
+ * sources before the encoder whichever FFmpeg runs it.
  */
 import { spawn, spawnSync, execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { FakeApp, type FakeJob } from './fake-app.ts'
@@ -90,10 +96,16 @@ async function main() {
   const app = new FakeApp({ secret: SECRET, dir: join(dir, 'app'), partBytes: 8 * 1024 * 1024 })
   await app.start()
   for (const [key, file] of Object.entries(files)) await app.putBlob(`uploads/${key}`, file, 'application/octet-stream')
+  // STUDIO_FFMPEG / STUDIO_FFPROBE (the desktop's own build, scripts/ffmpeg/build.sh): the fast export's worker runs
+  // those and can reach no other FFmpeg on its PATH. The importing and the Chrome reference keep the FFmpeg on PATH (the
+  // imports conform with x264, which that build has not).
+  const own = process.env.STUDIO_FFMPEG
   const worker = (fast: boolean) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env: {
-      ...process.env, NODE_ENV: 'production', STUDIO_APP_URL: app.url, STUDIO_WORKER_SECRET: SECRET, STUDIO_WORKER_ID: `fast-e2e-${fast}`, STUDIO_WORK_DIR: workDir,
-      STUDIO_WORKER_POLL_MS: '200', STUDIO_HEALTH_PORT: '0', STUDIO_FAST_EXPORT: fast ? 'on' : 'off' } })
+    const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'production', STUDIO_APP_URL: app.url, STUDIO_WORKER_SECRET: SECRET, STUDIO_WORKER_ID: `fast-e2e-${fast}`, STUDIO_WORK_DIR: workDir,
+      STUDIO_WORKER_POLL_MS: '200', STUDIO_HEALTH_PORT: '0', STUDIO_FAST_EXPORT: fast ? 'on' : 'off' }
+    if (own && fast) env.PATH = `${dirname(process.execPath)}:/usr/bin:/bin:/usr/sbin:/sbin`
+    if (own && !fast) { delete env.STUDIO_FFMPEG; delete env.STUDIO_FFPROBE }
+    const child = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env })
     if (process.env.STUDIO_FAST_E2E_KEEP) { child.stdout.pipe(process.stderr); child.stderr.pipe(process.stderr) } else { child.stdout.resume(); child.stderr.resume() }
     return child
   }

@@ -40,8 +40,11 @@ export type LocalEvent =
   | { type: 'taken'; jobId: string; attempt: number; title: string }
   | { type: 'progress'; progress: number }
   | { type: 'log'; line: string }
+  /** The video is at its destination, whole (the upload, if any, comes after). */
+  | { type: 'saved'; file: string; bytes: number }
   | { type: 'done'; file: string; uploaded: boolean; result: ExportResult | null }
-  | { type: 'failed'; error: string; cancelled: boolean }
+  /** `code`: the app's refusal code when the app refused (NOT_HELD, ENDED, UNAUTHORIZED…), for the desktop to match on. */
+  | { type: 'failed'; error: string; cancelled: boolean; code?: string }
   | { type: 'encoder'; profile: string; rung: string | null; tried: ProbeResult['tried'] }
 
 export interface LocalRun {
@@ -176,11 +179,13 @@ export async function runLocal(o: LocalRun): Promise<{ file: string; result: Exp
     lastSent = Date.now()
     sending = client.progress(job.id, latest, scrub(lines.join('\n')) || undefined)
       .then((r) => { if (r.cancelRequested && !stop.signal.aborted) stop.abort(new JobError('Cancelled')) })
-      .catch((err) => { logs.unshift(...lines); if (err instanceof AppError && [401, 403, 409].includes(err.status)) stop.abort(new JobError(`The Studio took the job back (${err.message})`)) })
+      .catch((err) => { logs.unshift(...lines); if (err instanceof AppError && [401, 403, 409].includes(err.status)) stop.abort(new JobError(`The Studio took the job back (${err.message})`, { cause: err })) })
       .finally(() => { sending = null })
     return sending
   }
   const heartbeat = setInterval(() => void send(true), HEARTBEAT_MS)
+  // A copy on its way to the destination (removed on every way out).
+  let partial: string | null = null
   try {
     if (job.id !== o.jobId || job.kind !== 'local-export') throw new JobError('The token is for another job')
     // The server checked the version when it queued the job; a desktop app updated since then is held to it again.
@@ -199,15 +204,31 @@ export async function runLocal(o: LocalRun): Promise<{ file: string; result: Exp
     // The export job's own client, but its one write goes to the destination first (and to the Studio when asked).
     const jobClient = Object.create(client) as AppClient
     jobClient.writeBlob = async (jobId, key, path, contentType, opts) => {
-      const partial = `${o.destination}.${process.pid}.partial`
+      const bytes = (await stat(path)).size
+      partial = `${o.destination}.${process.pid}.partial`
       await copyFile(path, partial)
-      await rename(partial, o.destination).catch(async (err) => { await removeQuietly(partial); throw err })
+      // Stopped while copying (the person, the desktop app): nothing is left at the destination.
+      if (signal.aborted) throw new JobError('Cancelled')
+      await rename(partial, o.destination)
+      partial = null
       file = o.destination
+      o.emit({ type: 'saved', file, bytes })
       o.emit({ type: 'log', line: `Saved to ${basename(o.destination)}` })
-      if (o.upload === false) return { bytes: (await stat(path)).size }
-      const r = await client.writeBlob(jobId, key, path, contentType, opts)
-      uploaded = true
-      return r
+      if (o.upload === false) return { bytes }
+      try {
+        const r = await client.writeBlob(jobId, key, path, contentType, opts)
+        uploaded = true
+        return r
+      } catch (err) {
+        // The video is where the person asked for it: an upload that fails does not fail the export. It is finished as
+        // kept on this computer (a partly stored upload is left uncommitted, for the Studio's sweep). Not when the
+        // Studio took the job back (401, 403, 409) or the person cancelled: then it ends as before.
+        if (signal.aborted || (err instanceof AppError && [401, 403, 409].includes(err.status))) throw err
+        const line = `The upload did not go through (${String((err as Error)?.message ?? err).split('\n')[0]!.slice(0, 200)}): the video is kept on this computer only`
+        logs.push(line)
+        o.emit({ type: 'log', line })
+        return { bytes }
+      }
     }
     const ctx: JobContext<'export'> = {
       job: { id: job.id, kind: 'export', workspaceId: job.workspaceId, videoId: job.videoId, input: job.input, attempts: job.attempts } as ClaimedJob<'export'>,
@@ -223,14 +244,19 @@ export async function runLocal(o: LocalRun): Promise<{ file: string; result: Exp
     o.emit({ type: 'done', file, uploaded, result: uploaded ? result : null })
     return { file, result: uploaded ? result : null }
   } catch (err) {
-    const cancelled = signal.aborted
+    // Cancelled: by the person (the app's answer), by the desktop app, or the Studio took the job back (moved it to the
+    // server, the person left): 401, 403 or 409 from any call. The desktop app exits 2 for these.
+    const cancelled = signal.aborted || (err instanceof AppError && [401, 403, 409].includes(err.status))
     const message = cancelled ? 'Cancelled' : err instanceof JobError ? err.message : `The export failed on this computer: ${String((err as Error)?.message ?? err).split('\n')[0]!.slice(0, 500)}`
     await sending
     await client.fail(job.id, scrub(message)).catch(() => undefined)
-    o.emit({ type: 'failed', error: message, cancelled })
+    // The refusal that ended it: the error itself, or the progress answer that stopped the run (its abort reason's cause).
+    const refusal = [err, (signal.reason as { cause?: unknown } | undefined)?.cause].find((e): e is AppError => e instanceof AppError && !!e.code)
+    o.emit({ type: 'failed', error: message, cancelled, ...(refusal?.code ? { code: refusal.code } : {}) })
     throw err instanceof JobError ? err : new JobError(message)
   } finally {
     clearInterval(heartbeat)
+    if (partial) await removeQuietly(partial)
     await removeQuietly(scratch)
   }
 }
