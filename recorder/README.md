@@ -24,6 +24,12 @@ producer that joins someone's Meet, Teams or Zoom call speaks the same feed.
   shutdown leaves without it, and the next process takes its calls up again.
 - Its identity in a room is `notes-recorder-<RECORDER_ID>`: one process per id, and one
   process per deployment today.
+- With `RECORDER_AUDIO=on`, and for a call the app asks it of (the start's `audio`), it
+  also keeps the call's sound (`src/audio.ts`, `src/mixer.ts`): every member's microphone
+  (never a guest's) mixed into one file on the call's clock, on its volume while the call
+  is heard, encoded with ffmpeg once it leaves, and handed to the app through the feed
+  (a one-time upload the app grants; it holds no storage key). A restart goes on in the
+  same file; the notes never wait for the sound.
 
 Deployment, settings and the roll-out steps are in `deploy/README.md` (step 23, "The call
 recorder"); the service is `recorder` in `deploy/livekit/compose.yaml`.
@@ -34,7 +40,7 @@ Node 24 runs the TypeScript as it is (no build step):
 
 ```bash
 npm ci
-npm test            # the pure parts: clock, Deepgram socket, deliveries, settings
+npm test            # the pure parts: clock, Deepgram socket, deliveries, settings, the mixer, the audio files
 npm run typecheck
 ```
 
@@ -44,7 +50,10 @@ fake participants who publish tones; then the real recorder joins and is checked
 who said what, when, through a mute, a Deepgram drop, someone leaving and coming back, a
 late guest (unheard until they say go), a screen share's sound (never heard), two people
 at once (one request), its own restart, notes going off, and the room closing once only
-it is left:
+it is left. With the audio on (the default; `E2E_AUDIO=off` leaves it out, and ffmpeg and
+ffprobe must be on the PATH), the round's file is checked too: one file through the
+restart, its length the round's, each member's tone where the transcript puts it, and
+nothing of a muted microphone, the guest, the screen share or the restart:
 
 ```bash
 LIVEKIT_SERVER_BIN=/path/to/livekit-server ./e2e/start-livekit.sh
@@ -55,3 +64,6 @@ npm run e2e
 `MODE=real RECORDER_E2E_DEEPGRAM_API_KEY=... npm run e2e` makes one short pass with real
 Deepgram instead, two people speaking sentences made by macOS's `say`. Results are in
 `e2e/run/`, which git ignores.
+
+`npm run e2e:load` (same LiveKit) measures one call of 10 people for 60 s and prints the
+recorder's CPU and memory; `AUDIO=off npm run e2e:load` for the comparison.

@@ -28,9 +28,9 @@ import { inngest } from '@/lib/inngest/client'
 import { ensureWorkForAgentRun } from '@/lib/work/agent-run-mirror'
 import { fenceUntrustedValue } from '@/lib/ai/agent-run-context'
 import { LOCAL_AGENT_MESSAGE_MAX_BYTES, LOCAL_AGENT_REQUEST_MAX_BYTES, createSession, listFolders, type SessionRow } from '@/lib/local-agent/store'
-import { ACTION_REQUEST_PREFIX, nextActionStartId, startActionMacJob, type StartUnattendedResult, type UnattendedDeps } from '@/lib/local-agent/unattended'
+import { ACTION_REQUEST_PREFIX, nextActionStartId, startActionMacJob, type PersonAgentChoice, type StartUnattendedResult, type UnattendedDeps } from '@/lib/local-agent/unattended'
 import { runEnvironmentIdFor, runEnvironmentShared, runEnvironmentUsable } from './resolve'
-import { getEnvironment } from './store'
+import { assertMacOffers, getEnvironment } from './store'
 import { EnvironmentError, RUN_ENVIRONMENT_UNUSABLE_CODE, isRepoFullName, type MacEnvironment, type MacFolder } from './types'
 
 type Svc = SupabaseClient
@@ -174,6 +174,8 @@ export type ActionOnMacResult =
       /** The Mac environment's name (renameable; the Mac's own name at first). */
       mac: string
       folder: string
+      /** The coding agent it runs on (migration 658), or null for Native Intelligence's own agent. */
+      worker: string | null
       created: boolean
       joined?: true
     }
@@ -391,6 +393,12 @@ export async function startActionOnMac(
     environmentId: string
     repo: string
     action: { id: string; identifier: string; title: string; description: string | null }
+    /**
+     * Who does the work: only the start-agent route passes it, for a
+     * person's own click (PersonAgentChoice). Absent: Native Intelligence's
+     * own agent.
+     */
+    agent?: PersonAgentChoice
     deps?: UnattendedDeps
   },
 ): Promise<ActionOnMacResult> {
@@ -424,6 +432,17 @@ export async function startActionOnMac(
       httpStatus: 403,
     }
   }
+  // A coding agent picked for this card: only one the Mac last said it
+  // offers (it would refuse anything else on its own, later).
+  if (input.agent && input.agent.worker !== null) {
+    try {
+      await assertMacOffers(svc, env.id, input.agent.worker)
+    } catch (err) {
+      if (!(err instanceof EnvironmentError)) throw err
+      const code = (err.details as { code?: unknown } | undefined)?.code
+      return { status: 'refused', code: typeof code === 'string' ? code : 'WORKER_NOT_OFFERED', reason: err.message, httpStatus: 409 }
+    }
+  }
   const started = await startActionMacJob(
     svc,
     {
@@ -434,6 +453,7 @@ export async function startActionOnMac(
       mode: 'edit',
       // Two presses at once share one start (nextActionStartId), never two turns.
       origin: { actionId: input.action.id, startId: await nextActionStartId(svc, { userId: input.userId, actionId: input.action.id }) },
+      ...(input.agent ? { agent: input.agent } : {}),
     },
     input.deps,
   )
@@ -445,6 +465,7 @@ export async function startActionOnMac(
     environmentId: env.id,
     mac: env.name,
     folder: folder.label,
+    worker: started.session.worker ?? null,
     created: started.created,
     ...(started.joined ? { joined: true as const } : {}),
   }

@@ -181,9 +181,9 @@ export async function verifyPushJwt(
 function verifyStaticToken(request: Request): boolean {
   const token = process.env.GMAIL_WEBHOOK_TOKEN
   if (!token) {
-    // Fail closed in production/preview; allow only in local dev where the
-    // secret is typically unset (mirrors requireCronSecret's fail-closed stance).
-    const isProd = process.env.VERCEL_ENV === 'production' || process.env.VERCEL_ENV === 'preview' || process.env.NODE_ENV === 'production'
+    // Fail closed in a built app; allow only in local dev where the secret is
+    // typically unset (mirrors requireCronSecret's fail-closed stance).
+    const isProd = process.env.NODE_ENV === 'production'
     return !isProd
   }
 

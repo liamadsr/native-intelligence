@@ -1,9 +1,9 @@
 import { defineConfig, configDefaults } from 'vitest/config'
 import path from 'path'
 
-// Vercel runs `vitest run && next build` with NODE_ENV=production for the
-// whole command. Vite reads NODE_ENV to decide `isProduction` AFTER loading
-// this file, and in production mode its resolver turns a node built-in
+// `npm run build` is `vitest run && next build`, and a shell that builds may
+// hold NODE_ENV=production for the whole command. Vite reads NODE_ENV to decide
+// `isProduction` AFTER loading this file, and in production mode its resolver turns a node built-in
 // (`node:path`, `node:fs`, ...) imported by a jsdom test into the bare
 // `__vite-browser-external` id, which loads as `export default {}` — every
 // named import is undefined ("join is not a function"). In dev mode it emits
@@ -36,9 +36,9 @@ export default defineConfig({
     exclude: [...configDefaults.exclude, '**/.eve/**'],
     setupFiles: ['./src/test/setup.ts'],
     // Force React's development build during the test run. `react/index.js`
-    // only exports `act` from the dev build; under NODE_ENV=production (which
-    // Vercel sets for the whole `vitest run && next build` step) it loads the
-    // prod build where `act` is undefined → "act is not a function" in the two
+    // only exports `act` from the dev build; under NODE_ENV=production (which a
+    // shell that builds may hold for the whole `vitest run && next build`) it
+    // loads the prod build where `act` is undefined → "act is not a function" in the two
     // jsdom render tests. Scoped to the test process only; does not affect the
     // subsequent `next build`.
     env: { NODE_ENV: 'test' },

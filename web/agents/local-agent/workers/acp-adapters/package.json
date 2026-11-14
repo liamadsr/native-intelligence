@@ -1,0 +1,9 @@
+{
+  "name": "ni-acp-adapters",
+  "private": true,
+  "description": "The ACP adapters registry.json pins, installed by install-agents.sh from package-lock.json. Not a dependency of web/.",
+  "dependencies": {
+    "@agentclientprotocol/claude-agent-acp": "0.107.0",
+    "@agentclientprotocol/codex-acp": "2.6.0"
+  }
+}

@@ -191,9 +191,9 @@ function reqWithBody(body: unknown) {
 beforeEach(() => {
   vi.clearAllMocks()
   // The secret the kickoff vouches for a session create with (the researcher
-  // refuses any other create), and the deployment origin it dispatches to.
+  // refuses any other create), and the app's address it dispatches to.
   vi.stubEnv('AGENT_RUN_INTERNAL_SECRET', 'agent-run-secret')
-  vi.stubEnv('VERCEL_URL', 'app.nativeintelligence.dev')
+  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.nativeintelligence.dev')
   hoisted.clientFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true, sessionId: 'wrun_NEW' }) })
   hoisted.getServiceClient.mockReturnValue(makeService({ initialResearch: null }).service)
 })

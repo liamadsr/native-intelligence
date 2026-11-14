@@ -24,6 +24,7 @@ import { Bot, Globe, History, Loader2, RotateCcw, Undo2, User } from 'lucide-rea
 import { cn } from '@/lib/utils'
 import { relativeTime } from '@/lib/work/presentation'
 import { diffLines, diffStats, foldDiff } from '@/lib/documents/line-diff'
+import { DiffFoldRow, DiffLineRow } from './diff-line-row'
 import { describeRevisionAuthor, describeRevisionSources, type RevisionDetail, type RevisionSummary } from '@/lib/documents/revision-format'
 import { changedSection } from '@/lib/documents/section-diff'
 import {
@@ -306,21 +307,11 @@ export function DocumentHistory({
                 ) : (
                   diff.rows.map((row, i) =>
                     row.kind === 'fold' ? (
-                      <div key={i} className="bg-muted/40 px-3 py-0.5 font-sans text-[11px] text-muted-foreground">
+                      <DiffFoldRow key={i}>
                         {row.count} unchanged line{row.count === 1 ? '' : 's'}
-                      </div>
+                      </DiffFoldRow>
                     ) : (
-                      <div
-                        key={i}
-                        className={cn(
-                          'whitespace-pre-wrap break-words px-3',
-                          row.kind === 'added' && 'bg-emerald-500/10 text-emerald-900 dark:text-emerald-200',
-                          row.kind === 'removed' && 'bg-rose-500/10 text-rose-900 line-through decoration-rose-500/40 dark:text-rose-200',
-                        )}
-                      >
-                        <span className="select-none pr-2 text-muted-foreground">{row.kind === 'added' ? '+' : row.kind === 'removed' ? '−' : ' '}</span>
-                        {row.text || ' '}
-                      </div>
+                      <DiffLineRow key={i} kind={row.kind} text={row.text} />
                     ),
                   )
                 )}

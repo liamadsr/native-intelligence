@@ -11,12 +11,12 @@ import { appUrl } from '@/lib/app-url'
 export const metadata: Metadata = {
   title: 'Pricing',
   description:
-    '7-day free trial, then $99 per user per month for the full AI sales platform — bot-free call capture, live intelligence, and a CRM that updates itself. Teams and enterprises, talk to us about volume pricing.',
+    '7-day free trial, then $99 per user per month for the whole workspace — mail, chat, meetings, docs, tasks, customers and the agents that work across them. Teams and enterprises, talk to us about volume pricing.',
   alternates: { canonical: '/pricing' },
   openGraph: {
     title: 'Pricing – Native Intelligence',
     description:
-      '7-day free trial, then $99 per user per month for the full AI sales platform — bot-free call capture, live intelligence, and a CRM that updates itself. Teams and enterprises, talk to us about volume pricing.',
+      '7-day free trial, then $99 per user per month for the whole workspace — mail, chat, meetings, docs, tasks, customers and the agents that work across them. Teams and enterprises, talk to us about volume pricing.',
     url: `${appUrl()}/pricing`,
     type: 'website',
   },
@@ -115,13 +115,13 @@ export default function PricingPage() {
         <div className="pt-36 pb-12 px-6 lg:px-8">
           <div className="mx-auto max-w-4xl text-center">
             <h1 className="text-4xl font-medium tracking-tight text-foreground sm:text-5xl">
-              Simple pricing for every rep.
+              Simple pricing for your whole team.
             </h1>
             <p className="mt-6 text-lg text-muted-foreground max-w-2xl mx-auto">
               Try everything free for 7 days, then $99 per seat. Add a card to start;
-              cancel before the trial ends and you pay nothing. Everything between hello
-              and closed: bot-free capture, live call intelligence, and the CRM that
-              fills itself in.
+              cancel before the trial ends and you pay nothing. Every seat gets the whole
+              workspace: mail, chat, bot-free meeting capture, docs, tasks, customers, and
+              the agents that work across them.
             </p>
           </div>
         </div>

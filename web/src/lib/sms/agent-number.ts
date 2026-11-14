@@ -96,8 +96,8 @@ export interface AgentNumberDeps {
   config?: TwilioConfig | null
   now?: () => number
   webhookUrl?: string
-  /** Whether this is Native Intelligence's production deployment (app-env: the
-   *  platform's production, or a production build run off it, as on the server). */
+  /** Whether this is Native Intelligence's production deployment (app-env: a
+   *  production build, as on the server). */
   production?: boolean
   /** Ask for {@link balanceSpares} (an Inngest event). */
   requestBalance?: () => Promise<unknown>

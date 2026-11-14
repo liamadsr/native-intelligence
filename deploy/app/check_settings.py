@@ -2,15 +2,14 @@
 """Checks the app's settings on the server (deploy/app/.env) before the switch of
 the real names (../README.md step 21, Gate 1), without showing a value.
 
-check-settings.sh sends this program to the server and runs it there as root; so
-does pull-settings.sh, with --names-only, for its closing report. It prints, for
-each setting, whether it is set and, where that can be checked from here, whether
-it is the right value: never the value, at most its length.
+check-settings.sh sends this program to the server and runs it there as root. It
+prints, for each setting, whether it is set and, where that can be checked from
+here, whether it is the right value: never the value, at most its length.
 
 What "the right value" means depends on the setting, so they are in four groups:
 
   must match   what it signs or encrypts is already stored, or a provider holds
-               the other copy: only the value the earlier host has works. Where
+               the other copy: only the value production already has works. Where
                production's own data can tell, it is checked against that data
                (a stored ciphertext must open, a stored hash must be reproduced,
                a pinned public key must match).
@@ -22,6 +21,9 @@ What "the right value" means depends on the setting, so they are in four groups:
 
   check_settings.py <env file> [--names-only] [--fill <envfile.py>]
                     [--pinned <base64 SPKI> ...] [--embedding-model <name>]
+
+--names-only reads the file and reports the groups and what is empty, without
+checking a value against anything.
 
 --fill writes the one value this program can bring from where it is held:
 GPT_LIVE_TRUNK_SECRET, read from the Twilio trunk's origination address with the
@@ -53,8 +55,8 @@ MUST_MATCH = {
     "UNSUBSCRIBE_SECRET": "signs the unsubscribe links in mail already sent",
     "OUTLOOK_WEBHOOK_SECRET": "part of every live Outlook subscription",
     "GMAIL_WEBHOOK_TOKEN": "part of the Gmail push subscription",
-    "INNGEST_SIGNING_KEY": "the Inngest server's own (pull-settings.sh copies it)",
-    "INNGEST_EVENT_KEY": "the Inngest server's own (pull-settings.sh copies it)",
+    "INNGEST_SIGNING_KEY": "the Inngest server's own (the value in ../inngest/.env)",
+    "INNGEST_EVENT_KEY": "the Inngest server's own (the value in ../inngest/.env)",
     "GPT_LIVE_TRUNK_SECRET": "the phone trunk sends it with every call",
     "GPT_LIVE_WEBHOOK_SECRET": "the voice provider signs its call webhooks with it",
     "LINEAR_WEBHOOK_SECRET": "Linear signs its webhooks with it",
@@ -77,8 +79,6 @@ MAY_BE_EMPTY = {
     "NEXT_PUBLIC_POSTHOG_HOST": "empty: the US cloud, through /ingest",
     "NEXT_PUBLIC_SITE_URL": "empty: the app's own address",
     "APP_DOWNLOAD_URL_WINDOWS": "empty: no Windows download is offered",
-    "SENTRY_ORG": "read only by the build's source-map upload, which this image does not do",
-    "SENTRY_PROJECT": "read only by the build's source-map upload, which this image does not do",
     # Our own Slack app (web/src/lib/slack/config.ts): all four or none.
     "SLACK_APP_ID": "empty: Slack is off (all four SLACK_ settings or none)",
     "SLACK_CLIENT_ID": "empty: Slack is off, and no workspace can add the app (all four SLACK_ settings or none)",
@@ -89,7 +89,6 @@ MAY_BE_EMPTY = {
     "AGENT_AUTO_ATTEMPT_ENABLED": "a switch: empty is off",
     "AGE_OUT_ENABLED": "a switch: empty is off",
     "RECONCILER_ENABLED": "a switch: empty is off",
-    "RUN_SKILL_LOCAL_DISPATCH_ENABLED": "a switch: empty is off",
     "NI_FORWARD_OLD_DOMAIN": "a switch: empty is off (the forward from dial8.ai; only after the address moves)",
     # Until the app makes calls (../livekit; ../README.md step 23). All three or none.
     "LIVEKIT_URL": "empty: no audio or video calls",
@@ -106,9 +105,15 @@ MAY_BE_EMPTY = {
     # The call recorder (../livekit's recorder service; ../README.md step 23, "The call recorder").
     "TEAM_CALL_RECORDER": "a switch: empty is off (call notes are Egress's, or there are none)",
     "CAPTURE_FEED_SECRET": "empty: the call recorder cannot reach the app (make-keys.sh in ../livekit makes it)",
+    # "Continue with ChatGPT" (web/src/lib/chatgpt/config.ts): optional, empty hides the option.
+    "CHATGPT_CLIENT_ID": "empty: \"Continue with ChatGPT\" is hidden (the free tier on a person's own ChatGPT plan with it)",
+    "CHATGPT_CLIENT_SECRET": "empty: \"Continue with ChatGPT\" can't finish a sign-in (both CHATGPT_CLIENT_ID and this, or neither)",
+    "CHATGPT_REDIRECT_URI": "empty: the app's own address + /auth/chatgpt/callback (it must be the callback registered with the client)",
     # Phase 2 of the call recorder (../README.md step 23, "Live notes during a call").
     "TEAM_CALL_LIVE_AGENT": "a switch: empty is off (a call's notes are written when it ends, none during it)",
     "TEAM_CALL_EVENT_LINK": "a switch: empty is off (a meeting's call capture is not linked to its calendar event)",
+    # Phase 4 of the call recorder (../README.md step 23, "Call audio files").
+    "TEAM_CALL_AUDIO": "a switch: empty is off (a call heard by the recorder keeps its transcript, no audio file)",
     # The SEO pages' search data (DataForSEO). The site audit needs none.
     "DATAFORSEO_API_KEY": "empty: keyword, ranking and backlink lookups are off (the site audit still works)",
     # The Studio worker (../studio; ../../studio-worker).
@@ -673,6 +678,25 @@ def check_slack(name):
     return check
 
 
+# "Continue with ChatGPT" (web/src/lib/chatgpt/config.ts): the partner client's id shows the
+# option, and its secret finishes the sign-in, so one without the other is a button that
+# fails. Nothing is asked of OpenAI.
+CHATGPT_PAIR = ("CHATGPT_CLIENT_ID", "CHATGPT_CLIENT_SECRET")
+
+
+def check_chatgpt_pair(name):
+    """One of the two set: wrong while the other is empty (both or neither)."""
+    other = CHATGPT_PAIR[1] if name == CHATGPT_PAIR[0] else CHATGPT_PAIR[0]
+
+    def check(env, _opts):
+        if not env.get(other, "").strip():
+            if name == "CHATGPT_CLIENT_ID":
+                return False, "set without CHATGPT_CLIENT_SECRET: the sign-in option shows, and no sign-in can finish (both or neither)"
+            return False, "set without CHATGPT_CLIENT_ID: the option stays hidden, so the secret is unused (both or neither)"
+        return None, None
+    return check
+
+
 def check_deepgram(env, _opts):
     status, body = http("https://api.deepgram.com/v1/projects", {"Authorization": "Token " + env["DEEPGRAM_API_KEY"].strip()})
     if status == 200 and (body or {}).get("projects"):
@@ -770,8 +794,13 @@ def check_team_call_recorder(env, _opts):
 
 
 def check_needs_recorder(name, what):
-    """`on` or empty, and `on` only with the call recorder on: the app reads the switch only
-    where the recorder takes the notes (web/src/lib/team-calls/live-turns.ts, event-link.ts).
+    """`on` or empty, and `on` only with the call recorder on: the app reads each of these
+    switches only where the recorder takes the notes. In web/src/lib/team-calls/:
+    TEAM_CALL_LIVE_AGENT in live-turns.ts (teamCallLiveAgentOn), TEAM_CALL_EVENT_LINK in
+    event-link.ts (teamCallEventLinkOn), TEAM_CALL_AUDIO in recorder.ts (teamCallAudioOn,
+    which the capture feed's start, web/src/lib/capture-feed/sources.ts, hands the recorder
+    as `audio`; the recorder keeps the file only with its own RECORDER_AUDIO on,
+    recorder/src/config.ts, in the recorder's settings, not this file's).
     Read as the app reads it (trimmed, any case: `ON` is on there too). Whether its
     migration is applied is not visible from here; the step's check is."""
     def check(env, _opts):
@@ -816,6 +845,8 @@ CHECKS = {
     "SLACK_CLIENT_ID": check_slack("SLACK_CLIENT_ID"),
     "SLACK_CLIENT_SECRET": check_slack("SLACK_CLIENT_SECRET"),
     "SLACK_SIGNING_SECRET": check_slack("SLACK_SIGNING_SECRET"),
+    "CHATGPT_CLIENT_ID": check_chatgpt_pair("CHATGPT_CLIENT_ID"),
+    "CHATGPT_CLIENT_SECRET": check_chatgpt_pair("CHATGPT_CLIENT_SECRET"),
     "DEEPGRAM_API_KEY": check_deepgram,
     "GPT_LIVE_API_KEY": check_openai,
     "LIVEKIT_URL": check_livekit,
@@ -831,6 +862,9 @@ CHECKS = {
     "CAPTURE_FEED_SECRET": check_capture_feed_secret,
     "TEAM_CALL_LIVE_AGENT": check_needs_recorder("TEAM_CALL_LIVE_AGENT", "the live agent writes a call's notes"),
     "TEAM_CALL_EVENT_LINK": check_needs_recorder("TEAM_CALL_EVENT_LINK", "a call's capture takes its meeting's event"),
+    # Only the call recorder makes a call's audio file (web/src/lib/team-calls/recorder.ts's teamCallAudioOn,
+    # read the same way). Its own RECORDER_AUDIO and Storage's raised limit are not visible from here.
+    "TEAM_CALL_AUDIO": check_needs_recorder("TEAM_CALL_AUDIO", "a call's audio file is made"),
 }
 
 
@@ -850,7 +884,7 @@ def report(env, results):
     checks that ran; ok is True, False, None (could not run), "nothing" (no
     stored data to prove it against) or "warn" (said, but blocks nothing)."""
     lines, blockers, unchecked = [], [], []
-    for title, key in (("Must be the value the earlier host has", "must match"), ("Needed (any working value)", "needed"),
+    for title, key in (("Must be the value production already has", "must match"), ("Needed (any working value)", "needed"),
                        ("May stay empty", "may be empty"), ("Set by the switch itself", "switch")):
         names = [n for n in env if group(n) == key]
         if not names:

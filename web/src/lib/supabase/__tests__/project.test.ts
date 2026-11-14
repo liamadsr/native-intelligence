@@ -37,8 +37,6 @@ function libraryStorageKey(address: string): string {
 // around it. So every test starts from "not production, nothing said either
 // way", and the ones about production say so themselves.
 beforeEach(() => {
-  vi.stubEnv('VERCEL_ENV', '')
-  vi.stubEnv('NEXT_PUBLIC_VERCEL_ENV', '')
   vi.stubEnv('NODE_ENV', 'test')
 })
 
@@ -236,38 +234,24 @@ describe('what stops the build (the server loads this module while the app is bu
     return import('@/lib/supabase/project')
   }
 
-  it.each(['production', 'preview', 'development', ''])('a value that could not be a first label, in any environment (%s)', async (env) => {
-    vi.stubEnv('VERCEL_ENV', env)
+  it.each(['production', 'development', 'test'])('a value that could not be a first label, in any environment (%s)', async (env) => {
+    vi.stubEnv('NODE_ENV', env)
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'https://fixturetestref.supabase.co')
     await expect(load()).rejects.toThrow(/could not be the first part of an address/)
   })
 
-  it('production on Vercel, the pin naming another project than the hosted address: a wrong pin, caught before the address moves', async () => {
+  it('a production build (the container image), the pin naming another project than the hosted address: a wrong pin, caught before the address moves', async () => {
     // Step one of a move sets the pin while the address is still Supabase's.
     // A mistyped ref does nothing that day. Left alone it is used from the day
     // the address moves, and that signs every person out.
-    vi.stubEnv('VERCEL_ENV', 'production')
-    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://fixturetestref.supabase.co')
-    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestrfe')
-    await expect(load()).rejects.toThrow(/production build/)
-  })
-
-  it('a production build off Vercel (the container image), the same', async () => {
-    vi.stubEnv('NODE_ENV', 'production') // what `next build` runs under; Vercel's variables are absent
-    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://fixturetestref.supabase.co')
-    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestrfe')
-    await expect(load()).rejects.toThrow(/production build/)
-  })
-
-  it('production as only the browser\'s variable says it (the server one missing), the same', async () => {
-    vi.stubEnv('NEXT_PUBLIC_VERCEL_ENV', 'production')
+    vi.stubEnv('NODE_ENV', 'production') // what `next build` runs under
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://fixturetestref.supabase.co')
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestrfe')
     await expect(load()).rejects.toThrow(/production build/)
   })
 
   it('production, the right pin on the hosted address: builds, and the name is the one the cookie already has', async () => {
-    vi.stubEnv('VERCEL_ENV', 'production')
+    vi.stubEnv('NODE_ENV', 'production')
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://fixturetestref.supabase.co')
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
     const project = await load()
@@ -275,17 +259,16 @@ describe('what stops the build (the server loads this module while the app is bu
   })
 
   it('production, the pin on an address of ours: builds, and the pin is used', async () => {
-    vi.stubEnv('VERCEL_ENV', 'production')
+    vi.stubEnv('NODE_ENV', 'production')
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://db.example.test')
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
     const project = await load()
     expect(project.pinnedAuthCookieName()).toBe('sb-fixturetestref-auth-token')
   })
 
-  it.each(['preview', 'development'])('%s, the pin naming another project: the pin has leaked, so it builds and is not used', async (env) => {
+  it('under next dev, the pin naming another project: the pin has leaked, so it loads and is not used', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    vi.stubEnv('VERCEL_ENV', env)
-    vi.stubEnv('NODE_ENV', 'production') // every build on Vercel is a production build of Next
+    vi.stubEnv('NODE_ENV', 'development')
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://anotherproject.supabase.co')
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
     const project = await load()
@@ -294,7 +277,7 @@ describe('what stops the build (the server loads this module while the app is bu
 
   it('a local address with a pin never stops a build, production or not', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    vi.stubEnv('VERCEL_ENV', 'production')
+    vi.stubEnv('NODE_ENV', 'production')
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://localhost:8000')
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
     const project = await load()

@@ -227,7 +227,7 @@ describe('rebuildEveSpec — gatewayTelemetry (Phase A)', () => {
 
   it('flag on: carries the run-as user + feature/env/ws/runtime/skill tags', async () => {
     vi.stubEnv('GATEWAY_USER_TAGGING', 'all')
-    vi.stubEnv('VERCEL_ENV', 'production')
+    vi.stubEnv('NODE_ENV', 'production')
     const rebuilt = await rebuildEveSpec(
       claims({ runAsUserId: 'user-77', workspaceId: 'ws-3', skillId: 'skill-abc' }),
     )

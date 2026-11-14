@@ -215,6 +215,7 @@ export async function openSessionPullRequest(
     if (!url) return fail(502, 'GITHUB_FAILED', `GitHub couldn't be reached: ${err instanceof Error ? err.message.slice(0, 200) : 'unknown error'}`)
   }
 
-  await recordPullRequest(svc, claims.uid, session.id, url)
+  // Opened here a moment ago: no state read (recordPullRequest's openedHere).
+  await recordPullRequest(svc, claims.uid, session.id, url, { openedHere: true })
   return { ok: true, url }
 }

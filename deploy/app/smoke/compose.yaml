@@ -103,8 +103,8 @@ services:
     stop_grace_period: 900s
 
   # The scheduler runs, but as a dry run: each job is logged and nothing is called.
-  # Live, this stack would run the app's whole schedule a second time beside Vercel
-  # Cron (given real credentials). smoke.sh makes its calls itself.
+  # Live, this stack would run the app's whole schedule a second time beside
+  # production's (given real credentials). smoke.sh makes its calls itself.
   cron:
     <<: *app
     command: [cron]

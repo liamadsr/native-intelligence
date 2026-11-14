@@ -33,7 +33,7 @@ window.__niAutomation = {
 
 ### `info()`
 
-- `buildId`: the deployed web commit SHA (`VERCEL_GIT_COMMIT_SHA` at build time, via `NEXT_PUBLIC_GIT_COMMIT_SHA` in `next.config.mjs`). It is `null` off Vercel, for example in local dev.
+- `buildId`: the deployed web commit SHA (`VERCEL_GIT_COMMIT_SHA` at build time, via `NEXT_PUBLIC_GIT_COMMIT_SHA` in `next.config.mjs`). It is `null` in a build without one, for example in local dev.
 - `route`: `location.pathname`.
 - `workspaceId`: the active workspace, or `null` before it loads.
 

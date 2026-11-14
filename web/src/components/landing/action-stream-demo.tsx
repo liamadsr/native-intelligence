@@ -7,13 +7,19 @@ import type { AttentionItem } from '@/hooks/use-attention-items'
 
 // ── Types ──
 
-interface StreamAction {
+export interface StreamAction {
   id: string
   text: string
   project: string
   assignee: string
   priority: 'High' | 'Medium' | 'Low'
   dueDate: string
+  /**
+   * Where the task came from, as the card's "from … · …" line reads it:
+   * `via` is who staged it, `title` the meeting, thread or channel. Defaults
+   * to the meeting agent on the API planning standup.
+   */
+  source?: { via: string; title: string }
 }
 
 // Pool of actions that "stream in" as if captured live from a meeting. Variety
@@ -59,7 +65,9 @@ const MEMBERS = [
   { id: 'm-sarah', display_name: 'Sarah Chen', avatar_url: null },
   { id: 'm-jordan', display_name: 'Jordan Kim', avatar_url: null },
 ]
-const PROJECTS = [...new Set(ACTION_POOL.map((a) => a.project))].map((name) => ({ id: `p-${name}`, name }))
+function projectsOf(pool: readonly StreamAction[]) {
+  return [...new Set(pool.map((a) => a.project))].map((name) => ({ id: `p-${name}`, name }))
+}
 const MEMBER_BY_NAME: Record<string, string> = {
   'alex r.': 'm-alex',
   'marcus t.': 'm-marcus',
@@ -91,7 +99,8 @@ function itemFor(action: StreamAction): AttentionItem {
       due_date: DUE[action.dueDate] ?? null,
       project_id: `p-${action.project}`,
       assignee_member_id: MEMBER_BY_NAME[action.assignee] ?? null,
-      capture_title: 'API Planning Standup',
+      skill_name: action.source?.via ?? null,
+      capture_title: action.source?.title ?? 'API Planning Standup',
     },
     proposal_id: null,
     source_flow_run_id: null,
@@ -101,7 +110,7 @@ function itemFor(action: StreamAction): AttentionItem {
   }
 }
 
-function ActionCard({ action, index }: { action: StreamAction; index: number }) {
+function ActionCard({ action, index, projects }: { action: StreamAction; index: number; projects: { id: string; name: string }[] }) {
   const scale = STACK_SCALE[index] ?? STACK_SCALE[STACK_SCALE.length - 1]
   const opacity = STACK_OPACITY[index] ?? 0
   const y = index * SLOT_STEP
@@ -121,7 +130,7 @@ function ActionCard({ action, index }: { action: StreamAction; index: number }) 
         editable={false}
         members={MEMBERS}
         aiMembers={[]}
-        projects={PROJECTS}
+        projects={projects}
         onEdit={noop}
         onAccept={noopAsync}
         onStart={noopAsync}
@@ -134,10 +143,17 @@ function ActionCard({ action, index }: { action: StreamAction; index: number }) 
 
 // ── Main component ──
 
-export function ActionStreamDemo() {
+/**
+ * `pool` replaces the default engineering-team actions: the cards that stream
+ * in, in order, looping. Projects are read off the pool itself; members are
+ * fixed, so a custom pool names the same five assignees (alex r., marcus t., priya
+ * m., sarah c., jordan k.) and due dates from Apr 17 to Apr 25.
+ */
+export function ActionStreamDemo({ pool = ACTION_POOL }: { pool?: readonly StreamAction[] } = {}) {
   // `visible` holds the currently stacked cards, newest first.
   const [visible, setVisible] = useState<StreamAction[]>([])
   const poolIdx = useRef(0)
+  const projects = useMemo(() => projectsOf(pool), [pool])
 
   useEffect(() => {
     let mounted = true
@@ -145,7 +161,7 @@ export function ActionStreamDemo() {
 
     const pushNext = () => {
       if (!mounted) return
-      const next = ACTION_POOL[poolIdx.current % ACTION_POOL.length]
+      const next = pool[poolIdx.current % pool.length]
       poolIdx.current++
       // Prepend the new card; trim the oldest once we exceed the max.
       setVisible((prev) => {
@@ -172,7 +188,7 @@ export function ActionStreamDemo() {
       if (timer) clearTimeout(timer)
       document.removeEventListener('visibilitychange', handleVisibility)
     }
-  }, [])
+  }, [pool])
 
   return (
     // transform-gpu promotes this to its own compositing layer so the streaming
@@ -184,7 +200,7 @@ export function ActionStreamDemo() {
       <div className="relative h-[460px]">
         <AnimatePresence initial={false}>
           {visible.map((action, i) => (
-            <ActionCard key={action.id} action={action} index={i} />
+            <ActionCard key={action.id} action={action} index={i} projects={projects} />
           ))}
         </AnimatePresence>
       </div>

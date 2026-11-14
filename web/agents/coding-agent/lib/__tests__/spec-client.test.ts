@@ -249,22 +249,19 @@ describe('validGatewayTelemetry (Phase A shape-guard — never crash the resolve
 describe('gitGateUrl', () => {
   afterEach(() => vi.unstubAllEnvs())
 
-  it("is the app's PUBLIC origin's git gate, never the deployment URL (whose protection would need a bypass secret in the sandbox)", () => {
-    vi.stubEnv('VERCEL_URL', 'dial8-abc123.vercel.app')
+  it("is the git gate at the app's public origin", () => {
     vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.example.com/')
     expect(gitGateUrl()).toBe('https://app.example.com/api/internal/agent-run/git')
   })
 
   it('falls back to the local app when no public origin is set, off Vercel', () => {
     vi.stubEnv('VERCEL', '')
-    vi.stubEnv('VERCEL_URL', '')
     vi.stubEnv('NEXT_PUBLIC_APP_URL', '')
     expect(gitGateUrl()).toBe('http://localhost:3000/api/internal/agent-run/git')
   })
 
-  it('is null on Vercel without a public origin (never the protected deployment URL)', () => {
+  it('is null on Vercel without a public origin', () => {
     vi.stubEnv('VERCEL', '1')
-    vi.stubEnv('VERCEL_URL', 'dial8-abc123.vercel.app')
     vi.stubEnv('NEXT_PUBLIC_APP_URL', '')
     expect(gitGateUrl()).toBeNull()
   })

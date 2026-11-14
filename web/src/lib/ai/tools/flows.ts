@@ -2395,7 +2395,7 @@ export function createFlowTools(
           },
           userId,
           sample,
-          appBaseUrl: process.env.NEXT_PUBLIC_APP_URL ?? process.env.VERCEL_URL ?? DEFAULT_APP_URL,
+          appBaseUrl: process.env.NEXT_PUBLIC_APP_URL ?? DEFAULT_APP_URL,
           // The chat tool route's maxDuration (300 s), counted from the call's start.
           budgetMs: 300_000,
           startedAt,

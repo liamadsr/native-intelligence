@@ -25,17 +25,6 @@ export default defineConfig({
     trace: 'on-first-retry',
     video: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    // Bypass Vercel Deployment Protection for preview/dev URLs.
-    // The secret is required for any non-production Vercel deploy
-    // since the project has protection enabled. No-op for localhost.
-    ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET
-      ? {
-          extraHTTPHeaders: {
-            'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
-            'x-vercel-set-bypass-cookie': 'true',
-          },
-        }
-      : {}),
   },
 
   projects: [

@@ -22,7 +22,7 @@ export const maxDuration = 300
 
 /**
  * GET /api/cron/sequence-dispatch — the Sequences engine's clock (every 5
- * minutes, vercel.json). Vercel cron is the ONLY tick (deliberately NOT an
+ * minutes, vercel.json). The server's cron is the ONLY tick (deliberately NOT an
  * Inngest cron — registration has silently failed before; see
  * /api/cron/flow-schedule's header). Three passes:
  *
@@ -49,7 +49,7 @@ export const maxDuration = 300
  *   enrolment (src/lib/work/sequence-enrolment-mirror.ts). Runs last, so this
  *   tick's own exits land in the same tick.
  *
- * Vercel cron issues GET with `Authorization: Bearer ${CRON_SECRET}`.
+ * The server's cron issues GET with `Authorization: Bearer ${CRON_SECRET}`.
  */
 export async function GET(request: NextRequest) {
   const denied = requireCronSecret(request)

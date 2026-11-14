@@ -137,22 +137,22 @@ describe('Gmail Webhook POST', () => {
     expect(mockInngestSend).not.toHaveBeenCalled()
   })
 
-  // Fail-closed guard: in a production-like env (VERCEL_ENV injected), an
-  // UNSET secret must reject instead of falling open. setup.ts scrubs
-  // VERCEL_ENV from the build env, so these set it explicitly.
-  it('rejects when the secret is unset in a production-like env', async () => {
-    process.env.VERCEL_ENV = 'production'
+  // Fail-closed guard: in a built app (NODE_ENV=production), an UNSET secret
+  // must reject instead of falling open. This suite runs as NODE_ENV=test, so
+  // these set it explicitly.
+  it('rejects when the secret is unset in a built app', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
     try {
       const res = await POST(buildPubSubRequest('test@gmail.com', 12345))
       expect(res.status).toBe(401)
       expect(mockInngestSend).not.toHaveBeenCalled()
     } finally {
-      delete process.env.VERCEL_ENV
+      vi.unstubAllEnvs()
     }
   })
 
-  it('accepts in a production-like env when the token matches', async () => {
-    process.env.VERCEL_ENV = 'production'
+  it('accepts in a built app when the token matches', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
     process.env.GMAIL_WEBHOOK_TOKEN = 'sekret'
     try {
       mockAccountLookup(null)
@@ -170,7 +170,7 @@ describe('Gmail Webhook POST', () => {
       const res = await POST(req)
       expect(res.status).toBe(200)
     } finally {
-      delete process.env.VERCEL_ENV
+      vi.unstubAllEnvs()
       delete process.env.GMAIL_WEBHOOK_TOKEN
     }
   })

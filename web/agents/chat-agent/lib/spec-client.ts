@@ -373,36 +373,19 @@ function warnOnDevBaseUrlMismatch(appUrl: string): void {
 }
 
 /**
- * The Next app's own origin. On Vercel, pin to THIS deployment's URL: the
- * internal routes ship with the same commit as this agent, so the deployment's
- * own origin is the only version-correct target (NEXT_PUBLIC_APP_URL points at
- * the canonical PROD domain — from a preview it would call OLD code that may
- * not even have these routes). In dev the eve sidecar and Next dev share
- * localhost:3000.
+ * The Next app's own origin: NEXT_PUBLIC_APP_URL (the internal routes are the
+ * app's). In dev the eve sidecar and Next dev share localhost:3000.
  */
 function appBaseUrl(): string {
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   warnOnDevBaseUrlMismatch(appUrl)
   return appUrl
 }
 
 /**
- * Vercel Deployment Protection guards preview URLs with SSO — including
- * server-to-server fetches like ours. When the project has "Protection Bypass
- * for Automation" enabled, Vercel injects this secret into every deployment;
- * sending it as a header lets the agent through. Absent (e.g. prod custom
- * domain, local dev) this contributes nothing.
- */
-function protectionBypassHeaders(): Record<string, string> {
-  const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
-  return secret ? { 'x-vercel-protection-bypass': secret } : {}
-}
-
-/**
  * The ChatGPT plan proxy (src/app/api/internal/chatgpt-plan/v1/responses):
- * the base URL a plan model calls, and a fetch that adds the internal secret,
- * the run token and the protection bypass to each request as it goes. They
+ * the base URL a plan model calls, and a fetch that adds the internal secret
+ * and the run token to each request as it goes. They
  * ride the fetch, never a provider's `headers`, which the AI SDK's workflow
  * serializer would write out with the model (./chatgpt-plan-model.ts).
  */
@@ -415,7 +398,6 @@ export function chatGptPlanProxy(runToken: string): { baseURL: string; fetch: ty
       headers.delete('authorization')
       headers.set(CHAT_RUN_SECRET_HEADER, internalSecret())
       headers.set(CHAT_RUN_TOKEN_HEADER, runToken)
-      for (const [name, value] of Object.entries(protectionBypassHeaders())) headers.set(name, value)
       return fetch(input, { ...init, headers })
     },
   }
@@ -635,7 +617,6 @@ async function fetchChatSpecResultUncached(
       headers = {
         [CHAT_RUN_SECRET_HEADER]: internalSecret(),
         [CHAT_RUN_TOKEN_HEADER]: runToken,
-        ...protectionBypassHeaders(),
       }
     }
     const res = await fetch(url, {
@@ -824,7 +805,6 @@ export async function probeChatRunLive(
       headers = {
         [CHAT_RUN_SECRET_HEADER]: internalSecret(),
         [CHAT_RUN_TOKEN_HEADER]: runToken,
-        ...protectionBypassHeaders(),
       }
     }
     const res = await fetch(url, {
@@ -918,7 +898,6 @@ export async function reportSkillLoaded(runToken: string, skillName: string): Pr
         'content-type': 'application/json',
         [CHAT_RUN_SECRET_HEADER]: secret,
         [CHAT_RUN_TOKEN_HEADER]: runToken,
-        ...protectionBypassHeaders(),
       },
       body: JSON.stringify({ skillName }),
       redirect: 'error',
@@ -957,7 +936,6 @@ export async function postChatMemory(runToken: string, body: Record<string, unkn
       'content-type': 'application/json',
       [CHAT_RUN_SECRET_HEADER]: secret,
       [CHAT_RUN_TOKEN_HEADER]: runToken,
-      ...protectionBypassHeaders(),
     },
     body: JSON.stringify(body),
     redirect: 'error',
@@ -996,7 +974,6 @@ export async function fetchHelperTiers(
         'content-type': 'application/json',
         [CHAT_RUN_SECRET_HEADER]: internalSecret(),
         [CHAT_RUN_TOKEN_HEADER]: runToken,
-        ...protectionBypassHeaders(),
       },
       // `models`: the main agent's choice per task (a roster key, or null).
       body: JSON.stringify({ tasks, ...(models && models.some((m) => m) ? { models } : {}), ...(turnCtx ? { ctx: turnCtx } : {}) }),
@@ -1066,7 +1043,6 @@ export async function reportTurnUsage(runToken: string, report: unknown): Promis
         'content-type': 'application/json',
         [CHAT_RUN_SECRET_HEADER]: secret,
         ...(runToken ? { [CHAT_RUN_TOKEN_HEADER]: runToken } : {}),
-        ...protectionBypassHeaders(),
       },
       body: JSON.stringify(report),
       redirect: 'error',
@@ -1109,7 +1085,6 @@ export async function postReplyBackup(runToken: string, body: unknown): Promise<
         'content-type': 'application/json',
         [CHAT_RUN_SECRET_HEADER]: internalSecret(),
         [CHAT_RUN_TOKEN_HEADER]: runToken,
-        ...protectionBypassHeaders(),
       },
       body: JSON.stringify(body),
       redirect: 'error',
@@ -1261,7 +1236,6 @@ export async function dispatchChatTool(
       auth = {
         [CHAT_RUN_SECRET_HEADER]: internalSecret(),
         [CHAT_RUN_TOKEN_HEADER]: runToken,
-        ...protectionBypassHeaders(),
       }
     }
   } catch (err) {

@@ -52,7 +52,7 @@ import { resolveWorkspaceEdition } from '@/lib/editions'
 import { parsePriming } from '@/lib/onboarding/research-priming'
 import { chatgptPlanFor } from '@/lib/chatgpt/plan-route'
 import { AGENT_RUN_SECRET_HEADER, AGENT_RUN_TOKEN_HEADER, internalSecret, mintAgentRunToken } from '@/lib/agent-run/agent-run-token'
-import { eveDispatchOrigin, protectionBypassHeaders } from '@/lib/eve/dispatch-origin'
+import { eveDispatchOrigin } from '@/lib/eve/dispatch-origin'
 import { Client } from 'eve/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextResponse, type NextRequest } from 'next/server'
@@ -303,14 +303,14 @@ export async function POST(request: NextRequest) {
   }
 
   const client = new Client({
-    // This deployment's own origin (never a request header: the secret rides
-    // this call).
+    // The app's own address (never a request header: the secret rides this
+    // call).
     host: `${eveDispatchOrigin()}${RESEARCHER_MOUNT}`,
     // Server-to-server; forward the browser's credentials so the eve channel
     // sees this exact user's session. redirect:'error' prevents a
     // cross-origin redirect from carrying these headers elsewhere.
     headers: async () => {
-      const h: Record<string, string> = { ...protectionBypassHeaders(), [AGENT_RUN_SECRET_HEADER]: secret }
+      const h: Record<string, string> = { [AGENT_RUN_SECRET_HEADER]: secret }
       // A free user's research runs on their own plan (see above).
       if (planToken) h[AGENT_RUN_TOKEN_HEADER] = planToken
       if (cookieHeader) h.cookie = cookieHeader

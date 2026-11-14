@@ -1,7 +1,7 @@
 /**
- * This bundle's build id: the deployment it was built for (next.config.mjs
- * inlines NEXT_PUBLIC_BUILD_ID from VERCEL_DEPLOYMENT_ID, else the commit, as
- * /api/version does). Null where there's none (local dev, tests).
+ * This bundle's build id: the commit it was built from (next.config.mjs
+ * inlines NEXT_PUBLIC_BUILD_ID, as /api/version reports it). Null where there's
+ * none (local dev, tests).
  *
  * Every window compares it with the `x-ni-build` header on API responses
  * and reloads when idle after a deploy (lib/deploy-reload.ts).

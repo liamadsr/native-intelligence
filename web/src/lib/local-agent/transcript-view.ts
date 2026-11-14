@@ -634,12 +634,15 @@ export function canStopSession(status: LocalAgentStatus): boolean {
 export const IDLE_REASON = 'it sat idle for 24 hours'
 /** The reaper's (and migration 419's) words for a loop's job no Mac claimed in its 15 minutes (a person's waits 6 hours: ledger.ts EXPIRED_REASON). */
 export const LOOP_EXPIRED_REASON = "your Mac didn't pick it up within 15 minutes"
+/** The reaper's words for a card's job that waited its 6 hours on the server for a free slot on the Mac (migration 659). */
+export const CARD_EXPIRED_REASON = 'it waited 6 hours for a free slot on your Mac'
 
 /** The panel's line for an ended session, in place of its composer. */
 export function sessionEndedText(status: LocalAgentStatus, error: string | null | undefined): string {
   if (status === 'expired') {
     if (error === IDLE_REASON) return 'It sat idle for 24 hours, so it ended.'
     if (error === LOOP_EXPIRED_REASON) return 'Your Mac didn’t pick this up within 15 minutes.'
+    if (error === CARD_EXPIRED_REASON) return 'It waited 6 hours for a free slot on your Mac, so it ended. Press Start again when the Mac has room.'
     return 'Your Mac didn’t pick this up in time.'
   }
   if (status === 'failed') return 'This local agent failed.'

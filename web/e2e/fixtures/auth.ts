@@ -16,8 +16,7 @@
  * an account without a trialing/active seat is redirected from /account to
  * the trial wall at /account/start-trial, which no journey expects.
  *
- * Pull them into local dev with `vercel env pull .env.local`, then
- * `npx playwright test`.
+ * Set them in the environment, then `npx playwright test`.
  */
 import { expect, type Page, type BrowserContext } from '@playwright/test'
 

@@ -53,9 +53,9 @@ describe('the worker protocol and the launcher agree', () => {
 })
 
 describe('what a worker reads differently', () => {
-  it('takes only a canonical lowercase UUID as a session id (it goes on a command line)', () => {
-    expect(isSessionId('aaaaaaaa-1111-4222-8333-444444444444')).toBe(true)
-    for (const id of ['-x', '--last', '--settings={}', 'AAAAAAAA-1111-4222-8333-444444444444', 'aaaaaaaa-1111-4222-8333-444444444444 ', 'thr_1', '', 7, null]) expect(isSessionId(id), String(id)).toBe(false)
+  it('takes a safe, bounded session id: an ACP id is any string, carried in JSON', () => {
+    for (const id of ['aaaaaaaa-1111-4222-8333-444444444444', 'AAAAAAAA-1111-4222-8333-444444444444', 'thr_1', 'sess-abc', '019a.b:c', 'x'.repeat(256)]) expect(isSessionId(id), id).toBe(true)
+    for (const id of ['-x', '--last', '--settings={}', '.hidden', 'a b', 'a/b', 'a\nb', 'aaaa ', 'x'.repeat(257), '', 7, null]) expect(isSessionId(id), String(id)).toBe(false)
   })
 
   it('skips a line past the cap whole, in one chunk or many, and says so once per line', () => {
@@ -95,6 +95,28 @@ describe('what a worker reads differently', () => {
       expect(cut).not.toContain('\ufffd') // no character split in half
     }
     expect(truncateText('short')).toBe('short')
+  })
+
+  it('cuts by the bytes of the JSON string, so control characters (6 bytes each there) stay under the cap', () => {
+    const jsonBytes = (s: string) => new TextEncoder().encode(JSON.stringify(s)).length - 2
+    for (const s of ['\u0001'.repeat(20_000), 'a\u0000"\\'.repeat(9000), '\u2028'.repeat(9000), `${'x'.repeat(16_382)}\u0001`]) {
+      const cut = truncateText(s)
+      expect(jsonBytes(cut)).toBeLessThanOrEqual(TEXT_LIMIT)
+      expect(cut.endsWith('…')).toBe(true)
+    }
+    const finish = managerText('finish', '\u0007'.repeat(8000))
+    expect(new TextEncoder().encode(serializeLine({ type: 'event', event: { kind: 'finish', summary: finish } })).length).toBeLessThan(64 * 1024)
+  })
+
+  it('splits a long line in many chunks in linear time', () => {
+    const lines: string[] = []
+    const s = createLineSplitter((l) => lines.push(l), { maxBytes: 64 * 1024 * 1024 })
+    const chunk = new TextEncoder().encode('x'.repeat(1024))
+    const started = performance.now()
+    for (let i = 0; i < 16 * 1024; i++) s.push(chunk) // 16 MB in 1 KB chunks: quadratic would copy terabytes
+    s.push(new TextEncoder().encode('\nnext\n'))
+    expect(performance.now() - started).toBeLessThan(2000)
+    expect(lines.map((l) => l.length)).toEqual([16 * 1024 * 1024, 4])
   })
 
   it("holds the manager tools' own limits, then the byte cap", () => {

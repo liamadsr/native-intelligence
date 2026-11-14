@@ -9,7 +9,7 @@ import { requireCronSecret } from '@/lib/api-auth'
  *  - Inbound (clients connecting TO Native Intelligence): mcp_auth_code, mcp_oauth_token
  *  - Outbound (Native Intelligence connecting TO external servers): external_mcp_oauth_state
  *
- * Schedule: daily via Vercel cron at 03:00 UTC. Vercel's scheduler always
+ * Schedule: daily from the server's cron at 03:00 UTC. The server's cron always
  * issues GET with `Authorization: Bearer ${CRON_SECRET}`, so the handler is
  * exported as GET. POST is aliased below so manual curl-triggering still works.
  */

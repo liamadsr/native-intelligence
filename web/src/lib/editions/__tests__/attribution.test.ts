@@ -20,9 +20,10 @@
  *     cookie (so it can't follow the user into their next workspace),
  *   - nothing here can throw — attribution rides on the sign-in path.
  *
- * POST-PIVOT: a fresh signup with NO cookie is now stamped
- * DEFAULT_SIGNUP_EDITION ('sales'), because Native Intelligence runs one funnel and `/` is
- * the sales pitch. That default is deliberately applied INSIDE the same two
+ * A fresh signup with NO cookie is stamped DEFAULT_SIGNUP_EDITION ('full',
+ * the whole app), because `/` pitches the whole workspace and its CTAs carry
+ * no edition (it was 'sales' while `/` was the sales pitch). That default is
+ * deliberately applied INSIDE the same two
  * gates, which is what the first two bullets above now also protect: every
  * returning customer pings this route cookieless, so an ungated default would
  * convert their workspace on sight. The `source` property ('cookie' vs
@@ -199,12 +200,12 @@ describe('consumeSignupEdition', () => {
   })
 
   it('stamps the DEFAULT edition on a fresh signup that arrived with no cookie', async () => {
-    // The new contract. Pre-pivot this left the workspace unstamped (resolving
-    // to `full`); now a cookieless signup is attributed to the only funnel that
-    // exists. Covers the real cases: a dropped cookie, and a signup that came
-    // from a page with no attributed CTA at all (/pricing, /docs, direct
+    // A cookieless signup is stamped with the whole app. Covers the real
+    // cases: the homepage (whose CTAs carry no edition), a dropped cookie, and
+    // a signup from a page with no attributed CTA (/pricing, /docs, direct
     // /login).
-    stampWorkspaceEdition.mockResolvedValue({ stamped: true, edition: 'sales' })
+    expect(DEFAULT_SIGNUP_EDITION).toBe('full')
+    stampWorkspaceEdition.mockResolvedValue({ stamped: true, edition: 'full' })
     const got = await consumeSignupEdition(undefined, WS, USER, SIGNUP)
     expect(got).toEqual({
       stamped: true,
@@ -244,14 +245,14 @@ describe('consumeSignupEdition', () => {
   it('tags the analytics event with the source so the two paths stay separable', async () => {
     // Without `source`, a cookieless default is indistinguishable from a real
     // CTA click and the funnel's measured conversion silently absorbs it.
-    stampWorkspaceEdition.mockResolvedValue({ stamped: true, edition: 'sales' })
+    stampWorkspaceEdition.mockResolvedValue({ stamped: true, edition: 'full' })
     await consumeSignupEdition(undefined, WS, USER, SIGNUP)
     const [event, , props] = trackServerEvent.mock.calls[0]
     expect(event).toBe('signup_edition_attributed')
     expect(props.source).toBe('default')
-    expect(props.signup_edition).toBe('sales')
+    expect(props.signup_edition).toBe('full')
     // The permanent-fact property is set the same way on both paths.
-    expect(props.$set_once).toEqual({ signup_edition: 'sales' })
+    expect(props.$set_once).toEqual({ signup_edition: 'full' })
 
     trackServerEvent.mockClear()
     await consumeSignupEdition('sales', WS, USER, SIGNUP)

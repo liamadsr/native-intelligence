@@ -44,7 +44,10 @@ beforeEach(() => {
     user_device: [{ user_id: ME, id: MAC, name: 'Liam’s Mac', app_version: '0.2.93', last_seen_at: new Date().toISOString() }],
     device_folder: [{ id: FOLDER, user_id: ME, device_id: MAC, grant_id: 'g1', label: 'site', path: '/Users/l/site', mode: 'read', is_git: true, revoked_at: null }],
     environment: [
-      { id: MAC_ENV, kind: 'mac', name: 'Liam’s Mac', owner_user_id: ME, device_id: MAC, workspace_id: null, archived_at: null, created_at: '2026-10-01', updated_at: '2026-10-01' },
+      {
+        id: MAC_ENV, kind: 'mac', name: 'Liam’s Mac', owner_user_id: ME, device_id: MAC, workspace_id: null, archived_at: null, created_at: '2026-10-01', updated_at: '2026-10-01',
+        offered_workers: [{ id: 'claude-code', label: 'Claude Code' }, { id: 'codex', label: 'Codex' }],
+      },
       { id: SHARED, kind: 'cloud', name: 'Default cloud', workspace_id: WS, created_by: TEAMMATE, shared: true, network_access: 'trusted', env_vars: 'K=v', setup_script: null, archived_at: null, created_at: '2026-10-02', updated_at: '2026-10-02' },
     ],
     projects: [{ id: PROJECT, workspace_id: WS, environment_id: null }],
@@ -98,6 +101,64 @@ describe('PATCH / DELETE /api/account/environments/[id]', () => {
     const bad = await one.PATCH(request('PATCH', { envVars: 'A=1' }), p('id', MAC_ENV))
     expect(bad.status).toBe(400)
     expect(await bad.json()).toMatchObject({ code: 'BAD_REQUEST' })
+  })
+
+  it('a worker the Mac didn’t say it offers: a 409 with the sentence', async () => {
+    const res = await one.PATCH(request('PATCH', { worker: 'gemini-cli' }), p('id', MAC_ENV))
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: 'WORKER_NOT_OFFERED', error: expect.stringContaining('doesn’t offer Gemini Cli right now') })
+  })
+
+  it('lists what my Mac last said it offers', async () => {
+    const body = await (await list.GET(request('GET'))).json()
+    expect(body.environments.find((e: { id: string }) => e.id === MAC_ENV)).toMatchObject({ offeredWorkers: [{ id: 'claude-code', label: 'Claude Code' }, { id: 'codex', label: 'Codex' }] })
+  })
+
+  it('who does my Mac’s work (migration 658): a coding agent’s id or null; a bad id is a 400; a cloud one has none', async () => {
+    const res = await one.PATCH(request('PATCH', { worker: 'claude-code' }), p('id', MAC_ENV))
+    expect(res.status).toBe(200)
+    expect((await res.json()).environment).toMatchObject({ kind: 'mac', name: 'Liam’s Mac', worker: 'claude-code' })
+    expect(db.tables.environment.find((e) => e.id === MAC_ENV)).toMatchObject({ worker: 'claude-code' })
+    const back = await one.PATCH(request('PATCH', { worker: null }), p('id', MAC_ENV))
+    expect((await back.json()).environment).toMatchObject({ worker: null })
+    const bad = await one.PATCH(request('PATCH', { worker: 'Claude Code; rm -rf' }), p('id', MAC_ENV))
+    expect(bad.status).toBe(400)
+    expect(await bad.json()).toMatchObject({ code: 'BAD_REQUEST' })
+    db.tables.member[0].role = 'admin'
+    expect((await one.PATCH(request('PATCH', { worker: 'codex' }), p('id', SHARED))).status).toBe(400)
+    expect(db.tables.environment.find((e) => e.id === SHARED)).not.toHaveProperty('worker')
+  })
+
+  it('a teammate (same workspace, not the Mac’s owner) can neither set nor read its worker', async () => {
+    db.tables.environment.find((e) => e.id === MAC_ENV)!.worker = 'claude-code'
+    db.tables.member.push({ workspace_id: WS, user_id: TEAMMATE, role: 'admin' })
+    hoisted.requireWorkspace.mockResolvedValue({ supabase: {}, user: { id: TEAMMATE }, workspaceId: WS })
+    const set = await one.PATCH(request('PATCH', { worker: 'codex' }), p('id', MAC_ENV))
+    expect(set.status).toBe(404)
+    expect(db.tables.environment.find((e) => e.id === MAC_ENV)!.worker).toBe('claude-code')
+    const listed = await (await list.GET(request('GET'))).json()
+    expect(listed.environments.map((e: { id: string }) => e.id)).not.toContain(MAC_ENV)
+    expect(JSON.stringify(listed)).not.toContain('claude-code')
+  })
+
+  it('before migration 658 (no column): a worker change is a clear 409, not a bare 500', async () => {
+    const from = db.from
+    db.from = (table: string) => {
+      const q = from(table) as Record<string, unknown>
+      if (table !== 'environment') return q
+      const select = q.select as (p?: string) => unknown
+      q.select = (p?: string) => {
+        if (p !== 'offered_workers') return select(p)
+        const chain: Record<string, unknown> = {}
+        chain.eq = () => chain
+        chain.maybeSingle = async () => ({ data: null, error: { code: '42703', message: 'column "offered_workers" does not exist' } })
+        return chain
+      }
+      return q
+    }
+    const res = await one.PATCH(request('PATCH', { worker: 'codex' }), p('id', MAC_ENV))
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: 'WORKER_NOT_AVAILABLE' })
   })
 
   it('a cloud one I didn’t make: 403 to change or archive', async () => {

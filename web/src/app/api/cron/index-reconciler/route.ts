@@ -66,7 +66,7 @@ interface CandidateRow {
  * they can diverge (the send succeeded but indexing failed, or vice versa) and
  * both need healing. Re-running the full helper heals either.
  *
- * Vercel cron issues GET with `Authorization: Bearer ${CRON_SECRET}`. POST is
+ * The server's cron issues GET with `Authorization: Bearer ${CRON_SECRET}`. POST is
  * aliased below so manual curl-triggering works.
  */
 export async function GET(request: NextRequest) {
@@ -177,7 +177,7 @@ export async function GET(request: NextRequest) {
   // 3. Warn loudly for any straggler that survived a full day of hourly runs
   //    (created > ~26h ago). Nothing is persisted — age IS the signal — so this
   //    fires every run until the capture heals. A stable grep-able prefix keeps
-  //    repeated misses visible in Vercel logs.
+  //    repeated misses visible in the web container's logs.
   const staleThresholdMs = now - STALE_STRAGGLER_MS
   for (const c of stragglers) {
     const createdMs = Date.parse(c.created_at)

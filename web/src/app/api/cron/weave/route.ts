@@ -15,13 +15,13 @@ export const maxDuration = 30
  * (as it did after the 2026-06-12 deploy), the in-function cron never runs and
  * briefs/weaving stop with no error anywhere.
  *
- * This Vercel cron removes that single point of failure: Vercel's scheduler is
- * independent of Inngest's app registration, so emitting the manual trigger
+ * This cron job removes that single point of failure: the server's scheduler
+ * is independent of Inngest's app registration, so emitting the manual trigger
  * event here guarantees the weaver runs nightly regardless of sync state. The
  * weaver's `concurrency: [{ limit: 1 }]` serializes any overlap with the
  * in-function cron, so running both triggers is safe and idempotent.
  *
- * Vercel cron issues GET with `Authorization: Bearer ${CRON_SECRET}`.
+ * The server's cron issues GET with `Authorization: Bearer ${CRON_SECRET}`.
  */
 export async function GET(request: NextRequest) {
   const denied = requireCronSecret(request)

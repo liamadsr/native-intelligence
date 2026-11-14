@@ -13,8 +13,8 @@
 /supabase/.temp export-ignore
 # Local Claude Code permissions
 /.claude/settings.local.json export-ignore
-# The workflows deploy and test this project's own Vercel and Supabase setup, with its
-# secrets. In the public repo they'd sit in web/.github, where GitHub never runs them.
+# Workflows for this project's own setup, with its secrets. In the public repo they'd
+# sit in web/.github, where GitHub never runs them.
 /.github export-ignore
 # Tailwind UI's license and the "Radiant" template's demo content: theirs, not the project's
 /LICENSE.md export-ignore

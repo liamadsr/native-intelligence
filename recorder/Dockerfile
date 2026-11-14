@@ -12,6 +12,16 @@ ENV NODE_ENV=production \
     npm_config_fund=false \
     npm_config_audit=false
 WORKDIR /app
+# ffmpeg encodes a call's sound once the call is over (src/audio.ts: AAC in an MP4 file), only
+# when RECORDER_AUDIO=on; Debian's own build, from the base image's release. Its folder is the
+# service's volume (deploy/livekit/compose.yaml), made here so the volume starts out the
+# unprivileged user's.
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends ffmpeg \
+	&& rm -rf /var/lib/apt/lists/* \
+	&& ffmpeg -hide_banner -version | head -1 \
+	&& mkdir -p /var/lib/recorder/audio \
+	&& chown -R node:node /var/lib/recorder
 # The lock file decides every version, the native library's for this machine included.
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force \

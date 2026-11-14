@@ -40,7 +40,7 @@ beforeEach(() => {
     q.maybeSingle = async () => ({ data: { id: 'acc-1', user_id: 'user-1', workspace_id: 'ws-1' }, error: null })
     return q
   })
-  vi.stubEnv('VERCEL_ENV', 'production')
+  vi.stubEnv('NODE_ENV', 'production')
   vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev')
   vi.stubEnv('GMAIL_WEBHOOK_TOKEN', 'sekret')
   vi.stubEnv('GMAIL_PUSH_SERVICE_ACCOUNT', SA)

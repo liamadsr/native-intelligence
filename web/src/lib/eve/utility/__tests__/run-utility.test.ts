@@ -117,7 +117,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   delete process.env.UTILITY_INTERNAL_SECRET
-  delete process.env.VERCEL_URL
+  vi.unstubAllEnvs()
   vi.useRealTimers()
 })
 
@@ -218,11 +218,11 @@ describe('runUtilityTask', () => {
     expect(hoisted.surfaceModel).toHaveBeenCalledWith('drafting')
   })
 
-  it('pins the deployment origin on Vercel', async () => {
-    process.env.VERCEL_URL = 'dial8-abc.vercel.app'
+  it('dispatches to the address in NEXT_PUBLIC_APP_URL', async () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://staging.example')
     respond({ message: 'x' })
     await runUtilityTask({ kind: 'generate_title', workspaceId: null, userId: 'u', message: 'm' })
-    expect(hoisted.clients[0].host).toBe('https://dial8-abc.vercel.app/eve/utility')
+    expect(hoisted.clients[0].host).toBe('https://staging.example/eve/utility')
   })
 
   it('passes a non-zero eve cost through', async () => {

@@ -1,37 +1,53 @@
 /**
- * What the desktop passes a worker adapter, checked once at launch. The
- * desktop spawns `<node> <bundle>/workers/<worker>.mjs` with exactly the
- * launcher's fence environment (built from scratch) plus the worker's two:
+ * What the desktop passes a worker, checked once at launch. The desktop
+ * spawns `<node> <bundle>/workers/acp.mjs` with exactly the launcher's fence
+ * environment (built from scratch) plus the worker's three:
  *
  *   HOME, TMPDIR, LANG, PATH          as for the launcher
- *   LOCAL_AGENT_JOB_ID                the job (names the fence's scratch dir)
+ *   LOCAL_AGENT_JOB_ID                the job
  *   LOCAL_AGENT_FOLDER                realpath of the folder (edit mode: the worktree)
  *   LOCAL_AGENT_MODE                  `read` | `edit`
- *   LOCAL_AGENT_TOOL_PATH             PATH for fenced commands
+ *   LOCAL_AGENT_TOOL_PATH             PATH for the agent and its commands
  *   LOCAL_AGENT_DIR                   the bundle (unused here; the launcher's contract)
  *   LOCAL_AGENT_EXTRA_READ            edit mode: the repository's `.git`
- *   LOCAL_AGENT_WORKER                `claude-code` | `codex`: must match the entry file
+ *   LOCAL_AGENT_WORKER                a registry key (`claude-code` | `codex`)
  *   LOCAL_AGENT_WORKER_BIN            absolute path of the person's CLI, found by the
  *                                     desktop; run exactly, PATH is never searched
+ *   LOCAL_AGENT_ACP_DIR               where install-agents.sh installed the ACP adapters
+ *   LOCAL_AGENT_CLOSED_PORTS          optional: comma-separated ports of the app's own local
+ *                                     servers at launch, which the fence denies on loopback
+ *   LOCAL_AGENT_TOOLS_FILE            optional: the workspace tools the desktop wrote for this
+ *                                     launch (workspace-tools.ts; nothing secret in it)
+ *   LOCAL_AGENT_FENCE_DIR             the desktop's fence folder, holding the empty files
+ *                                     `<job id>` and `<job id>.open` (agent-profile.ts: how
+ *                                     the desktop finds this job's processes)
  *
  * No relay URL, no session token, no dev key (each is refused: NI_CREDENTIALS):
- * a worker uses its vendor's model on the person's own login. A local-model setting is refused here too
- * (the desktop refuses first): a worker sends the folder to Anthropic or
- * OpenAI, which is what that setting rules out.
+ * a worker uses its vendor's model on the person's own login. A local-model
+ * setting is refused here too (the desktop refuses first): a worker sends the
+ * folder to its vendor, which is what that setting rules out.
  */
-import { accessSync, constants as fsConstants, realpathSync, statSync } from 'node:fs'
+import { accessSync, constants as fsConstants, lstatSync, realpathSync, statSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import type { LocalAgentMode } from '../../lib/seatbelt.js'
-import type { WorkerName } from './protocol.js'
+import type { Registry, RegistryEntry } from './registry.js'
 
 /** The environment as read here (process.env, or a plain object in tests). */
 export type WorkerEnv = Readonly<Record<string, string | undefined>>
 
 export interface WorkerLaunch {
-  readonly worker: WorkerName
+  readonly worker: string
+  readonly entry: RegistryEntry
   /** realpath of the person's CLI (the desktop passes its PATH lookup, symlinks and all). */
   readonly bin: string
-  /** The path as the desktop passed it (a `~/.local/bin/claude` symlink): argv[0] for the CLI. */
-  readonly binPath: string
+  /** realpath of LOCAL_AGENT_ACP_DIR. */
+  readonly acpDir: string
+  /** LOCAL_AGENT_FENCE_DIR, a real folder holding `<job id>` and `<job id>.open`. */
+  readonly fenceDir: string
+  /** LOCAL_AGENT_TOOLS_FILE as given (checked when read: a bad one means no workspace tools, never a fatal). */
+  readonly toolsFile?: string
+  /** LOCAL_AGENT_CLOSED_PORTS: the app's own local ports at launch, denied on loopback (none when unset). */
+  readonly closedPorts: readonly number[]
   readonly jobId: string
   readonly folder: string
   readonly mode: LocalAgentMode
@@ -75,13 +91,54 @@ function realDir(path: string | undefined, name: string): string {
 }
 
 /**
- * The launch, or a WorkerLaunchError saying what is wrong. `expected` is the
- * entry file's worker: an adapter never runs the other vendor's CLI.
+ * The fence folder: a real folder at its own path (no link), holding the two
+ * empty files the desktop made for this job. Without them the desktop could
+ * not find the job's processes, so the job does not run.
  */
-export function workerLaunchFromEnv(env: WorkerEnv, expected: WorkerName): WorkerLaunch {
-  if (env.LOCAL_AGENT_WORKER !== expected) {
-    throw new WorkerLaunchError(`this adapter runs ${expected}, but LOCAL_AGENT_WORKER is ${JSON.stringify(env.LOCAL_AGENT_WORKER ?? null)}`)
+function fenceDirFromEnv(dir: string | undefined, jobId: string): string {
+  const missing = (what: string) => new WorkerLaunchError(`this job can't start: the app did not set up its fence marker (${what})`)
+  if (!dir || !dir.startsWith('/')) throw missing('LOCAL_AGENT_FENCE_DIR is missing or not absolute')
+  let real: string
+  try {
+    real = realpathSync(dir)
+  } catch {
+    throw missing(`${dir} does not exist`)
   }
+  if (real !== dir.replace(/\/+$/, '') || !lstatSync(real).isDirectory()) throw missing(`${dir} is not a real folder`)
+  for (const name of [jobId, `${jobId}.open`]) {
+    let ok = false
+    try {
+      ok = lstatSync(join(real, name)).isFile()
+    } catch {
+      // missing
+    }
+    if (!ok) throw missing(`${name} is not in ${dir}`)
+  }
+  return real
+}
+
+/** The most ports LOCAL_AGENT_CLOSED_PORTS may list (each becomes a profile rule). */
+export const MAX_CLOSED_PORTS = 512
+
+/**
+ * The app's own local ports, strictly: integers 1 to 65535, comma-separated,
+ * at most MAX_CLOSED_PORTS. Unset or empty: none (an older desktop).
+ */
+export function closedPortsFromEnv(value: string | undefined): number[] {
+  if (value === undefined || value.trim() === '') return []
+  const items = value.split(',').map((x) => x.trim())
+  const bad = () => new WorkerLaunchError(`this job can't start: the app passed an unreadable list of its own ports (LOCAL_AGENT_CLOSED_PORTS=${JSON.stringify(value.slice(0, 80))})`)
+  if (items.length > MAX_CLOSED_PORTS) throw bad()
+  const ports = items.map((x) => (/^[0-9]{1,5}$/.test(x) ? Number(x) : NaN))
+  if (ports.some((p) => !Number.isInteger(p) || p < 1 || p > 65535)) throw bad()
+  return [...new Set(ports)].sort((a, b) => a - b)
+}
+
+/** The launch, or a WorkerLaunchError saying what is wrong. */
+export function workerLaunchFromEnv(env: WorkerEnv, registry: Registry): WorkerLaunch {
+  const worker = env.LOCAL_AGENT_WORKER
+  if (!worker || !Object.hasOwn(registry, worker)) throw new WorkerLaunchError(`no worker is called ${JSON.stringify(worker ?? null)}`)
+  const entry = registry[worker]
   if (env.LOCAL_AGENT_LOCAL_MODEL_BASE_URL || env.LOCAL_AGENT_LOCAL_MODEL_ID) {
     throw new WorkerLaunchError("this Mac is set to keep the model on the Mac, and a worker would send the folder to its vendor's model")
   }
@@ -100,22 +157,31 @@ export function workerLaunchFromEnv(env: WorkerEnv, expected: WorkerName): Worke
   const extraRead = env.LOCAL_AGENT_EXTRA_READ || undefined
   if (extraRead !== undefined && mode !== 'edit') throw new WorkerLaunchError('LOCAL_AGENT_EXTRA_READ is only allowed in edit mode')
   if (mode === 'edit' && extraRead === undefined) throw new WorkerLaunchError('edit mode needs LOCAL_AGENT_EXTRA_READ (the repository git directory)')
+  const acpDir = realDir(env.LOCAL_AGENT_ACP_DIR, 'LOCAL_AGENT_ACP_DIR')
+  const fenceDir = fenceDirFromEnv(env.LOCAL_AGENT_FENCE_DIR, jobId)
+  const closedPorts = closedPortsFromEnv(env.LOCAL_AGENT_CLOSED_PORTS)
 
   const binPath = env.LOCAL_AGENT_WORKER_BIN
   if (!binPath || !binPath.startsWith('/')) throw new WorkerLaunchError('LOCAL_AGENT_WORKER_BIN is missing or not absolute')
+  // The desktop looks the CLI up by the registry's name: anything else is not this worker's CLI.
+  if (basename(binPath) !== entry.cli) throw new WorkerLaunchError(`LOCAL_AGENT_WORKER_BIN is not ${entry.label}'s CLI (${entry.cli}): ${binPath}`)
   let bin: string
   try {
     bin = realpathSync(binPath)
     accessSync(bin, fsConstants.X_OK)
   } catch {
-    throw new WorkerLaunchError(`the ${expected === 'claude-code' ? 'Claude Code' : 'Codex'} CLI is not an executable file: ${binPath}`)
+    throw new WorkerLaunchError(`the ${entry.label} CLI is not an executable file: ${binPath}`)
   }
   if (!statSync(bin).isFile()) throw new WorkerLaunchError(`LOCAL_AGENT_WORKER_BIN is not a file: ${binPath}`)
 
   return {
-    worker: expected,
+    worker,
+    entry,
     bin,
-    binPath,
+    acpDir,
+    fenceDir,
+    closedPorts,
+    ...(env.LOCAL_AGENT_TOOLS_FILE ? { toolsFile: env.LOCAL_AGENT_TOOLS_FILE } : {}),
     jobId,
     folder,
     mode,

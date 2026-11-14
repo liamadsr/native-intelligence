@@ -5,12 +5,12 @@ import { appUrl } from '@/lib/app-url'
 export const metadata: Metadata = {
   title: 'About',
   description:
-    'Native Intelligence is building the system that turns conversations into action — capturing meetings, keeping projects current, and letting AI agents execute.',
+    'Native Intelligence is building one workspace for the whole company, where everything your team says becomes shared memory and agents use it to do the work.',
   alternates: { canonical: '/about' },
   openGraph: {
     title: 'About Native Intelligence',
     description:
-      'Native Intelligence is building the system that turns conversations into action — capturing meetings, keeping projects current, and letting AI agents execute.',
+      'Native Intelligence is building one workspace for the whole company, where everything your team says becomes shared memory and agents use it to do the work.',
     url: `${appUrl()}/about`,
     type: 'website',
   },

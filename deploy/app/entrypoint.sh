@@ -61,8 +61,8 @@ not_live() {
 }
 
 # A rehearsal may run on stand-ins for secrets that production must have the real
-# values of (pull-settings.sh writes them, starting with "rehearsal-"). The live copy
-# never starts on one.
+# values of (any value starting with "rehearsal-"). The live copy never starts on
+# one.
 if ! not_live && env | grep -q '^[A-Za-z_][A-Za-z0-9_]*=rehearsal-'; then
   die "NI_LIVE=1, but $(env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=rehearsal-.*/\1/p' | tr '\n' ' ')still holds a rehearsal's stand-in. Put the real value in with set-secret.sh first."
 fi

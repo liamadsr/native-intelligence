@@ -21,7 +21,7 @@ import { prunePresence } from '@/lib/presence/store'
  * notification purge did, and its failure is logged and reported but never
  * fails the run.
  *
- * Schedule: daily via Vercel cron at 03:20 UTC (vercel.json), GET with
+ * Schedule: daily from the server's cron at 03:20 UTC (vercel.json), GET with
  * `Authorization: Bearer ${CRON_SECRET}`.
  */
 export async function GET(request: NextRequest) {

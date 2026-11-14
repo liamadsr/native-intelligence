@@ -128,7 +128,7 @@ describe('start', () => {
     h.answers.capture_feed_start = { data: [{ outcome: 'started', session_id: SESSION, capture_id: CAPTURE, started_at: '2026-11-11T10:00:00+00:00', round: 2, guests: [GUEST] }], error: null }
     const res = await start(post({ source: { kind: 'team_call', ref: CALL }, producer }))
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ outcome: 'started', session: { id: SESSION, startedAt: '2026-11-11T10:00:00.000Z', round: 2, captureId: CAPTURE, guests: [GUEST] } })
+    expect(await res.json()).toEqual({ outcome: 'started', session: { id: SESSION, startedAt: '2026-11-11T10:00:00.000Z', round: 2, captureId: CAPTURE, guests: [GUEST], audio: false } })
     expect(h.rpcs).toEqual([
       ['capture_feed_start', { p_source_kind: 'team_call', p_source_ref: CALL, p_producer_kind: 'livekit_recorder', p_producer_id: 'recorder', p_capture_title: 'Call in #launch' }],
     ])

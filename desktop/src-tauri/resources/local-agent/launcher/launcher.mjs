@@ -1,4 +1,4 @@
-import { createRequire as __dial8Require } from 'node:module'; const require = __dial8Require(import.meta.url);
+import { createRequire as __niRequire } from 'node:module'; const require = __niRequire(import.meta.url);
 
 // agents/local-agent/launcher/launcher.ts
 import { execFileSync, spawn } from "node:child_process";
@@ -11836,7 +11836,7 @@ async function assertGuardLive(port) {
 }
 var REQUIRED_ENV = ["LOCAL_AGENT_JOB_ID", "LOCAL_AGENT_FOLDER", "LOCAL_AGENT_MODE", "LOCAL_AGENT_TOOL_PATH", "LOCAL_AGENT_DIR"];
 var OPTIONAL_ENV = ["LOCAL_AGENT_EXTRA_READ"];
-var AGENT_HOST_ENV = "DIAL8_AGENT_HOST";
+var AGENT_HOST_ENV = "NI_AGENT_HOST";
 function freePort() {
   return new Promise((resolve, reject) => {
     const srv = createServer();
@@ -11989,12 +11989,12 @@ async function main() {
   if (launch.kind === "relay") {
     modelEnv.LOCAL_AGENT_MODEL_BASE_URL = launch.baseURL;
     modelEnv.LOCAL_AGENT_MODEL_TOKEN_FILE = tokenFile;
-    log(`[local-agent] model: the Dial8 relay at ${launch.baseURL}`);
+    log(`[local-agent] model: the Native Intelligence relay at ${launch.baseURL}`);
   } else if (launch.kind === "local") {
     modelEnv.LOCAL_AGENT_LOCAL_MODEL_BASE_URL = launch.local.baseURL;
     modelEnv.LOCAL_AGENT_LOCAL_MODEL_ID = launch.local.id;
     if (launch.local.server) modelEnv.LOCAL_AGENT_LOCAL_MODEL_SERVER = launch.local.server;
-    log(`[local-agent] model: ${launch.local.id} on this Mac (${launch.local.server ?? "local server"})${launch.token ? "" : ", no session token: no Dial8 tools"}`);
+    log(`[local-agent] model: ${launch.local.id} on this Mac (${launch.local.server ?? "local server"})${launch.token ? "" : ", no session token: no Native Intelligence tools"}`);
   } else {
     let gatewayKey;
     if (env.LOCAL_AGENT_DEV_ENV_FILE) {

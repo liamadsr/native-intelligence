@@ -178,7 +178,6 @@ describe('the live plan model', () => {
   it('calls the plan proxy with the run token and secret on the fetch, never a key, with store:false', async () => {
     process.env.CHAT_INTERNAL_SECRET = 'chat-secret'
     process.env.NEXT_PUBLIC_APP_URL = 'http://127.0.0.1:3002'
-    delete process.env.VERCEL_URL
     const fetchMock = vi.fn(async () =>
       new Response('data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1}}}\n\n', {
         headers: { 'content-type': 'text/event-stream' },
@@ -204,7 +203,6 @@ describe('the live plan model', () => {
   it("sends OpenAI's web search from the search model, through the same proxy and credentials", async () => {
     process.env.CHAT_INTERNAL_SECRET = 'chat-secret'
     process.env.NEXT_PUBLIC_APP_URL = 'http://127.0.0.1:3002'
-    delete process.env.VERCEL_URL
     const fetchMock = vi.fn(async () =>
       new Response('data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1}}}\n\n', {
         headers: { 'content-type': 'text/event-stream' },

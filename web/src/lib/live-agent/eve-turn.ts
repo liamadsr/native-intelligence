@@ -52,19 +52,11 @@ export const BATCH_STEP_CEILING = LIVE_TURN_BUDGETS.batch.maxSteps
 // ── Client ───────────────────────────────────────────────────────────────────
 
 /**
- * The app's own origin for the server-to-server create. On Vercel, THIS
- * deployment (the live-agent mount ships with the same commit); otherwise
- * NEXT_PUBLIC_APP_URL, else local dev's default.
+ * The app's own origin for the server-to-server create: NEXT_PUBLIC_APP_URL,
+ * else local dev's default.
  */
 export function liveAgentAppBaseUrl(): string {
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-}
-
-/** Lets a same-deployment call through Vercel Deployment Protection on previews. */
-function protectionBypassHeaders(): Record<string, string> {
-  const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
-  return secret ? { 'x-vercel-protection-bypass': secret } : {}
 }
 
 /**
@@ -89,7 +81,6 @@ export function liveAgentEveClient(a: {
       [LIVE_AGENT_TOKEN_HEADER]: a.runToken,
       [LIVE_AGENT_WORKSPACE_HEADER]: a.workspaceId,
       [LIVE_AGENT_USER_HEADER]: a.userId,
-      ...protectionBypassHeaders(),
     },
     redirect: 'error',
   })

@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 import { withActiveWorkspace } from './envelope'
-import { storedGithubToken } from '@/lib/oauth/github-token'
+import { fetchPrMetadata } from '@/lib/github/pr-metadata'
 
 /**
  * GitHub-specific MCP tools for PR linking and status checks.
@@ -63,7 +63,7 @@ export function registerGitHubTools(
       }
 
       // Try to fetch PR metadata from GitHub API
-      const prMeta = await fetchPrMetadata(parsed.repoFullName, parsed.prNumber, userId, supabase)
+      const prMeta = await fetchPrMetadata(supabase, parsed.repoFullName, parsed.prNumber, userId)
 
       const { data: pr, error } = await supabase
         .from('action_github_pr')
@@ -210,37 +210,3 @@ function parseGitHubPrUrl(url: string): { repoFullName: string; prNumber: number
   }
 }
 
-async function fetchPrMetadata(
-  repoFullName: string,
-  prNumber: number,
-  userId: string,
-  supabase: SupabaseClient,
-): Promise<{ title: string; state: string; draft: boolean; headBranch: string } | null> {
-  try {
-    const accessToken = await storedGithubToken(supabase, userId)
-
-    const headers: Record<string, string> = {
-      Accept: 'application/vnd.github+json',
-    }
-    if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`
-    }
-
-    const res = await fetch(
-      `https://api.github.com/repos/${repoFullName}/pulls/${prNumber}`,
-      { headers },
-    )
-
-    if (!res.ok) return null
-
-    const data = await res.json()
-    return {
-      title: data.title,
-      state: data.merged ? 'merged' : data.state,
-      draft: data.draft || false,
-      headBranch: data.head?.ref || null,
-    }
-  } catch {
-    return null
-  }
-}

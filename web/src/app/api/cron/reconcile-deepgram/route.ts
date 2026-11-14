@@ -14,7 +14,7 @@ import * as Sentry from '@sentry/nextjs'
  * under-reporting at the project level: compare Deepgram's total billed
  * seconds for the day against the sum of what we logged, and alert on a gap.
  *
- * Schedule: daily via Vercel cron (after midnight UTC, reconciling the prior
+ * Schedule: daily from the server's cron (after midnight UTC, reconciling the prior
  * full day).
  */
 export const maxDuration = 60

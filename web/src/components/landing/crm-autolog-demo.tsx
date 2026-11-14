@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Landing demo of the CRM filling itself in after a sales call: the contact's
+ * Landing demo of the CRM filling itself in after a customer call: the contact's
  * record as it opens in the chat (a card's window, DemoCard), drawn the way
  * the contact's own panel draws it (app/account/(dashboard)/views/
  * contact-detail-panel.tsx): the tab row, the avatar and name, Notes, Recent
@@ -32,8 +32,8 @@ import { DemoCard, DemoSky, DemoTabs } from './demo-card'
 
 /** What the record already said before today's call. */
 const PRIOR_NOTES = [
-  'VP Operations at Acme Corp; owns the CRM budget for a 40-rep team.',
-  'Came in through the Q3 webinar. Reps lose deal context between calls.',
+  'VP Operations at Acme Corp; leads the rollout for a 40-person team.',
+  'Came in through the Q3 webinar. Their team loses context between tools.',
 ]
 
 /** What today's call adds. */

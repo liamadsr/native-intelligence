@@ -135,7 +135,6 @@ describe('utility agent — model resolvers', () => {
     const env = { ...process.env }
     process.env.UTILITY_INTERNAL_SECRET = 'utility-secret'
     process.env.NEXT_PUBLIC_APP_URL = 'http://127.0.0.1:3002'
-    delete process.env.VERCEL_URL
     const fetchMock = vi.fn(async () =>
       new Response('data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1}}}\n\n', {
         headers: { 'content-type': 'text/event-stream' },

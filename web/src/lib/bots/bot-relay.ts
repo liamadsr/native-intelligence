@@ -180,7 +180,7 @@ import { renderConversationPrimer } from '@/lib/chat/conversation-history'
 import { persistEveMessage } from '@/lib/chat/eve-message-writer'
 import type { TeammateAboutRef } from '@/lib/chat/teammate-about-ref'
 import { createConversationSessionOnce } from '@/lib/eve/conversation-session'
-import { eveDispatchOrigin, protectionBypassHeaders } from '@/lib/eve/dispatch-origin'
+import { eveDispatchOrigin } from '@/lib/eve/dispatch-origin'
 import { createTurnBoundary } from '@/lib/eve/turn-boundary'
 import { batchWorkItemId, isBatchKey } from './batch'
 import { FROM_MAIN_CHAT_MARK, RELAY_METADATA_KEY, relayThreadMessageIds } from './relay-message'
@@ -1562,7 +1562,6 @@ function makeChatAgentClient(args: { jwt: string; token: string; workspaceId: st
     host: `${eveDispatchOrigin()}${CHAT_AGENT_MOUNT}`,
     auth: { bearer: args.jwt },
     headers: {
-      ...protectionBypassHeaders(),
       // Trusted by the channel only after its own membership check.
       [WORKSPACE_HEADER]: args.workspaceId,
       [CHAT_RUN_TOKEN_HEADER]: args.token,

@@ -1,18 +1,17 @@
 'use client'
 
 /**
- * Landing demo of the shared-intelligence loop: company knowledge feeds the
- * live agent, the agent shows up in customer conversations, those
- * conversations produce new knowledge, and that knowledge goes back into the
- * shared context. Four steps in a vertical chain with a dashed return path
- * closing the cycle; the active step cycles so the loop reads as continuous.
- * The steps wear the agents' glass on the app's sky (DemoSky), the orb on
- * the live agent's step.
+ * Landing demo of the workspace's memory loop: the team's conversations (calls,
+ * mail, chat) become shared memory, agents act on that memory, and the work
+ * they finish feeds new knowledge back in. Four steps in a vertical chain with
+ * a dashed return path closing the cycle; the active step cycles so the loop
+ * reads as continuous. The steps wear the agents' glass on the app's sky
+ * (DemoSky), the orb on the agents' step.
  */
 
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
-import { ArrowRight, Library, MessageSquare, Lightbulb } from 'lucide-react'
+import { ArrowRight, Brain, CheckCheck, MessagesSquare } from 'lucide-react'
 import { OrbLoader } from '@/components/ui/loader'
 import { BOT_GLASS, BOT_GLASS_INSET, BOT_GLASS_MUTED } from '@/components/agent-ui/glass'
 import { DemoSky } from './demo-card'
@@ -26,25 +25,25 @@ interface LoopStep {
 
 const STEPS: LoopStep[] = [
   {
-    icon: Library,
-    title: 'Company knowledge',
-    detail: 'Playbooks, pricing, battlecards, deal history',
+    icon: MessagesSquare,
+    title: 'Conversations',
+    detail: 'Calls, email threads and team chat',
+  },
+  {
+    icon: Brain,
+    title: 'Shared memory',
+    detail: 'Decisions, promises and facts, each with its source',
   },
   {
     // The AI step wears the product's thinking orb rather than an icon.
     orb: true as const,
-    title: 'Live agent',
-    detail: 'Brings the right piece into the call',
+    title: 'Agents',
+    detail: 'Draft, file, follow up, with what the team knows',
   },
   {
-    icon: MessageSquare,
-    title: 'Customer conversations',
-    detail: 'Objections, questions, what actually lands',
-  },
-  {
-    icon: Lightbulb,
-    title: 'New knowledge',
-    detail: 'Captured and shared with the whole team',
+    icon: CheckCheck,
+    title: 'Work done',
+    detail: 'Tasks closed, docs current, and new knowledge back in',
   },
 ]
 
@@ -63,8 +62,8 @@ export function IntelligenceLoopDemo() {
   return (
     <DemoSky className="p-5 sm:p-7">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-base font-semibold tracking-tight text-foreground">Shared intelligence</h3>
-        <span className={cn('text-[10px] font-medium uppercase tracking-wider', BOT_GLASS_MUTED)}>Every call feeds it</span>
+        <h3 className="text-base font-semibold tracking-tight text-foreground">Shared memory</h3>
+        <span className={cn('text-[10px] font-medium uppercase tracking-wider', BOT_GLASS_MUTED)}>Every conversation feeds it</span>
       </div>
 
       {/* pl leaves a gutter for the dashed return path that closes the loop */}

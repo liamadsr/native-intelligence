@@ -20,7 +20,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${BASE_URL}/`, changeFrequency: 'weekly', priority: 1 },
     { url: `${BASE_URL}/pricing`, changeFrequency: 'monthly', priority: 0.9 },
     { url: `${BASE_URL}/scribe`, changeFrequency: 'monthly', priority: 0.8 },
-    // /sales is NOT listed: the sales pitch moved to `/` and /sales is a 308. A
+    // /sales is NOT listed: it is a 308 to `/`. A
     // redirect in the sitemap is a soft error in Search Console and splits
     // signal away from the canonical homepage. /meeting-notes and
     // /company-brain serve their own pitches again but, as before the sales

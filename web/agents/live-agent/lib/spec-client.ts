@@ -140,26 +140,17 @@ function internalSecret(): string {
 }
 
 /**
- * The Next app's own origin. On Vercel, pin to THIS deployment's URL: the
- * internal routes ship with the same commit as this agent, so the deployment's
- * own origin is the only version-correct target. In dev the eve sidecar and
- * Next dev share localhost:3000.
+ * The Next app's own origin: NEXT_PUBLIC_APP_URL (the internal routes are the
+ * app's). In dev the eve sidecar and Next dev share localhost:3000.
  */
 function appBaseUrl(): string {
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-}
-
-/** Vercel Deployment Protection bypass for server-to-server calls, when set. */
-function protectionBypassHeaders(): Record<string, string> {
-  const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
-  return secret ? { 'x-vercel-protection-bypass': secret } : {}
 }
 
 /**
  * The ChatGPT plan proxy (src/app/api/internal/chatgpt-plan/v1/responses):
- * the base URL a plan model calls, and a fetch that adds this agent's secret,
- * the turn's token and the protection bypass to each request as it goes. They
+ * the base URL a plan model calls, and a fetch that adds this agent's secret
+ * and the turn's token to each request as it goes. They
  * ride the fetch, never a provider's `headers`, which the AI SDK's workflow
  * serializer would write out with the model.
  */
@@ -172,7 +163,6 @@ export function chatGptPlanProxy(runToken: string): PlanProxy {
       headers.delete('authorization')
       headers.set(LIVE_AGENT_SECRET_HEADER, internalSecret())
       headers.set(LIVE_AGENT_TOKEN_HEADER, runToken)
-      for (const [name, value] of Object.entries(protectionBypassHeaders())) headers.set(name, value)
       return fetch(input, { ...init, headers })
     },
   }
@@ -258,7 +248,6 @@ async function requestLiveAgentSpec(runToken: string): Promise<LiveAgentSpec | n
       headers: {
         [LIVE_AGENT_SECRET_HEADER]: secret,
         [LIVE_AGENT_TOKEN_HEADER]: runToken,
-        ...protectionBypassHeaders(),
       },
       redirect: 'error',
       signal: AbortSignal.timeout(SPEC_FETCH_TIMEOUT_MS),
@@ -307,7 +296,6 @@ export async function dispatchLiveAgentTool(
         'content-type': 'application/json',
         [LIVE_AGENT_SECRET_HEADER]: secret,
         [LIVE_AGENT_TOKEN_HEADER]: runToken,
-        ...protectionBypassHeaders(),
       },
       body: JSON.stringify({ toolName, input }),
       redirect: 'error',

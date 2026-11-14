@@ -33,7 +33,6 @@ beforeEach(() => {
   stateStore.clear()
   process.env.AGENT_RUN_INTERNAL_SECRET = 'agent-run-secret'
   process.env.NEXT_PUBLIC_APP_URL = 'http://127.0.0.1:3002'
-  delete process.env.VERCEL_URL
 })
 afterEach(() => {
   process.env = { ...env }

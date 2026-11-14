@@ -2,7 +2,7 @@
  * Data module powering the /vs/[competitor] comparison pages.
  *
  * The pages are written for sales teams choosing a tool, and each one targets the
- * search people actually type ("gong alternative", "otter ai alternative").
+ * search people actually type ("granola alternative", "otter ai alternative").
  *
  * Every factual cell about a vendor was checked against that vendor's own
  * published material (product pages, pricing pages, help centers, changelogs) in
@@ -20,8 +20,10 @@
  */
 import { SEAT_PRICE_USD, TRIAL_DAYS } from '@/lib/billing/access'
 
+// /vs/gong was retired on 2026-11-14 with the sales positioning: it 308s to
+// the homepage (next.config.mjs). The four notetaker comparisons stay until
+// they are rewritten for the workspace position.
 export const VS_COMPETITOR_SLUGS = [
-  'gong',
   'granola',
   'otter',
   'fireflies',
@@ -173,66 +175,6 @@ export const NI_STRENGTHS: { title: string; body: string }[] = [
 ]
 
 export const COMPETITORS: Record<CompetitorSlug, Competitor> = {
-  gong: {
-    slug: 'gong',
-    name: 'Gong',
-    site: 'https://www.gong.io',
-    audience: 'small sales teams',
-    verifiedAt: 'November 2026',
-    tagline: 'the revenue AI platform built for mid-size and enterprise sales orgs',
-    metaTitle: 'Gong Alternative for Small Sales Teams | Native Intelligence',
-    metaDescription: `A Gong alternative for small sales teams: calls recorded without a bot, live help on the call, and a CRM that updates itself. ${SEAT}.`,
-    verdict: `Gong is the category leader for revenue teams: mature call recording and analytics, deal boards, forecasting and coaching at scale, and a Leader in Gartner’s 2026 Magic Quadrant for revenue action orchestration. It is built and priced for larger orgs: quote-only, a per-seat license plus a platform fee, usually on annual or multi-year contracts. Native Intelligence is for the small team that wants help on the call itself: no bot on any call, your playbook on screen while you talk, and a CRM that fills itself in, at ${SEAT}.`,
-    matrix: [
-      row('botFree', 'Only via Zoom’s own recording; a bot joins Meet, Teams, Webex'),
-      row('liveHelp', 'In-Zoom app: live notes, transcript and talk-time stats'),
-      row('dealHistory', true),
-      row('crm', 'Fills mapped Salesforce, HubSpot or Dynamics fields (AI credits)'),
-      row('crmSync', 'Salesforce, HubSpot, Dynamics 365; no CRM of its own'),
-      row('followUps', 'Drafted on any plan; sending from Gong needs Engage'),
-      row('playbook', 'AI role-play training (Gong Enable)'),
-      row('transcripts', true),
-      row('platforms', 'Web, iOS, Android, plus an in-Zoom app'),
-      row('price', 'Quote only: per seat plus a platform fee'),
-    ],
-    theirStrengths: [
-      {
-        title: 'Forecasting and pipeline',
-        body: 'Gong Forecast rolls up the team’s forecast and adds AI deal and revenue predictions. Native Intelligence does not forecast; if that is what you need, Gong is the stronger tool.',
-      },
-      {
-        title: 'Proven at scale',
-        body: 'More than 5,000 companies use Gong, and Gartner named it a Leader in its 2026 Magic Quadrant for revenue action orchestration, rated highest on ability to execute.',
-      },
-      {
-        title: 'Capture almost anywhere',
-        body: 'Gong records every major conferencing tool, many phone systems and in-person meetings from its mobile app, and supports Salesforce, HubSpot and Dynamics in depth. It works for reps on any computer; Native Intelligence’s bot-free capture runs on the Mac.',
-      },
-    ],
-    faqs: [
-      {
-        q: 'Does Gong use a meeting bot?',
-        a: 'On Google Meet, Microsoft Teams and Webex, yes: the Gong bot joins the call as a participant. On Zoom, admins can record through Zoom’s own recording instead. Native Intelligence records from your Mac, so nothing joins any call.',
-      },
-      {
-        q: 'Is Gong worth it for a small sales team?',
-        a: `Gong does not publish prices: it quotes a per-seat license plus a platform fee, usually on annual or multi-year contracts, and some AI features use credits. For a large revenue org that needs forecasting, that buys a lot. A small team that mainly wants help on calls and a CRM that stays current can try Native Intelligence free for ${TRIAL_DAYS} days, then pay ${SEAT}.`,
-      },
-      {
-        q: 'Does Gong give live help on calls?',
-        a: 'Gong’s app inside Zoom lets reps take notes, mark moments and see how the conversation is going. We found no live playbook, pricing or battlecard prompts in its published material. Native Intelligence’s live agent puts those on your screen while you talk, visible only to you.',
-      },
-      {
-        q: 'Can I keep HubSpot with either tool?',
-        a: 'Yes. Gong integrates with HubSpot, Salesforce and Dynamics 365. Native Intelligence syncs two-way with HubSpot, also works with Attio and Affinity, or you can use its built-in CRM.',
-      },
-      {
-        q: 'Which should I choose?',
-        a: 'If you run a large revenue team and need forecasting and analytics across thousands of calls, Gong is the stronger fit. If you are a small team that wants help on every call and a CRM that keeps itself current, without an annual contract, choose Native Intelligence.',
-      },
-    ],
-  },
-
   granola: {
     slug: 'granola',
     name: 'Granola',

@@ -25,9 +25,9 @@ import { archiveStaleReports } from '@/lib/documents/report-archive'
  *    flow's run history (src/lib/documents/report-archive.ts).
  *
  * The counts above are still only logged: a structured console.log line per
- * workspace, visible in Vercel logs (no notification type for them exists).
+ * workspace, visible in the web container's logs (no notification type for them exists).
  *
- * Schedule: daily at 04:00 UTC. Vercel's scheduler always issues GET with
+ * Schedule: daily at 04:00 UTC. The server's cron always issues GET with
  * `Authorization: Bearer ${CRON_SECRET}`, so the handler is exported as GET.
  * POST is aliased below so manual curl-triggering still works.
  */
@@ -166,7 +166,7 @@ export async function GET(request: NextRequest) {
       summary.broken_wikilinks = slugArray.filter((s) => !existingSet.has(s)).length
     }
 
-    // Surface the per-workspace result in Vercel logs. No notification
+    // Surface the per-workspace result in the web container's logs. No notification
     // fan-out exists yet, so this structured line is the only place the
     // health counts are visible until a digest is wired up.
     console.log('[wiki-maintenance] workspace summary', JSON.stringify(summary))

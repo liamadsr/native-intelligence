@@ -1,10 +1,8 @@
 import type { Metadata } from 'next'
 import MeetingNotesPage from './meeting-notes-page'
 
-// Direct preview URL for the "meeting notes" landing variant. The root page
-// also serves this variant to the PostHog `landing-page-variant` test bucket —
-// this route exists so the variant can be reviewed and shared at a stable URL
-// regardless of flag bucketing. No signed-in redirect here on purpose: a
+// The "meeting notes" persona pitch, at its own stable URL (it was also an arm
+// of the homepage's A/B switch until 2026-11-14). No signed-in redirect here on purpose: a
 // signed-in teammate reviewing the page shouldn't be bounced to /account.
 const TITLE = 'Native Intelligence — Remarkably good meeting notes'
 const DESCRIPTION =

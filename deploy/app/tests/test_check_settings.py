@@ -48,7 +48,7 @@ class Groups(unittest.TestCase):
     def test_groups(self):
         self.assertEqual(cs.group("NI_LIVE"), "switch")
         self.assertEqual(cs.group("CREDENTIAL_ENCRYPTION_KEY"), "must match")
-        self.assertEqual(cs.group("SENTRY_ORG"), "may be empty")
+        self.assertEqual(cs.group("NEXT_PUBLIC_SITE_URL"), "may be empty")
         self.assertEqual(cs.group("SANDBOX_ACCESS_TOKEN"), "needed")
         # A new value is fine for it: only cloud browsers running at the switch hold tokens made with it.
         self.assertEqual(cs.group("BROWSER_INTERNAL_SECRET"), "needed")
@@ -61,6 +61,9 @@ class Groups(unittest.TestCase):
             self.assertNotIn(name, cs.MAY_BE_EMPTY)
             self.assertNotIn(name, cs.EMPTY_MEANS)
             self.assertNotIn(name, cs.CHECKS)
+        # Nothing on the server read these three: gone from the file and from here.
+        for name in ("SENTRY_ORG", "SENTRY_PROJECT", "RUN_SKILL_LOCAL_DISPATCH_ENABLED"):
+            self.assertNotIn(name, cs.MAY_BE_EMPTY)
 
     def test_no_name_is_in_two_groups(self):
         self.assertFalse(set(cs.MUST_MATCH) & set(cs.MAY_BE_EMPTY))
@@ -163,6 +166,38 @@ class FakeHttp:
 
     def __exit__(self, *_):
         cs.http = self.real
+
+
+class ChatGptPair(unittest.TestCase):
+    """"Continue with ChatGPT": the client id and its secret, both or neither."""
+
+    def run_check(self, name, env):
+        with FakeHttp([]) as fake:
+            result = cs.CHECKS[name](dict(env), {})
+        self.assertEqual(fake.calls, [])  # nothing is asked of OpenAI
+        return result
+
+    def test_both_set_is_quiet(self):
+        env = {"CHATGPT_CLIENT_ID": "oaiapp_madeup123", "CHATGPT_CLIENT_SECRET": "made-up-secret"}
+        for name in env:
+            self.assertEqual(self.run_check(name, env), (None, None))
+
+    def test_one_without_the_other_is_wrong(self):
+        ok, note = self.run_check("CHATGPT_CLIENT_ID", {"CHATGPT_CLIENT_ID": "oaiapp_madeup123", "CHATGPT_CLIENT_SECRET": " "})
+        self.assertIs(ok, False)
+        self.assertIn("CHATGPT_CLIENT_SECRET", note)
+        self.assertIn("no sign-in can finish", note)
+        ok, note = self.run_check("CHATGPT_CLIENT_SECRET", {"CHATGPT_CLIENT_SECRET": "made-up-secret"})
+        self.assertIs(ok, False)
+        self.assertIn("CHATGPT_CLIENT_ID", note)
+
+    def test_optional_and_reported_as_wrong_when_alone(self):
+        for name in ("CHATGPT_CLIENT_ID", "CHATGPT_CLIENT_SECRET", "CHATGPT_REDIRECT_URI"):
+            self.assertEqual(cs.group(name), "may be empty")
+        env = {"CHATGPT_CLIENT_ID": "oaiapp_madeup123", "CHATGPT_CLIENT_SECRET": "", "CHATGPT_REDIRECT_URI": ""}
+        lines, _blockers, _unchecked = cs.report(env, {"CHATGPT_CLIENT_ID": self.run_check("CHATGPT_CLIENT_ID", env)})
+        self.assertTrue(any("CHATGPT_CLIENT_ID" in line and "no sign-in can finish" in line for line in lines), lines)
+        self.assertNotIn("made", "\n".join(lines))  # never a value
 
 
 class Slack(unittest.TestCase):
@@ -553,8 +588,9 @@ class CallRecorder(unittest.TestCase):
         _, blockers, _ = cs.report({"TEAM_CALL_RECORDER": "", "CAPTURE_FEED_SECRET": ""}, {})
         self.assertEqual(blockers, [])
 
-    def test_the_phase_two_switches(self):
-        for name in ("TEAM_CALL_LIVE_AGENT", "TEAM_CALL_EVENT_LINK"):
+    def test_the_switches_that_need_the_recorder(self):
+        # Phase 2's two, and phase 4's audio files.
+        for name in ("TEAM_CALL_LIVE_AGENT", "TEAM_CALL_EVENT_LINK", "TEAM_CALL_AUDIO"):
             self.assertEqual(cs.group(name), "may be empty")
             check = cs.CHECKS[name]
             self.assertEqual(check(dict(self.ENV, TEAM_CALL_RECORDER="on", **{name: "on"}), {}), (None, None))
@@ -590,7 +626,7 @@ class Report(unittest.TestCase):
             "CREDENTIAL_ENCRYPTION_KEY": "",
             "RUN_SKILL_INTERNAL_SECRET": "rehearsal-made-up",
             "STRIPE_SECRET_KEY": "made-up",
-            "SENTRY_ORG": "",
+            "NEXT_PUBLIC_SITE_URL": "",
             "SANDBOX_ACCESS_TOKEN": "made-up",
             "CRON_SECRET": "made-up",
         }
@@ -602,7 +638,7 @@ class Report(unittest.TestCase):
             "SANDBOX_ACCESS_TOKEN: refused",
         ])
         text = "\n".join(lines)
-        self.assertIn("SENTRY_ORG", text)
+        self.assertIn("NEXT_PUBLIC_SITE_URL", text)
         self.assertNotIn("made-up", text)
         self.assertEqual(unchecked, [])
 
@@ -620,7 +656,7 @@ class Report(unittest.TestCase):
     def test_names_only_run_shows_no_value(self):
         secret = "made-up-value-that-must-not-show"
         with tempfile.NamedTemporaryFile("w", suffix=".env", delete=False) as f:
-            f.write("NI_LIVE=\nCRON_SECRET=%s\nCREDENTIAL_ENCRYPTION_KEY=\nSENTRY_ORG=\n" % secret)
+            f.write("NI_LIVE=\nCRON_SECRET=%s\nCREDENTIAL_ENCRYPTION_KEY=\nNEXT_PUBLIC_SITE_URL=\n" % secret)
         try:
             out = io.StringIO()
             with contextlib.redirect_stdout(out):

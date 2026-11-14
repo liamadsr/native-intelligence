@@ -174,10 +174,9 @@ describe('POST /api/calls/live', () => {
 
   it('in local dev only, GPT_LIVE_DEV_SKIP_ATTESTATION answers an unattested call', async () => {
     vi.stubEnv('GPT_LIVE_DEV_SKIP_ATTESTATION', '1')
-    vi.stubEnv('VERCEL_ENV', '')
     vi.stubEnv('NODE_ENV', 'development')
     expect(await (await POST(delivery(incoming(undefined, null)))).json()).toEqual({ ok: true, outcome: 'accepted' })
-    vi.stubEnv('VERCEL_ENV', 'production')
+    vi.stubEnv('NODE_ENV', 'production')
     expect(await (await POST(delivery(incoming(undefined, null)))).json()).toEqual({ ok: true, outcome: 'declined' })
   })
 

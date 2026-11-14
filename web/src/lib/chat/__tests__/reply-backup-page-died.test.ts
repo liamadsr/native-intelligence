@@ -144,7 +144,6 @@ describe('a main-chat turn survives the page dying mid-turn', () => {
   beforeEach(() => {
     process.env.CHAT_INTERNAL_SECRET = SECRET
     process.env.NEXT_PUBLIC_APP_URL = 'http://localhost:3000'
-    delete process.env.VERCEL_URL
     db = chatMessagesFake([{ id: 'conv-1', user_id: USER.id, workspace_id: 'ws-1', title: 'New conversation' }])
     agentState.clear()
     inngestSend.mockClear()

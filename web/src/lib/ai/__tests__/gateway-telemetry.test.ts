@@ -3,8 +3,8 @@ import { gatewayTelemetry, gatewayTelemetryValues } from '@/lib/ai/gateway-telem
 
 /**
  * These tests own the flag env themselves via vi.stubEnv (they do NOT rely on
- * src/test/setup.ts, which is coordinated elsewhere). VERCEL_ENV is stubbed
- * per-test so the `env:` tag is deterministic regardless of where the suite runs.
+ * src/test/setup.ts, which is coordinated elsewhere). The `env:` tag is production
+ * in a built app (NODE_ENV, stubbed per-test) and development everywhere else.
  */
 describe('gateway-telemetry', () => {
   afterEach(() => {
@@ -31,7 +31,7 @@ describe('gateway-telemetry', () => {
   describe('flag on — shapes', () => {
     it('gatewayTelemetryValues returns user + feature/env tags', () => {
       vi.stubEnv('GATEWAY_USER_TAGGING', 'all')
-      vi.stubEnv('VERCEL_ENV', 'production')
+      vi.stubEnv('NODE_ENV', 'production')
       expect(gatewayTelemetryValues('user-1', 'chat')).toEqual({
         user: 'user-1',
         tags: ['feature:chat', 'env:production'],
@@ -40,15 +40,14 @@ describe('gateway-telemetry', () => {
 
     it('gatewayTelemetry wraps values under providerOptions.gateway', () => {
       vi.stubEnv('GATEWAY_USER_TAGGING', 'all')
-      vi.stubEnv('VERCEL_ENV', 'production')
+      vi.stubEnv('NODE_ENV', 'production')
       expect(gatewayTelemetry('user-1', 'chat')).toEqual({
         providerOptions: { gateway: { user: 'user-1', tags: ['feature:chat', 'env:production'] } },
       })
     })
 
-    it('defaults env tag to "development" when VERCEL_ENV is unset', () => {
+    it('the env tag is "development" outside a built app (next dev, this suite)', () => {
       vi.stubEnv('GATEWAY_USER_TAGGING', 'all')
-      vi.stubEnv('VERCEL_ENV', '')
       const values = gatewayTelemetryValues('user-1', 'chat')
       expect(values?.tags).toContain('env:development')
     })
@@ -57,7 +56,6 @@ describe('gateway-telemetry', () => {
   describe('tag order + optional tags', () => {
     it('emits tags in feature, env, ws, runtime, extra order', () => {
       vi.stubEnv('GATEWAY_USER_TAGGING', 'all')
-      vi.stubEnv('VERCEL_ENV', 'preview')
       const values = gatewayTelemetryValues('user-1', 'chat', {
         workspaceId: 'ws-9',
         runtime: 'eve',
@@ -65,7 +63,7 @@ describe('gateway-telemetry', () => {
       })
       expect(values?.tags).toEqual([
         'feature:chat',
-        'env:preview',
+        'env:development',
         'ws:ws-9',
         'runtime:eve',
         'skill:foo',
@@ -74,23 +72,21 @@ describe('gateway-telemetry', () => {
 
     it('omits ws tag when workspaceId is falsy', () => {
       vi.stubEnv('GATEWAY_USER_TAGGING', 'all')
-      vi.stubEnv('VERCEL_ENV', 'preview')
       const values = gatewayTelemetryValues('user-1', 'chat', { workspaceId: null })
-      expect(values?.tags).toEqual(['feature:chat', 'env:preview'])
+      expect(values?.tags).toEqual(['feature:chat', 'env:development'])
     })
 
     it('omits runtime tag when runtime is not eve', () => {
       vi.stubEnv('GATEWAY_USER_TAGGING', 'all')
-      vi.stubEnv('VERCEL_ENV', 'preview')
       const values = gatewayTelemetryValues('user-1', 'chat', { workspaceId: 'ws-9' })
-      expect(values?.tags).toEqual(['feature:chat', 'env:preview', 'ws:ws-9'])
+      expect(values?.tags).toEqual(['feature:chat', 'env:development', 'ws:ws-9'])
     })
   })
 
   describe('constraint enforcement', () => {
     it('omits the user key entirely when userId is falsy (never empty string)', () => {
       vi.stubEnv('GATEWAY_USER_TAGGING', 'all')
-      vi.stubEnv('VERCEL_ENV', 'production')
+      vi.stubEnv('NODE_ENV', 'production')
       const nullUser = gatewayTelemetryValues(null, 'brief')
       const undefUser = gatewayTelemetryValues(undefined, 'brief')
       const emptyUser = gatewayTelemetryValues('', 'brief')
@@ -118,14 +114,14 @@ describe('gateway-telemetry', () => {
 
     it('drops empty extra tags', () => {
       vi.stubEnv('GATEWAY_USER_TAGGING', 'all')
-      vi.stubEnv('VERCEL_ENV', 'production')
+      vi.stubEnv('NODE_ENV', 'production')
       const values = gatewayTelemetryValues('user-1', 'chat', { extraTags: ['', '   ', 'keep'] })
       expect(values?.tags).toEqual(['feature:chat', 'env:production', 'keep'])
     })
 
     it('caps the tag list at 10, keeping the standard tags first', () => {
       vi.stubEnv('GATEWAY_USER_TAGGING', 'all')
-      vi.stubEnv('VERCEL_ENV', 'production')
+      vi.stubEnv('NODE_ENV', 'production')
       const many = Array.from({ length: 20 }, (_, i) => `extra:${i}`)
       const values = gatewayTelemetryValues('user-1', 'chat', {
         workspaceId: 'ws-9',

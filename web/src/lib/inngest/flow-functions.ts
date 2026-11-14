@@ -69,7 +69,6 @@ import { flowRunPrivateTo } from '@/lib/flows/types'
 
 const APP_BASE_URL =
   process.env.NEXT_PUBLIC_APP_URL ??
-  process.env.VERCEL_URL ??
   DEFAULT_APP_URL
 
 /**

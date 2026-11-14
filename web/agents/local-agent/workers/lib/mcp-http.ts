@@ -1,45 +1,42 @@
 /**
- * The fence tools as an MCP server on 127.0.0.1, over Streamable HTTP
- * (MCP 2025-03-26 and later), for the worker CLI to call.
+ * The manager tools (manager-tools.ts) as an MCP server on 127.0.0.1, over
+ * Streamable HTTP (MCP 2025-03-26 and later), for the worker agent to call.
  *
- * Why HTTP and not stdio: the CLI runs under its own Seatbelt profile
- * (cli-profile.ts), and a stdio server would be its child, inside that
- * profile. Commands must run under the folder's fence instead, and macOS
- * refuses a second `sandbox-exec` inside a sandboxed process
- * (`sandbox_apply: Operation not permitted`, measured on Darwin 27). So the
- * server lives in the adapter, outside the CLI's profile, like the eve server
- * the launcher starts; the CLI's profile lets it reach this one port.
+ * It lives in the adapter, outside the agent's Seatbelt profile
+ * (agent-profile.ts). The profile lets the agent reach every port on this
+ * Mac, so every job's server is reachable from every job: the per-launch
+ * bearer is what keeps one job from calling another's tools. The
+ * agent gets it as an HTTP MCP server with the bearer in an Authorization
+ * header when it advertises `mcpCapabilities.http`; otherwise through the
+ * stdio proxy (mcp-proxy.ts), a child of the agent inside the fence that
+ * forwards each message here with the same bearer.
  *
  * The guard, like launcher/server-guard.ts: a random port on 127.0.0.1 only,
  * a random 32-byte bearer per launch checked in constant time, a bare 403 to
  * any request with an `Origin` header or a Host other than
- * `127.0.0.1:<port>` (DNS rebinding), and only `POST /mcp`. Fenced commands
- * cannot reach it at all: their profile has no network.
+ * `127.0.0.1:<port>` (DNS rebinding), and only `POST /mcp`.
  *
  * The protocol subset: `initialize`, `ping`, `tools/list`, `tools/call`, and
  * the `notifications/initialized` and `notifications/cancelled` notifications.
  * Each request is answered with one `application/json` body (no SSE: the
  * server never starts a message of its own); a GET for the optional server
- * stream gets 405, as the spec allows. A cancelled call, or a client that
- * hangs up mid-call, aborts the call (a running command's process group is
- * killed by the fence).
+ * stream gets 405, as the spec allows.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
-import { FENCE_TOOLS, type FenceToolResult } from './fence-tools.js'
+import { MANAGER_TOOLS, type ManagerToolResult } from './manager-tools.js'
 
 /** Newest first; an unknown version from the client is answered with the newest. */
 export const SUPPORTED_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'] as const
 export const MCP_PATH = '/mcp'
-/** The largest request body read (a whole file in one write_file). */
-export const MAX_BODY_BYTES = 16 * 1024 * 1024
+/** The largest request body read: a workspace tool's input may be up to 1 MB (workspace-tools.ts), plus its envelope. */
+export const MAX_BODY_BYTES = 2 * 1024 * 1024
 /** The most messages one batch may hold; they run one after another. */
 export const MAX_BATCH = 32
 
 export const SERVER_INSTRUCTIONS =
-  'These tools are the only way to work in the folder (/workspace) on the person\'s Mac. Commands run in a sandbox with no network. ' +
-  'Use report for progress, ask_manager when blocked, and finish when the request is done.'
+  'Native Intelligence, who gave you this job: use report for progress, ask_manager when you are blocked, and finish when the request is done.'
 
 type JsonRpcId = string | number
 interface JsonRpcRequest {
@@ -49,10 +46,22 @@ interface JsonRpcRequest {
   readonly params?: Record<string, unknown>
 }
 
-export type ToolCall = (name: string, args: unknown, signal: AbortSignal) => Promise<FenceToolResult>
+export type ToolCall = (name: string, args: unknown, signal: AbortSignal) => Promise<ManagerToolResult>
+
+/** A tool as listed: the manager's three, then the job's workspace tools. */
+export interface ListedTool {
+  readonly name: string
+  readonly description: string
+  readonly inputSchema: Record<string, unknown>
+  readonly annotations?: Record<string, unknown>
+}
 
 export interface RpcContext {
   readonly call: ToolCall
+  /** The tools listed and callable (default: the manager's). */
+  readonly tools?: readonly ListedTool[]
+  /** The server's instructions (default: SERVER_INSTRUCTIONS). */
+  readonly instructions?: string
   /** Calls in flight, by request id, so `notifications/cancelled` can abort one. */
   readonly inflight: Map<JsonRpcId, AbortController>
   readonly log?: (line: string) => void
@@ -97,18 +106,18 @@ export async function handleRpcMessage(msg: unknown, ctx: RpcContext, signal?: A
       return rpcResult(msg.id, {
         protocolVersion,
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: 'ni-workspace', version: '1.0.0' },
-        instructions: SERVER_INSTRUCTIONS,
+        serverInfo: { name: 'native-intelligence', version: '1.0.0' },
+        instructions: ctx.instructions ?? SERVER_INSTRUCTIONS,
       })
     }
     case 'ping':
       return rpcResult(msg.id, {})
     case 'tools/list':
-      return rpcResult(msg.id, { tools: FENCE_TOOLS.map(({ name, description, inputSchema, annotations }) => ({ name, description, inputSchema, annotations })) })
+      return rpcResult(msg.id, { tools: (ctx.tools ?? MANAGER_TOOLS).map(({ name, description, inputSchema, annotations }) => ({ name, description, inputSchema, ...(annotations ? { annotations } : {}) })) })
     case 'tools/call': {
       const name = msg.params?.name
       if (typeof name !== 'string') return rpcError(msg.id, -32602, 'tools/call needs a tool name')
-      if (!FENCE_TOOLS.some((t) => t.name === name)) return rpcError(msg.id, -32602, `Unknown tool: ${name}`)
+      if (!(ctx.tools ?? MANAGER_TOOLS).some((t) => t.name === name)) return rpcError(msg.id, -32602, `Unknown tool: ${name}`)
       const controller = new AbortController()
       const onAbort = () => controller.abort()
       signal?.addEventListener('abort', onAbort, { once: true })
@@ -127,10 +136,10 @@ export async function handleRpcMessage(msg: unknown, ctx: RpcContext, signal?: A
   }
 }
 
-export interface FenceMcpServer {
+export interface ManagerMcpServer {
   readonly port: number
   readonly url: string
-  /** The bearer the CLI sends; never logged. */
+  /** The bearer the agent sends; never logged. */
   readonly token: string
   close(): Promise<void>
 }
@@ -164,9 +173,19 @@ async function readBody(req: IncomingMessage): Promise<string | null> {
 }
 
 /** Start the server on a random 127.0.0.1 port. */
-export async function startFenceMcp(call: ToolCall, opts: { log?: (line: string) => void } = {}): Promise<FenceMcpServer> {
+export async function startManagerMcp(
+  call: ToolCall,
+  opts: { log?: (line: string) => void; workspaceTools?: readonly ListedTool[]; workspaceInstructions?: string } = {},
+): Promise<ManagerMcpServer> {
   const token = randomBytes(32).toString('base64url')
-  const ctx: RpcContext = { call, inflight: new Map(), log: opts.log }
+  // Workspace tools join the manager's on ONE server (one list); their section follows our instructions.
+  const ctx: RpcContext = {
+    call,
+    inflight: new Map(),
+    log: opts.log,
+    ...(opts.workspaceTools ? { tools: [...MANAGER_TOOLS, ...opts.workspaceTools] } : {}),
+    ...(opts.workspaceInstructions ? { instructions: `${SERVER_INSTRUCTIONS}\n\n${opts.workspaceInstructions}` } : {}),
+  }
   let port = 0
 
   const server: Server = createServer(async (req, res) => {
@@ -176,7 +195,7 @@ export async function startFenceMcp(call: ToolCall, opts: { log?: (line: string)
     if (!bearerMatches(req.headers.authorization, token)) return send(res, 401, undefined, { 'www-authenticate': 'Bearer' })
     if (req.method !== 'POST') return send(res, 405, undefined, { allow: 'POST' })
 
-    // A client that hangs up mid-call (an interrupted turn) aborts the call.
+    // A client that hangs up mid-call aborts the call.
     const gone = new AbortController()
     res.on('close', () => {
       if (!res.writableFinished) gone.abort()
@@ -208,7 +227,6 @@ export async function startFenceMcp(call: ToolCall, opts: { log?: (line: string)
       return send(res, 500, rpcError(null, -32603, 'Internal error'))
     }
   })
-  // A command may run for minutes: no request timeout (the tool has its own).
   server.requestTimeout = 0
   server.timeout = 0
   server.headersTimeout = 60_000

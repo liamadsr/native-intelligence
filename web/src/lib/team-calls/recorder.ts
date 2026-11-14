@@ -12,6 +12,10 @@
  *                           (LiveKit Egress takes no notes then; recordings
  *                           of the whole call are Egress's as before). Off
  *                           unless set.
+ *   TEAM_CALL_AUDIO=on      the call's sound is kept too, one file per
+ *                           call beside its capture, for 30 days
+ *                           (migration 650, src/lib/capture-feed/audio.ts).
+ *                           Needs the recorder on. Off unless set.
  *   CAPTURE_FEED_SECRET     the feed's own secret, the same value in the
  *                           recorder's settings (deploy/livekit/.env).
  *   LIVEKIT_*               calls themselves (./livekit.ts).
@@ -44,6 +48,15 @@ function on(name: string, env: NodeJS.ProcessEnv): boolean {
  */
 export function teamCallRecorderOn(env: NodeJS.ProcessEnv = process.env): boolean {
   return on('TEAM_CALL_RECORDER', env) && !!teamCallsConfig(env) && captureFeedSecretUsable(env)
+}
+
+/**
+ * The call's sound is kept as well (one file per call, 30 days): TEAM_CALL_AUDIO=on with the
+ * recorder on. The recorder keeps a file only for a session whose start said so, and the app
+ * grants its upload only while this is on.
+ */
+export function teamCallAudioOn(env: NodeJS.ProcessEnv = process.env): boolean {
+  return on('TEAM_CALL_AUDIO', env) && teamCallRecorderOn(env)
 }
 
 /** The producer kind the call recorder names itself (587's producer_kind). */

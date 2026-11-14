@@ -129,12 +129,13 @@ How they run in dev:
   sandbox" in [docs/DEV_SETUP.md](docs/DEV_SETUP.md) before you use a feature that
   starts one. Without either, eve installs `just-bash`, which rewrites `package.json`
   and `package-lock.json`.
-- The cloud browser starts Vercel Sandbox VMs. It needs `VERCEL_OIDC_TOKEN` and the
-  `CLOUD_BROWSER_*` variables. Coding runs use Vercel Sandbox only when deployed on
-  Vercel. Locally they run in the agent's local sandbox (above). In production the
-  agents run in containers on our own server ([`deploy/app/`](../deploy/app/README.md)),
-  where an agent's shell is eve's `just-bash` ("The coding agent" in
-  [`deploy/README.md`](../deploy/README.md) says what that means for coding runs).
+- The cloud browser starts Vercel Sandbox VMs. It needs `VERCEL_OIDC_TOKEN`, or
+  `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and `SANDBOX_PROJECT_ID`, and the
+  `CLOUD_BROWSER_*` variables. Coding runs use the agent's local sandbox (above)
+  locally. In production the agents run in containers on our own server
+  ([`deploy/app/`](../deploy/app/README.md)), where an agent's shell is eve's
+  `just-bash` ("The coding agent" in [`deploy/README.md`](../deploy/README.md) says
+  where a coding run's sandbox runs there).
 
 `agents/local-agent` isn't mounted here. It's the agent that runs on a person's Mac,
 and the desktop app bundles it.
@@ -150,8 +151,9 @@ npm run lint           # ESLint on src/
 ```
 
 Run them under Node 24. The suite needs no `.env.local`: `src/test/setup.ts` clears
-the internal secrets and the Vercel variables before each run. `npm run build` runs the
-suite first and stops on a failure.
+the app's settings (the internal secrets, the app's address, the Gateway's
+credentials) before each run. `npm run build` runs the suite first and stops on a
+failure.
 
 The end-to-end tests use Playwright against a running app (`BASE_URL`, default
 `http://localhost:3000`):
@@ -163,8 +165,10 @@ npm run e2e
 
 [docs/TESTING.md](docs/TESTING.md) covers the patterns: mocking Supabase, testing
 route handlers, and the source-scan tripwires.
-[docs/E2E_TESTING_AND_DEPLOYMENT.md](docs/E2E_TESTING_AND_DEPLOYMENT.md) covers the
-end-to-end tests, and how the hosted project's deploy pipeline is planned.
+[docs/E2E_TESTING_AND_DEPLOYMENT.md](docs/E2E_TESTING_AND_DEPLOYMENT.md) is the design
+for the end-to-end tests. The deploy pipeline in it was planned around the app's
+earlier host and was not built: [`deploy/README.md`](../deploy/README.md) is how
+production is deployed.
 
 ## Connecting integrations
 
@@ -193,9 +197,10 @@ end-to-end tests, and how the hosted project's deploy pipeline is planned.
   way: the server's Supabase stack mounts this folder and runs it from the checkout
   (`git pull`, then a restart of its functions service:
   [`deploy/supabase/README.md`](../deploy/supabase/README.md)).
-- **Crons.** `vercel.json` lists the cron jobs. Each one is a route under
-  `src/app/api/cron/` that needs `Authorization: Bearer $CRON_SECRET`. Off Vercel,
-  nothing calls them unless you schedule them yourself. The hosted service's server
+- **Crons.** `vercel.json` lists the cron jobs (the file keeps the name and the
+  format of the app's earlier host; it is where the schedule is written). Each one
+  is a route under `src/app/api/cron/` that needs `Authorization: Bearer $CRON_SECRET`.
+  Nothing calls them unless you schedule them yourself. The hosted service's server
   does that with a crontab generated from this list
   ([`deploy/app/README.md`](../deploy/app/README.md#cron)).
 
@@ -234,9 +239,9 @@ deployment:
 - **PostHog.** The `/ingest` rewrites in `next.config.mjs` go to PostHog's US cloud.
 - **Stripe Checkout's return address.** It falls back to the app's address unless
   `NEXT_PUBLIC_SITE_URL` is set (`src/lib/stripe.ts`).
-- **The cloud browser's relay.** On a Vercel production deploy it is `browser-relay.` on
-  the app's domain (`src/lib/cloud-browser/config.ts`), and `RELAY_HOST_REDIRECTS` in
-  `next.config.mjs` covers the hosted domains only.
+- **The cloud browser's relay.** The hosted service sets `CLOUD_BROWSER_RELAY_ORIGIN`
+  to `browser-relay.` on the app's domain (`src/lib/cloud-browser/config.ts`), and
+  `RELAY_HOST_REDIRECTS` in `next.config.mjs` covers the hosted domains only.
 - **The app's address.** It is one setting, `NEXT_PUBLIC_APP_URL`, read through
   `src/lib/app-url.ts`. Left empty it is the hosted address
   (`https://nativeintelligence.dev`), so always set it: the links in the app's emails,

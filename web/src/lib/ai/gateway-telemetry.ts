@@ -30,6 +30,8 @@
  * degrades gracefully (truncate / drop) instead of breaking generation.
  */
 
+import { isProductionEnvironment } from '@/lib/app-env'
+
 /** Bare telemetry values, for the eve spec-rebuild paths that reconstruct
  *  providerOptions on the agent side. `user` is omitted entirely when there's
  *  no identity (never sent as an empty string — an empty user would 400).
@@ -72,7 +74,7 @@ interface TelemetryOpts {
  *
  * Tag order is deliberate and stable so the Gateway taxonomy is predictable:
  *   1. `feature:<feature>`          — the usage taxonomy slug (matches ai_usage_logs.feature)
- *   2. `env:<VERCEL_ENV|development>`
+ *   2. `env:<production|development>` — a built app is production (app-env)
  *   3. `ws:<workspaceId>`           — when a workspace id is supplied
  *   4. `runtime:eve`                — when the call came through an eve path
  *   5. ...extraTags                 — caller extras (e.g. skill slug)
@@ -88,10 +90,9 @@ export function gatewayTelemetryValues(
 ): GatewayTelemetryValues | null {
   if (!taggingEnabled()) return null
 
-  // VERCEL_ENV is 'production' | 'preview' | 'development' on Vercel and unset
-  // locally. Treat unset OR empty as 'development' so the env tag always carries
-  // a real value (an empty `env:` tag would be noise in the report).
-  const env = process.env.VERCEL_ENV || 'development'
+  // A built app (the server) is production; `next dev` and everything else is
+  // development, so the env tag always carries one of two values.
+  const env = isProductionEnvironment() ? 'production' : 'development'
   const rawTags: string[] = [`feature:${feature}`, `env:${env}`]
   if (opts?.workspaceId) rawTags.push(`ws:${opts.workspaceId}`)
   if (opts?.runtime === 'eve') rawTags.push('runtime:eve')

@@ -19,6 +19,7 @@ import {
   type NotesWritten,
 } from '@/lib/team-calls/notes-store'
 import { sweepCallAudio } from '@/lib/team-calls/notes-retention'
+import { expireCallAudio } from '@/lib/capture-feed/audio-retention'
 import { CallNotesLiveError, postExtraction, runOwnerBatch } from './capture-finalizer'
 import {
   FED_TAIL_CAP_MS,
@@ -360,7 +361,9 @@ export const teamCallNotesStop = inngest.createFunction(
  * Every day, how long call audio is kept (src/lib/team-calls/notes-retention.ts):
  * raw notes audio whose words are in is removed (recorded calls too), audio
  * whose words could not be read after a week, and the files of calls whose
- * rows are gone. Bounded per run.
+ * rows are gone. Then, in a step of its own (one failing never holds up the
+ * other), the call recorder's audio files past their 30 days
+ * (src/lib/capture-feed/audio-retention.ts). Bounded per run.
  */
 export const teamCallNotesRetention = inngest.createFunction(
   {
@@ -369,5 +372,9 @@ export const teamCallNotesRetention = inngest.createFunction(
     singleton: { mode: 'skip' },
     triggers: [{ cron: '17 4 * * *' }],
   },
-  async ({ step }) => step.run('sweep', () => sweepCallAudio(getServiceClient())),
+  async ({ step }) => {
+    const sweep = await step.run('sweep', () => sweepCallAudio(getServiceClient()))
+    const audioFiles = await step.run('call-audio-files', () => expireCallAudio(getServiceClient()))
+    return { sweep, audioFiles }
+  },
 )

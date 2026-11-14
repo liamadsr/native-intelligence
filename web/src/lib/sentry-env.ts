@@ -1,28 +1,21 @@
 // Shared Sentry environment resolution.
 //
 // Sentry tags every event with an `environment`. Without an explicit value it
-// defaults to the inferred runtime, which on this project meant local dev
-// (`development`) and Vercel preview deployments (`vercel-preview`) flooded the
-// issues list with HMR artifacts, curl-bot scans, and cancelled requests —
+// defaults to the inferred runtime, and local dev (`development`) flooded the
+// issues list with HMR artifacts, curl-bot scans, and cancelled requests,
 // drowning out any real production errors.
 //
-// We resolve the environment from Vercel's own signal (`VERCEL_ENV` server-side,
-// `NEXT_PUBLIC_VERCEL_ENV` client-side, since only NEXT_PUBLIC_* vars are
-// available in the browser bundle) and only report events from production, to
+// We resolve the environment from NODE_ENV (`production` for a built app, on the
+// server and in the browser bundle) and only report events from production, to
 // the DSN in NEXT_PUBLIC_SENTRY_DSN. No DSN, no Sentry.
 
 import { isInBrowserSurface } from '@/lib/platform'
 
 /**
- * Resolves the deployment environment: 'production' | 'preview' | 'development'.
+ * Resolves the environment: 'production' | 'development' | 'test'.
  */
 export function getSentryEnvironment(): string {
-  return (
-    process.env.VERCEL_ENV ??
-    process.env.NEXT_PUBLIC_VERCEL_ENV ??
-    process.env.NODE_ENV ??
-    'development'
-  )
+  return process.env.NODE_ENV ?? 'development'
 }
 
 /**
@@ -36,8 +29,8 @@ export function getSentryDsn(): string | undefined {
 }
 
 /**
- * Whether Sentry should report events: production traffic only (preview/dev
- * events are noise), and only with a DSN. Without NEXT_PUBLIC_SENTRY_DSN, as on
+ * Whether Sentry should report events: production traffic only (dev events
+ * are noise), and only with a DSN. Without NEXT_PUBLIC_SENTRY_DSN, as on
  * a self-hosted copy that hasn't set one, Sentry stays off. Skipping init
  * entirely when this is false keeps that noise out of Sentry at the source.
  */

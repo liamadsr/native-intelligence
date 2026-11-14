@@ -1,12 +1,12 @@
 import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-// The root landing page is the sales pitch (see ./sales-page.tsx), rendered
-// through ./landing-variant-switch.tsx: a PostHog A/B split (flag:
-// `landing-page-variant`) whose other arms — meeting-notes, company-brain, and
-// the original landing page — the dashboard holds at 0%. Sales is also what
-// every unresolved state renders (SSR, flag not loaded, unknown key).
-import { LandingVariantSwitch } from './landing-variant-switch'
+// The root landing page: Native Intelligence as one workspace for the whole
+// company (./workspace-page.tsx). It replaced the sales pitch and the PostHog
+// A/B switch (`landing-page-variant`) that served it on 2026-11-14; the flag
+// is no longer read anywhere.
+import WorkspacePage from './workspace-page'
+import { HOME_DESCRIPTION, HOME_TITLE } from './home-meta'
 import { HomeRoadmapSlot } from '@/components/roadmap/home-roadmap'
 import {
   StructuredData,
@@ -15,15 +15,12 @@ import {
   softwareApplicationSchema,
 } from '@/components/structured-data'
 
-// The homepage's own title/description, overriding the site defaults in
-// layout.tsx. This is the sales positioning that used to live on the /sales
-// route — that route is now a redirect here, so the metadata came with it.
-// The root title carries no "for Sales Teams" qualifier: at `/` the pitch is
-// the whole company's, not a segment page.
+// The homepage's own title and description (./home-meta.ts), the same
+// sentence the site defaults in layout.tsx use. `absolute` keeps the layout's
+// "%s - Native Intelligence" template off a title that already names us.
 export const metadata: Metadata = {
-  title: 'Native Intelligence — the end-to-end AI sales platform',
-  description:
-    'Native Intelligence turns everything your sales team knows — playbooks, product knowledge, competitors, deal history — into intelligence every rep can use live on every call.',
+  title: { absolute: HOME_TITLE },
+  description: HOME_DESCRIPTION,
 }
 
 export default async function Home() {
@@ -49,7 +46,7 @@ export default async function Home() {
           the server and through its five-minute cache, never from the
           browser. It streams in behind its own Suspense boundary, so the
           page never waits on it. */}
-      <LandingVariantSwitch roadmap={<HomeRoadmapSlot />} />
+      <WorkspacePage roadmap={<HomeRoadmapSlot />} />
     </>
   )
 }

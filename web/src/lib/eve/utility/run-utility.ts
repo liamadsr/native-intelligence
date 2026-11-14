@@ -47,7 +47,7 @@
  * rules, but the text is forwarded delta by delta as eve emits it.
  */
 import { after } from 'next/server'
-import { eveDispatchOrigin, protectionBypassHeaders } from '@/lib/eve/dispatch-origin'
+import { eveDispatchOrigin } from '@/lib/eve/dispatch-origin'
 import { Client, isCurrentTurnBoundaryEvent } from 'eve/client'
 import { classifyOneShot, createTurnBoundary, turnHasEnded } from '@/lib/eve/turn-boundary'
 import type { HandleMessageStreamEvent } from 'eve/client'
@@ -266,9 +266,7 @@ export interface UtilityObjectResult<T> extends UtilityTextResult {
 }
 
 /**
- * The app's own origin for the server-to-server create. On Vercel, THIS
- * deployment (the utility agent ships with the same commit; the canonical
- * domain from a preview would run other code); otherwise NEXT_PUBLIC_APP_URL,
+ * The app's own origin for the server-to-server create: NEXT_PUBLIC_APP_URL,
  * else local dev's default.
  */
 export function utilityAppBaseUrl(): string {
@@ -305,7 +303,6 @@ function utilityClient(a: {
       [UTILITY_KIND_HEADER]: a.kind,
       ...(a.workspaceId ? { [UTILITY_WORKSPACE_HEADER]: a.workspaceId } : {}),
       ...(a.userId ? { [UTILITY_USER_HEADER]: a.userId } : {}),
-      ...protectionBypassHeaders(),
     },
     redirect: 'error',
   })

@@ -45,7 +45,9 @@ describe('the /vs comparison data', () => {
   })
 
   it('finds only the listed vendors, not inherited names', () => {
-    expect(getCompetitor('gong')?.name).toBe('Gong')
+    expect(getCompetitor('granola')?.name).toBe('Granola')
+    // Retired with the sales positioning: next.config.mjs redirects it.
+    expect(getCompetitor('gong')).toBeUndefined()
     expect(getCompetitor('constructor')).toBeUndefined()
     expect(getCompetitor('toString')).toBeUndefined()
   })

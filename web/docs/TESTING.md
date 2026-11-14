@@ -183,8 +183,8 @@ their shape:
 
 `src/test/setup.ts` scrubs the eve internal secrets (`RUN_SKILL_INTERNAL_SECRET`,
 `AGENT_RUN_INTERNAL_SECRET`, `CHAT_INTERNAL_SECRET`, `UTILITY_INTERNAL_SECRET`,
-`LIVE_AGENT_INTERNAL_SECRET`) and the Vercel URL/bypass vars. `npm run build` runs the suite
-inside Vercel's build env, where the real values are injected, and an unscrubbed secret
+`LIVE_AGENT_INTERNAL_SECRET`) and the app's other settings. `npm run build` runs the suite
+first, in a shell that may hold the real values, and an unscrubbed secret
 lets a test mint real tokens and make live calls. A test that needs a secret sets it
 with `vi.stubEnv`. There are no eve runtime flags to set: eve is the only runtime.
 

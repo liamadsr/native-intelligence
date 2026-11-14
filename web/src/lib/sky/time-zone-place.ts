@@ -1,9 +1,8 @@
 /**
- * Where a request roughly is from the browser's IANA time zone alone, for
- * when there is no IP geolocation (local dev, and in production whenever
- * Vercel's headers are missing): the zone's principal city from tzdata
- * ("America/Toronto" → Toronto), so the sky still gets real weather and a
- * real sun. Marked `approximate`: a zone spans far more than one city.
+ * Where a request roughly is, from the browser's IANA time zone alone: the
+ * zone's principal city from tzdata ("America/Toronto" → Toronto), so the sky
+ * gets real weather and a real sun. Marked `approximate`: a zone spans far
+ * more than one city.
  *
  * Strict: the name must be in the bundled table (time-zone-places.ts,
  * generated from tzdata) exactly as given, or a legacy alias of one.

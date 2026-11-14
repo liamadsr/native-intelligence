@@ -27,7 +27,7 @@ export function browserErrorDiagnostics(error: unknown): { name: string; statusC
  * The scope file is operator-created and is never supplied by a browser page.
  * Exact authorized page evidence stays in mode-0600 files, outside analytics. */
 export async function writeBrowserDebugTrace(context: TraceContext, stage: TraceStage, data: unknown): Promise<void> {
-  if (process.env.NODE_ENV !== 'development' || process.env.VERCEL || !context.runId || !UUID.test(context.runId)) return
+  if (process.env.NODE_ENV !== 'development' || !context.runId || !UUID.test(context.runId)) return
   try {
     // TODO(rename-compat): DIAL8_BROWSER_TRACE_SCOPE_FILE is the name an .env.local written before the rename uses.
     const scopePath = process.env.NI_BROWSER_TRACE_SCOPE_FILE ?? process.env.DIAL8_BROWSER_TRACE_SCOPE_FILE ?? join(tmpdir(), 'ni-browser-trace-scope.json')
