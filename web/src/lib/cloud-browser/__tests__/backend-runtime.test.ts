@@ -229,6 +229,13 @@ beforeEach(() => {
   store.isExpiring.mockImplementation(async () => false)
   store.claimUnusedForExpiry.mockImplementation(async () => true)
   store.deleteExpiringRow.mockImplementation(async () => true)
+  // envd's health check through the traffic port (the reconcile's): a live box answers, a dead or paused one not.
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init: { headers: Record<string, string> }) => {
+    const box = rt.boxes.get(init.headers['E2b-Sandbox-Id'])
+    expect(url).toBe('http://runtime.test:3002/health')
+    expect(init.headers['E2b-Sandbox-Port']).toBe('49983')
+    return new Response(null, { status: box && box.state === 'running' && !box.dead ? 204 : 502 })
+  }))
 })
 
 const only = () => {
@@ -333,37 +340,43 @@ describe('ensure on the runtime backend', () => {
     expect(only().timeouts).toEqual([])
   })
 
-  it('a sandbox STILL silent after the whole wait is never killed: a fresh one is created beside it, which the row then names', async () => {
+  it('a sandbox STILL silent after the whole wait is neither killed nor bypassed: a retry error, one log line, nothing created', async () => {
     const dead = rt.add(META, { dead: 'not-running', startedAt: new Date(0) })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const out = await host.ensureCloudBrowser(ref)
-    expect(out.created).toBe(true)
+    await expect(host.ensureCloudBrowser(ref)).rejects.toThrow('cloud browser: your browser is not answering yet; try again in a minute')
     expect(rt.Sandbox.kill).not.toHaveBeenCalled()
+    expect(rt.Sandbox.create).not.toHaveBeenCalled()
     expect(rt.boxes.has(dead.sandboxId)).toBe(true)
-    // The fresh one did not give way to the silent one, however old it is.
-    const fresh = [...rt.boxes.values()].find(b => b.sandboxId !== dead.sandboxId)!
-    expect(out.hubOrigin).toBe(`https://${fresh.sandboxId}.hub.test`)
-    expect(out.sessionId.startsWith(`${fresh.sandboxId}.`)).toBe(true)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('leaving it, starting a fresh one beside it'), expect.stringContaining(dead.sandboxId))
+    expect(warn).toHaveBeenCalledTimes(1)
+    const logged = JSON.parse(warn.mock.calls[0][1] as string)
+    expect(logged).toMatchObject({ name: NAME, sandboxId: dead.sandboxId, state: 'running', startedAt: new Date(0).toISOString() })
   })
 
-  it('the reviewer’s case: a pause outlasting the wait, on the sandbox the row names, never kills it', async () => {
-    // Listed running and silent for far longer than the wait; the row names it.
+  it('repeated ensures against a silent sandbox never create anything', async () => {
+    rt.add(META, { dead: 'not-running' })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    for (let i = 0; i < 4; i++) await expect(host.ensureCloudBrowser(ref)).rejects.toThrow(/not answering yet/)
+    expect(rt.Sandbox.create).not.toHaveBeenCalled()
+    expect(rt.Sandbox.kill).not.toHaveBeenCalled()
+    expect(rt.boxes.size).toBe(1)
+  })
+
+  it('the reviewer’s case: a pause outlasting the wait ends in the retry error; once it lands, the next ensure wakes THAT sandbox, profile and all', async () => {
     const box = rt.add(META, { dead: 'not-running', pausingFor: 10_000, runStart: '1700000000005' })
+    box.files.set('/home/user/profile/Default/Cookies', 'the sign-ins')
     store.sessionOfSandboxName.mockResolvedValue(`${box.sandboxId}.1700000000005`)
     vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const out = await host.ensureCloudBrowser(ref)
+    await expect(host.ensureCloudBrowser(ref)).rejects.toThrow(/not answering yet; try again/)
     expect(rt.Sandbox.kill).not.toHaveBeenCalled()
-    expect(rt.boxes.has(box.sandboxId)).toBe(true)
-    expect(out.created).toBe(true)
-    // Its pause lands later: the next ensure chooses by the row, which now names the fresh one.
+    expect(rt.Sandbox.create).not.toHaveBeenCalled()
+    // Its pause lands.
     box.pausingFor = undefined
     box.state = 'paused'
     box.dead = undefined
-    store.sessionOfSandboxName.mockResolvedValue(out.sessionId)
     const again = await host.ensureCloudBrowser(ref)
-    expect(again.sessionId).toBe(out.sessionId)
-    expect(rt.boxes.has(box.sandboxId)).toBe(true)
+    expect(again).toMatchObject({ created: false, hubOrigin: `https://${box.sandboxId}.hub.test` })
+    expect(rt.events).toContain(`resume ${box.sandboxId}`)
+    expect(only().files.get('/home/user/profile/Default/Cookies')).toBe('the sign-ins')
   })
 
   it('two paused copies: the row’s is woken whatever its age; with no row id, the NEWEST', async () => {
@@ -602,7 +615,7 @@ describe('the reconcile on the runtime backend', () => {
     store.sandboxNamesWithRows.mockResolvedValueOnce(new Set([NAME, oldName]))
     const now = Date.parse('2027-03-01T00:00:00Z')
     store.listUnusedStopped.mockResolvedValueOnce([{ user_id: 'u7', workspace_id: 'w7', sandbox_name: oldName, status: 'stopped', last_active_at: '2026-12-01T00:00:00.000Z' }])
-    expect(await host.reconcileCloudBrowsers(now)).toEqual({ orphans: 1, snapshotsDeleted: 0, expired: 1, duplicates: 0 })
+    expect(await host.reconcileCloudBrowsers(now)).toEqual({ orphans: 1, snapshotsDeleted: 0, expired: 1, duplicates: [], silent: [] })
     expect(store.sandboxNamesWithRows).toHaveBeenCalledWith([NAME, oldName, orphanName].sort())
     expect(rt.boxes.has(orphan.sandboxId)).toBe(false)
     expect(rt.boxes.has(owned.sandboxId)).toBe(true)
@@ -653,14 +666,52 @@ describe('the reconcile on the runtime backend', () => {
     expect(rt.Sandbox.connect).not.toHaveBeenCalled()
   })
 
-  it('reports, never removes, a browser someone owns that has more than one sandbox', async () => {
-    const a = rt.add(META)
-    const b = rt.add(META, { state: 'paused' })
-    store.sandboxNamesWithRows.mockResolvedValueOnce(new Set([NAME]))
+  it('reports `duplicates` and `silent` with what a person needs, and removes neither', async () => {
+    const a = rt.add(META, { startedAt: new Date('2026-11-01T00:00:00Z') })
+    const b = rt.add(META, { state: 'paused', startedAt: new Date('2026-11-10T00:00:00Z') })
+    const otherName = cloudBrowserSandboxName('u2', 'w2', 'local')
+    const dead = rt.add({ ...META, niName: otherName }, { dead: 'not-running', startedAt: new Date('2026-11-12T00:00:00Z') })
+    store.sandboxNamesWithRows.mockResolvedValueOnce(new Set([NAME, otherName]))
+    store.sessionOfSandboxName.mockImplementation(async (n: string) => (n === NAME ? `${b.sandboxId}.0` : null))
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    expect(await host.reconcileCloudBrowsers()).toMatchObject({ orphans: 0, duplicates: 1 })
-    expect(rt.boxes.has(a.sandboxId) && rt.boxes.has(b.sandboxId)).toBe(true)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('duplicate runtime sandboxes'), expect.stringContaining(b.sandboxId))
+    const out = await host.reconcileCloudBrowsers()
+    expect(out.duplicates).toEqual([{ name: NAME, rowSandboxId: b.sandboxId, sandboxes: [
+      { sandboxId: a.sandboxId, state: 'running', startedAt: '2026-11-01T00:00:00.000Z' },
+      { sandboxId: b.sandboxId, state: 'paused', startedAt: '2026-11-10T00:00:00.000Z' },
+    ] }])
+    expect(out.silent).toEqual([{ name: otherName, rowSandboxId: null, silentIds: [dead.sandboxId],
+      sandboxes: [{ sandboxId: dead.sandboxId, state: 'running', startedAt: '2026-11-12T00:00:00.000Z' }] }])
+    expect(rt.Sandbox.kill).not.toHaveBeenCalled()
+    expect(rt.boxes.size).toBe(3)
+    // One line per item; a paused copy is never probed (fetch only for the running ones), so never woken.
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect((fetch as unknown as { mock: { calls: [string, { headers: Record<string, string> }][] } }).mock.calls.map(c => c[1].headers['E2b-Sandbox-Id']).sort()).toEqual([a.sandboxId, dead.sandboxId].sort())
+    expect(rt.Sandbox.connect).not.toHaveBeenCalled()
+    expect(b.state).toBe('paused')
+  })
+
+  it('probes at most the bound per run', async () => {
+    const names = Array.from({ length: 25 }, (_, i) => cloudBrowserSandboxName(`p${i}`, 'w', 'local'))
+    for (const n of names) rt.add({ ...META, niName: n }, { dead: 'not-running' })
+    store.sandboxNamesWithRows.mockResolvedValueOnce(new Set(names))
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const out = await host.reconcileCloudBrowsers()
+    expect(out.silent).toHaveLength(20)
+    expect((fetch as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(20)
+  })
+
+  it('the operator’s row edit (a stopped row’s session_id set to `<id>.0`) makes the next ensure wake that copy', async () => {
+    const newer = rt.add(META, { state: 'paused', startedAt: new Date(Date.now() - 3600_000) })
+    const wanted = rt.add(META, { state: 'paused', startedAt: new Date(Date.now() - 7 * 24 * 3600_000) })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    store.sessionOfSandboxName.mockResolvedValue(`${wanted.sandboxId}.0`)
+    const out = await host.ensureCloudBrowser(ref)
+    expect(out.hubOrigin).toBe(`https://${wanted.sandboxId}.hub.test`)
+    expect(rt.events).toContain(`resume ${wanted.sandboxId}`)
+    expect(newer.state).toBe('paused')
+    // The ensure records a real session for it.
+    expect(store.markRunning.mock.calls[0][1]).toMatch(new RegExp(`^${wanted.sandboxId}\\.\\d{13}$`))
+    expect(sandboxIdOfSession(`${wanted.sandboxId}.0`)).toBe(wanted.sandboxId)
   })
 })
 

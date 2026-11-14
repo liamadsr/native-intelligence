@@ -1,5 +1,6 @@
 import 'server-only'
 import type { CloudBrowserRef, CloudBrowserExitMode } from './store'
+import type { RuntimeBrowserReport } from './runtime-browser'
 
 /**
  * The seam between the cloud browser's orchestration (host.ts: the row's
@@ -62,8 +63,12 @@ export interface CloudBrowserBackend {
   destroy(name: string): Promise<number>
   /** The names of every browser VM whose name starts with `prefix`. */
   listNames(prefix: string): Promise<string[]>
-  /** Log every name among `names` with more than one VM (none is removed); how many such names. Runtime only. */
-  reportDuplicates?(names: string[]): Promise<number>
+  /**
+   * Runtime only: among the browsers `names`, those a person must look at
+   * (none is removed): `duplicates`, more than one VM; `silent`, a VM listed
+   * running whose agent does not answer. One log line each.
+   */
+  inspect?(names: string[]): Promise<{ duplicates: RuntimeBrowserReport[]; silent: RuntimeBrowserReport[] }>
   /** The hub of `ref`'s browser if it runs now, never waking it. */
   runningHubOrigin(ref: CloudBrowserRef, name: string): Promise<string | null>
   /** Where the relay reads its token in the VM (an extra argument to the relay's start), or null when it never does. */

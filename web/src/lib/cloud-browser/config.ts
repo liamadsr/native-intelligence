@@ -87,6 +87,8 @@ export const CLOUD_BROWSER = {
   destroyRequestTimeoutMs: 15 * SECOND,
   /** The runtime backend's one root step (runtime-browser.ts CLOSE_USR_LOCAL): well inside ensureTimeoutMs. */
   rootStepTimeoutMs: 20 * SECOND,
+  /** The reconcile's envd health checks of listed-running browsers (runtime backend), at most this many per run. */
+  maxSilentProbesPerReconcile: 20,
 } as const
 
 /**

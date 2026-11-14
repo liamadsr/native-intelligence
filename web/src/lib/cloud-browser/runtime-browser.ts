@@ -65,14 +65,52 @@ import type { CloudBrowserExitMode, CloudBrowserRef, CloudBrowserStatus } from '
  *     a pause unit working through browsers), and the client calls any proxy
  *     "not found" answer "not running". It is watched (settleSilent,
  *     RUNTIME_TIMING.deadWaitMs): paused → woken; gone → a fresh one; changed
- *     → an error to retry. One still silent after the whole wait (perhaps the
- *     runtime restarted under it, deploy/sandbox/README.md: it "still listed
- *     it as running") is LEFT, with one log line, and a fresh one is created
- *     beside it (`created: true`) so the person is not wedged; the row then
- *     names the fresh one, and the silent one is the duplicate the reconcile
- *     reports. A sandbox that merely could not be reached is an error.
+ *     → an error to retry. One still silent after the whole wait is neither
+ *     killed nor bypassed: the ensure fails with a message to retry, logs one
+ *     line (name, id, listed state and start) and creates nothing. Creating a
+ *     copy beside it would leave the row naming an empty copy for good while
+ *     the real profile sat paused, and repeated ensures during a proxy fault
+ *     would pile up 4 GiB copies, each with a relay claiming the same
+ *     commands. THE COST, deliberately: an entry the runtime lists as running
+ *     but that is truly dead (the runtime restarted under it,
+ *     deploy/sandbox/README.md: it "still listed it as running") blocks that
+ *     person's browser until a person removes it by hand (see "For an
+ *     operator" below). The daily reconcile lists every such entry (`silent`)
+ *     and every browser with more than one copy (`duplicates`).
+ *     A sandbox that merely could not be reached is an error too.
  *   - The hosted service drops a browser unused for snapshotTtlMs by its
  *     snapshots' expiry; here host.ts's reconcile does it (expiresUnused).
+ *
+ * ── For an operator: what the reconcile's `silent` and `duplicates` ask ───
+ * Both come from the daily reconcile's result (and one log line each), with
+ * the browser's name (`browser-<ns>-<profile id>`, the row's sandbox_name),
+ * every copy's id, listed state and start, and the copy the row names.
+ * A silent entry (listed running, envd's health check does not answer):
+ *   1. Confirm it is dead, not slow: for ten minutes or more (far past any
+ *      pause or resume), the runtime still lists it `running` with the SAME
+ *      start, and its envd answers nothing through the traffic port
+ *      (`curl -s -o /dev/null -w '%{http_code}' -H 'E2b-Sandbox-Id: <id>'
+ *      -H 'E2b-Sandbox-Port: 49983' http://<runtime>:3002/health` gives no
+ *      2xx). Usually the runtime was restarted after that start: its memory
+ *      and its disk are gone already.
+ *   2. Remove THAT id with the runtime's API (kill sandbox <id>, with the
+ *      runtime's key, from the app's server over the tunnel). Never another.
+ *   3. Nothing else: the person's next ensure finds no copy (or the others)
+ *      and, with none, creates a fresh browser. The person signs in again.
+ * Duplicates (one browser, several copies; none is ever removed by the app):
+ *   1. The copy that holds the newer profile is the one the row names
+ *      (`rowSandboxId`): the runtime backend keeps the last sandbox's id in
+ *      the row across a stop, and every ensure uses that copy first. With no
+ *      row id, the ensure wakes the paused copy with the newest start.
+ *   2. To have the next ensure wake another copy instead: with the row
+ *      `stopped`, set its session_id to `<that id>.0`
+ *      (`update cloud_browser set session_id = '<id>.0' where sandbox_name =
+ *      '<name>' and status = 'stopped'`). That is enough: chooseSandbox takes
+ *      the row's id from the session's first part, and the ensure writes a real
+ *      session once it runs. Never on a row that is not stopped (the sweep and
+ *      the hub read a running row's session).
+ *   3. A copy nobody wants can then be removed by hand (kill sandbox <id>):
+ *      that deletes its profile for good, so only once it is certain.
  *
  * ── Never woken by a stop ──────────────────────────────────────────────────
  * get() never connects: it reads the list. A command needs a connected
@@ -239,6 +277,8 @@ export interface RuntimeBackendDeps {
    * (the conformance script) no row names any sandbox.
    */
   sessionOfName?: (name: string) => Promise<string | null>
+  /** For the reconcile's envd health check (tests). */
+  fetch?: typeof fetch
 }
 
 export type RuntimeCloudBrowserBackend = CloudBrowserBackend
@@ -260,10 +300,23 @@ export const RUNTIME_TIMING = {
   freshMs: 2 * 60_000,
 }
 
-/** What taking up a chosen sandbox gives: the sandbox, GONE (it no longer exists), or `silent` (listed running, never answered). */
+/** What taking up a chosen sandbox gives: the sandbox, or GONE (it no longer exists: create one). */
 const GONE = { gone: true } as const
-type TakeUp = BackendSandbox | typeof GONE | { silent: string }
-const isSandbox = (t: TakeUp): t is BackendSandbox => !('gone' in t) && !('silent' in t)
+type TakeUp = BackendSandbox | typeof GONE
+const isSandbox = (t: TakeUp): t is BackendSandbox => !('gone' in t)
+
+/** One browser a person must look at (the reconcile's `silent` and `duplicates`). */
+export interface RuntimeBrowserReport {
+  name: string
+  /** The copy the row's session names, or null. */
+  rowSandboxId: string | null
+  sandboxes: { sandboxId: string; state: string; startedAt: string }[]
+  /** `silent` only: the listed-running copies whose envd did not answer. */
+  silentIds?: string[]
+}
+
+/** The port envd listens on in every sandbox (the client's own envdPort). */
+const ENVD_PORT = 49983
 
 /** How often a short command must fail, the client saying "not running", before a listed sandbox counts as not answering. */
 const DEAD_AFTER = 2
@@ -435,6 +488,26 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
     }
   }
 
+  /**
+   * Whether envd in a listed-running sandbox answers its health check, asked
+   * through the traffic port as the client routes it (E2b-Sandbox-Id /
+   * E2b-Sandbox-Port), with a short timeout. Never a connect, so never a wake:
+   * a paused sandbox's proxy answers without resuming it (autoResume is off).
+   * No answer, or anything but a 2xx, is "does not answer".
+   */
+  async function envdAnswers(sandboxId: string): Promise<boolean> {
+    const s = settings()
+    try {
+      const res = await (deps.fetch ?? fetch)(`${s.trafficUrl}/health`, {
+        headers: { 'E2b-Sandbox-Id': sandboxId, 'E2b-Sandbox-Port': String(ENVD_PORT) },
+        signal: AbortSignal.timeout(CLOUD_BROWSER.probeTimeoutMs),
+      })
+      return res.ok
+    } catch {
+      return false
+    }
+  }
+
   /** The sandbox the row of browser `name` names, or null. */
   const rowSandbox = async (name: string): Promise<string | null> => sandboxIdOfSession(deps.sessionOfName ? await deps.sessionOfName(name) : null)
 
@@ -491,13 +564,12 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
    * resume to land, so what follows is the rare case): paused → woken and
    * used; gone → GONE (a fresh one is created); listed again with another start
    * → thrown (it changed under us: retry). One STILL silent after the whole
-   * wait is NEVER killed: a pause or a resume can outlast any wait, and the
-   * runtime's proxy can answer "not found" for a while. It is returned as
-   * `silent`: the caller creates a fresh sandbox beside it (so a truly dead
-   * entry cannot wedge the person), and the silent one is left for the
-   * reconcile to report. Anything else is thrown.
+   * wait is neither killed nor bypassed: a pause or a resume can outlast any
+   * wait, and the runtime's proxy can answer "not found" for a while. One log
+   * line, and an error the person can retry; nothing is created (see the
+   * header for the cost, and what an operator does).
    */
-  async function settleSilent(s: CloudBrowserRuntimeSettings, seen: RuntimeSandboxInfo, signal: AbortSignal): Promise<TakeUp> {
+  async function settleSilent(s: CloudBrowserRuntimeSettings, name: string, seen: RuntimeSandboxInfo, signal: AbortSignal): Promise<TakeUp> {
     const id = seen.sandboxId
     const startMs = new Date(seen.startedAt).getTime()
     const until = Date.now() + RUNTIME_TIMING.deadWaitMs
@@ -521,12 +593,15 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
       await keepClosed(s, inst, signal)
       return handle(s, { sandboxId: id, state: 'running', startedAt: alive.startedAt ?? new Date(startMs) }, inst)
     }
-    console.warn('[cloud-browser] runtime sandbox listed as running has not answered for the whole wait: leaving it, starting a fresh one beside it', JSON.stringify({ sandboxId: id, waitedMs: RUNTIME_TIMING.deadWaitMs }))
-    return { silent: id }
+    const listed = await infoOf(s, id).catch(() => null)
+    console.warn('[cloud-browser] runtime sandbox listed as running does not answer: nothing created, the person is asked to retry', JSON.stringify({
+      name, sandboxId: id, state: listed?.state ?? 'unknown', startedAt: new Date(listed?.startedAt ?? startMs).toISOString(), waitedMs: RUNTIME_TIMING.deadWaitMs,
+    }))
+    throw new Error('cloud browser: your browser is not answering yet; try again in a minute')
   }
 
-  /** Use sandbox `info` (already chosen): wake it, or check that it answers. GONE or `silent`: the caller creates one. */
-  async function takeUp(s: CloudBrowserRuntimeSettings, info: RuntimeSandboxInfo, signal: AbortSignal): Promise<TakeUp> {
+  /** Use sandbox `info` (already chosen): wake it, or check that it answers. GONE: the caller creates one. */
+  async function takeUp(s: CloudBrowserRuntimeSettings, name: string, info: RuntimeSandboxInfo, signal: AbortSignal): Promise<TakeUp> {
     const inst = await connect(s, info.sandboxId, signal)
     if (!inst) return GONE
     if (info.state === 'paused') return woken(s, inst, signal)
@@ -535,14 +610,14 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
       await keepClosed(s, inst, signal)
       return handle(s, { sandboxId: info.sandboxId, state: 'running', startedAt: alive.startedAt ?? new Date(info.startedAt) }, inst)
     }
-    return settleSilent(s, info, signal)
+    return settleSilent(s, name, info, signal)
   }
 
   /**
    * Create one for `name`, then look again. The only sandbox this may kill is
    * the one it just created, before handing it to anyone (see the header).
    */
-  async function create(s: CloudBrowserRuntimeSettings, name: string, signal: AbortSignal, silent: string | null = null): Promise<{ sandbox: BackendSandbox; created: boolean }> {
+  async function create(s: CloudBrowserRuntimeSettings, name: string, signal: AbortSignal): Promise<{ sandbox: BackendSandbox; created: boolean }> {
     signal.throwIfAborted()
     let inst: RuntimeSandboxInstance
     try {
@@ -560,8 +635,7 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
       throw failure(`could not create a sandbox for ${name} from ${s.template}`, err, s.apiKey)
     }
     const mine = inst.sandboxId
-    // A silent sandbox this create replaces is not someone to give way to (it is left, never killed).
-    const others = (await find(s, name)).filter(i => i.sandboxId !== mine && i.sandboxId !== silent)
+    const others = (await find(s, name)).filter(i => i.sandboxId !== mine)
     if (others.length) {
       const named = await rowSandbox(name)
       const settled = others.filter(i => i.state === 'paused' || i.sandboxId === named || Date.now() - new Date(i.startedAt).getTime() > RUNTIME_TIMING.freshMs)
@@ -571,8 +645,8 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
       const theirs = (settled.length ? chooseSandbox(settled, named) : null) ?? [...others].sort((a, b) => (a.sandboxId < b.sandboxId ? -1 : 1))[0]
       if (settled.length || theirs.sandboxId < mine) {
         await kill(s, mine)
-        const used = await takeUp(s, theirs, signal)
-        if (!isSandbox(used)) throw new Error(`cloud browser (runtime): the other sandbox for ${name} is gone or silent; try again`)
+        const used = await takeUp(s, name, theirs, signal)
+        if (!isSandbox(used)) throw new Error(`cloud browser (runtime): the other sandbox for ${name} is gone; try again`)
         return { sandbox: used, created: false }
       }
     }
@@ -614,9 +688,8 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
       if (found.length > 1) {
         console.warn('[cloud-browser] more than one runtime sandbox for one browser: using one, leaving the rest', JSON.stringify({ count: found.length, using: chosen.sandboxId, ids: found.map(i => i.sandboxId) }))
       }
-      const used = await takeUp(s, chosen, signal)
-      if (isSandbox(used)) return { sandbox: used, created: false }
-      return create(s, name, signal, 'silent' in used ? used.silent : null)
+      const used = await takeUp(s, name, chosen, signal)
+      return isSandbox(used) ? { sandbox: used, created: false } : create(s, name, signal)
     },
 
     async get(name) {
@@ -639,19 +712,40 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
       return [...new Set((await listBrowsers()).map(info => info.metadata.niName).filter((n): n is string => typeof n === 'string' && n.startsWith(prefix)))].sort()
     },
 
-    async reportDuplicates(names) {
-      const byName = new Map<string, string[]>()
+    async inspect(names) {
+      const byName = new Map<string, RuntimeSandboxInfo[]>()
       for (const info of await listBrowsers()) {
         const n = info.metadata.niName
-        if (n && names.includes(n)) byName.set(n, [...(byName.get(n) ?? []), info.sandboxId])
+        if (n && names.includes(n)) byName.set(n, [...(byName.get(n) ?? []), info])
       }
-      let count = 0
-      for (const [n, ids] of byName) {
-        if (ids.length < 2) continue
-        count++
-        console.warn('[cloud-browser] duplicate runtime sandboxes for one browser (left alone: one may hold the profile)', JSON.stringify({ name: n, count: ids.length, ids }))
+      const report = async (n: string, infos: RuntimeSandboxInfo[], silentIds?: string[]): Promise<RuntimeBrowserReport> => ({
+        name: n,
+        rowSandboxId: await rowSandbox(n).catch(() => null),
+        sandboxes: infos.map(i => ({ sandboxId: i.sandboxId, state: i.state, startedAt: new Date(i.startedAt).toISOString() })),
+        ...(silentIds ? { silentIds } : {}),
+      })
+      const duplicates: RuntimeBrowserReport[] = []
+      const silent: RuntimeBrowserReport[] = []
+      let probes = 0
+      for (const [n, infos] of [...byName].sort(([a], [b]) => (a < b ? -1 : 1))) {
+        if (infos.length > 1) {
+          const item = await report(n, infos)
+          duplicates.push(item)
+          console.warn('[cloud-browser] a browser with more than one runtime sandbox (left alone: one may hold the profile; a person decides)', JSON.stringify(item))
+        }
+        const quiet: string[] = []
+        for (const info of infos) {
+          if (info.state !== 'running' || probes >= CLOUD_BROWSER.maxSilentProbesPerReconcile) continue
+          probes++
+          if (!(await envdAnswers(info.sandboxId))) quiet.push(info.sandboxId)
+        }
+        if (quiet.length) {
+          const item = await report(n, infos, quiet)
+          silent.push(item)
+          console.warn('[cloud-browser] a browser whose runtime sandbox is listed running but does not answer (blocks that browser until a person removes it)', JSON.stringify(item))
+        }
       }
-      return count
+      return { duplicates, silent }
     },
 
     /** From the row alone: the session id names the sandbox, and the hub's origin follows from it (nothing to cache, nothing stale). */

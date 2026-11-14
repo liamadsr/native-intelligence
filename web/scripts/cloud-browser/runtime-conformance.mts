@@ -383,6 +383,8 @@ async function browser(name: string, h0: Handle) {
 
 /** A GET to port 4000 of `id` through the traffic address, routed by header: its status (0: no answer). */
 const hubStatus = (id: string) => traffic('/health', { 'E2b-Sandbox-Id': id, 'E2b-Sandbox-Port': String(CLOUD_BROWSER.hubPort) }).then(r => r.status, () => 0)
+/** envd's health check of `id` as the reconcile asks it (runtime-browser.ts envdAnswers): its status (0: no answer). */
+const envdStatus = (id: string) => traffic('/health', { 'E2b-Sandbox-Id': id, 'E2b-Sandbox-Port': '49983' }).then(r => r.status, () => 0)
 const echoServer = (h: Handle) => h.exec('node', ['-e', `require('http').createServer((q, s) => s.end('ni-hub-' + q.url)).listen(${CLOUD_BROWSER.hubPort}, '0.0.0.0')`], { detached: true })
 
 /**
@@ -400,6 +402,11 @@ async function transitions() {
     await sleep(1_000)
   }))) return
   const id = await idOf(name)
+  await check('envd’s health check answers 2xx for a running sandbox (else the reconcile would call every browser silent)', async () => {
+    const status = await envdStatus(id)
+    expect(status >= 200 && status <= 299, `envd health answered ${status}`)
+    return `HTTP ${status}`
+  })
   const watch = async (what: string, act: () => Promise<unknown>) => {
     const t0 = Date.now()
     const seen: string[] = []
@@ -421,13 +428,14 @@ async function transitions() {
     return `${what}: ${seen.join(' | ')}`
   }
   await check('during a pause (printed)', () => watch('pause', () => h!.stop(AbortSignal.timeout(CLOUD_BROWSER.stopTimeoutMs))))
-  await check('traffic to a PAUSED sandbox’s port 4000 never wakes it', async () => {
+  await check('traffic to a PAUSED sandbox’s port 4000, and the reconcile’s envd health check, never wake it', async () => {
     expect((await info(id)).state === 'paused', 'it is not paused')
-    const statuses = [await hubStatus(id), await hubStatus(id)]
+    const statuses = [await hubStatus(id), await hubStatus(id), await envdStatus(id)]
+    expect(statuses[2] < 200 || statuses[2] > 299, `envd's health check answered ${statuses[2]} for a paused sandbox`)
     await sleep(3_000)
     const after = await info(id)
     expect(after.state === 'paused', `traffic woke it (now ${after.state})`)
-    return `port 4000 answered ${statuses.join(', ')} while paused`
+    return `port 4000 answered ${statuses[0]}, ${statuses[1]}; envd health ${statuses[2]}, while paused`
   })
   await check('during a resume (printed)', () => watch('resume', async () => { h = (await backend.getOrCreate(name, signal())).sandbox }))
 }

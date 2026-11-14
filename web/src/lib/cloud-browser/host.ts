@@ -11,6 +11,7 @@ import { sandboxSigningKey, sandboxVerifyKey } from './viewer-token'
 import * as store from './store'
 import type { CloudBrowserRef, StopCandidate, StopReason } from './store'
 import type { BackendSandbox, CloudBrowserBackend } from './backend'
+import type { RuntimeBrowserReport } from './runtime-browser'
 import { hostedBackend } from './backend-hosted'
 import { createRuntimeBackend } from './backend-runtime'
 
@@ -323,9 +324,12 @@ async function expireUnused(backend: CloudBrowserBackend, now: number): Promise<
  * prefix) that no row owns any more, with its snapshots. A workspace merge or
  * deletion cascades the row away, and a delete that failed half-way leaves one.
  * On the runtime backend it also removes browsers unused past snapshotTtlMs,
- * and reports (never removes) browsers with more than one VM.
+ * and reports (never removes) the browsers that need a person: more than one
+ * VM (`duplicates`), or a VM listed running that does not answer (`silent`).
  */
-export async function reconcileCloudBrowsers(now = Date.now()): Promise<{ orphans: number; snapshotsDeleted: number; expired?: number; duplicates?: number }> {
+export async function reconcileCloudBrowsers(now = Date.now()): Promise<{ orphans: number; snapshotsDeleted: number; expired?: number
+  /** Runtime only: browsers a person must look at (runtime-browser.ts, "For an operator"). Never removed by the app. */
+  duplicates?: RuntimeBrowserReport[]; silent?: RuntimeBrowserReport[] }> {
   const backend = maintenanceBackend('reconcile')
   const names = await backend.listNames(cloudBrowserNamePrefix(cloudBrowserNamespace()))
   const owned = await store.sandboxNamesWithRows(names)
@@ -337,7 +341,8 @@ export async function reconcileCloudBrowsers(now = Date.now()): Promise<{ orphan
     snapshotsDeleted += await backend.destroy(name)
   }
   if (!backend.expiresUnused) return { orphans, snapshotsDeleted }
-  // More than one VM for a browser someone owns: reported, never removed (one may hold the profile).
-  const duplicates = backend.reportDuplicates ? await backend.reportDuplicates(names.filter(name => owned.has(name))) : 0
-  return { orphans, snapshotsDeleted, expired: await expireUnused(backend, now), duplicates }
+  // Browsers someone owns that need a person: more than one VM, or a VM listed running that does not
+  // answer (it blocks that browser: the ensure never bypasses it). Reported, never removed.
+  const { duplicates, silent } = backend.inspect ? await backend.inspect(names.filter(name => owned.has(name))) : { duplicates: [], silent: [] }
+  return { orphans, snapshotsDeleted, expired: await expireUnused(backend, now), duplicates, silent }
 }
