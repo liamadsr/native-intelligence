@@ -107,8 +107,14 @@ build_mac_body() {
 #                                    Needs npm and the network.
 # Nothing when the folder isn't there. Without all three the desktop keeps
 # workers off.
+#
+# A third argument `no-adapters` leaves <out-dir>/acp out: the bundle the
+# desktop app ships (bundle.sh) carries no one else's packages (the adapters
+# bring Anthropic's Claude Agent SDK and OpenAI's Codex launcher with them),
+# so it declares no `workers` and the app offers no coding agents until the
+# adapters reach the person's Mac another way.
 build_workers() {
-  local stage="$1" out="$2"
+  local stage="$1" out="$2" adapters="${3:-}"
   local workers="$stage/agents/local-agent/workers"
   [ -x "$workers/build.sh" ] || return 0
   (cd "$stage" && agents/local-agent/workers/build.sh "$out") >"$stage/workers-build.log" 2>&1 || {
@@ -117,6 +123,10 @@ build_workers() {
   }
   cp "$workers/registry.json" "$out/workers/registry.json"
   rm -rf "$out/acp"
+  if [ "$adapters" = no-adapters ]; then
+    test -f "$out/workers/acp.mjs" && test -f "$out/workers/registry.json"
+    return
+  fi
   "$workers/install-agents.sh" "$out/acp" >"$stage/acp-install.log" 2>&1 || {
     tail -40 "$stage/acp-install.log" >&2
     return 1

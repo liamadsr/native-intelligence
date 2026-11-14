@@ -61,14 +61,21 @@ function stamp(repo, outDir, commit, dirty, caps = '') {
 // `…/node_modules/a/node_modules/@b/c/dist/x.js` → `node_modules/a/node_modules/@b/c`.
 const PKG_PATH = /(?:^|[\s/])(node_modules\/(?:(?:@[^/\s]+\/)?[^/\s]+\/node_modules\/)*(?:@[^/\s]+\/)?[^/\s]+)\//g
 
-/** The installed packages folder a bundle carries whole (mac-body.sh build_workers). */
-const INSTALLED = join('acp', 'node_modules')
+/**
+ * The installed packages folders a bundle carries whole: the coding agents'
+ * adapters (mac-body.sh build_workers) and the Studio runner's playwright-core
+ * (agents/local-agent/studio/build.sh). Their files are not scanned for module
+ * comments: a package that ships its own pre-built bundle names packages in
+ * them that were never installed here (its own notices file, shipped beside
+ * it, covers those).
+ */
+const INSTALLED = [join('acp', 'node_modules'), join('.output', 'studio', 'runner', 'node_modules')]
 
 function packagesIn(dir) {
   const found = new Set()
-  const installed = join(dir, INSTALLED) + '/'
+  const installed = INSTALLED.map((rel) => join(dir, rel) + '/')
   for (const p of walk(dir)) {
-    if (p.startsWith(installed)) continue
+    if (installed.some((x) => p.startsWith(x))) continue
     if (!/\.(mjs|js|cjs)$/.test(p)) continue
     for (const line of readFileSync(p, 'utf8').split('\n')) {
       if (!line.startsWith('//')) continue
@@ -106,7 +113,8 @@ async function agentPackages(repo, agentDir, outFile) {
   writeFileSync(outFile, [...found].sort().join('\n') + '\n')
 }
 
-const LICENSE_FILE = /^(licen[cs]e|notice|copying)(\.|-|$)/i
+// ThirdPartyNotices: what a package that ships its own pre-built bundle (playwright-core) says about the packages inside it.
+const LICENSE_FILE = /^(licen[cs]e|notice|copying|thirdpartynotices)(\.|-|$)/i
 
 /** Every package folder under an installed node_modules, nested ones too (`@scope/name`, `a/node_modules/b`). */
 function installedPackages(nodeModules) {
@@ -151,7 +159,7 @@ function notices(repo, licensesDir, agentPackagesFile) {
     '  downloads from nodejs.org on first use; Node.js is not part of the app)',
     '',
     'These files contain the open-source components below, bundled into the',
-    'agent\'s JavaScript or installed as they are in acp/node_modules. License',
+    'agent\'s JavaScript or installed as they are beside it. License',
     'paths are relative to this folder.',
     '',
   ]
@@ -161,7 +169,7 @@ function notices(repo, licensesDir, agentPackagesFile) {
   const agentOwn = agentPackagesFile ? readFileSync(agentPackagesFile, 'utf8').split('\n').filter(Boolean) : []
   const dirs = [
     ...[...new Set([...packagesIn(out), ...agentOwn])].sort().map((rel) => join(repo, rel)),
-    ...installedPackages(join(out, INSTALLED)),
+    ...INSTALLED.flatMap((rel) => installedPackages(join(out, rel))),
   ]
   for (const dir of dirs) {
     const pj = join(dir, 'package.json')

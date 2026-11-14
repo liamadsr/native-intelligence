@@ -130001,7 +130001,7 @@ function resolveVercelProductionCallbackBaseUrl() {
 	return process.env.VERCEL_ENV === `production` && process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null;
 }
 function resolveWorkflowCallbackBaseUrl(e) {
-	let t = process.env.WORKFLOW_LOCAL_BASE_URL?.trim() || void 0, n = (resolveVercelProductionCallbackBaseUrl() ?? t ?? e).replace(/\/$/, ``), r = normalizePublicRoutePrefix(process.env[EVE_PUBLIC_ROUTE_PREFIX_ENV]);
+	let t = process.env.WORKFLOW_LOCAL_BASE_URL?.trim() || void 0, n = ((process.env.EVE_CALLBACK_BASE_URL?.trim() || void 0) ?? resolveVercelProductionCallbackBaseUrl() ?? t ?? e).replace(/\/$/, ``), r = normalizePublicRoutePrefix(process.env[EVE_PUBLIC_ROUTE_PREFIX_ENV]);
 	return r === void 0 ? n : `${n}${r}`;
 }
 function createBrowserCallbackUrl(e, t) {
