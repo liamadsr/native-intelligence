@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { EditorProject } from '@/lib/studio/engine/contracts';
-import { openRecorder, listBrowserDevices, unlockDeviceLabels, uploadTake, submitTake, recordingRequest, plainError, listSavedTakes, discardSavedTake, recoverSavedTake, type BrowserRecorder, type DesktopRecorder, type DeviceOption, type EndReason, type FinishedTake, type LiveTrackStatus, type Recorder, type RecorderPermissionName, type RecorderPermissions, type RecorderTargets, type SavedTake, type ScreenChoice, type SharedSurface, type TakePlacement, type UploadProgress } from '../record';
+import { openRecorder, listBrowserDevices, unlockDeviceLabels, uploadTake, submitTake, recordingRequest, plainError, listSavedTakes, discardSavedTake, recoverSavedTake, type BrowserRecorder, type DesktopRecorder, type DeviceOption, type EndReason, type FinishedTake, type LiveTrackStatus, type Recorder, type RecorderPermissionName, type RecorderPermissions, type RecorderTargets, type SavedTake, type ScreenChoice, type SharedSurface, type TakePlacement, type UploadProgress, type RecordingAnswer } from '../record';
+import { nativeDraftStore, provisionalRecord, type Draft, type DraftBridge, type DraftStore, type FilingState } from '../record/provisional';
+import { Filer, settleRecording, type FilingApi, type Settled } from '../record/filing';
+import type { TakeWord } from '../record/types';
+import { request } from './client';
 
 /** One take in this tab, from Start until it is a video (or failed). Shaped like the session the editor's follow-ups read. */
 export type RecordingSession = { id: string; status: 'preparing' | 'countdown' | 'recording' | 'finalizing' | 'completed' | 'failed' | 'cancelled' | 'interrupted'; createdAt: string;
@@ -9,7 +13,9 @@ export type RecordingSession = { id: string; status: 'preparing' | 'countdown' |
   progress?: number;
   punch?: { projectId: string; fromFrame: number; toFrame: number; beatIds?: string[] }; projectId?: string; screenAssetId?: string; voiceAssetId?: string; partialAssetId?: string;
   /** The take is kept on this device after a failed upload: Try again sends it again. */
-  retry?: boolean };
+  retry?: boolean;
+  /** The Mac app: the take opened in the editor at Stop from the files on the computer (record/provisional.ts), filed meanwhile. */
+  draft?: Draft };
 /** What Start records. */
 export type RecordingStart = { screen: ScreenChoice; cameraId: string | null | false; microphoneId: string | null | false; systemAudio: boolean; countdownSeconds?: number; placement: TakePlacement; title?: string };
 export type RecorderState = { state: 'checking' } | { state: 'unavailable'; reason: string } | { state: 'desktop' } | { state: 'browser'; desktopShell: boolean };
@@ -19,6 +25,7 @@ export type PrompterMark = { ms: number; beat?: number; retake?: number };
 export const manualSessionActive = (session: RecordingSession | null | undefined) => !!session && ['preparing', 'countdown', 'recording', 'finalizing'].includes(session.status);
 const message = (error: unknown) => plainError(error);
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+const api: FilingApi = { get: <T,>(url: string) => request<T>(url), post: <T,>(url: string, body?: unknown) => request<T>(url, body ?? {}) };
 
 /** The Record dialog's recorder: which backend, what it can record, and the take in progress. The take lives in this tab. */
 export function useManualRecording(notify: (text: string, error?: boolean) => void) {
@@ -38,8 +45,18 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
   const [liveTracks, setLiveTracks] = useState<LiveTrackStatus[]>([]);
   /** Takes whose window closed before they were finished, kept on the Studio: offered back. */
   const [savedTakes, setSavedTakes] = useState<SavedTake[]>([]);
+  /** The Mac app's takes opened before they were filed, by video id: how far the filing is (gone once filed). */
+  const [filing, setFiling] = useState<Record<string, FilingState>>({});
+  /** Videos whose take the Studio has filed, for the editor to carry on from the Studio's copies (App.tsx adopt). */
+  const [filed, setFiled] = useState<string[]>([]);
+  /** The Mac app: where drafts are kept (beside their takes), and each take's filing (record/filing.ts). */
+  const [drafts, setDrafts] = useState<DraftStore | null>(null);
+  const filer = useRef<Filer | null>(null);
+  /** Words that arrived after a draft opened, by video id, for the editor to take in (App.tsx). */
+  const [heard, setHeard] = useState<Record<string, TakeWord[]>>({});
   const mounted = useRef(true), operation = useRef(false), current = useRef<string | null>(null), pending = useRef<{ take: FinishedTake; placement: TakePlacement; title?: string } | null>(null);
   const take = useRef<{ placement: TakePlacement; title?: string } | null>(null);
+  const stopWords = useRef<(() => void) | null>(null), leaveRef = useRef<(() => void) | null>(null);
   const marks = useRef<PrompterMark[]>([]), screenStart = useRef<number | null>(null), countdownCancel = useRef<(() => void) | null>(null), endedRef = useRef<(reason: EndReason) => void>(() => {});
   const active = sessions.find(manualSessionActive) ?? null;
   const selected = sessions.find(session => session.id === selectedId) ?? null;
@@ -54,9 +71,20 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
       if (opened.kind === 'unavailable') { setRecorderState({ state: 'unavailable', reason: opened.reason }); return; }
       recorder.current = opened.recorder;
       if (opened.kind === 'browser') { setRecorderState({ state: 'browser', desktopShell: opened.desktopShell }); opened.recorder.onShareChange(value => { if (mounted.current) setShare(value); }); }
-      else setRecorderState({ state: 'desktop' });
+      else { const desktop = opened.recorder as DesktopRecorder; const store = nativeDraftStore(desktop.app as unknown as DraftBridge);
+        filer.current = new Filer({ store, api, native: desktop.app, leases: desktop.leases, sleep, alive: () => mounted.current,
+          uploadTake: (take, whole, onFraction) => { if (whole) for (const file of take.files) { delete file.uploadKey; delete file.pieces; file.whole = true; } return uploadTake(desktop, take, files => { const total = files.reduce((n, f) => n + f.bytes, 0) || 1; onFraction(files.reduce((n, f) => n + f.bytes * f.fraction, 0) / total); }); },
+          sendUnfinished: () => desktop.sendUnfinished(),
+          onState: (projectId, next) => filingStateRef.current(projectId, next), onFiled: (projectId) => markFiledRef.current(projectId),
+          onWords: (projectId, words) => { if (mounted.current) setHeard(all => ({ ...all, [projectId]: words })); } });
+        // The words the Mac heard arrive after Stop: each take's filing takes them in.
+        const words = (desktop.app as { onWords?: (cb: (event: { sessionId: string; transcript: unknown }) => void) => Promise<() => void> | (() => void) }).onWords;
+        if (typeof words === 'function') void Promise.resolve(words(event => { if (event.transcript) void filer.current?.heardRaw(event.sessionId, event.transcript); })).then(off => { if (!alive) off(); else stopWords.current = off; }).catch(() => undefined);
+        // The page goes (a reload, a closed window): its holds go at once, so the next page or another window takes over.
+        const leave = () => desktop.leases.releaseAll(); window.addEventListener('pagehide', leave); leaveRef.current = () => window.removeEventListener('pagehide', leave);
+        setDrafts(store); setRecorderState({ state: 'desktop' }); }
     }).catch(cause => { if (alive) setRecorderState({ state: 'unavailable', reason: message(cause) }); });
-    return () => { alive = false; mounted.current = false; countdownCancel.current?.(); recorder.current?.dispose(); recorder.current = null; };
+    return () => { alive = false; mounted.current = false; countdownCancel.current?.(); stopWords.current?.(); leaveRef.current?.(); recorder.current?.dispose(); recorder.current = null; filer.current = null; };
   }, []);
 
   const refreshTargets = useCallback(async () => {
@@ -97,10 +125,45 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
   }, []);
   const clearShare = useCallback(() => { const rec = recorder.current; if (rec?.kind === 'browser') (rec as BrowserRecorder).clearShare(); }, []);
 
+  const filingState = useCallback((projectId: string, next: FilingState | null) => { if (mounted.current) setFiling(all => { const copy = { ...all }; if (next) copy[projectId] = next; else delete copy[projectId]; return copy; }); }, []);
+  const filingStateRef = useRef(filingState); filingStateRef.current = filingState;
+  const markFiledRef = useRef((projectId: string) => { if (mounted.current) setFiled(all => all.includes(projectId) ? all : [...all, projectId]); });
+
+  /** Try filing a take again (after it failed): this run's take is sent again whole; another is brought back from the Studio. */
+  const refile = useCallback(async (projectId: string) => { await filer.current?.refile(projectId); }, []);
+  /** The editor has carried on from the Studio's copies of a filed take. */
+  const adopted = useCallback((projectId: string) => { if (mounted.current) setFiled(all => all.filter(item => item !== projectId)); }, []);
+  /** The editor has left a filed take's video: its files on this computer go once the Studio holds every byte of them. */
+  const releaseTake = useCallback(async (projectId: string): Promise<Settled> => filer.current ? filer.current.release(projectId) : { safe: false }, []);
+  /** This run's key to the take files' scheme (the editor plays a draft's files with it; never stored). */
+  const takeKey = useCallback(async (): Promise<string | null> => { const rec = recorder.current; if (rec?.kind !== 'desktop') return null; const fn = (rec as DesktopRecorder).app.takeToken as (() => Promise<string>) | undefined; try { return typeof fn === 'function' ? await fn() : null; } catch { return null; } }, []);
+  /** Words the editor has taken in. */
+  const wordsTaken = useCallback((projectId: string) => { if (mounted.current) setHeard(all => { const copy = { ...all }; delete copy[projectId]; return copy; }); }, []);
+
   /** Upload a stopped take, have it made into a video, and say where it went. */
   const finish = useCallback(async (id: string, take: FinishedTake, placement: TakePlacement, title?: string) => {
     const rec = recorder.current;
     if (!rec) return;
+    // The two paths split here. The Mac app's take that becomes a new video opens in the editor at once from the files
+    // on the computer and is filed behind it (record/provisional.ts). Everything else waits for the Studio as before
+    // ("Preparing your recording"): a browser take (also every take on Windows, which has no native recorder), a
+    // punch-in or a take into beats (placed into a video the Studio changes), or a take whose files the computer
+    // could not describe.
+    if (rec.kind === 'desktop' && placement.kind === 'new') {
+      const projectId = crypto.randomUUID(), named = title ?? `Recording · ${new Date().toLocaleString()}`;
+      const draft = await (rec as DesktopRecorder).provisional(take, projectId, named).catch(() => null);
+      const kept = draft && drafts && filer.current ? await drafts.put(provisionalRecord(draft, { sessionId: take.sessionId, takeId: take.liveTakeId ?? null, title: named, files: take.files, take })).then(() => true, () => false) : false;
+      // Not kept beside the take (the disk refused it): the take waits for the Studio as before, nothing is lost.
+      if (draft && kept && filer.current) {
+        const filing = filer.current;
+        // The take's id on the Studio, once it answered its start: what brings it back if the app quits before it is filed.
+        if (!take.liveTakeId) void (rec as DesktopRecorder).liveTakeIdOf(take.sessionId).then(takeId => { if (takeId) void filing.records.update(projectId, r => ({ ...r, takeId })).catch(() => undefined); });
+        patch(id, { status: 'completed', step: undefined, projectId, draft, ...(take.note ? { note: take.note } : {}) });
+        if (mounted.current) setLiveTracks([]);
+        void filing.start(take, projectId, named);
+        return;
+      }
+    }
     pending.current = { take, placement, ...(title ? { title } : {}) };
     patch(id, { status: 'finalizing', step: 'Uploading', retry: false, error: undefined });
     try {
@@ -110,15 +173,19 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
       const answer = await submitTake(recordingRequest(take, keys, placement, title), view => patch(id, { step: view.step, progress: view.progress, ...(view.note ? { note: view.note } : {}) }), () => mounted.current);
       if (answer.recording.status !== 'done') return;
       pending.current = null;
-      await rec.discard(take).catch(() => {});
-      const view = answer.recording;
-      patch(id, { status: 'completed', step: undefined, ...(view.projectId ? { projectId: view.projectId } : {}), ...(view.screenAssetId ? { screenAssetId: view.screenAssetId } : {}), ...(view.voiceAssetId ? { voiceAssetId: view.voiceAssetId } : {}), ...(view.note ? { note: view.note } : {}),
+      // The Mac's files go only once the Studio holds every track as recorded (a track it lost is sent again first).
+      let kept: Settled | null = null;
+      if (rec.kind === 'desktop') { const desktop = rec as DesktopRecorder; kept = await settleRecording({ api, native: desktop.app, sleep }, answer.recording.id, take.sessionId); if (kept.safe) await rec.discard(take).catch(() => {}); else await desktop.forget(take).catch(() => {}); }
+      else await rec.discard(take).catch(() => {});
+      const view = kept?.view ?? answer.recording;
+      const note = [view.note, kept && !kept.safe ? kept.note : undefined].filter(Boolean).join(' ');
+      patch(id, { status: 'completed', step: undefined, ...(view.projectId ? { projectId: view.projectId } : {}), ...(view.screenAssetId ? { screenAssetId: view.screenAssetId } : {}), ...(view.voiceAssetId ? { voiceAssetId: view.voiceAssetId } : {}), ...(note ? { note } : {}),
         ...(view.placed === 'new' && placement.kind !== 'new' ? { punch: undefined } : {}) });
       if (mounted.current) setUploads([]);
     } catch (cause) {
       patch(id, { status: 'failed', step: undefined, retry: true, error: `The take is kept on this device, but it could not be saved: ${message(cause)}` });
     }
-  }, [patch]);
+  }, [patch, drafts]);
 
   /** The take stopped: collect its files and finish it. */
   const stopTake = useCallback(async (id: string, reason?: EndReason) => {
@@ -204,14 +271,27 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
     return () => window.removeEventListener('beforeunload', before);
   }, [busy]);
   /** The takes kept on the Studio after their window closed mid-take; never one this tab is still recording or sending (the Studio would refuse it, as still recording, but the dialog must not offer it). */
-  const refreshSavedTakes = useCallback(async () => { try { const takes = await listSavedTakes(); const mine = new Set((recorder.current as { liveTakeIds?: () => string[] } | null)?.liveTakeIds?.() ?? []); if (mounted.current) setSavedTakes(takes.filter(take => !mine.has(take.id))); } catch { /* an older server: nothing to offer */ } }, []);
+  const refreshSavedTakes = useCallback(async () => { try { const takes = await listSavedTakes(); const records = drafts ? await drafts.list().catch(() => []) : []; const mine = new Set([...((recorder.current as { liveTakeIds?: () => string[] } | null)?.liveTakeIds?.() ?? []), ...records.flatMap(record => record.takeId ? [record.takeId] : [])]); if (mounted.current) setSavedTakes(takes.filter(take => !mine.has(take.id))); } catch { /* an older server: nothing to offer */ } }, [drafts]);
   useEffect(() => { void refreshSavedTakes(); }, [refreshSavedTakes]);
-  /** The Mac app: send what a quit or a crash kept on this computer from going up, then offer those takes back. */
+  /**
+   * The Mac app: drafts found again (a reload, a restart) are taken back by this page when no other window holds them,
+   * then what a quit or a crash kept from going up is sent (their last pieces first, also those of the drafts this page
+   * now holds), and each draft's filing goes on; then the takes are offered back.
+   */
+  const [openElsewhere, setOpenElsewhere] = useState<string[]>([]);
   useEffect(() => {
-    if (recorderState.state !== 'desktop') return;
-    const desktop = recorder.current as { sendUnfinished?: () => Promise<number> } | null;
-    void desktop?.sendUnfinished?.().then(sent => { if (sent && mounted.current) void refreshSavedTakes(); });
-  }, [recorderState.state, refreshSavedTakes]);
+    if (recorderState.state !== 'desktop' || !drafts || !filer.current) return;
+    const filing = filer.current, desktop = recorder.current as DesktopRecorder;
+    void (async () => {
+      const records = await drafts.list().catch(() => []);
+      const elsewhere: string[] = [];
+      for (const record of records) if (record.state !== 'filed' && !(await desktop.leases.hold(record.sessionId))) elsewhere.push(record.projectId);
+      if (mounted.current) setOpenElsewhere(elsewhere);
+      const sent = await desktop.sendUnfinished().catch(() => 0);
+      if (sent && mounted.current) void refreshSavedTakes();
+      for (const record of records) if (!elsewhere.includes(record.projectId)) await filing.resume(record);
+    })();
+  }, [recorderState.state, drafts, refreshSavedTakes]);
   /** Make a saved take a new video from what reached the Studio, followed like a finished take. */
   const recoverSaved = useCallback(async (takeId: string) => {
     const saved = savedTakes.find(item => item.id === takeId);
@@ -230,7 +310,8 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
   /** A partial take kept apart from a video does not exist with this recorder (a stopped take is always the whole take). */
   const openPartial = useCallback(async (id: string): Promise<EditorProject | null> => { void id; return null; }, []);
 
-  return { recorderState, targets, permissions, browserDevices, share, sessions, selected, active, selectedId, setSelectedId, loadingTargets, working, error, uploads, liveTracks, savedTakes,
-    refreshTargets, refreshSessions, checkPermissions, requestPermissions, unlockDevices, chooseShare, clearShare, start, stop, cancel, retry, mark, openPartial, refreshSavedTakes, recoverSaved, discardSaved };
+  return { recorderState, targets, permissions, browserDevices, share, sessions, selected, active, selectedId, setSelectedId, loadingTargets, working, error, uploads, liveTracks, savedTakes, filing, filed,
+    drafts, heard, openElsewhere, records: () => filer.current?.records ?? null,
+    refreshTargets, refreshSessions, checkPermissions, requestPermissions, unlockDevices, chooseShare, clearShare, start, stop, cancel, retry, mark, openPartial, refreshSavedTakes, recoverSaved, discardSaved, refile, adopted, releaseTake, wordsTaken, takeKey };
 }
 export type ManualRecording = ReturnType<typeof useManualRecording>;

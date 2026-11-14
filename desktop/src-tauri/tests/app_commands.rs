@@ -386,6 +386,21 @@ fn local_agents_stop_on_the_exit_event_cmd_q_raises() {
     );
 }
 
+/// The one URI scheme the app serves files on (src/commands/studio_recorder.rs `studio-take`): registered once, by
+/// that name, to that handler, which hands it this run's key; what it serves is proven by the behaviour test
+/// `a_take_file_is_served_only_with_this_runs_key_to_the_apps_own_pages_for_its_own_account` (this is an extra).
+#[test]
+fn the_take_scheme_is_registered_once_with_this_runs_key() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let lib = read_source(dir.join("src/lib.rs")).unwrap();
+    let src = read_source(dir.join("src/commands/studio_recorder.rs")).unwrap();
+    assert_eq!(lib.matches("uri_scheme_protocol(").count(), 1, "one URI scheme, the take's");
+    assert!(lib.contains(".register_asynchronous_uri_scheme_protocol(commands::studio_recorder::TAKE_SCHEME, commands::studio_recorder::serve_take_file)"));
+    assert!(src.contains("pub const TAKE_SCHEME: &str = \"studio-take\";"));
+    let serve = &src[src.find("pub fn serve_take_file").unwrap()..];
+    assert!(serve[..serve.find("\n}\n").unwrap()].contains("app.state::<StudioRecorder>().token()"));
+}
+
 /// Studio takes (src/commands/studio_recorder.rs): the page chooses WHAT to
 /// record (a display or window id, device ids, flags) and never WHERE files go
 /// or WHICH file is read. Every studio_recorder_* command is registered,
@@ -433,7 +448,11 @@ fn studio_recorder_commands_never_take_a_path() {
         [
             "studio_recorder_cancel",
             "studio_recorder_discard",
+            "studio_recorder_draft_get",
+            "studio_recorder_draft_put",
+            "studio_recorder_drafts",
             "studio_recorder_hide_control",
+            "studio_recorder_hold",
             "studio_recorder_link_live",
             "studio_recorder_permissions",
             "studio_recorder_plan_pieces",
@@ -443,9 +462,12 @@ fn studio_recorder_commands_never_take_a_path() {
             "studio_recorder_show_control",
             "studio_recorder_start",
             "studio_recorder_stop",
+            "studio_recorder_take_media",
+            "studio_recorder_take_token",
             "studio_recorder_targets",
             "studio_recorder_unfinished_takes",
             "studio_recorder_upload",
+            "studio_recorder_words",
         ]
     );
 

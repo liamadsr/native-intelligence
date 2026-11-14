@@ -116,6 +116,11 @@ export type TakeRecord = {
   failedRecordingId?: string
   /** When it was offered back after that recording could not be made (the sweep keeps it a week from then). */
   reopenedAt?: string
+  /**
+   * Tracks the Studio stopped taking pieces of, uploaded whole from the computer afterwards (bindWholeUpload): that
+   * upload is the track when the take is brought back (recordings.ts recoverTake), and no other.
+   */
+  whole?: Partial<Record<LiveRole, string>>
 }
 
 export type TrackRecord = {
@@ -732,6 +737,10 @@ async function holdOnlyWhatLinksCanWrite(ctx: StudioContext, take: TakeRecord): 
 export type LiveTakeState = {
   id: string
   status: TakeRecord['status']
+  /** The recording it became, once handed over. */
+  recordingId?: string
+  /** Tracks sent whole and bound to it. */
+  whole: LiveRole[]
   tracks: { role: LiveRole; declared: number; stored: number; bytes: number; sealed: boolean; stopped: boolean }[]
 }
 
@@ -751,7 +760,26 @@ export async function liveTakeState(ctx: StudioContext, takeId: string): Promise
     const stored = take.status === 'dropped' ? 0 : await storedRun(ctx, track)
     tracks.push({ role, declared: track.n, stored, bytes: track.pieces.slice(0, stored).reduce((a, b) => a + b, 0), sealed: !!track.sealed, stopped: !!track.stopped })
   }
-  return { take: { id: take.id, status: take.status, tracks } }
+  return { take: { id: take.id, status: take.status, ...(take.recordingId ? { recordingId: take.recordingId } : {}), whole: Object.keys(take.whole ?? {}) as LiveRole[], tracks } }
+}
+
+const WholeSchema = z.object({ role: z.enum(LIVE_ROLES), uploadKey: z.string().regex(/^uploads\/[0-9a-f-]{36}$/) }).strict()
+
+/**
+ * Bind a whole upload of one of a take's tracks to it (POST /live-takes/:id/whole): the person's own take, a track of
+ * it, an upload of theirs still being written (not yet a file of anything). Bringing the take back uses that upload for
+ * the track and no other key. Binding again with the same key answers the same; another key replaces it only while the
+ * take is still to be brought back.
+ */
+export async function bindWholeUpload(ctx: StudioContext, takeId: string, body: unknown): Promise<{ ok: true }> {
+  const take = await loadTake(ctx, takeId)
+  const input = WholeSchema.parse(body)
+  if (!take.tracks[input.role]) throw new StudioError('That track is not part of this recording.')
+  if (take.whole?.[input.role] === input.uploadKey) return { ok: true }
+  if (take.status !== 'recording') throw conflictError('This recording was brought back already.', 'TAKE_CLOSED')
+  if (!(await getRecord(ctx, PENDING, input.uploadKey))) throw new StudioError('Upload the file first.')
+  if (!(await moveTake(ctx, take, { ...take, whole: { ...take.whole, [input.role]: input.uploadKey } }))) throw conflictError('This recording changed meanwhile. Try again.', 'BUSY')
+  return { ok: true }
 }
 
 /** A take that stopped before it was finished, as the Record dialog offers it back. */

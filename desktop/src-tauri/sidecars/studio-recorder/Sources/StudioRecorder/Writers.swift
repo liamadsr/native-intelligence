@@ -4,6 +4,7 @@ import CoreVideo
 import Foundation
 import ScreenCaptureKit
 import UniformTypeIdentifiers
+import CryptoKit
 
 /// Every file of a take is written as fragmented MP4, in segments of about
 /// this long: the file on disk is the init segment followed by each finished
@@ -29,8 +30,12 @@ struct SegmentRecord {
 
 /// Takes an AVAssetWriter's segments and appends each to the file, then its
 /// line to `<file>.segments` (`init|media offset length [endSeconds]`). The
-/// bytes go first: a crash between the two leaves bytes the index does not
-/// count, which whoever reads the take cuts back.
+/// bytes go first and are on the disk (synced) before their line is written,
+/// and the line is synced before anyone hears of the segment: after a power
+/// cut, a segment the app announced is whole on disk. A crash between the two
+/// writes leaves bytes the index does not count, which whoever reads the take
+/// cuts back. The file's SHA-256 is kept as it is written (`sha256`, once
+/// closed): the Studio refuses a copy whose bytes hash otherwise.
 final class SegmentFile: NSObject, AVAssetWriterDelegate, @unchecked Sendable {
     let path: String
     var indexPath: String { path + ".segments" }
@@ -40,6 +45,9 @@ final class SegmentFile: NSObject, AVAssetWriterDelegate, @unchecked Sendable {
     private(set) var bytes: Int64 = 0
     private(set) var records: [SegmentRecord] = []
     private(set) var failure: String?
+    private var hasher = SHA256()
+    /// The SHA-256 of the whole file, hex, once closed after every segment was written (nil otherwise).
+    private(set) var sha256: String?
     /// Called (on the writer's queue) once a segment is on disk.
     var onSegment: ((SegmentRecord) -> Void)?
 
@@ -69,9 +77,12 @@ final class SegmentFile: NSObject, AVAssetWriterDelegate, @unchecked Sendable {
         let record = SegmentRecord(index: records.count, kind: kind, offset: bytes, length: segmentData.count, endSeconds: end)
         do {
             try data.write(contentsOf: segmentData)
+            try data.synchronize()
             var line = "\(kind) \(record.offset) \(record.length)"
             if let end { line += " \(String(format: "%.6f", end))" }
             try index.write(contentsOf: Data((line + "\n").utf8))
+            try index.synchronize()
+            hasher.update(data: segmentData)
             bytes += Int64(segmentData.count)
             records.append(record)
         } catch {
@@ -84,6 +95,7 @@ final class SegmentFile: NSObject, AVAssetWriterDelegate, @unchecked Sendable {
 
     func close() {
         lock.lock(); defer { lock.unlock() }
+        if data != nil && failure == nil { sha256 = hasher.finalize().map { String(format: "%02x", $0) }.joined() }
         try? data?.close(); try? index?.close()
         data = nil; index = nil
     }
@@ -322,7 +334,8 @@ final class TrackWriter: @unchecked Sendable {
                                   "finalized": finalized, "frames": frames, "width": width, "height": height, "codec": codec,
                                   "fps": Double(fps), "firstPts": jsonNumber(start),
                                   "lastPts": jsonNumber(start.map { $0 + Double(frames) / Double(fps) }),
-                                  "segments": active?.file.segments ?? 0, "gridMisses": active?.misses ?? 0]
+                                  "segments": active?.file.segments ?? 0, "gridMisses": active?.misses ?? 0,
+                                  "sha256": active?.file.sha256 ?? NSNull()]
         if frames > 0 { row["durationSeconds"] = Double(frames) / Double(fps) }
         if let error = error ?? (finalized ? nil : "No picture was captured from \(name)") { row["error"] = error }
         return row
@@ -335,9 +348,36 @@ final class TrackWriter: @unchecked Sendable {
 /// captured sample (WriterTests decodes a file to prove it).
 let aacPrimingSeconds = 2112.0 / 48_000
 
+/// The longest stretch of missing sound put back as silence. A larger jump in the times is not sound that went
+/// missing but a clock that jumped (a device switched, a host clock resynced): nothing is filled, and the file goes on
+/// from where it is (its time 0 moves by the jump).
+let silenceFillMaxSeconds = 5.0
+
+/// What a buffer's PCM is: its rate, channels and layout. The encoder takes the format of the first buffer for the
+/// whole file: AVAssetWriter accepts a buffer of another rate mid-take but encodes it as if it were the first rate (a
+/// 24 kHz microphone after 48 kHz plays at twice the speed, its time wrong, and no error is raised: WriterTests), so a
+/// change ends the track there, cleanly.
+struct PCMFormat: Equatable {
+    let rate: Double, channels: UInt32, flags: AudioFormatFlags, bits: UInt32
+    init?(_ sample: CMSampleBuffer) {
+        guard let asbd = CMSampleBufferGetFormatDescription(sample).flatMap({ CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee }),
+              asbd.mSampleRate > 0 else { return nil }
+        rate = asbd.mSampleRate; channels = asbd.mChannelsPerFrame; flags = asbd.mFormatFlags; bits = asbd.mBitsPerChannel
+    }
+}
+
 /// An AAC audio file written from PCM sample buffers on the screen's clock,
 /// in segments, its first sample written at time 0 (and heard at
 /// aacPrimingSeconds).
+///
+/// The encoder joins its input end to end whatever the times say, so sound that never came (a buffer the device did
+/// not deliver, or one the busy encoder could not take) is put back as silence, and what follows keeps its time. A gap
+/// is told from the times of two buffers in a row: this one starts later than the last one ended by at least half a
+/// buffer (10 ms at the least). Jitter (a few ms either way) never reaches that, and a clock that drifts (tens of ppm)
+/// moves each buffer by nanoseconds, so neither ever puts in silence (an earlier version compared each buffer with
+/// everything written so far and turned drift into clicks). A jump past silenceFillMaxSeconds is a clock jump: not
+/// filled. Time that goes backwards is not taken back: the sound goes on. Nothing here ever waits: a busy encoder's
+/// buffer is dropped and the next one fills its place with silence.
 final class AudioFileWriter: @unchecked Sendable {
     let role: String, path: String, channels: Int
     private let gate: CaptureGate
@@ -347,6 +387,16 @@ final class AudioFileWriter: @unchecked Sendable {
     private(set) var file: SegmentFile?
     private(set) var buffers = 0
     private(set) var drops = 0
+    /// Seconds of silence put where sound never came.
+    private(set) var filledSeconds = 0.0
+    /// Seconds of the file written so far (sound and silence): where the next buffer goes in it.
+    private var writtenSeconds = 0.0
+    /// Host seconds the last buffer written ended at: where the next one should start.
+    private var expected: Double?
+    /// The format of the first buffer: the file's.
+    private var format: PCMFormat?
+    /// Why the track ended before the take did (a format the encoder could not go on with), in plain words.
+    private(set) var ended: String?
     /// Host seconds of the first sample captured (written at the file's time 0).
     private(set) var firstPTS: Double?
     /// Host seconds of the file's time 0 as it plays: before the first sample by the encoder's priming.
@@ -359,21 +409,53 @@ final class AudioFileWriter: @unchecked Sendable {
         self.role = role; self.path = path; self.channels = channels; self.gate = gate
     }
     /// Append `sample` (stamped `seconds` on the host clock). Returns whether
-    /// it was written: false before the take starts, after it ends, or when
-    /// the encoder is behind.
+    /// it was written: false before the take starts, after it ends, when the
+    /// encoder is behind (the next buffer fills its place), or once the track
+    /// ended (a change of format).
     @discardableResult
     func append(_ sample: CMSampleBuffer, hostSeconds seconds: Double) -> Bool {
         let (t0, halted) = gate.state
         guard !halted, let t0, seconds.isFinite, seconds >= t0, CMSampleBufferGetNumSamples(sample) > 0 else { return false }
-        guard CMSampleBufferDataIsReady(sample) else { drops += 1; return false }
+        guard CMSampleBufferDataIsReady(sample), let pcm = PCMFormat(sample) else { drops += 1; return false }
         let stamp = CMSampleBufferGetPresentationTimeStamp(sample).seconds
+        let duration = Double(CMSampleBufferGetNumSamples(sample)) / pcm.rate
         lock.lock(); defer { lock.unlock() }
-        if writer == nil && failure == nil { open(at: seconds) }
-        guard let input, let origin = firstPTS, let onFile = shifted(sample, by: seconds - origin - stamp) else { drops += 1; return false }
-        guard input.isReadyForMoreMediaData, input.append(onFile) else { drops += 1; return false }
+        if ended != nil { return false }
+        if writer == nil && failure == nil { open(at: seconds); format = pcm }
+        guard let input, let first = format else { drops += 1; return false }
+        if pcm != first {
+            ended = "The \(role == "system-audio" ? "system sound" : role) changed its format mid-take (\(Int(first.rate)) Hz to \(Int(pcm.rate)) Hz): its recording ends there."
+            return false
+        }
+        if let expected {
+            let jump = seconds - expected
+            if jump >= max(0.5 * duration, 0.010) && jump <= silenceFillMaxSeconds {
+                // Missing sound: silence of the same length, in pieces of at most a second, all or nothing.
+                var left = jump, quiet: [CMSampleBuffer] = []
+                var at = writtenSeconds
+                while left > 0.5 / pcm.rate {
+                    let frames = max(1, Int((min(left, 1) * pcm.rate).rounded()))
+                    guard let piece = silence(like: sample, frames: frames, at: CMTime(seconds: at, preferredTimescale: CMTimeScale(pcm.rate))) else { break }
+                    quiet.append(piece)
+                    at += Double(frames) / pcm.rate; left -= Double(frames) / pcm.rate
+                }
+                for piece in quiet {
+                    guard input.isReadyForMoreMediaData, input.append(piece) else { drops += 1; return false }
+                    let added = Double(CMSampleBufferGetNumSamples(piece)) / pcm.rate
+                    writtenSeconds += added; filledSeconds += added
+                }
+                // The file has reached this buffer's start: should it not go in now, it is not filled for twice.
+                self.expected = seconds
+            }
+        }
+        guard input.isReadyForMoreMediaData, let onFile = shifted(sample, by: writtenSeconds - stamp), input.append(onFile) else {
+            // Its place is filled with silence by the next buffer.
+            drops += 1; return false
+        }
         buffers += 1
-        let duration = CMSampleBufferGetDuration(onFile)
-        lastPTS = seconds + (duration.isValid ? duration.seconds : 0)
+        writtenSeconds += duration
+        expected = seconds + duration
+        lastPTS = seconds + duration
         return true
     }
     private func open(at seconds: Double) {
@@ -398,6 +480,7 @@ final class AudioFileWriter: @unchecked Sendable {
     func finish() async -> [String: Any] {
         let (activeWriter, activeInput, segments) = { lock.lock(); defer { lock.unlock() }; return (writer, input, file) }()
         var error = failure
+        let endedEarly = { lock.lock(); defer { lock.unlock() }; return ended }()
         if let activeWriter, let activeInput {
             activeInput.markAsFinished()
             await activeWriter.finishWriting()
@@ -409,11 +492,29 @@ final class AudioFileWriter: @unchecked Sendable {
         var row: [String: Any] = ["role": role, "path": path, "finalized": finalized, "codec": "aac", "sampleRate": 48_000,
                                   "channels": channels, "buffers": buffers, "droppedBuffers": drops,
                                   "firstPts": jsonNumber(fileStart), "capturedPts": jsonNumber(firstPTS), "primingSeconds": aacPrimingSeconds,
-                                  "lastPts": jsonNumber(lastPTS), "segments": segments?.segments ?? 0]
-        if let first = fileStart, let last = lastPTS, last > first { row["durationSeconds"] = last - first }
+                                  "lastPts": jsonNumber(lastPTS), "segments": segments?.segments ?? 0, "silenceFilledSeconds": filledSeconds,
+                                  "sha256": segments?.sha256 ?? NSNull()]
+        // The file's own length (sound and silence, after the encoder's priming): what plays, whatever the clock did.
+        if writtenSeconds > 0 { row["durationSeconds"] = writtenSeconds + aacPrimingSeconds }
+        if let endedEarly { row["endedEarly"] = endedEarly }
         if let error = error ?? (finalized ? nil : "No \(role) audio was captured") { row["error"] = error }
         return row
     }
+}
+
+/// `frames` of silence in the format of `sample` (any PCM layout), stamped `pts`.
+func silence(like sample: CMSampleBuffer, frames: Int, at pts: CMTime) -> CMSampleBuffer? {
+    guard frames > 0, let format = CMSampleBufferGetFormatDescription(sample),
+          let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee, asbd.mBytesPerFrame > 0 else { return nil }
+    let planar = asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved != 0
+    let length = Int(asbd.mBytesPerFrame) * frames * (planar ? Int(max(1, asbd.mChannelsPerFrame)) : 1)
+    var block: CMBlockBuffer?
+    guard CMBlockBufferCreateWithMemoryBlock(allocator: nil, memoryBlock: nil, blockLength: length, blockAllocator: nil, customBlockSource: nil,
+                                             offsetToData: 0, dataLength: length, flags: kCMBlockBufferAssureMemoryNowFlag, blockBufferOut: &block) == noErr,
+          let block, CMBlockBufferFillDataBytes(with: 0, blockBuffer: block, offsetIntoDestination: 0, dataLength: length) == noErr else { return nil }
+    var out: CMSampleBuffer?
+    return CMAudioSampleBufferCreateReadyWithPacketDescriptions(allocator: nil, dataBuffer: block, formatDescription: format, sampleCount: frames,
+                                                                presentationTimeStamp: pts, packetDescriptions: nil, sampleBufferOut: &out) == noErr ? out : nil
 }
 
 /// Root-mean-square of the float samples in an audio sample buffer (all

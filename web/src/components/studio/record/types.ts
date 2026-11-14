@@ -137,6 +137,11 @@ export type TakeFile = {
   durationSeconds: number | null
   width?: number
   height?: number
+  /** The Mac app's pictures: frames written, on a grid of `fps` (its file keeps exactly these). */
+  frames?: number
+  fps?: number
+  /** The Mac app's SHA-256 of the file as its recorder wrote it (sent with the take: the Studio refuses other bytes). */
+  sha256?: string
   /** Browser takes hold their bytes here when they could not upload while recording; desktop takes leave them on the Mac until `upload`. */
   blob?: Blob
   /**
@@ -145,6 +150,8 @@ export type TakeFile = {
    */
   uploadKey?: string
   pieces?: number
+  /** Upload it whole from the computer, never from what went up while it recorded (sent again after a refusal). */
+  whole?: boolean
   /** True when the Studio refused the end of this track: it holds only the start of the recording. */
   partial?: boolean
   /** The frame rate the recorder asked for or the device said it gives (getSettings().frameRate), when it said. */
@@ -170,6 +177,10 @@ export type FinishedTake = {
   liveTakeId?: string
   /** A sentence about something that went wrong but left a usable take (the server refused the end of it). */
   note?: string
+  /** Mac: the on-device words are still being read (they arrive after Stop: studio-recorder://words). */
+  wordsPending?: boolean
+  /** Mac: what moves the recorder's words (ms after its start) onto the screen file's clock. */
+  wordsShiftMs?: number
 }
 
 /** A part of an upload, as POST /uploads hands them out. */

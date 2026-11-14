@@ -18,6 +18,7 @@ let package = Package(
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("CoreMedia"),
                 .linkedFramework("CoreVideo"),
+                .linkedFramework("CryptoKit"),
                 .linkedFramework("IOKit"),
                 .linkedFramework("ScreenCaptureKit"),
             ]
@@ -27,7 +28,8 @@ let package = Package(
         .testTarget(
             name: "StudioRecorderTests",
             dependencies: ["studio-recorder"],
-            path: "Tests/StudioRecorderTests"
+            path: "Tests/StudioRecorderTests",
+            linkerSettings: [.linkedFramework("WebKit")]
         ),
     ]
 )

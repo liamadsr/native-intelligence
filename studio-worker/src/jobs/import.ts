@@ -50,6 +50,11 @@ export const runImport: JobHandler<'import'> = async (ctx) => {
   ctx.log(`Downloading ${input.name}`)
   const read = await ctx.client.readBlob(ctx.job.id, input.uploadKey, upload, { signal: ctx.signal })
   if (read.bytes <= 0 || read.bytes > MAX_UPLOAD_BYTES) throw new JobError('Uploads must be nonempty and at most 2 GB')
+  // The recorder's hash of the file it wrote (the Mac app): only a refusal. Bytes that differ from the recording (a
+  // piece lost or damaged on the way) are not imported; the take stays on the computer to be sent again.
+  if (input.expectSha256 && read.sha256 !== input.expectSha256) {
+    throw new JobError('The recording that reached the Studio is not the one on your computer (its bytes differ). It is kept on your computer: send it again.')
+  }
   ctx.progress(0.15)
   checkAborted(ctx.signal)
 
@@ -103,14 +108,24 @@ export const runImport: JobHandler<'import'> = async (ctx) => {
       await remux(upload, out, ctx.signal)
       file = out
     }
-  } else if (type.kind === 'audio' && (await fragmentedMp4(upload, type.extension))) {
-    ctx.log('The sound was written as it recorded (fragmented): copying it into a plain M4A, untouched')
-    const out = join(ctx.scratch, 'rewrapped.m4a')
-    await rewrap(upload, out, { audioOnly: true, seconds: input.durationHint || 600, signal: ctx.signal })
-    provenance.rawSha256 = read.sha256
-    provenance.rawBytes = read.bytes
-    file = out
-    name = name.replace(/\.[^.]+$/, '') + '.m4a'
+  } else if (type.kind === 'audio' && input.provenance?.recorder === 'desktop' && (await fragmentedMp4(upload, type.extension))) {
+    // Only the Mac app's own sound (AAC in fragments, as its recorder writes it) is copied into a plain M4A, for quick
+    // seeking. Anything else, or a copy that fails (a take cut mid-frame by a crash), is imported as it is, as always.
+    const p = await probe(upload, { signal: ctx.signal }).catch(() => null)
+    if (p?.streams.length === 1 && p.streams[0]!.codec_type === 'audio' && p.streams[0]!.codec_name === 'aac') {
+      const out = join(ctx.scratch, 'rewrapped.m4a')
+      try {
+        await rewrap(upload, out, { audioOnly: true, seconds: input.durationHint || 600, signal: ctx.signal })
+        ctx.log('The sound was written as it recorded (fragmented): copied into a plain M4A, untouched')
+        provenance.rawSha256 = read.sha256
+        provenance.rawBytes = read.bytes
+        file = out
+        name = name.replace(/\.[^.]+$/, '') + '.m4a'
+      } catch (err) {
+        checkAborted(ctx.signal)
+        ctx.log(`The sound could not be copied into a plain M4A (${err instanceof Error ? err.message : String(err)}): imported as it is`)
+      }
+    }
   }
   ctx.progress(0.6)
   checkAborted(ctx.signal)

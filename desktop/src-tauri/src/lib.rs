@@ -813,6 +813,11 @@ pub fn run() {
                 }
             }
         })
+        // The Studio's editor plays a stopped take from this computer while the Studio files it. Registered on every
+        // web view the app makes, so it answers only with this run's key in the URL (handed out by a command granted to
+        // the app's own pages): read-only, the four role files of the signed-in account's takes (studio_recorder.rs
+        // take_file_response).
+        .register_asynchronous_uri_scheme_protocol(commands::studio_recorder::TAKE_SCHEME, commands::studio_recorder::serve_take_file)
         .invoke_handler(tauri::generate_handler![
             app_update::app_update_check,
             app_update::app_update_install,
@@ -949,6 +954,13 @@ pub fn run() {
             commands::studio_recorder::studio_recorder_plan_pieces,
             commands::studio_recorder::studio_recorder_put_piece,
             commands::studio_recorder::studio_recorder_unfinished_takes,
+            commands::studio_recorder::studio_recorder_take_media,
+            commands::studio_recorder::studio_recorder_hold,
+            commands::studio_recorder::studio_recorder_draft_get,
+            commands::studio_recorder::studio_recorder_draft_put,
+            commands::studio_recorder::studio_recorder_drafts,
+            commands::studio_recorder::studio_recorder_words,
+            commands::studio_recorder::studio_recorder_take_token,
             commands::studio_recorder::studio_recorder_discard,
             commands::studio_recorder::studio_recorder_show_control,
             commands::studio_recorder::studio_recorder_hide_control,

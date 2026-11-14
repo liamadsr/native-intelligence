@@ -8,8 +8,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { commitBlob, createBlobWrite, readBlob, workerWriteFence } from '../blobs'
 import { workerBlobRead } from '../http'
 import { claimJob, completeJob, failJob, queueJob } from '../jobs'
-import { discardLiveTake, LINK_SAFE_MS, LINK_WRITE_MAX, livePiece, liveTakeState, retireLiveTake, SMALL_PIECES_MAX, unclaimLiveTake, type TakeRecord, MAX_RESENDS, PIECE_MAX_BYTES, PIECE_MIN_BYTES, QUIET_MS, recordingContainer, savedTakes, sealLiveTrack, startLiveTake, TAKES, TRACKS } from '../live-takes'
-import { advanceRecording, BUILD_CLAIM_MS, listRecordings, NOT_A_MEMBER, recoverTake, startRecording } from '../recordings'
+import { bindWholeUpload, discardLiveTake, LINK_SAFE_MS, LINK_WRITE_MAX, livePiece, liveTakeState, retireLiveTake, SMALL_PIECES_MAX, unclaimLiveTake, type TakeRecord, MAX_RESENDS, PIECE_MAX_BYTES, PIECE_MIN_BYTES, QUIET_MS, recordingContainer, savedTakes, sealLiveTrack, startLiveTake, TAKES, TRACKS } from '../live-takes'
+import { addRecordingWords, advanceRecording, attachTrack, BUILD_CLAIM_MS, BYTES_DIFFER, listRecordings, NOT_A_MEMBER, recoverTake, startRecording } from '../recordings'
 import { getRecords } from '../records'
 import { sweepStudio } from '../sweep'
 import type { StudioContext } from '../context'
@@ -132,6 +132,7 @@ describe('pieces', () => {
     expect((await liveTakeState(env.ctx, take.id)).take).toEqual({
       id: take.id,
       status: 'recording',
+      whole: [],
       tracks: [
         { role: 'screen', declared: 3, stored: 2, bytes: 10000, sealed: false, stopped: false },
         { role: 'microphone', declared: 0, stored: 0, bytes: 0, sealed: false, stopped: false },
@@ -205,6 +206,21 @@ describe('finishing a take', () => {
     await expect(discardLiveTake(env.ctx, take.id)).rejects.toMatchObject({ code: 'TAKE_CLOSED' })
   })
 
+  it('names the new video the recorder chose, refuses one that exists, and hands the recorder’s hash to the import', async () => {
+    const take = await recorded()
+    const projectId = 'a1a1a1a1-1111-4222-8333-555555555555'
+    ;(env.tables.studio_video ??= []).push({ workspace_id: WS, id: 'a1a1a1a1-1111-4222-8333-666666666666', doc: {}, digest: 'd', archived_at: null })
+    await expect(startRecording(env.ctx, { ...body(take), projectId: 'a1a1a1a1-1111-4222-8333-666666666666' }, 0)).rejects.toMatchObject({ status: 409, code: 'PROJECT_TAKEN' })
+    await expect(startRecording(env.ctx, { ...body(take), projectId, punch: { projectId, fromFrame: 0, toFrame: 0 } }, 0)).rejects.toThrow(/only chosen for a new video/)
+    const sha = 'c'.repeat(64)
+    const answer = await startRecording(env.ctx, { ...body(take), projectId, screen: { ...body(take).screen, sha256: sha } }, 0)
+    expect(answer.recording.status).toBe('processing')
+    expect((env.tables.studio_record!.find((r) => r.collection === 'recordings')!.value as { input: { projectId: string } }).input.projectId).toBe(projectId)
+    const screen = env.tables.studio_job!.map((j) => j.input as { expectSha256?: string; provenance: { role: string } }).find((j) => j.provenance.role === 'screen')!
+    expect(screen.expectSha256).toBe(sha)
+    await expect(startRecording(env.ctx, { ...body(take), screen: { ...body(take).screen, sha256: 'not-a-hash' } }, 0)).rejects.toBeTruthy()
+  })
+
   it('refuses a take with a piece missing or of the wrong length, so the recorder sends it again', async () => {
     const take = await recorded()
     env.storage.objects.delete(`${WS}/live/${take.id}/screen/1`)
@@ -269,7 +285,7 @@ describe('finishing a take', () => {
     expect(pendingOf(take.keys.screen!)).toBeUndefined()
     expect(env.tables.studio_record!.filter((r) => r.collection === TAKES || r.collection === TRACKS)).toEqual([])
     const done = env.tables.studio_record!.find((r) => r.collection === 'recordings' && r.key === recording.id)!.value as { status: string; projectId?: string; note?: string; ownerId: string }
-    expect(done).toMatchObject({ status: 'done', ownerId: AVA, note: 'The microphone could not be added to this take.' })
+    expect(done).toMatchObject({ status: 'done', ownerId: AVA, note: 'The microphone could not be added to this take: The file could not be read.', lost: [{ role: 'microphone', reason: 'The file could not be read' }] })
     expect(env.tables.studio_video!.find((v) => v.id === done.projectId)).toMatchObject({ created_by: AVA })
     expect((await advanceRecording(env.ctx, recording.id)).recording).toMatchObject({ status: 'done', projectId: done.projectId })
   })
@@ -795,5 +811,91 @@ describe('a build in progress', () => {
     expect(answer.recording.status).toBe('processing')
     expect(row.value).toMatchObject({ status: 'building', claim: 'someone-else' })
     expect(BUILD_CLAIM_MS).toBeGreaterThanOrEqual(5 * 60_000)
+  })
+})
+
+
+describe('a track that did not make it, sent again', () => {
+  const mic = (n: string, sha: string, extra: Record<string, unknown> = {}) => ({
+    id: n.repeat(64), name: 'Microphone.m4a', kind: 'audio', file: `assets/${n.repeat(64)}.m4a`, sha256: n.repeat(64), bytes: 100, durationSeconds: 10, hasAudio: true,
+    sourceCursorHidden: false, provenance: { rawSha256: sha, rawBytes: 50 }, ...extra,
+  })
+  /** An upload of `bytes` bytes, its parts stored (as the app's PUTs store them). */
+  async function upload(bytes: number) {
+    const write = await createBlobWrite(env.ctx, { key: `uploads/${crypto.randomUUID()}`, bytes, contentType: 'audio/mp4' })
+    for (const part of write.parts) env.storage.put(part.url.replace('fake://upload/', ''), filler(part.bytes))
+    return write.key
+  }
+
+  it('a microphone whose bytes are not the recorder’s is lost, said so, and sent again whole: the voice arrives in the video', async () => {
+    const take = await newTake(env.ctx, ['screen', 'microphone'])
+    await send(take.id, 'screen', 0, mp4(6000))
+    await send(take.id, 'microphone', 0, webm(50), { offsetSeconds: -0.044 })
+    const claimed = '1'.repeat(64)
+    const { recording } = await startRecording(env.ctx, {
+      recorder: 'desktop',
+      screen: { uploadKey: take.keys.screen, name: 'Screen recording.mp4', pieces: 1 },
+      microphone: { uploadKey: take.keys.microphone, name: 'Microphone.m4a', offsetSeconds: -0.044, pieces: 1, sha256: claimed },
+    }, 0)
+    await finishImport((await claimJob(deps(), 'w', ['import']))!.id, 'w', asset('a'))
+    // The import read other bytes (a piece damaged on the way, say): the recording is made without the voice, and says why.
+    const micJob = (await claimJob(deps(), 'w', ['import']))!
+    expect(micJob.input).toMatchObject({ expectSha256: claimed })
+    await finishImport(micJob.id, 'w', mic('b', '2'.repeat(64)) as unknown as ReturnType<typeof asset>)
+    const made = (await advanceRecording(env.ctx, recording.id, 0)).recording
+    expect(made).toMatchObject({ status: 'done', lost: [{ role: 'microphone', reason: BYTES_DIFFER }] })
+    expect(made.note).toMatch(/The microphone could not be added to this take: the copy that reached the Studio is not the one on your computer/)
+    expect(made.received).toEqual({ screen: { sha256: 'a'.repeat(64), bytes: 100 } })
+    // Sent again from the computer, whole, under a new upload: imported, and placed in the video as its voice.
+    await expect(attachTrack(env.ctx, recording.id, { role: 'camera', uploadKey: await upload(10) })).rejects.toMatchObject({ code: 'NOT_LOST' })
+    await expect(attachTrack(as(BEN), recording.id, { role: 'microphone', uploadKey: await upload(10) })).rejects.toMatchObject({ status: 404 })
+    const key = await upload(50)
+    const sent = (await attachTrack(env.ctx, recording.id, { role: 'microphone', uploadKey: key, sha256: claimed })).recording
+    expect(sent.attaching).toEqual(['microphone'])
+    const again = (await claimJob(deps(), 'w', ['import']))!
+    expect(again.input).toMatchObject({ uploadKey: key, expectSha256: claimed, provenance: { recording: recording.id, role: 'microphone', attached: true } })
+    await finishImport(again.id, 'w', mic('c', claimed) as unknown as ReturnType<typeof asset>)
+    const after = (await advanceRecording(env.ctx, recording.id, 0))
+    expect(after.recording.lost).toBeUndefined()
+    expect(after.recording.note).toBeUndefined()
+    expect(after.recording.received?.microphone).toEqual({ sha256: claimed, bytes: 50 })
+    const voice = after.project!.audioTracks.flatMap((t) => t.segments).filter((seg) => seg.assetId === 'c'.repeat(64))
+    expect(voice.length).toBeGreaterThan(0)
+    expect(voice[0]!.label).toBe(`sync:${'a'.repeat(64)}@-0.044`)
+  })
+
+  it('the Mac’s words arriving after the take go onto the Studio’s voice once: before it is made, with it; after, into the video', async () => {
+    const words = [{ text: 'Hello', startMs: 500, endMs: 900 }, { text: 'there', startMs: 1000, endMs: 1400 }]
+    const take = await newTake(env.ctx, ['screen', 'microphone'])
+    await send(take.id, 'screen', 0, mp4(6000))
+    await send(take.id, 'microphone', 0, webm(50), { offsetSeconds: 0 })
+    const { recording } = await startRecording(env.ctx, {
+      screen: { uploadKey: take.keys.screen, name: 'Screen.mp4', pieces: 1 }, microphone: { uploadKey: take.keys.microphone, name: 'Microphone.m4a', offsetSeconds: 0, pieces: 1 },
+    }, 0)
+    await finishImport((await claimJob(deps(), 'w', ['import']))!.id, 'w', asset('a'))
+    await finishImport((await claimJob(deps(), 'w', ['import']))!.id, 'w', mic('b', 'b'.repeat(64)) as unknown as ReturnType<typeof asset>)
+    const made = await advanceRecording(env.ctx, recording.id, 0)
+    expect(made.project!.transcripts).toEqual([])
+    const withWords = await addRecordingWords(env.ctx, recording.id, { words })
+    expect(withWords.project!.transcripts.map((t) => [t.assetId, t.words.map((w) => w.text)])).toEqual([['b'.repeat(64), ['Hello', 'there']]])
+    // Once: sent again, nothing changes.
+    const again = await addRecordingWords(env.ctx, recording.id, { words: [{ text: 'Other', startMs: 0, endMs: 100 }] })
+    expect(again.project!.transcripts).toEqual(withWords.project!.transcripts)
+    await expect(addRecordingWords(as(BEN), recording.id, { words })).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('a whole upload counts for a take only once bound to it, and the recorder’s hash refuses a short copy when it is brought back', async () => {
+    const take = await newTake(env.ctx, ['screen', 'microphone'])
+    await send(take.id, 'screen', 0, mp4(6000))
+    await send(take.id, 'microphone', 0, webm(50))
+    const key = await upload(80)
+    await expect(bindWholeUpload(env.ctx, take.id, { role: 'microphone', uploadKey: 'uploads/00000000-0000-4000-8000-000000000000' })).rejects.toThrow('Upload the file first.')
+    await expect(bindWholeUpload(as(BEN), take.id, { role: 'microphone', uploadKey: key })).rejects.toMatchObject({ status: 404 })
+    await bindWholeUpload(env.ctx, take.id, { role: 'microphone', uploadKey: key })
+    expect((await liveTakeState(env.ctx, take.id)).take.whole).toEqual(['microphone'])
+    await recoverTake(env.ctx, take.id, 0, later(), undefined, { screen: 'd'.repeat(64) })
+    const inputs = env.tables.studio_job!.map((j) => j.input as { uploadKey: string; expectSha256?: string; provenance: { role: string } })
+    expect(inputs.find((i) => i.provenance.role === 'microphone')!.uploadKey).toBe(key)
+    expect(inputs.find((i) => i.provenance.role === 'screen')!.expectSha256).toBe('d'.repeat(64))
   })
 })

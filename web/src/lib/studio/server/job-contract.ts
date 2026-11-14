@@ -112,6 +112,12 @@ export type ImportInput = {
   partial?: boolean
   /** About how long the recording is, in seconds, when the app knows (time limits; a browser's WebM does not say). */
   durationHint?: number
+  /**
+   * The SHA-256 the recorder computed of the file as it wrote it (the Mac app's recorder). Only ever used to refuse:
+   * the bytes the worker read (joined pieces) must hash to it, else the copy on the Studio is not the recording and
+   * the import fails, the take kept on the computer to be sent again. Never a reason to accept anything.
+   */
+  expectSha256?: string
   provenance?: Record<string, unknown>
 }
 /** The worker wrote blob `asset.file` (assets/<sha256>.<ext>) before completing. The app registers the asset. */
@@ -126,7 +132,7 @@ export type ImportResult = { asset: EditorAsset }
  * the ordinary import decides. Its result is an import's, with `rawBytes` and `rawPieces` the app checks against the
  * sealed track.
  */
-export type LiveImportInput = Omit<ImportInput, 'partial' | 'durationHint' | 'trace'> & { conform: NonNullable<ImportInput['conform']> }
+export type LiveImportInput = Omit<ImportInput, 'partial' | 'durationHint' | 'trace' | 'expectSha256'> & { conform: NonNullable<ImportInput['conform']> }
 
 /**
  * A font face an export needs: `file` is the blob key of a woff2 file in the job's workspace

@@ -11,10 +11,14 @@
 //   GET    /live-takes                    the person's takes that stopped before they were finished -> {takes}
 //   GET    /live-takes/:id                where one of the person's takes stands, track by track -> {take}
 //   POST   /live-takes/:id/pieces         {role, index, bytes, seconds?, offsetSeconds?} -> {index, url, headers}
-//   POST   /live-takes/:id/recover[?wait=1] one of those made a video from what arrived -> {recording, project?, projectDigest?}
+//   POST   /live-takes/:id/recover[?wait=1] {projectId?, sha256?} one of those made a video from what arrived -> {recording, project?, projectDigest?}
+//   POST   /live-takes/:id/whole          {role, uploadKey} a track the Studio stopped taking pieces of, uploaded whole, bound to the take
+//   POST   /recordings/:id/tracks         {role, uploadKey, sha256?} a track the recording lost, sent again -> {recording}
+//   POST   /recordings/:id/words          {words} the words the Mac heard, arriving after the take -> {recording}
 //   DELETE /live-takes/:id                throw a take away
-import { discardLiveTake, livePiece, liveTakeState, savedTakes, startLiveTake } from '../live-takes'
-import { advanceRecording, listRecordings, recoverTake, startRecording, switchBeatTake } from '../recordings'
+import { bindWholeUpload, discardLiveTake, livePiece, liveTakeState, savedTakes, startLiveTake } from '../live-takes'
+import { addRecordingWords, advanceRecording, attachTrack, listRecordings, recoverTake, startRecording, switchBeatTake } from '../recordings'
+import { isUuid } from '../context'
 import { route, type StudioRoute } from '../router'
 
 const waits = (url: URL) => url.searchParams.get('wait') === '1' || url.searchParams.get('wait') === 'true'
@@ -32,6 +36,17 @@ export const recordingRoutes: StudioRoute[] = [
   route('GET', 'live-takes', async ({ ctx }) => savedTakes(ctx)),
   route('GET', 'live-takes/:id', async ({ ctx, params }) => liveTakeState(ctx, params.id!)),
   route('POST', 'live-takes/:id/pieces', async ({ ctx, params, body }) => livePiece(ctx, params.id!, await body())),
-  route('POST', 'live-takes/:id/recover', async ({ ctx, params, url }) => recoverTake(ctx, params.id!, waits(url) ? 100_000 : 0)),
+  route('POST', 'live-takes/:id/recover', async ({ ctx, params, url, body }) => {
+    // The Mac app names the video its draft of the take already opened as (recordings.ts RecordingInput.projectId), and
+    // its own hash of each file it sent whole (only ever a refusal).
+    const asked = ((await body().catch(() => ({}))) ?? {}) as { projectId?: unknown; sha256?: unknown }
+    const projectId = typeof asked.projectId === 'string' && isUuid(asked.projectId) ? asked.projectId : undefined
+    const sha256 = Object.fromEntries(Object.entries(asked.sha256 && typeof asked.sha256 === 'object' ? asked.sha256 : {})
+      .filter(([role, value]) => ['screen', 'camera', 'microphone', 'systemAudio'].includes(role) && typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)))
+    return recoverTake(ctx, params.id!, waits(url) ? 100_000 : 0, Date.now(), projectId, sha256)
+  }),
+  route('POST', 'live-takes/:id/whole', async ({ ctx, params, body }) => bindWholeUpload(ctx, params.id!, await body())),
+  route('POST', 'recordings/:id/tracks', async ({ ctx, params, body }) => attachTrack(ctx, params.id!, await body())),
+  route('POST', 'recordings/:id/words', async ({ ctx, params, body }) => addRecordingWords(ctx, params.id!, await body())),
   route('DELETE', 'live-takes/:id', async ({ ctx, params }) => discardLiveTake(ctx, params.id!)),
 ]

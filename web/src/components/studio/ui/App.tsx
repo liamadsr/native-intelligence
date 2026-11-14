@@ -47,6 +47,9 @@ import { BeatInspector } from './Storyboard';
 import { PreviewLayoutControls } from './PreviewLayoutControls';
 import { PreviewLayerControls } from './PreviewLayerControls';
 import { RecordDialog, type PunchTarget } from './RecordDialog';
+import { setLocalAsset } from '@/lib/studio/engine/asset-base';
+import { adoptFiled, hrefsFor, withWords, type ProvisionalRecord } from '../record/provisional';
+import { adoptKept, historyWithWords, notSavedHere, rewriteHistory, whenIdle, withRetries } from './provisional-editor';
 import { plainStep } from './record-steps';
 import { ExportDialog, exportFor, type ExportChoice, type ExportReceipt } from './ExportDialog';
 import { continueOnComputer, destinationOf, finishOnServer, finishedWords, startOnComputer, whenSavedHere } from './local-export';
@@ -90,6 +93,15 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
   /** The agent saved this video while it had unsaved edits here: load its version or keep these. */
   const [agentUpdate,setAgentUpdate]=useState<string|null>(null);
   const [manualIntent,setManualIntent]=useState<ManualOpenIntent|null>(null),[manualFollowUp,setManualFollowUp]=useState<RecordingSession|null>(null),claimedManualSessions=useRef(new Set<string>()),manualOpenLock=useRef(false);
+  /** The Mac app's take open before the Studio filed it (record/provisional.ts): its video id. Saving keeps it on this
+      computer, Export waits; once filed the edit carries on from the Studio's copies (adoptFiledTake). */
+  const provisionalOpen=useRef<string|null>(null),[provisionalId,setProvisionalId]=useState<string|null>(null),adopting=useRef(new Set<string>());
+  /** Filed takes still played from this computer while their video is open: their files go when the editor leaves it. */
+  const playedLocally=useRef(new Map<string,{sessionId:string;files:string[]}>());
+  /** Where an open draft's files play from (made from this run's key when it opened; never stored). */
+  const draftHrefs=useRef(new Map<string,Record<string,string>>());
+  /** Filed takes whose edit is yet to be saved over the Studio's: their record and files stay until it is. */
+  const serverSaveOwed=useRef(new Set<string>());
   const [showAppSettings,setShowAppSettings]=useState(false),pendingNavigation=useRef<(()=>Promise<void>|void)|null>(null),[appProfiles,setAppProfiles]=useState<AppProfileSummary[]>([]);
   const [profileDirty,setProfileDirty]=useState(false),profileEditor=useRef<AppProfileEditor|null>(null);
   const registerProfileEditor=useCallback((editor:AppProfileEditor|null)=>{profileEditor.current=editor;},[]);
@@ -146,7 +158,7 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
   const zoom=clip?.zooms.find(z=>z.id===selectedZoom);
   // The app's notifications (sonner, mounted by the dashboard shell above every dialog): one Studio notice at a time, as its own toast was.
   // Errors stay longer; a notice about a change Undo can take back carries the app's Undo action.
-  const say=useCallback((text:string,error=false,offer?:{undo?:boolean;open?:()=>void})=>{if(noticeId.current!==null)toast.dismiss(noticeId.current);noticeId.current=error?toast.error(text,{duration:15000}):offer?.undo?toast(text,{action:{label:'Undo',onClick:()=>undoRef.current()}}):offer?.open?toast(text,{action:{label:'Open',onClick:offer.open},duration:15000}):toast(text);},[]);
+  const say=useCallback((text:string,error=false,offer?:{undo?:boolean;open?:()=>void;retry?:()=>void})=>{if(noticeId.current!==null)toast.dismiss(noticeId.current);noticeId.current=error&&offer?.retry?toast.error(text,{action:{label:'Try again',onClick:offer.retry},duration:30000}):error&&offer?.open?toast.error(text,{action:{label:'Open',onClick:offer.open},duration:30000}):error?toast.error(text,{duration:15000}):offer?.undo?toast(text,{action:{label:'Undo',onClick:()=>undoRef.current()}}):offer?.open?toast(text,{action:{label:'Open',onClick:offer.open},duration:15000}):toast(text);},[]);
   const manual=useManualRecording(say);
   // While a take records, the editor is locked like during a presenter take; a take going into this edit keeps it locked until it lands.
   const manualLocked=!!manual.active&&(manual.active.status!=='finalizing'||!!manual.active.punch);
@@ -203,7 +215,7 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
   const transcription=useTranscription({readProject:readCurrentProject,change,editing:isEditing,notify:say});
   // Any project with spoken audio gets a local transcript as soon as it opens, so the Words lane fills in by itself.
   const autoTranscribed=useRef(new Set<string>());
-  useEffect(()=>{const p=currentRef.current;if(!p||recordingLock.current||transcription.info?.ready===false)return;
+  useEffect(()=>{const p=currentRef.current;if(!p||recordingLock.current||transcription.info?.ready===false||provisionalOpen.current===p.id)return;
     for(const clip of p.clips){const asset=p.assets.find(item=>item.id===clip.assetId);
       if(!asset?.hasAudio||p.transcripts.some(item=>item.assetId===asset.id))continue;
       const key=`${p.id}:${asset.id}`;if(autoTranscribed.current.has(key))continue;autoTranscribed.current.add(key);
@@ -229,6 +241,13 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
     const now=performance.now();if(!perf.throttle||!ref.isPlaying()||now-lastFrameCommit.current>=200){lastFrameCommit.current=now;setFrame(e.detail.frame);}}, onPlay=()=>{perfPlaying(true);setPlaying(true);},onPause=()=>{perfPlaying(false);setPlaying(false);const f=ref.getCurrentFrame();liveFrame.set(f);setFrame(f);};ref.addEventListener('frameupdate',onFrame);ref.addEventListener('play',onPlay);ref.addEventListener('pause',onPause);ref.addEventListener('ended',onPause);ref.addEventListener('ended',presenter.onEnded);ref.addEventListener('waiting',presenter.onWaiting);ref.addEventListener('waiting',perfWaiting);return()=>{ref.removeEventListener('frameupdate',onFrame);ref.removeEventListener('play',onPlay);ref.removeEventListener('pause',onPause);ref.removeEventListener('ended',onPause);ref.removeEventListener('ended',presenter.onEnded);ref.removeEventListener('waiting',presenter.onWaiting);ref.removeEventListener('waiting',perfWaiting);};},[!!project,presenter.noteFrame,presenter.onEnded,presenter.onWaiting]);
   useEffect(()=>{if(frame>=duration)seek(duration-1,false); if(project)setSelectedIds(ids=>{const next=ids.filter(v=>project.clips.some(c=>c.id===v));return next.length===ids.length?ids:next;});},[duration,project,frame,seek]);
   const save=useCallback(async()=>{
+    // A take not yet filed is kept on this computer (with what maps it to the Studio's copies), never sent: nothing the
+    // computer says about its media is stored on the Studio.
+    {const p=currentRef.current;if(p&&provisionalOpen.current===p.id){const signature=JSON.stringify(p),records=manual.records();
+      // Kept beside the take through the app; a write that fails says so ("Not saved"), and the edit stays in the editor.
+      try{if(!records)throw new Error('the app is not answering');const kept=await records.update(p.id,r=>({...r,draft:p}));if(!kept)throw new Error('its record is gone');}
+      catch(error){if(currentRef.current?.id===p.id){failedSaveSignature.current=signature;setSaveError(notSavedHere(error));}return false;}
+      if(currentRef.current?.id===p.id){savedRef.current=signature;setSaved(signature);failedSaveSignature.current='';setSaveError(null);}try{localStorage.removeItem(draftKey);}catch{}return true;}}
     if(saveInFlight.current)return saveInFlight.current;
     const p=currentRef.current;
     if(!p||busyRef.current||gestureHistory.current||activeGroup.current!==null||recordingLock.current)return false;
@@ -247,6 +266,8 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
         projectDigest.current=result.projectDigest;
         savedRef.current=JSON.stringify(result.project);setSaved(savedRef.current);
         failedSaveSignature.current='';setSaveError(null);
+        // A filed take's edit is now on the Studio: its record and files may go (once the Studio holds every byte).
+        if(serverSaveOwed.current.delete(p.id))void manual.records()?.update(p.id,r=>({...r,state:'adopted'})).catch(()=>undefined);
         setProjects(list=>[...list.filter(v=>v.id!==p.id),{id:p.id,title:p.title}]);
         try{const current=currentRef.current;if(current&&JSON.stringify(current)!==savedRef.current)localStorage.setItem(draftKey,serializeRecoveryDraft(current,projectDigest.current,savedRef.current));else localStorage.removeItem(draftKey);}catch{}
         return true;
@@ -379,6 +400,66 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
   const reorder=(source:string,target:string)=>{if(source===target)return;change(p=>{const clips=[...p.clips],from=clips.findIndex(c=>c.id===source),to=clips.findIndex(c=>c.id===target);if(from<0||to<0)return p;const [moved]=clips.splice(from,1);clips.splice(to,0,moved!);return {...p,clips};});};
   const openProject=async(projectId:string)=>{const token=++projectOpenSeq.current,navToken=navigationSeq.current;pause();setBusy('Opening video');try{const data=await request<{project:EditorProject;projectDigest:string}>(`/api/account/studio/projects/${encodeURIComponent(projectId)}`);if(token!==projectOpenSeq.current||navToken!==navigationSeq.current)return false;load(data.project,data.projectDigest);setBusy(null);localStorage.removeItem(draftKey);setDialog(null);setPendingProject(null);return true;}catch(e){if(token===projectOpenSeq.current&&navToken===navigationSeq.current)say(errorText(e),true);return false;}finally{if(token===projectOpenSeq.current&&navToken===navigationSeq.current)setBusy(null);}};
   const openRecordingProject=(next:EditorProject)=>{load(next,null);setSaved('');setTab('transcript');setImportedSource({assetId:next.assets[0]!.id,token:id()});setPendingRecording(null);setPendingProject(null);setDialog(null);const asset=next.assets[0]!;if(!transcription.retarget(asset,next)&&!next.transcripts.some(t=>t.assetId===asset.id)&&asset.hasAudio)transcription.start(asset,transcriptionTarget(next,asset.id));};
+  /** Open a take before it is filed: its edit as last kept here, its files played from this computer. */
+  const openDraft=async(record:ProvisionalRecord)=>{
+    if(manual.openElsewhere.includes(record.projectId)){say('This recording is open in another window. Close it there to open it here.',true);return;}
+    // Its files play from this computer, at addresses made from this run's key (never kept).
+    const key=await manual.takeKey();if(!key){say('The recording could not be opened from this computer. It opens here once the Studio has filed it.',true);return;}
+    const hrefs=hrefsFor(record.assets,record.sessionId,key);draftHrefs.current.set(record.projectId,hrefs);for(const [file,href] of Object.entries(hrefs))setLocalAsset(file,href);
+    provisionalOpen.current=record.projectId;setProvisionalId(record.projectId);load(record.draft,null);savedRef.current=JSON.stringify(record.draft);setSaved(savedRef.current);setShowAppSettings(false);
+    // The words come after Stop: the Words tab once there are some.
+    if(record.draft.transcripts.length)setTab('transcript');
+    setDialog(null);setPendingProject(null);setManualFollowUp(null);setProjects(items=>[...items.filter(item=>item.id!==record.projectId),{id:record.projectId,title:record.draft.title}]);};
+  /**
+   * The Studio filed a take opened before it was filed: carry on from its copies. In the open editor (once no gesture,
+   * save or operation is under way) every step of the history is rewritten onto the Studio's assets, so undo never brings
+   * a provisional one back; not edited, the Studio's own edit is taken as it is; edited, the edit is saved over it with its
+   * digest, once (a video changed elsewhere meanwhile refuses that save: the edit stays here, offered back). Not open,
+   * the same is done from the edit kept on this computer. A kept file keeps playing from the computer.
+   */
+  const adoptFiledTake=async(projectId:string):Promise<boolean>=>{
+    const records=manual.records(),store=manual.drafts;if(!records||!store)return false;
+    const record=await store.get(projectId).catch(()=>null);if(!record)return true;
+    const stillOpen=()=>currentRef.current?.id===projectId&&provisionalOpen.current===projectId;
+    // Never in the middle of a gesture, an edit group, an operation or a save: the editor goes on as it was until idle.
+    const idle=()=>!!(gestureHistory.current||activeGroup.current!==null||busyRef.current||saveInFlight.current);
+    if(stillOpen())await whenIdle(idle,stillOpen,ms=>new Promise(resolve=>setTimeout(resolve,ms)));
+    let server:{project:EditorProject;projectDigest:string};
+    try{server=await withRetries(()=>request<{project:EditorProject;projectDigest:string}>(`/api/account/studio/projects/${encodeURIComponent(projectId)}`),ms=>new Promise(resolve=>setTimeout(resolve,ms)));}
+    catch(error){say(`The recording is filed, but its video could not be read yet (${errorText(error)}). Your edits are kept on this computer.`,true,{retry:()=>void adoptFiledTake(projectId)});return false;}
+    if(stillOpen())await whenIdle(idle,stillOpen,ms=>new Promise(resolve=>setTimeout(resolve,ms)));
+    const editing=stillOpen();
+    const kept=(await store.get(projectId).catch(()=>null))??record;
+    const hrefs=draftHrefs.current.get(projectId)??{};
+    let adopted:ReturnType<typeof adoptFiled>;
+    try{adopted=adoptFiled(kept,editing?currentRef.current!:kept.draft,server.project,hrefs);}
+    catch(error){const text=`The recording is filed, but your edits could not be moved onto it (${errorText(error)}). They are kept on this computer.`;void records.update(projectId,r=>({...r,failed:text})).catch(()=>undefined);say(text,true);return true;}
+    if(adopted.missing.length)say(`The recording is filed without the ${adopted.missing.map(a=>((a.provenance as {role?:string}|undefined)?.role==='systemAudio'?'computer sound':(a.provenance as {role?:string}|undefined)?.role??'track')).join(' and ')}: its files stay on this computer and are sent again.`,true);
+    if(editing){
+      const swap=(p:EditorProject)=>{try{return adoptFiled(kept,p,server.project,hrefs).project;}catch{return null;}};
+      // Every step moved onto the Studio's copies: undo never brings a provisional one back, and never skips a step.
+      setHistory(h=>h&&h.current.id===projectId?rewriteHistory(h,swap,adopted.project):h);
+      for(const [file,href] of Object.entries(adopted.local))setLocalAsset(file,href);
+      projectDigest.current=server.projectDigest;savedRef.current=JSON.stringify(server.project);setSaved(savedRef.current);
+      provisionalOpen.current=null;setProvisionalId(null);draftHrefs.current.delete(projectId);
+      // Edited: the editor is now ahead of the Studio's copy and saves over it (with its digest) as any edit; until that
+      // save succeeds the record and the take stay. Not edited: nothing to save.
+      if(adopted.edited)serverSaveOwed.current.add(projectId);else void records.update(projectId,r=>({...r,state:'adopted'})).catch(()=>undefined);
+      playedLocally.current.set(projectId,{sessionId:kept.sessionId,files:[...Object.keys(adopted.local),...adopted.forget]});
+      // The voice has no words yet (the Mac heard none): transcribe it now that the Studio has it.
+      const voice=server.project.assets.find(asset=>asset.hasAudio&&!server.project.transcripts.some(t=>t.assetId===asset.id));
+      if(voice&&!kept.heard?.length){try{if(!transcription.retarget(voice,server.project))transcription.start(voice,transcriptionTarget(server.project,voice.id));}catch{/* the Words lane offers it again */}}
+      say('The recording is filed. Export is ready.');
+      return true;
+    }
+    // Not open: carried on from the edit kept on this computer (saved over the Studio's when it was changed).
+    const result=await adoptKept({store,records,read:async()=>server,save:(id,p,digest)=>saveProject(id,p,digest),release:id=>manual.releaseTake(id)},projectId);
+    if(result.outcome==='conflict'){const raw=serializeRecoveryDraft(result.recovery.project,result.recovery.digest,result.recovery.base);
+      say(result.message,true,{open:()=>navigate(async()=>{if(await openProject(projectId)&&currentRef.current)offerRecovery(parseRecoveryDraft(raw),currentRef.current,projectDigest.current??'');})});return true;}
+    if(result.outcome==='network'||result.outcome==='failed'||result.outcome==='unreadable'){say(result.message,true,{retry:()=>void adoptFiledTake(projectId)});return false;}
+    const settled='settled' in result?result.settled:undefined;if(settled&&!settled.safe&&settled.note)say(settled.note,true);
+    return true;
+  };
   const newRecordingProject=(asset:EditorAsset)=>{if(busyRef.current)return;try{const current=currentRef.current;if(!current)return;const next=projectFromRecording(current,asset,id(),id());navigate(()=>openRecordingProject(next));}catch(error){say(errorText(error),true);}};
   const navigate=(action:(token:number)=>Promise<void>|void)=>{if(presenter.phase==='ready'||presenter.phase==='requesting')presenter.cancel();if(recordingLock.current){say('Stop the presenter recording before switching videos.',true);return;}if(busyRef.current&&busyRef.current!=='Opening video')return;const token=++navigationSeq.current;projectOpenSeq.current++;if(profileEditor.current?.dirty()){pendingNavigation.current=()=>action(token);setPendingProject('action');setDialog('navigate');return;}if(currentRef.current&&JSON.stringify(currentRef.current)!==savedRef.current){void saveAll().then(ok=>{if(ok&&token===navigationSeq.current)void action(token);});return;}if(token===navigationSeq.current)void action(token);};
   const openRecording=(projectId:string)=>navigate(async()=>{await openProject(projectId);});
@@ -406,6 +487,9 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
   };
   const openManualProject=async(session:RecordingSession)=>{
     if(!session.projectId||manualOpenLock.current)return;
+    // The Mac app's take, opened at once from the files on the computer while the Studio files it.
+    const draft=session.draft&&manual.drafts?await manual.drafts.get(session.projectId).catch(()=>null):null;
+    if(draft){manualOpenLock.current=true;try{if(!await saveAll()){setManualFollowUp(session);return;}await openDraft(draft);say('Recording ready. Export is ready once it has finished uploading.');}finally{manualOpenLock.current=false;}return;}
     manualOpenLock.current=true;
     const origin={...manualOpenContext(),sessionId:session.id};
     let openToken:number|undefined;
@@ -468,6 +552,29 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
   useEffect(()=>{for(const session of manual.sessions){if(session.status!=='completed'||!session.projectId||claimedManualSessions.current.has(session.id)||manualIntent?.sessionId===session.id)continue;
     claimedManualSessions.current.add(session.id);if(manualUiRef.current.dialog==='record')continue;setManualFollowUp(session);say('Your recording is ready as its own video.',false,{open:()=>void openManualProject(session)});}
   },[manual.sessions]);// eslint-disable-line react-hooks/exhaustive-deps
+  // A take opened before it was filed is filed now: carry on from the Studio's copies.
+  // Not done (the video could not be read, or saved onto): it stays in `filed`, offered again with Try again.
+  useEffect(()=>{for(const projectId of manual.filed){if(adopting.current.has(projectId))continue;adopting.current.add(projectId);void adoptFiledTake(projectId).then(done=>{if(done)manual.adopted(projectId);}).finally(()=>{adopting.current.delete(projectId);});}
+  },[manual.filed]);// eslint-disable-line react-hooks/exhaustive-deps
+  // The words the Mac heard came after the take opened: into every step of the open draft (undo keeps them).
+  useEffect(()=>{for(const [projectId,words] of Object.entries(manual.heard)){manual.wordsTaken(projectId);
+    if(provisionalOpen.current!==projectId)continue;
+    void manual.drafts?.get(projectId).then(record=>{if(!record||provisionalOpen.current!==projectId)return;
+      const add=(p:EditorProject)=>withWords(p,record.assets,record,words);
+      setHistory(h=>h&&h.current.id===projectId?historyWithWords(h,add):h);
+      // The words are part of the edit as built: kept equal, an untouched draft still counts as not edited.
+      savedRef.current=JSON.stringify(add(JSON.parse(savedRef.current) as EditorProject));setSaved(savedRef.current);setTab('transcript');}).catch(()=>undefined);}
+  },[manual.heard]);// eslint-disable-line react-hooks/exhaustive-deps
+  // The editor left a video: a take not yet filed stays on this computer (its edit kept there); a filed take's files go.
+  useEffect(()=>{const open=project?.id;if(provisionalOpen.current&&provisionalOpen.current!==open){provisionalOpen.current=null;setProvisionalId(null);}
+    for(const [projectId,local] of playedLocally.current){if(projectId===open)continue;playedLocally.current.delete(projectId);for(const file of local.files)setLocalAsset(file,null);
+      // Its files go once its edit is on the Studio and the Studio holds every byte of them; else they stay, and why is said.
+      if(!serverSaveOwed.current.has(projectId))void manual.releaseTake(projectId).then(settled=>{if(!settled.safe&&settled.note)say(settled.note,true);});}
+  },[project?.id]);// eslint-disable-line react-hooks/exhaustive-deps
+  // After a restart: a take opened before it was filed is still here, and can be opened now (it files by itself).
+  useEffect(()=>{const store=manual.drafts;if(!store)return;void store.list().then(records=>{const record=records.find(r=>r.state==='filing'||r.state==='failed');if(!record)return;
+    say(record.failed??'A recording is still being filed. You can open it now: Export is ready once it has finished uploading.',!!record.failed,{open:()=>navigate(async()=>{const latest=await store.get(record.projectId).catch(()=>null);if(latest)await openDraft(latest);})});}).catch(()=>undefined);
+  },[manual.drafts]);// eslint-disable-line react-hooks/exhaustive-deps
   // Edits saved from outside the window (the agent in the app's chat, the MCP server) show up here within a couple of seconds.
   useEffect(()=>{const timer=setInterval(()=>{const current=currentRef.current;if(!current||gestureHistory.current||activeGroup.current!==null||document.hidden||recordingLock.current)return;
     if(JSON.stringify(current)!==savedRef.current)return;
@@ -530,7 +637,7 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
   else if(isDesktopApp()&&destinationOf(done.id))void whenSavedHere(done.id,studioLocalExport).then(outcome=>{const words=finishedWords(done,outcome);say(words.text,words.error,{open});});
   else{const words=finishedWords(done,null);say(words.text,words.error,{open});}}if(result.job.status==='running')timer=setTimeout(poll,700);}catch(e){if(alive){say(errorText(e),true);timer=setTimeout(poll,2500);}}};timer=setTimeout(poll,700);return()=>{alive=false;clearTimeout(timer);};},[job?.id,job?.status,append,say]);
   const exportProject=()=>{if(!project)return null;if(exportSize==='native')return project;const targetHeight=Math.min(1080,project.output.height),factor=targetHeight/project.output.height;const p=project.presentation;const clips=project.clips.map(clip=>({...clip,motion:{...clip.motion,layers:clip.motion.layers.map(layer=>layer.kind==='text'?{...layer,fontSizePx:Math.max(.1,layer.fontSizePx*factor)}:layer.kind==='frame'?{...layer,strokeWidthPx:Math.max(.01,layer.strokeWidthPx*factor),radiusPx:layer.radiusPx*factor}:layer.kind==='highlight'?{...layer,radiusPx:layer.radiusPx*factor}:layer)}}));return {...project,clips,captions:{...project.captions,fontSize:project.captions.fontSize*factor},output:{...project.output,width:Math.max(64,Math.round(project.output.width*factor/2)*2),height:targetHeight},presentation:{...p,blur:p.blur*factor,padding:p.padding*factor,inset:p.inset*factor,radius:p.radius*factor,shadow:{...p.shadow,blur:p.shadow.blur*factor,distance:p.shadow.distance*factor}}};};
-  const startExport=async(choice?:ExportChoice)=>{const snapshot=exportProject();if(!snapshot||recordingLock.current||busyRef.current||exportFor(job,exportReceipt,snapshot.id).job?.status==='running')return;pause();setBusy('Starting export');try{
+  const startExport=async(choice?:ExportChoice)=>{const snapshot=exportProject();if(!snapshot||provisionalOpen.current===snapshot.id||recordingLock.current||busyRef.current||exportFor(job,exportReceipt,snapshot.id).job?.status==='running')return;pause();setBusy('Starting export');try{
     // On this computer when the dialog chose it (local-export.ts: the server's refusals and an app that cannot start it go to the server, saying why).
     const result:{job:EditorJob;notice?:string}=choice?.where==='computer'?await startOnComputer(snapshot,choice.destination,{request,bridge:studioLocalExport,pick:name=>studioLocalExport.pickDestination(name)}):await request<{job:EditorJob}>('/api/account/studio/export',{project:snapshot});
     if(result.notice)setExportNotice({tone:'warn',text:result.notice});setExportReceipt({jobId:result.job.id,projectId:snapshot.id,title:snapshot.title,width:snapshot.output.width,height:snapshot.output.height,fps:snapshot.output.fps,durationFrames:projectDuration(snapshot)});setJob(result.job);}catch(e){say(errorText(e),true);}finally{setBusy(null);}};
@@ -555,8 +662,8 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
   return <main className="app with-rail" onDragEnter={e=>{if(showAppSettings||!externalDrag(e))return;e.preventDefault();fileDragDepth.current++;setFileDrag(true);}} onDragOver={e=>{if(showAppSettings){if(externalDrag(e))e.preventDefault();e.dataTransfer.dropEffect='none';return;}if(!externalDrag(e))return;e.preventDefault();e.dataTransfer.dropEffect=busy||dialog?'none':'copy';}} onDragLeave={e=>{if(showAppSettings||!externalDrag(e))return;e.preventDefault();fileDragDepth.current=Math.max(0,fileDragDepth.current-1);if(fileDragDepth.current===0)setFileDrag(false);}} onDrop={onFileDrop} onPointerDownCapture={e=>{if((e.target as HTMLElement).matches('input[type="range"]'))activeGroup.current=++groupCounter.current;}} onPointerUpCapture={()=>{if(!gestureHistory.current)activeGroup.current=null;}} onPointerCancelCapture={()=>{if(!gestureHistory.current)activeGroup.current=null;}}><AppRail page={page} hasProject={!!project} chooserOpen={chooserOpen||!project&&!busy} settingsOpen={showAppSettings} locked={presenter.active}
     openProjects={()=>leaveSettings(()=>setChooserOpen(open=>currentRef.current?!open:true))}
     openPage={id=>leaveSettings(()=>{setChooserOpen(false);setPage(id);})}/>
-  <div className="app-main" inert={chooserShown||undefined} aria-hidden={chooserShown||undefined}><header className="topbar app-header"><div className="hdr-left">{showAppSettings?<div className="hdr-static"><strong>Apps setup</strong><span className="hdr-save">Reusable app connections</span></div>:project?<><TitleField title={project.title} disabled={presenter.active} rename={title=>change(p=>({...p,title}))}/><span className={`hdr-save${saveError?' error':''}`} role="status" title={saveError??undefined}>{saveError?<>Not saved{conflict?null:<button className="save-retry" onClick={()=>void saveAll()}>Retry</button>}</>:savingProject||dirty?'Saving…':<><Icon name="check" size={14}/>Saved</>}</span></>:<span className="hdr-save">{busy?'Opening…':'No video open'}</span>}</div>
-  <div className="hdr-right header-actions" hidden={showAppSettings}>{project&&studioCan('costs')?<CostChip projectId={project.id}/>:null}<IconButton icon="undo" label="Undo (⌘Z)" onClick={undo} disabled={presenter.active||!history?.past.length}/><IconButton icon="redo" label="Redo (⇧⌘Z)" onClick={redo} disabled={presenter.active||!history?.future.length}/><div className="divider"/><button className="hdr-record" aria-label={manual.active?"Open the recording's controls":"Record a new take"} onClick={()=>{setDialog('record');void manual.refreshSessions();}} disabled={!manual.active&&(presenter.active||!!busy||running)} title={manual.active?'Open recording controls':'Record your screen, camera and microphone'}><Icon name="record"/><span className="record-label">{manual.active?'Recording…':manualFollowUp?'Recording ready':'Record'}</span></button><button className="primary" onClick={()=>setDialog('export')} disabled={presenter.active||!project||!!busy} title={running?'This video is exporting: open it to see its progress':undefined}><Icon name="export" size={16}/><span>{running&&exportHere.job?`Exporting ${Math.round(exportHere.job.progress*100)}%`:'Export'}</span></button><HeaderMenu items={[{label:'Save now',hint:'⌘S',disabled:!project||presenter.active,run:()=>void saveAll()},{label:'Appearance presets…',disabled:!project||presenter.active,run:()=>setDialog('presets')},{label:'Cursor',disabled:!project||presenter.active,run:showCursor},{label:'Projects and videos…',hint:'⌘O',disabled:presenter.active,run:()=>setChooserOpen(true)}]}/></div><div className="hdr-right header-actions" hidden={!showAppSettings}><button className="primary" onClick={()=>leaveSettings()}>Back to the video</button></div></header>
+  <div className="app-main" inert={chooserShown||undefined} aria-hidden={chooserShown||undefined}><header className="topbar app-header"><div className="hdr-left">{showAppSettings?<div className="hdr-static"><strong>Apps setup</strong><span className="hdr-save">Reusable app connections</span></div>:project?<><TitleField title={project.title} disabled={presenter.active} rename={title=>change(p=>({...p,title}))}/>{provisionalId===project.id?<span className={`hdr-save${manual.filing[project.id]?.failed?' error':''}`} role="status" title={manual.filing[project.id]?.failed}>{manual.filing[project.id]?.failed?<>Not filed<button className="save-retry" onClick={()=>void manual.refile(project.id)}>Try again</button></>:<><Icon name="check" size={14}/>Saved on this computer until the recording is filed</>}</span>:<span className={`hdr-save${saveError?' error':''}`} role="status" title={saveError??undefined}>{saveError?<>Not saved{conflict?null:<button className="save-retry" onClick={()=>void saveAll()}>Retry</button>}</>:savingProject||dirty?'Saving…':<><Icon name="check" size={14}/>Saved</>}</span>}</>:<span className="hdr-save">{busy?'Opening…':'No video open'}</span>}</div>
+  <div className="hdr-right header-actions" hidden={showAppSettings}>{project&&studioCan('costs')?<CostChip projectId={project.id}/>:null}<IconButton icon="undo" label="Undo (⌘Z)" onClick={undo} disabled={presenter.active||!history?.past.length}/><IconButton icon="redo" label="Redo (⇧⌘Z)" onClick={redo} disabled={presenter.active||!history?.future.length}/><div className="divider"/><button className="hdr-record" aria-label={manual.active?"Open the recording's controls":"Record a new take"} onClick={()=>{setDialog('record');void manual.refreshSessions();}} disabled={!manual.active&&(presenter.active||!!busy||running)} title={manual.active?'Open recording controls':'Record your screen, camera and microphone'}><Icon name="record"/><span className="record-label">{manual.active?'Recording…':manualFollowUp?'Recording ready':'Record'}</span></button><button className="primary" onClick={()=>setDialog('export')} disabled={presenter.active||!project||!!busy} title={running?'This video is exporting: open it to see its progress':provisionalId===project?.id?'Export is ready when the recording has finished uploading':undefined}><Icon name="export" size={16}/><span>{running&&exportHere.job?`Exporting ${Math.round(exportHere.job.progress*100)}%`:'Export'}</span></button><HeaderMenu items={[{label:'Save now',hint:'⌘S',disabled:!project||presenter.active,run:()=>void saveAll()},{label:'Appearance presets…',disabled:!project||presenter.active,run:()=>setDialog('presets')},{label:'Cursor',disabled:!project||presenter.active,run:showCursor},{label:'Projects and videos…',hint:'⌘O',disabled:presenter.active,run:()=>setChooserOpen(true)}]}/></div><div className="hdr-right header-actions" hidden={!showAppSettings}><button className="primary" onClick={()=>leaveSettings()}>Back to the video</button></div></header>
   {recoveryOffer&&!showAppSettings?<div className="app-banner" role="status"><Icon name="save"/><span>{recoveryOffer.same?<>You have unsaved changes{recoveryOffer.otherProject?<> to <b>“{recoveryOffer.draft.title}”</b></>:null} from {draftTime(recoveryOffer.savedAt)}.</>:<>You have unsaved changes{recoveryOffer.otherProject?<> to <b>“{recoveryOffer.draft.title}”</b></>:null} from {draftTime(recoveryOffer.savedAt)}, but the saved video changed since then (the agent may have edited it).</>}</span>{recoveryOffer.same?<><button className="primary" disabled={!!busy} onClick={()=>restoreRecovery(false)}>{recoveryOffer.otherProject?'Open and restore':'Restore'}</button><button className="subtle-button" onClick={discardRecovery}>Discard</button></>:<><button className="primary" onClick={discardRecovery}>Keep the saved version</button><button className="subtle-button" disabled={!!busy} onClick={()=>restoreRecovery(true)} title="Opens your unsaved edits as a separate video">Restore mine as a copy</button></>}</div>:null}
   {conflict&&project&&!showAppSettings?<div className="app-banner agent" role="status"><Icon name="agent"/><span><b>The agent updated this video</b> while you had unsaved changes here. Load its version, or keep yours (saving yours replaces its changes; they stay in the version history).</span><button className="primary" onClick={()=>void loadAgentVersion()}>Load its version</button><button className="subtle-button" onClick={()=>void keepLocalVersion()}>Keep mine</button></div>:null}
   {manual.active&&dialog!=='record'?<div className="rec-live-bar" role="status" aria-live="polite"><span className={`rec-live-dot ${manual.active.status}`}/>
@@ -581,7 +688,7 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
   {dialog==='record'?<RecordDialog title={punch?.beatIds?"Record into beats":punch?"Punch in":"New recording"} close={()=>{setPunch(null);if(!manual.active)manual.clearShare();closeDialog();}} cameraInputs={project?.storyboard?(()=>{const c=project.storyboard!.inputs?.cameras??{};return{main:c.A?.deviceId??null,extras:(['B','C','D'] as const).flatMap(k=>c[k]?[c[k]!.deviceId]:[])};})():null}
     setCameraInputs={project?.storyboard?(main)=>change(p=>{if(!p.storyboard)return p;const cameras:Record<string,{deviceId:string;name:string}>={...(p.storyboard.inputs?.cameras??{})};if(main)cameras.A={deviceId:main.id,name:main.name};else delete cameras.A;
       return{...p,storyboard:{...p.storyboard,inputs:{...(p.storyboard.inputs??{}),cameras}}};}):undefined} punch={punch} recording={manual} start={async options=>{await startManualRecording(options);}} open={session=>void openManualProject(session)}/>:null}
-  {dialog==='export'&&project?<ExportDialog project={project} job={exportHere.job} otherExport={exportHere.other} notice={exportNotice} receipt={exportReceipt} size={exportSize} setSize={setExportSize} output={exportProject()?.output??project.output} durationFrames={duration} busy={!!busy||running} start={choice=>void startExport(choice)} moveToServer={async jobId=>{try{const next=await finishOnServer(jobId,request,studioLocalExport);if(next.moved)setExportReceipt(r=>r&&r.jobId===jobId?{...r,jobId:next.job.id}:r);setJob(next.job);return null;}catch(e){return errorText(e);}}} continueHere={async (jobId,suggestedName)=>{try{await continueOnComputer(jobId,suggestedName,{request,bridge:studioLocalExport,pick:name=>studioLocalExport.pickDestination(name)});return null;}catch(e){return studioRefusal(e).message;}}} cancel={async()=>{const current=exportHere.job;if(!current)return false;if(current.where==='computer')void studioLocalExport.cancel(current.id).catch(()=>undefined);try{const v=await request<{job:EditorJob}>(`/api/account/studio/jobs/${current.id}/cancel`,{});setJob(v.job);return true;}catch{return false;}}} close={()=>{setExportNotice(null);closeDialog();}} beforeServerEdit={saveAll} openVideo={id=>{closeDialog();void openProject(id);}} say={say}/>:null}
+  {dialog==='export'&&project?<ExportDialog project={project} job={exportHere.job} otherExport={exportHere.other} notice={exportNotice} receipt={exportReceipt} size={exportSize} setSize={setExportSize} output={exportProject()?.output??project.output} durationFrames={duration} busy={!!busy||running} filing={provisionalId===project.id?{fraction:manual.filing[project.id]?.fraction??0,...(manual.filing[project.id]?.failed?{failed:manual.filing[project.id]!.failed}:{})}:null} retryFiling={()=>void manual.refile(project.id)} start={choice=>void startExport(choice)} moveToServer={async jobId=>{try{const next=await finishOnServer(jobId,request,studioLocalExport);if(next.moved)setExportReceipt(r=>r&&r.jobId===jobId?{...r,jobId:next.job.id}:r);setJob(next.job);return null;}catch(e){return errorText(e);}}} continueHere={async (jobId,suggestedName)=>{try{await continueOnComputer(jobId,suggestedName,{request,bridge:studioLocalExport,pick:name=>studioLocalExport.pickDestination(name)});return null;}catch(e){return studioRefusal(e).message;}}} cancel={async()=>{const current=exportHere.job;if(!current)return false;if(current.where==='computer')void studioLocalExport.cancel(current.id).catch(()=>undefined);try{const v=await request<{job:EditorJob}>(`/api/account/studio/jobs/${current.id}/cancel`,{});setJob(v.job);return true;}catch{return false;}}} close={()=>{setExportNotice(null);closeDialog();}} beforeServerEdit={saveAll} openVideo={id=>{closeDialog();void openProject(id);}} say={say}/>:null}
   </div>
   {chooserShown?<ProjectChooser currentProjectId={project?.id??null} currentTitle={project?.title} refreshKey={`${projects.length}:${project?.id}:${saved.length}`} disabled={!!busy||presenter.active} canClose={!!project} close={()=>setChooserOpen(false)}
     onProject={projectId=>navigate(async()=>{if(await openProject(projectId))setChooserOpen(false);})} onRecord={()=>{setChooserOpen(false);setPunch(null);setDialog('record');void manual.refreshSessions();}} onNew={()=>{setChooserOpen(false);setDialog('new-project');}} onRenameCurrent={title=>change(p=>({...p,title}))}

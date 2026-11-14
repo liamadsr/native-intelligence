@@ -79,6 +79,12 @@ type Props = {
   durationFrames: number;
   /** Something else is going on in the editor (saving, opening): Export waits. */
   busy: boolean;
+  /**
+   * The Mac app's take opened before the Studio filed it (record/provisional.ts): Export waits for it, says so with how
+   * far it is, and opens by itself once filed. `failed`: why it could not be filed (with Try again).
+   */
+  filing?: { fraction: number; failed?: string } | null;
+  retryFiling?: () => void;
   /** Export: on this computer (saved at `destination`), or, without a choice, on our server. */
   start: (choice?: ExportChoice) => void;
   /** "Finish on the server" for an export on this computer that waits for it: null when done, else why not. */
@@ -304,6 +310,7 @@ function Setup(props: Props & { ended: EditorJob | null; list: React.ReactNode; 
   const exportLabel = local.downloading ? 'Downloading…' : preparing && local.capability?.kind === 'prepare' ? `Download ${sizeWordsOf(local.capability.bytes)} and export` : 'Export MP4';
   const native = props.size === 'native', resolutionId = React.useId();
   return <div className="xd-setup">
+    {props.filing ? <FilingNotice filing={props.filing} retry={props.retryFiling} /> : null}
     {props.ended ? <div className="xd-banner xd-banner-warn" role="alert"><Icon name="warning" /><div><strong>{props.ended.status === 'cancelled' ? 'The export was cancelled' : props.ended.where === 'computer' ? 'The export did not finish on this computer' : 'The export did not finish'}</strong><span>{props.ended.status === 'cancelled' ? 'Nothing new was made. Your finished exports are still here.' : props.ended.error ?? 'Something went wrong while rendering. Try again.'}</span>
       {props.ended.status === 'failed' && props.ended.where === 'computer' ? <div className="xd-banner-actions"><Button size="sm" className="st-app-button" disabled={props.busy} onClick={() => props.start()}>Export on our server instead</Button></div> : null}</div></div> : null}
     {props.otherExport ? <p className="xd-other" role="status"><Icon name="export" size={14} /><span>{props.otherExport.title ? `“${props.otherExport.title}”` : 'Another video'} is exporting ({Math.round(Math.max(0, Math.min(1, props.otherExport.progress)) * 100)}%). You can export this one too.</span></p> : null}
@@ -333,9 +340,20 @@ function Setup(props: Props & { ended: EditorJob | null; list: React.ReactNode; 
     {here ? null : <p className="xd-where"><Icon name="saveTo" size={16} /><span>{whereItGoes()}</span></p>}
     <div className="xd-foot">
       <Button variant="ghost" className="st-app-button" onClick={props.close}>Cancel</Button>
-      <Button className="st-app-button" data-autofocus="" disabled={props.busy || local.downloading} onClick={() => void exportNow()}><Icon name="export" />{exportLabel}</Button>
+      <Button className="st-app-button" data-autofocus="" disabled={props.busy || local.downloading || !!props.filing} title={props.filing ? 'Export is ready when the recording has finished uploading' : undefined} onClick={() => void exportNow()}><Icon name="export" />{exportLabel}</Button>
     </div>
   </div>;
+}
+
+/** Why Export waits for a take opened before it was filed, how far the filing is, and Try again when it failed. */
+function FilingNotice({ filing, retry }: { filing: { fraction: number; failed?: string }; retry?: () => void }) {
+  const percent = Math.max(0, Math.min(100, Math.round(filing.fraction * 100)));
+  return filing.failed
+    ? <div className="xd-banner xd-banner-warn" role="alert"><Icon name="warning" /><div><strong>Export waits for the recording</strong><span>{filing.failed}</span>
+        {retry ? <div className="xd-banner-actions"><Button size="sm" className="st-app-button" onClick={retry}>Try again</Button></div> : null}</div></div>
+    : <div className="xd-banner" role="status"><Icon name="export" /><div><strong>Export is ready when the recording has finished uploading</strong>
+        <span>{percent}% there. You can keep editing: Export opens by itself.</span>
+        <div className="xd-filing-bar" role="progressbar" aria-label="Recording filed" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><span style={{ width: `${percent}%` }} /></div></div></div>;
 }
 
 /** The other formats: each one is made into a new video of its own, reframed for that shape, and opened. */

@@ -16,7 +16,15 @@
  *
  * A file that passes is copied, not encoded, into a plain MP4 with its index at the front (rewrap: a fragmented file
  * seeks slowly in a browser without an index), and the copy is checked again. Seconds instead of the conform's time.
+ *
+ * What the keep does not do is decode every frame (the conform did, by encoding them): that would bring back a wait
+ * that grows with the take. Damage on the way is caught otherwise: the copy is read under `-xerror`, both ends are
+ * decoded (assets.ts verifyDecodes), and the import refuses bytes whose hash is not the one the recorder computed as it
+ * wrote the file (ImportInput.expectSha256). What remains is a computer that deliberately writes a file damaged in its
+ * middle: it only breaks its own person's export, whose own decode reports it.
  */
+/** The largest side kept as it is: what the Mac app's recorder writes as H.264. */
+export const MAX_KEPT_SIDE = 4096
 import { open } from 'node:fs/promises'
 import { sourcesFit, stampsFit } from './fast-export.ts'
 import { mediaTimeout, parseRate, pictureStream, run, type Probe, type ProbeStream } from './media.ts'
@@ -63,6 +71,8 @@ export function readyProblem(p: FullProbe, packets: Packet[], fps: 30 | 60): str
   if (v.field_order && !['progressive', 'unknown'].includes(v.field_order)) return `its picture is ${v.field_order}, not progressive`
   const { width = 0, height = 0 } = v
   if (!(width > 0 && height > 0 && width % 2 === 0 && height % 2 === 0)) return `its size is ${width}x${height}`
+  // What the recorder writes as H.264 (Writers.swift videoSettings); a larger picture is HEVC there, and is conformed.
+  if (Math.max(width, height) > MAX_KEPT_SIDE) return `its picture is ${width}x${height}, larger than ${MAX_KEPT_SIDE} pixels a side`
   if (parseRate(v.avg_frame_rate) !== fps || parseRate(v.r_frame_rate) !== fps) return `it is not said to be ${fps} fps (${v.avg_frame_rate}, ${v.r_frame_rate})`
   const frames = Number(v.nb_read_packets)
   if (!Number.isInteger(frames) || frames < 1 || packets.length !== frames) return 'its frames could not all be counted'

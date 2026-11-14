@@ -1575,9 +1575,29 @@ export const studioRecorder = {
   /** Send planned piece `index` of a track from the disk to its signed link. */
   putPiece: (sessionId: string, role: StudioFileRole, index: number, url: string, headers: Record<string, string>) =>
     invokeStudio<{ bytes: number }>("studio_recorder_put_piece", { sessionId, role, index, url, headers }),
+  /** A stopped take's files' SHA-256 and size, and the microphone's waveform: the editor opens the take from them at Stop. */
+  takeMedia: (sessionId: string) =>
+    invokeStudio<{ tracks: { role: StudioFileRole; sha256: string; bytes: number }[]; waveform: number[] | null }>("studio_recorder_take_media", { sessionId }, (raw) =>
+      isObject(raw) && Array.isArray(raw.tracks)),
+  /** This run's key to the take files' scheme (studio-take://<key>/<session>/<role>): every URL of it names the key. */
+  takeToken: () => invokeStudio<string>("studio_recorder_take_token", undefined, (raw) => typeof raw === "string" && raw.length > 0),
+  /** Hold a take for this page (renew every few seconds), or let it go: `held` false when another window holds it. */
+  hold: (sessionId: string, holder: string, release = false) =>
+    invokeStudio<{ held: boolean }>("studio_recorder_hold", { sessionId, holder, release }, (raw) => isObject(raw) && typeof raw.held === "boolean"),
+  /** The editor's draft of a take opened before it was filed, kept beside the take (null when none). */
+  draftGet: (sessionId: string) => invokeStudio<{ draft: string | null }>("studio_recorder_draft_get", { sessionId }),
+  /** Keep the editor's draft beside the take; rejects when it could not be written (the page says "Not saved"). */
+  draftPut: (sessionId: string, draft: string) => invokeStudio<void>("studio_recorder_draft_put", { sessionId, draft }, () => true),
+  /** Every draft on this computer of the signed-in account's takes. */
+  drafts: () => invokeStudio<{ drafts: { sessionId: string; draft: string }[] }>("studio_recorder_drafts", undefined, (raw) => isObject(raw) && Array.isArray(raw.drafts)),
+  /** A stopped take's on-device words (they arrive after Stop), and whether the model is still reading. */
+  words: (sessionId: string) => invokeStudio<{ transcript: unknown; pending: boolean }>("studio_recorder_words", { sessionId }),
+  /** The on-device words of a stopped take, when they arrive: `{sessionId, transcript}` (transcript null when none came). */
+  onWords: (cb: (event: { sessionId: string; transcript: unknown }) => void) =>
+    onStudioEvent("studio-recorder://words", (raw): raw is { sessionId: string; transcript: unknown } => hasSession(raw), cb),
   /** Takes on this computer linked to a take on the Studio and not recording now: what a quit or a crash left to send. */
-  unfinishedTakes: () =>
-    invokeStudio<{ takes: StudioUnfinishedTake[] }>("studio_recorder_unfinished_takes", undefined, (raw) => isObject(raw) && Array.isArray(raw.takes)),
+  unfinishedTakes: (holder?: string) =>
+    invokeStudio<{ takes: StudioUnfinishedTake[] }>("studio_recorder_unfinished_takes", { holder: holder ?? null }, (raw) => isObject(raw) && Array.isArray(raw.takes)),
 };
 
 // ── Studio: exports on this computer, and saving an export (studio_local_*, studio_export_*) ──

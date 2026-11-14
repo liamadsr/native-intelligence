@@ -17,8 +17,8 @@ import { AssetCache } from '../src/cache.ts'
 import { EditorAssetSchema } from '../src/engine.ts'
 import { runImport } from '../src/jobs/import.ts'
 import type { JobContext } from '../src/jobs/context.ts'
-import { probe, run, videoStamps } from '../src/media.ts'
-import { fragmented, parsePackets, readyCheck, readyProblem, type FullProbe, type Packet } from '../src/recorder-files.ts'
+import { probe, run, runBuffer, videoStamps } from '../src/media.ts'
+import { fragmented, parsePackets, readyCheck, readyProblem, rewrap, type FullProbe, type Packet } from '../src/recorder-files.ts'
 import type { ImportInput } from '../../web/src/lib/studio/server/job-contract.ts'
 
 const fixture = (name: string) => join(import.meta.dirname, 'fixtures', 'recorder', name)
@@ -157,8 +157,8 @@ test('the recorder’s camera is kept at 30 fps; its microphone is copied into a
 
     const source = fixture('microphone.m4a')
     assert.ok(await fragmented(source))
-    const mic = await importFile(dir, source, { name: 'Microphone 14 Nov.m4a', sourceCursorHidden: false })
-    assert.ok(mic.logs.some((l) => /copying it into a plain M4A/.test(l)), mic.logs.join(' | '))
+    const mic = await importFile(dir, source, { name: 'Microphone 14 Nov.m4a', sourceCursorHidden: false, provenance: { recorder: 'desktop', role: 'microphone' } })
+    assert.ok(mic.logs.some((l) => /copied into a plain M4A, untouched/.test(l)), mic.logs.join(' | '))
     assert.equal(mic.asset.kind, 'audio')
     assert.match(mic.asset.file, /\.m4a$/)
     assert.ok(!(await fragmented(mic.cached)))
@@ -230,5 +230,85 @@ test('a take brought back after a crash is kept when it ends on a whole segment,
     const conformed = await importFile(dir, torn, { name: 'Screen.mp4', conform: { fps: 60, fit: true }, partial: true })
     assert.ok(conformed.logs.some((l) => /not kept as it is/.test(l)), conformed.logs.join(' | '))
     assert.ok(conformed.logs.some((l) => /Conforming the recording .*read as far as it goes/.test(l)), conformed.logs.join(' | '))
+  })
+})
+
+// ---- the browser's sound is not the Mac app's ---------------------------------------------------------------
+
+/** A browser's microphone take named .m4a: fragmented MP4 with Opus (or AAC), written as it recorded. */
+async function browserM4a(path: string, codec: 'libopus' | 'aac'): Promise<void> {
+  await run('ffmpeg', ['-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=3', '-c:a', codec, '-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', '-frag_duration', '500000', '-y', path])
+}
+
+test('a browser’s fragmented .m4a (Opus, or AAC cut mid-frame) is imported as it is, as before; the Mac app’s AAC cut short falls back to it too', async () => {
+  await withDir(async (dir) => {
+    const opus = join(dir, 'opus.m4a')
+    await browserM4a(opus, 'libopus')
+    assert.ok(await fragmented(opus))
+    for (const provenance of [undefined, { recorder: 'browser' }, { recorder: 'desktop' }]) {
+      const { asset, logs } = await importFile(dir, opus, { name: 'Microphone.m4a', ...(provenance ? { provenance } : {}) })
+      assert.equal(asset.kind, 'audio', JSON.stringify(provenance))
+      assert.ok(!logs.some((l) => /copied into a plain M4A/.test(l)), logs.join(' | '))
+    }
+    const aac = join(dir, 'aac.m4a')
+    await browserM4a(aac, 'aac')
+    const whole = await readFile(aac)
+    const cut = join(dir, 'cut.m4a')
+    await writeFile(cut, whole.subarray(0, Math.floor(whole.length * 0.7)))
+    const browser = await importFile(dir, cut, { name: 'Microphone.m4a', provenance: { recorder: 'browser' } })
+    assert.equal(browser.asset.kind, 'audio')
+    const mac = await importFile(dir, cut, { name: 'Microphone.m4a', provenance: { recorder: 'desktop' } })
+    assert.equal(mac.asset.kind, 'audio')
+    assert.ok(mac.logs.some((l) => /could not be copied into a plain M4A .*imported as it is/.test(l)), mac.logs.join(' | '))
+  })
+})
+
+test('the recorder’s own hash refuses bytes that are not the recording, and never accepts anything else', async () => {
+  await withDir(async (dir) => {
+    const source = fixture('camera.mp4')
+    const sha = await fileSha256(source)
+    const ok = await importFile(dir, source, { name: 'Camera.mp4', conform: { fps: 30 }, expectSha256: sha })
+    assert.equal(ok.asset.sourceFps, 30)
+    await assert.rejects(importFile(dir, source, { name: 'Camera.mp4', conform: { fps: 30 }, expectSha256: 'f'.repeat(64) }), /not the one on your computer/)
+  })
+})
+
+test('a picture larger than 4096 pixels a side is never kept as it is (the recorder writes those as HEVC)', () => {
+  const big = good()
+  big.p.streams[0]!.width = 5120
+  big.p.streams[0]!.height = 2880
+  assert.match(readyProblem(big.p, big.packets, 60) ?? '', /larger than 4096 pixels a side/)
+  const edge = good()
+  edge.p.streams[0]!.width = 4096
+  edge.p.streams[0]!.height = 2560
+  assert.equal(readyProblem(edge.p, edge.packets, 60), null)
+})
+
+test('the rewrap of a fragmented AAC file adds no edit list: the same samples at the same times, nothing moved by its priming', async () => {
+  await withDir(async (dir) => {
+    const source = join(dir, 'mic.m4a')
+    await browserM4a(source, 'aac')
+    const out = join(dir, 'rewrapped.m4a')
+    await rewrap(source, out, { audioOnly: true, seconds: 10 })
+    const startOf = async (path: string) => (await run('ffprobe', ['-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=start_time', '-of', 'csv=p=0', path])).stdout.trim()
+    assert.equal(await startOf(out), await startOf(source))
+    // Decoded as a player decodes them (priming handled the same on both): sample for sample the same sound.
+    const pcm = (path: string) => runBuffer('ffmpeg', ['-nostdin', '-v', 'error', '-i', path, '-map', '0:a', '-f', 's16le', '-ac', '1', '-'])
+    const [a, b] = [await pcm(source), await pcm(out)]
+    assert.ok(a.length > 0)
+    assert.equal(b.length, a.length)
+    assert.ok(Buffer.compare(a, b) === 0, 'the rewrapped file decodes to the same samples')
+    // No edit list was written that would shift the sound on the timeline (an elst with a media time other than the
+    // source's own would show as a different start above, and as a shifted decode).
+    const boxes = await readFile(out)
+    const elst = boxes.indexOf(Buffer.from('elst'))
+    if (elst >= 0) {
+      const version = boxes[elst + 4]!
+      const mediaTime = version === 1 ? Number(boxes.readBigInt64BE(elst + 4 + 4 + 4 + 8)) : boxes.readInt32BE(elst + 4 + 4 + 4 + 4)
+      const sourceBoxes = await readFile(source)
+      const sourceElst = sourceBoxes.indexOf(Buffer.from('elst'))
+      const sourceTime = sourceElst < 0 ? 0 : sourceBoxes[sourceElst + 4] === 1 ? Number(sourceBoxes.readBigInt64BE(sourceElst + 4 + 4 + 4 + 8)) : sourceBoxes.readInt32BE(sourceElst + 4 + 4 + 4 + 4)
+      assert.equal(mediaTime, sourceTime, 'its media time is the source’s own')
+    }
   })
 })

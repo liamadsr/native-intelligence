@@ -3,18 +3,38 @@
 // sends, each signed by the Studio with its fences; at Stop only the tail is left; a take a crash cuts short is sent on
 // from the disk at the next launch, then brought back from the Studio; a track the Studio refuses uploads whole after
 // Stop. The made-up Mac keeps its files in memory and checks plans as the app does (studio_recorder.rs extend_plan).
+import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { blobObject } from '@/lib/studio/server/job-contract'
-import { discardLiveTake, livePiece, liveTakeState, savedTakes, startLiveTake, QUIET_MS } from '@/lib/studio/server/live-takes'
-import { recoverTake, startRecording } from '@/lib/studio/server/recordings'
+import { discardLiveTake, livePiece, liveTakeState, savedTakes, startLiveTake, QUIET_MS, TRACKS } from '@/lib/studio/server/live-takes'
+import { startUpload } from '@/lib/studio/server/media'
+import { getRecord } from '@/lib/studio/server/records'
+import { advanceRecording, recoverTake, startRecording } from '@/lib/studio/server/recordings'
+import { bindWholeUpload } from '@/lib/studio/server/live-takes'
 import { StudioError } from '@/lib/studio/server/errors'
 import { AVA, fakeContext, WS } from '@/lib/studio/server/__tests__/fake'
 import { DesktopRecorder, type StudioRecorderBridge } from '../desktop'
 import { recordingRequest } from '../finish'
+import { hrefsFor, memoryDraftStore, provisionalRecord } from '../provisional'
 import { LiveError, type LiveApi } from '../live'
 import type { TakeFile, TakeRole } from '../types'
 
 const uploads = vi.hoisted(() => ({ tickets: 0 }))
+/** This browser's storage, in memory (the test runs in Node). */
+function memoryStorage(): Storage {
+  const items = new Map<string, string>()
+  return {
+    get length() { return items.size },
+    key: (i) => [...items.keys()][i] ?? null,
+    getItem: (k) => items.get(k) ?? null,
+    setItem: (k, v) => void items.set(k, String(v)),
+    removeItem: (k) => void items.delete(k),
+    clear: () => items.clear(),
+  }
+}
+beforeEach(() => {
+  vi.stubGlobal('localStorage', memoryStorage())
+})
 vi.mock('../../ui/client', () => ({
   request: async () => {
     uploads.tickets++
@@ -44,8 +64,8 @@ function studioApi(): LiveApi {
   }
   const id = (path: string) => decodeURIComponent(/live-takes\/([^/]+)/.exec(path)![1]!)
   return {
-    get: (path) => call(() => liveTakeState(env.ctx, id(path))),
-    post: (path, body) => call(() => (path.endsWith('/live-takes') ? startLiveTake(env.ctx, body) : livePiece(env.ctx, id(path), body))),
+    get: (path) => call(() => (path.includes('/recordings/') ? advanceRecording(env.ctx, decodeURIComponent(/recordings\/([^/?]+)/.exec(path)![1]!), 0) : liveTakeState(env.ctx, id(path)))),
+    post: (path, body) => call(() => (path.endsWith('/uploads') ? startUpload(env.ctx, body as Record<string, unknown>) : path.endsWith('/live-takes') ? startLiveTake(env.ctx, body) : path.endsWith('/whole') ? bindWholeUpload(env.ctx, id(path), body) : livePiece(env.ctx, id(path), body))),
     remove: (path) => call(() => discardLiveTake(env.ctx, id(path))),
     put: async () => {
       throw new Error('the Mac app sends its own pieces')
@@ -74,10 +94,20 @@ function mac() {
     stop: async () => ({
       sessionId: SESSION,
       t0: 100,
-      files: ROLES.map((role) => ({ role, path: `/takes/${SESSION}/${role}.${role === 'screen' ? 'mp4' : 'm4a'}`, bytes: disk[role]!.length, firstPts: startPts[role as 'screen'], durationSeconds: 12 })),
+      files: ROLES.map((role) => ({
+        role, path: `/takes/${SESSION}/${role}.${role === 'screen' ? 'mp4' : 'm4a'}`, bytes: disk[role]!.length, firstPts: startPts[role as 'screen'], durationSeconds: 12,
+        sha256: createHash('sha256').update(disk[role]!).digest('hex'), ...(role === 'screen' ? { width: 1280, height: 720, frames: 720, fps: 60 } : {}),
+      })),
     }),
-    upload: async (_session, role) => {
+    takeMedia: async () => ({ tracks: ROLES.map((role) => ({ role, sha256: createHash('sha256').update(disk[role]!).digest('hex'), bytes: disk[role]!.length })), waveform: [0.2, 0.5] }),
+    upload: async (_session, role, parts) => {
       calls.push(`whole ${role}`)
+      // As the app does: each part of the file, from the disk, to its link.
+      let at = 0
+      for (const part of parts) {
+        env.storage.put(part.url.replace('fake://upload/', ''), disk[role]!.slice(at, at + part.bytes))
+        at += part.bytes
+      }
       return { bytes: disk[role]!.length, sha256: 'x', parts: [] }
     },
     discard: async (session) => {
@@ -88,7 +118,7 @@ function mac() {
       listeners.push(cb)
       return () => listeners.splice(listeners.indexOf(cb), 1)
     },
-    segments: async (_session, role) => ({ bytes: disk[role]!.length, segments: segments[role]!.map((s, index) => ({ index, kind: index ? 'media' : 'init', ...s })) }),
+    segments: async (_session, role) => ({ bytes: disk[role]!.length, startPts: segments[role]!.length ? startPts[role as 'screen'] : null, segments: segments[role]!.map((s, index) => ({ index, kind: index ? 'media' : 'init', ...s })) }),
     linkLive: async (_session, takeId) => {
       state.linked = takeId
     },
@@ -118,7 +148,7 @@ function mac() {
     },
     unfinishedTakes: async () => ({
       takes: state.linked
-        ? [{ sessionId: SESSION, takeId: state.linked, state: state.finished, tracks: ROLES.map((role) => ({ role, bytes: disk[role]!.length, seconds: segments[role]!.at(-1)?.endSeconds ?? null, plan: plans[role] })) }]
+        ? [{ sessionId: SESSION, takeId: state.linked, state: state.finished, tracks: ROLES.map((role) => ({ role, bytes: disk[role]!.length, seconds: segments[role]!.at(-1)?.endSeconds ?? null, startPts: startPts[role as 'screen'], plan: plans[role] })) }]
         : [],
     }),
   }
@@ -206,13 +236,13 @@ describe('a Mac take uploaded while it records', () => {
     m.write('microphone', 9_000, 21, false)
     const take = await recorder.stop()
     expect(take.liveTakeId).toBe(takeId)
-    for (const file of take.files) expect(file.uploadKey).toBe(`live/${takeId}/${file.role === 'microphone' ? 'microphone' : 'screen'}`)
     const keys: Partial<Record<TakeRole, string>> = {}
     let tail = 0
     for (const file of take.files) {
       const before = m.calls.length
       keys[file.role] = await recorder.upload(take, file, () => undefined)
       tail += m.calls.length - before
+      expect(file.uploadKey).toBe(`live/${takeId}/${file.role === 'microphone' ? 'microphone' : 'screen'}`)
     }
     // Only the tail was left: one piece a track.
     expect(tail).toBe(2)
@@ -231,11 +261,12 @@ describe('a Mac take uploaded while it records', () => {
     expect(jobs.map((j) => j.uploadKey).sort()).toEqual([`live/${takeId}/microphone`, `live/${takeId}/screen`])
     expect(jobs.every((j) => !j.partial)).toBe(true)
 
-    // The next time the Studio opens, the take is the Studio's: the copy on the computer goes.
+    // The next time the Studio opens, the take is handed over but not made yet: the copy on the computer stays until
+    // the Studio holds every byte of it (filing.test.ts: it goes once it does, never before).
     const next = new DesktopRecorder(m.bridge, studioApi(), clock())
     expect(await next.sendUnfinished()).toBe(0)
-    expect(m.state.discarded).toEqual([SESSION])
-  })
+    expect(m.state.discarded).toEqual([])
+  }, 30_000)
 
   it('cut short by a crash: the next launch sends what the disk holds, and the take is brought back whole', async () => {
     const m = mac()
@@ -277,7 +308,7 @@ describe('a Mac take uploaded while it records', () => {
     expect(screen.bytes).toBe(m.disk.screen!.length)
     // Sent once: a second launch finds nothing more to send.
     expect(await new DesktopRecorder(m.bridge, studioApi(), clock()).sendUnfinished()).toBe(0)
-  })
+  }, 30_000)
 
   it('a track the Studio refuses keeps recording and uploads whole after Stop', async () => {
     const m = mac()
@@ -296,5 +327,101 @@ describe('a Mac take uploaded while it records', () => {
       await recorder.upload(take, file, () => undefined)
     }
     expect(m.calls.filter((c) => c.startsWith('whole')).sort()).toEqual(['whole microphone', 'whole screen'])
-  })
+  }, 30_000)
+
+  it('keeps every track on the screen’s clock when the page missed every segment event: live and after a crash', async () => {
+    const m = mac()
+    const time = clock()
+    const recorder = new DesktopRecorder(m.bridge, studioApi(), time)
+    await recorder.prepare(options)
+    await recorder.start({ onStatus: () => undefined, onEnded: () => undefined })
+    await settle()
+    const takeId = m.state.linked!
+    await record(m, time, 0, 8, false)
+    const take = await recorder.stop()
+    const mic = take.files.find((f) => f.role === 'microphone')!
+    await recorder.upload(take, mic, () => undefined)
+    expect(mic.uploadKey).toBeTruthy()
+    const track = await getRecord<{ offsetSeconds: number | null }>(env.ctx, TRACKS, `${takeId}:microphone`)
+    expect(track!.offsetSeconds).toBeCloseTo(-0.044, 6)
+
+    // A second take, its page gone mid-take with every event missed: sent on from the disk with its offset.
+    const m2 = mac()
+    const time2 = clock()
+    const recorder2 = new DesktopRecorder(m2.bridge, studioApi(), time2)
+    await recorder2.prepare(options)
+    await recorder2.start({ onStatus: () => undefined, onEnded: () => undefined })
+    await settle()
+    await record(m2, time2, 0, 8, false)
+    time2.dead = true
+    recorder2.dispose()
+    expect(await new DesktopRecorder(m2.bridge, studioApi(), clock()).sendUnfinished()).toBe(1)
+    const track2 = await getRecord<{ offsetSeconds: number | null; bytes: number }>(env.ctx, TRACKS, `${m2.state.linked}:microphone`)
+    expect(track2!.offsetSeconds).toBeCloseTo(-0.044, 6)
+    expect(track2!.bytes).toBe(m2.disk.microphone!.length)
+  }, 30_000)
+
+  it('a track the Studio stopped taking is sent whole after a restart, its folder kept until then, and the take brought back with it', async () => {
+    const m = mac()
+    const time = clock()
+    const recorder = new DesktopRecorder(m.bridge, studioApi(), time)
+    await recorder.prepare(options)
+    await recorder.start({ onStatus: () => undefined, onEnded: () => undefined })
+    await settle()
+    const takeId = m.state.linked!
+    await record(m, time, 0, 8)
+    // A microphone piece is in storage at another length: the Studio stops taking that track at the next piece.
+    const key = `live/${takeId}/microphone`
+    const state = (await liveTakeState(env.ctx, takeId)).take.tracks.find((t) => t.role === 'microphone')!
+    env.storage.put(blobObject(WS, key, state.stored - 1), new Uint8Array(10))
+    await record(m, time, 8, 12)
+    expect((await liveTakeState(env.ctx, takeId)).take.tracks.find((t) => t.role === 'microphone')!.stopped).toBe(true)
+    // The app quits before Stop: the page is gone, the recorder finishes its files.
+    time.dead = true
+    recorder.dispose()
+    await record(m, time, 12, 16, false)
+
+    const next = new DesktopRecorder(m.bridge, studioApi(), clock())
+    expect(await next.sendUnfinished()).toBe(1)
+    expect(m.calls).toContain('whole microphone')
+    const later = Date.now() + QUIET_MS + 1000
+    // Bound to the take on the Studio itself (POST /live-takes/:id/whole): whoever brings it back gets the whole track.
+    expect((await liveTakeState(env.ctx, takeId)).take.whole).toEqual(['microphone'])
+    await recoverTake(env.ctx, takeId, 0, later)
+    const job = env.tables.studio_job!.map((j) => j.input as { uploadKey: string; provenance: { role: string } }).find((j) => j.provenance.role === 'microphone')!
+    expect(job.uploadKey).toMatch(/^uploads\//)
+    const blob = env.tables.studio_blob!.find((b) => b.key === job.uploadKey)!
+    expect(blob.bytes).toBe(m.disk.microphone!.length)
+    // Handed over with the whole track, not made yet: the folder stays (it goes once the Studio holds every byte).
+    await new DesktopRecorder(m.bridge, studioApi(), clock()).sendUnfinished()
+    expect(m.state.discarded).toEqual([])
+  }, 30_000)
+
+  it('opens in the editor at Stop without waiting for the Studio, even one that never answers', async () => {
+    const m = mac()
+    const time = clock()
+    // A Studio that never answers: the take could not even be opened there.
+    const silent: LiveApi = { ...studioApi(), post: () => new Promise<never>(() => undefined) }
+    const recorder = new DesktopRecorder(m.bridge, silent, time)
+    await recorder.prepare(options)
+    await recorder.start({ onStatus: () => undefined, onEnded: () => undefined })
+    await record(m, time, 0, 12)
+    // Everything the page does from Stop to handing the edit to the editor (useManualRecording finish, App openDraft):
+    // the take, its draft, the record kept beside it and read back, the addresses its files play from. React drawing
+    // the editor is not in it (only the real app can show that).
+    const store = memoryDraftStore()
+    const started = performance.now()
+    const take = await recorder.stop()
+    const draft = await recorder.provisional(take, '7e7e7e7e-1111-4222-8333-444444444444', 'Recording · 14 Nov')
+    await store.put(provisionalRecord(draft!, { sessionId: take.sessionId, takeId: take.liveTakeId ?? null, title: 'Recording · 14 Nov', files: take.files, take }))
+    const kept = (await store.get('7e7e7e7e-1111-4222-8333-444444444444'))!
+    const hrefs = hrefsFor(kept.assets, kept.sessionId, 'k'.repeat(64))
+    const ms = performance.now() - started
+    console.info(`STOP_TO_EDITOR ${ms.toFixed(1)} ms (made-up Mac, no Studio; up to the editor's load, not its drawing)`)
+    expect(Object.keys(hrefs)).toHaveLength(2)
+    expect(draft).not.toBeNull()
+    expect(draft!.project.clips[0]).toMatchObject({ trimEndSourceFrame: 720 })
+    expect(draft!.project.audioTracks).toHaveLength(1)
+    expect(ms).toBeLessThan(1000)
+  }, 30_000)
 })

@@ -17,6 +17,8 @@
 import { request } from '../ui/client'
 import { STUDIO_API } from '../studio-env'
 import { fetchApi, LiveError, LiveTake, LiveTrack, serverRole, type FileRange, type LiveApi, type Piece } from './live'
+import { provisionalDraft, type Draft, type LocalMedia } from './provisional'
+import { PageLeases, settleRecording, wordsOnScreenClock } from './filing'
 import { sourceOffsets } from './media'
 import type {
   DesktopApp,
@@ -58,7 +60,10 @@ export type StudioRecorderBridge = {
   linkLive?: (sessionId: string, takeId: string) => Promise<unknown>
   planPieces?: (sessionId: string, role: string, pieces: { index: number; offset: number; length: number; seconds: number; offsetSeconds?: number | null }[]) => Promise<unknown>
   putPiece?: (sessionId: string, role: string, index: number, url: string, headers: Record<string, string>) => Promise<unknown>
-  unfinishedTakes?: () => Promise<unknown>
+  unfinishedTakes?: (holder?: string) => Promise<unknown>
+  hold?: (sessionId: string, holder: string, release?: boolean) => Promise<unknown>
+  /** A stopped take's files' hashes and sizes, and the microphone's waveform (the editor opens it from them). */
+  takeMedia?: (sessionId: string) => Promise<unknown>
 } & Record<string, unknown>
 
 let cached: Promise<StudioRecorderBridge | null> | null = null
@@ -245,20 +250,18 @@ export function normalizeStop(sessionId: string, raw: unknown, at: Date): Finish
       durationSeconds: f.durationSeconds === undefined ? null : num(f.durationSeconds),
       ...(typeof f.width === 'number' ? { width: f.width } : {}),
       ...(typeof f.height === 'number' ? { height: f.height } : {}),
+      ...(typeof f.frames === 'number' && Number.isInteger(f.frames) && f.frames > 0 ? { frames: f.frames } : {}),
+      ...(typeof f.fps === 'number' && Number.isFinite(f.fps) && f.fps > 0 ? { fps: f.fps } : {}),
+      ...(typeof f.sha256 === 'string' && /^[a-f0-9]{64}$/.test(f.sha256) ? { sha256: f.sha256 } : {}),
     }
   })
   const screenFirst = num(screen.firstPts, NaN)
   const t0 = num(s.t0, NaN)
   // Words are ms after t0; the screen file starts at its first timestamp.
   const shiftMs = Number.isFinite(screenFirst) && Number.isFinite(t0) ? (t0 - screenFirst) * 1000 : 0
-  const words: TakeWord[] = arr(obj(s.transcript).words).flatMap((value) => {
-    const w = obj(value)
-    const text = str(w.text).trim()
-    const startMs = num(w.startMs, NaN) + shiftMs
-    const endMs = num(w.endMs, NaN) + shiftMs
-    if (!text || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < 0) return []
-    return [{ text, startMs: Math.max(0, startMs), endMs: Math.max(0, startMs, endMs) }]
-  })
+  const words = wordsOnScreenClock(s.transcript, shiftMs)
+  // A track the recorder ended early (its input changed format mid-take): said plainly, the take is still whole up to there.
+  const notes = arr(s.notes).filter((n): n is string => typeof n === 'string' && n.trim().length > 0)
   return {
     kind: 'desktop',
     sessionId,
@@ -267,8 +270,12 @@ export function normalizeStop(sessionId: string, raw: unknown, at: Date): Finish
     sourceCursorHidden: s.sourceCursorHidden === undefined ? true : s.sourceCursorHidden === true,
     transcript: words.length ? { words } : null,
     durationSeconds: num(screen.durationSeconds, 0),
+    wordsShiftMs: shiftMs,
+    ...(s.wordsPending === true ? { wordsPending: true } : {}),
+    ...(notes.length ? { note: notes.join(' ') } : {}),
   }
 }
+
 
 /** Subscribe to one of the bridge's events under whichever name it has. Answers the unsubscribe. */
 function subscribe(b: StudioRecorderBridge, names: string[], handler: (payload: unknown) => void): Unlisten {
@@ -345,6 +352,7 @@ function appSending(native: Uploads, sessionId: string, offset: (role: TakeRole)
 export class SegmentFeed {
   private next = new Map<TakeRole, number>()
   private chains = new Map<TakeRole, Promise<void>>()
+  private lastEvent = Number.NEGATIVE_INFINITY
   /** Host seconds of each file's time 0, as the recorder said. */
   readonly starts = new Map<TakeRole, number>()
 
@@ -357,7 +365,15 @@ export class SegmentFeed {
     return screen === undefined || own === undefined ? null : Math.round((own - screen) * 1000) / 1000
   }
 
-  event(raw: unknown): void {
+  /** No event for a while (`now`, ms): read the index of every track, so the take still goes up while it records. */
+  poll(now: number): void {
+    if (now - this.lastEvent < 3000) return
+    this.lastEvent = now
+    for (const role of this.live.tracks.keys()) void this.catchUp(role)
+  }
+
+  event(raw: unknown, now = performance.now()): void {
+    this.lastEvent = now
     const e = obj(raw)
     const role = e.role as TakeRole
     if (!ROLES.includes(role) || !this.live.tracks.has(role)) return
@@ -373,6 +389,8 @@ export class SegmentFeed {
     const chain = (this.chains.get(role) ?? Promise.resolve()).then(async () => {
       try {
         const answer = obj(await this.native.segments(this.sessionId, role))
+        // Where the file starts on the take's clock, as the recorder kept it: known even when every event was missed.
+        if (typeof answer.startPts === 'number' && Number.isFinite(answer.startPts) && !this.starts.has(role)) this.starts.set(role, answer.startPts)
         for (const value of arr(answer.segments)) {
           const seg = obj(value)
           if (num(seg.index, -1) === (this.next.get(role) ?? 0)) this.push(role, { index: num(seg.index), offset: num(seg.offset, -1), length: num(seg.length, 0), endSeconds: seg.endSeconds })
@@ -395,7 +413,36 @@ export class SegmentFeed {
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 /** A take on the Studio as GET /live-takes/:id answers (src/lib/studio/server/live-takes.ts LiveTakeState). */
-type LiveTakeState = { id: string; status: string; tracks: { role: string; declared: number; stored: number; sealed: boolean; stopped: boolean }[] }
+type LiveTakeState = { id: string; status: string; recordingId?: string; whole?: string[]; tracks: { role: string; declared: number; stored: number; bytes?: number; sealed: boolean; stopped: boolean }[] }
+
+const WHOLE = 'ni-studio-whole:'
+/**
+ * Tracks of a take the Studio stopped taking pieces of, uploaded whole from the computer afterwards: the Studio's role
+ * → the upload's key. Bringing the take back names them (POST /live-takes/:id/recover `whole`), so its full sound and
+ * picture are used, not the start that came in pieces. Kept in this browser until the take is made a video.
+ */
+export function wholeTracks(takeId: string): Record<string, string> {
+  try {
+    const value = JSON.parse(localStorage.getItem(WHOLE + takeId) ?? '{}') as unknown
+    return value && typeof value === 'object' ? (Object.fromEntries(Object.entries(value).filter(([, key]) => typeof key === 'string')) as Record<string, string>) : {}
+  } catch {
+    return {}
+  }
+}
+function keepWhole(takeId: string, role: string, key: string) {
+  try {
+    localStorage.setItem(WHOLE + takeId, JSON.stringify({ ...wholeTracks(takeId), [role]: key }))
+  } catch {
+    // Not kept: the folder stays on the computer, and the next launch uploads it again.
+  }
+}
+function forgetWhole(takeId: string) {
+  try {
+    localStorage.removeItem(WHOLE + takeId)
+  } catch {
+    // Gone already.
+  }
+}
 
 let sending: Promise<number> | null = null
 
@@ -406,19 +453,20 @@ let sending: Promise<number> | null = null
  * computer. `skip`: takes this page is sending itself. Answers how many takes it went on with; never throws. One run
  * at a time.
  */
-export function sendUnfinishedTakes(native: StudioRecorderBridge, api: LiveApi = fetchApi, skip: ReadonlySet<string> = new Set()): Promise<number> {
-  sending ??= sendAll(native, api, skip).finally(() => {
+export function sendUnfinishedTakes(native: StudioRecorderBridge, api: LiveApi = fetchApi, skip: ReadonlySet<string> = new Set(), holder?: string, wait: (ms: number) => Promise<void> = sleep): Promise<number> {
+  sending ??= sendAll(native, api, skip, holder, wait).finally(() => {
     sending = null
   })
   return sending
 }
 
-async function sendAll(native: StudioRecorderBridge, api: LiveApi, skip: ReadonlySet<string>): Promise<number> {
+async function sendAll(native: StudioRecorderBridge, api: LiveApi, skip: ReadonlySet<string>, holder: string | undefined, wait: (ms: number) => Promise<void>): Promise<number> {
   const app = uploads(native)
   if (!app || typeof native.unfinishedTakes !== 'function') return 0
   let listed: unknown
   try {
-    listed = await native.unfinishedTakes()
+    // The takes this page holds (a draft it reopened) are listed for it; those another live page holds are not.
+    listed = await native.unfinishedTakes(holder)
   } catch {
     return 0
   }
@@ -436,20 +484,59 @@ async function sendAll(native: StudioRecorderBridge, api: LiveApi, skip: Readonl
       continue
     }
     if (state.status !== 'recording') {
-      // Made into a video, or thrown away: the copy here is no longer needed.
-      await native.discard(sessionId).catch(() => undefined)
+      // A take opened in the editor before it was filed is its filing's (filing.ts): it lets go of the files itself.
+      if (local.hasDraft === true) continue
+      if (state.recordingId) {
+        // Made into a recording: the files go only once the Studio holds every track as recorded. A track it lost
+        // (its import failed, its bytes differed, it stopped taking its pieces) is sent again whole first.
+        // One look (a lost track is sent again now; the files go at a later launch, once it is in).
+        const settled = await settleRecording({ api, native, sleep: wait }, state.recordingId, sessionId, { rounds: 1 })
+        if (settled.safe) {
+          await native.discard(sessionId).catch(() => undefined)
+          forgetWhole(takeId)
+        }
+        continue
+      }
+      // Thrown away on the Studio (never made into a recording): nothing of it is wanted.
+      if (state.status === 'dropped') {
+        await native.discard(sessionId).catch(() => undefined)
+        forgetWhole(takeId)
+      }
       continue
     }
+    const screenStart = arr(local.tracks).map(obj).find((t) => t.role === 'screen')?.startPts
     let went = false
     for (const trackValue of arr(local.tracks)) {
       const t = obj(trackValue)
       const role = t.role as TakeRole
       if (!ROLES.includes(role)) continue
       const server = state.tracks.find((x) => x.role === serverRole(role))
-      if (!server || server.sealed || server.stopped) continue
+      if (!server || server.sealed) continue
+      if (server.stopped) {
+        // The Studio stopped taking this track's pieces (it said why when it was recorded): the whole file goes up as an
+        // ordinary upload, named when the take is brought back. Until then the folder is never thrown away.
+        if (wholeTracks(takeId)[server.role] || state.whole?.includes(server.role)) continue
+        try {
+          const audio = role === 'microphone' || role === 'system-audio'
+          const ticket = await api.post<{ uploadKey: string; parts: unknown[] }>(`${STUDIO_API}/uploads`, {
+            name: desktopFileName(role, ROLE_EXT[role], new Date()), bytes: num(t.bytes), contentType: audio ? 'audio/mp4' : 'video/mp4',
+          })
+          await native.upload(sessionId, role, ticket.parts as UploadPart[])
+          // Bound to the take on the Studio (whoever brings it back gets the whole track), and kept here as well.
+          keepWhole(takeId, server.role, ticket.uploadKey)
+          await api.post(`${STUDIO_API}/live-takes/${encodeURIComponent(takeId)}/whole`, { role: server.role, uploadKey: ticket.uploadKey }).catch(() => undefined)
+          went = true
+        } catch {
+          // Tried again the next time the Studio opens.
+        }
+        continue
+      }
       const plan = arr(t.plan).map(obj).map((p) => ({ index: num(p.index), offset: num(p.offset), length: num(p.length), seconds: num(p.seconds), offsetSeconds: typeof p.offsetSeconds === 'number' ? p.offsetSeconds : null }))
       if (server.stored > plan.length) continue
-      const offsetSeconds = plan.at(-1)?.offsetSeconds ?? null
+      // Where this track sits on the screen's clock: from the starts the recorder kept beside the files (also when the
+      // page that recorded it missed every event), else as the plan said.
+      const ownStart = t.startPts
+      const offsetSeconds = typeof ownStart === 'number' && typeof screenStart === 'number' ? (role === 'screen' ? 0 : Math.round((ownStart - screenStart) * 1000) / 1000) : (plan.at(-1)?.offsetSeconds ?? null)
       const via = appSending(app, sessionId, () => offsetSeconds)
       const track = new LiveTrack(role, {
         api,
@@ -495,12 +582,17 @@ export class DesktopRecorder implements Recorder {
   private live: { take: LiveTake; feed: SegmentFeed } | null = null
   /** Stopped takes whose last pieces may still be going up, by their session id. */
   private stopped = new Map<string, LiveTake>()
+  /** This page's hold on the takes it records and sends (another page never sends on them meanwhile). */
+  readonly leases: PageLeases
 
   constructor(
     private readonly native: StudioRecorderBridge,
     private readonly api: LiveApi = fetchApi,
     private readonly time: { now: () => number; sleep: (ms: number) => Promise<void> } = { now: () => performance.now(), sleep },
-  ) {}
+    leases?: PageLeases,
+  ) {
+    this.leases = leases ?? new PageLeases(native)
+  }
 
   /** The ids on the Studio of the takes this recorder holds (never offered back as stopped: they are being sent). */
   liveTakeIds(): string[] {
@@ -509,10 +601,49 @@ export class DesktopRecorder implements Recorder {
     return ids
   }
 
-  /** Send what a quit or a crash kept on this computer from going up (sendUnfinishedTakes). Answers how many takes went on. */
+  /**
+   * Send what a quit or a crash kept on this computer from going up (sendUnfinishedTakes). `keep`: takes whose files
+   * stay on the computer even once the Studio has them (an edit opened before they were filed plays them). Answers
+   * how many takes went on.
+   */
   sendUnfinished(): Promise<number> {
     const mine = new Set([...this.stopped.keys(), ...(this.sessionId ? [this.sessionId] : [])])
-    return sendUnfinishedTakes(this.native, this.api, mine)
+    return sendUnfinishedTakes(this.native, this.api, mine, this.leases.holder, this.time.sleep)
+  }
+
+  /** The app's bridge (filing.ts files a take through it). */
+  get app(): StudioRecorderBridge {
+    return this.native
+  }
+
+  /** Let go of a stopped take without touching its files (kept: the Studio does not hold every byte of it yet). */
+  async forget(take: FinishedTake): Promise<void> {
+    this.stopped.delete(take.sessionId)
+    await this.leases.release(take.sessionId)
+    if (this.sessionId === take.sessionId) this.sessionId = null
+    this.stopListening()
+  }
+
+  /** The take as an edit from the files on this computer (provisional.ts), or null when it must wait for the Studio. */
+  async provisional(take: FinishedTake, projectId: string, title: string): Promise<Draft | null> {
+    if (typeof this.native.takeMedia !== 'function') return null
+    try {
+      const raw = obj(await this.native.takeMedia(take.sessionId))
+      const media: LocalMedia = {
+        tracks: arr(raw.tracks).map(obj).flatMap((t) => (ROLES.includes(t.role as TakeRole) && typeof t.sha256 === 'string' ? [{ role: t.role as TakeRole, sha256: t.sha256, bytes: num(t.bytes) }] : [])),
+        waveform: Array.isArray(raw.waveform) ? raw.waveform.filter((v): v is number => typeof v === 'number' && Number.isFinite(v)) : null,
+      }
+      return provisionalDraft({ take, media, projectId, title })
+    } catch {
+      return null
+    }
+  }
+
+  /** A filed take's files on this computer are no longer played: they go. */
+  async releaseTake(sessionId: string): Promise<void> {
+    this.stopped.delete(sessionId)
+    await this.native.discard(sessionId)
+    await this.leases.release(sessionId)
   }
 
   /** The take on the Studio, uploaded while it records, when the app can (else null: it uploads after Stop). */
@@ -588,6 +719,7 @@ export class DesktopRecorder implements Recorder {
     const sessionId = str(answer.sessionId)
     if (!sessionId) throw new Error('The recorder did not start. Try again.')
     this.sessionId = sessionId
+    void this.leases.hold(sessionId)
     const live = this.openLive(sessionId, answer)
     this.live = live
     // Listeners stay until the take is discarded (upload progress arrives after stop); stop and error only count while recording.
@@ -598,6 +730,7 @@ export class DesktopRecorder implements Recorder {
     this.unlisten.push(
       subscribe(this.native, ['onStatus', 'onStudioRecorderStatus'], (payload) => {
         if (!mine(payload)) return
+        live?.feed.poll(this.time.now())
         const p = obj(payload)
         const elapsedMs = typeof p.elapsedMs === 'number' ? p.elapsedMs : num(p.elapsed) * 1000
         const levels = obj(p.levels)
@@ -606,7 +739,7 @@ export class DesktopRecorder implements Recorder {
       }),
       // Each segment the recorder finished goes to its track's next piece.
       subscribe(this.native, ['onSegment'], (payload) => {
-        if (mine(payload)) live?.feed.event(payload)
+        if (mine(payload)) live?.feed.event(payload, this.time.now())
       }),
       // Stopped from the floating control (Stop, or Cancel: `cancelled: true`), or from another window.
       subscribe(this.native, ['onStopped', 'onStudioRecorderStopped'], (payload) => {
@@ -647,18 +780,20 @@ export class DesktopRecorder implements Recorder {
     const live = this.live
     this.live = null
     if (!live) return take
-    // Every segment of the finished files (the last ones' events may still be on their way), then each track that went
-    // up while it recorded is uploaded from there: only its last seconds are left. A track the Studio did not take,
-    // or whose bytes do not add up to the file, uploads whole as before.
+    // Every segment of the finished files (the last ones' events may still be on their way: read from the take's index
+    // on this computer, never the network). Stop waits for nothing more: whether each track goes on as it went up, or
+    // whole, is decided when it is uploaded (upload()), behind the editor.
     await Promise.all(take.files.map((file) => live.feed.catchUp(file.role)))
-    const onServer = await live.take.ready
-    for (const file of take.files) {
-      const track = live.take.tracks.get(file.role)
-      if (onServer && track?.key && (track.state === 'live' || track.state === 'retrying') && track.recordedBytes === file.bytes) file.uploadKey = track.key
-    }
-    if (onServer && live.take.id) take.liveTakeId = live.take.id
+    if (live.take.id) take.liveTakeId = live.take.id
     this.stopped.set(sessionId, live.take)
     return take
+  }
+
+  /** The take's id on the Studio, once the Studio has answered its start (null: it never took it). */
+  async liveTakeIdOf(sessionId: string): Promise<string | null> {
+    const live = this.stopped.get(sessionId)
+    if (!live) return null
+    return (await live.ready) && live.id ? live.id : null
   }
 
   async cancel(): Promise<void> {
@@ -675,11 +810,23 @@ export class DesktopRecorder implements Recorder {
       // Already gone.
     }
     this.stopListening()
-    if (sessionId) await this.native.cancel(sessionId)
+    if (sessionId) {
+      await this.native.cancel(sessionId)
+      await this.leases.release(sessionId)
+    }
   }
 
   async upload(take: FinishedTake, file: TakeFile, onProgress: (fraction: number) => void): Promise<string> {
-    const track = file.uploadKey ? this.stopped.get(take.sessionId)?.tracks.get(file.role) : undefined
+    // A track that went up while it recorded is finished from there: only its last seconds are left. One the Studio did
+    // not take, or whose bytes do not add up to the file, uploads whole as before.
+    const live = file.whole ? undefined : this.stopped.get(take.sessionId)
+    if (live && !file.uploadKey) {
+      const onServer = await live.ready
+      const sent = live.tracks.get(file.role)
+      if (onServer && sent?.key && (sent.state === 'live' || sent.state === 'retrying') && sent.recordedBytes === file.bytes) file.uploadKey = sent.key
+      if (onServer && live.id) take.liveTakeId = live.id
+    }
+    const track = file.uploadKey ? live?.tracks.get(file.role) : undefined
     if (file.uploadKey && track) {
       try {
         const done = await track.finish(onProgress)
@@ -720,12 +867,14 @@ export class DesktopRecorder implements Recorder {
     const live = this.stopped.get(take.sessionId)
     this.stopped.delete(take.sessionId)
     if (live) await live.discard().catch(() => undefined)
+    await this.leases.release(take.sessionId)
     if (this.sessionId === take.sessionId) this.sessionId = null
     this.stopListening()
   }
 
   dispose(): void {
     this.stopListening()
+    this.leases.releaseAll()
   }
 
   private stopListening() {

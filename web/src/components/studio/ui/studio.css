@@ -1628,6 +1628,9 @@
 .ni-studio .modal :is(.rd-banner,.xd-banner){display:flex;align-items:center;gap:12px;margin:0 0 16px;padding:12px 14px;border-radius:var(--st-r-xl);border:1px solid var(--st-line);background:var(--st-raised);font-size:13px;line-height:18px}
 .ni-studio .modal :is(.rd-banner,.xd-banner)>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .ni-studio .modal :is(.rd-banner,.xd-banner) strong{font-size:14px;font-weight:600;color:var(--st-text)}
+/* Export waiting for a take the Studio is still filing: how far it is. */
+.ni-studio .modal .xd-filing-bar{height:4px;margin-top:6px;border-radius:2px;background:var(--st-line);overflow:hidden}
+.ni-studio .modal .xd-filing-bar>span{display:block;height:100%;background:var(--st-primary);transition:width .4s ease}
 .ni-studio .modal :is(.rd-banner,.xd-banner) span{color:var(--st-text-2)}
 .ni-studio .modal :is(.rd-banner-warn,.xd-banner-warn){background:var(--st-warn-soft);border-color:color-mix(in oklab,var(--st-warn-text) 30%,transparent)}
 .ni-studio .modal :is(.rd-banner-warn,.xd-banner-warn)>svg{color:var(--st-warn-text);flex:none}

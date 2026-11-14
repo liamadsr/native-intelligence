@@ -155,6 +155,26 @@ describe('at Stop', () => {
     expect(jobs().find((j) => j.id === running.id)!.result).toMatchObject({ rawBytes: 2000, rawSha256: 'e'.repeat(64) })
   })
 
+  it('refuses a live job whose bytes are not the ones the recorder claimed (only ever a refusal), and takes the same bytes', async () => {
+    for (const [claimed, made] of [['f'.repeat(64), 'failed'], ['e'.repeat(64), 'done']] as const) {
+      const t = await recorded()
+      const running = (await claimJob(deps(), 'w', ['live-import']))!
+      along(running.id, 0.9)
+      const { recording } = await startRecording(env.ctx, { ...body(t), screen: { ...body(t).screen, sha256: claimed } }, 0)
+      await store(asset('a'))
+      await completeJob(deps(), running.id, 'w', { asset: { ...asset('a'), provenance: { rawBytes: 2000, rawPieces: 1, rawSha256: 'e'.repeat(64) } } })
+      for (const role of ['camera', 'microphone']) {
+        const j = (await claimJob(deps(), 'w', ['import']))
+        if (j) await failJob(deps(), j.id, 'w', `No ${role} today`)
+      }
+      const answer = (await advanceRecording(env.ctx, recording.id, 0)).recording
+      expect(answer.status, claimed).toBe(made)
+      if (made === 'failed') expect(answer.error).toMatch(/not the one on your computer/)
+      else expect(answer.received?.screen).toEqual({ sha256: 'e'.repeat(64), bytes: 2000 })
+      env.tables.studio_job = []
+    }
+  })
+
   it('falls back to the ordinary import when the live job fails', async () => {
     const t = await recorded()
     const live = take(t.id).liveJobs!

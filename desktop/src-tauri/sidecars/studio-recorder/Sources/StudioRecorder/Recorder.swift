@@ -147,7 +147,8 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         let end = firstPTS.map { $0 + Double(frames) / Double(fps) }
         var row: [String: Any] = ["role": "screen", "path": path, "finalized": finalized, "width": width, "height": height,
                                   "fps": Double(fps), "frames": frames, "gridMisses": grid.misses, "codec": codec,
-                                  "segments": grid.file.segments, "firstPts": jsonNumber(firstPTS), "lastPts": jsonNumber(end)]
+                                  "segments": grid.file.segments, "firstPts": jsonNumber(firstPTS), "lastPts": jsonNumber(end),
+                                  "sha256": grid.file.sha256 ?? NSNull()]
         if frames > 0 { row["durationSeconds"] = Double(frames) / Double(fps) }
         if let error = failure ?? (finalized ? nil : (problem ?? "The screen recording did not finalize")) { row["error"] = error }
         return row
@@ -211,7 +212,13 @@ final class MicSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @un
 /// it while the take records (its bytes are `offset`, `length` in the file).
 /// `startPts`: the host seconds of the file's time 0, the take's clock.
 func announce(_ file: SegmentFile, sessionId: String, role: String, start: @escaping () -> Double?) {
+    var keptStart = false
     file.onSegment = { record in
+        // The file's time 0 on the take's clock, kept beside it (`<file>.start`): a page that missed every event, or
+        // a take sent on after a crash, still knows where the file sits on the screen's clock.
+        if !keptStart, let at = start(), at.isFinite {
+            keptStart = (try? String(format: "%.9f", at).write(toFile: file.path + ".start", atomically: true, encoding: .utf8)) != nil
+        }
         var event = record.json
         event["event"] = "segment"
         event["sessionId"] = sessionId
@@ -593,9 +600,12 @@ final class Recorder: @unchecked Sendable {
         await stopSources(take)
         var files: [[String: Any]] = []
         var warnings = take.warnings
+        // Said to the person as they are (a track that ended before the take did).
+        var notes: [String] = []
         func collect(_ row: [String: Any]) {
             guard let path = row["path"] as? String else { return }
             if let error = row["error"] as? String { warnings.append("\(row["role"] as? String ?? "file"): \(error)") }
+            if let note = row["endedEarly"] as? String { notes.append(note) }
             guard row["finalized"] as? Bool == true else { return }
             var out = row
             out["bytes"] = fileSize(path)
@@ -623,6 +633,7 @@ final class Recorder: @unchecked Sendable {
             "tracePath": tracePath,
             "traceMode": take.trace?.mode ?? NSNull(),
             "warnings": warnings,
+            "notes": notes,
         ]
         if let mic = take.mic, let pcmPath = mic.pcmPath, let first = mic.pcmFirstPTS {
             payload["transcriptionPcm"] = ["path": pcmPath, "sampleRate": 16_000, "format": "f32le", "samples": mic.pcmSamples,

@@ -58,6 +58,8 @@ export function recordingRequest(take: FinishedTake, keys: Partial<Record<TakeRo
     ...(f.uploadKey && f.pieces ? { pieces: f.pieces, ...(f.partial ? { partial: true as const } : {}) } : {}),
     // The most the track is conformed to (a screen judged by its moving frames is never made faster than this).
     ...(f.frameRate && Number.isFinite(f.frameRate) && f.frameRate > 0 && f.frameRate <= 240 ? { frameRate: f.frameRate } : {}),
+    // The Mac app's hash of the file as it wrote it: the Studio refuses a copy that does not match it.
+    ...(f.sha256 && /^[a-f0-9]{64}$/.test(f.sha256) ? { sha256: f.sha256 } : {}),
   })
   const synced = (role: TakeRole) => {
     const f = file(role)
@@ -106,7 +108,7 @@ export async function uploadTake(recorder: Recorder, take: FinishedTake, onProgr
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 /** Tell the Studio about an uploaded take and follow it until it is a video (or failed). */
-export async function submitTake(body: ReturnType<typeof recordingRequest>, onProgress: (view: RecordingView) => void, isAlive: () => boolean = () => true): Promise<RecordingAnswer> {
+export async function submitTake(body: ReturnType<typeof recordingRequest> & { projectId?: string }, onProgress: (view: RecordingView) => void, isAlive: () => boolean = () => true): Promise<RecordingAnswer> {
   return follow(await request<RecordingAnswer>(`${STUDIO_API}/recordings?wait=1`, body), onProgress, isAlive)
 }
 
@@ -114,8 +116,10 @@ export async function submitTake(body: ReturnType<typeof recordingRequest>, onPr
  * Make a take that stopped before it was finished into a new video, from the pieces that reached the Studio, and
  * follow it as submitTake does.
  */
-export async function recoverSavedTake(id: string, onProgress: (view: RecordingView) => void, isAlive: () => boolean = () => true): Promise<RecordingAnswer> {
-  return follow(await request<RecordingAnswer>(`${STUDIO_API}/live-takes/${encodeURIComponent(id)}/recover?wait=1`, {}), onProgress, isAlive)
+export async function recoverSavedTake(id: string, onProgress: (view: RecordingView) => void, isAlive: () => boolean = () => true, projectId?: string): Promise<RecordingAnswer> {
+  // A track the Mac app sent whole after the Studio stopped taking its pieces is bound to the take on the Studio
+  // (POST /live-takes/:id/whole, desktop.ts sendAll): the Studio uses it in place of its pieces.
+  return follow(await request<RecordingAnswer>(`${STUDIO_API}/live-takes/${encodeURIComponent(id)}/recover?wait=1`, { ...(projectId ? { projectId } : {}) }), onProgress, isAlive)
 }
 
 /** The person's recordings of the last day, newest first; those still being prepared say how far along they are. */

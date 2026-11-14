@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreMedia
 import CoreVideo
+import CryptoKit
 import XCTest
 @testable import studio_recorder
 
@@ -193,6 +194,9 @@ final class WriterTests: XCTestCase {
         let index = try String(contentsOfFile: path + ".segments", encoding: .utf8).split(separator: "\n")
         XCTAssertEqual(index.count, segments.count)
         XCTAssertEqual(segments.last?.endSeconds ?? 0, Double(frames) / 60, accuracy: 0.001)
+        // The hash kept as the segments were written is the file's own (the Studio refuses other bytes).
+        let whole = try Data(contentsOf: URL(fileURLWithPath: path))
+        XCTAssertEqual(grid.file.sha256, SHA256.hash(data: whole).map { String(format: "%02x", $0) }.joined())
     }
 
     /// A 16-inch MacBook Pro's full screen (3472x2266) at 60 fps is H.264 (level 5.2) and passes every check; past 4096
@@ -210,6 +214,40 @@ final class WriterTests: XCTestCase {
         let problem = await grid.finish()
         XCTAssertNil(problem)
         try assertEditorReady(path, fps: 60, frames: 90, width: 3472, height: 2266)
+        try? FileManager.default.removeItem(atPath: path)
+        try? FileManager.default.removeItem(atPath: path + ".segments")
+    }
+
+    /// A 5K screen (5120x2880) is HEVC: the Studio conforms it, but the editor opens it at Stop from this file. WebKit's
+    /// `<video>` on the Mac plays through AVFoundation, so the file must open there and every frame decode, from a
+    /// file:// URL as the recorder leaves it (fragmented, as it grows) and by its timestamps.
+    func testHEVCScreenPlaysInAVFoundation() async throws {
+        let path = dir.appendingPathComponent("screen-5k.mp4").path
+        let grid = try GridVideo(path: path, width: 5120, height: 2880, fps: 60, screen: true)
+        grid.patience = 20_000
+        XCTAssertEqual(grid.codec, "hevc")
+        let pictures = [bgra(5120, 2880, 0), bgra(5120, 2880, 30)]
+        for n in 0..<60 { grid.put(pictures[n % 2]) }
+        let problem = await grid.finish()
+        XCTAssertNil(problem)
+        let asset = AVURLAsset(url: URL(fileURLWithPath: path))
+        let playable = try await asset.load(.isPlayable)
+        XCTAssertTrue(playable, "AVFoundation plays the HEVC take")
+        let track = try await asset.loadTracks(withMediaType: .video).first
+        let video = try XCTUnwrap(track)
+        let size = try await video.load(.naturalSize)
+        XCTAssertEqual(size, CGSize(width: 5120, height: 2880))
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderTrackOutput(track: video, outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange])
+        reader.add(output)
+        XCTAssertTrue(reader.startReading())
+        var decoded: [Double] = []
+        while let sample = output.copyNextSampleBuffer() {
+            if CMSampleBufferGetImageBuffer(sample) != nil { decoded.append(CMSampleBufferGetPresentationTimeStamp(sample).seconds) }
+        }
+        XCTAssertEqual(reader.status, .completed)
+        XCTAssertEqual(decoded.count, 60, "every frame decodes")
+        for (i, t) in decoded.enumerated() { XCTAssertEqual(t, Double(i) / 60, accuracy: 0.0005) }
         try? FileManager.default.removeItem(atPath: path)
         try? FileManager.default.removeItem(atPath: path + ".segments")
     }
@@ -255,6 +293,8 @@ final class WriterTests: XCTestCase {
         XCTAssertEqual(row["capturedPts"] as? Double ?? 0, t0 + 0.01, accuracy: 1e-9)
         XCTAssertEqual(row["firstPts"] as? Double ?? 0, t0 + 0.01 - 2112.0 / 48_000, accuracy: 1e-9)
         XCTAssertGreaterThan(row["segments"] as? Int ?? 0, 2)
+        XCTAssertEqual(row["sha256"] as? String, SHA256.hash(data: try Data(contentsOf: URL(fileURLWithPath: path))).map { String(format: "%02x", $0) }.joined())
+        XCTAssertEqual(row["silenceFilledSeconds"] as? Double, 0, "nothing was missing")
         let info = json(try probe(path, ["-show_streams", "-show_format", "-of", "json"]))
         let a = (info["streams"] as? [[String: Any]])?.first ?? [:]
         XCTAssertEqual(a["codec_name"] as? String, "aac")
@@ -269,6 +309,117 @@ final class WriterTests: XCTestCase {
         var error = 0.0
         for m in 100_000..<104_000 { error += pow(Double(decoded[m]) - Self.chirp(m - 2112), 2) }
         XCTAssertLessThan(error / 4000, 1e-6, "the sound is 2112 samples into the file")
+    }
+
+    /// Feed one buffer until the writer takes it (a busy encoder answers false; the test waits, outside the writer).
+    func feed(_ writer: AudioFileWriter, _ sample: CMSampleBuffer, at seconds: Double) async throws {
+        var tries = 0
+        while !writer.append(sample, hostSeconds: seconds) && tries < 2000 && writer.ended == nil { try await Task.sleep(nanoseconds: 500_000); tries += 1 }
+    }
+
+    /// A microphone writer started at host second `t0`, and the decoded file once finished.
+    func microphone(_ name: String, t0: Double = 9000) -> (AudioFileWriter, String) {
+        let path = dir.appendingPathComponent(name).path
+        let gate = CaptureGate()
+        gate.begin(t0)
+        return (AudioFileWriter(role: "microphone", path: path, channels: 1, gate: gate), path)
+    }
+
+    /// Buffers the microphone never delivered (or the encoder was too busy for): the sound after the gap stays at its
+    /// time, the gap is silence. One buffer missing (21 ms) too.
+    func testMicrophoneKeepsTimeAcrossMissingBuffers() async throws {
+        for (name, from, to) in [("gap", 48_000, 72_000), ("one", 48_128, 49_152)] {
+            let (writer, path) = microphone("microphone-\(name).m4a")
+            var first = 0, skipped = 0
+            while first < 48_000 * 4 {
+                if first >= from && first < to { skipped += 1 }
+                if !(first >= from && first < to) { try await feed(writer, pcm(first: first, count: 1024, seconds: 9000 + Double(first) / 48_000), at: 9000 + Double(first) / 48_000) }
+                first += 1024
+            }
+            let row = await writer.finish()
+            XCTAssertNil(row["error"], "\(row)")
+            let decoded = try decode(path)
+            var error = 0.0
+            for m in 100_000..<104_000 { error += pow(Double(decoded[m]) - Self.chirp(m - 2112), 2) }
+            XCTAssertLessThan(error / 4000, 1e-6, "\(name): the sound after the gap kept its time")
+            XCTAssertEqual(row["silenceFilledSeconds"] as? Double ?? 0, Double(skipped * 1024) / 48_000, accuracy: 0.0005, "\(name): exactly what was missing")
+        }
+    }
+
+    /// Timestamps that wobble by up to 3 ms either way, over thousands of buffers: no silence put in.
+    func testJitterFillsNothing() async throws {
+        let (writer, _) = microphone("microphone-jitter.m4a")
+        var generator = SystemRandomNumberGenerator()
+        for i in 0..<3000 {
+            let at = 9000 + Double(i * 1024) / 48_000 + Double.random(in: -0.003...0.003, using: &generator)
+            try await feed(writer, pcm(first: i * 1024, count: 1024, seconds: at), at: at)
+        }
+        let row = await writer.finish()
+        XCTAssertNil(row["error"], "\(row)")
+        XCTAssertEqual(row["silenceFilledSeconds"] as? Double, 0)
+    }
+
+    /// A microphone clock 30 ppm slow against the host's, for ten minutes: drift, never silence.
+    func testClockDriftFillsNothing() async throws {
+        let (writer, path) = microphone("microphone-drift.m4a")
+        let buffers = 48_000 * 600 / 1024
+        for i in 0..<buffers {
+            let at = 9000 + Double(i * 1024) / 48_000 * (1 + 30e-6)
+            try await feed(writer, pcm(first: i * 1024, count: 1024, seconds: at), at: at)
+        }
+        let row = await writer.finish()
+        XCTAssertNil(row["error"], "\(row)")
+        XCTAssertEqual(row["silenceFilledSeconds"] as? Double, 0)
+        XCTAssertEqual(row["buffers"] as? Int, buffers)
+        try? FileManager.default.removeItem(atPath: path)
+    }
+
+    /// A clock that jumps an hour ahead, then time that goes back 50 ms: nothing filled, the sound goes on.
+    func testClockJumpsAndBackwardsFillNothing() async throws {
+        let (writer, path) = microphone("microphone-jump.m4a")
+        var at = 9000.0
+        for i in 0..<200 {
+            if i == 100 { at += 3600 }
+            if i == 150 { at -= 0.05 }
+            try await feed(writer, pcm(first: i * 1024, count: 1024, seconds: at), at: at)
+            at += 1024.0 / 48_000
+        }
+        let row = await writer.finish()
+        XCTAssertNil(row["error"], "\(row)")
+        XCTAssertEqual(row["silenceFilledSeconds"] as? Double, 0)
+        XCTAssertEqual(row["durationSeconds"] as? Double ?? 0, 200 * 1024 / 48_000 + 2112.0 / 48_000, accuracy: 0.001, "the file holds the sound, not the hour")
+        let decoded = try decode(path)
+        var error = 0.0
+        for m in 150_000..<152_000 { error += pow(Double(decoded[m]) - Self.chirp(m - 2112), 2) }
+        XCTAssertLessThan(error / 2000, 1e-6, "the sound after the jump follows on")
+    }
+
+    /// The microphone switches to 24 kHz mid-take (earbuds): AVAssetWriter would encode it as 48 kHz, at twice the speed,
+    /// with no error. The track ends there, cleanly, and says so; what came before plays as it was recorded.
+    func testFormatChangeEndsTheTrackCleanly() async throws {
+        let (writer, path) = microphone("microphone-rate.m4a")
+        var first = 0
+        while first < 48_000 * 2 {
+            try await feed(writer, pcm(first: first, count: 1024, seconds: 9000 + Double(first) / 48_000), at: 9000 + Double(first) / 48_000)
+            first += 1024
+        }
+        var asbd = AudioStreamBasicDescription(mSampleRate: 24_000, mFormatID: kAudioFormatLinearPCM, mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+                                               mBytesPerPacket: 4, mFramesPerPacket: 1, mBytesPerFrame: 4, mChannelsPerFrame: 1, mBitsPerChannel: 32, mReserved: 0)
+        var format: CMAudioFormatDescription?
+        CMAudioFormatDescriptionCreate(allocator: nil, asbd: &asbd, layoutSize: 0, layout: nil, magicCookieSize: 0, magicCookie: nil, extensions: nil, formatDescriptionOut: &format)
+        var block: CMBlockBuffer?
+        CMBlockBufferCreateWithMemoryBlock(allocator: nil, memoryBlock: nil, blockLength: 2048, blockAllocator: nil, customBlockSource: nil, offsetToData: 0, dataLength: 2048, flags: kCMBlockBufferAssureMemoryNowFlag, blockBufferOut: &block)
+        var sample: CMSampleBuffer?
+        CMAudioSampleBufferCreateReadyWithPacketDescriptions(allocator: nil, dataBuffer: block!, formatDescription: format!, sampleCount: 512, presentationTimeStamp: CMTime(seconds: 9002, preferredTimescale: 24_000), packetDescriptions: nil, sampleBufferOut: &sample)
+        XCTAssertFalse(writer.append(sample!, hostSeconds: 9000 + Double(first) / 48_000))
+        XCTAssertFalse(writer.append(pcm(first: first, count: 1024, seconds: 9002.05), hostSeconds: 9002.05), "ended: nothing more goes in")
+        let row = await writer.finish()
+        XCTAssertNil(row["error"], "\(row)")
+        XCTAssertEqual(row["endedEarly"] as? String, "The microphone changed its format mid-take (48000 Hz to 24000 Hz): its recording ends there.")
+        let decoded = try decode(path)
+        var error = 0.0
+        for m in 50_000..<52_000 { error += pow(Double(decoded[m]) - Self.chirp(m - 2112), 2) }
+        XCTAssertLessThan(error / 2000, 1e-6)
     }
 
     func decode(_ path: String) throws -> [Float] {
