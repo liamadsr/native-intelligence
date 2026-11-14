@@ -36,6 +36,18 @@ import { composeFast, joinWavs, soundRanges } from '../fast-export-run.ts'
 import { checkAborted, JobError, stage, type JobHandler } from './context.ts'
 
 /** The project as the job froze it, checked (the engine's own migration and rules). */
+/**
+ * Why the fast export fell back, for its log line: the error's first line, bounded; a tool's error keeps its head
+ * (which tool, how it ended) and its last stderr line (FFmpeg's own reason), whatever is cut between. Pure.
+ */
+export function whyNotHeld(err: unknown, max = 400): string {
+  const line = String((err as Error)?.message ?? err).split('\n')[0]!.trim()
+  if (line.length <= max) return line
+  const parts = line.split(' | ')
+  const last = parts.length > 1 ? parts.at(-1)!.slice(0, Math.floor(max / 2)) : ''
+  return last ? `${line.slice(0, max - last.length - 5)} … | ${last}` : `${line.slice(0, max - 1)}…`
+}
+
 export function frozenProject(value: unknown) {
   try {
     return structuredClone(parseEditorProject(value))
@@ -151,7 +163,7 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
           ctx.log(`Composed in ${((Date.now() - started) / 1000).toFixed(1)} s`)
         } catch (err) {
           checkAborted(ctx.signal)
-          ctx.log(`The fast export did not hold (${String((err as Error)?.message ?? err).split('\n')[0]!.slice(0, 300)}): rendering in Chrome instead`)
+          ctx.log(`The fast export did not hold (${whyNotHeld(err)}): rendering in Chrome instead`)
           output = join(ctx.scratch, 'video.partial.mp4')
           // Its parts, picture, sound and checked frames (two to three times the video's size) go before Chrome starts.
           for (const name of await readdir(ctx.scratch).catch(() => [] as string[])) if (/^(fast-|video\.fast\.)/.test(name)) await removeQuietly(join(ctx.scratch, name))

@@ -49,6 +49,23 @@ export function fenceInputs(file: string, args: readonly string[]): string[] {
   return out
 }
 
+/**
+ * How a tool ended, for its error: its output past Node's read limit, stopped by us (its time limit), killed by a
+ * signal (SIGKILL with nothing on stderr is most often the system's memory limit), or its own exit status. Pure.
+ */
+export function how(e: { code?: unknown; signal?: unknown; killed?: boolean }): string {
+  if (e.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return ' (its output passed the read limit)'
+  if (e.killed) return ' (timed out)'
+  if (typeof e.signal === 'string' && e.signal) return ` (killed by ${e.signal}${e.signal === 'SIGKILL' ? ', most often the memory limit' : ''})`
+  if (typeof e.code === 'number') return ` (exit ${e.code})`
+  return ''
+}
+/** The last lines of a tool's stderr, on one line and bounded, for its error. Pure. */
+export function tailOf(stderr: unknown): string {
+  const tail = String(stderr ?? '').trim().split('\n').map((l) => l.trim()).filter(Boolean).slice(-4).join(' | ').slice(0, 600)
+  return tail ? `: ${tail}` : ''
+}
+
 /** Run a tool and collect its output. The signal kills it (a cancelled job), as does the timeout. */
 export function run(file: string, args: string[], opts: RunOptions = {}): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -57,8 +74,7 @@ export function run(file: string, args: string[], opts: RunOptions = {}): Promis
       const e = err as NodeJS.ErrnoException & { killed?: boolean }
       if (opts.signal?.aborted) return reject(new ToolError(`${file} stopped: the job was cancelled`, 'ABORT_ERR'))
       if (e.code === 'ENOENT') return reject(new ToolError(`${file} is not installed`, 'ENOENT'))
-      const tail = String(stderr || '').trim().split('\n').slice(-4).join(' | ').slice(0, 600)
-      reject(new ToolError(`${file.replace(/^.*\//, '')} failed${e.killed ? ' (timed out)' : ''}${tail ? `: ${tail}` : ''}`, e.code ?? null))
+      reject(new ToolError(`${file.replace(/^.*\//, '')} failed${how(e)}${tailOf(stderr)}`, e.code ?? null))
     })
   })
 }
@@ -69,8 +85,8 @@ export function runBuffer(file: string, args: string[], opts: RunOptions = {}): 
     execFile(toolPath(file), fenceInputs(file, args), { timeout: opts.timeout ?? 180_000, maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024, signal: opts.signal, encoding: 'buffer', windowsHide: true }, (err, stdout, stderr) => {
       if (!err) return resolve(stdout)
       if (opts.signal?.aborted) return reject(new ToolError(`${file} stopped: the job was cancelled`, 'ABORT_ERR'))
-      const tail = String(stderr ?? '').trim().split('\n').slice(-4).join(' | ').slice(0, 600)
-      reject(new ToolError(`${file.replace(/^.*\//, '')} failed${tail ? `: ${tail}` : ''}`, (err as NodeJS.ErrnoException).code ?? null))
+      const e = err as NodeJS.ErrnoException & { killed?: boolean }
+      reject(new ToolError(`${file.replace(/^.*\//, '')} failed${how(e)}${tailOf(stderr)}`, e.code ?? null))
     })
   })
 }

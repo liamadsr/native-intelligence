@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildAsset, measure, missingDuration } from '../src/assets.ts'
 import { AssetCache, evictionPlan } from '../src/cache.ts'
-import { constantFrameTiming, kindOfName, onFrameGrid, parseProbe, parseRate, parseStamps, VARIABLE_RATE, waveformPeaks, type Probe } from '../src/media.ts'
+import { constantFrameTiming, how, kindOfName, tailOf, onFrameGrid, parseProbe, parseRate, parseStamps, VARIABLE_RATE, waveformPeaks, type Probe } from '../src/media.ts'
 import { parseLoudnorm, parseTruePeak } from '../src/master.ts'
 import { pngSize, unstagedNeeds } from '../src/render.ts'
 import { failureMessage } from '../src/runner.ts'
@@ -162,4 +162,15 @@ test('what a project needs that the worker does not stage yet is named', () => {
   // Code scenes are staged now (scenes.ts): only the fonts are named.
   assert.equal(lines.length, 1)
   assert.match(lines[0]!, /Satoshi, Inter, serif/)
+})
+
+test("a tool's error says how it ended: killed (the memory limit, most often), timed out, its exit, its last stderr lines", () => {
+  assert.equal(how({ signal: 'SIGKILL', killed: false, code: null }), ' (killed by SIGKILL, most often the memory limit)')
+  assert.equal(how({ signal: 'SIGSEGV', killed: false, code: null }), ' (killed by SIGSEGV)')
+  assert.equal(how({ signal: 'SIGTERM', killed: true, code: null }), ' (timed out)')
+  assert.equal(how({ code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER', killed: true, signal: 'SIGTERM' }), ' (its output passed the read limit)')
+  assert.equal(how({ code: 1, signal: null }), ' (exit 1)')
+  assert.equal(tailOf(''), '')
+  assert.equal(tailOf('a\n\n  b  \nc\nd\ne\n'), ': b | c | d | e')
+  assert.ok(tailOf('x'.repeat(2000)).length <= 602)
 })

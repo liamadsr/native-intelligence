@@ -14,7 +14,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { probe, run } from './media.ts'
 import { concatLine } from './platform.ts'
-import { FAST_ENCODER, planFiles, segmentArgs, sourcesFit, stampsFit, bubbleGeometry, bubbleSampling, type FastPlan, type SegmentPlan } from './fast-export.ts'
+import { FAST_ENCODER, hashTaps, planFiles, segmentArgs, sourcesFit, stampsFit, bubbleGeometry, bubbleSampling, type FastPlan, type SegmentPlan } from './fast-export.ts'
 
 /** The least a sampled frame may score against Chrome's drawing of it: the whole frame, and inside the bubble. */
 export const CHECK_DB = { frame: 34, bubble: 25 }
@@ -120,7 +120,7 @@ export async function composeFast(r: FastRun): Promise<string> {
   // The source frames FFmpeg's graph actually had, at the sampled places, against the plan's: bit for bit.
   for (const [i, seg] of plan.segments.entries()) {
     const h = hashes[i]!
-    const got = { screen: await readHashes(h.screenOut, h.screen.length), camera: seg.bubble ? await readHashes(h.cameraOut, h.camera.length) : [] }
+    const got = { screen: await readHashes(h.screenOut, h.screen, seg.screen.map.length), camera: seg.bubble ? await readHashes(h.cameraOut, h.camera, seg.bubble.camera.map.length) : [] }
     for (const kind of ['screen', 'camera'] as const) for (const [k, l] of h[kind].entries()) {
       const source = kind === 'screen' ? seg.screen.map[l] : seg.bubble!.camera.map[l]
       if (got[kind][k] !== refs[i]![kind][k]) throw new Error(`clip ${i + 1}'s ${kind} frame ${l} is not source frame ${source}`)
@@ -168,11 +168,16 @@ async function sourceHashes(file: string, srcFps: number, indices: number[], fil
   return out
 }
 const lastHashes = (text: string) => text.split('\n').filter((l) => l && !l.startsWith('#')).map((l) => l.split(',').at(-1)!.trim())
-async function readHashes(file: string, count: number): Promise<string[]> {
-  if (!count) return []
-  const hashes = lastHashes(await readFile(file, 'utf8'))
-  if (hashes.length !== count) throw new Error(`the graph hashed ${hashes.length} frames, not ${count}`)
-  return hashes
+/** The hashes of the chosen frames, from a hash output that also has every HASH_STRIDE-th frame's (hashTaps). */
+async function readHashes(file: string, chosen: number[], count: number): Promise<string[]> {
+  if (!chosen.length) return []
+  return pickHashes(lastHashes(await readFile(file, 'utf8')), chosen, count)
+}
+/** The chosen frames' hashes out of a hash output's lines, which must be exactly hashTaps' frames. Pure. */
+export function pickHashes(lines: string[], chosen: number[], count: number): string[] {
+  const taps = hashTaps(chosen, count)
+  if (lines.length !== taps.length) throw new Error(`the graph hashed ${lines.length} frames, not ${taps.length}`)
+  return chosen.map((l) => lines[taps.indexOf(l)]!)
 }
 
 /** Per file, the stretches of source frames the plan shows (each clip's screen, a blend's held frame, the camera). Pure. */

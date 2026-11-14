@@ -297,7 +297,21 @@ export function bubbleGeometry(b: BubblePlan) {
  */
 export interface FrameHashes { screen: number[]; camera: number[]; screenOut: string; cameraOut: string }
 
-const selectFrames = (frames: number[]) => `select='${frames.map((l) => `eq(n\\,${l})`).join('+')}'`
+/**
+ * Every HASH_STRIDE-th frame is hashed besides the chosen ones: a hash output that waits long for its next frame holds
+ * the whole graph's frames for it meanwhile. Debian's FFmpeg 5.1 asks the output that is furthest behind for its next
+ * frame, so a hash due only at a clip's last frame kept every screen frame of the clip queued at the overlay (about
+ * 5 MB each: a 20 s clip at 2504×1438 reached a 6 GB limit and was killed). With one at least every HASH_STRIDE frames,
+ * at most that many wait. The extra hashes are read and set aside (`hashTaps`, readHashes in fast-export-run.ts).
+ */
+export const HASH_STRIDE = 30
+/** The frames a hash output passes, in order: the chosen ones and every HASH_STRIDE-th of the `count`. Pure. */
+export function hashTaps(chosen: number[], count: number): number[] {
+  const out = new Set(chosen.filter((l) => l >= 0 && l < count))
+  for (let l = 0; l < count; l += HASH_STRIDE) out.add(l)
+  return [...out].sort((a, b) => a - b)
+}
+export const selectFrames = (frames: number[]) => `select='${frames.map((l) => `eq(n\\,${l})`).join('+')}+not(mod(n\\,${HASH_STRIDE}))'`
 
 /** Camera pixels the sampling reaches past each side (its edge pixels repeated there, as a clamped bilinear reads them). */
 export const SAMPLING_PAD = 8

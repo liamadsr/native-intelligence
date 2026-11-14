@@ -59,6 +59,7 @@ async function main() {
     if (j.status !== 'completed') throw new Error(`${kind}: ${j.status} ${j.error}`)
     return j
   }
+  const fellBack: string[] = []
   try {
     let w = start(false, true); w.stdout.resume(); w.stderr.resume()
     const A = {
@@ -80,12 +81,18 @@ async function main() {
       const path = j.logs.find((l) => /^Composing .* with FFmpeg|^Rendering in Chrome|^The fast export did not hold/.test(l))
       const took = j.logs.find((l) => /^Composed in|^Rendered in/.test(l))
       console.log(`[bench] ${JSON.stringify({ variant, setting: fast ? 'STUDIO_FAST_EXPORT=on' : 'STUDIO_FAST_EXPORT=off', path, took, frames, jobSeconds: +wall.toFixed(1),
-        framesPerSecond: +(frames / wall).toFixed(2), cpuSeconds: +cpuSec.toFixed(1), cpuPerFrame: +(cpuSec / frames).toFixed(3), stages: j.logs.filter((l) => /^Fast export|^Composed in|^Rendered in|^Decode check in|^Stored in|^Assets ready|^Bundled in/.test(l)) })}`)
+        framesPerSecond: +(frames / wall).toFixed(2), cpuSeconds: +cpuSec.toFixed(1), cpuPerFrame: +(cpuSec / frames).toFixed(3), stages: j.logs.filter((l) => /^Fast export|^The fast export did not hold|^Composed in|^Rendered in|^Decode check in|^Stored in|^Assets ready|^Bundled in/.test(l)) })}`)
+      // A fast run that fell back to Chrome is a failed bench, whatever its time.
+      if (fast && !j.logs.some((l) => /^Composed in/.test(l))) fellBack.push(j.logs.find((l) => /^The fast export did not hold|^Rendering in Chrome/.test(l)) ?? 'no fast path line')
       w.kill('SIGTERM'); await new Promise((r) => w.once('exit', r))
     }
   } finally {
     await app.stop()
     await rm(dir, { recursive: true, force: true })
+  }
+  if (fellBack.length) {
+    console.log(`[bench] FAILED: the fast path fell back: ${fellBack.join(' | ')}`)
+    process.exitCode = 1
   }
 }
 
@@ -135,7 +142,7 @@ function sampleCpu(root: number) {
   return { stop: () => { clearInterval(timer); tick(); return [...seen.values()].reduce((a, b) => a + b, 0) - base } }
 }
 
-main().catch((err) => {
+main().then(() => process.exit(process.exitCode ?? 0), (err) => {
   console.error('[bench] FAILED:', err)
   process.exit(1)
 })

@@ -6,8 +6,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { fastExportPlan, placedSlot, realise, realiseProblem, remotionFrame, segmentArgs, soundOnly, sourcesFit, stampsFit, type FastPlan } from '../src/fast-export.ts'
-import { hashFrames, joinWavs, onePsnr, sampleFrames, soundRanges, usedFrames } from '../src/fast-export-run.ts'
+import { execFileSync } from 'node:child_process'
+import { fastExportPlan, hashTaps, HASH_STRIDE, placedSlot, selectFrames, realise, realiseProblem, remotionFrame, segmentArgs, soundOnly, sourcesFit, stampsFit, type FastPlan } from '../src/fast-export.ts'
+import { hashFrames, joinWavs, onePsnr, pickHashes, sampleFrames, soundRanges, usedFrames } from '../src/fast-export-run.ts'
 import { loadConfig } from '../src/config.ts'
 import { parseEditorProject, defaultCaptions, defaultPresentation } from '../src/engine.ts'
 import type { EditorProject } from '../../web/src/lib/studio/engine/contracts.ts'
@@ -252,4 +253,17 @@ test("a checked frame's score is psnr's one comparison, never an average with th
   // FFmpeg ran ahead and compared the still with the next frames too: no score (the check fails closed).
   assert.ok(Number.isNaN(onePsnr('n:1 psnr_avg:45.45\nn:2 psnr_avg:33.10\nn:3 psnr_avg:30.20\n')))
   assert.ok(Number.isNaN(onePsnr('')))
+})
+
+test('a hash output never waits long: the chosen frames and one every HASH_STRIDE, the chosen ones read back in place', () => {
+  assert.equal(HASH_STRIDE, 30)
+  assert.deepEqual(hashTaps([0, 7, 1211], 1212), [0, 7, ...Array.from({ length: 40 }, (_, k) => (k + 1) * 30), 1211])
+  for (const taps of [hashTaps([0, 1211], 1212), hashTaps([3, 5], 40)]) for (let k = 1; k < taps.length; k++) assert.ok(taps[k]! - taps[k - 1]! <= HASH_STRIDE)
+  const taps = hashTaps([5, 33], 70)
+  assert.deepEqual(taps, [0, 5, 30, 33, 60])
+  assert.deepEqual(pickHashes(['h0', 'h5', 'h30', 'h33', 'h60'], [5, 33], 70), ['h5', 'h33'])
+  assert.throws(() => pickHashes(['h0', 'h5', 'h30'], [5, 33], 70), /hashed 3 frames, not 5/)
+  // The graph's select passes exactly those frames.
+  const out = execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=64x48:r=30', '-vf', `trim=end_frame=70,${selectFrames([5, 33])}`, '-fps_mode', 'passthrough', '-f', 'framemd5', '-'], { encoding: 'utf8' })
+  assert.equal(out.split('\n').filter((l) => l && !l.startsWith('#')).length, taps.length)
 })
