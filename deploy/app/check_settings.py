@@ -109,6 +109,8 @@ MAY_BE_EMPTY = {
     # Phase 2 of the call recorder (../README.md step 23, "Live notes during a call").
     "TEAM_CALL_LIVE_AGENT": "a switch: empty is off (a call's notes are written when it ends, none during it)",
     "TEAM_CALL_EVENT_LINK": "a switch: empty is off (a meeting's call capture is not linked to its calendar event)",
+    # Phase 4 of the call recorder (../README.md step 23, "Call audio files").
+    "TEAM_CALL_AUDIO": "a switch: empty is off (a call heard by the recorder keeps its transcript, no audio file)",
     # The SEO pages' search data (DataForSEO). The site audit needs none.
     "DATAFORSEO_API_KEY": "empty: keyword, ranking and backlink lookups are off (the site audit still works)",
     # The Studio worker (../studio; ../../studio-worker).
@@ -770,8 +772,13 @@ def check_team_call_recorder(env, _opts):
 
 
 def check_needs_recorder(name, what):
-    """`on` or empty, and `on` only with the call recorder on: the app reads the switch only
-    where the recorder takes the notes (web/src/lib/team-calls/live-turns.ts, event-link.ts).
+    """`on` or empty, and `on` only with the call recorder on: the app reads each of these
+    switches only where the recorder takes the notes. In web/src/lib/team-calls/:
+    TEAM_CALL_LIVE_AGENT in live-turns.ts (teamCallLiveAgentOn), TEAM_CALL_EVENT_LINK in
+    event-link.ts (teamCallEventLinkOn), TEAM_CALL_AUDIO in recorder.ts (teamCallAudioOn,
+    which the capture feed's start, web/src/lib/capture-feed/sources.ts, hands the recorder
+    as `audio`; the recorder keeps the file only with its own RECORDER_AUDIO on,
+    recorder/src/config.ts, in the recorder's settings, not this file's).
     Read as the app reads it (trimmed, any case: `ON` is on there too). Whether its
     migration is applied is not visible from here; the step's check is."""
     def check(env, _opts):
@@ -831,6 +838,9 @@ CHECKS = {
     "CAPTURE_FEED_SECRET": check_capture_feed_secret,
     "TEAM_CALL_LIVE_AGENT": check_needs_recorder("TEAM_CALL_LIVE_AGENT", "the live agent writes a call's notes"),
     "TEAM_CALL_EVENT_LINK": check_needs_recorder("TEAM_CALL_EVENT_LINK", "a call's capture takes its meeting's event"),
+    # Only the call recorder makes a call's audio file (web/src/lib/team-calls/recorder.ts's teamCallAudioOn,
+    # read the same way). Its own RECORDER_AUDIO and Storage's raised limit are not visible from here.
+    "TEAM_CALL_AUDIO": check_needs_recorder("TEAM_CALL_AUDIO", "a call's audio file is made"),
 }
 
 

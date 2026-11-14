@@ -7,7 +7,7 @@
 // Never prints a key.
 import { spawn, execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
-import { readFileSync, writeFileSync, createWriteStream } from 'node:fs'
+import { readFileSync, writeFileSync, createWriteStream, mkdirSync, rmSync, existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
@@ -63,7 +63,17 @@ const app = {
   segmentRequests: 0,
   batchSizes: [], // segments per request the app took
   refusedAuth: 0,
+  // The call's sound (migration 650): every grant asked for, every upload taken, every take said stored.
+  audioGrants: [],
+  audioUploads: new Map(), // take → { bytes, path, session }
+  audioStored: [],
 }
+const AUDIO = process.env.E2E_AUDIO !== 'off'
+const AUDIO_DIR = RUN + 'audio/'
+const UPLOADS = RUN + 'uploads/'
+rmSync(AUDIO_DIR, { recursive: true, force: true })
+rmSync(UPLOADS, { recursive: true, force: true })
+mkdirSync(UPLOADS, { recursive: true })
 function sessionFor(round) {
   return [...app.sessions.values()].find((s) => s.round === round)
 }
@@ -74,6 +84,23 @@ function recorderToken(room, producerId) {
   return t.toJwt()
 }
 const appServer = createServer(async (req, res) => {
+  // The one-time upload the grant hands out (Storage's signed upload, in memory here): no feed secret, the token in the link.
+  if (req.method === 'PUT' && req.url.startsWith('/storage/upload/')) {
+    const u = new URL(req.url, 'http://x')
+    const grant = app.audioGrants.find((g) => g.token === u.searchParams.get('token'))
+    const chunks = []
+    for await (const c of req) chunks.push(c)
+    if (!grant) {
+      res.writeHead(400)
+      return res.end('{}')
+    }
+    const buf = Buffer.concat(chunks)
+    const path = UPLOADS + grant.take + '.m4a'
+    writeFileSync(path, buf)
+    app.audioUploads.set(grant.take, { bytes: buf.length, path, session: grant.session, declared: Number(req.headers['content-length']), type: req.headers['content-type'] })
+    res.writeHead(200, { 'content-type': 'application/json' })
+    return res.end('{"Key":"ok"}')
+  }
   let body = ''
   for await (const c of req) body += c
   const json = (status, obj) => {
@@ -105,7 +132,7 @@ const appServer = createServer(async (req, res) => {
     s.producer = b.producer.id
     s.heartbeatAt = Date.now()
     app.starts.push({ at: since(), outcome, session: s.id })
-    return json(200, { outcome, session: { id: s.id, startedAt: s.startedAt, round: s.round, captureId: 'capture-1', guests: [...app.heard] } })
+    return json(200, { outcome, session: { id: s.id, startedAt: s.startedAt, round: s.round, captureId: 'capture-1', guests: [...app.heard], audio: AUDIO } })
   }
   if (url === '/api/internal/capture-feed/heartbeat') {
     app.heartbeats++
@@ -118,6 +145,20 @@ const appServer = createServer(async (req, res) => {
         return { id, keep: true, reason: null, guests: [...app.heard] }
       }),
     })
+  }
+  const a = /^\/api\/internal\/capture-feed\/sessions\/([^/]+)\/audio(\/stored)?$/.exec(url)
+  if (a) {
+    const s = app.sessions.get(a[1])
+    if (!s) return json(200, { outcome: 'unknown', upload: null, expiresAt: null })
+    if (s.producer !== b.producer.id) return json(200, { outcome: 'taken', upload: null, expiresAt: null })
+    if (a[2]) {
+      app.audioStored.push({ take: b.take, session: s.id, at: since() })
+      return json(200, { outcome: app.audioUploads.has(b.take) ? 'stored' : 'missing', expiresAt: new Date(Date.parse(s.startedAt) + 30 * 864e5).toISOString() })
+    }
+    if (app.audioUploads.has(b.take)) return json(200, { outcome: 'stored', upload: null, expiresAt: null })
+    const token = randomUUID()
+    app.audioGrants.push({ ...b, session: s.id, token, at: since() })
+    return json(200, { outcome: 'granted', upload: { url: `http://127.0.0.1:${APP_PORT}/storage/upload/${b.take}?token=${token}`, method: 'PUT', headers: { 'content-type': b.contentType, 'x-upsert': 'true' } }, expiresAt: null })
   }
   const m = /^\/api\/internal\/capture-feed\/sessions\/([^/]+)\/(roster|segments|end)$/.exec(url)
   if (m) {
@@ -367,6 +408,7 @@ function startRecorder() {
     RECORDER_LIVEKIT_URL: LK_URL,
     RECORDER_HEALTH_PORT: '3593',
     RECORDER_ID: 'recorder',
+    ...(AUDIO ? { RECORDER_AUDIO: 'on', RECORDER_AUDIO_DIR: AUDIO_DIR, RECORDER_AUDIO_MIN_FREE_MB: '0', RECORDER_FFMPEG: process.env.E2E_FFMPEG || 'ffmpeg' } : {}),
     ...(MODE === 'fake' ? { RECORDER_DEEPGRAM_URL: `ws://127.0.0.1:${DG_PORT}/v1/listen` } : {}),
   }
   recorder = spawn(process.execPath, [RECORDER], { env, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -512,6 +554,7 @@ if (MODE === 'real') {
   await sleep(6000)
   // The recorder restarts (a deploy): it takes the session up again.
   const beforeRestart = since()
+  const stopWall = Date.now()
   await stopRecorder()
   mark('recorder stopped (SIGTERM)')
   startRecorder()
@@ -520,6 +563,7 @@ if (MODE === 'real') {
     if (h?.speakers >= 3) break
     await sleep(200)
   }
+  const backWall = Date.now()
   mark(`recorder back, hearing ${(await health())?.speakers}`)
   A.say(3)
   await sleep(4000)
@@ -578,6 +622,79 @@ if (MODE === 'real') {
   check('the recorder never published anything', [...A.room.remoteParticipants.values()].every((p) => p.identity !== RECORDER_IDENTITY))
   check('words went to the app in batches, not one request per sentence: two said together came in one', Math.max(...app.batchSizes) >= 2, { batchSizes: app.batchSizes })
   check('the app refused nothing for want of the secret', app.refusedAuth === 0)
+
+  // ── The call's sound (migration 650): one file for the round, through the restart ──
+  if (AUDIO) {
+    const s1 = session1()
+    for (let i = 0; i < 160 && !app.audioStored.some((x) => x.session === s1.id && app.audioUploads.has(x.take)); i++) await sleep(250)
+    const grants1 = app.audioGrants.filter((g) => g.session === s1.id)
+    const takes1 = [...new Set(grants1.map((g) => g.take))]
+    check('sound: one take for the round, through the restart (the next process went on in the same file)', takes1.length === 1, takes1)
+    const g = grants1.at(-1)
+    const up = g ? app.audioUploads.get(g.take) : undefined
+    check('sound: uploaded through the grant, whole, declared, as audio/mp4, and said stored', !!up && up.bytes === g.bytes && up.declared === g.bytes && up.type === 'audio/mp4' && app.audioStored.some((x) => x.take === g.take), up && { bytes: up.bytes, granted: g.bytes, declared: up.declared, type: up.type })
+    if (up) {
+      const ffmpeg = process.env.E2E_FFMPEG || 'ffmpeg'
+      const ffprobe = process.env.E2E_FFPROBE || 'ffprobe'
+      const probedMs = Number(execFileSync(ffprobe, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', up.path]).toString().trim()) * 1000
+      const origin = Date.parse(s1.startedAt) + g.offsetMs
+      const endWall = T0 + app.ends[0].at
+      const heardMs = endWall - origin
+      result.audio = { offsetMs: g.offsetMs, durationMs: g.durationMs, probedMs: Math.round(probedMs), heardMs, bytes: up.bytes, kbps: Math.round((up.bytes * 8) / probedMs) }
+      check('sound: the file is as long as the take says (±0.2 s), and the take as long as the round was heard (±2 s)', Math.abs(probedMs - g.durationMs) < 200 && Math.abs(g.durationMs - heardMs) < 2000, result.audio)
+      const raw = execFileSync(ffmpeg, ['-v', 'error', '-i', up.path, '-f', 's16le', '-ac', '1', '-ar', '16000', '-'], { maxBuffer: 1 << 28 })
+      const pcm = new Int16Array(raw.buffer, raw.byteOffset, raw.length / 2)
+      const at = (wall) => Math.round(((wall - origin) * 16000) / 1000)
+      // What is in the file over a stretch of the call's time: how loud, and the pitch (zero crossings).
+      const look = (fromWall, ms) => {
+        const a = Math.max(0, at(fromWall))
+        const b = Math.min(pcm.length, at(fromWall + ms))
+        let sum = 0
+        let crossings = 0
+        for (let i = a + 1; i < b; i++) {
+          sum += pcm[i] * pcm[i]
+          if ((pcm[i] >= 0) !== (pcm[i - 1] >= 0)) crossings++
+        }
+        const n = Math.max(1, b - a)
+        return { rms: Math.round(Math.sqrt(sum / n)), hz: Math.round((crossings / 2 / n) * 16000) }
+      }
+      const onset = (fromWall) => {
+        for (let i = Math.max(0, at(fromWall - 600)); i < pcm.length; i++) if (Math.abs(pcm[i]) > 2000) return origin + (i / 16000) * 1000
+        return null
+      }
+      const near = (hz, want) => Math.abs(hz - want) <= want * 0.08
+      // The transcript's time for a burst: its segment's start (the feed's clock), which is what the file must match.
+      const saidOf = (id, burst) => bySpeaker(id).find((x) => Math.abs(x.said - burst.startMs) < 900)?.said ?? null
+      // A file onset this close to its segment's start is the same moment (Deepgram's own word times are 10s of ms).
+      const SAME_MS = 150
+      const a1 = A.bursts[0]
+      const b1 = B.bursts[0]
+      const aWin = look(a1.startMs + 500, 1500)
+      const bWin = look(b1.startMs + 500, 1500)
+      const aOn = onset(a1.startMs)
+      const bOn = onset(b1.startMs)
+      const aSaid = saidOf(MA, a1)
+      const bSaid = saidOf(MB, b1)
+      result.audio.looks = { A: aWin, B: bWin, onsetVsTranscriptA: aOn && aSaid && Math.round(aOn - aSaid), onsetVsTranscriptB: bOn && bSaid && Math.round(bOn - bSaid), onsetVsPublishA: aOn && Math.round(aOn - a1.startMs) }
+      check('sound: each member is where they spoke, at their pitch (A 400 Hz, B 800 Hz), and where the transcript puts it (±0.15 s)', aWin.rms > 2000 && near(aWin.hz, 400) && bWin.rms > 2000 && near(bWin.hz, 800) && aSaid && bSaid && Math.abs(aOn - aSaid) < SAME_MS && Math.abs(bOn - bSaid) < SAME_MS, result.audio.looks)
+      const mutedBurst = A.bursts.find((x) => x.startMs >= muteFrom && x.startMs < muteTo)
+      const mutedWin = look(mutedBurst.startMs + 300, 2000)
+      check('sound: nothing of A while muted', mutedWin.rms < 300, mutedWin)
+      const gAfter = G.bursts.find((x) => x.startMs >= ackAt)
+      const gWin = look(gAfter.startMs + 300, 2000)
+      check('sound: never a meeting guest’s voice, even once they said go to the notes (their words are in the transcript, not their voice in the file)', gWin.rms < 300 && bySpeaker(`guest-${GUEST}`).length > 0, gWin)
+      const gap = look(stopWall + 300, Math.max(0, backWall - stopWall - 600))
+      check('sound: the stretch while the recorder restarted is silence, and the screen share’s sound is never in it', gap.rms < 300 && backWall - stopWall > 600, { gapMs: backWall - stopWall, ...gap })
+      const b2 = B2.bursts[0]
+      const afterWin = look(b2.startMs + 500, 1500)
+      const aAfter = A.bursts.find((x) => x.startMs > backWall)
+      const aAfterWin = aAfter ? look(aAfter.startMs + 500, 1500) : null
+      const aAfterOn = aAfter ? onset(aAfter.startMs) : null
+      const aAfterSaid = aAfter ? saidOf(MA, aAfter) : null
+      check('sound: after B came back, and after the restart, each is still where the transcript puts them', afterWin.rms > 2000 && near(afterWin.hz, 800) && aAfterWin && aAfterWin.rms > 2000 && near(aAfterWin.hz, 400) && aAfterSaid && Math.abs(aAfterOn - aAfterSaid) < SAME_MS, { B2: afterWin, A: aAfterWin, onsetVsTranscriptA: aAfterOn && aAfterSaid && Math.round(aAfterOn - aAfterSaid) })
+      check('sound: the recorder’s copy is gone once the app kept it', !existsSync(AUDIO_DIR + g.take + '.m4a') && !existsSync(AUDIO_DIR + g.take + '.json'))
+    }
+  }
 
   // ── Alone: everyone leaves; does the hidden recorder keep the room open? ──
   notesOn()

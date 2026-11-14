@@ -23,12 +23,17 @@
  *   - One recorder process per deployment today: its LiveKit identity is
  *     `notes-recorder-<RECORDER_ID>`, one per producer, so two processes with
  *     the same id would push each other out of a room.
+ *   - The calls' sound (RECORDER_AUDIO=on, ./audio.ts): one take per call
+ *     on disk while it is heard, encoded and handed to the app after, one at
+ *     a time, in the background; what a shutdown leaves is picked up by the
+ *     next process.
  *   - Health: GET http://127.0.0.1:<RECORDER_HEALTH_PORT>/ answers 200 while
  *     its loop runs (the compose health check), with counts and nothing else.
  */
 import { createServer } from 'node:http'
 import { dispose } from '@livekit/rtc-node'
 import { AppClient, AppError, PRODUCER_KIND } from './app-client.ts'
+import { AudioKeeper } from './audio.ts'
 import { CallRecorder, type CallEnd } from './call.ts'
 import { deepgramUrl, loadConfig, type RecorderConfig } from './config.ts'
 import { sleep } from './backoff.ts'
@@ -48,6 +53,8 @@ const config: RecorderConfig = loaded
 
 const client = new AppClient({ appUrl: config.appUrl, secret: config.feedSecret, producer: { kind: PRODUCER_KIND, id: config.producerId } })
 const keys = new Keys(Date.now().toString(36))
+const audio = config.audio ? new AudioKeeper(config.audio, client) : null
+const audioOn = audio ? await audio.start() : false
 const calls = new Map<string, CallRecorder>()
 /** Joins under way (a call is in `calls` once its session started; this holds it until the room is joined). */
 const joining = new Set<string>()
@@ -74,6 +81,7 @@ async function join(job: Awaited<ReturnType<AppClient['work']>>['jobs'][number])
     deepgramKey: config.deepgramKey,
     maxCallMs: config.maxCallMs,
     keys,
+    audio: audioOn ? audio : null,
   })
   calls.set(job.callId, rec)
   void rec.done.then((why) => forget(job.callId, rec, why))
@@ -146,6 +154,7 @@ const health = createServer((req, res) => {
       calls: calls.size,
       speakers: [...calls.values()].reduce((n, r) => n + r.speakers, 0),
       appOkSecondsAgo: lastAppOkAt ? Math.round((Date.now() - lastAppOkAt) / 1000) : null,
+      audio: audioOn && audio ? { pending: audio.pending, ...audio.counts } : null,
     }),
   )
   void req
@@ -157,6 +166,7 @@ async function stopAll(signal: string): Promise<void> {
   console.info(`[recorder] ${signal}: leaving ${calls.size} call(s), sessions kept for the next process`)
   shutdown.abort()
   await Promise.all([...calls.values()].map((r) => r.stop('shutdown', { flushMs: 15_000 })))
+  await audio?.stop(5_000)
   health.close()
   await dispose().catch(() => undefined)
   process.exit(0)
@@ -164,6 +174,6 @@ async function stopAll(signal: string): Promise<void> {
 process.on('SIGTERM', () => void stopAll('SIGTERM'))
 process.on('SIGINT', () => void stopAll('SIGINT'))
 
-console.info(`[recorder] started as ${config.producerId}: up to ${config.maxCalls} calls, LiveKit at ${config.livekitUrl}`)
+console.info(`[recorder] started as ${config.producerId}: up to ${config.maxCalls} calls, LiveKit at ${config.livekitUrl}, audio ${audioOn ? 'on' : 'off'}`)
 void workLoop()
 void heartbeatLoop()

@@ -294,13 +294,29 @@ services:
       # its calls up at once instead of waiting for them to be marked lost.
       RECORDER_ID: recorder
       RECORDER_HEALTH_PORT: "9091"
+      # The call's sound too (../README.md step 23, "Call audio files"): `on` here, and
+      # TEAM_CALL_AUDIO=on in ../app/.env. Off unless set.
+      RECORDER_AUDIO: ${RECORDER_AUDIO:-}
+      RECORDER_AUDIO_DIR: /var/lib/recorder/audio
+      RECORDER_AUDIO_MIN_FREE_MB: ${RECORDER_AUDIO_MIN_FREE_MB:-2048}
+      RECORDER_AUDIO_MAX_MB: ${RECORDER_AUDIO_MAX_MB:-4096}
     depends_on:
       livekit:
         condition: service_healthy
-    # Writes nothing: state is the app's; scratch in /tmp.
+    # Writes nothing but its calls' sound (RECORDER_AUDIO=on): state is the app's;
+    # scratch in /tmp. The volume holds each call's take while it is heard and until the
+    # app has it (raw PCM, up to 115 MB an hour while anyone is unmuted; then about 15 MB
+    # an hour encoded), and survives a restart, so a call the next process takes up goes
+    # on in the same file. It is on the database's disk: RECORDER_AUDIO_MAX_MB caps what
+    # it holds and RECORDER_AUDIO_MIN_FREE_MB keeps the disk's last free space out of its
+    # reach (../README.md step 23, "Call audio files", "Disk, at worst"). Nothing else is
+    # kept there, and nothing in it needs a backup: what the app has, it keeps; what it
+    # never got is at most a few days old and then dropped.
     read_only: true
     tmpfs:
       - /tmp
+    volumes:
+      - recorder-audio:/var/lib/recorder
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks:
@@ -325,6 +341,11 @@ services:
           # call. Capped so that it cannot take the database's or the app's share.
           cpus: "2"
           memory: 1g
+
+volumes:
+  # The call recorder's takes (its sound, RECORDER_AUDIO=on): see the service above.
+  recorder-audio:
+    name: ni-livekit-recorder-audio
 
 networks:
   # LiveKit, its Redis, its Egress and the call recorder, and nothing else. No route out.
