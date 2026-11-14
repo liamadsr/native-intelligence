@@ -110,11 +110,14 @@ describe('the team-chat agent’s context', () => {
 })
 
 describe('the share routes', () => {
-  it('refuse Bearer callers (MCP clients, device tokens): shared mail opens in the app', async () => {
-    const bearer = new NextRequest('https://app.example/api/account/email/shares/x', { headers: { authorization: 'Bearer eyJ.fake' } })
-    const res = refuseBearer(bearer)
-    expect(res?.status).toBe(403)
-    expect(refuseBearer(new NextRequest('https://app.example/api/account/email/shares/x'))).toBeNull()
+  it('refuse device tokens, and let the person’s own session through (the web app sends it as a Supabase Bearer)', async () => {
+    const at = (authorization?: string) =>
+      new NextRequest('https://app.example/api/account/email/shares/x', authorization ? { headers: { authorization } } : {})
+    expect(refuseBearer(at('Bearer nid_madeupdevicetoken'))?.status).toBe(403)
+    expect(refuseBearer(at('Bearer d8d_madeuplegacytoken'))?.status).toBe(403)
+    // src/lib/workspace-fetch.ts attaches the session's access token to every /api/ call.
+    expect(refuseBearer(at('Bearer eyJ.made.up'))).toBeNull()
+    expect(refuseBearer(at())).toBeNull()
   })
 
   it('every share route checks the caller (Bearer refused) before it reaches the share layer', () => {

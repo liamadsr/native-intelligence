@@ -5,19 +5,25 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspaceMember, type MemberAuthContext } from '@/lib/api-auth'
 import { apiError } from '@/lib/api-errors'
+import { isDeviceToken } from '@/lib/device-tokens'
 import type { ShareCaller, ShareFailure } from './service'
 import { ShareProviderBusyError } from './provider'
 import { EMAIL_SHARE_BUSY_TEXT } from './types'
 
 /**
- * Shared mail opens in the app, in a person's own session: a Bearer caller
- * (an MCP client, a device token, a script holding an access token) is
- * refused, so no agent reaches a share's mail through these routes either.
+ * Shared mail opens in a person's own session. The web app's fetch layer
+ * (src/lib/workspace-fetch.ts) sends that session's Supabase access token as
+ * `Authorization: Bearer` on every /api/ call, so a Supabase Bearer is the
+ * person themselves and passes. A device token (`nid_…`: hardware and the
+ * desktop's device bodies, which act for agents) is refused, so no device or
+ * agent reaches a share's mail through these routes. MCP clients never reach
+ * them: MCP tools run server-side through /api/mcp, not these routes.
  * (iOS would plug in here, with a fenced check of its own.)
  */
 export function refuseBearer(request: NextRequest): Response | null {
   const header = request.headers.get('authorization') ?? ''
-  if (/^bearer\s/i.test(header)) return apiError('Shared email opens in the app', { status: 403, code: 'APP_ONLY' })
+  const bearer = /^bearer\s+(.+)$/i.exec(header.trim())
+  if (bearer && isDeviceToken(bearer[1].trim())) return apiError('Shared email opens in the app', { status: 403, code: 'APP_ONLY' })
   return null
 }
 
