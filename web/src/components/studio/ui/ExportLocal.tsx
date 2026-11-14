@@ -47,7 +47,9 @@ export function useRunner(jobId: string | null): { runner: RunnerState; openedAt
     let alive = true;
     const take = (events: Parameters<typeof foldEvents>[1]) => { if (!alive) return; setRunner(state => { const next = foldEvents(state, events.filter(e => e.jobId === jobId), Date.now()); seq.current = next.seq; return next; }); };
     const stop = studioLocalExport.onProgress(event => take([event]));
-    void studioLocalExport.events(jobId, 0).then(take, () => undefined);
+    // Once the app has answered what it knows (nothing, from an app that cannot say), silence means it knows nothing.
+    const replayed = () => { if (alive) setRunner(state => ({ ...state, replayed: true })); };
+    void studioLocalExport.events(jobId, 0).then(events => { take(events); replayed(); }, replayed);
     const tick = setInterval(() => setNow(Date.now()), 5000);
     return () => { alive = false; stop(); clearInterval(tick); };
   }, [jobId]);
@@ -82,7 +84,7 @@ export function LocalWhere({ capability, destination, choose, downloading, recei
 
 /** The export while it runs on this computer, or waits for it. */
 export function LocalRunning({ view, job, actions, platform }: {
-  view: Extract<LocalView, { kind: 'rendering' | 'stalled' | 'elsewhere' | 'uploading' | 'failed' }>; job: EditorJob; platform: 'macos' | 'windows' | 'other';
+  view: Extract<LocalView, { kind: 'rendering' | 'stalled' | 'elsewhere' | 'uploading' | 'failed' | 'stopping' }>; job: EditorJob; platform: 'macos' | 'windows' | 'other';
   actions: { cancel: () => void; stopping: boolean; close: () => void; continueHere: () => void; finishOnServer: () => void; exportOnServer: () => void; working: boolean; error: string | null };
 }) {
   const destination = destinationOf(job.id);
@@ -92,6 +94,13 @@ export function LocalRunning({ view, job, actions, platform }: {
     <div className="xd-banner xd-banner-warn" role="alert"><Icon name="warning" /><div><strong>The export did not finish on this computer</strong><span>{view.message}</span></div></div>
     {error}
     <div className="xd-foot xd-foot-split"><Button variant="ghost" className="st-app-button" onClick={actions.close}>Close</Button><Button className="st-app-button" data-autofocus="" disabled={actions.working} onClick={actions.exportOnServer}>Export on our server instead</Button></div>
+  </div>;
+  // Stopped by the app; the server says so in a moment. Never nothing in between.
+  if (view.kind === 'stopping') return <div className="xd-running">
+    <div className="xd-progress-head"><span className="xd-progress-label" role="status">Stopping the export…</span><span className="xd-progress-value">{percent}%</span></div>
+    <div className="xd-progress xd-progress-stopping" role="progressbar" aria-label="Export progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><span style={{ width: `${Math.max(2, percent)}%` }} /></div>
+    <p className="xd-note">Nothing new is saved. Your finished exports are still here.</p>
+    <div className="xd-foot"><Button variant="secondary" className="st-app-button" data-autofocus="" onClick={actions.close}>Keep editing</Button></div>
   </div>;
   if (view.kind === 'uploading') return <div className="xd-running">
     <SavedHere name={view.savedName ?? destination?.name ?? null} destinationId={destination?.destinationId ?? null} platform={platform} />
@@ -151,6 +160,11 @@ export function SavedHere({ name, destinationId, platform }: { name: string | nu
   if (!name) return null;
   return <p className="xd-saved xd-saved-here" role="status"><Icon name="check" size={14} /><span>Saved to <strong className="xd-file">{name}</strong></span>
     {destinationId ? <RevealButton destinationId={destinationId} platform={platform} /> : null}</p>;
+}
+
+/** Made, and the app is putting it in place: its name, no Show in Finder until the app says it is there. */
+export function SavingHere({ name }: { name: string | null }) {
+  return <p className="xd-local-note xd-saving-here" role="status"><span className="xd-spinner" aria-hidden="true" /><span>{name ? <>Saving to <strong className="xd-file">{name}</strong>…</> : 'Saving it where you chose…'}</span></p>;
 }
 
 /** A finished export made on this computer: where it was saved, and whether it is also in the Studio. */

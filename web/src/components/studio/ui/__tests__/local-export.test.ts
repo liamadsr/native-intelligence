@@ -11,7 +11,7 @@ import type { EditorProject } from '@/lib/studio/engine/contracts'
 import { STUDIO_RENDER_VERSION } from '@/lib/studio/engine/render-version'
 import { studioRefusal, type StudioLocalStatus } from '@/lib/tauri-bridge'
 import {
-  LOCAL_WORDS, STALL_MS, asSavedAgain, canSaveAgain, capabilityFor, markSavedAgain, capabilityOf, continueOnComputer, destinationOf, emptyRunner, finishOnServer, foldEvents, localView,
+  LOCAL_WORDS, STALL_MS, asSavedAgain, finishedWords, whenSavedHere, canSaveAgain, capabilityFor, markSavedAgain, capabilityOf, continueOnComputer, destinationOf, emptyRunner, finishOnServer, foldEvents, localView,
   readLocalCapability, revealLabel, savesParts, startOnComputer,
 } from '../local-export'
 
@@ -102,7 +102,8 @@ describe('what the dialog shows of it', () => {
   })
 
   it('cancelled: by the app, or as the server says', () => {
-    expect(localView(job(), foldEvents(emptyRunner(), [{ jobId: JOB, seq: 1, kind: 'cancelled' }], at), at, at)).toEqual({ kind: 'cancelled' })
+    // The app stopped it; the server still reads running for a moment: stopping, never nothing.
+    expect(localView(job({ progress: 0.3 }), foldEvents(emptyRunner(), [{ jobId: JOB, seq: 1, kind: 'cancelled' }], at), at, at)).toEqual({ kind: 'stopping', progress: 0.3 })
     expect(localView(job({ status: 'cancelled' }), emptyRunner(), at, at)).toEqual({ kind: 'cancelled' })
   })
 
@@ -164,8 +165,42 @@ describe('what the dialog shows of it', () => {
     expect(localView(job({ status: 'completed', progress: 1, downloadUrl: '/api/account/studio/file/w/exports/x/1/video.mp4' }), saved, at, at)).toEqual({ kind: 'done', savedName: 'Spring launch.mp4', uploaded: true })
   })
 
-  it('done and kept on this computer only', () => {
-    expect(localView(job({ status: 'completed', progress: 1, kept: 'computer' }), emptyRunner(), at, at, 'Spring launch.mp4')).toEqual({ kind: 'done', savedName: 'Spring launch.mp4', uploaded: false })
+  it('done and kept on this computer only (another device’s, by the server’s word)', () => {
+    expect(localView(job({ status: 'completed', progress: 1, kept: 'computer' }), emptyRunner(), at, at, 'Spring launch.mp4', false)).toEqual({ kind: 'done', savedName: 'Spring launch.mp4', uploaded: false })
+  })
+
+  it('this device’s finished export is saved only once its app says done: saving until then; unknown to the app, never saved', () => {
+    const kept = job({ status: 'completed', progress: 1, kept: 'computer' })
+    const copy = job({ status: 'completed', progress: 1, downloadUrl: '/api/account/studio/file/w/exports/x/1/video.mp4' })
+    // Not heard yet (replay pending), or heard without done: saving to the place it knows.
+    expect(localView(kept, emptyRunner(), at, at, 'Spring launch.mp4', true)).toEqual({ kind: 'saving', name: 'Spring launch.mp4' })
+    const heard = { ...foldEvents(emptyRunner(), [{ jobId: JOB, seq: 1, kind: 'started' }], at), replayed: true }
+    expect(localView(copy, heard, at, at, 'Spring launch.mp4', true).kind).toBe('saving')
+    // The app's word: saved, with its name.
+    const saved = foldEvents(heard, [{ jobId: JOB, seq: 2, kind: 'done', savedName: 'Spring launch (1).mp4' }], at)
+    expect(localView(kept, saved, at, at, 'Spring launch.mp4', true)).toEqual({ kind: 'done', savedName: 'Spring launch (1).mp4', uploaded: false })
+    // The app knows nothing of it: the Studio's copy, else plainly so.
+    const nothing = { ...emptyRunner(), replayed: true }
+    expect(localView(copy, nothing, at, at, 'Spring launch.mp4', true)).toEqual({ kind: 'done', savedName: null, uploaded: true, notHere: true })
+    expect(localView(kept, nothing, at, at, 'Spring launch.mp4', true)).toEqual({ kind: 'lost' })
+    // A started run keeps knowing it was replayed.
+    expect(foldEvents(nothing, [{ jobId: JOB, seq: 3, kind: 'started' }], at).replayed).toBe(true)
+  })
+
+  it('the note when it finishes: from the app’s word for this device’s export, the server’s otherwise', async () => {
+    const kept = job({ status: 'completed', kept: 'computer' }), copy = job({ status: 'completed', downloadUrl: '/f.mp4' })
+    const bridge = (events: unknown[], live?: unknown) => ({ events: vi.fn(async () => events as never), onProgress: vi.fn((cb: (e: never) => void) => { if (live) setTimeout(() => cb(live as never), 0); return () => {} }) })
+    expect(await whenSavedHere(JOB, bridge([{ jobId: JOB, seq: 1, kind: 'started' }, { jobId: JOB, seq: 2, kind: 'done', savedName: 'a.mp4' }]))).toEqual({ kind: 'saved', name: 'a.mp4' })
+    expect(await whenSavedHere(JOB, bridge([]))).toEqual({ kind: 'unknown' })
+    expect(await whenSavedHere(JOB, { events: async () => { throw new Error('Command studio_local_export_events not found') }, onProgress: () => () => {} })).toEqual({ kind: 'unknown' })
+    // Heard, not done yet: it waits for the app's done.
+    expect(await whenSavedHere(JOB, bridge([{ jobId: JOB, seq: 1, kind: 'started' }], { jobId: JOB, seq: 2, kind: 'save-failed', message: 'The disk is full.' }))).toEqual({ kind: 'save-failed', message: 'The disk is full.' })
+    expect(finishedWords(kept, { kind: 'saved', name: 'a.mp4' })).toEqual({ text: 'Your export is saved on this computer.', error: false })
+    expect(finishedWords(copy, { kind: 'saved', name: 'a.mp4' }).text).toBe('Your export is saved, and in the Studio to share.')
+    expect(finishedWords(kept, { kind: 'save-failed', message: 'x' })).toEqual({ text: 'Your export was made, but it could not be saved where you chose.', error: true })
+    expect(finishedWords(kept, { kind: 'unknown' }).text).toBe('Your export was made on this computer.')
+    expect(finishedWords(copy, { kind: 'unknown' }).text).toBe('Your export is ready to save.')
+    expect(finishedWords(kept, null).text).toBe('Your export is saved on this computer.')
   })
 
   it('every run begins with started: what the app said of an earlier run is dropped, the seq kept', () => {
@@ -257,7 +292,7 @@ describe('a place the app no longer takes', () => {
 
 describe('made, but not saved where the person chose (save-failed)', () => {
   const at = 1_000_000
-  const events = (...more: { kind: string; message?: string }[]) => [{ jobId: JOB, seq: 1, kind: 'started' }, { jobId: JOB, seq: 2, kind: 'progress', progress: 0.9 }, ...more.map((e, i) => ({ jobId: JOB, seq: 3 + i, ...e }))] as never
+  const events = (...more: { kind: string; message?: string; savedName?: string }[]) => [{ jobId: JOB, seq: 1, kind: 'started' }, { jobId: JOB, seq: 2, kind: 'progress', progress: 0.9 }, ...more.map((e, i) => ({ jobId: JOB, seq: 3 + i, ...e }))] as never
 
   it('ends the run in place of failed: the app’s sentence, the video kept to be saved again; nothing after it fails or stops it', () => {
     const runner = foldEvents(emptyRunner(), events({ kind: 'save-failed', message: 'The old file is open in another app.' }, { kind: 'failed', message: 'x' }, { kind: 'cancelled' }), at)

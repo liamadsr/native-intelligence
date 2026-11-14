@@ -49,8 +49,9 @@ import { PreviewLayerControls } from './PreviewLayerControls';
 import { RecordDialog, type PunchTarget } from './RecordDialog';
 import { plainStep } from './record-steps';
 import { ExportDialog, exportFor, type ExportChoice, type ExportReceipt } from './ExportDialog';
-import { continueOnComputer, finishOnServer, startOnComputer } from './local-export';
+import { continueOnComputer, destinationOf, finishOnServer, finishedWords, startOnComputer, whenSavedHere } from './local-export';
 import { studioLocalExport, studioRefusal } from '@/lib/tauri-bridge';
+import { isDesktopApp } from '@/lib/platform';
 import { arrivalNotice, useExportArrival } from './export-arrival';
 import { exportFileName, saveExport } from './save-export';
 import { prompterFor, slotFor } from '@/lib/studio/engine/storyboard';
@@ -523,7 +524,11 @@ export function App({ openVideoId = null, openPage, openAsk, onPlace, onLive }: 
     show:shown=>{if('job' in shown&&shown.job)setJob(shown.job);setExportNotice(arrivalNotice(shown));setDialog('export');}});
   useEffect(()=>{if(!job||job.status!=='running')return;let alive=true;let timer:ReturnType<typeof setTimeout>;const poll=async()=>{try{const result=await request<{job:EditorJob}>(`/api/account/studio/jobs/${job.id}`);if(!alive)return;setJob(result.job);if(result.job.status==='failed')say(result.job.error??'The export failed. Try again.',true);if(result.job.status==='completed'&&result.job.kind==='export'){const done=result.job,of=done.videoId??(exportReceiptRef.current?.jobId===done.id?exportReceiptRef.current.projectId:null);
   // Open goes to the video it was made from, whichever is open now.
-  say(done.where==='computer'?(done.kept==='computer'?'Your export is saved on this computer.':'Your export is saved, and in the Studio to share.'):'Your export is ready to save.',false,{open:()=>{if(!of||currentRef.current?.id===of){setDialog('export');return;}navigate(async()=>{if(await openProject(of))setDialog('export');});}});}if(result.job.status==='running')timer=setTimeout(poll,700);}catch(e){if(alive){say(errorText(e),true);timer=setTimeout(poll,2500);}}};timer=setTimeout(poll,700);return()=>{alive=false;clearTimeout(timer);};},[job?.id,job?.status,append,say]);
+  const open=()=>{if(!of||currentRef.current?.id===of){setDialog('export');return;}navigate(async()=>{if(await openProject(of))setDialog('export');});};
+  // One this device started is saved only once its app says so (local-export.ts whenSavedHere); else the server's word.
+  if(done.where!=='computer')say('Your export is ready to save.',false,{open});
+  else if(isDesktopApp()&&destinationOf(done.id))void whenSavedHere(done.id,studioLocalExport).then(outcome=>{const words=finishedWords(done,outcome);say(words.text,words.error,{open});});
+  else{const words=finishedWords(done,null);say(words.text,words.error,{open});}}if(result.job.status==='running')timer=setTimeout(poll,700);}catch(e){if(alive){say(errorText(e),true);timer=setTimeout(poll,2500);}}};timer=setTimeout(poll,700);return()=>{alive=false;clearTimeout(timer);};},[job?.id,job?.status,append,say]);
   const exportProject=()=>{if(!project)return null;if(exportSize==='native')return project;const targetHeight=Math.min(1080,project.output.height),factor=targetHeight/project.output.height;const p=project.presentation;const clips=project.clips.map(clip=>({...clip,motion:{...clip.motion,layers:clip.motion.layers.map(layer=>layer.kind==='text'?{...layer,fontSizePx:Math.max(.1,layer.fontSizePx*factor)}:layer.kind==='frame'?{...layer,strokeWidthPx:Math.max(.01,layer.strokeWidthPx*factor),radiusPx:layer.radiusPx*factor}:layer.kind==='highlight'?{...layer,radiusPx:layer.radiusPx*factor}:layer)}}));return {...project,clips,captions:{...project.captions,fontSize:project.captions.fontSize*factor},output:{...project.output,width:Math.max(64,Math.round(project.output.width*factor/2)*2),height:targetHeight},presentation:{...p,blur:p.blur*factor,padding:p.padding*factor,inset:p.inset*factor,radius:p.radius*factor,shadow:{...p.shadow,blur:p.shadow.blur*factor,distance:p.shadow.distance*factor}}};};
   const startExport=async(choice?:ExportChoice)=>{const snapshot=exportProject();if(!snapshot||recordingLock.current||busyRef.current||exportFor(job,exportReceipt,snapshot.id).job?.status==='running')return;pause();setBusy('Starting export');try{
     // On this computer when the dialog chose it (local-export.ts: the server's refusals and an app that cannot start it go to the server, saying why).

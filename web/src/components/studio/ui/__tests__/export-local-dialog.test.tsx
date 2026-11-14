@@ -162,6 +162,8 @@ describe('while it runs and after', () => {
       row('k1', { where: 'computer', kept: 'computer' }),
       row('k2', { where: 'computer', kept: 'computer' }),
     ] } : { presets: [] })))
+    // The app says it put k1 in place, under the name it gave it.
+    app.events.mockImplementation(async (id: string) => id === 'k1' ? [{ jobId: 'k1', seq: 1, kind: 'started' }, { jobId: 'k1', seq: 2, kind: 'done', savedName: 'Spring launch (cut 2).mp4' }] : [])
     await render(null)
     const rows = [...document.querySelectorAll('.xd-finished li')]
     expect(rows).toHaveLength(3)
@@ -179,6 +181,7 @@ describe('while it runs and after', () => {
   it('done: where it was saved, Show in Finder, and also in the Studio; or kept here only', async () => {
     app.status.mockResolvedValue(ready)
     localStorage.setItem('ni:studio:local-export-destinations', JSON.stringify({ [JOB]: { destinationId: 'd1', name: 'Spring launch.mp4' } }))
+    app.events.mockResolvedValue([{ jobId: JOB, seq: 1, kind: 'started' }, { jobId: JOB, seq: 2, kind: 'done', savedName: 'Spring launch.mp4' }])
     await render({ ...running, status: 'completed', progress: 1, downloadUrl: '/api/account/studio/file/w/exports/x/1/video.mp4', result: { bytes: 1000 } })
     expect(text()).toContain('Saved to Spring launch.mp4')
     expect(text()).toContain('Also in the Studio, kept for 30 days')
@@ -187,6 +190,63 @@ describe('while it runs and after', () => {
     act(() => root!.unmount()); root = null
     await render({ ...running, status: 'completed', progress: 1, kept: 'computer' })
     expect(text()).toContain('Kept on this computer only')
+  })
+
+  it('this device’s export is not called saved until its app says so: Saving to <name>… first, then saved with Show in Finder', async () => {
+    app.status.mockResolvedValue(ready)
+    localStorage.setItem('ni:studio:local-export-destinations', JSON.stringify({ [JOB]: { destinationId: 'd1', name: 'Spring launch.mp4' } }))
+    let live: ((event: unknown) => void) | null = null
+    app.onProgress.mockImplementation((cb) => { live = cb; return () => {} })
+    app.events.mockResolvedValue([{ jobId: JOB, seq: 1, kind: 'started' }, { jobId: JOB, seq: 2, kind: 'progress', progress: 1 }])
+    await render({ ...running, status: 'completed', progress: 1, kept: 'computer' })
+    expect(text()).toContain('Saving to Spring launch.mp4…')
+    expect(text()).toContain('export is made')
+    expect(text()).not.toContain('Saved to')
+    expect(button('Show in Finder')).toBeUndefined()
+    await act(async () => { live!({ jobId: JOB, seq: 3, kind: 'done', savedName: 'Spring launch (1).mp4' }) })
+    expect(text()).toContain('Saved to Spring launch (1).mp4')
+    expect(button('Show in Finder')).toBeTruthy()
+  })
+
+  it('a finished export this device started that its app knows nothing of: never saved; the Studio’s copy, else plainly so', async () => {
+    app.status.mockResolvedValue(ready)
+    localStorage.setItem('ni:studio:local-export-destinations', JSON.stringify({ [JOB]: { destinationId: 'd1', name: 'Spring launch.mp4' } }))
+    app.events.mockResolvedValue([])
+    await render({ ...running, status: 'completed', progress: 1, kept: 'computer' })
+    expect(text()).toContain('The video was made on this computer, but the app no longer knows where it is.')
+    expect(text()).not.toContain('Saved to')
+    expect(button('Show in Finder')).toBeUndefined()
+    act(() => root!.unmount()); root = null
+    await render({ ...running, status: 'completed', progress: 1, downloadUrl: '/api/account/studio/file/w/exports/x/1/video.mp4', result: { bytes: 1000 } })
+    expect(button('Save to your computer…')).toBeTruthy()
+    expect(text()).not.toContain('Saved to')
+    act(() => root!.unmount()); root = null
+    // Another device's export (nothing remembered here, nothing from the app): the server's word, as before.
+    localStorage.clear()
+    await render({ ...running, status: 'completed', progress: 1, kept: 'computer' })
+    expect(text()).toContain('Kept on this computer only')
+  })
+
+  it('stopped by the app while the server still reads it running: Stopping the export…, never an empty dialog', async () => {
+    app.status.mockResolvedValue(ready)
+    localStorage.setItem('ni:studio:local-export-destinations', JSON.stringify({ [JOB]: { destinationId: 'd1', name: 'Spring launch.mp4' } }))
+    app.events.mockResolvedValue([{ jobId: JOB, seq: 1, kind: 'started' }, { jobId: JOB, seq: 2, kind: 'progress', progress: 0.5 }, { jobId: JOB, seq: 3, kind: 'cancelled' }])
+    await render(running)
+    expect(text()).toContain('Stopping the export…')
+    expect(button('Keep editing')).toBeTruthy()
+  })
+
+  it('failed on this computer while the server still reads it running: on our server instead moves it, never a dead button', async () => {
+    app.status.mockResolvedValue(ready)
+    localStorage.setItem('ni:studio:local-export-destinations', JSON.stringify({ [JOB]: { destinationId: 'd1', name: 'Spring launch.mp4' } }))
+    app.events.mockResolvedValue([{ jobId: JOB, seq: 1, kind: 'started' }, { jobId: JOB, seq: 2, kind: 'failed', message: 'The video engine stopped.' }])
+    const moveToServer = vi.fn(async () => null)
+    const start = await render(running, vi.fn(), { moveToServer })
+    expect(text()).toContain('The video engine stopped.')
+    await act(async () => { button('Export on our server instead').click() })
+    await settle()
+    expect(moveToServer).toHaveBeenCalledWith(JOB)
+    expect(start).not.toHaveBeenCalled()
   })
 
   it('saved here but the upload failed: saved, kept on this computer only, the app’s sentence in small text; never failed', async () => {
@@ -207,10 +267,25 @@ describe('while it runs and after', () => {
     }
   })
 
+  it('kept-only rows this device started: saving until the app says done, and plainly so when it knows nothing', async () => {
+    app.status.mockResolvedValue(ready)
+    localStorage.setItem('ni:studio:local-export-destinations', JSON.stringify({ k3: { destinationId: 'd3', name: 'Spring launch (3).mp4' }, k4: { destinationId: 'd4', name: 'Spring launch (4).mp4' } }))
+    const row = (id: string) => ({ id, kind: 'export', status: 'completed', progress: 1, logs: [], videoId: VIDEO, title: 'Spring launch', finishedAt: new Date().toISOString(), where: 'computer', kept: 'computer' })
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.includes('/exports') ? { exports: [row('k3'), row('k4')] } : { presets: [] })))
+    app.events.mockImplementation(async (id: string) => id === 'k3' ? [{ jobId: 'k3', seq: 1, kind: 'started' }] : [])
+    await render(null)
+    const rows = [...document.querySelectorAll('.xd-finished li')]
+    expect(rows[0]!.textContent).toContain('Saving to Spring launch (3).mp4…')
+    expect(rows[1]!.textContent).toContain('Made here. The app no longer knows where it is')
+    for (const r of rows) { expect(r.textContent).not.toContain('Saved here'); expect(r.querySelector('button')).toBeNull() }
+  })
+
   it('a kept-only file the app no longer knows: said once in the row, no error banner', async () => {
     app.status.mockResolvedValue(ready)
     app.reveal.mockRejectedValue(new Error('unknown-destination: No such place.'))
     localStorage.setItem('ni:studio:local-export-destinations', JSON.stringify({ k1: { destinationId: 'd9', name: 'Spring launch.mp4' } }))
+    // The app said it saved it (before it lost track of the place).
+    app.events.mockResolvedValue([{ jobId: 'k1', seq: 1, kind: 'started' }, { jobId: 'k1', seq: 2, kind: 'done', savedName: 'Spring launch.mp4' }])
     vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.includes('/exports') ? { exports: [
       { id: 'k1', kind: 'export', status: 'completed', progress: 1, logs: [], videoId: VIDEO, title: 'Spring launch', finishedAt: new Date().toISOString(), where: 'computer', kept: 'computer' },
     ] } : { presets: [] })))
@@ -287,7 +362,8 @@ describe('while it runs and after', () => {
       app.events.mockResolvedValue(made(id))
       app.pickDestination.mockResolvedValueOnce(null).mockResolvedValue({ destinationId: 'd3', name: 'Spring launch.mp4' })
       probeOk(async () => { throw new Error('gone: The video is no longer kept on this computer. Export it again.') })
-      const start = await render({ ...running, id })
+      const moveToServer = vi.fn(async () => null)
+      const start = await render({ ...running, id }, vi.fn(), { moveToServer })
       await act(async () => { button('Save it again…').click() })
       await settle()
       expect(app.saveAgain).toHaveBeenCalledTimes(1)
@@ -297,8 +373,11 @@ describe('while it runs and after', () => {
       expect(text()).toContain('The video is no longer kept on this computer. Export it again.')
       expect(text()).not.toContain('gone:')
       expect(button('Save it again…')).toBeUndefined()
+      // Still running on the server: moved there, not a second export.
       await act(async () => { button('Export on our server instead').click() })
-      expect(start).toHaveBeenCalledWith()
+      await settle()
+      expect(moveToServer).toHaveBeenCalledWith(id)
+      expect(start).not.toHaveBeenCalled()
     })
 
     it('an app without the command: shown as an export that did not finish', async () => {
