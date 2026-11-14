@@ -5,7 +5,7 @@
  * each request handed to its one function of 588 as it should be; the
  * answers a producer acts on (409 once the capture is finished, 503 to send
  * again, 'not_wanted' when this server takes no feed of that kind); the
- * hook where phase 2's live turns attach runs once per batch the capture
+ * hook where the live agent's turns attach (src/lib/team-calls/live-turns.ts) runs once per batch the capture
  * took; and the recorder's tokens: one room, hidden, a recorder, subscribe
  * only.
  */
@@ -128,7 +128,7 @@ describe('start', () => {
     h.answers.capture_feed_start = { data: [{ outcome: 'started', session_id: SESSION, capture_id: CAPTURE, started_at: '2026-11-11T10:00:00+00:00', round: 2, guests: [GUEST] }], error: null }
     const res = await start(post({ source: { kind: 'team_call', ref: CALL }, producer }))
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ outcome: 'started', session: { id: SESSION, startedAt: '2026-11-11T10:00:00.000Z', round: 2, captureId: CAPTURE, guests: [GUEST] } })
+    expect(await res.json()).toEqual({ outcome: 'started', session: { id: SESSION, startedAt: '2026-11-11T10:00:00.000Z', round: 2, captureId: CAPTURE, guests: [GUEST], audio: false } })
     expect(h.rpcs).toEqual([
       ['capture_feed_start', { p_source_kind: 'team_call', p_source_ref: CALL, p_producer_kind: 'livekit_recorder', p_producer_id: 'recorder', p_capture_title: 'Call in #launch' }],
     ])
@@ -146,6 +146,28 @@ describe('start', () => {
   it('a failed write: 503, send it again', async () => {
     h.answers.capture_feed_start = { data: null, error: { message: 'lock timeout' } }
     expect((await start(post({ source: { kind: 'team_call', ref: CALL }, producer }))).status).toBe(503)
+  })
+
+  it('a meeting’s call capture takes its calendar event after the answer, only with TEAM_CALL_EVENT_LINK on (656)', async () => {
+    h.answers.capture_feed_start = { data: [{ outcome: 'started', session_id: SESSION, capture_id: CAPTURE, started_at: '2026-11-11T10:00:00Z', round: 1, guests: [] }], error: null }
+    h.answers.team_call_capture_link_event = { data: 'linked', error: null }
+    h.afters = []
+    await start(post({ source: { kind: 'team_call', ref: CALL }, producer }))
+    await Promise.all(h.afters.map((t) => t()))
+    expect(h.rpcs.map(([n]) => n)).toEqual(['capture_feed_start'])
+    vi.stubEnv('TEAM_CALL_EVENT_LINK', 'on')
+    h.rpcs = []
+    h.afters = []
+    expect((await start(post({ source: { kind: 'team_call', ref: CALL }, producer }))).status).toBe(200)
+    // The answer went first: the link is work after it.
+    expect(h.rpcs.map(([n]) => n)).toEqual(['capture_feed_start'])
+    await Promise.all(h.afters.map((t) => t()))
+    expect(h.rpcs).toContainEqual(['team_call_capture_link_event', { target_capture: CAPTURE }])
+    // A link that fails never touches the answer the producer got.
+    h.answers.team_call_capture_link_event = { data: null, error: { message: 'boom' } }
+    h.afters = []
+    expect((await start(post({ source: { kind: 'team_call', ref: CALL }, producer }))).status).toBe(200)
+    await expect(Promise.all(h.afters.map((t) => t()))).resolves.toBeDefined()
   })
 })
 
@@ -167,6 +189,23 @@ describe('segments', () => {
     expect((await (await segments(post({ producer, segments: [seg] }), params())).json()).duplicate).toBe(1)
     expect(seen).toHaveLength(1)
     off()
+  })
+
+  it('with the live agent on, a batch the capture took offers a turn, after the answer (655)', async () => {
+    h.answers.capture_feed_append = { data: [{ outcome: 'applied', accepted: 2, duplicate: 0, dropped: 0, transcript_length: 900, capture_id: CAPTURE }], error: null }
+    h.answers.team_call_live_turn_claim = { data: [{ outcome: 'busy', lease: null, turn_no: 1 }], error: null }
+    h.afters = []
+    await segments(post({ producer, segments: [seg] }), params())
+    expect(h.afters).toEqual([])
+    vi.stubEnv('TEAM_CALL_LIVE_AGENT', 'on')
+    h.rpcs = []
+    const res = await segments(post({ producer, segments: [seg] }), params())
+    expect(res.status).toBe(200)
+    expect(h.rpcs.map(([n]) => n)).toEqual(['capture_feed_append'])
+    expect(h.afters).toHaveLength(1)
+    await h.afters[0]()
+    expect(h.rpcs.map(([n]) => n)).toEqual(['capture_feed_append', 'team_call_live_turn_claim'])
+    expect(h.rpcs[1][1]).toMatchObject({ target_capture: CAPTURE })
   })
 
   it('409 once the capture is finished or the session another producer’s; 404 for none; 503 to send again', async () => {

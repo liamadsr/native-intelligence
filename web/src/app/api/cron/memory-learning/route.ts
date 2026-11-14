@@ -26,7 +26,7 @@ export const maxDuration = 300
  * One pass failing never fails the other, and the answer is counts only:
  * never what was said or written.
  *
- * Vercel cron issues GET with `Authorization: Bearer ${CRON_SECRET}`.
+ * The server's cron issues GET with `Authorization: Bearer ${CRON_SECRET}`.
  */
 /** The catch-up only queues, but up to CATCHUP_MAX_SESSIONS of them. */
 const CATCHUP_DEADLINE_MS = 90_000

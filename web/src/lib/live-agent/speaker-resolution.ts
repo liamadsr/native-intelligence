@@ -154,8 +154,16 @@ export async function resolvePersonForCapture(
   rawName: string,
   /** The verified user the agent runs for: contacts they cannot see never resolve. */
   requesterUserId: string,
+  /**
+   * `contacts: false` resolves to members only (a call's capture,
+   * src/lib/live-agent/call-capture-fence.ts): the contacts the requester sees
+   * include their private ones, and what a call's turn attributes is read by
+   * everyone in the conversation, so no contact is looked up or linked.
+   */
+  opts: { contacts?: boolean } = {},
 ): Promise<PersonResolution> {
   const input = rawName.trim()
+  const withContacts = opts.contacts !== false
 
   // 1. Speaker map. Fetched fresh per call — assignments can land mid-meeting
   //    as voice ID confirms speakers, and staging tools fire sparsely enough
@@ -169,11 +177,14 @@ export async function resolvePersonForCapture(
     )
     .eq('capture_id', captureId)
 
-  const rows = await fenceParticipantContacts(
+  const fenced = await fenceParticipantContacts(
     supabase,
     requesterUserId,
     (participants ?? []) as unknown as ParticipantRow[],
   )
+  const rows = withContacts
+    ? fenced
+    : fenced.map((r) => (r.contact || r.contact_id ? { ...r, contact: null, contact_id: null, external_name: r.external_name || r.external_email || null } : r))
 
   // 0. First-person stand-ins ("you", "me") → the capture's self row. This is
   //    an IDENTITY resolution (the capture owner), not evidence about who
@@ -236,7 +247,7 @@ export async function resolvePersonForCapture(
 
   // 3. A real name — fuzzy member match, then contact fallback.
   const memberId = await resolveMemberIdByName(supabase, workspaceId, input)
-  const contactId = memberId
+  const contactId = memberId || !withContacts
     ? null
     : await resolveContactIdByName(supabase, workspaceId, input, requesterUserId)
   return { name: input, memberId, contactId, viaSpeakerMap: false, unresolvedLabel: false }

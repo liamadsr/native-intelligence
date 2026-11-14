@@ -77,7 +77,7 @@ import { mirrorAgentRunStatus } from '@/lib/work/agent-run-mirror'
 import { markSteersApplied, settleSteersAtBoundary } from './steer-ledger'
 import { findWork } from '@/lib/work/recorder'
 import { WORK_ROLE_LABELS, isWorkRole } from '@/lib/work/roles'
-import { eveDispatchOrigin, protectionBypassHeaders } from '@/lib/eve/dispatch-origin'
+import { eveDispatchOrigin } from '@/lib/eve/dispatch-origin'
 import { createTurnBoundary } from '@/lib/eve/turn-boundary'
 import {
   DELEGATE_WORK_TOOL,
@@ -255,13 +255,11 @@ function makeWorkAgentClient(args: {
   workspaceId: string
   userId: string
 }): Client {
-  // eveDispatchOrigin: THIS deployment on Vercel (never the production domain
-  // from a preview), through Deployment Protection when a bypass secret is set.
+  // eveDispatchOrigin: the app's own address, where the agents are mounted.
   return new Client({
     host: `${eveDispatchOrigin()}${WORK_AGENT_MOUNT}`,
     auth: { bearer: args.secret },
     headers: {
-      ...protectionBypassHeaders(),
       [AGENT_RUN_SECRET_HEADER]: args.secret,
       [AGENT_RUN_TOKEN_HEADER]: args.runToken,
       [AGENT_RUN_WORKSPACE_HEADER]: args.workspaceId,

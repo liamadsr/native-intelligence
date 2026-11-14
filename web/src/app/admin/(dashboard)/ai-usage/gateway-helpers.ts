@@ -99,7 +99,7 @@ export function rowTokens(row: GatewayReportRow): number {
 
 /**
  * Prefix parsing for tag-grouped rows. Phase A tags calls as `feature:<name>`
- * and `env:<production|preview|development>`. A single request carries multiple
+ * and `env:<production|development>`. A single request carries multiple
  * tags, so the same request_count appears under several tag rows — these
  * breakdowns are "requests that touched this tag", NOT a partition of the total.
  */

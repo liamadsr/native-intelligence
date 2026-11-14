@@ -28,7 +28,7 @@ afterEach(() => {
 
 describe('isSentryEnabled', () => {
   it('is off in production without a DSN', () => {
-    vi.stubEnv('VERCEL_ENV', 'production')
+    vi.stubEnv('NODE_ENV', 'production')
     vi.stubEnv('NEXT_PUBLIC_SENTRY_DSN', '')
     expect(getSentryDsn()).toBeUndefined()
     expect(isSentryEnabled()).toBe(false)
@@ -37,14 +37,14 @@ describe('isSentryEnabled', () => {
   })
 
   it('is on in production with a DSN', () => {
-    vi.stubEnv('VERCEL_ENV', 'production')
+    vi.stubEnv('NODE_ENV', 'production')
     vi.stubEnv('NEXT_PUBLIC_SENTRY_DSN', ` ${DSN} `)
     expect(getSentryDsn()).toBe(DSN)
     expect(isSentryEnabled()).toBe(true)
   })
 
   it('stays off outside production, DSN or not', () => {
-    vi.stubEnv('VERCEL_ENV', 'preview')
+    vi.stubEnv('NODE_ENV', 'development')
     vi.stubEnv('NEXT_PUBLIC_SENTRY_DSN', DSN)
     expect(isSentryEnabled()).toBe(false)
   })

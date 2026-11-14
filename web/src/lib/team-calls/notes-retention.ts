@@ -11,12 +11,15 @@
  *      FAILED_AUDIO_DAYS (someone may want to look into it), then removed.
  *   3. Objects in the bucket whose call row is gone (a channel deleted takes
  *      its calls' rows with it): removed, recordings included, since nobody
- *      can reach them any more (569's team_call_recordings_orphans).
+ *      can reach them any more (569's team_call_recordings_orphans). A call
+ *      recorder's audio file among them (650) has its row marked deleted,
+ *      so its capture says so rather than offering a file that is gone.
  *
  * Each removal is the storage API's (the file and its row go together), as
  * the service role. Privacy: logs carry counts only.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { markAudioDeleted } from '@/lib/capture-feed/audio-retention'
 import { TEAM_CALL_RECORDINGS_BUCKET } from './notes'
 
 export const RETENTION_BATCH = 200
@@ -81,6 +84,8 @@ export async function sweepCallAudio(svc: SupabaseClient, deps: { now?: () => Da
   if (orphanError) throw new Error(`team calls retention: orphans read failed: ${orphanError.message}`)
   const names = ((orphans ?? []) as Array<{ name: string } | string>).map((o) => (typeof o === 'string' ? o : o.name)).filter(Boolean)
   await removePaths(svc, names)
+  // Before migration 650 there is no audio table: nothing to mark (and no audio file to have removed).
+  await markAudioDeleted(svc, { paths: names.filter((n) => n.split('/')[2] === 'audio') }, now)
   result.orphans = names.length
 
   console.info(`[team-call-notes-retention] settled=${result.settled} failed_expired=${result.failedExpired} orphans=${result.orphans}`)

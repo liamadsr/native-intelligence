@@ -16,7 +16,7 @@ import { requireCronSecret } from '@/lib/api-auth'
  * Safe to run often — it's idempotent (the WHERE clause filters to expired
  * rows only).
  *
- * Schedule: daily at 00:05 UTC via Vercel cron. Users who actively make
+ * Schedule: daily at 00:05 UTC from the server's cron. Users who actively make
  * requests get lazy-reset within their next call; dormant users get caught
  * by this job within 24h.
  */

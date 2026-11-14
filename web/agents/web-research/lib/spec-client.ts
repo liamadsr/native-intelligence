@@ -93,23 +93,17 @@ function internalSecret(): string {
 }
 
 /**
- * The Next app's own origin. On Vercel, THIS deployment's URL (the internal
- * routes ship with the same commit as this agent). In dev, NEXT_PUBLIC_APP_URL.
+ * The Next app's own origin: NEXT_PUBLIC_APP_URL (the internal routes are the
+ * app's). In dev the eve sidecar and Next dev share localhost:3000.
  */
 export function appBaseUrl(): string {
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-}
-
-function protectionBypassHeaders(): Record<string, string> {
-  const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
-  return secret ? { 'x-vercel-protection-bypass': secret } : {}
 }
 
 /**
  * The ChatGPT plan proxy (src/app/api/internal/chatgpt-plan/v1/responses):
  * the base URL the plan model calls, and a fetch that adds the internal
- * secret, the call's token and the protection bypass to each request. They
+ * secret and the call's token to each request. They
  * ride the fetch, never a provider's `headers`, which the AI SDK's workflow
  * serializer would write out with the model.
  */
@@ -122,7 +116,6 @@ export function chatGptPlanProxy(runToken: string): PlanProxy {
       headers.delete('authorization')
       headers.set(UTILITY_SECRET_HEADER, internalSecret())
       headers.set(UTILITY_TOKEN_HEADER, runToken)
-      for (const [name, value] of Object.entries(protectionBypassHeaders())) headers.set(name, value)
       return fetch(input, { ...init, headers })
     },
   }
@@ -171,7 +164,7 @@ async function fetchUncached(runToken: string): Promise<WebResearchSpec | null> 
   try {
     const res = await fetch(url, {
       method: 'GET',
-      headers: { [UTILITY_SECRET_HEADER]: internalSecret(), [UTILITY_TOKEN_HEADER]: runToken, ...protectionBypassHeaders() },
+      headers: { [UTILITY_SECRET_HEADER]: internalSecret(), [UTILITY_TOKEN_HEADER]: runToken },
       redirect: 'error',
     })
     if (!res.ok) {

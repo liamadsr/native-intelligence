@@ -117,7 +117,7 @@ import {
 import { signalChatSessionActivity } from '@/lib/chat/idle-compaction-signal'
 import { TEAMMATE_REPORT_KIND, oneLine, parseTeammateReport, type TeammateReport } from '@/lib/chat/teammate-report'
 import { MESSAGE_LABEL_KEY } from '@/lib/chat/message-time'
-import { eveDispatchOrigin, protectionBypassHeaders } from '@/lib/eve/dispatch-origin'
+import { eveDispatchOrigin } from '@/lib/eve/dispatch-origin'
 import { readAgentPausedState } from '@/lib/work/agent-paused'
 import {
   HOME_TURN_KIND,
@@ -635,7 +635,7 @@ export async function peekSessionTail(data: HomeTurnRequestedData, sessionId: st
   const url = `${eveDispatchOrigin()}${CHAT_AGENT_MOUNT}/v1/session/${encodeURIComponent(sessionId)}/stream?startIndex=-${HOME_TURN_TAIL_EVENTS}&includeTailIndex=1`
   const res = await (io.fetch ?? fetch)(url, {
     method: 'GET',
-    headers: { ...protectionBypassHeaders(), [CHAT_RUN_SECRET_HEADER]: secret, [CHAT_RUN_TOKEN_HEADER]: homeTurnToken(data) },
+    headers: { [CHAT_RUN_SECRET_HEADER]: secret, [CHAT_RUN_TOKEN_HEADER]: homeTurnToken(data) },
     // Never let the secret-bearing headers follow a redirect elsewhere.
     redirect: 'error',
     signal: AbortSignal.timeout(HOME_TURN_TAIL_TIMEOUT_MS),
@@ -1557,7 +1557,6 @@ export function makeHomeTurnClient(args: { secret: string; token: string }): Cli
   return new Client({
     host: `${eveDispatchOrigin()}${CHAT_AGENT_MOUNT}`,
     headers: {
-      ...protectionBypassHeaders(),
       [CHAT_RUN_SECRET_HEADER]: args.secret,
       [CHAT_RUN_TOKEN_HEADER]: args.token,
     },

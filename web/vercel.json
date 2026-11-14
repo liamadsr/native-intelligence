@@ -1,11 +1,4 @@
 {
-  "git": {
-    "deploymentEnabled": {
-      "main": true,
-      "**": false
-    }
-  },
-  "ignoreCommand": "bash scripts/vercel-ignore-build.sh",
   "crons": [
     {
       "path": "/api/cron/email-management",

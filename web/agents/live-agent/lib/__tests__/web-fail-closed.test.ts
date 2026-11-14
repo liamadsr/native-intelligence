@@ -29,7 +29,7 @@ type Resolver = {
 const ws = workspaceTools as unknown as Resolver
 const ctx = { session: { auth: { current: { attributes: { runToken: 'tok.sig' } } } } }
 
-const ENV_KEYS = ['LIVE_AGENT_INTERNAL_SECRET', 'RUN_SKILL_INTERNAL_SECRET', 'NEXT_PUBLIC_APP_URL', 'VERCEL_URL'] as const
+const ENV_KEYS = ['LIVE_AGENT_INTERNAL_SECRET', 'RUN_SKILL_INTERNAL_SECRET', 'NEXT_PUBLIC_APP_URL'] as const
 const savedEnv: Record<string, string | undefined> = {}
 
 beforeEach(() => {
@@ -37,7 +37,6 @@ beforeEach(() => {
   resetLiveAgentSpecCache()
   for (const k of ENV_KEYS) savedEnv[k] = process.env[k]
   process.env.LIVE_AGENT_INTERNAL_SECRET = 'secret'
-  delete process.env.VERCEL_URL
   process.env.NEXT_PUBLIC_APP_URL = 'https://app.test'
   vi.spyOn(console, 'error').mockImplementation(() => {})
 })

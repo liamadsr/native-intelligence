@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Turns the `crons` array in web/vercel.json into ./crontab, the schedule the cron
-// role runs with supercronic. Vercel Cron and this crontab then call the same routes
-// at the same times (both in UTC), each with `Authorization: Bearer $CRON_SECRET`.
+// role runs with supercronic. The file keeps the format of the app's earlier host,
+// whose scheduler read it: this crontab calls the same routes at the same times (in
+// UTC), each with `Authorization: Bearer $CRON_SECRET`.
 //
 //   node deploy/app/cron/generate.mjs           write ./crontab
 //   node deploy/app/cron/generate.mjs --check   exit 1 if ./crontab is not what

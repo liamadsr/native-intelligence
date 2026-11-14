@@ -19,7 +19,7 @@ import { fetchAllRows } from '@/lib/supabase/paging'
  * Admin-granted subscriptions (stripe_subscription_id LIKE 'granted_%') are
  * skipped — they have no Stripe object.
  *
- * Schedule: daily via Vercel cron.
+ * Schedule: daily from the server's cron.
  */
 export const maxDuration = 60
 

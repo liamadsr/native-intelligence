@@ -795,7 +795,7 @@ describe('runViaEve — the wall stops the server session', () => {
   }, 30_000) // the cold dynamic import of run-skill alone can pass 5 s on a loaded machine
 })
 
-describe('runViaEve — dispatch origin (this deployment, through Deployment Protection)', () => {
+describe('runViaEve — dispatch origin (the address in NEXT_PUBLIC_APP_URL)', () => {
   beforeEach(() => {
     process.env.RUN_SKILL_INTERNAL_SECRET = SECRET
     createTaskSessionMock.mockReset()
@@ -809,22 +809,16 @@ describe('runViaEve — dispatch origin (this deployment, through Deployment Pro
   const clientOpts = () =>
     (ClientMock.mock.calls[0] as unknown as [{ host: string; headers: Record<string, string> }])[0]
 
-  it("on Vercel dispatches to THIS deployment (VERCEL_URL), never the production NEXT_PUBLIC_APP_URL, with the bypass header", async () => {
-    vi.stubEnv('VERCEL_URL', 'dial8-git-branch.vercel.app')
-    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev')
-    vi.stubEnv('VERCEL_AUTOMATION_BYPASS_SECRET', 'bypass-123')
+  it('dispatches to the address in NEXT_PUBLIC_APP_URL', async () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://staging.example')
     await runViaEve({ spec: baseSpec(), hasCapture: false, timeoutMs: 120_000 })
-    expect(clientOpts().host).toBe('https://dial8-git-branch.vercel.app/eve/skill-runner')
-    expect(clientOpts().headers['x-vercel-protection-bypass']).toBe('bypass-123')
+    expect(clientOpts().host).toBe('https://staging.example/eve/skill-runner')
   })
 
-  it('off Vercel uses NEXT_PUBLIC_APP_URL and sends no bypass header without a secret', async () => {
-    vi.stubEnv('VERCEL_URL', '')
-    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3000')
-    vi.stubEnv('VERCEL_AUTOMATION_BYPASS_SECRET', '')
+  it("dispatches to local dev's default without it", async () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', '')
     await runViaEve({ spec: baseSpec(), hasCapture: false, timeoutMs: 120_000 })
     expect(clientOpts().host).toBe('http://localhost:3000/eve/skill-runner')
-    expect(clientOpts().headers).not.toHaveProperty('x-vercel-protection-bypass')
   })
 })
 

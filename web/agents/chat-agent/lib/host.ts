@@ -2,8 +2,8 @@
  * Which body of the one Native Intelligence agent this build is (contract C2,
  * docs/plans/teammate-agent.md): the same source, built twice.
  *
- *   - 'cloud': the Vercel build, as it has always been. The default: nothing
- *     sets NI_AGENT_HOST there, so every switch below keeps today's path.
+ *   - 'cloud': the build that serves the app (deploy/app). The default: nothing
+ *     sets NI_AGENT_HOST there, so every switch below keeps that path.
  *   - 'mac': the desktop bundle (scripts/local-agent/build.sh and bundle.sh set
  *     NI_AGENT_HOST=mac for `eve build`). The launcher sets it again in the
  *     eve server's environment, because eve compiles each module at build time
@@ -17,7 +17,7 @@
  * which the Mac build adds (scripts/local-agent/mac-body.sh).
  *
  * Fails closed on anything it doesn't know: a typo must not silently build the
- * other body, and the Mac body never runs on Vercel.
+ * other body.
  */
 export type AgentHost = 'cloud' | 'mac'
 
@@ -26,12 +26,11 @@ export const AGENT_HOST_ENV = 'NI_AGENT_HOST'
 
 type HostEnv = Readonly<Record<string, string | undefined>>
 
-/** The host this process was built and launched for. Throws on an unknown value, or 'mac' on Vercel. */
+/** The host this process was built and launched for. Throws on an unknown value. */
 export function agentHost(env: HostEnv = process.env): AgentHost {
   const raw = env[AGENT_HOST_ENV]
   if (raw === undefined || raw === '' || raw === 'cloud') return 'cloud'
   if (raw !== 'mac') throw new Error(`[chat-agent] ${AGENT_HOST_ENV}=${JSON.stringify(raw)} is not a host (cloud or mac)`)
-  if (env.VERCEL) throw new Error(`[chat-agent] ${AGENT_HOST_ENV}=mac on Vercel: the Mac body never runs there`)
   return 'mac'
 }
 

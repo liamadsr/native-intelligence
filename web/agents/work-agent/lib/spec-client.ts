@@ -139,34 +139,17 @@ function internalSecret(): string {
 }
 
 /**
- * The Next app's own origin. On Vercel, pin to THIS deployment's URL: the
- * internal routes ship with the same commit as this agent, so the deployment's
- * own origin is the only version-correct target (NEXT_PUBLIC_APP_URL points at
- * the canonical PROD domain — from a preview it would call OLD code that may not
- * even have these routes). In dev the eve sidecar and Next dev share
- * localhost:3000.
+ * The Next app's own origin: NEXT_PUBLIC_APP_URL (the internal routes are the
+ * app's). In dev the eve sidecar and Next dev share localhost:3000.
  */
 function appBaseUrl(): string {
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 }
 
 /**
- * Vercel Deployment Protection guards preview URLs with SSO — including
- * server-to-server fetches like ours. When the project has "Protection Bypass
- * for Automation" enabled, Vercel injects this secret into every deployment;
- * sending it as a header lets the agent through. Absent (prod custom domain,
- * local dev) this contributes nothing.
- */
-function protectionBypassHeaders(): Record<string, string> {
-  const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
-  return secret ? { 'x-vercel-protection-bypass': secret } : {}
-}
-
-/**
  * The ChatGPT plan proxy (src/app/api/internal/chatgpt-plan/v1/responses):
- * the base URL a plan model calls, and a fetch that adds this agent's secret,
- * the run's token and the protection bypass to each request as it goes. They
+ * the base URL a plan model calls, and a fetch that adds this agent's secret
+ * and the run's token to each request as it goes. They
  * ride the fetch, never a provider's `headers`, which the AI SDK's workflow
  * serializer would write out with the model.
  */
@@ -179,7 +162,6 @@ export function chatGptPlanProxy(runToken: string): PlanProxy {
       headers.delete('authorization')
       headers.set(AGENT_RUN_SECRET_HEADER, internalSecret())
       headers.set(AGENT_RUN_TOKEN_HEADER, runToken)
-      for (const [name, value] of Object.entries(protectionBypassHeaders())) headers.set(name, value)
       return fetch(input, { ...init, headers })
     },
   }
@@ -252,7 +234,6 @@ export async function fetchEveSpec(runToken: string): Promise<EveSpec | null> {
       headers: {
         [AGENT_RUN_SECRET_HEADER]: secret,
         [AGENT_RUN_TOKEN_HEADER]: runToken,
-        ...protectionBypassHeaders(),
       },
       redirect: 'error',
     })
@@ -305,7 +286,6 @@ export async function dispatchWorkspaceTool(
         'content-type': 'application/json',
         [AGENT_RUN_SECRET_HEADER]: secret,
         [AGENT_RUN_TOKEN_HEADER]: runToken,
-        ...protectionBypassHeaders(),
       },
       body: JSON.stringify({ toolName, input }),
       redirect: 'error',
@@ -364,7 +344,6 @@ export async function postWorkOutcome(
         'content-type': 'application/json',
         [AGENT_RUN_SECRET_HEADER]: secret,
         [AGENT_RUN_TOKEN_HEADER]: runToken,
-        ...protectionBypassHeaders(),
       },
       // The shared outcome route discriminates on `result: 'work_completed'` to
       // take the workspace-kind settle branch (vs the coding pr_open/completed).
@@ -425,7 +404,6 @@ export async function postWorkPlan(runToken: string, steps: unknown): Promise<Wo
         'content-type': 'application/json',
         [AGENT_RUN_SECRET_HEADER]: secret,
         [AGENT_RUN_TOKEN_HEADER]: runToken,
-        ...protectionBypassHeaders(),
       },
       body: JSON.stringify({ kind: 'plan', steps }),
       redirect: 'error',
@@ -467,7 +445,6 @@ export async function fetchDelegationResult(
         'content-type': 'application/json',
         [AGENT_RUN_SECRET_HEADER]: secret,
         [AGENT_RUN_TOKEN_HEADER]: runToken,
-        ...protectionBypassHeaders(),
       },
       body: JSON.stringify({ call_id: callId }),
       redirect: 'error',

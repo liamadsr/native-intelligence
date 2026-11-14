@@ -48,7 +48,7 @@ class Groups(unittest.TestCase):
     def test_groups(self):
         self.assertEqual(cs.group("NI_LIVE"), "switch")
         self.assertEqual(cs.group("CREDENTIAL_ENCRYPTION_KEY"), "must match")
-        self.assertEqual(cs.group("SENTRY_ORG"), "may be empty")
+        self.assertEqual(cs.group("NEXT_PUBLIC_SITE_URL"), "may be empty")
         self.assertEqual(cs.group("SANDBOX_ACCESS_TOKEN"), "needed")
         # A new value is fine for it: only cloud browsers running at the switch hold tokens made with it.
         self.assertEqual(cs.group("BROWSER_INTERNAL_SECRET"), "needed")
@@ -61,6 +61,9 @@ class Groups(unittest.TestCase):
             self.assertNotIn(name, cs.MAY_BE_EMPTY)
             self.assertNotIn(name, cs.EMPTY_MEANS)
             self.assertNotIn(name, cs.CHECKS)
+        # Nothing on the server read these three: gone from the file and from here.
+        for name in ("SENTRY_ORG", "SENTRY_PROJECT", "RUN_SKILL_LOCAL_DISPATCH_ENABLED"):
+            self.assertNotIn(name, cs.MAY_BE_EMPTY)
 
     def test_no_name_is_in_two_groups(self):
         self.assertFalse(set(cs.MUST_MATCH) & set(cs.MAY_BE_EMPTY))
@@ -224,6 +227,18 @@ class Slack(unittest.TestCase):
                 self.assertIs(ok, False, (missing, name))
                 self.assertIn(missing, note)
                 self.assertIn("all four or none", note)
+
+    def test_the_client_secret_must_not_be_the_signing_secret(self):
+        env = dict(self.ENV, SLACK_CLIENT_SECRET=self.ENV["SLACK_SIGNING_SECRET"])
+        ok, note = self.run_check("SLACK_CLIENT_SECRET", env)
+        self.assertIs(ok, False)
+        self.assertIn("SLACK_SIGNING_SECRET", note)
+        self.assertNotIn(self.ENV["SLACK_SIGNING_SECRET"], note)
+        # Said once, on the client secret: the signing secret's own check stays quiet.
+        self.assertEqual(self.run_check("SLACK_SIGNING_SECRET", env), (None, None))
+        # Spaces around either value are trimmed first, as the app trims them.
+        spaced = dict(env, SLACK_CLIENT_SECRET=" %s\n" % env["SLACK_CLIENT_SECRET"], SLACK_SIGNING_SECRET="%s " % env["SLACK_SIGNING_SECRET"])
+        self.assertIs(self.run_check("SLACK_CLIENT_SECRET", spaced)[0], False)
 
     def test_secrets_of_32_to_128_hex_characters_either_case(self):
         for value in ("0123456789ABCDEF0123456789abcdef", "a" * 64, "F" * 128):
@@ -573,6 +588,24 @@ class CallRecorder(unittest.TestCase):
         _, blockers, _ = cs.report({"TEAM_CALL_RECORDER": "", "CAPTURE_FEED_SECRET": ""}, {})
         self.assertEqual(blockers, [])
 
+    def test_the_switches_that_need_the_recorder(self):
+        # Phase 2's two, and phase 4's audio files.
+        for name in ("TEAM_CALL_LIVE_AGENT", "TEAM_CALL_EVENT_LINK", "TEAM_CALL_AUDIO"):
+            self.assertEqual(cs.group(name), "may be empty")
+            check = cs.CHECKS[name]
+            self.assertEqual(check(dict(self.ENV, TEAM_CALL_RECORDER="on", **{name: "on"}), {}), (None, None))
+            # As the app reads it: trimmed, any case.
+            self.assertEqual(check(dict(self.ENV, TEAM_CALL_RECORDER="on", **{name: " ON "}), {}), (None, None))
+            for wrong in ("1", "true", "yes"):
+                ok, note = check(dict(self.ENV, TEAM_CALL_RECORDER="on", **{name: wrong}), {})
+                self.assertIs(ok, False, wrong)
+                self.assertIn("only on", note)
+            ok, note = check(dict(self.ENV, TEAM_CALL_RECORDER="", **{name: "on"}), {})
+            self.assertIs(ok, False)
+            self.assertIn("TEAM_CALL_RECORDER", note)
+            _, blockers, _ = cs.report({name: ""}, {})
+            self.assertEqual(blockers, [])
+
     def test_the_secret_is_its_own(self):
         self.assertEqual(cs.group("CAPTURE_FEED_SECRET"), "may be empty")
         check = cs.CHECKS["CAPTURE_FEED_SECRET"]
@@ -593,7 +626,7 @@ class Report(unittest.TestCase):
             "CREDENTIAL_ENCRYPTION_KEY": "",
             "RUN_SKILL_INTERNAL_SECRET": "rehearsal-made-up",
             "STRIPE_SECRET_KEY": "made-up",
-            "SENTRY_ORG": "",
+            "NEXT_PUBLIC_SITE_URL": "",
             "SANDBOX_ACCESS_TOKEN": "made-up",
             "CRON_SECRET": "made-up",
         }
@@ -605,7 +638,7 @@ class Report(unittest.TestCase):
             "SANDBOX_ACCESS_TOKEN: refused",
         ])
         text = "\n".join(lines)
-        self.assertIn("SENTRY_ORG", text)
+        self.assertIn("NEXT_PUBLIC_SITE_URL", text)
         self.assertNotIn("made-up", text)
         self.assertEqual(unchecked, [])
 
@@ -623,7 +656,7 @@ class Report(unittest.TestCase):
     def test_names_only_run_shows_no_value(self):
         secret = "made-up-value-that-must-not-show"
         with tempfile.NamedTemporaryFile("w", suffix=".env", delete=False) as f:
-            f.write("NI_LIVE=\nCRON_SECRET=%s\nCREDENTIAL_ENCRYPTION_KEY=\nSENTRY_ORG=\n" % secret)
+            f.write("NI_LIVE=\nCRON_SECRET=%s\nCREDENTIAL_ENCRYPTION_KEY=\nNEXT_PUBLIC_SITE_URL=\n" % secret)
         try:
             out = io.StringIO()
             with contextlib.redirect_stdout(out):

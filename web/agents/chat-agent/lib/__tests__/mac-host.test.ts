@@ -65,14 +65,12 @@ describe('agentHost', () => {
     expect(agentHost({ NI_AGENT_HOST: '' })).toBe('cloud')
     expect(agentHost({ NI_AGENT_HOST: 'cloud' })).toBe('cloud')
     expect(agentHost({ NI_AGENT_HOST: 'mac' })).toBe('mac')
-    expect(agentHost({ NI_AGENT_HOST: 'mac', VERCEL: '' })).toBe('mac')
     expect(isMacHost({ NI_AGENT_HOST: 'mac' })).toBe(true)
     expect(isMacHost({})).toBe(false)
   })
 
-  it('throws on any other value, and on the Mac host on Vercel', () => {
+  it('throws on any other value', () => {
     for (const bad of ['Mac', 'macos', 'true', '1', ' mac']) expect(() => agentHost({ NI_AGENT_HOST: bad })).toThrow(/not a host/)
-    expect(() => agentHost({ NI_AGENT_HOST: 'mac', VERCEL: '1' })).toThrow(/never runs there/)
   })
 
   it('reads the process environment by default (unset in this test run: the cloud)', () => {

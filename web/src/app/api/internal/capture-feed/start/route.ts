@@ -5,13 +5,17 @@
  * current round's, made once; its capture is the source's one capture, made
  * the first time. 'busy': another producer heartbeats it; 'not_wanted': the
  * source wants no feed now (a call ended, its notes off), or this server
- * takes none of its kind.
+ * takes none of its kind. `session.audio`: keep a sound file of it (650; the
+ * source's switch, TEAM_CALL_AUDIO for a call).
+ *
+ * After the answer, the source's own follow-up (a meeting's call capture
+ * takes its calendar event: src/lib/capture-feed/sources.ts).
  *
  * Server only: the feed's secret (src/lib/capture-feed/auth.ts). 404 while
  * the feed is off here; 503 when the database can't be written (send it
  * again).
  */
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { getServiceClient } from '@/lib/admin'
 import { StartSchema } from '@/lib/capture-feed/contract'
 import { feedRequest, feedRetryLater } from '@/lib/capture-feed/route'
@@ -28,8 +32,18 @@ export async function POST(request: Request) {
   try {
     const svc = getServiceClient()
     const title = await source.title(svc, body.source.ref)
-    const started = await startFeed(svc, { source: body.source, producer: body.producer, title })
+    const started = await startFeed(svc, { source: body.source, producer: body.producer, title, audio: source.audio() })
     console.info(`[capture-feed] source=${body.source.kind}:${body.source.ref} producer=${body.producer.id} outcome=${started.outcome} session=${started.session?.id ?? '-'}`)
+    const captureId = started.session?.captureId
+    if (captureId && source.afterStart) {
+      const work = () => source.afterStart!(svc, captureId).catch(() => undefined)
+      // After the answer: the producer waits on it before it hears anyone.
+      try {
+        after(work)
+      } catch {
+        void work()
+      }
+    }
     return NextResponse.json(started)
   } catch (err) {
     console.error(`[capture-feed] source=${body.source.kind}:${body.source.ref} start failed:`, err instanceof Error ? err.message.slice(0, 200) : 'unknown')

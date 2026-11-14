@@ -13,7 +13,7 @@
  */
 import { defineDynamic } from 'eve'
 import { defineState, type SessionAuth } from 'eve/context'
-import { appBaseUrl, internalSecret, protectionBypassHeaders } from './app-client.js'
+import { appBaseUrl, internalSecret } from './app-client.js'
 import { planSearchStepSelection, planTurnSelection, type ChatGptPlan, type PlanProxy } from './chatgpt-plan-model.js'
 
 /**
@@ -55,9 +55,9 @@ export function planTokenFrom(auth: SessionAuth): string | null {
 
 /**
  * The plan proxy for a free user's research: the base URL the plan model
- * calls, and a fetch adding the internal secret, their plan token and the
- * protection bypass to each request. They ride the fetch, never a provider's
- * `headers`, which the AI SDK's workflow serializer would write out.
+ * calls, and a fetch adding the internal secret and their plan token to each
+ * request. They ride the fetch, never a provider's `headers`, which the AI
+ * SDK's workflow serializer would write out.
  */
 export function researcherPlanProxy(planToken: string): PlanProxy {
   return {
@@ -68,7 +68,6 @@ export function researcherPlanProxy(planToken: string): PlanProxy {
       headers.delete('authorization')
       headers.set(AGENT_RUN_SECRET_HEADER, internalSecret())
       headers.set(AGENT_RUN_TOKEN_HEADER, planToken)
-      for (const [name, value] of Object.entries(protectionBypassHeaders())) headers.set(name, value)
       return fetch(input, { ...init, headers })
     },
   }

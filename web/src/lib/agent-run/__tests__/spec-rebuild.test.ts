@@ -170,7 +170,6 @@ describe('rebuildAgentRunSpec — gatewayTelemetry (Phase A)', () => {
 
   it('flag on: user is run.triggered_by and tags carry feature/env/ws/runtime/action in order', async () => {
     vi.stubEnv('GATEWAY_USER_TAGGING', 'all')
-    vi.stubEnv('VERCEL_ENV', 'development')
     const spec = await rebuildAgentRunSpec(CLAIMS)
     expect(spec).not.toBeNull()
     expect(spec!.gatewayTelemetry).toEqual({
@@ -329,7 +328,6 @@ describe('buildAgentRunSpec — flow-origin (action_id NULL)', () => {
 
   it('gatewayTelemetry tags the flow, not an action', async () => {
     vi.stubEnv('GATEWAY_USER_TAGGING', 'all')
-    vi.stubEnv('VERCEL_ENV', 'development')
     seedFlowRunnable()
     const spec = await rebuildAgentRunSpec(FLOW_CLAIMS)
     expect(spec!.gatewayTelemetry).toEqual({

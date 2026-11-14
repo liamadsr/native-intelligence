@@ -19,6 +19,8 @@ import { NextResponse, type NextRequest } from 'next/server'
  *   meeting — the resume is refused instead of silently recording into a row
  *   that stays locked (the old fire-and-forget unlock lost the entire resumed
  *   session's transcript in that case).
+ * - A call's capture is never resumed (409 CALL_CAPTURE_NO_RECORDING): the
+ *   call recorder fills it on the server, and no device records into it.
  */
 export async function POST(
   _request: NextRequest,
@@ -42,7 +44,7 @@ export async function POST(
 
   const { data: capture } = await supabase
     .from('captures')
-    .select('id, calendar_event_id, ended_at, metadata')
+    .select('id, calendar_event_id, ended_at, metadata, notes_channel_id')
     .eq('id', id)
     .eq('user_id', user.id)
     .eq('workspace_id', workspaceId)
@@ -50,6 +52,16 @@ export async function POST(
 
   if (!capture) {
     return NextResponse.json({ error: 'Capture not found' }, { status: 404 })
+  }
+
+  // A call's capture (566's notes_channel_id, the server's own column): the call recorder fills it,
+  // its notes are the server's, and no device records into it (POST /api/ai/live-agent refuses a
+  // device's live turns on it). Refused here, before anything is unlocked.
+  if ((capture as { notes_channel_id?: string | null }).notes_channel_id) {
+    return NextResponse.json(
+      { error: 'A call’s notes are taken by the call itself, not recorded from a device', code: 'CALL_CAPTURE_NO_RECORDING' },
+      { status: 409 },
+    )
   }
 
   const supabaseAdmin = getServiceClient()

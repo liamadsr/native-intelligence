@@ -62,6 +62,7 @@ import {
   type AgentToolSelection,
 } from '@/lib/live-agent/read-tool-names'
 import { computeLiveAgentCeiling, type LiveAgentTurnType } from '@/lib/live-agent/ceiling'
+import { callCaptureFenceApplies, callCaptureGuidance } from '@/lib/live-agent/call-capture-fence'
 import {
   ASSISTANT_PERSONA,
   RECIPE_PREAMBLE,
@@ -504,6 +505,8 @@ export interface AssembleLiveAgentToolSetInput<S extends ToolSet> {
   agentConfig: AgentToolSelection | null | undefined
   /** The attached-package manifest (null when none / batch). */
   packageBlock: string | null
+  /** The turn is on a call's capture (./call-capture-fence.ts): fenced, and no web. */
+  callCapture?: boolean
 }
 
 /**
@@ -557,8 +560,11 @@ export function assembleLiveAgentToolSet<S extends ToolSet>({
   assistOnly,
   agentConfig,
   packageBlock,
+  callCapture = false,
 }: AssembleLiveAgentToolSetInput<S>) {
-  const ceiling = computeLiveAgentCeiling({ turnType, assistOnly, agentConfig })
+  const ceiling = computeLiveAgentCeiling({ turnType, assistOnly, agentConfig, callCapture })
+  // A call's capture reads nothing from the web either (./call-capture-fence.ts).
+  const fenced = callCapture && callCaptureFenceApplies(turnType)
   const permittedStaging = new Set(ceiling.staging)
   const stagingTools = Object.fromEntries(
     Object.entries(allStagingTools).filter(([name]) => permittedStaging.has(name)),
@@ -575,7 +581,7 @@ export function assembleLiveAgentToolSet<S extends ToolSet>({
     // propose_* queue. pickPermittedTools exempts it from readCeiling; `{}`
     // when the turn has no web access (eval capture, or the USE_GATEWAY kill
     // switch).
-    ...webTools,
+    ...(fenced ? {} : webTools),
     search_tools: createSearchToolsTool(readCeiling),
     ...readTools,
   }
@@ -741,8 +747,12 @@ export async function buildDynamicContext(
   requesterUserId: string,
   /** `talks`: a turn that can speak (a live copilot turn), which also gets
    *  the call playbook and "What you've already told them this call". Off for
-   *  batch and notes turns. */
-  opts: { talks?: boolean } = {},
+   *  batch and notes turns. `callCapture`: a fenced turn on a call's capture
+   *  (./call-capture-fence.ts), which gets what it may do on the shared notes
+   *  and none of the requester's own context: no chat with them, no earlier
+   *  meetings of the series, no pre-call brief, no playbook (the notes are
+   *  everyone's in the conversation). `endOfCall`: it is the end-of-call pass. */
+  opts: { talks?: boolean; callCapture?: boolean; endOfCall?: boolean } = {},
 ): Promise<string> {
   const parts: string[] = []
 
@@ -897,6 +907,13 @@ export async function buildDynamicContext(
     }
   }
   parts.push(statusParts.join('\n'))
+
+  // A call's capture (./call-capture-fence.ts): what this turn may do on the shared notes, and
+  // nothing of the requester's own (no chat with them, no earlier meetings, no brief, no playbook).
+  if (opts.callCapture) {
+    parts.push(callCaptureGuidance(opts.endOfCall === true))
+    return parts.join('\n\n')
+  }
 
   // ── Live chat with the user (talk-back → ambient steering, plan WS-1g) ──
   // If the user has been chatting with the agent in the capture's conversation,

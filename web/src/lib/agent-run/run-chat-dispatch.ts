@@ -8,7 +8,7 @@ import {
   AGENT_RUN_USER_HEADER,
 } from '@/lib/agent-run/agent-run-token'
 import { EVE_SANDBOX_PREFIX } from '@/lib/agent-run/run-agent-eve'
-import { eveDispatchOrigin, protectionBypassHeaders } from '@/lib/eve/dispatch-origin'
+import { eveDispatchOrigin } from '@/lib/eve/dispatch-origin'
 import { mintRunToken } from '@/lib/flows/skill-run-token'
 import { PLAN_HELPER_MODEL, planModelFromSlug, planModelSlug } from '@/lib/chatgpt/plan-models'
 import { skillRunnerClient } from '@/lib/flows/run-skill-eve'
@@ -160,9 +160,8 @@ export function dispatchChatTurn(
  * `redirect: 'error'` keeps the credentialed headers from following a cross-origin
  * redirect. The host is an ABSOLUTE origin (`${eveDispatchOrigin()}${WORK_AGENT_MOUNT}`):
  * eve builds a relative URL for a non-absolute host, and server-side `fetch` has
- * no ambient origin, so a bare mount path would throw on every call. It is THIS
- * deployment on Vercel (a preview never drives production's session), through
- * Deployment Protection when a bypass secret is set, exactly as the dispatcher.
+ * no ambient origin, so a bare mount path would throw on every call. It is the
+ * app's own address, exactly as the dispatcher's.
  *
  * The old `preserveCompletedSessions: true` option is GONE in eve 0.31.0 and needs
  * no replacement: it existed to stop the client discarding a continuation token at
@@ -184,7 +183,6 @@ export function makeWorkAgentClient(args: {
     host: `${eveDispatchOrigin()}${WORK_AGENT_MOUNT}`,
     auth: { bearer: args.secret },
     headers: {
-      ...protectionBypassHeaders(),
       [AGENT_RUN_SECRET_HEADER]: args.secret,
       [AGENT_RUN_TOKEN_HEADER]: args.runToken,
       [AGENT_RUN_WORKSPACE_HEADER]: args.workspaceId,
