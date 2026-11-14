@@ -5,7 +5,7 @@
 //! **What the bundle can do.** Both are off unless the agent bundle says it
 //! supports them: `BUNDLE.json`'s `capabilities` lists `"local-model"` (its
 //! launcher sends model calls to `LOCAL_AGENT_LOCAL_MODEL_*`) and `"workers"`
-//! (its adapters keep a worker inside the folder's fence, without the
+//! (its adapter keeps a worker inside the folder's fence, without the
 //! person's own MCP servers or hooks). A bundle that doesn't list one never
 //! gets it: an older launcher would ignore the local model and use the relay.
 //!
@@ -37,17 +37,17 @@
 //! label, the CLI's name), read only from the bundle on disk, never from the
 //! page or the network. Each needs the person's yes, per Mac, in the tray
 //! (Local Agents → Coding Agents; off by default), and a bundle that lists
-//! `"workers"` and carries the adapter, the registry and the agents' protocol
-//! adapters ([`WorkerFiles`]); and then a yes in a native confirm for each
-//! launch ([`super::starts`]). `local_agent_start { worker }` names a
-//! registry id; Rust then runs the one adapter for every worker,
-//! `<node> <bundle>/workers/acp.mjs` (in a dev checkout, the build of it:
-//! `<agentDir>/.output/workers/acp.mjs`), with `LOCAL_AGENT_WORKER` (the id),
+//! `"workers"` and carries the adapter and the registry ([`WorkerFiles`]);
+//! and then a yes in a native confirm for each launch ([`super::starts`]).
+//! The bundle ships no third party's code for them: the adapter, our own
+//! script, starts the person's CLI itself. `local_agent_start { worker }`
+//! names a registry id; Rust then runs the one adapter for every worker,
+//! `<node> <bundle>/workers/worker.mjs` (in a dev checkout, the build of it:
+//! `<agentDir>/.output/workers/worker.mjs`), with `LOCAL_AGENT_WORKER` (the id),
 //! `LOCAL_AGENT_WORKER_BIN` (the CLI as found on the login shell's PATH,
-//! named as the entry's `cli`; Native Intelligence never installs it),
-//! `LOCAL_AGENT_ACP_DIR` (the bundle's `acp/`, where the agents' protocol
-//! adapters are installed) and `LOCAL_AGENT_FENCE_DIR` (the folder of the
-//! job's fence markers, made just before: [`super::fence`]). The job's folder (the adapter's cwd) is
+//! named as the entry's `cli`; Native Intelligence never installs it) and
+//! `LOCAL_AGENT_FENCE_DIR` (the folder of the job's fence markers, made just
+//! before: [`super::fence`]). The job's folder (the adapter's cwd) is
 //! `<root>/jobs/<id>`; the adapter makes the agent's private home inside it,
 //! `<root>/jobs/<id>/home`, with links to the person's keychain folder and
 //! login, so the only removal of a job's folder here
@@ -160,17 +160,16 @@ const FOREIGN_SESSION: &str =
 const BAD_SESSION: &str = "this job's session isn't one a coding agent can resume; start a new job";
 /// Something changed between the handler's checks and the launch.
 pub(super) const CHANGED: &str = "this Mac's model or coding agents changed while the job was starting; start it again";
-/// The bundle has no usable registry, adapter or agents' adapters
-/// ([`WorkerFiles::present`]), or doesn't list `"workers"`.
+/// The bundle has no usable registry or adapter ([`WorkerFiles::present`]),
+/// or doesn't list `"workers"`.
 const NO_WORKERS: &str = "this build of Native Intelligence can't run coding agents yet";
 
-/// The one adapter every worker runs, in the bundle's `workers/`.
-const ADAPTER: &str = "acp";
+/// The one adapter every worker runs, in the bundle's `workers/`. Bundles
+/// before it named it `acp` and needed an `acp/` folder of third-party
+/// adapters beside: those offer no workers here.
+const ADAPTER: &str = "worker";
 /// The agents, as data, beside it.
 const REGISTRY_FILE: &str = "registry.json";
-/// Where the bundle has the agents' protocol adapters installed
-/// (`workers/install-agents.sh`; `LOCAL_AGENT_ACP_DIR`).
-const ACP_DIR: &str = "acp";
 /// Largest registry read, entries kept, and an entry's longest label and
 /// CLI name.
 const MAX_REGISTRY_BYTES: u64 = 64 * 1024;
@@ -244,9 +243,10 @@ fn is_cli_name(s: &str) -> bool {
 }
 
 /// The bundle's `workers/registry.json`: the coding agents it can run, by
-/// id. Only `label` and `cli` are Rust's; the rest of each entry (the
-/// adapter's command, its environment, its login) is the adapter's, which
-/// checks it again. Read from the signed bundle on disk only.
+/// id. Only `label` and `cli` are Rust's; the rest of each entry (its
+/// driver, its environment, its login, any field a later bundle adds) is the
+/// adapter's, which checks it again, and is never required here. Read from
+/// the signed bundle on disk only.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Registry {
     /// By id.
@@ -366,12 +366,10 @@ impl<'de> Deserialize<'de> for NoDuplicateKeys {
 /// (`scripts/local-agent/build.sh`), since the adapter can't run from source.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkerFiles {
-    /// `workers/acp.mjs`: what `<node>` runs for every worker.
+    /// `workers/worker.mjs`: what `<node>` runs for every worker.
     pub adapter: PathBuf,
     /// `workers/registry.json`.
     pub registry: PathBuf,
-    /// `acp/`: `LOCAL_AGENT_ACP_DIR`.
-    pub acp_dir: PathBuf,
 }
 
 impl WorkerFiles {
@@ -399,13 +397,13 @@ impl WorkerFiles {
         WorkerFiles {
             adapter: root.join("workers").join(format!("{ADAPTER}.{ext}")),
             registry: root.join("workers").join(REGISTRY_FILE),
-            acp_dir: root.join(ACP_DIR),
         }
     }
 
-    /// All of it is there: without any one, workers are off.
+    /// Both are there: without either, workers are off (quietly: an older
+    /// bundle has its `acp.mjs` instead, and that is not a broken one).
     pub fn present(&self) -> bool {
-        self.adapter.is_file() && self.registry.is_file() && self.acp_dir.is_dir()
+        self.adapter.is_file() && self.registry.is_file()
     }
 
     /// The registry, when everything a worker needs is there and it parses.
@@ -984,14 +982,11 @@ pub fn same_worker(id: Option<&str>, found: Option<Worker>) -> Result<Option<Wor
     }
 }
 
-/// One launch's worker: the bundle's adapter and agents' adapters, and the
-/// person's CLI.
+/// One launch's worker: the bundle's adapter and the person's CLI.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorkerRun {
     pub worker: Worker,
     pub adapter: PathBuf,
-    /// [`WorkerFiles::acp_dir`], as `LOCAL_AGENT_ACP_DIR`.
-    pub acp_dir: String,
     pub bin: String,
     /// The fence markers' folder, as `LOCAL_AGENT_FENCE_DIR`: filled in by
     /// the actor at launch, once it has made the markers ([`super::fence`]).
@@ -1032,7 +1027,8 @@ impl RunSpec {
     /// Make [`super::config::launcher_env`]'s list this run's, failing
     /// closed: a local model gets no relay URL and no dev key (the session
     /// token stays, for C1's tool routes, with the app's origin); a worker
-    /// gets none of the relay's variables, only its own five.
+    /// gets none of the relay's variables, only its own four (five with a
+    /// tools list).
     pub fn apply(&self, env: &mut Vec<(String, String)>, launch: &LaunchConfig) {
         let closed = self.worker.as_ref().map_or_else(String::new, |w| {
             w.closed_ports.iter().map(u16::to_string).collect::<Vec<_>>().join(",")
@@ -1043,7 +1039,6 @@ impl RunSpec {
                 env.retain(|(k, _)| ![RELAY_URL, RELAY_TOKEN, DEV_KEY].contains(&k.as_str()));
                 add.push(("LOCAL_AGENT_WORKER", &w.worker.id));
                 add.push(("LOCAL_AGENT_WORKER_BIN", &w.bin));
-                add.push(("LOCAL_AGENT_ACP_DIR", &w.acp_dir));
                 add.push(("LOCAL_AGENT_FENCE_DIR", &w.fence_dir));
                 add.push(("LOCAL_AGENT_CLOSED_PORTS", closed.as_str()));
                 if let Some(file) = &w.tools_file {
@@ -1974,18 +1969,11 @@ impl LocalAgentService {
             .to_str()
             .ok_or_else(|| format!("the path of `{}` is not valid UTF-8", worker.cli))?
             .to_string();
-        let acp_dir = bundle
-            .files
-            .acp_dir
-            .to_str()
-            .ok_or("the local agent bundle's path is not valid UTF-8")?
-            .to_string();
         Ok(RunSpec {
             model,
             worker: Some(WorkerRun {
                 worker,
                 adapter: bundle.files.adapter,
-                acp_dir,
                 bin,
                 fence_dir: String::new(),
                 closed_ports: Vec::new(),
@@ -1995,9 +1983,9 @@ impl LocalAgentService {
     }
 }
 
-/// A worker's adapter, CLI and agents' adapters for `launch`, without the
-/// launch's checks (the yes, the model): for `--return-logins` on a job that
-/// isn't running ([`super::fence`]). `fence_dir` is left for the caller.
+/// A worker's adapter and CLI for `launch`, without the launch's checks (the
+/// yes, the model): for `--return-logins` on a job that isn't running
+/// ([`super::fence`]). `fence_dir` is left for the caller.
 pub(super) fn login_run_for(launch: &LaunchConfig, id: &str) -> Result<WorkerRun, String> {
     let bundle = BundleWorkers::read(launch, true);
     let worker = bundle.registry.as_ref().ok_or(NO_WORKERS)?.resolve(id)?.clone();
@@ -2006,16 +1994,9 @@ pub(super) fn login_run_for(launch: &LaunchConfig, id: &str) -> Result<WorkerRun
         .to_str()
         .ok_or("the CLI's path is not valid UTF-8")?
         .to_string();
-    let acp_dir = bundle
-        .files
-        .acp_dir
-        .to_str()
-        .ok_or("the local agent bundle's path is not valid UTF-8")?
-        .to_string();
     Ok(WorkerRun {
         worker,
         adapter: bundle.files.adapter,
-        acp_dir,
         bin,
         fence_dir: String::new(),
         closed_ports: Vec::new(),
@@ -2164,26 +2145,45 @@ mod tests {
     };
 
     /// The shape of the bundle's `workers/registry.json` (two of its entries
-    /// as the adapter's registry has them).
+    /// as the adapter's registry has them: each names the adapter's own
+    /// `driver` for the CLI; Rust reads only `label` and `cli`).
     const REGISTRY: &str = r#"{
       "codex": {
         "label": "Codex",
         "cli": "codex",
-        "command": ["$NODE", "$ACP_DIR/node_modules/@agentclientprotocol/codex-acp/dist/index.js"],
-        "env": { "CODEX_PATH": "$CLI" },
-        "sessionMode": "agent-full-access",
-        "login": { "sharedState": [".codex"] },
-        "signInHint": "Codex isn't signed in on this Mac.",
-        "packages": { "@agentclientprotocol/codex-acp": "2.6.0" }
+        "driver": "codex",
+        "homeFolders": [".codex"],
+        "login": { "files": [{ "path": ".codex/auth.json" }] },
+        "signInHint": "Codex isn't signed in on this Mac."
       },
       "claude-code": {
         "label": "Claude Code",
         "cli": "claude",
-        "command": ["$NODE", "$ACP_DIR/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"],
-        "env": { "CLAUDE_CODE_EXECUTABLE": "$CLI" },
+        "driver": "claude-code",
+        "env": { "DISABLE_AUTOUPDATER": "1" },
+        "homeFolders": [".claude"],
         "login": { "keychain": true },
-        "signInHint": "Claude Code isn't signed in on this Mac.",
-        "packages": { "@agentclientprotocol/claude-agent-acp": "0.107.0" }
+        "signInHint": "Claude Code isn't signed in on this Mac."
+      }
+    }"#;
+
+    /// The registry the bundles before `worker.mjs` carried (desktop 0.2.109's
+    /// among them): what the third-party adapters needed besides.
+    const OLD_REGISTRY: &str = r#"{
+      "codex": {
+        "label": "Codex",
+        "cli": "codex",
+        "command": ["$NODE", "$ACP_DIR/node_modules/x/dist/index.js"],
+        "env": { "CODEX_PATH": "$CLI" },
+        "sessionMode": "agent-full-access",
+        "packages": { "x": "2.6.0" }
+      },
+      "claude-code": {
+        "label": "Claude Code",
+        "cli": "claude",
+        "command": ["$NODE", "$ACP_DIR/node_modules/y/dist/index.js"],
+        "login": { "keychain": true },
+        "packages": { "y": "0.107.0" }
       }
     }"#;
 
@@ -2761,8 +2761,7 @@ mod tests {
             model: ModelChoice::Relay,
             worker: Some(WorkerRun {
                 worker: worker("codex"),
-                adapter: dir.path().join("agent/workers/acp.sh"),
-                acp_dir: dir.path().join("agent/acp").to_str().unwrap().into(),
+                adapter: dir.path().join("agent/workers/worker.sh"),
                 bin: "/opt/homebrew/bin/codex".into(),
                 fence_dir: "/d/local-agent/fence".into(),
                 closed_ports: vec![4123, 8799],
@@ -2772,7 +2771,6 @@ mod tests {
         let exact = with(&[
             "LOCAL_AGENT_WORKER",
             "LOCAL_AGENT_WORKER_BIN",
-            "LOCAL_AGENT_ACP_DIR",
             "LOCAL_AGENT_FENCE_DIR",
             "LOCAL_AGENT_CLOSED_PORTS",
         ]);
@@ -2784,19 +2782,17 @@ mod tests {
             ("LOCAL_AGENT_DEV_ENV_FILE".to_string(), "/w/.env.local".to_string()),
         ];
         run.apply(&mut env, &launch);
-        let acp = dir.path().join("agent/acp").display().to_string();
         assert_eq!(
             env,
             vec![
                 ("LOCAL_AGENT_WORKER".to_string(), "codex".to_string()),
                 ("LOCAL_AGENT_WORKER_BIN".to_string(), "/opt/homebrew/bin/codex".to_string()),
-                ("LOCAL_AGENT_ACP_DIR".to_string(), acp),
                 ("LOCAL_AGENT_FENCE_DIR".to_string(), "/d/local-agent/fence".to_string()),
                 ("LOCAL_AGENT_CLOSED_PORTS".to_string(), "4123,8799".to_string()),
             ],
-            "the registry id, the CLI and the agents' adapters; every Native Intelligence credential gone"
+            "the registry id, the CLI and the fence; every Native Intelligence credential gone"
         );
-        assert_eq!(run.entry(&launch), dir.path().join("agent/workers/acp.sh"));
+        assert_eq!(run.entry(&launch), dir.path().join("agent/workers/worker.sh"));
         assert_eq!(RunSpec::default().entry(&launch), launch.launcher);
         assert_eq!(run.describe(true), "Codex at /opt/homebrew/bin/codex");
         // The relay's run is today's, untouched.
@@ -2815,9 +2811,8 @@ mod tests {
         launch.launcher = "/b/launcher/launcher.mjs".into();
         launch.agent_dir = "/b".into();
         let bundle = WorkerFiles {
-            adapter: "/b/workers/acp.mjs".into(),
+            adapter: "/b/workers/worker.mjs".into(),
             registry: "/b/workers/registry.json".into(),
-            acp_dir: "/b/acp".into(),
         };
         assert_eq!(WorkerFiles::for_launch(&launch), bundle);
         assert_eq!(WorkerFiles::for_agent(Path::new("/b"), false), bundle);
@@ -2825,25 +2820,24 @@ mod tests {
         launch.launcher = "/a/launcher/launcher.ts".into();
         launch.agent_dir = "/a".into();
         let checkout = WorkerFiles {
-            adapter: "/a/.output/workers/acp.mjs".into(),
+            adapter: "/a/.output/workers/worker.mjs".into(),
             registry: "/a/.output/workers/registry.json".into(),
-            acp_dir: "/a/.output/acp".into(),
         };
         assert_eq!(WorkerFiles::for_launch(&launch), checkout);
         assert_eq!(WorkerFiles::for_agent(Path::new("/a"), true), checkout);
     }
 
     #[test]
-    fn workers_need_the_adapter_the_registry_and_the_agents_adapters() {
+    fn workers_need_the_adapter_and_the_registry() {
         let dir = tempfile::tempdir().unwrap();
         let files = WorkerFiles::for_agent(dir.path(), false);
         assert!(!files.present() && files.registry_if_complete().is_none());
         std::fs::create_dir_all(dir.path().join("workers")).unwrap();
-        std::fs::write(&files.adapter, "").unwrap();
         std::fs::write(&files.registry, REGISTRY).unwrap();
-        assert!(!files.present(), "no acp folder");
+        assert!(!files.present(), "no adapter");
         assert_eq!(files.registry_if_complete(), None);
-        std::fs::create_dir_all(&files.acp_dir).unwrap();
+        std::fs::write(&files.adapter, "").unwrap();
+        assert!(files.present(), "no third party's folder beside them");
         assert_eq!(files.registry_if_complete(), Some(registry()));
         std::fs::write(&files.registry, r#"{"x":{"label":"X","cli":"/bin/x"}}"#).unwrap();
         assert_eq!(files.registry_if_complete(), None, "a malformed registry is none");
@@ -2852,6 +2846,24 @@ mod tests {
         std::fs::write(&files.registry, REGISTRY).unwrap();
         std::fs::remove_file(&files.adapter).unwrap();
         assert_eq!(files.registry_if_complete(), None, "no adapter");
+        // An older bundle's layout (desktop 0.2.109's): `acp.mjs` beside the
+        // registry, maybe an `acp/` folder. Not ours: off, before the
+        // registry is read, so nothing is logged about it.
+        std::fs::write(dir.path().join("workers/acp.mjs"), "").unwrap();
+        std::fs::write(&files.registry, OLD_REGISTRY).unwrap();
+        std::fs::create_dir_all(dir.path().join("acp")).unwrap();
+        assert!(!files.present(), "an older bundle's adapter isn't ours");
+        assert_eq!(files.registry_if_complete(), None);
+    }
+
+    #[test]
+    fn the_registry_needs_only_a_label_and_a_cli() {
+        // Fields Rust doesn't know, or no longer reads, change nothing.
+        assert_eq!(Registry::parse(OLD_REGISTRY.as_bytes()).unwrap(), registry());
+        let bare = r#"{"claude-code":{"label":"Claude Code","cli":"claude"},"codex":{"label":"Codex","cli":"codex"}}"#;
+        assert_eq!(Registry::parse(bare.as_bytes()).unwrap(), registry());
+        let later = r#"{"codex":{"label":"Codex","cli":"codex","driver":{"kind":"x","v":[1,2]},"new":null}}"#;
+        assert_eq!(Registry::parse(later.as_bytes()).unwrap().workers(), [worker("codex")]);
     }
 
     /// The view for `stored` and `found`, as the actor computes it.
@@ -3247,10 +3259,9 @@ done
         }
         let launch = launch_config(&base);
         std::fs::write(&launch.launcher, STAND_IN).unwrap();
-        // The bundle's one adapter, its registry and the agents' adapters.
+        // The bundle's one adapter and its registry.
         std::fs::create_dir_all(base.join("agent/workers")).unwrap();
-        std::fs::create_dir_all(base.join("agent/acp")).unwrap();
-        std::fs::write(base.join("agent/workers/acp.sh"), STAND_IN).unwrap();
+        std::fs::write(base.join("agent/workers/worker.sh"), STAND_IN).unwrap();
         std::fs::write(base.join("agent/workers/registry.json"), REGISTRY).unwrap();
         std::fs::write(
             base.join("agent/BUNDLE.json"),
@@ -3466,10 +3477,10 @@ done
 
         let id = rig.start(Some("claude-code")).await.unwrap();
         let got = rig.given(&id, 0).await;
-        assert_eq!(got["script"], "acp.sh", "the one adapter");
+        assert_eq!(got["script"], "worker.sh", "the one adapter");
         assert_eq!(got["worker"], "claude-code");
         assert_eq!(got["bin"], rig.base.join("bin/claude").display().to_string());
-        assert_eq!(got["acp"], rig.base.join("agent/acp").display().to_string());
+        assert_eq!(got["acp"], "none", "no third-party adapters' folder any more");
         // Its fence markers, made before it was spawned, outside every job's folder.
         assert_eq!(got["fence"], rig.base.join("data/local-agent/fence").display().to_string());
         assert_eq!(got["markers"], "yes", "both markers existed when the adapter started");
@@ -3488,7 +3499,7 @@ done
         rig.svc.stop(id.clone()).await.unwrap();
         rig.exit_of(&id).await;
         rig.resume(&id).await.unwrap();
-        assert_eq!(rig.given(&id, 1).await["script"], "acp.sh");
+        assert_eq!(rig.given(&id, 1).await["script"], "worker.sh");
         let mut other = rig.args(Some("codex"));
         other.job_id = Some(id.clone());
         assert_eq!(
@@ -3539,7 +3550,7 @@ done
         // is remembered for Claude Code in this folder, by its realpath.
         past_the_backoff().await;
         let id = rig.svc.start_with(args, rig.launch.clone()).await.unwrap().job_id;
-        assert_eq!(rig.given(&id, 0).await["script"], "acp.sh");
+        assert_eq!(rig.given(&id, 0).await["script"], "worker.sh");
         assert!(rig.rec.notices.lock().unwrap().is_empty());
         assert_eq!(
             rig.on_disk().worker_folders,
@@ -3550,7 +3561,7 @@ done
         rig.svc.stop(id.clone()).await.unwrap();
         rig.exit_of(&id).await;
         rig.resume(&id).await.unwrap();
-        assert_eq!(rig.given(&id, 1).await["script"], "acp.sh");
+        assert_eq!(rig.given(&id, 1).await["script"], "worker.sh");
         assert_eq!(rig.rec.asked.lock().unwrap().len(), 2);
         assert!(rig.rec.notices.lock().unwrap().is_empty());
         // A new job there, read or edit alike, asks nothing: it is told, naming the agent.
@@ -4016,10 +4027,10 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
             FOREIGN_SESSION
         );
         rig.svc.start_with(with_resume(Some(&id), &id), rig.launch.clone()).await.unwrap();
-        assert_eq!(rig.given(&id, 1).await["script"], "acp.sh");
+        assert_eq!(rig.given(&id, 1).await["script"], "worker.sh");
 
         // An adapter's session outside the adapter's own rule is never recorded.
-        std::fs::write(rig.base.join("agent/workers/acp.sh"), BAD_SESSION_LINE).unwrap();
+        std::fs::write(rig.base.join("agent/workers/worker.sh"), BAD_SESSION_LINE).unwrap();
         let bad = rig.start(Some("claude-code")).await.unwrap();
         rig.waiting(&bad).await;
         assert_eq!(rig.jobs_on_disk().job(&bad).unwrap().session_id, None);
@@ -4098,15 +4109,28 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
         rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
         assert_eq!(rig.start(Some("claude-code")).await.unwrap_err(), NO_WORKERS);
         std::fs::write(rig.base.join("agent/BUNDLE.json"), r#"{"capabilities":["workers"]}"#).unwrap();
-        // Without any one of the adapter, the registry and the agents'
-        // adapters, the capability is off.
-        for gone in ["agent/workers/acp.sh", "agent/workers/registry.json", "agent/acp"] {
+        // Without either the adapter or the registry, the capability is off.
+        for gone in ["agent/workers/worker.sh", "agent/workers/registry.json"] {
             let path = rig.base.join(gone);
             let aside = rig.base.join("aside");
             std::fs::rename(&path, &aside).unwrap();
             assert_eq!(rig.start(Some("claude-code")).await.unwrap_err(), NO_WORKERS, "without {gone}");
             std::fs::rename(&aside, &path).unwrap();
         }
+        // The bundles before `worker.mjs` (desktop 0.2.109's: its `acp`
+        // adapter and registry, no capability), and one that also lists
+        // the capability and has the third-party folder: none runs a worker.
+        std::fs::rename(rig.base.join("agent/workers/worker.sh"), rig.base.join("aside")).unwrap();
+        std::fs::write(rig.base.join("agent/workers/acp.sh"), STAND_IN).unwrap();
+        std::fs::write(rig.base.join("agent/workers/registry.json"), OLD_REGISTRY).unwrap();
+        std::fs::write(rig.base.join("agent/BUNDLE.json"), r#"{"capabilities":["local-model"]}"#).unwrap();
+        assert_eq!(rig.start(Some("claude-code")).await.unwrap_err(), NO_WORKERS, "0.2.109's bundle");
+        std::fs::create_dir_all(rig.base.join("agent/acp")).unwrap();
+        std::fs::write(rig.base.join("agent/BUNDLE.json"), r#"{"capabilities":["workers"]}"#).unwrap();
+        assert_eq!(rig.start(Some("claude-code")).await.unwrap_err(), NO_WORKERS, "an older one with the capability");
+        std::fs::remove_dir(rig.base.join("agent/acp")).unwrap();
+        std::fs::remove_file(rig.base.join("agent/workers/acp.sh")).unwrap();
+        std::fs::rename(rig.base.join("aside"), rig.base.join("agent/workers/worker.sh")).unwrap();
         std::fs::write(rig.base.join("agent/workers/registry.json"), "{ not json").unwrap();
         assert_eq!(rig.start(Some("claude-code")).await.unwrap_err(), NO_WORKERS, "a broken registry");
         assert!(rig.rec.events.lock().unwrap().is_empty(), "nothing ran");
@@ -4300,7 +4324,7 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
         let rig = rig().await;
         rig.found(vec![], &["claude-code"]).await;
         rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
-        std::fs::write(rig.base.join("agent/workers/acp.sh"), FENCE_ASKER).unwrap();
+        std::fs::write(rig.base.join("agent/workers/worker.sh"), FENCE_ASKER).unwrap();
         let id = rig.start(Some("claude-code")).await.unwrap();
         // Refused without asking: the Recorder would panic if asked.
         let refused = rig
@@ -4468,7 +4492,6 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
             worker: Some(WorkerRun {
                 worker: worker("codex"),
                 adapter: "/a".into(),
-                acp_dir: "/acp".into(),
                 bin: "/b".into(),
                 fence_dir: "/fence".into(),
                 closed_ports: Vec::new(),
@@ -4593,7 +4616,7 @@ done
         let rig = rig().await;
         rig.found(vec![], &["claude-code"]).await;
         rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
-        std::fs::write(rig.base.join("agent/workers/acp.sh"), WORKER_EDIT).unwrap();
+        std::fs::write(rig.base.join("agent/workers/worker.sh"), WORKER_EDIT).unwrap();
         let repo = rig.base.join("home/repo");
         std::fs::create_dir_all(&repo).unwrap();
         let git = |args: &[&str]| {
@@ -4669,7 +4692,7 @@ done
         assert_eq!(run.program, rig.launch.node);
         assert_eq!(
             run.args,
-            [rig.base.join("agent/workers/acp.sh").into_os_string(), "--return-logins".into()]
+            [rig.base.join("agent/workers/worker.sh").into_os_string(), "--return-logins".into()]
         );
         let env = |k: &str| run.env.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone());
         assert_eq!(env("LOCAL_AGENT_WORKER").as_deref(), Some("claude-code"));
@@ -4678,7 +4701,8 @@ done
             env("LOCAL_AGENT_FENCE_DIR"),
             Some(rig.base.join("data/local-agent/fence").display().to_string())
         );
-        assert!(env("LOCAL_AGENT_ACP_DIR").is_some() && env("LOCAL_AGENT_WORKER_BIN").is_some());
+        assert!(env("LOCAL_AGENT_WORKER_BIN").is_some() && env("LOCAL_AGENT_FENCE_DIR").is_some());
+        assert_eq!(env("LOCAL_AGENT_ACP_DIR"), None, "no third-party adapters' folder");
     }
 
     #[tokio::test]
@@ -4729,7 +4753,7 @@ done
         let rig = rig().await;
         rig.found(vec![], &["claude-code"]).await;
         rig.svc.allow_worker("claude-code".into(), true).await.unwrap();
-        std::fs::write(rig.base.join("agent/workers/acp.sh"), WORKER_CLEAN_EDIT).unwrap();
+        std::fs::write(rig.base.join("agent/workers/worker.sh"), WORKER_CLEAN_EDIT).unwrap();
         let repo = rig.base.join("home/repo");
         std::fs::create_dir_all(&repo).unwrap();
         let git = |args: &[&str]| {
