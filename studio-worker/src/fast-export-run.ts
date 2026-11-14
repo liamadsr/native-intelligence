@@ -212,7 +212,8 @@ export function sampleFrames(plan: FastPlan, change: (file: string, index: numbe
 async function check(r: FastRun, file: string, frames: number[], stills: Map<number, string>): Promise<void> {
   const { plan, signal } = r
   const { stdout } = await run('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-count_packets', '-show_entries', 'stream=nb_read_packets', '-of', 'csv=p=0', file], { signal })
-  const count = Number(stdout.trim())
+  // The first number: ffprobe adds a column for side data some files carry.
+  const count = Number(/\d+/.exec(stdout)?.[0])
   if (count !== plan.frames) throw new Error(`the file has ${count} frames, not ${plan.frames}`)
   for (const frame of frames) {
     const png = stills.get(frame)

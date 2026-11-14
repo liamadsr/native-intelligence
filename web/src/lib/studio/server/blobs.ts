@@ -129,10 +129,15 @@ async function takeBack(ctx: StudioContext, key: string, token: string): Promise
   if (error) console.error('[studio] taking back a pending write failed:', error.message?.slice(0, 300))
 }
 
-/** Upload links for a file of `bytes`, one per part; commitBlob records it once every part is up. */
+/**
+ * Upload links for a file of `bytes`, one per part; commitBlob records it once every part is up. `upsert` false: a
+ * link never replaces a part already stored (storage refuses a PUT over one), so links held by a computer the Studio
+ * does not run (local-jobs.ts) can't swap a committed file's bytes afterwards. Default true, as the browser's and the
+ * desktop app's own uploads retry a part over itself.
+ */
 export async function createBlobWrite(
   ctx: StudioContext,
-  input: { key: string; bytes: number; contentType: string; sha256?: string | null; partBytes?: number },
+  input: { key: string; bytes: number; contentType: string; sha256?: string | null; partBytes?: number; upsert?: boolean },
 ): Promise<BlobWrite> {
   const key = checkBlobKey(input.key)
   if (!Number.isSafeInteger(input.bytes) || input.bytes < 0) throw new StudioError('A file size is a whole number of bytes.')
@@ -144,7 +149,7 @@ export async function createBlobWrite(
   const storage = storageOf(ctx)
   // One part keeps its real type (served straight from storage); parts of a larger file are opaque bytes.
   const partType = parts.length === 1 ? contentType : 'application/octet-stream'
-  const signed = await Promise.all(parts.map((part) => storage.signUpload(blobObject(ctx.workspaceId, key, part.index), partType)))
+  const signed = await Promise.all(parts.map((part) => storage.signUpload(blobObject(ctx.workspaceId, key, part.index), partType, { upsert: input.upsert !== false })))
   return { key, partBytes, parts: parts.map((part, i) => ({ ...part, url: signed[i]!.url, headers: signed[i]!.headers })) }
 }
 

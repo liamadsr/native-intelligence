@@ -278,10 +278,23 @@ export { blobKey as BlobKey }
 //   take                 {}                                        -> LocalTaken (the job, and a token that holds it)
 //   progress             {progress, log?}                          -> {cancelRequested, token, expiresAt}
 //   complete             {result: ExportResult}                    -> {ok: true}   (422 when the file is not right)
+//   complete             {result: LocalKeptResult}                 -> {ok: true}   (kept on this computer: nothing stored)
 //   fail                 {error}                                   -> {ok: true}
 //   blobs/read           {key}                                     -> BlobRead     (only a key the frozen project names)
 //   blobs/write          {key, bytes, contentType: 'video/mp4'}    -> BlobWrite    (only its own exports/<id>/<attempt>/video.mp4)
 //   blobs/commit         {key}                                     -> {ok: true}   (refused unless the file starts as an MP4)
+//
+// Limits (each refused with its code; local-jobs.ts):
+//   - a write only when this attempt has none pending or stored (409 WRITE_PENDING, STORED); its part links never
+//     replace a part already stored (a PUT over one is refused by storage: "already exists" on a retried PUT means
+//     the part is there, so go on to commit, which checks every part's size);
+//   - reads at most 3 per file the project names, and 10 more, per attempt (429 TOO_MANY_READS);
+//   - progress at most once a second (429 TOO_FAST); a running attempt at most max(1 h, 10 × the video's length)
+//     (409 TOO_LONG, and the job fails);
+//   - a local export not taken within 15 minutes of being queued (or put back) ends failed; one person has at most
+//     MAX_OPEN_LOCAL_EXPORTS open (429 TOO_MANY_LOCAL, at queue time);
+//   - the workspace's Studio switched off: 403 FEATURE_DISABLED on every call;
+//   - error and log text is stored with paths on the computer taken out, an error at most 500 characters, a line 300.
 //
 // A token lasts LOCAL_TOKEN_SECONDS; `take` and every `progress` answer a fresh one, which replaces the old. A token
 // minted by the editor can only take; the one `take` answers names this attempt and works the job until it ends.
@@ -302,6 +315,9 @@ export type LocalJobKind = (typeof LOCAL_JOB_KINDS)[number]
 export type LocalExportInput = ExportInput & { renderVersion: string; source: 'editor' }
 export type LocalJobIO = { 'local-export': { input: LocalExportInput; result: ExportResult } }
 
+/** How many local exports one person may have open (queued or running) at once. The owner has not chosen a number. */
+export const MAX_OPEN_LOCAL_EXPORTS = 2
+
 /** How long a local job's token lasts (seconds): `take` and each progress answer give a new one. */
 export const LOCAL_TOKEN_SECONDS = 10 * 60
 /** The largest export a computer may store: 8 GB (two hours of 4K at a high rate). */
@@ -309,15 +325,20 @@ export const LOCAL_EXPORT_MAX_BYTES = 8 * 1024 ** 3
 
 export const LocalTakeBody = z.object({}).strict()
 export const LocalProgressBody = z.object({ progress: z.number().min(0).max(1), log: z.string().max(2000).optional() }).strict()
+const exportFacts = {
+  bytes: z.number().int().min(1).max(LOCAL_EXPORT_MAX_BYTES),
+  width: z.number().int().min(1).max(16384),
+  height: z.number().int().min(1).max(16384),
+  fps: z.number().min(1).max(240),
+  durationSeconds: z.number().min(0).max(24 * 3600),
+}
+/**
+ * An export made and kept on the person's computer, with uploading switched off there: its facts and no key. The job
+ * ends completed; the editor shows it done on that computer, and the server offers nothing to download.
+ */
+export type LocalKeptResult = { kept: 'computer'; bytes: number; width: number; height: number; fps: number; durationSeconds: number }
 export const LocalCompleteBody = z.object({
-  result: z.object({
-    key: blobKey,
-    bytes: z.number().int().min(1).max(LOCAL_EXPORT_MAX_BYTES),
-    width: z.number().int().min(1).max(16384),
-    height: z.number().int().min(1).max(16384),
-    fps: z.number().min(1).max(240),
-    durationSeconds: z.number().min(0).max(24 * 3600),
-  }).strict(),
+  result: z.union([z.object({ key: blobKey, ...exportFacts }).strict(), z.object({ kept: z.literal('computer'), ...exportFacts }).strict()]),
 }).strict()
 export const LocalFailBody = z.object({ error: z.string().min(1).max(4000) }).strict()
 export const LocalBlobReadBody = z.object({ key: blobKey }).strict()

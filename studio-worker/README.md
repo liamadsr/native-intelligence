@@ -220,7 +220,13 @@ reports progress at least every 15 s and stops on a cancel. The token never goes
 manifest, `NOTICES.md` and `sizes.json`. What differs between Linux, a Mac and Windows (process trees, junctions,
 concat lists, tool paths, path length, a child's environment) is in `src/platform.ts`, each branch tested with the
 platform named (`test/platform.test.ts`). Tests: `test/local.test.ts`, `test/encoders.test.ts`, `test/bundle-dir.test.ts`;
-end to end `test/local-e2e.ts`; a lossy encoder against the lossless one: `test/encoder-check.ts`.
+end to end `test/local-e2e.ts`; a lossy encoder against the lossless one: `test/encoder-check.ts`. Without Remotion's
+compositor: `test/compositor-free-e2e.ts` (the sound from `renderFrames` against `renderMedia`'s, sample for sample; the
+Chrome path through our FFmpeg against `renderMedia`'s file) and `test/desktop-e2e.ts` (the desktop build, compositor
+absent, both paths and the whole-mix fallback, run by plain Node). Before each export the runner tries its encoder's
+ladder on a second of picture (`--probe` alone gives the desktop app that status); every local export's file is held to
+`exportFacts` (frames at their times, duration, size, colour labels in the MP4 and the stream). The bubble's mask
+against Chrome's on flat colours: `test/mask-e2e.ts`. The build runs the render version's test first.
 
 ## Running it against `next dev`
 
@@ -276,6 +282,8 @@ local run, `npm start` also reads a `.env` file beside `package.json` when there
 | `STUDIO_FAST_EXPORT` | on | The FFmpeg export for a video that is only a recording, its cuts and its camera bubble (`on`/`off`); what it covers and how it was proven: [`deploy/studio/README.md`](../deploy/studio/README.md#export-speed), "Export speed". |
 | `STUDIO_FAST_ENCODER` | x264 | How the FFmpeg export encodes its picture (`src/encoders.ts`): `x264` (the server: the Chrome path's settings), `videotoolbox` (a Mac's own encoder), `mf` (Windows' Media Foundation), `lossless` (the proof). The local runner picks the machine's own. |
 | `STUDIO_FFMPEG`, `STUDIO_FFPROBE` | the ones on PATH | Absolute paths of the FFmpeg and ffprobe to run (every run of them goes through `src/platform.ts`, `toolPath`). |
+| `STUDIO_COMPOSITOR` | on | Off on a computer (the local runner sets it): Remotion only draws (`renderFrames`, `renderStill`); our FFmpeg encodes the Chrome path's frames and Remotion's own mix of the sound is made from the layer files `renderFrames` writes (`src/chrome-pipe.ts`, `src/remotion-sound.ts`), so Remotion's compositor package and its GPL FFmpeg are not needed. |
+| `STUDIO_ENCODER_RUNG` | quality | Which rung of a hardware encoder's ladder (`quality`, `bitrate`, `software`; `src/encoders.ts`): the local runner sets the one its probe found (`src/encoder-probe.ts`). |
 | `STUDIO_BUNDLE_DIR` | unset | A render bundle built ahead (`scripts/build-local-runner.ts`; `src/bundle-dir.ts`): used instead of bundling the engine here, refused unless its manifest names this engine's render version and Remotion's. |
 
 ## Working on it

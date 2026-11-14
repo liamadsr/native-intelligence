@@ -163,8 +163,10 @@ export async function deliverEndedExport(deps: { supabase: SupabaseClient }, job
       : url
         ? { type: 'url' as const, id: url, label: title }
         : null
+    // Made and kept on the person's computer: nothing on the server to download.
+    const kept = job.result?.kept === 'computer'
     await work.finish({
-      summary: `“${title}” is exported${facts ? ` (${facts})` : ''}. Open it in the Studio, or download the MP4.`,
+      summary: kept ? `“${title}” is exported${facts ? ` (${facts})` : ''} and kept on the computer it was made on.` : `“${title}” is exported${facts ? ` (${facts})` : ''}. Open it in the Studio, or download the MP4.`,
       deliverables: deliverable ? [deliverable] : [],
       review: deliverable ? { kind: 'review', verb: 'check', deliverable: 0 } : null,
     })

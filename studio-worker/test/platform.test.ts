@@ -25,12 +25,21 @@ test("a tool's name without its folder or .exe, so a Windows FFmpeg's inputs are
   assert.deepEqual(fenceInputs('C:\\Studio\\ffprobe.exe', ['a.mp4']), ['-protocol_whitelist', 'file,pipe', 'a.mp4'])
 })
 
-test('a process tree stopped: the group by signals on POSIX, taskkill on Windows (no negative pids there)', async () => {
+test('a process tree stopped: the group by signals on POSIX, taskkill by its full path on Windows, never forced once it exited', async () => {
   const calls: string[] = []
-  killTree(42, 10, 'linux', () => calls.push('exec'), (pid, sig) => calls.push(`${pid} ${sig}`))
-  killTree(42, 10, 'win32', (cmd, args) => calls.push(`${cmd} ${args.join(' ')}`), (pid, sig) => calls.push(`kill ${pid} ${sig}`))
+  const env = { SystemRoot: 'C:\\Windows' }
+  killTree(42, { graceMs: 10, platform: 'linux', exec: () => calls.push('exec'), kill: (pid, sig) => calls.push(`${pid} ${sig}`) })
+  killTree(42, { graceMs: 10, platform: 'win32', env, exec: (cmd, args) => calls.push(`${cmd} ${args.join(' ')}`), kill: (pid, sig) => calls.push(`kill ${pid} ${sig}`) })
   await new Promise((r) => setTimeout(r, 30))
-  assert.deepEqual(calls, ['-42 SIGTERM', 'taskkill /PID 42 /T', '-42 SIGKILL', 'taskkill /PID 42 /T /F'])
+  assert.deepEqual(calls, ['-42 SIGTERM', 'C:\\Windows\\System32\\taskkill.exe /PID 42 /T', '-42 SIGKILL', 'C:\\Windows\\System32\\taskkill.exe /PID 42 /T /F'])
+  // It exited during the grace: no /F (its id may already be another program's); exited before: nothing at all.
+  const late: string[] = []
+  let gone = false
+  killTree(43, { graceMs: 10, platform: 'win32', env, exited: () => gone, exec: (cmd, args) => late.push(args.join(' ')) })
+  gone = true
+  killTree(44, { graceMs: 10, platform: 'win32', env, exited: () => true, exec: (cmd, args) => late.push(args.join(' ')) })
+  await new Promise((r) => setTimeout(r, 30))
+  assert.deepEqual(late, ['/PID 43 /T'])
   assert.equal(ownGroup('linux'), true)
   assert.equal(ownGroup('darwin'), true)
   assert.equal(ownGroup('win32'), false)

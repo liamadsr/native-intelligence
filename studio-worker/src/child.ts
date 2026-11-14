@@ -55,8 +55,8 @@ export type ToolOptions = {
 }
 
 /** Stop a program and what it started (platform.ts, killTree: the process group on POSIX, taskkill /T on Windows). */
-export function killGroup(pid: number | undefined, graceMs = 3000): void {
-  killTree(pid, graceMs)
+export function killGroup(pid: number | undefined, graceMs = 3000, exited?: () => boolean): void {
+  killTree(pid, { graceMs, exited })
 }
 
 /**
@@ -74,7 +74,7 @@ export function runTool(cmd: string, args: string[], opts: ToolOptions): Promise
     const stop = (why: 'signal' | 'timeout') => {
       if (stopped) return
       stopped = why
-      killGroup(child.pid, opts.graceMs ?? 3000)
+      killGroup(child.pid, opts.graceMs ?? 3000, () => child.exitCode !== null || child.signalCode !== null)
     }
     const onAbort = () => stop('signal')
     opts.signal?.addEventListener('abort', onAbort, { once: true })
@@ -101,7 +101,7 @@ export function runTool(cmd: string, args: string[], opts: ToolOptions): Promise
     child.on('close', (code) => {
       end()
       // Whatever it started and left behind goes with it.
-      if (stopped) killGroup(child.pid, 0)
+      if (stopped) killGroup(child.pid, 0, () => true)
       done({ code, stdout, stderr, stopped })
     })
     if (opts.input !== undefined) {

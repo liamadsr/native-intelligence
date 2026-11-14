@@ -14,7 +14,7 @@ import { noteExportWatched } from './delivery'
 import { typeForName } from './media-types'
 import { COLLECTIONS, listRecords } from './records'
 import { getVideoRow, validateVideo } from './videos'
-import { localToken } from './local-jobs'
+import { checkOpenLocalExports, localToken } from './local-jobs'
 import { STUDIO_RENDER_VERSION } from '../engine/render-version'
 
 /** The largest upload: 2 GB (a long screen recording). */
@@ -142,6 +142,7 @@ export async function queueLocalExport(ctx: StudioContext, project: unknown, ren
   if (renderVersion !== STUDIO_RENDER_VERSION) throw new StudioError(RENDER_VERSION_REFUSAL, 409, 'RENDER_VERSION')
   const checked: EditorProject = await validateVideo(ctx, project)
   if (playsCodeScenes(checked)) throw new StudioError(CODE_SCENES_REFUSAL, 409, 'CODE_SCENES')
+  await checkOpenLocalExports(ctx)
   const saved = (await getVideoRow(ctx, checked.id)) ? checked.id : null
   const fonts = await exportFonts(ctx, checked).catch(() => [])
   return queueJob(ctx, 'local-export', { project: checked, title: checked.title, source: 'editor', renderVersion: STUDIO_RENDER_VERSION, ...(checked.master ? { master: checked.master } : {}), ...(fonts.length ? { fonts } : {}) }, saved)

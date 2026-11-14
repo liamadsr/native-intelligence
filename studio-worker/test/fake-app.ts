@@ -97,7 +97,8 @@ export class FakeApp {
 
   /** A token for a queued local-export job, as the editor gets it (the app's local-token.ts). */
   mintLocal(job: FakeJob, attempt = 0): string {
-    const token = `ls1.${randomBytes(16).toString('hex')}`
+    // Shaped as the app's (ls1.<payload>.<signature>): the payload names the job (jid); the signature here is random.
+    const token = `ls1.${Buffer.from(JSON.stringify({ jid: job.id, uid: 'u', wid: job.workspaceId, exp: Math.floor(Date.now() / 1000) + 600 })).toString('base64url')}.${randomBytes(16).toString('base64url')}`
     this.localTokens.set(token, { jobId: job.id, attempt })
     return token
   }
@@ -287,7 +288,7 @@ export class FakeApp {
     }
     if (op === 'complete') {
       const b = LocalCompleteBody.parse(raw)
-      if (b.result.key !== own || !this.blobs.has(own)) return reply(422, { error: 'The file is not right', code: 'RESULT_REFUSED' })
+      if (!('kept' in b.result) && (b.result.key !== own || !this.blobs.has(own))) return reply(422, { error: 'The file is not right', code: 'RESULT_REFUSED' })
       j.status = 'completed'
       j.result = b.result
       return reply(200, { ok: true })

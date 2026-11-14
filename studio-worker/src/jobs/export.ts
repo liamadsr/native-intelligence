@@ -20,6 +20,8 @@
 import { readdir, stat } from 'node:fs/promises'
 import { removeQuietly } from '../platform.ts'
 import { checkFloor, encoderArgs } from '../encoders.ts'
+import { renderThroughPipe, soundFrames } from '../chrome-pipe.ts'
+import { exportFacts } from '../encoder-probe.ts'
 import { dirname, join } from 'node:path'
 import { parseEditorProject } from '../engine.ts'
 import { stageAssets } from '../assets.ts'
@@ -106,12 +108,18 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
             plan, scratch: ctx.scratch, signal: ctx.signal, log: ctx.log, progress: stage(ctx, 0.25, 0.92),
             path: (file) => join(dirname(ctx.cache.dir), file),
             abortChrome: () => cancel(),
-            encoder: encoderArgs(ctx.config.fastEncoder, plan.width, plan.height, plan.fps), checkDb: checkFloor(ctx.config.fastEncoder),
+            encoder: encoderArgs(ctx.config.fastEncoder, plan.width, plan.height, plan.fps, ctx.config.encoderRung), checkDb: checkFloor(ctx.config.fastEncoder),
             sound: async (out) => {
               // Mixed here as Remotion mixes it (fast-sound.ts), its cold starts and a few checked frames by Remotion in the shared
               // browser; any doubt, and Remotion's own mix, in consecutive stretches rendered at once, a browser each, and joined.
-              const window = (frameRange: [number, number], o: string) => renderMedia({ serveUrl, composition: c, inputProps: sound, ...shared, codec: 'wav', frameRange, outputLocation: o, concurrency: 1, cancelSignal })
-              const own = (frameRange: [number, number], o: string) => renderMedia({ serveUrl, composition: c, inputProps: sound, ...common, codec: 'wav', frameRange, outputLocation: o, concurrency: 1, cancelSignal })
+              // Without Remotion's compositor (the desktop app) the same mix comes from renderFrames' own sound (chrome-pipe.ts).
+              const free = !ctx.config.compositor
+              const window = async (frameRange: [number, number], o: string): Promise<void> => { await (free
+                ? soundFrames({ serveUrl, composition: c, inputProps: sound, common: { ...shared, cancelSignal }, frameRange, out: o })
+                : renderMedia({ serveUrl, composition: c, inputProps: sound, ...shared, codec: 'wav', frameRange, outputLocation: o, concurrency: 1, cancelSignal })) }
+              const own = async (frameRange: [number, number], o: string): Promise<void> => { await (free
+                ? soundFrames({ serveUrl, composition: c, inputProps: sound, common: { ...common, cancelSignal }, frameRange, out: o })
+                : renderMedia({ serveUrl, composition: c, inputProps: sound, ...common, codec: 'wav', frameRange, outputLocation: o, concurrency: 1, cancelSignal })) }
               // A browser that crashes (seen once in a while with several started at once) gets one more go.
               const retried = (frameRange: [number, number], o: string) => own(frameRange, o).catch((err) => { if (ctx.signal.aborted) throw err; return own(frameRange, o) })
               const whole = async (o: string) => {
@@ -165,6 +173,14 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
         started = Date.now()
         try {
           const renderProgress = stage(ctx, 0.25, 0.92)
+          if (!ctx.config.compositor) {
+            // Remotion draws, our FFmpeg encodes (the machine's encoder) and joins Remotion's own mix of the sound.
+            ctx.log(`Encoding with ${ctx.config.fastEncoder} through our FFmpeg (no Remotion compositor here)`)
+            await renderThroughPipe({ serveUrl, composition, inputProps, common: { ...common, cancelSignal }, concurrency: ctx.config.renderConcurrency,
+              encoder: encoderArgs(ctx.config.fastEncoder, composition.width, composition.height, composition.fps, ctx.config.encoderRung), scratch: ctx.scratch, out: output, signal: ctx.signal,
+              progress: renderProgress, frameDrawn })
+            return composition
+          }
           await renderMedia({
             serveUrl,
             composition,
@@ -208,6 +224,12 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
       const decodeStart = Date.now()
       await run('ffmpeg', ['-nostdin', '-v', 'error', '-xerror', '-i', final, '-f', 'null', '-'], { timeout: mediaTimeout(seconds, 2), maxBuffer: 2 * 1024 * 1024, signal: ctx.signal })
       ctx.log(`Decode check in ${((Date.now() - decodeStart) / 1000).toFixed(1)} s`)
+      // On a computer nobody else looks at the file before it is the person's (the Studio reads only its start): every
+      // frame at its time, the duration, the size and the colour labels, checked here (encoder-probe.ts).
+      if (!ctx.config.compositor) {
+        const wrong = await exportFacts(final, { frames: composition.durationInFrames, fps: composition.fps, width: composition.width, height: composition.height }, ctx.signal)
+        if (wrong) throw new JobError(`The video came out wrong on this computer (${wrong}): export it on the server`)
+      }
       ctx.progress(0.97)
       checkAborted(ctx.signal)
 

@@ -277,10 +277,16 @@ export function bubbleGeometry(b: BubblePlan) {
   // Output pixel (i, j) of the box samples the camera at ((bx + i + 0.5 - left) × sc − 0.5, …), bilinear, as Chrome does.
   const x0 = (bx + 0.5 - left) * sc - 0.5, y0 = (by + 0.5 - top) * sc - 0.5
   const x1 = x0 + sc * b.camera.width, y2 = y0 + sc * b.camera.height
-  const cx = q.x + q.side / 2, cy = q.y + q.side / 2, half = q.side / 2, r = b.radius
-  // Coverage of a pixel by the rounded square (a circle when r is half the side), from its centre's distance.
-  const dx = `max(abs(X+${bx}+0.5-${num(cx)})-${num(half - r)}\\,0)`, dy = `max(abs(Y+${by}+0.5-${num(cy)})-${num(half - r)}\\,0)`
-  const mask = `255*clip(${num(r)}+0.5-hypot(${dx}\\,${dy})\\,0\\,1)`
+  // The clip as Chrome draws it: the bubble's square snapped to whole pixels (each side to the nearest pixel edge: its
+  // straight sides are hard, no partial pixels), its corners rounded with the radius, at most half a side, antialiased.
+  // Measured on flat colours (test/mask-e2e.ts): the corners' coverage within 0.010-0.020 RMS of Chrome's, the sides
+  // exact; the fractional square's had 0.03-0.06.
+  const sx0 = Math.round(q.x), sx1 = Math.round(q.x + q.side), sy0 = Math.round(q.y), sy1 = Math.round(q.y + q.side)
+  const cx = (sx0 + sx1) / 2, cy = (sy0 + sy1) / 2, hx = (sx1 - sx0) / 2, hy = (sy1 - sy0) / 2, r = Math.min(b.radius, hx, hy)
+  // A pixel's signed distance from the rounded rectangle's edge (below 0 inside), from its centre; coverage 0.5 - d.
+  const qx = `abs(X+${bx}+0.5-${num(cx)})-${num(hx - r)}`, qy = `abs(Y+${by}+0.5-${num(cy)})-${num(hy - r)}`
+  const d = `hypot(max(${qx}\\,0)\\,max(${qy}\\,0))+min(max(${qx}\\,${qy})\\,0)-${num(r)}`
+  const mask = `255*clip(0.5-(${d})\\,0\\,1)`
   return { bx, by, bw, bh, x0, y0, x1, y2, mask }
 }
 

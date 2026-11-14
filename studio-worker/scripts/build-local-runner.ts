@@ -17,6 +17,7 @@
  * follow; here that `require` is the bundle's own, so esbuild takes the files in.
  */
 import { build, type Plugin } from 'esbuild'
+import { spawnSync } from 'node:child_process'
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -51,15 +52,17 @@ async function size(path: string): Promise<number> {
   return n
 }
 
-/** The packages a package needs at run time, itself included (dependencies, recursively; optional ones only for this platform). */
+/** The packages a package needs at run time, itself included (dependencies and required peers, recursively; optional ones only for this platform). */
 function closure(name: string, from: string, seen = new Map<string, string>()): Map<string, string> {
   if (seen.has(name)) return seen
   let pkgFile: string
   try { pkgFile = createRequire(join(from, 'x.js')).resolve(`${name}/package.json`) } catch { return seen }
   const dir = dirname(pkgFile)
   seen.set(name, dir)
-  const pkg = JSON.parse(require('node:fs').readFileSync(pkgFile, 'utf8')) as { dependencies?: Record<string, string>; optionalDependencies?: Record<string, string> }
+  const pkg = JSON.parse(require('node:fs').readFileSync(pkgFile, 'utf8')) as { dependencies?: Record<string, string>; optionalDependencies?: Record<string, string>; peerDependencies?: Record<string, string>; peerDependenciesMeta?: Record<string, { optional?: boolean }> }
   for (const dep of Object.keys(pkg.dependencies ?? {})) closure(dep, dir, seen)
+  // Peers too (remotion wants react and react-dom), unless they say they are optional.
+  for (const dep of Object.keys(pkg.peerDependencies ?? {})) if (!pkg.peerDependenciesMeta?.[dep]?.optional) closure(dep, dir, seen)
   for (const dep of Object.keys(pkg.optionalDependencies ?? {})) if (dep.includes(process.platform) && dep.includes(process.arch)) closure(dep, dir, seen)
   return seen
 }
@@ -69,9 +72,24 @@ function licence(dir: string): string {
   try { return String((JSON.parse(require('node:fs').readFileSync(join(dir, 'package.json'), 'utf8')) as { license?: unknown }).license ?? 'see the package') } catch { return 'unknown' }
 }
 
+/**
+ * The render version's test (web: engine/__tests__/render-version.test.ts), run first: no bundle is built whose render
+ * version disagrees with the sources it is built from (a desktop app would export as a version it is not).
+ */
+function renderVersionHolds(): void {
+  const web = resolve(ROOT, '../web')
+  const vitest = join(web, 'node_modules', '.bin', process.platform === 'win32' ? 'vitest.cmd' : 'vitest')
+  const r = spawnSync(vitest, ['run', 'src/lib/studio/engine/__tests__/render-version.test.ts'], { cwd: web, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32' })
+  if (r.status !== 0) {
+    console.error(`${r.stdout ?? ''}${r.stderr ?? ''}`.split('\n').filter((l) => /render version|STUDIO_RENDER_VERSION|ledger|append|FAIL|Error/i.test(l)).slice(0, 20).join('\n'))
+    throw new Error('the render version does not match its sources: append the line its test prints to web/src/lib/studio/engine/render-version.ts, then build')
+  }
+}
+
 async function main() {
   const out = resolve(process.argv[2] ?? join(ROOT, '.local-runner'))
   const withBundle = !process.argv.includes('--no-bundle')
+  if (!process.argv.includes('--skip-version-check')) renderVersionHolds()
   await rm(out, { recursive: true, force: true })
   const runner = join(out, 'runner')
   await mkdir(runner, { recursive: true })

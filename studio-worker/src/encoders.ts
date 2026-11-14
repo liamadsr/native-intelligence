@@ -34,19 +34,29 @@ export function mfBitrate(width: number, height: number, fps: number): number {
 }
 
 /**
- * The encoder arguments of a profile for a picture of this size and rate (after `-map`, before the output). A
- * keyframe at least every 2 s for every profile (seeking in the file, and the checks that read a frame from a seek).
- * Pure.
+ * How a hardware encoder is driven, best first (encoder-probe.ts tries them in order on the machine and keeps the first
+ * that makes a right file): its constant-quality mode; a bitrate from the pixels and the rate (Intel Macs refuse
+ * VideoToolbox's quality mode, many Windows drivers Media Foundation's); the system's own software encoder (a virtual
+ * machine, a computer without a hardware encoder). Past the last, the computer cannot export: the Studio uses the server.
  */
-export function encoderArgs(profile: EncoderProfile, width: number, height: number, fps: number): string[] {
-  const gop = ['-g', String(fps * 2)]
+export type EncoderRung = 'quality' | 'bitrate' | 'software'
+export const RUNGS: readonly EncoderRung[] = ['quality', 'bitrate', 'software']
+
+/**
+ * The encoder arguments of a profile for a picture of this size and rate (after `-map`, before the output), at a rung
+ * of its ladder (hardware encoders; x264 has one). High profile and no B-frames where the encoder takes it (a hardware
+ * encoder with frames reordered can shift the timestamps), a keyframe at least every 2 s (seeking in the file, and the
+ * checks that read a frame from a seek). Pure.
+ */
+export function encoderArgs(profile: EncoderProfile, width: number, height: number, fps: number, rung: EncoderRung = 'quality'): string[] {
+  const gop = ['-g', String(fps * 2)], bitrate = ['-b:v', String(mfBitrate(width, height, fps))]
   switch (profile) {
     case 'x264': return ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', ...COLOUR_TAGS]
     case 'lossless': return ['-c:v', 'libx264', '-preset', 'ultrafast', '-qp', '0', '-pix_fmt', 'yuv420p', ...gop, ...COLOUR_TAGS]
-    case 'videotoolbox': return ['-c:v', 'h264_videotoolbox', '-q:v', String(VIDEOTOOLBOX_QUALITY), '-profile:v', 'high', '-allow_sw', '0', '-realtime', '0',
-      '-pix_fmt', 'yuv420p', ...gop, ...COLOUR_TAGS]
-    case 'mf': return ['-c:v', 'h264_mf', '-rate_control', 'quality', '-quality', String(MF_QUALITY), '-hw_encoding', '1', '-b:v', String(mfBitrate(width, height, fps)),
-      '-pix_fmt', 'nv12', ...gop, ...COLOUR_TAGS]
+    case 'videotoolbox': return ['-c:v', 'h264_videotoolbox', ...(rung === 'quality' ? ['-q:v', String(VIDEOTOOLBOX_QUALITY)] : bitrate), '-profile:v', 'high', '-bf', '0',
+      ...(rung === 'software' ? ['-require_sw', '1'] : ['-allow_sw', '0']), '-realtime', '0', '-pix_fmt', 'yuv420p', ...gop, ...COLOUR_TAGS]
+    case 'mf': return ['-c:v', 'h264_mf', ...(rung === 'quality' ? ['-rate_control', 'quality', '-quality', String(MF_QUALITY)] : ['-rate_control', 'u_vbr', ...bitrate]),
+      '-hw_encoding', rung === 'software' ? '0' : '1', '-profile:v', 'high', '-bf', '0', '-pix_fmt', 'nv12', ...gop, ...COLOUR_TAGS]
   }
 }
 

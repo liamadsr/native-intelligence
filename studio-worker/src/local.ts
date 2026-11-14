@@ -22,6 +22,7 @@ import { mkdir, rename, stat, copyFile } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join } from 'node:path'
+import { homedir } from 'node:os'
 import { AppClient, AppError } from './app-client.ts'
 import { AssetCache } from './cache.ts'
 import { loadConfig, type WorkerConfig } from './config.ts'
@@ -29,6 +30,8 @@ import { defaultProfile, type EncoderProfile } from './encoders.ts'
 import { JobError, type JobContext } from './jobs/context.ts'
 import { runExport } from './jobs/export.ts'
 import { pathProblem, removeQuietly } from './platform.ts'
+import { findBinary } from './media.ts'
+import { probeEncoder, type ProbeResult } from './encoder-probe.ts'
 import { engineRenderVersion, Renderer } from './render.ts'
 import type { ClaimedJob, ExportResult, LocalTaken } from '../../web/src/lib/studio/server/job-contract.ts'
 
@@ -39,6 +42,7 @@ export type LocalEvent =
   | { type: 'log'; line: string }
   | { type: 'done'; file: string; uploaded: boolean; result: ExportResult | null }
   | { type: 'failed'; error: string; cancelled: boolean }
+  | { type: 'encoder'; profile: string; rung: string | null; tried: ProbeResult['tried'] }
 
 export interface LocalRun {
   appUrl: string
@@ -69,14 +73,30 @@ export interface LocalRun {
 export const HEARTBEAT_MS = 15_000
 
 /** The config a local export runs with: the server's defaults, this computer's tools and folders, no code scenes. Pure over its inputs. */
-export function localConfig(o: Pick<LocalRun, 'appUrl' | 'workDir' | 'cacheBytes' | 'ffmpeg' | 'ffprobe' | 'bundleDir' | 'chrome' | 'encoder'>, platform: NodeJS.Platform = process.platform): WorkerConfig {
+export function localConfig(o: Pick<LocalRun, 'appUrl' | 'workDir' | 'cacheBytes' | 'ffmpeg' | 'ffprobe' | 'bundleDir' | 'chrome' | 'encoder'>, platform: NodeJS.Platform = process.platform,
+  find: (name: string) => string | null = (name) => findBinary(name)): WorkerConfig {
+  // FFmpeg and ffprobe by absolute path only: on Windows a bare name is looked up in the current folder first, so the
+  // desktop app names them (and starts the runner in its own work folder); elsewhere they are found on PATH once, here.
+  const tool = (given: string | undefined, name: string) => {
+    if (given) {
+      if (!isAbsolute(given)) throw new JobError(`--${name} must be an absolute path`)
+      return given
+    }
+    if (platform === 'win32') throw new JobError(`--${name} is required on Windows`)
+    const found = find(name)
+    if (!found || !isAbsolute(found)) throw new JobError(`${name} was not found`)
+    return found
+  }
+  const ffmpeg = tool(o.ffmpeg, 'ffmpeg'), ffprobe = tool(o.ffprobe, 'ffprobe')
   const env: NodeJS.ProcessEnv = {
     NODE_ENV: 'production', STUDIO_APP_URL: new URL(o.appUrl).origin, STUDIO_WORK_DIR: o.workDir,
     // Never sent anywhere: the local routes take the job's token, not a worker secret.
     STUDIO_WORKER_SECRET: randomBytes(24).toString('hex'), STUDIO_WORKER_ID: 'local', STUDIO_WORKER_KINDS: 'export',
     STUDIO_CODE_SCENES: 'off', STUDIO_FAST_EXPORT: 'on', STUDIO_FAST_ENCODER: o.encoder ?? defaultProfile(platform),
+    // Remotion only draws here: the desktop app does not carry its compositor (a GPL FFmpeg build). chrome-pipe.ts.
+    STUDIO_COMPOSITOR: 'off',
     ...(o.cacheBytes ? { STUDIO_CACHE_BYTES: String(o.cacheBytes) } : {}),
-    ...(o.ffmpeg ? { STUDIO_FFMPEG: o.ffmpeg } : {}), ...(o.ffprobe ? { STUDIO_FFPROBE: o.ffprobe } : {}),
+    STUDIO_FFMPEG: ffmpeg, STUDIO_FFPROBE: ffprobe,
     ...(o.bundleDir ? { STUDIO_BUNDLE_DIR: o.bundleDir } : {}), ...(o.chrome ? { STUDIO_CHROME: o.chrome } : {}),
   }
   const c = loadConfig(env, () => 4)
@@ -93,25 +113,68 @@ export function destinationProblem(path: string, exists: (p: string) => boolean 
   return pathProblem(path)
 }
 
+/** STUDIO_LOCAL_TOKEN read once and deleted from `env` (no child inherits it); standard input is the preferred way in. */
+export function takeTokenFromEnv(env: NodeJS.ProcessEnv): string | null {
+  const t = env.STUDIO_LOCAL_TOKEN ?? null
+  delete env.STUDIO_LOCAL_TOKEN
+  return t
+}
+
+/**
+ * The job a token names (its payload's `jid`), read without trusting it for anything else (the app checks the token):
+ * so a token for another job is refused before it is used to take one. Null when it is not a local token. Pure.
+ */
+export function tokenJobId(token: string): string | null {
+  const body = /^ls1\.([A-Za-z0-9_-]+)\./.exec(token)?.[1]
+  if (!body) return null
+  try {
+    const jid = (JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as { jid?: unknown }).jid
+    return typeof jid === 'string' ? jid : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Text that goes to the app (the job's log and its error, which every member of the workspace can read): the home
+ * folder and the runner's work folder named, never spelt out, and no token. The full text stays in the runner's own
+ * output (LocalEvent). Pure.
+ */
+export function forTheApp(text: string, o: { home: string; workDir: string; tokens: string[] }): string {
+  let out = text
+  for (const t of o.tokens) if (t) out = out.split(t).join('[token]')
+  const variants = (p: string) => [...new Set([p, p.replace(/\\/g, '/'), p.replace(/\//g, '\\')])].filter((v) => v.length > 1).sort((a, b) => b.length - a.length)
+  for (const v of variants(o.workDir)) out = out.split(v).join('<work folder>')
+  for (const v of variants(o.home)) out = out.split(v).join('~')
+  return out
+}
+
 export async function runLocal(o: LocalRun): Promise<{ file: string; result: ExportResult | null }> {
   const why = destinationProblem(o.destination, existsSync, o.overwrite) ?? pathProblem(o.workDir)
   if (why) throw new JobError(why)
+  // Its job first, from the token itself: a token for another job is never used to take one.
+  const named = tokenJobId(o.token)
+  if (named !== null && named !== o.jobId) throw new JobError('The token is for another job')
+  // Every build carries its render version; one without is refused, not trusted.
+  const mine = engineRenderVersion()
+  if (mine === null) throw new JobError('This app has no render version: export it on the server')
   const config = localConfig(o)
   const client = new AppClient({ appUrl: config.appUrl, secret: '', workerId: 'local', local: { token: o.token }, ...(o.fetch ? { fetch: o.fetch } : {}) })
+  const scrub = (text: string) => forTheApp(text, { home: homedir(), workDir: config.workDir, tokens: [o.token, client.currentToken()] })
   const taken: LocalTaken = await client.take()
   const { job } = taken
-  if (job.id !== o.jobId || job.kind !== 'local-export') throw new JobError('The token is for another job')
   o.emit({ type: 'taken', jobId: job.id, attempt: job.attempts, title: job.input.title })
 
   const stop = new AbortController()
   const signal = o.signal ? AbortSignal.any([o.signal, stop.signal]) : stop.signal
   const scratch = join(config.workDir, 'jobs', `${job.id}-${job.attempts}`)
   let lastSent = 0, latest = 0, logs: string[] = [], sending: Promise<void> | null = null
+  // At most one report a second, whatever asks (the app answers 429 TOO_FAST past that); every two seconds as it goes.
   const send = (force = false) => {
-    if (sending || (!force && Date.now() - lastSent < 2000)) return sending
+    if (sending || Date.now() - lastSent < (force ? 1100 : 2000)) return sending
     const lines = logs.splice(0)
     lastSent = Date.now()
-    sending = client.progress(job.id, latest, lines.join('\n') || undefined)
+    sending = client.progress(job.id, latest, scrub(lines.join('\n')) || undefined)
       .then((r) => { if (r.cancelRequested && !stop.signal.aborted) stop.abort(new JobError('Cancelled')) })
       .catch((err) => { logs.unshift(...lines); if (err instanceof AppError && [401, 403, 409].includes(err.status)) stop.abort(new JobError(`The Studio took the job back (${err.message})`)) })
       .finally(() => { sending = null })
@@ -119,10 +182,16 @@ export async function runLocal(o: LocalRun): Promise<{ file: string; result: Exp
   }
   const heartbeat = setInterval(() => void send(true), HEARTBEAT_MS)
   try {
+    if (job.id !== o.jobId || job.kind !== 'local-export') throw new JobError('The token is for another job')
     // The server checked the version when it queued the job; a desktop app updated since then is held to it again.
-    const mine = engineRenderVersion()
-    if (mine !== null && job.input.renderVersion !== mine) throw new JobError(`This app draws exports as version ${mine}, the Studio asked for ${job.input.renderVersion}: export it on the server`)
+    if (job.input.renderVersion !== mine) throw new JobError(`This app draws exports as version ${mine}, the Studio asked for ${job.input.renderVersion}: export it on the server`)
     await mkdir(scratch, { recursive: true })
+    // Which encoder settings make a right file on this computer, at this video's size and rate (encoder-probe.ts).
+    const out = job.input.project.output
+    const probe = await probeEncoder(config.fastEncoder, { width: out.width, height: out.height, fps: out.fps }, scratch, signal)
+    o.emit({ type: 'encoder', profile: probe.profile, rung: probe.rung, tried: probe.tried })
+    if (!probe.rung) throw new JobError(`This computer cannot encode the video (${probe.tried.map((t) => `${t.rung}: ${t.why}`).join('; ')}): export it on the server`)
+    config.encoderRung = probe.rung
     const cache = new AssetCache(join(config.workDir, 'cache', 'assets'), config.cacheBytes)
     await cache.init()
     let file = ''
@@ -148,14 +217,16 @@ export async function runLocal(o: LocalRun): Promise<{ file: string; result: Exp
     }
     const result = await runExport(ctx)
     await sending
+    // Uploaded: the Studio has it under its key. Not: the facts, kept on this computer (the contract's LocalKeptResult).
     if (uploaded) await client.complete(job.id, result)
+    else { const { key: _key, ...facts } = result; await client.complete(job.id, { kept: 'computer', ...facts }) }
     o.emit({ type: 'done', file, uploaded, result: uploaded ? result : null })
     return { file, result: uploaded ? result : null }
   } catch (err) {
     const cancelled = signal.aborted
     const message = cancelled ? 'Cancelled' : err instanceof JobError ? err.message : `The export failed on this computer: ${String((err as Error)?.message ?? err).split('\n')[0]!.slice(0, 500)}`
     await sending
-    await client.fail(job.id, message).catch(() => undefined)
+    await client.fail(job.id, scrub(message)).catch(() => undefined)
     o.emit({ type: 'failed', error: message, cancelled })
     throw err instanceof JobError ? err : new JobError(message)
   } finally {
@@ -167,7 +238,7 @@ export async function runLocal(o: LocalRun): Promise<{ file: string; result: Exp
 /** The command line's options, or what is wrong with them. Pure. */
 export function parseArgs(argv: string[]): Record<string, string | true> | { problem: string } {
   const out: Record<string, string | true> = {}
-  const flags = new Set(['no-upload', 'overwrite'])
+  const flags = new Set(['no-upload', 'overwrite', 'probe'])
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!
     if (!a.startsWith('--')) return { problem: `unexpected ${a}` }
@@ -178,7 +249,8 @@ export function parseArgs(argv: string[]): Record<string, string | true> | { pro
     out[name] = v
     i++
   }
-  for (const need of ['app', 'job', 'out', 'work']) if (typeof out[need] !== 'string') return { problem: `--${need} is required` }
+  // --probe: only which encoder settings work here (the desktop app's status), no job.
+  for (const need of out.probe ? ['work'] : ['app', 'job', 'out', 'work']) if (typeof out[need] !== 'string') return { problem: `--${need} is required` }
   if ('token' in out) return { problem: 'the token never goes on the command line (STUDIO_LOCAL_TOKEN or standard input)' }
   return out
 }

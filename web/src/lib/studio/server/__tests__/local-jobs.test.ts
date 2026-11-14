@@ -15,10 +15,13 @@ vi.mock('@/lib/work/agent-run-mirror', () => ({ resolveMemberId: async () => 'me
 
 import { createBlobWrite } from '../blobs'
 import { createBlankVideo } from '../blank'
-import { activeJob, cancelJob, claimJob, getJob, MAX_OPEN_EXPORTS, queueJob, toEditorJob, videoExports } from '../jobs'
-import { ClaimBody, LOCAL_TOKEN_SECONDS, STUDIO_JOB_KINDS, type LocalTaken } from '../job-contract'
+import { activeJob, cancelJob, claimJob, getJob, MAX_OPEN_EXPORTS, queueJob, toEditorJob, UNTAKEN, videoExports } from '../jobs'
+import { ClaimBody, LOCAL_TOKEN_SECONDS, MAX_OPEN_LOCAL_EXPORTS, STUDIO_JOB_KINDS, type LocalTaken } from '../job-contract'
 import { handleLocalRunner, LOCAL_CALLS_PER_MINUTE, resetLocalCalls } from '../local-http'
-import { localExportKey, localJob, localToken, moveToServer, startsLikeMp4 } from '../local-jobs'
+import { LOCAL_RUN_FLOOR_MS, localExportKey, localReadable, localJob, localRunLimit, localToken, moveToServer, readAllowance, scrubLocalText, startsLikeMp4 } from '../local-jobs'
+import { getBlob, PENDING } from '../blobs'
+import { sweepStudio } from '../sweep'
+import { forgetStudioSwitches } from '../auth'
 import { signLocalToken, verifyLocalToken } from '../local-token'
 import { CODE_SCENES_REFUSAL, queueExport, RENDER_VERSION_REFUSAL, startExport } from '../media'
 import { STUDIO_RENDER_VERSION } from '../../engine/render-version'
@@ -143,7 +146,9 @@ describe('queueing an export for this computer', () => {
   })
 
   it('counts in the workspace’s open jobs but not in its exports', async () => {
-    for (let i = 0; i < MAX_OPEN_EXPORTS; i++) await queued()
+    const { job } = await queued()
+    const input = row(job.id).input as never
+    for (let i = 1; i < MAX_OPEN_EXPORTS; i++) await queueJob(env.ctx, 'local-export', input)
     // Five local exports open: a server export may still be queued.
     const video = await createBlankVideo(env.ctx, { title: 'More', seconds: 2, fps: 30 })
     await expect(startExport(env.ctx, video)).resolves.toBeTruthy()
@@ -341,11 +346,15 @@ describe('a computer that goes quiet', () => {
 })
 
 describe('finishing on the server', () => {
-  it('moves a queued local export to the server, where a worker takes it', async () => {
+  it('moves a queued local export to the server as a new export, where a worker takes it', async () => {
     const { job, token } = await queued()
-    const { job: moved } = await moveToServer(env.ctx, job.id)
-    expect(moved).toMatchObject({ kind: 'export', where: 'server' })
-    expect((await claimJob(deps(), 'server-worker', ['export']))?.id).toBe(job.id)
+    const { job: moved, replaces } = await moveToServer(env.ctx, job.id)
+    expect(moved).toMatchObject({ kind: 'export', where: 'server', status: 'running' })
+    expect(replaces).toBe(job.id)
+    expect(row(job.id)).toMatchObject({ kind: 'local-export', status: 'cancelled', error: 'Moved to our server.' })
+    expect(row(moved.id)).toMatchObject({ kind: 'export', attempts: 0, input: { title: 'Spring launch', source: 'editor' } })
+    expect((row(moved.id).input as Record<string, unknown>).renderVersion).toBeUndefined()
+    expect((await claimJob(deps(), 'server-worker', ['export']))?.id).toBe(moved.id)
     // The computer's token no longer takes it.
     expect((await call('take', token)).status).toBe(409)
   })
@@ -360,6 +369,183 @@ describe('finishing on the server', () => {
     for (let i = 0; i < MAX_OPEN_EXPORTS; i++) await queueJob(env.ctx, 'export', { project: {} as never, title: 'x' })
     await expect(moveToServer(env.ctx, waiting.job.id)).rejects.toMatchObject({ status: 429 })
     expect(row(waiting.job.id).kind).toBe('local-export')
+    expect(rows().filter((j) => j.kind === 'export' && j.input && (j.input as { title?: string }).title === 'Spring launch')).toHaveLength(0)
+  })
+
+  it('never passes the export cap by moving many at once', async () => {
+    const { job } = await queued()
+    const input = row(job.id).input as never
+    const ids = [job.id]
+    for (let i = 0; i < MAX_OPEN_EXPORTS + 2; i++) ids.push((await queueJob(env.ctx, 'local-export', input)).id)
+    const answers = await Promise.allSettled(ids.map((id) => moveToServer(env.ctx, id)))
+    expect(answers.filter((a) => a.status === 'fulfilled')).toHaveLength(MAX_OPEN_EXPORTS)
+    expect(rows().filter((j) => j.kind === 'export' && (j.status === 'queued' || j.status === 'running') && !j.cancel_requested)).toHaveLength(MAX_OPEN_EXPORTS)
+    // Those refused stay on the computer's side, untouched.
+    expect(rows().filter((j) => j.kind === 'local-export' && j.status === 'queued')).toHaveLength(ids.length - MAX_OPEN_EXPORTS)
+  })
+
+  it('stops the new server export again when a computer took the local one meanwhile', async () => {
+    const { job } = await queued()
+    // The computer takes it just as the server's export is queued.
+    const rpc = env.ctx.supabase.rpc.bind(env.ctx.supabase)
+    env.ctx.supabase.rpc = (async (name: string, args: unknown) => {
+      const answer = await rpc(name as never, args as never)
+      if (name === 'studio_queue_job') Object.assign(row(job.id), { status: 'running', worker_id: `local:${AVA}:x`, attempts: 1 })
+      return answer
+    }) as typeof env.ctx.supabase.rpc
+    await expect(moveToServer(env.ctx, job.id)).rejects.toMatchObject({ code: 'RUNNING' })
+    env.ctx.supabase.rpc = rpc
+    expect(row(job.id).status).toBe('running')
+    const server = rows().find((j) => j.kind === 'export')!
+    expect(server).toMatchObject({ status: 'cancelled' })
+  })
+})
+
+describe('the review’s findings', () => {
+  it('upload links never replace the stored video, before or after it is filed', async () => {
+    const { job, token } = await queued()
+    const t = await taken(token)
+    const key = localExportKey({ id: job.id, attempts: 1 })
+    const write = await call('blobs/write', t.token, { key, bytes: 40, contentType: 'video/mp4' })
+    const links = write.body.parts as { url: string; headers: Record<string, string> }[]
+    expect(links.every((l) => l.headers['x-upsert'] === 'false')).toBe(true)
+    expect(env.storage.putLink(links[0]!, mp4(40))).toBe(true)
+    // A second PUT through the same link, before the commit: refused (the part is there).
+    expect(env.storage.putLink(links[0]!, new Uint8Array(40).fill(9))).toBe(false)
+    expect((await call('blobs/commit', t.token, { key })).status).toBe(200)
+    await call('complete', t.token, { result: { key, bytes: 40, width: 16, height: 16, fps: 30, durationSeconds: 1 } })
+    // And after it is filed: refused, the file stays what was checked.
+    expect(env.storage.putLink(links[0]!, new Uint8Array(4000).fill(9))).toBe(false)
+    expect([...(await env.storage.head(`${WS}/${key}/0`, 12))]).toEqual([...mp4(12)])
+  })
+
+  it('a refused commit keeps its place and its space until the sweep, then every part goes', async () => {
+    const { job, token } = await queued()
+    const t = await taken(token)
+    const key = localExportKey({ id: job.id, attempts: 1 })
+    const write = await call('blobs/write', t.token, { key, bytes: 64 * 1024 * 1024, contentType: 'video/mp4' })
+    const links = write.body.parts as { url: string; headers: Record<string, string> }[]
+    expect(links).toHaveLength(2)
+    env.storage.putLink(links[0]!, new Uint8Array(12).fill(0x3c))
+    expect((await call('blobs/commit', t.token, { key })).body).toMatchObject({ code: 'NOT_MP4' })
+    // Nothing removed: the pending write still holds the space, the part still holds its place.
+    expect(env.tables.studio_record!.some((r) => r.collection === PENDING && r.key === key)).toBe(true)
+    expect(env.storage.putLink(links[0]!, mp4(32 * 1024 * 1024))).toBe(false)
+    // One set of links an attempt.
+    expect((await call('blobs/write', t.token, { key, bytes: 40, contentType: 'video/mp4' })).body).toMatchObject({ code: 'WRITE_PENDING' })
+    // The links' other part, stored with something nobody counts.
+    env.storage.putLink(links[1]!, new Uint8Array(1000).fill(1))
+    await call('fail', t.token, { error: 'Could not upload.' })
+    // Ended more than the links' life ago: the sweep takes the parts and the record.
+    Object.assign(row(job.id), { updated_at: new Date(Date.now() - 4 * 3600_000).toISOString() })
+    const counts = await sweepStudio(env.ctx.supabase, { storage: env.storage })
+    expect(counts.strays).toBeGreaterThan(0)
+    expect(await env.storage.list(`${WS}/${key}`)).toEqual([])
+    expect(env.tables.studio_record!.some((r) => r.collection === PENDING && r.key === key)).toBe(false)
+  })
+
+  it('the sweep removes parts stored again after their file went, parts past a file’s count, and a file whose part changed', async () => {
+    const { job, token } = await queued()
+    const t = await taken(token)
+    const key = localExportKey({ id: job.id, attempts: 1 })
+    await upload(t.token, key, mp4(40))
+    await call('complete', t.token, { result: { key, bytes: 40, width: 16, height: 16, fps: 30, durationSeconds: 1 } })
+    // A part past the file's count, as a link it was never given would store.
+    env.storage.put(`${WS}/${key}/7`, new Uint8Array(10))
+    Object.assign(row(job.id), { updated_at: new Date(Date.now() - 4 * 3600_000).toISOString() })
+    await sweepStudio(env.ctx.supabase, { storage: env.storage })
+    expect((await env.storage.list(`${WS}/${key}`)).map((i) => i.name)).toEqual(['0'])
+    expect(await getBlob(env.ctx, key)).toBeTruthy()
+    // A committed part no longer its size: the file goes (it is not what was checked).
+    env.storage.put(`${WS}/${key}/0`, new Uint8Array(999))
+    await sweepStudio(env.ctx.supabase, { storage: env.storage })
+    expect(await getBlob(env.ctx, key)).toBeNull()
+    expect(await env.storage.list(`${WS}/${key}`)).toEqual([])
+    // The person's own upload, removed by its import while its links still worked, then stored again: swept too.
+    const imported = await queueJob(env.ctx, 'import', { uploadKey: 'uploads/0e0e0e0e-1111-4222-8333-999999999999', name: 'x.mp4' })
+    Object.assign(row(imported.id), { status: 'completed', updated_at: new Date(Date.now() - 4 * 3600_000).toISOString() })
+    env.storage.put(`${WS}/uploads/0e0e0e0e-1111-4222-8333-999999999999/0`, new Uint8Array(100))
+    await sweepStudio(env.ctx.supabase, { storage: env.storage })
+    expect(await env.storage.list(`${WS}/uploads/0e0e0e0e-1111-4222-8333-999999999999`)).toEqual([])
+  })
+
+  it('each operation has its own allowance: one write, reads by the files named, progress once a second', async () => {
+    const { job, asset, token } = await queued()
+    const t = await taken(token)
+    const key = localExportKey({ id: job.id, attempts: 1 })
+    await upload(t.token, key, mp4(40))
+    expect((await call('blobs/write', t.token, { key, bytes: 40, contentType: 'video/mp4' })).body).toMatchObject({ code: 'STORED' })
+    // Three reads a file the project names, and ten more, then refused, counted in the database (every process alike).
+    const files = localReadable(row(job.id).input as never).size
+    expect(files).toBeGreaterThanOrEqual(1)
+    for (let i = 0; i < readAllowance(files); i++) expect((await call('blobs/read', t.token, { key: asset.file })).status).toBe(200)
+    expect((await call('blobs/read', t.token, { key: asset.file })).body).toMatchObject({ code: 'TOO_MANY_READS' })
+    expect((await call('progress', t.token, { progress: 0.1 })).status).toBe(200)
+    expect((await call('progress', t.token, { progress: 0.2 })).body).toMatchObject({ code: 'TOO_FAST' })
+  })
+
+  it('a local export no computer takes in 15 minutes ends, wherever it would be seen or counted', async () => {
+    const { job } = await queued()
+    Object.assign(row(job.id), { updated_at: new Date(Date.now() - 16 * 60_000).toISOString() })
+    expect(await getJob(env.ctx, job.id)).toMatchObject({ status: 'failed', error: UNTAKEN })
+    const other = await queued()
+    Object.assign(row(other.job.id), { updated_at: new Date(Date.now() - 16 * 60_000).toISOString() })
+    expect(await activeJob(env.ctx, AVA)).toBeNull()
+    expect(row(other.job.id).status).toBe('failed')
+    const third = await queued()
+    Object.assign(row(third.job.id), { updated_at: new Date(Date.now() - 16 * 60_000).toISOString() })
+    expect((await sweepStudio(env.ctx.supabase, { storage: env.storage })).untaken).toBe(1)
+    expect((await call('take', third.token)).status).toBe(409)
+  })
+
+  it('a running attempt may not go on past its time, however often it reports', async () => {
+    const { job, token } = await queued()
+    const t = await taken(token)
+    expect(localRunLimit(row(job.id).input as never)).toBe(LOCAL_RUN_FLOOR_MS)
+    Object.assign(row(job.id), { claimed_at: new Date(Date.now() - LOCAL_RUN_FLOOR_MS - 1000).toISOString() })
+    expect((await call('progress', t.token, { progress: 0.9 })).body).toMatchObject({ code: 'TOO_LONG' })
+    expect(row(job.id)).toMatchObject({ status: 'failed' })
+  })
+
+  it('one person has at most a few exports open on their computer', async () => {
+    for (let i = 0; i < MAX_OPEN_LOCAL_EXPORTS; i++) await queued()
+    await expect(queued()).rejects.toMatchObject({ status: 429, code: 'TOO_MANY_LOCAL' })
+    // Another member is not held back by them.
+    await expect(queued({ as: BEN })).resolves.toBeTruthy()
+  })
+
+  it('kept on the computer: done there, nothing to download from the server', async () => {
+    const { job, token, video } = await queued()
+    const t = await taken(token)
+    expect((await call('complete', t.token, { result: { kept: 'computer', key: 'exports/x/1/video.mp4', bytes: 40, width: 16, height: 16, fps: 30, durationSeconds: 1 } })).status).toBe(400)
+    expect((await call('complete', t.token, { result: { kept: 'computer', bytes: 4_000_000, width: 1920, height: 1080, fps: 30, durationSeconds: 2 } })).status).toBe(200)
+    const editor = await getJob(env.ctx, job.id)
+    expect(editor).toMatchObject({ kind: 'export', where: 'computer', status: 'completed', kept: 'computer' })
+    expect(editor.downloadUrl).toBeUndefined()
+    expect((await videoExports(env.ctx, video.id)).exports).toEqual([])
+    expect(jobView({ ...row(job.id), input: {} } as never)).not.toHaveProperty('download_url')
+    expect(delivered.finished).toHaveLength(1)
+  })
+
+  it('the workspace’s Studio switch holds on every call', async () => {
+    const { token } = await queued()
+    const t = await taken(token)
+    ;(env.tables as Record<string, unknown[]>).workspace = [{ id: WS, settings: { feature_overrides: { studio: 'off' } } }]
+    forgetStudioSwitches()
+    expect(await call('progress', t.token, { progress: 0.3 })).toMatchObject({ status: 403, body: { code: 'FEATURE_DISABLED' } })
+    forgetStudioSwitches()
+  })
+
+  it('keeps no path on the computer in what it stores of a failure or a log line', async () => {
+    expect(scrubLocalText('Could not write /Users/ava/Movies/Spring launch.mp4: disk full', 500)).toBe('Could not write [a file on the computer] launch.mp4: disk full')
+    expect(scrubLocalText('C:\\Users\\Ava\\AppData\\Local\\Temp\\x.mp4 is locked', 500)).not.toMatch(/Users|AppData/)
+    expect(scrubLocalText('see https://example.com/help and ~/Library/Logs/app.log', 500)).toBe('see https://example.com/help and [a file on the computer]')
+    expect(scrubLocalText('x'.repeat(600), 500)).toHaveLength(500)
+    const { job, token } = await queued()
+    const t = await taken(token)
+    await call('progress', t.token, { progress: 0.2, log: 'Staged /home/ava/.cache/studio/a.mp4' })
+    await call('fail', t.token, { error: 'FFmpeg failed reading /Users/ava/Desktop/clip.mov' })
+    expect(JSON.stringify(row(job.id))).not.toMatch(/\/(Users|home)\//)
   })
 })
 

@@ -44,12 +44,11 @@ const SECRET = 'fast-e2e-secret-not-real-0123456789abcdef'
  * sensor noise, drawn up to five times smaller), which Chrome samples without filtering, so a tenth of a pixel moves
  * its aliasing; side by side the two show the same picture (the frame of the right camera frame scores 27–33 dB, the
  * neighbouring camera frame about 22). The sound: lined up to the sample, the same level within half a decibel.
- * The mask's edge on its own, the luma 2 px inside it and 0.5–2.5 px outside it: outside 30 dB, inside 18 dB, and the
- * same bubble drawn with its radius 2 px smaller must fail them (it scores about 18 dB outside). A radius 2 px larger
- * is not caught: Chrome's rounded corners measure about a pixel rounder than the mask here (both bands score best with
- * the radius 1 px larger), so a larger radius scores as well as the right one. Circles are capped at half the side.
+ * The mask's edge on its own, the luma 2 px inside it and 0.5–2.5 px outside it: outside 30 dB, inside 23 dB, and the
+ * same bubble drawn with its radius 2 px smaller (about 22-28 dB outside) or larger (about 19-22 inside) must fail
+ * them. Circles are capped at half the side. (The mask itself against Chrome's on flat colours: test/mask-e2e.ts.)
  */
-export const THRESHOLDS = { outsideDb: 40, outsideSsim: 0.99, bubbleDb: 27, bubbleSsim: 0.93, soundLagMs: 0.5, soundLevelDb: 0.5, mixLevelDb: 0.1, mixResidualDbfs: -90, mixWorstStep: 32, edgeInnerDb: 18, edgeOuterDb: 30 }
+export const THRESHOLDS = { outsideDb: 40, outsideSsim: 0.99, bubbleDb: 27, bubbleSsim: 0.93, soundLagMs: 0.5, soundLevelDb: 0.5, mixLevelDb: 0.1, mixResidualDbfs: -90, mixWorstStep: 32, edgeInnerDb: 23, edgeOuterDb: 30 }
 
 const ff = (args: string[]) => execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-y', ...args], { stdio: ['ignore', 'inherit', 'inherit'] })
 const TAGS = ['-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv']
@@ -146,7 +145,11 @@ async function main() {
       const { composeSound, soundPlan, SAMPLE_RATE } = await import('../src/fast-sound.ts')
       const { soundLayers } = require('../../web/src/lib/studio/engine/sound-layers.ts') as typeof import('../../web/src/lib/studio/engine/sound-layers.ts')
       const { renderMedia, selectComposition } = await import('@remotion/renderer')
-      const cfg = loadConfig({ ...process.env, STUDIO_WORK_DIR: workDir }, () => 4) as Exclude<ReturnType<typeof loadConfig>, { problems: string[] }>
+      // NODE_ENV as the other end-to-end scripts set it: in the image it is "production", where settings without the
+      // worker's secret are refused, and this block only renders in this process (it talks to no app).
+      const loaded = loadConfig({ ...process.env, STUDIO_WORK_DIR: workDir, NODE_ENV: 'test' }, () => 4)
+      if ('problems' in loaded) throw new Error(`The worker's settings were refused: ${loaded.problems.join('; ')}`)
+      const cfg = loaded
       const renderer = new Renderer(cfg, join(workDir, 'cache', 'assets'))
       const { serveUrl, release } = await renderer.bundle(() => {})
       const cache = (file: string) => join(workDir, 'cache', file)
@@ -255,7 +258,7 @@ async function main() {
           bub0 && (row.bubbleDb as { v: number }).v < THRESHOLDS.bubbleDb && 'bubble PSNR',
           bub0 && (row.bubbleSsim as { v: number }).v < THRESHOLDS.bubbleSsim && 'bubble SSIM',
           bub0 && Math.min((row.edgeDb as { inner: number }).inner - THRESHOLDS.edgeInnerDb, (row.edgeDb as { outer: number }).outer - THRESHOLDS.edgeOuterDb) < 0 && 'mask edge PSNR',
-          bub0 && Object.entries(row.edgeWrongRadiusDb as Record<string, { inner: number; outer: number }>).some(([k, v]) => k === '-2px' && v.inner >= THRESHOLDS.edgeInnerDb && v.outer >= THRESHOLDS.edgeOuterDb) && 'a mask 2 px too small would pass',
+          bub0 && Object.entries(row.edgeWrongRadiusDb as Record<string, { inner: number; outer: number }>).some(([k, v]) => /2px$/.test(k) && v.inner >= THRESHOLDS.edgeInnerDb && v.outer >= THRESHOLDS.edgeOuterDb) && 'a mask 2 px off would pass',
           Math.abs(sound.lagMs) > THRESHOLDS.soundLagMs && 'sound offset',
           Math.abs(sound.levelDb) > THRESHOLDS.soundLevelDb && 'sound level',
           !c.remotionSound && mix.lengthRemotion !== mix.lengthFfmpeg && 'mix length',

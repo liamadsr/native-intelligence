@@ -15,8 +15,9 @@ import { errorResponse } from './router'
 /** The largest body a computer sends (a progress line, a result: a few hundred bytes). */
 export const LOCAL_BODY_MAX_BYTES = 64 * 1024
 /**
- * How many calls one job's token may make a minute (per process): a progress report every two seconds and a read link
- * for each of a few hundred library files fit well under it; a loop gone wrong does not.
+ * A coarse guard on every call of one job's token, per process: 600 a minute. Each operation has its own allowance on
+ * top, kept in the database so every process counts the same (local-jobs.ts: one write an attempt, reads by the files
+ * the project names, progress once a second).
  */
 export const LOCAL_CALLS_PER_MINUTE = 600
 
@@ -26,7 +27,8 @@ const calls = new Map<string, { at: number; count: number }>()
 export function countLocalCall(jobId: string, now = Date.now()): boolean {
   const window = calls.get(jobId)
   if (!window || now - window.at >= 60_000) {
-    if (calls.size > 5000) calls.clear()
+    // Windows past their minute are dropped, never the live ones.
+    if (calls.size > 5000) for (const [id, kept] of calls) if (now - kept.at >= 60_000) calls.delete(id)
     calls.set(jobId, { at: now, count: 1 })
     return true
   }

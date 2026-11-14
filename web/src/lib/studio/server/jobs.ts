@@ -70,6 +70,25 @@ export async function checkOpenJobs(ctx: StudioContext, kind: AnyJobKind): Promi
     throw new StudioError(`This workspace already has ${MAX_OPEN_EXPORTS} exports waiting or running. Wait for one to finish, then try again.`, 429, 'TOO_MANY_JOBS')
 }
 
+/** How long a local export may wait for the person's computer to take it (local-jobs.ts). */
+export const LOCAL_TAKE_WITHIN_MS = 15 * 60_000
+/** What a local export no computer took in time ends with. */
+export const UNTAKEN = 'No computer took this export within 15 minutes. Export it again, on our server or with the Studio app open.'
+
+/**
+ * End the local exports of a workspace (or of every workspace, for the sweep) that no computer took within
+ * LOCAL_TAKE_WITHIN_MS of being queued (or put back in the queue): failed, saying so. Without this one would sit in the
+ * queue for good, counted in the workspace's open jobs and shown in the editor as running (no server worker takes
+ * the kind). Run before anything counts or shows open jobs. Answers how many ended.
+ */
+export async function endUntakenLocalExports(supabase: SupabaseClient, workspaceId: string | null, now = Date.now()): Promise<number> {
+  let query = supabase.from('studio_job').update({ status: 'failed', error: UNTAKEN, updated_at: new Date(now).toISOString() })
+    .eq('kind', 'local-export').eq('status', 'queued').lt('updated_at', new Date(now - LOCAL_TAKE_WITHIN_MS).toISOString())
+  if (workspaceId) query = query.eq('workspace_id', workspaceId)
+  const ended = must(await query.select('id'), 'end exports no computer took') as { id: string }[] | null
+  return ended?.length ?? 0
+}
+
 /** True when PostgREST says a function is not there (a migration not applied yet). */
 const missingFunction = (error: { code?: string } | null) => error?.code === 'PGRST202' || error?.code === '42883'
 
@@ -81,6 +100,8 @@ const missingFunction = (error: { code?: string } | null) => error?.code === 'PG
  */
 export async function queueJob<K extends AnyJobKind>(ctx: StudioContext, kind: K, input: AnyJobIO[K]['input'] & Record<string, unknown>, videoId: string | null = null): Promise<JobRow> {
   const video = videoId && isUuid(videoId) ? videoId : null
+  // A local export no computer took is not counted against the caps: it has ended.
+  await endUntakenLocalExports(ctx.supabase, ctx.workspaceId)
   const { data, error } = await ctx.supabase.rpc('studio_queue_job', {
     p_workspace: ctx.workspaceId, p_kind: kind, p_input: input, p_video: video, p_created_by: ctx.userId, p_max_open: MAX_OPEN_JOBS, p_max_exports: MAX_OPEN_EXPORTS,
   })
@@ -140,8 +161,11 @@ function stoppedWhileQueued(row: Pick<JobRow, 'status' | 'cancel_requested' | 'e
 /** A job of this workspace (its input reduced to what the editor reads), or 404. */
 export async function jobRow(ctx: StudioContext, id: string): Promise<JobRow> {
   if (!isUuid(id)) throw notFoundError('Job not found')
-  const row = must(await ctx.supabase.from('studio_job').select(LIGHT_FIELDS).eq('workspace_id', ctx.workspaceId).eq('id', id).maybeSingle(), 'read that job') as LightRow | null
+  const read = async () => must(await ctx.supabase.from('studio_job').select(LIGHT_FIELDS).eq('workspace_id', ctx.workspaceId).eq('id', id).maybeSingle(), 'read that job') as LightRow | null
+  let row = await read()
   if (!row) throw notFoundError('Job not found')
+  // A local export no computer took in time is shown ended, never running.
+  if (row.kind === 'local-export' && row.status === 'queued' && Date.now() - Date.parse(row.updated_at) > LOCAL_TAKE_WITHIN_MS && (await endUntakenLocalExports(ctx.supabase, ctx.workspaceId))) row = (await read()) ?? row
   return fromLight(row)
 }
 
@@ -164,6 +188,8 @@ export function toEditorJob(row: JobRow): EditorJob {
     ...(row.video_id ? { videoId: row.video_id } : {}),
   }
   if (row.status === 'queued' && !job.logs.length) job.logs = [row.kind === 'local-export' ? 'Waiting for the Studio app on this computer…' : 'Waiting for the Studio worker…']
+  // Made on the person's computer and kept there: done, with nothing to download from the server.
+  if (row.kind === 'local-export' && row.status === 'completed' && row.result?.kept === 'computer') job.kept = 'computer'
   if (isExportKind(row.kind) && row.status === 'completed' && typeof row.result?.key === 'string') {
     const title = typeof row.input?.title === 'string' ? row.input.title : 'video'
     job.downloadUrl = `${fileUrl(row.workspace_id, row.result.key)}?download=${encodeURIComponent(fileName(title, 'mp4'))}`
@@ -242,6 +268,7 @@ export async function videoExports(ctx: StudioContext, videoId: string, now = Da
 
 /** The person's export or transcription still going, if any (the editor picks it back up when it opens). */
 export async function activeJob(ctx: StudioContext, userId: string): Promise<EditorJob | null> {
+  await endUntakenLocalExports(ctx.supabase, ctx.workspaceId)
   const rows = must(
     await ctx.supabase.from('studio_job').select(LIGHT_FIELDS).eq('workspace_id', ctx.workspaceId).eq('created_by', userId).in('status', ['queued', 'running']).in('kind', [...EXPORT_KINDS, 'transcribe']).order('created_at', { ascending: false }).limit(1),
     'read jobs',

@@ -37,17 +37,33 @@ export function toolName(file: string): string {
 export const ownGroup = (platform: Platform = process.platform) => platform !== 'win32'
 
 /**
- * Stop a program and everything it started: on POSIX its process group (SIGTERM now, SIGKILL after `graceMs`); on
- * Windows `taskkill /PID <pid> /T` now and `/F` after `graceMs` (no signals there: Node's kill() ends the one process
- * at once, its children go on). `exec` is injected for the tests.
+ * Windows' taskkill by its full path: a bare name is looked up in the current folder before PATH, so a taskkill.exe
+ * left in the folder the runner started in would run instead. Pure.
  */
-export function killTree(pid: number | undefined, graceMs = 3000, platform: Platform = process.platform,
-  exec: (cmd: string, args: string[]) => void = (cmd, args) => { spawn(cmd, args, { stdio: 'ignore', windowsHide: true }).on('error', () => undefined) },
-  kill: (pid: number, signal: NodeJS.Signals) => void = (p, s) => process.kill(p, s)): void {
+export function taskkillPath(env: NodeJS.ProcessEnv = process.env): string {
+  return `${(env.SystemRoot ?? env.SYSTEMROOT ?? 'C:\\Windows').replace(/[\\/]+$/, '')}\\System32\\taskkill.exe`
+}
+
+/**
+ * Stop a program and everything it started: on POSIX its process group (SIGTERM now, SIGKILL after `graceMs`); on
+ * Windows `taskkill /PID <pid> /T` now and `/F` after `graceMs` only while the program has not exited (`exited`):
+ * Windows hands a freed process id to the next program soon, and a late /F would stop that one. Nothing at all on
+ * Windows once it has exited. (No signals there: Node's kill() ends the one process at once, its children go on.)
+ * `exec` and `kill` are injected for the tests.
+ */
+export function killTree(pid: number | undefined, o: {
+  graceMs?: number; platform?: Platform; exited?: () => boolean; env?: NodeJS.ProcessEnv
+  exec?: (cmd: string, args: string[]) => void; kill?: (pid: number, signal: NodeJS.Signals) => void
+} = {}): void {
   if (!pid) return
-  if (platform === 'win32') {
-    exec('taskkill', ['/PID', String(pid), '/T'])
-    setTimeout(() => exec('taskkill', ['/PID', String(pid), '/T', '/F']), graceMs).unref()
+  const graceMs = o.graceMs ?? 3000, exited = o.exited ?? (() => false)
+  const exec = o.exec ?? ((cmd, args) => { spawn(cmd, args, { stdio: 'ignore', windowsHide: true }).on('error', () => undefined) })
+  const kill = o.kill ?? ((p, s) => process.kill(p, s))
+  if ((o.platform ?? process.platform) === 'win32') {
+    if (exited()) return
+    const taskkill = taskkillPath(o.env)
+    exec(taskkill, ['/PID', String(pid), '/T'])
+    setTimeout(() => { if (!exited()) exec(taskkill, ['/PID', String(pid), '/T', '/F']) }, graceMs).unref()
     return
   }
   const send = (sig: NodeJS.Signals) => {

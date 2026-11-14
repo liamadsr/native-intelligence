@@ -46,7 +46,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { availableParallelism, hostname, tmpdir } from 'node:os'
 import { dirname, isAbsolute, resolve } from 'node:path'
-import { ENCODER_PROFILES, type EncoderProfile } from './encoders.ts'
+import { ENCODER_PROFILES, RUNGS, type EncoderProfile, type EncoderRung } from './encoders.ts'
 import { setTools } from './platform.ts'
 import { fileURLToPath } from 'node:url'
 import type { StudioJobKind } from '../../web/src/lib/studio/server/job-contract.ts'
@@ -88,6 +88,13 @@ export interface WorkerConfig {
   ffprobe: string | null
   /** A render bundle built ahead (STUDIO_BUNDLE_DIR; bundle-dir.ts), null to bundle the engine here. */
   bundleDir: string | null
+  /**
+   * Remotion's compositor and its FFmpeg may be used (STUDIO_COMPOSITOR, on). Off (the desktop app, which does not carry
+   * that GPL build): Remotion only draws (renderFrames, renderStill), our FFmpeg does the rest (chrome-pipe.ts).
+   */
+  compositor: boolean
+  /** Which rung of the hardware encoder's ladder (STUDIO_ENCODER_RUNG; encoders.ts): the local runner sets the one its probe found. */
+  encoderRung: EncoderRung
 }
 
 export const DEV_SECRET = 'dev-studio-worker'
@@ -179,6 +186,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cpus: () => num
   }
   const ffmpeg = tool('STUDIO_FFMPEG'), ffprobe = tool('STUDIO_FFPROBE')
   const bundleDir = setting(env, 'STUDIO_BUNDLE_DIR') ? resolve(setting(env, 'STUDIO_BUNDLE_DIR')!) : null
+  const encoderRung = (setting(env, 'STUDIO_ENCODER_RUNG') ?? 'quality') as EncoderRung
+  if (!RUNGS.includes(encoderRung)) problems.push(`STUDIO_ENCODER_RUNG must be one of ${RUNGS.join(', ')}`)
+  const compositor = onOff(env, 'STUDIO_COMPOSITOR', true)
+  if (compositor === null) problems.push('STUDIO_COMPOSITOR must be on or off')
   if (problems.length > 0) return { problems }
   // Every FFmpeg and ffprobe run of this process goes to these (media.ts, fast-sound.ts).
   if (ffmpeg || ffprobe) setTools({ ffmpeg, ffprobe })
@@ -208,6 +219,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cpus: () => num
     earshotDir: setting(env, 'STUDIO_EARSHOT_DIR') ? resolve(setting(env, 'STUDIO_EARSHOT_DIR')!) : null,
     codeScenes: codeScenes!,
     fastExport: fastExport!,
-    fastEncoder, ffmpeg, ffprobe, bundleDir,
+    fastEncoder, ffmpeg, ffprobe, bundleDir, compositor: compositor!, encoderRung,
   }
 }

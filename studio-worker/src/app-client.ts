@@ -31,7 +31,8 @@ export class AppError extends Error {
     this.name = 'AppError'
     this.status = status
     this.code = code
-    this.retry = status === 0 || status === 408 || status === 429 || status >= 500
+    // A 429 that says the attempt's reads are used up (TOO_MANY_READS) is final: asking again only spends more.
+    this.retry = status === 0 || status === 408 || (status === 429 && code !== 'TOO_MANY_READS') || status >= 500
   }
 }
 
@@ -98,6 +99,11 @@ export class AppClient {
     if (!['take', 'progress', 'complete', 'fail', 'blobs/read', 'blobs/write', 'blobs/commit'].includes(op)) throw new AppError(`${path}: not a local export route`, 400, null)
     const { jobId: _job, workerId: _worker, capabilities: _caps, sha256: _sha, ...rest } = body
     return { url: `/api/local-agent/studio-export/${op}`, body: rest }
+  }
+
+  /** Token mode: the newest token (held in memory only), so what is sent to the app can be kept free of it. */
+  currentToken(): string {
+    return this.local?.token ?? ''
   }
 
   /** Token mode: take the job the token names (from the queue); the answer's token holds it from now on. */
@@ -284,7 +290,10 @@ export class AppClient {
       if (signal?.aborted) throw err
       throw new AppError(`part upload unreachable (${err instanceof Error ? err.message : String(err)})`.slice(0, 200), 0, null)
     }
-    await res.arrayBuffer().catch(() => undefined)
+    const text = await res.text().catch(() => '')
+    // Parts are never replaced (the links are signed without upsert): a retried PUT whose part was stored the first
+    // time answers that it exists. It is stored; blobs/commit checks every part's size.
+    if (res.status === 409 || (res.status === 400 && /already exists|duplicate/i.test(text))) return
     if (!res.ok) throw new AppError(`part upload answered ${res.status}`, res.status, null)
   }
 }

@@ -9,11 +9,13 @@
  * (or, on Windows, the desktop app closing the job's Job Object) stops it; FFmpeg and Chrome go with it.
  */
 import { createInterface } from 'node:readline'
-import { parseArgs, runLocal, type LocalEvent } from './local.ts'
+import { parseArgs, runLocal, takeTokenFromEnv, type LocalEvent } from './local.ts'
 import type { EncoderProfile } from './encoders.ts'
 
 async function token(): Promise<string> {
-  if (process.env.STUDIO_LOCAL_TOKEN) return process.env.STUDIO_LOCAL_TOKEN
+  // Taken out of the environment at once: FFmpeg, ffprobe and Chrome inherit this process's environment.
+  const fromEnv = takeTokenFromEnv(process.env)
+  if (fromEnv) return fromEnv
   const rl = createInterface({ input: process.stdin })
   for await (const line of rl) { rl.close(); return line.trim() }
   return ''
@@ -24,6 +26,21 @@ async function main(): Promise<number> {
   let last: LocalEvent | null = null
   const emit = (e: LocalEvent) => { last = e; process.stdout.write(`${JSON.stringify(e)}\n`) }
   if ('problem' in args) { emit({ type: 'failed', error: String(args.problem), cancelled: false }); return 1 }
+  if (args.probe === true) {
+    // What this computer can encode with, for the desktop app to show (no job, no token): exit 0 when something works.
+    const { localConfig } = await import('./local.ts')
+    const { probeEncoder } = await import('./encoder-probe.ts')
+    const s = (k: string) => (typeof args[k] === 'string' ? (args[k] as string) : undefined)
+    try {
+      const config = localConfig({ appUrl: 'http://127.0.0.1', workDir: s('work')!, ffmpeg: s('ffmpeg'), ffprobe: s('ffprobe'), encoder: s('encoder') as EncoderProfile | undefined })
+      const r = await probeEncoder(config.fastEncoder, { width: Number(s('width') ?? 1920), height: Number(s('height') ?? 1080), fps: Number(s('fps') ?? 60) }, s('work')!)
+      emit({ type: 'encoder', profile: r.profile, rung: r.rung, tried: r.tried })
+      return r.rung ? 0 : 3
+    } catch (err) {
+      emit({ type: 'failed', error: String((err as Error)?.message ?? err).slice(0, 500), cancelled: false })
+      return 1
+    }
+  }
   const t = await token()
   if (!t) { emit({ type: 'failed', error: 'no token', cancelled: false }); return 1 }
   const stop = new AbortController()
