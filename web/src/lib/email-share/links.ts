@@ -11,9 +11,11 @@
  * their thread, a teammate the thread when a share from it sits in a chat
  * they can read, and anyone else only that it is shared in chat.
  *
- * The token is kept out of analytics and error reports like a join link's
- * (src/lib/privacy/join-token-redaction.ts), and the link never gets a
- * preview (src/lib/team-chat/link-preview.ts firstLink skips it).
+ * The token grants nothing on its own, and it is scrubbed from analytics and
+ * error-report events like a join link's (src/lib/privacy/
+ * join-token-redaction.ts, as deep as that scrub walks); its page sends no
+ * pageview and the link never gets a preview (src/lib/team-chat/
+ * link-preview.ts firstLink skips it).
  */
 
 /** A link's page: `/mail/s/<token>`. */
@@ -66,4 +68,27 @@ export function isEmailShareLinkUrl(url: string): boolean {
 /** A share link's own page, for the analytics and error-report fences. */
 export function isEmailShareLinkPage(pathname: string): boolean {
   return pathname.startsWith(EMAIL_SHARE_LINK_PREFIX)
+}
+
+/**
+ * Why one of the AUTHOR's own links didn't become a share (anyone else's
+ * links are not theirs to hear about): the link was revoked, their mailbox
+ * no longer reads here, this isn't a channel or DM (or is another
+ * workspace's), or the write failed. No mail in it, no token.
+ */
+export type UnboundReason = 'revoked' | 'mailbox' | 'place' | 'failed'
+
+/** How the composer says it: "Couldn't share the email: <this>". */
+export const EMAIL_SHARE_UNBOUND_TEXT: Readonly<Record<UnboundReason, string>> = {
+  revoked: 'that link was revoked',
+  mailbox: 'your mailbox isn’t connected',
+  place: 'emails are shared only in channels and direct messages',
+  failed: 'something went wrong, try again',
+}
+
+/** The composer's toast for a post whose own links didn't all bind, or null. */
+export function emailShareUnboundToast(reasons: unknown): string | null {
+  if (!Array.isArray(reasons)) return null
+  const first = reasons.find((r): r is UnboundReason => typeof r === 'string' && r in EMAIL_SHARE_UNBOUND_TEXT)
+  return first ? `Couldn’t share the email: ${EMAIL_SHARE_UNBOUND_TEXT[first]}` : null
 }

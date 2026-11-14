@@ -63,23 +63,25 @@ beforeEach(() => {
       { id: LINK, token: TOKEN, workspace_id: WS, owner_user_id: AVERY, account_id: ACCOUNT, provider: 'google', provider_thread_id: 'thr-1', thread_index_id: null, message_ids: ['m1', 'm2'], revoked_at: null },
     ],
   }
-  h.db = memoryDb(tables)
+  h.db = memoryDb(tables, {
+    team_chat_message: (a, b) => !!a.client_id && a.client_id === b.client_id && a.author_member_id === b.author_member_id,
+  })
   h.afters = []
   h.events = []
 })
 
-async function send(as: { user: string; member: string }, body: string) {
+async function send(as: { user: string; member: string }, body: string, clientId?: string) {
   h.as = as
   const res = await postMessage(
     new NextRequest(new URL(`/api/account/team-chat/channels/${CH}/messages`, 'http://localhost'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ body }),
+      body: JSON.stringify({ body, ...(clientId ? { clientId } : {}) }),
     }),
     { params: Promise.resolve({ id: CH }) },
   )
   for (const task of h.afters.splice(0)) await task()
-  return { status: res.status, json: (await res.json()) as { message: { id: string; email_share_id?: string | null } } }
+  return { status: res.status, json: (await res.json()) as { message: { id: string; email_share_id?: string | null }; email_share_unbound?: string[]; replayed?: boolean } }
 }
 
 describe('posting an email share link', () => {
@@ -98,5 +100,48 @@ describe('posting an email share link', () => {
     const { json } = await send({ user: BLAKE, member: M_BLAKE }, `https://app.northwind.example/mail/s/${TOKEN}`)
     expect(tables.email_share).toHaveLength(0)
     expect(json.message.email_share_id ?? null).toBeNull()
+  })
+
+  it('a revoked link of theirs: plain text, and the answer says why (no mail, no token)', async () => {
+    tables.email_share_link[0].revoked_at = '2026-11-14T09:00:00Z'
+    const { json } = await send({ user: AVERY, member: M_AVERY }, `https://app.northwind.example/mail/s/${TOKEN}`)
+    expect(tables.email_share).toHaveLength(0)
+    expect(json.email_share_unbound).toEqual(['revoked'])
+  })
+
+  it('a retried send of a message edited since never binds the link the edit added', async () => {
+    const SEND = '99999999-9999-4999-8999-999999999999'
+    // The first try went through as plain words, then the author edited a link in.
+    tables.team_chat_message.push({
+      id: '88888888-8888-4888-8888-888888888888',
+      channel_id: CH,
+      workspace_id: WS,
+      author_kind: 'member',
+      author_member_id: M_AVERY,
+      client_id: SEND,
+      body: `edited: https://app.northwind.example/mail/s/${TOKEN}`,
+      mentions: [],
+      mentions_agent: false,
+      record_mentions: [],
+      attachments: [],
+      thread_root_id: null,
+      created_at: '2026-11-14T10:00:00Z',
+      edited_at: '2026-11-14T10:01:00Z',
+      deleted_at: null,
+      email_share_id: null,
+    })
+    const { json } = await send({ user: AVERY, member: M_AVERY }, 'plain words', SEND)
+    expect(json.replayed).toBe(true)
+    expect(tables.email_share).toHaveLength(0)
+    expect(json.message.email_share_id ?? null).toBeNull()
+  })
+
+  it('a retried send of an unedited message reuses the share the first try made', async () => {
+    const SEND = '99999999-9999-4999-8999-999999999998'
+    const first = await send({ user: AVERY, member: M_AVERY }, `https://app.northwind.example/mail/s/${TOKEN}`, SEND)
+    const again = await send({ user: AVERY, member: M_AVERY }, `https://app.northwind.example/mail/s/${TOKEN}`, SEND)
+    expect(again.json.replayed).toBe(true)
+    expect(tables.email_share).toHaveLength(1)
+    expect(again.json.message.email_share_id).toBe(first.json.message.email_share_id)
   })
 })

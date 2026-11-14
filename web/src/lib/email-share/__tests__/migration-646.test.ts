@@ -88,7 +88,9 @@ describe('migration 646', () => {
 
   it('has every column the service reads and writes, and team chat reads the message’s share', () => {
     const read = /const SHARE_COLUMNS =\s*'([^']+)'/.exec(SERVICE)![1].split(',').map((c) => c.trim())
-    for (const c of [...read, 'shared_by_member_id']) expect(TABLE, c).toMatch(new RegExp(`[( ,]${c} `))
+    // link_id is added by an alter (re-runnable over the first version); the rest are in the table.
+    expect(BODY).toContain('alter table public.email_share add column if not exists link_id uuid')
+    for (const c of [...read, 'shared_by_member_id'].filter((c) => c !== 'link_id')) expect(TABLE, c).toMatch(new RegExp(`[( ,]${c} `))
     expect(TEAM_CHAT_MESSAGE_COLUMNS.split(',').map((c) => c.trim())).toContain('email_share_id')
   })
 

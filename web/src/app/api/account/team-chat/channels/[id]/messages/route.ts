@@ -208,9 +208,12 @@ export async function POST(request: NextRequest, { params }: Params) {
     // either is dropped. They read what was stored, never this request's body.
     // Share links in the words (migration 646): the author's OWN links become
     // shares here, the message carrying the first one (its card draws, live);
-    // anyone else's stay plain text. Only on post, never on an edit. Safe on a
-    // replay (a share made for this message and link is reused).
-    if (emailShareLinkTokens(message.body).length > 0) {
+    // anyone else's stay plain text. Only on post, never on an edit: a replay
+    // of a message edited since is not bound (its words are the edit's), any
+    // other replay reuses what the first try made. The answer says why any of
+    // the author's own links made no share (`email_share_unbound`).
+    let emailShareUnbound: string[] = []
+    if (emailShareLinkTokens(message.body).length > 0 && !(replayed && message.edited_at)) {
       const bound = await bindEmailShareLinks(defaultBindDeps(), {
         workspaceId: auth.workspaceId,
         authorUserId: auth.user.id,
@@ -219,7 +222,9 @@ export async function POST(request: NextRequest, { params }: Params) {
         message,
       })
       if (bound.emailShareId) message.email_share_id = bound.emailShareId
+      emailShareUnbound = bound.unbound
     }
+    const unboundField = emailShareUnbound.length > 0 ? { email_share_unbound: emailShareUnbound } : {}
     const stored = message.record_mentions ?? []
     if (stored.length > 0) {
       await syncMessageMentions(auth.supabase, { ...scope, messageId: message.id, memberId: auth.member.id, records: stored })
@@ -260,8 +265,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       await requestTeamChatNotify(message.id)
       await requestChatMessageLoops(auth.workspaceId, message)
     })
-    if (replayed) return NextResponse.json({ message, shared, shared_with, replayed: true })
-    return NextResponse.json({ message, shared, shared_with }, { status: 201 })
+    if (replayed) return NextResponse.json({ message, shared, shared_with, ...unboundField, replayed: true })
+    return NextResponse.json({ message, shared, shared_with, ...unboundField }, { status: 201 })
   } catch (err) {
     return teamChatErrorResponse(err, 'message post')
   }

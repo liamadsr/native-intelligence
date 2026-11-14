@@ -123,7 +123,7 @@ describe('the share routes', () => {
   it('every share route checks the caller (Bearer refused) before it reaches the share layer', () => {
     const root = join(process.cwd(), 'src/app/api/account/email/shares')
     const routes = walk(root).filter((f) => f.endsWith('route.ts'))
-    expect(routes.length).toBe(6)
+    expect(routes.length).toBe(7)
     for (const file of routes) {
       const src = readFileSync(file, 'utf8')
       const handlers = [...src.matchAll(/export async function (GET|POST|DELETE|PATCH|PUT)\b/g)]
@@ -135,7 +135,7 @@ describe('the share routes', () => {
         const page = body.indexOf('refuseBearer(request)') > -1 && body.indexOf('await requireUser()') > body.indexOf('refuseBearer(request)') ? body.indexOf('await requireUser()') : -1
         const check = caller > -1 ? caller : page
         const reach = body.search(
-          /createEmailShare|readShareCard|readSharedThread|readSharedAttachment|revokeEmailShare|listThreadShares|listShareTargets|listMessageShares|createShareLink|revokeShareLink|resolveShareLink|defaultEmailShareDeps/,
+          /createEmailShare|readShareCard|readSharedThread|readSharedAttachment|revokeEmailShare|listThreadShares|listShareTargets|listMessageShares|createShareLink|revokeShareLink|resolveShareLink|readLinkAttachment|defaultEmailShareDeps/,
         )
         expect(check, `${file} ${h[1]}`).toBeGreaterThan(-1)
         expect(reach, `${file} ${h[1]}`).toBeGreaterThan(check)

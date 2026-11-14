@@ -97,6 +97,8 @@ import { mentionOpens, openMention } from '@/lib/entity-links/open-mention'
 import { EntityContextMenu } from '@/components/entities/entity-actions-menu'
 import { EmailShareCards } from '@/components/email/email-share-card'
 import { isDefaultShareBody } from '@/lib/email-share/types'
+import { emailShareUnboundToast } from '@/lib/email-share/links'
+import { toast } from 'sonner'
 import { makeTaskFromEntity, messageTaskLabel } from '@/lib/entities/actions'
 import { MENTION_PICKER_KINDS, menuRowMention, type MenuSearchRow } from '@/lib/search/menu-search'
 import { parseSharedRecords, toastSharedRecords } from '@/lib/entity-access/share-toast'
@@ -942,6 +944,9 @@ export function TeamChatView({
         // A record the channel couldn't all see, now shared with it: say so, with Undo.
         const { shared, sharedWith } = parseSharedRecords(json)
         toastSharedRecords(shared, sharedWith)
+        // One of their own email share links didn't become a share here: say why (no mail in it).
+        const unbound = emailShareUnboundToast((json as { email_share_unbound?: unknown }).email_share_unbound)
+        if (unbound) toast.error(unbound)
       } catch {
         const fail = (list: Shown[] | undefined) => failPending(list, draft.clientId)
         if (draft.threadRootId) {

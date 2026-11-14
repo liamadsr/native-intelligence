@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Loader2, Mail } from 'lucide-react'
-import { EMAIL_SHARE_LINK_OUTSIDE } from '@/lib/email-share/links'
+import { EMAIL_SHARE_LINK_OUTSIDE, emailShareLinkPath } from '@/lib/email-share/links'
 import { EMAIL_SHARE_UNAVAILABLE_TEXT, type EmailShareThreadView } from '@/lib/email-share/types'
 import { BusyLine, EmailShareMessages } from './email-share-card'
 
@@ -67,7 +67,12 @@ export function EmailShareLinkView({ token }: { token: string | null }) {
       ) : state.kind === 'outside' ? (
         <div className="rounded-lg border p-6 text-center" data-email-share-link-outside="">
           <p className="text-sm font-medium">{EMAIL_SHARE_LINK_OUTSIDE}</p>
-          <a href="/account" className="mt-3 inline-block text-sm text-muted-foreground underline">
+          {/* Back to this email once signed in (a member who isn't signed in yet, or in another account). */}
+          <a
+            href={token ? `/login?redirect=${encodeURIComponent(emailShareLinkPath(token))}` : '/login'}
+            className="mt-3 inline-block text-sm text-muted-foreground underline"
+            data-email-share-link-login=""
+          >
             Go to the app
           </a>
         </div>
@@ -88,10 +93,11 @@ export function EmailShareLinkView({ token }: { token: string | null }) {
               thread={thread}
               images={state.kind === 'owner' || state.kind === 'shared' ? state.images : false}
               onLoadImages={() => void read(true)}
+              // Through the link's own route, with the page's checks, in the link's workspace (whatever one is active).
               attachmentHref={
-                state.kind === 'shared' && thread.id
+                token
                   ? (messageId, key) =>
-                      `/api/account/email/shares/${encodeURIComponent(thread.id!)}/attachment?message=${encodeURIComponent(messageId)}&key=${encodeURIComponent(key)}`
+                      `/api/account/email/shares/links/${encodeURIComponent(token)}/attachment?message=${encodeURIComponent(messageId)}&part=${encodeURIComponent(key)}`
                   : undefined
               }
             />

@@ -5,12 +5,11 @@
  * request; its page sends no pageview. Made-up hosts.
  */
 import { describe, expect, it } from 'vitest'
-import {
-  isEmailShareLinkPage,
-  redactJoinTokens,
-  scrubPostHogEvent,
-  scrubSentryEvent,
-} from '@/lib/privacy/join-token-redaction'
+import { redactJoinTokens, scrubPostHogEvent, scrubSentryEvent } from '@/lib/privacy/join-token-redaction'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { isEmailShareLinkPage } from '../links'
+import { resolvePostAuthRedirect } from '@/lib/auth/login-redirect'
 
 const T = 'TokenOne_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 
@@ -42,5 +41,20 @@ describe('email share link tokens', () => {
   it('its page sends no pageview', () => {
     expect(isEmailShareLinkPage(`/mail/s/${T}`)).toBe(true)
     expect(isEmailShareLinkPage('/account')).toBe(false)
+  })
+})
+
+describe('the link page', () => {
+  it('is served noindex and no-referrer, never cached (next.config headers)', () => {
+    const config = readFileSync(join(process.cwd(), 'next.config.mjs'), 'utf8')
+    const rule = config.slice(config.indexOf("source: '/mail/s/:path*'"), config.indexOf("source: '/mail/s/:path*'") + 400)
+    expect(rule).toContain("{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }")
+    expect(rule).toContain("{ key: 'Referrer-Policy', value: 'no-referrer' }")
+    expect(rule).toContain("{ key: 'Cache-Control', value: 'private, no-store' }")
+  })
+
+  it('sign-in comes back to it', () => {
+    expect(resolvePostAuthRedirect(`/mail/s/${T}`, 'https://app.northwind.example')).toBe(`/mail/s/${T}`)
+    expect(resolvePostAuthRedirect('/mail/s//evil.example', 'https://app.northwind.example')).toBe('/account')
   })
 })

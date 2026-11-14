@@ -239,16 +239,22 @@ describe('the link’s page', () => {
     return $('[data-email-share-link-page]')!
   }
 
-  it('the owner sees their thread', async () => {
-    const el = await page(respond(200, { state: 'owner', revoked: false, thread: { subject: 'Northwind renewal terms', messages: [msg], missing: 0, blockedImages: 0 } }))
+  const withFile = { ...msg, attachments: [{ key: '2', name: 'terms.pdf', size: 1200, mimeType: 'application/pdf' }] }
+  const fileHref = `/api/account/email/shares/links/${TOKEN}/attachment?message=m-1&part=2`
+
+  it('the owner sees their thread, its files downloading through the link', async () => {
+    const el = await page(respond(200, { state: 'owner', revoked: false, thread: { subject: 'Northwind renewal terms', messages: [withFile], missing: 0, blockedImages: 0 } }))
     expect(el.getAttribute('data-email-share-link-page')).toBe('owner')
+    expect($<HTMLAnchorElement>('[data-email-attachment-link]')!.getAttribute('href')).toBe(fileHref)
     expect(el.textContent).toContain('Our counter is 12% off list.')
     expect(el.className).toContain('ph-no-capture')
   })
 
   it('a teammate who can read a chat it is in sees it read-only', async () => {
-    const el = await page(respond(200, { state: 'shared', thread: { id: SHARE, mine: false, subject: 'Northwind renewal terms', messages: [msg], missing: 0, blockedImages: 0 } }))
+    const el = await page(respond(200, { state: 'shared', thread: { id: SHARE, mine: false, subject: 'Northwind renewal terms', messages: [withFile], missing: 0, blockedImages: 0 } }))
     expect(el.getAttribute('data-email-share-link-page')).toBe('shared')
+    // Through the link's route (the link's workspace), never the share route (the active one).
+    expect($<HTMLAnchorElement>('[data-email-attachment-link]')!.getAttribute('href')).toBe(fileHref)
     expect(el.textContent).toContain('Shared from a teammate’s mailbox, read-only.')
   })
 
@@ -256,6 +262,8 @@ describe('the link’s page', () => {
     let el = await page(respond(200, { state: 'outside' }))
     expect(el.textContent).toContain('This email is shared in chat. Ask the person who shared it.')
     expect(el.textContent).not.toContain('Northwind')
+    // The way back to this email once signed in.
+    expect($<HTMLAnchorElement>('[data-email-share-link-login]')!.getAttribute('href')).toBe(`/login?redirect=${encodeURIComponent(`/mail/s/${TOKEN}`)}`)
     await act(async () => root.unmount())
     root = createRoot(container)
     calls = []

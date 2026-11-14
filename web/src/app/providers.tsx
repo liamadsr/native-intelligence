@@ -6,7 +6,8 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect } from 'react'
 import { isDesktopApp } from '@/lib/platform'
 import { PublicSky } from '@/components/sky/public-sky'
-import { isEmailShareLinkPage, isJoinLinkPage, scrubPostHogEvent } from '@/lib/privacy/join-token-redaction'
+import { isJoinLinkPage, scrubPostHogEvent } from '@/lib/privacy/join-token-redaction'
+import { isEmailShareLinkPage } from '@/lib/email-share/links'
 
 /**
  * Desktop-only escape hatch for a debugging session, read from localStorage —

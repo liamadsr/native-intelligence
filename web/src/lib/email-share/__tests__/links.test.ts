@@ -15,13 +15,15 @@ import {
   listMessageShares,
   listThreadShares,
   newShareLinkToken,
+  readLinkAttachment,
+  readSharedThread,
   resolveShareLink,
   revokeShareLink,
   type EmailShareDeps,
   type ShareCaller,
 } from '../service'
 import { bindEmailShareLinks, type BindDeps } from '../bind'
-import { emailShareLinkTokens, isEmailShareLinkUrl } from '../links'
+import { emailShareLinkTokens, emailShareUnboundToast, isEmailShareLinkUrl } from '../links'
 import { firstLink } from '@/lib/team-chat/link-preview'
 import type { EmailShareMessage } from '../types'
 
@@ -108,7 +110,9 @@ beforeEach(() => {
       threadIds: vi.fn(async () => [...threadNow]),
       message: vi.fn(async (_m, id: string) => (['m1', 'm2', 'm3'].includes(id) ? message(id) : null)),
       summary: vi.fn(async () => null),
-      attachment: vi.fn(async () => null),
+      attachment: vi.fn(async (_m, id: string, _t: string, key: string) =>
+        id === 'm1' && key === '2' ? { name: 'terms.pdf', mimeType: 'application/pdf', size: 3, body: new Uint8Array([1, 2, 3]) } : null,
+      ),
     },
   }
   bindDeps = { svc, mailboxReadable: vi.fn(async (o: string, a: string, w: string) => mailboxUp && o === OWNER && a === ACCOUNT && w === WS) }
@@ -195,7 +199,7 @@ describe('pasting it in a chat', () => {
   it('by anyone else: nothing, the link stays plain text', async () => {
     const link = await copy()
     const { msg, bound } = await post(SALES, `found this ${link.url}`, { userId: READER, memberId: M_READER })
-    expect(bound).toEqual({ shareIds: [], emailShareId: null })
+    expect(bound).toEqual({ shareIds: [], emailShareId: null, unbound: [] })
     expect(tables.email_share).toHaveLength(0)
     expect(msg.email_share_id).toBeNull()
   })
@@ -287,5 +291,103 @@ describe('opening it directly', () => {
     await revokeShareLink(deps, owner(), link.linkId)
     expect(await resolveShareLink(deps, { supabase: reader().supabase, userId: READER }, link.token)).toEqual({ state: 'outside' })
     expect(await resolveShareLink(deps, { supabase: owner().supabase, userId: OWNER }, link.token)).toMatchObject({ state: 'owner', revoked: true })
+  })
+})
+
+/** The same database, but writes to `table` fail (a revoke that stops half way). */
+function failingUpdates(db: SupabaseClient, table: string): SupabaseClient {
+  return {
+    from: (t: string) => {
+      const chain = db.from(t) as unknown as Record<string, unknown>
+      if (t !== table) return chain
+      const failed = { data: null, error: { message: 'connection reset' } }
+      const tail: Record<string, unknown> = { eq: () => tail, is: () => tail, select: () => tail, then: (ok: (v: unknown) => unknown) => Promise.resolve(failed).then(ok) }
+      return { ...chain, update: () => tail }
+    },
+  } as unknown as SupabaseClient
+}
+
+describe('revoking a link, whatever the order', () => {
+  it('a paste racing the revoke (the link revoked between its lookup and its insert) ends what it made', async () => {
+    const link = await copy()
+    vi.mocked(bindDeps.mailboxReadable).mockImplementationOnce(async () => {
+      await revokeShareLink(deps, owner(), link.linkId)
+      return true
+    })
+    const { msg, bound } = await post(SALES, link.url)
+    expect(bound).toMatchObject({ shareIds: [], emailShareId: null, unbound: ['revoked'] })
+    expect(msg.email_share_id).toBeNull()
+    expect(tables.email_share).toHaveLength(1)
+    expect(tables.email_share[0].revoked_at).toBeTruthy()
+  })
+
+  it('a share whose link is revoked reads as revoked on every path, even if its own row was never marked', async () => {
+    const link = await copy()
+    const { msg } = await post(SALES, link.url)
+    const shareId = msg.email_share_id!
+    tables.email_share_link[0].revoked_at = new Date().toISOString()
+    expect(tables.email_share[0].revoked_at).toBeUndefined()
+    expect(await readSharedThread(deps, reader(), shareId)).toMatchObject({ ok: false, status: 410, code: 'revoked' })
+    expect(await resolveShareLink(deps, { supabase: reader().supabase, userId: READER }, link.token)).toEqual({ state: 'outside' })
+    expect(await listThreadShares(deps, owner(), { indexId: INDEX })).toEqual([])
+  })
+
+  it('a revoke that fails half way ends the shares first: the link’s chip stays to try again', async () => {
+    const link = await copy()
+    const { msg } = await post(SALES, link.url)
+    const broken = { ...deps, svc: failingUpdates(deps.svc, 'email_share_link') }
+    expect(await revokeShareLink(broken, owner(), link.linkId)).toMatchObject({ ok: false, status: 500 })
+    expect(tables.email_share[0].revoked_at).toBeTruthy()
+    expect(await readSharedThread(deps, reader(), msg.email_share_id!)).toMatchObject({ ok: false, code: 'revoked' })
+    expect((await listThreadShares(deps, owner(), { indexId: INDEX })).map((c) => c.kind)).toEqual(['link'])
+    expect(await revokeShareLink(deps, owner(), link.linkId)).toMatchObject({ ok: true })
+    expect(await listThreadShares(deps, owner(), { indexId: INDEX })).toEqual([])
+  })
+
+  it('a revoke whose share write fails changes nothing: the link stays, and says so', async () => {
+    const link = await copy()
+    await post(SALES, link.url)
+    const broken = { ...deps, svc: failingUpdates(deps.svc, 'email_share') }
+    expect(await revokeShareLink(broken, owner(), link.linkId)).toMatchObject({ ok: false, status: 500 })
+    expect(tables.email_share_link[0].revoked_at).toBeUndefined()
+  })
+})
+
+describe('telling the author why a link of theirs made no share', () => {
+  it('revoked, mailbox, place; never about someone else’s link', async () => {
+    const link = await copy()
+    expect((await post(MEETING, link.url)).bound.unbound).toEqual(['place'])
+    mailboxUp = false
+    expect((await post(SALES, link.url)).bound.unbound).toEqual(['mailbox'])
+    mailboxUp = true
+    expect((await post(SALES, link.url, { userId: READER, memberId: M_READER })).bound.unbound).toEqual([])
+    await revokeShareLink(deps, owner(), link.linkId)
+    expect((await post(SALES, link.url)).bound.unbound).toEqual(['revoked'])
+    expect(emailShareUnboundToast(['revoked'])).toBe('Couldn’t share the email: that link was revoked')
+    expect(emailShareUnboundToast(['mailbox'])).toBe('Couldn’t share the email: your mailbox isn’t connected')
+    expect(emailShareUnboundToast([])).toBeNull()
+    expect(emailShareUnboundToast(['<script>'])).toBeNull()
+  })
+})
+
+describe('the link page’s attachments', () => {
+  it('the owner downloads from their mailbox, only a frozen message’s listed file', async () => {
+    const link = await copy()
+    const viewer = { supabase: owner().supabase, userId: OWNER }
+    expect(await readLinkAttachment(deps, viewer, link.token, 'm1', '2')).toMatchObject({ name: 'terms.pdf' })
+    expect(await readLinkAttachment(deps, viewer, link.token, 'm1', '9')).toMatchObject({ ok: false, status: 404 })
+    expect(await readLinkAttachment(deps, viewer, link.token, 'm3', '2')).toMatchObject({ ok: false, status: 404 })
+  })
+
+  it('a teammate downloads through the chat it was shared in, by the LINK’s workspace (another one active makes no difference)', async () => {
+    const link = await copy()
+    await post(SALES, link.url)
+    // The viewer carries no workspace: their session may have another one active.
+    const viewer = { supabase: reader().supabase, userId: READER }
+    expect(await readLinkAttachment(deps, viewer, link.token, 'm1', '2')).toMatchObject({ name: 'terms.pdf' })
+    expect(await readLinkAttachment(deps, { supabase: caller(OUTSIDER, M_OUTSIDER).supabase, userId: OUTSIDER }, link.token, 'm1', '2')).toMatchObject({ ok: false, status: 404 })
+    expect(await readLinkAttachment(deps, { supabase: caller(STRANGER, 'x', OTHER_WS).supabase, userId: STRANGER }, link.token, 'm1', '2')).toMatchObject({ ok: false, status: 404 })
+    await revokeShareLink(deps, owner(), link.linkId)
+    expect(await readLinkAttachment(deps, viewer, link.token, 'm1', '2')).toMatchObject({ ok: false, status: 404 })
   })
 })

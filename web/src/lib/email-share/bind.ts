@@ -22,7 +22,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getServiceClient } from '@/lib/admin'
 import { ownedMailbox } from '@/lib/email/thread-mailbox'
 import { readableWorkspaceEmailAccounts } from '@/lib/email/account-scope'
-import { emailShareLinkTokens } from './links'
+import { emailShareLinkTokens, type UnboundReason } from './links'
 
 export interface BindDeps {
   svc: SupabaseClient
@@ -62,19 +62,25 @@ export interface BindInput {
   message: { id: string; body: string; email_share_id?: string | null }
 }
 
+export interface BindResult {
+  shareIds: string[]
+  emailShareId: string | null
+  /** Why any of the author's own links made no share (./links.ts UnboundReason). */
+  unbound: UnboundReason[]
+}
+
 /**
  * Turn the author's own share links in a new message into shares there.
- * Returns the shares made (or found, on a retry), in the words' order, and
- * the share the message now carries. Never throws: a link that can't bind
- * stays plain text (logged by ids).
+ * Returns the shares made (or found, on a retry), in the words' order, the
+ * share the message now carries, and why any of the author's own links made
+ * none. Never throws: a link that can't bind stays plain text (logged by ids).
  */
-export async function bindEmailShareLinks(deps: BindDeps, input: BindInput): Promise<{ shareIds: string[]; emailShareId: string | null }> {
+export async function bindEmailShareLinks(deps: BindDeps, input: BindInput): Promise<BindResult> {
   const current = input.message.email_share_id ?? null
   const tokens = emailShareLinkTokens(input.message.body)
-  if (tokens.length === 0) return { shareIds: [], emailShareId: current }
-  if (input.channel.workspace_id !== input.workspaceId || (input.channel.kind !== 'channel' && input.channel.kind !== 'dm')) {
-    return { shareIds: [], emailShareId: current }
-  }
+  const unbound: UnboundReason[] = []
+  if (tokens.length === 0) return { shareIds: [], emailShareId: current, unbound }
+  const placeOk = input.channel.workspace_id === input.workspaceId && (input.channel.kind === 'channel' || input.channel.kind === 'dm')
   const shareIds: string[] = []
   for (const token of tokens) {
     try {
@@ -83,7 +89,20 @@ export async function bindEmailShareLinks(deps: BindDeps, input: BindInput): Pro
         .select('id, workspace_id, owner_user_id, account_id, provider, provider_thread_id, thread_index_id, message_ids, revoked_at')
         .eq('token', token)
         .maybeSingle<LinkRow>()
-      if (!link || link.revoked_at || link.workspace_id !== input.workspaceId || link.owner_user_id !== input.authorUserId || !link.account_id) continue
+      // Someone else's link (or none): plain text, nothing said.
+      if (!link || link.owner_user_id !== input.authorUserId) continue
+      if (!placeOk || link.workspace_id !== input.workspaceId) {
+        unbound.push('place')
+        continue
+      }
+      if (link.revoked_at) {
+        unbound.push('revoked')
+        continue
+      }
+      if (!link.account_id) {
+        unbound.push('mailbox')
+        continue
+      }
       const { data: made } = await deps.svc
         .from('email_share')
         .select('id')
@@ -94,7 +113,10 @@ export async function bindEmailShareLinks(deps: BindDeps, input: BindInput): Pro
         shareIds.push(made.id)
         continue
       }
-      if (!(await deps.mailboxReadable(link.owner_user_id, link.account_id, link.workspace_id))) continue
+      if (!(await deps.mailboxReadable(link.owner_user_id, link.account_id, link.workspace_id))) {
+        unbound.push('mailbox')
+        continue
+      }
       const { data: share, error } = await deps.svc
         .from('email_share')
         .insert({
@@ -112,10 +134,21 @@ export async function bindEmailShareLinks(deps: BindDeps, input: BindInput): Pro
         })
         .select('id')
         .single<{ id: string }>()
-      if (error || !share) continue
+      if (error || !share) {
+        unbound.push('failed')
+        continue
+      }
+      // Revoked while this paste was being made? Then what it made ends at once (reads check the link too).
+      const { data: now } = await deps.svc.from('email_share_link').select('revoked_at').eq('id', link.id).maybeSingle<{ revoked_at: string | null }>()
+      if (!now || now.revoked_at) {
+        await deps.svc.from('email_share').update({ revoked_at: new Date().toISOString() }).eq('id', share.id).is('revoked_at', null)
+        unbound.push('revoked')
+        continue
+      }
       shareIds.push(share.id)
       console.info(`[email-share] link=${link.id} bound share=${share.id} message=${input.message.id}`)
     } catch (err) {
+      unbound.push('failed')
       console.warn(`[email-share] link bind on message=${input.message.id} failed:`, err instanceof Error ? err.name : 'unknown')
     }
   }
@@ -125,5 +158,5 @@ export async function bindEmailShareLinks(deps: BindDeps, input: BindInput): Pro
     const { error } = await deps.svc.from('team_chat_message').update({ email_share_id: shareIds[0] }).eq('id', input.message.id).is('email_share_id', null)
     if (!error) emailShareId = shareIds[0]
   }
-  return { shareIds, emailShareId }
+  return { shareIds, emailShareId, unbound }
 }

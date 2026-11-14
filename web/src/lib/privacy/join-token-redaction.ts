@@ -12,7 +12,8 @@
  *
  * An email share link (/mail/s/<token>, migration 646) is blanked the same
  * way: it grants nothing on its own, but it names someone's mail thread, so
- * its token never reaches analytics or error reports either.
+ * its token is scrubbed from these events too (to the walk's depth,
+ * MAX_DEPTH; its page sends no pageview at all).
  */
 
 const REDACTED = 'redacted'
@@ -77,11 +78,6 @@ export function scrubPostHogEvent<T extends { properties?: unknown; $set?: unkno
 /** Sentry `beforeSend` / `beforeSendTransaction` / `beforeBreadcrumb`: the same, for its event shapes. */
 export function scrubSentryEvent<T>(event: T): T {
   return scrubJoinTokens(event)
-}
-
-/** An email share link's own page (/mail/s/<token>): no pageview at all. */
-export function isEmailShareLinkPage(pathname: string): boolean {
-  return pathname.startsWith('/mail/s/')
 }
 
 /** A join link's own page (/join/<token>), not the join-by-domain page (/join/team). */

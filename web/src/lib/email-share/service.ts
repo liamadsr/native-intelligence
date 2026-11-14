@@ -115,9 +115,11 @@ interface ShareRow {
   team_chat_message_id: string | null
   created_at: string
   revoked_at: string | null
+  /** The link it was pasted from (null: the picker): a revoked link ends it too. */
+  link_id?: string | null
 }
 const SHARE_COLUMNS =
-  'id, workspace_id, owner_user_id, account_id, provider, provider_thread_id, thread_index_id, message_ids, channel_id, team_chat_message_id, created_at, revoked_at'
+  'id, workspace_id, owner_user_id, account_id, provider, provider_thread_id, thread_index_id, message_ids, channel_id, team_chat_message_id, created_at, revoked_at, link_id'
 
 interface ChannelRow {
   id: string
@@ -321,6 +323,9 @@ export async function shareAccess(deps: EmailShareDeps, caller: ShareCaller, sha
   if (error || canRead !== true) return NOT_FOUND
   const mine = share.owner_user_id === caller.userId
   if (share.revoked_at) return { kind: 'revoked', share, mine }
+  // A share pasted from a link the owner has since revoked is revoked too, whatever its own row says
+  // (a revoke that stopped half way, or a paste that raced it).
+  if (share.link_id && (await linkRevoked(deps, share.link_id))) return { kind: 'revoked', share, mine }
   const { data: owner } = await deps.svc
     .from('member')
     .select('id')
@@ -331,6 +336,13 @@ export async function shareAccess(deps: EmailShareDeps, caller: ShareCaller, sha
   const mailbox = await deps.mailbox(share.owner_user_id, share.account_id, share.workspace_id)
   if (!mailbox || mailbox.provider !== share.provider) return { kind: 'unavailable', share, mine }
   return { kind: 'live', share, mailbox, mine }
+}
+
+/** True when this link is revoked (or gone): what was pasted from it no longer reads. */
+async function linkRevoked(deps: EmailShareDeps, linkId: string): Promise<boolean> {
+  const { data, error } = await deps.svc.from('email_share_link').select('revoked_at').eq('id', linkId).maybeSingle<{ revoked_at: string | null }>()
+  if (error) throw new Error('email share link read failed')
+  return !data || !!data.revoked_at
 }
 
 /** The card's subject and first line, a few seconds in this process only (never stored). */
@@ -446,14 +458,23 @@ export async function listThreadShares(
   if (!thread || thread === 'not_owner') return []
   const { data } = await deps.svc
     .from('email_share')
-    .select('id, channel_id, created_at')
+    .select('id, channel_id, created_at, link_id')
     .eq('owner_user_id', caller.userId)
     .eq('workspace_id', caller.workspaceId)
     .eq('provider_thread_id', thread.providerThreadId)
     .is('revoked_at', null)
     .order('created_at', { ascending: true })
     .limit(50)
-  const rows = (data ?? []) as Array<{ id: string; channel_id: string; created_at: string }>
+  const all = (data ?? []) as Array<{ id: string; channel_id: string; created_at: string; link_id?: string | null }>
+  // A share from a revoked link has ended, even if its own row wasn't marked.
+  const linkIds = [...new Set(all.map((r) => r.link_id).filter((id): id is string => !!id))]
+  const ended = new Set<string>()
+  if (linkIds.length > 0) {
+    const { data: revoked } = await deps.svc.from('email_share_link').select('id, revoked_at').in('id', linkIds)
+    const live = new Set(((revoked ?? []) as Array<{ id: string; revoked_at: string | null }>).filter((l) => !l.revoked_at).map((l) => l.id))
+    for (const id of linkIds) if (!live.has(id)) ended.add(id)
+  }
+  const rows = all.filter((r) => !r.link_id || !ended.has(r.link_id))
   const { data: linkRows } = await deps.svc
     .from('email_share_link')
     .select('id, created_at')
@@ -620,13 +641,16 @@ export async function revokeShareLink(deps: EmailShareDeps, caller: ShareCaller,
     .maybeSingle<{ id: string; owner_user_id: string; workspace_id: string; revoked_at: string | null }>()
   if (!link || link.workspace_id !== caller.workspaceId || link.owner_user_id !== caller.userId) return NOT_FOUND
   const at = new Date().toISOString()
-  if (!link.revoked_at) {
-    const { error } = await deps.svc.from('email_share_link').update({ revoked_at: at }).eq('id', linkId).is('revoked_at', null)
-    if (error) return fail(500, 'failed', "Couldn't revoke the link")
-  }
+  // The shares first: should the link's own write fail, its chip stays (try again) and nothing it made is live.
   const { data: ended, error } = await deps.svc.from('email_share').update({ revoked_at: at }).eq('link_id', linkId).is('revoked_at', null).select('id')
   if (error) return fail(500, 'failed', "Couldn't revoke the link")
-  return { ok: true, revokedShares: (ended ?? []).length }
+  if (!link.revoked_at) {
+    const { error: linkError } = await deps.svc.from('email_share_link').update({ revoked_at: at }).eq('id', linkId).is('revoked_at', null)
+    if (linkError) return fail(500, 'failed', "Couldn't revoke the link")
+  }
+  // A paste that raced this (made its share after the first write) ends now; reads check the link anyway.
+  const { data: late } = await deps.svc.from('email_share').update({ revoked_at: at }).eq('link_id', linkId).is('revoked_at', null).select('id')
+  return { ok: true, revokedShares: (ended ?? []).length + (late ?? []).length }
 }
 
 /** What a link's page shows the person opening it. */
@@ -645,45 +669,113 @@ export type ShareLinkPage =
  * for anyone but its owner: 'outside', with nothing of the mail and nothing
  * about the link.
  */
+interface LinkRow {
+  id: string
+  workspace_id: string
+  owner_user_id: string
+  account_id: string | null
+  provider: 'google' | 'microsoft'
+  provider_thread_id: string
+  message_ids: string[]
+  revoked_at: string | null
+}
+
+type LinkAccess =
+  | { kind: 'owner'; link: LinkRow; mailbox: ShareMailbox | null }
+  | { kind: 'shared'; caller: ShareCaller; shareIds: string[] }
+  | { kind: 'outside' }
+
+/**
+ * Who is opening a link, by the LINK's workspace (never the one their session
+ * has active): its owner; a member there, with the live shares made from it
+ * (each still checked as they read it, by the share reader); or anyone else.
+ */
+async function linkAccess(deps: EmailShareDeps, viewer: { supabase: SupabaseClient; userId: string }, token: string): Promise<LinkAccess> {
+  if (!isEmailShareLinkToken(token)) return { kind: 'outside' }
+  const { data: link } = await deps.svc
+    .from('email_share_link')
+    .select('id, workspace_id, owner_user_id, account_id, provider, provider_thread_id, message_ids, revoked_at')
+    .eq('token', token)
+    .maybeSingle<LinkRow>()
+  if (!link) return { kind: 'outside' }
+  const { data: member } = await deps.svc.from('member').select('id').eq('workspace_id', link.workspace_id).eq('user_id', viewer.userId).maybeSingle<{ id: string }>()
+  if (!member) return { kind: 'outside' }
+  if (link.owner_user_id === viewer.userId) {
+    const mailbox = link.account_id ? await deps.mailbox(link.owner_user_id, link.account_id, link.workspace_id) : null
+    return { kind: 'owner', link, mailbox: mailbox && mailbox.provider === link.provider ? mailbox : null }
+  }
+  if (link.revoked_at) return { kind: 'outside' }
+  const { data: shares } = await deps.svc
+    .from('email_share')
+    .select('id, created_at')
+    .eq('link_id', link.id)
+    .eq('workspace_id', link.workspace_id)
+    .is('revoked_at', null)
+    .order('created_at', { ascending: true })
+    .limit(50)
+  const shareIds = ((shares ?? []) as Array<{ id: string }>).map((r) => r.id)
+  if (shareIds.length === 0) return { kind: 'outside' }
+  return { kind: 'shared', caller: { supabase: viewer.supabase, userId: viewer.userId, workspaceId: link.workspace_id, memberId: member.id }, shareIds }
+}
+
+/**
+ * The link's page (/mail/s/<token>), for whoever opens it (signed in; their
+ * own RLS client asks team chat's read rule). The owner: their thread's
+ * frozen messages. A member of the link's workspace who may read a chat
+ * where a live share from this link sits: that share, through the share
+ * reader and its checks. Anyone else, an unknown token, or a revoked link
+ * for anyone but its owner: 'outside', with nothing of the mail and nothing
+ * about the link.
+ */
 export async function resolveShareLink(
   deps: EmailShareDeps,
   viewer: { supabase: SupabaseClient; userId: string },
   token: string,
   opts: { images?: boolean } = {},
 ): Promise<ShareLinkPage> {
-  if (!isEmailShareLinkToken(token)) return { state: 'outside' }
-  const { data: link } = await deps.svc
-    .from('email_share_link')
-    .select('id, workspace_id, owner_user_id, account_id, provider, provider_thread_id, message_ids, revoked_at')
-    .eq('token', token)
-    .maybeSingle<{ id: string; workspace_id: string; owner_user_id: string; account_id: string | null; provider: 'google' | 'microsoft'; provider_thread_id: string; message_ids: string[]; revoked_at: string | null }>()
-  if (!link) return { state: 'outside' }
-  const { data: member } = await deps.svc.from('member').select('id').eq('workspace_id', link.workspace_id).eq('user_id', viewer.userId).maybeSingle<{ id: string }>()
-  if (!member) return { state: 'outside' }
-
-  if (link.owner_user_id === viewer.userId) {
-    const mailbox = link.account_id ? await deps.mailbox(link.owner_user_id, link.account_id, link.workspace_id) : null
-    if (!mailbox || mailbox.provider !== link.provider) return { state: 'owner', revoked: !!link.revoked_at, thread: null }
+  const access = await linkAccess(deps, viewer, token)
+  if (access.kind === 'outside') return { state: 'outside' }
+  if (access.kind === 'owner') {
+    const { link, mailbox } = access
+    if (!mailbox) return { state: 'owner', revoked: !!link.revoked_at, thread: null }
     return { state: 'owner', revoked: !!link.revoked_at, thread: await readFrozen(deps, mailbox, link.provider_thread_id, link.message_ids, opts) }
   }
-  if (link.revoked_at) return { state: 'outside' }
-
-  const { data: shares } = await deps.svc
-    .from('email_share')
-    .select('id, channel_id, created_at')
-    .eq('link_id', link.id)
-    .eq('workspace_id', link.workspace_id)
-    .is('revoked_at', null)
-    .order('created_at', { ascending: true })
-    .limit(50)
-  const caller: ShareCaller = { supabase: viewer.supabase, userId: viewer.userId, workspaceId: link.workspace_id, memberId: member.id }
-  for (const share of (shares ?? []) as Array<{ id: string; channel_id: string }>) {
-    const view = await readSharedThread(deps, caller, share.id, opts)
+  for (const shareId of access.shareIds) {
+    const view = await readSharedThread(deps, access.caller, shareId, opts)
     if (!isFailure(view)) return { state: 'shared', thread: view }
     // Not readable by them (404): the next chat it sits in. Readable but gone: say so.
     if (view.status === 410) return { state: 'unavailable' }
   }
   return { state: 'outside' }
+}
+
+/**
+ * One attachment of one of the link's frozen messages, for its page, with the
+ * page's own checks: the owner from their mailbox; a teammate through a share
+ * from this link in a chat they can read (the share reader's attachment
+ * checks); anyone else "not found". The link's workspace decides, never the
+ * one their session has active.
+ */
+export async function readLinkAttachment(
+  deps: EmailShareDeps,
+  viewer: { supabase: SupabaseClient; userId: string },
+  token: string,
+  messageId: string,
+  key: string,
+): Promise<SharedAttachmentFile | ShareFailure> {
+  const access = await linkAccess(deps, viewer, token)
+  if (access.kind === 'outside') return NOT_FOUND
+  if (access.kind === 'owner') {
+    if (!access.mailbox) return UNAVAILABLE
+    if (!access.link.message_ids.includes(messageId) || !key || key.length > 512) return NOT_FOUND
+    const file = await deps.provider.attachment(access.mailbox, messageId, access.link.provider_thread_id, key)
+    return file ?? fail(404, 'not_found', 'That file is no longer available')
+  }
+  for (const shareId of access.shareIds) {
+    const file = await readSharedAttachment(deps, access.caller, shareId, messageId, key)
+    if (!isFailure(file) || file.status !== 404) return file
+  }
+  return NOT_FOUND
 }
 
 function isFailure(value: unknown): value is ShareFailure {
