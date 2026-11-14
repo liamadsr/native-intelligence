@@ -177,7 +177,7 @@ export async function consumeSignupEdition(
   // A cookie that is PRESENT but not a valid edition id is junk, not a missing
   // cookie: something wrote a value we don't recognize. Attribute nothing and
   // clear it so it can't linger. Deliberately NOT defaulted — a junk value is
-  // evidence of a bug, and papering over it with `sales` would hide that.
+  // evidence of a bug, and papering over it with the default would hide that.
   if (cookieValue != null && !isEditionId(cookieValue)) {
     return { stamped: false, edition: null, shouldClear: true }
   }
@@ -195,7 +195,7 @@ export async function consumeSignupEdition(
   //
   // This is also the gate that makes the cookieless default safe. Every
   // returning customer's ping arrives here with no cookie; without this check
-  // the default would try to stamp `sales` onto whatever workspace they happen
+  // the default would try to stamp `full` onto whatever workspace they happen
   // to have selected. `isNewSignup` is false for all of them, so they are
   // refused before the workspace is even read — and with no cookie to clear,
   // `shouldClear` costs nothing either way.

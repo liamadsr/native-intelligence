@@ -27,7 +27,9 @@ function docsSection(): string {
 function comparisonsSection(): string {
   return VS_COMPETITOR_SLUGS.map((slug) => {
     const c = COMPETITORS[slug]
-    return `- [${c.name} alternative for ${c.audience}](${BASE}/vs/${slug}): ${c.metaDescription}`
+    // Name and link only: the pages still address sales teams until they are
+    // rewritten, and this map describes the whole workspace.
+    return `- [${c.name} alternative](${BASE}/vs/${slug})`
   }).join('\n')
 }
 
@@ -60,7 +62,7 @@ Native Intelligence brings a team's everyday tools into one app: email (Gmail an
 - **Mail**: Gmail and Outlook in the workspace, with drafted replies, send later, and tasks from a thread.
 - **Team chat and calls**: Channels, direct messages and calls for the team, with agents taking part.
 - **Docs, tables and files**: Rich-text documents, user tables and files in one drive that agents can read and edit.
-- **CRM**: Companies, contacts, deals and interaction history, filled in from calls. Two-way sync with HubSpot, Attio and Affinity, or use the built-in CRM.
+- **CRM**: Companies, contacts, deals and interaction history, filled in from calls. Two-way sync with HubSpot, or use the built-in CRM; other CRMs such as Attio connect over MCP.
 - **Agents, skills and flows**: Agents with teachable skills, flows that run on triggers or schedules, and evals to test an agent before relying on it. Coding agents start with the full context of a task and open pull requests.
 - **MCP and integrations**: Connect Gmail, Outlook, Google Calendar and Slack, or bring your own AI tools (Claude, ChatGPT, Cursor) to the workspace over MCP.
 

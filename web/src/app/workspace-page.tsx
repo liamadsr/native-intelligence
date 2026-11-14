@@ -36,12 +36,11 @@ import {
   ChatDemo,
   CrmAutologDemo,
   ExecutionDemo,
+  IntelligenceLoopDemo,
   LiveAgentDemo,
 } from '@/components/landing/lazy-demos'
-import { IntelligenceLoopDemo } from '@/components/landing/intelligence-loop-demo'
 import { WorkspaceGrid } from '@/components/landing/workspace-grid'
 import {
-  AffinityIcon,
   AttioIcon,
   GmailIcon,
   GoogleCalendarIcon,
@@ -475,8 +474,7 @@ function IntegrationsSection() {
     { icon: <GoogleCalendarIcon className="h-6 w-6" />, name: 'Google Calendar', body: 'Every meeting linked to its notes and its people.' },
     { icon: <SlackIcon className="h-6 w-6" />, name: 'Slack', body: 'Talk to your agent and get its updates where your team already is.' },
     { icon: <HubSpotIcon className="h-6 w-6" />, name: 'HubSpot', body: 'Keep HubSpot, synced both ways, or use the built-in CRM.' },
-    { icon: <AttioIcon className="h-6 w-6" />, name: 'Attio', body: 'Your Attio records kept current without data entry.' },
-    { icon: <AffinityIcon className="h-6 w-6" />, name: 'Affinity', body: 'Interactions logged and relationships kept fresh.' },
+    { icon: <AttioIcon className="h-6 w-6" />, name: 'Attio', body: 'Connect Attio over MCP so your agents can read and update records.' },
     { icon: <Plug className="h-6 w-6 text-muted-foreground" />, name: 'MCP', body: 'Connect Claude, ChatGPT, Cursor and other AI tools to your workspace.' },
   ]
 
