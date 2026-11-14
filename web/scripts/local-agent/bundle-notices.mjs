@@ -113,7 +113,8 @@ async function agentPackages(repo, agentDir, outFile) {
   writeFileSync(outFile, [...found].sort().join('\n') + '\n')
 }
 
-const LICENSE_FILE = /^(licen[cs]e|notice|copying)(\.|-|$)/i
+// ThirdPartyNotices: what a package that ships its own pre-built bundle (playwright-core) says about the packages inside it.
+const LICENSE_FILE = /^(licen[cs]e|notice|copying|thirdpartynotices)(\.|-|$)/i
 
 /** Every package folder under an installed node_modules, nested ones too (`@scope/name`, `a/node_modules/b`). */
 function installedPackages(nodeModules) {
@@ -158,7 +159,7 @@ function notices(repo, licensesDir, agentPackagesFile) {
     '  downloads from nodejs.org on first use; Node.js is not part of the app)',
     '',
     'These files contain the open-source components below, bundled into the',
-    'agent\'s JavaScript or installed as they are in acp/node_modules. License',
+    'agent\'s JavaScript or installed as they are beside it. License',
     'paths are relative to this folder.',
     '',
   ]
