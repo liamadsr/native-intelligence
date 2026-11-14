@@ -14,7 +14,14 @@ it on its next use as it resumes any paused browser.
                                          the app until it is restarted, so that
                                          none can be resumed in between (Hold)
     ni-sandbox-pause-browsers --release  open the runtime to the app again
-    ni-sandbox-pause-browsers --list     say how many are running; changes nothing
+    ni-sandbox-pause-browsers --list     say how many are running and paused, then
+                                         every browser sandbox: its name (niName),
+                                         namespace, id, state and start time;
+                                         changes nothing
+    ni-sandbox-pause-browsers --remove <sandbox id> [--yes]
+                                         remove one browser sandbox, and every
+                                         sign-in in it, for good (without --yes it
+                                         only says what it would remove)
 
 --hold is for what a restart of the runtime follows: the unit
 ni-sandbox-pause-browsers when it stops (before Docker, at every shutdown and
@@ -233,6 +240,66 @@ table inet ni_sandbox_hold {
         return gone.returncode == 0
 
 
+def all_browsers(api) -> list:
+    """Every browser sandbox the runtime has, running or paused, as dicts with its
+    id, niName, niNs, state and start time, oldest first. Looked at again here, as
+    in running_browsers. Nothing secret in it: no key, no token."""
+    paginator = api.Sandbox.list(query=api.SandboxQuery(metadata={KIND_KEY: KIND}), limit=100, request_timeout=CONNECT_SECONDS)
+    found, pages = {}, 0
+    while paginator.has_next and pages < LISTING_PAGES:
+        pages += 1
+        for info in paginator.next_items():
+            metadata = info.metadata or {}
+            if metadata.get(KIND_KEY) != KIND:
+                continue
+            started = getattr(info, "started_at", None)
+            found[info.sandbox_id] = {
+                "id": info.sandbox_id,
+                "name": metadata.get("niName", "?"),
+                "ns": metadata.get("niNs", "?"),
+                "state": getattr(info.state, "value", info.state),
+                "started": started.strftime("%Y-%m-%d %H:%M:%S %Z").strip() if started else "?",
+                "sort": started.timestamp() if started else 0,
+            }
+    return sorted(found.values(), key=lambda b: (b["name"], b["sort"], b["id"]))
+
+
+def list_lines(browsers) -> list:
+    """What --list prints: how many run, then one line per browser sandbox, its
+    logical name first, so that two sandboxes of one name are side by side."""
+    running = sum(1 for b in browsers if b["state"] == "running")
+    names = {}
+    for b in browsers:
+        names[(b["ns"], b["name"])] = names.get((b["ns"], b["name"]), 0) + 1
+    lines = ["pause-browsers: %d browser(s) running, %d paused" % (running, len(browsers) - running)]
+    for b in browsers:
+        twice = "  (one of %d with this name)" % names[(b["ns"], b["name"])] if names[(b["ns"], b["name"])] > 1 else ""
+        lines.append("  %-40s %-8s %-20s %-8s started %s%s" % (b["name"], b["ns"], b["id"], b["state"], b["started"], twice))
+    return lines
+
+
+def remove(api, sandbox_id: str, yes: bool, say=print) -> int:
+    """Remove one browser sandbox by its id: its VM, its disk and its memory, and so
+    every sign-in its person had in it, for good. Only a sandbox the runtime lists
+    as a browser; without --yes it only says what it would remove."""
+    match = [b for b in all_browsers(api) if b["id"] == sandbox_id]
+    if not match:
+        say("pause-browsers: no browser sandbox has the id %s (coding sandboxes are never removed here)" % sandbox_id)
+        return 1
+    b = match[0]
+    what = "%s (%s, %s, started %s)" % (b["id"], b["name"], b["state"], b["started"])
+    if not yes:
+        say("pause-browsers: would remove %s, and with it every sign-in in that copy of the browser, for good. Again with --yes to do it." % what)
+        return 1
+    try:
+        gone = api.Sandbox.kill(sandbox_id, request_timeout=CONNECT_SECONDS * 3)
+    except Exception as error:
+        say("pause-browsers: %s could not be removed (%s)" % (sandbox_id, type(error).__name__))
+        return 1
+    say("pause-browsers: removed %s" % what if gone else "pause-browsers: %s was already gone" % sandbox_id)
+    return 0
+
+
 def read_key_file(path: str) -> dict:
     """The runtime's own settings file (`export NAME=value` lines), as setup.sh
     keeps it. Never printed."""
@@ -262,14 +329,20 @@ def main(argv) -> int:
 
     if argv[1:] == ["--list"]:
         try:
-            ids = running_browsers(e2b)
+            lines = list_lines(all_browsers(e2b))
         except Exception as error:
             print("pause-browsers: the runtime could not be asked for its browsers (%s)" % type(error).__name__)
             return 1
-        print("pause-browsers: %d browser(s) running" % len(ids))
+        print("\n".join(lines))
         return 0
+    if argv[1:2] == ["--remove"] and len(argv) in (3, 4) and argv[3:] in ([], ["--yes"]):
+        try:
+            return remove(e2b, argv[2], argv[3:] == ["--yes"])
+        except Exception as error:
+            print("pause-browsers: the runtime could not be asked for its browsers (%s)" % type(error).__name__)
+            return 1
     if argv[1:] not in ([], ["--hold"]):
-        print("usage: ni-sandbox-pause-browsers [--hold | --release | --list]", file=sys.stderr)
+        print("usage: ni-sandbox-pause-browsers [--hold | --release | --list | --remove <sandbox id> [--yes]]", file=sys.stderr)
         return 2
     code = pause_all(e2b, door=Hold() if argv[1:] == ["--hold"] else None)
     sys.stdout.flush()

@@ -176,16 +176,20 @@ if [ -f "$runtime_dir/compose.yaml" ]; then
 	fi
 	unit=ni-sandbox-pause-browsers.service
 	order="$(systemctl show "$unit" -p After -p PartOf --value 2>/dev/null | tr '\n' ' ')"
+	pulled="$(systemctl show "$unit" -p WantedBy --value 2>/dev/null)"
 	if passes systemctl is-enabled "$unit" && passes systemctl is-active "$unit" &&
 		case "$order" in *docker.service*docker.service*) true ;; *) false ;; esac &&
+		case "$pulled" in *docker.service*) true ;; *) false ;; esac &&
 		[ -x /usr/local/sbin/ni-sandbox-pause-browsers ] && cmp -s "$here/pause_browsers.py" /usr/local/lib/ni-sandbox/pause_browsers.py; then
 		if out="$(/usr/local/sbin/ni-sandbox-pause-browsers --list 2>&1)"; then
-			ok "running cloud browsers are paused before the runtime or Docker stops ($out)"
+			# Its first line: how many run (the lines after it name each browser sandbox).
+			first="$(printf '%s\n' "$out" | sed -n 1p)"
+			ok "running cloud browsers are paused before the runtime or Docker stops, and Docker's start opens the runtime again ($first)"
 		else
 			bad "the unit that pauses cloud browsers cannot ask the runtime for them: $out"
 		fi
 	else
-		bad "running cloud browsers would end with the runtime: $unit is not installed, enabled and active as setup.sh leaves it (run setup.sh)"
+		bad "running cloud browsers would end with the runtime, or a hold could outlive a Docker start: $unit is not installed, enabled, active and pulled in by Docker as setup.sh leaves it (run setup.sh)"
 	fi
 else
 	bad "no runtime in $runtime_dir (run setup.sh)"

@@ -232,6 +232,9 @@ EnvironmentFile=$settings
 ExecStartPre=/usr/local/sbin/ni-sandbox-guard check
 ExecStartPre=/bin/sh -c 'ufw status | grep -q "^Status: active"'
 ExecStart=/usr/bin/docker compose up -d --wait
+# Open to the app again, should a stop of the pause unit have left the runtime
+# closed to it (pause_browsers.py, Hold). "-": nothing to open is no failure.
+ExecStartPost=-/usr/sbin/nft delete table inet ni_sandbox_hold
 TimeoutStartSec=1800
 
 [Install]
@@ -314,10 +317,16 @@ ExecStop=/usr/local/sbin/ni-sandbox-pause-browsers --hold
 TimeoutStopSec=120
 
 [Install]
-WantedBy=multi-user.target
+# Started at boot, and by every start of Docker: a Docker that was stopped and
+# later started again (by hand, by its socket, by a package's upgrade) pulls this
+# unit's start in, whose ExecStart opens the runtime to the app again. Wants,
+# not ordering: the unit itself is ordered after Docker, so no cycle.
+WantedBy=multi-user.target docker.service
 EOF
 then
 	systemctl daemon-reload
+	# Drop the links an older copy of this unit had, and make its new ones (docker.service.wants).
+	systemctl reenable ni-sandbox-pause-browsers.service >/dev/null 2>&1
 fi
 systemctl enable ni-sandbox-pause-browsers.service >/dev/null 2>&1
 # Started, never restarted here: its stop is what pauses the browsers.

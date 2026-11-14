@@ -148,6 +148,13 @@ def fake_api(world):
             return FakePaginator(found, world.page_size)
 
         @staticmethod
+        def kill(sandbox_id, **opts):
+            world.events.append(("kill", sandbox_id))
+            before = len(world.sandboxes)
+            world.sandboxes[:] = [i for i in world.sandboxes if i.sandbox_id != sandbox_id]
+            return len(world.sandboxes) < before
+
+        @staticmethod
         def connect(sandbox_id, **opts):
             world.events.append(("connect", sandbox_id))
             if sandbox_id in world.fail_connect:
@@ -414,6 +421,70 @@ class TheHold(unittest.TestCase):
         self.assertIn("nft list table inet ni_sandbox_hold", (SANDBOX / "check.sh").read_text())
 
 
+class ForAPerson(unittest.TestCase):
+    """--list and --remove: what someone sorting out a browser by hand sees and does."""
+
+    def setUp(self):
+        self.tool = load()
+        self.lines = []
+
+    def world(self):
+        from datetime import datetime, timezone
+
+        a = browser(1)
+        a.metadata["niName"] = "browser-madeup01-one"
+        a.started_at = datetime(2026, 11, 14, 9, 0, tzinfo=timezone.utc)
+        b = browser(2, State.PAUSED)
+        b.metadata["niName"] = "browser-madeup01-one"
+        b.started_at = datetime(2026, 11, 13, 9, 0, tzinfo=timezone.utc)
+        c = browser(3, State.PAUSED)
+        c.metadata["niName"] = "browser-madeup01-two"
+        return World([a, coding(1), b, c], honour_query=False)
+
+    def test_list_names_every_browser_sandbox_running_or_paused(self):
+        world = self.world()
+        lines = self.tool.list_lines(self.tool.all_browsers(fake_api(world)))
+        self.assertEqual(lines[0], "pause-browsers: 1 browser(s) running, 2 paused")
+        body = lines[1:]
+        self.assertEqual(len(body), 3)  # the coding sandbox is not listed
+        self.assertTrue(all("c%019d" % 1 not in line for line in body))
+        # By name, then by start: the older copy first; two of one name are marked.
+        self.assertIn(browser(2).sandbox_id, body[0])
+        self.assertIn("paused", body[0])
+        self.assertIn("started 2026-11-13 09:00:00 UTC", body[0])
+        self.assertIn(browser(1).sandbox_id, body[1])
+        self.assertIn("running", body[1])
+        for line in body[:2]:
+            self.assertIn("browser-madeup01-one", line)
+            self.assertIn("madeup01", line)
+            self.assertIn("(one of 2 with this name)", line)
+        self.assertIn("browser-madeup01-two", body[2])
+        self.assertNotIn("one of", body[2])
+        self.assertIn("started ?", body[2])
+        # Nothing was changed.
+        self.assertEqual([e for e in world.events if e[0] != "list"], [])
+
+    def test_remove_says_what_it_would_do_without_yes(self):
+        world = self.world()
+        self.assertEqual(self.tool.remove(fake_api(world), browser(2).sandbox_id, False, self.lines.append), 1)
+        self.assertNotIn("kill", [e[0] for e in world.events])
+        self.assertIn("every sign-in", self.lines[-1])
+        self.assertIn("browser-madeup01-one", self.lines[-1])
+
+    def test_remove_with_yes_removes_that_one_only(self):
+        world = self.world()
+        self.assertEqual(self.tool.remove(fake_api(world), browser(2).sandbox_id, True, self.lines.append), 0)
+        self.assertEqual([e for e in world.events if e[0] == "kill"], [("kill", browser(2).sandbox_id)])
+        self.assertIn("removed", self.lines[-1])
+
+    def test_remove_never_touches_a_coding_sandbox_or_an_unknown_id(self):
+        world = self.world()
+        for sandbox_id in ("c%019d" % 1, "nosuchsandbox0000000"):
+            self.assertEqual(self.tool.remove(fake_api(world), sandbox_id, True, self.lines.append), 1)
+        self.assertNotIn("kill", [e[0] for e in world.events])
+        self.assertIn("never removed here", self.lines[-1])
+
+
 class TheKeyFile(unittest.TestCase):
     def test_reads_the_runtimes_own_lines_and_nothing_else(self):
         tool = load()
@@ -434,6 +505,24 @@ class TheUnit(unittest.TestCase):
     def unit(self):
         setup = (SANDBOX / "setup.sh").read_text()
         return setup.split("/etc/systemd/system/ni-sandbox-pause-browsers.service <<'EOF'\n", 1)[1].split("\nEOF\n", 1)[0]
+
+    def test_a_docker_start_opens_the_runtime_again(self):
+        # A Docker stopped and started later (by hand, by its socket, by a package)
+        # starts neither unit again by itself: it pulls this one in, and so the release.
+        unit = self.unit()
+        wanted = next(l for l in unit.splitlines() if l.startswith("WantedBy="))
+        self.assertEqual(wanted.split("=", 1)[1].split(), ["multi-user.target", "docker.service"])
+        self.assertIn("ExecStart=-/usr/sbin/nft delete table inet ni_sandbox_hold", unit)
+        # Wants, never an ordering from Docker to it: it is ordered after Docker, so no cycle.
+        self.assertNotIn("Before=", unit)
+        setup = (SANDBOX / "setup.sh").read_text()
+        self.assertIn("systemctl reenable ni-sandbox-pause-browsers.service", setup)
+        # And the runtime's own start releases too, a failed release failing nothing ("-").
+        runtime = setup.split("/etc/systemd/system/ni-sandbox-runtime.service <<EOF || true\n", 1)[1].split("\nEOF\n", 1)[0]
+        self.assertIn("ExecStartPost=-/usr/sbin/nft delete table inet ni_sandbox_hold", runtime)
+        check = (SANDBOX / "check.sh").read_text()
+        self.assertIn('systemctl show "$unit" -p WantedBy --value', check)
+        self.assertIn("*docker.service*) true", check)
 
     def test_its_ordering(self):
         unit = self.unit()
