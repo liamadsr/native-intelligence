@@ -7,13 +7,26 @@
  * scopes (config.ts SLACK_BOT_SCOPES), our redirect URI and a `state` signed
  * like every other integration's (src/lib/oauth/state.ts: HMAC, ten minutes,
  * `capability: 'slack_install'` so no other flow's state is taken here). The
- * state names who started it (user, workspace), the page to return to, and
- * the hosted origin it began on. Its nonce goes in a `__Host-` binding cookie
- * ({@link SLACK_INSTALL_NONCE_COOKIE}), which the callback requires: a state
- * someone else started can't be completed in another person's browser.
+ * state names who started it (user, workspace) and the page to return to.
+ * Binding the finish to the start takes one of two forms, as for the other
+ * integrations:
+ *   - web (`source: 'web'`): the state names the hosted origin it began on,
+ *     and its nonce goes in a `__Host-` binding cookie
+ *     ({@link SLACK_INSTALL_NONCE_COOKIE}), which the callback requires: a
+ *     state someone else started can't be completed in another person's
+ *     browser;
+ *   - desktop (`source: 'desktop'`): the install finishes in the person's
+ *     system browser, which holds none of the app's cookies. The state
+ *     carries the hash of a claim secret only the starting window holds (no
+ *     origin: it is not finished on a page); the callback never exchanges
+ *     the code but seals it and deep-links it back to the app
+ *     (dial8desktop://slack/complete), and POST /api/slack/oauth/claim
+ *     finishes it only for that secret and the state's own signed-in person
+ *     (src/lib/oauth/state.ts newClaimSecret, sealDesktopCode).
  *
- * Finish ({@link completeSlackInstall}, GET /api/slack/oauth/callback, after the
- * route checked the state and the cookie): the starter must still be an admin
+ * Finish ({@link completeSlackInstall}, from the callback after it checked the
+ * state and the cookie, or from the claim route after it checked the state,
+ * the secret and the session): the starter must still be an admin
  * of the workspace; the code is exchanged at oauth.v2.access; Slack's answer
  * must be ok, for OUR app, a bot token, for one team, and not an
  * organization-wide install (refused); Slack's auth.test with the token must
@@ -35,7 +48,7 @@ import 'server-only'
 import crypto from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { connectHomeOrigin } from '@/lib/oauth/authorize-url'
-import { OAUTH_STATE_TTL_MS, bindingCookieName, oauthStateSecret } from '@/lib/oauth/state'
+import { OAUTH_STATE_TTL_MS, bindingCookieName, claimHash, newClaimSecret, oauthStateSecret } from '@/lib/oauth/state'
 import type { SaveSlackBotTokenInput, SlackOAuthGrant } from './bot-token'
 import { SLACK_BOT_SCOPES, SLACK_SETTINGS_PATH, slackAppId, slackClientId, slackRedirectUri } from './config'
 import type { SlackInstallResult } from './install-result'
@@ -64,34 +77,42 @@ export function safeSlackReturnTo(value: unknown): string {
 export interface SlackInstallStart {
   url: string
   state: string
-  /** Set as {@link SLACK_INSTALL_NONCE_COOKIE}. */
+  /** Web: set as {@link SLACK_INSTALL_NONCE_COOKIE}. Desktop: the key the callback seals the code with. */
   nonce: string
+  /** Desktop only: for the starting window alone (its hash is in the state). Null for web. */
+  claimSecret: string | null
 }
 
 /**
- * The signed state and Slack's authorize URL for one install. Throws when
- * Slack is not configured, or the state secret is missing in production.
+ * The signed state and Slack's authorize URL for one install, bound for the
+ * web (cookie) or the desktop app (claim secret). Throws when Slack is not
+ * configured, or the state secret is missing in production.
  */
 export function buildSlackInstall(args: {
   userId: string
   workspaceId: string
   returnTo?: string | null
   pageOrigin?: string | null
+  source?: 'web' | 'desktop'
   now?: number
 }): SlackInstallStart {
   const clientId = slackClientId()
   if (!clientId) throw new Error('Slack is not configured')
   const nonce = crypto.randomUUID()
-  const origin = connectHomeOrigin(args.pageOrigin ?? null)
+  const desktop = args.source === 'desktop'
+  const claimSecret = desktop ? newClaimSecret() : null
+  // A desktop install is finished by the app's claim, not on a page origin.
+  const origin = desktop ? null : connectHomeOrigin(args.pageOrigin ?? null)
   const payload = JSON.stringify({
     nonce,
     user_id: args.userId,
     capability: SLACK_INSTALL_CAPABILITY,
-    source: 'web',
+    source: desktop ? 'desktop' : 'web',
     workspace_id: args.workspaceId,
     exp: (args.now ?? Date.now()) + OAUTH_STATE_TTL_MS,
     return_to: safeSlackReturnTo(args.returnTo),
     ...(origin && { origin }),
+    ...(claimSecret && { claim: claimHash(claimSecret) }),
   })
   const stateB64 = Buffer.from(payload).toString('base64url')
   const sig = crypto.createHmac('sha256', oauthStateSecret()).update(stateB64).digest('base64url')
@@ -101,10 +122,10 @@ export function buildSlackInstall(args: {
   url.searchParams.set('scope', SLACK_BOT_SCOPES.join(','))
   url.searchParams.set('redirect_uri', slackRedirectUri())
   url.searchParams.set('state', state)
-  return { url: url.toString(), state, nonce }
+  return { url: url.toString(), state, nonce, claimSecret }
 }
 
-/** The outside calls the finish makes; the route passes the real ones, tests fakes. */
+/** The outside calls the finish makes; the routes pass the real ones (./deps.ts slackInstallDeps), tests fakes. */
 export interface SlackInstallDeps {
   /** oauth.v2.access with the code and our redirect URI (./bot-token.ts slackOauthAccess). */
   exchange: (code: string) => Promise<{ ok: true; grant: SlackOAuthGrant } | { ok: false; error: string }>
@@ -119,7 +140,9 @@ export interface SlackInstallDeps {
 }
 
 /**
- * Finish an install whose state and cookie the route has verified. Returns
+ * Finish an install whose binding the route has verified (the callback: the
+ * state and the cookie; the claim route: the state, the claim secret and the
+ * session). Returns
  * the result the page shows. Never throws; logs ids and Slack's error codes,
  * never a token.
  */

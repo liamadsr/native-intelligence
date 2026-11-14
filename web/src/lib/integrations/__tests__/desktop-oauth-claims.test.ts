@@ -8,8 +8,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   claimDesktopMcp,
   claimDesktopOAuth,
+  claimDesktopSlackInstall,
   holdDesktopMcpClaim,
   holdDesktopOAuthClaim,
+  holdDesktopSlackClaim,
   resetDesktopOAuthClaimsForTests,
 } from '../desktop-oauth-claims'
 
@@ -123,5 +125,86 @@ describe('claimDesktopMcp (MCP connectors)', () => {
     holdDesktopMcpClaim(MCP.state, 's')
     const refused = vi.fn(async () => new Response(JSON.stringify({ error: 'This connection is not yours' }), { status: 403 }))
     expect(await claimDesktopMcp(MCP, refused)).toEqual({ state: 'desk.abc', success: false, error: 'This connection is not yours' })
+  })
+})
+
+describe('claimDesktopSlackInstall (Slack installs)', () => {
+  const SLACK = { state: 'slack.state', sealed: 'the-sealed-code' }
+  const okSlack = (result = 'installed') => vi.fn(async () => new Response(JSON.stringify({ result })))
+
+  it('a link for an install this window did not start: null, and nothing is posted', async () => {
+    const fetchImpl = okSlack()
+    expect(await claimDesktopSlackInstall(SLACK, fetchImpl)).toBeNull()
+    expect(await claimDesktopSlackInstall({ state: SLACK.state, error: 'denied' }, fetchImpl)).toBeNull()
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('posts the sealed code, the exact state and the held secret to the Slack claim route, once', async () => {
+    holdDesktopSlackClaim(SLACK.state, 'slack-secret')
+    const fetchImpl = okSlack()
+    expect(await claimDesktopSlackInstall(SLACK, fetchImpl)).toEqual({ state: 'slack.state', result: 'installed' })
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('/api/slack/oauth/claim')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ sealed: 'the-sealed-code', state: 'slack.state', claimSecret: 'slack-secret' })
+    expect(await claimDesktopSlackInstall(SLACK, fetchImpl)).toBeNull()
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it("an error link for this window's install ends it with the link's result, without a claim", async () => {
+    holdDesktopSlackClaim(SLACK.state, 's')
+    const fetchImpl = okSlack()
+    expect(await claimDesktopSlackInstall({ state: SLACK.state, error: 'denied' }, fetchImpl)).toEqual({ state: 'slack.state', result: 'denied' })
+    holdDesktopSlackClaim(SLACK.state, 's')
+    expect(await claimDesktopSlackInstall({ state: SLACK.state, sealed: null }, fetchImpl)).toEqual({ state: 'slack.state', result: 'failed' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('a link alone never brings good news: without a claim it is cancelled or failed, whatever it says', async () => {
+    const fetchImpl = okSlack()
+    for (const said of ['installed', 'connected', 'added', 'session'] as const) {
+      holdDesktopSlackClaim(SLACK.state, 's')
+      expect(await claimDesktopSlackInstall({ state: SLACK.state, error: said }, fetchImpl)).toEqual({ state: 'slack.state', result: 'failed' })
+    }
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it("a refusal reports the route's result; an unknown answer or a network failure is 'failed'", async () => {
+    holdDesktopSlackClaim(SLACK.state, 's')
+    const refused = vi.fn(async () => new Response(JSON.stringify({ result: 'session' }), { status: 403 }))
+    expect(await claimDesktopSlackInstall(SLACK, refused)).toEqual({ state: 'slack.state', result: 'session' })
+
+    holdDesktopSlackClaim(SLACK.state, 's')
+    const odd = vi.fn(async () => new Response(JSON.stringify({ result: '<b>hi</b>' })))
+    expect(await claimDesktopSlackInstall(SLACK, odd)).toEqual({ state: 'slack.state', result: 'failed' })
+
+    holdDesktopSlackClaim(SLACK.state, 's')
+    const down = vi.fn(async () => {
+      throw new Error('offline')
+    })
+    expect(await claimDesktopSlackInstall(SLACK, down)).toEqual({ state: 'slack.state', result: 'failed' })
+  })
+
+  it('kept apart from the other two stores: neither unlocks a Slack install, nor it theirs', async () => {
+    holdDesktopOAuthClaim(SLACK.state, 'x')
+    holdDesktopMcpClaim(SLACK.state, 'y')
+    expect(await claimDesktopSlackInstall(SLACK, okSlack())).toBeNull()
+    holdDesktopSlackClaim('slack.only', 'z')
+    expect(await claimDesktopMcp({ state: 'slack.only', code: 'c' }, okSlack())).toBeNull()
+    expect(await claimDesktopOAuth({ ...LINK, state: 'slack.only' }, okSlack())).toBeNull()
+  })
+
+  it("a held secret lives 15 minutes: the state's 10 plus the claim grace", async () => {
+    vi.useFakeTimers()
+    try {
+      holdDesktopSlackClaim(SLACK.state, 's')
+      vi.advanceTimersByTime(15 * 60 * 1000 - 1)
+      expect(await claimDesktopSlackInstall(SLACK, okSlack())).toEqual({ state: 'slack.state', result: 'installed' })
+      holdDesktopSlackClaim(SLACK.state, 's')
+      vi.advanceTimersByTime(15 * 60 * 1000 + 1)
+      expect(await claimDesktopSlackInstall(SLACK, okSlack())).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
