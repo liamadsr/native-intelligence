@@ -3,7 +3,7 @@ import type { EditorProject } from '@/lib/studio/engine/contracts';
 import { openRecorder, listBrowserDevices, unlockDeviceLabels, uploadTake, submitTake, recordingRequest, plainError, listSavedTakes, discardSavedTake, recoverSavedTake, type BrowserRecorder, type DesktopRecorder, type DeviceOption, type EndReason, type FinishedTake, type LiveTrackStatus, type Recorder, type RecorderPermissionName, type RecorderPermissions, type RecorderTargets, type SavedTake, type ScreenChoice, type SharedSurface, type TakePlacement, type UploadProgress, type RecordingAnswer } from '../record';
 import { nativeDraftStore, provisionalRecord, type Draft, type DraftBridge, type DraftStore, type FilingState } from '../record/provisional';
 import { Filer, localTracks, settleRecording, type FilingApi, type Settled } from '../record/filing';
-import { inUseReason, keptFor, listedTakes, localTakeActions, localTakeRows, takesInFlight, type LocalTakeRow } from '../record/local-takes';
+import { inUseReason, keptFor, listedTakes, localTakeActions, localTakeRows, takeOverFromSession, takesInFlight, type LocalTakeRow } from '../record/local-takes';
 import { normalizeStop, takesBeingSent } from '../record/desktop';
 import type { TakeWord } from '../record/types';
 import { request } from './client';
@@ -369,6 +369,7 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
     holdTake: sessionId => (recorder.current as DesktopRecorder).leases.hold(sessionId),
     letGoTake: sessionId => (recorder.current as DesktopRecorder).leases.release(sessionId),
     holdsTake: sessionId => (recorder.current as DesktopRecorder).leases.holds(sessionId),
+    takeOver: sessionId => { const id = takeOverFromSession(pending, sessionId); if (id) patch(id, { retry: false }); },
     notify: (text, error) => notifyRef.current(text, error),
     refresh: () => void refreshLocalTakesRef.current(),
     onBusy: ids => { if (mounted.current) setLocalBusy(ids); },

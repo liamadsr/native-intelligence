@@ -577,7 +577,12 @@ export class Filer {
     if (record.state === 'filed') await this.records.update(projectId, (r) => ({ ...r, state: 'adopted', saveOwed: undefined })).catch(() => undefined)
     // Adopted in the open editor, its edits not saved over the Studio's yet: kept until they are (or the person, told to
     // check the video, lets go anyway).
-    if (record.saveOwed && !options.anyway) return { safe: false, note: 'Your last edits to a recording are not saved onto its video yet, so its files are kept on this computer. Record lists it: Put my edits on it saves them there.' }
+    if (record.saveOwed && !options.anyway) {
+      // Without a kept copy of the owed edit there is nothing to put on: Record offers only letting go (asked first).
+      return { safe: false, note: record.owedEdit
+        ? 'Your last edits to a recording are not saved onto its video yet, so its files are kept on this computer. Record lists it: Put my edits on it saves them there.'
+        : 'Your last edits to a recording may not have reached its video, and this computer did not keep a copy of them, so its files are kept here. Open the video to check them; Record lists the recording, where you can let go of its files.' }
+    }
     const settled = await releaseWhenSafe(this.deps, record.recordingId, record.sessionId)
     if (settled.safe) {
       this.takes.delete(projectId)

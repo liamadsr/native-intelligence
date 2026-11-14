@@ -144,6 +144,17 @@ export function takesInFlight() {
   }
 }
 
+/**
+ * A row action takes over a take its session kept after a failed upload (`pending`): that session lets go of it. Answers
+ * the session's id (its Try again and Discard are turned off), or null when no session kept it.
+ */
+export function takeOverFromSession<T extends { id: string; take: { sessionId: string } }>(pending: { current: T | null }, sessionId: string): string | null {
+  const kept = pending.current
+  if (!kept || kept.take.sessionId !== sessionId) return null
+  pending.current = null
+  return kept.id
+}
+
 /** The take kept for Try again, only when it is the one of the session asked about (`id`): else null. Pure. */
 export const keptFor = <T extends { id: string }>(kept: T | null, id: string): T | null => (kept && kept.id === id ? kept : null)
 
@@ -186,6 +197,9 @@ export type LocalTakeDeps = {
   refresh: () => void
   /** The takes being acted on now (their buttons wait). */
   onBusy?: (sessionIds: string[]) => void
+  /** A row action takes the take over (it makes a new video of it, brings it back, or discards it): the session that kept
+   *  it after a failed upload lets go of it (takeOverFromSession), so its banner never acts on it again. */
+  takeOver?: (sessionId: string) => void
 }
 
 /** The second action that lets go of a take's files and edits (asked once more first, RecordDialog.tsx). */
@@ -233,6 +247,7 @@ export function localTakeActions(deps: LocalTakeDeps) {
         if (!settled.safe && settled.note) deps.notify(settled.note, true)
       } else if (action.kind === 'recover') {
         const letGo = await hold(row.sessionId)
+        deps.takeOver?.(row.sessionId)
         try {
           await deps.recover(action.takeId)
         } finally {
@@ -240,6 +255,7 @@ export function localTakeActions(deps: LocalTakeDeps) {
         }
       } else if (action.kind === 'file-whole') {
         const letGo = await hold(row.sessionId)
+        deps.takeOver?.(row.sessionId)
         let filing = false
         try {
           if ((await deps.records()).some((r) => r.sessionId === row.sessionId)) throw new Error('This recording is being made into a video already.')
@@ -255,6 +271,7 @@ export function localTakeActions(deps: LocalTakeDeps) {
       const why = await deps.inUse(sessionId)
       if (why) throw new Error(why)
       const letGo = await hold(sessionId)
+      deps.takeOver?.(sessionId)
       try {
         await deps.discard(sessionId)
       } finally {

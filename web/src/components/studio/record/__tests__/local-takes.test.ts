@@ -2,7 +2,7 @@
 // size, what is wrong in plain words, and what Try again does. Nothing such a take holds is removed by its age
 // (studio_recorder.rs sweep), so every one of them must show here. Made-up takes.
 import { describe, expect, it } from 'vitest'
-import { inUseReason, keptFor, listedTakes, localTakeActions, localTakeRows, OPEN_ELSEWHERE, sizeWords, takesInFlight, type LocalTakeDeps, type LocalTakeRow } from '../local-takes'
+import { inUseReason, keptFor, listedTakes, localTakeActions, localTakeRows, OPEN_ELSEWHERE, sizeWords, takeOverFromSession, takesInFlight, type LocalTakeDeps, type LocalTakeRow } from '../local-takes'
 import { CHANGED_ELSEWHERE, type ProvisionalRecord } from '../provisional'
 
 const S = (n: number) => `${n}f0f0f0f-1111-4222-8333-444444444444`
@@ -276,5 +276,40 @@ describe('the sixth review', () => {
     expect(keptFor(kept, 'session-a')).toBe(kept)
     expect(keptFor(kept, 'session-b')).toBeNull()
     expect(keptFor(null, 'session-a')).toBeNull()
+  })
+
+  it('a row action takes over a take its session kept after a failed upload: the session banner’s Discard then deletes nothing', async () => {
+    const pending: { current: { id: string; take: { sessionId: string } } | null } = { current: { id: 'session-a', take: { sessionId: S(1) } } }
+    const deleted: string[] = [], disarmed: string[] = []
+    const actions = localTakeActions({
+      refile: async () => undefined, adopt: async () => undefined, release: async () => ({ safe: true }), recover: async () => undefined,
+      fileWhole: async () => undefined, records: async () => [], discard: async () => undefined, inUse: async () => null,
+      holdTake: async () => true, letGoTake: async () => undefined, notify: () => undefined, refresh: () => undefined,
+      takeOver: (sessionId) => { const id = takeOverFromSession(pending, sessionId); if (id) disarmed.push(id) },
+    })
+    // The row's Try again makes the take a new video (and it uploads from the Mac's files).
+    await actions.retry({ sessionId: S(1), bytes: 1, at: null, problem: '', action: { kind: 'file-whole' }, edits: false })
+    expect(disarmed).toEqual(['session-a'])
+    // Later, Discard on the old session's banner (as useManualRecording cancel does): nothing is kept for it any more.
+    const kept = keptFor(pending.current, 'session-a')
+    if (kept) deleted.push(kept.take.sessionId)
+    expect(deleted).toEqual([])
+    // Another take's session keeps its own.
+    pending.current = { id: 'session-b', take: { sessionId: S(2) } }
+    expect(takeOverFromSession(pending, S(1))).toBeNull()
+    expect(pending.current?.id).toBe('session-b')
+  })
+
+  it('bringing back and Discard on a row take the take over from its session too', async () => {
+    const taken: string[] = []
+    const actions = localTakeActions({
+      refile: async () => undefined, adopt: async () => undefined, release: async () => ({ safe: true }), recover: async () => undefined,
+      fileWhole: async () => undefined, records: async () => [], discard: async () => undefined, inUse: async () => null,
+      holdTake: async () => true, letGoTake: async () => undefined, notify: () => undefined, refresh: () => undefined,
+      takeOver: (sessionId) => void taken.push(sessionId),
+    })
+    await actions.retry({ sessionId: S(1), bytes: 1, at: null, problem: '', action: { kind: 'recover', takeId: 'take-1' }, edits: false })
+    await actions.discard(S(2))
+    expect(taken).toEqual([S(1), S(2)])
   })
 })

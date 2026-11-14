@@ -440,7 +440,7 @@ describe('the third review', () => {
   it('an adopted take whose edits are still to be saved over the Studio’s keeps its files, until the person lets go anyway', async () => {
     const { filer, s, m, store } = setup()
     await s.api.post('/x/recordings?wait=1', {})
-    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1', state: 'adopted', saveOwed: true, wordsSent: true })
+    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1', state: 'adopted', saveOwed: true, owedEdit: {} as never, wordsSent: true })
     expect((await filer.release(PROJECT)).note).toMatch(/not saved onto its video yet, so its files are kept on this computer. Record lists it: Put my edits on it saves them there./)
     expect(m.folders.has(SESSION)).toBe(true)
     // The save landed (App.tsx clears saveOwed through the same keeper): the files go.
@@ -631,5 +631,15 @@ describe('the sixth review', () => {
     }
     expect((await store.get(PROJECT))!.wordsMisses).toBe(1)
     expect((await store.get(PROJECT))!.wordsRefused).toBeUndefined()
+  })
+
+  it('an owed save with no kept copy of its edit never points at Put my edits on it (Record offers only letting go)', async () => {
+    const { filer, s, m, store } = setup()
+    await s.api.post('/x/recordings?wait=1', {})
+    await draftRecord(store, SESSION, PROJECT, { recordingId: 'r-1', state: 'adopted', saveOwed: true, wordsSent: true })
+    const note = (await filer.release(PROJECT)).note!
+    expect(note).toBe('Your last edits to a recording may not have reached its video, and this computer did not keep a copy of them, so its files are kept here. Open the video to check them; Record lists the recording, where you can let go of its files.')
+    expect(note).not.toMatch(/Put my edits on it/)
+    expect(m.folders.has(SESSION)).toBe(true)
   })
 })
