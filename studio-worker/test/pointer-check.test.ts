@@ -11,10 +11,10 @@ import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
-import { chromePointerArt, clipPointer, glassWeight, gaussian, layerWindow, matte, placements, png, pointerBudgetProblem, pointerFilters, pointerNeeds, POINTER_LIMITS, spriteCrop, spriteSchedule, spriteProject,
+import { chromePointerArt, clipPointer, glassWeight, gaussian, layerWindow, lookup, matte, placements, png, pointerBudgetProblem, pointerFilters, pointerNeeds, POINTER_LIMITS, spriteCrop, spriteSchedule, spriteProject,
   stateFrames, touchedMask, GLASS_WEIGHT, type PointerState, type Sprite } from '../src/fast-pointer.ts'
 import { artInside, checkVerdict, heldBox, maskedPsnr, readTapWindow, pointerBoxes, pointerLayers, pointerSamples, pointerScore, sampleFrames, untouchedChanges, type PointerBox } from '../src/fast-export-run.ts'
-import { fastExportPlan, hashTaps, segmentArgs, type FastPlan } from '../src/fast-export.ts'
+import { fastExportPlan, hashTaps, segmentArgs, selectFrames, tapSelect, type FastPlan } from '../src/fast-export.ts'
 import { ffmpegLacks, listedNames, missingComponents } from '../src/media.ts'
 import { localRenderTabs } from '../src/local.ts'
 import { FAST_LEFTOVERS, spriteTabs } from '../src/jobs/export.ts'
@@ -484,4 +484,45 @@ test("the check reads one window of a tap file from its place, and refuses a fil
   assert.deepEqual([...(await readTapWindow(file, 0, 4, size)).bytes], [0, 1, 2, 3, 4, 5])
   await assert.rejects(readTapWindow(file, 0, 5, size), /holds 24 bytes, not 30/)
   await assert.rejects(readTapWindow(file, 4, 4, size), /window 4 is not in the pointer's tap of 4/)
+})
+
+/**
+ * An expression's depth as FFmpeg counts it (libavutil/eval.c: a function one more than its deepest argument, each `+`
+ * or `*` one more than the deeper of its two sides, left to right), for the expressions the export writes.
+ */
+function exprDepth(text: string): number {
+  const s = text.replace(/\\,/g, ','), at = { i: 0 }
+  const expr = (): number => { let d = term(); while (s[at.i] === '+' || s[at.i] === '-') { at.i++; d = Math.max(d, term()) + 1 } return d }
+  const term = (): number => { let d = factor(); while (s[at.i] === '*' || s[at.i] === '/') { at.i++; d = Math.max(d, factor()) + 1 } return d }
+  const factor = (): number => {
+    if (s[at.i] === '(') { at.i++; const d = expr(); at.i++; return d }
+    const name = /^[A-Za-z_][A-Za-z_0-9]*/.exec(s.slice(at.i))?.[0]
+    if (name && s[at.i + name.length] === '(') {
+      at.i += name.length + 1
+      let d = expr()
+      while (s[at.i] === ',') { at.i++; d = Math.max(d, expr()) }
+      at.i++
+      return d + 1
+    }
+    const m = /^[A-Za-z_0-9.]+/.exec(s.slice(at.i))![0]
+    at.i += m.length
+    return 0
+  }
+  const d = expr()
+  assert.equal(at.i, s.length, 'parsed to the end')
+  return d
+}
+
+test("every expression the export writes stays under FFmpeg's depth limit of 100, however long the clip or many the frames", () => {
+  // What FFmpeg 7.1.5 and Debian's 5.1.9 refuse: a flat sum of 120 terms.
+  assert.ok(exprDepth(Array.from({ length: 120 }, (_, i) => `eq(n\\,${i})`).join('+')) > 100)
+  const inner = (sel: string) => /^select='(.*)'$/.exec(sel)![1]!
+  for (const k of [1, 5, 99, 300, 5000]) assert.ok(exprDepth(inner(selectFrames(Array.from({ length: k }, (_, i) => 3 * i)))) <= 20, `select of ${k}`)
+  // The window's places, a new one every frame for the plan's bound: crop and overlay x and y, and the overlay's enable.
+  const places = Array.from({ length: POINTER_LIMITS.places }, (_, l) => 2 * (l % 900) + (l % 2))
+  assert.ok(exprDepth(lookup(places, 'round(t*60)')) <= 30)
+  assert.ok(exprDepth(lookup(places.map((_, l) => l % 2), 'round(t*60)')) <= 30)
+  // A tap of every frame writes no select at all; a tap of a few, a short one.
+  assert.equal(tapSelect([0, 1, 2, 3], 4), '')
+  assert.match(tapSelect([1, 3], 4), /^select='.*',$/)
 })

@@ -340,7 +340,23 @@ export function hashTaps(chosen: number[], count: number): number[] {
   for (let l = 0; l < count; l += HASH_STRIDE) out.add(l)
   return [...out].sort((a, b) => a - b)
 }
-export const selectFrames = (frames: number[]) => `select='${frames.map((l) => `eq(n\\,${l})`).join('+')}+not(mod(n\\,${HASH_STRIDE}))'`
+/**
+ * FFmpeg refuses an expression deeper than 100 (libavutil/eval.c, MAX_DEPTH, in 7.1.5 and Debian's 5.1.9 alike: "Cannot
+ * allocate memory"), and `a+b+c+…` is one level deeper per term. So sums are written as balanced trees, `(a+b)+(c+d)`:
+ * depth grows with the logarithm of the terms. Pure.
+ */
+export function balancedSum(terms: string[]): string {
+  if (terms.length <= 2) return terms.join('+') || '0'
+  const m = terms.length >> 1
+  return `(${balancedSum(terms.slice(0, m))})+(${balancedSum(terms.slice(m))})`
+}
+export const selectFrames = (frames: number[]) => `select='${balancedSum([...frames.map((l) => `eq(n\\,${l})`), `not(mod(n\\,${HASH_STRIDE}))`])}'`
+/**
+ * The select before a tap of `frames` out of `count`, with its comma, or nothing when the tap takes every frame: one
+ * term a frame is no expression to write for a whole clip (Debian's FFmpeg 5.1 refused a select of a few hundred terms).
+ * A tap of a few sampled frames keeps its few terms. Pure.
+ */
+export const tapSelect = (frames: number[], count: number) => (count > 0 && new Set(frames.filter((l) => l >= 0 && l < count)).size === count ? '' : `${selectFrames(frames)},`)
 
 /** Camera pixels the sampling reaches past each side (its edge pixels repeated there, as a clamped bilinear reads them). */
 export const SAMPLING_PAD = 8
@@ -392,7 +408,7 @@ export function segmentArgs(seg: SegmentPlan, fps: number, path: (file: string) 
     if (pointer.tap?.frames.length) {
       const at = `round(t*${fps})`
       // (The window where the check expects the pointer: the layer's own unless said, as a proof of a wrong layer says it.)
-      graph.push(`[scrp]split[scrq][ptapin]`, `[ptapin]${selectFrames(pointer.tap.frames)},crop=w=${pointer.tap.cw ?? pointer.layer.cw}:h=${pointer.tap.ch ?? pointer.layer.ch}:x='${lookup(pointer.tap.cx ?? pointer.layer.cx, at)}':y='${lookup(pointer.tap.cy ?? pointer.layer.cy, at)}',format=yuv420p[ptap]`)
+      graph.push(`[scrp]split[scrq][ptapin]`, `[ptapin]${tapSelect(pointer.tap.frames, seg.frames)}crop=w=${pointer.tap.cw ?? pointer.layer.cw}:h=${pointer.tap.ch ?? pointer.layer.ch}:x='${lookup(pointer.tap.cx ?? pointer.layer.cx, at)}':y='${lookup(pointer.tap.cy ?? pointer.layer.cy, at)}',format=yuv420p[ptap]`)
       extra.push('-map', '[ptap]', '-fps_mode', 'passthrough', '-f', 'rawvideo', pointer.tap.file)
       screenOut = 'scrq'
     }
@@ -414,7 +430,7 @@ export function segmentArgs(seg: SegmentPlan, fps: number, path: (file: string) 
     // The held pointer's check: its window after the blend (the outgoing frame and its pointer fading out under the
     // incoming one), as drawn, before any encoder.
     if (pointer?.held && pointer.heldTap?.frames.length) {
-      graph.push(`[scr1]split[scr1q][htapin]`, `[htapin]${selectFrames(pointer.heldTap.frames)},crop=w=${pointer.held.cw}:h=${pointer.held.ch}:x=${pointer.held.cx[0]}:y=${pointer.held.cy[0]},format=yuv420p[htap]`)
+      graph.push(`[scr1]split[scr1q][htapin]`, `[htapin]${tapSelect(pointer.heldTap.frames, seg.frames)}crop=w=${pointer.held.cw}:h=${pointer.held.ch}:x=${pointer.held.cx[0]}:y=${pointer.held.cy[0]},format=yuv420p[htap]`)
       extra.push('-map', '[htap]', '-fps_mode', 'passthrough', '-f', 'rawvideo', pointer.heldTap.file)
       screenOut = 'scr1q'
     }
