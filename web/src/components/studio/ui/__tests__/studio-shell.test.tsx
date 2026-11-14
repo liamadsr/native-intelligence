@@ -7,7 +7,7 @@
  * jsdom does not skip inert subtrees when tabbing, so the order is checked by document position and the inert
  * attribute on every covered control's ancestry. Fixtures are made up.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -57,10 +57,16 @@ beforeEach(() => {
 })
 afterEach(() => { act(() => root?.unmount()); host?.remove(); root = null; host = null; vi.unstubAllGlobals() })
 
+// The whole Studio is one large module graph. It is loaded once, with time to spare: in a full suite on a busy
+// machine the first import alone has taken longer than a test's default five seconds (seen twice, as timeouts).
+let StudioRoot: typeof import('../../studio-root').default
+beforeAll(async () => { StudioRoot = (await import('../../studio-root')).default }, 120_000)
+/** A test that mounts the whole Studio: the default five seconds is not enough on a busy machine. */
+const SLOW = 30_000
+
 async function mount() {
-  const { default: StudioRoot } = await import('../../studio-root')
   await act(async () => root!.render(<StudioRoot workspaceId="ws-fernhill" />))
-  await vi.waitFor(() => { if (!host!.querySelector('.app-header .hdr-title')) throw new Error('not open yet') }, { timeout: 5000 })
+  await vi.waitFor(() => { if (!host!.querySelector('.app-header .hdr-title')) throw new Error('not open yet') }, { timeout: 20_000 })
   for (let i = 0; i < 3; i++) await act(async () => {})
 }
 const main = () => host!.querySelector<HTMLElement>('main.app')!
@@ -79,7 +85,7 @@ describe('the Studio’s shell', () => {
     expect(rail().querySelectorAll('[data-rail-item]')).toHaveLength(6)
     expect(editor().hasAttribute('inert')).toBe(false)
     expect(reachable(editor()).length).toBeGreaterThan(0)
-  })
+  }, SLOW)
 
   it('Projects and videos: a page after the editor in the reading order, the editor and its header inert and hidden meanwhile; back to the video, all reachable again', async () => {
     await mount()
@@ -108,5 +114,5 @@ describe('the Studio’s shell', () => {
     expect(page()).toBeNull()
     expect(editor().hasAttribute('inert')).toBe(false)
     expect(reachable(editor()).length).toBeGreaterThan(0)
-  })
+  }, SLOW)
 })
