@@ -1,13 +1,14 @@
 # The app as containers
 
-One image that runs the web app (`web/`) and its eight eve agents off their earlier
-host (Vercel), the stack that runs it on the server (`compose.yaml`), and a
-container test of the same image (`smoke/`).
+One image that runs the web app (`web/`) and its eight eve agents, the stack that
+runs it on the server (`compose.yaml`), and a container test of the same image
+(`smoke/`). Production has run here since 2026-11-11; before that the app ran on
+Vercel, "the earlier host" below.
 
 The server itself (its public Caddy in `../edge/`, the self-hosted Inngest in
 `../inngest/`, Supabase in `../supabase/`, backups) is set up by
-[`../README.md`](../README.md). Step 20 there is how this stack is set up, rehearsed
-next to the earlier host, and switched on; step 21 is the switch of the real names.
+[`../README.md`](../README.md). Step 20 there is how this stack was set up and
+rehearsed next to the earlier host; step 21 is the switch of the real names.
 
 ## On the server
 
@@ -17,7 +18,6 @@ deploy/app/
 ├── .env              its settings (root only, never in git; .env.example lists them)
 ├── deploy.sh         build the image here and roll it out; --rollback goes back
 ├── auto-deploy.sh    automatic deploys of main (off unless switched on), see below
-├── pull-settings.sh  run on your own machine: fills .env from the earlier host
 ├── check-settings.sh run on your own machine: checks .env before the switch
 └── proxy/Caddyfile   the stack's router
 ```
@@ -271,49 +271,50 @@ acting on its own:
 Everything a person does on a rehearsal copy is real: it uses the production
 database. What it does not do is anything nobody asked it to. With `NI_LIVE=1` the
 containers also refuse to start while a value in `.env` still starts with
-`rehearsal-` (the stand-ins `pull-settings.sh` writes for a rehearsal).
+`rehearsal-` (a stand-in a rehearsal runs on until it has the real value).
 
 ### Settings
 
-`pull-settings.sh` fills `.env` without showing a value. The earlier host gives out
-its production settings, except those stored as write-only ("sensitive"): nobody can
-read those back, so they are entered by hand with
-`deploy/supabase/set-secret.sh` (hidden typing, several names at once; an empty
-answer leaves that one as it is), from the password manager or from the provider
-that issued them. `check-settings.sh` then says, without showing a value, which are
-set and, where the server can tell, which are right (`../README.md` step 21, Gate 1).
+`.env` is filled without showing a value: `deploy/supabase/set-secret.sh` asks for
+each name with hidden typing (several names at once; an empty answer leaves that
+one as it is), from the password manager's copy of the file or from the provider
+that issued the value. `check-settings.sh` then says, without showing a value, which
+are set and, where the server can tell, which are right (`../README.md` step 21,
+Gate 1). At the move a script, `pull-settings.sh`, copied in what the earlier host
+would give out of its production settings. It was removed afterwards: those
+settings are frozen there and are no longer production's.
 
 These tools only change values of lines that already exist in `.env`; none adds a
 line. A new setting's line is copied from `.env.example` by hand (`sudo nano .env`),
 then filled in.
 
-Some values must be exactly what the earlier host has, because what they sign or
-encrypt is already stored or held elsewhere:
+Some values must stay exactly what production already has, because what they sign
+or encrypt is already stored or held elsewhere:
 
 | Setting | Why it must not change | Checked against |
 |---|---|---|
 | `CREDENTIAL_ENCRYPTION_KEY` | Encrypts every connected account's tokens in the database. | Every stored token ciphertext must open. |
 | `RUN_SKILL_INTERNAL_SECRET` | Keys the stored link, invite and phone-code hashes, and the reply codes already texted. | A stored phone code's hash must come out of it. |
 | `CLOUD_BROWSER_SIGNING_KEY` | Its public half is built into released desktop apps. | That pinned public key. |
-| `UNSUBSCRIBE_SECRET` | Signs the unsubscribe links in mail already sent. | Readable; `pull-settings.sh` brings it. |
-| `OUTLOOK_WEBHOOK_SECRET`, `GMAIL_WEBHOOK_TOKEN` | Part of every live mail subscription. | Readable; brought. |
+| `UNSUBSCRIBE_SECRET` | Signs the unsubscribe links in mail already sent. | Nothing here: an unsubscribe link from an old mail. |
+| `OUTLOOK_WEBHOOK_SECRET`, `GMAIL_WEBHOOK_TOKEN` | Part of every live mail subscription. | Nothing here: mail that still arrives. |
 | `GPT_LIVE_TRUNK_SECRET` | The phone trunk sends it with every call. | The Twilio trunk's origination address (`--fill` brings it from there). |
 | `GPT_LIVE_WEBHOOK_SECRET`, `LINEAR_WEBHOOK_SECRET`, `GITHUB_WEBHOOK_SECRET` | The provider signs its webhooks with it (GitHub: a repository's webhook to `/api/webhooks/github`). | Nothing here: the provider's dashboard. |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` | The number, the messaging service and the trunk belong to that account; Twilio signs its webhooks with the account's current token. | Twilio accepts them; the number and the service are the account's. |
 | `STRIPE_SECRET_KEY` | Any secret key of the account and mode the stored customers and prices are in. | Stored customers read with it. |
 | The OAuth apps' client ids (`*_CLIENT_ID`) | Stored connections were made with that app: keep the app, and its client secret may be a new one. | Nothing here: a connection's next refresh. |
-| `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY` | The Inngest server's; `pull-settings.sh` copies them from `../inngest/.env`. | |
+| `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY` | The Inngest server's: the same values as in `../inngest/.env`. | |
 
-**Exactly** means byte for byte. Two of the readable values on the earlier host
-(`OAUTH_STATE_SECRET`, `OUTLOOK_WEBHOOK_SECRET`) end in a line break, almost
-certainly pasted with one, and the app uses them with it; `pull-settings.sh`
-carries it. A write-only value may have one too, and `set-secret.sh` trims what is
-typed: give such a name to `set-secret.sh` as `NAME+nl` to keep it. For
+**Exactly** means byte for byte. Two of production's values (`OAUTH_STATE_SECRET`,
+`OUTLOOK_WEBHOOK_SECRET`) end in a line break, almost certainly pasted with one, and
+the app uses them with it. Another may have one too, and `set-secret.sh` trims what
+is typed: give such a name to `set-secret.sh` as `NAME+nl` to keep it. For
 `RUN_SKILL_INTERNAL_SECRET`, `check-settings.sh` says which form is production's.
-After the switch, before the earlier host is retired, check what only real use
-shows: an unsubscribe link from an old mail, a connected account that still syncs.
+Only real use shows the rest: an unsubscribe link from an old mail, a connected
+account that still syncs.
 
-These may be new on the server (`PULL_GENERATE=1` makes the first three):
+These may be given a new value (any long random one; what a change costs is beside
+each):
 
 - `AGENT_RUN_INTERNAL_SECRET`: run tokens of an hour, and the coding sandbox's push
   token of six; only runs in flight across the switch fail.
@@ -329,7 +330,7 @@ These may be new on the server (`PULL_GENERATE=1` makes the first three):
 Each of them falls back to `RUN_SKILL_INTERNAL_SECRET` when empty
 (`web/src/lib/eve/internal-secret.ts`), so give each its own value.
 
-These exist only here: the earlier host has no such settings.
+These came with the server: the earlier host had no such settings.
 
 - `SANDBOX_RUNTIME_API_URL`, `SANDBOX_RUNTIME_TRAFFIC_URL`, `SANDBOX_RUNTIME_TEMPLATE`,
   `SANDBOX_RUNTIME_KEY`: the coding agent's third way, our own sandbox runtime on the
@@ -376,8 +377,12 @@ requires and calls one set without the others wrong; nothing can prove them at
 Slack without an install. What the owner sets at Slack is in `../README.md`
 ("Slack", under "Day to day").
 
-`VERCEL_PROJECT_ID` and `VERCEL_ENV` are never set here: other code
-reads `VERCEL_ENV` to tell production from a preview.
+`VERCEL` and `VERCEL_ENV` are never set here, and must not be. eve reads them (with
+either it builds for that platform, and `VERCEL_ENV=development` beside `VERCEL`
+admits its development sign-in), the agents' `localDevOffVercel()` and the chat
+agent's eval door read them as a deployment there, and the cloud browser's relay
+origin reads `VERCEL_ENV`. The app itself tells production from development by
+`NODE_ENV` (`web/src/lib/app-env.ts`).
 
 Three more exist only here, for calls on this server's own LiveKit (`../livekit`,
 `../README.md` step 23): `LIVEKIT_URL` (the `wss://` address browsers connect to),
@@ -618,18 +623,18 @@ fails when the two disagree; the image build and `.github/workflows/crontab.yml`
 both run it.
 
 Each job is one `GET` with `Authorization: Bearer $CRON_SECRET` (`cron/call.mjs`),
-at the same UTC times as Vercel Cron. Two differences from Vercel:
+at the UTC times in the list. Two things differ from Vercel Cron, which the routes
+were written for:
 
-- supercronic does not start a job again while its last run is still going; Vercel
-  would. A route that hangs therefore delays its own next run.
+- supercronic does not start a job again while its last run is still going. A
+  route that hangs therefore delays its own next run.
 - Nothing ends a route at its `maxDuration`: `next start` ignores it. `call.mjs`
   gives up after 15 minutes, which does not stop the work on the server.
 
 In the container test the scheduler is a dry run (`CRON_DRY_RUN=1` in
 `smoke/compose.yaml`), and on the server it is one until `NI_LIVE=1`: it logs each
-job and calls nothing. Never let it run while the earlier host's own scheduled jobs
-still run the same schedule against the same database: switch those off first
-(`../README.md`, step 21).
+job and calls nothing. Never let two copies run the same schedule against the same
+database: the one that hands over is switched off first (`../README.md`, step 21).
 
 ## Files
 
@@ -643,7 +648,6 @@ still run the same schedule against the same database: switch those off first
 | `compose.yaml`, `.env.example` | The stack on the server, and its settings. |
 | `deploy.sh` | Build and roll out on the server, or go back. |
 | `auto-deploy.sh`, `ni-auto-deploy.service`, `ni-auto-deploy.timer` | Automatic deploys of `main`, off unless switched on; `tests/test_auto_deploy.py` is its test. |
-| `pull-settings.sh` | Fill the server's `.env` from the earlier host, unseen. |
 | `check-settings.sh`, `check_settings.py` | Check the server's `.env` before the switch, unseen; `tests/test_check_settings.py` is its test. |
 | `smoke/compose.yaml`, `smoke/.env.example` | The container test's stack. |
 | `smoke.sh` | The container test. |

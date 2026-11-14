@@ -1000,13 +1000,14 @@ cd /opt/native-intelligence && git sparse-checkout add web
 cd /opt/native-intelligence/deploy/app && sudo install -m 600 -o root -g root .env.example .env
 ```
 
-From your own machine, fill it from the app's current host. Its command-line tool must be logged in there; `PULL_PROJECT` and `PULL_TEAM` are the project and team ids the app runs under. The last argument is the test address, here `test.nativeintelligence.dev`:
+At the move this file was filled by a script, `deploy/app/pull-settings.sh`: it copied in every production setting the earlier host would give out, with the test address as `NEXT_PUBLIC_APP_URL`. The script was removed afterwards, because that host's settings are frozen and no longer production's, and a run would write them over the live ones. A server set up today is filled by hand instead, from the password manager's copy of production's file:
 
-```bash
-PULL_PROJECT=<project id> PULL_TEAM=<team id> PULL_GENERATE=1 PULL_REHEARSAL=1 deploy/app/pull-settings.sh <user>@<server> NEXT_PUBLIC_APP_URL=https://test.nativeintelligence.dev
-```
+- `NEXT_PUBLIC_APP_URL`: the test address, here `https://test.nativeintelligence.dev`.
+- The Inngest keys: the same values as in `inngest/.env`. The two Supabase keys: the ones in `supabase/stack/.env`, or the app is refused by its database.
+- The three internal secrets that may be new (`AGENT_RUN_INTERNAL_SECRET`, `CHAT_INTERNAL_SECRET`, `LOCAL_AGENT_TOKEN_SECRET`): a long random value each.
+- The two the app cannot start without (`RUN_SKILL_INTERNAL_SECRET`, `BROWSER_INTERNAL_SECRET`): for a rehearsal a stand-in starting with `rehearsal-` will do, and the live copy refuses to start on one.
 
-It writes every production setting the current host gives out, copies the Inngest keys from `inngest/.env`, checks the two Supabase keys against `supabase/stack/.env`, makes new values for the three internal secrets that may be new (`PULL_GENERATE`), puts stand-ins starting with `rehearsal-` into the two the app cannot start without (`PULL_REHEARSAL`), and ends with what is still missing, by name, in the groups `check_settings.py` uses (below, step 21). Nothing in the first group ("must be the value the earlier host has") is needed for a rehearsal. `AI_GATEWAY_API_KEY` is, for any agent to answer: make a key for the server in the AI Gateway's settings and enter it, and the rest when you have them, with hidden typing:
+`check-settings.sh` (below, step 21) says what is still missing, by name. Nothing in its first group ("must be the value production already has") is needed for a rehearsal. `AI_GATEWAY_API_KEY` is, for any agent to answer: make a key for the server in the AI Gateway's settings and enter it, and the rest when you have them, with hidden typing:
 
 ```bash
 PULL_ENV_FILE=/opt/native-intelligence/deploy/app/.env deploy/supabase/set-secret.sh <user>@<server> AI_GATEWAY_API_KEY
@@ -1076,7 +1077,7 @@ The app's names move here from its current host. For the people using it, the sw
   deploy/app/check-settings.sh <user>@<server>
   ```
 
-  It says, for each setting, whether it is set and, where that can be told from the server, whether it is the right value, without showing one; it ends with `Gate 1, the settings: met`, or with what is in the way. Its first group, "must be the value the earlier host has", may hold nothing empty or wrong: what those sign or encrypt is already stored, or a provider holds the other copy. The current host shows none of them to anyone. They came over once, sealed, from a production build of the current host ([`app/README.md`, "Sealed copy"](app/README.md#sealed-copy-done-once-then-removed)); a value changed since comes from the password manager or from the provider that issued it (a Twilio token can be read in Twilio's console). Three can be proven against production's own data, and the check does: `CREDENTIAL_ENCRYPTION_KEY` must open every stored token ciphertext (connected accounts, connected apps, flow actions), `RUN_SKILL_INTERNAL_SECRET` must reproduce a stored phone code's hash, and the public half of `CLOUD_BROWSER_SIGNING_KEY` must be the one pinned in the desktop app. With `--fill` it also brings `GPT_LIVE_TRUNK_SECRET` from the Twilio trunk's origination address, once the Twilio settings are in. `STRIPE_SECRET_KEY` may be any secret key of the account and mode the stored customers are in; the check reads three of them with it, and the payment function's key (`supabase/stack/.env`) is one. [`app/README.md`](app/README.md#settings) says why each must be the same. Enter what is missing with hidden typing, several names at once (an empty answer leaves that one as it is):
+  It says, for each setting, whether it is set and, where that can be told from the server, whether it is the right value, without showing one; it ends with `Gate 1, the settings: met`, or with what is in the way. Its first group, "must be the value production already has", may hold nothing empty or wrong: what those sign or encrypt is already stored, or a provider holds the other copy. The current host shows none of them to anyone. They came over once, sealed, from a production build of the current host ([`app/README.md`, "Sealed copy"](app/README.md#sealed-copy-done-once-then-removed)); a value changed since comes from the password manager or from the provider that issued it (a Twilio token can be read in Twilio's console). Three can be proven against production's own data, and the check does: `CREDENTIAL_ENCRYPTION_KEY` must open every stored token ciphertext (connected accounts, connected apps, flow actions), `RUN_SKILL_INTERNAL_SECRET` must reproduce a stored phone code's hash, and the public half of `CLOUD_BROWSER_SIGNING_KEY` must be the one pinned in the desktop app. With `--fill` it also brings `GPT_LIVE_TRUNK_SECRET` from the Twilio trunk's origination address, once the Twilio settings are in. `STRIPE_SECRET_KEY` may be any secret key of the account and mode the stored customers are in; the check reads three of them with it, and the payment function's key (`supabase/stack/.env`) is one. [`app/README.md`](app/README.md#settings) says why each must be the same. Enter what is missing with hidden typing, several names at once (an empty answer leaves that one as it is):
 
   ```bash
   PULL_ENV_FILE=/opt/native-intelligence/deploy/app/.env deploy/supabase/set-secret.sh <user>@<server> NAME ...
@@ -1101,11 +1102,7 @@ The app's names move here from its current host. For the people using it, the sw
 - Know the current values of those records: they are the undo. Changing a record gives it a new id at that DNS host, so list the records again before an undo rather than using ids written down before.
 - `https://sb.nativeintelligence.dev/auth/v1/callback` and the app's redirect URLs are what they were: nothing in this step changes sign-in.
 
-**1. Build for production.** With the app still serving from its current host. Run the pull again with production's address (the value `NEXT_PUBLIC_APP_URL` has on the current host, given here so that nothing of the rehearsal can stay behind), then build only:
-
-```bash
-PULL_PROJECT=<project id> PULL_TEAM=<team id> deploy/app/pull-settings.sh <user>@<server> NEXT_PUBLIC_APP_URL=https://dial8.ai
-```
+**1. Build for production.** With the app still serving from its current host. Set `NEXT_PUBLIC_APP_URL` to production's address (the value it has on the current host), so that nothing of the rehearsal can stay behind; at the move, a second run of the script named in step 20 did this. Then build only:
 
 ```bash
 cd /opt/native-intelligence/deploy/app && sudo ./deploy.sh --build-only

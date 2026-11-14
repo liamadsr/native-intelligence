@@ -2,15 +2,14 @@
 """Checks the app's settings on the server (deploy/app/.env) before the switch of
 the real names (../README.md step 21, Gate 1), without showing a value.
 
-check-settings.sh sends this program to the server and runs it there as root; so
-does pull-settings.sh, with --names-only, for its closing report. It prints, for
-each setting, whether it is set and, where that can be checked from here, whether
-it is the right value: never the value, at most its length.
+check-settings.sh sends this program to the server and runs it there as root. It
+prints, for each setting, whether it is set and, where that can be checked from
+here, whether it is the right value: never the value, at most its length.
 
 What "the right value" means depends on the setting, so they are in four groups:
 
   must match   what it signs or encrypts is already stored, or a provider holds
-               the other copy: only the value the earlier host has works. Where
+               the other copy: only the value production already has works. Where
                production's own data can tell, it is checked against that data
                (a stored ciphertext must open, a stored hash must be reproduced,
                a pinned public key must match).
@@ -22,6 +21,9 @@ What "the right value" means depends on the setting, so they are in four groups:
 
   check_settings.py <env file> [--names-only] [--fill <envfile.py>]
                     [--pinned <base64 SPKI> ...] [--embedding-model <name>]
+
+--names-only reads the file and reports the groups and what is empty, without
+checking a value against anything.
 
 --fill writes the one value this program can bring from where it is held:
 GPT_LIVE_TRUNK_SECRET, read from the Twilio trunk's origination address with the
@@ -53,8 +55,8 @@ MUST_MATCH = {
     "UNSUBSCRIBE_SECRET": "signs the unsubscribe links in mail already sent",
     "OUTLOOK_WEBHOOK_SECRET": "part of every live Outlook subscription",
     "GMAIL_WEBHOOK_TOKEN": "part of the Gmail push subscription",
-    "INNGEST_SIGNING_KEY": "the Inngest server's own (pull-settings.sh copies it)",
-    "INNGEST_EVENT_KEY": "the Inngest server's own (pull-settings.sh copies it)",
+    "INNGEST_SIGNING_KEY": "the Inngest server's own (the value in ../inngest/.env)",
+    "INNGEST_EVENT_KEY": "the Inngest server's own (the value in ../inngest/.env)",
     "GPT_LIVE_TRUNK_SECRET": "the phone trunk sends it with every call",
     "GPT_LIVE_WEBHOOK_SECRET": "the voice provider signs its call webhooks with it",
     "LINEAR_WEBHOOK_SECRET": "Linear signs its webhooks with it",
@@ -77,8 +79,6 @@ MAY_BE_EMPTY = {
     "NEXT_PUBLIC_POSTHOG_HOST": "empty: the US cloud, through /ingest",
     "NEXT_PUBLIC_SITE_URL": "empty: the app's own address",
     "APP_DOWNLOAD_URL_WINDOWS": "empty: no Windows download is offered",
-    "SENTRY_ORG": "read only by the build's source-map upload, which this image does not do",
-    "SENTRY_PROJECT": "read only by the build's source-map upload, which this image does not do",
     # Our own Slack app (web/src/lib/slack/config.ts): all four or none.
     "SLACK_APP_ID": "empty: Slack is off (all four SLACK_ settings or none)",
     "SLACK_CLIENT_ID": "empty: Slack is off, and no workspace can add the app (all four SLACK_ settings or none)",
@@ -89,7 +89,6 @@ MAY_BE_EMPTY = {
     "AGENT_AUTO_ATTEMPT_ENABLED": "a switch: empty is off",
     "AGE_OUT_ENABLED": "a switch: empty is off",
     "RECONCILER_ENABLED": "a switch: empty is off",
-    "RUN_SKILL_LOCAL_DISPATCH_ENABLED": "a switch: empty is off",
     "NI_FORWARD_OLD_DOMAIN": "a switch: empty is off (the forward from dial8.ai; only after the address moves)",
     # Until the app makes calls (../livekit; ../README.md step 23). All three or none.
     "LIVEKIT_URL": "empty: no audio or video calls",
@@ -850,7 +849,7 @@ def report(env, results):
     checks that ran; ok is True, False, None (could not run), "nothing" (no
     stored data to prove it against) or "warn" (said, but blocks nothing)."""
     lines, blockers, unchecked = [], [], []
-    for title, key in (("Must be the value the earlier host has", "must match"), ("Needed (any working value)", "needed"),
+    for title, key in (("Must be the value production already has", "must match"), ("Needed (any working value)", "needed"),
                        ("May stay empty", "may be empty"), ("Set by the switch itself", "switch")):
         names = [n for n in env if group(n) == key]
         if not names:

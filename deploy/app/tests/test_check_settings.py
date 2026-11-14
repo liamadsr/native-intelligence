@@ -48,7 +48,7 @@ class Groups(unittest.TestCase):
     def test_groups(self):
         self.assertEqual(cs.group("NI_LIVE"), "switch")
         self.assertEqual(cs.group("CREDENTIAL_ENCRYPTION_KEY"), "must match")
-        self.assertEqual(cs.group("SENTRY_ORG"), "may be empty")
+        self.assertEqual(cs.group("NEXT_PUBLIC_SITE_URL"), "may be empty")
         self.assertEqual(cs.group("SANDBOX_ACCESS_TOKEN"), "needed")
         # A new value is fine for it: only cloud browsers running at the switch hold tokens made with it.
         self.assertEqual(cs.group("BROWSER_INTERNAL_SECRET"), "needed")
@@ -61,6 +61,9 @@ class Groups(unittest.TestCase):
             self.assertNotIn(name, cs.MAY_BE_EMPTY)
             self.assertNotIn(name, cs.EMPTY_MEANS)
             self.assertNotIn(name, cs.CHECKS)
+        # Nothing on the server read these three: gone from the file and from here.
+        for name in ("SENTRY_ORG", "SENTRY_PROJECT", "RUN_SKILL_LOCAL_DISPATCH_ENABLED"):
+            self.assertNotIn(name, cs.MAY_BE_EMPTY)
 
     def test_no_name_is_in_two_groups(self):
         self.assertFalse(set(cs.MUST_MATCH) & set(cs.MAY_BE_EMPTY))
@@ -590,7 +593,7 @@ class Report(unittest.TestCase):
             "CREDENTIAL_ENCRYPTION_KEY": "",
             "RUN_SKILL_INTERNAL_SECRET": "rehearsal-made-up",
             "STRIPE_SECRET_KEY": "made-up",
-            "SENTRY_ORG": "",
+            "NEXT_PUBLIC_SITE_URL": "",
             "SANDBOX_ACCESS_TOKEN": "made-up",
             "CRON_SECRET": "made-up",
         }
@@ -602,7 +605,7 @@ class Report(unittest.TestCase):
             "SANDBOX_ACCESS_TOKEN: refused",
         ])
         text = "\n".join(lines)
-        self.assertIn("SENTRY_ORG", text)
+        self.assertIn("NEXT_PUBLIC_SITE_URL", text)
         self.assertNotIn("made-up", text)
         self.assertEqual(unchecked, [])
 
@@ -620,7 +623,7 @@ class Report(unittest.TestCase):
     def test_names_only_run_shows_no_value(self):
         secret = "made-up-value-that-must-not-show"
         with tempfile.NamedTemporaryFile("w", suffix=".env", delete=False) as f:
-            f.write("NI_LIVE=\nCRON_SECRET=%s\nCREDENTIAL_ENCRYPTION_KEY=\nSENTRY_ORG=\n" % secret)
+            f.write("NI_LIVE=\nCRON_SECRET=%s\nCREDENTIAL_ENCRYPTION_KEY=\nNEXT_PUBLIC_SITE_URL=\n" % secret)
         try:
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
