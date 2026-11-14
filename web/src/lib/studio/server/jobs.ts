@@ -224,6 +224,19 @@ export async function cancelJob(ctx: StudioContext, id: string): Promise<EditorJ
     // Claimed between the read and the cancel: it runs now, so the cancel is asked of its worker.
     if (!cancelled?.length) running = (await jobRow(ctx, id)).status === 'running'
   }
+  if (running && row.kind === 'local-export') {
+    // An export on the person's own computer has no worker of ours to notice the request, and a computer whose
+    // runner was stopped outright (always on Windows, where the app ends the whole process tree) never reports
+    // again: the job would read "running" until the stale rule. It ends here, at once; a computer still working is
+    // refused at its next call (local-jobs.ts: NOT_HELD) and stops. Only while it is still running: one that
+    // finished meanwhile stays finished.
+    must(
+      await ctx.supabase.from('studio_job').update({ cancel_requested: true, status: 'cancelled', error: CANCELLED, updated_at: new Date().toISOString() })
+        .eq('id', id).eq('workspace_id', ctx.workspaceId).eq('kind', 'local-export').eq('status', 'running'),
+      'cancel that job',
+    )
+    return getJob(ctx, id)
+  }
   if (running) {
     must(await ctx.supabase.from('studio_job').update({ cancel_requested: true }).eq('id', id).eq('workspace_id', ctx.workspaceId), 'cancel that job')
   }
@@ -269,12 +282,13 @@ export async function videoExports(ctx: StudioContext, videoId: string, now = Da
 }
 
 /**
- * How long a finished export's part links last when the desktop app downloads it (exportParts): long enough for
- * what is left at a slow 2 Mbit/s (256 KB a second), and a quarter of an hour more, at least an hour and at most twelve.
- * A download that outlives its links asks again from the part it reached (`from`).
+ * How long a finished export's part links last when the desktop app downloads it (exportParts): an hour, as every
+ * other read link. A link works without a sign-in for as long as it lasts, so it does not outlive a membership by
+ * more than that; a download that outlives its links asks again from the part it reached (`from`), and one part
+ * (at most STUDIO_PART_BYTES) takes far less than an hour on a slow line.
  */
-export function exportLinkSeconds(bytesLeft: number): number {
-  return Math.min(12 * 3600, Math.max(READ_LINK_SECONDS, Math.ceil(bytesLeft / (256 * 1024)) + 900))
+export function exportLinkSeconds(): number {
+  return READ_LINK_SECONDS
 }
 
 /** A finished export's stored file as the desktop app downloads it: its name, size, hash when known, and parts in order. */
@@ -298,7 +312,7 @@ export async function exportParts(ctx: StudioContext, videoId: string, jobId: st
   const shape = blobParts(blob.bytes, blob.partBytes)
   if (!Number.isSafeInteger(from) || from < 0 || from >= shape.length) throw new StudioError(`from is a part number from 0 to ${shape.length - 1}.`, 400, 'INVALID')
   const wanted = shape.slice(from)
-  const seconds = exportLinkSeconds(wanted.reduce((sum, part) => sum + part.bytes, 0))
+  const seconds = exportLinkSeconds()
   const urls = await storageOf(ctx).signRead(wanted.map((part) => blobObject(ctx.workspaceId, blob.key, part.index)), seconds)
   const title = typeof row.input?.title === 'string' ? row.input.title : 'video'
   return {

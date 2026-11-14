@@ -203,9 +203,8 @@ describe('a finished export’s parts, for the desktop app to download', () => {
     expect((await at(`projects/${video}/exports/${id}/parts?from=3`)).status).toBe(400)
     expect((await at(`projects/${video}/exports/${id}/parts?from=x`)).status).toBe(400)
     // The links last for what is left at 2 Mbit/s, and a quarter of an hour: an hour at least, twelve at most.
-    expect(exportLinkSeconds(25)).toBe(3600)
-    expect(exportLinkSeconds(2 * 1024 ** 3)).toBe(Math.ceil((2 * 1024 ** 3) / (256 * 1024)) + 900)
-    expect(exportLinkSeconds(100 * 1024 ** 3)).toBe(12 * 3600)
+    // An hour, however large the file: a link works without a sign-in, and a long download asks again (`from`).
+    expect(exportLinkSeconds()).toBe(3600)
   })
 
   it('works for an export made on a computer and uploaded, and gives no hash the server does not hold', async () => {

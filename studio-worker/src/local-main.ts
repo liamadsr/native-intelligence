@@ -11,6 +11,7 @@
 import { createInterface } from 'node:readline'
 import { parseArgs, runLocal, takeTokenFromEnv, type LocalEvent } from './local.ts'
 import type { EncoderProfile } from './encoders.ts'
+import { AppError } from './app-client.ts'
 
 async function token(): Promise<string> {
   // Taken out of the environment at once: FFmpeg, ffprobe and Chrome inherit this process's environment.
@@ -52,7 +53,9 @@ async function main(): Promise<number> {
     return 0
   } catch (err) {
     // Refused before the job was taken (a destination, a token): said here, the job untouched.
-    if ((last as LocalEvent | null)?.type !== 'failed') emit({ type: 'failed', error: String((err as Error)?.message ?? err).slice(0, 500), cancelled: false })
+    // With the app's refusal code when the app refused (the take of a job another runner holds: NOT_HELD), for the desktop to match on.
+    const code = err instanceof AppError ? err.code : err instanceof Error && err.cause instanceof AppError ? err.cause.code : null
+    if ((last as LocalEvent | null)?.type !== 'failed') emit({ type: 'failed', error: String((err as Error)?.message ?? err).slice(0, 500), cancelled: false, ...(code ? { code } : {}) })
     const ended = last as LocalEvent | null
     return stop.signal.aborted || (ended?.type === 'failed' && ended.cancelled) ? 2 : 1
   }

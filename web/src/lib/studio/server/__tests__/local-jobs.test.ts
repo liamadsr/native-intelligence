@@ -18,7 +18,7 @@ import { createBlankVideo } from '../blank'
 import { activeJob, cancelJob, claimJob, getJob, MAX_OPEN_EXPORTS, queueJob, toEditorJob, UNTAKEN, videoExports } from '../jobs'
 import { ClaimBody, LOCAL_TOKEN_SECONDS, MAX_OPEN_LOCAL_EXPORTS, STUDIO_JOB_KINDS, type LocalTaken } from '../job-contract'
 import { handleLocalRunner, LOCAL_CALLS_PER_MINUTE, resetLocalCalls } from '../local-http'
-import { LOCAL_RUN_FLOOR_MS, localExportKey, localReadable, localJob, localRunLimit, localToken, moveToServer, readAllowance, scrubLocalText, startsLikeMp4 } from '../local-jobs'
+import { LOCAL_RETAKE_AFTER_MS, LOCAL_RUN_FLOOR_MS, localExportKey, localReadable, localJob, localRunLimit, localToken, moveToServer, readAllowance, scrubLocalText, startsLikeMp4 } from '../local-jobs'
 import { getBlob, PENDING } from '../blobs'
 import { sweepStudio } from '../sweep'
 import { forgetStudioSwitches } from '../auth'
@@ -189,13 +189,70 @@ describe('the desktop app working it', () => {
     expect((await call('progress', fresh, { progress: 1 })).status).toBe(409)
   })
 
-  it('asks the app to stop when the person cancels, and ends cancelled', async () => {
+  it('ends at once when the person cancels, whether or not the computer ever reports again', async () => {
     const { job, token } = await queued()
     const t = await taken(token)
-    await cancelJob(env.ctx, job.id)
-    expect((await call('progress', t.token, { progress: 0.5 })).body).toMatchObject({ cancelRequested: true })
-    expect((await call('fail', t.token, { error: 'Cancelled' })).status).toBe(200)
-    expect(row(job.id)).toMatchObject({ status: 'cancelled', error: 'Cancelled.' })
+    const editor = await cancelJob(env.ctx, job.id)
+    // No worker of ours would notice a request, and a runner stopped outright never reports: it is over now.
+    expect(editor).toMatchObject({ status: 'cancelled', where: 'computer' })
+    expect(row(job.id)).toMatchObject({ status: 'cancelled', cancel_requested: true, error: 'Cancelled.' })
+    // A computer still working is refused at its next call, and can neither store nor finish the export.
+    expect((await call('progress', t.token, { progress: 0.5 })).body).toMatchObject({ code: 'NOT_HELD' })
+    expect((await call('complete', t.token, { result: { kept: 'computer', bytes: 4_000_000, width: 1920, height: 1080, fps: 30, durationSeconds: 2 } })).body).toMatchObject({ code: 'NOT_HELD' })
+    expect(row(job.id).status).toBe('cancelled')
+    // It no longer counts against the person's open exports, and cannot be taken or continued.
+    await expect(localToken(env.ctx, job.id)).rejects.toMatchObject({ code: 'ENDED' })
+    expect((await call('take', token)).body).toMatchObject({ code: 'ENDED' })
+  })
+
+  it('a cancel does not undo an export the computer finished first', async () => {
+    const { job, token } = await queued()
+    const t = await taken(token)
+    expect((await call('complete', t.token, { result: { kept: 'computer', bytes: 4_000_000, width: 1920, height: 1080, fps: 30, durationSeconds: 2 } })).status).toBe(200)
+    expect(await cancelJob(env.ctx, job.id)).toMatchObject({ status: 'completed', kept: 'computer' })
+    expect(row(job.id).status).toBe('completed')
+  })
+
+  it('"Continue on this computer": a running export whose computer went quiet is taken again by its person, a live one is not', async () => {
+    const { job, token } = await queued()
+    const first = await taken(token)
+    // Its computer reported a moment ago: not to be taken from it.
+    expect((await call('take', token)).body).toMatchObject({ code: 'NOT_HELD' })
+    expect(row(job.id)).toMatchObject({ attempts: 1, status: 'running' })
+    // Quiet for longer than a runner's heartbeat (it was quit, or stopped outright): the person's app takes it again.
+    Object.assign(row(job.id), { heartbeat_at: new Date(Date.now() - LOCAL_RETAKE_AFTER_MS - 1000).toISOString() })
+    const fresh = (await localToken(env.ctx, job.id)).token
+    const second = await taken(fresh)
+    expect(second.job.attempts).toBe(2)
+    expect(row(job.id)).toMatchObject({ status: 'running', attempts: 2 })
+    // The first runner, should it wake, no longer holds it; the second does.
+    expect((await call('progress', first.token, { progress: 0.3 })).body).toMatchObject({ code: 'NOT_HELD' })
+    expect((await call('progress', second.token, { progress: 0.3 })).status).toBe(200)
+    // Never another person's, however quiet, and never one asked to stop.
+    Object.assign(row(job.id), { heartbeat_at: new Date(Date.now() - 10 * LOCAL_RETAKE_AFTER_MS).toISOString() })
+    expect((await call('take', signLocalToken({ jid: job.id, uid: BEN, wid: WS }).token)).status).toBe(409)
+    expect(row(job.id).attempts).toBe(2)
+    Object.assign(row(job.id), { cancel_requested: true })
+    expect((await call('take', fresh)).body).toMatchObject({ code: 'ENDED' })
+  })
+
+  it('a computer that reports between the read and the take keeps its export', async () => {
+    const { job, token } = await queued()
+    await taken(token)
+    const stale = new Date(Date.now() - LOCAL_RETAKE_AFTER_MS - 1000).toISOString()
+    Object.assign(row(job.id), { heartbeat_at: stale })
+    // Its heartbeat moves just as the second take reads the row: the compare-and-set on the heartbeat refuses.
+    const from = env.ctx.supabase.from.bind(env.ctx.supabase)
+    let reads = 0
+    env.ctx.supabase.from = ((table: string) => {
+      const q = from(table as never)
+      if (table === 'studio_job' && ++reads === 2) Object.assign(row(job.id), { heartbeat_at: new Date().toISOString() })
+      return q
+    }) as typeof env.ctx.supabase.from
+    const res = await call('take', (await localToken(env.ctx, job.id)).token)
+    env.ctx.supabase.from = from
+    expect(res.body).toMatchObject({ code: 'NOT_HELD' })
+    expect(row(job.id)).toMatchObject({ attempts: 1, status: 'running' })
   })
 
   it('fails with the app’s reason, delivered as a failed export', async () => {

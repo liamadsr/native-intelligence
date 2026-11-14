@@ -36,6 +36,12 @@ export const LOCAL_PROGRESS_EVERY_MS = 1000
 /** How long one attempt may run: an hour at least, else ten times the video's length (a slow computer, a long video). */
 export const LOCAL_RUN_FLOOR_MS = 60 * 60_000
 export const LOCAL_RUN_PER_VIDEO = 10
+/**
+ * How long a running export's computer must have been quiet before the same person may take it again: more than the
+ * runner's own heartbeat (15 s, studio-worker/src/local.ts HEARTBEAT_MS), and less than the 30 s after which the
+ * Export dialog offers "Continue on this computer", so that button works the moment it shows.
+ */
+export const LOCAL_RETAKE_AFTER_MS = 25_000
 /** Where an attempt's reads are counted (studio_record; the sweep clears them with the job). */
 export const LOCAL_READS = 'local-reads'
 
@@ -101,17 +107,23 @@ export async function localToken(ctx: StudioContext, jobId: string): Promise<{ t
  */
 export async function takeLocalJob(deps: WorkerDeps, claims: LocalTokenClaims): Promise<LocalTaken> {
   const row = await localJob(deps, claims)
-  if (row.status !== 'queued' || row.cancel_requested) throw conflictError(row.status === 'running' ? 'That export is running elsewhere already.' : 'That export has ended.', row.status === 'running' ? 'NOT_HELD' : 'ENDED')
+  if (row.cancel_requested || (row.status !== 'queued' && row.status !== 'running')) throw conflictError('That export has ended.', 'ENDED')
+  // A running one only when its computer has gone quiet (LOCAL_RETAKE_AFTER_MS): the person's "Continue on this
+  // computer" after the app was quit or its runner stopped outright, without waiting for the stale rule.
+  const quietFor = Date.now() - Date.parse(row.heartbeat_at ?? row.claimed_at ?? row.created_at)
+  if (row.status === 'running' && !(quietFor >= LOCAL_RETAKE_AFTER_MS)) throw conflictError('That export is running elsewhere already.', 'NOT_HELD')
   const workerId = localWorkerId(claims.uid)
   const now = new Date().toISOString()
-  // Compare-and-set on what was read: two computers taking at once, one wins.
-  const taken = must(
-    await deps.supabase.from('studio_job')
-      .update({ status: 'running', worker_id: workerId, attempts: row.attempts + 1, claimed_at: now, heartbeat_at: now, updated_at: now })
-      .eq('id', row.id).eq('workspace_id', claims.wid).eq('created_by', claims.uid).eq('kind', 'local-export').eq('status', 'queued').eq('cancel_requested', false).eq('attempts', row.attempts)
-      .select('id'),
-    'take that export',
-  ) as { id: string }[] | null
+  // Compare-and-set on what was read: two computers taking at once, one wins; a computer that reported between
+  // the read and the write (its heartbeat moved) keeps its export.
+  let update = deps.supabase.from('studio_job')
+    .update({ status: 'running', worker_id: workerId, attempts: row.attempts + 1, claimed_at: now, heartbeat_at: now, updated_at: now })
+    .eq('id', row.id).eq('workspace_id', claims.wid).eq('created_by', claims.uid).eq('kind', 'local-export').eq('status', row.status).eq('cancel_requested', false).eq('attempts', row.attempts)
+  if (row.status === 'running') {
+    update = update.eq('worker_id', row.worker_id ?? '')
+    if (row.heartbeat_at) update = update.eq('heartbeat_at', row.heartbeat_at)
+  }
+  const taken = must(await update.select('id'), 'take that export') as { id: string }[] | null
   if (!taken?.length) throw conflictError('That export was taken or changed just now.', 'NOT_HELD')
   const { token, expiresAt } = signLocalToken({ jid: row.id, uid: claims.uid, wid: claims.wid, w: workerId })
   return { job: { id: row.id, kind: 'local-export', workspaceId: row.workspace_id, videoId: row.video_id, input: row.input, attempts: row.attempts + 1 }, token, expiresAt }
