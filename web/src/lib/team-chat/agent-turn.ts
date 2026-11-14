@@ -48,6 +48,7 @@ import { finishHomeTurn, type HomeTurnReadResult, type HomeTurnRow, type HomeTur
 import { DEFAULT_ASSISTANT_NAME, sanitizeAssistantName } from '@/lib/voice/assistant-name'
 import { TEAM_CHAT_MESSAGE_MAX, type TeamChatMessage } from './types'
 import { requestTeamChatNotify } from './notify'
+import { emailShareAgentText } from '@/lib/email-share/types'
 
 /** The Inngest event a team chat turn is requested with (home/turn.requested's data, reason 'team_chat'). */
 export const TEAM_CHAT_TURN_REQUESTED_EVENT = 'team-chat/turn.requested' as const
@@ -157,7 +158,7 @@ export async function channelContext(
   const root = before.thread_root_id ?? null
   let query = svc
     .from('team_chat_message')
-    .select('id, author_kind, author_member_id, agent_for_member_id, agent_name, body, created_at')
+    .select('id, author_kind, author_member_id, agent_for_member_id, agent_name, body, created_at, email_share_id')
     .eq('channel_id', channel.id)
   query = root ? query.or(`id.eq.${root},thread_root_id.eq.${root}`) : query.is('thread_root_id', null)
   const { data, error } = await query
@@ -166,7 +167,7 @@ export async function channelContext(
     .order('created_at', { ascending: false })
     .limit(TEAM_CHAT_CONTEXT_MESSAGES)
   if (error) throw new Error(`team chat: context read failed: ${error.message}`)
-  const rows = ((data ?? []) as Array<Pick<TeamChatMessage, 'id' | 'author_kind' | 'author_member_id' | 'agent_for_member_id' | 'agent_name' | 'body'>>)
+  const rows = ((data ?? []) as Array<Pick<TeamChatMessage, 'id' | 'author_kind' | 'author_member_id' | 'agent_for_member_id' | 'agent_name' | 'body' | 'email_share_id'>>)
     .filter((r) => r.id !== before.id)
     .reverse()
   const names = await memberNames(
@@ -179,7 +180,8 @@ export async function channelContext(
       r.author_kind === 'agent'
         ? `${r.agent_name ?? 'Agent'} (${names.get(r.agent_for_member_id ?? '') ?? 'a teammate'}'s agent)`
         : names.get(r.author_member_id ?? '') ?? 'A teammate'
-    return contextLine(author, r.body)
+    // A shared email (migration 646) is "an email was shared", never the mail.
+    return contextLine(author, emailShareAgentText(r.body, r.email_share_id))
   })
 }
 
