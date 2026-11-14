@@ -1697,8 +1697,11 @@
 .ni-studio .modal button.st-app-button.rd-start,.ni-studio .modal button.st-app-button.rd-stop{min-width:150px}
 
 /* ── Export dialog (ExportDialog.tsx) ── */
-.ni-studio .xd-dialog .xd-facts{display:flex;flex-wrap:wrap;font-size:13px;line-height:18px;color:var(--st-text-2);font-variant-numeric:tabular-nums}
-.ni-studio .xd-dialog .xd-facts>span+span::before{content:'·';margin:0 6px;color:var(--st-text-faint)}
+/* The dots between facts: each fact carries its dot in its own left padding, and the line hides its first 16px
+   (pulled out to the left by the same amount), so a fact that starts a line, the first or a wrapped one, shows none. */
+.ni-studio .xd-dialog .xd-facts{display:flex;flex-wrap:wrap;margin-left:-16px;clip-path:inset(0 0 0 16px);font-size:13px;line-height:18px;color:var(--st-text-2);font-variant-numeric:tabular-nums}
+.ni-studio .xd-dialog .xd-facts>span{position:relative;padding-left:16px}
+.ni-studio .xd-dialog .xd-facts>span::before{content:'·';position:absolute;left:0;width:16px;text-align:center;color:var(--st-text-faint)}
 .ni-studio .xd-dialog .xd-shape-box{display:inline-grid;place-items:center;flex:none}
 .ni-studio .xd-dialog .xd-shape{display:block;border:1.5px solid currentColor;border-radius:2px}
 /* What the export makes. */
@@ -1813,3 +1816,28 @@
 .ni-studio .static-download-error{display:block;font-size:12px;line-height:16px;color:var(--st-danger-text)}
 .ni-studio .xd-dialog p.xd-notice{margin:0 0 16px}
 .ni-studio .static-download-note{display:block;font-size:12px;line-height:16px;color:var(--st-text-faint)}
+/* Export dialog: on this computer (ExportLocal.tsx). */
+.ni-studio .xd-dialog .xd-local{display:flex;align-items:center;gap:10px;margin:20px 0 0;padding:10px 12px 10px 14px;border-radius:var(--st-r-xl);font-size:13px;line-height:18px;color:var(--st-text)}
+.ni-studio .xd-dialog .xd-local>svg{flex:none}
+.ni-studio .xd-dialog .xd-local>span{flex:1;min-width:0}
+.ni-studio .xd-dialog .xd-local-here{background:var(--st-info-soft)}
+.ni-studio .xd-dialog .xd-local-here>svg{color:var(--st-info-text)}
+.ni-studio .xd-dialog .xd-local-here>button{flex:none}
+.ni-studio .xd-dialog .xd-local-server{background:var(--st-sunken);color:var(--st-text-2);align-items:flex-start}
+.ni-studio .xd-dialog .xd-local-server>svg{margin-top:1px;color:var(--st-text-faint)}
+.ni-studio .xd-dialog .xd-file{font-weight:600;color:var(--st-text);word-break:break-word}
+.ni-studio .xd-dialog .xd-local-prepare{flex-direction:column;align-items:stretch;gap:10px;padding:14px 16px;border:1px solid var(--st-line);background:var(--st-raised)}
+.ni-studio .xd-dialog .xd-local-text{display:flex;flex-direction:column;gap:3px}
+.ni-studio .xd-dialog .xd-local-text strong{font-size:14px;font-weight:600;line-height:20px;color:var(--st-text)}
+.ni-studio .xd-dialog .xd-local-text span{color:var(--st-text-2)}
+.ni-studio .xd-dialog .xd-local-prepare .xd-progress{margin-top:2px}
+.ni-studio .xd-dialog .xd-local-meta{font-size:12px;color:var(--st-text-faint);font-variant-numeric:tabular-nums}
+.ni-studio .modal button.st-app-button.xd-local-instead{align-self:flex-start;margin-left:-10px}
+.ni-studio .xd-dialog p.xd-saved-here{align-items:center;margin:0 0 4px}
+.ni-studio .xd-dialog p.xd-saved-here>span{flex:1;min-width:0}
+.ni-studio .xd-dialog p.xd-saved-here .xd-file{color:inherit}
+.ni-studio .xd-dialog .xd-saved-error{flex-basis:100%;color:var(--st-danger-text)}
+.ni-studio .xd-dialog .xd-done p.xd-saved-here{margin:18px 0 0}
+.ni-studio .xd-dialog .xd-row-kept{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;flex-basis:100%;padding-left:44px;min-width:0}
+.ni-studio .xd-dialog .xd-finished>ul{max-height:320px}
+.ni-studio .xd-dialog .xd-row-kept>.xd-row-gone{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

@@ -359,10 +359,25 @@ describe('finishing on the server', () => {
     expect((await call('take', token)).status).toBe(409)
   })
 
-  it('not one running on the computer, not another person’s, not past the export cap', async () => {
-    const running = await queued()
-    await taken(running.token)
-    await expect(moveToServer(env.ctx, running.job.id)).rejects.toMatchObject({ code: 'RUNNING' })
+  it('moves one a computer holds too (it slept, or the person would rather not wait): the computer no longer holds it', async () => {
+    const { job, token } = await queued()
+    const t = await taken(token)
+    expect((await call('progress', t.token, { progress: 0.4 })).status).toBe(200)
+    const { job: moved, replaces } = await moveToServer(env.ctx, job.id)
+    expect(replaces).toBe(job.id)
+    expect(moved).toMatchObject({ kind: 'export', where: 'server', status: 'running' })
+    expect(row(job.id)).toMatchObject({ kind: 'local-export', status: 'cancelled', cancel_requested: true, error: 'Moved to our server.' })
+    // The computer, still working, is told at its next call, and can neither store nor finish the export.
+    expect((await call('progress', t.token, { progress: 0.5 })).body).toMatchObject({ code: 'NOT_HELD' })
+    expect((await call('blobs/write', t.token, { key: localExportKey({ id: job.id, attempts: 1 }), bytes: 40, contentType: 'video/mp4' })).body).toMatchObject({ code: 'NOT_HELD' })
+    expect((await call('complete', t.token, { result: { kept: 'computer', bytes: 4_000_000, width: 1920, height: 1080, fps: 30, durationSeconds: 2 } })).body).toMatchObject({ code: 'NOT_HELD' })
+    expect(row(job.id).status).toBe('cancelled')
+    // A second press finds it ended, and queues nothing more.
+    await expect(moveToServer(env.ctx, job.id)).rejects.toMatchObject({ code: 'ENDED' })
+    expect(rows().filter((j) => j.kind === 'export' && !j.cancel_requested)).toHaveLength(1)
+  })
+
+  it('not another person’s, not past the export cap', async () => {
     const bens = await queued({ as: BEN })
     await expect(moveToServer(env.ctx, bens.job.id)).rejects.toMatchObject({ status: 404 })
     const waiting = await queued()
@@ -384,18 +399,18 @@ describe('finishing on the server', () => {
     expect(rows().filter((j) => j.kind === 'local-export' && j.status === 'queued')).toHaveLength(ids.length - MAX_OPEN_EXPORTS)
   })
 
-  it('stops the new server export again when a computer took the local one meanwhile', async () => {
+  it('stops the new server export again when the local one finished meanwhile', async () => {
     const { job } = await queued()
-    // The computer takes it just as the server's export is queued.
+    // The computer finishes it just as the server's export is queued.
     const rpc = env.ctx.supabase.rpc.bind(env.ctx.supabase)
     env.ctx.supabase.rpc = (async (name: string, args: unknown) => {
       const answer = await rpc(name as never, args as never)
-      if (name === 'studio_queue_job') Object.assign(row(job.id), { status: 'running', worker_id: `local:${AVA}:x`, attempts: 1 })
+      if (name === 'studio_queue_job') Object.assign(row(job.id), { status: 'completed', worker_id: `local:${AVA}:x`, attempts: 1 })
       return answer
-    }) as typeof env.ctx.supabase.rpc
-    await expect(moveToServer(env.ctx, job.id)).rejects.toMatchObject({ code: 'RUNNING' })
+    }) as unknown as typeof env.ctx.supabase.rpc
+    await expect(moveToServer(env.ctx, job.id)).rejects.toMatchObject({ code: 'ENDED' })
     env.ctx.supabase.rpc = rpc
-    expect(row(job.id).status).toBe('running')
+    expect(row(job.id).status).toBe('completed')
     const server = rows().find((j) => j.kind === 'export')!
     expect(server).toMatchObject({ status: 'cancelled' })
   })
@@ -522,7 +537,12 @@ describe('the review’s findings', () => {
     const editor = await getJob(env.ctx, job.id)
     expect(editor).toMatchObject({ kind: 'export', where: 'computer', status: 'completed', kept: 'computer' })
     expect(editor.downloadUrl).toBeUndefined()
-    expect((await videoExports(env.ctx, video.id)).exports).toEqual([])
+    // Listed for the person who made it (their computer has the file), with nothing to download; not for anyone else.
+    const mine = (await videoExports(env.ctx, video.id)).exports
+    expect(mine.map((e) => e.id)).toEqual([job.id])
+    expect(mine[0]).toMatchObject({ kept: 'computer', where: 'computer', title: 'Spring launch' })
+    expect(mine[0]!.downloadUrl).toBeUndefined()
+    expect((await videoExports({ ...env.ctx, userId: BEN }, video.id)).exports).toEqual([])
     expect(jobView({ ...row(job.id), input: {} } as never)).not.toHaveProperty('download_url')
     expect(delivered.finished).toHaveLength(1)
   })

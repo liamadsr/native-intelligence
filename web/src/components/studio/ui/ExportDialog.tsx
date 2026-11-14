@@ -9,6 +9,9 @@ import { Modal, StudioSelect } from './controls';
 import { Icon } from './icons';
 import { studioWorkspaceId } from '../studio-env';
 import { exportFileName, saveExport, saveWay, type SaveResult, type SaveWay } from './save-export';
+import { studioLocalExport, type StudioExportDestination } from '@/lib/tauri-bridge';
+import { LocalDone, LocalRunning, LocalWhere, forgetLocalCapability, platformOf, useLocalCapability, useRunner } from './ExportLocal';
+import { destinationOf, localView, revealLabel, savesParts, type LocalCapability } from './local-export';
 
 /*
  * The Export dialog: what will be made and how big, then the render's progress, then the finished video and a way to
@@ -36,6 +39,26 @@ export function exportFor(job: EditorJob | null, receipt: ExportReceipt | null, 
   if (videoId === projectId) return { job, other: null };
   return { job: null, other: job.status === 'running' ? { title: receipt?.jobId === job.id ? receipt.title : null, progress: job.progress } : null };
 }
+/** Where an export runs: this computer (and the file it saves to), or our server (no choice given). */
+export type ExportChoice = { where: 'computer'; destination: StudioExportDestination };
+
+/** What the dialog knows of exporting on this computer (./ExportLocal.tsx), handed to its views. */
+type Local = {
+  capability: LocalCapability | null;
+  /** Export on our server this time (the person chose it over a first-time download). */
+  serverOnly: boolean;
+  destination: StudioExportDestination | null;
+  choose: () => Promise<StudioExportDestination | null>;
+  prepare: () => Promise<boolean>;
+  downloading: boolean;
+  received: { bytes: number; total: number } | null;
+  useServer: () => void;
+  error: string | null;
+  platform: 'macos' | 'windows' | 'other';
+};
+/** Does this export run on this computer, as things stand? */
+const runsHere = (local: Local) => !local.serverOnly && (local.capability?.kind === 'ready' || local.capability?.kind === 'prepare');
+
 type Props = {
   project: EditorProject;
   /** This video's export job (exportFor), or null. */
@@ -54,7 +77,12 @@ type Props = {
   durationFrames: number;
   /** Something else is going on in the editor (saving, opening): Export waits. */
   busy: boolean;
-  start: () => void;
+  /** Export: on this computer (saved at `destination`), or, without a choice, on our server. */
+  start: (choice?: ExportChoice) => void;
+  /** "Finish on the server" for an export on this computer that waits for it: null when done, else why not. */
+  moveToServer?: (jobId: string) => Promise<string | null>;
+  /** "Continue on this computer": a new token handed to the app. Null when done, else why not. */
+  continueHere?: (jobId: string) => Promise<string | null>;
   /** Ask the running export to stop; false when the request failed (the dialog says so). */
   cancel: () => Promise<boolean>;
   close: () => void;
@@ -66,6 +94,8 @@ type Props = {
 };
 
 const clock = (seconds: number) => { const s = Math.max(0, Math.round(seconds)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+/** "412 MB": a first-time download's size. */
+const sizeWordsOf = (bytes: number) => bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`;
 const megabytes = (bytes: unknown) => { const n = Number(bytes); return Number.isFinite(n) && n > 0 ? `${n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : Math.max(0.1, Math.round(n / 1e5) / 10) + ' MB'}` : null; };
 const ratio = (w: number, h: number) => { const g = (a: number, b: number): number => b ? g(b, a % b) : a, d = g(w, h); const r = `${w / d}:${h / d}`; return ['16:9', '9:16', '4:5', '1:1', '4:3', '3:4'].includes(r) ? r : (w / h).toFixed(2).replace(/\.?0+$/, '') + ':1'; };
 /** An outline of a shape, `w` by `h`, fitted in a `box` px square. */
@@ -87,7 +117,7 @@ function howItSaves(way: SaveWay): string {
 }
 
 /** A finished export, as `GET projects/:id/exports` lists them (lib/studio/server/jobs.ts videoExports). */
-type FinishedExport = EditorJob & { title: string; finishedAt: string; /** Its file is still within the 30 days it is kept (worked out as it is read). */ kept?: boolean };
+type FinishedExport = EditorJob & { title: string; finishedAt: string; /** Its file is still within the 30 days it is kept (worked out as it is read). */ stillKept?: boolean };
 
 export function ExportDialog(props: Props) {
   const job = props.job?.kind === 'export' ? props.job : null;
@@ -100,37 +130,61 @@ export function ExportDialog(props: Props) {
   useEffect(() => {
     let alive = true;
     void request<{ exports: FinishedExport[] }>(`/api/account/studio/projects/${encodeURIComponent(props.project.id)}/exports`)
-      .then(answer => { if (!alive) return; const now = Date.now(); setFinished((answer.exports ?? []).map(item => ({ ...item, kept: Date.parse(item.finishedAt) > now - KEPT_MS }))); setListError(false); })
+      .then(answer => { if (!alive) return; const now = Date.now(); setFinished((answer.exports ?? []).map(item => ({ ...item, stillKept: Date.parse(item.finishedAt) > now - KEPT_MS }))); setListError(false); })
       .catch(() => { if (alive) setListError(true); });
     return () => { alive = false; };
   }, [props.project.id, job?.id, job?.status, reads]);
+  // Exporting on this computer: what it can do, where the file goes, the first-time download.
+  const [capabilityAgain, setCapabilityAgain] = useState(0);
+  const capability = useLocalCapability(props.project, capabilityAgain);
+  const [destination, setDestination] = useState<StudioExportDestination | null>(null), [serverOnly, setServerOnly] = useState(false);
+  const [downloading, setDownloading] = useState(false), [received, setReceived] = useState<{ bytes: number; total: number } | null>(null), [localError, setLocalError] = useState<string | null>(null);
+  const local: Local = {
+    capability, serverOnly, destination, downloading, received, error: localError, platform: platformOf(capability),
+    useServer: () => setServerOnly(true),
+    choose: async () => {
+      setLocalError(null);
+      try { const picked = await studioLocalExport.pickDestination(exportFileName('', props.project.title || 'video')); if (picked) setDestination(picked); return picked ?? destination; }
+      catch (error) { setLocalError(error instanceof Error ? error.message : String(error)); return null; }
+    },
+    prepare: async () => {
+      setDownloading(true); setLocalError(null);
+      const sizes = new Map<string, { bytes: number; total: number }>();
+      const stop = studioLocalExport.onPrepare(event => { sizes.set(event.component, { bytes: event.receivedBytes, total: event.totalBytes });
+        setReceived([...sizes.values()].reduce((sum, item) => ({ bytes: sum.bytes + item.bytes, total: sum.total + item.total }), { bytes: 0, total: 0 })); });
+      try { await studioLocalExport.prepare(); forgetLocalCapability(); setCapabilityAgain(n => n + 1); return true; }
+      catch (error) { setLocalError(`The download did not finish: ${error instanceof Error ? error.message : String(error)}`); return false; }
+      finally { stop(); setDownloading(false); }
+    },
+  };
   const view = job?.status === 'running' ? 'running' : job?.status === 'completed' && !again ? 'done' : 'setup';
   // The finished export the dialog is showing is not listed again under it.
   const others = (finished ?? []).filter(item => view !== 'done' || item.id !== job?.id);
   const list = listError ? <p className="xd-error xd-list-error" role="alert"><Icon name="warning" size={14} /><span>Your finished exports could not be loaded.</span><Button size="sm" variant="ghost" className="st-app-button" onClick={() => setReads(n => n + 1)}>Try again</Button></p>
-    : others.length ? <FinishedList items={others} projectId={props.project.id} heading={view === 'done' ? 'Earlier exports' : 'Ready to save'} /> : null;
+    : others.length ? <FinishedList items={others} projectId={props.project.id} platform={local.platform} parts={capability ? savesParts(capability) : false} heading={view === 'done' ? 'Earlier exports' : 'Ready to save'} /> : null;
   const ended = !again && (job?.status === 'failed' || job?.status === 'cancelled') ? job : null;
   return <Modal title="Export video" description={<>“{props.project.title || 'Untitled video'}”</>} close={props.close} className="xd-dialog">
     {props.notice ? <p className={cn('xd-notice', props.notice.tone === 'ok' ? 'xd-saved' : 'xd-error')} role="status"><Icon name={props.notice.tone === 'ok' ? 'check' : 'warning'} size={14} /><span>{props.notice.text}</span></p> : null}
-    {view === 'running' && job ? <Running {...props} job={job} list={list} /> : view === 'done' && job ? <Done {...props} job={job} list={list} again={() => setAgain(true)} /> : <Setup {...props} ended={ended} list={list} />}
+    {view === 'running' && job ? (job.where === 'computer' ? <RunningHere {...props} job={job} local={local} /> : <Running {...props} job={job} list={list} />)
+      : view === 'done' && job ? <Done {...props} job={job} list={list} local={local} again={() => setAgain(true)} /> : <Setup {...props} ended={ended} list={list} local={local} />}
   </Modal>;
 }
 
 /** Saving one finished export onto the computer: the button, then where it went (or why it did not). */
-function SaveExport({ job, title, projectId, big }: { job: EditorJob; title: string; projectId: string; big?: boolean }) {
-  const url = job.downloadUrl!, bytes = Number((job.result as { bytes?: unknown } | undefined)?.bytes) || null, way = saveWay(bytes);
+function SaveExport({ job, title, projectId, big, parts = false }: { job: EditorJob; title: string; projectId: string; big?: boolean; parts?: boolean }) {
+  const url = job.downloadUrl!, bytes = Number((job.result as { bytes?: unknown } | undefined)?.bytes) || null, way = saveWay(bytes, parts);
   const [saving, setSaving] = useState(false), [saved, setSaved] = useState<SaveResult | null>(null), [error, setError] = useState<string | null>(null);
   const save = () => {
     if (saving) return;
     setSaving(true); setError(null);
     // Straight from the click: the browser's save picker opens only from one.
-    void saveExport({ url, fileName: exportFileName(url, title), bytes, arrival: { videoId: job.videoId ?? projectId, jobId: job.id, workspaceId: studioWorkspaceId() } }).then(answer => { if (answer.kind !== 'cancelled') setSaved(answer); })
+    void saveExport({ url, fileName: exportFileName(url, title), bytes, arrival: { videoId: job.videoId ?? projectId, jobId: job.id, workspaceId: studioWorkspaceId() } }, way === 'desktop-parts' ? way : undefined).then(answer => { if (answer.kind !== 'cancelled') setSaved(answer); })
       .catch(cause => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => setSaving(false));
   };
-  const label = saving ? (way === 'desktop' ? 'Getting the video…' : way === 'desktop-browser' ? 'Opening your browser…' : 'Saving…')
+  const label = saving ? (way === 'desktop' || way === 'desktop-parts' ? 'Getting the video…' : way === 'desktop-browser' ? 'Opening your browser…' : 'Saving…')
     : way === 'downloads' ? (big ? 'Download MP4' : 'Download') : way === 'desktop-browser' ? (big ? 'Open in your browser to download' : 'Open in browser…')
     : big ? (saved ? 'Save another copy…' : 'Save to your computer…') : 'Save…';
-  const said = saved ? <p className="xd-saved" role="status"><Icon name="check" size={14} /><span>{saved.kind === 'saved' ? (way === 'desktop' ? <>Saved to <code>{saved.where}</code></> : <>Saved as <code>{saved.where}</code> in the folder you chose.</>)
+  const said = saved ? <p className="xd-saved" role="status"><Icon name="check" size={14} /><span>{saved.kind === 'saved' ? (way === 'desktop' || way === 'desktop-parts' ? <>Saved to <code>{saved.where}</code></> : <>Saved as <code>{saved.where}</code> in the folder you chose.</>)
     : saved.kind === 'downloads' ? <>Sent to your browser’s downloads folder as <code>{saved.name}</code>.</>
     : saved.kind === 'browser' ? <>Opened in your browser. The download starts there, in its downloads folder, once you are signed in.</> : null}</span></p> : null;
   const failed = error ? <p className="xd-error" role="alert"><Icon name="warning" size={14} /><span>{error}</span></p> : null;
@@ -151,23 +205,50 @@ function exportFacts(job: EditorJob, receipt?: ExportReceipt | null): string[] {
 const KEPT_MS = 30 * 24 * 3600 * 1000;
 const when = (iso: string) => { const at = new Date(iso); return Number.isNaN(at.getTime()) ? '' : at.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
 
+/**
+ * An export kept only on the computer that made it: its file's name and Show in Finder or Explorer when this device
+ * saved it (it knows the place), else where it is.
+ */
+function KeptRow({ jobId, platform }: { jobId: string; platform: 'macos' | 'windows' | 'other' }) {
+  const destination = destinationOf(jobId), [error, setError] = useState<string | null>(null);
+  if (!destination) return <span className="xd-row-kept"><span className="xd-row-gone">Kept on the computer it was made on</span></span>;
+  return <span className="xd-row-kept">
+    <span className="xd-row-gone" title={destination.name}>Saved here as <strong className="xd-file">{destination.name}</strong></span>
+    <Button size="sm" variant="outline" className="st-app-button xd-row-save" onClick={() => { setError(null); void studioLocalExport.reveal(destination.destinationId).catch(() => setError('The file could not be shown. It may have been moved.')); }}>{revealLabel(platform)}</Button>
+    {error ? <span className="xd-saved-error">{error}</span> : null}
+  </span>;
+}
+
 /** This video's finished exports, newest first, each with Save. */
-function FinishedList({ items, projectId, heading }: { items: FinishedExport[]; projectId: string; heading: string }) {
+function FinishedList({ items, projectId, heading, parts, platform }: { items: FinishedExport[]; projectId: string; heading: string; parts: boolean; platform: 'macos' | 'windows' | 'other' }) {
+  const onServer = items.some(item => item.kept !== 'computer');
   return <section className="xd-finished" aria-label={heading}>
-    <h3 className="xd-section">{heading}<span>Kept for 30 days</span></h3>
+    <h3 className="xd-section">{heading}{onServer ? <span>Kept for 30 days</span> : null}</h3>
     <ul>{items.map(item => <li key={item.id}>
       <span className="xd-row-icon" aria-hidden="true"><Icon name="clip" size={16} /></span>
-      <div className="xd-row-text"><span className="xd-row-title">{item.title}</span><span className="xd-facts">{[when(item.finishedAt), ...exportFacts(item)].filter(Boolean).map(fact => <span key={fact}>{fact}</span>)}</span></div>
-      {item.downloadUrl && item.kept !== false ? <SaveExport job={item} title={item.title} projectId={projectId} /> : <span className="xd-row-gone">No longer kept</span>}
+      <div className="xd-row-text"><span className="xd-row-title">{item.title}</span><span className="xd-facts">{[when(item.finishedAt), item.where === 'computer' ? 'Made on a computer' : null, ...exportFacts(item)].filter(Boolean).map(fact => <span key={fact as string}>{fact}</span>)}</span></div>
+      {item.kept === 'computer' ? <KeptRow jobId={item.id} platform={platform} />
+        : item.downloadUrl && item.stillKept !== false ? <SaveExport job={item} title={item.title} projectId={projectId} parts={parts} /> : <span className="xd-row-gone">No longer kept</span>}
     </li>)}</ul>
   </section>;
 }
 
-function Setup(props: Props & { ended: EditorJob | null; list: React.ReactNode }) {
-  const { project, output } = props, fps = project.output.fps, seconds = props.durationFrames / fps;
+function Setup(props: Props & { ended: EditorJob | null; list: React.ReactNode; local: Local }) {
+  const { project, output, local } = props, fps = project.output.fps, seconds = props.durationFrames / fps;
+  const here = runsHere(local), preparing = here && local.capability?.kind === 'prepare';
+  // On this computer: the file it saves to first (the save panel), the one-time download if it is needed, then export.
+  const exportNow = async () => {
+    if (!here) { props.start(); return; }
+    const destination = local.destination ?? await local.choose();
+    if (!destination) return;
+    if (preparing && !await local.prepare()) return;
+    props.start({ where: 'computer', destination });
+  };
+  const exportLabel = local.downloading ? 'Downloading…' : preparing && local.capability?.kind === 'prepare' ? `Download ${sizeWordsOf(local.capability.bytes)} and export` : 'Export MP4';
   const native = props.size === 'native', resolutionId = React.useId();
   return <div className="xd-setup">
-    {props.ended ? <div className="xd-banner xd-banner-warn" role="alert"><Icon name="warning" /><div><strong>{props.ended.status === 'cancelled' ? 'The export was cancelled' : 'The export did not finish'}</strong><span>{props.ended.status === 'cancelled' ? 'Nothing new was made. Your finished exports are still here.' : props.ended.error ?? 'Something went wrong while rendering. Try again.'}</span></div></div> : null}
+    {props.ended ? <div className="xd-banner xd-banner-warn" role="alert"><Icon name="warning" /><div><strong>{props.ended.status === 'cancelled' ? 'The export was cancelled' : props.ended.where === 'computer' ? 'The export did not finish on this computer' : 'The export did not finish'}</strong><span>{props.ended.status === 'cancelled' ? 'Nothing new was made. Your finished exports are still here.' : props.ended.error ?? 'Something went wrong while rendering. Try again.'}</span>
+      {props.ended.status === 'failed' && props.ended.where === 'computer' ? <div className="xd-banner-actions"><Button size="sm" className="st-app-button" disabled={props.busy} onClick={() => props.start()}>Export on our server instead</Button></div> : null}</div></div> : null}
     {props.otherExport ? <p className="xd-other" role="status"><Icon name="export" size={14} /><span>{props.otherExport.title ? `“${props.otherExport.title}”` : 'Another video'} is exporting ({Math.round(Math.max(0, Math.min(1, props.otherExport.progress)) * 100)}%). You can export this one too.</span></p> : null}
     {props.list}
     <div className="xd-product" aria-label="What the export makes">
@@ -190,10 +271,12 @@ function Setup(props: Props & { ended: EditorJob | null; list: React.ReactNode }
 
     <OtherFormats {...props} />
 
-    <p className="xd-where"><Icon name="saveTo" size={16} /><span>{whereItGoes()}</span></p>
+    <LocalWhere capability={local.serverOnly ? null : local.capability} destination={local.destination} choose={() => void local.choose()} downloading={local.downloading} received={local.received} useServer={local.useServer} />
+    {local.error ? <p className="xd-error" role="alert"><Icon name="warning" size={14} /><span>{local.error}</span></p> : null}
+    {here ? null : <p className="xd-where"><Icon name="saveTo" size={16} /><span>{whereItGoes()}</span></p>}
     <div className="xd-foot">
       <Button variant="ghost" className="st-app-button" onClick={props.close}>Cancel</Button>
-      <Button className="st-app-button" data-autofocus="" disabled={props.busy} onClick={props.start}><Icon name="export" />Export MP4</Button>
+      <Button className="st-app-button" data-autofocus="" disabled={props.busy || local.downloading} onClick={() => void exportNow()}><Icon name="export" />{exportLabel}</Button>
     </div>
   </div>;
 }
@@ -247,7 +330,23 @@ function Running({ job, receipt, cancel, close, list }: Props & { job: EditorJob
   </div>;
 }
 
-function Done(props: Props & { job: EditorJob; again: () => void; list: React.ReactNode }) {
+/** An export running on this computer, or waiting for it: from the job and the app's own events. */
+function RunningHere(props: Props & { job: EditorJob; local: Local }) {
+  const { job } = props, { runner, openedAt, now } = useRunner(job.id);
+  const [stopping, setStopping] = useState(false), [working, setWorking] = useState(false), [error, setError] = useState<string | null>(null);
+  const view = localView(job, runner, openedAt, now, null, !!destinationOf(job.id));
+  const act = async (run: () => Promise<string | null> | undefined) => { setWorking(true); setError(null); const why = await run(); setWorking(false); if (why) setError(why); };
+  if (view.kind === 'done' || view.kind === 'cancelled') return null;
+  return <LocalRunning view={view} job={job} platform={props.local.platform} actions={{
+    stopping, working, error, close: props.close,
+    cancel: () => { setStopping(true); setError(null); void props.cancel().then(asked => { if (!asked) { setStopping(false); setError('The export could not be stopped. It is still running. Try again.'); } }); },
+    continueHere: () => void act(() => props.continueHere?.(job.id)),
+    finishOnServer: () => void act(() => props.moveToServer?.(job.id)),
+    exportOnServer: () => props.start(),
+  }} />;
+}
+
+function Done(props: Props & { job: EditorJob; again: () => void; list: React.ReactNode; local: Local }) {
   const { job, receipt, close, again, list } = props;
   const mine = receipt?.jobId === job.id ? receipt : null, result = (job.result ?? {}) as Record<string, unknown>;
   const facts = exportFacts(job, mine), title = mine?.title ?? (typeof result.title === 'string' ? result.title : 'video');
@@ -256,7 +355,8 @@ function Done(props: Props & { job: EditorJob; again: () => void; list: React.Re
       <span className="xd-done-icon" aria-hidden="true"><Icon name="done" size={22} /></span>
       <div><strong>{mine ? 'Your video is ready' : 'Your last export is ready'}</strong>{mine ? null : <span>The video from your last export.</span>}{facts.length ? <span className="xd-facts">{facts.map(fact => <span key={fact}>{fact}</span>)}</span> : null}</div>
     </div>
-    {job.downloadUrl ? <SaveExport job={job} title={title} projectId={props.project.id} big /> : <p className="xd-note">This export’s file is no longer kept. Exports are kept for 30 days. Export the video again.</p>}
+    {job.where === 'computer' ? <LocalDone view={localView(job, { seq: -1, lastAt: null, progress: null, savedName: null, failed: null, cancelled: false, done: true }, 0, 0) as Extract<ReturnType<typeof localView>, { kind: 'done' }>} job={job} platform={props.local.platform} />
+      : job.downloadUrl ? <SaveExport job={job} title={title} projectId={props.project.id} parts={props.local.capability ? savesParts(props.local.capability) : false} big /> : <p className="xd-note">This export’s file is no longer kept. Exports are kept for 30 days. Export the video again.</p>}
     {list}
     <div className="xd-foot xd-foot-split">
       <Button variant="ghost" className="st-app-button" onClick={again}>Change settings and export again</Button>

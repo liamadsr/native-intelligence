@@ -8,11 +8,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { EditorAssetSchema, type EditorAsset, type EditorTranscript } from '../engine/contracts'
 import type { EditorJob } from '../engine/api'
 import { registerAsset, registerTranscript } from './assets'
-import { ASSET_KEY, deleteBlob, getBlob, type StoredBlob } from './blobs'
+import { ASSET_KEY, deleteBlob, getBlob, READ_LINK_SECONDS, storageOf, type StoredBlob } from './blobs'
 import { isUuid, must, type StudioContext } from './context'
 import { deliverEndedExport } from './delivery'
 import { asStudioError, conflictError, notFoundError, StudioError } from './errors'
-import type { ClaimedJob, ExportResult, ImportInput, LocalJobIO, LocalJobKind, SlidesInput, SlidesResult, StudioJobIO, StudioJobKind, StudioJobStatus, TranscribeInput, TranscribeResult } from './job-contract'
+import { blobObject, blobParts, type ClaimedJob, type ExportResult, type ImportInput, type LocalJobIO, type LocalJobKind, type SlidesInput, type SlidesResult, type StudioJobIO, type StudioJobKind, type StudioJobStatus, type TranscribeInput, type TranscribeResult } from './job-contract'
 import { COLLECTIONS, putRecord } from './records'
 import type { StudioStorage } from './storage'
 import { KEEP } from './sweep'
@@ -249,7 +249,8 @@ export type FinishedExport = EditorJob & { title: string; finishedAt: string }
 /**
  * A video's finished exports whose files are still kept (KEEP.exports, sweep.ts), the newest export first: every member's, as the
  * files are the workspace's. The Export dialog lists them so a finished export stays reachable after the dialog
- * closes, another export starts or the page reloads.
+ * closes, another export starts or the page reloads. An export kept on the computer it was made on has no file here:
+ * it is listed for the person who made it only (their computer has it; to anyone else it is a row with nothing to do).
  */
 export async function videoExports(ctx: StudioContext, videoId: string, now = Date.now()): Promise<{ exports: FinishedExport[] }> {
   if (!isUuid(videoId)) throw notFoundError('Video not found')
@@ -261,8 +262,52 @@ export async function videoExports(ctx: StudioContext, videoId: string, now = Da
   return {
     exports: (rows ?? []).map(fromLight).flatMap((row) => {
       const job = toEditorJob(row)
-      return job.downloadUrl ? [{ ...job, title: typeof row.input.title === 'string' ? row.input.title : 'video', finishedAt: row.updated_at }] : []
+      const theirsOnTheirComputer = job.kept === 'computer' && !!ctx.userId && row.created_by === ctx.userId
+      return job.downloadUrl || theirsOnTheirComputer ? [{ ...job, title: typeof row.input.title === 'string' ? row.input.title : 'video', finishedAt: row.updated_at }] : []
     }),
+  }
+}
+
+/**
+ * How long a finished export's part links last when the desktop app downloads it (exportParts): long enough for
+ * what is left at a slow 2 Mbit/s (256 KB a second), and a quarter of an hour more, at least an hour and at most twelve.
+ * A download that outlives its links asks again from the part it reached (`from`).
+ */
+export function exportLinkSeconds(bytesLeft: number): number {
+  return Math.min(12 * 3600, Math.max(READ_LINK_SECONDS, Math.ceil(bytesLeft / (256 * 1024)) + 900))
+}
+
+/** A finished export's stored file as the desktop app downloads it: its name, size, hash when known, and parts in order. */
+export type ExportParts = { name: string; bytes: number; sha256?: string; from: number; expiresAt: string; parts: { index: number; url: string; bytes: number }[] }
+
+/**
+ * The parts of a finished export of this video still kept (the rule videoExports lists by), each a signed read link,
+ * from part `from` on (a download that ran out of time asks again from where it got to). An export made and kept on
+ * the person's computer has nothing here (409 KEPT_ON_COMPUTER). `sha256` only when the server holds it already.
+ */
+export async function exportParts(ctx: StudioContext, videoId: string, jobId: string, from = 0, now = Date.now()): Promise<ExportParts> {
+  if (!isUuid(videoId) || !isUuid(jobId)) throw notFoundError('Export not found')
+  const found = must(await ctx.supabase.from('studio_job').select(LIGHT_FIELDS).eq('workspace_id', ctx.workspaceId).eq('id', jobId).eq('video_id', videoId).maybeSingle(), 'read that export') as LightRow | null
+  const row = found ? fromLight(found) : null
+  if (!row || !isExportKind(row.kind) || row.status !== 'completed') throw notFoundError('Export not found')
+  if (Date.parse(row.updated_at) < now - KEEP.exports) throw notFoundError('This export is no longer kept: exports are kept for 30 days. Export the video again.')
+  if (row.result?.kept === 'computer') throw conflictError('This export was kept on the computer it was made on: there is nothing on the server to download.', 'KEPT_ON_COMPUTER')
+  const key = typeof row.result?.key === 'string' ? row.result.key : null
+  const blob = key ? await getBlob(ctx, key) : null
+  if (!blob) throw notFoundError('This export is no longer kept: exports are kept for 30 days. Export the video again.')
+  const shape = blobParts(blob.bytes, blob.partBytes)
+  if (!Number.isSafeInteger(from) || from < 0 || from >= shape.length) throw new StudioError(`from is a part number from 0 to ${shape.length - 1}.`, 400, 'INVALID')
+  const wanted = shape.slice(from)
+  const seconds = exportLinkSeconds(wanted.reduce((sum, part) => sum + part.bytes, 0))
+  const urls = await storageOf(ctx).signRead(wanted.map((part) => blobObject(ctx.workspaceId, blob.key, part.index)), seconds)
+  const title = typeof row.input?.title === 'string' ? row.input.title : 'video'
+  return {
+    name: fileName(title, 'mp4'),
+    bytes: blob.bytes,
+    ...(blob.sha256 ? { sha256: blob.sha256 } : {}),
+    from,
+    expiresAt: new Date(now + seconds * 1000).toISOString(),
+    parts: wanted.map((part, i) => ({ index: part.index, url: urls[i]!, bytes: part.bytes })),
   }
 }
 

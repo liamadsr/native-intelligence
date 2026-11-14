@@ -3,8 +3,10 @@
  *
  * An export is rendered by the Studio's worker and stored with the workspace's Studio files (kept 30 days,
  * lib/studio/server/sweep.ts); its link (`EditorJob.downloadUrl`) answers the MP4 as an attachment. Getting it onto the
- * computer goes one of four ways, whichever this page can do:
+ * computer goes one of five ways, whichever this page can do:
  *
+ *   desktop-parts    the desktop app with its own save (studio_export_save_parts): the person picks the place, then the
+ *                    app streams the export's parts there (GET projects/:id/exports/:jobId/parts), any size.
  *   desktop          the desktop app, a file up to DESKTOP_SAVE_LIMIT: its native Save panel (lib/download.ts → the
  *                    `save_file` command), where the person picks the folder and the name. The released app's command
  *                    takes the whole file as a JSON array of numbers (about 16 bytes of memory per byte of video on the
@@ -24,10 +26,12 @@
 import { downloadFile } from '@/lib/download';
 import { openInSystemBrowser } from '@/lib/open-external';
 import { isDesktopApp } from '@/lib/platform';
+import { studioLocalExport } from '@/lib/tauri-bridge';
 import { exportArrivalLink } from './export-arrival';
+import { isMissingCommand } from './local-export';
 
-export type SaveWay = 'desktop' | 'desktop-browser' | 'picker' | 'downloads';
-export type SaveResult = { kind: 'saved'; where: string } | { kind: 'downloads'; name: string } | { kind: 'browser'; name: string } | { kind: 'cancelled' };
+export type SaveWay = 'desktop-parts' | 'desktop' | 'desktop-browser' | 'picker' | 'downloads';
+export type SaveResult = { kind: 'saved'; where: string; destinationId?: string } | { kind: 'downloads'; name: string } | { kind: 'browser'; name: string } | { kind: 'cancelled' };
 /**
  * What is saved: a stored file's link (/api/account/studio/file/<workspace>/<key>), the name to give it, its size when
  * known, and for a finished export where the browser should arrive to download it (desktop-browser).
@@ -64,8 +68,12 @@ function studioFileLink(url: string): string | null {
   } catch { return null; }
 }
 
-/** How this page saves a file of this size (unknown: the desktop app asks the file first, see saveExport). */
-export function saveWay(bytes?: number | null): SaveWay {
+/**
+ * How this page saves a file of this size (unknown: the desktop app asks the file first, see saveExport). `parts`: the
+ * desktop app has its own save (studio_export_save_parts), which streams an export of any size into the file picked.
+ */
+export function saveWay(bytes?: number | null, parts = false): SaveWay {
+  if (isDesktopApp() && parts) return 'desktop-parts';
   if (isDesktopApp()) return typeof bytes === 'number' && bytes > 0 && bytes <= DESKTOP_SAVE_LIMIT ? 'desktop' : 'desktop-browser';
   return picker() ? 'picker' : 'downloads';
 }
@@ -95,12 +103,44 @@ async function sizeOf(url: string): Promise<number | null> {
   return Number.isFinite(length) && length > 0 ? length : null;
 }
 
+/** A finished export's stored file as the app downloads it (GET projects/:id/exports/:jobId/parts, lib/studio/server/jobs.ts). */
+export type ExportPartsAnswer = { name: string; bytes: number; sha256?: string; from: number; expiresAt: string; parts: { index: number; url: string; bytes: number }[] };
+export async function exportPartsOf(videoId: string, jobId: string): Promise<ExportPartsAnswer> {
+  const response = await fetch(`/api/account/studio/projects/${encodeURIComponent(videoId)}/exports/${encodeURIComponent(jobId)}/parts`);
+  // A bad request is ours to fix: the person reads only that it did not work. Every other refusal says why in the
+  // server's own words (kept on the computer it was made on, past its 30 days, a guest, the Studio off).
+  if (response.status === 400) throw new Error('The video could not be saved. Try again.');
+  if (!response.ok) throw await failure(response);
+  return await response.json() as ExportPartsAnswer;
+}
+
+/**
+ * The desktop app's own save: the person picks the place, then the app streams the export's parts into it (any size,
+ * nothing held in the page). Null when this app has no such command, or the file is not an export (the other ways then).
+ */
+async function saveThroughApp(file: ExportFile): Promise<SaveResult | null> {
+  if (!file.arrival) return null;
+  // The parts first: they say the file is still there, and its cleaned name is what the save panel offers.
+  const parts = await exportPartsOf(file.arrival.videoId, file.arrival.jobId);
+  let picked: { destinationId: string; name: string } | null;
+  try { picked = await studioLocalExport.pickDestination(parts.name || file.fileName); }
+  catch (error) { if (isMissingCommand(error)) return null; throw error; }
+  if (!picked) return { kind: 'cancelled' };
+  const saved = await studioLocalExport.saveParts({ destinationId: picked.destinationId, parts: parts.parts.map(part => ({ url: part.url, bytes: part.bytes })), bytes: parts.bytes, ...(parts.sha256 ? { sha256: parts.sha256 } : {}) });
+  return { kind: 'saved', where: saved.name || picked.name, destinationId: picked.destinationId };
+}
+
 /**
  * Save an export. Call it straight from a click: the browser's save picker opens only then. `way` is worked out from
  * the size when not given. Throws a sentence the dialog can show.
  */
 export async function saveExport(file: ExportFile, way?: SaveWay): Promise<SaveResult> {
   const { url, fileName } = file;
+  if (way === 'desktop-parts') {
+    const saved = await saveThroughApp(file);
+    if (saved) return saved;
+    way = undefined;
+  }
   if (isDesktopApp() && way !== 'desktop-browser') {
     // The size decides the way: asked of the server when the job did not say (which also checks it is still kept).
     const bytes = typeof file.bytes === 'number' && file.bytes > 0 ? file.bytes : await sizeOf(url);

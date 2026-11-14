@@ -8,7 +8,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const saveFile = vi.fn()
 const openInSystemBrowser = vi.fn()
-vi.mock('@/lib/tauri-bridge', () => ({ tauriBridge: { saveFile: (...args: unknown[]) => saveFile(...args) } }))
+const pickDestination = vi.fn()
+const saveParts = vi.fn()
+vi.mock('@/lib/tauri-bridge', () => ({ tauriBridge: { saveFile: (...args: unknown[]) => saveFile(...args) }, studioLocalExport: { pickDestination: (...args: unknown[]) => pickDestination(...args), saveParts: (...args: unknown[]) => saveParts(...args) } }))
 vi.mock('@/lib/open-external', () => ({ openInSystemBrowser: (...args: unknown[]) => openInSystemBrowser(...args) }))
 import { DESKTOP_SAVE_LIMIT, exportFileName, saveExport, saveWay } from '../save-export'
 import { isAccountRedirectPath, resolvePostAuthRedirect } from '@/lib/auth/login-redirect'
@@ -35,7 +37,7 @@ beforeEach(() => {
   vi.stubGlobal('window', { location: { origin: 'https://app.example' } })
   vi.stubGlobal('document', { createElement: () => link, body: { appendChild: () => undefined, removeChild: () => undefined } })
 })
-afterEach(() => { vi.unstubAllGlobals(); saveFile.mockReset(); openInSystemBrowser.mockReset() })
+afterEach(() => { vi.unstubAllGlobals(); saveFile.mockReset(); openInSystemBrowser.mockReset(); pickDestination.mockReset(); saveParts.mockReset() })
 const desktop = () => vi.stubGlobal('window', { __TAURI__: {}, location: { origin: 'https://app.example' } })
 
 describe('names and keys', () => {
@@ -110,6 +112,54 @@ describe('in the desktop app', () => {
     desktop(); server(75 * 1024 * 1024)
     openInSystemBrowser.mockResolvedValue(false)
     await expect(saveExport({ ...FILE, bytes: 75 * 1024 * 1024, arrival: ARRIVAL })).rejects.toThrow('Your browser could not be opened')
+  })
+})
+
+describe('in a desktop app with its own save (studio_export_save_parts)', () => {
+  const VIDEO = 'aaaaaaaa-1111-4222-8333-444444444444', JOB = 'bbbbbbbb-1111-4222-8333-444444444444'
+  const ARRIVAL = { videoId: VIDEO, jobId: JOB, workspaceId: null }
+  const partsRoute = `/api/account/studio/projects/${VIDEO}/exports/${JOB}/parts`
+  function partsServer(answer: Response) {
+    vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => { calls.push({ url: input, method: init?.method ?? 'GET' }); return input === partsRoute ? answer.clone() : new Response('no', { status: 500 }) }))
+  }
+
+  it('picks the place, then the app streams the parts there, whatever the size: nothing is held in the page', async () => {
+    desktop()
+    partsServer(Response.json({ name: 'Spring launch.mp4', bytes: 2_400_000_000, sha256: 'ab'.repeat(32), from: 0, expiresAt: '', parts: [{ index: 0, url: 'https://store.example/p0', bytes: 2_000_000_000 }, { index: 1, url: 'https://store.example/p1', bytes: 400_000_000 }] }))
+    pickDestination.mockResolvedValue({ destinationId: 'd1', name: 'Spring launch.mp4' })
+    saveParts.mockResolvedValue({ name: 'Spring launch.mp4' })
+    expect(saveWay(2_400_000_000, true)).toBe('desktop-parts')
+    expect(await saveExport({ ...FILE, bytes: 2_400_000_000, arrival: ARRIVAL }, 'desktop-parts')).toEqual({ kind: 'saved', where: 'Spring launch.mp4', destinationId: 'd1' })
+    expect(pickDestination).toHaveBeenCalledWith('Spring launch.mp4')
+    expect(saveParts).toHaveBeenCalledWith({ destinationId: 'd1', parts: [{ url: 'https://store.example/p0', bytes: 2_000_000_000 }, { url: 'https://store.example/p1', bytes: 400_000_000 }], bytes: 2_400_000_000, sha256: 'ab'.repeat(32) })
+    expect(calls.map((c) => c.url)).toEqual([partsRoute])
+    expect(saveFile).not.toHaveBeenCalled()
+    expect(openInSystemBrowser).not.toHaveBeenCalled()
+  })
+
+  it('a closed panel saves nothing; an app without the command saves as before', async () => {
+    desktop()
+    partsServer(Response.json({ name: 'Spring launch.mp4', bytes: 1000, from: 0, expiresAt: '', parts: [{ index: 0, url: 'https://store.example/p0', bytes: 1000 }] }))
+    pickDestination.mockResolvedValueOnce(null)
+    expect(await saveExport({ ...FILE, bytes: 1000, arrival: ARRIVAL }, 'desktop-parts')).toEqual({ kind: 'cancelled' })
+    pickDestination.mockRejectedValueOnce(new Error('Command studio_export_pick_destination not found'))
+    vi.stubGlobal('fetch', vi.fn(async (input: string) => input === partsRoute
+      ? Response.json({ name: 'Spring launch.mp4', bytes: 1000, from: 0, expiresAt: '', parts: [] })
+      : new Response(new Uint8Array(1000), { headers: { 'content-length': '1000' } })))
+    saveFile.mockResolvedValueOnce('/Users/someone/Movies/Spring launch.mp4')
+    expect(await saveExport({ ...FILE, bytes: 1000, arrival: ARRIVAL }, 'desktop-parts')).toEqual({ kind: 'saved', where: '/Users/someone/Movies/Spring launch.mp4' })
+  })
+
+  it('says the server’s words when there is nothing to save, and a plain sentence for a bad request', async () => {
+    desktop()
+    pickDestination.mockResolvedValue({ destinationId: 'd1', name: 'x.mp4' })
+    partsServer(Response.json({ error: 'This export was kept on the computer it was made on: there is nothing on the server to download.', code: 'KEPT_ON_COMPUTER' }, { status: 409 }))
+    await expect(saveExport({ ...FILE, arrival: ARRIVAL }, 'desktop-parts')).rejects.toThrow('kept on the computer it was made on')
+    partsServer(Response.json({ error: 'from is a part number from 0 to 1.', code: 'INVALID' }, { status: 400 }))
+    await expect(saveExport({ ...FILE, arrival: ARRIVAL }, 'desktop-parts')).rejects.toThrow('The video could not be saved. Try again.')
+    partsServer(Response.json({ error: GONE }, { status: 404 }))
+    await expect(saveExport({ ...FILE, arrival: ARRIVAL }, 'desktop-parts')).rejects.toThrow('exports are kept for 30 days')
+    expect(saveParts).not.toHaveBeenCalled()
   })
 })
 

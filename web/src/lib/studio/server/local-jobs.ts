@@ -250,29 +250,32 @@ export async function fileLocalExport(ctx: StudioContext, row: JobRow, raw: Reco
 
 /**
  * "Finish on the server": a NEW export of the same edit is queued for the server's worker through the one queue
- * function (its lock and its caps, the export cap included), then the person's queued local export is stopped, only if
- * it is still queued. When a computer took it meanwhile, the new export is stopped again and the answer is RUNNING.
+ * function (its lock and its caps, the export cap included), then the person's local export is stopped, whether it
+ * still waits for a computer or runs on one. It is theirs and they asked: a computer that slept or quit holds its
+ * export "running" until the stale rule puts it back, minutes later, and the person should not have to wait that out.
+ * A computer still working on it learns at its next call (NOT_HELD: the job is no longer running under its attempt)
+ * and stops; what it had stored is the sweep's. When the local export ended meanwhile (it finished, was stopped, or
+ * another press moved it), the new export is stopped again and the answer is ENDED.
  * The editor follows the new job (`replaces` names the one it stood in for). A new job starts with its own attempts.
  */
 export async function moveToServer(ctx: StudioContext, jobId: string): Promise<{ job: EditorJob; replaces: string }> {
   if (!isUuid(jobId) || !ctx.userId) throw notFoundError('Job not found')
   const row = must(await ctx.supabase.from('studio_job').select('*').eq('workspace_id', ctx.workspaceId).eq('id', jobId).maybeSingle(), 'read that job') as LocalRow | null
   if (!row || row.kind !== 'local-export' || row.created_by !== ctx.userId) throw notFoundError('Job not found')
-  const running = () => conflictError('This export is running on your computer. Stop it there first, or wait for it.', 'RUNNING')
-  if (row.status === 'running') throw running()
-  if (row.status !== 'queued' || row.cancel_requested) throw conflictError('That export has ended.', 'ENDED')
+  const ended = () => conflictError('That export has ended.', 'ENDED')
+  if ((row.status !== 'queued' && row.status !== 'running') || row.cancel_requested) throw ended()
   const { renderVersion: _renderVersion, ...input } = row.input
   void _renderVersion
   const server = await queueJob(ctx, 'export', { ...(input as ExportInput & Record<string, unknown>), source: 'editor' }, row.video_id)
   const stopped = must(
     await ctx.supabase.from('studio_job').update({ status: 'cancelled', cancel_requested: true, error: 'Moved to our server.', updated_at: new Date().toISOString() })
-      .eq('id', jobId).eq('workspace_id', ctx.workspaceId).eq('created_by', ctx.userId).eq('kind', 'local-export').eq('status', 'queued').eq('cancel_requested', false)
+      .eq('id', jobId).eq('workspace_id', ctx.workspaceId).eq('created_by', ctx.userId).eq('kind', 'local-export').in('status', ['queued', 'running']).eq('cancel_requested', false)
       .select('id'),
     'move that export',
   ) as { id: string }[] | null
   if (!stopped?.length) {
     await cancelJob(ctx, server.id)
-    throw running()
+    throw ended()
   }
   return { job: toEditorJob(server), replaces: jobId }
 }
