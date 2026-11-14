@@ -1,9 +1,9 @@
 /**
  * What a worker agent is told about the job: the eve local agent's contract
  * (../../instructions.md) for an agent that works in the folder with its own
- * tools and talks back through Native Intelligence's three. Sent as an
- * appended system prompt when the agent advertises
- * `sessionCapabilities.systemPrompt`, otherwise at the top of the first prompt.
+ * tools and talks back through Native Intelligence's three. Appended to the
+ * agent's own system prompt (Claude Code's `--append-system-prompt`, Codex's
+ * `developerInstructions`).
  */
 import type { LocalAgentMode } from '../../lib/seatbelt.js'
 import { MANAGER_SERVER } from './manager-tools.js'
@@ -63,11 +63,6 @@ export function workspaceSection(serverText: string | null | undefined): string 
 export function workerInstructions(mode: LocalAgentMode, workspace?: string | null): string {
   const section = workspaceSection(workspace)
   return `${WORKER_INSTRUCTIONS}\n\n${mode === 'edit' ? EDIT_JOB : READ_JOB}${section ? `\n\n${section}` : ''}`
-}
-
-/** The first prompt for an agent that takes no system prompt: the instructions, then the request. */
-export function inlineInstructions(mode: LocalAgentMode, request: string, workspace?: string | null): string {
-  return `${workerInstructions(mode, workspace)}\n\n---\n\n# The request\n\n${request}`
 }
 
 /** The one follow-up a job gets when a turn ends without `finish` (driver.ts). */

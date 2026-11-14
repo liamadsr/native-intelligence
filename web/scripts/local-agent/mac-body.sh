@@ -39,12 +39,12 @@
 #
 # agents/local-agent comes along whole (minus tests): the chat agent imports
 # its lib/ (model, auth, fence, mode text), its tools import
-# launcher/prompts.ts, and the worker adapters (workers/, F-web's) are built
+# launcher/prompts.ts, and the workers (workers/, F-web's) are built
 # from the copy too (build_workers). eve's build of the chat agent never
 # sees agents/local-agent's own folders.
 #
-#   build_workers <stage> <out-dir>   the worker adapter, its registry and the agents'
-#                                     protocol adapters into <out-dir>, when there are any
+#   build_workers <stage> <out-dir>   the worker and its registry into <out-dir>, when
+#                                     there are workers
 
 stage_mac_body() {
   local repo="$1" stage="$2"
@@ -98,23 +98,16 @@ build_mac_body() {
 # The workers (L4, agents/local-agent/workers/), run from the copy so the
 # module comments name `node_modules/…`. Writes, for the desktop
 # (src-tauri/src/local_agent/workers.rs, WorkerFiles):
-#   <out-dir>/workers/acp.mjs        the one adapter every worker runs (build.sh)
+#   <out-dir>/workers/worker.mjs     the one worker every coding agent runs
+#                                    (build.sh); it starts the person's own
+#                                    Claude Code or Codex CLI directly
 #   <out-dir>/workers/registry.json  the coding agents, as data; the desktop
 #                                    reads id, label and cli from it
-#   <out-dir>/acp/                   the agents' protocol adapters at the
-#                                    registry's pinned versions
-#                                    (install-agents.sh; LOCAL_AGENT_ACP_DIR).
-#                                    Needs npm and the network.
-# Nothing when the folder isn't there. Without all three the desktop keeps
-# workers off.
-#
-# A third argument `no-adapters` leaves <out-dir>/acp out: the bundle the
-# desktop app ships (bundle.sh) carries no one else's packages (the adapters
-# bring Anthropic's Claude Agent SDK and OpenAI's Codex launcher with them),
-# so it declares no `workers` and the app offers no coding agents until the
-# adapters reach the person's Mac another way.
+# Nothing of either vendor is installed or shipped. Nothing at all when the
+# folder isn't there; without both files the desktop keeps workers off. An
+# earlier build's adapters' folder (<out-dir>/acp) is removed.
 build_workers() {
-  local stage="$1" out="$2" adapters="${3:-}"
+  local stage="$1" out="$2"
   local workers="$stage/agents/local-agent/workers"
   [ -x "$workers/build.sh" ] || return 0
   (cd "$stage" && agents/local-agent/workers/build.sh "$out") >"$stage/workers-build.log" 2>&1 || {
@@ -123,20 +116,7 @@ build_workers() {
   }
   cp "$workers/registry.json" "$out/workers/registry.json"
   rm -rf "$out/acp"
-  if [ "$adapters" = no-adapters ]; then
-    test -f "$out/workers/acp.mjs" && test -f "$out/workers/registry.json"
-    return
-  fi
-  "$workers/install-agents.sh" "$out/acp" >"$stage/acp-install.log" 2>&1 || {
-    tail -40 "$stage/acp-install.log" >&2
-    return 1
-  }
-  # npm's command links point into the folder or outside it: nothing runs
-  # them (the registry's commands name each adapter's script), and a link
-  # can't be hashed or signed as a file.
-  rm -rf "$out/acp/node_modules/.bin"
-  find "$out/acp" -type l -exec rm -f {} +
-  test -f "$out/workers/acp.mjs" && test -f "$out/workers/registry.json" && test -d "$out/acp/node_modules"
+  test -f "$out/workers/worker.mjs" && test -f "$out/workers/registry.json"
 }
 
 # The Studio's product-component runner (agents/local-agent/studio/build.sh),

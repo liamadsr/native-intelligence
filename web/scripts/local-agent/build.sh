@@ -4,9 +4,8 @@
 # agents/local-agent/.output, the self-hosted Nitro server the launcher starts
 # from LOCAL_AGENT_DIR=agents/local-agent in dev (dev.json, smoke.ts,
 # e2e-device.ts), plus the workers when there are any (the desktop's dev
-# path): .output/workers/acp.mjs, .output/workers/registry.json and
-# .output/acp/, the agents' protocol adapters (installed with npm: needs the
-# network). Built in a throwaway copy, deleted before the output is used.
+# path): .output/workers/worker.mjs and .output/workers/registry.json. Built in
+# a throwaway copy, deleted before the output is used.
 # Extra arguments go to `eve build`. See agents/local-agent/README.md.
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/../.." && pwd)"

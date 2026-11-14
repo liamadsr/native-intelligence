@@ -1,7 +1,7 @@
 /**
  * What the desktop passes a worker, checked once at launch. The desktop
- * spawns `<node> <bundle>/workers/acp.mjs` with exactly the launcher's fence
- * environment (built from scratch) plus the worker's three:
+ * spawns `<node> <bundle>/workers/worker.mjs` with exactly the launcher's fence
+ * environment (built from scratch) plus the worker's own:
  *
  *   HOME, TMPDIR, LANG, PATH          as for the launcher
  *   LOCAL_AGENT_JOB_ID                the job
@@ -13,7 +13,6 @@
  *   LOCAL_AGENT_WORKER                a registry key (`claude-code` | `codex`)
  *   LOCAL_AGENT_WORKER_BIN            absolute path of the person's CLI, found by the
  *                                     desktop; run exactly, PATH is never searched
- *   LOCAL_AGENT_ACP_DIR               where install-agents.sh installed the ACP adapters
  *   LOCAL_AGENT_CLOSED_PORTS          optional: comma-separated ports of the app's own local
  *                                     servers at launch, which the fence denies on loopback
  *   LOCAL_AGENT_TOOLS_FILE            optional: the workspace tools the desktop wrote for this
@@ -25,7 +24,8 @@
  * No relay URL, no session token, no dev key (each is refused: NI_CREDENTIALS):
  * a worker uses its vendor's model on the person's own login. A local-model
  * setting is refused here too (the desktop refuses first): a worker sends the
- * folder to its vendor, which is what that setting rules out.
+ * folder to its vendor, which is what that setting rules out. Anything else
+ * (an older desktop's LOCAL_AGENT_ACP_DIR, say) is not read.
  */
 import { accessSync, constants as fsConstants, lstatSync, realpathSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
@@ -40,8 +40,6 @@ export interface WorkerLaunch {
   readonly entry: RegistryEntry
   /** realpath of the person's CLI (the desktop passes its PATH lookup, symlinks and all). */
   readonly bin: string
-  /** realpath of LOCAL_AGENT_ACP_DIR. */
-  readonly acpDir: string
   /** LOCAL_AGENT_FENCE_DIR, a real folder holding `<job id>` and `<job id>.open`. */
   readonly fenceDir: string
   /** LOCAL_AGENT_TOOLS_FILE as given (checked when read: a bad one means no workspace tools, never a fatal). */
@@ -157,7 +155,6 @@ export function workerLaunchFromEnv(env: WorkerEnv, registry: Registry): WorkerL
   const extraRead = env.LOCAL_AGENT_EXTRA_READ || undefined
   if (extraRead !== undefined && mode !== 'edit') throw new WorkerLaunchError('LOCAL_AGENT_EXTRA_READ is only allowed in edit mode')
   if (mode === 'edit' && extraRead === undefined) throw new WorkerLaunchError('edit mode needs LOCAL_AGENT_EXTRA_READ (the repository git directory)')
-  const acpDir = realDir(env.LOCAL_AGENT_ACP_DIR, 'LOCAL_AGENT_ACP_DIR')
   const fenceDir = fenceDirFromEnv(env.LOCAL_AGENT_FENCE_DIR, jobId)
   const closedPorts = closedPortsFromEnv(env.LOCAL_AGENT_CLOSED_PORTS)
 
@@ -178,7 +175,6 @@ export function workerLaunchFromEnv(env: WorkerEnv, registry: Registry): WorkerL
     worker,
     entry,
     bin,
-    acpDir,
     fenceDir,
     closedPorts,
     ...(env.LOCAL_AGENT_TOOLS_FILE ? { toolsFile: env.LOCAL_AGENT_TOOLS_FILE } : {}),

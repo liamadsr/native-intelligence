@@ -185,7 +185,7 @@ pub fn sweep(_dir: &Path, _job_id: &str, _scope: Scope) -> Swept {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoginReturn {
     pub program: PathBuf,
-    /// `<root>/workers/acp.mjs --return-logins`.
+    /// `<root>/workers/worker.mjs --return-logins`.
     pub args: Vec<std::ffi::OsString>,
     pub cwd: PathBuf,
     pub env: Vec<(String, String)>,
@@ -533,8 +533,8 @@ mod tests {
     fn return_logins_runs_the_adapter_in_the_job_folder_and_gives_up_in_time() {
         let tmp = tempfile::tempdir().unwrap();
         let cwd = std::fs::canonicalize(tmp.path()).unwrap();
-        let script = cwd.join("acp.sh");
-        // A stand-in for `acp.mjs --return-logins`: says where and with what it ran.
+        let script = cwd.join("worker.sh");
+        // A stand-in for `worker.mjs --return-logins`: says where and with what it ran.
         std::fs::write(
             &script,
             "[ \"$1\" = --return-logins ] || exit 3\npwd -P > ran\nprintf '%s' \"$LOCAL_AGENT_FENCE_DIR\" > env\n\
