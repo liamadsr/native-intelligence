@@ -18,12 +18,15 @@ export interface LocalAgentApprovalContext {
   sessionId: string
   deviceName?: string | null
   folderLabel?: string | null
+  /** The person's own coding agent doing the job (migration 658), by its label ("Claude Code"); absent for Native Intelligence's own agent. */
+  workerLabel?: string | null
 }
 
-/** "Native Intelligence on Liam's MacBook" (one line, capped), or "Native Intelligence on your Mac". */
-export function macJobAgentName(job: Pick<LocalAgentApprovalContext, 'deviceName'>): string {
+/** "Native Intelligence on Studio Mac" (one line, capped), "Codex on Studio Mac" for a coding agent's job, or "… on your Mac". */
+export function macJobAgentName(job: Pick<LocalAgentApprovalContext, 'deviceName' | 'workerLabel'>): string {
   const name = (job.deviceName ?? '').replace(/\s+/g, ' ').trim().slice(0, 60)
-  return name ? `Native Intelligence on ${name}` : 'Native Intelligence on your Mac'
+  const who = (job.workerLabel ?? '').replace(/\s+/g, ' ').trim().slice(0, 40) || 'Native Intelligence'
+  return name ? `${who} on ${name}` : `${who} on your Mac`
 }
 
 /** "its job in web" (one line, capped), or "its job". */

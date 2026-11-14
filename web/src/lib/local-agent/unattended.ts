@@ -52,6 +52,8 @@ import {
   FOLDER_HOLDING_STATUSES,
   LOCAL_AGENT_REQUEST_MAX_BYTES,
   LocalAgentError,
+  MAC_FULL_CODE,
+  QUEUED_TTL_MS,
   SESSION_SELECT,
   TERMINAL_STATUSES,
   UNATTENDED_KEY_PREFIX,
@@ -164,7 +166,7 @@ export type UnattendedRefusalCode =
 
 export type StartUnattendedResult =
   | { status: 'started'; session: SessionRow; created: boolean; deviceOnline: boolean; joined?: true }
-  | { status: 'skipped'; code: 'FOLDER_BUSY' | 'MAC_OFFLINE' | 'ALREADY_SENT'; reason: string; sessionId: string | null }
+  | { status: 'skipped'; code: 'FOLDER_BUSY' | 'MAC_OFFLINE' | 'ALREADY_SENT' | 'MAC_FULL'; reason: string; sessionId: string | null }
   | { status: 'refused'; code: UnattendedRefusalCode; reason: string }
 
 export interface UnattendedDeps {
@@ -268,6 +270,20 @@ export async function startUnattendedLocalAgent(
   return startUnattended(svc, { ...input, key, text: unattendedRequestText(input.request), words: LOOP_WORDS, retriedFire: true }, deps)
 }
 
+/**
+ * The agent a person's OWN click chose for an action's Start (migration 658),
+ * always explicit: a coding agent's id, or null for Native Intelligence's
+ * own agent (what the action panel's "with" control showed them). Only the
+ * start-agent route passes it, and only when the request named one: a
+ * person's own agent runs its own shell and file tools, which our risky-call
+ * reviewer never sees, so only a person may start it. Every other start (a
+ * request without a choice, loops, automations, work cards settled for
+ * them) runs on Native Intelligence's own agent.
+ */
+export interface PersonAgentChoice {
+  worker: string | null
+}
+
 export interface StartActionMacJobInput {
   /** Who pressed Start: the job runs on THEIR Mac, in THEIR folder, never anyone else's. */
   userId: string
@@ -279,6 +295,8 @@ export interface StartActionMacJobInput {
   origin: ActionJobOrigin
   /** Where the Start was pressed: an action (its project's "Run my work here", the default) or a work card's picker. */
   from?: 'action' | 'card'
+  /** A person's own click only (the start-agent route): who does the work. Absent: Native Intelligence's own agent. */
+  agent?: PersonAgentChoice
 }
 
 /**
@@ -304,7 +322,16 @@ export async function startActionMacJob(
   }
   return startUnattended(
     svc,
-    { ...input, key, text: unattendedRequestText(input.request, ACTION_PREFIX), words: input.from === 'card' ? CARD_WORDS : ACTION_WORDS, retriedFire: false },
+    {
+      ...input,
+      key,
+      text: unattendedRequestText(input.request, ACTION_PREFIX),
+      words: input.from === 'card' ? CARD_WORDS : ACTION_WORDS,
+      retriedFire: false,
+      // A card waits its turn for a free slot (its badge says "queued"), as long
+      // as a person's job may wait: the Mac had to be online for it to start.
+      queuedTtlMs: QUEUED_TTL_MS,
+    },
     deps,
   )
 }
@@ -312,7 +339,20 @@ export async function startActionMacJob(
 /** The rules every unattended start passes (see the file header), in order. */
 async function startUnattended(
   svc: Svc,
-  input: { userId: string; workspaceId: string; folderId: string; mode?: LocalAgentMode; key: string; text: string; words: StartWords; retriedFire: boolean },
+  input: {
+    userId: string
+    workspaceId: string
+    folderId: string
+    mode?: LocalAgentMode
+    key: string
+    text: string
+    words: StartWords
+    retriedFire: boolean
+    /** How long it may wait on the server for the Mac to take it (a loop's: 15 minutes; a card's: QUEUED_TTL_MS). */
+    queuedTtlMs?: number
+    /** Only from startActionMacJob, only when a person clicked Start. */
+    agent?: PersonAgentChoice
+  },
   deps: UnattendedDeps,
 ): Promise<StartUnattendedResult> {
   const refused = (code: UnattendedRefusalCode, reason: string): StartUnattendedResult => ({ status: 'refused', code, reason })
@@ -381,18 +421,27 @@ async function startUnattended(
       idempotencyKey: key,
       // A short wait for the Mac: one that sleeps just after the online
       // check must not start the job hours later, with nobody expecting it.
-      queuedTtlMs: UNATTENDED_QUEUED_TTL_MS,
+      queuedTtlMs: input.queuedTtlMs ?? UNATTENDED_QUEUED_TTL_MS,
+      // Who does the work: only a person's click names an agent of theirs.
+      ...(input.agent ? { explicitWorker: input.agent.worker } : {}),
     })
     return { status: 'started', session: started.session, created: started.created, deviceOnline: started.deviceOnline, ...(started.joined ? { joined: true as const } : {}) }
   } catch (err) {
     if (!(err instanceof LocalAgentError)) throw err
     // One agent per folder: another loop's job, or the person's, is busy there.
-    const details = err.details as { code?: unknown; session?: { id?: unknown } } | undefined
+    const details = err.details as { code?: unknown; reason?: unknown; session?: { id?: unknown } } | undefined
+    // The Mac already holds as many cards as it takes (migration 659): its own sentence.
+    if (err.code === 'conflict' && details?.code === MAC_FULL_CODE) {
+      return { status: 'skipped', code: 'MAC_FULL', reason: err.message, sessionId: null }
+    }
     if (err.code === 'conflict' && details?.code === 'FOLDER_BUSY') {
       return {
         status: 'skipped',
         code: 'FOLDER_BUSY',
-        reason: words.busy(where),
+        // A card's Start: the store's sentence, which says who works there (a
+        // card by its identifier, a chat, a loop; another agent: both agents).
+        // A loop's history keeps its own words.
+        reason: details.reason === 'other_worker' || words !== LOOP_WORDS ? err.message : words.busy(where),
         sessionId: typeof details.session?.id === 'string' ? details.session.id : null,
       }
     }
@@ -405,6 +454,8 @@ async function startUnattended(
 /** A live job an action's Start put on someone's Mac, in this workspace. */
 export interface LiveActionMacJob {
   sessionId: string
+  /** The coding agent it runs on (migration 658), or null for Native Intelligence's own agent. */
+  worker: string | null
   /** Whose Mac. */
   userId: string
   deviceName: string
@@ -466,10 +517,61 @@ export async function liveActionMacJob(svc: Svc, args: { workspaceId: string; ac
   for (const raw of (data ?? []) as DbSession[]) {
     const r = await reapIfStale(svc, raw)
     if (await holdsAction(svc, r)) {
-      return { sessionId: r.id, userId: r.user_id, deviceName: r.device?.name ?? '', folderLabel: r.folder?.label ?? '', status: r.status }
+      return { sessionId: r.id, worker: r.worker ?? null, userId: r.user_id, deviceName: r.device?.name ?? '', folderLabel: r.folder?.label ?? '', status: r.status }
     }
   }
   return null
+}
+
+/** The person's own job for an action on their Mac, as the action panel opens it. */
+export interface ActionMacJobView {
+  sessionId: string
+  status: LocalAgentStatus
+  /** The coding agent it runs on (migration 658), or null for Native Intelligence's own agent. */
+  worker: string | null
+  deviceName: string
+  folderLabel: string
+  /** It still holds the action (working, or asking): what the panel's "working" affordance opens. */
+  live: boolean
+}
+
+/**
+ * The person's own Mac job for this action (their Starts' key,
+ * `local-agent-action:<action>:start:…`): the live one when there is one,
+ * else the latest. Only their own sessions (a teammate's job on their own
+ * Mac is never opened from here). Null when they never started it on a Mac.
+ * Throws on a database error.
+ */
+export async function personActionMacJob(
+  svc: Svc,
+  args: { userId: string; workspaceId: string; actionId: string },
+): Promise<ActionMacJobView | null> {
+  if (!isUuid(args.actionId)) return null
+  const { data, error } = await svc
+    .from('local_agent_session')
+    .select(SESSION_SELECT)
+    .eq('user_id', args.userId)
+    .eq('workspace_id', args.workspaceId)
+    .like('idempotency_key', `${ACTION_JOB_KEY_PREFIX}${args.actionId.toLowerCase()}:start:%`)
+    .order('created_at', { ascending: false })
+    .limit(5)
+  if (error) throw new Error(`action jobs read failed: ${error.message}`)
+  const rows = (data ?? []) as DbSession[]
+  if (rows.length === 0) return null
+  const view = (raw: DbSession, live: boolean): ActionMacJobView => ({
+    sessionId: raw.id,
+    status: raw.status,
+    worker: raw.worker ?? null,
+    deviceName: raw.device?.name ?? '',
+    folderLabel: raw.folder?.label ?? '',
+    live,
+  })
+  for (const raw of rows) {
+    if (!(FOLDER_HOLDING_STATUSES as readonly string[]).includes(raw.status)) continue
+    const r = await reapIfStale(svc, raw)
+    if (await holdsAction(svc, r)) return view(r, true)
+  }
+  return view(rows[0], false)
 }
 
 /** How many of the folder's ended loop jobs a fire looks through for its own earlier turn. */

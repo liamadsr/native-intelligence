@@ -127,6 +127,20 @@ describe('local agent bridge: commands', () => {
     tauri.invoke.mockReset()
   })
 
+  it('start passes the person’s coding agent as worker (migration 658), only when there is one', async () => {
+    const jobId = '7d3c2a10-1111-4222-8333-444455556666'
+    tauri.invoke.mockResolvedValue({ jobId, runId: 'run-9' })
+    await agent.start({ grantId: 'g1', request: 'look', jobId, mode: 'read', worker: 'claude-code' })
+    await agent.start({ grantId: 'g1', request: 'look', jobId, mode: 'read', worker: null })
+    await agent.start({ grantId: 'g1', request: 'look', jobId, mode: 'read', worker: '' })
+    expect(tauri.invoke.mock.calls.map((c) => [c[0], c[1]])).toEqual([
+      ['local_agent_start', { grantId: 'g1', request: 'look', jobId, mode: 'read', worker: 'claude-code' }],
+      ['local_agent_start', { grantId: 'g1', request: 'look', jobId, mode: 'read' }],
+      ['local_agent_start', { grantId: 'g1', request: 'look', jobId, mode: 'read' }],
+    ])
+    tauri.invoke.mockReset()
+  })
+
   it('device → typed; a release build’s refusal reads as unavailable', async () => {
     tauri.invoke.mockResolvedValueOnce({
       deviceId: '0b5e2d6c-aaaa-4bbb-8ccc-dddddddddddd',
@@ -281,6 +295,39 @@ describe('local agent bridge: commands', () => {
     expect(await agent.events('j1', 0)).toMatchObject({ ok: false, unavailable: false })
   })
 
+  it('diff: an edit job’s branch read from the Mac, typed; a bad file is dropped and the answer counts as cut', async () => {
+    tauri.invoke.mockResolvedValueOnce({
+      base: 'main',
+      head: 'abc1234',
+      truncated: false,
+      files: [
+        { path: 'src/export.ts', status: 'modified', additions: 2, deletions: 1, binary: false, patch: '@@ -1 +1 @@\n-a\n+b' },
+        { path: 'src/new-name.ts', oldPath: 'src/old-name.ts', status: 'renamed', additions: 0, deletions: 0, binary: false, patch: '' },
+        { path: 'logo.png', status: 'added', additions: 0, deletions: 0, binary: true, patch: 'ignored' },
+        { path: 'weird', status: 'copied', additions: 1, deletions: 0, binary: false, patch: '' },
+      ],
+    })
+    expect(await agent.diff('j1')).toEqual({
+      ok: true,
+      value: {
+        base: 'main',
+        head: 'abc1234',
+        truncated: true,
+        files: [
+          { path: 'src/export.ts', status: 'modified', additions: 2, deletions: 1, binary: false, patch: '@@ -1 +1 @@\n-a\n+b' },
+          { path: 'src/new-name.ts', oldPath: 'src/old-name.ts', status: 'renamed', additions: 0, deletions: 0, binary: false, patch: '' },
+          { path: 'logo.png', status: 'added', additions: 0, deletions: 0, binary: true, patch: '' },
+        ],
+      },
+    })
+    expect(tauri.invoke).toHaveBeenLastCalledWith('local_agent_diff', { jobId: 'j1' })
+    tauri.invoke.mockResolvedValueOnce({ files: 'nope' })
+    expect(await agent.diff('j1')).toMatchObject({ ok: false, unavailable: false })
+    // A desktop without the command: unavailable, never a rejection.
+    tauri.invoke.mockRejectedValueOnce(new Error('command local_agent_diff not found'))
+    expect(await agent.diff('j1')).toMatchObject({ ok: false, unavailable: true })
+  })
+
   it('never touches Tauri in the browser', async () => {
     tauri.desktop = false
     expect(await agent.status()).toMatchObject({ available: false, reason: LOCAL_AGENT_OFF_DESKTOP })
@@ -294,6 +341,7 @@ describe('local agent bridge: commands', () => {
     expect(await agent.events('j1', 0)).toEqual(off)
     expect(await agent.device()).toEqual(off)
     expect(await agent.setModelToken('j1', 't')).toEqual(off)
+    expect(await agent.diff('j1')).toEqual(off)
     expect(await agent.start({ grantId: 'g1', request: 'hi', jobId: 'j1' })).toEqual(off)
     agent.onEvent(() => {})()
     expect(tauri.invoke).not.toHaveBeenCalled()
@@ -382,6 +430,29 @@ describe('local agent bridge: events', () => {
     const base = { available: true, grants: [], jobs: [] }
     expect(toLocalAgentStatus({ ...base, baseBranch: true })?.baseBranch).toBe(true)
     for (const v of [false, 'true', 1, undefined]) expect(toLocalAgentStatus({ ...base, baseBranch: v }), String(v)).not.toHaveProperty('baseBranch')
+  })
+
+  it('toLocalAgentStatus reads the coding agents a start may name (`workers`), dropping malformed ones; none listed: absent', () => {
+    const base = { available: true, grants: [], jobs: [] }
+    const status = toLocalAgentStatus({
+      ...base,
+      workers: [
+        { id: 'claude-code', label: 'Claude Code' },
+        { id: 'codex', label: '' },
+        { id: 'Bad Id', label: 'Nope' },
+        { id: 'claude-code', label: 'Twice' },
+        'codex',
+        null,
+      ],
+    })
+    expect(status?.workers).toEqual([
+      { id: 'claude-code', label: 'Claude Code' },
+      { id: 'codex', label: 'codex' },
+    ])
+    expect(toLocalAgentStatus({ ...base, workers: [] })?.workers).toEqual([])
+    // A desktop that can't run coding agents says nothing: the relay refuses a worker job there.
+    expect(toLocalAgentStatus(base)).not.toHaveProperty('workers')
+    expect(toLocalAgentStatus({ ...base, workers: 'claude-code' })).not.toHaveProperty('workers')
   })
 
   it('onEvent listens on local-agent://event, passes valid envelopes, and unsubscribes', async () => {

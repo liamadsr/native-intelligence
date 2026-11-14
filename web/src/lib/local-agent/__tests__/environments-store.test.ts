@@ -37,7 +37,9 @@ import {
   refreshChatEnvironment,
   refreshEnvironments,
   resetEnvironmentStore,
+  setMacWorker,
   type EnvironmentItem,
+  type MacEnvironmentItem,
 } from '../environment-client'
 
 const MAC = {
@@ -255,5 +257,52 @@ describe('a workspace switch', () => {
     await refreshChatEnvironment(null, { maxAgeMs: 30_000 })
     expect(fetchMock).toHaveBeenCalledWith(CHAT_ENVIRONMENT_URL, expect.anything())
     expect(getChatEnvironmentSnapshot(null).environmentId).toBe('env-mac')
+  })
+})
+
+describe('who does a Mac’s work (migration 658)', () => {
+  const macItem = () => getEnvironmentsSnapshot().environments.find((e) => e.id === 'env-mac') as MacEnvironmentItem
+
+  it('a list read that started before the pick lands after it and is dropped: the pick stays on screen', async () => {
+    let answerList: (r: Response) => void = () => {}
+    let answerPatch: (r: Response) => void = () => {}
+    await refreshEnvironments()
+    await refreshChatEnvironment('c-1')
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PATCH') return new Promise<Response>((r) => (answerPatch = r))
+      if (url === ENVIRONMENTS_URL) return new Promise<Response>((r) => (answerList = r))
+      return json({ error: 'nope' }, 404)
+    })
+    now += 10_000
+    const reading = refreshEnvironments({ force: true })
+    await Promise.resolve()
+    const picking = setMacWorker(macItem(), 'claude-code')
+    expect(macItem().worker).toBe('claude-code')
+    expect((getChatEnvironmentSnapshot('c-1').environment as MacEnvironmentItem).worker).toBe('claude-code')
+    answerPatch(json({ environment: { ...MAC, worker: 'claude-code' } }))
+    expect(await picking).toBe(true)
+    // The older read answers last, with the choice as it was before the pick.
+    answerList(json({ environments: [{ ...MAC, worker: null }, CLOUD], defaultEnvironmentId: null }))
+    await reading
+    expect(macItem().worker).toBe('claude-code')
+    // A read started after the pick applies as usual.
+    fetchMock.mockImplementation(async (url: string) => (url === ENVIRONMENTS_URL ? json({ environments: [{ ...MAC, worker: 'codex' }, CLOUD], defaultEnvironmentId: null }) : json({}, 404)))
+    await refreshEnvironments({ force: true })
+    expect(macItem().worker).toBe('codex')
+  })
+
+  it('refused: only the choice goes back, on the item as it is now; the toast says the server’s sentence', async () => {
+    await refreshEnvironments()
+    await refreshChatEnvironment('c-1')
+    const stale = macItem()
+    // Renamed since the menu was drawn: a rollback must not bring the old name back.
+    applyEnvironment({ ...stale, name: 'Desk Mac' })
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) =>
+      init?.method === 'PATCH' ? json({ error: 'Environment not found', code: 'NOT_FOUND' }, 404) : json({}, 404),
+    )
+    expect(await setMacWorker(stale, 'claude-code')).toBe(false)
+    expect(macItem()).toMatchObject({ name: 'Desk Mac', worker: null })
+    expect(getChatEnvironmentSnapshot('c-1').environment).toMatchObject({ name: 'Desk Mac', worker: null })
+    expect(toastError).toHaveBeenCalledWith('Couldn’t change who does the work', { description: 'Environment not found' })
   })
 })

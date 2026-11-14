@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireWorkspace } from '@/lib/api-auth'
 import { badRequest, notFound, serverError } from '@/lib/api-errors'
-import { storedGithubToken } from '@/lib/oauth/github-token'
+import { fetchPrMetadata } from '@/lib/github/pr-metadata'
 import { getServiceClient } from '@/lib/supabase/service'
 
 /**
@@ -64,7 +64,8 @@ export async function POST(
   }
 
   // Try to fetch PR metadata from GitHub API (best effort — works without auth for public repos)
-  const prMeta = await fetchPrMetadata(parsed.repoFullName, parsed.prNumber, user.id)
+  // The person's own GitHub token, read with the service client (migration 466), scoped to the session's user.
+  const prMeta = await fetchPrMetadata(getServiceClient(), parsed.repoFullName, parsed.prNumber, user.id)
 
   const { data: pr, error } = await supabase
     .from('action_github_pr')
@@ -107,44 +108,6 @@ function parseGitHubPrUrl(url: string): { repoFullName: string; prNumber: number
     return {
       repoFullName: `${parts[0]}/${parts[1]}`,
       prNumber,
-    }
-  } catch {
-    return null
-  }
-}
-
-async function fetchPrMetadata(
-  repoFullName: string,
-  prNumber: number,
-  userId: string,
-): Promise<{ title: string; state: string; draft: boolean; headBranch: string } | null> {
-  try {
-    // The signed-in user's own GitHub token, for authenticated API access. The
-    // token columns are the service role's alone (migration 466), so it is read
-    // with the service client, scoped to the session's user id (never one from
-    // the request).
-    const accessToken = await storedGithubToken(getServiceClient(), userId)
-
-    const headers: Record<string, string> = {
-      Accept: 'application/vnd.github+json',
-    }
-    if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`
-    }
-
-    const res = await fetch(
-      `https://api.github.com/repos/${repoFullName}/pulls/${prNumber}`,
-      { headers },
-    )
-
-    if (!res.ok) return null
-
-    const data = await res.json()
-    return {
-      title: data.title,
-      state: data.merged ? 'merged' : data.state, // GitHub API returns 'open' or 'closed'
-      draft: data.draft || false,
-      headBranch: data.head?.ref || null,
     }
   } catch {
     return null

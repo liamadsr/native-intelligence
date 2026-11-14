@@ -54,11 +54,14 @@ import { isDesktopApp } from '@/lib/platform'
 import { tauriBridge, type LocalAgentDevice, type LocalAgentGrant, type LocalAgentResult, type LocalAgentStatus } from '@/lib/tauri-bridge'
 import {
   NEW_CLOUD_NETWORK_ACCESS,
+  cleanWorkerOffers,
   isNetworkAccess,
+  isWorkerId,
   type ChatEnvironmentSource,
   type CloudEnvironment,
   type MacEnvironment,
   type MacFolder,
+  type MacWorkerOffer,
 } from '@/lib/environments/types'
 import { getClientWorkspaceId } from '@/lib/workspace-fetch'
 import { refreshLocalAgentDevice, type HeartbeatResult } from './relay-core'
@@ -233,6 +236,8 @@ interface StoreState {
   removing: readonly string[]
   /** Removed on this Mac, hidden until the server stops listing them. */
   hidden: readonly string[]
+  /** The coding agents this Mac offers a start now (local_agent_status's `workers`); null: not known here. */
+  workers: readonly MacWorkerOffer[] | null
 }
 
 const EMPTY: StoreState = {
@@ -245,6 +250,7 @@ const EMPTY: StoreState = {
   picking: false,
   removing: [],
   hidden: [],
+  workers: null,
 }
 
 const SERVER_SNAPSHOT: EnvironmentSnapshot = {
@@ -258,8 +264,22 @@ const SERVER_SNAPSHOT: EnvironmentSnapshot = {
   removing: [],
 }
 
+/**
+ * This Mac, as only a page inside the desktop app on it can see it: its
+ * device id and the coding agents it offers now (`local_agent_status`'s
+ * `workers`, migration 658's choice). Both null in a browser tab, on a
+ * phone, and in a desktop app too old to list coding agents (workers).
+ */
+export interface ThisMacSnapshot {
+  deviceId: string | null
+  workers: readonly MacWorkerOffer[] | null
+}
+
+const NO_MAC: ThisMacSnapshot = { deviceId: null, workers: null }
+
 let state: StoreState = EMPTY
 let snapshot: EnvironmentSnapshot = SERVER_SNAPSHOT
+let thisMac: ThisMacSnapshot = NO_MAC
 /** The JSON of the last environment applied: an unchanged read changes nothing. */
 let appliedKey = ''
 let lastReadAt = 0
@@ -289,8 +309,10 @@ function toSnapshot(s: StoreState): EnvironmentSnapshot {
 function set(patch: Partial<StoreState>): void {
   const next = { ...state, ...patch }
   if ((Object.keys(patch) as Array<keyof StoreState>).every((k) => next[k] === state[k])) return
+  const macChanged = next.thisDeviceId !== state.thisDeviceId || next.workers !== state.workers
   state = next
   snapshot = toSnapshot(state)
+  if (macChanged) thisMac = state.thisDeviceId || state.workers ? { deviceId: state.thisDeviceId, workers: state.workers } : NO_MAC
   for (const l of listeners) l()
 }
 
@@ -300,6 +322,10 @@ export function getEnvironmentSnapshot(): EnvironmentSnapshot {
 
 export function getServerEnvironmentSnapshot(): EnvironmentSnapshot {
   return SERVER_SNAPSHOT
+}
+
+export function getThisMacSnapshot(): ThisMacSnapshot {
+  return thisMac
 }
 
 export function subscribeEnvironment(listener: () => void): () => void {
@@ -357,17 +383,48 @@ export function checkLocalAgents(opts: { force?: boolean } = {}): Promise<void> 
   if (desktopChecked && !opts.force) return desktopChecked
   const run = (async () => {
     if (!d().isDesktop()) {
-      set({ canEdit: false, thisDeviceId: null })
+      set({ canEdit: false, thisDeviceId: null, workers: null })
       return
     }
     const [status, device] = await Promise.all([
       d().status().catch(() => null),
       d().device().catch(() => null),
     ])
-    set({ canEdit: status?.available === true, thisDeviceId: device?.ok ? device.value.deviceId || null : state.thisDeviceId })
+    const workers = status ? (status.workers ?? null) : state.workers
+    const changed = JSON.stringify(workers) !== JSON.stringify(state.workers)
+    set({
+      canEdit: status?.available === true,
+      thisDeviceId: device?.ok ? device.value.deviceId || null : state.thisDeviceId,
+      // Unchanged offers keep their array, so nothing redraws for nothing.
+      workers: changed ? workers : state.workers,
+    })
+    // What this Mac offers changed (an agent switched on or off in its menu):
+    // the heartbeat now mirrors it to the server (migration 658), so a page
+    // elsewhere offers the same, without waiting up to a minute.
+    if (changed && workers !== null && status?.available === true) void d().refreshMirror().catch(() => null)
   })()
   desktopChecked = run
   return run
+}
+
+/**
+ * This Mac and the coding agents it offers, live (the composer's worker
+ * toggle). Checks the desktop on mount and again when the window regains
+ * focus or the environment menu opens (checkLocalAgents({ force: true })):
+ * an agent may have been switched on meanwhile. Off: nothing checked.
+ */
+export function useThisMac({ enabled = true }: { enabled?: boolean } = {}): ThisMacSnapshot {
+  const snap = useSyncExternalStore(subscribeEnvironment, getThisMacSnapshot, () => NO_MAC)
+  useEffect(() => {
+    if (!enabled) return
+    void checkLocalAgents()
+    // A coding agent may be switched on in the Mac's menu bar meanwhile: the window coming back reads it again.
+    if (typeof window === 'undefined') return
+    const onFocus = () => void checkLocalAgents({ force: true })
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [enabled])
+  return enabled ? snap : NO_MAC
 }
 
 /** Add a folder to the environment: the Mac's picker, the heartbeat, a read. */
@@ -561,6 +618,8 @@ export function parseEnvironmentItem(raw: unknown): EnvironmentItem | null {
       createdAt: str(raw.createdAt),
       updatedAt: str(raw.updatedAt),
       supportsBaseBranch: raw.supportsBaseBranch === true,
+      worker: isWorkerId(raw.worker) ? raw.worker : null,
+      offeredWorkers: cleanWorkerOffers(raw.offeredWorkers),
     }
   }
   if (raw.kind === 'cloud') {
@@ -627,6 +686,8 @@ let listKey = ''
 let listReadAt = 0
 let listSeq = 0
 let listAppliedSeq = 0
+/** A worker pick happened after list reads up to this seq started: those are older than it, and dropped. */
+let listPickedAtSeq = 0
 let listInflight: { ws: string; run: Promise<void> } | null = null
 
 // Each chat's, by workspace and conversation id; a chat with no id yet (a new one) by the workspace alone.
@@ -690,7 +751,7 @@ async function readList(): Promise<void> {
     parsed = null
   }
   // A failed read keeps what is shown; a read older than one applied, or for a workspace the window has left, is dropped.
-  if (!parsed || seq < listAppliedSeq || workspace !== ws()) return
+  if (!parsed || seq < listAppliedSeq || seq <= listPickedAtSeq || workspace !== ws()) return
   listAppliedSeq = seq
   listReadAt = d().now()
   setList(workspace, parsed)
@@ -795,6 +856,45 @@ async function put(url: string, body: Record<string, unknown>): Promise<boolean>
   return false
 }
 
+/**
+ * Who does this Mac's work (migration 658): a coding agent's id, or null for
+ * Native Intelligence's own agent. PATCHed at once and shown at once (put
+ * back, with the server's sentence, when refused). True when it took.
+ */
+export async function setMacWorker(environment: MacEnvironmentItem, worker: string | null): Promise<boolean> {
+  const was = environment.worker ?? null
+  if (was === worker) return true
+  // Reads already on their way started before this pick: they must not show the old choice.
+  listPickedAtSeq = listSeq
+  for (const [key, chat] of chats) if (chat.environment?.id === environment.id) chatSeq.set(key, ++chatSeqCounter)
+  applyWorker(environment.id, worker)
+  try {
+    const res = await d().fetch(`${ENVIRONMENTS_URL}/${encodeURIComponent(environment.id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ worker }),
+    })
+    if (res.ok) {
+      const saved = parseEnvironmentItem(((await res.json().catch(() => null)) as { environment?: unknown } | null)?.environment)
+      if (saved?.kind === 'mac') applyEnvironment(saved)
+      return true
+    }
+    toast.error('Couldn’t change who does the work', { description: (await readRefusal(res, 'Try again.')).error })
+  } catch {
+    toast.error('Couldn’t change who does the work', { description: "Native Intelligence couldn't be reached. Try again." })
+  }
+  // Only the choice goes back, on the item as it is now (never a stale copy of the rest of it).
+  applyWorker(environment.id, was)
+  return false
+}
+
+/** One Mac's worker, on the list and every chat showing it: nothing else of the item changes. */
+function applyWorker(environmentId: string, worker: string | null): void {
+  const patch = (e: EnvironmentItem): EnvironmentItem => (e.kind === 'mac' && e.id === environmentId ? { ...e, worker } : e)
+  if (listHere()) setList(listWs, { environments: list.environments.map(patch), defaultEnvironmentId: list.defaultEnvironmentId })
+  for (const [key, chat] of chats) if (chat.environment?.id === environmentId) setChat(key, { ...chat, environment: patch(chat.environment) })
+}
+
 /** An environment saved or made (Edit environment): the list and every chat showing it take it at once. */
 export function applyEnvironment(next: EnvironmentItem): void {
   const here = listHere()
@@ -887,6 +987,7 @@ export function configureEnvironment(over: Partial<EnvironmentDeps> | null): voi
 export function resetEnvironmentStore(): void {
   state = EMPTY
   snapshot = SERVER_SNAPSHOT
+  thisMac = NO_MAC
   appliedKey = ''
   lastReadAt = 0
   readSeq = 0
@@ -899,6 +1000,7 @@ export function resetEnvironmentStore(): void {
   listReadAt = 0
   listSeq = 0
   listAppliedSeq = 0
+  listPickedAtSeq = 0
   listInflight = null
   chats.clear()
   chatReadAt.clear()

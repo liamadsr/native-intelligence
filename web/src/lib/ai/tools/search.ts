@@ -494,6 +494,9 @@ async function enrichWithAnchorNames(
   }
 }
 
+/** An attachment's signed link, by default: an hour. */
+export const SIGNED_URL_TTL_SECONDS = 3600
+
 export function createSearchTools(
   userId: string,
   supabase: SupabaseClient,
@@ -517,6 +520,8 @@ export function createSearchTools(
    * (contact-visibility.ts `grants: false`), nor is an anchor only a grant opens.
    */
   omitGrants = false,
+  /** How long an attachment's signed link lives (CreateToolsOptions.signedUrlTtlSeconds): an hour, unless the caller says. */
+  signedUrlTtlSeconds = SIGNED_URL_TTL_SECONDS,
 ) {
   const readOpts: { grants?: boolean } = omitGrants ? { grants: false } : {}
   // The toolset's default, spoken in the descriptions so the model knows what
@@ -729,7 +734,7 @@ export function createSearchTools(
             ]
             const urlEntries = await Promise.all(
               paths.map(async (path) => {
-                const { data: urlData } = await supabase.storage.from('attachments').createSignedUrl(path, 3600)
+                const { data: urlData } = await supabase.storage.from('attachments').createSignedUrl(path, signedUrlTtlSeconds)
                 return [path, urlData?.signedUrl ?? null] as const
               }),
             )
@@ -1315,7 +1320,7 @@ export function createSearchTools(
               uniquePaths.map(async (path) => {
                 const { data: urlData } = await supabase.storage
                   .from('attachments')
-                  .createSignedUrl(path, 3600)
+                  .createSignedUrl(path, signedUrlTtlSeconds)
                 return [path, urlData?.signedUrl ?? null] as const
               }),
             )

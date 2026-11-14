@@ -43,6 +43,17 @@
  *    their handler's answer as is, no reviewer (neither writes outside Native Intelligence;
  *    each keys on eve's ids).
  *
+ * 8. A job on the person's own coding agent (migration 658's worker; board
+ *    step 4, src/lib/local-agent/worker-tools.ts): everything above for its
+ *    caller class (macWorkerCeiling), less the server-run web tools and the
+ *    Mac's teammate tools (TOOL_OUT_OF_CEILING), through the same ceiling,
+ *    caller policy, go-ahead check, reviewer (BLOCKING), outward gate and
+ *    cards. Its `search_tools` answers each match's schema; `call_tool` never
+ *    reaches here (the adapter unwraps it). The desktop posts `callId` (the
+ *    call's own id), `turnId` (one per agent turn) and `sessionId` (the
+ *    job's id), all required: the breaker and the go-ahead guard key on the
+ *    job, `sessionId` and `turnId`.
+ *
  * Status writes are an agent's (one hop from the person), id-based tools are
  * fenced to the session's workspace, and a session token carries no JWT, so
  * the tools that call back into the app as the person are not here.
@@ -68,9 +79,13 @@ import {
   macDispatchContext,
   macExcludedTools,
   macGate,
+  macWorkerCeiling,
   usageRefusal,
   withMacConfirmWording,
 } from '@/lib/local-agent/agent-access'
+import { createWorkerSearchTool } from '@/lib/local-agent/worker-tools'
+import { WRITE_BUDGET_CODE, WRITE_BUDGET_MESSAGE, countWorkerWrite } from '@/lib/local-agent/worker-write-budget'
+import { agentWriterFor } from '@/lib/actions/agent-writer'
 import { isMacNativeTool, runMacNativeTool, unattendedToolReview } from '@/lib/local-agent/agent-seams'
 import { createMacWebTools, isMacWebTool } from '@/lib/local-agent/web-tools'
 import { chatgptPlanFor } from '@/lib/chatgpt/plan-route'
@@ -135,6 +150,18 @@ export async function POST(request: Request) {
   // eve's ids key the per-turn guards. The person's words come from the server (ctx.reviewOverride).
   const scope: ToolCallScope = { sessionId: body.sessionId, turnId: body.turnId }
 
+  // A job on the person's own coding agent (board step 4): everything Native Intelligence's
+  // own agent on the Mac has for the class (macWorkerCeiling, below), through
+  // the same checks, reviewer and cards, but never the server-run web tools or
+  // the Mac's teammate tools. The ids are required: the breaker counts by them.
+  const worker = mac.session.worker
+  if (worker) {
+    for (const [field, value] of [['sessionId', body.sessionId], ['turnId', body.turnId], ['callId', body.callId]] as const) {
+      if (typeof value !== 'string' || !value || value.length > 200) return badRequest(`${field} is required (a string of at most 200 characters)`)
+    }
+    if (isMacNativeTool(toolName) || isMacWebTool(toolName)) return outOfCeiling(toolName, "isn't one of a coding agent's Native Intelligence tools (it has its own)")
+  }
+
   // Never on the Mac, before anything else is consulted.
   if (macExcludedTools(mac.caller).has(toolName)) return outOfCeiling(toolName, "isn't available to Native Intelligence on the Mac")
 
@@ -189,7 +216,8 @@ export async function POST(request: Request) {
     agentToolCeiling: null,
     externalMcpToolNames,
   })
-  const ceiling = macCeiling(chatCeiling, externalMcpToolNames, { caller: mac.caller, localModel: mac.session.localModel })
+  const ceilingOpts = { caller: mac.caller, localModel: mac.session.localModel }
+  const ceiling = worker ? macWorkerCeiling(chatCeiling, externalMcpToolNames, ceilingOpts) : macCeiling(chatCeiling, externalMcpToolNames, ceilingOpts)
   if (toolName !== 'search_tools' && !ceiling.has(toolName)) {
     // Fail-closed boundary (F1 lesson). An out-of-ceiling or unknown call never executes.
     return outOfCeiling(toolName, "is not in this conversation's ceiling")
@@ -201,10 +229,19 @@ export async function POST(request: Request) {
   // A job a loop started has nobody to have said yes: a paid call (a
   // prospecting search, enrich_contact) with `confirmed_with_user: true` is the
   // model guessing, refused before it runs, as on a skill run (go-ahead.ts).
-  // The person's own job keeps the flag: they are there to give it.
-  if (unattended) {
+  // The person's own job keeps the flag: they are there to give it. Not a
+  // job on their own coding agent, whatever its class: nobody can say yes
+  // inside its turn, and the paid tools (enrich_contact, the prospecting
+  // searches) are internal writes the reviewer never sees, so the agent, or
+  // text it read, could claim the yes and run them in a loop.
+  if (unattended || worker) {
     const noYes = unattendedGoAheadRefusal(body.input)
     if (noYes) return NextResponse.json({ output: noYes })
+  }
+  // A coding agent's writes are bounded per job (worker-write-budget.ts:
+  // process-local counts), last before the call runs: refused ones don't count.
+  if (worker && !countWorkerWrite(mac.session.id, toolName, body.input).allowed) {
+    return apiError(WRITE_BUDGET_MESSAGE, { status: 429, code: WRITE_BUDGET_CODE })
   }
 
   // ── The REAL tools, under the session's tenancy ─────────────────────────────
@@ -215,10 +252,13 @@ export async function POST(request: Request) {
     body.input,
     scope,
     {
-      search_tools: createSearchToolsTool(ceiling),
-      ...createTools(mac.session.userId, svc, mac.session.workspaceId, undefined, macCreateToolsOptions(mac, ctx, { ...scope, timeZone: body.timeZone })),
+      // A worker has no dynamic loading: its search answers each match's schema (worker-tools.ts).
+      search_tools: worker ? createWorkerSearchTool(ceiling, externalMcp.tools) : createSearchToolsTool(ceiling),
+      // A worker's writes go through the person's agent's client (agent-writer.ts): the activity log credits "<name>'s agent".
+      ...createTools(mac.session.userId, worker ? agentWriterFor(mac.session.userId) : svc, mac.session.workspaceId, undefined, macCreateToolsOptions(mac, ctx, { ...scope, timeZone: body.timeZone })),
       ...withMacConfirmWording(externalMcp.tools, svc, mac),
     },
     { externalTool: externalToolPolicy(externalMcp.meta, toolName), gate: macGate(mac, svc) },
   )
 }
+
