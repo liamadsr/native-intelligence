@@ -243,7 +243,7 @@ describe('buildAgentProfile', () => {
     for (const d of ['/Users/p/code/app', base.agentHome, `${JOB}/home/.demo`, base.agentTmp, '/Users/p/Library/Keychains', '/Users/p/.demo']) expect(lines[pin]).toContain(`(literal "${d}")`)
     // After the pin, only file-write-data on the roots it writes in (what access(W_OK) checks), never another write.
     const after = lines.slice(pin + 1).filter((l) => l.startsWith('(allow file-write'))
-    expect(after).toEqual([`(allow file-write-data (literal "${base.agentHome}") (literal "${base.agentTmp}") (literal "/Users/p/Library/Keychains") (literal "${JOB}/home/.demo"))`])
+    expect(after).toEqual([`(allow file-write-data (require-all (vnode-type DIRECTORY) (require-any (literal "${base.agentHome}") (literal "${base.agentTmp}") (literal "/Users/p/Library/Keychains") (literal "${JOB}/home/.demo"))))`])
     expect(after[0]).not.toContain('/Users/p/code/app') // a read job's folder answers "not writable"
   })
 

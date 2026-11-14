@@ -241,7 +241,8 @@ export function buildAgentProfile(input: AgentProfileInput): string {
     // access(2) with W_OK on a folder is checked as file-write-data, and nothing else writes a folder's data: re-opened
     // for the roots it may write in, so a writability check answers yes there (SQLite looks for a temp folder this way,
     // and Codex 0.169's state database needs one) while the pin's rename, replacement, removal and chmod stay refused.
-    `(allow file-write-data ${[...new Set([...writableRoots, ...(input.homeFolders ?? [])].map(norm))].map((p) => `(literal ${sbplString(p)})`).join(' ')})`,
+    // Folders only (vnode-type): on a regular file the same rule would open its contents, should one of these paths ever be a file.
+    `(allow file-write-data (require-all (vnode-type DIRECTORY) (require-any ${[...new Set([...writableRoots, ...(input.homeFolders ?? [])].map(norm))].map((p) => `(literal ${sbplString(p)})`).join(' ')})))`,
     `(deny file-read-data ${readDenied})`,
     `(allow file-read-data ${reads})`,
     // A read job's secret files, contents and stat (an edit job's worktree is a fresh checkout of tracked files).

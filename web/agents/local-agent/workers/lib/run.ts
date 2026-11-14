@@ -255,6 +255,7 @@ export async function runWorker(opts: { env?: WorkerEnv; registry?: Registry } =
     driver = new WorkerDriver(
       {
         entry,
+        agentHome,
         mode: launch.mode,
         cwd: launch.folder,
         mcp: { url: mcp.url, token: mcp.token },

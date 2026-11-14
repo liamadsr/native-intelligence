@@ -99,6 +99,8 @@ export interface LinkContext {
   readonly label: string
   /** How long a setup step (the version probe, the agent's own handshake) may take. */
   readonly setupTimeoutMs: number
+  /** The agent's private home (run.ts), when known: a link can check the agent keeps its state there. */
+  readonly home?: string
 }
 
 export type LinkFactory = (launchers: Launchers, events: LinkEvents, ctx: LinkContext) => AgentLink
@@ -144,8 +146,10 @@ export function jsonLines(stream: Readable, onMessage: (msg: Record<string, unkn
   let dropping = false
   stream.setEncoding('utf8')
   stream.on('data', (chunk: string) => {
+    // Only the new chunk can hold the next line end: a long line is not scanned again on every chunk.
+    const from = buf.length
     buf += chunk
-    for (let nl = buf.indexOf('\n'); nl !== -1; nl = buf.indexOf('\n')) {
+    for (let nl = buf.indexOf('\n', from); nl !== -1; nl = buf.indexOf('\n')) {
       const line = buf.slice(0, nl)
       buf = buf.slice(nl + 1)
       if (dropping) {

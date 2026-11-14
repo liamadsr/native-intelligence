@@ -51,7 +51,7 @@ const NAME = /^(?!\.\.?$)[A-Za-z0-9._-]+$/
 /** A scratch name: a NAME that may hold `*`. */
 const SCRATCH = /^(?!\.\.?$)[A-Za-z0-9._*-]+$/
 /** Environment names the adapter sets itself or that carry Native Intelligence's own settings: never from a registry entry. */
-const RESERVED_ENV = /^(HOME|PATH|TMPDIR|NO_BROWSER|USER|LOGNAME|SHELL|LOCAL_AGENT_.*|NI_.*)$/
+const RESERVED_ENV = /^(HOME|PATH|TMPDIR|NO_BROWSER|USER|LOGNAME|SHELL|CODEX_HOME|CLAUDE_CONFIG_DIR|LOCAL_AGENT_.*|NI_.*)$/
 const ENV_VARS = ['CLI', 'TMP', 'HOME'] as const
 
 function placeholders(s: string): string[] {

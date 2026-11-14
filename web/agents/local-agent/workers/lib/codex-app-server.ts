@@ -32,6 +32,7 @@
  *     expected); anything else is refused (-32601).
  *   - **Cancel:** `turn/interrupt`.
  */
+import { realpathSync } from 'node:fs'
 import { AuthRequiredError, SentenceError, obj, versionIn, within, type AgentLink, type AgentProcess, type Launchers, type LinkContext, type LinkEvents, type LinkFactory, type SessionParams, type StopReason } from './agent-link.js'
 import { METHOD_NOT_FOUND, RpcConnection, RpcError } from './jsonrpc.js'
 import { tailBuffer } from './process.js'
@@ -160,6 +161,11 @@ class CodexAppServer implements AgentLink {
       const name = `${this.ctx.label}${v ? ` ${v}` : ''}`
       if (await this.hasAppServer()) throw new SentenceError(`${name} on this Mac could not start its app server${said}.`)
       throw new SentenceError(`${name} on this Mac has no app server${said}, which this app needs: update Codex on this Mac (for example \`npm install -g @openai/codex@latest\`), then try again.`)
+    }
+    // Codex says where it keeps its state and reads its config: it must be the job's private home, never the person's own.
+    const home = this.ctx.home
+    if (home && typeof res.codexHome === 'string' && !inside(res.codexHome, home)) {
+      throw new SentenceError(`${this.ctx.label} started with its settings folder outside this job's own home (${res.codexHome.slice(0, 200)}), so the job was not started.`)
     }
     rpc.notify('initialized')
     const version = versionIn(String(res.userAgent ?? '')) ?? (await this.cliVersion()) ?? 'unknown'
@@ -354,3 +360,16 @@ class CodexAppServer implements AgentLink {
 }
 
 export const codexAppServerLink: LinkFactory = (launchers, events, ctx) => new CodexAppServer(launchers, events, ctx)
+
+/** Whether `path` is `root` or below it, with both resolved (a temp or home path can be reached through a link). */
+function inside(path: string, root: string): boolean {
+  const real = (p: string) => {
+    try {
+      return realpathSync(p)
+    } catch {
+      return p
+    }
+  }
+  const [p, r] = [real(path), real(root)]
+  return p === r || p.startsWith(`${r}/`)
+}

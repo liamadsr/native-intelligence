@@ -91,6 +91,8 @@ export interface DriverOptions {
   readonly mcp: { readonly url: string; readonly token: string }
   /** How long the link's setup and each session setup may take. */
   readonly setupTimeoutMs?: number
+  /** The agent's private home, passed on to the link. */
+  readonly agentHome?: string
   /** The workspace tools' section text (the server's, from the tools file); absent when the job has none. */
   readonly workspaceInstructions?: string
 }
@@ -160,7 +162,7 @@ export class WorkerDriver {
       log: io.log,
     }
     const make = deps.link ?? LINKS[opts.entry.driver]
-    this.link = make(launchers, events, { label: opts.entry.label, setupTimeoutMs: this.setupMs })
+    this.link = make(launchers, events, { label: opts.entry.label, setupTimeoutMs: this.setupMs, ...(opts.agentHome ? { home: opts.agentHome } : {}) })
   }
 
   private get label() {
