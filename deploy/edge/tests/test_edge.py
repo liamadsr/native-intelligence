@@ -71,9 +71,13 @@ class TheCaddyfile(unittest.TestCase):
         # As Caddy sees it: no {$...} inside a regular expression (Caddy puts the value in as written).
         self.assertNotIn("{$", pattern_text)
         pattern = re.compile(pattern_text)
-        self.assertEqual(pattern.match("abcdefghij0123456789.browsers.example.com").group(1), "abcdefghij0123456789")
-        for refused in ("ABCDEFGHIJ0123456789.browsers.example.com", "short.browsers.example.com", "abcdefghij012345678.x",
-                        "4000-abcdefghij0123456789.browsers.example.com", "abcdefghij0123456789x.browsers.example.com", ""):
+        # The runtime's ids as they are today: an "i" and twenty characters (21). A
+        # pattern for exactly 20 refused every request of the first real browser.
+        for name in ("iaovfvgjaesr1ebz1czih", "abcdefghij0123456789"):
+            self.assertEqual(pattern.match(f"{name}.browsers.example.com").group(1), name)
+        for refused in ("ABCDEFGHIJ0123456789.browsers.example.com", "short.browsers.example.com",
+                        "4000-abcdefghij0123456789.browsers.example.com", "abcdefghij_123456789.browsers.example.com",
+                        "a" * 41 + ".browsers.example.com", ""):
             self.assertIsNone(pattern.match(refused), refused)
         for line in ("header_up Host {upstream_hostport}", "header_up E2b-Sandbox-Id {re.hub.1}", "header_up E2b-Sandbox-Port 4000",
                      "header_up X-Real-IP {remote_host}", "header_up -E2b-Traffic-Access-Token"):

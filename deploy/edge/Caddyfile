@@ -360,7 +360,12 @@ https://*.{$CLOUD_BROWSER_HUB_DOMAIN:cloud-browser.invalid} {
 
 	@hub {
 		vars {http.request.tls.server_name} {http.request.host}
-		vars_regexp hub {http.request.tls.server_name} ^([a-z0-9]{20})\.
+		# One label of lower-case letters and digits. No exact length: the
+		# runtime's ids are an "i" and twenty characters today (21, seen on the
+		# first real browser; a pattern for exactly 20 refused every request).
+		# What makes a name a real browser's is the app's yes before its
+		# certificate, not this pattern.
+		vars_regexp hub {http.request.tls.server_name} ^([a-z0-9]{16,40})\.
 	}
 	handle @hub {
 		reverse_proxy {$CLOUD_BROWSER_TRAFFIC_UPSTREAM:127.0.0.1:9} {
