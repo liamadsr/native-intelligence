@@ -764,8 +764,13 @@ def check_team_call_recorder(env, _opts):
 
 
 def check_needs_recorder(name, what):
-    """`on` or empty, and `on` only with the call recorder on: the app reads the switch only
-    where the recorder takes the notes (web/src/lib/team-calls/live-turns.ts, event-link.ts).
+    """`on` or empty, and `on` only with the call recorder on: the app reads each of these
+    switches only where the recorder takes the notes. In web/src/lib/team-calls/:
+    TEAM_CALL_LIVE_AGENT in live-turns.ts (teamCallLiveAgentOn), TEAM_CALL_EVENT_LINK in
+    event-link.ts (teamCallEventLinkOn), TEAM_CALL_AUDIO in recorder.ts (teamCallAudioOn,
+    which the capture feed's start, web/src/lib/capture-feed/sources.ts, hands the recorder
+    as `audio`; the recorder keeps the file only with its own RECORDER_AUDIO on,
+    recorder/src/config.ts, in the recorder's settings, not this file's).
     Read as the app reads it (trimmed, any case: `ON` is on there too). Whether its
     migration is applied is not visible from here; the step's check is."""
     def check(env, _opts):

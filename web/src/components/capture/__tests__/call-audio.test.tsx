@@ -586,6 +586,9 @@ describe('CallAudioRow', () => {
     expect(m.plays.at(-1)).toBe(1800)
   })
 
+  // A renewal keeps its place from before its fetch (two give-ups in a row keep it), so a stall
+  // during the fetch must not move it back. The players before that kept it only after the fetch,
+  // and so never had this fault: the test guards the place-before-fetch player alone.
   it('a move along the bar on a dead link, then WebKit’s stall from the old place while the fresh link comes: on from where it was moved to', async () => {
     files = [ready]
     await mount(team)
@@ -605,6 +608,56 @@ describe('CallAudioRow', () => {
     await fire(m.el, 'loadedmetadata')
     expect(Math.abs(m.plays.at(-1)! - 1200)).toBeLessThan(3)
     expect(requests.filter((r) => r.includes('as=play'))).toHaveLength(2)
+  })
+
+  it('the old link’s metadata while a renewal’s link is on its way: the renewal goes on, the fresh link is set, on from the place', async () => {
+    files = [ready]
+    await mount(team)
+    const m = media()
+    await press()
+    await tick()
+    await fire(m.el, 'loadedmetadata')
+    m.position = 3
+    const answers = heldPlayLinks()
+    later(3_600_000)
+    await moveTo(1200) // a renewal from 20:00, its link held
+    await fire(m.el, 'loadedmetadata') // the old link's (a fresh load of it in WebKit), before the fresh link comes
+    expect(button().getAttribute('aria-label')).toBe('Pause call audio')
+    expect(m.plays).toEqual([0])
+    answers[0]()
+    await tick()
+    expect(m.el.getAttribute('src')).toContain('token=held-2')
+    await fire(m.el, 'loadedmetadata') // the fresh link's
+    expect(Math.abs(m.plays.at(-1)! - 1200)).toBeLessThan(3)
+    expect(m.plays).toHaveLength(2)
+  })
+
+  it('a Download link that never comes: the button back after the wait, with a line saying it was slow; one refused says it can’t be', async () => {
+    files = [ready]
+    await mount(team)
+    vi.stubGlobal('fetch', (url: string, init?: { signal?: AbortSignal }) => {
+      requests.push(url)
+      return new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('slow', 'AbortError'))))
+    })
+    const download = container.querySelector('[data-capture-call-audio-download]') as HTMLButtonElement
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await act(async () => download.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+      expect(download.disabled).toBe(true)
+      await act(async () => void (await vi.advanceTimersByTimeAsync(15_000)))
+      expect(download.disabled).toBe(false)
+      expect(toastMock).toHaveBeenCalledWith('The download is slow to start. Press download to try again.')
+    } finally {
+      vi.useRealTimers()
+    }
+    vi.stubGlobal('fetch', async (url: string) => {
+      requests.push(url)
+      return new Response('{}', { status: 500 })
+    })
+    await act(async () => download.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    await tick()
+    expect(toastMock).toHaveBeenLastCalledWith('That audio can’t be downloaded.')
+    expect(opened.urls).toEqual([])
   })
 
   it('clock: minutes and seconds, hours when there are any', () => {

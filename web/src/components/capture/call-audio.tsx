@@ -290,11 +290,14 @@ export function CallAudioPlayer({
   const download = async () => {
     if (downloading) return
     setDownloading(true)
-    // An answer that never comes gives the button back.
-    const link = await audioLink(captureId, file.id, 'download', typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(RENEW_WAIT_MS) : undefined)
+    // An answer that never comes gives the button back after RENEW_WAIT_MS, with its own line.
+    const slow = new AbortController()
+    const timer = setTimeout(() => slow.abort(), RENEW_WAIT_MS)
+    const link = await audioLink(captureId, file.id, 'download', slow.signal)
+    clearTimeout(timer)
     setDownloading(false)
     if (!link) {
-      toast('That audio can’t be downloaded.')
+      toast(slow.signal.aborted ? 'The download is slow to start. Press download to try again.' : 'That audio can’t be downloaded.')
       return
     }
     // The link names the file: the browser (or, in the desktop app, the person's own) saves it.
