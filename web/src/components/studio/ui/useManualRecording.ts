@@ -172,7 +172,7 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
     }
     pending.current = { id, take, placement, ...(title ? { title } : {}) };
     patch(id, { status: 'finalizing', step: 'Uploading', retry: false, error: undefined });
-    await inFlight.current.during(take.sessionId, async () => { try {
+    await inFlight.current.during(take.sessionId, async () => { void refreshLocalTakesRef.current(); try {
       const keys = await uploadTake(rec, take, files => { if (mounted.current) setUploads(files); });
       if (mounted.current) setLiveTracks([]);
       patch(id, { step: 'Preparing your recording', ...(take.note ? { note: take.note } : {}) });
@@ -364,11 +364,12 @@ export function useManualRecording(notify: (text: string, error?: boolean) => vo
     discard: async sessionId => { await (recorder.current as DesktopRecorder).app.discard(sessionId); },
     inUse: async sessionId => {
       const desktop = recorder.current as DesktopRecorder;
-      return inUseReason(sessionId, { sending: new Set([...takesBeingSent(), ...(desktop.liveSessions?.() ?? [])]), records: await (draftsRef.current?.list() ?? Promise.resolve([])), open: busyHere() });
+      return inUseReason(sessionId, { sending: new Set([...takesBeingSent(), ...(desktop.liveSessions?.() ?? []), ...inFlight.current.ids()]), records: await (draftsRef.current?.list() ?? Promise.resolve([])), open: busyHere() });
     },
     holdTake: sessionId => (recorder.current as DesktopRecorder).leases.hold(sessionId),
     letGoTake: sessionId => (recorder.current as DesktopRecorder).leases.release(sessionId),
     holdsTake: sessionId => (recorder.current as DesktopRecorder).leases.holds(sessionId),
+    inFlight: sessionId => inFlight.current.ids().has(sessionId),
     takeOver: sessionId => { const id = takeOverFromSession(pending, sessionId); if (id) patch(id, { retry: false }); },
     notify: (text, error) => notifyRef.current(text, error),
     refresh: () => void refreshLocalTakesRef.current(),

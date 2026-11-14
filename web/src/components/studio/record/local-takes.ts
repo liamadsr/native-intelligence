@@ -200,7 +200,12 @@ export type LocalTakeDeps = {
   /** A row action takes the take over (it makes a new video of it, brings it back, or discards it): the session that kept
    *  it after a failed upload lets go of it (takeOverFromSession), so its banner never acts on it again. */
   takeOver?: (sessionId: string) => void
+  /** Whether a "Preparing your recording" upload is sending the take now (a session's Try again): no row action then. */
+  inFlight?: (sessionId: string) => boolean
 }
+
+/** What a row action on a take being sent now says (it is refused: the upload deletes the folder when it is done). */
+export const SENDING_NOW = 'This recording is being sent now. Try again once it has finished.'
 
 /** The second action that lets go of a take's files and edits (asked once more first, RecordDialog.tsx). */
 export const LET_GO = 'Let go of the files'
@@ -220,6 +225,8 @@ export function localTakeActions(deps: LocalTakeDeps) {
     busy.add(sessionId)
     deps.onBusy?.([...busy])
     try {
+      // Being sent by a session's Try again: every row action waits (a second video, or files deleted under it).
+      if (deps.inFlight?.(sessionId)) throw new Error(SENDING_NOW)
       await work()
     } catch (cause) {
       deps.notify(cause instanceof Error ? cause.message : String(cause), true)

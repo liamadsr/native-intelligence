@@ -2,7 +2,7 @@
 // size, what is wrong in plain words, and what Try again does. Nothing such a take holds is removed by its age
 // (studio_recorder.rs sweep), so every one of them must show here. Made-up takes.
 import { describe, expect, it } from 'vitest'
-import { inUseReason, keptFor, listedTakes, localTakeActions, localTakeRows, OPEN_ELSEWHERE, sizeWords, takeOverFromSession, takesInFlight, type LocalTakeDeps, type LocalTakeRow } from '../local-takes'
+import { inUseReason, keptFor, listedTakes, localTakeActions, localTakeRows, OPEN_ELSEWHERE, SENDING_NOW, sizeWords, takeOverFromSession, takesInFlight, type LocalTakeDeps, type LocalTakeRow } from '../local-takes'
 import { CHANGED_ELSEWHERE, type ProvisionalRecord } from '../provisional'
 
 const S = (n: number) => `${n}f0f0f0f-1111-4222-8333-444444444444`
@@ -311,5 +311,29 @@ describe('the sixth review', () => {
     await actions.retry({ sessionId: S(1), bytes: 1, at: null, problem: '', action: { kind: 'recover', takeId: 'take-1' }, edits: false })
     await actions.discard(S(2))
     expect(taken).toEqual([S(1), S(2)])
+  })
+
+  it('while a session’s Try again sends the take, the row’s new video and its Discard are refused, nothing deleted', async () => {
+    const flights = takesInFlight()
+    const done: string[] = [], said: string[] = []
+    const actions = localTakeActions({
+      refile: async () => undefined, adopt: async () => undefined, release: async () => ({ safe: true }), recover: async () => void done.push('recover'),
+      fileWhole: async () => void done.push('new video'), records: async () => [], discard: async () => void done.push('discard'),
+      inUse: async (id) => inUseReason(id, { sending: flights.ids(), records: [], open: new Set() }),
+      holdTake: async () => true, letGoTake: async () => undefined, notify: (text) => void said.push(text), refresh: () => undefined,
+      inFlight: (id) => flights.ids().has(id),
+    })
+    let finishUpload!: () => void
+    const upload = flights.during(S(1), () => new Promise<void>((resolve) => { finishUpload = resolve }))
+    await actions.retry({ sessionId: S(1), bytes: 1, at: null, problem: '', action: { kind: 'file-whole' }, edits: false })
+    await actions.retry({ sessionId: S(1), bytes: 1, at: null, problem: '', action: { kind: 'recover', takeId: 'take-1' }, edits: false })
+    await actions.discard(S(1))
+    expect(done).toEqual([])
+    expect(said).toEqual([SENDING_NOW, SENDING_NOW, SENDING_NOW])
+    finishUpload()
+    await upload
+    // Once the upload stopped (and failed, say), the row works again.
+    await actions.discard(S(1))
+    expect(done).toEqual(['discard'])
   })
 })
