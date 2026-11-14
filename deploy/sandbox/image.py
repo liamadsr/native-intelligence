@@ -339,10 +339,13 @@ def check_browser(min_free_gib: int) -> int:
         sudo = out("sudo -n true </dev/null >/dev/null 2>&1 && echo yes || echo no")
         local_writable = out("[ -w /usr/local/bin ] && echo yes || echo no")
         # What the app's own step will refuse (CLOSE_USR_LOCAL): a link under
-        # /usr/local to a file that is missing, not root's, or writable by others.
+        # /usr/local to a file OUTSIDE it that is missing, not root's, or writable
+        # by others. (What lies inside /usr/local the app's step makes root's alone
+        # itself, on every new browser; the runtime leaves it open until then.)
         loose_links = out(
-            "find /usr/local -type l | while read -r l; do t=$(readlink -f \"$l\") && [ -e \"$t\" ] && "
-            "[ \"$(stat -c %u \"$t\")\" = 0 ] && [ $(( 0$(stat -c %a \"$t\") & 022 )) = 0 ] || printf '%s ' \"$l\"; done"
+            "find /usr/local -type l | while read -r l; do t=$(readlink -f \"$l\") || { printf '%s ' \"$l\"; continue; }; "
+            "case \"$t\" in /usr/local/*) continue ;; esac; "
+            "[ -e \"$t\" ] && [ \"$(stat -c %u \"$t\")\" = 0 ] && [ $(( 0$(stat -c %a \"$t\") & 022 )) = 0 ] || printf '%s ' \"$l\"; done"
         )
         ok, free_gib, memory_mib = _common(out, image, BROWSER_RECORD, min_free_gib, BROWSER_PROFILE)
         started = out(BROWSER_START, timeout=90)

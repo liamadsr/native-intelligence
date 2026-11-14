@@ -178,14 +178,21 @@ async function startChrome(h: Handle): Promise<number> {
   throw new Error(`Chrome did not answer within ${CLOUD_BROWSER.startTimeoutMs / 1000} s`)
 }
 /** A browser-level CDP call from inside the VM (node's own WebSocket), printing the result as JSON. */
-const cdp = (method: string, params: unknown) => `node -e ${JSON.stringify(`(async () => {
-  const { webSocketDebuggerUrl } = await (await fetch('http://127.0.0.1:9222/json/version')).json()
-  const ws = new WebSocket(webSocketDebuggerUrl)
-  await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject })
-  ws.send(JSON.stringify({ id: 1, method: ${JSON.stringify(method)}, params: ${JSON.stringify(params)} }))
-  ws.onmessage = event => { const m = JSON.parse(event.data); if (m.id === 1) { console.log(JSON.stringify(m.result ?? m.error)); process.exit(0) } }
-  setTimeout(() => process.exit(3), 10000)
-})()`)}`
+// ONE line: inside bash's double quotes a JSON string's "\n" stays two characters,
+// and node then reads a syntax error and prints nothing (seen on the first real run).
+const CDP_CALL = [
+  `(async () => {`,
+  `const [method, params] = [process.argv[1], JSON.parse(process.argv[2])];`,
+  `const { webSocketDebuggerUrl } = await (await fetch('http://127.0.0.1:9222/json/version')).json();`,
+  `const ws = new WebSocket(webSocketDebuggerUrl);`,
+  `await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject });`,
+  `ws.onmessage = event => { const m = JSON.parse(event.data); if (m.id === 1) { console.log(JSON.stringify(m.result ?? m.error)); process.exit(0) } };`,
+  `ws.send(JSON.stringify({ id: 1, method, params }));`,
+  `setTimeout(() => process.exit(3), 10000)`,
+  `})()`,
+].join(' ')
+const quote = (text: string) => `'${text.split("'").join(`'\\''`)}'`
+const cdp = (method: string, params: unknown) => `node -e ${quote(CDP_CALL)} ${quote(method)} ${quote(JSON.stringify(params))}`
 
 /** An HTTP answer from the traffic port, routed the way `headers` say. */
 function traffic(path: string, headers: Record<string, string>): Promise<{ status: number; body: string }> {
@@ -274,10 +281,14 @@ async function network(h: Handle) {
     return `${ms} ms (round trip included); ${conf}`
   })
   const privateRefused = async () => {
-    for (const url of ['http://169.254.169.254/', 'http://10.0.0.1/', 'http://192.168.0.1/']) {
+    for (const url of ['http://169.254.1.1/', 'http://10.0.0.1/', 'http://192.168.0.1/', 'http://172.16.0.1/', 'http://100.64.0.1/']) {
       const code = await reach(h, url, 3)
       expect(!reached(code), `${url} answered HTTP ${code}`)
     }
+    // The runtime's own metadata address is answered inside the VM (the guide's
+    // "Known gaps": a sandbox can read its own id and a hash of its access token
+    // there). Printed, not failed: it is not a way out.
+    return `the runtime's metadata address answers HTTP ${await reach(h, 'http://169.254.169.254/', 3)} from inside the VM`
   }
   await check('mac: private and link-local addresses refused', privateRefused)
   const relayHost = new URL(relayOrigin).hostname
@@ -285,9 +296,15 @@ async function network(h: Handle) {
     const other = new URL(blockedUrl).hostname
     const ip = (await sh(h, `timeout 3 node -e "require('dns').lookup(process.argv[1], (e, a) => console.log(e ? '' : a))" '${other}' || true`)).trim()
     expect(ip, `could not look up ${other} to get another address`)
-    const fronted = (await sh(h, `curl -sk -m 5 -o /dev/null -w '%{http_code}' --connect-to ${relayHost}:443:${ip}:443 https://${relayHost}/ || true`)).trim() || '000'
-    expect(!reached(fronted), `the runtime let ${relayHost} through to ${ip} (HTTP ${fronted})`)
-    return `${relayHost} → ${ip}: ${fronted}`
+    // -k is deliberate: the other address would show its own certificate. What
+    // counts is who answered: nothing, or the relay host itself (the runtime's
+    // proxy dials the name it reads, whatever address the client aimed at).
+    const digest = (extra: string) => sh(h, `curl -sk -m 5 ${extra} https://${relayHost}/ | sha256sum | cut -c1-16; true`).then(out => out.trim())
+    const direct = await digest('')
+    const fronted = await digest(`--connect-to ${relayHost}:443:${ip}:443`)
+    const empty = 'e3b0c44298fc1c14'
+    expect(fronted === empty || fronted === direct, `a request for ${relayHost} aimed at ${ip} was answered by something other than ${relayHost}`)
+    return fronted === empty ? `${relayHost} aimed at ${ip}: no answer` : `${relayHost} aimed at ${ip}: answered by ${relayHost} itself (the proxy dials the name)`
   })
   await check('mac: what else the runtime lets out (printed: the relay host on other ports, a bare address, the resolvers off port 53)', async () => {
     const probes: [string, string][] = [
@@ -333,6 +350,8 @@ async function browser(name: string, h0: Handle) {
   const cookie = { name: 'ni_conformance', value: run, domain: 'example.com', path: '/', expires: Math.floor(Date.now() / 1000) + 86_400 }
   await check('a cookie, stop.sh, pause, wake, start.sh: the cookie is still there (the profile survived)', async () => {
     await sh(h, cdp('Storage.setCookies', { cookies: [cookie] }))
+    const before = await sh(h, cdp('Storage.getCookies', {}))
+    expect(before.includes('"ni_conformance"') && before.includes(`"${run}"`), `the cookie was never set (Chrome said: ${before.trim().slice(0, 120) || 'nothing'})`)
     await h.exec('bash', [CLOUD_BROWSER.stopScript], { noWake: true, signal: AbortSignal.timeout(CLOUD_BROWSER.closeChromeTimeoutMs) })
     expect((await sh(h, `${CDP} || true`)).trim() !== '200', 'Chrome still answers after stop.sh')
     await h.stop(AbortSignal.timeout(CLOUD_BROWSER.stopTimeoutMs))
@@ -468,6 +487,8 @@ try {
     await browser(`${prefix}a`, handle)
   }
   await transitions()
+  // The pool holds few 4 GiB sandboxes: let go of this run's before the last part.
+  await cleanup()
   await killedBehindItsBack()
 } catch (err) {
   failures++
