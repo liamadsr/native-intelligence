@@ -27,7 +27,7 @@ export default async function AccountLoginPage({
     // view, honour that redirect instead of dumping them into /account.
     if (
       redirectParam &&
-      redirectParam.startsWith('/s/') &&
+      (redirectParam.startsWith('/s/') || redirectParam.startsWith('/mail/s/')) &&
       !redirectParam.includes('//')
     ) {
       redirect(redirectParam)
