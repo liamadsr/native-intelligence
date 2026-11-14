@@ -120,6 +120,13 @@ check_build_settings() {
 		[ -n "$(build_arg "$name")" ] || missing="$missing $name"
 	done
 	[ -z "$missing" ] || die "empty in .env:$missing."
+	# entrypoint.sh starts no role with one of the earlier host's own variables set
+	# (it says why): a roll-out with one in .env would replace what runs with
+	# containers that refuse to start. The value is never printed.
+	for name in VERCEL VERCEL_ENV VERCEL_TARGET_ENV VERCEL_PROJECT_ID VERCEL_TEAM_ID; do
+		[ -z "$(setting "$name")" ] ||
+			die "$name is set in .env. It is the earlier host's own variable, and no container starts with it (entrypoint.sh). Remove the line."
+	done
 	[ -n "$commit" ] || die "cannot read the checkout's commit (git rev-parse in $repo, as $owner)."
 }
 

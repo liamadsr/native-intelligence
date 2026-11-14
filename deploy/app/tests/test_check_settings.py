@@ -9,6 +9,7 @@ import hmac
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -68,6 +69,17 @@ class Groups(unittest.TestCase):
     def test_no_name_is_in_two_groups(self):
         self.assertFalse(set(cs.MUST_MATCH) & set(cs.MAY_BE_EMPTY))
         self.assertFalse((set(cs.MUST_MATCH) | set(cs.MAY_BE_EMPTY)) & set(cs.SWITCH))
+
+    def test_the_earlier_hosts_variables_are_in_no_other_group_and_not_in_the_example(self):
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env.example")) as f:
+            example = set(cs.parse_env(f.read()))
+        for name in cs.MUST_BE_ABSENT:
+            self.assertEqual(cs.group(name), "must be absent")
+            self.assertNotIn(name, example)
+            for other in (cs.MUST_MATCH, cs.MAY_BE_EMPTY, cs.SWITCH, cs.EMPTY_MEANS, cs.CHECKS):
+                self.assertNotIn(name, other)
+        # The build's commit keeps the name the earlier host gave it: not one of them.
+        self.assertEqual(cs.group("VERCEL_GIT_COMMIT_SHA"), "needed")
 
     def test_every_name_it_knows_is_a_line_of_the_example(self):
         with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env.example")) as f:
@@ -609,6 +621,43 @@ class Report(unittest.TestCase):
         self.assertIn("NEXT_PUBLIC_SITE_URL", text)
         self.assertNotIn("made-up", text)
         self.assertEqual(unchecked, [])
+
+    def test_the_earlier_hosts_variables_block_when_set(self):
+        env = {"CRON_SECRET": "made-up", "VERCEL": "1", "VERCEL_ENV": "made-up-env", "VERCEL_TARGET_ENV": "",
+               "VERCEL_PROJECT_ID": "rehearsal-made-up", "VERCEL_GIT_COMMIT_SHA": "made-up"}
+        lines, blockers, unchecked = cs.report(env, {})
+        self.assertEqual(blockers, [
+            "%s is set: no container starts with it (entrypoint.sh); remove the line" % n
+            for n in ("VERCEL", "VERCEL_ENV", "VERCEL_PROJECT_ID")
+        ])
+        text = "\n".join(lines)
+        self.assertIn("Must not be here (the earlier host's own):", text)
+        self.assertRegex(text, r"VERCEL_TARGET_ENV +empty +harmless")
+        self.assertRegex(text, r"VERCEL_ENV +SET +remove the line")
+        self.assertNotIn("made-up", text)
+        # Each is said once, under its own heading, and never counted as a needed setting.
+        self.assertEqual(len(re.findall(r"^   VERCEL_ENV ", text, re.M)), 1)
+        self.assertEqual(unchecked, [])
+
+    def test_no_heading_for_them_when_none_is_there(self):
+        lines, blockers, _ = cs.report({"CRON_SECRET": "made-up"}, {})
+        self.assertNotIn("Must not be here", "\n".join(lines))
+        self.assertEqual(blockers, [])
+
+    def test_a_names_only_run_reports_them_without_a_value(self):
+        secret = "made-up-value-that-must-not-show"
+        with tempfile.NamedTemporaryFile("w", suffix=".env", delete=False) as f:
+            f.write("CRON_SECRET=made-up\nVERCEL=\"1\"\nVERCEL_ENV=\"%s\"\n" % secret)
+        try:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                cs.main(["check_settings.py", f.name, "--names-only"])
+        finally:
+            os.unlink(f.name)
+        text = out.getvalue()
+        self.assertNotIn(secret, text)
+        self.assertIn("NOT MET (2)", text)
+        self.assertIn("VERCEL_ENV is set", text)
 
     def test_a_proof_that_could_not_run_blocks(self):
         env = {"CREDENTIAL_ENCRYPTION_KEY": "made-up", "RUN_SKILL_INTERNAL_SECRET": "made-up", "EMAIL_FROM": "made-up"}

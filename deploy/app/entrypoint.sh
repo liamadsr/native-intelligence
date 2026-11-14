@@ -45,6 +45,29 @@ refuse_development_mode() {
     || die "EVE_DEV=1 puts the agents in development mode, which lets anyone in without credentials. Unset it."
 }
 
+# The earlier host's own variables. Nothing here sets them, but its tooling writes
+# them into an env file (`vercel env pull`), and one such line in .env reaches every
+# container. Each changes what the code takes this server for, so no role starts
+# with one set (empty counts as unset). deploy.sh refuses them before it builds and
+# check_settings.py reports them; tests/test_entrypoint.py holds the three lists
+# equal. VERCEL_GIT_COMMIT_SHA is not one of them: it is the build's commit, below.
+# - VERCEL, VERCEL_ENV, VERCEL_TARGET_ENV: eve, the agents' localDevOffVercel() and
+#   the chat agent's eval door read them as a deployment at that host (eve admits its
+#   development sign-in on VERCEL with VERCEL_ENV=development), and the cloud
+#   browser's relay origin reads VERCEL_ENV.
+# - VERCEL_PROJECT_ID, VERCEL_TEAM_ID: eve's sandbox provider and its token check
+#   read them. Here the sandboxes' project and team are SANDBOX_PROJECT_ID and
+#   SANDBOX_TEAM_ID.
+EARLIER_HOST_VARIABLES="VERCEL VERCEL_ENV VERCEL_TARGET_ENV VERCEL_PROJECT_ID VERCEL_TEAM_ID"
+refuse_earlier_host_variables() {
+  for name in $EARLIER_HOST_VARIABLES; do
+    eval "value=\${$name:-}"
+    [ -z "$value" ] \
+      || die "$name is set. It is the earlier host's own variable: with it the app and the agents take this server for a deployment there. Remove the line from .env."
+  done
+  unset value
+}
+
 # NI_LIVE=1 says that this copy of the app is the live one. Anything else, and the
 # copy acts only when asked: a second copy beside the live app, on the same database
 # and the same Inngest server (a rehearsal), must not do production's work twice.
@@ -82,7 +105,10 @@ fi
 
 role="$1"
 case "$role" in
-  web | worker | agent | cron) refuse_development_mode ;;
+  web | worker | agent | cron)
+    refuse_earlier_host_variables
+    refuse_development_mode
+    ;;
 esac
 case "$role" in
   web | worker)

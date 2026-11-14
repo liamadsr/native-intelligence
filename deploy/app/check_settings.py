@@ -119,6 +119,17 @@ MAY_BE_EMPTY = {
 
 SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}
 
+# The earlier host's own variables: no line of .env.example, and entrypoint.sh starts
+# no role with one set (it says why; tests/test_entrypoint.py holds the lists equal).
+# They arrive with a file its tooling wrote (`vercel env pull`).
+MUST_BE_ABSENT = {
+    "VERCEL": "the app and the agents would take this server for a deployment at the earlier host",
+    "VERCEL_ENV": "the app and the agents would take this server for a deployment at the earlier host",
+    "VERCEL_TARGET_ENV": "the agents would take this server for a deployment at the earlier host",
+    "VERCEL_PROJECT_ID": "the agents' sandbox provider would take it for the sandboxes' project (here SANDBOX_PROJECT_ID)",
+    "VERCEL_TEAM_ID": "the agents' sandbox provider would take it for the sandboxes' team (here SANDBOX_TEAM_ID)",
+}
+
 # What is off while a needed one is empty, where it is not obvious from the name.
 EMPTY_MEANS = {
     "SANDBOX_ACCESS_TOKEN": "the cloud browser does not start, and no coding run works unless our own sandbox runtime is set (SANDBOX_RUNTIME_*)",
@@ -139,6 +150,8 @@ EMPTY_MEANS = {
 
 
 def group(name):
+    if name in MUST_BE_ABSENT:
+        return "must be absent"
     if name in SWITCH:
         return "switch"
     if name in MUST_MATCH:
@@ -859,6 +872,16 @@ def report(env, results):
     checks that ran; ok is True, False, None (could not run), "nothing" (no
     stored data to prove it against) or "warn" (said, but blocks nothing)."""
     lines, blockers, unchecked = [], [], []
+    stray = [n for n in env if group(n) == "must be absent"]
+    if stray:
+        lines.append("")
+        lines.append("Must not be here (the earlier host's own):")
+        for n in stray:
+            if env[n] == "":
+                lines.append("   %-32s empty    harmless, but the line can go" % n)
+                continue
+            lines.append("   %-32s SET      remove the line: %s" % (n, MUST_BE_ABSENT[n]))
+            blockers.append("%s is set: no container starts with it (entrypoint.sh); remove the line" % n)
     for title, key in (("Must be the value production already has", "must match"), ("Needed (any working value)", "needed"),
                        ("May stay empty", "may be empty"), ("Set by the switch itself", "switch")):
         names = [n for n in env if group(n) == key]
