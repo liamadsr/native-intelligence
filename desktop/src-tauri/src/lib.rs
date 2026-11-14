@@ -439,7 +439,7 @@ mod bundle_config_tests {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
         // FIRST in the chain, per the plugin's README ("plugins run in the order
         // they were added in to the builder, so make sure that this plugin is
         // registered first") — a second launch has to be detected and killed
@@ -456,10 +456,22 @@ pub fn run() {
         // `Builder::callback`), so a second launch carrying a dial8desktop://
         // URL still reaches tauri-plugin-deep-link — no deep-link code needed
         // here.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        //
+        // A debug build told to use another local port (NI_DEV_PORT) runs beside the
+        // instance on :3000 instead (another checkout's dev app): no single-instance there.
+    #[cfg(debug_assertions)]
+    let beside_another = crate::tray::dev_port().is_some();
+    #[cfg(not(debug_assertions))]
+    let beside_another = false;
+    let builder = if beside_another {
+        builder
+    } else {
+        builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             log_to_file("[single-instance] second launch — restoring main window");
             crate::tray::focus_main_window(app);
         }))
+    };
+    let builder = builder
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())

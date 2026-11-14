@@ -205,6 +205,12 @@ The only thing that changes between dev and prod is `frontendDist` in `src-tauri
 
 `devUrl` is only used by `cargo tauri dev` and doesn't affect builds.
 
+**Two checkouts at once.** A debug build loads `http://localhost:3000`. To run a second checkout's dev app beside
+it, start that checkout's web app on port 3001 and launch its build with `NI_DEV_PORT=3001 ./dev.sh`: that build
+loads `http://localhost:3001`, runs as its own instance (no single-instance check), and leaves any other running
+copy alone. Only ports 3000 and 3001 may call the app's commands (`capabilities/dev.json`). The setting is read by
+debug builds only. The two copies share one bundle id, so they share the app's data folder and permissions.
+
 ## Auth Flow (Desktop)
 
 1. User clicks "Sign in with Google" in the Tauri webview

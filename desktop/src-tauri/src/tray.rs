@@ -157,12 +157,23 @@ fn watch_mic(app: AppHandle) {
 pub fn api_base_url() -> &'static str {
     #[cfg(debug_assertions)]
     {
-        "http://localhost:3000"
+        // A debug build can be pointed at another local port (NI_DEV_PORT), so two checkouts'
+        // dev servers and dev apps need not share :3000. capabilities/dev.json lists the ports
+        // a page may call the app's commands from.
+        static URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        URL.get_or_init(|| format!("http://localhost:{}", dev_port().unwrap_or(3000)))
     }
     #[cfg(not(debug_assertions))]
     {
         crate::nav_guard::APP_URL
     }
+}
+
+/// The local port a debug build was told to use instead of 3000 (`NI_DEV_PORT`), if any.
+/// With it set the build also runs beside another instance of the app (lib.rs).
+#[cfg(debug_assertions)]
+pub fn dev_port() -> Option<u16> {
+    std::env::var("NI_DEV_PORT").ok()?.trim().parse::<u16>().ok().filter(|p| *p >= 1024)
 }
 
 // MARK: - Setup
