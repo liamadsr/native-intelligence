@@ -1,4 +1,4 @@
-import { CLOUD_BROWSER, CLOUD_BROWSER_PRIVATE_CIDRS, cloudBrowserNamespace, cloudBrowserRuntimeSettings, type CloudBrowserRuntimeSettings } from './config'
+import { CLOUD_BROWSER, CLOUD_BROWSER_IMAGE_RESOLVERS, CLOUD_BROWSER_PRIVATE_CIDRS, cloudBrowserNamespace, cloudBrowserRuntimeSettings, type CloudBrowserRuntimeSettings } from './config'
 import type { BackendSandbox, CloudBrowserBackend } from './backend'
 import {
   loadRuntimeBrowserClient,
@@ -66,7 +66,14 @@ import type { CloudBrowserExitMode, CloudBrowserRef, CloudBrowserStatus } from '
  * ── The network (setNetwork) ───────────────────────────────────────────────
  *   - cloud: the open internet with the private, link-local and CGNAT ranges
  *     denied (the hosted policy's list).
- *   - mac: nothing but the relay host.
+ *   - mac: nothing but the relay host, and the image's two resolvers
+ *     (CLOUD_BROWSER_IMAGE_RESOLVERS): an allow list that holds a domain opens
+ *     only the `dnsServers` it is given (runtime a958dfe4,
+ *     orchestrator/create_instance.go buildEgressConfig, on create and on
+ *     update alike), and the image's /etc/resolv.conf names those two. The
+ *     runtime opens them to all traffic, not just port 53, and the sandbox
+ *     server's narrowing resolver covers 8.8.8.8 only: in `mac` mode a
+ *     process in the VM can reach 1.1.1.1 and 9.9.9.9 on any port.
  * Never the client's per-host header rules: this runtime stores them without
  * applying them (agents/coding-agent/lib/runtime-sandbox.ts). So the relay's
  * token is written INTO the VM instead, in CLOUD_BROWSER.relayTokenFile (a
@@ -74,8 +81,6 @@ import type { CloudBrowserExitMode, CloudBrowserRef, CloudBrowserStatus } from '
  * on a command line or in an environment (both readable by every process of
  * the VM's user through /proc). The relay reads it at each request
  * (relay/client.ts). What that costs and what makes up for it: relay-routes.ts.
- * A domain on an allow list also opens the runtime's one resolver (8.8.8.8):
- * the sandbox server's own resolver narrows it ("The resolver" in its guide).
  *
  * The API key never enters metadata, a command or its env, and every error
  * this file throws has it cut out.
@@ -125,7 +130,8 @@ export function commandLine(cmd: string, args: string[]): string {
 
 /** What the VM may reach for `mode` (see the header). */
 export function runtimeNetworkFor(mode: CloudBrowserExitMode, relayOrigin: string): RuntimeNetwork {
-  if (mode === 'mac') return { allowOut: [new URL(relayOrigin).hostname], denyOut: ['0.0.0.0/0'] }
+  // The image's own resolvers, or the relay could not look up its host (the runtime opens only these).
+  if (mode === 'mac') return { allowOut: [new URL(relayOrigin).hostname], denyOut: ['0.0.0.0/0'], dnsServers: [...CLOUD_BROWSER_IMAGE_RESOLVERS] }
   return { allowInternetAccess: true, denyOut: [...CLOUD_BROWSER_PRIVATE_CIDRS] }
 }
 
@@ -323,6 +329,9 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
         metadata: metadataFor(name),
         lifecycle: { onTimeout: 'pause', autoResume: false },
         allowInternetAccess: false,
+        // Reached through our edge, which sends no traffic access token: never demand one
+        // (the runtime's default, unless a project setting says otherwise; said here so none can).
+        network: { allowPublicTraffic: true },
       })
     } catch (err) {
       throw failure(`could not create a sandbox for ${name} from ${s.template}`, err, s.apiKey)
@@ -351,6 +360,8 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
   return {
     kind: 'runtime',
     relayTokenFile: CLOUD_BROWSER.relayTokenFile,
+    // The traffic port deletes X-Forwarded-For; our edge sets X-Real-IP, overwriting a client's.
+    hubClientAddressHeader: 'x-real-ip',
     expiresUnused: true,
 
     async getOrCreate(name, signal) {

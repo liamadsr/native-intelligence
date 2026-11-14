@@ -27,6 +27,8 @@ export interface RuntimeNetwork {
   allowInternetAccess?: boolean
   allowOut?: string[]
   denyOut?: string[]
+  /** Opened (all traffic, IPv4 only) when allowOut holds a domain; default 8.8.8.8. */
+  dnsServers?: string[]
 }
 
 export interface RuntimeCreateOptions extends RuntimeConnection {
@@ -35,7 +37,8 @@ export interface RuntimeCreateOptions extends RuntimeConnection {
   /** SandboxLifecycle: pause (never kill) when the lifetime runs out; never woken by traffic. */
   lifecycle: { onTimeout: 'pause'; autoResume: false }
   allowInternetAccess?: boolean
-  network?: Omit<RuntimeNetwork, 'allowInternetAccess'>
+  /** SandboxNetworkOpts. `allowPublicTraffic`: true, so no traffic access token is ever demanded. */
+  network?: Omit<RuntimeNetwork, 'allowInternetAccess'> & { allowPublicTraffic?: boolean }
 }
 
 export type RuntimeSandboxState = 'running' | 'paused'

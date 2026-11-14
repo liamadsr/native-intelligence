@@ -12,6 +12,8 @@
  *    by the file API, never in a command line or env; the key never in an error;
  *  - the reconcile: orphans, and browsers unused past the profile's lifetime.
  */
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const rt = vi.hoisted(() => {
@@ -219,6 +221,8 @@ describe('ensure on the runtime backend', () => {
         lifecycle: { onTimeout: 'pause', autoResume: false },
         // Nothing out until the relay's start sets the exit mode's network.
         allowInternetAccess: false,
+        // Reached through our edge, which sends no traffic access token.
+        network: { allowPublicTraffic: true },
       },
     }])
     expect(out).toMatchObject({ sandboxName: NAME, created: true, hubOrigin: `https://${box.sandboxId}.hub.test` })
@@ -244,11 +248,11 @@ describe('ensure on the runtime backend', () => {
     store.readExitMode.mockResolvedValueOnce('mac')
     await host.ensureCloudBrowser(ref)
     const box = only()
-    expect(box.network).toEqual([{ allowOut: ['relay.test'], denyOut: ['0.0.0.0/0'] }])
+    expect(box.network).toEqual([{ allowOut: ['relay.test'], denyOut: ['0.0.0.0/0'], dnsServers: ['1.1.1.1', '9.9.9.9'] }])
     await host.setExitMode(ref, 'cloud', { up: false }, 'https://browser-relay.dial8.ai')
     expect(box.network.at(-1)).toEqual({ allowInternetAccess: true, denyOut: PRIVATE })
     await host.setExitMode(ref, 'mac', { up: true }, 'https://browser-relay.dial8.ai')
-    expect(box.network.at(-1)).toEqual({ allowOut: ['browser-relay.dial8.ai'], denyOut: ['0.0.0.0/0'] })
+    expect(box.network.at(-1)).toEqual({ allowOut: ['browser-relay.dial8.ai'], denyOut: ['0.0.0.0/0'], dnsServers: ['1.1.1.1', '9.9.9.9'] })
     expect(store.recordExit).toHaveBeenCalledWith(ref, 'mac', { up: true })
     expect(JSON.stringify(box.network)).not.toMatch(/rules|transform|headers/)
   })
@@ -271,7 +275,7 @@ describe('ensure on the runtime backend', () => {
     expect(order.map(e => e.split(' ')[0])).toEqual(['run', 'write', 'run', 'network'])
     // The relay is told where the file is, never what is in it.
     const start = rt.words(box.lines.find(l => l.line.includes('relay-start'))!.line)
-    expect(start.slice(3)).toEqual(['relay-start', 'https://relay.test', 'dev', '/tmp/cloud-browser-relay', '4000', NAME, '', 'cloud', '/tmp/cloud-browser-relay/secret/token'])
+    expect(start.slice(3)).toEqual(['relay-start', 'https://relay.test', 'dev', '/tmp/cloud-browser-relay', '4000', NAME, '', 'cloud', '/tmp/cloud-browser-relay/secret/token', 'x-real-ip'])
     // An exit switch writes a fresh one the same way.
     await new Promise(resolve => setTimeout(resolve, 2))
     await host.setExitMode(ref, 'mac', { up: true })
@@ -490,7 +494,21 @@ describe('the reconcile on the runtime backend', () => {
 
 describe('runtimeNetworkFor', () => {
   it('maps the two modes, a relay origin with a port or path to its host name', () => {
-    expect(runtimeNetworkFor('mac', 'https://browser-relay.nativeintelligence.dev:443/x')).toEqual({ allowOut: ['browser-relay.nativeintelligence.dev'], denyOut: ['0.0.0.0/0'] })
+    expect(runtimeNetworkFor('mac', 'https://browser-relay.nativeintelligence.dev:443/x')).toEqual({ allowOut: ['browser-relay.nativeintelligence.dev'], denyOut: ['0.0.0.0/0'], dnsServers: ['1.1.1.1', '9.9.9.9'] })
     expect(runtimeNetworkFor('cloud', 'https://r.test')).toEqual({ allowInternetAccess: true, denyOut: PRIVATE })
+  })
+})
+
+describe('the image’s resolvers', () => {
+  // deploy/sandbox/image.py writes them into the image's /etc/resolv.conf; mac mode opens exactly them.
+  const image = resolve(__dirname, '../../../../../deploy/sandbox/image.py')
+  it.skipIf(!existsSync(image))('are the ones deploy/sandbox/image.py writes into the image', async () => {
+    const { CLOUD_BROWSER_IMAGE_RESOLVERS } = await import('@/lib/cloud-browser/config')
+    const listed = /^RESOLVERS = \[([^\]]*)\]$/m.exec(readFileSync(image, 'utf8'))?.[1]
+    expect(listed, 'RESOLVERS in deploy/sandbox/image.py').toBeDefined()
+    expect([...listed!.matchAll(/"([^"]+)"/g)].map(m => m[1])).toEqual([...CLOUD_BROWSER_IMAGE_RESOLVERS])
+    expect(runtimeNetworkFor('mac', 'https://r.test').dnsServers).toEqual([...CLOUD_BROWSER_IMAGE_RESOLVERS])
+    // cloud mode holds no domain, so the runtime opens no resolver for it: none is sent.
+    expect(runtimeNetworkFor('cloud', 'https://r.test')).not.toHaveProperty('dnsServers')
   })
 })

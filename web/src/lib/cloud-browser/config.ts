@@ -85,6 +85,15 @@ export const CLOUD_BROWSER = {
  */
 export const CLOUD_BROWSER_PRIVATE_CIDRS: readonly string[] = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '169.254.0.0/16']
 
+/**
+ * The resolvers the browser image on our own sandbox server lists in its
+ * /etc/resolv.conf (deploy/sandbox/image.py RESOLVERS; a test reads that file
+ * and pins the two). In `mac` mode the runtime's allow list holds a domain, and
+ * then the runtime opens only the resolvers it is given (its `dnsServers`,
+ * default 8.8.8.8): without these the relay could not look up its own host.
+ */
+export const CLOUD_BROWSER_IMAGE_RESOLVERS: readonly string[] = ['1.1.1.1', '9.9.9.9']
+
 // ── Which service runs the browsers ────────────────────────────────────────
 
 /** `hosted`: the earlier host's sandbox service (the default). `runtime`: our own sandbox server. */

@@ -24,7 +24,8 @@
  * Optional: CONFORMANCE_RELAY_ORIGIN (default https://example.com), the host
  * the `mac` policy leaves open (a stand-in for the relay host), and
  * CONFORMANCE_BLOCKED_URL (default https://github.com), a public site it must
- * close. It takes about five minutes (one wait is 70 s on purpose).
+ * close, and CONFORMANCE_PUBLIC_NAME (default www.wikipedia.org), a name that
+ * must resolve again in `cloud` mode. It takes about five minutes (one wait is 70 s on purpose).
  *
  * The key is the runtime's own (`E2B_API_KEY` in the sandbox server's
  * /opt/e2b/sdk.env): bring it into the environment without showing it, never
@@ -138,6 +139,16 @@ const sh = async (h: Handle, script: string) => (await h.exec('bash', ['-c', scr
 /** curl's view of a URL from inside the sandbox: an HTTP status, or "000" when nothing answered. */
 const reach = async (h: Handle, url: string, seconds = 5) => (await sh(h, `curl -s -o /dev/null -m ${seconds} -w '%{http_code}' '${url}' || true`)).trim() || '000'
 const reached = (code: string) => code !== '000'
+/**
+ * A name lookup from inside the VM through its own resolv.conf (node's lookup,
+ * as the relay does), cut at `seconds`: how long it took, or a throw.
+ */
+async function lookup(h: Handle, host: string, seconds: number): Promise<number> {
+  const t0 = Date.now()
+  const out = (await sh(h, `timeout ${seconds} node -e "require('dns').lookup(process.argv[1], (e, a) => { console.log(e ? 'fail ' + e.code : 'ok ' + a); process.exit(e ? 1 : 0) })" '${host}' || echo "fail exit $?"`)).trim()
+  expect(out.startsWith('ok '), `looking up ${host}: ${out || 'nothing'}`)
+  return Date.now() - t0
+}
 /** Poll until `want(code)` or `ms` pass: how long it took, or a throw. */
 async function within(h: Handle, url: string, want: (code: string) => boolean, ms: number): Promise<number> {
   const t0 = Date.now()
@@ -208,6 +219,12 @@ async function identity(): Promise<Handle | null> {
     expect(i.lifecycle?.onTimeout === 'pause', `lifecycle ${JSON.stringify(i.lifecycle ?? null)}`)
     expect(i.lifecycle?.autoResume === false, `autoResume ${String(i.lifecycle?.autoResume)}`)
   })
+  await check('it takes public traffic (no traffic access token demanded: the edge sends none)', async () => {
+    const i = await info(await idOf(name))
+    const network = (i.network ?? {}) as { allowPublicTraffic?: boolean }
+    expect(network.allowPublicTraffic !== false, `allowPublicTraffic is ${String(network.allowPublicTraffic)}`)
+    return `allowPublicTraffic ${String(network.allowPublicTraffic ?? '(unset: the runtime default)')}`
+  })
   await check('a new sandbox reaches nothing before its network is set (created with no internet)', async () => {
     const code = await reach(handle!, relayOrigin)
     expect(!reached(code), `it answered HTTP ${code}`)
@@ -232,6 +249,11 @@ async function network(h: Handle) {
     expect(reached(open), `the relay host did not answer (${open})`)
     return `${blockedUrl} closed after ${closed} ms, ${new URL(relayOrigin).hostname} HTTP ${open}`
   })
+  await check('mac: the relay host’s name is looked up within 2 s through the image’s own resolvers', async () => {
+    const ms = await lookup(h, new URL(relayOrigin).hostname, 2)
+    const conf = (await sh(h, `grep '^nameserver' /etc/resolv.conf | tr '\n' ' '`)).trim()
+    return `${ms} ms (round trip included); ${conf}`
+  })
   const privateRefused = async () => {
     for (const url of ['http://169.254.169.254/', 'http://10.0.0.1/', 'http://192.168.0.1/']) {
       const code = await reach(h, url, 3)
@@ -253,6 +275,10 @@ async function network(h: Handle) {
     await h.setNetwork('cloud', relayOrigin, `${token}-2`)
     const opened = await within(h, blockedUrl, reached, 10_000)
     return `${blockedUrl} open after ${opened} ms`
+  })
+  await check('cloud: an arbitrary public name resolves again', async () => {
+    const name = env('CONFORMANCE_PUBLIC_NAME') || 'www.wikipedia.org'
+    return `${name} in ${await lookup(h, name, 5)} ms`
   })
   await check('cloud: private and link-local addresses still refused', privateRefused)
 }
@@ -294,7 +320,7 @@ async function browser(name: string, h0: Handle) {
   })
   await check('the hub answers on the traffic address, routed as the client routes (print which form)', async () => {
     const id = await idOf(name)
-    await h.exec('node', ['-e', `require('http').createServer((q, s) => s.end('ni-hub-' + q.url)).listen(${CLOUD_BROWSER.hubPort}, '0.0.0.0')`], { detached: true })
+    await h.exec('node', ['-e', `require('http').createServer((q, s) => s.end(q.url === '/headers' ? JSON.stringify({ xri: q.headers['x-real-ip'] ?? null, xff: q.headers['x-forwarded-for'] ?? null }) : 'ni-hub-' + q.url)).listen(${CLOUD_BROWSER.hubPort}, '0.0.0.0')`], { detached: true })
     await sleep(1_000)
     const byHeader = await traffic('/health', { 'E2b-Sandbox-Id': id, 'E2b-Sandbox-Port': String(CLOUD_BROWSER.hubPort) }).catch((e: unknown) => ({ status: 0, body: messageOf(e) }))
     const domain = (await info(id)).sandboxDomain ?? 'e2b.app'
@@ -303,6 +329,13 @@ async function browser(name: string, h0: Handle) {
     const ok = (r: { status: number; body: string }) => r.status === 200 && r.body === 'ni-hub-/health'
     expect(ok(byHeader) || ok(byHost), `header form: ${byHeader.status} ${byHeader.body}; host form: ${byHost.status} ${byHost.body}`)
     return `header form (E2b-Sandbox-Id, E2b-Sandbox-Port): ${ok(byHeader) ? 'answers' : `${byHeader.status}`}; host form (Host: ${CLOUD_BROWSER.hubPort}-<id>.${domain}): ${ok(byHost) ? 'answers' : `${byHost.status}`}`
+  })
+  await check('which of X-Real-IP and X-Forwarded-For the traffic port lets through to the hub (the hub reads X-Real-IP here)', async () => {
+    const id = await idOf(name)
+    const seen = await traffic('/headers', { 'E2b-Sandbox-Id': id, 'E2b-Sandbox-Port': String(CLOUD_BROWSER.hubPort), 'X-Real-IP': '198.51.100.7', 'X-Forwarded-For': '198.51.100.8' })
+    const got = JSON.parse(seen.body) as { xri: string | null; xff: string | null }
+    expect(got.xri === '198.51.100.7', `X-Real-IP arrived as ${JSON.stringify(got.xri)}`)
+    return `X-Real-IP ${JSON.stringify(got.xri)}, X-Forwarded-For ${JSON.stringify(got.xff)}`
   })
 }
 

@@ -90,3 +90,21 @@ describe('hubTlsAllowed', () => {
     expect(rt.isBrowserSandbox).toHaveBeenCalledTimes(4)
   })
 })
+
+describe('reached as the edge reaches it', () => {
+  it('answers 200 itself on the stack’s own address, with no forwarding headers and no redirect', async () => {
+    const res = await GET(new Request('http://ni-app-proxy:8080/api/internal/cloud-browser/tls-ask?domain=abc123.hub.example.test', { headers: { host: 'ni-app-proxy:8080' } }))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('location')).toBeNull()
+  })
+
+  it('never runs the proxy (no sign-in check, no old-domain forward) on it, whatever the host', async () => {
+    const { unstable_doesMiddlewareMatch } = await import('next/experimental/testing/server')
+    const { config } = await import('@/proxy')
+    for (const host of ['ni-app-proxy:8080', 'dial8.ai', 'www.dial8.ai', 'nativeintelligence.dev']) {
+      for (const path of ['/api/internal/cloud-browser/tls-ask?domain=abc123.hub.example.test', '/api/internal/cloud-browser/tls-ask/?domain=x']) {
+        expect(unstable_doesMiddlewareMatch({ config, url: `http://${host}${path}`, headers: { host } }), `${host}${path}`).toBe(false)
+      }
+    }
+  })
+})
