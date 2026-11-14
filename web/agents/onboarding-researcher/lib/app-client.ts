@@ -56,14 +56,10 @@ export class AppRequestError extends Error {
 }
 
 /**
- * The Next app's own origin. On Vercel, pin to THIS deployment's URL: the
- * internal route ships with the same commit as this agent, so the deployment's
- * own origin is the only version-correct target (NEXT_PUBLIC_APP_URL points at
- * the canonical PROD domain — from a preview it would call OLD code that may not
- * even have this route). In dev the eve sidecar and Next dev share localhost:3000.
+ * The Next app's own origin: NEXT_PUBLIC_APP_URL (the internal routes are the
+ * app's). In dev the eve sidecar and Next dev share localhost:3000.
  */
 export function appBaseUrl(): string {
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 }
 
@@ -83,18 +79,6 @@ export function internalSecret(): string {
 }
 
 /**
- * Vercel Deployment Protection guards preview URLs with SSO — including
- * server-to-server fetches like ours. When the project has "Protection Bypass
- * for Automation" enabled, Vercel injects this secret into every deployment;
- * sending it as a header lets the agent through. Absent (prod custom domain,
- * local dev) this contributes nothing.
- */
-export function protectionBypassHeaders(): Record<string, string> {
-  const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
-  return secret ? { 'x-vercel-protection-bypass': secret } : {}
-}
-
-/**
  * POST the enrichment request and return the parsed JSON body. Throws
  * AppRequestError on any non-2xx (with the route's `error` string, or a short
  * body excerpt) and on transport failure — tools catch it and return a
@@ -110,7 +94,6 @@ export async function postInternalEnrichment(
     headers: {
       'content-type': 'application/json',
       [AGENT_RUN_SECRET_HEADER]: internalSecret(),
-      ...protectionBypassHeaders(),
     },
     body: JSON.stringify(body),
     redirect: 'error',
@@ -148,7 +131,6 @@ export async function postInternalResearchSettle(sessionId: string, signal?: Abo
     headers: {
       'content-type': 'application/json',
       [AGENT_RUN_SECRET_HEADER]: internalSecret(),
-      ...protectionBypassHeaders(),
     },
     body: JSON.stringify({ sessionId }),
     redirect: 'error',

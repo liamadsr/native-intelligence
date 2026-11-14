@@ -22,7 +22,6 @@ const fetchMock = vi.fn()
 beforeEach(() => {
   process.env.AGENT_RUN_INTERNAL_SECRET = 'sec'
   process.env.NEXT_PUBLIC_APP_URL = 'https://app.test'
-  delete process.env.VERCEL_URL
   fetchMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
 })

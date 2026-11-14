@@ -300,13 +300,6 @@ describe('runDeviceAskViaEve — dispatch', () => {
     expect(verifyChatRunToken(token)).toBeNull()
   })
 
-  it('forwards the Vercel protection bypass when configured', async () => {
-    vi.stubEnv('VERCEL_AUTOMATION_BYPASS_SECRET', 'bypass-1')
-    mockSession([messageCompleted('ok'), boundary('session.completed')])
-    await runDeviceAskViaEve(ARGS)
-    expect(clientOpts().headers['x-vercel-protection-bypass']).toBe('bypass-1')
-  })
-
   it('throws before anything is written or dispatched when the internal secret is unset', async () => {
     delete process.env.CHAT_INTERNAL_SECRET
     await expect(runDeviceAskViaEve(ARGS)).rejects.toThrow(/CHAT_INTERNAL_SECRET/)
@@ -796,11 +789,8 @@ describe('deviceAskEveBudgetMs — the eve budget is what is LEFT of maxDuration
 })
 
 describe('deviceAskAppBaseUrl — never from the request', () => {
-  it('prefers the exact deployment (VERCEL_URL), then NEXT_PUBLIC_APP_URL, then local dev', () => {
-    vi.stubEnv('VERCEL_URL', 'dial8-abc.vercel.app')
+  it('is NEXT_PUBLIC_APP_URL, then local dev', () => {
     vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev')
-    expect(deviceAskAppBaseUrl()).toBe('https://dial8-abc.vercel.app')
-    vi.stubEnv('VERCEL_URL', '')
     expect(deviceAskAppBaseUrl()).toBe('https://nativeintelligence.dev')
     vi.stubEnv('NEXT_PUBLIC_APP_URL', '')
     expect(deviceAskAppBaseUrl()).toBe('http://localhost:3000')

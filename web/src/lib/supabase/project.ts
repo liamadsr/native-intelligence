@@ -81,8 +81,8 @@ function isLocalAddress(host: string | null): boolean {
  *   its cloud browsers would land in production's namespace.
  * - A pin that names ANOTHER project than an address of Supabase's own does is
  *   not used either. That is the pin having leaked into an environment it was
- *   not meant for (production's ref in a preview build pointed at the dev
- *   project), or the pin being wrong.
+ *   not meant for (production's ref beside the dev project's address), or the
+ *   pin being wrong.
  *
  * An address of ours that is not local says nothing about which project is
  * behind it, so there a well-formed pin is always used. That is why a wrong
@@ -124,14 +124,13 @@ function current(): PinReading {
 //
 // Two things stop a build. A value that could not be a first label, anywhere.
 // And, in a production build, a well-formed pin that names another project
-// than Supabase's own address does. "Production" is app-env's answer: a
-// production deployment on Vercel, and off Vercel any `next build` (the
-// container image, a build on a developer's machine). The pin goes in while production is still
-// on that address, and that is the only time a wrong one can be told from a
-// right one: once the address is ours nothing contradicts it, it is used, and
-// everyone is signed out. In a Vercel preview or development build, and under
-// `next dev`, the same contradiction is the pin having leaked (a preview on
-// the dev project), so it is ignored and logged.
+// than Supabase's own address does. "Production" is app-env's answer: any
+// `next build` (the container image, a build on a developer's machine). The
+// pin goes in while production is still on that address, and that is the only
+// time a wrong one can be told from a right one: once the address is ours
+// nothing contradicts it, it is used, and everyone is signed out. Under
+// `next dev` the same contradiction is the pin having leaked (production's ref
+// beside the dev project's address), so it is ignored and logged.
 if (typeof window === 'undefined') {
   const { problem } = current()
   if (problem === 'invalid') throw new Error(`[supabase] ${MESSAGES.invalid}`)

@@ -119,9 +119,9 @@ export function sipHeaderNames(headers: readonly SipHeader[]): string {
   return [...new Set(headers.map((h) => h.name.toLowerCase()))].sort().join(',').slice(0, 300)
 }
 
-/** True only under `next dev` on a machine, never on any Vercel deployment. */
+/** True only under `next dev` on a machine: a built app's NODE_ENV is production. */
 export function isLocalDev(env: Record<string, string | undefined>): boolean {
-  return env.NODE_ENV === 'development' && !env.VERCEL_ENV
+  return env.NODE_ENV === 'development'
 }
 
 /** Whether an unattested call may still be answered: only in local dev, and only when asked. */
