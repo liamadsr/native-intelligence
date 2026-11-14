@@ -378,6 +378,9 @@ function hasGitComponent(path: string): boolean {
   return path.split('/').some(isGitControlled)
 }
 
+/** Login-bearing config files inside a toolchain that the `credentials*` and `npmrc` rules miss. */
+const PIP_AND_NETRC_NAMES = ['pip.conf', 'pip.ini', '.netrc'] as const
+
 /** `word` as an SBPL regex fragment matching it in any letter case. */
 function anyCase(word: string): string {
   return [...word].map((ch) => (/[a-z]/i.test(ch) ? `[${ch.toUpperCase()}${ch.toLowerCase()}]` : regexLiteral(ch))).join('')
@@ -533,6 +536,45 @@ const DOTENV_PLACEHOLDER_AT_ANY_DEPTH = [`${anyCase('.env')}(\\.[^/]*)?\\.(${DOT
 /** The longest string Seatbelt reads in a profile (measured on 27.0.1: 1024 characters is "Error reading string"). */
 export const MAX_SBPL_STRING = 1023
 
+/**
+ * The name lists above that a profile built elsewhere (the workers' agent
+ * profile, workers/lib/agent-profile.ts) applies to its own roots, so both
+ * fences hold the same names.
+ */
+export const NAMES_AT_ANY_DEPTH = { git: GIT_AT_ANY_DEPTH, app: APP_AT_ANY_DEPTH, autoRun: AUTO_RUN_AT_ANY_DEPTH } as const
+
+/**
+ * `names` (one of the *_AT_ANY_DEPTH lists) at any depth below `root`, as
+ * SBPL regex filters, one each. `nested`: only below one of the root's own
+ * entries, never as a direct child (a home folder whose `.claude` is the
+ * agent's own state, while a `.claude` deeper down would be one built to be
+ * moved into a worktree).
+ */
+export function namesBelow(root: string, names: readonly string[], opts: { nested?: boolean } = {}): string {
+  return names
+    .map((name) => {
+      const re = `^${regexLiteral(root.replace(/\/+$/, ''))}/${opts.nested ? '[^/]+/' : ''}(.*/)?${name}$`
+      if (re.length > MAX_SBPL_STRING) throw new SeatbeltPathError(`path too long for a profile rule: ${JSON.stringify(root)}`)
+      return `(regex #"${re}")`
+    })
+    .join(' ')
+}
+
+/**
+ * The secret-file rules for `roots`: the deny on contents and stat
+ * (isSecretFileName, dotenv names on regular files only), then the dotenv
+ * placeholders allowed back. None without a root: a rule without a filter
+ * would match every path.
+ */
+export function secretFileRules(roots: readonly string[]): string[] {
+  if (roots.length === 0) return []
+  const secretReads = roots
+    .map((root) => [...DOTENV_AT_ANY_DEPTH.map((name) => `(require-all ${namesBelow(root, [name])} (vnode-type REGULAR-FILE))`), namesBelow(root, SECRET_AT_ANY_DEPTH)].join(' '))
+    .join(' ')
+  const placeholderReads = roots.map((root) => namesBelow(root, DOTENV_PLACEHOLDER_AT_ANY_DEPTH)).join(' ')
+  return [`(deny file-read-data file-read-metadata ${secretReads})`, `(allow file-read-data file-read-metadata ${placeholderReads})`]
+}
+
 /** What a fence grant is checked against: the job's own layout. */
 export interface FenceGrantContext {
   readonly home: string
@@ -626,6 +668,40 @@ export function fenceGrantRefusal(path: string, access: FenceAccess, ctx: FenceG
   return null
 }
 
+/**
+ * The toolchains under HOME a command may read (HOME_TOOLCHAIN_ALLOWLIST and
+ * HOME_TOOLCHAIN_FILES, as SBPL filters) and the read deny on the credential
+ * files near their tops (also below a symlinked toolchain's real place). Used
+ * by this profile and by the workers' agent profile, so both open the same.
+ */
+export function homeToolchainRules(home: string, toolchainRealpaths: readonly string[] = []): { reads: string; credentialDeny: string } {
+  const homeBase = sbplString(home).slice(1, -1)
+  const reads = [...HOME_TOOLCHAIN_ALLOWLIST.map((rel) => `(subpath "${homeBase}/${rel}")`), ...HOME_TOOLCHAIN_FILES.map((rel) => `(literal "${homeBase}/${rel}")`)].join(' ')
+  for (const r of toolchainRealpaths) {
+    if (typeof r !== 'string' || !r.startsWith('/') || r.replace(/\/+$/, '') === '' || within(home.replace(/\/+$/, ''), r.replace(/\/+$/, ''))) {
+      throw new SeatbeltPathError(`not a toolchain realpath: ${JSON.stringify(r)}`)
+    }
+    sbplString(r)
+  }
+  // Credential files sit near a toolchain's top (cargo's `credentials.toml`), at most two dirs down
+  // (SBPL regexes have no `{m,n}`); deeper the name is source code (`botocore/credentials.py`, gRPC's
+  // `credentials` package), which must stay readable. The same below a symlinked toolchain's real place.
+  const credentialAnchors = [
+    `^${regexLiteral(home.replace(/\/+$/, ''))}/(${TOOLCHAIN_ROOTS.map(regexLiteral).join('|')})/`,
+    ...toolchainRealpaths.map((r) => `^${anyCase(r.replace(/\/+$/, ''))}/`),
+  ]
+  const credentialDeny = `(deny file-read-data ${credentialAnchors
+    .map(
+      (a) =>
+        `(regex #"${a}([^/]+/)?([^/]+/)?${anyCase('credentials')}[^/]*$") (regex #"${a}(.*/)?\\.?${anyCase('npmrc')}$") ` +
+        // pip's per-install config (an index URL can carry a login) and a .netrc, at any depth: a pyenv
+        // version keeps its own `pip.conf`, and nothing in a toolchain is source code under these names.
+        PIP_AND_NETRC_NAMES.map((n) => `(regex #"${a}(.*/)?${anyCase(n)}$")`).join(' '),
+    )
+    .join(' ')})`
+  return { reads, credentialDeny }
+}
+
 /** The SBPL profile for one job. */
 export function buildSeatbeltProfile(input: SeatbeltProfileInput): string {
   if (input.mode !== 'read' && input.mode !== 'edit') throw new SeatbeltPathError(`unsupported mode: ${String(input.mode)}`)
@@ -659,54 +735,20 @@ export function buildSeatbeltProfile(input: SeatbeltProfileInput): string {
   if (strayToolRoot !== undefined) throw new SeatbeltPathError(`not a tool PATH read root: ${JSON.stringify(strayToolRoot)}`)
   const edit = input.mode === 'edit'
   const folder = sbplString(input.folder)
-  const home = sbplString(input.home)
   const scratch = sbplString(input.scratch)
   const sessionRoot = sbplString(sessionRootPath)
-  const homeBase = home.slice(1, -1)
-  const toolchain = [
-    ...HOME_TOOLCHAIN_ALLOWLIST.map((rel) => `(subpath "${homeBase}/${rel}")`),
-    ...HOME_TOOLCHAIN_FILES.map((rel) => `(literal "${homeBase}/${rel}")`),
-  ].join(' ')
-  for (const r of input.toolchainRealpaths ?? []) {
-    if (typeof r !== 'string' || !r.startsWith('/') || r.replace(/\/+$/, '') === '' || within(input.home.replace(/\/+$/, ''), r.replace(/\/+$/, ''))) {
-      throw new SeatbeltPathError(`not a toolchain realpath: ${JSON.stringify(r)}`)
-    }
-    sbplString(r)
-  }
-  // Credential files sit near a toolchain's top (cargo's `credentials.toml`), at most two dirs down
-  // (SBPL regexes have no `{m,n}`); deeper the name is source code (`botocore/credentials.py`, gRPC's
-  // `credentials` package), which must stay readable. The same below a symlinked toolchain's real place.
-  const credentialAnchors = [
-    `^${regexLiteral(input.home.replace(/\/+$/, ''))}/(${TOOLCHAIN_ROOTS.map(regexLiteral).join('|')})/`,
-    ...(input.toolchainRealpaths ?? []).map((r) => `^${anyCase(r.replace(/\/+$/, ''))}/`),
-  ]
-  const credentialDeny = `(deny file-read-data ${credentialAnchors
-    .map((a) => `(regex #"${a}([^/]+/)?([^/]+/)?${anyCase('credentials')}[^/]*$") (regex #"${a}(.*/)?\\.?${anyCase('npmrc')}$")`)
-    .join(' ')})`
+  const { reads: toolchain, credentialDeny } = homeToolchainRules(input.home, input.toolchainRealpaths)
   const extraRead = input.extraRead === undefined ? '' : ` (subpath ${sbplString(input.extraRead)})`
-  /** `names` (one of the *_AT_ANY_DEPTH lists) at any depth below `root`: one regex each. */
-  const below = (root: string, names: readonly string[]) =>
-    names
-      .map((name) => {
-        const re = `^${regexLiteral(root.replace(/\/+$/, ''))}/(.*/)?${name}$`
-        if (re.length > MAX_SBPL_STRING) throw new SeatbeltPathError(`path too long for a profile rule: ${JSON.stringify(root)}`)
-        return `(regex #"${re}")`
-      })
-      .join(' ')
   // Edit mode: a `.git` at any depth of the worktree; an `.app` bundle (a program the person could open outside the
   // sandbox) and the configs their tools run on their own, in the worktree AND the scratch dir (same volume: a folder
   // built there could be moved into the worktree whole, and a rule on a name sees only the moved folder's own name).
   // Not `.git` in the scratch dir: the desktop refuses to commit a nested one however it got there.
   const neverInWorktree = [
-    below(input.folder, GIT_AT_ANY_DEPTH),
-    ...[APP_AT_ANY_DEPTH, AUTO_RUN_AT_ANY_DEPTH].flatMap((names) => [input.folder, input.scratch].map((root) => below(root, names))),
+    namesBelow(input.folder, GIT_AT_ANY_DEPTH),
+    ...[APP_AT_ANY_DEPTH, AUTO_RUN_AT_ANY_DEPTH].flatMap((names) => [input.folder, input.scratch].map((root) => namesBelow(root, names))),
   ].join(' ')
   // Secret files at any depth of a read job's folder and of every fence grant (not an edit job's fresh worktree).
   const secretRoots = [...(edit ? [] : [input.folder]), ...(input.grants ?? []).map((g) => g.path)]
-  const secretReads = secretRoots
-    .map((root) => [...DOTENV_AT_ANY_DEPTH.map((name) => `(require-all ${below(root, [name])} (vnode-type REGULAR-FILE))`), below(root, SECRET_AT_ANY_DEPTH)].join(' '))
-    .join(' ')
-  const placeholderReads = secretRoots.map((root) => below(root, DOTENV_PLACEHOLDER_AT_ANY_DEPTH)).join(' ')
   const grantReads = (input.grants ?? []).map((g) => ` (subpath ${sbplString(g.path)})`).join('')
   // Where credentials really live: denied even inside the folder or a grant (the last read rule for them).
   const keepOut = [input.home, sessionRootPath, input.scratch, ...(input.runtime === undefined ? [] : [input.runtime])].map((x) => (x.replace(/\/+$/, '') || '/').toLowerCase())
@@ -754,9 +796,8 @@ export function buildSeatbeltProfile(input: SeatbeltProfileInput): string {
     '(deny file-read-data)',
     `(allow file-read-data ${systemReads})`,
     `(allow file-read-data (subpath ${folder}) (subpath ${sessionRoot}) (subpath ${scratch})${extraRead}${grantReads} ${toolchain})`,
-    // Secret files (contents and stat), the placeholders back; the credential denies below still apply to them. None
-    // without a root to put them under: a rule without a filter would match every path.
-    ...(secretRoots.length > 0 ? [`(deny file-read-data file-read-metadata ${secretReads})`, `(allow file-read-data file-read-metadata ${placeholderReads})`] : []),
+    // Secret files (contents and stat), the placeholders back; the credential denies below still apply to them.
+    ...secretFileRules(secretRoots),
     credentialDeny,
     ...(readDenies.length > 0 ? [`(deny file-read-data ${readDenies.map((rp) => `(subpath ${sbplString(rp)})`).join(' ')})`] : []),
     '(allow file-read-data (regex #"^/private/var/folders/[^/]+/[^/]+/T/xcrun_db$"))',

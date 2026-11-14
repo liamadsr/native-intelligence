@@ -11,14 +11,19 @@
 #   launcher/server-guard.ts   the server's preload, as is (Node strips types)
 #   .output/                   eve's build of the Mac body: agents/chat-agent with
 #                              NI_AGENT_HOST=mac (mac-body.sh; Nitro, self-contained)
-#   workers/<worker>.mjs       when agents/local-agent/workers/ exists: the worker
-#                              adapters, bundled by its build.sh (L4, F-web's)
+#   workers/acp.mjs            when agents/local-agent/workers/ exists (L4): the one
+#                              adapter every worker runs (its build.sh)
+#   workers/registry.json      the coding agents it can run, as data
+#   acp/                       the agents' protocol adapters, at the registry's
+#                              pinned versions (install-agents.sh; npm and the
+#                              network; LOCAL_AGENT_ACP_DIR)
 #   licenses/NOTICES.txt       the bundled packages and their license texts
 #   BUNDLE.json                where it came from (the web commit, eve, Node), a
 #                              SHA-256 per file, and `capabilities`: "local-model"
 #                              when the host marker says lib/model.ts runs models
 #                              on the Mac (every Mac body built from this tree),
-#                              "workers" when the adapters are in. The desktop
+#                              "workers" when the adapter, the registry and acp/
+#                              are all in. The desktop
 #                              refuses a feature the bundle doesn't declare.
 #
 # The agent is built in a throwaway copy, so the build names no path on this
@@ -64,12 +69,12 @@ banner="import { createRequire as __niRequire } from 'node:module'; const requir
 cp "$stage/agents/local-agent/launcher/server-guard.ts" "$out/launcher/server-guard.ts"
 cp -R "$stage/agents/chat-agent/.output" "$out/.output"
 
-# The worker adapters (F-web's, L4), when there are any.
+# The workers (L4): the adapter, the registry and the agents' adapters.
 build_workers "$stage" "$out"
 # The Studio's product-component runner, beside the server (tools/studio_product.ts).
 build_studio "$stage" "$out/.output/studio"
 capabilities=()
-if ls "$out"/workers/*.mjs >/dev/null 2>&1; then
+if [ -f "$out/workers/acp.mjs" ] && [ -f "$out/workers/registry.json" ] && [ -d "$out/acp/node_modules" ]; then
   capabilities+=(workers)
 fi
 # A model on the Mac (L4): the build's host marker says its lib/model.ts has a

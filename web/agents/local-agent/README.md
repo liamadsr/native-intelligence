@@ -531,20 +531,26 @@ node scripts/local-agent/smoke.ts --mode edit --agent-dir <out-dir> --node <node
 `bundle.sh` builds the Mac body in a throwaway copy at `/tmp/ni-local-agent-build`
 (`mac-body.sh`), bundles the launcher with `eve/client` and `prompts.ts` inlined
 (`launcher/launcher.mjs`), keeps `launcher/server-guard.ts` as is (Node strips
-its types), copies `.output/`, and, when `workers/` exists, runs its
-`build.sh` from the copy for `workers/<worker>.mjs` (L4). `build.sh` (dev) does
-the same into `.output/workers/`.
+its types), copies `.output/`, and, when `workers/` exists (L4), runs its
+`build.sh` from the copy for `workers/acp.mjs` (the one adapter every worker
+runs), copies `workers/registry.json` beside it, and runs
+`workers/install-agents.sh <bundle>/acp` (npm and the network) for the agents'
+protocol adapters the desktop passes as `LOCAL_AGENT_ACP_DIR`
+(`mac-body.sh` `build_workers`). `build.sh` (dev) does the same into
+`.output/workers/` and `.output/acp/`.
 It deletes the copy before anything reads the bundle, and refuses a bundle that
 names this checkout, HOME or TMPDIR outside a comment
 (`bundle-notices.mjs --scrub`), so a bundle that only worked here can't ship. It
 writes `licenses/NOTICES.txt` (the npm packages the bundlers' module comments
 name, and those the agent's own code imports, read from the copy with esbuild's
-import graph: eve inlines that code without module comments; each with its
+import graph: eve inlines that code without module comments; plus every package
+installed in `acp/node_modules`, by its own `package.json`; each with its
 license texts) and `BUNDLE.json` (the web commit, whether
 `agents/chat-agent`, `agents/local-agent`, `scripts/local-agent`,
 `package*.json` or `tsconfig.json` had uncommitted changes or gitignored files
 the build would carry, eve's version, the Node major, a SHA-256 per file, and
-`capabilities`: `"workers"` when `workers/build.sh` produced the adapters,
+`capabilities`: `"workers"` when `workers/acp.mjs`, `workers/registry.json` and
+`acp/node_modules` are all in,
 `"local-model"` when the host marker says the build has `lib/model.ts`'s
 local route, as every Mac body built from this tree does; the desktop refuses
 a feature the bundle doesn't declare). The Mac body's bundle is ≈ 11 MB (2.6 MB
