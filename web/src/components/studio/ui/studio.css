@@ -1382,6 +1382,18 @@
 /* The Studio inside the app: its root fills the page card; the layer its menus are drawn in is no box of its own. */
 /* contain: layout makes the root the box its full-page overlays (dialogs, the project chooser) are placed in, so they cover the Studio and not the rest of the app. */
 .ni-studio.ni-studio-root{height:100%;min-height:0;position:relative;overflow:hidden;isolation:isolate;contain:layout;container-type:inline-size;container-name:studio}
+/* The Studio's ground is the app's own: the card it sits in (its frosted skin, the same as the card's title bar and
+   every other page), not a ground of its own (Liam, 11-14: "the background of the studio page doesn't match the
+   header and the rest of the app"). So the root paints nothing, nor do its pages that fill it; what the Studio
+   itself raises or sinks (panels, the stage, the timeline's well) sits on that ground. The editor a page covers is
+   not drawn meanwhile (it is inert and hidden from assistive technology already): the page no longer hides it by
+   painting over it. */
+.ni-studio.ni-studio-root{background:transparent}
+.ni-studio.ni-studio-root .film-pages{background:transparent}
+.ni-studio.ni-studio-root .app-main[inert]{visibility:hidden}
+/* The timeline's well: a tint of the ground, not a slab over it. */
+.ni-studio.ni-studio-root .timeline{background:color-mix(in oklab,var(--st-text) 4.5%,transparent)}
+.dark .ni-studio.ni-studio-root .timeline{background:color-mix(in oklab,#000 26%,transparent)}
 /* The Studio's narrow-layout rules follow the width of the page it is in (a container query on its root), not the
    window's: a page beside the app's own panels is much narrower than the window. */
 .ni-studio.ni-studio-portal{display:contents}
@@ -1784,8 +1796,8 @@
    place beside the rail (left:var(--st-rail-w), with the rail's rules), on the Studio's own ground, and dims nothing
    (a dim inside the card would stop at the card's title bar). No frame, no close button: the rail, Esc and ⌘O leave
    it; its side column of starts and its footer sit on the same ground, set apart by space. */
-.ni-studio .chooser-backdrop{padding:0;background:var(--st-bg)}
-.ni-studio .chooser{width:100%;height:100%;border:0;border-radius:0;box-shadow:none;background:var(--st-bg)}
+.ni-studio .chooser-backdrop{padding:0;background:transparent}
+.ni-studio .chooser{width:100%;height:100%;border:0;border-radius:0;box-shadow:none;background:transparent}
 .ni-studio .chooser-side{background:transparent;border-right:0;padding:16px 16px 20px 8px}
 .ni-studio .chooser-foot{background:transparent}
 @container studio (max-width:1100px){.ni-studio .chooser-backdrop{padding:0}}

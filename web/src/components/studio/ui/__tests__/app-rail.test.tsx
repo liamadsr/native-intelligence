@@ -123,7 +123,12 @@ describe('the rail’s stylesheet', () => {
     expect(css).not.toMatch(/\.app-rail\{([^}]*;)?order:/)
     expect(css).toMatch(/\.ni-studio \.app\.with-rail \.chooser-backdrop\{left:var\(--st-rail-w\)\}/)
     // The chooser is a page beside the rail: no dim, no frame.
-    expect(css).toMatch(/\.ni-studio \.chooser-backdrop\{padding:0;background:var\(--st-bg\)\}/)
+    // The ground is the app's card, not a fill of the Studio's own (Liam, 11-14): the root, the chooser and the pages
+    // that fill the root paint nothing, and the editor a page covers is not drawn meanwhile.
+    expect(css).toMatch(/\.ni-studio \.chooser-backdrop\{padding:0;background:transparent\}/)
+    expect(css).toMatch(/\.ni-studio\.ni-studio-root\{background:transparent\}/)
+    expect(css).toMatch(/\.ni-studio\.ni-studio-root \.film-pages\{background:transparent\}/)
+    expect(css).toMatch(/\.ni-studio\.ni-studio-root \.app-main\[inert\]\{visibility:hidden\}/)
     // One slim width at every size (the app rail's feel), with nothing that switches it at a breakpoint.
     expect(css).toMatch(/\.ni-studio \.app\.with-rail\{flex-direction:row;--st-rail-w:52px\}/)
     expect(css).not.toMatch(/--st-rail-w:(?!52px)\d/)
