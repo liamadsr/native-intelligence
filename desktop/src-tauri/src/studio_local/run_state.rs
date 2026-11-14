@@ -6,8 +6,10 @@
 //! - after `done` only `progress`, `log`, `uploaded` and `upload-failed`
 //!   follow: an export that was made is never reported `failed` or
 //!   `cancelled`;
-//! - before `done`, the run ends with exactly one of `failed` or `cancelled`
-//!   (or nothing, when the runner finished and the move was the last word).
+//! - a video that was made ends the run with `done` or, when it is not where
+//!   the person chose (the move failed, or a stop or a quit cut it short),
+//!   `save-failed`: it is kept on this computer, to be saved again;
+//! - otherwise the run ends with exactly one of `failed` or `cancelled`.
 
 use super::events::Kind;
 use super::runner;
@@ -31,8 +33,11 @@ pub struct RunState {
     pub ended: Option<(Kind, String)>,
     /// After `done`: what stopped the upload.
     pub upload_problem: Option<String>,
-    /// The move into place failed (the video is kept in the work folder).
+    /// The move into place failed (the video is kept in the work folder);
+    /// `save-failed` was said then.
     pub place_failed: Option<String>,
+    /// The video exists whole (the runner said `saved`, or `done`).
+    pub made: bool,
 }
 
 const STOPPED: &str = "The export was stopped.";
@@ -53,7 +58,9 @@ impl RunState {
     }
 
     /// The runner failed (`error` already scrubbed). Returns whether the tree
-    /// is to be killed at once (the Studio took the job back).
+    /// is to be killed at once: the Studio took the job back (its refusal
+    /// code, whatever `cancelled` says: the runner reports those as
+    /// cancelled too). A video already made is still placed or kept.
     pub fn on_failed(&mut self, error: &str, cancelled: bool, code: Option<&str>) -> bool {
         let taken = runner::taken_back(code, error);
         let stopped = cancelled || taken;
@@ -65,12 +72,18 @@ impl RunState {
         } else {
             self.ended.get_or_insert((Kind::Failed, error.to_string()));
         }
-        taken && !cancelled
+        taken
+    }
+
+    /// The runner said the video is whole in its work folder.
+    pub fn on_made(&mut self) {
+        self.made = true;
     }
 
     /// The runner finished. What to say now.
     pub fn on_done(&mut self, uploaded: bool) -> Vec<Say> {
         self.runner_done = true;
+        self.made = true;
         self.uploaded = uploaded;
         if self.saved.is_some() && uploaded {
             vec![(Kind::Uploaded, Some("Uploaded to the Studio".into()), None)]
@@ -90,10 +103,14 @@ impl RunState {
     }
 
     /// The move into place failed (`why`: a sentence); the video is kept.
-    pub fn on_place_failed(&mut self, chosen: &str, why: &str) {
-        self.place_failed.get_or_insert(format!(
-            "The video was made but could not be saved to {chosen}: {why} It is kept on this computer: pick a place to save it again."
-        ));
+    /// Said at once, once.
+    pub fn on_place_failed(&mut self, chosen: &str, why: &str) -> Option<Say> {
+        if self.place_failed.is_some() {
+            return None;
+        }
+        let message = save_failed_sentence(Some((chosen, why)));
+        self.place_failed = Some(message.clone());
+        Some((Kind::SaveFailed, Some(message), None))
     }
 
     /// The last word once the process is gone and the move has settled.
@@ -118,17 +135,19 @@ impl RunState {
                 });
             return Some((Kind::UploadFailed, why));
         }
-        if let Some(why) = &self.place_failed {
-            return Some((Kind::SaveFailed, why.clone()));
+        // Made but not in place, whatever stopped the run (checked before any
+        // stop): it is kept. Already said when the move itself failed.
+        if self.place_failed.is_some() {
+            return None;
+        }
+        if self.made {
+            return Some((Kind::SaveFailed, save_failed_sentence(None)));
         }
         if let Some(e) = &self.ended {
             return Some(e.clone());
         }
         if stopped || exit == Some(2) {
             return Some((Kind::Cancelled, STOPPED.into()));
-        }
-        if self.runner_done {
-            return Some((Kind::Failed, "The video was made but its file could not be found on this computer.".into()));
         }
         Some((
             Kind::Failed,
@@ -140,6 +159,16 @@ impl RunState {
     }
 }
 
+/// The sentence for a video made but not where the person chose.
+pub fn save_failed_sentence(place: Option<(&str, &str)>) -> String {
+    match place {
+        Some((chosen, why)) => format!(
+            "The video was made but could not be saved to {chosen}: {why} It is kept on this computer: pick a place to save it again."
+        ),
+        None => "The video was made but was not saved where you chose. It is kept on this computer: pick a place to save it again.".into(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,9 +177,20 @@ mod tests {
         says.iter().map(|s| s.0).collect()
     }
 
+    /// The runner's own failed line (studio-worker src/local.ts runLocal's
+    /// catch; local-main.ts for a refused `take`): every 401/403/409 comes as
+    /// cancelled with the app's code.
+    fn failed_line(code: &str) -> (String, bool, Option<String>) {
+        match runner::parse_line(&format!(r#"{{"type":"failed","error":"Cancelled","cancelled":true,"code":"{code}"}}"#)) {
+            Some(runner::RunnerEvent::Failed { error, cancelled, code }) => (error, cancelled, code),
+            other => panic!("{other:?}"),
+        }
+    }
+
     #[test]
     fn a_whole_run_ends_with_done_and_uploaded() {
         let mut r = RunState::new(true);
+        r.on_made();
         assert_eq!(kinds(&r.on_saved("A.mp4")), [Kind::Done]);
         assert_eq!(kinds(&r.on_done(true)), [Kind::Uploaded]);
         assert_eq!(r.final_event(false, Some(0)), None);
@@ -158,21 +198,24 @@ mod tests {
 
     #[test]
     fn nothing_but_upload_kinds_after_done() {
-        // The upload fails, then the runner fails, then it is stopped: never failed or cancelled.
         let mut r = RunState::new(true);
+        r.on_made();
         r.on_saved("A.mp4");
         assert!(r.on_log("The upload did not go through (503): the video is kept on this computer only"));
         assert!(!r.on_failed("boom", false, None));
         let (k, m) = r.final_event(true, Some(1)).unwrap();
         assert_eq!(k, Kind::UploadFailed);
         assert!(m.contains("boom"), "{m}");
-        // Taken back after done: the upload stops, the file stays.
+        // Taken back after done, as the runner says it: the upload stops, the file stays.
         let mut r = RunState::new(true);
+        r.on_made();
         r.on_saved("A.mp4");
-        assert!(r.on_failed("x", false, Some("NOT_HELD")), "kill now");
-        assert_eq!(r.final_event(true, None).unwrap().0, Kind::UploadFailed);
+        let (e, c, code) = failed_line("NOT_HELD");
+        assert!(r.on_failed(&e, c, code.as_deref()), "kill now");
+        assert_eq!(r.final_event(true, Some(2)).unwrap().0, Kind::UploadFailed);
         // The runner finished without uploading.
         let mut r = RunState::new(true);
+        r.on_made();
         r.on_saved("A.mp4");
         r.on_log("The upload did not go through (x): the video is kept on this computer only");
         assert!(r.on_done(false).is_empty());
@@ -181,6 +224,7 @@ mod tests {
         assert!(m.starts_with("The upload did not go through"));
         // Kept here only, as asked: nothing more to say.
         let mut r = RunState::new(false);
+        r.on_made();
         r.on_saved("A.mp4");
         r.on_done(false);
         assert_eq!(r.final_event(false, Some(0)), None);
@@ -189,30 +233,61 @@ mod tests {
     #[test]
     fn an_upload_that_finished_before_the_move_is_said_after_done() {
         let mut r = RunState::new(true);
+        r.on_made();
         assert!(r.on_done(true).is_empty(), "not before done");
         assert_eq!(kinds(&r.on_saved("A.mp4")), [Kind::Done, Kind::Uploaded]);
     }
 
     #[test]
-    fn before_done_the_run_fails_or_is_cancelled() {
+    fn taken_back_kills_whatever_cancelled_says() {
+        for code in ["NOT_HELD", "ENDED", "UNAUTHORIZED", "FORBIDDEN"] {
+            let mut r = RunState::new(true);
+            let (e, c, k) = failed_line(code);
+            assert!(c, "the runner says cancelled");
+            assert!(r.on_failed(&e, c, k.as_deref()), "{code}");
+            assert_eq!(r.final_event(true, Some(2)).unwrap().0, Kind::Cancelled, "{code}");
+        }
         let mut r = RunState::new(true);
-        assert!(r.on_failed("x", false, Some("ENDED")));
-        assert_eq!(r.final_event(true, Some(2)).unwrap().0, Kind::Cancelled);
+        let (e, c, k) = failed_line("TOO_FAST");
+        assert!(!r.on_failed(&e, c, k.as_deref()), "not a refusal that ends the job");
+        // The person's own cancel: no code, the runner stops by itself.
         let mut r = RunState::new(true);
         assert!(!r.on_failed("Cancelled", true, None));
         assert_eq!(r.final_event(false, Some(2)).unwrap().0, Kind::Cancelled);
+    }
+
+    #[test]
+    fn a_made_video_is_saved_or_kept_whatever_stopped_the_run() {
+        // Made, then taken back, the move cut short: kept, and said so.
+        let mut r = RunState::new(true);
+        r.on_made();
+        let (e, c, k) = failed_line("NOT_HELD");
+        r.on_failed(&e, c, k.as_deref());
+        assert_eq!(r.final_event(true, Some(2)).unwrap().0, Kind::SaveFailed);
+        // Made and finished, then a quit or a cancel during the move.
+        let mut r = RunState::new(true);
+        r.on_made();
+        r.on_done(true);
+        let (k, m) = r.final_event(true, None).unwrap();
+        assert_eq!(k, Kind::SaveFailed);
+        assert!(m.contains("kept on this computer"), "{m}");
+        // The move failed: said at once, once, and nothing after.
+        let mut r = RunState::new(true);
+        r.on_made();
+        let said = r.on_place_failed("A.mp4", "The disk is full.").unwrap();
+        assert_eq!(said.0, Kind::SaveFailed);
+        assert!(r.on_place_failed("A.mp4", "again").is_none());
+        r.on_done(true);
+        assert_eq!(r.final_event(false, Some(0)), None);
+    }
+
+    #[test]
+    fn before_the_video_is_made_the_run_fails_or_is_cancelled() {
         let mut r = RunState::new(true);
         r.on_failed("ffmpeg exited 1", false, None);
         assert_eq!(r.final_event(false, Some(1)), Some((Kind::Failed, "ffmpeg exited 1".into())));
-        let r = RunState::new(true);
-        assert_eq!(r.final_event(true, None).unwrap().0, Kind::Cancelled);
+        assert_eq!(RunState::new(true).final_event(true, None).unwrap().0, Kind::Cancelled);
         assert!(RunState::new(true).final_event(false, Some(9)).unwrap().1.contains("exit code 9"));
-        let mut r = RunState::new(true);
-        r.on_place_failed("A.mp4", "The disk is full.");
-        r.on_done(true);
-        let (k, m) = r.final_event(false, Some(0)).unwrap();
-        assert_eq!(k, Kind::SaveFailed);
-        assert!(m.contains("kept on this computer"), "{m}");
     }
 
     #[test]

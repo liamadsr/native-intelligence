@@ -167,12 +167,14 @@ pub fn parse_line(line: &str) -> Option<RunnerEvent> {
 }
 
 /// The Studio took the job back ("Finish on the server", another computer):
-/// a 409 NOT_HELD or ENDED from any runner route. The runner's `code` says
+/// a 409 NOT_HELD or ENDED, or a 401/403 (UNAUTHORIZED, FORBIDDEN), from any
+/// runner route; the runner reports those as cancelled, with its `code`, which
+/// decides. The runner's `code` says
 /// so; a runner from before it is read by whole words and the app's own
 /// sentences. Then the export stops quietly, as cancelled. Pure.
 pub fn taken_back(code: Option<&str>, error: &str) -> bool {
     if let Some(code) = code {
-        return matches!(code, "NOT_HELD" | "ENDED");
+        return matches!(code, "NOT_HELD" | "ENDED" | "UNAUTHORIZED" | "FORBIDDEN");
     }
     static WORDS: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let words = WORDS.get_or_init(|| {
@@ -359,6 +361,7 @@ mod tests {
     fn taken_back_is_told_apart() {
         assert!(taken_back(Some("NOT_HELD"), "whatever"));
         assert!(taken_back(Some("ENDED"), ""));
+        assert!(taken_back(Some("UNAUTHORIZED"), "Cancelled") && taken_back(Some("FORBIDDEN"), "Cancelled"));
         assert!(!taken_back(Some("TOO_FAST"), "That export has ended"), "the code decides when there is one");
         assert!(taken_back(None, "The Studio took the job back (This computer does not hold that export any more.)"));
         assert!(taken_back(None, "The export failed on this computer: That export has ended."));

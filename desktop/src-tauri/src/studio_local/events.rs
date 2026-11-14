@@ -95,6 +95,11 @@ impl EventLog {
         event
     }
 
+    /// Whether any run of `job_id` is in the log.
+    pub fn knows(&self, job_id: &str) -> bool {
+        self.jobs.iter().any(|j| j.job_id == job_id)
+    }
+
     /// The job's events numbered after `since` (none for a job not known).
     pub fn since(&self, job_id: &str, since: u64) -> Vec<ExportEvent> {
         self.jobs

@@ -206,7 +206,7 @@ impl StudioLocal {
         let chrome = Component::new(ComponentSpec::pinned("chrome", target), data_root.join("chrome"), client.clone(), None);
         let ffmpeg = Component::new(ComponentSpec::pinned("ffmpeg", target), data_root.join("ffmpeg"), client, components::dev_ffmpeg());
         let destinations = Destinations::with_store(data_root.join("saved.json"));
-        Arc::new(Self {
+        let me = Arc::new(Self {
             app,
             target,
             runtime,
@@ -225,7 +225,11 @@ impl StudioLocal {
             probing: AtomicBool::new(false),
             picking: AtomicBool::new(false),
             saves: Mutex::new(HashMap::new()),
-        })
+        });
+        // Nothing runs yet: what killed runs left goes (finished videos kept).
+        let work = me.work();
+        std::thread::spawn(move || clean_work(&work));
+        me
     }
 
     /// Where a finished export that could not be put in place is kept.
@@ -476,7 +480,8 @@ impl StudioLocal {
     async fn probe(&self) -> Result<(String, bool), String> {
         let files = self.files().await?;
         let work = self.work().join("probe");
-        let (mut child, tree) = self.spawn(&files.node, runner::probe_args(std::env::consts::OS, &files, &work), &self.work(), false)?;
+        // Its own folder (and temp folder in it): an export starting meanwhile cleans `tmp/`.
+        let (mut child, tree) = self.spawn(&files.node, runner::probe_args(std::env::consts::OS, &files, &work), &work, false)?;
         let stdout = child.stdout.take().ok_or("no output")?;
         let read = async {
             let mut lines = BufReader::new(stdout).lines();
@@ -544,9 +549,9 @@ impl StudioLocal {
         destinations::checked_target(claim)?;
         let work = self.work();
         let out_dir = work.join("out");
-        // What an earlier export left here goes (each export's own file only lives here).
-        let _ = std::fs::remove_dir_all(&out_dir);
-        sweep_kept(&work.join("kept"), KEEP_FOR);
+        // What earlier runs left (a killed runner never removes its scratch);
+        // one export at a time, so nothing else uses it. Never `kept/`.
+        clean_work(&work);
         std::fs::create_dir_all(&out_dir).map_err(|e| format!("work: can't create the work folder ({e})"))?;
         let out = out_dir.join(format!("{job_id}.mp4"));
         let args = runner::export_args(std::env::consts::OS, files, crate::tray::api_base_url(), job_id, &out, &work, upload);
@@ -574,7 +579,20 @@ impl StudioLocal {
         e
     }
 
+    /// The job's events after `since`. For a job the log does not know (an
+    /// earlier app run), what is on disk: `done` when its video was saved
+    /// where the person chose (the saved places), `save-failed` when it is
+    /// kept here, nothing otherwise. That answer joins the log (seq 1), so a
+    /// new run's `started` follows it.
     pub fn events_since(&self, job_id: &str, since: u64) -> Vec<ExportEvent> {
+        let known = self.events.lock().unwrap().knows(job_id);
+        if !known {
+            let from_disk = from_disk(self.destinations.saved_name_for_job(job_id), self.kept(job_id).is_file());
+            let mut log = self.events.lock().unwrap();
+            if let (Some((kind, message, saved_name)), false) = (from_disk, log.knows(job_id)) {
+                log.push(job_id, kind, (kind == Kind::Done).then_some(1.0), Some(message), saved_name);
+            }
+        }
         self.events.lock().unwrap().since(job_id, since)
     }
 
@@ -623,6 +641,19 @@ impl StudioLocal {
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         let started = self.events.lock().unwrap().begin(&job_id);
         let _ = self.app.emit(PROGRESS_EVENT, &started);
+        // A video made but not put in place is kept at once, then said
+        // (`save-failed`), so "save it again" finds it the moment the page hears.
+        let keep = |job_id: &str| -> bool {
+            let kept = self.kept(job_id);
+            let _ = std::fs::create_dir_all(kept.parent().unwrap_or(&kept));
+            match std::fs::rename(&out, &kept) {
+                Ok(()) => true,
+                Err(e) => {
+                    crate::log_to_file(&format!("[studio-local] export {job_id}: could not keep the video ({e}); it stays in the work folder"));
+                    false
+                }
+            }
+        };
 
         let start_placing = |placing: &mut Option<tokio::task::JoinHandle<Result<PathBuf, String>>>| {
             let (src, c, flag) = (out.clone(), claim.clone(), place_cancel.clone());
@@ -661,6 +692,9 @@ impl StudioLocal {
                             self.event(&job_id, Kind::Encoder, None, Some(label), None);
                         }
                         RunnerEvent::Saved { file, .. } => {
+                            if Path::new(&file) == out {
+                                state.on_made();
+                            }
                             if state.saved.is_none() && placing.is_none() && state.place_failed.is_none() && Path::new(&file) == out {
                                 start_placing(&mut placing);
                             }
@@ -677,9 +711,9 @@ impl StudioLocal {
                         }
                         RunnerEvent::Failed { error, cancelled, code } => {
                             if state.on_failed(&scrub.apply(&error), cancelled, code.as_deref()) {
-                                // Finished on the server, or elsewhere: stop now, quietly, the move too.
+                                // Finished on the server, or elsewhere: the runner stops now, quietly.
+                                // A move in progress goes on: a video that was made is placed or kept.
                                 *reason.lock().unwrap() = Some(Stop::TakenBack);
-                                place_cancel.store(true, Ordering::SeqCst);
                                 tree.kill();
                             }
                         }
@@ -690,22 +724,30 @@ impl StudioLocal {
                     match placed.unwrap_or_else(|e| Err(format!("write: {e}"))) {
                         Ok(path) => {
                             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| claim.name.clone());
-                            self.destinations.release(&claim.id, true);
+                            // Kept (with its job) before `done` is said: reveal works the moment the page hears.
+                            self.destinations.release_export(&claim.id, &job_id);
                             for (k, m, n) in state.on_saved(&name) {
                                 self.event(&job_id, k, Some(1.0).filter(|_| k == Kind::Done), m, n);
                             }
                         }
-                        // Stopped while copying: the stop's own word ends the run.
+                        // Stopped while copying (a cancel, a quit): kept below, `save-failed` at the end.
                         Err(e) if e.starts_with("cancelled:") => {}
                         Err(e) => {
                             let why = e.split_once(": ").map(|(_, m)| m.to_string()).unwrap_or(e);
-                            state.on_place_failed(&claim.name, &why);
+                            keep(&job_id);
+                            if let Some((k, m, n)) = state.on_place_failed(&claim.name, &why) {
+                                self.event(&job_id, k, None, m, n);
+                            }
                         }
                     }
                     last_emit = Instant::now();
                 }
                 _ = stop.notified() => {
-                    place_cancel.store(true, Ordering::SeqCst);
+                    // The person's cancel or a quit stops a copy into place (the video is kept);
+                    // the Studio taking the job back never does.
+                    if *reason.lock().unwrap() != Some(Stop::TakenBack) {
+                        place_cancel.store(true, Ordering::SeqCst);
+                    }
                     match *reason.lock().unwrap() {
                         Some(Stop::TakenBack) => tree.kill(),
                         Some(Stop::Quit) => { tree.terminate(); kill_at = Some(Instant::now() + Duration::from_secs(2)); }
@@ -746,12 +788,8 @@ impl StudioLocal {
         let stopped = reason.lock().unwrap().is_some();
         // A finished video not in place yet is kept, never removed before the person has it: moved to its kept place
         // before the last word is said, so "save it again" (`save_again`) finds it the moment the page hears.
-        if state.saved.is_none() && out.is_file() && (state.runner_done || state.place_failed.is_some()) {
-            let kept = self.kept(&job_id);
-            let _ = std::fs::create_dir_all(kept.parent().unwrap_or(&kept));
-            if let Err(e) = std::fs::rename(&out, &kept) {
-                crate::log_to_file(&format!("[studio-local] export {job_id}: could not keep the video ({e}); it stays in the work folder"));
-            }
+        if state.saved.is_none() && state.made && out.is_file() {
+            keep(&job_id);
         }
         if let Some((kind, message)) = state.final_event(stopped, code) {
             self.event(&job_id, kind, None, Some(message), None);
@@ -778,7 +816,9 @@ impl StudioLocal {
         let placed = tokio::task::spawn_blocking(move || destinations::place_file(&kept, &c, &AtomicBool::new(false)))
             .await
             .unwrap_or_else(|e| Err(format!("write: {e}")))?;
-        let name = placed.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or(claim.name);
+        let name = placed.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or(claim.name.clone());
+        // Kept (with its job) before `done` is said: reveal works the moment the page hears.
+        self.destinations.release_export(&claim.id, job_id);
         // Said as `done`, after the run's `save-failed`: a page that reloads then reads the export as saved.
         self.event(job_id, Kind::Done, None, Some(format!("Saved to {name}")), Some(name.clone()));
         Ok(name)
@@ -862,6 +902,40 @@ impl Drop for PickGuard<'_> {
     }
 }
 
+/// What a restarted app can say of an export from disk: `done` when it was
+/// saved where chosen (`saved`: its file name), else `save-failed` when its
+/// video is kept here (`kept`), else nothing. Pure.
+fn from_disk(saved: Option<String>, kept: bool) -> Option<(Kind, String, Option<String>)> {
+    match (saved, kept) {
+        (Some(name), _) => Some((Kind::Done, format!("Saved to {name}"), Some(name))),
+        (None, true) => Some((Kind::SaveFailed, run_state::save_failed_sentence(None), None)),
+        (None, false) => None,
+    }
+}
+
+/// Before an export starts (and once when the app starts): what killed or
+/// earlier runs left in the work folder goes: the runner's per-job scratch
+/// (`jobs/`), its temp folder (`tmp/`), and `out/`, whose finished videos
+/// (`<job id>.mp4`, written whole by a rename) are kept first. `kept/` stays,
+/// but for videos older than [`KEEP_FOR`].
+fn clean_work(work: &Path) {
+    let out = work.join("out");
+    if let Ok(entries) = std::fs::read_dir(&out) {
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let finished = name.strip_suffix(".mp4").is_some_and(runner::valid_job_id) && e.file_type().is_ok_and(|t| t.is_file());
+            if finished {
+                let _ = std::fs::create_dir_all(work.join("kept"));
+                let _ = std::fs::rename(e.path(), work.join("kept").join(&name));
+            }
+        }
+    }
+    for scratch in ["out", "jobs", "tmp"] {
+        let _ = std::fs::remove_dir_all(work.join(scratch));
+    }
+    sweep_kept(&work.join("kept"), KEEP_FOR);
+}
+
 /// Remove kept videos older than `age` from `dir`.
 fn sweep_kept(dir: &Path, age: Duration) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
@@ -892,6 +966,44 @@ mod tests {
         assert!(unsupported_reason("macos", "x86_64").contains("Apple silicon"));
         assert!(unsupported_reason("windows", "aarch64").contains("x64"));
         assert!(unsupported_reason("linux", "x86_64").contains("our server"));
+    }
+
+    #[test]
+    fn a_restarted_app_answers_from_disk() {
+        assert_eq!(from_disk(Some("A.mp4".into()), false), Some((Kind::Done, "Saved to A.mp4".into(), Some("A.mp4".into()))));
+        assert_eq!(from_disk(Some("A.mp4".into()), true).unwrap().0, Kind::Done);
+        let (k, m, n) = from_disk(None, true).unwrap();
+        assert_eq!((k, n), (Kind::SaveFailed, None));
+        assert!(m.contains("kept on this computer"), "{m}");
+        assert_eq!(from_disk(None, false), None);
+        // In the log as seq 1; a new run's `started` follows it.
+        let mut log = EventLog::default();
+        let (k, m, n) = from_disk(None, true).unwrap();
+        log.push("j", k, None, Some(m), n);
+        assert_eq!(log.since("j", 0)[0].seq, 1);
+        assert_eq!(log.begin("j").seq, 2);
+        assert_eq!(log.since("j", 0).len(), 1, "the new run replaces it");
+    }
+
+    #[test]
+    fn the_work_folder_is_cleaned_but_finished_videos_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let work = dir.path();
+        let job = "11111111-2222-4333-8444-555555555555";
+        for d in ["out", "jobs/x-1", "tmp", "kept", "cache/assets"] {
+            std::fs::create_dir_all(work.join(d)).unwrap();
+        }
+        std::fs::write(work.join("out").join(format!("{job}.mp4")), b"made").unwrap();
+        std::fs::write(work.join("out").join(format!("{job}.mp4.123.partial")), b"half").unwrap();
+        std::fs::write(work.join("jobs/x-1/frame.png"), b"x").unwrap();
+        std::fs::write(work.join("tmp/t"), b"x").unwrap();
+        std::fs::write(work.join("kept/other.mp4"), b"old but young").unwrap();
+        std::fs::write(work.join("cache/assets/a"), b"cached").unwrap();
+        clean_work(work);
+        assert_eq!(std::fs::read(work.join("kept").join(format!("{job}.mp4"))).unwrap(), b"made");
+        assert!(work.join("kept/other.mp4").is_file());
+        assert!(!work.join("out").exists() && !work.join("jobs").exists() && !work.join("tmp").exists());
+        assert!(work.join("cache/assets/a").is_file(), "the asset cache stays");
     }
 
     #[test]

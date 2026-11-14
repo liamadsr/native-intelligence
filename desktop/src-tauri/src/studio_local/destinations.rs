@@ -71,6 +71,10 @@ struct SavedPlace {
     name: String,
     /// Seconds since 1970.
     at: u64,
+    /// The export of this computer saved there, if it was one (so a page
+    /// that reloads after a restart hears that it was saved).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    job: Option<String>,
 }
 
 #[derive(Default)]
@@ -148,11 +152,21 @@ impl Destinations {
     /// End a claim: `written` uses the destination up (and keeps it on disk
     /// for revealing); otherwise it can be claimed again.
     pub fn release(&self, id: &str, written: bool) {
+        self.release_for(id, written, None)
+    }
+
+    /// [`Self::release`] of a destination an export of this computer
+    /// (`job_id`) was saved to: kept with its job.
+    pub fn release_export(&self, id: &str, job_id: &str) {
+        self.release_for(id, true, Some(job_id))
+    }
+
+    fn release_for(&self, id: &str, written: bool, job: Option<&str>) {
         let place = {
             let mut map = self.map.lock().unwrap();
             let Some(d) = map.get_mut(id) else { return };
             d.state = if written { Use::Written } else { Use::Free };
-            written.then(|| SavedPlace { id: id.to_string(), dir: d.dir.clone(), name: d.name.clone(), at: now_secs() })
+            written.then(|| SavedPlace { id: id.to_string(), dir: d.dir.clone(), name: d.name.clone(), at: now_secs(), job: job.map(str::to_string) })
         };
         if let Some(place) = place {
             if let Err(e) = self.keep(place) {
@@ -189,6 +203,17 @@ impl Destinations {
         let excess = kept.len().saturating_sub(MAX_SAVED);
         kept.drain(..excess);
         kept
+    }
+
+    /// The file name an export of this computer was last saved under, if
+    /// that place is still kept (and its file still there).
+    pub fn saved_name_for_job(&self, job_id: &str) -> Option<String> {
+        let _one = self.store_lock.lock().unwrap();
+        Self::live(self.read_store(), now_secs())
+            .into_iter()
+            .filter(|p| p.job.as_deref() == Some(job_id))
+            .max_by_key(|p| p.at)
+            .map(|p| p.name)
     }
 
     fn saved(&self, id: &str) -> Option<SavedPlace> {
@@ -667,11 +692,18 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             assert_eq!(std::fs::metadata(&store).unwrap().permissions().mode() & 0o777, 0o600);
         }
-        // The next run: only the written one is known.
+        // An export's destination is kept with its job.
+        std::fs::write(dir.join("c.mp4"), b"v").unwrap();
+        let export = d.add(dir.clone(), "c.mp4".into());
+        d.claim(&export).unwrap();
+        d.release_export(&export, "11111111-2222-4333-8444-555555555555");
+        // The next run: only the written ones are known.
         let next = Destinations::with_store(store.clone());
         assert_eq!(next.written_file(&id), Some(dir.join("a.mp4")));
         assert!(next.written_file(&unused).is_none());
         assert!(next.claim(&id).unwrap_err().starts_with("used"));
+        assert_eq!(next.saved_name_for_job("11111111-2222-4333-8444-555555555555").as_deref(), Some("c.mp4"));
+        assert!(next.saved_name_for_job("11111111-2222-4333-8444-000000000000").is_none());
         // The file gone: so is the place.
         std::fs::remove_file(dir.join("a.mp4")).unwrap();
         assert!(next.written_file(&id).is_none());
@@ -681,7 +713,7 @@ mod tests {
             .map(|i| {
                 let name = format!("{i}.mp4");
                 std::fs::write(dir.join(&name), b"v").unwrap();
-                SavedPlace { id: uuid::Uuid::new_v4().to_string(), dir: dir.clone(), name, at: if i == 0 { now - SAVED_FOR_SECS - 1 } else { now } }
+                SavedPlace { id: uuid::Uuid::new_v4().to_string(), dir: dir.clone(), name, at: if i == 0 { now - SAVED_FOR_SECS - 1 } else { now }, job: None }
             })
             .collect();
         assert_eq!(Destinations::live(list, now).len(), MAX_SAVED);

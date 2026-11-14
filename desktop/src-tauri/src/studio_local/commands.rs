@@ -164,10 +164,8 @@ pub async fn studio_local_export_save_again(svc: State<'_, Arc<StudioLocal>>, jo
     }
     let claim = svc.destinations.claim(&destination_id)?;
     match svc.save_again(&job_id, claim).await {
-        Ok(name) => {
-            svc.destinations.release(&destination_id, true);
-            Ok(Saved { name })
-        }
+        // Released (written, with its job) inside, before its `done` is said.
+        Ok(name) => Ok(Saved { name }),
         Err(e) => {
             svc.destinations.release(&destination_id, false);
             Err(e)
