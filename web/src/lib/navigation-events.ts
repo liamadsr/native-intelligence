@@ -3,6 +3,7 @@
  * Used by DeepLinkHandler (root layout) to communicate with
  * SettingsOverlayProvider (dashboard layout) without hard navigations.
  */
+import type { SlackInstallResult } from '@/lib/slack/install-result'
 
 export interface OAuthCallbackDetail {
   success: boolean
@@ -58,6 +59,28 @@ export function onMcpOAuthCallback(handler: (detail: McpOAuthCallbackDetail) => 
   const listener = (e: Event) => handler((e as CustomEvent<McpOAuthCallbackDetail>).detail)
   window.addEventListener('ni:mcp-oauth-callback', listener)
   return () => window.removeEventListener('ni:mcp-oauth-callback', listener)
+}
+
+/**
+ * A desktop Slack install this window started ended: the claim's result, or
+ * the deep link's error result (desktop-oauth-claims.ts claimDesktopSlackInstall).
+ * `state` names the install.
+ */
+export interface SlackInstallCallbackDetail {
+  state: string
+  result: SlackInstallResult
+}
+
+/** Fire when a desktop Slack install settles. */
+export function emitSlackInstallCallback(detail: SlackInstallCallbackDetail) {
+  window.dispatchEvent(new CustomEvent('ni:slack-install-callback', { detail }))
+}
+
+/** Subscribe to desktop Slack install outcomes. */
+export function onSlackInstallCallback(handler: (detail: SlackInstallCallbackDetail) => void): () => void {
+  const listener = (e: Event) => handler((e as CustomEvent<SlackInstallCallbackDetail>).detail)
+  window.addEventListener('ni:slack-install-callback', listener)
+  return () => window.removeEventListener('ni:slack-install-callback', listener)
 }
 
 /** Subscribe to soft navigation requests */

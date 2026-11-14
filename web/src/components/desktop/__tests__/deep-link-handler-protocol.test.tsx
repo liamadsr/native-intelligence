@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   exchange: vi.fn(async (_code: string) => ({ error: null as unknown, data: null as { redirectType: string | null } | null })),
   emitOAuthCallback: vi.fn(),
   emitMcpOAuthCallback: vi.fn(),
+  emitSlackInstallCallback: vi.fn(),
+  claimSlack: vi.fn(async (_link: { state: string; sealed?: string | null; error?: string | null }) => null as unknown),
   claimMcp: vi.fn(async (_link: { state: string; code?: string | null; error?: string | null }, _f?: unknown, _onClaiming?: () => void) => null as unknown),
   callbacks: new Map<number, (e: unknown) => void>(),
 }))
@@ -41,11 +43,13 @@ vi.mock('@/lib/tauri-bridge', () => ({
 vi.mock('@/lib/navigation-events', () => ({
   emitOAuthCallback: mocks.emitOAuthCallback,
   emitMcpOAuthCallback: mocks.emitMcpOAuthCallback,
+  emitSlackInstallCallback: mocks.emitSlackInstallCallback,
   emitSoftNavigate: vi.fn(),
 }))
 vi.mock('@/lib/integrations/desktop-oauth-claims', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/integrations/desktop-oauth-claims')>()),
   claimDesktopMcp: mocks.claimMcp,
+  claimDesktopSlackInstall: mocks.claimSlack,
 }))
 
 import { DeepLinkHandler } from '../deep-link-handler'
@@ -83,6 +87,9 @@ describe('DeepLinkHandler protocol gating', () => {
     mocks.emitOAuthCallback.mockClear()
     mocks.emitMcpOAuthCallback.mockClear()
     mocks.claimMcp.mockClear()
+    mocks.emitSlackInstallCallback.mockClear()
+    mocks.claimSlack.mockClear()
+    mocks.claimSlack.mockResolvedValue(null)
     listeners.clear()
     mocks.callbacks.clear()
     Object.assign(window, {
@@ -198,5 +205,42 @@ describe('DeepLinkHandler protocol gating', () => {
       [{ state: 'desk.s', phase: 'claiming' }],
       [{ state: 'desk.s', phase: 'done', success: true, name: 'Linear' }],
     ])
+  })
+
+  it('a Slack install link goes to the Slack claim; one this window did not start reports nothing', async () => {
+    await deliver('dial8desktop://slack/complete?sealed=sl&state=slack.s')
+    expect(mocks.claimSlack).toHaveBeenCalledWith({ state: 'slack.s', sealed: 'sl', error: 'failed' })
+    await Promise.resolve()
+    expect(mocks.emitSlackInstallCallback).not.toHaveBeenCalled()
+    expect(mocks.claimMcp).not.toHaveBeenCalled()
+    expect(mocks.emitOAuthCallback).not.toHaveBeenCalled()
+    expect(mocks.exchange).not.toHaveBeenCalled()
+  })
+
+  it("a Slack claim's result is reported to the page", async () => {
+    mocks.claimSlack.mockResolvedValueOnce({ state: 'slack.s', result: 'installed' })
+    await deliver('dial8desktop://slack/complete?sealed=sl&state=slack.s')
+    await Promise.resolve()
+    expect(mocks.emitSlackInstallCallback).toHaveBeenCalledWith({ state: 'slack.s', result: 'installed' })
+  })
+
+  it("a Slack error link carries only a result it knows, else 'failed', and never a sealed code", async () => {
+    await deliver('dial8desktop://slack/error?error=denied&state=slack.s&sealed=ignored')
+    expect(mocks.claimSlack).toHaveBeenLastCalledWith({ state: 'slack.s', sealed: null, error: 'denied' })
+    await deliver('dial8desktop://slack/error?error=%3Cb%3Ehi%3C%2Fb%3E&state=slack.s')
+    expect(mocks.claimSlack).toHaveBeenLastCalledWith({ state: 'slack.s', sealed: null, error: 'failed' })
+  })
+
+  it('a Slack link without a state, or for no known path, is ignored; there is no success link', async () => {
+    await deliver('dial8desktop://slack/complete?sealed=sl')
+    await deliver('dial8desktop://slack/success?state=slack.s&result=installed')
+    expect(mocks.claimSlack).not.toHaveBeenCalled()
+    expect(mocks.emitSlackInstallCallback).not.toHaveBeenCalled()
+    expect(mocks.exchange).not.toHaveBeenCalled()
+  })
+
+  it('never treats a web link as a Slack install link', async () => {
+    await deliver('https://evil.example/slack/complete?sealed=sl&state=slack.s')
+    expect(mocks.claimSlack).not.toHaveBeenCalled()
   })
 })
