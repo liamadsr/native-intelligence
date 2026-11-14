@@ -124,7 +124,7 @@ makes **no model call of its own**:
 ## Run them
 
 Against a local dev server on port 3001. Never production, and never a built
-server: off Vercel the eval entry opens only on a dev server (`EVE_DEV=1`, which
+server: the eval entry opens only on a dev server (`EVE_DEV=1`, which
 `next dev` sets on the agents it boots, and `NODE_ENV` not `production`), so
 our own server refuses, the live copy and a rehearsal copy alike, whatever the
 flag says. It still refuses `VERCEL_ENV=production`.
@@ -162,8 +162,9 @@ flag says. It still refuses `VERCEL_ENV=production`.
    npm run eval -- --list               # what exists
    ```
 
-   `EVE_EVAL_URL` points it elsewhere, e.g. a DEV preview deployment with the
-   same env: `EVE_EVAL_URL=https://<preview>/eve/chat-agent`. Artifacts, with
+   `EVE_EVAL_URL` points it at a dev server on another port or machine
+   (`EVE_EVAL_URL=http://localhost:<port>/eve/chat-agent`); a built deployment
+   refuses. Artifacts, with
    every event of every session, land in `evals/chat-agent/.eve/evals/<timestamp>/`.
 
 Each case drives real model turns (a few cents each), and a model can have a

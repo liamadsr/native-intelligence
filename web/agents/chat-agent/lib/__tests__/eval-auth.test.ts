@@ -10,12 +10,12 @@ import { join } from 'node:path'
  *     deployment is provably not production, the database is DEV's by hostname,
  *     the secret is set (32+ chars) and matches, and the fixture ids are set;
  *     the 401 never echoes why;
- *   - "provably not production" off Vercel is a dev server: EVE_DEV exactly '1'
- *     and NODE_ENV not 'production'. Our own server sets no Vercel variable, so
- *     its live copy and a rehearsal copy (NI_LIVE empty, production's database)
- *     are refused whatever NI_LIVE says, and so is any built agent. Where a
- *     Vercel variable is set, only preview/development pass (an unknown env, or
- *     VERCEL without VERCEL_ENV, is production);
+ *   - "provably not production" is a dev server and nothing else: EVE_DEV
+ *     exactly '1' and NODE_ENV not 'production'. Our own server's live copy and
+ *     a rehearsal copy (NI_LIVE empty, production's database) are refused
+ *     whatever NI_LIVE says, even with a Vercel variable set there by accident,
+ *     and so is any built agent. The Vercel variables only refuse on top (an
+ *     unknown env, or VERCEL without VERCEL_ENV, is production);
  *   - the principal must be the fixture's auth user (by email, service role), in
  *     a marked, single-member fixture workspace with its user's conversation (a
  *     query error refuses; a failure is never cached);
@@ -194,6 +194,9 @@ describe('evalRunnerAuth: every switch must be on (fail closed)', () => {
     ['a rehearsal copy with a stray EVE_DEV=1', () => (onOurServer(false), (process.env.EVE_DEV = '1')), 'production'],
     ['a built agent on a developer’s machine (`eve start`: no EVE_DEV)', () => delete process.env.EVE_DEV, 'production'],
     ['a built agent with NODE_ENV=production and EVE_DEV=1', () => vi.stubEnv('NODE_ENV', 'production'), 'production'],
+    ['our server with a pulled Vercel env file (VERCEL=1, VERCEL_ENV=development)', () => (onOurServer(true), (process.env.VERCEL = '1'), (process.env.VERCEL_ENV = 'development'), (process.env.VERCEL_TARGET_ENV = 'development')), 'production'],
+    ['a rehearsal copy with VERCEL_ENV=preview', () => (onOurServer(false), (process.env.VERCEL_ENV = 'preview')), 'production'],
+    ['a built preview deployment (VERCEL_ENV=preview, no EVE_DEV)', () => (delete process.env.EVE_DEV, (process.env.VERCEL = '1'), (process.env.VERCEL_ENV = 'preview')), 'production'],
     ['EVE_DEV "true", not "1"', () => (process.env.EVE_DEV = 'true'), 'production'],
     ['an empty EVE_DEV', () => (process.env.EVE_DEV = ''), 'production'],
     ['the PROD database', () => (process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://bzfthjzyzevjokbuhqci.supabase.co'), 'not_dev_database'],
@@ -227,13 +230,11 @@ describe('evalRunnerAuth: every switch must be on (fail closed)', () => {
     expect(evalAuthDisabledReason()).toBeNull()
     vi.stubEnv('NODE_ENV', 'development')
     expect(evalAuthDisabledReason()).toBeNull()
-    vi.stubEnv('NODE_ENV', undefined)
-    expect(evalAuthDisabledReason()).toBeNull()
+    expect(isNonProductionDeployment({ EVE_DEV: '1' } as NodeJS.ProcessEnv)).toBe(true)
+    expect(isNonProductionDeployment({} as NodeJS.ProcessEnv)).toBe(false)
   })
 
-  it('a Vercel preview or development deployment is judged by its Vercel variables alone', () => {
-    delete process.env.EVE_DEV
-    vi.stubEnv('NODE_ENV', 'production')
+  it('a dev server that carries Vercel’s preview or development variables is still a dev server', () => {
     for (const env of ['preview', 'development']) {
       process.env.VERCEL = '1'
       process.env.VERCEL_ENV = env
@@ -242,13 +243,14 @@ describe('evalRunnerAuth: every switch must be on (fail closed)', () => {
     }
   })
 
-  it('NI_LIVE opens nothing and shuts nothing: a dev server is one with or without it', () => {
-    process.env.NI_LIVE = '1'
-    expect(evalAuthDisabledReason()).toBeNull()
-    expect(isNonProductionDeployment({ NODE_ENV: 'production' })).toBe(false)
-    expect(isNonProductionDeployment({ NODE_ENV: 'production', NI_LIVE: '' })).toBe(false)
-    expect(isNonProductionDeployment({ NODE_ENV: 'production', NI_LIVE: '1' })).toBe(false)
-    expect(isNonProductionDeployment({} as NodeJS.ProcessEnv)).toBe(false)
+  it('NI_LIVE opens nothing and shuts nothing', () => {
+    const dev = { EVE_DEV: '1', NODE_ENV: 'development' }
+    const server = { NODE_ENV: 'production' }
+    for (const live of [undefined, '', '0', '1']) {
+      expect(isNonProductionDeployment({ ...dev, NI_LIVE: live } as NodeJS.ProcessEnv)).toBe(true)
+      expect(isNonProductionDeployment({ ...server, NI_LIVE: live } as NodeJS.ProcessEnv)).toBe(false)
+      expect(isNonProductionDeployment({ ...server, EVE_DEV: '1', NI_LIVE: live } as NodeJS.ProcessEnv)).toBe(false)
+    }
   })
 
   it.each([['a wrong secret', 'eval-secret-0123456789abcdef0123456788'], ['an empty secret', ''], ['a longer secret', `${EVAL_SECRET}x`]])(
