@@ -39,7 +39,7 @@ export function clock(ms: number | null | undefined): string {
 
 /** A link is renewed this long before it runs out (or at half its life, if that is sooner), so no request is ever made on a dead one. */
 export const LINK_MARGIN_MS = 60_000
-/** The longest a renewed link may take to load before the player gives the control back. */
+/** The longest a link may take to come (first Play), or a renewal to come and load, before the player gives the control back. */
 export const RENEW_WAIT_MS = 15_000
 
 /**
@@ -57,9 +57,9 @@ interface AudioLink {
   life: number
 }
 
-async function audioLink(captureId: string, fileId: string, as: 'play' | 'download'): Promise<AudioLink | null> {
+async function audioLink(captureId: string, fileId: string, as: 'play' | 'download', signal?: AbortSignal): Promise<AudioLink | null> {
   try {
-    const res = await fetch(`/api/account/captures/${captureId}/audio?file=${fileId}&as=${as}`)
+    const res = await fetch(`/api/account/captures/${captureId}/audio?file=${fileId}&as=${as}`, signal ? { signal } : undefined)
     if (!res.ok) return null
     const json = (await res.json()) as { url?: string; expiresIn?: number }
     if (typeof json.url !== 'string' || !/^https?:/.test(json.url)) return null
@@ -120,16 +120,19 @@ export function CallAudioPlayer({
   const wantPlay = useRef(false)
   // Where to go on from once a renewed link's file is loaded.
   const resumeAt = useRef<number | null>(null)
-  // A renewal under way, from the moment it starts (before its link is even fetched) to when it
-  // settles: loaded, given up, or the player gone. Every other trigger waits for it.
+  // A wait under way: a link being fetched (the first Play, or a renewal) or a renewed file loading,
+  // from the moment it starts to when it settles: loaded, given up, paused, or the player gone. Every
+  // other trigger waits for it; Pause drops it.
   const renewing = useRef(false)
+  // Each wait's number: an answer that comes for one already given up (or paused) is dropped.
+  const attempt = useRef(0)
   // Its new link is set on the element: an error from now on is the fresh link's own.
   const freshSet = useRef(false)
   // The current link (null: none yet, or given up).
   const link = useRef<AudioLink | null>(null)
   // Where it was when the player gave up: Play goes on from there with a fresh link.
   const resumeAfterGiveUp = useRef<number | null>(null)
-  // The renewal's wait, given up after RENEW_WAIT_MS.
+  // The wait's clock, from before the link is fetched: given up after RENEW_WAIT_MS.
   const renewTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const alive = useRef(true)
   useEffect(() => {
@@ -158,12 +161,14 @@ export function CallAudioPlayer({
   }
 
   /**
-   * Give the control back, with a line saying why. The link is dropped (an element in error never
-   * plays again), and where it was is kept: Play then fetches a fresh link and goes on from there.
+   * Give the control back, with a line saying why (none when the person paused). The wait under way
+   * is dropped, and so is the link (an element in error never plays again); where it was is kept,
+   * and shown: Play then fetches a fresh link and goes on from there.
    */
-  const giveUp = (line: string) => {
+  const giveUp = (line: string | null) => {
     const el = audio.current
     settle()
+    attempt.current++
     const at = resumeAt.current ?? (el && el.currentTime > 0 ? el.currentTime : null)
     resumeAfterGiveUp.current = at
     resumeAt.current = null
@@ -174,19 +179,36 @@ export function CallAudioPlayer({
       el.load()
     }
     if (!alive.current) return
+    if (at !== null) setAt(at * 1000)
     setState(at === null ? 'idle' : 'paused')
-    toast(line)
+    if (line) toast(line)
   }
 
-  /** A fresh link, the file loading from `resume` (seconds) once it can. */
-  const load = async (resume: number | null): Promise<boolean> => {
+  /** Start a wait: from now, not from when its link comes, it is given up after RENEW_WAIT_MS. */
+  const begin = () => {
+    renewing.current = true
+    freshSet.current = false
+    setState('loading')
+    if (renewTimer.current) clearTimeout(renewTimer.current)
+    renewTimer.current = setTimeout(() => {
+      renewTimer.current = null
+      if (renewing.current) giveUp('The audio is slow to load. Press play to try again.')
+    }, RENEW_WAIT_MS)
+  }
+
+  /**
+   * A fresh link on the element. 'dropped': the wait it was for ended before it came (given up,
+   * paused, the player gone), so it changes nothing.
+   */
+  const load = async (): Promise<'set' | 'failed' | 'dropped'> => {
+    const mine = ++attempt.current
     const fresh = await audioLink(captureId, file.id, 'play')
     const el = audio.current
-    if (!alive.current || !el || !fresh) return false
-    resumeAt.current = resume
+    if (!alive.current || !el || mine !== attempt.current || !renewing.current) return 'dropped'
+    if (!fresh) return 'failed'
     link.current = fresh
     el.src = fresh.url
-    return true
+    return 'set'
   }
 
   /**
@@ -195,37 +217,34 @@ export function CallAudioPlayer({
    * stall), and when the browser says the old one failed. A request on a dead link does not always
    * fail loudly: WebKit (the desktop app, the iPhone) reads the refusal as the file and stalls, so
    * the player never waits for that. One renewal at a time: a second trigger while one is under
-   * way (WebKit says `stalled` and `waiting` together) only moves where it will go on from. Loading
-   * is asked for outright (`preload` and `load()`), and waited on for RENEW_WAIT_MS at most; a
-   * fresh link that fails as well, or never loads, gives the control back with a line.
+   * way (WebKit says `stalled` and `waiting` together) changes nothing: the old element's place it
+   * carries is never better than the renewal's (a move along the bar sets that one itself). The
+   * place is kept from the start, so a renewal that fails still knows it. Loading is asked for
+   * outright (`preload` and `load()`), and the whole of it, the link's fetch included, is waited on
+   * for RENEW_WAIT_MS at most; a fresh link that fails as well, or never comes or loads, gives the
+   * control back with a line.
    */
   const renew = async (at: number) => {
     const el = audio.current
-    if (!el) return
-    if (renewing.current) {
-      if (Number.isFinite(at)) resumeAt.current = at
-      return
-    }
-    renewing.current = true
-    freshSet.current = false
-    setState('loading')
+    if (!el || renewing.current) return
+    begin()
+    resumeAt.current = Number.isFinite(at) ? at : 0
     el.preload = 'auto'
-    if (!(await load(Number.isFinite(at) ? at : 0))) {
-      if (alive.current) giveUp('That audio can’t be played.')
-      return
-    }
+    const got = await load()
+    if (got === 'dropped') return
+    if (got === 'failed') return giveUp('That audio can’t be played.')
     freshSet.current = true
     el.load()
-    if (renewTimer.current) clearTimeout(renewTimer.current)
-    renewTimer.current = setTimeout(() => {
-      renewTimer.current = null
-      if (renewing.current) giveUp('The audio is slow to load. Press play to try again.')
-    }, RENEW_WAIT_MS)
   }
 
   const start = async () => {
     const el = audio.current
-    if (!el || renewing.current) return
+    if (!el) return
+    if (renewing.current) {
+      // Pause while the sound is on its way: the wait is dropped, and where it was kept.
+      giveUp(null)
+      return
+    }
     if (state === 'playing') {
       wantPlay.current = false
       el.pause()
@@ -239,8 +258,13 @@ export function CallAudioPlayer({
       return renew(at)
     }
     if (!el.getAttribute('src')) {
-      setState('loading')
-      if (!(await load(null))) return giveUp('That audio can’t be played.')
+      begin()
+      resumeAt.current = null
+      const got = await load()
+      if (got === 'dropped') return
+      if (got === 'failed') return giveUp('That audio can’t be played.')
+      // The link came: the browser loads the file as it plays (it says when it is waiting).
+      settle()
     } else if (stale()) {
       // Paused past the link's life: a fresh one first, on from the same place.
       return renew(el.currentTime)
@@ -266,7 +290,8 @@ export function CallAudioPlayer({
   const download = async () => {
     if (downloading) return
     setDownloading(true)
-    const link = await audioLink(captureId, file.id, 'download')
+    // An answer that never comes gives the button back.
+    const link = await audioLink(captureId, file.id, 'download', typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(RENEW_WAIT_MS) : undefined)
     setDownloading(false)
     if (!link) {
       toast('That audio can’t be downloaded.')
@@ -283,10 +308,9 @@ export function CallAudioPlayer({
         <button
           type="button"
           data-capture-call-audio-play=""
-          aria-label={state === 'playing' ? `Pause ${label.toLowerCase()}` : `Play ${label.toLowerCase()}`}
+          aria-label={state === 'playing' || state === 'loading' ? `Pause ${label.toLowerCase()}` : `Play ${label.toLowerCase()}`}
           onClick={() => void start()}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-85 disabled:opacity-60"
-          disabled={state === 'loading'}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-85"
         >
           {/* Solid glyphs at full strength (the app's `.lucide` rule dims every icon otherwise). */}
           {state === 'loading' ? (
@@ -349,12 +373,15 @@ export function CallAudioPlayer({
           setState('paused')
         }}
         onTimeUpdate={(e) => {
-          if (resumeAt.current === null) setAt(e.currentTarget.currentTime * 1000)
+          // A place kept for a renewal, or after a give-up, stays shown (the element says 0 meanwhile).
+          if (resumeAt.current === null && resumeAfterGiveUp.current === null) setAt(e.currentTarget.currentTime * 1000)
         }}
         onLoadedMetadata={(e) => {
           const el = e.currentTarget
           const d = el.duration
           if (Number.isFinite(d) && d > 0) setLength(d * 1000)
+          // The old link's, while the fresh one is still being fetched: the renewal goes on.
+          if (renewing.current && !freshSet.current) return
           settle()
           const resume = resumeAt.current
           resumeAt.current = null

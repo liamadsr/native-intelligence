@@ -7,7 +7,8 @@
  * the day it was, with nothing to play; one on its way says so; several are
  * named by part, each with its own day when their days differ; a link that
  * runs out while it plays is renewed and the sound goes on where it was, as
- * often as that happens.
+ * often as that happens; a link that never comes gives the control back, and
+ * Pause drops a wait.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
@@ -303,7 +304,8 @@ describe('CallAudioRow', () => {
       await fire(m.el, 'error') // the link failed: renewed, and the new one never answers
       await act(async () => void (await vi.advanceTimersByTimeAsync(0)))
       const button = container.querySelector('[data-capture-call-audio-play]') as HTMLButtonElement
-      expect(button.disabled).toBe(true)
+      // Waiting: the button says Pause (and would drop the wait).
+      expect(button.getAttribute('aria-label')).toBe('Pause call audio')
       await act(async () => void (await vi.advanceTimersByTimeAsync(15_000)))
       expect(button.disabled).toBe(false)
       expect(button.getAttribute('aria-label')).toBe('Play call audio')
@@ -433,6 +435,176 @@ describe('CallAudioRow', () => {
     expect(requests.filter((r) => r.includes('as=play'))).toHaveLength(2)
     expect(toastMock).toHaveBeenCalledWith('That audio can’t be played.')
     expect(container.querySelector('[data-capture-call-audio-play]')!.getAttribute('aria-label')).toBe('Play call audio')
+  })
+
+  /** Play links from now on: each one's answer waits until `answers[n]` is called (n from 0). */
+  function heldPlayLinks() {
+    const answers: Array<() => void> = []
+    vi.stubGlobal('fetch', (url: string) => {
+      requests.push(url)
+      if (!url.includes('as=play')) return Promise.resolve(new Response(JSON.stringify({ files })))
+      const n = requests.filter((r) => r.includes('as=play')).length
+      return new Promise<Response>((resolve) => {
+        answers.push(() => resolve(new Response(JSON.stringify({ url: `https://sb.example.test/x?token=held-${n}`, expiresIn: 3600 }))))
+      })
+    })
+    return answers
+  }
+  const button = () => container.querySelector('[data-capture-call-audio-play]') as HTMLButtonElement
+  const shown = () => container.querySelector('[data-capture-call-audio="ready"] .tabular-nums')!.textContent
+
+  it('the first Play’s link never comes: after the wait the control is the person’s again, with a line, and a late answer changes nothing', async () => {
+    files = [ready]
+    await mount(team)
+    const m = media()
+    const answers = heldPlayLinks()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await press()
+      expect(button().disabled).toBe(false)
+      expect(button().getAttribute('aria-label')).toBe('Pause call audio')
+      await act(async () => void (await vi.advanceTimersByTimeAsync(15_000)))
+      expect(button().getAttribute('aria-label')).toBe('Play call audio')
+      expect(toastMock).toHaveBeenCalledWith('The audio is slow to load. Press play to try again.')
+      answers[0]() // the answer comes at last
+      await act(async () => void (await vi.advanceTimersByTimeAsync(0)))
+      expect(m.el.getAttribute('src')).toBeNull()
+      expect(m.plays).toEqual([])
+      expect(button().getAttribute('aria-label')).toBe('Play call audio')
+      expect(toastMock).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+    // Play again: a new link, and it plays.
+    vi.stubGlobal('fetch', async (url: string) => {
+      requests.push(url)
+      return new Response(JSON.stringify({ url: 'https://sb.example.test/x?token=again', expiresIn: 3600 }))
+    })
+    await press()
+    await tick()
+    expect(m.el.getAttribute('src')).toContain('token=again')
+    expect(m.plays).toEqual([0])
+  })
+
+  it('a renewal’s link never comes: after the wait the control is back, the place kept and shown, a late answer changes nothing, and Play goes on from there', async () => {
+    files = [ready]
+    await mount(team)
+    const m = media()
+    await press()
+    await tick()
+    await fire(m.el, 'loadedmetadata')
+    m.position = 1200
+    const answers = heldPlayLinks()
+    later(3_600_000)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await fire(m.el, 'stalled') // a dead link: renewal, and its link never comes
+      expect(button().getAttribute('aria-label')).toBe('Pause call audio')
+      await act(async () => void (await vi.advanceTimersByTimeAsync(15_000)))
+      expect(button().getAttribute('aria-label')).toBe('Play call audio')
+      expect(toastMock).toHaveBeenCalledWith('The audio is slow to load. Press play to try again.')
+      expect(m.el.getAttribute('src')).toBeNull()
+      // The element now says 0; the row says where it stopped.
+      m.position = 0
+      await fire(m.el, 'timeupdate')
+      expect(shown()).toBe('20:00 / 42:05')
+      answers[0]()
+      await act(async () => void (await vi.advanceTimersByTimeAsync(0)))
+      expect(m.el.getAttribute('src')).toBeNull()
+      expect(button().getAttribute('aria-label')).toBe('Play call audio')
+      await press() // Play: a fresh link, held too
+      expect(requests.filter((r) => r.includes('as=play'))).toHaveLength(3)
+      answers[1]()
+      await act(async () => void (await vi.advanceTimersByTimeAsync(0)))
+      expect(m.el.getAttribute('src')).toContain('token=held-3')
+      await fire(m.el, 'loadedmetadata')
+      expect(m.plays.at(-1)).toBe(1200)
+      expect(button().getAttribute('aria-label')).toBe('Pause call audio')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('two give-ups in a row keep the place: Play goes on from it, and it is shown meanwhile', async () => {
+    files = [ready]
+    await mount(team)
+    const m = media()
+    await press()
+    await tick()
+    await fire(m.el, 'loadedmetadata')
+    m.position = 1200
+    // Links 2 and 3 are refused.
+    vi.stubGlobal('fetch', async (url: string) => {
+      requests.push(url)
+      const n = requests.filter((r) => r.includes('as=play')).length
+      if (n === 2 || n === 3) return new Response('{}', { status: 500 })
+      return new Response(JSON.stringify({ url: `https://sb.example.test/x?token=link-${n}`, expiresIn: 3600 }))
+    })
+    await fire(m.el, 'error') // link 1 failed: renewal, refused
+    await tick()
+    expect(toastMock).toHaveBeenCalledTimes(1)
+    m.position = 0 // the source removed
+    await fire(m.el, 'timeupdate')
+    expect(shown()).toBe('20:00 / 42:05')
+    await press() // Play: renewal from 20:00, refused again
+    await tick()
+    expect(toastMock).toHaveBeenCalledTimes(2)
+    expect(button().getAttribute('aria-label')).toBe('Play call audio')
+    expect(shown()).toBe('20:00 / 42:05')
+    await press() // Play: link 4 works
+    await tick()
+    expect(m.el.getAttribute('src')).toContain('token=link-4')
+    await fire(m.el, 'loadedmetadata')
+    expect(m.plays.at(-1)).toBe(1200)
+  })
+
+  it('Pause while a renewal’s link is on its way: the wait is dropped, no line, the place kept; the late answer changes nothing', async () => {
+    files = [ready]
+    await mount(team)
+    const m = media()
+    await press()
+    await tick()
+    await fire(m.el, 'loadedmetadata')
+    m.position = 1800
+    const answers = heldPlayLinks()
+    later(3_600_000)
+    await fire(m.el, 'stalled')
+    expect(button().getAttribute('aria-label')).toBe('Pause call audio')
+    await press() // Pause
+    expect(button().getAttribute('aria-label')).toBe('Play call audio')
+    expect(toastMock).not.toHaveBeenCalled()
+    expect(shown()).toBe('30:00 / 42:05')
+    answers[0]()
+    await tick()
+    expect(m.el.getAttribute('src')).toBeNull()
+    expect(button().getAttribute('aria-label')).toBe('Play call audio')
+    await press() // Play: a fresh link, on from the same place
+    answers[1]()
+    await tick()
+    expect(m.el.getAttribute('src')).toContain('token=held-3')
+    await fire(m.el, 'loadedmetadata')
+    expect(m.plays.at(-1)).toBe(1800)
+  })
+
+  it('a move along the bar on a dead link, then WebKit’s stall from the old place while the fresh link comes: on from where it was moved to', async () => {
+    files = [ready]
+    await mount(team)
+    const m = media()
+    await press()
+    await tick()
+    await fire(m.el, 'loadedmetadata')
+    m.position = 3
+    const answers = heldPlayLinks()
+    later(3_600_000)
+    await moveTo(1200) // a renewal from 20:00; the element still says 3 s
+    await fire(m.el, 'stalled')
+    await fire(m.el, 'waiting')
+    answers[0]()
+    await tick()
+    expect(m.el.getAttribute('src')).toContain('token=held-2')
+    await fire(m.el, 'loadedmetadata')
+    expect(Math.abs(m.plays.at(-1)! - 1200)).toBeLessThan(3)
+    expect(requests.filter((r) => r.includes('as=play'))).toHaveLength(2)
   })
 
   it('clock: minutes and seconds, hours when there are any', () => {
