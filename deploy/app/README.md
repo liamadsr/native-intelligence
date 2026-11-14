@@ -376,6 +376,15 @@ requires and calls one set without the others wrong; nothing can prove them at
 Slack without an install. What the owner sets at Slack is in `../README.md`
 ("Slack", under "Day to day").
 
+"Continue with ChatGPT" needs `CHATGPT_CLIENT_ID`, `CHATGPT_CLIENT_SECRET` and,
+when the callback registered with that client isn't the app's own address +
+`/auth/chatgpt/callback`, `CHATGPT_REDIRECT_URI` (`web/src/lib/chatgpt/config.ts`):
+the partner client OpenAI registered for the app. All optional: while
+`CHATGPT_CLIENT_ID` is empty the option is hidden. `check_settings.py` lists them
+under "May stay empty", calls the client id or the secret set without the other
+wrong (the option would show and no sign-in could finish), and asks nothing of OpenAI. `CHATGPT_DEV_HOST_ID` is for
+local development only and never goes here.
+
 `VERCEL_PROJECT_ID` and `VERCEL_ENV` are never set here: other code
 reads `VERCEL_ENV` to tell production from a preview.
 
