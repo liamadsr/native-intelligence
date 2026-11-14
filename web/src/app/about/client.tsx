@@ -168,7 +168,7 @@ export default function About() {
         <PageHeader
           eyebrow="About Native Intelligence"
           title="Your information should work for you, not the other way around."
-          description="We're building the future of personal information management—an agentic workspace where everything you do gets captured, organized, and made accessible without the overhead."
+          description="We're building one workspace for the whole company—where everything your team says and does gets captured, organized, and acted on by agents, without the overhead."
         />
 
         <main className="pb-24">

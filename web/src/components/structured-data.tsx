@@ -49,7 +49,7 @@ export const organizationSchema = {
   url: BASE_URL,
   logo: `${BASE_URL}/brand/ni-app-icon.png`,
   description:
-    'Native Intelligence is the system that turns conversations into action — meeting capture, project management, and AI execution in one workspace.',
+    'Native Intelligence is one workspace for the whole company, where meetings, mail, chat, docs, tasks and customers share one memory and agents use it to do the work.',
   sameAs: ['https://x.com/Dial8_ai', 'https://discord.gg/sHtYGtkWga'],
 }
 
@@ -70,12 +70,12 @@ export const softwareApplicationSchema = {
   operatingSystem: 'macOS, Web',
   url: BASE_URL,
   description:
-    'Capture meetings, keep projects updated automatically, and let AI agents execute the work. Meeting capture, project management, and AI execution in one system.',
+    'One workspace for your whole company: mail, team chat and calls, bot-free meeting capture, docs, tasks and a CRM share one memory, and agents use it to turn commitments into tasks, keep records current and take on work.',
   offers: {
     '@type': 'Offer',
     price: '0',
     priceCurrency: 'USD',
-    description: 'Free tier available',
+    description: '7-day free trial',
   },
 }
 

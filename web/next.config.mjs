@@ -172,6 +172,10 @@ const nextConfig = {
       // The old Tailwind-template /company page was removed; point any lingering
       // links or indexed URLs at the real About page.
       { source: '/company', destination: '/about', permanent: true },
+      // The Gong comparison was a sales-team page, retired with the sales
+      // positioning on 2026-11-14 (src/data/vs-competitors.ts). There is no
+      // /vs index, so its links land on the homepage.
+      { source: '/vs/gong', destination: '/', permanent: true },
       // The retired Compute and Coding tools settings pages (chat and loops
       // run on eve only); old links land on Settings.
       { source: '/account/settings/compute', destination: '/account/settings', permanent: false },
