@@ -148,6 +148,14 @@ def browser_steps() -> list:
         ("root", "apt-get -q update && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq procps"),
         _write_file_step(BROWSER_ENV_FILE, f"CLOUD_BROWSER_PROFILE={BROWSER_PROFILE}\n"),
     ]
+    missing = [name for name in BROWSER_FILES if not (BROWSER_SCRIPTS / name).is_file()]
+    if missing:
+        # A server's checkout may hold only deploy/ (a sparse checkout): the
+        # browser's scripts live in the web app's folder.
+        raise SystemExit(
+            f"  {BROWSER_NAME}: its scripts are not in this checkout ({BROWSER_SCRIPTS}: {', '.join(missing)}). "
+            "As the checkout's owner, not root: git sparse-checkout add web/scripts/cloud-browser/base"
+        )
     for name in BROWSER_FILES:
         steps.append(_write_file_step(f"{staging}/{name}", (BROWSER_SCRIPTS / name).read_text()))
     steps += [
@@ -157,6 +165,12 @@ def browser_steps() -> list:
         # The profile is the runtime user's own; and the display's socket folder
         # exists already, so start.sh does not need sudo for it.
         ("root", f"chown -R user:user {BROWSER_PROFILE} && chmod 700 {BROWSER_PROFILE} && install -d -m 1777 /tmp/.X11-unix"),
+        # The base image's yarn: files under /opt that are not root's, reached by
+        # links in /usr/local/bin. The app closes /usr/local on every new browser
+        # and refuses one whose links lead to a file that is not root's alone
+        # (web/src/lib/cloud-browser/runtime-browser.ts, CLOSE_USR_LOCAL). Nothing
+        # in a browser uses yarn.
+        ("root", "rm -rf /opt/yarn-v* /usr/local/bin/yarn /usr/local/bin/yarnpkg"),
         NO_ROOT_STEP,
     ]
     return steps
@@ -293,8 +307,10 @@ BROWSER_START = (
     "for _ in $(seq 150); do curl -s -m 1 http://127.0.0.1:9222/json/version | grep -q Browser && break; sleep 0.3; done; "
     "code=$(curl -s -m 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:9222/json/version); "
     # CDP on loopback only: a page in Chrome, or anything else, never reaches it from outside.
-    "wide=$(ss -Hltn | awk '$4 ~ /:9222$/ && $4 !~ /^127\\.0\\.0\\.1:/' | wc -l); "
-    "printf 'cdp=%s wide=%s failed=%s\\n' \"$code\" \"$wide\" \"$(head -c 160 /tmp/cloud-browser-start.failed 2>/dev/null | tr '\\n' ' ')\""
+    # Both loopbacks count: Chrome also takes [::1] when the machine has one.
+    "where=$(ss -Hltn | awk '$4 ~ /:9222$/ && $4 !~ /^(127\\.0\\.0\\.1|\\[::1\\]):/ { print $4 }' | paste -sd, -); "
+    "wide=$([ -z \"$where\" ] && echo 0 || echo 1); "
+    "printf 'cdp=%s wide=%s where=%s failed=%s\\n' \"$code\" \"$wide\" \"$where\" \"$(head -c 160 /tmp/cloud-browser-start.failed 2>/dev/null | tr '\\n' ' ')\""
 )
 BROWSER_STOP = (
     "bash /opt/cloud-browser/stop.sh >/dev/null 2>&1; "
@@ -322,6 +338,15 @@ def check_browser(min_free_gib: int) -> int:
         # No way to root: no sudo that answers, without a password or otherwise.
         sudo = out("sudo -n true </dev/null >/dev/null 2>&1 && echo yes || echo no")
         local_writable = out("[ -w /usr/local/bin ] && echo yes || echo no")
+        # What the app's own step will refuse (CLOSE_USR_LOCAL): a link under
+        # /usr/local to a file OUTSIDE it that is missing, not root's, or writable
+        # by others. (What lies inside /usr/local the app's step makes root's alone
+        # itself, on every new browser; the runtime leaves it open until then.)
+        loose_links = out(
+            "find /usr/local -type l | while read -r l; do t=$(readlink -f \"$l\") || { printf '%s ' \"$l\"; continue; }; "
+            "case \"$t\" in /usr/local/*) continue ;; esac; "
+            "[ -e \"$t\" ] && [ \"$(stat -c %u \"$t\")\" = 0 ] && [ $(( 0$(stat -c %a \"$t\") & 022 )) = 0 ] || printf '%s ' \"$l\"; done"
+        )
         ok, free_gib, memory_mib = _common(out, image, BROWSER_RECORD, min_free_gib, BROWSER_PROFILE)
         started = out(BROWSER_START, timeout=90)
         stopped = out(BROWSER_STOP, timeout=60)
@@ -346,6 +371,9 @@ def check_browser(min_free_gib: int) -> int:
     if sudo != "no":
         print(f"  the sandbox user of {BROWSER_NAME} can use sudo ({sudo}): its last step did not hold")
         ok = False
+    if loose_links:
+        print(f"  in {BROWSER_NAME}, links under /usr/local lead to files that are not root's alone: {loose_links[:300]} (the app would refuse every new browser)")
+        ok = False
     if local_writable == "yes":
         # Said, not failed: the runtime's last phase does it after every step of ours.
         print(f"  note: in {BROWSER_NAME} the sandbox user can write /usr/local/bin, from which root runs two of the runtime's programs (the image's comment says what closes it)")
@@ -356,7 +384,7 @@ def check_browser(min_free_gib: int) -> int:
         print(f"  start.sh did not bring Chrome up with CDP on 127.0.0.1:9222 (answered {fields.get('cdp', '?')}): {started[:240]}")
         ok = False
     elif fields.get("wide") != "0":
-        print("  CDP listens beyond loopback")
+        print(f"  CDP listens beyond loopback: {fields.get('where', '?')}")
         ok = False
     if fields.get("chrome") != "0" or fields.get("xvfb") != "0":
         print(f"  stop.sh left Chrome or Xvfb running: {stopped[:120]}")
