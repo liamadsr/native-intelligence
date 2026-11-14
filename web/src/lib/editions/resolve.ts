@@ -257,7 +257,7 @@ export type BusinessAdoption =
  *   'signup'   FIRST-WRITE-WINS, like attribution (stampWorkspaceEdition): the
  *              workspace was made a moment ago by the sign-up itself.
  *   'profile'  REPLACES attribution's stamp. Every web sign-up is stamped
- *              (sales by default), so a first-write-wins stamp would never
+ *              (`full` by default), so a first-write-wins stamp would never
  *              land here; a business profile is the owner saying what they
  *              run. An edition a person CHOSE (`edition_source: 'chosen'`,
  *              the settings or admin switcher) stays: deleting and re-making

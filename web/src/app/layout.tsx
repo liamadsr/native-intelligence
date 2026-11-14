@@ -10,16 +10,16 @@ import { SystemThemeListener } from '@/components/system-theme-listener'
 import { CacheBusterScript } from '@/components/desktop/cache-buster-script'
 import { Inter, Noto_Serif } from 'next/font/google'
 import { appUrl } from '@/lib/app-url'
+import { HOME_DESCRIPTION, HOME_TITLE } from './home-meta'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 const notoSerif = Noto_Serif({ subsets: ['latin'], variable: '--font-heading' })
 
-// Site-wide defaults. The homepage overrides both with its own sales metadata
-// (src/app/page.tsx); these are what every page WITHOUT its own title falls
-// back to, plus the og:/twitter: cards for those pages.
-const SITE_TITLE = 'Native Intelligence — the end-to-end AI sales platform'
-const SITE_DESCRIPTION =
-  'Native Intelligence gives every rep your whole team’s knowledge live on the call — no bot joins the meeting — then updates the CRM, queues follow-ups, and feeds what the call taught back to the team.'
+// Site-wide defaults: what every page WITHOUT its own title falls back to,
+// plus the og:/twitter: cards for those pages. The homepage says the same
+// (./home-meta.ts).
+const SITE_TITLE = HOME_TITLE
+const SITE_DESCRIPTION = HOME_DESCRIPTION
 
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl()),

@@ -1,5 +1,6 @@
 import { ImageResponse } from 'next/og'
 import { appHost } from '@/lib/app-url'
+import { HOME_TAGLINE } from './home-meta'
 
 // Twitter card image — kept identical to opengraph-image.tsx. Duplicated rather
 // than re-exported so this stays a self-contained metadata-image route (Next's
@@ -7,7 +8,7 @@ import { appHost } from '@/lib/app-url'
 // build time via next/og, font-fetch-free so it can't fail the build.
 
 export const runtime = 'nodejs'
-export const alt = 'Native Intelligence — The end-to-end AI sales platform'
+export const alt = 'Native Intelligence — The workspace that remembers everything'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
@@ -63,7 +64,7 @@ export default function TwitterImage() {
             lineHeight: 1.15,
           }}
         >
-          The end-to-end AI sales platform
+          {HOME_TAGLINE}
         </div>
         <div
           style={{
