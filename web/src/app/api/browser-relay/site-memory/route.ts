@@ -12,7 +12,7 @@ import { markSite } from '@/lib/cloud-browser/site-memory'
  * it again. For the token's own person only.
  */
 export async function POST(request: Request) {
-  const actor = relayActor(request)
+  const actor = await relayActor(request)
   if (actor instanceof Response) return actor
   let body: { url?: unknown; kind?: unknown; reason?: unknown } = {}
   try { body = await request.json() } catch { /* checked below */ }

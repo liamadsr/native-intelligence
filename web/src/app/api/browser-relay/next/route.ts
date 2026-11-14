@@ -20,7 +20,7 @@ const POLL_EVERY_MS = 1000
  * the Mac's address while they drive).
  */
 export async function GET(request: Request) {
-  const actor = relayActor(request)
+  const actor = await relayActor(request)
   if (actor instanceof Response) return actor
   if (new URL(request.url).searchParams.get('v') !== relayAppVersion())
     return NextResponse.json({ error: 'relay out of date', version: relayAppVersion() }, { status: 426 })

@@ -5,7 +5,7 @@ import { ringComputer } from '@/lib/browser-agent/queue'
 
 /** POST: the relay reports a command it claimed (the shared handler: its own device's rows only). Settling is activity. */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const actor = relayActor(request)
+  const actor = await relayActor(request)
   if (actor instanceof Response) return actor
   const { id } = await params
   const response = await settleBrowserCommand(actor, id, request)
