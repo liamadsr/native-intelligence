@@ -5,14 +5,25 @@ import { resolveInternalSecret } from '@/lib/eve/internal-secret'
  * The cloud browser relay's run token (docs/plans/cloud-browser.md, C2).
  *
  * The relay is the process in a person's sandbox that claims their browser
- * commands and runs them on the sandbox's Chrome. It holds no secret: the host
- * mints this token at every start and the sandbox firewall adds it to the
- * relay's own requests to the relay host (`setRelayNetworkPolicy` in host.ts),
- * only when they carry RELAY_MARK_HEADER. Chrome never sends that header (a
- * page that tried would need a CORS preflight the relay routes never grant), so
- * page traffic never carries the token, and nothing in the VM can read it.
+ * commands and runs them on the sandbox's Chrome. The host mints this token at
+ * every start. Where it lives depends on the backend (backend.ts):
+ * - hosted: the relay holds no secret. The sandbox firewall adds the token to
+ *   the relay's own requests to the relay host (backend-hosted.ts
+ *   `relayNetworkPolicy`), only when they carry RELAY_MARK_HEADER. Chrome never
+ *   sends that header (a page that tried would need a CORS preflight the relay
+ *   routes never grant), so page traffic never carries the token, and nothing
+ *   in the VM can read it.
+ * - runtime: that service cannot add a header, so the token sits in a 0600 file
+ *   in the VM (runtime-browser.ts) that the relay sends itself. Any process of
+ *   the VM's user can read it, Chrome's included, and that user normally has
+ *   passwordless sudo in these images, so an escape from Chrome's process is
+ *   root in the VM and has the token. Do not count on that sudo being removed.
+ *   What limits a copied token there is in relay-routes.ts (our sandbox
+ *   server's addresses, a running browser), and such a token carries
+ *   `backend: 'runtime'`, which is refused whenever the backend is not
+ *   `runtime` (and a token without it is refused on the runtime backend).
  *
- * Claims: { aud: 'browser-relay', userId, workspaceId, sandbox, exp }. Every
+ * Claims: { aud: 'browser-relay', userId, workspaceId, sandbox, exp, backend? }. Every
  * relay route scopes itself to the token's user and workspace, and takes the
  * claiming device from the sandbox name (`cloud:<sandbox>`), never from a body.
  *
@@ -43,6 +54,8 @@ export interface BrowserRelayClaims {
   /** The sandbox the relay runs in; the claiming device is `cloud:<sandbox>`. */
   sandbox: string
   exp: number
+  /** Minted for a runtime VM (its token sits in the VM). Absent: the hosted backend's (and every token minted before the claim existed). */
+  backend?: 'runtime'
 }
 
 export function browserRelaySecret(): string | null {
@@ -76,7 +89,8 @@ export function verifyBrowserRelayToken(token: string | null | undefined): Brows
   let claims: BrowserRelayClaims
   try { claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) } catch { return null }
   if (!claims || typeof claims !== 'object' || claims.aud !== 'browser-relay' || typeof claims.exp !== 'number' ||
-      claims.exp <= Date.now() || !text(claims.userId, 64) || !text(claims.workspaceId, 64) || !text(claims.sandbox, 128)) return null
+      claims.exp <= Date.now() || !text(claims.userId, 64) || !text(claims.workspaceId, 64) || !text(claims.sandbox, 128) ||
+      (claims.backend !== undefined && claims.backend !== 'runtime')) return null
   return claims
 }
 

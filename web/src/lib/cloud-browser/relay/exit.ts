@@ -30,6 +30,16 @@ import { verifySandboxToken } from '../viewer-token'
 
 export type ExitMode = 'mac' | 'cloud'
 
+/**
+ * Which request header carries the Mac's public address as our edge saw it.
+ * `x-forwarded-for` (its first value) on the hosted service, whose proxy sets
+ * it; `x-real-ip` on our own sandbox server, whose traffic port deletes
+ * X-Forwarded-For and where our edge sets X-Real-IP, overwriting a client's.
+ * Never both: each is trusted only where the proxy in front writes it.
+ */
+export type ClientAddressHeader = 'x-forwarded-for' | 'x-real-ip'
+export const CLIENT_ADDRESS_HEADERS: readonly ClientAddressHeader[] = ['x-forwarded-for', 'x-real-ip']
+
 export interface ExitOptions {
   sandbox: string
   /** The server's public key (base64 SPKI DER). */
@@ -40,6 +50,13 @@ export interface ExitOptions {
   refusedHosts: string[]
   /** The mode it starts in (default `mac`: nothing leaves until the relay says the cloud may). */
   mode?: ExitMode
+  /**
+   * Where the hub reads the Mac's public address (default `x-forwarded-for`,
+   * the hosted service's). The tunnel's hello answers it to the Mac, which
+   * adds it (an IPv6 one with its /56) to the addresses the browser may never
+   * reach through it, beside the server's own view of the Mac's address.
+   */
+  clientAddressHeader?: ClientAddressHeader
   log?: (event: string, fields?: Record<string, unknown>) => void
   /** For tests: which addresses a `cloud` connection may reach (default: public ones), and on which ports (default 80, 443). */
   allowAddress?: (address: string) => boolean
@@ -88,6 +105,14 @@ interface Tunnel {
   lastSeen: number
   streams: Map<number, Stream>
   ping: ReturnType<typeof setInterval>
+}
+
+
+/** The Mac's address as the header the proxy in front writes says it, or '' (exported for the tests). */
+export function clientAddress(req: Pick<IncomingMessage, 'headers'>, header: ClientAddressHeader = 'x-forwarded-for'): string {
+  const value = req.headers[header]
+  const raw = Array.isArray(value) ? value[0] ?? '' : String(value ?? '')
+  return (header === 'x-forwarded-for' ? raw.split(',')[0] : raw).trim()
 }
 
 export function startExit(options: ExitOptions) {
@@ -207,8 +232,7 @@ export function startExit(options: ExitOptions) {
       // It takes over at once: no moment without a tunnel, so nothing reads it as the Mac going away.
       const old = tunnel
       if (old) { tunnel = null; old.ws.close(4409, 'replaced'); drop(old) }
-      const forwarded = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim()
-      const ip = forwarded || req.socket.remoteAddress || null
+      const ip = clientAddress(req, options.clientAddressHeader) || req.socket.remoteAddress || null
       const t: Tunnel = { ws, device: claims.deviceId ?? null, since: Date.now(), lastSeen: Date.now(), streams: new Map(),
         ping: setInterval(() => {
           if (Date.now() - t.lastSeen > silenceMs) { tunnelDown(t, 'silent'); return }

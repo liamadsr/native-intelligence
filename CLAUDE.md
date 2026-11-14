@@ -66,6 +66,9 @@ Read this before reporting anything as live or touching production. The code gui
   sandboxes run on that host's
   sandbox service with `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and
   `SANDBOX_PROJECT_ID`, which is why those three stay in the server's `.env`.
+  A second way, on our own sandbox server, is written and OFF
+  (`CLOUD_BROWSER_BACKEND`, empty = the earlier host), NOT proven anywhere:
+  switching it on is the owner's call ("The cloud browser" in `deploy/README.md`).
 - **The coding agent's sandbox runs on our own sandbox server since 2026-11-12**
   ([`deploy/sandbox/README.md`](deploy/sandbox/README.md)), chosen by
   `SANDBOX_RUNTIME_API_URL`, `SANDBOX_RUNTIME_TRAFFIC_URL` and `SANDBOX_RUNTIME_KEY` in
