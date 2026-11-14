@@ -12,10 +12,10 @@
  * Any error or a failed check throws (and stops the other branches); the export job then renders the whole video in
  * Chrome instead, after removing what this left in its scratch folder.
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, open, readFile, writeFile } from 'node:fs/promises'
 import { POINTER_FLOOR, type PointerFloor } from './encoders.ts'
 import { join } from 'node:path'
-import { ffmpegComponents, missingComponents, probe, run, runBuffer } from './media.ts'
+import { ffmpegLacks, probe, run, runBuffer } from './media.ts'
 import { concatLine } from './platform.ts'
 import { drawnState, layerWindow, placed, placements, png, pointerNeeds, spriteCrop, stateKey, touchedMask, type PointerLayer, type PointerPlan, type PointerState, type Sprite } from './fast-pointer.ts'
 import { FAST_ENCODER, hashTaps, planFiles, segmentArgs, sourcesFit, stampsFit, bubbleGeometry, bubbleSampling, type FastPlan, type SegmentPlan } from './fast-export.ts'
@@ -85,7 +85,7 @@ export async function composeFast(r: FastRun): Promise<string> {
   // The pointer needs filters and muxers an older or smaller FFmpeg may not have: asked before Chrome draws anything.
   const look = plan.segments.find((x) => x.pointer)?.pointer
   if (look) {
-    const missing = missingComponents(await ffmpegComponents(signal), pointerNeeds(look.style))
+    const missing = await ffmpegLacks(pointerNeeds(look.style), signal)
     if (missing) throw new Error(`this computer's FFmpeg lacks ${missing}, which drawing the pointer needs`)
   }
 
@@ -310,9 +310,15 @@ export function pointerBoxes(seg: SegmentPlan, plan: Pick<FastPlan, 'width' | 'h
   })
 }
 
-/** The held pointer's window under a clip's blend (checked on the blend's first frame), unless there is none or the bubble covers it. Pure. */
-export function heldBox(seg: SegmentPlan, plan: Pick<FastPlan, 'width' | 'height'>): Box | null {
-  const held = seg.blend?.pointer, look = seg.pointer
+/** The video's one pointer look (the plan refuses pointers of different sizes), or null without a pointer. Pure. */
+export const pointerLook = (plan: Pick<FastPlan, 'segments'>): PointerPlan | null => plan.segments.find((x) => x.pointer)?.pointer ?? null
+
+/**
+ * The held pointer's window under a clip's blend (checked on the blend's first frame), unless there is none or the
+ * bubble covers it; its look is the video's, whether or not the incoming clip draws a pointer itself. Pure.
+ */
+export function heldBox(seg: SegmentPlan, plan: Pick<FastPlan, 'width' | 'height' | 'segments'>): Box | null {
+  const held = seg.blend?.pointer, look = pointerLook(plan)
   if (!held || !look) return null
   const { cw, ch } = layerWindow(look), p = placements([held], look, plan.width, plan.height)[0]!
   return underBubble(seg, 0, p.cx, p.cy, cw, ch) ? null : { bx: p.cx, by: p.cy, bw: cw, bh: ch }
@@ -325,7 +331,7 @@ async function check(r: FastRun, file: string, frames: number[], stills: Map<num
   // The first number: ffprobe adds a column for side data some files carry.
   const count = Number(/\d+/.exec(stdout)?.[0])
   if (count !== plan.frames) throw new Error(`the file has ${count} frames, not ${plan.frames}`)
-  const tapFiles = new Map<string, Buffer>()
+  const style = pointerLook(plan)?.style ?? 'arrow'
   for (const frame of frames) {
     const png = stills.get(frame)
     if (!png) throw new Error(`Chrome drew no frame ${frame}`)
@@ -339,7 +345,6 @@ async function check(r: FastRun, file: string, frames: number[], stills: Map<num
     let pointer: { score: number; changed: number | null } = { score: Infinity, changed: null }
     if (box) {
       const tap = taps.get(frame)
-      if (tap && !tapFiles.has(tap.file)) tapFiles.set(tap.file, await readFile(tap.file))
       const crop = `crop=${box.bw}:${box.bh}:${box.bx}:${box.by}`
       const chrome = await runBuffer('ffmpeg', ['-nostdin', '-v', 'error', '-i', png, '-vf', `scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,${crop}`,
         '-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-'], { signal })
@@ -347,11 +352,30 @@ async function check(r: FastRun, file: string, frames: number[], stills: Map<num
       const l = frame - seg.startFrame, i = seg.screen.map[l]!
       const source = box.held ? null : await runBuffer('ffmpeg', ['-nostdin', '-v', 'error', '-ss', (Math.max(0, i - 0.5) / seg.screen.srcFps).toFixed(6), '-i', r.path(seg.screen.file), '-map', '0:v:0',
         '-frames:v', '1', '-vf', `${crop},format=yuv420p`, '-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-'], { signal })
-      pointer = pointerScore({ frame, box, tap: tap ? { bytes: tapFiles.get(tap.file)!, index: tap.index, count: tap.count } : null, chrome, source })
+      // Only this frame's window, read from its place in the tap file (an hour's taps can be gigabytes).
+      pointer = pointerScore({ frame, box, tap: tap ? { ...await readTapWindow(tap.file, tap.index, tap.count, box.bw * box.bh * 1.5), index: 0, count: 1 } : null, chrome, source })
     }
     r.log(`Fast export check, frame ${frame}: ${whole.toFixed(1)} dB${Number.isFinite(bubble) ? `, bubble ${bubble.toFixed(1)} dB` : ''}${box ? `, ${box.held ? 'held ' : ''}pointer ${pointer.score.toFixed(1)} dB` : ''}${pointer.changed === 0 ? ', the rest of its window the source\'s to the bit' : ''} against Chrome`)
-    const why = checkVerdict({ frame, whole, bubble, pointer: box ? pointer : null }, r.checkDb ?? CHECK_DB, seg.pointer?.style ?? 'arrow')
+    const why = checkVerdict({ frame, whole, bubble, pointer: box ? pointer : null }, r.checkDb ?? CHECK_DB, style)
     if (why) throw new Error(why)
+  }
+}
+
+/**
+ * One window of a tap file (`count` windows of `size` bytes, this one at `index`), read from its place alone: the file
+ * must be exactly that long, or it throws.
+ */
+export async function readTapWindow(file: string, index: number, count: number, size: number): Promise<{ bytes: Buffer }> {
+  const f = await open(file, 'r')
+  try {
+    const length = (await f.stat()).size
+    if (length !== count * size) throw new Error(`the pointer's tap holds ${length} bytes, not ${count * size}`)
+    if (!(index >= 0 && index < count)) throw new Error(`window ${index} is not in the pointer's tap of ${count}`)
+    const bytes = Buffer.alloc(size), { bytesRead } = await f.read(bytes, 0, size, index * size)
+    if (bytesRead !== size) throw new Error("the pointer's tap is cut short")
+    return { bytes }
+  } finally {
+    await f.close()
   }
 }
 
@@ -528,11 +552,15 @@ export async function pointerLayers(r: Pick<FastRun, 'plan' | 'pointerArt' | 'lo
   // Where the check compares the pointer, kept for the checked frames only: its window on that frame, in it the pixels
   // its picture covers or blurs (POINTER_MASK and more: the glass changes little of what is under it, its rim and
   // shadow move with it), and the pixels it touches at all (the rest must stay the source's).
+  const own = new Map<SegmentPlan, (Box | null)[]>()
   for (const frame of checked) {
     const seg = plan.segments.find((x) => frame >= x.startFrame && frame < x.startFrame + x.frames)
-    if (!seg?.pointer) continue
+    if (!seg) continue
     const l = frame - seg.startFrame, inBlend = l < (seg.blend?.frames ?? 0)
-    const s = inBlend ? seg.blend!.pointer : seg.pointer.states[l], win = inBlend ? heldBox(seg, plan) : pointerBoxes(seg, plan)[l]
+    // A blend's held pointer is checked whether or not the incoming clip draws one itself.
+    if (!inBlend && !seg.pointer) continue
+    if (!inBlend && !own.has(seg)) own.set(seg, pointerBoxes(seg, plan))
+    const s = inBlend ? seg.blend!.pointer : seg.pointer!.states[l], win = inBlend ? heldBox(seg, plan) : own.get(seg)![l]
     if (!s || !win) continue
     const p = placements([s], look, plan.width, plan.height)[0]!, w = windowOf(sprites![index.get(stateKey(s))!]!, p.ix, p.iy)
     const mask = Buffer.alloc(cw * ch)

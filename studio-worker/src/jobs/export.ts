@@ -28,7 +28,7 @@ import { stageAssets } from '../assets.ts'
 import { masterFile } from '../master.ts'
 import { mediaTimeout, probe, run, runBuffer } from '../media.ts'
 import { chromePointerArt, SPRITE_FPS } from '../fast-pointer.ts'
-import { availableCpus } from '../config.ts'
+import { availableCpus, availableMemory } from '../config.ts'
 import { bt709WithSwscale, COMPOSITION_ID, EXPORT_ENCODING, inputPropsFor, unstagedNeeds } from '../render.ts'
 import { stageFonts } from '../fonts.ts'
 import { checkCodeScenes, stageScenes } from '../scenes.ts'
@@ -57,10 +57,14 @@ export const FAST_LEFTOVERS = /^(fast-|video\.fast\.|pointer$)/
  * The Chrome tabs the pointer's pictures are drawn in, all passes together: their own budget, not the export's (its tabs
  * are bounded for full frames, gigabytes each at 5K; a pointer tab draws a window of a few hundred pixels:
  * fast-pointer.ts, spriteProject): the CPUs this process may use (a container's quota), at most POINTER_TABS, at least 1;
- * a lower STUDIO_RENDER_CONCURRENCY someone set still wins. Pure.
+ * a lower STUDIO_RENDER_CONCURRENCY someone set still wins, and one tab for every GB the process may use (a container's
+ * limit: 6 GB on the server). Pure.
  */
 export const POINTER_TABS = 8
-export const spriteTabs = (cpus: number, said: number | null | undefined = null) => Math.max(1, Math.min(POINTER_TABS, Math.floor(cpus), said ?? Infinity))
+/** Memory a pointer tab may take, counted generously (a Chrome tab's own baseline and its small pictures; the glass's backdrop blur). */
+export const POINTER_TAB_BYTES = 1024 ** 3
+export const spriteTabs = (cpus: number, said: number | null | undefined = null, memoryBytes = Infinity) =>
+  Math.max(1, Math.min(POINTER_TABS, Math.floor(cpus), said ?? Infinity, Math.floor(memoryBytes / POINTER_TAB_BYTES)))
 
 export function frozenProject(value: unknown) {
   try {
@@ -166,7 +170,7 @@ export const runExport: JobHandler<'export'> = async (ctx) => {
             // The pointer's states, drawn by Chrome in a made-up video of the pointer alone (fast-pointer.ts), in tabs of their
             // own shared by all its passes (spriteTabs: the CPU quota, at most 8). Its pictures go to disk: what FFmpeg prints
             // here is a line of hashes at most.
-            pointerArt: chromePointerArt({ project, serveUrl, common: shared, assetsDir: ctx.cache.dir, scratch: ctx.scratch, signal: ctx.signal, tabs: spriteTabs(availableCpus(), ctx.config.renderConcurrencySaid),
+            pointerArt: chromePointerArt({ project, serveUrl, common: shared, assetsDir: ctx.cache.dir, scratch: ctx.scratch, signal: ctx.signal, tabs: spriteTabs(availableCpus(), ctx.config.renderConcurrencySaid, availableMemory()),
               encode: (w, h) => encoderArgs(ctx.config.fastEncoder, w, h, SPRITE_FPS, ctx.config.encoderRung), run: (file, args, o) => runBuffer(file, args, { signal: o.signal, input: o.input, timeout: o.timeout }),
               remotion: { renderFrames, selectComposition }, inputProps: (p) => inputPropsFor(p), compositionId: COMPOSITION_ID, cancelSignal, log: ctx.log }),
             stills: async (frames) => {

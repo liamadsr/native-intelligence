@@ -63,6 +63,8 @@ const SECRET = 'fast-e2e-secret-not-real-0123456789abcdef'
  * same bubble drawn with its radius 2 px smaller (about 22-28 dB outside) or larger (about 19-22 inside) must fail
  * them. Circles are capped at half the side. (The mask itself against Chrome's on flat colours: test/mask-e2e.ts.)
  */
+/** The glass on every frame, before the encoder (see where it is used: under the run-time floor, and why). */
+export const EVERY_FRAME_GLASS_DB = 33
 export const THRESHOLDS = { outsideDb: 40, outsideSsim: 0.99, bubbleDb: 27, bubbleSsim: 0.93, soundLagMs: 0.5, soundLevelDb: 0.5, mixLevelDb: 0.1, mixResidualDbfs: -90, mixWorstStep: 32, edgeInnerDb: 23, edgeOuterDb: 30 }
 
 const ff = (args: string[]) => execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-y', ...args], { stdio: ['ignore', 'inherit', 'inherit'] })
@@ -163,6 +165,9 @@ async function main() {
     // ---- the sound itself: FFmpeg's mix against Remotion's, sample for sample (in this process) ------------------------
     const soundRows = new Map<string, Record<string, unknown>>()
     const pointerWrong = new Map<string, Record<string, number[]>>()
+    const pointerEvery = new Map<string, { frames: number[]; scores: number[]; restill: { frame: number; near: number; still: number }[] }>()
+    /** The run-time check's pointer floor for a case's look, with the encoder this proof uses. */
+    const floorOf = (c: Case) => checkFloor((process.env.STUDIO_FAST_ENCODER ?? 'x264') as EncoderProfile).pointer[c.project.cursor.style as 'arrow' | 'glass']
     {
       const { Renderer, inputPropsFor, COMPOSITION_ID, EXPORT_ENCODING, bt709WithSwscale } = await import('../src/render.ts')
       const { loadConfig } = await import('../src/config.ts')
@@ -242,7 +247,9 @@ async function main() {
         const wanted = process.env.STUDIO_FAST_E2E_POINTER_ALL
           ? Array.from({ length: seg.frames }, (_, l) => seg.startFrame + l).filter((f, k) => k % 3 === 0 && own[f - seg.startFrame] && (seg.pointer?.states[f - seg.startFrame - 1] ?? null) !== null)
           : sampled.filter((f) => f >= seg.startFrame + (seg.blend?.frames ?? 0) && f < seg.startFrame + seg.frames)
-        const { layers, boxes } = await pointerLayers({ plan, pointerArt: art, log: () => {} }, scratch, wanted)
+        // Every frame a clip's own pointer is checked on (past its blend, not under the bubble, its picture not empty in the frame).
+        const everyOwn = plan.segments.flatMap((x) => (x.pointer ? pointerBoxes(x, plan).flatMap((b, l) => (b ? [x.startFrame + l] : [])) : []))
+        const { layers, boxes } = await pointerLayers({ plan, pointerArt: art, log: () => {} }, scratch, [...new Set([...wanted, ...everyOwn])])
         const layer = layers.get(i)!, samples = wanted.filter((f) => boxes.has(f)), pointerBox = (f: number) => boxes.get(f)
                 const late = async (file: string | null, name: string) => {
           if (!file) return null
@@ -293,6 +300,47 @@ async function main() {
           })
         }
         pointerWrong.set(c.name, { frames: samples, ...scores })
+        // Every one of those frames, as drawn before any encoder (each clip's tap of every frame), against Chrome's own
+        // drawing of the video kept near lossless (PNG frames encoded at CRF 1, the export's colour conversion), over the
+        // mask the run-time check uses: the check's floor for this look on every frame, not only on the sampled ones. Not
+        // the encoded files: a lossy encoder's own errors are not the pointer's (VideoToolbox left one 27 dB smudge in a
+        // window of edgearrow60, a frame whose pointer is right before the encoder).
+        const near = join(scratch, 'chrome-near.mp4')
+        await renderMedia({ serveUrl, composition: comp, inputProps, ...common, ...EXPORT_ENCODING, crf: 1, imageFormat: 'png', ffmpegOverride: bt709WithSwscale, outputLocation: near })
+        const every = { frames: [] as number[], scores: [] as number[], restill: [] as { frame: number; near: number; still: number }[] }
+        for (const [si, x] of plan.segments.entries()) {
+          const lay = layers.get(si)
+          if (!x.pointer || !lay) continue
+          const all = Array.from({ length: x.frames }, (_, l) => l), tapFile = join(scratch, `every-${si}.yuv`), { cw, ch } = lay.layer, size = cw * ch * 1.5
+          const args = segmentArgs(x, plan.fps, (f) => join(workDir, 'cache', f), join(scratch, `every-${si}.mp4`), undefined, FAST_ENCODER, { layer: lay.layer, held: lay.held, tap: { frames: all, file: tapFile } })
+          const k = args.indexOf('-filter_complex'), graph = join(scratch, `every-${si}.graph`)
+          await writeFile(graph, args[k + 1]!)
+          execFileSync('ffmpeg', [...args.slice(0, k), '-filter_complex_script', graph, ...args.slice(k + 2)], { stdio: ['ignore', 'inherit', 'inherit'] })
+          const when: string = `round(t*${plan.fps})`
+          const theirs: Buffer = execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-i', near, '-vf', `trim=start_frame=${x.startFrame}:end_frame=${x.startFrame + x.frames},setpts=PTS-STARTPTS,`
+            + `crop=w=${cw}:h=${ch}:x='${lookup(lay.layer.cx, when)}':y='${lookup(lay.layer.cy, when)}',format=yuv420p`, '-fps_mode', 'passthrough', '-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-'], { maxBuffer: 1 << 30 })
+          const mine = await readFile(tapFile)
+          assert.equal(mine.length, x.frames * size, `${c.name}: clip ${si + 1}'s tap of every frame`)
+          assert.equal(theirs.length, x.frames * size, `${c.name}: Chrome's windows of clip ${si + 1}`)
+          for (let l = 0; l < x.frames; l++) {
+            const b = boxes.get(x.startFrame + l)
+            if (!b) continue
+            const f = x.startFrame + l, drawn = mine.subarray(l * size, (l + 1) * size)
+            let score = maskedPsnr(drawn, theirs.subarray(l * size, (l + 1) * size), cw, ch, b.mask)
+            // Under the floor against the CRF 1 render: scored again against Chrome's PNG still of that frame, the reference
+            // the run-time check and its floors use (CRF 1 is near lossless, not lossless: the glass's margin is a dB or two).
+            if (score < floorOf(c)) {
+              const png = join(scratch, `every-still-${f}.png`)
+              await renderStill({ serveUrl, composition: comp, inputProps, ...common, frame: f, output: png, imageFormat: 'png' })
+              const still = execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-i', png, '-vf', `scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,crop=${b.bw}:${b.bh}:${b.bx}:${b.by}`, '-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-'], { maxBuffer: 1 << 26 })
+              every.restill.push({ frame: f, near: +score.toFixed(2), still: +maskedPsnr(drawn, still, cw, ch, b.mask).toFixed(2) })
+              score = maskedPsnr(drawn, still, cw, ch, b.mask)
+            }
+            every.frames.push(f)
+            every.scores.push(score)
+          }
+        }
+        pointerEvery.set(c.name, every)
       }
       release()
     }
@@ -329,12 +377,30 @@ async function main() {
           const when = `round(t*${c.project.output.fps})`, win = `crop=w=${pw.cw}:h=${pw.ch}:x='${lookup(pw.cx, when)}':y='${lookup(pw.cy, when)}'`
           const p0 = at(0, win), pM = at(-1, win), pP = at(1, win)
           const shown = (k: number) => pw.shown[k] && k > 0 && k < pw.shown.length - 1
+          // Reported, not held to a floor: it is the encoded files (the encoder's errors are in it); the floor is held on every
+          // frame before the encoder below (pointerEveryFrame).
           row.pointerDb = worstOf(p0.psnr.map((v, k) => (shown(k) ? v : Infinity)))
           // A pointer a frame late or early scores better against Chrome's neighbouring frame: none may.
           // (As for the whole frame: a window already within 60 dB of Chrome's is not asked which neighbour it is nearer.)
           const late = p0.psnr.map((v, k) => (shown(k) && pw.moving[k] && v < 60 ? Math.max(pM.psnr[k] ?? -Infinity, pP.psnr[k] ?? -Infinity) - v : -Infinity))
           row.pointerNeighbourMarginDb = +(-Math.max(...late)).toFixed(2)
           if (Math.max(...late) > 0.5) throw new Error(`${c.name}: frame ${late.indexOf(Math.max(...late))}'s pointer matches a neighbouring frame of Chrome's better`)
+          // The pointer on every frame its own window is checked on, before the encoder: at or above the look's floor.
+          const every = pointerEvery.get(c.name)
+          if (every) {
+            const floorDb = floorOf(c), glass = c.project.cursor.style === 'glass'
+            // The arrow: the run-time check's floor on every frame. The glass: EVERY_FRAME_GLASS_DB, under its floor (34.5),
+            // calibrated: where it crosses the made-up screen's dark sidebar (a sharp dark to light edge under its blur) the
+            // right glass scored 33.1 to 34.2 dB on 4 of 540 frames (VideoToolbox run, against Chrome's PNG stills too), the
+            // same as against the CRF 1 render. The run-time check would fall back to Chrome on such a frame (safe). For the
+            // glass this bound catches gross errors (the other look scored 10 to 17 dB, a frame late 21 to 31 where it moves),
+            // not a pointer a pixel or two off (2 px off: 25 to 34): the floor itself cannot tell those apart there either.
+            const bound = glass ? EVERY_FRAME_GLASS_DB : floorDb
+            const q = [...every.scores].sort((x, y) => x - y), worst = every.scores.indexOf(q[0]!)
+            const under = every.frames.filter((_, k) => !(every.scores[k]! >= floorDb))
+            row.pointerEveryFrame = { restill: every.restill, n: q.length, min: +q[0]!.toFixed(2), frame: every.frames[worst], p05: +q[Math.floor(q.length * 0.05)]!.toFixed(2), median: +q[Math.floor(q.length / 2)]!.toFixed(2), floor: floorDb, bound, underFloor: under }
+            if (!(q.length > 0) || every.scores.some((v) => !(v >= bound))) throw new Error(`${c.name}: frame ${every.frames[worst]}'s pointer scores ${q[0]?.toFixed(2)} dB before the encoder, under ${bound} dB`)
+          }
           // The pointer drawn wrong scores below the run-time check's floor where that check samples; the right one above it.
           const wrong = pointerWrong.get(c.name)
           if (wrong) {

@@ -13,12 +13,12 @@ import { join } from 'node:path'
 import { createRequire } from 'node:module'
 import { chromePointerArt, clipPointer, glassWeight, gaussian, layerWindow, matte, placements, png, pointerBudgetProblem, pointerFilters, pointerNeeds, POINTER_LIMITS, spriteCrop, spriteSchedule, spriteProject,
   stateFrames, touchedMask, GLASS_WEIGHT, type PointerState, type Sprite } from '../src/fast-pointer.ts'
-import { artInside, checkVerdict, heldBox, maskedPsnr, pointerBoxes, pointerLayers, pointerSamples, pointerScore, sampleFrames, untouchedChanges, type PointerBox } from '../src/fast-export-run.ts'
+import { artInside, checkVerdict, heldBox, maskedPsnr, readTapWindow, pointerBoxes, pointerLayers, pointerSamples, pointerScore, sampleFrames, untouchedChanges, type PointerBox } from '../src/fast-export-run.ts'
 import { fastExportPlan, hashTaps, segmentArgs, type FastPlan } from '../src/fast-export.ts'
-import { listedNames, missingComponents } from '../src/media.ts'
+import { ffmpegLacks, listedNames, missingComponents } from '../src/media.ts'
 import { localRenderTabs } from '../src/local.ts'
 import { FAST_LEFTOVERS, spriteTabs } from '../src/jobs/export.ts'
-import { loadConfig } from '../src/config.ts'
+import { cgroupMemory, loadConfig } from '../src/config.ts'
 import { concatLine } from '../src/platform.ts'
 import { parseEditorProject, defaultCaptions, defaultPresentation } from '../src/engine.ts'
 import { madeUpTrace } from './pointer-fixtures.ts'
@@ -64,7 +64,23 @@ test('the passes share one budget of tabs: never more at once than the budget, o
   assert.equal(spriteTabs(18, 1), 1)
   assert.equal(spriteTabs(18, 3), 3)
   assert.equal(spriteTabs(4, 12), 4)
-  for (const cpus of [1, 2, 4, 6, 12, 18, 64]) for (const passes of [2, 4]) { const s = spriteSchedule(spriteTabs(cpus), passes); assert.ok(s.atOnce * s.tabs <= Math.min(8, cpus)) }
+  // One tab for every GB the process may use: the server's 6 GB container with 12 CPUs gets 6, a 4 GB laptop 4, half a GB still 1.
+  const GB = 1024 ** 3
+  assert.equal(spriteTabs(12, null, 6 * GB), 6)
+  assert.equal(spriteTabs(18, null, 4 * GB), 4)
+  assert.equal(spriteTabs(18, null, 0.5 * GB), 1)
+  assert.equal(spriteTabs(18, 2, 64 * GB), 2)
+  assert.equal(spriteTabs(18, null, 64 * GB), 8)
+  for (const cpus of [1, 2, 4, 6, 12, 18, 64]) for (const mem of [1, 3, 6, 64]) for (const passes of [2, 4]) {
+    const s = spriteSchedule(spriteTabs(cpus, null, mem * GB), passes)
+    assert.ok(s.atOnce * s.tabs <= Math.min(8, cpus, mem))
+  }
+  // A container's memory limit is read from its cgroup (v2, then v1); none, or no cgroup, is no limit.
+  assert.equal(cgroupMemory((f) => (f === '/sys/fs/cgroup/memory.max' ? '6442450944\n' : null)), 6 * GB)
+  assert.equal(cgroupMemory((f) => (f === '/sys/fs/cgroup/memory.max' ? 'max\n' : null)), null)
+  assert.equal(cgroupMemory((f) => (f === '/sys/fs/cgroup/memory/memory.limit_in_bytes' ? '4294967296' : null)), 4 * GB)
+  assert.equal(cgroupMemory((f) => (f === '/sys/fs/cgroup/memory/memory.limit_in_bytes' ? '9223372036854771712' : null)), null)
+  assert.equal(cgroupMemory(() => null), null)
   // The setting as the worker reads it: said, or not.
   const said = loadConfig({ STUDIO_RENDER_CONCURRENCY: '2' }, () => 18), unsaid = loadConfig({}, () => 18)
   assert.ok(!('problems' in said) && said.renderConcurrencySaid === 2 && !('problems' in unsaid) && unsaid.renderConcurrencySaid === null)
@@ -73,11 +89,11 @@ test('the passes share one budget of tabs: never more at once than the budget, o
 /** A fake Remotion that hands back made-up pictures of the right size, and counts the tabs open at once. */
 function fakeRemotion(fill: (project: EditorProject) => number) {
   let open = 0
-  const seen = { most: 0, asked: [] as number[] }
+  const seen = { most: 0, asked: [] as number[], sizes: [] as string[] }
   const remotion = {
     selectComposition: async () => ({}),
     renderFrames: async (o: { inputProps: { project: EditorProject }; frameRange: [number, number]; everyNthFrame: number; concurrency: number; onFrameBuffer: (b: Buffer, f: number) => void }) => {
-      open += o.concurrency; seen.most = Math.max(seen.most, open); seen.asked.push(o.concurrency)
+      open += o.concurrency; seen.most = Math.max(seen.most, open); seen.asked.push(o.concurrency); seen.sizes.push(`${o.inputProps.project.output.width}x${o.inputProps.project.output.height}`)
       await new Promise((r) => setTimeout(r, 15))
       const { width, height } = o.inputProps.project.output, value = fill(o.inputProps.project)
       const pixels = Buffer.alloc(width * height * 4)
@@ -106,6 +122,9 @@ test("the pointer's tabs follow the export's budget, all passes together; its pi
     else assert.equal((await drawing).length, 2)
     assert.ok(seen.most <= budget, `${style}, budget ${budget}: ${seen.most} tabs at once`)
     assert.ok(seen.asked.every((t) => t <= budget))
+    // Every tab draws the pointer's own small picture, never the 1280×720 take.
+    const side = spriteProject(project, { size: plan.size }, states, { file: 'assets/x.mp4', sha256: sha('d'), bytes: 1 }).output.width
+    assert.ok(side <= 256 && seen.sizes.length > 0 && seen.sizes.every((x) => x === `${side}x${side}`), seen.sizes.join(' '))
     // Nothing left behind: no link in the asset folder, nothing of the pointer in scratch.
     assert.deepEqual(await readdir(assets), [])
     assert.deepEqual(await readdir(join(scratch, 'pointer')), [])
@@ -127,6 +146,11 @@ test('a long take with many clicks is refused by the plan, before Chrome draws a
   const moving = (n: number) => Array.from({ length: n }, (_, l) => ({ x: 100 + 2 * (l % 1500), y: 100 + 2 * Math.floor(l / 1500), press: 1, ring: null }))
   assert.match(pointerBudgetProblem(look, [{ states: moving(POINTER_LIMITS.places + 10), held: null }], 4000, 4000)!, /clip 1's pointer moves for too long/)
   assert.equal(pointerBudgetProblem(look, [{ states: moving(POINTER_LIMITS.places - 10), held: null }], 4000, 4000), null)
+  // One picture too large: a trace in tiny points (a 40-point-wide area on a 1280 px take) draws the pointer at 32 times its size.
+  const tiny = take({ seconds: 6 }); tiny.assets[0].trace = madeUpTrace(6, { width: 40, height: 22.5, scale: 32 })
+  assert.match(reasonOf(parsed(tiny))!, /its pointer is drawn 576 px wide, and its picture would be \d+ px a side, more than the 1024 this path draws/)
+  assert.match(pointerBudgetProblem({ size: 120, style: 'glass' }, [{ states: [{ x: 10, y: 10, press: 1, ring: null }], held: null }], 300, 300)!, /window \(\d+×\d+ px\) is larger than the video/)
+  assert.equal(pointerBudgetProblem({ size: 200, style: 'glass' }, [{ states: [{ x: 10, y: 10, press: 1, ring: null }], held: null }], 3472, 2266), null, 'the largest pointer the schema allows, on a big take')
   // The 15.7 s take shape and a usual 6 s one go through.
   assert.equal(reasonOf(parsed(take())), null)
 })
@@ -381,13 +405,27 @@ test("an unknown key of the pointer's settings or of the trace the pointer is dr
 
 // ---- the FFmpeg it needs, the tabs on a computer, the leftovers ---------------------------------------------------------------
 
-test("what an FFmpeg has is read from its own lists; a missing filter or muxer is named in plain words", () => {
+test("what an FFmpeg has is read from its own lists; a missing filter or muxer is named in plain words", async () => {
   const filters = 'Filters:\n  T.. = Timeline support\n ---\n T.C overlay           VV->V      Overlay a video source on top of the input.\n ... alphamerge        VV->V      Copy the luma value.\n ... color             |->V       Provide an uniformly colored input.\n'
   const muxers = 'Formats:\n D.. = Demuxing supported\n .E. = Muxing supported\n ---\n  E  framemd5        Per-frame MD5 testing\n  E  mp4             MP4 (MPEG-4 Part 14)\n'
   const demuxers = 'Formats:\n D.. = Demuxing supported\n ---\n D   concat          Virtual concatenation script\n D   mov,mp4,m4a     QuickTime / MOV\n D d lavfi           Libavfilter virtual input device\n'
   const have = { filters: listedNames(filters, 'filters'), muxers: listedNames(muxers, 'formats'), demuxers: listedNames(demuxers, 'formats') }
   assert.deepEqual([...have.filters], ['overlay', 'alphamerge', 'color'])
   assert.deepEqual([...have.muxers], ['framemd5', 'mp4'])
+  // FFmpeg 4.x to 6.0 (Debian's 5.1 in the server's image): two flag columns in the format lists; the filter list as above.
+  const muxers5 = 'File formats:\n D. = Demuxing supported\n .E = Muxing supported\n --\n  E 3g2             3GP2 (3GPP2 file format)\n  E framemd5        Per-frame MD5 testing\n  E rawvideo        raw video\n DE image2          image2 sequence\n'
+  const demuxers5 = 'File formats:\n D. = Demuxing supported\n .E = Muxing supported\n --\n D  aac             raw ADTS AAC (Advanced Audio Coding)\n D  concat          Virtual concatenation script\n DE image2          image2 sequence\n D  lavfi           Libavfilter virtual input device\n'
+  const filters5 = 'Filters:\n  T.. = Timeline support\n  .S. = Slice threading\n  ..C = Command support\n  A = Audio input/output\n  V = Video input/output\n  N = Dynamic number and/or type of input/output\n  | = Source or sink filter\n ... abench            A->A       Benchmark part of a filtergraph.\n TSC gblur             V->V       Apply Gaussian Blur filter.\n T.C overlay           VV->V      Overlay a video source on top of the input.\n ... color             |->V       Provide an uniformly colored input.\n'
+  assert.deepEqual([...listedNames(muxers5, 'formats')], ['3g2', 'framemd5', 'rawvideo', 'image2'])
+  assert.deepEqual([...listedNames(demuxers5, 'formats')], ['aac', 'concat', 'image2', 'lavfi'])
+  assert.deepEqual([...listedNames(filters5, 'filters')], ['abench', 'gblur', 'overlay', 'color'])
+  // A list read as empty (a layout not known here) is asked part by part instead (`-h filter=…`), so a build that has
+  // everything is never refused for its layout, and one missing a part still is.
+  const empty = async () => ({ filters: new Set<string>(), muxers: new Set<string>(), demuxers: new Set<string>() })
+  assert.equal(await ffmpegLacks(pointerNeeds('glass'), undefined, empty), null)
+  assert.equal(await ffmpegLacks({ filters: ['gblur', 'nosuchfilter'], muxers: ['rawvideo', 'nosuchmuxer'], demuxers: [] }, undefined, empty), 'the nosuchfilter filter and the nosuchmuxer muxer')
+  // A layout not known here reads as no names, never as names that are not there.
+  assert.equal(listedNames('something else entirely\n --\n  E rawvideo  raw\n', 'formats').size, 0)
   assert.ok(have.demuxers.has('mp4') && have.demuxers.has('lavfi') && have.demuxers.has('concat'))
   assert.equal(missingComponents(have, { filters: ['overlay'], muxers: ['mp4'], demuxers: ['concat'] }), null)
   assert.equal(missingComponents(have, pointerNeeds('arrow')), 'the crop filter, the scale filter, the format filter, the split filter, the settb filter, the setpts filter, the select filter, the geq filter, the rawvideo muxer and the image2 demuxer')
@@ -414,23 +452,36 @@ test("a fast export that falls back leaves nothing of its own, the pointer's fol
   for (const name of ['video.partial.mp4', 'pointers', 'assets']) assert.ok(!FAST_LEFTOVERS.test(name), name)
 })
 
-test("a pointer tab draws a picture the window's size, never the video's: a few hundred pixels at most", () => {
-  // A 3472×2266 take (the first real one's size), its pointer at the usual size (18, drawn 36) and at the largest (100, drawn 200).
-  const states = [{ x: 10.5, y: 20.25, press: 1, ring: null }]
-  for (const [size, side] of [[18, 140], [100, 550]] as const) {
-    // (The largest pointer on this take is refused by the plan's bytes bound; its picture's size is what is asked here.)
-    const p = parsed(take({ style: 'glass', size, W: 3472, H: 2266 })), plan = clipPointer(p, p.clips[0]!, p.assets[0]!, 10)!
-    assert.equal(plan.size, size * 2)
-    const sp = spriteProject(p, plan, states, { file: 'assets/pointer-x/black.mp4', sha256: sha('d'), bytes: 1 })
-    assert.deepEqual(sp.output, { width: side, height: side, fps: 60 })
-    assert.equal(sp.assets[0]!.width, side)
-  }
-})
-
 test("the made-up sprite video's frames and its plain backgrounds are the states' own (unchanged by the budget)", () => {
   const p = parsed(take({ style: 'glass' })), plan = planOf(p).segments[0]!.pointer!
   const states = [{ x: 10.5, y: 20.25, press: 1, ring: null }, { x: 3.125, y: 7.75, press: 0.9, ring: 0.4 }]
   const sp = spriteProject(p, plan, states, { file: 'assets/pointer-x/black.mp4', sha256: sha('d'), bytes: 1 })
   assert.equal(sp.assets[0]!.file, 'assets/pointer-x/black.mp4')
   assert.equal(stateFrames(states).frames.length, 2)
+})
+
+test("a blend's held pointer is checked even when the incoming clip draws none: its look is the video's", async () => {
+  const plan = planOf(parsed(take({ style: 'arrow', clips: [[0, 150], [170, 300]] })))
+  const noPointer = { ...plan, segments: [plan.segments[0]!, { ...plan.segments[1]!, pointer: null }] }
+  const b = noPointer.segments[1]!
+  assert.ok(b.blend?.pointer && heldBox(b, noPointer))
+  assert.ok(pointerSamples(noPointer).includes(b.startFrame))
+  const look = plan.segments[0]!.pointer!, crop = spriteCrop(look.size)
+  const art = async (o: { states: PointerState[] }): Promise<Sprite[]> => o.states.map(() => {
+    const rgba = Buffer.alloc(crop.w * crop.h * 4)
+    for (let y = 0; y < crop.h; y++) for (let x = 0; x < crop.w; x++) if (Math.hypot(x - crop.tipX, y - crop.tipY) < 10) rgba.set([255, 255, 255, 200], (y * crop.w + x) * 4)
+    return { w: crop.w, h: crop.h, rgba, blur: null }
+  })
+  const { layers, boxes } = await pointerLayers({ plan: noPointer, pointerArt: art, log: () => {} }, await mkdtemp(join(tmpdir(), 'held-')), [b.startFrame])
+  assert.ok(layers.get(1)?.held, 'the held layer is drawn')
+  assert.equal(boxes.get(b.startFrame)?.held, true, 'and checked')
+})
+
+test("the check reads one window of a tap file from its place, and refuses a file of the wrong length", async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'tap-')), file = join(dir, 't.yuv'), size = 6
+  await writeFile(file, Buffer.from([...Array(4 * size).keys()]))
+  assert.deepEqual([...(await readTapWindow(file, 2, 4, size)).bytes], [12, 13, 14, 15, 16, 17])
+  assert.deepEqual([...(await readTapWindow(file, 0, 4, size)).bytes], [0, 1, 2, 3, 4, 5])
+  await assert.rejects(readTapWindow(file, 0, 5, size), /holds 24 bytes, not 30/)
+  await assert.rejects(readTapWindow(file, 4, 4, size), /window 4 is not in the pointer's tap of 4/)
 })

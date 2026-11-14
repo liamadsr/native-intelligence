@@ -44,7 +44,7 @@
  *                              is composed by FFmpeg instead of drawn in Chrome (./fast-export.ts); off, Chrome draws all.
  */
 import { existsSync, readFileSync } from 'node:fs'
-import { availableParallelism, hostname, tmpdir } from 'node:os'
+import { availableParallelism, hostname, tmpdir, totalmem } from 'node:os'
 import { dirname, isAbsolute, resolve } from 'node:path'
 import { ENCODER_PROFILES, RUNGS, type EncoderProfile, type EncoderRung } from './encoders.ts'
 import { setTools } from './platform.ts'
@@ -134,6 +134,22 @@ function readOrNull(path: string): string | null {
   } catch {
     return null
   }
+}
+
+/**
+ * The memory a container's limit allows (cgroup v2 `memory.max`, else v1's `memory.limit_in_bytes`), or null when there
+ * is no limit (`max`, v1's huge number, no cgroup: macOS, Windows). Pure over `read`.
+ */
+export function cgroupMemory(read: (path: string) => string | null = readOrNull): number | null {
+  const v = (read('/sys/fs/cgroup/memory.max') ?? read('/sys/fs/cgroup/memory/memory.limit_in_bytes'))?.trim()
+  if (!v || v === 'max') return null
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 && n < 2 ** 60 ? n : null
+}
+
+/** The memory this process may use: the machine's, bounded by a container's limit. */
+export function availableMemory(): number {
+  return Math.min(totalmem(), cgroupMemory() ?? Infinity)
 }
 
 /** The CPUs this process may use: the cores it may run on, bounded by a container's quota. */

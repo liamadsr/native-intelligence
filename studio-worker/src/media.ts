@@ -97,8 +97,10 @@ export function runBuffer(file: string, args: string[], opts: RunOptions = {}): 
 }
 
 /**
- * The names an FFmpeg build lists: `-filters` (each line its flags, its name, its pads as `V->V`) or `-muxers` /
- * `-demuxers` (after the `--` line, each line its flags and its names, comma separated). Pure.
+ * The names an FFmpeg build lists: `-filters` (each line its three flags, its name, its pads as `V->V`; the same in
+ * 4.x to 7.x) or `-muxers` / `-demuxers` (after the `--` line, each line its flags and its names, comma separated:
+ * two flag columns up to 6.0, ` DE image2`, `  E rawvideo`; three from 6.1 on, a device flag added, ` D d lavfi`,
+ * `  E  mp4`). How many flag columns a list has is read from its own legend (` D. =` or ` D.. =`). Pure.
  */
 export function listedNames(text: string, kind: 'filters' | 'formats'): Set<string> {
   const out = new Set<string>()
@@ -107,9 +109,15 @@ export function listedNames(text: string, kind: 'filters' | 'formats'): Set<stri
     for (const l of lines) { const m = /^\s*[.A-Z|]{3}\s+(\S+)\s+\S*->\S*/.exec(l); if (m) out.add(m[1]!) }
     return out
   }
+  const legend = lines.map((l) => /^\s*(D\.{1,2})\s*=/.exec(l)?.[1]).find(Boolean)
   const start = lines.findIndex((l) => /^\s*-{2,}\s*$/.test(l))
-  // Three flag columns (D, E, d), then the names: " D d lavfi", "  E  mp4".
-  for (const l of lines.slice(start + 1)) { const m = /^ [D. ][E. ][d. ] +(\S+)/.exec(l); if (m) for (const n of m[1]!.split(',')) out.add(n) }
+  if (!legend || start < 0) return out
+  for (const l of lines.slice(start + 1)) {
+    // A space, the flag columns (D or E or d, or blank), then the names.
+    const flags = l.slice(1, 1 + legend.length), names = l.slice(1 + legend.length)
+    if (l[0] !== ' ' || !/^[DEd. ]+$/.test(flags) || !/^\s+\S/.test(names)) continue
+    for (const n of names.trim().split(/\s+/)[0]!.split(',')) out.add(n)
+  }
   return out
 }
 
@@ -126,6 +134,25 @@ export function ffmpegComponents(signal?: AbortSignal): Promise<FfmpegComponents
     listed.set(key, p)
   }
   return p
+}
+
+/**
+ * What of `needs` the configured FFmpeg lacks, in plain words, or null: from its lists (ffmpegComponents), and for a
+ * kind whose list read as empty (a layout not known here), each part asked by use (`-h filter=gblur`: an FFmpeg
+ * without it answers "Unknown"), so an unknown layout never refuses a build that has everything.
+ */
+export async function ffmpegLacks(needs: { filters: string[]; muxers: string[]; demuxers: string[] }, signal?: AbortSignal, lists: (signal?: AbortSignal) => Promise<FfmpegComponents> = ffmpegComponents): Promise<string | null> {
+  const have = await lists(signal)
+  const asked = async (kind: 'filter' | 'muxer' | 'demuxer', names: string[], list: Set<string>) => {
+    if (list.size) return list
+    const out = new Set<string>()
+    for (const n of names) {
+      const { stdout, stderr } = await run('ffmpeg', ['-hide_banner', '-h', `${kind}=${n}`], { signal, timeout: 30_000 }).catch((e: unknown) => ({ stdout: '', stderr: String((e as Error).message) }))
+      if (!/Unknown (filter|format) '/.test(stdout + stderr)) out.add(n)
+    }
+    return out
+  }
+  return missingComponents({ filters: await asked('filter', needs.filters, have.filters), muxers: await asked('muxer', needs.muxers, have.muxers), demuxers: await asked('demuxer', needs.demuxers, have.demuxers) }, needs)
 }
 
 /** What of `needs` a build lacks, in plain words ("the gblur filter", "the gblur filter and the rawvideo muxer"), or null. Pure. */

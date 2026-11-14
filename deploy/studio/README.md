@@ -165,10 +165,12 @@ fast export, …)`, or `Rendering in Chrome: <the first reason>`.
   under the blend and the bubble; one FFmpeg pass per clip with the Chrome path's encoder settings and labels,
   joined without re-encoding.
 - *The pointer's bounds and checks*: refused in the plan, before Chrome starts, with the reason in the log, above
-  4,000 distinct pictures, 256 MB of them held, or 30,000 places of its window in one clip (`POINTER_LIMITS` in
-  `fast-pointer.ts`). Chrome draws the pictures at the window's own size (140 px a side for the usual pointer on a
-  3472×2266 take, 550 for the largest), in tabs of their own shared by every pass: the CPUs the worker may use (its
-  container's quota), at most 8, fewer when `STUDIO_RENDER_CONCURRENCY` says fewer. Each picture goes straight to
+  4,000 distinct pictures, 256 MB of them held, 30,000 places of its window in one clip, or one picture over 1,024 px
+  a side (a trace in very small points draws a huge pointer) (`POINTER_LIMITS` in `fast-pointer.ts`). Chrome draws
+  the pictures at the window's own size (140 px a side for the usual pointer on a 3472×2266 take, 550 for the
+  largest), in tabs of their own shared by every pass: the CPUs the worker may use (its container's quota), one per
+  GB of memory it may use (its container's limit), at most 8, fewer when `STUDIO_RENDER_CONCURRENCY` says fewer. The
+  pointer's tip is taken as Chrome takes a CSS length, a 32-bit float, before it is placed. Each picture goes straight to
   disk; the made-up recordings sit in the job's scratch folder and are gone after the job, or after a crash at the
   worker's next start. An FFmpeg without what the pointer needs (`gblur`, `alphamerge`, the `rawvideo` muxer and the
   rest) is refused before Chrome draws anything. The run-time check compares the pointer as drawn, before the

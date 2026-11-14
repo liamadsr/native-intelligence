@@ -55,11 +55,13 @@ export function clipPointer(project: EditorProject, clip: EditorClip, asset: Edi
  * Chrome draws the pointer alike for every tip inside the same 1/16 of a pixel: a tip floored to that is drawn exactly
  * as the tip itself (made-up recordings, test/pointer-probe.ts: the same pixels to the bit floored to 1/16 and to 1/64,
  * Chrome's layout unit; rounding to 1/4 or 1/8 is not). So a pointer moving through a take needs at most 256 pictures
- * between its clicks. Pure.
+ * between its clicks. The tip is first taken as Chrome takes a CSS length, a 32-bit float: 1532.9999999999998 px (a
+ * trace's point times the width) is 1533 there, and floored without that it was drawn a whole pixel left (a made-up
+ * take's pointer along the frame's top, test/fast-export-e2e.ts). Pure.
  */
 export const LAYOUT_UNIT = 16
 export function drawnState(s: PointerState): PointerState {
-  return { ...s, x: Math.floor(s.x * LAYOUT_UNIT) / LAYOUT_UNIT, y: Math.floor(s.y * LAYOUT_UNIT) / LAYOUT_UNIT }
+  return { ...s, x: Math.floor(Math.fround(s.x) * LAYOUT_UNIT) / LAYOUT_UNIT, y: Math.floor(Math.fround(s.y) * LAYOUT_UNIT) / LAYOUT_UNIT }
 }
 /** Which picture a state is drawn with: the tip's place inside its pixel (in 1/16 px), the press and the ring. Pure. */
 export function stateKey(s: PointerState): string {
@@ -105,7 +107,7 @@ export function spriteSchedule(budget: number, passes: number): { atOnce: number
  * takes (each run of one place is a few comparisons in FFmpeg's per-frame expressions, written several times in the
  * clip's graph). A 15.7 s take with clicks needs about 400 pictures; a 10 minute one with 200 clicks about 2,500.
  */
-export const POINTER_LIMITS = { pictures: 4000, bytes: 256 * 1024 * 1024, places: 30_000 }
+export const POINTER_LIMITS = { pictures: 4000, bytes: 256 * 1024 * 1024, places: 30_000, side: 1024 }
 
 /** The bytes one pointer picture is held in (its window's pixels: RGBA, and the glass's blur weight). Pure. */
 export function pictureBytes(plan: Pick<PointerPlan, 'size' | 'style'>): number {
@@ -118,6 +120,10 @@ export function pictureBytes(plan: Pick<PointerPlan, 'size' | 'style'>): number 
  * clip's pointer states (null: none) and the held pointer under its blend. Pure.
  */
 export function pointerBudgetProblem(look: Pick<PointerPlan, 'size' | 'style'>, clips: { states: (PointerState | null)[] | null; held: PointerState | null }[], W: number, H: number): string | null {
+  // One picture's size first: a trace in very small points draws a huge pointer, and Chrome would draw it at that size.
+  const crop = spriteCrop(look.size), { cw, ch } = layerWindow(look)
+  if (crop.w > POINTER_LIMITS.side) return `its pointer is drawn ${Math.round(look.size)} px wide, and its picture would be ${crop.w} px a side, more than the ${POINTER_LIMITS.side} this path draws`
+  if (cw > W || ch > H) return `its pointer's window (${cw}×${ch} px) is larger than the video`
   const keys = new Set<string>()
   for (const c of clips) for (const s of [...(c.states ?? []), c.held]) if (s) keys.add(stateKey(s))
   if (keys.size > POINTER_LIMITS.pictures) return `its pointer needs ${keys.size} pictures, more than the ${POINTER_LIMITS.pictures} this path draws`

@@ -47,6 +47,12 @@ test("a state is drawn at its tip floored to Chrome's layout unit; the key holds
   assert.equal(stateKey(s), stateKey({ ...s, x: s.x + 7 }))
   assert.notEqual(stateKey(s), stateKey({ ...s, x: s.x + 1 / 32 }))
   assert.notEqual(stateKey(s), stateKey({ ...s, ring: 0.3 }))
+  // A tip a hair under a whole pixel (a trace's point times the width) is that pixel to Chrome, which reads a CSS length
+  // as a 32-bit float: drawn there, not a sixteenth (and a whole pixel's place) before it.
+  const hair = { x: 1532.9999999999998, y: 7.25, press: 1, ring: null }
+  assert.deepEqual(drawnState(hair), { ...hair, x: 1533, y: 7.25 })
+  assert.equal(stateKey(hair), stateKey({ ...hair, x: 1533 }))
+  assert.equal(drawnState({ ...hair, x: 1532.99 }).x, 1532.9375, 'a real hundredth under it is under it')
 })
 
 test("FFmpeg's per-frame lookup gives each frame's value, runs folded", () => {
