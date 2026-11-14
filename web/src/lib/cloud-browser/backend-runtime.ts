@@ -7,7 +7,7 @@ import * as store from './store'
  * it lives, and what its header explains), wired to the row store.
  */
 export function createRuntimeBackend(deps: RuntimeBackendDeps = {}): RuntimeCloudBrowserBackend {
-  return createRuntimeBrowserBackend({ readSession: ref => store.readSession(ref), ...deps })
+  return createRuntimeBrowserBackend({ readSession: ref => store.readSession(ref), sessionOfName: name => store.sessionOfSandboxName(name), ...deps })
 }
 
-export { commandLine, firstOf, METADATA_KIND, runtimeNetworkFor, runtimeSessionId, sandboxIdOfSession, shellQuote } from './runtime-browser'
+export { chooseSandbox, commandLine, firstOf, METADATA_KIND, RUNTIME_TIMING, runtimeNetworkFor, runtimeSessionId, sandboxIdOfSession, shellQuote } from './runtime-browser'

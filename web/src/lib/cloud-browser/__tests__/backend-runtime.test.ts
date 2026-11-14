@@ -24,6 +24,8 @@ const rt = vi.hoisted(() => {
     startedAt: Date
     /** Listed as running, but its agent is gone (the runtime restarted under it). */
     dead?: 'not-running' | 'unreachable'
+    /** Being paused: the runtime still lists it running for this many more getInfo calls, then paused (and resumable). */
+    pausingFor?: number
     files: Map<string, string>
     lines: { line: string; detached: boolean; envs: unknown }[]
     network: unknown[]
@@ -137,6 +139,12 @@ const rt = vi.hoisted(() => {
     getInfo: vi.fn(async (sandboxId: string) => {
       const b = boxes.get(sandboxId)
       if (!b) throw named('SandboxNotFoundError', 'not found')
+      if (b.pausingFor !== undefined && --b.pausingFor <= 0) {
+        b.pausingFor = undefined
+        b.state = 'paused'
+        b.dead = undefined
+        events.push(`paused ${sandboxId}`)
+      }
       return { sandboxId, metadata: { ...b.metadata }, state: b.state, startedAt: b.startedAt }
     }),
   }
@@ -163,7 +171,10 @@ const store = vi.hoisted(() => ({
   readExitMode: vi.fn(async (_ref: unknown) => null as string | null),
   recordExit: vi.fn(async () => {}),
   listUnusedStopped: vi.fn(async (_cutoff: Date, _limit: number) => [] as unknown[]),
-  deleteRowIfUnusedSince: vi.fn(async (_ref: unknown, _at: string) => true),
+  claimUnusedForExpiry: vi.fn(async (_ref: unknown, _at: string) => true),
+  isExpiring: vi.fn(async (_ref: unknown) => false),
+  deleteExpiringRow: vi.fn(async (_ref: unknown) => true),
+  sessionOfSandboxName: vi.fn(async (_name: string) => null as string | null),
 }))
 vi.mock('@/lib/cloud-browser/store', () => store)
 vi.mock('@/lib/browser-agent/queue', () => ({ ringComputer: async () => {} }))
@@ -171,8 +182,9 @@ vi.mock('@/lib/browser-agent/queue', () => ({ ringComputer: async () => {} }))
 const host = await import('@/lib/cloud-browser/host')
 const { cloudBrowserSandboxName } = await import('@/lib/cloud-browser/ids')
 const { verifyBrowserRelayToken } = await import('@/lib/cloud-browser/relay-token')
-const { createRuntimeBackend, firstOf, runtimeNetworkFor, sandboxIdOfSession } = await import('@/lib/cloud-browser/backend-runtime')
-type RuntimeBrowserClient = import('@/lib/cloud-browser/runtime-client').RuntimeBrowserClient
+const { chooseSandbox, firstOf, RUNTIME_TIMING, runtimeNetworkFor, sandboxIdOfSession } = await import('@/lib/cloud-browser/backend-runtime')
+// The waits, short: what they decide is tested, not how long they last.
+Object.assign(RUNTIME_TIMING, { deadWaitMs: 60, deadPollMs: 5, probeRetryMs: 1 })
 
 const KEY = 'e2b_secret_key_123'
 const ref = { userId: 'u1', workspaceId: 'w1' }
@@ -200,6 +212,10 @@ beforeEach(() => {
   vi.stubEnv('CLOUD_BROWSER_SIGNING_KEY', '')
   store.markStopping.mockImplementation(async () => true)
   store.readExitMode.mockImplementation(async () => null)
+  store.sessionOfSandboxName.mockImplementation(async () => null)
+  store.isExpiring.mockImplementation(async () => false)
+  store.claimUnusedForExpiry.mockImplementation(async () => true)
+  store.deleteExpiringRow.mockImplementation(async () => true)
 })
 
 const only = () => {
@@ -261,7 +277,8 @@ describe('ensure on the runtime backend', () => {
     await host.ensureCloudBrowser(ref)
     const box = only()
     const token = box.files.get('/tmp/cloud-browser-relay/secret/token')!
-    expect(verifyBrowserRelayToken(token)).toMatchObject({ userId: 'u1', workspaceId: 'w1', sandbox: NAME })
+    // It says it is a runtime VM's: good on this backend only.
+    expect(verifyBrowserRelayToken(token)).toMatchObject({ userId: 'u1', workspaceId: 'w1', sandbox: NAME, backend: 'runtime' })
     expect(box.files.has('/tmp/cloud-browser-relay/secret/token.new')).toBe(false)
     for (const { line, envs } of box.lines) {
       expect(line).not.toContain(token)
@@ -303,7 +320,7 @@ describe('ensure on the runtime backend', () => {
     expect(only().timeouts).toEqual([])
   })
 
-  it('replaces a sandbox listed as running whose agent is gone (the runtime restarted under it)', async () => {
+  it('replaces a sandbox STILL listed running with the same start after the whole wait, still silent (the runtime restarted under it)', async () => {
     const dead = rt.add(META, { dead: 'not-running' })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const out = await host.ensureCloudBrowser(ref)
@@ -313,6 +330,36 @@ describe('ensure on the runtime backend', () => {
     expect(warn).toHaveBeenCalledTimes(1)
   })
 
+  it('a sandbox being paused (listed running, not answering) is never killed: it is woken once its pause lands', async () => {
+    // The sweep or the server's pause unit is pausing it; the runtime still lists it running for a while.
+    const box = rt.add(META, { dead: 'not-running', pausingFor: 3, runStart: '1700000000004' })
+    const out = await host.ensureCloudBrowser(ref)
+    expect(out.created).toBe(false)
+    expect(rt.Sandbox.kill).not.toHaveBeenCalled()
+    expect(rt.Sandbox.create).not.toHaveBeenCalled()
+    expect(rt.boxes.has(box.sandboxId)).toBe(true)
+    expect(rt.events).toContain(`paused ${box.sandboxId}`)
+    expect(rt.events).toContain(`resume ${box.sandboxId}`)
+    expect(out.hubOrigin).toBe(`https://${box.sandboxId}.hub.test`)
+  })
+
+  it('a silent sandbox that comes back with another start is an error to retry, never a kill', async () => {
+    const box = rt.add(META, { dead: 'not-running' })
+    const real = rt.Sandbox.getInfo.getMockImplementation()!
+    rt.Sandbox.getInfo.mockImplementationOnce(async (id: string) => ({ ...(await real(id)), startedAt: new Date(box.startedAt.getTime() + 1) }))
+    await expect(host.ensureCloudBrowser(ref)).rejects.toThrow(/changed while starting; try again/)
+    expect(rt.boxes.has(box.sandboxId)).toBe(true)
+    expect(rt.Sandbox.kill).not.toHaveBeenCalled()
+  })
+
+  it('a silent sandbox that is gone by the next look is replaced without a kill', async () => {
+    const box = rt.add(META, { dead: 'not-running' })
+    rt.Sandbox.getInfo.mockImplementationOnce(async () => { rt.boxes.delete(box.sandboxId); throw rt.named('SandboxNotFoundError', 'gone') })
+    const out = await host.ensureCloudBrowser(ref)
+    expect(out.created).toBe(true)
+    expect(rt.Sandbox.kill).not.toHaveBeenCalled()
+  })
+
   it('never kills a running sandbox it merely could not reach: the ensure fails instead', async () => {
     const box = rt.add(META, { dead: 'unreachable' })
     await expect(host.ensureCloudBrowser(ref)).rejects.toThrow(/could not reach sandbox/)
@@ -320,11 +367,10 @@ describe('ensure on the runtime backend', () => {
     expect(rt.Sandbox.create).not.toHaveBeenCalled()
   })
 
-  it('two creates for one name end with one: the later one is killed and the earlier one used', async () => {
+  it('after a create, a sandbox someone may own (an old one) wins: only MINE is killed', async () => {
     let theirs = ''
     rt.hooks.duringCreate = () => {
       rt.hooks.duringCreate = null
-      // Another ensure's create, which the runtime started first.
       const other = rt.add(META, { startedAt: new Date(0), runStart: '1700000000000' })
       theirs = other.sandboxId
     }
@@ -332,16 +378,71 @@ describe('ensure on the runtime backend', () => {
     expect(out.created).toBe(false)
     expect(only().sandboxId).toBe(theirs)
     expect(out.sessionId).toBe(`${theirs}.1700000000000`)
+    expect(rt.Sandbox.kill).toHaveBeenCalledTimes(1)
+    expect(rt.Sandbox.kill).not.toHaveBeenCalledWith(theirs, expect.anything())
   })
 
-  it('… and when ours came first, the other is killed and ours kept', async () => {
+  it('after a create, a PAUSED sandbox for the name (a profile mid-resume missed by the first list) wins and is woken, even a fresh one', async () => {
+    let theirs = ''
     rt.hooks.duringCreate = () => {
       rt.hooks.duringCreate = null
-      rt.add(META, { startedAt: new Date(Date.now() + 60_000) })
+      theirs = rt.add(META, { state: 'paused', startedAt: new Date(Date.now() + 60_000) }).sandboxId
+    }
+    const out = await host.ensureCloudBrowser(ref)
+    expect(out.created).toBe(false)
+    expect(only().sandboxId).toBe(theirs)
+    expect(rt.events).toContain(`resume ${theirs}`)
+  })
+
+  it('after a create, the sandbox the row names wins, however fresh', async () => {
+    let theirs = ''
+    rt.hooks.duringCreate = () => {
+      rt.hooks.duringCreate = null
+      theirs = rt.add(META, { startedAt: new Date(Date.now() + 60_000), runStart: '1700000000001' }).sandboxId
+      store.sessionOfSandboxName.mockResolvedValue(`${theirs}.1700000000001`)
+    }
+    const out = await host.ensureCloudBrowser(ref)
+    expect(out).toMatchObject({ created: false, sessionId: `${theirs}.1700000000001` })
+    expect(only().sandboxId).toBe(theirs)
+  })
+
+  it('two racing creates, both fresh and unnamed: the larger id kills ITSELF only (mine larger)', async () => {
+    rt.hooks.duringCreate = () => {
+      rt.hooks.duringCreate = null
+      rt.add(META, { sandboxId: 'sbx0', startedAt: new Date(Date.now() + 1), runStart: '1700000000002' })
+    }
+    const out = await host.ensureCloudBrowser(ref)
+    expect(out).toMatchObject({ created: false, sessionId: 'sbx0.1700000000002' })
+    expect(only().sandboxId).toBe('sbx0')
+    expect(rt.Sandbox.kill.mock.calls.map(c => c[0])).toEqual(['sbx1'])
+  })
+
+  it('… (mine smaller): mine stays and the other is left for its own caller to remove', async () => {
+    rt.hooks.duringCreate = () => {
+      rt.hooks.duringCreate = null
+      rt.add(META, { sandboxId: 'sbx9', startedAt: new Date(Date.now() - 1_000) })
     }
     const out = await host.ensureCloudBrowser(ref)
     expect(out.created).toBe(true)
-    expect(out.hubOrigin).toBe(`https://${only().sandboxId}.hub.test`)
+    expect(out.hubOrigin).toBe('https://sbx1.hub.test')
+    expect(rt.boxes.has('sbx9')).toBe(true)
+    expect(rt.Sandbox.kill).not.toHaveBeenCalled()
+  })
+
+  it('finding more than one, an ensure kills none of them: the row’s, else the paused, else the oldest is used', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const older = rt.add(META, { startedAt: new Date(1_000) })
+    const paused = rt.add(META, { state: 'paused', startedAt: new Date(5_000) })
+    const named = rt.add(META, { startedAt: new Date(9_000), runStart: '1700000000003' })
+    store.sessionOfSandboxName.mockResolvedValue(`${named.sandboxId}.1700000000003`)
+    expect((await host.ensureCloudBrowser(ref)).sessionId).toBe(`${named.sandboxId}.1700000000003`)
+    store.sessionOfSandboxName.mockResolvedValue(null)
+    const out = await host.ensureCloudBrowser(ref)
+    expect(out.hubOrigin).toBe(`https://${paused.sandboxId}.hub.test`)
+    expect(rt.Sandbox.kill).not.toHaveBeenCalled()
+    expect(rt.boxes.size).toBe(3)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('more than one runtime sandbox'), expect.stringContaining(older.sandboxId))
+    expect(chooseSandbox([older, named].map(b => ({ ...b })), null)?.sandboxId).toBe(older.sandboxId)
   })
 
   it('the order that decides is the same for every caller: oldest start, then the smaller id', () => {
@@ -436,19 +537,6 @@ describe('the hub on the runtime backend', () => {
     expect(sandboxIdOfSession('x.1')).toBe('x')
   })
 
-  it('names a browser sandbox of this database, running or paused, and nothing else', async () => {
-    const backend = createRuntimeBackend({ loadClient: async () => ({ Sandbox: rt.Sandbox }) as unknown as RuntimeBrowserClient })
-    const running = rt.add(META)
-    const paused = rt.add(META, { state: 'paused' })
-    const other = rt.add({ ...META, niNs: 'otherdb' })
-    const coding = rt.add({ eveSessionId: 's1' })
-    expect(await backend.isBrowserSandbox(running.sandboxId)).toBe(true)
-    expect(await backend.isBrowserSandbox(paused.sandboxId)).toBe(true)
-    expect(await backend.isBrowserSandbox(other.sandboxId)).toBe(false)
-    expect(await backend.isBrowserSandbox(coding.sandboxId)).toBe(false)
-    expect(await backend.isBrowserSandbox('missing1')).toBe(false)
-    expect(await backend.isBrowserSandbox('Not-An-Id')).toBe(false)
-  })
 })
 
 describe('the reconcile on the runtime backend', () => {
@@ -462,17 +550,18 @@ describe('the reconcile on the runtime backend', () => {
     store.sandboxNamesWithRows.mockResolvedValueOnce(new Set([NAME, oldName]))
     const now = Date.parse('2027-03-01T00:00:00Z')
     store.listUnusedStopped.mockResolvedValueOnce([{ user_id: 'u7', workspace_id: 'w7', sandbox_name: oldName, status: 'stopped', last_active_at: '2026-12-01T00:00:00.000Z' }])
-    expect(await host.reconcileCloudBrowsers(now)).toEqual({ orphans: 1, snapshotsDeleted: 0, expired: 1 })
+    expect(await host.reconcileCloudBrowsers(now)).toEqual({ orphans: 1, snapshotsDeleted: 0, expired: 1, duplicates: 0 })
     expect(store.sandboxNamesWithRows).toHaveBeenCalledWith([NAME, oldName, orphanName].sort())
     expect(rt.boxes.has(orphan.sandboxId)).toBe(false)
     expect(rt.boxes.has(owned.sandboxId)).toBe(true)
     expect(rt.boxes.has(otherDb.sandboxId)).toBe(true)
-    // Unused for 60 days: its VM, then its row (only if still untouched).
+    // Unused for 60 days: claimed first (only if still untouched), then its VM, then its row.
     const [cutoff, limit] = store.listUnusedStopped.mock.calls[0]
     expect(cutoff.toISOString()).toBe(new Date(now - 60 * 24 * 60 * 60 * 1000).toISOString())
     expect(limit).toBe(50)
     expect(rt.boxes.has(old.sandboxId)).toBe(false)
-    expect(store.deleteRowIfUnusedSince).toHaveBeenCalledWith({ userId: 'u7', workspaceId: 'w7' }, '2026-12-01T00:00:00.000Z')
+    expect(store.claimUnusedForExpiry).toHaveBeenCalledWith({ userId: 'u7', workspaceId: 'w7' }, '2026-12-01T00:00:00.000Z')
+    expect(store.deleteExpiringRow).toHaveBeenCalledWith({ userId: 'u7', workspaceId: 'w7' })
   })
 
   it('keeps going past one expiry that fails, and counts only the rows it removed', async () => {
@@ -483,12 +572,43 @@ describe('the reconcile on the runtime backend', () => {
     ])
     rt.add({ ...META, niName: 'browser-local-a' })
     rt.Sandbox.kill.mockImplementationOnce(async () => { throw new Error('runtime down') })
-    store.deleteRowIfUnusedSince.mockResolvedValueOnce(false) // u8: an ensure came in between
+    store.deleteExpiringRow.mockResolvedValueOnce(false) // u8: the sweep's stuck-stopping retry took the claim back
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     store.sandboxNamesWithRows.mockResolvedValueOnce(new Set(['browser-local-a']))
     expect(await host.reconcileCloudBrowsers()).toMatchObject({ expired: 1 })
     expect(warn).toHaveBeenCalledTimes(1)
-    expect(store.deleteRowIfUnusedSince).toHaveBeenCalledTimes(2)
+    expect(store.deleteExpiringRow).toHaveBeenCalledTimes(2)
+  })
+
+  it('the expiry race: a person who came back between the list and the claim keeps their profile (no kill)', async () => {
+    const oldName = cloudBrowserSandboxName('u7', 'w7', 'local')
+    const live = rt.add({ ...META, niName: oldName })
+    store.sandboxNamesWithRows.mockResolvedValueOnce(new Set([oldName]))
+    store.listUnusedStopped.mockResolvedValueOnce([{ user_id: 'u7', workspace_id: 'w7', sandbox_name: oldName, status: 'stopped', last_active_at: 't1' }])
+    // Their ensure moved the row off `stopped` (markStarting): the compare-and-set fails.
+    store.claimUnusedForExpiry.mockResolvedValueOnce(false)
+    expect(await host.reconcileCloudBrowsers()).toMatchObject({ expired: 0 })
+    expect(rt.boxes.has(live.sandboxId)).toBe(true)
+    expect(rt.Sandbox.kill).not.toHaveBeenCalled()
+    expect(store.deleteExpiringRow).not.toHaveBeenCalled()
+  })
+
+  it('… and an ensure that meets a claim fails with a message to retry, touching no sandbox', async () => {
+    rt.add(META, { state: 'paused' })
+    store.isExpiring.mockResolvedValueOnce(true)
+    await expect(host.ensureCloudBrowser(ref)).rejects.toThrow(/being cleared after long disuse; try again/)
+    expect(rt.Sandbox.list).not.toHaveBeenCalled()
+    expect(rt.Sandbox.connect).not.toHaveBeenCalled()
+  })
+
+  it('reports, never removes, a browser someone owns that has more than one sandbox', async () => {
+    const a = rt.add(META)
+    const b = rt.add(META, { state: 'paused' })
+    store.sandboxNamesWithRows.mockResolvedValueOnce(new Set([NAME]))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(await host.reconcileCloudBrowsers()).toMatchObject({ orphans: 0, duplicates: 1 })
+    expect(rt.boxes.has(a.sandboxId) && rt.boxes.has(b.sandboxId)).toBe(true)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('duplicate runtime sandboxes'), expect.stringContaining(b.sandboxId))
   })
 })
 

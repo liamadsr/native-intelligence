@@ -18,7 +18,7 @@ vi.mock('@/lib/supabase/service', () => ({
       const call: Call = { table, ops: [] }
       const index = db.calls.push(call) - 1
       const chain: Record<string, unknown> = {}
-      for (const m of ['select', 'insert', 'upsert', 'update', 'delete', 'match', 'eq', 'is', 'in', 'lt', 'order', 'limit']) {
+      for (const m of ['select', 'insert', 'upsert', 'update', 'delete', 'match', 'eq', 'is', 'in', 'lt', 'order', 'limit', 'like']) {
         chain[m] = (...args: unknown[]) => { call.ops.push([m, ...args]); return chain }
       }
       const result = () => Promise.resolve({ error: null, ...((db.results[index] ?? { data: null }) as object) })
@@ -158,13 +158,43 @@ describe('the runtime backend’s reads and its expiry', () => {
     has(0, 'limit', 50)
   })
 
-  it('deletes an expired browser’s row only if it is still stopped and untouched', async () => {
+  it('claims an unused browser for the expiry only from `stopped` with the same last activity, into a state no ensure starts', async () => {
     db.results = [{ data: { user_id: 'u1' } }, { data: null }]
-    expect(await store.deleteRowIfUnusedSince(ref, '2026-08-01T00:00:00+00:00')).toBe(true)
-    has(0, 'delete')
+    expect(await store.claimUnusedForExpiry(ref, '2026-08-01T00:00:00+00:00')).toBe(true)
+    has(0, 'update', { status: 'stopping', stop_reason: 'expiring' })
     has(0, 'match', ROW)
     has(0, 'eq', 'status', 'stopped')
     has(0, 'eq', 'last_active_at', '2026-08-01T00:00:00+00:00')
-    expect(await store.deleteRowIfUnusedSince(ref, 'x')).toBe(false)
+    // A person came back in between: the row moved, the claim fails.
+    expect(await store.claimUnusedForExpiry(ref, '2026-08-01T00:00:00+00:00')).toBe(false)
+  })
+
+  it('tells an ensure that the expiry holds the row, and deletes only a row it still holds', async () => {
+    db.results = [{ data: { status: 'stopping', stop_reason: 'expiring' } }, { data: { status: 'stopping', stop_reason: 'idle' } }, { data: { user_id: 'u1' } }]
+    expect(await store.isExpiring(ref)).toBe(true)
+    expect(await store.isExpiring(ref)).toBe(false)
+    expect(await store.deleteExpiringRow(ref)).toBe(true)
+    has(2, 'delete')
+    has(2, 'match', ROW)
+    has(2, 'eq', 'status', 'stopping')
+    has(2, 'eq', 'stop_reason', 'expiring')
+  })
+
+  it('reads the session of a browser by its sandbox name', async () => {
+    db.results = [{ data: { session_id: 'abc.1' } }, { data: null }]
+    expect(await store.sessionOfSandboxName('browser-x')).toBe('abc.1')
+    has(0, 'eq', 'sandbox_name', 'browser-x')
+    expect(await store.sessionOfSandboxName('browser-y')).toBeNull()
+  })
+
+  it('a hub is live when a starting or running row’s session starts with exactly `<id>.`', async () => {
+    db.results = [{ data: [{ user_id: 'u1' }] }, { data: [] }]
+    expect(await store.hubSessionLive('abc123')).toBe(true)
+    has(0, 'in', 'status', ['starting', 'running'])
+    has(0, 'like', 'session_id', 'abc123.%')
+    expect(await store.hubSessionLive('zzz999')).toBe(false)
+    // Never a pattern from a name: anything but the id's shape is no, without a query.
+    for (const bad of ['abc%', 'a_c', 'ABC', '', 'a.b']) expect(await store.hubSessionLive(bad)).toBe(false)
+    expect(db.calls).toHaveLength(2)
   })
 })

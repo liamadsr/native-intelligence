@@ -26,16 +26,23 @@ import type { CloudBrowserExitMode, CloudBrowserRef, CloudBrowserStatus } from '
  * `<sandbox id>.<ms the run began>`, so the sweep's compare-and-set still tells
  * one run from the next; `sandbox_name` keeps the logical name.
  *
- * Two ensures that both find nothing both create one. Which one is kept is
- * decided by an order every caller computes the same way (oldest start, then
- * the smaller id), and each caller lists again right after its own create: a
- * caller whose sandbox is not first kills it and uses the first; one whose is
- * first kills the others. Neither has used its sandbox before that second
- * list, so a sandbox that is killed was never handed to anyone. What it does
- * not cover: a list that lags behind a create (the runtime answers from its
- * own database, written before the create returns). Then a caller could keep
- * a sandbox that the other kills a moment later: that ensure fails once, and
- * the next finds the one that is left. Nobody is left with two.
+ * A sandbox's disk is the only copy of the person's sign-ins, so duplicate
+ * handling kills only the sandbox the call itself just created, before it is
+ * handed to anyone, and never a paused one:
+ *   - Two ensures that both find nothing both create one, and each lists again
+ *     right after. When another sandbox for the name is paused, or is the one
+ *     the row's session names, or is older than RUNTIME_TIMING.freshMs (it
+ *     cannot be a racing create's), the caller kills ITS OWN and uses that one.
+ *     When every other is as fresh and unnamed as its own (racing creates), the
+ *     sandbox with the smallest id stays: a caller with a larger id kills its
+ *     own, and nothing else.
+ *   - An ensure that finds more than one uses the row's, else a paused one,
+ *     else the oldest (chooseSandbox), kills none of them and logs them; the
+ *     reconcile reports them again. Only sandboxes of a name no row owns at all
+ *     are removed (the reconcile's orphans).
+ * What this leaves: two creates whose lists each miss the other (the runtime
+ * answers from its own database, written before a create returns) both keep
+ * theirs. Nothing is lost; the next ensure logs the pair, and a person decides.
  *
  * ── Lifecycle ──────────────────────────────────────────────────────────────
  *   - create: from CLOUD_BROWSER_RUNTIME_TEMPLATE with NO internet at all (the
@@ -46,13 +53,16 @@ import type { CloudBrowserExitMode, CloudBrowserRef, CloudBrowserStatus } from '
  *   - wake: connect (resumes a paused one), then the lifetime again.
  *   - stop: stop.sh (host.ts: Chrome closed, so cookies reach disk), then pause.
  *   - destroy: kill; "not found" is done.
- *   - A sandbox the runtime lists as running whose agent does not answer (the
- *     runtime restarted under it, deploy/sandbox/README.md: it "still listed
- *     it as running") is killed and a fresh one created (`created: true`):
- *     only when the client says the sandbox is not running
- *     (SandboxNotRunningError / not found), twice. A sandbox that merely could
- *     not be reached is an error, never a kill: a running sandbox's disk is
- *     its only copy of the profile.
+ *   - A sandbox the runtime lists as running whose agent does not answer is
+ *     NOT killed for that: the runtime keeps listing a sandbox as running while
+ *     it is being paused, and the client calls any proxy "not found" answer
+ *     "not running". It is watched (settleSilent, RUNTIME_TIMING.deadWaitMs):
+ *     paused → woken; gone → a fresh one; changed → an error to retry. Only one
+ *     still listed running with the same start after the whole wait, still not
+ *     answering (the runtime restarted under it, deploy/sandbox/README.md: it
+ *     "still listed it as running"; its memory is gone already), is killed and
+ *     replaced (`created: true`). A sandbox that merely could not be reached is
+ *     an error, never a kill.
  *   - The hosted service drops a browser unused for snapshotTtlMs by its
  *     snapshots' expiry; here host.ts's reconcile does it (expiresUnused).
  *
@@ -157,15 +167,49 @@ export interface RuntimeBackendDeps {
   env?: Readonly<Record<string, string | undefined>>
   /** The row's status and session (store.readSession), for runningHubOrigin. */
   readSession?: (ref: CloudBrowserRef) => Promise<{ status: CloudBrowserStatus; sessionId: string | null } | null>
+  /**
+   * The session id the row of browser `name` holds (store.sessionOfSandboxName),
+   * whose first part names the sandbox that row's browser runs on. Without it
+   * (the conformance script) no row names any sandbox.
+   */
+  sessionOfName?: (name: string) => Promise<string | null>
 }
 
-export type RuntimeCloudBrowserBackend = CloudBrowserBackend & {
-  /** The tls-ask route's question: is `sandboxId` a browser sandbox of this database, running or paused? */
-  isBrowserSandbox(sandboxId: string): Promise<boolean>
+export type RuntimeCloudBrowserBackend = CloudBrowserBackend
+
+/**
+ * How long a "listed but not answering" sandbox is watched before it may be
+ * called dead, and how often. A pause took 0.4 to 1.2 s on the sandbox server
+ * (deploy/sandbox/README.md, a 2 GiB sandbox; a 4 GiB browser's memory takes
+ * longer to write, and the server's pause unit pauses browsers one after
+ * another): 20 s is more than ten times that, and still leaves the ensure
+ * (90 s in all) time to start Chrome and the relay afterwards. Mutable for the
+ * tests only.
+ */
+export const RUNTIME_TIMING = {
+  deadWaitMs: 20_000,
+  deadPollMs: 1_000,
+  probeRetryMs: 500,
+  /** A sandbox older than this is never a racing create's (see the header). */
+  freshMs: 2 * 60_000,
 }
 
-/** How often a short command must fail, the client saying "not running", before a listed sandbox counts as dead. */
+/** How often a short command must fail, the client saying "not running", before a listed sandbox counts as not answering. */
 const DEAD_AFTER = 2
+
+/**
+ * Which of a name's sandboxes a call uses: the one the row names, else a
+ * paused one (a stopped browser's profile: its row names no session), else
+ * the oldest. `preferRunning` (get(): stop, the exit switch) puts a running
+ * one before a paused one, after the row's.
+ */
+export function chooseSandbox(infos: RuntimeSandboxInfo[], rowSandboxId: string | null, preferRunning = false): RuntimeSandboxInfo | null {
+  const named = rowSandboxId ? infos.find(i => i.sandboxId === rowSandboxId) : undefined
+  if (named) return named
+  const paused = firstOf(infos.filter(i => i.state === 'paused'))
+  const running = firstOf(infos.filter(i => i.state === 'running'))
+  return (preferRunning ? running ?? paused : paused ?? running) ?? null
+}
 
 export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): RuntimeCloudBrowserBackend {
   const loadClient = deps.loadClient ?? loadRuntimeBrowserClient
@@ -249,7 +293,7 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
       } catch (err) {
         if (!isNotRunning(err)) throw failure(`could not reach sandbox ${inst.sandboxId}`, err, s.apiKey)
         if (attempt >= DEAD_AFTER) return { alive: false }
-        await sleep(500)
+        await sleep(RUNTIME_TIMING.probeRetryMs)
       }
     }
   }
@@ -319,6 +363,85 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
     }
   }
 
+  /** The sandbox the row of browser `name` names, or null. */
+  const rowSandbox = async (name: string): Promise<string | null> => sandboxIdOfSession(deps.sessionOfName ? await deps.sessionOfName(name) : null)
+
+  const infoOf = async (s: CloudBrowserRuntimeSettings, sandboxId: string): Promise<RuntimeSandboxInfo | null> => {
+    try {
+      return await (await sdk()).Sandbox.getInfo(sandboxId, connection(s))
+    } catch (err) {
+      if (isNotFound(err)) return null
+      throw failure(`could not look up sandbox ${sandboxId}`, err, s.apiKey)
+    }
+  }
+
+  /** A woken (paused, now resumed by connect) sandbox: a whole lifetime from now, and a new run. */
+  async function woken(s: CloudBrowserRuntimeSettings, inst: RuntimeSandboxInstance, signal: AbortSignal): Promise<BackendSandbox> {
+    const startedAt = new Date()
+    try {
+      await inst.setTimeout(CLOUD_BROWSER.sessionTimeoutMs, { signal })
+      await markRunStart(inst, startedAt, signal)
+    } catch (err) {
+      throw failure(`could not wake sandbox ${inst.sandboxId}`, err, s.apiKey)
+    }
+    return handle(s, { sandboxId: inst.sandboxId, state: 'running', startedAt }, inst)
+  }
+
+  /**
+   * A running sandbox whose short commands the client says find it not
+   * running. Never killed on that alone: the runtime lists a sandbox as running
+   * while it is being paused (the sweep, the server's pause unit), and the
+   * client says "not running" for any proxy answer that it "was not found". So
+   * it is watched for RUNTIME_TIMING.deadWaitMs: paused → woken and used; gone
+   * → null (a fresh one is created); listed again with another start → thrown
+   * (it changed under us: retry). Only one STILL listed running with the SAME
+   * start after the whole wait, that still does not answer, is killed (the
+   * runtime restarted under it: its memory and disk are gone already), and
+   * null returned. Anything else is thrown.
+   */
+  async function settleSilent(s: CloudBrowserRuntimeSettings, seen: RuntimeSandboxInfo, signal: AbortSignal): Promise<BackendSandbox | null> {
+    const id = seen.sandboxId
+    const startMs = new Date(seen.startedAt).getTime()
+    const until = Date.now() + RUNTIME_TIMING.deadWaitMs
+    for (;;) {
+      signal.throwIfAborted()
+      await sleep(RUNTIME_TIMING.deadPollMs)
+      const now = await infoOf(s, id)
+      if (!now) return null
+      if (new Date(now.startedAt).getTime() !== startMs) throw new Error(`cloud browser (runtime): sandbox ${id} changed while starting; try again`)
+      if (now.state === 'paused') {
+        const inst = await connect(s, id, signal)
+        if (!inst) return null
+        return woken(s, inst, signal)
+      }
+      if (Date.now() >= until) break
+    }
+    const inst = await connect(s, id, signal)
+    if (!inst) return null
+    const alive = await probe(s, inst, signal)
+    if (alive.alive) return handle(s, { sandboxId: id, state: 'running', startedAt: alive.startedAt ?? new Date(startMs) }, inst)
+    const last = await infoOf(s, id)
+    if (!last) return null
+    if (last.state !== 'running' || new Date(last.startedAt).getTime() !== startMs) throw new Error(`cloud browser (runtime): sandbox ${id} changed while starting; try again`)
+    console.warn('[cloud-browser] runtime sandbox listed as running has not answered for the whole wait: replacing it', JSON.stringify({ sandboxId: id, waitedMs: RUNTIME_TIMING.deadWaitMs }))
+    await kill(s, id)
+    return null
+  }
+
+  /** Use sandbox `info` (already chosen): wake it, or check that it answers. Null when it is gone (create one). */
+  async function takeUp(s: CloudBrowserRuntimeSettings, info: RuntimeSandboxInfo, signal: AbortSignal): Promise<BackendSandbox | null> {
+    const inst = await connect(s, info.sandboxId, signal)
+    if (!inst) return null
+    if (info.state === 'paused') return woken(s, inst, signal)
+    const alive = await probe(s, inst, signal)
+    if (alive.alive) return handle(s, { sandboxId: info.sandboxId, state: 'running', startedAt: alive.startedAt ?? new Date(info.startedAt) }, inst)
+    return settleSilent(s, info, signal)
+  }
+
+  /**
+   * Create one for `name`, then look again. The only sandbox this may kill is
+   * the one it just created, before handing it to anyone (see the header).
+   */
   async function create(s: CloudBrowserRuntimeSettings, name: string, signal: AbortSignal): Promise<{ sandbox: BackendSandbox; created: boolean }> {
     signal.throwIfAborted()
     let inst: RuntimeSandboxInstance
@@ -336,25 +459,29 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
     } catch (err) {
       throw failure(`could not create a sandbox for ${name} from ${s.template}`, err, s.apiKey)
     }
-    // The race (see the header): the first in the shared order is kept.
-    const all = await find(s, name)
-    const first = firstOf(all.some(i => i.sandboxId === inst.sandboxId) ? all : [...all, { sandboxId: inst.sandboxId, metadata: metadataFor(name), state: 'running', startedAt: new Date() }])
-    if (first && first.sandboxId !== inst.sandboxId) {
-      await kill(s, inst.sandboxId)
-      const theirs = await connect(s, first.sandboxId, signal)
-      if (!theirs) throw new Error(`cloud browser (runtime): the sandbox another start created for ${name} is gone`)
-      const alive = await probe(s, theirs, signal)
-      if (!alive.alive) throw new Error(`cloud browser (runtime): the sandbox another start created for ${name} does not answer`)
-      return { sandbox: handle(s, { sandboxId: first.sandboxId, state: 'running', startedAt: alive.startedAt ?? new Date(first.startedAt) }, theirs), created: false }
+    const mine = inst.sandboxId
+    const others = (await find(s, name)).filter(i => i.sandboxId !== mine)
+    if (others.length) {
+      const named = await rowSandbox(name)
+      const settled = others.filter(i => i.state === 'paused' || i.sandboxId === named || Date.now() - new Date(i.startedAt).getTime() > RUNTIME_TIMING.freshMs)
+      // Someone's browser (paused, the row's, or not a racing create's): mine gives way to it.
+      // Otherwise every other is a create racing mine: the one with the smallest id stays, and each
+      // caller with a larger id removes only its own.
+      const theirs = (settled.length ? chooseSandbox(settled, named) : null) ?? [...others].sort((a, b) => (a.sandboxId < b.sandboxId ? -1 : 1))[0]
+      if (settled.length || theirs.sandboxId < mine) {
+        await kill(s, mine)
+        const used = await takeUp(s, theirs, signal)
+        if (!used) throw new Error(`cloud browser (runtime): the other sandbox for ${name} is gone; try again`)
+        return { sandbox: used, created: false }
+      }
     }
-    for (const other of all) if (other.sandboxId !== inst.sandboxId) await kill(s, other.sandboxId)
     const startedAt = new Date()
     try {
       await markRunStart(inst, startedAt, signal)
     } catch (err) {
-      throw failure(`sandbox ${inst.sandboxId} does not run commands`, err, s.apiKey)
+      throw failure(`sandbox ${mine} does not run commands`, err, s.apiKey)
     }
-    return { sandbox: handle(s, { sandboxId: inst.sandboxId, state: 'running', startedAt }, inst), created: true }
+    return { sandbox: handle(s, { sandboxId: mine, state: 'running', startedAt }, inst), created: true }
   }
 
   return {
@@ -367,38 +494,23 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
     async getOrCreate(name, signal) {
       const s = settings()
       const found = await find(s, name)
-      const first = firstOf(found)
-      // Left over from a race whose second list failed: the first is kept, as there.
-      for (const other of found) if (first && other.sandboxId !== first.sandboxId) await kill(s, other.sandboxId)
-      if (!first) return create(s, name, signal)
-      const inst = await connect(s, first.sandboxId, signal)
-      if (!inst) return create(s, name, signal)
-      if (first.state === 'paused') {
-        // connect() resumed it: a whole lifetime from now, and a new run.
-        const startedAt = new Date()
-        try {
-          await inst.setTimeout(CLOUD_BROWSER.sessionTimeoutMs, { signal })
-          await markRunStart(inst, startedAt, signal)
-        } catch (err) {
-          throw failure(`could not wake sandbox ${first.sandboxId}`, err, s.apiKey)
-        }
-        return { sandbox: handle(s, { sandboxId: first.sandboxId, state: 'running', startedAt }, inst), created: false }
+      if (!found.length) return create(s, name, signal)
+      const named = await rowSandbox(name)
+      const chosen = chooseSandbox(found, named)!
+      // Never a kill here: another may hold someone's profile. The reconcile reports them.
+      if (found.length > 1) {
+        console.warn('[cloud-browser] more than one runtime sandbox for one browser: using one, leaving the rest', JSON.stringify({ count: found.length, using: chosen.sandboxId, ids: found.map(i => i.sandboxId) }))
       }
-      const alive = await probe(s, inst, signal)
-      if (alive.alive) {
-        return { sandbox: handle(s, { sandboxId: first.sandboxId, state: 'running', startedAt: alive.startedAt ?? new Date(first.startedAt) }, inst), created: false }
-      }
-      // Listed as running, but gone (the runtime restarted under it): a fresh one, so nobody is wedged.
-      console.warn('[cloud-browser] runtime sandbox listed as running does not answer: replacing it', JSON.stringify({ sandboxId: first.sandboxId }))
-      await kill(s, first.sandboxId)
-      return create(s, name, signal)
+      const used = await takeUp(s, chosen, signal)
+      return used ? { sandbox: used, created: false } : create(s, name, signal)
     },
 
     async get(name) {
       const s = settings()
-      const first = firstOf(await find(s, name))
-      if (!first) return null
-      return handle(s, { sandboxId: first.sandboxId, state: first.state === 'running' ? 'running' : 'stopped', startedAt: new Date(first.startedAt) }, null)
+      const found = await find(s, name)
+      if (!found.length) return null
+      const chosen = chooseSandbox(found, await rowSandbox(name), true)!
+      return handle(s, { sandboxId: chosen.sandboxId, state: chosen.state === 'running' ? 'running' : 'stopped', startedAt: new Date(chosen.startedAt) }, null)
     },
 
     async destroy(name) {
@@ -409,14 +521,22 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
     },
 
     async listNames(prefix) {
-      const s = settings()
-      let infos: RuntimeSandboxInfo[]
-      try {
-        infos = await listAll(s, { niKind: METADATA_KIND, niNs: namespace() })
-      } catch (err) {
-        throw failure('could not list the browser sandboxes', err, s.apiKey)
+      return [...new Set((await listBrowsers()).map(info => info.metadata.niName).filter((n): n is string => typeof n === 'string' && n.startsWith(prefix)))].sort()
+    },
+
+    async reportDuplicates(names) {
+      const byName = new Map<string, string[]>()
+      for (const info of await listBrowsers()) {
+        const n = info.metadata.niName
+        if (n && names.includes(n)) byName.set(n, [...(byName.get(n) ?? []), info.sandboxId])
       }
-      return [...new Set(infos.map(info => info.metadata.niName).filter((n): n is string => typeof n === 'string' && n.startsWith(prefix)))].sort()
+      let count = 0
+      for (const [n, ids] of byName) {
+        if (ids.length < 2) continue
+        count++
+        console.warn('[cloud-browser] duplicate runtime sandboxes for one browser (left alone: one may hold the profile)', JSON.stringify({ name: n, count: ids.length, ids }))
+      }
+      return count
     },
 
     /** From the row alone: the session id names the sandbox, and the hub's origin follows from it (nothing to cache, nothing stale). */
@@ -427,18 +547,14 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
       const id = sandboxIdOfSession(row.sessionId)
       return id ? `https://${id}.${settings().hubDomain}` : null
     },
+  }
 
-    async isBrowserSandbox(sandboxId) {
-      if (!/^[a-z0-9]{1,63}$/.test(sandboxId)) return false
-      const s = settings()
-      try {
-        const info = await (await sdk()).Sandbox.getInfo(sandboxId, connection(s, CLOUD_BROWSER.probeTimeoutMs))
-        return info.metadata?.niKind === METADATA_KIND && info.metadata?.niNs === namespace() &&
-          (info.state === 'running' || info.state === 'paused')
-      } catch (err) {
-        if (isNotFound(err)) return false
-        throw failure(`could not look up sandbox ${sandboxId}`, err, s.apiKey)
-      }
-    },
+  async function listBrowsers(): Promise<RuntimeSandboxInfo[]> {
+    const s = settings()
+    try {
+      return await listAll(s, { niKind: METADATA_KIND, niNs: namespace() })
+    } catch (err) {
+      throw failure('could not list the browser sandboxes', err, s.apiKey)
+    }
   }
 }

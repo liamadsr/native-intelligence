@@ -186,15 +186,66 @@ export async function listUnusedStopped(cutoff: Date, limit: number): Promise<Cl
   return (data ?? []) as CloudBrowserRow[]
 }
 
+/** The stop_reason that marks a row the expiry claimed (status `stopping`). */
+export const EXPIRING = 'expiring'
+
 /**
- * Delete the row of a browser whose VM the expiry removed, only if it is still
- * stopped and untouched since `lastActiveAt` (an ensure in between keeps it).
- * True when it was deleted.
+ * Claim a browser unused since `lastActiveAt` for the expiry (the runtime
+ * backend; host.ts reconcile): compare-and-set from `stopped` with that same
+ * last activity to `stopping` + stop_reason `expiring`. An ensure that began in
+ * between moved the row off `stopped` (markStarting), so the claim fails and
+ * the browser is left alone; an ensure that begins after it finds the claim
+ * (isExpiring) and fails, to be retried. `stopping` is one of the states the
+ * column's CHECK allows (migration 421): no migration. Its other readers stay
+ * right: touch() and the relay acceptance ignore it, markStarting leaves it,
+ * and the sweep's stuck_stopping retry turns a claim whose run died back into
+ * `stopped` after stoppingStaleMs (the next reconcile then tries again).
+ * True when this call claimed it.
  */
-export async function deleteRowIfUnusedSince(ref: CloudBrowserRef, lastActiveAt: string): Promise<boolean> {
-  const { data, error } = await db().delete().match(own(ref)).eq('status', 'stopped').eq('last_active_at', lastActiveAt).select('user_id').maybeSingle()
-  check(error, 'delete unused')
+export async function claimUnusedForExpiry(ref: CloudBrowserRef, lastActiveAt: string): Promise<boolean> {
+  const { data, error } = await db().update({ status: 'stopping', stop_reason: EXPIRING })
+    .match(own(ref)).eq('status', 'stopped').eq('last_active_at', lastActiveAt).select('user_id').maybeSingle()
+  check(error, 'claim unused')
   return data !== null
+}
+
+/** Whether the expiry holds this browser's row (an ensure must not start it). */
+export async function isExpiring(ref: CloudBrowserRef): Promise<boolean> {
+  const { data, error } = await db().select('status, stop_reason').match(own(ref)).maybeSingle()
+  check(error, 'read expiring')
+  const row = data as { status?: string; stop_reason?: string | null } | null
+  return row?.status === 'stopping' && row.stop_reason === EXPIRING
+}
+
+/** Delete a row the expiry still holds (its VM is gone). True when it was deleted. */
+export async function deleteExpiringRow(ref: CloudBrowserRef): Promise<boolean> {
+  const { data, error } = await db().delete().match(own(ref)).eq('status', 'stopping').eq('stop_reason', EXPIRING).select('user_id').maybeSingle()
+  check(error, 'delete expiring')
+  return data !== null
+}
+
+/**
+ * The sandbox id the row of browser `sandboxName` names (its session id's
+ * first part, the runtime backend's `<sandbox id>.<ms>`), or null: no row,
+ * or no session (a stopped browser's session is null).
+ */
+export async function sessionOfSandboxName(sandboxName: string): Promise<string | null> {
+  const { data, error } = await db().select('session_id').eq('sandbox_name', sandboxName).maybeSingle()
+  check(error, 'read session by name')
+  return (data as { session_id?: string | null } | null)?.session_id ?? null
+}
+
+/**
+ * Whether a browser whose session is on sandbox `sandboxId` is starting or
+ * running (the hub's certificate question, hub-tls.ts). `sandboxId` must be
+ * the runtime's id shape; the match is an exact prefix `<id>.`, escaped.
+ */
+export async function hubSessionLive(sandboxId: string): Promise<boolean> {
+  if (!/^[a-z0-9]{1,63}$/.test(sandboxId)) return false
+  const escaped = sandboxId.replace(/[\\%_]/g, ch => `\\${ch}`)
+  const { data, error } = await db().select('user_id').in('status', ['starting', 'running']).like('session_id', `${escaped}.%`).limit(1)
+  check(error, 'hub session')
+  return Array.isArray(data) && data.length > 0
 }
 
 /** Whether a row owns this sandbox name (the orphan reconcile's question). */

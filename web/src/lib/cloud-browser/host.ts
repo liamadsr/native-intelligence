@@ -47,6 +47,25 @@ export function cloudBrowserBackend(): CloudBrowserBackend {
   return cloudBrowserBackendKind() === 'runtime' ? (runtimeBackend ??= createRuntimeBackend()) : hostedBackend
 }
 
+/**
+ * The backend for one run of the idle sweep or the reconcile. An unknown
+ * CLOUD_BROWSER_BACKEND is logged (once per run) and the run goes on as
+ * `hosted`, so the hosted browsers are still stopped before their cap. Safe
+ * because these runs only stop and remove: the hosted backend never touches a
+ * runtime sandbox, its reconcile removes only hosted sandboxes no row owns (as
+ * it always has), and a runtime browser it cannot see is merely marked stopped
+ * (its VM pauses at its own lifetime's end, keeping the profile). Ensures and
+ * the relay routes keep refusing the unknown value.
+ */
+function maintenanceBackend(run: 'sweep' | 'reconcile'): CloudBrowserBackend {
+  try {
+    return cloudBrowserBackend()
+  } catch (error) {
+    console.error(`[cloud-browser] ${run}: ${error instanceof Error ? error.message : String(error)}; going on as hosted`)
+    return hostedBackend
+  }
+}
+
 const nameFor = (ref: CloudBrowserRef) => cloudBrowserSandboxName(ref.userId, ref.workspaceId, cloudBrowserNamespace())
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 const within = (ms: number, signal?: AbortSignal) => AbortSignal.any([AbortSignal.timeout(ms), ...(signal ? [signal] : [])])
@@ -79,10 +98,11 @@ async function startBrowser(sandbox: BackendSandbox, signal: AbortSignal): Promi
  * the relay host a relay that is already running calls (setExitMode); a start
  * uses the app's current one, which the relay is then started with.
  */
-async function applyNetworkPolicy(sandbox: BackendSandbox, ref: CloudBrowserRef, name: string, mode: ExitMode, signal?: AbortSignal, relayOrigin?: string | null): Promise<void> {
+async function applyNetworkPolicy(backend: CloudBrowserBackend, sandbox: BackendSandbox, ref: CloudBrowserRef, name: string, mode: ExitMode, signal?: AbortSignal, relayOrigin?: string | null): Promise<void> {
   const origin = relayOrigin ?? cloudBrowserRelayOrigin()
   if (!origin) throw new Error('[cloud-browser] no relay origin: set CLOUD_BROWSER_RELAY_ORIGIN')
-  const token = mintBrowserRelayToken({ userId: ref.userId, workspaceId: ref.workspaceId, sandbox: name }, CLOUD_BROWSER.sessionTimeoutMs)
+  // A token that sits in a runtime VM says so, and is good on that backend only (relay-routes.ts).
+  const token = mintBrowserRelayToken({ userId: ref.userId, workspaceId: ref.workspaceId, sandbox: name, ...(backend.kind === 'runtime' ? { backend: 'runtime' as const } : {}) }, CLOUD_BROWSER.sessionTimeoutMs)
   await sandbox.setNetwork(mode, origin, token, signal)
 }
 
@@ -98,12 +118,13 @@ export async function setExitMode(
   relayOrigin?: string | null,
 ): Promise<void> {
   const name = nameFor(ref)
-  const sandbox = await cloudBrowserBackend().get(name)
+  const backend = cloudBrowserBackend()
+  const sandbox = await backend.get(name)
   if (!sandbox || sandbox.state !== 'running') throw new Error('cloud browser not running')
   // The running relay keeps the relay host it was started with (the app's other
   // domain, for a relay started before the app's address moved): the rule is
   // set for the host it calls, or its requests would lose their token.
-  await applyNetworkPolicy(sandbox, ref, name, mode, undefined, relayOrigin)
+  await applyNetworkPolicy(backend, sandbox, ref, name, mode, undefined, relayOrigin)
   await store.recordExit(ref, mode, tunnel)
 }
 
@@ -116,7 +137,7 @@ async function startRelay(backend: CloudBrowserBackend, sandbox: BackendSandbox,
   const origin = cloudBrowserRelayOrigin()
   if (!origin) throw new Error('[cloud-browser] no relay origin: set CLOUD_BROWSER_RELAY_ORIGIN')
   const exitMode = (await store.readExitMode(ref).catch(() => null)) ?? 'cloud'
-  await applyNetworkPolicy(sandbox, ref, name, exitMode, signal)
+  await applyNetworkPolicy(backend, sandbox, ref, name, exitMode, signal)
   // The live view needs the server's signing key; without it the relay runs alone (no hub).
   const signingKey = sandboxSigningKey()
   const verifyKey = signingKey ? sandboxVerifyKey(signingKey) : ''
@@ -158,6 +179,10 @@ export async function ensureCloudBrowser(ref: CloudBrowserRef, opts: { signal?: 
   const name = nameFor(ref)
   const wasRunning = (await store.readStatus(ref).catch(() => null)) === 'running'
   await store.markStarting(ref, name)
+  // The expiry holds this browser (it is being removed after long disuse): never race it.
+  if (backend.expiresUnused && await store.isExpiring(ref)) {
+    throw new Error('cloud browser: this browser is being cleared after long disuse; try again in a minute')
+  }
   const { sandbox, created } = await backend.getOrCreate(name, signal)
   await startBrowser(sandbox, signal)
   await startRelay(backend, sandbox, ref, name, signal)
@@ -190,10 +215,11 @@ export type StopOutcome = 'stopped' | 'already_stopped' | 'missing' | 'changed'
  * browser changed since (an ensure used it), it is left alone ('changed').
  * A stopped browser is never woken just to stop it.
  */
-export async function stopCloudBrowser(ref: CloudBrowserRef, reason: StopReason | 'requested', seen: StopCandidate | null = null): Promise<StopOutcome> {
+export async function stopCloudBrowser(ref: CloudBrowserRef, reason: StopReason | 'requested', seen: StopCandidate | null = null,
+  backend: CloudBrowserBackend = cloudBrowserBackend()): Promise<StopOutcome> {
   if (!(await store.markStopping(ref, seen))) return 'changed'
   const name = nameFor(ref)
-  const sandbox = await cloudBrowserBackend().get(name)
+  const sandbox = await backend.get(name)
   if (!sandbox) {
     await store.markStopped(ref, reason)
     return 'missing'
@@ -239,11 +265,12 @@ async function runBounded<T>(items: T[], limit: number, budgetMs: number, work: 
  * session cap, stuck starting, or stuck stopping. One failure never stops the rest.
  */
 export async function sweepIdleCloudBrowsers(now = Date.now()): Promise<{ stopped: number; skipped: number; failed: number; reasons: Record<string, number> }> {
+  const backend = maintenanceBackend('sweep')
   const candidates = await store.listStopCandidates(now)
   const out = { stopped: 0, skipped: 0, failed: 0, reasons: {} as Record<string, number> }
   await runBounded(candidates, CLOUD_BROWSER.sweepConcurrency, CLOUD_BROWSER.sweepBudgetMs, async row => {
     try {
-      const outcome = await stopCloudBrowser({ userId: row.user_id, workspaceId: row.workspace_id }, row.reason, row)
+      const outcome = await stopCloudBrowser({ userId: row.user_id, workspaceId: row.workspace_id }, row.reason, row, backend)
       if (outcome === 'changed') { out.skipped++; return }
       out.stopped++
       out.reasons[row.reason] = (out.reasons[row.reason] ?? 0) + 1
@@ -258,18 +285,24 @@ export async function sweepIdleCloudBrowsers(now = Date.now()): Promise<{ stoppe
 /**
  * On a backend whose service keeps no expiry of its own (the runtime), what the
  * hosted service does by its snapshots' expiry: a browser stopped and unused
- * for snapshotTtlMs loses its profile. Its VM is removed, then its row, but
- * only if the row is still stopped and untouched (an ensure in between keeps
- * the row and starts afresh: the VM it would have woken may be gone). A
- * failure leaves the row, so the next run retries it.
+ * for snapshotTtlMs loses its profile. Each one is first CLAIMED
+ * (store.claimUnusedForExpiry: `stopped` with the same last activity →
+ * `stopping`/`expiring`, a compare-and-set), so a person who comes back first
+ * keeps theirs, and an ensure that comes after the claim fails with a message
+ * to retry instead of waking a VM being removed. Then the VM is removed, then
+ * the row. A failure part-way leaves the claim; the sweep's stuck_stopping
+ * retry turns it back into `stopped` (stoppingStaleMs), and the next reconcile
+ * tries again.
  */
 async function expireUnused(backend: CloudBrowserBackend, now: number): Promise<number> {
   const rows = await store.listUnusedStopped(new Date(now - CLOUD_BROWSER.snapshotTtlMs), CLOUD_BROWSER.maxExpiriesPerReconcile)
   let expired = 0
   for (const row of rows) {
+    const ref = { userId: row.user_id, workspaceId: row.workspace_id }
     try {
+      if (!(await store.claimUnusedForExpiry(ref, row.last_active_at))) continue
       await backend.destroy(row.sandbox_name)
-      if (await store.deleteRowIfUnusedSince({ userId: row.user_id, workspaceId: row.workspace_id }, row.last_active_at)) expired++
+      if (await store.deleteExpiringRow(ref)) expired++
     } catch (error) {
       console.warn('[cloud-browser] expiry failed', JSON.stringify({ error: String((error as Error)?.message ?? error).slice(0, 200) }))
     }
@@ -281,10 +314,11 @@ async function expireUnused(backend: CloudBrowserBackend, now: number): Promise<
  * The daily reconcile: delete every browser VM of THIS database (its name
  * prefix) that no row owns any more, with its snapshots. A workspace merge or
  * deletion cascades the row away, and a delete that failed half-way leaves one.
- * On the runtime backend it also removes browsers unused past snapshotTtlMs.
+ * On the runtime backend it also removes browsers unused past snapshotTtlMs,
+ * and reports (never removes) browsers with more than one VM.
  */
-export async function reconcileCloudBrowsers(now = Date.now()): Promise<{ orphans: number; snapshotsDeleted: number; expired?: number }> {
-  const backend = cloudBrowserBackend()
+export async function reconcileCloudBrowsers(now = Date.now()): Promise<{ orphans: number; snapshotsDeleted: number; expired?: number; duplicates?: number }> {
+  const backend = maintenanceBackend('reconcile')
   const names = await backend.listNames(cloudBrowserNamePrefix(cloudBrowserNamespace()))
   const owned = await store.sandboxNamesWithRows(names)
   let orphans = 0
@@ -295,5 +329,7 @@ export async function reconcileCloudBrowsers(now = Date.now()): Promise<{ orphan
     snapshotsDeleted += await backend.destroy(name)
   }
   if (!backend.expiresUnused) return { orphans, snapshotsDeleted }
-  return { orphans, snapshotsDeleted, expired: await expireUnused(backend, now) }
+  // More than one VM for a browser someone owns: reported, never removed (one may hold the profile).
+  const duplicates = backend.reportDuplicates ? await backend.reportDuplicates(names.filter(name => owned.has(name))) : 0
+  return { orphans, snapshotsDeleted, expired: await expireUnused(backend, now), duplicates }
 }
