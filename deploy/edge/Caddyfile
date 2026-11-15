@@ -37,6 +37,12 @@
 	# stays closed: LiveKit's media has a UDP port of its own (7882).
 	servers {
 		protocols h1 h2
+		# Room for a request's headers. Without this line Caddy refuses a request
+		# whose headers pass about 16 KB in all with its own 431 (over HTTP/2 an
+		# HTML one, with no log line), and a chat turn's cookies, run token and
+		# context together pass that. The app proxy and Node behind it allow the
+		# same (app/proxy/Caddyfile, app/entrypoint.sh).
+		max_header_size 64KB
 		timeouts {
 			read_header 1m
 			idle 15m
