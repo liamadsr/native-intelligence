@@ -65,6 +65,12 @@ class Groups(unittest.TestCase):
         for name in ("SENTRY_ORG", "SENTRY_PROJECT", "RUN_SKILL_LOCAL_DISPATCH_ENABLED"):
             self.assertNotIn(name, cs.MAY_BE_EMPTY)
 
+    def test_the_studio_code_scenes_switch_may_stay_empty(self):
+        # .env.example: "on or off, and empty is off". Production keeps it empty.
+        self.assertEqual(cs.group("STUDIO_CODE_SCENES"), "may be empty")
+        _, blockers, _ = cs.report({"STUDIO_CODE_SCENES": ""}, {})
+        self.assertEqual(blockers, [])
+
     def test_no_name_is_in_two_groups(self):
         self.assertFalse(set(cs.MUST_MATCH) & set(cs.MAY_BE_EMPTY))
         self.assertFalse((set(cs.MUST_MATCH) | set(cs.MAY_BE_EMPTY)) & set(cs.SWITCH))

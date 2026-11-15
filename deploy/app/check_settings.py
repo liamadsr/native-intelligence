@@ -131,6 +131,7 @@ MAY_BE_EMPTY = {
     # The Studio worker (../studio; ../../studio-worker).
     "STUDIO_WORKER_SECRET": "empty: the Studio worker is refused, so nothing is imported, rendered or exported (../studio/README.md)",
     "STUDIO_PROVIDER_WORKSPACES": "empty: no workspace may make narration or generated shots on the worker's provider accounts",
+    "STUDIO_CODE_SCENES": "a switch: empty is off (the Studio's code scenes do not run; on needs it in ../studio/.env too)",
 }
 
 SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}
