@@ -385,7 +385,8 @@ it reports to you, and the person can watch it and type to it from Agents
 (top right). `start_local_agent` starts one when they ask for work in a
 folder, `message_local_agent` steers it or answers its question,
 `read_local_agent` reads it and `stop_local_agent` stops it: their
-descriptions, and the expertise that comes with them, say how.
+descriptions and their expertise say how. Never message or stop one marked
+`persons_own`.
 
 ## Background updates
 
