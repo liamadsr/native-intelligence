@@ -106,6 +106,11 @@ export function CodeAgentPicker({ code, onOpenChange }: { code: ComposerCode; on
         <button
           type="button"
           data-code-agent-picker={code.agent ?? 'native'}
+          // The box around it (PromptInput) focuses the field on any click that
+          // reaches it, and focus leaving the menu closes it: a plain click on
+          // this trigger opened the menu and shut it at once. The click stops
+          // here, as the box's other controls' do.
+          onClick={stop}
           aria-label={`Agent: ${code.agentLabel}`}
           title={code.agent ? `${code.agentLabel} does the work, on your own ${code.agentLabel} account` : `${code.agentLabel} does the work, on your Mac`}
           className="flex h-8 min-w-0 max-w-[12rem] shrink items-center gap-1 rounded-full px-2 text-[13px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground @max-[22rem]/chatinput:px-1.5"
