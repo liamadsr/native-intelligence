@@ -34,6 +34,7 @@ import { systemTeammateId } from '@/lib/work/system-teammates'
 import type { WorkItem, WorkStatus } from '@/lib/work/types'
 import { LOCAL_AGENT_INTERRUPTED_NEEDS_ID, LOCAL_AGENT_TEAMMATE_NEEDS_ID } from '@/lib/chat/teammate-report'
 import { MAC_TEAMMATE_TOOL_NAMES, macTeammateName } from './teammate'
+import { LOCAL_AGENT_CODE_SOURCE_KEY } from './code-thread'
 
 export const LOCAL_AGENT_WORK_KIND = 'local_agent'
 
@@ -80,6 +81,12 @@ export interface LedgerSession {
   worker?: string | null
   /** The action an action's Start made it for (its key), or null. */
   actionId?: string | null
+  /**
+   * The person started it from the chat composer's Code tab (store.ts
+   * isCodeJob): its turns report into their conversation as the finish
+   * summary alone (code-history.ts), never as a teammate's report.
+   */
+  code?: boolean
 }
 
 export type LedgerMove =
@@ -189,6 +196,7 @@ export async function startTurnRow(
         // Who does the work, and the action a Start made it for: a board card names the agent working it.
         ...(s.worker ? { worker: s.worker } : {}),
         ...(s.actionId ? { local_agent_action_id: s.actionId } : {}),
+        ...(s.code ? { [LOCAL_AGENT_CODE_SOURCE_KEY]: true } : {}),
       },
       ...(teammateId ? { aiTeamMemberId: teammateId } : {}),
     })

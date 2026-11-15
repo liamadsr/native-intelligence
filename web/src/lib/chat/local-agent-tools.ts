@@ -285,9 +285,11 @@ export async function startLocalAgent(
       startedBy: 'agent',
       idempotencyKey: localAgentIdempotencyKey(claims.conversationId, launch),
       ...(launch.personWords?.length ? { personWords: launch.personWords } : {}),
-      // Who does the work on that Mac is the person's choice (migration 658),
-      // never the model's: the server reads it from the Mac's environment.
-      macWorker: true,
+      // The chat agent's jobs always run on Native Intelligence's own agent:
+      // only the person's own send in the Code tab puts work on their coding
+      // agent (code-start.ts). Named, so a job of theirs in that folder is
+      // never joined (FOLDER_BUSY, other_worker).
+      explicitWorker: null,
     })
     if (started.kind !== 'mac') throw new Error('expected a Mac job')
     const { kind: _kind, ...session } = started

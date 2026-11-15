@@ -65,6 +65,20 @@ export interface MacWorkerOffer {
 }
 
 /**
+ * The coding agents the Mac app's registry knows (desktop's local_agent
+ * workers registry): what a Mac may offer once the person has it there. The
+ * Code tab lists one a Mac doesn't offer under "Needs connection".
+ */
+export const KNOWN_CODING_AGENTS: readonly MacWorkerOffer[] = [
+  { id: 'claude-code', label: 'Claude Code' },
+  { id: 'codex', label: 'Codex' },
+]
+
+/** How a coding agent a Mac doesn't offer gets there, in one line. */
+export const CODING_AGENT_CONNECT_HINT =
+  'Install it and sign in on that Mac, then allow it from the Native Intelligence menu bar icon (Local Agents → Coding Agents).'
+
+/**
  * A database answer that means "this column isn't there yet" (migration 658
  * not applied, or applied but PostgREST's schema cache not reloaded):
  * Postgres' undefined_column (42703), or PostgREST's unknown column
@@ -193,9 +207,11 @@ export interface MacEnvironment {
    */
   supportsBaseBranch: boolean
   /**
-   * Who does the chat agent's work on this Mac (migration 658): a coding
-   * agent's id (the person's own account on that Mac), or null for Native
-   * Intelligence's own agent. Absent: an older server (read as null).
+   * The default agent for code on this Mac (migration 658): a coding agent's
+   * id (the person's own account on that Mac), or null for Native
+   * Intelligence's own agent. The Code tab starts a new conversation on it;
+   * the chat agent's own jobs always run on Native Intelligence's agent.
+   * Absent: an older server (read as null).
    */
   worker?: string | null
   /**

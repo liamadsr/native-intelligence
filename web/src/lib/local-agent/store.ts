@@ -128,6 +128,12 @@ export interface SessionRow {
   requestedByPerson?: boolean
   /** Migration 659: claimed, and waiting in the Mac's own line for a free slot (it runs 3 at once). */
   queuedOnMac?: boolean
+  /**
+   * The person started it from the chat composer's Code tab (codeJobKey):
+   * the send's request id, which the person's message in the chat carries
+   * too. Absent for every other job.
+   */
+  codeRequestId?: string
 }
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -297,6 +303,7 @@ export function toSessionRow(r: DbSession): SessionRow {
     ...(isWorkerId(r.worker) ? { worker: r.worker } : {}),
     ...(isActionJobKey(r.idempotency_key) ? { requestedByPerson: true } : {}),
     ...(r.status === 'starting' && r.mac_queued_at ? { queuedOnMac: true } : {}),
+    ...(isCodeJob(r) ? { codeRequestId: codeRequestIdOf(r.idempotency_key)! } : {}),
   }
 }
 
@@ -352,6 +359,7 @@ export function ledgerSessionOf(r: DbSession): LedgerSession {
     trackedJobId: r.tracked_job_id,
     worker: isWorkerId(r.worker) ? r.worker : null,
     actionId: ACTION_JOB_ID_RE.exec(r.idempotency_key ?? '')?.[1]?.toLowerCase() ?? null,
+    ...(isCodeJob(r) ? { code: true } : {}),
   }
 }
 
@@ -733,6 +741,41 @@ export function isUnattendedKey(key: string | null | undefined): boolean {
   return isLoopKey(key) || isActionJobKey(key)
 }
 
+/**
+ * A job the person started from the chat composer's Code tab (POST
+ * /api/local-agent/sessions, code-start.ts): `local-agent-code:<requestId>`,
+ * one per send, so a retried send gets its first job back. Attended: the
+ * person typed it and sent it themselves.
+ */
+export const CODE_JOB_KEY_PREFIX = 'local-agent-code:'
+
+/** A Code send's request id: the messages route's shape. */
+export const CODE_REQUEST_ID_RE = /^[A-Za-z0-9_.:-]{1,200}$/
+
+export function codeJobKey(requestId: string): string {
+  return `${CODE_JOB_KEY_PREFIX}${requestId}`
+}
+
+/** The request id a Code job's key carries, or null for any other key. */
+export function codeRequestIdOf(key: string | null | undefined): string | null {
+  if (typeof key !== 'string' || !key.startsWith(CODE_JOB_KEY_PREFIX)) return null
+  const id = key.slice(CODE_JOB_KEY_PREFIX.length)
+  return CODE_REQUEST_ID_RE.test(id) ? id : null
+}
+
+/** The person started it from the Code tab: their own start, with a Code key. */
+export function isCodeJob(r: Pick<DbSession, 'started_by' | 'idempotency_key'>): boolean {
+  return r.started_by === 'person' && codeRequestIdOf(r.idempotency_key) !== null
+}
+
+/** The person's own session with this idempotency key, as the list shows it, or null. */
+export async function findSessionByKey(svc: Svc, userId: string, key: string): Promise<{ session: SessionRow; deviceOnline: boolean } | null> {
+  const existing = await sessionByKey(svc, userId, key)
+  if (!existing) return null
+  const row = await reapIfStale(svc, existing)
+  return { session: toSessionRow(row), deviceOnline: isOnline(row.device?.last_seen_at) }
+}
+
 const ACTION_JOB_ID_RE = /^local-agent-action:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):start:/i
 
 /** The action an action-started job works (its key), or null. unattended.ts parseActionJobKey reads the whole key. */
@@ -1075,9 +1118,9 @@ type ClaimInput = {
   idempotencyKey?: string
   personWords?: readonly string[]
   /**
-   * A chat start's agent, the Mac's choice read before the join decision
-   * (migration 658): `undefined` for every other start (no rule about agents);
-   * null for Native Intelligence's own agent, else a coding agent's id. A live
+   * The start's agent, when it names one (createSession's explicitWorker):
+   * null for Native Intelligence's own agent, else a coding agent's id;
+   * `undefined` for a start that names none (no rule about agents). A live
    * job on another agent is never joined: idle, it ends and a new one starts;
    * busy, the start is refused (FOLDER_BUSY, other_worker).
    */
@@ -1150,7 +1193,7 @@ function folderBusy(cur: DbSession | null, input: ClaimInput, reason: FolderBusy
             : reason === 'changing'
               ? `${name} in ${label} changed as this started. One agent works in a folder at a time: try again in a moment.`
               : reason === 'other_worker'
-                ? `${name} is already working in ${label}${whose} on ${agentNamed(cur?.worker)}, and this Mac is now set to ${agentNamed(input.chosenWorker)}. One agent works in a folder at a time: wait for it to finish, or stop it, before starting again.`
+                ? `${name} is already working in ${label}${whose} on ${agentNamed(cur?.worker)}, and this start is for ${agentNamed(input.chosenWorker)}. One agent works in a folder at a time: wait for it to finish, or stop it, before starting again.`
                 : `${name} is already working in ${label}${whose}. One agent works in a folder at a time: wait for it to finish, or stop it first.`
   return new LocalAgentError('conflict', message, {
     code: FOLDER_BUSY_CODE,
@@ -1199,7 +1242,7 @@ async function claimFolder(svc: Svc, input: ClaimInput): Promise<{ joined: DbSes
       }
       const modeFits = loop ? cur.mode === input.mode : MODE_RANK[cur.mode] >= MODE_RANK[input.mode]
       const asking = loop && cur.last_signal === 'ask'
-      // A chat start never joins a job on another agent than the Mac's choice
+      // A start that names its agent never joins a job on another one
       // (migration 658): the work would silently go on with the old one.
       const otherWorker = input.chosenWorker !== undefined && (cur.worker ?? null) !== input.chosenWorker
       // A job being stopped never takes another turn: the stop would refuse
@@ -1293,33 +1336,6 @@ async function sessionBaseBranch(svc: Svc, folder: DbFolder, mode: LocalAgentMod
   return isBaseBranch(branch) ? branch : null
 }
 
-/**
- * Who the person chose to do the work on this folder's Mac (migration 658,
- * environment.worker): a coding agent's id, or null for Native
- * Intelligence's own agent. Unlike the environment id above, a read that
- * fails THROWS: a job the person meant for their own agent must never start
- * on ours instead (it would spend our models when they chose theirs). Only a
- * missing column (migration 658 not applied yet) reads as null: no choice can
- * have been saved without it.
- */
-async function sessionWorker(svc: Svc, userId: string, folder: DbFolder): Promise<string | null> {
-  const { data, error } = await svc
-    .from('environment')
-    .select('worker')
-    .eq('kind', 'mac')
-    .eq('owner_user_id', userId)
-    .eq('device_id', folder.device_id)
-    .maybeSingle()
-  if (error) {
-    if (isMissingColumnError(error)) return null
-    throw new Error(`mac worker read failed: ${error.message}`)
-  }
-  const worker = (data as { worker?: unknown } | null)?.worker
-  if (worker === null || worker === undefined) return null
-  // The column's CHECK holds the shape; anything else is refused, never read as "ours".
-  if (!isWorkerId(worker)) throw new Error('mac worker read failed: not a worker id')
-  return worker
-}
 
 
 /**
@@ -1445,20 +1461,14 @@ export async function createSession(
      */
     queuedTtlMs?: number
     /**
-     * Run it on the coding agent the person chose for the folder's Mac
-     * (migration 658, environment.worker), stamped on the session: the chat
-     * agent's starts (start_local_agent). Absent or false: Native
-     * Intelligence's own agent, as every other start (an action's Start, a
-     * work card, a loop) runs today. A join keeps the agent the running job
-     * already has.
-     */
-    macWorker?: boolean
-    /**
      * An agent the person chose for THIS start (migration 658): a coding
-     * agent's id, or null for Native Intelligence's own agent. Wins over
-     * `macWorker`. Only a person's own click passes it (an action's Start:
-     * src/app/api/account/actions/[id]/start-agent); the same join rule and
-     * refusals as a chat start apply.
+     * agent's id, stamped on the session, or null for Native Intelligence's
+     * own agent. Only a person's own click or send passes a coding agent (an
+     * action's Start: src/app/api/account/actions/[id]/start-agent; the Code
+     * tab: code-start.ts); the chat agent's starts pass null. Absent: Native
+     * Intelligence's own agent, with no rule about the agent of a job it
+     * joins. The Mac's saved choice (environment.worker) is never read here:
+     * it is only the Code tab's default.
      */
     explicitWorker?: string | null
   },
@@ -1488,16 +1498,14 @@ export async function createSession(
   if (!input.conversationId) throw new LocalAgentError('bad_request', 'A local agent needs a conversation to report in')
   await assertConversation(svc, input.userId, input.conversationId)
 
-  // The start's agent is read BEFORE the join decision: a live job on
-  // another agent is never joined (claimFolder's chosenWorker). An explicit
-  // choice (a person's click) wins; else a chat start reads the Mac's.
+  // The start's agent is known BEFORE the join decision: a live job on
+  // another agent is never joined (claimFolder's chosenWorker).
   if (input.explicitWorker !== undefined && input.explicitWorker !== null && !isWorkerId(input.explicitWorker)) {
     throw new LocalAgentError('bad_request', 'worker must be a coding agent’s id, or null for Native Intelligence')
   }
-  const chosen: string | null | undefined =
-    input.explicitWorker !== undefined ? input.explicitWorker : input.macWorker ? await sessionWorker(svc, input.userId, folder) : undefined
+  const chosen: string | null | undefined = input.explicitWorker
   const worker = chosen ?? null
-  const { macWorker: _macWorker, explicitWorker: _explicitWorker, ...claim } = input
+  const { explicitWorker: _explicitWorker, ...claim } = input
   const joined = await claimFolder(svc, { ...claim, request, ...(chosen !== undefined ? { chosenWorker: chosen } : {}) })
   if (joined) {
     return {

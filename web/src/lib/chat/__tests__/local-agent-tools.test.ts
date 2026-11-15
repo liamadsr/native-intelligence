@@ -128,9 +128,10 @@ describe('start_local_agent', () => {
       mode: 'read',
       startedBy: 'agent',
       idempotencyKey: `local-agent:${CONV}:session:wrun_s1:turn:turn-1:call:call-1`,
-      // Who does the work is the Mac's saved choice (migration 658), read by the store, never the model's.
-      macWorker: true,
+      // The chat agent's jobs always run on Native Intelligence's own agent: never the Mac's saved choice, never the model's.
+      explicitWorker: null,
     })
+    expect(lib.createSession.mock.calls[0][1]).not.toHaveProperty('macWorker')
     expect(out).toMatchObject({ status: 'queued', session_id: SESSION_ID, device_online: true, mode: 'read', work_item_id: 'tj-1' })
     expect(out).not.toHaveProperty('worker')
     expect(out).not.toHaveProperty('reused')
@@ -158,7 +159,7 @@ describe('start_local_agent', () => {
 
   it('a folder busy on another agent: the refusal names that agent', async () => {
     lib.createSession.mockRejectedValueOnce(
-      new LocalAgentError('conflict', 'Native Intelligence on Studio Mac is already working in harbor-site for you in this chat on the person’s own coding agent (codex), and this Mac is now set to Native Intelligence’s own agent.', {
+      new LocalAgentError('conflict', 'Native Intelligence on Studio Mac is already working in harbor-site for you in this chat on the person’s own coding agent (codex), and this start is for Native Intelligence’s own agent.', {
         code: 'FOLDER_BUSY',
         reason: 'other_worker',
         session: { id: SESSION_ID, teammate: 'Native Intelligence on Studio Mac', folder: 'harbor-site', status: 'running', mode: 'read', worker: 'codex' },
@@ -176,9 +177,9 @@ describe('start_local_agent', () => {
     expect(Object.keys(startLocalAgentSchema.shape)).toEqual(['folder_id', 'request', 'mode'])
   })
 
-  it('a worker read that fails is not a start on our own agent: it throws (the route answers "could not confirm")', async () => {
-    lib.createSession.mockRejectedValueOnce(new Error('mac worker read failed: timeout'))
-    await expect(startLocalAgent(svc, claims(), launch, { folder_id: FOLDER_ID, request: 'Look' })).rejects.toThrow('mac worker read failed')
+  it('a database error throws (the route answers "could not confirm")', async () => {
+    lib.createSession.mockRejectedValueOnce(new Error('local agent session insert failed: timeout'))
+    await expect(startLocalAgent(svc, claims(), launch, { folder_id: FOLDER_ID, request: 'Look' })).rejects.toThrow('insert failed')
     expect(lib.createSession).toHaveBeenCalledTimes(1)
   })
 

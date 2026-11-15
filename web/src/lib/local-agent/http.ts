@@ -3,7 +3,7 @@
  * place a library refusal becomes an api-errors response.
  */
 
-import { requireUser, type AuthContext } from '@/lib/api-auth'
+import { requireUser, requireWorkspace, type AuthContext, type WorkspaceAuthContext } from '@/lib/api-auth'
 import { apiError, badRequest, conflict, forbidden, notFound, serverError } from '@/lib/api-errors'
 import { isDeviceToken } from '@/lib/device-tokens'
 import { LocalAgentError } from './store'
@@ -20,6 +20,20 @@ export async function requireLocalAgentUser(request: Request): Promise<AuthConte
     return apiError('Local agents need a signed-in session', { status: 403, code: 'DEVICE_TOKEN_REFUSED' })
   }
   return requireUser()
+}
+
+/**
+ * requireWorkspace, minus capture-device tokens, as requireLocalAgentUser:
+ * a signed-in person (their cookie session, or their own Supabase access
+ * token) in one of their workspaces. A run token (a chat turn's, a Mac
+ * body's `la1`) is no Supabase session, so it never passes either.
+ */
+export async function requireLocalAgentWorkspace(request: Request): Promise<WorkspaceAuthContext | Response> {
+  const header = request.headers.get('authorization') ?? ''
+  if (header.startsWith('Bearer ') && isDeviceToken(header.slice(7).trim())) {
+    return apiError('Local agents need a signed-in session', { status: 403, code: 'DEVICE_TOKEN_REFUSED' })
+  }
+  return requireWorkspace()
 }
 
 /** The JSON body as an object, or a 400. */

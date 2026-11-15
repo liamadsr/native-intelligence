@@ -14,6 +14,7 @@ import { ACTION_DONE_MESSAGE_KIND } from '@/lib/email/action-done-part'
 import { KEPT_MESSAGE_KIND } from '@/lib/kept-up-to-date/part'
 import { LOOK_AHEAD_MESSAGE_KIND } from '@/lib/look-ahead/message-kind'
 import { GUEST_MESSAGE_MESSAGE_KIND, GUEST_REQUEST_MESSAGE_KIND } from '@/lib/guests/chat-parts'
+import { codeFinishSessionOf } from '@/lib/local-agent/code-thread'
 
 /**
  * Realtime bridge from the capture conversation's server-written rows into
@@ -117,7 +118,7 @@ export function isApprovalResultMessage(message: unknown): boolean {
  * True when the home thread's 'server-turns' scope takes this row: a
  * teammate's report, a server-written turn (a channel turn's reply included),
  * an approval's outcome, an ask (chat-asks.ts isHomeAskMessage), a guest's
- * note or request, or the person's own message from an outside channel
+ * note or request, a Code tab job's finish summary, or the person's own message from an outside channel
  * (written by the Slack intake, src/lib/slack/turn.ts, or the SMS webhook,
  * src/lib/sms/deliver.ts; no browser persists it).
  */
@@ -130,7 +131,9 @@ export function isServerTurnRow(message: unknown): boolean {
     isHomeAskMessage(message) ||
     isChannelMessageRow(message) ||
     isMailChangeMessage(message) ||
-    isGuestNoteMessage(message)
+    isGuestNoteMessage(message) ||
+    // A Code tab job's finish summary (src/lib/local-agent/code-history.ts).
+    codeFinishSessionOf(message) !== null
   )
 }
 
