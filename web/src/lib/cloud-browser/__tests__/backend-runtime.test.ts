@@ -186,14 +186,23 @@ const store = vi.hoisted(() => ({
   isExpiring: vi.fn(async (_ref: unknown) => false),
   deleteExpiringRow: vi.fn(async (_ref: unknown) => true),
   sessionOfSandboxName: vi.fn(async (_name: string) => null as string | null),
+  recordStartingSandbox: vi.fn(async (_name: string, _sandboxId: string) => {}),
+  releaseStart: vi.fn(async (_ref: unknown) => {}),
+  listSlotHolders: vi.fn(async () => [] as unknown[]),
+  browsersWithLiveCommands: vi.fn(async (_refs: unknown[], _now?: number) => new Set<string>()),
+  countRecentEvictions: vi.fn(async (_withinMs: number, _now?: number) => 0),
+  hubSessionLive: vi.fn(async (_sandboxId: string) => false),
 }))
 vi.mock('@/lib/cloud-browser/store', () => store)
-vi.mock('@/lib/browser-agent/queue', () => ({ ringComputer: async () => {} }))
+const rings = vi.hoisted(() => [] as { ref: unknown; event: string }[])
+vi.mock('@/lib/browser-agent/queue', () => ({ ringComputer: async (ref: unknown, event: string) => { rings.push({ ref, event }) } }))
 
 const host = await import('@/lib/cloud-browser/host')
 const { cloudBrowserSandboxName } = await import('@/lib/cloud-browser/ids')
 const { verifyBrowserRelayToken } = await import('@/lib/cloud-browser/relay-token')
-const { chooseSandbox, CLOSE_USR_LOCAL, firstOf, RUNTIME_TIMING, runtimeNetworkFor, sandboxIdOfSession, USR_LOCAL_CLOSED } = await import('@/lib/cloud-browser/backend-runtime')
+const { CloudBrowserBusyError, isCloudBrowserBusy } = await import('@/lib/cloud-browser/slots')
+const { clearHubTlsCache, hubTlsAllowed } = await import('@/lib/cloud-browser/hub-tls')
+const { chooseSandbox, CLOSE_USR_LOCAL, firstOf, forgetPrewarmedHubs, RUNTIME_TIMING, runtimeNetworkFor, sandboxIdOfSession, USR_LOCAL_CLOSED } = await import('@/lib/cloud-browser/backend-runtime')
 rt.hooks.closeLine = CLOSE_USR_LOCAL
 rt.hooks.checkLine = USR_LOCAL_CLOSED
 // The waits, short: what they decide is tested, not how long they last.
@@ -206,10 +215,30 @@ const META = { niKind: 'cloud-browser', niName: NAME, niNs: 'local' }
 const PRIVATE = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '169.254.0.0/16']
 const SIX_HOURS = 6 * 60 * 60 * 1000
 
+/** The hub names the ensure asked for in the background (the certificate's prewarm), and what the row said at that moment. */
+const prewarms: { url: string; init: RequestInit }[] = []
+
 beforeEach(() => {
   vi.clearAllMocks()
   rt.reset()
   hostedCalls.length = 0
+  rings.length = 0
+  prewarms.length = 0
+  forgetPrewarmedHubs()
+  vi.stubEnv('CLOUD_BROWSER_MAX_RUNNING', '')
+  store.markStarting.mockImplementation(async () => {})
+  store.markRunning.mockImplementation(async () => {})
+  store.markStopped.mockImplementation(async () => {})
+  store.touch.mockImplementation(async () => {})
+  store.readStatus.mockImplementation(async () => null)
+  store.readSession.mockImplementation(async () => null)
+  store.recordStartingSandbox.mockImplementation(async () => {})
+  store.releaseStart.mockImplementation(async () => {})
+  store.listSlotHolders.mockImplementation(async () => [])
+  store.browsersWithLiveCommands.mockImplementation(async () => new Set<string>())
+  store.countRecentEvictions.mockImplementation(async () => 0)
+  store.hubSessionLive.mockImplementation(async () => false)
+  store.listStopCandidates.mockImplementation(async () => [])
   delete process.env.NEXT_PUBLIC_SUPABASE_URL
   vi.stubEnv('CLOUD_BROWSER_BACKEND', 'runtime')
   vi.stubEnv('SANDBOX_RUNTIME_API_URL', 'http://runtime.test:3000')
@@ -231,6 +260,11 @@ beforeEach(() => {
   store.deleteExpiringRow.mockImplementation(async () => true)
   // envd's health check through the traffic port (the reconcile's): a live box answers, a dead or paused one not.
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: { headers: Record<string, string> }) => {
+    // The hub's prewarm (no answer anyone reads: the hub is not up yet).
+    if (url.endsWith('.hub.test/health')) {
+      prewarms.push({ url, init: init as unknown as RequestInit })
+      return new Response(null, { status: 502 })
+    }
     const box = rt.boxes.get(init.headers['E2b-Sandbox-Id'])
     expect(url).toBe('http://runtime.test:3002/health')
     expect(init.headers['E2b-Sandbox-Port']).toBe('49983')
@@ -801,5 +835,448 @@ describe('the one root step: /usr/local closed on every new sandbox', () => {
     expect(rt.boxes.has(box.sandboxId)).toBe(true)
     expect(rt.Sandbox.kill).not.toHaveBeenCalled()
     expect(box.lines.some(l => l.line.includes('/opt/cloud-browser/start.sh'))).toBe(false)
+  })
+})
+
+// ── The shared slots and the hub's prewarm, against rows kept in memory ─────
+
+interface TableRow {
+  user_id: string; workspace_id: string; sandbox_name: string; session_id: string | null
+  status: 'starting' | 'running' | 'stopping' | 'stopped'; started_at: string | null
+  last_active_at: string; updated_at: string; stop_reason: string | null
+}
+const table = new Map<string, TableRow>()
+const keyOf = (r: { userId: string; workspaceId: string }) => `${r.userId}:${r.workspaceId}`
+const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString()
+
+/** The row store's rules, as store.ts writes them, on the rows above (the compare-and-sets included). */
+function useTable() {
+  table.clear()
+  const set = (row: TableRow, patch: Partial<TableRow>) => Object.assign(row, patch, { updated_at: new Date().toISOString() })
+  store.markStarting.mockImplementation(async (r: unknown, name: string) => {
+    const k = keyOf(r as { userId: string; workspaceId: string })
+    const now = new Date().toISOString()
+    const [userId, workspaceId] = k.split(':')
+    if (!table.has(k)) table.set(k, { user_id: userId, workspace_id: workspaceId, sandbox_name: name, session_id: null, status: 'starting', started_at: null, last_active_at: now, updated_at: now, stop_reason: null })
+    const row = table.get(k)!
+    if (row.status === 'stopped') set(row, { status: 'starting', stop_reason: null })
+    set(row, { last_active_at: now })
+  })
+  store.readStatus.mockImplementation(async (r: unknown) => table.get(keyOf(r as never))?.status ?? null)
+  store.readSession.mockImplementation(async (r: unknown) => {
+    const row = table.get(keyOf(r as never))
+    return row ? { status: row.status, sessionId: row.session_id } : null
+  })
+  store.markRunning.mockImplementation(async (r: unknown, sessionId: string, startedAt: Date) => {
+    const row = table.get(keyOf(r as never))!
+    set(row, { status: 'running', session_id: sessionId, started_at: startedAt.toISOString(), last_active_at: new Date().toISOString() })
+  })
+  store.touch.mockImplementation(async (r?: unknown) => {
+    const row = table.get(keyOf(r as never))
+    if (row && (row.status === 'starting' || row.status === 'running')) set(row, { last_active_at: new Date().toISOString() })
+  })
+  store.markStopping.mockImplementation(async (r: unknown, seen: unknown) => {
+    const row = table.get(keyOf(r as never))
+    const s = seen as TableRow & { reason: string } | null
+    if (!row) return false
+    if (!s) { if (row.status === 'stopped') return false; set(row, { status: 'stopping' }); return true }
+    if (row.status !== s.status || row.last_active_at !== s.last_active_at) return false
+    set(row, { status: 'stopping' })
+    return true
+  })
+  store.markStopped.mockImplementation(async (r: unknown, reason: string) => {
+    const row = table.get(keyOf(r as never))
+    if (row?.status === 'stopping') set(row, { status: 'stopped', stop_reason: reason })
+  })
+  store.releaseStart.mockImplementation(async (r: unknown) => {
+    const row = table.get(keyOf(r as never))
+    if (row?.status === 'starting') set(row, { status: 'stopped', stop_reason: 'busy' })
+  })
+  store.listSlotHolders.mockImplementation(async () => [...table.values()]
+    .filter(row => ['starting', 'running', 'stopping'].includes(row.status) && !(row.status === 'stopping' && row.stop_reason === 'expiring'))
+    .sort((a, b) => Date.parse(a.last_active_at) - Date.parse(b.last_active_at)).map(row => ({ ...row })))
+  store.sessionOfSandboxName.mockImplementation(async (n: string) => [...table.values()].find(row => row.sandbox_name === n)?.session_id ?? null)
+  store.recordStartingSandbox.mockImplementation(async (n: string, id: string) => {
+    const row = [...table.values()].find(r => r.sandbox_name === n)
+    if (row?.status === 'starting') set(row, { session_id: `${id}.0` })
+  })
+  store.hubSessionLive.mockImplementation(async (id: string) => [...table.values()]
+    .some(row => (row.status === 'starting' || row.status === 'running') && !!row.session_id?.startsWith(`${id}.`)))
+}
+
+/** Another person's browser, running (its sandbox too), last used `idleMs` ago. */
+function runningBrowser(n: number, idleMs: number) {
+  const name = cloudBrowserSandboxName(`p${n}`, `w${n}`, 'local')
+  const box = rt.add({ ...META, niName: name }, { runStart: '1700000000000' })
+  table.set(`p${n}:w${n}`, { user_id: `p${n}`, workspace_id: `w${n}`, sandbox_name: name, session_id: `${box.sandboxId}.1700000000000`,
+    status: 'running', started_at: iso(idleMs + 1000), last_active_at: iso(idleMs), updated_at: iso(idleMs), stop_reason: null })
+  return { ref: { userId: `p${n}`, workspaceId: `w${n}` }, box, row: () => table.get(`p${n}:w${n}`)! }
+}
+const runningBoxes = () => [...rt.boxes.values()].filter(b => b.state === 'running').length
+
+describe('the shared slots (runtime backend)', () => {
+  beforeEach(() => useTable())
+
+  it('under the cap: the browser starts and nobody gives way', async () => {
+    for (let i = 1; i <= 3; i++) runningBrowser(i, 30 * 60_000)
+    expect((await host.ensureCloudBrowser(ref)).created).toBe(true)
+    expect(rt.events.filter(e => e.startsWith('pause'))).toEqual([])
+    expect(runningBoxes()).toBe(4)
+  })
+
+  it('at the cap: the browser idle longest is paused gracefully (stop.sh, then the pause, reason `evicted`, the Mac told), and the newcomer takes its slot', async () => {
+    const others = [runningBrowser(1, 10 * 60_000), runningBrowser(2, 40 * 60_000), runningBrowser(3, 20 * 60_000), runningBrowser(4, 3 * 60_000)]
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const out = await host.ensureCloudBrowser(ref)
+    expect(out.created).toBe(true)
+    const victim = others[1]
+    expect(victim.box.state).toBe('paused')
+    expect(rt.boxes.has(victim.box.sandboxId)).toBe(true) // paused, never removed: the profile stays
+    const stopAt = rt.events.indexOf(`run ${victim.box.sandboxId} 'bash' '/opt/cloud-browser/stop.sh'`)
+    expect(stopAt).toBeGreaterThan(-1)
+    expect(rt.events.indexOf(`pause ${victim.box.sandboxId}`)).toBeGreaterThan(stopAt)
+    // The eviction finished before the newcomer's sandbox was created.
+    expect(rt.events.indexOf(`pause ${victim.box.sandboxId}`)).toBeLessThan(rt.events.findIndex(e => e.startsWith('create')))
+    expect(victim.row()).toMatchObject({ status: 'stopped', stop_reason: 'evicted', session_id: `${victim.box.sandboxId}.1700000000000` })
+    expect(store.markStopped).toHaveBeenCalledWith(victim.ref, 'evicted', { keepSession: true })
+    expect(rings).toContainEqual({ ref: victim.ref, event: 'browser-down' })
+    for (const other of [others[0], others[2], others[3]]) expect(other.box.state).toBe('running')
+    expect(runningBoxes()).toBe(4)
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('gave its slot away'), expect.stringContaining('"outcome":"stopped"'))
+    // Its owner loses nothing: their next use wakes the same sandbox.
+    for (const other of [others[0], others[2], others[3]]) other.row().last_active_at = iso(30 * 60_000)
+    const back = await host.ensureCloudBrowser(victim.ref)
+    expect(back).toMatchObject({ created: false, hubOrigin: `https://${victim.box.sandboxId}.hub.test` })
+    expect(rt.events).toContain(`resume ${victim.box.sandboxId}`)
+  })
+
+  it('reads the cap from CLOUD_BROWSER_MAX_RUNNING', async () => {
+    vi.stubEnv('CLOUD_BROWSER_MAX_RUNNING', '2')
+    const a = runningBrowser(1, 10 * 60_000)
+    const b = runningBrowser(2, 20 * 60_000)
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    await host.ensureCloudBrowser(ref)
+    expect(b.box.state).toBe('paused')
+    expect(a.box.state).toBe('running')
+  })
+
+  it('a browser already running needs no slot: it never makes anyone give way, and never fails on the cap', async () => {
+    for (let i = 1; i <= 4; i++) runningBrowser(i, 30 * 60_000)
+    const first = await (async () => {
+      vi.stubEnv('CLOUD_BROWSER_MAX_RUNNING', '5')
+      return host.ensureCloudBrowser(ref)
+    })()
+    vi.stubEnv('CLOUD_BROWSER_MAX_RUNNING', '1')
+    store.listSlotHolders.mockClear()
+    const again = await host.ensureCloudBrowser(ref)
+    expect(again).toMatchObject({ created: false, sessionId: first.sessionId })
+    expect(store.listSlotHolders).not.toHaveBeenCalled()
+    expect(rt.events.filter(e => e.startsWith('pause'))).toEqual([])
+  })
+
+  it('never evicts a browser used within the floor, one with a command in flight, or one starting', async () => {
+    const watched = runningBrowser(1, 90_000) // a live view pings each minute: inside the 2-minute floor
+    const tasking = runningBrowser(2, 50 * 60_000)
+    const idle = runningBrowser(3, 10 * 60_000)
+    const starting = runningBrowser(4, 60 * 60_000)
+    starting.row().status = 'starting'
+    store.browsersWithLiveCommands.mockImplementation(async () => new Set(['p2:w2']))
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    await host.ensureCloudBrowser(ref)
+    expect(idle.box.state).toBe('paused')
+    for (const kept of [watched, tasking, starting]) expect(kept.box.state).toBe('running')
+    // The live-command check was asked about the candidates only, oldest first.
+    expect(store.browsersWithLiveCommands.mock.calls[0][0]).toEqual([tasking.ref, idle.ref])
+  })
+
+  it('when none may give way: a clear, retryable error with its own code, nothing created or paused, and the row gives its slot back', async () => {
+    runningBrowser(1, 30_000)
+    runningBrowser(2, 60_000)
+    runningBrowser(3, 50 * 60_000)
+    runningBrowser(4, 40 * 60_000)
+    store.browsersWithLiveCommands.mockImplementation(async () => new Set(['p3:w3', 'p4:w4']))
+    const failed = await host.ensureCloudBrowser(ref).then(() => null, (e: unknown) => e)
+    expect(failed).toBeInstanceOf(CloudBrowserBusyError)
+    expect(failed).toMatchObject({ message: 'All browsers are in use right now. Try again in a minute.', code: 'BROWSERS_BUSY' })
+    expect(isCloudBrowserBusy(failed)).toBe(true)
+    expect(rt.Sandbox.create).not.toHaveBeenCalled()
+    expect(rt.events.filter(e => e.startsWith('pause'))).toEqual([])
+    expect(table.get('u1:w1')).toMatchObject({ status: 'stopped', stop_reason: 'busy' })
+    expect(store.markRunning).not.toHaveBeenCalled()
+  })
+
+  it('a stuck stopping row counts (its VM may hold memory); the expiry’s claim does not', async () => {
+    for (let i = 1; i <= 3; i++) runningBrowser(i, 60_000)
+    const stuck = runningBrowser(4, 30 * 60_000)
+    stuck.row().status = 'stopping'
+    await expect(host.ensureCloudBrowser(ref)).rejects.toThrow(CloudBrowserBusyError)
+    stuck.row().stop_reason = 'expiring'
+    expect((await host.ensureCloudBrowser(ref)).created).toBe(true)
+  })
+
+  it('race: the victim’s own ensure touches it first: it is left alone, and the next one gives way', async () => {
+    const first = runningBrowser(1, 50 * 60_000)
+    const second = runningBrowser(2, 40 * 60_000)
+    runningBrowser(3, 60_000)
+    runningBrowser(4, 60_000)
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    // Between the newcomer's read and its claim, the first's owner uses it (a touch moves last_active_at).
+    const real = store.markStopping.getMockImplementation()!
+    store.markStopping.mockImplementationOnce(async (r: unknown, seen: unknown) => {
+      first.row().last_active_at = new Date().toISOString()
+      return real(r, seen)
+    })
+    await host.ensureCloudBrowser(ref)
+    expect(first.box.state).toBe('running')
+    expect(first.row().status).toBe('running')
+    expect(second.box.state).toBe('paused')
+    expect(second.row()).toMatchObject({ status: 'stopped', stop_reason: 'evicted' })
+  })
+
+  it('race: the idle sweep claims the same browser first: the eviction leaves it to the sweep and takes the next', async () => {
+    const first = runningBrowser(1, 50 * 60_000)
+    const second = runningBrowser(2, 40 * 60_000)
+    runningBrowser(3, 60_000)
+    runningBrowser(4, 60_000)
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    const real = store.markStopping.getMockImplementation()!
+    store.markStopping.mockImplementationOnce(async (r: unknown, seen: unknown) => {
+      first.row().status = 'stopping' // the sweep's claim landed
+      return real(r, seen)
+    })
+    await host.ensureCloudBrowser(ref)
+    expect(first.box.state).toBe('running') // the sweep's to stop, not ours
+    expect(second.row()).toMatchObject({ status: 'stopped', stop_reason: 'evicted' })
+  })
+
+  it('race: the victim’s ensure that came before the eviction’s claim keeps it running; one that comes after finds it stopping and needs a slot of its own', async () => {
+    const victim = runningBrowser(1, 50 * 60_000)
+    runningBrowser(2, 3 * 60_000)
+    runningBrowser(3, 60_000)
+    runningBrowser(4, 60_000)
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    await host.ensureCloudBrowser(ref)
+    expect(victim.row().status).toBe('stopped')
+    // Now its owner comes back: the row is not running, so it is a newcomer like any other, and p2 gives way.
+    await host.ensureCloudBrowser(victim.ref)
+    expect(table.get('p2:w2')).toMatchObject({ status: 'stopped', stop_reason: 'evicted' })
+    const holding = (await store.listSlotHolders()) as TableRow[]
+    expect(holding.length).toBe(4)
+    expect(runningBoxes()).toBe(4)
+  })
+
+  it('race: two newcomers for the last slot never both take it (each counts the other’s starting row)', async () => {
+    for (let i = 1; i <= 3; i++) runningBrowser(i, 60_000) // none may give way
+    const other = { userId: 'u2', workspaceId: 'w2' }
+    const results = await Promise.allSettled([host.ensureCloudBrowser(ref), host.ensureCloudBrowser(other)])
+    const ok = results.filter(r => r.status === 'fulfilled').length
+    expect(ok).toBeLessThanOrEqual(1)
+    for (const r of results) if (r.status === 'rejected') expect(r.reason).toBeInstanceOf(CloudBrowserBusyError)
+    expect(runningBoxes()).toBeLessThanOrEqual(4)
+    expect(((await store.listSlotHolders()) as TableRow[]).length).toBeLessThanOrEqual(4)
+  })
+
+  it('race: two newcomers one after the other: the second counts the first and makes another give way', async () => {
+    for (let i = 1; i <= 4; i++) runningBrowser(i, (10 + i) * 60_000)
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    await host.ensureCloudBrowser(ref)
+    await host.ensureCloudBrowser({ userId: 'u2', workspaceId: 'w2' })
+    expect(table.get('p4:w4')?.status).toBe('stopped')
+    expect(table.get('p3:w3')?.status).toBe('stopped')
+    expect(runningBoxes()).toBe(4)
+  })
+
+  it('two ensures of one person at once share one slot step: one answer for both', async () => {
+    for (let i = 1; i <= 4; i++) runningBrowser(i, (10 + i) * 60_000)
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const [a, b] = await Promise.all([host.ensureCloudBrowser(ref), host.ensureCloudBrowser(ref)])
+    expect(a.hubOrigin).toBe(b.hubOrigin)
+    // One slot, one eviction.
+    expect(rt.events.filter(e => e.startsWith('pause'))).toHaveLength(1)
+    expect(table.get('u1:w1')?.status).toBe('running')
+  })
+
+  it('the runtime’s refusal for memory (coding runs share the pool) is "no slot": the browser idle longest gives way, and the create is tried once more', async () => {
+    runningBrowser(1, 10 * 60_000)
+    const oldest = runningBrowser(2, 30 * 60_000)
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const refusal = new Error('500: Failed to place sandbox: this node cannot map 4096 MiB of guest memory: its memory pool is too small or in use by running sandboxes')
+    rt.Sandbox.create.mockImplementationOnce(async () => { throw refusal })
+    const out = await host.ensureCloudBrowser(ref)
+    expect(out.created).toBe(true)
+    expect(rt.Sandbox.create).toHaveBeenCalledTimes(2)
+    expect(oldest.box.state).toBe('paused')
+    expect(oldest.row().stop_reason).toBe('evicted')
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no memory'))
+  })
+
+  it('… a wake refused for memory is never a dead sandbox: nothing created beside it, nothing removed', async () => {
+    const mine = rt.add(META, { state: 'paused' })
+    table.set('u1:w1', { user_id: 'u1', workspace_id: 'w1', sandbox_name: NAME, session_id: `${mine.sandboxId}.1`, status: 'stopped', started_at: null,
+      last_active_at: iso(60 * 60_000), updated_at: iso(60 * 60_000), stop_reason: 'idle' })
+    const oldest = runningBrowser(2, 30 * 60_000)
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const real = rt.Sandbox.connect.getMockImplementation()!
+    rt.Sandbox.connect.mockImplementationOnce(async () => { throw new Error('500: Failed to place sandbox: this node cannot map 4096 MiB of guest memory') })
+    const out = await host.ensureCloudBrowser(ref)
+    expect(out).toMatchObject({ created: false, hubOrigin: `https://${mine.sandboxId}.hub.test` })
+    expect(rt.Sandbox.create).not.toHaveBeenCalled()
+    expect(rt.Sandbox.kill).not.toHaveBeenCalled()
+    expect(oldest.box.state).toBe('paused')
+    expect(real).toBeDefined()
+  })
+
+  it('… and when it refuses again, or nobody may give way, the same "all in use" error (the row gives its slot back)', async () => {
+    runningBrowser(1, 30 * 60_000)
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const noRoom = async () => { throw new Error('500: Failed to place sandbox: this node cannot map 4096 MiB of guest memory') }
+    rt.Sandbox.create.mockImplementationOnce(noRoom).mockImplementationOnce(noRoom)
+    await expect(host.ensureCloudBrowser(ref)).rejects.toThrow(CloudBrowserBusyError)
+    expect(rt.Sandbox.create).toHaveBeenCalledTimes(2)
+    expect(table.get('u1:w1')).toMatchObject({ status: 'stopped', stop_reason: 'busy' })
+    // Nobody left to give way: refused at once, with one create only.
+    rt.Sandbox.create.mockClear()
+    rt.Sandbox.create.mockImplementationOnce(noRoom)
+    await expect(host.ensureCloudBrowser(ref)).rejects.toThrow('All browsers are in use right now. Try again in a minute.')
+    expect(rt.Sandbox.create).toHaveBeenCalledTimes(1)
+    expect(rt.Sandbox.kill).not.toHaveBeenCalled()
+  })
+
+  it('the sweep reports the slots (holding, cap, evictions of the last hour), and stays as it was otherwise', async () => {
+    runningBrowser(1, 60_000)
+    runningBrowser(2, 60_000)
+    store.countRecentEvictions.mockResolvedValueOnce(3)
+    expect(await host.sweepIdleCloudBrowsers()).toEqual({ stopped: 0, skipped: 0, failed: 0, reasons: {}, slots: { cap: 4, running: 2, evictedLastHour: 3 } })
+    expect(store.countRecentEvictions.mock.calls[0][0]).toBe(60 * 60_000)
+    store.listSlotHolders.mockRejectedValueOnce(new Error('db down'))
+    expect((await host.sweepIdleCloudBrowsers()).slots).toBeNull()
+  })
+})
+
+describe('the shared slots on the hosted backend', () => {
+  it('do not apply: no count, no eviction, no release', async () => {
+    vi.stubEnv('CLOUD_BROWSER_BACKEND', '')
+    vi.stubEnv('CLOUD_BROWSER_MAX_RUNNING', '1')
+    await host.sweepIdleCloudBrowsers().then(out => expect(out).not.toHaveProperty('slots'))
+    expect(store.listSlotHolders).not.toHaveBeenCalled()
+    expect(store.countRecentEvictions).not.toHaveBeenCalled()
+  })
+})
+
+describe('the hub’s certificate, during the ensure', () => {
+  beforeEach(() => useTable())
+  const ask = (host_: string) => hubTlsAllowed(host_, { liveSession: id => store.hubSessionLive(id) })
+
+  it('on a create: the row names the new sandbox while it is starting, BEFORE the one background request to its hub', async () => {
+    clearHubTlsCache()
+    const seenAtRequest: { session: string | null; status: string | undefined; yes: boolean; other: boolean }[] = []
+    vi.mocked(fetch).mockImplementation((async (url: string, init: RequestInit & { headers?: Record<string, string> }) => {
+      if (String(url).endsWith('.hub.test/health')) {
+        const id = new URL(String(url)).hostname.split('.')[0]
+        const row = table.get('u1:w1')
+        // What our edge would be told at this very handshake, and for any other name.
+        rt.events.push(`prewarm ${id}`)
+        seenAtRequest.push({ session: row?.session_id ?? null, status: row?.status, yes: await ask(`${id}.hub.test`), other: await ask('zzz999.hub.test') })
+        prewarms.push({ url: String(url), init })
+        return new Response(null, { status: 502 })
+      }
+      return new Response(null, { status: 204 })
+    }) as never)
+    const out = await host.ensureCloudBrowser(ref)
+    const box = only()
+    expect(prewarms.map(p => p.url)).toEqual([`https://${box.sandboxId}.hub.test/health`])
+    expect(seenAtRequest).toEqual([{ session: `${box.sandboxId}.0`, status: 'starting', yes: true, other: false }])
+    expect(prewarms[0].init).toMatchObject({ method: 'GET', redirect: 'manual', cache: 'no-store' })
+    expect(prewarms[0].init.signal).toBeInstanceOf(AbortSignal)
+    // The request went out before the root step ran (as early as the id is final), and the run's real session follows.
+    expect(rt.events.indexOf(`prewarm ${box.sandboxId}`)).toBeLessThan(rt.events.indexOf(`run ${box.sandboxId} ${CLOSE_USR_LOCAL}`))
+    expect(rt.events.indexOf(`prewarm ${box.sandboxId}`)).toBeGreaterThan(rt.events.indexOf(`create ${box.sandboxId}`))
+    expect(table.get('u1:w1')).toMatchObject({ status: 'running', session_id: out.sessionId })
+    expect(await ask(`${box.sandboxId}.hub.test`)).toBe(true)
+  })
+
+  it('on a wake: the row names the woken sandbox, then its hub is asked for once per process', async () => {
+    const mine = rt.add(META, { state: 'paused' })
+    table.set('u1:w1', { user_id: 'u1', workspace_id: 'w1', sandbox_name: NAME, session_id: null, status: 'stopped', started_at: null,
+      last_active_at: iso(60 * 60_000), updated_at: iso(60 * 60_000), stop_reason: 'idle' })
+    const order: string[] = []
+    store.recordStartingSandbox.mockImplementationOnce(async (n: string, id: string) => {
+      order.push(`record ${id}`)
+      const row = [...table.values()].find(r => r.sandbox_name === n)!
+      row.session_id = `${id}.0`
+    })
+    vi.mocked(fetch).mockImplementation((async (url: string) => { order.push(`fetch ${url}`); return new Response(null, { status: 502 }) }) as never)
+    await host.ensureCloudBrowser(ref)
+    expect(order).toEqual([`record ${mine.sandboxId}`, `fetch https://${mine.sandboxId}.hub.test/health`])
+    // Stopped and woken again (same sandbox, same process): no second request.
+    await host.stopCloudBrowser(ref, 'idle')
+    await host.ensureCloudBrowser(ref)
+    expect(order.filter(o => o.startsWith('fetch'))).toHaveLength(1)
+  })
+
+  it('never on a running browser taken up again, and never repeated for one sandbox', async () => {
+    await host.ensureCloudBrowser(ref)
+    await host.ensureCloudBrowser(ref)
+    await host.ensureCloudBrowser(ref)
+    expect(prewarms).toHaveLength(1)
+    expect(store.recordStartingSandbox).toHaveBeenCalledTimes(1)
+  })
+
+  it('a failing or hanging request changes nothing, and is never waited for or logged', async () => {
+    const warn = vi.spyOn(console, 'warn')
+    const error = vi.spyOn(console, 'error')
+    let release: () => void = () => {}
+    vi.mocked(fetch).mockImplementation((async (url: string) => {
+      if (String(url).endsWith('.hub.test/health')) {
+        await new Promise<void>(resolve => { release = resolve })
+        throw new Error(`getaddrinfo ENOTFOUND ${url}`)
+      }
+      return new Response(null, { status: 204 })
+    }) as never)
+    const out = await host.ensureCloudBrowser(ref)
+    expect(out.created).toBe(true)
+    release()
+    await new Promise(resolve => setTimeout(resolve, 5))
+    vi.mocked(fetch).mockImplementation((async () => { throw new TypeError('fetch failed') }) as never)
+    forgetPrewarmedHubs()
+    rt.reset()
+    table.clear()
+    expect((await host.ensureCloudBrowser(ref)).created).toBe(true)
+    expect(warn).not.toHaveBeenCalled()
+    expect(error).not.toHaveBeenCalled()
+  })
+
+  it('a row that cannot be written stops the prewarm (the edge must never be asked before the row says yes), not the ensure', async () => {
+    store.recordStartingSandbox.mockRejectedValueOnce(new Error('db down'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect((await host.ensureCloudBrowser(ref)).created).toBe(true)
+    expect(prewarms).toHaveLength(0)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no prewarm'), 'db down')
+  })
+
+  it('a create that gives way to another sandbox names that one (woken), never its own', async () => {
+    let theirs = ''
+    rt.hooks.duringCreate = () => {
+      rt.hooks.duringCreate = null
+      theirs = rt.add(META, { state: 'paused', startedAt: new Date(0) }).sandboxId
+    }
+    await host.ensureCloudBrowser(ref)
+    expect(store.recordStartingSandbox.mock.calls.map(c => c[1])).toEqual([theirs])
+    expect(prewarms.map(p => p.url)).toEqual([`https://${theirs}.hub.test/health`])
+  })
+
+  it('a create whose root step fails leaves a row that misleads nobody: chooseSandbox never meets the removed id', async () => {
+    rt.hooks.close = 'open'
+    await expect(host.ensureCloudBrowser(ref)).rejects.toThrow(/still writable/)
+    expect(table.get('u1:w1')?.session_id).toBe('sbx1.0')
+    expect(rt.boxes.has('sbx1')).toBe(false)
+    rt.hooks.close = 'ok'
+    const out = await host.ensureCloudBrowser(ref)
+    expect(out.created).toBe(true)
+    expect(table.get('u1:w1')?.session_id).toBe(out.sessionId)
   })
 })

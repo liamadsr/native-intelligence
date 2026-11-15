@@ -1,5 +1,5 @@
 import 'server-only'
-import { CLOUD_BROWSER, cloudBrowserBackendKind, cloudBrowserNamespace, cloudBrowserRelayOrigin } from './config'
+import { CLOUD_BROWSER, cloudBrowserBackendKind, cloudBrowserMaxRunning, cloudBrowserNamespace, cloudBrowserRelayOrigin } from './config'
 import { cloudBrowserNamePrefix, cloudBrowserSandboxName } from './ids'
 import { createHash } from 'node:crypto'
 import { mintBrowserRelayToken } from './relay-token'
@@ -14,6 +14,7 @@ import type { BackendSandbox, CloudBrowserBackend } from './backend'
 import type { RuntimeBrowserReport } from './runtime-browser'
 import { hostedBackend } from './backend-hosted'
 import { createRuntimeBackend } from './backend-runtime'
+import { CloudBrowserBusyError, evictionCandidates, isCloudBrowserBusy, isCloudBrowserNoRoom, MAX_EVICTION_TRIES } from './slots'
 
 export { relayNetworkPolicy } from './backend-hosted'
 
@@ -184,7 +185,17 @@ export async function ensureCloudBrowser(ref: CloudBrowserRef, opts: { signal?: 
   if (backend.expiresUnused && await store.isExpiring(ref)) {
     throw new Error('cloud browser: this browser is being cleared after long disuse; try again in a minute')
   }
-  const { sandbox, created } = await backend.getOrCreate(name, signal)
+  // The runtime's shared slots: a browser that is not running yet needs one (slots.ts).
+  let got: Awaited<ReturnType<CloudBrowserBackend['getOrCreate']>>
+  try {
+    if (backend.kind === 'runtime') await takeSlotOnce(backend, ref)
+    got = await getOrCreateWithRoom(backend, ref, name, signal)
+  } catch (error) {
+    // Refused for room: nothing of this browser came up, so its row holds no slot (store.releaseStart).
+    if (isCloudBrowserBusy(error)) await store.releaseStart(ref).catch(() => {})
+    throw error
+  }
+  const { sandbox, created } = got
   await startBrowser(sandbox, signal)
   await startRelay(backend, sandbox, ref, name, signal)
   const session = sandbox.session()
@@ -192,6 +203,122 @@ export async function ensureCloudBrowser(ref: CloudBrowserRef, opts: { signal?: 
   // The person's Mac connects its exit to a browser that just came up (C4); a running one already has it.
   if (!wasRunning) await ringComputer(ref, 'browser-up')
   return { sandboxName: name, sessionId: session.sessionId, created, readyMs: Math.round(performance.now() - started), hubOrigin: sandbox.hubOrigin() }
+}
+
+/**
+ * The runtime backend's shared slots (slots.ts): before `ref`'s browser is
+ * created or woken, make sure fewer than CLOUD_BROWSER_MAX_RUNNING others hold
+ * one, else make the one idle longest give way (evictLongestIdle), else
+ * CloudBrowserBusyError.
+ *
+ * Why the count is right without a lock (no overshoot of the cap by the rows):
+ *  - Every ensure marks its row `starting` (markStarting) BEFORE it counts, and
+ *    a row counts from then until it is `stopped`. Of two ensures racing for
+ *    the last slot, the one that counts second sees the first's row: both may
+ *    evict (one pause too many, which is safe), neither proceeds into a full set.
+ *  - An evicted browser is counted while it is `stopping` (its VM holds memory
+ *    until its pause lands), and the eviction is waited for: the slot it frees
+ *    is the newcomer's, whose row is already counted in its place.
+ *  - "Already running" is read AFTER markStarting: an eviction that claimed
+ *    this browser first left the row `stopping`, so this ensure counts as a
+ *    newcomer; one that comes after the touch fails its compare-and-set.
+ *  - A newcomer that is refused (no browser could give way, or the runtime had
+ *    no memory) puts its row back to `stopped` (store.releaseStart): nothing of
+ *    it came up, and a `starting` row left behind would hold a slot until the
+ *    sweep's stuck-starting stop, minutes later.
+ *  - Two ensures of ONE person in this process share one slot step
+ *    (takeSlotOnce): one row, one answer, so one is never refused (and puts the
+ *    row back) while the other goes on with it.
+ * The one overshoot left, by one: two ensures of one person in two web
+ * processes at once (a roll-out's overlap), at a full set with one browser that
+ * can give way: one takes it, the other is refused and puts the shared row back
+ * to `stopped` while the first starts the VM, uncounted until its markRunning.
+ * Bounded (one per such moment) and self-correcting: the idle sweep stops one
+ * of them within its idle time, and the runtime's refusal still guards memory.
+ * What is not counted: the expiry's claims (their VMs are paused), and the
+ * coding agent's sandboxes, which share the runtime's memory: for those the
+ * runtime's own refusal is the backstop (getOrCreateWithRoom).
+ */
+async function takeSlot(backend: CloudBrowserBackend, ref: CloudBrowserRef): Promise<void> {
+  // markStarting has run: a row `running` now holds its slot already. It needs no
+  // other, and never makes anyone give way.
+  if ((await store.readStatus(ref)) === 'running') return
+  const cap = cloudBrowserMaxRunning()
+  const holders = (await store.listSlotHolders()).filter(h => !(h.user_id === ref.userId && h.workspace_id === ref.workspaceId))
+  if (holders.length < cap) return
+  if (!(await evictLongestIdle(backend, ref, holders))) throw new CloudBrowserBusyError()
+}
+
+const slotSteps = new Map<string, Promise<void>>()
+
+/** takeSlot, shared by the ensures of one browser that run at once in this process. */
+function takeSlotOnce(backend: CloudBrowserBackend, ref: CloudBrowserRef): Promise<void> {
+  const key = `${ref.userId}:${ref.workspaceId}`
+  const pending = slotSteps.get(key)
+  if (pending) return pending
+  const step = takeSlot(backend, ref).finally(() => slotSteps.delete(key))
+  slotSteps.set(key, step)
+  return step
+}
+
+/**
+ * Pause the browser idle longest (above the floor, with no command in flight)
+ * so `ref`'s can take its memory, exactly as the idle sweep stops one (stop.sh,
+ * then the pause, the row `stopped` with reason `evicted`, the Mac told
+ * `browser-down`). The claim is the sweep's compare-and-set on the row as it
+ * was read here (markStopping): a browser touched since (its own ensure, a
+ * command, a viewer), or claimed by the sweep or another eviction, is left
+ * alone and the next one is tried. Its owner loses nothing: the next use wakes
+ * it. True when one gave way.
+ */
+async function evictLongestIdle(backend: CloudBrowserBackend, ref: CloudBrowserRef, holders?: store.SlotHolder[]): Promise<boolean> {
+  const now = Date.now()
+  // The 20 idle longest: only those are asked about commands in flight, so only those may give way.
+  const candidates = evictionCandidates(holders ?? await store.listSlotHolders(), ref, now).slice(0, 20)
+  if (!candidates.length) return false
+  const busy = await store.browsersWithLiveCommands(candidates.map(c => ({ userId: c.user_id, workspaceId: c.workspace_id })), now)
+  let tries = 0
+  for (const victim of candidates) {
+    if (tries >= MAX_EVICTION_TRIES) break
+    if (busy.has(`${victim.user_id}:${victim.workspace_id}`)) continue
+    tries++
+    const victimRef = { userId: victim.user_id, workspaceId: victim.workspace_id }
+    try {
+      const outcome = await stopCloudBrowser(victimRef, 'evicted', { ...victim, reason: 'evicted' }, backend)
+      if (outcome !== 'changed') {
+        console.info('[cloud-browser] a browser gave its slot away', JSON.stringify({ outcome, idleMs: now - Date.parse(victim.last_active_at) }))
+        return true
+      }
+    } catch (error) {
+      // Its row stays `stopping` (still counted); the sweep's stuck-stopping retry finishes it.
+      console.warn('[cloud-browser] eviction failed', JSON.stringify({ error: String((error as Error)?.message ?? error).slice(0, 200) }))
+    }
+  }
+  return false
+}
+
+/**
+ * The backend's getOrCreate, on the runtime with its refusal for lack of
+ * memory (slots.ts CloudBrowserNoRoomError: the coding agent's sandboxes share
+ * the pool, so it can come below the cap) treated as "no slot": the browser
+ * idle longest gives way, and the create or wake is tried once more; else
+ * CloudBrowserBusyError. Never taken as a dead sandbox: nothing is created
+ * beside it and nothing is removed.
+ */
+async function getOrCreateWithRoom(backend: CloudBrowserBackend, ref: CloudBrowserRef, name: string, signal: AbortSignal) {
+  try {
+    return await backend.getOrCreate(name, signal)
+  } catch (error) {
+    if (backend.kind !== 'runtime' || !isCloudBrowserNoRoom(error)) throw error
+    console.warn('[cloud-browser] the runtime has no memory for a browser: making the one idle longest give way')
+    if (!(await evictLongestIdle(backend, ref))) throw new CloudBrowserBusyError()
+  }
+  try {
+    return await backend.getOrCreate(name, signal)
+  } catch (error) {
+    if (isCloudBrowserNoRoom(error)) throw new CloudBrowserBusyError()
+    throw error
+  }
 }
 
 /**
@@ -273,7 +400,9 @@ async function runBounded<T>(items: T[], limit: number, budgetMs: number, work: 
  * The idle cron's work: stop every browser that is idle, near the platform's
  * session cap, stuck starting, or stuck stopping. One failure never stops the rest.
  */
-export async function sweepIdleCloudBrowsers(now = Date.now()): Promise<{ stopped: number; skipped: number; failed: number; reasons: Record<string, number> }> {
+export async function sweepIdleCloudBrowsers(now = Date.now()): Promise<{ stopped: number; skipped: number; failed: number; reasons: Record<string, number>
+  /** Runtime only: the shared slots after this run (slots.ts), or null when they could not be read. */
+  slots?: SlotReport | null }> {
   const backend = maintenanceBackend('sweep')
   const candidates = await store.listStopCandidates(now)
   const out = { stopped: 0, skipped: 0, failed: 0, reasons: {} as Record<string, number> }
@@ -288,7 +417,23 @@ export async function sweepIdleCloudBrowsers(now = Date.now()): Promise<{ stoppe
       console.warn('[cloud-browser] stop failed', JSON.stringify({ reason: row.reason, error: String((error as Error)?.message ?? error).slice(0, 200) }))
     }
   })
-  return out
+  if (backend.kind !== 'runtime') return out
+  return { ...out, slots: await slotReport(now).catch(() => null) }
+}
+
+export interface SlotReport {
+  /** CLOUD_BROWSER_MAX_RUNNING. */
+  cap: number
+  /** Browsers holding a slot now (starting, running, or stopping but for the expiry's claims): what the cap counts. */
+  running: number
+  /** Browsers paused in the last hour to free a slot and not used since. */
+  evictedLastHour: number
+}
+
+/** The slots as the rows tell them (two small queries; the sweep's report). */
+async function slotReport(now: number): Promise<SlotReport> {
+  const [holders, evictedLastHour] = await Promise.all([store.listSlotHolders(), store.countRecentEvictions(60 * 60_000, now)])
+  return { cap: cloudBrowserMaxRunning(), running: holders.length, evictedLastHour }
 }
 
 /**

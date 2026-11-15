@@ -10,7 +10,11 @@ import { hubSessionLive } from './store'
  * exactly one label under that domain, on the runtime backend, whose label is
  * the sandbox of a browser that is `starting` or `running` in its row (its
  * session id is `<label>.<ms>`; the hub's address is only handed out after
- * markRunning). Everything else, a malformed host or a failure included, is
+ * markRunning). A `starting` row names its sandbox as `<label>.0` as soon as
+ * the ensure has taken it up (store.recordStartingSandbox), and the ensure then
+ * asks for the name once itself, so the certificate is usually there before the
+ * live view's first handshake (runtime-browser.ts, "The hub's certificate").
+ * Everything else, a malformed host or a failure included, is
  * no: the edge is never answered with an error.
  *
  * Answered from the database alone, never from the runtime: a stranger's
