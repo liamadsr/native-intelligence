@@ -47,7 +47,8 @@
  * Decorative, so it is hidden from assistive technology.
  */
 import { useEffect, useRef, useState } from 'react'
-import { AudioLines, Building2, Calendar, FileText, GitPullRequest, Inbox, Mail, MessageSquareText, MessagesSquare, MoonStar, Sunrise, Sunset } from 'lucide-react'
+import { useInView } from './use-in-view'
+import { AudioLines, Brain, Building2, Calendar, FileText, GitPullRequest, Mail, MessageSquareText, MessagesSquare, MoonStar, Sunrise, Sunset } from 'lucide-react'
 
 // The drawing's own units (the SVG's viewBox); everything else is a share of them.
 const W = 880
@@ -81,7 +82,8 @@ const OUT = 94
  */
 function at(hour: number, r: number = R): { x: number; y: number } {
   const angle = ((hour - 12) * 15 * Math.PI) / 180
-  return { x: CX + r * Math.sin(angle), y: CY - r * Math.cos(angle) }
+  // Rounded, so the server's markup and every browser's agree to the last digit.
+  return { x: Math.round((CX + r * Math.sin(angle)) * 1000) / 1000, y: Math.round((CY - r * Math.cos(angle)) * 1000) / 1000 }
 }
 
 /** A point as CSS `left` / `top`, rounded so the server's and the browser's markup agree. */
@@ -192,10 +194,10 @@ const EVENTS: readonly DayEvent[] = [
     // Clear of 06:00, where the sunrise's own icon sits.
     hour: 28 + 50 / 60,
     time: '04:50',
-    label: 'Morning tidy',
-    did: 'Inbox cleared',
-    result: ['Receipts and newsletters archived', 'Every one can be undone'],
-    icon: <Inbox className={ICON} />,
+    label: 'Yesterday’s work',
+    did: 'Lessons kept',
+    result: ['What it learned from yesterday’s work', 'You can read it, and remove what’s wrong'],
+    icon: <Brain className={ICON} />,
   },
 ]
 
@@ -339,6 +341,7 @@ const CSS = `
 .ni-day-moon { opacity: 0; }
 .ni-day-light { opacity: 0; }
 .ni-day-glyph { opacity: 1; }
+.ni-day-paused, .ni-day-paused * { animation-play-state: paused !important; }
 @media (prefers-reduced-motion: no-preference) {
   .ni-day-marker { animation: ni-day-marker ${LOOP}s linear infinite; }
   .ni-day-done { animation: ni-day-done ${LOOP}s linear infinite; }
@@ -533,7 +536,11 @@ export function HeroDay() {
   // (the server's markup, and a visitor who asked for reduced motion).
   const [latest, setLatest] = useState<number | null>(null)
 
+  // Off screen the whole loop stands still (its CSS is paused and the timer is not running), so the page pays for it only while it is looked at.
+  const [rootRef, inView] = useInView<HTMLDivElement>()
+
   useEffect(() => {
+    if (!inView) return
     const animation = markerRef.current?.getAnimations?.()[0]
     if (!animation) return
     const read = () => {
@@ -548,12 +555,12 @@ export function HeroDay() {
     read()
     const timer = setInterval(read, 200)
     return () => clearInterval(timer)
-  }, [])
+  }, [inView])
 
   const card = latest === null || latest < 0 ? null : EVENTS[latest]
 
   return (
-    <div className="pointer-events-none relative mx-auto w-full max-w-[880px] text-foreground" style={{ aspectRatio: `${W} / ${H}` }} aria-hidden>
+    <div ref={rootRef} className={`pointer-events-none relative mx-auto w-full max-w-[880px] text-foreground ${inView ? '' : 'ni-day-paused'}`} style={{ aspectRatio: `${W} / ${H}` }} aria-hidden>
       <style>{CSS}</style>
 
       <svg viewBox={`0 0 ${W} ${H}`} className="absolute inset-0 h-full w-full overflow-visible" fill="none">

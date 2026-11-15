@@ -85,7 +85,7 @@ const AROUND = [
   },
   {
     src: '/screens/iphone-home.webp',
-    alt: 'The iPhone app’s home: the next meetings and the open tasks',
+    alt: 'The iPhone app’s home: what is coming up and the open tasks',
     width: 742,
     height: 1564,
     place: 'left-[1.5%] top-[4%] w-[16%]',

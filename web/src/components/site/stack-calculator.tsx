@@ -7,7 +7,7 @@
  * built round it.
  *
  * HOW IT WORKS. A row of app tiles that scrolls sideways (arrows and a
- * scrubber under it, or drag and swipe): a tile is a toggle, ticked when it
+ * scrubber under it, or swipe): a tile is a toggle, ticked when it
  * is in the sum. Under the row, a short ledger: the picked apps per seat, the
  * seats with a stepper and what the apps cost a year, what we cost a year,
  * and the difference.
@@ -184,7 +184,7 @@ export function StackCalculator() {
 
       <div className="mx-auto mt-8 max-w-md text-left">
         <LedgerRow label="Selected apps / seat" value={cents(cost.appsPerSeat)} unit="/ month" />
-        <LedgerRow label="Seats" value={dollars(cost.appsPerYear)} unit="/ year">
+        <LedgerRow label="Those apps, for your seats" value={dollars(cost.appsPerYear)} unit="/ year">
           <span className="inline-flex items-center gap-1">
             <button
               type="button"

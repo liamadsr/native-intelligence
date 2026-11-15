@@ -65,7 +65,7 @@ describe('latestEvent', () => {
 describe('the still picture', () => {
   it('shows every event of the day and the night with what was done about it, and no clock or card', () => {
     const markup = renderToStaticMarkup(createElement(HeroDay))
-    for (const text of ['Lena’s email', 'Reply drafted', 'It texted you', 'You replied yes', 'Held until morning', 'Pull request opened', 'Inbox cleared']) {
+    for (const text of ['Lena’s email', 'Reply drafted', 'It texted you', 'You replied yes', 'Held until morning', 'Pull request opened', 'Lessons kept']) {
       expect(markup).toContain(text)
     }
     expect(markup).not.toContain('class="ni-day-card')

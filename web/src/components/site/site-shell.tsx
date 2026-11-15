@@ -21,7 +21,7 @@ import { clsx } from 'clsx'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { usePostHog } from 'posthog-js/react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, ChevronDown, Download, Menu, Search, X } from 'lucide-react'
 import { Logo } from '@/components/logo'
 import { useSignupHref } from '@/components/signup-href'
@@ -241,74 +241,112 @@ const BAR_MENUS: { label: string; groups: SiteNavGroup[] }[] = [
 const BAR_LINK = 'inline-flex h-9 items-center gap-1 rounded-full px-3 text-sm text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground'
 
 /**
- * The bar's menus and the panel the open one drops. A menu opens under the
- * pointer or on a click (a click is what a keyboard and a touch screen have),
- * and closes when the pointer leaves the bar, on Escape, or when a link in it
- * is followed.
+ * The bar's menus and the panel the open one drops. A mouse opens a menu by
+ * resting on it; a click, a tap or the keyboard opens and closes it (a click
+ * on a menu the mouse just opened leaves it open). It closes when the pointer
+ * leaves the bar, when focus leaves the bar, on Escape (focus goes back to
+ * its button), or when a link in it is followed. Each panel comes straight
+ * after its button in the markup, so Tab goes from the button into its links.
  */
 function BarMenus() {
   const [open, setOpen] = useState<string | null>(null)
-  const menu = BAR_MENUS.find((entry) => entry.label === open)
+  // The menu a resting mouse opened, which the click that follows must not close.
+  const hovered = useRef<string | null>(null)
+  const navRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     if (!open) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(null)
+      if (event.key !== 'Escape') return
+      const inside = navRef.current?.contains(document.activeElement)
+      setOpen(null)
+      if (inside) navRef.current?.querySelector<HTMLButtonElement>(`[data-bar-menu="${open}"]`)?.focus()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open])
 
+  const close = () => {
+    hovered.current = null
+    setOpen(null)
+  }
+
   return (
-    <nav aria-label="Site" className="hidden h-full items-center md:flex" onMouseLeave={() => setOpen(null)}>
-      {BAR_MENUS.map((entry) => (
-        <button
-          key={entry.label}
-          type="button"
-          aria-expanded={open === entry.label}
-          onMouseEnter={() => setOpen(entry.label)}
-          onClick={() => setOpen((current) => (current === entry.label ? null : entry.label))}
-          className={clsx(BAR_LINK, open === entry.label && 'bg-foreground/[0.06] text-foreground')}
-        >
-          {entry.label}
-          <ChevronDown aria-hidden className={clsx('h-3.5 w-3.5 transition-transform duration-200', open === entry.label && 'rotate-180')} />
-        </button>
-      ))}
-      <Link href="/pricing" onMouseEnter={() => setOpen(null)} className={BAR_LINK}>
+    <nav
+      ref={navRef}
+      aria-label="Site"
+      className="hidden h-full items-center md:flex"
+      onMouseLeave={close}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) close()
+      }}
+    >
+      {BAR_MENUS.map((entry) => {
+        const isOpen = open === entry.label
+        const panelId = `site-bar-${entry.label.toLowerCase()}`
+        return (
+          <Fragment key={entry.label}>
+            <button
+              type="button"
+              data-bar-menu={entry.label}
+              aria-expanded={isOpen}
+              aria-controls={isOpen ? panelId : undefined}
+              onPointerEnter={(event) => {
+                if (event.pointerType !== 'mouse') return
+                hovered.current = entry.label
+                setOpen(entry.label)
+              }}
+              onFocus={() => {
+                // Moving to another menu's button puts the open panel away.
+                if (open && !isOpen) close()
+              }}
+              onClick={() => {
+                const justHovered = hovered.current === entry.label
+                hovered.current = null
+                setOpen(isOpen && !justHovered ? null : entry.label)
+              }}
+              className={clsx(BAR_LINK, isOpen && 'bg-foreground/[0.06] text-foreground')}
+            >
+              {entry.label}
+              <ChevronDown aria-hidden className={clsx('h-3.5 w-3.5 transition-transform duration-200', isOpen && 'rotate-180')} />
+            </button>
+            {isOpen && (
+              // Full width under the bar, and touching it, so the pointer never crosses a gap on its way down.
+              <div id={panelId} className="ni-bar-panel absolute inset-x-0 top-full border-b border-border bg-background px-4 pt-5 pb-6 shadow-2xl">
+                <div className="ni-bar-panel-body mx-auto flex max-w-3xl flex-col gap-6">
+                  {entry.groups.map((group) => (
+                    <div key={group.label}>
+                      {entry.groups.length > 1 && <p className="mb-2 px-2.5 text-xs font-medium text-muted-foreground/70">{group.label}</p>}
+                      <ul className="grid grid-cols-3 gap-1 lg:grid-cols-4">
+                        {group.items.map((item) => {
+                          const Icon = item.icon
+                          return (
+                            <li key={item.href}>
+                              <Link
+                                href={item.href}
+                                onClick={close}
+                                className="group flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm text-foreground transition-colors hover:bg-foreground/[0.06]"
+                              >
+                                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-foreground/15 bg-background transition-transform duration-200 group-hover:scale-105">
+                                  <Icon aria-hidden className="h-4 w-4" />
+                                </span>
+                                <span className="truncate">{item.name}</span>
+                              </Link>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Fragment>
+        )
+      })}
+      <Link href="/pricing" onPointerEnter={close} className={BAR_LINK}>
         Pricing
       </Link>
-
-      {menu && (
-        // Full width under the bar, and touching it, so the pointer never crosses a gap on its way down.
-        <div className="ni-bar-panel absolute inset-x-0 top-full border-b border-border bg-background px-4 pt-5 pb-6 shadow-2xl">
-          <div key={menu.label} className="ni-bar-panel-body mx-auto flex max-w-3xl flex-col gap-6">
-            {menu.groups.map((group) => (
-              <div key={group.label}>
-                {menu.groups.length > 1 && <p className="mb-2 px-2.5 text-xs font-medium text-muted-foreground/70">{group.label}</p>}
-                <ul className="grid grid-cols-3 gap-1 lg:grid-cols-4">
-                  {group.items.map((item) => {
-                    const Icon = item.icon
-                    return (
-                      <li key={item.href}>
-                        <Link
-                          href={item.href}
-                          onClick={() => setOpen(null)}
-                          className="group flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm text-foreground transition-colors hover:bg-foreground/[0.06]"
-                        >
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-foreground/15 bg-background transition-transform duration-200 group-hover:scale-105">
-                            <Icon aria-hidden className="h-4 w-4" />
-                          </span>
-                          <span className="truncate">{item.name}</span>
-                        </Link>
-                      </li>
-                    )
-                  })}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
       <style>{`
 @media (prefers-reduced-motion: no-preference) {
   .ni-bar-panel { animation: ni-bar-panel 0.22s cubic-bezier(0.05, 0.7, 0.1, 1) both; }
@@ -366,7 +404,7 @@ export function SiteShell({ children, outline = [] }: { children: React.ReactNod
 
       {/* Narrow screens: a slim bar, and the panel as a sheet. */}
       <header className="fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b border-border bg-background/70 px-4 backdrop-blur-xl lg:hidden">
-        <div className="flex h-full items-center gap-6">
+        <div className="flex h-full min-w-0 items-center gap-3 lg:gap-6">
           <Link href="/" title="Home">
             <Logo className="[&>span]:text-base" />
           </Link>
