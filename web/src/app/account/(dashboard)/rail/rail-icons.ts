@@ -10,6 +10,9 @@
  * Sequences (Send in the `/` menu) wears ListOrdered in the sub-nav, the
  * steps of a sequence, two rows never sharing the group's glyph by accident.
  *
+ * Liam, 11-13: the Studio joins Outreach (no rail icon of its own); its
+ * Clapperboard is its row's in Outreach's sub-nav.
+ *
  * Liam, 11-11: Drive (Docs, Knowledge, Files, Tables) wears HardDrive, its members
  * the icons they had; Agents (Agents & skills, Flows, Evals) keeps Agents &
  * skills' Sparkles, its namesake member's.
@@ -49,7 +52,7 @@ import {
   Workflow,
   type LucideIcon,
 } from 'lucide-react'
-import type { RailPageId } from './rail-pages'
+import type { OfferedRailPage, RailPageId } from './rail-pages'
 
 /** Each rail item's icon: a page's, or a group's. */
 export const RAIL_ICONS: Readonly<Record<RailPageId, LucideIcon>> = {
@@ -58,8 +61,6 @@ export const RAIL_ICONS: Readonly<Record<RailPageId, LucideIcon>> = {
   'team-chat': MessagesSquare,
   actions: ListChecks,
   calendar: Calendar,
-  // Studio (migration 620): videos and ads, its own icon after the Calendar group.
-  studio: Clapperboard,
   contacts: Contact,
   outreach: Send,
   seo: SearchCheck,
@@ -79,6 +80,8 @@ export const GROUP_PAGE_ICONS: Readonly<Record<string, LucideIcon>> = {
   prospecting: Telescope,
   sequences: ListOrdered,
   campaigns: Megaphone,
+  // Studio (migration 620): videos and ads, Outreach's last member (Liam, 11-13).
+  studio: Clapperboard,
   // SEO: Site audit (the group wears SearchCheck; the audit, a page scanned).
   'seo-audit': ScanSearch,
   'seo-keywords': KeyRound,
@@ -96,4 +99,13 @@ export const GROUP_PAGE_ICONS: Readonly<Record<string, LucideIcon>> = {
   agents: Sparkles,
   flows: Workflow,
   evals: FlaskConical,
+}
+
+/**
+ * The page a rail item stands for when it is a page group with exactly one member on here: that member's slug, whose
+ * icon it wears (GROUP_PAGE_ICONS) as it wears its name (rail-pages.ts railPagesFor). Outreach with only the Studio on
+ * is the Studio, Clapperboard, not "Outreach" with Send opening a video editor. Null: a page, or a group of two or more.
+ */
+export function loneMemberSlug(entry: Pick<OfferedRailPage, 'members'>): string | null {
+  return entry.members?.length === 1 ? entry.members[0]!.slug : null
 }

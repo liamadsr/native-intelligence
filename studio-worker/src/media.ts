@@ -5,6 +5,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
+import { binaryNames, toolName, toolPath } from './platform.ts'
 
 export interface RunOptions {
   timeout?: number
@@ -13,6 +14,8 @@ export interface RunOptions {
   env?: NodeJS.ProcessEnv
   /** The folder it runs in (a filter graph names its files relative to it). */
   cwd?: string
+  /** What it reads on standard input (runBuffer). */
+  input?: Buffer
 }
 
 /** A tool's run that did not succeed: the tool, why, and the end of what it said. */
@@ -36,7 +39,7 @@ export const PROTOCOL_WHITELIST = 'file,pipe'
  * (it is an input option), for ffprobe before everything (its one input). Other tools are untouched. Pure.
  */
 export function fenceInputs(file: string, args: readonly string[]): string[] {
-  const tool = file.replace(/^.*[\\/]/, '')
+  const tool = toolName(file)
   const fence = ['-protocol_whitelist', PROTOCOL_WHITELIST]
   if (tool === 'ffprobe') return args.includes('-protocol_whitelist') ? [...args] : [...fence, ...args]
   if (tool !== 'ffmpeg') return [...args]
@@ -48,16 +51,32 @@ export function fenceInputs(file: string, args: readonly string[]): string[] {
   return out
 }
 
+/**
+ * How a tool ended, for its error: its output past Node's read limit, stopped by us (its time limit), killed by a
+ * signal (SIGKILL with nothing on stderr is most often the system's memory limit), or its own exit status. Pure.
+ */
+export function how(e: { code?: unknown; signal?: unknown; killed?: boolean }): string {
+  if (e.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return ' (its output passed the read limit)'
+  if (e.killed) return ' (timed out)'
+  if (typeof e.signal === 'string' && e.signal) return ` (killed by ${e.signal}${e.signal === 'SIGKILL' ? ', most often the memory limit' : ''})`
+  if (typeof e.code === 'number') return ` (exit ${e.code})`
+  return ''
+}
+/** The last lines of a tool's stderr, on one line and bounded, for its error. Pure. */
+export function tailOf(stderr: unknown): string {
+  const tail = String(stderr ?? '').trim().split('\n').map((l) => l.trim()).filter(Boolean).slice(-4).join(' | ').slice(0, 600)
+  return tail ? `: ${tail}` : ''
+}
+
 /** Run a tool and collect its output. The signal kills it (a cancelled job), as does the timeout. */
 export function run(file: string, args: string[], opts: RunOptions = {}): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile(file, fenceInputs(file, args), { timeout: opts.timeout ?? 180_000, maxBuffer: opts.maxBuffer ?? 8 * 1024 * 1024, signal: opts.signal, env: opts.env, cwd: opts.cwd, encoding: 'utf8' }, (err, stdout, stderr) => {
+    execFile(toolPath(file), fenceInputs(file, args), { timeout: opts.timeout ?? 180_000, maxBuffer: opts.maxBuffer ?? 8 * 1024 * 1024, signal: opts.signal, env: opts.env, cwd: opts.cwd, encoding: 'utf8', windowsHide: true }, (err, stdout, stderr) => {
       if (!err) return resolve({ stdout, stderr })
       const e = err as NodeJS.ErrnoException & { killed?: boolean }
       if (opts.signal?.aborted) return reject(new ToolError(`${file} stopped: the job was cancelled`, 'ABORT_ERR'))
       if (e.code === 'ENOENT') return reject(new ToolError(`${file} is not installed`, 'ENOENT'))
-      const tail = String(stderr || '').trim().split('\n').slice(-4).join(' | ').slice(0, 600)
-      reject(new ToolError(`${file.replace(/^.*\//, '')} failed${e.killed ? ' (timed out)' : ''}${tail ? `: ${tail}` : ''}`, e.code ?? null))
+      reject(new ToolError(`${file.replace(/^.*\//, '')} failed${how(e)}${tailOf(stderr)}`, e.code ?? null))
     })
   })
 }
@@ -65,13 +84,82 @@ export function run(file: string, args: string[], opts: RunOptions = {}): Promis
 /** Run a tool whose standard output is binary (raw samples). */
 export function runBuffer(file: string, args: string[], opts: RunOptions = {}): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    execFile(file, fenceInputs(file, args), { timeout: opts.timeout ?? 180_000, maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024, signal: opts.signal, encoding: 'buffer' }, (err, stdout, stderr) => {
+    const child = execFile(toolPath(file), fenceInputs(file, args), { timeout: opts.timeout ?? 180_000, maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024, signal: opts.signal, encoding: 'buffer', windowsHide: true }, (err, stdout, stderr) => {
       if (!err) return resolve(stdout)
       if (opts.signal?.aborted) return reject(new ToolError(`${file} stopped: the job was cancelled`, 'ABORT_ERR'))
-      const tail = String(stderr ?? '').trim().split('\n').slice(-4).join(' | ').slice(0, 600)
-      reject(new ToolError(`${file.replace(/^.*\//, '')} failed${tail ? `: ${tail}` : ''}`, (err as NodeJS.ErrnoException).code ?? null))
+      const e = err as NodeJS.ErrnoException & { killed?: boolean }
+      reject(new ToolError(`${file.replace(/^.*\//, '')} failed${how(e)}${tailOf(stderr)}`, e.code ?? null))
     })
+    child.stdin?.on('error', () => {})
+    if (opts.input) child.stdin?.end(opts.input)
+    else child.stdin?.end()
   })
+}
+
+/**
+ * The names an FFmpeg build lists: `-filters` (each line its three flags, its name, its pads as `V->V`; the same in
+ * 4.x to 7.x) or `-muxers` / `-demuxers` (after the `--` line, each line its flags and its names, comma separated:
+ * two flag columns up to 6.0, ` DE image2`, `  E rawvideo`; three from 6.1 on, a device flag added, ` D d lavfi`,
+ * `  E  mp4`). How many flag columns a list has is read from its own legend (` D. =` or ` D.. =`). Pure.
+ */
+export function listedNames(text: string, kind: 'filters' | 'formats'): Set<string> {
+  const out = new Set<string>()
+  const lines = text.split('\n')
+  if (kind === 'filters') {
+    for (const l of lines) { const m = /^\s*[.A-Z|]{3}\s+(\S+)\s+\S*->\S*/.exec(l); if (m) out.add(m[1]!) }
+    return out
+  }
+  const legend = lines.map((l) => /^\s*(D\.{1,2})\s*=/.exec(l)?.[1]).find(Boolean)
+  const start = lines.findIndex((l) => /^\s*-{2,}\s*$/.test(l))
+  if (!legend || start < 0) return out
+  for (const l of lines.slice(start + 1)) {
+    // A space, the flag columns (D or E or d, or blank), then the names.
+    const flags = l.slice(1, 1 + legend.length), names = l.slice(1 + legend.length)
+    if (l[0] !== ' ' || !/^[DEd. ]+$/.test(flags) || !/^\s+\S/.test(names)) continue
+    for (const n of names.trim().split(/\s+/)[0]!.split(',')) out.add(n)
+  }
+  return out
+}
+
+export interface FfmpegComponents { filters: Set<string>; muxers: Set<string>; demuxers: Set<string> }
+const listed = new Map<string, Promise<FfmpegComponents>>()
+/** What the configured FFmpeg has (filters, muxers, demuxers), asked once per binary. */
+export function ffmpegComponents(signal?: AbortSignal): Promise<FfmpegComponents> {
+  const key = toolPath('ffmpeg')
+  let p = listed.get(key)
+  if (!p) {
+    const ask = async (flag: string) => (await run('ffmpeg', ['-hide_banner', flag], { signal, timeout: 30_000 })).stdout
+    p = Promise.all([ask('-filters'), ask('-muxers'), ask('-demuxers')]).then(([f, m, d]) => ({ filters: listedNames(f, 'filters'), muxers: listedNames(m, 'formats'), demuxers: listedNames(d, 'formats') }))
+    p.catch(() => listed.delete(key))
+    listed.set(key, p)
+  }
+  return p
+}
+
+/**
+ * What of `needs` the configured FFmpeg lacks, in plain words, or null: from its lists (ffmpegComponents), and for a
+ * kind whose list read as empty (a layout not known here), each part asked by use (`-h filter=gblur`: an FFmpeg
+ * without it answers "Unknown"), so an unknown layout never refuses a build that has everything.
+ */
+export async function ffmpegLacks(needs: { filters: string[]; muxers: string[]; demuxers: string[] }, signal?: AbortSignal, lists: (signal?: AbortSignal) => Promise<FfmpegComponents> = ffmpegComponents): Promise<string | null> {
+  const have = await lists(signal)
+  const asked = async (kind: 'filter' | 'muxer' | 'demuxer', names: string[], list: Set<string>) => {
+    if (list.size) return list
+    const out = new Set<string>()
+    for (const n of names) {
+      const { stdout, stderr } = await run('ffmpeg', ['-hide_banner', '-h', `${kind}=${n}`], { signal, timeout: 30_000 }).catch((e: unknown) => ({ stdout: '', stderr: String((e as Error).message) }))
+      if (!/Unknown (filter|format) '/.test(stdout + stderr)) out.add(n)
+    }
+    return out
+  }
+  return missingComponents({ filters: await asked('filter', needs.filters, have.filters), muxers: await asked('muxer', needs.muxers, have.muxers), demuxers: await asked('demuxer', needs.demuxers, have.demuxers) }, needs)
+}
+
+/** What of `needs` a build lacks, in plain words ("the gblur filter", "the gblur filter and the rawvideo muxer"), or null. Pure. */
+export function missingComponents(have: FfmpegComponents, needs: { filters: string[]; muxers: string[]; demuxers: string[] }): string | null {
+  const gone = [...needs.filters.filter((n) => !have.filters.has(n)).map((n) => `the ${n} filter`), ...needs.muxers.filter((n) => !have.muxers.has(n)).map((n) => `the ${n} muxer`),
+    ...needs.demuxers.filter((n) => !have.demuxers.has(n)).map((n) => `the ${n} demuxer`)]
+  return gone.length ? (gone.length === 1 ? gone[0]! : `${gone.slice(0, -1).join(', ')} and ${gone.at(-1)}`) : null
 }
 
 /** Time limits grow with the media: a long recording must never fail just for being long. */
@@ -81,9 +169,10 @@ export const mediaTimeout = (seconds: number, perSecond = 3) => Math.max(180_000
  * Where a tool is: on PATH, else the usual places Homebrew and Debian put it.
  * Null when it is nowhere.
  */
-export function findBinary(name: string, extra: string[] = [], env: NodeJS.ProcessEnv = process.env): string | null {
-  const dirs = [...(env.PATH ?? '').split(delimiter).filter(Boolean), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']
-  for (const candidate of [...extra, ...dirs.map((d) => join(d, name))]) if (existsSync(candidate)) return candidate
+export function findBinary(name: string, extra: string[] = [], env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string | null {
+  const dirs = [...(env.PATH ?? env.Path ?? '').split(platform === 'win32' ? ';' : delimiter).filter(Boolean), ...(platform === 'win32' ? [] : ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'])]
+  const names = binaryNames(name, platform, env.PATHEXT)
+  for (const candidate of [...extra, ...dirs.flatMap((d) => names.map((n) => join(d, n)))]) if (existsSync(candidate)) return candidate
   return null
 }
 
@@ -188,6 +277,33 @@ export function conformRate(p: Probe): 30 | 60 {
   return Number.isFinite(average) && average > 45 ? 60 : 30
 }
 
+/** A gap between frames shorter than this is the picture moving (a still screen sends a frame now and then). */
+export const MOVING_GAP = 0.1
+
+/**
+ * The rate a recording is conformed to when its rate is at most (`conform.fit`), read from its packets' times (any
+ * container, also a browser's WebM that does not say how long it is). A browser's screen capture sends frames only
+ * when the screen changes, so the average says little: a mostly still screen whose scrolling ran at 60 averages far
+ * below 45. The rate is judged while the picture moved: from the gaps shorter than MOVING_GAP, their median. Above
+ * 45 frames a second, `most` (60); else 30. `ceiling` (the rate the recorder asked for, or the device said it gives)
+ * caps it: at 45 or less, 30. Fewer than ten moving gaps (a picture that hardly moved): 30, unless the ceiling says
+ * more and there are too few frames at all to tell (then `most`). Pure.
+ */
+export function fitRate(stamps: number[], most: 30 | 60, ceiling?: number): 30 | 60 {
+  if (most === 30) return 30
+  if (ceiling !== undefined && Number.isFinite(ceiling) && ceiling <= 45) return 30
+  if (stamps.length < 2) return most
+  const moving: number[] = []
+  for (let i = 1; i < stamps.length; i++) {
+    const gap = stamps[i]! - stamps[i - 1]!
+    if (gap > 0 && gap < MOVING_GAP) moving.push(gap)
+  }
+  if (moving.length < 10) return stamps.length < 10 ? most : 30
+  moving.sort((a, b) => a - b)
+  const median = moving[Math.floor(moving.length / 2)]!
+  return 1 / median > 45 ? 60 : 30
+}
+
 /** Packet timestamps (seconds, one per line, any order) into presentation order. */
 export function parseStamps(text: string): number[] {
   return text
@@ -206,12 +322,6 @@ export function constantFrameTiming(stamps: number[], fps: number, extension: st
   const tolerance = Math.max(extension === 'webm' ? 0.0011 : 0.0001, 0.02 / fps)
   for (let i = 1; i < stamps.length; i++) if (Math.abs(stamps[i]! - stamps[i - 1]! - 1 / fps) > tolerance) return false
   return true
-}
-
-/** True when every frame sits on an exact 1/30 or 1/60 s grid (a take already at the rate it is conformed to). */
-export function onFrameGrid(stamps: number[], fps: 30 | 60): boolean {
-  if (stamps.length < 2) return false
-  return stamps.every((t, i) => !i || Math.abs(t - stamps[i - 1]! - 1 / fps) < 0.25 / fps)
 }
 
 export async function videoStamps(path: string, signal?: AbortSignal): Promise<number[]> {

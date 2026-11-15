@@ -5,10 +5,11 @@ import { adShapes, ratio, statusLabel } from './project-shapes';
 import { request, remove } from './client';
 import { isMenuKey, useContextMenu } from './ContextMenu';
 import { Icon } from './icons';
+import { rememberPage } from './FilmPages';
 
 type Props = {
   currentProjectId: string | null; currentTitle?: string; refreshKey: string; disabled: boolean;
-  /** Esc and the close button only work when there's a project to go back to. */
+  /** Esc goes back to the video only when there is one to go back to. */
   canClose: boolean; close: () => void;
   onProject: (id: string) => void; onRecord: () => void; onNew: () => void; onRenameCurrent: (title: string) => void; onDeleted: (id: string, remaining: ProjectSummary[]) => void;
 };
@@ -29,7 +30,7 @@ function Thumb({ project }: { project: ProjectSummary }) {
     : <img alt="" loading="lazy" src={`/api/account/studio/projects/${encodeURIComponent(project.id)}/thumbnail.jpg?v=${encodeURIComponent(project.updatedAt)}`} onError={() => setFailed(true)} />}</span>;
 }
 
-/** The project chooser (Logic Pro style): ways to start on the left; on the right, projects (a campaign: many ads with
+/** The project chooser (Logic Pro style), the Studio rail's Projects and videos page (AppRail.tsx), drawn beside the rail as a page of the Studio, not a dialog: ways to start on the left (New recording, New blank video, New Studio project); on the right, projects (a campaign: many ads with
  *  the same people and brand) as groups of their ads, then single videos. Click selects, double-click or Open opens;
  *  right-click (or the menu key) has Open, Rename, Duplicate, Move to a project, status and Delete (to the trash).
  *  Drag a video onto a project to file it there, or onto another single video to make a project of the two. */
@@ -40,7 +41,7 @@ export function ProjectChooser({ currentProjectId, currentTitle, refreshKey, dis
   const [menu, setMenu] = useState<string | null>(null), [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null), [confirming, setConfirming] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const openMenu = useContextMenu();
-  const epoch = useRef(0), sheet = useRef<HTMLDivElement>(null), search = useRef<HTMLInputElement>(null);
+  const epoch = useRef(0), search = useRef<HTMLInputElement>(null);
   const refresh = useCallback(async () => {
     const mine = ++epoch.current;
     try { const [result, grouped] = await Promise.all([request<{ projects: ProjectSummary[] }>('/api/account/studio/projects'), request<{ campaigns: CampaignSummary[] }>('/api/account/studio/campaigns')]);
@@ -97,6 +98,12 @@ export function ProjectChooser({ currentProjectId, currentTitle, refreshKey, dis
     ...adShapes.map(shape => ({ label: `Blank ${shape.label}`, run: () => void act(async () => { const { project } = await request<{ project: { id: string } }>(`/api/account/studio/campaigns/${encodeURIComponent(c.id)}/new-ad`, { width: shape.width, height: shape.height, title: `${c.title} · new video` }); await refresh(); onProject(project.id); }), disabled })),
     ...(c.ads[0] ? [{ separator: true } as const, { label: `Copy of ${c.ads[0].title}`, run: () => void act(async () => { const { project } = await request<{ project: { id: string } }>(`/api/account/studio/campaigns/${encodeURIComponent(c.id)}/new-ad`, { from: c.ads[0]!.id }); await refresh(); onProject(project.id); }), disabled }] : []),
   ]);
+  /** A new Studio project with its first video, in the shape picked, opened on the project's overview (where it is named). */
+  const newStudioProject = (event: { clientX: number; clientY: number; currentTarget?: EventTarget | null }) => openMenu(event, adShapes.map(shape => ({ label: `First video: ${shape.label}`, disabled, run: () => void act(async () => {
+    const { campaign } = await request<{ campaign: { id: string } }>('/api/account/studio/campaigns', { title: 'Untitled Studio project', projectIds: [] });
+    const { project } = await request<{ project: { id: string } }>(`/api/account/studio/campaigns/${encodeURIComponent(campaign.id)}/new-ad`, { width: shape.width, height: shape.height, title: 'Untitled video' });
+    rememberPage(project.id, 'project'); await refresh(); onProject(project.id);
+  }) })));
   const groupMenu = (event: React.MouseEvent, c: CampaignSummary) => openMenu(event, [
     { label: 'Rename Studio project', run: () => setRenamingGroup({ id: c.id, title: c.title }) },
     { label: 'New video…', run: () => newAd(event, c) },
@@ -111,12 +118,11 @@ export function ProjectChooser({ currentProjectId, currentTitle, refreshKey, dis
     onDrop: (e: React.DragEvent) => { const ad = e.dataTransfer.getData(AD_DRAG); setDropOn(null); if (!ad) return; e.preventDefault(); e.stopPropagation();
       const single = target.startsWith('single-') ? target.slice('single-'.length) : null; if (ad === single || groupOf(ad)?.id === target) return; moveTo(target, ad, e); },
   });
-  // Esc steps back one level: rename, then the ⋯ menu, then the chooser itself (when a project is open behind it).
+  // Esc steps back one level: rename, then the ⋯ menu, then the chooser itself (when a project is open behind it). Tab is
+  // not held inside: the chooser is a page of the Studio, and the rail beside it (first in the reading order) stays usable.
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); if (renaming) setRenaming(null); else if (renamingGroup) setRenamingGroup(null); else if (menu) { setMenu(null); setConfirming(null); } else if (canClose) close(); return; }
-      if (event.key === 'Tab') { const els = Array.from(sheet.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),[tabindex="0"]') ?? []), first = els[0], last = els.at(-1); if (!first || !last) return;
-        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } }
     };
     studioKeys.addEventListener('keydown', key); return () => studioKeys.removeEventListener('keydown', key);
   }, [renaming, renamingGroup, menu, canClose, close]);
@@ -159,20 +165,20 @@ export function ProjectChooser({ currentProjectId, currentTitle, refreshKey, dis
     </div>;
   };
 
-  return <div className="chooser-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && canClose) close(); }}>
-    <div className="chooser" ref={sheet} role="dialog" aria-modal="true" aria-label="Projects and videos">
+  return <div className="chooser-backdrop">
+    <section className="chooser" aria-label="Projects and videos" data-studio-chooser="">
       <aside className="chooser-side">
         <div className="chooser-brand"><span className="chooser-brand-mark"><span /></span><strong>Studio</strong></div>
         <span className="chooser-side-label">New</span>
         <button className="chooser-start record" disabled={disabled} onClick={onRecord}><span className="chooser-start-icon"><span className="rec-dot" /></span><span><b>New recording</b><small>Your app, slides and camera in one take</small></span></button>
         <button className="chooser-start" disabled={disabled} onClick={onNew}><span className="chooser-start-icon"><Icon name="plus" size={16} /></span><span><b>New blank video</b><small>A canvas of any shape. Describe it and the agent builds it</small></span></button>
+        <button className="chooser-start" data-chooser-start="studio-project" disabled={disabled || busy} onClick={newStudioProject}><span className="chooser-start-icon"><Icon name="stack" size={16} /></span><span><b>New Studio project</b><small>Videos that share their people, brand and media</small></span></button>
         <p className="chooser-side-note">Studio projects, videos and their media are kept in this workspace.</p>
       </aside>
       <section className="chooser-main">
         <header className="chooser-head">
           <div><h2>Projects and videos</h2>{projects ? <span>{groups.length ? `${groups.length} Studio project${groups.length === 1 ? '' : 's'} · ` : ''}{projects.length} video{projects.length === 1 ? '' : 's'} in this workspace · newest first</span> : <span>Loading…</span>}</div>
           <input ref={search} className="chooser-search" type="search" placeholder="Search videos" aria-label="Search videos" value={query} onChange={e => setQuery(e.target.value)} />
-          {canClose ? <button className="chooser-close" aria-label="Close" title="Close (Esc)" onClick={close}><Icon name="close" size={16} /></button> : null}
         </header>
         {error ? <p className="rec-error chooser-error" role="alert">{error}</p> : null}
         <div className="chooser-groups" role="listbox" aria-label="Projects and videos" onKeyDown={gridKey}>
@@ -197,10 +203,10 @@ export function ProjectChooser({ currentProjectId, currentTitle, refreshKey, dis
         </div>
         <footer className="chooser-foot">
           <span>{chosen ? <>Selected: <b title={chosen.title}>{chosen.title}</b></> : 'Double-click a video to open it'}</span>
-          {canClose ? <button onClick={close}>Cancel</button> : null}
+          {canClose && chosen?.id !== currentProjectId ? <button title="Back to the video open now (Esc)" onClick={close}>Back to the video</button> : null}
           <button className="primary" disabled={!chosen || disabled} onClick={() => chosen && open(chosen.id)}>{chosen?.id === currentProjectId ? 'Back to the video' : 'Open'}</button>
         </footer>
       </section>
-    </div>
+    </section>
   </div>;
 }

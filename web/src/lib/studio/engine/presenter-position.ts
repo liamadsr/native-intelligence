@@ -1,5 +1,5 @@
 import type { EditorProject, MotionKey, MotionTrack, PresenterSegment } from './contracts';
-import { presenterPieces, presenterVisualAtFrame } from './presenter';
+import { presenterPieces, presenterVisualAtFrame } from './presenter-pieces';
 
 /** How long the bubble takes to glide to a new spot (seconds). */
 export const presenterMoveSeconds = 0.4;

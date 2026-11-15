@@ -8,6 +8,9 @@
  * files are served from; a workspace switch remounts it (the key), since everything it holds (the open video, its
  * undo history, the library) belongs to the workspace it was opened in.
  *
+ * Its navigation is its own pages rail, a column of icons down its left edge, always there (./ui/AppRail.tsx): the app's sub-nav
+ * beside its rail switches between Outreach's pages, the Studio one of them (Liam, 11-13).
+ *
  * If something in the editor breaks, the page says so with a way back instead of going blank: the edit is saved
  * on the server after every change.
  */
@@ -57,11 +60,6 @@ export interface StudioRootProps {
   page?: StudioPage
   /** Which request `videoId` and `page` are: a new number asks again, even for the same place (the Studio may have moved away since). */
   ask?: number
-  /**
-   * The Studio page's sub-nav beside the rail is its navigation now (page-panel/studio-panel.tsx): the editor draws
-   * no rail and no Projects entry of its own. Off: as a page of its own, with its rail.
-   */
-  navInPanel?: boolean
   /** Told which video is open and on which page, whenever that changes. */
   onPlace?: (place: { videoId: string | null; title: string | null; page: StudioPage }) => void
   /**
@@ -71,16 +69,16 @@ export interface StudioRootProps {
   onLive?: (link: EditorChatLink | null) => void
 }
 
-export default function StudioRoot({ workspaceId, videoId, page, ask, navInPanel = false, onPlace, onLive }: StudioRootProps) {
+export default function StudioRoot({ workspaceId, videoId, page, ask, onPlace, onLive }: StudioRootProps) {
   // Set while rendering, before the editor's first read of a media address.
   setAssetBase(studioFileBase(workspaceId))
   setStudioWorkspace(workspaceId)
   const rootRef = React.useCallback((element: HTMLDivElement | null) => setStudioRoot(element), [])
   return (
-    <div ref={rootRef} className="ni-studio ni-studio-root" data-studio-root="" data-studio-nav={navInPanel ? 'panel' : 'rail'}>
+    <div ref={rootRef} className="ni-studio ni-studio-root" data-studio-root="">
       <Recover key={workspaceId}>
         <ContextMenuProvider>
-          <App key={workspaceId} openVideoId={videoId ?? null} openPage={page} openAsk={ask} navInPanel={navInPanel} onPlace={onPlace} onLive={onLive} />
+          <App key={workspaceId} openVideoId={videoId ?? null} openPage={page} openAsk={ask} onPlace={onPlace} onLive={onLive} />
         </ContextMenuProvider>
       </Recover>
     </div>

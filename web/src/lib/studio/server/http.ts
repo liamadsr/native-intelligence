@@ -3,11 +3,12 @@
 // this folder. Kept apart from the route files so tests can call them with their own clients.
 import type { z } from 'zod'
 import { apiError, badRequest, notFound, unauthorized } from '@/lib/api-errors'
+import { conflictError } from './errors'
 import { checkBlobKey, commitBlob, createBlobWrite, dropPendingWrite, getBlob, readBlob, workerWriteFence } from './blobs'
 import { noteWorker } from './capabilities'
 import type { StudioContext } from './context'
 import { serveBlob, type PartFetch } from './files'
-import { BlobCommitBody, BlobReadBody, BlobWriteBody, ClaimBody, CompleteBody, FailBody, ProgressBody } from './job-contract'
+import { BlobCommitBody, BlobReadBody, BlobWriteBody, ClaimBody, CompleteBody, FailBody, LivePiecesBody, ProgressBody } from './job-contract'
 import { claimJob, completeJob, failJob, heldJob, jobContext, reportProgress, type WorkerDeps } from './jobs'
 import { dispatch, errorResponse } from './router'
 import { studioRoutes } from './routes'
@@ -106,11 +107,19 @@ export async function workerFail(request: Request, jobId: string, deps: WorkerDe
   return run(() => failJob(deps, jobId, body.workerId, body.error))
 }
 
-/** POST blobs/read {jobId, workerId, key} → BlobRead, inside the held job's workspace. */
+/**
+ * POST blobs/read {jobId, workerId, key} → BlobRead, inside the held job's workspace. A take's track (`live/…`) only
+ * for the job that names it as its upload: a worker never reads another recording of the workspace through it.
+ */
 export async function workerBlobRead(request: Request, deps: WorkerDeps): Promise<Response> {
   const body = await workerBody(request, BlobReadBody)
   if (body instanceof Response) return body
-  return run(async () => readBlob(jobContext(deps, await heldJob(deps, body.jobId, body.workerId)), body.key))
+  return run(async () => {
+    const live = body.key.startsWith('live/')
+    const job = await heldJob(deps, body.jobId, body.workerId, live)
+    if (live && (job.input as { uploadKey?: unknown } | null)?.uploadKey !== body.key) throw conflictError("That recording is not this job's to read.", 'NOT_YOURS')
+    return readBlob(jobContext(deps, job), body.key)
+  })
 }
 
 /**
@@ -142,5 +151,19 @@ export async function workerBlobCommit(request: Request, deps: WorkerDeps): Prom
     if (exists) await dropPendingWrite(ctx, exists.key)
     else await commitBlob(ctx, body.key)
     return { ok: true }
+  })
+}
+
+/**
+ * POST live/pieces {jobId, workerId, after} → LivePieces: what the held live-import job reads next of its own track
+ * (live-takes.ts liveWorkerPieces), inside the job's workspace. Any other job is refused (409 NOT_YOURS).
+ */
+export async function workerLivePieces(request: Request, deps: WorkerDeps): Promise<Response> {
+  const body = await workerBody(request, LivePiecesBody)
+  if (body instanceof Response) return body
+  return run(async () => {
+    const job = await heldJob(deps, body.jobId, body.workerId, true)
+    const { liveWorkerPieces } = await import('./live-takes')
+    return liveWorkerPieces(jobContext(deps, job), job, body.after, Date.now(), body.check === true)
   })
 }

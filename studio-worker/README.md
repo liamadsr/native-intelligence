@@ -25,8 +25,9 @@ takes them one at a time and does them.
 
 | Kind | What it does | Stores |
 | --- | --- | --- |
-| `import` | Downloads the upload, measures it with ffprobe as the editor imports media (MP4/MOV/WebM/MKV, PNG/JPEG/WebP, WAV/MP3/M4A/AAC/FLAC/OGG; two hours at most). A video must keep a constant frame rate, every packet counted: one that doesn't (a phone video, a screen recording) is conformed as a recording is, to a constant 60 fps when its average rate is above 45, else 30, and the job log says so ("This file's frame rate varied, so it was converted to a constant 30 frames a second."); it is refused only when it can't be conformed. A container with sound and no picture (a browser's microphone take, Opus in WebM or AAC in MP4) is audio whatever its name says: stored as AAC in `.m4a` (AAC copied, anything else encoded, the duration written), the job log saying so. A recording (`conform: {fps}`) is first made a steady 30 or 60 fps H.264/AAC MP4 with libx264 (kept byte for byte when it already is one) and its first and last seconds decoded. A browser's WebM or Matroska that does not say how long it is is copied into a fresh file first (duration and index written, no frame changed). Then: sha256, a waveform of 600 peaks for anything with sound, and the `EditorAsset`, checked by the engine's `EditorAssetSchema`. | `assets/<sha256>.<ext>` |
-| `export` | Checks the frozen project (`parseEditorProject`), stages every asset it names (cached, checked against its sha256), renders the engine's composition `EditorVideo` with Remotion (H.264, AAC, yuv420p, CRF 18), masters the sound when asked (two-pass loudnorm to the LUFS and true-peak target), and decodes the whole MP4 once (`-xerror`) before storing it. | `exports/<job id>/video.mp4` |
+| `import` | Downloads the upload, measures it with ffprobe as the editor imports media (MP4/MOV/WebM/MKV, PNG/JPEG/WebP, WAV/MP3/M4A/AAC/FLAC/OGG; two hours at most). A video must keep a constant frame rate, every packet counted: one that doesn't (a phone video, a screen recording) is conformed as a recording is, to a constant 60 fps when its average rate is above 45, else 30, and the job log says so ("This file's frame rate varied, so it was converted to a constant 30 frames a second."); it is refused only when it can't be conformed. A container with sound and no picture (a browser's microphone take, Opus in WebM or AAC in MP4) is audio whatever its name says: stored as AAC in `.m4a` (AAC copied, anything else encoded, the duration written), the job log saying so. A recording (`conform: {fps}`) is first made a steady 30 or 60 fps H.264/AAC MP4 with libx264's `ultrafast` preset at CRF 26 (as close to the source as the old `veryfast` at CRF 16, in about half the time) (kept byte for byte when it already is one) and its first and last seconds decoded; with `conform.fit` the rate is the most, judged while the picture moved (a browser's screen capture sends frames only when the screen changes): a recording whose frames came 45 a second or fewer while it moved (the median of its gaps under 0.1 s, read from its packets' times) is made 30 fps, and never above `conform.ceiling`, the rate the recorder asked for. A browser take arrives as the pieces it was uploaded in while it recorded (`live/<take>/<role>`, read like any blob, each piece its own length, no sha256 until joined); one brought back after a crash (`partial`) may end mid-frame, and its conform reads past the damage at the end instead of refusing it. A browser's WebM or Matroska that does not say how long it is is copied into a fresh file first (duration and index written, no frame changed). Then: sha256, a waveform of 600 peaks for anything with sound, and the `EditorAsset`, checked by the engine's `EditorAssetSchema`. | `assets/<sha256>.<ext>` |
+| `live-import` | A video track of a browser take prepared while it records: only a live slot takes it (`STUDIO_LIVE_SLOTS`, below). It asks the app every 1.5 s for the track's pieces that are surely stored (`live/pieces`, its own track only), downloads each in order into a local copy (`STUDIO_WORK_DIR/live`) and pipes it, from that copy (the download never waits for FFmpeg), into ONE FFmpeg that conforms with exactly the strict import's arguments (`conformArgs`, `-xerror`: it stops where the import would refuse the take, and goes on past what a decoder logs and recovers from), at a lower priority (`nice`) with `STUDIO_LIVE_THREADS` threads for its decoder, filters and encoder. The camera's rate is fixed (30); the screen's is the import's own rule (`conform.fit`, `fitRate`), decided once enough of the picture has moved to tell (60 moving frames, their median rate 7.5 fps clear of the 45 line, or 1,800 of them; until then pieces are only kept) and checked again at the seal on the whole copy, read as the import reads it: when the two disagree, or the frame times cannot be read, the job fails at once and the ordinary import decides. Fed the same bytes, it writes the same file as an import of the joined take with the same threads (`test/live-import-job.test.ts`, which also runs a jittery take through both real handlers and compares rate, frames, length, picture and sound). Unlike the import, it always re-encodes: an import keeps an MP4 already on the frame grid byte for byte. At the seal (Stop, or the take brought back after a crash) everything that decides who makes the asset is settled before FFmpeg is waited for, and a no hands the take to the import at once: the reader must get to the copy's end (`ffprobe`, within 256 KB or 0.05 %), the container's reader must not have met damage (a pipe resyncs otherwise than a file), and the part not yet conformed must take this job no longer than the whole take takes the import (`handOver`: the import is taken to be √(cores ÷ STUDIO_LIVE_THREADS) times as fast, measured; so at the default of 2 threads on 18 cores a job is kept up to a third behind). Then the input closes and the rest is an import's: measured, its ends decoded, hashed (beside the measuring), stored, with `rawBytes` and `rawPieces` the app checks against the sealed track. It ends early, and the recording falls back to an ordinary import (the live path is only ever a head start), when: the take is thrown away; no new piece comes for 3 minutes; it has run 2 h 30 min (the longest take the Studio reads is two hours); FFmpeg stops before its input does; FFmpeg is not done in three times what its backlog should take at the speed it showed (2 to 15 minutes). The local copy is kept only when the app took the job back (it may come back here, and picks up once the app confirms the copy's pieces are the declared ones); a worker stopping fails its live jobs and clears their copies. Copies left a day are removed at worker start. | `assets/<sha256>.mp4` |
+| `export` | Checks the frozen project (`parseEditorProject`), stages every asset it names (cached, checked against its sha256), composes it with FFmpeg when it is only a recording, its cuts and its camera bubble (`src/fast-export.ts`, the sound mixed the way Remotion mixes it in `src/fast-sound.ts`, both checked against frames and sound windows Chrome draws, Chrome otherwise), else renders the engine's composition `EditorVideo` with Remotion (H.264 BT.709: primaries and matrix BT.709, transfer sRGB, limited range; CRF 18, x264 `veryfast`, AAC, yuv420p), masters the sound when asked (two-pass loudnorm to the LUFS and true-peak target), and decodes the whole MP4 once (`-xerror`) before storing it. | `exports/<job id>/video.mp4` |
 | `stills` | PNGs of the project at the given times, scaled, from one browser. | `stills/<job id>/<n>.png` |
 | `thumbnail` | One JPEG of the project at `seconds`, at most 640 px wide. | the key the job names |
 | `slides` | PowerPoint (`.pptx`, `.ppt`) and OpenDocument (`.odp`) become a PDF with LibreOffice, headless; poppler's `pdftoppm` draws each page 1920 px wide; each page becomes an image asset. A missing tool fails the job with what to install. | one asset per page |
@@ -147,7 +148,14 @@ bundled once per process and kept in the work folder under a key made from the e
 files' names, sizes and mtimes, so it is made again only when the engine changes (a few
 seconds with Remotion's Rspack bundler). The bundle's public folder holds a link to the
 asset cache as `assets/`, so `staticFile('assets/<sha256>.<ext>')` in the composition reads
-the cached file itself. Renders use `STUDIO_RENDER_CONCURRENCY` Chrome tabs (2).
+the cached file itself. Renders use `STUDIO_RENDER_CONCURRENCY` Chrome tabs; unset, one fewer than
+the CPUs the worker may use (a container's CPU quota counts, not the machine's cores), at least 1 and at most 4:
+every tab past the first adds work to each frame, so more than 4 makes a render slower. On Linux Chrome composites
+in software (`gl: 'swiftshader'`, which leaves Chrome without a GPU process), about a quarter of the CPU the
+emulated GPU (`swangle`) took; a video with code scenes still gets `swangle`, so a scene drawing with WebGL works
+(`src/render.ts`, `glFor`); should software compositing ever fail before a render's first frame, that render is made again with `swangle` and the worker keeps `swangle` until it restarts (`withGlFallback`). Measured on Linux in the image at 4 CPUs: the made-up 20 s 2504×1438 60 fps export rendered in 124 s, against 694 s with the old settings. Exports are encoded BT.709 (what Chrome decodes a recording as, so the export's colours
+are the preview's) with x264 `veryfast` at CRF 18 (`EXPORT_ENCODING`). The measurements behind these are in
+[`deploy/studio/README.md`](../deploy/studio/README.md#export-speed).
 
 **Not staged yet.** Fonts a job does not carry (text layers and captions draw in the
 fallback stack); the job's log says so.
@@ -189,6 +197,7 @@ connection to it, see the test's header). Turning it on in production is the own
 proves a hostile scene reaches nothing (cookies, storage, the page's DOM, any request,
 navigation, a host name in the net log) in the headless shell; a full Chrome still
 preconnects to where a refused navigation was headed (the file's header says more);
+`test/fast-export-e2e.ts` exports made-up videos both ways (`STUDIO_FAST_EXPORT` off, then on) and compares every frame, and the sound sample for sample against Remotion's own mix (`test/fast-sound.test.ts` covers the mix's rules without a browser) (`STUDIO_CHROME=<a headless shell folder> node --import tsx test/fast-export-e2e.ts`); `test/export-bench.ts` times the 20 s production-shaped video both ways (`node --import tsx test/export-bench.ts [plain|cuts] [chrome|fast|both]`). Both render: one heavy run at a time.
 `test/scene-export-e2e.ts` exports a made-up video with a scene through this
 worker and reads its frames back.
 
@@ -197,6 +206,27 @@ content-addressed, so the next render of the same project fetches nothing. Past
 `STUDIO_CACHE_BYTES` (5 GB) the least recently used files go first; a file a running job
 uses is never removed. Each job's own scratch folder is removed when it ends, whatever
 happened.
+
+### On the person's own computer
+
+`src/local.ts` (command line: `src/local-main.ts`) is the local runner the desktop app starts for an export on the
+person's own computer (macOS or Windows): it takes ONE `local-export` job by id with the token the editor minted for it
+(the app client's token mode, the routes under `/api/local-agent/studio-export/`), stages only the files the project
+names (sha256-checked), exports as the worker does with the machine's own encoder and a render bundle built ahead,
+writes the video to the destination the desktop app names, uploads it and completes the job (unless `--no-upload`),
+reports progress at least every 15 s and stops on a cancel. The token never goes on the command line
+(`STUDIO_LOCAL_TOKEN` or the first line of standard input); events come out as JSON lines. `scripts/build-local-runner.ts
+<out>` builds what the desktop carries: `runner/runner.cjs` (esbuild), the packages it keeps, the render bundle with its
+manifest, `NOTICES.md` and `sizes.json`. What differs between Linux, a Mac and Windows (process trees, junctions,
+concat lists, tool paths, path length, a child's environment) is in `src/platform.ts`, each branch tested with the
+platform named (`test/platform.test.ts`). Tests: `test/local.test.ts`, `test/encoders.test.ts`, `test/bundle-dir.test.ts`;
+end to end `test/local-e2e.ts`; a lossy encoder against the lossless one: `test/encoder-check.ts`. Without Remotion's
+compositor: `test/compositor-free-e2e.ts` (the sound from `renderFrames` against `renderMedia`'s, sample for sample; the
+Chrome path through our FFmpeg against `renderMedia`'s file) and `test/desktop-e2e.ts` (the desktop build, compositor
+absent, both paths and the whole-mix fallback, run by plain Node). Before each export the runner tries its encoder's
+ladder on a second of picture (`--probe` alone gives the desktop app that status); every local export's file is held to
+`exportFacts` (frames at their times, duration, size, colour labels in the MP4 and the stream). The bubble's mask
+against Chrome's on flat colours: `test/mask-e2e.ts`. The build runs the render version's test first.
 
 ## Running it against `next dev`
 
@@ -229,10 +259,12 @@ local run, `npm start` also reads a `.env` file beside `package.json` when there
 | `STUDIO_WORKER_ID` | host-pid | Its name on the jobs it claims. |
 | `STUDIO_WORKER_KINDS` | all | The kinds it takes, comma separated (the provider kinds still only while their capability holds). |
 | `STUDIO_WORKER_CONCURRENCY` | 1 | Jobs at once. |
+| `STUDIO_LIVE_SLOTS` | 0 (off) | Slots that take only `live-import` (a recording prepared while it records, one job per video track, held as long as it records). The media and provider slots never take it. With it set the worker tells the app `liveImport`, and only then does the app queue such jobs. |
+| `STUDIO_LIVE_THREADS` | 2 | Threads per live job's FFmpeg (its decoder, filters and encoder alike), run under `nice` so an export beside it gets the CPU first. |
 | `STUDIO_WORKER_POLL_MS` | 2000 | How often it asks for work when idle. |
 | `STUDIO_WORK_DIR` | `<tmp>/studio-worker` | Scratch, the bundle and the asset cache. |
 | `STUDIO_CACHE_BYTES` | 5 GB | The asset cache's bound. |
-| `STUDIO_RENDER_CONCURRENCY` | 2 | Chrome tabs per render. |
+| `STUDIO_RENDER_CONCURRENCY` | the CPUs less one, 1 to 4 | Chrome tabs per render. |
 | `STUDIO_CHROME` | Remotion's own | A Chrome headless shell to render in. |
 | `STUDIO_ENGINE_DIR` | `../web/src/lib/studio/engine` | The engine's folder (the bundle's entry is `remotion.tsx` in it). |
 | `STUDIO_HEALTH_PORT` | 9092 | The health answer on 127.0.0.1 (0: none). |
@@ -247,6 +279,12 @@ local run, `npm start` also reads a `.env` file beside `package.json` when there
 | `STUDIO_ANALYSIS_PYTHON` | `python3` on PATH | A Python with numpy and OpenCV, for `motion` and `review` (the `motionCheck` and `review` capabilities). |
 | `STUDIO_ANALYSIS_TESSERACT` | `tesseract` on PATH | The text reader the review reads on-screen text with (optional). |
 | `STUDIO_CODE_SCENES` | on, off with `NODE_ENV=production` | Whether renders run code scenes' code in their locked frame (`on`/`off`). Off, a render of a video with code scenes is refused with a sentence. |
+| `STUDIO_FAST_EXPORT` | on | The FFmpeg export for a video that is only a recording, its cuts and its camera bubble (`on`/`off`); what it covers and how it was proven: [`deploy/studio/README.md`](../deploy/studio/README.md#export-speed), "Export speed". |
+| `STUDIO_FAST_ENCODER` | x264 | How the FFmpeg export encodes its picture (`src/encoders.ts`): `x264` (the server: the Chrome path's settings), `videotoolbox` (a Mac's own encoder), `mf` (Windows' Media Foundation), `lossless` (the proof). The local runner picks the machine's own. |
+| `STUDIO_FFMPEG`, `STUDIO_FFPROBE` | the ones on PATH | Absolute paths of the FFmpeg and ffprobe to run (every run of them goes through `src/platform.ts`, `toolPath`). |
+| `STUDIO_COMPOSITOR` | on | Off on a computer (the local runner sets it): Remotion only draws (`renderFrames`, `renderStill`); our FFmpeg encodes the Chrome path's frames and Remotion's own mix of the sound is made from the layer files `renderFrames` writes (`src/chrome-pipe.ts`, `src/remotion-sound.ts`), so Remotion's compositor package and its GPL FFmpeg are not needed. |
+| `STUDIO_ENCODER_RUNG` | quality | Which rung of a hardware encoder's ladder (`quality`, `bitrate`, `software`; `src/encoders.ts`): the local runner sets the one its probe found (`src/encoder-probe.ts`). |
+| `STUDIO_BUNDLE_DIR` | unset | A render bundle built ahead (`scripts/build-local-runner.ts`; `src/bundle-dir.ts`): used instead of bundling the engine here, refused unless its manifest names this engine's render version and Remotion's. |
 
 ## Working on it
 

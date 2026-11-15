@@ -14,7 +14,7 @@
 //!     host) got all of the above.
 //! This test fails the build if any comes back.
 //!
-//! And `http://localhost:3000/*` is a debug build's alone: build.rs reads
+//! And `http://localhost:3000/*` (with `:3001`, a second checkout's dev port) is a debug build's alone: build.rs reads
 //! `capabilities/dev.json` (the same grants, for the local dev server) only
 //! when the profile isn't release, so whatever listens on a released app's
 //! localhost gets nothing.
@@ -135,11 +135,12 @@ fn the_app_address_is_the_same_in_every_place_it_is_written() {
 
 /// dev.json is default.json for the local dev server: the same windows and
 /// permissions (so a grant added to one can't be missing from the other),
-/// and only http://localhost:3000.
+/// and only http://localhost:3000 and :3001 (the second port is for a second
+/// checkout's dev app beside the first: `NI_DEV_PORT=3001 ./dev.sh`).
 #[test]
 fn the_dev_capability_mirrors_default_for_localhost_only() {
     let (release, dev) = (capability(), dev_capability());
-    assert_eq!(remote_urls(&dev), ["http://localhost:3000/*"]);
+    assert_eq!(remote_urls(&dev), ["http://localhost:3000/*", "http://localhost:3001/*"]);
     assert_ne!(dev["identifier"], release["identifier"]);
     assert_eq!(dev["windows"], release["windows"]);
     assert_eq!(dev["permissions"], release["permissions"]);

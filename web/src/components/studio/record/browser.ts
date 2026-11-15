@@ -3,23 +3,31 @@
 // page's clock (performance.now()), so the camera and the microphone can be placed on the screen file's clock.
 //
 // There is no input trace in a browser (no clicks, keys or cursor outside the page), so a browser take has none.
+//
+// Each track goes to the Studio while it records, in pieces of a few seconds (`live.ts`): a crash or a closed window
+// loses only the last seconds (the rest is offered back when the person returns), and Stop has only the last piece
+// to send. Where the Studio cannot take a recording while it is made, the take is kept here and uploaded after Stop.
 import { uploadFile } from '../ui/client'
 import { mediaErrorSentence, plainError } from './errors'
+import { LiveTake, fetchApi, type LiveApi, type LiveTrack } from './live'
 import { AUDIO_TYPES, VIDEO_TYPES, extensionFor, levelFrom, pickType, sourceOffsets, takeFileName, withAudio } from './media'
 import type { DeviceOption, FinishedTake, Recorder, RecorderHandlers, SharedSurface, TakeFile, TakeOptions, TakeRole } from './types'
 
-/** One running MediaRecorder and what it has recorded. */
+/** One running MediaRecorder. Its bytes are in the live take's track of the same role. */
 type Track = {
   role: TakeRole
   recorder: MediaRecorder
   stream: MediaStream
-  chunks: Blob[]
   type: string
+  /** Where its chunks go: its track of the live take. */
+  sink: LiveTrack | null
   startedAt: number | null
   stoppedAt: number | null
   stopped: Promise<void>
   width?: number
   height?: number
+  /** The frame rate the device said it gives (getSettings().frameRate): the most the track is conformed to. */
+  frameRate?: number
 }
 
 /**
@@ -29,6 +37,13 @@ type Track = {
 export function videoBitrate(width: number, height: number, fps: number): number {
   return Math.round(Math.min(12_000_000, Math.max(2_500_000, width * height * fps * 0.09)))
 }
+
+/**
+ * A keyframe every two seconds. Chromium's MP4 recorder hands over its bytes a keyframe at a time (a fragment each),
+ * and with its own spacing a take could sit unsent for many seconds: what a crash would lose. Browsers that do not
+ * know the option (WebKit) ignore it.
+ */
+const KEYFRAMES = { videoKeyFrameIntervalDuration: 2000 } as MediaRecorderOptions
 
 /** The cameras and microphones the browser lists. Labels are empty until the page was allowed a device once. */
 export async function listBrowserDevices(): Promise<{ cameras: DeviceOption[]; microphones: DeviceOption[] }> {
@@ -83,6 +98,17 @@ const surfaceOf = (track: MediaStreamTrack): SharedSurface['surface'] => {
   return value === 'browser' || value === 'window' || value === 'monitor' ? value : 'unknown'
 }
 
+/** Every recorder of a take said it started (or a moment passed). */
+function started(tracks: Track[]): Promise<void> {
+  const waits = tracks.map((track) => (track.startedAt !== null ? Promise.resolve() : new Promise<void>((resolve) => track.recorder.addEventListener('start', () => resolve(), { once: true }))))
+  return Promise.race([Promise.all(waits).then(() => undefined), new Promise<void>((resolve) => setTimeout(resolve, 1500))])
+}
+
+/** Seconds after the screen a role started, once both have started. */
+function offsetOf(tracks: Track[], role: TakeRole): number | null {
+  return sourceOffsets(Object.fromEntries(tracks.map((track) => [track.role, track.startedAt])))[role] ?? null
+}
+
 const stopAll = (stream: MediaStream | null | undefined) => {
   for (const track of stream?.getTracks() ?? []) track.stop()
 }
@@ -101,8 +127,24 @@ export class BrowserRecorder implements Recorder {
   private audio: { context: AudioContext; analyser: AnalyserNode; samples: Uint8Array<ArrayBuffer> } | null = null
   private createdAt = new Date()
   private ending = false
+  /** The take on its way to the Studio while it records. */
+  private live: LiveTake | null = null
+  /** Stopped takes whose last pieces may still be going up, by their session id. */
+  private stopped = new Map<string, LiveTake>()
+
+  constructor(private readonly api: LiveApi = fetchApi) {}
 
   /** What is being shared, if anything. */
+  /**
+   * The ids on the Studio of the takes this recorder holds: the one recording, and those stopped whose last pieces may
+   * still be going up. A take of these is never offered back as stopped (another tab may be bringing it back).
+   */
+  liveTakeIds(): string[] {
+    const ids = [...this.stopped.values()].map((live) => live.id ?? live.requestedId)
+    if (this.live) ids.push(this.live.id ?? this.live.requestedId)
+    return ids
+  }
+
   get share(): SharedSurface | null {
     return this.surface
   }
@@ -229,6 +271,7 @@ export class BrowserRecorder implements Recorder {
     try {
       this.tracks.push(this.track('screen', screenStream, screenSound.length ? withAudio(videoType, supported) : videoType, {
         videoBitsPerSecond: videoBitrate(width, height, Math.min(60, screenSettings.frameRate ?? 30)),
+        ...KEYFRAMES,
         ...(screenSound.length ? { audioBitsPerSecond: 160_000 } : {}),
       }, width, height))
       const cameraVideo = this.camera?.getVideoTracks()[0]
@@ -236,6 +279,7 @@ export class BrowserRecorder implements Recorder {
         const cam = cameraVideo.getSettings()
         this.tracks.push(this.track('camera', new MediaStream([cameraVideo]), videoType, {
           videoBitsPerSecond: videoBitrate(cam.width ?? 1280, cam.height ?? 720, cam.frameRate ?? 30),
+          ...KEYFRAMES,
         }, cam.width, cam.height))
       }
       const micAudio = this.microphone?.getAudioTracks()[0]
@@ -247,15 +291,33 @@ export class BrowserRecorder implements Recorder {
       this.abort()
       throw new Error(mediaErrorSentence(error, 'recording') ?? plainError(error))
     }
+    // This take's recorders: kept here, as the pieces may still go up after the recorder has moved on.
+    const tracks = this.tracks
+    const live = new LiveTake(tracks.map((track) => track.role), {
+      api: this.api,
+      now: () => performance.now(),
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      offset: (role) => offsetOf(tracks, role),
+      // The Studio refused the rest (no space left, the take finished elsewhere): what reached it is kept, and the take stops.
+      onFailed: (message) => {
+        if (!this.ending) this.handlers?.onEnded({ kind: 'error', message: `The recording stopped: ${message.replace(/\.$/, '')}. What was saved before that is kept.` })
+      },
+      onChange: () => undefined,
+    })
+    this.live = live
+    for (const track of this.tracks) track.sink = live.tracks.get(track.role) ?? null
     // All together, in one tick, chunked every second.
     for (const track of this.tracks) track.recorder.start(1000)
     this.ticker = setInterval(() => this.tick(), 250)
+    // The take is made on the Studio once the recorders say what they record into (their file names); pieces wait here meanwhile.
+    const createdAt = this.createdAt
+    void started(tracks).then(() => live.open('browser', Object.fromEntries(tracks.map((track) => [track.role, takeFileName(track.role, extensionFor(track.type), createdAt)])), Object.fromEntries(tracks.map((track) => [track.role, track.frameRate]))))
   }
 
   /** One MediaRecorder for one source, noting when it really started. */
   private track(role: TakeRole, stream: MediaStream, type: string | null, options: MediaRecorderOptions, width?: number, height?: number): Track {
     const recorder = new MediaRecorder(stream, { ...options, ...(type ? { mimeType: type } : {}) })
-    const track: Track = { role, recorder, stream, chunks: [], type: recorder.mimeType || type || (role === 'microphone' ? 'audio/webm' : 'video/webm'), startedAt: null, stoppedAt: null, stopped: Promise.resolve(), width, height }
+    const track: Track = { role, recorder, stream, type: recorder.mimeType || type || (role === 'microphone' ? 'audio/webm' : 'video/webm'), sink: null, startedAt: null, stoppedAt: null, stopped: Promise.resolve(), width, height, frameRate: stream.getVideoTracks()[0]?.getSettings().frameRate }
     track.stopped = new Promise<void>((resolve) => {
       recorder.addEventListener('stop', () => {
         track.stoppedAt = performance.now()
@@ -267,7 +329,9 @@ export class BrowserRecorder implements Recorder {
       if (recorder.mimeType) track.type = recorder.mimeType
     })
     recorder.addEventListener('dataavailable', (event) => {
-      if (event.data.size) track.chunks.push(event.data)
+      if (!event.data.size) return
+      const started = track.startedAt ?? performance.now()
+      track.sink?.push(event.data, Math.max(0, (performance.now() - started) / 1000))
     })
     recorder.addEventListener('error', (event) => {
       const cause = (event as Event & { error?: unknown }).error
@@ -299,7 +363,7 @@ export class BrowserRecorder implements Recorder {
       this.audio.analyser.getByteTimeDomainData(this.audio.samples)
       level = levelFrom(this.audio.samples)
     }
-    this.handlers?.onStatus({ elapsedMs: startedAt === null || startedAt === undefined ? 0 : performance.now() - startedAt, level })
+    this.handlers?.onStatus({ elapsedMs: startedAt === null || startedAt === undefined ? 0 : performance.now() - startedAt, level, ...(this.live ? { tracks: this.live.status() } : {}) })
   }
 
   async stop(): Promise<FinishedTake> {
@@ -317,46 +381,63 @@ export class BrowserRecorder implements Recorder {
     }
     // A recorder whose stream died may never say it stopped: wait a few seconds at most.
     await Promise.race([Promise.all(this.tracks.map((track) => track.stopped)), new Promise((resolve) => setTimeout(resolve, 5000))])
+    // The last chunk arrives with the stop: give it a moment to reach its track.
+    await new Promise((resolve) => setTimeout(resolve, 0))
     const tracks = this.tracks
+    const live = this.live!
     this.tracks = []
+    this.live = null
     this.releaseAll()
     const screen = tracks.find((track) => track.role === 'screen')
-    if (!screen || !screen.chunks.length) throw new Error('The screen recording came out empty. Try again.')
+    if (!screen || !live.tracks.get('screen')?.recordedBytes) {
+      void live.discard()
+      throw new Error('The screen recording came out empty. Try again.')
+    }
+    // Whether the Studio took the take while it recorded (it says within seconds of the start).
+    const onServer = await live.ready
     const offsets = sourceOffsets(Object.fromEntries(tracks.map((track) => [track.role, track.startedAt])))
     const files: TakeFile[] = []
     for (const track of tracks) {
-      if (!track.chunks.length) continue
+      const pieces = live.tracks.get(track.role)
+      if (!pieces?.recordedBytes) continue
       const type = track.type.split(';')[0]!.trim() || 'video/webm'
-      const blob = new Blob(track.chunks, { type })
       const started = track.startedAt ?? screen.startedAt ?? 0
       const ended = track.stoppedAt ?? performance.now()
+      const kept = pieces.state === 'local' ? pieces.localBlob(type) : null
       files.push({
         role: track.role,
         name: takeFileName(track.role, extensionFor(track.type), this.createdAt),
         contentType: type,
-        bytes: blob.size,
+        bytes: kept?.size ?? pieces.recordedBytes,
         offsetSeconds: offsets[track.role] ?? 0,
         durationSeconds: Math.max(0, (ended - started) / 1000),
         ...(track.width ? { width: track.width } : {}),
         ...(track.height ? { height: track.height } : {}),
-        blob,
+        ...(track.frameRate ? { frameRate: track.frameRate } : {}),
+        ...(kept ? { blob: kept } : pieces.key ? { uploadKey: pieces.key } : {}),
       })
     }
     const screenFile = files.find((file) => file.role === 'screen')!
+    const sessionId = onServer && live.id ? live.id : crypto.randomUUID()
+    this.stopped.set(sessionId, live)
     return {
       kind: 'browser',
-      sessionId: crypto.randomUUID(),
+      sessionId,
       files,
       trace: null,
       sourceCursorHidden: false,
       transcript: null,
       durationSeconds: screenFile.durationSeconds ?? 0,
+      ...(onServer && live.id ? { liveTakeId: live.id } : {}),
     }
   }
 
   async cancel(): Promise<void> {
     this.ending = true
+    // Thrown away: the pieces already on the Studio go too.
+    const live = this.live
     this.abort()
+    if (live) await live.discard()
   }
 
   private abort() {
@@ -368,19 +449,43 @@ export class BrowserRecorder implements Recorder {
         // Already stopped.
       }
     }
+    // Stopped without Stop (the dialog closed mid-take): once the recorders hand over their last chunks, what each
+    // track gathered goes up too, while the page lives. The take is offered back from the Studio later.
+    const live = this.live
+    const stopped = this.tracks.map((track) => track.stopped)
+    if (live) void Promise.race([Promise.all(stopped), new Promise((resolve) => setTimeout(resolve, 5000))]).then(() => live.flush())
     this.tracks = []
+    this.live = null
     this.releaseAll()
   }
 
-  async upload(_take: FinishedTake, file: TakeFile, onProgress: (fraction: number) => void): Promise<string> {
+  /**
+   * A track uploaded while it recorded: wait for its last pieces (the fraction is of its bytes on the Studio) and
+   * answer its key, noting on the file how many pieces make it. Otherwise the old way: the whole file, after Stop.
+   */
+  async upload(take: FinishedTake, file: TakeFile, onProgress: (fraction: number) => void): Promise<string> {
+    const track = file.uploadKey ? this.stopped.get(take.sessionId)?.tracks.get(file.role) : undefined
+    if (file.uploadKey && track) {
+      const done = await track.finish(onProgress)
+      file.pieces = done.pieces
+      if (!done.complete) file.partial = true
+      if (!done.complete) take.note = `The end of the ${track.label.toLowerCase()} recording could not be saved: ${track.error ?? 'the Studio refused it'}`.slice(0, 300)
+      return done.key
+    }
+    if (file.uploadKey) throw new Error(`The ${file.role} recording is no longer here to upload.`)
     if (!file.blob) throw new Error(`The ${file.role} recording is no longer here to upload.`)
     return uploadFile(file.blob, file.name, onProgress)
   }
 
   async discard(take: FinishedTake): Promise<void> {
     for (const file of take.files) delete file.blob
+    const live = this.stopped.get(take.sessionId)
+    this.stopped.delete(take.sessionId)
+    // A take that became a recording is the Studio's to clean up (it answers that it is busy); one thrown away goes now.
+    if (live) await live.discard()
   }
 
+  /** Let go of the devices. A take still recording is not thrown away: what reached the Studio is offered back later. */
   dispose(): void {
     this.ending = true
     this.abort()

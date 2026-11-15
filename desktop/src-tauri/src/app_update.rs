@@ -87,6 +87,41 @@ pub async fn app_update_check(app: AppHandle) -> Result<UpdateCheck, String> {
     }
 }
 
+/// The refusal while a Studio export runs on this computer (studio_local).
+const EXPORT_HOLDS_UPDATE: &str = "A video is exporting on this computer. Update once it has finished.";
+
+/// An install that replaces or quits the app is under way (the macOS
+/// install, the Windows apply): a Studio export may not start meanwhile
+/// ([`replacing`]). Set before the export check, as the export sets its own
+/// flag before checking this one, so of two at once one always sees the
+/// other.
+static REPLACING: AtomicBool = AtomicBool::new(false);
+
+/// Whether an update is replacing (or about to restart) the app now.
+pub(crate) fn replacing() -> bool {
+    REPLACING.load(Ordering::SeqCst)
+}
+
+/// Holds [`REPLACING`] for one install, and refuses it while an export runs.
+struct Replacing;
+
+impl Replacing {
+    fn take() -> Result<Self, String> {
+        REPLACING.store(true, Ordering::SeqCst);
+        let held = Replacing;
+        if crate::studio_local::holds_updates() {
+            return Err(EXPORT_HOLDS_UPDATE.into());
+        }
+        Ok(held)
+    }
+}
+
+impl Drop for Replacing {
+    fn drop(&mut self) {
+        REPLACING.store(false, Ordering::SeqCst);
+    }
+}
+
 /// One install at a time: the plugin's macOS install renames the running
 /// `.app` aside and moves the new one in, so two at once (a manual check over a
 /// scheduled one, or a page calling twice) could leave a broken bundle.
@@ -128,9 +163,15 @@ pub async fn app_update_install(app: AppHandle, expected: String) -> Result<Stri
         // install: there is none for this one.
         return Err("updates don't install on this platform".into());
     }
+    // The macOS install replaces the app the export's runner reads from.
+    if cfg!(target_os = "macos") && crate::studio_local::holds_updates() {
+        return Err(EXPORT_HOLDS_UPDATE.into());
+    }
     let Some(_slot) = InstallSlot::take() else {
         return Err("an update is already installing".into());
     };
+    #[cfg(target_os = "macos")]
+    let _replacing = Replacing::take()?;
     // Already verified and waiting for its restart (a page reload, or the
     // next scheduled check): not downloaded again.
     #[cfg(windows)]
@@ -152,6 +193,10 @@ pub async fn app_update_install(app: AppHandle, expected: String) -> Result<Stri
     {
         let bundled = bundle_version(&bytes)?;
         check_bundle_version(&bundled, &version, &current)?;
+        // Again right before: an export may have started during the download.
+        if crate::studio_local::holds_updates() {
+            return Err(EXPORT_HOLDS_UPDATE.into());
+        }
         update.install(&bytes).map_err(|e| e.to_string())?;
     }
     #[cfg(windows)]
@@ -171,9 +216,15 @@ pub async fn app_update_install(app: AppHandle, expected: String) -> Result<Stri
 /// it couldn't start. One at a time with an install, like installs.
 #[tauri::command]
 pub async fn app_update_apply(app: AppHandle) -> Result<(), String> {
+    // A restart (or the Windows installer) ends the app, and the export with it.
+    if crate::studio_local::holds_updates() {
+        return Err(EXPORT_HOLDS_UPDATE.into());
+    }
     let Some(_slot) = InstallSlot::take() else {
         return Err("an update is already installing".into());
     };
+    // No export starts from here on; one that started just now refuses this.
+    let _replacing = Replacing::take()?;
     #[cfg(windows)]
     {
         let _ = app;
@@ -337,6 +388,10 @@ mod tests {
     #[test]
     fn only_one_install_slot_at_a_time_and_it_frees_on_drop() {
         let first = InstallSlot::take().expect("the slot starts free");
+        let held = Replacing::take().expect("no export runs in this test");
+        assert!(replacing());
+        drop(held);
+        assert!(!replacing());
         assert!(InstallSlot::take().is_none(), "a second install must be refused while one runs");
         drop(first);
         assert!(InstallSlot::take().is_some(), "the slot frees when the install ends, however it ends");
