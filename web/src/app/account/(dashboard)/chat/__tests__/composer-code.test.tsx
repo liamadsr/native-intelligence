@@ -227,6 +227,18 @@ describe('the Code tab', () => {
     expect(order).toEqual(['tabs', 'environment', 'folder'])
   })
 
+  it('a plain click on the agent picker opens it and it stays open: the click never reaches the box that focuses the field', async () => {
+    await mount({ list: [STUDIO], chatEnv: STUDIO })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    // A real click is a pointerdown (the menu opens) and then a click on the same button.
+    await openMenu('[data-code-agent-picker]')
+    press(q('[data-code-agent-picker]')!)
+    await flush()
+    expect(q('[data-code-agent-menu]')).not.toBeNull()
+    expect(document.activeElement?.tagName).not.toBe('TEXTAREA')
+  })
+
   it('the picker: Native Intelligence, Your agents, and Needs connection with how to connect one', async () => {
     await mount({ list: [STUDIO], chatEnv: STUDIO })
     press(q('[data-composer-tab="code"]')!)
