@@ -31,6 +31,9 @@
 	# machine. Narrow this to the outer proxy's address if it is ever published.
 	servers {
 		trusted_proxies static private_ranges
+		# Room for a request's headers, as in the edge's Caddyfile and entrypoint.sh:
+		# a chat turn's cookies, run token and context pass Caddy's own 16 KB.
+		max_header_size 64KB
 	}
 }
 
