@@ -78,6 +78,15 @@ describe('workerInstructions', () => {
     expect(text).not.toContain('Do not change your own card')
   })
 
+  it('a Code tab job: its manager is the person in its own chat; ask_manager asks them and the turn waits; never the Native Intelligence agent', () => {
+    const text = workerInstructions({ workspaceName: 'Fernhill Studio', card: null, worker: 'claude-code', tools, codeJob: true })
+    expect(text).toContain('The person started this job themselves')
+    expect(text).toContain('`ask_manager` asks them: after asking, end your turn without calling `finish` and wait for their answer')
+    expect(text).toContain('`finish` closes the job for them to review')
+    expect(text.length).toBeLessThanOrEqual(WORKER_INSTRUCTIONS_MAX)
+    expect(workerInstructions({ workspaceName: 'Fernhill Studio', card: null, worker: 'claude-code', tools })).not.toContain('started this job themselves')
+  })
+
   it('stays one line per field and within its limit, whatever a title holds', () => {
     const text = workerInstructions({
       workspaceName: 'Fernhill\nStudio',

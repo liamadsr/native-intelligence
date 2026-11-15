@@ -490,6 +490,40 @@ export async function reapIfStale(svc: Svc, r: DbSession, now = Date.now()): Pro
   return reaped
 }
 
+/** At most this many sessions a daily sweep reaps (the rest, the next day or on their next read). */
+export const REAP_SWEEP_MAX = 500
+
+/**
+ * The daily sweep (the local-agent purge cron): every session left idle past
+ * IDLE_TTL_MS, or queued past its expiry, is reaped as a read would reap it,
+ * so its open ledger row settles (a question nobody answered stops reading
+ * as waiting on the person) without anyone opening it, and without polling.
+ * A session that is still working is never touched (its lease decides).
+ * Never throws; how many it reaped.
+ */
+export async function reapStaleSessions(svc: Svc, now = Date.now()): Promise<{ reaped: number; ok: boolean }> {
+  try {
+    const idleBefore = nowIso(now - IDLE_TTL_MS)
+    const [idle, queued] = await Promise.all([
+      svc.from('local_agent_session').select(SESSION_SELECT).in('status', ['waiting', 'interrupted']).lt('updated_at', idleBefore).limit(REAP_SWEEP_MAX),
+      svc.from('local_agent_session').select(SESSION_SELECT).eq('status', 'queued').lt('expires_at', nowIso(now)).limit(REAP_SWEEP_MAX),
+    ])
+    if (idle.error || queued.error) {
+      console.warn('[local-agent] stale sweep read failed:', idle.error?.message ?? queued.error?.message)
+      return { reaped: 0, ok: false }
+    }
+    let reaped = 0
+    for (const row of [...((idle.data ?? []) as DbSession[]), ...((queued.data ?? []) as DbSession[])].slice(0, REAP_SWEEP_MAX)) {
+      const after = await reapIfStale(svc, row, now)
+      if (after.status !== row.status) reaped++
+    }
+    return { reaped, ok: true }
+  } catch (err) {
+    console.warn('[local-agent] stale sweep failed:', err instanceof Error ? err.message : err)
+    return { reaped: 0, ok: false }
+  }
+}
+
 /** The session row (reaped), or null when it isn't this person's. */
 export async function loadSession(svc: Svc, userId: string, sessionId: string): Promise<DbSession | null> {
   if (!isUuid(sessionId)) return null
@@ -1112,6 +1146,8 @@ type ClaimInput = {
    * busy, the start is refused (FOLDER_BUSY, other_worker).
    */
   chosenWorker?: string | null
+  /** Never join the folder's job (a new Code job asked for): an idle one ends, a working one is busy. */
+  fresh?: boolean
 }
 
 /**
@@ -1238,7 +1274,7 @@ async function claimFolder(svc: Svc, input: ClaimInput): Promise<{ joined: DbSes
       const otherWorker = input.chosenWorker !== undefined && (cur.worker ?? null) !== input.chosenWorker
       // A job being stopped never takes another turn: the stop would refuse
       // its calls and the request would be lost. Idle, it ends; else it's busy.
-      if (sameKind && !cur.stop_requested_at && modeFits && !asking && !otherWorker) {
+      if (sameKind && !cur.stop_requested_at && modeFits && !asking && !otherWorker && !input.fresh) {
         try {
           const sent = await addMessage(svc, {
             userId: input.userId,
@@ -1284,7 +1320,7 @@ async function claimFolder(svc: Svc, input: ClaimInput): Promise<{ joined: DbSes
         codeRequestIdOf(input.idempotencyKey) !== null && (cur.conversation_id ?? null) === (input.conversationId ?? null) && joinKind(cur.idempotency_key) === 'attended'
       const reason: FolderBusyReason = chatAgentJob
         ? 'chat_agent_job'
-        : !sameKind
+        : !sameKind || input.fresh
         ? 'other_chat'
         : otherWorker
           ? 'other_worker'
@@ -1470,6 +1506,12 @@ export async function createSession(
      * it is only the Code tab's default.
      */
     explicitWorker?: string | null
+    /**
+     * A new job, never the folder's next turn (the Code tab's "Start a new
+     * job"): an idle job in the folder ends to make room, a working one is
+     * FOLDER_BUSY.
+     */
+    fresh?: boolean
   },
   attempt = 0,
 ): Promise<{ session: SessionRow; created: boolean; deviceOnline: boolean; joined?: true }> {

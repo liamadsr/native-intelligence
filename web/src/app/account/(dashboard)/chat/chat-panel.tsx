@@ -37,6 +37,7 @@ import {
   useComposerMentions,
 } from './composer-state'
 import { useComposerCode } from './composer-code'
+import { useOptionalOpenWorkItem } from '@/hooks/use-open-teammate'
 import { applyChatRetention, MAX_LIVE_MESSAGES, needsChatRetention } from '@/lib/chat/message-retention'
 import { caughtUpThread } from '@/lib/chat/thread-catch-up'
 import { ChevronDown } from 'lucide-react'
@@ -1652,10 +1653,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
   }, [input])
 
   // The composer's Chat / Code tabs (composer-code.tsx), for a person with a
-  // Mac environment, in their home thread: in Code, a send goes to their
-  // coding agent's job, the person's message goes into the thread as theirs
-  // once the job took it (saved as an opened page is), and each job draws
-  // inline after the message that started it.
+  // Mac environment, in their home thread: in Code, a send starts a job on
+  // their coding agent and opens its own view (the Agents panel's), the
+  // request is saved in the thread as theirs once the job took it, and the
+  // thread draws each job as one compact line (code-job-line.tsx).
   const appendCodeMessage = useCallback(
     (message: UIMessage) => {
       const thread = [...messagesRef.current, message]
@@ -1667,6 +1668,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
   )
   const codeConversationIdNow = useCallback(async () => getConversationId() ?? (await pendingCreate()) ?? getConversationId(), [getConversationId, pendingCreate])
   const chatReplyRunning = useCallback(() => statusRef.current === 'streaming' || statusRef.current === 'submitted', [])
+  // A Code job's own view opens the way the Agents panel opens one (null outside the shell).
+  const openWorkItemHere = useOptionalOpenWorkItem()
+  const openCodeJob = useMemo(
+    () => (openWorkItemHere ? (workItemId: string) => void openWorkItemHere(workItemId, []) : null),
+    [openWorkItemHere],
+  )
+  // A new job started from the notice's Start a new job: its words leave the box, unless the person has typed on since.
+  const clearCodeWords = useCallback((words: string) => setInput((cur) => (cur.trim() === words ? '' : cur)), [])
   const composerCode = useComposerCode({
     // The person's own main chat only (their home thread): never a capture's
     // live conversation the panel holds during a call, or anything else.
@@ -1678,6 +1687,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
     appendMessage: appendCodeMessage,
     conversationIdNow: codeConversationIdNow,
     chatBusy: chatReplyRunning,
+    openWorkItem: openCodeJob,
+    clearWords: clearCodeWords,
   })
   // This render's, as submitTurnRef is: a dictation's send reads the words it just merged.
   const submitCodeRef = useRef<() => boolean>(() => false)

@@ -26,11 +26,13 @@ import { isGithubPullRequestUrl, isSessionBranch } from './pull-request'
 import {
   LEASE_MS,
   LEASE_RENEW_BELOW_MS,
+  LOCAL_AGENT_REQUEST_MAX_BYTES,
   LOOP_QUEUED_TTL_MS,
   LocalAgentError,
   UNATTENDED_KEY_PREFIX,
   ACTION_JOB_KEY_PREFIX,
   SESSION_SELECT,
+  isCodeJob,
   isUnattendedKey,
   isUuid,
   ledgerSessionOf,
@@ -47,6 +49,7 @@ import {
   type LocalAgentMode,
   type LocalAgentStatus,
 } from './store'
+import { codeJobClaimRequest } from './code-thread'
 
 type Svc = SupabaseClient
 
@@ -747,7 +750,8 @@ export async function claimSession(
     session: row,
     grantId: row.folder.grant_id,
     mode: row.mode,
-    request: row.request,
+    // A Code job's agent learns its manager is the person (code-thread.ts); the stored request stays theirs alone.
+    request: isCodeJob(row) ? codeJobClaimRequest(row.request, isWorkerId(row.worker) ? row.worker : null, LOCAL_AGENT_REQUEST_MAX_BYTES) : row.request,
     resume: resumeOf(row),
     localModel,
     baseBranch: claimBaseBranch(row),

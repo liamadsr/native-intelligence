@@ -11,6 +11,11 @@
  * chat shows those, and the push still goes. No home turn follows: no chat
  * model speaks between the person and their coding agent.
  *
+ * The person's follow-ups, typed in the job's own chat (its composer, or the
+ * Agents panel's steer), go in too, as their own user messages naming the
+ * job (recordCodeFollowUp, from those person routes): the knowledge
+ * extraction reads the person's words, never the transcript.
+ *
  * Idempotent: the message id is one per job and turn (codeFinishMessageId),
  * and persistEveMessage converges a retried settle on the row already there.
  * Only a new row fires `conversation/activity` (the knowledge extraction's
@@ -20,7 +25,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { inngest } from '@/lib/inngest/client'
 import { persistEveMessage } from '@/lib/chat/eve-message-writer'
-import { CODE_FINISH_KIND, LOCAL_AGENT_CODE_SOURCE_KEY, codeFinishMessageId } from './code-thread'
+import { CODE_FINISH_KIND, CODE_MESSAGE_METADATA_KEY, LOCAL_AGENT_CODE_SOURCE_KEY, codeFinishMessageId, codeMessageId, codeRequestIdOf } from './code-thread'
 
 export interface CodeFinishInput {
   conversationId: string
@@ -69,6 +74,51 @@ export async function writeCodeFinish(svc: SupabaseClient, input: CodeFinishInpu
     return true
   } catch (err) {
     console.warn('[local-agent] code finish failed:', err instanceof Error ? err.message : err)
+    return false
+  }
+}
+
+/**
+ * A message the person sent a Code job from its own chat, kept in the
+ * conversation's history as theirs (one user message, id codeMessageId of
+ * the send's request id, naming the job): what the knowledge extraction may
+ * read of a follow-up. Nothing for any other job, or one with no
+ * conversation. Written once per request id; a new row fires the knowledge
+ * trigger. Never throws.
+ */
+export async function recordCodeFollowUp(
+  svc: SupabaseClient,
+  input: { userId: string; sessionId: string; text: string; requestId: string },
+  deps: CodeHistoryDeps = {},
+): Promise<boolean> {
+  try {
+    const text = input.text.trim()
+    if (!text || !input.requestId) return false
+    // Read late: the store reaches this module through the ledger and the recorder.
+    const { loadSession } = await import('./store')
+    const row = await loadSession(svc, input.userId, input.sessionId)
+    if (!row || row.started_by !== 'person' || !codeRequestIdOf(row.idempotency_key) || !row.conversation_id) return false
+    const result = await persistEveMessage(svc, {
+      conversationId: row.conversation_id,
+      userId: input.userId,
+      workspaceId: row.workspace_id,
+      role: 'user',
+      messageId: codeMessageId(input.requestId),
+      parts: [{ type: 'text', text }],
+      metadata: { [CODE_MESSAGE_METADATA_KEY]: { requestId: input.requestId, sessionId: row.id }, createdAt: new Date().toISOString() },
+    })
+    if (!result.written) return false
+    try {
+      await (deps.send ?? ((e) => inngest.send(e)))({
+        name: 'conversation/activity',
+        data: { workspaceId: row.workspace_id, userId: input.userId, conversationId: row.conversation_id },
+      })
+    } catch {
+      // Knowledge extraction is best-effort; the message is stored.
+    }
+    return true
+  } catch (err) {
+    console.warn('[local-agent] code follow-up not kept:', err instanceof Error ? err.message : err)
     return false
   }
 }

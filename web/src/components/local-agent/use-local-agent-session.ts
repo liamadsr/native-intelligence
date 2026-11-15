@@ -91,18 +91,7 @@ export interface LocalAgentSessionState {
   stop: () => Promise<Sent>
 }
 
-/** A read the late events of a job that just ended get, this long after it ended (quietWhenEnded). */
-export const ENDED_CATCH_UP_MS = 1_500
-
-export function useLocalAgentSession(
-  sessionId: string,
-  /**
-   * `quietWhenEnded` (a Code job inline in the chat, where many may be drawn):
-   * once the job has ended, no realtime channel; one catch-up shortly after
-   * it ends takes whatever was still on its way.
-   */
-  opts: { quietWhenEnded?: boolean } = {},
-): LocalAgentSessionState {
+export function useLocalAgentSession(sessionId: string): LocalAgentSessionState {
   const [session, setSession] = useState<PanelSession | null>(null)
   const [transcript, setTranscript] = useState<SessionTranscript>(() => emptySessionTranscript(sessionId))
   const [loading, setLoading] = useState(true)
@@ -240,11 +229,9 @@ export function useLocalAgentSession(
     }
   }, [sessionId])
 
-  const ended = !!session && isSessionEnded(session.status)
-  const quiet = opts.quietWhenEnded === true && ended
   useRowChanges<Record<string, unknown>>({
     table: 'local_agent_event',
-    filter: quiet ? null : `session_id=eq.${sessionId}`,
+    filter: `session_id=eq.${sessionId}`,
     events: ['INSERT'],
     onRow: (row) => {
       const event = eventFromRow(row, sessionId)
@@ -257,7 +244,7 @@ export function useLocalAgentSession(
   })
   useRowChanges<Record<string, unknown>>({
     table: 'local_agent_session',
-    filter: quiet ? null : `id=eq.${sessionId}`,
+    filter: `id=eq.${sessionId}`,
     events: ['UPDATE'],
     onRow: (row) => {
       lastHeardRef.current = Date.now()
@@ -278,21 +265,10 @@ export function useLocalAgentSession(
     return () => clearInterval(t)
   }, [interval, catchUp])
 
+  const ended = !!session && isSessionEnded(session.status)
   useEffect(() => {
     if (ended) setStopAsked(false)
   }, [ended])
-  // Quiet once ended: one last read for what was still on its way. Not for a
-  // job that had ended before it was opened (its first read had it all).
-  const wasLiveRef = useRef(false)
-  const seenLive = !!session && !ended
-  useEffect(() => {
-    if (seenLive) wasLiveRef.current = true
-  }, [seenLive])
-  useEffect(() => {
-    if (!quiet || !wasLiveRef.current) return
-    const t = setTimeout(() => void catchUp(), ENDED_CATCH_UP_MS)
-    return () => clearTimeout(t)
-  }, [quiet, catchUp])
 
   const send = useCallback(
     async (text: string, policy: LocalAgentPolicy, requestId: string): Promise<Sent> => {

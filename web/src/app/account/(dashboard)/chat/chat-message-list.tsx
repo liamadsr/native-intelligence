@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, memo, useMemo, useState, type ReactNode } from 'react'
+import { memo, useMemo, useState, type ReactNode } from 'react'
 import type { UIMessage } from '@ai-sdk/react'
 import { isOpenedCardMessage } from '@/lib/chat-cards/opened-card'
 import { reactionTurnOfMetadata } from '@/lib/chat/message-reactions'
@@ -74,9 +74,10 @@ export function windowChatMessages(
  * shown gets its own. `messageTimes`: each message's time on hover, in the
  * gutter beside it (a host with a reading column's gutter: the main chat).
  *
- * `codeThread` (the main chat, composer-code.tsx): each Code tab job is drawn
- * after the person's message that started it, and the messages its own view
- * shows (a later message to it, its finish summaries) take no row here.
+ * `codeThread` (the main chat, composer-code.tsx): a Code tab job is ONE
+ * compact line (code-job-line.tsx) in the place of its first stored row (its
+ * request), never a bubble; its other rows (follow-ups sent from its own
+ * chat, its finish reports) take no row here.
  */
 export const ChatMessageList = memo(function ChatMessageList({
   messages,
@@ -146,10 +147,17 @@ export const ChatMessageList = memo(function ChatMessageList({
         if (row.type === 'line') return <ChatDayLine key={row.key} label={row.label} />
         // What a reply's capsule copies: the message (or bubble) it answers, when drawn here (reply-link.ts).
         const replyCopy = row.message.role === 'user' ? replyCopyFor(row.message, drawnById) : null
-        const job = codeThread?.layout.blockAfter.get(row.message.id) ?? null
+        const line = codeThread?.layout.lines.get(row.message.id) ?? null
+        if (line && codeThread) {
+          return (
+            <div key={row.message.id} data-message-row={row.message.id} data-message-role="code" className="relative">
+              {codeThread.renderLine(line)}
+            </div>
+          )
+        }
         return (
-          <Fragment key={row.message.id}>
           <div
+            key={row.message.id}
             data-latest-user-message={row.message.id === latestUserMessageId ? '' : undefined}
             // What a swipe replies to and a quote goes back to (use-swipe-to-reply.ts, message-interactions.ts).
             data-message-row={row.message.id}
@@ -166,8 +174,6 @@ export const ChatMessageList = memo(function ChatMessageList({
               replyCopy={replyCopy}
             />
           </div>
-          {job && codeThread?.renderJob(job)}
-          </Fragment>
         )
       })}
     </NewestPlanContext.Provider>
