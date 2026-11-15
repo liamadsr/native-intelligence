@@ -3,9 +3,9 @@
 # NI_AGENT_HOST=mac; scripts/local-agent/mac-body.sh) into
 # agents/local-agent/.output, the self-hosted Nitro server the launcher starts
 # from LOCAL_AGENT_DIR=agents/local-agent in dev (dev.json, smoke.ts,
-# e2e-device.ts), plus the worker adapters in .output/workers/ when there are
-# any (the desktop's dev path). Built in a throwaway copy, deleted before the
-# output is used.
+# e2e-device.ts), plus the workers when there are any (the desktop's dev
+# path): .output/workers/worker.mjs and .output/workers/registry.json. Built in
+# a throwaway copy, deleted before the output is used.
 # Extra arguments go to `eve build`. See agents/local-agent/README.md.
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/../.." && pwd)"

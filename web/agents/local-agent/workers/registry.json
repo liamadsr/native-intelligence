@@ -1,0 +1,39 @@
+{
+  "claude-code": {
+    "label": "Claude Code",
+    "cli": "claude",
+    "driver": "claude-stream",
+    "env": {
+      "CLAUDE_CODE_TMPDIR": "$TMP",
+      "DISABLE_AUTOUPDATER": "1"
+    },
+    "homeFolders": [
+      ".claude"
+    ],
+    "login": {
+      "keychain": true
+    },
+    "signInHint": "Claude Code isn't signed in on this Mac. Open Terminal, run `claude`, then `/login`."
+  },
+  "codex": {
+    "label": "Codex",
+    "cli": "codex",
+    "driver": "codex-app-server",
+    "homeFolders": [
+      ".codex"
+    ],
+    "login": {
+      "files": [
+        {
+          "path": ".codex/auth.json",
+          "scratch": [
+            ".codex/.auth-*",
+            ".codex/auth.json.lock",
+            ".codex/auth.lock"
+          ]
+        }
+      ]
+    },
+    "signInHint": "Codex isn't signed in on this Mac. Open Terminal and run `codex login`."
+  }
+}

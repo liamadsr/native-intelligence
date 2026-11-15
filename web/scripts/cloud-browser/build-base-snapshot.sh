@@ -5,6 +5,8 @@
 # Then set CLOUD_BROWSER_BASE_SNAPSHOT_ID to the printed id (per environment).
 # Rebuild to update Chrome; existing browsers keep their own snapshot until
 # they are recreated. The snapshot never expires (every browser is created from it).
+# Our own sandbox server builds its image (ni-cloud-browser) from the same four
+# scripts: deploy/sandbox/image.py.
 set -euo pipefail
 PROJECT=${PROJECT:-dial8-website}
 HERE="$(cd "$(dirname "$0")" && pwd)"

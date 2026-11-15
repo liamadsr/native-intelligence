@@ -1,11 +1,12 @@
-Local agent (Dial8's agent that works in folders on this Mac)
+Local agent (Native Intelligence's agent that works in folders on this Mac)
 
 Ships as:
   Contents/Resources/local-agent/ (JavaScript, run by the Node.js the app
   downloads from nodejs.org on first use; Node.js is not part of the app)
 
 These files contain the open-source components below, bundled into the
-agent's JavaScript. License paths are relative to this folder.
+agent's JavaScript or installed as they are beside it. License
+paths are relative to this folder.
 
 @ai-sdk/gateway 4.0.114
   https://github.com/vercel/ai
@@ -108,7 +109,12 @@ unstorage 2.0.0-alpha.10
   Copyright (c) Pooya Parsa <pooya@pi0.io>
   License: MIT (unstorage-2.0.0-alpha.10/LICENSE)
 
-zod 4.3.6
+zod 4.5.4
   https://github.com/colinhacks/zod
   Copyright (c) 2025 Colin McDonnell
-  License: MIT (zod-4.3.6/LICENSE)
+  License: MIT (zod-4.5.4/LICENSE)
+
+playwright-core 1.60.0
+  https://github.com/microsoft/playwright
+  Copyright (c) Microsoft Corporation
+  License: Apache-2.0 (playwright-core-1.60.0/LICENSE, playwright-core-1.60.0/NOTICE, playwright-core-1.60.0/ThirdPartyNotices.txt)

@@ -69,6 +69,7 @@ import { MicPicker } from './mic-picker'
 import { ComposerCaptureButton, type ComposerRecording } from './composer-capture-button'
 import type { ComposerEnvironment, ComposerFolders } from './composer-state'
 import { EnvironmentSelector } from '@/components/environments/environment-selector'
+import { WorkerToggle, workerToggleState } from '@/components/environments/worker-toggle'
 
 /** The composer's voice: what the desktop can do, and the panel's voice mode.
  *  Absent (or `availability.visible` false) → no voice control at all. No
@@ -1081,6 +1082,11 @@ export const ChatInput = memo(function ChatInput({
   // selector sits there too (docs/plans/environments.md §6), while you have one.
   const environmentOn = !!environment?.visible
   const underRowOn = !!unavailable?.agent || environmentOn
+  // The worker toggle shows (or its read-only chip): the row may wrap, the
+  // environment chip going to a second line rather than shrinking. Without
+  // it the row is as it always was.
+  const workerOn =
+    environmentOn && !!environment && workerToggleState(environment.chat, environment.list, environment.thisMac, !!environment.pickWorker).kind !== 'hidden'
 
   // The field: its own row (stacked), or between "+" and the mic (inline).
   const field = (
@@ -1616,7 +1622,15 @@ export const ChatInput = memo(function ChatInput({
           controls are (CONTROLS_INSET_PX): the label lines up with "+" (Liam,
           2026-10-09). A quiet text button whose name truncates, never wraps. */}
       {underRowOn && (
-        <div data-composer-under-row className="flex min-w-0 items-center gap-1 pt-0.5" style={UNDER_ROW_PADDING}>
+        <div
+          data-composer-under-row
+          className={cn('flex min-w-0 items-center gap-1 pt-0.5', workerOn && '@container/underrow flex-wrap gap-y-1')}
+          style={UNDER_ROW_PADDING}
+        >
+          {/* Which intelligence does the work (the Mac's choice), first; where it runs, after it. Renders nothing when there is nothing to choose. */}
+          {environmentOn && environment && (
+            <WorkerToggle chat={environment.chat} list={environment.list} thisMac={environment.thisMac} onPickWorker={environment.pickWorker} />
+          )}
           {environmentOn && environment && (
             <EnvironmentSelector
               chat={environment.chat}

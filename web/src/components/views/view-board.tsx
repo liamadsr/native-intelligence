@@ -16,6 +16,7 @@ import { statusIdsForGroup } from './group-status-ids'
 import { ActionPlatformCell } from '@/components/tasks/action-platform-cell'
 import { requestActionCompose } from '@/lib/tasks/compose-request-events'
 import { RowWorkspaceBadge } from './workspace-badge'
+import { DelegateWorkBadge } from '@/components/work/delegate-work-badge'
 
 const CARD_TYPE = 'BOARD_CARD'
 const COLUMN_TYPE = 'BOARD_COLUMN'
@@ -671,6 +672,16 @@ function BoardCardImpl({
         <RowWorkspaceBadge item={item} className="ml-auto" />
       </div>
       <div className="text-sm font-medium line-clamp-2">{title}</div>
+      {/* An agent working the card as its delegate, as a list row shows it
+          ("step 3 of 5", "working"; with the person's own coding agent named). */}
+      {entityType === 'action' && !!item.assignee_ai_member_id && (
+        // No wrapper: nothing running renders nothing, and the card keeps its height.
+        <DelegateWorkBadge
+          actionId={itemId}
+          agentRunStatus={item.agent_run_status as string | null | undefined}
+          className="mt-1 flex max-w-full"
+        />
+      )}
     </div>
   )
 }

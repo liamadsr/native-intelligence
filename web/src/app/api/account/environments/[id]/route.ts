@@ -1,7 +1,9 @@
 /**
  * /api/account/environments/[id]
  *
- * PATCH   change an environment. A Mac: { name } only, by its owner. A cloud
+ * PATCH   change an environment. A Mac: { name?, worker? } by its owner
+ *         (worker: who does its work, a coding agent's id or null for Native
+ *         Intelligence's own agent, migration 658). A cloud
  *         one: { name?, networkAccess?, envVars?, setupScript?, shared? }, by
  *         its creator or a workspace admin; one a project or the workspace
  *         default uses stays shared (409 ENVIRONMENT_IN_USE). { environment }
@@ -32,6 +34,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         envVars: body.envVars,
         setupScript: body.setupScript,
         shared: body.shared,
+        worker: body.worker,
       },
     })
     return NextResponse.json({ environment })

@@ -39,11 +39,12 @@
 #
 # agents/local-agent comes along whole (minus tests): the chat agent imports
 # its lib/ (model, auth, fence, mode text), its tools import
-# launcher/prompts.ts, and the worker adapters (workers/, F-web's) are built
+# launcher/prompts.ts, and the workers (workers/, F-web's) are built
 # from the copy too (build_workers). eve's build of the chat agent never
 # sees agents/local-agent's own folders.
 #
-#   build_workers <stage> <out-dir>   the adapters into <out-dir>/workers/, when there are any
+#   build_workers <stage> <out-dir>   the worker and its registry into <out-dir>, when
+#                                     there are workers
 
 stage_mac_body() {
   local repo="$1" stage="$2"
@@ -94,16 +95,28 @@ build_mac_body() {
   printf '{"host":"mac","localModel":true}\n' >"$stage/agents/chat-agent/.output/dial8-host.json"
 }
 
-# The worker adapters (L4, F-web's agents/local-agent/workers/build.sh), run
-# from the copy so the module comments name `node_modules/…`. Writes
-# <out-dir>/workers/<worker>.mjs; nothing when the folder isn't there.
+# The workers (L4, agents/local-agent/workers/), run from the copy so the
+# module comments name `node_modules/…`. Writes, for the desktop
+# (src-tauri/src/local_agent/workers.rs, WorkerFiles):
+#   <out-dir>/workers/worker.mjs     the one worker every coding agent runs
+#                                    (build.sh); it starts the person's own
+#                                    Claude Code or Codex CLI directly
+#   <out-dir>/workers/registry.json  the coding agents, as data; the desktop
+#                                    reads id, label and cli from it
+# Nothing of either vendor is installed or shipped. Nothing at all when the
+# folder isn't there; without both files the desktop keeps workers off. An
+# earlier build's adapters' folder (<out-dir>/acp) is removed.
 build_workers() {
   local stage="$1" out="$2"
-  [ -x "$stage/agents/local-agent/workers/build.sh" ] || return 0
+  local workers="$stage/agents/local-agent/workers"
+  [ -x "$workers/build.sh" ] || return 0
   (cd "$stage" && agents/local-agent/workers/build.sh "$out") >"$stage/workers-build.log" 2>&1 || {
     tail -40 "$stage/workers-build.log" >&2
     return 1
   }
+  cp "$workers/registry.json" "$out/workers/registry.json"
+  rm -rf "$out/acp"
+  test -f "$out/workers/worker.mjs" && test -f "$out/workers/registry.json"
 }
 
 # The Studio's product-component runner (agents/local-agent/studio/build.sh),

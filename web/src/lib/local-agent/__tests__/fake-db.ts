@@ -93,7 +93,20 @@ export interface FakeDb {
   interleave: (when: (q: { table: string; op: string; values: unknown }) => boolean, action: () => Promise<unknown>) => void
 }
 
-export function fakeDb(seed: Record<string, Row[]> = {}): FakeDb {
+/** What the fake's schema is: before migration 659 (419's one live job per folder, no action_id column), or after (the default). */
+export interface FakeDbOptions {
+  before647?: boolean
+}
+
+/** A card's action, by its column or (as before 659) its key. */
+const ACTION_KEY_RE = /^local-agent-action:([0-9a-f-]{36}):start:/i
+function actionOf(r: Row): string | null {
+  if (typeof r.action_id === 'string') return r.action_id
+  const m = typeof r.idempotency_key === 'string' ? ACTION_KEY_RE.exec(r.idempotency_key) : null
+  return m ? m[1].toLowerCase() : null
+}
+
+export function fakeDb(seed: Record<string, Row[]> = {}, options: FakeDbOptions = {}): FakeDb {
   const tables: Record<string, Row[]> = {}
   for (const [k, v] of Object.entries(seed)) tables[k] = v.map((r) => ({ ...r }))
   let eventId = 0
@@ -123,7 +136,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}): FakeDb {
     let patch: Row = {}
     let upsertOpts: { onConflict?: string; ignoreDuplicates?: boolean } = {}
     let projection: string | null = null
-    let sort: { key: string; ascending: boolean } | null = null
+    const sorts: Array<{ key: string; ascending: boolean }> = []
     let max = Infinity
 
     const run = async (): Promise<{ data: Row[] | null; error: { message: string; code?: string } | null; count?: number }> => {
@@ -135,12 +148,16 @@ export function fakeDb(seed: Record<string, Row[]> = {}): FakeDb {
       const rows = tables[table]
       if (op === 'select') {
         let out = rows.filter((r) => filters.every((f) => f.fn(r)))
-        if (sort) {
-          const { key, ascending } = sort
+        if (sorts.length > 0) {
+          // Several order() calls sort by each in turn, as PostgREST does.
           out = [...out].sort((a, b) => {
-            const av = a[key] as number | string
-            const bv = b[key] as number | string
-            return (av < bv ? -1 : av > bv ? 1 : 0) * (ascending ? 1 : -1)
+            for (const { key, ascending } of sorts) {
+              const av = a[key] as number | string
+              const bv = b[key] as number | string
+              const c = (av < bv ? -1 : av > bv ? 1 : 0) * (ascending ? 1 : -1)
+              if (c !== 0) return c
+            }
+            return 0
           })
         }
         out = out.slice(0, max)
@@ -174,14 +191,27 @@ export function fakeDb(seed: Record<string, Row[]> = {}): FakeDb {
           ) {
             return { data: null, error: { message: 'duplicate key value violates unique constraint "environment_default_one"', code: '23505' } }
           }
-          if (
-            table === 'local_agent_session' &&
-            FOLDER_HOLDING.includes(row.status as string) &&
-            rows.some((r) => r.folder_id === row.folder_id && FOLDER_HOLDING.includes(r.status as string))
-          ) {
+          if (table === 'local_agent_session' && options.before647 && 'action_id' in row) {
+            // PostgREST before migration 659: no such column.
+            return { data: null, error: { message: "Could not find the 'action_id' column of 'local_agent_session' in the schema cache", code: 'PGRST204' } }
+          }
+          const live = (r: Row) => FOLDER_HOLDING.includes(r.status as string)
+          if (table === 'local_agent_session' && options.before647 && live(row) && rows.some((r) => r.folder_id === row.folder_id && live(r))) {
             return {
               data: null,
               error: { message: 'duplicate key value violates unique constraint "local_agent_session_one_live_per_folder"', code: '23505' },
+            }
+          }
+          if (table === 'local_agent_session' && !options.before647 && live(row)) {
+            // Migration 659: one live job per action, and one live job per folder outside the cards' edit lane.
+            const action = actionOf(row)
+            if (action && rows.some((r) => live(r) && actionOf(r) === action)) {
+              return { data: null, error: { message: 'duplicate key value violates unique constraint "local_agent_session_one_live_per_action"', code: '23505' } }
+            }
+            // A card's edit job is told by its KEY, as 659's lane index tells it.
+            const lane = (r: Row) => !(typeof r.idempotency_key === 'string' && ACTION_KEY_RE.test(r.idempotency_key) && r.mode === 'edit')
+            if (lane(row) && rows.some((r) => live(r) && r.folder_id === row.folder_id && lane(r))) {
+              return { data: null, error: { message: 'duplicate key value violates unique constraint "local_agent_session_one_live_per_folder_lane"', code: '23505' } }
             }
           }
           rows.push(row)
@@ -231,7 +261,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}): FakeDb {
       gte: (k: string, v: unknown) => (filters.push({ desc: `${k}>=`, fn: (r) => r[k] != null && cmp(r[k], v) >= 0 }), chain),
       lt: (k: string, v: unknown) => (filters.push({ desc: `${k}<`, fn: (r) => r[k] != null && cmp(r[k], v) < 0 }), chain),
       lte: (k: string, v: unknown) => (filters.push({ desc: `${k}<=`, fn: (r) => r[k] != null && cmp(r[k], v) <= 0 }), chain),
-      order: (key: string, o?: { ascending?: boolean }) => ((sort = { key, ascending: o?.ascending !== false }), chain),
+      order: (key: string, o?: { ascending?: boolean }) => (sorts.push({ key, ascending: o?.ascending !== false }), chain),
       limit: (n: number) => ((max = n), chain),
       maybeSingle: async () => {
         const { data, error } = await run()
@@ -310,7 +340,7 @@ export const CONV = '55555555-5555-4555-8555-555555555555'
 export const FOLDER = '66666666-6666-4666-8666-666666666666'
 
 /** A device, a granted git folder (edit) and a conversation, for USER. */
-export function seeded(extra: Record<string, Row[]> = {}): FakeDb {
+export function seeded(extra: Record<string, Row[]> = {}, options: FakeDbOptions = {}): FakeDb {
   return fakeDb({
     user_device: [{ user_id: USER, id: DEVICE, name: 'Liam’s MacBook', platform: 'macos', app_version: '0.3.0', last_seen_at: new Date().toISOString() }],
     device_folder: [
@@ -318,5 +348,5 @@ export function seeded(extra: Record<string, Row[]> = {}): FakeDb {
     ],
     chat_conversations: [{ id: CONV, user_id: USER, workspace_id: WS }],
     ...extra,
-  })
+  }, options)
 }

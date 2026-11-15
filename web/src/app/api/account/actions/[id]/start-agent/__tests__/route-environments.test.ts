@@ -36,6 +36,7 @@ const hoisted = vi.hoisted(() => ({
   ensureWork: vi.fn(async (..._a: unknown[]) => ({})),
   envFor: vi.fn(async (..._a: unknown[]) => 'env-cloud' as string | null),
   launch: vi.fn(async (..._a: unknown[]) => ({ ok: true, reused: false, agentRunId: 'work-run-1' }) as Record<string, unknown>),
+  liveRun: vi.fn(async (..._a: unknown[]): Promise<{ run: Record<string, unknown> | null; error: null }> => ({ run: null, error: null })),
   onMac: vi.fn(async (..._a: unknown[]): Promise<Record<string, unknown>> => ({
     status: 'started', sessionId: 'sess-1', environmentId: '99999999-9999-4999-8999-999999999901', mac: 'Liam’s MacBook', folder: 'core', created: true,
   })),
@@ -92,13 +93,21 @@ vi.mock('@/lib/environments/resolve', async (orig) => ({ ...(await orig<typeof i
 vi.mock('@/lib/work/start-work-item', () => ({ launchWorkItem: hoisted.launch, snapshotResources: async (_s: unknown, raw: unknown) => raw }))
 vi.mock('@/lib/environments/start', async (orig) => ({ ...(await orig<typeof import('@/lib/environments/start')>()), startActionOnMac: hoisted.onMac }))
 
-import { POST } from '../route'
+vi.mock('@/lib/agent-run/live-action-run', () => ({ findLiveActionRun: hoisted.liveRun }))
+
+import { GET, POST } from '../route'
 
 let db: FakeDb
 
-const start = (userId: string) => {
+const start = (userId: string, body?: unknown) => {
   hoisted.userId = userId
-  return POST(new Request(`http://localhost/api/account/actions/${ACTION}/start-agent`, { method: 'POST' }), { params: Promise.resolve({ id: ACTION }) })
+  return POST(
+    new Request(`http://localhost/api/account/actions/${ACTION}/start-agent`, {
+      method: 'POST',
+      ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body) }),
+    }),
+    { params: Promise.resolve({ id: ACTION }) },
+  )
 }
 const inserts = () => hoisted.queries.filter((q) => q.table === 'agent_run' && q.op === 'insert')
 
@@ -133,6 +142,7 @@ describe('start-agent: where a coding Start runs', () => {
       environmentId: MAC_ENV,
       repo: 'acme/core',
       action: { id: ACTION, identifier: 'ENG-42', title: 'Fix the export', description: 'Drops rows' },
+      // No body: no agent choice, so Native Intelligence's own agent, as before (migration 658).
     })
     expect(inserts()).toHaveLength(0)
     expect(hoisted.send).not.toHaveBeenCalled()
@@ -187,7 +197,7 @@ describe('start-agent: one live run per action, a Mac job too', () => {
   it('mine on my Mac: that job, nothing new', async () => {
     db.tables.local_agent_session.push(live(ME))
     const res = await start(ME)
-    expect(await res.json()).toEqual({ mode: 'mac', worker: 'local_agent', sessionId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', reused: true })
+    expect(await res.json()).toEqual({ mode: 'mac', worker: 'local_agent', agent: null, sessionId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', reused: true })
     expect(hoisted.onMac).not.toHaveBeenCalled()
     expect(inserts()).toHaveLength(0)
   })
@@ -222,5 +232,103 @@ describe('start-agent: one live run per action, a Mac job too', () => {
     db.tables.local_agent_message = [{ id: 'm1', session_id: db.tables.local_agent_session[0].id, user_id: ME, status: 'pending' }]
     expect((await start(TEAMMATE)).status).toBe(409)
     expect(await (await start(ME)).json()).toMatchObject({ mode: 'mac', reused: true })
+  })
+})
+
+describe('start-agent: who does the work on my Mac (migration 658)', () => {
+  const live = (over: Record<string, unknown> = {}) => ({
+    id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', user_id: ME, workspace_id: WS, device_id: MAC, folder_id: 'f1', status: 'running',
+    idempotency_key: `local-agent-action:${ACTION}:start:s1`, lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+    expires_at: new Date(Date.now() + 600_000).toISOString(), updated_at: new Date().toISOString(), created_at: new Date().toISOString(),
+    ...over,
+  })
+
+  it('no body (or no `worker`): no choice, our own agent as before; null: our own agent, chosen; an id: that agent of mine', async () => {
+    await start(ME)
+    await start(ME, {})
+    await start(ME, { worker: null })
+    hoisted.onMac.mockResolvedValueOnce({ status: 'started', sessionId: 'sess-2', environmentId: MAC_ENV, mac: 'Studio Mac', folder: 'core', worker: 'claude-code', created: true })
+    const res = await start(ME, { worker: 'claude-code' })
+    expect(hoisted.onMac.mock.calls.map((c) => ('agent' in (c[1] as object) ? (c[1] as { agent: unknown }).agent : 'none'))).toEqual([
+      'none',
+      'none',
+      { worker: null },
+      { worker: 'claude-code' },
+    ])
+    expect(await res.json()).toMatchObject({ mode: 'mac', sessionId: 'sess-2', agent: 'claude-code' })
+  })
+
+  it('a worker that isn’t a coding agent’s id, or a body that isn’t an object: a 400, nothing started', async () => {
+    for (const body of [{ worker: 'Claude Code' }, { worker: 7 }, { worker: '' }, '[1]', 'not json']) {
+      const res = await start(ME, body)
+      expect(res.status, JSON.stringify(body)).toBe(400)
+    }
+    expect(hoisted.onMac).not.toHaveBeenCalled()
+    expect(inserts()).toHaveLength(0)
+  })
+
+  it('my own agent asked for where it can’t run on my Mac: refused with the reason, never a cloud run or a work run', async () => {
+    // No "Run my work here" (the teammate has none).
+    const noMac = await start(TEAMMATE, { worker: 'codex' })
+    expect(noMac.status).toBe(409)
+    expect(await noMac.json()).toMatchObject({ code: 'OWN_AGENT_NEEDS_MAC', error: expect.stringContaining('Run my work here') })
+    // Not a developer agent.
+    hoisted.role = 'writer'
+    const notCoding = await start(ME, { worker: 'codex' })
+    expect(notCoding.status).toBe(409)
+    expect(await notCoding.json()).toMatchObject({ code: 'OWN_AGENT_NEEDS_MAC', error: expect.stringContaining('isn’t a developer') })
+    expect(inserts()).toHaveLength(0)
+    expect(hoisted.launch).not.toHaveBeenCalled()
+    expect(hoisted.send).not.toHaveBeenCalled()
+    // Our own agent asked for: as before (the teammate's runs in the cloud).
+    expect((await (await start(TEAMMATE, { worker: null })).json()).mode).toBe('server')
+  })
+
+  it('the Mac start’s refusals reach the person as they are (an agent the Mac doesn’t offer, the Mac offline)', async () => {
+    hoisted.onMac.mockResolvedValueOnce({ status: 'refused', code: 'WORKER_NOT_OFFERED', reason: 'This Mac doesn’t offer Codex right now.', httpStatus: 409 })
+    const res = await start(ME, { worker: 'codex' })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'This Mac doesn’t offer Codex right now.', code: 'WORKER_NOT_OFFERED' })
+    expect(inserts()).toHaveLength(0)
+  })
+
+  it('a live cloud run while my own agent is asked for: refused, saying what runs; no choice or ours: that run', async () => {
+    hoisted.liveRun.mockResolvedValue({ run: { id: 'run-live', kind: 'coding' }, error: null })
+    const mine = await start(ME, { worker: 'claude-code' })
+    expect(mine.status).toBe(409)
+    expect(await mine.json()).toMatchObject({ code: 'ACTION_BUSY', error: expect.stringContaining('A cloud coding run by Native Intelligence is already working on this card') })
+    expect(await (await start(ME, { worker: null })).json()).toMatchObject({ mode: 'server', agentRunId: 'run-live', reused: true })
+    expect(await (await start(ME)).json()).toMatchObject({ mode: 'server', agentRunId: 'run-live', reused: true })
+    hoisted.liveRun.mockResolvedValue({ run: null, error: null })
+  })
+
+  it('a live job of mine on another agent: refused, naming it; on the asked one: that job', async () => {
+    db.tables.local_agent_session.push(live({ worker: 'codex' }))
+    const other = await start(ME, { worker: null })
+    expect(other.status).toBe(409)
+    expect(await other.json()).toMatchObject({ code: 'ACTION_BUSY', error: expect.stringContaining('Your own Codex is already working on this action') })
+    const same = await start(ME, { worker: 'codex' })
+    expect(await same.json()).toMatchObject({ mode: 'mac', reused: true, agent: 'codex' })
+    // No choice sent: the job already working it, as before.
+    expect(await (await start(ME)).json()).toMatchObject({ reused: true })
+    expect(hoisted.onMac).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET start-agent: does my Start run on my Mac as a coding job (the "with" control’s rule)', () => {
+  const get = async (userId: string) => {
+    hoisted.userId = userId
+    const res = await GET(new Request(`http://localhost/api/account/actions/${ACTION}/start-agent`), { params: Promise.resolve({ id: ACTION }) })
+    return res.json()
+  }
+
+  it('my Start: a repo, a developer agent and my “Run my work here”: that Mac', async () => {
+    expect(await get(ME)).toEqual({ onMac: { environmentId: MAC_ENV } })
+  })
+
+  it('a non-developer agent, or no “Run my work here” (a teammate’s Start): not on a Mac, so no choice is offered or sent', async () => {
+    expect(await get(TEAMMATE)).toEqual({ onMac: null })
+    hoisted.role = 'writer'
+    expect(await get(ME)).toEqual({ onMac: null })
   })
 })

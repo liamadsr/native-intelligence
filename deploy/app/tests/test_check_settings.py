@@ -168,6 +168,38 @@ class FakeHttp:
         cs.http = self.real
 
 
+class ChatGptPair(unittest.TestCase):
+    """"Continue with ChatGPT": the client id and its secret, both or neither."""
+
+    def run_check(self, name, env):
+        with FakeHttp([]) as fake:
+            result = cs.CHECKS[name](dict(env), {})
+        self.assertEqual(fake.calls, [])  # nothing is asked of OpenAI
+        return result
+
+    def test_both_set_is_quiet(self):
+        env = {"CHATGPT_CLIENT_ID": "oaiapp_madeup123", "CHATGPT_CLIENT_SECRET": "made-up-secret"}
+        for name in env:
+            self.assertEqual(self.run_check(name, env), (None, None))
+
+    def test_one_without_the_other_is_wrong(self):
+        ok, note = self.run_check("CHATGPT_CLIENT_ID", {"CHATGPT_CLIENT_ID": "oaiapp_madeup123", "CHATGPT_CLIENT_SECRET": " "})
+        self.assertIs(ok, False)
+        self.assertIn("CHATGPT_CLIENT_SECRET", note)
+        self.assertIn("no sign-in can finish", note)
+        ok, note = self.run_check("CHATGPT_CLIENT_SECRET", {"CHATGPT_CLIENT_SECRET": "made-up-secret"})
+        self.assertIs(ok, False)
+        self.assertIn("CHATGPT_CLIENT_ID", note)
+
+    def test_optional_and_reported_as_wrong_when_alone(self):
+        for name in ("CHATGPT_CLIENT_ID", "CHATGPT_CLIENT_SECRET", "CHATGPT_REDIRECT_URI"):
+            self.assertEqual(cs.group(name), "may be empty")
+        env = {"CHATGPT_CLIENT_ID": "oaiapp_madeup123", "CHATGPT_CLIENT_SECRET": "", "CHATGPT_REDIRECT_URI": ""}
+        lines, _blockers, _unchecked = cs.report(env, {"CHATGPT_CLIENT_ID": self.run_check("CHATGPT_CLIENT_ID", env)})
+        self.assertTrue(any("CHATGPT_CLIENT_ID" in line and "no sign-in can finish" in line for line in lines), lines)
+        self.assertNotIn("made", "\n".join(lines))  # never a value
+
+
 class Slack(unittest.TestCase):
     ENV = {"SLACK_APP_ID": "A0MADEUP01", "SLACK_CLIENT_ID": "1111111111.2222222222",
            "SLACK_CLIENT_SECRET": "c1" * 16, "SLACK_SIGNING_SECRET": "5e" * 16}
@@ -533,6 +565,209 @@ class OwnRuntime(unittest.TestCase):
             os.unlink(f.name)
         text = out.getvalue()
         for value in (self.KEY, "10.200.77.2", "203.0.113.7"):
+            self.assertNotIn(value, text)
+
+
+class CloudBrowserOnOurRuntime(unittest.TestCase):
+    """CLOUD_BROWSER_BACKEND: empty or hosted asks for nothing new and behaves as
+    before; runtime needs our own runtime's three, the hub's domain, the relay's
+    addresses and the edge set to match, and the browser's image on the runtime."""
+
+    KEY = OwnRuntime.KEY
+    API = OwnRuntime.API
+    ENV = dict(OwnRuntime.ENV, **{
+        "NEXT_PUBLIC_APP_URL": "https://app.example.com",
+        "CLOUD_BROWSER_RELAY_ORIGIN": "https://browser-relay.example.com",
+        "CLOUD_BROWSER_BACKEND": "runtime",
+        "CLOUD_BROWSER_RUNTIME_KEY": OwnRuntime.KEY,
+        "CLOUD_BROWSER_RUNTIME_TEMPLATE": "",
+        "CLOUD_BROWSER_HUB_DOMAIN": "browsers.example.com",
+        "BROWSER_RELAY_ALLOWED_ADDRESSES": "203.0.113.7 2001:db8::7",
+        "CLOUD_BROWSER_BASE_SNAPSHOT_ID": "",
+    })
+    EDGE = {"CLOUD_BROWSER_HUB_DOMAIN": "browsers.example.com", "CLOUD_BROWSER_TRAFFIC_UPSTREAM": "10.200.77.2:3002"}
+    NAMES = ("CLOUD_BROWSER_BACKEND", "CLOUD_BROWSER_RUNTIME_KEY", "CLOUD_BROWSER_RUNTIME_TEMPLATE", "CLOUD_BROWSER_HUB_DOMAIN",
+             "BROWSER_RELAY_ALLOWED_ADDRESSES")
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp()
+
+    def tearDown(self):
+        for name in os.listdir(self.folder):
+            os.unlink(os.path.join(self.folder, name))
+        os.rmdir(self.folder)
+
+    def edge(self, values):
+        path = os.path.join(self.folder, "edge.env")
+        with open(path, "w") as f:
+            f.writelines("%s=%s\n" % kv for kv in values.items())
+        return {"edge_env": path}
+
+    def backend(self, env, edge=None):
+        with FakeHttp([]) as fake:
+            result = cs.CHECKS["CLOUD_BROWSER_BACKEND"](dict(env), self.edge(self.EDGE if edge is None else edge))
+        self.assertEqual(fake.calls, [])  # the runtime itself is SANDBOX_RUNTIME_API_URL's check's
+        if result[1]:
+            for value in (self.KEY, "10.200.77.2", "203.0.113.7", "browsers.example.com"):
+                self.assertNotIn(value, result[1])
+        return result
+
+    def test_all_may_be_empty_and_empty_is_the_hosted_service_as_before(self):
+        for name in self.NAMES:
+            self.assertEqual(cs.group(name), "may be empty", name)
+        hosted = dict(self.ENV, **{n: "" for n in self.NAMES})
+        _, blockers, _ = cs.report(hosted, {})
+        # The hosted service's own needs block as they always did, and nothing new does.
+        self.assertIn("SANDBOX_ACCESS_TOKEN is empty", blockers)
+        self.assertIn("CLOUD_BROWSER_BASE_SNAPSHOT_ID is empty", blockers)
+        self.assertEqual([b for b in blockers if any(n in b for n in self.NAMES)], [])
+
+    def test_hosted_said_out_loud_is_the_same(self):
+        for value in ("hosted", " Hosted\n"):
+            self.assertEqual(self.backend(dict(self.ENV, CLOUD_BROWSER_BACKEND=value)), (None, None))
+        hosted = dict(self.ENV, CLOUD_BROWSER_BACKEND="hosted")
+        _, blockers, _ = cs.report(hosted, {})
+        self.assertIn("SANDBOX_ACCESS_TOKEN is empty", blockers)
+
+    def test_only_the_two_values(self):
+        for wrong in ("vercel", "on", "1", "runtime2", "runtme"):
+            env = dict(self.ENV, CLOUD_BROWSER_BACKEND=wrong, CLOUD_BROWSER_RUNTIME_KEY="")
+            ok, note = self.backend(env)
+            self.assertIs(ok, False, wrong)
+            self.assertIn("only hosted or runtime", note)
+            # And it blocks the gate, by name and never by value.
+            _, blockers, _ = cs.report(env, {"CLOUD_BROWSER_BACKEND": (ok, note)})
+            self.assertTrue(any(b.startswith("CLOUD_BROWSER_BACKEND:") for b in blockers), wrong)
+            self.assertFalse(any(wrong in b for b in blockers if wrong not in ("1", "on")))
+
+    def test_the_browsers_copy_of_the_key(self):
+        check = cs.CHECKS["CLOUD_BROWSER_RUNTIME_KEY"]
+        self.assertEqual(check(dict(self.ENV), {}), (None, None))
+        self.assertEqual(check(dict(self.ENV, CLOUD_BROWSER_RUNTIME_KEY=" %s\n" % self.KEY), {}), (None, None))
+        other = "e2b_" + "f" * 34
+        ok, note = check(dict(self.ENV, CLOUD_BROWSER_RUNTIME_KEY=other), {})
+        self.assertIs(ok, False)
+        self.assertIn("not the same value", note)
+        self.assertNotIn(other, note)
+        self.assertNotIn(self.KEY, note)
+        # Set with any backend but runtime: web would hold the key for nothing.
+        for backend in ("", "hosted", "runtme"):
+            ok, note = check(dict(self.ENV, CLOUD_BROWSER_BACKEND=backend), {})
+            self.assertIs(ok, False, backend)
+            self.assertIn("Empty it", note)
+            self.assertNotIn(self.KEY, note)
+            _, blockers, _ = cs.report(dict(self.ENV, CLOUD_BROWSER_BACKEND=backend), {"CLOUD_BROWSER_RUNTIME_KEY": (ok, note)})
+            self.assertTrue(any(b.startswith("CLOUD_BROWSER_RUNTIME_KEY:") for b in blockers), backend)
+        # Empty with the hosted backend: as today, nothing to say.
+        _, blockers, _ = cs.report(dict(self.ENV, CLOUD_BROWSER_BACKEND="", CLOUD_BROWSER_RUNTIME_KEY=""), {})
+        self.assertFalse(any("CLOUD_BROWSER_RUNTIME_KEY" in b for b in blockers))
+
+    def test_runtime_with_everything_and_the_edge_to_match(self):
+        ok, note = self.backend(self.ENV)
+        self.assertIs(ok, True)
+        # As the app reads it: any case, spaces around.
+        self.assertIs(self.backend(dict(self.ENV, CLOUD_BROWSER_BACKEND=" Runtime "))[0], True)
+
+    def test_runtime_lets_the_hosted_settings_go(self):
+        _, blockers, _ = cs.report(dict(self.ENV), {})
+        for name in cs.HOSTED_BROWSER_ONLY:
+            self.assertNotIn("%s is empty" % name, blockers)
+        lines, _, _ = cs.report(dict(self.ENV), {})
+        self.assertIn("not needed: the cloud browser runs on our own runtime", "\n".join(lines))
+
+    def test_runtime_needs_each_of_them(self):
+        for name in ("SANDBOX_RUNTIME_API_URL", "SANDBOX_RUNTIME_TRAFFIC_URL", "SANDBOX_RUNTIME_KEY", "CLOUD_BROWSER_RUNTIME_KEY",
+                     "CLOUD_BROWSER_HUB_DOMAIN", "BROWSER_RELAY_ALLOWED_ADDRESSES", "CLOUD_BROWSER_RELAY_ORIGIN"):
+            ok, note = self.backend(dict(self.ENV, **{name: " "}))
+            self.assertIs(ok, False, name)
+            self.assertIn(name, note)
+        # The template may stay empty: the default is the image setup.sh builds.
+        self.assertIs(self.backend(dict(self.ENV, CLOUD_BROWSER_RUNTIME_TEMPLATE=""))[0], True)
+
+    def test_the_relay_addresses_must_be_public_ones(self):
+        for wrong in ("10.200.77.2", "203.0.113.7 not-an-address"):
+            self.assertIs(self.backend(dict(self.ENV, BROWSER_RELAY_ALLOWED_ADDRESSES=wrong))[0], False, wrong)
+        check = cs.CHECKS["BROWSER_RELAY_ALLOWED_ADDRESSES"]
+        self.assertEqual(check(dict(self.ENV), {}), (None, None))
+        ok, note = check(dict(self.ENV, BROWSER_RELAY_ALLOWED_ADDRESSES="203.0.113.7 10.200.77.2"), {})
+        self.assertIs(ok, False)
+        self.assertIn("PUBLIC", note)
+        self.assertNotIn("10.200.77.2", note)
+        ok, note = check(dict(self.ENV, BROWSER_RELAY_ALLOWED_ADDRESSES="secret-ish-entry"), {})
+        self.assertIs(ok, False)
+        self.assertNotIn("secret-ish-entry", note)
+        self.assertEqual(check(dict(self.ENV, CLOUD_BROWSER_BACKEND=""), {})[0], "warn")
+
+    def test_the_edge_must_match(self):
+        ok, note = self.backend(self.ENV, dict(self.EDGE, CLOUD_BROWSER_HUB_DOMAIN="other.example.com"))
+        self.assertIs(ok, False)
+        self.assertIn("certificate", note)
+        ok, note = self.backend(self.ENV, dict(self.EDGE, CLOUD_BROWSER_TRAFFIC_UPSTREAM="10.200.77.2:3000"))
+        self.assertIs(ok, False)
+        self.assertIn("CLOUD_BROWSER_TRAFFIC_UPSTREAM", note)
+        ok, note = self.backend(self.ENV, {})
+        self.assertIs(ok, False)
+        # The same domain written another way is the same domain.
+        self.assertIs(self.backend(self.ENV, dict(self.EDGE, CLOUD_BROWSER_HUB_DOMAIN="Browsers.Example.com."))[0], True)
+        # No edge file to read: cannot tell, and says so.
+        with FakeHttp([]):
+            ok, note = cs.CHECKS["CLOUD_BROWSER_BACKEND"](dict(self.ENV), {"edge_env": os.path.join(self.folder, "missing")})
+        self.assertIsNone(ok)
+        self.assertIn("could not be read", note)
+
+    def test_the_hub_domain(self):
+        check = cs.CHECKS["CLOUD_BROWSER_HUB_DOMAIN"]
+        self.assertEqual(check(dict(self.ENV), {}), (None, None))
+        for wrong in ("browsers", "https://browsers.example.com", "*.browsers.example.com", "bro wsers.example.com", "-x.example.com"):
+            self.assertIs(check(dict(self.ENV, CLOUD_BROWSER_HUB_DOMAIN=wrong), {})[0], False, wrong)
+            self.assertIs(self.backend(dict(self.ENV, CLOUD_BROWSER_HUB_DOMAIN=wrong))[0], False, wrong)
+        # The app's own domain: every name one label under it (the app's, the relay's) would go to the browsers' block.
+        ok, note = check(dict(self.ENV, CLOUD_BROWSER_HUB_DOMAIN="example.com"), {})
+        self.assertIs(ok, False)
+        self.assertIn("NEXT_PUBLIC_APP_URL", note)
+        self.assertIn("CLOUD_BROWSER_RELAY_ORIGIN", note)
+        self.assertEqual(check(dict(self.ENV, CLOUD_BROWSER_BACKEND=""), {})[0], "warn")
+
+    def test_the_template(self):
+        check = cs.CHECKS["CLOUD_BROWSER_RUNTIME_TEMPLATE"]
+        self.assertEqual(check(dict(self.ENV, CLOUD_BROWSER_RUNTIME_TEMPLATE="ni-cloud-browser"), {}), (None, None))
+        self.assertIs(check(dict(self.ENV, CLOUD_BROWSER_RUNTIME_TEMPLATE="Not A Name"), {})[0], False)
+        self.assertEqual(check(dict(self.ENV, CLOUD_BROWSER_BACKEND="", CLOUD_BROWSER_RUNTIME_TEMPLATE="ni-cloud-browser"), {})[0], "warn")
+        self.assertEqual(cs.BROWSER_TEMPLATE_DEFAULT, "ni-cloud-browser")
+
+    def test_the_cap_on_running_browsers(self):
+        check = cs.CHECKS["CLOUD_BROWSER_MAX_RUNNING"]
+        self.assertEqual(cs.group("CLOUD_BROWSER_MAX_RUNNING"), "may be empty")
+        for good in ("1", "4", " 12 ", "9999"):
+            self.assertEqual(check(dict(self.ENV, CLOUD_BROWSER_MAX_RUNNING=good), {}), (None, None), good)
+        for wrong in ("0", "-1", "2.5", "four", "04", "1e3", "10000"):
+            ok, note = check(dict(self.ENV, CLOUD_BROWSER_MAX_RUNNING=wrong), {})
+            self.assertIs(ok, False, wrong)
+            self.assertNotIn(wrong.strip(), note)
+        self.assertEqual(check(dict(self.ENV, CLOUD_BROWSER_BACKEND="", CLOUD_BROWSER_MAX_RUNNING="4"), {})[0], "warn")
+
+    def test_the_runtime_must_have_the_browsers_image_when_it_runs_them(self):
+        up = [(self.API + "/health", (200, None)), (self.API + "/sandboxes", (200, []))]
+        both = [{"aliases": ["ni-coding-agent"]}, {"aliases": ["ni-cloud-browser"]}]
+        coding_only = [{"aliases": ["ni-coding-agent"]}]
+        for env, images, want in ((self.ENV, both, True), (self.ENV, coding_only, False),
+                                  (dict(self.ENV, CLOUD_BROWSER_BACKEND=""), coding_only, True),
+                                  (dict(self.ENV, CLOUD_BROWSER_RUNTIME_TEMPLATE="made-up-name"), both, False)):
+            with FakeHttp(up + [(self.API + "/templates", (200, images))]):
+                ok, note = cs.CHECKS["SANDBOX_RUNTIME_API_URL"](dict(env), {})
+            self.assertIs(ok, want, (env.get("CLOUD_BROWSER_BACKEND"), images))
+            self.assertNotIn("made-up-name", note)
+            self.assertNotIn(self.KEY, note)
+
+    def test_a_names_only_run_shows_no_value(self):
+        env_path = os.path.join(self.folder, "app.env")
+        with open(env_path, "w") as f:
+            f.writelines("%s=%s\n" % kv for kv in self.ENV.items())
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cs.main(["check_settings.py", env_path, "--names-only", "--edge-env", self.edge(self.EDGE)["edge_env"]])
+        text = out.getvalue()
+        for value in (self.KEY, "10.200.77.2", "203.0.113.7", "browsers.example.com"):
             self.assertNotIn(value, text)
 
 

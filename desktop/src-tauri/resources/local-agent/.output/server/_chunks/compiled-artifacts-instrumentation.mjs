@@ -3,7 +3,7 @@ import { dirname as __eveDirname } from "node:path";
 const __filename = __eveFileURLToPath(import.meta.url);
 __eveDirname(__filename);
 import { finalizeInstrumentationProviders, seedInstrumentationProviders, shutdownInstrumentationProviders } from "../_libs/eve.mjs";
-//#region .eve/builds/mvkebuhn-8fbec7e3-a915-4d05-86f4-464ed679df92/host/compiled-artifacts-instrumentation.mjs
+//#region .eve/builds/mwgyui7c-d5fdb7ce-d5ce-41aa-b7cb-b4dc7d614468/host/compiled-artifacts-instrumentation.mjs
 seedInstrumentationProviders();
 finalizeInstrumentationProviders({ serviceName: "chat-agent" });
 function installInstrumentationPlugin(nitroApp) {

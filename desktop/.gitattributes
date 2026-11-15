@@ -14,3 +14,7 @@ xcuserdata export-ignore
 # export ships a copy of windows.yml there that runs in desktop/ (web's
 # scripts/open-source/root/.github/workflows/windows.yml). Keep the two in step.
 /.github export-ignore
+
+# The vendored local agent is checked byte for byte against its BUNDLE.json
+# (scripts/local-agent.sh): no line-ending conversion, in either direction.
+/src-tauri/resources/local-agent/** -text

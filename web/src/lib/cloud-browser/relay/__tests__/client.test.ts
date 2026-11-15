@@ -3,8 +3,11 @@
  * carries the relay's mark and nothing else (the firewall adds the token), a
  * 426 means "restart with the app's new build", and a settle is retried.
  */
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { RelayClient, RelayRestart } from '../client'
+import { readRelayTokenFile, RelayClient, RelayRestart } from '../client'
 
 const answer = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
@@ -16,6 +19,33 @@ describe('RelayClient', () => {
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('https://relay.test/api/browser-relay/next?v=build%201')
     expect(init.headers).toEqual({ 'x-ni-relay': '1' })
+  })
+
+  it('with a token file (the runtime backend), reads it at each request and sends the token beside the mark', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'relay-token-'))
+    const file = join(dir, 'token')
+    try {
+      const fetchImpl = vi.fn(async () => answer(200, { command: null }))
+      const client = new RelayClient('https://relay.test', 'b', fetchImpl as unknown as typeof fetch, () => readRelayTokenFile(file))
+      // No file yet: the mark alone, as on the hosted backend.
+      await client.next()
+      writeFileSync(file, 'tok-1\n')
+      chmodSync(file, 0o600)
+      await client.next()
+      // A fresh token (an exit switch) is used from the next request on.
+      writeFileSync(file, 'tok-2')
+      await client.claim('c')
+      const headers = fetchImpl.mock.calls.map(call => (call as unknown as [string, RequestInit])[1].headers)
+      expect(headers).toEqual([
+        { 'x-ni-relay': '1' },
+        { 'x-ni-relay': '1', 'x-ni-relay-token': 'tok-1' },
+        { 'x-ni-relay': '1', 'x-ni-relay-token': 'tok-2', 'content-type': 'application/json' },
+      ])
+      writeFileSync(file, '  \n')
+      expect(readRelayTokenFile(file)).toBeNull()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('tells the relay to restart when the app moved to another build', async () => {

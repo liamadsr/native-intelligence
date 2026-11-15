@@ -923,6 +923,7 @@ pub fn run() {
             local_agent::commands::local_agent_stop,
             local_agent::commands::local_agent_resume,
             local_agent::commands::local_agent_events,
+            local_agent::commands::local_agent_diff,
             local_agent::commands::local_agent_set_model_token,
             commands::studio_recorder::studio_recorder_permissions,
             commands::studio_recorder::studio_recorder_request_permissions,

@@ -132,8 +132,10 @@ pub async fn local_agent_remove_grant(svc: State<'_, LocalAgentService>, grant_i
 /// new local id), `mode` at most the grant's (absent: read), `modelToken`
 /// the server's relay token (absent: the dev key in a debug build; any other
 /// build refuses the start), `resume` the server's record of the eve session
-/// when Rust has none, `worker` `claude-code` or `codex` to run on the
-/// person's CLI instead of eve (absent: eve; [`super::workers`]),
+/// when Rust has none, `worker` the id of a coding agent in the bundle's
+/// registry (`local_agent_status`'s `workers` lists those a start may name
+/// now) to run on the person's CLI instead of eve (absent: eve; an id the
+/// registry doesn't list is refused; [`super::workers`]),
 /// `localModel` the model mode the server recorded for the session (a job
 /// keeps it: a start in the other mode is refused), `baseBranch` the local
 /// branch a new edit job's worktree starts from (absent: HEAD; a read job,
@@ -210,6 +212,15 @@ pub async fn local_agent_resume(
     message: Option<ResumeMessage>,
 ) -> Result<StartResult, String> {
     svc.resume(job_id, model_token, local_model, message).await
+}
+
+/// What changed in an edit job's worktree since the commit it started from,
+/// committed and not, for the person to read: `{ base, head, truncated,
+/// files: [{ path, oldPath?, status, additions, deletions, binary, patch }] }`
+/// ([`super::JobDiff`]). Read-only, for a job of this Mac's own state.
+#[tauri::command]
+pub async fn local_agent_diff(svc: State<'_, LocalAgentService>, job_id: String) -> Result<super::JobDiff, String> {
+    svc.diff(job_id).await
 }
 
 /// Events with `seq > sinceSeq` (absent: 0, the whole ring).

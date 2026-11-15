@@ -76,6 +76,10 @@ export interface LedgerSession {
   currentTurn: number
   currentTrackedJobId: string | null
   trackedJobId: string | null
+  /** Migration 658: the coding agent it runs on (null or absent: Native Intelligence's own agent). */
+  worker?: string | null
+  /** The action an action's Start made it for (its key), or null. */
+  actionId?: string | null
 }
 
 export type LedgerMove =
@@ -182,6 +186,9 @@ export async function startTurnRow(
         folder_label: s.folderLabel,
         device_name: s.deviceName,
         turn: opts.turn,
+        // Who does the work, and the action a Start made it for: a board card names the agent working it.
+        ...(s.worker ? { worker: s.worker } : {}),
+        ...(s.actionId ? { local_agent_action_id: s.actionId } : {}),
       },
       ...(teammateId ? { aiTeamMemberId: teammateId } : {}),
     })

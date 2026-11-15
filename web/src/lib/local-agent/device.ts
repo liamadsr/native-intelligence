@@ -20,7 +20,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ensureMacEnvironment } from '@/lib/environments/mac'
-import { isBaseBranch, isMacCapability, type MacCapability } from '@/lib/environments/types'
+import { cleanWorkerOffers, isBaseBranch, isMissingColumnError, isMacCapability, isWorkerId, type MacCapability, type MacWorkerOffer } from '@/lib/environments/types'
 import { LEDGER_SILENT_TOOLS, moveTurn, nextTurn, stepFromTool, turnStatus, type LedgerMove } from './ledger'
 import { isGithubPullRequestUrl, isSessionBranch } from './pull-request'
 import {
@@ -28,6 +28,7 @@ import {
   LEASE_RENEW_BELOW_MS,
   LOOP_QUEUED_TTL_MS,
   LocalAgentError,
+  UNATTENDED_KEY_PREFIX,
   ACTION_JOB_KEY_PREFIX,
   SESSION_SELECT,
   isUnattendedKey,
@@ -37,6 +38,9 @@ import {
   reapIfStale,
   recordLocalModel,
   recordPullRequest,
+  repoOfPullRequestUrl,
+  requestStop,
+  moveCardOnBegin,
   settleActionRunStatus,
   staleness,
   type DbSession,
@@ -99,6 +103,21 @@ export interface HeartbeatInput {
    * parseHeartbeat always sets it.
    */
   capabilities?: MacCapability[]
+  /**
+   * The coding agents this Mac offers now (migration 658,
+   * `local_agent_status`'s `workers`, cleaned by cleanWorkerOffers), mirrored
+   * on its environment so a page elsewhere can offer the choice. Null: the
+   * beat didn't say (an older relay or app): not known. parseHeartbeat always
+   * sets it.
+   */
+  workers?: MacWorkerOffer[] | null
+  /**
+   * The jobs this Mac holds in its line for a free slot (`local_agent_status`'s
+   * `queued: true`): claimed, not begun. Their sessions stay `starting` with
+   * their lease renewed (they are live), and say so (mac_queued_at). Absent:
+   * an older relay or app, which has no line.
+   */
+  queuedJobIds?: string[]
 }
 
 /** A removed Mac's heartbeat (environments, "Remove this Mac"): 409 details.code. */
@@ -137,13 +156,20 @@ export function parseHeartbeat(body: unknown): HeartbeatInput {
     if (!Array.isArray(b.liveJobIds) || b.liveJobIds.length > 500) throw new LocalAgentError('bad_request', 'liveJobIds must be an array')
     liveJobIds = (b.liveJobIds as unknown[]).filter(isUuid)
   }
+  let queuedJobIds: string[] | undefined
+  if (b.queuedJobIds !== undefined) {
+    if (!Array.isArray(b.queuedJobIds) || b.queuedJobIds.length > 500) throw new LocalAgentError('bad_request', 'queuedJobIds must be an array')
+    queuedJobIds = (b.queuedJobIds as unknown[]).filter(isUuid)
+  }
   return {
+    ...(queuedJobIds ? { queuedJobIds } : {}),
     deviceId: b.deviceId,
     name,
     platform,
     appVersion,
     grants,
     capabilities,
+    workers: cleanWorkerOffers(b.workers),
     ...(liveJobIds ? { liveJobIds } : {}),
     ...(b.rejoin === true ? { rejoin: true as const } : {}),
   }
@@ -211,6 +237,8 @@ export async function heartbeat(
     }
   }
 
+  if (input.workers !== undefined) await mirrorOfferedWorkers(svc, userId, input.deviceId, input.workers)
+
   if (input.grants.length > 0) {
     const { error } = await svc.from('device_folder').upsert(
       input.grants.map((g) => ({
@@ -251,11 +279,107 @@ export async function heartbeat(
   }
 
   await renewLeases(svc, userId, input.deviceId, input.liveJobIds, now)
+  if (input.queuedJobIds !== undefined) await markMacLine(svc, userId, input.deviceId, input.queuedJobIds, now)
 
   return {
     folders: rows
       .filter((r) => sent.has(r.grant_id))
       .map((r) => ({ id: r.id, grantId: r.grant_id, label: r.label, mode: r.mode, isGit: r.is_git })),
+  }
+}
+
+/**
+ * A job may wait in the Mac's line this long (since the Mac first reported it
+ * there) before the server stops it: each kind its own wait, as on the
+ * server's line. A person's start (a card, a chat) six hours, the same a
+ * person's job may wait for its Mac (QUEUED_TTL_MS); a loop's fire 15
+ * minutes (LOOP_QUEUED_TTL_MS): one begun later would start with nobody
+ * expecting it.
+ */
+export const MAC_LINE_MAX_MS = 6 * 60 * 60_000
+
+/** How long this job may wait in the Mac's line: a loop's fire, LOOP_QUEUED_TTL_MS; anything a person started, MAC_LINE_MAX_MS. */
+export function macLineMaxMs(key: string | null | undefined): number {
+  return typeof key === 'string' && key.startsWith(UNATTENDED_KEY_PREFIX) ? LOOP_QUEUED_TTL_MS : MAC_LINE_MAX_MS
+}
+
+/** Why a job that waited too long in the Mac's line was stopped. */
+export function macLineTimeoutReason(mac: string, maxMs = MAC_LINE_MAX_MS): string {
+  const wait = maxMs >= 60 * 60_000 ? `${Math.round(maxMs / (60 * 60_000))} hours` : `${Math.round(maxMs / 60_000)} minutes`
+  return `It waited ${wait} for a free slot on ${mac || 'your Mac'}, so it was stopped. Press Start again when the Mac has room.`
+}
+
+/**
+ * What the heartbeat says of the Mac's line (migration 659's mac_queued_at):
+ * a job it reports waiting is marked with when it first did; one it no longer
+ * reports (begun, or gone) is cleared; one that waited past MAC_LINE_MAX_MS is
+ * asked to stop, with the reason. Only this person's `starting` sessions on
+ * this device. Best effort: before 659 (no column) it does nothing.
+ */
+async function markMacLine(svc: Svc, userId: string, deviceId: string, queuedJobIds: string[], now: number): Promise<void> {
+  try {
+    const { data, error } = await svc
+      .from('local_agent_session')
+      .select('id, status, mac_queued_at, idempotency_key, device:user_device!local_agent_session_device_fk(name)')
+      .eq('user_id', userId)
+      .eq('device_id', deviceId)
+      .eq('status', 'starting')
+    if (isMissingColumnError(error)) return
+    if (error) throw new Error(error.message)
+    const waiting = new Set(queuedJobIds)
+    for (const r of (data ?? []) as Array<{ id: string; mac_queued_at: string | null; idempotency_key?: string | null; device?: { name?: string | null } | null }>) {
+      const maxMs = macLineMaxMs(r.idempotency_key)
+      const inLine = waiting.has(r.id)
+      if (inLine && !r.mac_queued_at) {
+        await svc.from('local_agent_session').update({ mac_queued_at: nowIso(now) }).eq('id', r.id).eq('user_id', userId).eq('status', 'starting')
+      } else if (!inLine && r.mac_queued_at) {
+        await svc.from('local_agent_session').update({ mac_queued_at: null }).eq('id', r.id).eq('user_id', userId)
+      } else if (inLine && r.mac_queued_at && Date.parse(r.mac_queued_at) < now - maxMs) {
+        await svc
+          .from('local_agent_session')
+          .update({ error: macLineTimeoutReason(r.device?.name ?? '', maxMs) })
+          .eq('id', r.id)
+          .eq('user_id', userId)
+        await requestStop(svc, userId, r.id)
+      }
+    }
+  } catch (err) {
+    console.warn('[local-agent] marking the Mac’s line failed:', err instanceof Error ? err.message : err)
+  }
+}
+
+/** Whether the "no offered_workers column yet" line was logged (once per process). */
+let offeredColumnMissingLogged = false
+
+/**
+ * The Mac's offered coding agents onto its environment (migration 658),
+ * written only when they changed: one read per beat, a write only on a
+ * change. Best effort: a failure is logged and the beat goes on.
+ */
+async function mirrorOfferedWorkers(svc: Svc, userId: string, deviceId: string, workers: MacWorkerOffer[] | null): Promise<void> {
+  try {
+    const { data, error } = await svc
+      .from('environment')
+      .select('id, offered_workers')
+      .eq('kind', 'mac')
+      .eq('owner_user_id', userId)
+      .eq('device_id', deviceId)
+      .maybeSingle()
+    if (isMissingColumnError(error)) {
+      if (!offeredColumnMissingLogged) {
+        offeredColumnMissingLogged = true
+        console.warn('[local-agent] environment.offered_workers is missing (migration 658 not applied): the Mac’s coding agents aren’t mirrored')
+      }
+      return
+    }
+    if (error) throw new Error(error.message)
+    const row = data as { id: string; offered_workers?: unknown } | null
+    if (!row) return
+    if (JSON.stringify(cleanWorkerOffers(row.offered_workers)) === JSON.stringify(workers)) return
+    const { error: writeError } = await svc.from('environment').update({ offered_workers: workers }).eq('id', row.id).eq('kind', 'mac')
+    if (writeError) throw new Error(writeError.message)
+  } catch (err) {
+    console.warn('[local-agent] mirroring the Mac’s coding agents failed:', err instanceof Error ? err.message : err)
   }
 }
 
@@ -510,12 +634,37 @@ export interface ClaimResult {
    * always for a read job.
    */
   baseBranch: string | null
+  /**
+   * The coding agent the job runs on (migration 658, local_agent_session.
+   * worker, stamped when the chat agent started it): the Mac runs it or
+   * refuses with its own sentence. Null: Native Intelligence's own agent.
+   */
+  worker: string | null
+}
+
+/**
+ * A session's worker as a claim hands it on: the column's shape again. A
+ * value that isn't one is refused (the claim throws), never handed on as
+ * null: null would run the job on Native Intelligence's agent instead.
+ */
+export function claimWorker(row: Pick<DbSession, 'worker'>): string | null {
+  if (row.worker === null || row.worker === undefined) return null
+  if (!isWorkerId(row.worker)) throw new Error('claim failed: the session’s worker is not a coding agent’s id')
+  return row.worker
 }
 
 /** A session's base branch as a claim hands it on: an edit job's, the strict pattern again, else null. */
 export function claimBaseBranch(row: Pick<DbSession, 'mode' | 'base_branch'>): string | null {
   return row.mode === 'edit' && isBaseBranch(row.base_branch) ? row.base_branch : null
 }
+
+/**
+ * Why a job on the person's own coding agent (migration 658) failed at its
+ * claim: the page that claimed it predates workers (its relay doesn't say
+ * `workers: true`), so it would start it on Native Intelligence's agent.
+ */
+export const WORKER_PAGE_OUTDATED_REASON =
+  'This job is set to run on your own coding agent, and the Native Intelligence window on that Mac is out of date, so it didn’t start. Reload Native Intelligence on that Mac (or update the app), then ask again.'
 
 /** What a claim answers when the Mac runs its own model and the server can't record it (migration 418). */
 export const LOCAL_MODEL_UNRECORDED = 'LOCAL_MODEL_UNRECORDED'
@@ -535,7 +684,17 @@ export async function claimSession(
   svc: Svc,
   userId: string,
   sessionId: string,
-  input: { deviceId: string; runId: string; localModel?: boolean },
+  input: {
+    deviceId: string
+    runId: string
+    localModel?: boolean
+    /**
+     * The claiming page's relay understands `worker` (migration 658). Without
+     * it, a job that has one is failed here (WORKER_PAGE_OUTDATED_REASON):
+     * an older page would drop the worker and run Native Intelligence's agent.
+     */
+    workers?: boolean
+  },
 ): Promise<ClaimResult | null> {
   if (!isUuid(sessionId)) throw new LocalAgentError('not_found', 'Local agent not found')
   if (!isUuid(input.deviceId)) throw new LocalAgentError('bad_request', 'deviceId must be a uuid')
@@ -574,7 +733,13 @@ export async function claimSession(
     await failSession(svc, row, 'This folder is no longer granted on your Mac.')
     return null
   }
-  await moveTurn(svc, ledgerSessionOf(row), { type: 'step', text: 'Starting on your Mac' })
+  if (row.worker !== null && row.worker !== undefined && input.workers !== true) {
+    await failSession(svc, row, WORKER_PAGE_OUTDATED_REASON)
+    return null
+  }
+  // The ledger row stays `queued` until the Mac's first word (its `starting`
+  // status event): a job the Mac holds in its line for a free slot reads
+  // "queued" on its card all the way through, server line and Mac line.
   // A relay Mac resets a session a local-model launch had marked (true went in the claim itself).
   if (input.localModel === false && row.local_model === true) await recordLocalModel(svc, userId, row.id, false)
   const localModel = input.localModel ?? row.local_model === true
@@ -586,6 +751,7 @@ export async function claimSession(
     resume: resumeOf(row),
     localModel,
     baseBranch: claimBaseBranch(row),
+    worker: claimWorker(row),
   }
 }
 
@@ -967,6 +1133,8 @@ async function applyDerived(
       // its next turn: it works on.)
       const ranHere = derived.turnEnded || events.some((e) => e.kind === 'status' && (e.payload.status === 'running' || e.payload.status === 'starting'))
       if (!nextTurnText && (written.status !== current.status || derived.turnEnded)) await settleActionRunStatus(svc, ranHere ? null : current, written)
+      // A card's job began: its card leaves Backlog / Todo (store.ts moveCardOnBegin).
+      await moveCardOnBegin(svc, current, written)
       return written
     }
     const { data: fresh } = await svc
@@ -1093,6 +1261,13 @@ export async function ingestEvents(
  * (teammate plan C5: Rust's `pull_request` event, gh or the server route):
  * the session keeps its URL. From any run, since a push running at quit is
  * reported at the next launch.
+ *
+ * Kept whenever its branch is the job's own, whatever GitHub repository it
+ * is in (the desktop passes on only its own `pull_request` events, never the
+ * agent's): a person who pushes to their fork and opens it there, or whose
+ * repository was renamed, keeps it too. A folder not linked yet is linked by
+ * the first one (store.ts linkFolderRepo); a folder linked to another
+ * repository keeps its link (never re-linked), and one log line says so.
  */
 async function keepPullRequest(svc: Svc, row: DbSession, events: ReadonlyArray<{ kind: string; payload: Record<string, unknown> }>): Promise<void> {
   if (row.mode !== 'edit') return
@@ -1100,7 +1275,32 @@ async function keepPullRequest(svc: Svc, row: DbSession, events: ReadonlyArray<{
     (e) => e.kind === 'pull_request' && e.payload.ok === true && isGithubPullRequestUrl(e.payload.url) && isSessionBranch(e.payload.branch, row),
   )
   const url = pr?.payload.url as string | undefined
-  if (url && url !== row.pr_url) await recordPullRequest(svc, row.user_id, row.id, url)
+  if (!url || url === row.pr_url) return
+  const linked = await folderLinkedRepo(svc, row)
+  const repo = repoOfPullRequestUrl(url)
+  if (linked && repo && linked.toLowerCase() !== repo.toLowerCase()) {
+    loggedOnce(row.id, url, `[local-agent] session ${row.id}'s pull request is in ${repo}, not the folder's linked ${linked}: kept; the folder's link is left as it is (${url})`)
+  }
+  await recordPullRequest(svc, row.user_id, row.id, url)
+}
+
+/** The folder's linked repository: `owner/name`, null when it has none, undefined when it can't be read. */
+async function folderLinkedRepo(svc: Svc, row: Pick<DbSession, 'folder_id' | 'user_id'>): Promise<string | null | undefined> {
+  if (!isUuid(row.folder_id)) return null
+  const { data, error } = await svc.from('device_folder_setting').select('repo_full_name').eq('device_folder_id', row.folder_id).maybeSingle()
+  if (error) return undefined
+  const repo = (data as { repo_full_name?: unknown } | null)?.repo_full_name
+  return typeof repo === 'string' && repo.trim() ? repo.trim() : null
+}
+
+/** Pull requests already logged (a replayed upload logs nothing new). Bounded. */
+const PR_LOGGED = new Set<string>()
+function loggedOnce(sessionId: string, url: string, line: string): void {
+  const key = `${sessionId} ${url}`
+  if (PR_LOGGED.has(key)) return
+  if (PR_LOGGED.size >= 1000) PR_LOGGED.clear()
+  PR_LOGGED.add(key)
+  console.warn(line)
 }
 
 // ── State lines (session, cursor, process exit) ─────────────────────────────
