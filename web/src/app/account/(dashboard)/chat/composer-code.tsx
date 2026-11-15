@@ -130,7 +130,7 @@ export interface ComposerCodeResult {
 }
 
 const BUSY_LINE = 'A Chat reply is still running. Send this when it finishes, or stop it.'
-const UNSAVED_LINE = 'This chat couldn’t be saved, so nothing was sent. Try again.'
+const UNSAVED_LINE = 'This chat isn’t saved yet, so nothing was sent. Try again in a moment.'
 
 function newRequestId(): string {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -149,6 +149,31 @@ export function codeUserMessage(text: string, meta: CodeMessageMeta, now = Date.
 function jobOf(s: PanelSession): CodeJob | null {
   if (!s.codeRequestId) return null
   return { sessionId: s.id, requestId: s.codeRequestId, worker: s.worker ?? null, folderId: s.folderId, status: s.status, createdAt: s.createdAt }
+}
+
+/**
+ * Whether the thread holds a Code message, without reading the whole thread
+ * on every streamed chunk: once found it stays found for the conversation's
+ * thread; while the thread only grows (or its last message streams) only the
+ * messages from the last one read are looked at. A thread that changed
+ * otherwise (another conversation, a trim) is read again. Off: false.
+ */
+export function useThreadHasCode(messages: readonly UIMessage[], enabled: boolean): boolean {
+  const seen = useRef<{ firstId: string | null; read: number; has: boolean }>({ firstId: null, read: 0, has: false })
+  if (!enabled) return false
+  const firstId = messages[0]?.id ?? null
+  const held = seen.current
+  if (held.firstId !== firstId || messages.length < held.read) {
+    seen.current = { firstId, read: 0, has: false }
+  }
+  const at = seen.current
+  if (!at.has) {
+    // The last one read again: it may have been the one still streaming.
+    const from = Math.max(0, at.read - 1)
+    at.has = threadHasCode(messages.slice(from))
+    at.read = messages.length
+  }
+  return at.has
 }
 
 export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResult {
@@ -188,7 +213,7 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
   const stored = useMemo(() => (available ? readCodeTabChoice(conversationId) : null), [available, conversationId])
 
   // Its jobs, read once per conversation, and only when its thread holds a Code message.
-  const hasCode = useMemo(() => available && threadHasCode(messages), [available, messages])
+  const hasCode = useThreadHasCode(messages, available)
   const readFor = useRef<string | null>(null)
   useEffect(() => {
     if (!hasCode || !conversationId || readFor.current === conversationId) return
@@ -257,17 +282,20 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
   }, [reportSession])
 
   // ── The send ──────────────────────────────────────────────────────────────
-  const live = { active, blocker, agent, folderId, sending, mac, latest, chatEnv: chat.environment }
+  const live = { active, blocker, agent, folderId, mac, latest, chatEnv: chat.environment }
   const liveRef = useRef(live)
   liveRef.current = live
   const optsRef = useRef(opts)
   optsRef.current = opts
+  // One send at a time, held from before its first await (state would only
+  // say so on the next render: a second Enter in between would send twice).
+  const inFlightRef = useRef(false)
   const submit = useCallback(
     async (text: string): Promise<boolean> => {
       const now = liveRef.current
       const { appendMessage, conversationIdNow, chatBusy } = optsRef.current
       const words = text.trim()
-      if (!now.active || !words || now.sending) return false
+      if (!now.active || !words || inFlightRef.current) return false
       if (now.blocker) {
         setNotice(now.blocker)
         return false
@@ -276,6 +304,7 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
         setNotice(BUSY_LINE)
         return false
       }
+      inFlightRef.current = true
       setSending(true)
       setNotice(null)
       const requestId = newRequestId()
@@ -293,17 +322,12 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
             return false
           }
         }
-        let conversation = await conversationIdNow()
-        let inThread = false
-        // A chat with no conversation yet: the message makes one (the save's own create).
-        if (!conversation) {
-          appendMessage(codeUserMessage(words, { requestId }))
-          inThread = true
-          conversation = await conversationIdNow()
-        }
+        // Nothing is saved before the job is accepted: a refused start leaves
+        // no message of theirs behind for the Chat agent to read as a request.
+        const conversation = await conversationIdNow()
         if (!conversation) {
           setNotice(UNSAVED_LINE)
-          return inThread
+          return false
         }
         const started = await postCodeStart({
           conversationId: conversation,
@@ -315,13 +339,13 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
         })
         if (!started.ok) {
           setNotice(started.message)
-          return inThread
+          return false
         }
         const job = jobOf(started.value.session)
         if (job) setJobs((held) => withCodeJob(held, job))
         // It went to a job of this chat that was working there already: the message is that job's next turn.
         const joinedOther = started.value.session.codeRequestId !== requestId
-        if (!inThread) appendMessage(codeUserMessage(words, joinedOther ? { requestId, sessionId: started.value.session.id } : { requestId }))
+        appendMessage(codeUserMessage(words, joinedOther ? { requestId, sessionId: started.value.session.id } : { requestId }))
         if (!started.value.deviceOnline) {
           setNotice(`${now.mac?.name || 'Your Mac'} is offline: this waits up to 6 hours for it to come online, then expires.`)
         }
@@ -329,6 +353,7 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
         writeCodeTabChoice(conversation, { ...currentRef.current, agent: now.agent, folderId: now.folderId })
         return true
       } finally {
+        inFlightRef.current = false
         setSending(false)
       }
     },

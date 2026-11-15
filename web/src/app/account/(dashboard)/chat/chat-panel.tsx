@@ -1652,9 +1652,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
   }, [input])
 
   // The composer's Chat / Code tabs (composer-code.tsx), for a person with a
-  // Mac environment: in Code, a send goes to their coding agent's job, the
-  // person's message goes into the thread as theirs (saved as an opened page
-  // is, making the conversation when it has none yet), and each job draws
+  // Mac environment, in their home thread: in Code, a send goes to their
+  // coding agent's job, the person's message goes into the thread as theirs
+  // once the job took it (saved as an opened page is), and each job draws
   // inline after the message that started it.
   const appendCodeMessage = useCallback(
     (message: UIMessage) => {
@@ -1668,7 +1668,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
   const codeConversationIdNow = useCallback(async () => getConversationId() ?? (await pendingCreate()) ?? getConversationId(), [getConversationId, pendingCreate])
   const chatReplyRunning = useCallback(() => statusRef.current === 'streaming' || statusRef.current === 'submitted', [])
   const composerCode = useComposerCode({
-    enabled: true,
+    // The person's own main chat only (their home thread): never a capture's
+    // live conversation the panel holds during a call, or anything else.
+    enabled: isHomeThread === true,
     conversationId: boundConversationId,
     environment: composerEnvironment,
     folders: composerFolders,

@@ -40,9 +40,11 @@ vi.mock('../chat-message', () => ({ ChatMessage: ({ message }: { message: { id: 
 vi.mock('../code-job-block', () => ({ CodeJobBlock: ({ sessionId }: { sessionId: string }) => h('div', { 'data-code-job': sessionId }) }))
 
 import { ChatInput } from '../chat-input'
+import { toMentionContact } from '@/lib/search/menu-search'
+
 import { ChatMessageList } from '../chat-message-list'
 import { useComposerEnvironment, useComposerFolders } from '../composer-state'
-import { useComposerCode } from '../composer-code'
+import { useComposerCode, useThreadHasCode } from '../composer-code'
 import { configureEnvironment, resetEnvironmentStore } from '@/lib/local-agent/environment-client'
 import { CODE_TAB_STORAGE_PREFIX } from '@/lib/local-agent/code-tab'
 import { CODE_CLOUD_NEXT_REASON } from '@/lib/local-agent/code-thread'
@@ -71,6 +73,8 @@ const session = (over: Record<string, unknown> = {}) => ({
 
 const host = { messages: [] as UIMessage[], value: '' }
 
+const hostOpts = { conversation: CONV as string | null, notes: [] as Array<{ id: string; title: string }> }
+
 function Host({ initial = [] as UIMessage[], layout = 'inline' as 'inline' | 'stacked' }) {
   const env = useComposerEnvironment({ enabled: true, conversationId: CONV })
   const folders = useComposerFolders({ enabled: false })
@@ -83,7 +87,7 @@ function Host({ initial = [] as UIMessage[], layout = 'inline' as 'inline' | 'st
     folders,
     messages,
     appendMessage: (m) => setMessages((prev) => [...prev, m]),
-    conversationIdNow: async () => CONV,
+    conversationIdNow: async () => hostOpts.conversation,
     chatBusy: () => false,
   })
   // What the host holds, for the tests to read after each act().
@@ -103,7 +107,13 @@ function Host({ initial = [] as UIMessage[], layout = 'inline' as 'inline' | 'st
       },
       onStop: () => {},
       isLoading: false,
-      attachedNotes: [],
+      attachedNotes: hostOpts.notes as never,
+      attachedContacts: [],
+      onAttachContact: () => {},
+      onRemoveContact: () => {},
+      attachedRecords: [],
+      onAttachRecord: () => {},
+      onRemoveRecord: () => {},
       onAttachNote: () => {},
       onRemoveNote: () => {},
       attachedFiles: [],
@@ -156,6 +166,8 @@ async function mount(opts: { list: unknown[]; chatEnv: unknown; routes?: FakeRou
 }
 
 beforeEach(() => {
+  hostOpts.conversation = CONV
+  hostOpts.notes = []
   resetEnvironmentStore()
   localStorage.clear()
   container = document.createElement('div')
@@ -339,5 +351,132 @@ describe('the Code tab', () => {
     type('Hello')
     await send()
     expect(posts()).toEqual([])
+  })
+})
+
+describe('a send, done once and leaving nothing behind', () => {
+  it('two sends before the first answers: one job, one message', async () => {
+    let answer: (r: Response) => void = () => {}
+    await mount({
+      list: [STUDIO],
+      chatEnv: STUDIO,
+      routes: [{ method: 'POST', url: '/api/local-agent/sessions', reply: () => new Promise<Response>((r) => (answer = r)) as never }],
+    })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    type('Fix the date picker')
+    const sendButton = q('button[aria-label^="Send"]')!
+    // Two presses in the same tick: the second sees the first in flight.
+    act(() => {
+      sendButton.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }))
+      sendButton.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }))
+    })
+    await flush()
+    answer(json({ session: session(), created: true, joined: false, deviceOnline: true }, 201))
+    await flush()
+    expect(posts().filter((c) => c.url === '/api/local-agent/sessions')).toHaveLength(1)
+  })
+
+  it('a chat with no conversation yet: nothing is saved or started, the words stay, the line says so', async () => {
+    hostOpts.conversation = null
+    await mount({ list: [STUDIO], chatEnv: STUDIO })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    type('Fix the date picker')
+    await send()
+    expect(posts()).toEqual([])
+    expect(host.messages).toEqual([])
+    expect(host.value).toBe('Fix the date picker')
+    expect(q('[data-code-notice="send"]')!.textContent).toContain('nothing was sent')
+  })
+
+  it('a refused start leaves no message of theirs in the thread (nothing the Chat agent could read as a request)', async () => {
+    await mount({
+      list: [STUDIO],
+      chatEnv: STUDIO,
+      routes: [{ method: 'POST', url: '/api/local-agent/sessions', reply: () => json({ error: 'harbor-site isn’t a git repository.', code: 'NOT_A_REPOSITORY' }, 409) }],
+    })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    type('Fix it')
+    await send()
+    expect(host.messages).toEqual([])
+    expect(host.value).toBe('Fix it')
+  })
+})
+
+describe('the Code tab sends words only, and says so', () => {
+  it('no `@` menu; something staged for Chat (a mention, a file, a skill) gets one plain line', async () => {
+    hostOpts.notes = [{ id: 'cap-1', title: 'Booking review' }]
+    const person = { id: 'c-ana', full_name: 'Ana Ruiz', email: 'ana@harbor.test', job_title: null, member_id: null, company: null }
+    await mount({
+      list: [STUDIO],
+      chatEnv: STUDIO,
+      routes: [{ url: '/api/account/search', reply: () => json({ query: '', results: { contact: [{ kind: 'contact', contact: toMentionContact(person), score: 1 }] } }) }],
+    })
+    const slash = async () => {
+      act(() => textarea().focus())
+      act(() => {
+        const ta = textarea()
+        const { selectionStart: st, selectionEnd: en, value } = ta
+        setter.call(ta, value.slice(0, st) + '@' + value.slice(en))
+        ta.setSelectionRange(st + 1, st + 1)
+        ta.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 200))
+      })
+    }
+    // In Chat, `@` opens the menu (mentions; `/` in the box is only a character, skills are the palette's).
+    await slash()
+    expect(document.querySelector('[data-command-menu="inline"]')).not.toBeNull()
+    type('')
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    expect(q('[data-code-notice="staged"]')!.textContent).toBe('The coding agent gets your words only. What’s attached above stays for Chat.')
+    await slash()
+    expect(document.querySelector('[data-command-menu="inline"]')).toBeNull()
+  })
+})
+
+describe('finding a Code message costs little while a reply streams', () => {
+  const reads = { n: 0 }
+  const msg = (id: string, code = false): UIMessage => {
+    const meta = code ? { local_agent_code: { requestId: id } } : {}
+    const m = { id, role: 'user', parts: [] } as unknown as UIMessage
+    Object.defineProperty(m, 'metadata', { get: () => (reads.n++, meta), enumerable: true })
+    return m
+  }
+  const seen: boolean[] = []
+  function Probe({ messages }: { messages: UIMessage[] }) {
+    const has = useThreadHasCode(messages, true)
+    useEffect(() => {
+      seen.push(has)
+    })
+    return null
+  }
+  const render = (messages: UIMessage[]) => act(() => root.render(h(Probe, { messages })))
+
+  it('reads only what is new (and the last one again), stays found, and reads a different thread again', () => {
+    seen.length = 0
+    const thread = Array.from({ length: 200 }, (_, i) => msg(`m${i}`))
+    reads.n = 0
+    render(thread)
+    expect(seen.at(-1)).toBe(false)
+    expect(reads.n).toBe(200)
+    // A streamed chunk: the same messages, the last one changed. One read, not 200.
+    reads.n = 0
+    render([...thread.slice(0, -1), msg('m199')])
+    expect(reads.n).toBe(1)
+    // A Code message arrives: found; then nothing more is read while it stays the same thread.
+    render([...thread, msg('code-1', true)])
+    expect(seen.at(-1)).toBe(true)
+    reads.n = 0
+    render([...thread, msg('code-1', true), msg('a1')])
+    expect(reads.n).toBe(0)
+    expect(seen.at(-1)).toBe(true)
+    // Another conversation: read again from the start.
+    render([msg('x0'), msg('x1')])
+    expect(seen.at(-1)).toBe(false)
   })
 })

@@ -16,8 +16,9 @@
  *                     folder on that Mac a new job works in, and Select
  *                     folder… in the desktop app.
  *   CodeNoticeLine    under the box: why it doesn't send (a cloud
- *                     environment, no folder), or what the last send came back
- *                     with. Nothing when there is nothing to say.
+ *                     environment, no folder), what the last send came back
+ *                     with, or that what is staged for Chat (files, mentions,
+ *                     a skill) isn't sent. Nothing when there is nothing to say.
  *
  * The menus are the repo's dropdown menu (Radix): radio items, so the
  * keyboard works as a menu's does. They portal out of the composer, and stop
@@ -193,12 +194,18 @@ export function CodeFolderPicker({ code, onOpenChange }: { code: ComposerCode; o
   )
 }
 
-/** The line under the box: why it doesn't send, or what the last send came back with. */
-export function CodeNoticeLine({ code }: { code: ComposerCode }) {
-  const line = code.notice ?? code.blocker
+/** What the Code tab says when something is staged that only the Chat tab sends. */
+export const CODE_WORDS_ONLY_LINE = 'The coding agent gets your words only. What’s attached above stays for Chat.'
+
+/**
+ * The line under the box: why it doesn't send, what the last send came back
+ * with, or (`staged`) that what is staged above isn't sent to the coding agent.
+ */
+export function CodeNoticeLine({ code, staged = false }: { code: ComposerCode; staged?: boolean }) {
+  const line = code.notice ?? code.blocker ?? (staged ? CODE_WORDS_ONLY_LINE : null)
   if (!line) return null
   return (
-    <p data-code-notice={code.notice ? 'send' : 'blocker'} role="status" className="basis-full px-1.5 pt-0.5 text-[12px] leading-snug text-muted-foreground">
+    <p data-code-notice={code.notice ? 'send' : code.blocker ? 'blocker' : 'staged'} role="status" className="basis-full px-1.5 pt-0.5 text-[12px] leading-snug text-muted-foreground">
       {line}
     </p>
   )

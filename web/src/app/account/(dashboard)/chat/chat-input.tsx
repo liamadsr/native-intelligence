@@ -648,8 +648,9 @@ export const ChatInput = memo(function ChatInput({
     [doneTriggers],
   )
   const menuToken = useMemo(() => boxTrigger(value, caret), [boxTrigger, value, caret])
+  // Not in Code: the coding agent gets the words only, so no `/` skill or `@` record is offered there.
   const menuOpen =
-    !!menuToken && isActive && !fieldBlurred && !voiceModeOn && !paletteOpen && menuDismissedAt !== menuToken.start
+    !codeActive && !!menuToken && isActive && !fieldBlurred && !voiceModeOn && !paletteOpen && menuDismissedAt !== menuToken.start
   const readMenuAt = (next: { value: string; caret: number }) => {
     menuAtRef.current = next
     setMenuAt(next)
@@ -1028,8 +1029,9 @@ export const ChatInput = memo(function ChatInput({
     },
   }
 
-  // A chat that takes no files says so in the + menu, and takes no drop or paste.
-  const filesOff = !!unavailable?.files
+  // A chat that takes no files says so in the + menu, and takes no drop or
+  // paste; nor does the Code tab (the coding agent gets the words only).
+  const filesOff = !!unavailable?.files || codeActive
 
   const handleFileSelect = useCallback(() => {
     fileInputRef.current?.click()
@@ -1106,6 +1108,16 @@ export const ChatInput = memo(function ChatInput({
   // A send the Code tab can't make now (a cloud environment, no folder, one
   // already going out): send stays off, and the line under the box says why.
   const codeHeld = codeActive && !!code && (!!code.blocker || code.sending)
+  // Something staged for the Chat tab (files, mentions, a skill, a selection): the Code tab says it isn't sent.
+  const codeStaged =
+    codeActive &&
+    (attachedFiles.length > 0 ||
+      attachedNotes.length > 0 ||
+      attachedContacts.length > 0 ||
+      attachedCompanies.length > 0 ||
+      attachedRecords.length > 0 ||
+      !!activeSkill ||
+      !!editorSelection)
   const sendLabel = codeActive && code ? (code.hasMac ? `Send to ${code.agentLabel}` : 'Send') : isLoading ? 'Send when this reply finishes' : 'Send message'
 
   // The field: its own row (stacked), or between "+" and the mic (inline).
@@ -1677,7 +1689,7 @@ export const ChatInput = memo(function ChatInput({
             />
           )}
           <div className="min-w-0 flex-1" />
-          {codeActive && code && <CodeNoticeLine code={code} />}
+          {codeActive && code && <CodeNoticeLine code={code} staged={codeStaged} />}
         </div>
       )}
 

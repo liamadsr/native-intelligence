@@ -409,6 +409,17 @@ describe('inline in the chat (a Code tab job)', () => {
     expect(onSession).toHaveBeenCalledWith(expect.objectContaining({ id: SID, status: 'waiting' }))
   })
 
+  it('an ended job holds no realtime channel and polls nothing; a working one follows its events and row', async () => {
+    await mountInline({ ...sessionRow(), startedBy: 'person', status: 'cancelled' } as SessionRow, [])
+    const last = channels.slice(-2)
+    expect(last.map((c) => c.filter)).toEqual([null, null])
+    await act(async () => root.unmount())
+    root = createRoot(container)
+    channels.length = 0
+    await mountInline({ ...sessionRow(), startedBy: 'person', status: 'running' } as SessionRow, [])
+    expect(channels.slice(-2).map((c) => c.filter)).toEqual([`session_id=eq.${SID}`, `id=eq.${SID}`])
+  })
+
   it('ended: says so, and that the next message starts a new one', async () => {
     await mountInline({ ...sessionRow(), startedBy: 'person', status: 'cancelled' } as SessionRow, [])
     expect(q('[data-local-agent-ended]')!.textContent).toContain('Your next message starts a new one.')

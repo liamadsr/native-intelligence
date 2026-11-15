@@ -8,8 +8,8 @@
  *     knowledge trigger (conversation/activity);
  *   - a question, a failure or a stop writes nothing; nothing of the job's
  *     transcript ever does; no teammate's report and no home turn;
- *   - the knowledge extraction reads the person's message and the summary as
- *     the exchange, and nothing else of the job;
+ *   - the knowledge extraction reads the person's message, and the summary as
+ *     a fenced "Coding agent report" line, and nothing else of the job;
  *   - the ledger marks a Code job's turn rows (and only those) in their source.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -124,12 +124,12 @@ describe('what the knowledge extraction reads of it', () => {
     const person = (id: string, text: string) => ({ role: 'user', ui_message: { id, role: 'user', parts: [{ type: 'text', text }], metadata: { local_agent_code: { requestId: id } } } })
     const rows = [person('r1', 'The date picker forgets the month'), finishes[0], person('r2', 'Add a test for it'), finishes[1]]
     const { lines, userTurns, exchangeLines } = renderClaimSourceTranscript(rows)
-    expect(lines).toEqual([
-      'User: The date picker forgets the month',
-      'Assistant: Fixed the date picker.',
-      'User: Add a test for it',
-      'Assistant: Added a test for the month.',
-    ])
+    // The person's words as theirs; the coding agent's as its own fenced, labelled line, never the assistant's.
+    expect(lines[0]).toBe('User: The date picker forgets the month')
+    expect(lines[1]).toMatch(/^Coding agent report \(written by the person's own coding agent.*<teammate-text>Fixed the date picker\.<\/teammate-text>$/)
+    expect(lines[2]).toBe('User: Add a test for it')
+    expect(lines[3]).toMatch(/<teammate-text>Added a test for the month\.<\/teammate-text>$/)
+    expect(lines.some((l) => l.startsWith('Assistant:'))).toBe(false)
     expect(userTurns).toBe(2)
     expect(exchangeLines).toBe(4)
   })

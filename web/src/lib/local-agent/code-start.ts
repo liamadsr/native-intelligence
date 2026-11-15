@@ -40,7 +40,10 @@ export const NOT_A_REPOSITORY_CODE = 'NOT_A_REPOSITORY'
 
 export interface CodeStartInput {
   userId: string
-  /** The person's workspace for this request (requireWorkspace). */
+  /**
+   * The window's workspace (requireWorkspace). The job starts in the chat's
+   * own workspace, which may differ (ownChatWorkspace).
+   */
   workspaceId: string
   conversationId: unknown
   folderId: unknown
@@ -78,7 +81,9 @@ export async function startCodeJob(svc: Svc, input: CodeStartInput): Promise<Cod
   const existing = await findSessionByKey(svc, input.userId, key)
   if (existing) return { session: existing.session, created: false, joined: false, deviceOnline: existing.deviceOnline }
 
-  await assertOwnChat(svc, input.userId, input.workspaceId, input.conversationId)
+  // The chat's own workspace (a window whose active workspace is another
+  // still starts it in the chat's, as the environments routes do).
+  const workspaceId = await ownChatWorkspace(svc, input.userId, input.conversationId)
   if (input.environmentId !== undefined && input.environmentId !== null) await assertNotCloud(svc, input.environmentId)
 
   // Only the person's own live folders (listFolders reads their rows alone).
@@ -112,7 +117,7 @@ export async function startCodeJob(svc: Svc, input: CodeStartInput): Promise<Cod
 
   const started = await createSession(svc, {
     userId: input.userId,
-    workspaceId: input.workspaceId,
+    workspaceId,
     folderId: folder.id,
     conversationId: input.conversationId,
     request: input.request,
@@ -124,18 +129,38 @@ export async function startCodeJob(svc: Svc, input: CodeStartInput): Promise<Cod
   return { session: started.session, created: started.created, joined: started.joined === true, deviceOnline: started.deviceOnline }
 }
 
-/** The person's own chat in this workspace, and not a teammate's or a guest's thread. */
-async function assertOwnChat(svc: Svc, userId: string, workspaceId: string, conversationId: string): Promise<void> {
+/**
+ * The person's own main-chat conversation, and the workspace it is in: never
+ * a teammate's, a bot's or a guest's thread, an outside channel (Slack, SMS,
+ * team chat) or a capture's conversation, and only in a workspace they are
+ * still a member of. The window's active workspace may be another one (a
+ * second window, a switch since): the chat's own is the one that counts, as
+ * GET /api/account/environments/chat reads it.
+ */
+async function ownChatWorkspace(svc: Svc, userId: string, conversationId: string): Promise<string> {
   const { data, error } = await svc
     .from('chat_conversations')
-    .select('id, workspace_id, ai_team_member_id, agent_guest_id')
+    .select('id, workspace_id, ai_team_member_id, agent_teammate_id, agent_guest_id, outside_channel, capture_id')
     .eq('id', conversationId)
     .eq('user_id', userId)
     .maybeSingle()
   if (error) throw new Error(`conversation read failed: ${error.message}`)
-  const row = data as { workspace_id?: unknown; ai_team_member_id?: unknown; agent_guest_id?: unknown } | null
-  if (!row || row.workspace_id !== workspaceId) throw new LocalAgentError('not_found', 'Conversation not found')
-  if (row.ai_team_member_id || row.agent_guest_id) throw new LocalAgentError('bad_request', 'Code runs from your own chat.')
+  const row = data as {
+    workspace_id?: unknown
+    ai_team_member_id?: unknown
+    agent_teammate_id?: unknown
+    agent_guest_id?: unknown
+    outside_channel?: unknown
+    capture_id?: unknown
+  } | null
+  if (!row || typeof row.workspace_id !== 'string') throw new LocalAgentError('not_found', 'Conversation not found')
+  if (row.ai_team_member_id || row.agent_teammate_id || row.agent_guest_id || row.outside_channel || row.capture_id) {
+    throw new LocalAgentError('bad_request', 'Code runs from your own main chat, not from this conversation.')
+  }
+  const { data: member, error: memberError } = await svc.from('member').select('id').eq('workspace_id', row.workspace_id).eq('user_id', userId).maybeSingle()
+  if (memberError) throw new Error(`membership read failed: ${memberError.message}`)
+  if (!member) throw new LocalAgentError('not_found', 'Conversation not found')
+  return row.workspace_id
 }
 
 /** A cloud environment is refused for now; a Mac (or one not found) leaves the folder to decide. */

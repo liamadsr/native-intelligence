@@ -686,8 +686,6 @@ let listKey = ''
 let listReadAt = 0
 let listSeq = 0
 let listAppliedSeq = 0
-/** A worker pick happened after list reads up to this seq started: those are older than it, and dropped. */
-let listPickedAtSeq = 0
 let listInflight: { ws: string; run: Promise<void> } | null = null
 
 // Each chat's, by workspace and conversation id; a chat with no id yet (a new one) by the workspace alone.
@@ -751,7 +749,7 @@ async function readList(): Promise<void> {
     parsed = null
   }
   // A failed read keeps what is shown; a read older than one applied, or for a workspace the window has left, is dropped.
-  if (!parsed || seq < listAppliedSeq || seq <= listPickedAtSeq || workspace !== ws()) return
+  if (!parsed || seq < listAppliedSeq || workspace !== ws()) return
   listAppliedSeq = seq
   listReadAt = d().now()
   setList(workspace, parsed)
@@ -854,45 +852,6 @@ async function put(url: string, body: Record<string, unknown>): Promise<boolean>
     toast.error("Couldn't switch the environment", { description: "Native Intelligence couldn't be reached. Try again." })
   }
   return false
-}
-
-/**
- * Who does this Mac's work (migration 658): a coding agent's id, or null for
- * Native Intelligence's own agent. PATCHed at once and shown at once (put
- * back, with the server's sentence, when refused). True when it took.
- */
-export async function setMacWorker(environment: MacEnvironmentItem, worker: string | null): Promise<boolean> {
-  const was = environment.worker ?? null
-  if (was === worker) return true
-  // Reads already on their way started before this pick: they must not show the old choice.
-  listPickedAtSeq = listSeq
-  for (const [key, chat] of chats) if (chat.environment?.id === environment.id) chatSeq.set(key, ++chatSeqCounter)
-  applyWorker(environment.id, worker)
-  try {
-    const res = await d().fetch(`${ENVIRONMENTS_URL}/${encodeURIComponent(environment.id)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ worker }),
-    })
-    if (res.ok) {
-      const saved = parseEnvironmentItem(((await res.json().catch(() => null)) as { environment?: unknown } | null)?.environment)
-      if (saved?.kind === 'mac') applyEnvironment(saved)
-      return true
-    }
-    toast.error('Couldn’t change who does the work', { description: (await readRefusal(res, 'Try again.')).error })
-  } catch {
-    toast.error('Couldn’t change who does the work', { description: "Native Intelligence couldn't be reached. Try again." })
-  }
-  // Only the choice goes back, on the item as it is now (never a stale copy of the rest of it).
-  applyWorker(environment.id, was)
-  return false
-}
-
-/** One Mac's worker, on the list and every chat showing it: nothing else of the item changes. */
-function applyWorker(environmentId: string, worker: string | null): void {
-  const patch = (e: EnvironmentItem): EnvironmentItem => (e.kind === 'mac' && e.id === environmentId ? { ...e, worker } : e)
-  if (listHere()) setList(listWs, { environments: list.environments.map(patch), defaultEnvironmentId: list.defaultEnvironmentId })
-  for (const [key, chat] of chats) if (chat.environment?.id === environmentId) setChat(key, { ...chat, environment: patch(chat.environment) })
 }
 
 /** An environment saved or made (Edit environment): the list and every chat showing it take it at once. */
@@ -1000,7 +959,6 @@ export function resetEnvironmentStore(): void {
   listReadAt = 0
   listSeq = 0
   listAppliedSeq = 0
-  listPickedAtSeq = 0
   listInflight = null
   chats.clear()
   chatReadAt.clear()

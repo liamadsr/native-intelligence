@@ -3,8 +3,10 @@
  * says what is stored). The work recorder hands a turn's report here instead
  * of writing a teammate's report (chat-report.ts deliverWorkReport, for a
  * ledger row whose source says `local_agent_code`): when the turn ends with
- * a result (needs_review, or done), its finish summary goes in as one plain
- * assistant message, in the conversation the person started it from. A
+ * a result (needs_review, or done), its finish summary goes in as one
+ * assistant message, in the conversation the person started it from. It is
+ * the coding agent's words: every reader of the history renders it as a
+ * fenced "Coding agent report" line (code-thread.ts codeFinishTranscriptLine). A
  * question, a failure or a stop writes nothing: the job's own view in the
  * chat shows those, and the push still goes. No home turn follows: no chat
  * model speaks between the person and their coding agent.

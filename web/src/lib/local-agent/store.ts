@@ -21,6 +21,7 @@ import { completeActionsForMergedPr, moveCardForRun, type CardRun } from '@/lib/
 import { fetchPrMetadata } from '@/lib/github/pr-metadata'
 import { ensureMacEnvironment, macEnvironmentId } from '@/lib/environments/mac'
 import { isBaseBranch, isMissingColumnError, isRepoFullName, isWorkerId } from '@/lib/environments/types'
+import { CODE_JOB_KEY_PREFIX, CODE_REQUEST_ID_RE, codeJobKey, codeRequestIdOf } from './code-thread'
 import { ringDoorbell } from './doorbell'
 import { macTeammateName } from './teammate'
 import { CARD_EXPIRED_REASON, IDLE_REASON, LOOP_EXPIRED_REASON } from './transcript-view'
@@ -709,7 +710,7 @@ export const SESSION_CHANGED_CODE = 'SESSION_CHANGED'
  * mode, it waits on the person's answer (a loop's request never answers it),
  * a stop was asked, or it kept changing as the start tried to join it.
  */
-export type FolderBusyReason = 'other_chat' | 'read_only' | 'other_mode' | 'asking' | 'stopping' | 'changing' | 'other_worker'
+export type FolderBusyReason = 'other_chat' | 'read_only' | 'other_mode' | 'asking' | 'stopping' | 'changing' | 'other_worker' | 'persons_code' | 'chat_agent_job'
 
 /**
  * A session a loop started (WS-D, src/lib/local-agent/unattended.ts
@@ -741,27 +742,8 @@ export function isUnattendedKey(key: string | null | undefined): boolean {
   return isLoopKey(key) || isActionJobKey(key)
 }
 
-/**
- * A job the person started from the chat composer's Code tab (POST
- * /api/local-agent/sessions, code-start.ts): `local-agent-code:<requestId>`,
- * one per send, so a retried send gets its first job back. Attended: the
- * person typed it and sent it themselves.
- */
-export const CODE_JOB_KEY_PREFIX = 'local-agent-code:'
-
-/** A Code send's request id: the messages route's shape. */
-export const CODE_REQUEST_ID_RE = /^[A-Za-z0-9_.:-]{1,200}$/
-
-export function codeJobKey(requestId: string): string {
-  return `${CODE_JOB_KEY_PREFIX}${requestId}`
-}
-
-/** The request id a Code job's key carries, or null for any other key. */
-export function codeRequestIdOf(key: string | null | undefined): string | null {
-  if (typeof key !== 'string' || !key.startsWith(CODE_JOB_KEY_PREFIX)) return null
-  const id = key.slice(CODE_JOB_KEY_PREFIX.length)
-  return CODE_REQUEST_ID_RE.test(id) ? id : null
-}
+// The Code tab's job key (code-thread.ts): `local-agent-code:<requestId>`, one per send.
+export { CODE_JOB_KEY_PREFIX, CODE_REQUEST_ID_RE, codeJobKey, codeRequestIdOf }
 
 /** The person started it from the Code tab: their own start, with a Code key. */
 export function isCodeJob(r: Pick<DbSession, 'started_by' | 'idempotency_key'>): boolean {
@@ -979,13 +961,18 @@ async function settleLatePullRequest(svc: Svc, row: DbSession): Promise<void> {
 }
 
 /**
- * Who a session works for, as far as joining goes: the person (attended), one
+ * Who a session works for, as far as joining goes: the person's Code tab
+ * (`local-agent-code:<request>`: never joined by the chat agent, and never
+ * joining its jobs, so no chat model sits between the person and their
+ * coding agent), the person (attended), one
  * loop's step (`local-agent-loop:<flow>:step:<action>`, without its fire), or
  * one action (`local-agent-action:<action>`, without its start). A start
  * joins only a session of the same: a loop's request in another loop's job
  * would be reviewed against that loop's saved words.
  */
 function joinKind(key: string | null | undefined): string {
+  // The person's own Code job: only another of their Code sends joins it.
+  if (codeRequestIdOf(key) !== null) return 'code'
   if (!isUnattendedKey(key)) return 'attended'
   const cut = key!.indexOf(isActionJobKey(key) ? ':start:' : ':fire:')
   return cut < 0 ? key! : key!.slice(0, cut)
@@ -1192,6 +1179,10 @@ function folderBusy(cur: DbSession | null, input: ClaimInput, reason: FolderBusy
             ? `${name} in ${label} is stopping. One agent works in a folder at a time: try again once it has stopped.`
             : reason === 'changing'
               ? `${name} in ${label} changed as this started. One agent works in a folder at a time: try again in a moment.`
+              : reason === 'persons_code'
+                ? `${label} holds the person’s own Code job${cur?.worker ? ` on ${agentNamed(cur.worker)}` : ''}, which only they talk to. One agent works in a folder at a time: they can stop it from the chat, or wait for it to end.`
+              : reason === 'chat_agent_job'
+                ? `${name} is already working in ${label} on a job the chat agent started${whose}. One agent works in a folder at a time: wait for it to finish, or stop it first.`
               : reason === 'other_worker'
                 ? `${name} is already working in ${label}${whose} on ${agentNamed(cur?.worker)}, and this start is for ${agentNamed(input.chosenWorker)}. One agent works in a folder at a time: wait for it to finish, or stop it, before starting again.`
                 : `${name} is already working in ${label}${whose}. One agent works in a folder at a time: wait for it to finish, or stop it first.`
@@ -1270,6 +1261,9 @@ async function claimFolder(svc: Svc, input: ClaimInput): Promise<{ joined: DbSes
           break
         }
       }
+      // The person's own Code job is theirs alone: a start that isn't one of
+      // their Code sends never joins it (above) and never ends it, idle or not.
+      if (codeRequestIdOf(cur.idempotency_key) !== null && codeRequestIdOf(input.idempotencyKey) === null) throw folderBusy(cur, input, 'persons_code', null)
       // Idle is strict (settled, nothing open, nothing on its way, no push
       // running), so ending one loses nothing, whoever starts next: a loop
       // included, or the person's finished jobs would hold a folder for a day.
@@ -1285,7 +1279,12 @@ async function claimFolder(svc: Svc, input: ClaimInput): Promise<{ joined: DbSes
         break
       }
       const card = await cardNameOf(svc, cur)
-      const reason: FolderBusyReason = !sameKind
+      // A Code send meeting a job the chat agent started for this chat: named as that.
+      const chatAgentJob =
+        codeRequestIdOf(input.idempotencyKey) !== null && (cur.conversation_id ?? null) === (input.conversationId ?? null) && joinKind(cur.idempotency_key) === 'attended'
+      const reason: FolderBusyReason = chatAgentJob
+        ? 'chat_agent_job'
+        : !sameKind
         ? 'other_chat'
         : otherWorker
           ? 'other_worker'

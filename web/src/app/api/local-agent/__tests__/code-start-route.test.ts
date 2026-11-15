@@ -74,6 +74,7 @@ beforeEach(() => {
       { id: CONV, user_id: USER, workspace_id: WS },
       { id: OTHER_CONV, user_id: USER, workspace_id: WS },
     ],
+    member: [{ id: 'mem-1', workspace_id: WS, user_id: USER }],
   })
   m.db = db
   ledger.startTurnRow.mockClear()
@@ -103,17 +104,30 @@ describe('who may start a Code job', () => {
     expect(sessions()).toHaveLength(0)
   })
 
-  it('another person’s chat, or one in another workspace: 404', async () => {
+  it('another person’s chat, or one in a workspace they left: 404', async () => {
     db.tables.chat_conversations.push({ id: '55555555-5555-4555-8555-555555555557', user_id: OTHER, workspace_id: WS })
     expect((await send({ conversationId: '55555555-5555-4555-8555-555555555557' })).status).toBe(404)
-    m.workspace = '44444444-4444-4444-8444-444444444449'
+    db.tables.member.length = 0
     expect((await send()).status).toBe(404)
     expect(sessions()).toHaveLength(0)
   })
 
-  it('a teammate’s thread is not theirs to code from: 400', async () => {
-    db.tables.chat_conversations[0].ai_team_member_id = 'tm-1'
-    expect((await send()).status).toBe(400)
+  it('a window on another workspace starts it in the chat’s own (as the environments routes read it)', async () => {
+    m.workspace = '44444444-4444-4444-8444-444444444449'
+    expect((await send()).status).toBe(201)
+    expect(sessions()[0].workspace_id).toBe(WS)
+  })
+
+  it('only their own main chat: a teammate’s, a bot’s or a guest’s thread, an outside channel or a capture’s conversation is refused (400)', async () => {
+    for (const [field, value] of [['ai_team_member_id', 'tm-1'], ['agent_teammate_id', 'bot-1'], ['agent_guest_id', 'guest-1'], ['outside_channel', 'slack'], ['capture_id', 'cap-1']] as const) {
+      const conv = db.tables.chat_conversations[0]
+      for (const k of ['ai_team_member_id', 'agent_teammate_id', 'agent_guest_id', 'outside_channel', 'capture_id']) delete conv[k]
+      conv[field] = value
+      const res = await send({ requestId: `req-${field}` })
+      expect(res.status, field).toBe(400)
+      expect((await res.json()).error).toBe('Code runs from your own main chat, not from this conversation.')
+    }
+    expect(sessions()).toHaveLength(0)
   })
 })
 
@@ -199,6 +213,34 @@ describe('what it starts', () => {
     const next = await send({ requestId: 'req-2', request: 'And add a test for it' })
     expect(next.status).toBe(200)
     expect(await next.json()).toMatchObject({ created: false, joined: true, session: { id: first.session.id } })
+    expect(sessions()).toHaveLength(1)
+  })
+})
+
+describe('the Code tab and the chat agent never share a job (no chat model in between)', () => {
+  const chatAgentStart = (key = `local-agent:${CONV}:session:s:turn:t:call:1`) =>
+    createSession(db as never, { userId: USER, workspaceId: WS, folderId: FOLDER, conversationId: CONV, request: 'Tidy the README', mode: 'edit', startedBy: 'agent', idempotencyKey: key, explicitWorker: null })
+
+  it('the chat agent’s start never joins the person’s Code job, working or idle: FOLDER_BUSY naming it', async () => {
+    await send({ worker: null })
+    for (const status of ['running', 'waiting']) {
+      sessions()[0].status = status
+      const refused = await chatAgentStart().catch((e: unknown) => e)
+      expect(refused).toMatchObject({ code: 'conflict', details: { code: 'FOLDER_BUSY', reason: 'persons_code' } })
+      expect((refused as Error).message).toContain('holds the person’s own Code job, which only they talk to')
+      expect(sessions()).toHaveLength(1)
+      expect(sessions()[0].status).toBe(status)
+    }
+  })
+
+  it('a Code send never joins a job the chat agent started in this chat: FOLDER_BUSY naming it', async () => {
+    await chatAgentStart()
+    sessions()[0].status = 'running'
+    const res = await send({ worker: null })
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body).toMatchObject({ code: 'FOLDER_BUSY' })
+    expect(body.error).toContain('on a job the chat agent started')
     expect(sessions()).toHaveLength(1)
   })
 })

@@ -190,7 +190,7 @@ export function LocalAgentPanel({
   onSession?: (session: PanelSession) => void
 }) {
   const { session, transcript, loading, error, stopping, hasEarlier, loadingEarlier, loadEarlier, send, stop } =
-    useLocalAgentSession(sessionId)
+    useLocalAgentSession(sessionId, { quietWhenEnded: inline })
   const items = transcript.items
   const onSessionRef = useRef(onSession)
   onSessionRef.current = onSession

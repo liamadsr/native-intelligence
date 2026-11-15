@@ -96,3 +96,17 @@ describe('the C4 seam, wired', () => {
     expect(noIds.status).toBe(400)
   })
 })
+
+describe('a job the person started from the Code tab has no teammate in the cloud', () => {
+  it('message_teammate and report_to_person are refused before they run; nothing is asked or written', async () => {
+    Object.assign(db.tables.local_agent_session[0], { started_by: 'person', idempotency_key: 'local-agent-code:req-1' })
+    for (const [toolName, input] of [['message_teammate', { text: 'Which month should it open on?' }], ['report_to_person', { text: 'Reading the tests.' }]] as const) {
+      const res = await tool({ toolName, input })
+      expect(res.status).toBe(403)
+      expect((await res.json()).error).toContain('a job the person started from the Code tab')
+    }
+    expect(db.tables.local_agent_event ?? []).toEqual([])
+    expect(db.tables.local_agent_session[0]).toMatchObject({ last_signal: null })
+    expect(m.moveTurn).not.toHaveBeenCalled()
+  })
+})
