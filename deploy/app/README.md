@@ -353,6 +353,17 @@ These came with the server: the earlier host had no such settings.
   sandbox server's `/opt/e2b/sdk.env`, moved without being shown. The URLs and the
   key go together. `check_settings.py` proves the group against the runtime
   (its health check, and a listing of its sandboxes with the key).
+- `CLOUD_BROWSER_BACKEND`, `CLOUD_BROWSER_RUNTIME_KEY`, `CLOUD_BROWSER_RUNTIME_TEMPLATE`,
+  `CLOUD_BROWSER_HUB_DOMAIN`, `BROWSER_RELAY_ALLOWED_ADDRESSES`: the cloud browser on
+  that same runtime, off while `CLOUD_BROWSER_BACKEND` is empty (`../README.md`, "The
+  cloud browser", has the switch and the way back). `CLOUD_BROWSER_RUNTIME_KEY` is the
+  browser's own copy of `SANDBOX_RUNTIME_KEY` and the only way web gets that key
+  (`compose.yaml`); it is set with `CLOUD_BROWSER_BACKEND=runtime` and emptied with it.
+  `check_settings.py` fails on a backend other than empty, `hosted` or `runtime`, and on
+  the key's copy set with any other backend or differing from the runtime's key; with
+  `runtime` it wants the runtime's group, the other settings, the browser's image on the
+  runtime and the edge's two settings (`../edge/.env`) to match, and no longer counts the
+  hosted service's four as needed.
 - `AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES`: read by web. When set, the app's git gate
   takes a coding run's credential only from these addresses (comma or space
   separated): the sandbox server's public IPv4 and IPv6. On our own runtime that
@@ -404,6 +415,20 @@ origin reads `VERCEL_ENV`. `VERCEL_PROJECT_ID` and `VERCEL_TEAM_ID` are never se
 either: eve's sandbox provider reads them, and here the sandboxes' project and team
 are `SANDBOX_PROJECT_ID` and `SANDBOX_TEAM_ID`. The app itself tells production
 from development by `NODE_ENV` (`web/src/lib/app-env.ts`).
+
+Those, `VERCEL_TARGET_ENV` and `VERCEL_URL` (read the same way), and what the code
+falls back to from the same host (`VERCEL_ORG_ID`, `VERCEL_TOKEN`,
+`VERCEL_OIDC_TOKEN`), are refused, not
+only unwanted: they come along with a file made for that host, and one such line in
+`.env` would reach every container. `entrypoint.sh` holds the list, says what reads
+each, and starts no role with one set. `deploy.sh` reads that list and stops first:
+before a build, and before a roll-out without one (`--no-build`, `--rollback`, by the
+list of the image going into service, so going back to an image from before the
+refusal is never held; an image it cannot read stops it). Otherwise a roll-out would stop the agents and start
+replacements that refuse to run. `check-settings.sh` reports the line and counts it
+against Gate 1. Empty counts as unset, and no value is shown.
+`VERCEL_GIT_COMMIT_SHA` is not one of them: it is the name the app reads the build's
+commit by.
 
 Three more exist only here, for calls on this server's own LiveKit (`../livekit`,
 `../README.md` step 23): `LIVEKIT_URL` (the `wss://` address browsers connect to),
@@ -663,7 +688,7 @@ database: the one that hands over is switched off first (`../README.md`, step 21
 |---|---|
 | `Dockerfile`, `Dockerfile.dockerignore` | The image, built from the repository root. |
 | `build-agents.sh` | The eight `eve build`s, and the list of agents. |
-| `entrypoint.sh`, `healthcheck.mjs`, `eve-origin.mjs` | Starting a role, and checking it. |
+| `entrypoint.sh`, `healthcheck.mjs`, `eve-origin.mjs` | Starting a role, and checking it; `tests/test_entrypoint.py` tests what the entrypoint refuses from the earlier host. |
 | `cron/` | The crontab, its generator, and the one authenticated call each job makes. |
 | `proxy/Caddyfile` | The stack's router, on the server and in the test. |
 | `compose.yaml`, `.env.example` | The stack on the server, and its settings. |

@@ -13,7 +13,7 @@ import { relayActor, relayOriginCalled } from '@/lib/cloud-browser/relay-routes'
  * the row records both, and the person's computer card reads them again.
  */
 export async function POST(request: Request) {
-  const actor = relayActor(request)
+  const actor = await relayActor(request)
   if (actor instanceof Response) return actor
   let body: { mode?: unknown; tunnel?: { up?: unknown; deviceId?: unknown } } = {}
   try { body = await request.json() } catch { /* checked below */ }

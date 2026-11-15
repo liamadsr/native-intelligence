@@ -1,445 +1,10 @@
 import { createRequire as __niRequire } from 'node:module'; const require = __niRequire(import.meta.url);
 
-// agents/local-agent/workers/acp.ts
+// agents/local-agent/workers/worker.ts
 import { pathToFileURL } from "node:url";
 
-// agents/local-agent/workers/lib/mcp-http.ts
-import { createServer } from "node:http";
-import { randomBytes, timingSafeEqual } from "node:crypto";
-
-// agents/local-agent/workers/lib/protocol.ts
-var INPUT_LIMIT = 2 * 1024;
-var OUTPUT_LIMIT = 4 * 1024;
-var TEXT_LIMIT = 16 * 1024;
-var MANAGER_LIMITS = { report: 4e3, ask_manager: 2e3, finish: 8e3 };
-var MAX_EVENT_BYTES = 64 * 1024;
-var MAX_SESSION_ID = 256;
-var SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
-function isSessionId(id) {
-  return typeof id === "string" && SESSION_ID.test(id);
-}
-var MAX_LINE_BYTES = 256 * 1024;
-function createLineSplitter(onLine, opts = {}) {
-  const decoder = new TextDecoder();
-  const max = opts.maxBytes ?? Number.POSITIVE_INFINITY;
-  let parts = [];
-  let size = 0;
-  let skipping = false;
-  const join5 = (last) => {
-    if (parts.length === 0) return last;
-    const out = new Uint8Array(size + last.length);
-    let at = 0;
-    for (const p of parts) {
-      out.set(p, at);
-      at += p.length;
-    }
-    out.set(last, at);
-    return out;
-  };
-  const emit = (bytes) => {
-    const line = decoder.decode(bytes);
-    onLine(line.endsWith("\r") ? line.slice(0, -1) : line);
-  };
-  return {
-    push(chunk) {
-      let start = 0;
-      for (let nl = chunk.indexOf(10); nl !== -1; nl = chunk.indexOf(10, start)) {
-        if (skipping || size + (nl - start) > max) {
-          if (!skipping) opts.onTooLong?.();
-          skipping = false;
-        } else {
-          emit(join5(chunk.subarray(start, nl)));
-        }
-        parts = [];
-        size = 0;
-        start = nl + 1;
-      }
-      if (start >= chunk.length || skipping) return;
-      const rest = chunk.slice(start);
-      if (size + rest.length > max) {
-        opts.onTooLong?.();
-        skipping = true;
-        parts = [];
-        size = 0;
-        return;
-      }
-      parts.push(rest);
-      size += rest.length;
-    },
-    end() {
-      if (size > 0 && !skipping) emit(join5(new Uint8Array(0)));
-      parts = [];
-      size = 0;
-      skipping = false;
-    }
-  };
-}
-function serializeLine(msg) {
-  return `${JSON.stringify(msg).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029")}
-`;
-}
-function parseInbound(line) {
-  let v;
-  try {
-    v = JSON.parse(line);
-  } catch {
-    return null;
-  }
-  if (!v || typeof v !== "object") return null;
-  const m = v;
-  switch (m.type) {
-    case "start":
-      return typeof m.request === "string" && m.request.trim() ? { type: "start", request: m.request } : null;
-    case "resume":
-      return typeof m.sessionId === "string" && m.sessionId && m.sessionId.length <= MAX_SESSION_ID && Number.isInteger(m.streamIndex) && m.streamIndex >= 0 ? { type: "resume", sessionId: m.sessionId, streamIndex: m.streamIndex } : null;
-    case "send":
-      return typeof m.text === "string" && m.text.trim() && (m.policy === "steer" || m.policy === "queue") ? { type: "send", text: m.text, policy: m.policy } : null;
-    case "stop":
-      return { type: "stop" };
-    case "token":
-      return { type: "token" };
-    case "prompt_answer":
-      return { type: "prompt_answer" };
-    default:
-      return null;
-  }
-}
-function truncateJson(value, limit) {
-  let s;
-  try {
-    s = typeof value === "string" ? JSON.stringify(value) : JSON.stringify(value) ?? "null";
-  } catch {
-    s = '"[unserializable]"';
-  }
-  return s.length <= limit ? s : `${s.slice(0, limit - 1)}\u2026`;
-}
-function jsonBytes(ch) {
-  const c = ch.codePointAt(0);
-  if (c === 34 || c === 92 || c === 8 || c === 12 || c === 10 || c === 13 || c === 9) return 2;
-  if (c < 32 || c === 8232 || c === 8233 || c >= 55296 && c <= 57343) return 6;
-  return c < 128 ? 1 : c < 2048 ? 2 : c < 65536 ? 3 : 4;
-}
-function truncateText(text, maxBytes = TEXT_LIMIT) {
-  let total = 0;
-  for (const ch of text) total += jsonBytes(ch);
-  if (total <= maxBytes) return text;
-  const budget = maxBytes - 3;
-  let used = 0;
-  let end = 0;
-  for (const ch of text) {
-    const b = jsonBytes(ch);
-    if (used + b > budget) break;
-    used += b;
-    end += ch.length;
-  }
-  return `${text.slice(0, end)}\u2026`;
-}
-function managerText(tool, text) {
-  return truncateText(text.length > MANAGER_LIMITS[tool] ? `${text.slice(0, MANAGER_LIMITS[tool] - 1)}\u2026` : text);
-}
-
-// agents/local-agent/workers/lib/manager-tools.ts
-var PR_TITLE_MAX = 256;
-var PR_BODY_MAX = 6e4;
-var MANAGER_SERVER = "ni";
-var str = (description, maxLength) => ({ type: "string", description, minLength: 1, maxLength });
-var object = (properties, required) => ({ type: "object", properties, required, additionalProperties: false });
-var annotations = { readOnlyHint: true, openWorldHint: false };
-var MANAGER_TOOLS = [
-  {
-    name: "report",
-    description: "Report progress on the request: what you looked at, what you found, what you are about to do. Call it as you go, in a sentence or two. The person and the Native Intelligence agent see it.",
-    inputSchema: object({ text: str("The progress note.", 4e3) }, ["text"]),
-    annotations
-  },
-  {
-    name: "ask_manager",
-    description: "Ask the Native Intelligence agent (your manager) one question when you are blocked and cannot find the answer in the folder. Then end your turn and wait: the answer arrives as your next message.",
-    inputSchema: object({ question: str("One clear question.", 2e3) }, ["question"]),
-    annotations
-  },
-  {
-    name: "finish",
-    description: "Finish the request: give a summary of what you found or did, including anything that was blocked. Call it once the request is done, then end your turn. In a job that may change files, add pull_request only when the person or the request asked for a pull request: a title, and a description of what changed and why. The person is asked on their Mac before anything is pushed.",
-    inputSchema: object(
-      {
-        summary: str("What you found or did, for the person and the Native Intelligence agent. In a job that changes files, its first line becomes the commit message.", 8e3),
-        pull_request: {
-          type: "object",
-          description: "Only when a pull request was asked for, and only in a job that may change files.",
-          properties: {
-            title: str("The pull request title.", PR_TITLE_MAX),
-            body: { type: "string", description: "The pull request description, in Markdown: what changed and why.", maxLength: PR_BODY_MAX }
-          },
-          required: ["title"],
-          additionalProperties: false
-        }
-      },
-      ["summary"]
-    ),
-    annotations
-  }
-];
-var FIELD = { report: "text", ask_manager: "question", finish: "summary" };
-var LIMIT = { report: 4e3, ask_manager: 2e3, finish: 8e3 };
-var REPLY = {
-  report: "Reported.",
-  ask_manager: "Question sent. End your turn now; the answer will arrive as your next message.",
-  finish: "Finished. End your turn now."
-};
-var FINISH_WITH_PR = {
-  edit: "Finished. When your turn ends, the person is asked on their Mac whether to push the branch and open the pull request; the outcome arrives with your next message. End your turn now.",
-  read: "Finished. This job is read-only: nothing was changed and there is no branch to push, so no pull request will be opened. End your turn now."
-};
-var CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
-function pullRequestFrom(v) {
-  if (v === void 0 || v === null) return {};
-  if (typeof v !== "object" || Array.isArray(v)) return { error: "pull_request must be an object with a title" };
-  const o = v;
-  const title = typeof o.title === "string" ? o.title.replace(CONTROL_CHARS, "").trim() : "";
-  if (title.length < 1 || title.length > PR_TITLE_MAX) return { error: `pull_request.title is 1\u2013${PR_TITLE_MAX} characters` };
-  if (o.body !== void 0 && (typeof o.body !== "string" || o.body.length > PR_BODY_MAX)) return { error: `pull_request.body is at most ${PR_BODY_MAX} characters` };
-  return { ask: o.body === void 0 ? { title } : { title, body: o.body } };
-}
-function createManagerTools(emit, mode = "read") {
-  return {
-    async call(name, rawArgs, _signal) {
-      if (name !== "report" && name !== "ask_manager" && name !== "finish") return { text: `Unknown tool: ${name}`, isError: true };
-      const args = rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs) ? rawArgs : {};
-      const field = FIELD[name];
-      const v = args[field];
-      if (typeof v !== "string" || !v.trim()) return { text: `${field} is required`, isError: true };
-      if (v.length > LIMIT[name]) return { text: `${field} is longer than ${LIMIT[name]} characters`, isError: true };
-      const text = managerText(name, v);
-      if (name !== "finish") {
-        emit(name === "report" ? { kind: "report", text } : { kind: "ask", question: text });
-        return { text: REPLY[name], isError: false };
-      }
-      const pr = pullRequestFrom(args.pull_request);
-      if ("error" in pr) return { text: pr.error, isError: true };
-      const ask = mode === "edit" ? pr.ask : void 0;
-      emit({ kind: "finish", summary: text }, ask);
-      return { text: pr.ask ? FINISH_WITH_PR[mode] : REPLY.finish, isError: false };
-    }
-  };
-}
-
-// agents/local-agent/workers/lib/mcp-http.ts
-var SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
-var MCP_PATH = "/mcp";
-var MAX_BODY_BYTES = 2 * 1024 * 1024;
-var MAX_BATCH = 32;
-var SERVER_INSTRUCTIONS = "Native Intelligence, who gave you this job: use report for progress, ask_manager when you are blocked, and finish when the request is done.";
-var rpcError = (id, code, message2) => ({ jsonrpc: "2.0", id, error: { code, message: message2 } });
-var rpcResult = (id, result) => ({ jsonrpc: "2.0", id, result });
-function isRequest(v) {
-  return !!v && typeof v === "object" && v.jsonrpc === "2.0" && typeof v.method === "string";
-}
-function hasId(m) {
-  return typeof m.id === "string" || typeof m.id === "number";
-}
-async function handleRpcMessage(msg, ctx, signal) {
-  if (!isRequest(msg)) {
-    const id = msg && typeof msg === "object" ? msg.id : void 0;
-    const isClientResponse = !!msg && typeof msg === "object" && ("result" in msg || "error" in msg);
-    if (isClientResponse) return null;
-    return rpcError(typeof id === "string" || typeof id === "number" ? id : null, -32600, "Invalid Request");
-  }
-  if (!hasId(msg)) {
-    if (msg.method === "notifications/cancelled") {
-      const requestId = msg.params?.requestId;
-      if (typeof requestId === "string" || typeof requestId === "number") ctx.inflight.get(requestId)?.abort();
-    }
-    return null;
-  }
-  switch (msg.method) {
-    case "initialize": {
-      const asked = msg.params?.protocolVersion;
-      const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(asked) ? asked : SUPPORTED_PROTOCOL_VERSIONS[0];
-      const client = msg.params?.clientInfo;
-      ctx.log?.(`[worker] MCP initialize from ${String(client?.name ?? "?")} ${String(client?.version ?? "")} (protocol ${String(asked)} \u2192 ${protocolVersion})`);
-      return rpcResult(msg.id, {
-        protocolVersion,
-        capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "native-intelligence", version: "1.0.0" },
-        instructions: ctx.instructions ?? SERVER_INSTRUCTIONS
-      });
-    }
-    case "ping":
-      return rpcResult(msg.id, {});
-    case "tools/list":
-      return rpcResult(msg.id, { tools: (ctx.tools ?? MANAGER_TOOLS).map(({ name, description, inputSchema, annotations: annotations2 }) => ({ name, description, inputSchema, ...annotations2 ? { annotations: annotations2 } : {} })) });
-    case "tools/call": {
-      const name = msg.params?.name;
-      if (typeof name !== "string") return rpcError(msg.id, -32602, "tools/call needs a tool name");
-      if (!(ctx.tools ?? MANAGER_TOOLS).some((t) => t.name === name)) return rpcError(msg.id, -32602, `Unknown tool: ${name}`);
-      const controller = new AbortController();
-      const onAbort = () => controller.abort();
-      signal?.addEventListener("abort", onAbort, { once: true });
-      if (signal?.aborted) controller.abort();
-      ctx.inflight.set(msg.id, controller);
-      try {
-        const res = await ctx.call(name, msg.params?.arguments ?? {}, controller.signal);
-        return rpcResult(msg.id, { content: [{ type: "text", text: res.text }], isError: res.isError });
-      } finally {
-        ctx.inflight.delete(msg.id);
-        signal?.removeEventListener("abort", onAbort);
-      }
-    }
-    default:
-      return rpcError(msg.id, -32601, `Method not found: ${msg.method}`);
-  }
-}
-function bearerMatches(header, token) {
-  const expected = new TextEncoder().encode(`Bearer ${token}`);
-  const got = new TextEncoder().encode(header ?? "");
-  return got.length === expected.length && timingSafeEqual(got, expected);
-}
-function send(res, status, body, headers = {}) {
-  if (body === void 0) {
-    res.writeHead(status, headers).end();
-    return;
-  }
-  const text = JSON.stringify(body);
-  res.writeHead(status, { "content-type": "application/json", "content-length": String(Buffer.byteLength(text)), ...headers }).end(text);
-}
-async function readBody(req) {
-  const decoder = new TextDecoder();
-  let text = "";
-  let size = 0;
-  for await (const chunk of req) {
-    size += chunk.byteLength;
-    if (size > MAX_BODY_BYTES) return null;
-    text += decoder.decode(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength), { stream: true });
-  }
-  return text + decoder.decode();
-}
-async function startManagerMcp(call, opts = {}) {
-  const token = randomBytes(32).toString("base64url");
-  const ctx = {
-    call,
-    inflight: /* @__PURE__ */ new Map(),
-    log: opts.log,
-    ...opts.workspaceTools ? { tools: [...MANAGER_TOOLS, ...opts.workspaceTools] } : {},
-    ...opts.workspaceInstructions ? { instructions: `${SERVER_INSTRUCTIONS}
-
-${opts.workspaceInstructions}` } : {}
-  };
-  let port = 0;
-  const server = createServer(async (req, res) => {
-    if (req.headers.origin !== void 0 || req.headers.host !== `127.0.0.1:${port}`) return send(res, 403);
-    const path = (req.url ?? "").split("?")[0];
-    if (path !== MCP_PATH) return send(res, 404);
-    if (!bearerMatches(req.headers.authorization, token)) return send(res, 401, void 0, { "www-authenticate": "Bearer" });
-    if (req.method !== "POST") return send(res, 405, void 0, { allow: "POST" });
-    const gone = new AbortController();
-    res.on("close", () => {
-      if (!res.writableFinished) gone.abort();
-    });
-    const body = await readBody(req);
-    if (body === null) return send(res, 413);
-    let parsed;
-    try {
-      parsed = JSON.parse(body);
-    } catch {
-      return send(res, 400, rpcError(null, -32700, "Parse error"));
-    }
-    try {
-      if (Array.isArray(parsed)) {
-        if (parsed.length === 0 || parsed.length > MAX_BATCH) return send(res, 400, rpcError(null, -32600, `A batch holds 1 to ${MAX_BATCH} messages`));
-        const out2 = [];
-        for (const m of parsed) {
-          const r = await handleRpcMessage(m, ctx, gone.signal);
-          if (r !== null) out2.push(r);
-        }
-        return out2.length ? send(res, 200, out2) : send(res, 202);
-      }
-      const out = await handleRpcMessage(parsed, ctx, gone.signal);
-      return out ? send(res, 200, out) : send(res, 202);
-    } catch (err) {
-      opts.log?.(`[worker] MCP request failed: ${err instanceof Error ? err.message : String(err)}`);
-      return send(res, 500, rpcError(null, -32603, "Internal error"));
-    }
-  });
-  server.requestTimeout = 0;
-  server.timeout = 0;
-  server.headersTimeout = 6e4;
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => resolve());
-  });
-  port = server.address().port;
-  return {
-    port,
-    url: `http://127.0.0.1:${port}${MCP_PATH}`,
-    token,
-    close: () => new Promise((resolve) => {
-      for (const c of ctx.inflight.values()) c.abort();
-      server.closeAllConnections();
-      server.close(() => resolve());
-    })
-  };
-}
-
-// agents/local-agent/workers/lib/mcp-proxy.ts
-var MAX_LINE = 1024 * 1024;
-async function runMcpProxy(env = process.env) {
-  const port = Number(env.NI_MCP_PORT);
-  const token = env.NI_MCP_TOKEN;
-  if (!Number.isInteger(port) || port < 1 || port > 65535 || !token) {
-    process.stderr.write("mcp proxy: NI_MCP_PORT and NI_MCP_TOKEN are required\n");
-    process.exit(2);
-  }
-  const url = `http://127.0.0.1:${port}${MCP_PATH}`;
-  const write = (msg) => process.stdout.write(`${JSON.stringify(msg)}
-`);
-  let inflight = 0;
-  let ended = false;
-  const done = () => {
-    if (ended && inflight === 0) process.exit(0);
-  };
-  const forward = async (line) => {
-    let id = null;
-    try {
-      id = JSON.parse(line).id ?? null;
-    } catch {
-      return write({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
-    }
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${token}` },
-        body: line
-      });
-      const body = await res.text();
-      if (res.status === 202 || !body) return;
-      const parsed = JSON.parse(body);
-      for (const m of Array.isArray(parsed) ? parsed : [parsed]) write(m);
-    } catch (err) {
-      if (id !== null) write({ jsonrpc: "2.0", id, error: { code: -32603, message: `Native Intelligence is not reachable: ${err instanceof Error ? err.message : String(err)}` } });
-    }
-  };
-  const lines = createLineSplitter(
-    (line) => {
-      if (!line.trim()) return;
-      inflight += 1;
-      void forward(line).finally(() => {
-        inflight -= 1;
-        done();
-      });
-    },
-    { maxBytes: MAX_LINE, onTooLong: () => write({ jsonrpc: "2.0", id: null, error: { code: -32600, message: `a message over ${MAX_LINE} bytes was dropped` } }) }
-  );
-  process.stdin.on("data", (chunk) => lines.push(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength)));
-  process.stdin.on("end", () => {
-    lines.end();
-    ended = true;
-    done();
-  });
-}
-
 // agents/local-agent/workers/lib/run.ts
-import { constants as fsConstants3, existsSync as existsSync2, mkdtempSync, openSync as openSync2, realpathSync as realpathSync3, rmSync as rmSync2 } from "node:fs";
+import { constants as fsConstants3, existsSync as existsSync2, mkdtempSync, openSync as openSync2, realpathSync as realpathSync4, rmSync as rmSync2 } from "node:fs";
 import { userInfo as userInfo2 } from "node:os";
 import { dirname as dirname2, join as join4 } from "node:path";
 
@@ -588,7 +153,7 @@ function eraseSandboxProviderImplementation(e) {
 }
 
 // agents/local-agent/launcher/prompts.ts
-import { randomBytes as randomBytes2 } from "node:crypto";
+import { randomBytes } from "node:crypto";
 var DEFAULT_PROMPT_TIMEOUT_MS = 5 * 6e4;
 var MIN_PROMPT_TIMEOUT_MS = 1e4;
 var MAX_PROMPT_TIMEOUT_MS = 30 * 6e4;
@@ -598,14 +163,14 @@ var TITLE_MAX = 256;
 var BODY_MAX = 6e4;
 var PATH_MAX_BYTES = 1024;
 var REASON_MAX = 300;
-var CONTROL_CHARS2 = /[\u0000-\u001f\u007f]/g;
+var CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
 var yes = { allowed: true, reason: "allowed" };
 var no = (reason) => ({ allowed: false, reason });
 function normalizePrompt(kind, detail) {
   const d = detail && typeof detail === "object" ? detail : null;
   if (!d) return { error: "the detail must be an object" };
   if (kind === "push") {
-    const title = typeof d.title === "string" ? d.title.replace(CONTROL_CHARS2, "").trim() : "";
+    const title = typeof d.title === "string" ? d.title.replace(CONTROL_CHARS, "").trim() : "";
     if (title.length < 1 || title.length > TITLE_MAX) return { error: `a push title is 1\u2013${TITLE_MAX} characters` };
     if (d.body !== void 0 && (typeof d.body !== "string" || d.body.length > BODY_MAX)) return { error: `a push body is at most ${BODY_MAX} characters` };
     return { detail: d.body === void 0 ? { title } : { title, body: d.body } };
@@ -637,7 +202,7 @@ function clampTimeout(ms) {
   return Math.min(MAX_PROMPT_TIMEOUT_MS, Math.max(MIN_PROMPT_TIMEOUT_MS, Math.round(ms)));
 }
 function createPromptBroker(io, opts = {}) {
-  const prefix = opts.idPrefix ?? `p-${randomBytes2(4).toString("hex")}`;
+  const prefix = opts.idPrefix ?? `p-${randomBytes(4).toString("hex")}`;
   const queue = [];
   let open = null;
   let closed = false;
@@ -2271,7 +1836,7 @@ var HostFolderSandbox = defineSandboxProvider({
 });
 
 // agents/local-agent/workers/lib/agent-home.ts
-import { randomBytes as randomBytes3 } from "node:crypto";
+import { randomBytes as randomBytes2 } from "node:crypto";
 import { closeSync, constants as fsConstants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readlinkSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 var AgentHomeError = class extends Error {
@@ -2306,7 +1871,7 @@ var lockedOut = (file, err) => {
 function moveLoginFile(from, to, sameVolume) {
   try {
     if (sameVolume) return renameSync(from, to);
-    const tmp = join(dirname(to), `.${basename(to)}.ni-${randomBytes3(6).toString("hex")}`);
+    const tmp = join(dirname(to), `.${basename(to)}.ni-${randomBytes2(6).toString("hex")}`);
     const src = openSync(from, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
     let made = false;
     try {
@@ -2338,7 +1903,7 @@ function settleLoginLink(jobDir, at, file, log = () => {
     const st = lstatOrNull(at);
     if (st?.isSymbolicLink() && readlinkSync(at) === file) return outcome;
     if (st) {
-      const moved = join(jobDir, `.adopt-${randomBytes3(8).toString("hex")}`);
+      const moved = join(jobDir, `.adopt-${randomBytes2(8).toString("hex")}`);
       try {
         renameSync(at, moved);
       } catch (err) {
@@ -2562,6 +2127,11 @@ function buildAgentProfile(input) {
     ...noLinks ? [`(deny file-link ${noLinks})`] : [],
     // Pinned last: the roots themselves, never their contents.
     `(deny file-write* ${pinned.map((p) => `(literal ${sbplString(p)})`).join(" ")})`,
+    // access(2) with W_OK on a folder is checked as file-write-data, and nothing else writes a folder's data: re-opened
+    // for the roots it may write in, so a writability check answers yes there (SQLite looks for a temp folder this way,
+    // and Codex 0.169's state database needs one) while the pin's rename, replacement, removal and chmod stay refused.
+    // Folders only (vnode-type): on a regular file the same rule would open its contents, should one of these paths ever be a file.
+    `(allow file-write-data (require-all (vnode-type DIRECTORY) (require-any ${[...new Set([...writableRoots, ...input.homeFolders ?? []].map(norm))].map((p) => `(literal ${sbplString(p)})`).join(" ")})))`,
     `(deny file-read-data ${readDenied})`,
     `(allow file-read-data ${reads})`,
     // A read job's secret files, contents and stat (an edit job's worktree is a fresh checkout of tracked files).
@@ -2600,31 +2170,467 @@ function agentReadRoots(o, realpath2, exists) {
   return [...roots].filter((r) => ![...roots].some((o2) => o2 !== r && within2(r, o2))).sort();
 }
 
-// agents/local-agent/workers/lib/acp-client.ts
-var AUTH_REQUIRED = -32e3;
+// agents/local-agent/workers/lib/agent-link.ts
+var AuthRequiredError = class extends Error {
+  constructor(message2 = "not signed in") {
+    super(message2);
+    this.name = "AuthRequiredError";
+  }
+};
+var SentenceError = class extends Error {
+  constructor(message2) {
+    super(message2);
+    this.name = "SentenceError";
+  }
+};
+var obj = (v) => v && typeof v === "object" && !Array.isArray(v) ? v : {};
+function versionIn(text) {
+  return /(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/.exec(text)?.[1] ?? null;
+}
+function within3(p, ms, make) {
+  let timer;
+  return Promise.race([
+    p.finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(make()), ms);
+      timer.unref?.();
+    })
+  ]);
+}
+function jsonLines(stream, onMessage, other, maxBytes = 64 * 1024 * 1024) {
+  let buf = "";
+  let dropping = false;
+  stream.setEncoding("utf8");
+  stream.on("data", (chunk) => {
+    const from = buf.length;
+    buf += chunk;
+    for (let nl = buf.indexOf("\n", from); nl !== -1; nl = buf.indexOf("\n")) {
+      const line = buf.slice(0, nl);
+      buf = buf.slice(nl + 1);
+      if (dropping) {
+        dropping = false;
+        continue;
+      }
+      take(line);
+    }
+    if (buf.length > maxBytes) {
+      other(`[a line over ${maxBytes} characters was dropped]`);
+      buf = "";
+      dropping = true;
+    }
+  });
+  stream.on("end", () => {
+    if (buf && !dropping) take(buf);
+    buf = "";
+  });
+  function take(line) {
+    if (!line.trim()) return;
+    let msg;
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      return other(line);
+    }
+    if (msg && typeof msg === "object" && !Array.isArray(msg)) onMessage(msg);
+    else other(line);
+  }
+}
+
+// agents/local-agent/workers/lib/claude-stream.ts
+import { randomUUID } from "node:crypto";
+
+// agents/local-agent/workers/lib/process.ts
+import { execFileSync, spawn } from "node:child_process";
+var SANDBOX_EXEC2 = "/usr/bin/sandbox-exec";
+function agentEnv(base, extra = {}) {
+  return {
+    HOME: base.home,
+    PATH: base.path,
+    LANG: base.lang,
+    TMPDIR: base.tmpdir,
+    ...base.user ? { USER: base.user, LOGNAME: base.user } : {},
+    SHELL: "/bin/zsh",
+    TERM: "dumb",
+    NO_COLOR: "1",
+    NO_BROWSER: "1",
+    GIT_OPTIONAL_LOCKS: "0",
+    ...extra
+  };
+}
+function spawnSandboxed(profile, argv, opts) {
+  return spawn(SANDBOX_EXEC2, ["-p", profile, ...argv], { cwd: opts.cwd, env: opts.env, stdio: ["pipe", "pipe", "pipe"] });
+}
+var RUN_OUTPUT_LIMIT = 64 * 1024;
+function runSandboxed(profile, argv, opts) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(SANDBOX_EXEC2, ["-p", profile, ...argv], { cwd: opts.cwd, env: opts.env, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (d) => stdout = (stdout + d).slice(0, RUN_OUTPUT_LIMIT));
+    child.stderr.setEncoding("utf8").on("data", (d) => stderr = (stderr + d).slice(-RUN_OUTPUT_LIMIT));
+    const timer = setTimeout(() => child.kill("SIGKILL"), opts.timeoutMs);
+    timer.unref?.();
+    child.once("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal, stdout, stderr });
+    });
+  });
+}
+function tailBuffer(limit = 4e3) {
+  let text = "";
+  return {
+    push(chunk) {
+      text = (text + chunk).slice(-limit);
+    },
+    get text() {
+      return text.trim();
+    }
+  };
+}
+function descendants(rows, rootPid, ownPgid) {
+  const kids = /* @__PURE__ */ new Map();
+  for (const r of rows) kids.set(r.ppid, [...kids.get(r.ppid) ?? [], r.pid]);
+  const byPid = new Map(rows.map((r) => [r.pid, r]));
+  const pids = [];
+  const queue = [...kids.get(rootPid) ?? []];
+  while (queue.length) {
+    const pid = queue.shift();
+    if (pids.includes(pid)) continue;
+    pids.push(pid);
+    queue.push(...kids.get(pid) ?? []);
+  }
+  const groups = [...new Set(pids.map((p) => byPid.get(p).pgid))].filter((g) => g !== ownPgid && g > 1);
+  return { pids, groups };
+}
+function kill(target, signal) {
+  try {
+    process.kill(target, signal);
+  } catch {
+  }
+}
+function processesBelow(rootPid = process.pid) {
+  try {
+    const rows = execFileSync("/bin/ps", ["-A", "-o", "pid=,ppid=,pgid="], { encoding: "utf8", timeout: 1e3 }).trim().split("\n").map((l) => l.trim().split(/\s+/).map(Number)).filter((r) => r.length === 3 && r.every(Number.isInteger)).map(([pid, ppid, pgid]) => ({ pid, ppid, pgid }));
+    const own = rows.find((r) => r.pid === process.pid)?.pgid ?? -1;
+    return descendants(rows, rootPid, own);
+  } catch {
+    return { pids: [], groups: [] };
+  }
+}
+function killBelow(also = { pids: [], groups: [] }) {
+  const now = processesBelow();
+  for (const g of /* @__PURE__ */ new Set([...also.groups, ...now.groups])) kill(-g, "SIGKILL");
+  for (const p of /* @__PURE__ */ new Set([...also.pids, ...now.pids])) kill(p, "SIGKILL");
+}
+
+// agents/local-agent/workers/lib/claude-stream.ts
+var HANDSHAKE_MS = 3e4;
+var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+var AUTH_TEXT = /not logged in|please run \/login|invalid api key|authentication_error|oauth token (?:has )?(?:expired|been revoked)/i;
+function claudeArgs(p, session) {
+  const mcp = { mcpServers: { [p.mcp.name]: { type: "http", url: p.mcp.url, headers: { Authorization: `Bearer ${p.mcp.token}` } } } };
+  return [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--include-partial-messages",
+    "--permission-mode",
+    "bypassPermissions",
+    "--setting-sources",
+    "user",
+    "--strict-mcp-config",
+    "--mcp-config",
+    JSON.stringify(mcp),
+    "--append-system-prompt",
+    p.instructions,
+    ..."start" in session ? ["--session-id", session.start] : ["--resume", session.resume]
+  ];
+}
+function resultText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return content === void 0 || content === null ? "" : JSON.stringify(content);
+  return content.map((raw) => {
+    const b = obj(raw);
+    return b.type === "text" && typeof b.text === "string" ? b.text : `[${String(b.type ?? "content")}]`;
+  }).join("\n");
+}
+function stopReason(reason) {
+  if (reason === "max_tokens" || reason === "refusal") return reason;
+  return "end_turn";
+}
+var ClaudeStream = class {
+  constructor(launch, ev, ctx) {
+    this.launch = launch;
+    this.ev = ev;
+    this.ctx = ctx;
+  }
+  proc = null;
+  sessionId = null;
+  exited = null;
+  tail = tailBuffer(2e3);
+  notFound = false;
+  /** An error `result` that came before the handshake's answer. */
+  startFailure = null;
+  handshake = null;
+  turn = null;
+  cancelRequested = false;
+  authFailed = false;
+  mcpReported = false;
+  mcpName = "";
+  messageId = null;
+  /** Message ids whose text came as deltas: their whole text blocks are not shown again. */
+  streamed = /* @__PURE__ */ new Set();
+  /** Top-level tool calls by id: their names, for the results. */
+  tools = /* @__PURE__ */ new Map();
+  async initialize() {
+    let r;
+    try {
+      r = await this.launch.run(["--version"], this.ctx.setupTimeoutMs);
+    } catch (err) {
+      throw new SentenceError(`${this.ctx.label} could not start: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const version = versionIn(r.stdout);
+    if (r.code !== 0 || !version) {
+      const why = (r.stderr || r.stdout).trim().split("\n").at(-1);
+      throw new SentenceError(`${this.ctx.label} could not start (\`claude --version\` ${r.signal ? `was killed (${r.signal})` : `exited with ${r.code}`})${why ? `: ${why.slice(0, 300)}` : ""}`);
+    }
+    return { version };
+  }
+  async start(p) {
+    const id = randomUUID();
+    await this.open(p, { start: id });
+    return id;
+  }
+  async resume(sessionId, p) {
+    if (!UUID.test(sessionId)) throw new SentenceError(`${this.ctx.label} can't pick up this session: its id is not one Claude Code made. Start a new job.`);
+    await this.open(p, { resume: sessionId });
+  }
+  async open(p, session) {
+    if (this.proc) throw new Error("this job already has a session");
+    this.sessionId = "start" in session ? session.start : session.resume;
+    this.mcpName = p.mcp.name;
+    const proc = this.launch.spawn(claudeArgs(p, session));
+    this.proc = proc;
+    proc.stdin.on("error", () => {
+    });
+    proc.stderr.on("data", (chunk) => {
+      const text = String(chunk);
+      this.tail.push(text);
+      if (/No conversation found/i.test(text)) this.notFound = true;
+    });
+    jsonLines(
+      proc.stdout,
+      (m) => this.onMessage(m),
+      (line) => {
+        if (/No conversation found/i.test(line)) this.notFound = true;
+        this.tail.push(`${line}
+`);
+        this.ev.log(`[agent] ${line.slice(0, 500)}`);
+      }
+    );
+    proc.once("close", (code, signal) => this.onClose(code, signal));
+    const answered = new Promise((resolve, reject) => this.handshake = { resolve, reject });
+    this.send({ type: "control_request", request_id: "ni-init", request: { subtype: "initialize" } });
+    await within3(answered, Math.min(HANDSHAKE_MS, this.ctx.setupTimeoutMs), () => new Error("no answer")).catch((err) => {
+      if (err instanceof Error && err.message === "no answer" && !this.exited) {
+        this.handshake = null;
+        this.ev.log(`[worker] ${this.ctx.label} did not answer its initialize request: taken as started`);
+        return;
+      }
+      throw err;
+    });
+  }
+  async prompt(text) {
+    if (this.exited) throw this.exited;
+    if (!this.proc || this.turn) throw new Error(this.turn ? "a turn is already running" : "no session yet");
+    this.cancelRequested = false;
+    this.authFailed = false;
+    this.messageId = null;
+    const done = new Promise((resolve, reject) => this.turn = { resolve, reject });
+    this.send({ type: "user", message: { role: "user", content: [{ type: "text", text }] } });
+    return done;
+  }
+  cancel() {
+    if (!this.turn || !this.proc || this.exited) return;
+    this.cancelRequested = true;
+    this.proc.kill("SIGINT");
+  }
+  send(msg) {
+    if (!this.proc || this.exited) return;
+    this.proc.stdin.write(`${JSON.stringify(msg)}
+`);
+  }
+  onClose(code, signal) {
+    const how = signal ?? `exit code ${code}`;
+    const last = this.tail.text.split("\n").map((l) => l.trim()).filter(Boolean).at(-1);
+    this.exited = new Error(`it exited (${how})${last ? `: ${last.slice(0, 300)}` : ""}`);
+    this.failHandshake();
+    const t = this.turn;
+    this.turn = null;
+    if (t) {
+      if (this.cancelRequested) t.resolve("cancelled");
+      else t.reject(this.exited);
+    }
+  }
+  onMessage(m) {
+    switch (m.type) {
+      case "control_response":
+        return this.onControlResponse(obj(m.response));
+      case "control_request":
+        return this.onControlRequest(m);
+      case "system":
+        if (m.subtype === "init") this.onInit(m);
+        return;
+      case "stream_event":
+        return this.onStreamEvent(m);
+      case "assistant":
+        return this.onAssistant(m);
+      case "user":
+        return this.onUser(m);
+      case "result":
+        return this.onResult(m);
+      default:
+        return;
+    }
+  }
+  onControlResponse(r) {
+    if (r.request_id !== "ni-init" || !this.handshake) return;
+    const h = this.handshake;
+    this.handshake = null;
+    if (r.subtype !== "success") {
+      this.ev.log(`[worker] ${this.ctx.label} refused its initialize request (${String(r.error ?? r.subtype).slice(0, 200)}): taken as started`);
+      return h.resolve();
+    }
+    const account = obj(obj(r.response).account);
+    if (account.tokenSource === "none" && !account.apiKeySource && !account.email) return h.reject(new AuthRequiredError());
+    h.resolve();
+  }
+  /** The CLI asks only for what was registered in `initialize` (nothing): a permission check is allowed (the fence is the guard), the rest refused. */
+  onControlRequest(m) {
+    const req = obj(m.request);
+    const id = m.request_id;
+    if (req.subtype === "can_use_tool") {
+      this.ev.log(`[worker] permission for ${String(req.tool_name ?? "a tool").slice(0, 200)}: allowed`);
+      return this.send({ type: "control_response", response: { subtype: "success", request_id: id, response: { behavior: "allow", updatedInput: req.input ?? {} } } });
+    }
+    this.send({ type: "control_response", response: { subtype: "error", request_id: id, error: `${String(req.subtype)} is not supported by this client` } });
+  }
+  onInit(m) {
+    if (typeof m.session_id === "string" && m.session_id !== this.sessionId) this.ev.log(`[worker] ${this.ctx.label} reports session ${m.session_id.slice(0, 80)}, not ${this.sessionId}`);
+    if (this.mcpReported) return;
+    const servers = Array.isArray(m.mcp_servers) ? m.mcp_servers.map(obj) : [];
+    const ours = servers.find((s) => s.name === this.mcpName);
+    const status = ours ? String(ours.status ?? "unknown") : "missing";
+    if (status === "connected") return void (this.mcpReported = true);
+    if (status === "pending") return this.ev.log(`[worker] ${this.ctx.label}'s "${this.mcpName}" server is still connecting`);
+    this.mcpReported = true;
+    this.ev.log(`[worker] ${this.ctx.label}'s "${this.mcpName}" server: ${status}`);
+    this.ev.error(`${this.ctx.label} could not connect to Native Intelligence's tools (${status}), so it can't report back or finish this job.`);
+  }
+  onStreamEvent(m) {
+    if (m.parent_tool_use_id) return;
+    const e = obj(m.event);
+    if (e.type === "message_start") {
+      const id = obj(e.message).id;
+      this.messageId = typeof id === "string" ? id : null;
+      return;
+    }
+    if (e.type !== "content_block_delta") return;
+    const d = obj(e.delta);
+    if (d.type !== "text_delta" || typeof d.text !== "string" || !d.text) return;
+    if (this.messageId) this.streamed.add(this.messageId);
+    this.ev.text(d.text, this.messageId);
+  }
+  onAssistant(m) {
+    if (m.parent_tool_use_id) return;
+    if (m.error) {
+      if (m.error === "authentication_failed") this.authFailed = true;
+      return this.ev.log(`[worker] ${this.ctx.label} request failed: ${String(m.error).slice(0, 100)}`);
+    }
+    const msg = obj(m.message);
+    const id = typeof msg.id === "string" ? msg.id : null;
+    for (const raw of Array.isArray(msg.content) ? msg.content : []) {
+      const b = obj(raw);
+      if (b.type === "text" && typeof b.text === "string" && b.text && !(id && this.streamed.has(id))) this.ev.text(b.text, id);
+      else if (b.type === "tool_use" && typeof b.id === "string" && !this.tools.has(b.id)) {
+        const name = typeof b.name === "string" && b.name ? b.name : "tool";
+        this.tools.set(b.id, name);
+        this.ev.toolStart({ callId: b.id, name, input: b.input ?? {} });
+      }
+    }
+  }
+  onUser(m) {
+    if (m.parent_tool_use_id) return;
+    const content = obj(m.message).content;
+    for (const raw of Array.isArray(content) ? content : []) {
+      const b = obj(raw);
+      if (b.type !== "tool_result" || typeof b.tool_use_id !== "string") continue;
+      this.ev.toolEnd({ callId: b.tool_use_id, name: this.tools.get(b.tool_use_id) ?? "tool", ok: b.is_error !== true, output: resultText(b.content) });
+    }
+  }
+  onResult(m) {
+    this.streamed.clear();
+    this.messageId = null;
+    if (this.handshake) {
+      this.startFailure = m;
+      setTimeout(() => this.failHandshake(), 1e3).unref?.();
+      return;
+    }
+    const t = this.turn;
+    if (!t) return;
+    this.turn = null;
+    if (this.cancelRequested) return t.resolve("cancelled");
+    const isError = m.is_error === true || String(m.subtype ?? "").startsWith("error");
+    if (!isError) return t.resolve(stopReason(m.stop_reason));
+    if (m.subtype === "error_max_turns") return t.resolve("max_turn_requests");
+    const text = this.errorText(m);
+    if (this.authFailed || AUTH_TEXT.test(text)) return t.reject(new AuthRequiredError(text || void 0));
+    t.reject(new Error(text || String(m.subtype ?? "the turn failed")));
+  }
+  /** The CLI ended (or gave up) before it answered the handshake: the start fails, with the best reason there is. */
+  failHandshake() {
+    const h = this.handshake;
+    if (!h) return;
+    this.handshake = null;
+    if (this.notFound) return h.reject(new Error("it has no conversation with this session id"));
+    const said = this.startFailure ? this.errorText(this.startFailure) : "";
+    h.reject(said ? new Error(said) : this.exited ?? new Error(String(this.startFailure?.subtype ?? "it failed to start")));
+  }
+  errorText(m) {
+    const errors = Array.isArray(m.errors) ? m.errors.filter((e) => typeof e === "string") : [];
+    return (errors.length ? errors.join("; ") : typeof m.result === "string" ? m.result : "").slice(0, 1e3);
+  }
+};
+var claudeStreamLink = (launchers, events, ctx) => new ClaudeStream(launchers, events, ctx);
+
+// agents/local-agent/workers/lib/codex-app-server.ts
+import { realpathSync as realpathSync2 } from "node:fs";
+
+// agents/local-agent/workers/lib/jsonrpc.ts
 var METHOD_NOT_FOUND = -32601;
-var AGENT_LINE_LIMIT = 64 * 1024 * 1024;
-var AcpError = class extends Error {
+var RpcError = class extends Error {
   constructor(method, code, message2, data) {
     super(message2);
     this.method = method;
     this.code = code;
     this.data = data;
-    this.name = "AcpError";
+    this.name = "RpcError";
   }
 };
-var AcpConnection = class {
+var RpcConnection = class {
   constructor(io, handlers) {
     this.io = io;
     this.handlers = handlers;
     io.stdin.on("error", () => {
     });
-    const lines = createLineSplitter((line) => line.trim() && this.onLine(line), {
-      maxBytes: AGENT_LINE_LIMIT,
-      onTooLong: () => handlers.log(`[worker] dropped a line from the agent over ${AGENT_LINE_LIMIT} bytes`)
-    });
-    io.stdout.on("data", (chunk) => lines.push(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength)));
-    io.stdout.on("end", () => lines.end());
+    jsonLines(io.stdout, (msg) => this.onMessage(msg), handlers.other);
   }
   nextId = 1;
   pending = /* @__PURE__ */ new Map();
@@ -2639,11 +2645,11 @@ var AcpConnection = class {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { method, resolve, reject });
-      this.send({ jsonrpc: "2.0", id, method, params });
+      this.send({ id, method, params });
     });
   }
   notify(method, params) {
-    this.send({ jsonrpc: "2.0", method, params });
+    this.send(params === void 0 ? { method } : { method, params });
   }
   /** The agent went away: every request still waiting fails with `reason`. */
   close(reason) {
@@ -2652,42 +2658,550 @@ var AcpConnection = class {
     for (const p of this.pending.values()) p.reject(reason);
     this.pending.clear();
   }
-  onLine(line) {
-    let msg;
-    try {
-      msg = JSON.parse(line);
-    } catch {
-      this.handlers.log(`[worker] the agent wrote a line that is not JSON: ${line.slice(0, 200)}`);
-      return;
-    }
-    if (!msg || typeof msg !== "object" || msg.jsonrpc !== "2.0") return;
+  onMessage(msg) {
     const id = msg.id;
     if (typeof msg.method === "string") {
-      if (id === void 0 || id === null) {
-        this.handlers.notification(msg.method, msg.params);
-        return;
-      }
-      void this.answer(id, msg.method, msg.params);
-      return;
+      if (id === void 0 || id === null) return this.handlers.notification(msg.method, msg.params);
+      return void this.answer(id, msg.method, msg.params);
     }
     if (id === void 0 || id === null) return;
     const p = this.pending.get(id);
     if (!p) return;
     this.pending.delete(id);
     const error = msg.error;
-    if (error) p.reject(new AcpError(p.method, typeof error.code === "number" ? error.code : 0, typeof error.message === "string" ? error.message : "error", error.data));
+    if (error) p.reject(new RpcError(p.method, typeof error.code === "number" ? error.code : 0, typeof error.message === "string" ? error.message : "error", error.data));
     else p.resolve(msg.result);
   }
   async answer(id, method, params) {
     try {
       const result = await this.handlers.request(method, params);
-      this.send({ jsonrpc: "2.0", id, result: result ?? null });
+      this.send({ id, result: result ?? null });
     } catch (err) {
-      const e = err instanceof AcpError ? err : new AcpError(method, -32603, err instanceof Error ? err.message : String(err));
-      this.send({ jsonrpc: "2.0", id, error: { code: e.code, message: e.message } });
+      const e = err instanceof RpcError ? err : new RpcError(method, -32603, err instanceof Error ? err.message : String(err));
+      this.send({ id, error: { code: e.code, message: e.message } });
     }
   }
 };
+
+// agents/local-agent/workers/lib/protocol.ts
+var INPUT_LIMIT = 2 * 1024;
+var OUTPUT_LIMIT = 4 * 1024;
+var TEXT_LIMIT = 16 * 1024;
+var MANAGER_LIMITS = { report: 4e3, ask_manager: 2e3, finish: 8e3 };
+var MAX_EVENT_BYTES = 64 * 1024;
+var MAX_SESSION_ID = 256;
+var SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
+function isSessionId(id) {
+  return typeof id === "string" && SESSION_ID.test(id);
+}
+var MAX_LINE_BYTES = 256 * 1024;
+function createLineSplitter(onLine, opts = {}) {
+  const decoder = new TextDecoder();
+  const max = opts.maxBytes ?? Number.POSITIVE_INFINITY;
+  let parts = [];
+  let size = 0;
+  let skipping = false;
+  const join5 = (last) => {
+    if (parts.length === 0) return last;
+    const out = new Uint8Array(size + last.length);
+    let at = 0;
+    for (const p of parts) {
+      out.set(p, at);
+      at += p.length;
+    }
+    out.set(last, at);
+    return out;
+  };
+  const emit = (bytes) => {
+    const line = decoder.decode(bytes);
+    onLine(line.endsWith("\r") ? line.slice(0, -1) : line);
+  };
+  return {
+    push(chunk) {
+      let start = 0;
+      for (let nl = chunk.indexOf(10); nl !== -1; nl = chunk.indexOf(10, start)) {
+        if (skipping || size + (nl - start) > max) {
+          if (!skipping) opts.onTooLong?.();
+          skipping = false;
+        } else {
+          emit(join5(chunk.subarray(start, nl)));
+        }
+        parts = [];
+        size = 0;
+        start = nl + 1;
+      }
+      if (start >= chunk.length || skipping) return;
+      const rest = chunk.slice(start);
+      if (size + rest.length > max) {
+        opts.onTooLong?.();
+        skipping = true;
+        parts = [];
+        size = 0;
+        return;
+      }
+      parts.push(rest);
+      size += rest.length;
+    },
+    end() {
+      if (size > 0 && !skipping) emit(join5(new Uint8Array(0)));
+      parts = [];
+      size = 0;
+      skipping = false;
+    }
+  };
+}
+function serializeLine(msg) {
+  return `${JSON.stringify(msg).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029")}
+`;
+}
+function parseInbound(line) {
+  let v;
+  try {
+    v = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (!v || typeof v !== "object") return null;
+  const m = v;
+  switch (m.type) {
+    case "start":
+      return typeof m.request === "string" && m.request.trim() ? { type: "start", request: m.request } : null;
+    case "resume":
+      return typeof m.sessionId === "string" && m.sessionId && m.sessionId.length <= MAX_SESSION_ID && Number.isInteger(m.streamIndex) && m.streamIndex >= 0 ? { type: "resume", sessionId: m.sessionId, streamIndex: m.streamIndex } : null;
+    case "send":
+      return typeof m.text === "string" && m.text.trim() && (m.policy === "steer" || m.policy === "queue") ? { type: "send", text: m.text, policy: m.policy } : null;
+    case "stop":
+      return { type: "stop" };
+    case "token":
+      return { type: "token" };
+    case "prompt_answer":
+      return { type: "prompt_answer" };
+    default:
+      return null;
+  }
+}
+function truncateJson(value, limit) {
+  let s;
+  try {
+    s = typeof value === "string" ? JSON.stringify(value) : JSON.stringify(value) ?? "null";
+  } catch {
+    s = '"[unserializable]"';
+  }
+  return s.length <= limit ? s : `${s.slice(0, limit - 1)}\u2026`;
+}
+function jsonBytes(ch) {
+  const c = ch.codePointAt(0);
+  if (c === 34 || c === 92 || c === 8 || c === 12 || c === 10 || c === 13 || c === 9) return 2;
+  if (c < 32 || c === 8232 || c === 8233 || c >= 55296 && c <= 57343) return 6;
+  return c < 128 ? 1 : c < 2048 ? 2 : c < 65536 ? 3 : 4;
+}
+function truncateText(text, maxBytes = TEXT_LIMIT) {
+  let total = 0;
+  for (const ch of text) total += jsonBytes(ch);
+  if (total <= maxBytes) return text;
+  const budget = maxBytes - 3;
+  let used = 0;
+  let end = 0;
+  for (const ch of text) {
+    const b = jsonBytes(ch);
+    if (used + b > budget) break;
+    used += b;
+    end += ch.length;
+  }
+  return `${text.slice(0, end)}\u2026`;
+}
+function managerText(tool, text) {
+  return truncateText(text.length > MANAGER_LIMITS[tool] ? `${text.slice(0, MANAGER_LIMITS[tool] - 1)}\u2026` : text);
+}
+
+// agents/local-agent/workers/lib/codex-app-server.ts
+var APPROVALS = {
+  "item/commandExecution/requestApproval": { decision: "accept" },
+  "item/fileChange/requestApproval": { decision: "accept" },
+  // The protocol's older names, answered the older way.
+  execCommandApproval: { decision: "approved" },
+  applyPatchApproval: { decision: "approved" }
+};
+function threadParams(p) {
+  return {
+    cwd: p.cwd,
+    approvalPolicy: "never",
+    sandbox: "danger-full-access",
+    developerInstructions: p.instructions,
+    config: { mcp_servers: { [p.mcp.name]: { url: p.mcp.url, http_headers: { Authorization: `Bearer ${p.mcp.token}` } } } }
+  };
+}
+function contentText(content) {
+  return (Array.isArray(content) ? content : []).map((raw) => {
+    const c = obj(raw);
+    return c.type === "text" && typeof c.text === "string" ? c.text : `[${String(c.type ?? "content")}]`;
+  }).join("\n");
+}
+function toolOf(item) {
+  const status = item.status;
+  switch (item.type) {
+    case "commandExecution": {
+      const exit = typeof item.exitCode === "number" ? item.exitCode : null;
+      const out = typeof item.aggregatedOutput === "string" ? item.aggregatedOutput : "";
+      return {
+        name: "shell",
+        input: { command: item.command, ...typeof item.cwd === "string" ? { cwd: item.cwd } : {} },
+        ok: status === "completed" && (exit === null || exit === 0),
+        output: exit !== null && exit !== 0 ? `${out}${out && !out.endsWith("\n") ? "\n" : ""}[exit code ${exit}]` : out || (status === "declined" ? "[declined]" : "")
+      };
+    }
+    case "fileChange": {
+      const changes = (Array.isArray(item.changes) ? item.changes : []).map(obj);
+      return {
+        name: "edit",
+        input: { changes: changes.map((c) => ({ path: c.path, kind: obj(c.kind).type ?? c.kind })) },
+        ok: status === "completed",
+        output: changes.map((c) => typeof c.diff === "string" && c.diff ? c.diff : `[${String(c.path ?? "")}]`).join("\n")
+      };
+    }
+    case "mcpToolCall": {
+      const error = obj(item.error);
+      const failed = typeof error.message === "string";
+      return {
+        name: `mcp__${String(item.server ?? "")}__${String(item.tool ?? "")}`,
+        input: item.arguments ?? {},
+        ok: status === "completed" && !failed,
+        output: failed ? error.message : contentText(obj(item.result).content)
+      };
+    }
+    default:
+      return null;
+  }
+}
+var CodexAppServer = class {
+  constructor(launch, ev, ctx) {
+    this.launch = launch;
+    this.ev = ev;
+    this.ctx = ctx;
+  }
+  proc = null;
+  rpc = null;
+  exited = null;
+  tail = tailBuffer(2e3);
+  threadId = null;
+  turnId = null;
+  turn = null;
+  cancelRequested = false;
+  mcpName = "";
+  mcpReported = false;
+  /** Agent messages whose text came as deltas: their completed text is not shown again. */
+  streamed = /* @__PURE__ */ new Set();
+  /** Tool items already shown as started. */
+  started = /* @__PURE__ */ new Set();
+  async initialize() {
+    const proc = this.launch.spawn(["app-server"]);
+    this.proc = proc;
+    proc.stderr.on("data", (chunk) => this.tail.push(String(chunk)));
+    const rpc = new RpcConnection(proc, {
+      notification: (method, params) => this.onNotification(method, obj(params)),
+      request: (method, params) => this.onRequest(method, obj(params)),
+      other: (line) => {
+        this.tail.push(`${line}
+`);
+        this.ev.log(`[agent] ${line.slice(0, 500)}`);
+      }
+    });
+    this.rpc = rpc;
+    proc.once("close", (code, signal) => this.onClose(code, signal));
+    let res;
+    try {
+      res = obj(
+        await within3(
+          rpc.request("initialize", { clientInfo: { name: "native-intelligence", title: "Native Intelligence", version: "1" }, capabilities: null }),
+          this.ctx.setupTimeoutMs,
+          () => new SentenceError(`${this.ctx.label} did not answer in time`)
+        )
+      );
+    } catch (err) {
+      if (err instanceof SentenceError) throw err;
+      if (!this.exited) throw new SentenceError(`${this.ctx.label} could not start: ${err instanceof Error ? err.message : String(err)}`);
+      const v = await this.cliVersion();
+      const last = this.tail.text.split("\n").map((l) => l.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").trim()).filter(Boolean).at(-1);
+      const said = last ? ` (${last.slice(0, 400)})` : "";
+      const name = `${this.ctx.label}${v ? ` ${v}` : ""}`;
+      if (await this.hasAppServer()) throw new SentenceError(`${name} on this Mac could not start its app server${said}.`);
+      throw new SentenceError(`${name} on this Mac has no app server${said}, which this app needs: update Codex on this Mac (for example \`npm install -g @openai/codex@latest\`), then try again.`);
+    }
+    const home = this.ctx.home;
+    if (home && typeof res.codexHome === "string" && !inside(res.codexHome, home)) {
+      throw new SentenceError(`${this.ctx.label} started with its settings folder outside this job's own home (${res.codexHome.slice(0, 200)}), so the job was not started.`);
+    }
+    rpc.notify("initialized");
+    const version = versionIn(String(res.userAgent ?? "")) ?? await this.cliVersion() ?? "unknown";
+    return { version };
+  }
+  /** Whether this Codex knows `app-server` (its help names it; an old one prints its main help instead). */
+  async hasAppServer() {
+    try {
+      const r = await this.launch.run(["app-server", "--help"], Math.min(1e4, this.ctx.setupTimeoutMs));
+      return /Usage: codex app-server/.test(r.stdout + r.stderr);
+    } catch {
+      return false;
+    }
+  }
+  /** `codex --version`'s number, or null. */
+  async cliVersion() {
+    try {
+      return versionIn((await this.launch.run(["--version"], Math.min(1e4, this.ctx.setupTimeoutMs))).stdout);
+    } catch {
+      return null;
+    }
+  }
+  conn() {
+    if (this.exited) throw this.exited;
+    if (!this.rpc) throw new Error("not started");
+    return this.rpc;
+  }
+  /** No login: the sign-in sentence before any thread exists. A Codex that can't say goes on (a turn says it later). */
+  async checkLogin() {
+    let res;
+    try {
+      res = obj(await this.conn().request("account/read", { refreshToken: false }));
+    } catch (err) {
+      if (this.exited) throw this.exited;
+      return this.ev.log(`[worker] ${this.ctx.label} could not say whether it is signed in: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (res.account === null && res.requiresOpenaiAuth !== false) throw new AuthRequiredError();
+  }
+  async start(p) {
+    this.mcpName = p.mcp.name;
+    await this.checkLogin();
+    const res = obj(await this.conn().request("thread/start", threadParams(p)));
+    const id = obj(res.thread).id;
+    if (!isSessionId(id)) throw new SentenceError(`${this.ctx.label} answered with a session id this app can't keep`);
+    this.threadId = id;
+    return id;
+  }
+  async resume(sessionId, p) {
+    this.mcpName = p.mcp.name;
+    await this.checkLogin();
+    this.threadId = sessionId;
+    try {
+      await this.conn().request("thread/resume", { threadId: sessionId, ...threadParams(p), excludeTurns: true });
+    } catch (err) {
+      this.threadId = null;
+      throw err;
+    }
+  }
+  async prompt(text) {
+    const rpc = this.conn();
+    if (!this.threadId || this.turn) throw new Error(this.turn ? "a turn is already running" : "no session yet");
+    this.cancelRequested = false;
+    this.turnId = null;
+    const done = new Promise((resolve, reject) => this.turn = { resolve, reject });
+    rpc.request("turn/start", { threadId: this.threadId, input: [{ type: "text", text, text_elements: [] }] }).then(
+      (res) => {
+        const id = obj(obj(res).turn).id;
+        if (typeof id === "string" && this.turn) {
+          this.turnId = id;
+          if (this.cancelRequested) this.interrupt();
+        }
+      },
+      (err) => this.endTurn((t) => t.reject(err instanceof Error ? err : new Error(String(err))))
+    );
+    return done;
+  }
+  cancel() {
+    if (!this.turn || this.exited) return;
+    this.cancelRequested = true;
+    if (this.turnId) this.interrupt();
+  }
+  interrupt() {
+    this.rpc?.request("turn/interrupt", { threadId: this.threadId, turnId: this.turnId }).catch((err) => this.ev.log(`[worker] ${this.ctx.label} refused to interrupt the turn: ${err instanceof Error ? err.message : String(err)}`));
+  }
+  endTurn(settle) {
+    const t = this.turn;
+    this.turn = null;
+    this.turnId = null;
+    this.streamed.clear();
+    if (t) settle(t);
+  }
+  onClose(code, signal) {
+    const last = this.tail.text.split("\n").map((l) => l.trim()).filter(Boolean).at(-1);
+    this.exited = new Error(`it exited (${signal ?? `exit code ${code}`})${last ? `: ${last.slice(0, 300)}` : ""}`);
+    this.rpc?.close(this.exited);
+    const cancelled = this.cancelRequested;
+    this.endTurn((t) => cancelled ? t.resolve("cancelled") : t.reject(this.exited));
+  }
+  /** A notification about another thread is not this job's. */
+  ours(params) {
+    return this.threadId === null || params.threadId === void 0 || params.threadId === null || params.threadId === this.threadId;
+  }
+  onNotification(method, params) {
+    if (!this.ours(params)) return;
+    switch (method) {
+      case "item/agentMessage/delta": {
+        if (typeof params.delta !== "string" || !params.delta) return;
+        const id = typeof params.itemId === "string" ? params.itemId : null;
+        if (id) this.streamed.add(id);
+        return this.ev.text(params.delta, id);
+      }
+      case "item/started":
+      case "item/completed":
+        return this.onItem(obj(params.item), method === "item/completed");
+      case "turn/completed":
+        return this.onTurnCompleted(obj(params.turn));
+      case "mcpServer/startupStatus/updated":
+        return this.onMcpStatus(params);
+      case "error": {
+        const e = obj(params.error);
+        return this.ev.log(`[worker] ${this.ctx.label} error${params.willRetry ? " (retrying)" : ""}: ${String(e.message ?? "").slice(0, 300)}`);
+      }
+      case "warning":
+      case "configWarning":
+      case "deprecationNotice":
+        return this.ev.log(`[worker] ${this.ctx.label} ${method}: ${JSON.stringify(params).slice(0, 300)}`);
+      default:
+        return;
+    }
+  }
+  onItem(item, completed) {
+    const id = typeof item.id === "string" ? item.id : null;
+    if (!id) return;
+    if (item.type === "agentMessage") {
+      if (completed && !this.streamed.has(id) && typeof item.text === "string" && item.text) this.ev.text(item.text, id);
+      return;
+    }
+    const tool = toolOf(item);
+    if (!tool) return;
+    if (!this.started.has(id)) {
+      this.started.add(id);
+      this.ev.toolStart({ callId: id, name: tool.name, input: tool.input });
+    }
+    if (completed) this.ev.toolEnd({ callId: id, name: tool.name, ok: tool.ok, output: tool.output });
+  }
+  onTurnCompleted(turn) {
+    if (!this.turn) return;
+    if (this.turnId && typeof turn.id === "string" && turn.id !== this.turnId) return;
+    const error = obj(turn.error);
+    if (turn.status === "completed") return this.endTurn((t) => t.resolve(this.cancelRequested ? "cancelled" : "end_turn"));
+    if (turn.status === "interrupted") return this.endTurn((t) => t.resolve("cancelled"));
+    const message2 = typeof error.message === "string" && error.message ? error.message : `the turn ended (${String(turn.status)})`;
+    if (error.codexErrorInfo === "unauthorized") return this.endTurn((t) => t.reject(new AuthRequiredError(message2)));
+    this.endTurn((t) => t.reject(new Error(message2.slice(0, 1e3))));
+  }
+  onMcpStatus(params) {
+    if (params.name !== this.mcpName || this.mcpReported) return;
+    if (params.status === "ready") return void (this.mcpReported = true);
+    if (params.status !== "failed") return;
+    this.mcpReported = true;
+    this.ev.log(`[worker] ${this.ctx.label}'s "${this.mcpName}" server failed to start: ${String(params.error ?? "").slice(0, 300)}`);
+    this.ev.error(`${this.ctx.label} could not connect to Native Intelligence's tools, so it can't report back or finish this job.`);
+  }
+  onRequest(method, params) {
+    const answer = APPROVALS[method];
+    const what = String(params.command ?? params.reason ?? "").slice(0, 200);
+    if (answer) {
+      this.ev.log(`[worker] ${this.ctx.label} asked for approval (${method}${what ? `: ${what}` : ""}): accepted`);
+      return answer;
+    }
+    this.ev.log(`[worker] ${this.ctx.label} asked ${method}: refused`);
+    throw new RpcError(method, METHOD_NOT_FOUND, `${method} is not supported by this client`);
+  }
+};
+var codexAppServerLink = (launchers, events, ctx) => new CodexAppServer(launchers, events, ctx);
+function inside(path, root) {
+  const real = (p2) => {
+    try {
+      return realpathSync2(p2);
+    } catch {
+      return p2;
+    }
+  };
+  const [p, r] = [real(path), real(root)];
+  return p === r || p.startsWith(`${r}/`);
+}
+
+// agents/local-agent/workers/lib/manager-tools.ts
+var PR_TITLE_MAX = 256;
+var PR_BODY_MAX = 6e4;
+var MANAGER_SERVER = "ni";
+var str = (description, maxLength) => ({ type: "string", description, minLength: 1, maxLength });
+var object = (properties, required) => ({ type: "object", properties, required, additionalProperties: false });
+var annotations = { readOnlyHint: true, openWorldHint: false };
+var MANAGER_TOOLS = [
+  {
+    name: "report",
+    description: "Report progress on the request: what you looked at, what you found, what you are about to do. Call it as you go, in a sentence or two. The person and the Native Intelligence agent see it.",
+    inputSchema: object({ text: str("The progress note.", 4e3) }, ["text"]),
+    annotations
+  },
+  {
+    name: "ask_manager",
+    description: "Ask the Native Intelligence agent (your manager) one question when you are blocked and cannot find the answer in the folder. Then end your turn and wait: the answer arrives as your next message.",
+    inputSchema: object({ question: str("One clear question.", 2e3) }, ["question"]),
+    annotations
+  },
+  {
+    name: "finish",
+    description: "Finish the request: give a summary of what you found or did, including anything that was blocked. Call it once the request is done, then end your turn. In a job that may change files, add pull_request only when the person or the request asked for a pull request: a title, and a description of what changed and why. The person is asked on their Mac before anything is pushed.",
+    inputSchema: object(
+      {
+        summary: str("What you found or did, for the person and the Native Intelligence agent. In a job that changes files, its first line becomes the commit message.", 8e3),
+        pull_request: {
+          type: "object",
+          description: "Only when a pull request was asked for, and only in a job that may change files.",
+          properties: {
+            title: str("The pull request title.", PR_TITLE_MAX),
+            body: { type: "string", description: "The pull request description, in Markdown: what changed and why.", maxLength: PR_BODY_MAX }
+          },
+          required: ["title"],
+          additionalProperties: false
+        }
+      },
+      ["summary"]
+    ),
+    annotations
+  }
+];
+var FIELD = { report: "text", ask_manager: "question", finish: "summary" };
+var LIMIT = { report: 4e3, ask_manager: 2e3, finish: 8e3 };
+var REPLY = {
+  report: "Reported.",
+  ask_manager: "Question sent. End your turn now; the answer will arrive as your next message.",
+  finish: "Finished. End your turn now."
+};
+var FINISH_WITH_PR = {
+  edit: "Finished. When your turn ends, the person is asked on their Mac whether to push the branch and open the pull request; the outcome arrives with your next message. End your turn now.",
+  read: "Finished. This job is read-only: nothing was changed and there is no branch to push, so no pull request will be opened. End your turn now."
+};
+var CONTROL_CHARS2 = /[\u0000-\u001f\u007f]/g;
+function pullRequestFrom(v) {
+  if (v === void 0 || v === null) return {};
+  if (typeof v !== "object" || Array.isArray(v)) return { error: "pull_request must be an object with a title" };
+  const o = v;
+  const title = typeof o.title === "string" ? o.title.replace(CONTROL_CHARS2, "").trim() : "";
+  if (title.length < 1 || title.length > PR_TITLE_MAX) return { error: `pull_request.title is 1\u2013${PR_TITLE_MAX} characters` };
+  if (o.body !== void 0 && (typeof o.body !== "string" || o.body.length > PR_BODY_MAX)) return { error: `pull_request.body is at most ${PR_BODY_MAX} characters` };
+  return { ask: o.body === void 0 ? { title } : { title, body: o.body } };
+}
+function createManagerTools(emit, mode = "read") {
+  return {
+    async call(name, rawArgs, _signal) {
+      if (name !== "report" && name !== "ask_manager" && name !== "finish") return { text: `Unknown tool: ${name}`, isError: true };
+      const args = rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs) ? rawArgs : {};
+      const field = FIELD[name];
+      const v = args[field];
+      if (typeof v !== "string" || !v.trim()) return { text: `${field} is required`, isError: true };
+      if (v.length > LIMIT[name]) return { text: `${field} is longer than ${LIMIT[name]} characters`, isError: true };
+      const text = managerText(name, v);
+      if (name !== "finish") {
+        emit(name === "report" ? { kind: "report", text } : { kind: "ask", question: text });
+        return { text: REPLY[name], isError: false };
+      }
+      const pr = pullRequestFrom(args.pull_request);
+      if ("error" in pr) return { text: pr.error, isError: true };
+      const ask = mode === "edit" ? pr.ask : void 0;
+      emit({ kind: "finish", summary: text }, ask);
+      return { text: pr.ask ? FINISH_WITH_PR[mode] : REPLY.finish, isError: false };
+    }
+  };
+}
 
 // agents/local-agent/workers/lib/instructions.ts
 var WORKER_INSTRUCTIONS = `# Working for Native Intelligence
@@ -2737,87 +3251,10 @@ ${mode === "edit" ? EDIT_JOB : READ_JOB}${section ? `
 
 ${section}` : ""}`;
 }
-function inlineInstructions(mode, request, workspace) {
-  return `${workerInstructions(mode, workspace)}
-
----
-
-# The request
-
-${request}`;
-}
 var FINISH_NUDGE = "[From Native Intelligence] Your turn ended without a call to `finish`. If the request is done, call `finish` now with a summary. If you are stuck or need a decision, call `ask_manager` with one question. Otherwise carry on with the request, and call `finish` when it is done.";
 
-// agents/local-agent/workers/lib/process.ts
-import { execFileSync, spawn } from "node:child_process";
-var SANDBOX_EXEC2 = "/usr/bin/sandbox-exec";
-function agentEnv(base, extra = {}) {
-  return {
-    HOME: base.home,
-    PATH: base.path,
-    LANG: base.lang,
-    TMPDIR: base.tmpdir,
-    ...base.user ? { USER: base.user, LOGNAME: base.user } : {},
-    SHELL: "/bin/zsh",
-    TERM: "dumb",
-    NO_COLOR: "1",
-    NO_BROWSER: "1",
-    GIT_OPTIONAL_LOCKS: "0",
-    ...extra
-  };
-}
-function spawnSandboxed(profile, argv, opts) {
-  return spawn(SANDBOX_EXEC2, ["-p", profile, ...argv], { cwd: opts.cwd, env: opts.env, stdio: ["pipe", "pipe", "pipe"] });
-}
-function tailBuffer(limit = 4e3) {
-  let text = "";
-  return {
-    push(chunk) {
-      text = (text + chunk).slice(-limit);
-    },
-    get text() {
-      return text.trim();
-    }
-  };
-}
-function descendants(rows, rootPid, ownPgid) {
-  const kids = /* @__PURE__ */ new Map();
-  for (const r of rows) kids.set(r.ppid, [...kids.get(r.ppid) ?? [], r.pid]);
-  const byPid = new Map(rows.map((r) => [r.pid, r]));
-  const pids = [];
-  const queue = [...kids.get(rootPid) ?? []];
-  while (queue.length) {
-    const pid = queue.shift();
-    if (pids.includes(pid)) continue;
-    pids.push(pid);
-    queue.push(...kids.get(pid) ?? []);
-  }
-  const groups = [...new Set(pids.map((p) => byPid.get(p).pgid))].filter((g) => g !== ownPgid && g > 1);
-  return { pids, groups };
-}
-function kill(target, signal) {
-  try {
-    process.kill(target, signal);
-  } catch {
-  }
-}
-function processesBelow(rootPid = process.pid) {
-  try {
-    const rows = execFileSync("/bin/ps", ["-A", "-o", "pid=,ppid=,pgid="], { encoding: "utf8", timeout: 1e3 }).trim().split("\n").map((l) => l.trim().split(/\s+/).map(Number)).filter((r) => r.length === 3 && r.every(Number.isInteger)).map(([pid, ppid, pgid]) => ({ pid, ppid, pgid }));
-    const own = rows.find((r) => r.pid === process.pid)?.pgid ?? -1;
-    return descendants(rows, rootPid, own);
-  } catch {
-    return { pids: [], groups: [] };
-  }
-}
-function killBelow(also = { pids: [], groups: [] }) {
-  const now = processesBelow();
-  for (const g of /* @__PURE__ */ new Set([...also.groups, ...now.groups])) kill(-g, "SIGKILL");
-  for (const p of /* @__PURE__ */ new Set([...also.pids, ...now.pids])) kill(p, "SIGKILL");
-}
-
 // agents/local-agent/workers/lib/workspace-tools.ts
-import { randomBytes as randomBytes4 } from "node:crypto";
+import { randomBytes as randomBytes3 } from "node:crypto";
 import { readFileSync, statSync as statSync2 } from "node:fs";
 import { isAbsolute } from "node:path";
 var TOOLS_FILE_MAX_BYTES = 1024 * 1024;
@@ -2833,7 +3270,7 @@ var TOOL_TIMEOUT_MS = 32e4;
 var MAX_IN_FLIGHT = 4;
 var MANAGER_NAMES = /* @__PURE__ */ new Set(["report", "ask_manager", "finish"]);
 function newCallId() {
-  return randomBytes4(12).toString("base64url");
+  return randomBytes3(12).toString("base64url");
 }
 function loadToolsFile(path, log, absolute = isAbsolute) {
   const none = (why) => {
@@ -3009,6 +3446,10 @@ function createWorkspaceBridge(tools, io, opts = {}) {
 }
 
 // agents/local-agent/workers/lib/driver.ts
+var LINKS = {
+  "claude-stream": claudeStreamLink,
+  "codex-app-server": codexAppServerLink
+};
 var PUSH_NOTES = {
   yes: "The person agreed to your pull request: the app is pushing the branch and opening the pull request itself. You will not see the result. Do not push or open a pull request yourself.",
   no: "The person declined your pull request: nothing was pushed.",
@@ -3017,92 +3458,42 @@ var PUSH_NOTES = {
 function pushNote(outcome) {
   return outcome.allowed ? PUSH_NOTES.yes : outcome.reason === "denied" ? PUSH_NOTES.no : PUSH_NOTES.none;
 }
-var PROTOCOL_VERSION = 1;
 var SETUP_TIMEOUT_MS = 12e4;
 var NAME_LIMIT = 200;
-var SetupError = class extends Error {
-};
-function timeout(p, ms, what) {
-  let timer;
-  return Promise.race([
-    p.finally(() => clearTimeout(timer)),
-    new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new SetupError(what)), ms);
-      timer.unref?.();
-    })
-  ]);
-}
 var cut = (s, n = NAME_LIMIT) => s.length <= n ? s : `${s.slice(0, n - 1)}\u2026`;
-var obj = (v) => v && typeof v === "object" && !Array.isArray(v) ? v : {};
-function toolOutput(update) {
-  const parts = [];
-  for (const raw of Array.isArray(update.content) ? update.content : []) {
-    const c = obj(raw);
-    if (c.type === "content") {
-      const b = obj(c.content);
-      if (b.type === "text" && typeof b.text === "string") parts.push(b.text.slice(0, OUTPUT_LIMIT));
-      else if (b.type === "resource_link" && typeof b.uri === "string") parts.push(b.uri.slice(0, OUTPUT_LIMIT));
-      else if (b.type === "resource") {
-        const r = obj(b.resource);
-        parts.push(String(r.text ?? r.uri ?? "[resource]").slice(0, OUTPUT_LIMIT));
-      } else parts.push(`[${String(b.type ?? "content")}]`);
-    } else if (c.type === "diff") {
-      parts.push(`--- ${String(c.path ?? "")}
-+++ ${String(c.path ?? "")}
-${String(c.newText ?? "").slice(0, OUTPUT_LIMIT)}`);
-    } else if (c.type === "terminal") {
-      parts.push(`[terminal ${String(c.terminalId ?? "")}]`);
-    }
-  }
-  if (parts.length === 0 && update.rawOutput !== void 0) return truncateJson(update.rawOutput, OUTPUT_LIMIT);
-  return truncateJson(parts.join("\n"), OUTPUT_LIMIT);
-}
-function pickPermission(options) {
-  const opts = (Array.isArray(options) ? options : []).map(obj).filter((o) => typeof o.optionId === "string");
-  const pick = opts.find((o) => o.kind === "allow_once") ?? opts.find((o) => typeof o.kind === "string" && o.kind.startsWith("allow")) ?? opts[0];
-  return pick ? { optionId: pick.optionId, kind: String(pick.kind ?? "") } : null;
-}
 var WorkerDriver = class {
-  constructor(proc, opts, io) {
-    this.proc = proc;
+  constructor(opts, io, deps) {
     this.opts = opts;
     this.io = io;
-    this.conn = new AcpConnection(proc, {
-      notification: (method, params) => {
-        if (method === "session/update") this.onUpdate(obj(params));
+    const launchers = {
+      spawn: (args) => this.attach(deps.launchers.spawn(args)),
+      run: (args, timeoutMs) => deps.launchers.run(args, timeoutMs)
+    };
+    const events = {
+      text: (delta, messageId) => this.onText(delta, messageId),
+      toolStart: (t) => this.onToolStart(t.callId, t.name, t.input),
+      toolEnd: (t) => this.onToolEnd(t.callId, t.name, t.ok, t.output),
+      error: (message2) => {
+        if (!this.stopping) this.emit({ kind: "error", message: truncateText(message2) });
       },
-      request: (method, params) => this.onAgentRequest(method, obj(params)),
       log: io.log
-    });
-    proc.stderr.setEncoding("utf8");
-    proc.stderr.on("data", (chunk) => {
-      this.stderr.push(chunk);
-      for (const l of chunk.split("\n")) if (l.trim()) io.log(`[agent] ${l}`);
-    });
-    proc.once("close", (code, signal) => {
-      this.dead = true;
-      this.conn.close(new Error(`${this.label} exited`));
-      if (this.stopping) return;
-      this.stopping = true;
-      const tail = this.stderr.text.split("\n").map((l) => l.trim()).filter(Boolean).at(-1);
-      io.fatal(`${this.label} stopped unexpectedly (${signal ?? `exit code ${code}`})${tail ? `: ${cut(tail, 300)}` : ""}`);
-    });
+    };
+    const make = deps.link ?? LINKS[opts.entry.driver];
+    this.link = make(launchers, events, { label: opts.entry.label, setupTimeoutMs: this.setupMs, ...opts.agentHome ? { home: opts.agentHome } : {} });
   }
   sessionId = null;
   streamIndex = 0;
-  conn;
+  link;
+  proc = null;
   stderr = tailBuffer();
-  caps = {};
+  /** Setup steps under way (the link's `initialize`, a session's start or resume): their own failure says why, not the exit. */
+  settingUp = 0;
   /** A turn, or the session's setup, is under way: messages wait in `queue`. */
   inTurn = false;
   queue = [];
   turn = null;
   /** The current turn's id (a workspace tool call carries it: the server groups repeats by it). */
   turnId = null;
-  /** The next prompt opens with the instructions (an agent that takes no system prompt). */
-  inlinePending = false;
-  /** `session/load` is replaying the session: its updates are not this job's. */
-  replaying = false;
   finished = false;
   /** This turn's `finish`, emitted when its prompt returns. */
   heldFinish = null;
@@ -3118,10 +3509,33 @@ var WorkerDriver = class {
   lastStatus = null;
   message = "";
   messageId = null;
-  /** Tool calls by id: a pending call with no input yet is shown when its input (or its run) arrives. */
+  /** Tool calls by id: shown once, with one result. */
   tools = /* @__PURE__ */ new Map();
   get label() {
     return this.opts.entry.label;
+  }
+  get setupMs() {
+    return this.opts.setupTimeoutMs ?? SETUP_TIMEOUT_MS;
+  }
+  /** The agent's long-lived process, as the link started it: its stderr logged, an unasked exit fatal. */
+  attach(proc) {
+    if (this.proc) throw new Error("the agent was started twice");
+    this.proc = proc;
+    proc.stderr.setEncoding("utf8");
+    proc.stderr.on("data", (chunk) => {
+      this.stderr.push(chunk);
+      for (const l of chunk.split("\n")) if (l.trim()) this.io.log(`[agent] ${l}`);
+    });
+    proc.once("close", (code, signal) => {
+      this.dead = true;
+      setImmediate(() => {
+        if (this.stopping || this.settingUp > 0) return;
+        this.stopping = true;
+        const tail = this.stderr.text.split("\n").map((l) => l.trim()).filter(Boolean).at(-1);
+        this.io.fatal(`${this.label} stopped unexpectedly (${signal ?? `exit code ${code}`})${tail ? `: ${cut(tail, 300)}` : ""}`);
+      });
+    });
+    return proc;
   }
   emit(event) {
     if (event.kind === "status") {
@@ -3138,70 +3552,39 @@ var WorkerDriver = class {
   status(status) {
     this.emit({ kind: "status", status });
   }
-  /** `initialize`: the agent's capabilities and its version (for `ready`). Throws a sentence. */
+  /** The link's setup: the CLI's version (for `ready`). Throws a sentence. */
   async initialize() {
-    let res;
+    this.settingUp += 1;
     try {
-      res = obj(
-        await timeout(
-          this.conn.request("initialize", {
-            protocolVersion: PROTOCOL_VERSION,
-            // No file system and no terminal from the client: the agent works in the folder itself, inside the fence.
-            clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-            clientInfo: { name: "native-intelligence", title: "Native Intelligence", version: "1" }
-          }),
-          this.opts.setupTimeoutMs ?? SETUP_TIMEOUT_MS,
-          `${this.label} did not answer in time`
-        )
-      );
+      const { version } = await within3(this.link.initialize(), this.setupMs, () => new SentenceError(`${this.label} did not answer in time`));
+      return { version: cut(version || "unknown", 64) };
     } catch (err) {
       throw new Error(this.describe(err, "could not start"));
+    } finally {
+      this.settingUp -= 1;
     }
-    if (res.protocolVersion !== PROTOCOL_VERSION) throw new Error(`${this.label} speaks ACP version ${String(res.protocolVersion)}, and this app speaks ${PROTOCOL_VERSION}`);
-    this.caps = obj(res.agentCapabilities);
-    const version = obj(res.agentInfo).version;
-    return { version: typeof version === "string" && version ? cut(version, 64) : "unknown" };
   }
   describe(err, what) {
-    if (err instanceof AcpError && err.code === AUTH_REQUIRED) return this.opts.entry.signInHint;
-    if (err instanceof SetupError) return err.message;
+    if (err instanceof AuthRequiredError) return this.opts.entry.signInHint;
+    if (err instanceof SentenceError) return err.message;
     return `${this.label} ${what}: ${err instanceof Error ? err.message : String(err)}`;
   }
-  mcpServers() {
-    const { url, port, token, proxy } = this.opts.mcp;
-    if (this.caps.mcpCapabilities?.http) return [{ type: "http", name: MANAGER_SERVER, url, headers: [{ name: "Authorization", value: `Bearer ${token}` }] }];
-    return [
-      {
-        name: MANAGER_SERVER,
-        command: proxy.command,
-        args: [...proxy.args],
-        env: [
-          { name: "NI_MCP_PORT", value: String(port) },
-          { name: "NI_MCP_TOKEN", value: token }
-        ]
-      }
-    ];
-  }
   sessionParams() {
-    const systemPrompt = this.caps.sessionCapabilities?.systemPrompt ? { systemPrompt: { mode: "append", content: [{ type: "text", text: workerInstructions(this.opts.mode, this.opts.workspaceInstructions) }] } } : {};
-    return { cwd: this.opts.cwd, mcpServers: this.mcpServers(), ...systemPrompt };
-  }
-  async setMode() {
-    const modeId = this.opts.entry.sessionMode;
-    if (!modeId) return;
-    try {
-      await this.conn.request("session/set_mode", { sessionId: this.sessionId, modeId });
-    } catch (err) {
-      if (err instanceof AcpError && err.code === AUTH_REQUIRED) throw err;
-      throw new SetupError(`${this.label} could not switch to its "${modeId}" mode: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    return {
+      cwd: this.opts.cwd,
+      instructions: workerInstructions(this.opts.mode, this.opts.workspaceInstructions),
+      mcp: { name: MANAGER_SERVER, url: this.opts.mcp.url, token: this.opts.mcp.token }
+    };
   }
   /** Run a session setup step; any failure is fatal (there is no session to go back to). */
   setup(what, step) {
-    void timeout(step(), this.opts.setupTimeoutMs ?? SETUP_TIMEOUT_MS, `${this.label} did not ${what} in time`).catch((err) => {
-      if (this.stopping || this.dead) return;
+    this.settingUp += 1;
+    void within3(step(), this.setupMs, () => new SentenceError(`${this.label} did not ${what} in time`)).catch((err) => {
+      if (this.stopping) return;
       this.stopping = true;
       this.io.fatal(this.describe(err, `could not ${what}`));
+    }).finally(() => {
+      this.settingUp -= 1;
     });
   }
   start(request) {
@@ -3209,13 +3592,11 @@ var WorkerDriver = class {
     this.inTurn = true;
     this.status("starting");
     this.setup("start the session", async () => {
-      const res = obj(await this.conn.request("session/new", this.sessionParams()));
-      if (!isSessionId(res.sessionId)) throw new SetupError(`${this.label} answered with a session id this app can't keep`);
-      this.sessionId = res.sessionId;
-      this.io.write({ type: "session", sessionId: res.sessionId, streamIndex: this.streamIndex });
-      this.inlinePending = !this.caps.sessionCapabilities?.systemPrompt;
-      await this.setMode();
+      const id = await this.link.start(this.sessionParams());
+      if (!isSessionId(id)) throw new SentenceError(`${this.label} answered with a session id this app can't keep`);
       if (this.stopping) return;
+      this.sessionId = id;
+      this.io.write({ type: "session", sessionId: id, streamIndex: this.streamIndex });
       this.beginTurn([request, ...this.queue.splice(0)]);
     });
   }
@@ -3228,30 +3609,17 @@ var WorkerDriver = class {
     }
     this.inTurn = true;
     this.setup("pick up the session", async () => {
-      const params = { ...this.sessionParams(), sessionId };
-      if (this.caps.sessionCapabilities?.resume) {
-        await this.conn.request("session/resume", params);
-      } else if (this.caps.loadSession) {
-        this.replaying = true;
-        try {
-          await this.conn.request("session/load", params);
-        } finally {
-          this.replaying = false;
-        }
-      } else {
-        throw new SetupError(`${this.label} can't pick up a session from an earlier run, so this job can't go on. Start a new job.`);
-      }
+      await this.link.resume(sessionId, this.sessionParams());
+      if (this.stopping) return;
       this.sessionId = sessionId;
       this.streamIndex = streamIndex;
       this.io.write({ type: "session", sessionId, streamIndex });
-      await this.setMode();
-      if (this.stopping) return;
       this.inTurn = false;
       this.status("waiting");
       if (this.queue.length > 0) this.beginTurn(this.queue.splice(0));
     });
   }
-  /** A steer and a queued message travel the same way: ACP takes no input into a running turn. */
+  /** A steer and a queued message travel the same way: neither CLI takes input into a running turn here. */
   send(text, _policy) {
     if (!this.sessionId && !this.inTurn) return this.emit({ kind: "error", message: "no session yet: send start or resume first" });
     if (this.inTurn) {
@@ -3303,22 +3671,23 @@ var WorkerDriver = class {
   currentTurnId() {
     return this.turn ? this.turnId : null;
   }
-  /** Cancel the turn, give it `graceMs` to end, then kill the agent and report `cancelled`. The caller tears the rest down. */
+  /** Cancel the turn, give it `graceMs` to end, then end the agent and report `cancelled`. The caller tears the rest down. */
   async stop(graceMs) {
     this.stopping = true;
-    if (!this.dead && this.turn && this.sessionId) {
-      this.conn.notify("session/cancel", { sessionId: this.sessionId });
+    if (!this.dead && this.turn) {
+      this.link.cancel();
       await Promise.race([this.turn, new Promise((r) => setTimeout(r, graceMs).unref?.())]);
     }
-    if (!this.dead && this.proc.exitCode === null && this.proc.signalCode === null) {
+    const proc = this.proc;
+    if (proc && !this.dead && proc.exitCode === null && proc.signalCode === null) {
       await new Promise((resolve) => {
-        const timer = setTimeout(() => this.proc.kill("SIGKILL"), graceMs);
+        const timer = setTimeout(() => proc.kill("SIGKILL"), graceMs);
         timer.unref?.();
-        this.proc.once("close", () => {
+        proc.once("close", () => {
           clearTimeout(timer);
           resolve();
         });
-        this.proc.kill("SIGTERM");
+        proc.kill("SIGTERM");
       });
     }
     if (this.lastStatus !== "cancelled") this.status("cancelled");
@@ -3328,11 +3697,7 @@ var WorkerDriver = class {
     this.status("running");
     const note = this.pushNote;
     this.pushNote = null;
-    let text = [...note ? [`[From Native Intelligence] ${note}`] : [], ...texts].join("\n\n");
-    if (this.inlinePending) {
-      text = inlineInstructions(this.opts.mode, text, this.opts.workspaceInstructions);
-      this.inlinePending = false;
-    }
+    const text = [...note ? [`[From Native Intelligence] ${note}`] : [], ...texts].join("\n\n");
     this.askedThisTurn = false;
     this.finishThisTurn = false;
     this.heldFinish = null;
@@ -3340,29 +3705,35 @@ var WorkerDriver = class {
     this.message = "";
     this.messageId = null;
     this.turnId = newCallId();
-    const turn = this.conn.request("session/prompt", { sessionId: this.sessionId, prompt: [{ type: "text", text }] }).then(
-      (res) => this.endTurn(obj(res).stopReason),
+    let prompt;
+    try {
+      prompt = this.link.prompt(text);
+    } catch (err) {
+      prompt = Promise.reject(err);
+    }
+    const turn = prompt.then(
+      (reason) => this.endTurn(reason),
       (err) => this.turnFailed(err)
     );
     this.turn = turn;
   }
-  endTurn(stopReason) {
+  endTurn(stopReason2) {
     this.turn = null;
     this.flushMessage();
     if (this.stopping) return;
     const push = this.releaseFinish();
-    const normal = stopReason === "end_turn";
-    if (stopReason === "refusal") this.emit({ kind: "error", message: `${this.label} refused to go on with this request.` });
-    else if (stopReason === "max_tokens") this.emit({ kind: "error", message: `${this.label} stopped: the answer reached its length limit.` });
-    else if (stopReason === "max_turn_requests") this.emit({ kind: "error", message: `${this.label} stopped: the turn reached its limit of steps.` });
-    else if (!normal && stopReason !== "cancelled") this.emit({ kind: "error", message: `${this.label} ended the turn (${cut(String(stopReason))}).` });
+    const normal = stopReason2 === "end_turn";
+    if (stopReason2 === "refusal") this.emit({ kind: "error", message: `${this.label} refused to go on with this request.` });
+    else if (stopReason2 === "max_tokens") this.emit({ kind: "error", message: `${this.label} stopped: the answer reached its length limit.` });
+    else if (stopReason2 === "max_turn_requests") this.emit({ kind: "error", message: `${this.label} stopped: the turn reached its limit of steps.` });
+    else if (!normal && stopReason2 !== "cancelled") this.emit({ kind: "error", message: `${this.label} ended the turn (${cut(String(stopReason2))}).` });
     this.afterTurn(push, normal);
   }
   turnFailed(err) {
     this.turn = null;
     this.flushMessage();
     if (this.stopping || this.dead) return;
-    if (err instanceof AcpError && err.code === AUTH_REQUIRED) {
+    if (err instanceof AuthRequiredError) {
       this.stopping = true;
       return this.io.fatal(this.opts.entry.signInHint);
     }
@@ -3390,71 +3761,33 @@ var WorkerDriver = class {
     if (this.message.trim()) this.emit({ kind: "message", text: truncateText(this.message) });
     this.message = "";
   }
-  onUpdate(params) {
-    if (this.replaying || this.stopping) return;
-    if (this.sessionId && params.sessionId !== this.sessionId) return;
-    const u = obj(params.update);
-    switch (u.sessionUpdate) {
-      case "agent_message_chunk": {
-        const content = obj(u.content);
-        if (content.type !== "text" || typeof content.text !== "string" || !content.text) return;
-        const id = typeof u.messageId === "string" ? u.messageId : null;
-        if (id !== null && this.messageId !== null && id !== this.messageId) this.flushMessage();
-        this.messageId = id ?? this.messageId;
-        this.emit({ kind: "text", delta: truncateText(content.text) });
-        this.message += content.text;
-        return;
-      }
-      case "tool_call": {
-        if (typeof u.toolCallId !== "string") return;
-        this.flushMessage();
-        this.tools.set(u.toolCallId, { name: cut(String(u.title || u.name || u.kind || "tool")), input: u.rawInput, shown: false, done: false });
-        this.toolUpdate(u);
-        return;
-      }
-      case "tool_call_update":
-        if (typeof u.toolCallId === "string" && !this.tools.has(u.toolCallId)) this.tools.set(u.toolCallId, { name: cut(String(u.title || u.name || u.kind || "tool")), input: void 0, shown: false, done: false });
-        this.toolUpdate(u);
-        return;
-      default:
-        return;
-    }
+  onText(delta, messageId) {
+    if (this.stopping || !delta) return;
+    if (messageId !== null && this.messageId !== null && messageId !== this.messageId) this.flushMessage();
+    this.messageId = messageId ?? this.messageId;
+    this.emit({ kind: "text", delta: truncateText(delta) });
+    this.message += delta;
   }
-  /** A tool call's `tool` event once it has its input or has run, and its one `tool_result` once it completed or failed. */
-  toolUpdate(u) {
-    const tool = typeof u.toolCallId === "string" ? this.tools.get(u.toolCallId) : void 0;
+  onToolStart(callId, name, input) {
+    if (this.stopping || this.tools.has(callId)) return;
+    this.flushMessage();
+    const tool = { name: cut(name || "tool"), done: false };
+    this.tools.set(callId, tool);
+    this.emit({ kind: "tool", callId: cut(callId), name: tool.name, input: truncateJson(input ?? {}, INPUT_LIMIT) });
+  }
+  /** One `tool_result` per call; a result for a call never shown shows the call first. */
+  onToolEnd(callId, name, ok, output) {
+    if (this.stopping) return;
+    if (!this.tools.has(callId)) this.onToolStart(callId, name, {});
+    const tool = this.tools.get(callId);
     if (!tool || tool.done) return;
-    const callId = cut(u.toolCallId);
-    if (!tool.shown) {
-      if (typeof u.title === "string" && u.title) tool.name = cut(u.title);
-      if (u.rawInput !== void 0) tool.input = u.rawInput;
-      const hasInput = tool.input !== void 0 && tool.input !== null && !(typeof tool.input === "object" && Object.keys(tool.input).length === 0);
-      if (!hasInput && (u.status === void 0 || u.status === "pending")) return;
-      tool.shown = true;
-      this.emit({ kind: "tool", callId, name: tool.name, input: truncateJson(tool.input ?? {}, INPUT_LIMIT) });
-    }
-    if (u.status !== "completed" && u.status !== "failed") return;
     tool.done = true;
-    this.emit({ kind: "tool_result", callId, name: tool.name, ok: u.status === "completed", output: toolOutput(u) });
-  }
-  onAgentRequest(method, params) {
-    if (method === "session/request_permission") {
-      if (this.stopping) return { outcome: { outcome: "cancelled" } };
-      const pick = pickPermission(params.options);
-      const title = cut(String(obj(params.toolCall).title ?? "a tool call"));
-      if (!pick) {
-        this.io.log(`[worker] permission for ${title}: no option to pick, cancelled`);
-        return { outcome: { outcome: "cancelled" } };
-      }
-      this.io.log(`[worker] permission for ${title}: ${pick.kind || pick.optionId}`);
-      return { outcome: { outcome: "selected", optionId: pick.optionId } };
-    }
-    throw new AcpError(method, METHOD_NOT_FOUND, `${method} is not supported by this client`);
+    this.emit({ kind: "tool_result", callId: cut(callId), name: tool.name, ok, output: truncateJson(output.slice(0, OUTPUT_LIMIT * 4), OUTPUT_LIMIT) });
   }
 };
 
 // agents/local-agent/workers/lib/env.ts
-import { accessSync, constants as fsConstants2, lstatSync as lstatSync2, realpathSync as realpathSync2, statSync as statSync3 } from "node:fs";
+import { accessSync, constants as fsConstants2, lstatSync as lstatSync2, realpathSync as realpathSync3, statSync as statSync3 } from "node:fs";
 import { basename as basename2, join as join2 } from "node:path";
 var WorkerLaunchError = class extends Error {
   constructor(message2) {
@@ -3475,7 +3808,7 @@ function realDir(path, name) {
   if (!path || !path.startsWith("/")) throw new WorkerLaunchError(`${name} is missing or not absolute`);
   let real;
   try {
-    real = realpathSync2(path);
+    real = realpathSync3(path);
   } catch {
     throw new WorkerLaunchError(`${name} does not exist: ${path}`);
   }
@@ -3487,7 +3820,7 @@ function fenceDirFromEnv(dir, jobId) {
   if (!dir || !dir.startsWith("/")) throw missing("LOCAL_AGENT_FENCE_DIR is missing or not absolute");
   let real;
   try {
-    real = realpathSync2(dir);
+    real = realpathSync3(dir);
   } catch {
     throw missing(`${dir} does not exist`);
   }
@@ -3532,7 +3865,6 @@ function workerLaunchFromEnv(env, registry) {
   const extraRead = env.LOCAL_AGENT_EXTRA_READ || void 0;
   if (extraRead !== void 0 && mode !== "edit") throw new WorkerLaunchError("LOCAL_AGENT_EXTRA_READ is only allowed in edit mode");
   if (mode === "edit" && extraRead === void 0) throw new WorkerLaunchError("edit mode needs LOCAL_AGENT_EXTRA_READ (the repository git directory)");
-  const acpDir = realDir(env.LOCAL_AGENT_ACP_DIR, "LOCAL_AGENT_ACP_DIR");
   const fenceDir = fenceDirFromEnv(env.LOCAL_AGENT_FENCE_DIR, jobId);
   const closedPorts = closedPortsFromEnv(env.LOCAL_AGENT_CLOSED_PORTS);
   const binPath = env.LOCAL_AGENT_WORKER_BIN;
@@ -3540,7 +3872,7 @@ function workerLaunchFromEnv(env, registry) {
   if (basename2(binPath) !== entry.cli) throw new WorkerLaunchError(`LOCAL_AGENT_WORKER_BIN is not ${entry.label}'s CLI (${entry.cli}): ${binPath}`);
   let bin;
   try {
-    bin = realpathSync2(binPath);
+    bin = realpathSync3(binPath);
     accessSync(bin, fsConstants2.X_OK);
   } catch {
     throw new WorkerLaunchError(`the ${entry.label} CLI is not an executable file: ${binPath}`);
@@ -3550,7 +3882,6 @@ function workerLaunchFromEnv(env, registry) {
     worker,
     entry,
     bin,
-    acpDir,
     fenceDir,
     closedPorts,
     ...env.LOCAL_AGENT_TOOLS_FILE ? { toolsFile: env.LOCAL_AGENT_TOOLS_FILE } : {},
@@ -3562,6 +3893,165 @@ function workerLaunchFromEnv(env, registry) {
     home: realDir(env.HOME, "HOME"),
     tmpdir: realDir(env.TMPDIR, "TMPDIR"),
     lang: env.LANG || "en_US.UTF-8"
+  };
+}
+
+// agents/local-agent/workers/lib/mcp-http.ts
+import { createServer } from "node:http";
+import { randomBytes as randomBytes4, timingSafeEqual } from "node:crypto";
+var SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+var MCP_PATH = "/mcp";
+var MAX_BODY_BYTES = 2 * 1024 * 1024;
+var MAX_BATCH = 32;
+var SERVER_INSTRUCTIONS = "Native Intelligence, who gave you this job: use report for progress, ask_manager when you are blocked, and finish when the request is done.";
+var rpcError = (id, code, message2) => ({ jsonrpc: "2.0", id, error: { code, message: message2 } });
+var rpcResult = (id, result) => ({ jsonrpc: "2.0", id, result });
+function isRequest(v) {
+  return !!v && typeof v === "object" && v.jsonrpc === "2.0" && typeof v.method === "string";
+}
+function hasId(m) {
+  return typeof m.id === "string" || typeof m.id === "number";
+}
+async function handleRpcMessage(msg, ctx, signal) {
+  if (!isRequest(msg)) {
+    const id = msg && typeof msg === "object" ? msg.id : void 0;
+    const isClientResponse = !!msg && typeof msg === "object" && ("result" in msg || "error" in msg);
+    if (isClientResponse) return null;
+    return rpcError(typeof id === "string" || typeof id === "number" ? id : null, -32600, "Invalid Request");
+  }
+  if (!hasId(msg)) {
+    if (msg.method === "notifications/cancelled") {
+      const requestId = msg.params?.requestId;
+      if (typeof requestId === "string" || typeof requestId === "number") ctx.inflight.get(requestId)?.abort();
+    }
+    return null;
+  }
+  switch (msg.method) {
+    case "initialize": {
+      const asked = msg.params?.protocolVersion;
+      const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(asked) ? asked : SUPPORTED_PROTOCOL_VERSIONS[0];
+      const client = msg.params?.clientInfo;
+      ctx.log?.(`[worker] MCP initialize from ${String(client?.name ?? "?")} ${String(client?.version ?? "")} (protocol ${String(asked)} \u2192 ${protocolVersion})`);
+      return rpcResult(msg.id, {
+        protocolVersion,
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: { name: "native-intelligence", version: "1.0.0" },
+        instructions: ctx.instructions ?? SERVER_INSTRUCTIONS
+      });
+    }
+    case "ping":
+      return rpcResult(msg.id, {});
+    case "tools/list":
+      return rpcResult(msg.id, { tools: (ctx.tools ?? MANAGER_TOOLS).map(({ name, description, inputSchema, annotations: annotations2 }) => ({ name, description, inputSchema, ...annotations2 ? { annotations: annotations2 } : {} })) });
+    case "tools/call": {
+      const name = msg.params?.name;
+      if (typeof name !== "string") return rpcError(msg.id, -32602, "tools/call needs a tool name");
+      if (!(ctx.tools ?? MANAGER_TOOLS).some((t) => t.name === name)) return rpcError(msg.id, -32602, `Unknown tool: ${name}`);
+      const controller = new AbortController();
+      const onAbort = () => controller.abort();
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) controller.abort();
+      ctx.inflight.set(msg.id, controller);
+      try {
+        const res = await ctx.call(name, msg.params?.arguments ?? {}, controller.signal);
+        return rpcResult(msg.id, { content: [{ type: "text", text: res.text }], isError: res.isError });
+      } finally {
+        ctx.inflight.delete(msg.id);
+        signal?.removeEventListener("abort", onAbort);
+      }
+    }
+    default:
+      return rpcError(msg.id, -32601, `Method not found: ${msg.method}`);
+  }
+}
+function bearerMatches(header, token) {
+  const expected = new TextEncoder().encode(`Bearer ${token}`);
+  const got = new TextEncoder().encode(header ?? "");
+  return got.length === expected.length && timingSafeEqual(got, expected);
+}
+function send(res, status, body, headers = {}) {
+  if (body === void 0) {
+    res.writeHead(status, headers).end();
+    return;
+  }
+  const text = JSON.stringify(body);
+  res.writeHead(status, { "content-type": "application/json", "content-length": String(Buffer.byteLength(text)), ...headers }).end(text);
+}
+async function readBody(req) {
+  const decoder = new TextDecoder();
+  let text = "";
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.byteLength;
+    if (size > MAX_BODY_BYTES) return null;
+    text += decoder.decode(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength), { stream: true });
+  }
+  return text + decoder.decode();
+}
+async function startManagerMcp(call, opts = {}) {
+  const token = randomBytes4(32).toString("base64url");
+  const ctx = {
+    call,
+    inflight: /* @__PURE__ */ new Map(),
+    log: opts.log,
+    ...opts.workspaceTools ? { tools: [...MANAGER_TOOLS, ...opts.workspaceTools] } : {},
+    ...opts.workspaceInstructions ? { instructions: `${SERVER_INSTRUCTIONS}
+
+${opts.workspaceInstructions}` } : {}
+  };
+  let port = 0;
+  const server = createServer(async (req, res) => {
+    if (req.headers.origin !== void 0 || req.headers.host !== `127.0.0.1:${port}`) return send(res, 403);
+    const path = (req.url ?? "").split("?")[0];
+    if (path !== MCP_PATH) return send(res, 404);
+    if (!bearerMatches(req.headers.authorization, token)) return send(res, 401, void 0, { "www-authenticate": "Bearer" });
+    if (req.method !== "POST") return send(res, 405, void 0, { allow: "POST" });
+    const gone = new AbortController();
+    res.on("close", () => {
+      if (!res.writableFinished) gone.abort();
+    });
+    const body = await readBody(req);
+    if (body === null) return send(res, 413);
+    let parsed;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return send(res, 400, rpcError(null, -32700, "Parse error"));
+    }
+    try {
+      if (Array.isArray(parsed)) {
+        if (parsed.length === 0 || parsed.length > MAX_BATCH) return send(res, 400, rpcError(null, -32600, `A batch holds 1 to ${MAX_BATCH} messages`));
+        const out2 = [];
+        for (const m of parsed) {
+          const r = await handleRpcMessage(m, ctx, gone.signal);
+          if (r !== null) out2.push(r);
+        }
+        return out2.length ? send(res, 200, out2) : send(res, 202);
+      }
+      const out = await handleRpcMessage(parsed, ctx, gone.signal);
+      return out ? send(res, 200, out) : send(res, 202);
+    } catch (err) {
+      opts.log?.(`[worker] MCP request failed: ${err instanceof Error ? err.message : String(err)}`);
+      return send(res, 500, rpcError(null, -32603, "Internal error"));
+    }
+  });
+  server.requestTimeout = 0;
+  server.timeout = 0;
+  server.headersTimeout = 6e4;
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  port = server.address().port;
+  return {
+    port,
+    url: `http://127.0.0.1:${port}${MCP_PATH}`,
+    token,
+    close: () => new Promise((resolve) => {
+      for (const c of ctx.inflight.values()) c.abort();
+      server.closeAllConnections();
+      server.close(() => resolve());
+    })
   };
 }
 
@@ -3584,12 +4074,8 @@ var registry_default = {
   "claude-code": {
     label: "Claude Code",
     cli: "claude",
-    command: [
-      "$NODE",
-      "$ACP_DIR/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"
-    ],
+    driver: "claude-stream",
     env: {
-      CLAUDE_CODE_EXECUTABLE: "$CLI",
       CLAUDE_CODE_TMPDIR: "$TMP",
       DISABLE_AUTOUPDATER: "1"
     },
@@ -3599,22 +4085,12 @@ var registry_default = {
     login: {
       keychain: true
     },
-    signInHint: "Claude Code isn't signed in on this Mac. Open Terminal, run `claude`, then `/login`.",
-    packages: {
-      "@agentclientprotocol/claude-agent-acp": "0.107.0"
-    }
+    signInHint: "Claude Code isn't signed in on this Mac. Open Terminal, run `claude`, then `/login`."
   },
   codex: {
     label: "Codex",
     cli: "codex",
-    command: [
-      "$NODE",
-      "$ACP_DIR/node_modules/@agentclientprotocol/codex-acp/dist/index.js"
-    ],
-    env: {
-      CODEX_PATH: "$CLI"
-    },
-    sessionMode: "agent-full-access",
+    driver: "codex-app-server",
     homeFolders: [
       ".codex"
     ],
@@ -3630,22 +4106,17 @@ var registry_default = {
         }
       ]
     },
-    signInHint: "Codex isn't signed in on this Mac. Open Terminal and run `codex login`.",
-    packages: {
-      "@agentclientprotocol/codex-acp": "2.6.0"
-    }
+    signInHint: "Codex isn't signed in on this Mac. Open Terminal and run `codex login`."
   }
 };
 
 // agents/local-agent/workers/lib/registry.ts
+var DRIVERS = ["claude-stream", "codex-app-server"];
 var WORKER_ID = /^[a-z][a-z0-9-]{0,31}$/;
 var ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
 var NAME = /^(?!\.\.?$)[A-Za-z0-9._-]+$/;
 var SCRATCH = /^(?!\.\.?$)[A-Za-z0-9._*-]+$/;
-var RESERVED_ENV = /^(HOME|PATH|TMPDIR|NO_BROWSER|USER|LOGNAME|SHELL|LOCAL_AGENT_.*|NI_.*)$/;
-var EXACT_VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
-var PACKAGE = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
-var COMMAND_VARS = ["NODE", "ACP_DIR", "CLI"];
+var RESERVED_ENV = /^(HOME|PATH|TMPDIR|NO_BROWSER|USER|LOGNAME|SHELL|CODEX_HOME|CLAUDE_CONFIG_DIR|LOCAL_AGENT_.*|NI_.*)$/;
 var ENV_VARS = ["CLI", "TMP", "HOME"];
 function placeholders(s) {
   return [...s.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)/g)].map((m) => m[1]);
@@ -3667,9 +4138,8 @@ function parseRegistry(input) {
     const label = str2(id, r.label, "label");
     const cli = str2(id, r.cli, "cli");
     if (cli.includes("/")) fail(id, "cli is a name, not a path");
-    if (!Array.isArray(r.command) || r.command.length === 0) fail(id, "command must be a non-empty array");
-    const command = r.command.map((c, i) => str2(id, c, `command[${i}]`));
-    for (const c of command) for (const p of placeholders(c)) if (!COMMAND_VARS.includes(p)) fail(id, `command uses $${p}`);
+    const driver = r.driver;
+    if (typeof driver !== "string" || !DRIVERS.includes(driver)) fail(id, `driver must be one of ${DRIVERS.join(", ")}`);
     const env = {};
     if (r.env !== void 0) {
       if (!r.env || typeof r.env !== "object" || Array.isArray(r.env)) fail(id, "env must be an object");
@@ -3681,7 +4151,6 @@ function parseRegistry(input) {
         env[k] = v;
       }
     }
-    const sessionMode = r.sessionMode === void 0 ? void 0 : str2(id, r.sessionMode, "sessionMode");
     const login = r.login ?? {};
     if (typeof login !== "object" || Array.isArray(login)) fail(id, "login must be an object");
     if (login.keychain !== void 0 && typeof login.keychain !== "boolean") fail(id, "login.keychain must be a boolean");
@@ -3701,21 +4170,14 @@ function parseRegistry(input) {
     const homeFolders = r.homeFolders === void 0 ? [] : r.homeFolders;
     if (!Array.isArray(homeFolders) || !homeFolders.every((h) => typeof h === "string" && NAME.test(h) && h.startsWith("."))) fail(id, "homeFolders must be hidden folder names");
     const signInHint = str2(id, r.signInHint, "signInHint");
-    if (!r.packages || typeof r.packages !== "object" || Array.isArray(r.packages) || Object.keys(r.packages).length === 0) fail(id, "packages must name the ACP adapter");
-    for (const [name, version] of Object.entries(r.packages)) {
-      if (!PACKAGE.test(name)) fail(id, `package name ${JSON.stringify(name)}`);
-      if (typeof version !== "string" || !EXACT_VERSION.test(version)) fail(id, `package ${name} needs an exact version`);
-    }
     out[id] = {
       label,
       cli,
-      command,
+      driver,
       env,
-      ...sessionMode === void 0 ? {} : { sessionMode },
       homeFolders,
       login: { ...login.keychain ? { keychain: true } : {}, files },
-      signInHint,
-      packages: r.packages
+      signInHint
     };
   }
   return out;
@@ -3734,14 +4196,12 @@ function loadRegistry(input = registry_default) {
 function expand(s, vars) {
   return s.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (whole, name) => vars[name] ?? whole);
 }
-function agentLaunch(entry, vars) {
-  const command = entry.command.map((c) => expand(c, { NODE: vars.node, ACP_DIR: vars.acpDir, CLI: vars.cli }));
-  const env = Object.fromEntries(Object.entries(entry.env).map(([k, v]) => [k, expand(v, { CLI: vars.cli, TMP: vars.tmp, HOME: vars.home })]));
-  return { command, env };
+function entryEnv(entry, vars) {
+  return Object.fromEntries(Object.entries(entry.env).map(([k, v]) => [k, expand(v, { CLI: vars.cli, TMP: vars.tmp, HOME: vars.home })]));
 }
 
 // agents/local-agent/workers/lib/run.ts
-var AGENT_TMP_PREFIX = "/private/tmp/dial8-acp-";
+var AGENT_TMP_PREFIX = "/private/tmp/dial8-agent-";
 var O_EXLOCK = 32;
 function acquireJobLock(dir) {
   const exlock = process.platform === "darwin" ? O_EXLOCK : 0;
@@ -3755,7 +4215,7 @@ function acquireJobLock(dir) {
 }
 function realpathOrNull(p) {
   try {
-    return realpathSync3(p);
+    return realpathSync4(p);
   } catch {
     return null;
   }
@@ -3866,17 +4326,11 @@ async function runWorker(opts = {}) {
       { sessionId: launch.jobId, home: launch.home, tmpRoot: launch.tmpdir, lang: launch.lang, env }
     );
     if (exiting) return;
-    const node = realpathSync3(process.execPath);
-    const entryScript = realpathSync3(opts.entryScript ?? process.argv[1]);
-    for (const a of agentLaunch(entry, { node, acpDir: launch.acpDir, cli: launch.bin, tmp: "", home: "" }).command.slice(1)) {
-      if (a.startsWith(`${launch.acpDir}/`) && !(realpathOrNull(a) ?? "").startsWith(`${launch.acpDir}/`)) {
-        throw new WorkerLaunchError(`${label}'s ACP adapter is not installed in LOCAL_AGENT_ACP_DIR (${a}): run install-agents.sh`);
-      }
-    }
-    const prepared = prepareAgentHome(realpathSync3(process.cwd()), launch.home, entry);
+    const node = realpathSync4(process.execPath);
+    const prepared = prepareAgentHome(realpathSync4(process.cwd()), launch.home, entry);
     const agentHome = prepared.home;
-    agentTmp = realpathSync3(mkdtempSync(AGENT_TMP_PREFIX));
-    const { command: argv, env: extraEnv } = agentLaunch(entry, { node, acpDir: launch.acpDir, cli: launch.bin, tmp: agentTmp, home: agentHome });
+    agentTmp = realpathSync4(mkdtempSync(AGENT_TMP_PREFIX));
+    const extraEnv = entryEnv(entry, { cli: launch.bin, tmp: agentTmp, home: agentHome });
     const manager = createManagerTools((event, pullRequest) => driver?.onManagerEvent(event, pullRequest), launch.mode);
     const tools = loadToolsFile(launch.toolsFile, log);
     workspace = tools ? createWorkspaceBridge(tools, { write: (line) => !silenced && write(line), log, turn: () => driver?.currentTurnId() ?? null }) : null;
@@ -3889,7 +4343,8 @@ async function runWorker(opts = {}) {
     workspaceText = tools ? tools.instructions : void 0;
     if (exiting) return;
     const readRoots = agentReadRoots(
-      { bin: launch.bin, toolPath: launch.toolPath, home: launch.home, extra: [(await nodeRuntimeRoot(node)).runtime, launch.acpDir, dirname2(entryScript)] },
+      // This Node, for a CLI that is a `#!/usr/bin/env node` script (an npm install of Codex).
+      { bin: launch.bin, toolPath: launch.toolPath, home: launch.home, extra: [(await nodeRuntimeRoot(node)).runtime] },
       realpathOrNull,
       existsSync2
     );
@@ -3917,14 +4372,21 @@ async function runWorker(opts = {}) {
       // The person's toolchains (read-only), then the registry entry's own settings.
       { ...toolchainEnv(launch.home, existsSync2), ...extraEnv }
     );
-    const child = spawnSandboxed(profile, argv, { cwd: launch.folder, env: environment });
+    const sandboxed = { cwd: launch.folder, env: environment };
+    const launchers = {
+      spawn: (args) => {
+        if (exiting) throw new Error("the job is ending");
+        return spawnSandboxed(profile, [launch.bin, ...args], sandboxed);
+      },
+      run: (args, timeoutMs) => runSandboxed(profile, [launch.bin, ...args], { ...sandboxed, timeoutMs })
+    };
     driver = new WorkerDriver(
-      child,
       {
         entry,
+        agentHome,
         mode: launch.mode,
         cwd: launch.folder,
-        mcp: { url: mcp.url, port: mcp.port, token: mcp.token, proxy: { command: node, args: [entryScript, "--mcp-proxy"] } },
+        mcp: { url: mcp.url, token: mcp.token },
         ...workspaceText !== void 0 ? { workspaceInstructions: workspaceText } : {}
       },
       {
@@ -3934,12 +4396,13 @@ async function runWorker(opts = {}) {
         log,
         fatal: fatal2,
         ask: (kind, detail) => prompts.ask(kind, detail)
-      }
+      },
+      { launchers }
     );
     ({ version } = await driver.initialize().catch((err) => {
       throw new WorkerLaunchError(message(err));
     }));
-    log(`[worker] ${label} (ACP adapter ${version}) in ${launch.mode} mode; manager tools on 127.0.0.1:${mcp.port}`);
+    log(`[worker] ${label} ${version} in ${launch.mode} mode; manager tools on 127.0.0.1:${mcp.port}`);
   } catch (err) {
     if (exiting) return;
     return fatal2(err instanceof WorkerLaunchError || err instanceof AgentHomeError ? err.message : `${label} could not start: ${message(err)}`);
@@ -3956,7 +4419,7 @@ function runReturnLogins(env = process.env, registry) {
     const all = registry ?? loadRegistry();
     if (!worker || !Object.hasOwn(all, worker)) throw new WorkerLaunchError(`no worker is called ${JSON.stringify(worker ?? null)}`);
     if (!env.HOME?.startsWith("/")) throw new WorkerLaunchError("HOME is missing or not absolute");
-    const returned = returnLoginFiles(realpathSync3(process.cwd()), realpathSync3(env.HOME), all[worker], (l) => process.stderr.write(`${l}
+    const returned = returnLoginFiles(realpathSync4(process.cwd()), realpathSync4(env.HOME), all[worker], (l) => process.stderr.write(`${l}
 `));
     write({ type: "logins", returned });
     return 0;
@@ -3966,7 +4429,7 @@ function runReturnLogins(env = process.env, registry) {
   }
 }
 
-// agents/local-agent/workers/acp.ts
+// agents/local-agent/workers/worker.ts
 function fatal(err) {
   process.stdout.write(`${JSON.stringify({ type: "fatal", message: err instanceof Error ? err.message : String(err) })}
 `);
@@ -3975,7 +4438,7 @@ function fatal(err) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     if (process.argv[2] === "--return-logins") process.exit(runReturnLogins());
-    (process.argv[2] === "--mcp-proxy" ? runMcpProxy() : runWorker()).catch(fatal);
+    runWorker().catch(fatal);
   } catch (err) {
     fatal(err);
   }

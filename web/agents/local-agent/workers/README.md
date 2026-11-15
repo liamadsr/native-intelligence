@@ -3,42 +3,52 @@
 L4 in `docs/plans/teammate-agent.md`. A job can run the person's own Claude
 Code or Codex as its worker instead of Native Intelligence's eve agent. The
 rails stay the same: the session, the ledger, the bridge and the grant. The
-desktop starts this adapter instead of the launcher; it speaks the launcher's
-JSON lines to the desktop and the Agent Client Protocol (ACP,
-https://agentclientprotocol.com) to the agent.
+desktop starts this worker instead of the launcher; it speaks the launcher's
+JSON lines to the desktop and starts the person's own CLI directly
+(`LOCAL_AGENT_WORKER_BIN`, found by the desktop): nothing of either vendor
+ships with the app or is fetched by it.
 
-There is no per-agent code. One adapter speaks ACP (JSON-RPC 2.0, one message
-per line, over the agent process's stdio) to any agent, and everything that
-differs between agents is an entry in `registry.json`.
+What is generic (turns, the queue, the held `finish`, the push prompt, the
+events) is the driver's; how one CLI is started and spoken to is its link
+(`lib/agent-link.ts`), named by its entry in `registry.json`:
+
+- `claude-stream` (`lib/claude-stream.ts`): Claude Code in print mode with
+  stream-json in and out, one long-lived process per launch of a job;
+- `codex-app-server` (`lib/codex-app-server.ts`): `codex app-server`, line
+  JSON-RPC over its stdio (`lib/jsonrpc.ts`).
 
 | File | What it is |
 | --- | --- |
-| `acp.ts` | The one entry point the desktop runs, for every worker (bundled to `acp.mjs` by `build.sh`). `acp.mjs --mcp-proxy` is the stdio MCP proxy. |
+| `worker.ts` | The one entry point the desktop runs, for every worker (bundled to `worker.mjs` by `build.sh`). `worker.mjs --return-logins` is the desktop's after-sweep call. |
 | `registry.json`, `lib/registry.ts` | The agents, as data, and their checks. |
-| `install-agents.sh`, `acp-adapters/` | Installs the ACP adapters exactly as `acp-adapters/package-lock.json` locks them into one folder (`LOCAL_AGENT_ACP_DIR`). |
-| `lib/run.ts` | One job end to end: the job lock, the launch checks, the grant, the private home, the MCP server, the profile, `initialize`, `ready`, stdin, teardown. |
-| `lib/driver.ts` | The session over ACP: start / resume / send / stop, turns, the queue, the held `finish`, the `finish` nudge, updates mapped to events, permission answers. |
-| `lib/acp-client.ts` | The JSON-RPC connection (about a hundred lines, no SDK). |
+| `lib/run.ts` | One job end to end: the job lock, the launch checks, the grant, the private home, the MCP server, the profile, the two sandboxed launchers, the link's `initialize`, `ready`, stdin, teardown. |
+| `lib/driver.ts` | The session: start / resume / send / stop, turns, the queue, the held `finish`, the `finish` nudge, the link's events mapped to the launcher's, the agent's process watched. |
+| `lib/agent-link.ts` | The seam: what a link does (`initialize`, `start`, `resume`, `prompt`, `cancel`) and tells (text, tools, errors). |
+| `lib/claude-stream.ts`, `lib/codex-app-server.ts`, `lib/jsonrpc.ts` | The two links, and Codex's JSON-RPC connection (no SDK). |
 | `lib/agent-profile.ts` | The ONE Seatbelt profile around the agent's whole process tree. |
 | `lib/agent-home.ts` | The job's private home and the links to the person's existing login. |
-| `lib/manager-tools.ts`, `lib/mcp-http.ts`, `lib/mcp-proxy.ts` | `report`, `ask_manager`, `finish` as an MCP server on 127.0.0.1 (a per-launch bearer), and the stdio proxy to it. |
+| `lib/manager-tools.ts`, `lib/mcp-http.ts` | `report`, `ask_manager`, `finish` as an MCP server on 127.0.0.1 (Streamable HTTP, a per-launch bearer). |
 | `lib/instructions.ts` | What the agent is told about the job. |
 | `lib/env.ts`, `lib/protocol.ts`, `lib/process.ts` | The launch environment, the JSON lines (restated from the launcher), process plumbing. |
 
 ## The design
 
 ```
- desktop (Rust) ──JSON lines──▶ adapter (node, acp.mjs)          cwd: <root>/jobs/<id>
+ desktop (Rust) ──JSON lines──▶ worker (node, worker.mjs)        cwd: <root>/jobs/<id>
                                  ├─ MCP server on 127.0.0.1:<port>, bearer per launch: report / ask_manager / finish
-                                 └─ sandbox-exec <agent profile> node <ACP adapter> ──▶ the person's CLI ──▶ its shell, its edits
+                                 └─ sandbox-exec <agent profile> <the person's CLI> ──▶ its shell, its edits
+                                      claude -p … stream-json        or        codex app-server
                                       cwd: the granted folder (edit job: the worktree)
                                       HOME: <root>/jobs/<id>/home (this job's only)
                                       ├─ HTTPS (:443) to its vendor, on the person's own login
-                                      └─ the MCP port (HTTP with the bearer, or `acp.mjs --mcp-proxy` over stdio)
+                                      └─ the MCP port (Streamable HTTP with the bearer)
 ```
 
 - **The agent uses its own tools** (shell, file reads and edits) directly in
-  the folder: ACP has no standard way to turn them off. The safety is one
+  the folder (its own permission checks off: Claude Code's
+  `bypassPermissions`, Codex's `approvalPolicy: "never"` and
+  `sandbox: "danger-full-access"`, since its sandbox can't nest inside ours).
+  The safety is one
   Seatbelt profile around the agent's whole process tree
   (`agent-profile.ts`); macOS refuses a second `sandbox-exec` inside a
   sandboxed process, so nothing below it is fenced again.
@@ -68,7 +78,7 @@ differs between agents is an entry in `registry.json`.
     so are preference reads (cfprefsd is not on the list). No launchd jobs, no
     Apple events, no exec of `open`, `osascript`, `launchctl`, `shortcuts` or
     `automator`. DNS goes through mDNSResponder's socket;
-  - writes: its private home, its temp folder (`/private/tmp/dial8-acp-*`,
+  - writes: its private home, its temp folder (`/private/tmp/dial8-agent-*`,
     short for Claude Code's sockets, removed at exit), the keychain folder,
     each shared login file (that literal file and the scratch names its save
     makes beside it, only as REGULAR files, nothing else in its real folder;
@@ -85,18 +95,22 @@ differs between agents is an entry in `registry.json`.
     built under an innocent name anywhere could otherwise be renamed into the
     worktree whole. The agent's own state folders whose names are among them
     (`.claude`, `.codex`: the registry's `homeFolders`) are made, empty, by
-    the adapter before it starts, and their protected files (`settings.json`,
+    the worker before it starts, and their protected files (`settings.json`,
     `hooks/`, `config.toml`) stay unwritable. A hard link to a protected file
     is refused by the kernel too;
   - **pinned** (no rename, replacement, removal or `chmod`; writing inside
     still works): the folder or worktree root, its home and every folder the
-    adapter made in it, its temp folder, the real keychain folder and the real
+    worker made in it, its temp folder, the real keychain folder and the real
     folder of each login file. Without that a root could be moved aside,
-    filled, and moved back;
+    filled, and moved back. Only `file-write-data` on the roots it writes in
+    is opened again after the pin: `access(W_OK)` on a folder is checked as
+    that, and nothing else writes a folder's data, so a writability check
+    answers truthfully (SQLite looks for its temp folder this way: Codex
+    0.169.0's state database failed to open under the profile without it);
   - reads: the real HOME, `/Users`, `/Volumes`, `/private/var/folders` and
     `/private/tmp` are denied, then re-opened for its home, its temp folder,
-    the folder, the read-only roots (the Node runtime, the adapter install
-    folders, the CLI's install and the tool PATH's dirs where reads are
+    the folder, the read-only roots (the Node runtime, for a CLI that is a
+    Node script, the CLI's install and the tool PATH's dirs where reads are
     denied: `agentReadRoots`), the person's toolchains under HOME (the folder
     fence's own list: `~/.cargo/bin` and `registry`, `~/.rustup/toolchains`
     and `settings.toml`, `~/.nvm`, `~/.volta`, `~/.pyenv`, `~/.bun/bin`,
@@ -113,10 +127,10 @@ differs between agents is an entry in `registry.json`.
 - **The session's working folder is the folder** (the worktree in an edit
   job): the agent works there itself.
 - **A private home per job** (`agent-home.ts`): `<job dir>/home` (0700),
-  made by the adapter and never another job's, so nothing a job leaves there
+  made by the worker and never another job's, so nothing a job leaves there
   (settings, hooks, skills, a `CLAUDE.md`) reaches a later job on another
   folder; resuming the same job reuses it. None of the person's own settings,
-  hooks, skills, plugins or MCP servers is read from there. The adapter runs
+  hooks, skills, plugins or MCP servers is read from there. The worker runs
   outside the fence on paths the agent could write during an earlier launch of
   the job, so it repairs and removes nothing there: every folder from the job
   dir down must be a real folder at its own realpath (made when missing), and
@@ -136,7 +150,7 @@ differs between agents is an entry in `registry.json`.
   exclusive copy beside it and a rename; the copy never stays behind); a link
   is dropped; a folder is left in the job dir and logged; anything else is
   unlinked. The link is then put back. This runs at the next launch and in
-  `acp.mjs --return-logins` (below), never at the adapter's own teardown,
+  `worker.mjs --return-logins` (below), never at the worker's own teardown,
   when a process that left the tree may still run. Also at launch: a second
   name of the login file that is one of its scratch names in its own folder is
   unlinked.
@@ -153,56 +167,75 @@ differs between agents is an entry in `registry.json`.
     real file. The person's folder around it (Codex's config, rules, prompts,
     skills) is never shared: the agent's `.codex` is its own. The real file
     must be a plain file with one name, or the launch is refused;
-  - the adapter never calls ACP `authenticate` and never opens a browser
-    (`NO_BROWSER=1`).
+  - the worker never signs anyone in and never opens a browser
+    (`NO_BROWSER=1`): a CLI with no login ends the job with the entry's
+    `signInHint`.
 - **Manager tools.** `report`, `ask_manager` and `finish` are served by the
-  adapter's MCP server, and their events come from the call ARRIVING there,
-  never from the agent's output. The agent gets the server in `session/new`
-  as an HTTP server with an `Authorization: Bearer` header when it advertises
-  `mcpCapabilities.http`, else as a stdio server: `acp.mjs --mcp-proxy`, a
-  child of the agent inside the fence, holding no Native Intelligence
-  credential, forwarding each line to the same port with the bearer.
-- **`finish` is held until the turn's `session/prompt` returns**, then
+  worker's MCP server, and their events come from the call ARRIVING there,
+  never from the agent's output. Both CLIs get it as a Streamable HTTP server
+  named `ni` with an `Authorization: Bearer` header: Claude Code in
+  `--mcp-config` (with `--strict-mcp-config`: no other server), Codex in the
+  thread's `config.mcp_servers`.
+- **`finish` is held until the turn has ended**, then
   emitted once: the desktop commits on it, so it must not land while the turn
   (or a command it left running) is still writing. A second `finish` in the
   same turn, and any manager call outside a turn (a command that read the
   bearer, say), is only logged.
-- **Instructions** (`instructions.ts`) go as `systemPrompt` (`append`) on
-  `session/new`, `session/resume` and `session/load` when the agent advertises
-  `sessionCapabilities.systemPrompt`; otherwise at the top of the first prompt.
-- **Mode.** A registry `sessionMode` is set with `session/set_mode` after the
-  session exists (and again after a resume): the mode where the agent's own
-  sandbox is off, since it can't nest inside ours. A refusal is fatal.
-- **Permission requests** are answered at once with the first `allow_once`
-  option (else the first allow option): the fence is the guard. They are
-  logged to stderr, never shown as prompts.
-- **Turns.** One `session/prompt` at a time. Messages that arrive during a
-  turn (or while the session is being set up) wait and go together, joined by
-  a blank line, as the next turn. `stop` sends `session/cancel`, gives the
-  turn the grace period, then ends the agent and every process below it,
+- **Instructions** (`instructions.ts`) are appended to the agent's own system
+  prompt, at every launch (a resume too): Claude Code's
+  `--append-system-prompt`, Codex's `developerInstructions`. Prompts carry
+  only the messages.
+- **Claude Code's settings:** `--setting-sources user`, and the user settings
+  are the private home's, which can't be written: nothing of the person's
+  own. The folder's project and local settings (`.claude/settings*.json`:
+  hooks, env, a status line, an API key helper) are not loaded, because print
+  mode skips Claude Code's workspace trust question and a repository's hooks
+  would otherwise run without anyone trusting them; the agent reads the
+  folder's `CLAUDE.md` itself (the instructions say so). Not `--bare`: it
+  skips the person's login.
+- **Permission and approval requests** (with the checks off, none is
+  expected): Codex's command and file-change approvals are accepted, a Claude
+  Code `can_use_tool` request allowed; logged to stderr, never shown as
+  prompts. Anything else the CLI asks is refused.
+- **Turns.** One prompt at a time: a `user` line on Claude Code's stdin, a
+  `turn/start` for Codex. Messages that arrive during a turn (or while the
+  session is being set up) wait and go together, joined by a blank line, as
+  the next turn. `stop` cancels the turn (Claude Code: SIGINT; Codex:
+  `turn/interrupt`), gives it the grace period, then ends the agent and every
+  process below it,
   including the ones it started that left its process group (a snapshot is
   taken before the agent is stopped: once it exits, its children belong to
   launchd).
 - **The `finish` nudge.** A turn that ends normally (`end_turn`) with no
   `finish` yet in this job, and no `ask_manager` in that turn, gets ONE
-  automatic follow-up prompt (`FINISH_NUDGE`). Once per adapter process: a
+  automatic follow-up prompt (`FINISH_NUDGE`). Once per worker process: a
   relaunched job may get one more.
-- **Updates** (`session/update`):
-  - `agent_message_chunk` → `text`, and a whole `message` when the agent moves
-    on (a tool call, a new message id, a manager call, the turn's end);
-  - `tool_call` → `tool`, held until its input arrives when that comes in a
-    later update (Claude Code sends it so);
-  - a tool call `completed` / `failed` → one `tool_result`: text, diffs (path
-    and new text) and terminal ids, each cut, then the whole cut to 4 KB;
-  - thoughts, plans, usage, modes and commands are **dropped** for now.
+- **Events**, the top-level agent's only (a sub-agent's own steps are not
+  shown):
+  - its text → `text` (Claude Code's `stream_event` text deltas, Codex's
+    `item/agentMessage/delta`), and a whole `message` when the agent moves on
+    (a tool call, a new message id, a manager call, the turn's end);
+  - a tool call → one `tool` (Claude Code's `tool_use` blocks; Codex's
+    `commandExecution` as `shell`, `fileChange` as `edit`, `mcpToolCall` as
+    `mcp__<server>__<tool>`), its result → one `tool_result`, cut to 4 KB;
+  - thinking, reasoning, plans, usage and the rest are **dropped** for now.
   - Text is cut by the bytes of its JSON string (escapes counted: a control
     character takes 6), and every event line is checked against the
     desktop's 64 KB cap before it goes out.
-- **Stop reasons:** `cancelled` → the stop's `cancelled`; `refusal`,
-  `max_tokens`, `max_turn_requests` → an `error` event, then `waiting`.
-- **Not signed in:** an "authentication required" error (-32000) on
-  `session/new`, `session/resume`, `session/load` or `session/prompt` is fatal
-  with the entry's `signInHint`.
+- **Stop reasons:** `cancelled` → the stop's `cancelled`; a refusal, the
+  length limit and the step limit (Claude Code's `error_max_turns`) → an
+  `error` event, then `waiting`; a failed turn → an `error` event with what
+  the CLI said, then `waiting`.
+- **Not signed in** is fatal with the entry's `signInHint`, at the session's
+  start or at a turn. Claude Code: no login found answers its `initialize`
+  control request with `account.tokenSource: "none"`, and a turn then gets a
+  synthetic `assistant` message with `error: "authentication_failed"` (both
+  seen with no login in the home); an expired or revoked login is matched by
+  its text, unverified. Codex: `account/read` answers `account: null` before
+  any thread (seen), and a turn that fails `unauthorized` (unverified).
+- **Our MCP server not connected** (Claude Code's `system` `init` line says
+  so; Codex's `mcpServer/startupStatus/updated` says `failed`): logged and
+  shown once as an `error` event (the agent can't call `finish` without it).
 
 ## The registry
 
@@ -211,38 +244,32 @@ differs between agents is an entry in `registry.json`.
 | Field | Meaning |
 | --- | --- |
 | `label` | The agent's name in sentences. |
-| `cli` | The executable the desktop looks up on PATH; `LOCAL_AGENT_WORKER_BIN` must have this name. |
-| `command` | The ACP adapter's argv: `$NODE` (this Node), `$ACP_DIR`, `$CLI` (the person's CLI, realpath). Its script must exist inside `$ACP_DIR`. |
+| `cli` | The executable the desktop looks up on PATH; `LOCAL_AGENT_WORKER_BIN` must have this name. It is run as `[the CLI, ...args]`, the realpath of what the desktop passed, never looked up again. |
+| `driver` | The link: `claude-stream` or `codex-app-server`. |
 | `env` | Extra environment: `$CLI`, `$TMP` (its temp folder), `$HOME` (its private home). Never `HOME`, `PATH`, `TMPDIR`, `NO_BROWSER`, `USER`, `LOGNAME`, `SHELL`, `LOCAL_AGENT_*` or `NI_*`. |
-| `sessionMode` | Optional, set with `session/set_mode`. |
 | `homeFolders` | Its own state folders, made empty in its home before it starts (their names are ones it can't create). |
 | `login` | `keychain: true`, and/or `files: [{ path, scratch }]`: single login files of HOME and the names their save makes beside them. |
 | `signInHint` | The sentence for a person whose agent isn't signed in. |
-| `packages` | The ACP adapter's npm package and exact version; `acp-adapters/package.json` and its lockfile must say the same. |
 
-Today: Claude Code through `@agentclientprotocol/claude-agent-acp` 0.107.0
-(`CLAUDE_CODE_EXECUTABLE=$CLI`, so the person's own installed, unmodified
-`claude` runs; `CLAUDE_CODE_TMPDIR=$TMP`, without which it tries
-`/tmp/claude-<uid>` and fails in the fence; `DISABLE_AUTOUPDATER=1`; its
-`.claude`; login in the keychain), and Codex through
-`@agentclientprotocol/codex-acp` 2.6.0 (`CODEX_PATH=$CLI`, mode
-`agent-full-access`, its `.codex`, login in `~/.codex/auth.json` with the
-scratch names `.auth-*`, `auth.json.lock` and `auth.lock`).
+Today: Claude Code (`claude-stream`; `CLAUDE_CODE_TMPDIR=$TMP`, without which
+it tries `/tmp/claude-<uid>` and fails in the fence; `DISABLE_AUTOUPDATER=1`;
+its `.claude`; login in the keychain), and Codex (`codex-app-server`; its
+`.codex`, login in `~/.codex/auth.json` with the scratch names `.auth-*`,
+`auth.json.lock` and `auth.lock`). The desktop reads only `label` and `cli`.
 
 ## The desktop's side
 
-**What to run.** For every worker: `<node 24> <bundle>/workers/acp.mjs`
-(dev: `<agentDir>/.output/workers/acp.mjs`, after `workers/build.sh
-agents/local-agent/.output`). The cwd is the job dir: the adapter makes the
+**What to run.** For every worker: `<node 24> <bundle>/workers/worker.mjs`
+(dev: `<agentDir>/.output/workers/worker.mjs`, after `workers/build.sh
+agents/local-agent/.output`). The cwd is the job dir: the worker makes the
 agent's home in it (`<job dir>/home`), so a job dir must be the job's alone,
 and removing a finished job's dir removes its home. Same process group and
 stop and exit handling as for the launcher.
 
-**The adapters.** `workers/install-agents.sh <dir>` installs them with `npm ci`
-from `acp-adapters/package-lock.json` (`--ignore-scripts --omit=optional`:
-no install script runs, and the optional platform builds of the CLIs, ~340 MB
-each, are left out because the person's own CLI runs). Nothing is added to
-`web/package.json`.
+**Nothing else to install.** The worker starts the person's own CLI, the one
+the desktop found; no package of either vendor is in the bundle or fetched.
+Codex needs a version with `codex app-server` (0.169.0 seen; 0.34.0 has none
+and gets a sentence asking to update it).
 
 **Environment.** The launcher's fence environment, built from scratch
 (`HOME`, `TMPDIR`, `LANG`, `PATH`, `LOCAL_AGENT_JOB_ID`, `_FOLDER`, `_MODE`,
@@ -251,7 +278,6 @@ each, are left out because the person's own CLI runs). Nothing is added to
 - `LOCAL_AGENT_WORKER_BIN`: the absolute path of the person's CLI from the
   desktop's PATH lookup, named as the entry's `cli`; run as given (after
   realpath), PATH never searched;
-- `LOCAL_AGENT_ACP_DIR`: the folder `install-agents.sh` filled;
 - `LOCAL_AGENT_FENCE_DIR`: the fence marker folder (below);
 - `LOCAL_AGENT_CLOSED_PORTS` (optional): a comma-separated list of the ports
   that belong to the app itself at launch (each local server of its own
@@ -265,13 +291,14 @@ each, are left out because the person's own CLI runs). Nothing is added to
   (no registry entry may set a `LOCAL_AGENT_*` name).
 
 No relay URL, session token or dev key, and any of them (`NI_CREDENTIALS`) is
-fatal; so is a `LOCAL_AGENT_LOCAL_MODEL_*` setting.
+fatal; so is a `LOCAL_AGENT_LOCAL_MODEL_*` setting. An older desktop's
+`LOCAL_AGENT_ACP_DIR` is ignored.
 
 **The fence marker (a contract).** Before each worker launch the desktop
 makes two empty files in a folder of its own that the agent can't write (under
 the app's data folder in the person's real home), `<fence dir>/<job id>` and
 `<fence dir>/<job id>.open`, and passes the folder as `LOCAL_AGENT_FENCE_DIR`
-(absolute). The adapter refuses to run without it (missing, not absolute, not
+(absolute). The worker refuses to run without it (missing, not absolute, not
 a real folder, or either file missing: a `fatal` sentence). The profile holds,
 after every other read rule:
 
@@ -285,14 +312,14 @@ the second must be opened explicitly. So the kernel's answer per process tells
 them apart: this job's fenced processes are denied the first and allowed the
 second; another job's fence and an app's sandbox are denied both; an unfenced
 process is allowed both. That is how the desktop finds every process of the
-job, a `setsid` one re-parented to launchd included, after the adapter's own
+job, a `setsid` one re-parented to launchd included, after the worker's own
 kill of its process tree. Neither file nor the folder can be written, renamed
 or removed from inside (pinned). A path that doesn't exist can't serve: the
 kernel answers "denied" for it to every process.
 
-**`acp.mjs --return-logins` (a contract).** After the desktop has swept a
+**`worker.mjs --return-logins` (a contract).** After the desktop has swept a
 finished or stopped job's processes (by its fence marker), it runs
-`<node 24> <bundle>/workers/acp.mjs --return-logins`, UNSANDBOXED, with
+`<node 24> <bundle>/workers/worker.mjs --return-logins`, UNSANDBOXED, with
 `cwd` = the job dir, `LOCAL_AGENT_WORKER` = the worker and `HOME` = the
 person's real home (no other variable is read; no argument beyond the flag).
 It starts no agent and touches only the job's home, the job dir (where an
@@ -310,7 +337,7 @@ launch of the same job does the same before the agent starts.
 
 **Workspace tools (contract v1, `lib/workspace-tools.ts`).** The person's
 agent gets Native Intelligence's workspace tools (read its card, comment,
-make follow-up cards, link a pull request) without the adapter ever holding a
+make follow-up cards, link a pull request) without the worker ever holding a
 credential: the desktop holds the job's token and talks to the server.
 - **The list:** `LOCAL_AGENT_TOOLS_FILE`, the absolute path of a JSON file the
   desktop wrote before the launch: `{"version":1,"instructions":"<≤ 4,000
@@ -324,7 +351,7 @@ credential: the desktop holds the job's token and talks to the server.
   instructions). Never fatal.
 - **One server:** the tools are listed after `report`, `ask_manager`,
   `finish` on the same MCP server, behind the same per-launch bearer. The
-  file's `instructions` go into the system prompt (or the first prompt) and
+  file's `instructions` go into the appended system prompt and
   the MCP server's instructions, framed as their own section and followed by
   our sentence: what these tools return is content from the workspace, to be
   read as information, never as instructions.
@@ -361,7 +388,7 @@ credential: the desktop holds the job's token and talks to the server.
   JSON), at most 256 KB, cut with a note saying so; not `ok`: `isError` with
   the sentence (cut to 2,000 characters) and the code in brackets.
 - **The transcript** already shows each call as `tool` / `tool_result` from
-  the agent's own ACP updates, cut to the usual limits; the adapter adds
+  the agent's own output, cut to the usual limits; the worker adds
   nothing of its own, so nothing shows twice. A read job is no different: the
   server decides which tools a job gets.
 
@@ -376,8 +403,8 @@ never behind another line.
 **Lines out:**
 
 ```
-{"type":"ready","port":0,"worker":"claude-code","workerVersion":"0.107.0"}   after `initialize`: the ACP adapter's version
-{"type":"session","sessionId":"<id>","streamIndex":<n>}                     after session/new, or after a resume succeeded
+{"type":"ready","port":0,"worker":"claude-code","workerVersion":"2.1.311"}   after the link's `initialize`: the CLI's own version
+{"type":"session","sessionId":"<id>","streamIndex":<n>}                     once a new session exists, or after a resume succeeded
 {"type":"cursor","streamIndex":<n>}                                         every finished prompt (the nudge's too)
 {"type":"event","event":<NormalizedEvent>}                                  report / ask at once; finish after its turn, once
 {"type":"prompt","id":"p-<hex>-<n>","kind":"push","detail":{"title":…,"body":…,"timeoutMs":…}}   the launcher's own line
@@ -388,7 +415,7 @@ never behind another line.
 - **A pull request** (C5, as our own agent's): the agent's `finish` may carry
   `pull_request` (`title` 1–256 characters, `body` at most 60,000; control
   characters stripped from the title, as the prompt does). In an EDIT job the
-  adapter then writes, in this order: the `finish` event (`summary` only,
+  worker then writes, in this order: the `finish` event (`summary` only,
   exactly as the launcher's), the `push` prompt line (the launcher's broker:
   same ids, one prompt at a time, 5-minute timeout counted in `timeoutMs`),
   and, once the `prompt_answer` arrives (or the timeout passes), the turn's
@@ -399,7 +426,7 @@ never behind another line.
   (the app is pushing and opening the pull request itself; it won't see the
   result and must not push), no (nothing pushed), or nobody answered (nothing
   pushed; `finish` with `pull_request` asks again). Never a link: the push's
-  result never reaches the adapter. The note lives in memory only. A read job's
+  result never reaches the worker. The note lives in memory only. A read job's
   `finish` with `pull_request` is a plain `finish` (no prompt; the agent is
   told nothing was changed). A worker never sends a `fence` prompt.
 
@@ -407,36 +434,42 @@ never behind another line.
   agent is told to stop what it started first; see the risks); the
   desktop still has to refuse to commit an auto-run config in a worker job
   (the profile denies them, the desktop is the second check).
-- **Session ids** are whatever the agent answered (both use UUIDs today),
-  accepted when they are 1 to 256 of `[A-Za-z0-9._:-]` starting with a letter
-  or digit (`SESSION_ID`): they travel in JSON, never on a command line.
+- **Session ids:** Claude Code's is a UUID the worker makes (`--session-id`),
+  Codex's its thread id (a UUID). Accepted when they are 1 to 256 of
+  `[A-Za-z0-9._:-]` starting with a letter or digit (`SESSION_ID`); Claude
+  Code's link takes only a UUID for `--resume`, the one id that reaches a
+  command line.
 - **`resume`** writes `session` and `waiting` once the agent has picked the
-  session up (`session/resume`, else `session/load` with the replay
-  swallowed). An agent with neither, or a session it doesn't know, is fatal.
+  session up: Claude Code relaunched with `--resume` (it ends at once, "No
+  conversation found", for one it doesn't know; seen), Codex's
+  `thread/resume` (an error for one it doesn't know; seen). A session it
+  can't pick up is fatal.
 - **The job lock is the launcher's** (`<cwd>/.launcher.lock`, `O_EXLOCK`).
-- **Fatal** before `ready`: a bad launch environment, the adapter not
-  installed, a home or login link that isn't what the adapter made, a login
-  file that isn't a plain file, the agent not starting under its profile.
-  After it: not signed in, a session that can't be made or picked up, the
-  mode refused, the agent exiting on its own. A failed turn is an `error`
+- **Fatal** before `ready`: a bad launch environment, a home or login link
+  that isn't what the worker made, a login file that isn't a plain file, the
+  CLI not starting under its profile (its `--version` for Claude Code, its
+  app server for Codex), a Codex with no app server. After it: not signed
+  in, a session that can't be made or picked up, the agent exiting on its
+  own. A failed turn is an `error`
   event, then `waiting`.
 
 ## Doesn't map (a worker against our own agent)
 
 - **`finish` lands when the turn ends**, not when the call is made: the
-  adapter holds it until `session/prompt` returns (commands the turn started
+  worker holds it until the turn has ended (commands the turn started
   could still be writing). The order of `finish`, the `push` prompt and the
   cursor is the launcher's.
 - **The push outcome comes one turn later.** Our own agent's `finish` waits
   for the person's answer and gets it as the tool's result; a worker's
-  `finish` returns at once (ACP has no way to hold a tool call across the end
-  of a turn), so the agent gets the person's answer at the start of its next
+  `finish` returns at once (the CLIs give no way to hold a tool call across
+  the end of a turn), so the agent gets the person's answer at the start of its next
   turn, and never the pull request's link.
   If no message ever follows, it never hears it.
 - **A bad `pull_request` is a tool error the agent can fix** (as eve's schema
   refuses it for our own agent), never an `invalid` prompt outcome.
 - **No `fence` prompts**: a worker can't ask for one more path.
-- **Steer and queue are the same**: ACP takes no input into a running turn.
+- **Steer and queue are the same**: a message waits for the running turn to
+  end.
 - **Thoughts, plans and usage** are dropped (see the risks).
 
 ## Verified, and not
@@ -461,17 +494,24 @@ readable and nothing else near them, the credential files and
 `~/.cargo/config.toml` not. Opt-in with `LA_TEST_NETWORK=1`: curl, `git
 ls-remote`, `npm view`, Python's urllib and Node's https work over HTTPS
 under the profile, and binding a local port is refused.
-- the driver against a stand-in ACP agent (`fixtures/fake-acp-agent.mjs`) run
-  as a real process: capabilities and both MCP hand-overs (HTTP with the
-  bearer, and the bundle's real stdio proxy), instructions both ways, the
-  event mapping and its cuts, permission answers, queued messages, stop and
-  cancel, `session/resume`, `session/load` with the replay swallowed, neither,
-  `session/set_mode`, the sign-in sentence, the manager events, `finish` held
-  to the turn's end and once per turn, a forged `finish` between turns
-  ignored, the one-time nudge; a pull request: `finish`, the launcher's
-  `push` prompt line and (after the answer) the cursor, in that order, both
-  answers told to the agent with its next message, a read job's plain
-  finish, a second `finish` still ignored, a stray `prompt_answer` dropped;
+- the driver (`driver.test.ts`) through a stand-in link with the real MCP
+  server: the session's parameters, the event mapping and its cuts, queued
+  messages, stop and cancel, the agent's process dying (its stderr in the
+  sentence; a setup step's own sentence first), resume and its failures, the
+  sign-in sentence at the start and at a turn, refusals, the step limit and
+  failed turns, the link's errors, the manager events, `finish` held to the
+  turn's end and once per turn, a forged `finish` between turns ignored, the
+  one-time nudge; a pull request: `finish`, the launcher's `push` prompt line
+  and (after the answer) the cursor, in that order, both answers told to the
+  agent with its next message, a read job's plain finish, a second `finish`
+  still ignored, a stray `prompt_answer` dropped;
+- each link against a stand-in CLI run as a real process
+  (`fixtures/fake-claude.mjs`, `fixtures/fake-codex.mjs`, the shapes the real
+  CLIs wrote on 2026-11-14): its flags or thread settings, two turns over one
+  process, text once each, tools and results, a sub-agent's or another
+  thread's events left out, resume and an unknown session, cancel, the
+  sign-in checks, our MCP server failing, approvals, a Codex with no app
+  server and one that fails to start;
 - the private home: per job, the reviewer's probes replayed (its `Library`, its
   home or its login folder swapped for a link to the real one, a folder or a
   file where a link was) each refusing the launch with nothing of the fake
@@ -484,7 +524,9 @@ under the profile, and binding a local port is refused.
   and nothing else of its real folder readable or writable; no commit; no
   `.git` or auto-run config anywhere, by name, by a hard link, or built under
   an innocent name and renamed into place, whole folders included; every
-  pinned root unmovable, unreplaceable, unremovable; the reviewer's chain
+  pinned root unmovable, unreplaceable, unremovable, while a writability
+  check (`test -w`) on the roots it writes in answers yes and on the others
+  no; the reviewer's chain
   (settings and a hook built in the home, the worktree moved aside, the home
   moved in) refused; an unfenced server on this Mac reachable over IPv4, IPv6
 and by name, and UDP to it, while 127.0.0.2, remote ports 80 and 22 are
@@ -495,13 +537,15 @@ own neither connectable nor bindable; a server the agent left listening killed
 at the stop;
   the keychain through the home's link; no other process's arguments or
   signals; no launchd job;
-- the whole worker end to end (`worker.e2e.test.ts`): the bundled adapter,
-  the real profile, MCP server and proxy, the stand-in agent installed where
-  `install-agents.sh` puts the real ones, a read job and an edit job, the
+- the whole worker end to end (`worker.e2e.test.ts`): the bundled worker,
+  the real profile and MCP server, the stand-in CLIs installed where the
+  desktop finds the real ones (a native install behind a `~/.local/bin` link,
+  an npm global script), a read job and an edit job, the
   login file saved through its link and nothing else of the real Codex folder
   touched, a relaunch that resumes, a second job unable to read or write the
   first job's home, every child process (one that left the group too) dead
-  after a stop, the nudge, the sign-in sentence, the refusals;
+  after a stop, the nudge, the sign-in sentence for both, the refusals, a
+  Codex with no app server;
 - opt-in (`LA_TEST_CODEX_BIN=<codex>`): a real Codex saves an API-key login (a
   made-up key, a fake home, the file store forced) through the link under the
   profile, and nothing else appears in the real folder.
@@ -513,9 +557,23 @@ at the stop;
   folder: exit 0): the atomic save of newer versions. A token refresh of any
   version has not been seen.
 
-By hand on 2026-11-13, one tiny read-job turn each through the built
-`acp.mjs`, with the adapters from `install-agents.sh`, on the person's own
-login: Claude Code 2.1.311 and Codex 0.166.0 started under the profile, made
+Live, opt-in (`worker.live.test.ts`: `LA_TEST_LIVE_CLAUDE_BIN=<claude>`,
+`LA_TEST_LIVE_CODEX_BIN=<codex>`; it spends a little of the person's plan):
+the built worker, the real profile, the private home and the person's own
+login, one tiny read job in a throwaway folder under HOME. On 2026-11-14,
+Claude Code 2.1.311 and Codex 0.169.0 each started under the profile,
+answered the handshake, read the folder's README with their own tool
+(Claude Code's `Read`, Codex's shell), called `finish` through our MCP
+server (Claude Code found it with its `ToolSearch` first), and the turn
+ended with `finish`, `cursor`, `waiting`; the stop wrote `cancelled`;
+`--return-logins` put nothing back (no refresh was due; the real
+`auth.json` kept its size and modification time). Codex 0.169.0 first failed
+to open its state database under the profile until the pin stopped refusing
+writability checks (above).
+
+By hand on 2026-11-13, one tiny read-job turn each through the earlier
+protocol adapters this worker used before it started the CLIs itself, on
+the person's own login: Claude Code 2.1.311 and Codex 0.166.0 started under the profile, made
 a session in the folder, answered, called `finish` (Codex twice: the second
 was ignored, and the one `finish` came after the turn), and stopped with
 `cancelled`. Codex read its login through the file link; the real
@@ -527,8 +585,14 @@ Not verified:
 - a token refresh of either agent under the profile (Codex's newer atomic
   save is only replayed by a stand-in; a refused save during a refresh could
   spend a single-use refresh token and break the person's real login);
-- an edit job, a resume, a permission request, a `sessionMode` refusal or the
-  stdio proxy with a real agent (both real agents take HTTP MCP);
+- with a real CLI: an edit job, a resume, a cancel (Claude Code's SIGINT in
+  the middle of a turn: whether it ends the turn or the process; both are
+  handled), a second turn, an approval request, a workspace tool;
+- an expired or revoked login (only "no login at all" has been seen, for
+  both), and Codex's `unauthorized` turn failure;
+- a Claude Code that does not answer the `initialize` control request (taken
+  as started after 30 s; the request is the one Anthropic's own Agent SDK
+  sends, not a documented interface of the CLI);
 - pyenv and volta (not on this Mac): their variables are set, but whether
   their shims run read-only is unverified.
 
@@ -589,17 +653,17 @@ Node over HTTPS all work; `shortcuts list` is refused.
 - **Thoughts, plans and usage are dropped.** The desktop sees text, tools and
   the manager events only.
 - **A process that leaves the tree on its own.** A stop or a fatal kills every
-  process below the adapter as it was before the agent was stopped. If the
+  process below the worker as it was before the agent was stopped. If the
   agent itself crashes first, what it started is re-parented before the
-  adapter looks, and survives the job (still inside the profile).
+  worker looks, and survives the job (still inside the profile).
 - **A `tool` row for the manager tools too.** The agent reports its own call
   of `finish` as a tool call, so it shows as a tool beside the `finish` event.
 - **The worker sends the folder's contents to Anthropic or OpenAI** on the
   person's account, which is the point. The desktop refuses workers while the
-  Mac is set to a local model, and the adapter refuses them too.
+  Mac is set to a local model, and the worker refuses them too.
 - **Terms:** Anthropic allows a person's unmodified Claude Code, signed in
   with their own plan, inside another product (docs/plans/local-agents.md,
-  appendix); the adapter runs their installed `claude` as is. For Codex on a
+  appendix); the worker runs their installed `claude` as is. For Codex on a
   ChatGPT login, OpenAI's sanctioned third-party route is Sign in with
   ChatGPT; check before shipping.
 
@@ -640,7 +704,7 @@ webpack-dev-server and Create React App `HOST=127.0.0.1`, Rails
 `-b 127.0.0.1`, Django `runserver 127.0.0.1:8000` (its default),
 Jupyter `--ip=127.0.0.1` (its default). Nothing in the environment pushes
 tools toward loopback (`HOST` and `HOSTNAME` mean other things to other
-programs). Every server it starts ends with the job: the adapter's kill of
+programs). Every server it starts ends with the job: the worker's kill of
 its process tree at a stop, then the desktop's fence sweep for one that left
 the tree.
 
@@ -663,8 +727,8 @@ fact:
   `login.files`, with the same rules (one plain file, its save's scratch
   names, the repair at teardown); Windows has no Seatbelt `vnode-type`, so
   "regular files only" needs another check.
-- **The registry**: `command`, `env` and `cli` are platform-neutral, but the
-  placeholders (`$NODE`, `$CLI` paths), the `cli` name check (`claude.exe`,
+- **The registry**: `driver`, `env` and `cli` are platform-neutral, but the
+  placeholders (`$CLI`, `$TMP` paths), the `cli` name check (`claude.exe`,
   `codex.cmd`) and the path rules (drive letters, case, `\`) are not.
 
 Not verifiable without a Windows machine: whether either agent and its CLI
@@ -675,8 +739,9 @@ what replaces the name rules (`.git`, auto-run configs) and the pins.
 ## Build
 
 ```bash
-agents/local-agent/workers/build.sh <out-dir>            # <out-dir>/workers/acp.mjs (~140 KB)
-agents/local-agent/workers/install-agents.sh <acp-dir>   # npm ci from acp-adapters/package-lock.json (~87 MB)
+agents/local-agent/workers/build.sh <out-dir>            # <out-dir>/workers/worker.mjs (~190 KB)
 ```
 
-`scripts/local-agent/bundle.sh` (WS-B) should call both.
+`scripts/local-agent/bundle.sh` calls it (`mac-body.sh` `build_workers`) and
+copies `registry.json` beside it; the bundle declares `workers` when both are
+in.

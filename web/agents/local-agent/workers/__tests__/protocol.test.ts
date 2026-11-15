@@ -53,7 +53,7 @@ describe('the worker protocol and the launcher agree', () => {
 })
 
 describe('what a worker reads differently', () => {
-  it('takes a safe, bounded session id: an ACP id is any string, carried in JSON', () => {
+  it('takes a safe, bounded session id, never one that reads as an option', () => {
     for (const id of ['aaaaaaaa-1111-4222-8333-444444444444', 'AAAAAAAA-1111-4222-8333-444444444444', 'thr_1', 'sess-abc', '019a.b:c', 'x'.repeat(256)]) expect(isSessionId(id), id).toBe(true)
     for (const id of ['-x', '--last', '--settings={}', '.hidden', 'a b', 'a/b', 'a\nb', 'aaaa ', 'x'.repeat(257), '', 7, null]) expect(isSessionId(id), String(id)).toBe(false)
   })

@@ -1,11 +1,31 @@
+import { readFileSync } from 'node:fs'
+
 /**
  * The relay's side of /api/browser-relay/* (docs/plans/cloud-browser.md, C2).
- * Runs in the sandbox. It holds no credential: every request carries only the
- * relay's mark header, and the sandbox firewall adds the run token to requests
- * that carry it (host.ts `relayNetworkPolicy`).
+ * Runs in the sandbox. On the hosted backend it holds no credential: every
+ * request carries only the relay's mark header, and the sandbox firewall adds
+ * the run token to requests that carry it (backend-hosted.ts
+ * `relayNetworkPolicy`). On the runtime backend, whose firewall cannot add a
+ * header, the server writes the token into a file only the relay's user can
+ * read (backend-runtime.ts), and the relay is started with `--token-file`:
+ * then each request reads that file and sends the token itself, beside the
+ * mark (a fresh token, written at an exit switch, is used from the next
+ * request on). No file, no token header: as on the hosted backend.
  */
 
 export const RELAY_MARK = { 'x-ni-relay': '1' } as const
+/** The header the hosted firewall adds and the runtime relay sends itself (relay-token.ts RELAY_TOKEN_HEADER). */
+export const RELAY_TOKEN = 'x-ni-relay-token'
+
+/** The token in `path`, or null when there is none (no file, or an empty one). Never logged. */
+export function readRelayTokenFile(path: string): string | null {
+  try {
+    const token = readFileSync(path, 'utf8').trim()
+    return token ? token : null
+  } catch {
+    return null
+  }
+}
 
 export interface ClaimedCommand {
   id: string
@@ -25,13 +45,15 @@ export class RelayRestart extends Error {
 }
 
 export class RelayClient {
-  constructor(readonly origin: string, readonly version: string, private fetchImpl: typeof fetch = fetch) {}
+  /** `readToken`: the runtime backend's token file, read at each request (`readRelayTokenFile`); none on the hosted one. */
+  constructor(readonly origin: string, readonly version: string, private fetchImpl: typeof fetch = fetch, private readToken?: () => string | null) {}
 
   private async call(path: string, init: { method?: string; body?: unknown; signal?: AbortSignal; timeoutMs?: number } = {}) {
     const signal = AbortSignal.any([AbortSignal.timeout(init.timeoutMs ?? 30_000), ...(init.signal ? [init.signal] : [])])
+    const token = this.readToken?.() ?? null
     return this.fetchImpl(`${this.origin}${path}`, {
       method: init.method ?? 'GET', signal,
-      headers: { ...RELAY_MARK, ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}) },
+      headers: { ...RELAY_MARK, ...(token ? { [RELAY_TOKEN]: token } : {}), ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}) },
       ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
     })
   }

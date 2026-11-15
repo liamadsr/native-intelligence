@@ -2,14 +2,12 @@
  * The manager tools (manager-tools.ts) as an MCP server on 127.0.0.1, over
  * Streamable HTTP (MCP 2025-03-26 and later), for the worker agent to call.
  *
- * It lives in the adapter, outside the agent's Seatbelt profile
+ * It lives in the worker, outside the agent's Seatbelt profile
  * (agent-profile.ts). The profile lets the agent reach every port on this
  * Mac, so every job's server is reachable from every job: the per-launch
- * bearer is what keeps one job from calling another's tools. The
- * agent gets it as an HTTP MCP server with the bearer in an Authorization
- * header when it advertises `mcpCapabilities.http`; otherwise through the
- * stdio proxy (mcp-proxy.ts), a child of the agent inside the fence that
- * forwards each message here with the same bearer.
+ * bearer is what keeps one job from calling another's tools. Both CLIs get it
+ * as an HTTP MCP server with the bearer in an Authorization header (Claude
+ * Code's `--mcp-config`, Codex's `config.mcp_servers`).
  *
  * The guard, like launcher/server-guard.ts: a random port on 127.0.0.1 only,
  * a random 32-byte bearer per launch checked in constant time, a bare 403 to

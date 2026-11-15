@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ToolExecutionOptions } from 'ai'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-const mock = vi.hoisted(() => ({ enqueue: vi.fn(), read: vi.fn() }))
+const mock = vi.hoisted(() => ({ enqueue: vi.fn(), read: vi.fn(), fail: vi.fn(async (..._args: unknown[]) => {}), ensure: vi.fn(async (..._args: unknown[]): Promise<unknown> => ({})) }))
 vi.mock('@/lib/browser-agent/queue', () => ({ enqueueBrowserCommand: mock.enqueue, readBrowserCommand: mock.read,
-  failWaitingBrowserCommand: async () => {},
+  failWaitingBrowserCommand: mock.fail,
   isTerminalBrowserStatus: (status: string) => ['completed', 'failed', 'denied', 'expired'].includes(status) }))
-vi.mock('@/lib/cloud-browser/host', () => ({ ensureCloudBrowser: async () => ({}) }))
+vi.mock('@/lib/cloud-browser/host', () => ({ ensureCloudBrowser: mock.ensure }))
 import { createBrowserTools } from '../browser'
 import { compactBrowserTaskResult } from '@/lib/browser-agent/task-result-summary'
 import { browserCommandAttribution } from '@/lib/browser-agent/attribution'
@@ -25,8 +25,30 @@ beforeEach(() => {
   vi.useFakeTimers()
   mock.enqueue.mockReset().mockResolvedValue('run')
   mock.read.mockReset().mockResolvedValue({ command: 'run_task', status: 'completed', result })
+  mock.fail.mockReset().mockResolvedValue(undefined)
+  mock.ensure.mockReset().mockResolvedValue({})
 })
 afterEach(() => vi.useRealTimers())
+
+describe('a browser that cannot start', () => {
+  it('fails the waiting command with "all in use" when every shared slot is held, not the generic "could not start"', async () => {
+    const { CloudBrowserBusyError } = await import('@/lib/cloud-browser/slots')
+    mock.ensure.mockRejectedValueOnce(new CloudBrowserBusyError())
+    mock.read.mockResolvedValue({ command: 'run_task', status: 'failed', error_message: 'All browsers are in use right now. Try again in a minute.' })
+    const pending = tools().run_browser_task.execute!(task as never, execution)
+    await vi.advanceTimersByTimeAsync(400)
+    expect(mock.fail).toHaveBeenCalledWith('user', 'run', 'All browsers are in use right now. Try again in a minute.')
+    expect(await pending).toMatchObject({ success: false, browser_command_status: 'failed', error: 'All browsers are in use right now. Try again in a minute.' })
+  })
+
+  it('keeps the reason for any other failure', async () => {
+    mock.ensure.mockRejectedValueOnce(new Error('quota'))
+    const pending = tools().run_browser_task.execute!(task as never, execution)
+    await vi.advanceTimersByTimeAsync(400)
+    await pending
+    expect(mock.fail).toHaveBeenCalledWith('user', 'run', 'Your browser could not start: quota')
+  })
+})
 
 describe('browser tool result compaction', () => {
   it('passes trusted runtime correlation through the factory to the queue', async () => {

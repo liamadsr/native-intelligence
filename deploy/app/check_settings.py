@@ -21,6 +21,11 @@ What "the right value" means depends on the setting, so they are in four groups:
 
   check_settings.py <env file> [--names-only] [--fill <envfile.py>]
                     [--pinned <base64 SPKI> ...] [--embedding-model <name>]
+                    [--edge-env <the edge's .env>]
+
+--edge-env is where the edge's settings are read, for the cloud browser's names on
+our own runtime (default: ../edge/.env beside the env file). Only two of its values
+are compared, never shown.
 
 --names-only reads the file and reports the groups and what is empty, without
 checking a value against anything.
@@ -102,6 +107,14 @@ MAY_BE_EMPTY = {
     "SANDBOX_RUNTIME_KEY": "empty: the coding agent's sandbox is not on our own runtime",
     "SANDBOX_RUNTIME_TEMPLATE": "empty: ni-coding-agent",
     "AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES": "empty: the git gate takes a run's credential from any address (what the hosted sandbox needs)",
+    # The cloud browser on our own sandbox runtime (../README.md, "The cloud browser"):
+    # off until CLOUD_BROWSER_BACKEND=runtime, which then needs the other three.
+    "CLOUD_BROWSER_BACKEND": "empty: the cloud browser runs on the hosted sandbox service, as before",
+    "CLOUD_BROWSER_RUNTIME_KEY": "empty: web holds no key of our own runtime (needed with CLOUD_BROWSER_BACKEND=runtime only)",
+    "CLOUD_BROWSER_RUNTIME_TEMPLATE": "empty: ni-cloud-browser",
+    "CLOUD_BROWSER_HUB_DOMAIN": "empty: no browser names of our own (needed with CLOUD_BROWSER_BACKEND=runtime)",
+    "BROWSER_RELAY_ALLOWED_ADDRESSES": "empty: needed with CLOUD_BROWSER_BACKEND=runtime only (every relay is refused there without it)",
+    "CLOUD_BROWSER_MAX_RUNNING": "empty: at most 4 browsers run at once on our own runtime (the shared slots)",
     # The call recorder (../livekit's recorder service; ../README.md step 23, "The call recorder").
     "TEAM_CALL_RECORDER": "a switch: empty is off (call notes are Egress's, or there are none)",
     "CAPTURE_FEED_SECRET": "empty: the call recorder cannot reach the app (make-keys.sh in ../livekit makes it)",
@@ -119,9 +132,25 @@ MAY_BE_EMPTY = {
     # The Studio worker (../studio; ../../studio-worker).
     "STUDIO_WORKER_SECRET": "empty: the Studio worker is refused, so nothing is imported, rendered or exported (../studio/README.md)",
     "STUDIO_PROVIDER_WORKSPACES": "empty: no workspace may make narration or generated shots on the worker's provider accounts",
+    "STUDIO_CODE_SCENES": "a switch: empty is off (the Studio's code scenes do not run; on needs it in ../studio/.env too)",
 }
 
 SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}
+
+# The earlier host's own variables: no line of .env.example, and entrypoint.sh starts
+# no role with one set (it says why and holds the list; tests/test_entrypoint.py keeps
+# this copy equal to it). They come along with a file made for that host.
+MUST_BE_ABSENT = {
+    "VERCEL": "the app and the agents would take this server for a deployment at the earlier host",
+    "VERCEL_ENV": "the app and the agents would take this server for a deployment at the earlier host",
+    "VERCEL_TARGET_ENV": "the agents would take this server for a deployment at the earlier host",
+    "VERCEL_URL": "the agents' workflow runtime would take it for its own address",
+    "VERCEL_PROJECT_ID": "what the agents fall back to for a sandbox's project (here SANDBOX_PROJECT_ID, handed over explicitly)",
+    "VERCEL_TEAM_ID": "what the agents fall back to for a sandbox's team (here SANDBOX_TEAM_ID, handed over explicitly)",
+    "VERCEL_ORG_ID": "what the agents fall back to for a sandbox's team (here SANDBOX_TEAM_ID, handed over explicitly)",
+    "VERCEL_TOKEN": "what the agents fall back to for a sandbox's token (here SANDBOX_ACCESS_TOKEN, handed over explicitly)",
+    "VERCEL_OIDC_TOKEN": "a short-lived token the agents and the AI Gateway calls fall back to (here SANDBOX_ACCESS_TOKEN and AI_GATEWAY_API_KEY)",
+}
 
 # What is off while a needed one is empty, where it is not obvious from the name.
 EMPTY_MEANS = {
@@ -143,6 +172,8 @@ EMPTY_MEANS = {
 
 
 def group(name):
+    if name in MUST_BE_ABSENT:
+        return "must be absent"
     if name in SWITCH:
         return "switch"
     if name in MUST_MATCH:
@@ -150,6 +181,14 @@ def group(name):
     if name in MAY_BE_EMPTY:
         return "may be empty"
     return "needed"
+
+
+def stray_exports(text):
+    """The earlier host's variables on `export NAME=value` lines. envfile.py writes no
+    such line and parse_env reads none, but Compose does, and a file made for a shell
+    has them: so these are looked for apart, to be reported with the others."""
+    lines = [m.group(1) for m in (re.match(r"export[ \t]+(.*)$", line) for line in text.split("\n")) if m]
+    return {n: v for n, v in parse_env("\n".join(lines)).items() if n in MUST_BE_ABSENT}
 
 
 # --- reading the file as Compose reads it -------------------------------------------
@@ -586,6 +625,11 @@ def check_runtime(env, _opts):
             names = {a for image in images if isinstance(image, dict) for a in (image.get("aliases") or [])}
             if template not in names:
                 return False, "the runtime has no image by the name SANDBOX_RUNTIME_TEMPLATE gives (setup.sh in ../sandbox builds it on the sandbox server)"
+            # With the cloud browser on this runtime too, its image as well.
+            if browser_backend(env) == "runtime":
+                if browser_template(env) not in names:
+                    return False, "the runtime has no image by the name CLOUD_BROWSER_RUNTIME_TEMPLATE gives, and the cloud browser is set to run there (setup.sh in ../sandbox builds it on the sandbox server)"
+                return True, "the runtime answers over the tunnel, accepts the key and has the coding agent's and the cloud browser's images"
             return True, "the runtime answers over the tunnel, accepts the key and has the coding agent's image"
         if trouble(status):
             return None, "the runtime could not be asked for its images (%d): cannot tell" % status
@@ -634,6 +678,163 @@ def check_gate_addresses(env, _opts):
     if not env.get("SANDBOX_RUNTIME_API_URL", "").strip():
         return "warn", ("set without our own runtime: the git gate would refuse every clone and push from the hosted "
                         "sandbox service's sandboxes (they come from other addresses), so coding runs there would fail")
+    return None, None
+
+
+# --- the cloud browser on our own sandbox runtime ------------------------------------
+
+BROWSER_BACKEND = "CLOUD_BROWSER_BACKEND"
+BROWSER_TEMPLATE = "CLOUD_BROWSER_RUNTIME_TEMPLATE"
+BROWSER_TEMPLATE_DEFAULT = "ni-cloud-browser"
+BROWSER_KEY = "CLOUD_BROWSER_RUNTIME_KEY"
+HUB_DOMAIN = "CLOUD_BROWSER_HUB_DOMAIN"
+RELAY_ADDRESSES = "BROWSER_RELAY_ALLOWED_ADDRESSES"
+EDGE_UPSTREAM = "CLOUD_BROWSER_TRAFFIC_UPSTREAM"
+# What the hosted service alone needs: with the cloud browser on our own runtime
+# (whose settings it then requires, the coding agent's too) these may be emptied.
+HOSTED_BROWSER_ONLY = ("SANDBOX_ACCESS_TOKEN", "SANDBOX_TEAM_ID", "SANDBOX_PROJECT_ID", "CLOUD_BROWSER_BASE_SNAPSHOT_ID")
+# A host name as the app reads CLOUD_BROWSER_HUB_DOMAIN (web/src/lib/cloud-browser/config.ts, HOSTNAME).
+HOSTNAME = re.compile(r"(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+")
+# The settings that name a host the edge serves: none may be one label under the hub's domain.
+HOSTS_SERVED = ("NEXT_PUBLIC_APP_URL", "NEXT_PUBLIC_SITE_URL", "CLOUD_BROWSER_RELAY_ORIGIN", "NEXT_PUBLIC_SUPABASE_URL", "PROD_SUPABASE_URL",
+                "INNGEST_BASE_URL", "LIVEKIT_URL", "OAUTH_REDIRECT_BASE_URL")
+
+
+def browser_backend(env):
+    """As the app reads it (cloudBrowserBackendKind): trimmed, any case; empty is hosted."""
+    value = env.get(BROWSER_BACKEND, "").strip().lower()
+    return "hosted" if value in ("", "hosted") else value
+
+
+def browser_template(env):
+    return env.get(BROWSER_TEMPLATE, "").strip() or BROWSER_TEMPLATE_DEFAULT
+
+
+def hub_domain(value):
+    """The domain as the app reads it, or None when it is not a host name."""
+    v = value.strip().lower()
+    v = v[:-1] if v.endswith(".") else v
+    return v if HOSTNAME.fullmatch(v) else None
+
+
+def hosts_one_label_under(env, domain):
+    """The settings whose host is <one label>.<domain>: the hub's block at the edge
+    would take that host's requests."""
+    clashes = []
+    for name in HOSTS_SERVED:
+        try:
+            host = (urllib.parse.urlsplit(env.get(name, "").strip()).hostname or "").lower()
+        except ValueError:
+            continue
+        if host.endswith("." + domain) and "." not in host[: -len(domain) - 1]:
+            clashes.append(name)
+    return clashes
+
+
+def read_edge_env(opts):
+    """The edge's settings file (../edge/.env beside this file's), or None when it
+    cannot be read."""
+    path = (opts or {}).get("edge_env")
+    if not path:
+        return None
+    try:
+        with open(path) as f:
+            return parse_env(f.read())
+    except OSError:
+        return None
+
+
+def check_browser_backend(env, opts):
+    """CLOUD_BROWSER_BACKEND, for the whole switch: hosted (or empty) asks nothing
+    more; runtime needs our own runtime's three (proven by SANDBOX_RUNTIME_API_URL's
+    check, which then also wants the browser's image), the hub's domain, the relay's
+    addresses, and the edge set to the same domain and to the runtime's traffic port."""
+    kind = browser_backend(env)
+    if kind == "hosted":
+        return None, None
+    if kind != "runtime":
+        return False, "only hosted or runtime, or empty for hosted (the app refuses to open a browser with anything else)"
+    missing = [n for n in RUNTIME_GROUP + (BROWSER_KEY, HUB_DOMAIN, RELAY_ADDRESSES, "CLOUD_BROWSER_RELAY_ORIGIN") if not env.get(n, "").strip()]
+    if missing:
+        return False, "runtime without %s: the cloud browser cannot start there" % ", ".join(missing)
+    domain = hub_domain(env[HUB_DOMAIN])
+    if domain is None:
+        return False, "%s is not a host name" % HUB_DOMAIN
+    bad, good = gate_address_problems(env[RELAY_ADDRESSES])
+    if bad or not good or gate_addresses_not_public(env[RELAY_ADDRESSES]):
+        return False, "%s is not a list of the sandbox server's public addresses (its own check says more)" % RELAY_ADDRESSES
+    edge = read_edge_env(opts)
+    if edge is None:
+        return None, "the edge's settings (../edge/.env) could not be read: its %s and %s are unchecked" % (HUB_DOMAIN, EDGE_UPSTREAM)
+    if hub_domain(edge.get(HUB_DOMAIN, "")) != domain:
+        return False, "the edge's %s (../edge/.env) is not this one: no browser's name would get a certificate" % HUB_DOMAIN
+    try:
+        traffic = urllib.parse.urlsplit(env["SANDBOX_RUNTIME_TRAFFIC_URL"].strip())
+        host = traffic.hostname or ""
+        want = "%s:%s" % ("[%s]" % host if ":" in host else host, traffic.port or 80)
+    except ValueError:
+        want = None
+    if want is None or edge.get(EDGE_UPSTREAM, "").strip() != want:
+        return False, "the edge's %s (../edge/.env) is not the address and port of SANDBOX_RUNTIME_TRAFFIC_URL: the browsers' names would not reach them" % EDGE_UPSTREAM
+    return True, "set for our own runtime, with the edge's two settings to match (the runtime itself: SANDBOX_RUNTIME_API_URL's check)"
+
+
+def check_browser_key(env, _opts):
+    """The browser's copy of the runtime's key, which web alone gets: only with the
+    runtime backend, and the same value as SANDBOX_RUNTIME_KEY. Compared, never shown."""
+    if browser_backend(env) != "runtime":
+        return False, ("set while CLOUD_BROWSER_BACKEND is not runtime: web would hold a key that creates and removes "
+                       "every sandbox on our own runtime, for nothing. Empty it")
+    if not hmac.compare_digest(env[BROWSER_KEY].strip().encode(), env.get(RUNTIME_KEY, "").strip().encode()):
+        return False, "not the same value as SANDBOX_RUNTIME_KEY: web would be refused by the runtime"
+    return None, None
+
+
+def check_browser_template(env, _opts):
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", env[BROWSER_TEMPLATE].strip()):
+        return False, "not a template name (lowercase letters, digits, - and _)"
+    if browser_backend(env) != "runtime":
+        return "warn", "set without CLOUD_BROWSER_BACKEND=runtime: nothing reads it"
+    return None, None
+
+
+def check_max_running(env, _opts):
+    """CLOUD_BROWSER_MAX_RUNNING (web/src/lib/cloud-browser/config.ts cloudBrowserMaxRunning):
+    a positive integer, as the app reads it (no sign, no leading zero, at most four digits).
+    The app would use 4 for anything else, quietly but for one log line."""
+    if not re.fullmatch(r"[1-9][0-9]{0,3}", env["CLOUD_BROWSER_MAX_RUNNING"].strip()):
+        return False, "not a positive integer: the app would use 4 instead"
+    if browser_backend(env) != "runtime":
+        return "warn", "set without CLOUD_BROWSER_BACKEND=runtime: nothing reads it (the hosted service has no cap)"
+    return None, None
+
+
+def check_hub_domain(env, _opts):
+    domain = hub_domain(env[HUB_DOMAIN])
+    if domain is None:
+        return False, "not a host name (letters, digits, - and dots, at least two labels): the app refuses it"
+    clashes = hosts_one_label_under(env, domain)
+    if clashes:
+        return False, ("the host of %s is one label under it: the edge would take that host's requests for a browser's. "
+                       "Give the browsers a name of their own (browsers.<the app's domain>, say)" % ", ".join(clashes))
+    if browser_backend(env) != "runtime":
+        return "warn", "set without CLOUD_BROWSER_BACKEND=runtime: nothing reads it"
+    return None, None
+
+
+def check_relay_addresses(env, _opts):
+    bad, good = gate_address_problems(env[RELAY_ADDRESSES])
+    if bad:
+        return False, "%d entr%s not an IP address: the app then refuses every relay" % (bad, "y is" if bad == 1 else "ies are")
+    if not good:
+        return None, None
+    private = gate_addresses_not_public(env[RELAY_ADDRESSES])
+    if private:
+        return False, ("%d entr%s a private, loopback or link-local address: a browser's relay calls the app from the sandbox "
+                       "server's PUBLIC address, so every relay would be refused (the tunnel's address does not belong here)"
+                       % (private, "y is" if private == 1 else "ies are"))
+    if browser_backend(env) != "runtime":
+        return "warn", "set without CLOUD_BROWSER_BACKEND=runtime: nothing reads it"
     return None, None
 
 
@@ -858,6 +1059,12 @@ CHECKS = {
     "SANDBOX_RUNTIME_KEY": check_runtime_part("SANDBOX_RUNTIME_KEY"),
     "SANDBOX_RUNTIME_TEMPLATE": check_runtime_template,
     "AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES": check_gate_addresses,
+    "CLOUD_BROWSER_BACKEND": check_browser_backend,
+    "CLOUD_BROWSER_RUNTIME_KEY": check_browser_key,
+    "CLOUD_BROWSER_RUNTIME_TEMPLATE": check_browser_template,
+    "CLOUD_BROWSER_HUB_DOMAIN": check_hub_domain,
+    "BROWSER_RELAY_ALLOWED_ADDRESSES": check_relay_addresses,
+    "CLOUD_BROWSER_MAX_RUNNING": check_max_running,
     "TEAM_CALL_RECORDER": check_team_call_recorder,
     "CAPTURE_FEED_SECRET": check_capture_feed_secret,
     "TEAM_CALL_LIVE_AGENT": check_needs_recorder("TEAM_CALL_LIVE_AGENT", "the live agent writes a call's notes"),
@@ -884,6 +1091,16 @@ def report(env, results):
     checks that ran; ok is True, False, None (could not run), "nothing" (no
     stored data to prove it against) or "warn" (said, but blocks nothing)."""
     lines, blockers, unchecked = [], [], []
+    stray = [n for n in env if group(n) == "must be absent"]
+    if stray:
+        lines.append("")
+        lines.append("Must not be here (the earlier host's own):")
+        for n in stray:
+            if env[n] == "":
+                lines.append("   %-32s empty    harmless, but the line can go" % n)
+                continue
+            lines.append("   %-32s SET      remove the line: %s" % (n, MUST_BE_ABSENT[n]))
+            blockers.append("%s is set: no container starts with it (entrypoint.sh); remove the line" % n)
     for title, key in (("Must be the value production already has", "must match"), ("Needed (any working value)", "needed"),
                        ("May stay empty", "may be empty"), ("Set by the switch itself", "switch")):
         names = [n for n in env if group(n) == key]
@@ -901,6 +1118,9 @@ def report(env, results):
             if st == "empty":
                 if key == "may be empty":
                     lines.append("   %-32s empty    %s" % (n, MAY_BE_EMPTY[n]))
+                    continue
+                if n in HOSTED_BROWSER_ONLY and browser_backend(env) == "runtime":
+                    lines.append("   %-32s empty    not needed: the cloud browser runs on our own runtime (CLOUD_BROWSER_BACKEND)" % n)
                     continue
                 why = MUST_MATCH.get(n) or EMPTY_MEANS.get(n) or ""
                 lines.append("   %-32s EMPTY    %s" % (n, why))
@@ -929,15 +1149,17 @@ def report(env, results):
 
 def main(argv):
     if len(argv) < 2:
-        sys.exit("usage: check_settings.py <env file> [--names-only] [--fill <envfile.py>] [--pinned <key> ...] [--embedding-model <name>]")
+        sys.exit("usage: check_settings.py <env file> [--names-only] [--fill <envfile.py>] [--pinned <key> ...] [--embedding-model <name>] [--edge-env <file>]")
     path = argv[1]
-    opts = {"names_only": False, "fill": None, "pinned": [], "embedding_model": None}
+    # The edge's settings, read for the cloud browser's names: ../edge/.env beside the app's.
+    opts = {"names_only": False, "fill": None, "pinned": [], "embedding_model": None,
+            "edge_env": os.path.join(os.path.dirname(os.path.abspath(path)), "..", "edge", ".env")}
     i = 2
     while i < len(argv):
         a = argv[i]
         if a == "--names-only":
             opts["names_only"] = True
-        elif a in ("--fill", "--pinned", "--embedding-model") and i + 1 < len(argv):
+        elif a in ("--fill", "--pinned", "--embedding-model", "--edge-env") and i + 1 < len(argv):
             i += 1
             if a == "--pinned":
                 opts["pinned"].append(argv[i])
@@ -947,7 +1169,9 @@ def main(argv):
             sys.exit("check_settings: unknown argument %s" % a)
         i += 1
     with open(path) as f:
-        env = parse_env(f.read())
+        text = f.read()
+    env = parse_env(text)
+    exported = stray_exports(text)
 
     if opts["fill"] and not env.get("GPT_LIVE_TRUNK_SECRET") and "GPT_LIVE_TRUNK_SECRET" in env:
         found = trunk_secrets_at_twilio(env)
@@ -971,7 +1195,7 @@ def main(argv):
                     results[name] = check(env, opts)
                 except Exception as e:  # a check that cannot run says so; it never shows a value
                     results[name] = (None, "could not be checked: %s" % type(e).__name__)
-    lines, blockers, unchecked = report(env, results)
+    lines, blockers, unchecked = report({**env, **{n: v for n, v in exported.items() if not env.get(n)}}, results)
     total = len(env)
     empty = sum(1 for v in env.values() if v == "")
     print("%s: %d settings, %d empty, %d holding a stand-in." % (path, total, empty, sum(1 for v in env.values() if v.startswith("rehearsal-"))))

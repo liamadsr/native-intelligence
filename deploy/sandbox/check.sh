@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Checks the sandbox server from the inside: the guard, the firewall, the
 # runtime, the memory set aside for sandboxes, and, from inside a real
-# sandbox, that this machine cannot be reached. It changes nothing except
-# for the one sandbox it starts and removes.
+# sandbox, that this machine cannot be reached; and that each image holds what
+# it must. It changes nothing except for the sandboxes it starts and removes,
+# one at a time (each needs room in the memory pool while it runs).
 #
 #   sudo ./check.sh
 #
@@ -165,6 +166,31 @@ if [ -f "$runtime_dir/compose.yaml" ]; then
 	done
 	if [ -z "$down" ]; then ok "the runtime's nine services are running, and healthy where they say"; else bad "the runtime is not all up:$down"; fi
 	if passes systemctl is-enabled ni-sandbox-runtime.service; then ok "it starts after every boot"; else bad "it does not start after a boot (run setup.sh)"; fi
+	# The running cloud browsers are paused before the runtime stops: the unit
+	# must be enabled AND active (a stopped one has nothing to do at shutdown),
+	# ordered after Docker (so it stops before it) and part of it, and run the
+	# program this checkout has.
+	# A hold left in place (pause_browsers.py, Hold) keeps the app from the runtime.
+	if passes nft list table inet ni_sandbox_hold; then
+		bad "the runtime is closed to the app, as for a restart that did not finish: sudo ni-sandbox-pause-browsers --release"
+	fi
+	unit=ni-sandbox-pause-browsers.service
+	order="$(systemctl show "$unit" -p After -p PartOf --value 2>/dev/null | tr '\n' ' ')"
+	pulled="$(systemctl show "$unit" -p WantedBy --value 2>/dev/null)"
+	if passes systemctl is-enabled "$unit" && passes systemctl is-active "$unit" &&
+		case "$order" in *docker.service*docker.service*) true ;; *) false ;; esac &&
+		case "$pulled" in *docker.service*) true ;; *) false ;; esac &&
+		[ -x /usr/local/sbin/ni-sandbox-pause-browsers ] && cmp -s "$here/pause_browsers.py" /usr/local/lib/ni-sandbox/pause_browsers.py; then
+		if out="$(/usr/local/sbin/ni-sandbox-pause-browsers --list 2>&1)"; then
+			# Its first line: how many run (the lines after it name each browser sandbox).
+			first="$(printf '%s\n' "$out" | sed -n 1p)"
+			ok "running cloud browsers are paused before the runtime or Docker stops, and Docker's start opens the runtime again ($first)"
+		else
+			bad "the unit that pauses cloud browsers cannot ask the runtime for them: $out"
+		fi
+	else
+		bad "running cloud browsers would end with the runtime, or a hold could outlive a Docker start: $unit is not installed, enabled, active and pulled in by Docker as setup.sh leaves it (run setup.sh)"
+	fi
 else
 	bad "no runtime in $runtime_dir (run setup.sh)"
 fi
@@ -204,10 +230,22 @@ if [ -r "$runtime_dir/sdk.env" ] && [ -x "$runtime_dir/.venv/bin/python" ]; then
 	fi
 	# The coding agent's image: one sandbox from it, looked at from inside. The
 	# limit is asked for less two GiB, for what the image itself takes.
-	if [ -n "$want_disk" ] && (set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" check "$((want_disk / 1024 - 2))"); then
+	if [ -n "$want_disk" ] && (set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" check "$((want_disk / 1024 - 2))" ni-coding-agent); then
 		ok "the coding agent's image holds what the agent needs"
 	else
 		bad "the coding agent's image is missing or not as it should be (run setup.sh)"
+	fi
+	# The cloud browser's image, once setup.sh --with-browser asked for it: one
+	# sandbox from it, Chrome started and stopped in it. Until then, nothing (no
+	# second sandbox from the pool the coding agent shares).
+	if [ -e /etc/ni-sandbox/browser.enabled ]; then
+		if [ -n "$want_disk" ] && (set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" check "$((want_disk / 1024 - 2))" ni-cloud-browser); then
+			ok "the cloud browser's image starts Chrome and stops it, with a profile of the sandbox user's own and no sudo"
+		else
+			bad "the cloud browser's image is missing or not as it should be (run setup.sh)"
+		fi
+	else
+		note "the cloud browser's image is not built here (opt-in: sudo ./setup.sh --with-browser)"
 	fi
 	# The resolver, from inside a narrowed sandbox and one with the whole internet.
 	if [ -n "$resolver_port" ]; then

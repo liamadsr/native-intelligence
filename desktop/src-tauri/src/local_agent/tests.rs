@@ -4998,11 +4998,10 @@ async fn as_worker(rig: &Rig, script: &str) -> LaunchConfig {
     use std::os::unix::fs::PermissionsExt;
     let agent = PathBuf::from(&rig.launch.agent_dir);
     std::fs::create_dir_all(agent.join("workers")).unwrap();
-    std::fs::create_dir_all(agent.join("acp")).unwrap();
     std::fs::write(agent.join("BUNDLE.json"), r#"{"capabilities":["workers"]}"#).unwrap();
     let registry = r#"{"claude-code":{"label":"Claude Code","cli":"claude"}}"#;
     std::fs::write(agent.join("workers/registry.json"), registry).unwrap();
-    std::fs::write(agent.join("workers/acp.sh"), script).unwrap();
+    std::fs::write(agent.join("workers/worker.sh"), script).unwrap();
     let bin = rig.base.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     std::fs::write(bin.join("claude"), "#!/bin/sh\n").unwrap();

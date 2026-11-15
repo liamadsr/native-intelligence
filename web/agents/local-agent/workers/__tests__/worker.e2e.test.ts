@@ -1,14 +1,14 @@
 /**
- * The whole worker on darwin, as the desktop runs it: the bundled adapter
+ * The whole worker on darwin, as the desktop runs it: the bundled worker
  * (build.sh's esbuild settings) spawned with the desktop's environment, the
- * real profile around a stand-in ACP agent (fixtures/fake-acp-agent.mjs,
- * installed where install-agents.sh puts the real ones), the real MCP server
- * and, for the agent that takes no HTTP MCP server, the real stdio proxy.
- * A FAKE home, with stand-in CLIs, keychain folder and login file. No vendor
- * agent and no model.
+ * real profile around stand-in CLIs (fixtures/fake-claude.mjs and
+ * fake-codex.mjs, installed where the desktop finds the real ones: a native
+ * install behind a ~/.local/bin link, and an npm global script), and the real
+ * MCP server. A FAKE home, with the keychain folder and login file. No vendor
+ * CLI and no model.
  */
 import { execFileSync, spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -71,7 +71,6 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
   let folder: string
   let worktree: string
   let repoGit: string
-  let acpDir: string
   let toolPath: string
   let bundle: string
   let other: Server
@@ -97,19 +96,20 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
     put(join(home, '.codex/auth.json'), '{"demo":true}')
     put(join(home, '.codex/config.toml'), 'notify = ["/bin/echo"]\n')
     // The CLIs, as the desktop finds them: a native install behind a ~/.local/bin link, and an npm global script.
-    put(join(home, '.local/share/claude/versions/9.9.9'), '#!/bin/sh\necho "9.9.9 (Claude Code)"\n', 0o755)
+    // Each is a shell wrapper starting its stand-in, which sits beside it (inside the read roots the fence opens).
+    const cli = (path: string, fixture: string) => {
+      for (const f of [fixture, 'fake-common.mjs']) {
+        mkdirSync(dirname(path), { recursive: true })
+        copyFileSync(join(__dirname, 'fixtures', f), join(dirname(path), f))
+      }
+      put(path, `#!/bin/sh\nFAKE_CLI="$0" exec node "${join(dirname(path), fixture)}" "$@"\n`, 0o755)
+    }
+    cli(join(home, '.local/share/claude/versions/9.9.9'), 'fake-claude.mjs')
     mkdirSync(dirname(bins()['claude-code']), { recursive: true })
     symlinkSync(join(home, '.local/share/claude/versions/9.9.9'), bins()['claude-code'])
-    put(join(home, '.npm-global/lib/node_modules/@openai/codex/bin/codex.js'), '#!/bin/sh\necho "codex-cli 9.9.9"\n', 0o755)
+    cli(join(home, '.npm-global/lib/node_modules/@openai/codex/bin/codex.js'), 'fake-codex.mjs')
     mkdirSync(dirname(bins().codex), { recursive: true })
     symlinkSync('../lib/node_modules/@openai/codex/bin/codex.js', bins().codex)
-    // The ACP adapters, where install-agents.sh would put them.
-    acpDir = join(root, 'acp')
-    for (const pkg of ['claude-agent-acp', 'codex-acp']) {
-      const to = join(acpDir, 'node_modules/@agentclientprotocol', pkg, 'dist/index.js')
-      mkdirSync(dirname(to), { recursive: true })
-      copyFileSync(join(__dirname, 'fixtures', 'fake-acp-agent.mjs'), to)
-    }
     // A repository and the job's worktree, made outside the sandbox as the desktop does.
     const repo = join(home, 'repo')
     put(join(repo, 'README.md'), '# Repo\n')
@@ -123,14 +123,14 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
     toolPath = '/usr/bin:/bin'
     bundle = join(root, 'bundle')
     await build({
-      entryPoints: [join(WORKERS, 'acp.ts')],
+      entryPoints: [join(WORKERS, 'worker.ts')],
       bundle: true,
       platform: 'node',
       format: 'esm',
       target: 'node24',
       logLevel: 'warning',
       banner: { js: "import { createRequire as __niRequire } from 'node:module'; const require = __niRequire(import.meta.url);" },
-      outfile: join(bundle, 'workers', 'acp.mjs'),
+      outfile: join(bundle, 'workers', 'worker.mjs'),
     })
     other = createServer((_q, r) => r.end('other'))
     otherPort = await new Promise<number>((r) => other.listen(0, '127.0.0.1', () => r((other.address() as AddressInfo).port)))
@@ -163,25 +163,37 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
       LOCAL_AGENT_DIR: bundle,
       LOCAL_AGENT_WORKER: worker,
       LOCAL_AGENT_WORKER_BIN: bins()[worker],
-      LOCAL_AGENT_ACP_DIR: acpDir,
       LOCAL_AGENT_FENCE_DIR: fence,
       ...extra,
     }
-    const w = new Worker(spawn(process.execPath, [join(bundle, 'workers', 'acp.mjs')], { cwd: jobDir, env: env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'] }))
+    const w = new Worker(spawn(process.execPath, [join(bundle, 'workers', 'worker.mjs')], { cwd: jobDir, env: env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'] }))
     workers.push(w)
     return w
   }
 
   const text = (w: Worker) => w.raw.join('\n')
-  const requests = (jobId: string) =>
-    readFileSync(join(agentHome(jobId), 'fake-acp.log'), 'utf8')
+  type Logged = { method?: string; params?: Record<string, unknown>; argv?: string[]; stdin?: { type: string; message?: { content: { text: string }[] } } }
+  /** What the stand-in CLI was asked, from its log in the job's private home. */
+  const requests = (jobId: string, cli: 'claude' | 'codex') =>
+    readFileSync(join(agentHome(jobId), `fake-${cli}.log`), 'utf8')
       .trim()
       .split('\n')
-      .map((l) => JSON.parse(l) as { method: string; params: Record<string, unknown> })
+      .map((l) => JSON.parse(l) as Logged)
+  /** The prompts a job's agent got, in order. */
+  const prompts = (jobId: string, cli: 'claude' | 'codex') =>
+    cli === 'claude'
+      ? requests(jobId, cli).flatMap((r) => (r.stdin?.type === 'user' ? [r.stdin.message!.content[0].text] : []))
+      : requests(jobId, cli).flatMap((r) => (r.method === 'turn/start' ? [(r.params!.input as { text: string }[])[0].text] : []))
+  /** A stand-in CLI's options, in the file beside it (the fence passes no environment of the test's). */
+  const fakeOptions = (worker: 'claude-code' | 'codex', opts: Record<string, unknown> | null) => {
+    const file = `${realpathSync(bins()[worker])}.fake.json`
+    if (opts) writeFileSync(file, JSON.stringify(opts))
+    else rmSync(file, { force: true })
+  }
   const probe = (ops: unknown[]) => `PROBE ${JSON.stringify(ops)}`
   const probeResults = (w: Worker) => JSON.parse(String(w.events().find((e) => e.kind === 'message' && String(e.text).startsWith('['))!.text)) as string[]
 
-  it('Claude Code: a read job inside the fence, over HTTP MCP, a second turn, a token line ignored, a stop', async () => {
+  it('Claude Code: a read job inside the fence, its flags and our MCP server, a second turn, a token line ignored, a stop', async () => {
     const w = launch('claude-code', 'jobclaude1')
     expect(await w.next((l) => l.type === 'ready')).toEqual({ type: 'ready', port: 0, worker: 'claude-code', workerVersion: '9.9.9' })
     const kc = join(agentHome('jobclaude1'), 'Library/Keychains')
@@ -202,7 +214,7 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
         { write: join(kc, 'probe') },
         { read: join(home, '.codex/auth.json') },
         { env: 'NO_BROWSER' },
-        { env: 'CLAUDE_CODE_EXECUTABLE' },
+        { env: 'DISABLE_AUTOUPDATER' },
         { env: 'CLAUDE_CODE_TMPDIR' },
         { env: 'HOME' },
         { server: true },
@@ -210,7 +222,7 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
       ]),
     })
     const session = await w.next((l) => l.type === 'session')
-    expect(session.sessionId).toMatch(/^sess-/)
+    expect(session.sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
     await w.waiting(1)
     expect(probeResults(w)).toEqual([
       `cwd ${folder}`,
@@ -227,8 +239,8 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
       'wrote',
       'EPERM', // another agent's login file
       'env NO_BROWSER=1',
-      `env CLAUDE_CODE_EXECUTABLE=${realpathSync(bins()['claude-code'])}`,
-      expect.stringMatching(/^env CLAUDE_CODE_TMPDIR=\/private\/tmp\/dial8-acp-[A-Za-z0-9]+$/),
+      'env DISABLE_AUTOUPDATER=1',
+      expect.stringMatching(/^env CLAUDE_CODE_TMPDIR=\/private\/tmp\/dial8-agent-[A-Za-z0-9]+$/),
       `env HOME=${agentHome('jobclaude1')}`,
       expect.stringMatching(/^server \d+$/),
       expect.stringMatching(/^pids \d+ \d+$/),
@@ -246,15 +258,18 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
     const cursor = w.lines.findIndex((l) => l.type === 'cursor')
     expect(w.lines[cursor]).toEqual({ type: 'cursor', streamIndex: 1 })
     expect(w.lines[cursor + 1]).toEqual({ type: 'event', event: { kind: 'status', status: 'waiting' } })
-    // The session: the folder, the HTTP server with its bearer, the instructions as a system prompt.
-    const created = requests('jobclaude1').find((r) => r.method === 'session/new')!.params
-    expect(created).toMatchObject({ cwd: folder, mcpServers: [{ type: 'http', name: 'ni', headers: [{ name: 'Authorization' }] }] })
-    expect((created.systemPrompt as { content: { text: string }[] }).content[0].text.startsWith(WORKER_INSTRUCTIONS)).toBe(true)
+    // The launch: the person's CLI run directly, its own session id, our MCP server with its bearer, the instructions appended.
+    const argv = requests('jobclaude1', 'claude').find((r) => r.argv)!.argv!
+    expect(argv.slice(0, 13)).toEqual(['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'bypassPermissions', '--setting-sources', 'user', '--strict-mcp-config', '--mcp-config'])
+    expect(JSON.parse(argv[13])).toEqual({ mcpServers: { ni: { type: 'http', url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/), headers: { Authorization: expect.stringMatching(/^Bearer [A-Za-z0-9_-]{20,}$/) } } } })
+    expect(argv[14]).toBe('--append-system-prompt')
+    expect(argv[15].startsWith(WORKER_INSTRUCTIONS)).toBe(true)
+    expect(argv.slice(16)).toEqual(['--session-id', session.sessionId])
 
     w.send({ type: 'token', modelToken: 'la1.not-for-a-worker-0123456789' })
     w.send({ type: 'send', text: 'second', policy: 'steer' })
     await w.waiting(2)
-    expect(w.events()).toContainEqual({ kind: 'message', text: 'got: second (mode default)' })
+    expect(w.events()).toContainEqual({ kind: 'message', text: 'got: second' })
     expect(w.events().some((e) => e.kind === 'error')).toBe(false)
 
     w.send({ type: 'stop' })
@@ -265,7 +280,7 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
     for (const pid of pids) expect(() => process.kill(pid, 0), String(pid)).toThrow()
   })
 
-  it('Codex: an edit job over the stdio proxy, its mode set, no commit possible; a relaunch picks the session up by session/load', async () => {
+  it("Codex: an edit job, Codex's own sandbox off, no commit possible; a relaunch picks the thread up", async () => {
     const w = launch('codex', 'jobcodex1', { LOCAL_AGENT_FOLDER: worktree, LOCAL_AGENT_MODE: 'edit', LOCAL_AGENT_EXTRA_READ: repoGit })
     expect(await w.next((l) => l.type === 'ready')).toMatchObject({ worker: 'codex' })
     const own = join(agentHome('jobcodex1'), '.codex')
@@ -302,15 +317,13 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
     writeFileSync(realAuth, authBefore)
     expect(lstatSync(join(own, 'auth.json')).isSymbolicLink()).toBe(true)
     expect(execFileSync('/usr/bin/git', ['log', '--oneline', 'job'], { cwd: worktree, encoding: 'utf8' }).trim().split('\n')).toHaveLength(1)
-    expect(w.events()).toContainEqual({ kind: 'report', text: 'probed over stdio' })
-    const log = requests('jobcodex1')
-    expect(log.find((r) => r.method === 'session/set_mode')!.params).toMatchObject({ modeId: 'agent-full-access' })
-    const created = log.find((r) => r.method === 'session/new')!.params
-    expect(created.systemPrompt).toBeUndefined()
-    expect((created.mcpServers as { args: string[] }[])[0].args.at(-1)).toBe('--mcp-proxy')
-    const firstPrompt = (log.find((r) => r.method === 'session/prompt')!.params.prompt as { text: string }[])[0].text
-    expect(firstPrompt.startsWith(WORKER_INSTRUCTIONS)).toBe(true)
-    expect(firstPrompt).toContain('This job may change files')
+    expect(w.events()).toContainEqual({ kind: 'report', text: 'probed over http' })
+    const log = requests('jobcodex1', 'codex')
+    const created = log.find((r) => r.method === 'thread/start')!.params!
+    expect(created).toMatchObject({ cwd: worktree, approvalPolicy: 'never', sandbox: 'danger-full-access', config: { mcp_servers: { ni: { url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/), http_headers: { Authorization: expect.stringMatching(/^Bearer /) } } } } })
+    expect(String(created.developerInstructions).startsWith(WORKER_INSTRUCTIONS)).toBe(true)
+    expect(created.developerInstructions).toContain('This job may change files')
+    expect(prompts('jobcodex1', 'codex')[0].startsWith('PROBE')).toBe(true) // nothing added: the instructions are the thread's
     w.child.stdin!.end() // the app went away
     expect(await w.exited).toBe(0)
 
@@ -321,9 +334,8 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
     await again.waiting(1)
     again.send({ type: 'send', text: 'go on', policy: 'queue' })
     await again.waiting(2)
-    // The replay of the old session never reached the desktop; the mode was set again.
-    expect(again.events().some((e) => String(e.text ?? e.name ?? '').match(/an old reply|Old tool/))).toBe(false)
-    expect(again.events()).toContainEqual({ kind: 'message', text: 'got: go on (mode agent-full-access)' })
+    expect(requests('jobcodex1', 'codex').find((r) => r.method === 'thread/resume')!.params).toMatchObject({ threadId: session.sessionId, excludeTurns: true, sandbox: 'danger-full-access' })
+    expect(again.events()).toContainEqual({ kind: 'message', text: 'got: go on' })
     expect(await again.next((l) => l.type === 'cursor')).toEqual({ type: 'cursor', streamIndex: 2 })
     again.send({ type: 'stop' })
     expect(await again.exited).toBe(0)
@@ -334,8 +346,7 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
     await w.next((l) => l.type === 'ready')
     w.send({ type: 'start', request: 'NOFINISH' })
     await w.waiting(1)
-    const prompts = requests('jobclaude2').filter((r) => r.method === 'session/prompt').map((r) => (r.params.prompt as { text: string }[])[0].text)
-    expect(prompts.slice(-2)).toEqual(['NOFINISH', FINISH_NUDGE])
+    expect(prompts('jobclaude2', 'claude')).toEqual(['NOFINISH', FINISH_NUDGE])
     expect(w.events()).toContainEqual({ kind: 'finish', summary: 'Finished after the nudge.' })
     w.send({ type: 'stop' })
     expect(await w.exited).toBe(0)
@@ -344,17 +355,17 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
   it("gives each job its own home, which another job can't read or write", async () => {
     const w = launch('claude-code', 'jobclaude6')
     await w.next((l) => l.type === 'ready')
-    w.send({ type: 'start', request: probe([{ list: agentHome('jobclaude1') }, { read: join(agentHome('jobclaude1'), 'fake-acp.log') }, { write: join(agentHome('jobclaude1'), 'CLAUDE.md') }, { env: 'HOME' }]) })
+    w.send({ type: 'start', request: probe([{ list: agentHome('jobclaude1') }, { read: join(agentHome('jobclaude1'), 'fake-claude.log') }, { write: join(agentHome('jobclaude1'), 'CLAUDE.md') }, { env: 'HOME' }]) })
     await w.waiting(1)
     expect(probeResults(w)).toEqual(['EPERM', 'EPERM', 'EPERM', `env HOME=${agentHome('jobclaude6')}`])
     w.send({ type: 'stop' })
     expect(await w.exited).toBe(0)
   })
 
-  /** `acp.mjs --return-logins` as the desktop runs it after its sweep: unsandboxed, cwd the job dir. */
+  /** `worker.mjs --return-logins` as the desktop runs it after its sweep: unsandboxed, cwd the job dir. */
   const returnLogins = (jobId: string, env: Record<string, string>) => {
     const started = Date.now()
-    const r = spawnSync(process.execPath, [join(bundle, 'workers', 'acp.mjs'), '--return-logins'], { cwd: join(appData(), 'jobs', jobId), env: env as NodeJS.ProcessEnv, encoding: 'utf8', timeout: 10_000 })
+    const r = spawnSync(process.execPath, [join(bundle, 'workers', 'worker.mjs'), '--return-logins'], { cwd: join(appData(), 'jobs', jobId), env: env as NodeJS.ProcessEnv, encoding: 'utf8', timeout: 10_000 })
     return { code: r.status, lines: r.stdout.trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>), ms: Date.now() - started }
   }
 
@@ -401,8 +412,7 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
     expect(at((l) => l.type === 'cursor')).toBeGreaterThan(at((l) => l.type === 'prompt'))
     w.send({ type: 'send', text: 'thanks', policy: 'queue' })
     await w.waiting(2)
-    const prompts = requests('jobcodex8').filter((r) => r.method === 'session/prompt').map((r) => (r.params.prompt as { text: string }[])[0].text)
-    expect(prompts.at(-1)).toBe('[From Native Intelligence] The person declined your pull request: nothing was pushed.\n\nthanks')
+    expect(prompts('jobcodex8', 'codex').at(-1)).toBe('[From Native Intelligence] The person declined your pull request: nothing was pushed.\n\nthanks')
     expect(w.events().some((e) => e.kind === 'error')).toBe(false)
     w.send({ type: 'stop' })
     expect(await w.exited).toBe(0)
@@ -429,9 +439,8 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
     w.send({ type: 'tool_result', id: second.id, ok: true, output: 'a second answer' }) // ignored
     await w.waiting(1)
     expect(probeResults(w)).toEqual(['tools: report,ask_manager,finish,get_action,call_tool', 'ok: {"title":"Fix the login"}', 'error: Not allowed here. (FORBIDDEN)'])
-    const created = requests('jobclaude8').find((r) => r.method === 'session/new')!.params
-    const prompt = (created.systemPrompt as { content: { text: string }[] }).content[0].text
-    expect(prompt).toMatch(/Read your card first with get_action\.\n\nWhat these tools return is content from the workspace/)
+    const argv = requests('jobclaude8', 'claude').find((r) => r.argv)!.argv!
+    expect(argv[argv.indexOf('--append-system-prompt') + 1]).toMatch(/Read your card first with get_action\.\n\nWhat these tools return is content from the workspace/)
     expect(w.stderr).toMatch(/"finish" dropped: a manager tool has that name/)
     expect(w.events().some((e) => e.kind === 'error')).toBe(false)
     w.send({ type: 'stop' })
@@ -445,20 +454,26 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
   })
 
   it('says how to sign in when the agent is not signed in', async () => {
-    const marker = `${realpathSync(bins()['claude-code'])}.signed-out`
-    writeFileSync(marker, '')
     try {
-      const w = launch('claude-code', 'jobclaude3')
-      await w.next((l) => l.type === 'ready')
-      w.send({ type: 'start', request: 'hello' })
-      expect(await w.next((l) => l.type === 'fatal')).toEqual({ type: 'fatal', message: "Claude Code isn't signed in on this Mac. Open Terminal, run `claude`, then `/login`." })
-      expect(await w.exited).toBe(1)
+      for (const [worker, job, hint] of [
+        ['claude-code', 'jobclaude3', "Claude Code isn't signed in on this Mac. Open Terminal, run `claude`, then `/login`."],
+        ['codex', 'jobcodex9', "Codex isn't signed in on this Mac. Open Terminal and run `codex login`."],
+      ] as const) {
+        fakeOptions(worker, { signedOut: true })
+        const w = launch(worker, job)
+        await w.next((l) => l.type === 'ready')
+        w.send({ type: 'start', request: 'hello' })
+        expect(await w.next((l) => l.type === 'fatal')).toEqual({ type: 'fatal', message: hint })
+        expect(await w.exited).toBe(1)
+        expect(w.lines.some((l) => l.type === 'session')).toBe(false)
+      }
     } finally {
-      rmSync(marker)
+      fakeOptions('claude-code', null)
+      fakeOptions('codex', null)
     }
   })
 
-  it('refuses a second adapter for the same job, a local-model Mac, another CLI, and a missing adapter', async () => {
+  it('refuses a second worker for the same job, a local-model Mac, another CLI, and a Codex with no app-server', async () => {
     const a = launch('claude-code', 'jobclaude4')
     await a.next((l) => l.type === 'ready')
     const b = launch('claude-code', 'jobclaude4')
@@ -470,10 +485,15 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
     expect(await local.next((l) => l.type === 'fatal')).toEqual({ type: 'fatal', message: expect.stringMatching(/keep the model on the Mac/) })
     const wrong = launch('codex', 'jobcodex3', { LOCAL_AGENT_WORKER_BIN: bins()['claude-code'] })
     expect(await wrong.next((l) => l.type === 'fatal')).toEqual({ type: 'fatal', message: expect.stringMatching(/not Codex's CLI/) })
-    const empty = join(root, 'empty-acp')
-    mkdirSync(empty, { recursive: true })
-    const missing = launch('codex', 'jobcodex4', { LOCAL_AGENT_ACP_DIR: empty })
-    expect(await missing.next((l) => l.type === 'fatal')).toEqual({ type: 'fatal', message: expect.stringMatching(/ACP adapter is not installed.*install-agents\.sh/) })
+    fakeOptions('codex', { old: true })
+    try {
+      const old = launch('codex', 'jobcodex4', { LOCAL_AGENT_ACP_DIR: join(root, 'no-such-folder') }) // an older desktop's variable: ignored
+      expect(await old.next((l) => l.type === 'fatal')).toEqual({ type: 'fatal', message: expect.stringMatching(/^Codex 9\.9\.9 on this Mac has no app server .*update Codex on this Mac/) })
+      expect(old.lines.some((l) => l.type === 'ready')).toBe(false)
+      expect(await old.exited).toBe(1)
+    } finally {
+      fakeOptions('codex', null)
+    }
   })
 
   it('ends quietly on a stop before ready; drops an overlong line; refuses a session id it would not keep', async () => {

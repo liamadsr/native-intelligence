@@ -5,8 +5,8 @@
  * it talks back.
  *
  * The event is emitted when the call ARRIVES here, never sniffed from the
- * agent's output: under ACP a tool call carries a title and a kind, not a name
- * this adapter could rely on.
+ * agent's output: each CLI names and shows its tool calls its own way, and a
+ * command that read the bearer could call the server without any of that.
  *
  * `finish` takes an optional `pull_request`, with the same shape and limits as
  * our own agent's (../../tools/finish.ts): in an edit job the driver asks the
