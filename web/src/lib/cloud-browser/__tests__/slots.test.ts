@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { cloudBrowserMaxRunning } from '@/lib/cloud-browser/config'
-import { CloudBrowserBusyError, CloudBrowserNoRoomError, EVICTION_IDLE_FLOOR_MS, evictionCandidates, isCloudBrowserBusy, isCloudBrowserNoRoom, isRuntimeNoRoomMessage } from '@/lib/cloud-browser/slots'
+import { CloudBrowserBusyError, CloudBrowserNoRoomError, EVICTION_DRIVEN_FLOOR_MS, EVICTION_IDLE_FLOOR_MS, evictionCandidates, isCloudBrowserBusy, isCloudBrowserNoRoom, isRuntimeNoRoomMessage } from '@/lib/cloud-browser/slots'
 
 describe('CLOUD_BROWSER_MAX_RUNNING', () => {
   it('is a positive integer, 4 when unset or blank', () => {
@@ -29,10 +29,12 @@ describe('the runtime’s refusal for memory', () => {
   it('is told by its words, as seen live, and nothing else is', () => {
     expect(isRuntimeNoRoomMessage(new Error('500: Failed to place sandbox: this node cannot map 4096 MiB of guest memory: its memory pool is too small or in use by running sandboxes'))).toBe(true)
     expect(isRuntimeNoRoomMessage(new Error('cannot map 2048 MiB of guest memory'))).toBe(true)
-    for (const other of ['sandbox abc not found', '502 Bad Gateway', 'The sandbox is not running', 'timeout', '']) expect(isRuntimeNoRoomMessage(new Error(other))).toBe(false)
+    expect(isRuntimeNoRoomMessage(new Error('its memory pool is too small or in use by running sandboxes'))).toBe(true)
+    // The memory phrases only: a placement that failed for another reason is an error like any other.
+    for (const other of ['500: Failed to place sandbox: no node with the template', 'sandbox abc not found', '502 Bad Gateway', 'The sandbox is not running', 'timeout', '']) expect(isRuntimeNoRoomMessage(new Error(other))).toBe(false)
     expect(isRuntimeNoRoomMessage(null)).toBe(false)
     expect(isCloudBrowserNoRoom(new CloudBrowserNoRoomError('x'))).toBe(true)
-    expect(isCloudBrowserNoRoom(new Error('Failed to place sandbox'))).toBe(false)
+    expect(isCloudBrowserNoRoom(new Error('cannot map 4096 MiB of guest memory'))).toBe(false)
   })
 })
 
@@ -51,6 +53,15 @@ describe('who may give way', () => {
       { ...row('garbled', 'running', 0), last_active_at: 'not a time' },
     ], { userId: 'me', workspaceId: 'w' }, now)
     expect(out.map(r => r.user_id)).toEqual(['old', 'at-floor'])
+  })
+
+  it('a browser the person drives gives way only after the idle sweep’s own idle time', () => {
+    const driven = (idleMs: number) => ({ ...row('driven', 'running', idleMs), driver: 'person' })
+    const self = { userId: 'me', workspaceId: 'w' }
+    expect(EVICTION_DRIVEN_FLOOR_MS).toBe(5 * 60_000)
+    expect(evictionCandidates([driven(4 * 60_000), row('plain', 'running', 3 * 60_000)], self, now).map(r => r.user_id)).toEqual(['plain'])
+    expect(evictionCandidates([driven(5 * 60_000)], self, now).map(r => r.user_id)).toEqual(['driven'])
+    expect(evictionCandidates([{ ...row('agent', 'running', 3 * 60_000), driver: 'agent' }], self, now)).toHaveLength(1)
   })
 
   it('the floor outlasts two of the live view’s 60 s pings', () => {

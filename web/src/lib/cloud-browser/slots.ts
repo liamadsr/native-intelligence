@@ -4,8 +4,10 @@
  * (config.ts, default 4) hold memory on our sandbox server at once, across
  * everyone. A person whose browser needs a slot while all are taken gets the
  * one of the browser idle longest: that browser is PAUSED (the idle sweep's
- * graceful stop, with stop reason `evicted`), never removed, so its owner loses
- * nothing and their next use wakes it. When no browser is idle enough to give
+ * graceful stop, with stop reason `evicted`), never removed: it keeps its
+ * profile (sign-ins, cookies, open tabs) and its owner's next use wakes it; what
+ * was in its open pages and not saved by the site goes, as at an idle stop
+ * (Chrome is closed first). When no browser is idle enough to give
  * way, the ensure fails with CloudBrowserBusyError, which callers show as is.
  * The hosted backend has no cap.
  *
@@ -13,6 +15,7 @@
  * routes, the browser tool and runtime-browser.ts (which the conformance script
  * runs outside Next).
  */
+import { CLOUD_BROWSER } from './config'
 
 /** What a person is told when every slot is held by a browser in use. Retryable. */
 export const CLOUD_BROWSER_BUSY_MESSAGE = 'All browsers are in use right now. Try again in a minute.'
@@ -52,8 +55,12 @@ export function isCloudBrowserNoRoom(error: unknown): error is CloudBrowserNoRoo
   return error instanceof CloudBrowserNoRoomError
 }
 
-/** The runtime's words for "no memory to place it" (orchestrator placement), as the client passes them on. */
-const NO_ROOM = /failed to place sandbox|cannot map \d+ ?mib of guest memory|memory pool is too small/i
+/**
+ * The runtime's words for "no memory to place it", as the client passes them
+ * on: the memory phrases alone (a placement can fail for other reasons, which
+ * are errors like any other, never "no slot").
+ */
+const NO_ROOM = /cannot map \d+ ?mib of guest memory|memory pool is too small/i
 
 /** Whether a runtime error (a create's or a connect's) is that refusal. */
 export function isRuntimeNoRoomMessage(error: unknown): boolean {
@@ -70,9 +77,21 @@ export function isRuntimeNoRoomMessage(error: unknown): boolean {
  * is never evicted between pings, even with one lost, and an agent between two
  * steps of its work (a model turn) keeps its browser. A command in flight (a
  * task between its claim and its settle can outlast this) is checked on its own
- * (store.browsersWithLiveCommands), so the floor need not cover a long task.
+ * (store.browsersInUse, with a browser step waiting on the person's
+ * approval), so the floor need not cover a long task.
  */
 export const EVICTION_IDLE_FLOOR_MS = 2 * 60_000
+
+/**
+ * The floor for a browser the person drives themselves (`driver = 'person'`,
+ * after Take over): the idle sweep's own idle time. Their live view pings, but
+ * a person reading a page or typing elsewhere for a while is still at it, and
+ * what they had open goes with a pause.
+ */
+export const EVICTION_DRIVEN_FLOOR_MS = CLOUD_BROWSER.idleStopMs
+
+/** An ensure stops making browsers give way when less than this is left of its own time (CLOUD_BROWSER.ensureTimeoutMs). */
+export const EVICTION_RESERVE_MS = 25_000
 
 /** How many browsers one ensure tries to make give way before it says "all in use". */
 export const MAX_EVICTION_TRIES = 3
@@ -83,20 +102,23 @@ export interface SlotHolderRow {
   workspace_id: string
   status: string
   last_active_at: string
+  /** Who drives it: `person` after Take over. */
+  driver?: string | null
 }
 
 /**
  * Who may give way, in order: running browsers other than `self`, unused for at
- * least the floor, idle longest first. Never one starting (an ensure is on it,
- * or the sweep will reach it) or stopping (already on its way out).
+ * least the floor (EVICTION_DRIVEN_FLOOR_MS for one the person drives), idle
+ * longest first. Never one starting (an ensure is on it, or the sweep will
+ * reach it) or stopping (already on its way out).
  */
 export function evictionCandidates<T extends SlotHolderRow>(holders: T[], self: { userId: string; workspaceId: string }, now: number, floorMs = EVICTION_IDLE_FLOOR_MS): T[] {
-  const cutoff = now - floorMs
   return holders
     .filter(h => h.status === 'running' && !(h.user_id === self.userId && h.workspace_id === self.workspaceId))
     .filter(h => {
       const at = Date.parse(h.last_active_at)
-      return Number.isFinite(at) && at <= cutoff
+      const floor = h.driver === 'person' ? Math.max(floorMs, EVICTION_DRIVEN_FLOOR_MS) : floorMs
+      return Number.isFinite(at) && at <= now - floor
     })
     .sort((a, b) => Date.parse(a.last_active_at) - Date.parse(b.last_active_at))
 }
