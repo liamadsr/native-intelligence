@@ -24,6 +24,7 @@ mod settings;
 mod sidecar;
 mod sleep_guard;
 mod state;
+mod studio_local;
 mod sysctl;
 mod tray;
 mod voice;
@@ -438,7 +439,7 @@ mod bundle_config_tests {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
         // FIRST in the chain, per the plugin's README ("plugins run in the order
         // they were added in to the builder, so make sure that this plugin is
         // registered first") — a second launch has to be detected and killed
@@ -455,10 +456,22 @@ pub fn run() {
         // `Builder::callback`), so a second launch carrying a dial8desktop://
         // URL still reaches tauri-plugin-deep-link — no deep-link code needed
         // here.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        //
+        // A debug build told to use another local port (NI_DEV_PORT) runs beside the
+        // instance on :3000 instead (another checkout's dev app): no single-instance there.
+    #[cfg(debug_assertions)]
+    let beside_another = crate::tray::dev_port().is_some();
+    #[cfg(not(debug_assertions))]
+    let beside_another = false;
+    let builder = if beside_another {
+        builder
+    } else {
+        builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             log_to_file("[single-instance] second launch — restoring main window");
             crate::tray::focus_main_window(app);
         }))
+    };
+    let builder = builder
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
@@ -800,6 +813,11 @@ pub fn run() {
                 }
             }
         })
+        // The Studio's editor plays a stopped take from this computer while the Studio files it. Registered on every
+        // web view the app makes, so it answers only with this run's key in the URL (handed out by a command granted to
+        // the app's own pages): read-only, the four role files of the signed-in account's takes (studio_recorder.rs
+        // take_file_response).
+        .register_asynchronous_uri_scheme_protocol(commands::studio_recorder::TAKE_SCHEME, commands::studio_recorder::serve_take_file)
         .invoke_handler(tauri::generate_handler![
             app_update::app_update_check,
             app_update::app_update_install,
@@ -932,9 +950,31 @@ pub fn run() {
             commands::studio_recorder::studio_recorder_stop,
             commands::studio_recorder::studio_recorder_cancel,
             commands::studio_recorder::studio_recorder_upload,
+            commands::studio_recorder::studio_recorder_segments,
+            commands::studio_recorder::studio_recorder_link_live,
+            commands::studio_recorder::studio_recorder_plan_pieces,
+            commands::studio_recorder::studio_recorder_put_piece,
+            commands::studio_recorder::studio_recorder_unfinished_takes,
+            commands::studio_recorder::studio_recorder_take_media,
+            commands::studio_recorder::studio_recorder_hold,
+            commands::studio_recorder::studio_recorder_draft_get,
+            commands::studio_recorder::studio_recorder_draft_put,
+            commands::studio_recorder::studio_recorder_drafts,
+            commands::studio_recorder::studio_recorder_words,
+            commands::studio_recorder::studio_recorder_take_token,
             commands::studio_recorder::studio_recorder_discard,
             commands::studio_recorder::studio_recorder_show_control,
             commands::studio_recorder::studio_recorder_hide_control,
+            studio_local::commands::studio_local_status,
+            studio_local::commands::studio_local_prepare,
+            studio_local::commands::studio_local_export_start,
+            studio_local::commands::studio_local_export_cancel,
+            studio_local::commands::studio_local_export_events,
+            studio_local::commands::studio_export_pick_destination,
+            studio_local::commands::studio_export_save_parts,
+            studio_local::commands::studio_export_reveal,
+            studio_local::commands::studio_export_save_cancel,
+            studio_local::commands::studio_local_export_save_again,
         ])
         .setup(|app| {
             log_to_file("[setup] starting");
@@ -952,6 +992,10 @@ pub fn run() {
             // Local agents (macOS): an idle actor; it marks jobs the last
             // run left live as interrupted, then waits for commands.
             app.manage(local_agent::LocalAgentService::spawn(app.handle().clone()));
+            // Studio exports on this computer: idle until a studio_local_* or
+            // studio_export_* command; shares the local agent's pinned Node.
+            let node = app.state::<local_agent::LocalAgentService>().runtime();
+            app.manage(studio_local::StudioLocal::new(app.handle().clone(), node));
             app.manage(browser_exit::BrowserExitService::default());
             // Studio takes (screen, camera, microphone): idle until the first
             // studio_recorder_* command starts its sidecar.

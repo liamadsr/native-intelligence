@@ -10,7 +10,7 @@ import Foundation
 /// Protocol: one JSON object per line on stdin and stdout.
 ///   request  {"id": 7, "cmd": "targets", ...}
 ///   reply    {"id": 7, "ok": true, ...}   or   {"id": 7, "ok": false, "error": "...", "code": "..."}
-///   event    {"event": "status", ...}     (no id: status, error, hello)
+///   event    {"event": "status", ...}     (no id: status, error, hello, segment)
 /// Commands: permissions, requestPermissions, targets, start, stop, cancel,
 /// shutdown. They run one at a time, in order. stderr is human-readable logs.
 /// The process exits on stdin EOF (the app quit or crashed); a take still

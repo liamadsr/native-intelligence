@@ -165,6 +165,12 @@ export async function POST(request: Request) {
   // Never on the Mac, before anything else is consulted.
   if (macExcludedTools(mac.caller).has(toolName)) return outOfCeiling(toolName, "isn't available to Native Intelligence on the Mac")
 
+  // A job the person started from the Code tab has no teammate in the cloud:
+  // the person is right there, and its question at the end of a turn reaches them.
+  if (mac.session.codeJob && isMacNativeTool(toolName)) {
+    return outOfCeiling(toolName, "isn't available in a job the person started from the Code tab: end your turn with your question, and they answer it")
+  }
+
   // The Mac's own teammate tools (C4): the handler checks eve's ids and the
   // input, and its answer goes back as is.
   if (isMacNativeTool(toolName)) {
@@ -216,7 +222,7 @@ export async function POST(request: Request) {
     agentToolCeiling: null,
     externalMcpToolNames,
   })
-  const ceilingOpts = { caller: mac.caller, localModel: mac.session.localModel }
+  const ceilingOpts = { caller: mac.caller, localModel: mac.session.localModel, codeJob: mac.session.codeJob }
   const ceiling = worker ? macWorkerCeiling(chatCeiling, externalMcpToolNames, ceilingOpts) : macCeiling(chatCeiling, externalMcpToolNames, ceilingOpts)
   if (toolName !== 'search_tools' && !ceiling.has(toolName)) {
     // Fail-closed boundary (F1 lesson). An out-of-ceiling or unknown call never executes.

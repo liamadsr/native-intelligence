@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AppError } from '../src/app-client.ts'
-import { exportKey } from '../src/jobs/export.ts'
+import { exportKey, whyNotHeld } from '../src/jobs/export.ts'
 import { JobRun, lostJob, TAKEN_BACK, type Handlers } from '../src/runner.ts'
 
 /** A client that answers progress with `progress()` and records what else it was told. */
@@ -150,4 +150,14 @@ test('a spend that may have been charged says so even when the worker was stoppi
   const refused = await runPaid('shot', async () => ({ cancelRequested: false }), spendThenStop({ outcome: 'refused', error: 'The price changed' }), undefined, 'Cancelled')
   assert.equal(refused.outcome, 'failed')
   assert.ok(refused.told.includes('fail: Cancelled'))
+})
+
+test("the fast export's fallback line keeps which tool, how it ended and FFmpeg's last line, bounded", () => {
+  assert.equal(whyNotHeld(new Error('ffmpeg failed (killed by SIGKILL, most often the memory limit)')), 'ffmpeg failed (killed by SIGKILL, most often the memory limit)')
+  const long = new Error(`ffmpeg failed (exit 1): ${'noise '.repeat(120)}| Error while filtering: Cannot allocate memory\nsecond line`)
+  const line = whyNotHeld(long)
+  assert.ok(line.length <= 400, String(line.length))
+  assert.match(line, /^ffmpeg failed \(exit 1\): noise/)
+  assert.match(line, /… \| Error while filtering: Cannot allocate memory$/)
+  assert.equal(whyNotHeld('x'.repeat(500)).length, 400)
 })

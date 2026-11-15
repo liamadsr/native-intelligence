@@ -8,7 +8,7 @@ import type { EditorProject } from '@/lib/studio/engine/contracts';
 import { applyOps } from '@/lib/studio/engine/ops';
 import { beatEnd, cameraSlots, isPlaceholder, needsRecording, pictureSources, reorderBeats, sortBeats, StoryboardSchema, wordBudget, type Beat, type BeatSource, type Storyboard, type TrackInputs } from '@/lib/studio/engine/storyboard';
 import { request } from './client';
-import { rememberCameras } from './ManualRecordPanel';
+import { rememberCameras } from './RecordDialog';
 import { listBrowserDevices, openRecorder, unlockDeviceLabels, type DesktopApp, type DeviceOption } from '../record';
 import { nativeRecorderAvailable } from '../record/desktop';
 

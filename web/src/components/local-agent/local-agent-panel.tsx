@@ -406,7 +406,8 @@ export function LocalAgentPanel({
         ) : (
           <p data-local-agent-ended="" className="py-2 text-center text-xs text-muted-foreground">
             {sessionEndedText(session.status, session.error)}{' '}
-            Ask the Native Intelligence agent to start a new one.
+            {/* A job the person started from the Code tab: they start the next one there too. */}
+            {session.codeRequestId ? 'Start a new one from the Code tab in your chat.' : 'Ask the Native Intelligence agent to start a new one.'}
           </p>
         )}
       </div>

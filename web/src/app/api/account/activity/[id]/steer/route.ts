@@ -5,6 +5,7 @@ import { apiError, badRequest, serverError } from '@/lib/api-errors'
 import { getServiceClient } from '@/lib/supabase/service'
 import { steerItemAsPerson, type RelayRefusalCode } from '@/lib/bots/bot-relay'
 import { addMessage, isUuid, LocalAgentError } from '@/lib/local-agent/store'
+import { recordCodeFollowUp } from '@/lib/local-agent/code-history'
 import { localAgentSessionIdOf } from '@/lib/local-agent/transcript-view'
 
 /**
@@ -117,6 +118,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         policy: policy === 'queue' ? 'queue' : 'steer',
         ...(typeof requestId === 'string' ? { idempotencyKey: `steer:${requestId}` } : {}),
       })
+      // A Code job's follow-up: kept in its chat's history as the person's words (code-history.ts).
+      await recordCodeFollowUp(svc, { userId: user.id, sessionId: local.sessionId, text: message.trim(), requestId: typeof requestId === 'string' ? `steer-${requestId}` : sent.messageId })
       return NextResponse.json({
         ok: true,
         relay_id: null,

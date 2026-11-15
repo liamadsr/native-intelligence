@@ -70,6 +70,9 @@ pub fn run(app_handle: &AppHandle, via: &str) {
         // each is bounded to 3 s, and so is the whole.
         let tts = app_handle.try_state::<modules::tts::TtsService>();
         let agents = app_handle.try_state::<local_agent::LocalAgentService>();
+        // A Studio export on this computer stops too, its whole process tree
+        // (SIGTERM, then SIGKILL at 2.5 s; the job object on Windows).
+        let studio = app_handle.try_state::<std::sync::Arc<crate::studio_local::StudioLocal>>();
         tauri::async_runtime::block_on(async {
             let tts_done = async {
                 if let Some(tts) = &tts {
@@ -81,7 +84,12 @@ pub fn run(app_handle: &AppHandle, via: &str) {
                     agents.shutdown().await;
                 }
             };
-            tokio::join!(tts_done, agents_done);
+            let studio_done = async {
+                if let Some(studio) = &studio {
+                    studio.shutdown().await;
+                }
+            };
+            tokio::join!(tts_done, agents_done, studio_done);
         });
     });
 }

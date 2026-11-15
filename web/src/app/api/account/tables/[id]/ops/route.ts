@@ -1,6 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspace } from '@/lib/api-auth'
 import { badRequest, serverError } from '@/lib/api-errors'
+import { emitRecordsCreated } from '@/lib/flows/emit-record-created'
+import { workspaceHasEventFlows } from '@/lib/flows/event-triggers'
+import { getServiceClient } from '@/lib/supabase/service'
 import { applyOps } from '@/lib/tables/store'
 import { tableRefusal } from '@/lib/tables/responses'
 
@@ -27,6 +30,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       { userId: user.id, source: 'person', reason: typeof body.reason === 'string' ? body.reason : null },
     )
     if (!result.ok) return tableRefusal(result)
+    // The record_created loops a person's own new rows may start, about five
+    // minutes from now (src/lib/flows/emit-record-created.ts). Only this route
+    // and a form's submission emit: an agent's write_rows, an import and a sync
+    // never do. Never throws.
+    if (result.value.inserted_row_ids.length) {
+      try {
+        if (await workspaceHasEventFlows(getServiceClient(), { workspaceId, triggerType: 'record_created', tableId: id })) {
+          await emitRecordsCreated({ workspaceId, tableId: id, rowIds: result.value.inserted_row_ids, source: 'person' })
+        }
+      } catch (err) {
+        console.error('[tables.ops] loop event not sent (non-fatal):', err instanceof Error ? err.message : 'unknown')
+      }
+    }
     return NextResponse.json(result.value)
   } catch (e) {
     return serverError(e instanceof Error ? e.message : 'Could not change the table')

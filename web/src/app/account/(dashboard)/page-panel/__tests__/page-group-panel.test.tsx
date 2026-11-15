@@ -15,11 +15,10 @@ import { getEdition, withEffectiveSurface, type EditionDefinition } from '@/lib/
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-const { edition } = vi.hoisted(() => ({ edition: { current: null as EditionDefinition | null } }))
+const { edition, guest } = vi.hoisted(() => ({ edition: { current: null as EditionDefinition | null }, guest: { current: false } }))
 vi.mock('@/app/account/workspace-switcher', () => ({
   useWorkspaceEdition: () => edition.current,
-  useIsWorkspaceGuest: () => false,
-  // The Studio's sub-nav (mounted by the host with every panel) asks who the person is here.
+  useIsWorkspaceGuest: () => guest.current,
   useWorkspaces: () => ({ workspaces: [], currentId: null }),
   useWorkspaceId: () => null,
 }))
@@ -58,6 +57,7 @@ beforeEach(() => {
   releases = []
   asked.length = 0
   edition.current = getEdition('full')
+  guest.current = false
   window.localStorage.clear()
   __resetSelectedPlaceForTests()
   __resetPageGroupsForTests()
@@ -187,8 +187,50 @@ describe('a page group’s sub-nav', () => {
     expect(container.querySelector('aside[data-page-panel="contacts"][data-page-panel-mode="room"]')).toBeNull()
   })
 
+  it('Outreach lists Prospecting, Sequences, Campaigns, then the Studio (Liam, 11-13); the Studio’s own card lights its row, and no Studio panel of its own', async () => {
+    act(() => root.render(<Row />))
+    await flush()
+    await hold('studio-1', ownSpec('studio'))
+    expect(selectedPlace()).toBe('outreach')
+    expect(shownGroupPanel()).toBe('outreach')
+    expect(rows('outreach')).toEqual(['prospecting', 'sequences', 'campaigns', 'studio'])
+    expect(lit('outreach')).toEqual(['studio'])
+    expect(row('outreach', 'studio').textContent).toBe('Studio')
+    expect(row('outreach', 'studio').querySelector('svg.lucide-clapperboard')).not.toBeNull()
+    expect(lastGroupPage('outreach')).toBe('studio')
+    expect(PAGE_PANELS.studio).toBeUndefined()
+    expect(container.querySelector('[data-studio-panel]')).toBeNull()
+    // A row back to Campaigns opens it as the rail does.
+    act(() => row('outreach', 'campaigns').click())
+    expect(asked.at(-1)).toMatchObject({ spec: ownSpec('campaigns'), from: 'rail' })
+  })
+
+  it('a guest’s Outreach has no Studio row (its routes refuse a guest)', async () => {
+    guest.current = true
+    act(() => root.render(<Row />))
+    await flush()
+    await hold('seq-1', ownSpec('sequences'))
+    expect(rows('outreach')).toEqual(['prospecting', 'sequences', 'campaigns'])
+  })
+
+  it('the Studio switched off: Outreach without it; Outreach’s others off: no sub-nav, the Studio alone', async () => {
+    edition.current = withEffectiveSurface(getEdition('full'), { studio: 'off' })
+    act(() => root.render(<Row />))
+    await flush()
+    await hold('seq-1', ownSpec('sequences'))
+    expect(rows('outreach')).toEqual(['prospecting', 'sequences', 'campaigns'])
+    act(() => root.unmount())
+    root = createRoot(container)
+    edition.current = withEffectiveSurface(getEdition('full'), { prospecting: 'off', sequences: 'off', campaigns: 'off' })
+    act(() => root.render(<Row />))
+    await flush()
+    await hold('studio-1', ownSpec('studio'))
+    expect(selectedPlace()).toBe('outreach')
+    expect(groupPanel('outreach')).toBeNull()
+  })
+
   it('one member on: no sub-nav (nothing to switch between), the slot empty; the group still selected', async () => {
-    edition.current = withEffectiveSurface(getEdition('full'), { prospecting: 'off', campaigns: 'off' })
+    edition.current = withEffectiveSurface(getEdition('full'), { prospecting: 'off', campaigns: 'off', studio: 'off' })
     act(() => root.render(<Row />))
     await flush()
     await hold('seq-1', ownSpec('sequences'))
@@ -363,7 +405,7 @@ describe('changing pages: the next panel arrives as the search palette does, not
   })
 
   it('the next group has nothing to show for sure (one member on): no hold, the slot empty at once (Liam, 11-11: the hold is for a panel not known yet)', async () => {
-    edition.current = withEffectiveSurface(getEdition('full'), { prospecting: 'off', campaigns: 'off' })
+    edition.current = withEffectiveSurface(getEdition('full'), { prospecting: 'off', campaigns: 'off', studio: 'off' })
     act(() => root.render(<OpenRow />))
     await flush()
     await hold('deals-1', ownSpec('deals'))

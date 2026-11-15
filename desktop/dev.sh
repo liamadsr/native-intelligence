@@ -25,6 +25,8 @@ source "$SCRIPT_DIR/scripts/sidecars.sh"
 source "$SCRIPT_DIR/scripts/licenses.sh"
 # The local agent bundle (Contents/Resources/local-agent).
 source "$SCRIPT_DIR/scripts/local-agent.sh"
+# The Studio's local runner (Contents/Resources/studio-runner), built from studio-worker.
+source "$SCRIPT_DIR/scripts/studio-runner.sh"
 
 # ─── Code signing (dev bundles) ──────────────────────────────────────────────
 #
@@ -116,6 +118,12 @@ build_and_sync() {
     local_agent_stage "$BUNDLE_APP" \
         || echo "[dev] WARNING: local agent bundle not staged — local agents are unavailable in this build" >&2
 
+    # The Studio's runner, when one was built (studio_runner_build in
+    # scripts/studio-runner.sh; not rebuilt here, it takes minutes). Without
+    # it the app says exports run on the server.
+    studio_runner_stage "$BUNDLE_APP" \
+        || echo "[dev] WARNING: Studio runner not staged: exports on this computer are unavailable in this build" >&2
+
     # License notices (Help → Open Source Licenses), before signing so the
     # signature seals them. A dev bundle runs fine without them — the menu
     # item is just disabled — so a failure only warns (dev mode: a sidecar
@@ -132,17 +140,39 @@ build_and_sync() {
     echo "[dev] Fresh bundle built with binary + sidecars."
 }
 
+# What a debug build reads from its environment, handed to the app at launch: `open` starts it through
+# LaunchServices, so this shell's variables do not reach it otherwise. NI_DEV_PORT: load
+# http://localhost:<port> instead of :3000 and run beside another copy (README, "Two checkouts at once").
+# NI_STUDIO_FFMPEG_DIR / NI_STUDIO_RUNNER_DIR: the Studio's local export (README).
+launch_env() {
+    local name
+    for name in NI_DEV_PORT NI_STUDIO_FFMPEG_DIR NI_STUDIO_RUNNER_DIR; do
+        [ -n "${!name:-}" ] && printf -- '--env\n%s=%s\n' "$name" "${!name}"
+    done
+}
+
 launch_app() {
-    # Kill any existing instances
-    pkill -f "\.app/Contents/MacOS/dial8-desktop" 2>/dev/null || true
-    pkill -f "target/debug/dial8-desktop" 2>/dev/null || true
+    if [ -n "${NI_DEV_PORT:-}" ]; then
+        # A second checkout's copy: only this bundle's own instance is replaced, and no other copy is touched.
+        pkill -f "$BUNDLE_BIN" 2>/dev/null || true
+    else
+        # Kill any existing instances
+        pkill -f "\.app/Contents/MacOS/dial8-desktop" 2>/dev/null || true
+        pkill -f "target/debug/dial8-desktop" 2>/dev/null || true
+    fi
     sleep 0.3
 
     # Re-register URL scheme
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -R -f "$BUNDLE_APP" 2>/dev/null
 
     echo "[dev] Launching Native Intelligence.app..."
-    open "$BUNDLE_APP"
+    local env_args=()
+    while IFS= read -r arg; do env_args+=("$arg"); done < <(launch_env)
+    if [ -n "${NI_DEV_PORT:-}" ]; then
+        open -n ${env_args[@]+"${env_args[@]}"} "$BUNDLE_APP"
+    else
+        open ${env_args[@]+"${env_args[@]}"} "$BUNDLE_APP"
+    fi
 }
 
 # Initial build + launch
@@ -152,7 +182,7 @@ launch_app
 echo ""
 echo "  Native Intelligence is running from the .app bundle."
 echo "  Deep links (dial8desktop://) will work."
-echo "  Webview → http://localhost:3000"
+echo "  Webview → http://localhost:${NI_DEV_PORT:-3000}"
 echo ""
 
 if [ "$1" = "--watch" ]; then

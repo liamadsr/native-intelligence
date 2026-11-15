@@ -114,6 +114,7 @@ MAY_BE_EMPTY = {
     "CLOUD_BROWSER_RUNTIME_TEMPLATE": "empty: ni-cloud-browser",
     "CLOUD_BROWSER_HUB_DOMAIN": "empty: no browser names of our own (needed with CLOUD_BROWSER_BACKEND=runtime)",
     "BROWSER_RELAY_ALLOWED_ADDRESSES": "empty: needed with CLOUD_BROWSER_BACKEND=runtime only (every relay is refused there without it)",
+    "CLOUD_BROWSER_MAX_RUNNING": "empty: at most 4 browsers run at once on our own runtime (the shared slots)",
     # The call recorder (../livekit's recorder service; ../README.md step 23, "The call recorder").
     "TEAM_CALL_RECORDER": "a switch: empty is off (call notes are Egress's, or there are none)",
     "CAPTURE_FEED_SECRET": "empty: the call recorder cannot reach the app (make-keys.sh in ../livekit makes it)",
@@ -131,9 +132,25 @@ MAY_BE_EMPTY = {
     # The Studio worker (../studio; ../../studio-worker).
     "STUDIO_WORKER_SECRET": "empty: the Studio worker is refused, so nothing is imported, rendered or exported (../studio/README.md)",
     "STUDIO_PROVIDER_WORKSPACES": "empty: no workspace may make narration or generated shots on the worker's provider accounts",
+    "STUDIO_CODE_SCENES": "a switch: empty is off (the Studio's code scenes do not run; on needs it in ../studio/.env too)",
 }
 
 SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}
+
+# The earlier host's own variables: no line of .env.example, and entrypoint.sh starts
+# no role with one set (it says why and holds the list; tests/test_entrypoint.py keeps
+# this copy equal to it). They come along with a file made for that host.
+MUST_BE_ABSENT = {
+    "VERCEL": "the app and the agents would take this server for a deployment at the earlier host",
+    "VERCEL_ENV": "the app and the agents would take this server for a deployment at the earlier host",
+    "VERCEL_TARGET_ENV": "the agents would take this server for a deployment at the earlier host",
+    "VERCEL_URL": "the agents' workflow runtime would take it for its own address",
+    "VERCEL_PROJECT_ID": "what the agents fall back to for a sandbox's project (here SANDBOX_PROJECT_ID, handed over explicitly)",
+    "VERCEL_TEAM_ID": "what the agents fall back to for a sandbox's team (here SANDBOX_TEAM_ID, handed over explicitly)",
+    "VERCEL_ORG_ID": "what the agents fall back to for a sandbox's team (here SANDBOX_TEAM_ID, handed over explicitly)",
+    "VERCEL_TOKEN": "what the agents fall back to for a sandbox's token (here SANDBOX_ACCESS_TOKEN, handed over explicitly)",
+    "VERCEL_OIDC_TOKEN": "a short-lived token the agents and the AI Gateway calls fall back to (here SANDBOX_ACCESS_TOKEN and AI_GATEWAY_API_KEY)",
+}
 
 # What is off while a needed one is empty, where it is not obvious from the name.
 EMPTY_MEANS = {
@@ -155,6 +172,8 @@ EMPTY_MEANS = {
 
 
 def group(name):
+    if name in MUST_BE_ABSENT:
+        return "must be absent"
     if name in SWITCH:
         return "switch"
     if name in MUST_MATCH:
@@ -162,6 +181,14 @@ def group(name):
     if name in MAY_BE_EMPTY:
         return "may be empty"
     return "needed"
+
+
+def stray_exports(text):
+    """The earlier host's variables on `export NAME=value` lines. envfile.py writes no
+    such line and parse_env reads none, but Compose does, and a file made for a shell
+    has them: so these are looked for apart, to be reported with the others."""
+    lines = [m.group(1) for m in (re.match(r"export[ \t]+(.*)$", line) for line in text.split("\n")) if m]
+    return {n: v for n, v in parse_env("\n".join(lines)).items() if n in MUST_BE_ABSENT}
 
 
 # --- reading the file as Compose reads it -------------------------------------------
@@ -771,6 +798,17 @@ def check_browser_template(env, _opts):
     return None, None
 
 
+def check_max_running(env, _opts):
+    """CLOUD_BROWSER_MAX_RUNNING (web/src/lib/cloud-browser/config.ts cloudBrowserMaxRunning):
+    a positive integer, as the app reads it (no sign, no leading zero, at most four digits).
+    The app would use 4 for anything else, quietly but for one log line."""
+    if not re.fullmatch(r"[1-9][0-9]{0,3}", env["CLOUD_BROWSER_MAX_RUNNING"].strip()):
+        return False, "not a positive integer: the app would use 4 instead"
+    if browser_backend(env) != "runtime":
+        return "warn", "set without CLOUD_BROWSER_BACKEND=runtime: nothing reads it (the hosted service has no cap)"
+    return None, None
+
+
 def check_hub_domain(env, _opts):
     domain = hub_domain(env[HUB_DOMAIN])
     if domain is None:
@@ -1026,6 +1064,7 @@ CHECKS = {
     "CLOUD_BROWSER_RUNTIME_TEMPLATE": check_browser_template,
     "CLOUD_BROWSER_HUB_DOMAIN": check_hub_domain,
     "BROWSER_RELAY_ALLOWED_ADDRESSES": check_relay_addresses,
+    "CLOUD_BROWSER_MAX_RUNNING": check_max_running,
     "TEAM_CALL_RECORDER": check_team_call_recorder,
     "CAPTURE_FEED_SECRET": check_capture_feed_secret,
     "TEAM_CALL_LIVE_AGENT": check_needs_recorder("TEAM_CALL_LIVE_AGENT", "the live agent writes a call's notes"),
@@ -1052,6 +1091,16 @@ def report(env, results):
     checks that ran; ok is True, False, None (could not run), "nothing" (no
     stored data to prove it against) or "warn" (said, but blocks nothing)."""
     lines, blockers, unchecked = [], [], []
+    stray = [n for n in env if group(n) == "must be absent"]
+    if stray:
+        lines.append("")
+        lines.append("Must not be here (the earlier host's own):")
+        for n in stray:
+            if env[n] == "":
+                lines.append("   %-32s empty    harmless, but the line can go" % n)
+                continue
+            lines.append("   %-32s SET      remove the line: %s" % (n, MUST_BE_ABSENT[n]))
+            blockers.append("%s is set: no container starts with it (entrypoint.sh); remove the line" % n)
     for title, key in (("Must be the value production already has", "must match"), ("Needed (any working value)", "needed"),
                        ("May stay empty", "may be empty"), ("Set by the switch itself", "switch")):
         names = [n for n in env if group(n) == key]
@@ -1120,7 +1169,9 @@ def main(argv):
             sys.exit("check_settings: unknown argument %s" % a)
         i += 1
     with open(path) as f:
-        env = parse_env(f.read())
+        text = f.read()
+    env = parse_env(text)
+    exported = stray_exports(text)
 
     if opts["fill"] and not env.get("GPT_LIVE_TRUNK_SECRET") and "GPT_LIVE_TRUNK_SECRET" in env:
         found = trunk_secrets_at_twilio(env)
@@ -1144,7 +1195,7 @@ def main(argv):
                     results[name] = check(env, opts)
                 except Exception as e:  # a check that cannot run says so; it never shows a value
                     results[name] = (None, "could not be checked: %s" % type(e).__name__)
-    lines, blockers, unchecked = report(env, results)
+    lines, blockers, unchecked = report({**env, **{n: v for n, v in exported.items() if not env.get(n)}}, results)
     total = len(env)
     empty = sum(1 for v in env.values() if v == "")
     print("%s: %d settings, %d empty, %d holding a stand-in." % (path, total, empty, sum(1 for v in env.values() if v.startswith("rehearsal-"))))

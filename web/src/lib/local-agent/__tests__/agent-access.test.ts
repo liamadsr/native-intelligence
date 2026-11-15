@@ -79,7 +79,7 @@ function macBody(over: Partial<MacBody['session']> = {}, caller: MacBody['caller
     claims: { sid: SID, uid: USER, wid: WS, exp: Math.floor(Date.now() / 1000) + 3600 },
     session: {
       id: SID, userId: USER, workspaceId: WS, conversationId: CONV, startedBy: 'agent', mode: 'read', request: 'look at the repo',
-      createdAt: '2026-10-21T20:00:00.000Z', startWords: [], localModel: false, deviceName: 'Liam’s MacBook', folderLabel: 'native-intelligence', ...over,
+      createdAt: '2026-10-21T20:00:00.000Z', startWords: [], localModel: false, deviceName: 'Liam’s MacBook', folderLabel: 'native-intelligence', worker: null, codeJob: false, ...over,
     },
     caller,
   }
@@ -277,6 +277,23 @@ describe('macCeiling: the main chat’s, narrowed for the Mac', () => {
     expect(ceiling.has('web_fetch')).toBe(false)
     expect(ceiling.has('web_search')).toBe(false)
     expect(ceiling.has('list_actions')).toBe(true)
+  })
+
+  it('a job the person started from the Code tab has none of the teammate tools (no teammate in the cloud between them)', () => {
+    const own = macCeiling(null, [], { caller: 'person_remote', localModel: false })
+    const code = macCeiling(null, [], { caller: 'person_remote', localModel: false, codeJob: true })
+    expect(own.has('message_teammate')).toBe(true)
+    expect(code.has('message_teammate')).toBe(false)
+    expect(code.has('report_to_person')).toBe(false)
+    expect(code.has('list_actions')).toBe(true)
+    const spec = macSpec(
+      { systemPrompt: 'p', model: 'm', ceiling: ['list_actions'], ceilingTools: [{ name: 'list_actions', description: 'List' }], coreToolNames: ['list_actions'], modelPolicy: { contextWindowTokens: 1 }, timeZone: 'UTC' } as never,
+      macBody({ startedBy: 'person', codeJob: true }),
+    )
+    for (const list of [spec.ceiling, spec.ceilingTools.map((t) => t.name), spec.coreToolNames]) {
+      expect(list).not.toContain('message_teammate')
+      expect(list).not.toContain('report_to_person')
+    }
   })
 
   it('search_tools stays beside the set, not in it', () => {

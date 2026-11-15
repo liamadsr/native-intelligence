@@ -4,11 +4,12 @@
  * agents that Mac offers (their own account there). The server:
  *   - lists the choice with the Mac and changes it only for the Mac's owner,
  *     checking only the id's shape (the Mac refuses an id it doesn't offer);
- *   - stamps it on a chat start's session (createSession's macWorker), never
- *     on the other starts, and never moves a started job;
- *   - fails a start whose choice it can't read rather than run it on our own
- *     agent (no fallback), except when the column isn't there yet;
- *   - hands it to the Mac with the claim.
+ *   - never reads it for a start: the choice is only the Code tab's default
+ *     (the chat agent's own starts name our own agent, createSession's
+ *     explicitWorker null); a start that names a coding agent (a Code send,
+ *     a card's Start) stamps it on its session, and nothing moves a started
+ *     job;
+ *   - hands the session's agent to the Mac with the claim.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -74,7 +75,7 @@ beforeEach(() => {
 /** A chat start's key (the chat tool's scheme), one per call. */
 const chatKey = (call: number) => `local-agent:${CONV}:session:s:turn:t:call:${call}`
 
-const start = (over: { macWorker?: boolean; key?: string } = {}) =>
+const start = (over: { worker?: string | null; key?: string } = {}) =>
   createSession(svc(), {
     userId: ME,
     workspaceId: WS,
@@ -84,7 +85,7 @@ const start = (over: { macWorker?: boolean; key?: string } = {}) =>
     mode: 'read',
     startedBy: 'agent',
     ...(over.key ? { idempotencyKey: over.key } : {}),
-    ...(over.macWorker === undefined ? {} : { macWorker: over.macWorker }),
+    ...(over.worker === undefined ? {} : { explicitWorker: over.worker }),
   })
 
 /** Make the worker read answer `error`, as PostgREST would. */
@@ -206,10 +207,9 @@ describe('before PostgREST knows the column (PGRST204) or Postgres does (42703)'
   }
 })
 
-describe('a chat start on that Mac', () => {
-  it('runs on the chosen coding agent: stamped on the session, and handed to the Mac with the claim', async () => {
-    env(MAC_ENV).worker = 'claude-code'
-    const { session, created } = await start({ macWorker: true })
+describe('the Mac’s saved choice is only the Code tab’s default', () => {
+  it('a start that names a coding agent (a Code send, a card’s Start) runs on it: stamped on the session, and handed to the Mac with the claim', async () => {
+    const { session, created } = await start({ worker: 'claude-code' })
     expect(created).toBe(true)
     expect(session.worker).toBe('claude-code')
     expect(db.tables.local_agent_session[0]).toMatchObject({ id: session.id, worker: 'claude-code', environment_id: MAC_ENV })
@@ -217,14 +217,16 @@ describe('a chat start on that Mac', () => {
     expect(claim).toMatchObject({ grantId: 'g1', worker: 'claude-code' })
   })
 
-  it('our own agent when none is chosen: no worker on the session, a null one in the claim', async () => {
-    const { session } = await start({ macWorker: true })
+  it('the chat agent’s start (our own agent named) never reads the Mac’s choice: no worker on the session, a null one in the claim', async () => {
+    env(MAC_ENV).worker = 'claude-code'
+    failWorkerRead({ message: 'must not be read' })
+    const { session } = await start({ worker: null })
     expect(db.tables.local_agent_session[0]).not.toHaveProperty('worker')
     expect(session).not.toHaveProperty('worker')
     expect(await claimSession(svc(), ME, session.id, { deviceId: MAC, runId: 'run-1', workers: true })).toMatchObject({ worker: null })
   })
 
-  it('every other start (an action’s Start, a work card, a loop) stays on our own agent, and reads no choice', async () => {
+  it('every other start (a loop, a work card, a card’s Start with no pick) stays on our own agent, and reads no choice', async () => {
     env(MAC_ENV).worker = 'claude-code'
     failWorkerRead({ message: 'must not be read' })
     const { session } = await start()
@@ -232,35 +234,23 @@ describe('a chat start on that Mac', () => {
     expect(await claimSession(svc(), ME, session.id, { deviceId: MAC, runId: 'run-1', workers: true })).toMatchObject({ worker: null })
   })
 
-  it('a later change of mind never moves a started job', async () => {
-    env(MAC_ENV).worker = 'claude-code'
-    const { session } = await start({ macWorker: true })
-    await updateEnvironment(svc(), { userId: ME, workspaceId: WS, environmentId: MAC_ENV, patch: { worker: null } })
+  it('a later change of the Mac’s choice never moves a started job', async () => {
+    const { session } = await start({ worker: 'claude-code' })
+    await updateEnvironment(svc(), { userId: ME, workspaceId: WS, environmentId: MAC_ENV, patch: { worker: 'codex' } })
     expect(db.tables.local_agent_session[0].worker).toBe('claude-code')
     expect(await claimSession(svc(), ME, session.id, { deviceId: MAC, runId: 'run-1', workers: true })).toMatchObject({ worker: 'claude-code' })
   })
 
-  it('a choice it can’t read is no start at all, never one on our own agent', async () => {
-    env(MAC_ENV).worker = 'claude-code'
-    failWorkerRead({ message: 'connection reset', code: '08006' })
-    await expect(start({ macWorker: true })).rejects.toThrow('mac worker read failed')
-    expect(db.tables.local_agent_session).toEqual([])
-  })
-
-  it('before migration 658 (no column yet) no choice can exist: the start runs on our own agent', async () => {
-    failWorkerRead({ message: 'column environment.worker does not exist', code: '42703' })
-    const { created } = await start({ macWorker: true })
-    expect(created).toBe(true)
-    expect(db.tables.local_agent_session[0]).not.toHaveProperty('worker')
-  })
-
   it('a retried call gets its first session back, on the agent it started with', async () => {
-    env(MAC_ENV).worker = 'codex'
-    const first = await start({ macWorker: true, key: 'local-agent:c:session:s:turn:t:call:1' })
-    env(MAC_ENV).worker = null
-    const again = await start({ macWorker: true, key: 'local-agent:c:session:s:turn:t:call:1' })
+    const first = await start({ worker: 'codex', key: 'local-agent-code:req-1' })
+    const again = await start({ worker: null, key: 'local-agent-code:req-1' })
     expect(again).toMatchObject({ created: false })
     expect(again.session).toMatchObject({ id: first.session.id, worker: 'codex' })
+  })
+
+  it('a worker that isn’t an id is refused, never read as our own agent', async () => {
+    await expect(start({ worker: 'Claude Code' })).rejects.toMatchObject({ code: 'bad_request' })
+    expect(db.tables.local_agent_session).toEqual([])
   })
 })
 
@@ -274,14 +264,13 @@ describe('the claim’s worker', () => {
   })
 })
 
-describe('a chat start in a folder whose job runs on another agent', () => {
+describe('a start that names its agent, in a folder whose job runs on another one', () => {
   const session = (id: string) => db.tables.local_agent_session.find((r) => r.id === id)!
 
-  it('idle on another agent: that job ends and a new one starts on the chosen agent', async () => {
-    const first = await start({ macWorker: true, key: chatKey(1) })
+  it('idle on another agent: that job ends and a new one starts on the named agent', async () => {
+    const first = await start({ worker: null, key: chatKey(1) })
     session(first.session.id).status = 'waiting'
-    env(MAC_ENV).worker = 'claude-code'
-    const next = await start({ macWorker: true, key: chatKey(2) })
+    const next = await start({ worker: 'claude-code', key: chatKey(2) })
     expect(next).toMatchObject({ created: true })
     expect(next).not.toHaveProperty('joined')
     expect(next.session.id).not.toBe(first.session.id)
@@ -290,32 +279,29 @@ describe('a chat start in a folder whose job runs on another agent', () => {
   })
 
   it('busy on another agent: refused, naming which agent works there and that it must finish or be stopped', async () => {
-    env(MAC_ENV).worker = 'claude-code'
-    const first = await start({ macWorker: true, key: chatKey(1) })
-    env(MAC_ENV).worker = null
-    const refused = await start({ macWorker: true, key: chatKey(2) }).catch((e: unknown) => e)
+    const first = await start({ worker: 'claude-code', key: chatKey(1) })
+    // The chat agent's start in the same chat and folder: never a message to the person's own agent.
+    const refused = await start({ worker: null, key: chatKey(2) }).catch((e: unknown) => e)
     expect(refused).toMatchObject({
       code: 'conflict',
       details: { code: FOLDER_BUSY_CODE, reason: 'other_worker', session: { id: first.session.id, worker: 'claude-code' } },
     })
     const message = (refused as Error).message
     expect(message).toContain('on the person’s own coding agent (claude-code)')
-    expect(message).toContain('this Mac is now set to Native Intelligence’s own agent')
+    expect(message).toContain('this start is for Native Intelligence’s own agent')
     expect(message).toContain('wait for it to finish, or stop it')
     expect(db.tables.local_agent_session).toHaveLength(1)
   })
 
   it('the same agent: joined as its next turn, on that agent', async () => {
-    env(MAC_ENV).worker = 'codex'
-    const first = await start({ macWorker: true, key: chatKey(1) })
-    const again = await start({ macWorker: true, key: chatKey(2) })
+    const first = await start({ worker: 'codex', key: chatKey(1) })
+    const again = await start({ worker: 'codex', key: chatKey(2) })
     expect(again).toMatchObject({ created: false, joined: true })
     expect(again.session).toMatchObject({ id: first.session.id, worker: 'codex' })
   })
 
-  it('every other start keeps today’s rule (no agent check): it joins whatever job it would have', async () => {
-    env(MAC_ENV).worker = 'claude-code'
-    const first = await start({ macWorker: true, key: chatKey(1) })
+  it('a start that names none keeps today’s rule (no agent check): it joins whatever job it would have', async () => {
+    const first = await start({ worker: 'claude-code', key: chatKey(1) })
     const again = await start({ key: chatKey(2) })
     expect(again).toMatchObject({ joined: true, session: { id: first.session.id } })
   })
@@ -323,14 +309,12 @@ describe('a chat start in a folder whose job runs on another agent', () => {
 
 describe('a claim from a page that predates workers', () => {
   it('fails a job that has a worker, with a sentence telling the person to reload or update; a job without one claims as before', async () => {
-    env(MAC_ENV).worker = 'claude-code'
-    const { session } = await start({ macWorker: true })
+    const { session } = await start({ worker: 'claude-code' })
     expect(await claimSession(svc(), ME, session.id, { deviceId: MAC, runId: 'run-1' })).toBeNull()
     expect(db.tables.local_agent_session[0]).toMatchObject({ status: 'failed', error: WORKER_PAGE_OUTDATED_REASON })
     expect(WORKER_PAGE_OUTDATED_REASON).toContain('Reload Native Intelligence on that Mac (or update the app)')
 
-    env(MAC_ENV).worker = null
-    const ours = await start({ macWorker: true, key: chatKey(9) })
+    const ours = await start({ worker: null, key: chatKey(9) })
     expect(await claimSession(svc(), ME, ours.session.id, { deviceId: MAC, runId: 'run-2' })).toMatchObject({ worker: null })
   })
 })

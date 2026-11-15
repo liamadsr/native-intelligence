@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { isInviteRedirectPath, mcpRedirectTarget } from '@/lib/auth/login-redirect'
+import { accountRedirectTarget, isInviteRedirectPath, mcpRedirectTarget } from '@/lib/auth/login-redirect'
 
 /**
  * Where a successful web sign-in lands, shared by the OAuth callbacks
@@ -11,6 +11,9 @@ import { isInviteRedirectPath, mcpRedirectTarget } from '@/lib/auth/login-redire
  *   share_redirect   /s/<token>
  *   mcp_redirect     /api/mcp/… or /mcp/… on this origin (full URL or
  *                    path), the MCP OAuth authorize step to resume
+ *   account_redirect a page of the app with its deep link (/account?…), such
+ *                    as the Studio export the desktop app sent the person
+ *                    here to download
  * Anything else lands on /account; no cookie lands on `options.home`
  * (default /account).
  *
@@ -23,6 +26,23 @@ export function postAuthRedirect(
   origin: string = request.nextUrl.origin,
   options: { home?: string } = {},
 ): NextResponse {
+  // The account redirect is for this sign-in only: whichever way it ends, it never waits for the next one.
+  return dropAccountRedirect(chooseRedirect(request, origin, options))
+}
+
+/** The cookie the login form leaves for a page of the app to return to (/login?redirect=/account…). */
+export const ACCOUNT_REDIRECT_COOKIE = 'account_redirect'
+
+/**
+ * Clear the account redirect on a sign-in's way out, done or failed: a cookie left behind would send a later
+ * sign-in in this browser to an old deep link (one that downloads an export, say).
+ */
+export function dropAccountRedirect<R extends NextResponse>(response: R): R {
+  response.cookies.delete(ACCOUNT_REDIRECT_COOKIE)
+  return response
+}
+
+function chooseRedirect(request: NextRequest, origin: string, options: { home?: string }): NextResponse {
   const redirectUrl = new URL(request.nextUrl.pathname, origin)
 
   const inviteRedirect = request.cookies.get('invite_redirect')?.value
@@ -75,6 +95,11 @@ export function postAuthRedirect(
     response.cookies.delete('mcp_redirect')
     return response
   }
+
+  // A page of the app (/account and its deep links), same-site only. A redirect cookie like the others: it wins
+  // over `options.home` (the person is following a link to somewhere in particular).
+  const accountRedirect = request.cookies.get(ACCOUNT_REDIRECT_COOKIE)?.value
+  if (accountRedirect) return NextResponse.redirect(new URL(accountRedirectTarget(accountRedirect) ?? '/account', origin))
 
   // No redirect cookie: home, which is /account unless the caller names
   // another same-site page (the join-by-domain page, src/lib/workspace-join).

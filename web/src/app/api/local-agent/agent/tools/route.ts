@@ -50,7 +50,7 @@ export async function GET(request: Request) {
     const [workspaceName, card] = await Promise.all([readWorkspaceName(svc, body.session.workspaceId), readCard(svc, body.session.id, body.session.workspaceId)])
     return NextResponse.json({
       version: WORKER_TOOLS_VERSION,
-      instructions: workerInstructions({ workspaceName, card, worker, tools: tools.map((t) => t.name) }),
+      instructions: workerInstructions({ workspaceName, card, worker, tools: tools.map((t) => t.name), codeJob: body.session.codeJob }),
       tools,
     })
   } catch (err) {

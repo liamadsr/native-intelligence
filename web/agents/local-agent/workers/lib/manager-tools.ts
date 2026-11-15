@@ -49,15 +49,16 @@ export const MANAGER_TOOLS: readonly ManagerToolDef[] = [
     name: 'report',
     description:
       'Report progress on the request: what you looked at, what you found, what you are about to do. ' +
-      'Call it as you go, in a sentence or two. The person and the Native Intelligence agent see it.',
+      'Call it as you go, in a sentence or two. The person sees it (and the Native Intelligence agent, when it is your manager).',
     inputSchema: object({ text: str('The progress note.', 4000) }, ['text']),
     annotations,
   },
   {
     name: 'ask_manager',
     description:
-      'Ask the Native Intelligence agent (your manager) one question when you are blocked and cannot find the answer in the folder. ' +
-      'Then end your turn and wait: the answer arrives as your next message.',
+      'Ask your manager one question when you are blocked and cannot find the answer in the folder: the Native Intelligence agent, or the person ' +
+      'when they started this job themselves from their chat (the request says so; they answer in this job’s own chat). ' +
+      'Then end your turn without calling finish, and wait: the answer arrives as your next message.',
     inputSchema: object({ question: str('One clear question.', 2000) }, ['question']),
     annotations,
   },
@@ -69,7 +70,7 @@ export const MANAGER_TOOLS: readonly ManagerToolDef[] = [
       'asked for a pull request: a title, and a description of what changed and why. The person is asked on their Mac before anything is pushed.',
     inputSchema: object(
       {
-        summary: str('What you found or did, for the person and the Native Intelligence agent. In a job that changes files, its first line becomes the commit message.', 8000),
+        summary: str('What you found or did, for the person (and the Native Intelligence agent, when it is your manager). In a job that changes files, its first line becomes the commit message.', 8000),
         pull_request: {
           type: 'object',
           description: 'Only when a pull request was asked for, and only in a job that may change files.',
@@ -91,7 +92,7 @@ const FIELD = { report: 'text', ask_manager: 'question', finish: 'summary' } as 
 const LIMIT = { report: 4000, ask_manager: 2000, finish: 8000 } as const
 const REPLY = {
   report: 'Reported.',
-  ask_manager: 'Question sent. End your turn now; the answer will arrive as your next message.',
+  ask_manager: 'Question sent. End your turn now without calling finish; the answer will arrive as your next message.',
   finish: 'Finished. End your turn now.',
 } as const
 const FINISH_WITH_PR = {

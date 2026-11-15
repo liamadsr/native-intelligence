@@ -138,6 +138,7 @@ export function entitylessTestTrigger(triggerType: string, config: Record<string
         }
       : {}),
     ...(triggerType === 'document_created' ? { document_id: SYNTH_ID } : {}),
+    ...(triggerType === 'record_created' ? { row_id: SYNTH_ID, table_id: ((config ?? {}) as { table_id?: string }).table_id ?? SYNTH_ID } : {}),
   }
 }
 

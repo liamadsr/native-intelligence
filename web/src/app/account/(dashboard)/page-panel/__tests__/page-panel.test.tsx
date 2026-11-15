@@ -155,6 +155,8 @@ describe('the page panel', () => {
     expect(pageKeyOf('mail')).toBe('mail')
     // Team chat's sub-nav (team-chat-panel.tsx; Liam, 11-11): there only once its card says what it has.
     expect(pageKeyOf('team-chat')).toBe('team-chat')
+    // The Studio is one of Outreach's pages (Liam, 11-13): no place, no panel of its own.
+    expect(pageKeyOf('studio')).toBeNull()
   })
 
   it('on a selected page: its own sub-nav at once, before its card says anything (Liam, 11-11: "it goes away completely and reappears"); Recent off; back home, Recent again', async () => {

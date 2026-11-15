@@ -995,6 +995,13 @@ function FlowCanvas({
     if (t.kind === 'document_created') {
       return { title: 'New document', subtitle: 'When someone creates a document you can see' }
     }
+    if (t.kind === 'quote_received') {
+      return { title: 'New quote', subtitle: "When a customer's quote arrives from the website" }
+    }
+    if (t.kind === 'record_created') {
+      if (t.details_hidden) return { title: 'New row in a table', subtitle: 'In a table its owner reads' }
+      return { title: 'New row in a table', subtitle: t.record_table_id ? 'A form’s submission, or a row someone adds' : 'Pick a table' }
+    }
     if (t.kind === 'calendar_event') {
       const mag = Math.abs(t.offset_minutes)
       const dir = t.offset_minutes > 0 ? 'after' : 'before'

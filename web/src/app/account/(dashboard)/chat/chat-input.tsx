@@ -69,7 +69,8 @@ import { MicPicker } from './mic-picker'
 import { ComposerCaptureButton, type ComposerRecording } from './composer-capture-button'
 import type { ComposerEnvironment, ComposerFolders } from './composer-state'
 import { EnvironmentSelector } from '@/components/environments/environment-selector'
-import { WorkerToggle, workerToggleState } from '@/components/environments/worker-toggle'
+import { CodeAgentPicker, CodeFolderPicker, CodeNoticeLine, ComposerTabs } from './composer-code-controls'
+import type { ComposerCode } from './composer-code'
 
 /** The composer's voice: what the desktop can do, and the panel's voice mode.
  *  Absent (or `availability.visible` false) → no voice control at all. No
@@ -175,8 +176,8 @@ export const ChatInput = memo(function ChatInput({
   value,
   onChange,
   onSubmit,
-  onStop,
-  isLoading,
+  onStop: onStopChat,
+  isLoading: chatLoading,
   attachedNotes,
   onAttachNote,
   onRemoveNote,
@@ -212,6 +213,7 @@ export const ChatInput = memo(function ChatInput({
   unavailable,
   folders,
   environment,
+  code = null,
   mentionList,
   layout = 'stacked',
   fileAccept,
@@ -307,6 +309,14 @@ export const ChatInput = memo(function ChatInput({
    */
   environment?: ComposerEnvironment
   /**
+   * The main chat's Chat / Code tabs (composer-code.tsx useComposerCode),
+   * for a person with a Mac environment: the tabs under the box, and in Code
+   * the agent picker before the mic, the folder after the environment, and
+   * the send and Stop going to the coding agent's job. Absent or null: no
+   * tabs, the composer as it always was.
+   */
+  code?: ComposerCode | null
+  /**
    * The host's own `@` list (team chat: the person's agent and the members),
    * in place of the record search: `@` lists these in the same menu, and a
    * pick puts `@label` in the text and tells the host (`onPick`), with no
@@ -329,6 +339,11 @@ export const ChatInput = memo(function ChatInput({
   fileAccept?: string
 }) {
   const inline = layout === 'inline'
+  // The Code tab only starts jobs (each runs in its own view, with its own
+  // Stop): its send slot is always Send. In Chat, the reply's, as ever.
+  const codeActive = code?.tab === 'code'
+  const isLoading = codeActive ? false : chatLoading
+  const onStop = onStopChat
   const [plusMenuOpen, setPlusMenuOpen] = useState(false)
   // ── The `/` and `@` menu (command-menu-model.ts) ───────────────────────────
   // Read from the text and the caret on every edit and caret move, never
@@ -492,6 +507,7 @@ export const ChatInput = memo(function ChatInput({
   // reply to stop, and nothing in the field (words, files, mentions, a
   // dictation) to send.
   const slotShowsVoice =
+    !codeActive &&
     !(voiceModeOn && voiceMode) &&
     !(isLoading && !hasDraft) &&
     voiceVisible &&
@@ -515,7 +531,11 @@ export const ChatInput = memo(function ChatInput({
       ? ''
       : dictation.active && !value
         ? 'Listening…'
-        : placeholder ?? (hasMessages ? 'Continue chat' : '@ to mention')
+        : codeActive && code
+          ? code.hasMac
+            ? `Tell ${code.agentLabel} what to change`
+            : 'Describe the change'
+          : placeholder ?? (hasMessages ? 'Continue chat' : '@ to mention')
   // The rotating overlay is aria-hidden, so the field itself says that Tab sends a suggestion.
   const tabHintId = useId()
 
@@ -525,6 +545,7 @@ export const ChatInput = memo(function ChatInput({
   // The overlay owns the timer; it mounts only while this holds, so typing
   // stops it and clearing the box starts it again from the hint.
   const suggestionsOn =
+    !codeActive &&
     !!suggestions?.length &&
     !!onAcceptSuggestion &&
     !value &&
@@ -627,8 +648,9 @@ export const ChatInput = memo(function ChatInput({
     [doneTriggers],
   )
   const menuToken = useMemo(() => boxTrigger(value, caret), [boxTrigger, value, caret])
+  // Not in Code: the coding agent gets the words only, so no `/` skill or `@` record is offered there.
   const menuOpen =
-    !!menuToken && isActive && !fieldBlurred && !voiceModeOn && !paletteOpen && menuDismissedAt !== menuToken.start
+    !codeActive && !!menuToken && isActive && !fieldBlurred && !voiceModeOn && !paletteOpen && menuDismissedAt !== menuToken.start
   const readMenuAt = (next: { value: string; caret: number }) => {
     menuAtRef.current = next
     setMenuAt(next)
@@ -1007,8 +1029,9 @@ export const ChatInput = memo(function ChatInput({
     },
   }
 
-  // A chat that takes no files says so in the + menu, and takes no drop or paste.
-  const filesOff = !!unavailable?.files
+  // A chat that takes no files says so in the + menu, and takes no drop or
+  // paste; nor does the Code tab (the coding agent gets the words only).
+  const filesOff = !!unavailable?.files || codeActive
 
   const handleFileSelect = useCallback(() => {
     fileInputRef.current?.click()
@@ -1081,12 +1104,21 @@ export const ChatInput = memo(function ChatInput({
   // either: the server picks the model per turn. The main chat's environment
   // selector sits there too (docs/plans/environments.md §6), while you have one.
   const environmentOn = !!environment?.visible
-  const underRowOn = !!unavailable?.agent || environmentOn
-  // The worker toggle shows (or its read-only chip): the row may wrap, the
-  // environment chip going to a second line rather than shrinking. Without
-  // it the row is as it always was.
-  const workerOn =
-    environmentOn && !!environment && workerToggleState(environment.chat, environment.list, environment.thisMac, !!environment.pickWorker).kind !== 'hidden'
+  const underRowOn = !!unavailable?.agent || environmentOn || !!code
+  // A send the Code tab can't make now (a cloud environment, no folder, one
+  // already going out): send stays off, and the line under the box says why.
+  const codeHeld = codeActive && !!code && (!!code.blocker || code.sending)
+  // Something staged for the Chat tab (files, mentions, a skill, a selection): the Code tab says it isn't sent.
+  const codeStaged =
+    codeActive &&
+    (attachedFiles.length > 0 ||
+      attachedNotes.length > 0 ||
+      attachedContacts.length > 0 ||
+      attachedCompanies.length > 0 ||
+      attachedRecords.length > 0 ||
+      !!activeSkill ||
+      !!editorSelection)
+  const sendLabel = codeActive && code ? (code.hasMac ? `Send to ${code.agentLabel}` : 'Send') : isLoading ? 'Send when this reply finishes' : 'Send message'
 
   // The field: its own row (stacked), or between "+" and the mic (inline).
   const field = (
@@ -1432,7 +1464,9 @@ export const ChatInput = memo(function ChatInput({
           className={inline ? 'flex min-h-[38px] items-center gap-1' : 'flex items-center gap-1.5 pb-0.5'}
           style={inline ? undefined : CONTROLS_ROW_PADDING}
         >
-          {/* "+" menu: files (or photos). */}
+          {/* "+" menu: files (or photos). Not in Code: the coding agent gets
+              the words, and its folder is picked under the box. */}
+          {!codeActive && (
           <Popover
             open={plusMenuOpen}
             onOpenChange={(open) => {
@@ -1506,6 +1540,7 @@ export const ChatInput = memo(function ChatInput({
               )}
             </PopoverContent>
           </Popover>
+          )}
 
           {/* Spacer pushes the mic and send's slot to the right (inline: the field does). */}
           {inline ? field : <div className="min-w-0 flex-1" />}
@@ -1519,6 +1554,9 @@ export const ChatInput = memo(function ChatInput({
               <ComposerCaptureButton recording={recording} />
             </div>
           )}
+
+          {/* Code: who you work with, before the mic. */}
+          {codeActive && code?.hasMac && <CodeAgentPicker code={code} onOpenChange={handlePopoverLock} />}
 
           {/* Dictation: the mic sits left of send (desktop, on-device
               transcription ready). In voice mode (no dictation then) the spot
@@ -1586,13 +1624,13 @@ export const ChatInput = memo(function ChatInput({
                 // reply is still running it waits above the composer and
                 // goes when the reply finishes (the slot is Stop again
                 // once the composer is empty).
-                <PromptInputAction tooltip={isLoading ? 'Send when this reply finishes' : 'Send message'}>
+                <PromptInputAction tooltip={sendLabel}>
                   <Button
                     variant="default"
                     size="icon"
                     className={inline ? 'h-9 w-9 rounded-full' : 'h-8 w-8 rounded-full'}
-                    aria-label={isLoading ? 'Send when this reply finishes' : 'Send message'}
-                    disabled={!hasDraft}
+                    aria-label={sendLabel}
+                    disabled={!hasDraft || codeHeld}
                     onClick={submit}
                   >
                     <ArrowUp className="h-4 w-4" />
@@ -1624,13 +1662,13 @@ export const ChatInput = memo(function ChatInput({
       {underRowOn && (
         <div
           data-composer-under-row
-          className={cn('flex min-w-0 items-center gap-1 pt-0.5', workerOn && '@container/underrow flex-wrap gap-y-1')}
+          // With the tabs the row may wrap (a phone), the environment and the
+          // folder going to a second line rather than shrinking.
+          className={cn('flex min-w-0 items-center gap-1 pt-0.5', code && 'flex-wrap gap-y-1')}
           style={UNDER_ROW_PADDING}
         >
-          {/* Which intelligence does the work (the Mac's choice), first; where it runs, after it. Renders nothing when there is nothing to choose. */}
-          {environmentOn && environment && (
-            <WorkerToggle chat={environment.chat} list={environment.list} thisMac={environment.thisMac} onPickWorker={environment.pickWorker} />
-          )}
+          {/* Chat or Code (a person with a Mac environment), first; where it runs, after. */}
+          {code && <ComposerTabs tab={code.tab} onTab={code.setTab} />}
           {environmentOn && environment && (
             <EnvironmentSelector
               chat={environment.chat}
@@ -1641,6 +1679,7 @@ export const ChatInput = memo(function ChatInput({
               onOpenChange={handlePopoverLock}
             />
           )}
+          {codeActive && code && <CodeFolderPicker code={code} onOpenChange={handlePopoverLock} />}
           {unavailable?.agent && (
             <UnavailableControl
               control="agent"
@@ -1650,6 +1689,7 @@ export const ChatInput = memo(function ChatInput({
             />
           )}
           <div className="min-w-0 flex-1" />
+          {codeActive && code && <CodeNoticeLine code={code} staged={codeStaged} />}
         </div>
       )}
 

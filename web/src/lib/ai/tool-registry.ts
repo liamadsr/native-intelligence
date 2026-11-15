@@ -292,6 +292,9 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'query_rows', sideEffect: 'read', label: 'Query Rows', description: "Read a table's rows, filtered and sorted, a page at a time" },
       { name: 'archive_rows', sideEffect: 'internal-write', writeTarget: 'board', label: 'Archive Rows', description: "Archive a table's rows; undoable" },
       { name: 'undo_table_change', sideEffect: 'internal-write', writeTarget: 'board', label: 'Undo Table Change', description: 'Take back a change to a table; parts changed again since keep their newer value' },
+      { name: 'list_forms', sideEffect: 'read', label: 'List Forms', description: "The workspace's forms: public links that each add a row to a table per submission" },
+      { name: 'create_form', sideEffect: 'internal-write', writeTarget: 'board', label: 'Create Form', description: 'Make a form on a table: a public link whose submissions each become one new row; the link is shown once' },
+      { name: 'update_form', sideEffect: 'internal-write', writeTarget: 'board', label: 'Update Form', description: "Change a form's fields or who can submit, switch it off or on, or make a new link (the old one stops)" },
     ],
   },
   {
@@ -1291,6 +1294,9 @@ export const ATTENDED_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set([
   'create_booking_link',
   'update_booking_link',
   'delete_booking_link',
+  // Forms phase 1: a form's link lets anyone add rows to a table, so it is made and changed only at the person's word.
+  'create_form',
+  'update_form',
 ])
 
 /** True for a tool only an attended chat may hold (ATTENDED_ONLY_TOOL_NAMES). */

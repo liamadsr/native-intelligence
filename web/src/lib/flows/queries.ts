@@ -15,6 +15,7 @@ import type {
   CaptureProcessedTriggerConfig,
   ChatMessageTriggerConfig,
   DocumentCreatedTriggerConfig,
+  RecordCreatedTriggerConfig,
   EmailReceivedTriggerConfig,
   ConditionGroup,
   ConditionField,
@@ -404,6 +405,22 @@ export async function findMatchingFlowsForDocumentCreated(supabase: SupabaseClie
     .eq('workspace_id', workspaceId)
     .eq('enabled', true)
     .eq('trigger_type', 'document_created')
+  if (error || !data) return []
+  return (data as Array<Record<string, unknown>>).map(toFlowWithSecrets)
+}
+
+/**
+ * Enabled record_created flows on one table. Which owners can read the table
+ * is the dispatcher's (event-triggers.ts). Server only.
+ */
+export async function findMatchingFlowsForRecordCreated(supabase: SupabaseClient, workspaceId: string, tableId: string): Promise<FlowWithSecrets[]> {
+  const { data, error } = await supabase
+    .from('flow')
+    .select(FLOW_FIELDS)
+    .eq('workspace_id', workspaceId)
+    .eq('enabled', true)
+    .eq('trigger_type', 'record_created')
+    .eq('trigger_config->>table_id', tableId)
   if (error || !data) return []
   return (data as Array<Record<string, unknown>>).map(toFlowWithSecrets)
 }
@@ -1426,6 +1443,20 @@ export function validateDocumentCreatedConfig(raw: unknown): DocumentCreatedTrig
   return { kind: 'document_created' }
 }
 
+const RECORD_TABLE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Validate a record_created trigger_config: the table whose new rows fire
+ * it. Whether the loop's owner can read that table is checked at save
+ * (recordTriggerTableProblem) and again at every fire.
+ */
+export function validateRecordCreatedConfig(raw: unknown): RecordCreatedTriggerConfig | Error {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return new Error('trigger_config must be an object')
+  const tableId = (raw as Record<string, unknown>).table_id
+  if (typeof tableId !== 'string' || !RECORD_TABLE_ID_RE.test(tableId)) return new Error("trigger_config.table_id is required: the table's id")
+  return { kind: 'record_created', table_id: tableId.toLowerCase() }
+}
+
 /**
  * Validate a pr_status_changed trigger_config: the repo it watches
  * ("owner/repo", required) and the PR state it waits for (open, closed,
@@ -1495,11 +1526,10 @@ export function validateCalendarEventConfig(
  * REST API uses so a new trigger type can't be created with an unvalidated
  * config. pr_status_changed fires from the GitHub webhook
  * (flowDispatchOnPrStatusChange) and quote_received from the website quote
- * intake (flowDispatchOnQuoteReceived); the canvas editor can't build
- * quote_received yet, so the REST routes still refuse it while chat's
- * create_flow / update_flow take it. email_received, chat_message and
- * document_created (the owner's own mail, chat and documents:
- * event-triggers.ts) are built in both. `opts` carries the clock-dependent
+ * intake (flowDispatchOnQuoteReceived). email_received, chat_message,
+ * document_created and record_created (the owner's own mail, chat, documents
+ * and tables: event-triggers.ts) fire for their owner alone. The canvas
+ * editor and chat's create_flow / update_flow build every one. `opts` carries the clock-dependent
  * checks of a write (TriggerValidateOptions).
  */
 export function validateTriggerConfig(
@@ -1526,6 +1556,8 @@ export function validateTriggerConfig(
       return validateChatMessageConfig(raw)
     case 'document_created':
       return validateDocumentCreatedConfig(raw)
+    case 'record_created':
+      return validateRecordCreatedConfig(raw)
     default:
       return new Error(`trigger_type "${triggerType}" is not supported`)
   }

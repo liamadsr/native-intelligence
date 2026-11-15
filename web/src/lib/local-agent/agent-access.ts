@@ -89,6 +89,7 @@ import {
 } from '@/lib/safety/approvals'
 import { attendedOnlyToolsDeniedTo, decideAction, type CallerClass } from '@/lib/safety/caller'
 import { macNativeToolEntries } from './agent-seams'
+import { codeRequestIdOf } from './code-thread'
 import { readSessionWorker } from './session-worker'
 import { workerLabel } from '@/lib/environments/types'
 import { workerCeiling } from './worker-tools'
@@ -160,6 +161,13 @@ export interface MacSession {
    * tools are the board's alone (worker-tools.ts).
    */
   worker: string | null
+  /**
+   * The person started it from the chat composer's Code tab (code-start.ts):
+   * no teammate in the cloud between them, so it has none of the Mac's
+   * teammate tools (it asks the person with its own question at the end of
+   * a turn, which the job's view in the chat shows).
+   */
+  codeJob: boolean
 }
 
 /** A verified Mac body call: its token, its job, its caller class. */
@@ -237,6 +245,7 @@ export async function authorizeMacBody(request: Request, svc: SupabaseClient): P
       deviceName: session.device?.name?.trim() || 'your Mac',
       folderLabel: session.folder?.label?.trim() || 'a shared folder',
       worker,
+      codeJob: session.started_by === 'person' && codeRequestIdOf(session.idempotency_key) !== null,
     },
     caller: macCallerClass(session.started_by, session.idempotency_key),
   }
@@ -304,13 +313,14 @@ export function macExcludedTools(caller: CallerClass): Set<string> {
 export function macCeiling(
   chatCeiling: ReadonlySet<string> | readonly string[] | null,
   externalMcpToolNames: readonly string[],
-  opts: { caller: CallerClass; localModel: boolean },
+  opts: { caller: CallerClass; localModel: boolean; codeJob?: boolean },
 ): Set<string> {
   const out = new Set<string>(chatCeiling ?? [...REGISTRY_TOOLS, ...externalMcpToolNames])
   out.delete('search_tools')
   for (const name of macExcludedTools(opts.caller)) out.delete(name)
   if (!opts.localModel) for (const name of MAC_WEB_TOOL_NAMES) out.add(name)
-  for (const entry of macNativeToolEntries()) out.add(entry.name)
+  // A Code tab job has no teammate in the cloud to message (MacSession.codeJob).
+  if (!opts.codeJob) for (const entry of macNativeToolEntries()) out.add(entry.name)
   return out
 }
 
@@ -543,8 +553,10 @@ export function withMacConfirmWording(tools: Record<string, Tool>, _svc: Supabas
  *   update_booking_link     turns such a page back on (or changes it)
  *   create_quote_form_link  the secret URL a website's quote form posts to
  *   connect_link            a link that connects an account to the person's workspace
+ *   create_form             a link anyone adds rows to a table through
+ *   update_form             turns such a link back on, widens it or makes a new one
  */
-export const WORKER_HELD_PUBLIC_TOOLS: ReadonlySet<string> = new Set(['create_booking_link', 'update_booking_link', 'create_quote_form_link', 'connect_link'])
+export const WORKER_HELD_PUBLIC_TOOLS: ReadonlySet<string> = new Set(['create_booking_link', 'update_booking_link', 'create_quote_form_link', 'connect_link', 'create_form', 'update_form'])
 
 /**
  * Tools that raise their OWN card whenever the call isn't that card's replay
@@ -698,10 +710,11 @@ export type MacSpec = Omit<ChatSpec, 'ceiling' | 'gatewayTelemetry' | 'modelRout
 export function macSpec(spec: ChatSpec, body: MacBody, opts: { includeSchemas?: boolean } = {}): MacSpec {
   const { ceiling: chatCeiling, gatewayTelemetry: _telemetry, modelRoute: _route, cards: _cards, turnContext, turnContextHeld, ...rest } = spec
   const localModel = body.session.localModel
-  const ceiling = macCeiling(chatCeiling ?? spec.ceilingTools.map((t) => t.name), [], { caller: body.caller, localModel })
+  const codeJob = body.session.codeJob === true
+  const ceiling = macCeiling(chatCeiling ?? spec.ceilingTools.map((t) => t.name), [], { caller: body.caller, localModel, codeJob })
   const extra: SpecTool[] = [
     ...(localModel ? [] : MAC_WEB_TOOL_NAMES.map((name) => specTool(name, MAC_WEB_TOOL_DEFINITIONS[name].description, MAC_WEB_TOOL_DEFINITIONS[name].inputSchema, !!opts.includeSchemas))),
-    ...macNativeToolEntries().map((t) => ({ name: t.name, description: t.description, ...(opts.includeSchemas ? { inputSchema: t.inputSchema } : {}) })),
+    ...(codeJob ? [] : macNativeToolEntries()).map((t) => ({ name: t.name, description: t.description, ...(opts.includeSchemas ? { inputSchema: t.inputSchema } : {}) })),
   ]
   const extraNames = new Set(extra.map((t) => t.name))
   const ceilingTools = [

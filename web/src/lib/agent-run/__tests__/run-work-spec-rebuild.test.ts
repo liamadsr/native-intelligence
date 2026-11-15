@@ -312,6 +312,9 @@ describe('computeWorkRunCeiling', () => {
         'create_booking_link',
         'update_booking_link',
         'delete_booking_link',
+        // Forms phase 1: a form's public link, made and changed only at the person's word.
+        'create_form',
+        'update_form',
         // GEN-1169: deleting a document is a delete, only on the person's own card.
         // (Archiving and restoring are internal writes and stay in.)
         'delete_document',

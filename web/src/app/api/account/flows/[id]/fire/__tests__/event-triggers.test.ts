@@ -78,6 +78,19 @@ describe('Run now on the event loops', () => {
     })
   }
 
+  it("record_created: someone else's loop is tested without its table's id; the owner's own names it, and the run is the caller's alone", async () => {
+    const TABLE = '33333333-3333-4333-8333-333333333333'
+    h.flow = flow('record_created', { kind: 'record_created', table_id: TABLE })
+    await fire()
+    const others = (h.runFlow.mock.calls[0] as unknown as unknown[])[2] as Record<string, unknown>
+    expect(others).toMatchObject({ type: 'record_created', row_id: SYNTH_ID })
+    expect(JSON.stringify(others)).not.toContain(TABLE)
+    expect(h.inserts[0]).toMatchObject({ private_to: 'user-1' })
+    h.flow = { ...flow('record_created', { kind: 'record_created', table_id: TABLE }), created_by: 'user-1' }
+    await fire()
+    expect((h.runFlow.mock.calls[1] as unknown as unknown[])[2]).toMatchObject({ type: 'record_created', table_id: TABLE })
+  })
+
   it("a quote loop fires as a quote, and a schedule loop's run is not stamped", async () => {
     h.flow = flow('quote_received', { kind: 'quote_received' })
     await fire()

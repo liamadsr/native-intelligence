@@ -47,13 +47,28 @@ const QUARANTINE_XATTR: &std::ffi::CStr = c"com.apple.quarantine";
 /// script or disk image saved here gets the same first-open check as one
 /// from a browser (security review 2026-10-31).
 fn write_download(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    write_marked(path, contents, mark_downloaded)
+}
+
+/// Mark the open `file` at `at` as downloaded, the way [`write_download`]
+/// does (also the Studio's saved exports, studio_local). Call it on a new
+/// file before any byte lands, then rename it into place.
+pub(crate) fn mark_downloaded(file: &std::fs::File, at: &Path) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
-    let mark = |file: &std::fs::File, _: &Path| quarantine(file, &quarantine_value(SystemTime::now(), uuid::Uuid::new_v4()));
+    {
+        let _ = at;
+        quarantine(file, &quarantine_value(SystemTime::now(), uuid::Uuid::new_v4()))
+    }
     #[cfg(windows)]
-    let mark = |_: &std::fs::File, at: &Path| mark_of_the_web(at);
+    {
+        let _ = file;
+        mark_of_the_web(at)
+    }
     #[cfg(not(any(target_os = "macos", windows)))]
-    let mark = |_: &std::fs::File, _: &Path| Ok(());
-    write_marked(path, contents, mark)
+    {
+        let _ = (file, at);
+        Ok(())
+    }
 }
 
 /// Write `contents` to a new file beside `path`, `mark` it before any byte

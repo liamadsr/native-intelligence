@@ -51,6 +51,11 @@ const WIPE_KEY_PREFIXES = [
 // (components/storage-rename-script.tsx), so a sign-out sweeps both: otherwise the last
 // person's chat would stay on a shared device under its old key.
 const WIPE_KEY_PREFIXES_BEFORE_RENAME = WIPE_KEY_PREFIXES.map((prefix) => prefix.replace(/^ni/, 'dial8'))
+// IndexedDB databases that hold per-user state: the folders a person linked from their computer in the Studio's
+// Browser keep their folder handles here (components/studio/ui/local-folders.ts, HANDLE_DB; its list of folders is
+// under `ni:studio:` above). A handle is not a file, but it lets the page read that folder again once the browser
+// allows it, so the next person on a shared device must not inherit it.
+export const WIPE_INDEXED_DATABASES = ['ni-studio-local-folders'] as const
 
 let wipeActive = false
 
@@ -84,6 +89,11 @@ export function beginPersistedTabStateWipe(): void {
     for (const key of doomed) localStorage.removeItem(key)
   } catch {
     // ignore — see above
+  }
+  try {
+    for (const name of WIPE_INDEXED_DATABASES) indexedDB.deleteDatabase(name)
+  } catch {
+    // ignore: no IndexedDB here (or it is blocked), and sign-out never waits on it
   }
 }
 

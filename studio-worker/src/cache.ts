@@ -46,7 +46,7 @@ export class AssetCache {
   async init(): Promise<void> {
     await mkdir(this.dir, { recursive: true })
     // Downloads cut short by a crash.
-    for (const name of await readdir(this.dir)) if (!ASSET_FILE.test(name)) await rm(join(this.dir, name), { force: true, recursive: true })
+    for (const name of await readdir(this.dir)) if (!ASSET_FILE.test(name)) await rm(join(this.dir, name), { force: true, recursive: true, maxRetries: 5, retryDelay: 200 })
   }
 
   /** Where a file lives in the cache (`assets/<sha>.<ext>` → <dir>/<sha>.<ext>). */
@@ -62,7 +62,7 @@ export class AssetCache {
     try {
       const s = await stat(path)
       if (s.size !== bytes) {
-        await rm(path, { force: true })
+        await rm(path, { force: true, maxRetries: 5, retryDelay: 200 })
         return null
       }
       const now = new Date()
@@ -102,7 +102,8 @@ export class AssetCache {
       }
     }
     const plan = evictionPlan(entries, this.maxBytes, new Set(this.pins.keys()))
-    for (const name of plan) await rm(join(this.dir, name), { force: true })
+    // A file another process still holds (Windows refuses to delete an open file) stays until the next eviction.
+    for (const name of plan) await rm(join(this.dir, name), { force: true, maxRetries: 3, retryDelay: 200 }).catch(() => undefined)
     return plan
   }
 }

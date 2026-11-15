@@ -17,6 +17,7 @@
  */
 import type { StudioJobKind } from '../../../web/src/lib/studio/server/job-contract.ts'
 import type { WorkerConfig } from '../config.ts'
+import { LIVE_JOB_KINDS } from '../engine.ts'
 import { hf, higgsfieldPath, toolRunner, type HfRunner } from './higgsfield.ts'
 
 export type Capability = 'voiceover' | 'generatedShots'
@@ -46,8 +47,10 @@ export function signedIn(answer: unknown): boolean {
 }
 
 /** The kinds a slot asks for, given what is configured and what holds now. Pure. */
-export function kindsFor(slot: 'media' | 'provider', configured: readonly StudioJobKind[], on: ReadonlySet<Capability>): StudioJobKind[] {
-  if (slot === 'media') return configured.filter((k) => !PROVIDER_KINDS[k])
+export function kindsFor(slot: 'media' | 'provider' | 'live', configured: readonly StudioJobKind[], on: ReadonlySet<Capability>): StudioJobKind[] {
+  // A recording prepared while it records holds its slot as long as the recording lasts: only a live slot takes it.
+  if (slot === 'live') return configured.filter((k) => LIVE_JOB_KINDS.includes(k))
+  if (slot === 'media') return configured.filter((k) => !PROVIDER_KINDS[k] && !LIVE_JOB_KINDS.includes(k))
   return configured.filter((k) => (PROVIDER_KINDS[k] ? on.has(PROVIDER_KINDS[k]!) : QUICK_KINDS.includes(k)))
 }
 

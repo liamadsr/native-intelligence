@@ -4,20 +4,20 @@ import { Audio } from '@remotion/media';
 import { MediaVideo, useCheapEffects } from './media-video';
 import { AbsoluteFill, Img, Sequence, staticFile, useCurrentFrame, useRemotionEnvironment, useVideoConfig } from 'remotion';
 import type { EditorProject } from './contracts';
-import { projectDuration, scheduleProject, sourceTimeSeconds, type ScheduledClip } from './timeline';
+import { scheduleProject, sourceTimeSeconds, type ScheduledClip } from './timeline';
 import { transcriptWords } from './transcript';
-import { duckGain, voiceSpans } from './ducking';
 import { deliveredProject } from './formats';
-import { segmentLevel } from './audio-mix';
 import { zoomAmount } from './zoom';
 import { evaluateMotionAtFrame } from './motion';
 import { motionWindowStyle, previewVideoFrameWidth, primaryRect, sourceCropRect } from './motion-render';
 import { MotionLayers, PrimaryClipMedia } from './motion-layers';
 import { PresenterLayer } from './presenter';
 import { clipView, fitRect, isCameraSource, layoutTiles, slideForClipFrame, syncedTake, type Rect, type ShotSource } from './shots';
-import { cutAudioPlan, cutVideoPlan, cutVolume, dipOpacity, dipPlan, type Dip } from './cuts';
+import { cutVideoPlan, dipOpacity, dipPlan, type Dip } from './cuts';
+import { soundLayers } from './sound-layers';
 import { automationValue } from './automation';
 import { LayerStack } from './layers-render';
+import { pointerAt as pointerAt_, clickAt, pressScale, CLICK_RING_MS } from './pointer';
 import { CodeScenesContext, type CodeScenes } from './scene-layer';
 import { loadFaces, type FontFace } from './font-faces';
 import { CutoutPass, gradeFilter, passAsset, useCutoutPass } from './cutout-pass';
@@ -59,20 +59,13 @@ function SourceClip({ scheduled, project, assetPath, extend = 0, fadeIn = 0, pla
   const angle = p.shadow.angle * Math.PI / 180;
   const trace = asset.sourceCursorHidden && view.main === 'screen' ? asset.trace : undefined;
   const ms = sourceTimeSeconds(clip, asset, frame, fps) * 1000;
-  let pointer: [number, number] | null = null, pointerAt: [number, number] | null = null;
-  if (trace?.cursor.length && ms >= trace.cursor[0]![0]) {
-    const samples = trace.cursor; let lo = 0, hi = samples.length - 1;
-    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (samples[mid]![0] <= ms) lo = mid; else hi = mid; }
-    const a = samples[lo]!, b = samples[hi]!;
-    const mix = b[0] === a[0] || b[0] - a[0] > 100 ? 0 : Math.max(0, Math.min(1, (ms - a[0]) / (b[0] - a[0])));
-    const point = ms >= b[0] ? b : [ms, a[1] + (b[1] - a[1]) * mix, a[2] + (b[2] - a[2]) * mix];
-    pointer = [point[1]! / trace.viewport.width * paneW, point[2]! / trace.viewport.height * paneH];
-    pointerAt = [point[1]! / trace.viewport.width, point[2]! / trace.viewport.height];
-  }
-  const click = frame < playbackFrames && project.cursor.clickFeedback && trace?.actions.filter((a) => a.kind === 'click' && a.t <= ms && ms - a.t < 220).at(-1);
-  const clickProgress = click ? (ms - click.t) / 220 : null;
+  // The worker's FFmpeg export draws the same pointer from the same functions (pointer.ts; studio-worker/src/fast-pointer.ts).
+  const pointerAt = trace ? pointerAt_(trace, ms) : null;
+  const pointer: [number, number] | null = pointerAt ? [pointerAt[0] * paneW, pointerAt[1] * paneH] : null;
+  const click = frame < playbackFrames && project.cursor.clickFeedback && trace && clickAt(trace, ms);
+  const clickProgress = click ? (ms - click.t) / CLICK_RING_MS : null;
   const size = project.cursor.size * (trace ? paneW / trace.viewport.width : 1);
-  const press = click && ms - click.t < 100 ? 1 - 0.12 * Math.sin(Math.PI * (ms - click.t) / 100) : 1;
+  const press = pressScale(click, ms);
   // Main-picture automation: slide (whips), rotation, blur and opacity move the whole shot as one.
   const shiftX = automationValue(project, 'shiftX', timelineFrame), shiftY = automationValue(project, 'shiftY', timelineFrame), rotate = automationValue(project, 'rotate', timelineFrame);
   const blur = automationValue(project, 'blur', timelineFrame), opacity = automationValue(project, 'opacity', timelineFrame);
@@ -177,9 +170,9 @@ function EditorFrame({ project, fonts }: { project: EditorProject; fonts?: FontF
   loadFaces(fonts, assetPath);
   const bg = project.presentation.background, background = bg.kind === 'gradient' ? `linear-gradient(${bg.angle}deg,${bg.color},${bg.color2})` : bg.kind === 'solid' ? bg.color : '#000';
   const image = bg.kind === 'image' ? project.assets.find((a) => a.id === bg.assetId) : null;
-  const frames = projectDuration(project), schedule = scheduleProject(project), videoPlan = cutVideoPlan(project, schedule);
+  const schedule = scheduleProject(project), videoPlan = cutVideoPlan(project, schedule);
   const dips = React.useMemo(() => dipPlan(project, schedule), [project]);
-  const ducking = project.audioTracks.some(t => t.role === 'music' && t.duck), spans = React.useMemo(() => ducking ? voiceSpans(project) : [], [project, ducking]);
+  const sound = React.useMemo(() => soundLayers(project), [project]);
   return <AbsoluteFill style={{ backgroundColor: '#000' }}>
     <AbsoluteFill style={{ background, ...(image ? { backgroundImage: `url(${assetPath(image.file)})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}),
       filter: `blur(${project.presentation.blur}px)`, transform: project.presentation.blur ? 'scale(1.08)' : undefined }} />
@@ -188,10 +181,10 @@ function EditorFrame({ project, fonts }: { project: EditorProject; fonts?: FontF
       <SourceClip scheduled={s} project={project} assetPath={assetPath} extend={videoPlan[index]!.extend} fadeIn={videoPlan[index]!.fadeIn} playOn={videoPlan[index]!.playOn} />
     </Sequence>)}
     {/* Clip sound lives in its own layer so every cut crossfades instead of clicking or dropping out. */}
-    {cutAudioPlan(project, schedule).map(plan => { const s = schedule.find(item => item.clip.id === plan.clipId)!;
-      return <Sequence key={`audio-${plan.clipId}`} from={plan.from} durationInFrames={plan.duration} premountFor={Math.min(project.output.fps, plan.from)}>
-        <Audio src={assetPath(s.asset.file)} trimBefore={Math.max(0, plan.trimBefore)} playbackRate={s.clip.playbackRate} volume={(f: number) => cutVolume(plan, f) * automationValue(project, 'volume', plan.from + f)} />
-      </Sequence>; })}
+    {/* The layers (and the audio tracks' below) come from sound-layers.ts, which the worker's FFmpeg export mixes too. */}
+    {sound.filter(layer => layer.kind === 'clip').map(layer => <Sequence key={layer.key} from={layer.from} durationInFrames={layer.duration} premountFor={layer.premountFor}>
+      <Audio src={assetPath(project.assets.find(a => a.id === layer.assetId)!.file)} trimBefore={layer.trimBefore} playbackRate={layer.playbackRate} volume={layer.volume} />
+    </Sequence>)}
     <PresenterLayer project={project} assetPath={assetPath}/>
     {/* The cut-out pass decodes the footage a second time: only when a layer actually sits behind the subject. */}
     {project.cutouts?.length && project.layers?.some(layer => layer.behind) ? <>
@@ -206,10 +199,9 @@ function EditorFrame({ project, fonts }: { project: EditorProject; fonts?: FontF
     </> : null}
     <LayerStack project={project} assetPath={assetPath} />
     <DipLayer dips={dips} />
-    {project.audioTracks.filter(track => !track.muted).flatMap(track => track.segments.filter(segment => segment.startFrame < frames).map(segment => <Sequence key={segment.id} from={segment.startFrame} premountFor={Math.min(project.output.fps * 2, segment.startFrame)} durationInFrames={Math.min(frames - segment.startFrame, Math.max(1, Math.round((segment.trimEndSeconds - segment.trimStartSeconds) * project.output.fps)))}>
-      <Audio src={assetPath(project.assets.find(a => a.id === segment.assetId)!.file)} trimBefore={segment.trimStartSeconds * project.output.fps}
-        volume={(f: number) => track.gain * segmentLevel(segment, f, project.output.fps) * (track.role === 'music' && track.duck ? duckGain(spans, segment.startFrame + f, project.output.fps, track.duck) : 1)} />
-    </Sequence>))}
+    {sound.filter(layer => layer.kind === 'track').map(layer => <Sequence key={layer.key} from={layer.from} premountFor={layer.premountFor} durationInFrames={layer.duration}>
+      <Audio src={assetPath(project.assets.find(a => a.id === layer.assetId)!.file)} trimBefore={layer.trimBefore} volume={layer.volume} />
+    </Sequence>)}
     <EditorCaptions project={project} />
   </AbsoluteFill>;
 }

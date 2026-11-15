@@ -125,6 +125,29 @@ export function cloudBrowserBackendKind(env: Readonly<Record<string, string | un
   throw new Error(`cloud browser: ${CLOUD_BROWSER_BACKEND_ENV} must be "hosted" or "runtime" (or unset), not "${value.slice(0, 32)}"`)
 }
 
+/** The runtime backend's shared slots (slots.ts): at most this many browsers running at once, across everyone. */
+export const CLOUD_BROWSER_MAX_RUNNING_ENV = 'CLOUD_BROWSER_MAX_RUNNING'
+/** Four 4 GiB browsers: what the sandbox server's memory pool holds beside a coding run or two. */
+export const CLOUD_BROWSER_DEFAULT_MAX_RUNNING = 4
+const warnedMaxRunning = new Set<string>()
+
+/**
+ * CLOUD_BROWSER_MAX_RUNNING, read now: a positive integer, or the default when
+ * unset or blank. Anything else is logged once (never its whole value) and the
+ * default is used: a typo must not stop every browser from starting
+ * (deploy/app/check_settings.py refuses it before a roll-out).
+ */
+export function cloudBrowserMaxRunning(env: Readonly<Record<string, string | undefined>> = process.env): number {
+  const value = env[CLOUD_BROWSER_MAX_RUNNING_ENV]?.trim() ?? ''
+  if (value === '') return CLOUD_BROWSER_DEFAULT_MAX_RUNNING
+  if (/^[1-9]\d{0,3}$/.test(value)) return Number(value)
+  if (!warnedMaxRunning.has(value)) {
+    warnedMaxRunning.add(value)
+    console.warn(`[cloud-browser] ${CLOUD_BROWSER_MAX_RUNNING_ENV} is not a positive integer ("${value.slice(0, 16)}"): using ${CLOUD_BROWSER_DEFAULT_MAX_RUNNING}`)
+  }
+  return CLOUD_BROWSER_DEFAULT_MAX_RUNNING
+}
+
 /** The settings the runtime backend reads. The address and key settings are the coding agent's too. */
 export const CLOUD_BROWSER_RUNTIME_ENVS = {
   apiUrl: 'SANDBOX_RUNTIME_API_URL',

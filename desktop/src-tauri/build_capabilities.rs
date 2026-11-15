@@ -5,7 +5,7 @@
 /// `PROFILE`. A release build reads `default.json` alone (exactly
 /// https://nativeintelligence.dev); a debug build adds `dev.json`, the same grants for the
 /// local dev server (http://localhost:3000, where dev.sh's build points the
-/// main window). So no released app grants a native command to whatever
+/// main window, and :3001 for a second checkout's: NI_DEV_PORT). So no released app grants a native command to whatever
 /// listens on localhost (security review 2026-10-31).
 pub fn capabilities_pattern(profile: &str) -> &'static str {
     if profile == "release" {

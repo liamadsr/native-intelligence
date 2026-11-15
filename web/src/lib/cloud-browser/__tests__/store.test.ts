@@ -18,7 +18,7 @@ vi.mock('@/lib/supabase/service', () => ({
       const call: Call = { table, ops: [] }
       const index = db.calls.push(call) - 1
       const chain: Record<string, unknown> = {}
-      for (const m of ['select', 'insert', 'upsert', 'update', 'delete', 'match', 'eq', 'is', 'in', 'lt', 'order', 'limit', 'like', 'or']) {
+      for (const m of ['select', 'insert', 'upsert', 'update', 'delete', 'match', 'eq', 'is', 'in', 'lt', 'gt', 'order', 'limit', 'like', 'or']) {
         chain[m] = (...args: unknown[]) => { call.ops.push([m, ...args]); return chain }
       }
       const result = () => Promise.resolve({ error: null, ...((db.results[index] ?? { data: null }) as object) })
@@ -39,13 +39,27 @@ beforeEach(() => { db.calls = []; db.results = [] })
 
 describe('markStarting', () => {
   it('inserts on first use, wakes only a stopped row, and counts as activity', async () => {
-    await store.markStarting(ref, 'browser-x')
-    expect(ops(0)[0]).toEqual(['upsert', expect.objectContaining({ ...ROW, sandbox_name: 'browser-x', status: 'starting' }),
+    const out = await store.markStarting(ref, 'browser-x')
+    expect(ops(0)[0]).toEqual(['upsert', expect.objectContaining({ ...ROW, sandbox_name: 'browser-x', status: 'starting', started_at: out.at, last_active_at: out.at }),
       { onConflict: 'user_id,workspace_id', ignoreDuplicates: true }])
-    has(1, 'update', { status: 'starting', stop_reason: null })
+    // When the row BECAME starting: the stuck-starting stop is judged by it.
+    has(1, 'update', { status: 'starting', stop_reason: null, started_at: out.at })
     has(1, 'eq', 'status', 'stopped')
-    expect(ops(2)[0]).toEqual(['update', { last_active_at: expect.any(String) }])
+    expect(ops(2)[0]).toEqual(['update', { last_active_at: out.at }])
     expect(ops(2).some(([m]) => m === 'eq')).toBe(false) // a running or stopping row keeps its status
+    // Neither the insert nor the wake matched a row: another ensure started it, or it runs.
+    expect(out.moved).toBe(false)
+  })
+
+  it('says when THIS call moved the row to starting: it inserted it, or it was the update that found it stopped', async () => {
+    db.results = [{ data: [{ user_id: 'u1' }] }]
+    expect((await store.markStarting(ref, 'browser-x')).moved).toBe(true)
+    db.calls = []
+    db.results = [{ data: [] }, { data: [{ user_id: 'u1' }] }]
+    expect((await store.markStarting(ref, 'browser-x')).moved).toBe(true)
+    db.calls = []
+    db.results = [{ data: [] }, { data: [] }]
+    expect((await store.markStarting(ref, 'browser-x')).moved).toBe(false)
   })
 })
 
@@ -119,7 +133,10 @@ describe('listStopCandidates', () => {
     has(0, 'or', `stop_reason.is.null,stop_reason.neq.expiring,updated_at.lt."${iso(CLOUD_BROWSER.expiringStaleMs)}"`)
     expect(CLOUD_BROWSER.expiringStaleMs).toBe(30 * 60_000)
     has(1, 'eq', 'status', 'running'); has(1, 'lt', 'started_at', iso(CLOUD_BROWSER.sessionTimeoutMs - CLOUD_BROWSER.stopBeforeTimeoutMs))
-    has(2, 'eq', 'status', 'starting'); has(2, 'lt', 'last_active_at', iso(CLOUD_BROWSER.startingStaleMs))
+    // A stuck start by when it BEGAN (started_at, set by markStarting), not its activity, which each retry renews.
+    has(2, 'eq', 'status', 'starting')
+    has(2, 'or', `started_at.lt."${iso(CLOUD_BROWSER.startingStaleMs)}",and(started_at.is.null,last_active_at.lt."${iso(CLOUD_BROWSER.startingStaleMs)}")`)
+    expect(ops(2)).not.toContainEqual(['lt', 'last_active_at', expect.anything()])
     has(3, 'eq', 'status', 'running'); has(3, 'lt', 'last_active_at', iso(CLOUD_BROWSER.idleStopMs))
     for (let i = 0; i < 4; i++) has(i, 'limit', CLOUD_BROWSER.maxStopsPerSweep)
   })
@@ -204,5 +221,93 @@ describe('the runtime backend’s reads and its expiry', () => {
     // Never a pattern from a name: anything but the id's shape is no, without a query.
     for (const bad of ['abc%', 'a_c', 'ABC', '', 'a.b']) expect(await store.hubSessionLive(bad)).toBe(false)
     expect(db.calls).toHaveLength(2)
+  })
+})
+
+describe('the shared slots and the hub’s early name (runtime backend)', () => {
+  /** SQL's LIKE, enough for the hub's pattern (`\` escapes, `%` any run). */
+  const like = (value: string, pattern: string) => new RegExp(`^${pattern.replace(/\\(.)|%|_|[.*+?^${}()|[\]]/g, (m, esc) =>
+    esc !== undefined ? `\\${esc}` : m === '%' ? '.*' : m === '_' ? '.' : `\\${m}`)}$`).test(value)
+
+  it('names the sandbox in a STARTING row only, as `<id>.0`, which the hub’s question matches for that id and no other', async () => {
+    db.results = [{ data: [{ user_id: 'u1' }] }]
+    expect(await store.recordStartingSandbox('browser-x', 'abc123')).toBe(true)
+    has(0, 'update', { session_id: 'abc123.0' })
+    has(0, 'eq', 'sandbox_name', 'browser-x')
+    has(0, 'eq', 'status', 'starting')
+    // The session it writes is the one hubSessionLive's pattern finds, for that id alone.
+    db.results = [{ data: [] }]
+    await store.hubSessionLive('abc123')
+    const pattern = ops(1).find(([m]) => m === 'like')![2] as string
+    expect(like('abc123.0', pattern)).toBe(true)
+    expect(like('abc1234.0', pattern)).toBe(false)
+    expect(like('xabc123.0', pattern)).toBe(false)
+    // Never anything but the id's shape.
+    expect(await store.recordStartingSandbox('browser-x', 'a%b')).toBe(false)
+    expect(db.calls).toHaveLength(2)
+    // No starting row there to name it: false (and then nothing asks the edge).
+    db.results = [{ data: [] }]
+    expect(await store.recordStartingSandbox('browser-x', 'abc123')).toBe(false)
+  })
+
+  it('a refused start goes back to stopped only from starting and as its ensure left it (its own activity), keeping its session', async () => {
+    db.results = [{ data: { user_id: 'u1' } }]
+    expect(await store.releaseStart(ref, '2026-11-14T12:00:00.001Z')).toBe(true)
+    has(0, 'update', { status: 'stopped', stop_reason: 'busy' })
+    has(0, 'match', ROW)
+    has(0, 'eq', 'status', 'starting')
+    has(0, 'eq', 'last_active_at', '2026-11-14T12:00:00.001Z')
+    expect(ops(0).some(([m, v]) => m === 'update' && typeof v === 'object' && v !== null && 'session_id' in v)).toBe(false)
+    expect(await store.releaseStart(ref, 'x')).toBe(false)
+  })
+
+  it('reads the slot holders, idle longest first, without the expiry’s claims', async () => {
+    db.results = [{ data: [
+      { ...ROW, status: 'running', stop_reason: null, last_active_at: 'a' },
+      { ...ROW, user_id: 'u2', status: 'stopping', stop_reason: 'expiring', last_active_at: 'b' },
+      { ...ROW, user_id: 'u3', status: 'stopping', stop_reason: null, last_active_at: 'c' },
+      { ...ROW, user_id: 'u4', status: 'starting', stop_reason: null, last_active_at: 'd' },
+    ] }]
+    expect((await store.listSlotHolders()).map(r => r.user_id)).toEqual(['u1', 'u3', 'u4'])
+    has(0, 'in', 'status', ['starting', 'running', 'stopping'])
+    has(0, 'order', 'last_active_at', { ascending: true })
+    expect(ops(0)[0][1]).toContain('stop_reason')
+    expect(ops(0)[0][1]).toContain('driver')
+  })
+
+  it('a browser is in use with a command in flight (a live lease, or waiting and not expired) or a browser step waiting on the person', async () => {
+    const now = Date.parse('2026-11-14T12:00:00Z')
+    const nowIso = '2026-11-14T12:00:00.000Z'
+    // Two queries per browser (commands, approvals), in that order: a has a command, b an approval, c neither.
+    db.results = [{ data: [{ id: 1 }] }, { data: [] }, { data: [] }, { data: [{ id: 2 }] }, { data: [] }, { data: [] }]
+    const refs = ['a', 'b', 'c'].map(userId => ({ userId, workspaceId: 'w' }))
+    expect([...await store.browsersInUse(refs, now)].sort()).toEqual(['a:w', 'b:w'])
+    const commands = db.calls.filter(c => c.table === 'browser_command_queue')
+    const approvals = db.calls.filter(c => c.table === 'tool_approval')
+    expect(commands).toHaveLength(3)
+    expect(approvals).toHaveLength(3)
+    for (const call of commands) {
+      expect(call.ops).toContainEqual(['eq', 'workspace_id', 'w'])
+      expect(call.ops).toContainEqual(['or', `and(status.in.(claimed,running),lease_expires_at.gt."${nowIso}"),and(status.eq.waiting_for_device,expires_at.gt."${nowIso}")`])
+      // One row is enough, per browser: no one's backlog hides another's command.
+      expect(call.ops).toContainEqual(['limit', 1])
+    }
+    for (const call of approvals) {
+      expect(call.ops).toContainEqual(['eq', 'tool', 'run_browser_task'])
+      expect(call.ops).toContainEqual(['eq', 'status', 'pending'])
+      expect(call.ops).toContainEqual(['gt', 'expires_at', nowIso])
+      expect(call.ops).toContainEqual(['limit', 1])
+    }
+    db.calls = []
+    expect(await store.browsersInUse([])).toEqual(new Set())
+    expect(db.calls).toHaveLength(0)
+  })
+
+  it('counts the recent evictions by their stop reason and last update', async () => {
+    db.results = [{ count: 2 }]
+    const now = Date.parse('2026-11-14T12:00:00Z')
+    expect(await store.countRecentEvictions(60 * 60_000, now)).toBe(2)
+    has(0, 'eq', 'stop_reason', 'evicted')
+    has(0, 'gt', 'updated_at', '2026-11-14T11:00:00.000Z')
   })
 })

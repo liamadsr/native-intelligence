@@ -289,13 +289,27 @@ function oneLine(text: string, max: number): string {
  * What the coding agent reads about its Native Intelligence tools: server-written, plain,
  * no secrets and no ids beyond its card's. At most WORKER_INSTRUCTIONS_MAX.
  */
-export function workerInstructions(args: { workspaceName: string | null; card: WorkerCard | null; worker: string; tools: readonly string[] }): string {
+export function workerInstructions(args: {
+  workspaceName: string | null
+  card: WorkerCard | null
+  worker: string
+  tools: readonly string[]
+  /** The person started this job themselves from their chat's Code tab (MacSession.codeJob): they are its manager. */
+  codeJob?: boolean
+}): string {
   const workspace = oneLine(args.workspaceName || 'the workspace', 120)
   const agent = workerLabel(args.worker)
   const has = (name: string) => args.tools.includes(name)
   const lines: string[] = [
     `You are ${agent}, working for a person in their Native Intelligence workspace "${workspace}". These tools reach that workspace: its board, and much more.`,
   ]
+  if (args.codeJob) {
+    lines.push(
+      'The person started this job themselves, from their chat’s Code tab: your manager is the person, in this job’s own chat, and nobody else is on the other end. ' +
+        '`ask_manager` asks them: after asking, end your turn without calling `finish` and wait for their answer. `report` tells them; `finish` closes the job for them to review. ' +
+        'Never write that you asked, or are waiting on, the Native Intelligence agent. To read the workspace, use these tools yourself.',
+    )
+  }
   if (args.card) {
     const name = [args.card.identifier ? oneLine(args.card.identifier, 40) : null, args.card.title ? `"${oneLine(args.card.title, 200)}"` : null]
       .filter(Boolean)

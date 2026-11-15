@@ -202,6 +202,17 @@ describe('GET /api/local-agent/agent/tools', () => {
     expect(body.tools.map((t) => t.name)).toContain('add_comment')
   })
 
+  it('a job the person started from the Code tab: its instructions say the person is its manager, in its own chat, and to wait for their answer', async () => {
+    seed({ idempotency_key: 'local-agent-code:req-1' })
+    const body = (await (await list()).json()) as { instructions: string }
+    expect(body.instructions).toContain('your manager is the person, in this job’s own chat, and nobody else is on the other end')
+    expect(body.instructions).toContain('end your turn without calling `finish` and wait for their answer')
+    expect(body.instructions).toContain('Never write that you asked, or are waiting on, the Native Intelligence agent')
+    // A card's job (the default seed) is not told so.
+    seed()
+    expect(((await (await list()).json()) as { instructions: string }).instructions).not.toContain('your manager is the person')
+  })
+
   it('refuses a job on Native Intelligence’s own agent with its own code', async () => {
     seed({ worker: null })
     const res = await list()

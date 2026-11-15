@@ -6,6 +6,7 @@ import { getServiceClient } from '@/lib/supabase/service'
 import { CLOUD_BROWSER, cloudBrowserNamespace } from '@/lib/cloud-browser/config'
 import { ensureCloudBrowser, runningHubOrigin, touchCloudBrowser } from '@/lib/cloud-browser/host'
 import { cloudBrowserSandboxName } from '@/lib/cloud-browser/ids'
+import { CLOUD_BROWSER_BUSY_CODE, CLOUD_BROWSER_BUSY_MESSAGE, isCloudBrowserBusy } from '@/lib/cloud-browser/slots'
 import { readComputer, readDriver } from '@/lib/cloud-browser/store'
 import { sandboxSigningKey, signSandboxToken } from '@/lib/cloud-browser/viewer-token'
 
@@ -69,6 +70,12 @@ export async function POST(request: Request) {
     try {
       origin = (await ensureCloudBrowser(ref)).hubOrigin
     } catch (error) {
+      // Every shared slot held by a browser in use (slots.ts): said as it is, and retryable.
+      if (isCloudBrowserBusy(error)) {
+        const busy = apiError(CLOUD_BROWSER_BUSY_MESSAGE, { status: 503, code: CLOUD_BROWSER_BUSY_CODE })
+        busy.headers.set('Retry-After', '60')
+        return busy
+      }
       console.error('[cloud-browser] live view could not wake the browser:', error instanceof Error ? error.message : error)
       return apiError('Your browser could not start. Try again in a moment.', { status: 503, code: 'BROWSER_UNAVAILABLE' })
     }

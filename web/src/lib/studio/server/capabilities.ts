@@ -15,6 +15,8 @@
 //   motionCheck,     the measured checks' analysis (a Python with numpy and OpenCV where the worker runs,
 //   review           STUDIO_ANALYSIS_PYTHON): the motion check and the whole-video review. Reported apart
 //                    (checkCapabilities). The visual check (look) needs only the renderer, so no capability.
+//   liveImport       a worker with live slots (STUDIO_LIVE_SLOTS): a browser take's video tracks are prepared while
+//                    they record (live-takes.ts followLive); without one, after Stop as always.
 //
 // The provider capabilities (voiceover, generatedShots, and costs with them) spend from the one provider account the
 // worker holds, so on a server shared by several workspaces only the workspaces STUDIO_PROVIDER_WORKSPACES lists may
@@ -24,7 +26,7 @@ import type { StudioContext } from './context'
 import { StudioError } from './errors'
 
 /** The capabilities a worker may name. Anything else it sends is ignored. */
-export const WORKER_CAPABILITIES = ['voiceover', 'generatedShots', 'cutouts', 'faces', 'sound', 'motionCheck', 'review'] as const
+export const WORKER_CAPABILITIES = ['voiceover', 'generatedShots', 'cutouts', 'faces', 'sound', 'motionCheck', 'review', 'liveImport'] as const
 export type WorkerCapability = (typeof WORKER_CAPABILITIES)[number]
 
 /** How long a worker's word holds without a newer one. */
@@ -132,6 +134,7 @@ const MISSING: Record<WorkerCapability, string> = {
   sound: 'Sound design needs a Studio worker with sound design set up, and none is running now.',
   motionCheck: 'The motion check needs a Studio worker with video analysis set up, and none is running now.',
   review: 'The video review needs a Studio worker with video analysis set up, and none is running now.',
+  liveImport: 'Preparing a recording while it records needs a Studio worker with live slots, and none is running now.',
 }
 
 const NOT_SET_UP: Partial<Record<WorkerCapability, string>> = {

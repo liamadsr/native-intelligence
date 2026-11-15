@@ -1,6 +1,7 @@
 /**
  * Who may put work on the person's OWN coding agent (migration 658): only a
- * person's own click. A card's Start (the start-agent route, through
+ * person's own click or send. Their send in the chat composer's Code tab
+ * (code-start.ts) names the agent they picked; a card's Start (the start-agent route, through
  * startActionOnMac → startActionMacJob → createSession) carries the choice
  * the person made for it (`agent`: an agent's id, or null), and only when
  * they made one; every other start (no choice sent, a loop's fire, a work
@@ -184,11 +185,13 @@ describe('starts with no choice stay on Native Intelligence’s own agent, whate
     expect([...flagged].sort()).toEqual([
       // A person's own click on a card's Start: their pick (or none).
       'app/api/account/actions/[id]/start-agent/route.ts → startActionOnMac',
-      // A chat start (a person's typed turn): its Mac's saved choice.
+      // The chat agent's start: always Native Intelligence's own agent (explicitWorker null), never the Mac's saved choice.
       'lib/chat/local-agent-tools.ts → startInEnvironment',
       // startInEnvironment hands its input on whole; startActionOnMac hands the route's pick on.
       'lib/environments/start.ts → createSession',
       'lib/environments/start.ts → startActionMacJob',
+      // The person's own send in the chat composer's Code tab: the agent they picked.
+      'lib/local-agent/code-start.ts → createSession',
       // createSession's own retry, with the same input.
       'lib/local-agent/store.ts → createSession',
       // startActionMacJob and the loop start hand their input on; startUnattended turns the pick into explicitWorker.

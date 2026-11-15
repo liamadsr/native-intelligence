@@ -75,7 +75,7 @@ export async function renderPicture(
   for (const line of unstagedNeeds(project)) if (!(opts.fonts && Array.isArray(opts.fonts) && opts.fonts.length && line.startsWith('Fonts '))) ctx.log(line)
   return staged(ctx, project, opts.fonts, (f) => onProgress(0.1 * f), async (serveUrl, fonts) => {
     const { selectComposition, renderMedia, makeCancelSignal } = await import('@remotion/renderer')
-    const common = await ctx.renderer.common(ctx.log)
+    const common = await ctx.renderer.common(ctx.log, project)
     const inputProps = { ...inputPropsFor(project), fonts }
     const composition = await selectComposition({ serveUrl, id: COMPOSITION_ID, inputProps, ...common })
     checkAborted(ctx.signal)
@@ -125,7 +125,7 @@ export async function withStills<T>(ctx: JobContext, project: EditorProject, fon
   for (const line of unstagedNeeds(project)) if (!(Array.isArray(fontsInput) && fontsInput.length && line.startsWith('Fonts '))) ctx.log(line)
   return staged(ctx, project, fontsInput, onProgress, async (serveUrl, fonts) => {
     const { openBrowser, renderStill, selectComposition, makeCancelSignal } = await import('@remotion/renderer')
-    const common = await ctx.renderer.common(ctx.log)
+    const common = await ctx.renderer.common(ctx.log, project)
     const browser = await openBrowser('chrome', { browserExecutable: common.browserExecutable, chromiumOptions: common.chromiumOptions, logLevel: common.logLevel })
     const { cancel, cancelSignal } = makeCancelSignal()
     const onAbort = () => cancel()

@@ -107,12 +107,12 @@ const call = async (tools: Record<string, unknown>, name: string, input: Record<
 describe('the table tools: where they are registered', () => {
   const tools = createTableTools(ME, {} as never, WS)
 
-  it('are the eight, in the Tables category, reads and internal writes on the board', () => {
+  it('are the eight and the three form tools, in the Tables category, reads and internal writes on the board', () => {
     expect(Object.keys(tools).sort()).toEqual([...TABLE_TOOL_NAMES].sort())
     for (const name of TABLE_TOOL_NAMES) {
       const def = getToolDefinition(name)
       expect(def, name).toBeDefined()
-      const read = ['find_tables', 'get_table', 'query_rows'].includes(name)
+      const read = ['find_tables', 'get_table', 'query_rows', 'list_forms'].includes(name)
       expect(def!.sideEffect, name).toBe(read ? 'read' : 'internal-write')
       if (!read) expect(def!.writeTarget, name).toBe('board')
     }

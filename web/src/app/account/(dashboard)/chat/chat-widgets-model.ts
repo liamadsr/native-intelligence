@@ -30,6 +30,7 @@ import { PLAN_STALE_MS, PLAN_STALE_TURNS, planHasOpenSteps, planStepsFrom, type 
 import { WORK_LANE_LABELS } from '@/lib/work/agent-work-lanes'
 import { isOwnerFallback } from '@/lib/work/bot-owner'
 import { localAgentSessionIdOf } from '@/lib/local-agent/transcript-view'
+import { LOCAL_AGENT_ASK_ID } from '@/lib/local-agent/code-thread'
 import { helpersRowModel, type HelperRowStatus } from './helpers-row'
 
 // ── Plan ─────────────────────────────────────────────────────────────────────
@@ -151,6 +152,8 @@ export interface AgentWidgetRow {
   title?: string | null
   current_step?: string | null
   teammate?: { name?: string | null } | null
+  /** What a row waiting on the person waits on (the light read carries it). */
+  needs?: unknown
 }
 
 /** Working now: nobody's turn but the agents' (never a row waiting on the person: For you shows those). */
@@ -164,6 +167,22 @@ function isAgentKind(kind: string): boolean {
 /** Whether a row is agent work that is running now. */
 export function isRunningAgentRow(row: Pick<AgentWidgetRow, 'kind' | 'status'>): boolean {
   return RUNNING.has(row.status) && isAgentKind(row.kind)
+}
+
+/**
+ * A Code tab job's turn asking the person (`needs_input` on its own
+ * question, LOCAL_AGENT_ASK_ID; its ledger row's source says
+ * `local_agent_code`): the Agents panel keeps it, with its needs-you state,
+ * since its own chat is where the person answers it (it has no teammate
+ * report or For you card). An interrupted Mac or an undelivered message is
+ * not a question: those stay out, as before. A question nobody answered
+ * settles when its session is reaped (store.ts reapStaleSessions, daily).
+ */
+export function isAskingCodeRow(row: Pick<AgentWidgetRow, 'kind' | 'status' | 'source' | 'needs'>): boolean {
+  if (row.kind !== 'local_agent' || row.status !== 'needs_input' || row.source?.local_agent_code !== true) return false
+  // Only its own question (ledger.ts's ask), never an interrupted Mac or a message it couldn't take.
+  const needs = row.needs as { kind?: unknown; questions?: unknown } | null | undefined
+  return needs?.kind === 'input' && Array.isArray(needs.questions) && needs.questions.some((q) => !!q && typeof q === 'object' && (q as { id?: unknown }).id === LOCAL_AGENT_ASK_ID)
 }
 
 /** Whether a row is this conversation's (a helper it started). */
@@ -188,14 +207,15 @@ const newestFirst = (a: AgentWidgetRow, b: AgentWidgetRow) => (b.created_at ?? '
  * it stands alone), children oldest first. The newest group first: there is
  * one chat (one-chat plan), so no conversation's work goes ahead of another's
  * here. Rows waiting on the person (needs_input, needs_review) are never
- * listed: For you shows them.
+ * listed: For you shows them. Except a Code tab job asking its question
+ * (isAskingCodeRow): listed with its needs-you state.
  */
 export function agentWidgetGroups<T extends AgentWidgetRow>(
   rows: readonly T[] | null | undefined,
   conversationId: string | null,
 ): AgentWidgetGroup<T>[] {
   if (!rows) return []
-  const listed = rows.filter(isRunningAgentRow)
+  const listed = rows.filter((r) => isRunningAgentRow(r) || isAskingCodeRow(r))
   const byId = new Map(listed.map((r) => [r.id, r]))
   const rootIdOf = (r: T): string => {
     for (const id of [r.root_id, r.parent_id]) if (id && id !== r.id && byId.has(id)) return id
@@ -269,6 +289,7 @@ const STATUS_TEXT: Record<string, string> = {
   queued: 'Queued',
   running: 'Working',
   waiting_on_child: 'Waiting on teammates',
+  needs_input: 'Needs your answer',
 }
 
 export function agentStatusText(status: string): string {

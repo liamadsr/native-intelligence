@@ -19,6 +19,8 @@ source "$SCRIPT_DIR/scripts/sidecars.sh"
 source "$SCRIPT_DIR/scripts/licenses.sh"
 # The local agent bundle (Contents/Resources/local-agent).
 source "$SCRIPT_DIR/scripts/local-agent.sh"
+# The Studio's local runner (Contents/Resources/studio-runner), built from studio-worker.
+source "$SCRIPT_DIR/scripts/studio-runner.sh"
 
 MODE="${1:-dev}"
 shift 2>/dev/null || true
@@ -157,6 +159,10 @@ build_dev() {
     # The local agent's JS, where a release build has it (scripts/local-agent.sh).
     local_agent_stage "$BUNDLE_APP" \
         || warn "Local agent bundle not staged — local agents are unavailable in this build"
+
+    # The Studio's runner, when one was built (scripts/studio-runner.sh).
+    studio_runner_stage "$BUNDLE_APP" \
+        || warn "Studio runner not staged: exports on this computer are unavailable in this build"
 
     # License notices (Help → Open Source Licenses), before signing so the
     # signature seals them. A dev bundle runs fine without them — the menu

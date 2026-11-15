@@ -34,6 +34,8 @@ import { systemTeammateId } from '@/lib/work/system-teammates'
 import type { WorkItem, WorkStatus } from '@/lib/work/types'
 import { LOCAL_AGENT_INTERRUPTED_NEEDS_ID, LOCAL_AGENT_TEAMMATE_NEEDS_ID } from '@/lib/chat/teammate-report'
 import { MAC_TEAMMATE_TOOL_NAMES, macTeammateName } from './teammate'
+import { LOCAL_AGENT_ASK_ID, LOCAL_AGENT_CODE_SOURCE_KEY } from './code-thread'
+import { workerLabel } from '@/lib/environments/types'
 
 export const LOCAL_AGENT_WORK_KIND = 'local_agent'
 
@@ -80,6 +82,12 @@ export interface LedgerSession {
   worker?: string | null
   /** The action an action's Start made it for (its key), or null. */
   actionId?: string | null
+  /**
+   * The person started it from the chat composer's Code tab (store.ts
+   * isCodeJob): its turns report into their conversation as the finish
+   * summary alone (code-history.ts), never as a teammate's report.
+   */
+  code?: boolean
 }
 
 export type LedgerMove =
@@ -120,9 +128,14 @@ export function turnRunKey(sessionId: string, turn: number): string {
   return `local_agent:${sessionId}:${turn}`
 }
 
-/** "Native Intelligence on Liam's MacBook Pro · web: Take a look at this repository" (the teammate, C4) */
-export function turnTitle(deviceName: string, folderLabel: string, text: string): string {
-  const prefix = `${macTeammateName(oneLine(deviceName, 80))} · `
+/**
+ * "Native Intelligence on Liam's MacBook Pro · web: Take a look at this
+ * repository" (the teammate, C4); a job on the person's own coding agent is
+ * named for it: "Claude Code on Studio Mac · harbor-site: …".
+ */
+export function turnTitle(deviceName: string, folderLabel: string, text: string, worker: string | null = null): string {
+  const device = oneLine(deviceName, 80)
+  const prefix = `${worker ? `${workerLabel(worker)} on ${device || 'your Mac'}` : macTeammateName(device)} · `
   const label = oneLine(folderLabel, 80) || 'a folder'
   const what = oneLine(text, TITLE_TEXT_MAX)
   return what ? `${prefix}${label}: ${what}` : `${prefix}${label}`
@@ -175,7 +188,7 @@ export async function startTurnRow(
       workspaceId: s.workspaceId,
       memberId,
       kind: LOCAL_AGENT_WORK_KIND,
-      title: turnTitle(s.deviceName, s.folderLabel, opts.text),
+      title: turnTitle(s.deviceName, s.folderLabel, opts.text, s.worker ?? null),
       actor: 'agent',
       status: opts.status,
       runKey: turnRunKey(s.id, opts.turn),
@@ -189,6 +202,7 @@ export async function startTurnRow(
         // Who does the work, and the action a Start made it for: a board card names the agent working it.
         ...(s.worker ? { worker: s.worker } : {}),
         ...(s.actionId ? { local_agent_action_id: s.actionId } : {}),
+        ...(s.code ? { [LOCAL_AGENT_CODE_SOURCE_KEY]: true } : {}),
       },
       ...(teammateId ? { aiTeamMemberId: teammateId } : {}),
     })
@@ -312,7 +326,7 @@ export async function moveTurn(svc: SupabaseClient, s: LedgerSession, move: Ledg
       case 'ask': {
         const live = await liveTurn(svc, s)
         if (!live.handle || !live.row) return live.s
-        const question = { id: move.from === 'teammate' ? TEAMMATE_NEEDS_ID : 'local-agent-ask', question: oneLine(move.question, 1000) }
+        const question = { id: move.from === 'teammate' ? TEAMMATE_NEEDS_ID : LOCAL_AGENT_ASK_ID, question: oneLine(move.question, 1000) }
         if (LIVE.has(live.row.status)) {
           await live.handle.needInput([question])
         } else if (move.from === 'teammate' && (live.row.status === 'needs_input' || live.row.status === 'waiting_on_child')) {

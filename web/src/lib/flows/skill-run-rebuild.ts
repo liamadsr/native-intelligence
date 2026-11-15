@@ -216,12 +216,12 @@ export async function rebuildEveSpec(claims: RunTokenClaims): Promise<RebuiltEve
   const chat = claims.chat ? { ...claims, chat: claims.chat } : null
   const ceilingSet = chat
     ? ((await resolveSkillRunChatCeiling(supabase, chat)) ?? new Set<string>())
-    : computeSkillCeiling(agentConfig, claims.mode, claims.hasCapture)
+    : computeSkillCeiling(agentConfig, claims.mode, claims.hasCapture, !!claims.recordTableId)
   const ceiling = ceilingSet ? [...ceilingSet] : null
   const chatTurn = chat
     ? {
         instructions: skillRunChatInstructions(await skillRunChatBotName(supabase, chat)),
-        shadowTools: runToolsOutsideChat(computeSkillCeiling(agentConfig, claims.mode, claims.hasCapture), ceilingSet ?? new Set()),
+        shadowTools: runToolsOutsideChat(computeSkillCeiling(agentConfig, claims.mode, claims.hasCapture, !!claims.recordTableId), ceilingSet ?? new Set()),
       }
     : null
 
