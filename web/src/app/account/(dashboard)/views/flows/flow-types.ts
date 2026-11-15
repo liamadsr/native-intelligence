@@ -24,6 +24,7 @@ export type FlowTriggerType =
   | 'document_created'
   | 'quote_received'
   | 'record_created'
+  | 'contact_created'
 
 export type ScheduleCadence = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'cron' | 'once'
 
@@ -124,6 +125,15 @@ export interface RecordCreatedTriggerConfig {
   table_id: string
 }
 
+/** Which new contacts a contact loop takes: any, a form's or a customer's text's, or a person's own. */
+export type ContactCreatedSource = 'any' | 'form' | 'manual'
+
+/** A contact is added to the CRM: by a public intake, or by a person by hand. */
+export interface ContactCreatedTriggerConfig {
+  kind: 'contact_created'
+  source: ContactCreatedSource
+}
+
 export type FlowTriggerConfig =
   | EntityStatusChangeTriggerConfig
   | ScheduleTriggerConfig
@@ -135,6 +145,7 @@ export type FlowTriggerConfig =
   | DocumentCreatedTriggerConfig
   | QuoteReceivedTriggerConfig
   | RecordCreatedTriggerConfig
+  | ContactCreatedTriggerConfig
 
 export interface HttpPostActionConfig {
   method: 'POST' | 'PUT' | 'PATCH'
@@ -524,6 +535,8 @@ export interface EditorTrigger {
   mentions_only: boolean
   // record_created: '' = none picked yet, HIDDEN_TABLE = someone else's loop's table
   record_table_id: string
+  // contact_created: which new contacts start it
+  contact_source: ContactCreatedSource
   /**
    * Someone else's mail or chat loop, read without its sender filter or
    * channel (the server's triggerConfigForViewer, `owner_only`): the editor,
@@ -619,6 +632,13 @@ export const TRIGGER_TYPE_LABELS: Record<FlowTriggerType, string> = {
   document_created: 'New document',
   quote_received: 'New quote',
   record_created: 'New row in a table',
+  contact_created: 'New contact',
+}
+
+export const CONTACT_SOURCE_LABELS: Record<ContactCreatedSource, string> = {
+  any: 'Any',
+  form: 'From a form or a customer’s text',
+  manual: 'Added by hand',
 }
 
 export const PR_STATE_LABELS: Record<PrTriggerState, string> = {
@@ -812,6 +832,7 @@ function newTrigger(): EditorTrigger {
     chat_channel_id: '',
     mentions_only: false,
     record_table_id: '',
+    contact_source: 'any',
   }
 }
 
@@ -1011,6 +1032,10 @@ function triggerToEditor(flow: Pick<Flow, 'trigger_type' | 'trigger_config'>): E
     if (cfg.owner_only === true) return { ...base, kind: 'record_created', record_table_id: HIDDEN_TABLE, details_hidden: true }
     return { ...base, kind: 'record_created', record_table_id: typeof cfg.table_id === 'string' ? cfg.table_id : '' }
   }
+  if (flow.trigger_type === 'contact_created') {
+    const source = (flow.trigger_config as Partial<ContactCreatedTriggerConfig>).source
+    return { ...base, kind: 'contact_created', contact_source: typeof source === 'string' && Object.hasOwn(CONTACT_SOURCE_LABELS, source) ? source : 'any' }
+  }
   if (flow.trigger_type === 'capture_processed') {
     return { ...base, kind: 'capture_processed' }
   }
@@ -1141,6 +1166,8 @@ function triggerToConfig(t: EditorTrigger): Record<string, unknown> {
       return { kind: 'quote_received' }
     case 'record_created':
       return { kind: 'record_created', table_id: t.record_table_id }
+    case 'contact_created':
+      return { kind: 'contact_created', source: t.contact_source }
     case 'capture_processed':
       return { kind: 'capture_processed' }
     case 'pr_status_changed':

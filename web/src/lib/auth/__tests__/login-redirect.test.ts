@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { accountRedirectTarget, isAccountRedirectPath, isInviteRedirectPath, isJoinLinkPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '../login-redirect'
+import { accountRedirectTarget, formRedirectTarget, isAccountRedirectPath, isInviteRedirectPath, isJoinLinkPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '../login-redirect'
 import { APP_DOMAINS } from '@/lib/app-url'
 
 // The hosted app answers on two domains while it moves (src/lib/app-url.ts): every case below runs on each.
@@ -143,6 +143,28 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
       expect(isInviteRedirectPath('/link/abc')).toBe(true)
       expect(isInviteRedirectPath('/invite/tok')).toBe(true)
       for (const no of ['/linkx/abc', '/link//evil.example', 'https://evil.example/link/abc', '/s/abc']) expect(isInviteRedirectPath(no), no).toBe(false)
+    })
+
+    it("keeps a form's own page, in its exact shape only, so a members form's visitor comes back to it", () => {
+      const key = `fk_${'Ab0_-'.repeat(8)}xyz`
+      const invite = `fi_${'Zz9-_'.repeat(8)}abc`
+      expect(key).toHaveLength(46)
+      for (const good of [`/f/${key}`, `/f/${invite}`, `/f/${key}?i=${invite}`]) {
+        expect(formRedirectTarget(good), good).toBe(good)
+        expect(resolvePostAuthRedirect(good, ORIGIN), good).toBe(good)
+      }
+      const hostile = [
+        `//f/${key}`, `/f//${key}`, `//evil.example/f/${key}`, `https://evil.example/f/${key}`, `https://${DOMAIN}/f/${key}`,
+        `/\\evil.example/f/${key}`, `/f\\${key}`, `/f/${key}\\`, `/f/${key}/`, `/f/${key}/../../account`, `/f/../s/${key}`,
+        `/f/${key}#x`, `/f/${key}?i=${invite}&next=//evil.example`, `/f/${key}?redirect=//evil.example`, `/f/${key}?i=${key}`,
+        `/f/${key}\n`, `/f/${key}\t`, `\t/f/${key}`, `/f/${key.slice(0, -1)}`, `/f/${key}x`, `/f/fx_${key.slice(3)}`,
+        `/f/${key.slice(0, -1)}.`, `/f/${key.slice(0, -1)}%`, `/F/${key}`, `f/${key}`, `/f/`, '/f', `/forms/${key}`, `/f/${key}%2F..`,
+        `javascript:alert(1)//f/${key}`,
+      ]
+      for (const evil of hostile) {
+        expect(formRedirectTarget(evil), JSON.stringify(evil)).toBeNull()
+        expect(resolvePostAuthRedirect(evil, ORIGIN), JSON.stringify(evil)).toBe('/account')
+      }
     })
 
     it("keeps a workspace's join link, so a signed-out person comes back to join", () => {

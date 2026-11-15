@@ -47,6 +47,8 @@
  *      migration 267, previously 264/223) — one `WHEN`/`LEFT JOIN` pair per
  *      type that should render a label.
  */
+import { FORM_ROW_NAME, isFormRow } from './form-rows'
+import { contactModelName } from './stranger-contacts'
 
 /** How a claim/edge endpoint of this type is proven to live in a workspace. */
 export type WorkspaceScope =
@@ -88,6 +90,17 @@ export interface EntityTypeDescriptor {
     /** Table to read the label from (normally === `table`). */
     table: string
     /** Comma-separated select list for the label query. */
+    columns: string
+    render: (row: Record<string, unknown>) => string
+  }
+  /**
+   * The label as a MODEL reads it, where a stranger can write the kind's
+   * label (a row a public form wrote: ./form-rows.ts). Same shape as `label`;
+   * absent, a model reads `label`. LABEL_TABLE (traverse, the brief) takes it.
+   * People see `label`.
+   */
+  readonly modelLabel?: {
+    table: string
     columns: string
     render: (row: Record<string, unknown>) => string
   }
@@ -228,6 +241,8 @@ export const ENTITY_REGISTRY = [
     table: 'contact',
     workspaceScoped: { kind: 'column', table: 'contact' },
     label: { table: 'contact', columns: 'full_name', render: (r) => str(r.full_name) },
+    // A contact a public intake made (source web_form / sms) is named by a stranger: a model reads its neutral name (./stranger-contacts.ts).
+    modelLabel: { table: 'contact', columns: 'full_name, source', render: (r) => contactModelName(r) },
     realtime: true,
     linkable: true,
     activity: true,
@@ -520,6 +535,8 @@ export const ENTITY_REGISTRY = [
     table: 'data_row',
     workspaceScoped: { kind: 'column', table: 'data_row' },
     label: { table: 'data_row', columns: 'title', render: (r) => str(r.title).slice(0, 140) || 'Untitled' },
+    // A row a form wrote (from_form, migration 660) is named by a stranger: a model reads its neutral name.
+    modelLabel: { table: 'data_row', columns: 'title, from_form', render: (r) => (isFormRow(r) ? FORM_ROW_NAME : str(r.title).slice(0, 140) || 'Untitled') },
     realtime: false,
     linkable: true,
     activity: true,
@@ -902,15 +919,19 @@ export const REALTIME_ENTITY_TABLES: ReadonlyArray<{
   filtered: e.workspaceScoped.kind === 'column',
 }))
 
-/** Per-type label resolution for graph neighbors (traverse's `resolveLabels`). */
+/**
+ * Per-type label resolution for graph neighbors (traverse's `resolveLabels`,
+ * the brief's scope line): what a model reads, so a kind's `modelLabel` when
+ * it has one.
+ */
 export const LABEL_TABLE: Record<
   string,
   { table: string; columns: string; label: (r: Record<string, unknown>) => string }
 > = Object.fromEntries(
-  ENTITY_REGISTRY.map((e) => [
-    e.id,
-    { table: e.label.table, columns: e.label.columns, label: e.label.render },
-  ]),
+  (ENTITY_REGISTRY as readonly EntityTypeDescriptor[]).map((e) => {
+    const spec = e.modelLabel ?? e.label
+    return [e.id, { table: spec.table, columns: spec.columns, label: spec.render }]
+  }),
 )
 
 /** Graph edge relations. One declaration — entity-links.ts used to have its own, shorter copy. */

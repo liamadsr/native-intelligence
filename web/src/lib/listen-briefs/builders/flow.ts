@@ -162,6 +162,12 @@ function whenItRuns(flow: FlowRow, names: ReadonlyMap<string, string>, clock: Cl
       return 'It runs when someone creates a document'
     case 'record_created':
       return 'It runs when a row is added to a table'
+    case 'contact_created':
+      return t.source === 'form'
+        ? "It runs when a form or a customer's text adds a contact"
+        : t.source === 'manual'
+          ? 'It runs when someone adds a contact by hand'
+          : 'It runs when a contact is added'
     default:
       return null
   }
@@ -276,7 +282,7 @@ export interface FlowRow {
   name: string | null
   description: string | null
   enabled: boolean | null
-  /** entity_status_change | capture_processed | pr_status_changed | schedule | calendar_event | quote_received | email_received | chat_message | document_created | record_created */
+  /** entity_status_change | capture_processed | pr_status_changed | schedule | calendar_event | quote_received | email_received | chat_message | document_created | record_created | contact_created */
   trigger_type: string | null
   trigger_config: {
     cadence?: string
@@ -290,6 +296,8 @@ export interface FlowRow {
     entity_type?: string
     from_status_id?: string | null
     to_status_id?: string
+    /** contact_created: any, form or manual. */
+    source?: string
   } | null
   actions: unknown
   next_run_at: string | null

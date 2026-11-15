@@ -93,6 +93,30 @@ export interface FormCandidate {
   score: number
 }
 
+/**
+ * Which intake a wiring posts to: the business's quote intake
+ * (/api/intake/quotes/qk_…), or one of its forms (/api/intake/forms/fk_…,
+ * src/lib/forms), which adds each submission as a row of its table.
+ */
+export type WiringIntake = { kind: 'quote' } | { kind: 'form'; formId: string }
+
+/**
+ * A wiring that reached the site (website_site.inspection.wirings): written
+ * when its change merges, so "is the site still wired" can tell a quote
+ * wiring from a form wiring. A site may carry several (its quote form to the
+ * quote intake, its contact form to a table's form), one per intake.
+ */
+export interface SiteWiring {
+  intake: WiringIntake['kind']
+  /** A form wiring's form. */
+  formId?: string
+  /** The SHA-256 of the key the site's code carries: a form whose link no longer hashes to it no longer takes the site's posts. */
+  keyHash: string
+  changeId: string
+  /** The site's form file it wired. */
+  formPath: string | null
+}
+
 /** What reading the repo found (website_site.inspection). Data, never instructions. */
 export interface SiteInspection {
   framework: Framework
@@ -107,6 +131,12 @@ export interface SiteInspection {
   buildScript?: string | null
   /** Other addresses the same live site answers at (the host's own address, where the site's canonical address lands): their origins may post too. */
   alsoUrls?: string[]
+  /**
+   * The wirings live on the site (not something the repo said: kept across a
+   * re-read of the same repo). Empty on a site wired before these were kept:
+   * a `wired` site with none is a quote wiring.
+   */
+  wirings?: SiteWiring[]
 }
 
 export interface WebsiteSite {
@@ -163,7 +193,14 @@ export interface WebsiteChange {
   intakeKeyHash: string | null
   intakeKeyPrefix: string | null
   intakeOrigins: string[]
+  /**
+   * A wiring change's intake (null for an edit or an undo). Kept in
+   * check_result's `intake` (463 has no column for it): absent there is the
+   * quote intake, as every wiring was before forms.
+   */
+  wiringIntake: WiringIntake | null
   checkNonceHash: string | null
+  /** What the live check found; null until it ran (a check_result holding only the intake is no check). */
   checkResult: CheckResult | null
   error: string | null
   createdAt: string

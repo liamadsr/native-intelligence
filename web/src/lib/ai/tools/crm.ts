@@ -7,7 +7,14 @@ import { gatherCompanyContext } from '@/lib/crm/company-context'
 import { recordCustomFieldsForModel } from '@/lib/crm/custom-fields'
 import { isContactVisibleTo, isContactWritableTo } from '@/lib/crm/contact-visibility'
 import { wrapUntrusted } from '@/lib/email/untrusted'
-import { COMPANY_WEB_FIELDS, fenceWebFields } from './web-derived'
+import {
+  COMPANY_WEB_FIELDS,
+  STRANGER_CONTACT_SOURCES,
+  fenceStrangerContact,
+  fenceWebFields,
+  isStrangerContactSource,
+  strangerMergedInto,
+} from './web-derived'
 
 /**
  * Outside text in the CRM overviews (always-on safety fixes): the columns web
@@ -17,6 +24,20 @@ import { COMPANY_WEB_FIELDS, fenceWebFields } from './web-derived'
  */
 function fenceThreads<T extends { subject?: string | null }>(threads: readonly T[]): T[] {
   return threads.map((t) => ({ ...t, subject: wrapUntrusted(t.subject ?? null) }))
+}
+
+/**
+ * The `source` of each of these contacts (the context helpers do not read
+ * it): which a public intake made, so their own fields go in the stranger's
+ * fence (fenceStrangerContact). A failed read fences them all: a stranger's
+ * words never come back plain because a lookup failed.
+ */
+async function contactSources(supabase: SupabaseClient, workspaceId: string, ids: readonly string[]): Promise<(id: string) => unknown> {
+  if (ids.length === 0) return () => null
+  const { data, error } = await supabase.from('contact').select('id, source').eq('workspace_id', workspaceId).in('id', [...new Set(ids)])
+  if (error) return () => 'web_form'
+  const byId = new Map(((data ?? []) as Array<{ id: string; source: unknown }>).map((r) => [r.id, r.source]))
+  return (id) => byId.get(id) ?? null
 }
 
 export function createCrmTools(
@@ -53,13 +74,13 @@ export function createCrmTools(
         email: z.string().optional().describe('Look up by email instead'),
       }),
       execute: async ({ contact_id, email }) => {
-        const contactQuery = supabase.from('contact').select('id').eq('workspace_id', workspaceId)
+        const contactQuery = supabase.from('contact').select('id, source').eq('workspace_id', workspaceId)
 
-        let found: { id: string } | null = null
+        let found: { id: string; source?: unknown } | null = null
         if (contact_id) {
           const { data, error } = await contactQuery.eq('id', contact_id).maybeSingle()
           if (error) return { success: false, error: error.message }
-          found = data as { id: string } | null
+          found = data as { id: string; source?: unknown } | null
         } else if (email) {
           // contact.email is not unique: merge tombstones keep theirs, and two
           // members can each hold a private contact with the same address. Take
@@ -69,7 +90,7 @@ export function createCrmTools(
             .is('merged_into_contact_id', null)
             .limit(10)
           if (error) return { success: false, error: error.message }
-          for (const row of (data ?? []) as { id: string }[]) {
+          for (const row of (data ?? []) as { id: string; source?: unknown }[]) {
             if (await isContactVisibleTo(supabase, row.id, userId, { grants })) {
               found = row
               break
@@ -101,14 +122,23 @@ export function createCrmTools(
           recordCustomFieldsForModel(supabase, workspaceId, 'contact', found.id),
         ])
         if (!ctx) return { success: false, error: 'Contact not found' }
+        // A contact a public intake made is named by a stranger: its own fields
+        // fenced. The one asked for, or the one it was merged into (whose emails
+        // now hold the stranger's): either made by a form fences it.
+        // Asked by the canonical's own id, a stranger's contact merged into it
+        // counts the same (strangerMergedInto: one read, skipped when already fenced).
+        const canonicalSource = ctx.contact.id === found.id ? found.source : (await contactSources(supabase, workspaceId, [ctx.contact.id]))(ctx.contact.id)
+        const strangerSource =
+          [found.source, canonicalSource].find(isStrangerContactSource) ??
+          ((await strangerMergedInto(supabase, workspaceId, [ctx.contact.id])).has(ctx.contact.id) ? STRANGER_CONTACT_SOURCES[0] : null)
 
         return {
           success: true,
           contact: {
-            ...fenceWebFields(ctx.contact as unknown as Record<string, unknown>, ['job_title']),
+            ...fenceStrangerContact(fenceWebFields(ctx.contact as unknown as Record<string, unknown>, ['job_title']), strangerSource),
+            ...fenceStrangerContact(fields as Record<string, unknown>, strangerSource),
             is_teammate: ctx.is_teammate,
             ...(ctx.canonical_of ? { canonical_of: ctx.canonical_of } : {}),
-            ...fields,
             recent_interactions: interactions.data || [],
             recent_captures: ctx.recent_captures.slice(0, 10).map((c) => ({
               ...c,
@@ -165,6 +195,13 @@ export function createCrmTools(
           recordCustomFieldsForModel(supabase, workspaceId, 'company', companyId),
         ])
         if (!ctx) return { success: false, error: 'Company not found' }
+        // A person at the company a public intake made is named by a stranger: fenced.
+        // So is one a stranger's contact was merged into (one more read for the page).
+        const [ownSourceOf, mergedStranger] = await Promise.all([
+          contactSources(supabase, workspaceId, ctx.people.map((p) => p.id)),
+          strangerMergedInto(supabase, workspaceId, ctx.people.map((p) => p.id)),
+        ])
+        const sourceOf = (id: string) => (mergedStranger.has(id) ? STRANGER_CONTACT_SOURCES[0] : ownSourceOf(id))
 
         return {
           success: true,
@@ -172,7 +209,7 @@ export function createCrmTools(
             ...fenceWebFields(ctx.company as unknown as Record<string, unknown>, COMPANY_WEB_FIELDS),
             ...fields,
             // Back-compat with the previous shape (callers read contacts/contact_count).
-            contacts: ctx.people.map((p) => fenceWebFields(p as unknown as Record<string, unknown>, ['job_title'])),
+            contacts: ctx.people.map((p) => fenceStrangerContact(fenceWebFields(p as unknown as Record<string, unknown>, ['job_title']), sourceOf(p.id))),
             contact_count: ctx.people_visible,
             people_on_record: ctx.people_on_record,
             last_interaction_at: ctx.last_interaction_at,
@@ -235,11 +272,17 @@ export function createCrmTools(
           .update(updates)
           .eq('id', contact_id)
           .eq('workspace_id', resolved.workspaceId)
-          .select('id, full_name, relationship_type, relationship_strength')
+          .select('id, full_name, relationship_type, relationship_strength, source')
           .single()
 
         if (error) return { success: false, error: error.message }
-        return { success: true, contact: data, message: `Updated ${data.full_name}` }
+        // A contact a public intake made: its name stays in the stranger's fence (its source never changes).
+        const { source, ...updated } = data as Record<string, unknown>
+        return {
+          success: true,
+          contact: fenceStrangerContact(updated, source),
+          message: isStrangerContactSource(source) ? "Updated the contact (one a form or a customer's text made)." : `Updated ${updated.full_name}`,
+        }
       },
     }),
   }

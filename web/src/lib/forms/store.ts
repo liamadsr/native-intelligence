@@ -36,12 +36,18 @@ export function isFormKeyShape(value: unknown): value is string {
   return typeof value === 'string' && KEY_SHAPE.test(value)
 }
 
-/** A form's link for its secret. */
+/** A form's link for its secret: what a website's form posts to. */
 export function formUrl(origin: string, key: string): string {
   return `${origin.replace(/\/$/, '')}/api/intake/forms/${key}`
 }
 
-const FORM_COLUMNS = 'id, workspace_id, table_id, name, fields, access, allowed_origins, thanks, active, key_prefix, created_by, created_at, updated_at, last_submitted_at'
+/** A form's own page for its secret (src/app/f/), or a personal link's page for its secret. */
+export function formPageUrl(origin: string, keyOrInvite: string): string {
+  return `${origin.replace(/\/$/, '')}/f/${keyOrInvite}`
+}
+
+const FORM_COLUMNS =
+  'id, workspace_id, table_id, name, fields, access, allowed_origins, thanks, description, submit_label, bot_check, active, key_prefix, created_by, created_at, updated_at, last_submitted_at'
 
 interface FormRow {
   id: string
@@ -52,6 +58,9 @@ interface FormRow {
   access: string
   allowed_origins: string[] | null
   thanks: string | null
+  description: string | null
+  submit_label: string | null
+  bot_check: boolean | null
   active: boolean
   key_prefix: string
   created_by: string | null
@@ -68,9 +77,12 @@ function toForm(row: FormRow): DataForm {
     name: row.name,
     fields: readFormFields(row.fields),
     // An access this code doesn't know is the narrower one.
-    access: row.access === 'public' ? 'public' : 'members',
+    access: row.access === 'public' ? 'public' : row.access === 'invited' ? 'invited' : 'members',
     allowedOrigins: cleanOrigins(row.allowed_origins),
     thanks: row.thanks,
+    description: row.description ?? null,
+    submitLabel: row.submit_label ?? null,
+    botCheck: row.bot_check === true,
     active: row.active,
     keyPrefix: row.key_prefix,
     createdBy: row.created_by,
@@ -113,6 +125,9 @@ export interface NewForm {
   access: FormAccess
   allowedOrigins: readonly string[]
   thanks: string | null
+  description: string | null
+  submitLabel: string | null
+  botCheck: boolean
 }
 
 /** Make a form. Answers it with its link's secret: shown once, never stored. */
@@ -128,6 +143,9 @@ export async function createForm(supabase: SupabaseClient, input: NewForm): Prom
       access: input.access,
       allowed_origins: cleanOrigins(input.allowedOrigins),
       thanks: input.thanks,
+      description: input.description,
+      submit_label: input.submitLabel,
+      bot_check: input.botCheck,
       key_hash: hashFormKey(key),
       key_prefix: key.slice(0, 9),
       created_by: input.userId,
@@ -144,6 +162,9 @@ export interface FormPatch {
   access?: FormAccess
   allowedOrigins?: readonly string[]
   thanks?: string | null
+  description?: string | null
+  submitLabel?: string | null
+  botCheck?: boolean
   active?: boolean
   /** A new link: the old one stops at once. Its rows are then written as `userId`. */
   newLink?: { userId: string }
@@ -160,6 +181,9 @@ export async function updateForm(supabase: SupabaseClient, workspaceId: string, 
       ...(patch.access !== undefined ? { access: patch.access } : {}),
       ...(patch.allowedOrigins !== undefined ? { allowed_origins: cleanOrigins(patch.allowedOrigins) } : {}),
       ...(patch.thanks !== undefined ? { thanks: patch.thanks } : {}),
+      ...(patch.description !== undefined ? { description: patch.description } : {}),
+      ...(patch.submitLabel !== undefined ? { submit_label: patch.submitLabel } : {}),
+      ...(patch.botCheck !== undefined ? { bot_check: patch.botCheck } : {}),
       ...(patch.active !== undefined ? { active: patch.active } : {}),
       ...(key && patch.newLink ? { key_hash: hashFormKey(key), key_prefix: key.slice(0, 9), created_by: patch.newLink.userId } : {}),
       updated_at: new Date().toISOString(),
@@ -198,42 +222,120 @@ export async function openAttempt(supabase: SupabaseClient, formId: string, clie
   return data.id
 }
 
-export type ClaimedAttempt = { kind: 'new' } | { kind: 'repeat'; rowId: string | null }
-
 /**
- * Name the row a try is about to write, and the form's own submission id
- * when it sent one. An id this sender already posted on this form is a
- * repeat (answered with the row it stored, when it has): the unique index
- * decides, so two posts side by side store one.
+ * A repeat names the row its first post stored (`rowId`), or, while that one
+ * is not marked stored, the row it was writing (`unstoredRowId`): the caller
+ * looks whether that row exists before it answers.
  */
-export async function claimAttempt(
-  supabase: SupabaseClient,
-  args: { attemptId: string; formId: string; clientHash: string | null; externalId: string | null; rowId: string },
-): Promise<ClaimedAttempt> {
-  const { error } = await supabase.from('data_form_attempt').update({ external_id: args.externalId, row_id: args.rowId }).eq('id', args.attemptId)
-  if (!error) return { kind: 'new' }
-  if (error.code !== '23505' || !args.externalId) throw new Error(`data_form_attempt update failed: ${error.message}`)
-  let q = supabase.from('data_form_attempt').select('row_id, stored_at').eq('form_id', args.formId).eq('external_id', args.externalId)
-  q = args.clientHash ? q.eq('client_hash', args.clientHash) : q.is('client_hash', null)
-  const { data: first } = await q.limit(1).maybeSingle<{ row_id: string | null; stored_at: string | null }>()
-  return { kind: 'repeat', rowId: first?.stored_at ? first.row_id : null }
+export type ClaimedAttempt = { kind: 'new' } | { kind: 'repeat'; rowId: string | null; unstoredRowId?: string | null } | { kind: 'challenge_used' }
+
+export interface ClaimAttemptArgs {
+  attemptId: string
+  formId: string
+  clientHash: string | null
+  externalId: string | null
+  rowId: string
+  /** The solved challenge's random part, when the form asks for one (661). */
+  challengeId?: string | null
 }
 
-/** The try wrote its row. Best effort (the row is stored either way). */
+/**
+ * Name the row a try is about to write, the form's own submission id when
+ * it sent one, and the challenge it solved. An id this sender already posted
+ * on this form is a repeat (answered with the row it stored, when it has); a
+ * challenge another try already stores with is used. One update sets all
+ * three and the unique indexes decide, so two posts side by side store one.
+ * Either index may be the one that refuses, so a refusal reads the id first:
+ * a re-post of a stored submission is a repeat even when it carries the same
+ * challenge. A repeat whose first post is not marked stored names the row
+ * that post was writing, if any (see ClaimedAttempt).
+ */
+export async function claimAttempt(supabase: SupabaseClient, args: ClaimAttemptArgs): Promise<ClaimedAttempt> {
+  const challengeId = args.challengeId ?? null
+  const { error } = await supabase
+    .from('data_form_attempt')
+    .update({ external_id: args.externalId, row_id: args.rowId, ...(challengeId ? { challenge_id: challengeId } : {}) })
+    .eq('id', args.attemptId)
+  if (!error) return { kind: 'new' }
+  if (error.code !== '23505' || (!args.externalId && !challengeId)) throw new Error(`data_form_attempt update failed: ${error.message}`)
+  if (args.externalId) {
+    let q = supabase.from('data_form_attempt').select('id, row_id, stored_at').eq('form_id', args.formId).eq('external_id', args.externalId)
+    q = args.clientHash ? q.eq('client_hash', args.clientHash) : q.is('client_hash', null)
+    const { data: first, error: readError } = await q.limit(1).maybeSingle<{ id: string; row_id: string | null; stored_at: string | null }>()
+    if (readError) throw new Error(`data_form_attempt read failed: ${readError.message}`)
+    // With no challenge, only the id's index can have refused (its first post may be gone from the ledger a moment ago).
+    if (first || !challengeId) {
+      if (first?.stored_at) return { kind: 'repeat', rowId: first.row_id }
+      return { kind: 'repeat', rowId: null, unstoredRowId: first?.row_id ?? null }
+    }
+  }
+  if (challengeId) return { kind: 'challenge_used' }
+  throw new Error(`data_form_attempt update failed: ${error.message}`)
+}
+
+/** The bytes of files a try carried (663), for the byte caps: set once its body is read, so a refused try counts too. */
+export async function recordAttemptBytes(supabase: SupabaseClient, attemptId: string, bytes: number): Promise<void> {
+  const { error } = await supabase.from('data_form_attempt').update({ upload_bytes: Math.max(0, Math.round(bytes)) }).eq('id', attemptId)
+  if (error) throw new Error(`data_form_attempt update failed: ${error.message}`)
+}
+
+/**
+ * The bytes of files sent since `sinceIso`: one sender's across every form,
+ * or one form's. Few rows: the try caps (FORM_CLIENT_HOURLY_CAP,
+ * FORM_HOURLY_CAP) bound how many tries an hour holds, so the sum is read
+ * here rather than asked of the database. A workspace's, across all its
+ * forms (its daily quota), is summed by the database in one query (663's
+ * data_form_workspace_upload_bytes): a day of every form's tries is too many
+ * rows to read.
+ */
+export async function uploadBytesSince(supabase: SupabaseClient, by: { clientHash: string } | { formId: string } | { workspaceId: string }, sinceIso: string): Promise<number> {
+  if ('workspaceId' in by) {
+    const { data, error } = await supabase.rpc('data_form_workspace_upload_bytes', { p_workspace_id: by.workspaceId, p_since: sinceIso })
+    if (error) throw new Error(`data_form_workspace_upload_bytes failed: ${error.message}`)
+    const total = Number(data)
+    if (!Number.isFinite(total)) throw new Error('data_form_workspace_upload_bytes answered no number')
+    return total
+  }
+  let q = supabase.from('data_form_attempt').select('upload_bytes').gte('created_at', sinceIso).gt('upload_bytes', 0)
+  q = 'clientHash' in by ? q.eq('client_hash', by.clientHash) : q.eq('form_id', by.formId)
+  const { data, error } = await q.limit(1000)
+  if (error) throw new Error(`data_form_attempt read failed: ${error.message}`)
+  return ((data ?? []) as Array<{ upload_bytes: number | string | null }>).reduce((n, r) => n + (Number(r.upload_bytes) || 0), 0)
+}
+
+/**
+ * The try wrote its row: marked stored, so a re-post of it is answered with
+ * the row. Supabase answers a failed write with an error rather than a
+ * throw, so each answer is read: one failure is tried again, a second is an
+ * ALERT in the log (a re-post then looks for the row itself: ./submit.ts).
+ * The form's last submission is best effort. Never throws: the row is
+ * stored either way.
+ */
 export async function markAttemptStored(supabase: SupabaseClient, attemptId: string, formId: string): Promise<void> {
   const now = new Date().toISOString()
+  const mark = async (): Promise<string | null> => {
+    try {
+      const { error } = await supabase.from('data_form_attempt').update({ stored_at: now }).eq('id', attemptId)
+      return error ? error.message : null
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err)
+    }
+  }
+  const first = await mark()
+  const again = first === null ? null : await mark()
+  if (again !== null) console.error(`[form-intake] form=${formId} attempt=${attemptId} ALERT stored row not marked on its try: ${again}`)
   try {
-    await supabase.from('data_form_attempt').update({ stored_at: now }).eq('id', attemptId)
-    await supabase.from('data_form').update({ last_submitted_at: now }).eq('id', formId)
-  } catch {
-    // Best effort.
+    const { error } = await supabase.from('data_form').update({ last_submitted_at: now }).eq('id', formId)
+    if (error) console.warn(`[form-intake] form=${formId} last submission not noted: ${error.message}`)
+  } catch (err) {
+    console.warn(`[form-intake] form=${formId} last submission not noted:`, err instanceof Error ? err.message : String(err))
   }
 }
 
-/** The try's write failed: it keeps counting toward the caps, and its submission id is free to post again. Best effort. */
+/** The try's write failed: it keeps counting toward the caps, and its submission id and its challenge are free to post again. Best effort. */
 export async function releaseAttempt(supabase: SupabaseClient, attemptId: string): Promise<void> {
   try {
-    await supabase.from('data_form_attempt').update({ external_id: null, row_id: null }).eq('id', attemptId)
+    await supabase.from('data_form_attempt').update({ external_id: null, row_id: null, challenge_id: null }).eq('id', attemptId)
   } catch {
     // Best effort.
   }

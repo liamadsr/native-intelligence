@@ -66,6 +66,7 @@ describe('Run now on the event loops', () => {
     ['email_received', { kind: 'email_received', from: 'acme.example' }, { email_thread_id: SYNTH_ID, email_account_id: null }],
     ['chat_message', { kind: 'chat_message', channel_id: CH, mentions_only: false }, { chat_message_id: SYNTH_ID, chat_channel_id: CH, chat_thread_root_id: null }],
     ['document_created', { kind: 'document_created' }, { document_id: SYNTH_ID }],
+    ['contact_created', { kind: 'contact_created', source: 'form' }, { contact_id: SYNTH_ID }],
   ] as const) {
     it(`${type}: its own trigger, no entity, and the run is the caller's alone`, async () => {
       h.flow = flow(type, cfg)

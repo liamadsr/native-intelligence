@@ -120,6 +120,8 @@ export interface WorkSource {
   document_id?: string
   /** A record_created loop's fire: the row added to a table. */
   row_id?: string
+  /** A contact_created loop's fire: the contact added to the CRM. */
+  contact_id?: string
   /** The producer opted out of pushes for this item (recorder `mute()`). */
   quiet?: boolean
   /** Where a work run came from (B PR 4): the brief's source quote and capture. */

@@ -8,6 +8,7 @@ import { normalizeSteps } from '@/lib/sequences/mutations'
 import { DEFAULT_SEND_WINDOW } from '@/lib/sequences/schedule'
 import { getSequenceUrl } from '@/lib/sequences/urls'
 import { approvedOutreach, launchSummary, type LaunchCardOrigin } from '@/lib/sequences/launch-card'
+import { STRANGER_CONTACT_NAME, strangerContactIds, strangerEmail } from './web-derived'
 import {
   AUDIENCE_RELATIONSHIP_TYPES,
   CAMPAIGN_COLUMNS,
@@ -475,11 +476,16 @@ export function createCampaignTools(
           origin: { conversationId: ctx.conversationId ?? null, approvalContext: ctx.approvalContext },
         })
         const later = prep.eligible.length - prep.recipients.length
+        // A recipient a public intake made (a recipient's id is its contact's): the
+        // model reads the neutral name, and their email plain only when plain
+        // (stranger-contacts.ts); the card and the emails keep their own words.
+        const strangers = await strangerContactIds(supabase, targetWs, prep.recipients.map((r) => r.id))
+        const modelRecipients = prep.recipients.map((r) => (strangers.has(r.id) ? { ...r, name: STRANGER_CONTACT_NAME, email: String(strangerEmail(r.email)) } : r))
         return {
           success: false,
           code: 'APPROVAL_REQUIRED',
           approval_id: held.ok ? held.approval_id : null,
-          what_sends: launchSummary({ plan: prep.plan, recipients: prep.recipients }),
+          what_sends: launchSummary({ plan: prep.plan, recipients: modelRecipients }),
           audience_text: describeAudience(prep.audience),
           skipped: prep.skipped,
           ...(later > 0 ? { not_on_this_card: later } : {}),

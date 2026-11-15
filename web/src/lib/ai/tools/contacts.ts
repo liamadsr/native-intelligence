@@ -11,7 +11,15 @@ import {
 import { inngest } from '@/lib/inngest/client'
 import { contactWriteAccess, filterVisibleContacts } from '@/lib/crm/contact-visibility'
 import { customFieldDefsOrNone, withCustomFields } from '@/lib/crm/custom-fields'
-import { CONTACT_WEB_FIELDS, fenceContactForModel, fenceWebFields } from './web-derived'
+import {
+  CONTACT_WEB_FIELDS,
+  STRANGER_CONTACT_SOURCES,
+  fenceContactForModel,
+  fenceStrangerContact,
+  fenceWebFields,
+  isStrangerContactSource,
+  strangerMergedInto,
+} from './web-derived'
 
 /**
  * The full `contact.relationship_type` vocabulary, matching
@@ -75,7 +83,7 @@ export function createContactTools(
         let query = supabase
           .from('contact')
           .select(
-            'id, full_name, email, phone, job_title, department, company_id, relationship_type, relationship_strength, last_interaction_at, interaction_count, tags',
+            'id, full_name, email, phone, job_title, department, company_id, relationship_type, relationship_strength, last_interaction_at, interaction_count, tags, source',
           )
           .eq('workspace_id', workspaceId)
           .is('merged_into_contact_id', null)
@@ -97,7 +105,19 @@ export function createContactTools(
         // client, but this may run service-role (contact-visibility.ts).
         const visible = await filterVisibleContacts(supabase, userId, data || [], readOpts)
         // Job title and department can come from web enrichment: fenced (web-derived.ts).
-        const contacts = visible.map((c) => fenceWebFields(c as Record<string, unknown>, CONTACT_WEB_FIELDS))
+        // A contact a public intake made is named by a stranger: its own fields too.
+        // `source` is read only to know: it is not one of the keys the tool returns.
+        // So is a person's contact a stranger's was merged into (its emails, names
+        // and phone may now be the stranger's): one read for the page, only for
+        // the contacts not already fenced (strangerMergedInto).
+        const mergedStranger = await strangerMergedInto(
+          supabase,
+          workspaceId,
+          visible.filter((c: Record<string, unknown>) => !isStrangerContactSource(c.source)).map((c: Record<string, unknown>) => String(c.id)),
+        )
+        const contacts = visible.map(({ source, ...c }: Record<string, unknown>) =>
+          fenceStrangerContact(fenceWebFields(c, CONTACT_WEB_FIELDS), mergedStranger.has(String(c.id)) ? STRANGER_CONTACT_SOURCES[0] : source),
+        )
         return { success: true, contacts, count: contacts.length }
       },
     }),
@@ -147,8 +167,18 @@ export function createContactTools(
         // by name, as every kind's read tool returns them (not the stored keys).
         const { custom_fields: storedFields, ...columns } = data as Record<string, unknown>
         const fieldDefs = await customFieldDefsOrNone(supabase, effectiveWorkspaceId, 'contact')
-        // The columns and blob enrichment fills from public pages, fenced (web-derived.ts).
-        return { success: true, contact: fenceContactForModel({ ...columns, ...withCustomFields(fieldDefs, storedFields) }) }
+        // The columns and blob enrichment fills from public pages, fenced (web-derived.ts),
+        // and, on a contact a public intake made (or one such a contact was merged
+        // into, whose emails now hold the stranger's), every field a stranger typed.
+        const strangerSource = isStrangerContactSource(columns.source)
+          ? columns.source
+          : (await strangerMergedInto(supabase, effectiveWorkspaceId, [String(columns.id)])).has(String(columns.id))
+            ? STRANGER_CONTACT_SOURCES[0]
+            : columns.source
+        return {
+          success: true,
+          contact: fenceContactForModel(fenceStrangerContact({ ...columns, ...withCustomFields(fieldDefs, storedFields) }, strangerSource)),
+        }
       },
     }),
 
@@ -361,11 +391,18 @@ export function createContactTools(
           .update(updates)
           .eq('id', contact_id)
           .eq('workspace_id', wsResolved.workspaceId)
-          .select('id, full_name, email')
+          .select('id, full_name, email, source')
           .single()
 
         if (error) return { success: false, error: error.message }
-        return { success: true, contact: data, message: `Updated: "${data.full_name}"` }
+        // A contact a public intake made keeps its stranger's fence after an edit (its source stays).
+        const { source, ...updated } = data as Record<string, unknown>
+        const fromForm = isStrangerContactSource(source)
+        return {
+          success: true,
+          contact: fenceStrangerContact(updated, source),
+          message: fromForm ? 'Updated the contact (one a form or a customer\'s text made).' : `Updated: "${updated.full_name}"`,
+        }
       },
     }),
   }

@@ -1,5 +1,5 @@
 import { tool } from 'ai'
-import { webText } from './web-derived'
+import { fenceStrangerContact, webText } from './web-derived'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
@@ -365,7 +365,7 @@ export function createCaptureTools(
 
         const { data: contact } = await supabase
           .from('contact')
-          .select('id, full_name')
+          .select('id, full_name, source')
           .eq('id', contact_id)
           .eq('workspace_id', resolved.workspaceId)
           .maybeSingle()
@@ -437,7 +437,8 @@ export function createCaptureTools(
 
         return {
           success: true,
-          contact: { id: contact.id, full_name: contact.full_name },
+          // A contact a public intake made: its name in the stranger's fence (web-derived.ts).
+          contact: fenceStrangerContact({ id: contact.id, full_name: contact.full_name }, contact.source),
           captures,
           count: captures.length,
           // The contact may have routed this whole read into another workspace.
@@ -627,7 +628,7 @@ export function createCaptureTools(
 
         const { data: participantRows } = await supabase
           .from('capture_participant')
-          .select('speaker_label, role, joined_at, left_at, voice_match_confidence, contact_id, member_id, external_name, external_email, company, job_title, contact:contact_id(id, full_name, email, avatar_url), member:member_id(id, display_name, avatar_url)')
+          .select('speaker_label, role, joined_at, left_at, voice_match_confidence, contact_id, member_id, external_name, external_email, company, job_title, contact:contact_id(id, full_name, email, avatar_url, source), member:member_id(id, display_name, avatar_url)')
           .eq('capture_id', capture_id)
 
         const summary = data.ai_summary || data.summary || data.content || ''
@@ -650,8 +651,10 @@ export function createCaptureTools(
         )
 
         const participants = (participantRows || []).map((p) => {
-          const embedded = p.contact as unknown as { id: string; full_name: string; email: string | null; avatar_url: string | null } | null
-          const c = embedded && visibleContactIds.has(embedded.id) ? embedded : null
+          const embedded = p.contact as unknown as { id: string; full_name: string; email: string | null; avatar_url: string | null; source?: string | null } | null
+          const seen = embedded && visibleContactIds.has(embedded.id) ? embedded : null
+          // A contact a public intake made: its name and email as the stranger's (web-derived.ts).
+          const c = seen ? fenceStrangerContact({ ...seen }, seen.source) : null
           const m = p.member as unknown as { id: string; display_name: string | null; avatar_url: string | null } | null
           return {
             speaker_label: p.speaker_label,

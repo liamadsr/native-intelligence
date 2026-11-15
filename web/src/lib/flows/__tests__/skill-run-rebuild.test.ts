@@ -113,6 +113,18 @@ describe('rebuildEveSpec parity with assembleSkillRun helpers', () => {
     })
   }
 
+  it("a row or contact fire's token advertises its forced reads (the same ceiling the tool route enforces)", async () => {
+    for (const [over, gained] of [
+      [{ contactId: '55555555-5555-4555-8555-555555555555' }, ['get_contact']],
+      [{ recordTableId: '33333333-3333-4333-8333-333333333333' }, ['get_table', 'query_rows']],
+    ] as const) {
+      const rebuilt = await rebuildEveSpec(claims({ mode: 'report', hasCapture: false, ...over }))
+      const plain = await rebuildEveSpec(claims({ mode: 'report', hasCapture: false }))
+      expect([...rebuilt!.ceiling!].filter((n) => !plain!.ceiling!.includes(n)).sort()).toEqual([...gained])
+      for (const name of gained) expect(rebuilt!.ceilingTools.some((t) => t.name === name), name).toBe(true)
+    }
+  })
+
   it('provider-qualifies the model server-side for anthropic / deepseek ids', async () => {
     // The eve agent passes spec.model through verbatim, so the qualification MUST
     // happen here — a bare DeepSeek id would otherwise get 'anthropic/'

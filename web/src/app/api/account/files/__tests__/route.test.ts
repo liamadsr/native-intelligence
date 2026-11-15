@@ -31,11 +31,20 @@ const BEN = 'user-ben'
  * `leakAttachments` turns the attachments policy off, to prove the second
  * fence holds alone.
  */
-function sessionDb(tables: Record<string, Row[]>, viewer: string, opts: { leakAttachments?: boolean } = {}) {
+function sessionDb(tables: Record<string, Row[]>, viewer: string, opts: { leakAttachments?: boolean; readableTables?: string[] } = {}) {
   const reads: string[] = []
   const captureVisible = (c: Row) => c.visibility === 'workspace' || c.user_id === viewer
+  // data_table and data_row follow my_data_table_ids (520); a row's file the same (663's attachments_row_select).
+  const tableVisible = (id: unknown) => (opts.readableTables ?? []).includes(id as string)
+  const rowVisible = (id: unknown) => {
+    const row = (tables.data_row ?? []).find((r) => r.id === id)
+    return !!row && tableVisible(row.table_id)
+  }
   const visible = (table: string, row: Row): boolean => {
     if (table === 'captures') return captureVisible(row)
+    if (table === 'data_table') return tableVisible(row.id)
+    if (table === 'data_row') return tableVisible(row.table_id)
+    if (table === 'attachments' && row.data_row_id && !opts.leakAttachments && !rowVisible(row.data_row_id)) return false
     if (table === 'attachments') {
       if (opts.leakAttachments || row.user_id === viewer || row.note_id == null) return true
       const capture = (tables.captures ?? []).find((c) => c.id === row.note_id)
@@ -221,6 +230,28 @@ describe('GET /api/account/files', () => {
     const none = sessionDb({ attachments: [] }, ME)
     expect((await list(none)).body).toEqual({ files: [], next_offset: null })
     expect(none.reads).toEqual(['attachments'])
+  })
+
+  it('lists a table row’s file (a form’s upload) by the row and its table, marked from a form, and drops it when the table can’t be read', async () => {
+    const tables = seed()
+    tables.data_table = [
+      { id: 'tbl-quotes', workspace_id: WS, name: 'Quote requests' },
+      { id: 'tbl-payroll', workspace_id: WS, name: 'Payroll' },
+    ]
+    tables.data_row = [
+      { id: 'row-dana', workspace_id: WS, table_id: 'tbl-quotes', title: 'Dana Whitfield' },
+      { id: 'row-secret', workspace_id: WS, table_id: 'tbl-payroll', title: 'March' },
+    ]
+    tables.attachments.push(
+      file('f-row', 12, { data_row_id: 'row-dana' }, { user_id: null, from_form: true, file_name: 'rug.png', file_category: 'image', mime_type: 'image/png' }),
+      file('f-secret', 13, { data_row_id: 'row-secret' }, { file_name: 'march.pdf' }),
+    )
+    const { body } = await list(sessionDb(tables, ME, { readableTables: ['tbl-quotes'] }))
+    expect(body.files[0]).toMatchObject({ id: 'f-row', from_form: true, parent: { type: 'row', id: 'row-dana', label: 'Dana Whitfield', table: { id: 'tbl-quotes', name: 'Quote requests' } } })
+    expect(JSON.stringify(body)).not.toContain('march')
+    // The record fence alone holds too: a row of a table they can't read has no label.
+    const leaked = await list(sessionDb(tables, ME, { leakAttachments: true, readableTables: ['tbl-quotes'] }))
+    expect(leaked.body.files.map((f: Row) => f.id)).not.toContain('f-secret')
   })
 
   it('answers as requireWorkspace does when there is no session', async () => {

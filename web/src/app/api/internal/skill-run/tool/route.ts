@@ -39,7 +39,7 @@ import { resolveFollowThrough } from '@/lib/chat/follow-through'
 import { toolInputIssues } from '@/lib/ai/tool-input-issues'
 import { withoutToolImage } from '@/lib/ai/tools/tool-image'
 import { unattendedGoAheadRefusal } from '@/lib/ai/tools/go-ahead'
-import { computeSkillCeiling, recordReadRefusal } from '@/lib/flows/run-skill'
+import { computeSkillCeiling, fireSubjectReadRefusal } from '@/lib/flows/run-skill'
 import {
   extractInternalSecret,
   verifyInternalSecret,
@@ -233,7 +233,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'skill not found for this run' }, { status: 404 })
   }
 
-  const ceilingSet = computeSkillCeiling(recipe.agent_config, claims.mode, claims.hasCapture, !!claims.recordTableId)
+  // The fire's subject (a new row's table, a new contact) rides the token: its forced reads join the ceiling.
+  const ceilingSet = computeSkillCeiling(recipe.agent_config, claims.mode, claims.hasCapture, claims)
   // Resolve the permission against the ACTUAL tool registry in every case.
   // search_tools (read-only discovery) is always permitted. A null ceiling is
   // inherit-all (act mode, no restriction) — but that means "any tool that EXISTS
@@ -251,16 +252,17 @@ export async function POST(request: Request) {
       { status: 403 },
     )
   }
-  // A row fire's forced table reads reach only the table that fired it (run-skill.ts recordReadRefusal).
-  // Model-visible, so the run reads the right table instead of failing the turn.
-  if (claims.recordTableId) {
-    const refused = recordReadRefusal({
+  // A row or contact fire's forced reads reach only the table or the contact that fired it
+  // (run-skill.ts fireSubjectReadRefusal). Model-visible, so the run reads the right one
+  // instead of failing the turn.
+  if (claims.recordTableId || claims.contactId) {
+    const refused = fireSubjectReadRefusal({
       toolName,
       input: body.input,
-      recordTableId: claims.recordTableId,
-      ownCeiling: computeSkillCeiling(recipe.agent_config, claims.mode, claims.hasCapture, false),
+      subject: claims,
+      ownCeiling: computeSkillCeiling(recipe.agent_config, claims.mode, claims.hasCapture),
     })
-    if (refused) return NextResponse.json({ output: { success: false, code: 'TABLE_OUT_OF_RUN', error: refused } })
+    if (refused) return NextResponse.json({ output: { success: false, code: refused.code, error: refused.error } })
   }
   // The caller's class (caller.ts): an unattended loop run.
   const callerRefused = callerRefusal(claims, toolName)

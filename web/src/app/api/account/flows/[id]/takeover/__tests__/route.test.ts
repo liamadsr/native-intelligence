@@ -46,6 +46,13 @@ describe('POST /api/account/flows/[id]/takeover', () => {
     expect(res.status).toBe(403)
     expect((await res.json()).error).toBe('Nobody can approve this')
   })
+
+  it("a loop whose table or channel the caller can't read asks nothing, and the editor shows why", async () => {
+    h.output = { success: false, code: 'TARGET_UNREADABLE', error: "You can't read the table this loop watches, so nothing was asked." }
+    const res = await POST(req(), params)
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({ code: 'TARGET_UNREADABLE', error: "You can't read the table this loop watches, so nothing was asked." })
+  })
 })
 
 describe('GET /api/account/flows/[id]/takeover', () => {

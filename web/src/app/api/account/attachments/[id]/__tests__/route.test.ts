@@ -47,6 +47,10 @@ function makeProxy(result: unknown) {
 }
 
 let attachmentRow: Record<string, unknown> | null = null
+/** The row a row's file hangs off, as the caller's client reads it, and whether they can change its table. */
+let dataRow: Record<string, unknown> | null = null
+let editable = true
+const editChecks: unknown[] = []
 
 const fakeSupabase = {
   auth: {
@@ -64,6 +68,7 @@ const fakeSupabase = {
       }
     }
     if (table === 'document') throw new Error('the archive must not run on the session client')
+    if (table === 'data_row') return makeProxy({ data: dataRow, error: null })
     // Workspace resolution (requireWorkspace) now reads the member table
     // directly. Derive the row from the getCurrentWorkspaceId spy so the
     // existing knob still controls whether a workspace resolves.
@@ -87,6 +92,11 @@ const fakeSupabase = {
     }),
   },
   rpc: (fn: string, args: unknown) => {
+    if (fn === 'data_table_editable_by') {
+      editChecks.push(args)
+      hoisted.callOrder.push('edit-check')
+      return Promise.resolve({ data: editable, error: null })
+    }
     hoisted.knowledgeCleanupRpc(fn, args)
     hoisted.callOrder.push('knowledge-cleanup')
     return Promise.resolve({ data: null, error: null })
@@ -140,6 +150,9 @@ beforeEach(() => {
   hoisted.callOrder.length = 0
   hoisted.archiveFilters.length = 0
   hoisted.settings = {}
+  dataRow = null
+  editable = true
+  editChecks.length = 0
   attachmentRow = {
     id: ATT_ID,
     storage_path: 'user-abc/project-1/file.pdf',
@@ -244,5 +257,48 @@ describe('DELETE /api/account/attachments/[id]', () => {
     expect(res.status).toBe(200)
     expect(hoisted.storageRemove).not.toHaveBeenCalled()
     expect(hoisted.rowDelete).toHaveBeenCalledOnce()
+  })
+
+  describe("a file on a table's row (663)", () => {
+    const ROW_ID = '22222222-3333-4444-8555-666666666666'
+    beforeEach(() => {
+      attachmentRow = { id: ATT_ID, storage_path: 'forms/workspace-1/form-1/abc.png', thumbnail_path: null, storage_bucket: 'attachments', data_row_id: ROW_ID }
+      dataRow = { id: ROW_ID, table_id: 'table-1' }
+    })
+
+    it('a reader of the table gets 403 and nothing is touched: no object, no knowledge links, no row', async () => {
+      editable = false
+      const [req, ctx] = deleteRequest(ATT_ID)
+      const res = await DELETE(req, ctx)
+      expect(res.status).toBe(403)
+      expect(editChecks).toEqual([{ p_table_id: 'table-1', p_user_id: 'user-abc' }])
+      expect(hoisted.storageRemove).not.toHaveBeenCalled()
+      expect(hoisted.knowledgeCleanupRpc).not.toHaveBeenCalled()
+      expect(hoisted.rowDelete).not.toHaveBeenCalled()
+      expect(hoisted.documentUpdate).not.toHaveBeenCalled()
+    })
+
+    it('someone who can change the table deletes it as any file is, the check first', async () => {
+      const [req, ctx] = deleteRequest(ATT_ID)
+      expect((await DELETE(req, ctx)).status).toBe(200)
+      expect(hoisted.callOrder[0]).toBe('edit-check')
+      expect(hoisted.callOrder).toEqual(['edit-check', 'storage-remove', 'knowledge-cleanup', 'row-delete', 'document-archive'])
+    })
+
+    it("a row the caller can't read is not found, and nothing is touched", async () => {
+      dataRow = null
+      const [req, ctx] = deleteRequest(ATT_ID)
+      expect((await DELETE(req, ctx)).status).toBe(404)
+      expect(editChecks).toEqual([])
+      expect(hoisted.storageRemove).not.toHaveBeenCalled()
+      expect(hoisted.knowledgeCleanupRpc).not.toHaveBeenCalled()
+    })
+
+    it("a capture's, an action's or a project's file asks no table", async () => {
+      attachmentRow = { id: ATT_ID, storage_path: 'user-abc/project-1/file.pdf', thumbnail_path: null, storage_bucket: 'attachments', data_row_id: null }
+      const [req, ctx] = deleteRequest(ATT_ID)
+      expect((await DELETE(req, ctx)).status).toBe(200)
+      expect(editChecks).toEqual([])
+    })
   })
 })

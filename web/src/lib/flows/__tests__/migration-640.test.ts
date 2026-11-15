@@ -39,13 +39,13 @@ describe('migration 640', () => {
   })
 
   it('the newest definition of flow_trigger_type_check allows every trigger type the app builds', () => {
-    // 660 (forms) widens it again with record_created, keeping every value here.
+    // 660 (forms) widens it again with record_created, and 662 with contact_created, keeping every value here.
     const defining = migrationsInOrder().filter((m) => /add constraint flow_trigger_type_check/i.test(m.sql))
     const newest = defining[defining.length - 1]
-    expect(newest.file).toBe('660_data_forms.sql')
+    expect(newest.file).toBe('662_contact_created_trigger.sql')
     const flat = newest.sql.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n').replace(/\s+/g, ' ')
     const allowed = checkedTypes(flat)
-    expect(allowed).toEqual([...EARLIER, ...ADDED, 'record_created'])
+    expect(allowed).toEqual([...EARLIER, ...ADDED, 'record_created', 'contact_created'])
     for (const t of FLOW_TOOL_TRIGGER_TYPES) expect(allowed.includes(t), t).toBe(true)
   })
 

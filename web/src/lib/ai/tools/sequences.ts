@@ -13,6 +13,7 @@ import { getSequenceUrl } from '@/lib/sequences/urls'
 import { isTimeZone } from '@/lib/chat-cards/calendar'
 import { resolveCreateWorkspace, resolveEntityWorkspace, workspaceEcho, type CreateWorkspacePolicy } from './_shared'
 import { filterVisibleContacts } from '@/lib/crm/contact-visibility'
+import { STRANGER_CONTACT_NAME, isStrangerContactSource, strangerContactIds, strangerEmail, webText } from './web-derived'
 import { getServiceClient } from '@/lib/supabase/service'
 import type { ApprovedCall } from '@/lib/safety/approved-call'
 import {
@@ -554,7 +555,7 @@ export function createSequenceTools(
             .order('step_order', { ascending: true }),
           supabase
             .from('sequence_enrollment')
-            .select('*, contact:contact_id(id, full_name, email)')
+            .select('*, contact:contact_id(id, full_name, email, source)')
             .eq('sequence_id', sequence_id)
             .eq('workspace_id', workspaceId)
             .order('created_at', { ascending: true }),
@@ -618,13 +619,18 @@ export function createSequenceTools(
           enrollments_total: enrollments.length,
           enrollments_truncated: enrollments.length > limit,
           enrollments: listed.map((e) => {
-            const embedded = e.contact as { id: string; full_name: string | null; email: string | null } | null
+            const embedded = e.contact as { id: string; full_name: string | null; email: string | null; source?: unknown } | null
             const contact = embedded && visibleContactIds.has(embedded.id) ? embedded : null
+            // A contact a public intake made is named by a stranger: the name in
+            // the WEB fence, the email plain only when it is a plain address
+            // (stranger-contacts.ts). What the emails merge in is not this.
+            const fromForm = isStrangerContactSource(contact?.source)
             return {
               id: e.id,
               contact_id: e.contact_id,
-              contact_name: contact?.full_name ?? null,
-              contact_email: e.contact_email,
+              contact_name: fromForm ? webText(contact?.full_name ?? null) : (contact?.full_name ?? null),
+              contact_email: fromForm ? strangerEmail(e.contact_email) : e.contact_email,
+              ...(fromForm ? { from_form: true } : {}),
               status: e.status,
               exit_reason: e.exit_reason,
               current_step_order: e.current_step_order,
@@ -907,9 +913,19 @@ export function createSequenceTools(
           }
         }
         const onCard = staged.slice(0, LAUNCH_RECIPIENTS_MAX)
+        // The ones a public intake made (one read for the card): what the model
+        // reads names them by the neutral name and gives their email plain only
+        // when it is a plain address. The card itself (the person's) and what
+        // the emails merge in keep their own words.
+        const strangers = await strangerContactIds(
+          supabase,
+          targetWs,
+          onCard.map((e) => e.contact_id).filter((id): id is string => typeof id === 'string'),
+        )
+        const fromForm = (e: { contact_id: string | null }) => e.contact_id !== null && strangers.has(e.contact_id)
         const failures = renderFailures(plan, onCard)
         if (failures.length > 0) {
-          const emailOf = new Map(onCard.map((e) => [e.id, e.contact_email]))
+          const emailOf = new Map(onCard.map((e) => [e.id, fromForm(e) ? strangerEmail(e.contact_email) : e.contact_email]))
           return {
             success: false,
             code: 'unresolved_tokens',
@@ -933,7 +949,12 @@ export function createSequenceTools(
           outreach: { kind: 'sequence', id: sequence.id, content_hash: contentHash, recipient_ids: recipients.map((r) => r.id) },
           origin: { conversationId: ctx.conversationId ?? null, approvalContext: ctx.approvalContext },
         })
-        const what = launchSummary({ plan, recipients })
+        const what = launchSummary({
+          plan,
+          recipients: recipients.map((r, i) =>
+            fromForm(onCard[i]) ? { ...r, name: STRANGER_CONTACT_NAME, email: String(strangerEmail(r.email)) } : r,
+          ),
+        })
         const later = staged.length - onCard.length
         return {
           success: false,

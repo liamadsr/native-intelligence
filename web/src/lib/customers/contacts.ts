@@ -7,9 +7,19 @@
  * placeholder name is replaced, and a plain contact becomes a lead.
  *
  * Made contacts are the workspace's (visibility 'workspace', the owner as
- * creator), source 'web_form' or 'sms'. Server only; service role.
+ * creator), source 'web_form' or 'sms'. A made one (never a found one) starts
+ * the workspace's contact_created loops (emit-contact-created.ts), here
+ * rather than in each caller so every public intake does it the same way.
+ *
+ * By default the found contact's change and the loops happen at once (the
+ * quote intake and a customer's text). With `defer`, neither happens here:
+ * the contact is still found or made (its id is what the caller links), and
+ * what was held back comes back as `deferred`, for the caller to apply with
+ * settleCustomerContact once what it was for is stored (a form's row:
+ * src/lib/forms/deps.ts), or never. Server only; service role.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { notifyContactCreated } from '@/lib/flows/emit-contact-created'
 import { isE164, normalizeE164 } from '@/lib/twilio/phone'
 
 export interface CustomerContactInput {
@@ -25,6 +35,16 @@ export interface CustomerContact {
   email: string | null
   phone: string | null
   created: boolean
+  /** With `defer` only: what was held back (see the header). */
+  deferred?: DeferredContactWork
+}
+
+/** What a deferred upsert held back: the found contact's change, and whether a made one's loops are owed. */
+export interface DeferredContactWork {
+  /** A found contact's change (a placeholder name replaced, a plain contact made a lead), or null. */
+  patch: { full_name?: string; relationship_type?: 'lead' } | null
+  /** The contact was made: its contact_created loops are owed. */
+  notify: boolean
 }
 
 interface ContactRow {
@@ -89,6 +109,25 @@ function fallbackName(input: CustomerContactInput): string {
 }
 
 /**
+ * Apply what an upsert held back (or did at once): the found contact's
+ * change, then a made contact's contact_created loops. The change throws on
+ * a failed write; the loops never throw.
+ */
+export async function settleCustomerContact(
+  supabase: SupabaseClient,
+  args: { workspaceId: string; contactId: string },
+  work: DeferredContactWork,
+  deps: { notify?: typeof notifyContactCreated } = {},
+): Promise<void> {
+  if (work.patch && Object.keys(work.patch).length) {
+    const { error } = await supabase.from('contact').update({ ...work.patch, updated_at: new Date().toISOString() }).eq('id', args.contactId).eq('workspace_id', args.workspaceId)
+    if (error) throw new Error(`contact update failed: ${error.message}`)
+  }
+  // The contact_created loops a public intake's new contact starts. Never throws.
+  if (work.notify) await (deps.notify ?? notifyContactCreated)(supabase, { workspaceId: args.workspaceId, contactId: args.contactId, source: 'form' }).catch(() => false)
+}
+
+/**
  * Find or make the customer's contact (see the header). Null when there is
  * nothing to match or make it by. Throws on a failed read or write.
  */
@@ -96,25 +135,20 @@ export async function upsertCustomerContact(
   supabase: SupabaseClient,
   args: { workspaceId: string; ownerUserId: string },
   input: CustomerContactInput,
+  deps: { notify?: typeof notifyContactCreated; defer?: boolean } = {},
 ): Promise<CustomerContact | null> {
   if (!input.email && !input.phone) return null
   const existing = await findContactByEmailOrPhone(supabase, args.workspaceId, input)
   if (existing) {
     // Never an email or phone from a form or a text: see the header.
-    const patch: Record<string, unknown> = {}
+    const patch: NonNullable<DeferredContactWork['patch']> = {}
     if (input.name && /^Customer ending \d{4}$/.test(existing.full_name)) patch.full_name = input.name
     if (!existing.relationship_type || existing.relationship_type === 'contact') patch.relationship_type = 'lead'
-    if (Object.keys(patch).length) {
-      const { error } = await supabase.from('contact').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', existing.id).eq('workspace_id', args.workspaceId)
-      if (error) throw new Error(`contact update failed: ${error.message}`)
-    }
-    return {
-      id: existing.id,
-      fullName: (patch.full_name as string | undefined) ?? existing.full_name,
-      email: existing.email,
-      phone: existing.phone,
-      created: false,
-    }
+    const work: DeferredContactWork = { patch: Object.keys(patch).length ? patch : null, notify: false }
+    const found = { id: existing.id, email: existing.email, phone: existing.phone, created: false }
+    if (deps.defer) return { ...found, fullName: existing.full_name, deferred: work }
+    await settleCustomerContact(supabase, { workspaceId: args.workspaceId, contactId: existing.id }, work, deps)
+    return { ...found, fullName: patch.full_name ?? existing.full_name }
   }
   const fullName = input.name ?? fallbackName(input)
   const [firstName, ...rest] = fullName.split(' ')
@@ -135,5 +169,9 @@ export async function upsertCustomerContact(
     .select(CONTACT_SELECT)
     .single<ContactRow>()
   if (error || !data) throw new Error(`contact insert failed: ${error?.message ?? 'no row'}`)
-  return { id: data.id, fullName: data.full_name, email: data.email, phone: data.phone, created: true }
+  const made = { id: data.id, fullName: data.full_name, email: data.email, phone: data.phone, created: true }
+  const work: DeferredContactWork = { patch: null, notify: true }
+  if (deps.defer) return { ...made, deferred: work }
+  await settleCustomerContact(supabase, { workspaceId: args.workspaceId, contactId: data.id }, work, deps)
+  return made
 }

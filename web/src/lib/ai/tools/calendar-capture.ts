@@ -7,6 +7,7 @@ import { deriveSeriesIdentity } from '@/lib/integrations/meeting-series'
 import { applyEmbeddedCaptureVisibility, captureRequester, isCaptureVisible } from './_shared'
 import { excludeClaimsHiddenFrom } from '@/lib/knowledge/claim-visibility'
 import { filterVisibleContacts } from '@/lib/crm/contact-visibility'
+import { contactModelName } from '@/lib/knowledge/stranger-contacts'
 import { findMembersByEmail } from '@/lib/workspace-member-emails'
 import { findMeetingGoalForCapture, findUpcomingMeetingGoalForEvent, getMeetingGoal } from '@/lib/meetings/meeting-goal'
 
@@ -516,9 +517,11 @@ export function createCalendarCaptureTools(
           // attendees (non-members) have their commitments/facts scoped via
           // about→contact edges, not subject_member_id. Same email-match
           // convention used across the CRM (email-context-service.ts:74-78).
+          // `source` too: a contact a public intake made is named by a stranger,
+          // so its name below is the neutral one (stranger-contacts.ts).
           const { data: contacts } = await supabase
             .from('contact')
-            .select('id, full_name')
+            .select('id, full_name, source')
             .eq('workspace_id', workspaceId)
             .in('email', participantEmails)
 
@@ -528,7 +531,7 @@ export function createCalendarCaptureTools(
           const contactRows = await filterVisibleContacts(
             supabase,
             userId,
-            (contacts || []) as { id: string; full_name: string | null }[],
+            (contacts || []) as { id: string; full_name: string | null; source?: string | null }[],
             omitGrants ? { grants: false } : {},
           )
           const contactIds = contactRows.map((c) => c.id)
@@ -597,7 +600,7 @@ export function createCalendarCaptureTools(
             const assigneeClauses: string[] = []
             if (memberIds.length) assigneeClauses.push(`assignee_id.in.(${memberIds.join(',')})`)
             if (contactIds.length) assigneeClauses.push(`assignee_contact_id.in.(${contactIds.join(',')})`)
-            const contactNameById = new Map(contactRows.map((c) => [c.id, c.full_name]))
+            const contactNameById = new Map(contactRows.map((c) => [c.id, contactModelName(c) || null]))
 
             const { data: actions } = await supabase
               .from('actions')
@@ -740,7 +743,7 @@ export function createCalendarCaptureTools(
                 : Promise.resolve({ data: [] as ClaimRow[] }),
             ])
 
-            const contactNameById = new Map(contactRows.map((c) => [c.id, c.full_name]))
+            const contactNameById = new Map(contactRows.map((c) => [c.id, contactModelName(c) || null]))
             const seen = new Set<string>()
             const merged: ClaimRow[] = []
             for (const row of [

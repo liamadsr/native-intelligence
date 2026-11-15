@@ -153,11 +153,12 @@ export async function gatherMentionedRecords(
       line: `Initiative ${quote(i.name)}${i.status ? ` (${i.status})` : ''}: get_initiative(initiative_id: ${i.id})`,
     })
   }
-  for (const d of (deals.data ?? []) as { id: string; title: string | null; stage: string | null }[]) {
+  for (const d of (deals.data ?? []) as { id: string; title: string | null; stage: string | null; from_form?: boolean }[]) {
     lines.push({
       kind: 'deal',
       id: d.id,
-      line: `Deal ${quote(d.title)}${d.stage ? ` (${d.stage})` : ''}: get_deal(deal_id: ${d.id})`,
+      // A form's deal is named by a stranger: said so, beside its name, inside the block's fence.
+      line: `Deal ${d.from_form ? `from a form (its name is what a stranger typed) ${quote(d.title)}` : quote(d.title)}${d.stage ? ` (${d.stage})` : ''}: get_deal(deal_id: ${d.id})`,
     })
   }
   for (const f of (flows.data ?? []) as { id: string; name: string | null; enabled: boolean | null }[]) {
@@ -220,8 +221,8 @@ async function readVisibleDeals(
   ids: string[],
   privateDocs: boolean,
 ): Promise<{ data: unknown[] | null }> {
-  const { data: rowData } = await supabase.from('data_row').select('id, title, table_id, custom_fields').eq('workspace_id', workspaceId).in('id', ids).is('archived_at', null)
-  const rows = (rowData ?? []) as Array<{ id: string; title: string | null; table_id: string; custom_fields: Record<string, unknown> | null }>
+  const { data: rowData } = await supabase.from('data_row').select('id, title, table_id, custom_fields, from_form').eq('workspace_id', workspaceId).in('id', ids).is('archived_at', null)
+  const rows = (rowData ?? []) as Array<{ id: string; title: string | null; table_id: string; custom_fields: Record<string, unknown> | null; from_form?: boolean | null }>
   if (!rows.length) return { data: [] }
   const { data: tableData } = await supabase
     .from('data_table')
@@ -236,7 +237,7 @@ async function readVisibleDeals(
   return {
     data: rows
       .filter((r) => tables.get(r.table_id) === 'workspace' || seen.has(r.table_id))
-      .map((r) => ({ id: r.id, title: r.title, stage: typeof r.custom_fields?.stage === 'string' ? r.custom_fields.stage : null })),
+      .map((r) => ({ id: r.id, title: r.title, stage: typeof r.custom_fields?.stage === 'string' ? r.custom_fields.stage : null, from_form: r.from_form === true })),
   }
 }
 

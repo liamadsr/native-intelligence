@@ -4,7 +4,8 @@
  * GET: covers the search parameter that filters contacts by full_name or email.
  * POST: covers the HubSpot contact-push emit — a fire-and-forget
  * crm/hubspot-push-contact event that must fire ONLY for a manual creation that
- * carries an email (never for a no-email creation).
+ * carries an email (never for a no-email creation) — and the contact_created
+ * loops' event, sent for every contact a person creates here, never failing it.
  *
  * Uses the same integration-test pattern as api/early-access/__tests__/route.test.ts
  * and api/account/actions/__tests__/route.test.ts.
@@ -25,6 +26,8 @@ const hoisted = vi.hoisted(() => ({
   insertedRow: { id: 'contact-1', source: 'manual', email: 'ada@example.com', full_name: 'Ada' } as Record<string, unknown>,
   inngestSend: vi.fn(),
   trackServerEvent: vi.fn(),
+  notifyContactCreated: vi.fn(),
+  memberRow: { id: 'member-1' } as { id: string } | null,
 }))
 
 // Build a chainable Supabase query mock that records method calls.
@@ -69,7 +72,7 @@ vi.mock('@/lib/supabase/server', () => ({
         }
       }
       // member lookup (POST ownership + 'mine' filter)
-      return { select: () => ({ eq: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { id: 'member-1' }, error: null }) }) }) }) }
+      return { select: () => ({ eq: () => ({ eq: () => ({ single: () => Promise.resolve({ data: hoisted.memberRow, error: null }) }) }) }) }
     },
   }),
 }))
@@ -78,12 +81,45 @@ vi.mock('@/lib/workspace', () => ({
   getCurrentWorkspaceId: hoisted.getCurrentWorkspaceId,
 }))
 
+// The route's auth goes through the shared helpers (web/CLAUDE.md): here they
+// read the same mocked session and current workspace, and answer the same
+// errors the real ones do (401 signed out, 400 no workspace).
+vi.mock('@/lib/api-auth', async () => {
+  const { createClient } = await import('@/lib/supabase/server')
+  const { noWorkspace, unauthorized } = await import('@/lib/api-errors')
+  const requireUser = async () => {
+    const supabase = await createClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    return user ? { supabase, user } : unauthorized()
+  }
+  const requireWorkspace = async () => {
+    const auth = await requireUser()
+    if (auth instanceof Response) return auth
+    const workspaceId = await hoisted.getCurrentWorkspaceId()
+    return workspaceId ? { ...auth, workspaceId } : noWorkspace()
+  }
+  const requireWorkspaceMember = async () => {
+    const auth = await requireWorkspace()
+    if (auth instanceof Response) return auth
+    return { ...auth, member: { id: 'member-1' } }
+  }
+  return { requireUser, requireWorkspace, requireWorkspaceMember }
+})
+
 vi.mock('@/lib/posthog', () => ({
   trackServerEvent: hoisted.trackServerEvent,
 }))
 
 vi.mock('@/lib/inngest/client', () => ({
   inngest: { send: hoisted.inngestSend },
+}))
+
+vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({ service: true }) }))
+
+vi.mock('@/lib/flows/emit-contact-created', () => ({
+  notifyContactCreated: hoisted.notifyContactCreated,
 }))
 
 const { GET, POST } = await import('@/app/api/account/contacts/route')
@@ -101,6 +137,8 @@ beforeEach(() => {
   hoisted.getUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
   hoisted.getCurrentWorkspaceId.mockResolvedValue('workspace-1')
   hoisted.inngestSend.mockResolvedValue({ ids: ['e'] })
+  hoisted.notifyContactCreated.mockResolvedValue(true)
+  hoisted.memberRow = { id: 'member-1' }
   hoisted.insertedRow = {
     id: 'contact-1',
     source: 'manual',
@@ -130,6 +168,19 @@ describe('GET /api/account/contacts', () => {
     hoisted.getCurrentWorkspaceId.mockResolvedValueOnce(null)
     const res = await GET(getReq())
     expect(res.status).toBe(400)
+  })
+
+  it('an explicit workspace_id is read only for a member of it: 403 otherwise, and the current workspace is not consulted', async () => {
+    const res = await GET(getReq({ workspace_id: 'workspace-2' }))
+    expect(res.status).toBe(200)
+    expect(hoisted.eqSpy).toHaveBeenCalledWith('workspace_id', 'workspace-2')
+    expect(hoisted.getCurrentWorkspaceId).not.toHaveBeenCalled()
+    hoisted.memberRow = null
+    const refused = await GET(getReq({ workspace_id: 'workspace-3' }))
+    expect(refused.status).toBe(403)
+    expect(await refused.json()).toMatchObject({ error: 'Not a member of this workspace' })
+    hoisted.getUser.mockResolvedValueOnce({ data: { user: null } })
+    expect((await GET(getReq({ workspace_id: 'workspace-2' }))).status).toBe(401)
   })
 
   it('applies OR filter when search param is present', async () => {
@@ -207,5 +258,42 @@ describe('POST /api/account/contacts — HubSpot push emit', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.contact.id).toBe('contact-1')
+  })
+})
+
+describe('POST /api/account/contacts — the contact_created loops', () => {
+  it("sends a person's new contact to its loops (about five minutes later, the emitter's), on the service client", async () => {
+    const res = await POST(postReq({ full_name: 'Ada', email: 'ada@example.com' }))
+    expect(res.status).toBe(200)
+    expect(hoisted.notifyContactCreated).toHaveBeenCalledOnce()
+    expect(hoisted.notifyContactCreated).toHaveBeenCalledWith({ service: true }, { workspaceId: 'workspace-1', contactId: 'contact-1', source: 'person' })
+  })
+
+  it('sends it for a contact with no email too', async () => {
+    hoisted.insertedRow = { id: 'contact-2', source: 'manual', email: null, full_name: 'No Email' }
+    await POST(postReq({ full_name: 'No Email' }))
+    expect(hoisted.notifyContactCreated).toHaveBeenCalledWith({ service: true }, { workspaceId: 'workspace-1', contactId: 'contact-2', source: 'person' })
+  })
+
+  it('never fails the creation when the loop event cannot be sent', async () => {
+    hoisted.notifyContactCreated.mockRejectedValueOnce(new Error('inngest down'))
+    const res = await POST(postReq({ full_name: 'Ada', email: 'ada@example.com' }))
+    expect(res.status).toBe(200)
+    expect((await res.json()).contact.id).toBe('contact-1')
+  })
+
+  it('answers 401 signed out and 400 with no workspace, creating nothing', async () => {
+    hoisted.getUser.mockResolvedValueOnce({ data: { user: null } })
+    expect((await POST(postReq({ full_name: 'Ada' }))).status).toBe(401)
+    hoisted.getCurrentWorkspaceId.mockResolvedValueOnce(null)
+    expect((await POST(postReq({ full_name: 'Ada' }))).status).toBe(400)
+    expect(hoisted.notifyContactCreated).not.toHaveBeenCalled()
+    expect(hoisted.inngestSend).not.toHaveBeenCalled()
+  })
+
+  it('a refused creation sends nothing', async () => {
+    const res = await POST(postReq({}))
+    expect(res.status).toBe(400)
+    expect(hoisted.notifyContactCreated).not.toHaveBeenCalled()
   })
 })

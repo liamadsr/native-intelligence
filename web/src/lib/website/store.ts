@@ -5,7 +5,21 @@
  * null, never a throw.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { CHANGE_KINDS, CHANGE_STATES, FRAMEWORKS, OPEN_CHANGE_STATES, SITE_STATES, type ChangeKind, type ChangeState, type CheckResult, type SiteInspection, type WebsiteChange, type WebsiteSite } from './types'
+import {
+  CHANGE_KINDS,
+  CHANGE_STATES,
+  FRAMEWORKS,
+  OPEN_CHANGE_STATES,
+  SITE_STATES,
+  type ChangeKind,
+  type ChangeState,
+  type CheckResult,
+  type SiteInspection,
+  type SiteWiring,
+  type WebsiteChange,
+  type WebsiteSite,
+  type WiringIntake,
+} from './types'
 
 type Svc = SupabaseClient
 
@@ -31,7 +45,54 @@ function inspectionOf(v: unknown): SiteInspection | null {
     truncated: r.truncated === true,
     buildScript: typeof r.buildScript === 'string' ? r.buildScript.slice(0, 600) : null,
     alsoUrls,
+    wirings: wiringsOf(r.wirings),
   }
+}
+
+/** The most wirings a site keeps (one per intake: the quote intake, and a form each). */
+const WIRINGS_MAX = 6
+
+function wiringsOf(v: unknown): SiteWiring[] {
+  if (!Array.isArray(v)) return []
+  const out: SiteWiring[] = []
+  for (const w of v.slice(0, WIRINGS_MAX)) {
+    if (!w || typeof w !== 'object') continue
+    const r = w as Record<string, unknown>
+    if ((r.intake !== 'quote' && r.intake !== 'form') || typeof r.keyHash !== 'string' || typeof r.changeId !== 'string') continue
+    if (r.intake === 'form' && typeof r.formId !== 'string') continue
+    out.push({ intake: r.intake, ...(r.intake === 'form' ? { formId: r.formId as string } : {}), keyHash: r.keyHash, changeId: r.changeId, formPath: typeof r.formPath === 'string' ? r.formPath : null })
+  }
+  return out
+}
+
+/** A wiring change's intake, from check_result's `intake` (see WebsiteChange.wiringIntake). Pure. */
+function wiringIntakeOf(kind: ChangeKind, checkResult: unknown): WiringIntake | null {
+  if (kind !== 'wire_form') return null
+  const intake = checkResult && typeof checkResult === 'object' ? (checkResult as { intake?: { kind?: unknown; formId?: unknown } }).intake : null
+  return intake?.kind === 'form' && typeof intake.formId === 'string' && intake.formId ? { kind: 'form', formId: intake.formId } : { kind: 'quote' }
+}
+
+/**
+ * What a change's check_result is written as: the check, plus a form
+ * wiring's intake (it lives in the same JSON, so every write of a check
+ * keeps it). Pure.
+ */
+export function checkResultOf(change: Pick<WebsiteChange, 'wiringIntake'>, result: CheckResult | null): (CheckResult & { intake?: WiringIntake }) | null {
+  const intake = change.wiringIntake?.kind === 'form' ? { intake: change.wiringIntake } : {}
+  if (!result) return 'intake' in intake ? ({ ...intake } as CheckResult & { intake: WiringIntake }) : null
+  return { ...result, ...intake }
+}
+
+/** Whether a site wiring is this intake's. Pure. */
+export function sameIntake(w: Pick<SiteWiring, 'intake' | 'formId'>, intake: WiringIntake): boolean {
+  return intake.kind === 'quote' ? w.intake === 'quote' : w.intake === 'form' && w.formId === intake.formId
+}
+
+/** The wirings live on a site: those recorded, else (a site wired before they were kept) its quote wiring. Pure. */
+export function liveWirings(site: Pick<WebsiteSite, 'state' | 'inspection'>): SiteWiring[] {
+  const kept = site.inspection?.wirings ?? []
+  if (kept.length) return kept
+  return site.state === 'wired' ? [{ intake: 'quote', keyHash: '', changeId: '', formPath: null }] : []
 }
 
 export function toSite(r: Row): WebsiteSite {
@@ -55,11 +116,13 @@ export function toSite(r: Row): WebsiteSite {
 }
 
 export function toChange(r: Row): WebsiteChange {
+  const kind: ChangeKind = (CHANGE_KINDS as readonly string[]).includes(String(r.kind)) ? (r.kind as ChangeKind) : 'edit'
+  const check = r.check_result && typeof r.check_result === 'object' && !Array.isArray(r.check_result) ? (r.check_result as Record<string, unknown>) : null
   return {
     id: String(r.id),
     workspaceId: String(r.workspace_id),
     siteId: String(r.site_id),
-    kind: (CHANGE_KINDS as readonly string[]).includes(String(r.kind)) ? (r.kind as ChangeKind) : 'edit',
+    kind,
     request: String(r.request ?? ''),
     requestedBy: String(r.requested_by),
     state: (CHANGE_STATES as readonly string[]).includes(String(r.state)) ? (r.state as ChangeState) : 'failed',
@@ -79,8 +142,10 @@ export function toChange(r: Row): WebsiteChange {
     intakeKeyHash: s(r.intake_key_hash),
     intakeKeyPrefix: s(r.intake_key_prefix),
     intakeOrigins: Array.isArray(r.intake_origins) ? (r.intake_origins as unknown[]).filter((o): o is string => typeof o === 'string') : [],
+    wiringIntake: wiringIntakeOf(kind, check),
     checkNonceHash: s(r.check_nonce_hash),
-    checkResult: r.check_result && typeof r.check_result === 'object' ? (r.check_result as CheckResult) : null,
+    // A check_result holding only a form wiring's intake is no check yet.
+    checkResult: check && typeof check.outcome === 'string' ? (check as unknown as CheckResult) : null,
     error: s(r.error),
     createdAt: String(r.created_at),
     updatedAt: s(r.updated_at),
@@ -127,7 +192,9 @@ export async function connectSite(svc: Svc, site: NewSite): Promise<WebsiteSite>
   }
   if (live && live.repoFullName.toLowerCase() === site.repoFullName.toLowerCase()) {
     // Re-read in place: whoever connected it still does (an admin's edit never takes it over; its pull requests stay theirs).
-    const { data, error } = await svc.from('website_site').update(fields).eq('id', live.id).eq('workspace_id', site.workspaceId).select(SITE_FIELDS).single()
+    // The wirings are what reached the site, not what the repo says: a re-read keeps them.
+    const kept = live.inspection?.wirings ?? []
+    const { data, error } = await svc.from('website_site').update({ ...fields, inspection: { ...site.inspection, wirings: kept } }).eq('id', live.id).eq('workspace_id', site.workspaceId).select(SITE_FIELDS).single()
     if (error || !data) throw new Error(`website_site update failed: ${error?.message ?? 'no row'}`)
     return toSite(data as Row)
   }
@@ -144,20 +211,27 @@ export async function connectSite(svc: Svc, site: NewSite): Promise<WebsiteSite>
   return toSite(data as Row)
 }
 
-export async function updateSite(svc: Svc, workspaceId: string, siteId: string, patch: Partial<{ project_id: string | null; environment_id: string | null; state: WebsiteSite['state']; wired_at: string | null; site_url: string | null }>): Promise<void> {
+export async function updateSite(
+  svc: Svc,
+  workspaceId: string,
+  siteId: string,
+  patch: Partial<{ project_id: string | null; environment_id: string | null; state: WebsiteSite['state']; wired_at: string | null; site_url: string | null; inspection: SiteInspection }>,
+): Promise<void> {
   const { error } = await svc.from('website_site').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', siteId).eq('workspace_id', workspaceId)
   if (error) throw new Error(`website_site update failed: ${error.message}`)
 }
 
 /**
- * Whether the business's website posts to the live intake key: the site is
- * wired, or the live key is one a merged wiring of its made live (its check
- * may not have passed, or may still be running). Throws on a failed read.
+ * Whether the business's website posts to the live QUOTE intake key: a quote
+ * wiring reached the site (a site wired before wirings were kept counts as
+ * one), or the live key is one a merged wiring of its made live (its check
+ * may not have passed, or may still be running). A site wired only to a
+ * form doesn't. Throws on a failed read.
  */
 export async function websiteUsesLiveKey(svc: Svc, workspaceId: string): Promise<boolean> {
   const site = await getLiveSite(svc, workspaceId)
   if (!site) return false
-  if (site.state === 'wired') return true
+  if (liveWirings(site).some((w) => w.intake === 'quote')) return true
   const { data: key, error } = await svc.from('quote_intake_key').select('key_hash').eq('workspace_id', workspaceId).is('revoked_at', null).maybeSingle()
   if (error) throw new Error(`quote_intake_key read failed: ${error.message}`)
   const hash = (key as { key_hash?: string } | null)?.key_hash
@@ -167,10 +241,67 @@ export async function websiteUsesLiveKey(svc: Svc, workspaceId: string): Promise
   return ((data ?? []) as unknown[]).length > 0
 }
 
-/** The website's form no longer reaches the business (its key was replaced elsewhere): back to connected. */
-export async function markSiteUnwired(svc: Svc, workspaceId: string): Promise<void> {
-  const { error } = await svc.from('website_site').update({ state: 'connected', wired_at: null, updated_at: new Date().toISOString() }).eq('workspace_id', workspaceId).neq('state', 'disconnected')
+/** Whether the business's website posts to this form (a form wiring reached it). Throws on a failed read. */
+export async function websiteUsesForm(svc: Svc, workspaceId: string, formId: string): Promise<boolean> {
+  const site = await getLiveSite(svc, workspaceId)
+  return !!site && liveWirings(site).some((w) => sameIntake(w, { kind: 'form', formId }))
+}
+
+/**
+ * The website's form no longer reaches this intake (its key or link was
+ * replaced elsewhere; default the quote intake): that wiring is dropped, and
+ * the site is back to connected once none is left. Throws on a failed write.
+ */
+export async function markSiteUnwired(svc: Svc, workspaceId: string, intake: WiringIntake = { kind: 'quote' }): Promise<void> {
+  const site = await getLiveSite(svc, workspaceId)
+  if (!site) return
+  const kept = site.inspection?.wirings ?? []
+  const left = kept.filter((w) => !sameIntake(w, intake))
+  // A site wired before wirings were kept: its wiring was the quote intake's.
+  const unwired = kept.length ? left.length === 0 : intake.kind === 'quote'
+  if (left.length === kept.length && !unwired) return
+  const { error } = await svc
+    .from('website_site')
+    .update({
+      ...(unwired ? { state: 'connected', wired_at: null } : {}),
+      ...(site.inspection && left.length !== kept.length ? { inspection: { ...site.inspection, wirings: left } } : {}),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', site.id)
+    .eq('workspace_id', workspaceId)
   if (error) throw new Error(`website_site update failed: ${error.message}`)
+}
+
+/** A wiring change reached the site: its wiring recorded, replacing an older one of the same intake. Safe to repeat. Throws on a failed write. */
+export async function recordSiteWiring(svc: Svc, change: Pick<WebsiteChange, 'id' | 'workspaceId' | 'siteId' | 'wiringIntake' | 'intakeKeyHash' | 'formPath'>): Promise<void> {
+  if (!change.wiringIntake || !change.intakeKeyHash) return
+  const site = await getSite(svc, change.workspaceId, change.siteId)
+  if (!site?.inspection || site.state === 'disconnected') return
+  const intake = change.wiringIntake
+  const kept = site.inspection.wirings ?? []
+  if (kept.some((w) => w.changeId === change.id && w.keyHash === change.intakeKeyHash)) return
+  const wiring: SiteWiring = { intake: intake.kind, ...(intake.kind === 'form' ? { formId: intake.formId } : {}), keyHash: change.intakeKeyHash, changeId: change.id, formPath: change.formPath }
+  // A site wired before wirings were kept had its quote wiring: kept as one, unless this one replaces it.
+  const legacy: SiteWiring[] = !kept.length && site.state === 'wired' && intake.kind !== 'quote' ? [{ intake: 'quote', keyHash: '', changeId: '', formPath: null }] : []
+  const wirings = [...legacy, ...kept.filter((w) => !sameIntake(w, intake)), wiring].slice(-WIRINGS_MAX)
+  await updateSite(svc, change.workspaceId, site.id, { inspection: { ...site.inspection, wirings } })
+}
+
+/**
+ * An undone wiring: its wiring dropped (its old form setup is back), and the
+ * site back to connected once none is left. Throws on a failed write.
+ */
+export async function dropSiteWiring(svc: Svc, workspaceId: string, siteId: string, undone: Pick<WebsiteChange, 'id' | 'wiringIntake'>): Promise<void> {
+  const site = await getSite(svc, workspaceId, siteId)
+  if (!site) return
+  const kept = site.inspection?.wirings ?? []
+  // A quote wiring from before wirings were kept is the one with no change named.
+  const left = kept.filter((w) => w.changeId !== undone.id && !(w.changeId === '' && w.intake === 'quote' && undone.wiringIntake?.kind !== 'form'))
+  if (left.length) {
+    if (left.length !== kept.length && site.inspection) await updateSite(svc, workspaceId, siteId, { inspection: { ...site.inspection, wirings: left } })
+    return
+  }
+  await updateSite(svc, workspaceId, siteId, { state: 'connected', wired_at: null, ...(site.inspection && kept.length ? { inspection: { ...site.inspection, wirings: [] } } : {}) })
 }
 
 /** The site's open change (at most one), or null. */
@@ -214,6 +345,8 @@ export interface NewChange {
   intakeKeyHash?: string | null
   intakeKeyPrefix?: string | null
   intakeOrigins?: string[]
+  /** A wiring's intake: a form's is kept in check_result (see WebsiteChange.wiringIntake). */
+  wiringIntake?: WiringIntake | null
   prNumber?: number | null
   prUrl?: string | null
 }
@@ -238,6 +371,7 @@ export async function insertChange(svc: Svc, change: NewChange): Promise<InsertC
       intake_key_hash: change.intakeKeyHash ?? null,
       intake_key_prefix: change.intakeKeyPrefix ?? null,
       intake_origins: change.intakeOrigins ?? [],
+      check_result: change.wiringIntake?.kind === 'form' ? { intake: change.wiringIntake } : null,
       pr_number: change.prNumber ?? null,
       pr_url: change.prUrl ?? null,
     })
@@ -262,7 +396,7 @@ export type ChangePatch = Partial<{
   approval_id: string | null
   merge_sha: string | null
   check_nonce_hash: string | null
-  check_result: CheckResult | null
+  check_result: (CheckResult & { intake?: WiringIntake }) | null
   error: string | null
   merged_at: string | null
   live_at: string | null
@@ -290,4 +424,16 @@ export async function getChangeByNonce(svc: Svc, workspaceId: string, nonceHash:
   const { data, error } = await svc.from('website_change').select(CHANGE_FIELDS).eq('workspace_id', workspaceId).eq('check_nonce_hash', nonceHash).maybeSingle()
   if (error) throw new Error(`website_change read failed: ${error.message}`)
   return data ? toChange(data as Row) : null
+}
+
+const FORM_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** The wired forms that no longer take the site's posts: their link no longer hashes to the wiring's key (replaced since), or they are gone. Throws on a failed read. */
+export async function replacedFormLinks(svc: Svc, workspaceId: string, wirings: ReadonlyArray<{ formId?: string; keyHash: string }>): Promise<Set<string>> {
+  const wanted = wirings.filter((w): w is { formId: string; keyHash: string } => typeof w.formId === 'string' && FORM_ID_RE.test(w.formId))
+  if (!wanted.length) return new Set()
+  const { data, error } = await svc.from('data_form').select('id, key_hash').eq('workspace_id', workspaceId).in('id', wanted.map((w) => w.formId))
+  if (error) throw new Error(`data_form read failed: ${error.message}`)
+  const now = new Map(((data ?? []) as Array<{ id: string; key_hash: string | null }>).map((r) => [r.id, r.key_hash]))
+  return new Set(wanted.filter((w) => now.get(w.formId) !== w.keyHash).map((w) => w.formId))
 }

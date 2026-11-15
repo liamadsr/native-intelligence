@@ -14,7 +14,7 @@
  * kept in this browser.
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ArrowDown, ArrowLeft, ArrowUp, Download, History, Link2, Lock, Star, Undo2, Upload, X } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, ClipboardList, Download, History, Link2, Lock, Star, Undo2, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -34,6 +34,7 @@ import { downloadFile } from '@/lib/download'
 import { copyTextToClipboard } from '@/lib/clipboard'
 import { tableLink } from '@/lib/tables/embed'
 import { FieldsMenu } from './fields-menu'
+import { FormsPanel } from './forms-panel'
 import { ImportDialog, importedToast } from './import-dialog'
 import { RowPanel } from './row-panel'
 import { TableBoard } from './table-board'
@@ -87,6 +88,7 @@ export function TableDetail({
   const { table, columns, error } = data
   const [historyOpen, setHistoryOpen] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [formsOpen, setFormsOpen] = useState(false)
   const [openRowId, setOpenRowId] = useState<string | null>(initialRowId)
 
   // The table's columns, for the filter picker, the chips and the settings.
@@ -187,6 +189,13 @@ export function TableDetail({
                   <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setImporting(true)}>
                     <Upload className="h-3.5 w-3.5" />
                     Import
+                  </Button>
+                )}
+                {/* A form adds rows from outside (forms phase 3), on a pipeline a deal in its first open stage: never to an archived table. */}
+                {data.canEdit && !table.archived_at && (
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setFormsOpen(true)}>
+                    <ClipboardList className="h-3.5 w-3.5" />
+                    Form
                   </Button>
                 )}
                 <Button
@@ -325,6 +334,9 @@ export function TableDetail({
               importedToast(rows, changeId ? () => void data.undo(changeId) : undefined)
             }}
           />
+        )}
+        {formsOpen && table && data.canEdit && !table.archived_at && (
+          <FormsPanel tableId={table.id} tableName={table.name} columns={columns} pipeline={table.kind === 'pipeline'} onClose={() => setFormsOpen(false)} />
         )}
         {historyOpen && table && (
           <Sheet open onOpenChange={setHistoryOpen}>

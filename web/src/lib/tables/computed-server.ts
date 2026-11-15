@@ -25,7 +25,8 @@ import { relationIds, type CustomFieldType, type RelationTarget } from '@/lib/cr
 import { visibleRelationTargets, type ReferenceScope } from '@/lib/crm/custom-field-references'
 import { entityDescriptor, WORKSPACE_SCOPED_TABLE } from '@/lib/knowledge/entity-registry'
 import { resolveEntityLabels } from '@/lib/knowledge/graph-map/source'
-import { aggregate, computedInfo, computeRow, own, MAX_ROLLUP_LINKS, planComputed, todayIn, type ComputedPlan, type LinkedValue, type TargetFieldType } from './computed'
+import { isStrangerContactSource } from '@/lib/knowledge/stranger-contacts'
+import { aggregate, cellsFromForms, computedInfo, computeRow, own, MAX_ROLLUP_LINKS, planComputed, todayIn, type ComputedPlan, type LinkedValue, type TargetFieldType } from './computed'
 import { TITLE_REF } from './formula'
 import { isComputedType, TABLE_COLUMN_ENTITY_TYPE, type ComputedCell, type DataColumn, type DataRow } from './types'
 
@@ -146,6 +147,9 @@ export function annotateColumns(ctx: ComputedContext): DataColumn[] {
   return ctx.columns.map((c) => (isComputedType(c.field_type) ? { ...c, computed: computedInfo(ctx.plan.entries.get(c.key)) } : c))
 }
 
+/** A linked record as a rollup reads it; `fromForm`: a form wrote it (its name and fields are a stranger's). */
+type Linked = { name: string; values: Record<string, unknown>; fromForm?: boolean }
+
 /** The linked records' names and fields, for one relation's target: only those the reader may read. */
 async function readLinked(
   db: SupabaseClient,
@@ -153,8 +157,8 @@ async function readLinked(
   target: RelationTarget,
   ids: readonly string[],
   fields: ReadonlySet<string>,
-): Promise<Map<string, { name: string; values: Record<string, unknown> }>> {
-  const out = new Map<string, { name: string; values: Record<string, unknown> }>()
+): Promise<Map<string, Linked>> {
+  const out = new Map<string, Linked>()
   if (!ids.length) return out
   const scope: ReferenceScope = { workspaceId: reader.workspaceId, userId: reader.userId, ...(reader.grants === false ? { grants: false } : {}) }
   const visible = (
@@ -168,30 +172,39 @@ async function readLinked(
     const pages = await inChunks(visible, async (chunk) => {
       const { data, error } = await db
         .from('data_row')
-        .select('id, title, custom_fields')
+        .select('id, title, custom_fields, from_form')
         .eq('workspace_id', reader.workspaceId)
         .eq('table_id', target.table_id ?? '')
         .is('archived_at', null)
         .in('id', chunk)
       if (error) throw new Error(error.message)
-      return (data ?? []) as Array<{ id: string; title: string | null; custom_fields: Record<string, unknown> | null }>
+      return (data ?? []) as Array<{ id: string; title: string | null; custom_fields: Record<string, unknown> | null; from_form?: boolean | null }>
     })
-    for (const r of pages.flat()) out.set(r.id, { name: r.title?.trim() || 'Untitled', values: r.custom_fields ?? {} })
+    for (const r of pages.flat()) out.set(r.id, { name: r.title?.trim() || 'Untitled', values: r.custom_fields ?? {}, ...(r.from_form === true ? { fromForm: true } : {}) })
     return out
   }
   const names = await resolveEntityLabels(db, reader.workspaceId, new Map([[target.kind, new Set(visible)]])).catch(() => new Map<string, string>())
   for (const id of visible) out.set(id, { name: names.get(`${target.kind}:${id}`) || 'Untitled', values: {} })
   const table = WORKSPACE_SCOPED_TABLE[target.kind]
-  const custom = [...fields].some((f) => f !== TITLE_REF)
-  if (table && custom && entityDescriptor(target.kind)?.customFields) {
+  const custom = [...fields].some((f) => f !== TITLE_REF) && !!entityDescriptor(target.kind)?.customFields
+  // A contact a public intake made (source web_form / sms) is named by a
+  // stranger, like a form's row: its `source` rides in the same read (made
+  // for a contact even when no custom field is asked), so the cell is
+  // tainted (cellsFromForms) and the model reads it fenced. People see the
+  // same values either way.
+  const contacts = target.kind === 'contact'
+  if (table && (custom || contacts)) {
+    const columns = ['id', ...(custom ? ['custom_fields'] : []), ...(contacts ? ['source'] : [])].join(', ')
     const pages = await inChunks(visible, async (chunk) => {
-      const { data, error } = await db.from(table).select('id, custom_fields').eq('workspace_id', reader.workspaceId).in('id', chunk)
+      const { data, error } = await db.from(table).select(columns).eq('workspace_id', reader.workspaceId).in('id', chunk)
       if (error) throw new Error(error.message)
-      return (data ?? []) as Array<{ id: string; custom_fields: Record<string, unknown> | null }>
+      return (data ?? []) as unknown as Array<{ id: string; custom_fields?: Record<string, unknown> | null; source?: unknown }>
     })
     for (const r of pages.flat()) {
       const hit = out.get(r.id)
-      if (hit) hit.values = r.custom_fields ?? {}
+      if (!hit) continue
+      if (custom) hit.values = r.custom_fields ?? {}
+      if (contacts && isStrangerContactSource(r.source)) hit.fromForm = true
     }
   }
   return out
@@ -211,7 +224,7 @@ export async function attachComputed(db: SupabaseClient, ctx: ComputedContext, r
     if (r.field) g.fields.add(r.field)
     for (const row of rows) for (const id of relationIds(own(row.custom_fields, r.relationKey)).slice(0, MAX_ROLLUP_LINKS)) g.ids.add(id)
   }
-  const linked = new Map<string, Map<string, { name: string; values: Record<string, unknown> }>>()
+  const linked = new Map<string, Map<string, Linked>>()
   const failed = new Set<string>()
   await Promise.all(
     [...byRelation].map(async ([relationKey, g]) => {
@@ -223,8 +236,10 @@ export async function attachComputed(db: SupabaseClient, ctx: ComputedContext, r
     }),
   )
   const today = todayIn(reader.timeZone)
-  return rows.map((row) => {
+  return rows.map(({ computed_from_form: _stale, ...row }) => {
     const rollups: Record<string, ComputedCell> = {}
+    // The rollups that read a linked row a form wrote: their cells, and the formulas naming them, carry a stranger's words.
+    const fromForms = new Set<string>()
     for (const [key, r] of ctx.rollups) {
       const entry = ctx.plan.entries.get(key)
       if (!entry || entry.error || !entry.rollup) continue
@@ -236,11 +251,14 @@ export async function attachComputed(db: SupabaseClient, ctx: ComputedContext, r
       const items: LinkedValue[] = []
       for (const id of relationIds(own(row.custom_fields, r.relationKey)).slice(0, MAX_ROLLUP_LINKS)) {
         const rec = records.get(id)
-        if (rec) items.push({ name: rec.name, value: r.field && r.field !== TITLE_REF ? own(rec.values, r.field) : rec.name })
+        if (!rec) continue
+        items.push({ name: rec.name, value: r.field && r.field !== TITLE_REF ? own(rec.values, r.field) : rec.name })
+        if (rec.fromForm) fromForms.add(key)
       }
       const v = aggregate(entry.rollup.fn, r.fieldType, items)
       rollups[key] = { value: v === null ? null : v.v }
     }
-    return { ...row, computed: computeRow(row, ctx.columns, ctx.plan, rollups, { today }) }
+    const tainted = cellsFromForms(ctx.plan, fromForms)
+    return { ...row, computed: computeRow(row, ctx.columns, ctx.plan, rollups, { today }), ...(tainted.length ? { computed_from_form: tainted } : {}) }
   })
 }

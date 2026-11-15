@@ -650,7 +650,8 @@ export function createTools(
     // Setup by text (src/lib/onboarding/text-setup.ts): connect_link and
     // save_business_profile, each refusing an unattended turn. See ./text-setup.ts.
     ...createTextSetupTools(userId, supabase, workspaceId, { unattended: options?.unattended === true, textTurn: options?.textTurn === true }),
-    ...createWebsiteTools(userId, supabase, workspaceId, { unattended: options?.unattended === true, remoteTurn: options?.remoteTurn === true }),
+    // editGrants as the table tools get it: a guest's or a linked agent's turn never wires a site to a table it reaches only by a grant.
+    ...createWebsiteTools(userId, supabase, workspaceId, { unattended: options?.unattended === true, remoteTurn: options?.remoteTurn === true, editGrants }),
     // SEO (src/lib/seo): the site audit. Our own crawl of a public site, so nothing to confirm and a loop may run it. See ./seo.ts.
     ...createSeoTools(userId, supabase, workspaceId),
     ...createSeoAiVisibilityTools(userId, supabase, workspaceId, { unattended: options?.unattended === true }),

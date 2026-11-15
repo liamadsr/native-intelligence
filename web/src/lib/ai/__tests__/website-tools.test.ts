@@ -61,4 +61,20 @@ describe('the website tools', () => {
     await run(tools, 'wire_website_form', { form_path: 'contact.html', replace_current: true })
     expect(start.startWiring).toHaveBeenLastCalledWith({}, { userId: 'u1', workspaceId: 'w1' }, { formPath: 'contact.html', replaceCurrent: true }, undefined)
   })
+
+  it('passes a form to wire to, and which site form they mean; a turn without edit grants says so', async () => {
+    const FORM = '00000000-0000-4000-8000-0000000000f1'
+    start.startWiring.mockResolvedValue({ success: true })
+    await run(createWebsiteTools('u1', {} as never, 'w1'), 'wire_website_form', { form_id: FORM, site_form: 'the contact form on /contact' })
+    expect(start.startWiring).toHaveBeenLastCalledWith({}, { userId: 'u1', workspaceId: 'w1' }, { formPath: null, replaceCurrent: false, formId: FORM, siteForm: 'the contact form on /contact' }, undefined)
+    await run(createWebsiteTools('u1', {} as never, 'w1', { editGrants: false }), 'wire_website_form', { form_id: FORM })
+    expect(start.startWiring).toHaveBeenLastCalledWith({}, { userId: 'u1', workspaceId: 'w1' }, { formPath: null, replaceCurrent: false, formId: FORM, editGrants: false }, undefined)
+  })
+
+  it('takes form_id as a form id only, and says when to pass it', () => {
+    const wire = createWebsiteTools('u1', {} as never, 'w1').wire_website_form as unknown as { description: string; inputSchema: { safeParse: (v: unknown) => { success: boolean } } }
+    expect(wire.inputSchema.safeParse({ form_id: 'Leads' }).success).toBe(false)
+    expect(wire.inputSchema.safeParse({ form_id: '00000000-0000-4000-8000-0000000000f1', site_form: 'the contact form' }).success).toBe(true)
+    expect(wire.description).toContain('Pass form_id when they want a site form’s entries in one of their tables')
+  })
 })

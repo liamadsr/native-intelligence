@@ -17,7 +17,8 @@
  *                 of the doubt after a few minutes, in hedged words.
  *   live check    {@link checkWiringLive}, for a wiring change: the live site
  *                 must carry the new intake URL (its page, or the same-origin
- *                 scripts it loads), whose key must hash to the change's;
+ *                 scripts it loads; a form wiring's: the form's new link),
+ *                 whose key must hash to the change's;
  *                 then a real test post goes to that URL from the site's
  *                 origin, marked with a one-time nonce the intake takes as
  *                 the check, never as a quote (intake-handler.ts). Passed:
@@ -29,6 +30,7 @@
 import { randomBytes } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { hashIntakeKey } from '@/lib/customers/intake-key'
+import { hashFormKey } from '@/lib/forms/store'
 import { storedGithubToken } from '@/lib/oauth/github-token'
 import { inngest } from '@/lib/inngest/client'
 import { checkFailedText, clip, failedText, itWorksText, liveText } from './brief'
@@ -38,8 +40,8 @@ import { fetchPublic, publicHttpsUrl } from './fetch'
 import { appOrigin } from '@/lib/twilio/config'
 import { prOpenedEventId, WEBSITE_PR_OPENED, type WebsiteEventData } from './events'
 import { nonceHash, testSubmission } from './intake-test'
-import { getChange, getChangeByRun, getSite, updateChange, updateSite } from './store'
-import { type CheckResult, type Framework, type WebsiteChange, type WebsiteSite } from './types'
+import { checkResultOf, getChange, getChangeByRun, getSite, recordSiteWiring, updateChange, updateSite } from './store'
+import { type CheckResult, type Framework, type WebsiteChange, type WebsiteSite, type WiringIntake } from './types'
 
 type Svc = SupabaseClient
 
@@ -157,10 +159,13 @@ export async function pollDeploy(svc: Svc, args: WebsiteEventData & { poll: numb
   return { done: false }
 }
 
-/** A merged wiring's key made live if it still should be (a site still connected, no later wiring). Never throws. */
+/** A merged wiring's key made live (and recorded on the site) if it still should be (a site still connected, no later wiring). Never throws. */
 async function ensureKeyLive(svc: Svc, change: WebsiteChange, deps: DeployDeps): Promise<void> {
   try {
-    if (await keyStillWanted(svc, change)) await (deps.activateKey ?? activateIntakeKey)(svc, change)
+    if (await keyStillWanted(svc, change)) {
+      await (deps.activateKey ?? activateIntakeKey)(svc, change)
+      await recordSiteWiring(svc, change)
+    }
   } catch (err) {
     console.error('[website] intake key still not live:', err instanceof Error ? err.message : String(err))
   }
@@ -179,13 +184,13 @@ export async function giveUpDeploy(svc: Svc, args: WebsiteEventData, deps: Deplo
 /** The change's watch is over: live (with what the check found), and the owner told. */
 async function finishLive(svc: Svc, change: WebsiteChange, site: WebsiteSite, check: CheckResult, deps: DeployDeps): Promise<void> {
   const nowIso = new Date((deps.now ?? Date.now)()).toISOString()
-  const moved = await updateChange(svc, change.workspaceId, change.id, { state: 'live', live_at: nowIso, check_result: check }, ['deploying'])
+  const moved = await updateChange(svc, change.workspaceId, change.id, { state: 'live', live_at: nowIso, check_result: checkResultOf(change, check) }, ['deploying'])
   if (!moved) return
   let text: string
   if (change.kind === 'wire_form') {
     if (check.outcome === 'passed') {
       await updateSite(svc, change.workspaceId, site.id, { state: 'wired', wired_at: nowIso }).catch(() => undefined)
-      text = itWorksText({ form: changeForm(change, site), siteUrl: site.siteUrl })
+      text = itWorksText({ form: changeForm(change, site), siteUrl: site.siteUrl, intake: change.wiringIntake })
     } else {
       text = checkFailedText(check)
     }
@@ -197,8 +202,9 @@ async function finishLive(svc: Svc, change: WebsiteChange, site: WebsiteSite, ch
   await notifyOf(deps)(svc, { userId: site.connectedBy, workspaceId: change.workspaceId, text, key: `website-${change.id}-live` })
 }
 
-/** An intake URL in a page or script, with its key. */
+/** An intake URL in a page or script, with its key: the quote intake's, or a form's link. */
 const INTAKE_URL_RE = /https:\/\/[A-Za-z0-9.-]+(?::\d+)?\/api\/intake\/quotes\/(qk_[A-Za-z0-9_-]{43})/g
+const FORM_URL_RE = /https:\/\/[A-Za-z0-9.-]+(?::\d+)?\/api\/intake\/forms\/(fk_[A-Za-z0-9_-]{43})/g
 const PAGE_MAX_BYTES = 2_000_000
 const SCRIPT_MAX_BYTES = 3_000_000
 const SCRIPTS_MAX = 25
@@ -261,11 +267,12 @@ export function sameOriginScripts(html: string, pageUrl: string): string[] {
  * own intake URL with a key hashing to `keyHash`, or null. An intake URL on
  * any other host is never the business's, and is never posted to.
  */
-export async function findLiveIntake(deps: DeployDeps, pages: readonly string[], keyHash: string): Promise<{ pageUrl: string; intakeUrl: string } | null> {
+export async function findLiveIntake(deps: DeployDeps, pages: readonly string[], keyHash: string, intake: WiringIntake['kind'] = 'quote'): Promise<{ pageUrl: string; intakeUrl: string } | null> {
   const intakeOrigin = new URL(appOrigin()).origin
+  const [re, hash] = intake === 'form' ? [FORM_URL_RE, hashFormKey] : [INTAKE_URL_RE, hashIntakeKey]
   const scan = (text: string) => {
-    for (const m of text.matchAll(INTAKE_URL_RE)) {
-      if (new URL(m[0]).origin === intakeOrigin && hashIntakeKey(m[1]) === keyHash) return m[0]
+    for (const m of text.matchAll(re)) {
+      if (new URL(m[0]).origin === intakeOrigin && hash(m[1]) === keyHash) return m[0]
     }
     return null
   }
@@ -292,8 +299,8 @@ export async function findLiveIntake(deps: DeployDeps, pages: readonly string[],
 export async function checkWiringLive(svc: Svc, change: WebsiteChange, site: WebsiteSite, deps: DeployDeps = {}): Promise<CheckResult> {
   if (!site.siteUrl || !change.intakeKeyHash) return { outcome: 'not_seen', detail: site.siteUrl ? 'no key' : 'no live address' }
   const pages = checkPages(site.siteUrl, site.inspection?.framework ?? null, changeForm(change, site))
-  const live = await findLiveIntake(deps, pages, change.intakeKeyHash)
-  if (!live) return { outcome: 'not_seen', detail: 'the live site does not carry the new intake URL yet' }
+  const live = await findLiveIntake(deps, pages, change.intakeKeyHash, change.wiringIntake?.kind ?? 'quote')
+  if (!live) return { outcome: 'not_seen', detail: `the live site does not carry the new ${change.wiringIntake?.kind === 'form' ? 'form link' : 'intake URL'} yet` }
   const nonce = randomBytes(18).toString('base64url')
   await updateChange(svc, change.workspaceId, change.id, { check_nonce_hash: nonceHash(nonce) }, ['deploying'])
   let status = 0

@@ -29,6 +29,8 @@ import { toIlikeSearchTerm } from './ilike-search-term'
 import { formatDealValue } from './deal-format'
 import { filterVisibleCompanies, filterVisibleContacts, isCompanyVisibleTo } from './contact-visibility'
 import { fieldReferenceCheck } from './custom-field-references'
+import { isStrangerContactSource } from '@/lib/ai/tools/web-derived'
+import { wrapUntrusted } from '@/lib/email/untrusted'
 import { applyOps, CHANGE_SELECT, listTables, ROW_SELECT, summarizeChange, undoChange, type TableActor } from '@/lib/tables/store'
 import { touchedBy } from '@/lib/tables/ops'
 import { isComputedType, type DataChange, type DataColumn, type DataRow, type DataTable } from '@/lib/tables/types'
@@ -92,6 +94,12 @@ export interface Deal {
   archived_at: string | null
   created_at: string
   updated_at: string
+  /**
+   * A form wrote it (data_row.from_form, 660): its name, notes and the text
+   * of its fields are a stranger's words, read by the model only inside the
+   * untrusted fence (describeDeal, fenceFormDealText). Absent reads as false.
+   */
+  from_form?: boolean
 }
 
 /** Who or what is making a change, for the log and the undo. */
@@ -258,6 +266,7 @@ export function rowToDeal(row: DataRow & { workspace_id?: string }, pipeline: Pi
     archived_at: row.archived_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    from_form: row.from_form === true,
   }
 }
 
@@ -720,7 +729,55 @@ export async function undoDealChange(
 
 // ── For the model ───────────────────────────────────────────────────────────
 
-/** A deal as the agent reads it: names instead of ids where it helps. */
+/** A deal's name in a message back to the agent: never a form deal's own (a stranger's words, outside any fence). */
+export function shownDealName(deal: Pick<Deal, 'name' | 'from_form'>): string {
+  return deal.from_form ? 'a deal from a form' : deal.name || 'Untitled'
+}
+
+/** A stranger's string inside the WEB fence (src/lib/email/untrusted.ts defuses any marker in it); anything else as it is. */
+function fenced<T>(value: T): T | string {
+  return typeof value === 'string' && value.trim() ? (wrapUntrusted(value, 'WEB') ?? value) : value
+}
+
+/** The column types whose stored value is never free text: a number, a date, a flag, an amount, a member or record id. */
+const NOT_TEXT_TYPES = new Set(['number', 'date', 'checkbox', 'currency', 'person', 'relation', 'formula', 'rollup'])
+
+/**
+ * A form deal's field values with every string a stranger could have typed
+ * fenced, by column key (keys stay as they are). A select's value is kept
+ * plain only when it is one of its column's own options (the workspace's
+ * words); text, URL, email and phone values, and anything of a column that
+ * is gone, are fenced. Any other deal's values come back as they are. Pure.
+ */
+export function fenceFormDealFields(
+  deal: Pick<Deal, 'from_form'>,
+  values: Record<string, CustomFieldValue>,
+  columns: readonly Pick<DataColumn, 'key' | 'field_type' | 'options'>[],
+): Record<string, unknown> {
+  if (!deal.from_form) return values
+  const byKey = new Map(columns.map((c) => [c.key, c]))
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(values)) {
+    const col = byKey.get(key)
+    if (col && NOT_TEXT_TYPES.has(col.field_type)) out[key] = value
+    else if (col && (col.field_type === 'select' || col.field_type === 'multi_select')) {
+      const own = (v: unknown) => (typeof v === 'string' && (col.options ?? []).includes(v) ? v : fenced(v))
+      out[key] = Array.isArray(value) ? value.map(own) : own(value)
+    } else out[key] = Array.isArray(value) ? value.map(fenced) : fenced(value)
+  }
+  return out
+}
+
+/** A form deal's change lines (describeChanges), each fenced: their before and after can be a stranger's words. Any other deal's as they are. */
+export function fenceFormDealText(deal: Pick<Deal, 'from_form'>, lines: string[]): string[] {
+  return deal.from_form ? lines.map((l) => fenced(l)) : lines
+}
+
+/**
+ * A deal as the agent reads it: names instead of ids where it helps. A form
+ * deal (from_form) keeps every key, with its name, notes and its fields'
+ * text each inside the WEB fence, and says from_form: true.
+ */
 export function describeDeal(
   deal: Deal,
   ctx: { pipelines: DealPipeline[]; companies?: Map<string, string>; contacts?: Map<string, string>; owners?: Map<string, string> },
@@ -728,7 +785,7 @@ export function describeDeal(
   const pipeline = ctx.pipelines.find((p) => p.id === deal.pipeline_id)
   return {
     id: deal.id,
-    name: deal.name,
+    name: deal.from_form ? fenced(deal.name) : deal.name,
     value: deal.value,
     currency: deal.currency,
     pipeline: pipeline?.name ?? null,
@@ -743,10 +800,11 @@ export function describeDeal(
     // A contact the reader can't see is left out (its count says so).
     contacts: deal.contact_ids.filter((id) => !ctx.contacts || ctx.contacts.has(id)).map((id) => ({ id, name: ctx.contacts?.get(id) ?? null })),
     ...(ctx.contacts && deal.contact_ids.some((id) => !ctx.contacts!.has(id)) ? { other_contacts: deal.contact_ids.filter((id) => !ctx.contacts!.has(id)).length } : {}),
-    notes: deal.notes,
-    custom_fields: deal.custom_fields,
+    notes: deal.from_form ? fenced(deal.notes) : deal.notes,
+    custom_fields: fenceFormDealFields(deal, deal.custom_fields, pipeline?.columns ?? []),
     closed_at: deal.closed_at,
     updated_at: deal.updated_at,
+    ...(deal.from_form ? { from_form: true as const } : {}),
   }
 }
 
@@ -764,18 +822,19 @@ export async function lookupDealNames(
   const ownerIds = [...new Set(deals.map((d) => d.owner_id).filter((x): x is string => !!x))]
   const [companies, contacts, owners] = await Promise.all([
     companyIds.length ? db.from('company').select('id, name').eq('workspace_id', workspaceId).in('id', companyIds) : Promise.resolve({ data: [] }),
-    contactIds.length ? db.from('contact').select('id, full_name, email').eq('workspace_id', workspaceId).in('id', contactIds) : Promise.resolve({ data: [] }),
+    contactIds.length ? db.from('contact').select('id, full_name, email, source').eq('workspace_id', workspaceId).in('id', contactIds) : Promise.resolve({ data: [] }),
     ownerIds.length ? db.from('member').select('id, display_name').eq('workspace_id', workspaceId).in('id', ownerIds) : Promise.resolve({ data: [] }),
   ])
   // On a service-role client, only what the person can see is named.
   let companyRows = (companies.data ?? []) as { id: string; name: string }[]
-  let contactRows = (contacts.data ?? []) as { id: string; full_name: string | null; email: string | null }[]
+  let contactRows = (contacts.data ?? []) as { id: string; full_name: string | null; email: string | null; source?: string | null }[]
   if (viewer) {
     ;[companyRows, contactRows] = await Promise.all([filterVisibleCompanies(db, viewer, companyRows, opts), filterVisibleContacts(db, viewer, contactRows, opts)])
   }
   return {
     companies: new Map(companyRows.map((c) => [c.id, c.name])),
-    contacts: new Map(contactRows.map((c) => [c.id, c.full_name || c.email || 'Unnamed'])),
+    // A contact a public intake made (a form deal's, most often) is named by a stranger: its name only inside the fence.
+    contacts: new Map(contactRows.map((c) => [c.id, isStrangerContactSource(c.source) ? String(fenced(c.full_name || c.email || 'Unnamed')) : c.full_name || c.email || 'Unnamed'])),
     owners: new Map(((owners.data ?? []) as { id: string; display_name: string }[]).map((m) => [m.id, m.display_name])),
   }
 }

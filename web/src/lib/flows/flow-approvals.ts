@@ -28,6 +28,7 @@ import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { FlowApprovalContext } from '@/lib/safety/approved-call'
 import type { ResolvedTrustPolicy } from '@/lib/proposed-changes/trust-policy'
+import { eventTriggerTargetProblem } from './event-triggers'
 import { validateCondition, validateHttpPostConfig, validateRunAgentConfig, validateRunSkillConfig } from './queries'
 import { resolveTrust } from './verdict-apply'
 import type { FlowAction, RunSkillActionConfig } from './types'
@@ -204,6 +205,41 @@ export async function takeoverPending(service: SupabaseClient, args: { workspace
     .contains('context', { flow: { flow_id: args.flowId, requested_by: args.requesterId } })
     .limit(1)
   return Array.isArray(data) && data.length > 0
+}
+
+/**
+ * What an owner event trigger watches, in plain words: never its name, which
+ * may be the old owner's private channel or table.
+ */
+const WATCHED_TARGET: Readonly<Record<string, string>> = {
+  chat_message: 'the team chat channel this loop watches',
+  record_created: 'the table this loop watches',
+}
+
+/**
+ * Can `newOwnerUserId` read what this loop's event trigger watches (a chat
+ * loop's channel, a record loop's table)? A loop runs as its owner and fires
+ * only on what they can read, so handed to someone who can't, it would start
+ * nothing, silently. The save-time check (eventTriggerTargetProblem) run for
+ * the NEW owner, on a service client: null when fine (or the trigger names no
+ * target), else what they can't read, in plain words, for the refusal
+ * ("You can't read the table this loop watches"). A failed read counts as
+ * can't (the save-time check fails closed). Every path that hands a loop over
+ * asks before it changes anything: the card's raise and its Accept.
+ */
+export async function handOverTargetProblem(
+  service: SupabaseClient,
+  args: { workspaceId: string; flow: Pick<FlowDefinition, 'trigger_type' | 'trigger_config'>; newOwnerUserId: string },
+): Promise<string | null> {
+  const watched = WATCHED_TARGET[args.flow.trigger_type ?? '']
+  if (!watched) return null
+  const problem = await eventTriggerTargetProblem(service, {
+    workspaceId: args.workspaceId,
+    ownerUserId: args.newOwnerUserId,
+    triggerType: args.flow.trigger_type ?? '',
+    config: args.flow.trigger_config,
+  })
+  return problem ? watched : null
 }
 
 /** The editor's ownership facts for one loop (service client: the owner's display name, the pending request). */

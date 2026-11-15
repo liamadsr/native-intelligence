@@ -1,12 +1,12 @@
 /**
  * The website flow's live check, the intake's side (roadmap track E): the
  * test post's fields and its one-time nonce. Light on purpose: the public
- * intake route imports it (src/app/api/intake/quotes/[key]/route.ts), so it
- * reaches only the change store.
+ * intake routes import it (src/app/api/intake/quotes/[key]/route.ts, and a
+ * form's, for a form wiring's check), so it reaches only the change store.
  */
 import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getChangeByNonce, updateChange } from './store'
+import { checkResultOf, getChangeByNonce, updateChange } from './store'
 import { INTAKE_TEST_FIELD } from './types'
 
 type Svc = SupabaseClient
@@ -37,7 +37,7 @@ export async function takeIntakeTest(svc: Svc, workspaceId: string, nonce: strin
   if (!change) return false
   // Ours either way: a replayed or late nonce is never stored as a quote, only the first, while deploying, is recorded.
   if (change.state === 'deploying' && !change.checkResult?.receivedAt) {
-    await updateChange(svc, workspaceId, change.id, { check_result: { outcome: 'passed', receivedAt: new Date(nowMs).toISOString() } }, ['deploying'])
+    await updateChange(svc, workspaceId, change.id, { check_result: checkResultOf(change, { outcome: 'passed', receivedAt: new Date(nowMs).toISOString() }) }, ['deploying'])
   }
   return true
 }

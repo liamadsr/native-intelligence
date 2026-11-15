@@ -197,6 +197,53 @@ describe('create_flow — a table\'s new rows', () => {
   })
 })
 
+describe('create_flow — a new contact', () => {
+  const contactSkill = { type: 'run_skill', skill: 'triage-mail', instructions: 'Read {{trigger.contact_id}} with get_contact' }
+
+  it('contact_created: any contact by default, workspace-scoped, no clock, and its summary says which', async () => {
+    const { client, inserts } = seeded()
+    const tools = createFlowTools(USER, client, WS)
+    const res = await call(tools.create_flow, { name: 'New contacts', trigger: { type: 'contact_created' }, actions: [contactSkill] })
+    expect(inserts.flow![0]).toMatchObject({ trigger_type: 'contact_created', trigger_config: { kind: 'contact_created', source: 'any' }, team_id: null, next_run_at: null, created_by: USER })
+    expect(res.summary).toMatch(/^When a contact you can see is added/)
+    const form = await call(tools.create_flow, { name: 'New leads', trigger: { type: 'contact_created', contact_source: 'form' }, actions: [contactSkill] })
+    expect(inserts.flow![1].trigger_config).toEqual({ kind: 'contact_created', source: 'form' })
+    expect(form.summary).toMatch(/^When a website form, a quote or a customer's first text adds a contact you can see/)
+  })
+
+  it('refuses a source it does not know, on the field the call names', async () => {
+    const { client, inserts } = seeded()
+    const bad = await call(createFlowTools(USER, client, WS).create_flow, { name: 'X', trigger: { type: 'contact_created', contact_source: 'csv_import' }, actions: [contactSkill] })
+    expect(bad).toMatchObject({ success: false, field: 'trigger.contact_source' })
+    expect(bad.error).toMatch(/trigger\.contact_source must be one of any, form, manual/)
+    expect(inserts.flow ?? []).toHaveLength(0)
+  })
+
+  it('update_flow keeps the stored source when the call leaves it out, and changes it when it names one', async () => {
+    const { client, tables } = seeded({
+      flow: [
+        {
+          id: 'flow-c',
+          workspace_id: WS,
+          team_id: null,
+          name: 'Contacts',
+          enabled: false,
+          trigger_type: 'contact_created',
+          trigger_config: { kind: 'contact_created', source: 'manual' },
+          actions: [{ id: 'act-1', type: 'run_skill', config: { skill_id: SKILL, mode: 'report' }, condition: null, parent_id: null, enabled: true }],
+          created_by: USER,
+          next_run_at: null,
+        },
+      ],
+    })
+    const tools = createFlowTools(USER, client, WS)
+    expect((await call(tools.update_flow, { flow_id: 'flow-c', trigger: { type: 'contact_created' } })).success).not.toBe(false)
+    expect(tables.flow[0].trigger_config).toEqual({ kind: 'contact_created', source: 'manual' })
+    expect((await call(tools.update_flow, { flow_id: 'flow-c', trigger: { type: 'contact_created', contact_source: 'any' } })).success).not.toBe(false)
+    expect(tables.flow[0].trigger_config).toEqual({ kind: 'contact_created', source: 'any' })
+  })
+})
+
 describe('create_flow — monthly, custom and one-time schedules', () => {
   const tz = 'America/New_York'
 

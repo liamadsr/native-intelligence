@@ -52,6 +52,8 @@ import { compactValue, rowLabel, type RowLabel } from './rows'
 import { resolveNamedValues } from './server'
 import { isUuid, type Checked } from './validate'
 import { visiblePrivateKindIds } from '@/lib/knowledge/entity-fences'
+import { FORM_ROW_NAME, fenceFormValue, isFormRow } from '@/lib/knowledge/form-rows'
+import { wrapUntrusted } from '@/lib/email/untrusted'
 import { listRows, listTables } from '@/lib/tables/store'
 import { readStudioOverview, readStudioProject, readStudioVideoBrief } from '@/lib/studio/agent/reads'
 import { isRefusal, studioContext } from '@/lib/studio/agent/access'
@@ -178,20 +180,24 @@ async function visibleDealRow(scope: PageScope, rowId: string): Promise<PagePlac
   return (await visibleTables(scope, { pipelines: true })).some((t) => t.id === row.in) ? row : null
 }
 
-/** One row the person can read, with its table: a row card's place. */
+/**
+ * One row the person can read, with its table: a row card's place. A row a
+ * form wrote (from_form) goes by its neutral name: the label reaches the
+ * agent (show's item, read_card's `at`).
+ */
 async function visibleRow(scope: PageScope, rowId: string): Promise<PagePlace | null> {
   if (!isUuid(rowId)) return null
   const { data } = await scope.supabase
     .from('data_row')
-    .select('id, title, table_id')
+    .select('id, title, table_id, from_form')
     .eq('workspace_id', scope.workspaceId)
     .eq('id', rowId)
     .is('archived_at', null)
     .maybeSingle()
-  const row = data as { id: string; title: string | null; table_id: string } | null
+  const row = data as { id: string; title: string | null; table_id: string; from_form?: boolean | null } | null
   if (!row) return null
   const seen = await visiblePrivateKindIds(scope.supabase, 'data_table', scope.userId, [row.table_id], scope.workspaceId, scope.grants === false ? { grants: false } : {})
-  return seen.has(row.table_id) ? { type: 'data_row', id: row.id, label: row.title || 'Untitled', in: row.table_id } : null
+  return seen.has(row.table_id) ? { type: 'data_row', id: row.id, label: isFormRow(row) ? FORM_ROW_NAME : row.title || 'Untitled', in: row.table_id } : null
 }
 
 /** One place by id or name among what the person can see; a refusal lists only those. */
@@ -496,7 +502,8 @@ export async function readPageRows(
         const tableId = place.type === 'data_row' ? place.in : place.id
         if (!tableId) break
         const page = await listRows(scope.supabase, ws, tableId, { limit, ...(place.type === 'data_row' ? { ids: [place.id] } : {}) })
-        const rows = page.rows.map((r) => ({ id: r.id, title: r.title || 'Untitled', ...r.custom_fields }))
+        // A row a form wrote says so (from_form): its words are fenced where they reach the agent (rowLabelForModel, readPageCard).
+        const rows = page.rows.map((r) => ({ id: r.id, title: r.title || 'Untitled', ...r.custom_fields, ...(isFormRow(r) ? { from_form: true } : {}) }))
         if (place.type === 'data_row') return { count: rows.length, rows, noun: 'rows' }
         const { count } = await scope.supabase.from('data_row').select('id', { count: 'exact', head: true }).eq('table_id', tableId).is('archived_at', null)
         return { count: typeof count === 'number' ? count : rows.length, rows, noun: 'rows' }
@@ -548,6 +555,12 @@ const PAGE_ROWS_NOUN: Partial<Record<ViewEntityType, string>> = {
   claim: 'claims',
 }
 
+/** A row's short form for the agent: a row a form wrote goes by its neutral name, never a stranger's words outside a fence. */
+function rowLabelForModel(row: Record<string, unknown>): RowLabel {
+  const label = rowLabel(row)
+  return isFormRow(row) ? { ...label, title: FORM_ROW_NAME } : label
+}
+
 // ── show ──────────────────────────────────────────────────────────────────────
 
 export interface ShownPage {
@@ -595,7 +608,7 @@ export async function showPage(scope: PageScope, fence: VisibilityFence, input: 
     value: {
       card,
       count: page.count,
-      items: page.rows.map(rowLabel),
+      items: page.rows.map(rowLabelForModel),
       ...(target ? { item: { id: target.id, title: target.label ?? '' } } : {}),
     },
   }
@@ -695,20 +708,29 @@ export async function readPageCard(
     return { success: false, error: `card ${entry.n} shows a ${PAGE_KINDS[kind].label.toLowerCase()} you can't open any more` }
   }
   const page = await readPageRows(scope, fence, kind, { place, tab: entry.tab, query: entry.entity ? entry.cur : undefined }, max)
-  const offered = page.rows[0] ? Object.keys(page.rows[0]).filter((k) => k !== 'workspace_id') : []
+  const offered = page.rows[0] ? Object.keys(page.rows[0]).filter((k) => k !== 'workspace_id' && k !== 'from_form') : []
   const unknown = page.rows.length ? fields.filter((f) => !offered.includes(f)) : []
   if (unknown.length) {
     return { success: false, code: 'INPUT_INVALID', error: `${page.noun} rows have no ${unknown.join(', ')}. Fields: ${offered.join(', ')}` }
   }
   const rows = page.rows.map((row) => {
+    // A row a form wrote (from_form): its name and every value it was asked for inside the WEB fence, cut first so the fence stays whole.
+    if (isFormRow(row)) {
+      const out: Record<string, unknown> = { ...rowLabel(row), from_form: true }
+      out.title = fenceFormValue(out.title)
+      for (const f of fields) out[f] = fenceFormValue(compactValue(row[f]))
+      return out
+    }
     const out: Record<string, unknown> = { ...rowLabel(row) }
     for (const f of fields) out[f] = compactValue(row[f])
     return out
   })
+  // A tables card the person opened (on a row, from its page) is titled with the row's name: a form row's is a stranger's words.
+  const strangerTitle = entry.u === true && (kind === 'tables' || kind === 'pipelines')
   return {
     success: true,
     card: entry.n,
-    title: entry.title,
+    title: strangerTitle ? (wrapUntrusted(entry.title, 'WORKSPACE') ?? entry.title) : entry.title,
     ...(place ? { at: `${PLACE_NOUN[place.type]} ${place.label ?? place.id}` } : {}),
     ...(entry.tab ? { tab: entry.tab } : {}),
     showing: page.noun,

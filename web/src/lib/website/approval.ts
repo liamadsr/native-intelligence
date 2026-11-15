@@ -15,7 +15,8 @@
  *            change must still wait on that card; GitHub merges the head the
  *            owner saw and nothing newer (a head that moved is refused, and
  *            the new version is shown again). A wiring change's intake key
- *            goes live now, replacing the business's old one. Then the deploy
+ *            goes live now, replacing the business's old one (a form
+ *            wiring's: the form's link, ./form-target.ts). Then the deploy
  *            watch (./deploy.ts) takes it from there.
  *   no       {@link settleWebsiteApproval}: the pull request is closed with a
  *            line why; a lapsed card leaves it open (nothing is live either
@@ -35,9 +36,11 @@ import { isAgentPaused } from '@/lib/work/agent-paused'
 import { appOrigin } from '@/lib/twilio/config'
 import { changeForm, changeLabel, clip, declinedNote, failedText, mergeCardCopy, mergedText, mergeRefusedText, ownerSummaryOf, SUMMARY_TEXT_MAX } from './brief'
 import { closePull, getPull, getPullFiles, markPullReady, mergePull, type GithubDeps } from './github'
-import { getChange, getSite, updateChange, updateSite } from './store'
+import { findFormById } from '@/lib/forms/store'
+import { activateFormLink, FormWiringRefused, wiredFormOrigins } from './form-target'
+import { dropSiteWiring, getChange, getSite, recordSiteWiring, sameIntake, updateChange } from './store'
 import { mergedEventId, prOpenedEventId, WEBSITE_CHANGE_MERGED, WEBSITE_PR_OPENED, type WebsiteEventData } from './events'
-import { MERGE_WEBSITE_CHANGE_TOOL, type WebsiteApprovalContext, type WebsiteChange, type WebsiteSite } from './types'
+import { MERGE_WEBSITE_CHANGE_TOOL, type WebsiteApprovalContext, type WebsiteChange, type WebsiteSite, type WiringIntake } from './types'
 
 export { changeForm } from './brief'
 
@@ -151,6 +154,9 @@ export async function raiseMergeCard(
     // What a text alone could have asked for is quoted back whole (by text it fits: TEXT_EDIT_REQUEST_MAX).
     const asked = change.kind === 'edit' ? clip(change.request, 300) : null
     const replaces = change.kind === 'wire_form' && change.replaceCurrent
+    // A form wiring: the owner's own form it adds entries to, and the websites that form will take posts from.
+    const target = change.wiringIntake?.kind === 'form' ? await findFormById(svc, change.wiringIntake.formId).catch(() => null) : null
+    const accepts = target ? wiredFormOrigins(change.intakeOrigins, target.allowedOrigins) : change.intakeOrigins
     const context: WebsiteApprovalContext = {
       changeId: change.id,
       headSha: head,
@@ -174,7 +180,8 @@ export async function raiseMergeCard(
         ...(replaces ? { replaces_current: 'Yes: the form stops what it does today (its emails or form service) and sends only to Native Intelligence.' } : {}),
         ...(outside.length ? { adds_outside_addresses: outside.join(', ') } : {}),
         ...(unchecked ? { not_all_checked: 'Some files were too big or too many to check for outside links: look at the pull request before saying yes.' } : {}),
-        ...(change.kind === 'wire_form' ? { accepts_requests_from: change.intakeOrigins.length ? change.intakeOrigins.join(', ') : 'any website (the secret link is the gate)' } : {}),
+        ...(target && target.workspaceId === change.workspaceId ? { adds_entries_to: `Your form “${clip(target.name, 80)}”: its old link stops working when this goes live.` } : {}),
+        ...(change.kind === 'wire_form' ? { accepts_requests_from: accepts.length ? accepts.join(', ') : 'any website (the secret link is the gate)' } : {}),
         ...(previewUrl ? { preview: previewUrl } : {}),
         pull_request: pull.value.url,
         files: files.ok ? files.value.files.slice(0, 10).join('\n') + (files.value.files.length > 10 ? `\n…and ${files.value.files.length - 10} more` : '') : `${pull.value.changedFiles} file(s)`,
@@ -280,13 +287,27 @@ export async function mergeWebsiteChange(svc: Svc, args: { userId: string; works
     return { success: false, code: merged.code, error: mergeRefusedText(merged.code) }
   }
   // A quote form link made since this wiring started is replaced by its key now: said, never silent.
-  const newerLink = change.kind === 'wire_form' ? await liveKeyNewerThan(svc, change).catch(() => false) : false
-  await finishMerge(svc, change, site, merged.sha, deps)
+  const formWiring = change.wiringIntake?.kind === 'form'
+  const newerLink = change.kind === 'wire_form' && !formWiring ? await liveKeyNewerThan(svc, change).catch(() => false) : false
+  const finished = await finishMerge(svc, change, site, merged.sha, deps)
+  if (finished.refused) {
+    // Merged on GitHub, but the form can't take the site's posts: the wiring failed, and the owner was told.
+    return {
+      success: false,
+      merged: true,
+      code: finished.refused.code,
+      error: `The change merged on GitHub, but the website was not connected to the form: ${finished.refused.reason}. Its old link still works; the site's form sends nowhere for now. They were told. An undo puts the site's form back; or take Files off the form (update_form with files: null) and wire it again.`,
+    }
+  }
   return {
     success: true,
     merged: true,
     message: mergedText(),
     ...(newerLink ? { note: 'The quote form link made after this change started has stopped working: the website now uses its own. Tell them in a line.' } : {}),
+    // A form wiring always replaces the form's link: said, never silent.
+    ...(formWiring
+      ? { note: 'The form’s older link has stopped working: only the website’s new one works now. Anything else that posted to the old link needs a new one (update_form with new_link would also cut off the website, so say that first). Tell them in a line.' }
+      : {}),
   }
 }
 
@@ -294,9 +315,17 @@ export async function mergeWebsiteChange(svc: Svc, args: { userId: string; works
  * A change reached the repo (the owner's yes, or a merge reconcile found):
  * deploying with its merge commit, a wiring's key live (an undone wiring's
  * site back to not wired), and the deploy watch started. Every write is safe
- * to repeat.
+ * to repeat. A wiring whose form can no longer take it (./form-target.ts
+ * FormWiringRefused) fails here, once: nothing recorded on the site, no deploy
+ * watch, and `refused` says why.
  */
-export async function finishMerge(svc: Svc, change: WebsiteChange, site: Pick<WebsiteSite, 'id'>, mergeSha: string, deps: ApprovalDeps = {}): Promise<void> {
+export async function finishMerge(
+  svc: Svc,
+  change: WebsiteChange,
+  site: Pick<WebsiteSite, 'id'>,
+  mergeSha: string,
+  deps: ApprovalDeps = {},
+): Promise<{ refused?: { code: string; reason: string } }> {
   const nowIso = new Date((deps.now ?? Date.now)()).toISOString()
   // A merge GitHub took is recorded even if a stale-merge sweep failed the change meanwhile: the site did change.
   const moved = await updateChange(svc, change.workspaceId, change.id, { state: 'deploying', merge_sha: mergeSha, merged_at: change.mergedAt ?? nowIso, error: null }, ['merging', 'failed']).catch((err) => {
@@ -306,25 +335,56 @@ export async function finishMerge(svc: Svc, change: WebsiteChange, site: Pick<We
   })
   if (!moved) {
     const now = await getChange(svc, change.workspaceId, change.id).catch(() => null)
-    if (!(now?.state === 'deploying' && now.mergeSha === mergeSha)) return
+    if (!(now?.state === 'deploying' && now.mergeSha === mergeSha)) return {}
   }
   if (change.kind === 'wire_form' && change.intakeKeyHash) {
     try {
-      await (deps.activateKey ?? activateIntakeKey)(svc, change)
+      await (deps.activateKey ? deps.activateKey(svc, change) : activateIntakeKey(svc, change, deps))
     } catch (err) {
+      if (err instanceof FormWiringRefused) {
+        await failRefusedWiring(svc, change, err, deps)
+        return { refused: { code: err.code, reason: err.reason } }
+      }
       // The deploy watch tries again on every poll (deploy.ts).
       console.error(`[website] ws=${change.workspaceId} ALERT intake key not activated yet:`, err instanceof Error ? err.message : String(err))
     }
+    // From here the site's form posts there: recorded, so "is it still wired" knows which intake (the deploy watch records it again).
+    await recordSiteWiring(svc, change).catch((err) => console.warn('[website] wiring not recorded yet:', err instanceof Error ? err.message : String(err)))
   }
   if (change.kind === 'revert' && change.revertsChangeId) {
-    // Undoing the wiring: the site isn't wired any more (its old form setup is back).
+    // Undoing the wiring: that wiring is gone from the site (its old form setup is back).
     const undone = await getChange(svc, change.workspaceId, change.revertsChangeId).catch(() => null)
-    if (undone?.kind === 'wire_form') await updateSite(svc, change.workspaceId, site.id, { state: 'connected', wired_at: null }).catch(() => undefined)
+    if (undone?.kind === 'wire_form') await dropSiteWiring(svc, change.workspaceId, site.id, undone).catch(() => undefined)
   }
   try {
     await sendOf(deps)({ name: WEBSITE_CHANGE_MERGED, id: mergedEventId(change.id), data: { workspaceId: change.workspaceId, changeId: change.id } })
   } catch (err) {
     console.warn('[website] deploy watch not started:', err instanceof Error ? err.message : String(err))
+  }
+  return {}
+}
+
+/**
+ * A merged wiring its form can't take (FormWiringRefused): failed, once (the
+ * move out of merging or deploying happens one time, so the owner is told one
+ * time and the deploy watch stops at its next poll). The site did change, so
+ * the note says so, and how to put it back. Never throws.
+ */
+async function failRefusedWiring(svc: Svc, change: WebsiteChange, refusal: FormWiringRefused, deps: Pick<ApprovalDeps, 'notify'>): Promise<void> {
+  try {
+    const moved = await updateChange(svc, change.workspaceId, change.id, { state: 'failed', error: clip(`${refusal.code}: ${refusal.reason}`, 900) }, ['merging', 'deploying'])
+    if (!moved) return
+    console.error(`[website] ws=${change.workspaceId} wiring ${change.id} refused for good: ${refusal.code}`)
+    const site = await getSite(svc, change.workspaceId, change.siteId)
+    if (!site) return
+    await notifyOf(deps)(svc, {
+      userId: site.connectedBy,
+      workspaceId: change.workspaceId,
+      text: 'Your website change is merged, but I couldn’t connect its form: the form it posts to now takes files, and a form with files needs a bot check your site’s own form can’t run. Until that’s sorted, entries from your site won’t reach your table. Say "undo" to put your site’s form back, or take Files off the form and ask me to connect it again.',
+      key: `website-${change.id}-failed`,
+    })
+  } catch (err) {
+    console.warn('[website] refused wiring note skipped:', err instanceof Error ? err.message : String(err))
   }
 }
 
@@ -338,33 +398,53 @@ async function liveKeyNewerThan(svc: Svc, change: WebsiteChange): Promise<boolea
 
 /**
  * Whether a merged wiring's key should (still) be made live: its site is
- * still connected, and no later wiring of the site has merged since (whose
- * key is the one that counts now). Throws on a failed read.
+ * still connected, and no later wiring of the site to the same intake (the
+ * quote intake, or the same form) has merged since: its key is the one that
+ * counts now. Throws on a failed read.
  */
 export async function keyStillWanted(svc: Svc, change: WebsiteChange): Promise<boolean> {
   if (change.kind !== 'wire_form' || !change.intakeKeyHash) return false
   const site = await getSite(svc, change.workspaceId, change.siteId)
   if (!site || site.state === 'disconnected') return false
+  const mineIntake: WiringIntake = change.wiringIntake ?? { kind: 'quote' }
   const { data, error } = await svc
     .from('website_change')
-    .select('id, merged_at')
+    .select('id, merged_at, check_result')
     .eq('workspace_id', change.workspaceId)
     .eq('site_id', change.siteId)
     .eq('kind', 'wire_form')
     .not('merged_at', 'is', null)
   if (error) throw new Error(`website_change read failed: ${error.message}`)
   const mine = change.mergedAt ? Date.parse(change.mergedAt) : Infinity
-  return !((data ?? []) as Array<{ id: string; merged_at: string | null }>).some((c) => c.id !== change.id && c.merged_at && Date.parse(c.merged_at) > mine)
+  const intakeOf = (c: { check_result?: unknown }) => {
+    const i = c.check_result && typeof c.check_result === 'object' ? (c.check_result as { intake?: { kind?: unknown; formId?: unknown } }).intake : null
+    return { intake: i?.kind === 'form' ? ('form' as const) : ('quote' as const), formId: typeof i?.formId === 'string' ? i.formId : undefined }
+  }
+  return !((data ?? []) as Array<{ id: string; merged_at: string | null; check_result?: unknown }>).some(
+    (c) => c.id !== change.id && c.merged_at && Date.parse(c.merged_at) > mine && sameIntake(intakeOf(c), mineIntake),
+  )
 }
 
 /**
  * A wiring change merged: its key becomes the business's live intake key,
  * for the site's origins, the old one revoked in the same transaction
- * (swap_quote_intake_key, 463; one live key per workspace, 458). Safe to
- * repeat. Throws on a failed call.
+ * (swap_quote_intake_key, 463; one live key per workspace, 458). A form
+ * wiring's link becomes its form's instead (./form-target.ts). Safe to
+ * repeat. Throws on a failed call. A form wiring its form can no longer take
+ * (FormWiringRefused) is failed here once, the owner told, and the refusal
+ * thrown on: the deploy watch's retry (deploy.ts) records nothing, and its
+ * next poll finds the change failed and stops.
  */
-export async function activateIntakeKey(svc: Svc, change: WebsiteChange): Promise<void> {
+export async function activateIntakeKey(svc: Svc, change: WebsiteChange, deps: Pick<ApprovalDeps, 'notify'> = {}): Promise<void> {
   if (!change.intakeKeyHash || !change.intakeKeyPrefix) return
+  if (change.wiringIntake?.kind === 'form') {
+    try {
+      return await activateFormLink(svc, change)
+    } catch (err) {
+      if (err instanceof FormWiringRefused) await failRefusedWiring(svc, change, err, deps)
+      throw err
+    }
+  }
   const { error } = await svc.rpc('swap_quote_intake_key', {
     p_workspace_id: change.workspaceId,
     p_key_hash: change.intakeKeyHash,

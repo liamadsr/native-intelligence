@@ -68,6 +68,7 @@ import {
   describeSchedule,
   ANY_CHANNEL,
   PR_STATE_LABELS,
+  CONTACT_SOURCE_LABELS,
   ENTITY_LABELS,
   isActionComplete,
   newAction,
@@ -1001,6 +1002,9 @@ function FlowCanvas({
     if (t.kind === 'record_created') {
       if (t.details_hidden) return { title: 'New row in a table', subtitle: 'In a table its owner reads' }
       return { title: 'New row in a table', subtitle: t.record_table_id ? 'A form’s submission, or a row someone adds' : 'Pick a table' }
+    }
+    if (t.kind === 'contact_created') {
+      return { title: 'New contact', subtitle: t.contact_source === 'any' ? 'Any new contact you can see' : CONTACT_SOURCE_LABELS[t.contact_source] }
     }
     if (t.kind === 'calendar_event') {
       const mag = Math.abs(t.offset_minutes)

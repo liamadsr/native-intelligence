@@ -12,7 +12,7 @@
  * one with its stages and system columns (/api/account/pipelines).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { HandCoins, KanbanSquare, ListChecks, Lock, Package, Plus, Table2, Users, Wrench, type LucideIcon } from 'lucide-react'
+import { ClipboardList, HandCoins, KanbanSquare, ListChecks, Lock, Package, Plus, Table2, Users, Wrench, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TableDetail } from '@/components/tables/table-detail'
@@ -214,6 +214,7 @@ const TEMPLATE_ICONS: Record<TemplateId | 'blank', LucideIcon> = {
   inventory: Package,
   jobs: Wrench,
   contacts: Users,
+  quotes: ClipboardList,
 }
 
 /**

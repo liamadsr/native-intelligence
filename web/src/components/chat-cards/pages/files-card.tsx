@@ -15,6 +15,10 @@
  *             URL from the attachments bucket (its own read policy fences it).
  *   Its place the capture, action or project opens over the page, inside the
  *             card (a step the header's Back walks), so Drive stays selected.
+ *             A table's row (a form's upload, migration 663) is named with
+ *             its table, as text: a row opens from its table.
+ *   A form's  file a stranger sent: always downloaded (its signed URL asks
+ *             storage for an attachment download), an image viewed in place.
  *   Filter    All, Images, Documents (the categories files are filed under),
  *             and a search on the name; more pages on request.
  *
@@ -57,7 +61,7 @@ export function fileIconOf(file: Pick<WorkspaceFile, 'file_category' | 'file_ext
   return ext ? FileCode : FileIcon
 }
 
-const PARENT_NOUN: Record<WorkspaceFile['parent']['type'], string> = { capture: 'Capture', action: 'Action', project: 'Project' }
+const PARENT_NOUN: Record<WorkspaceFile['parent']['type'], string> = { capture: 'Capture', action: 'Action', row: 'Row', project: 'Project' }
 
 function shortDate(iso: string): string {
   const d = new Date(iso)
@@ -84,9 +88,9 @@ function asAttachment(file: WorkspaceFile): AttachmentItem {
   }
 }
 
-/** A short signed URL to a file in the attachments bucket, or null. */
-async function signedUrlOf(path: string): Promise<string | null> {
-  const { data } = await createClient().storage.from('attachments').createSignedUrl(path, 60)
+/** A short signed URL to a file in the attachments bucket, or null; `download` names the file storage sends as an attachment. */
+async function signedUrlOf(path: string, download?: string): Promise<string | null> {
+  const { data } = await createClient().storage.from('attachments').createSignedUrl(path, 60, download ? { download } : undefined)
   return data?.signedUrl ?? null
 }
 
@@ -183,7 +187,8 @@ export default function FilesCard(props: PageCardProps) {
 
   const openFile = React.useCallback(async (file: WorkspaceFile) => {
     if (!file.storage_path) return
-    const url = await signedUrlOf(file.storage_path)
+    // A stranger's file is never opened in place: storage sends it as a download.
+    const url = await signedUrlOf(file.storage_path, file.from_form && file.file_category !== 'image' ? file.file_name : undefined)
     if (!url) {
       toast.error('Could not open the file')
       return
@@ -245,7 +250,7 @@ export default function FilesCard(props: PageCardProps) {
                 <Paperclip className="h-7 w-7 text-muted-foreground/60" aria-hidden />
                 <div>
                   <p className="text-sm font-medium text-foreground">{filtered ? 'No files match' : 'No files yet'}</p>
-                  {!filtered && <p className="mt-1 text-sm text-muted-foreground">Files attached to a capture, an action or a project show here.</p>}
+                  {!filtered && <p className="mt-1 text-sm text-muted-foreground">Files attached to a capture, an action, a project or a table’s row show here.</p>}
                 </div>
               </div>
             ) : (
@@ -253,7 +258,12 @@ export default function FilesCard(props: PageCardProps) {
                 {files.length > 0 && (
                   <ul className="divide-y divide-border">
                     {files.map((file) => (
-                      <FileRow key={file.id} file={file} onOpen={() => void openFile(file)} onOpenParent={() => records.open({ ...file.parent })} />
+                      <FileRow
+                        key={file.id}
+                        file={file}
+                        onOpen={() => void openFile(file)}
+                        onOpenParent={() => file.parent.type !== 'row' && records.open({ type: file.parent.type, id: file.parent.id, label: file.parent.label })}
+                      />
                     ))}
                   </ul>
                 )}
@@ -302,15 +312,22 @@ function FileRow({ file, onOpen, onOpenParent }: { file: WorkspaceFile; onOpen: 
         >
           {file.file_name}
         </button>
-        <button
-          type="button"
-          data-files-parent={`${file.parent.type}:${file.parent.id}`}
-          onClick={onOpenParent}
-          title={`Open ${PARENT_NOUN[file.parent.type].toLowerCase()}`}
-          className="block max-w-full truncate text-left text-xs text-muted-foreground hover:text-foreground hover:underline"
-        >
-          {PARENT_NOUN[file.parent.type]} · {file.parent.label}
-        </button>
+        {file.parent.type === 'row' ? (
+          <span data-files-parent={`row:${file.parent.id}`} className="block max-w-full truncate text-left text-xs text-muted-foreground">
+            {PARENT_NOUN.row} · {file.parent.label}
+            {file.parent.table ? ` in ${file.parent.table.name}` : ''}
+          </span>
+        ) : (
+          <button
+            type="button"
+            data-files-parent={`${file.parent.type}:${file.parent.id}`}
+            onClick={onOpenParent}
+            title={`Open ${PARENT_NOUN[file.parent.type].toLowerCase()}`}
+            className="block max-w-full truncate text-left text-xs text-muted-foreground hover:text-foreground hover:underline"
+          >
+            {PARENT_NOUN[file.parent.type]} · {file.parent.label}
+          </button>
+        )}
       </span>
       {size && <span className="hidden shrink-0 text-xs tabular-nums text-muted-foreground sm:block">{size}</span>}
       <span className="w-16 shrink-0 text-right text-xs text-muted-foreground">{shortDate(file.created_at)}</span>

@@ -1,29 +1,30 @@
-import { createClient } from '@/lib/supabase/server'
 import { trackServerEvent } from '@/lib/posthog'
-import { getCurrentWorkspaceId } from '@/lib/workspace'
 import { inngest } from '@/lib/inngest/client'
+import { getServiceClient } from '@/lib/admin'
+import { notifyContactCreated } from '@/lib/flows/emit-contact-created'
+import { requireUser, requireWorkspace, requireWorkspaceMember } from '@/lib/api-auth'
+import { badRequest, notMember, serverError } from '@/lib/api-errors'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function GET(request: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
   const { searchParams } = request.nextUrl
 
   // Allow explicit workspace_id param (for cross-workspace contact search, e.g. during new workspace invite)
   // Verify the user is a member of the requested workspace
-  let workspaceId = searchParams.get('workspace_id') || (await getCurrentWorkspaceId())
-  if (!workspaceId) return NextResponse.json({ error: 'No workspace' }, { status: 400 })
+  const requested = searchParams.get('workspace_id')
+  const auth = requested ? await requireUser() : await requireWorkspace()
+  if (auth instanceof Response) return auth
+  const { supabase, user } = auth
+  const workspaceId = requested || ('workspaceId' in auth ? auth.workspaceId : '')
 
-  if (searchParams.get('workspace_id')) {
+  if (requested) {
     const { data: member } = await supabase
       .from('member')
       .select('id')
       .eq('user_id', user.id)
       .eq('workspace_id', workspaceId)
       .single()
-    if (!member) return NextResponse.json({ error: 'Not a member of this workspace' }, { status: 403 })
+    if (!member) return notMember('Not a member of this workspace')
   }
   const search = searchParams.get('search')
   const companyId = searchParams.get('company_id')
@@ -75,34 +76,22 @@ export async function GET(request: NextRequest) {
 
   const { data, error, count } = await query
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return serverError(error.message)
 
   return NextResponse.json({ contacts: data || [], total: count || 0 })
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const workspaceId = await getCurrentWorkspaceId()
-  if (!workspaceId) return NextResponse.json({ error: 'No workspace' }, { status: 400 })
+  // The current member owns the new contact (401 signed out, 400 no workspace, 403 not a member).
+  const auth = await requireWorkspaceMember()
+  if (auth instanceof Response) return auth
+  const { supabase, user, workspaceId, member } = auth
 
   const body = await request.json()
 
   if (!body.full_name && !body.first_name && !body.email) {
-    return NextResponse.json({ error: 'Name or email required' }, { status: 400 })
+    return badRequest('Name or email required')
   }
-
-  // Resolve current member for ownership
-  const { data: member } = await supabase
-    .from('member')
-    .select('id')
-    .eq('user_id', user.id)
-    .eq('workspace_id', workspaceId)
-    .single()
-
-  if (!member) return NextResponse.json({ error: 'Not a workspace member' }, { status: 403 })
 
   const fullName = body.full_name || [body.first_name, body.last_name].filter(Boolean).join(' ') || body.email
 
@@ -131,7 +120,7 @@ export async function POST(request: NextRequest) {
     .select('*, company:company_id(id, name, domain)')
     .single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return serverError(error.message)
 
   trackServerEvent('contact_created', { userId: user.id, workspaceId, email: user.email }, { contact_id: data.id })
 
@@ -151,6 +140,16 @@ export async function POST(request: NextRequest) {
       .catch((err) => {
         console.error('[contacts] hubspot-push-contact send failed', err)
       })
+  }
+
+  // The contact_created loops a person's own new contact may start, about five
+  // minutes from now (src/lib/flows/emit-contact-created.ts). Only this route
+  // and a public intake's new contact emit: an agent's create_contact, an
+  // import and a sync never do. Never throws.
+  try {
+    await notifyContactCreated(getServiceClient(), { workspaceId, contactId: data.id, source: 'person' })
+  } catch (err) {
+    console.error('[contacts] loop event not sent (non-fatal):', err instanceof Error ? err.message : 'unknown')
   }
 
   return NextResponse.json({ contact: data })

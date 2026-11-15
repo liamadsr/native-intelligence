@@ -738,6 +738,41 @@ function quoted(text: string): string {
   return `"${text.replace(/["\u201C\u201D]/g, "'")}"`
 }
 
+/**
+ * A Tables or Deals card: its rows, a row it is open on, and the title of one
+ * the person opened (a row's name) can be a stranger's words (a row a public
+ * form wrote, data_row.from_form). The client's short rows carry no ids to
+ * tell which, so on these cards they go inside the untrusted marker, as mail's.
+ * So do the rows of any card listing contacts (contactRecord, below).
+ */
+function strangerRows(entry: CardContextEntry): boolean {
+  return entry.kind === 'tables' || entry.kind === 'pipelines' || entry.entity === 'contact'
+}
+
+/**
+ * A contact can be named by a stranger too (one a public intake made, source
+ * web_form or sms: src/lib/knowledge/stranger-contacts.ts), and the client's
+ * card carries no source to tell. So a card on a contact (its title is the
+ * contact's name), a contact open inside a card, and a list of contacts (its
+ * rows are their names: strangerRows) go inside the marker, all or nothing,
+ * as a Tables or Deals card's do.
+ */
+function contactRecord(entry: CardContextEntry): boolean {
+  return entry.kind === 'record' && entry.record?.type === 'contact'
+}
+
+/** A page card's place as the note names it: a row's name inside the marker (strangerRows), any other quoted. */
+function placeText(at: PagePlace): string {
+  if (!at.label) return at.id
+  return at.type === 'data_row' ? (wrapUntrusted(at.label, 'WORKSPACE') ?? quoted(at.label)) : quoted(at.label)
+}
+
+/** A card's title as the note says it: a Tables or Deals card the person opened is titled by what it shows (strangerRows), a contact's card by the contact's name (contactRecord). */
+function titleText(entry: CardContextEntry): string {
+  const opened = entry.u && (entry.kind === 'tables' || entry.kind === 'pipelines')
+  return opened || contactRecord(entry) ? (wrapUntrusted(entry.title, 'WORKSPACE') ?? quoted(entry.title)) : quoted(entry.title)
+}
+
 /** Labels for the documents that are meeting preps (document id → "prep for the 12:00 PM meeting · over"). */
 export type DocLabels = ReadonlyMap<string, string>
 
@@ -758,7 +793,7 @@ function docLabel(type: string | undefined, id: string | undefined, labels: DocL
 
 function headLine(entry: CardContextEntry, labels?: DocLabels): string {
   const prep = entry.kind === 'record' ? docLabel(entry.record?.type, entry.record?.id, labels) : ''
-  return `card ${entry.n} · ${quoted(entry.title)} (${noun(entry)})${prep}${entry.u ? ' · you opened it' : ''}${entry.fs ? ' · full screen' : ''}`
+  return `card ${entry.n} · ${titleText(entry)} (${noun(entry)})${prep}${entry.u ? ' · you opened it' : ''}${entry.fs ? ' · full screen' : ''}`
 }
 
 function rowsText(entry: CardContextEntry): string {
@@ -772,10 +807,12 @@ function rowsLine(entry: CardContextEntry, maxRows: number): string | null {
   if (!rows.length) return null
   // Mail rows (senders and subjects) and calendar rows (event titles) are
   // written by outsiders, a sender or an invitee: inside the untrusted
-  // marker, as list_emails sends them. Every other row is quoted as data.
+  // marker, as list_emails sends them. A Tables or Deals card's rows can be
+  // a form's (strangerRows): quoted, inside the marker. Every other row is
+  // quoted as data.
   const external = entry.kind === 'mail' || entry.kind === 'calendar'
   const text = external ? rows.map((r) => r.t).join('; ') : rows.map((r) => (r.i ? `${r.i} ${quoted(r.t)}` : quoted(r.t))).join('; ')
-  return `  ${external ? wrapUntrusted(text) : text}`
+  return `  ${external ? wrapUntrusted(text) : strangerRows(entry) ? wrapUntrusted(text, 'WORKSPACE') : text}`
 }
 
 /** The non-default parts of a list's query beyond its filters (search, sort…). */
@@ -794,7 +831,7 @@ function openedShows(entry: CardContextEntry): string {
   if (entry.kind === 'mail') return describeMail(entry.mail?.cur)
   const parts: string[] = []
   if (isPageKind(entry.kind)) {
-    parts.push(entry.at ? `${PLACE_NOUN[entry.at.type]} ${entry.at.label ? quoted(entry.at.label) : entry.at.id}` : 'the top of the page')
+    parts.push(entry.at ? `${PLACE_NOUN[entry.at.type]} ${placeText(entry.at)}` : 'the top of the page')
     if (entry.tab) parts.push(`tab ${entry.tab}`)
   }
   if (entry.cur) parts.push(describeAspect(entry.cur, 'filters'), ...shownExtras(entry.cur))
@@ -810,7 +847,7 @@ function fullLines(entry: CardContextEntry, maxRows: number, labels?: DocLabels)
     const rows = rowsLine(entry, maxRows)
     if (rows) lines.push(rows)
   } else {
-    if (entry.moved) lines.push(`  you opened: ${entry.at ? `${PLACE_NOUN[entry.at.type]} ${entry.at.label ? quoted(entry.at.label) : entry.at.id}` : 'the top of the page'}`)
+    if (entry.moved) lines.push(`  you opened: ${entry.at ? `${PLACE_NOUN[entry.at.type]} ${placeText(entry.at)}` : 'the top of the page'}`)
     if (entry.tabMoved && entry.tab) lines.push(`  you switched to: ${entry.tab}`)
     const changed = (entry.kind === 'list' || isPageKind(entry.kind)) && entry.base ? changedAspects(entry.base, entry.cur) : []
     const page = pageChange(entry)
@@ -823,7 +860,14 @@ function fullLines(entry: CardContextEntry, maxRows: number, labels?: DocLabels)
   }
   if (entry.open) {
     // An event's label is its title, an invitee's text: marked as such.
-    const label = !entry.open.label ? entry.open.id : entry.open.type === 'event' ? wrapUntrusted(entry.open.label) : quoted(entry.open.label)
+    // A contact's is its name, maybe a stranger's (contactRecord): marked too.
+    const label = !entry.open.label
+      ? entry.open.id
+      : entry.open.type === 'event'
+        ? wrapUntrusted(entry.open.label)
+        : entry.open.type === 'contact'
+          ? (wrapUntrusted(entry.open.label, 'WORKSPACE') ?? quoted(entry.open.label))
+          : quoted(entry.open.label)
     lines.push(`  open inside: ${OPEN_NOUN[entry.open.type]} ${label}${docLabel(entry.open.type, entry.open.id, labels)}`)
   }
   // The Studio's editor: the video, the page, the playhead and the selection the person means by "this".

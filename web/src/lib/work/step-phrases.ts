@@ -111,6 +111,7 @@ const STEP_PHRASES: Record<string, string> = {
   list_forms: 'Checking forms',
   create_form: 'Making a form',
   update_form: 'Changing a form',
+  create_form_invites: 'Making invite links',
   // Studio
   list_studio_projects: 'Looking through the Studio',
   get_studio_video: 'Reading a video',

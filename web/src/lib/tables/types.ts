@@ -128,6 +128,12 @@ export interface DataRow {
   from_form?: boolean
   /** Its formulas' and rollups' cells by column key, worked out as it was read (phase 6). */
   computed?: Record<string, ComputedCell>
+  /**
+   * The keys of its computed cells worked out from a linked row a form wrote
+   * (a rollup of it, a formula naming that rollup): the agents read their
+   * words fenced. The grid, exports and embeds ignore it.
+   */
+  computed_from_form?: string[]
 }
 
 /** A table with its live columns, in order. */

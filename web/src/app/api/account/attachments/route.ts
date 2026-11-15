@@ -12,8 +12,17 @@ import {
 } from '@/lib/attachments/constants'
 
 const ATTACHMENT_FIELDS =
-  'id, file_name, file_size_bytes, mime_type, file_extension, file_category, storage_path, thumbnail_path, note_id, action_id, project_id, created_at'
+  'id, file_name, file_size_bytes, mime_type, file_extension, file_category, storage_path, thumbnail_path, note_id, action_id, project_id, data_row_id, from_form, created_at'
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * GET /api/account/attachments?note_id= | action_id= | project_id= | data_row_id=
+ * The files on a record, read on the caller's client (RLS). A table row's
+ * files (migration 663: a form's uploads) follow the row's table: the
+ * restrictive attachments_row_select leaves out a file on a table the caller
+ * can't read, so a row they can't see answers none.
+ */
 export async function GET(request: NextRequest) {
   const auth = await requireWorkspace()
   if (auth instanceof Response) return auth
@@ -23,6 +32,20 @@ export async function GET(request: NextRequest) {
   const projectId = searchParams.get('project_id')
   const noteId = searchParams.get('note_id')
   const actionId = searchParams.get('action_id')
+  const rowId = searchParams.get('data_row_id')
+
+  if (rowId) {
+    if (!UUID_RE.test(rowId)) return badRequest('Invalid data_row_id')
+    const { data, error } = await supabase
+      .from('attachments')
+      .select(ATTACHMENT_FIELDS)
+      .eq('workspace_id', workspaceId)
+      .eq('data_row_id', rowId)
+      .order('display_order', { ascending: true })
+      .order('created_at', { ascending: true })
+    if (error) return serverError(error.message)
+    return NextResponse.json({ attachments: data || [] })
+  }
 
   // When filtering by project, also include attachments from captures in that project
   if (projectId && !noteId && !actionId) {

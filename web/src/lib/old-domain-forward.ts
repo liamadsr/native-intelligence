@@ -102,6 +102,7 @@ export const ROUTES: Readonly<Record<string, RouteRule>> = {
   contact: page('Marketing page.'),
   dev: page('Development previews.'),
   docs: page('The documentation.'),
+  f: page('A form\'s own page (/f/<key>), and the embed script a business\'s site loads (/f/embed.js): both post to the API of the domain they were loaded from. A members form\'s sign-in happens on the domain it was opened on.'),
   features: page('Marketing pages, one per feature.'),
   'forgot-password': page('Asks for a reset; the reset then ends on the domain it was asked from.'),
   invite: page('A workspace invite link; sign-in from it happens on the domain it was opened on.'),

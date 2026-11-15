@@ -9,7 +9,7 @@ import { findWork } from '@/lib/work/recorder'
 import { WORK_KINDS, isWorkTerminal, type WorkItem } from '@/lib/work/types'
 import { resolveEntityWorkspace } from './_shared'
 import { ENRICH_CONTACT_DESCRIPTION } from './enrich-contact-text'
-import { CONTACT_WEB_FIELDS, fenceWebFields, webText } from './web-derived'
+import { CONTACT_WEB_FIELDS, STRANGER_CONTACT_NAME, fenceWebFields, isStrangerContactSource, webText } from './web-derived'
 
 /**
  * `enrich_contact`: the chat's half of "enrich only when a person asks"
@@ -93,9 +93,11 @@ interface PolledContact {
   department: string | null
   linkedin_url: string | null
   metadata: unknown
+  /** Read only to know whether a stranger named the contact (nameOf). */
+  source?: string | null
 }
 
-const POLL_COLUMNS = 'id, full_name, email, enrichment_status, job_title, department, linkedin_url, metadata'
+const POLL_COLUMNS = 'id, full_name, email, enrichment_status, job_title, department, linkedin_url, metadata, source'
 
 function enrichmentBlob(metadata: unknown): unknown {
   return metadata && typeof metadata === 'object' && !Array.isArray(metadata)
@@ -135,11 +137,10 @@ async function readContact(
  * startContactEnrichment takes such a row back.
  */
 async function runInFlight(
-  supabase: SupabaseClient,
+  row: PolledContact | null,
   contactId: string,
   workspaceId: string,
 ): Promise<{ runKey: string; applied: string[]; name: string } | null> {
-  const row = await readContact(supabase, contactId, workspaceId)
   if (!row || row.enrichment_status !== 'pending') return null
   const runKey = await liveEnrichmentRunKey(workspaceId, contactId)
   return runKey ? { runKey, applied: appliedFields(row.metadata), name: nameOf(row) } : null
@@ -182,7 +183,14 @@ async function waitForRun(
   return { settled: false, row: last }
 }
 
-function nameOf(row: { full_name?: string | null; email?: string | null } | null): string {
+/**
+ * The contact's name in the tool's plain `name` and messages. A contact a
+ * public intake made is named by a stranger (src/lib/knowledge/stranger-contacts.ts):
+ * it goes by the neutral name, never what they typed, plain or fenced.
+ * `fromForm` carries what an earlier read of the row said.
+ */
+function nameOf(row: { full_name?: string | null; email?: string | null; source?: string | null } | null, fromForm = false): string {
+  if (fromForm || isStrangerContactSource(row?.source)) return STRANGER_CONTACT_NAME
   return row?.full_name?.trim() || row?.email?.trim() || 'this contact'
 }
 
@@ -203,9 +211,15 @@ function skipMessage(reason: string | null, name: string): string {
 }
 
 /** The tool's answer once the run settled. */
-function settledResult(contactId: string, waited: Extract<Waited, { settled: true }>, beforeApplied: string[], fallbackName: string) {
+function settledResult(
+  contactId: string,
+  waited: Extract<Waited, { settled: true }>,
+  beforeApplied: string[],
+  fallbackName: string,
+  fromForm = false,
+) {
   const { row, work } = waited
-  const name = row ? nameOf(row) : fallbackName
+  const name = row ? nameOf(row, fromForm) : fallbackName
   const blob = readBlob(enrichmentBlob(row?.metadata))
   const applied = blob.applied
   const before = new Set(beforeApplied)
@@ -303,11 +317,15 @@ export function createEnrichContactTools(
         if (!(await isContactWritableTo(supabase, contact_id, userId, { grants: false }))) return NOT_FOUND
         const targetWs = resolved.workspaceId
 
-        const inFlight = await runInFlight(supabase, contact_id, targetWs)
+        // One read of the row up front: whether a run is in flight, and whether
+        // a stranger named the contact (every name below is then the neutral one).
+        const current = await readContact(supabase, contact_id, targetWs)
+        const fromForm = isStrangerContactSource(current?.source)
+        const inFlight = await runInFlight(current, contact_id, targetWs)
         if (inFlight) {
           const waited = await waitForRun(supabase, { contactId: contact_id, workspaceId: targetWs, workRunKey: inFlight.runKey })
           return waited.settled
-            ? { ...settledResult(contact_id, waited, inFlight.applied, inFlight.name), already_running: true }
+            ? { ...settledResult(contact_id, waited, inFlight.applied, inFlight.name, fromForm), already_running: true }
             : runningResult(contact_id, inFlight.name, true)
         }
 
@@ -328,8 +346,8 @@ export function createEnrichContactTools(
             const holder = await readContact(supabase, contact_id, targetWs)
             const waited = await waitForRun(supabase, { contactId: contact_id, workspaceId: targetWs, workRunKey: started.workRunKey })
             return waited.settled
-              ? { ...settledResult(contact_id, waited, appliedFields(holder?.metadata), nameOf(holder)), already_running: true }
-              : runningResult(contact_id, nameOf(holder), true)
+              ? { ...settledResult(contact_id, waited, appliedFields(holder?.metadata), nameOf(holder, fromForm), fromForm), already_running: true }
+              : runningResult(contact_id, nameOf(holder, fromForm), true)
           }
           if (started.reason === 'permanent_failure') {
             return {
@@ -343,10 +361,10 @@ export function createEnrichContactTools(
 
         // What the card held before this run, so the answer names only what it filled.
         const beforeApplied = appliedFields(started.contact.metadata)
-        const name = nameOf(started.contact)
+        const name = nameOf(started.contact, fromForm)
         const waited = await waitForRun(supabase, { contactId: contact_id, workspaceId: targetWs, workRunKey: started.workRunKey })
         return waited.settled
-          ? settledResult(contact_id, waited, beforeApplied, name)
+          ? settledResult(contact_id, waited, beforeApplied, name, fromForm)
           : runningResult(contact_id, name, false)
       },
     }),

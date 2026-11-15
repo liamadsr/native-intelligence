@@ -84,6 +84,21 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
       expect(location(postAuthRedirect(request({ invite_redirect: '/account/settings' })))).toBe(`https://${DOMAIN}/account`)
     })
 
+    it("honours a form's own page in its exact shape, clears it, and refuses anything like it", () => {
+      const key = `fk_${'Ab0_-'.repeat(8)}xyz`
+      const invite = `fi_${'Zz9-_'.repeat(8)}abc`
+      for (const good of [`/f/${key}`, `/f/${key}?i=${invite}`, `/f/${invite}`]) {
+        const res = postAuthRedirect(request({ form_redirect: good }))
+        expect(location(res), good).toBe(`https://${DOMAIN}${good}`)
+        expect(cleared(res, 'form_redirect'), good).toBe(true)
+      }
+      for (const evil of [`//evil.example/f/${key}`, `https://evil.example/f/${key}`, `/f/${key}/../../account`, `/f/${key}?i=${invite}&x=1`, `/\\evil.example/f/${key}`, `/f/${key}#x`, '/f/short']) {
+        const res = postAuthRedirect(request({ form_redirect: evil }))
+        expect(location(res), evil).toBe(`https://${DOMAIN}/account`)
+        expect(cleared(res, 'form_redirect'), evil).toBe(true)
+      }
+    })
+
     it('resumes the MCP authorize step', () => {
       expect(location(postAuthRedirect(request({ mcp_redirect: '/api/mcp/oauth/authorize?client_id=x' })))).toBe(
         `https://${DOMAIN}/api/mcp/oauth/authorize?client_id=x`,

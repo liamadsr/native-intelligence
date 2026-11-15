@@ -36,8 +36,9 @@ import { flowRowForViewer } from '@/lib/flows/types'
 
 /**
  * Trigger types with a wired dispatcher (pr_status_changed: the GitHub
- * webhook, F1; email_received, chat_message and document_created: the
- * owner's own new mail, team chat messages and documents).
+ * webhook, F1; email_received, chat_message, document_created and
+ * contact_created: the owner's own new mail, team chat messages, documents
+ * and contacts).
  */
 const WIRED_TRIGGER_TYPES = new Set([
   'entity_status_change',
@@ -51,6 +52,8 @@ const WIRED_TRIGGER_TYPES = new Set([
   // The website quote intake (B1) and a table's new rows (forms phase 2): built in the canvas too.
   'quote_received',
   'record_created',
+  // A contact added to the CRM: by a form or a customer's text, or by a person.
+  'contact_created',
 ])
 
 const FLOW_FIELDS = `
