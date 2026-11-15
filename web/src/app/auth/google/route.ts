@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { browserOrigin } from '@/lib/auth/post-auth-redirect'
+import { browserOrigin, dropAccountRedirect } from '@/lib/auth/post-auth-redirect'
 import { BIND_PATTERN } from '@/lib/chatgpt/oidc'
 import {
   GOOGLE_TRANSACTION_COOKIE,
@@ -30,11 +30,11 @@ export async function GET(request: NextRequest) {
   const loginPath = mode === 'admin' ? '/admin/login' : '/login'
 
   const client = googleSignInClient()
-  if (!client) return NextResponse.redirect(new URL(loginPath, browserOrigin(request)))
+  if (!client) return dropAccountRedirect(NextResponse.redirect(new URL(loginPath, browserOrigin(request))))
 
   const bind = params.get('bind')
   if (mode === 'desktop' && !(bind && BIND_PATTERN.test(bind))) {
-    return NextResponse.redirect(new URL(`${loginPath}?error=auth_failed`, browserOrigin(request)))
+    return dropAccountRedirect(NextResponse.redirect(new URL(`${loginPath}?error=auth_failed`, browserOrigin(request))))
   }
 
   // The transaction cookie must be set on the host Google calls back to, or

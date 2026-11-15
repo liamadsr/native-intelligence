@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { commitBlob, createBlobWrite, deleteBlob, getBlob, readBlob } from '../blobs'
-import { cancelJob, claimJob, completeJob, failJob, getJob, queueJob, reportProgress, waitForJob } from '../jobs'
+import { cancelJob, claimJob, completeJob, failJob, getJob, queueJob, reportProgress, videoExports, waitForJob } from '../jobs'
 import { importPresenter, importSlides, importUpload, listSlideDecks, startExport, startUpload } from '../media'
 import { requestTranscription } from '../transcription'
 import { serveBlob, type PartFetch } from '../files'
@@ -138,12 +138,40 @@ describe('jobs', () => {
     const { job } = await startExport(env.ctx, video)
     const claimed = await claimJob(deps(), 'w', ['export'])
     expect(claimed).toMatchObject({ id: job.id, videoId: video.id, input: { title: 'Spring / launch' } })
+    // The job names its video, so the editor shows it only on that video's Export dialog.
+    expect(job.videoId).toBe(video.id)
     const key = `exports/${job.id}/${claimed!.attempts}/video.mp4`
     putAll(await createBlobWrite(env.ctx, { key, bytes: 30, contentType: 'video/mp4' }))
     await commitBlob(env.ctx, key)
     await completeJob(deps(), job.id, 'w', { key, bytes: 30, width: 1920, height: 1080, fps: 30, durationSeconds: 2 })
     expect((await getJob(env.ctx, job.id)).downloadUrl).toBe(`/api/account/studio/file/${WS}/${key}?download=Spring%20launch.mp4`)
     await expect(startExport(env.ctx, { ...video, assets: [] })).rejects.toThrow(/not valid/)
+  })
+
+  it('lists a video’s finished exports still kept, newest first, and none of its cancelled ones or another video’s', async () => {
+    const video = await createBlankVideo(env.ctx, { title: 'Spring launch', seconds: 2, fps: 30 })
+    const other = await createBlankVideo(env.ctx, { title: 'Other', seconds: 2, fps: 30 })
+    const finish = async (project: unknown) => {
+      const { job } = await startExport(env.ctx, project)
+      const claimed = await claimJob(deps(), 'w', ['export'])
+      const key = `exports/${job.id}/${claimed!.attempts}/video.mp4`
+      putAll(await createBlobWrite(env.ctx, { key, bytes: 30, contentType: 'video/mp4' }))
+      await commitBlob(env.ctx, key)
+      await completeJob(deps(), job.id, 'w', { key, bytes: 30, width: 1920, height: 1080, fps: 30, durationSeconds: 2 })
+      return job.id
+    }
+    const first = await finish(video)
+    const second = await finish(video)
+    await finish(other)
+    const { job: stopped } = await startExport(env.ctx, video)
+    await cancelJob(env.ctx, stopped.id)
+    const { exports } = await videoExports(env.ctx, video.id)
+    expect(exports.map((item) => item.id)).toEqual([second, first])
+    expect(exports[0]).toMatchObject({ status: 'completed', title: 'Spring launch', downloadUrl: expect.stringContaining('?download=Spring%20launch.mp4') })
+    expect(typeof exports[0]!.finishedAt).toBe('string')
+    // Past the 30 days its file is kept, an export is not listed.
+    expect((await videoExports(env.ctx, video.id, Date.now() + 31 * 24 * 3600 * 1000)).exports).toEqual([])
+    await expect(videoExports(env.ctx, 'not-a-video')).rejects.toThrow('Video not found')
   })
 })
 

@@ -9,6 +9,7 @@
  */
 import { spawn } from 'node:child_process'
 import { delimiter } from 'node:path'
+import { killTree, ownGroup, WINDOWS_BASE_KEYS, type Platform } from './platform.ts'
 
 /** What every outside program gets from the worker's environment, when set. */
 const BASE_KEYS = ['HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ'] as const
@@ -17,10 +18,12 @@ const BASE_KEYS = ['HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ'] as cons
  * A minimal environment: PATH (with the usual places Homebrew and Debian put tools), HOME, TMPDIR, the locale, and
  * `extra` (each value as given; undefined ones left out). Pure over `env`.
  */
-export function minimalEnv(extra: Record<string, string | undefined> = {}, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const path = [...new Set([...(env.PATH ?? '').split(delimiter).filter(Boolean), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'])].join(delimiter)
+export function minimalEnv(extra: Record<string, string | undefined> = {}, env: NodeJS.ProcessEnv = process.env, platform: Platform = process.platform): NodeJS.ProcessEnv {
+  const win = platform === 'win32', sep = win ? ';' : delimiter
+  const path = [...new Set([...(env.PATH ?? env.Path ?? '').split(sep).filter(Boolean), ...(win ? [] : ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'])])].join(sep)
   const out: NodeJS.ProcessEnv = { PATH: path }
-  for (const key of BASE_KEYS) if (env[key]) out[key] = env[key]
+  // Windows programs do not start without their system folder, temp and user folders.
+  for (const key of win ? [...BASE_KEYS, ...WINDOWS_BASE_KEYS] : BASE_KEYS) if (env[key]) out[key] = env[key]
   for (const [key, value] of Object.entries(extra)) if (value !== undefined) out[key] = value
   return out
 }
@@ -51,18 +54,9 @@ export type ToolOptions = {
   maxBuffer?: number
 }
 
-/** Stop a process group: SIGTERM now, SIGKILL after `graceMs` if it is still there. */
-export function killGroup(pid: number | undefined, graceMs = 3000): void {
-  if (!pid) return
-  const send = (sig: NodeJS.Signals) => {
-    try {
-      process.kill(-pid, sig)
-    } catch {
-      // gone already
-    }
-  }
-  send('SIGTERM')
-  setTimeout(() => send('SIGKILL'), graceMs).unref()
+/** Stop a program and what it started (platform.ts, killTree: the process group on POSIX, taskkill /T on Windows). */
+export function killGroup(pid: number | undefined, graceMs = 3000, exited?: () => boolean): void {
+  killTree(pid, { graceMs, exited })
 }
 
 /**
@@ -72,7 +66,7 @@ export function killGroup(pid: number | undefined, graceMs = 3000): void {
 export function runTool(cmd: string, args: string[], opts: ToolOptions): Promise<ToolRun> {
   return new Promise((done, fail) => {
     if (opts.signal?.aborted) return done({ code: null, stdout: '', stderr: '', stopped: 'signal' })
-    const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env, detached: true, stdio: [opts.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'] })
+    const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env, detached: ownGroup(), windowsHide: true, stdio: [opts.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'] })
     let stdout = ''
     let stderr = ''
     let stopped: ToolRun['stopped'] = null
@@ -80,7 +74,7 @@ export function runTool(cmd: string, args: string[], opts: ToolOptions): Promise
     const stop = (why: 'signal' | 'timeout') => {
       if (stopped) return
       stopped = why
-      killGroup(child.pid, opts.graceMs ?? 3000)
+      killGroup(child.pid, opts.graceMs ?? 3000, () => child.exitCode !== null || child.signalCode !== null)
     }
     const onAbort = () => stop('signal')
     opts.signal?.addEventListener('abort', onAbort, { once: true })
@@ -107,7 +101,7 @@ export function runTool(cmd: string, args: string[], opts: ToolOptions): Promise
     child.on('close', (code) => {
       end()
       // Whatever it started and left behind goes with it.
-      if (stopped) killGroup(child.pid, 0)
+      if (stopped) killGroup(child.pid, 0, () => true)
       done({ code, stdout, stderr, stopped })
     })
     if (opts.input !== undefined) {

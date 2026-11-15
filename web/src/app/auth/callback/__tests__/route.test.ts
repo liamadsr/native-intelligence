@@ -32,6 +32,13 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
   })
 
   describe('GET /auth/callback', () => {
+    it('clears a waiting account redirect when the sign-in fails', async () => {
+      const link = '/account?page=studio&video=aaaaaaaa-1111-4222-8333-444444444444'
+      expect(cleared(await GET(request({ account_redirect: link }, '')), 'account_redirect')).toBe(true)
+      m.exchange.mockResolvedValue({ error: { message: 'bad code' } })
+      expect(cleared(await GET(request({ account_redirect: link })), 'account_redirect')).toBe(true)
+    })
+
     it('lands on /account, and sends a missing or failed code back to /login', async () => {
       expect(location(await GET(request()))).toBe(`https://${DOMAIN}/account`)
       expect(location(await GET(request({}, '')))).toMatch(new RegExp(`^https://${DOMAIN.replace('.', '\\.')}/login\\?error=`))

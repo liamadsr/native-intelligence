@@ -24,6 +24,10 @@ import type {
   StudioUploadPart,
   StudioUploadProgressEvent,
   StudioUploadResult,
+  StudioPlannedPiece,
+  StudioSegment,
+  StudioSegmentEvent,
+  StudioUnfinishedTake,
 } from "./studio/recorder-bridge-types";
 
 // ── Types matching Rust audio::types ────────────────────────────
@@ -1541,6 +1545,7 @@ export const STUDIO_RECORDER_STATUS_EVENT = "studio-recorder://status";
 export const STUDIO_RECORDER_STOPPED_EVENT = "studio-recorder://stopped";
 export const STUDIO_RECORDER_ERROR_EVENT = "studio-recorder://error";
 export const STUDIO_RECORDER_UPLOAD_EVENT = "studio-recorder://upload";
+export const STUDIO_RECORDER_SEGMENT_EVENT = "studio-recorder://segment";
 
 const STUDIO_UNAVAILABLE = "The Studio recorder runs only in a Native Intelligence desktop app that has it.";
 
@@ -1655,6 +1660,133 @@ export const studioRecorder = {
       hasSession(raw) && typeof (raw as Record<string, unknown>).uploadedBytes === "number", cb),
   /** The same as onUpload. */
   onUploadProgress: (cb: (event: StudioUploadProgressEvent) => void) => studioRecorder.onUpload(cb),
+  // ── Uploads while recording (an app without them answers code "unavailable": the take uploads after Stop). ──
+  /** A whole segment of a take's file is on disk. */
+  onSegment: (cb: (event: StudioSegmentEvent) => void) =>
+    onStudioEvent(STUDIO_RECORDER_SEGMENT_EVENT, (raw): raw is StudioSegmentEvent =>
+      hasSession(raw) && typeof (raw as Record<string, unknown>).offset === "number" && typeof (raw as Record<string, unknown>).length === "number", cb),
+  /** Every whole segment of a take's file so far (`bytes`: where the last one ends). */
+  segments: (sessionId: string, role: StudioFileRole) =>
+    invokeStudio<{ bytes: number; segments: StudioSegment[] }>("studio_recorder_segments", { sessionId, role }, (raw) =>
+      isObject(raw) && Array.isArray(raw.segments)),
+  /** Keep the take's id on the Studio beside its files (so a take cut short is found again). */
+  linkLive: (sessionId: string, takeId: string) => invokeStudio<void>("studio_recorder_link_live", { sessionId, takeId }, () => true),
+  /** Write down pieces of a track (byte ranges of its file) before the Studio is told of them. */
+  planPieces: (sessionId: string, role: StudioFileRole, pieces: StudioPlannedPiece[]) =>
+    invokeStudio<{ planned: number }>("studio_recorder_plan_pieces", { sessionId, role, pieces }),
+  /** Send planned piece `index` of a track from the disk to its signed link. */
+  putPiece: (sessionId: string, role: StudioFileRole, index: number, url: string, headers: Record<string, string>) =>
+    invokeStudio<{ bytes: number }>("studio_recorder_put_piece", { sessionId, role, index, url, headers }),
+  /** A stopped take's files' SHA-256 and size, and the microphone's waveform: the editor opens the take from them at Stop. */
+  takeMedia: (sessionId: string) =>
+    invokeStudio<{ tracks: { role: StudioFileRole; sha256: string; bytes: number }[]; waveform: number[] | null }>("studio_recorder_take_media", { sessionId }, (raw) =>
+      isObject(raw) && Array.isArray(raw.tracks)),
+  /** This run's key to the take files' scheme (studio-take://<key>/<session>/<role>): every URL of it names the key. */
+  takeToken: () => invokeStudio<string>("studio_recorder_take_token", undefined, (raw) => typeof raw === "string" && raw.length > 0),
+  /** Hold a take for this page (renew every few seconds), or let it go: `held` false when another window holds it. */
+  hold: (sessionId: string, holder: string, release = false) =>
+    invokeStudio<{ held: boolean }>("studio_recorder_hold", { sessionId, holder, release }, (raw) => isObject(raw) && typeof raw.held === "boolean"),
+  /** The editor's draft of a take opened before it was filed, kept beside the take (null when none). */
+  draftGet: (sessionId: string) => invokeStudio<{ draft: string | null }>("studio_recorder_draft_get", { sessionId }),
+  /** Keep the editor's draft beside the take; rejects when it could not be written (the page says "Not saved"). */
+  draftPut: (sessionId: string, draft: string) => invokeStudio<void>("studio_recorder_draft_put", { sessionId, draft }, () => true),
+  /** Every draft on this computer of the signed-in account's takes. */
+  drafts: () => invokeStudio<{ drafts: { sessionId: string; draft: string }[] }>("studio_recorder_drafts", undefined, (raw) => isObject(raw) && Array.isArray(raw.drafts)),
+  /** A stopped take's on-device words (they arrive after Stop), and whether the model is still reading. */
+  words: (sessionId: string) => invokeStudio<{ transcript: unknown; pending: boolean }>("studio_recorder_words", { sessionId }),
+  /** The on-device words of a stopped take, when they arrive: `{sessionId, transcript}` (transcript null when none came). */
+  onWords: (cb: (event: { sessionId: string; transcript: unknown }) => void) =>
+    onStudioEvent("studio-recorder://words", (raw): raw is { sessionId: string; transcript: unknown } => hasSession(raw), cb),
+  /** Takes on this computer linked to a take on the Studio and not recording now: what a quit or a crash left to send. */
+  unfinishedTakes: (holder?: string) =>
+    invokeStudio<{ takes: StudioUnfinishedTake[] }>("studio_recorder_unfinished_takes", { holder: holder ?? null }, (raw) => isObject(raw) && Array.isArray(raw.takes)),
+};
+
+// ── Studio: exports on this computer, and saving an export (studio_local_*, studio_export_*) ──
+//
+// Commands a desktop build may have (none of them is in the builds released before the Studio's computer export):
+// every call rejects ("command … not found") on an older build, and the page treats that as "not here"
+// (components/studio/ui/local-export.ts). Raw: errors and answers are read by that module.
+
+export type StudioLocalComponentState = "ready" | "missing" | "downloading" | "failed";
+/** What this computer can do for an export (`studio_local_status`). */
+export interface StudioLocalStatus {
+  available: boolean;
+  /** Why not, as a sentence, when `available` is false. */
+  reason?: string;
+  platform: string;
+  arch: string;
+  components: { runtime: StudioLocalComponentState; chrome: StudioLocalComponentState; ffmpeg: StudioLocalComponentState };
+  /** What the first-time download is, in bytes (what is still missing). */
+  downloadBytes: number;
+  /** The render version the app's engine was built from (lib/studio/engine/render-version.ts); null: no runner. */
+  renderVersion: string | null;
+  encoder?: string;
+}
+/** A first-time download's progress (`studio-local://prepare`). */
+export interface StudioLocalPrepareEvent { component: string; receivedBytes: number; totalBytes: number }
+/** One event of an export on this computer (`studio-local://progress`, and `studio_local_export_events`). */
+export interface StudioLocalExportEvent {
+  jobId: string;
+  seq: number;
+  /**
+   * `started` begins every run of a job; after `done` (the file saved) only progress, log, uploaded and upload-failed
+   * follow. `save-failed` ends a run whose video was made but could not be put where the person chose: the app keeps
+   * it (3 days) to be saved again (`saveAgain`); it comes in place of `failed`.
+   */
+  kind: "started" | "progress" | "log" | "encoder" | "done" | "uploaded" | "upload-failed" | "save-failed" | "failed" | "cancelled";
+  progress?: number;
+  message?: string;
+  savedName?: string;
+}
+/** A place on this computer the person picked to save an export to. */
+export interface StudioExportDestination { destinationId: string; name: string }
+/** A server export being saved through the app (`studio-local://save`). */
+export interface StudioExportSaveEvent { destinationId: string; receivedBytes: number; totalBytes: number }
+
+/**
+ * What a refused desktop command (or a server refusal it passes on) says: `"<code>: <sentence>"`, the code in lowercase
+ * letters and hyphens (`used`, `unknown-destination`, `busy`, …) or the server's own upper-case code (`KEPT_ON_COMPUTER`).
+ * `message` is the sentence alone, what a person reads; `code` is null when there was none.
+ */
+export function studioRefusal(error: unknown): { code: string | null; message: string } {
+  const text = (error instanceof Error ? error.message : typeof error === "string" ? error : String(error ?? "")).trim();
+  const match = /^([a-z][a-z-]*|[A-Z][A-Z_]*): ([\s\S]+)$/.exec(text);
+  return match ? { code: match[1]!, message: match[2]!.trim() } : { code: null, message: text };
+}
+
+const isLocalEvent = (raw: unknown): raw is StudioLocalExportEvent =>
+  isObject(raw) && typeof raw.jobId === "string" && typeof raw.seq === "number" && typeof raw.kind === "string";
+const isSaveEvent = (raw: unknown): raw is StudioExportSaveEvent =>
+  isObject(raw) && typeof raw.destinationId === "string" && typeof raw.receivedBytes === "number";
+const isPrepareEvent = (raw: unknown): raw is StudioLocalPrepareEvent =>
+  isObject(raw) && typeof raw.component === "string" && typeof raw.receivedBytes === "number";
+
+function desktopOnly<T>(run: () => Promise<T>): Promise<T> {
+  return isDesktopApp() ? run() : Promise.reject(new Error("unavailable: not the desktop app"));
+}
+
+export const studioLocalExport = {
+  status: () => desktopOnly(() => invoke<StudioLocalStatus>("studio_local_status")),
+  prepare: () => desktopOnly(() => invoke<void>("studio_local_prepare")),
+  onPrepare: (cb: (event: StudioLocalPrepareEvent) => void) => onStudioEvent("studio-local://prepare", isPrepareEvent, cb),
+  start: (args: { jobId: string; token: string; destinationId: string; upload: boolean }) => desktopOnly(() => invoke<void>("studio_local_export_start", args)),
+  cancel: (jobId: string) => desktopOnly(() => invoke<void>("studio_local_export_cancel", { jobId })),
+  events: (jobId: string, sinceSeq: number) => desktopOnly(() => invoke<StudioLocalExportEvent[]>("studio_local_export_events", { jobId, sinceSeq })),
+  onProgress: (cb: (event: StudioLocalExportEvent) => void) => onStudioEvent("studio-local://progress", isLocalEvent, cb),
+  pickDestination: (suggestedName: string) => desktopOnly(() => invoke<StudioExportDestination | null>("studio_export_pick_destination", { suggestedName })),
+  /**
+   * Stream a server export's parts into the file picked. With `workspaceId`, `videoId` and `jobId` (all three or none)
+   * the app asks the parts route for new links when they run out, in that workspace (its `x-workspace-id`).
+   */
+  saveParts: (args: { destinationId: string; workspaceId?: string; videoId?: string; jobId?: string; parts: { url: string; bytes: number }[]; bytes: number; sha256?: string }) =>
+    desktopOnly(() => invoke<{ name: string }>("studio_export_save_parts", args)),
+  onSave: (cb: (event: StudioExportSaveEvent) => void) => onStudioEvent("studio-local://save", isSaveEvent, cb),
+  /** Stop a save through the app (idempotent); the save itself then refuses with `cancelled`. */
+  saveCancel: (destinationId: string) => desktopOnly(() => invoke<void>("studio_export_save_cancel", { destinationId })),
+  reveal: (destinationId: string) => desktopOnly(() => invoke<void>("studio_export_reveal", { destinationId })),
+  /** Save a video of this computer that could not be put in place (`save-failed`) into a newly picked place; refuses with `gone` once it is no longer kept. */
+  saveAgain: (args: { jobId: string; destinationId: string }) => desktopOnly(() => invoke<{ name: string }>("studio_local_export_save_again", args)),
 };
 
 // ── Public API ──────────────────────────────────────────────────

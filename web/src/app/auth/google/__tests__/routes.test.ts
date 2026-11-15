@@ -242,6 +242,8 @@ describe('GET /auth/google/callback', () => {
     const { cookie } = await begin()
     expect((await finish(cookie, 'code=c1&state=forged')).headers.get('location')).toBe(`${ORIGIN}/login?error=auth_failed`)
     expect((await finish('', 'code=c1&state=x')).headers.get('location')).toBe(`${ORIGIN}/login?error=auth_failed`)
+    // A failed sign-in clears the account redirect a login form left (post-auth-redirect.ts).
+    expect((await finish('', 'code=c1&state=x')).headers.get('set-cookie') ?? '').toContain('account_redirect=;')
     expect(fetchMock).not.toHaveBeenCalled()
     expect(hoisted.cookieSignIn).not.toHaveBeenCalled()
   })

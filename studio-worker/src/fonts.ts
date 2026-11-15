@@ -10,7 +10,8 @@
  * A face that cannot be fetched is left out (its text falls back to the stack),
  * with a line in the job's log; a render never fails for a font.
  */
-import { mkdir, rm, symlink } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
+import { linkDir, unlinkDir } from './platform.ts'
 import { join } from 'node:path'
 import type { JobContext } from './jobs/context.ts'
 
@@ -74,8 +75,8 @@ export async function stageFonts(ctx: Pick<JobContext, 'job' | 'client' | 'scrat
   const parent = join(serveUrl, 'public', 'fonts')
   const link = join(parent, ctx.job.id)
   await mkdir(parent, { recursive: true })
-  await rm(link, { recursive: true, force: true })
-  await symlink(dir, link, 'dir')
+  await unlinkDir(link)
+  await linkDir(dir, link)
   ctx.log(`Fonts staged: ${[...new Set(faces.map((f) => f.family))].join(', ')}`)
-  return { faces, release: () => rm(link, { force: true }).catch(() => undefined) }
+  return { faces, release: () => unlinkDir(link).catch(() => undefined) }
 }

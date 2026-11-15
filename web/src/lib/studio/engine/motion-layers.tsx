@@ -13,8 +13,11 @@ export function PrimaryClipMedia({ clip, asset, fps, playbackFrames, style, src,
   return <><Sequence durationInFrames={playbackFrames} layout="none"><MediaVideo src={src} trimBefore={trimBefore}
     durationInFrames={playbackFrames} playbackRate={clip.playbackRate} muted={silent || clip.audio.muted || clip.playbackRate>1 || !asset.hasAudio} volume={clip.audio.gain}
     maxCanvasSinkFrameSize={{ width: previewVideoFrameWidth }} style={style} /></Sequence>
-    {clip.holdEndFrames > 0 && <Sequence from={playbackFrames} durationInFrames={clip.holdEndFrames} layout="none"><Freeze frame={playbackFrames - 1}>
-      <MediaVideo src={src} trimBefore={trimBefore} durationInFrames={playbackFrames} playbackRate={clip.playbackRate} muted
+    {/* The held last frame (a hold, or the outgoing shot under a cut's blend): a one-frame video starting at that frame,
+        frozen on its first frame. Freezing the clip's whole video on its last frame made @remotion/media ask, in a render,
+        for an earlier frame (frame 127 of a 175-frame clip instead of 174: an exported cut showed the wrong picture). */}
+    {clip.holdEndFrames > 0 && <Sequence from={playbackFrames} durationInFrames={clip.holdEndFrames} layout="none"><Freeze frame={0}>
+      <MediaVideo src={src} trimBefore={trimBefore + (playbackFrames - 1) * clip.playbackRate} durationInFrames={1} playbackRate={1} muted
         maxCanvasSinkFrameSize={{ width: previewVideoFrameWidth }} style={style} />
     </Freeze></Sequence>}</>;
 }

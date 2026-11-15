@@ -42,6 +42,7 @@ import { runListen, runSoundBank, runSoundImport, runSounds } from './jobs/sound
 import { runSoundJudge, runSoundMake } from './jobs/sound-judge.ts'
 import { runThumbnail } from './jobs/thumbnail.ts'
 import { runTranscribe } from './jobs/transcribe.ts'
+import { localCopyDir, runLiveImport, tidyLocalCopies } from './jobs/live-import.ts'
 import { kindsFor, WorkerCapabilities } from './providers/capabilities.ts'
 import { Renderer } from './render.ts'
 import { JobRun, type Handlers } from './runner.ts'
@@ -49,6 +50,7 @@ import { probeVision, visionCapabilityList, visionState, withVision } from './vi
 
 export const handlers: Handlers = {
   import: runImport,
+  'live-import': runLiveImport,
   export: runExport,
   stills: runStills,
   thumbnail: runThumbnail,
@@ -106,7 +108,9 @@ await earshot.start()
 void probeVision(config).then((found) =>
   console.info(`[studio-worker] vision: ${[...found.on].join(', ') || 'off'}${found.reason ? ` (${found.reason})` : ''}`),
 )
-const client = new AppClient({ appUrl: config.appUrl, secret: config.secret, workerId: config.workerId, capabilities: () => [...capabilities.list(), ...analysisCapabilities(analysisState()), ...earshot.capabilities(), ...visionCapabilityList()] })
+// With live slots, a browser take's video tracks are prepared while they record (`liveImport`, ./jobs/live-import.ts).
+const liveCapability = config.liveSlots > 0 ? ['liveImport'] : []
+const client = new AppClient({ appUrl: config.appUrl, secret: config.secret, workerId: config.workerId, capabilities: () => [...capabilities.list(), ...analysisCapabilities(analysisState()), ...earshot.capabilities(), ...visionCapabilityList(), ...liveCapability] })
 const renderer = new Renderer(config, cache.dir)
 const running = new Set<JobRun>()
 const shutdown = new AbortController()
@@ -115,12 +119,17 @@ let lastAppOkAt = 0
 let done = 0
 let failed = 0
 
-/** A slot: the media slots take media work; the provider slot takes provider calls and quick measurements. */
-async function slot(index: number, which: 'media' | 'provider' = 'media'): Promise<void> {
+/**
+ * A slot: the media slots take media work; the provider slot takes provider calls and quick measurements; a live
+ * slot (STUDIO_LIVE_SLOTS) takes only recordings prepared while they record, which hold it as long as they record.
+ */
+async function slot(index: number, which: 'media' | 'provider' | 'live' = 'media'): Promise<void> {
   let wait = config.pollMs
   while (!shutdown.signal.aborted) {
     lastLoopAt = Date.now()
-    const kinds = withVision(which, soundKindsFor(which, allowedKinds(kindsFor(which, config.kinds, capabilities.current()), analysisState()), config.kinds, earshot.usable), config.kinds, visionState().on)
+    const kinds = which === 'live'
+      ? kindsFor('live', config.kinds, capabilities.current())
+      : withVision(which, soundKindsFor(which, allowedKinds(kindsFor(which, config.kinds, capabilities.current()), analysisState()), config.kinds, earshot.usable), config.kinds, visionState().on)
     if (!kinds.length) {
       await sleep(config.pollMs, shutdown.signal)
       continue
@@ -199,8 +208,12 @@ process.on('SIGTERM', () => void stopAll('SIGTERM'))
 process.on('SIGINT', () => void stopAll('SIGINT'))
 
 console.info(
-  `[studio-worker] started as ${config.workerId}: ${config.kinds.join(', ')}; ${config.concurrency} at a time; app at ${config.appUrl}; work in ${config.workDir}; can also: ${[...capabilities.list(), ...earshot.capabilities()].join(', ') || 'no paid providers'}`,
+  `[studio-worker] started as ${config.workerId}: ${config.kinds.join(', ')}; ${config.concurrency} at a time; ${config.liveSlots} live; app at ${config.appUrl}; work in ${config.workDir}; can also: ${[...capabilities.list(), ...earshot.capabilities()].join(', ') || 'no paid providers'}`,
 )
 slots = Array.from({ length: config.concurrency }, (_, i) => slot(i))
 // One more slot for provider calls and quick measurements, when this worker takes any.
 if (kindsFor('provider', config.kinds, new Set(['voiceover', 'generatedShots'])).length || (config.earshotDir && config.kinds.includes('sound-bank'))) slots.push(slot(config.concurrency, 'provider'))
+// Live slots of their own: a recording followed while it records never waits behind an export, nor holds one up.
+for (let i = 0; i < config.liveSlots; i++) slots.push(slot(config.concurrency + 1 + i, 'live'))
+// Local copies a live job left behind (a worker that stopped mid-take, a job taken back and never handed back here).
+void tidyLocalCopies(localCopyDir(config.workDir))

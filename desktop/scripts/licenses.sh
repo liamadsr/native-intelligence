@@ -100,6 +100,16 @@ licenses_stage_into() {
         echo "[licenses] $name: resources/$name/licenses/"
     done
 
+    # The Studio's local runner, when built (scripts/studio-runner.sh): it is
+    # staged into the app (Contents/Resources/studio-runner) and its notices
+    # travel with it.
+    local runner_licenses="${STUDIO_RUNNER_OUT:-$TAURI_DIR/target/studio-runner}/licenses"
+    if [ -s "$runner_licenses/NOTICES.txt" ]; then
+        cp -RL "$runner_licenses" "$licenses/studio-runner" || { rm -rf "$licenses"; return 1; }
+        parts="$parts studio-runner"
+        echo "[licenses] studio-runner: $runner_licenses"
+    fi
+
     # Same rule as sidecars_stage: a sidecar is in the bundle when its
     # .out/bin has something in it. Its notices travel with it.
     for dir in "$sidecars_root"/*/; do

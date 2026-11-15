@@ -61,58 +61,29 @@ struct StartOptions {
 
 // MARK: - the screen
 
-/// The screen (a display or one window) on an exact frame-rate grid: the last
-/// picture repeats while nothing changes, so the take is constant-rate when
-/// Stop is pressed. Also takes the stream's system audio.
+/// The screen (a display or one window) on an exact frame-rate grid (GridVideo):
+/// the last picture repeats while nothing changes, so the take is
+/// constant-rate when Stop is pressed. Also takes the stream's system audio.
 final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     let queue = DispatchQueue(label: "studio-recorder.screen", qos: .userInteractive)
     let path: String
     let width: Int, height: Int, fps: Int64
     let codec: String
-    private let writer: AVAssetWriter
-    private let adaptor: AVAssetWriterInputPixelBufferAdaptor
+    let grid: GridVideo
     var systemAudio: AudioFileWriter?
     var onFailure: ((String) -> Void)?
+    /// Host seconds of slot 0 (the first frame).
     private(set) var firstPTS: Double?
-    private var gridStart: CMTime?
-    private var nextTick: Int64 = 0
     private var lastPixel: CVPixelBuffer?
     private var tickTimer: DispatchSourceTimer?
-    private(set) var gridMisses = 0
-    private var gridStopping = false
-    private(set) var frames = 0
     private(set) var failure: String?
     let systemLevel = Locked<Float>(0)
 
     init(path: String, width: Int, height: Int, fps: Int) throws {
         self.path = path; self.width = width; self.height = height; self.fps = Int64(fps)
-        try? FileManager.default.removeItem(atPath: path)
-        writer = try AVAssetWriter(outputURL: URL(fileURLWithPath: path), fileType: .mov)
-        writer.movieFragmentInterval = fragmentInterval
-        let (settings, codec) = videoSettings(width: width, height: height, fps: fps, screen: true)
-        self.codec = codec
-        let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
-        input.expectsMediaDataInRealTime = true
-        guard writer.canAdd(input) else { throw Fail("the screen encoder refused \(width)×\(height)") }
-        writer.add(input)
-        adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: nil)
+        grid = try GridVideo(path: path, width: width, height: height, fps: fps, screen: true)
+        codec = grid.codec
         super.init()
-        guard writer.startWriting() else { throw Fail("can't start the screen file: \(writer.error?.localizedDescription ?? "?")") }
-    }
-
-    private func gridTime(_ tick: Int64) -> CMTime { CMTimeAdd(gridStart!, CMTime(value: tick, timescale: CMTimeScale(fps))) }
-
-    /// Repeat the last picture for every grid slot before `tick` (on `queue`).
-    private func fillGrid(upTo tick: Int64) {
-        guard let pixel = lastPixel, gridStart != nil else { return }
-        while nextTick < tick && !gridStopping {
-            // Wait a moment for the hardware encoder rather than leave a hole in the grid.
-            var waits = 0
-            while !adaptor.assetWriterInput.isReadyForMoreMediaData && waits < 200 && !gridStopping { usleep(500); waits += 1 }
-            // A busy encoder keeps the slot open for the next pass: the grid may lag a moment but never gets a hole.
-            guard adaptor.assetWriterInput.isReadyForMoreMediaData, adaptor.append(pixel, withPresentationTime: gridTime(nextTick)) else { gridMisses += 1; return }
-            frames += 1; nextTick += 1
-        }
     }
 
     func startGridTimer() {
@@ -121,8 +92,8 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(8))
         timer.setEventHandler { [weak self] in
-            guard let self, let start = self.gridStart else { return }
-            self.fillGrid(upTo: Int64(((hostNow() - start.seconds - 0.1) * Double(self.fps)).rounded(.down)))
+            guard let self, let start = self.firstPTS, let pixel = self.lastPixel else { return }
+            self.grid.fill(pixel, upTo: Int64(((hostNow() - start - 0.1) * Double(self.fps)).rounded(.down)))
         }
         timer.resume(); tickTimer = timer
     }
@@ -141,22 +112,10 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
               let attachments = CMSampleBufferGetSampleAttachmentsArray(sb, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
               let raw = attachments.first?[.status] as? Int, SCFrameStatus(rawValue: raw) == .complete,
               let pixel = CMSampleBufferGetImageBuffer(sb) else { return }
-        let pts = CMSampleBufferGetPresentationTimeStamp(sb)
-        if firstPTS == nil {
-            writer.startSession(atSourceTime: pts)
-            firstPTS = pts.seconds
-            gridStart = pts
-        }
-        let tick = Int64(((pts - gridStart!).seconds * Double(fps)).rounded())
-        fillGrid(upTo: tick)
+        let pts = CMSampleBufferGetPresentationTimeStamp(sb).seconds
+        if firstPTS == nil { firstPTS = pts }
+        grid.place(pixel, at: grid.slot(at: pts - firstPTS!), after: lastPixel)
         lastPixel = pixel
-        // Its slot is already written (two frames landed in one grid step):
-        // keep it as the newest picture for the next slot.
-        if tick < nextTick { return }
-        var waits = 0
-        while !adaptor.assetWriterInput.isReadyForMoreMediaData && waits < 200 && !gridStopping { usleep(500); waits += 1 }
-        if adaptor.assetWriterInput.isReadyForMoreMediaData, adaptor.append(pixel, withPresentationTime: gridTime(nextTick)) { frames += 1; nextTick += 1 }
-        else { gridMisses += 1 }
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
@@ -177,25 +136,21 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
 
     /// Stop the grid (the stream must already be stopped) and finalize.
     func finish() async -> [String: Any] {
-        gridStopping = true
-        let gridEnd = queue.sync { () -> CMTime? in
-            tickTimer?.cancel(); tickTimer = nil
-            // End on the last frame already on the grid: pushing the final
-            // ~100 ms of repeated frames through a real-time encoder after
-            // capture stops is what makes Stop slow.
-            guard gridStart != nil else { return nil }
-            adaptor.assetWriterInput.markAsFinished()
-            return gridTime(nextTick)
-        }
-        if let gridEnd { writer.endSession(atSourceTime: gridEnd) } else { writer.cancelWriting() }
-        lastPixel = nil
-        if gridEnd != nil { await writer.finishWriting() }
-        let finalized = writer.status == .completed && frames > 0
+        grid.stopping = true
+        // End on the last frame already on the grid: pushing the final ~100 ms
+        // of repeated frames through a real-time encoder after capture stops
+        // is what makes Stop slow.
+        queue.sync { tickTimer?.cancel(); tickTimer = nil; lastPixel = nil }
+        let problem = await grid.finish()
+        let frames = grid.next
+        let finalized = problem == nil && frames > 0
+        let end = firstPTS.map { $0 + Double(frames) / Double(fps) }
         var row: [String: Any] = ["role": "screen", "path": path, "finalized": finalized, "width": width, "height": height,
-                                  "fps": Double(fps), "frames": frames, "gridMisses": gridMisses, "codec": codec,
-                                  "firstPts": jsonNumber(firstPTS), "lastPts": jsonNumber(gridEnd?.seconds)]
-        if let first = firstPTS, let last = gridEnd?.seconds { row["durationSeconds"] = last - first }
-        if let error = failure ?? (finalized ? nil : (writer.error?.localizedDescription ?? "The screen recording did not finalize")) { row["error"] = error }
+                                  "fps": Double(fps), "frames": frames, "gridMisses": grid.misses, "codec": codec,
+                                  "segments": grid.file.segments, "firstPts": jsonNumber(firstPTS), "lastPts": jsonNumber(end),
+                                  "sha256": grid.file.sha256 ?? NSNull()]
+        if frames > 0 { row["durationSeconds"] = Double(frames) / Double(fps) }
+        if let error = failure ?? (finalized ? nil : (problem ?? "The screen recording did not finalize")) { row["error"] = error }
         return row
     }
 }
@@ -253,6 +208,26 @@ final class MicSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @un
 
 // MARK: - the take
 
+/// Each segment of `file`, once on disk, as a `segment` event: the app uploads
+/// it while the take records (its bytes are `offset`, `length` in the file).
+/// `startPts`: the host seconds of the file's time 0, the take's clock.
+func announce(_ file: SegmentFile, sessionId: String, role: String, start: @escaping () -> Double?) {
+    var keptStart = false
+    file.onSegment = { record in
+        // The file's time 0 on the take's clock, kept beside it (`<file>.start`): a page that missed every event, or
+        // a take sent on after a crash, still knows where the file sits on the screen's clock.
+        if !keptStart, let at = start(), at.isFinite {
+            keptStart = (try? String(format: "%.9f", at).write(toFile: file.path + ".start", atomically: true, encoding: .utf8)) != nil
+        }
+        var event = record.json
+        event["event"] = "segment"
+        event["sessionId"] = sessionId
+        event["role"] = role
+        event["startPts"] = jsonNumber(start())
+        emit(event)
+    }
+}
+
 final class Take: @unchecked Sendable {
     let options: StartOptions
     let gate = CaptureGate()
@@ -280,7 +255,7 @@ final class Take: @unchecked Sendable {
     init(options: StartOptions) { self.options = options }
     func file(_ name: String) -> String { (options.outputDir as NSString).appendingPathComponent(name) }
     var knownPaths: [String] {
-        var paths = [file("screen.mov"), file("microphone.m4a"), file("system-audio.m4a"), file("trace.jsonl"), file("mic-16k.f32")]
+        var paths = [file("screen.mp4"), file("microphone.m4a"), file("system-audio.m4a"), file("trace.jsonl"), file("mic-16k.f32")]
         paths += tracks.map(\.path)
         return paths
     }
@@ -382,6 +357,7 @@ final class Recorder: @unchecked Sendable {
                 throw Fail("The selected microphone is not connected.", code: "device")
             }
             let writer = AudioFileWriter(role: "microphone", path: take.file("microphone.m4a"), channels: 1, gate: take.gate)
+            writer.onOpen = { file, start in announce(file, sessionId: options.sessionId, role: "microphone") { start } }
             let sink = MicSink(writer: writer, pcmPath: options.transcriptionPcm ? take.file("mic-16k.f32") : nil)
             let session = AVCaptureSession()
             session.beginConfiguration()
@@ -411,7 +387,8 @@ final class Recorder: @unchecked Sendable {
                 throw Fail("A selected camera is not connected.", code: "device")
             }
             let track = TrackWriter(role: role, kind: "camera", sourceID: device.uniqueID, name: device.localizedName,
-                                    path: take.file("\(role).mov"), gate: take.gate)
+                                    path: take.file("\(role).mp4"), gate: take.gate)
+            track.onOpen = { file, start in announce(file, sessionId: options.sessionId, role: role) { start } }
             let session = AVCaptureSession()
             session.beginConfiguration()
             session.sessionPreset = .high
@@ -420,6 +397,9 @@ final class Recorder: @unchecked Sendable {
             session.addInput(source)
             let output = AVCaptureVideoDataOutput()
             output.alwaysDiscardsLateVideoFrames = true
+            // 4:2:0 in limited range, what the file is encoded as (a camera's
+            // own full-range frames would be written full range).
+            output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange]
             let sink = SourceSink(track, session: session)
             output.setSampleBufferDelegate(sink, queue: DispatchQueue(label: "studio-recorder.\(role)"))
             guard session.canAddOutput(output) else { throw Fail("\(device.localizedName) could not be opened.", code: "device") }
@@ -463,15 +443,18 @@ final class Recorder: @unchecked Sendable {
         if fit < 1 { width = Int(Double(width) * fit) & ~1; height = Int(Double(height) * fit) & ~1 }
         guard width >= 2, height >= 2 else { throw Fail("The recorded surface has no size.", code: "target") }
 
-        let screen = try ScreenRecorder(path: take.file("screen.mov"), width: width, height: height, fps: options.fps)
+        let screen = try ScreenRecorder(path: take.file("screen.mp4"), width: width, height: height, fps: options.fps)
         if options.systemAudio {
-            screen.systemAudio = AudioFileWriter(role: "system-audio", path: take.file("system-audio.m4a"), channels: 2, gate: take.gate)
+            let systemAudio = AudioFileWriter(role: "system-audio", path: take.file("system-audio.m4a"), channels: 2, gate: take.gate)
+            systemAudio.onOpen = { file, start in announce(file, sessionId: options.sessionId, role: "system-audio") { start } }
+            screen.systemAudio = systemAudio
         }
         let sessionId = options.sessionId
         screen.onFailure = { message in
             emit(["event": "error", "sessionId": sessionId, "message": message, "fatal": true])
         }
         take.screen = screen
+        announce(screen.grid.file, sessionId: sessionId, role: "screen") { [weak screen] in screen?.firstPTS }
 
         let config = SCStreamConfiguration()
         config.width = width
@@ -499,7 +482,8 @@ final class Recorder: @unchecked Sendable {
             let name = [window.owningApplication?.applicationName, window.title].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
             let role = "window-\(i + 1)"
             let track = TrackWriter(role: role, kind: "window", sourceID: String(id), name: name.isEmpty ? "Window" : name,
-                                    path: take.file("\(role).mov"), gate: take.gate)
+                                    path: take.file("\(role).mp4"), gate: take.gate)
+            track.onOpen = { file, start in announce(file, sessionId: options.sessionId, role: role) { start } }
             let windowFilter = SCContentFilter(desktopIndependentWindow: window)
             let windowConfig = SCStreamConfiguration()
             let windowScale = Double(windowFilter.pointPixelScale)
@@ -616,9 +600,12 @@ final class Recorder: @unchecked Sendable {
         await stopSources(take)
         var files: [[String: Any]] = []
         var warnings = take.warnings
+        // Said to the person as they are (a track that ended before the take did).
+        var notes: [String] = []
         func collect(_ row: [String: Any]) {
             guard let path = row["path"] as? String else { return }
             if let error = row["error"] as? String { warnings.append("\(row["role"] as? String ?? "file"): \(error)") }
+            if let note = row["endedEarly"] as? String { notes.append(note) }
             guard row["finalized"] as? Bool == true else { return }
             var out = row
             out["bytes"] = fileSize(path)
@@ -646,6 +633,7 @@ final class Recorder: @unchecked Sendable {
             "tracePath": tracePath,
             "traceMode": take.trace?.mode ?? NSNull(),
             "warnings": warnings,
+            "notes": notes,
         ]
         if let mic = take.mic, let pcmPath = mic.pcmPath, let first = mic.pcmFirstPTS {
             payload["transcriptionPcm"] = ["path": pcmPath, "sampleRate": 16_000, "format": "f32le", "samples": mic.pcmSamples,

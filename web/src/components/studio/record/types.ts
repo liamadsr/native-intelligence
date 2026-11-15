@@ -79,6 +79,32 @@ export type LiveStatus = {
   elapsedMs: number
   /** The microphone's level, 0..1, when one is recorded. */
   level: number | null
+  /** Each track's upload while it records (browser takes; absent for the Mac app's recorder). */
+  tracks?: LiveTrackStatus[]
+}
+
+/**
+ * One track of a take being uploaded while it records (`live.ts`):
+ *   connecting  the server has not answered yet; the pieces wait on this device
+ *   live        pieces go up as they are made
+ *   retrying    the connection dropped; the pieces wait on this device and go up when it is back
+ *   local       the server could not take the recording while it was made: it uploads after Stop, as before
+ *   failed      the server refused the rest (no space left, the take was finished elsewhere): what reached it is kept
+ *   done        every piece is on the server
+ */
+export type LiveTrackState = 'connecting' | 'live' | 'retrying' | 'local' | 'failed' | 'done'
+export type LiveTrackStatus = {
+  role: TakeRole
+  /** "Screen", "Camera", "Microphone". */
+  label: string
+  state: LiveTrackState
+  /** Bytes the recorder has made so far, and how many of them are on the server. */
+  recordedBytes: number
+  uploadedBytes: number
+  /** Seconds of this track recorded but not yet on the server: what a crash right now would lose. */
+  unsavedSeconds: number
+  /** Why it is retrying or failed, as a sentence. */
+  error?: string
 }
 
 /** Why a take stopped on its own. */
@@ -111,8 +137,25 @@ export type TakeFile = {
   durationSeconds: number | null
   width?: number
   height?: number
-  /** Browser takes hold their bytes here; desktop takes leave them on the Mac until `upload`. */
+  /** The Mac app's pictures: frames written, on a grid of `fps` (its file keeps exactly these). */
+  frames?: number
+  fps?: number
+  /** The Mac app's SHA-256 of the file as its recorder wrote it (sent with the take: the Studio refuses other bytes). */
+  sha256?: string
+  /** Browser takes hold their bytes here when they could not upload while recording; desktop takes leave them on the Mac until `upload`. */
   blob?: Blob
+  /**
+   * A track uploaded while it recorded: its key on the server (`live/<take>/<role>`) and how many pieces make it. Its
+   * bytes are on the server (or still going up: `upload` waits for the last ones), not here.
+   */
+  uploadKey?: string
+  pieces?: number
+  /** Upload it whole from the computer, never from what went up while it recorded (sent again after a refusal). */
+  whole?: boolean
+  /** True when the Studio refused the end of this track: it holds only the start of the recording. */
+  partial?: boolean
+  /** The frame rate the recorder asked for or the device said it gives (getSettings().frameRate), when it said. */
+  frameRate?: number
 }
 
 /** A word heard in the take, in milliseconds on the screen file's clock. */
@@ -130,6 +173,14 @@ export type FinishedTake = {
   /** The words the Mac's local speech model heard, when it gave any. */
   transcript: { words: TakeWord[] } | null
   durationSeconds: number
+  /** The take on the server when it was uploaded while it recorded (see TakeFile.uploadKey). */
+  liveTakeId?: string
+  /** A sentence about something that went wrong but left a usable take (the server refused the end of it). */
+  note?: string
+  /** Mac: the on-device words are still being read (they arrive after Stop: studio-recorder://words). */
+  wordsPending?: boolean
+  /** Mac: what moves the recorder's words (ms after its start) onto the screen file's clock. */
+  wordsShiftMs?: number
 }
 
 /** A part of an upload, as POST /uploads hands them out. */

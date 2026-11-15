@@ -18,9 +18,18 @@ let package = Package(
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("CoreMedia"),
                 .linkedFramework("CoreVideo"),
+                .linkedFramework("CryptoKit"),
                 .linkedFramework("IOKit"),
                 .linkedFramework("ScreenCaptureKit"),
             ]
+        ),
+        // The writers fed made-up pictures and sound (no capture): the files
+        // they make are probed with ffprobe when it is installed.
+        .testTarget(
+            name: "StudioRecorderTests",
+            dependencies: ["studio-recorder"],
+            path: "Tests/StudioRecorderTests",
+            linkerSettings: [.linkedFramework("WebKit")]
         ),
     ]
 )

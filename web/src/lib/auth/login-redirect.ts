@@ -65,6 +65,35 @@ export function isJoinLinkPath(path: string): boolean {
 }
 
 /**
+ * A page of the app itself, as the path to go to: /account, its pages and their deep links
+ * (`/account?page=studio&video=<id>&export=<id>`, the link the desktop app opens in the person's browser to download a
+ * large export there), or null. The value is anyone's to write, so it is read as a browser would read it: parsed
+ * against this site, after which it must still be on this site with a path that IS /account or under /account/ (dot
+ * segments, plain or %2e-encoded, are resolved first, so `/account/../x` is refused). A tab, a line break or a
+ * backslash, which a browser drops or turns into a slash, is refused outright. What is returned is the parsed path,
+ * search and hash, never the raw value.
+ */
+export function accountRedirectTarget(path: string): string | null {
+  if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//') || /[\t\r\n\\]/.test(path)) return null
+  const base = 'https://ni.invalid'
+  let url: URL
+  try {
+    url = new URL(path, base)
+  } catch {
+    return null
+  }
+  if (url.origin !== base) return null
+  if (url.pathname !== '/account' && !url.pathname.startsWith('/account/')) return null
+  if (url.pathname.includes('//')) return null
+  return `${url.pathname}${url.search}${url.hash}`
+}
+
+/** Is `path` a page of the app itself (accountRedirectTarget)? */
+export function isAccountRedirectPath(path: string): boolean {
+  return accountRedirectTarget(path) !== null
+}
+
+/**
  * Where a password sign-in (or an instant sign-up) sends the person: the MCP
  * authorize step to resume, an invite (or connect link) or a shared page, or a page in the app;
  * anything else is /account.
@@ -74,10 +103,8 @@ export function resolvePostAuthRedirect(redirectPath: string | null, origin: str
   const mcp = mcpRedirectTarget(redirectPath, origin)
   if (mcp) return mcp
   if (redirectPath.includes('//')) return '/account'
-  if (isInviteRedirectPath(redirectPath) || redirectPath.startsWith('/s/') || redirectPath.startsWith('/mail/s/') || redirectPath.startsWith('/account')) {
-    return redirectPath
-  }
-  return '/account'
+  if (isInviteRedirectPath(redirectPath) || redirectPath.startsWith('/s/') || redirectPath.startsWith('/mail/s/')) return redirectPath
+  return accountRedirectTarget(redirectPath) ?? '/account'
 }
 
 /**

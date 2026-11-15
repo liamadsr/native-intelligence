@@ -272,6 +272,47 @@ export interface StudioUploadProgressEvent {
   fraction: number
 }
 
+/** `studio-recorder://segment`: a whole segment of a take's file is on disk
+ *  (bytes `offset`, `length` of it; `endSeconds`: its media's end in the file;
+ *  `startPts`: the host seconds of the file's time 0). */
+export interface StudioSegmentEvent {
+  sessionId: string
+  role: StudioFileRole
+  index: number
+  kind: 'init' | 'media'
+  offset: number
+  length: number
+  endSeconds: number | null
+  startPts: number | null
+}
+
+/** A segment as the take's index lists it (studio_recorder_segments). */
+export interface StudioSegment {
+  index: number
+  kind: 'init' | 'media'
+  offset: number
+  length: number
+  endSeconds: number | null
+}
+
+/** A piece of a track planned as a byte range of its file, before the Studio is told of it. */
+export interface StudioPlannedPiece {
+  index: number
+  offset: number
+  length: number
+  seconds: number
+  offsetSeconds?: number | null
+}
+
+/** A take a quit or a crash cut short, kept on this computer and linked to a take on the Studio. */
+export interface StudioUnfinishedTake {
+  sessionId: string
+  takeId: string
+  /** `recording`: the recorder never stopped it; `stopped`: it was finished on disk (the app quit). */
+  state: string
+  tracks: { role: StudioFileRole; bytes: number; plan: StudioPlannedPiece[] }[]
+}
+
 /** One signed part from /api/account/studio/uploads: bytes
  *  [index × parts[0].bytes, + bytes) of the file go to `url` with `headers`. */
 export interface StudioUploadPart {

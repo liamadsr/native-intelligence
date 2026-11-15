@@ -142,7 +142,9 @@ async function main() {
   const media = join(dir, 'media')
   await mkdir(media, { recursive: true })
   const video = join(media, 'test.mp4')
+  // Made as a camera or a screen recorder makes HD video: RGB turned into BT.709 YUV, and tagged so.
   ffmpeg(['-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30:duration=3', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=3:sample_rate=48000',
+    '-vf', 'format=rgb24,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv',
     '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', '-movflags', '+faststart', video])
   // A browser recording: VP9/Opus WebM written to a pipe, so it says nothing of its duration.
   const webm = join(media, 'recording.webm')
@@ -309,7 +311,11 @@ async function main() {
     const pictureDb = psnrOf(mp4, video)
     const exportVolume = meanVolume(mp4)
     console.log(`[e2e] export vs source: PSNR ${pictureDb.toFixed(1)} dB; mean volume ${exportVolume.toFixed(1)} dBFS (source ${meanVolume(video).toFixed(1)})`)
-    assert.ok(pictureDb > 25, `the export's picture is the source's (PSNR ${pictureDb})`)
+    // Its colours too: written as BT.601 with no tag (Remotion's default), a made-up BT.709 recording's export measured 30.5 dB.
+    assert.ok(pictureDb > 38, `the export's picture is the source's, colours included (PSNR ${pictureDb})`)
+    const tags = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v', '-show_entries', 'stream=color_space,color_primaries,color_transfer,color_range', '-of', 'json', mp4], { encoding: 'utf8' })).streams[0]
+    // BT.709 matrix and primaries, limited range; the transfer stays the sRGB of Chrome's screenshots (src/render.ts, bt709WithSwscale).
+    assert.deepEqual([tags.color_space, tags.color_primaries, tags.color_transfer, tags.color_range], ['bt709', 'bt709', 'iec61966-2-1', 'tv'], 'the export says it is BT.709')
     assert.ok(Math.abs(exportVolume - meanVolume(video)) < 3, 'the export carries the source tone')
     const bundleLine = output.find((l) => l.includes('Bundled in'))
     const renderLine = output.find((l) => l.includes('Rendered in'))
@@ -384,7 +390,9 @@ async function main() {
     assert.equal(cancelled.error, 'Cancelled')
 
     // A longer edit (the clip four times over), cancelled in the middle of its render.
-    const long = parseEditorProject({ ...project, id: 'e2e-long', clips: [1, 2, 3, 4].map((n) => ({ ...project.clips[0]!, id: `clip-${n}` })) })
+    // Padding keeps it off the FFmpeg export (fast-export.ts), which would finish before these cancels land: they are
+    // the Chrome render's cancels.
+    const long = parseEditorProject({ ...project, id: 'e2e-long', presentation: { ...project.presentation, padding: 24 }, clips: [1, 2, 3, 4].map((n) => ({ ...project.clips[0]!, id: `clip-${n}` })) })
     const midway = app.queue('export', { project: long, title: 'Cancelled while rendering' })
     await until(() => midway.progress.some((p) => p > 0.3) || midway.status !== 'running' && midway.status !== 'queued', 180_000)
     midway.cancelRequested = true

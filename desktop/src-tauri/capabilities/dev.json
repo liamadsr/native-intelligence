@@ -1,6 +1,6 @@
 {
   "identifier": "dev-localhost",
-  "description": "Debug builds only: build.rs reads this file for a debug build and leaves it out of a release build, so no released app grants anything to localhost. The same windows and permissions as default.json, for the local dev server dev.sh's build points the main window at (lib.rs setup). tests/capability_policy.rs pins that it mirrors default.json exactly and grants only http://localhost:3000.",
+  "description": "Debug builds only: build.rs reads this file for a debug build and leaves it out of a release build, so no released app grants anything to localhost. The same windows and permissions as default.json, for the local dev server dev.sh's build points the main window at (lib.rs setup). tests/capability_policy.rs pins that it mirrors default.json exactly and grants only http://localhost:3000 and http://localhost:3001 (a second checkout's dev app: NI_DEV_PORT).",
   "windows": [
     "main",
     "meeting-hud",
@@ -11,7 +11,8 @@
   ],
   "remote": {
     "urls": [
-      "http://localhost:3000/*"
+      "http://localhost:3000/*",
+      "http://localhost:3001/*"
     ]
   },
   "permissions": [
@@ -155,6 +156,28 @@
     "allow-studio-recorder-start",
     "allow-studio-recorder-stop",
     "allow-studio-recorder-targets",
-    "allow-studio-recorder-upload"
+    "allow-studio-recorder-upload",
+    "allow-studio-recorder-segments",
+    "allow-studio-recorder-link-live",
+    "allow-studio-recorder-plan-pieces",
+    "allow-studio-recorder-put-piece",
+    "allow-studio-recorder-unfinished-takes",
+    "allow-studio-recorder-take-media",
+    "allow-studio-recorder-hold",
+    "allow-studio-recorder-draft-get",
+    "allow-studio-recorder-draft-put",
+    "allow-studio-recorder-drafts",
+    "allow-studio-recorder-words",
+    "allow-studio-recorder-take-token",
+    "allow-studio-export-pick-destination",
+    "allow-studio-export-reveal",
+    "allow-studio-export-save-parts",
+    "allow-studio-local-export-cancel",
+    "allow-studio-local-export-events",
+    "allow-studio-local-export-start",
+    "allow-studio-local-prepare",
+    "allow-studio-local-status",
+    "allow-studio-export-save-cancel",
+    "allow-studio-local-export-save-again"
   ]
 }
