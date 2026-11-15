@@ -91,9 +91,11 @@ import { CloudBrowserNoRoomError, isRuntimeNoRoomMessage } from './slots'
  * after asking the app (hub-tls.ts: yes for a `starting` or `running` row whose
  * session is `<id>.…`). Left to the live view, that handshake comes only after
  * the ensure (measured: 5 s more on a first start). So as soon as an ensure is
- * committed to a sandbox it created (after the give-way check) or woke (after
- * connect), the row names it (deps.recordSandbox, a `starting` row only, as
- * `<id>.0`), and only THEN one request goes to `https://<id>.<hub domain>/health`
+ * committed to a sandbox it created (after the give-way check, the root step
+ * and the run's start: never one about to be removed) or woke (after connect),
+ * the row names it (deps.recordSandbox, a `starting` row only, as
+ * `<id>.0`), and only THEN, and only if a starting row was there to name it,
+ * one request goes to `https://<id>.<hub domain>/health`
  * in the background (prewarmHub): its answer is ignored, its failure swallowed
  * and never logged, it is never waited for, and it goes once per process per
  * sandbox id. Not on a running browser taken up again (its name has had its
@@ -301,7 +303,7 @@ export interface RuntimeBackendDeps {
    * edge's certificate question then says yes, and the hub is prewarmed (see the
    * header). Without it (the conformance script) neither happens.
    */
-  recordSandbox?: (name: string, sandboxId: string) => Promise<void>
+  recordSandbox?: (name: string, sandboxId: string) => Promise<boolean>
   /** For the reconcile's envd health check and the hub's prewarm (tests). */
   fetch?: typeof fetch
 }
@@ -568,13 +570,15 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
    */
   async function taken(s: CloudBrowserRuntimeSettings, name: string, sandboxId: string): Promise<void> {
     if (!deps.recordSandbox) return
+    let written = false
     try {
-      await deps.recordSandbox(name, sandboxId)
+      written = await deps.recordSandbox(name, sandboxId)
     } catch (err) {
       console.warn('[cloud-browser] could not name the sandbox in its starting row (no prewarm):', messageOf(err).slice(0, 200))
       return
     }
-    prewarmHub(s, sandboxId)
+    // No starting row named it (the row is running, or being stopped): the edge would be told no.
+    if (written) prewarmHub(s, sandboxId)
   }
 
   /**
@@ -584,7 +588,8 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
    * is ignored; never awaited, never logged.
    */
   function prewarmHub(s: CloudBrowserRuntimeSettings, sandboxId: string): void {
-    if (prewarmed.has(sandboxId)) return
+    // Only the runtime's id shape ever goes into a host name.
+    if (!/^[a-z0-9]{1,63}$/.test(sandboxId) || prewarmed.has(sandboxId)) return
     if (prewarmed.size >= PREWARMED_MAX) prewarmed.clear()
     prewarmed.add(sandboxId)
     try {
@@ -728,8 +733,6 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
         return { sandbox: used, created: false }
       }
     }
-    // Mine is the one this ensure uses: the row names it, then its hub's certificate is asked for (see the header).
-    await taken(s, name, mine)
     // Before start.sh, so before any page loads: the one root step (see the header).
     let closed = false
     try {
@@ -748,6 +751,10 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
     } catch (err) {
       throw failure(`sandbox ${mine} does not run commands`, err, s.apiKey)
     }
+    // Mine is the one this ensure uses, closed and answering: the row names it, then its hub's
+    // certificate is asked for (see the header). Not before: a sandbox removed for its root step
+    // would have spent one of the domain's weekly certificates on nothing.
+    await taken(s, name, mine)
     return { sandbox: handle(s, { sandboxId: mine, state: 'running', startedAt }, inst), created: true }
   }
 
