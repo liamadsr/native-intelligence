@@ -38,7 +38,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { AgentIcon } from '@/components/agents/agent-icon'
-import { CODING_AGENT_CONNECT_HINT } from '@/lib/environments/types'
+import { codingAgentConnectHint } from '@/lib/environments/types'
 import type { ComposerTab } from '@/lib/local-agent/code-tab'
 import type { ComposerCode } from './composer-code'
 
@@ -107,7 +107,7 @@ export function CodeAgentPicker({ code, onOpenChange }: { code: ComposerCode; on
           data-code-agent-picker={code.agent ?? 'native'}
           aria-label={`Agent: ${code.agentLabel}`}
           title={code.agent ? `${code.agentLabel} does the work, on your own ${code.agentLabel} account` : `${code.agentLabel} does the work, on your Mac`}
-          className="flex h-8 min-w-0 max-w-[9.5rem] shrink items-center gap-1 rounded-full px-2 text-[13px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground @max-[22rem]/chatinput:px-1.5"
+          className="flex h-8 min-w-0 max-w-[12rem] shrink items-center gap-1 rounded-full px-2 text-[13px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground @max-[22rem]/chatinput:px-1.5"
         >
           <AgentIcon className="h-3.5 w-3.5 shrink-0" />
           <span className="min-w-0 truncate @max-[22rem]/chatinput:hidden">{code.agentLabel}</span>
@@ -135,8 +135,7 @@ export function CodeAgentPicker({ code, onOpenChange }: { code: ComposerCode; on
               </DropdownMenuItem>
             ))}
             <p data-code-agent-connect-hint="" className="px-2 pb-1.5 pt-0.5 text-[12px] leading-snug text-muted-foreground">
-              {code.macName ? `On ${code.macName}: ` : ''}
-              {CODING_AGENT_CONNECT_HINT}
+              {codingAgentConnectHint(code.macName)}
             </p>
           </>
         )}

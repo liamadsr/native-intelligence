@@ -219,7 +219,7 @@ describe('the Code tab', () => {
     expect(menu.textContent).toContain('Your agents')
     expect(menu.textContent).toContain('Needs connection')
     expect(q('[data-code-agent-needs-connection="codex"]')!.getAttribute('data-disabled')).not.toBeNull()
-    expect(q('[data-code-agent-connect-hint]')!.textContent).toContain('On Studio Mac: Install it and sign in on that Mac, then allow it from the Native Intelligence menu bar icon')
+    expect(q('[data-code-agent-connect-hint]')!.textContent).toContain('Install it and sign in on Studio Mac, then allow it from the Native Intelligence menu bar icon')
   })
 
   it('a send starts the job with the person’s words, puts their message in the thread, clears the box, keeps the choice, and draws the job after it', async () => {
@@ -281,8 +281,10 @@ describe('the Code tab', () => {
     press(q('[data-composer-tab="code"]')!)
     await flush()
     expect(q('[data-code-notice="blocker"]')!.textContent).toBe(CODE_CLOUD_NEXT_REASON)
+    // No Mac to pick an agent on: no picker.
+    expect(q('[data-code-agent-picker]')).toBeNull()
     type('Fix it')
-    expect((q('button[aria-label^="Send"]') as HTMLButtonElement).disabled).toBe(true)
+    expect((q('button[aria-label="Send"]') as HTMLButtonElement).disabled).toBe(true)
     expect(posts()).toEqual([])
   })
 

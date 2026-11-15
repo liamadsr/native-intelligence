@@ -76,6 +76,8 @@ export interface ComposerCode {
   agent: string | null
   agentLabel: string
   pickAgent: (agent: string | null) => void
+  /** The chat's environment is one of the person's Macs: the agent picker shows (a cloud one has no agents to pick yet). */
+  hasMac: boolean
   /** The chat's Mac's name (the picker's "Needs connection" line names it), or null. */
   macName: string | null
   folders: CodeFolderOption[]
@@ -348,6 +350,7 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
             agent,
             agentLabel,
             pickAgent,
+            hasMac: !!mac,
             macName: mac?.name ?? null,
             folders: folderOptions,
             folderId,

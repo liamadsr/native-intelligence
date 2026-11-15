@@ -532,7 +532,9 @@ export const ChatInput = memo(function ChatInput({
       : dictation.active && !value
         ? 'Listening…'
         : codeActive && code
-          ? `Tell ${code.agentLabel} what to change`
+          ? code.hasMac
+            ? `Tell ${code.agentLabel} what to change`
+            : 'Describe the change'
           : placeholder ?? (hasMessages ? 'Continue chat' : '@ to mention')
   // The rotating overlay is aria-hidden, so the field itself says that Tab sends a suggestion.
   const tabHintId = useId()
@@ -1104,7 +1106,7 @@ export const ChatInput = memo(function ChatInput({
   // A send the Code tab can't make now (a cloud environment, no folder, one
   // already going out): send stays off, and the line under the box says why.
   const codeHeld = codeActive && !!code && (!!code.blocker || code.sending)
-  const sendLabel = codeActive && code ? `Send to ${code.agentLabel}` : isLoading ? 'Send when this reply finishes' : 'Send message'
+  const sendLabel = codeActive && code ? (code.hasMac ? `Send to ${code.agentLabel}` : 'Send') : isLoading ? 'Send when this reply finishes' : 'Send message'
 
   // The field: its own row (stacked), or between "+" and the mic (inline).
   const field = (
@@ -1542,7 +1544,7 @@ export const ChatInput = memo(function ChatInput({
           )}
 
           {/* Code: who you work with, before the mic. */}
-          {codeActive && code && <CodeAgentPicker code={code} onOpenChange={handlePopoverLock} />}
+          {codeActive && code?.hasMac && <CodeAgentPicker code={code} onOpenChange={handlePopoverLock} />}
 
           {/* Dictation: the mic sits left of send (desktop, on-device
               transcription ready). In voice mode (no dictation then) the spot

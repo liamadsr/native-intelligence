@@ -74,9 +74,10 @@ export const KNOWN_CODING_AGENTS: readonly MacWorkerOffer[] = [
   { id: 'codex', label: 'Codex' },
 ]
 
-/** How a coding agent a Mac doesn't offer gets there, in one line. */
-export const CODING_AGENT_CONNECT_HINT =
-  'Install it and sign in on that Mac, then allow it from the Native Intelligence menu bar icon (Local Agents → Coding Agents).'
+/** How a coding agent a Mac doesn't offer gets there, in one line (naming the Mac when known). */
+export function codingAgentConnectHint(macName: string | null | undefined): string {
+  return `Install it and sign in on ${macName || 'that Mac'}, then allow it from the Native Intelligence menu bar icon (Local Agents → Coding Agents).`
+}
 
 /**
  * A database answer that means "this column isn't there yet" (migration 658
