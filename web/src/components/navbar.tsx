@@ -19,7 +19,7 @@ export const FEATURES = [
   { name: 'Shared Memory', description: 'Everything your team says, remembered with its source', href: '/#memory' },
   { name: 'Agents', description: 'Tasks, follow-ups and code, done for you', href: '/#agents' },
   { name: 'Desktop App', description: 'Capture every call — no bot joins the meeting', href: '/#desktop' },
-  { name: 'Integrations', description: 'Gmail, Outlook, Slack, your CRM, and MCP', href: '/#integrations' },
+  { name: 'Moving In', description: 'Bring your mail, calendar, customers and files with you', href: '/#integrations' },
 ]
 
 function NavDropdown({ label, items }: {

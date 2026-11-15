@@ -1,0 +1,61 @@
+---
+title: Switching guide
+description: Move your team's mail, calendar, customers, spreadsheets and tasks into Native Intelligence, one piece at a time.
+---
+
+Native Intelligence is the mail app, the chat, the task tracker, the docs and the CRM, so switching means moving in, not wiring it to the tools you have. You don't have to move everything at once: start with one piece, check it, and bring the rest over when you are ready.
+
+This page says what comes across today, how, and where there is no importer yet.
+
+## Email and calendar
+
+Nothing has to move. Your addresses and calendars stay with Google or Microsoft, and Native Intelligence becomes the app you use them in.
+
+1. Open **Settings → Connectors**.
+2. Connect **Google** or **Microsoft** and finish signing in.
+3. Your mail and calendar appear. Connect as many accounts as you use; they share one inbox and one calendar.
+
+See [Integrations](/docs/configuration/integrations) for account preferences, Exchange through the Mac app, and disconnecting.
+
+## Customers
+
+Companies and contacts can come from several places, and every import goes through the same importer: it matches people you already have, fills in what is missing, and never writes over a field you edited yourself.
+
+- **HubSpot.** Connect it in **Settings → Connectors**. The first sync brings your companies and contacts in.
+- **Google Contacts.** Connect it and your contacts are imported once.
+- **Brevo.** Connect it and your contacts are imported once.
+- **A spreadsheet or an address book.** Give your agent a CSV, XLSX or vCard file in chat. It maps the columns and shows what it will do before it does it.
+- **Stripe.** If you take payments through Native Intelligence, the workspace owner can ask the agent to import its customers.
+
+A whole import comes back out with one **Undo**. After that the records keep themselves up to date from your mail, meetings and calendar. See [Contacts and CRM](/docs/features/contacts-and-crm).
+
+## Spreadsheets and databases
+
+Import a CSV, TSV or Excel file into a table from the table's **Import** dialog. Each column gets a type, a cell that does not fit its column is left empty and counted so you can see what was skipped, and the whole import has one **Undo**.
+
+## Tasks and projects
+
+There is no bulk importer for a task tracker yet. Two ways to move today:
+
+- **Ask your agent to bring work over.** In **Settings → Connectors**, connect the tracker's own MCP server (Discover lists the ones we have vetted, such as Linear). Then ask the agent to read the work you want and create the matching tasks and projects here. Start with one project and check the result before you bring the rest. A connected server's tools that change anything start as **Needs approval**.
+- **Keep the tracker connected while you move.** The Linear, Jira and Asana integrations push a task there and bring its state back, so part of the team can keep working in the old tool until you are done.
+
+What an agent can read depends on the tools the other app's MCP server offers.
+
+## Team chat
+
+Create your channels and invite your team from **Chat**. Messages from another chat app are not imported.
+
+If you still need Slack for conversations with other companies, connect it in **Settings → Connectors → Slack**. You can message your agent there, and it can reach you there when you are away.
+
+## Meeting notes
+
+There is nothing to import. Install the [desktop app](/docs/desktop-app) and your calls are captured from then on, with no bot joining them.
+
+## Other tools
+
+For an app with its own MCP server, connect it in **Settings → Connectors** and ask your agent to bring over what you need, the same way as for tasks. You can also leave older work where it is and keep the connection, so your agent can still look things up there.
+
+## What to cancel
+
+Once a piece has moved and your team is working from it, cancel the app it replaced. [Replace your apps](/replace-apps) adds up what a typical stack costs beside one workspace.

@@ -91,7 +91,12 @@ function proposal(i: number, p: { title: string; kind?: 'action' | 'decision' })
   }
 }
 
-export function LiveAgentDemo({ scenario = PROJECT_MANAGER_SCENARIO }: { scenario?: LiveAgentScenario }) {
+/**
+ * `tools` false keeps the Tools card closed: the pill at the foot still counts
+ * the agent's calls, but nothing rises over the notes, so the picture is only
+ * what the call captured. The homepage and the feature pages show it that way.
+ */
+export function LiveAgentDemo({ scenario = PROJECT_MANAGER_SCENARIO, tools = true }: { scenario?: LiveAgentScenario; tools?: boolean }) {
   const calls = scenario.toolCalls
   // How many tool calls have run (0: the call just started).
   const [step, setStep] = useState(0)
@@ -145,9 +150,11 @@ export function LiveAgentDemo({ scenario = PROJECT_MANAGER_SCENARIO }: { scenari
             </div>
 
             {/* The Tools card, risen out of its pill at the card's foot. */}
-            <div className="absolute bottom-2 right-3 hidden h-[168px] w-[270px] flex-col overflow-hidden rounded-2xl bg-white shadow-[0_10px_40px_-10px_rgb(0_0_0/0.35),0_2px_8px_rgb(0_0_0/0.08)] ring-1 ring-black/5 sm:flex dark:bg-black dark:ring-white/10">
-              <ToolCallsView events={events} title="Tools" />
-            </div>
+            {tools && (
+              <div className="absolute bottom-2 right-3 hidden h-[168px] w-[270px] flex-col overflow-hidden rounded-2xl bg-white shadow-[0_10px_40px_-10px_rgb(0_0_0/0.35),0_2px_8px_rgb(0_0_0/0.08)] ring-1 ring-black/5 sm:flex dark:bg-black dark:ring-white/10">
+                <ToolCallsView events={events} title="Tools" />
+              </div>
+            )}
           </div>
 
           {/* The capture's controls while it records: the live agent, its packages, Transcripts and Tools. */}
