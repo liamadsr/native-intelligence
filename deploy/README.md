@@ -1661,7 +1661,15 @@ Later on, a workspace whose token dies (Slack refuses it and it can't be renewed
 
 ## The cloud browser
 
-**Where it runs today:** on the earlier host's sandbox service, with `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID`, `SANDBOX_PROJECT_ID` and `CLOUD_BROWSER_BASE_SNAPSHOT_ID` in `app/.env` (step 21, Gate 1). **A second way is written and off:** each person's browser as a sandbox on our own sandbox server ([`sandbox/README.md`](sandbox/README.md)), beside the coding agent's. Nothing of it has been tried on a real server. It is chosen by one setting, `CLOUD_BROWSER_BACKEND=runtime` in `app/.env`; empty, the app does what it did before, whatever else is set, and the parts below do nothing.
+**Where it runs: on our own sandbox server, since 2026-11-14** ([`sandbox/README.md`](sandbox/README.md)): each person's browser is a sandbox there, beside the coding agent's. It is chosen by one setting, `CLOUD_BROWSER_BACKEND=runtime` in `app/.env`; empty, the app uses the earlier host's sandbox service as it did before (with `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID`, `SANDBOX_PROJECT_ID` and `CLOUD_BROWSER_BASE_SNAPSHOT_ID`, which stay in `app/.env` as the way back), whatever else is set, and the parts below do nothing.
+
+**The record of the switch (2026-11-14).** The steps under "The switch, for later" were done that day, in that order, and the text there is kept as written before it, for a second server or a move. What happened beyond it:
+
+- The sandbox server's checkout holds only `deploy/`; the image's scripts needed `git sparse-checkout add web/scripts/cloud-browser/base` first. The image's first build was refused by its own check twice, both fixed since: Chrome also listens on `[::1]`, and the base image's `yarn` left files under `/usr/local/bin` that were not root's.
+- The conformance script passed against the real runtime, every check. Measured there: a 4 GiB browser is paused in 0.2 to 1.5 s and woken in 2.5 to 3.3 s; a request to a paused browser does not wake it; the runtime's proxy dials an allowed name itself, so a request for the relay's host aimed at another address still reaches the relay's host; `X-Real-IP` reaches the hub and `X-Forwarded-For` does not; a cookie survives the stop script, a pause, a wake and a start.
+- The first real browser started in 7.6 s, and its certificate took 5 s more. Then every request to its name was answered 404 at the edge for three minutes: the edge wanted a label of exactly 20 characters and the runtime's ids are 21 (fixed: `edge/Caddyfile`). After that the live view connected at once, the desktop app's exit connected through the person's Mac, and five idle minutes later the sweep paused the browser in 1.7 s.
+- Scanners asked the browser's name for files within minutes of its certificate, as expected of a published name; the hub answered 404.
+- **Not yet seen:** a wake with the person still signed in to their sites, a night across the daily reboot with a browser running (the pause unit's journal), more than one person at once, a `restricted` coding run beside browsers.
 
 The parts, each off or idle until the switch:
 
