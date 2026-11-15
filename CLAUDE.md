@@ -48,8 +48,9 @@ Read this before reporting anything as live or touching production. The code gui
   array in `web/vercel.json`: after changing it, run `node deploy/app/cron/generate.mjs`
   and commit `deploy/app/cron/crontab` with it (the image build and CI fail when the two
   disagree).
-- **Still at the earlier host, on purpose:** the cloud browser's sandboxes, the AI
-  Gateway, and DNS. Slack is not on that list any more: since 2026-11-14 the
+- **Still at the earlier host, on purpose:** the AI Gateway, and DNS with the two
+  domains' registrations (the owner's decision, 2026-11-14: they cost nothing there).
+  Slack is not on that list any more: since 2026-11-14 the
   code talks to Slack directly with our own Slack app (`web/src/lib/slack/`,
   migration 644). The Slack app's addresses point at us, the earlier host's
   connector is revoked and deleted, and a Slack workspace is connected with
@@ -62,13 +63,22 @@ Read this before reporting anything as live or touching production. The code gui
   proven: an install started in the desktop app, a mention in a channel, a
   button click (`/api/slack/interactivity`), a second Slack workspace. "Slack"
   under "Day to day" in [`deploy/README.md`](deploy/README.md) is the record of
-  the switch and says what a move to another address needs. The cloud browser's
-  sandboxes run on that host's
-  sandbox service with `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and
-  `SANDBOX_PROJECT_ID`, which is why those three stay in the server's `.env`.
-  A second way, on our own sandbox server, is written and OFF
-  (`CLOUD_BROWSER_BACKEND`, empty = the earlier host), NOT proven anywhere:
-  switching it on is the owner's call ("The cloud browser" in `deploy/README.md`).
+  the switch and says what a move to another address needs.
+- **The cloud browser runs on our own sandbox server since 2026-11-14**
+  (`CLOUD_BROWSER_BACKEND=runtime` in the server's `.env`; "The cloud browser" in
+  [`deploy/README.md`](deploy/README.md)): one sandbox per person and workspace,
+  paused when idle, each with a public name `<sandbox id>.<CLOUD_BROWSER_HUB_DOMAIN>`
+  that the edge certifies on demand (a wildcard DNS record at the earlier host
+  points those names at the server). Proven live that day: the conformance script
+  against the real runtime (every check), and one person's browser: its start, its
+  certificate, the live view, the exit through the person's Mac, and the idle stop
+  (a pause). NOT yet proven: a wake with the person still signed in, a night across
+  the daily reboot with a browser running, more than one person at once. The earlier
+  host's sandbox service is the way back (empty `CLOUD_BROWSER_BACKEND` and
+  `CLOUD_BROWSER_RUNTIME_KEY`, then the guide's two steps), which is why
+  `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID`, `SANDBOX_PROJECT_ID` and
+  `CLOUD_BROWSER_BASE_SNAPSHOT_ID` stay in the server's `.env` for now. People's
+  sign-ins do not move between the two.
 - **The coding agent's sandbox runs on our own sandbox server since 2026-11-12**
   ([`deploy/sandbox/README.md`](deploy/sandbox/README.md)), chosen by
   `SANDBOX_RUNTIME_API_URL`, `SANDBOX_RUNTIME_TRAFFIC_URL` and `SANDBOX_RUNTIME_KEY` in

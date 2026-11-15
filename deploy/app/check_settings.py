@@ -114,6 +114,7 @@ MAY_BE_EMPTY = {
     "CLOUD_BROWSER_RUNTIME_TEMPLATE": "empty: ni-cloud-browser",
     "CLOUD_BROWSER_HUB_DOMAIN": "empty: no browser names of our own (needed with CLOUD_BROWSER_BACKEND=runtime)",
     "BROWSER_RELAY_ALLOWED_ADDRESSES": "empty: needed with CLOUD_BROWSER_BACKEND=runtime only (every relay is refused there without it)",
+    "CLOUD_BROWSER_MAX_RUNNING": "empty: at most 4 browsers run at once on our own runtime (the shared slots)",
     # The call recorder (../livekit's recorder service; ../README.md step 23, "The call recorder").
     "TEAM_CALL_RECORDER": "a switch: empty is off (call notes are Egress's, or there are none)",
     "CAPTURE_FEED_SECRET": "empty: the call recorder cannot reach the app (make-keys.sh in ../livekit makes it)",
@@ -772,6 +773,17 @@ def check_browser_template(env, _opts):
     return None, None
 
 
+def check_max_running(env, _opts):
+    """CLOUD_BROWSER_MAX_RUNNING (web/src/lib/cloud-browser/config.ts cloudBrowserMaxRunning):
+    a positive integer, as the app reads it (no sign, no leading zero, at most four digits).
+    The app would use 4 for anything else, quietly but for one log line."""
+    if not re.fullmatch(r"[1-9][0-9]{0,3}", env["CLOUD_BROWSER_MAX_RUNNING"].strip()):
+        return False, "not a positive integer: the app would use 4 instead"
+    if browser_backend(env) != "runtime":
+        return "warn", "set without CLOUD_BROWSER_BACKEND=runtime: nothing reads it (the hosted service has no cap)"
+    return None, None
+
+
 def check_hub_domain(env, _opts):
     domain = hub_domain(env[HUB_DOMAIN])
     if domain is None:
@@ -1027,6 +1039,7 @@ CHECKS = {
     "CLOUD_BROWSER_RUNTIME_TEMPLATE": check_browser_template,
     "CLOUD_BROWSER_HUB_DOMAIN": check_hub_domain,
     "BROWSER_RELAY_ALLOWED_ADDRESSES": check_relay_addresses,
+    "CLOUD_BROWSER_MAX_RUNNING": check_max_running,
     "TEAM_CALL_RECORDER": check_team_call_recorder,
     "CAPTURE_FEED_SECRET": check_capture_feed_secret,
     "TEAM_CALL_LIVE_AGENT": check_needs_recorder("TEAM_CALL_LIVE_AGENT", "the live agent writes a call's notes"),
