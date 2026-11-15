@@ -735,6 +735,17 @@ class CloudBrowserOnOurRuntime(unittest.TestCase):
         self.assertEqual(check(dict(self.ENV, CLOUD_BROWSER_BACKEND="", CLOUD_BROWSER_RUNTIME_TEMPLATE="ni-cloud-browser"), {})[0], "warn")
         self.assertEqual(cs.BROWSER_TEMPLATE_DEFAULT, "ni-cloud-browser")
 
+    def test_the_cap_on_running_browsers(self):
+        check = cs.CHECKS["CLOUD_BROWSER_MAX_RUNNING"]
+        self.assertEqual(cs.group("CLOUD_BROWSER_MAX_RUNNING"), "may be empty")
+        for good in ("1", "4", " 12 ", "9999"):
+            self.assertEqual(check(dict(self.ENV, CLOUD_BROWSER_MAX_RUNNING=good), {}), (None, None), good)
+        for wrong in ("0", "-1", "2.5", "four", "04", "1e3", "10000"):
+            ok, note = check(dict(self.ENV, CLOUD_BROWSER_MAX_RUNNING=wrong), {})
+            self.assertIs(ok, False, wrong)
+            self.assertNotIn(wrong.strip(), note)
+        self.assertEqual(check(dict(self.ENV, CLOUD_BROWSER_BACKEND="", CLOUD_BROWSER_MAX_RUNNING="4"), {})[0], "warn")
+
     def test_the_runtime_must_have_the_browsers_image_when_it_runs_them(self):
         up = [(self.API + "/health", (200, None)), (self.API + "/sandboxes", (200, []))]
         both = [{"aliases": ["ni-coding-agent"]}, {"aliases": ["ni-cloud-browser"]}]
