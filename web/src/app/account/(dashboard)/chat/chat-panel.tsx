@@ -36,6 +36,7 @@ import {
   useComposerFolders,
   useComposerMentions,
 } from './composer-state'
+import { useComposerCode } from './composer-code'
 import { applyChatRetention, MAX_LIVE_MESSAGES, needsChatRetention } from '@/lib/chat/message-retention'
 import { caughtUpThread } from '@/lib/chat/thread-catch-up'
 import { ChevronDown } from 'lucide-react'
@@ -1650,6 +1651,42 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
     inputRef.current = input
   }, [input])
 
+  // The composer's Chat / Code tabs (composer-code.tsx), for a person with a
+  // Mac environment: in Code, a send goes to their coding agent's job, the
+  // person's message goes into the thread as theirs (saved as an opened page
+  // is, making the conversation when it has none yet), and each job draws
+  // inline after the message that started it.
+  const appendCodeMessage = useCallback(
+    (message: UIMessage) => {
+      const thread = [...messagesRef.current, message]
+      messagesRef.current = thread
+      setMessages(thread)
+      persistNow(thread)
+    },
+    [setMessages, persistNow],
+  )
+  const codeConversationIdNow = useCallback(async () => getConversationId() ?? (await pendingCreate()) ?? getConversationId(), [getConversationId, pendingCreate])
+  const chatReplyRunning = useCallback(() => statusRef.current === 'streaming' || statusRef.current === 'submitted', [])
+  const composerCode = useComposerCode({
+    enabled: true,
+    conversationId: boundConversationId,
+    environment: composerEnvironment,
+    folders: composerFolders,
+    messages,
+    appendMessage: appendCodeMessage,
+    conversationIdNow: codeConversationIdNow,
+    chatBusy: chatReplyRunning,
+  })
+  // This render's, as submitTurnRef is: a dictation's send reads the words it just merged.
+  const submitCodeRef = useRef<() => boolean>(() => false)
+  submitCodeRef.current = () => {
+    if (!composerCode.active) return false
+    void composerCode.submit(input).then((sent) => {
+      if (sent) setInput('')
+    })
+    return true
+  }
+
   // ── Pages from `/` (the instant path) ──────────────────────────────────
   // Picking a page in the composer's `/` menu opens it as every other way in
   // does (openCardHere, below): full screen at once, no model call, no eve
@@ -2454,6 +2491,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
   // submitTurn, so a send reads exactly the state the old per-render
   // `function onSubmit` closed over.
   const onSubmit = useCallback(() => {
+    if (submitCodeRef.current()) return
     void submitTurnRef.current(null)
   }, [])
   // Voice mode's turns say so (systemContext.voiceMode): the agent answers to
@@ -3569,6 +3607,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
                             topSlot={earlierSlot}
                             dayBefore={dayBefore}
                             messageTimes
+                            codeThread={composerCode.thread}
                           />
                           </OpenSessionLimitContext.Provider>
                         </div>
@@ -3796,6 +3835,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
               recording={recording}
               folders={composerFolders}
               environment={composerEnvironment}
+              code={composerCode.code}
               // One row, as team chat's (Liam, 11-09: "update the main agents
               // chat box to match the teams-chat one so it's a single line").
               layout="inline"

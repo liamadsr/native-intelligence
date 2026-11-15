@@ -19,6 +19,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { macEnvironmentId } from '@/lib/environments/mac'
 import { WORKER_NOT_OFFERED_CODE, assertMacOffers } from '@/lib/environments/store'
 import { EnvironmentError, isWorkerId } from '@/lib/environments/types'
+import { CODE_CLOUD_NEXT_REASON } from './code-thread'
 import {
   CODE_REQUEST_ID_RE,
   LocalAgentError,
@@ -32,9 +33,8 @@ import {
 
 type Svc = SupabaseClient
 
-/** The cloud from the Code tab comes in a later phase (details.code). */
+/** The cloud from the Code tab comes in a later phase (details.code; the sentence is code-thread.ts's, the composer says it too). */
 export const CODE_CLOUD_NEXT_CODE = 'CODE_CLOUD_NEXT'
-export const CODE_CLOUD_NEXT_REASON = 'Coding in the cloud from here comes next. Pick one of your Macs to code on it now.'
 /** Code works on its own branch: the folder must be a git repository (details.code). */
 export const NOT_A_REPOSITORY_CODE = 'NOT_A_REPOSITORY'
 

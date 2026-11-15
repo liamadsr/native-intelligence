@@ -14,6 +14,8 @@
  *   useComposerEnvironment   the selector under the box: where this chat's work runs
  *                            (a Mac or a cloud environment; main chat only)
  *
+ * The main chat's Chat / Code tabs build on the last two (composer-code.tsx).
+ *
  * and the pure pieces a send builds from them (the message's file parts, the
  * uploads' storage facts, the text of a files-only turn). No model: the server
  * picks one per turn, so no composer carries a model or a thinking level.
@@ -32,7 +34,6 @@ import {
   pickChatEnvironment,
   refreshEnvironment,
   refreshEnvironments,
-  setMacWorker,
   useChatEnvironment,
   useEnvironments,
   useLocalEnvironment,
@@ -40,7 +41,6 @@ import {
   type ChatEnvironment,
   type EnvironmentItem,
   type EnvironmentsSnapshot,
-  type MacEnvironmentItem,
   type ThisMacSnapshot,
 } from '@/lib/local-agent/environment-client'
 import { validateChatUpload } from '@/lib/chat/upload-allowlist'
@@ -254,10 +254,8 @@ export interface ComposerEnvironment {
   list: EnvironmentsSnapshot
   openMenu: () => void
   pick: (environment: EnvironmentItem) => void
-  /** This Mac and the coding agents it offers (only inside the desktop app on it). */
+  /** This Mac and the coding agents it offers (only inside the desktop app on it): the Code tab's agent picker. */
   thisMac: ThisMacSnapshot
-  /** Who does a Mac's work: a coding agent's id, or null for Native Intelligence's own agent. */
-  pickWorker: (environment: MacEnvironmentItem, worker: string | null) => void
 }
 
 /** Menu opens this close together read the list once. */
@@ -278,9 +276,8 @@ export function useComposerEnvironment({ enabled, conversationId }: { enabled: b
     void checkLocalAgents({ force: true })
   }, [enabled])
   const pick = useCallback((environment: EnvironmentItem) => void pickChatEnvironment(conversationId, environment), [conversationId])
-  const pickWorker = useCallback((environment: MacEnvironmentItem, worker: string | null) => void setMacWorker(environment, worker), [])
   const visible = enabled && (!!chat.environment || list.environments.length > 0)
-  return useMemo(() => ({ visible, chat, list, openMenu, pick, thisMac, pickWorker }), [visible, chat, list, openMenu, pick, thisMac, pickWorker])
+  return useMemo(() => ({ visible, chat, list, openMenu, pick, thisMac }), [visible, chat, list, openMenu, pick, thisMac])
 }
 
 /** The ready uploads a send carries. */

@@ -15,6 +15,9 @@
  * extraction reads these two kinds like any other chat text.
  */
 
+/** Why the Code tab doesn't send with a cloud environment (the route refuses it too, CODE_CLOUD_NEXT). */
+export const CODE_CLOUD_NEXT_REASON = 'Coding in the cloud from here comes next. Pick one of your Macs to code on it now.'
+
 /** A Code job's ledger rows say so in their source (ledger.ts startTurnRow; chat-report.ts reads it). */
 export const LOCAL_AGENT_CODE_SOURCE_KEY = 'local_agent_code' as const
 

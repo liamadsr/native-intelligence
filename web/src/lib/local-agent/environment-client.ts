@@ -408,8 +408,8 @@ export function checkLocalAgents(opts: { force?: boolean } = {}): Promise<void> 
 }
 
 /**
- * This Mac and the coding agents it offers, live (the composer's worker
- * toggle). Checks the desktop on mount and again when the window regains
+ * This Mac and the coding agents it offers, live (the Code tab's agent
+ * picker, an action's "with …"). Checks the desktop on mount and again when the window regains
  * focus or the environment menu opens (checkLocalAgents({ force: true })):
  * an agent may have been switched on meanwhile. Off: nothing checked.
  */

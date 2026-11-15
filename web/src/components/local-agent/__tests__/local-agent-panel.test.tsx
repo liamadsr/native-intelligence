@@ -379,6 +379,43 @@ describe('LocalAgentPanel', () => {
   })
 })
 
+describe('inline in the chat (a Code tab job)', () => {
+  async function mountInline(session: SessionRow, events: unknown[] = EVENTS, onSession = vi.fn()) {
+    db.events = events as Array<{ id: number }>
+    db.reads = []
+    routes = {
+      get: () => json({ session, events, lastId: (events as Array<{ id: number }>).at(-1)?.id ?? 0 }),
+      post: () => json({ ok: true }),
+    }
+    await act(async () => {
+      root.render(h(LocalAgentPanel, { sessionId: SID, inline: true, onSession }))
+    })
+    await settle()
+    await settle()
+    return onSession
+  }
+
+  it('its header with Stop, the transcript and the question, in the chat’s flow: no request bubble, no composer of its own', async () => {
+    const onSession = await mountInline({ ...sessionRow(), startedBy: 'person', worker: 'claude-code', status: 'waiting', lastSignal: 'ask', lastSignalText: 'Which month?' } as SessionRow)
+    expect(q('[data-local-agent-inline]')).not.toBeNull()
+    expect(q('[data-local-agent-header]')).not.toBeNull()
+    expect(q('[data-local-agent-teammate-name]')!.textContent).toContain('Claude Code')
+    expect(q('[data-local-agent-asking]')?.textContent).toContain('Which month?')
+    // The chat's own bubble above it is the request; its later messages are here.
+    expect([...container.querySelectorAll('[data-local-agent-inbound]')].some((el) => el.textContent?.includes('Take a look'))).toBe(false)
+    expect(text()).toContain('Only this one')
+    expect(q('[data-local-agent-composer]')).toBeNull()
+    expect(q('[role="log"]')!.className).not.toContain('overflow-y-auto')
+    expect(onSession).toHaveBeenCalledWith(expect.objectContaining({ id: SID, status: 'waiting' }))
+  })
+
+  it('ended: says so, and that the next message starts a new one', async () => {
+    await mountInline({ ...sessionRow(), startedBy: 'person', status: 'cancelled' } as SessionRow, [])
+    expect(q('[data-local-agent-ended]')!.textContent).toContain('Your next message starts a new one.')
+    expect(text()).not.toContain('Ask the Native Intelligence agent')
+  })
+})
+
 describe('the opening request: who asked', () => {
   it('a card’s Start the person pressed: their request (“You · asked”); the chat agent’s start keeps its label', async () => {
     await mount(sessionRow({ requestedByPerson: true }))

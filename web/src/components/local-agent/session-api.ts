@@ -7,6 +7,8 @@
  *   POST /api/local-agent/sessions/[id]/messages     {text, policy, requestId} (author person;
  *                                                   a retried requestId sends once)
  *   POST /api/local-agent/sessions/[id]/stop
+ *   GET  /api/local-agent/sessions?conversationId=…   a chat's jobs (the Code tab)
+ *   POST /api/local-agent/sessions                     the person's Code job
  *
  * the session's event pages read newest first (`fetchEventsBefore`: the
  * browser client, owner RLS select on local_agent_event, the same rows
@@ -204,6 +206,55 @@ export async function postSessionStop(sessionId: string, fetchImpl: FetchLike = 
     return { ok: true, value: isSession(body?.session) ? body.session : null }
   } catch {
     return { ok: false, status: 0, message: 'Could not stop it.' }
+  }
+}
+
+// ── The chat composer's Code tab ────────────────────────────────────────────
+
+/** A conversation's local agents (GET /api/local-agent/sessions?conversationId=…), newest first. */
+export async function fetchConversationSessions(conversationId: string, fetchImpl: FetchLike = fetch): Promise<ApiResult<PanelSession[]>> {
+  try {
+    const res = await fetchImpl(`/api/local-agent/sessions?conversationId=${encodeURIComponent(conversationId)}`, { cache: 'no-store' })
+    if (!res.ok) return errorOf(res, 'Could not read this chat’s jobs.')
+    const body = (await res.json().catch(() => null)) as { sessions?: unknown } | null
+    const sessions = Array.isArray(body?.sessions) ? body.sessions.filter(isSession) : []
+    return { ok: true, value: sessions }
+  } catch {
+    return { ok: false, status: 0, message: 'Could not read this chat’s jobs.' }
+  }
+}
+
+export interface CodeStartBody {
+  conversationId: string
+  folderId: string
+  request: string
+  /** A coding agent's id, or null for Native Intelligence's own agent. */
+  worker: string | null
+  requestId: string
+  environmentId?: string
+}
+
+export interface CodeStarted {
+  session: PanelSession
+  created: boolean
+  joined: boolean
+  deviceOnline: boolean
+}
+
+/** Start the person's Code job (POST /api/local-agent/sessions); a retry with the same requestId gets the first job. */
+export async function postCodeStart(body: CodeStartBody, fetchImpl: FetchLike = fetch): Promise<ApiResult<CodeStarted>> {
+  try {
+    const res = await fetchImpl('/api/local-agent/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) return errorOf(res, 'Nothing was started.')
+    const out = (await res.json().catch(() => null)) as { session?: unknown; created?: unknown; joined?: unknown; deviceOnline?: unknown } | null
+    if (!out || !isSession(out.session)) return { ok: false, status: 502, message: 'Nothing was started.' }
+    return { ok: true, value: { session: out.session, created: out.created === true, joined: out.joined === true, deviceOnline: out.deviceOnline === true } }
+  } catch {
+    return { ok: false, status: 0, message: 'Nothing was started.' }
   }
 }
 

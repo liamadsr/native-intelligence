@@ -39,6 +39,13 @@
  * Data: useLocalAgentSession (a page read, then realtime on the session's
  * events and row, with a catch-up poll). Render cost stays flat: rows are
  * memoized per item and deltas land once per frame.
+ *
+ * Inline (`inline`: a Code tab job in the chat, chat/code-job-block.tsx): the
+ * same header, transcript, question and results, in the chat's own flow (no
+ * scroll of its own) and without the request bubble or the composer: the
+ * chat shows the person's message above it, and its composer is the one the
+ * person writes to the job with. `onSession` hears each new read of the
+ * session, so the chat's composer knows whether the job still works.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -169,16 +176,27 @@ export function LocalAgentPanel({
   className,
   header = true,
   autoFocus = false,
+  inline = false,
+  onSession,
 }: {
   sessionId: string
   className?: string
   /** Draw its own header (folder, status, Stop). A host with its own Stop and title can leave it out. */
   header?: boolean
   autoFocus?: boolean
+  /** In the chat's flow, with no request bubble and no composer of its own (see the header). */
+  inline?: boolean
+  /** Each new read of the session (inline: the chat's composer follows its status). */
+  onSession?: (session: PanelSession) => void
 }) {
   const { session, transcript, loading, error, stopping, hasEarlier, loadingEarlier, loadEarlier, send, stop } =
     useLocalAgentSession(sessionId)
   const items = transcript.items
+  const onSessionRef = useRef(onSession)
+  onSessionRef.current = onSession
+  useEffect(() => {
+    if (session) onSessionRef.current?.(session)
+  }, [session])
 
   // Only the newest `drawn` items render; "Show earlier" draws (and reads) more.
   const [drawn, setDrawn] = useState(RENDER_WINDOW)
@@ -191,7 +209,8 @@ export function LocalAgentPanel({
   const anchorRef = useRef<{ height: number; top: number } | null>(null)
   useLayoutEffect(() => {
     const el = scrollRef.current
-    if (!el) return
+    // Inline, the chat scrolls (it follows the stream itself).
+    if (!el || inline) return
     const anchor = anchorRef.current
     if (anchor) {
       anchorRef.current = null
@@ -199,7 +218,7 @@ export function LocalAgentPanel({
       return
     }
     if (stickRef.current) el.scrollTop = el.scrollHeight
-  }, [shown, session?.lastSignal])
+  }, [shown, session?.lastSignal, inline])
 
   const showEarlier = useCallback(() => {
     const el = scrollRef.current
@@ -246,14 +265,14 @@ export function LocalAgentPanel({
 
   if (error && !session) {
     return (
-      <div data-local-agent-panel={sessionId} data-local-agent-error="" className={cn('flex flex-1 items-center justify-center p-6', className)}>
+      <div data-local-agent-panel={sessionId} data-local-agent-error="" className={cn('flex flex-1 items-center justify-center', inline ? 'p-3' : 'p-6', className)}>
         <p className="text-sm text-muted-foreground">{error}</p>
       </div>
     )
   }
   if (loading || !session) {
     return (
-      <div data-local-agent-panel={sessionId} className={cn('flex flex-1 items-center justify-center p-6', className)}>
+      <div data-local-agent-panel={sessionId} className={cn('flex flex-1 items-center justify-center', inline ? 'p-3' : 'p-6', className)}>
         <p className="text-xs text-muted-foreground">Loading…</p>
       </div>
     )
@@ -275,7 +294,12 @@ export function LocalAgentPanel({
   const requestAuthor = session.startedBy === 'person' || session.requestedByPerson === true ? 'person' : 'agent'
 
   return (
-    <div data-local-agent-panel={sessionId} data-local-agent-session-status={session.status} className={cn('flex h-full min-h-0 flex-col gap-3', className)}>
+    <div
+      data-local-agent-panel={sessionId}
+      data-local-agent-session-status={session.status}
+      {...(inline ? { 'data-local-agent-inline': '' } : {})}
+      className={cn('flex flex-col gap-3', inline ? 'min-w-0' : 'h-full min-h-0', className)}
+    >
       {header && <LocalAgentHeader session={session} stopping={stopping} onStop={onStop} />}
 
       {hasResults && (
@@ -300,7 +324,7 @@ export function LocalAgentPanel({
       )}
 
       {showChanges && (
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pr-1">
+        <div className={cn('flex flex-col', inline ? 'min-w-0' : 'min-h-0 flex-1 overflow-y-auto pr-1')}>
           <ChangesView
             sessionId={session.id}
             deviceId={session.deviceId}
@@ -325,7 +349,7 @@ export function LocalAgentPanel({
           const el = e.currentTarget
           stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX
         }}
-        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1"
+        className={cn('flex flex-col gap-3', inline ? 'min-w-0' : 'min-h-0 flex-1 overflow-y-auto pr-1')}
       >
         {(hidden > 0 || hasEarlier) && (
           <button
@@ -339,7 +363,8 @@ export function LocalAgentPanel({
           </button>
         )}
         {/* The request opens the conversation: drawn once its start is. */}
-        {hidden === 0 && !hasEarlier && <InboundBubble author={requestAuthor} text={session.request} request />}
+        {/* Inline, the chat's own bubble above it is the request. */}
+        {hidden === 0 && !hasEarlier && !inline && <InboundBubble author={requestAuthor} text={session.request} request />}
         {shown.map((item) => (
           <TranscriptRow key={item.key} item={item} live={liveFor(item, live)} />
         ))}
@@ -400,8 +425,14 @@ export function LocalAgentPanel({
         </div>
       )}
 
-      <div className="shrink-0" hidden={showChanges}>
-        {canMessage ? (
+      <div className="shrink-0" hidden={showChanges || (inline && canMessage)}>
+        {inline ? (
+          !canMessage && (
+            <p data-local-agent-ended="" className="text-xs text-muted-foreground">
+              {sessionEndedText(session.status, session.error)} Your next message starts a new one.
+            </p>
+          )
+        ) : canMessage ? (
           <LocalAgentComposer onSend={send} working={live} asking={asking} autoFocus={autoFocus} />
         ) : (
           <p data-local-agent-ended="" className="py-2 text-center text-xs text-muted-foreground">

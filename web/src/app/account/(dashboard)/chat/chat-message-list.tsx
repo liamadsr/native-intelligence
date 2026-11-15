@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, memo, useMemo, useState, type ReactNode } from 'react'
 import type { UIMessage } from '@ai-sdk/react'
 import { isOpenedCardMessage } from '@/lib/chat-cards/opened-card'
 import { reactionTurnOfMetadata } from '@/lib/chat/message-reactions'
@@ -10,6 +10,7 @@ import { ChatMessage } from './chat-message'
 import { ChatDayLine, MessageTimeGutter } from './chat-day-line'
 import { NewestPlanContext, newestPlanCallId } from './chat-plan-thread'
 import { replyCopyFor } from './reply-link'
+import type { CodeThread } from './composer-code'
 
 /**
  * How many trailing messages render by default. A DOM/fiber cap, NOT data
@@ -72,6 +73,10 @@ export function windowChatMessages(
  * across that seam gets one line; with the expander up, the first message
  * shown gets its own. `messageTimes`: each message's time on hover, in the
  * gutter beside it (a host with a reading column's gutter: the main chat).
+ *
+ * `codeThread` (the main chat, composer-code.tsx): each Code tab job is drawn
+ * after the person's message that started it, and the messages its own view
+ * shows (a later message to it, its finish summaries) take no row here.
  */
 export const ChatMessageList = memo(function ChatMessageList({
   messages,
@@ -83,6 +88,7 @@ export const ChatMessageList = memo(function ChatMessageList({
   topSlot = null,
   dayBefore = null,
   messageTimes = false,
+  codeThread = null,
 }: {
   messages: UIMessage[]
   latestUserMessageId: string | null
@@ -102,11 +108,17 @@ export const ChatMessageList = memo(function ChatMessageList({
   dayBefore?: number | null
   /** Show each message's time on hover, in the gutter beside it. */
   messageTimes?: boolean
+  /** The Code tab's jobs, drawn inline (null: none). */
+  codeThread?: CodeThread | null
 }) {
   const [showAll, setShowAll] = useState(false)
+  const codeHidden = codeThread?.layout.hidden
   const drawn = useMemo(
-    () => messages.filter((m) => !(hideOpenedCards && isOpenedCardMessage(m)) && !(m.role === 'user' && reactionTurnOfMetadata(m.metadata))),
-    [messages, hideOpenedCards],
+    () =>
+      messages.filter(
+        (m) => !(hideOpenedCards && isOpenedCardMessage(m)) && !(m.role === 'user' && reactionTurnOfMetadata(m.metadata)) && !codeHidden?.has(m.id),
+      ),
+    [messages, hideOpenedCards, codeHidden],
   )
   const { visible, hiddenCount } = windowChatMessages(drawn, showAll)
   // One pass over at most the window: the same cost however long the thread.
@@ -134,9 +146,10 @@ export const ChatMessageList = memo(function ChatMessageList({
         if (row.type === 'line') return <ChatDayLine key={row.key} label={row.label} />
         // What a reply's capsule copies: the message (or bubble) it answers, when drawn here (reply-link.ts).
         const replyCopy = row.message.role === 'user' ? replyCopyFor(row.message, drawnById) : null
+        const job = codeThread?.layout.blockAfter.get(row.message.id) ?? null
         return (
+          <Fragment key={row.message.id}>
           <div
-            key={row.message.id}
             data-latest-user-message={row.message.id === latestUserMessageId ? '' : undefined}
             // What a swipe replies to and a quote goes back to (use-swipe-to-reply.ts, message-interactions.ts).
             data-message-row={row.message.id}
@@ -153,6 +166,8 @@ export const ChatMessageList = memo(function ChatMessageList({
               replyCopy={replyCopy}
             />
           </div>
+          {job && codeThread?.renderJob(job)}
+          </Fragment>
         )
       })}
     </NewestPlanContext.Provider>
