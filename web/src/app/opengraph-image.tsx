@@ -9,7 +9,7 @@ import { HOME_TAGLINE } from './home-meta'
 // brand without any downloaded typeface.
 
 export const runtime = 'nodejs'
-export const alt = 'Native Intelligence — The workspace that remembers everything'
+export const alt = 'Native Intelligence — The workspace with an agent that’s always on'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 

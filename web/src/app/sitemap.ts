@@ -2,6 +2,7 @@ import type { MetadataRoute } from 'next'
 import { blog, source } from '@/lib/source'
 import { VS_COMPETITOR_SLUGS } from '@/data/vs-competitors'
 import { appUrl } from '@/lib/app-url'
+import { FEATURES } from '@/lib/marketing/features'
 
 const BASE_URL = appUrl()
 
@@ -12,6 +13,14 @@ export default function sitemap(): MetadataRoute.Sitemap {
   // routes, so the sitemap can't drift from the real route set.
   const vsRoutes: MetadataRoute.Sitemap = VS_COMPETITOR_SLUGS.map((slug) => ({
     url: `${BASE_URL}/vs/${slug}`,
+    changeFrequency: 'monthly',
+    priority: 0.8,
+  }))
+
+  // One deep dive per feature (/features/<slug>), from the same list the
+  // route is generated from.
+  const featureRoutes: MetadataRoute.Sitemap = FEATURES.map((feature) => ({
+    url: `${BASE_URL}/features/${feature.slug}`,
     changeFrequency: 'monthly',
     priority: 0.8,
   }))
@@ -27,6 +36,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     // pivot, are not listed either — add them if they should be pushed for
     // organic search.
     ...vsRoutes,
+    ...featureRoutes,
+    { url: `${BASE_URL}/replace-apps`, changeFrequency: 'monthly', priority: 0.8 },
     { url: `${BASE_URL}/ai-work-environment`, changeFrequency: 'monthly', priority: 0.7 },
     { url: `${BASE_URL}/blog`, changeFrequency: 'weekly', priority: 0.7 },
     { url: `${BASE_URL}/release-notes`, changeFrequency: 'weekly', priority: 0.6 },
