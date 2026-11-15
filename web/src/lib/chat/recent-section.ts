@@ -23,6 +23,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ChatPromptSection } from '@/lib/ai/chat-system-prompt'
 import { wrapUntrusted } from '@/lib/email/untrusted'
 import { isTeammateReportMessage } from './teammate-report'
+import { codeFinishTranscriptLine } from '@/lib/local-agent/code-thread'
 
 export const RECENT_SECTION_KEY = 'recent'
 /** How many of the newest messages the section carries. */
@@ -55,6 +56,9 @@ export function renderRecentSection(rows: readonly Row[]): ChatPromptSection | n
   const lines = rows
     .filter((r) => !isTeammateReportMessage(r.ui_message))
     .map((r) => {
+      // A coding agent's report (the Code tab): its own labelled, fenced line, never the assistant's words.
+      const report = codeFinishTranscriptLine(r.ui_message)
+      if (report) return report
       const text = textOnly(r.ui_message)
       return text ? `${r.role === 'user' ? 'User' : 'Assistant'}: ${text}` : null
     })

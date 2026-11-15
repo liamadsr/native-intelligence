@@ -57,6 +57,11 @@
  * for that meeting (document.frontmatter.meeting_prep), which the cards note
  * labels with the meeting's time and whether it is over.
  *
+ * A CODE TAB JOB IS NOT A TEAMMATE (the person works with their coding agent
+ * directly, src/lib/local-agent/code-history.ts): its turn's result goes in
+ * as the finish summary alone, in the chat it was started from; nothing else
+ * of it is reported, and no home turn follows.
+ *
  * Best-effort, never throws: the row has already moved; a lost report is a
  * missing line in the chat, never a failed settle.
  */
@@ -101,6 +106,7 @@ import {
   type TeammateReportPartData,
   type TeammateReportStatus,
 } from '@/lib/chat/teammate-report'
+import { isCodeJobRow, writeCodeFinish } from '@/lib/local-agent/code-history'
 import { questionText } from './notify'
 import { primaryDeliverable } from './presentation'
 import { NO_REPORT_BACK } from './reaper'
@@ -265,6 +271,22 @@ export async function deliverWorkReport(
     ])
     const userId = (owner.data as { user_id?: unknown } | null)?.user_id
     if (typeof userId !== 'string' || !userId) return none
+    // A Code tab job (the person works with their coding agent directly): its
+    // finish summary, in the chat it was started from, and nothing else (no
+    // teammate's report, no home turn). A question or a failure is shown by
+    // the job's own view there, and keeps its push.
+    if (isCodeJobRow(row)) {
+      if ((status !== 'needs_review' && status !== 'done') || !row.chat_conversation_id) return none
+      const written = await writeCodeFinish(supabase, {
+        conversationId: row.chat_conversation_id,
+        userId,
+        workspaceId: row.workspace_id,
+        sessionId: typeof row.source?.local_agent_session_id === 'string' ? row.source.local_agent_session_id : '',
+        turn: Number(row.source?.turn),
+        summary: row.result_summary,
+      })
+      return { written, home: false, conversationId: row.chat_conversation_id, muted: false }
+    }
     const target = row.chat_conversation_id
       ? await reportTarget(supabase, { conversationId: row.chat_conversation_id, userId, workspaceId: row.workspace_id })
       : await homeTarget(supabase, { userId, workspaceId: row.workspace_id })

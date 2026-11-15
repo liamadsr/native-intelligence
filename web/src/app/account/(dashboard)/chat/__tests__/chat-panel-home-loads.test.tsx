@@ -108,6 +108,14 @@ vi.mock('../chat-message-list', () => ({
   CHAT_MESSAGE_WINDOW: 100,
   windowChatMessages: (m: unknown[]) => ({ visible: m, hiddenCount: 0 }),
 }))
+// The Code tab's hook (composer-code.tsx has its own tests): here, only whether the panel enables it.
+const codeHook = vi.hoisted(() => ({ enabled: [] as boolean[] }))
+vi.mock('../composer-code', () => ({
+  useComposerCode: (opts: { enabled: boolean }) => {
+    codeHook.enabled.push(opts.enabled)
+    return { available: false, active: false, code: null, submit: async () => false, thread: null }
+  },
+}))
 vi.mock('../slash-command-picker', () => ({
   useRecipeCommands: () => [],
   SlashCommandPicker: () => null,
@@ -383,5 +391,22 @@ describe('ChatPanel — the home thread’s loads (A3 review)', () => {
     }
     expect(box.value).toBe('my own draft')
     transportState.sendMessage = () => {}
+  })
+})
+
+describe('the Code tab: the person’s own main chat only', () => {
+  it('enabled on their home thread; never on another conversation the panel holds (a call’s capture conversation, a side one)', async () => {
+    codeHook.enabled.length = 0
+    await mount({ initialMessages: rows(2), initialConversationId: 'home-1', homeThreadId: 'home-1' })
+    await pending[0].respond({ messages: rows(2), title: 'Home', agentTeammateKnown: true })
+    expect(codeHook.enabled.at(-1)).toBe(true)
+    act(() => root!.unmount())
+    root = undefined
+    pending.length = 0
+    codeHook.enabled.length = 0
+    await mount({ initialMessages: rows(2), initialConversationId: 'side-1', homeThreadId: 'home-1' })
+    await pending[0].respond({ messages: rows(2), title: 'Side', agentTeammateKnown: true })
+    expect(codeHook.enabled.length).toBeGreaterThan(0)
+    expect(codeHook.enabled.every((on) => on === false)).toBe(true)
   })
 })
