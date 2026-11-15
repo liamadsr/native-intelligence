@@ -98,6 +98,42 @@ export function codeFinishTranscriptLine(message: unknown): string | null {
   return `${CODE_REPORT_LABEL} (written by the person's own coding agent, not you or the person; ${CODE_REPORT_NOTE}) ${fenceTeammateText(text)}`
 }
 
+/**
+ * What a Code job's agent reads before the request (its claim's request, see
+ * codeJobClaimRequest): the person started it themselves, so the person is
+ * its manager, in this job's own chat, and nobody else is on the other end.
+ */
+export const CODE_JOB_MANAGER_NOTE =
+  '[From Native Intelligence] The person started this job themselves, from their chat’s Code tab: they are your manager here, and nobody else is on the other end. ' +
+  '`report` tells them; `ask_manager` asks them (they answer in this job’s own chat): after asking, end your turn without calling `finish` and wait, their answer arrives as your next message; ' +
+  '`finish` closes the job for them to review. Never write that you asked, or are waiting on, the Native Intelligence agent.'
+
+/** How the person's request is introduced to the agent. */
+export const CODE_JOB_REQUEST_PREFIX = '[From the person, in this job’s own chat]'
+
+/**
+ * A Code job's request as its Mac claims it: the manager note, then the
+ * person's words, within the Mac's byte cap (`maxBytes`), cut on a character
+ * boundary if it must be. The stored request (what the job's view shows)
+ * stays the person's words alone.
+ */
+export function codeJobClaimRequest(request: string, maxBytes: number): string {
+  const head = `${CODE_JOB_MANAGER_NOTE}\n\n${CODE_JOB_REQUEST_PREFIX} `
+  const text = `${head}${request.trim()}`
+  const encoder = new TextEncoder()
+  if (encoder.encode(text).length <= maxBytes) return text
+  const note = '…[cut to fit]'
+  let out = ''
+  let bytes = encoder.encode(note).length
+  for (const ch of text) {
+    const n = encoder.encode(ch).length
+    if (bytes + n > maxBytes) break
+    out += ch
+    bytes += n
+  }
+  return `${out}${note}`
+}
+
 /** The person's Code message's own id (the chat and the save converge on it). */
 export function codeMessageId(requestId: string): string {
   return `code-${requestId}`

@@ -29,7 +29,7 @@ vi.mock('@/lib/api-auth', async (orig) => {
   }
 })
 vi.mock('@/lib/supabase/service', () => ({ getServiceClient: () => m.db }))
-const ledger = vi.hoisted(() => ({ startTurnRow: vi.fn(async () => 'job-1') }))
+const ledger = vi.hoisted(() => ({ startTurnRow: vi.fn(async () => 'job-1'), moveTurn: vi.fn(async (_svc: unknown, s: unknown) => s) }))
 // The chat's stored history (eve-message-writer's upsert on (conversation, message id), ignoring duplicates).
 const history = vi.hoisted(() => ({ rows: [] as Array<{ conversationId: string; role?: string; messageId: string; parts: unknown; metadata?: Record<string, unknown> }> }))
 vi.mock('@/lib/chat/eve-message-writer', () => ({
@@ -46,6 +46,8 @@ vi.mock('@/lib/local-agent/ledger', async (orig) => ({ ...(await orig<typeof imp
 import { POST } from '../sessions/route'
 import { POST as messagePOST } from '../sessions/[id]/messages/route'
 import { createSession } from '@/lib/local-agent/store'
+import { claimSession, ingestEvents } from '@/lib/local-agent/device'
+import { CODE_JOB_MANAGER_NOTE } from '@/lib/local-agent/code-thread'
 import { CONV, DEVICE, FOLDER, OTHER, USER, WS, seeded, type FakeDb } from '@/lib/local-agent/__tests__/fake-db'
 
 const MAC_ENV = '99999999-9999-4999-8999-999999999911'
@@ -91,6 +93,7 @@ beforeEach(() => {
   })
   m.db = db
   ledger.startTurnRow.mockClear()
+  ledger.moveTurn.mockClear()
   history.rows.length = 0
   sent.length = 0
   vi.spyOn(console, 'warn').mockImplementation(() => undefined)
@@ -279,5 +282,36 @@ describe('follow-ups typed in a Code job’s own chat are kept in the chat’s h
     const { session } = await createSession(db as never, { userId: USER, workspaceId: WS, folderId: FOLDER, conversationId: OTHER_CONV, request: 'Tidy the README', mode: 'edit', startedBy: 'agent' })
     expect((await follow(session.id, { text: 'And the CHANGELOG', requestId: 'f-2' })).status).toBe(200)
     expect(history.rows).toEqual([])
+  })
+})
+
+describe('a Code job’s agent knows its manager is the person, and its question reaches them', () => {
+  it('the claim hands the Mac the manager note before the person’s words; the stored request (the job view’s) stays theirs alone', async () => {
+    const { session } = await (await send()).json()
+    const claim = await claimSession(db as never, USER, session.id, { deviceId: DEVICE, runId: 'run-1', workers: true })
+    expect(claim!.request.startsWith(CODE_JOB_MANAGER_NOTE)).toBe(true)
+    expect(claim!.request).toContain('they are your manager here, and nobody else is on the other end')
+    expect(claim!.request).toContain('end your turn without calling `finish` and wait')
+    expect(claim!.request.endsWith('[From the person, in this job’s own chat] Fix the date picker on the booking page')).toBe(true)
+    expect(sessions()[0].request).toBe('Fix the date picker on the booking page')
+  })
+
+  it('a job the chat agent started is claimed with its request as it was', async () => {
+    const { session } = await createSession(db as never, { userId: USER, workspaceId: WS, folderId: FOLDER, conversationId: OTHER_CONV, request: 'Tidy the README', mode: 'edit', startedBy: 'agent' })
+    expect((await claimSession(db as never, USER, session.id, { deviceId: DEVICE, runId: 'run-1' }))!.request).toBe('Tidy the README')
+  })
+
+  it('its ask_manager: the job waits on the person (asking), its turn parks on the question (the Agents panel’s needs-you), and nothing goes to the chat agent', async () => {
+    const { session } = await (await send()).json()
+    await claimSession(db as never, USER, session.id, { deviceId: DEVICE, runId: 'run-1', workers: true })
+    const ev = (seq: number, event: Record<string, unknown>) => ({ seq, event: event as { kind: string } })
+    await ingestEvents(db as never, USER, session.id, {
+      runId: 'run-1',
+      events: [ev(0, { kind: 'status', status: 'running' }), ev(1, { kind: 'ask', question: 'Open on the chosen month, or on today’s?' }), ev(2, { kind: 'status', status: 'waiting' })],
+    })
+    expect(sessions()[0]).toMatchObject({ status: 'waiting', last_signal: 'ask', last_signal_text: 'Open on the chosen month, or on today’s?' })
+    expect(ledger.moveTurn.mock.calls.map((c) => (c[2] as { type: string }).type)).toContain('ask')
+    expect(history.rows).toEqual([])
+    expect(sent.some((e) => e.name === 'home/turn.requested')).toBe(false)
   })
 })
