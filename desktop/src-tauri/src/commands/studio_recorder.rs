@@ -2449,10 +2449,14 @@ mod tests {
             assert_eq!(get(&path, Some("bytes=0-1"), app).status(), StatusCode::NOT_FOUND, "{path}");
         }
         assert_eq!(get(&format!("/{key}/{SESSION}/camera"), Some("bytes=0-1"), app).status(), StatusCode::NOT_FOUND);
-        let elsewhere = tempfile::tempdir().unwrap();
-        let outside = take_dir(elsewhere.path(), "4f4f4f4f-1111-4222-8333-444444444444", Some("user-1"), None);
-        std::os::unix::fs::symlink(&outside, base.path().join("4f4f4f4f-1111-4222-8333-444444444444")).unwrap();
-        assert_eq!(get(&format!("/{key}/4f4f4f4f-1111-4222-8333-444444444444/screen"), Some("bytes=0-1"), app).status(), StatusCode::NOT_FOUND, "a linked folder");
+        // A linked folder is made the Unix way; the recorder itself runs on a Mac only.
+        #[cfg(unix)]
+        {
+            let elsewhere = tempfile::tempdir().unwrap();
+            let outside = take_dir(elsewhere.path(), "4f4f4f4f-1111-4222-8333-444444444444", Some("user-1"), None);
+            std::os::unix::fs::symlink(&outside, base.path().join("4f4f4f4f-1111-4222-8333-444444444444")).unwrap();
+            assert_eq!(get(&format!("/{key}/4f4f4f4f-1111-4222-8333-444444444444/screen"), Some("bytes=0-1"), app).status(), StatusCode::NOT_FOUND, "a linked folder");
+        }
         // Read only; a HEAD with no range answers the length, also for a file past what one answer carries.
         assert_eq!(ask("PUT", &at, None, app, Some("user-1"), false).status(), StatusCode::METHOD_NOT_ALLOWED);
         assert_eq!(ask("OPTIONS", &at, None, app, Some("user-1"), false).status(), StatusCode::NO_CONTENT);
