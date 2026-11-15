@@ -48,7 +48,9 @@ const rt = vi.hoisted(() => {
     /** The pause throws (the runtime could not write the memory). */
     pauseThrows: false,
     /** Runs when start.sh is launched in a sandbox (a second ensure arriving mid-start, for the tests). */
-    onStartScript: null as null | ((sandboxId: string) => void) }
+    onStartScript: null as null | ((sandboxId: string) => void),
+    /** Runs when stop.sh is run in a sandbox (an ensure arriving during a stop, for the tests). */
+    onStopScript: null as null | ((sandboxId: string) => void) }
   const named = (name: string, message: string) => Object.assign(new Error(message), { name })
 
   /** The words of a command line the backend built with shellQuote. */
@@ -79,6 +81,7 @@ const rt = vi.hoisted(() => {
     const argv = words(line)
     if (argv[1] === '-c' && argv[2]?.includes('127.0.0.1:9222/json/version')) return hooks.chromeFails ? `000\n${hooks.chromeFails}\n` : '200\n'
     if (argv[0] === 'bash' && argv[1] === '/opt/cloud-browser/start.sh') hooks.onStartScript?.(box.sandboxId)
+    if (argv[0] === 'bash' && argv[1] === '/opt/cloud-browser/stop.sh') hooks.onStopScript?.(box.sandboxId)
     if (argv[1] === '-c' && argv[2]?.includes('cloud-browser-relay/build')) return `build=${box.relayBuild ?? ''}\nup=1\nfailed=\n`
     if (argv[1] === '-c' && argv[3] === 'relay-start') box.relayBuild = argv[5]
     return ''
@@ -167,7 +170,7 @@ const rt = vi.hoisted(() => {
       return { sandboxId, metadata: { ...b.metadata }, state: b.state, startedAt: b.startedAt }
     }),
   }
-  return { boxes, events, creates, hooks, Sandbox, add, words, named, reset() { boxes.clear(); events.length = 0; creates.length = 0; seq = 0; hooks.duringCreate = null; hooks.createError = null; hooks.close = 'ok'; hooks.chromeFails = null; hooks.pauseThrows = false; hooks.onStartScript = null } }
+  return { boxes, events, creates, hooks, Sandbox, add, words, named, reset() { boxes.clear(); events.length = 0; creates.length = 0; seq = 0; hooks.duringCreate = null; hooks.createError = null; hooks.close = 'ok'; hooks.chromeFails = null; hooks.pauseThrows = false; hooks.onStartScript = null; hooks.onStopScript = null } }
 })
 vi.mock('@/lib/cloud-browser/runtime-client', () => ({ loadRuntimeBrowserClient: async () => ({ Sandbox: rt.Sandbox }) }))
 // The hosted service is never called on this backend.
@@ -1480,5 +1483,92 @@ describe('the review’s cases (shared slots, runtime backend)', () => {
     expect(second.box.state).toBe('running')
     expect(table.get('u1:w1')).toMatchObject({ status: 'stopped', stop_reason: 'busy' })
     expect(rt.Sandbox.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('an ensure that arrives during a stop (runtime backend)', () => {
+  beforeEach(() => {
+    useTable()
+    Object.assign(host.STOP_LAND_TIMING, { waitMs: 300, pollMs: 5, reserveMs: 45_000 })
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+  const pausedBrowser = () => {
+    const box = rt.add(META, { state: 'paused' })
+    table.set('u1:w1', { user_id: 'u1', workspace_id: 'w1', sandbox_name: NAME, session_id: `${box.sandboxId}.1`, status: 'stopped', started_at: null,
+      last_active_at: iso(60 * 60_000), updated_at: iso(60 * 60_000), stop_reason: 'idle' })
+    return box
+  }
+
+  it('the reviewer’s case: a failed start’s give-back is pausing it, the next command arrives and fails the same way: it ends paused and stopped', async () => {
+    const box = pausedBrowser()
+    rt.hooks.chromeFails = 'Chrome crashed'
+    let second: Promise<unknown> | null = null
+    rt.hooks.onStopScript = () => { rt.hooks.onStopScript = null; second = host.ensureCloudBrowser(ref) }
+    await expect(host.ensureCloudBrowser(ref)).rejects.toThrow(/Chrome crashed/)
+    await expect(second!).rejects.toThrow(/Chrome crashed/)
+    // The second waited for the pause, became the starter, and put back what it woke.
+    expect(box.state).toBe('paused')
+    expect(table.get('u1:w1')).toMatchObject({ status: 'stopped', stop_reason: 'start_failed' })
+    expect(rt.events.filter(e => e === `pause ${box.sandboxId}`)).toHaveLength(2)
+    expect(rt.events.filter(e => e === `resume ${box.sandboxId}`)).toHaveLength(2)
+    expect((await store.listSlotHolders()) as TableRow[]).toEqual([])
+    expect(rt.Sandbox.kill).not.toHaveBeenCalled()
+  })
+
+  it('… and when the next one succeeds, it is a proper starter: it started after the pause landed, and runs', async () => {
+    const box = pausedBrowser()
+    rt.hooks.chromeFails = 'Chrome crashed'
+    let second: Promise<unknown> | null = null
+    rt.hooks.onStopScript = () => { rt.hooks.onStopScript = null; rt.hooks.chromeFails = null; second = host.ensureCloudBrowser(ref) }
+    await expect(host.ensureCloudBrowser(ref)).rejects.toThrow(/Chrome crashed/)
+    await expect(second!).resolves.toMatchObject({ created: false, hubOrigin: `https://${box.sandboxId}.hub.test` })
+    // Its wake came after the first's pause.
+    expect(rt.events.lastIndexOf(`resume ${box.sandboxId}`)).toBeGreaterThan(rt.events.indexOf(`pause ${box.sandboxId}`))
+    expect(store.markStarting.mock.results.map(r => (r.value as Promise<unknown>))).toHaveLength(3)
+    expect(await store.markStarting.mock.results[2].value).toMatchObject({ moved: true })
+    expect(table.get('u1:w1')?.status).toBe('running')
+    expect(box.state).toBe('running')
+  })
+
+  it('the same for a stop by the idle sweep or an eviction: the ensure waits, then takes a slot like any starter', async () => {
+    const box = pausedBrowser()
+    box.state = 'running'
+    Object.assign(table.get('u1:w1')!, { status: 'running', session_id: `${box.sandboxId}.1`, last_active_at: iso(30 * 60_000) })
+    for (let i = 1; i <= 3; i++) runningBrowser(i, (10 + i) * 60_000)
+    vi.stubEnv('CLOUD_BROWSER_MAX_RUNNING', '4')
+    let mine: Promise<unknown> | null = null
+    // A fifth person's start makes u1's (idle longest) browser give way; u1 comes back during that pause.
+    rt.hooks.onStopScript = (id) => { if (id === box.sandboxId) { rt.hooks.onStopScript = null; mine = host.ensureCloudBrowser(ref) } }
+    await host.ensureCloudBrowser({ userId: 'u5', workspaceId: 'w5' })
+    await expect(mine!).resolves.toMatchObject({ hubOrigin: `https://${box.sandboxId}.hub.test` })
+    // After the re-mark u1 counted as a starter: another browser (p3, now the idle longest) gave way for it.
+    expect(table.get('p3:w3')).toMatchObject({ status: 'stopped', stop_reason: 'evicted' })
+    expect(table.get('p1:w1')?.status).toBe('running')
+    expect(table.get('u1:w1')?.status).toBe('running')
+    expect(runningBoxes()).toBe(4)
+    expect(((await store.listSlotHolders()) as TableRow[]).length).toBe(4)
+  })
+
+  it('a stop that has not landed in the bound: a retryable error, and nothing of the runtime touched', async () => {
+    pausedBrowser()
+    table.get('u1:w1')!.status = 'stopping'
+    rt.Sandbox.list.mockClear()
+    await expect(host.ensureCloudBrowser(ref)).rejects.toThrow('cloud browser: your browser is still going to sleep; try again in a minute')
+    expect(rt.Sandbox.list).not.toHaveBeenCalled()
+    expect(rt.Sandbox.connect).not.toHaveBeenCalled()
+    expect(rt.Sandbox.create).not.toHaveBeenCalled()
+    expect(table.get('u1:w1')?.status).toBe('stopping')
+  })
+
+  it('never past the ensure’s own time or its signal', async () => {
+    pausedBrowser()
+    table.get('u1:w1')!.status = 'stopping'
+    Object.assign(host.STOP_LAND_TIMING, { waitMs: 60_000, reserveMs: 90_000 })
+    await expect(host.ensureCloudBrowser(ref)).rejects.toThrow(/still going to sleep/)
+    Object.assign(host.STOP_LAND_TIMING, { waitMs: 60_000, reserveMs: 45_000 })
+    const aborted = AbortSignal.abort(new Error('the person left'))
+    await expect(host.ensureCloudBrowser(ref, { signal: aborted })).rejects.toThrow('the person left')
+    expect(rt.Sandbox.list).not.toHaveBeenCalled()
   })
 })

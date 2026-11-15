@@ -183,12 +183,14 @@ export async function ensureCloudBrowser(ref: CloudBrowserRef, opts: { signal?: 
   const backend = cloudBrowserBackend()
   const name = nameFor(ref)
   const wasRunning = (await store.readStatus(ref).catch(() => null)) === 'running'
-  const marked = await store.markStarting(ref, name)
-  const start: StartClaim = { moved: marked?.moved === true, at: marked?.at ?? '', mayRelease: marked?.moved === true }
+  let marked: Awaited<ReturnType<typeof store.markStarting>> | undefined = await store.markStarting(ref, name)
   // The expiry holds this browser (it is being removed after long disuse): never race it.
   if (backend.expiresUnused && await store.isExpiring(ref)) {
     throw new Error('cloud browser: this browser is being cleared after long disuse; try again in a minute')
   }
+  // A stop under way (the sweep's, an eviction's, a failed start's give-back): let it land, then start as the starter.
+  if (backend.kind === 'runtime' && marked?.moved !== true) marked = await afterStopLands(ref, name, marked, deadline, signal)
+  const start: StartClaim = { moved: marked?.moved === true, at: marked?.at ?? '', mayRelease: marked?.moved === true }
   let sandbox: BackendSandbox
   let created: boolean
   let session: { sessionId: string; startedAt: Date }
@@ -207,6 +209,42 @@ export async function ensureCloudBrowser(ref: CloudBrowserRef, opts: { signal?: 
   // The person's Mac connects its exit to a browser that just came up (C4); a running one already has it.
   if (!wasRunning) await ringComputer(ref, 'browser-up')
   return { sandboxName: name, sessionId: session.sessionId, created, readyMs: Math.round(performance.now() - started), hubOrigin: sandbox.hubOrigin() }
+}
+
+/** How an ensure waits for a stop under way (afterStopLands). Mutable for the tests only. */
+export const STOP_LAND_TIMING = {
+  /** A pause took 0.2 to 1.5 s on the real runtime, stop.sh up to closeChromeTimeoutMs (20 s). */
+  waitMs: 30_000,
+  pollMs: 500,
+  /** Of the ensure's own time, this much is kept for the start itself. */
+  reserveMs: 45_000,
+}
+
+/**
+ * The runtime backend, when this ensure's markStarting found the row
+ * `stopping` (the idle sweep, an eviction, or a failed start's give-back is
+ * pausing the browser): wait for that stop to land, then mark again, so this
+ * ensure becomes the starter with all its duties (it takes a slot, and pauses
+ * what it woke should it fail). Starting beside the stop instead would wake the
+ * VM after its pause, as a start nobody owns: one that failed then would leave
+ * a running VM under a `stopped` row, out of the sweep's and the cap's sight.
+ * Polled every STOP_LAND_TIMING.pollMs, at most waitMs and never past the
+ * ensure's own time less reserveMs, or its signal. A stop that has not landed
+ * by then is an error to retry, and nothing of the runtime is touched. A row
+ * in any other state is returned as markStarting left it.
+ */
+async function afterStopLands(ref: CloudBrowserRef, name: string, marked: Awaited<ReturnType<typeof store.markStarting>> | undefined,
+  deadline: number, signal: AbortSignal) {
+  if ((await store.readStatus(ref)) !== 'stopping') return marked
+  const until = Math.min(Date.now() + STOP_LAND_TIMING.waitMs, deadline - STOP_LAND_TIMING.reserveMs)
+  for (;;) {
+    signal.throwIfAborted()
+    if (Date.now() >= until) throw new Error('cloud browser: your browser is still going to sleep; try again in a minute')
+    await sleep(STOP_LAND_TIMING.pollMs)
+    if ((await store.readStatus(ref)) === 'stopping') continue
+    // Landed (or taken up by another ensure meanwhile): mark again; moved when this one is the starter now.
+    return store.markStarting(ref, name)
+  }
 }
 
 /** What this ensure's markStarting did: see store.markStarting. `mayRelease`: it may put a refused start back. */
@@ -229,9 +267,9 @@ interface StartClaim {
  * `starting` or `running`, which holds its slot already: it never counts, never
  * makes anyone give way and never fails on the cap. If the starting ensure's
  * slot step is still under way in this process, it waits for it and shares its
- * answer. The one exception: a row `stopping` after markStarting (an eviction
- * or the sweep claimed it first, and this ensure will resume it once paused) is
- * a newcomer like any other.
+ * answer. A row `stopping` at markStarting (an eviction, the sweep, a failed
+ * start's give-back) never gets here as it is: the ensure first waits for that
+ * stop to land and marks again (afterStopLands), and is then the starter.
  *
  * Why the count is right without a lock (no overshoot of the cap by the rows):
  *  - The starting ensure marks its row `starting` BEFORE it counts, and a row
@@ -257,9 +295,8 @@ async function slotFor(backend: CloudBrowserBackend, ref: CloudBrowserRef, start
       start.mayRelease = true
       await pending
       start.mayRelease = false
-      return
     }
-    if ((await store.readStatus(ref)) !== 'stopping') return
+    return
   }
   const step = takeSlot(backend, ref, deadline, signal).finally(() => slotSteps.delete(key))
   slotSteps.set(key, step)
