@@ -31,32 +31,38 @@ const render = (data: RoadmapData) => renderToStaticMarkup(createElement(HomeRoa
 const attr = (url: string) => url.replace(/&/g, '&amp;')
 
 describe('HomeRoadmap', () => {
-  it('renders the Now items as linked cards with the pill and vote count', () => {
+  it('renders the board: Now, Next and Later, each item linked, with what it is', () => {
     const html = render(buildRoadmap(issues))
     expect(html).toContain('What we’re building')
     expect(html).toContain('Vote on what matters to you')
-    expect(html).toContain('Shared team inbox')
-    expect(html).toContain('Offline notes')
+    for (const column of ['>Now<', '>Next<', '>Later<']) expect(html).toContain(column)
+    for (const title of ['Shared team inbox', 'Offline notes', 'Calendar sharing', 'Spreadsheet import', 'Kiosk mode']) expect(html).toContain(title)
     expect(html).toContain('href="https://github.com/example/repo/issues/31"')
-    expect(html).toContain('href="https://github.com/example/repo/issues/32"')
+    expect(html).toContain('href="https://github.com/example/repo/issues/35"')
+    expect(html).toContain('Shared team inbox, described.')
+    // Only the item being built says so.
+    expect(html.match(/In progress/g)).toHaveLength(1)
+  })
+
+  it('shows a vote count only where there is one', () => {
+    const html = render(buildRoadmap(issues))
     expect(html).toMatch(/>12<\/span><span class="sr-only">votes for/)
     expect(html).toMatch(/>5<\/span><span class="sr-only">votes for/)
-    // Only the in-progress item gets the pill.
-    expect(html.match(/In progress/g)).toHaveLength(1)
-    // Next and Later items are counted, not shown.
-    expect(html).not.toContain('Calendar sharing')
-    expect(html).not.toContain('Kiosk mode')
+    // Three items have votes; the two with none show no count.
+    expect(html.match(/votes for<\/span>/g)).toHaveLength(3)
   })
 
-  it('counts Next and Later in one line linking to /roadmap', () => {
-    const html = render(buildRoadmap(issues))
-    expect(html).toMatch(/<a href="\/roadmap"[^>]*>and 3 more up next<\/a>/)
+  it('shows a column’s first four and says how many more there are', () => {
+    const many = [...issues, ...[41, 42, 43, 44, 45].map((n) => issue(n, `Later item ${n}`, ['later']))]
+    const html = render(buildRoadmap(many))
+    expect(html).toMatch(/<a href="\/roadmap"[^>]*>and 2 more<\/a>/)
   })
 
-  it('leaves out the "more" line when nothing comes after Now', () => {
+  it('leaves out a column with nothing in it', () => {
     const html = render(buildRoadmap(issues.slice(0, 2)))
     expect(html).toContain('Shared team inbox')
-    expect(html).not.toContain('more up next')
+    expect(html).not.toContain('>Next<')
+    expect(html).not.toContain('>Later<')
   })
 
   it('links to the full roadmap and the feature request form', () => {

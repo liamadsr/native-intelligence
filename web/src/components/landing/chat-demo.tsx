@@ -117,7 +117,8 @@ export function ChatDemo({ exchanges = DEFAULT_EXCHANGES }: { exchanges?: ChatDe
             className="flex min-h-0 flex-1 flex-col justify-end gap-3 overflow-hidden pb-3 [mask-image:linear-gradient(to_bottom,transparent_0,#000_40px)]"
           >
             {messages.length > 0 && (
-              <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+              // The list itself puts no room between its rows (the app's own scroller does that), so it is given here.
+              <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 [&_[data-message-row]+[data-message-row]]:mt-4">
                 <ChatMessageList messages={messages} latestUserMessageId={`u${turn}`} userAvatarUrl={null} userInitials="AR" />
               </div>
             )}

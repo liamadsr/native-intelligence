@@ -87,7 +87,7 @@ describe('the workspace page', () => {
   it('has exactly one h1, the headline', () => {
     const h1s = html().match(/<h1[\s>][\s\S]*?<\/h1>/g) ?? []
     expect(h1s).toHaveLength(1)
-    expect(h1s[0]).toContain('The workspace that remembers everything and does the busywork')
+    expect(h1s[0]).toContain('The workspace with an agent that’s always on')
   })
 
   it('renders every section the rail lists, in order', () => {

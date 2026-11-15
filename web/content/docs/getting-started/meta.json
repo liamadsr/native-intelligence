@@ -1,4 +1,8 @@
 {
   "title": "Getting Started",
-  "pages": ["quick-start", "workspaces-and-teams"]
+  "pages": [
+    "quick-start",
+    "workspaces-and-teams",
+    "switching"
+  ]
 }

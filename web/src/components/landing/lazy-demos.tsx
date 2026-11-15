@@ -66,7 +66,7 @@ export const CrmAutologDemo = lazyDemo(() => import('./crm-autolog-demo').then((
 export const CaptureDemo = lazyDemo<{ variant?: CaptureDemoVariant }>(() => import('./capture-demo').then((m) => m.CaptureDemo), 530)
 export const NotesDocDemo = lazyDemo(() => import('./notes-doc-demo').then((m) => m.NotesDocDemo), 530)
 export const SpeakerIdDemo = lazyDemo(() => import('./speaker-id-demo').then((m) => m.SpeakerIdDemo), 510)
-export const LiveAgentDemo = lazyDemo<{ scenario?: LiveAgentScenario }>(() => import('./live-agent-demo').then((m) => m.LiveAgentDemo), 560)
+export const LiveAgentDemo = lazyDemo<{ scenario?: LiveAgentScenario; tools?: boolean }>(() => import('./live-agent-demo').then((m) => m.LiveAgentDemo), 560)
 export const ContextPackageDemo = lazyDemo(() => import('./context-package-demo').then((m) => m.ContextPackageDemo), 480)
 export const ExecutionDemo = lazyDemo(() => import('./execution-demo').then((m) => m.ExecutionDemo), 510)
 export const IntelligenceLoopDemo = lazyDemo(() => import('./intelligence-loop-demo').then((m) => m.IntelligenceLoopDemo), 420)
