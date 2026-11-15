@@ -22,6 +22,8 @@ export type FlowTriggerType =
   | 'email_received'
   | 'chat_message'
   | 'document_created'
+  | 'quote_received'
+  | 'record_created'
 
 export type ScheduleCadence = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'cron' | 'once'
 
@@ -111,6 +113,17 @@ export interface DocumentCreatedTriggerConfig {
   kind: 'document_created'
 }
 
+/** A customer's quote arrives from the business's website form. */
+export interface QuoteReceivedTriggerConfig {
+  kind: 'quote_received'
+}
+
+/** A row is added to one table: a form's submission, or a person's own. */
+export interface RecordCreatedTriggerConfig {
+  kind: 'record_created'
+  table_id: string
+}
+
 export type FlowTriggerConfig =
   | EntityStatusChangeTriggerConfig
   | ScheduleTriggerConfig
@@ -120,6 +133,8 @@ export type FlowTriggerConfig =
   | EmailReceivedTriggerConfig
   | ChatMessageTriggerConfig
   | DocumentCreatedTriggerConfig
+  | QuoteReceivedTriggerConfig
+  | RecordCreatedTriggerConfig
 
 export interface HttpPostActionConfig {
   method: 'POST' | 'PUT' | 'PATCH'
@@ -507,6 +522,8 @@ export interface EditorTrigger {
   // chat_message: ANY_CHANNEL = any channel (only with mentions_only), '' = none picked yet
   chat_channel_id: string
   mentions_only: boolean
+  // record_created: '' = none picked yet, HIDDEN_TABLE = someone else's loop's table
+  record_table_id: string
   /**
    * Someone else's mail or chat loop, read without its sender filter or
    * channel (the server's triggerConfigForViewer, `owner_only`): the editor,
@@ -517,6 +534,8 @@ export interface EditorTrigger {
 
 /** The chat trigger's channel when it is another member's to see. */
 export const HIDDEN_CHANNEL = '__hidden__'
+/** Someone else's record loop: which table is theirs to see. */
+export const HIDDEN_TABLE = '__hidden_table__'
 
 /** The chat trigger's "Any channel" choice (stored as channel_id null). */
 export const ANY_CHANNEL = '__any__'
@@ -598,6 +617,8 @@ export const TRIGGER_TYPE_LABELS: Record<FlowTriggerType, string> = {
   email_received: 'New email',
   chat_message: 'Chat message',
   document_created: 'New document',
+  quote_received: 'New quote',
+  record_created: 'New row in a table',
 }
 
 export const PR_STATE_LABELS: Record<PrTriggerState, string> = {
@@ -790,6 +811,7 @@ function newTrigger(): EditorTrigger {
     email_from: '',
     chat_channel_id: '',
     mentions_only: false,
+    record_table_id: '',
   }
 }
 
@@ -980,6 +1002,15 @@ function triggerToEditor(flow: Pick<Flow, 'trigger_type' | 'trigger_config'>): E
   if (flow.trigger_type === 'document_created') {
     return { ...base, kind: 'document_created' }
   }
+  if (flow.trigger_type === 'quote_received') {
+    return { ...base, kind: 'quote_received' }
+  }
+  if (flow.trigger_type === 'record_created') {
+    const cfg = flow.trigger_config as Partial<RecordCreatedTriggerConfig> & { owner_only?: unknown }
+    // Someone else's record loop: its table is theirs to see ("a table").
+    if (cfg.owner_only === true) return { ...base, kind: 'record_created', record_table_id: HIDDEN_TABLE, details_hidden: true }
+    return { ...base, kind: 'record_created', record_table_id: typeof cfg.table_id === 'string' ? cfg.table_id : '' }
+  }
   if (flow.trigger_type === 'capture_processed') {
     return { ...base, kind: 'capture_processed' }
   }
@@ -1106,6 +1137,10 @@ function triggerToConfig(t: EditorTrigger): Record<string, unknown> {
       }
     case 'document_created':
       return { kind: 'document_created' }
+    case 'quote_received':
+      return { kind: 'quote_received' }
+    case 'record_created':
+      return { kind: 'record_created', table_id: t.record_table_id }
     case 'capture_processed':
       return { kind: 'capture_processed' }
     case 'pr_status_changed':
@@ -1193,6 +1228,7 @@ export function buildSavePayload(editor: EditorState):
     }
     if (t.cadence === 'once' && !t.run_at) return { error: 'Pick the date and time it runs' }
   }
+  if (t.kind === 'record_created' && (!t.record_table_id || t.record_table_id === HIDDEN_TABLE)) return { error: 'Pick a table' }
   if (t.kind === 'chat_message' && !t.chat_channel_id) return { error: 'Pick a channel' }
   if (t.kind === 'chat_message' && t.chat_channel_id === ANY_CHANNEL && !t.mentions_only) {
     return { error: 'Pick a channel, or turn on “Only when I’m @mentioned” to watch every channel' }

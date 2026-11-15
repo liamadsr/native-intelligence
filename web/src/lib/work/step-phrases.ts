@@ -108,6 +108,9 @@ const STEP_PHRASES: Record<string, string> = {
   create_booking_link: 'Making a booking link',
   update_booking_link: 'Changing a booking link',
   delete_booking_link: 'Turning off a booking link',
+  list_forms: 'Checking forms',
+  create_form: 'Making a form',
+  update_form: 'Changing a form',
   // Studio
   list_studio_projects: 'Looking through the Studio',
   get_studio_video: 'Reading a video',

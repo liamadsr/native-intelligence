@@ -39,7 +39,7 @@ import { resolveFollowThrough } from '@/lib/chat/follow-through'
 import { toolInputIssues } from '@/lib/ai/tool-input-issues'
 import { withoutToolImage } from '@/lib/ai/tools/tool-image'
 import { unattendedGoAheadRefusal } from '@/lib/ai/tools/go-ahead'
-import { computeSkillCeiling } from '@/lib/flows/run-skill'
+import { computeSkillCeiling, recordReadRefusal } from '@/lib/flows/run-skill'
 import {
   extractInternalSecret,
   verifyInternalSecret,
@@ -233,7 +233,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'skill not found for this run' }, { status: 404 })
   }
 
-  const ceilingSet = computeSkillCeiling(recipe.agent_config, claims.mode, claims.hasCapture)
+  const ceilingSet = computeSkillCeiling(recipe.agent_config, claims.mode, claims.hasCapture, !!claims.recordTableId)
   // Resolve the permission against the ACTUAL tool registry in every case.
   // search_tools (read-only discovery) is always permitted. A null ceiling is
   // inherit-all (act mode, no restriction) — but that means "any tool that EXISTS
@@ -250,6 +250,17 @@ export async function POST(request: Request) {
       { error: `tool '${toolName}' is not in this run's ceiling`, code: 'TOOL_OUT_OF_CEILING' },
       { status: 403 },
     )
+  }
+  // A row fire's forced table reads reach only the table that fired it (run-skill.ts recordReadRefusal).
+  // Model-visible, so the run reads the right table instead of failing the turn.
+  if (claims.recordTableId) {
+    const refused = recordReadRefusal({
+      toolName,
+      input: body.input,
+      recordTableId: claims.recordTableId,
+      ownCeiling: computeSkillCeiling(recipe.agent_config, claims.mode, claims.hasCapture, false),
+    })
+    if (refused) return NextResponse.json({ output: { success: false, code: 'TABLE_OUT_OF_RUN', error: refused } })
   }
   // The caller's class (caller.ts): an unattended loop run.
   const callerRefused = callerRefusal(claims, toolName)

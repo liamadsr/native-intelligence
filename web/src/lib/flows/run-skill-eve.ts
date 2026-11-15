@@ -343,6 +343,8 @@ function requestedToolNames(ev: MessageStreamEvent): string[] {
 export async function runViaEve(args: {
   spec: SkillRunSpec
   hasCapture: boolean
+  /** The table the fire's row was added to: the token carries it, and the ceiling gains the table-read tools for that table. */
+  recordTableId?: string
   timeoutMs: number
   onToolCalls?: (toolNames: string[]) => void
   /** Automation depth of this run's writes (loop guard) — see RunTokenClaims. */
@@ -382,6 +384,7 @@ export async function runViaEve(args: {
     skillId: spec.skillId,
     mode: spec.mode,
     hasCapture,
+    ...(args.recordTableId ? { recordTableId: args.recordTableId } : {}),
     outputContract: isVerdict ? 'verdict' : 'prose',
     model: spec.model,
     ...(originDepth !== undefined ? { originDepth } : {}),

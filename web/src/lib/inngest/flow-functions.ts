@@ -17,6 +17,7 @@ import {
   findMatchingFlowsForCaptureProcessed,
   findMatchingFlowsForChatMessage,
   findMatchingFlowsForDocumentCreated,
+  findMatchingFlowsForRecordCreated,
   findMatchingFlowsForEmailReceived,
   findMatchingFlowsForPrStatusChange,
   findMatchingFlowsForQuoteReceived,
@@ -55,6 +56,9 @@ import {
   chatFlowsToFire,
   chatMessageSkipReason,
   documentFlowsToFire,
+  loadRecordFacts,
+  recordFlowsToFire,
+  recordSkipReason,
   documentSkipReason,
   eventFireCapState,
   loadChatMessageFacts,
@@ -1692,6 +1696,59 @@ export const flowDispatchOnDocumentCreated = inngest.createFunction(
       flows: found.flows as FlowWithSecrets[],
       trigger,
       source: { document_id },
+      deadlineMs,
+      cap: true,
+    })
+  },
+)
+
+/**
+ * Dispatch record_created loops (forms phase 2): `flow/record.created` is
+ * emitted for a row a form's submission wrote (at once) or a person added by
+ * hand (about five minutes later: src/lib/flows/emit-record-created.ts).
+ * Skipped when the row is gone, archived or still blank by then; fires the
+ * loops on its table whose owner can read that table now (event-triggers.ts
+ * recordFlowsToFire). `{{trigger.row_id}}` / `{{trigger.table_id}}` name it;
+ * a step reads it with query_rows, where a form's row is fenced as untrusted.
+ * Capped per flow. retries: 0, concurrency per workspace.
+ */
+export const flowDispatchOnRecordCreated = inngest.createFunction(
+  {
+    id: 'flow-dispatch-on-record-created',
+    retries: 0,
+    concurrency: [{ limit: 2, key: 'event.data.workspace_id' }],
+    triggers: [{ event: 'flow/record.created' }],
+  },
+  async ({ event, step }) => {
+    const deadlineMs = flowRunDeadlineMs(Date.now())
+    const { workspace_id, table_id, row_id } = event.data as { workspace_id: string; table_id: string; row_id: string }
+    const supabase = getServiceClient()
+
+    const found = await step.run('find-matching-flows', async () => {
+      const row = await loadRecordFacts(supabase, row_id)
+      const skip = recordSkipReason(row, workspace_id, table_id)
+      if (skip || !row) return { skip: skip ?? 'deleted', flows: [] as FlowWithSecrets[] }
+      const candidates = await findMatchingFlowsForRecordCreated(supabase, workspace_id, row.table_id)
+      return { skip: null, flows: await recordFlowsToFire(supabase, candidates, row) }
+    })
+    if (found.skip) return { dispatched: 0, skipped: found.skip }
+    if (found.flows.length === 0) return { dispatched: 0 }
+
+    const trigger: TriggerContext = {
+      type: 'record_created',
+      entity_type: null,
+      from_status_id: null,
+      to_status_id: null,
+      fired_at: new Date().toISOString(),
+      row_id,
+      table_id,
+    }
+    return runEntitylessFires(supabase, step, {
+      fireId: event.id ?? null,
+      workspaceId: workspace_id,
+      flows: found.flows as FlowWithSecrets[],
+      trigger,
+      source: { row_id },
       deadlineMs,
       cap: true,
     })

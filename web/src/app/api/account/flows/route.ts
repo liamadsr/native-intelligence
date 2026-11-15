@@ -41,7 +41,7 @@ import {
   validateTriggerConfig,
 } from '@/lib/flows/queries'
 import { nextRunAtOnWrite } from '@/lib/flows/next-run'
-import { chatTriggerChannelProblem } from '@/lib/flows/event-triggers'
+import { eventTriggerTargetProblem } from '@/lib/flows/event-triggers'
 import type { FlowAction } from '@/lib/flows/types'
 import { flowRowForViewer } from '@/lib/flows/types'
 
@@ -59,6 +59,9 @@ const WIRED_TRIGGER_TYPES = new Set([
   'email_received',
   'chat_message',
   'document_created',
+  // The website quote intake (B1) and a table's new rows (forms phase 2): built in the canvas too.
+  'quote_received',
+  'record_created',
 ])
 
 const FLOW_FIELDS = `
@@ -122,7 +125,7 @@ export async function POST(request: NextRequest) {
   const tcfg = validateTriggerConfig(trigger_type, trigger_config, { now: new Date() })
   if (tcfg instanceof Error) return badRequest(tcfg.message)
   // A chat loop's channel must be one its owner (the caller) can read.
-  const channelProblem = await chatTriggerChannelProblem(getServiceClient(), { workspaceId, ownerUserId: user.id, triggerType: trigger_type, config: tcfg })
+  const channelProblem = await eventTriggerTargetProblem(getServiceClient(), { workspaceId, ownerUserId: user.id, triggerType: trigger_type, config: tcfg })
   if (channelProblem) return badRequest(channelProblem)
 
   // Validate the action list (config + condition per action). The bearer

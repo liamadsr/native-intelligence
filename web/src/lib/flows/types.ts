@@ -25,9 +25,10 @@ export type FlowTriggerType =
   | 'email_received'
   | 'chat_message'
   | 'document_created'
+  | 'record_created'
 
-/** The event triggers that fire for one flow OWNER's own items (their mail, a channel they read, a document they see). */
-export const OWNER_EVENT_TRIGGER_TYPES = ['email_received', 'chat_message', 'document_created'] as const
+/** The event triggers that fire for one flow OWNER's own items (their mail, a channel they read, a document they see, a table they read). */
+export const OWNER_EVENT_TRIGGER_TYPES = ['email_received', 'chat_message', 'document_created', 'record_created'] as const
 export type OwnerEventTriggerType = (typeof OWNER_EVENT_TRIGGER_TYPES)[number]
 
 /** One of the owner's event triggers (their mail, chat, documents). */
@@ -92,6 +93,12 @@ export function triggerConfigForViewer(
     void _from
     return { ...rest, owner_only: true }
   }
+  if (triggerType === 'record_created') {
+    // Which table (possibly the owner's private one) is the owner's to know.
+    const { table_id: _table, ...rest } = cfg
+    void _table
+    return { ...rest, table: 'a table', owner_only: true }
+  }
   return cfg
 }
 
@@ -107,7 +114,7 @@ export function flowRowForViewer<T extends { trigger_type?: unknown; trigger_con
 }
 
 /** What a member who may not read a loop's runs is told instead of them. */
-export const OWNER_ONLY_RUNS_NOTE = "Only the person a run of this loop ran for can see it: it starts on their own mail, chat or documents."
+export const OWNER_ONLY_RUNS_NOTE = "Only the person a run of this loop ran for can see it: it starts on their own mail, chat, documents or tables."
 
 export type FlowActionType = 'http_post' | 'run_skill' | 'run_agent' | 'archive_capture' | 'call_tool' | 'run_local_agent'
 
@@ -313,6 +320,21 @@ export interface DocumentCreatedTriggerConfig {
 }
 
 /**
+ * Fired when a row is added to one table (forms phase 2,
+ * src/lib/flows/emit-record-created.ts): at once for a form's submission,
+ * about five minutes after a PERSON adds one by hand (so the run reads what
+ * they typed, and a row still blank or archived by then fires nothing). A
+ * row an agent, an import or a sync wrote never fires. Only loops whose
+ * owner can read the table fire. `{{trigger.row_id}}` and
+ * `{{trigger.table_id}}` name it; a step reads it with query_rows (row_ids).
+ */
+export interface RecordCreatedTriggerConfig {
+  kind: 'record_created'
+  /** The table whose new rows fire it. */
+  table_id: string
+}
+
+/**
  * All trigger config shapes. Rows created before the loop engine have no
  * `kind` — a missing kind means entity_status_change (back-compat); the
  * row-level flow.trigger_type column is the authoritative discriminator.
@@ -327,6 +349,7 @@ export type FlowTriggerConfig =
   | EmailReceivedTriggerConfig
   | ChatMessageTriggerConfig
   | DocumentCreatedTriggerConfig
+  | RecordCreatedTriggerConfig
 
 // ──────────────────────────────────────────────────────────────────
 // Condition model (per-action gate on the triggering entity)
@@ -971,6 +994,10 @@ export interface TriggerContext {
   chat_thread_root_id?: string | null
   /** A document_created fire: the document (`{{trigger.document_id}}`). */
   document_id?: string | null
+  /** A record_created fire: the new row (`{{trigger.row_id}}`). */
+  row_id?: string | null
+  /** A record_created fire: the row's table (`{{trigger.table_id}}`). */
+  table_id?: string | null
 }
 
 /**

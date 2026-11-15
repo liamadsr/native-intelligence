@@ -93,5 +93,8 @@ export async function sweepTimeOffers(supabase: SupabaseClient, deps: AcceptDeps
   await deleteOldFailedPicks(supabase, twoDaysAgo).catch(() => {})
   const { deleteOldLinkAttempts } = await import('@/lib/booking-links/store')
   await deleteOldLinkAttempts(supabase, twoDaysAgo).catch(() => {})
+  // A form's tries (forms phase 1): past its caps' hour, and its repeat window, the same way.
+  const { deleteOldFormAttempts } = await import('@/lib/forms/store')
+  await deleteOldFormAttempts(supabase, twoDaysAgo).catch(() => {})
   return result
 }

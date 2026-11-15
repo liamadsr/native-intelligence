@@ -51,7 +51,8 @@ describe('migration 520: tables, rows and one write path', () => {
 
   it('pins the visibilities, sources, limits and column types the code uses', () => {
     expect(sql).toContain(`check (visibility in (${DATA_TABLE_VISIBILITIES.map((v) => `'${v}'`).join(', ')}))`)
-    expect(sql).toContain(`check (source in (${DATA_CHANGE_SOURCES.map((v) => `'${v}'`).join(', ')}))`)
+    // 660 adds 'form' (forms/__tests__/migration-660.test.ts pins the whole list there).
+    expect(sql).toContain(`check (source in (${DATA_CHANGE_SOURCES.filter((v) => v !== 'form').map((v) => `'${v}'`).join(', ')}))`)
     expect(sql).toContain(`check (char_length(btrim(name)) between 1 and ${TABLE_LIMITS.name})`)
     expect(sql).toContain(`check (char_length(title) <= ${TABLE_LIMITS.title})`)
     expect(sql).toContain(`check (reason is null or char_length(reason) <= ${TABLE_LIMITS.reason})`)

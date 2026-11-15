@@ -38,14 +38,15 @@ describe('migration 640', () => {
     expect(checkedTypes(BODY)).toEqual([...EARLIER, ...ADDED])
   })
 
-  it('allows every trigger type the app builds', () => {
-    const allowed = new Set(checkedTypes(BODY))
-    for (const t of FLOW_TOOL_TRIGGER_TYPES) expect(allowed.has(t), t).toBe(true)
-  })
-
-  it('is the newest definition of flow_trigger_type_check', () => {
+  it('the newest definition of flow_trigger_type_check allows every trigger type the app builds', () => {
+    // 660 (forms) widens it again with record_created, keeping every value here.
     const defining = migrationsInOrder().filter((m) => /add constraint flow_trigger_type_check/i.test(m.sql))
-    expect(defining[defining.length - 1].file).toBe('640_flow_event_triggers.sql')
+    const newest = defining[defining.length - 1]
+    expect(newest.file).toBe('660_data_forms.sql')
+    const flat = newest.sql.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n').replace(/\s+/g, ' ')
+    const allowed = checkedTypes(flat)
+    expect(allowed).toEqual([...EARLIER, ...ADDED, 'record_created'])
+    for (const t of FLOW_TOOL_TRIGGER_TYPES) expect(allowed.includes(t), t).toBe(true)
   })
 
   it('is bounded and re-runnable', () => {

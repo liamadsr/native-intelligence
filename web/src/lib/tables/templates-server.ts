@@ -27,7 +27,7 @@ async function createPipelineFromTemplate(
   actor: TableActor,
 ): Promise<TableWrite<ApplyResult & { table_id: string }>> {
   const stages = t.columns.find((c) => c.key === 'stage')?.options?.map((name) => ({ name, outcome: name === 'Won' ? ('won' as const) : name === 'Lost' ? ('lost' as const) : ('open' as const) }))
-  const made = await createPipeline(db, workspaceId, { name: opts.name?.trim() || t.name, stages }, { userId: actor.userId, source: actor.source === 'import' ? 'person' : actor.source, asUserId: actor.asUserId ?? null, reason: actor.reason ?? null })
+  const made = await createPipeline(db, workspaceId, { name: opts.name?.trim() || t.name, stages }, { userId: actor.userId, source: actor.source === 'import' || actor.source === 'form' ? 'person' : actor.source, asUserId: actor.asUserId ?? null, reason: actor.reason ?? null })
   if (!made.ok) return { ok: false, reason: 'invalid', error: made.error }
   const own = new Set((await listColumns(db, workspaceId, made.id)).map((c) => c.key))
   const ops = [

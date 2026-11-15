@@ -59,7 +59,26 @@ const readable = vi.hoisted(() => ({ byUser: {} as Record<string, string[]> }))
 vi.mock('@/lib/api-auth', () => ({
   requireWorkspaceMember: async () => ({ supabase: client(), user: { id: auth.userId }, workspaceId: 'ws-1' }),
 }))
-vi.mock('@/lib/supabase/service', () => ({ getServiceClient: () => ({}) }))
+/** The service client's side: the workspace's live tables, and which each person reads without a grant. */
+const svc = vi.hoisted(() => ({ tables: [] as Array<{ id: string; workspace_id: string }>, readableTables: {} as Record<string, string[]> }))
+vi.mock('@/lib/supabase/service', () => ({
+  getServiceClient: () => ({
+    from: () => {
+      const f: Record<string, unknown> = {}
+      const q = {
+        select: () => q,
+        eq: (col: string, v: unknown) => ((f[col] = v), q),
+        is: () => q,
+        maybeSingle: async () => ({ data: svc.tables.find((t) => t.id === f.id && t.workspace_id === f.workspace_id) ?? null, error: null }),
+      }
+      return q
+    },
+    rpc: async (_name: string, args: { p_ids: string[]; p_user_id: string; p_grants: boolean }) => ({
+      data: args.p_grants ? args.p_ids : args.p_ids.filter((id) => (svc.readableTables[args.p_user_id] ?? []).includes(id)),
+      error: null,
+    }),
+  }),
+}))
 vi.mock('@/lib/knowledge/entity-fences', async (orig) => ({
   ...(await orig<typeof import('@/lib/knowledge/entity-fences')>()),
   visiblePrivateKindIds: async (_s: unknown, _kind: string, userId: string, ids: string[]) => new Set(ids.filter((id) => (readable.byUser[userId] ?? []).includes(id))),
@@ -80,6 +99,8 @@ const { GET, PATCH } = await import('../[id]/route')
 
 const CH = '55555555-5555-4555-8555-555555555555'
 const CH_OTHER = '66666666-6666-4666-8666-666666666666'
+const TABLE = '33333333-3333-4333-8333-333333333333'
+const TABLE_ELSEWHERE = '44444444-4444-4444-8444-444444444444'
 const req = (body: unknown) => new Request('http://localhost/api/account/flows', { method: 'POST', body: JSON.stringify(body) }) as unknown as NextRequest
 const params = { params: Promise.resolve({ id: 'flow-1' }) }
 const hook = { type: 'http_post', config: { method: 'POST', url: 'https://example.com/hook', headers: {}, body_template: '' } }
@@ -95,6 +116,8 @@ beforeEach(() => {
   db.inserts = []
   auth.userId = 'user-1'
   readable.byUser = { 'user-1': [CH], 'user-2': [CH, CH_OTHER] }
+  svc.tables = [{ id: TABLE, workspace_id: 'ws-1' }, { id: TABLE_ELSEWHERE, workspace_id: 'ws-2' }]
+  svc.readableTables = { 'user-1': [TABLE, TABLE_ELSEWHERE], 'user-2': [] }
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -112,6 +135,29 @@ describe('POST /api/account/flows — the new triggers', () => {
       expect(res.status).toBe(201)
       expect(db.inserts.at(-1)).toMatchObject({ trigger_type, trigger_config: stored, team_id: null, next_run_at: null })
     }
+  })
+
+  it('builds a loop on a table\'s new rows, and on a website quote (the canvas builds both now)', async () => {
+    const rows = await POST(req({ name: 'X', trigger_type: 'record_created', trigger_config: { table_id: TABLE, extra: 'dropped' }, actions: [hook] }))
+    expect(rows.status).toBe(201)
+    expect(db.inserts.at(-1)).toMatchObject({ trigger_type: 'record_created', trigger_config: { kind: 'record_created', table_id: TABLE }, team_id: null, next_run_at: null })
+    const quote = await POST(req({ name: 'X', trigger_type: 'quote_received', trigger_config: {}, actions: [hook] }))
+    expect(quote.status).toBe(201)
+    expect(db.inserts.at(-1)).toMatchObject({ trigger_type: 'quote_received', trigger_config: { kind: 'quote_received' }, team_id: null })
+  })
+
+  it('refuses a row loop with no table, on a table its owner cannot read without a grant, or on another workspace\'s', async () => {
+    const none = await POST(req({ name: 'X', trigger_type: 'record_created', trigger_config: {}, actions: [hook] }))
+    expect(none.status).toBe(400)
+    expect((await none.json()).error).toMatch(/table_id is required/)
+    auth.userId = 'user-2'
+    const hidden = await POST(req({ name: 'X', trigger_type: 'record_created', trigger_config: { table_id: TABLE }, actions: [hook] }))
+    expect(hidden.status).toBe(400)
+    expect((await hidden.json()).error).toMatch(/owner can read/)
+    auth.userId = 'user-1'
+    const elsewhere = await POST(req({ name: 'X', trigger_type: 'record_created', trigger_config: { table_id: TABLE_ELSEWHERE }, actions: [hook] }))
+    expect(elsewhere.status).toBe(400)
+    expect(db.inserts).toEqual([])
   })
 
   it('refuses a chat loop on every channel without mentions-only, or on a channel the owner cannot read', async () => {

@@ -30,7 +30,7 @@ import {
   validateTriggerConfig,
 } from '@/lib/flows/queries'
 import { nextRunAtOnEnable, nextRunAtOnWrite, onceArming } from '@/lib/flows/next-run'
-import { chatTriggerChannelProblem } from '@/lib/flows/event-triggers'
+import { eventTriggerTargetProblem } from '@/lib/flows/event-triggers'
 import type { FlowAction } from '@/lib/flows/types'
 import { flowRowForViewer } from '@/lib/flows/types'
 
@@ -48,6 +48,9 @@ const WIRED_TRIGGER_TYPES = new Set([
   'email_received',
   'chat_message',
   'document_created',
+  // The website quote intake (B1) and a table's new rows (forms phase 2): built in the canvas too.
+  'quote_received',
+  'record_created',
 ])
 
 const FLOW_FIELDS = `
@@ -321,7 +324,7 @@ export async function PATCH(
   }
   // A chat loop's channel must be one its OWNER can read (it runs as them).
   if (touchesTrigger && typeof updates.trigger_type === 'string') {
-    const channelProblem = await chatTriggerChannelProblem(getServiceClient(), {
+    const channelProblem = await eventTriggerTargetProblem(getServiceClient(), {
       workspaceId,
       ownerUserId: ownerId ?? user.id,
       triggerType: updates.trigger_type,

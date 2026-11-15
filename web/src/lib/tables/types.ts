@@ -21,8 +21,8 @@ export type DataTableKind = 'table' | 'pipeline'
 export const DATA_TABLE_VISIBILITIES = ['workspace', 'private'] as const
 
 /** Where a batch came from (data_change.source). */
-export type DataChangeSource = 'person' | 'agent' | 'import' | 'email' | 'capture' | 'sms'
-export const DATA_CHANGE_SOURCES = ['person', 'agent', 'import', 'email', 'capture', 'sms'] as const
+export type DataChangeSource = 'person' | 'agent' | 'import' | 'email' | 'capture' | 'sms' | 'form'
+export const DATA_CHANGE_SOURCES = ['person', 'agent', 'import', 'email', 'capture', 'sms', 'form'] as const
 
 /**
  * A table column's custom_field_definition.entity_type (520): beside the
@@ -124,6 +124,8 @@ export interface DataRow {
   /** A pipeline's row only (540): when its stage last changed, and when it was won or lost. */
   stage_changed_at?: string | null
   closed_at?: string | null
+  /** A form wrote it (660): its text is a stranger's, read by the agents only as untrusted data. */
+  from_form?: boolean
   /** Its formulas' and rollups' cells by column key, worked out as it was read (phase 6). */
   computed?: Record<string, ComputedCell>
 }
