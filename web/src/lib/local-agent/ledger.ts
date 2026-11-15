@@ -35,6 +35,7 @@ import type { WorkItem, WorkStatus } from '@/lib/work/types'
 import { LOCAL_AGENT_INTERRUPTED_NEEDS_ID, LOCAL_AGENT_TEAMMATE_NEEDS_ID } from '@/lib/chat/teammate-report'
 import { MAC_TEAMMATE_TOOL_NAMES, macTeammateName } from './teammate'
 import { LOCAL_AGENT_CODE_SOURCE_KEY } from './code-thread'
+import { workerLabel } from '@/lib/environments/types'
 
 export const LOCAL_AGENT_WORK_KIND = 'local_agent'
 
@@ -127,9 +128,14 @@ export function turnRunKey(sessionId: string, turn: number): string {
   return `local_agent:${sessionId}:${turn}`
 }
 
-/** "Native Intelligence on Liam's MacBook Pro · web: Take a look at this repository" (the teammate, C4) */
-export function turnTitle(deviceName: string, folderLabel: string, text: string): string {
-  const prefix = `${macTeammateName(oneLine(deviceName, 80))} · `
+/**
+ * "Native Intelligence on Liam's MacBook Pro · web: Take a look at this
+ * repository" (the teammate, C4); a job on the person's own coding agent is
+ * named for it: "Claude Code on Studio Mac · harbor-site: …".
+ */
+export function turnTitle(deviceName: string, folderLabel: string, text: string, worker: string | null = null): string {
+  const device = oneLine(deviceName, 80)
+  const prefix = `${worker ? `${workerLabel(worker)} on ${device || 'your Mac'}` : macTeammateName(device)} · `
   const label = oneLine(folderLabel, 80) || 'a folder'
   const what = oneLine(text, TITLE_TEXT_MAX)
   return what ? `${prefix}${label}: ${what}` : `${prefix}${label}`
@@ -182,7 +188,7 @@ export async function startTurnRow(
       workspaceId: s.workspaceId,
       memberId,
       kind: LOCAL_AGENT_WORK_KIND,
-      title: turnTitle(s.deviceName, s.folderLabel, opts.text),
+      title: turnTitle(s.deviceName, s.folderLabel, opts.text, s.worker ?? null),
       actor: 'agent',
       status: opts.status,
       runKey: turnRunKey(s.id, opts.turn),

@@ -17,7 +17,7 @@
  *                     folder… in the desktop app.
  *   CodeNoticeLine    under the box: why it doesn't send (a cloud
  *                     environment, no folder), what the last send came back
- *                     with, or that what is staged for Chat (files, mentions,
+ *                     with (a second send to an open job: Open it), or that what is staged for Chat (files, mentions,
  *                     a skill) isn't sent. Nothing when there is nothing to say.
  *
  * The menus are the repo's dropdown menu (Radix): radio items, so the
@@ -204,9 +204,23 @@ export const CODE_WORDS_ONLY_LINE = 'The coding agent gets your words only. What
 export function CodeNoticeLine({ code, staged = false }: { code: ComposerCode; staged?: boolean }) {
   const line = code.notice ?? code.blocker ?? (staged ? CODE_WORDS_ONLY_LINE : null)
   if (!line) return null
+  const action = code.notice ? code.noticeAction : null
   return (
     <p data-code-notice={code.notice ? 'send' : code.blocker ? 'blocker' : 'staged'} role="status" className="basis-full px-1.5 pt-0.5 text-[12px] leading-snug text-muted-foreground">
       {line}
+      {action && (
+        <>
+          {' '}
+          <button
+            type="button"
+            data-code-notice-action=""
+            onClick={action.run}
+            className="rounded-sm font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {action.label}
+          </button>
+        </>
+      )}
     </p>
   )
 }

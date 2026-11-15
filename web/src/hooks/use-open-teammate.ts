@@ -18,7 +18,7 @@
  */
 import { useCallback, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
-import { useAgentWorkShared } from '@/components/work/agent-work-provider'
+import { useAgentWorkShared, useOptionalAgentWorkShared, type AgentWorkShared } from '@/components/work/agent-work-provider'
 import { openTarget, type OpenTarget } from '@/lib/chat-cards/open-card'
 import { useWorkspaces } from '@/app/account/workspace-switcher'
 import { openBotPage, openBotPageItem } from '@/lib/bots/bot-page'
@@ -40,23 +40,27 @@ function useLatest(): () => { source: OpenTeammateSource; nav: Omit<OpenTeammate
   // Read at click time, so the callbacks' identity doesn't follow every ledger push.
   const latest = useRef({ work, attention, counts, currentId })
   latest.current = { work, attention, counts, currentId }
-  return useCallback(() => {
-    const s = latest.current
-    return {
-      source: { rows: s.work.rows ?? [], cardRows: s.work.cardRows, cards: s.attention.items, counts: s.counts, roster: s.work.roster },
-      nav: {
-        currentWorkspaceId: s.currentId,
-        open: (target, workspaceId) => void openTarget(target, { from: 'bot', workspaceId }),
-        // Its work, in a narrow window: what opening a bot's page asks for.
-        openPage: (teammateId: string) => openBotPage(teammateId, { focus: 'work' }),
-        // An item, on its bot's page; and who an item nothing here holds is.
-        openItemPage: openBotPageItem,
-        lookup: lookupWorkItem,
-        // A bot whose page can't open (deleted, or behind a private team) and nothing else to show.
-        botNotFound: () => toast('Couldn’t find that agent'),
-      },
-    }
-  }, [])
+  return useCallback(() => latestOf(latest.current), [])
+}
+
+function latestOf(s: { currentId: string | null } & Pick<AgentWorkShared, 'work' | 'attention' | 'counts'>): {
+  source: OpenTeammateSource
+  nav: Omit<OpenTeammateNav, 'talk'>
+} {
+  return {
+    source: { rows: s.work.rows ?? [], cardRows: s.work.cardRows, cards: s.attention.items, counts: s.counts, roster: s.work.roster },
+    nav: {
+      currentWorkspaceId: s.currentId,
+      open: (target, workspaceId) => void openTarget(target, { from: 'bot', workspaceId }),
+      // Its work, in a narrow window: what opening a bot's page asks for.
+      openPage: (teammateId: string) => openBotPage(teammateId, { focus: 'work' }),
+      // An item, on its bot's page; and who an item nothing here holds is.
+      openItemPage: openBotPageItem,
+      lookup: lookupWorkItem,
+      // A bot whose page can't open (deleted, or behind a private team) and nothing else to show.
+      botNotFound: () => toast('Couldn’t find that agent'),
+    },
+  }
 }
 
 export function useOpenTeammate(): (teammateIds: readonly string[], intent?: TeammateIntent) => OpenTeammateOutcome {
@@ -99,6 +103,24 @@ export function useOpenWorkItem(
     },
     [latest],
   )
+}
+
+/**
+ * useOpenWorkItem for a surface that may be mounted outside the shell (the
+ * chat panel rendered on its own, a test): the same opener inside
+ * AgentWorkProvider, null outside it.
+ */
+export function useOptionalOpenWorkItem(): ((itemId: string, teammateIds: readonly string[], known?: KnownRow | null) => OpenTeammateOutcome) | null {
+  const shared = useOptionalAgentWorkShared()
+  const { currentId } = useWorkspaces()
+  const latest = useRef({ shared, currentId })
+  latest.current = { shared, currentId }
+  const open = useCallback((itemId: string, teammateIds: readonly string[], known?: KnownRow | null): OpenTeammateOutcome => {
+    const { shared: s, currentId: current } = latest.current
+    const { source, nav } = latestOf({ ...s!, currentId: current })
+    return openItem(itemId, teammateIds, source, nav, known)
+  }, [])
+  return shared ? open : null
 }
 
 type DevWindow = Window & { __niOpenTeammate?: (teammateIds: string[], intent?: TeammateIntent) => OpenTeammateOutcome }

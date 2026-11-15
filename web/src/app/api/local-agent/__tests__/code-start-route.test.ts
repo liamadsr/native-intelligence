@@ -25,13 +25,26 @@ vi.mock('@/lib/api-auth', async (orig) => {
   return {
     ...real,
     requireWorkspace: async () => (m.user ? { user: { id: m.user }, workspaceId: m.workspace, supabase: {} } : unauthorized()),
+    requireUser: async () => (m.user ? { user: { id: m.user }, supabase: {} } : unauthorized()),
   }
 })
 vi.mock('@/lib/supabase/service', () => ({ getServiceClient: () => m.db }))
 const ledger = vi.hoisted(() => ({ startTurnRow: vi.fn(async () => 'job-1') }))
+// The chat's stored history (eve-message-writer's upsert on (conversation, message id), ignoring duplicates).
+const history = vi.hoisted(() => ({ rows: [] as Array<{ conversationId: string; role?: string; messageId: string; parts: unknown; metadata?: Record<string, unknown> }> }))
+vi.mock('@/lib/chat/eve-message-writer', () => ({
+  persistEveMessage: vi.fn(async (_svc: unknown, opts: { conversationId: string; role?: string; messageId: string; parts: unknown; metadata?: Record<string, unknown> }) => {
+    if (history.rows.some((r) => r.conversationId === opts.conversationId && r.messageId === opts.messageId)) return { written: false, conversationActivityFired: false }
+    history.rows.push(opts)
+    return { written: true, conversationActivityFired: true }
+  }),
+}))
+const sent = vi.hoisted(() => [] as Array<{ name: string }>)
+vi.mock('@/lib/inngest/client', () => ({ inngest: { send: vi.fn(async (e: { name: string }) => void sent.push(e)) } }))
 vi.mock('@/lib/local-agent/ledger', async (orig) => ({ ...(await orig<typeof import('@/lib/local-agent/ledger')>()), ...ledger }))
 
 import { POST } from '../sessions/route'
+import { POST as messagePOST } from '../sessions/[id]/messages/route'
 import { createSession } from '@/lib/local-agent/store'
 import { CONV, DEVICE, FOLDER, OTHER, USER, WS, seeded, type FakeDb } from '@/lib/local-agent/__tests__/fake-db'
 
@@ -78,6 +91,8 @@ beforeEach(() => {
   })
   m.db = db
   ledger.startTurnRow.mockClear()
+  history.rows.length = 0
+  sent.length = 0
   vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
 })
@@ -242,5 +257,27 @@ describe('the Code tab and the chat agent never share a job (no chat model in be
     expect(body).toMatchObject({ code: 'FOLDER_BUSY' })
     expect(body.error).toContain('on a job the chat agent started')
     expect(sessions()).toHaveLength(1)
+  })
+})
+
+describe('follow-ups typed in a Code job’s own chat are kept in the chat’s history, as the person’s words', () => {
+  const follow = (sessionId: string, body: Record<string, unknown>) =>
+    messagePOST(post(body), { params: Promise.resolve({ id: sessionId }) })
+
+  it('one user message naming the job, once per request id, and the knowledge trigger once; never the transcript', async () => {
+    const started = await (await send({ worker: null })).json()
+    const id = started.session.id
+    expect((await follow(id, { text: 'Also add a test for it', requestId: 'f-1' })).status).toBe(200)
+    expect((await follow(id, { text: 'Also add a test for it', requestId: 'f-1' })).status).toBe(200)
+    expect(history.rows).toEqual([
+      expect.objectContaining({ conversationId: CONV, role: 'user', messageId: 'code-f-1', parts: [{ type: 'text', text: 'Also add a test for it' }], metadata: expect.objectContaining({ local_agent_code: { requestId: 'f-1', sessionId: id } }) }),
+    ])
+    expect(sent.filter((e) => e.name === 'conversation/activity')).toHaveLength(1)
+  })
+
+  it('a message to a job the chat agent started is not kept (that job reports as a teammate)', async () => {
+    const { session } = await createSession(db as never, { userId: USER, workspaceId: WS, folderId: FOLDER, conversationId: OTHER_CONV, request: 'Tidy the README', mode: 'edit', startedBy: 'agent' })
+    expect((await follow(session.id, { text: 'And the CHANGELOG', requestId: 'f-2' })).status).toBe(200)
+    expect(history.rows).toEqual([])
   })
 })

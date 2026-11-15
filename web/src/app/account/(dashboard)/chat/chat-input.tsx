@@ -339,11 +339,11 @@ export const ChatInput = memo(function ChatInput({
   fileAccept?: string
 }) {
   const inline = layout === 'inline'
-  // In the Code tab the send slot follows the coding agent's job: Stop while
-  // it works, and Stop stops it. In Chat, the reply's, as ever.
+  // The Code tab only starts jobs (each runs in its own view, with its own
+  // Stop): its send slot is always Send. In Chat, the reply's, as ever.
   const codeActive = code?.tab === 'code'
-  const isLoading = codeActive ? !!code?.working : chatLoading
-  const onStop = codeActive && code ? code.stop : onStopChat
+  const isLoading = codeActive ? false : chatLoading
+  const onStop = onStopChat
   const [plusMenuOpen, setPlusMenuOpen] = useState(false)
   // ── The `/` and `@` menu (command-menu-model.ts) ───────────────────────────
   // Read from the text and the caret on every edit and caret move, never
@@ -1578,12 +1578,12 @@ export const ChatInput = memo(function ChatInput({
                 // meanwhile.
                 <VoiceEndButton voice={voiceMode} />
               ) : isLoading && !hasDraft ? (
-                <PromptInputAction tooltip={codeActive && code ? `Stop ${code.agentLabel}` : 'Stop generating'}>
+                <PromptInputAction tooltip="Stop generating">
                   <Button
                     variant="default"
                     size="icon"
                     className="h-8 w-8 rounded-full"
-                    aria-label={codeActive && code ? `Stop ${code.agentLabel}` : 'Stop generating'}
+                    aria-label="Stop generating"
                     onClick={onStop}
                   >
                     <StopSquareIcon />

@@ -11,12 +11,15 @@
  *     connection with how to connect one), the folder after the environment,
  *     no "+";
  *   - a send starts the job (POST /api/local-agent/sessions, the person's own
- *     words, the picked agent, the folder), puts the person's message in the
- *     thread, clears the box, keeps the choice for the conversation, and the
- *     job draws inline after that message;
+ *     words, the picked agent, the folder), clears the box, keeps the choice
+ *     for the conversation, OPENS the job's own view (the Agents panel's
+ *     way, by its turn's ledger row), and the thread draws it as one compact
+ *     line, never a bubble or the job itself;
+ *   - a second send while that job is open on the same agent in the same
+ *     folder is refused with a sentence and an Open button (follow-ups go in
+ *     its own chat); another folder starts another job;
  *   - a refusal keeps the words and says why; a cloud environment says the
  *     cloud comes next and sends nothing;
- *   - while the job works, Stop stops it; a later send goes to it;
  *   - a conversation with a Code job opens on Code with that job's agent.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -36,8 +39,6 @@ vi.mock('@/hooks/use-entity-sync', () => ({ useEntityListSync: () => {} }))
 vi.mock('@/lib/workspace-fetch', () => ({ getClientWorkspaceId: () => 'ws-1' }))
 vi.mock('@/lib/local-agent/relay-core', () => ({ refreshLocalAgentDevice: vi.fn(async () => null) }))
 vi.mock('../chat-message', () => ({ ChatMessage: ({ message }: { message: { id: string } }) => h('div', { 'data-msg-id': message.id }) }))
-// The job's own view (LocalAgentPanel) has its tests; here, where it draws.
-vi.mock('../code-job-block', () => ({ CodeJobBlock: ({ sessionId }: { sessionId: string }) => h('div', { 'data-code-job': sessionId }) }))
 
 import { ChatInput } from '../chat-input'
 import { toMentionContact } from '@/lib/search/menu-search'
@@ -67,11 +68,13 @@ const STUDIO = mac({
 const session = (over: Record<string, unknown> = {}) => ({
   id: 'sess-1', folderId: 'f-site', folderLabel: 'harbor-site', deviceId: 'dev-studio', deviceName: 'Studio Mac', conversationId: CONV,
   mode: 'edit', request: 'Fix the date picker', status: 'queued', lastSignal: null, lastSignalText: null, branch: null, commitSha: null, error: null,
-  trackedJobId: null, createdAt: '2026-11-14T10:00:00Z', updatedAt: '2026-11-14T10:00:00Z', endedAt: null, lastDeviceSeq: null, startedBy: 'person',
+  trackedJobId: 'tj-1', createdAt: '2026-11-14T10:00:00Z', updatedAt: '2026-11-14T10:00:00Z', endedAt: null, lastDeviceSeq: null, startedBy: 'person',
   worker: 'claude-code', codeRequestId: 'req-x', ...over,
 })
 
 const host = { messages: [] as UIMessage[], value: '' }
+/** The job views opened (by their turn's ledger row), as the Agents panel opens one. */
+const opened: string[] = []
 
 const hostOpts = { conversation: CONV as string | null, notes: [] as Array<{ id: string; title: string }> }
 
@@ -89,6 +92,7 @@ function Host({ initial = [] as UIMessage[], layout = 'inline' as 'inline' | 'st
     appendMessage: (m) => setMessages((prev) => [...prev, m]),
     conversationIdNow: async () => hostOpts.conversation,
     chatBusy: () => false,
+    openWorkItem: (id: string) => void opened.push(id),
   })
   // What the host holds, for the tests to read after each act().
   useEffect(() => {
@@ -166,6 +170,7 @@ async function mount(opts: { list: unknown[]; chatEnv: unknown; routes?: FakeRou
 }
 
 beforeEach(() => {
+  opened.length = 0
   hostOpts.conversation = CONV
   hostOpts.notes = []
   resetEnvironmentStore()
@@ -234,7 +239,7 @@ describe('the Code tab', () => {
     expect(q('[data-code-agent-connect-hint]')!.textContent).toContain('Install it and sign in on Studio Mac, then allow it from the Native Intelligence menu bar icon')
   })
 
-  it('a send starts the job with the person’s words, puts their message in the thread, clears the box, keeps the choice, and draws the job after it', async () => {
+  it('a send starts the job with the person’s words, clears the box, keeps the choice, opens its own view, and the thread shows one compact line', async () => {
     await mount({
       list: [STUDIO],
       chatEnv: STUDIO,
@@ -251,9 +256,16 @@ describe('the Code tab', () => {
     expect(host.messages[0]).toMatchObject({ id: `code-${requestId}`, role: 'user', metadata: { local_agent_code: { requestId } } })
     expect(host.value).toBe('')
     expect(JSON.parse(localStorage.getItem(`${CODE_TAB_STORAGE_PREFIX}${CONV}`)!)).toEqual({ tab: 'code', agent: 'claude-code', folderId: 'f-site' })
-    // The job, inline, right after the message that started it.
+    // The person lands in the job's own chat: opened by its turn's ledger row.
+    expect(opened).toEqual(['tj-1'])
+    // The thread: one compact line in place of the request, no bubble with its words.
     const row = q(`[data-message-row="code-${requestId}"]`)!
-    expect((row.nextElementSibling as HTMLElement).getAttribute('data-code-job')).toBe('sess-1')
+    expect(row.getAttribute('data-message-role')).toBe('code')
+    expect(row.querySelector('[data-code-line-title]')!.textContent).toBe('Claude Code in harbor-site')
+    expect(row.querySelector('[data-code-line-status]')!.textContent).toBe('Starting')
+    expect(row.textContent).not.toContain('Fix the date picker')
+    press(row.querySelector('button')!)
+    expect(opened).toEqual(['tj-1', 'tj-1'])
   })
 
   it('our own agent picked: worker null', async () => {
@@ -300,38 +312,62 @@ describe('the Code tab', () => {
     expect(posts()).toEqual([])
   })
 
-  it('while the job works, Stop stops it; a later send goes to the job as its next message', async () => {
-    let n = 0
+  it('a second send while that job is open (same agent, same folder) is refused with an Open button; nothing is sent; another folder starts another job', async () => {
+    let started = 0
+    const twoFolders = { ...STUDIO, folders: [...STUDIO.folders, { id: 'f-api', label: 'harbor-api', mode: 'edit' as const, isGit: true, baseBranch: 'main', repoFullName: 'harbor/api' }] }
     await mount({
-      list: [STUDIO],
-      chatEnv: STUDIO,
+      list: [twoFolders],
+      chatEnv: twoFolders,
       routes: [
-        { method: 'POST', url: '/api/local-agent/sessions/sess-1/stop', reply: () => json({ session: session({ status: 'cancelled' }) }) },
-        { method: 'POST', url: '/api/local-agent/sessions/sess-1/messages', reply: () => json({ messageId: `m-${++n}`, requeued: false }) },
-        { method: 'POST', url: '/api/local-agent/sessions', reply: (body) => json({ session: session({ status: 'running', codeRequestId: (body as { requestId: string }).requestId }), created: true, joined: false, deviceOnline: true }, 201) },
+        // The fresh read before refusing: still open.
+        { url: '/api/local-agent/sessions/sess-1', reply: () => json({ session: session({ status: 'running', codeRequestId: 'req-1' }), events: [], lastId: 0 }) },
+        { method: 'POST', url: '/api/local-agent/sessions', reply: (body) => json({ session: session({ id: `sess-${++started}`, trackedJobId: `tj-${started}`, folderId: (body as { folderId: string }).folderId, status: 'running', codeRequestId: (body as { requestId: string }).requestId }), created: true, joined: false, deviceOnline: true }, 201) },
       ],
     })
     press(q('[data-composer-tab="code"]')!)
     await flush()
     type('Fix the date picker')
     await send()
-    // Working: with nothing typed, the slot is Stop, for the agent.
-    const stopButton = q('button[aria-label="Stop Claude Code"]')!
-    expect(stopButton).not.toBeNull()
+    expect(started).toBe(1)
     type('And add a test for it')
     await send()
-    const message = posts().find((c) => c.url === '/api/local-agent/sessions/sess-1/messages')!
-    expect(message.body).toMatchObject({ text: 'And add a test for it', policy: 'queue' })
-    expect(host.messages[1]).toMatchObject({ role: 'user', metadata: { local_agent_code: { sessionId: 'sess-1' } } })
-    // That message is in the job's own view: it takes no row of its own.
-    expect(q(`[data-message-row="${host.messages[1].id}"]`)).toBeNull()
-    press(q('button[aria-label="Stop Claude Code"]')!)
+    expect(started).toBe(1)
+    expect(posts().filter((c) => c.url.includes('/messages'))).toEqual([])
+    expect(host.value).toBe('And add a test for it')
+    expect(host.messages).toHaveLength(1)
+    const notice = q('[data-code-notice="send"]')!
+    expect(notice.textContent).toContain('Claude Code is already working in harbor-site: open it to continue.')
+    press(q('[data-code-notice-action]')!)
+    expect(opened.at(-1)).toBe('tj-1')
+    // Another folder: another job.
+    await openMenu('[data-code-folder-picker]')
+    press(q('[data-code-folder-option="f-api"]')!)
     await flush()
-    expect(posts().some((c) => c.url === '/api/local-agent/sessions/sess-1/stop')).toBe(true)
-    expect(q('button[aria-label="Stop Claude Code"]')).toBeNull()
+    type('Bump the API client')
+    await send()
+    expect(started).toBe(2)
   })
 
-  it('a conversation with a Code job opens on Code with that job’s agent, and draws it after its message', async () => {
+  it('a second send to a job that has ended since: a new job, after one read to be sure', async () => {
+    let started = 0
+    await mount({
+      list: [STUDIO],
+      chatEnv: STUDIO,
+      routes: [
+        { url: '/api/local-agent/sessions/sess-1', reply: () => json({ session: session({ status: 'expired', codeRequestId: 'req-1' }), events: [], lastId: 0 }) },
+        { method: 'POST', url: '/api/local-agent/sessions', reply: (body) => json({ session: session({ id: `sess-${++started}`, status: 'waiting', codeRequestId: (body as { requestId: string }).requestId }), created: true, joined: false, deviceOnline: true }, 201) },
+      ],
+    })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    type('Fix the date picker')
+    await send()
+    type('Now the time picker')
+    await send()
+    expect(started).toBe(2)
+  })
+
+  it('a conversation with a Code job opens on Code with that job’s agent, and draws it as its line', async () => {
     const started: UIMessage = { id: 'code-req-1', role: 'user', parts: [{ type: 'text', text: 'Fix it' }], metadata: { local_agent_code: { requestId: 'req-1' } } }
     await mount({
       list: [STUDIO],
@@ -341,7 +377,9 @@ describe('the Code tab', () => {
     })
     expect(q('[data-composer-tab="code"]')!.getAttribute('data-state')).toBe('on')
     expect(q('[data-code-agent-picker]')!.getAttribute('data-code-agent-picker')).toBe('native')
-    expect(q('[data-code-job="sess-1"]')).not.toBeNull()
+    // Its line, with the job's state as the list read it (finished, idle).
+    expect(q('[data-code-line="sess-1"]')!.getAttribute('data-code-line-state')).toBe('done')
+    expect(q('[data-code-line-title]')!.textContent).toBe('Native Intelligence in harbor-site')
   })
 
   it('a stored choice wins, and Chat sends nothing to the coding agent', async () => {

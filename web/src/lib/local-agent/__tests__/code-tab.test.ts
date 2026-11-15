@@ -12,6 +12,7 @@ import {
   codeBlocker,
   codeFolderOptions,
   codeJobOpen,
+  codeJobOpenLine,
   codeJobWorking,
   codeJobsOf,
   codeMacOf,
@@ -148,8 +149,11 @@ describe('the folders, and why it doesn’t send', () => {
   })
 })
 
+const job = (over: Partial<CodeJob> = {}): CodeJob => ({
+  sessionId: 's-1', requestId: 'r-1', worker: 'claude-code', folderId: 'f-1', folderLabel: 'harbor-site', deviceName: 'Studio Mac', status: 'running', trackedJobId: 'tj-1', createdAt: '2026-11-14T10:00:00Z', ...over,
+})
+
 describe('the conversation’s jobs, and where a send goes', () => {
-  const job = (over: Partial<CodeJob> = {}): CodeJob => ({ sessionId: 's-1', requestId: 'r-1', worker: 'claude-code', folderId: 'f-1', status: 'running', createdAt: '2026-11-14T10:00:00Z', ...over })
 
   it('only the person’s Code jobs, oldest first; a job updates in place, the same array when nothing changed', () => {
     const rows = [
@@ -172,42 +176,46 @@ describe('the conversation’s jobs, and where a send goes', () => {
     expect(codeJobWorking('waiting')).toBe(false)
   })
 
-  it('to the newest job while it is open, on the same agent, in the same folder; else a new job', () => {
-    expect(codeSendTarget(job(), 'claude-code', 'f-1')).toEqual({ kind: 'message', sessionId: 's-1' })
-    expect(codeSendTarget(job({ status: 'waiting' }), 'claude-code', 'f-1')).toEqual({ kind: 'message', sessionId: 's-1' })
-    expect(codeSendTarget(job({ status: 'failed' }), 'claude-code', 'f-1')).toEqual({ kind: 'start' })
-    expect(codeSendTarget(job(), null, 'f-1')).toEqual({ kind: 'start' })
-    expect(codeSendTarget(job(), 'claude-code', 'f-2')).toEqual({ kind: 'start' })
-    expect(codeSendTarget(null, 'claude-code', 'f-1')).toEqual({ kind: 'start' })
+  it('a send to an open job on the same agent in the same folder is refused with a way to open it; anything else starts a job', () => {
+    expect(codeSendTarget([job()], 'claude-code', 'f-1')).toEqual({ kind: 'open', job: job() })
+    expect(codeSendTarget([job({ status: 'waiting' })], 'claude-code', 'f-1')).toMatchObject({ kind: 'open' })
+    expect(codeSendTarget([job({ status: 'failed' })], 'claude-code', 'f-1')).toEqual({ kind: 'start' })
+    expect(codeSendTarget([job()], null, 'f-1')).toEqual({ kind: 'start' })
+    expect(codeSendTarget([job()], 'claude-code', 'f-2')).toEqual({ kind: 'start' })
+    expect(codeSendTarget([], 'claude-code', 'f-1')).toEqual({ kind: 'start' })
+    // The newest open one of several.
+    expect(codeSendTarget([job(), job({ sessionId: 's-2' })], 'claude-code', 'f-1')).toMatchObject({ job: { sessionId: 's-2' } })
+    expect(codeJobOpenLine(job({ folderLabel: 'harbor-site' }), 'Claude Code')).toBe('Claude Code is already working in harbor-site: open it to continue.')
+    expect(codeJobOpenLine(job({ folderLabel: 'harbor-site', status: 'waiting' }), 'Claude Code')).toBe('Claude Code\'s job in harbor-site is still open: open it to continue there.')
   })
 })
 
-describe('the thread', () => {
-  const person = (id: string, meta: Record<string, unknown> | null) => ({ id, role: 'user', parts: [{ type: 'text', text: id }], metadata: meta ? { local_agent_code: meta } : {} })
+describe('the thread: one compact line per job, never bubbles', () => {
+  const person = (id: string, meta: Record<string, unknown> | null, text = id) => ({ id, role: 'user', parts: [{ type: 'text', text }], metadata: meta ? { local_agent_code: meta } : {} })
   const finish = (sessionId: string, turn: number) => ({ id: codeFinishMessageId(sessionId, turn), role: 'assistant', parts: [{ type: 'text', text: 'Done.' }], metadata: { kind: CODE_FINISH_KIND, local_agent_session_id: sessionId } })
-  const jobs: CodeJob[] = [{ sessionId: 's-1', requestId: 'r-1', worker: 'claude-code', folderId: 'f-1', status: 'waiting', createdAt: '2026-11-14T10:00:00Z' }]
+  const jobs: CodeJob[] = [job({ sessionId: 's-1', requestId: 'r-1', status: 'waiting' })]
 
-  it('a job draws after the message that started it; its later messages and finish summaries draw nowhere else', () => {
+  it('the request takes the line; its follow-ups and finish reports collapse into it; chat messages are untouched', () => {
     const thread = [
       person('chat-1', null),
-      person('code-r-1', { requestId: 'r-1' }),
+      person('code-r-1', { requestId: 'r-1' }, 'Fix the date picker'),
       finish('s-1', 1),
       person('code-r-2', { requestId: 'r-2', sessionId: 's-1' }),
       finish('s-1', 2),
       person('chat-2', null),
     ]
     const layout = codeThreadLayout(thread, jobs)
-    expect([...layout.blockAfter]).toEqual([['code-r-1', 's-1']])
+    expect([...layout.lines]).toEqual([['code-r-1', { key: 'session:s-1', sessionId: 's-1', requestId: 'r-1', request: 'Fix the date picker' }]])
     expect([...layout.hidden].sort()).toEqual(['code-r-2', codeFinishMessageId('s-1', 1), codeFinishMessageId('s-1', 2)].sort())
     expect(threadHasCode(thread)).toBe(true)
+    expect(threadHasCode([finish('s-1', 1)])).toBe(true)
     expect(threadHasCode([person('chat-1', null)])).toBe(false)
   })
 
-  it('a message whose job isn’t known draws as any message does', () => {
-    const thread = [person('code-r-9', { requestId: 'r-9' }), finish('s-9', 1), person('code-r-10', { requestId: 'r-10', sessionId: 's-9' })]
-    const layout = codeThreadLayout(thread, jobs)
-    expect(layout.blockAfter.size).toBe(0)
-    expect(layout.hidden.size).toBe(0)
-    expect(codeThreadLayout(thread, []).blockAfter.size).toBe(0)
+  it('a request whose job isn’t known yet is still a line (never a bubble); a report whose request isn’t in the thread takes the line itself', () => {
+    const layout = codeThreadLayout([person('code-r-9', { requestId: 'r-9' }), finish('s-7', 1), finish('s-7', 2)], [])
+    expect([...layout.lines.values()].map((l) => l.key)).toEqual(['request:r-9', 'session:s-7'])
+    expect([...layout.hidden]).toEqual([codeFinishMessageId('s-7', 2)])
+    expect(codeThreadLayout([person('chat-1', null)], jobs).lines.size).toBe(0)
   })
 })

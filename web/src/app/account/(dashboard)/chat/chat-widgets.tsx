@@ -39,15 +39,19 @@
  * workspaces" switch, as the provider hands them on (lib/workspace-span).
  *
  * A local agent's turn (`kind: 'local_agent'`) is listed like any helper,
- * titled "Native Intelligence on <Mac> · <folder>: …" by its ledger row, with a laptop mark; its
- * steer goes to its session (the steer route's local_agent branch) and its
- * Stop to the session's stop route (stopRouteOf).
+ * titled "Native Intelligence on <Mac> · <folder>: …" by its ledger row
+ * ("Claude Code on <Mac> · …" on the person's own coding agent), with a
+ * laptop mark; its steer goes to its session (the steer route's local_agent
+ * branch, as the person) and its Stop to the session's stop route
+ * (stopRouteOf). A job the person started from the composer's Code tab stays
+ * listed while it asks them a question, marked as waiting on them: its own
+ * chat (the row opens it) is where they answer.
  *
  * Nothing animates at idle: a row's spinner turns only while it runs
  * (motion-reduce: still).
  */
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { Clock, CornerDownRight, Laptop, Loader2, MessageSquare, Square } from 'lucide-react'
+import { Clock, CornerDownRight, Laptop, Loader2, MessageCircleQuestion, MessageSquare, Square } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PlanChecklist } from '@/components/work/plan-checklist'
 import { useOptionalAgentWork } from '@/components/work/agent-work-provider'
@@ -219,6 +223,8 @@ export function AgentsSection({
 /** A row's state at a glance: a spinner while it works (nothing idle is listed), a clock while it is queued or waits on teammates. */
 function StatusMark({ status }: { status: string | HelperRowStatus }) {
   const cls = 'mt-[3px] size-3.5 shrink-0'
+  // A Code job asking its question (chat-widgets-model.ts isAskingCodeRow): it waits on the person.
+  if (status === 'needs_input') return <MessageCircleQuestion aria-label="Needs your answer" className={cn(cls, 'text-amber-600 dark:text-amber-400')} />
   if (status === 'running' || status === 'working') {
     return <Loader2 aria-hidden className={cn(cls, 'animate-spin text-muted-foreground motion-reduce:animate-none')} />
   }

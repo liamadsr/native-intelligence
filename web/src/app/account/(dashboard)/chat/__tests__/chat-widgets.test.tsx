@@ -440,6 +440,47 @@ describe('the Agents section', () => {
     expect(q('[data-agent-row="helper"] [data-agent-row-local]')).toBeNull()
   })
 
+  it('a Code tab job: listed while it works and while it asks the person (needs you), named for its agent and folder; gone once it finished', () => {
+    const sid = '11111111-2222-4333-8444-555555555556'
+    const code = (status: string) =>
+      row({
+        id: `code-${status}`,
+        kind: 'local_agent',
+        status,
+        agent_run_id: null,
+        title: 'Claude Code on Studio Mac · harbor-site: Fix the date picker',
+        source: { chat_conversation_id: CONV, local_agent_session_id: sid, local_agent_code: true, turn: 1 },
+      })
+    shared.rows = [code('running'), row({ id: 'scheduled', title: 'Weekly digest', source: {} })]
+    render([])
+    const working = q('[data-agent-row="code-running"]')!
+    expect(working.querySelector('[data-agent-row-title]')!.textContent).toBe('Claude Code on Studio Mac · harbor-site: Fix the date picker')
+    expect(working.querySelector('[data-agent-row-status]')!.textContent).toBe('Working')
+    expect(working.querySelector('[data-agent-row-local]')).not.toBeNull()
+    // Steer and Stop: the person's routes (the steer route's local_agent branch, the session's stop).
+    expect(working.querySelector('[data-agent-row-steer-toggle]')).not.toBeNull()
+    expect(working.querySelector('[data-agent-row-stop]')).not.toBeNull()
+    expect(q('[data-agent-row="scheduled"]')).not.toBeNull()
+
+    shared.rows = [code('needs_input')]
+    render([])
+    const asking = q('[data-agent-row="code-needs_input"]')!
+    expect(asking.querySelector('[data-agent-row-status]')!.textContent).toBe('Needs your answer')
+    expect(asking.querySelector('[aria-label="Needs your answer"]')).not.toBeNull()
+    // Opening it opens its own chat, where the person answers.
+    expect(asking.querySelector('[data-agent-row-open]')).not.toBeNull()
+
+    for (const settled of ['needs_review', 'done', 'canceled']) {
+      shared.rows = [code(settled)]
+      render([])
+      expect(q('[data-chat-widget="agents"]'), settled).toBeNull()
+    }
+    // Another job asking the person (not a Code job) stays For you's.
+    shared.rows = [row({ id: 'asks', status: 'needs_input', kind: 'local_agent', source: { local_agent_session_id: sid } })]
+    render([])
+    expect(q('[data-chat-widget="agents"]')).toBeNull()
+  })
+
   it('Stop and steer are laid over the row, hidden until hover or focus: hidden they take no space', () => {
     shared.rows = [row({ id: 'run', title: 'Research' })]
     render([])

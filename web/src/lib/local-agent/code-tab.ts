@@ -21,13 +21,18 @@
  *                    registry knows that it doesn't ("Needs connection")
  *   the folders      the chat's Mac's folders; one that allows edits and is a
  *                    git repository can take a job (it works on its own branch)
- *   a send           to the conversation's newest job while it can take a
- *                    message and runs on the same agent in the same folder;
- *                    else a new job
- *   the thread       each job drawn inline after the person's message that
- *                    started it (codeThreadLayout); the later messages to it
- *                    and its finish summaries are in its own view, so the
- *                    thread draws them nowhere else
+ *   a send           starts a job and opens its own view (the one the
+ *                    Agents panel opens: its own chat, composer, Stop and
+ *                    changes). While the conversation's job on the same agent
+ *                    in the same folder is still open, a send is refused with
+ *                    a way to open it: follow-ups belong in its own chat.
+ *                    Another folder or agent starts another job.
+ *   the thread       never the job itself: each job is ONE compact line
+ *                    (codeThreadLayout), where its request, the follow-ups
+ *                    sent to it and its finish reports collapse. They stay
+ *                    in the stored history, as the person's words and the
+ *                    coding agent's fenced report, for the knowledge
+ *                    extraction and the chat agent's history.
  */
 import { KNOWN_CODING_AGENTS, NATIVE_WORKER_LABEL, workerLabel, type MacWorkerOffer } from '@/lib/environments/types'
 import type { ChatEnvironment, EnvironmentsSnapshot, MacEnvironmentItem, ThisMacSnapshot } from './environment-client'
@@ -199,30 +204,52 @@ export interface CodeJob {
   requestId: string
   worker: string | null
   folderId: string
+  folderLabel: string
+  deviceName: string
   status: LocalAgentStatus
+  /** Its current turn's ledger row: what opens its view (the Agents panel's way). */
+  trackedJobId: string | null
   createdAt: string
 }
 
+type JobRow = Pick<SessionRow, 'id' | 'codeRequestId' | 'worker' | 'folderId' | 'status' | 'createdAt'> &
+  Partial<Pick<SessionRow, 'folderLabel' | 'deviceName' | 'trackedJobId'>>
+
+/** One session as a Code job, or null when it isn't one. */
+export function codeJobOf(s: JobRow): CodeJob | null {
+  if (typeof s.codeRequestId !== 'string' || !s.codeRequestId) return null
+  return {
+    sessionId: s.id,
+    requestId: s.codeRequestId,
+    worker: s.worker ?? null,
+    folderId: s.folderId,
+    folderLabel: s.folderLabel ?? '',
+    deviceName: s.deviceName ?? '',
+    status: s.status,
+    trackedJobId: s.trackedJobId ?? null,
+    createdAt: s.createdAt,
+  }
+}
+
 /** The conversation's Code jobs (the list's person-started Code ones), oldest first. */
-export function codeJobsOf(sessions: readonly Pick<SessionRow, 'id' | 'codeRequestId' | 'worker' | 'folderId' | 'status' | 'createdAt'>[]): CodeJob[] {
+export function codeJobsOf(sessions: readonly JobRow[]): CodeJob[] {
   return sessions
-    .filter((s): s is typeof s & { codeRequestId: string } => typeof s.codeRequestId === 'string' && !!s.codeRequestId)
-    .map((s) => ({ sessionId: s.id, requestId: s.codeRequestId, worker: s.worker ?? null, folderId: s.folderId, status: s.status, createdAt: s.createdAt }))
+    .map(codeJobOf)
+    .filter((j): j is CodeJob => j !== null)
     .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
 }
 
-/** One job, added or updated (a send's answer, a live status), the list kept oldest first. */
+/** One job, added or updated (a send's answer, a fresh read), the list kept oldest first; the same array when nothing changed. */
 export function withCodeJob(jobs: readonly CodeJob[], job: CodeJob): CodeJob[] {
   const at = jobs.findIndex((j) => j.sessionId === job.sessionId)
-  if (at < 0) return codeJobsOf([...jobs, job].map(jobAsRow))
+  if (at < 0) return [...jobs, job].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
   const held = jobs[at]
-  if (held.status === job.status && held.worker === job.worker && held.folderId === job.folderId) return jobs as CodeJob[]
-  const next = [...jobs]
-  next[at] = { ...held, status: job.status, worker: job.worker, folderId: job.folderId }
-  return next
+  const next = { ...held, ...job, folderLabel: job.folderLabel || held.folderLabel, deviceName: job.deviceName || held.deviceName, trackedJobId: job.trackedJobId ?? held.trackedJobId }
+  if ((Object.keys(next) as Array<keyof CodeJob>).every((k) => next[k] === held[k])) return jobs as CodeJob[]
+  const out = [...jobs]
+  out[at] = next
+  return out
 }
-
-const jobAsRow = (j: CodeJob) => ({ id: j.sessionId, codeRequestId: j.requestId, worker: j.worker, folderId: j.folderId, status: j.status, createdAt: j.createdAt })
 
 const ENDED: ReadonlySet<LocalAgentStatus> = new Set(['cancelled', 'failed', 'expired'])
 const WORKING: ReadonlySet<LocalAgentStatus> = new Set(['queued', 'starting', 'running'])
@@ -232,15 +259,30 @@ export function codeJobOpen(status: LocalAgentStatus): boolean {
   return !ENDED.has(status)
 }
 
-/** It works right now: the composer's Stop stops it. */
+/** It works right now. */
 export function codeJobWorking(status: LocalAgentStatus): boolean {
   return WORKING.has(status)
 }
 
-/** Where a send goes: the newest job as its next message, or a new job. */
-export function codeSendTarget(latest: CodeJob | null, agent: string | null, folderId: string | null): { kind: 'message'; sessionId: string } | { kind: 'start' } {
-  if (latest && codeJobOpen(latest.status) && latest.worker === agent && latest.folderId === folderId) return { kind: 'message', sessionId: latest.sessionId }
+/**
+ * Where a send goes: a new job, unless the conversation already has an open
+ * one on the same agent in the same folder (its follow-ups go in its own
+ * chat, so the send is refused with a way to open it). The newest such job.
+ */
+export function codeSendTarget(jobs: readonly CodeJob[], agent: string | null, folderId: string | null): { kind: 'open'; job: CodeJob } | { kind: 'start' } {
+  for (let i = jobs.length - 1; i >= 0; i--) {
+    const j = jobs[i]
+    if (j.worker === agent && j.folderId === folderId && codeJobOpen(j.status)) return { kind: 'open', job: j }
+  }
   return { kind: 'start' }
+}
+
+/** The sentence a refused second send shows, with its Open button. */
+export function codeJobOpenLine(job: Pick<CodeJob, 'status' | 'folderLabel'>, agentLabel: string): string {
+  const folder = job.folderLabel || 'that folder'
+  return codeJobWorking(job.status)
+    ? `${agentLabel} is already working in ${folder}: open it to continue.`
+    : `${agentLabel}'s job in ${folder} is still open: open it to continue there.`
 }
 
 /**
@@ -254,49 +296,71 @@ export function openingCodeChoice(stored: CodeTabChoice | null, jobs: readonly C
   return { tab: 'chat', agent: defaults.agent, folderId: defaults.folderId }
 }
 
-/** The thread holds a Code message: its jobs are worth reading. */
+/** The message is one of a Code job's stored rows: the person's request or follow-up, or the agent's finish report. */
+export function isCodeRow(message: unknown): boolean {
+  return codeMessageMetaOf(message) !== null || codeFinishSessionOf(message) !== null
+}
+
+/** The thread holds a Code row: its jobs are worth reading. */
 export function threadHasCode(messages: readonly unknown[]): boolean {
-  return messages.some((m) => codeMessageMetaOf(m) !== null)
+  return messages.some(isCodeRow)
+}
+
+/** A job's one line in the thread: its session when known, else the request that started it. */
+export interface CodeLine {
+  /** `session:<id>` or `request:<id>`: one line per job. */
+  key: string
+  sessionId: string | null
+  requestId: string | null
+  /** The request's words, when this row is the request (the line's title before the job is known). */
+  request: string | null
 }
 
 export interface CodeThreadLayout {
-  /** The message each job is drawn after (the person's message that started it): message id → job. */
-  blockAfter: ReadonlyMap<string, string>
-  /** Messages its job's own view shows already (a later message to it, its finish summaries). */
+  /** The row each job's one line takes the place of: message id → the line. */
+  lines: ReadonlyMap<string, CodeLine>
+  /** Its other stored rows (follow-ups, finish reports): drawn nowhere in the thread. */
   hidden: ReadonlySet<string>
 }
 
-export const EMPTY_CODE_LAYOUT: CodeThreadLayout = { blockAfter: new Map(), hidden: new Set() }
+export const EMPTY_CODE_LAYOUT: CodeThreadLayout = { lines: new Map(), hidden: new Set() }
+
+function textOf(message: unknown): string {
+  const parts = (message as { parts?: unknown } | null)?.parts
+  return (Array.isArray(parts) ? parts : [])
+    .map((p) => (p && typeof p === 'object' && (p as { type?: unknown }).type === 'text' ? (p as { text?: unknown }).text : null))
+    .filter((t): t is string => typeof t === 'string')
+    .join(' ')
+    .trim()
+}
 
 /**
- * Where each job goes in the thread. A job is drawn after the person's
- * message whose request id started it; a later message sent to a drawn job,
- * and that job's finish summaries, are hidden (the job's view shows both). A
- * message whose job isn't known (its list not read yet, or gone) draws as
- * any message does.
+ * The thread's Code rows as one line per job, never as bubbles: the first
+ * of a job's rows (its request, normally) takes the line; the rest (the
+ * follow-ups sent to it, its finish reports) are hidden. A row is tied to
+ * its job by the session it names, else by its request id through `jobs`;
+ * a request whose job isn't known yet is still a line (its own key), never
+ * a bubble to the chat agent.
  */
 export function codeThreadLayout(messages: readonly unknown[], jobs: readonly CodeJob[]): CodeThreadLayout {
-  if (jobs.length === 0) return EMPTY_CODE_LAYOUT
   const byRequest = new Map(jobs.map((j) => [j.requestId, j.sessionId]))
-  const blockAfter = new Map<string, string>()
+  const lines = new Map<string, CodeLine>()
   const drawn = new Set<string>()
   const hidden = new Set<string>()
   for (const m of messages) {
     const id = (m as { id?: unknown } | null)?.id
     if (typeof id !== 'string') continue
     const meta = codeMessageMetaOf(m)
-    if (meta) {
-      const started = byRequest.get(meta.requestId)
-      if (started && !drawn.has(started)) {
-        blockAfter.set(id, started)
-        drawn.add(started)
-      } else if (meta.sessionId && drawn.has(meta.sessionId)) {
-        hidden.add(id)
-      }
+    const finished = meta ? null : codeFinishSessionOf(m)
+    if (!meta && !finished) continue
+    const sessionId = meta ? (meta.sessionId ?? byRequest.get(meta.requestId) ?? null) : finished
+    const key = sessionId ? `session:${sessionId}` : `request:${meta!.requestId}`
+    if (drawn.has(key)) {
+      hidden.add(id)
       continue
     }
-    const finished = codeFinishSessionOf(m)
-    if (finished && drawn.has(finished)) hidden.add(id)
+    drawn.add(key)
+    lines.set(id, { key, sessionId, requestId: meta?.requestId ?? null, request: meta && !meta.sessionId ? textOf(m) || null : null })
   }
-  return blockAfter.size === 0 ? EMPTY_CODE_LAYOUT : { blockAfter, hidden }
+  return lines.size === 0 ? EMPTY_CODE_LAYOUT : { lines, hidden }
 }

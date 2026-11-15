@@ -31,6 +31,7 @@ import { renderClaimSourceTranscript } from '@/lib/chat/conversation-history'
 import { CODE_FINISH_KIND, codeFinishMessageId, codeFinishSessionOf } from '../code-thread'
 import { isCodeJobRow } from '../code-history'
 import { ledgerSessionOf, type DbSession } from '../store'
+import { turnTitle } from '../ledger'
 
 const SESSION = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 
@@ -142,6 +143,11 @@ describe('the ledger marks a Code job’s rows', () => {
       current_turn: 1, current_tracked_job_id: null, started_by: 'person', idempotency_key: 'local-agent-code:req-1', request: 'Fix it',
       folder: { label: 'harbor-site' }, device: { name: 'Studio Mac' }, ...over,
     }) as DbSession
+
+  it('a job on the person’s own coding agent is named for it (the Agents panel lists it so)', () => {
+    expect(turnTitle('Studio Mac', 'harbor-site', 'Fix the date picker', 'claude-code')).toBe('Claude Code on Studio Mac · harbor-site: Fix the date picker')
+    expect(turnTitle('Studio Mac', 'harbor-site', 'Fix the date picker')).toBe('Native Intelligence on Studio Mac · harbor-site: Fix the date picker')
+  })
 
   it('a person’s Code start, and nothing else', () => {
     expect(ledgerSessionOf(row({}))).toMatchObject({ code: true })
