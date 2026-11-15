@@ -103,6 +103,14 @@ if [ -z "${VERCEL_GIT_COMMIT_SHA:-}" ] && [ -s /app/BUILD_ID ]; then
   export VERCEL_GIT_COMMIT_SHA
 fi
 
+# Room for a request's headers, in the web server and in every agent (a chat
+# turn passes through both). Node refuses a request whose headers pass 16 KB in
+# all with a bare 431 that no log shows, and a chat turn carries its sign-in
+# cookies, its run token (which seals the person's session) and its context
+# (up to 12,000 characters with cards, eve-chat-transport.ts) as headers:
+# together they pass 16 KB. The earlier host allowed 32 KB.
+HEADER_ROOM=--max-http-header-size=65536
+
 if [ "$#" -eq 0 ]; then
   [ -n "${NI_ROLE:-}" ] || die "no role: pass web, worker, agent <name> or cron (or set NI_ROLE)"
   set -- "$NI_ROLE" ${NI_AGENT:+"$NI_AGENT"}
@@ -137,7 +145,7 @@ case "$role" in
     echo "entrypoint: $role on :$PORT, agents at $built"
     remember_role "$role"
     cd "$WEB"
-    exec node node_modules/next/dist/bin/next start --hostname 0.0.0.0 --port "$PORT"
+    exec node "$HEADER_ROOM" node_modules/next/dist/bin/next start --hostname 0.0.0.0 --port "$PORT"
     ;;
 
   agent)
@@ -186,7 +194,7 @@ case "$role" in
     export EVE_CALLBACK_BASE_URL="${EVE_CALLBACK_BASE_URL:-${NEXT_PUBLIC_APP_URL:-}}"
     unset EVE_MODEL_CONNECTION EVE_MODEL_KEY_SOURCE EVE_MODEL_TEAM EVE_MODEL_TEAM_NAME
     export HOST=0.0.0.0 NITRO_HOST=0.0.0.0 PORT="$PORT" NITRO_PORT="$PORT"
-    exec node .output/server/index.mjs < /dev/null
+    exec node "$HEADER_ROOM" .output/server/index.mjs < /dev/null
     ;;
 
   cron)

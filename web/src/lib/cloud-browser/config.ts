@@ -64,7 +64,140 @@ export const CLOUD_BROWSER = {
   /** A viewer token opens a connection within this long; a control one also ends input after it (C3). */
   viewTokenTtlMs: 60 * SECOND,
   controlTokenTtlMs: 10 * MINUTE,
+  /**
+   * The runtime backend only (backend-runtime.ts): the relay's token, which the
+   * server writes into the VM (that runtime cannot add a header on the way out).
+   * A 0700 directory under the relay's own, a 0600 file, written by the file API
+   * and renamed into place: never on a command line or in an environment.
+   */
+  relayTokenDir: '/tmp/cloud-browser-relay/secret',
+  relayTokenFile: '/tmp/cloud-browser-relay/secret/token',
+  /** The runtime backend only: when this run of the VM began (ms), so every ensure of one run records the same session. */
+  runStartFile: '/tmp/cloud-browser-run-start',
+  /** At most this many browsers unused past snapshotTtlMs are removed per reconcile (the runtime backend). */
+  maxExpiriesPerReconcile: 50,
+  /**
+   * The expiry's claim (`stopping` / `expiring`, store.ts) is left alone by the
+   * sweep's stuck-stopping retry this long, not stoppingStaleMs: a destroy
+   * still on its way must never be un-claimed (then an ensure could wake a copy
+   * about to be killed). Each runtime call of a destroy is bounded by
+   * destroyRequestTimeoutMs, so a destroy ends far inside it.
+   */
+  expiringStaleMs: 30 * MINUTE,
+  destroyRequestTimeoutMs: 15 * SECOND,
+  /** The runtime backend's one root step (runtime-browser.ts CLOSE_USR_LOCAL): well inside ensureTimeoutMs. */
+  rootStepTimeoutMs: 20 * SECOND,
+  /** The reconcile's envd health checks of listed-running browsers (runtime backend), at most this many per run. */
+  maxSilentProbesPerReconcile: 20,
 } as const
+
+/**
+ * Private, link-local and CGNAT ranges: a browser never reaches a home or
+ * cloud-internal network (loopback stays local). Both backends deny them in
+ * cloud mode (IPv4 only: the hosted API refuses an IPv6 range).
+ */
+export const CLOUD_BROWSER_PRIVATE_CIDRS: readonly string[] = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '169.254.0.0/16']
+
+/**
+ * The resolvers the browser image on our own sandbox server lists in its
+ * /etc/resolv.conf (deploy/sandbox/image.py RESOLVERS; a test reads that file
+ * and pins the two). In `mac` mode the runtime's allow list holds a domain, and
+ * then the runtime opens only the resolvers it is given (its `dnsServers`,
+ * default 8.8.8.8): without these the relay could not look up its own host.
+ */
+export const CLOUD_BROWSER_IMAGE_RESOLVERS: readonly string[] = ['1.1.1.1', '9.9.9.9']
+
+// ── Which service runs the browsers ────────────────────────────────────────
+
+/** `hosted`: the earlier host's sandbox service (the default). `runtime`: our own sandbox server. */
+export type CloudBrowserBackendKind = 'hosted' | 'runtime'
+export const CLOUD_BROWSER_BACKEND_ENV = 'CLOUD_BROWSER_BACKEND'
+
+/**
+ * The backend `CLOUD_BROWSER_BACKEND` names, read now (never at module load).
+ * Unset or blank is `hosted`; any value other than the two throws, so a typo
+ * never quietly runs the browsers somewhere nobody meant.
+ */
+export function cloudBrowserBackendKind(env: Readonly<Record<string, string | undefined>> = process.env): CloudBrowserBackendKind {
+  const value = env[CLOUD_BROWSER_BACKEND_ENV]?.trim().toLowerCase() ?? ''
+  if (value === '' || value === 'hosted') return 'hosted'
+  if (value === 'runtime') return 'runtime'
+  throw new Error(`cloud browser: ${CLOUD_BROWSER_BACKEND_ENV} must be "hosted" or "runtime" (or unset), not "${value.slice(0, 32)}"`)
+}
+
+/** The runtime backend's shared slots (slots.ts): at most this many browsers running at once, across everyone. */
+export const CLOUD_BROWSER_MAX_RUNNING_ENV = 'CLOUD_BROWSER_MAX_RUNNING'
+/** Four 4 GiB browsers: what the sandbox server's memory pool holds beside a coding run or two. */
+export const CLOUD_BROWSER_DEFAULT_MAX_RUNNING = 4
+const warnedMaxRunning = new Set<string>()
+
+/**
+ * CLOUD_BROWSER_MAX_RUNNING, read now: a positive integer, or the default when
+ * unset or blank. Anything else is logged once (never its whole value) and the
+ * default is used: a typo must not stop every browser from starting
+ * (deploy/app/check_settings.py refuses it before a roll-out).
+ */
+export function cloudBrowserMaxRunning(env: Readonly<Record<string, string | undefined>> = process.env): number {
+  const value = env[CLOUD_BROWSER_MAX_RUNNING_ENV]?.trim() ?? ''
+  if (value === '') return CLOUD_BROWSER_DEFAULT_MAX_RUNNING
+  if (/^[1-9]\d{0,3}$/.test(value)) return Number(value)
+  if (!warnedMaxRunning.has(value)) {
+    warnedMaxRunning.add(value)
+    console.warn(`[cloud-browser] ${CLOUD_BROWSER_MAX_RUNNING_ENV} is not a positive integer ("${value.slice(0, 16)}"): using ${CLOUD_BROWSER_DEFAULT_MAX_RUNNING}`)
+  }
+  return CLOUD_BROWSER_DEFAULT_MAX_RUNNING
+}
+
+/** The settings the runtime backend reads. The address and key settings are the coding agent's too. */
+export const CLOUD_BROWSER_RUNTIME_ENVS = {
+  apiUrl: 'SANDBOX_RUNTIME_API_URL',
+  trafficUrl: 'SANDBOX_RUNTIME_TRAFFIC_URL',
+  apiKey: 'SANDBOX_RUNTIME_KEY',
+  template: 'CLOUD_BROWSER_RUNTIME_TEMPLATE',
+  hubDomain: 'CLOUD_BROWSER_HUB_DOMAIN',
+} as const
+export const CLOUD_BROWSER_RUNTIME_DEFAULT_TEMPLATE = 'ni-cloud-browser'
+
+export interface CloudBrowserRuntimeSettings {
+  apiUrl: string
+  trafficUrl: string
+  apiKey: string
+  template: string
+  /** A hub is `https://<sandbox id>.<hubDomain>` (no port: the desktop app refuses one). */
+  hubDomain: string
+}
+
+const HOSTNAME = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/
+
+/** CLOUD_BROWSER_HUB_DOMAIN as a bare lowercase host name, or null when unset or not one. */
+export function cloudBrowserHubDomain(env: Readonly<Record<string, string | undefined>> = process.env): string | null {
+  const value = env[CLOUD_BROWSER_RUNTIME_ENVS.hubDomain]?.trim().toLowerCase().replace(/\.$/, '') ?? ''
+  return HOSTNAME.test(value) ? value : null
+}
+
+/**
+ * Everything the runtime backend needs, read now. A missing setting is an error
+ * naming it (never its value), never a fall back to the hosted service.
+ */
+export function cloudBrowserRuntimeSettings(env: Readonly<Record<string, string | undefined>> = process.env): CloudBrowserRuntimeSettings {
+  const read = (name: string) => env[name]?.trim() ?? ''
+  const apiUrl = read(CLOUD_BROWSER_RUNTIME_ENVS.apiUrl).replace(/\/+$/, '')
+  const trafficUrl = read(CLOUD_BROWSER_RUNTIME_ENVS.trafficUrl).replace(/\/+$/, '')
+  const apiKey = read(CLOUD_BROWSER_RUNTIME_ENVS.apiKey)
+  const hubDomain = cloudBrowserHubDomain(env)
+  const missing: string[] = []
+  if (!apiUrl) missing.push(CLOUD_BROWSER_RUNTIME_ENVS.apiUrl)
+  if (!trafficUrl) missing.push(CLOUD_BROWSER_RUNTIME_ENVS.trafficUrl)
+  if (!apiKey) missing.push(CLOUD_BROWSER_RUNTIME_ENVS.apiKey)
+  if (!hubDomain) missing.push(CLOUD_BROWSER_RUNTIME_ENVS.hubDomain)
+  if (missing.length) {
+    throw new Error(`cloud browser (${CLOUD_BROWSER_BACKEND_ENV}=runtime): ${missing.join(', ')} not set${!hubDomain && read(CLOUD_BROWSER_RUNTIME_ENVS.hubDomain) ? ' (or not a host name)' : ''}`)
+  }
+  return { apiUrl, trafficUrl, apiKey, template: read(CLOUD_BROWSER_RUNTIME_ENVS.template) || CLOUD_BROWSER_RUNTIME_DEFAULT_TEMPLATE, hubDomain: hubDomain! }
+}
+
+/** The relay's addresses on the runtime backend: our sandbox server's public ones (relay-routes.ts). */
+export const BROWSER_RELAY_ALLOWED_ADDRESSES_ENV = 'BROWSER_RELAY_ALLOWED_ADDRESSES'
 
 /**
  * The production relay host: a dedicated alias of the app, so the run token

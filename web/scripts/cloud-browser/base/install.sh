@@ -27,8 +27,13 @@ sudo install -m 0755 "$HERE/start.sh" "$HERE/stop.sh" /opt/cloud-browser/
 sudo install -m 0644 "$HERE/close-chrome.mjs" /opt/cloud-browser/
 
 # The profile: restore the previous session's tabs on start, so a resumed
-# browser comes back where it was (session cookies included).
-mkdir -p /home/ubuntu/profile/Default
-[ -f /home/ubuntu/profile/Default/Preferences ] || echo '{"session":{"restore_on_startup":1}}' > /home/ubuntu/profile/Default/Preferences
+# browser comes back where it was (session cookies included). Its place is
+# /home/ubuntu/profile, unless the image names another in
+# /etc/opt/cloud-browser/env (our own sandbox server's image does: its
+# commands run as another user, deploy/sandbox/image.py). start.sh reads the same.
+[ -r /etc/opt/cloud-browser/env ] && . /etc/opt/cloud-browser/env
+PROFILE=${CLOUD_BROWSER_PROFILE:-/home/ubuntu/profile}
+mkdir -p "$PROFILE/Default"
+[ -f "$PROFILE/Default/Preferences" ] || echo '{"session":{"restore_on_startup":1}}' > "$PROFILE/Default/Preferences"
 
 echo "base ready: $(/opt/google/chrome/chrome --version 2>/dev/null); node $(node --version)"

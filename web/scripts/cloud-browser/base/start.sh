@@ -16,11 +16,18 @@ flock -w 60 9 || fail "another start held the lock for 60 s"
 # Everything launched below closes fd 9 (`9>&-`): a long-lived child holding the
 # lock's descriptor would keep the lock held, and the next start would wait forever.
 
-PROFILE=/home/ubuntu/profile
+# The profile's place: /home/ubuntu/profile, unless the image names another
+# (install.sh says where).
+[ -r /etc/opt/cloud-browser/env ] && . /etc/opt/cloud-browser/env
+PROFILE=${CLOUD_BROWSER_PROFILE:-/home/ubuntu/profile}
 CHROME=/opt/google/chrome/chrome
 export DISPLAY=:99
 
-sudo mkdir -p /tmp/.X11-unix && sudo chmod 1777 /tmp/.X11-unix
+# The display's socket folder, world-writable and sticky. sudo only when it is
+# not so already: an image that made it at its build needs none here.
+if [ ! -d /tmp/.X11-unix ] || [ "$(stat -c %a /tmp/.X11-unix)" != 1777 ]; then
+  sudo mkdir -p /tmp/.X11-unix && sudo chmod 1777 /tmp/.X11-unix
+fi
 if ! pgrep -x Xvfb >/dev/null; then
   # A session that ended without stop.sh leaves the display's lock and socket;
   # with them, Xvfb refuses to start (or the wait below passes on a dead socket).

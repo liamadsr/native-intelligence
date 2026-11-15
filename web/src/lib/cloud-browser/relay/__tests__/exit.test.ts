@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import WebSocket, { WebSocketServer } from 'ws'
 import { decodeFrame, encodeFrame, WINDOW, type Frame } from '../../exit/mux'
 import { sandboxVerifyKey, signSandboxToken } from '../../viewer-token'
-import { startExit, type ExitHub } from '../exit'
+import { clientAddress, startExit, type ClientAddressHeader, type ExitHub } from '../exit'
 
 const { privateKey } = generateKeyPairSync('ed25519')
 const exitToken = (sandbox = 'browser-a', aud: 'browser-exit' | 'browser-viewer' = 'browser-exit') =>
@@ -239,5 +239,43 @@ describe('Chrome’s proxy', () => {
     expect(closed).toBe(true)
     expect(m.frames.some(frame => frame.type === 'reset')).toBe(true)
     m.ws.close()
+  })
+})
+
+describe('the Mac’s address the hub reports', () => {
+  const req = (headers: Record<string, string>) => ({ headers })
+
+  it('reads the header the proxy in front writes, and only that one', () => {
+    // Hosted (the default): the first X-Forwarded-For value; an X-Real-IP a client sent is never trusted there.
+    expect(clientAddress(req({ 'x-forwarded-for': '203.0.113.5, 10.0.0.1', 'x-real-ip': '198.51.100.9' }))).toBe('203.0.113.5')
+    expect(clientAddress(req({ 'x-real-ip': '198.51.100.9' }))).toBe('')
+    // Our own sandbox server: its traffic port deletes X-Forwarded-For, our edge sets X-Real-IP.
+    expect(clientAddress(req({ 'x-real-ip': ' 2001:db8::5 ', 'x-forwarded-for': '203.0.113.5' }), 'x-real-ip')).toBe('2001:db8::5')
+    expect(clientAddress(req({ 'x-forwarded-for': '203.0.113.5' }), 'x-real-ip')).toBe('')
+  })
+
+  it.each([
+    [undefined, { 'x-forwarded-for': '203.0.113.5', 'x-real-ip': '198.51.100.9' }, '203.0.113.5'],
+    ['x-real-ip', { 'x-forwarded-for': '203.0.113.5', 'x-real-ip': '198.51.100.9' }, '198.51.100.9'],
+    ['x-real-ip', {}, '127.0.0.1'],
+  ] as const)('a hub told %s answers the Mac with the right address', async (header, headers, expected) => {
+    const own = startExit({ sandbox: 'browser-a', verifyKey: sandboxVerifyKey(privateKey), socksPort: 0, refusedHosts: [], mode: 'cloud',
+      ...(header ? { clientAddressHeader: header as ClientAddressHeader } : {}) })
+    const wss = new WebSocketServer({ noServer: true })
+    const server = createHttpServer()
+    server.on('upgrade', (r, socket, head) => wss.handleUpgrade(r, socket, head, ws => own.attach(ws, r)))
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    try {
+      const ws = new WebSocket(`ws://127.0.0.1:${(server.address() as AddressInfo).port}/exit`, { headers })
+      let hello: Record<string, unknown> | null = null
+      ws.on('open', () => ws.send(JSON.stringify({ v: 1, token: exitToken() })))
+      ws.on('message', (data, isBinary) => { if (!isBinary) hello = JSON.parse(data.toString()) })
+      await until(() => hello !== null)
+      expect(hello).toEqual({ ok: true, v: 1, ip: expected })
+      ws.close()
+    } finally {
+      own.close()
+      server.close()
+    }
   })
 })

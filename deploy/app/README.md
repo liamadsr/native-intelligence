@@ -353,6 +353,17 @@ These came with the server: the earlier host had no such settings.
   sandbox server's `/opt/e2b/sdk.env`, moved without being shown. The URLs and the
   key go together. `check_settings.py` proves the group against the runtime
   (its health check, and a listing of its sandboxes with the key).
+- `CLOUD_BROWSER_BACKEND`, `CLOUD_BROWSER_RUNTIME_KEY`, `CLOUD_BROWSER_RUNTIME_TEMPLATE`,
+  `CLOUD_BROWSER_HUB_DOMAIN`, `BROWSER_RELAY_ALLOWED_ADDRESSES`: the cloud browser on
+  that same runtime, off while `CLOUD_BROWSER_BACKEND` is empty (`../README.md`, "The
+  cloud browser", has the switch and the way back). `CLOUD_BROWSER_RUNTIME_KEY` is the
+  browser's own copy of `SANDBOX_RUNTIME_KEY` and the only way web gets that key
+  (`compose.yaml`); it is set with `CLOUD_BROWSER_BACKEND=runtime` and emptied with it.
+  `check_settings.py` fails on a backend other than empty, `hosted` or `runtime`, and on
+  the key's copy set with any other backend or differing from the runtime's key; with
+  `runtime` it wants the runtime's group, the other settings, the browser's image on the
+  runtime and the edge's two settings (`../edge/.env`) to match, and no longer counts the
+  hosted service's four as needed.
 - `AGENT_RUN_GIT_GATE_ALLOWED_ADDRESSES`: read by web. When set, the app's git gate
   takes a coding run's credential only from these addresses (comma or space
   separated): the sandbox server's public IPv4 and IPv6. On our own runtime that
@@ -386,6 +397,15 @@ and the Settings page says so. `check_settings.py` holds each to the shape the a
 requires and calls one set without the others wrong; nothing can prove them at
 Slack without an install. What the owner sets at Slack is in `../README.md`
 ("Slack", under "Day to day").
+
+"Continue with ChatGPT" needs `CHATGPT_CLIENT_ID`, `CHATGPT_CLIENT_SECRET` and,
+when the callback registered with that client isn't the app's own address +
+`/auth/chatgpt/callback`, `CHATGPT_REDIRECT_URI` (`web/src/lib/chatgpt/config.ts`):
+the partner client OpenAI registered for the app. All optional: while
+`CHATGPT_CLIENT_ID` is empty the option is hidden. `check_settings.py` lists them
+under "May stay empty", calls the client id or the secret set without the other
+wrong (the option would show and no sign-in could finish), and asks nothing of OpenAI. `CHATGPT_DEV_HOST_ID` is for
+local development only and never goes here.
 
 `VERCEL` and `VERCEL_ENV` are never set here, and must not be. eve reads them (with
 either it builds for that platform, and `VERCEL_ENV=development` beside `VERCEL`

@@ -30,6 +30,27 @@ describe('the relay start script', () => {
     expect(RELAY_START).toContain(`chmod 700 ${CLOUD_BROWSER.vncDir}`)
   })
 
+  it('tells the relay where its token file is only when given one (the runtime backend), keeping the pgrep pattern', async () => {
+    const lines = RELAY_START.split('\n')
+    const from = lines.findIndex(line => line.startsWith('if [ -n "$VIEWER_KEY" ]; then HUB='))
+    // The last lines as they are, with the relay's start printed instead of run.
+    const tail = lines.slice(from).join('\n').replace('setsid node', 'echo node').replace(/ <\/dev\/null.*$/, '')
+    const started = async (...args: string[]) => (await promisify(execFile)('bash', ['-c', `set -- ${args.map(a => `'${a}'`).join(' ')}
+ORIGIN="$1"; BUILD="$2"; DIR="$3"; HUB_PORT="$4"; SANDBOX="$5"; VIEWER_KEY="$6"; EXIT_MODE="\${7:-cloud}"; TOKEN_FILE="\${8:-}"; CLIENT_ADDRESS_HEADER="\${9:-}"
+${tail}`])).stdout.trim()
+    expect(await started('https://o.test', 'b1', '/tmp/r', '4000', 'browser-x', '', 'cloud')).toBe('node /tmp/r/relay.mjs --origin https://o.test --exit-mode cloud')
+    expect(await started('https://o.test', 'b1', '/tmp/r', '4000', 'browser-x', '', 'mac', '/tmp/r/secret/token'))
+      .toBe('node /tmp/r/relay.mjs --origin https://o.test --exit-mode mac --token-file /tmp/r/secret/token')
+    // The runtime backend also names the header the hub reads the Mac's address from; only a known one passes.
+    expect(await started('https://o.test', 'b1', '/tmp/r', '4000', 'browser-x', '', 'mac', '/tmp/r/secret/token', 'x-real-ip'))
+      .toBe('node /tmp/r/relay.mjs --origin https://o.test --exit-mode mac --token-file /tmp/r/secret/token --client-address-header x-real-ip')
+    expect(await started('https://o.test', 'b1', '/tmp/r', '4000', 'browser-x', '', 'cloud', '', 'x-evil; rm -rf /'))
+      .toBe('node /tmp/r/relay.mjs --origin https://o.test --exit-mode cloud')
+    // The relay is still found by the patterns the script and the host's probe use.
+    expect(RELAY_START).toContain('pgrep -f "^node $DIR/relay.mjs"')
+    expect(RELAY_START).toContain('TOKEN_FILE="\${8:-}"; CLIENT_ADDRESS_HEADER="\${9:-}"')
+  })
+
   it('keeps a downloaded file only when the origin answers 200', async () => {
     const lines = RELAY_START.split('\n')
     const from = lines.findIndex(line => line.startsWith('for f in relay.mjs agent_runtime.js; do'))

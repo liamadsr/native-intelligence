@@ -66,7 +66,7 @@ vi.mock('@/components/ui/message', () => ({
   MessageContent: ({ children, className }: { children: string; className?: string }) => h('div', { className }, children),
 }))
 
-import { LocalAgentPanel, RENDER_WINDOW } from '../local-agent-panel'
+import { LocalAgentHeader, LocalAgentPanel, RENDER_WINDOW } from '../local-agent-panel'
 import { EVENTS_PAGE } from '../session-api'
 import { pollIntervalFor, POLL_IDLE_MS, POLL_WORKING_MS } from '../use-local-agent-session'
 
@@ -379,6 +379,40 @@ describe('LocalAgentPanel', () => {
   })
 })
 
+describe('the opening request: who asked', () => {
+  it('a card’s Start the person pressed: their request (“You · asked”); the chat agent’s start keeps its label', async () => {
+    await mount(sessionRow({ requestedByPerson: true }))
+    expect(container.querySelector('[data-local-agent-inbound]')!.textContent).toContain('You · asked')
+    expect(container.querySelector('[data-local-agent-inbound]')!.getAttribute('data-local-agent-inbound')).toBe('person')
+  })
+})
+
+describe('LocalAgentHeader: a job waiting in the Mac’s line', () => {
+  it('says queued on that Mac, not starting', async () => {
+    await act(async () => {
+      root.render(h(LocalAgentHeader, { session: sessionRow({ status: 'starting', queuedOnMac: true, deviceName: 'Studio Mac' }), stopping: false, onStop: () => {} }))
+    })
+    expect(q('[data-local-agent-status-line]')!.textContent).toBe('Queued on Studio Mac · starts when a slot frees')
+  })
+})
+
+describe('LocalAgentHeader: who does the work (migration 658)', () => {
+  it('names the person’s own coding agent on its Mac; our own agent as before', async () => {
+    await act(async () => {
+      root.render(h(LocalAgentHeader, { session: sessionRow({ worker: 'claude-code', deviceName: 'Studio Mac' }), stopping: false, onStop: () => {} }))
+    })
+    const name = q('[data-local-agent-teammate-name]')!
+    expect(name.textContent).toBe('Claude Code on Studio Mac')
+    expect(name.getAttribute('data-local-agent-worker')).toBe('claude-code')
+    expect(name.getAttribute('title')).toBe('Claude Code on Studio Mac: your own Claude Code account does the work')
+    await act(async () => {
+      root.render(h(LocalAgentHeader, { session: sessionRow({ deviceName: 'Studio Mac' }), stopping: false, onStop: () => {} }))
+    })
+    expect(q('[data-local-agent-teammate-name]')!.textContent).toBe('Native Intelligence on Studio Mac')
+    expect(q('[data-local-agent-teammate-name]')!.hasAttribute('data-local-agent-worker')).toBe(false)
+  })
+})
+
 describe('pollIntervalFor', () => {
   it('the teammate plan: its pull request, a question on the Mac, and a question to Native Intelligence', async () => {
     const events = [
@@ -455,5 +489,60 @@ describe('pollIntervalFor', () => {
     expect(pollIntervalFor('interrupted')).toBe(POLL_IDLE_MS)
     expect(pollIntervalFor('cancelled')).toBeNull()
     expect(pollIntervalFor(null)).toBeNull()
+  })
+})
+
+describe('an edit job’s results: Open pull request and Changes', () => {
+  const finished = (over: Partial<SessionRow> = {}) =>
+    sessionRow({ mode: 'edit', status: 'waiting', lastSignal: 'finish', lastSignalText: 'Fixed the export.', branch: 'dial8/native-intelligence-1a2b', ...over })
+
+  it('a finished job with a branch and no pull request offers one button, which sends the job the follow-up through the message route', async () => {
+    await mount(finished())
+    const button = q<HTMLButtonElement>('[data-local-agent-open-pr]')!
+    expect(button.textContent).toBe('Open pull request')
+    await act(async () => button.click())
+    await settle()
+    const posts = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')
+    expect(posts).toHaveLength(1)
+    expect(posts[0][0]).toBe(`/api/local-agent/sessions/${SID}/messages`)
+    expect(JSON.parse(String(posts[0][1]!.body))).toMatchObject({
+      text: 'Open a pull request for this work: call finish with pull_request, with a title and a description of what changed and why.',
+      policy: 'queue',
+    })
+    // Asked: the button goes, and the line says the Mac still asks before a push.
+    expect(q('[data-local-agent-open-pr]')).toBeNull()
+    expect(q('[data-local-agent-pr-offer]')?.textContent).toContain('Your Mac asks you before anything is pushed.')
+  })
+
+  it('is hidden when the job can’t take it: a pull request already, a question open, still working, ended, or a read job', async () => {
+    for (const s of [
+      finished({ prUrl: 'https://github.com/fernhill/studio-site/pull/4' }),
+      finished({ lastSignal: 'ask' }),
+      finished({ status: 'running' }),
+      finished({ status: 'cancelled' }),
+      finished({ mode: 'read' }),
+      finished({ branch: null }),
+    ]) {
+      await mount(s)
+      expect(q('[data-local-agent-open-pr]'), JSON.stringify({ status: s.status, mode: s.mode, prUrl: s.prUrl, branch: s.branch, lastSignal: s.lastSignal })).toBeNull()
+    }
+  })
+
+  it('the branch card opens Changes; off the job’s Mac it says where to read them', async () => {
+    await mount(finished())
+    expect([...container.querySelectorAll('[data-local-agent-view]')].map((t) => t.textContent)).toEqual(['Conversation', 'Changes'])
+    await act(async () => q<HTMLButtonElement>('[data-local-agent-branch-changes]')!.click())
+    expect(q('[data-local-agent-view="changes"]')?.getAttribute('aria-selected')).toBe('true')
+    expect(q('[data-changes-elsewhere]')?.textContent).toBe('The changes can be read in the Native Intelligence app on Liam’s MacBook.')
+    // The conversation is kept, hidden, with its box.
+    expect(q<HTMLElement>('[role="log"]')?.hidden).toBe(true)
+    await act(async () => q<HTMLButtonElement>('[data-local-agent-view="conversation"]')!.click())
+    expect(q<HTMLElement>('[role="log"]')?.hidden).toBe(false)
+  })
+
+  it('a read job has no results tabs', async () => {
+    await mount()
+    expect(q('[data-local-agent-views]')).toBeNull()
+    expect(q('[data-local-agent-branch-changes]')).toBeNull()
   })
 })

@@ -16,6 +16,10 @@
  * local-model flag (authorizeMacBody), and the person's usage limit (inside
  * the rebuild; ?live=1 checks it itself).
  *
+ * A job on the person's own coding agent (migration 658) is refused
+ * (409 WORKER_JOB): it runs no Native Intelligence agent; its tools are the board's
+ * (GET /api/local-agent/agent/tools).
+ *
  * Query params, as the cloud route's: `skills=1`, `schemas=1`,
  * `turnContext=1`, and `live=1` (a liveness probe: `{ live: true }` once the
  * checks pass, no rebuild). A `ctx` is not read: its systemContext is the
@@ -29,7 +33,7 @@ import { NextResponse } from 'next/server'
 import { apiError } from '@/lib/api-errors'
 import { getServiceClient } from '@/lib/supabase/service'
 import { rebuildChatSpec, type ChatSpec } from '@/lib/chat/chat-run-rebuild'
-import { authorizeMacBody, macChatClaims, macSpec, usageRefusal } from '@/lib/local-agent/agent-access'
+import { authorizeMacBody, macChatClaims, macSpec, usageRefusal, workerJobRefusal } from '@/lib/local-agent/agent-access'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -37,6 +41,9 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: Request) {
   const body = await authorizeMacBody(request, getServiceClient())
   if (body instanceof Response) return body
+  // A job on the person's own coding agent runs no Native Intelligence agent: no spec
+  // (its tools come from /api/local-agent/agent/tools).
+  if (body.session.worker) return workerJobRefusal()
 
   const params = new URL(request.url).searchParams
   if (params.get('live') === '1') {

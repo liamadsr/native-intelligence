@@ -32,12 +32,16 @@ import {
   pickChatEnvironment,
   refreshEnvironment,
   refreshEnvironments,
+  setMacWorker,
   useChatEnvironment,
   useEnvironments,
   useLocalEnvironment,
+  useThisMac,
   type ChatEnvironment,
   type EnvironmentItem,
   type EnvironmentsSnapshot,
+  type MacEnvironmentItem,
+  type ThisMacSnapshot,
 } from '@/lib/local-agent/environment-client'
 import { validateChatUpload } from '@/lib/chat/upload-allowlist'
 import { uploadChatFile, ChatUploadError } from '@/lib/chat/upload-client'
@@ -250,6 +254,10 @@ export interface ComposerEnvironment {
   list: EnvironmentsSnapshot
   openMenu: () => void
   pick: (environment: EnvironmentItem) => void
+  /** This Mac and the coding agents it offers (only inside the desktop app on it). */
+  thisMac: ThisMacSnapshot
+  /** Who does a Mac's work: a coding agent's id, or null for Native Intelligence's own agent. */
+  pickWorker: (environment: MacEnvironmentItem, worker: string | null) => void
 }
 
 /** Menu opens this close together read the list once. */
@@ -262,12 +270,17 @@ export function useComposerEnvironment({ enabled, conversationId }: { enabled: b
   useEffect(() => {
     if (enabled && none) void refreshEnvironments({ maxAgeMs: ENVIRONMENTS_FRESH_MS })
   }, [enabled, none])
+  const thisMac = useThisMac({ enabled })
   const openMenu = useCallback(() => {
-    if (enabled) void refreshEnvironments({ maxAgeMs: MENU_READ_FRESH_MS })
+    if (!enabled) return
+    void refreshEnvironments({ maxAgeMs: MENU_READ_FRESH_MS })
+    // A coding agent may have been switched on in the Mac's menu meanwhile.
+    void checkLocalAgents({ force: true })
   }, [enabled])
   const pick = useCallback((environment: EnvironmentItem) => void pickChatEnvironment(conversationId, environment), [conversationId])
+  const pickWorker = useCallback((environment: MacEnvironmentItem, worker: string | null) => void setMacWorker(environment, worker), [])
   const visible = enabled && (!!chat.environment || list.environments.length > 0)
-  return useMemo(() => ({ visible, chat, list, openMenu, pick }), [visible, chat, list, openMenu, pick])
+  return useMemo(() => ({ visible, chat, list, openMenu, pick, thisMac, pickWorker }), [visible, chat, list, openMenu, pick, thisMac, pickWorker])
 }
 
 /** The ready uploads a send carries. */

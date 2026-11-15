@@ -43,7 +43,7 @@ vi.mock('../agent-work-provider', () => ({
 }))
 
 import { ActionJobPlan } from '../action-job-plan'
-import { DelegateWorkBadge, delegateStepsFor } from '../delegate-work-badge'
+import { DelegateWorkBadge, delegateBadgeFor, delegateStepsFor, delegateWorkerFor } from '../delegate-work-badge'
 import { MemberCellTrigger } from '@/components/views/properties/member-picker'
 
 const PLAN = {
@@ -150,6 +150,77 @@ describe('DelegateWorkBadge', () => {
     expect(container.textContent).toBe('working')
     await render(h(DelegateWorkBadge, { actionId: 'act-1', agentRunStatus: 'idle' }))
     expect(container.textContent).toBe('')
+  })
+})
+
+describe('DelegateWorkBadge: a job on the person’s own coding agent (migration 658)', () => {
+  it('finds the live Mac job’s agent by the action its Start made it for', () => {
+    const rows = [
+      { status: 'done', source: { local_agent_action_id: 'act-1', worker: 'codex' } },
+      { status: 'running', source: { local_agent_action_id: 'act-1', worker: 'claude-code' } },
+      { status: 'running', source: { local_agent_action_id: 'act-2' } },
+    ]
+    expect(delegateWorkerFor(rows, 'act-1')).toBe('claude-code')
+    expect(delegateWorkerFor(rows, 'act-2')).toBeNull()
+    expect(delegateWorkerFor([{ status: 'running', source: { local_agent_action_id: 'act-1', worker: 'Not An Id' } }], 'act-1')).toBeNull()
+  })
+
+  it('names the agent beside where the job stands, on a board card as on a row', async () => {
+    hoisted.rows = [{ status: 'running', source: { local_agent_action_id: 'act-1', worker: 'claude-code' } }]
+    await render(h(DelegateWorkBadge, { actionId: 'act-1', agentRunStatus: 'working' }))
+    expect(container.textContent).toBe('Claude Code · working')
+    expect(container.querySelector('[data-delegate-worker]')?.getAttribute('data-delegate-worker')).toBe('claude-code')
+    // Our own agent on the Mac, or a cloud run: as before.
+    hoisted.rows = [{ status: 'running', source: { local_agent_action_id: 'act-1' } }]
+    await render(h(DelegateWorkBadge, { actionId: 'act-1', agentRunStatus: 'working' }))
+    expect(container.textContent).toBe('working')
+  })
+})
+
+describe('DelegateWorkBadge: what a person needs to know, most urgent first (rows and board cards alike)', () => {
+  const mac = (status: string, worker?: string) => ({ status, source: { local_agent_action_id: 'act-1', ...(worker ? { worker } : {}) } })
+  const text = (rows: Array<Record<string, unknown>>, runStatus: string | null) => {
+    const b = delegateBadgeFor(rows as never, 'act-1', runStatus)
+    return b ? `${b.state}: ${b.text}${b.worker ? ` (${b.worker})` : ''}` : null
+  }
+
+  it('needs you beats everything: a Mac job’s question, or the action’s run asking', () => {
+    expect(text([mac('needs_input', 'claude-code'), mac('running')], 'working')).toBe('needs_you: needs you (claude-code)')
+    expect(text([{ status: 'needs_input', source: { action_id: 'act-1' }, plan: PLAN }], 'working')).toBe('needs_you: needs you')
+    // A teammate holds no rows: the action's run status says it.
+    expect(text([], 'needs_input')).toBe('needs_you: needs you')
+  })
+
+  it('working: our own agent’s planned run counts its steps; the person’s own agent is named', () => {
+    expect(text([{ status: 'running', source: { action_id: 'act-1' }, plan: PLAN }], 'working')).toBe('working: step 2 of 3')
+    expect(text([mac('running', 'codex')], 'working')).toBe('working: working (codex)')
+    expect(text([], 'starting')).toBe('working: working')
+  })
+
+  it('a job waiting for a slot on the Mac (or for the Mac): queued, unless another of its jobs works', () => {
+    expect(text([mac('queued', 'claude-code')], 'working')).toBe('queued: queued (claude-code)')
+    // Its Mac named where the row knows it: one word through the server's line and the Mac's.
+    expect(text([{ status: 'queued', source: { local_agent_action_id: 'act-1', device_name: 'Studio Mac' } }], 'working')).toBe('queued: queued on Studio Mac')
+    expect(text([mac('queued'), mac('running')], 'working')).toBe('working: working')
+    expect(text([mac('queued'), mac('needs_input')], 'working')).toBe('needs_you: needs you')
+  })
+
+  it('a finished job that left something to look at: ready to review; then PR open; then failed', () => {
+    expect(text([mac('needs_review', 'claude-code')], 'idle')).toBe('ready_to_review: ready to review (claude-code)')
+    expect(text([], 'pr_open')).toBe('pr_open: PR open')
+    expect(text([], 'failed')).toBe('failed: failed')
+    expect(text([mac('done', 'claude-code')], 'idle')).toBeNull()
+    expect(text([], null)).toBeNull()
+  })
+
+  it('renders the state it chose', async () => {
+    hoisted.rows = [mac('needs_input', 'claude-code')]
+    await render(h(DelegateWorkBadge, { actionId: 'act-1', agentRunStatus: 'working' }))
+    expect(container.textContent).toBe('Claude Code · needs you')
+    expect(container.querySelector('[data-delegate-work]')!.getAttribute('data-delegate-work')).toBe('needs_you')
+    hoisted.rows = []
+    await render(h(DelegateWorkBadge, { actionId: 'act-1', agentRunStatus: 'pr_open' }))
+    expect(container.textContent).toBe('PR open')
   })
 })
 

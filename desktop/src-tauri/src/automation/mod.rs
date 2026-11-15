@@ -70,6 +70,15 @@ const LEGACY_TOKEN_VAR: &str = "DIAL8_AUTOMATION_TOKEN";
 /// The shortest token accepted.
 const MIN_TOKEN_CHARS: usize = 32;
 
+/// The port the bridge listens on, once it does: a coding agent's fence is
+/// told to keep away from it (local_agent `LOCAL_AGENT_CLOSED_PORTS`).
+static BOUND_PORT: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+
+/// [`BOUND_PORT`], if the bridge runs.
+pub fn bound_port() -> Option<u16> {
+    BOUND_PORT.get().copied()
+}
+
 /// What the bridge was asked for at launch.
 #[derive(Debug, PartialEq, Eq)]
 enum Activation {
@@ -144,6 +153,7 @@ pub fn start(app: &tauri::AppHandle) {
             }
         });
         webview::install_flag(app);
+        let _ = BOUND_PORT.set(port);
         log_to_file(&format!("automation bridge listening on 127.0.0.1:{port}"));
     }
 

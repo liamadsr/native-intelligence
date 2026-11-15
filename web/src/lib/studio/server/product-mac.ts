@@ -4,7 +4,7 @@
 // the person started or asked for in a typed turn: a loop's unattended job never brings product code into the Studio.
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { apiError, forbidden } from '@/lib/api-errors'
-import { authorizeMacBody } from '@/lib/local-agent/agent-access'
+import { authorizeMacBody, workerJobRefusal } from '@/lib/local-agent/agent-access'
 import { isRefusal, studioContext } from '@/lib/studio/agent/access'
 import type { StudioContext } from './context'
 import type { FolderNames, MacJobCaller } from './products'
@@ -44,6 +44,8 @@ export async function readCappedBody(request: Request, maxBytes: number): Promis
 export async function macStudio(request: Request, svc: SupabaseClient): Promise<MacStudio | Response> {
   const body = await authorizeMacBody(request, svc)
   if (body instanceof Response) return body
+  // A job on the person's own coding agent never brings product code into the Studio either.
+  if (body.session.worker) return workerJobRefusal()
   if (body.caller !== 'person_remote') return forbidden('Studio product jobs run only in a local agent the person started or asked for.')
   const { data, error } = await svc.from('local_agent_session').select('folder_id').eq('id', body.session.id).maybeSingle<{ folder_id: string }>()
   if (error || !data?.folder_id) return apiError("This local agent's folder can't be read just now", { status: 503, code: 'UNAVAILABLE' })

@@ -71,6 +71,19 @@ describe('the live view', () => {
     expect(await (await live()).json()).toMatchObject({ code: 'LIVE_VIEW_UNCONFIGURED' })
   })
 
+  it('says "all in use" with its own code and a retry hint when every shared slot is held (never the generic "could not start")', async () => {
+    const { CloudBrowserBusyError } = await import('@/lib/cloud-browser/slots')
+    mock.ensure.mockRejectedValueOnce(new CloudBrowserBusyError())
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const res = await live()
+    expect(res.status).toBe(503)
+    expect(res.headers.get('retry-after')).toBe('60')
+    expect(await res.json()).toEqual({ error: 'All browsers are in use right now. Try again in a minute.', code: 'BROWSERS_BUSY' })
+    expect(mock.touch).not.toHaveBeenCalled()
+    expect(error).not.toHaveBeenCalled()
+    error.mockRestore()
+  })
+
   it('counts a visible view as activity', async () => {
     await PING()
     expect(mock.touch).toHaveBeenCalledWith({ userId: 'u1', workspaceId: 'w1' })

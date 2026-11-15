@@ -125,10 +125,10 @@ describe('a job that had settled never settles again (a later run’s `working` 
     return id
   }
 
-  it('another start taking its folder (endIdle), a stop, the folder removed, the 24-hour reap', async () => {
+  it('another start in its folder (it stays: a card’s idle job is never ended for it, migration 659), a stop, the folder removed, the 24-hour reap', async () => {
     let id = await finishedThenTaken()
     await createSession(db as never, { userId: USER, workspaceId: WS, folderId: FOLDER, conversationId: CONV, request: 'Look', mode: 'read', startedBy: 'person' })
-    expect(db.tables.local_agent_session[0]).toMatchObject({ id, status: 'cancelled' })
+    expect(db.tables.local_agent_session[0]).toMatchObject({ id, status: 'waiting' })
     expect(status()).toBe('working')
 
     db = seeded({ actions: [{ id: ACTION, workspace_id: WS, agent_run_status: 'working' }] })

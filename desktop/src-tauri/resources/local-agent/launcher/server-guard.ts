@@ -52,7 +52,10 @@ function secretMatches(presented: string | string[] | undefined, expected: strin
 /**
  * The request's path with repeated slashes collapsed and dot segments
  * resolved (`%2e` included). Only origin-form targets (`/...`) count; an
- * absolute-form or `*` target is refused.
+ * absolute-form or `*` target is refused. An encoded slash (`%2F`, `%5C`) is
+ * no separator here, and none to the eve server's router (h3) either, so
+ * `/eve/..%2F.well-known/…` is one segment under /eve for both; the test runs
+ * this guard in front of that router to keep them agreeing.
  */
 export function normalizedPath(url: string | undefined): string | null {
   if (!url || !url.startsWith('/')) return null
