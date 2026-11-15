@@ -9,6 +9,7 @@ import {
   type RuntimeSandboxInstance,
 } from './runtime-client'
 import type { CloudBrowserExitMode, CloudBrowserRef, CloudBrowserStatus } from './store'
+import { CloudBrowserNoRoomError, isRuntimeNoRoomMessage } from './slots'
 
 /**
  * The `runtime` backend (backend.ts; wired to the row store by
@@ -80,6 +81,25 @@ import type { CloudBrowserExitMode, CloudBrowserRef, CloudBrowserStatus } from '
  *     A sandbox that merely could not be reached is an error too.
  *   - The hosted service drops a browser unused for snapshotTtlMs by its
  *     snapshots' expiry; here host.ts's reconcile does it (expiresUnused).
+ *   - A create or a wake the runtime refuses for lack of memory (its pool is
+ *     shared with the coding agent's sandboxes) is thrown as
+ *     CloudBrowserNoRoomError (slots.ts), never taken for a dead or missing
+ *     sandbox: host.ts makes the browser idle longest give way and tries once more.
+ *
+ * ── The hub's certificate, during the ensure ───────────────────────────────
+ * Our edge gets a hub's certificate at the first TLS handshake for its name,
+ * after asking the app (hub-tls.ts: yes for a `starting` or `running` row whose
+ * session is `<id>.…`). Left to the live view, that handshake comes only after
+ * the ensure (measured: 5 s more on a first start). So as soon as an ensure is
+ * committed to a sandbox it created (after the give-way check, the root step
+ * and the run's start: never one about to be removed) or woke (after connect),
+ * the row names it (deps.recordSandbox, a `starting` row only, as
+ * `<id>.0`), and only THEN, and only if a starting row was there to name it,
+ * one request goes to `https://<id>.<hub domain>/health`
+ * in the background (prewarmHub): its answer is ignored, its failure swallowed
+ * and never logged, it is never waited for, and it goes once per process per
+ * sandbox id. Not on a running browser taken up again (its name has had its
+ * handshake), and not without a row store (the conformance script).
  *
  * ── For an operator: what the reconcile's `silent` and `duplicates` ask ───
  * Both come from the daily reconcile's result (and one log line each), with
@@ -277,8 +297,26 @@ export interface RuntimeBackendDeps {
    * (the conformance script) no row names any sandbox.
    */
   sessionOfName?: (name: string) => Promise<string | null>
-  /** For the reconcile's envd health check (tests). */
+  /**
+   * Name sandbox `sandboxId` in the `starting` row of browser `name`
+   * (store.recordStartingSandbox), as soon as an ensure has taken it up: the
+   * edge's certificate question then says yes, and the hub is prewarmed (see the
+   * header). Without it (the conformance script) neither happens.
+   */
+  recordSandbox?: (name: string, sandboxId: string) => Promise<boolean>
+  /** For the reconcile's envd health check and the hub's prewarm (tests). */
   fetch?: typeof fetch
+}
+
+/** The prewarm's request: long enough for the edge to get the certificate inside the handshake (never waited for). */
+export const HUB_PREWARM_TIMEOUT_MS = 15_000
+/** Sandbox ids whose hub this process has prewarmed (bounded; a full set is emptied). */
+const prewarmed = new Set<string>()
+const PREWARMED_MAX = 1_000
+
+/** Tests only. */
+export function forgetPrewarmedHubs() {
+  prewarmed.clear()
 }
 
 export type RuntimeCloudBrowserBackend = CloudBrowserBackend
@@ -383,6 +421,8 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
       return await (await sdk()).Sandbox.connect(sandboxId, { ...connection(s), timeoutMs: CLOUD_BROWSER.sessionTimeoutMs })
     } catch (err) {
       if (isNotFound(err)) return null
+      // A wake the runtime has no memory for: the sandbox is fine (slots.ts).
+      if (isRuntimeNoRoomMessage(err)) throw new CloudBrowserNoRoomError(failure(`no room to wake sandbox ${sandboxId}`, err, s.apiKey).message)
       throw failure(`could not reach sandbox ${sandboxId}`, err, s.apiKey)
     }
   }
@@ -520,6 +560,47 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
     }
   }
 
+  /**
+   * An ensure is committed to sandbox `sandboxId` (created and kept, or woken):
+   * the row names it first, then its hub is prewarmed. Without a row store,
+   * neither. A record that fails changes nothing for the ensure (markRunning
+   * writes the session at its end) but stops the prewarm: asked before the row
+   * names the id, the edge would get a no, which hub-tls.ts keeps 10 s, and the
+   * live view's own handshake could meet it.
+   */
+  async function taken(s: CloudBrowserRuntimeSettings, name: string, sandboxId: string): Promise<void> {
+    if (!deps.recordSandbox) return
+    let written = false
+    try {
+      written = await deps.recordSandbox(name, sandboxId)
+    } catch (err) {
+      console.warn('[cloud-browser] could not name the sandbox in its starting row (no prewarm):', messageOf(err).slice(0, 200))
+      return
+    }
+    // No starting row named it (the row is running, or being stopped): the edge would be told no.
+    if (written) prewarmHub(s, sandboxId)
+  }
+
+  /**
+   * One background request to the hub's name, so the edge's on-demand
+   * certificate is got now rather than at the live view's first handshake. The
+   * edge proxies it to a hub that is not up yet: whatever comes back (or not)
+   * is ignored; never awaited, never logged.
+   */
+  function prewarmHub(s: CloudBrowserRuntimeSettings, sandboxId: string): void {
+    // Only the runtime's id shape ever goes into a host name.
+    if (!/^[a-z0-9]{1,63}$/.test(sandboxId) || prewarmed.has(sandboxId)) return
+    if (prewarmed.size >= PREWARMED_MAX) prewarmed.clear()
+    prewarmed.add(sandboxId)
+    try {
+      void (deps.fetch ?? fetch)(`https://${sandboxId}.${s.hubDomain}/health`, {
+        method: 'GET', redirect: 'manual', cache: 'no-store', signal: AbortSignal.timeout(HUB_PREWARM_TIMEOUT_MS),
+      }).then(res => res.body?.cancel().catch(() => {}), () => {})
+    } catch {
+      // Nothing: a prewarm never changes an ensure.
+    }
+  }
+
   /** The root step (CLOSE_USR_LOCAL) on `inst`: true when it printed `closed`. */
   async function closeUsrLocal(inst: RuntimeSandboxInstance, signal?: AbortSignal): Promise<boolean> {
     const root = await inst.commands.run(CLOSE_USR_LOCAL, { background: true, user: 'root', cwd: '/', timeoutMs: CLOUD_BROWSER.rootStepTimeoutMs, ...(signal ? { signal } : {}) })
@@ -543,8 +624,9 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
   }
 
   /** A woken (paused, now resumed by connect) sandbox: a whole lifetime from now, and a new run. */
-  async function woken(s: CloudBrowserRuntimeSettings, inst: RuntimeSandboxInstance, signal: AbortSignal): Promise<BackendSandbox> {
+  async function woken(s: CloudBrowserRuntimeSettings, name: string, inst: RuntimeSandboxInstance, signal: AbortSignal): Promise<BackendSandbox> {
     const startedAt = new Date()
+    await taken(s, name, inst.sandboxId)
     await keepClosed(s, inst, signal)
     try {
       await inst.setTimeout(CLOUD_BROWSER.sessionTimeoutMs, { signal })
@@ -582,7 +664,7 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
       if (now.state === 'paused') {
         const inst = await connect(s, id, signal)
         if (!inst) return GONE
-        return woken(s, inst, signal)
+        return woken(s, name, inst, signal)
       }
       if (Date.now() >= until) break
     }
@@ -604,7 +686,7 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
   async function takeUp(s: CloudBrowserRuntimeSettings, name: string, info: RuntimeSandboxInfo, signal: AbortSignal): Promise<TakeUp> {
     const inst = await connect(s, info.sandboxId, signal)
     if (!inst) return GONE
-    if (info.state === 'paused') return woken(s, inst, signal)
+    if (info.state === 'paused') return woken(s, name, inst, signal)
     const alive = await probe(s, inst, signal)
     if (alive.alive) {
       await keepClosed(s, inst, signal)
@@ -632,6 +714,7 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
         network: { allowPublicTraffic: true },
       })
     } catch (err) {
+      if (isRuntimeNoRoomMessage(err)) throw new CloudBrowserNoRoomError(failure(`no room to create a sandbox for ${name}`, err, s.apiKey).message)
       throw failure(`could not create a sandbox for ${name} from ${s.template}`, err, s.apiKey)
     }
     const mine = inst.sandboxId
@@ -668,6 +751,10 @@ export function createRuntimeBrowserBackend(deps: RuntimeBackendDeps = {}): Runt
     } catch (err) {
       throw failure(`sandbox ${mine} does not run commands`, err, s.apiKey)
     }
+    // Mine is the one this ensure uses, closed and answering: the row names it, then its hub's
+    // certificate is asked for (see the header). Not before: a sandbox removed for its root step
+    // would have spent one of the domain's weekly certificates on nothing.
+    await taken(s, name, mine)
     return { sandbox: handle(s, { sandboxId: mine, state: 'running', startedAt }, inst), created: true }
   }
 

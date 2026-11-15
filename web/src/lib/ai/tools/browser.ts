@@ -33,6 +33,7 @@ import { blockedSiteForUrl } from '@/lib/browser-agent/blocked-sites'
 import { loadBlockedSites } from '@/lib/browser-agent/blocked-sites-server'
 import { siteBlockedTaskResult } from '@/lib/browser-agent/task-executor'
 import { fenceBrowserResult, fenceBrowserPageRead } from '@/lib/browser-agent/fence-readings'
+import { CLOUD_BROWSER_BUSY_MESSAGE, isCloudBrowserBusy } from '@/lib/cloud-browser/slots'
 
 /** How long a tool's execute polls inline before handing off to
  *  wait_for_browser_command. Long enough that a COLD start (the sandbox
@@ -104,8 +105,8 @@ export function createBrowserTools(
     // can't start, the command fails now with the reason instead of expiring.
     void import('@/lib/cloud-browser/host')
       .then(({ ensureCloudBrowser }) => ensureCloudBrowser({ userId, workspaceId }))
-      .catch(error => failWaitingBrowserCommand(userId, id,
-        `Your browser could not start: ${error instanceof Error ? error.message : String(error)}`).catch(() => {}))
+      .catch(error => failWaitingBrowserCommand(userId, id, isCloudBrowserBusy(error) ? CLOUD_BROWSER_BUSY_MESSAGE
+        : `Your browser could not start: ${error instanceof Error ? error.message : String(error)}`).catch(() => {}))
 
     if (command === 'run_task') await writeBrowserDebugTrace({ userId, workspaceId, runId: id }, 'task.queued', {
       task: request.task, tabId: opts.tabId ?? null, targetOrigin: opts.targetOrigin ?? null, attribution,
