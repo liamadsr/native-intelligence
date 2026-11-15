@@ -5,7 +5,10 @@
  * hours on my site" and "undo that" work without a lookup:
  *
  *   the site     its repo, how it's built, its live address, and whether
- *                its form already sends requests to the business;
+ *                its form already sends requests to the business (the quote
+ *                intake), or its entries to one of the business's forms, and
+ *                whether that form's link was replaced since (then it no
+ *                longer arrives, and it is offered again);
  *   in flight    the open change, if any: being made, waiting for their yes
  *                (by text "yes" with its code, or the card in the app), or going live;
  *   last check   a wiring whose live check didn't pass, said plainly;
@@ -19,7 +22,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ChatPromptSection } from '@/lib/ai/chat-system-prompt'
 import type { ChatRunTokenClaims } from '@/lib/chat/chat-run-token'
 import { changeForm, changeLabel } from './brief'
-import { getLiveSite, getOpenChange, recentChanges } from './store'
+import { getLiveSite, getOpenChange, liveWirings, recentChanges, replacedFormLinks } from './store'
 import { FRAMEWORK_LABEL, type WebsiteChange, type WebsiteSite } from './types'
 
 /** The turn-context section's key (TURN_CONTEXT_KEYS in src/lib/ai/chat-system-prompt.ts). */
@@ -31,18 +34,32 @@ function quoted(text: string, max = 100): string {
   return `"${t.length <= max ? t : `${t.slice(0, max - 1)}…`}"`
 }
 
-/** The section's body. Pure. */
-export function renderWebsiteSection(site: WebsiteSite, open: WebsiteChange | null, last: WebsiteChange | null): string {
+/**
+ * The section's body. `replaced`: the forms the site is wired to whose link
+ * was replaced since (or that are gone), so its entries no longer arrive.
+ * Pure.
+ */
+export function renderWebsiteSection(site: WebsiteSite, open: WebsiteChange | null, last: WebsiteChange | null, replaced: ReadonlySet<string> = new Set()): string {
   const built = site.framework ? `, ${FRAMEWORK_LABEL[site.framework]}` : ''
   const live = site.siteUrl ? `, live at ${site.siteUrl.replace(/^https:\/\//, '')}` : ', live address unknown (ask them, then connect_website again with site_url)'
   const form = site.inspection?.forms?.[0] ?? null
+  const wirings = liveWirings(site)
+  const toForms = wirings.filter((w) => w.intake === 'form' && w.formId)
   const formLine =
-    site.state === 'wired' || form?.submits === 'dial8'
+    wirings.some((w) => w.intake === 'quote') || form?.submits === 'dial8'
       ? 'Its form sends customers’ requests to you.'
-      : form
+      : form && !toForms.some((w) => w.formPath === form.path)
         ? `Its ${form.kind === 'other' ? '' : `${form.kind} `}form (${quoted(form.path, 80)}) doesn’t send requests to you yet: offer to connect it (wire_website_form) when it fits.`
-        : 'No form was found on it.'
-  const lines = [`Their website: GitHub repo ${quoted(site.repoFullName)}${built}${live}. ${formLine}`]
+        : toForms.length
+          ? ''
+          : 'No form was found on it.'
+  const formWirings = toForms.map((w) => {
+    const which = w.formPath ? `Its form ${quoted(w.formPath, 80)}` : 'A form on it'
+    return replaced.has(w.formId!)
+      ? `${which} posted its entries to their form ${w.formId}, but that form’s link was replaced since (or the form is gone), so they no longer arrive: if it comes up, say so plainly and offer to reconnect it (wire_website_form with form_id ${w.formId}).`
+      : `${which} adds each entry as a row through their form ${w.formId}.`
+  })
+  const lines = [[`Their website: GitHub repo ${quoted(site.repoFullName)}${built}${live}.`, formLine, ...formWirings].filter(Boolean).join(' ')]
   if (open) {
     const label = quoted(changeLabel(open, changeForm(open, site)), 90)
     if (open.state === 'preparing') lines.push(`A change is being made right now: ${label}. They get a text when it's ready; don't start another.`)
@@ -78,7 +95,9 @@ export async function websiteForChatSpec(supabase: SupabaseClient, claims: Pick<
     // A stale open change (its run died, a settle was lost) is settled first, so the agent never reads it as in flight.
     const open = found ? await (await import('./reconcile')).reconcileOpenChange(supabase, found) : null
     const recent = await recentChanges(supabase, claims.workspaceId, site.id, 1)
-    return { section: { key: WEBSITE_SECTION_KEY, markdown: renderWebsiteSection(site, open, recent[0] ?? null) }, held: false }
+    const toForms = liveWirings(site).filter((w) => w.intake === 'form')
+    const replaced = toForms.length ? await replacedFormLinks(supabase, claims.workspaceId, toForms) : new Set<string>()
+    return { section: { key: WEBSITE_SECTION_KEY, markdown: renderWebsiteSection(site, open, recent[0] ?? null, replaced) }, held: false }
   } catch (err) {
     console.warn('[website] section held:', err instanceof Error ? err.message : err)
     return HELD

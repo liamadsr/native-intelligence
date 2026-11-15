@@ -555,8 +555,9 @@ export function withMacConfirmWording(tools: Record<string, Tool>, _svc: Supabas
  *   connect_link            a link that connects an account to the person's workspace
  *   create_form             a link anyone adds rows to a table through
  *   update_form             turns such a link back on, widens it or makes a new one
+ *   create_form_invites     personal links that each add a row to a table
  */
-export const WORKER_HELD_PUBLIC_TOOLS: ReadonlySet<string> = new Set(['create_booking_link', 'update_booking_link', 'create_quote_form_link', 'connect_link', 'create_form', 'update_form'])
+export const WORKER_HELD_PUBLIC_TOOLS: ReadonlySet<string> = new Set(['create_booking_link', 'update_booking_link', 'create_quote_form_link', 'connect_link', 'create_form', 'update_form', 'create_form_invites'])
 
 /**
  * Tools that raise their OWN card whenever the call isn't that card's replay

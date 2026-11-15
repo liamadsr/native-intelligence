@@ -16,6 +16,7 @@ import { getServiceClient } from '@/lib/admin'
 import {
   findMatchingFlowsForCaptureProcessed,
   findMatchingFlowsForChatMessage,
+  findMatchingFlowsForContactCreated,
   findMatchingFlowsForDocumentCreated,
   findMatchingFlowsForRecordCreated,
   findMatchingFlowsForEmailReceived,
@@ -55,7 +56,10 @@ import {
   EVENT_CAP_SKIP_REASON,
   chatFlowsToFire,
   chatMessageSkipReason,
+  contactFlowsToFire,
+  contactSkipReason,
   documentFlowsToFire,
+  loadContactFacts,
   loadRecordFacts,
   recordFlowsToFire,
   recordSkipReason,
@@ -1749,6 +1753,58 @@ export const flowDispatchOnRecordCreated = inngest.createFunction(
       flows: found.flows as FlowWithSecrets[],
       trigger,
       source: { row_id },
+      deadlineMs,
+      cap: true,
+    })
+  },
+)
+
+/**
+ * Dispatch contact_created loops: `flow/contact.created` is emitted for a
+ * contact a public intake made (at once) or a person added by hand (about
+ * five minutes later: src/lib/flows/emit-contact-created.ts). Skipped when the
+ * contact is gone or merged by then, or of a source no emitter writes; fires
+ * the loops that take its source and whose owner can see it now
+ * (event-triggers.ts contactFlowsToFire). `{{trigger.contact_id}}` names it,
+ * never its name (a form's contact is named by a stranger); a step reads it
+ * with get_contact. Capped per flow. retries: 0, concurrency per workspace.
+ */
+export const flowDispatchOnContactCreated = inngest.createFunction(
+  {
+    id: 'flow-dispatch-on-contact-created',
+    retries: 0,
+    concurrency: [{ limit: 2, key: 'event.data.workspace_id' }],
+    triggers: [{ event: 'flow/contact.created' }],
+  },
+  async ({ event, step }) => {
+    const deadlineMs = flowRunDeadlineMs(Date.now())
+    const { workspace_id, contact_id } = event.data as { workspace_id: string; contact_id: string }
+    const supabase = getServiceClient()
+
+    const found = await step.run('find-matching-flows', async () => {
+      const contact = await loadContactFacts(supabase, contact_id)
+      const skip = contactSkipReason(contact, workspace_id)
+      if (skip || !contact) return { skip: skip ?? 'deleted', flows: [] as FlowWithSecrets[] }
+      const candidates = await findMatchingFlowsForContactCreated(supabase, workspace_id)
+      return { skip: null, flows: await contactFlowsToFire(supabase, candidates, contact) }
+    })
+    if (found.skip) return { dispatched: 0, skipped: found.skip }
+    if (found.flows.length === 0) return { dispatched: 0 }
+
+    const trigger: TriggerContext = {
+      type: 'contact_created',
+      entity_type: null,
+      from_status_id: null,
+      to_status_id: null,
+      fired_at: new Date().toISOString(),
+      contact_id,
+    }
+    return runEntitylessFires(supabase, step, {
+      fireId: event.id ?? null,
+      workspaceId: workspace_id,
+      flows: found.flows as FlowWithSecrets[],
+      trigger,
+      source: { contact_id },
       deadlineMs,
       cap: true,
     })

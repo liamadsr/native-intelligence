@@ -23,14 +23,16 @@ export function isFileCategory(value: unknown): value is FileCategory {
   return typeof value === 'string' && (FILE_CATEGORIES as readonly string[]).includes(value)
 }
 
-/** The record a file is attached to: a capture, an action or a project (the first of note_id, action_id, project_id). */
-export type FileParentType = 'capture' | 'action' | 'project'
+/** The record a file is attached to: a capture, an action, a table's row (663) or a project (the first of note_id, action_id, data_row_id, project_id). */
+export type FileParentType = 'capture' | 'action' | 'row' | 'project'
 
 export interface FileParent {
   type: FileParentType
   id: string
   /** Its name, read through the viewer's own RLS (a record they can't read never gets here). */
   label: string
+  /** A row's table: its id and name. */
+  table?: { id: string; name: string }
 }
 
 /** One file as the page lists it. */
@@ -45,6 +47,8 @@ export interface WorkspaceFile {
   thumbnail_path: string | null
   created_at: string
   parent: FileParent
+  /** Sent by a stranger through a form (663): downloaded, never opened in place, and its name is theirs. */
+  from_form?: boolean
 }
 
 /** A page of files, newest first; `next_offset` null at the end. */

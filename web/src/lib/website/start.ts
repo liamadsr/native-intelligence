@@ -15,6 +15,9 @@
  *             origins (its SHA-256 kept on the change: the key goes live
  *             only at merge, so the business's current one keeps working
  *             until then), the wiring brief (./brief.ts), a coding run.
+ *             With a form (src/lib/forms) instead of the quote intake: the
+ *             same, with a fresh link for that form (./form-target.ts: it
+ *             replaces the form's link only at merge, as the quote key does).
  *   edit      {@link startEdit}: the owner's words, fenced, as a coding run.
  *   undo      {@link startUndo}: GitHub's own revert of the last change that
  *             went live, as a new pull request (no coding run).
@@ -39,7 +42,9 @@ import { cleanOrigins, generateIntakeKey, hashIntakeKey } from '@/lib/customers/
 import { intakeUrl } from '@/lib/customers/profile-input'
 import { businessName } from '@/lib/customers/store'
 import { appOrigin } from '@/lib/twilio/config'
-import { editRequest, failedText, inspectionWords, wiringBrief } from './brief'
+import { formUrl, generateFormKey, hashFormKey } from '@/lib/forms/store'
+import { editRequest, failedText, formWiringBrief, inspectionWords, SITE_FORM_HINT_MAX, wiringBrief } from './brief'
+import { formWiringTarget, wiredFormOrigins, type FormTarget } from './form-target'
 import { getPull, getRepo, listOwnerRepos, revertPull, type GithubDeps } from './github'
 import { rankingHints, rankWebsiteRepos, WEBSITE_REPO_CHOICES } from './repos'
 import { inspectRepo, platformHostOf, siteUrlOf } from './inspect'
@@ -48,7 +53,7 @@ import { fetchPublic } from './fetch'
 import { prOpenedEventId, WEBSITE_PR_OPENED, type WebsiteEventData } from './events'
 import { reconcileOpenChange } from './reconcile'
 import { connectSite, getLiveSite, getOpenChange, insertChange, recentChanges, updateChange, updateSite } from './store'
-import type { FormCandidate, SiteInspection, WebsiteChange, WebsiteSite } from './types'
+import type { FormCandidate, SiteInspection, WebsiteChange, WebsiteSite, WiringIntake } from './types'
 
 type Svc = SupabaseClient
 
@@ -353,27 +358,48 @@ export function pickForm(inspection: SiteInspection | null, formPath?: string | 
   return forms[0] ?? null
 }
 
-/** Wire the site's form to the business's intake (step 3). */
-export async function startWiring(svc: Svc, who: Who, input: { formPath?: string | null; replaceCurrent?: boolean }, deps: StartDeps = {}): Promise<Outcome> {
+export interface WiringInput {
+  formPath?: string | null
+  replaceCurrent?: boolean
+  /** One of the business's forms (list_forms): the site's form posts its entries there, a row each, instead of to the quote intake. */
+  formId?: string | null
+  /** Which form on the site, in the owner's words ("the contact form on /contact"): passed to the coding run. */
+  siteForm?: string | null
+  /** The person's own attended turn: a table shared with them by an edit grant counts (tables.ts editGrants). Default true. */
+  editGrants?: boolean
+}
+
+/** Wire the site's form to the business's intake (step 3), or to one of its forms. */
+export async function startWiring(svc: Svc, who: Who, input: WiringInput, deps: StartDeps = {}): Promise<Outcome> {
   const found = await siteFor(svc, who)
   if (!found.ok) return found.outcome
   const { site } = found
   if (!site.siteUrl) return fail('NO_SITE_URL', 'Ask them for their live website address first, then call connect_website again with site_url: the form is checked live once the change is up.')
   const form = pickForm(site.inspection, input.formPath)
   if (!form) return fail('NO_FORM', 'No form was found on the site. Ask them which page has it, then call wire_website_form with form_path.')
-  if (form.submits === 'dial8' && !input.formPath) return fail('ALREADY_WIRED', 'That form already posts to Native Intelligence. Nothing was started.')
-  const key = generateIntakeKey()
+  // A form wiring is checked before anything is made: the person must be able to change the form's table.
+  let target: FormTarget | null = null
+  if (input.formId) {
+    const checked = await formWiringTarget(svc, who, input.formId, { editGrants: input.editGrants !== false })
+    if (!checked.ok) return fail(checked.code, checked.error)
+    target = checked.target
+  } else if (form.submits === 'dial8' && !input.formPath) {
+    return fail('ALREADY_WIRED', 'That form already posts to Native Intelligence. Nothing was started.')
+  }
   // The address's redirects count too (a bare domain to www, a host's domain to the real one): customers post from where they land.
   const origins = siteOrigins(site.siteUrl, [await finalSiteUrl(site.siteUrl, deps), ...(site.inspection?.alsoUrls ?? [])])
-  const request = wiringBrief({
-    businessName: await businessName(svc, who.workspaceId),
-    site,
-    inspection: site.inspection ?? { framework: 'unknown', host: 'unknown', siteUrl: site.siteUrl, forms: [form], truncated: false },
-    form,
-    intakeUrl: intakeUrl(appOrigin(), key),
-    allowedOrigins: origins,
-    replaceCurrent: input.replaceCurrent === true,
-  })
+  const inspection = site.inspection ?? { framework: 'unknown' as const, host: 'unknown' as const, siteUrl: site.siteUrl, forms: [form], truncated: false }
+  const siteForm = input.siteForm?.trim().slice(0, SITE_FORM_HINT_MAX) || null
+  const replaceCurrent = input.replaceCurrent === true
+  // A fresh key or link, written in the brief; only its SHA-256 is kept, and it goes live at merge.
+  const key = target ? generateFormKey() : generateIntakeKey()
+  const keyHash = target ? hashFormKey(key) : hashIntakeKey(key)
+  const formOrigins = target ? wiredFormOrigins(origins, target.form.allowedOrigins) : origins
+  const request = target
+    ? // The site's own origins only: the other websites the form allows are the workspace's, not the run's.
+      formWiringBrief({ site, inspection, form, formUrl: formUrl(appOrigin(), key), allowedOrigins: origins, fields: target.fields, replaceCurrent, siteForm })
+    : wiringBrief({ businessName: await businessName(svc, who.workspaceId), site, inspection, form, intakeUrl: intakeUrl(appOrigin(), key), allowedOrigins: origins, replaceCurrent, siteForm })
+  const wiringIntake: WiringIntake = target ? { kind: 'form', formId: target.form.id } : { kind: 'quote' }
   const inserted = await insertChange(svc, {
     workspaceId: who.workspaceId,
     siteId: site.id,
@@ -382,13 +408,26 @@ export async function startWiring(svc: Svc, who: Who, input: { formPath?: string
     requestedBy: who.userId,
     formPath: form.path,
     formKind: form.kind,
-    replaceCurrent: input.replaceCurrent === true,
-    intakeKeyHash: hashIntakeKey(key),
+    replaceCurrent,
+    intakeKeyHash: keyHash,
     intakeKeyPrefix: key.slice(0, 9),
     intakeOrigins: origins,
+    wiringIntake,
   })
   if (!inserted.ok) return fail('OPEN_CHANGE', inserted.open ? openChangeWords(inserted.open) : 'Another website change is open. Nothing new was started.')
-  return launchRun(svc, who, site, inserted.change, `Send website ${form.kind === 'other' ? 'form' : form.kind} requests to Native Intelligence`, deps)
+  const formWords = form.kind === 'other' ? 'form' : form.kind
+  if (!target) return launchRun(svc, who, site, inserted.change, `Send website ${formWords} requests to Native Intelligence`, deps)
+  const out = await launchRun(svc, who, site, inserted.change, `Send website ${formWords} form entries to Native Intelligence`, deps)
+  if (!out.success) return out
+  return {
+    ...out,
+    form_id: target.form.id,
+    allowed_origins: formOrigins,
+    bot_check: 'Switched off when the change goes live: a plain form on their own website can’t run it.',
+    note:
+      `When they approve it and it goes live, this form gets a new link and its older link stops working at that moment: anything else that posts to the old one (another page, an embed, a link they shared) needs the new one, which only the website will carry. ` +
+      `The form's allowed websites become ${formOrigins.join(', ')} (${target.form.allowedOrigins.length ? 'the ones it had are kept' : 'it took any website before'}), and its bot check is switched off. Say this to them in two short lines.`,
+  }
 }
 
 /** An edit the owner asked for by text (step 6). */

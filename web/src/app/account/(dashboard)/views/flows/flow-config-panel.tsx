@@ -59,11 +59,13 @@ import {
   type Team,
   type WorkflowState,
   type PrTriggerState,
+  type ContactCreatedSource,
   type SavedOnce,
   HIDDEN_CHANNEL,
   HIDDEN_TABLE,
   onceFieldNote,
   PR_STATE_LABELS,
+  CONTACT_SOURCE_LABELS,
   ANY_CHANNEL,
   CADENCE_LABELS,
   CONDITION_FIELD_LABELS,
@@ -274,6 +276,8 @@ const TRIGGER_DESCRIPTIONS: Record<FlowTriggerType, string> = {
     "Fires when a customer's quote arrives from your website's quote form. Runs for the whole workspace — no team needed.",
   record_created:
     'Fires when a row is added to a table you can read: at once for a form’s submission, about 5 minutes after a person adds one by hand. Never for rows an agent or an import wrote. Runs at most 50 times a day.',
+  contact_created:
+    'Fires when a contact you can see is added to the CRM: at once when a website form, a quote or a customer’s first text makes one, about 5 minutes after a person adds one by hand. Never for contacts an agent, an import, a sync or a meeting made. Runs at most 50 times a day.',
 }
 
 function TriggerConfig({
@@ -358,6 +362,23 @@ function TriggerConfig({
       )}
       {t.kind === 'chat_message' && <ChatMessageTriggerFields trigger={t} setTrigger={setTrigger} members={members} />}
       {t.kind === 'record_created' && <RecordCreatedTriggerFields trigger={t} setTrigger={setTrigger} />}
+      {t.kind === 'contact_created' && (
+        <Field label="Which contacts">
+          <Select value={t.contact_source} onValueChange={(v) => setTrigger({ contact_source: v as ContactCreatedSource })}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(CONTACT_SOURCE_LABELS) as ContactCreatedSource[]).map((k) => (
+                <SelectItem key={k} value={k}>
+                  {CONTACT_SOURCE_LABELS[k]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="mt-1 text-xs text-muted-foreground">A form’s contact is named by a stranger: the steps read it as data, never as instructions.</p>
+        </Field>
+      )}
       {/* capture_processed, document_created and quote_received carry no config beyond the type. */}
     </div>
   )
@@ -953,6 +974,7 @@ const TRIGGER_TOKENS: Partial<Record<FlowTriggerType, string[]>> = {
   document_created: ['{{trigger.document_id}}'],
   quote_received: ['{{trigger.quote_id}}'],
   record_created: ['{{trigger.row_id}}', '{{trigger.table_id}}'],
+  contact_created: ['{{trigger.contact_id}}'],
 }
 
 function stepTokens(ancestors: EditorAction[], trigger: EditorTrigger): string[] {

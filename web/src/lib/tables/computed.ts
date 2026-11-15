@@ -345,6 +345,43 @@ export function computeRow(
   return out
 }
 
+/** The column keys a formula's tree names. */
+function refsOf(node: FormulaNode, out: Set<string> = new Set()): Set<string> {
+  switch (node.k) {
+    case 'ref':
+      out.add(node.key)
+      break
+    case 'neg':
+      refsOf(node.e, out)
+      break
+    case 'bin':
+      refsOf(node.a, out)
+      refsOf(node.b, out)
+      break
+    case 'call':
+      for (const a of node.args) refsOf(a, out)
+      break
+  }
+  return out
+}
+
+/**
+ * A row's computed cells that drew on a stranger's words: `rollups`, the
+ * rollups that read a linked row a form wrote, and every formula naming one,
+ * directly or through another formula (the plan's order runs each formula
+ * after those it names, so one pass sees them all). A formula on a form's own
+ * row needs nothing here: the agents read that whole row fenced.
+ */
+export function cellsFromForms(plan: ComputedPlan, rollups: ReadonlySet<string>): string[] {
+  if (!rollups.size) return []
+  const out = new Set(rollups)
+  for (const key of plan.order) {
+    const ast = plan.entries.get(key)?.ast
+    if (ast && [...refsOf(ast)].some((ref) => out.has(ref))) out.add(key)
+  }
+  return [...out]
+}
+
 /** A computed cell back as a typed value (a formula reading a rollup). */
 function typedCell(cell: { value: number | string | boolean | null }, result: CheckType | null): FormulaValue {
   if (cell.value === null) return null

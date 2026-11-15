@@ -295,6 +295,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'list_forms', sideEffect: 'read', label: 'List Forms', description: "The workspace's forms: public links that each add a row to a table per submission" },
       { name: 'create_form', sideEffect: 'internal-write', writeTarget: 'board', label: 'Create Form', description: 'Make a form on a table: a public link whose submissions each become one new row; the link is shown once' },
       { name: 'update_form', sideEffect: 'internal-write', writeTarget: 'board', label: 'Update Form', description: "Change a form's fields or who can submit, switch it off or on, or make a new link (the old one stops)" },
+      { name: 'create_form_invites', sideEffect: 'internal-write', writeTarget: 'board', label: 'Create Form Invites', description: 'Make personal links to an invited form, each storing one submission; the links are shown once and sent separately' },
     ],
   },
   {
@@ -468,7 +469,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     description: 'File attachments on captures and actions',
     icon: '📎',
     tools: [
-      { name: 'list_attachments', sideEffect: 'read', label: 'List Attachments', description: 'List file attachments on a capture or action' },
+      { name: 'list_attachments', sideEffect: 'read', label: 'List Attachments', description: "List file attachments on a capture, an action, a project or a table's row" },
       { name: 'get_attachment_content', sideEffect: 'read', label: 'Get Content', description: 'Get file content or download URL' },
       { name: 'read_chat_file', sideEffect: 'read', label: 'Read Chat File', description: 'Read a file the user just uploaded in chat, or look at a photo they uploaded, by storage_path, without attaching it' },
       { name: 'attach_chat_file', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Attach File', description: 'Attach a chat-uploaded file to an action or capture' },
@@ -1297,6 +1298,8 @@ export const ATTENDED_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set([
   // Forms phase 1: a form's link lets anyone add rows to a table, so it is made and changed only at the person's word.
   'create_form',
   'update_form',
+  // Forms phase 3: each personal link lets its holder add a row, so they are made only at the person's word.
+  'create_form_invites',
 ])
 
 /** True for a tool only an attended chat may hold (ATTENDED_ONLY_TOOL_NAMES). */

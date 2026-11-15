@@ -39,6 +39,9 @@ const FORM: DataForm = {
   access: 'public',
   allowedOrigins: [],
   thanks: 'Thanks, we will be in touch.',
+  description: null,
+  submitLabel: null,
+  botCheck: false,
   active: true,
   keyPrefix: 'fk_abcdef',
   createdBy: 'user-owner',
@@ -165,7 +168,7 @@ describe('a submission', () => {
     const res = await handleFormSubmit(post({ ...GOOD, submission_id: 'sub-1' }), KEY, d)
     expect(res.status).toBe(200)
     expect((await res.json()).id).toBe('row-0')
-    expect(d.claimAttempt).toHaveBeenCalledWith({ attemptId: 'att-1', formId: 'form-1', clientHash: 'client-a', externalId: 'sub-1', rowId: 'row-1' })
+    expect(d.claimAttempt).toHaveBeenCalledWith({ attemptId: 'att-1', formId: 'form-1', clientHash: 'client-a', externalId: 'sub-1', rowId: 'row-1', challengeId: null })
     expect(d.writeRow).not.toHaveBeenCalled()
     expect(d.upsertContact).not.toHaveBeenCalled()
   })
@@ -333,5 +336,218 @@ describe('the contact column', () => {
     expect(contactColumnOf(COLUMNS)?.key).toBe('customer')
     expect(contactColumnOf([col('co', 'Company', 'relation', { config: { target: { kind: 'company' } } })])).toBeNull()
     expect(contactColumnOf([col('c', 'C', 'relation', { config: { target: { kind: 'contact' } }, deleted_at: 'x' })])).toBeNull()
+  })
+})
+
+describe('a form on a pipeline: each submission a new deal', () => {
+  /** A pipeline (540): its system Stage (Won first, then two open stages), Value, Owner, Company and Contacts, and a plain Email. */
+  const PIPELINE_COLUMNS = [
+    col('stage', 'Stage', 'select', { options: ['Won', 'New lead', 'Qualified'], config: { outcomes: { Won: 'won' } }, system: true }),
+    col('value', 'Value', 'currency', { config: { currency: 'USD' }, system: true }),
+    col('owner', 'Owner', 'person', { system: true }),
+    col('company', 'Company', 'relation', { config: { target: { kind: 'company' } }, system: true }),
+    col('contacts', 'Contacts', 'relation', { config: { target: { kind: 'contact' }, multiple: true }, system: true }),
+    col('email', 'Email', 'email'),
+  ]
+  const DEAL_FORM: Partial<DataForm> = {
+    fields: [
+      { key: FORM_TITLE_KEY, label: 'Name', required: true },
+      { key: 'email', label: 'Email', required: true },
+      { key: 'value', label: 'Budget', required: false },
+    ],
+  }
+  const pipelineDeps = (over: Partial<FormSubmitDeps> = {}) =>
+    deps(DEAL_FORM, { columns: vi.fn(async () => PIPELINE_COLUMNS as DataColumn[] | null), makerMemberId: vi.fn(async () => 'member-owner'), ...over })
+
+  it("lands in the pipeline's first OPEN stage, owned by the form's maker, with the contact the server found", async () => {
+    const d = pipelineDeps()
+    const res = await handleFormSubmit(post({ name: 'Brightweave Example', email: 'ops@brightweave.example', budget: 4200 }), KEY, d)
+    expect(res.status).toBe(201)
+    expect(d.writeRow).toHaveBeenCalledWith(expect.anything(), {
+      id: 'row-1',
+      title: 'Brightweave Example',
+      values: { email: 'ops@brightweave.example', value: { amount: 4200, currency: 'USD' }, contacts: ['contact-1'], stage: 'New lead', owner: 'member-owner' },
+    })
+  })
+
+  it('a stranger cannot set the stage, the owner, the company or the contacts, by any name', async () => {
+    const d = pipelineDeps()
+    const res = await handleFormSubmit(
+      post({ name: 'Pushy Example', email: 'p@pushy.example', stage: 'Won', Stage: 'Won', owner: 'm-9', company: ['co-1'], contacts: ['c-9'], _stage: 'Won' }),
+      KEY,
+      d,
+    )
+    expect(res.status).toBe(201)
+    const written = vi.mocked(d.writeRow).mock.calls[0][1]
+    expect(written.values.stage).toBe('New lead')
+    expect(written.values.owner).toBe('member-owner')
+    expect(written.values.company).toBeUndefined()
+    expect(written.values.contacts).toEqual(['contact-1'])
+  })
+
+  it('a form saved with the stage on it (before the rule) still never takes one', async () => {
+    const d = deps({ fields: [{ key: FORM_TITLE_KEY, label: 'Name', required: true }, { key: 'stage', label: 'Stage', required: false }] }, { columns: vi.fn(async () => PIPELINE_COLUMNS as DataColumn[] | null) })
+    const res = await handleFormSubmit(post({ name: 'Old Form Example', stage: 'Won' }), KEY, d)
+    expect(res.status).toBe(201)
+    expect(vi.mocked(d.writeRow).mock.calls[0][1].values).toEqual({ stage: 'New lead' })
+  })
+
+  it("is written unowned when the maker's member row can't be read, and never fails for it", async () => {
+    const d = pipelineDeps({ makerMemberId: vi.fn(async () => { throw new Error('down') }) })
+    expect((await handleFormSubmit(post({ name: 'Calm Example', email: 'c@calm.example' }), KEY, d)).status).toBe(201)
+    expect(vi.mocked(d.writeRow).mock.calls[0][1].values).toMatchObject({ stage: 'New lead' })
+    expect(vi.mocked(d.writeRow).mock.calls[0][1].values.owner).toBeUndefined()
+  })
+
+  it('a table that is not a pipeline gets no stage and no owner', async () => {
+    const d = deps({}, { makerMemberId: vi.fn(async () => 'member-owner') })
+    await handleFormSubmit(post(GOOD), KEY, d)
+    expect(vi.mocked(d.writeRow).mock.calls[0][1].values).toEqual({ email: 'sarah@example.com', message: 'Two rugs.', customer: ['contact-1'] })
+    expect(d.makerMemberId).not.toHaveBeenCalled()
+  })
+})
+
+describe('a write whose answer is unclear, and a repeat of one', () => {
+  const quiet = () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    return () => {
+      err.mockRestore()
+      warn.mockRestore()
+    }
+  }
+
+  it('a write that throws after the row was stored: the row is looked for, found, and the submission is stored (nothing given back)', async () => {
+    const restore = quiet()
+    const afterStored = vi.fn(async () => {})
+    const rowExists = vi.fn(async () => true)
+    const d = deps({}, { writeRow: vi.fn<FormSubmitDeps['writeRow']>(async () => { throw new Error('socket hang up') }), rowExists, afterStored })
+    const res = await handleFormSubmit(post(GOOD), KEY, d)
+    expect(res.status).toBe(201)
+    expect((await res.json()).id).toBe('row-1')
+    expect(rowExists).toHaveBeenCalledWith(expect.objectContaining({ id: 'form-1' }), 'row-1')
+    expect(d.releaseAttempt).not.toHaveBeenCalled()
+    expect(d.markStored).toHaveBeenCalledWith('att-1', 'form-1')
+    expect(afterStored).toHaveBeenCalledWith(expect.anything(), 'row-1')
+    restore()
+  })
+
+  it('a write that fails with no row stored gives back the try (and a personal link) so the person can send again', async () => {
+    const restore = quiet()
+    const d = deps({}, { writeRow: vi.fn<FormSubmitDeps['writeRow']>(async () => ({ ok: false, reason: 'unavailable', error: 'timeout' })), rowExists: vi.fn(async () => false) })
+    expect((await handleFormSubmit(post(GOOD), KEY, d)).status).toBe(500)
+    expect(d.releaseAttempt).toHaveBeenCalledWith('att-1')
+    expect(d.markStored).not.toHaveBeenCalled()
+    restore()
+  })
+
+  it("when the row can't be looked for either, nothing is given back: a resend can't make a second row", async () => {
+    const restore = quiet()
+    const releaseInvite = vi.fn(async () => {})
+    const d = deps({}, { writeRow: vi.fn<FormSubmitDeps['writeRow']>(async () => { throw new Error('down') }), rowExists: vi.fn(async () => { throw new Error('still down') }), releaseInvite })
+    const res = await handleFormSubmit(post(GOOD), KEY, d)
+    expect(res.status).toBe(500)
+    expect(d.releaseAttempt).not.toHaveBeenCalled()
+    expect(releaseInvite).not.toHaveBeenCalled()
+    expect(d.markStored).not.toHaveBeenCalled()
+    restore()
+  })
+
+  it('the retry without the contact link runs only when the table refused the row, never after an unavailable failure', async () => {
+    const restore = quiet()
+    const writeRow = vi.fn<FormSubmitDeps['writeRow']>(async () => ({ ok: false, reason: 'unavailable', error: 'timeout' }))
+    const d = deps({}, { writeRow, rowExists: vi.fn(async () => false) })
+    expect((await handleFormSubmit(post(GOOD), KEY, d)).status).toBe(500)
+    expect(writeRow).toHaveBeenCalledTimes(1)
+    // Refused, then the retry's answer lost but the row there: stored.
+    const retried = vi
+      .fn<FormSubmitDeps['writeRow']>()
+      .mockResolvedValueOnce({ ok: false, reason: 'invalid', error: 'link refused' })
+      .mockRejectedValueOnce(new Error('socket hang up'))
+    const e = deps({}, { writeRow: retried, rowExists: vi.fn(async () => true) })
+    expect((await handleFormSubmit(post(GOOD), KEY, e)).status).toBe(201)
+    expect(retried).toHaveBeenCalledTimes(2)
+    expect(e.releaseAttempt).not.toHaveBeenCalled()
+    restore()
+  })
+
+  it('a refused write is never looked for: nothing was stored', async () => {
+    const restore = quiet()
+    const rowExists = vi.fn(async () => true)
+    const d = deps({}, { writeRow: vi.fn<FormSubmitDeps['writeRow']>(async () => ({ ok: false, reason: 'invalid', error: 'no' })), upsertContact: vi.fn(async () => null), rowExists })
+    expect((await handleFormSubmit(post(GOOD), KEY, d)).status).toBe(400)
+    expect(rowExists).not.toHaveBeenCalled()
+    expect(d.releaseAttempt).toHaveBeenCalledWith('att-1')
+    restore()
+  })
+
+  it('a repeat whose first post wrote its row but was never marked stored is answered 200 with that row, not 409', async () => {
+    const rowExists = vi.fn(async (_f: DataForm, id: string) => id === 'row-0')
+    const d = deps({}, { claimAttempt: vi.fn(async () => ({ kind: 'repeat', rowId: null, unstoredRowId: 'row-0' }) as const), rowExists })
+    const res = await handleFormSubmit(post({ ...GOOD, submission_id: 'sub-1' }), KEY, d)
+    expect(res.status).toBe(200)
+    expect((await res.json()).id).toBe('row-0')
+    expect(d.writeRow).not.toHaveBeenCalled()
+    // Its row not there (still being written, or failed): 409. A look that fails: 409 too.
+    const missing = deps({}, { claimAttempt: vi.fn(async () => ({ kind: 'repeat', rowId: null, unstoredRowId: 'row-9' }) as const), rowExists })
+    expect((await handleFormSubmit(post({ ...GOOD, submission_id: 'sub-1' }), KEY, missing)).status).toBe(409)
+    const restore = quiet()
+    const failing = deps({}, { claimAttempt: vi.fn(async () => ({ kind: 'repeat', rowId: null, unstoredRowId: 'row-0' }) as const), rowExists: vi.fn(async () => { throw new Error('down') }) })
+    expect((await handleFormSubmit(post({ ...GOOD, submission_id: 'sub-1' }), KEY, failing)).status).toBe(409)
+    restore()
+  })
+})
+
+describe("the post's own fields", () => {
+  it('_redirect is taken out before the fields are read: it never fills a field, even one labelled Redirect', async () => {
+    const columns = [...COLUMNS, col('redirect_to', 'Redirect', 'text')]
+    const d = deps(
+      { allowedOrigins: ['https://brightweave.example'], fields: [...FORM.fields, { key: 'redirect_to', label: 'Redirect', required: false }] },
+      { columns: vi.fn(async () => columns as DataColumn[] | null) },
+    )
+    const res = await handleFormSubmit(post({ ...GOOD, _redirect: 'https://brightweave.example/thanks' }, { origin: 'https://brightweave.example' }), KEY, d)
+    expect(res.status).toBe(303)
+    expect(d.writeRow.mock.calls[0][1].values).not.toHaveProperty('redirect_to')
+  })
+})
+
+describe('the contact, held back until the row is stored', () => {
+  it("the contact's change and loops run only after the row is stored, before the table's loops", async () => {
+    const order: string[] = []
+    const settle = vi.fn(async () => {
+      order.push('contact settled')
+    })
+    const d = deps({}, {
+      upsertContact: vi.fn(async () => ({ id: 'contact-1', settle })),
+      writeRow: vi.fn<FormSubmitDeps['writeRow']>(async () => {
+        order.push('row')
+        return { ok: true }
+      }),
+      markStored: vi.fn(async () => {
+        order.push('marked stored')
+      }),
+      afterStored: vi.fn(async () => {
+        order.push('table loops')
+      }),
+    })
+    expect((await handleFormSubmit(post(GOOD), KEY, d)).status).toBe(201)
+    expect(order).toEqual(['row', 'marked stored', 'contact settled', 'table loops'])
+    expect(d.writeRow.mock.calls[0][1].values.customer).toEqual(['contact-1'])
+  })
+
+  it('a row that is not stored settles nothing: the found contact stays as it was, and no contact loop starts', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const settle = vi.fn(async () => {})
+    const refused = deps({}, { upsertContact: vi.fn(async () => ({ id: 'contact-1', settle })), writeRow: vi.fn<FormSubmitDeps['writeRow']>(async () => ({ ok: false, reason: 'unavailable', error: 'down' })) })
+    expect((await handleFormSubmit(post(GOOD), KEY, refused)).status).toBe(500)
+    expect(settle).not.toHaveBeenCalled()
+    err.mockRestore()
+  })
+
+  it('a contact follow-up that fails never loses the answer', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const d = deps({}, { upsertContact: vi.fn(async () => ({ id: 'contact-1', settle: vi.fn(async () => { throw new Error('down') }) })) })
+    expect((await handleFormSubmit(post(GOOD), KEY, d)).status).toBe(201)
+    warn.mockRestore()
   })
 })

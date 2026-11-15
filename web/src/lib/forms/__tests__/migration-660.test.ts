@@ -66,7 +66,9 @@ describe('migration 660', () => {
   })
 
   it('checks the access values and the limits the app keeps', () => {
-    expect(BODY).toContain(`check (access in (${list(FORM_ACCESS)}));`)
+    // 660's two; 661 adds 'invited' (migration-661.test.ts holds the whole list).
+    expect(BODY).toContain("check (access in ('public', 'members'));")
+    expect(FORM_ACCESS).toEqual(expect.arrayContaining(['public', 'members']))
     expect(BODY).toContain(`check (char_length(name) between 1 and ${FORM_LIMITS.name});`)
     expect(BODY).toContain(`jsonb_array_length(fields) <= ${FORM_LIMITS.fields}`)
     expect(BODY).toContain(`char_length(thanks) <= ${FORM_LIMITS.thanks}`)

@@ -109,8 +109,8 @@ const BUSINESS_SETUP = ['update_business_profile', 'create_quote_form_link']
 const WORKING_HOURS = ['set_working_hours']
 /** Availability phase 4a: a booking link opens the person's calendar to anyone, so it is made and changed only at their word. */
 const BOOKING_LINKS = ['create_booking_link', 'update_booking_link', 'delete_booking_link']
-/** Forms phase 1: a form's link lets anyone add rows to a table, so it is made and changed only at their word. */
-const FORMS = ['create_form', 'update_form']
+/** Forms phases 1 and 3: a form's link, or a personal link to it, lets its holder add rows to a table, so each is made and changed only at their word. */
+const FORMS = ['create_form', 'update_form', 'create_form_invites']
 const root = join(__dirname, '..', '..', '..', '..')
 
 describe('the attended-only set', () => {

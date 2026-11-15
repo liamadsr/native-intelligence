@@ -12,7 +12,14 @@ const hoisted = vi.hoisted(() => ({
   updateForm: vi.fn(),
   listForms: vi.fn(),
   findFormById: vi.fn(),
+  createInvites: vi.fn(),
+  websiteUsesForm: vi.fn(async () => false),
+  markSiteUnwired: vi.fn(async () => {}),
 }))
+vi.mock('@/lib/website/store', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/website/store')>()
+  return { ...real, websiteUsesForm: hoisted.websiteUsesForm, markSiteUnwired: hoisted.markSiteUnwired }
+})
 vi.mock('@/lib/tables/store', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/lib/tables/store')>()
   return { ...real, queryRows: hoisted.queryRows }
@@ -20,6 +27,14 @@ vi.mock('@/lib/tables/store', async (importOriginal) => {
 vi.mock('@/lib/forms/store', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/lib/forms/store')>()
   return { ...real, createForm: hoisted.createForm, updateForm: hoisted.updateForm, listForms: hoisted.listForms, findFormById: hoisted.findFormById }
+})
+vi.mock('@/lib/forms/invites', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/forms/invites')>()
+  return { ...real, createInvites: hoisted.createInvites }
+})
+vi.mock('@/lib/knowledge/entity-fences', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/knowledge/entity-fences')>()
+  return { ...real, hiddenGraphRefs: vi.fn(async () => new Set()) }
 })
 vi.mock('@/lib/supabase/service', () => ({ getServiceClient: () => ({ service: true }) }))
 
@@ -40,6 +55,8 @@ const FORM_ID = '22222222-2222-4222-8222-222222222222'
 const M1 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const M2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const KEY = `fk_${'a'.repeat(43)}`
+const CONTACT = '66666666-6666-4666-8666-666666666666'
+const QUOTES = '88888888-8888-4888-8888-888888888888'
 
 const tableRow = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
   id,
@@ -74,12 +91,31 @@ const column = (key: string, label: string, field_type: string, extra: Record<st
 function db(role = 'member') {
   return fakeTablesDb(
     {
-      data_table: [tableRow(LEADS, 'Website leads'), tableRow(DEALS, 'Sales', { table_kind: 'pipeline' }), tableRow(SECRET, 'Salaries', { visibility: 'private', owner_member_id: M2 })],
+      data_table: [
+        tableRow(LEADS, 'Website leads'),
+        tableRow(DEALS, 'Sales', { table_kind: 'pipeline' }),
+        tableRow(SECRET, 'Salaries', { visibility: 'private', owner_member_id: M2 }),
+        tableRow(QUOTES, 'Rug quotes'),
+      ],
       custom_field_definition: [
         column('email', 'Email', 'email'),
         column('service', 'Service', 'select', { options: ['Cleaning', 'Repair'] }),
         column('owner', 'Owner', 'person'),
-        column('stage', 'Stage', 'select', { table_id: DEALS, options: ['New'] }),
+        column('stage', 'Stage', 'select', { table_id: DEALS, options: ['New'], system: true }),
+        // A Quote requests starter's columns (src/lib/tables/templates.ts), on a table named otherwise.
+        ...(
+          [
+            ['email', 'Email', 'email'],
+            ['phone', 'Phone', 'phone'],
+            ['address', 'Address', 'text'],
+            ['service', 'Service', 'select'],
+            ['size', 'Size', 'text'],
+            ['budget', 'Budget', 'currency'],
+            ['preferred_date', 'Preferred date', 'date'],
+            ['message', 'Message', 'text'],
+            ['status', 'Status', 'select'],
+          ] as const
+        ).map(([key, label, type]) => column(key, label, type, { table_id: QUOTES, id: `q-${key}`, ...(type === 'select' ? { options: ['New'] } : {}) })),
       ],
       data_row: [],
       data_change: [],
@@ -87,10 +123,11 @@ function db(role = 'member') {
         { id: M1, workspace_id: WS, user_id: ME, role, display_name: 'Avery Stone' },
         { id: M2, workspace_id: WS, user_id: 'u-2', role: 'member', display_name: 'Jamie Park' },
       ],
+      contact: [{ id: CONTACT, workspace_id: WS }],
       view: [],
     },
     (name, args) => {
-      if (name === 'visible_data_table_ids') return { data: (args.p_ids as string[]).filter((id) => id === LEADS || id === DEALS), error: null }
+      if (name === 'visible_data_table_ids') return { data: (args.p_ids as string[]).filter((id) => id === LEADS || id === DEALS || id === QUOTES), error: null }
       if (name === 'apply_data_ops') return { data: { version: 4, change_id: 'ch-1', inserted_row_ids: [], created_column_ids: {} }, error: null }
       return { data: null, error: null }
     },
@@ -110,6 +147,9 @@ const form = (extra: Partial<DataForm> = {}): DataForm => ({
   access: 'public',
   allowedOrigins: [],
   thanks: null,
+  description: null,
+  submitLabel: null,
+  botCheck: true,
   active: true,
   keyPrefix: 'fk_aaaaaa',
   createdBy: ME,
@@ -127,7 +167,7 @@ afterEach(() => vi.clearAllMocks())
 
 describe('the form tools: who may run them', () => {
   it('making or changing a form is only at the person\'s word, from their own client too, and held as a card from a coding agent', () => {
-    for (const name of ['create_form', 'update_form']) {
+    for (const name of ['create_form', 'update_form', 'create_form_invites']) {
       expect(ATTENDED_ONLY_TOOL_NAMES.has(name), name).toBe(true)
       expect(MCP_ATTENDED_TOOL_NAMES.has(name), name).toBe(true)
       expect(WORKER_HELD_PUBLIC_TOOLS.has(name), name).toBe(true)
@@ -162,6 +202,10 @@ describe('create_form', () => {
         access: 'public',
         allowedOrigins: ['https://brightweave.example'],
         thanks: null,
+        description: null,
+        submitLabel: null,
+        // A form is hosted unless said otherwise: its page and its embed solve the check.
+        botCheck: true,
       },
     )
     const described = out.form as { fields: unknown[]; who_can_submit: string }
@@ -178,7 +222,7 @@ describe('create_form', () => {
   it.each([
     ['a column a stranger must not set', { table: 'Website leads', fields: [{ column: 'Owner' }] }, "can't be on a form"],
     ['a column that is not there', { table: 'Website leads', fields: [{ column: 'Budget' }] }, 'Budget'],
-    ['a pipeline', { table: 'Sales', fields: [{ column: 'Name' }] }, "can't add to a pipeline"],
+    ["a pipeline's Stage: a stranger never picks it", { table: 'Sales', fields: [{ column: 'Name' }, { column: 'Stage' }] }, "can't be on a form"],
     ["a table the person can't read", { table: SECRET, fields: [{ column: 'Name' }] }, 'No table'],
   ])('refuses %s, and makes nothing', async (_what, input, error) => {
     const out = await call(tools(), 'create_form', input)
@@ -187,10 +231,127 @@ describe('create_form', () => {
     expect(hoisted.createForm).not.toHaveBeenCalled()
   })
 
+  it('makes a form on a pipeline: each submission a new deal', async () => {
+    hoisted.createForm.mockResolvedValueOnce({ form: form({ tableId: DEALS }), key: KEY })
+    const out = await call(tools(), 'create_form', { table: 'Sales', fields: [{ column: 'Name', required: true }] })
+    expect(out.error).toBeUndefined()
+    expect(out.success).toBe(true)
+    expect(hoisted.createForm).toHaveBeenCalledTimes(1)
+    expect(hoisted.createForm.mock.calls[0][1]).toMatchObject({ tableId: DEALS, fields: [{ key: '$title', required: true }] })
+  })
+
   it('refuses a guest of the workspace', async () => {
     const out = await call(tools('guest'), 'create_form', { table: 'Website leads', fields: [{ column: 'Name' }] })
     expect(out.success).toBe(false)
     expect(hoisted.createForm).not.toHaveBeenCalled()
+  })
+
+  it("takes the page's settings and who_can_submit invited; bot_check false only when asked; the page's link shown with the intake's", async () => {
+    hoisted.createForm.mockImplementationOnce(async (_svc, input) => ({ form: form({ access: input.access, botCheck: input.botCheck, description: input.description, submitLabel: input.submitLabel }), key: KEY }))
+    const out = await call(tools(), 'create_form', {
+      table: 'Website leads',
+      fields: [{ column: 'Email', required: true }],
+      description: 'Tell us about the job.',
+      submit_label: 'Request a quote',
+      who_can_submit: 'invited',
+      bot_check: false,
+    })
+    expect(out.success).toBe(true)
+    expect(hoisted.createForm).toHaveBeenCalledWith({ service: true }, expect.objectContaining({ access: 'invited', botCheck: false, description: 'Tell us about the job.', submitLabel: 'Request a quote' }))
+    expect(out.page_url).toMatch(new RegExp(`/f/${KEY}$`))
+    // A form for invited people is never embedded.
+    expect(out.embed).toBeUndefined()
+    expect(out.form).toMatchObject({ who_can_submit: 'people with a personal link', bot_check: false, description: 'Tell us about the job.', submit_label: 'Request a quote' })
+
+    hoisted.createForm.mockResolvedValueOnce({ form: form(), key: KEY })
+    const open = await call(tools(), 'create_form', { table: 'Website leads', fields: [{ column: 'Email' }] })
+    expect(open.embed).toContain(`data-ni-form="${KEY}"`)
+  })
+})
+
+describe('create_form_invites', () => {
+  const made = [{ id: 'inv-1', label: 'Sam Rivera', contactId: CONTACT, url: 'https://nativeintelligence.dev/f/fi_x', expiresAt: '2026-11-29T00:00:00.000Z' }]
+
+  it('makes personal links to an invited form, once, and says sending them is a separate step', async () => {
+    hoisted.findFormById.mockResolvedValue(form({ access: 'invited' }))
+    hoisted.createInvites.mockResolvedValueOnce(made)
+    const out = await call(tools(), 'create_form_invites', { form_id: FORM_ID, invites: [{ label: 'Sam Rivera', contact_id: CONTACT }], expires_in_days: 7 })
+    expect(out.success).toBe(true)
+    expect(out.invites).toEqual([{ id: 'inv-1', label: 'Sam Rivera', contact_id: CONTACT, url: 'https://nativeintelligence.dev/f/fi_x', expires_at: '2026-11-29T00:00:00.000Z' }])
+    expect(hoisted.createInvites).toHaveBeenCalledWith({ service: true }, expect.objectContaining({ id: FORM_ID }), [{ label: 'Sam Rivera', contactId: CONTACT }], expect.objectContaining({ userId: ME, expiresInDays: 7 }))
+    expect(out.note).toContain('Nothing has been sent')
+  })
+
+  it("refuses a form that isn't for invited people, a contact that isn't there, a guest, and a form on a table the person can't read", async () => {
+    hoisted.findFormById.mockResolvedValue(form())
+    expect(await call(tools(), 'create_form_invites', { form_id: FORM_ID, invites: [{}] })).toMatchObject({ success: false, error: expect.stringContaining('invited') })
+    hoisted.findFormById.mockResolvedValue(form({ access: 'invited' }))
+    expect((await call(tools(), 'create_form_invites', { form_id: FORM_ID, invites: [{ contact_id: '44444444-4444-4444-8444-444444444444' }] })).success).toBe(false)
+    expect((await call(tools('guest'), 'create_form_invites', { form_id: FORM_ID, invites: [{}] })).success).toBe(false)
+    hoisted.findFormById.mockResolvedValue(form({ access: 'invited', tableId: SECRET }))
+    expect(await call(tools(), 'create_form_invites', { form_id: FORM_ID, invites: [{}] })).toMatchObject({ success: false, error: expect.stringContaining('No form') })
+    expect(hoisted.createInvites).not.toHaveBeenCalled()
+  })
+})
+
+describe('files and the quote preset', () => {
+  it('create_form takes a files field, at the end, and keeps the bot check on', async () => {
+    hoisted.createForm.mockResolvedValueOnce({ form: form(), key: KEY })
+    const out = await call(tools(), 'create_form', { table: 'Website leads', fields: [{ column: 'Name' }, { column: 'Email' }], files: { label: 'Photos of the rug', required: true } })
+    expect(out.success).toBe(true)
+    expect(hoisted.createForm.mock.calls[0][1]).toMatchObject({
+      botCheck: true,
+      fields: [
+        { key: FORM_TITLE_KEY, label: 'Name', required: false },
+        { key: 'email', label: 'Email', required: false },
+        { key: '$files', label: 'Photos of the rug', required: true },
+      ],
+    })
+  })
+
+  it('create_form refuses files with the bot check off, and says why', async () => {
+    const out = await call(tools(), 'create_form', { table: 'Website leads', fields: [{ column: 'Email' }], files: {}, bot_check: false })
+    expect(out.success).toBe(false)
+    expect(out.error).toContain('needs the bot check on')
+    expect(hoisted.createForm).not.toHaveBeenCalled()
+  })
+
+  it('create_form with no fields on a table with the quote columns takes the quote set, its name and its button', async () => {
+    hoisted.createForm.mockResolvedValueOnce({ form: form({ tableId: QUOTES }), key: KEY })
+    const out = await call(tools(), 'create_form', { table: 'Rug quotes' })
+    expect(out.success).toBe(true)
+    const made = hoisted.createForm.mock.calls[0][1] as { name: string; submitLabel: string; fields: Array<{ key: string; label: string; required: boolean }> }
+    expect(made.name).toBe('Request a quote')
+    expect(made.submitLabel).toBe('Request a quote')
+    expect(made.fields.map((f) => f.key)).toEqual([FORM_TITLE_KEY, 'email', 'phone', 'address', 'service', 'size', 'preferred_date', 'message'])
+    expect(made.fields[0]).toEqual({ key: FORM_TITLE_KEY, label: 'Your name', required: true })
+  })
+
+  it('create_form with no fields on any other table asks for them', async () => {
+    const out = await call(tools(), 'create_form', { table: 'Website leads' })
+    expect(out.success).toBe(false)
+    expect(out.error).toContain('Name the fields')
+    expect(hoisted.createForm).not.toHaveBeenCalled()
+  })
+
+  it('update_form: new fields keep the files field, files null takes it off, and files with the check off is refused', async () => {
+    const withFiles = form({ fields: [{ key: FORM_TITLE_KEY, label: 'Full name', required: true }, { key: '$files', label: 'Photos', required: false }] })
+    hoisted.findFormById.mockResolvedValue(withFiles)
+    hoisted.updateForm.mockResolvedValue({ form: withFiles, key: null })
+    await call(tools(), 'update_form', { form_id: FORM_ID, fields: [{ column: 'Email', required: true }] })
+    expect(hoisted.updateForm).toHaveBeenLastCalledWith({ service: true }, WS, FORM_ID, {
+      fields: [
+        { key: 'email', label: 'Email', required: true },
+        { key: '$files', label: 'Photos', required: false },
+      ],
+    })
+    await call(tools(), 'update_form', { form_id: FORM_ID, files: null })
+    expect(hoisted.updateForm).toHaveBeenLastCalledWith({ service: true }, WS, FORM_ID, { fields: [{ key: FORM_TITLE_KEY, label: 'Full name', required: true }] })
+    const off = await call(tools(), 'update_form', { form_id: FORM_ID, bot_check: false })
+    expect(off).toMatchObject({ success: false, error: expect.stringContaining('needs the bot check on') })
+    hoisted.findFormById.mockResolvedValue(form({ botCheck: false }))
+    const adding = await call(tools(), 'update_form', { form_id: FORM_ID, files: { label: 'Photos' } })
+    expect(adding).toMatchObject({ success: false, error: expect.stringContaining('needs the bot check on') })
   })
 })
 
@@ -207,7 +368,24 @@ describe('update_form', () => {
     const relinked = await call(tools(), 'update_form', { form_id: FORM_ID, new_link: true })
     expect(hoisted.updateForm).toHaveBeenLastCalledWith({ service: true }, WS, FORM_ID, { newLink: { userId: ME } })
     expect(relinked.url).toMatch(new RegExp(`${KEY}$`))
-    expect(relinked.note).toContain('old one has stopped working')
+    expect(relinked.note).toContain('old ones have stopped working')
+    expect(relinked.page_url).toMatch(new RegExp(`/f/${KEY}$`))
+  })
+
+  it('a new link marks a website wired to the form unwired, and tells the agent to offer reconnecting it', async () => {
+    hoisted.findFormById.mockResolvedValue(form())
+    hoisted.websiteUsesForm.mockResolvedValueOnce(true)
+    hoisted.updateForm.mockResolvedValueOnce({ form: form(), key: KEY })
+    const relinked = await call(tools(), 'update_form', { form_id: FORM_ID, new_link: true })
+    expect(relinked.success).toBe(true)
+    expect(hoisted.markSiteUnwired).toHaveBeenCalledWith({ service: true }, WS, { kind: 'form', formId: FORM_ID })
+    expect(relinked.website).toBe(`Their connected website's form used the old link, so its entries no longer arrive. Tell them, and offer to reconnect it (wire_website_form with form_id ${FORM_ID}).`)
+    // Not wired to it: nothing marked, nothing said.
+    hoisted.markSiteUnwired.mockClear()
+    hoisted.updateForm.mockResolvedValueOnce({ form: form(), key: KEY })
+    const plain = await call(tools(), 'update_form', { form_id: FORM_ID, new_link: true })
+    expect(plain.website).toBeUndefined()
+    expect(hoisted.markSiteUnwired).not.toHaveBeenCalled()
   })
 
   it("says nothing of a form on a table the person can't read, and changes nothing for a guest", async () => {

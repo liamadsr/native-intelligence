@@ -6,11 +6,14 @@ import {
   dealFieldColumns,
   describeChanges,
   describeDeal,
+  fenceFormDealFields,
+  fenceFormDealText,
   findDeals,
   getDeal,
   listDealEvents,
   listPipelines,
   lookupDealNames,
+  shownDealName,
   undoDealChange,
   updateDeal,
   type Deal,
@@ -64,6 +67,11 @@ import { resolveCreateWorkspace, resolveEntityWorkspace, workspaceEcho, type Cre
  * attended turn (editGrants), as a table does.
  *
  * There is no delete, like companies: archiving a deal is a person's click.
+ *
+ * A deal a form made (data_row.from_form: a stranger typed its name, notes
+ * and fields) comes back with those inside the WEB fence and from_form: true
+ * (describeDeal), its change lines fenced too, and is never named in a
+ * tool's plain message (shownDealName).
  */
 
 const BECAUSE_SOURCES = ['chat', 'email', 'meeting', 'text'] as const
@@ -132,6 +140,9 @@ async function present(
   const names = await lookupDealNames(db, workspaceId, deals, viewer, opts)
   return deals.map((d) => ({ ...describeDeal(d, { pipelines, ...names }), value_label: formatDealValue(d.value, d.currency) || null }))
 }
+
+/** A deal named in a message: in quotes, or "a deal from a form" (never a stranger's words outside the fence). */
+const dealRef = (deal: Deal) => (deal.from_form ? shownDealName(deal) : `"${deal.name}"`)
 
 function stagesOf(pipelines: DealPipeline[]) {
   return pipelines.map((p) => ({ pipeline: p.name, is_default: p.is_default, stages: p.stages.map((s) => ({ name: s.name, kind: s.kind })) }))
@@ -222,7 +233,7 @@ export function createDealTools(
           history: events.map((e) => ({
             change_id: e.id,
             kind: e.kind,
-            what: describeChanges(e.changes, { columns }),
+            what: fenceFormDealText(deal, describeChanges(e.changes, { columns })),
             source: e.source,
             reason: e.reason,
             ...(e.source_ref ? { ref: e.source_ref } : {}),
@@ -280,13 +291,17 @@ export function createDealTools(
         if (!result.ok) return { success: false, error: result.error }
         const columns = pipelines.find((p) => p.id === result.deal.pipeline_id)?.columns ?? []
         const [deal] = await present(supabase, ws, userId, [result.deal], pipelines, readOpts)
-        const changed = describeChanges(result.changes, { columns })
+        const changed = fenceFormDealText(result.deal, describeChanges(result.changes, { columns }))
         return {
           success: true,
           deal,
           changed,
           change_id: result.eventId,
-          message: changed.length ? `Updated "${result.deal.name}": ${changed.join('; ')}. The person can undo it.` : 'Nothing changed.',
+          message: !changed.length
+            ? 'Nothing changed.'
+            : result.deal.from_form
+              ? `Updated ${shownDealName(result.deal)}: what changed is in changed. The person can undo it.`
+              : `Updated "${result.deal.name}": ${changed.join('; ')}. The person can undo it.`,
         }
       },
     }),
@@ -308,13 +323,17 @@ export function createDealTools(
         const result = await updateDeal(supabase, ws, deal_id, { stage }, actorFor(userId, because), { ...viewer, pipelines })
         if (!result.ok) return { success: false, error: result.error }
         const columns = pipelines.find((p) => p.id === result.deal.pipeline_id)?.columns ?? []
-        const changed = describeChanges(result.changes, { columns })
+        const changed = fenceFormDealText(result.deal, describeChanges(result.changes, { columns }))
         return {
           success: true,
           deal_id,
           changed,
           change_id: result.eventId,
-          message: changed.length ? `Moved "${result.deal.name}": ${changed.join('; ')}. The person can undo it.` : 'It was already there.',
+          message: !changed.length
+            ? 'It was already there.'
+            : result.deal.from_form
+              ? `Moved ${shownDealName(result.deal)}${result.deal.stage ? ` to ${result.deal.stage}` : ''}. The person can undo it.`
+              : `Moved "${result.deal.name}": ${changed.join('; ')}. The person can undo it.`,
         }
       },
     }),
@@ -335,13 +354,18 @@ export function createDealTools(
         }
         const result = await undoDealChange(supabase, ws, { dealId: deal_id, changeId: change_id }, { userId, source: 'agent' }, { ...viewer, pipelines })
         if (!result.ok) return { success: false, error: result.error }
+        // Their lines name the deal by its name: a form deal's comes fenced, and the message names it not.
+        const restored = fenceFormDealText(result.deal, result.restored)
+        const kept = fenceFormDealText(result.deal, result.kept)
         return {
           success: true,
-          restored: result.restored,
-          kept: result.kept,
-          message: result.restored.length
-            ? `Undone on "${result.deal.name}": ${result.restored.join(', ')} restored.${result.kept.length ? ` Kept newer: ${result.kept.join(', ')}.` : ''}`
-            : `Nothing to restore on "${result.deal.name}": each field has changed again since.`,
+          restored,
+          kept,
+          message: !restored.length
+            ? `Nothing to restore on ${dealRef(result.deal)}: each field has changed again since.`
+            : result.deal.from_form
+              ? `Undone on ${dealRef(result.deal)}: what was put back is in restored${kept.length ? ', and what was kept newer in kept' : ''}.`
+              : `Undone on ${dealRef(result.deal)}: ${restored.join(', ')} restored.${kept.length ? ` Kept newer: ${kept.join(', ')}.` : ''}`,
         }
       },
     }),
@@ -426,7 +450,8 @@ export function createDealTools(
             const pipeline = pipelines.find((p) => p.id === current.pipeline_id)
             return { success: false, error: result.error, fields: (pipeline ? dealFieldColumns(pipeline) : []).map((c) => ({ label: c.label, field_type: c.field_type, options: c.options })) }
           }
-          return { success: true, custom_fields: result.deal.custom_fields, change_id: result.eventId }
+          const columns = pipelines.find((p) => p.id === result.deal.pipeline_id)?.columns ?? []
+          return { success: true, custom_fields: fenceFormDealFields(result.deal, result.deal.custom_fields, columns), change_id: result.eventId, ...(result.deal.from_form ? { from_form: true } : {}) }
         }
         const resolved = await resolveEntityWorkspace(supabase, userId, customFieldTable(entity_type), id, workspaceId, strictWorkspace)
         if (!resolved) return { success: false, error: customFieldNotFound(entity_type) }

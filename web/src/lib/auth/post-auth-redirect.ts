@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { accountRedirectTarget, isInviteRedirectPath, mcpRedirectTarget } from '@/lib/auth/login-redirect'
+import { accountRedirectTarget, formRedirectTarget, isInviteRedirectPath, mcpRedirectTarget } from '@/lib/auth/login-redirect'
 
 /**
  * Where a successful web sign-in lands, shared by the OAuth callbacks
@@ -9,6 +9,8 @@ import { accountRedirectTarget, isInviteRedirectPath, mcpRedirectTarget } from '
  * cleared on use:
  *   invite_redirect  /invite/<token>, or an agent link's /link/<token>
  *   share_redirect   /s/<token>
+ *   form_redirect    a members form's own page, /f/<key> (formRedirectTarget's
+ *                    exact shape), where a signed-out person was sent from
  *   mcp_redirect     /api/mcp/… or /mcp/… on this origin (full URL or
  *                    path), the MCP OAuth authorize step to resume
  *   account_redirect a page of the app with its deep link (/account?…), such
@@ -32,6 +34,9 @@ export function postAuthRedirect(
 
 /** The cookie the login form leaves for a page of the app to return to (/login?redirect=/account…). */
 export const ACCOUNT_REDIRECT_COOKIE = 'account_redirect'
+
+/** The cookie the login form leaves for a form's own page to return to (/login?redirect=/f/<key>). */
+export const FORM_REDIRECT_COOKIE = 'form_redirect'
 
 /**
  * Clear the account redirect on a sign-in's way out, done or failed: a cookie left behind would send a later
@@ -75,6 +80,14 @@ function chooseRedirect(request: NextRequest, origin: string, options: { home?: 
     }
     const response = NextResponse.redirect(new URL('/account', origin))
     response.cookies.delete('share_redirect')
+    return response
+  }
+
+  // A form's own page (a members form sent the signed-out person to sign in), only in its exact shape.
+  const formRedirect = request.cookies.get(FORM_REDIRECT_COOKIE)?.value
+  if (formRedirect) {
+    const response = NextResponse.redirect(new URL(formRedirectTarget(formRedirect) ?? '/account', origin))
+    response.cookies.delete(FORM_REDIRECT_COOKIE)
     return response
   }
 

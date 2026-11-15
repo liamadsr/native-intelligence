@@ -84,6 +84,7 @@ import { fieldCurrency, formatFieldValue, isCustomFieldType, optionOutcome } fro
 import type { CustomFieldValue } from '@/lib/crm/custom-fields'
 import { applyOps, listColumns, undoChange } from '@/lib/tables/store'
 import { TABLE_LIMITS, type DataColumn } from '@/lib/tables/types'
+import { FORM_ROW_NAME, isFormRow } from '@/lib/knowledge/form-rows'
 import { KEPT_EVIDENCE_MAX, KEPT_MESSAGE_KIND, KEPT_PART_TYPE, KEPT_TITLE_MAX, KEPT_VALUE_MAX, keptMessageId, type KeptPartData, type KeptSourceKind } from './part'
 import { amountsIn, datesIn, numbersIn, sentencesOf, type FoundAmount, type FoundDate } from './values'
 
@@ -207,6 +208,8 @@ export interface RowCandidate {
   /** The names of who it links to that the source involves. */
   linked: string[]
   createdAt: string | null
+  /** A public form wrote it (data_row.from_form, 660): its title is a stranger's, never put in the agent's log. */
+  fromForm?: boolean
 }
 
 const before = (createdAt: string | null, atIso: string | null) => {
@@ -243,14 +246,14 @@ export async function readRowCandidates(supabase: SupabaseClient, scope: KeptSco
     if (!byRow.size) return []
     const { data: rowData, error: rowError } = await supabase
       .from('data_row')
-      .select('id, table_id, title, custom_fields, created_at, updated_at')
+      .select('id, table_id, title, custom_fields, created_at, updated_at, from_form')
       .eq('workspace_id', scope.workspaceId)
       .in('id', [...byRow.keys()].slice(0, 200))
       .is('archived_at', null)
       .order('updated_at', { ascending: false })
       .limit(ROW_READS)
     if (rowError) return null
-    const rows = ((rowData ?? []) as Array<{ id: string; table_id: string; title: string | null; custom_fields: Record<string, CustomFieldValue> | null; created_at: string | null }>).filter((r) => before(r.created_at, atIso))
+    const rows = ((rowData ?? []) as Array<{ id: string; table_id: string; title: string | null; custom_fields: Record<string, CustomFieldValue> | null; created_at: string | null; from_form?: boolean | null }>).filter((r) => before(r.created_at, atIso))
     if (!rows.length) return []
     const tableIds = [...new Set(rows.map((r) => r.table_id))].slice(0, MAX_TABLES)
     const { data: tableData, error: tableError } = await supabase
@@ -282,6 +285,7 @@ export async function readRowCandidates(supabase: SupabaseClient, scope: KeptSco
           columns: table.columns,
           linked: [...byRow.get(r.id)!.names].slice(0, 6),
           createdAt: r.created_at,
+          ...(isFormRow(r) ? { fromForm: true } : {}),
           contact: byRow.get(r.id)!.contact,
         }
       })
@@ -756,7 +760,9 @@ export async function applyKeptChange(
     }
 
     await (deps.writeMessage ?? writeKeptMessage)(supabase, { ...scope, conversationId: args.conversationId }, part)
-    const line = logLineFor({ type: 'kept_up_to_date', title: part.title, change: changeWords(part), from: sourcePhrase(args.item.source, args.item.label) })
+    // The log is the main chat's, unfenced: a form row goes by its neutral name there (its message, the person's, keeps its title).
+    const logTitle = ch.kind === 'row_set' && ch.row.fromForm ? FORM_ROW_NAME : part.title
+    const line = logLineFor({ type: 'kept_up_to_date', title: logTitle, change: changeWords(part), from: sourcePhrase(args.item.source, args.item.label) })
     if (line) {
       await (deps.appendLog ?? appendLogLine)(
         { ...scope, kind: line.kind, line: line.line, refType: part.record_type === 'action' ? 'action' : 'data_row', refId: part.target_id, dedupeKey: logDedupeKey.keptUpToDate(recordId), at: nowIso },
@@ -973,6 +979,8 @@ export async function undoKeptChange(supabase: SupabaseClient, args: KeptScope &
 
   let status: 'reverted' | 'changed' | 'gone' = 'changed'
   let part: Omit<KeptPartData, 'undone' | 'changed'> | null = null
+  /** A form wrote the row (from_form): its log line names it neutrally. */
+  let formRow = false
   if (row.record_type === 'action') {
     const { data: actionData, error: actionError } = await supabase.from('actions').select('id, identifier, title, team_id, status_id').eq('id', row.record_id).eq('workspace_id', scope.workspaceId).maybeSingle()
     if (actionError) return { ok: false, reason: 'read_failed' }
@@ -1000,10 +1008,11 @@ export async function undoKeptChange(supabase: SupabaseClient, args: KeptScope &
   } else {
     const tableId = row.table_id
     const [{ data: rowData }, { data: tableData }] = await Promise.all([
-      supabase.from('data_row').select('id, title').eq('id', row.record_id).eq('workspace_id', scope.workspaceId).maybeSingle(),
+      supabase.from('data_row').select('id, title, from_form').eq('id', row.record_id).eq('workspace_id', scope.workspaceId).maybeSingle(),
       tableId ? supabase.from('data_table').select('id, name').eq('id', tableId).eq('workspace_id', scope.workspaceId).maybeSingle() : Promise.resolve({ data: null }),
     ])
-    const target = rowData as { id: string; title: string | null } | null
+    const target = rowData as { id: string; title: string | null; from_form?: boolean | null } | null
+    if (isFormRow(target)) formRow = true
     const table = tableData as { id: string; name: string } | null
     if (!target || !table || !tableId) status = 'gone'
     else if (!row.data_change_id) {
@@ -1037,7 +1046,7 @@ export async function undoKeptChange(supabase: SupabaseClient, args: KeptScope &
   if (markError) console.warn('[kept-up-to-date] undo mark failed:', markError.message)
   if (part) {
     if (status === 'reverted') {
-      const line = logLineFor({ type: 'kept_up_to_date', title: part.title, change: changeWords(part), undone: true })
+      const line = logLineFor({ type: 'kept_up_to_date', title: formRow ? FORM_ROW_NAME : part.title, change: changeWords(part), undone: true })
       if (line) {
         await (deps.appendLog ?? appendLogLine)(
           { ...scope, kind: line.kind, line: line.line, refType: part.record_type === 'action' ? 'action' : 'data_row', refId: part.target_id, dedupeKey: logDedupeKey.keptUpToDate(row.id, true), at: nowIso },

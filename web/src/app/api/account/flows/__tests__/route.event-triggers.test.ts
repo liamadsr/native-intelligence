@@ -160,6 +160,19 @@ describe('POST /api/account/flows — the new triggers', () => {
     expect(db.inserts).toEqual([])
   })
 
+  it('builds a loop on a new contact: any by default, or the source named; refuses a source it does not know', async () => {
+    const any = await POST(req({ name: 'X', trigger_type: 'contact_created', trigger_config: {}, actions: [hook] }))
+    expect(any.status).toBe(201)
+    expect(db.inserts.at(-1)).toMatchObject({ trigger_type: 'contact_created', trigger_config: { kind: 'contact_created', source: 'any' }, team_id: null, next_run_at: null })
+    const form = await POST(req({ name: 'X', trigger_type: 'contact_created', trigger_config: { source: 'form', extra: 'dropped' }, actions: [hook] }))
+    expect(form.status).toBe(201)
+    expect(db.inserts.at(-1)?.trigger_config).toEqual({ kind: 'contact_created', source: 'form' })
+    const bad = await POST(req({ name: 'X', trigger_type: 'contact_created', trigger_config: { source: 'email_sync' }, actions: [hook] }))
+    expect(bad.status).toBe(400)
+    expect((await bad.json()).error).toMatch(/source must be one of any, form, manual/)
+    expect(db.inserts).toHaveLength(2)
+  })
+
   it('refuses a chat loop on every channel without mentions-only, or on a channel the owner cannot read', async () => {
     const all = await POST(req({ name: 'X', trigger_type: 'chat_message', trigger_config: { channel_id: null, mentions_only: false }, actions: [hook] }))
     expect(all.status).toBe(400)
@@ -256,6 +269,15 @@ describe('PATCH /api/account/flows/[id] — the new triggers', () => {
     const res = await PATCH(req({ trigger_type: 'chat_message', trigger_config: { channel_id: CH_OTHER } }), params)
     expect(res.status).toBe(400)
     expect((await res.json()).error).toMatch(/owner can read/)
+  })
+  it('switches a loop to a new contact, with its source; a source it does not know is refused', async () => {
+    auth.userId = 'user-2'
+    db.flow = [onceFlow({ created_by: 'user-2' })]
+    const res = await PATCH(req({ trigger_type: 'contact_created', trigger_config: { source: 'manual' } }), params)
+    expect(res.status).toBe(200)
+    expect(db.updates.at(-1)).toMatchObject({ trigger_type: 'contact_created', trigger_config: { kind: 'contact_created', source: 'manual' }, next_run_at: null })
+    const bad = await PATCH(req({ trigger_type: 'contact_created', trigger_config: { source: 'everyone' } }), params)
+    expect(bad.status).toBe(400)
   })
 })
 

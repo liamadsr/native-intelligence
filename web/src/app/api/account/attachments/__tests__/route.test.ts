@@ -261,6 +261,25 @@ describe('GET /api/account/attachments', () => {
   })
 })
 
+describe("GET /api/account/attachments?data_row_id= (a table row's files)", () => {
+  it("reads a row's files on the caller's own client (RLS follows the row's table), with whether each came through a form", async () => {
+    fakeSupabase = makeFakeSupabase({
+      selectResult: { data: [{ id: 'att-3', file_name: 'rug.png', file_category: 'image', data_row_id: '77777777-7777-4777-8777-777777777777', from_form: true, note_id: null, action_id: null, project_id: null, created_at: '2026-11-15', file_size_bytes: 10, mime_type: 'image/png', file_extension: 'png', storage_path: 'forms/ws/f/x.png', thumbnail_path: null }], error: null },
+    })
+    const res = await GET(getRequest({ data_row_id: '77777777-7777-4777-8777-777777777777' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.attachments).toEqual([expect.objectContaining({ id: 'att-3', from_form: true })])
+    expect(hoisted.attachmentsSelect).toHaveBeenCalledWith(expect.stringContaining('data_row_id, from_form'))
+  })
+
+  it('refuses a row id that is not one', async () => {
+    const res = await GET(getRequest({ data_row_id: 'not-a-row' }))
+    expect(res.status).toBe(400)
+    expect(hoisted.attachmentsSelect).not.toHaveBeenCalled()
+  })
+})
+
 // ── POST ─────────────────────────────────────────────────────────────────────
 
 describe('POST /api/account/attachments', () => {

@@ -58,7 +58,7 @@ function change(extra: Partial<WebsiteChange>): WebsiteChange {
   return {
     id: 'c1', workspaceId: 'w1', siteId: 's1', kind: 'edit', request: 'Update the hours', requestedBy: 'u1', state: 'preparing', agentRunId: null, actionId: null, revertsChangeId: null, formPath: null, formKind: null, replaceCurrent: false,
     prNumber: null, prUrl: null, headSha: null, previewUrl: null, summary: null, approvalId: null, mergeSha: null, intakeKeyHash: null, intakeKeyPrefix: null, intakeOrigins: [],
-    checkNonceHash: null, checkResult: null, error: null, createdAt: '2026-10-31T00:00:00Z', updatedAt: null, mergedAt: null, liveAt: null, ...extra,
+    wiringIntake: null, checkNonceHash: null, checkResult: null, error: null, createdAt: '2026-10-31T00:00:00Z', updatedAt: null, mergedAt: null, liveAt: null, ...extra,
   }
 }
 
@@ -87,6 +87,32 @@ describe('renderWebsiteSection', () => {
 
   it('a wired site says its form already reaches you', () => {
     expect(renderWebsiteSection({ ...SITE, state: 'wired' }, null, null)).toContain('Its form sends customers’ requests to you.')
+  })
+
+  const FORM_WIRED: WebsiteSite = {
+    ...SITE,
+    state: 'wired',
+    inspection: { ...SITE.inspection!, wirings: [{ intake: 'form', formId: 'f-1', keyHash: 'h', changeId: 'c-1', formPath: 'app/contact/page.tsx' }] },
+  }
+
+  it('a site wired to a form says so, and still offers its quote form to the quote intake', () => {
+    const text = renderWebsiteSection(FORM_WIRED, null, null)
+    expect(text).toContain('Its form "app/contact/page.tsx" adds each entry as a row through their form f-1.')
+    expect(text).not.toContain('Its form sends customers’ requests to you.')
+    expect(text).toContain('Its quote form ("app/quote/page.tsx") doesn’t send requests to you yet')
+  })
+
+  it("a form whose link was replaced since is offered again, by its id", () => {
+    const text = renderWebsiteSection(FORM_WIRED, null, null, new Set(['f-1']))
+    expect(text).toContain('so they no longer arrive')
+    expect(text).toContain('wire_website_form with form_id f-1')
+  })
+
+  it('a site form wired to a form is not offered to the quote intake as well', () => {
+    const one = { ...FORM_WIRED, inspection: { ...FORM_WIRED.inspection!, wirings: [{ ...FORM_WIRED.inspection!.wirings![0], formPath: 'app/quote/page.tsx' }] } }
+    const text = renderWebsiteSection(one, null, null)
+    expect(text).not.toContain('doesn’t send requests to you yet')
+    expect(text).not.toContain('No form was found on it.')
   })
 })
 

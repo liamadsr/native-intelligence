@@ -3183,6 +3183,7 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
         chat_message: 'Chat message',
         document_created: 'New document',
         record_created: 'New row',
+        contact_created: 'New contact',
         quote_received: 'New quote',
       }
       if (triggerType === 'schedule' || (triggerType && triggerType in flatLabels)) {

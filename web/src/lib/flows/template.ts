@@ -104,6 +104,8 @@ export interface TemplateContext {
     /** A record_created fire's row and its table; null otherwise. Ids only: a form's row is a stranger's words. */
     row_id: string | null
     table_id: string | null
+    /** A contact_created fire's contact; null otherwise. Its id only: a form's contact is named by a stranger. */
+    contact_id: string | null
   }
   workspace: {
     id: string
@@ -179,6 +181,8 @@ export const TEMPLATE_TOKENS = [
   // record_created fires only: the new row and its table (read it with query_rows, row_ids)
   '{{trigger.row_id}}',
   '{{trigger.table_id}}',
+  // contact_created fires only: the new contact's id (read it with get_contact)
+  '{{trigger.contact_id}}',
   // Workspace
   '{{workspace.id}}',
   // F4 data passing: the call's capture under the trigger, and an earlier step's output (by its id)
@@ -481,6 +485,7 @@ export function buildTemplateContext(
       document_id: trigger.document_id ?? null,
       row_id: trigger.row_id ?? null,
       table_id: trigger.table_id ?? null,
+      contact_id: trigger.contact_id ?? null,
     },
     workspace: {
       id: entity?.workspace_id ?? extras.workspaceId ?? '',

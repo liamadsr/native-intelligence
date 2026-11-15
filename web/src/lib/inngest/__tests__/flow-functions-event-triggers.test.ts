@@ -5,7 +5,8 @@
  * to its daily cap (a skip row the run history shows, then quiet); a run goes
  * as the loop's owner with ids only in its trigger. The chat dispatcher fires
  * nothing for an agent's message, the document one nothing for a document
- * deleted or archived by then. And the schedule dispatcher runs a one-time
+ * deleted or archived by then, the contact one nothing for a contact deleted
+ * or merged by then. And the schedule dispatcher runs a one-time
  * loop the tick has just switched off, never gated on dormancy.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -30,6 +31,9 @@ const h = vi.hoisted(() => ({
   recordFlows: [] as unknown[],
   recordFinderArgs: [] as unknown[],
   record: null as unknown,
+  contactFlows: [] as unknown[],
+  contactFinderArgs: [] as unknown[],
+  contact: null as unknown,
   quoteFlows: [] as unknown[],
   msg: null as unknown,
   doc: null as unknown,
@@ -66,6 +70,7 @@ vi.mock('@/lib/flows/queries', async (orig) => ({
   findMatchingFlowsForChatMessage: async () => ((h.chatFinderCalls += 1), h.chatFlows),
   findMatchingFlowsForDocumentCreated: async () => h.docFlows,
   findMatchingFlowsForRecordCreated: async (_s: unknown, ws: string, tableId: string) => (h.recordFinderArgs.push([ws, tableId]), h.recordFlows),
+  findMatchingFlowsForContactCreated: async (_s: unknown, ws: string) => (h.contactFinderArgs.push(ws), h.contactFlows),
   findMatchingFlowsForQuoteReceived: async () => h.quoteFlows,
   loadFlowForDispatch: async () => h.scheduleFlow,
 }))
@@ -77,6 +82,8 @@ vi.mock('@/lib/flows/event-triggers', async (orig) => {
     loadChatMessageFacts: async () => h.msg,
     loadDocumentFacts: async () => h.doc,
     loadRecordFacts: async () => h.record,
+    loadContactFacts: async () => h.contact,
+    contactFlowsToFire: async (_s: unknown, flows: FlowWithSecrets[]) => flows.filter((f) => h.visibleOwners.has(f.created_by as string)),
     recordFlowsToFire: async (_s: unknown, flows: FlowWithSecrets[]) => flows.filter((f) => h.visibleOwners.has(f.created_by as string)),
     chatFlowsToFire: async (_s: unknown, flows: FlowWithSecrets[]) => flows.filter((f) => h.visibleOwners.has(f.created_by as string)),
     documentFlowsToFire: async (_s: unknown, flows: FlowWithSecrets[]) => flows.filter((f) => h.visibleOwners.has(f.created_by as string)),
@@ -111,6 +118,9 @@ beforeEach(() => {
   h.recordFlows = []
   h.recordFinderArgs = []
   h.record = null
+  h.contactFlows = []
+  h.contactFinderArgs = []
+  h.contact = null
   h.quoteFlows = []
   h.msg = null
   h.doc = null
@@ -269,6 +279,58 @@ describe('record_created', () => {
     h.cap = 'ok'
     h.paused = true
     expect(await run('flow-dispatch-on-record-created', event)).toMatchObject({ dispatched: 0, skipped: 'agent_paused' })
+    expect(h.runFlow).not.toHaveBeenCalled()
+  })
+})
+
+describe('contact_created', () => {
+  const event = { id: 'contact-created:c-1', data: { workspace_id: WS, contact_id: 'c-1', source: 'form' } }
+  const contact = (over: Record<string, unknown> = {}) => ({ id: 'c-1', workspace_id: WS, merged: false, origin: 'form', ...over })
+
+  it('fires the loops whose owner can see the contact, with its id only, private to the owner', async () => {
+    h.contact = contact()
+    h.contactFlows = [loop('f-ana', 'contact_created'), loop('f-cy', 'contact_created', 'u-cy')]
+    expect(await run('flow-dispatch-on-contact-created', event)).toMatchObject({ dispatched: 1 })
+    expect(h.contactFinderArgs).toEqual([WS])
+    const trigger = triggerOf()
+    expect(trigger).toMatchObject({ type: 'contact_created', entity_type: null, contact_id: 'c-1' })
+    // Never the contact's name: a form's contact is named by a stranger.
+    expect(Object.keys(trigger as object).sort()).toEqual(['contact_id', 'entity_type', 'fired_at', 'from_status_id', 'to_status_id', 'type'])
+    expect(h.runFlow.mock.calls[0][1]).toBeNull()
+    expect(tables.flow_run).toHaveLength(1)
+    expect(tables.flow_run[0]).toMatchObject({ flow_id: 'f-ana', private_to: 'u-ana' })
+    expect(h.startWork.mock.calls.at(-1)?.[1]).toMatchObject({ source: expect.objectContaining({ contact_id: 'c-1' }) })
+  })
+
+  it('skips a contact gone, merged or of a source no emitter writes by the time it runs', async () => {
+    h.contactFlows = [loop('f-ana', 'contact_created')]
+    h.contact = null
+    expect(await run('flow-dispatch-on-contact-created', event)).toEqual({ dispatched: 0, skipped: 'deleted' })
+    h.contact = contact({ workspace_id: 'ws-other' })
+    expect(await run('flow-dispatch-on-contact-created', event)).toEqual({ dispatched: 0, skipped: 'deleted' })
+    h.contact = contact({ merged: true })
+    expect(await run('flow-dispatch-on-contact-created', event)).toEqual({ dispatched: 0, skipped: 'merged' })
+    h.contact = contact({ origin: null })
+    expect(await run('flow-dispatch-on-contact-created', event)).toEqual({ dispatched: 0, skipped: 'not made by a form or a person' })
+    expect(h.contactFinderArgs).toEqual([])
+    expect(h.runFlow).not.toHaveBeenCalled()
+  })
+
+  it('holds each loop to its daily cap, and runs nothing while the agent is paused', async () => {
+    h.contact = contact()
+    h.contactFlows = [loop('f-ana', 'contact_created')]
+    h.cap = 'capped'
+    expect(await run('flow-dispatch-on-contact-created', event)).toMatchObject({ dispatched: 0, capped: 1 })
+    h.cap = 'ok'
+    h.paused = true
+    expect(await run('flow-dispatch-on-contact-created', event)).toMatchObject({ dispatched: 0, skipped: 'agent_paused' })
+    expect(h.runFlow).not.toHaveBeenCalled()
+  })
+
+  it('no loop whose owner can see it: nothing runs', async () => {
+    h.contact = contact()
+    h.contactFlows = [loop('f-cy', 'contact_created', 'u-cy')]
+    expect(await run('flow-dispatch-on-contact-created', event)).toEqual({ dispatched: 0 })
     expect(h.runFlow).not.toHaveBeenCalled()
   })
 })

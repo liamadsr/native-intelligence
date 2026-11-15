@@ -1,7 +1,7 @@
 'use client'
 
 import { Link } from '@/components/link'
-import { accountRedirectTarget, isInviteRedirectPath, isJoinLinkPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '@/lib/auth/login-redirect'
+import { accountRedirectTarget, formRedirectTarget, isInviteRedirectPath, isJoinLinkPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '@/lib/auth/login-redirect'
 import { Logo } from '@/components/logo'
 import { Button } from '@/components/ui/button'
 import {
@@ -149,6 +149,9 @@ export function LoginForm({
     } else if ((redirectPath.startsWith('/s/') || redirectPath.startsWith('/mail/s/')) && !redirectPath.includes('//')) {
       // Share-link redirect (a shared page, or an email share link) — back to it after auth
       document.cookie = `share_redirect=${encodeURIComponent(redirectPath)};path=/;max-age=600;samesite=lax${securePart}`
+    } else if (formRedirectTarget(redirectPath)) {
+      // A members form's own page (/f/<key>): back to the form after an OAuth sign-in too.
+      document.cookie = `form_redirect=${encodeURIComponent(formRedirectTarget(redirectPath)!)};path=/;max-age=600;samesite=lax${securePart}`
     } else if (accountRedirectTarget(redirectPath)) {
       // A page of the app and its deep link (the Studio export the desktop app sent the person to download here):
       // back there after an OAuth sign-in too.
@@ -389,8 +392,9 @@ export function LoginForm({
     }
 
     const target = resolvePostAuthRedirect(redirectPath, window.location.origin)
-    // Used here: an OAuth sign-in later must not find it.
+    // Used here: an OAuth sign-in later must not find them.
     document.cookie = 'account_redirect=;path=/;max-age=0'
+    document.cookie = 'form_redirect=;path=/;max-age=0'
     // The MCP authorize step is an API route: a full page load, not the
     // client router, and its cookie is spent.
     if (isMcpTarget(target)) {
@@ -452,8 +456,9 @@ export function LoginForm({
     }
 
     const target = resolvePostAuthRedirect(redirectPath, window.location.origin)
-    // Used here: an OAuth sign-in later must not find it.
+    // Used here: an OAuth sign-in later must not find them.
     document.cookie = 'account_redirect=;path=/;max-age=0'
+    document.cookie = 'form_redirect=;path=/;max-age=0'
     // The MCP authorize step is an API route: a full page load, not the
     // client router, and its cookie is spent.
     if (isMcpTarget(target)) {

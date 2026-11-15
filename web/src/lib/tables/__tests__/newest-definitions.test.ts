@@ -3,8 +3,9 @@
  * in its NEWEST definition by file name, which is the one a database replayed
  * by file name ends up with. 572 (meeting chats) restated entity_visible_to
  * and entity_grant_ids_for after 522 without the arms, so 600 and 601 restate
- * them. A later migration that restates one of these without the arm fails
- * here, and it must carry the arm itself.
+ * them; 664 (a row's file read as its table is) restates entity_visible_to
+ * again, arms kept. A later migration that restates one of these without the
+ * arm fails here, and it must carry the arm itself.
  */
 import { describe, expect, it } from 'vitest'
 import { migrationsInOrder } from '@/test/migration-sql'
@@ -88,9 +89,11 @@ describe('Tables: the newest definition by file name keeps the table arm', () =>
     expect(sql.match(/public\.is_workspace_member\(workspace_id\)/g)).toHaveLength(2)
   })
 
-  it('the restatements after main are 600 and 601', () => {
+  it('the restatements after main are 601 and 664 (600’s, with a row’s file arm)', () => {
     expect(newest(fn('entity_grant_ids_for'), true).file.startsWith('601_')).toBe(true)
-    expect(newest(CASES.find((c) => c.name === 'entity_visible_to (5 args)')!.head, true).file.startsWith('600_')).toBe(true)
+    for (const name of ['entity_visible_to (4 args)', 'entity_visible_to (5 args)']) {
+      expect(newest(CASES.find((c) => c.name === name)!.head, true).file, name).toBe('664_row_file_visibility.sql')
+    }
   })
 })
 

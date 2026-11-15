@@ -1,10 +1,16 @@
 /**
  * What a form takes, and one submission read against it (forms phase 1).
  *
- *   validateFormFields   the fields a form is saved with: each the row's name
- *                        or a live column of a type a stranger may fill
- *                        (./types.ts FORM_FIELD_TYPES), with its label and
- *                        whether it is required.
+ *   validateFormFields   the fields a form is saved with: each the row's name,
+ *                        a live column of a type a stranger may fill
+ *                        (./types.ts FORM_FIELD_TYPES) or the form's files
+ *                        (FORM_FILES_KEY, at most one, never alone: ./files.ts
+ *                        checks what is sent), with its label and whether it
+ *                        is required. No field may answer to a name the
+ *                        intake keeps for itself (FORM_RESERVED_NAMES: the
+ *                        submission id, the redirect, the bot check's, the
+ *                        personal link's, the website check's and the
+ *                        honeypots), compared as posted names are matched.
  *   parseSubmission      one posted submission: only the form's own fields
  *                        are read (anything else posted is dropped), each
  *                        value cleaned and coerced to its column's stored
@@ -15,6 +21,9 @@
  * key, or the label's slug, so a plain website form's "Full Name" or
  * "full_name" both find a field labelled Full Name.
  *
+ * A files field is no column and no posted name: a submission's files are
+ * every file part it carries (./body.ts), read by ./files.ts, never here.
+ *
  * Every string is the submitter's own words: cleaned of control characters
  * and clipped, and read by the agents only inside the untrusted fence
  * (data_row.from_form). Pure.
@@ -24,17 +33,34 @@ import { coerceCustomValue, customFieldKey, type CustomFieldValue } from '@/lib/
 import { MAX_TEXT, type CustomFieldType } from '@/lib/crm/custom-field-types'
 import type { DataColumn } from '@/lib/tables/types'
 import { normalizeE164 } from '@/lib/twilio/phone'
-import { FORM_LIMITS, FORM_TITLE_KEY, isFormFieldType, type FormField } from './types'
+import { INTAKE_TEST_FIELD } from '@/lib/website/types'
+import { FORM_FILES_KEY, FORM_LIMITS, FORM_TITLE_KEY, isFormColumn, isFormFieldType, type FormField } from './types'
 
 type Checked<T> = { ok: true; value: T } | { ok: false; error: string }
 const fail = (error: string): { ok: false; error: string } => ({ ok: false, error })
 
-type FormColumn = Pick<DataColumn, 'key' | 'label' | 'field_type' | 'options' | 'config' | 'deleted_at'>
+type FormColumn = Pick<DataColumn, 'key' | 'label' | 'field_type' | 'options' | 'config' | 'deleted_at' | 'system'>
 
-/** Fields a bot fills and a person never sees. `website` only while no field of the form is called that. */
+/**
+ * Fields a bot fills and a person never sees. `_gotcha`, `hp` and
+ * `company_website` are reserved (FORM_RESERVED_NAMES: no field may be
+ * called them); `website` is not, since a business may well ask for one, so
+ * it is a honeypot only while no field of the form is called that.
+ */
 const HONEYPOTS = ['_gotcha', 'hp', 'company_website', 'website']
 /** A form's own id for a submission: the same one from the same sender is stored once. */
 const EXTERNAL_ID_NAMES = ['submission_id', 'external_id']
+
+/**
+ * The names a post carries for the intake itself, never for a field: the
+ * submission's own id, the redirect, the bot check's challenge and answer,
+ * a personal link's secret, the website check's nonce, and the honeypots but
+ * `website` (see HONEYPOTS). The intake takes the form's own ones out of a
+ * post before reading its fields (./submit.ts); all of them are refused as a
+ * field's name, by the slug posted names are matched by, so none can ever
+ * fill a field or be filled by one.
+ */
+export const FORM_RESERVED_NAMES = ['submission_id', 'external_id', '_redirect', '_gotcha', '_challenge', '_answer', '_invite', INTAKE_TEST_FIELD, 'hp', 'company_website'] as const
 /** A value that isn't text (a number, a date, an option) is short. */
 const SHORT_VALUE_MAX = 500
 /** The posted names a field answers to that mean a person's name (the contact's). */
@@ -47,7 +73,7 @@ function columnOf(field: FormField, columns: ReadonlyMap<string, FormColumn>): F
   if (field.key === FORM_TITLE_KEY) return null
   const col = columns.get(field.key)
   // Checked again at every submission: a column retyped since the form was saved (to a person, a relation) is no longer a stranger's to fill.
-  return col && !col.deleted_at && isFormFieldType(col.field_type) ? col : null
+  return col && isFormColumn(col) ? col : null
 }
 
 /** The posted names a field answers to: its own first, then the looser ones. */
@@ -81,24 +107,36 @@ export function validateFormFields(columns: readonly FormColumn[], input: unknow
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return fail('Each field is { key, label, required }.')
     const r = raw as Record<string, unknown>
     const key = typeof r.key === 'string' ? r.key : ''
-    if (seen.has(key)) return fail(`The field "${key}" is listed twice.`)
+    if (seen.has(key)) return fail(key === FORM_FILES_KEY ? 'A form takes files through one field.' : `The field "${key}" is listed twice.`)
     seen.add(key)
-    let fallbackLabel = 'Name'
-    if (key !== FORM_TITLE_KEY) {
+    let fallbackLabel = key === FORM_FILES_KEY ? 'Files' : 'Name'
+    if (key !== FORM_TITLE_KEY && key !== FORM_FILES_KEY) {
       const col = byKey.get(key)
       if (!col || col.deleted_at) return fail(`No column "${key}" in this table.`)
       if (!isFormFieldType(col.field_type)) {
         return fail(`${col.label} can't be on a form: a form fills text, number, date, select, multi-select, checkbox, URL, email, phone and currency columns.`)
       }
+      if (!isFormColumn(col)) return fail(`${col.label} can't be on a form: it is the pipeline's own, and a deal from a form starts in its first open stage.`)
       fallbackLabel = col.label
     }
     const label = cleanText(r.label, FORM_LIMITS.label) ?? fallbackLabel
     if (!slug(label)) return fail(`"${label}" has no letters or digits to name the field by.`)
     out.push({ key, label, required: r.required === true })
   }
-  // Two fields a post can't tell apart would silently lose one of them.
+  // A name the intake keeps for itself, matched as a posted name is (by its slug), can't be a field's.
+  const reserved = new Map<string, string>()
+  for (const r of FORM_RESERVED_NAMES) for (const n of [r, slug(r)]) if (n) reserved.set(n, r)
+  for (const f of out) {
+    if (f.key === FORM_FILES_KEY) continue
+    const clash = [...namesOf(f, null).own, postedNameOf(f)].map((n) => reserved.get(n)).find(Boolean)
+    if (clash) return fail(`"${f.label}" can't name a field: a post uses ${clash} for the form itself. Give the field another label.`)
+  }
+  // A form's row needs something to be named by: files alone fill nothing of it.
+  if (!out.some((f) => f.key !== FORM_FILES_KEY)) return fail('A form needs at least one field besides its files.')
+  // Two fields a post can't tell apart would silently lose one of them (files are posted as files, never by a name).
   const claimed = new Map<string, string>()
   for (const f of out) {
+    if (f.key === FORM_FILES_KEY) continue
     for (const n of namesOf(f, null).own) {
       const other = claimed.get(n)
       if (other && other !== f.key) return fail(`Two fields would both be called "${n}". Give one another label.`)
@@ -123,6 +161,7 @@ export function readFormFields(raw: unknown): FormField[] {
 
 /** The name a website form's input carries for a field: what to put in `name="…"`. */
 export function postedNameOf(field: FormField): string {
+  if (field.key === FORM_FILES_KEY) return 'files'
   return field.key === FORM_TITLE_KEY ? slug(field.label) || 'name' : field.key
 }
 

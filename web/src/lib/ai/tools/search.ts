@@ -1,5 +1,5 @@
 import { tool } from 'ai'
-import { webText } from './web-derived'
+import { STRANGER_CONTACT_NAME, isStrangerContactSource, strangerEmail, webText } from './web-derived'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { embed } from '@/lib/ai/embeddings'
@@ -240,7 +240,7 @@ async function searchContactsInWorkspace(
 
   let q = supabase
     .from('contact')
-    .select('id, full_name, email, job_title, relationship_type, last_interaction_at, avatar_url, company:company_id(id, name)')
+    .select('id, full_name, email, job_title, relationship_type, last_interaction_at, avatar_url, source, company:company_id(id, name)')
     .eq('workspace_id', workspace.id)
     .or(`full_name.ilike.%${safe}%,email.ilike.%${safe}%`)
     .limit(clampContactLimit(limit) * CONTACT_OVERFETCH)
@@ -254,21 +254,30 @@ async function searchContactsInWorkspace(
 
   const results = visible.map((c) => {
     const company = c.company as unknown as { id: string; name: string } | null
+    // A contact a public intake made is named by a stranger (stranger-contacts.ts).
+    // Its hit goes by the neutral name, so the title (which the chat also shows
+    // as a link chip) never carries their words, plain or fenced; the name
+    // they typed is in `metadata.name`, inside the WEB fence, so the model can
+    // still tell two such hits apart. The email stays plain when it is a plain
+    // address (strangerEmail). Same keys otherwise.
+    const fromForm = isStrangerContactSource(c.source)
+    const email = fromForm ? strangerEmail(c.email) : c.email
     return {
       result_type: 'contact',
       result_id: c.id,
-      title: c.full_name,
+      title: fromForm ? STRANGER_CONTACT_NAME : c.full_name,
       // The job title can come from web enrichment: fenced (web-derived.ts).
-      subtitle: webText([c.job_title, company?.name].filter(Boolean).join(' at ')) || c.email || null,
+      subtitle: webText([c.job_title, company?.name].filter(Boolean).join(' at ')) || email || null,
       icon: '',
       rank: 0,
       workspace_id: workspace.id,
       workspace_name: workspace.name,
       metadata: {
-        email: c.email,
+        email,
         relationship_type: c.relationship_type,
         last_interaction_at: c.last_interaction_at,
         avatar_url: c.avatar_url,
+        ...(fromForm ? { name: webText(c.full_name), from_form: true } : {}),
       },
     } as UnifiedResultRow & { workspace_id: string; workspace_name: string }
   })

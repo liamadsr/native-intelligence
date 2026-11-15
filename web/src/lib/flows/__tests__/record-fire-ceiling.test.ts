@@ -13,12 +13,14 @@ import { mintRunToken, verifyRunToken } from '../skill-run-token'
 
 type AgentConfig = Parameters<typeof computeSkillCeiling>[0]
 const scoped: AgentConfig = { enabled_tools: ['emails', 'contacts', 'calendar'] }
+/** A row fire's subject, as the token carries it. */
+const ROW_FIRE = { recordTableId: '33333333-3333-4333-8333-333333333333' }
 
 describe('the ceiling of a run a new row started', () => {
   it('adds exactly the read-only table tools to a skill scoped away from tables', () => {
     for (const mode of ['report', 'act'] as const) {
       const without = computeSkillCeiling(scoped, mode, false)!
-      const withRow = computeSkillCeiling(scoped, mode, false, true)!
+      const withRow = computeSkillCeiling(scoped, mode, false, ROW_FIRE)!
       for (const name of RECORD_READ_TOOLS) {
         expect(without.has(name), `${mode} ${name}`).toBe(false)
         expect(withRow.has(name), `${mode} ${name}`).toBe(true)
@@ -38,10 +40,10 @@ describe('the ceiling of a run a new row started', () => {
   })
 
   it('leaves every other run as it was, and adds nothing to a skill that already reads tables', () => {
-    expect(computeSkillCeiling(scoped, 'report', false, false)).toEqual(computeSkillCeiling(scoped, 'report', false))
-    expect(computeSkillCeiling(scoped, 'report', true, false)).toEqual(computeSkillCeiling(scoped, 'report', true))
+    expect(computeSkillCeiling(scoped, 'report', false, {})).toEqual(computeSkillCeiling(scoped, 'report', false))
+    expect(computeSkillCeiling(scoped, 'report', true, {})).toEqual(computeSkillCeiling(scoped, 'report', true))
     const withTables: AgentConfig = { enabled_tools: ['tables'] }
-    expect(computeSkillCeiling(withTables, 'report', false, true)).toEqual(computeSkillCeiling(withTables, 'report', false))
+    expect(computeSkillCeiling(withTables, 'report', false, ROW_FIRE)).toEqual(computeSkillCeiling(withTables, 'report', false))
   })
 })
 

@@ -2,8 +2,9 @@
 
 /**
  * A table row opened as a record (Tables, phase 3): its title, every field
- * (the grid's own cells and editors), what references it, and its history,
- * with Archive. A viewer who can't change the table reads it all as text.
+ * (the grid's own cells and editors), its files (a form's uploads: ./row-files.tsx,
+ * nothing when it has none), what references it, and its history, with
+ * Archive. A viewer who can't change the table reads it all as text.
  */
 import { useEffect, useState } from 'react'
 import { Archive, Undo2 } from 'lucide-react'
@@ -18,6 +19,7 @@ import { touchedBy } from '@/lib/tables/ops'
 import { isComputedType, type DataChange, type DataColumn, type DataRow } from '@/lib/tables/types'
 import { CellDisplay, CellEditor, ColumnLabel, type Member } from './cells'
 import { ComputedCell, readColumn } from './computed-cells'
+import { RowFiles } from './row-files'
 
 export function RowPanel({
   row,
@@ -130,6 +132,7 @@ export function RowPanel({
               })}
             </div>
           </PropertyGroup>
+          <RowFiles rowId={row.id} />
           <ReferencedIn entityType="data_row" entityId={row.id} />
           {history.length > 0 && (
             <PropertyGroup title="History">

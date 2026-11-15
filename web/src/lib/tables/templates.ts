@@ -5,6 +5,11 @@
  * three example rows, made up, that show what goes where and can be deleted
  * like any other. Nothing to set: pick one and it is there.
  *
+ * Quote requests is the one a form fills: making it makes no form (no public
+ * link appears unasked), but a new form on it starts from the quote set
+ * (src/lib/forms/presets.ts, keyed on the column keys below, which a test
+ * keeps equal).
+ *
  * Client-safe and pure: the page lists them, the server makes one
  * (./templates-server.ts).
  */
@@ -50,7 +55,7 @@ export interface TableTemplate {
   rows: Array<{ title: string; values?: Record<string, CustomFieldValue> }>
 }
 
-export const TEMPLATE_IDS = ['list', 'pipeline', 'inventory', 'jobs', 'contacts'] as const
+export const TEMPLATE_IDS = ['list', 'pipeline', 'inventory', 'jobs', 'contacts', 'quotes'] as const
 export type TemplateId = (typeof TEMPLATE_IDS)[number]
 export const isTemplateId = (v: unknown): v is TemplateId => typeof v === 'string' && (TEMPLATE_IDS as readonly string[]).includes(v)
 
@@ -177,6 +182,44 @@ export function tableTemplates(now: Date = new Date()): TableTemplate[] {
       rows: [
         { title: 'Robin Vale', values: { company: 'Vale Joinery', role: 'Owner', email: 'robin@valejoinery.example', phone: '+15550100123', tags: ['Supplier'], last_contacted: day(-12, now) } },
         { title: 'Priya Natarajan', values: { company: 'Northline Events', role: 'Planner', email: 'priya@northline.example', tags: ['Customer', 'Partner'], last_contacted: day(-2, now) } },
+      ],
+    },
+    {
+      id: 'quotes',
+      name: 'Quote requests',
+      icon: 'quotes',
+      description: 'Requests for a quote, from new to booked: who is asking, for what, where and when.',
+      columns: [
+        { key: 'email', label: 'Email', field_type: 'email' },
+        { key: 'phone', label: 'Phone', field_type: 'phone' },
+        { key: 'address', label: 'Address', field_type: 'text' },
+        { key: 'service', label: 'Service', field_type: 'select', options: ['Cleaning', 'Repair', 'Installation', 'Other'] },
+        { key: 'size', label: 'Size', field_type: 'text' },
+        { key: 'budget', label: 'Budget', field_type: 'currency', config: { currency: 'USD' } },
+        { key: 'preferred_date', label: 'Preferred date', field_type: 'date' },
+        { key: 'message', label: 'Message', field_type: 'text' },
+        { key: 'status', label: 'Status', field_type: 'select', options: ['New', 'Quoted', 'Booked', 'Lost'] },
+        // A form's submission links the contact it finds or makes here (src/lib/forms/submit.ts).
+        { key: 'customer', label: 'Customer', field_type: 'relation', config: { target: { kind: 'contact' } } },
+      ],
+      views: [
+        { name: 'By status', layout: 'board', group_by: 'status', table: { total_key: 'budget' } },
+        { name: 'All requests', layout: 'grid', sort: { key: 'preferred_date', direction: 'asc' } },
+        { name: 'Calendar', layout: 'calendar', table: { date_key: 'preferred_date' } },
+      ],
+      rows: [
+        {
+          title: 'Dana Whitfield',
+          values: { email: 'dana@whitfield.example', phone: '+15550100142', address: '8 Linden Court', service: 'Cleaning', size: '8 x 10 ft', budget: { amount: 300, currency: 'USD' }, preferred_date: day(5, now), message: 'Wool rug, one wine stain near the edge.', status: 'New' },
+        },
+        {
+          title: 'Marcus Bell',
+          values: { email: 'marcus@bellhome.example', phone: '+15550100178', service: 'Repair', size: '5 x 7 ft', budget: { amount: 450, currency: 'USD' }, preferred_date: day(9, now), message: 'The fringe is coming loose on one end.', status: 'Quoted' },
+        },
+        {
+          title: 'Ines Carvalho',
+          values: { email: 'ines@carvalho.example', address: '41 Mill Road', service: 'Installation', size: 'Runner, 2.5 x 12 ft', preferred_date: day(2, now), status: 'Booked' },
+        },
       ],
     },
   ]

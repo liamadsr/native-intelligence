@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { planComputed } from '../computed'
 import { validateOps, type DataOpInput } from '../ops'
+import { formPresetFor, QUOTE_REQUEST_PRESET } from '@/lib/forms/presets'
+import { contactColumnOf } from '@/lib/forms/submit'
+import { isFormColumn } from '@/lib/forms/types'
 import { isTemplateId, TEMPLATE_IDS, tableTemplate, tableTemplates, templateViewRow } from '../templates'
 import type { DataColumn } from '../types'
 
@@ -16,8 +19,8 @@ function batchOf(id: (typeof TEMPLATE_IDS)[number]): DataOpInput[] {
 }
 
 describe('starter tables', () => {
-  it('offers the five starters, by id', () => {
-    expect(tableTemplates(NOW).map((t) => t.name)).toEqual(['Simple list', 'Pipeline', 'Inventory', 'Job tracker', 'Contacts'])
+  it('offers the six starters, by id', () => {
+    expect(tableTemplates(NOW).map((t) => t.name)).toEqual(['Simple list', 'Pipeline', 'Inventory', 'Job tracker', 'Contacts', 'Quote requests'])
     expect(isTemplateId('pipeline')).toBe(true)
     expect(isTemplateId('crm')).toBe(false)
   })
@@ -69,5 +72,29 @@ describe('starter tables', () => {
   it('example dates sit around today', () => {
     const t = tableTemplate('jobs', NOW)
     expect(t.rows.map((r) => r.values?.scheduled)).toEqual(['2026-11-13', '2026-11-11', '2026-11-05'])
+  })
+
+  it('Quote requests: a board by status, a Customer that links contacts, and the quote form preset by its column keys', () => {
+    const t = tableTemplate('quotes', NOW)
+    expect(t.pipeline).toBeUndefined()
+    expect(t.views[0]).toMatchObject({ layout: 'board', group_by: 'status' })
+    expect(t.columns.find((c) => c.key === 'status')?.options).toEqual(['New', 'Quoted', 'Booked', 'Lost'])
+    const columns = t.columns.map((c, i): DataColumn => ({ id: c.key, table_id: 't', key: c.key, label: c.label, field_type: c.field_type, options: c.options ?? [], config: c.config ?? {}, position: i, deleted_at: null }))
+    // A submission's contact lands in Customer (src/lib/forms/submit.ts).
+    expect(contactColumnOf(columns)?.key).toBe('customer')
+    // The preset is the table's, by its keys and types, and every field it ticks is one a form may fill.
+    expect(formPresetFor(columns)).toBe(QUOTE_REQUEST_PRESET)
+    for (const f of QUOTE_REQUEST_PRESET.fields) {
+      if (f.key === '$title') continue
+      const col = columns.find((c) => c.key === f.key)!
+      expect(isFormColumn(col), f.key).toBe(true)
+    }
+    expect(QUOTE_REQUEST_PRESET.fields.map((f) => f.key)).not.toContain('budget')
+    expect(QUOTE_REQUEST_PRESET.fields.map((f) => f.key)).not.toContain('status')
+    // Any other starter gets none.
+    for (const id of TEMPLATE_IDS.filter((x) => x !== 'quotes')) {
+      const other = tableTemplate(id, NOW).columns.map((c, i): DataColumn => ({ id: c.key, table_id: 't', key: c.key, label: c.label, field_type: c.field_type, options: [], config: {}, position: i, deleted_at: null }))
+      expect(formPresetFor(other), id).toBeNull()
+    }
   })
 })

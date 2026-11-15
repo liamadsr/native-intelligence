@@ -1,15 +1,17 @@
 /**
  * The owner-scoped event triggers (email_received, chat_message,
- * document_created, record_created): who a fire is for, what never fires,
- * and the cap.
+ * document_created, record_created, contact_created): who a fire is for,
+ * what never fires, and the cap.
  *
  * OWNER SCOPING. Unlike quote_received (workspace-wide), each of these fires
  * a loop only when its OWNER (flow.created_by, who it runs as) could see the
  * item: their own mailbox (the matcher filters on created_by), a channel they
- * can read, a document visible to them. Checked again at every fire with the
- * canonical rules restated for a service-role client (entity-fences.ts: the
- * team chat channel fence, and entity_refs_hidden, the SQL rule the graph's
- * policies use, for documents), so a loop whose owner lost access is skipped.
+ * can read, a document visible to them, a table they read, a contact they
+ * see. Checked again at every fire with the canonical rules restated for a
+ * service-role client (entity-fences.ts: the team chat channel fence, and
+ * entity_refs_hidden, the SQL rule the graph's policies use, for documents;
+ * visible_data_table_ids for tables; contact_visible_to for contacts), so a
+ * loop whose owner lost access is skipped.
  *
  * LOOP GUARD. Items made by agents, bots or automations never fire:
  *   - mail: the emitter takes only mail from someone else (never the
@@ -22,7 +24,11 @@
  *     create_document, reference ingest and canon templates never do);
  *   - records: only a form's submission and a person's own rows emit
  *     (emit-record-created.ts); a row an agent, an import, a sync or a
- *     loop's step wrote never does.
+ *     loop's step wrote never does;
+ *   - contacts: only a public intake's new contact (upsertCustomerContact,
+ *     when it made one) and a person's own (the contacts route) emit
+ *     (emit-contact-created.ts); a contact an agent, an import, a sync, a
+ *     meeting's participants, prospecting or a new member made never does.
  *
  * COST. An event loop on a busy channel could start hundreds of runs: each
  * flow runs at most EVENT_FIRE_CAP_PER_DAY times in any 24 hours; the fires
@@ -31,13 +37,14 @@
  *
  * Template variables carry ids only, never text someone else wrote: a step
  * reads the item with a tool (read_email, read_team_chat_message,
- * get_document, query_rows) as the owner. A form's row reaches it fenced
- * as untrusted (data_row.from_form).
+ * get_document, query_rows, get_contact) as the owner. A form's row reaches
+ * it fenced as untrusted (data_row.from_form).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isContactVisibleTo } from '@/lib/crm/contact-visibility'
 import { hiddenGraphRefs, visiblePrivateKindIds } from '@/lib/knowledge/entity-fences'
 import { AGENT_PAUSED_REASON } from '@/lib/work/agent-paused'
-import type { ChatMessageTriggerConfig, FlowWithSecrets, OwnerEventTriggerType, RecordCreatedTriggerConfig } from './types'
+import type { ChatMessageTriggerConfig, ContactCreatedTriggerConfig, FlowWithSecrets, OwnerEventTriggerType, RecordCreatedTriggerConfig } from './types'
 
 /** Most fires one event loop runs in any 24 hours. */
 export const EVENT_FIRE_CAP_PER_DAY = 50
@@ -357,6 +364,84 @@ export async function recordTriggerTableProblem(
   const { data, error } = await supabase.from('data_table').select('id').eq('id', tableId).eq('workspace_id', args.workspaceId).is('archived_at', null).maybeSingle()
   if (error || !data) return problem
   return (await ownerCanReadTable(supabase, args.ownerUserId, tableId)) ? null : problem
+}
+
+// ── Contacts (a CRM contact added) ──────────────────────────────────────────
+
+/** Where a new contact came from, as a contact_created loop's `source` reads it. */
+export type ContactOrigin = 'form' | 'manual'
+
+export interface ContactFacts {
+  id: string
+  workspace_id: string
+  /** Folded into another contact since. */
+  merged: boolean
+  /** 'form' for a public intake's (contact.source web_form or sms), 'manual' for a person's own, else null. */
+  origin: ContactOrigin | null
+}
+
+/** A contact's own source column as a loop's `source` reads it: null for every source no emitter writes. */
+export function contactOriginOf(source: unknown): ContactOrigin | null {
+  if (source === 'web_form' || source === 'sms') return 'form'
+  if (source === 'manual') return 'manual'
+  return null
+}
+
+/** Read a contact's facts (service role): ids and flags only, never its name. Null when it is gone or the read fails. */
+export async function loadContactFacts(supabase: SupabaseClient, contactId: string): Promise<ContactFacts | null> {
+  const { data, error } = await supabase.from('contact').select('id, workspace_id, merged_into_contact_id, source').eq('id', contactId).maybeSingle()
+  if (error || !data) return null
+  const r = data as Record<string, unknown>
+  return {
+    id: r.id as string,
+    workspace_id: r.workspace_id as string,
+    merged: r.merged_into_contact_id != null,
+    origin: contactOriginOf(r.source),
+  }
+}
+
+/**
+ * Why a new contact fires no loop at all, or null: gone, moved, merged into
+ * another by the time the fire ran (a person who added a duplicate and folded
+ * it away), or of a source no emitter writes (the loop guard, again: only a
+ * public intake's and a person's own contacts ever fire).
+ */
+export function contactSkipReason(contact: ContactFacts | null, workspaceId: string): string | null {
+  if (!contact || contact.workspace_id !== workspaceId) return 'deleted'
+  if (contact.merged) return 'merged'
+  if (!contact.origin) return 'not made by a form or a person'
+  return null
+}
+
+/** Does a contact_created loop take a contact of this origin? Pure; a stored config without a source takes any. */
+export function contactSourceMatches(cfg: Partial<ContactCreatedTriggerConfig> | null | undefined, origin: ContactOrigin | null): boolean {
+  if (!origin) return false
+  const source = cfg?.source ?? 'any'
+  return source === 'any' || source === origin
+}
+
+/**
+ * Can this person see the contact, without a grant? contact_visible_to
+ * (contact-visibility.ts), the contact read rule restated for a service-role
+ * client, with its grant arm off: a contact only shared with the owner fires
+ * nothing, as a table only shared with them does. Fails closed.
+ */
+export async function ownerCanSeeContact(supabase: SupabaseClient, ownerUserId: string, contactId: string): Promise<boolean> {
+  return isContactVisibleTo(supabase, contactId, ownerUserId, { grants: false })
+}
+
+/** The matched contact_created loops that take this contact (its source) and whose owner can see it now. */
+export async function contactFlowsToFire(supabase: SupabaseClient, flows: FlowWithSecrets[], contact: Pick<ContactFacts, 'id' | 'origin'>): Promise<FlowWithSecrets[]> {
+  const visible = new Map<string, boolean>()
+  const out: FlowWithSecrets[] = []
+  for (const flow of flows) {
+    const owner = flow.created_by
+    if (!owner) continue
+    if (!contactSourceMatches(flow.trigger_config as Partial<ContactCreatedTriggerConfig>, contact.origin)) continue
+    if (!visible.has(owner)) visible.set(owner, await ownerCanSeeContact(supabase, owner, contact.id))
+    if (visible.get(owner)) out.push(flow)
+  }
+  return out
 }
 
 /**

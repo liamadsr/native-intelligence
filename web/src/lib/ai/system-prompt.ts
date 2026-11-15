@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { WEB_ACCESS_GUIDANCE } from './web-access-prompt'
 import { isWebSearchAvailable } from './tools/web-search'
 import { filterVisibleContacts } from '@/lib/crm/contact-visibility'
+import { contactModelName } from '@/lib/knowledge/stranger-contacts'
 import { isTimeZone } from '@/lib/chat-cards/calendar'
 
 /**
@@ -228,7 +229,7 @@ async function authMetadataName(supabase: SupabaseClient, userId: string): Promi
 function keyContactRows(supabase: SupabaseClient, workspaceId: string) {
   return supabase
     .from('contact')
-    .select('id, full_name, job_title, company:company_id (name)')
+    .select('id, full_name, job_title, source, company:company_id (name)')
     .eq('workspace_id', workspaceId)
     .is('merged_into_contact_id', null)
     .in('relationship_strength', ['strong', 'warm'])
@@ -489,7 +490,8 @@ export async function buildSystemPromptParts(
         // company_id is a to-one FK, so the embed is a single row (or null),
         // though the generated types widen it to an array.
         const company = (c.company as unknown as { name?: string | null } | null)?.name
-        const parts = [c.full_name]
+        // A contact a public intake made goes by the neutral name: a stranger typed its name (stranger-contacts.ts).
+        const parts = [contactModelName(c)]
         if (company) parts.push(company)
         if (c.job_title) parts.push(c.job_title)
         return parts.filter(Boolean).join(' - ')

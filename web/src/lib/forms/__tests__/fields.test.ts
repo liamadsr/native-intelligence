@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { DataColumn } from '@/lib/tables/types'
-import { parseSubmission, postedNameOf, readFormFields, validateFormFields } from '../fields'
+import { FORM_RESERVED_NAMES, parseSubmission, postedNameOf, readFormFields, validateFormFields } from '../fields'
 import { FORM_LIMITS, FORM_TITLE_KEY, type FormField } from '../types'
 
 const col = (key: string, label: string, field_type: DataColumn['field_type'], extra: Partial<DataColumn> = {}): DataColumn => ({
@@ -208,5 +208,36 @@ describe('one submission', () => {
     expect(parseSubmission([{ key: 'old', label: 'Old', required: true }], COLUMNS, { old: 'x' }).ok).toBe(false)
     expect(parseSubmission(fields, COLUMNS, {})).toEqual({ ok: false, reason: 'invalid', error: 'Fill in at least one field.' })
     expect(parseSubmission(fields, COLUMNS, ['a'])).toMatchObject({ ok: false, reason: 'invalid' })
+  })
+})
+
+describe('names the intake keeps for itself', () => {
+  it.each([
+    ['a label that slugs to a honeypot', [{ key: FORM_TITLE_KEY, label: 'Gotcha' }]],
+    ['a label that is a honeypot', [{ key: 'message', label: 'HP' }]],
+    ['a label that slugs to company_website', [{ key: 'message', label: 'Company website' }]],
+    ['a label that is the submission id', [{ key: 'message', label: 'Submission ID' }]],
+    ['a label that is the external id', [{ key: 'message', label: 'external_id' }]],
+    ['a label that slugs to the redirect', [{ key: 'message', label: '_redirect' }]],
+    ['a label that slugs to the challenge', [{ key: 'message', label: 'Challenge' }]],
+    ['a label that slugs to the answer', [{ key: 'message', label: 'Answer' }]],
+    ['a label that slugs to a personal link', [{ key: 'message', label: 'Invite' }]],
+    ["a label that slugs to the website check's field", [{ key: 'message', label: 'Dial8 test' }]],
+  ])('%s is refused: no field may answer to it', (_, fields) => {
+    const r = validateFormFields(COLUMNS, [{ key: 'email', label: 'Email' }, ...fields])
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toContain('for the form itself')
+  })
+
+  it("a column whose key is one is refused too: it is the name the field is posted by", () => {
+    const columns = [...COLUMNS, col('hp', 'Horsepower', 'number')]
+    expect(validateFormFields(columns, [{ key: 'hp', label: 'Engine power' }]).ok).toBe(false)
+  })
+
+  it('every reserved name is refused, and `website` is not: a business may ask for one, and it is a honeypot only while no field claims it', () => {
+    for (const name of FORM_RESERVED_NAMES) expect(validateFormFields(COLUMNS, [{ key: 'message', label: name }]).ok, name).toBe(false)
+    const columns = [...COLUMNS, col('website', 'Website', 'url')]
+    expect(validateFormFields(columns, [{ key: 'website', label: 'Website' }]).ok).toBe(true)
+    expect(FORM_RESERVED_NAMES).not.toContain('website')
   })
 })

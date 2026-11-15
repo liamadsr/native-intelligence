@@ -72,9 +72,9 @@
  *   And create_booking_link, update_booking_link and delete_booking_link
  *   (availability phase 4a): the person making or changing their own booking
  *   page from their own client, as from the app's chat; each is undoable.
- *   And create_form and update_form (forms phase 1): the person making or
- *   changing a form on their own table from their own client, as from the
- *   app's chat.
+ *   And create_form and update_form (forms phase 1), and create_form_invites
+ *   (phase 3): the person making or changing a form on their own table, or
+ *   its personal links, from their own client, as from the app's chat.
  */
 import { ATTENDED_ONLY_TOOL_NAMES } from '@/lib/ai/tool-registry'
 
@@ -111,6 +111,7 @@ export const MCP_ATTENDED_TOOL_NAMES: ReadonlySet<string> = new Set([
   'delete_booking_link',
   'create_form',
   'update_form',
+  'create_form_invites',
 ])
 
 /** The attended-only tool names a person's MCP connection must NOT offer. Pure. */

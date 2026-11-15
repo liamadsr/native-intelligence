@@ -20,6 +20,14 @@ vi.mock('@/lib/environments/store', () => ({
   listCloudEnvironments: vi.fn(async () => envs.list),
   createCloudEnvironment: vi.fn(async () => ({ id: 'env-website', name: 'Website', shared: true })),
 }))
+// The tables a form wiring checks (src/lib/tables/store.ts getTable), by id; and who the database says may edit one (data_table_editable_by).
+const dataTables = vi.hoisted(() => ({ byId: new Map<string, Record<string, unknown>>(), editable: new Set<string>() }))
+vi.mock('@/lib/tables/store', () => ({
+  getTable: vi.fn(async (_db: unknown, workspaceId: string, tableId: string) => {
+    const t = dataTables.byId.get(tableId)
+    return t && t.workspace_id === workspaceId ? t : null
+  }),
+}))
 
 import { connectWebsite, siteOrigins, startEdit, startUndo, startWiring, pickForm } from '../start'
 import { mergeWebsiteChange, raiseMergeCard, settleWebsiteApproval, websiteApprovalPermits } from '../approval'
@@ -27,7 +35,10 @@ import { checkWiringLive, formPagePath, onWebsiteRunSettled, pollDeploy, sameOri
 import { takeIntakeTest } from '../intake-test'
 import { WEBSITE_CHANGE_MERGED, WEBSITE_PR_OPENED } from '../events'
 import { MERGE_WEBSITE_CHANGE_TOOL, type WebsiteChange } from '../types'
-import { getLiveSite, getOpenChange, toChange } from '../store'
+import { getLiveSite, getOpenChange, markSiteUnwired, recordSiteWiring, toChange, websiteUsesForm, websiteUsesLiveKey } from '../store'
+import { formWiringTarget, FormWiringRefused } from '../form-target'
+import { websiteForChatSpec } from '../section'
+import { hashFormKey } from '@/lib/forms/store'
 import { needsReplyCode } from '@/lib/attention/channel-approvals'
 
 type Row = Record<string, unknown>
@@ -102,7 +113,7 @@ let intake: { post?: (url: string, init: RequestInit) => Promise<Response> } = {
 function deps() {
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input)
-    if (url.includes('/api/intake/quotes/') && intake.post) return intake.post(url, init ?? {})
+    if ((url.includes('/api/intake/quotes/') || url.includes('/api/intake/forms/')) && intake.post) return intake.post(url, init ?? {})
     return world.fetchImpl(input, init)
   }) as typeof fetch
   return {
@@ -122,7 +133,9 @@ function deps() {
 }
 
 beforeEach(() => {
-  tables = { website_site: [], website_change: [], projects: [], company: [], quote_intake_key: [], member: [{ workspace_id: WS, user_id: OWNER, role: 'owner' }] }
+  tables = { website_site: [], website_change: [], projects: [], company: [], quote_intake_key: [], data_form: [], member: [{ id: 'm-owner', workspace_id: WS, user_id: OWNER, role: 'owner' }] }
+  dataTables.byId.clear()
+  dataTables.editable.clear()
   const base = memoryDb(tables, {
     website_site: (a, b) => a.workspace_id === b.workspace_id && a.state !== 'disconnected' && b.state !== 'disconnected',
     website_change: (a, b) => a.site_id === b.site_id && ['preparing', 'awaiting_yes', 'merging', 'deploying'].includes(String(a.state)) && ['preparing', 'awaiting_yes', 'merging', 'deploying'].includes(String(b.state)),
@@ -131,6 +144,7 @@ beforeEach(() => {
   db = Object.assign(Object.create(base), {
     from: base.from,
     rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name === 'data_table_editable_by') return { data: dataTables.editable.has(`${args.p_table_id}:${args.p_user_id}`), error: null }
       if (name !== 'swap_quote_intake_key') return { data: null, error: { message: `no rpc ${name}` } }
       const keys = tables.quote_intake_key
       if (keys.some((k) => k.key_hash === args.p_key_hash && !k.revoked_at)) return { data: null, error: null }
@@ -814,5 +828,376 @@ describe('the verification pass’s fixes', () => {
     tables.quote_intake_key.push({ id: 'k-new', workspace_id: WS, key_hash: 'other', key_prefix: 'qk_x', created_at: '2026-10-31T05:00:00Z', revoked_at: null })
     const out = await mergeWebsiteChange(db, { userId: OWNER, workspaceId: WS, changeId: String(row.id), headSha: HEAD }, deps())
     expect(out).toMatchObject({ success: true, note: expect.stringContaining('stopped working') })
+  })
+})
+
+// ── A form wiring: the site's form posts to one of the business's forms ──────
+
+const TABLE_ID = '00000000-0000-4000-8000-0000000000b1'
+const FORM_ID = '00000000-0000-4000-8000-0000000000f1'
+
+function leadsTable(extra: Row = {}): Row {
+  const col = (key: string, label: string, field_type: string, more: Row = {}) => ({ id: `col-${key}`, table_id: TABLE_ID, key, label, field_type, options: [], config: {}, position: 0, deleted_at: null, ...more })
+  return {
+    id: TABLE_ID,
+    workspace_id: WS,
+    name: 'Brightweave Private Leads',
+    visibility: 'workspace',
+    owner_member_id: null,
+    archived_at: null,
+    kind: 'table',
+    columns: [col('email', 'Email', 'email'), col('service', 'Service', 'select', { options: ['Deep clean', 'Move-out'] }), col('notes', 'Notes', 'text'), col('gone', 'Old', 'text', { deleted_at: '2026-10-01T00:00:00Z' })],
+    ...extra,
+  }
+}
+
+function seedForm(extra: Row = {}): Row {
+  const form: Row = {
+    id: FORM_ID,
+    workspace_id: WS,
+    table_id: TABLE_ID,
+    name: 'Brightweave intake form',
+    fields: [
+      { key: '$title', label: 'Full Name', required: true },
+      { key: 'email', label: 'Email', required: true },
+      { key: 'service', label: 'Service', required: false },
+      { key: 'notes', label: 'Message', required: false },
+      { key: 'gone', label: 'Old', required: false },
+    ],
+    access: 'public',
+    allowed_origins: ['https://partner.example'],
+    thanks: null,
+    active: true,
+    key_hash: 'old-link-hash',
+    key_prefix: 'fk_oldold',
+    created_by: 'someone-else',
+    created_at: '2026-11-01T00:00:00Z',
+    updated_at: '2026-11-01T00:00:00Z',
+    last_submitted_at: null,
+    bot_check: true,
+    ...extra,
+  }
+  tables.data_form.push(form)
+  return form
+}
+
+const SITE_ORIGINS = ['https://janescleaning.com', 'https://www.janescleaning.com']
+
+describe('a form wiring: the site’s form posts its entries to one of the business’s forms', () => {
+  it('wire → card → yes → the form’s new link → live check → it works, and the quote intake is never touched', async () => {
+    await connected()
+    dataTables.byId.set(TABLE_ID, leadsTable())
+    seedForm()
+    const started = await startWiring(db, who, { formId: FORM_ID, siteForm: 'the contact form on /contact' }, deps())
+    expect(started).toMatchObject({
+      success: true,
+      form_id: FORM_ID,
+      allowed_origins: [...SITE_ORIGINS, 'https://partner.example'],
+      bot_check: expect.stringContaining('Switched off when the change goes live'),
+      note: expect.stringContaining('its older link stops working'),
+    })
+    const row = changeRow()
+    expect(row).toMatchObject({ kind: 'wire_form', state: 'preparing', intake_origins: SITE_ORIGINS, check_result: { intake: { kind: 'form', formId: FORM_ID } } })
+    expect(String(row.intake_key_prefix)).toMatch(/^fk_/)
+    expect(toChange(row)).toMatchObject({ wiringIntake: { kind: 'form', formId: FORM_ID }, checkResult: null })
+
+    // The brief: the form's new link, the fields to post under their names, and nothing else of the workspace.
+    const brief = String(launch.mock.calls[0][2].request)
+    const key = brief.match(/\/api\/intake\/forms\/(fk_[A-Za-z0-9_-]{43})/)![1]
+    expect(hashFormKey(key)).toBe(row.intake_key_hash)
+    expect(brief).not.toContain('/api/intake/quotes/')
+    expect(JSON.parse(brief.match(/```json\n([\s\S]+?)\n```/)![1])).toEqual([
+      { label: 'Full Name', post_as: 'full_name', type: 'text', required: true, options: [] },
+      { label: 'Email', post_as: 'email', type: 'email', required: true, options: [] },
+      { label: 'Service', post_as: 'service', type: 'select', required: false, options: ['Deep clean', 'Move-out'] },
+      { label: 'Message', post_as: 'notes', type: 'text', required: false, options: [] },
+    ])
+    for (const leak of ['Brightweave Private Leads', 'Brightweave intake form', "Jane's Cleaning", 'partner.example', TABLE_ID, FORM_ID, 'old-link-hash']) expect(brief).not.toContain(leak)
+    expect(brief).toContain('<<<the contact form on /contact>>>')
+    expect(brief).toMatch(/Keep what it does today .*Formspree/)
+    expect(brief).toContain('Anything else posted is dropped')
+    expect(brief).toContain('which required field(s) the site’s form lacks')
+    expect(brief).toContain('`submission_id`')
+    expect(brief).toContain(`Allowed browser origins: ${SITE_ORIGINS.join(', ')}.`)
+    // Nothing changes on the form before the owner's yes: its link, its websites and its bot check stay.
+    expect(tables.data_form[0]).toMatchObject({ key_hash: 'old-link-hash', allowed_origins: ['https://partner.example'], bot_check: true })
+
+    await onWebsiteRunSettled(db, { workspaceId: WS, agentRunId: String(row.agent_run_id), result: 'pr_open', prUrl: 'https://github.com/jane/site/pull/7', summary: null, error: null }, deps())
+    await raiseMergeCard(db, { workspaceId: WS, changeId: String(row.id) }, deps())
+    const approval = createApproval.mock.calls[0][0]
+    expect(approval.input).toMatchObject({
+      adds_entries_to: expect.stringContaining('Brightweave intake form'),
+      accepts_requests_from: [...SITE_ORIGINS, 'https://partner.example'].join(', '),
+    })
+
+    // Yes: the form's link becomes the site's (the old one stops), its websites gain the site's, its bot check goes off.
+    const merged = await mergeWebsiteChange(db, { userId: OWNER, workspaceId: WS, changeId: String(row.id), headSha: HEAD }, deps())
+    expect(merged).toMatchObject({ success: true, note: expect.stringContaining('older link has stopped working') })
+    expect(tables.data_form[0]).toMatchObject({
+      key_hash: row.intake_key_hash,
+      key_prefix: row.intake_key_prefix,
+      created_by: OWNER,
+      allowed_origins: [...SITE_ORIGINS, 'https://partner.example'],
+      bot_check: false,
+    })
+    expect(tables.quote_intake_key).toHaveLength(0)
+    expect((tables.website_site[0].inspection as { wirings: unknown }).wirings).toEqual([{ intake: 'form', formId: FORM_ID, keyHash: row.intake_key_hash, changeId: row.id, formPath: 'app/quote/page.tsx' }])
+
+    // The live site carries the form's new link: a test post with the nonce reaches the form.
+    world = fakeWorld({ liveJs: `fetch("https://nativeintelligence.dev/api/intake/forms/${key}",{method:"POST"})` })
+    intake.post = async (url, init) => {
+      expect(url).toBe(`https://nativeintelligence.dev/api/intake/forms/${key}`)
+      expect((init.headers as Record<string, string>).Origin).toBe('https://janescleaning.com')
+      const nonce = new URLSearchParams(String(init.body)).get('_dial8_test')!
+      expect(await takeIntakeTest(db, WS, nonce)).toBe(true)
+      return Response.json({ ok: true, test: true })
+    }
+    expect(await pollDeploy(db, { workspaceId: WS, changeId: String(row.id), poll: 1 }, deps())).toEqual({ done: true, outcome: 'passed' })
+    expect(row).toMatchObject({ state: 'live', check_result: expect.objectContaining({ outcome: 'passed', intake: { kind: 'form', formId: FORM_ID } }) })
+    expect(toChange(row).wiringIntake).toEqual({ kind: 'form', formId: FORM_ID })
+    expect(tables.website_site[0]).toMatchObject({ state: 'wired' })
+    expect(notes.at(-1)!.text).toMatch(/^It works: each entry from your website's quote form now also lands in your table\./)
+
+    // The site posts to the form, not to the quote intake: rotating the quote link leaves it wired.
+    expect(await websiteUsesLiveKey(db, WS)).toBe(false)
+    expect(await websiteUsesForm(db, WS, FORM_ID)).toBe(true)
+  })
+
+  it('a form wiring’s live check reads only that form’s link: a quote URL or another link is not it', async () => {
+    await connected()
+    dataTables.byId.set(TABLE_ID, leadsTable())
+    seedForm()
+    await startWiring(db, who, { formId: FORM_ID }, deps())
+    const row = changeRow()
+    const key = String(launch.mock.calls[0][2].request).match(/(fk_[A-Za-z0-9_-]{43})/)![1]
+    Object.assign(row, { state: 'deploying', merge_sha: MERGE })
+    const site = (await getLiveSite(db, WS))!
+    world = fakeWorld({ liveHtml: `<script>fetch("https://nativeintelligence.dev/api/intake/quotes/qk_${'z'.repeat(43)}");fetch("https://nativeintelligence.dev/api/intake/forms/fk_${'y'.repeat(43)}")</script>` })
+    expect((await checkWiringLive(db, toChange(row), site, deps())).outcome).toBe('not_seen')
+    world = fakeWorld({ liveHtml: `<script>fetch("https://nativeintelligence.dev/api/intake/forms/${key}")</script>` })
+    intake.post = async () => new Response('{}', { status: 403 })
+    expect(await checkWiringLive(db, toChange(row), site, deps())).toMatchObject({ outcome: 'refused', status: 403 })
+  })
+
+  it('refuses a form they can’t point the site at, before anything is made (update_form’s own conditions)', async () => {
+    await connected()
+    const refused = async (input: Parameters<typeof startWiring>[2], code: string) => expect(await startWiring(db, who, input, deps())).toMatchObject({ success: false, code })
+    await refused({ formId: 'not-a-form-id' }, 'NO_SUCH_FORM')
+    await refused({ formId: FORM_ID }, 'NO_SUCH_FORM')
+    seedForm({ workspace_id: 'another-workspace' })
+    await refused({ formId: FORM_ID }, 'NO_SUCH_FORM')
+    tables.data_form.length = 0
+    seedForm()
+    // Its table gone: not found.
+    await refused({ formId: FORM_ID }, 'NO_SUCH_FORM')
+    dataTables.byId.set(TABLE_ID, leadsTable({ archived_at: '2026-11-02T00:00:00Z' }))
+    await refused({ formId: FORM_ID }, 'TABLE_ARCHIVED')
+    // A private table of someone else's: only an edit grant the database confirms, and only on their own turn.
+    dataTables.byId.set(TABLE_ID, leadsTable({ visibility: 'private', owner_member_id: 'm-someone' }))
+    await refused({ formId: FORM_ID }, 'NOT_ALLOWED')
+    dataTables.editable.add(`${TABLE_ID}:${OWNER}`)
+    await refused({ formId: FORM_ID, editGrants: false }, 'NOT_ALLOWED')
+    // A members-only or switched-off form takes nothing from a website.
+    Object.assign(tables.data_form[0], { access: 'members' })
+    await refused({ formId: FORM_ID }, 'FORM_NOT_PUBLIC')
+    Object.assign(tables.data_form[0], { access: 'public', active: false })
+    await refused({ formId: FORM_ID }, 'FORM_OFF')
+    Object.assign(tables.data_form[0], { active: true, fields: [{ key: 'gone', label: 'Old', required: false }] })
+    await refused({ formId: FORM_ID }, 'FORM_EMPTY')
+    expect(launch).not.toHaveBeenCalled()
+    expect(tables.website_change).toHaveLength(0)
+    expect(tables.data_form[0]).toMatchObject({ key_hash: 'old-link-hash' })
+    // Their own private table, or one the grant opens on their own turn: fine.
+    Object.assign(tables.data_form[0], { fields: [{ key: 'email', label: 'Email', required: true }] })
+    expect(await startWiring(db, who, { formId: FORM_ID }, deps())).toMatchObject({ success: true })
+  })
+
+  it('a guest, or someone outside the workspace, is refused by the form check itself', async () => {
+    dataTables.byId.set(TABLE_ID, leadsTable())
+    seedForm()
+    tables.member = [{ id: 'm-guest', workspace_id: WS, user_id: OWNER, role: 'guest' }]
+    expect(await formWiringTarget(db, who, FORM_ID, { editGrants: true })).toMatchObject({ ok: false, code: 'NOT_ALLOWED' })
+    tables.member = []
+    expect(await formWiringTarget(db, who, FORM_ID, { editGrants: true })).toMatchObject({ ok: false, code: 'NO_SUCH_FORM' })
+    tables.member = [{ id: 'm-owner', workspace_id: WS, user_id: OWNER, role: 'member' }]
+    expect(await formWiringTarget(db, who, FORM_ID, { editGrants: true })).toMatchObject({ ok: true })
+    // Their own private table needs no grant, on any turn.
+    dataTables.byId.set(TABLE_ID, leadsTable({ visibility: 'private', owner_member_id: 'm-owner' }))
+    expect(await formWiringTarget(db, who, FORM_ID, { editGrants: false })).toMatchObject({ ok: true })
+  })
+
+  it('refuses a form that takes files before anything is made: the wiring would switch off the bot check it needs', async () => {
+    await connected()
+    dataTables.byId.set(TABLE_ID, leadsTable())
+    seedForm()
+    ;(tables.data_form[0].fields as Row[]).push({ key: '$files', label: 'Photos', required: false })
+    const out = await startWiring(db, who, { formId: FORM_ID }, deps())
+    expect(out).toMatchObject({ success: false, code: 'FORM_TAKES_FILES', error: expect.stringContaining('embed snippet') })
+    expect(String(out.error)).toContain('update_form with files: null')
+    expect(launch).not.toHaveBeenCalled()
+    expect(tables.website_change).toHaveLength(0)
+    expect(tables.data_form[0]).toMatchObject({ key_hash: 'old-link-hash', bot_check: true })
+  })
+
+  it('a files field added between the pull request and the merge fails the wiring once, told, never retried', async () => {
+    await connected()
+    dataTables.byId.set(TABLE_ID, leadsTable())
+    seedForm()
+    await startWiring(db, who, { formId: FORM_ID }, deps())
+    const row = changeRow()
+    await onWebsiteRunSettled(db, { workspaceId: WS, agentRunId: String(row.agent_run_id), result: 'pr_open', prUrl: 'https://github.com/jane/site/pull/7', summary: null, error: null }, deps())
+    await raiseMergeCard(db, { workspaceId: WS, changeId: String(row.id) }, deps())
+    ;(tables.data_form[0].fields as Row[]).push({ key: '$files', label: 'Photos', required: false })
+    sent.length = 0
+    notes.length = 0
+
+    const merged = await mergeWebsiteChange(db, { userId: OWNER, workspaceId: WS, changeId: String(row.id), headSha: HEAD }, deps())
+    expect(merged).toMatchObject({ success: false, merged: true, code: 'FORM_TAKES_FILES', error: expect.stringContaining('was not connected') })
+    // Nothing written on the form: its old link and its bot check stay.
+    expect(tables.data_form[0]).toMatchObject({ key_hash: 'old-link-hash', bot_check: true, allowed_origins: ['https://partner.example'] })
+    expect(row).toMatchObject({ state: 'failed', merge_sha: MERGE, error: expect.stringMatching(/^FORM_TAKES_FILES: the form now takes files/) })
+    expect(notes).toHaveLength(1)
+    expect(notes[0]).toMatchObject({ key: `website-${row.id}-failed`, text: expect.stringContaining('Say "undo"') })
+    // No wiring recorded, no deploy watch started.
+    expect((tables.website_site[0].inspection as { wirings?: unknown[] }).wirings ?? []).toEqual([])
+    expect(sent.some((e) => e.name === WEBSITE_CHANGE_MERGED)).toBe(false)
+    // A watch that did run would stop at once.
+    expect(await pollDeploy(db, { workspaceId: WS, changeId: String(row.id), poll: 1 }, deps())).toEqual({ done: true, outcome: 'not_deploying' })
+    // Trying the link again (as a watch's retry would) refuses again, writes nothing and tells no one twice.
+    const { activateIntakeKey } = await import('../approval')
+    await expect(activateIntakeKey(db, toChange(row), deps())).rejects.toBeInstanceOf(FormWiringRefused)
+    expect(notes).toHaveLength(1)
+    expect(tables.data_form[0]).toMatchObject({ key_hash: 'old-link-hash', bot_check: true })
+  })
+
+  it('the deploy watch’s retry meets the files field: the wiring fails once and the watch stops', async () => {
+    await connected()
+    dataTables.byId.set(TABLE_ID, leadsTable())
+    seedForm()
+    await startWiring(db, who, { formId: FORM_ID }, deps())
+    const row = changeRow()
+    // The link didn't go live at the merge (a failed write); files were added since.
+    Object.assign(row, { state: 'deploying', merge_sha: MERGE, merged_at: '2026-11-10T00:00:00Z', pr_number: 7 })
+    ;(tables.data_form[0].fields as Row[]).push({ key: '$files', label: 'Photos', required: false })
+    const { appendHomeMessage } = await import('@/lib/chat/home-message-writer')
+    vi.mocked(appendHomeMessage).mockClear()
+    const first = await pollDeploy(db, { workspaceId: WS, changeId: String(row.id), poll: 1 }, deps())
+    expect(row).toMatchObject({ state: 'failed', error: expect.stringMatching(/^FORM_TAKES_FILES/) })
+    expect(tables.data_form[0]).toMatchObject({ key_hash: 'old-link-hash', bot_check: true })
+    // Told once, through the home thread (the watch's own retry has no other way to say it).
+    expect(vi.mocked(appendHomeMessage).mock.calls.filter(([, m]) => (m as { messageId: string }).messageId === `website-${row.id}-failed`)).toHaveLength(1)
+    // This poll ends as any unseen one does; the next finds the change failed and stops.
+    expect(first).toEqual({ done: false })
+    expect(await pollDeploy(db, { workspaceId: WS, changeId: String(row.id), poll: 2 }, deps())).toEqual({ done: true, outcome: 'not_deploying' })
+    expect(vi.mocked(appendHomeMessage).mock.calls.filter(([, m]) => (m as { messageId: string }).messageId === `website-${row.id}-failed`)).toHaveLength(1)
+  })
+
+  it('the quote path is as it was: no form, a quote key, nothing in check_result', async () => {
+    await connected()
+    seedForm()
+    await startWiring(db, who, {}, deps())
+    const row = changeRow()
+    expect(String(row.intake_key_prefix)).toMatch(/^qk_/)
+    expect(row.check_result).toBeNull()
+    expect(toChange(row).wiringIntake).toEqual({ kind: 'quote' })
+    expect(String(launch.mock.calls[0][2].request)).toContain("Connect Jane's Cleaning's quote form")
+    expect(tables.data_form[0]).toMatchObject({ key_hash: 'old-link-hash' })
+  })
+})
+
+describe('is the site still wired: quote and form wirings apart', () => {
+  async function wiredTo(...wirings: Row[]): Promise<void> {
+    await connected()
+    const site = tables.website_site[0]
+    Object.assign(site, { state: 'wired', wired_at: '2026-11-03T00:00:00Z', inspection: { ...(site.inspection as Row), wirings } })
+  }
+  const formWiring = { intake: 'form', formId: FORM_ID, keyHash: 'h-form', changeId: 'c-form', formPath: 'app/contact/page.tsx' }
+  const quoteWiring = { intake: 'quote', keyHash: 'h-quote', changeId: 'c-quote', formPath: 'app/quote/page.tsx' }
+  const wirings = () => (tables.website_site[0].inspection as { wirings: Row[] }).wirings
+
+  it('a site wired only to a form: a new quote link leaves it wired; a replaced form link is seen and offered again', async () => {
+    await wiredTo(formWiring)
+    expect(await websiteUsesLiveKey(db, WS)).toBe(false)
+    await markSiteUnwired(db, WS)
+    expect(tables.website_site[0]).toMatchObject({ state: 'wired' })
+    expect(wirings()).toHaveLength(1)
+
+    seedForm({ key_hash: 'h-form' })
+    const read = async () => (await websiteForChatSpec(db, { workspaceId: WS } as never)).section!.markdown
+    expect(await read()).toContain(`Its form "app/contact/page.tsx" adds each entry as a row through their form ${FORM_ID}.`)
+    // update_form new_link elsewhere: the site's link no longer opens the form.
+    tables.data_form[0].key_hash = 'replaced'
+    expect(await read()).toContain(`offer to reconnect it (wire_website_form with form_id ${FORM_ID})`)
+    tables.data_form.length = 0
+    expect(await read()).toContain('the form is gone')
+
+    await markSiteUnwired(db, WS, { kind: 'form', formId: FORM_ID })
+    expect(tables.website_site[0]).toMatchObject({ state: 'connected', wired_at: null })
+    expect(wirings()).toEqual([])
+  })
+
+  it('a site wired to both: each unwires on its own', async () => {
+    await wiredTo(quoteWiring, formWiring)
+    expect(await websiteUsesLiveKey(db, WS)).toBe(true)
+    await markSiteUnwired(db, WS)
+    expect(tables.website_site[0]).toMatchObject({ state: 'wired' })
+    expect(wirings()).toEqual([formWiring])
+    expect(await websiteUsesLiveKey(db, WS)).toBe(false)
+    expect(await websiteUsesForm(db, WS, FORM_ID)).toBe(true)
+  })
+
+  it('a site wired before wirings were kept is a quote wiring', async () => {
+    await wiredTo()
+    expect(await websiteUsesLiveKey(db, WS)).toBe(true)
+    expect(await websiteUsesForm(db, WS, FORM_ID)).toBe(false)
+    await markSiteUnwired(db, WS, { kind: 'form', formId: FORM_ID })
+    expect(tables.website_site[0]).toMatchObject({ state: 'wired' })
+    await markSiteUnwired(db, WS)
+    expect(tables.website_site[0]).toMatchObject({ state: 'connected' })
+  })
+
+  it('a later form wiring keeps an earlier quote wiring (one per intake), and one of the same form replaces it', async () => {
+    await wiredTo(quoteWiring)
+    const site = (await getLiveSite(db, WS))!
+    const form = (id: string, hash: string) => ({ id, workspaceId: WS, siteId: site.id, wiringIntake: { kind: 'form' as const, formId: FORM_ID }, intakeKeyHash: hash, formPath: 'app/contact/page.tsx' })
+    await recordSiteWiring(db, form('c-1', 'h-1'))
+    await recordSiteWiring(db, form('c-1', 'h-1'))
+    expect(wirings().map((w) => [w.intake, w.changeId])).toEqual([
+      ['quote', 'c-quote'],
+      ['form', 'c-1'],
+    ])
+    await recordSiteWiring(db, form('c-2', 'h-2'))
+    expect(wirings().map((w) => [w.intake, w.changeId])).toEqual([
+      ['quote', 'c-quote'],
+      ['form', 'c-2'],
+    ])
+  })
+
+  it('re-reading the same repo keeps the wirings', async () => {
+    await wiredTo(formWiring)
+    await connectWebsite(db, who, { repo: 'jane/site' }, deps())
+    expect(wirings()).toEqual([formWiring])
+  })
+
+  it('undoing a form wiring drops it, and the site is back to connected once none is left', async () => {
+    await wiredTo(formWiring)
+    const site = (await getLiveSite(db, WS))!
+    tables.website_change.push({ id: 'c-form', workspace_id: WS, site_id: site.id, kind: 'wire_form', request: 'r', requested_by: OWNER, state: 'live', pr_number: 7, merged_at: '2026-11-03T00:00:00Z', created_at: '2026-11-03T00:00:00Z', intake_origins: [], check_result: { outcome: 'passed', intake: { kind: 'form', formId: FORM_ID } } })
+    tables.website_change.push({ id: 'undo', workspace_id: WS, site_id: site.id, kind: 'revert', request: 'Undo', requested_by: OWNER, state: 'merging', reverts_change_id: 'c-form', pr_number: 9, created_at: '2026-11-04T00:00:00Z', intake_origins: [] })
+    const { finishMerge } = await import('../approval')
+    await finishMerge(db, toChange(changeRow()), { id: site.id }, MERGE, deps())
+    expect(tables.website_site[0]).toMatchObject({ state: 'connected', wired_at: null })
+    expect(wirings()).toEqual([])
+  })
+
+  it('a later wiring wins only for its own intake: a quote wiring never stops a form wiring’s link going live', async () => {
+    await connected()
+    const site = (await getLiveSite(db, WS))!
+    const { keyStillWanted } = await import('../approval')
+    const formRow = { id: 'f-old', workspace_id: WS, site_id: site.id, kind: 'wire_form', request: 'r', requested_by: OWNER, state: 'deploying', intake_key_hash: 'h1', merged_at: '2026-11-01T00:00:00Z', created_at: 'a', intake_origins: [], check_result: { intake: { kind: 'form', formId: FORM_ID } } }
+    tables.website_change.push(formRow, { id: 'q-new', workspace_id: WS, site_id: site.id, kind: 'wire_form', request: 'r', requested_by: OWNER, state: 'live', intake_key_hash: 'h2', merged_at: '2026-11-02T00:00:00Z', created_at: 'b', intake_origins: [] })
+    expect(await keyStillWanted(db, toChange(formRow))).toBe(true)
+    tables.website_change.push({ id: 'f-new', workspace_id: WS, site_id: site.id, kind: 'wire_form', request: 'r', requested_by: OWNER, state: 'live', intake_key_hash: 'h3', merged_at: '2026-11-03T00:00:00Z', created_at: 'c', intake_origins: [], check_result: { outcome: 'passed', intake: { kind: 'form', formId: FORM_ID } } })
+    expect(await keyStillWanted(db, toChange(formRow))).toBe(false)
   })
 })

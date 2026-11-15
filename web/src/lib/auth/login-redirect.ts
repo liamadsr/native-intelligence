@@ -88,6 +88,22 @@ export function accountRedirectTarget(path: string): string | null {
   return `${url.pathname}${url.search}${url.hash}`
 }
 
+/**
+ * A form's own page (/f/<key>), which a members form sends a signed-out
+ * person from, as the path to go back to, or null. Only the exact shape: a
+ * form's key (`fk_`) or a personal link's secret (`fi_`), each 43 base64url
+ * characters (src/lib/forms/store.ts, invites.ts), optionally with the one
+ * query a form's page reads, `?i=` and a personal link's secret. Nothing
+ * else can pass, so no host, scheme, `//`, backslash, dot segment or hash
+ * ever does. The shapes are written here, not imported, because this file
+ * runs in the browser and the forms' stores do not.
+ */
+const FORM_PAGE_PATH = /^\/f\/f[ki]_[A-Za-z0-9_-]{43}(?:\?i=fi_[A-Za-z0-9_-]{43})?$/
+
+export function formRedirectTarget(path: string): string | null {
+  return typeof path === 'string' && FORM_PAGE_PATH.test(path) ? path : null
+}
+
 /** Is `path` a page of the app itself (accountRedirectTarget)? */
 export function isAccountRedirectPath(path: string): boolean {
   return accountRedirectTarget(path) !== null
@@ -95,8 +111,8 @@ export function isAccountRedirectPath(path: string): boolean {
 
 /**
  * Where a password sign-in (or an instant sign-up) sends the person: the MCP
- * authorize step to resume, an invite (or connect link) or a shared page, or a page in the app;
- * anything else is /account.
+ * authorize step to resume, an invite (or connect link) or a shared page, a form's own page
+ * (formRedirectTarget), or a page in the app; anything else is /account.
  */
 export function resolvePostAuthRedirect(redirectPath: string | null, origin: string): string {
   if (!redirectPath) return '/account'
@@ -104,6 +120,8 @@ export function resolvePostAuthRedirect(redirectPath: string | null, origin: str
   if (mcp) return mcp
   if (redirectPath.includes('//')) return '/account'
   if (isInviteRedirectPath(redirectPath) || redirectPath.startsWith('/s/') || redirectPath.startsWith('/mail/s/')) return redirectPath
+  const form = formRedirectTarget(redirectPath)
+  if (form) return form
   return accountRedirectTarget(redirectPath) ?? '/account'
 }
 

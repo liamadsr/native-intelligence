@@ -345,6 +345,8 @@ export async function runViaEve(args: {
   hasCapture: boolean
   /** The table the fire's row was added to: the token carries it, and the ceiling gains the table-read tools for that table. */
   recordTableId?: string
+  /** The contact the fire is about: the token carries it, and the ceiling gains get_contact for that contact. */
+  contactId?: string
   timeoutMs: number
   onToolCalls?: (toolNames: string[]) => void
   /** Automation depth of this run's writes (loop guard) — see RunTokenClaims. */
@@ -385,6 +387,7 @@ export async function runViaEve(args: {
     mode: spec.mode,
     hasCapture,
     ...(args.recordTableId ? { recordTableId: args.recordTableId } : {}),
+    ...(args.contactId ? { contactId: args.contactId } : {}),
     outputContract: isVerdict ? 'verdict' : 'prose',
     model: spec.model,
     ...(originDepth !== undefined ? { originDepth } : {}),

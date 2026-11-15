@@ -1,6 +1,6 @@
 import { getServiceClient } from '@/lib/admin'
 import { requireWorkspace } from '@/lib/api-auth'
-import { badRequest, notFound, serverError } from '@/lib/api-errors'
+import { badRequest, forbidden, notFound, serverError } from '@/lib/api-errors'
 import { productDocIdOf } from '@/lib/workspace/product-doc'
 import { filterVisibleAttachments } from '@/lib/attachments/visibility'
 
@@ -8,8 +8,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /**
  * GET /api/account/attachments/[id]: one file's name and the record it hangs
- * off (its capture, else its task, else its project), for a mention of it to
- * open that record's card. Read on the caller's client (RLS), with the
+ * off (its capture, else its task, else its table row, else its project), for
+ * a mention of it to open that record's card. A row's file (663) is read only
+ * by someone who can read the row's table, and its parent names the table. Read on the caller's client (RLS), with the
  * attachments rule kept explicit (src/lib/attachments/visibility.ts): a file
  * the caller may not read answers 404, as a missing one does.
  */
@@ -22,22 +23,27 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   const { data, error } = await supabase
     .from('attachments')
-    .select('id, file_name, user_id, note_id, action_id, project_id')
+    .select('id, file_name, user_id, note_id, action_id, project_id, data_row_id')
     .eq('id', id)
     .eq('workspace_id', workspaceId)
     .maybeSingle()
   if (error) return serverError(error.message)
-  const row = data as { id: string; file_name: string | null; user_id: string | null; note_id: string | null; action_id: string | null; project_id: string | null } | null
+  const row = data as { id: string; file_name: string | null; user_id: string | null; note_id: string | null; action_id: string | null; project_id: string | null; data_row_id?: string | null } | null
   if (!row || (await filterVisibleAttachments(supabase, { workspaceId, userId: user.id }, [row])).length === 0) {
     return notFound('Attachment not found')
   }
-  const parent = row.note_id
+  let parent: { type: string; id: string; table_id?: string } | null = row.note_id
     ? { type: 'capture', id: row.note_id }
     : row.action_id
       ? { type: 'action', id: row.action_id }
-      : row.project_id
-        ? { type: 'project', id: row.project_id }
-        : null
+      : null
+  if (!parent && row.data_row_id) {
+    const { data: onRow } = await supabase.from('data_row').select('id, table_id').eq('id', row.data_row_id).eq('workspace_id', workspaceId).maybeSingle()
+    const found = onRow as { id: string; table_id: string } | null
+    if (!found) return notFound('Attachment not found')
+    parent = { type: 'data_row', id: found.id, table_id: found.table_id }
+  }
+  if (!parent && row.project_id) parent = { type: 'project', id: row.project_id }
   return Response.json({ attachment: { id: row.id, file_name: row.file_name, parent } })
 }
 
@@ -49,7 +55,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
  * and archives reference wiki pages generated from it — their verbatim
  * content would otherwise claim provenance from a file that no longer
  * exists. RLS (128) scopes who can delete: the owner or any workspace
- * member.
+ * member. A file on a table's row (663) is deleted only by someone who can
+ * CHANGE the row's table (data_table_editable_by, as 663's restrictive
+ * delete rule says): that is checked first, before anything is touched, so a
+ * reader of the table gets 403 and the file, its object and its knowledge
+ * links all stay. A capture's, an action's and a project's files are as
+ * before.
  *
  * The generated pages are spec pages (type 'spec'), machine-written: since
  * migration 359 only an owner or admin may change one from a client, so the
@@ -71,12 +82,24 @@ export async function DELETE(
 
   const { data: attachment, error } = await supabase
     .from('attachments')
-    .select('id, storage_path, thumbnail_path, storage_bucket')
+    .select('id, storage_path, thumbnail_path, storage_bucket, data_row_id')
     .eq('id', id)
     .eq('workspace_id', workspaceId)
     .maybeSingle()
   if (error) return serverError(error.message)
   if (!attachment) return notFound('Attachment not found')
+
+  // A row's file: only someone who can change the row's table deletes it, checked before any cleanup runs.
+  const rowId = (attachment as { data_row_id?: string | null }).data_row_id ?? null
+  if (rowId) {
+    const { data: onRow, error: rowError } = await supabase.from('data_row').select('id, table_id').eq('id', rowId).eq('workspace_id', workspaceId).maybeSingle()
+    if (rowError) return serverError(rowError.message)
+    const row = onRow as { id: string; table_id: string } | null
+    if (!row) return notFound('Attachment not found')
+    const { data: editable, error: editError } = await supabase.rpc('data_table_editable_by', { p_table_id: row.table_id, p_user_id: user.id })
+    if (editError) return serverError(editError.message)
+    if (editable !== true) return forbidden("You can read this table but can't change it, so you can't delete its files.")
+  }
 
   const bucket = (attachment.storage_bucket as string | null) ?? 'attachments'
   const paths = [attachment.storage_path, attachment.thumbnail_path].filter(

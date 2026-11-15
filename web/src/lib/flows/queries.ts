@@ -14,6 +14,7 @@ import type {
   CanvasLayout,
   CaptureProcessedTriggerConfig,
   ChatMessageTriggerConfig,
+  ContactCreatedTriggerConfig,
   DocumentCreatedTriggerConfig,
   RecordCreatedTriggerConfig,
   EmailReceivedTriggerConfig,
@@ -38,7 +39,7 @@ import type {
   RunSkillActionConfig,
   ScheduleTriggerConfig,
 } from './types'
-import { PR_TRIGGER_STATES } from './types'
+import { CONTACT_CREATED_SOURCES, PR_TRIGGER_STATES } from './types'
 import type {
   RunnerActionData,
   RunnerEntityData,
@@ -421,6 +422,22 @@ export async function findMatchingFlowsForRecordCreated(supabase: SupabaseClient
     .eq('enabled', true)
     .eq('trigger_type', 'record_created')
     .eq('trigger_config->>table_id', tableId)
+  if (error || !data) return []
+  return (data as Array<Record<string, unknown>>).map(toFlowWithSecrets)
+}
+
+/**
+ * Enabled contact_created flows in the workspace. Which of them take the
+ * contact (its source) and which owners can see it is the dispatcher's
+ * (event-triggers.ts contactFlowsToFire). Server only.
+ */
+export async function findMatchingFlowsForContactCreated(supabase: SupabaseClient, workspaceId: string): Promise<FlowWithSecrets[]> {
+  const { data, error } = await supabase
+    .from('flow')
+    .select(FLOW_FIELDS)
+    .eq('workspace_id', workspaceId)
+    .eq('enabled', true)
+    .eq('trigger_type', 'contact_created')
   if (error || !data) return []
   return (data as Array<Record<string, unknown>>).map(toFlowWithSecrets)
 }
@@ -1458,6 +1475,25 @@ export function validateRecordCreatedConfig(raw: unknown): RecordCreatedTriggerC
 }
 
 /**
+ * Validate a contact_created trigger_config: which new contacts start it,
+ * `source` 'any' (the default), 'form' (made by a public intake: a website
+ * form, a quote, a customer's first text) or 'manual' (added by a person by
+ * hand). Nothing else is kept. Whether the owner can see a contact is checked
+ * at every fire.
+ */
+export function validateContactCreatedConfig(raw: unknown): ContactCreatedTriggerConfig | Error {
+  if (raw !== undefined && raw !== null && (typeof raw !== 'object' || Array.isArray(raw))) {
+    return new Error('trigger_config must be an object or null')
+  }
+  const source = ((raw ?? {}) as Record<string, unknown>).source
+  if (source === undefined || source === null || source === '') return { kind: 'contact_created', source: 'any' }
+  if (typeof source !== 'string' || !(CONTACT_CREATED_SOURCES as readonly string[]).includes(source)) {
+    return new Error(`trigger_config.source must be one of ${CONTACT_CREATED_SOURCES.join(', ')}: any contact, one a form or a customer's text made, or one a person added by hand`)
+  }
+  return { kind: 'contact_created', source: source as ContactCreatedTriggerConfig['source'] }
+}
+
+/**
  * Validate a pr_status_changed trigger_config: the repo it watches
  * ("owner/repo", required) and the PR state it waits for (open, closed,
  * merged or any; default any).
@@ -1527,8 +1563,9 @@ export function validateCalendarEventConfig(
  * config. pr_status_changed fires from the GitHub webhook
  * (flowDispatchOnPrStatusChange) and quote_received from the website quote
  * intake (flowDispatchOnQuoteReceived). email_received, chat_message,
- * document_created and record_created (the owner's own mail, chat, documents
- * and tables: event-triggers.ts) fire for their owner alone. The canvas
+ * document_created, record_created and contact_created (the owner's own mail,
+ * chat, documents, tables and contacts: event-triggers.ts) fire for their
+ * owner alone. The canvas
  * editor and chat's create_flow / update_flow build every one. `opts` carries the clock-dependent
  * checks of a write (TriggerValidateOptions).
  */
@@ -1558,6 +1595,8 @@ export function validateTriggerConfig(
       return validateDocumentCreatedConfig(raw)
     case 'record_created':
       return validateRecordCreatedConfig(raw)
+    case 'contact_created':
+      return validateContactCreatedConfig(raw)
     default:
       return new Error(`trigger_type "${triggerType}" is not supported`)
   }

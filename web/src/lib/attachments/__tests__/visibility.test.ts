@@ -2,13 +2,15 @@
  * Who may read an uploaded file (../visibility.ts), as the attachments table's
  * read rule says: its uploader, anyone for a file on no capture, and on a
  * capture only someone who may see that capture (a workspace one, their own,
- * or one a grant opens to them; never an eval capture). Fails closed.
+ * or one a grant opens to them; never an eval capture), and on a table's row
+ * (migration 663: a form's upload) only someone who can read the row's
+ * table, whoever uploaded it. Fails closed.
  * Fixtures are made up.
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { memoryDb } from '@/test/memory-db'
-import { filterVisibleAttachments, visibleAttachmentIds } from '../visibility'
+import { filterRowAttachments, filterVisibleAttachments, visibleAttachmentIds } from '../visibility'
 
 const WS = '11111111-1111-4111-8111-111111111111'
 const OTHER_WS = '11111111-1111-4111-8111-222222222222'
@@ -101,5 +103,73 @@ describe('visibleAttachmentIds', () => {
     const rows = tables.attachments.filter((r) => r.workspace_id === WS) as Array<{ id: string; user_id: string; note_id: string | null }>
     const kept = await filterVisibleAttachments(failingCaptures, { workspaceId: WS, userId: ANA }, rows)
     expect(kept.map((r) => r.id).sort()).toEqual([ON_TASK, ANA_ON_BEN_PRIVATE].sort())
+  })
+})
+
+describe('a file on a table’s row', () => {
+  const OPEN_TABLE = 'd0000000-0000-4000-8000-000000000001'
+  const PRIVATE_TABLE = 'd0000000-0000-4000-8000-000000000002'
+  const OPEN_ROW = 'e0000000-0000-4000-8000-000000000001'
+  const PRIVATE_ROW = 'e0000000-0000-4000-8000-000000000002'
+  const ON_OPEN_ROW = f(8)
+  const ON_PRIVATE_ROW = f(9)
+
+  /** The memory database, with the tables rule as the database answers it: Ana reads OPEN_TABLE only. */
+  function withRows(over: { rpc?: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }> } = {}) {
+    tables.data_row = [
+      { id: OPEN_ROW, workspace_id: WS, table_id: OPEN_TABLE },
+      { id: PRIVATE_ROW, workspace_id: WS, table_id: PRIVATE_TABLE },
+    ]
+    tables.attachments.push(
+      { id: ON_OPEN_ROW, workspace_id: WS, user_id: null, note_id: null, data_row_id: OPEN_ROW, from_form: true, file_name: 'rug.png' },
+      { id: ON_PRIVATE_ROW, workspace_id: WS, user_id: ANA, note_id: null, data_row_id: PRIVATE_ROW, file_name: 'payroll.pdf' },
+    )
+    const db = memoryDb(tables)
+    const calls: Array<Record<string, unknown>> = []
+    const rpc =
+      over.rpc ??
+      (async (fn: string, args: Record<string, unknown>) => {
+        expect(fn).toBe('visible_data_table_ids')
+        calls.push(args)
+        return { data: args.p_user_id === ANA ? (args.p_ids as string[]).filter((id) => id === OPEN_TABLE || (args.p_grants === true && id === 'never')) : [], error: null }
+      })
+    return { db: { from: db.from.bind(db), rpc } as unknown as SupabaseClient, calls }
+  }
+
+  it('is read only when the row’s table is, even by the one who uploaded it', async () => {
+    const { db } = withRows()
+    const ids = await visibleAttachmentIds(db, { workspaceId: WS, userId: ANA }, [ON_TASK, ON_OPEN_ROW, ON_PRIVATE_ROW])
+    expect([...ids].sort()).toEqual([ON_TASK, ON_OPEN_ROW].sort())
+  })
+
+  it('a caller that did not select data_row_id is fenced all the same (the row is read here)', async () => {
+    const { db } = withRows()
+    const rows = (tables.attachments as Array<{ id: string; user_id: string | null; note_id: string | null }>).filter((r) => [ON_TASK, ON_OPEN_ROW, ON_PRIVATE_ROW].includes(r.id)).map(({ id, user_id, note_id }) => ({ id, user_id, note_id }))
+    const kept = await filterVisibleAttachments(db, { workspaceId: WS, userId: ANA }, rows)
+    expect(kept.map((r) => r.id).sort()).toEqual([ON_TASK, ON_OPEN_ROW].sort())
+  })
+
+  it('with no person, no row’s file is anyone’s', async () => {
+    const { db, calls } = withRows()
+    const ids = await visibleAttachmentIds(db, { workspaceId: WS, userId: null }, [ON_TASK, ON_OPEN_ROW])
+    expect([...ids]).toEqual([ON_TASK])
+    expect(calls).toHaveLength(0)
+  })
+
+  it('fails closed: a table rule that can’t be read hides every row’s file, and nothing else', async () => {
+    const { db } = withRows({ rpc: async () => ({ data: null, error: { message: 'down' } }) })
+    const ids = await visibleAttachmentIds(db, { workspaceId: WS, userId: ANA }, [ON_TASK, ON_OPEN_ROW])
+    expect([...ids]).toEqual([ON_TASK])
+  })
+
+  it('the row rule alone, for a reader that fences captures its own way, without grants when told', async () => {
+    const { db, calls } = withRows()
+    const rows = [
+      { id: ON_TASK, note_id: null, data_row_id: null },
+      { id: ON_OPEN_ROW, note_id: null, data_row_id: OPEN_ROW },
+      { id: ON_PRIVATE_ROW, note_id: null, data_row_id: PRIVATE_ROW },
+    ]
+    expect((await filterRowAttachments(db, { workspaceId: WS, userId: ANA }, rows, { grants: false })).map((r) => r.id)).toEqual([ON_TASK, ON_OPEN_ROW])
+    expect(calls[0]).toMatchObject({ p_user_id: ANA, p_grants: false })
   })
 })

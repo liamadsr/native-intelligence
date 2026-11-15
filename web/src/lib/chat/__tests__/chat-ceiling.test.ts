@@ -245,6 +245,7 @@ describe('surface exclusions (structural, keyed on the verified token surface)',
       // Forms (phase 1): a form's public link is made and changed only in the person's own chat.
       'create_form',
       'update_form',
+      'create_form_invites',
       // ... nor puts one up: show and read_card both stay off the device.
       'show',
       // A contact's web enrichment waits up to 45 s: more than a 60 s device ask can hold.

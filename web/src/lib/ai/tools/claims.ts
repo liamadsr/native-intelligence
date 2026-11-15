@@ -15,6 +15,7 @@ import { fetchAllRows, inChunks } from '@/lib/supabase/paging'
 import { tool } from 'ai'
 import { z } from 'zod'
 import { entityKindEnum } from '@/lib/knowledge/entity-kind-schema'
+import { STRANGER_CONTACT_NAME, STRANGER_CONTACT_SOURCES } from '@/lib/knowledge/stranger-contacts'
 import { filterVisibleCompanies, filterVisibleContacts } from '@/lib/crm/contact-visibility'
 import { withGrantedIds } from '@/lib/entity-access/grants'
 import {
@@ -412,10 +413,21 @@ async function fenceBundleLabels(
       for (const r of rows) visible.add(`${type}:${r.id}`)
     }),
   )
+  // A contact a public intake made is named by a stranger: its label is the
+  // neutral name (src/lib/knowledge/stranger-contacts.ts). One read for the
+  // bundle's contacts; a failed one names them all neutrally.
+  const contactIds = [...(idsByType.get('contact') ?? [])]
+  const strangers = new Set<string>()
+  if (contactIds.length) {
+    const { data, error } = await supabase.from('contact').select('id').in('id', contactIds).in('source', [...STRANGER_CONTACT_SOURCES])
+    for (const id of error ? contactIds : ((data ?? []) as Array<{ id: string }>).map((r) => r.id)) strangers.add(id)
+  }
   return nodes.map((n) => {
     const type = fencedType(n)
-    if (!type || visible.has(`${type}:${(n as Node).node_id as string}`)) return n
-    return { ...(n as Node), label: FENCED_LABEL_TYPES[type].placeholder }
+    if (!type) return n
+    const id = (n as Node).node_id as string
+    if (!visible.has(`${type}:${id}`)) return { ...(n as Node), label: FENCED_LABEL_TYPES[type].placeholder }
+    return type === 'contact' && strangers.has(id) ? { ...(n as Node), label: STRANGER_CONTACT_NAME } : n
   })
 }
 

@@ -7,7 +7,7 @@ import { listOwnerRepos } from '@/lib/website/github'
 import { rankingHints, rankWebsiteRepos, WEBSITE_REPO_CHOICES } from '@/lib/website/repos'
 import { siteUrlOf } from '@/lib/website/inspect'
 import { connectWebsite, startEdit, startUndo, startWiring, type StartDeps } from '@/lib/website/start'
-import { EDIT_REQUEST_MAX } from '@/lib/website/brief'
+import { EDIT_REQUEST_MAX, SITE_FORM_HINT_MAX } from '@/lib/website/brief'
 
 /**
  * A business's website, worked on by text (roadmap track E,
@@ -20,7 +20,9 @@ import { EDIT_REQUEST_MAX } from '@/lib/website/brief'
  *                         the quote / booking / contact form and how it sends
  *                         today) and saved.
  *   wire_website_form     a pull request that makes the form also post to
- *                         the business's own intake, keeping what it does now.
+ *                         the business's own intake, keeping what it does now;
+ *                         or, with form_id, to one of its forms (a row of a
+ *                         table per entry; the form's link is replaced at merge).
  *   change_website        an edit in their words ("update the hours on the
  *                         homepage"), as a pull request.
  *   undo_website_change   GitHub's own revert of the last change, as a pull
@@ -41,7 +43,8 @@ export function createWebsiteTools(
   userId: string,
   supabase: SupabaseClient,
   workspaceId: string,
-  opts: { unattended?: boolean; remoteTurn?: boolean; deps?: StartDeps } = {},
+  /** editGrants false: a table shared with the person by an edit grant doesn't count for form_id (tables.ts's rule); default it does, since these run only on the owner's own turn. */
+  opts: { unattended?: boolean; remoteTurn?: boolean; editGrants?: boolean; deps?: StartDeps } = {},
 ) {
   const who = { userId, workspaceId }
   const unattended = { success: false, error: 'Only on the owner’s own turn: they ask for website changes themselves.' }
@@ -88,14 +91,28 @@ export function createWebsiteTools(
     wire_website_form: tool({
       description:
         "Connect the website's quote, booking or contact form to the business, so every request reaches you (and you text the owner): opens a pull request that makes the form also post to the business's own intake, keeping what it does today (an email, a form service). " +
-        'Nothing goes live until they approve: when it is ready they get a text with what changed, a preview link if their host makes one, and a code. Only after they said yes to connecting it.',
+        'Nothing goes live until they approve: when it is ready they get a text with what changed, a preview link if their host makes one, and a code. Only after they said yes to connecting it. ' +
+        'Pass form_id when they want a site form’s entries in one of their tables (make the table and the form first: create_table, create_form).',
       inputSchema: z.object({
         form_path: z.string().trim().max(300).optional().describe('The form’s file, when connect_website found several or none and they told you which page; default the best one it found'),
         replace_current: z.boolean().optional().describe('True ONLY when they asked to stop what the form does today (e.g. stop the emails): it then posts only to the business'),
+        form_id: z.string().uuid().optional().describe('One of their forms (list_forms): each entry of the site’s form becomes a row of its table, instead of a quote request'),
+        site_form: z.string().trim().max(SITE_FORM_HINT_MAX).optional().describe('Which form on the site, in their words, e.g. "the contact form on /contact"'),
       }),
-      execute: async ({ form_path, replace_current }) => {
+      execute: async ({ form_path, replace_current, form_id, site_form }) => {
         if (opts.unattended) return unattended
-        return startWiring(supabase, who, { formPath: form_path ?? null, replaceCurrent: replace_current === true }, opts.deps)
+        return startWiring(
+          supabase,
+          who,
+          {
+            formPath: form_path ?? null,
+            replaceCurrent: replace_current === true,
+            ...(form_id ? { formId: form_id } : {}),
+            ...(site_form ? { siteForm: site_form } : {}),
+            ...(form_id && opts.editGrants === false ? { editGrants: false } : {}),
+          },
+          opts.deps,
+        )
       },
     }),
 
