@@ -19,9 +19,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { macEnvironmentId } from '@/lib/environments/mac'
 import { WORKER_NOT_OFFERED_CODE, assertMacOffers } from '@/lib/environments/store'
 import { EnvironmentError, isWorkerId } from '@/lib/environments/types'
-import { CODE_CLOUD_NEXT_REASON } from './code-thread'
+import { CODE_CLOUD_NEXT_REASON, codeJobRequestBudget } from './code-thread'
 import {
   CODE_REQUEST_ID_RE,
+  LOCAL_AGENT_REQUEST_MAX_BYTES,
   LocalAgentError,
   codeJobKey,
   createSession,
@@ -35,6 +36,8 @@ type Svc = SupabaseClient
 
 /** The cloud from the Code tab comes in a later phase (details.code; the sentence is code-thread.ts's, the composer says it too). */
 export const CODE_CLOUD_NEXT_CODE = 'CODE_CLOUD_NEXT'
+/** A request too long to fit the Mac's cap beside the agent's note (details.code). */
+export const CODE_REQUEST_TOO_LONG_CODE = 'REQUEST_TOO_LONG'
 /** Code works on its own branch: the folder must be a git repository (details.code). */
 export const NOT_A_REPOSITORY_CODE = 'NOT_A_REPOSITORY'
 
@@ -54,6 +57,8 @@ export interface CodeStartInput {
   requestId: unknown
   /** The chat's environment, when the composer names it: a cloud one is refused (CODE_CLOUD_NEXT). */
   environmentId?: unknown
+  /** "Start a new job": never the folder's next turn; an idle job there ends to make room. */
+  newJob?: unknown
 }
 
 export interface CodeStartResult {
@@ -73,6 +78,16 @@ export async function startCodeJob(svc: Svc, input: CodeStartInput): Promise<Cod
     throw new LocalAgentError('bad_request', 'worker must be a coding agent’s id, or null for Native Intelligence')
   }
   if (typeof input.request !== 'string' || !input.request.trim()) throw new LocalAgentError('bad_request', 'Say what to do')
+  // The agent reads a note before the person's words (code-thread.ts): both
+  // must fit the Mac's cap, so a longer request is refused, never cut.
+  const budget = codeJobRequestBudget(input.worker, LOCAL_AGENT_REQUEST_MAX_BYTES)
+  if (new TextEncoder().encode(input.request.trim()).length > budget) {
+    throw new LocalAgentError(
+      'bad_request',
+      `That request is too long for one job: keep it under about ${budget.toLocaleString('en-US')} characters, or put the details in a file in the folder and point to it.`,
+      { code: CODE_REQUEST_TOO_LONG_CODE, maxBytes: budget },
+    )
+  }
   if (!isUuid(input.folderId)) throw new LocalAgentError('bad_request', 'folderId must be one of your folders')
   if (!isUuid(input.conversationId)) throw new LocalAgentError('bad_request', 'conversationId must be one of your chats')
   const key = codeJobKey(input.requestId)
@@ -125,6 +140,7 @@ export async function startCodeJob(svc: Svc, input: CodeStartInput): Promise<Cod
     startedBy: 'person',
     idempotencyKey: key,
     explicitWorker: input.worker,
+    ...(input.newJob === true ? { fresh: true } : {}),
   })
   return { session: started.session, created: started.created, joined: started.joined === true, deviceOnline: started.deviceOnline }
 }

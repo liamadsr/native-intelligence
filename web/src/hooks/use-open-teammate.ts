@@ -110,14 +110,16 @@ export function useOpenWorkItem(
  * chat panel rendered on its own, a test): the same opener inside
  * AgentWorkProvider, null outside it.
  */
-export function useOptionalOpenWorkItem(): ((itemId: string, teammateIds: readonly string[], known?: KnownRow | null) => OpenTeammateOutcome) | null {
+export function useOptionalOpenWorkItem(): ((itemId: string, teammateIds: readonly string[], known?: KnownRow | null) => OpenTeammateOutcome | null) | null {
   const shared = useOptionalAgentWorkShared()
   const { currentId } = useWorkspaces()
   const latest = useRef({ shared, currentId })
   latest.current = { shared, currentId }
-  const open = useCallback((itemId: string, teammateIds: readonly string[], known?: KnownRow | null): OpenTeammateOutcome => {
+  const open = useCallback((itemId: string, teammateIds: readonly string[], known?: KnownRow | null): OpenTeammateOutcome | null => {
     const { shared: s, currentId: current } = latest.current
-    const { source, nav } = latestOf({ ...s!, currentId: current })
+    // The shell went away between the render and the press: nothing to open on.
+    if (!s) return null
+    const { source, nav } = latestOf({ ...s, currentId: current })
     return openItem(itemId, teammateIds, source, nav, known)
   }, [])
   return shared ? open : null

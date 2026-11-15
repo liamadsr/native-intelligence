@@ -480,6 +480,12 @@ describe('pollIntervalFor', () => {
       await mount(sessionRow({ status: 'expired', error }), [])
       expect(q('[data-local-agent-ended]')?.textContent).toContain(words)
     }
+    // A job the person started from the Code tab: the next one starts there too, not by asking the chat agent.
+    await act(async () => root.unmount())
+    root = createRoot(container)
+    await mount(sessionRow({ status: 'expired', error: 'it sat idle for 24 hours', codeRequestId: 'req-1', startedBy: 'person' }), [])
+    expect(q('[data-local-agent-ended]')?.textContent).toContain('Start a new one from the Code tab in your chat.')
+    expect(q('[data-local-agent-ended]')?.textContent).not.toContain('Ask the Native Intelligence agent')
   })
 
   it('2 s while it works, slower while it idles, never once it ended', () => {

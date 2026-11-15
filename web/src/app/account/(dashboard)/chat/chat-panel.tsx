@@ -1674,6 +1674,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
     () => (openWorkItemHere ? (workItemId: string) => void openWorkItemHere(workItemId, []) : null),
     [openWorkItemHere],
   )
+  // A new job started from the notice's Start a new job: its words leave the box, unless the person has typed on since.
+  const clearCodeWords = useCallback((words: string) => setInput((cur) => (cur.trim() === words ? '' : cur)), [])
   const composerCode = useComposerCode({
     // The person's own main chat only (their home thread): never a capture's
     // live conversation the panel holds during a call, or anything else.
@@ -1686,6 +1688,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
     conversationIdNow: codeConversationIdNow,
     chatBusy: chatReplyRunning,
     openWorkItem: openCodeJob,
+    clearWords: clearCodeWords,
   })
   // This render's, as submitTurnRef is: a dictation's send reads the words it just merged.
   const submitCodeRef = useRef<() => boolean>(() => false)

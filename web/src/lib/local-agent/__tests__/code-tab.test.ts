@@ -11,11 +11,14 @@ import {
   codeAgentSections,
   codeBlocker,
   codeFolderOptions,
+  codeJobIdle,
+  codeJobOf,
   codeJobOpen,
   codeJobOpenLine,
   codeJobWorking,
   codeJobsOf,
   codeMacOf,
+  codeRequestExcerpt,
   codeSendTarget,
   codeThreadLayout,
   defaultCodeAgent,
@@ -150,7 +153,7 @@ describe('the folders, and why it doesn’t send', () => {
 })
 
 const job = (over: Partial<CodeJob> = {}): CodeJob => ({
-  sessionId: 's-1', requestId: 'r-1', worker: 'claude-code', folderId: 'f-1', folderLabel: 'harbor-site', deviceName: 'Studio Mac', status: 'running', trackedJobId: 'tj-1', createdAt: '2026-11-14T10:00:00Z', ...over,
+  sessionId: 's-1', requestId: 'r-1', worker: 'claude-code', folderId: 'f-1', folderLabel: 'harbor-site', deviceName: 'Studio Mac', status: 'running', trackedJobId: 'tj-1', asking: false, createdAt: '2026-11-14T10:00:00Z', ...over,
 })
 
 describe('the conversation’s jobs, and where a send goes', () => {
@@ -186,7 +189,20 @@ describe('the conversation’s jobs, and where a send goes', () => {
     // The newest open one of several.
     expect(codeSendTarget([job(), job({ sessionId: 's-2' })], 'claude-code', 'f-1')).toMatchObject({ job: { sessionId: 's-2' } })
     expect(codeJobOpenLine(job({ folderLabel: 'harbor-site' }), 'Claude Code')).toBe('Claude Code is already working in harbor-site: open it to continue.')
-    expect(codeJobOpenLine(job({ folderLabel: 'harbor-site', status: 'waiting' }), 'Claude Code')).toBe('Claude Code\'s job in harbor-site is still open: open it to continue there.')
+    expect(codeJobOpenLine(job({ folderLabel: 'harbor-site', status: 'interrupted' }), 'Claude Code')).toBe('Claude Code\'s job in harbor-site is still open: open it to continue there.')
+  })
+
+  it('working or asking refuses with Open it; idle after a finished turn offers a new job too', () => {
+    // Asking: its last turn ended on a question (the session's last signal).
+    const asking = codeJobOf({ id: 's-1', codeRequestId: 'r-1', worker: 'claude-code', folderId: 'f-1', status: 'waiting', createdAt: '2026-11-14T10:00:00Z', lastSignal: 'ask' })!
+    expect(asking.asking).toBe(true)
+    expect(codeJobIdle(asking)).toBe(false)
+    expect(codeJobOpenLine(asking, 'Claude Code')).toBe('Claude Code is waiting for your answer in that folder: open it to answer.')
+    const idle = job({ status: 'waiting', lastSignal: undefined } as Partial<CodeJob>)
+    expect(codeJobIdle(idle)).toBe(true)
+    expect(codeJobOpenLine(idle, 'Claude Code')).toBe('Claude Code finished in harbor-site, and that job is still open.')
+    expect(codeJobIdle(job())).toBe(false)
+    expect(codeJobIdle(job({ status: 'interrupted' }))).toBe(false)
   })
 })
 
@@ -205,7 +221,7 @@ describe('the thread: one compact line per job, never bubbles', () => {
       person('chat-2', null),
     ]
     const layout = codeThreadLayout(thread, jobs)
-    expect([...layout.lines]).toEqual([['code-r-1', { key: 'session:s-1', sessionId: 's-1', requestId: 'r-1', request: 'Fix the date picker' }]])
+    expect([...layout.lines]).toEqual([['code-r-1', { key: 'session:s-1', sessionId: 's-1', requestId: 'r-1', request: 'Fix the date picker', folder: null }]])
     expect([...layout.hidden].sort()).toEqual(['code-r-2', codeFinishMessageId('s-1', 1), codeFinishMessageId('s-1', 2)].sort())
     expect(threadHasCode(thread)).toBe(true)
     expect(threadHasCode([finish('s-1', 1)])).toBe(true)
@@ -217,5 +233,37 @@ describe('the thread: one compact line per job, never bubbles', () => {
     expect([...layout.lines.values()].map((l) => l.key)).toEqual(['request:r-9', 'session:s-7'])
     expect([...layout.hidden]).toEqual([codeFinishMessageId('s-7', 2)])
     expect(codeThreadLayout([person('chat-1', null)], jobs).lines.size).toBe(0)
+  })
+
+  it('a request’s row names its job: one key for all its rows whether or not the jobs list is read, with its agent, folder and an excerpt', () => {
+    const thread = [
+      person('code-r-1', { requestId: 'r-1', sessionId: 's-1', start: true, worker: 'claude-code', folder: 'harbor-site' }, 'Fix the date picker\n\non the booking page'),
+      finish('s-1', 1),
+      person('code-r-2', { requestId: 'r-2', sessionId: 's-1' }, 'And add a test'),
+    ]
+    const before = codeThreadLayout(thread, [])
+    const after = codeThreadLayout(thread, jobs)
+    for (const layout of [before, after]) {
+      expect([...layout.lines]).toEqual([
+        ['code-r-1', { key: 'session:s-1', sessionId: 's-1', requestId: 'r-1', request: 'Fix the date picker on the booking page', worker: 'claude-code', folder: 'harbor-site' }],
+      ])
+      expect([...layout.hidden].sort()).toEqual(['code-r-2', codeFinishMessageId('s-1', 1)].sort())
+    }
+    // Our own agent: worker null, named as such (not unknown).
+    const ours = codeThreadLayout([person('code-r-3', { requestId: 'r-3', sessionId: 's-3', start: true, worker: null, folder: 'notes' })], [])
+    expect(ours.lines.get('code-r-3')).toMatchObject({ worker: null, folder: 'notes' })
+    // A follow-up whose request isn't in the thread takes the line, with no excerpt (its words aren't the request).
+    const alone = codeThreadLayout([person('code-r-2', { requestId: 'r-2', sessionId: 's-1' }, 'And add a test')], [])
+    expect(alone.lines.get('code-r-2')).toEqual({ key: 'session:s-1', sessionId: 's-1', requestId: 'r-2', request: null, folder: null })
+  })
+
+  it('the excerpt: one short line, cut at a word with an ellipsis', () => {
+    expect(codeRequestExcerpt('  Fix   the\ndate picker ')).toBe('Fix the date picker')
+    const long = 'Make the booking page date picker open on the month the guest last looked at, and keep it there after a reload'
+    const cut = codeRequestExcerpt(long)
+    expect(cut.length).toBeLessThanOrEqual(80)
+    expect(cut.endsWith('…')).toBe(true)
+    expect(long.startsWith(cut.slice(0, -1))).toBe(true)
+    expect(cut.slice(0, -1).endsWith(' ')).toBe(false)
   })
 })

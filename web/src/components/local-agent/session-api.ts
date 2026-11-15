@@ -232,6 +232,8 @@ export interface CodeStartBody {
   worker: string | null
   requestId: string
   environmentId?: string
+  /** Start a new job even where this chat's idle one is open (it is ended first): the composer's Start a new job. */
+  newJob?: boolean
 }
 
 export interface CodeStarted {

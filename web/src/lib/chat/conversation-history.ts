@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isTeammateReportMessage, teammateReportTranscriptLine } from './teammate-report'
-import { codeFinishTranscriptLine, isCodeFinishMessage } from '@/lib/local-agent/code-thread'
+import { codeFinishTranscriptLine, codePersonLine, isCodeFinishMessage } from '@/lib/local-agent/code-thread'
 import { signedUploadOf } from './fresh-upload-url'
 import { wrapUntrusted } from '@/lib/email/untrusted'
 import { bareToolName as withoutMcpPrefix } from '@/lib/mcp/tool-names'
@@ -37,7 +37,9 @@ import { bareToolName as withoutMcpPrefix } from '@/lib/mcp/tool-names'
  * own-messages block leaves it out. A Code tab job's finish summary
  * (src/lib/local-agent/code-history.ts) is the person's own coding agent's
  * words, treated the same way: a labelled "Coding agent report" line with the
- * text fenced (codeFinishTranscriptLine).
+ * text fenced (codeFinishTranscriptLine). The person's own Code messages are
+ * their words, labelled as said to their coding agent (codePersonLine), so
+ * no reader takes them as a request to the chat agent.
  */
 
 /**
@@ -195,7 +197,7 @@ export async function renderConversationPrimer(
   if (!rows?.length) return null
   const lines = rows
     .map((r) => {
-      const report = reportLine(r.ui_message)
+      const report = reportLine(r.ui_message) ?? codePersonLine(r.ui_message)
       if (report) return report
       const text = renderMessageParts(r.ui_message?.parts, { uploadPaths: true })
       if (!text) return null
@@ -285,7 +287,7 @@ export async function renderHomePrimer(
   })
   const lines = rows
     .map((r) => {
-      const report = reportLine(r.ui_message)
+      const report = reportLine(r.ui_message) ?? codePersonLine(r.ui_message)
       if (report) return report
       const text = renderMessageParts(r.ui_message?.parts, { uploadPaths: true })
       if (!text) return null
@@ -488,6 +490,14 @@ export function renderClaimSourceTranscript(rows: ReadonlyArray<{ role: unknown;
       // owner chose the extraction may read it, attributed to that report):
       // it counts toward the exchange; a teammate's report never does.
       if (isCodeFinishMessage(r.ui_message)) exchangeLines += 1
+      continue
+    }
+    // The person's words to their coding agent: theirs, labelled as said to it.
+    const toCode = codePersonLine(r.ui_message)
+    if (toCode) {
+      lines.push(toCode)
+      userTurns += 1
+      exchangeLines += 1
       continue
     }
     const text = textPartsOnly(r.ui_message)

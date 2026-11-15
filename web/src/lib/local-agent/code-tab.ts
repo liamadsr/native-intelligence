@@ -24,11 +24,15 @@
  *   a send           starts a job and opens its own view (the one the
  *                    Agents panel opens: its own chat, composer, Stop and
  *                    changes). While the conversation's job on the same agent
- *                    in the same folder is still open, a send is refused with
- *                    a way to open it: follow-ups belong in its own chat.
- *                    Another folder or agent starts another job.
+ *                    in the same folder is working or waiting on the
+ *                    person's answer, a send is refused with a way to open
+ *                    it: follow-ups belong in its own chat. Idle after a
+ *                    finished turn, both ways on (open it to continue, or
+ *                    start a new job, which ends it). Another folder or agent
+ *                    starts another job.
  *   the thread       never the job itself: each job is ONE compact line
- *                    (codeThreadLayout), where its request, the follow-ups
+ *                    (codeThreadLayout: keyed by the session every row names,
+ *                    with a short excerpt of the request), where its request, the follow-ups
  *                    sent to it and its finish reports collapse. They stay
  *                    in the stored history, as the person's words and the
  *                    coding agent's fenced report, for the knowledge
@@ -209,11 +213,13 @@ export interface CodeJob {
   status: LocalAgentStatus
   /** Its current turn's ledger row: what opens its view (the Agents panel's way). */
   trackedJobId: string | null
+  /** Its agent's last turn ended on a question (ask): it waits for the person's answer. */
+  asking: boolean
   createdAt: string
 }
 
 type JobRow = Pick<SessionRow, 'id' | 'codeRequestId' | 'worker' | 'folderId' | 'status' | 'createdAt'> &
-  Partial<Pick<SessionRow, 'folderLabel' | 'deviceName' | 'trackedJobId'>>
+  Partial<Pick<SessionRow, 'folderLabel' | 'deviceName' | 'trackedJobId' | 'lastSignal'>>
 
 /** One session as a Code job, or null when it isn't one. */
 export function codeJobOf(s: JobRow): CodeJob | null {
@@ -227,6 +233,7 @@ export function codeJobOf(s: JobRow): CodeJob | null {
     deviceName: s.deviceName ?? '',
     status: s.status,
     trackedJobId: s.trackedJobId ?? null,
+    asking: s.lastSignal === 'ask',
     createdAt: s.createdAt,
   }
 }
@@ -264,6 +271,11 @@ export function codeJobWorking(status: LocalAgentStatus): boolean {
   return WORKING.has(status)
 }
 
+/** It is idle after a finished turn: open, not working, not waiting on the person's answer. */
+export function codeJobIdle(job: Pick<CodeJob, 'status' | 'asking'>): boolean {
+  return job.status === 'waiting' && !job.asking
+}
+
 /**
  * Where a send goes: a new job, unless the conversation already has an open
  * one on the same agent in the same folder (its follow-ups go in its own
@@ -277,12 +289,17 @@ export function codeSendTarget(jobs: readonly CodeJob[], agent: string | null, f
   return { kind: 'start' }
 }
 
-/** The sentence a refused second send shows, with its Open button. */
-export function codeJobOpenLine(job: Pick<CodeJob, 'status' | 'folderLabel'>, agentLabel: string): string {
+/**
+ * The sentence a send to a still-open job shows. Working or asking: the send
+ * is refused, with Open it. Idle after a finished turn: two ways on, in one
+ * line (Open it to continue, or Start a new job, which ends that one).
+ */
+export function codeJobOpenLine(job: Pick<CodeJob, 'status' | 'folderLabel' | 'asking'>, agentLabel: string): string {
   const folder = job.folderLabel || 'that folder'
-  return codeJobWorking(job.status)
-    ? `${agentLabel} is already working in ${folder}: open it to continue.`
-    : `${agentLabel}'s job in ${folder} is still open: open it to continue there.`
+  if (codeJobWorking(job.status)) return `${agentLabel} is already working in ${folder}: open it to continue.`
+  if (job.status === 'waiting' && job.asking) return `${agentLabel} is waiting for your answer in ${folder}: open it to answer.`
+  if (codeJobIdle(job)) return `${agentLabel} finished in ${folder}, and that job is still open.`
+  return `${agentLabel}'s job in ${folder} is still open: open it to continue there.`
 }
 
 /**
@@ -306,14 +323,28 @@ export function threadHasCode(messages: readonly unknown[]): boolean {
   return messages.some(isCodeRow)
 }
 
-/** A job's one line in the thread: its session when known, else the request that started it. */
+/** A job's one line in the thread: its session (the request's row names it), else the request that started it. */
 export interface CodeLine {
   /** `session:<id>` or `request:<id>`: one line per job. */
   key: string
   sessionId: string | null
   requestId: string | null
-  /** The request's words, when this row is the request (the line's title before the job is known). */
+  /** A short one-line excerpt of the request's words, when the line's row is the request; else null. */
   request: string | null
+  /** The agent and folder the request row names (undefined / null when it names none: an older row, a follow-up). */
+  worker?: string | null
+  folder: string | null
+}
+
+export const CODE_EXCERPT_MAX = 80
+
+/** The request's words as one short line: whitespace folded, cut at a word near the limit with an ellipsis. */
+export function codeRequestExcerpt(text: string, max = CODE_EXCERPT_MAX): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  if (flat.length <= max) return flat
+  const cut = flat.slice(0, max - 1)
+  const space = cut.lastIndexOf(' ')
+  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`
 }
 
 export interface CodeThreadLayout {
@@ -337,10 +368,12 @@ function textOf(message: unknown): string {
 /**
  * The thread's Code rows as one line per job, never as bubbles: the first
  * of a job's rows (its request, normally) takes the line; the rest (the
- * follow-ups sent to it, its finish reports) are hidden. A row is tied to
- * its job by the session it names, else by its request id through `jobs`;
- * a request whose job isn't known yet is still a line (its own key), never
- * a bubble to the chat agent.
+ * follow-ups sent to it, its finish reports) are hidden. Every row names its
+ * session (the request's row from the moment its start was accepted, a
+ * follow-up and a finish report always), so a job's rows share one key
+ * whether or not its jobs list has been read; only a row that names none
+ * (written before rows carried it) is tied through `jobs` by its request id,
+ * else keyed by its request: still a line, never a bubble to the chat agent.
  */
 export function codeThreadLayout(messages: readonly unknown[], jobs: readonly CodeJob[]): CodeThreadLayout {
   const byRequest = new Map(jobs.map((j) => [j.requestId, j.sessionId]))
@@ -360,7 +393,16 @@ export function codeThreadLayout(messages: readonly unknown[], jobs: readonly Co
       continue
     }
     drawn.add(key)
-    lines.set(id, { key, sessionId, requestId: meta?.requestId ?? null, request: meta && !meta.sessionId ? textOf(m) || null : null })
+    const isRequest = !!meta && (meta.start === true || !meta.sessionId)
+    const words = isRequest ? textOf(m) : ''
+    lines.set(id, {
+      key,
+      sessionId,
+      requestId: meta?.requestId ?? null,
+      request: words ? codeRequestExcerpt(words) : null,
+      ...(meta && 'worker' in meta ? { worker: meta.worker ?? null } : {}),
+      folder: meta?.folder ?? null,
+    })
   }
   return lines.size === 0 ? EMPTY_CODE_LAYOUT : { lines, hidden }
 }

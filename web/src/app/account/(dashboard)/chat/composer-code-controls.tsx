@@ -204,23 +204,24 @@ export const CODE_WORDS_ONLY_LINE = 'The coding agent gets your words only. What
 export function CodeNoticeLine({ code, staged = false }: { code: ComposerCode; staged?: boolean }) {
   const line = code.notice ?? code.blocker ?? (staged ? CODE_WORDS_ONLY_LINE : null)
   if (!line) return null
-  const action = code.notice ? code.noticeAction : null
+  const actions = code.notice ? code.noticeActions : []
   return (
     <p data-code-notice={code.notice ? 'send' : code.blocker ? 'blocker' : 'staged'} role="status" className="basis-full px-1.5 pt-0.5 text-[12px] leading-snug text-muted-foreground">
       {line}
-      {action && (
-        <>
-          {' '}
+      {actions.map((action, i) => (
+        <span key={action.id}>
+          {i === 0 ? ' ' : <span aria-hidden> · </span>}
           <button
             type="button"
-            data-code-notice-action=""
+            data-code-notice-action={action.id}
+            disabled={code.sending}
             onClick={action.run}
-            className="rounded-sm font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="rounded-sm font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
           >
             {action.label}
           </button>
-        </>
-      )}
+        </span>
+      ))}
     </p>
   )
 }

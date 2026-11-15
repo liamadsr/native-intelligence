@@ -442,7 +442,9 @@ describe('the Agents section', () => {
 
   it('a Code tab job: listed while it works and while it asks the person (needs you), named for its agent and folder; gone once it finished', () => {
     const sid = '11111111-2222-4333-8444-555555555556'
-    const code = (status: string) =>
+    // Its own question (ledger.ts's ask) is what a needs_input Code row waits on when it asks.
+    const ASK = { kind: 'input', questions: [{ id: 'local-agent-ask', question: 'Which month?' }] }
+    const code = (status: string, needs: unknown = status === 'needs_input' ? ASK : null) =>
       row({
         id: `code-${status}`,
         kind: 'local_agent',
@@ -450,7 +452,8 @@ describe('the Agents section', () => {
         agent_run_id: null,
         title: 'Claude Code on Studio Mac · harbor-site: Fix the date picker',
         source: { chat_conversation_id: CONV, local_agent_session_id: sid, local_agent_code: true, turn: 1 },
-      })
+        needs,
+      } as never)
     shared.rows = [code('running'), row({ id: 'scheduled', title: 'Weekly digest', source: {} })]
     render([])
     const working = q('[data-agent-row="code-running"]')!
@@ -475,8 +478,18 @@ describe('the Agents section', () => {
       render([])
       expect(q('[data-chat-widget="agents"]'), settled).toBeNull()
     }
-    // Another job asking the person (not a Code job) stays For you's.
-    shared.rows = [row({ id: 'asks', status: 'needs_input', kind: 'local_agent', source: { local_agent_session_id: sid } })]
+    // Parked on something that isn't its question (the Mac app closed, a message the Mac couldn't take): not listed.
+    for (const other of [
+      { kind: 'input', questions: [{ id: 'local-agent-interrupted', question: 'Your Mac app closed.' }] },
+      { kind: 'input', questions: [{ id: 'local-agent-undelivered', question: 'Your Mac couldn’t take a message.' }] },
+      null,
+    ]) {
+      shared.rows = [code('needs_input', other)]
+      render([])
+      expect(q('[data-chat-widget="agents"]'), JSON.stringify(other)).toBeNull()
+    }
+    // Another job asking the person (not a Code job), even on the same question id, stays For you's.
+    shared.rows = [row({ id: 'asks', status: 'needs_input', kind: 'local_agent', source: { local_agent_session_id: sid }, needs: ASK } as never)]
     render([])
     expect(q('[data-chat-widget="agents"]')).toBeNull()
   })

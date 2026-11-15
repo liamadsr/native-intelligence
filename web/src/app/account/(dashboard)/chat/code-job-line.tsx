@@ -11,7 +11,9 @@
  * Its state is read from the shell's shared ledger rows (AgentWorkProvider:
  * one channel for the whole app, the Agents panel's), its turn's row by the
  * session it names: no read, channel or timer of its own. Before a row is
- * there, the job as the chat's list last read it.
+ * there, the job as the chat's list last read it; before the list holds
+ * the job, what its request's row names (the agent, the folder, the
+ * session, a short excerpt of the words), so it draws and opens at once.
  */
 import { memo } from 'react'
 import { CheckCircle2, ChevronRight, CircleSlash, Laptop, Loader2, MessageCircleQuestion, XCircle } from 'lucide-react'
@@ -98,44 +100,92 @@ function StateMark({ state }: { state: CodeLineState }) {
   return <CheckCircle2 aria-hidden className={cn(cls, 'text-emerald-600 dark:text-emerald-400')} />
 }
 
-export const CodeJobLine = memo(function CodeJobLine({
+/**
+ * The line. Reading the shared rows re-renders this wrapper on every ledger
+ * push (a context has no per-row subscription); it only picks its own turn's
+ * row, and the drawn line (CodeJobLineView, memoized on plain values) renders
+ * again only when its own row, job or words change.
+ */
+export function CodeJobLine({
   line,
   job,
   onOpen,
 }: {
   line: CodeLine
-  /** The job, as the chat's list read it (null until it is known). */
+  /** The job, as the chat's list read it (null until it is known, or when the list doesn't hold it). */
   job: CodeJob | null
-  /** Open its view by its turn's ledger row (the Agents panel's way); absent outside the shell. */
-  onOpen?: (workItemId: string, job: CodeJob | null) => void
+  /**
+   * Open its view: by its turn's ledger row when the line knows it (the
+   * Agents panel's way), else by its session (one read names the row).
+   * Absent outside the shell.
+   */
+  onOpen?: (workItemId: string | null, sessionId: string | null) => void
 }) {
   const rows = useOptionalAgentWork()?.work.rows as readonly TurnRow[] | null | undefined
   const sessionId = line.sessionId ?? job?.sessionId ?? null
   const row = codeTurnRowOf(rows, sessionId)
   const state = codeLineState(row, job)
-  const agent = job ? (job.worker ? workerLabel(job.worker) : NATIVE_WORKER_LABEL) : 'Coding agent'
-  const folder = job?.folderLabel || null
-  const target = row?.id ?? job?.trackedJobId ?? null
-  const title = folder ? `${agent} in ${folder}` : agent
+  // The agent and folder: the job's when it is known, else what the request's row names.
+  const worker = job ? job.worker : line.worker
+  const agent = worker === undefined ? 'Coding agent' : worker ? workerLabel(worker) : NATIVE_WORKER_LABEL
+  const folder = job?.folderLabel || line.folder || null
   return (
-    <div data-code-line={sessionId ?? line.key} data-code-line-state={state} className="flex min-w-0 justify-start py-1">
+    <CodeJobLineView
+      lineKey={line.key}
+      sessionId={sessionId}
+      state={state}
+      title={folder ? `${agent} in ${folder}` : agent}
+      excerpt={line.request}
+      workItemId={row?.id ?? job?.trackedJobId ?? null}
+      onOpen={onOpen}
+    />
+  )
+}
+
+const CodeJobLineView = memo(function CodeJobLineView({
+  lineKey,
+  sessionId,
+  state,
+  title,
+  excerpt,
+  workItemId,
+  onOpen,
+}: {
+  lineKey: string
+  sessionId: string | null
+  state: CodeLineState
+  title: string
+  excerpt: string | null
+  workItemId: string | null
+  onOpen?: (workItemId: string | null, sessionId: string | null) => void
+}) {
+  const canOpen = !!onOpen && (!!workItemId || !!sessionId)
+  return (
+    <div data-code-line={sessionId ?? lineKey} data-code-line-state={state} className="flex min-w-0 justify-start py-1">
       <button
         type="button"
-        disabled={!target || !onOpen}
-        onClick={() => target && onOpen?.(target, job)}
-        aria-label={`${title}: ${STATE_TEXT[state]}. Open its chat`}
-        title="Open its chat"
+        disabled={!canOpen}
+        onClick={() => canOpen && onOpen?.(workItemId, sessionId)}
+        aria-label={`${title}${excerpt ? `: ${excerpt}` : ''}. ${STATE_TEXT[state]}. Open its chat`}
+        title={excerpt ? `${excerpt}\nOpen its chat` : 'Open its chat'}
         className="group flex min-w-0 max-w-full items-center gap-2.5 rounded-full border border-border/70 bg-muted/40 py-1.5 pl-2.5 pr-2 text-left text-[13px] transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:hover:bg-muted/40 motion-reduce:transition-none dark:bg-white/[0.04]"
       >
         <Laptop aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
         <span data-code-line-title="" className="min-w-0 truncate font-medium text-foreground">
           {title}
         </span>
-        <span className="flex shrink-0 items-center gap-1 text-[12px] text-muted-foreground">
+        {excerpt && (
+          <span data-code-line-excerpt="" className="hidden min-w-0 flex-[1_1_0%] truncate text-muted-foreground sm:inline">
+            {excerpt}
+          </span>
+        )}
+        <span className="flex min-w-0 items-center gap-1 text-[12px] text-muted-foreground">
           <StateMark state={state} />
-          <span data-code-line-status="">{STATE_TEXT[state]}</span>
+          <span data-code-line-status="" className="truncate">
+            {STATE_TEXT[state]}
+          </span>
         </span>
-        {target && onOpen && (
+        {canOpen && (
           <span className="flex shrink-0 items-center text-[12px] text-muted-foreground group-hover:text-foreground">
             Open
             <ChevronRight aria-hidden className="size-3.5" />

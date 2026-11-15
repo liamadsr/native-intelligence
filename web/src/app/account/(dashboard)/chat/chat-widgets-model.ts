@@ -30,6 +30,7 @@ import { PLAN_STALE_MS, PLAN_STALE_TURNS, planHasOpenSteps, planStepsFrom, type 
 import { WORK_LANE_LABELS } from '@/lib/work/agent-work-lanes'
 import { isOwnerFallback } from '@/lib/work/bot-owner'
 import { localAgentSessionIdOf } from '@/lib/local-agent/transcript-view'
+import { LOCAL_AGENT_ASK_ID } from '@/lib/local-agent/code-thread'
 import { helpersRowModel, type HelperRowStatus } from './helpers-row'
 
 // ── Plan ─────────────────────────────────────────────────────────────────────
@@ -151,6 +152,8 @@ export interface AgentWidgetRow {
   title?: string | null
   current_step?: string | null
   teammate?: { name?: string | null } | null
+  /** What a row waiting on the person waits on (the light read carries it). */
+  needs?: unknown
 }
 
 /** Working now: nobody's turn but the agents' (never a row waiting on the person: For you shows those). */
@@ -167,13 +170,19 @@ export function isRunningAgentRow(row: Pick<AgentWidgetRow, 'kind' | 'status'>):
 }
 
 /**
- * A Code tab job's turn asking the person (`needs_input`, its ledger row's
- * source says `local_agent_code`): the Agents panel keeps it, with its
- * needs-you state, since its own chat is where the person answers it (it has
- * no teammate report or For you card).
+ * A Code tab job's turn asking the person (`needs_input` on its own
+ * question, LOCAL_AGENT_ASK_ID; its ledger row's source says
+ * `local_agent_code`): the Agents panel keeps it, with its needs-you state,
+ * since its own chat is where the person answers it (it has no teammate
+ * report or For you card). An interrupted Mac or an undelivered message is
+ * not a question: those stay out, as before. A question nobody answered
+ * settles when its session is reaped (store.ts reapStaleSessions, daily).
  */
-export function isAskingCodeRow(row: Pick<AgentWidgetRow, 'kind' | 'status' | 'source'>): boolean {
-  return row.kind === 'local_agent' && row.status === 'needs_input' && row.source?.local_agent_code === true
+export function isAskingCodeRow(row: Pick<AgentWidgetRow, 'kind' | 'status' | 'source' | 'needs'>): boolean {
+  if (row.kind !== 'local_agent' || row.status !== 'needs_input' || row.source?.local_agent_code !== true) return false
+  // Only its own question (ledger.ts's ask), never an interrupted Mac or a message it couldn't take.
+  const needs = row.needs as { kind?: unknown; questions?: unknown } | null | undefined
+  return needs?.kind === 'input' && Array.isArray(needs.questions) && needs.questions.some((q) => !!q && typeof q === 'object' && (q as { id?: unknown }).id === LOCAL_AGENT_ASK_ID)
 }
 
 /** Whether a row is this conversation's (a helper it started). */

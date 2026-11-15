@@ -125,10 +125,10 @@ describe('what the knowledge extraction reads of it', () => {
     const person = (id: string, text: string) => ({ role: 'user', ui_message: { id, role: 'user', parts: [{ type: 'text', text }], metadata: { local_agent_code: { requestId: id } } } })
     const rows = [person('r1', 'The date picker forgets the month'), finishes[0], person('r2', 'Add a test for it'), finishes[1]]
     const { lines, userTurns, exchangeLines } = renderClaimSourceTranscript(rows)
-    // The person's words as theirs; the coding agent's as its own fenced, labelled line, never the assistant's.
-    expect(lines[0]).toBe('User: The date picker forgets the month')
+    // The person's words as theirs, labelled as said to their coding agent; the coding agent's as its own fenced, labelled line, never the assistant's.
+    expect(lines[0]).toBe('The person, to their coding agent (not to you): The date picker forgets the month')
     expect(lines[1]).toMatch(/^Coding agent report \(written by the person's own coding agent.*<teammate-text>Fixed the date picker\.<\/teammate-text>$/)
-    expect(lines[2]).toBe('User: Add a test for it')
+    expect(lines[2]).toBe('The person, to their coding agent (not to you): Add a test for it')
     expect(lines[3]).toMatch(/<teammate-text>Added a test for the month\.<\/teammate-text>$/)
     expect(lines.some((l) => l.startsWith('Assistant:'))).toBe(false)
     expect(userTurns).toBe(2)

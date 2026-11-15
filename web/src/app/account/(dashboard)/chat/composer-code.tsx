@@ -16,10 +16,14 @@
  *           Agents panel's way: useOptionalOpenWorkItem), and one compact
  *           line in the thread for it. The request is saved in the
  *           conversation as the person's words (the knowledge extraction
- *           reads it) but drawn only as that line. While the conversation's
- *           job on the same agent in the same folder is still open, a send
- *           is refused with a button that opens it: follow-ups belong in its
- *           own chat. A refusal keeps the words in the box and says why.
+ *           reads it) but drawn only as that line; its row names the job's
+ *           session, agent and folder, so the line never waits on a read.
+ *           While the conversation's job on the same agent in the same
+ *           folder is working or waiting on the person's answer, a send is
+ *           refused with Open it: follow-ups belong in its own chat. Idle
+ *           after a finished turn, the line offers both: Open it to continue,
+ *           or Start a new job (which ends the idle one). A refusal keeps the
+ *           words in the box and says why.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { UIMessage } from '@ai-sdk/react'
@@ -35,6 +39,7 @@ import {
   codeAgentSections,
   codeBlocker,
   codeFolderOptions,
+  codeJobIdle,
   codeJobOf,
   codeJobOpen,
   codeJobOpenLine,
@@ -88,8 +93,8 @@ export interface ComposerCode {
   blocker: string | null
   /** What the last send came back with (a refusal, an offline Mac), until the next one; null when nothing. */
   notice: string | null
-  /** The notice's button (a refused second send: open the job that holds that folder), or null. */
-  noticeAction: { label: string; run: () => void } | null
+  /** The notice's buttons (a refused second send: open the job that holds that folder; idle: or start a new one); empty when none. */
+  noticeActions: ReadonlyArray<{ id: 'open' | 'new'; label: string; run: () => void }>
   sending: boolean
 }
 
@@ -114,6 +119,8 @@ export interface UseComposerCodeOptions {
   chatBusy: () => boolean
   /** Open a job's own view by its turn's ledger row (useOptionalOpenWorkItem); null outside the shell. */
   openWorkItem: ((workItemId: string) => void) | null
+  /** A send made from the notice's Start a new job: take these words out of the box (when they are still what it holds). */
+  clearWords?: (words: string) => void
 }
 
 export interface ComposerCodeResult {
@@ -185,8 +192,12 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
   // ── The conversation's choice and jobs ────────────────────────────────────
   const [choice, setChoice] = useState<CodeTabChoice | null>(null)
   const [jobs, setJobs] = useState<CodeJob[]>([])
-  const [notice, setNoticeState] = useState<{ text: string; open: CodeJob | null } | null>(null)
-  const setNotice = useCallback((text: string | null, open: CodeJob | null = null) => setNoticeState(text ? { text, open } : null), [])
+  /** The notice: its line, the job it can open, and (idle after a finished turn) the words a new job would start with. */
+  const [notice, setNoticeState] = useState<{ text: string; open: CodeJob | null; words: string | null } | null>(null)
+  const setNotice = useCallback(
+    (text: string | null, open: CodeJob | null = null, words: string | null = null) => setNoticeState(text ? { text, open, words } : null),
+    [],
+  )
   const [sending, setSending] = useState(false)
   const keyRef = useRef(conversationId)
   // Another conversation: its own choice and jobs. A new chat's first save
@@ -259,16 +270,30 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
     })
   }, [])
 
-  // Open a job's own view (the Agents panel's way), by its turn's ledger row.
+  // Open a job's own view (the Agents panel's way), by its turn's ledger row;
+  // with none to hand (the list not read yet, or it doesn't hold the job),
+  // by the job's session: one read of it names its current turn's row.
   const openRef = useRef(opts.openWorkItem)
   openRef.current = opts.openWorkItem
-  const openJob = useCallback((workItemId: string | null) => {
-    if (workItemId) openRef.current?.(workItemId)
+  const openJob = useCallback((workItemId: string | null, sessionId: string | null = null) => {
+    if (workItemId) {
+      openRef.current?.(workItemId)
+      return
+    }
+    if (!sessionId || !openRef.current) return
+    void fetchSessionPage(sessionId, Number.MAX_SAFE_INTEGER).then((read) => {
+      if (!read.ok) return
+      const job = codeJobOf(read.value.session)
+      if (job) setJobs((held) => withCodeJob(held, job))
+      const row = read.value.session.trackedJobId
+      if (row) openRef.current?.(row)
+    })
   }, [])
 
   // ── The send ──────────────────────────────────────────────────────────────
   const agentLabel = codeAgentLabel(agent, agents)
-  const live = { active, blocker, agent, agentLabel, folderId, mac, jobs, chatEnv: chat.environment }
+  const folderLabel = folderOptions.find((o) => o.id === folderId)?.label ?? null
+  const live = { active, blocker, agent, agentLabel, folderId, folderLabel, mac, jobs, chatEnv: chat.environment }
   const liveRef = useRef(live)
   liveRef.current = live
   const optsRef = useRef(opts)
@@ -276,11 +301,11 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
   // One send at a time, held from before its first await (state would only
   // say so on the next render: a second Enter in between would send twice).
   const inFlightRef = useRef(false)
-  const submit = useCallback(
-    async (text: string): Promise<boolean> => {
+  /** One send: a new job (`newJob`: the idle one in that folder is ended first, the server's way). */
+  const send = useCallback(
+    async (words: string, newJob: boolean): Promise<boolean> => {
       const now = liveRef.current
       const { appendMessage, conversationIdNow, chatBusy } = optsRef.current
-      const words = text.trim()
       if (!now.active || !words || inFlightRef.current) return false
       if (now.blocker) {
         setNotice(now.blocker)
@@ -297,15 +322,17 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
       try {
         // The conversation's job on this agent in this folder is still open:
         // follow-ups go in its own chat. Read it once to be sure it hasn't
-        // ended (an idle job expires on its own), then refuse with Open.
+        // ended (an idle job expires on its own), then refuse with Open it,
+        // or, idle after a finished turn, offer a new job too. A read that
+        // fails refuses on what was known: the words stay in the box.
         const target = codeSendTarget(now.jobs, now.agent, now.folderId)
-        if (target.kind === 'open') {
+        if (target.kind === 'open' && !newJob) {
           const read = await fetchSessionPage(target.job.sessionId, Number.MAX_SAFE_INTEGER)
           const fresh = read.ok ? codeJobOf(read.value.session) : null
           if (fresh) setJobs((held) => withCodeJob(held, fresh))
           const still = fresh ?? target.job
           if (codeJobOpen(still.status)) {
-            setNotice(codeJobOpenLine(still, now.agentLabel), still)
+            setNotice(codeJobOpenLine(still, now.agentLabel), still, codeJobIdle(still) ? words : null)
             return false
           }
         }
@@ -323,19 +350,31 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
           worker: now.agent,
           requestId,
           ...(now.chatEnv ? { environmentId: now.chatEnv.id } : {}),
+          ...(newJob ? { newJob: true } : {}),
         })
         if (!started.ok) {
           setNotice(started.message)
           return false
         }
-        const job = codeJobOf(started.value.session)
+        const session = started.value.session
+        const job = codeJobOf(session)
         if (job) setJobs((held) => withCodeJob(held, job))
-        // It went to a job of this chat that was working there already (two
-        // sends at once): the message is that job's next turn, in its line.
-        const joinedOther = started.value.session.codeRequestId !== requestId
-        appendMessage(codeUserMessage(words, joinedOther ? { requestId, sessionId: started.value.session.id } : { requestId }))
+        // The row names its job from the start (the line never waits on a
+        // read, and a job's rows never split into two lines). It went to a
+        // job of this chat that was working there already (two sends at
+        // once): the message is that job's next turn, in its line.
+        const joinedOther = session.codeRequestId !== requestId
+        const folder = session.folderLabel || now.folderLabel || undefined
+        appendMessage(
+          codeUserMessage(
+            words,
+            joinedOther
+              ? { requestId, sessionId: session.id }
+              : { requestId, sessionId: session.id, start: true, worker: now.agent, ...(folder ? { folder } : {}) },
+          ),
+        )
         // The person lands in the job's own chat.
-        openJob(started.value.session.trackedJobId ?? null)
+        openJob(session.trackedJobId ?? null, session.id)
         if (!started.value.deviceOnline) {
           setNotice(`${now.mac?.name || 'Your Mac'} is offline: this waits up to 6 hours for it to come online, then expires.`)
         }
@@ -349,23 +388,36 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
     },
     [openJob, setNotice],
   )
+  const submit = useCallback((text: string) => send(text.trim(), false), [send])
+  const startNew = useCallback(
+    (words: string) => {
+      void send(words, true).then((sent) => {
+        if (sent) optsRef.current.clearWords?.(words)
+      })
+    },
+    [send],
+  )
 
   const layout = useMemo(() => (hasCode ? codeThreadLayout(messages, jobs) : EMPTY_CODE_LAYOUT), [hasCode, messages, jobs])
   const canOpen = !!opts.openWorkItem
+  const onOpenLine = useCallback((workItemId: string | null, sessionId: string | null) => openJob(workItemId, sessionId), [openJob])
   const renderLine = useCallback(
     (line: CodeLine) => {
       const job = jobs.find((j) => j.sessionId === line.sessionId || (!!line.requestId && j.requestId === line.requestId)) ?? null
-      return <CodeJobLine line={line} job={job} {...(canOpen ? { onOpen: (id: string) => openJob(id) } : {})} />
+      return <CodeJobLine line={line} job={job} {...(canOpen ? { onOpen: onOpenLine } : {})} />
     },
-    [jobs, canOpen, openJob],
+    [jobs, canOpen, onOpenLine],
   )
   const thread = useMemo<CodeThread | null>(() => (layout.lines.size ? { layout, renderLine } : null), [layout, renderLine])
 
   const noticeJob = notice?.open ?? null
-  const noticeAction = useMemo(
-    () => (noticeJob?.trackedJobId && canOpen ? { label: 'Open it', run: () => openJob(noticeJob.trackedJobId) } : null),
-    [noticeJob, canOpen, openJob],
-  )
+  const noticeWords = notice?.words ?? null
+  const noticeActions = useMemo<ComposerCode['noticeActions']>(() => {
+    const out: Array<ComposerCode['noticeActions'][number]> = []
+    if (noticeJob && canOpen) out.push({ id: 'open', label: noticeWords ? 'Open it to continue' : 'Open it', run: () => openJob(noticeJob.trackedJobId, noticeJob.sessionId) })
+    if (noticeJob && noticeWords) out.push({ id: 'new', label: 'Start a new job', run: () => startNew(noticeWords) })
+    return out
+  }, [noticeJob, noticeWords, canOpen, openJob, startNew])
   const code = useMemo<ComposerCode | null>(
     () =>
       available
@@ -385,11 +437,11 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
             addFolder,
             blocker,
             notice: notice?.text ?? null,
-            noticeAction,
+            noticeActions,
             sending,
           }
         : null,
-    [available, tab, setTab, agents, agent, agentLabel, pickAgent, mac, folderOptions, folderId, pickFolder, folders.canPick, addFolder, blocker, notice, noticeAction, sending],
+    [available, tab, setTab, agents, agent, agentLabel, pickAgent, mac, folderOptions, folderId, pickFolder, folders.canPick, addFolder, blocker, notice, noticeActions, sending],
   )
 
   return { available, active: available && active, code, submit, thread }

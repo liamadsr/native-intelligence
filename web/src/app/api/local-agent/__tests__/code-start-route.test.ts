@@ -45,9 +45,10 @@ vi.mock('@/lib/local-agent/ledger', async (orig) => ({ ...(await orig<typeof imp
 
 import { POST } from '../sessions/route'
 import { POST as messagePOST } from '../sessions/[id]/messages/route'
-import { createSession } from '@/lib/local-agent/store'
+import { IDLE_TTL_MS, createSession, reapStaleSessions } from '@/lib/local-agent/store'
 import { claimSession, ingestEvents } from '@/lib/local-agent/device'
-import { CODE_JOB_MANAGER_NOTE } from '@/lib/local-agent/code-thread'
+import { CODE_JOB_MANAGER_NOTE, CODE_JOB_OWN_AGENT_NOTE, CODE_JOB_REQUEST_PREFIX, codeJobRequestBudget } from '@/lib/local-agent/code-thread'
+import { LOCAL_AGENT_REQUEST_MAX_BYTES } from '@/lib/local-agent/store'
 import { CONV, DEVICE, FOLDER, OTHER, USER, WS, seeded, type FakeDb } from '@/lib/local-agent/__tests__/fake-db'
 
 const MAC_ENV = '99999999-9999-4999-8999-999999999911'
@@ -225,6 +226,43 @@ describe('what it starts', () => {
     expect(ledger.startTurnRow).toHaveBeenCalledTimes(1)
   })
 
+  it('a request too long to fit beside the agent’s note: 400 (details REQUEST_TOO_LONG), saying how long it may be; nothing started', async () => {
+    const budget = codeJobRequestBudget('claude-code', LOCAL_AGENT_REQUEST_MAX_BYTES)
+    const res = await send({ request: 'a'.repeat(budget + 1) })
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body).toMatchObject({ code: 'BAD_REQUEST', details: { code: 'REQUEST_TOO_LONG', maxBytes: budget } })
+    expect(body.error).toBe(`That request is too long for one job: keep it under about ${budget.toLocaleString('en-US')} characters, or put the details in a file in the folder and point to it.`)
+    expect(sessions()).toHaveLength(0)
+    // Exactly the budget fits, and the claim is not cut.
+    const { session } = await (await send({ request: 'a'.repeat(budget) })).json()
+    const claim = await claimSession(db as never, USER, session.id, { deviceId: DEVICE, runId: 'run-1', workers: true })
+    expect(claim!.request).not.toContain('[cut to fit]')
+    expect(new TextEncoder().encode(claim!.request).length).toBeLessThanOrEqual(LOCAL_AGENT_REQUEST_MAX_BYTES)
+  })
+
+  it('Start a new job (newJob): the idle job there ends and a new one starts, never its next turn', async () => {
+    const first = await (await send()).json()
+    sessions()[0].status = 'waiting'
+    const res = await send({ requestId: 'req-2', request: 'Now the time picker', newJob: true })
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body).toMatchObject({ created: true, joined: false, session: { codeRequestId: 'req-2' } })
+    expect(body.session.id).not.toBe(first.session.id)
+    expect(sessions().find((r) => r.id === first.session.id)!.status).toBe('cancelled')
+    // Without it, a send to that (now new, idle) job would have been refused by the composer, not joined here.
+  })
+
+  it('Start a new job while that job works: refused (FOLDER_BUSY), the working job untouched', async () => {
+    await send()
+    sessions()[0].status = 'running'
+    const res = await send({ requestId: 'req-2', request: 'Now the time picker', newJob: true })
+    expect(res.status).toBe(409)
+    expect((await res.json()).code).toBe('FOLDER_BUSY')
+    expect(sessions()).toHaveLength(1)
+    expect(sessions()[0].status).toBe('running')
+  })
+
   it('a second send while that job works in that folder for this chat, on that agent, is its next turn', async () => {
     const first = await (await send()).json()
     sessions()[0].status = 'running'
@@ -296,6 +334,18 @@ describe('a Code job’s agent knows its manager is the person, and its question
     expect(sessions()[0].request).toBe('Fix the date picker on the booking page')
   })
 
+  it('Native Intelligence’s own agent (worker null) gets its own note: the person in its own words, a question in the finish summary, no manager tools', async () => {
+    const { session } = await (await send({ worker: null })).json()
+    const claim = await claimSession(db as never, USER, session.id, { deviceId: DEVICE, runId: 'run-1', workers: true })
+    expect(claim!.request.startsWith(CODE_JOB_OWN_AGENT_NOTE)).toBe(true)
+    expect(claim!.request).not.toContain(CODE_JOB_MANAGER_NOTE)
+    expect(claim!.request).toContain('put your question in your `finish` summary and call `finish` as always')
+    // None of the coding agent's manager tools, and never told it isn't itself.
+    for (const word of ['ask_manager', '`report`', 'without calling `finish`', 'Never write that you asked']) expect(claim!.request).not.toContain(word)
+    expect(claim!.request).not.toMatch(/not the Native Intelligence agent/i)
+    expect(claim!.request.endsWith(`${CODE_JOB_REQUEST_PREFIX} Fix the date picker on the booking page`)).toBe(true)
+  })
+
   it('a job the chat agent started is claimed with its request as it was', async () => {
     const { session } = await createSession(db as never, { userId: USER, workspaceId: WS, folderId: FOLDER, conversationId: OTHER_CONV, request: 'Tidy the README', mode: 'edit', startedBy: 'agent' })
     expect((await claimSession(db as never, USER, session.id, { deviceId: DEVICE, runId: 'run-1' }))!.request).toBe('Tidy the README')
@@ -313,5 +363,24 @@ describe('a Code job’s agent knows its manager is the person, and its question
     expect(ledger.moveTurn.mock.calls.map((c) => (c[2] as { type: string }).type)).toContain('ask')
     expect(history.rows).toEqual([])
     expect(sent.some((e) => e.name === 'home/turn.requested')).toBe(false)
+  })
+
+  it('a question nobody answered ends with its job: the daily sweep expires it and settles its turn, no polling', async () => {
+    const { session } = await (await send()).json()
+    await claimSession(db as never, USER, session.id, { deviceId: DEVICE, runId: 'run-1', workers: true })
+    const ev = (seq: number, event: Record<string, unknown>) => ({ seq, event: event as { kind: string } })
+    await ingestEvents(db as never, USER, session.id, {
+      runId: 'run-1',
+      events: [ev(0, { kind: 'status', status: 'running' }), ev(1, { kind: 'ask', question: 'Which month?' }), ev(2, { kind: 'status', status: 'waiting' })],
+    })
+    ledger.moveTurn.mockClear()
+    const asked = Date.parse(sessions()[0].updated_at as string)
+    // Not yet past the idle time: nothing.
+    expect(await reapStaleSessions(db as never, asked + IDLE_TTL_MS - 60_000)).toEqual({ reaped: 0, ok: true })
+    expect(sessions()[0].status).toBe('waiting')
+    expect(await reapStaleSessions(db as never, asked + IDLE_TTL_MS + 60_000)).toEqual({ reaped: 1, ok: true })
+    expect(sessions()[0].status).toBe('expired')
+    // Its asking turn row settles (the Agents panel stops listing it as needing an answer).
+    expect(ledger.moveTurn.mock.calls.map((c) => (c[2] as { type: string }).type)).toEqual(['fail'])
   })
 })

@@ -751,7 +751,7 @@ export async function claimSession(
     grantId: row.folder.grant_id,
     mode: row.mode,
     // A Code job's agent learns its manager is the person (code-thread.ts); the stored request stays theirs alone.
-    request: isCodeJob(row) ? codeJobClaimRequest(row.request, LOCAL_AGENT_REQUEST_MAX_BYTES) : row.request,
+    request: isCodeJob(row) ? codeJobClaimRequest(row.request, isWorkerId(row.worker) ? row.worker : null, LOCAL_AGENT_REQUEST_MAX_BYTES) : row.request,
     resume: resumeOf(row),
     localModel,
     baseBranch: claimBaseBranch(row),

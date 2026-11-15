@@ -93,6 +93,7 @@ function Host({ initial = [] as UIMessage[], layout = 'inline' as 'inline' | 'st
     conversationIdNow: async () => hostOpts.conversation,
     chatBusy: () => false,
     openWorkItem: (id: string) => void opened.push(id),
+    clearWords: (words) => setValue((cur) => (cur.trim() === words ? '' : cur)),
   })
   // What the host holds, for the tests to read after each act().
   useEffect(() => {
@@ -253,7 +254,12 @@ describe('the Code tab', () => {
     expect(start.body).toMatchObject({ conversationId: CONV, folderId: 'f-site', request: 'Fix the date picker on the booking page', worker: 'claude-code', environmentId: 'env-studio' })
     const requestId = (start.body as { requestId: string }).requestId
     expect(host.messages).toHaveLength(1)
-    expect(host.messages[0]).toMatchObject({ id: `code-${requestId}`, role: 'user', metadata: { local_agent_code: { requestId } } })
+    // The row names its job, agent and folder from the start: its line never waits on a read.
+    expect(host.messages[0]).toMatchObject({
+      id: `code-${requestId}`,
+      role: 'user',
+      metadata: { local_agent_code: { requestId, sessionId: 'sess-1', start: true, worker: 'claude-code', folder: 'harbor-site' } },
+    })
     expect(host.value).toBe('')
     expect(JSON.parse(localStorage.getItem(`${CODE_TAB_STORAGE_PREFIX}${CONV}`)!)).toEqual({ tab: 'code', agent: 'claude-code', folderId: 'f-site' })
     // The person lands in the job's own chat: opened by its turn's ledger row.
@@ -263,7 +269,9 @@ describe('the Code tab', () => {
     expect(row.getAttribute('data-message-role')).toBe('code')
     expect(row.querySelector('[data-code-line-title]')!.textContent).toBe('Claude Code in harbor-site')
     expect(row.querySelector('[data-code-line-status]')!.textContent).toBe('Starting')
-    expect(row.textContent).not.toContain('Fix the date picker')
+    // A short excerpt of the request, on the line itself (no bubble with the words).
+    expect(row.querySelector('[data-code-line-excerpt]')!.textContent).toBe('Fix the date picker on the booking page')
+    expect(row.querySelector('[data-message-role="user"]')).toBeNull()
     press(row.querySelector('button')!)
     expect(opened).toEqual(['tj-1', 'tj-1'])
   })
@@ -337,7 +345,9 @@ describe('the Code tab', () => {
     expect(host.messages).toHaveLength(1)
     const notice = q('[data-code-notice="send"]')!
     expect(notice.textContent).toContain('Claude Code is already working in harbor-site: open it to continue.')
-    press(q('[data-code-notice-action]')!)
+    // Working: Open it, and nothing else (no new job beside a working one).
+    expect([...notice.querySelectorAll('[data-code-notice-action]')].map((b) => b.textContent)).toEqual(['Open it'])
+    press(q('[data-code-notice-action="open"]')!)
     expect(opened.at(-1)).toBe('tj-1')
     // Another folder: another job.
     await openMenu('[data-code-folder-picker]')
@@ -346,6 +356,143 @@ describe('the Code tab', () => {
     type('Bump the API client')
     await send()
     expect(started).toBe(2)
+  })
+
+  it('a second send while it asks the person: refused with Open it to answer, no new job offered', async () => {
+    let started = 0
+    await mount({
+      list: [STUDIO],
+      chatEnv: STUDIO,
+      routes: [
+        { url: '/api/local-agent/sessions/sess-1', reply: () => json({ session: session({ status: 'waiting', lastSignal: 'ask', codeRequestId: 'req-1' }), events: [], lastId: 0 }) },
+        { method: 'POST', url: '/api/local-agent/sessions', reply: (body) => json({ session: session({ id: `sess-${++started}`, status: 'running', codeRequestId: (body as { requestId: string }).requestId }), created: true, joined: false, deviceOnline: true }, 201) },
+      ],
+    })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    type('Fix the date picker')
+    await send()
+    type('Today’s month')
+    await send()
+    expect(started).toBe(1)
+    expect(host.value).toBe('Today’s month')
+    const notice = q('[data-code-notice="send"]')!
+    expect(notice.textContent).toContain('Claude Code is waiting for your answer in harbor-site: open it to answer.')
+    expect([...notice.querySelectorAll('[data-code-notice-action]')].map((b) => b.getAttribute('data-code-notice-action'))).toEqual(['open'])
+  })
+
+  it('a second send while it is idle after a finished turn: one line, Open it to continue or Start a new job (which ends the idle one)', async () => {
+    let started = 0
+    await mount({
+      list: [STUDIO],
+      chatEnv: STUDIO,
+      routes: [
+        { url: '/api/local-agent/sessions/sess-1', reply: () => json({ session: session({ status: 'waiting', lastSignal: 'finish', codeRequestId: 'req-1' }), events: [], lastId: 0 }) },
+        {
+          method: 'POST',
+          url: '/api/local-agent/sessions',
+          reply: (body) => json({ session: session({ id: `sess-${++started}`, trackedJobId: `tj-${started}`, status: 'queued', codeRequestId: (body as { requestId: string }).requestId }), created: true, joined: false, deviceOnline: true }, 201),
+        },
+      ],
+    })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    type('Fix the date picker')
+    await send()
+    expect(started).toBe(1)
+    type('Now the time picker')
+    await send()
+    expect(started).toBe(1)
+    expect(host.value).toBe('Now the time picker')
+    const notice = q('[data-code-notice="send"]')!
+    expect(notice.textContent).toContain('Claude Code finished in harbor-site, and that job is still open.')
+    expect([...notice.querySelectorAll('[data-code-notice-action]')].map((b) => b.textContent)).toEqual(['Open it to continue', 'Start a new job'])
+    // Open it to continue: its own chat.
+    press(q('[data-code-notice-action="open"]')!)
+    expect(opened.at(-1)).toBe('tj-1')
+    // Start a new job: the server ends the idle one (newJob), the new one opens, the words leave the box.
+    press(q('[data-code-notice-action="new"]')!)
+    await flush()
+    expect(started).toBe(2)
+    expect(posts().filter((c) => c.url === '/api/local-agent/sessions').at(-1)!.body).toMatchObject({ request: 'Now the time picker', newJob: true })
+    expect(host.value).toBe('')
+    expect(host.messages).toHaveLength(2)
+    expect(opened.at(-1)).toBe('tj-2')
+    expect(q('[data-code-notice="send"]')).toBeNull()
+    // Two jobs, two lines.
+    expect(document.querySelectorAll('[data-code-line]')).toHaveLength(2)
+  })
+
+  it('a re-check that fails refuses on what was known: the words stay, nothing is sent, Open it still opens', async () => {
+    let started = 0
+    await mount({
+      list: [STUDIO],
+      chatEnv: STUDIO,
+      routes: [
+        { url: '/api/local-agent/sessions/sess-1', reply: () => json({ error: 'down' }, 500) },
+        { method: 'POST', url: '/api/local-agent/sessions', reply: (body) => json({ session: session({ id: `sess-${++started}`, status: 'running', codeRequestId: (body as { requestId: string }).requestId }), created: true, joined: false, deviceOnline: true }, 201) },
+      ],
+    })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    type('Fix the date picker')
+    await send()
+    type('And add a test for it')
+    await send()
+    expect(started).toBe(1)
+    expect(host.value).toBe('And add a test for it')
+    expect(host.messages).toHaveLength(1)
+    expect(q('[data-code-notice="send"]')!.textContent).toContain('Claude Code is already working in harbor-site: open it to continue.')
+    press(q('[data-code-notice-action="open"]')!)
+    expect(opened.at(-1)).toBe('tj-1')
+  })
+
+  it('no turn row known (no trackedJobId): Open reads the job by its session and opens its current turn', async () => {
+    let started = 0
+    await mount({
+      list: [STUDIO],
+      chatEnv: STUDIO,
+      routes: [
+        // Read by its session: it names its current turn's row now.
+        { url: '/api/local-agent/sessions/sess-1', reply: () => json({ session: session({ status: 'running', trackedJobId: 'tj-late', codeRequestId: 'req-1' }), events: [], lastId: 0 }) },
+        { method: 'POST', url: '/api/local-agent/sessions', reply: (body) => json({ session: session({ id: `sess-${++started}`, trackedJobId: null, status: 'queued', codeRequestId: (body as { requestId: string }).requestId }), created: true, joined: false, deviceOnline: true }, 201) },
+      ],
+    })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    type('Fix the date picker')
+    await send()
+    // The send opens it all the same, by its session.
+    expect(opened).toEqual(['tj-late'])
+    type('And add a test for it')
+    await send()
+    press(q('[data-code-notice-action="open"]')!)
+    await flush()
+    expect(opened.at(-1)).toBe('tj-late')
+  })
+
+  it('a line whose job the list doesn’t hold (or hasn’t read) still names its agent and folder, and opens by its session', async () => {
+    const started: UIMessage = {
+      id: 'code-req-1',
+      role: 'user',
+      parts: [{ type: 'text', text: 'Fix the date picker' }],
+      metadata: { local_agent_code: { requestId: 'req-1', sessionId: 'sess-1', start: true, worker: 'claude-code', folder: 'harbor-site' } },
+    }
+    await mount({
+      list: [STUDIO],
+      chatEnv: STUDIO,
+      initial: [started],
+      routes: [
+        { url: `/api/local-agent/sessions?conversationId=${CONV}`, reply: () => json({ sessions: [] }) },
+        { url: '/api/local-agent/sessions/sess-1', reply: () => json({ session: session({ status: 'waiting', codeRequestId: 'req-1', trackedJobId: 'tj-9' }), events: [], lastId: 0 }) },
+      ],
+    })
+    const line = q('[data-code-line="sess-1"]')!
+    expect(line.querySelector('[data-code-line-title]')!.textContent).toBe('Claude Code in harbor-site')
+    expect(line.querySelector('[data-code-line-excerpt]')!.textContent).toBe('Fix the date picker')
+    press(line.querySelector('button')!)
+    await flush()
+    expect(opened).toEqual(['tj-9'])
   })
 
   it('a second send to a job that has ended since: a new job, after one read to be sure', async () => {

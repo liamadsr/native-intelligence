@@ -34,7 +34,7 @@ import { systemTeammateId } from '@/lib/work/system-teammates'
 import type { WorkItem, WorkStatus } from '@/lib/work/types'
 import { LOCAL_AGENT_INTERRUPTED_NEEDS_ID, LOCAL_AGENT_TEAMMATE_NEEDS_ID } from '@/lib/chat/teammate-report'
 import { MAC_TEAMMATE_TOOL_NAMES, macTeammateName } from './teammate'
-import { LOCAL_AGENT_CODE_SOURCE_KEY } from './code-thread'
+import { LOCAL_AGENT_ASK_ID, LOCAL_AGENT_CODE_SOURCE_KEY } from './code-thread'
 import { workerLabel } from '@/lib/environments/types'
 
 export const LOCAL_AGENT_WORK_KIND = 'local_agent'
@@ -326,7 +326,7 @@ export async function moveTurn(svc: SupabaseClient, s: LedgerSession, move: Ledg
       case 'ask': {
         const live = await liveTurn(svc, s)
         if (!live.handle || !live.row) return live.s
-        const question = { id: move.from === 'teammate' ? TEAMMATE_NEEDS_ID : 'local-agent-ask', question: oneLine(move.question, 1000) }
+        const question = { id: move.from === 'teammate' ? TEAMMATE_NEEDS_ID : LOCAL_AGENT_ASK_ID, question: oneLine(move.question, 1000) }
         if (LIVE.has(live.row.status)) {
           await live.handle.needInput([question])
         } else if (move.from === 'teammate' && (live.row.status === 'needs_input' || live.row.status === 'waiting_on_child')) {

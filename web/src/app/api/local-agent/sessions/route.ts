@@ -6,12 +6,16 @@
  * POST /api/local-agent/sessions — the person starts a job from the chat
  * composer's Code tab (src/lib/local-agent/code-start.ts): their own typed
  * send, in a folder on one of their Macs, on the agent they picked.
- *   Body: {conversationId, folderId, request, worker, requestId, environmentId?}
+ *   Body: {conversationId, folderId, request, worker, requestId, environmentId?, newJob?}
  *     worker       a coding agent's id the Mac offers, or null for Native
  *                  Intelligence's own agent (required)
  *     requestId    one per send: a retry with it gets the first job back
  *     environmentId  the chat's environment: a cloud one is refused (409
  *                  CODE_CLOUD_NEXT)
+ *     newJob       true: a new job, never the folder's next turn (an idle
+ *                  job there ends to make room; a working one is FOLDER_BUSY)
+ *   The request is refused (400 REQUEST_TOO_LONG) past what fits the Mac's
+ *   cap beside the note its agent reads first.
  *   201 {session, created: true, joined, deviceOnline}: a new job (edits on
  *   its own branch); 200 the same shape when the send went to this chat's
  *   job already working in that folder on that agent (joined) or was a retry.
@@ -65,6 +69,7 @@ export async function POST(request: Request) {
       worker: 'worker' in body ? body.worker : undefined,
       requestId: body.requestId,
       ...(body.environmentId !== undefined ? { environmentId: body.environmentId } : {}),
+      ...(body.newJob === true ? { newJob: true } : {}),
     })
     return NextResponse.json(started, { status: started.created ? 201 : 200 })
   } catch (err) {
