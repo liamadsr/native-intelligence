@@ -21,7 +21,8 @@ export interface CloudBrowserRow {
   updated_at: string
 }
 
-export type StopReason = 'idle' | 'session_limit' | 'stuck_starting' | 'stuck_stopping'
+/** Why a browser was stopped. `evicted`: it gave its slot to another person's browser (slots.ts); never listed by the sweep. */
+export type StopReason = 'idle' | 'session_limit' | 'stuck_starting' | 'stuck_stopping' | 'evicted'
 export type StopCandidate = CloudBrowserRow & { reason: StopReason }
 
 const TABLE = 'cloud_browser'
@@ -250,6 +251,86 @@ export async function hubSessionLive(sandboxId: string): Promise<boolean> {
   return Array.isArray(data) && data.length > 0
 }
 
+/**
+ * The runtime backend, as soon as an ensure knows the sandbox it uses (a create
+ * it keeps, or a wake): the row of browser `sandboxName` names it, so the hub's
+ * certificate question (hubSessionLive) says yes while the row is `starting`
+ * and the edge can get the certificate before the live view's first handshake.
+ * Only a `starting` row: a running one already names its sandbox (and the
+ * sweep's session_limit compare-and-set reads it), a stopping or stopped one is
+ * not this ensure's to rename. `<id>.0` is a session with no run yet (the form
+ * the operator's guide uses, runtime-browser.ts); markRunning writes the real
+ * one. What chooseSandbox reads stays true: the id is the sandbox this ensure
+ * took up, the one that holds the person's newest profile from now on.
+ */
+export async function recordStartingSandbox(sandboxName: string, sandboxId: string): Promise<void> {
+  if (!/^[a-z0-9]{1,63}$/.test(sandboxId)) return
+  const { error } = await db().update({ session_id: `${sandboxId}.0` }).eq('sandbox_name', sandboxName).eq('status', 'starting')
+  check(error, 'record starting sandbox')
+}
+
+/**
+ * An ensure the shared slots refused (slots.ts): nothing of the browser came
+ * up, so its row goes back to `stopped` (reason `busy`) and holds no slot. Only
+ * a row still `starting`: one that is running or being stopped is not this
+ * ensure's. The session is kept (the runtime backend's row names the sandbox
+ * its profile is in).
+ */
+export async function releaseStart(ref: CloudBrowserRef): Promise<void> {
+  const { error } = await db().update({ status: 'stopped', stop_reason: 'busy' }).match(own(ref)).eq('status', 'starting')
+  check(error, 'release start')
+}
+
+/** A row holding a slot, with what the eviction's compare-and-set needs (slots.ts). */
+export type SlotHolder = CloudBrowserRow & { stop_reason: string | null }
+
+/** More rows than any cap: past this the slots are full whatever the rest are. */
+const SLOT_SCAN_LIMIT = 200
+
+/**
+ * The browsers that hold memory on the runtime now, as far as the rows tell:
+ * `starting` (an ensure on it, or a failed one the sweep will stop), `running`,
+ * and `stopping` but for the expiry's claim (its VM is paused already; a stop's
+ * VM is not until its pause lands). Idle longest first.
+ */
+export async function listSlotHolders(): Promise<SlotHolder[]> {
+  const { data, error } = await db().select(`${COLUMNS}, stop_reason`).in('status', ['starting', 'running', 'stopping'])
+    .order('last_active_at', { ascending: true }).limit(SLOT_SCAN_LIMIT)
+  check(error, 'slot holders')
+  return ((data ?? []) as SlotHolder[]).filter(row => !(row.status === 'stopping' && row.stop_reason === EXPIRING))
+}
+
+/**
+ * Of `refs`, the browsers with a command in flight or about to be: claimed or
+ * running under a lease that has not run out, or waiting to be claimed and not
+ * expired. Such a browser is in the middle of a task (a task's claim and settle
+ * are its only touches, and it can run longer than the eviction's floor), so it
+ * never gives its slot away. As `<user>:<workspace>` keys.
+ */
+export async function browsersWithLiveCommands(refs: CloudBrowserRef[], now = Date.now()): Promise<Set<string>> {
+  if (refs.length === 0) return new Set()
+  const { data, error } = await getServiceClient().from('browser_command_queue').select('user_id, workspace_id, status, expires_at, lease_expires_at')
+    .in('user_id', [...new Set(refs.map(r => r.userId))]).in('status', ['waiting_for_device', 'claimed', 'running']).limit(SLOT_SCAN_LIMIT)
+  check(error, 'live commands')
+  const wanted = new Set(refs.map(r => `${r.userId}:${r.workspaceId}`))
+  const live = new Set<string>()
+  for (const row of (data ?? []) as { user_id: string; workspace_id: string; status: string; expires_at: string | null; lease_expires_at: string | null }[]) {
+    const key = `${row.user_id}:${row.workspace_id}`
+    if (!wanted.has(key)) continue
+    const until = Date.parse((row.status === 'waiting_for_device' ? row.expires_at : row.lease_expires_at) ?? '')
+    if (Number.isFinite(until) && until > now) live.add(key)
+  }
+  return live
+}
+
+/** How many browsers stopped in the last `withinMs` gave their slot away (the sweep's report): rows whose last stop was one. */
+export async function countRecentEvictions(withinMs: number, now = Date.now()): Promise<number> {
+  const { count, error } = await db().select('user_id', { count: 'exact', head: true }).eq('stop_reason', 'evicted')
+    .gt('updated_at', new Date(now - withinMs).toISOString())
+  check(error, 'recent evictions')
+  return count ?? 0
+}
+
 /** Whether a row owns this sandbox name (the orphan reconcile's question). */
 export async function sandboxNamesWithRows(names: string[]): Promise<Set<string>> {
   if (names.length === 0) return new Set()
@@ -258,7 +339,7 @@ export async function sandboxNamesWithRows(names: string[]): Promise<Set<string>
   return new Set(((data ?? []) as { sandbox_name: string }[]).map(row => row.sandbox_name))
 }
 
-const PRIORITY: Record<StopReason, number> = { stuck_stopping: 0, session_limit: 1, stuck_starting: 2, idle: 3 }
+const PRIORITY: Record<StopReason, number> = { stuck_stopping: 0, session_limit: 1, stuck_starting: 2, idle: 3, evicted: 4 }
 
 /**
  * Browsers the idle cron should stop, most urgent first: a stop that never

@@ -18,7 +18,7 @@ vi.mock('@/lib/supabase/service', () => ({
       const call: Call = { table, ops: [] }
       const index = db.calls.push(call) - 1
       const chain: Record<string, unknown> = {}
-      for (const m of ['select', 'insert', 'upsert', 'update', 'delete', 'match', 'eq', 'is', 'in', 'lt', 'order', 'limit', 'like', 'or']) {
+      for (const m of ['select', 'insert', 'upsert', 'update', 'delete', 'match', 'eq', 'is', 'in', 'lt', 'gt', 'order', 'limit', 'like', 'or']) {
         chain[m] = (...args: unknown[]) => { call.ops.push([m, ...args]); return chain }
       }
       const result = () => Promise.resolve({ error: null, ...((db.results[index] ?? { data: null }) as object) })
@@ -204,5 +204,76 @@ describe('the runtime backend’s reads and its expiry', () => {
     // Never a pattern from a name: anything but the id's shape is no, without a query.
     for (const bad of ['abc%', 'a_c', 'ABC', '', 'a.b']) expect(await store.hubSessionLive(bad)).toBe(false)
     expect(db.calls).toHaveLength(2)
+  })
+})
+
+describe('the shared slots and the hub’s early name (runtime backend)', () => {
+  /** SQL's LIKE, enough for the hub's pattern (`\` escapes, `%` any run). */
+  const like = (value: string, pattern: string) => new RegExp(`^${pattern.replace(/\\(.)|%|_|[.*+?^${}()|[\]]/g, (m, esc) =>
+    esc !== undefined ? `\\${esc}` : m === '%' ? '.*' : m === '_' ? '.' : `\\${m}`)}$`).test(value)
+
+  it('names the sandbox in a STARTING row only, as `<id>.0`, which the hub’s question matches for that id and no other', async () => {
+    await store.recordStartingSandbox('browser-x', 'abc123')
+    has(0, 'update', { session_id: 'abc123.0' })
+    has(0, 'eq', 'sandbox_name', 'browser-x')
+    has(0, 'eq', 'status', 'starting')
+    // The session it writes is the one hubSessionLive's pattern finds, for that id alone.
+    db.results = [{ data: [] }]
+    await store.hubSessionLive('abc123')
+    const pattern = ops(1).find(([m]) => m === 'like')![2] as string
+    expect(like('abc123.0', pattern)).toBe(true)
+    expect(like('abc1234.0', pattern)).toBe(false)
+    expect(like('xabc123.0', pattern)).toBe(false)
+    // Never anything but the id's shape.
+    await store.recordStartingSandbox('browser-x', 'a%b')
+    expect(db.calls).toHaveLength(2)
+  })
+
+  it('a refused start goes back to stopped, from starting only, keeping its session', async () => {
+    await store.releaseStart(ref)
+    has(0, 'update', { status: 'stopped', stop_reason: 'busy' })
+    has(0, 'match', ROW)
+    has(0, 'eq', 'status', 'starting')
+  })
+
+  it('reads the slot holders, idle longest first, without the expiry’s claims', async () => {
+    db.results = [{ data: [
+      { ...ROW, status: 'running', stop_reason: null, last_active_at: 'a' },
+      { ...ROW, user_id: 'u2', status: 'stopping', stop_reason: 'expiring', last_active_at: 'b' },
+      { ...ROW, user_id: 'u3', status: 'stopping', stop_reason: null, last_active_at: 'c' },
+      { ...ROW, user_id: 'u4', status: 'starting', stop_reason: null, last_active_at: 'd' },
+    ] }]
+    expect((await store.listSlotHolders()).map(r => r.user_id)).toEqual(['u1', 'u3', 'u4'])
+    has(0, 'in', 'status', ['starting', 'running', 'stopping'])
+    has(0, 'order', 'last_active_at', { ascending: true })
+    expect(ops(0)[0][1]).toContain('stop_reason')
+  })
+
+  it('finds the browsers with a command in flight: claimed or running under a live lease, or waiting and not expired', async () => {
+    const now = Date.parse('2026-11-14T12:00:00Z')
+    const later = '2026-11-14T12:00:30Z'
+    const earlier = '2026-11-14T11:59:30Z'
+    db.results = [{ data: [
+      { user_id: 'a', workspace_id: 'w', status: 'claimed', lease_expires_at: later, expires_at: earlier },
+      { user_id: 'b', workspace_id: 'w', status: 'running', lease_expires_at: earlier, expires_at: later },
+      { user_id: 'c', workspace_id: 'w', status: 'waiting_for_device', lease_expires_at: null, expires_at: later },
+      { user_id: 'd', workspace_id: 'w', status: 'waiting_for_device', lease_expires_at: null, expires_at: earlier },
+      { user_id: 'a', workspace_id: 'other', status: 'claimed', lease_expires_at: later, expires_at: later },
+    ] }]
+    const refs = ['a', 'b', 'c', 'd'].map(userId => ({ userId, workspaceId: 'w' }))
+    expect([...await store.browsersWithLiveCommands(refs, now)].sort()).toEqual(['a:w', 'c:w'])
+    expect(db.calls[0].table).toBe('browser_command_queue')
+    has(0, 'in', 'user_id', ['a', 'b', 'c', 'd'])
+    has(0, 'in', 'status', ['waiting_for_device', 'claimed', 'running'])
+    expect(await store.browsersWithLiveCommands([])).toEqual(new Set())
+    expect(db.calls).toHaveLength(1)
+  })
+
+  it('counts the recent evictions by their stop reason and last update', async () => {
+    db.results = [{ count: 2 }]
+    const now = Date.parse('2026-11-14T12:00:00Z')
+    expect(await store.countRecentEvictions(60 * 60_000, now)).toBe(2)
+    has(0, 'eq', 'stop_reason', 'evicted')
+    has(0, 'gt', 'updated_at', '2026-11-14T11:00:00.000Z')
   })
 })
