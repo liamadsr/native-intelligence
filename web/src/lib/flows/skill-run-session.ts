@@ -65,6 +65,8 @@ export interface SkillRunFacts {
   skillId: string
   mode: 'report' | 'act'
   hasCapture: boolean
+  /** The table whose new row fired the run (a record_created fire): its forced table reads are part of the run's ceiling. */
+  recordTableId?: string
   outputContract: 'verdict' | 'prose'
   model: string
   runAsUserId: string
@@ -102,6 +104,7 @@ export async function parkSkillRunSession(
     parked: ParkedSkillSession
     spec: Pick<SkillRunSpec, 'skillId' | 'mode' | 'outputContract' | 'model' | 'runAsUserId'>
     hasCapture: boolean
+    recordTableId?: string
     /** Stops the session of a handle this one replaces, once it's replaced (it can't be continued any more). */
     onReplaced?: (sessionId: string) => Promise<unknown>
   },
@@ -133,6 +136,7 @@ export async function parkSkillRunSession(
       skillId: spec.skillId,
       mode: spec.mode,
       hasCapture,
+      ...(args.recordTableId ? { recordTableId: args.recordTableId } : {}),
       outputContract: spec.outputContract === 'verdict' ? 'verdict' : 'prose',
       model: spec.model,
       runAsUserId: spec.runAsUserId,
@@ -192,6 +196,7 @@ export function parseSkillRunFacts(raw: unknown): SkillRunFacts | null {
     skillId: f.skillId,
     mode: f.mode,
     hasCapture: f.hasCapture === true,
+    ...(typeof f.recordTableId === 'string' && /^[0-9a-f-]{36}$/.test(f.recordTableId) ? { recordTableId: f.recordTableId } : {}),
     outputContract: f.outputContract,
     model: f.model,
     runAsUserId: f.runAsUserId,

@@ -1,6 +1,7 @@
 /**
  * The owner-scoped event triggers (email_received, chat_message,
- * document_created): who a fire is for, what never fires, and the cap.
+ * document_created, record_created): who a fire is for, what never fires,
+ * and the cap.
  *
  * OWNER SCOPING. Unlike quote_received (workspace-wide), each of these fires
  * a loop only when its OWNER (flow.created_by, who it runs as) could see the
@@ -18,7 +19,10 @@
  *     only a signed-in person reaches; an agent's reply (agent-turn.ts) is
  *     written as 'agent' and no loop step can post into team chat;
  *   - documents: only the documents route's plain create emits (an agent's
- *     create_document, reference ingest and canon templates never do).
+ *     create_document, reference ingest and canon templates never do);
+ *   - records: only a form's submission and a person's own rows emit
+ *     (emit-record-created.ts); a row an agent, an import, a sync or a
+ *     loop's step wrote never does.
  *
  * COST. An event loop on a busy channel could start hundreds of runs: each
  * flow runs at most EVENT_FIRE_CAP_PER_DAY times in any 24 hours; the fires
@@ -27,12 +31,13 @@
  *
  * Template variables carry ids only, never text someone else wrote: a step
  * reads the item with a tool (read_email, read_team_chat_message,
- * get_document) as the owner.
+ * get_document, query_rows) as the owner. A form's row reaches it fenced
+ * as untrusted (data_row.from_form).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { hiddenGraphRefs, visiblePrivateKindIds } from '@/lib/knowledge/entity-fences'
 import { AGENT_PAUSED_REASON } from '@/lib/work/agent-paused'
-import type { ChatMessageTriggerConfig, FlowWithSecrets, OwnerEventTriggerType } from './types'
+import type { ChatMessageTriggerConfig, FlowWithSecrets, OwnerEventTriggerType, RecordCreatedTriggerConfig } from './types'
 
 /** Most fires one event loop runs in any 24 hours. */
 export const EVENT_FIRE_CAP_PER_DAY = 50
@@ -263,6 +268,108 @@ export async function documentFlowsToFire(supabase: SupabaseClient, flows: FlowW
   return out
 }
 
+// ── Records (a table's new rows) ────────────────────────────────────────────
+
+export interface RecordFacts {
+  id: string
+  workspace_id: string
+  table_id: string
+  archived: boolean
+  /** Nothing in it yet: no name and no value. */
+  blank: boolean
+  /** Its table is archived or gone. */
+  table_archived: boolean
+}
+
+/** Read a row's facts (service role): ids and flags only, never its words. Null when it is gone or the read fails. */
+export async function loadRecordFacts(supabase: SupabaseClient, rowId: string): Promise<RecordFacts | null> {
+  const { data, error } = await supabase.from('data_row').select('id, workspace_id, table_id, title, custom_fields, archived_at').eq('id', rowId).maybeSingle()
+  if (error || !data) return null
+  const r = data as Record<string, unknown>
+  const values = r.custom_fields && typeof r.custom_fields === 'object' ? Object.values(r.custom_fields as Record<string, unknown>) : []
+  const filled = values.some((v) => v !== null && v !== '' && !(Array.isArray(v) && v.length === 0))
+  const { data: table, error: tableError } = await supabase.from('data_table').select('id, archived_at').eq('id', r.table_id as string).maybeSingle()
+  return {
+    id: r.id as string,
+    workspace_id: r.workspace_id as string,
+    table_id: r.table_id as string,
+    archived: r.archived_at != null,
+    blank: !(typeof r.title === 'string' && r.title.trim()) && !filled,
+    table_archived: !!tableError || !table || (table as { archived_at?: string | null }).archived_at != null,
+  }
+}
+
+/**
+ * Why a new row fires no loop at all, or null: gone, moved, archived (its
+ * table too), not in the table the event named, or still blank (a person
+ * added a row and typed nothing in it).
+ */
+export function recordSkipReason(row: RecordFacts | null, workspaceId: string, tableId: string): string | null {
+  if (!row || row.workspace_id !== workspaceId) return 'deleted'
+  if (row.table_id !== tableId) return 'in another table'
+  if (row.archived || row.table_archived) return 'archived'
+  if (row.blank) return 'still empty'
+  return null
+}
+
+/**
+ * Can this person read the table, without a grant? The database's own rule
+ * (visible_data_table_ids, 520). An unattended run reads no grant, so a table
+ * only shared with the owner fires nothing: its run could not read the row
+ * that fired it. Fails closed.
+ */
+export async function ownerCanReadTable(supabase: SupabaseClient, ownerUserId: string, tableId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('visible_data_table_ids', { p_ids: [tableId], p_user_id: ownerUserId, p_grants: false })
+    return !error && Array.isArray(data) && data.includes(tableId)
+  } catch {
+    return false
+  }
+}
+
+/** The matched record_created loops whose owner can read the row's table now. */
+export async function recordFlowsToFire(supabase: SupabaseClient, flows: FlowWithSecrets[], row: Pick<RecordFacts, 'table_id'>): Promise<FlowWithSecrets[]> {
+  const readable = new Map<string, boolean>()
+  const out: FlowWithSecrets[] = []
+  for (const flow of flows) {
+    const owner = flow.created_by
+    if (!owner) continue
+    if ((flow.trigger_config as Partial<RecordCreatedTriggerConfig>).table_id !== row.table_id) continue
+    if (!readable.has(owner)) readable.set(owner, await ownerCanReadTable(supabase, owner, row.table_id))
+    if (readable.get(owner)) out.push(flow)
+  }
+  return out
+}
+
+/**
+ * A record_created trigger's save-time check: the table must be a live one
+ * in this workspace that the loop's owner can read without a grant. Null
+ * when fine (or not a record trigger).
+ */
+export async function recordTriggerTableProblem(
+  supabase: SupabaseClient,
+  args: { workspaceId: string; ownerUserId: string; triggerType: string; config: unknown },
+): Promise<string | null> {
+  if (args.triggerType !== 'record_created') return null
+  const tableId = ((args.config ?? {}) as Partial<RecordCreatedTriggerConfig>).table_id
+  const problem = "trigger_config.table_id is not a table the loop's owner can read in this workspace: their own or the workspace's (one only shared with them doesn't count, since a loop's run reads nothing shared)"
+  if (typeof tableId !== 'string') return problem
+  const { data, error } = await supabase.from('data_table').select('id').eq('id', tableId).eq('workspace_id', args.workspaceId).is('archived_at', null).maybeSingle()
+  if (error || !data) return problem
+  return (await ownerCanReadTable(supabase, args.ownerUserId, tableId)) ? null : problem
+}
+
+/**
+ * A save-time check of an event trigger's target, whichever it has: a chat
+ * loop's channel, a record loop's table. Null when fine.
+ */
+export async function eventTriggerTargetProblem(
+  supabase: SupabaseClient,
+  args: { workspaceId: string; ownerUserId: string; triggerType: string; config: unknown },
+): Promise<string | null> {
+  return (await chatTriggerChannelProblem(supabase, args)) ?? (await recordTriggerTableProblem(supabase, args))
+}
+
 /**
  * Does the workspace have an enabled loop on this event trigger (that person's
  * own, with `ownerUserId`)? The emitters ask first, so a workspace with none
@@ -271,7 +378,7 @@ export async function documentFlowsToFire(supabase: SupabaseClient, flows: FlowW
  */
 export async function workspaceHasEventFlows(
   supabase: SupabaseClient,
-  args: { workspaceId: string; triggerType: OwnerEventTriggerType; ownerUserId?: string },
+  args: { workspaceId: string; triggerType: OwnerEventTriggerType; ownerUserId?: string; /** record_created: only loops on this table. */ tableId?: string },
 ): Promise<boolean> {
   try {
     let q = supabase
@@ -281,6 +388,7 @@ export async function workspaceHasEventFlows(
       .eq('enabled', true)
       .eq('trigger_type', args.triggerType)
     if (args.ownerUserId) q = q.eq('created_by', args.ownerUserId)
+    if (args.tableId) q = q.eq('trigger_config->>table_id', args.tableId.toLowerCase())
     const { count, error } = await q.limit(1)
     if (error) return true
     return (count ?? 0) > 0

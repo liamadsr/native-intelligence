@@ -114,6 +114,9 @@ const TOOL_LABELS: Record<string, string> = {
   update_table_columns: 'Change columns',
   write_rows: 'Write rows',
   query_rows: 'Read rows',
+  list_forms: 'Read forms',
+  create_form: 'Make form',
+  update_form: 'Change form',
   archive_rows: 'Archive rows',
   undo_table_change: 'Undo the table change',
   // The agent's checklist for a long job (agents' native update_plan; the chat

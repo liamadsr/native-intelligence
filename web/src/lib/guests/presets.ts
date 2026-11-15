@@ -95,6 +95,8 @@ export const GUEST_NEVER_TOOLS: ReadonlySet<string> = new Set([
   'create_booking_link',
   'update_booking_link',
   'delete_booking_link',
+  // Forms: the owner's public links onto their tables, never a guest's.
+  'list_forms',
 ])
 // Studio (migration 620): the workspace's videos and the editor, the team's own workbench, never a guest's.
 const NEVER_CATEGORIES: ReadonlySet<string> = new Set(['evals', 'content', 'studio'])

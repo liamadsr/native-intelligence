@@ -3182,6 +3182,8 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
         email_received: 'New email',
         chat_message: 'Chat message',
         document_created: 'New document',
+        record_created: 'New row',
+        quote_received: 'New quote',
       }
       if (triggerType === 'schedule' || (triggerType && triggerType in flatLabels)) {
         const scfg = item.trigger_config as { cadence?: string } | null

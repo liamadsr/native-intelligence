@@ -160,6 +160,8 @@ function whenItRuns(flow: FlowRow, names: ReadonlyMap<string, string>, clock: Cl
       return t.mentions_only ? 'It runs when someone mentions you in team chat' : 'It runs when someone posts in a team chat channel'
     case 'document_created':
       return 'It runs when someone creates a document'
+    case 'record_created':
+      return 'It runs when a row is added to a table'
     default:
       return null
   }
@@ -274,7 +276,7 @@ export interface FlowRow {
   name: string | null
   description: string | null
   enabled: boolean | null
-  /** entity_status_change | capture_processed | pr_status_changed | schedule | calendar_event | quote_received | email_received | chat_message | document_created */
+  /** entity_status_change | capture_processed | pr_status_changed | schedule | calendar_event | quote_received | email_received | chat_message | document_created | record_created */
   trigger_type: string | null
   trigger_config: {
     cadence?: string

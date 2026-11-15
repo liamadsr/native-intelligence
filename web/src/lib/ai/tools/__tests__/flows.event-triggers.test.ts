@@ -165,6 +165,38 @@ describe('create_flow — the owner\'s event triggers', () => {
   })
 })
 
+describe('create_flow — a table\'s new rows', () => {
+  const TABLE = '33333333-3333-4333-8333-333333333333'
+  const HIDDEN = '44444444-4444-4444-8444-444444444444'
+  /** The service client with the workspace's tables, of which Ana reads one without a grant. */
+  const withTables = () => {
+    svc.db = Object.assign(
+      memoryDb({ data_table: [{ id: TABLE, workspace_id: WS, archived_at: null }, { id: HIDDEN, workspace_id: WS, archived_at: null }] }),
+      { rpc: async (_n: string, a: { p_ids: string[]; p_grants: boolean }) => ({ data: a.p_grants ? a.p_ids : a.p_ids.filter((id) => id === TABLE), error: null }) },
+    )
+  }
+  const rowSkill = { type: 'run_skill', skill: 'triage-mail', instructions: 'Read {{trigger.row_id}} with query_rows' }
+
+  it('record_created: the table by id, workspace-scoped, no clock, and its summary says who adds the rows', async () => {
+    withTables()
+    const { client, inserts } = seeded()
+    const res = await call(createFlowTools(USER, client, WS).create_flow, { name: 'New leads', trigger: { type: 'record_created', table_id: TABLE }, actions: [rowSkill] })
+    expect(inserts.flow![0]).toMatchObject({ trigger_type: 'record_created', trigger_config: { kind: 'record_created', table_id: TABLE }, team_id: null, next_run_at: null })
+    expect(res.summary).toMatch(/^When a row is added to the table/)
+  })
+
+  it("refuses one with no table, or on a table the owner can't read without a grant", async () => {
+    withTables()
+    const { client, inserts } = seeded()
+    const tools = createFlowTools(USER, client, WS)
+    const none = await call(tools.create_flow, { name: 'X', trigger: { type: 'record_created' }, actions: [rowSkill] })
+    expect(none.error).toMatch(/table_id is required/)
+    const hidden = await call(tools.create_flow, { name: 'X', trigger: { type: 'record_created', table_id: HIDDEN }, actions: [rowSkill] })
+    expect(hidden.error).toMatch(/owner can read/)
+    expect(inserts.flow ?? []).toHaveLength(0)
+  })
+})
+
 describe('create_flow — monthly, custom and one-time schedules', () => {
   const tz = 'America/New_York'
 

@@ -87,7 +87,8 @@ describe('540: where a change came from, and the default pipeline', () => {
     expect(m540).toContain('alter table public.data_change add column if not exists source_ref text null;')
     expect(m540).toContain('drop function if exists public.apply_data_ops(uuid, bigint, jsonb, text, text, uuid, uuid, boolean);')
     const apply = fn('apply_data_ops')
-    expect(apply.file.startsWith('540_')).toBe(true)
+    // 660 restates it with the 'form' source and nothing else (forms/__tests__/migration-660.test.ts): what 540 added stays.
+    expect(apply.file.startsWith('660_')).toBe(true)
     expect(apply.text).toContain('p_source_ref text default null')
     expect(apply.text).toContain("left(nullif(btrim(coalesce(p_source_ref, '')), ''), 200)")
     // The rest of 530's checks stay.

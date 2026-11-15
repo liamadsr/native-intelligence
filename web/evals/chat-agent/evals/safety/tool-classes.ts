@@ -140,6 +140,7 @@ export const REGISTRY_READ_TOOL_NAMES: readonly string[] = [
   'list_evals',
   'list_flow_runs',
   'list_flows',
+  'list_forms',
   'list_google_analytics_properties',
   'list_initiatives',
   'list_labels',

@@ -27,6 +27,9 @@ const h = vi.hoisted(() => ({
   chatFlows: [] as unknown[],
   chatFinderCalls: 0,
   docFlows: [] as unknown[],
+  recordFlows: [] as unknown[],
+  recordFinderArgs: [] as unknown[],
+  record: null as unknown,
   quoteFlows: [] as unknown[],
   msg: null as unknown,
   doc: null as unknown,
@@ -62,6 +65,7 @@ vi.mock('@/lib/flows/queries', async (orig) => ({
   findMatchingFlowsForEmailReceived: async (_s: unknown, args: unknown) => (h.emailArgs.push(args), h.emailFlows),
   findMatchingFlowsForChatMessage: async () => ((h.chatFinderCalls += 1), h.chatFlows),
   findMatchingFlowsForDocumentCreated: async () => h.docFlows,
+  findMatchingFlowsForRecordCreated: async (_s: unknown, ws: string, tableId: string) => (h.recordFinderArgs.push([ws, tableId]), h.recordFlows),
   findMatchingFlowsForQuoteReceived: async () => h.quoteFlows,
   loadFlowForDispatch: async () => h.scheduleFlow,
 }))
@@ -72,6 +76,8 @@ vi.mock('@/lib/flows/event-triggers', async (orig) => {
     eventFireCapState: async () => h.cap,
     loadChatMessageFacts: async () => h.msg,
     loadDocumentFacts: async () => h.doc,
+    loadRecordFacts: async () => h.record,
+    recordFlowsToFire: async (_s: unknown, flows: FlowWithSecrets[]) => flows.filter((f) => h.visibleOwners.has(f.created_by as string)),
     chatFlowsToFire: async (_s: unknown, flows: FlowWithSecrets[]) => flows.filter((f) => h.visibleOwners.has(f.created_by as string)),
     documentFlowsToFire: async (_s: unknown, flows: FlowWithSecrets[]) => flows.filter((f) => h.visibleOwners.has(f.created_by as string)),
   }
@@ -102,6 +108,9 @@ beforeEach(() => {
   h.chatFlows = []
   h.chatFinderCalls = 0
   h.docFlows = []
+  h.recordFlows = []
+  h.recordFinderArgs = []
+  h.record = null
   h.quoteFlows = []
   h.msg = null
   h.doc = null
@@ -218,6 +227,48 @@ describe('document_created', () => {
     expect(await run('flow-dispatch-on-document-created', event)).toEqual({ dispatched: 0, skipped: 'deleted' })
     h.doc = { id: 'doc-1', workspace_id: WS, status: 'archived', visibility: 'workspace' }
     expect(await run('flow-dispatch-on-document-created', event)).toEqual({ dispatched: 0, skipped: 'archived' })
+    expect(h.runFlow).not.toHaveBeenCalled()
+  })
+})
+
+describe('record_created', () => {
+  const event = { id: 'record-created:row-1', data: { workspace_id: WS, table_id: 't-1', row_id: 'row-1', source: 'form' } }
+  const row = (over: Record<string, unknown> = {}) => ({ id: 'row-1', workspace_id: WS, table_id: 't-1', archived: false, blank: false, table_archived: false, ...over })
+
+  it("fires the loops on the row's table whose owner can read it, with ids only", async () => {
+    h.record = row()
+    h.recordFlows = [loop('f-ana', 'record_created'), loop('f-cy', 'record_created', 'u-cy')]
+    expect(await run('flow-dispatch-on-record-created', event)).toMatchObject({ dispatched: 1 })
+    expect(h.recordFinderArgs).toEqual([[WS, 't-1']])
+    const trigger = triggerOf()
+    expect(trigger).toMatchObject({ type: 'record_created', row_id: 'row-1', table_id: 't-1' })
+    // Never the row's words: a form's row is a stranger's.
+    expect(Object.keys(trigger as object).sort()).toEqual(['entity_type', 'fired_at', 'from_status_id', 'row_id', 'table_id', 'to_status_id', 'type'])
+  })
+
+  it('skips a row gone, archived, moved to another table or still blank by the time it runs', async () => {
+    h.recordFlows = [loop('f-ana', 'record_created')]
+    h.record = null
+    expect(await run('flow-dispatch-on-record-created', event)).toEqual({ dispatched: 0, skipped: 'deleted' })
+    h.record = row({ archived: true })
+    expect(await run('flow-dispatch-on-record-created', event)).toEqual({ dispatched: 0, skipped: 'archived' })
+    h.record = row({ table_archived: true })
+    expect(await run('flow-dispatch-on-record-created', event)).toEqual({ dispatched: 0, skipped: 'archived' })
+    h.record = row({ table_id: 't-2' })
+    expect(await run('flow-dispatch-on-record-created', event)).toEqual({ dispatched: 0, skipped: 'in another table' })
+    h.record = row({ blank: true })
+    expect(await run('flow-dispatch-on-record-created', event)).toEqual({ dispatched: 0, skipped: 'still empty' })
+    expect(h.runFlow).not.toHaveBeenCalled()
+  })
+
+  it('holds each loop to its daily cap, and runs nothing while the agent is paused', async () => {
+    h.record = row()
+    h.recordFlows = [loop('f-ana', 'record_created')]
+    h.cap = 'capped'
+    expect(await run('flow-dispatch-on-record-created', event)).toMatchObject({ dispatched: 0, capped: 1 })
+    h.cap = 'ok'
+    h.paused = true
+    expect(await run('flow-dispatch-on-record-created', event)).toMatchObject({ dispatched: 0, skipped: 'agent_paused' })
     expect(h.runFlow).not.toHaveBeenCalled()
   })
 })

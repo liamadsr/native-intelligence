@@ -101,6 +101,9 @@ export interface TemplateContext {
     chat_thread_root_id: string | null
     /** A document_created fire's document; null otherwise. */
     document_id: string | null
+    /** A record_created fire's row and its table; null otherwise. Ids only: a form's row is a stranger's words. */
+    row_id: string | null
+    table_id: string | null
   }
   workspace: {
     id: string
@@ -173,6 +176,9 @@ export const TEMPLATE_TOKENS = [
   '{{trigger.chat_thread_root_id}}',
   // document_created fires only: the document's id (read it with get_document)
   '{{trigger.document_id}}',
+  // record_created fires only: the new row and its table (read it with query_rows, row_ids)
+  '{{trigger.row_id}}',
+  '{{trigger.table_id}}',
   // Workspace
   '{{workspace.id}}',
   // F4 data passing: the call's capture under the trigger, and an earlier step's output (by its id)
@@ -473,6 +479,8 @@ export function buildTemplateContext(
       chat_channel_id: trigger.chat_channel_id ?? null,
       chat_thread_root_id: trigger.chat_thread_root_id ?? null,
       document_id: trigger.document_id ?? null,
+      row_id: trigger.row_id ?? null,
+      table_id: trigger.table_id ?? null,
     },
     workspace: {
       id: entity?.workspace_id ?? extras.workspaceId ?? '',

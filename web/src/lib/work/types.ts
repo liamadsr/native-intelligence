@@ -118,6 +118,8 @@ export interface WorkSource {
   chat_message_id?: string
   /** A document_created loop's fire: the document a person created. */
   document_id?: string
+  /** A record_created loop's fire: the row added to a table. */
+  row_id?: string
   /** The producer opted out of pushes for this item (recorder `mute()`). */
   quiet?: boolean
   /** Where a work run came from (B PR 4): the brief's source quote and capture. */

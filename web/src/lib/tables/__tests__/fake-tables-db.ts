@@ -2,7 +2,7 @@
  * A small stand-in for the Supabase client the tables store reads and writes
  * through: filtered selects over in-memory rows (eq, in, is, not is, an
  * ilike with no wildcard, order,
- * range, limit, maybeSingle, a `name:column::text` alias), and RPCs answered
+ * range, limit, maybeSingle, a `name:column` or `name:column::text` alias), and RPCs answered
  * by the test. RLS is the test's own choice of rows.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -81,7 +81,9 @@ export function fakeTablesDb(rows: Record<string, Row[]>, rpc: (name: string, ar
       const out: Row = {}
       for (const c of columns) {
         const alias = /^(\w+):(\w+)::text$/.exec(c)
+        const renamed = /^(\w+):(\w+)$/.exec(c)
         if (alias) out[alias[1]] = r[alias[2]] === undefined ? undefined : String(r[alias[2]])
+        else if (renamed) out[renamed[1]] = r[renamed[2]]
         else out[c] = r[c]
       }
       return out

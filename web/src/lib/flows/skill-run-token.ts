@@ -45,9 +45,10 @@ const TOKEN_TTL_MS = 10 * 60 * 1000 // 10 min
 
 /**
  * The routing facts a signed run token carries. Small by design — no prompt, no
- * ceiling (both re-derived server-side). `hasCapture` is the ONLY fire-specific
- * input the ceiling rebuild needs (capture-read tools are force-added when the
- * fire has a triggering capture).
+ * ceiling (both re-derived server-side). `hasCapture` and `recordTableId` are the
+ * only fire-specific inputs the ceiling rebuild needs (the capture-read tools
+ * are force-added when the fire has a triggering capture, the table-read ones
+ * when it is a row added to a table).
  */
 export interface RunTokenClaims {
   workspaceId: string
@@ -55,6 +56,14 @@ export interface RunTokenClaims {
   skillId: string
   mode: 'report' | 'act'
   hasCapture: boolean
+  /**
+   * The fire is a row added to this table (a record_created loop, forms
+   * phase 2): the ceiling rebuild adds the read-only table tools, so the run
+   * can read the row that started it whatever its skill's categories, and
+   * the tool route holds those forced reads to this one table
+   * (recordReadRefusal, run-skill.ts). Absent on every other run.
+   */
+  recordTableId?: string
   outputContract: 'verdict' | 'prose'
   model: string
   /**

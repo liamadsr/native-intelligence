@@ -61,6 +61,7 @@ import {
   type PrTriggerState,
   type SavedOnce,
   HIDDEN_CHANNEL,
+  HIDDEN_TABLE,
   onceFieldNote,
   PR_STATE_LABELS,
   ANY_CHANNEL,
@@ -269,6 +270,10 @@ const TRIGGER_DESCRIPTIONS: Record<FlowTriggerType, string> = {
     'Fires when someone posts in a team chat channel you can read, replies in its threads included. Runs at most 50 times a day.',
   document_created:
     'Fires about 5 minutes after someone creates a document you can see, so it reads what they wrote. Runs at most 50 times a day.',
+  quote_received:
+    "Fires when a customer's quote arrives from your website's quote form. Runs for the whole workspace — no team needed.",
+  record_created:
+    'Fires when a row is added to a table you can read: at once for a form’s submission, about 5 minutes after a person adds one by hand. Never for rows an agent or an import wrote. Runs at most 50 times a day.',
 }
 
 function TriggerConfig({
@@ -352,7 +357,8 @@ function TriggerConfig({
         </Field>
       )}
       {t.kind === 'chat_message' && <ChatMessageTriggerFields trigger={t} setTrigger={setTrigger} members={members} />}
-      {/* capture_processed and document_created carry no config beyond the type. */}
+      {t.kind === 'record_created' && <RecordCreatedTriggerFields trigger={t} setTrigger={setTrigger} />}
+      {/* capture_processed, document_created and quote_received carry no config beyond the type. */}
     </div>
   )
 }
@@ -618,6 +624,48 @@ interface PickableChannel {
   name: string | null
   dm_member_id: string | null
   archived_at: string | null
+}
+
+/** The table a record_created loop watches: one of the tables the person can read. */
+function RecordCreatedTriggerFields({ trigger, setTrigger }: { trigger: EditorTrigger; setTrigger: (patch: Partial<EditorTrigger>) => void }) {
+  const [tables, setTables] = useState<Array<{ id: string; name: string }> | null>(null)
+  useEffect(() => {
+    let live = true
+    fetch('/api/account/tables')
+      .then((r) => (r.ok ? r.json() : { tables: [] }))
+      .then((d: { tables?: Array<{ id: string; name: string; kind?: string }> }) => {
+        if (live) setTables((d.tables ?? []).map((t) => ({ id: t.id, name: t.name })))
+      })
+      .catch(() => {
+        if (live) setTables([])
+      })
+    return () => {
+      live = false
+    }
+  }, [])
+  // A saved table that isn't in the list still shows: as loading until the
+  // list is in, then as one the person can no longer see (archived, or unshared).
+  const known = !trigger.record_table_id || trigger.record_table_id === HIDDEN_TABLE || (tables ?? []).some((t) => t.id === trigger.record_table_id)
+  return (
+    <Field label="Table">
+      <Select value={trigger.record_table_id || undefined} onValueChange={(v) => setTrigger({ record_table_id: v })} disabled={trigger.details_hidden}>
+        <SelectTrigger>
+          <SelectValue placeholder={tables ? 'Pick a table' : 'Loading…'} />
+        </SelectTrigger>
+        <SelectContent>
+          {/* Someone else's loop: which table is theirs to see. */}
+          {trigger.record_table_id === HIDDEN_TABLE && <SelectItem value={HIDDEN_TABLE}>A table</SelectItem>}
+          {!known && <SelectItem value={trigger.record_table_id}>{tables === null ? 'Loading…' : 'A table you can no longer see'}</SelectItem>}
+          {(tables ?? []).map((t) => (
+            <SelectItem key={t.id} value={t.id}>
+              {t.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="mt-1 text-xs text-muted-foreground">A form’s row is what a stranger typed: the steps read it as data, never as instructions.</p>
+    </Field>
+  )
 }
 
 function ChatMessageTriggerFields({
@@ -903,6 +951,8 @@ const TRIGGER_TOKENS: Partial<Record<FlowTriggerType, string[]>> = {
   email_received: ['{{trigger.email_thread_id}}', '{{trigger.email_account_id}}'],
   chat_message: ['{{trigger.chat_message_id}}', '{{trigger.chat_channel_id}}', '{{trigger.chat_thread_root_id}}'],
   document_created: ['{{trigger.document_id}}'],
+  quote_received: ['{{trigger.quote_id}}'],
+  record_created: ['{{trigger.row_id}}', '{{trigger.table_id}}'],
 }
 
 function stepTokens(ancestors: EditorAction[], trigger: EditorTrigger): string[] {

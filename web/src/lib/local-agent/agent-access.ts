@@ -553,8 +553,10 @@ export function withMacConfirmWording(tools: Record<string, Tool>, _svc: Supabas
  *   update_booking_link     turns such a page back on (or changes it)
  *   create_quote_form_link  the secret URL a website's quote form posts to
  *   connect_link            a link that connects an account to the person's workspace
+ *   create_form             a link anyone adds rows to a table through
+ *   update_form             turns such a link back on, widens it or makes a new one
  */
-export const WORKER_HELD_PUBLIC_TOOLS: ReadonlySet<string> = new Set(['create_booking_link', 'update_booking_link', 'create_quote_form_link', 'connect_link'])
+export const WORKER_HELD_PUBLIC_TOOLS: ReadonlySet<string> = new Set(['create_booking_link', 'update_booking_link', 'create_quote_form_link', 'connect_link', 'create_form', 'update_form'])
 
 /**
  * Tools that raise their OWN card whenever the call isn't that card's replay
