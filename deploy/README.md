@@ -1176,7 +1176,7 @@ The way back: the four files from their backups, then the same four commands (a 
 Still on `dial8.ai` on purpose after the move:
 
 - `OAUTH_REDIRECT_BASE_URL=https://dial8.ai` in `app/.env`: the connectors' callbacks (Google, Microsoft, GitHub, HubSpot, Asana, Jira, Linear) stay on the address their providers list. A connect begun on either domain finishes where it began. To move them: add `https://nativeintelligence.dev/api/oauth/<provider>/callback` at each provider beside the old one, then empty the line and `sudo ./deploy.sh --no-build`.
-- The Slack app's Event Subscriptions and Interactivity addresses ("Slack" below). Its Redirect URLs need `https://nativeintelligence.dev/api/slack/oauth/callback`: the install's return follows the app's address and is not held by the line above.
+- The Slack app's Event Subscriptions and Interactivity addresses ("Slack" below). Its Redirect URLs list `https://nativeintelligence.dev/api/slack/oauth/callback` since 2026-11-16, beside the old domain's: the install's return follows the app's address and is not held by the line above.
 - Mail: `EMAIL_FROM`, `ADMIN_EMAILS` and `SMTP_ADMIN_EMAIL` name addresses at `dial8.ai`; the new domain has no mail records.
 - The carrier-reviewed text messages and the `/sms`, `/terms` and `/privacy` pages they name, until the messaging campaign is updated.
 - `APP_HOSTS` in `edge/.env` and `dial8.ai` in `APP_DOMAINS` (`web/src/lib/app-url.ts`): both domains serve.
