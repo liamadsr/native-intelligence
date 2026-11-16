@@ -94,7 +94,9 @@ function plainReason(reason: string): string {
 
 function statusReason(status: number): string {
   if (status === 401 || status === 403) return `The page needs a sign-in or refuses visitors like us (it answered ${status}).`
-  if (status === 404 || status === 410) return `The page is not there any more (it answered ${status}).`
+  // 404 at save time is usually a mistyped address, so it does not claim the page ever existed.
+  if (status === 404) return 'There is no page at that address (it answered 404).'
+  if (status === 410) return 'The page is not there any more (it answered 410).'
   if (status === 429) return 'The website asked us to slow down (it answered 429).'
   if (status >= 500) return `The website had a problem answering (it answered ${status}).`
   return `The page did not answer normally (it answered ${status}).`

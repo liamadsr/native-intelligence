@@ -51,7 +51,8 @@ describe('probeWatchPage', () => {
   })
 
   it.each([
-    [404, /not there any more \(it answered 404\)/],
+    [404, /no page at that address \(it answered 404\)/],
+    [410, /not there any more \(it answered 410\)/],
     [403, /needs a sign-in/],
     [503, /had a problem answering/],
     [429, /slow down/],

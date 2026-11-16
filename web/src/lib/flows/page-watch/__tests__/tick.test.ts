@@ -428,8 +428,8 @@ describe('runPageWatchPass', () => {
 
 describe('stoppedSentence', () => {
   it('names the site and our own reason, never page text', () => {
-    expect(stoppedSentence('example.com', 8, 'The page is not there any more (it answered 404).')).toBe(
-      'I stopped watching the page on example.com: it could not be read 8 times in a row (The page is not there any more (it answered 404)). Switch the loop back on once the page is working again.',
+    expect(stoppedSentence('example.com', 8, 'There is no page at that address (it answered 404).')).toBe(
+      'I stopped watching the page on example.com: it could not be read 8 times in a row (There is no page at that address (it answered 404)). Switch the loop back on once the page is working again.',
     )
     expect(stoppedSentence(null, 8, 'The page took too long to answer.')).toMatch(/^I stopped watching the page: /)
   })
