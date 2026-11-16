@@ -5,6 +5,7 @@ describe('phraseForTool', () => {
   it('maps known tools to present-tense sentences', () => {
     expect(phraseForTool('read_email')).toBe('Reading an email thread')
     expect(phraseForTool('create_email_draft')).toBe('Drafting a reply')
+    expect(phraseForTool('get_page_change')).toBe('Reading what changed on a page')
   })
 
   it('strips MCP / dial8 prefixes before the lookup', () => {

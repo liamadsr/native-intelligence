@@ -574,7 +574,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       // automation-write: an automation that later runs HTTP calls at a caller-chosen URL, skills or capture archiving.
       // A loop the person asks for is saved on (enabled: true); one the agent proposes is saved off until their yes; a webhook loop
       // switches on only from the person's verified card (flow-approvals.ts needsSwitchOnCard). Attended only (ATTENDED_ONLY_TOOL_NAMES): no unattended run builds or switches on a loop.
-      { name: 'create_flow', sideEffect: 'automation-write', label: 'Create Flow', description: 'Create a loop: a status, schedule, capture, calendar, PR, quote, mail, chat or document trigger that runs HTTP calls, skills or capture archiving. A loop the person asked for is on at once; one you propose waits for their yes, and one with a webhook (http_post) step for their approval card. Every loop has an agent: pick one, or it gets a default' },
+      { name: 'create_flow', sideEffect: 'automation-write', label: 'Create Flow', description: 'Create a loop: a status, schedule, capture, calendar, PR, quote, mail, chat, document or watched-page trigger that runs HTTP calls, skills or capture archiving. A loop the person asked for is on at once; one you propose waits for their yes, and one with a webhook (http_post) step for their approval card. Every loop has an agent: pick one, or it gets a default' },
       // automation-write: re-aims or switches on an existing automation (switching one on needs confirmed_with_user;
       // a webhook loop switches on only from the person's verified card, and someone else's outward or acting loop
       // only from its owner's: F1 flow-approvals.ts). Attended only.
@@ -588,6 +588,8 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'request_flow_takeover', sideEffect: 'automation-write', label: 'Request Flow Takeover', description: "Ask a loop's owner to hand it to you so you can change it, once they accept the card it raises" },
       { name: 'list_flow_runs', sideEffect: 'read', label: 'List Flow Runs', description: 'Inspect flow delivery history — fired/failed, HTTP response, error, latency' },
       { name: 'get_flow_run', sideEffect: 'read', label: 'Get Flow Run', description: 'Read one loop run in full: each step\'s result, response and output preview' },
+      // The person's own page watches only (page-watch.ts); the page's lines come back fenced as a stranger's text.
+      { name: 'get_page_change', sideEffect: 'read', label: 'Get Page Change', description: 'Read what changed on a web page you watch with a page-watch loop: its address, what you asked to hear about, and the new lines on the page' },
       // automation-write: runs the loop's skill steps (paid, as the caller, report mode, nothing delivered);
       // HTTP calls are rendered, never sent (F1, src/lib/flows/test-fire.ts). Attended only.
       { name: 'test_flow', sideEffect: 'automation-write', label: 'Test Flow', description: 'Dry-run a loop against a sample: skill steps run for real but deliver nothing, HTTP calls are shown, not sent' },

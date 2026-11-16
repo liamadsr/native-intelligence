@@ -102,6 +102,18 @@ describe('flowWords', () => {
     expect(when('calendar_event', { event_title: 'Standup', offset_minutes: 0 })).toBe('It runs as each Standup starts.')
   })
 
+  it('a page watch: never the page or what was asked, and no "runs next" (its clock is when the page is read, not a run)', () => {
+    const watch: FlowRow = {
+      ...digest,
+      trigger_type: 'page_changed',
+      trigger_config: { url: 'https://shop.example.com/kettle', look_for: 'when the price drops' } as FlowRow['trigger_config'],
+      next_run_at: '2026-09-27T22:10:00Z',
+    }
+    const said = words(watch, worked)
+    expect(said[2]).toBe('It runs when a web page it watches changes in a way you asked about.')
+    expect(said.join(' ')).not.toMatch(/shop\.example|price|runs next/)
+  })
+
   it('a paused flow: says so, and nothing about a next run; a failed or unfinished last run', () => {
     const paused = { ...digest, enabled: false }
     const failed = words(paused, { status: 'failed', fired_at: '2026-09-26T16:00:00Z' })

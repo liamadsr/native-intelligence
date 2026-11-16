@@ -114,7 +114,7 @@ export function prTestTrigger(config: Record<string, unknown> | null | undefined
 
 /**
  * A test's trigger for a loop with no triggering entity (schedule, capture,
- * calendar, quote, and the owner's mail, chat, document, row and contact loops): its own
+ * calendar, quote, and the owner's mail, chat, document, row, contact and page loops): its own
  * type, with the ids its template reads naming items that aren't there (the
  * read tools say so). Shared by chat's test_flow (runDryTestFire) and the
  * editor's Test (the fire route), so both build the same fire.
@@ -140,6 +140,10 @@ export function entitylessTestTrigger(triggerType: string, config: Record<string
     ...(triggerType === 'document_created' ? { document_id: SYNTH_ID } : {}),
     ...(triggerType === 'record_created' ? { row_id: SYNTH_ID, table_id: ((config ?? {}) as { table_id?: string }).table_id ?? SYNTH_ID } : {}),
     ...(triggerType === 'contact_created' ? { contact_id: SYNTH_ID } : {}),
+    // The page's address is the owner's own setting (absent when someone else's loop is tested: triggerConfigForViewer).
+    ...(triggerType === 'page_changed'
+      ? { page_change_id: SYNTH_ID, page_url: typeof (config as { url?: unknown } | null)?.url === 'string' ? (config as { url: string }).url : null }
+      : {}),
   }
 }
 

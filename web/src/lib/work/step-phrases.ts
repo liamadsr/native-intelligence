@@ -42,6 +42,8 @@ const STEP_PHRASES: Record<string, string> = {
   get_contact: 'Reading a contact',
   get_contact_details: 'Reading a contact',
   get_company_overview: 'Reading a company',
+  // A watched web page (page-watch loops)
+  get_page_change: 'Reading what changed on a page',
   list_companies: 'Looking through companies',
   // Board
   list_actions: 'Reviewing the board',

@@ -3184,6 +3184,7 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
         document_created: 'New document',
         record_created: 'New row',
         contact_created: 'New contact',
+        page_changed: 'Page changed',
         quote_received: 'New quote',
       }
       if (triggerType === 'schedule' || (triggerType && triggerType in flatLabels)) {

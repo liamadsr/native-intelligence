@@ -92,6 +92,19 @@ describe('Run now on the event loops', () => {
     expect((h.runFlow.mock.calls[1] as unknown as unknown[])[2]).toMatchObject({ type: 'record_created', table_id: TABLE })
   })
 
+  it("page_changed: someone else's loop is tested without its page; the owner's own names it, and the run is the caller's alone", async () => {
+    const PAGE = { kind: 'page_changed', url: 'https://shop.example.com/kettle', look_for: 'when the price drops' }
+    h.flow = flow('page_changed', PAGE)
+    await fire()
+    const others = (h.runFlow.mock.calls[0] as unknown as unknown[])[2] as Record<string, unknown>
+    expect(others).toMatchObject({ type: 'page_changed', entity_type: null, page_change_id: SYNTH_ID, page_url: null })
+    expect(JSON.stringify(others)).not.toMatch(/shop\.example|price/)
+    expect(h.inserts[0]).toMatchObject({ private_to: 'user-1' })
+    h.flow = { ...flow('page_changed', PAGE), created_by: 'user-1' }
+    await fire()
+    expect((h.runFlow.mock.calls[1] as unknown as unknown[])[2]).toMatchObject({ type: 'page_changed', page_change_id: SYNTH_ID, page_url: 'https://shop.example.com/kettle' })
+  })
+
   it("a quote loop fires as a quote, and a schedule loop's run is not stamped", async () => {
     h.flow = flow('quote_received', { kind: 'quote_received' })
     await fire()

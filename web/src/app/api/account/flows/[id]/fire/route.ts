@@ -117,8 +117,11 @@ export async function POST(
   const extras: FireExtras = { workspaceId }
 
   if (isWorkspaceScoped) {
-    // Someone else's row loop is tested with its config as they may see it: the table (possibly the owner's private one) is never named in the caller's run.
-    const testConfig = triggerType === 'record_created' ? triggerConfigForViewer(triggerType, flowRow.trigger_config, flowRow.created_by === user.id) : (flowRow.trigger_config as Record<string, unknown> | null)
+    // Someone else's row or page loop is tested with its config as they may see it: the table (possibly the owner's private one) or the page the owner watches is never named in the caller's run.
+    const testConfig =
+      triggerType === 'record_created' || triggerType === 'page_changed'
+        ? triggerConfigForViewer(triggerType, flowRow.trigger_config, flowRow.created_by === user.id)
+        : (flowRow.trigger_config as Record<string, unknown> | null)
     trigger = entitylessTestTrigger(triggerType, testConfig, new Date().toISOString())
     if (triggerType === 'capture_processed') {
       // Synthetic capture so {{capture.*}} tokens render in the test.

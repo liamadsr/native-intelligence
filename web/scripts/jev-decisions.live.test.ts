@@ -39,6 +39,8 @@ import { meetingNeedsPrep } from '../src/lib/ai/decisions/tasks/meeting-needs-pr
 import { meetingNeedsPrepFixtures } from '../src/lib/ai/decisions/__tests__/meeting-needs-prep-fixtures'
 import { recordKeptUpToDate } from '../src/lib/ai/decisions/tasks/record-kept-up-to-date'
 import { keptFixtures } from '../src/lib/ai/decisions/__tests__/record-kept-up-to-date-fixtures'
+import { watchMatters } from '../src/lib/ai/decisions/tasks/watch-matters'
+import { watchMattersFixtures } from '../src/lib/ai/decisions/__tests__/watch-matters-fixtures'
 
 // The production adapter stays real; only Next.js's server-only marker is mocked.
 vi.mock('server-only', () => ({}))
@@ -101,6 +103,7 @@ describe.skipIf(process.env.JEV_LIVE_EVAL !== '1')('live synthetic Jev decisions
       trust: 'email.trust', review: 'action.review', emailv4: 'email.reply_required',
       tier: 'model.tier', event: 'event.needs_person', nudge: 'nudge.worth', understand: 'email.understand',
       done: 'action.done_by_email', prep: 'meeting.needs_prep', kept: 'record.kept_up_to_date',
+      watch: 'watch.matters',
     }
     it(name, async () => {
       const input = task.schema.parse(raw)
@@ -307,6 +310,15 @@ describe.skipIf(process.env.JEV_LIVE_EVAL !== '1')('live synthetic Jev decisions
     evaluate(`prep.${fixture.category}.${fixture.name}`, meetingNeedsPrep, fixture.input, value => value === fixture.expected,
       value => fixture.expected === 'prep' && value === 'skip',
       value => fixture.expected === 'skip' && value === 'prep')
+  }
+  // watch.matters (live): only a trusted pick counts (an untrusted one is
+  // unsure: the pass tells). An ignore on a change the person asked for is
+  // the FALSE SUPPRESSION; a tell on page furniture is a false allow (one
+  // run of their loop nobody needed).
+  for (const fixture of watchMattersFixtures) {
+    evaluate(`watch.${fixture.category}.${fixture.name}`, watchMatters, fixture.input, value => value === fixture.expected,
+      value => fixture.expected === 'tell' && value === 'ignore',
+      value => fixture.expected === 'ignore' && value === 'tell')
   }
   afterAll(async () => {
     let gitCommit: string | null = null

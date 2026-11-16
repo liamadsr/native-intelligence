@@ -45,6 +45,7 @@ import { createEnrichContactTools } from './enrich-contact'
 import { createEmailManagementTools } from './email-management'
 import { createAttachmentTools } from './attachments'
 import { createFlowTools } from './flows'
+import { createPageWatchTools } from './page-watch'
 import { createConnectionTools } from './connections'
 import { createApprovalResultTools } from './approval-results'
 import { createGuestConversationTools } from './guest-conversation'
@@ -545,6 +546,8 @@ export function createTools(
       approvedCall: options?.approvedCall,
       ...(options?.flowContext?.turnReadOutside ? { turnReadOutside: options.flowContext.turnReadOutside } : {}),
     }),
+    // What changed on a page the person watches (a page_changed loop's change): their own watches only, the page's text fenced. See ./page-watch.ts.
+    ...createPageWatchTools(userId, supabase, workspaceId),
     // The person's connections (F2): list them, connect from a card, disconnect
     // and loosen tool access only from their card. Attended only.
     ...createConnectionTools(userId, supabase, workspaceId, {

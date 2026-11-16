@@ -45,6 +45,12 @@ export const OUTSIDE_TEXT_TOOLS: Readonly<Record<string, OutsideTextTool>> = {
     fence: ['wrapUntrusted'],
     note: "the sender's unsubscribe link, when a web page is all it offers",
   },
+  get_page_change: {
+    file: 'src/lib/ai/tools/page-watch.ts',
+    kind: 'WEB',
+    fence: ['wrapUntrusted'],
+    note: 'the new lines on a public page a page-watch loop watches, as whoever runs that site wrote them',
+  },
   get_quote: {
     file: 'src/lib/ai/tools/business.ts',
     kind: 'WEB',

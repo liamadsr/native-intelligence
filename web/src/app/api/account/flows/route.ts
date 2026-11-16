@@ -9,6 +9,10 @@
  * encryptCredential() before insert and are never returned by GET — clients
  * see `bearer_token_present` per action only.
  *
+ * A page watch (page_changed) saved on is held to the per-person limit and
+ * its page is read once first (page-changed-save.ts), the same checks chat's
+ * create_flow makes.
+ *
  * Every loop has a bot (bots-v3 Phase 3, flow-bot.ts): POST takes
  * `ai_team_member_id` (a teammate whose bot fronts it), `bot_new: true` (+
  * `bot_name`: always a new work agent for it), or `bot_character` (+
@@ -42,6 +46,7 @@ import {
 } from '@/lib/flows/queries'
 import { nextRunAtOnWrite } from '@/lib/flows/next-run'
 import { eventTriggerTargetProblem } from '@/lib/flows/event-triggers'
+import { pageWatchSaveProblem } from '@/lib/flows/page-changed-save'
 import type { FlowAction } from '@/lib/flows/types'
 import { flowRowForViewer } from '@/lib/flows/types'
 
@@ -49,7 +54,8 @@ import { flowRowForViewer } from '@/lib/flows/types'
  * Trigger types with a wired dispatcher (pr_status_changed: the GitHub
  * webhook, F1; email_received, chat_message, document_created and
  * contact_created: the owner's own new mail, team chat messages, documents
- * and contacts).
+ * and contacts; page_changed: a public page the owner watches, read by the
+ * watch pass).
  */
 const WIRED_TRIGGER_TYPES = new Set([
   'entity_status_change',
@@ -65,6 +71,8 @@ const WIRED_TRIGGER_TYPES = new Set([
   'record_created',
   // A contact added to the CRM: by a form or a customer's text, or by a person.
   'contact_created',
+  // A public web page the owner watches changed in a way they asked about.
+  'page_changed',
 ])
 
 const FLOW_FIELDS = `
@@ -171,6 +179,16 @@ export async function POST(request: NextRequest) {
   // connections, are the creator's own (they become the loop's owner).
   const connectorProblem = await findCallToolProblems(getServiceClient(), user.id, validated)
   if (connectorProblem) return badRequest(`action ${connectorProblem.index + 1}: ${connectorProblem.message}`, { field: connectorProblem.field })
+  // A page watch saved on: the per-person limit, and its page read once. Last
+  // of the checks, as it is the one that reaches outside.
+  const isEnabled = typeof enabled === 'boolean' ? enabled : true
+  const pageProblem = await pageWatchSaveProblem(getServiceClient(), {
+    workspaceId,
+    ownerUserId: user.id,
+    flowId: null,
+    next: { triggerType: trigger_type, config: tcfg, enabled: isEnabled },
+  })
+  if (pageProblem) return badRequest(pageProblem.message, { field: pageProblem.field, code: pageProblem.code })
 
   // Its bot: the one asked for, else the default. Resolved last, after every
   // other check, so a refused write never leaves a work bot behind.
@@ -208,15 +226,15 @@ export async function POST(request: NextRequest) {
       team_id: isTeamScoped ? team_id : null,
       name: name.trim(),
       description: typeof description === 'string' ? description : null,
-      enabled: typeof enabled === 'boolean' ? enabled : true,
+      enabled: isEnabled,
       trigger_type,
       trigger_config: tcfg,
       actions: storedActions,
       canvas_layout: validateCanvasLayout(canvas_layout),
       created_by: user.id,
       ai_team_member_id: bot.teammateId,
-      // Schedule flows are queued via next_run_at; the cron tick scans it.
-      next_run_at: nextRunAtOnWrite(trigger_type, tcfg, new Date()),
+      // Schedule flows are queued via next_run_at; the cron tick scans it (a page watch: the watch pass).
+      next_run_at: nextRunAtOnWrite(trigger_type, tcfg, new Date(), isEnabled),
     })
     .select(FLOW_FIELDS)
     .single()

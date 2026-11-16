@@ -11,6 +11,7 @@
 import type { FlowEntityType } from '@/lib/flows/types'
 import { validateCronExpression } from '@/lib/flows/cron'
 import { runAtInstant } from '@/lib/flows/schedule'
+import { PAGE_WATCH_LOOK_FOR_MAX, normalizeWatchUrl } from '@/lib/flows/page-watch/url'
 export type { FlowEntityType }
 
 export type FlowTriggerType =
@@ -25,6 +26,7 @@ export type FlowTriggerType =
   | 'quote_received'
   | 'record_created'
   | 'contact_created'
+  | 'page_changed'
 
 export type ScheduleCadence = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'cron' | 'once'
 
@@ -134,6 +136,13 @@ export interface ContactCreatedTriggerConfig {
   source: ContactCreatedSource
 }
 
+/** A public web page the owner watches changes in a way they asked about (checked every 15 minutes). */
+export interface PageChangedTriggerConfig {
+  kind: 'page_changed'
+  url: string
+  look_for: string
+}
+
 export type FlowTriggerConfig =
   | EntityStatusChangeTriggerConfig
   | ScheduleTriggerConfig
@@ -146,6 +155,7 @@ export type FlowTriggerConfig =
   | QuoteReceivedTriggerConfig
   | RecordCreatedTriggerConfig
   | ContactCreatedTriggerConfig
+  | PageChangedTriggerConfig
 
 export interface HttpPostActionConfig {
   method: 'POST' | 'PUT' | 'PATCH'
@@ -537,10 +547,14 @@ export interface EditorTrigger {
   record_table_id: string
   // contact_created: which new contacts start it
   contact_source: ContactCreatedSource
+  // page_changed: the page it watches, and what the person wants to hear about
+  page_url: string
+  page_look_for: string
   /**
-   * Someone else's mail or chat loop, read without its sender filter or
-   * channel (the server's triggerConfigForViewer, `owner_only`): the editor,
-   * read-only for them anyway, says "a channel" / "new email".
+   * Someone else's mail, chat, row or page loop, read without its sender
+   * filter, channel, table or page (the server's triggerConfigForViewer,
+   * `owner_only`): the editor, read-only for them anyway, says "a channel" /
+   * "new email" / "a page its owner watches".
    */
   details_hidden?: boolean
 }
@@ -633,6 +647,7 @@ export const TRIGGER_TYPE_LABELS: Record<FlowTriggerType, string> = {
   quote_received: 'New quote',
   record_created: 'New row in a table',
   contact_created: 'New contact',
+  page_changed: 'Page changes',
 }
 
 export const CONTACT_SOURCE_LABELS: Record<ContactCreatedSource, string> = {
@@ -833,6 +848,8 @@ function newTrigger(): EditorTrigger {
     mentions_only: false,
     record_table_id: '',
     contact_source: 'any',
+    page_url: '',
+    page_look_for: '',
   }
 }
 
@@ -1036,6 +1053,17 @@ function triggerToEditor(flow: Pick<Flow, 'trigger_type' | 'trigger_config'>): E
     const source = (flow.trigger_config as Partial<ContactCreatedTriggerConfig>).source
     return { ...base, kind: 'contact_created', contact_source: typeof source === 'string' && Object.hasOwn(CONTACT_SOURCE_LABELS, source) ? source : 'any' }
   }
+  if (flow.trigger_type === 'page_changed') {
+    const cfg = flow.trigger_config as Partial<PageChangedTriggerConfig> & { owner_only?: unknown }
+    // Someone else's page watch: which page, and what they asked about, are theirs to see.
+    if (cfg.owner_only === true) return { ...base, kind: 'page_changed', details_hidden: true }
+    return {
+      ...base,
+      kind: 'page_changed',
+      page_url: typeof cfg.url === 'string' ? cfg.url : '',
+      page_look_for: typeof cfg.look_for === 'string' ? cfg.look_for : '',
+    }
+  }
   if (flow.trigger_type === 'capture_processed') {
     return { ...base, kind: 'capture_processed' }
   }
@@ -1168,6 +1196,8 @@ function triggerToConfig(t: EditorTrigger): Record<string, unknown> {
       return { kind: 'record_created', table_id: t.record_table_id }
     case 'contact_created':
       return { kind: 'contact_created', source: t.contact_source }
+    case 'page_changed':
+      return { kind: 'page_changed', url: t.page_url.trim(), look_for: t.page_look_for.trim() }
     case 'capture_processed':
       return { kind: 'capture_processed' }
     case 'pr_status_changed':
@@ -1256,6 +1286,13 @@ export function buildSavePayload(editor: EditorState):
     if (t.cadence === 'once' && !t.run_at) return { error: 'Pick the date and time it runs' }
   }
   if (t.kind === 'record_created' && (!t.record_table_id || t.record_table_id === HIDDEN_TABLE)) return { error: 'Pick a table' }
+  if (t.kind === 'page_changed') {
+    // The server's own check (normalizeWatchUrl), so a bad address is said here, as the person typed it.
+    const url = normalizeWatchUrl(t.page_url)
+    if (url instanceof Error) return { error: url.message }
+    if (!t.page_look_for.trim()) return { error: 'Say what you want to hear about on this page' }
+    if (t.page_look_for.trim().length > PAGE_WATCH_LOOK_FOR_MAX) return { error: `Keep what to tell you about to ${PAGE_WATCH_LOOK_FOR_MAX} characters or fewer` }
+  }
   if (t.kind === 'chat_message' && !t.chat_channel_id) return { error: 'Pick a channel' }
   if (t.kind === 'chat_message' && t.chat_channel_id === ANY_CHANNEL && !t.mentions_only) {
     return { error: 'Pick a channel, or turn on “Only when I’m @mentioned” to watch every channel' }

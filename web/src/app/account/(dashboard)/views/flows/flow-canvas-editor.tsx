@@ -1006,6 +1006,14 @@ function FlowCanvas({
     if (t.kind === 'contact_created') {
       return { title: 'New contact', subtitle: t.contact_source === 'any' ? 'Any new contact you can see' : CONTACT_SOURCE_LABELS[t.contact_source] }
     }
+    if (t.kind === 'page_changed') {
+      if (t.details_hidden) return { title: 'Page changes', subtitle: 'A page its owner watches' }
+      // The address without its scheme: "example.com/pricing".
+      const page = t.page_url.trim().replace(/^https?:\/\//i, '').replace(/\/$/, '')
+      if (!page) return { title: 'Page changes', subtitle: 'Name a page to watch' }
+      const look = t.page_look_for.trim()
+      return { title: 'Page changes', subtitle: look ? `${look} on ${page}` : page }
+    }
     if (t.kind === 'calendar_event') {
       const mag = Math.abs(t.offset_minutes)
       const dir = t.offset_minutes > 0 ? 'after' : 'before'

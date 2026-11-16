@@ -106,6 +106,14 @@ export interface TemplateContext {
     table_id: string | null
     /** A contact_created fire's contact; null otherwise. Its id only: a form's contact is named by a stranger. */
     contact_id: string | null
+    /**
+     * A page_changed fire's stored change and the watched page's address;
+     * null otherwise. The address is the owner's own setting; what the page
+     * says is a stranger's text and never rides a template (read it with
+     * get_page_change).
+     */
+    page_change_id: string | null
+    page_url: string | null
   }
   workspace: {
     id: string
@@ -183,6 +191,9 @@ export const TEMPLATE_TOKENS = [
   '{{trigger.table_id}}',
   // contact_created fires only: the new contact's id (read it with get_contact)
   '{{trigger.contact_id}}',
+  // page_changed fires only: the change's id (read it with get_page_change) and the watched page's address
+  '{{trigger.page_change_id}}',
+  '{{trigger.page_url}}',
   // Workspace
   '{{workspace.id}}',
   // F4 data passing: the call's capture under the trigger, and an earlier step's output (by its id)
@@ -486,6 +497,8 @@ export function buildTemplateContext(
       row_id: trigger.row_id ?? null,
       table_id: trigger.table_id ?? null,
       contact_id: trigger.contact_id ?? null,
+      page_change_id: trigger.page_change_id ?? null,
+      page_url: trigger.page_url ?? null,
     },
     workspace: {
       id: entity?.workspace_id ?? extras.workspaceId ?? '',

@@ -45,11 +45,12 @@ const TOKEN_TTL_MS = 10 * 60 * 1000 // 10 min
 
 /**
  * The routing facts a signed run token carries. Small by design — no prompt, no
- * ceiling (both re-derived server-side). `hasCapture`, `recordTableId` and
- * `contactId` are the only fire-specific inputs the ceiling rebuild needs (the
- * capture-read tools are force-added when the fire has a triggering capture,
- * the table-read ones when it is a row added to a table, get_contact when it
- * is a contact added to the CRM).
+ * ceiling (both re-derived server-side). `hasCapture`, `recordTableId`,
+ * `contactId` and `pageChangeId` are the only fire-specific inputs the ceiling
+ * rebuild needs (the capture-read tools are force-added when the fire has a
+ * triggering capture, the table-read ones when it is a row added to a table,
+ * get_contact when it is a contact added to the CRM, get_page_change when it
+ * is a change on a page its owner watches).
  */
 export interface RunTokenClaims {
   workspaceId: string
@@ -73,6 +74,14 @@ export interface RunTokenClaims {
    * Absent on every other run.
    */
   contactId?: string
+  /**
+   * The fire is this change on a page the loop's owner watches (a
+   * page_changed loop): the ceiling rebuild adds get_page_change, so the run
+   * can read what changed whatever its skill's categories, and the tool route
+   * holds that forced read to this one change (fireSubjectReadRefusal,
+   * run-skill.ts). Absent on every other run.
+   */
+  pageChangeId?: string
   outputContract: 'verdict' | 'prose'
   model: string
   /**
@@ -229,7 +238,7 @@ export function verifyRunToken(token: string | null | undefined): RunTokenClaims
   if (claims.runId !== undefined && (typeof claims.runId !== 'string' || !/^[0-9a-f-]{36}$/i.test(claims.runId))) return null
   if (claims.readOutsideBefore !== undefined && claims.readOutsideBefore !== true) return null
   // A fire's subject is one id (it holds the run's forced reads to that item).
-  for (const id of [claims.recordTableId, claims.contactId]) {
+  for (const id of [claims.recordTableId, claims.contactId, claims.pageChangeId]) {
     if (id !== undefined && (typeof id !== 'string' || !/^[0-9a-f-]{36}$/.test(id))) return null
   }
   if (claims.flowStep !== undefined) {

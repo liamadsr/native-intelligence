@@ -1,7 +1,7 @@
 /**
  * The owner-scoped event triggers (email_received, chat_message,
- * document_created, record_created, contact_created): who a fire is for,
- * what never fires, and the cap.
+ * document_created, record_created, contact_created, page_changed): who a
+ * fire is for, what never fires, and the cap.
  *
  * OWNER SCOPING. Unlike quote_received (workspace-wide), each of these fires
  * a loop only when its OWNER (flow.created_by, who it runs as) could see the
@@ -11,7 +11,10 @@
  * service-role client (entity-fences.ts: the team chat channel fence, and
  * entity_refs_hidden, the SQL rule the graph's policies use, for documents;
  * visible_data_table_ids for tables; contact_visible_to for contacts), so a
- * loop whose owner lost access is skipped.
+ * loop whose owner lost access is skipped. A page watch is the owner's in a
+ * different way: the page is public, but which page they watch and what they
+ * asked about is theirs, so its runs are private to them like the others' and
+ * a change fires only the one loop it belongs to (flowDispatchOnPageChanged).
  *
  * LOOP GUARD. Items made by agents, bots or automations never fire:
  *   - mail: the emitter takes only mail from someone else (never the
@@ -28,7 +31,10 @@
  *   - contacts: only a public intake's new contact (upsertCustomerContact,
  *     when it made one) and a person's own (the contacts route) emit
  *     (emit-contact-created.ts); a contact an agent, an import, a sync, a
- *     meeting's participants, prospecting or a new member made never does.
+ *     meeting's participants, prospecting or a new member made never does;
+ *   - pages: only the watch pass emits (src/lib/flows/page-watch/), after
+ *     reading the public page itself; nothing a loop's step does writes a
+ *     change row.
  *
  * COST. An event loop on a busy channel could start hundreds of runs: each
  * flow runs at most EVENT_FIRE_CAP_PER_DAY times in any 24 hours; the fires
@@ -37,8 +43,10 @@
  *
  * Template variables carry ids only, never text someone else wrote: a step
  * reads the item with a tool (read_email, read_team_chat_message,
- * get_document, query_rows, get_contact) as the owner. A form's row reaches
- * it fenced as untrusted (data_row.from_form).
+ * get_document, query_rows, get_contact, get_page_change) as the owner. A
+ * form's row reaches it fenced as untrusted (data_row.from_form), a page's
+ * new lines in the WEB fence; a page loop's `{{trigger.page_url}}` is the
+ * owner's own setting.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isContactVisibleTo } from '@/lib/crm/contact-visibility'

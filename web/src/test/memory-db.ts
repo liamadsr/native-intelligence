@@ -8,7 +8,7 @@
  *   upsert (one row or many, `{ onConflict: 'a,b' }`: a row matching on those
  *   columns is updated, else inserted; `ignoreDuplicates: true` leaves a
  *   matching row as it is),
- *   eq, neq, in, is, gt, gte, lt, lte, not(col, 'is', null), contains,
+ *   eq, neq, in, is, gt, gte, lt, lte, not(col, 'is', null), not(col, 'in', '(a,b)'), contains,
  *   ilike ('%suffix' / 'prefix%' / '%mid%'), or('a.eq.x,b.cs.{"y"},c.is.null'),
  *   order (strings or numbers), limit, range (fetchAllRows' pages), single,
  *   maybeSingle.
@@ -138,6 +138,11 @@ export function memoryDb(tables: Record<string, Row[]>, unique: Record<string, (
       lt: (k: string, v: unknown) => (filters.push((r) => r[k] != null && compare(r[k], v) < 0), chain),
       lte: (k: string, v: unknown) => (filters.push((r) => r[k] != null && compare(r[k], v) <= 0), chain),
       not: (k: string, o: string, v: unknown) => {
+        // not(col, 'in', '(a,b)'): PostgREST's list form, as a scan that leaves some ids out writes it.
+        if (o === 'in' && typeof v === 'string') {
+          const out = v.replace(/^\(|\)$/g, '').split(',').map((s) => s.trim()).filter(Boolean)
+          return filters.push((r) => !out.includes(String(r[k]))), chain
+        }
         if (o !== 'is' || v !== null) throw new Error(`memory-db: not ${o}`)
         return filters.push((r) => r[k] != null), chain
       },
