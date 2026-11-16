@@ -2,6 +2,7 @@ import type { GetStepTools } from 'inngest'
 import { getServiceClient } from '@/lib/admin'
 import { inngest } from './client'
 import {
+  REACH_ROUTE_BUSY_RECHECK,
   REACH_ROUTE_DEBOUNCE_PERIOD,
   REACH_ROUTE_DEBOUNCE_TIMEOUT,
   REACH_ROUTE_EVENT,
@@ -17,8 +18,14 @@ import {
   type RouteWould,
 } from '@/lib/reach/route'
 
-/** The most rounds one run plans: twelve rechecks, two nights' waits and a few sends, with room to spare. */
-export const REACH_ROUTE_MAX_ROUNDS = 24
+/** The most rounds one run plans: twelve rechecks, a held call's looks, two nights' waits and a few sends, with room to spare. */
+export const REACH_ROUTE_MAX_ROUNDS = 60
+/**
+ * How many times a run looks again while he is in a call or a meeting. The
+ * plan lets a message go 2 hours after it was written (5 min × 24), so this
+ * only bounds a run whose messages keep arriving.
+ */
+export const REACH_ROUTE_MAX_BUSY_LOOKS = 30
 /** A run waits out quiet hours at most this many times (a wait ends after them, so one is the norm). */
 export const REACH_ROUTE_MAX_WAITS = 2
 
@@ -44,6 +51,9 @@ export interface ReachRouteRunContext {
  *           claimed on 'banner' and done for good (`present_unread`), so a
  *           later run never texts it; gone by then, it is texted as usual
  *   wait    quiet hours: sleep until 08:05 his time, then look again
+ *   busy    in a call or a meeting: sleep REACH_ROUTE_BUSY_RECHECK and look
+ *           again (the plan itself knows which messages waited, so a run
+ *           cancelled by a newer request loses nothing)
  *   sent    look again at once (claimed messages drop out); a round that
  *           claimed nothing stops, so a ledger that can't be written never
  *           loops
@@ -58,6 +68,7 @@ export async function runReachRoute({ event, step }: ReachRouteRunContext) {
   const live = routeLive()
   let rechecks = 0
   let waits = 0
+  let busyLooks = 0
   let sent = 0
   let channel: RouteChannel | null = null
   let outcome = 'max_rounds'
@@ -80,6 +91,15 @@ export async function runReachRoute({ event, step }: ReachRouteRunContext) {
       }
       rechecks++
       await step.sleep(`recheck-${rechecks}`, REACH_ROUTE_RECHECK)
+      continue
+    }
+    if (decision.kind === 'busy') {
+      if (busyLooks >= REACH_ROUTE_MAX_BUSY_LOOKS) {
+        outcome = 'busy_held'
+        break
+      }
+      busyLooks++
+      await step.sleep(`busy-${busyLooks}`, REACH_ROUTE_BUSY_RECHECK)
       continue
     }
     if (decision.kind === 'wait') {

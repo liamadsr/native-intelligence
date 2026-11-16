@@ -7,11 +7,14 @@ import { describe, expect, it } from 'vitest'
 import {
   DESKTOP_IDLE_SECONDS,
   KEEPALIVE_MS,
+  MEETING_WINDOW_MS,
   PRESENT_WINDOW_MS,
   SEEN_INPUT_WINDOW_MS,
   WEB_INPUT_WINDOW_MS,
   desktopState,
+  inMeeting,
   isPresent,
+  lastMeetingAt,
   parsePresencePing,
   readingNow,
   webActive,
@@ -165,5 +168,46 @@ describe('the page rules', () => {
     expect(readingNow(page({ lastInputAt: NOW - SEEN_INPUT_WINDOW_MS - 1 }), NOW)).toBe(false)
     expect(readingNow(page({ focused: false }), NOW)).toBe(false)
     expect(readingNow(page({ visible: false }), NOW)).toBe(false)
+  })
+})
+
+describe('a meeting', () => {
+  it('only the desktop says it, on a ping with a state, as true or false', () => {
+    expect(parsePresencePing({ clientId: CLIENT, surface: 'desktop', state: 'idle', meeting: true })).toEqual({ ok: true, ping: { clientId: CLIENT, surface: 'desktop', state: 'idle', meeting: true } })
+    expect(parsePresencePing({ clientId: CLIENT, surface: 'desktop', state: 'active', meeting: false })).toEqual({ ok: true, ping: { clientId: CLIENT, surface: 'desktop', state: 'active', meeting: false } })
+    // Absent or null: nothing said, and the ping is what it always was.
+    expect(parsePresencePing({ clientId: CLIENT, surface: 'desktop', state: 'active', meeting: null })).toEqual({ ok: true, ping: { clientId: CLIENT, surface: 'desktop', state: 'active' } })
+    expect(parsePresencePing({ clientId: CLIENT, surface: 'desktop', state: 'active', meeting: 'yes' })).toMatchObject({ ok: false })
+    expect(parsePresencePing({ clientId: CLIENT, surface: 'web', state: 'active', meeting: true })).toMatchObject({ ok: false })
+    expect(parsePresencePing({ clientId: CLIENT, surface: 'ios', state: 'active', meeting: false })).toMatchObject({ ok: false })
+    // A seen-only ping (a desktop window other than main) never says it.
+    expect(parsePresencePing({ clientId: CLIENT, surface: 'desktop', meeting: true, seen: { conversationId: CONV, through: ago(0) } })).toMatchObject({ ok: false })
+  })
+
+  it('counts for as long as a keepalive can take to arrive, whatever the row’s state', () => {
+    // Room for a ping that runs late: two keepalives fit in the window.
+    expect(KEEPALIVE_MS * 2).toBeLessThan(MEETING_WINDOW_MS)
+    const on = (meeting_at: string | null) => ({ in_meeting: true, meeting_at })
+    expect(inMeeting([on(ago(0))], NOW)).toBe(true)
+    expect(inMeeting([on(ago(MEETING_WINDOW_MS))], NOW)).toBe(true)
+    expect(inMeeting([on(ago(MEETING_WINDOW_MS + 1))], NOW)).toBe(false)
+    expect(inMeeting([on(null), {}], NOW)).toBe(false)
+    expect(inMeeting([], NOW)).toBe(false)
+    expect(inMeeting([on('soon')], NOW)).toBe(false)
+    // Said it a minute ago, then said it ended: over at once, though the time is kept.
+    expect(inMeeting([{ in_meeting: false, meeting_at: ago(60_000) }], NOW)).toBe(false)
+    expect(inMeeting([{ meeting_at: ago(60_000) }], NOW)).toBe(false)
+    // One desktop in a meeting is enough, beside a browser that says nothing.
+    expect(inMeeting([{ in_meeting: false, meeting_at: null }, on(ago(60_000))], NOW)).toBe(true)
+    // A time far in the future (a clock gone wrong) is not a meeting.
+    expect(inMeeting([on(new Date(NOW + 60 * 60_000).toISOString())], NOW)).toBe(false)
+  })
+
+  it('remembers when the last one was, over or not', () => {
+    expect(lastMeetingAt([], NOW)).toBeNull()
+    expect(lastMeetingAt([{ meeting_at: null }, {}, { meeting_at: 'soon' }], NOW)).toBeNull()
+    expect(lastMeetingAt([{ meeting_at: ago(90 * 60_000) }, { meeting_at: ago(20 * 60_000) }], NOW)).toBe(NOW - 20 * 60_000)
+    // A clock ahead of ours never puts a meeting in the future.
+    expect(lastMeetingAt([{ meeting_at: new Date(NOW + 60 * 60_000).toISOString() }], NOW)).toBe(NOW)
   })
 })

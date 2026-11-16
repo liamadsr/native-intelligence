@@ -29,8 +29,35 @@ export async function upsertPresence(service: SupabaseClient, userId: string, pi
     updated_at: at,
   }
   if (ping.state === 'active') row.active_at = at
-  const { error } = await service.from('user_presence').upsert(row, { onConflict: 'user_id,client_id' })
+  // The desktop's word on a meeting (migration 666). `meeting_at` moves only while one is on, so it keeps
+  // when the last one was (the router reads it for "written while he was in a meeting").
+  const meeting = ping.surface === 'desktop' && typeof ping.meeting === 'boolean'
+  if (meeting) {
+    row.in_meeting = ping.meeting
+    if (ping.meeting) row.meeting_at = at
+  }
+  let { error } = await service.from('user_presence').upsert(row, { onConflict: 'user_id,client_id' })
+  if (error && meeting && missingMeetingColumn(error)) {
+    // Before migration 666 is applied (or before the API reloaded its schema): the ping still lands, without the meeting mark.
+    warnMissingMeetingColumn()
+    delete row.in_meeting
+    delete row.meeting_at
+    ;({ error } = await service.from('user_presence').upsert(row, { onConflict: 'user_id,client_id' }))
+  }
   if (error) throw new Error(`user_presence upsert failed: ${error.message}`)
+}
+
+/** The store's answer when `user_presence`'s meeting columns are not there yet (migration 666 not applied, or the API's schema not reloaded). */
+function missingMeetingColumn(error: { message?: string | null }): boolean {
+  return typeof error.message === 'string' && (error.message.includes('meeting_at') || error.message.includes('in_meeting'))
+}
+
+let warnedMissingMeetingColumn = false
+/** Once per process: without the columns nothing is ever held for a meeting, and that should not be silent. */
+function warnMissingMeetingColumn(): void {
+  if (warnedMissingMeetingColumn) return
+  warnedMissingMeetingColumn = true
+  console.warn('[presence] user_presence has no meeting columns (migration 666): meetings hold no messages until it is applied')
 }
 
 /**
@@ -64,13 +91,15 @@ export async function markHomeSeen(
 
 /** Every presence row of one person, newest first: what the router (part C) reads before it picks a channel. */
 export async function readPresence(service: SupabaseClient, userId: string): Promise<PresenceRow[]> {
-  const { data, error } = await service
-    .from('user_presence')
-    .select('client_id, surface, state, active_at, updated_at')
-    .eq('user_id', userId)
-    .order('updated_at', { ascending: false })
+  const read = (columns: string) => service.from('user_presence').select(columns).eq('user_id', userId).order('updated_at', { ascending: false })
+  let { data, error } = await read('client_id, surface, state, active_at, updated_at, in_meeting, meeting_at')
+  // Before migration 666 is applied: the rows without the meeting mark, so the router keeps working.
+  if (error && missingMeetingColumn(error)) {
+    warnMissingMeetingColumn()
+    ;({ data, error } = await read('client_id, surface, state, active_at, updated_at'))
+  }
   if (error) throw new Error(`user_presence read failed: ${error.message}`)
-  return (data ?? []) as PresenceRow[]
+  return (data ?? []) as unknown as PresenceRow[]
 }
 
 /**

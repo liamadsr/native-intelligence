@@ -1477,6 +1477,35 @@ export async function presenceState(): Promise<DesktopPresence | null> {
   }
 }
 
+/**
+ * Whether the desktop's person is in a meeting now, for the presence client:
+ * the app is recording one, or its meeting detection is showing a call in
+ * another app. Two reads of state the desktop already keeps, no new command,
+ * so every released build answers.
+ *
+ * What it does NOT see: a call whose prompt the person dismissed without
+ * recording (detection goes back to `monitoring` while the call goes on),
+ * and any call with meeting detection switched off. Today's desktop answers
+ * the recording read with `recording` or `inactive` only; `paused` is read
+ * for a build that says it.
+ *
+ * Null outside the desktop and when neither read answers (the client then
+ * says nothing about a meeting, and the server keeps what it had).
+ */
+export async function desktopInMeeting(): Promise<boolean | null> {
+  if (!isDesktopApp()) return null;
+  const [detection, recording] = await Promise.all([
+    invoke<unknown>("get_meeting_detection_state").catch(() => undefined),
+    invoke<unknown>("get_recording_status").catch(() => undefined),
+  ]);
+  const detected =
+    detection && typeof detection === "object" ? (detection as { state?: unknown }).state : undefined;
+  const knowsDetection = typeof detected === "string";
+  const knowsRecording = typeof recording === "string";
+  if (!knowsDetection && !knowsRecording) return null;
+  return detected === "detected" || detected === "recording" || recording === "recording" || recording === "paused";
+}
+
 // ── macOS audio health + Mic Mode ───────────────────────────────
 
 /** Is macOS's audio daemon (coreaudiod) answering? It can deadlock (an Apple

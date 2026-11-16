@@ -1,10 +1,12 @@
 /**
  * POST /api/presence: a Native Intelligence app saying its person is (or is not) at it, and
  * optionally how far they have read their home thread
- * (docs/plans/reach-follows-you.md §1 and §2). Nothing reads these yet; the
- * router (part C) will, to choose between a banner and a text.
+ * (docs/plans/reach-follows-you.md §1 and §2). The router
+ * (src/lib/reach/route.ts) reads them to choose between a banner and a text,
+ * and to hold routine messages while the person is in a meeting.
  *
- * Body: {clientId, surface, state, seen?: {conversationId, through}}, or a
+ * Body: {clientId, surface, state, seen?: {conversationId, through}}, with
+ * `meeting: true | false` from the desktop's main window when it can tell, or a
  * seen-only {clientId, surface, seen} from a desktop window other than main,
  * which never touches the row's state (src/lib/presence/presence.ts
  * parsePresencePing). Read with
