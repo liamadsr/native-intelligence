@@ -1,11 +1,10 @@
-<!-- TODO(rename-compat): the hosted-app links in this file stay on dial8.ai, which serves today, and move to nativeintelligence.dev once that domain serves. -->
 <div align="center">
 
 # Native Intelligence
 
 **One workspace for all of your work, with an always-on agent that learns it and takes it over.**
 
-[Hosted app](https://dial8.ai) · [Docs](https://dial8.ai/docs) · [Discord](https://discord.gg/sHtYGtkWga) · [Contribute](CONTRIBUTING.md) · [Security](SECURITY.md)
+[Hosted app](https://nativeintelligence.dev) · [Docs](https://nativeintelligence.dev/docs) · [Discord](https://discord.gg/sHtYGtkWga) · [Contribute](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 </div>
 
@@ -83,16 +82,16 @@ with all its complexity, until it simply does things for you the way you expect.
 
 | Part | What it does | Docs |
 | --- | --- | --- |
-| Email | Gmail and Outlook in one inbox, with replies the agent drafts in your voice and threads linked to the people in them. | [Email &rarr;](https://dial8.ai/docs/features/email) |
-| Calendar | Google and Microsoft calendars together, with every meeting linked to its notes, people and follow-ups. | [Calendar &rarr;](https://dial8.ai/docs/features/calendar) |
-| Meetings | The desktop, iPhone and Apple Watch apps record and transcribe your meetings, then pull out the actions, decisions and commitments. | [Captures &rarr;](https://dial8.ai/docs/features/captures) |
-| Tasks and projects | Tasks with custom workflows and team identifiers (`ENG-42`), grouped into projects, milestones, cycles and initiatives. | [Actions &rarr;](https://dial8.ai/docs/features/actions) |
-| Documents | Rich documents you and the agent write together, with @mentions to anything in the workspace. | [Documents &rarr;](https://dial8.ai/docs/features/documents) |
-| Studio | Make videos and ads: write a script, record your screen and camera, edit on a timeline and export for each platform, with the agent's help. | [Studio &rarr;](https://dial8.ai/docs/features/studio) |
-| CRM | Contacts, companies and their whole history, built from your email, calendar and meetings, including who said what on a call. | [CRM &rarr;](https://dial8.ai/docs/features/contacts-and-crm) |
+| Email | Gmail and Outlook in one inbox, with replies the agent drafts in your voice and threads linked to the people in them. | [Email &rarr;](https://nativeintelligence.dev/docs/features/email) |
+| Calendar | Google and Microsoft calendars together, with every meeting linked to its notes, people and follow-ups. | [Calendar &rarr;](https://nativeintelligence.dev/docs/features/calendar) |
+| Meetings | The desktop, iPhone and Apple Watch apps record and transcribe your meetings, then pull out the actions, decisions and commitments. | [Captures &rarr;](https://nativeintelligence.dev/docs/features/captures) |
+| Tasks and projects | Tasks with custom workflows and team identifiers (`ENG-42`), grouped into projects, milestones, cycles and initiatives. | [Actions &rarr;](https://nativeintelligence.dev/docs/features/actions) |
+| Documents | Rich documents you and the agent write together, with @mentions to anything in the workspace. | [Documents &rarr;](https://nativeintelligence.dev/docs/features/documents) |
+| Studio | Make videos and ads: write a script, record your screen and camera, edit on a timeline and export for each platform, with the agent's help. | [Studio &rarr;](https://nativeintelligence.dev/docs/features/studio) |
+| CRM | Contacts, companies and their whole history, built from your email, calendar and meetings, including who said what on a call. | [CRM &rarr;](https://nativeintelligence.dev/docs/features/contacts-and-crm) |
 | Prospecting | Find prospects, build lists, and run outreach sequences, with the agent writing each message. | |
-| Search and views | Full-text and semantic search across everything, and saved views as lists or boards. | [Search &rarr;](https://dial8.ai/docs/features/search) |
-| The agent | Chat, automations, skills, memory and approvals, everywhere you are. More below. | [AI assistant &rarr;](https://dial8.ai/docs/features/ai-assistant) |
+| Search and views | Full-text and semantic search across everything, and saved views as lists or boards. | [Search &rarr;](https://nativeintelligence.dev/docs/features/search) |
+| The agent | Chat, automations, skills, memory and approvals, everywhere you are. More below. | [AI assistant &rarr;](https://nativeintelligence.dev/docs/features/ai-assistant) |
 
 <br />
 
@@ -130,7 +129,7 @@ the background, and reaches you wherever you are.
   open the other way too: point Claude Code or any MCP client at your workspace.
 
   ```bash
-  claude mcp add --transport http native-intelligence https://dial8.ai/api/mcp
+  claude mcp add --transport http native-intelligence https://nativeintelligence.dev/api/mcp
   ```
 
 - **It can run a business by text.** For an owner on the go, it sends quotes, books
@@ -233,9 +232,9 @@ Where it's going next:
 
 # Getting started
 
-**Use the hosted app.** [Sign up](https://dial8.ai), connect your Gmail or Outlook
+**Use the hosted app.** [Sign up](https://nativeintelligence.dev), connect your Gmail or Outlook
 account, and the agent starts learning your workspace. The
-[quick start](https://dial8.ai/docs/getting-started/quick-start) walks through the rest.
+[quick start](https://nativeintelligence.dev/docs/getting-started/quick-start) walks through the rest.
 
 **Run it yourself.** The web app needs Node 24 (`web/.nvmrc`), a Supabase project, and
 service keys in `web/.env.local` ([`web/.env.example`](web/.env.example) lists them).
@@ -265,8 +264,9 @@ The iPhone and Apple Watch apps build in Xcode (`ios/Dial8.xcodeproj`, schemes `
 
 # One repo, older names
 
-Native Intelligence used to be called Dial8, and the hosted app still lives at
-[dial8.ai](https://dial8.ai) while it moves. `web/`, `desktop/` and `ios/` started as
+Native Intelligence used to be called Dial8. The hosted app lives at
+[nativeintelligence.dev](https://nativeintelligence.dev); its old address, `dial8.ai`, still
+answers for older desktop builds and saved links. `web/`, `desktop/` and `ios/` started as
 three separate repos. The old name is still in a few places on purpose: the Mac and iOS
 bundle ids and URL schemes, the desktop binary and its helper programs, the wording of
 text messages that carriers have reviewed, database values, and the fallbacks that keep

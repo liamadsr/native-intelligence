@@ -44,6 +44,19 @@ Read this before reporting anything as live or touching production. The code gui
   the server over ssh, is the owner's call, as roll-outs and migrations are.
   `deploy/app/check-settings.sh <user>@<server>` checks them: it runs from your own
   machine, over ssh, and only reads (unless given `--fill`).
+- **The app's address is `https://nativeintelligence.dev` since 2026-11-16**
+  (`NEXT_PUBLIC_APP_URL` in the server's `.env`, compiled into the image): every link the
+  app makes is built on it. `dial8.ai` still serves the same app and has to: desktop
+  builds before 0.2.107, MCP clients on `dial8.ai/api/mcp`, Asana webhooks, older
+  Outlook subscriptions and links in sent emails use it. Still naming `dial8.ai` on
+  purpose: the connectors' callbacks (`OAUTH_REDIRECT_BASE_URL`), the Slack app's event
+  and interactivity addresses, mail addresses, the carrier-reviewed text messages. The
+  forward from the old domain (`NI_FORWARD_OLD_DOMAIN`) is off; switching it on is the
+  owner's call. Proven live that day: both domains on the new build, canonical tags and
+  the sitemap, a new form link, Inngest's registration at the new address. NOT yet
+  proven: a sign-in on the new domain after the move, a connector connect, a cloud
+  browser's start, a call's webhook. "The app's address" in
+  [`deploy/README.md`](deploy/README.md#the-apps-address) has the steps and the way back.
 - **Scheduled jobs** run from the server's cron container. Their source is the `crons`
   array in `web/vercel.json`: after changing it, run `node deploy/app/cron/generate.mjs`
   and commit `deploy/app/cron/crontab` with it (the image build and CI fail when the two

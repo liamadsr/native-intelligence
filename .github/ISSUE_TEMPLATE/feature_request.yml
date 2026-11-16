@@ -3,12 +3,11 @@ description: Suggest something Native Intelligence should do. Ideas feed the pub
 title: "[Idea]: "
 labels: ["idea"]
 body:
-  # TODO(rename-compat): the roadmap link stays on dial8.ai, which serves today, and moves to nativeintelligence.dev once that domain serves.
   - type: markdown
     attributes:
       value: |
         Thanks for the idea. Short and plain is fine. Others can vote on it with 👍 or 👎.
-        See what is already planned at https://dial8.ai/roadmap before you post.
+        See what is already planned at https://nativeintelligence.dev/roadmap before you post.
   - type: textarea
     id: problem
     attributes:
