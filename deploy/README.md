@@ -1136,7 +1136,7 @@ The containers start with production's address and start the schedule. Every ima
 
 The certificate does not wait for resolvers such as `1.1.1.1` to catch up: the certificate authority asks the DNS host's own name servers. Between the record changing and step 3, anyone whose resolver already has the new address gets a certificate error, so step 3 follows step 1 at once. (Adding the name to Caddy first does not help: the certificate authority checks the name against this server, and before the record changes it finds the current host.) Each `up -d` interrupts the server's other public names for a few seconds. Once the first name works, the rest can be done a few at a time, one `up -d` for each batch. Your own machine can keep an old answer for some minutes after the change: try from elsewhere, or with `curl --resolve`, before deciding a name does not work.
 
-Inngest calls the app at the address in `INNGEST_SDK_URL` (`inngest/.env`), today `https://dial8.ai/api/inngest`. From the moment that name answers from here, its calls come to this server's worker: they are the same functions with the same keys, so a call that still reaches the current host during the change works there too. The sync loop on this server makes the app register again within a minute; the answer is `modified: false` as long as that address's origin is `NEXT_PUBLIC_APP_URL`, which the app gives Inngest as its own (`INNGEST_SERVE_ORIGIN`). If the two differ, the app registers its own address instead, which also works, since both names reach a live copy.
+Inngest calls the app at the address in `INNGEST_SDK_URL` (`inngest/.env`), at the switch `https://dial8.ai/api/inngest` (since 2026-11-16 `https://nativeintelligence.dev/api/inngest`). From the moment that name answers from here, its calls come to this server's worker: they are the same functions with the same keys, so a call that still reaches the current host during the change works there too. The sync loop on this server makes the app register again within a minute; the answer is `modified: false` as long as that address's origin is `NEXT_PUBLIC_APP_URL`, which the app gives Inngest as its own (`INNGEST_SERVE_ORIGIN`). If the two differ, the app registers its own address instead, which also works, since both names reach a live copy.
 
 **5. Check.** Every one at once; a doubt is a reason for step 22.
 
@@ -1157,7 +1157,29 @@ Inngest calls the app at the address in `INNGEST_SDK_URL` (`inngest/.env`), toda
 
 **6. Afterwards.** Take the test name out: from `APP_HOSTS` (check and `up -d` as in step 4), from `ADDITIONAL_REDIRECT_URLS` in `supabase/stack/.env` (then `sudo sh run.sh recreate auth` there), and its DNS record. Otherwise a second production address stays open. Leave the current host's deployment running, with its cron jobs off, for a week: it is the undo. If builds there cost money, disconnect the repository from its project: its last deployment keeps running and stays the undo, frozen at that code, and a merge to `main` then builds nothing anywhere. Add `:compose.app.yaml` to `COMPOSE_FILE` in `backup/.env` and `sudo docker compose up -d --build` in `backup/` to back the agents up. Then retire it: remove the names from that project (they already point here), except the production domain Slack's connector forwards to (step 21, Gate 1) for as long as Slack still goes through the connector, and keep the team only for the cloud browser's sandboxes and the AI Gateway, which stay there, and the connector until then. Slack left the connector on 2026-11-14 and the connector is deleted ("Slack" under [Day to day](#day-to-day) has the record), so that exception has ended. After that neither the connector nor that domain is needed for Slack.
 
-**Later, each on its own: the app's address, then the forward.** This step keeps `NEXT_PUBLIC_APP_URL=https://dial8.ai`. Moving it to `https://nativeintelligence.dev` is a build here (`NEXT_PUBLIC_APP_URL` set to that value as in step 1, then `sudo ./deploy.sh`) and the list in the pull request that made the address one setting ("When the setting moves"). Only after that, and after a sign-in on the new domain has been tried, can `NI_FORWARD_OLD_DOMAIN=307` in `app/.env` and `sudo ./deploy.sh --no-build` send people who open a `dial8.ai` page to the new domain (`web/src/lib/old-domain-forward.ts` has what it never touches; it does nothing while the address is still on `dial8.ai`). Emptying the value and the same command turn it off.
+**Later, each on its own: the app's address, then the forward.** This step kept `NEXT_PUBLIC_APP_URL=https://dial8.ai`. **The address moved to `https://nativeintelligence.dev` on 2026-11-16** (below: [The app's address](#the-apps-address)). Only after that, and after a sign-in on the new domain has been tried, can `NI_FORWARD_OLD_DOMAIN=307` in `app/.env` and `sudo ./deploy.sh --no-build` send people who open a `dial8.ai` page to the new domain (`web/src/lib/old-domain-forward.ts` has what it never touches; it does nothing while the address is on `dial8.ai`). Emptying the value and the same command turn it off. The forward is off.
+
+### The app's address
+
+Since 2026-11-16 the app's address is `https://nativeintelligence.dev`: every link the app makes (form pages, emails, texts, canonical tags, the sitemap, the Slack install's return) is built on it. `dial8.ai` keeps serving the same app and must keep doing so: desktop builds from before 0.2.107 load it and update from it, MCP clients are set up on `dial8.ai/api/mcp`, Asana webhooks, older Outlook subscriptions and links in sent emails point at it.
+
+What the move was, for the next time an address changes. Back up each file first; everything here is the owner's call.
+
+1. `app/.env`: `NEXT_PUBLIC_APP_URL` and `CLOUD_BROWSER_RELAY_ORIGIN` (`https://browser-relay.` and the new domain; the name needs its DNS record and a place in `APP_HOSTS` in `edge/.env` first). Then `sudo ./deploy.sh`, a build: the address is compiled in, and `deploy.sh` refuses to start an image built for another address than the file names.
+2. `inngest/.env`: `INNGEST_SDK_URL`, then `sudo docker compose up -d` there. The sync loop's first line must say `Successfully registered`.
+3. `livekit/.env`: `LIVEKIT_WEBHOOK_URL` and `RECORDER_APP_URL`, then `sudo docker compose up -d` there. It restarts LiveKit and the recorder: not while a call is open.
+4. `supabase/stack/.env`: `SITE_URL` (where sign-in emails link), then `sudo sh run.sh recreate auth` there (sign-in is away for a few seconds). The new address's entries must already be in `ADDITIONAL_REDIRECT_URLS`.
+5. Check: `/api/version` and a page's canonical tag on both domains, a new form's link, a sign-in on the new domain, an agent's reply, a cloud browser's start.
+
+The way back: the four files from their backups, then the same four commands (a build for `app/`).
+
+Still on `dial8.ai` on purpose after the move:
+
+- `OAUTH_REDIRECT_BASE_URL=https://dial8.ai` in `app/.env`: the connectors' callbacks (Google, Microsoft, GitHub, HubSpot, Asana, Jira, Linear) stay on the address their providers list. A connect begun on either domain finishes where it began. To move them: add `https://nativeintelligence.dev/api/oauth/<provider>/callback` at each provider beside the old one, then empty the line and `sudo ./deploy.sh --no-build`.
+- The Slack app's Event Subscriptions and Interactivity addresses ("Slack" below). Its Redirect URLs need `https://nativeintelligence.dev/api/slack/oauth/callback`: the install's return follows the app's address and is not held by the line above.
+- Mail: `EMAIL_FROM`, `ADMIN_EMAILS` and `SMTP_ADMIN_EMAIL` name addresses at `dial8.ai`; the new domain has no mail records.
+- The carrier-reviewed text messages and the `/sms`, `/terms` and `/privacy` pages they name, until the messaging campaign is updated.
+- `APP_HOSTS` in `edge/.env` and `dial8.ai` in `APP_DOMAINS` (`web/src/lib/app-url.ts`): both domains serve.
 
 ## 22. The undo
 
