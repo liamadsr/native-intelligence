@@ -12,8 +12,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { memoryDb } from '@/test/memory-db'
-import { pageWatchAfterSave, pageWatchLimitProblem, pageWatchNeedsReset, pageWatchSaveProblem, type WatchPageProbe } from '../page-changed-save'
-import { PAGE_WATCH_MAX_PER_PERSON } from '../page-watch/url'
+import { pageWatchAfterHandOver, pageWatchAfterSave, pageWatchLimitProblem, pageWatchNeedsReset, pageWatchSaveProblem, type WatchPageBrowserProbe, type WatchPageProbe } from '../page-changed-save'
+import { PAGE_WATCH_BROWSER_MAX_PER_PERSON, PAGE_WATCH_MAX_PER_PERSON } from '../page-watch/url'
 
 const WS = 'ws-fernhill'
 const OTHER_WS = 'ws-other'
@@ -35,7 +35,7 @@ function watches(owner: string, n: number) {
 }
 
 const readable: WatchPageProbe = async () => ({ ok: true, lineCount: 40 })
-const shell: WatchPageProbe = async () => ({ ok: false, reason: 'This page shows its content only in a browser, so it cannot be watched yet.' })
+const shell: WatchPageProbe = async () => ({ ok: false, reason: 'This page shows its content only in a browser. Switch on \"Read it in my browser\" to watch it there.' })
 
 describe('the limit', () => {
   it(`lets a person keep ${PAGE_WATCH_MAX_PER_PERSON} on, and refuses the next in plain words`, async () => {
@@ -77,7 +77,7 @@ describe('the read at setup', () => {
 
   it('refuses a page that needs a browser, with the probe’s own reason', async () => {
     const out = await pageWatchSaveProblem(db(), { workspaceId: WS, ownerUserId: 'u-ana', flowId: null, next: { triggerType: 'page_changed', config: page(URL_A), enabled: true } }, { probe: shell })
-    expect(out).toEqual({ code: 'PAGE_UNREADABLE', field: 'trigger.url', message: "That page can't be watched: This page shows its content only in a browser, so it cannot be watched yet." })
+    expect(out).toEqual({ code: 'PAGE_UNREADABLE', field: 'trigger.url', message: "That page can't be watched: This page shows its content only in a browser. Switch on \"Read it in my browser\" to watch it there." })
   })
 
   it('a probe that throws is a page that could not be read now', async () => {
@@ -167,5 +167,107 @@ describe('the limit on a hand-over (pageWatchLimitProblem)', () => {
     expect(await pageWatchLimitProblem(full, { workspaceId: WS, flowId: 'f-ana', flow: { trigger_type: 'schedule', enabled: true }, newOwnerUserId: 'u-dee' })).toBeNull()
     const failing = { from: () => { throw new Error('down') } } as unknown as SupabaseClient
     expect(await pageWatchLimitProblem(failing, { workspaceId: WS, flowId: 'f-ana', flow: watch, newOwnerUserId: 'u-cy' })).toBeNull()
+  })
+})
+
+describe('a page read in the person\'s browser', () => {
+  const inBrowser = (url: string) => ({ ...page(url), read_with: 'browser' })
+  const OWNER = { userId: 'u-ana', workspaceId: WS }
+
+  /** `n` enabled browser-read watches of Ana, among plain ones that must not count toward the smaller limit. */
+  function browserWatches(n: number) {
+    const rows: Array<Record<string, unknown>> = []
+    for (let i = 0; i < n; i++) rows.push({ id: `b-${i}`, workspace_id: WS, created_by: 'u-ana', enabled: true, trigger_type: 'page_changed', trigger_config: inBrowser(URL_B) })
+    for (let i = 0; i < 6; i++) rows.push({ id: `p-${i}`, workspace_id: WS, created_by: 'u-ana', enabled: true, trigger_type: 'page_changed', trigger_config: page(URL_A) })
+    return memoryDb({ flow: rows }) as SupabaseClient
+  }
+
+  it('is probed in the owner\'s browser, never by a fetch, and refused with the browser\'s own reason', async () => {
+    const probe = vi.fn(readable)
+    const browserProbe = vi.fn<WatchPageBrowserProbe>(async () => ({ ok: true, lineCount: 30 }))
+    const args = { workspaceId: WS, ownerUserId: 'u-ana', flowId: null, next: { triggerType: 'page_changed', config: inBrowser(URL_A), enabled: true } }
+    expect(await pageWatchSaveProblem(browserWatches(0), args, { probe, browserProbe })).toBeNull()
+    expect(browserProbe).toHaveBeenCalledWith(URL_A, OWNER)
+    expect(probe).not.toHaveBeenCalled()
+
+    browserProbe.mockResolvedValueOnce({ ok: false, reason: 'The page sent your browser to a sign-in page.' })
+    expect(await pageWatchSaveProblem(browserWatches(0), args, { probe, browserProbe })).toEqual({
+      code: 'PAGE_UNREADABLE', field: 'trigger.url', message: "That page can't be watched: The page sent your browser to a sign-in page.",
+    })
+  })
+
+  it('a read that can\'t be made now lets the save through unchecked', async () => {
+    const browserProbe = vi.fn<WatchPageBrowserProbe>(async () => ({ ok: true, unchecked: true }))
+    expect(await pageWatchSaveProblem(browserWatches(0), { workspaceId: WS, ownerUserId: 'u-ana', flowId: null, next: { triggerType: 'page_changed', config: inBrowser(URL_A), enabled: true } }, { browserProbe })).toBeNull()
+  })
+
+  it(`holds a person to ${PAGE_WATCH_BROWSER_MAX_PER_PERSON} of them, counted apart from their plain watches, before anything is read`, async () => {
+    const browserProbe = vi.fn<WatchPageBrowserProbe>(async () => ({ ok: true, lineCount: 30 }))
+    const next = { triggerType: 'page_changed', config: inBrowser(URL_A), enabled: true }
+    expect(await pageWatchSaveProblem(browserWatches(PAGE_WATCH_BROWSER_MAX_PER_PERSON - 1), { workspaceId: WS, ownerUserId: 'u-ana', flowId: null, next }, { browserProbe })).toBeNull()
+    browserProbe.mockClear()
+    const over = await pageWatchSaveProblem(browserWatches(PAGE_WATCH_BROWSER_MAX_PER_PERSON), { workspaceId: WS, ownerUserId: 'u-ana', flowId: null, next }, { browserProbe })
+    expect(over).toEqual({ code: 'PAGE_WATCH_LIMIT', field: 'enabled', message: expect.stringContaining(`You already watch ${PAGE_WATCH_BROWSER_MAX_PER_PERSON} pages in your browser`) })
+    expect(browserProbe).not.toHaveBeenCalled()
+    // A plain watch is not held to it.
+    expect(await pageWatchSaveProblem(browserWatches(PAGE_WATCH_BROWSER_MAX_PER_PERSON), { workspaceId: WS, ownerUserId: 'u-ana', flowId: null, next: { triggerType: 'page_changed', config: page(URL_A), enabled: true } }, { probe: readable })).toBeNull()
+    // One already read in the browser and re-saved is not counted against itself, or read again.
+    expect(await pageWatchSaveProblem(browserWatches(PAGE_WATCH_BROWSER_MAX_PER_PERSON), { workspaceId: WS, ownerUserId: 'u-ana', flowId: 'b-0', next: { triggerType: 'page_changed', config: inBrowser(URL_B), enabled: true }, previous: { triggerType: 'page_changed', config: inBrowser(URL_B), enabled: true } }, { browserProbe })).toBeNull()
+    expect(browserProbe).not.toHaveBeenCalled()
+  })
+
+  it('a watch that stays on the same page but moves to the browser (or back) is counted, read the new way, and takes a fresh baseline', async () => {
+    const browserProbe = vi.fn<WatchPageBrowserProbe>(async () => ({ ok: true, lineCount: 30 }))
+    const probe = vi.fn(readable)
+    const plain = { triggerType: 'page_changed', config: page(URL_A), enabled: true }
+    const browser = { triggerType: 'page_changed', config: inBrowser(URL_A), enabled: true }
+    expect(await pageWatchSaveProblem(browserWatches(PAGE_WATCH_BROWSER_MAX_PER_PERSON), { workspaceId: WS, ownerUserId: 'u-ana', flowId: 'p-0', next: browser, previous: plain }, { probe, browserProbe }))
+      .toMatchObject({ code: 'PAGE_WATCH_LIMIT' })
+    expect(await pageWatchSaveProblem(browserWatches(1), { workspaceId: WS, ownerUserId: 'u-ana', flowId: 'p-0', next: browser, previous: plain }, { probe, browserProbe })).toBeNull()
+    expect(browserProbe).toHaveBeenCalledTimes(1)
+    expect(await pageWatchSaveProblem(browserWatches(1), { workspaceId: WS, ownerUserId: 'u-ana', flowId: 'b-0', next: plain, previous: browser }, { probe, browserProbe })).toBeNull()
+    expect(probe).toHaveBeenCalledTimes(1)
+    expect(pageWatchNeedsReset(plain, browser)).toBe(true)
+    expect(pageWatchNeedsReset(browser, plain)).toBe(true)
+    expect(pageWatchNeedsReset(browser, { ...browser })).toBe(false)
+  })
+
+  it('a hand-over holds the new owner to the browser limit too', async () => {
+    const flow = { trigger_type: 'page_changed', enabled: true, trigger_config: inBrowser(URL_A) }
+    const over = await pageWatchLimitProblem(browserWatches(PAGE_WATCH_BROWSER_MAX_PER_PERSON), { workspaceId: WS, flowId: 'new', flow, newOwnerUserId: 'u-ana', who: 'Ana' })
+    expect(over).toMatchObject({ code: 'PAGE_WATCH_LIMIT', message: expect.stringContaining(`Ana already watches ${PAGE_WATCH_BROWSER_MAX_PER_PERSON} pages in their browser`) })
+    expect(await pageWatchLimitProblem(browserWatches(PAGE_WATCH_BROWSER_MAX_PER_PERSON - 1), { workspaceId: WS, flowId: 'new', flow, newOwnerUserId: 'u-ana', who: 'Ana' })).toBeNull()
+    // A plain watch changing hands is held to the plain limit only.
+    expect(await pageWatchLimitProblem(browserWatches(PAGE_WATCH_BROWSER_MAX_PER_PERSON), { workspaceId: WS, flowId: 'new', flow: { trigger_type: 'page_changed', enabled: true, trigger_config: page(URL_A) }, newOwnerUserId: 'u-ana', who: 'Ana' })).toBeNull()
+  })
+})
+
+describe('what the review found', () => {
+  const inBrowser = (url: string) => ({ ...page(url), read_with: 'browser' })
+
+  it('another member\'s save never reads the owner\'s browser, or hears what it found there', async () => {
+    const browserProbe = vi.fn<WatchPageBrowserProbe>(async () => ({ ok: false, reason: 'The page sent your browser to a sign-in page.' }))
+    const next = { triggerType: 'page_changed', config: inBrowser(URL_A), enabled: true }
+    const db = memoryDb({ flow: [] }) as SupabaseClient
+    expect(await pageWatchSaveProblem(db, { workspaceId: WS, ownerUserId: 'u-ana', savedByUserId: 'u-cy', flowId: 'f', next, previous: { ...next, enabled: false } }, { browserProbe })).toBeNull()
+    expect(browserProbe).not.toHaveBeenCalled()
+    // The owner's own save is read.
+    expect(await pageWatchSaveProblem(db, { workspaceId: WS, ownerUserId: 'u-ana', savedByUserId: 'u-ana', flowId: 'f', next, previous: { ...next, enabled: false } }, { browserProbe })).toMatchObject({ code: 'PAGE_UNREADABLE' })
+  })
+
+  it('a browser watch that changes hands forgets what it saw in the old owner\'s browser; a plain one keeps it', async () => {
+    const tables = { flow_page_change: [
+      { id: 'c1', flow_id: 'f-browser', workspace_id: WS, added_lines: ['Order 1041 | Packed'] },
+      { id: 'c2', flow_id: 'f-plain', workspace_id: WS, added_lines: ['Pro $39'] },
+      { id: 'c3', flow_id: 'f-browser', workspace_id: OTHER_WS, added_lines: ['elsewhere'] },
+    ] }
+    const db = memoryDb(tables) as SupabaseClient
+    const reset = vi.fn(async () => {})
+    expect(await pageWatchAfterHandOver(db, { workspaceId: WS, flowId: 'f-browser', flow: { trigger_type: 'page_changed', trigger_config: inBrowser(URL_A) } }, { reset })).toBe(true)
+    expect(tables.flow_page_change.map((c) => c.id)).toEqual(['c2', 'c3'])
+    expect(reset).toHaveBeenCalledWith(db, 'f-browser')
+    expect(await pageWatchAfterHandOver(db, { workspaceId: WS, flowId: 'f-plain', flow: { trigger_type: 'page_changed', trigger_config: page(URL_A) } }, { reset })).toBe(false)
+    expect(tables.flow_page_change.map((c) => c.id)).toEqual(['c2', 'c3'])
+    expect(reset).toHaveBeenCalledTimes(1)
   })
 })

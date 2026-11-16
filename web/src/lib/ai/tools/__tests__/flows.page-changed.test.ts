@@ -24,6 +24,14 @@ vi.mock('@/lib/flows/page-watch/probe', () => ({
     return r.ok ? { ok: true, lineCount: r.lineCount } : { ok: false, reason: r.reason }
   },
 }))
+const browser = vi.hoisted(() => ({ reads: [] as Array<{ userId: string; workspaceId: string; url: string }>, finished: 0 }))
+vi.mock('@/lib/flows/page-watch/read-browser', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  browserWatchSession: (ref: { userId: string; workspaceId: string }) => ({
+    read: async (url: string) => { browser.reads.push({ ...ref, url }); return { ok: true, lines: ['Orders', 'Open: 4', 'Order 1041', 'Order 1042', 'Order 1043'] } },
+    finish: async () => { browser.finished += 1 },
+  }),
+}))
 vi.mock('@/lib/flows/flow-bot', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/flows/flow-bot')>()),
   defaultFlowBot: async () => ({ teammateId: 'bot-default', created: false }),
@@ -78,6 +86,8 @@ beforeEach(() => {
   svc.db = memoryDb({ flow: [], member: [{ id: 'm-ana', user_id: USER, workspace_id: WS }] })
   probe.fn.mockReset()
   reset.fn.mockClear()
+  browser.reads = []
+  browser.finished = 0
   probe.fn.mockImplementation(async () => ({ ok: true, lineCount: 40, reason: '' }))
 })
 afterEach(() => {
@@ -128,7 +138,7 @@ describe('create_flow: a page watch', () => {
   })
 
   it('refuses a page that needs a browser with the reason, and saves nothing', async () => {
-    probe.fn.mockImplementation(async () => ({ ok: false, lineCount: 0, reason: 'This page shows its content only in a browser, so it cannot be watched yet.' }))
+    probe.fn.mockImplementation(async () => ({ ok: false, lineCount: 0, reason: 'This page shows its content only in a browser. Switch on \"Read it in my browser\" to watch it there.' }))
     const { client, tables } = userDb()
     const out = await call(createFlowTools(USER, client, WS).create_flow, { name: 'X', trigger: { type: 'page_changed', url: 'app.example.com', look_for: 'x' }, actions: [pageSkill], enabled: true })
     expect(out).toMatchObject({ success: false, code: 'PAGE_UNREADABLE', field: 'trigger.url' })
@@ -208,5 +218,52 @@ describe('describeTrigger: a page watch', () => {
   it('names the page and what was asked to its owner, and neither to anyone else', () => {
     expect(describeTrigger('page_changed', cfg)).toBe('When https://shop.example.com/kettle changes: when the price drops (checked every 15 minutes)')
     expect(describeTrigger('page_changed', cfg, false)).toBe('When a page its owner watches changes (checked every 15 minutes)')
+  })
+})
+
+describe('a page read in the person\'s browser', () => {
+  const ORDERS = 'https://app.example.com/orders'
+
+  it('create_flow stores read_with, reads the page once in the owner\'s browser (never by a fetch), and says how often', async () => {
+    const { client, tables } = userDb()
+    const res = await call(createFlowTools(USER, client, WS).create_flow, {
+      name: 'New orders', trigger: { type: 'page_changed', url: 'app.example.com/orders', look_for: 'a new order', read_with: 'browser' }, actions: [pageSkill], enabled: true,
+    })
+    expect(res.error ?? null).toBeNull()
+    expect(tables.flow[0].trigger_config).toEqual({ kind: 'page_changed', url: ORDERS, look_for: 'a new order', read_with: 'browser' })
+    expect(browser.reads).toEqual([{ userId: USER, workspaceId: WS, url: ORDERS }])
+    expect(browser.finished).toBe(1)
+    expect(probe.fn).not.toHaveBeenCalled()
+    expect(res.summary).toMatch(/^When https:\/\/app\.example\.com\/orders changes: a new order \(checked every 30 minutes, read in your browser\)/)
+  })
+
+  it('refuses a social network\'s signed-in pages on the address, before anything is read or saved', async () => {
+    const { client, tables } = userDb()
+    const res = await call(createFlowTools(USER, client, WS).create_flow, {
+      name: 'Messages', trigger: { type: 'page_changed', url: 'https://www.linkedin.com/messaging/', look_for: 'a new message', read_with: 'browser' }, actions: [pageSkill], enabled: true,
+    })
+    expect(res).toMatchObject({ success: false, field: 'trigger.url' })
+    expect(res.error).toMatch(/does not allow its signed-in pages to be read automatically/)
+    expect(tables.flow).toHaveLength(0)
+    expect(browser.reads).toEqual([])
+  })
+
+  it('update_flow keeps a stored read_with when the trigger is re-sent without it, and "fetch" moves the watch back to a plain read with a fresh baseline', async () => {
+    const stored = pageFlow({ trigger_config: { kind: 'page_changed', url: ORDERS, look_for: 'a new order', read_with: 'browser' } })
+    const { client, tables } = userDb([stored])
+    svc.db = memoryDb({ flow: tables.flow, member: [{ id: 'm-ana', user_id: USER, workspace_id: WS }] })
+    const tools = createFlowTools(USER, client, WS)
+    const kept = await call(tools.update_flow, { flow_id: 'flow-p', trigger: { type: 'page_changed', look_for: 'a new or cancelled order' }, confirmed_with_user: true })
+    expect(kept.error ?? null).toBeNull()
+    expect(tables.flow[0].trigger_config).toEqual({ kind: 'page_changed', url: ORDERS, look_for: 'a new or cancelled order', read_with: 'browser' })
+    // The same page read the same way: not read again.
+    expect(browser.reads).toEqual([])
+
+    reset.fn.mockClear()
+    const plain = await call(tools.update_flow, { flow_id: 'flow-p', trigger: { type: 'page_changed', read_with: 'fetch' }, confirmed_with_user: true })
+    expect(plain.success).not.toBe(false)
+    expect(tables.flow[0].trigger_config).toEqual({ kind: 'page_changed', url: ORDERS, look_for: 'a new or cancelled order' })
+    expect(probe.fn.mock.calls.map(([u]) => u)).toEqual([ORDERS])
+    expect(reset.fn).toHaveBeenCalledTimes(1)
   })
 })

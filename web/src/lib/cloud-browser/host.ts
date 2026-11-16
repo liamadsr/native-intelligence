@@ -175,14 +175,27 @@ async function startRelay(backend: CloudBrowserBackend, sandbox: BackendSandbox,
  * running): the idle cron reaches it there and stops whatever VM came up,
  * gracefully. On the runtime backend the ensure that started the browser puts
  * it back itself (giveBackFailedStart): a starting row holds a shared slot.
+ *
+ * `background` (a page watch's read, nobody waiting at the browser): on the
+ * runtime's shared slots this ensure never makes another browser give way,
+ * and it leaves one slot free for a person: with fewer than two free it fails
+ * with CloudBrowserBusyError, and the watch tries again later. A browser that
+ * already runs is used as it is.
  */
-export async function ensureCloudBrowser(ref: CloudBrowserRef, opts: { signal?: AbortSignal } = {}): Promise<EnsuredCloudBrowser> {
+export async function ensureCloudBrowser(ref: CloudBrowserRef, opts: { signal?: AbortSignal; background?: boolean } = {}): Promise<EnsuredCloudBrowser> {
   const started = performance.now()
   const deadline = Date.now() + CLOUD_BROWSER.ensureTimeoutMs
   const signal = within(CLOUD_BROWSER.ensureTimeoutMs, opts.signal)
   const backend = cloudBrowserBackend()
   const name = nameFor(ref)
-  const wasRunning = (await store.readStatus(ref).catch(() => null)) === 'running'
+  const statusBefore = await store.readStatus(ref).catch(() => null)
+  const wasRunning = statusBefore === 'running'
+  // A background start is refused BEFORE its row is marked starting: a starting row counts as a slot holder,
+  // and would make another person's ensure, counting at that moment, evict someone or be refused for nothing.
+  if (opts.background && backend.kind === 'runtime' && (statusBefore === null || statusBefore === 'stopped')) {
+    const others = (await store.listSlotHolders()).filter(h => !(h.user_id === ref.userId && h.workspace_id === ref.workspaceId))
+    if (others.length >= cloudBrowserMaxRunning() - 1) throw new CloudBrowserBusyError()
+  }
   let marked: Awaited<ReturnType<typeof store.markStarting>> | undefined = await store.markStarting(ref, name)
   // The expiry holds this browser (it is being removed after long disuse): never race it.
   if (backend.expiresUnused && await store.isExpiring(ref)) {
@@ -196,8 +209,8 @@ export async function ensureCloudBrowser(ref: CloudBrowserRef, opts: { signal?: 
   let session: { sessionId: string; startedAt: Date }
   try {
     // The runtime's shared slots: a browser this ensure starts needs one (slots.ts).
-    if (backend.kind === 'runtime') await slotFor(backend, ref, start, deadline, signal)
-    ;({ sandbox, created } = await getOrCreateWithRoom(backend, ref, name, signal, deadline))
+    if (backend.kind === 'runtime') await slotFor(backend, ref, start, deadline, signal, opts.background === true)
+    ;({ sandbox, created } = await getOrCreateWithRoom(backend, ref, name, signal, deadline, opts.background === true))
     await startBrowser(sandbox, signal)
     await startRelay(backend, sandbox, ref, name, signal)
     session = sandbox.session()
@@ -286,29 +299,40 @@ interface StartClaim {
  * coding agent's sandboxes, which share the runtime's memory: for those the
  * runtime's own refusal is the backstop (getOrCreateWithRoom).
  */
-async function slotFor(backend: CloudBrowserBackend, ref: CloudBrowserRef, start: StartClaim, deadline: number, signal: AbortSignal): Promise<void> {
+async function slotFor(backend: CloudBrowserBackend, ref: CloudBrowserRef, start: StartClaim, deadline: number, signal: AbortSignal, background = false): Promise<void> {
   const key = `${ref.userId}:${ref.workspaceId}`
   if (!start.moved) {
     const pending = slotSteps.get(key)
     if (pending) {
       // The starting ensure's step: its refusal is this one's too, and then this one, the later toucher, may put the row back.
       start.mayRelease = true
-      await pending
+      try {
+        await pending.step
+      } catch (error) {
+        // Refused only by a page watch's stricter rule (it leaves a slot free): a person's ensure takes the slot by the usual one.
+        if (!pending.background || background || !isCloudBrowserBusy(error)) throw error
+        await takeSlot(backend, ref, deadline, signal, false)
+      }
       start.mayRelease = false
     }
     return
   }
-  const step = takeSlot(backend, ref, deadline, signal).finally(() => slotSteps.delete(key))
-  slotSteps.set(key, step)
+  const step = takeSlot(backend, ref, deadline, signal, background).finally(() => slotSteps.delete(key))
+  slotSteps.set(key, { step, background })
   await step
 }
 
-/** The slot steps under way in this process, by browser. */
-const slotSteps = new Map<string, Promise<void>>()
+/** The slot steps under way in this process, by browser, and whether a background ensure (a page watch) began them. */
+const slotSteps = new Map<string, { step: Promise<void>; background: boolean }>()
 
-async function takeSlot(backend: CloudBrowserBackend, ref: CloudBrowserRef, deadline: number, signal: AbortSignal): Promise<void> {
+async function takeSlot(backend: CloudBrowserBackend, ref: CloudBrowserRef, deadline: number, signal: AbortSignal, background = false): Promise<void> {
   const cap = cloudBrowserMaxRunning()
   const holders = (await store.listSlotHolders()).filter(h => !(h.user_id === ref.userId && h.workspace_id === ref.workspaceId))
+  if (background) {
+    // Nobody is waiting at this browser: it takes a slot only while another stays free for a person, and nobody gives way for it.
+    if (holders.length < cap - 1) return
+    throw new CloudBrowserBusyError()
+  }
   if (holders.length < cap) return
   if (!(await evictLongestIdle(backend, ref, { holders, deadline, signal }))) throw new CloudBrowserBusyError()
 }
@@ -399,11 +423,13 @@ async function evictLongestIdle(backend: CloudBrowserBackend, ref: CloudBrowserR
  * CloudBrowserBusyError. Never taken as a dead sandbox: nothing is created
  * beside it and nothing is removed.
  */
-async function getOrCreateWithRoom(backend: CloudBrowserBackend, ref: CloudBrowserRef, name: string, signal: AbortSignal, deadline: number) {
+async function getOrCreateWithRoom(backend: CloudBrowserBackend, ref: CloudBrowserRef, name: string, signal: AbortSignal, deadline: number, background = false) {
   try {
     return await backend.getOrCreate(name, signal)
   } catch (error) {
     if (backend.kind !== 'runtime' || !isCloudBrowserNoRoom(error)) throw error
+    // A background ensure (a page watch) never makes a browser give way: no room is "busy", tried again later.
+    if (background) throw new CloudBrowserBusyError()
     console.warn('[cloud-browser] the runtime has no memory for a browser: making the one idle longest give way')
     if (!(await evictLongestIdle(backend, ref, { deadline, signal }))) throw new CloudBrowserBusyError()
   }

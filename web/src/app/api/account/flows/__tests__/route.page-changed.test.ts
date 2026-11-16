@@ -104,11 +104,11 @@ describe('POST: a page watch', () => {
     expect(local.status).toBe(400)
     expect((await local.json()).error).toMatch(/trigger_config\.url: .*private network/)
 
-    h.probe.mockImplementation(async () => ({ ok: false, lineCount: 0, reason: 'This page shows its content only in a browser, so it cannot be watched yet.' }))
+    h.probe.mockImplementation(async () => ({ ok: false, lineCount: 0, reason: 'This page shows its content only in a browser. Switch on \"Read it in my browser\" to watch it there.' }))
     const shell = await POST(req({ name: 'X', trigger_type: 'page_changed', trigger_config: { url: 'app.example.com', look_for: 'x' }, actions: [hook] }))
     expect(shell.status).toBe(400)
     const body = await shell.json()
-    expect(body.error).toBe("That page can't be watched: This page shows its content only in a browser, so it cannot be watched yet.")
+    expect(body.error).toBe("That page can't be watched: This page shows its content only in a browser. Switch on \"Read it in my browser\" to watch it there.")
     expect(body.details).toEqual({ field: 'trigger.url', code: 'PAGE_UNREADABLE' })
 
     h.probe.mockImplementation(async () => ({ ok: true, lineCount: 40, reason: '' }))

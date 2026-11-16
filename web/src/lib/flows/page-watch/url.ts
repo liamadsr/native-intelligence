@@ -19,6 +19,8 @@ export const PAGE_WATCH_INTERVAL_MINUTES = 15
 export const PAGE_WATCH_MAX_PER_PERSON = 20
 /** The longest "what to look for" a person may write. */
 export const PAGE_WATCH_LOOK_FOR_MAX = 300
+/** Fewer lines of text than this and a read is a shell (a page a browser fills in, a robot check), not a page to watch. */
+export const PAGE_WATCH_MIN_LINES = 5
 /** The longest address this accepts. */
 export const PAGE_WATCH_URL_MAX = 2048
 
@@ -76,4 +78,83 @@ export function normalizeWatchUrl(raw: unknown): string | Error {
   const href = url.href
   if (href.length > PAGE_WATCH_URL_MAX) return refuse('That address is too long.')
   return href
+}
+
+/*
+ * Reading in the person's browser (page watches, phase 2): a watch whose
+ * trigger says `read_with: 'browser'` is read in the person's own cloud
+ * browser, where they are signed in, instead of by a plain fetch. That costs
+ * a browser's wake, so it is read less often and fewer may be kept.
+ */
+
+/** How often a page read in the person's browser is read. */
+export const PAGE_WATCH_BROWSER_INTERVAL_MINUTES = 30
+/** How many browser-read watches one person may keep switched on (within PAGE_WATCH_MAX_PER_PERSON). */
+export const PAGE_WATCH_BROWSER_MAX_PER_PERSON = 5
+/** A browser read that could not be made now (the browser is busy, taken over, or needs the Mac) is tried again this soon. */
+export const PAGE_WATCH_BROWSER_RETRY_MINUTES = 10
+
+/** Whether a page_changed trigger_config asks for the person's browser. */
+export function watchReadsInBrowser(config: unknown): boolean {
+  return !!config && typeof config === 'object' && (config as { read_with?: unknown }).read_with === 'browser'
+}
+
+/** How often a watch with this config is read, in minutes. */
+export function watchIntervalMinutes(config: unknown): number {
+  return watchReadsInBrowser(config) ? PAGE_WATCH_BROWSER_INTERVAL_MINUTES : PAGE_WATCH_INTERVAL_MINUTES
+}
+
+/*
+ * Social networks whose terms forbid reading a signed-in account by
+ * automation, and act on the account that does it (the person's own, not
+ * ours). A watch never reads them in the person's browser. Their public
+ * pages can still be watched the plain way.
+ */
+const NO_SIGNED_IN_WATCH_SITES = ['linkedin.com', 'x.com', 'twitter.com', 'facebook.com', 'instagram.com', 'threads.net', 'threads.com', 'tiktok.com']
+
+/**
+ * Why this address can't be watched in the person's browser, as a sentence
+ * for them, or null when it can. `url` is an address normalizeWatchUrl passed.
+ */
+export function browserWatchRefusal(url: string): string | null {
+  let host: string
+  try {
+    host = new URL(url).hostname.toLowerCase().replace(/\.+$/, '')
+  } catch {
+    return 'That does not look like a web address.'
+  }
+  const site = NO_SIGNED_IN_WATCH_SITES.find((s) => host === s || host.endsWith(`.${s}`))
+  if (!site) return null
+  return `${site} does not allow its signed-in pages to be read automatically, and it can restrict the account that does. It can't be watched in your browser.`
+}
+
+/*
+ * Path words that mean "this is the page where you sign in". Matched on whole
+ * path segments, so /signals or /authors are not sign-in pages.
+ */
+const SIGN_IN_SEGMENT = /^(log[-_]?in|sign[-_]?in|sso|oauth2?|authorize|authenticate|auth|sessions?)$/i
+
+function looksLikeSignIn(url: URL): boolean {
+  if (/^(login|signin|sso|auth|accounts|id|identity)\./i.test(url.hostname)) return true
+  return url.pathname.split('/').some((segment) => SIGN_IN_SEGMENT.test(segment))
+}
+
+/**
+ * Whether the browser, asked for `asked`, ended up on a sign-in page instead
+ * (`landed`, the address the page itself reported): the person is not signed
+ * in to the site in their browser, or their session ran out. True only when
+ * the landing address looks like a sign-in page and the asked one did not, so
+ * a watch ON a sign-in page is never taken for one. Pure.
+ */
+export function landedOnSignIn(asked: string, landed: string): boolean {
+  let from: URL
+  let to: URL
+  try {
+    from = new URL(asked)
+    to = new URL(landed)
+  } catch {
+    return false
+  }
+  if (from.hostname === to.hostname && from.pathname === to.pathname) return false
+  return looksLikeSignIn(to) && !looksLikeSignIn(from)
 }

@@ -11,7 +11,7 @@
 import type { FlowEntityType } from '@/lib/flows/types'
 import { validateCronExpression } from '@/lib/flows/cron'
 import { runAtInstant } from '@/lib/flows/schedule'
-import { PAGE_WATCH_LOOK_FOR_MAX, normalizeWatchUrl } from '@/lib/flows/page-watch/url'
+import { PAGE_WATCH_LOOK_FOR_MAX, browserWatchRefusal, normalizeWatchUrl } from '@/lib/flows/page-watch/url'
 export type { FlowEntityType }
 
 export type FlowTriggerType =
@@ -141,6 +141,8 @@ export interface PageChangedTriggerConfig {
   kind: 'page_changed'
   url: string
   look_for: string
+  /** Read in the owner's own browser (a page behind a sign-in), every 30 minutes; absent = a plain fetch. */
+  read_with?: 'browser'
 }
 
 export type FlowTriggerConfig =
@@ -550,6 +552,8 @@ export interface EditorTrigger {
   // page_changed: the page it watches, and what the person wants to hear about
   page_url: string
   page_look_for: string
+  /** Read the page in the person's own browser, where they are signed in. */
+  page_in_browser: boolean
   /**
    * Someone else's mail, chat, row or page loop, read without its sender
    * filter, channel, table or page (the server's triggerConfigForViewer,
@@ -850,6 +854,7 @@ function newTrigger(): EditorTrigger {
     contact_source: 'any',
     page_url: '',
     page_look_for: '',
+    page_in_browser: false,
   }
 }
 
@@ -1062,6 +1067,7 @@ function triggerToEditor(flow: Pick<Flow, 'trigger_type' | 'trigger_config'>): E
       kind: 'page_changed',
       page_url: typeof cfg.url === 'string' ? cfg.url : '',
       page_look_for: typeof cfg.look_for === 'string' ? cfg.look_for : '',
+      page_in_browser: cfg.read_with === 'browser',
     }
   }
   if (flow.trigger_type === 'capture_processed') {
@@ -1197,7 +1203,7 @@ function triggerToConfig(t: EditorTrigger): Record<string, unknown> {
     case 'contact_created':
       return { kind: 'contact_created', source: t.contact_source }
     case 'page_changed':
-      return { kind: 'page_changed', url: t.page_url.trim(), look_for: t.page_look_for.trim() }
+      return { kind: 'page_changed', url: t.page_url.trim(), look_for: t.page_look_for.trim(), ...(t.page_in_browser ? { read_with: 'browser' as const } : {}) }
     case 'capture_processed':
       return { kind: 'capture_processed' }
     case 'pr_status_changed':
@@ -1290,6 +1296,8 @@ export function buildSavePayload(editor: EditorState):
     // The server's own check (normalizeWatchUrl), so a bad address is said here, as the person typed it.
     const url = normalizeWatchUrl(t.page_url)
     if (url instanceof Error) return { error: url.message }
+    const refused = t.page_in_browser ? browserWatchRefusal(url) : null
+    if (refused) return { error: refused }
     if (!t.page_look_for.trim()) return { error: 'Say what you want to hear about on this page' }
     if (t.page_look_for.trim().length > PAGE_WATCH_LOOK_FOR_MAX) return { error: `Keep what to tell you about to ${PAGE_WATCH_LOOK_FOR_MAX} characters or fewer` }
   }

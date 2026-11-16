@@ -28,7 +28,7 @@ describe('probeWatchPage', () => {
     const shell = '<html><head><script src="/app.js"></script></head><body><div id="root"></div><noscript>Enable JavaScript</noscript></body></html>'
     expect(await probeWatchPage('https://example.com/app', { fetchPage: async () => page(shell) })).toEqual({
       ok: false,
-      reason: 'This page shows its content only in a browser, so it cannot be watched yet.',
+      reason: 'This page shows its content only in a browser. Switch on "Read it in my browser" to watch it there.',
     })
   })
 

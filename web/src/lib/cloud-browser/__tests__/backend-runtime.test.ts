@@ -1024,6 +1024,34 @@ describe('the shared slots (runtime backend)', () => {
     expect(store.markRunning).not.toHaveBeenCalled()
   })
 
+  it('a background start (a page watch) leaves a slot free and never makes anyone give way', async () => {
+    // Two of four held: a third may start in the background.
+    runningBrowser(1, 30 * 60_000)
+    runningBrowser(2, 30 * 60_000)
+    expect((await host.ensureCloudBrowser(ref, { background: true })).created).toBe(true)
+    expect(rt.events.filter(e => e.startsWith('pause'))).toEqual([])
+  })
+
+  it('… with only one slot free it is refused as busy, though idle browsers could give way; a person\'s own start still takes that slot', async () => {
+    for (let i = 1; i <= 3; i++) runningBrowser(i, 30 * 60_000)
+    const failed = await host.ensureCloudBrowser(ref, { background: true }).then(() => null, (e: unknown) => e)
+    expect(failed).toBeInstanceOf(CloudBrowserBusyError)
+    expect(rt.Sandbox.create).not.toHaveBeenCalled()
+    expect(rt.events.filter(e => e.startsWith('pause'))).toEqual([])
+    expect(store.browsersInUse).not.toHaveBeenCalled()
+    // Refused before its row was ever marked starting: no other person's ensure can count it as a slot holder.
+    expect(store.markStarting).not.toHaveBeenCalled()
+    expect((await host.ensureCloudBrowser(ref)).created).toBe(true)
+  })
+
+  it('… and when the runtime has no memory it is busy too, with nobody paused', async () => {
+    runningBrowser(1, 30 * 60_000)
+    rt.Sandbox.create.mockImplementationOnce(async () => { throw new Error('500: Failed to place sandbox: this node cannot map 4096 MiB of guest memory') })
+    await expect(host.ensureCloudBrowser(ref, { background: true })).rejects.toThrow(CloudBrowserBusyError)
+    expect(rt.Sandbox.create).toHaveBeenCalledTimes(1)
+    expect(rt.events.filter(e => e.startsWith('pause'))).toEqual([])
+  })
+
   it('a stuck stopping row counts (its VM may hold memory); the expiry’s claim does not', async () => {
     for (let i = 1; i <= 3; i++) runningBrowser(i, 60_000)
     const stuck = runningBrowser(4, 30 * 60_000)

@@ -27,7 +27,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { FlowBotPicker } from './flow-bot-picker'
 import { TEMPLATE_TOKENS } from '@/lib/flows/template'
 import { nextCronRuns, validateCronExpression } from '@/lib/flows/cron'
-import { PAGE_WATCH_INTERVAL_MINUTES, PAGE_WATCH_LOOK_FOR_MAX } from '@/lib/flows/page-watch/url'
+import { PAGE_WATCH_BROWSER_INTERVAL_MINUTES, PAGE_WATCH_BROWSER_MAX_PER_PERSON, PAGE_WATCH_INTERVAL_MINUTES, PAGE_WATCH_LOOK_FOR_MAX } from '@/lib/flows/page-watch/url'
 import { useEditorConnections } from './use-editor-connections'
 import {
   TOOL_CATEGORIES,
@@ -280,7 +280,7 @@ const TRIGGER_DESCRIPTIONS: Record<FlowTriggerType, string> = {
   contact_created:
     'Fires when a contact you can see is added to the CRM: at once when a website form, a quote or a customer’s first text makes one, about 5 minutes after a person adds one by hand. Never for contacts an agent, an import, a sync or a meeting made. Runs at most 50 times a day.',
   page_changed:
-    'Fires when a public web page you name changes in a way you asked about. Only pages that show their content without a browser can be watched. Runs at most 50 times a day.',
+    'Fires when a web page you name changes in a way you asked about. A public page is read directly; a page behind your sign-in is read in your agent’s browser. Runs at most 50 times a day.',
 }
 
 function TriggerConfig({
@@ -400,8 +400,23 @@ function TriggerConfig({
               maxLength={PAGE_WATCH_LOOK_FOR_MAX}
               disabled={t.details_hidden}
             />
-            <p className="mt-1 text-xs text-muted-foreground">Checked every {PAGE_WATCH_INTERVAL_MINUTES} minutes. You hear about it only when something you asked for changes.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Checked every {t.page_in_browser ? PAGE_WATCH_BROWSER_INTERVAL_MINUTES : PAGE_WATCH_INTERVAL_MINUTES} minutes. You hear about it only when something you asked for changes.</p>
           </Field>
+          {!t.details_hidden && (
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Read it in my browser</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  For a page behind a sign-in, or one that only shows its content in a browser. It is read in your agent’s browser, where you are signed in. Up to {PAGE_WATCH_BROWSER_MAX_PER_PERSON} pages.
+                </p>
+              </div>
+              <Switch
+                checked={t.page_in_browser}
+                onCheckedChange={(checked) => setTrigger({ page_in_browser: checked })}
+                aria-label="Read it in my browser"
+              />
+            </div>
+          )}
         </>
       )}
       {/* capture_processed, document_created and quote_received carry no config beyond the type. */}

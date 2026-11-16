@@ -54,6 +54,21 @@
  * in between wins), the watch is reset (resetPageWatch), and its owner gets a
  * notice signed by the loop's bot, saying the watch stopped and why.
  *
+ * A watch that asks for the person's browser (`read_with: 'browser'`, phase 2:
+ * a page behind a sign-in, or one only a browser shows) is read there instead
+ * (./read-browser.ts), every PAGE_WATCH_BROWSER_INTERVAL_MINUTES. Everything
+ * after the read is the same. What differs:
+ *   - One person's browser watches are read one after another, in one session
+ *     on their browser, and at most PAGE_WATCH_BROWSER_PASS_LIMIT are taken up
+ *     in a pass (a scan of their own, so neither kind crowds the other out), PAGE_WATCH_BROWSER_CONCURRENCY browsers at a time; the rest
+ *     are not claimed and stay due for the next pass.
+ *   - A read that could not be made NOW (the browser is at work for its
+ *     person, they drive it, no slot is free, the site needs their Mac) is a
+ *     SKIP: nothing is counted or stored, and the watch is due again in
+ *     PAGE_WATCH_BROWSER_RETRY_MINUTES (at its usual interval when it is the
+ *     Mac that is away). Only what the page did (it would not
+ *     load, it asked for a sign-in, its site is off limits) is a failed read.
+ *
  * Each pass also prunes stored changes older than PAGE_CHANGE_KEEP_DAYS, a
  * bounded number at a time.
  *
@@ -69,13 +84,18 @@ import { agentPausedCache } from '@/lib/work/agent-paused'
 import { resetPageWatch } from './changes'
 import { diffLines, fingerprint, knownHashes, readSets, rememberRead } from './diff'
 import { PAGE_WATCH_MIN_LINES } from './probe'
+import { browserWatchSession, isSkippedRead, type BrowserWatchRead, type BrowserWatchSession } from './read-browser'
 import { readWatchPage, type FetchPage } from './read-page'
-import { normalizeWatchUrl, PAGE_WATCH_INTERVAL_MINUTES, PAGE_WATCH_LOOK_FOR_MAX } from './url'
+import { normalizeWatchUrl, PAGE_WATCH_BROWSER_RETRY_MINUTES, PAGE_WATCH_LOOK_FOR_MAX, watchIntervalMinutes, watchReadsInBrowser } from './url'
 
 /** Due loops read in one pass; the rest wait for the next (they stay due). */
 export const PAGE_WATCH_PASS_LIMIT = 100
 /** Pages read at once. */
 export const PAGE_WATCH_CONCURRENCY = 10
+/** Browser-read watches taken up in one pass; the rest stay due (a browser read can take a minute). */
+export const PAGE_WATCH_BROWSER_PASS_LIMIT = 6
+/** People's browsers read at once. */
+export const PAGE_WATCH_BROWSER_CONCURRENCY = 2
 /** Failed reads in a row that switch the loop off. */
 export const PAGE_WATCH_MAX_FAILURES = 8
 /** Reads in a row whose lines are held unjudged before the pass tells anyway. */
@@ -110,6 +130,8 @@ export type NotifyStopped = (args: {
 
 export interface PageWatchDeps {
   fetchPage?: FetchPage
+  /** A session on one person's browser, for their browser-read watches; tests pass a stub. */
+  browserSession?: (ref: { userId: string; workspaceId: string }) => BrowserWatchSession
   judge?: JudgeWatch
   send?: Send
   notify?: NotifyStopped
@@ -134,6 +156,8 @@ export interface PageWatchPassResult {
   /** New lines kept unjudged (Jev could not answer, or was busy), asked again next read. */
   judgeHeld: number
   failed: number
+  /** Browser reads not made now (the browser was busy, taken over, or needs the Mac): tried again soon, nothing counted. */
+  skipped: number
   stopped: number
   /** Switched off: their owner is no longer a member of the workspace. */
   orphaned: number
@@ -160,11 +184,11 @@ interface WatchRow {
   judge_failures: number | null
 }
 
-type Outcome = 'held' | 'lost' | 'baseline' | 'unchanged' | 'ignored' | 'told' | 'judgeHeld' | 'failed' | 'stopped' | 'orphaned' | 'errored'
+type Outcome = 'held' | 'lost' | 'baseline' | 'unchanged' | 'ignored' | 'told' | 'judgeHeld' | 'failed' | 'skipped' | 'stopped' | 'orphaned' | 'errored'
 
 const OUTCOME_KEYS: Record<Outcome, keyof PageWatchPassResult> = {
   held: 'held', lost: 'lost', baseline: 'baselines', unchanged: 'unchanged', ignored: 'ignored', told: 'told',
-  judgeHeld: 'judgeHeld', failed: 'failed', stopped: 'stopped', orphaned: 'orphaned', errored: 'errored',
+  judgeHeld: 'judgeHeld', failed: 'failed', skipped: 'skipped', stopped: 'stopped', orphaned: 'orphaned', errored: 'errored',
 }
 
 const log = (flowId: string, outcome: string, detail?: string) =>
@@ -311,57 +335,95 @@ async function eachBounded<T>(items: readonly T[], limit: number, work: (item: T
 
 export async function runPageWatchPass(supabase: SupabaseClient, now: Date, deps: PageWatchDeps = {}): Promise<PageWatchPassResult> {
   const result: PageWatchPassResult = {
-    due: 0, held: 0, lost: 0, baselines: 0, unchanged: 0, ignored: 0, told: 0, judgeHeld: 0, failed: 0, stopped: 0, orphaned: 0, errored: 0, pruned: 0,
+    due: 0, held: 0, lost: 0, baselines: 0, unchanged: 0, ignored: 0, told: 0, judgeHeld: 0, failed: 0, skipped: 0, stopped: 0, orphaned: 0, errored: 0, pruned: 0,
   }
   const nowIso = now.toISOString()
-  const nextIso = new Date(now.getTime() + PAGE_WATCH_INTERVAL_MINUTES * 60_000).toISOString()
 
   result.pruned = await pruneOldChanges(supabase, now)
 
-  let due: DueFlow[]
+  // Two scans, so neither kind can crowd the other out: plain watches up to the pass limit, and the few
+  // browser reads a pass takes up (longest due first; the rest are not claimed and stay due).
+  let plain: DueFlow[]
+  let inBrowser: DueFlow[]
   try {
     const paused = await (deps.pausedWorkspaces ?? (() => readPausedWorkspaces(supabase)))()
-    let scan = supabase
-      .from('flow')
-      .select('id, workspace_id, name, created_by, ai_team_member_id, trigger_config, next_run_at')
-      .eq('trigger_type', 'page_changed')
-      .eq('enabled', true)
-      .not('next_run_at', 'is', null)
-      .lte('next_run_at', nowIso)
-    if (paused.length) scan = scan.not('workspace_id', 'in', `(${paused.join(',')})`)
-    const { data, error } = await scan.order('next_run_at', { ascending: true }).limit(deps.limit ?? PAGE_WATCH_PASS_LIMIT)
+    const scan = (browser: boolean, limit: number) => {
+      let q = supabase
+        .from('flow')
+        .select('id, workspace_id, name, created_by, ai_team_member_id, trigger_config, next_run_at')
+        .eq('trigger_type', 'page_changed')
+        .eq('enabled', true)
+        .not('next_run_at', 'is', null)
+        .lte('next_run_at', nowIso)
+      q = browser ? q.eq('trigger_config->>read_with', 'browser') : q.or('trigger_config->>read_with.is.null,trigger_config->>read_with.neq.browser')
+      if (paused.length) q = q.not('workspace_id', 'in', `(${paused.join(',')})`)
+      return q.order('next_run_at', { ascending: true }).limit(limit)
+    }
+    const [plainScan, browserScan] = await Promise.all([scan(false, deps.limit ?? PAGE_WATCH_PASS_LIMIT), scan(true, PAGE_WATCH_BROWSER_PASS_LIMIT)])
+    const error = plainScan.error ?? browserScan.error
     if (error) {
       console.error('[page-watch] due scan failed:', error.message)
       result.errored += 1
       return result
     }
-    due = (data ?? []) as DueFlow[]
+    // Each kind is read its own way whatever a scan returned (a row is never read in a browser it did not ask for).
+    plain = ((plainScan.data ?? []) as DueFlow[]).filter((flow) => !watchReadsInBrowser(flow.trigger_config))
+    inBrowser = ((browserScan.data ?? []) as DueFlow[]).filter((flow) => watchReadsInBrowser(flow.trigger_config)).slice(0, PAGE_WATCH_BROWSER_PASS_LIMIT)
   } catch (err) {
     console.error('[page-watch] due scan failed:', err instanceof Error ? err.message : 'unknown')
     result.errored += 1
     return result
   }
+  const due = [...plain, ...inBrowser]
   result.due = due.length
 
   const ctx = {
     nowIso,
-    nextIso,
+    now,
     autonomyOff: deps.autonomyOff ?? agentPausedCache(supabase, 'flow_dispatch'),
     isMember: memberCache(supabase),
     deps,
   }
-  await eachBounded(due, deps.concurrency ?? PAGE_WATCH_CONCURRENCY, async (flow) => {
+  const one = async (flow: DueFlow, session: BrowserWatchSession | null) => {
     let outcome: Outcome
     try {
-      outcome = await watchOne(supabase, flow, ctx)
+      outcome = await watchOne(supabase, flow, ctx, session)
     } catch (err) {
       // One bad row must not stall the rest: it was claimed (or not) and is read again on its next turn.
       outcome = 'errored'
       log(flow.id, 'errored', `reason=${JSON.stringify(err instanceof Error ? err.message.slice(0, 120) : 'unknown')}`)
     }
     result[OUTCOME_KEYS[outcome]] += 1
-  })
+  }
+
+  // Browser-read watches are grouped by whose browser reads them.
+  const byBrowser = new Map<string, DueFlow[]>()
+  for (const flow of inBrowser) {
+    const key = `${flow.created_by ?? ''}:${flow.workspace_id}`
+    byBrowser.set(key, [...(byBrowser.get(key) ?? []), flow])
+  }
+  const openSession = deps.browserSession ?? ((ref: { userId: string; workspaceId: string }) => browserWatchSession(ref))
+
+  await Promise.all([
+    eachBounded(plain, deps.concurrency ?? PAGE_WATCH_CONCURRENCY, (flow) => one(flow, null)),
+    eachBounded([...byBrowser.values()], PAGE_WATCH_BROWSER_CONCURRENCY, async (flows) => {
+      // One session per person's browser, their watches one after another; no session for a loop with no owner (it is switched off before any read).
+      const owner = flows[0].created_by
+      const session = owner ? openSession({ userId: owner, workspaceId: flows[0].workspace_id }) : null
+      try {
+        for (const flow of flows) await one(flow, session ?? UNOWNED_SESSION)
+      } finally {
+        await session?.finish().catch(() => {})
+      }
+    }),
+  ])
   return result
+}
+
+/** A browser watch with no owner never reaches a read (it is switched off first); this stands in so its path is the browser's. */
+const UNOWNED_SESSION: BrowserWatchSession = {
+  read: async () => ({ ok: false, skipped: 'unavailable', reason: 'Nobody owns this watch.' }),
+  finish: async () => {},
 }
 
 /** Switch a loop off, only if it is still as this pass claimed it (a person's edit in between wins). */
@@ -383,14 +445,18 @@ async function watchOne(
   flow: DueFlow,
   ctx: {
     nowIso: string
-    nextIso: string
+    now: Date
     autonomyOff: (workspaceId: string) => Promise<boolean>
     isMember: (workspaceId: string, userId: string) => Promise<boolean | null>
     deps: PageWatchDeps
   },
+  /** The session on the owner's browser when this watch is read there; null for a plain fetch. */
+  session: BrowserWatchSession | null,
 ): Promise<Outcome> {
-  const { nowIso, nextIso, deps } = ctx
+  const { nowIso, deps } = ctx
   if (await ctx.autonomyOff(flow.workspace_id)) return 'held'
+  // A page read in the person's browser comes round less often than a fetched one.
+  const nextIso = new Date(ctx.now.getTime() + watchIntervalMinutes(flow.trigger_config) * 60_000).toISOString()
 
   // Claim this read: next_run_at forward, only if it still holds what was read.
   const { data: won, error: claimError } = await supabase
@@ -437,16 +503,37 @@ async function watchOne(
   const sets = samePage ? readSets(watch!.fingerprints) : []
 
   // The read itself. A bad address (a row written some other way) counts as a failed read, with its reason.
-  const read = url instanceof Error
+  const read: BrowserWatchRead = url instanceof Error
     ? { ok: false as const, reason: url.message }
     : !lookFor
       ? { ok: false as const, reason: 'The loop does not say what to look for on the page.' }
-      : await readWatchPage(url, { fetchPage: deps.fetchPage })
+      : session
+        ? await session.read(url)
+        : await readWatchPage(url, { fetchPage: deps.fetchPage })
+  if (isSkippedRead(read)) {
+    // Not now: nothing is counted or stored. Due again soon, only if the loop is still as this pass claimed it;
+    // a Mac that is away is asked again at the usual interval (finding that out wakes the browser each time).
+    if (read.skipped !== 'mac_offline') {
+      const retryIso = new Date(ctx.now.getTime() + PAGE_WATCH_BROWSER_RETRY_MINUTES * 60_000).toISOString()
+      const { error: retryError } = await supabase
+        .from('flow')
+        .update({ next_run_at: retryIso })
+        .eq('id', flow.id)
+        .eq('workspace_id', flow.workspace_id)
+        .eq('enabled', true)
+        .eq('next_run_at', nextIso)
+      if (retryError) log(flow.id, 'errored', 'step=retry_write')
+    }
+    log(flow.id, 'skipped', `why=${read.skipped}`)
+    return 'skipped'
+  }
   if (!read.ok) return failRead(supabase, flow, { pageUrl, watch, samePage, reason: read.reason, nowIso, nextIso, deps })
   const lines = read.lines
   // A robot check, a maintenance page or a shell answers 200 too: it is a failed read, and the baseline stays.
   if (lines.length < PAGE_WATCH_MIN_LINES) {
-    return failRead(supabase, flow, { pageUrl, watch, samePage, reason: 'The page showed almost no text this time (a check for robots, a maintenance page, or a page that needs a browser).', nowIso, nextIso, deps })
+    return failRead(supabase, flow, { pageUrl, watch, samePage, reason: session
+      ? 'The page showed almost no text in your browser this time.'
+      : 'The page showed almost no text this time (a check for robots, a maintenance page, or a page that needs a browser).', nowIso, nextIso, deps })
   }
   const lastCount = samePage && sets.length ? watch!.line_count ?? 0 : 0
   if (lastCount > 0 && lines.length < lastCount / 2) {

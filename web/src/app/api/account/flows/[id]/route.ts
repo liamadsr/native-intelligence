@@ -370,6 +370,7 @@ export async function PATCH(
     const pageProblem = await pageWatchSaveProblem(getServiceClient(), {
       workspaceId,
       ownerUserId: ownerId ?? user.id,
+      savedByUserId: user.id,
       flowId: id,
       next: {
         triggerType: (updates.trigger_type as string | undefined) ?? (owned.trigger_type as string),

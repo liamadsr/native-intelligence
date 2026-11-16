@@ -51,6 +51,22 @@ describe('the config', () => {
     expect((out as Error).message).toMatch(message)
   })
 
+  it('keeps read_with only when it asks for the browser, and refuses a social network\'s signed-in pages there', () => {
+    expect(validatePageChangedConfig({ url: 'app.example.com/orders', look_for: 'a new order', read_with: 'browser' })).toEqual({
+      kind: 'page_changed', url: 'https://app.example.com/orders', look_for: 'a new order', read_with: 'browser',
+    })
+    // A plain fetch is the absence of the field, however it was asked for.
+    for (const read_with of ['fetch', '', null, undefined]) {
+      expect(validatePageChangedConfig({ url: 'example.com', look_for: 'x', read_with })).toEqual({ kind: 'page_changed', url: 'https://example.com/', look_for: 'x' })
+    }
+    const unknown = validatePageChangedConfig({ url: 'example.com', look_for: 'x', read_with: 'desktop' })
+    expect((unknown as Error).message).toMatch(/trigger_config\.read_with must be "browser"/)
+    const social = validatePageChangedConfig({ url: 'https://www.linkedin.com/messaging/', look_for: 'a new message', read_with: 'browser' })
+    expect((social as Error).message).toMatch(/trigger_config\.url: linkedin\.com does not allow its signed-in pages to be read automatically/)
+    // Its public pages can still be watched the plain way.
+    expect(validatePageChangedConfig({ url: 'https://www.linkedin.com/company/fernhill-studio', look_for: 'a new post' })).not.toBeInstanceOf(Error)
+  })
+
   it('takes exactly the longest look_for allowed', () => {
     expect(validatePageChangedConfig({ url: 'example.com', look_for: 'a'.repeat(PAGE_WATCH_LOOK_FOR_MAX) })).not.toBeInstanceOf(Error)
   })

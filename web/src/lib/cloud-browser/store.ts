@@ -121,6 +121,14 @@ export async function markStopped(ref: CloudBrowserRef, reason: string, options:
   check(error, 'mark stopped')
 }
 
+/** The browser's whole row with who drives it, as it is now (a stop's compare-and-set is made against it); null when it has never run. */
+export async function readRow(ref: CloudBrowserRef): Promise<(CloudBrowserRow & { driver: CloudBrowserDriver }) | null> {
+  const { data, error } = await db().select(`${COLUMNS}, driver`).match(own(ref)).maybeSingle()
+  check(error, 'read row')
+  const row = data as (CloudBrowserRow & { driver?: string | null }) | null
+  return row ? { ...row, driver: row.driver === 'person' ? 'person' : 'agent' } : null
+}
+
 /** The browser's state as the host last recorded it; null when it has never run. */
 export async function readStatus(ref: CloudBrowserRef): Promise<CloudBrowserStatus | null> {
   const { data, error } = await db().select('status').match(own(ref)).maybeSingle()

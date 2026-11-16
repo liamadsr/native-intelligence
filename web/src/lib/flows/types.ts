@@ -382,8 +382,9 @@ export interface ContactCreatedTriggerConfig {
  * (flowDispatchOnPageChanged) fires THAT loop. `{{trigger.page_change_id}}`
  * names the change and `{{trigger.page_url}}` the page (the owner's own
  * setting, never text from the page); a step reads the new lines with
- * get_page_change, fenced as a stranger's text. Only pages a plain fetch can
- * read: one that needs a browser is refused at save (probeWatchPage). At most
+ * get_page_change, fenced as a stranger's text. A plain fetch reads the page
+ * unless the trigger says `read_with: 'browser'` (phase 2, below); a page a
+ * fetch can't read is refused at save (probeWatchPage). At most
  * PAGE_WATCH_MAX_PER_PERSON switched on per person per workspace.
  */
 export interface PageChangedTriggerConfig {
@@ -392,6 +393,13 @@ export interface PageChangedTriggerConfig {
   url: string
   /** What the person wants to hear about, in their words ("tell me when the price drops"). */
   look_for: string
+  /**
+   * Phase 2: read the page in the owner's own cloud browser, where they are
+   * signed in (a page behind a sign-in, or one only a browser shows), every
+   * PAGE_WATCH_BROWSER_INTERVAL_MINUTES instead. Absent: a plain fetch of a
+   * public page. At most PAGE_WATCH_BROWSER_MAX_PER_PERSON of these per person.
+   */
+  read_with?: 'browser'
 }
 
 /**

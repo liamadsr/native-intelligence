@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeWatchUrl, PAGE_WATCH_INTERVAL_MINUTES, PAGE_WATCH_LOOK_FOR_MAX, PAGE_WATCH_MAX_PER_PERSON, PAGE_WATCH_URL_MAX } from '../url'
+import { browserWatchRefusal, landedOnSignIn, normalizeWatchUrl, PAGE_WATCH_BROWSER_INTERVAL_MINUTES, watchIntervalMinutes, watchReadsInBrowser, PAGE_WATCH_INTERVAL_MINUTES, PAGE_WATCH_LOOK_FOR_MAX, PAGE_WATCH_MAX_PER_PERSON, PAGE_WATCH_URL_MAX } from '../url'
 
 const ok = (raw: unknown) => {
   const out = normalizeWatchUrl(raw)
@@ -79,5 +79,41 @@ describe('normalizeWatchUrl', () => {
   it('refuses an address in disguise', () => {
     expect(refused('http://2130706433/')).toMatch(/private network|does not look like/)
     expect(refused('http://0x7f.1/')).toMatch(/private network|does not look like/)
+  })
+})
+
+describe('reading in the person\'s browser', () => {
+  it('a trigger asks for the browser only with read_with "browser", and is then read every 30 minutes', () => {
+    expect(watchReadsInBrowser({ url: 'https://example.com/', read_with: 'browser' })).toBe(true)
+    for (const cfg of [null, undefined, 'browser', {}, { read_with: 'fetch' }, { read_with: true }]) expect(watchReadsInBrowser(cfg)).toBe(false)
+    expect(watchIntervalMinutes({ read_with: 'browser' })).toBe(PAGE_WATCH_BROWSER_INTERVAL_MINUTES)
+    expect(watchIntervalMinutes({})).toBe(PAGE_WATCH_INTERVAL_MINUTES)
+    expect(PAGE_WATCH_BROWSER_INTERVAL_MINUTES).toBe(30)
+  })
+
+  it('a social network\'s signed-in pages are never read in the browser; other sites are', () => {
+    for (const url of ['https://www.linkedin.com/messaging/', 'https://x.com/messages', 'https://m.facebook.com/', 'https://www.instagram.com/direct/inbox/']) {
+      expect(browserWatchRefusal(url)).toMatch(/does not allow its signed-in pages to be read automatically/)
+    }
+    expect(browserWatchRefusal('https://app.example.com/orders')).toBeNull()
+    // A name that only ends like one is another site.
+    expect(browserWatchRefusal('https://notlinkedin.com/')).toBeNull()
+    expect(browserWatchRefusal('https://example.com/x.com')).toBeNull()
+  })
+
+  it('a landing on a sign-in page is told from the page that was asked for', () => {
+    const asked = 'https://app.example.com/orders'
+    expect(landedOnSignIn(asked, 'https://app.example.com/login?next=%2Forders')).toBe(true)
+    expect(landedOnSignIn(asked, 'https://app.example.com/users/sign_in')).toBe(true)
+    expect(landedOnSignIn(asked, 'https://app.example.com/users/sign-in')).toBe(true)
+    expect(landedOnSignIn(asked, 'https://login.example.com/?return=orders')).toBe(true)
+    expect(landedOnSignIn(asked, 'https://accounts.example.com/o/oauth2/auth')).toBe(true)
+    // The page itself, a harmless redirect, and words that only contain "auth" or "sign".
+    expect(landedOnSignIn(asked, asked)).toBe(false)
+    expect(landedOnSignIn(asked, 'https://app.example.com/orders/')).toBe(false)
+    expect(landedOnSignIn(asked, 'https://app.example.com/authors/signals')).toBe(false)
+    // A watch ON a sign-in page is not a sign-out.
+    expect(landedOnSignIn('https://app.example.com/login', 'https://app.example.com/login/sso')).toBe(false)
+    expect(landedOnSignIn('not a url', asked)).toBe(false)
   })
 })

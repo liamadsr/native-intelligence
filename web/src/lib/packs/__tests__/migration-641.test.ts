@@ -156,10 +156,10 @@ describe('migration 641', () => {
   it('teaches every trigger and cadence the tools take, with their own field names', () => {
     const core = text(FLOWS.id)
     const recipe = text(RECIPE.id)
-    // The three this file added. The later ones (record_created, forms phase 2; contact_created, 662) are taught by
+    // The three this file added. The later ones (record_created, forms phase 2; contact_created, 662; page_changed, 665) are taught by
     // create_flow's own trigger description, as quote_received and pr_status_changed are: both texts sit at their size
     // limits (1,995 of 2,000 tokens, 899 of 900), so nothing was added to them.
-    for (const type of OWNER_EVENT_TRIGGER_TYPES.filter((t) => t !== 'record_created' && t !== 'contact_created')) {
+    for (const type of OWNER_EVENT_TRIGGER_TYPES.filter((t) => t !== 'record_created' && t !== 'contact_created' && t !== 'page_changed')) {
       expect((FLOW_TOOL_TRIGGER_TYPES as readonly string[]).includes(type), type).toBe(true)
       for (const t of [core, recipe]) expect(t, type).toContain(type)
     }

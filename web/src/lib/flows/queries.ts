@@ -49,7 +49,7 @@ import type {
   RunnerProjectData,
 } from './runner'
 import { isPublicHttpUrl } from './url-guard'
-import { PAGE_WATCH_LOOK_FOR_MAX, normalizeWatchUrl } from './page-watch/url'
+import { PAGE_WATCH_LOOK_FOR_MAX, browserWatchRefusal, normalizeWatchUrl } from './page-watch/url'
 import { validateCronExpression } from './cron'
 import { runAtInstant, toWallTime } from './schedule'
 
@@ -1519,9 +1519,12 @@ export function validateContactCreatedConfig(raw: unknown): ContactCreatedTrigge
  * Validate a page_changed trigger_config: the page it watches (`url`, through
  * normalizeWatchUrl: a public http(s) address, tidied; never a private
  * network's) and what the person wants to hear about (`look_for`, required,
- * trimmed, at most PAGE_WATCH_LOOK_FOR_MAX characters). Nothing else is kept.
- * Whether the page can be read without a browser, and the per-person limit,
- * are checked at save (page-changed-save.ts), not here: this stays pure.
+ * trimmed, at most PAGE_WATCH_LOOK_FOR_MAX characters), and, when the page is
+ * to be read in the person's own browser, `read_with: 'browser'` (any other
+ * value, or none, is a plain fetch and is not stored). A social network's
+ * signed-in pages are refused for the browser (browserWatchRefusal). Nothing
+ * else is kept. Whether the page can be read, and the per-person limits, are
+ * checked at save (page-changed-save.ts), not here: this stays pure.
  */
 export function validatePageChangedConfig(raw: unknown): PageChangedTriggerConfig | Error {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return new Error('trigger_config must be an object with url and look_for')
@@ -1531,7 +1534,13 @@ export function validatePageChangedConfig(raw: unknown): PageChangedTriggerConfi
   const lookFor = typeof cfg.look_for === 'string' ? cfg.look_for.trim() : ''
   if (!lookFor) return new Error('trigger_config.look_for: say what you want to hear about on this page, for example "when the price drops"')
   if (lookFor.length > PAGE_WATCH_LOOK_FOR_MAX) return new Error(`trigger_config.look_for: keep it to ${PAGE_WATCH_LOOK_FOR_MAX} characters or fewer`)
-  return { kind: 'page_changed', url, look_for: lookFor }
+  if (cfg.read_with !== undefined && cfg.read_with !== null && cfg.read_with !== '' && cfg.read_with !== 'browser' && cfg.read_with !== 'fetch') {
+    return new Error('trigger_config.read_with must be "browser" (read in the person\'s own browser, for a page behind a sign-in) or left out')
+  }
+  if (cfg.read_with !== 'browser') return { kind: 'page_changed', url, look_for: lookFor }
+  const refused = browserWatchRefusal(url)
+  if (refused) return new Error(`trigger_config.url: ${refused}`)
+  return { kind: 'page_changed', url, look_for: lookFor, read_with: 'browser' }
 }
 
 /**

@@ -2,6 +2,8 @@ import { grantCovers, readApprovalGrant } from '@/lib/browser-agent/approval-gra
 import { blockedSiteForUrl, BrowserSiteBlockedError, cleanBlockedSites, siteBlockedMessage, siteForUrl } from '@/lib/browser-agent/blocked-sites'
 import { browserTaskSchema, type BrowserTask } from '@/lib/browser-agent/task-contract'
 import { executeBrowserTask, siteBlockedTaskResult } from '@/lib/browser-agent/task-executor'
+import { parseNative } from '@/lib/browser-agent/page-reads'
+import { WATCH_READ_COMMAND, WATCH_READ_MAX_CHARS, type WatchReadResult } from '@/lib/browser-agent/watch-read'
 import type { CloudBrowser } from '../cdp/browser'
 import { cloudTaskPorts, runCloudCommand } from '../cdp/commands'
 import type { CloudPage } from '../cdp/page'
@@ -65,6 +67,11 @@ export async function runClaimed(state: RelayState, cmd: ClaimedCommand, claimed
   driver: 'agent' | 'person' = 'agent', memory: SiteMemory = NO_MEMORY): Promise<void> {
   const { client } = state
   const req = cmd.request ?? {}
+  // A page watch's read has its own answers (a watch waits out a take-over; it never fails on one).
+  if (cmd.command === WATCH_READ_COMMAND) {
+    await client.settle(cmd.id, 'completed', await watchRead(state, cmd, claimedSites, driver, memory), null)
+    return
+  }
   if (driver === 'person' && cmd.command !== 'open_window' && cmd.command !== 'close_window') {
     if (cmd.command === 'run_task') await client.settle(cmd.id, 'completed', takenOverResult(), null)
     else await client.settle(cmd.id, 'failed', null, TAKEN_OVER)
@@ -128,6 +135,85 @@ export async function runClaimed(state: RelayState, cmd: ClaimedCommand, claimed
     if (task) return await runTask(state, cmd, task, page, sites, next => { serverSites = next }, memory, forbidden, pinned)
     await runDirect(state, cmd, page, sites, isRead)
   } finally {
+    offTunnel()
+    exit?.release()
+  }
+}
+
+/** A watched page gets this long to load and show its text. */
+const WATCH_READ_MS = 30_000
+/** After the load, the text is read until two reads in a row are the same length (a page that fills itself in), at most this many times. */
+const WATCH_SETTLE_READS = 6
+const WATCH_SETTLE_EVERY_MS = 1000
+
+/**
+ * A page watch's read (browser-agent/watch-read.ts): the address opened in a
+ * tab of its own, its visible text read, the tab closed. Nothing is clicked
+ * or typed and no model is asked; the agent's own tab (state.agentPage) stays
+ * as it was. The same rules as any command: nothing while the person drives,
+ * never a blocked site or one that forbids agents (the start address, every
+ * load on the way, and the page the text came from), and the Mac exit pinned
+ * for the read, never falling back to the cloud's address under it.
+ */
+async function watchRead(state: RelayState, cmd: ClaimedCommand, claimedSites: string[], driver: 'agent' | 'person',
+  memory: SiteMemory): Promise<WatchReadResult> {
+  if (driver === 'person') return { ok: false, code: 'taken_over' }
+  const url = typeof cmd.request?.url === 'string' ? cmd.request.url : ''
+  if (!/^https?:\/\//i.test(url)) return { ok: false, code: 'load_failed' }
+  const serverSites = cleanBlockedSites(claimedSites)
+  const neverAutomate = cleanBlockedSites(memory.neverAutomate)
+  const sites = [...serverSites, ...neverAutomate.filter(site => !serverSites.includes(site))]
+  const stopFor = (site: string): WatchReadResult =>
+    ({ ok: false, code: neverAutomate.includes(site) && !serverSites.includes(site) ? 'never_automate' : 'site_blocked', site })
+  const startBlocked = blockedSiteForUrl(url, sites)
+  if (startBlocked) return stopFor(startBlocked)
+
+  const exit = state.exit
+  const mode = exit?.choose() ?? 'cloud'
+  const needsHome = exit?.capable && mode === 'cloud' ? blockedSiteForUrl(url, memory.needsHome) : null
+  if (needsHome) return { ok: false, code: 'needs_your_mac', site: needsHome }
+  let dropped = false
+  const offTunnel = exit && mode === 'mac' ? exit.onTunnel(up => { if (!up) dropped = true }) : () => {}
+  let page: CloudPage | null = null
+  try {
+    await exit?.pin(mode)
+    if (mode === 'mac' && exit && !exit.tunnelUp()) return { ok: false, code: 'needs_your_mac' }
+    page = await state.browser.openPage().catch(() => null)
+    if (!page) return { ok: false, code: 'load_failed' }
+    const deadline = Date.now() + WATCH_READ_MS
+    const kept: { site: string | null } = { site: null }
+    const offNotice = page.onNotice(notice => { if (notice.kind === 'agent-navigation-blocked') kept.site = notice.site })
+    try {
+      await page.setGuard(sites, WATCH_READ_MS + GUARD_MARGIN_MS)
+      await page.navigate(url, new AbortController().signal, deadline).catch(() => {})
+      let read: { url: string; text: string } | null = null
+      for (let i = 0, last = -1; i < WATCH_SETTLE_READS && Date.now() < deadline && !page.closed; i++) {
+        if (i > 0) await new Promise(resolve => setTimeout(resolve, WATCH_SETTLE_EVERY_MS))
+        let now: { url?: unknown; text?: unknown } | null = null
+        try { now = parseNative(await page.getText(WATCH_READ_MAX_CHARS)) as { url?: unknown; text?: unknown } | null } catch { /* still loading */ }
+        if (!now || typeof now.url !== 'string' || typeof now.text !== 'string') continue
+        read = { url: now.url, text: now.text }
+        if (now.text.length > 0 && now.text.length === last) break
+        last = now.text.length
+      }
+      if (dropped) return { ok: false, code: 'needs_your_mac' }
+      if (kept.site) return stopFor(kept.site)
+      if (!read) return { ok: false, code: 'load_failed' }
+      // The page reports its own address with its text: where the text came from, whatever it navigated to since.
+      const landed = blockedSiteForUrl(read.url, sites)
+      if (landed) return stopFor(landed)
+      if (!/^https?:\/\//i.test(read.url)) return { ok: false, code: 'load_failed' }
+      return { ok: true, url: read.url, text: read.text }
+    } finally {
+      offNotice()
+    }
+  } catch {
+    return dropped ? { ok: false, code: 'needs_your_mac' } : { ok: false, code: 'load_failed' }
+  } finally {
+    if (page) {
+      await page.setGuard([], 0).catch(() => {})
+      await page.close()
+    }
     offTunnel()
     exit?.release()
   }
