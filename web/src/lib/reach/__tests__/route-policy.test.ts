@@ -10,15 +10,21 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  BUSY_HOLD_MAX_MS,
+  HELD_TEXT_MAX_CHARS,
   ROUTED_HOME_TURN_REASONS,
   ROUTED_MESSAGE_KINDS,
   URGENT_AFTER_QUIET_MS,
   agentMessageNoticeCopy,
   awayTextBody,
   heldApprovalIds,
+  heldMessagesText,
+  heldWhileBusy,
   lookAheadUntil,
   routeOf,
+  sharesAText,
   urgentNow,
+  urgentWhileBusy,
   type RouteRow,
 } from '../route-policy'
 import { HOME_TURN_REASONS } from '@/lib/chat/home-turn'
@@ -236,5 +242,50 @@ describe('the banner’s words', () => {
     expect(agentMessageNoticeCopy('x'.repeat(300), 1).sentence).toHaveLength(140)
     expect(agentMessageNoticeCopy(null, 1).sentence).toBe('A new message in our thread.')
     expect(agentMessageNoticeCopy('', 2).sentence).toBe('2 new messages in our thread.')
+  })
+})
+
+describe('in a call or a meeting', () => {
+  const NOW = Date.parse('2026-10-31T17:00:00.000Z')
+  const at = (ms: number) => new Date(NOW + ms).toISOString()
+
+  it('a routine message waits for up to 2 hours from when it was written, never longer', () => {
+    expect(heldWhileBusy({ createdAt: at(-60_000), urgentBy: null, nowMs: NOW })).toBe(true)
+    expect(heldWhileBusy({ createdAt: at(-BUSY_HOLD_MAX_MS + 1), urgentBy: null, nowMs: NOW })).toBe(true)
+    expect(heldWhileBusy({ createdAt: at(-BUSY_HOLD_MAX_MS), urgentBy: null, nowMs: NOW })).toBe(false)
+    // A row with no readable time is never held: it goes.
+    expect(heldWhileBusy({ createdAt: 'never', urgentBy: null, nowMs: NOW })).toBe(false)
+  })
+
+  it('an urgent one goes: a deadline ahead and within 4 hours (the hold’s 2, and 2 after it)', () => {
+    expect(urgentWhileBusy(at(30 * 60_000), NOW)).toBe(true)
+    expect(urgentWhileBusy(at(4 * 60 * 60_000), NOW)).toBe(true)
+    expect(urgentWhileBusy(at(4 * 60 * 60_000 + 1), NOW)).toBe(false)
+    expect(urgentWhileBusy(at(-1), NOW)).toBe(false)
+    expect(urgentWhileBusy(null, NOW)).toBe(false)
+    expect(heldWhileBusy({ createdAt: at(-60_000), urgentBy: at(30 * 60_000), nowMs: NOW })).toBe(false)
+    expect(heldWhileBusy({ createdAt: at(-60_000), urgentBy: at(9 * 60 * 60_000), nowMs: NOW })).toBe(true)
+  })
+
+  it('only the agent’s plain words share a text: never a guest’s, a request, an ask, or anything with an approval', () => {
+    expect(sharesAText({ kind: 'home_turn', text: 'Done.' }, 0)).toBe(true)
+    expect(sharesAText({ kind: 'look_ahead', text: 'Tomorrow: 9:00 Ken.' }, 0)).toBe(true)
+    expect(sharesAText({ kind: 'customer_reminder', text: 'Ana asked to move.' }, 0)).toBe(true)
+    expect(sharesAText({ kind: 'home_turn', text: 'Cancel it?' }, 1)).toBe(false)
+    expect(sharesAText({ kind: 'home_turn', text: '  ' }, 0)).toBe(false)
+    expect(sharesAText({ kind: 'home_turn', text: null }, 0)).toBe(false)
+    expect(sharesAText({ kind: 'guest_message', text: 'Sam: hi' }, 0)).toBe(false)
+    expect(sharesAText({ kind: 'guest_request', text: 'Someone asked.' }, 0)).toBe(false)
+    expect(sharesAText({ kind: 'approval_ask', text: 'May I?' }, 0)).toBe(false)
+  })
+
+  it('the one text: how many, the three newest oldest first, each on one line and cut, and how many more', () => {
+    expect(heldMessagesText(['First.', 'Second\n\nwith a break.'])).toBe('While you were busy (2 messages):\n\nFirst.\n\nSecond with a break.')
+    expect(heldMessagesText(['a', 'b', 'c', 'd'])).toBe('While you were busy (4 messages):\n\nb\n\nc\n\nd\n\n1 more is in Native Intelligence.')
+    expect(heldMessagesText(['a', 'b', 'c', 'd', 'e'])).toMatch(/\n\n2 more are in Native Intelligence\.$/)
+    const long = heldMessagesText(['x'.repeat(1000), 'short'])
+    const [, first] = long.split('\n\n')
+    expect(first).toHaveLength(HELD_TEXT_MAX_CHARS)
+    expect(first.endsWith('…')).toBe(true)
   })
 })

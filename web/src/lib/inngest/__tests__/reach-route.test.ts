@@ -35,7 +35,7 @@ vi.mock('@/lib/reach/route', async () => {
   return { ...actual, planRoute: route.planRoute, liveRouteDeps: () => ({ live: true }) }
 })
 
-import { REACH_ROUTE_MAX_ROUNDS } from '../reach-route'
+import { REACH_ROUTE_MAX_BUSY_LOOKS, REACH_ROUTE_MAX_ROUNDS } from '../reach-route'
 
 const DATA = {
   userId: '22222222-2222-4222-8222-222222222222',
@@ -137,6 +137,29 @@ describe('reachRoute', () => {
     route.planRoute.mockReset()
     route.planRoute.mockResolvedValue({ kind: 'sent', channel: 'sms', sent: 1, failed: 0, skipped: 0, urgent: false, rowIds: ['a'] })
     expect(await hoisted.handler({ event: { data: DATA }, step: createStepMock() })).toMatchObject({ outcome: 'max_rounds', rounds: REACH_ROUTE_MAX_ROUNDS })
+  })
+
+  it('in a call or a meeting: looks again every 5 minutes until the plan lets them go', async () => {
+    route.planRoute
+      .mockResolvedValueOnce({ kind: 'busy', rows: 3 })
+      .mockResolvedValueOnce({ kind: 'busy', rows: 4 })
+      .mockResolvedValueOnce({ kind: 'sent', channel: 'sms', sent: 4, failed: 0, skipped: 0, urgent: false, rowIds: ['a', 'b', 'c', 'd'] })
+      .mockResolvedValueOnce({ kind: 'done', outcome: 'nothing', rows: 0 })
+    const step = createStepMock()
+    expect(await hoisted.handler({ event: { data: DATA }, step })).toMatchObject({ outcome: 'nothing', sent: 4, rounds: 4 })
+    expect(step.sleep.mock.calls).toEqual([
+      ['busy-1', '5m'],
+      ['busy-2', '5m'],
+    ])
+  })
+
+  it('a hold that never ends is bounded, with room for the plan’s own 2 hours', async () => {
+    route.planRoute.mockResolvedValue({ kind: 'busy', rows: 1 })
+    const step = createStepMock()
+    expect(await hoisted.handler({ event: { data: DATA }, step })).toMatchObject({ outcome: 'busy_held', sent: 0 })
+    expect(step.sleep).toHaveBeenCalledTimes(REACH_ROUTE_MAX_BUSY_LOOKS)
+    expect(REACH_ROUTE_MAX_BUSY_LOOKS * 5).toBeGreaterThan(120)
+    expect(REACH_ROUTE_MAX_ROUNDS).toBeGreaterThan(REACH_ROUTE_MAX_BUSY_LOOKS + 12 + 2)
   })
 
   it('the kill switch reaches the plan, and its log line says what it would have done', async () => {

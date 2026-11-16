@@ -8,7 +8,7 @@
  *   upsert (one row or many, `{ onConflict: 'a,b' }`: a row matching on those
  *   columns is updated, else inserted; `ignoreDuplicates: true` leaves a
  *   matching row as it is),
- *   eq, neq, in, is, gt, gte, lt, lte, not(col, 'is', null), contains,
+ *   eq, neq, in, is, gt, gte, lt, lte, not(col, 'is', null), not(col, 'in', '(a,b)'), contains,
  *   ilike ('%suffix' / 'prefix%' / '%mid%'), or('a.eq.x,b.cs.{"y"},c.is.null'),
  *   order (strings or numbers), limit, range (fetchAllRows' pages), single,
  *   maybeSingle.
@@ -26,9 +26,16 @@ type Filter = (r: Row) => boolean
 function orFilter(expr: string): Filter {
   const parts = expr.split(',').map((p) => p.trim()).filter(Boolean)
   const tests = parts.map((part): Filter => {
-    const m = /^([a-z_]+)\.(eq|cs|neq|is)\.(.*)$/.exec(part)
+    const m = /^([a-z_]+(?:->>[a-z_]+)?)\.(eq|cs|neq|is)\.(.*)$/.exec(part)
     if (!m) throw new Error(`memory-db: or ${part}`)
     const [, col, op, raw] = m
+    if (col.includes('->>')) {
+      // `column->>key`: a text key of a JSON column. As in SQL, neq is false for a missing key.
+      if (op === 'is') return (r) => jsonText(r, col) === null
+      if (op === 'eq') return (r) => jsonText(r, col) === raw
+      if (op === 'neq') return (r) => jsonText(r, col) !== null && jsonText(r, col) !== raw
+      throw new Error(`memory-db: or ${part}`)
+    }
     if (op === 'is') {
       if (raw !== 'null') throw new Error(`memory-db: or ${part}`)
       return (r) => r[col] === null || r[col] === undefined
@@ -57,6 +64,18 @@ function likeFilter(col: string, pattern: string): Filter {
 function compare(a: unknown, b: unknown): number {
   if (typeof a === 'number' && typeof b === 'number') return a - b
   return String(a ?? '').localeCompare(String(b ?? ''))
+}
+
+/**
+ * `column->>key` on a row: the key's value as text, or null (one level, as the
+ * tests need). A fixture that spells the path out as a key of its own
+ * (`'metadata->>origin': 'automatic'`) is read as it is written.
+ */
+function jsonText(row: Record<string, unknown>, path: string): unknown {
+  if (path in row) return row[path]
+  const [column, key] = path.split('->>')
+  const value = (row[column] as Record<string, unknown> | null | undefined)?.[key]
+  return value === undefined || value === null ? null : String(value)
 }
 
 export function memoryDb(tables: Record<string, Row[]>, unique: Record<string, (a: Row, b: Row) => boolean> = {}): SupabaseClient {
@@ -129,7 +148,8 @@ export function memoryDb(tables: Record<string, Row[]>, unique: Record<string, (
       ),
       update: (patch: Row) => ((op = { kind: 'update', patch }), chain),
       delete: () => ((op = { kind: 'delete' }), chain),
-      eq: (k: string, v: unknown) => (filters.push((r) => r[k] === v), chain),
+      // `column->>key` reads a text key of a JSON column, as PostgREST does.
+      eq: (k: string, v: unknown) => (filters.push((r) => (k.includes('->>') ? jsonText(r, k) : r[k]) === v), chain),
       neq: (k: string, v: unknown) => (filters.push((r) => r[k] !== v), chain),
       in: (k: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[k])), chain),
       is: (k: string, v: unknown) => (filters.push((r) => (r[k] ?? null) === v), chain),
@@ -138,6 +158,11 @@ export function memoryDb(tables: Record<string, Row[]>, unique: Record<string, (
       lt: (k: string, v: unknown) => (filters.push((r) => r[k] != null && compare(r[k], v) < 0), chain),
       lte: (k: string, v: unknown) => (filters.push((r) => r[k] != null && compare(r[k], v) <= 0), chain),
       not: (k: string, o: string, v: unknown) => {
+        // not(col, 'in', '(a,b)'): PostgREST's list form, as a scan that leaves some ids out writes it.
+        if (o === 'in' && typeof v === 'string') {
+          const out = v.replace(/^\(|\)$/g, '').split(',').map((s) => s.trim()).filter(Boolean)
+          return filters.push((r) => !out.includes(String(r[k]))), chain
+        }
         if (o !== 'is' || v !== null) throw new Error(`memory-db: not ${o}`)
         return filters.push((r) => r[k] != null), chain
       },

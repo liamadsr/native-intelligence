@@ -27,9 +27,18 @@ export type FlowTriggerType =
   | 'document_created'
   | 'record_created'
   | 'contact_created'
+  | 'page_changed'
 
-/** The event triggers that fire for one flow OWNER's own items (their mail, a channel they read, a document they see, a table they read, a contact they see). */
-export const OWNER_EVENT_TRIGGER_TYPES = ['email_received', 'chat_message', 'document_created', 'record_created', 'contact_created'] as const
+/**
+ * The event triggers that fire for one flow OWNER's own items (their mail, a
+ * channel they read, a document they see, a table they read, a contact they
+ * see, a page they watch). A page watch is the owner's in the same way: what
+ * they watch, and what they asked to hear about, is theirs to know, so its
+ * runs are private to them (flowRunPrivateTo), another member reads its
+ * config without the page (triggerConfigForViewer), and it is held to the
+ * daily cap like the others.
+ */
+export const OWNER_EVENT_TRIGGER_TYPES = ['email_received', 'chat_message', 'document_created', 'record_created', 'contact_created', 'page_changed'] as const
 export type OwnerEventTriggerType = (typeof OWNER_EVENT_TRIGGER_TYPES)[number]
 
 /** One of the owner's event triggers (their mail, chat, documents). */
@@ -100,6 +109,13 @@ export function triggerConfigForViewer(
     void _table
     return { ...rest, table: 'a table', owner_only: true }
   }
+  if (triggerType === 'page_changed') {
+    // Which page they watch, and what they asked to hear about, is the owner's to know.
+    const { url: _url, look_for: _lookFor, ...rest } = cfg
+    void _url
+    void _lookFor
+    return { ...rest, page: 'a page', owner_only: true }
+  }
   return cfg
 }
 
@@ -115,7 +131,7 @@ export function flowRowForViewer<T extends { trigger_type?: unknown; trigger_con
 }
 
 /** What a member who may not read a loop's runs is told instead of them. */
-export const OWNER_ONLY_RUNS_NOTE = "Only the person a run of this loop ran for can see it: it starts on their own mail, chat, documents, tables or contacts."
+export const OWNER_ONLY_RUNS_NOTE = "Only the person a run of this loop ran for can see it: it starts on their own mail, chat, documents, tables, contacts or the pages they watch."
 
 export type FlowActionType = 'http_post' | 'run_skill' | 'run_agent' | 'archive_capture' | 'call_tool' | 'run_local_agent'
 
@@ -357,6 +373,36 @@ export interface ContactCreatedTriggerConfig {
 }
 
 /**
+ * Fired when a public web page the owner watches changes in a way they asked
+ * to hear about (page watches, phase 1). The watch pass (a scheduled job,
+ * src/lib/flows/page-watch/) reads each enabled page_changed loop's page
+ * every PAGE_WATCH_INTERVAL_MINUTES (15), when its flow.next_run_at is due,
+ * and when new lines matter stores a change row (flow_page_change, migration
+ * 665) and emits `flow/page.changed`; the dispatcher
+ * (flowDispatchOnPageChanged) fires THAT loop. `{{trigger.page_change_id}}`
+ * names the change and `{{trigger.page_url}}` the page (the owner's own
+ * setting, never text from the page); a step reads the new lines with
+ * get_page_change, fenced as a stranger's text. A plain fetch reads the page
+ * unless the trigger says `read_with: 'browser'` (phase 2, below); a page a
+ * fetch can't read is refused at save (probeWatchPage). At most
+ * PAGE_WATCH_MAX_PER_PERSON switched on per person per workspace.
+ */
+export interface PageChangedTriggerConfig {
+  kind: 'page_changed'
+  /** The page's address, normalized (normalizeWatchUrl): public http(s) only. */
+  url: string
+  /** What the person wants to hear about, in their words ("tell me when the price drops"). */
+  look_for: string
+  /**
+   * Phase 2: read the page in the owner's own cloud browser, where they are
+   * signed in (a page behind a sign-in, or one only a browser shows), every
+   * PAGE_WATCH_BROWSER_INTERVAL_MINUTES instead. Absent: a plain fetch of a
+   * public page. At most PAGE_WATCH_BROWSER_MAX_PER_PERSON of these per person.
+   */
+  read_with?: 'browser'
+}
+
+/**
  * All trigger config shapes. Rows created before the loop engine have no
  * `kind` — a missing kind means entity_status_change (back-compat); the
  * row-level flow.trigger_type column is the authoritative discriminator.
@@ -373,6 +419,7 @@ export type FlowTriggerConfig =
   | DocumentCreatedTriggerConfig
   | RecordCreatedTriggerConfig
   | ContactCreatedTriggerConfig
+  | PageChangedTriggerConfig
 
 // ──────────────────────────────────────────────────────────────────
 // Condition model (per-action gate on the triggering entity)
@@ -1023,6 +1070,10 @@ export interface TriggerContext {
   table_id?: string | null
   /** A contact_created fire: the new contact (`{{trigger.contact_id}}`), never its name. */
   contact_id?: string | null
+  /** A page_changed fire: the stored change (`{{trigger.page_change_id}}`), read with get_page_change. */
+  page_change_id?: string | null
+  /** A page_changed fire: the watched page's address as the owner set it (`{{trigger.page_url}}`), never text from the page. */
+  page_url?: string | null
 }
 
 /**

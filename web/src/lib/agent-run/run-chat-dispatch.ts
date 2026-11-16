@@ -235,9 +235,10 @@ export function loopRunChatClient(secret: string, ctx: LoopRunChatTarget): EveCl
     skillId: record.facts.skillId,
     mode: record.facts.mode,
     hasCapture: record.facts.hasCapture,
-    // The run's forced reads (a new row's table, a new contact) are part of the ceiling a chat turn shadows (skill-run-rebuild.ts): the chat's own ceiling ignores them.
+    // The run's forced reads (a new row's table, a new contact, a watched page's change) are part of the ceiling a chat turn shadows (skill-run-rebuild.ts): the chat's own ceiling ignores them.
     ...(record.facts.recordTableId ? { recordTableId: record.facts.recordTableId } : {}),
     ...(record.facts.contactId ? { contactId: record.facts.contactId } : {}),
+    ...(record.facts.pageChangeId ? { pageChangeId: record.facts.pageChangeId } : {}),
     outputContract: record.facts.outputContract,
     model,
     originDepth: 1,

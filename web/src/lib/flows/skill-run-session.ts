@@ -69,6 +69,8 @@ export interface SkillRunFacts {
   recordTableId?: string
   /** The contact whose arrival fired the run (a contact_created fire): its forced get_contact is part of the run's ceiling. */
   contactId?: string
+  /** The page change that fired the run (a page_changed fire): its forced get_page_change is part of the run's ceiling. */
+  pageChangeId?: string
   outputContract: 'verdict' | 'prose'
   model: string
   runAsUserId: string
@@ -108,6 +110,7 @@ export async function parkSkillRunSession(
     hasCapture: boolean
     recordTableId?: string
     contactId?: string
+    pageChangeId?: string
     /** Stops the session of a handle this one replaces, once it's replaced (it can't be continued any more). */
     onReplaced?: (sessionId: string) => Promise<unknown>
   },
@@ -141,6 +144,7 @@ export async function parkSkillRunSession(
       hasCapture,
       ...(args.recordTableId ? { recordTableId: args.recordTableId } : {}),
       ...(args.contactId ? { contactId: args.contactId } : {}),
+      ...(args.pageChangeId ? { pageChangeId: args.pageChangeId } : {}),
       outputContract: spec.outputContract === 'verdict' ? 'verdict' : 'prose',
       model: spec.model,
       runAsUserId: spec.runAsUserId,
@@ -202,6 +206,7 @@ export function parseSkillRunFacts(raw: unknown): SkillRunFacts | null {
     hasCapture: f.hasCapture === true,
     ...(typeof f.recordTableId === 'string' && /^[0-9a-f-]{36}$/.test(f.recordTableId) ? { recordTableId: f.recordTableId } : {}),
     ...(typeof f.contactId === 'string' && /^[0-9a-f-]{36}$/.test(f.contactId) ? { contactId: f.contactId } : {}),
+    ...(typeof f.pageChangeId === 'string' && /^[0-9a-f-]{36}$/.test(f.pageChangeId) ? { pageChangeId: f.pageChangeId } : {}),
     outputContract: f.outputContract,
     model: f.model,
     runAsUserId: f.runAsUserId,

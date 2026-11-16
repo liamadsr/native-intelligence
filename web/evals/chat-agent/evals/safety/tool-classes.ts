@@ -80,6 +80,7 @@ export const REGISTRY_READ_TOOL_NAMES: readonly string[] = [
   'get_meeting_prep',
   'get_notifications',
   'get_package',
+  'get_page_change',
   'get_project_context',
   'get_prospecting_run_candidates',
   'get_quote',

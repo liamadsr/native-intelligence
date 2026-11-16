@@ -347,6 +347,8 @@ export async function runViaEve(args: {
   recordTableId?: string
   /** The contact the fire is about: the token carries it, and the ceiling gains get_contact for that contact. */
   contactId?: string
+  /** The page change the fire is about: the token carries it, and the ceiling gains get_page_change for that change. */
+  pageChangeId?: string
   timeoutMs: number
   onToolCalls?: (toolNames: string[]) => void
   /** Automation depth of this run's writes (loop guard) — see RunTokenClaims. */
@@ -388,6 +390,7 @@ export async function runViaEve(args: {
     hasCapture,
     ...(args.recordTableId ? { recordTableId: args.recordTableId } : {}),
     ...(args.contactId ? { contactId: args.contactId } : {}),
+    ...(args.pageChangeId ? { pageChangeId: args.pageChangeId } : {}),
     outputContract: isVerdict ? 'verdict' : 'prose',
     model: spec.model,
     ...(originDepth !== undefined ? { originDepth } : {}),

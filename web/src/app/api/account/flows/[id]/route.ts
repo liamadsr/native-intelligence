@@ -8,6 +8,13 @@
  * work agent) or `bot_character` (+ `bot_name`: a work bot made for it). It can't clear it: a loop always has a bot. A work bot the
  * loop stops naming (a re-pick, or DELETE) is deleted when nothing else needs
  * it (retireWorkBotIfUnused): no other loop, no chat thread, no memory, no run.
+ *
+ * A page watch (page_changed) saved on, or switched on, is held to the
+ * per-person limit and its page read once first (page-changed-save.ts), the
+ * same checks chat's update_flow makes; its next_run_at is due now while on
+ * and cleared while off (next-run.ts). Switched on, or pointed at a new page,
+ * it forgets what it last saw once the save lands (pageWatchAfterSave), so its
+ * next read takes a fresh baseline.
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspaceMember } from '@/lib/api-auth'
@@ -29,8 +36,9 @@ import {
   validateCanvasLayout,
   validateTriggerConfig,
 } from '@/lib/flows/queries'
-import { nextRunAtOnEnable, nextRunAtOnWrite, onceArming } from '@/lib/flows/next-run'
+import { nextRunAtOnDisable, nextRunAtOnEnable, nextRunAtOnWrite, onceArming } from '@/lib/flows/next-run'
 import { eventTriggerTargetProblem } from '@/lib/flows/event-triggers'
+import { pageWatchAfterSave, pageWatchSaveProblem } from '@/lib/flows/page-changed-save'
 import type { FlowAction } from '@/lib/flows/types'
 import { flowRowForViewer } from '@/lib/flows/types'
 
@@ -38,7 +46,8 @@ import { flowRowForViewer } from '@/lib/flows/types'
  * Trigger types with a wired dispatcher (pr_status_changed: the GitHub
  * webhook, F1; email_received, chat_message, document_created and
  * contact_created: the owner's own new mail, team chat messages, documents
- * and contacts).
+ * and contacts; page_changed: a public page the owner watches, read by the
+ * watch pass).
  */
 const WIRED_TRIGGER_TYPES = new Set([
   'entity_status_change',
@@ -54,6 +63,8 @@ const WIRED_TRIGGER_TYPES = new Set([
   'record_created',
   // A contact added to the CRM: by a form or a customer's text, or by a person.
   'contact_created',
+  // A public web page the owner watches changed in a way they asked about.
+  'page_changed',
 ])
 
 const FLOW_FIELDS = `
@@ -121,14 +132,14 @@ export async function PATCH(
     )
   }
 
-  // Trigger changes (and re-enables) need the current row: the config shape
-  // is validated against the EFFECTIVE trigger type, and schedule flows keep
-  // next_run_at in sync with their config.
+  // Trigger changes (and switching on or off) need the current row: the config
+  // shape is validated against the EFFECTIVE trigger type, and schedule flows
+  // and page watches keep next_run_at in sync with their config and switch.
   const touchesTrigger = body.trigger_type !== undefined || body.trigger_config !== undefined
-  if (touchesTrigger || body.enabled === true) {
+  if (touchesTrigger || typeof body.enabled === 'boolean') {
     const { data: existing } = await supabase
       .from('flow')
-      .select('trigger_type, trigger_config, team_id')
+      .select('trigger_type, trigger_config, team_id, enabled')
       .eq('id', id)
       .eq('workspace_id', workspaceId)
       .maybeSingle()
@@ -175,7 +186,9 @@ export async function PATCH(
       } else {
         // Workspace-scoped triggers store team_id NULL.
         updates.team_id = null
-        updates.next_run_at = nextRunAtOnWrite(nextType, tcfg, new Date())
+        // A page watch is due now only while it is on (the switch as this save leaves it).
+        const willBeOn = typeof body.enabled === 'boolean' ? body.enabled : existing.enabled === true
+        updates.next_run_at = nextRunAtOnWrite(nextType, tcfg, new Date(), willBeOn)
       }
       const once = onceArming(nextType, tcfg, currentType, existing.trigger_config, updates.next_run_at as string | null)
       if (once) Object.assign(updates, once)
@@ -190,6 +203,10 @@ export async function PATCH(
       if (nextRun === null && currentType === 'schedule' && (existing.trigger_config as { cadence?: unknown } | null)?.cadence === 'once') {
         updates.enabled = false
       }
+    } else if (body.enabled === false) {
+      // Switching off: a page watch holds no slot while off (nextRunAtOnDisable).
+      const off = nextRunAtOnDisable(currentType)
+      if (off !== undefined) updates.next_run_at = off
     }
   }
 
@@ -346,6 +363,25 @@ export async function PATCH(
   const ownerCard = !isOwner && body.enabled === true && owned.enabled !== true && isRiskyFlow(effectiveActions)
   if (ownerCard) updates.enabled = false
 
+  // A page watch saved on, or switched on: the owner's limit, and its page read
+  // once when the address is new or it was off (page-changed-save.ts). After
+  // every other check, as it is the one that reaches outside.
+  if (touchesTrigger || body.enabled === true) {
+    const pageProblem = await pageWatchSaveProblem(getServiceClient(), {
+      workspaceId,
+      ownerUserId: ownerId ?? user.id,
+      savedByUserId: user.id,
+      flowId: id,
+      next: {
+        triggerType: (updates.trigger_type as string | undefined) ?? (owned.trigger_type as string),
+        config: updates.trigger_config !== undefined ? updates.trigger_config : owned.trigger_config,
+        enabled: typeof updates.enabled === 'boolean' ? updates.enabled : owned.enabled === true,
+      },
+      previous: { triggerType: owned.trigger_type as string, config: owned.trigger_config, enabled: owned.enabled === true },
+    })
+    if (pageProblem) return badRequest(pageProblem.message, { field: pageProblem.field, code: pageProblem.code })
+  }
+
   // Its bot. Resolved last, after every other check, so a refused write never
   // leaves a work bot behind.
   const botChoice = parseFlowBotInput(body as Record<string, unknown>)
@@ -384,6 +420,8 @@ export async function PATCH(
   }
 
   if (Object.keys(updates).length === 0) return badRequest('No fields to update')
+  // The page watch as stored before this write, for the baseline check once it lands.
+  const pageBefore = { triggerType: owned.trigger_type as string, config: owned.trigger_config, enabled: owned.enabled === true }
 
   const { data, error } = await supabase
     .from('flow')
@@ -404,6 +442,14 @@ export async function PATCH(
   if (service && previousBotId && previousBotId !== updates.ai_team_member_id) {
     await retireWorkBotIfUnused(service, { workspaceId, teammateId: previousBotId })
   }
+
+  // A page watch switched on or pointed at a new page: a fresh baseline at its next read.
+  const saved = data as Record<string, unknown>
+  await pageWatchAfterSave(getServiceClient(), {
+    flowId: id,
+    previous: pageBefore,
+    next: { triggerType: saved.trigger_type as string, config: saved.trigger_config, enabled: saved.enabled === true },
+  })
 
   // The owner's switch-on card for a risky loop a non-owner switched on: the
   // same card chat raises (update_flow: the click is the person's yes).

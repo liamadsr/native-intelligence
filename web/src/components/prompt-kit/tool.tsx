@@ -138,6 +138,7 @@ const TOOL_LABELS: Record<string, string> = {
   delete_flow: 'Delete loop',
   list_flow_runs: 'Read loop runs',
   get_flow_run: 'Read loop run',
+  get_page_change: 'Read page change',
   test_flow: 'Test loop',
   transfer_flow_owner: 'Hand over loop',
   request_flow_takeover: 'Ask for loop',

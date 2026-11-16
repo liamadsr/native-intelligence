@@ -20,6 +20,7 @@ import {
   flowDispatchOnDocumentCreated,
   flowDispatchOnRecordCreated,
   flowDispatchOnContactCreated,
+  flowDispatchOnPageChanged,
   flowResumeOnStepSettled,
 } from '@/lib/inngest/flow-functions'
 import { captureIngest } from '@/lib/inngest/capture-ingest'
@@ -129,6 +130,7 @@ export const { GET, POST, PUT } = serve({
     flowDispatchOnDocumentCreated,
     flowDispatchOnRecordCreated,
     flowDispatchOnContactCreated,
+    flowDispatchOnPageChanged,
     flowResumeOnStepSettled,
     captureIngest,
     vocabularyHarvestWorkspace,

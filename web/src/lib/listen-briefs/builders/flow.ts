@@ -90,8 +90,10 @@ export function flowWords(
   const off = steps.length - on.length
   if (on.length && off) speech.say(off === 1 ? 'One step is turned off' : `${numberWord(off)} steps are turned off`)
 
-  // When it runs next (a clock it keeps), and how its last run went.
-  const next = flow.enabled ? describeWhen(flow.next_run_at, clock) : null
+  // When it runs next (a clock it keeps), and how its last run went. A page
+  // watch's next_run_at is when its page is read next, not a run: it runs
+  // only when the page changes, so it says no time.
+  const next = flow.enabled && flow.trigger_type !== 'page_changed' ? describeWhen(flow.next_run_at, clock) : null
   if (next && Date.parse(flow.next_run_at ?? '') > clock.now.getTime()) speech.say(`It runs next ${next}`)
   const last = lastRun ? describeWhen(lastRun.fired_at, clock) : null
   if (!lastRun) speech.say("It hasn't run yet")
@@ -168,6 +170,9 @@ function whenItRuns(flow: FlowRow, names: ReadonlyMap<string, string>, clock: Cl
         : t.source === 'manual'
           ? 'It runs when someone adds a contact by hand'
           : 'It runs when a contact is added'
+    case 'page_changed':
+      // Never the page or what they asked about: the brief may be read to someone else.
+      return 'It runs when a web page it watches changes in a way you asked about'
     default:
       return null
   }
@@ -282,7 +287,7 @@ export interface FlowRow {
   name: string | null
   description: string | null
   enabled: boolean | null
-  /** entity_status_change | capture_processed | pr_status_changed | schedule | calendar_event | quote_received | email_received | chat_message | document_created | record_created | contact_created */
+  /** entity_status_change | capture_processed | pr_status_changed | schedule | calendar_event | quote_received | email_received | chat_message | document_created | record_created | contact_created | page_changed */
   trigger_type: string | null
   trigger_config: {
     cadence?: string

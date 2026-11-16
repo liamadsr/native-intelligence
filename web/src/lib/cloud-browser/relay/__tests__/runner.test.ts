@@ -266,3 +266,94 @@ describe('the Mac exit (C4)', () => {
     expect(mock.execute).not.toHaveBeenCalled()
   })
 })
+
+describe('watch_read (a page watch\'s read)', () => {
+  const TEXT = 'Orders\nOrder 1041 | Packed'
+  /** A tab that loads the address it is sent to and reports it with its text. */
+  function watchBrowser(options: { landsOn?: string; text?: string; notice?: string } = {}) {
+    const opened: Array<ReturnType<typeof stubPage> & { getText: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }> = []
+    const browser = {
+      list: () => pages,
+      openPage: vi.fn(async () => {
+        const base = stubPage(`watch-${opened.length + 1}`, 'about:blank')
+        let listener: ((notice: { kind: string; site: string }) => void) | null = null
+        const page = { ...base,
+          onNotice: (l: (notice: { kind: string; site: string }) => void) => { listener = l; return () => { listener = null } },
+          navigate: vi.fn(async (url: string) => {
+            page.url = options.landsOn ?? url
+            if (options.notice) listener?.({ kind: 'agent-navigation-blocked', site: options.notice })
+          }),
+          getText: vi.fn(async () => JSON.stringify({ url: page.url, title: 'Orders', text: options.text ?? TEXT })),
+          close: vi.fn(async () => { page.closed = true }) }
+        opened.push(page)
+        return page
+      }),
+    }
+    state.browser = browser as unknown as RelayState['browser']
+    return { opened, browser }
+  }
+  const watch = (url = 'https://app.example.com/orders') => command({ command: 'watch_read', request: { url } })
+  const NEVER = { needsHome: [], neverAutomate: ['shop.example'] }
+
+  it('opens the page in a tab of its own, reads its text, closes the tab, and leaves the agent\'s tab alone', async () => {
+    const agentTab = stubPage('tab-1')
+    pages.push(agentTab)
+    state.agentPage = agentTab as unknown as RelayState['agentPage']
+    const { opened } = watchBrowser()
+    await runClaimed(state, watch(), ['blocked.example'])
+    expect(settled).toEqual([['cmd-1', 'completed', { ok: true, url: 'https://app.example.com/orders', text: TEXT }, null]])
+    expect(opened).toHaveLength(1)
+    expect(opened[0].navigate).toHaveBeenCalledWith('https://app.example.com/orders', expect.anything(), expect.any(Number))
+    expect(opened[0].setGuard).toHaveBeenCalledWith(['blocked.example'], expect.any(Number))
+    expect(opened[0].close).toHaveBeenCalled()
+    expect(state.agentPage).toBe(agentTab)
+    // No model, no click, no type: the command and task paths were never entered.
+    expect(mock.command).not.toHaveBeenCalled()
+    expect(mock.execute).not.toHaveBeenCalled()
+    expect(decide).not.toHaveBeenCalled()
+  })
+
+  it('does nothing while the person drives the browser', async () => {
+    const { opened } = watchBrowser()
+    await runClaimed(state, watch(), [], 'person')
+    expect(settled).toEqual([['cmd-1', 'completed', { ok: false, code: 'taken_over' }, null]])
+    expect(opened).toEqual([])
+  })
+
+  it('never opens a blocked site or one that forbids agents', async () => {
+    const { opened } = watchBrowser()
+    await runClaimed(state, watch('https://www.blocked.example/inbox'), ['blocked.example'])
+    await runClaimed(state, watch('https://shop.example/orders'), [], 'agent', NEVER)
+    expect(settled.map((s) => s[2])).toEqual([{ ok: false, code: 'site_blocked', site: 'blocked.example' }, { ok: false, code: 'never_automate', site: 'shop.example' }])
+    expect(opened).toEqual([])
+  })
+
+  it('a page that leads to a blocked site brings back no text: by the guard\'s notice, or by the address the text came from', async () => {
+    const guarded = watchBrowser({ notice: 'blocked.example' })
+    await runClaimed(state, watch(), ['blocked.example'])
+    expect(settled[0][2]).toEqual({ ok: false, code: 'site_blocked', site: 'blocked.example' })
+    expect(guarded.opened[0].close).toHaveBeenCalled()
+
+    settled = []
+    const landed = watchBrowser({ landsOn: 'https://shop.example/redirected' })
+    await runClaimed(state, watch(), [], 'agent', NEVER)
+    expect(settled[0][2]).toEqual({ ok: false, code: 'never_automate', site: 'shop.example' })
+    expect(landed.opened[0].close).toHaveBeenCalled()
+  })
+
+  it('reports where the browser ended up (a sign-in redirect is the server\'s to judge)', async () => {
+    watchBrowser({ landsOn: 'https://app.example.com/login?next=%2Forders', text: 'Sign in' })
+    await runClaimed(state, watch(), [])
+    expect(settled[0][2]).toEqual({ ok: true, url: 'https://app.example.com/login?next=%2Forders', text: 'Sign in' })
+  })
+
+  it('refuses anything that is not a web address, and a tab that can\'t be opened is a load that failed', async () => {
+    watchBrowser()
+    await runClaimed(state, watch('file:///etc/passwd'), [])
+    expect(settled[0][2]).toEqual({ ok: false, code: 'load_failed' })
+    settled = []
+    state.browser = { list: () => [], openPage: vi.fn(async () => { throw new Error('no tab') }) } as unknown as RelayState['browser']
+    await runClaimed(state, watch(), [])
+    expect(settled[0][2]).toEqual({ ok: false, code: 'load_failed' })
+  })
+})

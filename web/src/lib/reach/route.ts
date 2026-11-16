@@ -30,6 +30,18 @@
  *            approval puts push after a text and Slack, where a plain yes
  *            answers it; a push that doesn't go falls through to the next
  *            channel in the order
+ *   busy     in a call in the app (team_call_participant) or in a meeting a
+ *            desktop of his knows of (presence's meeting mark): a routine
+ *            message written in the last 2 hours waits, banner and all, and
+ *            the run looks again every 5 minutes. An urgent one
+ *            (metadata.urgent_by, close enough) goes now. Afterwards: one
+ *            banner for all of them at an app; away, the agent's plain
+ *            messages written before his last call or meeting ended and
+ *            bound for one channel share one text (the three newest, and
+ *            how many more), and a guest's words, a request and an ask each
+ *            go alone. Read from the rows, not from the run: a newer
+ *            request cancels a sleeping run, and the next one must still
+ *            know
  *   quiet    21:00 to 08:00 in his zone, on every channel: a routine message
  *            waits until 08:05 (with the morning digest); an urgent one
  *            (metadata.urgent_by, close enough) goes now
@@ -49,11 +61,24 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ChannelApproval } from '@/lib/attention/channel-approvals'
 import { SLACK_CHANNEL, SMS_CHANNEL } from '@/lib/chat/channel-turn'
-import { isPresent, isUuid, type PresenceRow } from '@/lib/presence/presence'
+import { inMeeting, isPresent, isUuid, lastMeetingAt, type PresenceRow } from '@/lib/presence/presence'
 import { readPresence } from '@/lib/presence/store'
 import { slackTarget, smsConsent, smsQuietUntil, type SlackReachTarget, type SmsConsent } from './dispatch'
 import { claimReachNotice, claimedReachRefs, releaseTextedApproval, type ReachChannel, type ReachClaimChannel } from './notice'
-import { ROUTED_MESSAGE_KINDS, agentMessageNoticeCopy, awayTextBody, routeOf, urgentNow, type OutboundMessage, type RoutedMessage, type RouteRef, type RouteRow } from './route-policy'
+import {
+  ROUTED_MESSAGE_KINDS,
+  agentMessageNoticeCopy,
+  awayTextBody,
+  heldMessagesText,
+  heldWhileBusy,
+  routeOf,
+  sharesAText,
+  urgentNow,
+  type OutboundMessage,
+  type RoutedMessage,
+  type RouteRef,
+  type RouteRow,
+} from './route-policy'
 
 /** The Inngest event a route is requested with (ids only). */
 export const REACH_ROUTE_EVENT = 'reach/route.requested' as const
@@ -71,6 +96,8 @@ export const REACH_ROUTE_DEBOUNCE_TIMEOUT = '5m'
 /** How long a banner waits before the router looks again, and how many times (10 min × 12 = 2 h). */
 export const REACH_ROUTE_RECHECK = '10m'
 export const REACH_ROUTE_RECHECKS = 12
+/** How long the router waits before it looks again while he is in a call or a meeting. */
+export const REACH_ROUTE_BUSY_RECHECK = '5m'
 /** A routine message held by quiet hours goes this long after they end: with the 08:00 digest. */
 export const QUIET_RELEASE_MS = 5 * 60_000
 /** How far back the router looks, and how many messages it takes at once. */
@@ -153,6 +180,8 @@ export interface RouteDeps {
   /** The approvals of these ids still pending, by id. */
   pendingApprovals(input: { userId: string; approvalIds: string[] }): Promise<Map<string, ChannelApproval>>
   presence(userId: string): Promise<PresenceRow[]>
+  /** His calls in the app, in any workspace of his. Absent: never in one. A failed read counts as none. */
+  call?(input: RouteRequestData): Promise<CallReading>
   targets(input: RouteRequestData): Promise<RouteTargets>
   /** His zone; null when none is known. */
   timeZone(input: RouteRequestData): Promise<string | null>
@@ -170,9 +199,46 @@ export interface RouteDeps {
   banner(input: RouteRequestData & { rowId: string; messageId: string | null; preview: string | null; count: number }): Promise<boolean>
 }
 
+/** His newest call rows the router reads: enough to see the one he is in and the one he last left. */
+export const CALL_ROWS_READ = 5
+
+/** One of his team_call_participant rows with its call (the embed comes as an object, or a one-row array). */
+export interface CallRow {
+  state?: unknown
+  left_at?: unknown
+  last_event_at?: unknown
+  team_call?: { status?: unknown; ended_at?: unknown } | Array<{ status?: unknown; ended_at?: unknown }> | null
+}
+
+/**
+ * His calls from his newest participant rows. In one now: joined, in a call
+ * that is still live (a row left 'joined' by a call that ended without a
+ * leave is not). Last in one: now while in one, else the latest time he left,
+ * his call ended, or his row last changed. Pure.
+ */
+export function callReading(rows: readonly CallRow[], nowMs: number): CallReading {
+  let live = false
+  let lastAt: number | null = null
+  for (const row of rows) {
+    const call = Array.isArray(row.team_call) ? row.team_call[0] : row.team_call
+    if (row.state === 'joined' && call?.status === 'live') live = true
+    const at = [row.left_at, call?.ended_at, row.last_event_at].map((v) => (typeof v === 'string' ? Date.parse(v) : NaN)).find((t) => Number.isFinite(t))
+    if (at !== undefined) lastAt = Math.max(lastAt ?? 0, Math.min(at, nowMs))
+  }
+  return { live, lastAt: live ? nowMs : lastAt }
+}
+
+/** His calls in the app: whether he is in one now, and when he was last in one (ms; now while in one), null for never or long ago. */
+export interface CallReading {
+  live: boolean
+  lastAt: number | null
+}
+
+const NO_CALL: CallReading = { live: false, lastAt: null }
+
 /** What the kill switch would have done (logged, never done). */
 export interface RouteWould {
-  action: 'banner' | 'wait' | 'send'
+  action: 'banner' | 'wait' | 'send' | 'hold'
   channel?: RouteChannel
   rows: number
   urgent?: boolean
@@ -185,12 +251,15 @@ export type RouteOutcome = 'not_home' | 'nothing' | 'no_channel' | 'banner_only'
  *   done    nothing more to do
  *   banner  he is at an app and was told; look again in REACH_ROUTE_RECHECK
  *   wait    quiet hours hold every message left; look again at `untilMs`
+ *   busy    he is in a call or a meeting and every message left waits for
+ *           its end; look again in REACH_ROUTE_BUSY_RECHECK
  *   sent    messages went (or were claimed and failed); look again now
  */
 export type RouteDecision =
   | { kind: 'done'; outcome: RouteOutcome; rows: number; would?: RouteWould }
   | { kind: 'banner'; rows: number; bannered: boolean }
   | { kind: 'wait'; untilMs: number; rows: number; channel: RouteChannel }
+  | { kind: 'busy'; rows: number }
   | { kind: 'sent'; channel: RouteChannel; sent: number; failed: number; skipped: number; urgent: boolean; rowIds: string[] }
 
 /** A message the router will act on: its row, how it routes, and the approvals still pending. */
@@ -296,115 +365,173 @@ export async function planRoute(data: RouteRequestData, deps: RouteDeps, opts: {
   }
   if (items.length === 0) return { kind: 'done', outcome: 'nothing', rows: 0 }
 
-  const textable = items.filter((i) => i.route.textable)
-  // A banner for what no writer notified about already (a look-ahead, a digest and a check-in did).
-  const unnotified = items.filter((i) => !i.route.notifies)
-  /** Claim these on 'banner': settled without a send, so no later run picks them up. */
-  const settle = async (settled: readonly RouteItem[]) => {
-    for (const item of settled) await deps.claim({ userId: data.userId, workspaceId: data.workspaceId, ref: item.route.ref, channel: 'banner', urgent: false })
-  }
-  const tellInApp = async (): Promise<boolean> => {
-    const newest = unnotified[unnotified.length - 1]
-    if (!newest) return false
-    const messageId = typeof newest.row.ui_message?.id === 'string' && newest.row.ui_message.id ? newest.row.ui_message.id : null
-    const bannered = await deps.banner({ ...data, rowId: newest.row.id, messageId, preview: newest.route.text || null, count: unnotified.length })
-    // A message that only ever banners (a prep-only report) is done once bannered.
-    await settle(unnotified.filter((i) => !i.route.textable))
-    return bannered
-  }
-
   const presence = await deps.presence(data.userId)
-  if (isPresent(presence, now)) {
-    if (!live) return { kind: 'done', outcome: 'off', rows: items.length, would: { action: 'banner', rows: unnotified.length } }
-    const bannered = await tellInApp()
-    // Two hours at an app and never opened (the run's last recheck): the banner was all, for good.
-    if (opts.settle) {
-      await settle(items)
-      return { kind: 'done', outcome: 'present_unread', rows: items.length }
-    }
-    // Nothing that could be texted if he leaves: the banner was all.
-    return textable.length ? { kind: 'banner', rows: items.length, bannered } : { kind: 'done', outcome: 'bannered', rows: items.length }
-  }
+  // In a call or a meeting: the routine messages wait for its end, banner and all (./route-policy.ts heldWhileBusy).
+  const holdable = items.filter((i) => heldWhileBusy({ createdAt: i.row.created_at, urgentBy: i.route.urgentBy, nowMs: now }))
+  let callRead: Promise<CallReading> | null = null
+  /** His calls, read at most once a round and only when something turns on it. */
+  const call = () => (callRead ??= deps.call ? deps.call(data).catch(() => NO_CALL) : Promise.resolve(NO_CALL))
+  const busy = holdable.length > 0 && (inMeeting(presence, now) || (await call()).live)
+  const held = busy ? holdable : []
+  if (held.length > 0 && !live) return { kind: 'done', outcome: 'off', rows: items.length, would: { action: 'hold', rows: held.length } }
+  const rest = held.length > 0 ? items.filter((i) => !held.includes(i)) : items
+  if (rest.length === 0) return { kind: 'busy', rows: held.length }
+  const decision = await deliver(rest)
+  // What is left to say when the urgent ones are dealt with (or could not be claimed) is the held ones:
+  // look again when he may be free, so a round that ends here never leaves them unrouted.
+  const ended = decision.kind === 'done' || (decision.kind === 'sent' && decision.sent + decision.failed === 0)
+  return held.length > 0 && ended ? { kind: 'busy', rows: held.length } : decision
 
-  // Away. A message that only ever banners (a prep-only report) still lands in the app's notices.
-  if (textable.length === 0) {
-    if (live) await tellInApp()
-    return live ? { kind: 'done', outcome: 'banner_only', rows: items.length } : { kind: 'done', outcome: 'off', rows: items.length, would: { action: 'banner', rows: unnotified.length } }
-  }
-  const targets = await deps.targets(data)
-  const sticky = stickyChannel({ latest, presence, nowMs: now })
-  const planned = textable
-    .map((item) => ({ item, choice: routeChoice({ targets, sticky, asks: item.approvals.length > 0 }) }))
-    .filter((p): p is { item: RouteItem; choice: RouteChoice } => p.choice !== null)
-  if (planned.length === 0) return { kind: 'done', outcome: 'no_channel', rows: items.length }
-  const channel = planned[0].choice.channel
-
-  // Quiet hours hold routine messages on every channel; an urgent one close enough goes now.
-  const quietEnd = smsQuietUntil(now, await deps.timeZone(data))
-  let toSend = planned
-  const urgent = quietEnd !== null
-  if (quietEnd !== null) {
-    toSend = planned.filter((p) => urgentNow(p.item.route.urgentBy, now, quietEnd))
-    if (toSend.length === 0) {
-      const untilMs = quietEnd + QUIET_RELEASE_MS
-      return live ? { kind: 'wait', untilMs, rows: planned.length, channel } : { kind: 'done', outcome: 'off', rows: items.length, would: { action: 'wait', channel, rows: planned.length } }
+  /** Tell him about these: a banner at an app, else each on its channel (quiet hours apply). */
+  async function deliver(items: RouteItem[]): Promise<RouteDecision> {
+    const textable = items.filter((i) => i.route.textable)
+    // A banner for what no writer notified about already (a look-ahead, a digest and a check-in did).
+    const unnotified = items.filter((i) => !i.route.notifies)
+    /** Claim these on 'banner': settled without a send, so no later run picks them up. */
+    const settle = async (settled: readonly RouteItem[]) => {
+      for (const item of settled) await deps.claim({ userId: data.userId, workspaceId: data.workspaceId, ref: item.route.ref, channel: 'banner', urgent: false })
     }
-  }
-  if (!live) return { kind: 'done', outcome: 'off', rows: items.length, would: { action: 'send', channel: toSend[0].choice.channel, rows: toSend.length, ...(urgent ? { urgent } : {}) } }
-
-  let sent = 0
-  let failed = 0
-  let skipped = 0
-  const rowIds: string[] = []
-  for (const { item, choice } of toSend) {
-    // Claimed before it goes: a second run, or a retried step, finds it taken.
-    const claim = await deps.claim({ userId: data.userId, workspaceId: data.workspaceId, ref: item.route.ref, channel: choice.channel, urgent })
-    if (claim !== 'claimed') {
-      // Taken: it went already. Unavailable: an unasked message never risks going twice.
-      skipped++
-      continue
+    const tellInApp = async (): Promise<boolean> => {
+      const newest = unnotified[unnotified.length - 1]
+      if (!newest) return false
+      const messageId = typeof newest.row.ui_message?.id === 'string' && newest.row.ui_message.id ? newest.row.ui_message.id : null
+      const bannered = await deps.banner({ ...data, rowId: newest.row.id, messageId, preview: newest.route.text || null, count: unnotified.length })
+      // A message that only ever banners (a prep-only report) is done once bannered.
+      await settle(unnotified.filter((i) => !i.route.textable))
+      return bannered
     }
-    /** Each approval it carries, claimed on this channel too, so a text turn's own prompt for it never repeats. */
-    const claimApprovals = async (channel: RouteChannel): Promise<ChannelApproval[]> => {
-      const out: ChannelApproval[] = []
-      for (const approval of item.approvals) {
-        const ref: RouteRef = { type: 'tool_approval', id: approval.approvalId }
-        if (refKey(ref) === refKey(item.route.ref) || (await deps.claim({ userId: data.userId, workspaceId: data.workspaceId, ref, channel, urgent })) === 'claimed') out.push(approval)
+
+    if (isPresent(presence, now)) {
+      if (!live) return { kind: 'done', outcome: 'off', rows: items.length, would: { action: 'banner', rows: unnotified.length } }
+      const bannered = await tellInApp()
+      // Two hours at an app and never opened (the run's last recheck): the banner was all, for good.
+      if (opts.settle) {
+        await settle(items)
+        return { kind: 'done', outcome: 'present_unread', rows: items.length }
       }
-      return out
+      // Nothing that could be texted if he leaves: the banner was all.
+      return textable.length ? { kind: 'banner', rows: items.length, bannered } : { kind: 'done', outcome: 'bannered', rows: items.length }
     }
-    const approvals = await claimApprovals(choice.channel)
-    const message: OutboundMessage<ChannelApproval> = { text: item.route.text ?? '', approvals }
-    if (!message.text.trim() && approvals.length === 0) {
-      skipped++
-      continue
+
+    // Away. A message that only ever banners (a prep-only report) still lands in the app's notices.
+    if (textable.length === 0) {
+      if (live) await tellInApp()
+      return live ? { kind: 'done', outcome: 'banner_only', rows: items.length } : { kind: 'done', outcome: 'off', rows: items.length, would: { action: 'banner', rows: unnotified.length } }
+    }
+    const targets = await deps.targets(data)
+    const sticky = stickyChannel({ latest, presence, nowMs: now })
+    const planned = textable
+      .map((item) => ({ item, choice: routeChoice({ targets, sticky, asks: item.approvals.length > 0 }) }))
+      .filter((p): p is { item: RouteItem; choice: RouteChoice } => p.choice !== null)
+    if (planned.length === 0) return { kind: 'done', outcome: 'no_channel', rows: items.length }
+    const channel = planned[0].choice.channel
+
+    // Quiet hours hold routine messages on every channel; an urgent one close enough goes now.
+    const quietEnd = smsQuietUntil(now, await deps.timeZone(data))
+    let toSend = planned
+    const urgent = quietEnd !== null
+    if (quietEnd !== null) {
+      toSend = planned.filter((p) => urgentNow(p.item.route.urgentBy, now, quietEnd))
+      if (toSend.length === 0) {
+        const untilMs = quietEnd + QUIET_RELEASE_MS
+        return live ? { kind: 'wait', untilMs, rows: planned.length, channel } : { kind: 'done', outcome: 'off', rows: items.length, would: { action: 'wait', channel, rows: planned.length } }
+      }
+    }
+    if (!live) return { kind: 'done', outcome: 'off', rows: items.length, would: { action: 'send', channel: toSend[0].choice.channel, rows: toSend.length, ...(urgent ? { urgent } : {}) } }
+
+    let sent = 0
+    let failed = 0
+    let skipped = 0
+    const rowIds: string[] = []
+    // The agent's plain messages written before his last call or meeting ended waited for it:
+    // those bound for one channel share a text. Everything else goes alone.
+    const units: Array<{ items: RouteItem[]; choice: RouteChoice }> = []
+    const shared = new Map<RouteChannel, RouteItem[]>()
+    const plain = toSend.filter(({ item }) => sharesAText(item.route, item.approvals.length))
+    if (plain.length > 1) {
+      const lastBusy = Math.max(lastMeetingAt(presence, now) ?? 0, (await call()).lastAt ?? 0)
+      for (const { item, choice } of plain) {
+        const written = time(item.row.created_at)
+        if (written !== null && written <= lastBusy) shared.set(choice.channel, [...(shared.get(choice.channel) ?? []), item])
+      }
+    }
+    const grouped = new Set<RouteItem>()
+    for (const { item, choice } of toSend) {
+      const group = shared.get(choice.channel)
+      if (!group || group.length < 2 || !group.includes(item)) units.push({ items: [item], choice })
+      else if (!grouped.has(item)) {
+        units.push({ items: group, choice })
+        for (const member of group) grouped.add(member)
+      }
     }
     const sendOn = (channel: RouteChannel, out: OutboundMessage<ChannelApproval>) =>
       deps.send({ userId: data.userId, workspaceId: data.workspaceId, conversationId: data.conversationId, channel, slack: targets.slack, message: out }).catch(() => false)
-    let ok = await sendOn(choice.channel, message)
-    if (!ok && choice.channel === 'push') {
-      // A push that didn't go (Apple refused it, the install is gone): the next channel in the order, claimed there too.
-      const next = routeChoice({ targets: { ...targets, push: false }, sticky, asks: item.approvals.length > 0 })
-      if (next && (await deps.claim({ userId: data.userId, workspaceId: data.workspaceId, ref: item.route.ref, channel: next.channel, urgent })) === 'claimed') {
-        const nextApprovals = await claimApprovals(next.channel)
-        const out = { text: message.text, approvals: nextApprovals }
-        if (out.text.trim() || out.approvals.length > 0) {
-          ok = await sendOn(next.channel, out)
-          if (!ok && next.channel === 'sms' && deps.releaseTexted) for (const approval of nextApprovals) await deps.releaseTexted({ userId: data.userId, approvalId: approval.approvalId })
+    /** Claimed before it goes: a second run, or a retried step, finds it taken. Returns the ones that are this round's to send. */
+    const claimItems = async (channel: RouteChannel, from: readonly RouteItem[]): Promise<RouteItem[]> => {
+      const mine: RouteItem[] = []
+      for (const item of from) {
+        // Taken: it went already. Unavailable: an unasked message never risks going twice.
+        if ((await deps.claim({ userId: data.userId, workspaceId: data.workspaceId, ref: item.route.ref, channel, urgent })) === 'claimed') mine.push(item)
+      }
+      return mine
+    }
+    /** Each approval they carry, claimed on this channel too, so a text turn's own prompt for it never repeats. */
+    const claimApprovals = async (channel: RouteChannel, from: readonly RouteItem[]): Promise<ChannelApproval[]> => {
+      const out: ChannelApproval[] = []
+      for (const item of from) {
+        for (const approval of item.approvals) {
+          const ref: RouteRef = { type: 'tool_approval', id: approval.approvalId }
+          if (refKey(ref) === refKey(item.route.ref) || (await deps.claim({ userId: data.userId, workspaceId: data.workspaceId, ref, channel, urgent })) === 'claimed') out.push(approval)
         }
       }
+      return out
     }
-    if (ok) {
-      sent++
-      rowIds.push(item.row.id)
-    } else {
-      // Claimed and not sent: at most once, like every unasked message (it stays in the thread).
-      failed++
-      // But an ask that never reached the phone isn't one a plain "yes" by text may answer.
-      if (choice.channel === 'sms' && deps.releaseTexted) for (const approval of approvals) await deps.releaseTexted({ userId: data.userId, approvalId: approval.approvalId })
+    /** One message's own words and approvals; several (held ones, none with an approval) as one text. */
+    const messageOf = (from: readonly RouteItem[], approvals: ChannelApproval[]): OutboundMessage<ChannelApproval> =>
+      from.length > 1 ? { text: heldMessagesText(from.map((i) => i.route.text ?? '')), approvals: [] } : { text: from[0]?.route.text ?? '', approvals }
+    const release = async (channel: RouteChannel, approvals: readonly ChannelApproval[]) => {
+      // An ask that never reached the phone isn't one a plain "yes" by text may answer.
+      if (channel === 'sms' && deps.releaseTexted) for (const approval of approvals) await deps.releaseTexted({ userId: data.userId, approvalId: approval.approvalId })
     }
+    for (const unit of units) {
+      let mine = await claimItems(unit.choice.channel, unit.items)
+      skipped += unit.items.length - mine.length
+      if (mine.length === 0) continue
+      const approvals = await claimApprovals(unit.choice.channel, mine)
+      const message = messageOf(mine, approvals)
+      if (!message.text.trim() && approvals.length === 0) {
+        skipped += mine.length
+        continue
+      }
+      let ok = await sendOn(unit.choice.channel, message)
+      if (!ok && unit.choice.channel === 'push') {
+        // A push that didn't go (Apple refused it, the install is gone): the next channel in the order, claimed there too.
+        const next = routeChoice({ targets: { ...targets, push: false }, sticky, asks: mine.some((i) => i.approvals.length > 0) })
+        const again = next ? await claimItems(next.channel, mine) : []
+        if (next && again.length > 0) {
+          const nextApprovals = await claimApprovals(next.channel, again)
+          const out = messageOf(again, nextApprovals)
+          if (out.text.trim() || out.approvals.length > 0) {
+            ok = await sendOn(next.channel, out)
+            if (ok) {
+              // Claimed on the push and not on the next channel: at most once, it stays in the thread.
+              failed += mine.length - again.length
+              mine = again
+            } else await release(next.channel, nextApprovals)
+          }
+        }
+      }
+      if (ok) {
+        sent += mine.length
+        rowIds.push(...mine.map((i) => i.row.id))
+      } else {
+        // Claimed and not sent: at most once, like every unasked message (it stays in the thread).
+        failed += mine.length
+        await release(unit.choice.channel, approvals)
+      }
+    }
+    return { kind: 'sent', channel: toSend[0].choice.channel, sent, failed, skipped, urgent, rowIds }
   }
-  return { kind: 'sent', channel: toSend[0].choice.channel, sent, failed, skipped, urgent, rowIds }
 }
 
 /** The one `[reach-route]` line per run: ids and outcomes, never words. */
@@ -476,6 +603,21 @@ export function liveRouteDeps(supabase: SupabaseClient): RouteDeps {
       return out
     },
     presence: (userId) => readPresence(supabase, userId),
+    call: async (input) => {
+      // His member rows in every workspace: a call in another one is as much a call.
+      const { data: members, error } = await supabase.from('member').select('id').eq('user_id', input.userId)
+      if (error) throw new Error(`member read failed: ${error.message}`)
+      const memberIds = ((members ?? []) as Array<{ id?: unknown }>).map((m) => m.id).filter((id): id is string => typeof id === 'string')
+      if (memberIds.length === 0) return NO_CALL
+      const { data: rows, error: callError } = await supabase
+        .from('team_call_participant')
+        .select('state, left_at, last_event_at, team_call!inner(status, ended_at)')
+        .in('member_id', memberIds)
+        .order('last_event_at', { ascending: false })
+        .limit(CALL_ROWS_READ)
+      if (callError) throw new Error(`team_call_participant read failed: ${callError.message}`)
+      return callReading((rows ?? []) as unknown as CallRow[], Date.now())
+    },
     targets: async (input) => {
       const { hasPushTarget, livePushDeps } = await import('@/lib/push/send')
       const [sms, slack, push] = await Promise.all([smsConsent(supabase, input.userId), slackTarget(supabase, input), hasPushTarget(livePushDeps(supabase), input.userId)])

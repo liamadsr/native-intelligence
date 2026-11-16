@@ -12,8 +12,8 @@
  *
  * Outside text is text nobody in the workspace wrote or chose to trust:
  *   - the web: the work-agent's own web_search and web_fetch, the browser
- *     tools, and the web research tools (company research, prospect
- *     discovery and its candidates);
+ *     tools, the web research tools (company research, prospect discovery
+ *     and its candidates), and a watched page's new lines (get_page_change);
  *   - a connected app's tool (any mcp__ name): another service's data;
  *   - files and references pulled in: an attachment's content, a reference
  *     or source ingest;
@@ -82,6 +82,8 @@ export const OUTSIDE_TEXT_TOOLS: ReadonlySet<string> = new Set([
   'read_browser_page',
   'get_browser_text',
   'run_browser_task',
+  // A watched public page's new lines (page-watch.ts): whoever runs the site wrote them.
+  'get_page_change',
 ])
 
 /** Mail reads that count only when a sender in the result is unknown. */

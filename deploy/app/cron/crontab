@@ -11,6 +11,7 @@
 15 9 * * * node /app/deploy/app/cron/call.mjs /api/cron/weave
 20 6 * * * node /app/deploy/app/cron/call.mjs /api/cron/memory-learning
 */5 * * * * node /app/deploy/app/cron/call.mjs /api/cron/flow-schedule
+*/5 * * * * node /app/deploy/app/cron/call.mjs /api/cron/page-watch
 */5 * * * * node /app/deploy/app/cron/call.mjs /api/cron/sequence-dispatch
 30 * * * * node /app/deploy/app/cron/call.mjs /api/cron/triage-reconciler
 30 2 * * * node /app/deploy/app/cron/call.mjs /api/cron/reconcile-subscriptions

@@ -18,7 +18,9 @@ export const evaluationKinds = ['browser.next_action', 'email.reply_required', '
   // Meeting prep's check (live): a skipped real meeting the key metric (false suppression).
   'meeting.needs_prep',
   // Records kept up to date from mail, meetings and texts: a wrong change the key metric.
-  'record.kept_up_to_date'] as const
+  'record.kept_up_to_date',
+  // Page watches (live): a missed change the person asked for the key metric (false suppression).
+  'watch.matters'] as const
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 const amount = z.number().finite().nonnegative()
 const shortText = z.string().min(1).max(160)

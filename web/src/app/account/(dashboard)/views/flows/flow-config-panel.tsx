@@ -27,6 +27,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { FlowBotPicker } from './flow-bot-picker'
 import { TEMPLATE_TOKENS } from '@/lib/flows/template'
 import { nextCronRuns, validateCronExpression } from '@/lib/flows/cron'
+import { PAGE_WATCH_BROWSER_INTERVAL_MINUTES, PAGE_WATCH_BROWSER_MAX_PER_PERSON, PAGE_WATCH_INTERVAL_MINUTES, PAGE_WATCH_LOOK_FOR_MAX } from '@/lib/flows/page-watch/url'
 import { useEditorConnections } from './use-editor-connections'
 import {
   TOOL_CATEGORIES,
@@ -278,6 +279,8 @@ const TRIGGER_DESCRIPTIONS: Record<FlowTriggerType, string> = {
     'Fires when a row is added to a table you can read: at once for a form’s submission, about 5 minutes after a person adds one by hand. Never for rows an agent or an import wrote. Runs at most 50 times a day.',
   contact_created:
     'Fires when a contact you can see is added to the CRM: at once when a website form, a quote or a customer’s first text makes one, about 5 minutes after a person adds one by hand. Never for contacts an agent, an import, a sync or a meeting made. Runs at most 50 times a day.',
+  page_changed:
+    'Fires when a web page you name changes in a way you asked about. A public page is read directly; a page behind your sign-in is read in your agent’s browser. Runs at most 50 times a day.',
 }
 
 function TriggerConfig({
@@ -378,6 +381,43 @@ function TriggerConfig({
           </Select>
           <p className="mt-1 text-xs text-muted-foreground">A form’s contact is named by a stranger: the steps read it as data, never as instructions.</p>
         </Field>
+      )}
+      {t.kind === 'page_changed' && (
+        <>
+          <Field label="Page address">
+            <Input
+              value={t.details_hidden ? '' : t.page_url}
+              onChange={(e) => setTrigger({ page_url: e.target.value })}
+              placeholder={t.details_hidden ? 'A page: which one is its owner’s to see' : 'example.com/pricing'}
+              disabled={t.details_hidden}
+            />
+          </Field>
+          <Field label="What to tell you about">
+            <Input
+              value={t.details_hidden ? '' : t.page_look_for}
+              onChange={(e) => setTrigger({ page_look_for: e.target.value })}
+              placeholder={t.details_hidden ? 'What its owner asked about is theirs to see' : 'When the price drops'}
+              maxLength={PAGE_WATCH_LOOK_FOR_MAX}
+              disabled={t.details_hidden}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">Checked every {t.page_in_browser ? PAGE_WATCH_BROWSER_INTERVAL_MINUTES : PAGE_WATCH_INTERVAL_MINUTES} minutes. You hear about it only when something you asked for changes.</p>
+          </Field>
+          {!t.details_hidden && (
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Read it in my browser</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  For a page behind a sign-in, or one that only shows its content in a browser. It is read in your agent’s browser, where you are signed in. Up to {PAGE_WATCH_BROWSER_MAX_PER_PERSON} pages.
+                </p>
+              </div>
+              <Switch
+                checked={t.page_in_browser}
+                onCheckedChange={(checked) => setTrigger({ page_in_browser: checked })}
+                aria-label="Read it in my browser"
+              />
+            </div>
+          )}
+        </>
       )}
       {/* capture_processed, document_created and quote_received carry no config beyond the type. */}
     </div>
@@ -975,6 +1015,7 @@ const TRIGGER_TOKENS: Partial<Record<FlowTriggerType, string[]>> = {
   quote_received: ['{{trigger.quote_id}}'],
   record_created: ['{{trigger.row_id}}', '{{trigger.table_id}}'],
   contact_created: ['{{trigger.contact_id}}'],
+  page_changed: ['{{trigger.page_change_id}}', '{{trigger.page_url}}'],
 }
 
 function stepTokens(ancestors: EditorAction[], trigger: EditorTrigger): string[] {

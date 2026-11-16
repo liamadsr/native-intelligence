@@ -252,10 +252,10 @@ export async function POST(request: Request) {
       { status: 403 },
     )
   }
-  // A row or contact fire's forced reads reach only the table or the contact that fired it
-  // (run-skill.ts fireSubjectReadRefusal). Model-visible, so the run reads the right one
-  // instead of failing the turn.
-  if (claims.recordTableId || claims.contactId) {
+  // A row, contact or page fire's forced reads reach only the table, the contact or the
+  // page change that fired it (run-skill.ts fireSubjectReadRefusal). Model-visible, so the
+  // run reads the right one instead of failing the turn.
+  if (claims.recordTableId || claims.contactId || claims.pageChangeId) {
     const refused = fireSubjectReadRefusal({
       toolName,
       input: body.input,

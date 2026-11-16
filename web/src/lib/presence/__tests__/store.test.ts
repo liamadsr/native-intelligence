@@ -173,7 +173,7 @@ describe('readPresence', () => {
     expect(calls[0]).toEqual({
       table: 'user_presence',
       ops: [
-        ['select', 'client_id, surface, state, active_at, updated_at'],
+        ['select', 'client_id, surface, state, active_at, updated_at, in_meeting, meeting_at'],
         ['eq', 'user_id', USER],
         ['order', 'updated_at', { ascending: false }],
       ],
@@ -203,5 +203,77 @@ describe('prunePresence', () => {
   it('throws on a delete error', async () => {
     const { service } = recorder({ error: { message: 'boom' } })
     await expect(prunePresence(service, NOW)).rejects.toThrow(/user_presence prune failed/)
+  })
+})
+
+/** A service client that answers each call with the next result, recording what was asked. */
+function sequence(results: Array<{ data?: unknown; error?: { message: string } | null }>) {
+  const calls: Call[] = []
+  let n = 0
+  const service = {
+    from(table: string) {
+      const call: Call = { table, ops: [] }
+      calls.push(call)
+      const settled = { data: results[n]?.data ?? null, error: results[n]?.error ?? null, count: null }
+      n++
+      const chain: Record<string, unknown> = new Proxy({} as Record<string, unknown>, {
+        get(_target, prop: string) {
+          if (prop === 'then') return (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) => Promise.resolve(settled).then(resolve, reject)
+          return (...args: unknown[]) => {
+            call.ops.push([prop, ...args])
+            return chain
+          }
+        },
+      })
+      return chain
+    },
+  }
+  return { service: service as unknown as SupabaseClient, calls }
+}
+
+describe('the meeting mark (migration 666)', () => {
+  it('the desktop saying so stamps meeting_at; saying not turns it off and keeps when the last one was', async () => {
+    const on = recorder()
+    await upsertPresence(on.service, USER, { clientId: 'client-abc1', surface: 'desktop', state: 'idle', meeting: true }, NOW)
+    expect(on.calls[0].ops[0][1]).toEqual({ user_id: USER, client_id: 'client-abc1', surface: 'desktop', state: 'idle', updated_at: ISO_NOW, in_meeting: true, meeting_at: ISO_NOW })
+    const off = recorder()
+    await upsertPresence(off.service, USER, { clientId: 'client-abc1', surface: 'desktop', state: 'active', meeting: false }, NOW)
+    const row = off.calls[0].ops[0][1] as Record<string, unknown>
+    expect(row).toMatchObject({ in_meeting: false, active_at: ISO_NOW })
+    expect('meeting_at' in row).toBe(false)
+  })
+
+  it('a ping that says nothing about a meeting leaves the mark alone, and no other surface ever writes it', async () => {
+    const silent = recorder()
+    await upsertPresence(silent.service, USER, { clientId: 'client-abc1', surface: 'desktop', state: 'active' }, NOW)
+    expect('meeting_at' in (silent.calls[0].ops[0][1] as object)).toBe(false)
+    expect('in_meeting' in (silent.calls[0].ops[0][1] as object)).toBe(false)
+    const web = recorder()
+    await upsertPresence(web.service, USER, { clientId: 'client-abc1', surface: 'web', state: 'active', meeting: true }, NOW)
+    expect('meeting_at' in (web.calls[0].ops[0][1] as object)).toBe(false)
+    expect('in_meeting' in (web.calls[0].ops[0][1] as object)).toBe(false)
+  })
+
+  it('before the columns exist the ping still lands, without the mark', async () => {
+    const { service, calls } = sequence([{ error: { message: "Could not find the 'in_meeting' column of 'user_presence' in the schema cache" } }, {}])
+    await upsertPresence(service, USER, { clientId: 'client-abc1', surface: 'desktop', state: 'active', meeting: true }, NOW)
+    expect(calls).toHaveLength(2)
+    expect(calls[1].ops[0][1]).toEqual({ user_id: USER, client_id: 'client-abc1', surface: 'desktop', state: 'active', updated_at: ISO_NOW, active_at: ISO_NOW })
+    // Any other error is not retried.
+    const other = sequence([{ error: { message: 'boom' } }, {}])
+    await expect(upsertPresence(other.service, USER, { clientId: 'client-abc1', surface: 'desktop', state: 'active', meeting: true }, NOW)).rejects.toThrow(/boom/)
+    expect(other.calls).toHaveLength(1)
+  })
+
+  it('before the column exists the read falls back to the rows without it', async () => {
+    const rows = [{ client_id: 'client-abc1', surface: 'web', state: 'active', active_at: ISO_NOW, updated_at: ISO_NOW }]
+    const { service, calls } = sequence([{ error: { message: 'column user_presence.in_meeting does not exist' } }, { data: rows }])
+    expect(await readPresence(service, USER)).toEqual(rows)
+    expect(calls.map((c) => c.ops[0])).toEqual([
+      ['select', 'client_id, surface, state, active_at, updated_at, in_meeting, meeting_at'],
+      ['select', 'client_id, surface, state, active_at, updated_at'],
+    ])
+    const broken = sequence([{ error: { message: 'column user_presence.meeting_at does not exist' } }, { error: { message: 'boom' } }])
+    await expect(readPresence(broken.service, USER)).rejects.toThrow(/user_presence read failed: boom/)
   })
 })

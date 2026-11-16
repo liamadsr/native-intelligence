@@ -16,6 +16,7 @@ import type {
   ChatMessageTriggerConfig,
   ContactCreatedTriggerConfig,
   DocumentCreatedTriggerConfig,
+  PageChangedTriggerConfig,
   RecordCreatedTriggerConfig,
   EmailReceivedTriggerConfig,
   ConditionGroup,
@@ -48,6 +49,7 @@ import type {
   RunnerProjectData,
 } from './runner'
 import { isPublicHttpUrl } from './url-guard'
+import { PAGE_WATCH_LOOK_FOR_MAX, browserWatchRefusal, normalizeWatchUrl } from './page-watch/url'
 import { validateCronExpression } from './cron'
 import { runAtInstant, toWallTime } from './schedule'
 
@@ -440,6 +442,26 @@ export async function findMatchingFlowsForContactCreated(supabase: SupabaseClien
     .eq('trigger_type', 'contact_created')
   if (error || !data) return []
   return (data as Array<Record<string, unknown>>).map(toFlowWithSecrets)
+}
+
+/**
+ * The one page_changed flow a `flow/page.changed` event names, when it is
+ * still in that workspace, still switched on and still a page watch (it may
+ * have been switched off, deleted or re-pointed at another trigger since the
+ * watch pass read its page). Unlike the other event triggers a page change
+ * belongs to exactly one loop, so there is nothing to match. Server only.
+ */
+export async function findMatchingFlowForPageChanged(supabase: SupabaseClient, workspaceId: string, flowId: string): Promise<FlowWithSecrets | null> {
+  const { data, error } = await supabase
+    .from('flow')
+    .select(FLOW_FIELDS)
+    .eq('id', flowId)
+    .eq('workspace_id', workspaceId)
+    .eq('enabled', true)
+    .eq('trigger_type', 'page_changed')
+    .maybeSingle()
+  if (error || !data) return null
+  return toFlowWithSecrets(data as Record<string, unknown>)
 }
 
 /**
@@ -1494,6 +1516,34 @@ export function validateContactCreatedConfig(raw: unknown): ContactCreatedTrigge
 }
 
 /**
+ * Validate a page_changed trigger_config: the page it watches (`url`, through
+ * normalizeWatchUrl: a public http(s) address, tidied; never a private
+ * network's) and what the person wants to hear about (`look_for`, required,
+ * trimmed, at most PAGE_WATCH_LOOK_FOR_MAX characters), and, when the page is
+ * to be read in the person's own browser, `read_with: 'browser'` (any other
+ * value, or none, is a plain fetch and is not stored). A social network's
+ * signed-in pages are refused for the browser (browserWatchRefusal). Nothing
+ * else is kept. Whether the page can be read, and the per-person limits, are
+ * checked at save (page-changed-save.ts), not here: this stays pure.
+ */
+export function validatePageChangedConfig(raw: unknown): PageChangedTriggerConfig | Error {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return new Error('trigger_config must be an object with url and look_for')
+  const cfg = raw as Record<string, unknown>
+  const url = normalizeWatchUrl(cfg.url)
+  if (url instanceof Error) return new Error(`trigger_config.url: ${url.message}`)
+  const lookFor = typeof cfg.look_for === 'string' ? cfg.look_for.trim() : ''
+  if (!lookFor) return new Error('trigger_config.look_for: say what you want to hear about on this page, for example "when the price drops"')
+  if (lookFor.length > PAGE_WATCH_LOOK_FOR_MAX) return new Error(`trigger_config.look_for: keep it to ${PAGE_WATCH_LOOK_FOR_MAX} characters or fewer`)
+  if (cfg.read_with !== undefined && cfg.read_with !== null && cfg.read_with !== '' && cfg.read_with !== 'browser' && cfg.read_with !== 'fetch') {
+    return new Error('trigger_config.read_with must be "browser" (read in the person\'s own browser, for a page behind a sign-in) or left out')
+  }
+  if (cfg.read_with !== 'browser') return { kind: 'page_changed', url, look_for: lookFor }
+  const refused = browserWatchRefusal(url)
+  if (refused) return new Error(`trigger_config.url: ${refused}`)
+  return { kind: 'page_changed', url, look_for: lookFor, read_with: 'browser' }
+}
+
+/**
  * Validate a pr_status_changed trigger_config: the repo it watches
  * ("owner/repo", required) and the PR state it waits for (open, closed,
  * merged or any; default any).
@@ -1565,7 +1615,8 @@ export function validateCalendarEventConfig(
  * intake (flowDispatchOnQuoteReceived). email_received, chat_message,
  * document_created, record_created and contact_created (the owner's own mail,
  * chat, documents, tables and contacts: event-triggers.ts) fire for their
- * owner alone. The canvas
+ * owner alone, and so does page_changed (a public page the owner watches,
+ * read by the watch pass: flowDispatchOnPageChanged). The canvas
  * editor and chat's create_flow / update_flow build every one. `opts` carries the clock-dependent
  * checks of a write (TriggerValidateOptions).
  */
@@ -1597,6 +1648,8 @@ export function validateTriggerConfig(
       return validateRecordCreatedConfig(raw)
     case 'contact_created':
       return validateContactCreatedConfig(raw)
+    case 'page_changed':
+      return validatePageChangedConfig(raw)
     default:
       return new Error(`trigger_type "${triggerType}" is not supported`)
   }

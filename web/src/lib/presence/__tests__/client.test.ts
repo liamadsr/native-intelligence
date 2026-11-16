@@ -15,6 +15,7 @@ const env = vi.hoisted(() => ({
   desktop: false,
   label: null as string | null,
   reading: null as { idleSeconds: number; locked: boolean } | null,
+  meeting: null as boolean | null,
   presenceState: vi.fn(),
 }))
 
@@ -22,6 +23,7 @@ vi.mock('@/lib/platform', () => ({ isDesktopApp: () => env.desktop }))
 vi.mock('@/lib/tauri-bridge', () => ({
   getThisWebviewLabel: async () => env.label,
   presenceState: env.presenceState,
+  desktopInMeeting: async () => env.meeting,
 }))
 
 const CONV = '11111111-2222-4333-8444-555555555555'
@@ -66,6 +68,7 @@ beforeEach(async () => {
   env.desktop = false
   env.label = null
   env.reading = null
+  env.meeting = null
   env.presenceState.mockReset()
   env.presenceState.mockImplementation(async () => env.reading)
   visibility = 'visible'
@@ -460,5 +463,101 @@ describe('lifecycle', () => {
     input()
     await advance(60_000)
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a meeting (the desktop main window)', () => {
+  beforeEach(() => {
+    env.desktop = true
+    env.label = 'main'
+  })
+
+  it('says so when it starts, every 4 minutes while it lasts whatever the state, and when it ends', async () => {
+    env.reading = { idleSeconds: 2, locked: false }
+    env.meeting = false
+    await start()
+    expect(bodies()).toEqual([{ clientId: expect.any(String), surface: 'desktop', state: 'active', meeting: false }])
+
+    // The call starts; he listens and touches nothing, so the Mac goes idle.
+    env.meeting = true
+    await advance(60_000)
+    env.reading = { idleSeconds: 200, locked: false }
+    await advance(60_000)
+    expect(bodies().slice(1).map((b) => [b.state, b.meeting])).toEqual([
+      ['active', true],
+      ['idle', true],
+    ])
+    // Idle sends nothing by itself; the meeting keeps the row fresh.
+    env.reading = { idleSeconds: 900, locked: false }
+    await advance(12 * 60_000)
+    const during = bodies().slice(3)
+    expect(during.map((b) => [b.state, b.meeting])).toEqual([
+      ['idle', true],
+      ['idle', true],
+      ['idle', true],
+    ])
+    expect(sendTimes.slice(3).map((t, i, all) => (i ? t - all[i - 1] : 0)).slice(1)).toEqual([240_000, 240_000])
+
+    env.meeting = false
+    await advance(60_000)
+    expect(bodies().at(-1)).toMatchObject({ state: 'idle', meeting: false })
+    // And then quiet again: idle with no meeting has nothing to say.
+    const count = fetchMock.mock.calls.length
+    await advance(10 * 60_000)
+    expect(fetchMock).toHaveBeenCalledTimes(count)
+  })
+
+  it('a desktop that cannot tell says nothing about a meeting', async () => {
+    env.reading = { idleSeconds: 2, locked: false }
+    env.meeting = null
+    await start()
+    await advance(5 * 60_000)
+    for (const body of bodies()) expect('meeting' in body).toBe(false)
+  })
+
+  it('without presence_state (Windows today) a meeting with the app out of focus still lands, as idle', async () => {
+    env.reading = null
+    env.meeting = true
+    focused = false
+    await start()
+    expect(bodies()).toEqual([{ clientId: expect.any(String), surface: 'desktop', state: 'idle', meeting: true }])
+    await advance(4 * 60_000)
+    expect(bodies().map((b) => [b.state, b.meeting])).toEqual([
+      ['idle', true],
+      ['idle', true],
+    ])
+    env.meeting = false
+    await advance(60_000)
+    expect(bodies().at(-1)).toEqual({ clientId: expect.any(String), surface: 'desktop', state: 'idle', meeting: false })
+    const count = fetchMock.mock.calls.length
+    await advance(10 * 60_000)
+    expect(fetchMock).toHaveBeenCalledTimes(count)
+  })
+
+  it('a recording left running stops being a meeting after 4 hours, until it really ends', async () => {
+    env.reading = { idleSeconds: 2, locked: false }
+    env.meeting = true
+    await start()
+    await advance(4 * 60 * 60_000)
+    expect(bodies().at(-1)).toMatchObject({ meeting: true })
+    await advance(5 * 60_000)
+    expect(bodies().at(-1)).toMatchObject({ meeting: false })
+    await advance(30 * 60_000)
+    expect(bodies().at(-1)).toMatchObject({ meeting: false })
+    // It ends, and a new one counts again.
+    env.meeting = false
+    await advance(60_000)
+    env.meeting = true
+    await advance(60_000)
+    expect(bodies().at(-1)).toMatchObject({ meeting: true })
+  })
+
+  it('other desktop windows never ask and never say', async () => {
+    env.label = 'workspace-1234'
+    env.meeting = true
+    await start()
+    input()
+    await advance(5 * 60_000)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

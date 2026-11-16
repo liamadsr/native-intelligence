@@ -34,6 +34,22 @@ export const EVALUATE_THROTTLE_MS = 10_000
 /** A home thread on screen counts as read only with input (or a focus) this recent. */
 export const SEEN_INPUT_WINDOW_MS = 2 * 60_000
 
+/**
+ * In a meeting = a row that says so (`in_meeting`) whose `meeting_at` is at
+ * most this old. The desktop re-sends it every KEEPALIVE_MS while the
+ * meeting lasts, whatever the row's state, and says when it ends; this
+ * window only covers a desktop that quit mid-meeting. Twice the present
+ * window: a ping can run a minute late (the client's tick, a throttled
+ * background timer), and a gap here would send routine messages mid-meeting.
+ */
+export const MEETING_WINDOW_MS = 10 * 60_000
+
+/**
+ * The desktop stops saying "in a meeting" once one has lasted this long
+ * without a break: a recording left running overnight is not a meeting.
+ */
+export const MEETING_REPORT_MAX_MS = 4 * 60 * 60_000
+
 export const PRESENCE_SURFACES = ['web', 'desktop', 'ios'] as const
 export type PresenceSurface = (typeof PRESENCE_SURFACES)[number]
 
@@ -70,6 +86,12 @@ export interface PresencePing {
   surface: PresenceSurface
   state?: PresenceState
   seen?: PresenceSeen
+  /**
+   * The desktop only, on a ping with a state: its person is in a meeting now
+   * (the app is recording one, or detected a call in another app). Absent
+   * when the desktop can't tell: the row's meeting mark is left as it was.
+   */
+  meeting?: boolean
 }
 
 /** A `user_presence` row as the router reads it. */
@@ -79,6 +101,10 @@ export interface PresenceRow {
   state: PresenceState
   active_at: string | null
   updated_at: string
+  /** Whether this client's last word was "in a meeting" (migration 666). */
+  in_meeting?: boolean | null
+  /** When this client last said its person is in a meeting; kept after the meeting ends. Null or absent for never. */
+  meeting_at?: string | null
 }
 
 export type ParsedPresencePing = { ok: true; ping: PresencePing } | { ok: false; error: string }
@@ -120,6 +146,12 @@ export function parsePresencePing(body: unknown): ParsedPresencePing {
     return { ok: false, error: `state must be one of ${SURFACE_STATES[surface].join(', ')} for ${surface}` }
   }
   const ping: PresencePing = seenOnly ? { clientId: b.clientId, surface } : { clientId: b.clientId, surface, state: b.state as PresenceState }
+  if (b.meeting !== undefined && b.meeting !== null) {
+    if (typeof b.meeting !== 'boolean') return { ok: false, error: 'meeting must be true or false' }
+    // Only the desktop knows (it records the meeting, or sees the call), and only its main window writes the row.
+    if (surface !== 'desktop' || seenOnly) return { ok: false, error: 'meeting is the desktop main window\'s to say, on a ping with a state' }
+    ping.meeting = b.meeting
+  }
   if (b.seen !== undefined && b.seen !== null) {
     if (typeof b.seen !== 'object' || Array.isArray(b.seen)) return { ok: false, error: 'seen must be an object' }
     const seen = b.seen as Record<string, unknown>
@@ -141,6 +173,33 @@ export function isPresent(rows: readonly Pick<PresenceRow, 'state' | 'active_at'
     const at = Date.parse(row.active_at)
     return Number.isFinite(at) && now - at <= PRESENT_WINDOW_MS
   })
+}
+
+/**
+ * Whether the person is in a meeting, as far as a desktop of theirs knows:
+ * some row says so and its `meeting_at` is at most MEETING_WINDOW_MS old.
+ * The row's state says nothing here: someone listening on a call touches
+ * nothing for minutes.
+ */
+export function inMeeting(rows: readonly Pick<PresenceRow, 'in_meeting' | 'meeting_at'>[], now: number = Date.now()): boolean {
+  return rows.some((row) => {
+    if (row.in_meeting !== true || !row.meeting_at) return false
+    const at = Date.parse(row.meeting_at)
+    return Number.isFinite(at) && now - at <= MEETING_WINDOW_MS && at <= now + MEETING_WINDOW_MS
+  })
+}
+
+/**
+ * When a desktop of theirs last said "in a meeting" (ms), over or not; null
+ * for never. A time ahead of now (a clock gone wrong) counts as now.
+ */
+export function lastMeetingAt(rows: readonly Pick<PresenceRow, 'meeting_at'>[], now: number = Date.now()): number | null {
+  let last: number | null = null
+  for (const row of rows) {
+    const at = row.meeting_at ? Date.parse(row.meeting_at) : NaN
+    if (Number.isFinite(at)) last = Math.max(last ?? 0, Math.min(at, now))
+  }
+  return last
 }
 
 /** What the desktop's `presence_state` command reports. */

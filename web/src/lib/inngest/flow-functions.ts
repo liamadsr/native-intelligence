@@ -17,6 +17,7 @@ import {
   findMatchingFlowsForCaptureProcessed,
   findMatchingFlowsForChatMessage,
   findMatchingFlowsForContactCreated,
+  findMatchingFlowForPageChanged,
   findMatchingFlowsForDocumentCreated,
   findMatchingFlowsForRecordCreated,
   findMatchingFlowsForEmailReceived,
@@ -74,6 +75,7 @@ import { AGENT_PAUSED_REASON, checkAgentPaused } from '@/lib/work/agent-paused'
 import { DEFAULT_APP_URL } from '@/lib/app-url'
 import { isOnceFire } from '@/lib/flows/schedule'
 import { flowRunPrivateTo } from '@/lib/flows/types'
+import { readPageChange } from '@/lib/flows/page-watch/changes'
 
 const APP_BASE_URL =
   process.env.NEXT_PUBLIC_APP_URL ??
@@ -1805,6 +1807,67 @@ export const flowDispatchOnContactCreated = inngest.createFunction(
       flows: found.flows as FlowWithSecrets[],
       trigger,
       source: { contact_id },
+      deadlineMs,
+      cap: true,
+    })
+  },
+)
+
+/**
+ * Dispatch a page_changed loop: `flow/page.changed` is emitted by the watch
+ * pass (src/lib/flows/page-watch/) when a page a loop watches gained lines the
+ * person asked to hear about, after it stored them as a change row
+ * (flow_page_change). Unlike the other event triggers a change belongs to ONE
+ * loop, so this fires that loop alone: still in the workspace, still on, still
+ * a page watch (switched off, deleted or re-pointed since the read: skipped),
+ * and only when the change is still there and is that loop's (an event naming
+ * another loop's change fires nothing). The run's trigger carries ids and the
+ * page's address from the owner's own loop (`{{trigger.page_change_id}}`,
+ * `{{trigger.page_url}}`), never text from the page; a step reads the new
+ * lines with get_page_change, fenced as a stranger's. It runs as the owner,
+ * private to them, held to the daily cap like the owner's other event loops.
+ * retries: 0, concurrency per workspace.
+ */
+export const flowDispatchOnPageChanged = inngest.createFunction(
+  {
+    id: 'flow-dispatch-on-page-changed',
+    retries: 0,
+    concurrency: [{ limit: 2, key: 'event.data.workspace_id' }],
+    triggers: [{ event: 'flow/page.changed' }],
+  },
+  async ({ event, step }) => {
+    const deadlineMs = flowRunDeadlineMs(Date.now())
+    const { workspace_id, flow_id, page_change_id } = event.data as { workspace_id: string; flow_id: string; page_change_id: string; fired_at?: string }
+    const supabase = getServiceClient()
+
+    const found = await step.run('find-flow', async () => {
+      const flow = await findMatchingFlowForPageChanged(supabase, workspace_id, flow_id)
+      if (!flow) return { skip: 'flow_not_watching' as const, flow: null }
+      const change = await readPageChange(supabase, { workspaceId: workspace_id, changeId: page_change_id })
+      if (!change) return { skip: 'change_gone' as const, flow: null }
+      if (change.flow_id !== flow.id) return { skip: 'change_of_another_loop' as const, flow: null }
+      return { skip: null, flow }
+    })
+    if (found.skip || !found.flow) return { dispatched: 0, skipped: found.skip ?? 'flow_not_watching' }
+    const flow = found.flow as FlowWithSecrets
+
+    // The person's own setting, never the page's words (nor the change row's copy of it).
+    const configured = (flow.trigger_config as { url?: unknown } | null)?.url
+    const trigger: TriggerContext = {
+      type: 'page_changed',
+      entity_type: null,
+      from_status_id: null,
+      to_status_id: null,
+      fired_at: new Date().toISOString(),
+      page_change_id,
+      page_url: typeof configured === 'string' && configured ? configured : null,
+    }
+    return runEntitylessFires(supabase, step, {
+      fireId: event.id ?? null,
+      workspaceId: workspace_id,
+      flows: [flow],
+      trigger,
+      source: { page_change_id },
       deadlineMs,
       cap: true,
     })

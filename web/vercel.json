@@ -41,6 +41,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/page-watch",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/sequence-dispatch",
       "schedule": "*/5 * * * *"
     },

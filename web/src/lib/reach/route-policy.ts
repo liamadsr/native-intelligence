@@ -74,6 +74,13 @@ export const URGENT_MAX_AHEAD_MS = 18 * 60 * 60_000
 /** And no later than this long after quiet hours end: a deadline at noon can wait for the morning. */
 export const URGENT_AFTER_QUIET_MS = 2 * 60 * 60_000
 
+/** How long a routine message waits for a call or a meeting to end. Measured from when it was written, so a stream of messages never extends it. */
+export const BUSY_HOLD_MAX_MS = 2 * 60 * 60_000
+
+/** What one text of several held messages carries: this many of the newest, each cut to this length. */
+export const HELD_TEXT_MAX_MESSAGES = 3
+export const HELD_TEXT_MAX_CHARS = 320
+
 /** One home-thread row as the router reads it. */
 export interface RouteRow {
   /** chat_messages.id */
@@ -285,6 +292,51 @@ export function urgentNow(urgentBy: string | null, nowMs: number, quietEndMs: nu
   const by = Date.parse(urgentBy)
   if (!Number.isFinite(by)) return false
   return by > nowMs && by - nowMs <= URGENT_MAX_AHEAD_MS && by <= quietEndMs + URGENT_AFTER_QUIET_MS
+}
+
+/**
+ * Whether an urgent message gets through a call or a meeting now: its
+ * deadline is in the future and no later than two hours after the longest a
+ * hold can last (the quiet-hours rule, with the hold's end for the
+ * morning). Pure.
+ */
+export function urgentWhileBusy(urgentBy: string | null, nowMs: number): boolean {
+  return urgentNow(urgentBy, nowMs, nowMs + BUSY_HOLD_MAX_MS)
+}
+
+/**
+ * Whether a message waits while its person is in a call or a meeting: a
+ * routine one, written less than BUSY_HOLD_MAX_MS ago. Past that it goes,
+ * whatever the signal says (a recording left running holds nothing for
+ * good). Pure.
+ */
+export function heldWhileBusy(input: { createdAt: string; urgentBy: string | null; nowMs: number }): boolean {
+  if (urgentWhileBusy(input.urgentBy, input.nowMs)) return false
+  const written = Date.parse(input.createdAt)
+  return Number.isFinite(written) && input.nowMs - written < BUSY_HOLD_MAX_MS
+}
+
+/** The kinds that can share one text after a hold. A guest's own words, a request and an ask each go alone. */
+const SHARES_A_TEXT: ReadonlySet<RouteKind> = new Set<RouteKind>(['home_turn', 'look_ahead', 'customer_reminder'])
+
+/** Whether a message may share one text with others after a hold: plain words of the agent's, carrying no approval. Pure. */
+export function sharesAText(route: Pick<RoutedMessage, 'kind' | 'text'>, approvals: number): boolean {
+  return approvals === 0 && SHARES_A_TEXT.has(route.kind) && !!route.text?.trim()
+}
+
+/**
+ * The one text several held messages go out as (oldest first in, at least
+ * two): the HELD_TEXT_MAX_MESSAGES newest, oldest of them first, each on one
+ * line cut to HELD_TEXT_MAX_CHARS, then how many more wait in the app. Pure.
+ */
+export function heldMessagesText(texts: readonly string[]): string {
+  const shown = texts.slice(-HELD_TEXT_MAX_MESSAGES).map((t) => {
+    const line = oneLine(t)
+    return line.length > HELD_TEXT_MAX_CHARS ? `${line.slice(0, HELD_TEXT_MAX_CHARS - 1).trimEnd()}…` : line
+  })
+  const more = texts.length - shown.length
+  const tail = more > 0 ? [more === 1 ? '1 more is in Native Intelligence.' : `${more} more are in Native Intelligence.`] : []
+  return [`While you were busy (${texts.length} messages):`, ...shown, ...tail].join('\n\n')
 }
 
 /** The words of the person's banner (an `agent_message` notification): the newest message's first words, and how many more there are. Pure. */

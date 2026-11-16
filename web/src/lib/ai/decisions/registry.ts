@@ -15,6 +15,7 @@ import { nudgeWorth } from './tasks/nudge-worth'
 import { actionDoneByEmail } from './tasks/action-done-by-email'
 import { meetingNeedsPrep } from './tasks/meeting-needs-prep'
 import { recordKeptUpToDate } from './tasks/record-kept-up-to-date'
+import { watchMatters } from './tasks/watch-matters'
 
 /** Feature policy lives here; only the runner may call the provider adapter. */
 export const decisionTasks = {
@@ -35,5 +36,6 @@ export const decisionTasks = {
   'action.done_by_email': actionDoneByEmail,
   'meeting.needs_prep': meetingNeedsPrep,
   'record.kept_up_to_date': recordKeptUpToDate,
+  'watch.matters': watchMatters,
 } as const
 export type DecisionKind = keyof typeof decisionTasks

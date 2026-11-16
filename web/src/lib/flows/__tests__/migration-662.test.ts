@@ -1,8 +1,8 @@
 /**
  * Migration 662: the contact_created trigger. Pins the file to the app: the
  * widened check keeps every earlier trigger type (660's list) and adds
- * contact_created, it is the newest definition of the check and allows every
- * trigger the app builds, it is added without a scan and validated on its
+ * contact_created, the newest definition of the check (665's) keeps it and
+ * allows every trigger the app builds, it is added without a scan and validated on its
  * own, it is bounded and re-runnable, and it holds no backslash.
  */
 import { readFileSync } from 'node:fs'
@@ -37,10 +37,13 @@ describe('migration 662', () => {
     expect(checkedTypes(BODY)).toEqual([...earlier, 'contact_created'])
   })
 
-  it('is the newest definition of the check, and allows every trigger the app builds', () => {
+  it('the newest definition of the check keeps every value here, and allows every trigger the app builds', () => {
+    // 665 (page watches) widens it again with page_changed, keeping every value here.
     const defining = migrationsInOrder().filter((m) => /add constraint flow_trigger_type_check/i.test(m.sql))
-    expect(defining[defining.length - 1].file).toBe('662_contact_created_trigger.sql')
-    const allowed = checkedTypes(BODY)
+    const newest = defining[defining.length - 1]
+    expect(newest.file).toBe('665_page_watches.sql')
+    const allowed = checkedTypes(flatten(newest.sql))
+    expect(allowed).toEqual([...checkedTypes(BODY), 'page_changed'])
     for (const t of FLOW_TOOL_TRIGGER_TYPES) expect(allowed.includes(t), t).toBe(true)
     for (const t of OWNER_EVENT_TRIGGER_TYPES) expect(allowed.includes(t), t).toBe(true)
   })

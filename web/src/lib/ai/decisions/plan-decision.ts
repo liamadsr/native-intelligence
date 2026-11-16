@@ -42,7 +42,9 @@ export interface PlanDecisionPolicy {
  * fits a drafting pass that may judge many threads. meeting.needs_prep runs
  * from the 5-minute meeting sweep, one event at a time, so a few seconds fit
  * (every feature is on for everyone: a free user's trip fills their thread
- * with preps too); an unsure plan answer is `prep`, as an unsure Jev's. Every
+ * with preps too); an unsure plan answer is `prep`, as an unsure Jev's.
+ * watch.matters runs from the page watch pass, off any person's screen, so it
+ * can wait a little longer; an unsure plan answer is `tell`. Every
  * other kind escalates for a person on the plan, as before: its caller falls
  * back on its own (the knowledge judges already run on the plan) or the
  * decision is only measured (shadow).
@@ -53,6 +55,7 @@ export const PLAN_DECISIONS: Partial<Record<DecisionKind, PlanDecisionPolicy>> =
   'browser.next_action': { deadlineMs: 6_000 },
   'browser.completion': { deadlineMs: 6_000 },
   'meeting.needs_prep': { deadlineMs: 6_000 },
+  'watch.matters': { deadlineMs: 8_000 },
 }
 
 /** Jev's answer values a plan answer maps to (see the header). */

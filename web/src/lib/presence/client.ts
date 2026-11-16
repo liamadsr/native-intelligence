@@ -32,6 +32,15 @@
  *     background: a native banner still reaches someone using the Mac. A
  *     desktop build without the command falls back to the web rule, still as
  *     `surface: 'desktop'`.
+ *   - A meeting rides on the desktop main window's pings (`meeting`): the
+ *     app is recording one, or is showing a call it detected in another app
+ *     (the bridge's desktopInMeeting; a call he dismissed without recording
+ *     is not seen). Sent when it changes, and every 4 minutes while it
+ *     lasts whatever the state is (someone listening on a call touches
+ *     nothing, so the row would otherwise go quiet as `idle`). On a desktop
+ *     without `presence_state` (Windows today) a meeting with the app out of
+ *     focus is sent as `idle`, so the mark still lands. After
+ *     MEETING_REPORT_MAX_MS without a break it stops being said.
  *   - Seen rides on a ping: the home thread's newest message time, sent only
  *     while the page is visible and focused with input (a focus counts) in
  *     the last 2 minutes, and only when it is newer than the last one sent.
@@ -45,10 +54,11 @@
  * any later beacon.
  */
 import { isDesktopApp } from '@/lib/platform'
-import { getThisWebviewLabel, presenceState, type DesktopPresence } from '@/lib/tauri-bridge'
+import { desktopInMeeting, getThisWebviewLabel, presenceState, type DesktopPresence } from '@/lib/tauri-bridge'
 import {
   EVALUATE_THROTTLE_MS,
   KEEPALIVE_MS,
+  MEETING_REPORT_MAX_MS,
   desktopState,
   isPresenceClientId,
   isUuid,
@@ -96,6 +106,10 @@ interface Session {
   lastInputAt: number
   lastPingAt: number
   lastSentState: PresenceState | null
+  /** The last `meeting` a ping carried; null before the first. */
+  lastSentMeeting: boolean | null
+  /** When the desktop first said "in a meeting" without a break since (ms); null outside one. */
+  meetingSince: number | null
   lastEvalAt: number
   seenSent: SeenMark | null
   trailing: ReturnType<typeof setTimeout> | null
@@ -156,9 +170,10 @@ function seenToSend(s: Session, page: PageReading, now: number): SeenMark | null
 }
 
 async function send(s: Session, ping: PresencePing, seen: SeenMark | null, now: number): Promise<void> {
-  const before = { lastPingAt: s.lastPingAt, lastSentState: s.lastSentState, seenSent: s.seenSent }
+  const before = { lastPingAt: s.lastPingAt, lastSentState: s.lastSentState, lastSentMeeting: s.lastSentMeeting, seenSent: s.seenSent }
   s.lastPingAt = now
   if (ping.state) s.lastSentState = ping.state
+  if (typeof ping.meeting === 'boolean') s.lastSentMeeting = ping.meeting
   if (seen) s.seenSent = seen
   try {
     await fetch('/api/presence', {
@@ -175,6 +190,7 @@ async function send(s: Session, ping: PresencePing, seen: SeenMark | null, now: 
     // Offline: nothing landed, so the next evaluation tries again.
     s.lastPingAt = before.lastPingAt
     s.lastSentState = before.lastSentState
+    s.lastSentMeeting = before.lastSentMeeting
     s.seenSent = before.seenSent
   }
 }
@@ -190,9 +206,17 @@ async function evaluate(s: Session): Promise<void> {
   try {
     let reading: DesktopPresence | null = null
     const main = await s.mainWindow
-    if (main) reading = await presenceState()
+    let meeting: boolean | null = null
+    if (main) [reading, meeting] = await Promise.all([presenceState(), desktopInMeeting()])
     if (s.stopped) return
     const now = Date.now()
+    // A meeting that has gone on past MEETING_REPORT_MAX_MS without a break is a recording left running.
+    if (meeting) {
+      s.meetingSince ??= now
+      if (now - s.meetingSince > MEETING_REPORT_MAX_MS) meeting = false
+    } else if (meeting === false) {
+      s.meetingSince = null
+    }
     const page = pageNow(s)
     const seen = seenToSend(s, page, now)
     // A desktop window other than main: what was read, never a state.
@@ -204,12 +228,15 @@ async function evaluate(s: Session): Promise<void> {
     }
     // The Mac's own reading in the main window; elsewhere (and on a desktop
     // without the command) the page's: active or nothing to say.
-    const state: PresenceState | null = reading ? desktopState(reading) : webActive(page, now) ? 'active' : null
+    // A meeting to say (or to take back) needs a ping even when the page has no state of its own: `idle` then.
+    const meetingChanged = meeting !== null && meeting !== (s.lastSentMeeting ?? false)
+    const state: PresenceState | null = reading ? desktopState(reading) : webActive(page, now) ? 'active' : meeting || meetingChanged ? 'idle' : null
     if (!state) return
     const keepaliveDue = now - s.lastPingAt >= KEEPALIVE_MS - KEEPALIVE_SLACK_MS
-    const due = reading ? state !== s.lastSentState || (state === 'active' && keepaliveDue) : keepaliveDue
+    const due = (reading ? state !== s.lastSentState || (state === 'active' && keepaliveDue) : keepaliveDue) || meetingChanged || (meeting === true && keepaliveDue)
     if (!due && !seen) return
     const ping: PresencePing = { clientId: s.clientId, surface: s.surface, state }
+    if (meeting !== null) ping.meeting = meeting
     if (seen) ping.seen = { conversationId: seen.conversationId, through: new Date(seen.through).toISOString() }
     await send(s, ping, seen, now)
   } finally {
@@ -264,6 +291,8 @@ export function startPresence(userId: string): () => void {
     lastInputAt: 0,
     lastPingAt: 0,
     lastSentState: null,
+    lastSentMeeting: null,
+    meetingSince: null,
     lastEvalAt: Number.NEGATIVE_INFINITY,
     seenSent: null,
     trailing: null,

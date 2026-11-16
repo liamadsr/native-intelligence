@@ -25,8 +25,10 @@ import {
   type RouteChannel,
   type RouteDeps,
   type RouteTargets,
+  callReading,
+  liveRouteDeps,
 } from '../route'
-import type { OutboundMessage, RouteRef, RouteRow } from '../route-policy'
+import { BUSY_HOLD_MAX_MS, heldMessagesText, type OutboundMessage, type RouteRef, type RouteRow } from '../route-policy'
 
 const DATA = {
   userId: '22222222-2222-4222-8222-222222222222',
@@ -71,6 +73,12 @@ interface World {
   claims?: string[]
   claimResult?: 'taken' | 'unavailable'
   home?: boolean
+  /** In a call in the app now; 'fails' for a read that throws. */
+  inCall?: boolean | 'fails'
+  /** When his last call in the app ended (ms). */
+  lastCallAt?: number
+  /** Channels whose send does not go. */
+  sendFails?: RouteChannel[]
 }
 
 function harness(world: World) {
@@ -91,6 +99,10 @@ function harness(world: World) {
     claimed: vi.fn(async ({ refs }: { refs: RouteRef[] }) => new Set<string>(refs.filter((r) => [...claims].some((c) => c.startsWith(`${r.type}:${r.id}:`))).map((r) => `${r.type}:${r.id}`))),
     pendingApprovals: vi.fn(async ({ approvalIds }) => new Map((world.pending ?? []).filter((a) => approvalIds.includes(a.approvalId)).map((a) => [a.approvalId, a]))),
     presence: vi.fn(async () => world.presence ?? []),
+    call: vi.fn(async () => {
+      if (world.inCall === 'fails') throw new Error('team_call_participant read failed')
+      return world.inCall === true ? { live: true, lastAt: world.now } : { live: false, lastAt: world.lastCallAt ?? null }
+    }),
     targets: vi.fn(async (): Promise<RouteTargets> => ({ push: false, sms: 'away', slack: null, ...world.targets })),
     timeZone: vi.fn(async () => (world.zone === undefined ? NY : world.zone)),
     claim: vi.fn(async ({ ref, channel, urgent }) => {
@@ -102,6 +114,7 @@ function harness(world: World) {
       return 'claimed' as const
     }),
     send: vi.fn(async ({ channel, message }) => {
+      if (world.sendFails?.includes(channel)) return false
       sent.push({ channel, message })
       return true
     }),
@@ -567,5 +580,236 @@ describe('the gather: dead rows never hide a live one', () => {
     const live = homeTurn(ny('11:00'), 'Want me to cancel your call with Ken?')
     const h = harness({ now: ny('11:02'), rows: [...asks, live], pending: [] })
     expect(await planRoute(DATA, h.deps)).toMatchObject({ kind: 'sent', sent: 1, rowIds: [live.id] })
+  })
+})
+
+describe('in a call or a meeting: routine messages wait for its end', () => {
+  /** A desktop that said "in a meeting" at `at`, its person listening (idle). */
+  const meeting = (at: number, on = true): PresenceRow => ({ client_id: 'client-desk-1', surface: 'desktop', state: 'idle', active_at: null, updated_at: new Date(at).toISOString(), in_meeting: on, meeting_at: new Date(at).toISOString() })
+  /** The desktop after its meeting: the last "in a meeting" at `at`, then "not". */
+  const over = (at: number) => meeting(at, false)
+  const guestNote = (at: number, words: string): RouteRow => {
+    const note = rid()
+    return {
+      id: rid(),
+      created_at: new Date(at).toISOString(),
+      ui_message: {
+        id: `guest-message:${note}`,
+        parts: [{ type: 'data-guest-message', id: `guest-message:${note}`, data: { guest: { id: 'g1', name: 'Sam', channel: 'sms' }, text: words } }],
+        metadata: { kind: 'guest_message', note_id: note },
+      },
+    }
+  }
+
+  it('a meeting a desktop knows of: nothing goes, not even a banner at the app he is using', async () => {
+    const m = homeTurn(ny('13:00'), 'The pricing page changed.')
+    const h = harness({ now: ny('13:03'), rows: [m], presence: [active(ny('13:02')), meeting(ny('13:01'))] })
+    expect(await planRoute(DATA, h.deps)).toEqual({ kind: 'busy', rows: 1 })
+    expect(h.banners).toEqual([])
+    expect(h.sent).toEqual([])
+    expect(h.claimCalls).toEqual([])
+    // Not asked about a call when the desktop already said.
+    expect(h.deps.call).not.toHaveBeenCalled()
+  })
+
+  it('a call in the app: the same, away or present', async () => {
+    const m = homeTurn(ny('13:00'), 'The pricing page changed.')
+    const away = harness({ now: ny('13:03'), rows: [m], inCall: true })
+    expect(await planRoute(DATA, away.deps)).toEqual({ kind: 'busy', rows: 1 })
+    expect(away.sent).toEqual([])
+    const present = harness({ now: ny('13:03'), rows: [m], inCall: true, presence: [active(ny('13:02'))] })
+    expect(await planRoute(DATA, present.deps)).toEqual({ kind: 'busy', rows: 1 })
+    expect(present.banners).toEqual([])
+  })
+
+  it('a mark older than 10 minutes is no meeting (the desktop quit), one it took back is none at once, and a call that can’t be read is no call', async () => {
+    const m = homeTurn(ny('13:00'), 'x')
+    const ended = harness({ now: ny('13:03'), rows: [m], presence: [over(ny('13:02'))] })
+    expect(await planRoute(DATA, ended.deps)).toMatchObject({ kind: 'sent', sent: 1 })
+    const stale = harness({ now: ny('13:15'), rows: [m], presence: [meeting(ny('13:04'))] })
+    expect(await planRoute(DATA, stale.deps)).toMatchObject({ kind: 'sent', sent: 1 })
+    const broken = harness({ now: ny('13:03'), rows: [m], inCall: 'fails' })
+    expect(await planRoute(DATA, broken.deps)).toMatchObject({ kind: 'sent', sent: 1 })
+  })
+
+  it('a message goes 2 hours after it was written, whatever the signal says', async () => {
+    const old = homeTurn(ny('11:00'), 'The morning report.')
+    const fresh = homeTurn(ny('12:59'), 'The pricing page changed.')
+    const h = harness({ now: ny('11:00') + BUSY_HOLD_MAX_MS, rows: [old, fresh], presence: [meeting(ny('12:59'))] })
+    expect(await planRoute(DATA, h.deps)).toMatchObject({ kind: 'sent', sent: 1, rowIds: [old.id] })
+    // The next round: only the fresh one is left, still held.
+    expect(await planRoute(DATA, h.deps)).toEqual({ kind: 'busy', rows: 1 })
+    // Nothing holdable at all: the call is never asked about.
+    const only = harness({ now: ny('13:01'), rows: [homeTurn(ny('11:00'), 'x')], inCall: true })
+    expect(await planRoute(DATA, only.deps)).toMatchObject({ kind: 'sent', sent: 1 })
+    expect(only.deps.call).not.toHaveBeenCalled()
+  })
+
+  it('an urgent message goes now; the routine ones stay held', async () => {
+    const routine = homeTurn(ny('13:00'), 'The pricing page changed.')
+    const urgent = homeTurn(ny('13:01'), 'Ken is waiting in the lobby.', { meta: { urgent_by: '2026-10-28T13:30:00-04:00' } })
+    const far = homeTurn(ny('13:02'), 'Dinner moved to 8.', { meta: { urgent_by: '2026-10-28T20:00:00-04:00' } })
+    const h = harness({ now: ny('13:03'), rows: [routine, urgent, far], inCall: true })
+    expect(await planRoute(DATA, h.deps)).toMatchObject({ kind: 'sent', sent: 1, rowIds: [urgent.id] })
+    expect(h.sent).toEqual([{ channel: 'sms', message: { text: 'Ken is waiting in the lobby.', approvals: [] } }])
+    expect(await planRoute(DATA, h.deps)).toEqual({ kind: 'busy', rows: 2 })
+  })
+
+  it('an urgent one with nowhere to go does not end the run: the held ones are looked at again', async () => {
+    const routine = homeTurn(ny('13:00'), 'The pricing page changed.')
+    const urgent = homeTurn(ny('13:01'), 'Ken is waiting.', { meta: { urgent_by: '2026-10-28T13:30:00-04:00' } })
+    const h = harness({ now: ny('13:03'), rows: [routine, urgent], inCall: true, targets: { sms: null } })
+    expect(await planRoute(DATA, h.deps)).toEqual({ kind: 'busy', rows: 1 })
+  })
+
+  it('present and urgent: the banner is for the urgent one alone', async () => {
+    const routine = homeTurn(ny('13:00'), 'The pricing page changed.')
+    const urgent = homeTurn(ny('13:01'), 'Ken is waiting.', { meta: { urgent_by: '2026-10-28T13:30:00-04:00' } })
+    const h = harness({ now: ny('13:03'), rows: [routine, urgent], presence: [active(ny('13:02')), meeting(ny('13:02'))] })
+    expect(await planRoute(DATA, h.deps)).toMatchObject({ kind: 'banner', rows: 1 })
+    expect(h.banners).toEqual([expect.objectContaining({ rowId: urgent.id, count: 1 })])
+  })
+
+  it('the kill switch: says it would hold, and does nothing', async () => {
+    const h = harness({ now: ny('13:03'), rows: [homeTurn(ny('13:00'), 'x')], inCall: true })
+    expect(await planRoute(DATA, h.deps, { live: false })).toEqual({ kind: 'done', outcome: 'off', rows: 1, would: { action: 'hold', rows: 1 } })
+  })
+
+  it('afterwards, at an app: one banner for all of them', async () => {
+    const rows = [homeTurn(ny('13:00'), 'One.'), homeTurn(ny('13:10'), 'Two.'), homeTurn(ny('13:20'), 'Three.')]
+    const h = harness({ now: ny('13:40'), rows, presence: [active(ny('13:39')), over(ny('13:30'))] })
+    expect(await planRoute(DATA, h.deps)).toMatchObject({ kind: 'banner', rows: 3 })
+    expect(h.banners).toEqual([expect.objectContaining({ rowId: rows[2].id, count: 3 })])
+  })
+
+  it('afterwards, away: the plain messages written during it share one text, each claimed (a fresh run knows from the rows)', async () => {
+    const rows = ['One.', 'Two.', 'Three.', 'Four.', 'Five.'].map((w, i) => homeTurn(ny('13:00') + i * 60_000, w))
+    const h = harness({ now: ny('13:40'), rows, presence: [over(ny('13:30'))] })
+    expect(await planRoute(DATA, h.deps)).toEqual({ kind: 'sent', channel: 'sms', sent: 5, failed: 0, skipped: 0, urgent: false, rowIds: rows.map((r) => r.id) })
+    expect(h.sent).toEqual([{ channel: 'sms', message: { text: heldMessagesText(['One.', 'Two.', 'Three.', 'Four.', 'Five.']), approvals: [] } }])
+    expect(h.claimCalls.map((c) => [c.ref.id, c.channel])).toEqual(rows.map((r) => [r.id, 'sms']))
+    // Nothing is left for the next round.
+    expect(await planRoute(DATA, h.deps)).toEqual({ kind: 'done', outcome: 'nothing', rows: 0 })
+  })
+
+  it('the same after a call in the app; a message written after it ended goes alone', async () => {
+    const during = [homeTurn(ny('13:00'), 'One.'), homeTurn(ny('13:10'), 'Two.')]
+    const after = homeTurn(ny('13:35'), 'The call’s notes are ready.')
+    const h = harness({ now: ny('13:40'), rows: [...during, after], lastCallAt: ny('13:30') })
+    expect(await planRoute(DATA, h.deps)).toMatchObject({ kind: 'sent', sent: 3 })
+    expect(h.sent.map((s) => s.message.text)).toEqual([heldMessagesText(['One.', 'Two.']), 'The call’s notes are ready.'])
+  })
+
+  it('an urgent one that can’t be claimed never ends the run with the held ones unrouted', async () => {
+    const routine = homeTurn(ny('13:00'), 'The pricing page changed.')
+    const urgent = homeTurn(ny('13:01'), 'Ken is waiting.', { meta: { urgent_by: '2026-10-28T13:30:00-04:00' } })
+    const h = harness({ now: ny('13:03'), rows: [routine, urgent], inCall: true, claimResult: 'unavailable' })
+    expect(await planRoute(DATA, h.deps)).toEqual({ kind: 'busy', rows: 1 })
+    expect(h.sent).toEqual([])
+  })
+
+  it('a guest’s words and an ask each go alone, whole; one plain message is just itself', async () => {
+    const one = homeTurn(ny('13:00'), 'The pricing page changed.')
+    const sam = guestNote(ny('13:05'), 'Locked out, call me.')
+    const ask = homeTurn(ny('13:10'), 'Want me to cancel your call with Ken?', { parts: [text('Want me to cancel your call with Ken?'), heldPart()] })
+    const h = harness({ now: ny('13:40'), rows: [one, sam, ask], pending: [APPROVAL], presence: [over(ny('13:30'))] })
+    expect(await planRoute(DATA, h.deps)).toMatchObject({ kind: 'sent', sent: 3 })
+    expect(h.sent.map((s) => s.message)).toEqual([
+      { text: 'The pricing page changed.', approvals: [] },
+      { text: 'Sam (to your agent, by text): Locked out, call me.', approvals: [] },
+      { text: 'Want me to cancel your call with Ken?', approvals: [APPROVAL] },
+    ])
+  })
+
+  it('two plain messages around a guest’s: the two share a text where the first stood, the guest’s follows', async () => {
+    const one = homeTurn(ny('13:00'), 'One.')
+    const sam = guestNote(ny('13:05'), 'Locked out.')
+    const two = homeTurn(ny('13:10'), 'Two.')
+    const h = harness({ now: ny('13:40'), rows: [one, sam, two], presence: [over(ny('13:30'))] })
+    expect(await planRoute(DATA, h.deps)).toMatchObject({ kind: 'sent', sent: 3 })
+    expect(h.sent.map((s) => s.message.text)).toEqual([heldMessagesText(['One.', 'Two.']), 'Sam (to your agent, by text): Locked out.'])
+  })
+
+  it('with no call or meeting before them, every message still goes as its own text', async () => {
+    const rows = [homeTurn(ny('13:00'), 'One.'), homeTurn(ny('13:10'), 'Two.')]
+    const h = harness({ now: ny('13:40'), rows })
+    expect(await planRoute(DATA, h.deps)).toMatchObject({ kind: 'sent', sent: 2 })
+    expect(h.sent.map((s) => s.message.text)).toEqual(['One.', 'Two.'])
+  })
+
+  it('a shared push that doesn’t go falls through as one text, claimed there too', async () => {
+    const rows = [homeTurn(ny('13:00'), 'One.'), homeTurn(ny('13:10'), 'Two.')]
+    const h = harness({ now: ny('13:40'), rows, targets: { push: true, sms: 'away' }, sendFails: ['push'], presence: [over(ny('13:30'))] })
+    expect(await planRoute(DATA, h.deps)).toMatchObject({ kind: 'sent', sent: 2, failed: 0, rowIds: rows.map((r) => r.id) })
+    expect(h.sent).toEqual([{ channel: 'sms', message: { text: heldMessagesText(['One.', 'Two.']), approvals: [] } }])
+    expect(h.claimCalls.map((c) => c.channel)).toEqual(['push', 'push', 'sms', 'sms'])
+  })
+
+  it('a shared text that doesn’t go: claimed and not sent, at most once', async () => {
+    const rows = [homeTurn(ny('13:00'), 'One.'), homeTurn(ny('13:10'), 'Two.')]
+    const h = harness({ now: ny('13:40'), rows, sendFails: ['sms'], presence: [over(ny('13:30'))] })
+    expect(await planRoute(DATA, h.deps)).toMatchObject({ kind: 'sent', sent: 0, failed: 2 })
+    expect(await planRoute(DATA, h.deps)).toEqual({ kind: 'done', outcome: 'nothing', rows: 0 })
+  })
+})
+
+describe('his calls in the app, from the rows', () => {
+  const NOW = ny('13:40')
+  const iso = (ms: number) => new Date(ms).toISOString()
+
+  it('in one now: joined, in a call that is still live; last in one is then now', () => {
+    expect(callReading([{ state: 'joined', left_at: null, last_event_at: iso(ny('13:00')), team_call: { status: 'live', ended_at: null } }], NOW)).toEqual({ live: true, lastAt: NOW })
+    // The embed as a one-row array reads the same.
+    expect(callReading([{ state: 'joined', last_event_at: iso(ny('13:00')), team_call: [{ status: 'live', ended_at: null }] }], NOW)).toEqual({ live: true, lastAt: NOW })
+  })
+
+  it('a row left joined by a call that ended is no call; its end is when he was last in one', () => {
+    expect(callReading([{ state: 'joined', left_at: null, last_event_at: iso(ny('12:00')), team_call: { status: 'ended', ended_at: iso(ny('12:45')) } }], NOW)).toEqual({ live: false, lastAt: ny('12:45') })
+    expect(callReading([{ state: 'left', left_at: iso(ny('13:30')), last_event_at: iso(ny('13:30')), team_call: { status: 'live', ended_at: null } }], NOW)).toEqual({ live: false, lastAt: ny('13:30') })
+    expect(callReading([], NOW)).toEqual({ live: false, lastAt: null })
+    expect(callReading([{ state: 'left' }], NOW)).toEqual({ live: false, lastAt: null })
+  })
+
+  it('the live read: his member rows in every workspace, then his newest call rows with their calls', async () => {
+    const asked: Array<{ table: string; ops: unknown[][] }> = []
+    const answers: Record<string, unknown> = {
+      member: [{ id: 'm-1' }, { id: 'm-2' }],
+      team_call_participant: [{ state: 'joined', left_at: null, last_event_at: iso(Date.now() - 60_000), team_call: { status: 'live', ended_at: null } }],
+    }
+    const supabase = {
+      from(table: string) {
+        const call = { table, ops: [] as unknown[][] }
+        asked.push(call)
+        const chain: Record<string, unknown> = new Proxy({} as Record<string, unknown>, {
+          get(_t, prop: string) {
+            if (prop === 'then') return (resolve: (v: unknown) => unknown) => Promise.resolve({ data: answers[table] ?? null, error: null }).then(resolve)
+            return (...args: unknown[]) => {
+              call.ops.push([prop, ...args])
+              return chain
+            }
+          },
+        })
+        return chain
+      },
+    }
+    const reading = await liveRouteDeps(supabase as never).call!(DATA)
+    expect(reading.live).toBe(true)
+    expect(asked).toEqual([
+      { table: 'member', ops: [['select', 'id'], ['eq', 'user_id', DATA.userId]] },
+      {
+        table: 'team_call_participant',
+        ops: [
+          ['select', 'state, left_at, last_event_at, team_call!inner(status, ended_at)'],
+          ['in', 'member_id', ['m-1', 'm-2']],
+          ['order', 'last_event_at', { ascending: false }],
+          ['limit', 5],
+        ],
+      },
+    ])
+    // No member row anywhere: no call, and the calls are never read.
+    asked.length = 0
+    answers.member = []
+    expect(await liveRouteDeps(supabase as never).call!(DATA)).toEqual({ live: false, lastAt: null })
+    expect(asked.map((a) => a.table)).toEqual(['member'])
   })
 })
