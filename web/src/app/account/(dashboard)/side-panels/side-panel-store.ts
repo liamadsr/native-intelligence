@@ -88,6 +88,22 @@ export interface SidePanelState {
   connectionsAttention: boolean
   /** The live capture's notepad is docked on the chat's left (live-capture-dock.tsx): the chat's content moves over for it. */
   captureDock: boolean
+  /**
+   * The main composer is on Code (chat/composer-code.tsx; Liam, 11-16: "when
+   * you click on code the main agents properties go away and everything
+   * clears up"): the right panel waits off screen (rightShown), the chat's
+   * thread stops painting (chat/code-chat-stage.tsx's own rule) and home's panel
+   * lists the coding chats (page-panel/code-chats.tsx). Back on the agent's
+   * tab everything is as it was. Never saved.
+   */
+  codeView: boolean
+  /** On Code, a coding chat is selected (chat/code-view-store.ts): the right panel shows its details. Never saved. */
+  codeChat: boolean
+  /**
+   * The coding chat's details are open on Code (their own switch, remembered per device, open by
+   * default): closing them there never closes the agent's own panel, nor the other way round.
+   */
+  codeDetailsOpen: boolean
   /** The page panel has something to show beside the navigation (page-panel/page-panel.tsx). */
   pagePanel: boolean
   /** What the page panel shows is a page's sub-nav, with that page's card in front: it shows while open, room or not. Never saved. */
@@ -102,6 +118,8 @@ export interface SidePanelState {
 
 /** Remembered per device: the right panel open. */
 export const RIGHT_OPEN_KEY = 'ni:side-panel:open'
+/** Remembered per device: the coding chat's details on Code are closed ('0'); open otherwise. */
+export const CODE_DETAILS_OPEN_KEY = 'ni:code-view:details'
 /** Remembered per device: the panel's view, `for-you` (absent: the sections, the default). */
 export const VIEW_KEY = 'ni:side-panel:view'
 /**
@@ -144,6 +162,9 @@ const SERVER: SidePanelState = {
   order: SECTION_IDS,
   connectionsAttention: false,
   captureDock: false,
+  codeView: false,
+  codeChat: false,
+  codeDetailsOpen: true,
   pagePanel: false,
   pagePanelPage: false,
   pagePanelOpen: true,
@@ -239,6 +260,9 @@ function readSaved(): SidePanelState {
     order: parseOrder(readKey(ORDER_KEY)),
     connectionsAttention: false,
     captureDock: false,
+    codeView: false,
+    codeChat: false,
+    codeDetailsOpen: readKey(CODE_DETAILS_OPEN_KEY) !== '0',
     pagePanel: false,
     pagePanelPage: false,
     pagePanelOpen: readKey(PAGE_PANEL_OPEN_KEY) !== '0',
@@ -252,12 +276,17 @@ function readSaved(): SidePanelState {
  * Open on For you with none, it waits off screen (rightOpen and the view
  * kept), and the space plan gives the chat its room back.
  */
-export function rightShown(s: Pick<SidePanelState, 'rightOpen' | 'view' | 'forYouContent'>): boolean {
+export function rightShown(s: Pick<SidePanelState, 'rightOpen' | 'view' | 'forYouContent'> & Partial<Pick<SidePanelState, 'codeView' | 'codeChat' | 'codeDetailsOpen'>>): boolean {
+  // On Code the panel holds the selected coding chat's details (none selected: off screen), open or
+  // closed by its own switch; the agent's own panel waits, as it was, for the way back.
+  if (s.codeView) return !!s.codeChat && s.codeDetailsOpen !== false
   return s.rightOpen && (s.view === 'panel' || s.forYouContent)
 }
 
 /** The view on screen now, or null with the panel off screen: what lights its button. */
-export function shownView(s: Pick<SidePanelState, 'rightOpen' | 'view' | 'forYouContent'>): SidePanelView | null {
+export function shownView(s: Pick<SidePanelState, 'rightOpen' | 'view' | 'forYouContent'> & Partial<Pick<SidePanelState, 'codeView' | 'codeChat' | 'codeDetailsOpen'>>): SidePanelView | null {
+  // On Code the panel has one view, the coding chat's details: the side panel's button is its button.
+  if (s.codeView) return rightShown(s) ? 'panel' : null
   return rightShown(s) ? s.view : null
 }
 
@@ -336,6 +365,11 @@ export function setSidePanelView(view: SidePanelView): void {
  */
 export function toggleRightPanel(): void {
   const current = getSidePanelState()
+  // On Code: the coding chat's details open or close (their own switch); the agent's panel is left as it was.
+  if (current.codeView) {
+    toggleCodeDetails()
+    return
+  }
   if (rightShown(current)) {
     setRightPanelOpen(false)
     return
@@ -351,6 +385,11 @@ export function toggleRightPanel(): void {
  * with cards.
  */
 export function toggleSidePanelView(view: SidePanelView): void {
+  // On Code there is one view (the coding chat's details): its button opens or closes it, the agent's panel left as it was.
+  if (getSidePanelState().codeView) {
+    toggleCodeDetails()
+    return
+  }
   if (shownView(getSidePanelState()) === view) {
     setRightPanelOpen(false)
     return
@@ -417,6 +456,33 @@ export function togglePagePanel(): void {
 /** The page panel's host says whether it is on screen now (the row's plan). */
 export function setPagePanelShown(shown: boolean): void {
   set({ pagePanelShown: shown })
+}
+
+/** The main composer goes on Code, or back on the agent's tab (chat/composer-code.tsx). */
+export function setCodeView(on: boolean): void {
+  if (getSidePanelState().codeView === on) return
+  captureChatAnchor()
+  set({ codeView: on })
+}
+
+/** Open or close the coding chat's details on Code. Nothing with no chat selected (there is nothing to show). */
+export function setCodeDetailsOpen(open: boolean): void {
+  const current = getSidePanelState()
+  if (!current.codeChat || current.codeDetailsOpen === open) return
+  writeKey(CODE_DETAILS_OPEN_KEY, open ? null : '0')
+  if (current.codeView) captureChatAnchor()
+  set({ codeDetailsOpen: open })
+}
+
+function toggleCodeDetails(): void {
+  setCodeDetailsOpen(!getSidePanelState().codeDetailsOpen)
+}
+
+/** A coding chat is selected in the Code view, or none (chat/code-view-store.ts). */
+export function setCodeChatSelected(selected: boolean): void {
+  if (getSidePanelState().codeChat === selected) return
+  if (getSidePanelState().codeView) captureChatAnchor()
+  set({ codeChat: selected })
 }
 
 /** The live capture's notepad docks or goes (live-capture-dock.tsx): the space plan counts its push. */

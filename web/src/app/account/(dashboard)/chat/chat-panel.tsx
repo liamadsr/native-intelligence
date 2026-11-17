@@ -38,6 +38,7 @@ import {
 } from './composer-state'
 import { useComposerCode } from './composer-code'
 import { useOptionalOpenWorkItem } from '@/hooks/use-open-teammate'
+import { CodeChatStage } from './code-chat-stage'
 import { applyChatRetention, MAX_LIVE_MESSAGES, needsChatRetention } from '@/lib/chat/message-retention'
 import { caughtUpThread } from '@/lib/chat/thread-catch-up'
 import { ChevronDown } from 'lucide-react'
@@ -3555,6 +3556,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
              card, this stops painting while the composer below keeps on
              (tailwind.css; Liam, 11-11). */
           <div data-chat-thread-stage="" className="relative flex min-h-0 flex-1 flex-col">
+          {/* The Code view's middle: the selected coding chat's conversation in the thread's place (code-chat-stage.tsx; Liam, 11-16). The main chat's only. */}
+          {composerCode.available && <CodeChatStage />}
           {/* Clear of the top bar and the composer, which float over the
               messages: a browser card's full screen fills what's between. */}
           <div

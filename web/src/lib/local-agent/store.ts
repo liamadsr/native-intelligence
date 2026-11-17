@@ -546,10 +546,13 @@ export async function getSession(svc: Svc, userId: string, sessionId: string): P
 export async function listSessions(
   svc: Svc,
   userId: string,
-  opts: { conversationId?: string; live?: boolean } = {},
+  opts: { conversationId?: string; live?: boolean; codeIn?: string } = {},
 ): Promise<SessionRow[]> {
   let q = svc.from('local_agent_session').select(SESSION_SELECT).eq('user_id', userId)
   if (opts.conversationId) q = q.eq('conversation_id', opts.conversationId)
+  // The Code view's list: the person's own Code jobs (isCodeJob) in ONE workspace, so another
+  // workspace's chats never show, and the newest 100 are 100 coding chats, not 100 sessions of any kind.
+  if (opts.codeIn) q = q.eq('workspace_id', opts.codeIn).eq('started_by', 'person').like('idempotency_key', `${CODE_JOB_KEY_PREFIX}%`)
   if (opts.live) q = q.in('status', LIVE_STATUSES as LocalAgentStatus[])
   const { data, error } = await q.order('created_at', { ascending: false }).limit(100)
   if (error) throw new Error(`local agent sessions read failed: ${error.message}`)

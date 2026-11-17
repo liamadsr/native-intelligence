@@ -13,7 +13,7 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import type { SessionRow } from '@/lib/local-agent/store'
-import {
+import { SESSION_GONE_MESSAGE,
   eventFromRow,
   EVENTS_PAGE,
   fetchEventsBefore,
@@ -100,7 +100,8 @@ describe('fetchSessionSince', () => {
 
   it('a first page refused is the error, in the route’s words; a later one keeps what was read', async () => {
     const gone = await fetchSessionSince(SID, 0, async () => json({ error: 'Local agent not found' }, 404))
-    expect(gone).toEqual({ ok: false, status: 404, message: 'Local agent not found' })
+    // Gone is said in our own words, whatever the route's: callers tell it from a failed read by this line.
+    expect(gone).toEqual({ ok: false, status: 404, message: SESSION_GONE_MESSAGE })
 
     let call = 0
     const partial = await fetchSessionSince(SID, 0, async () => {

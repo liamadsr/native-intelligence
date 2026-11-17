@@ -43,6 +43,7 @@ import { ShowToolCard } from '../show-tool-card'
 import { ChatCardHostProvider } from '../card-host'
 import { ChatCardStore, LIVE_CARDS } from '../card-store'
 import { LiveCaptureDockSlotProvider, type DockedCard, type LiveCaptureDockSlot } from '../card-dock-slot'
+import { __resetMinimizedForTests, clearMinimized, minimizedCard, registerTileHost, restoreMinimized } from '../minimized-card'
 import { KeptCardHost } from '@/app/account/(dashboard)/chat/kept-card-host'
 import type { CardSpec } from '@/lib/chat-cards/kinds'
 
@@ -250,5 +251,126 @@ describe('the docked card', () => {
     expect(fullScreenPage()).not.toBeNull()
     expect(document.querySelector('[data-chat-card-fullscreen="cap"] button[aria-label="Close"]')).not.toBeNull()
     expect(attach).not.toHaveBeenCalled()
+  })
+
+  describe('minimized like any other panel (a press outside it)', () => {
+    let shell: HTMLDivElement
+    let releaseTile: () => void
+    beforeEach(() => {
+      __resetMinimizedForTests()
+      // Beside the rail from `md` up, a tile drawn; no flight (reduced motion).
+      window.matchMedia = ((query: string) => ({
+        matches: query.includes('min-width') || query.includes('reduce'),
+        addEventListener() {},
+        removeEventListener() {},
+      })) as unknown as typeof window.matchMedia
+      document.documentElement.setAttribute('data-app-rail', '')
+      releaseTile = registerTileHost()
+      shell = document.createElement('div')
+      shell.id = 'ni-shell-root'
+      shell.innerHTML = '<p id="message">A message</p><textarea id="composer"></textarea>'
+      document.body.append(shell)
+      shell.append(dockBody)
+    })
+    afterEach(() => {
+      releaseTile()
+      __resetMinimizedForTests()
+      document.documentElement.removeAttribute('data-app-rail')
+      shell.remove()
+    })
+    const press = async (target: Element) => {
+      await act(async () => {
+        target.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }))
+      })
+    }
+
+    it('a press on the chat beside it puts it in the tile; the tile brings the notepad back', async () => {
+      withPages(1)
+      store.setDocked('cap')
+      await render({})
+      expect(attached?.away).toBe(false)
+      await press(document.getElementById('message')!)
+      expect(store.dockAway()).toBe(true)
+      expect(minimizedCard()?.id).toBe('cap')
+      // Still docked and mounted: only out of sight (the dock reads `away`).
+      expect(store.docked()).toBe('cap')
+      expect(attached?.away).toBe(true)
+      expect(inDock()).not.toBeNull()
+      // The tile: back beside the chat, not full screen.
+      await act(async () => {
+        restoreMinimized(null)
+      })
+      expect(store.dockAway()).toBe(false)
+      expect(store.fullScreen()).toBeNull()
+      expect(minimizedCard()).toBeNull()
+      expect(attached?.away).toBe(false)
+    })
+
+    it('a press in the notepad, or on a control, leaves it out', async () => {
+      withPages(1)
+      store.setDocked('cap')
+      await render({})
+      await press(dockBody.querySelector('[data-page="cap"]')!)
+      await press(document.getElementById('composer')!)
+      expect(store.dockAway()).toBe(false)
+      expect(minimizedCard()).toBeNull()
+    })
+
+    it('comes back when the tile is cleared or taken by another card: never out of reach', async () => {
+      withPages(1)
+      store.setDocked('cap')
+      await render({})
+      await press(document.getElementById('message')!)
+      expect(store.dockAway()).toBe(true)
+      await act(async () => clearMinimized())
+      expect(store.dockAway()).toBe(false)
+      expect(attached?.away).toBe(false)
+    })
+
+    it('comes back when the window narrows below `md`, where no tile shows', async () => {
+      withPages(1)
+      store.setDocked('cap')
+      await render({})
+      await press(document.getElementById('message')!)
+      expect(store.dockAway()).toBe(true)
+      window.matchMedia = (() => ({ matches: false, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
+      await act(async () => {
+        window.dispatchEvent(new Event('resize'))
+      })
+      expect(store.dockAway()).toBe(false)
+      expect(attached?.away).toBe(false)
+    })
+
+    it('stays out with no tile to bring it back from (below `md`)', async () => {
+      window.matchMedia = (() => ({ matches: false, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
+      withPages(1)
+      store.setDocked('cap')
+      await render({})
+      await press(document.getElementById('message')!)
+      expect(store.dockAway()).toBe(false)
+      expect(minimizedCard()).toBeNull()
+    })
+
+    it('full screen, Esc minimizes it into the tile, not back to its notepad; “Back to notes” still does', async () => {
+      withPages(1)
+      store.setDocked('cap')
+      await render({})
+      await act(async () => store.enterFullScreen('cap'))
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      })
+      expect(store.fullScreen()).toBeNull()
+      expect(store.dockAway()).toBe(true)
+      expect(minimizedCard()?.id).toBe('cap')
+      // Its capture ends: no longer docked, nothing left minimized of the dock.
+      await act(async () => store.setDocked(null))
+      expect(store.dockAway()).toBe(false)
+      await act(async () => store.setDocked('cap'))
+      await act(async () => store.enterFullScreen('cap'))
+      const back = document.querySelector('[data-chat-card-fullscreen="cap"] button[aria-label="Back to notes"]') as HTMLButtonElement
+      await act(async () => back.click())
+      expect(store.dockAway()).toBe(false)
+      expect(inDock()).not.toBeNull()
+    })
   })
 })

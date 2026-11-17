@@ -112,6 +112,9 @@ export async function fetchEventsBefore(
   }
 }
 
+/** What a read says of a session that is gone (a 404): the one failure that is not worth another try. */
+export const SESSION_GONE_MESSAGE = 'This local agent is no longer available.'
+
 /** One page of the session's events after `afterId`. */
 export async function fetchSessionPage(
   sessionId: string,
@@ -122,7 +125,9 @@ export async function fetchSessionPage(
     const qs = afterId > 0 ? `?afterId=${Math.floor(afterId)}` : ''
     const res = await fetchImpl(sessionUrl(sessionId, qs), { cache: 'no-store' })
     if (!res.ok) {
-      return errorOf(res, res.status === 404 ? 'This local agent is no longer available.' : 'Could not load this local agent.')
+      // Gone is said in our own words whatever the server's are: callers tell it from a failed read by this line.
+      if (res.status === 404) return { ok: false, status: 404, message: SESSION_GONE_MESSAGE }
+      return errorOf(res, 'Could not load this local agent.')
     }
     const body = (await res.json().catch(() => null)) as { session?: unknown; events?: unknown; lastId?: unknown } | null
     if (!body || !isSession(body.session)) return { ok: false, status: 502, message: 'Could not load this local agent.' }
@@ -221,6 +226,18 @@ export async function fetchConversationSessions(conversationId: string, fetchImp
     return { ok: true, value: sessions }
   } catch {
     return { ok: false, status: 0, message: 'Could not read this chat’s jobs.' }
+  }
+}
+
+/** The person's coding chats in the window's workspace, newest first (GET /api/local-agent/sessions?code=1): the Code view's list. */
+export async function fetchSessions(fetchImpl: FetchLike = fetch): Promise<ApiResult<PanelSession[]>> {
+  try {
+    const res = await fetchImpl('/api/local-agent/sessions?code=1', { cache: 'no-store' })
+    if (!res.ok) return errorOf(res, 'Could not read your coding chats.')
+    const body = (await res.json().catch(() => null)) as { sessions?: unknown } | null
+    return { ok: true, value: Array.isArray(body?.sessions) ? body.sessions.filter(isSession) : [] }
+  } catch {
+    return { ok: false, status: 0, message: 'Could not read your coding chats.' }
   }
 }
 

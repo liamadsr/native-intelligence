@@ -25,7 +25,7 @@
  *           or Start a new job (which ends the idle one). A refusal keeps the
  *           words in the box and says why.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { UIMessage } from '@ai-sdk/react'
 import {
   ENVIRONMENTS_FRESH_MS,
@@ -69,6 +69,14 @@ import { stampCreatedAt } from '@/lib/chat/message-time'
 import { fetchConversationSessions, fetchSessionPage, postCodeStart } from '@/components/local-agent/session-api'
 import type { ComposerEnvironment, ComposerFolders } from './composer-state'
 import { CodeJobLine } from './code-job-line'
+import { closeFrontCards } from '@/components/chat-cards/front-card'
+import { setCodeView } from '../side-panels/side-panel-store'
+import { noteCodeChatsChanged } from '../page-panel/code-chats-store'
+import { getCodeView, openCodeChatKey, selectCodeChat, subscribeCodeView } from './code-view-store'
+import type { LocalAgentStatus } from '@/lib/local-agent/store'
+import { canMessageSession } from '@/lib/local-agent/transcript-view'
+import { workerLabel } from '@/lib/environments/types'
+import type { LocalAgentPolicy } from '@/lib/tauri-bridge'
 
 /** What ChatInput draws for the Code tab (composer-code-controls.tsx). */
 export interface ComposerCode {
@@ -96,6 +104,13 @@ export interface ComposerCode {
   /** The notice's buttons (a refused second send: open the job that holds that folder; idle: or start a new one); empty when none. */
   noticeActions: ReadonlyArray<{ id: 'open' | 'new'; label: string; run: () => void }>
   sending: boolean
+  /**
+   * A coding chat is open in the Code view and takes the next send as its
+   * message (chat/code-view-store.ts): who it goes to (the chat's own agent,
+   * whoever the picker names for a new chat), whether it works right now, and
+   * how the message lands while it does. Null: the next send starts a new chat.
+   */
+  messaging: { agentLabel: string; working: boolean; policy: LocalAgentPolicy; setPolicy: (policy: LocalAgentPolicy) => void } | null
 }
 
 /** What the message list draws for the Code jobs: one compact line each. */
@@ -247,7 +262,24 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
   const folderId = resolveCodeFolder(folderOptions, current.folderId)
   const tab: ComposerTab = available ? current.tab : 'chat'
   const active = tab === 'code'
-  const blocker = active ? codeBlocker(chat, mac, folderId) : null
+  // What a NEW chat needs (a Mac, a folder). A coding chat open in the Code view takes a message without it.
+  // Read as one string of what shows here (the chat's id, status, agent): the chat panel
+  // never re-renders on a working chat's other updates (code-view-store.ts openCodeChatKey).
+  const openKey = useSyncExternalStore(subscribeCodeView, openCodeChatKey, () => null)
+  const [openId, openStatus, openWorker] = openKey ? openKey.split('\n') : [null, null, null]
+  const messagesOpenChat = active && !!openId && canMessageSession(openStatus as LocalAgentStatus)
+  const blocker = active && !messagesOpenChat ? codeBlocker(chat, mac, folderId) : null
+  // How a message lands while the chat works (the conversation's own choice: Steer now, or Queue for the turn's end).
+  const [policy, setPolicy] = useState<LocalAgentPolicy>('steer')
+  const policyRef = useRef(policy)
+  policyRef.current = policy
+  const openChatWorking = messagesOpenChat && (openStatus === 'queued' || openStatus === 'starting' || openStatus === 'running')
+  // One name for every agent (Liam, 11-16: "treat all coding agents the same"): the chat's own, ours or the person's.
+  const openChatAgent = messagesOpenChat ? (openWorker ? workerLabel(openWorker) : 'Native Intelligence') : null
+  const messaging = useMemo<ComposerCode['messaging']>(
+    () => (openChatAgent ? { agentLabel: openChatAgent, working: openChatWorking, policy, setPolicy } : null),
+    [openChatAgent, openChatWorking, policy],
+  )
 
   const currentRef = useRef(current)
   currentRef.current = current
@@ -260,7 +292,27 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
     },
     [setNotice],
   )
-  const setTab = useCallback((t: ComposerTab) => update({ tab: t }), [update])
+  const updateRef = useRef(update)
+  updateRef.current = update
+  const availableRef = useRef(available)
+  availableRef.current = available
+  const setTab = useCallback(
+    (t: ComposerTab) => {
+      // Back on the agent's tab: its chat in front again, whatever page was open over it (Liam, 11-16).
+      if (t === 'chat' && currentRef.current.tab === 'code') closeFrontCards()
+      update({ tab: t })
+    },
+    [update],
+  )
+  // The Code view (Liam, 11-16): the agent's side panel and thread step aside
+  // while the composer is on Code, and home's panel lists the coding chats
+  // (side-panel-store.ts codeView). Back as they were on the agent's tab, and
+  // when this composer goes.
+  useEffect(() => {
+    if (!enabled) return
+    setCodeView(active)
+    return () => setCodeView(false)
+  }, [enabled, active])
   const pickAgent = useCallback((a: string | null) => update({ agent: a }), [update])
   const pickFolder = useCallback((f: string) => update({ folderId: f }), [update])
   const addFolder = useCallback(() => {
@@ -276,6 +328,15 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
   const openRef = useRef(opts.openWorkItem)
   openRef.current = opts.openWorkItem
   const openJob = useCallback((workItemId: string | null, sessionId: string | null = null) => {
+    // In the dashboard (Liam, 11-16): the job's chat is the Code view's, its
+    // conversation in the middle, whoever does the work. Its own page only
+    // where its session isn't known.
+    // Only where the Code view is (a Mac environment): without one the job's own page opens, as before.
+    if (sessionId && availableRef.current) {
+      selectCodeChat(sessionId)
+      if (currentRef.current.tab !== 'code') updateRef.current({ tab: 'code' })
+      return
+    }
     if (workItemId) {
       openRef.current?.(workItemId)
       return
@@ -307,6 +368,34 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
       const now = liveRef.current
       const { appendMessage, conversationIdNow, chatBusy } = optsRef.current
       if (!now.active || !words || inFlightRef.current) return false
+      // A coding chat is open in the Code view and can take a message: the
+      // words are its next turn (they land while it works, or start its next
+      // one). Before what only a new chat needs (a folder picked, the agent's
+      // own reply finished): this chat has its folder, and is not the
+      // agent's chat. An ended chat, or none selected: a new chat, below.
+      const view = getCodeView()
+      // The chat on screen is still being read: the words are held, never sent off as a new chat.
+      if (!newJob && view.selected && !view.live && !view.error) {
+        setNotice('This chat is still loading. Send again in a moment.')
+        return false
+      }
+      if (!newJob && view.selected && view.live && view.live.session.id === view.selected && canMessageSession(view.live.session.status)) {
+        inFlightRef.current = true
+        setSending(true)
+        setNotice(null)
+        try {
+          const sent = await view.live.send(words, policyRef.current, newRequestId())
+          if (!sent.ok) {
+            setNotice(sent.message)
+            return false
+          }
+          noteCodeChatsChanged()
+          return true
+        } finally {
+          inFlightRef.current = false
+          setSending(false)
+        }
+      }
       if (now.blocker) {
         setNotice(now.blocker)
         return false
@@ -358,6 +447,8 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
         }
         const session = started.value.session
         const job = codeJobOf(session)
+        // The Code view's list hears of it (page-panel/code-chats.tsx): the new chat shows at its top.
+        noteCodeChatsChanged()
         if (job) setJobs((held) => withCodeJob(held, job))
         // The row names its job from the start (the line never waits on a
         // read, and a job's rows never split into two lines). It went to a
@@ -439,9 +530,10 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
             notice: notice?.text ?? null,
             noticeActions,
             sending,
+            messaging,
           }
         : null,
-    [available, tab, setTab, agents, agent, agentLabel, pickAgent, mac, folderOptions, folderId, pickFolder, folders.canPick, addFolder, blocker, notice, noticeActions, sending],
+    [available, tab, setTab, agents, agent, agentLabel, pickAgent, mac, folderOptions, folderId, pickFolder, folders.canPick, addFolder, blocker, notice, noticeActions, sending, messaging],
   )
 
   return { available, active: available && active, code, submit, thread }

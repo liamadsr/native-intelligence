@@ -18,8 +18,11 @@
  * It is the capture's own card, exactly as it draws in the chat (Liam: "I
  * wanted to use the existing one"): its glass, its header and controls, its
  * page and its round Full screen, only placed here, and without Close. It
- * cannot be put away: it leaves only when the capture stops or is discarded,
- * sliding away, and is then a page like any other (kept-card-host.tsx). Full screen is
+ * cannot be closed: it leaves only when the capture stops or is discarded,
+ * sliding away, and is then a page like any other (kept-card-host.tsx). It
+ * minimizes like any other panel (Liam, 11-16): a press outside it slides it
+ * away into the tile at the bottom left, and the tile brings it back
+ * (show-tool-card.tsx, card-store.ts dockAway). Full screen is
  * the normal full screen; "Back to notes" puts it back here while the capture
  * records.
  *
@@ -132,7 +135,8 @@ export function LiveCaptureDockLayout({ children }: { children: React.ReactNode 
     [dockCapture, body, captureId, attach],
   )
 
-  const open = !!live && !!card
+  // Minimized into the tile (a press outside it): out of sight, the chat back to its full width.
+  const open = !!live && !!card && !card.away
   const mode = dockMode(width)
   const push = open && mode === 'push'
   // Only as far as clears the card (dockPush): the chat stays near it.
