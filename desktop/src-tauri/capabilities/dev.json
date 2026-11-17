@@ -119,6 +119,7 @@
     "allow-set-echo-cancellation-in-captures",
     "allow-set-input-override",
     "allow-set-input-priority",
+    "allow-set-own-call-active",
     "allow-set-window-backdrop",
     "allow-show-agent-hud",
     "allow-show-native-notification",

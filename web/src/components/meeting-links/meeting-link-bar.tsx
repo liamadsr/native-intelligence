@@ -22,6 +22,8 @@ export function MeetingLinkBar({ channelId, meId, live }: { channelId: string; m
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState<'revoke' | 'end' | 'new' | null>(null)
   const [confirming, setConfirming] = useState(false)
+  // A working link is replaced only on a second click: the one already sent to people stops working.
+  const [replacing, setReplacing] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -57,6 +59,7 @@ export function MeetingLinkBar({ channelId, meId, live }: { channelId: string; m
     setBusy('new')
     const res = await requestNewLink(meeting.id)
     setBusy(null)
+    setReplacing(false)
     if (!res.ok) return void toast(res.line)
     setMeeting({ ...meeting, url: res.url, revoked_at: null })
     setCopied(false)
@@ -104,11 +107,22 @@ export function MeetingLinkBar({ channelId, meId, live }: { channelId: string; m
         {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
         {copied ? 'Copied' : 'Copy'}
       </Button>
-      {isHost && (
-        <Button size="sm" variant="ghost" className="h-7 px-2.5 text-xs text-muted-foreground" disabled={busy !== null} onClick={() => void replace()} data-meeting-new-link="" title="Make a new link; the old one stops working">
-          New link
-        </Button>
-      )}
+      {isHost &&
+        (replacing ? (
+          <span className="flex items-center gap-1" data-meeting-new-link-confirm="">
+            <span className="text-[11px] text-muted-foreground">The link you sent stops working.</span>
+            <Button size="sm" variant="destructive" className="h-7 px-2.5 text-xs" disabled={busy !== null} onClick={() => void replace()} data-meeting-new-link="">
+              Replace link
+            </Button>
+            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setReplacing(false)}>
+              Keep it
+            </Button>
+          </span>
+        ) : (
+          <Button size="sm" variant="ghost" className="h-7 px-2.5 text-xs text-muted-foreground" disabled={busy !== null} onClick={() => setReplacing(true)} data-meeting-new-link-ask="" title="Make a new link; the old one stops working">
+            New link
+          </Button>
+        ))}
       {isHost && live && (
         <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" disabled={busy !== null} onClick={() => void end()} data-meeting-end="">
           End for everyone

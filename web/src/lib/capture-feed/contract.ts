@@ -38,6 +38,10 @@
  *     the list); keep false means stop (notes went off, the call ended, the
  *     3-hour bound, the capture was closed, or `feed_off`: the source's
  *     switch is off on this server), after delivering what it still holds.
+ *     Optional `health: [{ id, state }]` (migration 668): whether each
+ *     session's words are being written ('ok', or why not: 'down',
+ *     'refused', 'no_credit', 'no_words'), sent when it changes and again
+ *     every so often; the members in the call read it (never a guest).
  *   POST /api/internal/capture-feed/sessions/<id>/end
  *     { producer, reason } → { ended }. The producer has delivered
  *     everything it heard for this session and leaves it (every stop but a
@@ -148,9 +152,17 @@ export const SegmentsSchema = z.object({
 })
 export type CaptureFeedSegment = z.infer<typeof SegmentsSchema>['segments'][number]
 
+/** Whether a session's words are being written, as its producer says (668): 'ok', or why not. */
+export const CAPTURE_FEED_HEALTH_STATES = ['ok', 'down', 'refused', 'no_credit', 'no_words'] as const
+export type CaptureFeedHealthState = (typeof CAPTURE_FEED_HEALTH_STATES)[number]
+
 export const HeartbeatSchema = z.object({
   producer: ProducerSchema,
   sessions: z.array(uuid).max(CAPTURE_FEED_MAX_BATCH),
+  health: z
+    .array(z.object({ id: uuid, state: z.enum(CAPTURE_FEED_HEALTH_STATES) }))
+    .max(CAPTURE_FEED_MAX_BATCH)
+    .optional(),
 })
 
 export const EndSchema = z.object({

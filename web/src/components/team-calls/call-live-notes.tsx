@@ -12,7 +12,9 @@
  *     Realtime on 655's small live notes row (never the capture's own row,
  *     which carries the whole transcript and changes with every batch of
  *     words): no polling. One timer at most, at the running turn's end, so a
- *     turn whose process died stops reading "writing".
+ *     turn whose process died stops reading "writing". When the call's words
+ *     are not being written (the recorder's health, 668), one plain line says
+ *     why, from the same row, until it recovers.
  *   - A meeting guest (src/components/meeting-links/guest-meeting.tsx): only
  *     what has been said since they were let in, never the summary
  *     (src/lib/team-calls/live-notes.ts says why). Closed until they open
@@ -26,6 +28,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, NotebookPen } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
+  feedHealthLine,
   guestLinesOf,
   hasLiveNotes,
   liveNotesOf,
@@ -44,10 +47,16 @@ export function CallLiveNotesView({ notes, onOpen, now }: { notes: LiveNotes | n
   const blocks = useMemo(() => summaryBlocks(notes?.summary ?? ''), [notes?.summary])
   if (!notes || !hasLiveNotes(notes, now)) return null
   const status = liveNotesStatusLine(notes.state, now)
-  const failed = notes.state?.phase === 'failed'
+  const feedLine = feedHealthLine(notes.feed)
+  const failed = notes.state?.phase === 'failed' || (notes.state?.phase === 'stopped' && notes.state.reason !== 'bound')
   const working = liveNotesWriting(notes.state, now)
   return (
     <section data-team-call-live-notes={notes.state?.phase ?? 'ready'} aria-label="Live notes" className="mt-2 rounded-2xl border border-border bg-muted/40 px-3 py-2.5">
+      {feedLine && (
+        <p role="status" data-team-call-notes-health={notes.feed ?? ''} className="mb-2 rounded-xl bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-800 dark:text-amber-200">
+          {feedLine}
+        </p>
+      )}
       <div className="flex items-center gap-2">
         <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-2 text-left">
           <NotebookPen className="h-4 w-4 shrink-0 text-sky-700 dark:text-sky-300" aria-hidden />
@@ -111,9 +120,9 @@ export function CallLiveNotes({ callId, captureId, onOpen }: { callId: string; c
     setNotes(null)
     void fetch(`/api/account/team-calls/${callId}/live-notes`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((json: { captureId?: string | null; summary?: string; state?: LiveNotes['state'] } | null) => {
+      .then((json: { captureId?: string | null; summary?: string; state?: LiveNotes['state']; feed?: LiveNotes['feed'] } | null) => {
         if (!alive || !json || json.captureId !== captureId) return
-        setNotes((prev) => prev ?? { summary: json.summary ?? '', state: json.state ?? null })
+        setNotes((prev) => prev ?? { summary: json.summary ?? '', state: json.state ?? null, feed: json.feed ?? null })
       })
       .catch(() => undefined)
     let channel: { unsubscribe: () => unknown } | null = null

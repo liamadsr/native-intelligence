@@ -1,6 +1,8 @@
 """The edge's cloud browser block (deploy/edge/Caddyfile, the last block, and
 compose.yaml): an opt-in that does nothing until its two settings are set, that
-reaches one port of one sandbox only, and that leaves every other site as it was.
+reaches one port of one sandbox only, and that leaves every other site as it was;
+and the TURN name's certificate block and EDGE_PUBLIC_IP (TURN over TLS on 443),
+which change nothing until set.
 
     python3 -m unittest discover -s deploy/edge/tests
 
@@ -122,20 +124,79 @@ class TheCaddyfile(unittest.TestCase):
             self.assertIn(head, self.blocks)
             # No tls directive of their own: ordinary automatic certificates, as before.
             self.assertNotRegex(self.blocks[head], r"(?m)^\s*tls\b")
-        # The global options, the proxy snippet, the four sites as before, and the browsers.
-        self.assertEqual(len(self.blocks), 7, list(self.blocks))
+        # The global options, the proxy snippet, the four sites as before, TURN's name and the browsers.
+        self.assertEqual(len(self.blocks), 8, list(self.blocks))
 
 
-@unittest.skipUnless(shutil.which("caddy"), "needs caddy on the PATH (2.11, as the edge runs)")
+class TheTurnName(unittest.TestCase):
+    """LiveKit's TURN name: Caddy keeps its certificate, in the one folder
+    ../livekit/compose.turn.yaml mounts, and serves nothing for it."""
+
+    def setUp(self):
+        self.block = dict(blocks(CADDYFILE))["{$LIVEKIT_TURN_HOST:http://turn.invalid}"]
+
+    def test_unset_is_a_name_no_request_carries_over_plain_http(self):
+        # An http:// site: Caddy manages no certificate for it, whatever its tls block says.
+        self.assertIn("{$LIVEKIT_TURN_HOST:http://turn.invalid} {", CADDYFILE)
+
+    def test_lets_encrypt_alone_over_port_80(self):
+        self.assertRegex(self.block, r"tls \{\n\t\tissuer acme \{\n\t\t\tdisable_tlsalpn_challenge\n\t\t\}\n\t\}")
+        # No other CA, no on-demand, no other challenge switched off.
+        self.assertNotIn("zerossl", self.block)
+        self.assertNotIn("on_demand", self.block)
+        self.assertNotIn("disable_http_challenge", self.block)
+
+    def test_it_serves_nothing(self):
+        directives = [line.strip().split()[0] for line in self.block.splitlines() if line.startswith("\t") and not line.startswith("\t\t")
+                      and line.strip() and not line.strip().startswith("#")]
+        self.assertEqual(directives, ["tls", "}", "respond"])
+        self.assertIn("\n\trespond 404\n", self.block)
+
+    def test_the_folder_is_the_one_livekit_mounts(self):
+        turn = (EDGE.parent / "livekit" / "compose.turn.yaml").read_text()
+        self.assertIn("subpath: caddy/certificates/acme-v02.api.letsencrypt.org-directory/${LIVEKIT_TURN_DOMAIN", turn)
+        self.assertIn("name: ni-edge-caddy-data", turn)
+        self.assertIn("name: ni-edge-caddy-data", (EDGE / "compose.yaml").read_text())
+
+
+def docker_runs():
+    """True when a Docker daemon answers (GitHub's runners; not a Mac with Docker closed)."""
+    if not shutil.which("docker"):
+        return False
+    try:
+        return subprocess.run(["docker", "info"], capture_output=True, timeout=20).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+CADDY_IMAGE = re.search(r"image: (caddy:\S+)", (EDGE / "compose.yaml").read_text()).group(1)
+HAS_CADDY = bool(shutil.which("caddy"))
+
+
+@unittest.skipUnless(HAS_CADDY or docker_runs(), "needs caddy on the PATH (2.11, as the edge runs) or a running Docker")
 class CaddyItself(unittest.TestCase):
+    """The Caddyfile through Caddy itself: its own binary, or the edge's image when only Docker is here."""
+
     def adapt(self, env):
         with tempfile.TemporaryDirectory() as folder:
             shutil.copy(EDGE / "Caddyfile", folder)
-            base = {"PATH": os.environ["PATH"], "SUPABASE_UPSTREAM": "https://made-up.example.com", "HOME": folder}
-            done = subprocess.run(["caddy", "adapt", "--config", os.path.join(folder, "Caddyfile")], env=dict(base, **env),
-                                  capture_output=True, text=True)
+            os.chmod(folder, 0o755)
+            settings = dict({"SUPABASE_UPSTREAM": "https://made-up.example.com"}, **env)
+            if HAS_CADDY:
+                done = subprocess.run(["caddy", "adapt", "--config", os.path.join(folder, "Caddyfile")],
+                                      env=dict({"PATH": os.environ["PATH"], "HOME": folder}, **settings), capture_output=True, text=True)
+            else:
+                flags = [x for kv in settings.items() for x in ("-e", "%s=%s" % kv)]
+                done = subprocess.run(["docker", "run", "--rm", "--network", "none", "-v", folder + ":/etc/caddy:ro", *flags, CADDY_IMAGE,
+                                       "caddy", "adapt", "--config", "/etc/caddy/Caddyfile"], capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr)
             return json.loads(done.stdout)
+
+    def test_it_loads_with_the_turn_name_unset_and_set(self):
+        # The site block for the TURN name's certificate: every public name is down if Caddy refuses the file.
+        for env in ({}, {"LIVEKIT_TURN_HOST": "turn.example.com", "EDGE_PUBLIC_IP": "198.51.100.4"}):
+            servers = self.adapt(env)["apps"]["http"]["servers"]
+            self.assertTrue(servers)
 
     def test_it_adapts_with_and_without_the_settings(self):
         for env in ({}, {"CLOUD_BROWSER_HUB_DOMAIN": "browsers.example.com", "CLOUD_BROWSER_TRAFFIC_UPSTREAM": "10.200.77.2:3002"}):
@@ -173,10 +234,35 @@ class TheCompose(unittest.TestCase):
         env = self.config({"CLOUD_BROWSER_HUB_DOMAIN": "browsers.example.com", "CLOUD_BROWSER_TRAFFIC_UPSTREAM": "10.200.77.2:3002"})
         self.assertEqual((env["CLOUD_BROWSER_HUB_DOMAIN"], env["CLOUD_BROWSER_TRAFFIC_UPSTREAM"]), ("browsers.example.com", "10.200.77.2:3002"))
 
+    def ports(self, env):
+        with tempfile.TemporaryDirectory() as folder:
+            shutil.copy(EDGE / "compose.yaml", folder)
+            with open(os.path.join(folder, ".env"), "w") as f:
+                f.write("SUPABASE_UPSTREAM=https://made-up.example.com\n")
+                f.writelines("%s=%s\n" % kv for kv in env.items())
+            clean = {k: v for k, v in os.environ.items() if k not in ("EDGE_PUBLIC_IP", "LIVEKIT_TURN_HOST")}
+            done = subprocess.run(["docker", "compose", "config", "--format", "json"], cwd=folder, env=clean,
+                                  capture_output=True, text=True, check=True)
+            caddy = json.loads(done.stdout)["services"]["caddy"]
+            return {p["target"]: p.get("host_ip") for p in caddy["ports"]}, caddy["environment"]
+
+    def test_443_on_every_address_until_edge_public_ip_is_set(self):
+        for env in ({}, {"EDGE_PUBLIC_IP": ""}):
+            ports, environment = self.ports(env)
+            # As before this setting existed: no address, so every one (IPv6 too).
+            self.assertEqual(ports, {80: None, 443: None})
+            self.assertEqual(environment["LIVEKIT_TURN_HOST"], "http://turn.invalid")
+        ports, environment = self.ports({"EDGE_PUBLIC_IP": "198.51.100.4", "LIVEKIT_TURN_HOST": "turn.example.com"})
+        # 443 on the first address alone; 80 everywhere, for the TURN name's challenge on the second.
+        self.assertEqual(ports, {80: None, 443: "198.51.100.4"})
+        self.assertEqual(environment["LIVEKIT_TURN_HOST"], "turn.example.com")
+
     def test_the_edge_example_names_both(self):
         example = (EDGE / ".env.example").read_text()
         self.assertIn("#CLOUD_BROWSER_HUB_DOMAIN=", example)
         self.assertIn("#CLOUD_BROWSER_TRAFFIC_UPSTREAM=", example)
+        self.assertIn("#EDGE_PUBLIC_IP=", example)
+        self.assertIn("#LIVEKIT_TURN_HOST=", example)
 
 
 if __name__ == "__main__":

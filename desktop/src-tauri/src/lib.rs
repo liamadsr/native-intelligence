@@ -859,6 +859,7 @@ pub fn run() {
             commands::recording::set_echo_cancellation_in_captures,
             commands::recording::dismiss_meeting_detection,
             commands::recording::get_meeting_detection_state,
+            commands::recording::set_own_call_active,
             commands::hud::hide_meeting_hud,
             commands::hud::get_cached_calendar_events,
             commands::hud::request_capture_from_hud,

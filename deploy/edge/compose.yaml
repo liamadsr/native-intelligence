@@ -1,7 +1,8 @@
 # Caddy: the public door for everything that is HTTP (ports 80 and 443), with
 # automatic certificates. It reaches the other stacks over the shared `ni-edge`
 # network. The only other ports published on this server are LiveKit's two media
-# ports (../livekit), which are not HTTP.
+# ports (../livekit), which are not HTTP, and, once set up, TURN over TLS on 443 of
+# the server's second address (EDGE_PUBLIC_IP below keeps Caddy on the first).
 #
 # Run from this folder, as root so the root-only .env can be read:
 #   sudo docker compose up -d
@@ -13,8 +14,16 @@ services:
     container_name: ni-edge-caddy
     restart: unless-stopped
     ports:
+      # Every address of the server: Let's Encrypt checks the TURN name
+      # (LIVEKIT_TURN_HOST, below) over port 80 on the server's second address,
+      # and Caddy answers it there.
       - "80:80"
-      - "443:443"
+      # Every address of the server while EDGE_PUBLIC_IP is empty (as before),
+      # else that address alone: the server's first, so that 443 on the second is
+      # free for TURN over TLS (../livekit/compose.turn.yaml; ../README.md step 23,
+      # "TURN over TLS on 443"). Set, it is IPv4 only: the names here have no AAAA
+      # record. Changing it needs `up -d`, which replaces the container.
+      - "${EDGE_PUBLIC_IP:+${EDGE_PUBLIC_IP}:}443:443"
     environment:
       INNGEST_HOST: ${INNGEST_HOST:-inngest.nativeintelligence.dev}
       SUPABASE_HOST: ${SUPABASE_HOST:-sb.nativeintelligence.dev}
@@ -25,6 +34,10 @@ services:
       # LiveKit's signalling (../livekit). The same kind of default as APP_HOSTS:
       # until it is set, no certificate is asked for a name with no DNS record yet.
       LIVEKIT_HOST: ${LIVEKIT_HOST:-http://livekit.invalid}
+      # The TURN server's name (../livekit/compose.turn.yaml): Caddy only obtains
+      # and renews its certificate, which LiveKit's TLS terminator reads from
+      # caddy-data. The same kind of default: until it is set, nothing is issued.
+      LIVEKIT_TURN_HOST: ${LIVEKIT_TURN_HOST:-http://turn.invalid}
       # The cloud browsers' names on our own sandbox server, one under this per
       # browser (Caddyfile, last block). The same kind of default: until it is
       # set, the block is for names no request carries and nothing is issued.

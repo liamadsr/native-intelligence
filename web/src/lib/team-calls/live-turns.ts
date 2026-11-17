@@ -291,6 +291,9 @@ export async function runLiveTurn(svc: SupabaseClient, input: { captureId: strin
   const release = async (outcome: LiveTurnRelease, opts: { sentTo?: number; reason?: string } = {}): Promise<LiveTurnResult> => {
     try {
       const state = await releaseLiveTurn(svc, captureId, lease, outcome, opts)
+      // A failed turn that was the last of MAX_FAILURES_IN_ROW stopped the agent (655): say so once,
+      // since the members now read that the live summary stopped (./live-notes.ts).
+      if (state === 'stopped' && outcome === 'failed') console.warn(`[call-live-turns] capture=${captureId} agent stopped reason=failing`)
       return state === 'stale' ? 'stale' : outcome
     } catch (err) {
       // The lease runs out by itself (655): the next turn starts from the same words.

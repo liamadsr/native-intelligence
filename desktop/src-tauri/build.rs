@@ -120,6 +120,7 @@ const APP_COMMANDS: &[&str] = &[
     "set_echo_cancellation_in_captures",
     "set_input_override",
     "set_input_priority",
+    "set_own_call_active",
     "set_window_backdrop",
     "show_agent_hud",
     "show_native_notification",

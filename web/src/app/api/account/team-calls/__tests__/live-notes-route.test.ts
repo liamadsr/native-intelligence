@@ -7,7 +7,9 @@
  * (who reads neither the call nor its capture) gets a 404 and nothing. The
  * policy itself is run on PGlite by scripts/check-call-live-notes-sql.mjs;
  * here the route is shown to read only through the person's client, never
- * the service role. Off (404) unless the live notes are on.
+ * the service role. Off (404) unless the call recorder takes the notes. The
+ * row also says why the call's words are not being written (668), for the
+ * members only.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LIVEKIT_ENV } from '@/lib/team-calls/__tests__/signing'
@@ -18,7 +20,7 @@ const CHANNEL = '33333333-3333-4333-8333-333333333333'
 const ROSA = 'user-rosa'
 const THEO = 'user-theo'
 
-const h = vi.hoisted(() => ({ user: 'user-rosa', reads: [] as string[], service: 0, noRow: false }))
+const h = vi.hoisted(() => ({ user: 'user-rosa', reads: [] as string[], service: 0, noRow: false, feed: null as string | null }))
 
 /** The person's client: rows as RLS shows them to that person (Rosa is in the conversation; Theo is not). */
 function personClient() {
@@ -35,7 +37,10 @@ function personClient() {
             return { data: { id: CALL, channel_id: CHANNEL, status: 'live', capture_id: CAPTURE, ringing: [], declined: [], room: 'r', workspace_id: 'ws' }, error: null }
           if (table === 'team_chat_channel') return { data: { kind: 'meeting', archived_at: null }, error: null }
           if (table === 'team_call_live_notes')
-            return { data: h.noRow ? null : { summary: '## Summary\nThe pilot starts Monday.', state: 'ready', state_at: '2026-11-13T14:58:00Z', until: null, reason: null }, error: null }
+            return {
+              data: h.noRow ? null : { summary: '## Summary\nThe pilot starts Monday.', state: 'ready', state_at: '2026-11-13T14:58:00Z', until: null, reason: null, feed_state: h.feed },
+              error: null,
+            }
           if (table === 'captures') return { data: { id: CAPTURE, ai_summary: 'Before any turn.' }, error: null }
           return { data: null, error: null }
         },
@@ -80,6 +85,7 @@ describe('the call’s live notes', () => {
       captureId: CAPTURE,
       summary: '## Summary\nThe pilot starts Monday.',
       state: { phase: 'ready', at: '2026-11-13T14:58:00Z', until: null, reason: null },
+      feed: null,
     })
     // The small notes row, not the capture's whole row.
     expect(h.reads).toContain('team_call_live_notes')
@@ -92,7 +98,7 @@ describe('the call’s live notes', () => {
     h.noRow = true
     const body = await (await GET(new Request('https://app.test/x'), params())).json()
     h.noRow = false
-    expect(body).toEqual({ captureId: CAPTURE, summary: 'Before any turn.', state: null })
+    expect(body).toEqual({ captureId: CAPTURE, summary: 'Before any turn.', state: null, feed: null })
     expect(h.service).toBe(0)
   })
 
@@ -105,8 +111,25 @@ describe('the call’s live notes', () => {
     expect(h.service).toBe(0)
   })
 
-  it('are off unless the live notes are on', async () => {
+  it('say why the call’s words are not being written, while they are not (668)', async () => {
+    h.user = ROSA
+    h.feed = 'refused'
+    const body = await (await GET(new Request('https://app.test/x'), params())).json()
+    h.feed = 'not-a-state'
+    const odd = await (await GET(new Request('https://app.test/x'), params())).json()
+    h.feed = null
+    expect(body.feed).toBe('refused')
+    expect(odd.feed).toBeNull()
+  })
+
+  it('are read where the recorder takes the notes, the live agent off too (the words’ health alone)', async () => {
     process.env.TEAM_CALL_LIVE_AGENT = ''
+    h.user = ROSA
+    expect((await GET(new Request('https://app.test/x'), params())).status).toBe(200)
+  })
+
+  it('are off unless the recorder takes the notes', async () => {
+    process.env.TEAM_CALL_RECORDER = ''
     expect((await GET(new Request('https://app.test/x'), params())).status).toBe(404)
     expect(h.reads).toEqual([])
   })

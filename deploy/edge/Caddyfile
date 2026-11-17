@@ -1,12 +1,14 @@
 # The public door for everything that is HTTP: ports 80 and 443. The one other
-# thing published on this server is LiveKit's media (UDP 7882, TCP 7881,
-# ../livekit), which is not HTTP and goes straight to LiveKit.
+# thing published on this server is LiveKit's media (UDP 7882, TCP 7881, and,
+# once set up, TURN over TLS on 443 of the server's second address: ../livekit),
+# which is not HTTP and goes straight to LiveKit.
 #
 # Hosts named from the environment (see compose.yaml and .env.example):
 #   INNGEST_HOST   an allowlist in front of the self-hosted Inngest server
 #   SUPABASE_HOST  a pass-through to SUPABASE_UPSTREAM
 #   APP_HOSTS      the app (../app), once it runs on this server
 #   LIVEKIT_HOST   LiveKit's signalling, for calls (../livekit)
+#   LIVEKIT_TURN_HOST  LiveKit's TURN name: its certificate only (served elsewhere)
 #   CLOUD_BROWSER_HUB_DOMAIN  one name per cloud browser under it, when they run
 #                  on our own sandbox server (CLOUD_BROWSER_TRAFFIC_UPSTREAM)
 #
@@ -300,6 +302,41 @@
 		# keeps flowing meanwhile.
 		stream_close_delay 4h
 	}
+}
+
+# ---------------------------------------------------------------------------
+# LiveKit's TURN name: a certificate, and nothing served
+#
+# TURN over TLS runs on port 443 of the server's SECOND address, held by
+# LiveKit's own TLS terminator (../livekit/compose.turn.yaml), not by Caddy,
+# which keeps 443 on the first (EDGE_PUBLIC_IP in compose.yaml). The name's DNS
+# record points at the second address. This block is here only so that Caddy
+# obtains and renews that name's certificate, which the terminator reads from
+# Caddy's volume (caddy-data, the name's own folder only).
+#
+# - Let's Encrypt alone, by name: the certificate then always lands in the same
+#   folder (acme-v02.api.letsencrypt.org-directory/<name>), which is the one the
+#   terminator mounts. With Caddy's default issuers a failure at Let's Encrypt
+#   would fall back to another CA, into another folder, and the terminator would
+#   keep serving the old certificate until it ran out.
+# - Over port 80 only (the HTTP challenge): port 80 is Caddy's on every address,
+#   the second included, while 443 there is the terminator's, which cannot
+#   answer the TLS-ALPN challenge.
+# - Anything that reaches Caddy for the name anyway (443 on the first address,
+#   or plain HTTP, which Caddy redirects) is answered 404.
+#
+# Until LIVEKIT_TURN_HOST is set this block is plain HTTP for turn.invalid, a
+# name no request carries: Caddy manages no certificate for an http:// site, so
+# nothing is asked of Let's Encrypt.
+# ---------------------------------------------------------------------------
+{$LIVEKIT_TURN_HOST:http://turn.invalid} {
+	tls {
+		issuer acme {
+			disable_tlsalpn_challenge
+		}
+	}
+
+	respond 404
 }
 
 # ---------------------------------------------------------------------------
