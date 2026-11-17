@@ -11,6 +11,7 @@
  * Here the job is to say no early, in plain words, to what is plainly not a
  * public web page.
  */
+import { looksLikeSignInUrl } from '@/lib/browser-agent/sign-in-page'
 import { ipv6Groups, isPublicAddress } from '@/lib/mcp-client/url-guard'
 
 /** How often a watched page is read. */
@@ -128,17 +129,6 @@ export function browserWatchRefusal(url: string): string | null {
   return `${site} does not allow its signed-in pages to be read automatically, and it can restrict the account that does. It can't be watched in your browser.`
 }
 
-/*
- * Path words that mean "this is the page where you sign in". Matched on whole
- * path segments, so /signals or /authors are not sign-in pages.
- */
-const SIGN_IN_SEGMENT = /^(log[-_]?in|sign[-_]?in|sso|oauth2?|authorize|authenticate|auth|sessions?)$/i
-
-function looksLikeSignIn(url: URL): boolean {
-  if (/^(login|signin|sso|auth|accounts|id|identity)\./i.test(url.hostname)) return true
-  return url.pathname.split('/').some((segment) => SIGN_IN_SEGMENT.test(segment))
-}
-
 /**
  * Whether the browser, asked for `asked`, ended up on a sign-in page instead
  * (`landed`, the address the page itself reported): the person is not signed
@@ -156,5 +146,5 @@ export function landedOnSignIn(asked: string, landed: string): boolean {
     return false
   }
   if (from.hostname === to.hostname && from.pathname === to.pathname) return false
-  return looksLikeSignIn(to) && !looksLikeSignIn(from)
+  return looksLikeSignInUrl(to) && !looksLikeSignInUrl(from)
 }

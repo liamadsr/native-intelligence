@@ -103,6 +103,17 @@ export class RelayClient {
     return typeof body?.approvalId === 'string' ? body.approvalId : null
   }
 
+  /**
+   * The task reached a sign-in page: raise the card that asks the person to
+   * sign in themselves (sign-in-card.ts). Its id, or null when none was raised.
+   */
+  async requestSignIn(id: string, url: string, tabId: string): Promise<string | null> {
+    const response = await this.call(`/api/browser-relay/commands/${encodeURIComponent(id)}/sign-in`, { method: 'POST', body: { url, tabId } })
+    if (!response.ok) return null
+    const body = await response.json().catch(() => null) as { approvalId?: unknown } | null
+    return typeof body?.approvalId === 'string' ? body.approvalId : null
+  }
+
   /** Report the outcome. Retried: the route is idempotent, and an unsettled row is only reaped after its lease. */
   async settle(id: string, status: 'completed' | 'failed' | 'denied', result: unknown, error: string | null): Promise<void> {
     for (let attempt = 0; attempt < 3; attempt++) {

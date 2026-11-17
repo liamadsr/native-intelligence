@@ -17,6 +17,7 @@ import {
   Loader2,
   Mail,
   MessageCircle,
+  MousePointer2,
   Pencil,
   Play,
   Send,
@@ -32,6 +33,7 @@ import { CardControlBar } from './card-control-bar'
 import { COLUMN_CARD_SKIN } from './card-skin'
 import { ApprovalInputs } from './approval-inputs'
 import { useAttentionCardVerbs } from './use-attention-card-verbs'
+import { useSignInAsk } from './use-sign-in-ask'
 import type { DeckPager } from './rail-cards'
 import type { OpenTarget } from '@/lib/chat-cards/open-card'
 import { useWorkspaces } from '@/app/account/workspace-switcher'
@@ -340,6 +342,9 @@ export function AttentionCard({
   }
 
   const busy = accepting || dismissing
+  // A sign-in card (cloud-browser/sign-in-card.ts): it opens the agent's browser with the person driving; a hand back answers it.
+  const signInSite = isApproval && typeof p.browser_sign_in?.site === 'string' && (!currentId || item.workspace_id === currentId) ? p.browser_sign_in.site : null
+  const signInAsk = useSignInAsk({ site: signInSite, pending: item.status === 'pending', accept: () => handleAccept(), busy })
   // The chat's For you column, or a card inline in a conversation: the solid skin, content height, wrapping pills.
   const column = surface === 'column' || surface === 'chat'
   // Inline in a chat (P13): an approval says no beside its yes, in plain sight.
@@ -501,7 +506,8 @@ export function AttentionCard({
           )}
           {/* Approval (A5): every input the held call will run with, always
               shown (never behind the expand): what the person sees is what runs. */}
-          {isApproval && (
+          {/* A sign-in card runs nothing new: its words say what waits, and the task's raw inputs would only be noise. */}
+          {isApproval && !signInSite && (
             <ApprovalInputs
               input={shownInput}
               {...(editableApproval && editingInput ? { onChange: (next: Record<string, unknown>) => onEdit(item.id, { edited_input: next }) } : {})}
@@ -736,8 +742,22 @@ export function AttentionCard({
           leading={isWork ? <WorkPlacePicker state={place} workspaceId={item.workspace_id} disabled={busy} /> : undefined}
           meta={age ? <span data-attention-card-age="" title={new Date(item.created_at).toLocaleString()}>{age}</span> : undefined}
           extra={
-            editableApproval || inlineNo || offerAlwaysAllow ? (
+            editableApproval || inlineNo || offerAlwaysAllow || signInSite ? (
               <>
+                {signInSite && signInAsk.opened && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    data-approval-sign-in-again=""
+                    className="h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                    onClick={signInAsk.open}
+                    disabled={busy}
+                    title={`Open the browser again to sign in to ${signInSite}`}
+                  >
+                    <MousePointer2 className="h-3 w-3" />
+                    Open browser again
+                  </Button>
+                )}
                 {inlineNo && (
                   <Button
                     size="sm"
@@ -746,10 +766,10 @@ export function AttentionCard({
                     className="h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
                     onClick={handleDismiss}
                     disabled={busy}
-                    title={editableApproval ? 'Skip this step: the run ends here, nothing runs' : 'Decline: nothing runs'}
+                    title={editableApproval ? 'Skip this step: the run ends here, nothing runs' : signInSite ? 'Leave it: the task stays stopped' : 'Decline: nothing runs'}
                   >
                     {dismissing ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
-                    {editableApproval ? 'Skip' : 'Decline'}
+                    {editableApproval ? 'Skip' : signInSite ? 'Not now' : 'Decline'}
                   </Button>
                 )}
                 {offerAlwaysAllow && (
@@ -885,7 +905,8 @@ export function AttentionCard({
                 <Button
                   size="sm"
                   className={cn('h-6 gap-1 px-2.5 text-[11px]', notSupported && 'opacity-50 cursor-not-allowed')}
-                  onClick={isWork ? () => void handleStart(runInOf(place.choice)) : () => handleAccept()}
+                  {...(signInSite ? { 'data-approval-sign-in': '' } : {})}
+                  onClick={isWork ? () => void handleStart(runInOf(place.choice)) : signInSite && !signInAsk.opened ? signInAsk.open : () => handleAccept()}
                   disabled={busy || notSupported}
                   title={
                     notSupported
@@ -895,6 +916,8 @@ export function AttentionCard({
                 >
                   {accepting ? (
                     <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : signInSite && !signInAsk.opened ? (
+                    <MousePointer2 className="h-3 w-3" />
                   ) : isEmail ? (
                     <Mail className="h-3 w-3" />
                   ) : isWork || p.assignee_ai_member_id ? (
@@ -904,7 +927,7 @@ export function AttentionCard({
                   ) : (
                     <Check className="h-3 w-3" />
                   )}
-                  {isEmail ? (isRetry ? 'Retry draft' : 'Draft email') : primaryLabel(item, p)}
+                  {isEmail ? (isRetry ? 'Retry draft' : 'Draft email') : signInSite ? (signInAsk.opened ? 'I\'m signed in, continue' : 'Sign in') : primaryLabel(item, p)}
                 </Button>
               )}
             </>

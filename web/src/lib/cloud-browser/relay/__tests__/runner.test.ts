@@ -28,6 +28,7 @@ let pages: ReturnType<typeof stubPage>[]
 let settled: [string, string, unknown, string | null][]
 let state: RelayState
 const decide = vi.fn()
+const requestSignIn = vi.fn()
 
 function command(fields: Partial<ClaimedCommand>): ClaimedCommand {
   return { id: 'cmd-1', command: 'get_text', tab_id: null, request: {}, workspace_id: 'ws-1',
@@ -39,6 +40,7 @@ beforeEach(() => {
   pages = []
   settled = []
   decide.mockReset()
+  requestSignIn.mockReset().mockResolvedValue('approval-9')
   mock.execute.mockReset().mockResolvedValue({ status: 'verified', reason: 'done', steps: 1 })
   mock.command.mockReset().mockResolvedValue({ url: 'https://example.com/', text: 'Hi' })
   const browser = {
@@ -48,7 +50,7 @@ beforeEach(() => {
   state = {
     browser: browser as unknown as RelayState['browser'],
     client: { settle: async (...args: [string, string, unknown, string | null]) => { settled.push(args) }, decide,
-      requestApproval: async () => null } as unknown as RelayState['client'],
+      requestApproval: async () => null, requestSignIn } as unknown as RelayState['client'],
     agentPage: null,
   }
 })
@@ -105,6 +107,49 @@ describe('runClaimed', () => {
     await expect(ports.decide({}, 1, [], new AbortController().signal)).rejects.toBeInstanceOf(BrowserSiteBlockedError)
     decide.mockResolvedValueOnce({ status: 409, body: { error: 'Task is no longer authorized' } })
     await expect(ports.decide({}, 1, [], new AbortController().signal)).rejects.toThrow('Decision task unavailable')
+  })
+
+  it('stops a task at a sign-in page without asking the model, raises the sign-in card, and says the person signs in', async () => {
+    const signIn = { url: 'https://app.example.com/login', text: 'Sign in to Example', elements: [
+      { ref: 'e1', role: 'textbox', name: 'Email', context: '', canType: true, disabled: false, forbidden: false, input: { type: 'email', autocomplete: 'username' } },
+      { ref: 'e2', role: 'textbox', name: 'Password', context: '', canType: false, disabled: false, forbidden: true, secretKind: 'password' },
+      { ref: 'e3', role: 'button', name: 'Sign in', context: '', canType: false, disabled: false, forbidden: false },
+    ] }
+    mock.execute.mockImplementation(async (_task: unknown, ports: { decide: (...args: unknown[]) => Promise<unknown> }) => {
+      await ports.decide(signIn, 2, [], new AbortController().signal).catch(() => {})
+      return { status: 'escalate', reason: 'decision_unavailable', steps: 2, trace: [] }
+    })
+    await runClaimed(state, command({ command: 'run_task', request: task({ startUrl: 'https://app.example.com/orders' }) }), [])
+    expect(decide).not.toHaveBeenCalled()
+    expect(requestSignIn).toHaveBeenCalledWith('cmd-1', 'https://app.example.com/login', 'tab-1')
+    expect(settled[0]).toEqual(['cmd-1', 'completed', expect.objectContaining({ status: 'escalate', reason: 'needs_sign_in', approvalId: 'approval-9',
+      message: expect.stringContaining('A card is waiting'), tabId: 'tab-1' }), null])
+
+    // No card could be raised: the task still stops, and says what the person does.
+    requestSignIn.mockRejectedValueOnce(new Error('offline'))
+    await runClaimed(state, command({ id: 'cmd-2', command: 'run_task', request: task() }), [])
+    const second = settled[1][2] as Record<string, unknown>
+    expect(second).toMatchObject({ status: 'escalate', reason: 'needs_sign_in' })
+    expect(second.approvalId).toBeUndefined()
+    expect(String(second.message)).toContain('take over')
+
+    // A sign-in page on a site the person blocked raises no card: the decision route's list answers for it.
+    decide.mockResolvedValue({ status: 409, body: { error: 'site_blocked', blockedSite: 'app.example.com' } })
+    requestSignIn.mockClear()
+    await runClaimed(state, command({ id: 'cmd-blocked', command: 'run_task', request: task() }), ['app.example.com'])
+    expect(requestSignIn).not.toHaveBeenCalled()
+    settled.pop()
+
+    // A task sent to a sign-in page on purpose goes on as any other.
+    decide.mockResolvedValue({ status: 200, body: { decision: { status: 'accepted' } } })
+    requestSignIn.mockClear()
+    mock.execute.mockImplementation(async (_task: unknown, ports: { decide: (...args: unknown[]) => Promise<unknown> }) => {
+      await ports.decide(signIn, 0, [], new AbortController().signal)
+      return { status: 'verified', reason: 'done', steps: 1, trace: [] }
+    })
+    await runClaimed(state, command({ id: 'cmd-3', command: 'run_task', request: task({ startUrl: 'https://app.example.com/login' }) }), [])
+    expect(requestSignIn).not.toHaveBeenCalled()
+    expect(settled[2][2]).toMatchObject({ status: 'verified' })
   })
 
   it('fails a task whose lease already ran out', async () => {

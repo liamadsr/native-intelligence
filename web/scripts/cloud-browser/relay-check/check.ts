@@ -6,7 +6,9 @@
  * asks Jev). Pages are the driver fixtures. Checks:
  *   1. a task types into a cross-site frame and clicks, with real input;
  *   2. a sensitive step raises an approval card and the task stops (approval_requested);
- *   3. the replay with the person's grant takes that one step.
+ *   3. the replay with the person's grant takes that one step;
+ *   4. a task that reaches a sign-in page stops there (needs_sign_in): the sign-in card is asked for, the model is
+ *      never asked about that page, and nothing is typed or clicked on it.
  * Run where Chrome has remote debugging on --cdp (the sandbox, or a local headless Chrome):
  *   node scripts/cloud-browser/build-assets.mjs
  *   npx tsx scripts/cloud-browser/relay-check/check.ts --cdp 9222 --relay public/cloud-browser/relay.mjs
@@ -28,6 +30,8 @@ async function main() {
   const queue: { id: string; script: Script }[] = []
   const settled = new Map<string, Json>()
   const approvals: { id: string; summary: string }[] = []
+  const signIns: { id: string; url: string }[] = []
+  const decided: string[] = []
   let claimedScript: Script | null = null
   let step = 0
 
@@ -40,7 +44,7 @@ async function main() {
     req.on('data', chunk => { raw += chunk })
     req.on('end', async () => {
       const body = raw ? JSON.parse(raw) as Json : {}
-      const match = /^\/api\/browser-relay\/commands\/([^/]+)\/(claim|decision|settle|approval)$/.exec(url.pathname)
+      const match = /^\/api\/browser-relay\/commands\/([^/]+)\/(claim|decision|settle|approval|sign-in)$/.exec(url.pathname)
       if (url.pathname === '/api/browser-relay/next') {
         if (url.searchParams.get('v') !== 'dev') return reply(426, { version: 'dev' })
         for (let i = 0; i < 20 && !queue.length; i++) await sleep(100)
@@ -62,6 +66,7 @@ async function main() {
       }
       if (op === 'decision') {
         const elements = ((body.observation as Json)?.elements ?? []) as Json[]
+        decided.push(String((body.observation as Json)?.url ?? ''))
         const decide = claimedScript?.steps[step++]
         const value = decide ? decide(elements) : { operation: 'escalate' }
         return reply(200, { decision: { status: 'accepted', value, inferenceId: `inf-${step}` }, deadline: Date.now() + 40_000, blockedSites: [] })
@@ -69,6 +74,10 @@ async function main() {
       if (op === 'approval') {
         approvals.push({ id, summary: String(body.summary) })
         return reply(200, { approvalId: `approval-${approvals.length}` })
+      }
+      if (op === 'sign-in') {
+        signIns.push({ id, url: String(body.url) })
+        return reply(200, { approvalId: `sign-in-${signIns.length}` })
       }
       settled.set(id, body)
       return reply(200, { ok: true, settled: true })
@@ -104,6 +113,15 @@ async function main() {
     const replay = step ? await run('cmd-replay', { goal: 'Place the order', startUrl: fixtures.url('A', '/sensitive'),
       grant: { approval_id: 'approval-1', ...step }, steps: [order, () => ({ operation: 'done' })] }) : { status: 'no approval was asked' }
     results.replay = { settle: replay.status, reason: (replay.result as Json)?.reason, page: fixtures.log.map(e => e.event) }
+
+    fixtures.log.length = 0
+    decided.length = 0
+    const signedOut = await run('cmd-sign-in', { goal: 'List my open orders', startUrl: fixtures.url('A', '/orders'), steps: [
+      els => ({ operation: 'click', ref: byName(els, 'See my orders') }),
+      els => ({ operation: 'click', ref: byName(els, 'Sign in') }),
+    ] })
+    results.signIn = { settle: signedOut.status, reason: (signedOut.result as Json)?.reason, approvalId: (signedOut.result as Json)?.approvalId,
+      asked: signIns.map(s => new URL(s.url).pathname), decidedOn: decided.map(u => new URL(u).pathname), page: fixtures.log.map(e => e.event) }
   } finally {
     relay.kill('SIGTERM')
     app.close()
@@ -111,9 +129,12 @@ async function main() {
   }
   console.log(JSON.stringify(results, null, 2))
   const frame = results.frame as Json, held = results.held as Json, replay = results.replay as Json
+  const signIn = results.signIn as Json
   const ok = (frame.page as string[]).includes('book:true:4') && held.reason === 'approval_requested' && (held.page as string[]).length === 0 &&
-    (replay.page as string[]).includes('order:true')
-  console.log(ok ? 'relay check: all three pass' : 'relay check: FAILED')
+    (replay.page as string[]).includes('order:true') &&
+    signIn.reason === 'needs_sign_in' && signIn.approvalId === 'sign-in-1' && JSON.stringify(signIn.asked) === '["/login"]' &&
+    !(signIn.decidedOn as string[]).includes('/login') && (signIn.page as string[]).length === 0
+  console.log(ok ? 'relay check: all four pass' : 'relay check: FAILED')
   process.exitCode = ok ? 0 : 1
 }
 

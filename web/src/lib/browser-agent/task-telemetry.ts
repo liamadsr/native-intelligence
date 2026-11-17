@@ -18,7 +18,7 @@ const reasons = new Set([
   'goal_and_predicates_satisfied', 'site_blocked', 'stopped_or_deadline',
   'completion_changed', 'planner_review_required',
   'wait_budget', 'invalid_target', 'invalid_evidence', 'unsupported_destination', 'approval_declined', 'approval_requested',
-  'taken_over', 'needs_your_mac', 'never_automate',
+  'taken_over', 'needs_your_mac', 'never_automate', 'needs_sign_in',
   'no_progress', 'write_outcome_unknown', 'step_budget', 'user_stopped',
   'browser_observation_unavailable',
   'observation_unavailable_after_settle', 'transport_or_write_outcome_unknown',

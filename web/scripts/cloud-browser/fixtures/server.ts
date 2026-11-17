@@ -46,6 +46,11 @@ function pages(url: (site: Site, path: string) => string): Record<string, string
       <script>go.addEventListener('click',e=>log('continue:'+e.isTrusted));help.addEventListener('click',e=>log('help:'+e.isTrusted))</script>`),
     '/sensitive': page('Checkout', `<form id=f style="padding:10px" onsubmit="event.preventDefault()"><input aria-label="Name on card"> <button type=button id=buy>Place order</button></form>
       <script>buy.addEventListener('click',e=>log('order:'+e.isTrusted))</script>`),
+    // A page behind a sign-in (relay check 4): its link leads to the sign-in page, where nothing is ever typed.
+    '/orders': page('Orders', `<p style="margin:10px">Your orders are behind a sign-in.</p><p style="margin:10px"><a id=go href="/login">See my orders</a></p>`),
+    '/login': page('Sign in', `<form style="padding:10px" onsubmit="event.preventDefault()"><input type=email aria-label="Email" autocomplete=username>
+      <input id=pw type=password aria-label="Password" autocomplete=current-password> <a href="/orders">Forgot password?</a> <button type=button id=in>Sign in</button></form>
+      <script>pw.addEventListener('input',()=>log('password-typed'));document.getElementById('in').addEventListener('click',()=>log('sign-in-clicked'))</script>`),
     '/redirect-start': page('Partner links', `<p style="margin:10px"><a id=link href="/redirect">Continue to partner</a></p>
       <p style="margin:10px"><button id=go>Open partner</button></p>
       <script>go.addEventListener('click',()=>{location.href=${JSON.stringify(url('B', '/blocked'))}})</script>`),

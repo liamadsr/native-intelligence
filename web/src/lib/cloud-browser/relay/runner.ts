@@ -3,6 +3,7 @@ import { blockedSiteForUrl, BrowserSiteBlockedError, cleanBlockedSites, siteBloc
 import { browserTaskSchema, type BrowserTask } from '@/lib/browser-agent/task-contract'
 import { executeBrowserTask, siteBlockedTaskResult } from '@/lib/browser-agent/task-executor'
 import { parseNative } from '@/lib/browser-agent/page-reads'
+import { signInPage } from '@/lib/browser-agent/sign-in-page'
 import { WATCH_READ_COMMAND, WATCH_READ_MAX_CHARS, type WatchReadResult } from '@/lib/browser-agent/watch-read'
 import type { CloudBrowser } from '../cdp/browser'
 import { cloudTaskPorts, runCloudCommand } from '../cdp/commands'
@@ -30,6 +31,11 @@ const takenOverResult = () => ({ status: 'cancelled' as const, reason: 'taken_ov
 const MAC_DROPPED = 'The user\'s Mac stopped carrying the browser\'s connection (it went to sleep or offline), so the agent stopped rather than go on from the cloud. Ask them to open their Mac with Native Intelligence running, then try again.'
 const needsMacMessage = (site: string) => `${site} turns away browsers in the cloud, so this needs the user's Mac with Native Intelligence open. Tell them; don't try to get around it.`
 const neverAutomateMessage = (site: string) => `${site} doesn't allow AI agents (its terms forbid them), so the agent never uses it. Tell the user to do this part on the site themselves.`
+/** A sign-in page: the agent never types a password or a code, so the person signs in themselves and the task runs again. */
+const needsSignInMessage = (site: string, carded: boolean) => carded
+  ? `${site} asks for a sign-in, and the agent never types passwords or codes. A card is waiting for the user: they sign in to ${site} in the agent's browser (the card opens it), and when they say they are signed in the task runs again. Tell them, and stop.`
+  : `${site} asks for a sign-in, and the agent never types passwords or codes. Tell the user to open the agent's browser, take over, sign in to ${site} and hand it back, then ask again. Stop until they have.`
+type TaskStop = { reason: 'needs_your_mac' | 'never_automate' | 'needs_sign_in'; message: string }
 const stopResult = (reason: 'needs_your_mac' | 'never_automate', message: string) => ({ status: 'escalate' as const, reason, message, steps: 0, elapsedMs: 0,
   timings: { snapshotMs: 0, settlingMs: 0, navigationMs: 0 }, trace: [] })
 const NO_MEMORY: SiteMemory = { needsHome: [], neverAutomate: [] }
@@ -247,7 +253,8 @@ async function runTask(state: RelayState, cmd: ClaimedCommand, task: BrowserTask
   const prepared = performance.now()
   const exit = state.exit
   const { mode } = pinned
-  let stopped: { reason: 'needs_your_mac' | 'never_automate'; message: string } | null = null
+  let stopped: TaskStop | null = null
+  let signInCard: string | null = null
   // Never on to the cloud's own address: a tunnel that drops under a `mac` task ends it.
   const lost = () => { if (pinned.dropped()) stopped ??= { reason: 'needs_your_mac', message: MAC_DROPPED }; return !!stopped }
   const deadline = Math.min(Date.parse(cmd.lease_expires_at ?? ''), Date.parse(cmd.claimed_at ?? '') + task.timeoutMs)
@@ -290,6 +297,14 @@ async function runTask(state: RelayState, cmd: ClaimedCommand, task: BrowserTask
           stopped = blocked === 'agent_ban' ? { reason: 'never_automate', message: neverAutomateMessage(site) } : { reason: 'needs_your_mac', message: needsMacMessage(site) }
           throw new Error(stopped.reason)
         }
+        // A sign-in page: nothing is typed there. The person is asked to sign in themselves; their answer runs the task again.
+        // Never for a site the person blocked: the decision route's current list answers for that page.
+        const signIn = blockedSiteForUrl(observation.url, sites()) ? null : signInPage(observation, task.startUrl)
+        if (signIn) {
+          signInCard = await client.requestSignIn(cmd.id, observation.url, page.targetId).catch(() => null)
+          stopped = { reason: 'needs_sign_in', message: needsSignInMessage(signIn, !!signInCard) }
+          throw new Error(stopped.reason)
+        }
         const { status, body } = await client.decide(cmd.id, { controllerVersion: CONTROLLER_VERSION, tabId: page.targetId,
           observation, step, history }, signal)
         // The server's current list caught a page on a blocked site.
@@ -308,9 +323,9 @@ async function runTask(state: RelayState, cmd: ClaimedCommand, task: BrowserTask
     // A navigation into a site that forbids agents was cancelled like a blocked one: say which it was.
     const banned = result.reason === 'site_blocked' && forbidden(result.blockedSite ?? null) ? stopResult('never_automate', neverAutomateMessage(result.blockedSite!)) : null
     lost()
-    const stop = stopped as { reason: 'needs_your_mac' | 'never_automate'; message: string } | null
+    const stop = stopped as TaskStop | null
     const ended = takenOver ? { status: 'cancelled' as const, reason: 'taken_over', message: TAKEN_OVER }
-      : stop ? { status: 'escalate' as const, reason: stop.reason, message: stop.message }
+      : stop ? { status: 'escalate' as const, reason: stop.reason, message: stop.message, ...(signInCard ? { approvalId: signInCard } : {}) }
       : banned ? { status: banned.status, reason: banned.reason, message: banned.message } : asked
     await client.settle(cmd.id, 'completed', { ...result, ...ended, exit: exit?.capable ? mode : undefined, tabId: page.targetId, telemetry: { version: 1, setupMs } }, null)
   } finally {

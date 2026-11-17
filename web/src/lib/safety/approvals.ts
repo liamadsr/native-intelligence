@@ -206,6 +206,11 @@ export interface ApprovalContext {
   alwaysAllow?: AlwaysAllowOffer
   /** The cloud browser: the one step of a browser task the card asks about (browser-agent/approval-grant.ts). */
   browser?: { origin: string; target: string; context_hash: string }
+  /**
+   * The cloud browser: a task reached this site's sign-in page (cloud-browser/sign-in-card.ts).
+   * The card asks the person to sign in themselves; it grants nothing to the replay.
+   */
+  browserSignIn?: { site: string }
   /** An unsubscribe card (GEN-1166): the way to unsubscribe it showed, set by the server's outward gate, never by a model. */
   unsubscribe?: UnsubscribeApprovalContext
   /** A quote reply card (send_quote, book_quote): which quote and its words' hash, set by the server's outward gate, never by a model. */
@@ -334,6 +339,10 @@ export function askHomeText(approval: Pick<NewApproval, 'door' | 'context' | 'ca
       const guest = approval.context?.guest
       // Another person's agent, over a link (agent links): whose agent asked.
       const link = agentLinkAskData(approval.context?.agentLink)
+      // A sign-in page stopped a browser task (cloud-browser/sign-in-card.ts): only the person signs in.
+      if (approval.context?.browserSignIn) {
+        return `I need you to sign in to ${approval.context.browserSignIn.site.slice(0, 253)} before I can go on.`
+      }
       if (link) return `${link.peer_name}’s agent asked for this. Nothing has run: it waits for your yes.`
       // A website change (roadmap track E): what changed and its preview, texted when they're away.
       if (approval.context?.website) {
@@ -450,7 +459,10 @@ export async function createToolApproval(supabase: SupabaseClient, approval: New
       (row.context?.localAgent?.sessionId ?? null) === macJobId &&
       (row.context?.quoteReply?.card_hash ?? null) === quoteCardHash &&
       (row.context?.timeOffer?.card_hash ?? null) === offerCardHash &&
-      (row.context?.studioSpend?.request_hash ?? null) === studioRequestHash)
+      (row.context?.studioSpend?.request_hash ?? null) === studioRequestHash &&
+      // A browser step's card and a sign-in card hold the same call: neither stands in for the other.
+      (row.context?.browser?.context_hash ?? null) === (approval.context?.browser?.context_hash ?? null) &&
+      (row.context?.browserSignIn?.site ?? null) === (approval.context?.browserSignIn?.site ?? null))
     if (same) return { ok: true, approvalId: same.id, cardId: same.card_id as string, reused: true }
     // A loop step's card is ONE per run and step, whatever its input (F4
     // review S3): a retried dispatch re-renders earlier steps, and a second
@@ -540,6 +552,8 @@ export async function createToolApproval(supabase: SupabaseClient, approval: New
           ...(approval.door === 'flow_step' ? { editable: true, ...(approval.context?.flowStep?.public_content ? { public_content: true } : {}) } : {}),
           // The card offers Always allow beside Approve (the stored context names what it changes).
           ...(approval.alwaysAllow ? { always_allow: true } : {}),
+          // A sign-in card: the card opens the person's browser at this site's sign-in page.
+          ...(approval.context?.browserSignIn ? { browser_sign_in: { site: approval.context.browserSignIn.site.slice(0, 253) } } : {}),
         },
         run_key: `approval:${row.id}`,
         status: 'pending',

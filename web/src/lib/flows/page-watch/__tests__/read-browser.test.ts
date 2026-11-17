@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { browserWatchSession, isSkippedRead, type BrowserState, type BrowserWatchPorts } from '../read-browser'
+import { browserWatchSession, isSignInRead, isSignInReason, isSkippedRead, signInReason, type BrowserState, type BrowserWatchPorts } from '../read-browser'
 
 const REF = { userId: '33333333-3333-4333-8333-333333333333', workspaceId: '11111111-1111-4111-8111-111111111111' }
 const URL_ = 'https://app.example.com/orders'
@@ -161,11 +161,23 @@ describe('browserWatchSession', () => {
     expect(await answer({ ok: false, code: 'load_failed' })).toEqual({ ok: false, reason: 'The page did not load in your browser.' })
   })
 
-  it('a page that sent the browser to a sign-in page is a failed read that says to sign in', async () => {
+  it('a sign-in read is named by the watched page’s site, never by the address it was sent to', async () => {
+    const t = setup()
+    t.setResult({ status: 'completed', result: { ok: true, url: 'https://login.elsewhere.example/sso?to=orders', text: 'Sign in' } })
+    const read = await browserWatchSession(REF, t.ports).read(URL_)
+    expect(read).toMatchObject({ ok: false, signIn: 'app.example.com' })
+    expect(JSON.stringify(read)).not.toContain('elsewhere')
+  })
+
+  it('a page that sent the browser to a sign-in page is a sign-in read, named by its site, that says to sign in', async () => {
     const t = setup()
     t.setResult({ status: 'completed', result: { ok: true, url: 'https://app.example.com/login?next=%2Forders', text: 'Sign in\nEmail\nPassword\nForgot?\nHelp' } })
     const read = await browserWatchSession(REF, t.ports).read(URL_)
-    expect(read).toEqual({ ok: false, reason: expect.stringContaining('sign-in page') })
+    expect(read).toEqual({ ok: false, signIn: 'app.example.com', reason: signInReason('app.example.com') })
+    expect(isSignInRead(read)).toBe(true)
+    expect(isSkippedRead(read)).toBe(false)
+    expect(isSignInReason(read.ok ? null : read.reason)).toBe(true)
+    expect(isSignInReason('The page did not load in your browser.')).toBe(false)
   })
 
   it('a site the person blocked, one that forbids agents, and a social network are refused before the browser is touched', async () => {

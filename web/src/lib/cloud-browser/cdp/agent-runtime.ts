@@ -8,12 +8,14 @@ import { fileURLToPath } from 'node:url'
  * (`src-tauri/src/native/agent_runtime.js` at `commit`); since C5 retired that
  * browser, this copy is the only one. A test checks the file still matches
  * `sha256`, so a change to it is deliberate: update the hash with it.
+ * Changed here since the copy: a password field says its kind (`secretKind`,
+ * browser-agent/sign-in-page.ts), never its value or hints.
  */
 export const AGENT_RUNTIME_ORIGIN = {
   repo: 'dial8-desktop',
   path: 'src-tauri/src/native/agent_runtime.js',
   commit: '7ce866c32b3edbbc2f0befe811f152d3c60d9046',
-  sha256: '53f23c731955e5962b36f319387f20e99d3019e0ea48e26b0c40436ba97f4181',
+  sha256: 'ec85ce56f17cab6192b08a29cce91f133716a1e1459ab0491a50fa72ac208ad0',
 } as const
 
 /** The isolated world the runtime lives in, the twin of WebKit's ni-agent content world. */

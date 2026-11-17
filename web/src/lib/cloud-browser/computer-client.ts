@@ -28,13 +28,15 @@ export interface ComputerState {
   viewOpen: boolean
   /** Bumped when the live view must connect again (the driver changed in another window). */
   viewEpoch: number
+  /** How many times THIS window handed the browser back (setDriver('agent') that the server took). A hand back elsewhere, or a state read, never counts. */
+  handBacks: number
   /** C4: a Mac of the person's carries the browser's traffic (the server's word, on any device). */
   macConnected: boolean
   /** C4: this Mac's own exit, on the desktop that drives it (browser-exit-client.ts); null elsewhere. */
   mac: BrowserExitStatus | null
 }
 
-const INITIAL: ComputerState = { exists: null, status: null, driver: 'agent', busy: false, liveView: false, thumbnail: null, viewOpen: false, viewEpoch: 0,
+const INITIAL: ComputerState = { exists: null, status: null, driver: 'agent', busy: false, liveView: false, thumbnail: null, viewOpen: false, viewEpoch: 0, handBacks: 0,
   macConnected: false, mac: null }
 export const COMPUTER_POLL_MS = 15_000
 
@@ -161,7 +163,7 @@ export async function setDriver(driver: 'agent' | 'person'): Promise<boolean> {
   try {
     const response = await fetch('/api/account/browser/driver', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ driver }) })
     if (!response.ok) return false
-    set({ driver })
+    set({ driver, ...(driver === 'agent' ? { handBacks: state.handBacks + 1 } : {}) })
     return true
   } catch {
     return false

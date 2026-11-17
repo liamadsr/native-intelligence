@@ -19,7 +19,7 @@ export const MAX_UNVERIFIED_BROWSER_TASKS = 3
 /** Mirrors BROWSER_TASK_HARD_STOP_REASONS in src/lib/browser-agent/task-instructions.ts:
  * these need the user, so another task in this turn cannot help. */
 export const HARD_STOP_REASONS: ReadonlySet<string> = new Set(['site_blocked', 'budget_unavailable', 'not_authorized',
-  'taken_over', 'needs_your_mac', 'never_automate'])
+  'taken_over', 'needs_your_mac', 'never_automate', 'needs_sign_in'])
 const fresh = (turnId: string): Handoff => ({ turnId, blocked: false, blockedSite: null, outcome: 'stopped', unverified: 0, counted: [], refusals: 0 })
 const localUsage = defineState<Scope | null>('chat-agent.browser-handoff-local-usage', () => null)
 const record = (value: unknown): Record<string, unknown> | null =>

@@ -104,6 +104,8 @@ export interface AttentionPayload {
   editable?: boolean
   /** An approval card that offers Always allow (approvals.ts NewApproval.alwaysAllow): a connected app's tool its own permission held. */
   always_allow?: boolean
+  /** An approval card that asks the person to sign in to a site in their agent's browser (cloud-browser/sign-in-card.ts). */
+  browser_sign_in?: { site?: string }
   /** The person's edit of a loop step's inputs (local until Approve sends it). */
   edited_input?: Record<string, unknown>
   /** The held call publishes or reaches people: it always waits for this card. */

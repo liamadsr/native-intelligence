@@ -37,6 +37,7 @@
 import 'server-only'
 import { blockedSiteForUrl } from '@/lib/browser-agent/blocked-sites'
 import { parseWatchReadResult, WATCH_READ_COMMAND, WATCH_READ_MAX_CHARS } from '@/lib/browser-agent/watch-read'
+import { siteForUrl } from '@/lib/browser-agent/blocked-sites'
 import type { WatchRead } from './read-page'
 import { plainTextToLines } from './text'
 import { browserWatchRefusal, landedOnSignIn, normalizeWatchUrl } from './url'
@@ -54,7 +55,25 @@ export type BrowserSkip =
   /** Our own trouble: the browser did not start, or did not answer in time. */
   | 'unavailable'
 
-export type BrowserWatchRead = WatchRead | { ok: false; skipped: BrowserSkip; reason: string }
+/**
+ * The site asked for a sign-in: the person is signed out of it in their
+ * browser (or never signed in). Not the page's failure and not ours: the watch
+ * waits, and its owner is told once (tick.ts). `signIn` is the site.
+ */
+export type SignInRead = { ok: false; signIn: string; reason: string }
+export type BrowserWatchRead = WatchRead | { ok: false; skipped: BrowserSkip; reason: string } | SignInRead
+
+export function isSignInRead(read: BrowserWatchRead): read is SignInRead {
+  return !read.ok && 'signIn' in read
+}
+
+/** How a sign-in wait's stored reason ends: what tells it from a failed read's (tick.ts). */
+const SIGN_IN_TAIL = 'Sign in to it in your agent\'s browser (open its computer and take over), and the page will be read again.'
+export const signInReason = (site: string) => `${site} asks your browser to sign in. ${SIGN_IN_TAIL}`
+/** The site a stored sign-in reason names. */
+export const signInSiteOf = (reason: string) => reason.split(' asks your browser to sign in.')[0].slice(0, 120) || 'the site'
+/** Whether a watch's stored reason is a sign-in wait's. */
+export const isSignInReason = (reason: string | null | undefined) => typeof reason === 'string' && reason.endsWith(SIGN_IN_TAIL)
 
 export function isSkippedRead(read: BrowserWatchRead): read is { ok: false; skipped: BrowserSkip; reason: string } {
   return !read.ok && 'skipped' in read
@@ -256,7 +275,9 @@ export function browserWatchSession(ref: BrowserRef, ports: BrowserWatchPorts = 
     const refused = browserWatchRefusal(result.url)
     if (refused) return { ok: false, reason: refused }
     if (landedOnSignIn(url, result.url)) {
-      return { ok: false, reason: 'The page sent your browser to a sign-in page. Sign in to the site in your agent\'s browser (open its computer and take over), and it will be read again.' }
+      // Named by the page the person asked to watch, never by where it sent the browser (an address a stranger chose).
+      const site = (siteForUrl(url) ?? 'The site').slice(0, 120)
+      return { ok: false, signIn: site, reason: signInReason(site) }
     }
     return { ok: true, lines: plainTextToLines(result.text) }
   }

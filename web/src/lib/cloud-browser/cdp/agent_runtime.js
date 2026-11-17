@@ -762,6 +762,9 @@
     return { ref: assignRef(el, role, name), role, name, canType, forbidden,
       value: forbidden ? '' : String(value ?? '').slice(0, 2000),
       ...(canType && !forbidden ? { input: inputHints(el) } : {}),
+      // A password field says only which kind it is (one the person knows, or one they are choosing): never its value or hints.
+      ...(el.tagName === 'INPUT' && el.type === 'password'
+        ? { secretKind: /\bnew-password\b/i.test(String(el.getAttribute('autocomplete') || '')) ? 'new-password' : 'password' } : {}),
       ...(dropdown ? dropdown : {}),
       ...observedControlState(el),
       disabled: isDisabled(el) || el.matches(':disabled'), context, destination,
