@@ -858,10 +858,16 @@ export function ShowToolCard({
     if (!dockAway || fullScreen) return
     const check = () => {
       const tile = minimizedCard()
-      if (!tile || tile.id !== toolCallId || tile.store !== store) store.setDockAway(false)
+      // No tile shows without the app rail (a narrow window): the notepad comes back there too.
+      if (!tile || tile.id !== toolCallId || tile.store !== store || !besideAppRail()) store.setDockAway(false)
     }
     check()
-    return subscribeMinimized(check)
+    const stop = subscribeMinimized(check)
+    window.addEventListener('resize', check)
+    return () => {
+      stop()
+      window.removeEventListener('resize', check)
+    }
   }, [dockAway, fullScreen, store, toolCallId])
 
   // Esc puts a full-screen card back, unless a popover inside it is open.

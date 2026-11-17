@@ -374,6 +374,11 @@ export function useComposerCode(opts: UseComposerCodeOptions): ComposerCodeResul
       // own reply finished): this chat has its folder, and is not the
       // agent's chat. An ended chat, or none selected: a new chat, below.
       const view = getCodeView()
+      // The chat on screen is still being read: the words are held, never sent off as a new chat.
+      if (!newJob && view.selected && !view.live && !view.error) {
+        setNotice('This chat is still loading. Send again in a moment.')
+        return false
+      }
       if (!newJob && view.selected && view.live && view.live.session.id === view.selected && canMessageSession(view.live.session.status)) {
         inFlightRef.current = true
         setSending(true)

@@ -375,7 +375,7 @@ describe('LocalAgentPanel', () => {
       root.render(h(LocalAgentPanel, { sessionId: SID }))
     })
     await settle()
-    expect(q('[data-local-agent-error]')?.textContent).toBe('Local agent not found')
+    expect(q('[data-local-agent-error]')?.textContent).toBe('This local agent is no longer available.')
   })
 })
 

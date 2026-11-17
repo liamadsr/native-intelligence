@@ -26,7 +26,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { act, createElement as h, useEffect, useState } from 'react'
 import type { UIMessage } from '@ai-sdk/react'
-import { __resetCodeViewForTests, getCodeView } from '../code-view-store'
+import { __resetCodeViewForTests, getCodeView, selectCodeChat } from '../code-view-store'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
@@ -294,6 +294,23 @@ describe('the Code tab', () => {
     expect(getCodeView().selected).toBe('sess-1')
   })
 
+  it('a send while the chat on screen is still being read is held: never a new chat', async () => {
+    let started = 0
+    await mount({
+      list: [STUDIO],
+      chatEnv: STUDIO,
+      routes: [{ method: 'POST', url: '/api/local-agent/sessions', reply: () => json({ session: session({ id: `sess-${++started}` }), created: true, joined: false, deviceOnline: true }, 201) }],
+    })
+    press(q('[data-composer-tab="code"]')!)
+    await flush()
+    selectCodeChat('sess-loading')
+    type('Carry on with the picker')
+    await send()
+    expect(started).toBe(0)
+    expect(host.value).toBe('Carry on with the picker')
+    expect(q('[data-code-notice="send"]')!.textContent).toContain('still loading')
+  })
+
   it('our own agent picked: worker null', async () => {
     await mount({
       list: [STUDIO],
@@ -355,6 +372,8 @@ describe('the Code tab', () => {
     type('Fix the date picker')
     await send()
     expect(started).toBe(1)
+    // "New chat" picked: no chat is on screen to take the words.
+    selectCodeChat(null)
     type('And add a test for it')
     await send()
     expect(started).toBe(1)
@@ -371,6 +390,7 @@ describe('the Code tab', () => {
     await openMenu('[data-code-folder-picker]')
     press(q('[data-code-folder-option="f-api"]')!)
     await flush()
+    selectCodeChat(null)
     type('Bump the API client')
     await send()
     expect(started).toBe(2)
@@ -390,6 +410,8 @@ describe('the Code tab', () => {
     await flush()
     type('Fix the date picker')
     await send()
+    // "New chat" picked: no chat is on screen to take the words.
+    selectCodeChat(null)
     type('Today’s month')
     await send()
     expect(started).toBe(1)
@@ -418,6 +440,8 @@ describe('the Code tab', () => {
     type('Fix the date picker')
     await send()
     expect(started).toBe(1)
+    // "New chat" picked: no chat is on screen to take the words.
+    selectCodeChat(null)
     type('Now the time picker')
     await send()
     expect(started).toBe(1)
@@ -455,6 +479,8 @@ describe('the Code tab', () => {
     await flush()
     type('Fix the date picker')
     await send()
+    // "New chat" picked: no chat is on screen to take the words.
+    selectCodeChat(null)
     type('And add a test for it')
     await send()
     expect(started).toBe(1)
@@ -482,6 +508,8 @@ describe('the Code tab', () => {
     await send()
     // The send opens it all the same, by its session.
     expect(getCodeView().selected).toBe('sess-1')
+    // "New chat" picked: no chat is on screen to take the words.
+    selectCodeChat(null)
     type('And add a test for it')
     await send()
     press(q('[data-code-notice-action="open"]')!)
@@ -527,6 +555,8 @@ describe('the Code tab', () => {
     await flush()
     type('Fix the date picker')
     await send()
+    // "New chat" picked: no chat is on screen to take the words.
+    selectCodeChat(null)
     type('Now the time picker')
     await send()
     expect(started).toBe(2)

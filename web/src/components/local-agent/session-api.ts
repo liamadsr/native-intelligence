@@ -125,7 +125,9 @@ export async function fetchSessionPage(
     const qs = afterId > 0 ? `?afterId=${Math.floor(afterId)}` : ''
     const res = await fetchImpl(sessionUrl(sessionId, qs), { cache: 'no-store' })
     if (!res.ok) {
-      return errorOf(res, res.status === 404 ? SESSION_GONE_MESSAGE : 'Could not load this local agent.')
+      // Gone is said in our own words whatever the server's are: callers tell it from a failed read by this line.
+      if (res.status === 404) return { ok: false, status: 404, message: SESSION_GONE_MESSAGE }
+      return errorOf(res, 'Could not load this local agent.')
     }
     const body = (await res.json().catch(() => null)) as { session?: unknown; events?: unknown; lastId?: unknown } | null
     if (!body || !isSession(body.session)) return { ok: false, status: 502, message: 'Could not load this local agent.' }

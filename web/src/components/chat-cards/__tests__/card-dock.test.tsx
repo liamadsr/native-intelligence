@@ -327,6 +327,20 @@ describe('the docked card', () => {
       expect(attached?.away).toBe(false)
     })
 
+    it('comes back when the window narrows below `md`, where no tile shows', async () => {
+      withPages(1)
+      store.setDocked('cap')
+      await render({})
+      await press(document.getElementById('message')!)
+      expect(store.dockAway()).toBe(true)
+      window.matchMedia = (() => ({ matches: false, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
+      await act(async () => {
+        window.dispatchEvent(new Event('resize'))
+      })
+      expect(store.dockAway()).toBe(false)
+      expect(attached?.away).toBe(false)
+    })
+
     it('stays out with no tile to bring it back from (below `md`)', async () => {
       window.matchMedia = (() => ({ matches: false, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
       withPages(1)
