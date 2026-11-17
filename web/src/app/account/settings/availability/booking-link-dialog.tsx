@@ -7,7 +7,7 @@
  * (./booking-link-form.ts newDraft). Hosts are workspace members; with more
  * than one, whether everyone attends or any one of them does.
  */
-import { useState } from 'react'
+import { useState, type HTMLAttributes, type ReactNode } from 'react'
 import { Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -42,10 +42,10 @@ export interface LinkMember {
 function NumberSelect({ id, value, options, label, onChange }: { id: string; value: number; options: number[]; label: (n: number) => string; onChange: (n: number) => void }) {
   return (
     <Select value={String(value)} onValueChange={(v) => onChange(Number(v))}>
-      <SelectTrigger id={id} className="h-9 w-full">
+      <SelectTrigger id={id} className="h-8 w-36 bg-background">
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent align="end">
         {options.map((n) => (
           <SelectItem key={n} value={String(n)}>
             {label(n)}
@@ -53,6 +53,34 @@ function NumberSelect({ id, value, options, label, onChange }: { id: string; val
         ))}
       </SelectContent>
     </Select>
+  )
+}
+
+/** A titled group of settings, as on the Availability page this dialog opens from. */
+function Section({ title, hint, children, ...rest }: { title: string; hint?: string; children: ReactNode } & HTMLAttributes<HTMLElement>) {
+  return (
+    <section {...rest}>
+      <h3 className="text-sm font-medium">{title}</h3>
+      {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
+      <div className="mt-2.5">{children}</div>
+    </section>
+  )
+}
+
+const CARD = 'divide-y rounded-lg border border-border bg-muted/30'
+
+/** One setting in a card: its name (and what it does) on the left, its control on the right. */
+function Row({ label, htmlFor, hint, children }: { label: string; htmlFor: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="flex min-h-12 items-center justify-between gap-4 px-4 py-2">
+      <div className="min-w-0">
+        <Label htmlFor={htmlFor} className="leading-5 font-normal">
+          {label}
+        </Label>
+        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
   )
 }
 
@@ -94,7 +122,7 @@ export function BookingLinkDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] gap-0 overflow-hidden p-0 sm:max-w-lg" data-booking-link-dialog="">
+      <DialogContent className="max-h-[90dvh] grid-cols-1 gap-0 overflow-hidden p-0 sm:max-w-lg" data-booking-link-dialog="">
         <DialogHeader className="border-b px-6 pt-6 pb-4">
           <DialogTitle>{editing ? 'Edit booking link' : 'New booking link'}</DialogTitle>
           <DialogDescription>Anyone with the link books a time from your real availability.</DialogDescription>
@@ -106,111 +134,106 @@ export function BookingLinkDialog({
             if (!problem) onSave(draft)
           }}
         >
-          <div className="max-h-[calc(90dvh-10rem)] space-y-5 overflow-y-auto px-6 py-5">
-            <div className="space-y-1.5">
-              <Label htmlFor="link-title">Title</Label>
-              <Input id="link-title" autoFocus value={draft.title} maxLength={LINK_TITLE_MAX} placeholder="Intro call" onChange={(e) => setDraft((d) => withTitle(d, e.target.value))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="link-slug">Address</Label>
-              <div className="flex h-9 items-center rounded-md border border-input text-sm shadow-xs focus-within:border-foreground/30">
-                <span className="max-w-[60%] shrink-0 truncate pl-3 text-muted-foreground" data-link-address-base="">
-                  {draft.team ? addressBase.team : addressBase.me}
-                </span>
-                <input
-                  id="link-slug"
-                  value={draft.slug}
-                  placeholder="intro-call"
-                  onChange={(e) => set({ slug: typedSlug(e.target.value), slugTyped: true })}
-                  className="h-full min-w-0 flex-1 bg-transparent pr-3 outline-none placeholder:text-muted-foreground"
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="link-description">Description (optional)</Label>
-              <Textarea id="link-description" rows={2} value={draft.description} maxLength={LINK_DESCRIPTION_MAX} placeholder="What the meeting is for" onChange={(e) => set({ description: e.target.value })} />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
+          <div className="max-h-[calc(90dvh-10rem)] space-y-7 overflow-y-auto px-6 py-5">
+            <div className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="link-length">Length</Label>
-                <NumberSelect id="link-length" value={draft.durationMinutes} options={withValue(LENGTH_OPTIONS, draft.durationMinutes)} label={lengthLabel} onChange={(n) => set({ durationMinutes: n })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="link-window">How far ahead</Label>
-                <NumberSelect id="link-window" value={draft.windowDays} options={withValue(WINDOW_OPTIONS, draft.windowDays)} label={windowLabel} onChange={(n) => set({ windowDays: n })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="link-notice">Minimum notice</Label>
-                <NumberSelect id="link-notice" value={draft.noticeMinutes} options={withValue(NOTICE_OPTIONS, draft.noticeMinutes)} label={noticeLabel} onChange={(n) => set({ noticeMinutes: n })} />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="link-before">Buffer before</Label>
-                  <NumberSelect id="link-before" value={draft.bufferBeforeMinutes} options={withValue(BUFFER_OPTIONS, draft.bufferBeforeMinutes)} label={bufferLabel} onChange={(n) => set({ bufferBeforeMinutes: n })} />
+                <Label htmlFor="link-title">Title</Label>
+                <Input id="link-title" autoFocus value={draft.title} maxLength={LINK_TITLE_MAX} placeholder="Intro call" onChange={(e) => setDraft((d) => withTitle(d, e.target.value))} />
+                {/* The address follows the title until it is typed; it reads as one line under it. */}
+                <div className="flex items-center text-xs text-muted-foreground">
+                  <span className="max-w-[65%] shrink-0 truncate" data-link-address-base="">
+                    {draft.team ? addressBase.team : addressBase.me}
+                  </span>
+                  <input
+                    id="link-slug"
+                    aria-label="Address"
+                    value={draft.slug}
+                    placeholder="intro-call"
+                    onChange={(e) => set({ slug: typedSlug(e.target.value), slugTyped: true })}
+                    className="-my-0.5 min-w-0 flex-1 rounded-sm bg-transparent py-0.5 text-foreground outline-none placeholder:text-muted-foreground hover:bg-muted focus:bg-muted"
+                  />
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="link-after">After</Label>
-                  <NumberSelect id="link-after" value={draft.bufferAfterMinutes} options={withValue(BUFFER_OPTIONS, draft.bufferAfterMinutes)} label={bufferLabel} onChange={(n) => set({ bufferAfterMinutes: n })} />
-                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="link-description">
+                  Description <span className="font-normal text-muted-foreground">(optional)</span>
+                </Label>
+                <Textarea id="link-description" rows={2} value={draft.description} maxLength={LINK_DESCRIPTION_MAX} placeholder="What the meeting is for" onChange={(e) => set({ description: e.target.value })} />
               </div>
             </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-4">
-                <Label htmlFor="link-video">Video call</Label>
-                <Switch id="link-video" checked={draft.video} onCheckedChange={(video) => set({ video })} />
-              </div>
-              {draft.video && callsHere && (
-                <div className="flex items-start justify-between gap-4 pl-3">
-                  <div className="min-w-0">
-                    <Label htmlFor="link-call-here">Use a meeting link here</Label>
-                    <p className="mt-0.5 text-xs text-muted-foreground">Each booking gets one of your meeting links instead of the calendar&apos;s video link. Guests wait in the lobby until you let them in.</p>
+            <Section title="Meeting">
+              <div className={CARD}>
+                <Row label="Length" htmlFor="link-length">
+                  <NumberSelect id="link-length" value={draft.durationMinutes} options={withValue(LENGTH_OPTIONS, draft.durationMinutes)} label={lengthLabel} onChange={(n) => set({ durationMinutes: n })} />
+                </Row>
+                <Row label="Video call" htmlFor="link-video">
+                  <Switch id="link-video" checked={draft.video} onCheckedChange={(video) => set({ video })} />
+                </Row>
+                {draft.video && callsHere && (
+                  <Row label="Use a meeting link here" htmlFor="link-call-here" hint="Instead of the calendar&rsquo;s video link. Guests wait in the lobby until you let them in.">
+                    <Switch id="link-call-here" checked={draft.callHere} onCheckedChange={(callHere) => set({ callHere })} data-link-call-here="" />
+                  </Row>
+                )}
+                {!draft.video && (
+                  <div className="px-4 py-2.5">
+                    <Input aria-label="Where" className="h-8 bg-background" value={draft.location} maxLength={LINK_LOCATION_MAX} placeholder="Where: an address, or a phone call" onChange={(e) => set({ location: e.target.value })} />
                   </div>
-                  <Switch id="link-call-here" checked={draft.callHere} onCheckedChange={(callHere) => set({ callHere })} data-link-call-here="" />
+                )}
+              </div>
+            </Section>
+
+            <Section title="When it can be booked">
+              <div className={CARD}>
+                <Row label="Minimum notice" htmlFor="link-notice">
+                  <NumberSelect id="link-notice" value={draft.noticeMinutes} options={withValue(NOTICE_OPTIONS, draft.noticeMinutes)} label={noticeLabel} onChange={(n) => set({ noticeMinutes: n })} />
+                </Row>
+                <Row label="How far ahead" htmlFor="link-window">
+                  <NumberSelect id="link-window" value={draft.windowDays} options={withValue(WINDOW_OPTIONS, draft.windowDays)} label={windowLabel} onChange={(n) => set({ windowDays: n })} />
+                </Row>
+                <Row label="Buffer before" htmlFor="link-before">
+                  <NumberSelect id="link-before" value={draft.bufferBeforeMinutes} options={withValue(BUFFER_OPTIONS, draft.bufferBeforeMinutes)} label={bufferLabel} onChange={(n) => set({ bufferBeforeMinutes: n })} />
+                </Row>
+                <Row label="Buffer after" htmlFor="link-after">
+                  <NumberSelect id="link-after" value={draft.bufferAfterMinutes} options={withValue(BUFFER_OPTIONS, draft.bufferAfterMinutes)} label={bufferLabel} onChange={(n) => set({ bufferAfterMinutes: n })} />
+                </Row>
+                <Row label="Ask me first" htmlFor="link-ask-first" hint="Each booking waits for your yes; the time is held until you answer.">
+                  <Switch id="link-ask-first" checked={draft.askFirst} onCheckedChange={(askFirst) => set({ askFirst })} />
+                </Row>
+              </div>
+            </Section>
+
+            <Section title="Questions" hint="Their name and how to reach them are always asked." data-link-questions="">
+              {draft.questions.length > 0 && (
+                <div className={cn(CARD, 'mb-2')}>
+                  {draft.questions.map((q, i) => (
+                    <div key={q.id ?? `new-${i}`} className="flex items-center gap-2 py-2 pr-2 pl-4" data-link-question-row="">
+                      <Input aria-label={`Question ${i + 1}`} className="h-8 min-w-0 flex-1 bg-background" value={q.label} maxLength={QUESTION_LABEL_MAX} placeholder="What should we cover?" onChange={(e) => editQuestion(i, { label: e.target.value })} />
+                      <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                        <Checkbox checked={q.required} onCheckedChange={(v) => editQuestion(i, { required: v === true })} aria-label={`Question ${i + 1} required`} />
+                        Required
+                      </label>
+                      <Button type="button" size="icon" variant="ghost" className="size-7 shrink-0 text-muted-foreground shadow-none hover:text-foreground" aria-label={`Remove question ${i + 1}`} onClick={() => set({ questions: draft.questions.filter((_, j) => j !== i) })}>
+                        <X className="size-3.5" />
+                      </Button>
+                    </div>
+                  ))}
                 </div>
               )}
-              {!draft.video && <Input aria-label="Where" value={draft.location} maxLength={LINK_LOCATION_MAX} placeholder="Where: an address, or a phone call" onChange={(e) => set({ location: e.target.value })} />}
-            </div>
-
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <Label htmlFor="link-ask-first">Ask me first</Label>
-                <p className="mt-0.5 text-xs text-muted-foreground">Each booking waits for your yes; the time is held until you answer.</p>
-              </div>
-              <Switch id="link-ask-first" checked={draft.askFirst} onCheckedChange={(askFirst) => set({ askFirst })} />
-            </div>
-
-            <div className="space-y-2" data-link-questions="">
-              <Label>Questions</Label>
-              {draft.questions.length === 0 && <p className="text-xs text-muted-foreground">Their name and how to reach them are always asked.</p>}
-              {draft.questions.map((q, i) => (
-                <div key={q.id ?? `new-${i}`} className="flex items-center gap-2" data-link-question-row="">
-                  <Input aria-label={`Question ${i + 1}`} className="h-8 min-w-0 flex-1" value={q.label} maxLength={QUESTION_LABEL_MAX} placeholder="What should we cover?" onChange={(e) => editQuestion(i, { label: e.target.value })} />
-                  <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-                    <Checkbox checked={q.required} onCheckedChange={(v) => editQuestion(i, { required: v === true })} aria-label={`Question ${i + 1} required`} />
-                    Required
-                  </label>
-                  <Button type="button" size="icon" variant="ghost" className="size-7 shrink-0 text-muted-foreground hover:text-foreground" aria-label={`Remove question ${i + 1}`} onClick={() => set({ questions: draft.questions.filter((_, j) => j !== i) })}>
-                    <X className="size-3.5" />
-                  </Button>
-                </div>
-              ))}
               {draft.questions.length < LINK_QUESTIONS_MAX && (
-                <Button type="button" variant="ghost" size="sm" className="-ml-2 h-7 gap-1 text-xs text-muted-foreground" onClick={() => set({ questions: [...draft.questions, { label: '', required: false, kind: 'text' }] })}>
+                <Button type="button" variant="outline" size="sm" className="-ml-3 gap-1" onClick={() => set({ questions: [...draft.questions, { label: '', required: false, kind: 'text' }] })}>
                   <Plus className="size-3.5" />
                   Add a question
                 </Button>
               )}
-            </div>
+            </Section>
 
             {members.length > 1 && (
-              <div className="space-y-2" data-link-hosts="">
-                <Label>Hosts</Label>
-                <ul className="max-h-44 divide-y overflow-y-auto rounded-md border">
+              <Section title="Hosts" data-link-hosts="">
+                <ul className={cn(CARD, 'max-h-44 overflow-y-auto')}>
                   {members.map((m) => (
                     <li key={m.userId}>
-                      <label className="flex items-center gap-2.5 px-3 py-1.5 text-sm">
+                      <label className="flex items-center gap-2.5 px-4 py-2 text-sm">
                         <Checkbox checked={draft.hosts.includes(m.userId)} onCheckedChange={(v) => toggleHost(m.userId, v === true)} aria-label={`${m.name} hosts`} />
                         <span className="min-w-0 flex-1 truncate">{m.name}</span>
                       </label>
@@ -218,7 +241,7 @@ export function BookingLinkDialog({
                   ))}
                 </ul>
                 {draft.hosts.length > 1 && (
-                  <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="How the hosts share it" data-link-host-mode="">
+                  <div className="mt-2 grid grid-cols-2 gap-2" role="radiogroup" aria-label="How the hosts share it" data-link-host-mode="">
                     {(
                       [
                         ['all', 'Everyone attends', 'Only times when all are free'],
@@ -231,33 +254,33 @@ export function BookingLinkDialog({
                         role="radio"
                         aria-checked={draft.shared === mode}
                         onClick={() => set({ shared: mode })}
-                        className={cn('rounded-md border px-3 py-2 text-left transition-colors', draft.shared === mode ? 'border-foreground bg-muted/60' : 'hover:bg-muted/40')}
+                        className={cn('rounded-lg border border-border px-4 py-2 text-left transition-colors', draft.shared === mode ? 'border-foreground/60 bg-muted/60' : 'bg-muted/30 hover:bg-muted/50')}
                       >
-                        <span className="block text-sm font-medium">{title}</span>
+                        <span className="block text-sm">{title}</span>
                         <span className="block text-xs text-muted-foreground">{hint}</span>
                       </button>
                     ))}
                   </div>
                 )}
-              </div>
+              </Section>
             )}
 
             {!editing && canTeam && (
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <Label htmlFor="link-team">Team link</Label>
-                  <p className="mt-0.5 text-xs text-muted-foreground">Under the workspace&apos;s address instead of yours.</p>
+              <Section title="Team">
+                <div className={CARD}>
+                  <Row label="Team link" htmlFor="link-team" hint="Under the workspace&rsquo;s address instead of yours.">
+                    <Switch id="link-team" checked={draft.team} onCheckedChange={(team) => set({ team })} />
+                  </Row>
                 </div>
-                <Switch id="link-team" checked={draft.team} onCheckedChange={(team) => set({ team })} />
-              </div>
+              </Section>
             )}
           </div>
           <DialogFooter className="items-center border-t px-6 py-4">
             {problem && draft.title.trim() && <p className="mr-auto text-xs text-destructive">{problem}</p>}
-            <Button type="button" variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" size="sm" disabled={busy || !!problem}>
+            <Button type="submit" disabled={busy || !!problem}>
               {editing ? 'Save' : 'Create link'}
             </Button>
           </DialogFooter>
