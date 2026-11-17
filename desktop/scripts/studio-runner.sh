@@ -3,15 +3,15 @@
 #
 # The Studio's computer export (src-tauri/src/studio_local/) runs the local
 # runner studio-worker builds (studio-worker/scripts/build-local-runner.ts:
-# runner/runner.cjs, the packages it keeps, a prebuilt render bundle,
-# NOTICES.md; about 47 MB). It ships inside the signed app:
+# runner/runner.cjs, the packages it keeps, a prebuilt render bundle, and
+# licenses/: NOTICES.txt with each package's own licence files; about 47 MB). It ships inside the signed app:
 #
 #   studio-runner_build    studio-worker → src-tauri/target/studio-runner/
 #                          (NOT committed: it is built from this checkout at
 #                          build time, unlike the local agent's 12 MB bundle),
 #                          plus STUDIO_RUNNER.json (every file's SHA-256, the
 #                          commit and whether the tree was dirty) and
-#                          licenses/NOTICES.txt (folded into the app's
+#                          the build's licenses/ (folded into the app's
 #                          notices by licenses.sh)
 #   studio_runner_stage    → Native Intelligence.app/Contents/Resources/studio-runner/
 #   studio_runner_verify   the staged copy against its STUDIO_RUNNER.json
@@ -58,8 +58,11 @@ studio_runner_build() {
         rm -rf "$STUDIO_RUNNER_OUT"
         return 1
     }
-    mkdir -p "$STUDIO_RUNNER_OUT/licenses"
-    cp "$STUDIO_RUNNER_OUT/NOTICES.md" "$STUDIO_RUNNER_OUT/licenses/NOTICES.txt" || return 1
+    if [ ! -s "$STUDIO_RUNNER_OUT/licenses/NOTICES.txt" ]; then
+        echo "[studio-runner] ERROR: the runner build wrote no licenses/NOTICES.txt" >&2
+        rm -rf "$STUDIO_RUNNER_OUT"
+        return 1
+    fi
     local commit
     commit="$(git -C "$worker" rev-parse HEAD 2>/dev/null || echo unknown)"
     python3 - "$STUDIO_RUNNER_OUT" "$commit" "$dirty" <<'PY'
