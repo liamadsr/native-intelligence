@@ -21,8 +21,9 @@ It downloads `ffmpeg-7.1.5.tar.xz` (or takes `FFMPEG_TARBALL`), checks its SHA-2
 | `SHA256SUMS` | every file above |
 
 The desktop bundle carries `bin/`, `LICENSE.LGPL-2.1.txt` and `NOTICE.md`; the `source/` folder is published with the
-release (or carried too): distributing an LGPL program means offering its exact source. The runner's `NOTICES.md`
-(`scripts/build-local-runner.ts`) lists FFmpeg among the third-party pieces.
+release (or carried too): distributing an LGPL program means offering its exact source. The runner's own notices
+(`licenses/NOTICES.txt`, `scripts/runner-licences.ts`) cover the packages in the runner folder; FFmpeg is downloaded
+beside it and carries the files above.
 
 ## Why static
 

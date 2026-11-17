@@ -217,7 +217,7 @@ writes the video to the destination the desktop app names, uploads it and comple
 reports progress at least every 15 s and stops on a cancel. The token never goes on the command line
 (`STUDIO_LOCAL_TOKEN` or the first line of standard input); events come out as JSON lines. `scripts/build-local-runner.ts
 <out>` builds what the desktop carries: `runner/runner.cjs` (esbuild), the packages it keeps, the render bundle with its
-manifest, `NOTICES.md` and `sizes.json`. What differs between Linux, a Mac and Windows (process trees, junctions,
+manifest, `licenses/` (`NOTICES.txt` and each third-party package's own licence files) and `sizes.json`. What differs between Linux, a Mac and Windows (process trees, junctions,
 concat lists, tool paths, path length, a child's environment) is in `src/platform.ts`, each branch tested with the
 platform named (`test/platform.test.ts`). Tests: `test/local.test.ts`, `test/encoders.test.ts`, `test/bundle-dir.test.ts`;
 end to end `test/local-e2e.ts`; a lossy encoder against the lossless one: `test/encoder-check.ts`. Without Remotion's

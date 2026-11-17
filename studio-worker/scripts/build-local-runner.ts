@@ -7,7 +7,8 @@
  *                                             (its platform compositor left out: see the notices)
  *     → <out>/render-bundle/                 the engine's render bundle, built here once (STUDIO_BUNDLE_DIR), with
  *                                             studio-render.json (render version, Remotion version)
- *     → <out>/NOTICES.md                     every third-party piece in it and its licence
+ *     → <out>/licenses/                      every third-party package in it: NOTICES.txt and each one's own licence
+ *                                             files (runner-licences.ts; the desktop folds them into the app's notices)
  *     → <out>/sizes.json                     what each part weighs
  *
  * Not in it (the desktop build adds them): Node itself, FFmpeg and ffprobe (our LGPL build with the system encoders),
@@ -22,6 +23,7 @@ import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promi
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, relative, resolve } from 'node:path'
+import { packageDirOf, packagesInSourceMaps, writeRunnerLicences, type Place } from './runner-licences.ts'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const require = createRequire(import.meta.url)
@@ -67,11 +69,6 @@ function closure(name: string, from: string, seen = new Map<string, string>()): 
   return seen
 }
 
-/** A package's licence as its package.json says it. */
-function licence(dir: string): string {
-  try { return String((JSON.parse(require('node:fs').readFileSync(join(dir, 'package.json'), 'utf8')) as { license?: unknown }).license ?? 'see the package') } catch { return 'unknown' }
-}
-
 /**
  * The render version's test (web: engine/__tests__/render-version.test.ts), run first: no bundle is built whose render
  * version disagrees with the sources it is built from (a desktop app would export as a version it is not).
@@ -107,8 +104,8 @@ async function main() {
   const inputs = Object.keys(result.metafile.inputs)
 
   // ---- the packages it keeps -------------------------------------------------------------------------------------
-  // Remotion's compositor package carries a GPL FFmpeg with x264, x265 and fdk-aac: it is left out (NOTICES.md says
-  // what that costs: the paths that ask Remotion to stitch or mix with its own FFmpeg).
+  // Remotion's compositor package carries a GPL FFmpeg with x264, x265 and fdk-aac: it is left out (what that
+  // costs: the paths that ask Remotion to stitch or mix with its own FFmpeg).
   const keep = closure('@remotion/renderer', ROOT)
   const left: string[] = []
   for (const [name, dir] of keep) {
@@ -123,26 +120,26 @@ async function main() {
   }
 
   // ---- notices ---------------------------------------------------------------------------------------------------
-  const packages = [...keep.entries()].filter(([n]) => !left.includes(n)).map(([n, d]) => `- ${n} (${licence(d)})`)
-  // Each compiled-in package, by the folder its files came from (the worker's node_modules or the app's).
-  const bundledDirs = new Map<string, string>()
-  for (const i of inputs) {
-    const m = /^(.*node_modules[\\/]((?:@[^\\/]+[\\/])?[^\\/]+))/.exec(i)
-    if (m && !bundledDirs.has(m[2]!)) bundledDirs.set(m[2]!, resolve(m[1]!))
+  // Every package the folder carries, with its own licence files: the ones kept whole, the ones esbuild compiled into
+  // runner.cjs (its metafile), the ones webpack compiled into the render bundle (its source maps) and the ones in the
+  // bundle's scene runtime (esbuild's graph of the same entry; nothing is written).
+  const shipped: { dir: string; place: Place }[] = []
+  for (const [name, dir] of keep) if (!left.includes(name)) shipped.push({ dir, place: 'runner/node_modules' })
+  const fromInputs = (paths: string[], place: Place) => {
+    for (const dir of new Set(paths.map(packageDirOf).filter((d): d is string => d !== null))) shipped.push({ dir: resolve(dir), place })
   }
-  const bundled = [...bundledDirs.keys()].sort()
-  const notices = [
-    '# Third-party pieces in the Studio\'s local runner', '',
-    'Kept as packages (runner/node_modules):', ...packages, '',
-    'Compiled into runner.cjs:', ...bundled.map((n) => `- ${n} (${licence(bundledDirs.get(n)!)})`), '',
-    'Left out:', ...left.map((n) => `- ${n}: Remotion's FFmpeg build (GPL, with libx264, libx265 and libfdk-aac).`), '',
-    'Not in this folder, added by the desktop build: Node.js (MIT); FFmpeg and ffprobe 7.1.5, an LGPL-2.1-or-later build with the system\'s H.264 encoder and no GPL or non-free part (scripts/ffmpeg/build.sh: its output carries LICENSE.LGPL-2.1.txt, NOTICE.md with the configure line, and the exact source in source/, which the release must carry or publish); Chrome headless shell (BSD-3-Clause and its own notices).',
-    'Remotion (@remotion/*) is under the Remotion License: its terms are the owner\'s matter.', '',
-  ].join('\n')
-  await writeFile(join(out, 'NOTICES.md'), notices)
+  fromInputs(inputs, 'runner/runner.cjs')
+  if (withBundle) {
+    for (const dir of packagesInSourceMaps(join(out, 'render-bundle'), ROOT)) shipped.push({ dir, place: 'the render bundle' })
+    const { runtimeEntry } = await import('../../web/src/lib/studio/engine/scene-frame/build.ts')
+    const scene = await build({ entryPoints: [runtimeEntry(resolve(ROOT, '../web/src/lib/studio/engine'))], bundle: true, write: false, format: 'iife',
+      platform: 'browser', target: 'es2020', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent', metafile: true })
+    fromInputs(Object.keys(scene.metafile.inputs), "the render bundle's scene runtime")
+  }
+  const packages = writeRunnerLicences(join(out, 'licenses'), shipped, left)
 
   const sizes = { runnerCjs: await size(join(runner, 'runner.cjs')), runnerNodeModules: await size(join(runner, 'node_modules')),
-    renderBundle: await size(join(out, 'render-bundle')), sourcesCompiled: inputs.length, packagesKept: packages.length, leftOut: left }
+    renderBundle: await size(join(out, 'render-bundle')), sourcesCompiled: inputs.length, packagesKept: keep.size - left.length, packagesListed: packages.length, leftOut: left }
   await writeFile(join(out, 'sizes.json'), JSON.stringify(sizes, null, 2))
   console.log(JSON.stringify({ out: relative(process.cwd(), out) || out, ...sizes }))
   if (!existsSync(join(runner, 'runner.cjs'))) process.exit(1)
