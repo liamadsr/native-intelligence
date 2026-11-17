@@ -29,6 +29,7 @@ let settled: [string, string, unknown, string | null][]
 let state: RelayState
 const decide = vi.fn()
 const requestSignIn = vi.fn()
+const maySignInFill = vi.fn()
 
 function command(fields: Partial<ClaimedCommand>): ClaimedCommand {
   return { id: 'cmd-1', command: 'get_text', tab_id: null, request: {}, workspace_id: 'ws-1',
@@ -41,6 +42,7 @@ beforeEach(() => {
   settled = []
   decide.mockReset()
   requestSignIn.mockReset().mockResolvedValue('approval-9')
+  maySignInFill.mockReset().mockResolvedValue(true)
   mock.execute.mockReset().mockResolvedValue({ status: 'verified', reason: 'done', steps: 1 })
   mock.command.mockReset().mockResolvedValue({ url: 'https://example.com/', text: 'Hi' })
   const browser = {
@@ -50,7 +52,7 @@ beforeEach(() => {
   state = {
     browser: browser as unknown as RelayState['browser'],
     client: { settle: async (...args: [string, string, unknown, string | null]) => { settled.push(args) }, decide,
-      requestApproval: async () => null, requestSignIn } as unknown as RelayState['client'],
+      requestApproval: async () => null, requestSignIn, maySignInFill } as unknown as RelayState['client'],
     agentPage: null,
   }
 })
@@ -150,6 +152,95 @@ describe('runClaimed', () => {
     await runClaimed(state, command({ id: 'cmd-3', command: 'run_task', request: task({ startUrl: 'https://app.example.com/login' }) }), [])
     expect(requestSignIn).not.toHaveBeenCalled()
     expect(settled[2][2]).toMatchObject({ status: 'verified' })
+  })
+
+  it('fills a sign-in page from the person’s saved login, without the model, and raises the card only if the page still asks', async () => {
+    const signIn = { url: 'https://app.example.com/login', text: 'Sign in to Example', elements: [
+      { ref: 'e1', role: 'textbox', name: 'Email', context: '', canType: true, disabled: false, forbidden: false, input: { type: 'email', autocomplete: 'username' } },
+      { ref: 'e2', role: 'textbox', name: 'Password', context: '', canType: false, disabled: false, forbidden: true, secretKind: 'password' },
+      { ref: 'e3', role: 'button', name: 'Sign in', context: '', canType: false, disabled: false, forbidden: false },
+    ] }
+    const asked: string[] = []
+    const answer = { ok: true, host: 'app.example.com', username: 'kim@example.com', password: 'made-up-secret' } as Record<string, unknown>
+    const askMac = vi.fn(async (question: Uint8Array) => { asked.push(new TextDecoder().decode(question)); return new TextEncoder().encode(JSON.stringify(answer)) })
+    state.exit = { capable: true, choose: () => 'mac', pin: async () => {}, release: () => {}, tunnelUp: () => true, onTunnel: () => () => {}, askMac } as unknown as RelayState['exit']
+    const typed: unknown[][] = []
+    const withFill = (page: ReturnType<typeof stubPage>) => Object.assign(page, {
+      fillField: vi.fn(async (...args: unknown[]) => { typed.push(args); return true }), pressEnter: vi.fn(async () => true) })
+    const browser = state.browser as unknown as { openPage: () => Promise<ReturnType<typeof stubPage>> }
+    const open = browser.openPage
+    browser.openPage = async () => withFill(await open())
+    const decisions: unknown[] = []
+    mock.execute.mockImplementation(async (_task: unknown, ports: { decide: (...args: unknown[]) => Promise<unknown> }) => {
+      decisions.push(await ports.decide(signIn, 0, [], new AbortController().signal))
+      // The page still asks (a wrong password): this step was filled once, so the card takes over.
+      await ports.decide(signIn, 1, [], new AbortController().signal).catch(() => {})
+      return { status: 'escalate', reason: 'decision_unavailable', steps: 1, trace: [] }
+    })
+    await runClaimed(state, command({ command: 'run_task', request: task() }), [])
+    expect(asked).toEqual(['{"v":1,"op":"saved_login","host":"app.example.com"}'])
+    expect(typed).toEqual([['e1', 'account', 'app.example.com', 'kim@example.com'], ['e2', 'password', 'app.example.com', 'made-up-secret']])
+    expect((pages[0] as unknown as { pressEnter: ReturnType<typeof vi.fn> }).pressEnter).toHaveBeenCalledTimes(1)
+    expect(decisions[0]).toMatchObject({ decision: { status: 'accepted', value: { operation: 'advance' } } })
+    expect(maySignInFill).toHaveBeenCalledWith('cmd-1', 'https://app.example.com/login')
+    expect(decide).not.toHaveBeenCalled()
+    expect(requestSignIn).toHaveBeenCalledTimes(1)
+    const result = settled[0][2] as Record<string, unknown>
+    expect(result).toMatchObject({ reason: 'needs_sign_in' })
+    // Nothing of the login leaves with the result.
+    expect(JSON.stringify(settled)).not.toContain('made-up-secret')
+    expect(JSON.stringify(settled)).not.toContain('kim@example.com')
+
+    // No saved login (or the person said no): asked once, nothing typed, the card at once.
+    typed.length = 0
+    askMac.mockClear()
+    requestSignIn.mockClear()
+    Object.assign(answer, { ok: false, reason: 'none' })
+    mock.execute.mockImplementation(async (_task: unknown, ports: { decide: (...args: unknown[]) => Promise<unknown> }) => {
+      await ports.decide(signIn, 0, [], new AbortController().signal).catch(() => {})
+      return { status: 'escalate', reason: 'decision_unavailable', steps: 0, trace: [] }
+    })
+    await runClaimed(state, command({ id: 'cmd-2', command: 'run_task', request: task() }), [])
+    expect(askMac).toHaveBeenCalledTimes(1)
+    expect(typed).toEqual([])
+    expect(requestSignIn).toHaveBeenCalledTimes(1)
+
+    // A sign-in that moves to another host: the first host's login is never typed there. The new host is asked
+    // about on its own, and an answer that names another host is no answer.
+    Object.assign(answer, { ok: true, host: 'app.example.com' })
+    askMac.mockClear()
+    typed.length = 0
+    const accountOnly = { ...signIn, elements: [signIn.elements[0], signIn.elements[2]] }
+    const elsewhere = { url: 'https://attacker.test/login', text: 'Sign in', elements: [signIn.elements[1]] }
+    mock.execute.mockImplementation(async (_task: unknown, ports: { decide: (...args: unknown[]) => Promise<unknown> }) => {
+      await ports.decide(accountOnly, 0, [], new AbortController().signal)
+      await ports.decide(elsewhere, 1, [], new AbortController().signal).catch(() => {})
+      return { status: 'escalate', reason: 'decision_unavailable', steps: 1, trace: [] }
+    })
+    await runClaimed(state, command({ id: 'cmd-host', command: 'run_task', request: task() }), [])
+    expect(typed).toEqual([['e1', 'account', 'app.example.com', 'kim@example.com']])
+    expect(asked.slice(-2)).toEqual(['{"v":1,"op":"saved_login","host":"app.example.com"}', '{"v":1,"op":"saved_login","host":"attacker.test"}'])
+    expect(JSON.stringify(typed)).not.toContain('made-up-secret')
+
+    // The server says no (the person is driving, or blocked the site since): the computer is never asked.
+    askMac.mockClear()
+    typed.length = 0
+    maySignInFill.mockResolvedValue(false)
+    mock.execute.mockImplementation(async (_task: unknown, ports: { decide: (...args: unknown[]) => Promise<unknown> }) => {
+      await ports.decide(signIn, 0, [], new AbortController().signal).catch(() => {})
+      return { status: 'escalate', reason: 'decision_unavailable', steps: 0, trace: [] }
+    })
+    await runClaimed(state, command({ id: 'cmd-no', command: 'run_task', request: task() }), [])
+    expect(askMac).not.toHaveBeenCalled()
+    expect(typed).toEqual([])
+    maySignInFill.mockResolvedValue(true)
+
+    // The person's computer is not connected: it is never asked.
+    askMac.mockClear()
+    ;(state.exit as unknown as { tunnelUp: () => boolean; choose: () => string }).tunnelUp = () => false
+    ;(state.exit as unknown as { choose: () => string }).choose = () => 'cloud'
+    await runClaimed(state, command({ id: 'cmd-3', command: 'run_task', request: task() }), [])
+    expect(askMac).not.toHaveBeenCalled()
   })
 
   it('fails a task whose lease already ran out', async () => {

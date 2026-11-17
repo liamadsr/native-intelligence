@@ -51,7 +51,7 @@ vi.mock('@/lib/cloud-browser/computer-client', async (original) => {
 })
 
 import { __setRfbLoaderForTests, CloudBrowserLiveView } from '../live-view'
-import { __resetComputerForTests, closeLiveView, getComputer, hideLiveView, openLiveView } from '@/lib/cloud-browser/computer-client'
+import { __resetComputerForTests, closeLiveView, getComputer, hideLiveView, openLiveView, openLiveViewForSignIn } from '@/lib/cloud-browser/computer-client'
 
 const ticket = (control: boolean) => ({ state: 'running', token: `token-${control}`, viewerUrl: 'wss://hub.test/viewer', thumbnailUrl: 'https://hub.test/thumbnail', control, driver: control ? 'person' : 'agent' })
 const flush = async () => { for (let i = 0; i < 5; i++) await act(async () => { await Promise.resolve() }) }
@@ -189,6 +189,20 @@ describe('the live view', () => {
     act(() => { press('Meta', 'MetaLeft', true); press('c', 'KeyC', true) })
     expect(reached).toEqual([])
     expect(FakeRfb.all[1].keys).toEqual([[0xffe3, 'ControlLeft', true], [0x63, 'KeyC', true], [0x63, 'KeyC', false], [0xffe3, 'ControlLeft', false]])
+  })
+
+  it('opened from a sign-in card: a bar names the site and its Done closes the view; opened any other way, no bar', async () => {
+    tickets.next = [ticket(true), ticket(false)]
+    act(() => root.render(<CloudBrowserLiveView />))
+    act(() => openLiveViewForSignIn('shop.example.com'))
+    await flush()
+    const bar = document.querySelector('[data-live-view-sign-in]')
+    expect(bar?.textContent).toContain('Sign in to shop.example.com below.')
+    act(() => document.querySelector<HTMLButtonElement>('[data-live-view-sign-in-done]')!.click())
+    expect(getComputer()).toMatchObject({ viewOpen: false, signInSite: null })
+    act(() => openLiveView())
+    await flush()
+    expect(document.querySelector('[data-live-view-sign-in]')).toBeNull()
   })
 
   it('renders nothing while closed', () => {

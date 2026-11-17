@@ -47,7 +47,26 @@ pub const CLOSE_UNAUTHORIZED: u16 = 4401;
 pub const CLOSE_VERSION: u16 = 4400;
 pub const CLOSE_REPLACED: u16 = 4409;
 
+/// The name the hub's own relay opens a stream to when it asks this Mac
+/// something (a saved login), port 443. It is never looked up or connected
+/// to: the stream's bytes are the question, and this Mac's answer comes back
+/// on it. `.invalid` never resolves, so a build without a [`LocalService`]
+/// (or an older one) refuses the stream as it would any dead name, and the
+/// hub never lets the browser itself open one.
+pub const LOCAL_HOST: &str = "saved-login.invalid";
+/// The question, at most; more resets the stream.
+pub const LOCAL_REQUEST_MAX: usize = 8 * 1024;
+/// How long the hub has to finish sending its question.
+const LOCAL_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long the answer may take (it can wait on the person).
+const LOCAL_ANSWER_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// Answers the hub's question on this Mac: the question's bytes in, the answer's out.
+pub type LocalService = Arc<dyn Fn(Vec<u8>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<u8>> + Send>> + Send + Sync>;
+
 pub struct Options {
+    /// What answers a stream to [`LOCAL_HOST`]; none refuses it.
+    pub local: Option<LocalService>,
     /// `wss://<hub>/exit`, already checked against the token ([`crate::ticket::verify`]).
     pub url: String,
     pub token: String,
@@ -61,7 +80,7 @@ pub struct Options {
 
 impl Options {
     pub fn new(url: String, token: String, claims: Claims, public_ips: Vec<IpAddr>) -> Self {
-        Options { url, token, claims, public_ips, silence: SILENCE }
+        Options { local: None, url, token, claims, public_ips, silence: SILENCE }
     }
 }
 
@@ -280,8 +299,13 @@ where
                         }
                         let (to_socket, inbound) = mpsc::unbounded_channel();
                         let window = Arc::new(Window::new(WINDOW));
-                        let task = tokio::spawn(run_stream(stream, host, port, blocklist.clone(), out_tx.clone(), inbound,
-                            window.clone(), events.clone()));
+                        // The hub's own question for this Mac: answered here, never connected anywhere.
+                        let local = if port == 443 && host.eq_ignore_ascii_case(LOCAL_HOST) { options.local.clone() } else { None };
+                        let task = match local {
+                            Some(service) => tokio::spawn(run_local(stream, service, out_tx.clone(), inbound)),
+                            None => tokio::spawn(run_stream(stream, host, port, blocklist.clone(), out_tx.clone(), inbound,
+                                window.clone(), events.clone())),
+                        };
                         streams.insert(stream, StreamEntry { to_socket, window, unacked: 0, task });
                     }
                     Frame::Data { stream, bytes } => match streams.get_mut(&stream) {
@@ -405,6 +429,40 @@ async fn connect_checked(host: &str, port: u16, blocklist: &Blocklist) -> Result
         }
     }
     Err(Refusal::Connect)
+}
+
+/// A stream to [`LOCAL_HOST`]: read the hub's question to its FIN, answer it, FIN. Nothing leaves this Mac.
+async fn run_local(stream: u32, service: LocalService, out: mpsc::UnboundedSender<Out>, mut inbound: mpsc::UnboundedReceiver<Inbound>) {
+    let _ = out.send(Out::Frame(Frame::Opened { stream }));
+    let question = tokio::time::timeout(LOCAL_REQUEST_TIMEOUT, async {
+        let mut question = Vec::new();
+        while let Some(message) = inbound.recv().await {
+            match message {
+                Inbound::Data(bytes) => {
+                    if question.len() + bytes.len() > LOCAL_REQUEST_MAX {
+                        return None;
+                    }
+                    let _ = out.send(Out::Frame(Frame::Credit { stream, bytes: bytes.len() as u32 }));
+                    question.extend_from_slice(&bytes);
+                }
+                Inbound::Fin => return Some(question),
+            }
+        }
+        None
+    }).await.ok().flatten();
+    let answer = match question {
+        Some(question) => tokio::time::timeout(LOCAL_ANSWER_TIMEOUT, service(question)).await.ok(),
+        None => None,
+    };
+    match answer {
+        // One frame's worth: an answer is a few hundred bytes, far inside the window.
+        Some(answer) if answer.len() <= MAX_DATA => {
+            let _ = out.send(Out::Frame(Frame::Data { stream, bytes: answer }));
+            let _ = out.send(Out::Frame(Frame::Fin { stream }));
+        }
+        _ => { let _ = out.send(Out::Frame(Frame::Reset { stream })); }
+    }
+    let _ = out.send(Out::Done(stream));
 }
 
 #[allow(clippy::too_many_arguments)]

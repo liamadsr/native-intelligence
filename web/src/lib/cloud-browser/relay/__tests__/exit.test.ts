@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import WebSocket, { WebSocketServer } from 'ws'
 import { decodeFrame, encodeFrame, WINDOW, type Frame } from '../../exit/mux'
 import { sandboxVerifyKey, signSandboxToken } from '../../viewer-token'
-import { clientAddress, startExit, type ClientAddressHeader, type ExitHub } from '../exit'
+import { clientAddress, LOCAL_HOST, startExit, type ClientAddressHeader, type ExitHub } from '../exit'
 
 const { privateKey } = generateKeyPairSync('ed25519')
 const exitToken = (sandbox = 'browser-a', aud: 'browser-exit' | 'browser-viewer' = 'browser-exit') =>
@@ -277,5 +277,75 @@ describe('the Mac’s address the hub reports', () => {
       own.close()
       server.close()
     }
+  })
+
+  /** A stand-in Mac that answers the relay's question itself (desktop saved_logins.rs): the question reversed, or a refusal. */
+  function answeringMac(mode: 'answer' | 'refuse' | 'never') {
+    const ws = new WebSocket(tunnelUrl)
+    const opened: { host: string; port: number }[] = []
+    const questions = new Map<number, string>()
+    const state = { up: false }
+    const send = (frame: Frame) => ws.send(encodeFrame(frame))
+    ws.on('open', () => ws.send(JSON.stringify({ v: 1, token: exitToken() })))
+    ws.on('message', (data, isBinary) => {
+      if (!isBinary) { state.up = true; return }
+      const frame = decodeFrame(new Uint8Array(data as Buffer))!
+      if (frame.type === 'ping') send({ type: 'pong', nonce: frame.nonce })
+      if (frame.type === 'open') {
+        opened.push({ host: frame.host, port: frame.port })
+        if (mode === 'refuse') { send({ type: 'refused', stream: frame.stream, reason: 'dns' }); return }
+        questions.set(frame.stream, '')
+        send({ type: 'opened', stream: frame.stream })
+      }
+      if (frame.type === 'data') {
+        questions.set(frame.stream, (questions.get(frame.stream) ?? '') + new TextDecoder().decode(frame.bytes))
+        send({ type: 'credit', stream: frame.stream, bytes: frame.bytes.length })
+      }
+      if (frame.type === 'fin' && mode === 'answer') {
+        const answer = [...(questions.get(frame.stream) ?? '')].reverse().join('')
+        send({ type: 'data', stream: frame.stream, bytes: new TextEncoder().encode(answer) })
+        send({ type: 'fin', stream: frame.stream })
+      }
+    })
+    return { ws, opened, state }
+  }
+  const text = (bytes: Uint8Array | null) => bytes === null ? null : new TextDecoder().decode(bytes)
+
+  it('asks the Mac a question over the tunnel and gets its answer, in either mode, connecting nowhere', async () => {
+    expect(await exit.ask(new TextEncoder().encode('hello'), 500)).toBeNull()
+    const m = answeringMac('answer')
+    await until(() => exit.tunnelUp() && m.state.up)
+    expect(text(await exit.ask(new TextEncoder().encode('hello'), 2000))).toBe('olleh')
+    exit.setMode('mac')
+    expect(text(await exit.ask(new TextEncoder().encode('{"v":1}'), 2000))).toBe('}1:"v"{')
+    expect(m.opened).toEqual([{ host: LOCAL_HOST, port: 443 }, { host: LOCAL_HOST, port: 443 }])
+    m.ws.close()
+  })
+
+  it('an older Mac that refuses the name, or one that never answers, is no answer', async () => {
+    const old = answeringMac('refuse')
+    await until(() => exit.tunnelUp() && old.state.up)
+    expect(await exit.ask(new TextEncoder().encode('hello'), 2000)).toBeNull()
+    old.ws.close()
+    await until(() => !exit.tunnelUp())
+    const slow = answeringMac('never')
+    await until(() => exit.tunnelUp() && slow.state.up)
+    const started = Date.now()
+    expect(await exit.ask(new TextEncoder().encode('hello'), 200)).toBeNull()
+    expect(Date.now() - started).toBeLessThan(1500)
+    slow.ws.close()
+  })
+
+  it('never lets the browser itself open the question’s name: no page can ask the Mac', async () => {
+    exit.setMode('mac')
+    const m = answeringMac('answer')
+    await until(() => exit.tunnelUp() && m.state.up)
+    for (const host of [LOCAL_HOST, `x.${LOCAL_HOST}`, LOCAL_HOST.toUpperCase()]) {
+      const { code, socket } = await socksConnect(host, 443)
+      expect(code).toBe(2)
+      socket.destroy()
+    }
+    expect(m.opened).toEqual([])
+    m.ws.close()
   })
 })

@@ -114,6 +114,14 @@ export class RelayClient {
     return typeof body?.approvalId === 'string' ? body.approvalId : null
   }
 
+  /** Whether a saved login may be filled into this sign-in page now (sign-in-card.ts allowSignInFill). Anything but a plain yes is a no. */
+  async maySignInFill(id: string, url: string): Promise<boolean> {
+    const response = await this.call(`/api/browser-relay/commands/${encodeURIComponent(id)}/sign-in-fill`, { method: 'POST', body: { url }, timeoutMs: 10_000 }).catch(() => null)
+    if (!response?.ok) return false
+    const body = await response.json().catch(() => null) as { ok?: unknown } | null
+    return body?.ok === true
+  }
+
   /** Report the outcome. Retried: the route is idempotent, and an unsettled row is only reaped after its lease. */
   async settle(id: string, status: 'completed' | 'failed' | 'denied', result: unknown, error: string | null): Promise<void> {
     for (let attempt = 0; attempt < 3; attempt++) {

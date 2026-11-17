@@ -28,6 +28,8 @@ export interface ExitRoute {
   mode(): ExitMode
   setMode(mode: ExitMode): void
   onTunnel(listener: (up: boolean) => void): () => void
+  /** Ask the person's Mac a question over its tunnel (exit.ts `ask`); absent in older test doubles. */
+  ask?(question: Uint8Array, timeoutMs: number): Promise<Uint8Array | null>
 }
 
 export interface ExitControlOptions {
@@ -122,6 +124,9 @@ export function exitControl(options: ExitControlOptions) {
       void sync()
     },
     mode: () => exit.mode(),
+    /** Ask the person's Mac (a saved login); null when it has no tunnel up, or does not answer. */
+    askMac: (question: Uint8Array, timeoutMs: number): Promise<Uint8Array | null> =>
+      capable && exit.tunnelUp() && exit.ask ? exit.ask(question, timeoutMs) : Promise.resolve(null),
     onTunnel: (listener: (up: boolean) => void) => exit.onTunnel(listener),
     close() { clearTimeout(wake) },
   }

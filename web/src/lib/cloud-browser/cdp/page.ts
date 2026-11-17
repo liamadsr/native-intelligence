@@ -37,6 +37,9 @@ export interface PageHost {
   register(sessionId: string, page: CloudPage | null): void
 }
 
+/** The fill's call into the page runtime: true only when the field now holds the text. */
+const FILL_FIELD_JS = 'function (request, text) { const agent = window.__dial8Agent; return !!(agent && agent.fillField && agent.fillField(request, text).ok === true) }'
+
 export class CloudPage {
   mainFrameId = ''
   url = ''
@@ -260,6 +263,32 @@ export class CloudPage {
     } finally {
       clearTimeout(timer)
     }
+  }
+
+  /**
+   * A saved login's fill (browser-agent/sign-in-fill.ts): put `text` into one field of the last observation, in
+   * the main frame. The page runtime checks and sets it in one call (only on `host`, a password only into a
+   * password field). `text` is passed as an argument, never inside a script's source, and is never logged or returned.
+   */
+  async fillField(ref: string, kind: 'account' | 'password', host: string, text: string): Promise<boolean> {
+    if (this.closed) return false
+    try {
+      // The agent world as it is now (found again when a navigation replaced the document).
+      await this.evaluate(this.mainFrameId, 'null')
+      const frame = this.frames.get(this.mainFrameId)
+      if (!frame || frame.contextId === null) return false
+      const result = await this.send<{ result?: { value?: unknown }; exceptionDetails?: unknown }>('Runtime.callFunctionOn',
+        { functionDeclaration: FILL_FIELD_JS, executionContextId: frame.contextId, arguments: [{ value: { ref, kind, host } }, { value: text }], returnByValue: true },
+        frame.sessionId)
+      return !result.exceptionDetails && result.result?.value === true
+    } catch {
+      return false
+    }
+  }
+
+  /** Enter, as real input, where the focus is (a sign-in form's submit after a fill). */
+  pressEnter(): Promise<boolean> {
+    return this.deliver({ kind: 'key', key: 'Enter' }, { x: 0, y: 0 }, () => !this.closed)
   }
 
   /** Real input, as a person would produce it (send_input's twin). `usable` is checked just before it lands. */

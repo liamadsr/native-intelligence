@@ -16,6 +16,9 @@ vi.mock('@/lib/supabase/service', () => ({
     return q
   } }),
 }))
+const gate = vi.hoisted(() => ({ driver: 'agent' as string | null, blocked: [] as string[] | null }))
+vi.mock('../store', () => ({ readDriver: async () => { if (gate.driver === null) throw new Error('down'); return gate.driver } }))
+vi.mock('@/lib/browser-agent/blocked-sites-server', () => ({ loadBlockedSites: async () => { if (gate.blocked === null) throw new Error('down'); return gate.blocked } }))
 import { requestBrowserSignIn, signInCardWhy } from '../sign-in-card'
 
 const actor = { userId: 'user-1', workspaceId: 'ws-1', deviceId: 'cloud:browser-abc' }
@@ -62,5 +65,28 @@ describe('requestBrowserSignIn', () => {
     expect(mock.create).not.toHaveBeenCalled()
     mock.create.mockResolvedValue({ ok: false, code: 'TOO_MANY_PENDING', error: 'too many' })
     expect((await ask({ url })).status).toBe(429)
+  })
+})
+
+describe('allowSignInFill', () => {
+  it('says yes only while the relay holds the task, the agent drives, and the site is not blocked', async () => {
+    const { allowSignInFill } = await import('../sign-in-card')
+    const may = (body: unknown) => allowSignInFill(actor, 'cmd-1', new Request('https://x/', { method: 'POST', body: JSON.stringify(body) }))
+    gate.driver = 'agent'
+    gate.blocked = []
+    expect(await (await may({ url })).json()).toEqual({ ok: true })
+    gate.driver = 'person'
+    expect(await (await may({ url })).json()).toEqual({ error: 'taken_over' })
+    gate.driver = null
+    expect((await may({ url })).status).toBe(409)
+    gate.driver = 'agent'
+    gate.blocked = ['shop.example.com']
+    expect(await (await may({ url })).json()).toEqual({ error: 'site_blocked' })
+    gate.blocked = null
+    expect((await may({ url })).status).toBe(409)
+    gate.blocked = []
+    mock.row = null
+    expect((await may({ url })).status).toBe(409)
+    expect((await may({ url: 'about:blank' })).status).toBe(400)
   })
 })

@@ -1,10 +1,12 @@
 import 'server-only'
 import { NextResponse } from 'next/server'
-import { siteForUrl } from '@/lib/browser-agent/blocked-sites'
+import { blockedSiteForUrl, siteForUrl } from '@/lib/browser-agent/blocked-sites'
+import { loadBlockedSites } from '@/lib/browser-agent/blocked-sites-server'
 import type { BrowserCommandActor } from '@/lib/browser-agent/command-handlers'
 import { browserTaskSchema } from '@/lib/browser-agent/task-contract'
 import { createToolApproval } from '@/lib/safety/approvals'
 import { getServiceClient } from '@/lib/supabase/service'
+import { readDriver } from './store'
 
 /**
  * A browser task reached a sign-in page (browser-agent/sign-in-page.ts). The
@@ -59,4 +61,30 @@ export async function requestBrowserSignIn(actor: BrowserCommandActor, id: strin
   })
   if (!held.ok) return NextResponse.json({ error: held.error, code: held.code }, { status: held.code === 'TOO_MANY_PENDING' ? 429 : 409 })
   return NextResponse.json({ approvalId: held.approvalId })
+}
+
+/**
+ * Before the relay fills the person's saved login into a sign-in page
+ * (browser-agent/sign-in-fill.ts): the checks a decision step would have made,
+ * since no decision is asked for that page. The relay must still hold the
+ * task, the person must not be driving the browser, and the page's site must
+ * not be one they blocked (the list as it is now). The server never sees the
+ * login: it answers yes or no.
+ */
+export async function allowSignInFill(actor: BrowserCommandActor, id: string, request: Request): Promise<Response> {
+  let body: { url?: unknown }
+  try { body = await request.json() } catch { return NextResponse.json({ error: 'invalid body' }, { status: 400 }) }
+  const url = typeof body.url === 'string' && body.url.length <= 4000 && /^https?:\/\//i.test(body.url) ? body.url : null
+  if (!url) return NextResponse.json({ error: 'Invalid sign-in page' }, { status: 400 })
+  const svc = getServiceClient()
+  const { data: row } = await svc.from('browser_command_queue').select('id')
+    .eq('id', id).eq('user_id', actor.userId).eq('workspace_id', actor.workspaceId).eq('claimed_by_device_id', actor.deviceId)
+    .eq('status', 'claimed').eq('command', 'run_task').gt('lease_expires_at', new Date().toISOString()).maybeSingle()
+  if (!row) return NextResponse.json({ error: 'Task is no longer authorized' }, { status: 409 })
+  // Unknown is a no: a fill never goes ahead on a check that could not be made.
+  const driver = await readDriver({ userId: actor.userId, workspaceId: actor.workspaceId }).catch(() => null)
+  if (driver !== 'agent') return NextResponse.json({ error: driver === 'person' ? 'taken_over' : 'unavailable' }, { status: 409 })
+  const blocked = await loadBlockedSites(svc, actor.userId).then(sites => blockedSiteForUrl(url, sites), () => 'unknown')
+  if (blocked) return NextResponse.json({ error: 'site_blocked' }, { status: 409 })
+  return NextResponse.json({ ok: true })
 }

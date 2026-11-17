@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { openLiveView, setDriver, useComputer } from '@/lib/cloud-browser/computer-client'
+import { openLiveViewForSignIn, setDriver, useComputer } from '@/lib/cloud-browser/computer-client'
 
 /**
  * A sign-in card (cloud-browser/sign-in-card.ts): a browser task reached a
@@ -40,9 +40,10 @@ export function useSignInAsk(args: { site: string | null; pending: boolean; acce
   }, [handBacks])
 
   const open = useCallback(() => {
-    if (!latest.current.site) return
+    const site = latest.current.site
+    if (!site) return
     setOpened(true)
-    openLiveView()
+    openLiveViewForSignIn(site)
     const before = handBacks
     void setDriver('person').then((took) => { if (took) armedAt.current = before })
   }, [handBacks])

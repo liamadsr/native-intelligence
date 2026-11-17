@@ -1054,6 +1054,31 @@ async function invokeBrowserExit(cmd: string, args?: Record<string, unknown>, re
   }
 }
 
+// ── Saved logins for the agent's browser (desktop saved_logins.rs) ──
+// The passwords live in this computer's keystore and never come back out of
+// these commands: a list row is the site, the account name and whether to ask.
+
+/** One saved login as the desktop lists it. No secret. */
+export interface SavedLogin { id: string; site: string; username: string; ask: boolean }
+
+function toSavedLogin(value: unknown): SavedLogin | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  return typeof row.id === "string" && typeof row.site === "string" && typeof row.username === "string"
+    ? { id: row.id, site: row.site, username: row.username, ask: row.ask !== false } : null;
+}
+
+/** A saved-logins command; the desktop's own words when it refuses. Null: not the desktop app, or one without the command. */
+async function invokeSavedLogins<T>(cmd: string, args: Record<string, unknown> | undefined, read: (value: unknown) => T): Promise<T | null> {
+  if (!isDesktopApp()) return null;
+  try {
+    return read(await invoke<unknown>(cmd, args));
+  } catch (e) {
+    if (isMissingCommand(cmd, e)) return null;
+    throw new Error(typeof e === "string" ? e : e instanceof Error ? e.message : `${cmd} failed`);
+  }
+}
+
 // ── Chat voice: dictation and voice mode (docs/plans/chat-voice.md §3.3) ──
 // Optional like read-aloud: a desktop without `voice_status` (or the browser)
 // reads as unavailable and the web renders no voice control at all.
@@ -2455,6 +2480,32 @@ export const tauriBridge = {
         listen<unknown>("browser-exit://status", gate((payload) => {
           const status = toBrowserExitStatus(payload);
           if (status) cb(status);
+        })),
+      );
+    },
+  },
+
+  // ── Saved logins for the agent's browser ──────────────────────
+  // VERSION SKEW: an older desktop has none of the commands; `list` then
+  // resolves null and the panel is not offered.
+  savedLogins: {
+    /** This account's saved logins on this computer; null when the desktop can't keep any. */
+    list: () => invokeSavedLogins("saved_logins_list", undefined, (value) =>
+      Array.isArray(value) ? value.map(toSavedLogin).filter((row): row is SavedLogin => row !== null) : []),
+    /** Save one. The password goes to this computer's keystore and nowhere else, and a new login always asks
+     *  before each use. Throws the desktop's reason. */
+    save: (login: { site: string; username: string; password: string }) =>
+      invokeSavedLogins("saved_login_save", login, toSavedLogin),
+    remove: (id: string) => invokeSavedLogins("saved_login_remove", { id }, () => true),
+    /** Turning asking off is confirmed by the person in a dialog on the computer itself; the row that comes back says what holds now. */
+    setAsk: (id: string, ask: boolean) => invokeSavedLogins("saved_login_set_ask", { id, ask }, toSavedLogin),
+    /** `saved-logins://used`: a login was just given to the agent's browser (its site and account name). */
+    onUsed: (cb: (used: { site: string; username: string }) => void): (() => void) => {
+      if (!isDesktopApp()) return () => {};
+      return listenScoped((gate) =>
+        listen<unknown>("saved-logins://used", gate((payload) => {
+          const row = payload as { site?: unknown; username?: unknown } | null;
+          if (row && typeof row.site === "string" && typeof row.username === "string") cb({ site: row.site, username: row.username });
         })),
       );
     },
