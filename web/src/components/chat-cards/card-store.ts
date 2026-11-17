@@ -102,6 +102,13 @@ export class ChatCardStore {
    */
   private dockedId: string | null = null
   private releasedDockId: string | null = null
+  /**
+   * The docked card minimized into the tile at the bottom left (Liam, 11-16:
+   * "you should be able to click anywhere and minimize the active capture
+   * panel like you can with any other panel"): still docked and mounted, its
+   * notepad out of sight until the tile brings it back (show-tool-card.tsx).
+   */
+  private dockIsAway = false
   /** What the mounted cards say of themselves when a turn is sent (provideLive), by card id. */
   private lives = new Map<string, CardLive>()
   /**
@@ -247,7 +254,7 @@ export class ChatCardStore {
       this.isCollapsed(id) ? 'C' : '',
       this.isLive(id) ? 'L' : '',
       this.stamps.get(id) ?? 0,
-      this.dockedId === id ? 'D' : this.releasedDockId === id ? 'd' : '',
+      this.dockedId === id ? (this.dockIsAway ? 'A' : 'D') : this.releasedDockId === id ? 'd' : '',
     ].join('|')
   }
 
@@ -436,8 +443,22 @@ export class ChatCardStore {
     const was = this.dockedId
     this.dockedId = id
     this.releasedDockId = null
+    this.dockIsAway = false
     if (was) this.stamp(was)
     this.stamp(id)
+    this.notify()
+  }
+
+  /** Is the docked card minimized (its notepad out of sight, the card in the tile)? */
+  dockAway(): boolean {
+    return this.dockedId !== null && this.dockIsAway
+  }
+
+  /** Minimize the docked card's notepad, or bring it back. Nothing with no card docked. */
+  setDockAway(away: boolean): void {
+    if (!this.dockedId || this.dockIsAway === away) return
+    this.dockIsAway = away
+    this.stamp(this.dockedId)
     this.notify()
   }
 
@@ -451,6 +472,7 @@ export class ChatCardStore {
     if (!id) return
     this.dockedId = null
     this.releasedDockId = id
+    this.dockIsAway = false
     if (this.byId.get(id)?.opened) this.update(id, { visitedAt: Date.now() })
     this.stamp(id)
     this.notify()

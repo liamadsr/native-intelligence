@@ -69,7 +69,7 @@ import { MicPicker } from './mic-picker'
 import { ComposerCaptureButton, type ComposerRecording } from './composer-capture-button'
 import type { ComposerEnvironment, ComposerFolders } from './composer-state'
 import { EnvironmentSelector } from '@/components/environments/environment-selector'
-import { CodeAgentPicker, CodeFolderPicker, CodeNoticeLine, ComposerTabs } from './composer-code-controls'
+import { CodeAgentPicker, CodeFolderPicker, CodeNoticeLine, CodePolicyToggle, ComposerTabs } from './composer-code-controls'
 import type { ComposerCode } from './composer-code'
 
 /** The composer's voice: what the desktop can do, and the panel's voice mode.
@@ -532,7 +532,9 @@ export const ChatInput = memo(function ChatInput({
       : dictation.active && !value
         ? 'Listening…'
         : codeActive && code
-          ? code.hasMac
+          ? code.messaging
+            ? `Message ${code.messaging.agentLabel}`
+            : code.hasMac
             ? `Tell ${code.agentLabel} what to change`
             : 'Describe the change'
           : placeholder ?? (hasMessages ? 'Continue chat' : '@ to mention')
@@ -1118,7 +1120,7 @@ export const ChatInput = memo(function ChatInput({
       attachedRecords.length > 0 ||
       !!activeSkill ||
       !!editorSelection)
-  const sendLabel = codeActive && code ? (code.hasMac ? `Send to ${code.agentLabel}` : 'Send') : isLoading ? 'Send when this reply finishes' : 'Send message'
+  const sendLabel = codeActive && code ? (code.messaging ? `Send to ${code.messaging.agentLabel}` : code.hasMac ? `Send to ${code.agentLabel}` : 'Send') : isLoading ? 'Send when this reply finishes' : 'Send message'
 
   // The field: its own row (stacked), or between "+" and the mic (inline).
   const field = (
@@ -1556,7 +1558,7 @@ export const ChatInput = memo(function ChatInput({
           )}
 
           {/* Code: who you work with, before the mic. */}
-          {codeActive && code?.hasMac && <CodeAgentPicker code={code} onOpenChange={handlePopoverLock} />}
+          {codeActive && code?.hasMac && !code.messaging && <CodeAgentPicker code={code} onOpenChange={handlePopoverLock} />}
 
           {/* Dictation: the mic sits left of send (desktop, on-device
               transcription ready). In voice mode (no dictation then) the spot
@@ -1628,7 +1630,8 @@ export const ChatInput = memo(function ChatInput({
                   <Button
                     variant="default"
                     size="icon"
-                    className={inline ? 'h-9 w-9 rounded-full' : 'h-8 w-8 rounded-full'}
+                    // Never squeezed: in the mic picker's 32px slot a 36px button would lose its width and not its height (an oval).
+                    className={inline ? 'h-9 w-9 shrink-0 rounded-full' : 'h-8 w-8 shrink-0 rounded-full'}
                     aria-label={sendLabel}
                     disabled={!hasDraft || codeHeld}
                     onClick={submit}
@@ -1679,7 +1682,9 @@ export const ChatInput = memo(function ChatInput({
               onOpenChange={handlePopoverLock}
             />
           )}
-          {codeActive && code && <CodeFolderPicker code={code} onOpenChange={handlePopoverLock} />}
+          {/* A new chat's folder; an open chat has its own. While it works: how the message lands. */}
+          {codeActive && code && !code.messaging && <CodeFolderPicker code={code} onOpenChange={handlePopoverLock} />}
+          {codeActive && code?.messaging?.working && <CodePolicyToggle messaging={code.messaging} />}
           {unavailable?.agent && (
             <UnavailableControl
               control="agent"
@@ -1764,7 +1769,7 @@ function UnavailableControl({
           data-composer-unavailable={control}
           aria-describedby={reasonId}
           title={reason}
-          className={`flex h-7 min-w-11 items-center gap-1 overflow-hidden rounded-md px-1.5 text-[13px] text-muted-foreground/60 transition-colors hover:bg-accent/40 hover:text-muted-foreground ${className}`}
+          className={`flex h-7 min-w-11 items-center gap-1 overflow-hidden rounded-full px-1.5 text-[13px] text-muted-foreground/60 transition-colors hover:bg-accent/40 hover:text-muted-foreground ${className}`}
         >
           {icon}
           <span className="min-w-0 truncate">{label}</span>

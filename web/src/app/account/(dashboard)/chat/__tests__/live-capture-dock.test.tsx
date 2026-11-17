@@ -41,14 +41,14 @@ let seen: LiveCaptureDockSlot | null = null
 const enterFullScreen = vi.fn()
 
 /** Stands in for the docked card: its page moved into the dock, attached with its title. */
-function FakeCard({ attach = true, fullScreen = false }: { attach?: boolean; fullScreen?: boolean }) {
+function FakeCard({ attach = true, fullScreen = false, away = false }: { attach?: boolean; fullScreen?: boolean; away?: boolean }) {
   const slot = useLiveCaptureDockSlot()
   seen = slot
   const attachFn = slot?.attach
   useEffect(() => {
     if (!attach || !attachFn) return
-    return attachFn({ title: 'Capture Oct 9', fullScreen, enterFullScreen })
-  }, [attach, attachFn, fullScreen])
+    return attachFn({ title: 'Capture Oct 9', fullScreen, away, enterFullScreen })
+  }, [attach, attachFn, fullScreen, away])
   return h(
     'div',
     { 'data-chat': '' },
@@ -57,14 +57,14 @@ function FakeCard({ attach = true, fullScreen = false }: { attach?: boolean; ful
   )
 }
 
-function render(props: { attach?: boolean; fullScreen?: boolean } = {}) {
+function render(props: { attach?: boolean; fullScreen?: boolean; away?: boolean } = {}) {
   act(() => {
     root.render(
       h(
         'div',
         { id: 'ni-chat-strip-slot' },
         h(LiveCaptureDockLayout, {
-          children: h(FakeCard, { attach: props.attach, fullScreen: props.fullScreen }),
+          children: h(FakeCard, { attach: props.attach, fullScreen: props.fullScreen, away: props.away }),
         }),
       ),
     )
@@ -143,6 +143,20 @@ describe('LiveCaptureDockLayout', () => {
     expect(row().getAttribute('data-live-capture-dock-row')).toBe('overlay')
     expect(dock()!.getAttribute('data-live-capture-dock-mode')).toBe('overlay')
     expect(chatArea().style.left).toBe('0px')
+  })
+
+  it('slides away while its card is minimized into the tile, the chat back at full width, and back when it returns', () => {
+    recording('cap-1')
+    render({ away: true })
+    expect(row().getAttribute('data-live-capture-dock-row')).toBe('off')
+    expect(dock()!.hasAttribute('inert')).toBe(true)
+    expect(dock()!.className).toContain('invisible')
+    expect(chatArea().style.left).toBe('0px')
+    // Still the capture's dock, its card's page still in it.
+    expect(dock()!.querySelector('[data-live-capture-dock-body] [data-capture-page]')).not.toBeNull()
+    render({ away: false })
+    expect(row().getAttribute('data-live-capture-dock-row')).toBe('push')
+    expect(dock()!.hasAttribute('inert')).toBe(false)
   })
 
   it('keeps its place while the card is full screen', () => {

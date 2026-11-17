@@ -65,6 +65,7 @@ import { LocalAgentComposer } from './local-agent-composer'
 import { BranchCardActions } from './branch-card'
 import { ChangesView } from './changes-view'
 import type { PanelSession } from './session-api'
+import type { LocalAgentPolicy } from '@/lib/tauri-bridge'
 
 /** Within this many px of the bottom, the transcript follows the stream. */
 const STICK_PX = 48
@@ -169,16 +170,33 @@ export function LocalAgentPanel({
   className,
   header = true,
   autoFocus = false,
+  composer = true,
+  onLive,
+  onError,
 }: {
   sessionId: string
   className?: string
+  /** Draw its own box to message it. A host whose own composer messages it (the Code view) leaves it out. */
+  composer?: boolean
+  /** What it holds, for a host that shows it elsewhere too (the Code view's right panel and composer): the session as read, its send and Stop. Null until read, and when it goes. */
+  onLive?: (live: { session: PanelSession; stopping: boolean; send: (text: string, policy: LocalAgentPolicy, requestId: string) => Promise<{ ok: true } | { ok: false; message: string }>; stop: () => Promise<{ ok: true } | { ok: false; message: string }> } | null) => void
   /** Draw its own header (folder, status, Stop). A host with its own Stop and title can leave it out. */
   header?: boolean
   autoFocus?: boolean
+  /** Its first read failed and it holds nothing (the job is gone, or not this person's): for a host that shows it elsewhere too. */
+  onError?: (message: string) => void
 }) {
   const { session, transcript, loading, error, stopping, hasEarlier, loadingEarlier, loadEarlier, send, stop } =
     useLocalAgentSession(sessionId)
   const items = transcript.items
+  useEffect(() => {
+    if (!onLive) return
+    onLive(session ? { session, stopping, send, stop } : null)
+  }, [onLive, session, stopping, send, stop])
+  useEffect(() => () => onLive?.(null), [onLive])
+  useEffect(() => {
+    if (error && !session) onError?.(error)
+  }, [error, session, onError])
 
   // Only the newest `drawn` items render; "Show earlier" draws (and reads) more.
   const [drawn, setDrawn] = useState(RENDER_WINDOW)
@@ -402,12 +420,16 @@ export function LocalAgentPanel({
 
       <div className="shrink-0" hidden={showChanges}>
         {canMessage ? (
-          <LocalAgentComposer onSend={send} working={live} asking={asking} autoFocus={autoFocus} />
+          composer ? <LocalAgentComposer onSend={send} working={live} asking={asking} autoFocus={autoFocus} /> : null
         ) : (
           <p data-local-agent-ended="" className="py-2 text-center text-xs text-muted-foreground">
             {sessionEndedText(session.status, session.error)}{' '}
             {/* A job the person started from the Code tab: they start the next one there too. */}
-            {session.codeRequestId ? 'Start a new one from the Code tab in your chat.' : 'Ask the Native Intelligence agent to start a new one.'}
+            {!composer
+              ? 'Your next message starts a new chat.'
+              : session.codeRequestId
+                ? 'Start a new one from the Code tab in your chat.'
+                : 'Ask the Native Intelligence agent to start a new one.'}
           </p>
         )}
       </div>

@@ -102,7 +102,7 @@ export function EnvironmentSelector({ chat, list, onOpenMenu, onPick, isActive =
             data-environment-selector={current?.kind ?? 'none'}
             aria-label={current ? `Environment: ${current.name}` : 'Choose an environment'}
             title={current ? `This chat’s work runs on ${current.name}` : 'Choose where this chat’s work runs'}
-            className="flex h-7 min-w-0 max-w-[16rem] shrink items-center gap-1.5 overflow-hidden rounded-md px-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent/40 data-[state=open]:text-foreground motion-reduce:transition-none"
+            className="flex h-7 min-w-0 max-w-[16rem] shrink items-center gap-1.5 overflow-hidden rounded-full px-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent/40 data-[state=open]:text-foreground motion-reduce:transition-none"
           >
             {current ? (
               <EnvironmentKindIcon kind={current.kind} className="size-3.5" />

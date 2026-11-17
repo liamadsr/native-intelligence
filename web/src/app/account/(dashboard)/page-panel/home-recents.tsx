@@ -47,12 +47,14 @@
  * while it shows, a card in front closing; no timer), plain rows, at most RECENTS_PAGE mounted until "Show
  * more", no animation. `ph-no-capture`: titles can be private.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import { useScrollFades } from '@/components/attention/scroll-fades'
 import { FALLBACK_FEED_ICON, FEED_ICONS } from '../chat/feed-icons'
+import { useSidePanelState } from '../side-panels/side-panels'
+import { CodeChatsPanel } from './code-chats'
 import { PagePanelFrame } from './page-panel-frame'
 import { RECENTS_PAGE, frontRecentKey, groupRecents, shortRecentTime, type RecentItem } from './recents-model'
 import { useRecents } from './use-recents'
@@ -64,7 +66,36 @@ export function openRecent(item: Pick<RecentItem, 'type' | 'id' | 'title'>): boo
   return target ? openTarget(target, { from: 'recents' }) : false
 }
 
-export function HomeRecentsPanel({ active, mode, front, onContent }: PagePanelProps) {
+/**
+ * Home's panel: the recents, or, while the main composer is on Code, the
+ * person's coding chats in their place (code-chats.tsx; Liam, 11-16). One or
+ * the other is mounted, so only the list on screen reads.
+ */
+export function HomeRecentsPanel(props: PagePanelProps) {
+  const { codeView } = useSidePanelState()
+  const { active, onContent } = props
+  // Both lists stay mounted once shown, each holding what it read: a switch
+  // between the agent's tab and Code shows the other at once, never an empty
+  // slot while it reads again (page-panel.tsx's rule). Only the one on
+  // screen reads, and only it says what home has to show.
+  const [seenCode, setSeenCode] = useState(codeView)
+  if (codeView && !seenCode) setSeenCode(true)
+  const [content, setContent] = useState<{ recents: boolean | null; code: boolean | null }>({ recents: null, code: null })
+  const onRecents = useCallback<PagePanelProps['onContent']>((_page, has) => setContent((c) => (c.recents === has ? c : { ...c, recents: has })), [])
+  const onCode = useCallback<PagePanelProps['onContent']>((_page, has) => setContent((c) => (c.code === has ? c : { ...c, code: has })), [])
+  const has = codeView ? content.code : content.recents
+  useEffect(() => {
+    onContent('home', has)
+  }, [has, onContent])
+  return (
+    <>
+      <RecentsPanel {...props} active={active && !codeView} shown={!codeView} onContent={onRecents} />
+      {seenCode && <CodeChatsPanel {...props} active={active && codeView} shown={codeView} onContent={onCode} />}
+    </>
+  )
+}
+
+function RecentsPanel({ active, mode, front, onContent, shown }: PagePanelProps & { shown: boolean }) {
   const { items, readAt, markOpened } = useRecents(active, front?.id ?? null)
   // The record the card in front shows: its row is lit.
   const lit = frontRecentKey(front?.spec)
@@ -83,7 +114,7 @@ export function HomeRecentsPanel({ active, mode, front, onContent }: PagePanelPr
   const fades = useScrollFades<HTMLDivElement>(windowed.length)
   const rest = items.length - windowed.length
 
-  if (!has || !readAt) return null
+  if (!shown || !has || !readAt) return null
   const open = (item: RecentItem) => {
     // Already in front: it is open (a second card of it would only stack in the chat).
     if (item.key === lit) {

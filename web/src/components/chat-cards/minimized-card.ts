@@ -158,7 +158,7 @@ export function minimizedAlive(card: MinimizedCard): boolean {
  * the tile. Nothing below `md`, without a tile drawn, or for a card that no
  * longer is.
  */
-export function minimizeCard(card: MinimizedCard, frame: HTMLElement | null): void {
+export function minimizeCard(card: MinimizedCard, frame: HTMLElement | null, { fly = true }: { fly?: boolean } = {}): void {
   if (!hosts || !besideAppRail() || !minimizedAlive(card)) return
   // A switch, not a minimize: another card took its place full screen (the
   // rail, a sub-nav row, Search, a record opened over it). The tile is left
@@ -179,7 +179,8 @@ export function minimizeCard(card: MinimizedCard, frame: HTMLElement | null): vo
   // The tile's preview: kept, so it may not move (stillCopyOf), with or without the flight;
   // the flight's copy is a clone of it (no second walk over the page).
   const preview = soon ? soon.preview : stillCopyOf(frame)
-  const snapshot = soon ? null : flightCopyOf(preview)
+  // `fly: false`: the frame leaves by its own motion (the capture's notepad slides away), home never left.
+  const snapshot = soon || !fly ? null : flightCopyOf(preview)
   flightIn = snapshot ? { id: card.id, snapshot } : null
   current = { id: card.id, spec: card.spec, store: card.store, preview }
   notify()
@@ -290,6 +291,12 @@ export function restoreMinimized(tile: HTMLElement | null, { panelChanges = fals
   if (!minimizedAlive(card)) {
     clearMinimized()
     return false
+  }
+  // The live capture's notepad, minimized: back beside the chat where it was (its dock slides it in), not full screen.
+  if (card.store.docked() === card.id && card.store.dockAway()) {
+    card.store.setDockAway(false)
+    clearMinimized(card)
+    return true
   }
   const key = minimizedFlightKey(card.id)
   let scene: Array<() => void> = []

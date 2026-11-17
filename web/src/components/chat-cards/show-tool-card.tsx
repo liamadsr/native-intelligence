@@ -72,7 +72,7 @@ import { ListenFramePulseHere, ListenFrameRegistry } from '@/components/read-alo
 import { ListenModeToggle } from '@/components/read-aloud/listen-mode-toggle'
 import { useChatCardHost } from './card-host'
 import { CARD_FRAME_ATTR } from './card-frame-attr'
-import { FULL_SCREEN_CONTROL_ATTR, isOutsideCardPress } from './outside-card-press'
+import { FULL_SCREEN_CONTROL_ATTR, isOutsideCardPress, isOutsideDockPress, popoverLayerOpen } from './outside-card-press'
 import { ChatCardStore } from './card-store'
 import { CardHistoryButtons, CardHistoryProvider, cardOwnsHistoryKeys, isHistoryKey } from './card-history'
 import { CardHeaderSlotsProvider, type CardHeaderSlots } from './card-header-slot'
@@ -80,8 +80,8 @@ import { CARD_HEADER_ICON_BUTTON } from './card-header-button'
 import { useLiveCaptureDockSlot } from './card-dock-slot'
 import { CARD_GLASS_FRAME, CardGlass } from './card-glass'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
-import { holdFrontCard } from './front-card'
-import { minimizeCard, minimizeSoon, minimizedFlightKey, recheckMinimized } from './minimized-card'
+import { frontCard, holdFrontCard } from './front-card'
+import { besideAppRail, minimizeCard, minimizeSoon, minimizedCard, minimizedFlightKey, recheckMinimized, subscribeMinimized } from './minimized-card'
 import { landTileFlight } from '@/lib/chat/tile-flight'
 import { PANEL_GUTTER_PX } from '@/app/account/(dashboard)/side-panels/space-plan'
 
@@ -621,6 +621,10 @@ export function ShowToolCard({
   const dockMatch =
     kept && !!dock && (store.docked() === toolCallId || (dock.ending && store.dockReleased() === toolCallId))
   const docked = dockMatch && !fullScreen && !!dock?.body
+  // Minimized into the tile (a press outside the notepad, or out of full
+  // screen by an empty press or Esc): still docked and mounted, its notepad
+  // out of sight until the tile brings it back (card-store.ts dockAway).
+  const dockAway = dockMatch && store.docked() === toolCallId && store.dockAway()
   const bodyShown = fullScreen ? true : kept ? docked : !collapsed && seen
   const [bodyKept, setBodyKept] = React.useState(false)
   const letsPageGo = !kept && collapsed && !fullScreen
@@ -775,8 +779,8 @@ export function ShowToolCard({
   const dockAttach = dockMatch && !dormant ? dock?.attach : undefined
   React.useEffect(() => {
     if (!dockAttach) return
-    return dockAttach({ title: spec.title, fullScreen, enterFullScreen: () => store.enterFullScreen(toolCallId) })
-  }, [dockAttach, spec.title, fullScreen, store, toolCallId])
+    return dockAttach({ title: spec.title, fullScreen, away: dockAway, enterFullScreen: () => store.enterFullScreen(toolCallId) })
+  }, [dockAttach, spec.title, fullScreen, dockAway, store, toolCallId])
   // Back and Forward inside the card: kept in the chat's card store by the
   // card's id, so a remount (a card opened during a turn joining the thread
   // once it settles) keeps its steps.
@@ -820,9 +824,45 @@ export function ShowToolCard({
   // not minimize (below `md`, no tile).
   const minimizeFromFullScreen = React.useCallback(() => {
     minimizeSoon({ id: toolCallId, spec: specRef.current, store }, fullScreenFrameRef.current, () => {
-      if (store.fullScreen() === toolCallId) store.exitFullScreen()
+      if (store.fullScreen() !== toolCallId) return
+      // The live capture's goes into the tile like any other panel, not back to its notepad (Liam, 11-16).
+      if (store.docked() === toolCallId) store.setDockAway(true)
+      store.exitFullScreen()
     })
   }, [store, toolCallId])
+
+  // The live capture's notepad minimizes like any other panel (Liam, 11-16:
+  // "you should be able to click anywhere and minimize the active capture
+  // panel like you can with any other panel"): a press anywhere outside it
+  // that is not on a control (outside-card-press.ts isOutsideDockPress) puts
+  // it in the tile at the bottom left, and its dock slides it away. The press
+  // still does what it did: the chat beside the notepad is live. One window
+  // listener, there only while the notepad is out.
+  React.useEffect(() => {
+    if (!docked || dockAway) return
+    const onPress = (e: PointerEvent) => {
+      if (e.button !== 0 || e.defaultPrevented) return
+      if (frontCard() || !besideAppRail() || popoverLayerOpen() || !isOutsideDockPress(e.target, frameRef.current)) return
+      minimizeCard({ id: toolCallId, spec: specRef.current, store }, frameRef.current, { fly: false })
+      const tile = minimizedCard()
+      // Only with a tile to bring it back from (none below `md`): never out of reach.
+      if (tile?.id === toolCallId && tile.store === store) store.setDockAway(true)
+    }
+    window.addEventListener('pointerdown', onPress, true)
+    return () => window.removeEventListener('pointerdown', onPress, true)
+  }, [docked, dockAway, store, toolCallId])
+  // Minimized, it is out of sight only while the tile holds it: the tile
+  // cleared or taken by another card, its notepad comes back (a capture that
+  // is recording is never out of reach).
+  React.useEffect(() => {
+    if (!dockAway || fullScreen) return
+    const check = () => {
+      const tile = minimizedCard()
+      if (!tile || tile.id !== toolCallId || tile.store !== store) store.setDockAway(false)
+    }
+    check()
+    return subscribeMinimized(check)
+  }, [dockAway, fullScreen, store, toolCallId])
 
   // Esc puts a full-screen card back, unless a popover inside it is open.
   React.useEffect(() => {
@@ -1046,7 +1086,15 @@ export function ShowToolCard({
                   its header instead (Liam, 11-09: the two did the same). */}
               {!pageClose && (
                 <div className={FULL_SCREEN_CONTROLS}>
-                  <OverlayButton label={minimizeLabel} onClick={() => store.exitFullScreen()} testId="card-minimize">
+                  <OverlayButton
+                    label={minimizeLabel}
+                    onClick={() => {
+                      // "Back to notes": the notepad, wherever it was.
+                      store.setDockAway(false)
+                      store.exitFullScreen()
+                    }}
+                    testId="card-minimize"
+                  >
                     <Minimize2 className="size-4" strokeWidth={2} />
                   </OverlayButton>
                 </div>

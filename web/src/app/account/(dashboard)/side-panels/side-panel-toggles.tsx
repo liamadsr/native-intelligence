@@ -58,11 +58,20 @@ const SidePanelIcon = createLucideIcon('side-panel', [
  */
 export function SidePanelToggle({ variant = 'pill' }: { variant?: 'pill' | 'header' } = {}) {
   const state = useSidePanelState()
-  const { running } = useAgentsSummary()
+  const agents = useAgentsSummary()
   // Lit only while the sections are on screen (not while For you shows).
   const open = shownView(state) === 'panel'
   const shortcut = useModKeyLabel('\\')
-  const label = ['Side panel', running > 0 ? `${running} running` : null, state.connectionsAttention ? 'a connection needs you' : null].filter(Boolean).join(', ')
+  // On Code the panel holds the selected coding chat's details: the agents
+  // running and the connectors' dot are the agent's own, not shown there.
+  const onCode = !!state.codeView
+  const running = onCode ? 0 : agents.running
+  const attention = !onCode && state.connectionsAttention
+  const label = [onCode ? 'Coding chat details' : 'Side panel', running > 0 ? `${running} running` : null, attention ? 'a connection needs you' : null].filter(Boolean).join(', ')
+  // On Code with no chat selected there is nothing for it to open: no button
+  // (Liam, 11-16: it "shows with the notification bubble even though nothing
+  // is there and clicking it does nothing"; "hide empty widgets").
+  if (onCode && !state.codeChat) return null
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -95,13 +104,13 @@ export function SidePanelToggle({ variant = 'pill' }: { variant?: 'pill' | 'head
               {running}
             </span>
           )}
-          {state.connectionsAttention && (
+          {attention && (
             <span data-side-panel-attention="" aria-hidden className="absolute right-1 top-1 size-2 rounded-full bg-amber-500 ring-2 ring-white dark:ring-black" />
           )}
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom" sideOffset={6} collisionPadding={8} avoidCollisions={false} className={TOP_BAR_TIP}>
-        <span>Side panel</span>
+        <span>{onCode ? 'Coding chat details' : 'Side panel'}</span>
         <kbd className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[4px] border bg-muted/60 px-1 text-[10px] font-medium text-muted-foreground">{shortcut}</kbd>
       </TooltipContent>
     </Tooltip>
@@ -116,9 +125,13 @@ export function SidePanelToggle({ variant = 'pill' }: { variant?: 'pill' | 'head
  */
 export function ForYouToggle({ variant = 'pill' }: { variant?: 'pill' | 'header' } = {}) {
   // On screen now (the panel open on For you, which it is only with cards): what the button shows and flips.
-  const shown = shownView(useSidePanelState()) === 'forYou'
+  const state = useSidePanelState()
+  const shown = shownView(state) === 'forYou'
   const entries = useForYouEntries()
-  if (entries.length === 0) return null
+  // On Code the panel holds the coding chat's details, not the agent's For you
+  // cards: no button for a view that isn't there (Liam, 11-16: it "still
+  // shows on the coding view even though you can't click it"). Back with the agent's tab.
+  if (entries.length === 0 || state.codeView) return null
   return (
     <Tooltip>
       <TooltipTrigger asChild>

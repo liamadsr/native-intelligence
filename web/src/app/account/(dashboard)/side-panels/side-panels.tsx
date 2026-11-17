@@ -87,6 +87,7 @@ import { cn } from '@/lib/utils'
 import { useHotkeys } from '@/lib/hotkeys'
 import { useConnections } from '@/lib/integrations/use-connections'
 import { FLOATING_CARD_CLASS } from '@/components/attention/card-skin'
+import { CodeChatSections } from './code-chat-sections'
 import { useOptionalAgentWorkShared } from '@/components/work/agent-work-provider'
 import { ForYouView, useForYouEntries } from '../chat/for-you-column'
 import { CardHeading, type SummaryTone } from './card-heading'
@@ -108,6 +109,7 @@ import {
   moveSection,
   restoreChatAnchor,
   rightShown,
+  setCodeDetailsOpen,
   setConnectionsAttention,
   setForYouContent,
   setRightPanelOpen,
@@ -151,7 +153,7 @@ export function useSidePanelState(): SidePanelState {
 export function planFor(
   width: number,
   state: Pick<SidePanelState, 'rightOpen' | 'view' | 'forYouContent' | 'captureDock'> &
-    Partial<Pick<SidePanelState, 'pagePanel' | 'pagePanelOpen' | 'pagePanelFloatOk' | 'pagePanelPage'>>,
+    Partial<Pick<SidePanelState, 'pagePanel' | 'pagePanelOpen' | 'pagePanelFloatOk' | 'pagePanelPage' | 'codeView' | 'codeChat' | 'codeDetailsOpen'>>,
   { content, was = null }: { content?: number; was?: SpacePlan | null } = {},
 ): SpacePlan {
   const left = !!state.pagePanel && state.pagePanelOpen !== false && !state.captureDock
@@ -308,8 +310,10 @@ export function RightSidePanel({ mode }: { mode: PanelMode }) {
   useEffect(() => () => setForYouContent(false), [])
 
   // Which view is on screen: one at a time, the other hidden and inert.
-  const sectionsOn = open && state.view === 'panel'
-  const forYouOn = open && state.view === 'forYou' && hasForYou
+  // On Code the panel holds the selected coding chat's details instead (code-chat-sections.tsx).
+  const codeOn = open && !!state.codeView
+  const sectionsOn = open && !state.codeView && state.view === 'panel'
+  const forYouOn = open && !state.codeView && state.view === 'forYou' && hasForYou
   // Each view mounted on its first showing, then kept.
   const [seen, setSeen] = useState({ panel: sectionsOn, forYou: forYouOn })
   if ((sectionsOn && !seen.panel) || (forYouOn && !seen.forYou)) setSeen({ panel: seen.panel || sectionsOn, forYou: seen.forYou || forYouOn })
@@ -334,7 +338,9 @@ export function RightSidePanel({ mode }: { mode: PanelMode }) {
     e.preventDefault()
     // The focus goes back to the button of the view that showed.
     const view = shownView(getSidePanelState()) ?? 'panel'
-    setRightPanelOpen(false)
+    // On Code it is the coding chat's details that close: the agent's own panel stays as it was.
+    if (getSidePanelState().codeView) setCodeDetailsOpen(false)
+    else setRightPanelOpen(false)
     ;(document.querySelector<HTMLElement>(VIEW_TOGGLE_SELECTOR[view]) ?? document.querySelector<HTMLElement>(VIEW_TOGGLE_SELECTOR.panel))?.focus()
   }
 
@@ -360,6 +366,12 @@ export function RightSidePanel({ mode }: { mode: PanelMode }) {
       )}
       style={{ ...SLIDE_STYLE, top: PANEL_TOP, right: TOP_BAR_RIGHT_INSET_PX, bottom, width: RIGHT_PANEL_WIDTH_PX }}
     >
+      {/* The Code view: the selected coding chat's details, in the sections' place. */}
+      {codeOn && (
+        <div data-side-panel-code="" className="pointer-events-none -mx-1 flex min-h-0 flex-col overflow-y-auto overscroll-contain px-1 pb-1 scrollbar-hide-deep">
+          <CodeChatSections />
+        </div>
+      )}
       {/* The sections: as tall as their cards (down to the panel's bottom, then they scroll), a hair of room round them for their lift and focus rings. */}
       {seen.panel && (
         <div

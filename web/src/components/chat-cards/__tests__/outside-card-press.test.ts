@@ -4,7 +4,7 @@
  * is off the card and off any control, with no popover open.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { isOutsideCardPress, popoverLayerOpen } from '../outside-card-press'
+import { isOutsideCardPress, isOutsideDockPress, popoverLayerOpen } from '../outside-card-press'
 
 let layer: HTMLDivElement
 let frame: HTMLDivElement
@@ -102,5 +102,42 @@ describe('isOutsideCardPress', () => {
     expect(popoverLayerOpen()).toBe(false)
     expect(isOutsideCardPress(pressOn('stage'), frame)).toBe(true)
     expect(isOutsideCardPress({ button: 0, target: inner, currentTarget: layer }, frame)).toBe(false)
+  })
+})
+
+describe('isOutsideDockPress (the live capture’s notepad, beside a live chat)', () => {
+  let shell: HTMLDivElement
+  beforeEach(() => {
+    shell = document.createElement('div')
+    shell.id = 'ni-shell-root'
+    shell.innerHTML = `
+      <div id="chat"><p id="message">A message</p><a id="link" href="#">a link</a><textarea id="composer"></textarea></div>
+      <div id="notepad"><p id="notes">notes</p><button id="expand">Full screen</button></div>
+      <nav id="rail"><button id="home">Home</button></nav>`
+    document.body.append(shell)
+  })
+  afterEach(() => shell.remove())
+  const el = (id: string) => document.getElementById(id)!
+
+  it('is any press in the app outside the notepad: the chat’s own text and space too', () => {
+    const notepad = el('notepad')
+    expect(isOutsideDockPress(el('message'), notepad)).toBe(true)
+    expect(isOutsideDockPress(el('chat'), notepad)).toBe(true)
+    expect(isOutsideDockPress(shell, notepad)).toBe(true)
+    expect(isOutsideDockPress(el('rail'), notepad)).toBe(true)
+  })
+
+  it('is never a press in the notepad, on a control, or on what is portalled to <body>', () => {
+    const notepad = el('notepad')
+    expect(isOutsideDockPress(el('notes'), notepad)).toBe(false)
+    expect(isOutsideDockPress(el('expand'), notepad)).toBe(false)
+    expect(isOutsideDockPress(el('composer'), notepad)).toBe(false)
+    expect(isOutsideDockPress(el('link'), notepad)).toBe(false)
+    expect(isOutsideDockPress(el('home'), notepad)).toBe(false)
+    const toast = document.createElement('div')
+    document.body.append(toast)
+    expect(isOutsideDockPress(toast, notepad)).toBe(false)
+    expect(isOutsideDockPress(document.body, notepad)).toBe(false)
+    toast.remove()
   })
 })

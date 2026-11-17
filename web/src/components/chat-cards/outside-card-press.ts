@@ -158,3 +158,24 @@ export function isEmptyAppPress(target: EventTarget | null): boolean {
   }
   return target.matches(EMPTY_ZONE_SELECTOR)
 }
+
+/** The app's own tree (dashboard-shell.tsx): what is portalled to <body> (a popover, a dialog, a toast, the tile) is outside it. */
+const APP_SHELL_SELECTOR = '#ni-shell-root'
+
+/**
+ * Is a press on `target` outside the live capture's notepad (`frame`, the
+ * card docked beside the chat), so that it minimizes (Liam, 11-16: "you
+ * should be able to click anywhere and minimize the active capture panel like
+ * you can with any other panel")? Yes anywhere in the app that is not the
+ * notepad and not a control: the chat beside it is live, unlike under a
+ * full-screen card, so "anywhere" is the chat's own text and space too, and
+ * the press still does what it did (the caller never prevents it). Never on
+ * a control (the composer, a button, the rail) or on what is portalled to
+ * <body>. The caller checks the button and that no popover is open.
+ */
+export function isOutsideDockPress(target: EventTarget | null, frame: Element | null): boolean {
+  if (!(target instanceof Element)) return false
+  if (frame?.contains(target)) return false
+  if (!target.closest(APP_SHELL_SELECTOR)) return false
+  return !target.closest(INTERACTIVE_SELECTOR)
+}

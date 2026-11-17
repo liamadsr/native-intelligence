@@ -17,6 +17,8 @@ export interface DockedCard {
   title: string
   /** The card is full screen now: its page is in the overlay, not here. */
   fullScreen: boolean
+  /** The card is minimized into the tile at the bottom left: the notepad stays out of sight until it is brought back. */
+  away?: boolean
   /** Take the card full screen (the normal overlay). */
   enterFullScreen: () => void
 }

@@ -3,7 +3,7 @@
 /**
  * The main composer's Chat / Code controls (composer-code.tsx is their hook):
  *
- *   ComposerTabs      under the box, first: Chat and Code. The repo's
+ *   ComposerTabs      under the box, first: the agent's name (the chat) and Code. The repo's
  *                     ToggleGroup (Radix, type single): one radio group with
  *                     roving focus, so the arrow keys move between the two and
  *                     the one in front is announced as checked.
@@ -41,6 +41,7 @@ import {
 import { AgentIcon } from '@/components/agents/agent-icon'
 import { codingAgentConnectHint } from '@/lib/environments/types'
 import type { ComposerTab } from '@/lib/local-agent/code-tab'
+import { useAssistantName } from '@/lib/voice/assistant-name-store'
 import type { ComposerCode } from './composer-code'
 
 const stop = (e: SyntheticEvent) => e.stopPropagation()
@@ -48,21 +49,22 @@ const stop = (e: SyntheticEvent) => e.stopPropagation()
 /** The picker's value for Native Intelligence's own agent: never a worker id (those have no colon). */
 const NATIVE = ':native'
 
-/** The track, the environment chip's height and radius, in the composer's greys. */
-const TRACK = 'h-7 shrink-0 flex-nowrap justify-start gap-0.5 rounded-md border border-border/70 bg-muted/70 p-0.5 dark:bg-background'
+/** The track, the environment chip's height, a pill as the composer above it is (Liam, 11-16), in the composer's greys. */
+const TRACK = 'h-7 shrink-0 flex-nowrap justify-start gap-0.5 rounded-full border border-border/70 bg-muted/70 p-0.5 dark:bg-background'
 
 /** A tab: plain text; in front, a raised pill clearly apart from the track in both themes. */
 const TAB =
-  'h-[22px] rounded-[5px] px-2.5 text-[13px] font-normal text-muted-foreground hover:bg-background/70 hover:text-foreground dark:hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm data-[state=on]:ring-1 data-[state=on]:ring-border dark:data-[state=on]:bg-accent motion-reduce:transition-none'
+  'h-[22px] rounded-full px-3 text-[13px] font-normal text-muted-foreground hover:bg-background/70 hover:text-foreground dark:hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm data-[state=on]:ring-1 data-[state=on]:ring-border dark:data-[state=on]:bg-accent motion-reduce:transition-none'
 
 /** A quiet text button under the box, as the environment selector is. */
 const CHIP =
-  'flex h-7 min-w-0 max-w-[14rem] shrink items-center gap-1.5 overflow-hidden rounded-md px-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent/40 data-[state=open]:text-foreground motion-reduce:transition-none'
+  'flex h-7 min-w-0 max-w-[14rem] shrink items-center gap-1.5 overflow-hidden rounded-full px-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent/40 data-[state=open]:text-foreground motion-reduce:transition-none'
 
 const ROW =
   'relative flex cursor-default select-none items-center gap-2.5 rounded-2xl px-2 py-2 text-sm outline-hidden transition-colors focus:bg-accent focus:text-accent-foreground data-disabled:pointer-events-none'
 
 export function ComposerTabs({ tab, onTab }: { tab: ComposerTab; onTab: (tab: ComposerTab) => void }) {
+  const { name: agentName } = useAssistantName()
   return (
     <ToggleGroup
       type="single"
@@ -77,11 +79,42 @@ export function ComposerTabs({ tab, onTab }: { tab: ComposerTab; onTab: (tab: Co
       data-composer-tabs=""
       className={TRACK}
     >
-      <ToggleGroupItem value="chat" data-composer-tab="chat" className={TAB} title="Chat with Native Intelligence">
-        Chat
+      {/* The chat tab carries the agent's own name (Liam, 11-16), the default until the person names it. */}
+      <ToggleGroupItem value="chat" data-composer-tab="chat" className={TAB} title={`Chat with ${agentName}`} aria-label={`Chat with ${agentName}`}>
+        <span className="max-w-[9rem] truncate">{agentName}</span>
       </ToggleGroupItem>
       <ToggleGroupItem value="code" data-composer-tab="code" className={TAB} title="Work with a coding agent directly, in a folder on your Mac">
         Code
+      </ToggleGroupItem>
+    </ToggleGroup>
+  )
+}
+
+/**
+ * How a message to the open coding chat lands while its agent works (the
+ * conversation's own choice, local-agent-composer.tsx): Steer, now, or Queue,
+ * when this turn ends. Under the box, in the tabs' look. Only while it works:
+ * idle, either starts its next turn.
+ */
+export function CodePolicyToggle({ messaging }: { messaging: NonNullable<ComposerCode['messaging']> }) {
+  return (
+    <ToggleGroup
+      type="single"
+      size="sm"
+      value={messaging.policy}
+      onValueChange={(v) => {
+        if (v === 'steer' || v === 'queue') messaging.setPolicy(v)
+      }}
+      role="radiogroup"
+      aria-label="How your message lands"
+      data-code-policy=""
+      className={TRACK}
+    >
+      <ToggleGroupItem value="steer" data-code-policy-option="steer" className={TAB} title="Lands while it works">
+        Steer
+      </ToggleGroupItem>
+      <ToggleGroupItem value="queue" data-code-policy-option="queue" className={TAB} title="Waits for this turn to end">
+        Queue
       </ToggleGroupItem>
     </ToggleGroup>
   )

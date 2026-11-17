@@ -34,9 +34,20 @@ import { startCodeJob } from '@/lib/local-agent/code-start'
 import { isUuid, listSessions } from '@/lib/local-agent/store'
 
 export async function GET(request: Request) {
+  const params = new URL(request.url).searchParams
+  // `code=1`: the Code view's list, the person's Code jobs in the window's workspace (it needs one).
+  if (params.get('code') === '1') {
+    const scoped = await requireLocalAgentWorkspace(request)
+    if (scoped instanceof Response) return scoped
+    try {
+      const sessions = await listSessions(getServiceClient(), scoped.user.id, { codeIn: scoped.workspaceId })
+      return NextResponse.json({ sessions: sessions.filter((s) => !!s.codeRequestId) })
+    } catch (err) {
+      return errorResponse(err, 'list code sessions')
+    }
+  }
   const auth = await requireLocalAgentUser(request)
   if (auth instanceof Response) return auth
-  const params = new URL(request.url).searchParams
   const conversationId = params.get('conversationId')
   const live = params.get('live') === '1' || params.get('live') === 'true'
   if (conversationId && !isUuid(conversationId)) return NextResponse.json({ sessions: [] })

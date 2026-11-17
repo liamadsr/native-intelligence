@@ -26,6 +26,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { act, createElement as h, useEffect, useState } from 'react'
 import type { UIMessage } from '@ai-sdk/react'
+import { __resetCodeViewForTests, getCodeView } from '../code-view-store'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
@@ -172,6 +173,7 @@ async function mount(opts: { list: unknown[]; chatEnv: unknown; routes?: FakeRou
 
 beforeEach(() => {
   opened.length = 0
+  __resetCodeViewForTests()
   hostOpts.conversation = CONV
   hostOpts.notes = []
   resetEnvironmentStore()
@@ -199,6 +201,9 @@ describe('who sees the tabs', () => {
   it('a Mac: Chat in front, nothing about agents (the worker toggle is gone)', async () => {
     await mount({ list: [STUDIO], chatEnv: STUDIO })
     expect(q('[data-composer-tab="chat"]')!.getAttribute('data-state')).toBe('on')
+    // The chat tab carries the agent's name: the default until the person names it.
+    expect(q('[data-composer-tab="chat"]')!.textContent).toBe('Joseph')
+    expect(q('[data-composer-tab="chat"]')!.getAttribute('aria-label')).toBe('Chat with Joseph')
     expect(q('[data-composer-tabs]')!.getAttribute('role')).toBe('radiogroup')
     expect(q('[data-code-agent-picker]')).toBeNull()
     expect(q('[data-worker-toggle]')).toBeNull()
@@ -274,8 +279,9 @@ describe('the Code tab', () => {
     })
     expect(host.value).toBe('')
     expect(JSON.parse(localStorage.getItem(`${CODE_TAB_STORAGE_PREFIX}${CONV}`)!)).toEqual({ tab: 'code', agent: 'claude-code', folderId: 'f-site' })
-    // The person lands in the job's own chat: opened by its turn's ledger row.
-    expect(opened).toEqual(['tj-1'])
+    // The person lands in the job's own chat, in the dashboard: it is the Code view's selected chat (not its page).
+    expect(getCodeView().selected).toBe('sess-1')
+    expect(opened).toEqual([])
     // The thread: one compact line in place of the request, no bubble with its words.
     const row = q(`[data-message-row="code-${requestId}"]`)!
     expect(row.getAttribute('data-message-role')).toBe('code')
@@ -285,7 +291,7 @@ describe('the Code tab', () => {
     expect(row.querySelector('[data-code-line-excerpt]')!.textContent).toBe('Fix the date picker on the booking page')
     expect(row.querySelector('[data-message-role="user"]')).toBeNull()
     press(row.querySelector('button')!)
-    expect(opened).toEqual(['tj-1', 'tj-1'])
+    expect(getCodeView().selected).toBe('sess-1')
   })
 
   it('our own agent picked: worker null', async () => {
@@ -360,7 +366,7 @@ describe('the Code tab', () => {
     // Working: Open it, and nothing else (no new job beside a working one).
     expect([...notice.querySelectorAll('[data-code-notice-action]')].map((b) => b.textContent)).toEqual(['Open it'])
     press(q('[data-code-notice-action="open"]')!)
-    expect(opened.at(-1)).toBe('tj-1')
+    expect(getCodeView().selected).toBe('sess-1')
     // Another folder: another job.
     await openMenu('[data-code-folder-picker]')
     press(q('[data-code-folder-option="f-api"]')!)
@@ -421,7 +427,7 @@ describe('the Code tab', () => {
     expect([...notice.querySelectorAll('[data-code-notice-action]')].map((b) => b.textContent)).toEqual(['Open it to continue', 'Start a new job'])
     // Open it to continue: its own chat.
     press(q('[data-code-notice-action="open"]')!)
-    expect(opened.at(-1)).toBe('tj-1')
+    expect(getCodeView().selected).toBe('sess-1')
     // Start a new job: the server ends the idle one (newJob), the new one opens, the words leave the box.
     press(q('[data-code-notice-action="new"]')!)
     await flush()
@@ -429,7 +435,7 @@ describe('the Code tab', () => {
     expect(posts().filter((c) => c.url === '/api/local-agent/sessions').at(-1)!.body).toMatchObject({ request: 'Now the time picker', newJob: true })
     expect(host.value).toBe('')
     expect(host.messages).toHaveLength(2)
-    expect(opened.at(-1)).toBe('tj-2')
+    expect(getCodeView().selected).toBe('sess-2')
     expect(q('[data-code-notice="send"]')).toBeNull()
     // Two jobs, two lines.
     expect(document.querySelectorAll('[data-code-line]')).toHaveLength(2)
@@ -456,7 +462,7 @@ describe('the Code tab', () => {
     expect(host.messages).toHaveLength(1)
     expect(q('[data-code-notice="send"]')!.textContent).toContain('Claude Code is already working in harbor-site: open it to continue.')
     press(q('[data-code-notice-action="open"]')!)
-    expect(opened.at(-1)).toBe('tj-1')
+    expect(getCodeView().selected).toBe('sess-1')
   })
 
   it('no turn row known (no trackedJobId): Open reads the job by its session and opens its current turn', async () => {
@@ -475,12 +481,12 @@ describe('the Code tab', () => {
     type('Fix the date picker')
     await send()
     // The send opens it all the same, by its session.
-    expect(opened).toEqual(['tj-late'])
+    expect(getCodeView().selected).toBe('sess-1')
     type('And add a test for it')
     await send()
     press(q('[data-code-notice-action="open"]')!)
     await flush()
-    expect(opened.at(-1)).toBe('tj-late')
+    expect(getCodeView().selected).toBe('sess-1')
   })
 
   it('a line whose job the list doesn’t hold (or hasn’t read) still names its agent and folder, and opens by its session', async () => {
@@ -504,7 +510,7 @@ describe('the Code tab', () => {
     expect(line.querySelector('[data-code-line-excerpt]')!.textContent).toBe('Fix the date picker')
     press(line.querySelector('button')!)
     await flush()
-    expect(opened).toEqual(['tj-9'])
+    expect(getCodeView().selected).toBe('sess-1')
   })
 
   it('a second send to a job that has ended since: a new job, after one read to be sure', async () => {
