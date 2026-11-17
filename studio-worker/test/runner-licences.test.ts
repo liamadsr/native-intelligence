@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { packageDirOf, packagesInSourceMaps, writeRunnerLicences } from '../scripts/runner-licences.ts'
+import { installedPackages, isLicenceFile, licenceFilesIn, packageDirOf, packagesInSourceMaps, writeRunnerLicences } from '../scripts/runner-licences.ts'
 
 const MIT = 'MIT License\n\nCopyright (c) 2020 Maple Example\n\nPermission is hereby granted.\n'
 
@@ -130,8 +130,64 @@ test("a webpack bundle's packages are read from its source maps, and no map is a
   assert.deepEqual(packagesInSourceMaps(bundle, base), [join(root, 'web/node_modules/@scope/kit'), join(base, 'node_modules/react')].sort())
   const bare = join(root, 'bare')
   mkdirSync(bare)
-  writeFileSync(join(bare, 'a.bundle.js'), '')
+  writeFileSync(join(bare, 'index.html'), '')
   assert.throws(() => packagesInSourceMaps(bare, base), /no source maps/)
   writeFileSync(join(bare, 'a.bundle.js.map'), JSON.stringify({ version: 3 }))
   assert.throws(() => packagesInSourceMaps(bare, base), /no sources list/)
+})
+
+test('a script in the bundle with no map of its own is an error, outside the folders named', () => {
+  const root = scratch()
+  const bundle = join(root, 'bundle')
+  mkdirSync(join(bundle, 'public', 'scene'), { recursive: true })
+  writeFileSync(join(bundle, 'a.bundle.js'), '')
+  writeFileSync(join(bundle, 'a.bundle.js.map'), JSON.stringify({ sources: ['./node_modules/react/index.js'] }))
+  writeFileSync(join(bundle, 'public', 'scene', 'runtime.js'), '')
+  assert.throws(() => packagesInSourceMaps(bundle, root), /runtime\.js has no source map/)
+  assert.deepEqual(packagesInSourceMaps(bundle, root, ['public']), [join(root, 'node_modules/react')])
+  writeFileSync(join(bundle, 'b.bundle.js'), '')
+  assert.throws(() => packagesInSourceMaps(bundle, root, ['public']), /b\.bundle\.js has no source map/)
+})
+
+test('licence and notice files are told from code by name', () => {
+  for (const name of ['LICENSE', 'license', 'LICENCE.md', 'License.txt', 'LICENSE-MIT', 'LICENSE_APACHE', 'LICENSE.MIT.txt', 'LICENSES', 'MIT-LICENSE', 'MIT-LICENSE.txt',
+    'UNLICENSE', 'COPYING', 'COPYING.LESSER', 'COPYRIGHT', 'NOTICE', 'NOTICE.md', 'NOTICES.txt', 'ThirdPartyNotices.txt', 'THIRD-PARTY-NOTICES.txt', 'THIRD_PARTY_LICENSES.md', 'ThirdPartyNoticeText.txt']) {
+    assert.ok(isLicenceFile(name), name)
+  }
+  for (const name of ['license.js', 'license-key.js', 'notice.ts', 'LICENSE.json', 'license.d.ts', 'README.md', 'licensing.md', 'package.json', 'copyright.py', 'notices.html']) {
+    assert.ok(!isLicenceFile(name), name)
+  }
+})
+
+test('code a package vendors keeps its licence: files below the top are copied at their path and cited apart', () => {
+  const root = scratch()
+  const dir = pkg(root, 'maple', { version: '1.0.0', license: 'MIT' }, { LICENSE: MIT })
+  mkdirSync(join(dir, 'vendor', 'reed-patched'), { recursive: true })
+  writeFileSync(join(dir, 'vendor', 'reed-patched', 'LICENSE'), 'MIT\n\nCopyright (c) 2014 Reed Example\n')
+  writeFileSync(join(dir, 'vendor', 'reed-patched', 'index.js'), '')
+  // A package nested in its node_modules is its own package, not this one's file.
+  mkdirSync(join(dir, 'node_modules', 'inner'), { recursive: true })
+  writeFileSync(join(dir, 'node_modules', 'inner', 'LICENSE'), 'inner\n')
+  assert.deepEqual(licenceFilesIn(dir), ['LICENSE', 'vendor/reed-patched/LICENSE'])
+  const out = join(root, 'licenses')
+  writeRunnerLicences(out, [{ dir, place: 'runner/node_modules' }], [])
+  assert.equal(readFileSync(join(out, 'maple-1.0.0', 'vendor', 'reed-patched', 'LICENSE'), 'utf8'), 'MIT\n\nCopyright (c) 2014 Reed Example\n')
+  assert.ok(readFileSync(join(out, 'NOTICES.txt'), 'utf8').includes('  License: MIT (maple-1.0.0/LICENSE)\n  Code it carries from elsewhere, under its own terms: maple-1.0.0/vendor/reed-patched/LICENSE\n'))
+  // A vendored text is not the package's own: with none at its top, the package still has to cite one.
+  const only = pkg(join(root, 'b'), 'birch', { version: '1.0.0', license: 'ISC' })
+  mkdirSync(join(only, 'vendor'))
+  writeFileSync(join(only, 'vendor', 'LICENSE'), 'ISC of someone else\n')
+  assert.throws(() => writeRunnerLicences(join(root, 'l2'), [{ dir: only, place: 'runner/node_modules' }], []), /birch@1\.0\.0: ships no license file/)
+})
+
+test('an installed folder is listed whole: scoped packages and the ones npm nested inside another', () => {
+  const root = scratch()
+  pkg(root, 'maple', { version: '1.0.0' })
+  pkg(root, '@fern/core', { version: '1.0.0' })
+  pkg(join(root, 'node_modules', 'maple'), 'ws', { version: '7.0.0' })
+  pkg(join(root, 'node_modules', '@fern', 'core'), '@oak/utils', { version: '2.0.0' })
+  mkdirSync(join(root, 'node_modules', '.bin'))
+  const nm = join(root, 'node_modules')
+  assert.deepEqual(installedPackages(nm), [join(nm, '@fern/core'), join(nm, '@fern/core/node_modules/@oak/utils'), join(nm, 'maple'), join(nm, 'maple/node_modules/ws')])
+  assert.deepEqual(installedPackages(join(root, 'none')), [])
 })

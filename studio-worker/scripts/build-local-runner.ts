@@ -23,7 +23,7 @@ import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promi
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, relative, resolve } from 'node:path'
-import { packageDirOf, packagesInSourceMaps, writeRunnerLicences, type Place } from './runner-licences.ts'
+import { installedPackages, packageDirOf, packagesInSourceMaps, writeRunnerLicences, type Place } from './runner-licences.ts'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const require = createRequire(import.meta.url)
@@ -85,6 +85,8 @@ function renderVersionHolds(): void {
 
 async function main() {
   const out = resolve(process.argv[2] ?? join(ROOT, '.local-runner'))
+  // The bundlers name what they read relative to the working directory (the notices resolve those names from ROOT).
+  process.chdir(ROOT)
   const withBundle = !process.argv.includes('--no-bundle')
   // --skip-version-check (or STUDIO_SKIP_RENDER_VERSION=1): only while a render change is being worked on, never for a release.
   if (!process.argv.includes('--skip-version-check') && process.env.STUDIO_SKIP_RENDER_VERSION !== '1') renderVersionHolds()
@@ -124,13 +126,16 @@ async function main() {
   // runner.cjs (its metafile), the ones webpack compiled into the render bundle (its source maps) and the ones in the
   // bundle's scene runtime (esbuild's graph of the same entry; nothing is written).
   const shipped: { dir: string; place: Place }[] = []
-  for (const [name, dir] of keep) if (!left.includes(name)) shipped.push({ dir, place: 'runner/node_modules' })
+  // What was copied, read back from the folder itself: a package npm nested inside another is shipped too.
+  for (const dir of installedPackages(join(runner, 'node_modules'))) shipped.push({ dir, place: 'runner/node_modules' })
   const fromInputs = (paths: string[], place: Place) => {
     for (const dir of new Set(paths.map(packageDirOf).filter((d): d is string => d !== null))) shipped.push({ dir: resolve(dir), place })
   }
   fromInputs(inputs, 'runner/runner.cjs')
   if (withBundle) {
-    for (const dir of packagesInSourceMaps(join(out, 'render-bundle'), ROOT)) shipped.push({ dir, place: 'the render bundle' })
+    // webpack names its modules from the folder it ran in, and esbuild from the working directory: both are ROOT (main).
+    // public/ holds the scene runtime, which esbuild wrote: its graph is listed below.
+    for (const dir of packagesInSourceMaps(join(out, 'render-bundle'), ROOT, ['public'])) shipped.push({ dir, place: 'the render bundle' })
     const { runtimeEntry } = await import('../../web/src/lib/studio/engine/scene-frame/build.ts')
     const scene = await build({ entryPoints: [runtimeEntry(resolve(ROOT, '../web/src/lib/studio/engine'))], bundle: true, write: false, format: 'iife',
       platform: 'browser', target: 'es2020', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent', metafile: true })

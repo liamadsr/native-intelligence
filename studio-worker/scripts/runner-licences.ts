@@ -3,7 +3,8 @@
  * (desktop/scripts/licenses.sh, as web/scripts/local-agent/bundle-notices.mjs writes the local agent's):
  *
  *   <out>/licenses/NOTICES.txt              every npm package the runner folder carries, with where it sits
- *   <out>/licenses/<name>-<version>/<file>  that package's own licence and notice files, byte for byte
+ *   <out>/licenses/<name>-<version>/<file>  that package's own licence and notice files, byte for byte (the ones
+ *                                           beside code it vendors too, at their path inside it)
  *
  * A package is listed once per version. One that ships no licence file cites the same licence's text from another
  * listed package (one from its own repository when there is one) and says so; an @remotion/* package with none cites the Remotion License of `remotion` at the same
@@ -11,10 +12,47 @@
  * refuses notices that name a licence and carry no text for it.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
-/** A package's licence and notice files, as the local agent's notices take them (plus Remotion's THIRD_PARTY_LICENSES.md). */
-export const LICENCE_FILE = /^(licen[cs]e|notice|copying|thirdpartynotices|third[-_]party[-_]licen[cs]es)(\.|-|$)/i
+const TEXT_EXT = /\.(md|markdown|txt)$/i
+const LICENCE_NAME = /^(licen[cs]es?([-_.][a-z0-9.-]+)?|[a-z0-9.]+[-_]licen[cs]e|unlicense|copying([-_.][a-z0-9.-]+)?|copyright|notices?|third[-_]?party[-_]?(licen[cs]es?|notices?)|thirdpartynoticetext)$/i
+const CODE_EXT = /\.(c?js|mjs|jsx|tsx?|json|map|html|css|py|sh)$/i
+
+/** Is this file name a licence or notice text (LICENSE, license.md, LICENSE-MIT, MIT-LICENSE.txt, COPYING, NOTICE, UNLICENSE, ThirdPartyNotices.txt), not code that happens to be called licence? */
+export function isLicenceFile(name: string): boolean {
+  return !CODE_EXT.test(name) && LICENCE_NAME.test(name.replace(TEXT_EXT, ''))
+}
+
+/**
+ * A package's licence and notice files, as paths inside it with `/`: the ones at its top first, then any below (code
+ * a package vendors keeps its own licence beside it). Packages nested in its node_modules are their own packages.
+ */
+export function licenceFilesIn(dir: string): string[] {
+  const top: string[] = []
+  const below: string[] = []
+  const walk = (at: string, rel: string): void => {
+    for (const e of readdirSync(at, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+      if (e.isDirectory()) { if (e.name !== 'node_modules') walk(join(at, e.name), `${rel}${e.name}/`) }
+      else if (e.isFile() && isLicenceFile(e.name)) (rel === '' ? top : below).push(`${rel}${e.name}`)
+    }
+  }
+  walk(dir, '')
+  return [...top, ...below]
+}
+
+/** Every package folder under an installed node_modules, nested ones too (`@scope/name`, `a/node_modules/b`). */
+export function installedPackages(nodeModules: string): string[] {
+  const out: string[] = []
+  if (!existsSync(nodeModules)) return out
+  for (const name of readdirSync(nodeModules).sort()) {
+    if (name.startsWith('.')) continue
+    const p = join(nodeModules, name)
+    if (!statSync(p).isDirectory()) continue
+    if (name.startsWith('@')) { for (const sub of readdirSync(p).sort()) if (statSync(join(p, sub)).isDirectory()) out.push(join(p, sub), ...installedPackages(join(p, sub, 'node_modules'))) }
+    else out.push(p, ...installedPackages(join(p, 'node_modules')))
+  }
+  return out
+}
 
 /** Where a package sits in the runner folder; the order they are named in. */
 export const PLACES = ['runner/node_modules', 'runner/runner.cjs', 'the render bundle', "the render bundle's scene runtime"] as const
@@ -28,16 +66,18 @@ export function packageDirOf(path: string): string | null {
 
 /**
  * The package folders a webpack bundle's source maps name, resolved from `base` (the folder webpack ran in). A module
- * webpack left out (`ignored|…`) is not in the bundle. Throws when there is no map to read: a bundle that cannot be
- * listed is not shipped as if it held nothing.
+ * webpack left out (`ignored|…`) is not in the bundle. `skip`: folders in it webpack did not write (listed another
+ * way). Throws when a script has no map, or there is none at all: a bundle that cannot be listed is not shipped as if
+ * it held nothing.
  */
-export function packagesInSourceMaps(bundleDir: string, base: string): string[] {
+export function packagesInSourceMaps(bundleDir: string, base: string, skip: string[] = []): string[] {
   const found = new Set<string>()
   let maps = 0
   const walk = (dir: string): void => {
     for (const name of readdirSync(dir).sort()) {
       const p = join(dir, name)
-      if (statSync(p).isDirectory()) { walk(p); continue }
+      if (statSync(p).isDirectory()) { if (!skip.includes(name)) walk(p); continue }
+      if (name.endsWith('.js') && !existsSync(`${p}.map`)) throw new Error(`${p} has no source map: its packages cannot be listed`)
       if (!name.endsWith('.js.map')) continue
       maps++
       const sources = (JSON.parse(readFileSync(p, 'utf8')) as { sources?: unknown }).sources
@@ -99,11 +139,11 @@ export function writeRunnerLicences(licensesDir: string, shipped: { dir: string;
     const had = pkgs.get(key)
     if (had) { had.places.add(place); continue }
     const folder = `${json.name.replace('/', '__')}-${json.version}`
-    const files = readdirSync(dir).filter((f) => LICENCE_FILE.test(f) && statSync(join(dir, f)).isFile()).sort()
+    const files = licenceFilesIn(dir)
     const texts = files.map((f) => {
       const bytes = readFileSync(join(dir, f))
       if (bytes.length === 0) throw new Error(`${key}: ${f} is empty`)
-      mkdirSync(join(licensesDir, folder), { recursive: true })
+      mkdirSync(dirname(join(licensesDir, folder, f)), { recursive: true })
       writeFileSync(join(licensesDir, folder, f), bytes)
       return bytes.toString('utf8')
     })
@@ -112,7 +152,7 @@ export function writeRunnerLicences(licensesDir: string, shipped: { dir: string;
   if (pkgs.size === 0) throw new Error('the runner lists no third-party package')
 
   const all = [...pkgs.values()].sort((a, b) => (a.name === b.name ? a.version.localeCompare(b.version, 'en', { numeric: true }) : a.name < b.name ? -1 : 1))
-  const mainText = (p: Pkg) => p.files.find((f) => /^licen[cs]e/i.test(f))
+  const mainText = (p: Pkg) => p.files.find((f) => !f.includes('/') && /^licen[cs]e/i.test(f))
   const lines = [
     "Studio runner (the Studio's export on this computer)",
     '',
@@ -126,8 +166,8 @@ export function writeRunnerLicences(licensesDir: string, shipped: { dir: string;
     'runner/node_modules or compiled into runner/runner.cjs or the render bundle.',
     'License paths are relative to this folder.',
     '',
-    'Remotion (remotion and the @remotion packages) is not open source: it is',
-    'under the Remotion License, whose text is reproduced here.',
+    'The Remotion License is not an open-source license. The packages marked',
+    '"Remotion License" below are under it, and its text is reproduced here.',
     '',
   ]
   for (const p of all) {
@@ -136,8 +176,10 @@ export function writeRunnerLicences(licensesDir: string, shipped: { dir: string;
     const copyright = copyrightOf(p.texts)
     if (copyright) lines.push(`  ${copyright}`)
     lines.push(`  In: ${PLACES.filter((x) => p.places.has(x)).join(', ')}`)
-    if (p.files.length > 0) {
-      lines.push(`  License: ${seeFile(p.licence) ? (isRemotion(p.name) ? 'Remotion License' : 'see the license file') : p.licence} (${p.files.map((f) => `${p.folder}/${f}`).join(', ')})`)
+    const own = p.files.filter((f) => !f.includes('/'))
+    const vendored = p.files.filter((f) => f.includes('/'))
+    if (own.length > 0) {
+      lines.push(`  License: ${seeFile(p.licence) ? (isRemotion(p.name) ? 'Remotion License' : 'see the license file') : p.licence} (${own.map((f) => `${p.folder}/${f}`).join(', ')})`)
     } else if (isRemotion(p.name) && seeFile(p.licence)) {
       // One repository, one LICENSE.md: the text `remotion` ships at this same version.
       const donor = all.find((d) => d.name === 'remotion' && d.version === p.version && mainText(d))
@@ -152,6 +194,7 @@ export function writeRunnerLicences(licensesDir: string, shipped: { dir: string;
     } else {
       throw new Error(`${p.name}@${p.version}: no license field or file`)
     }
+    if (vendored.length > 0) lines.push(`  Code it carries from elsewhere, under its own terms: ${vendored.map((f) => `${p.folder}/${f}`).join(', ')}`)
     lines.push('')
   }
   if (leftOut.length > 0) {
