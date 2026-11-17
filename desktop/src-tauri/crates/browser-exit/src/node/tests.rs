@@ -64,10 +64,15 @@ async fn frame(ws: &mut WebSocketStream<TcpStream>) -> Frame {
 }
 
 fn start(url: String, silence: Duration) -> (mpsc::UnboundedReceiver<Event>, watch::Sender<bool>) {
+    start_with(url, silence, None)
+}
+
+fn start_with(url: String, silence: Duration, local: Option<LocalService>) -> (mpsc::UnboundedReceiver<Event>, watch::Sender<bool>) {
     let (events, rx) = mpsc::unbounded_channel();
     let (stop, stop_rx) = watch::channel(false);
     let mut options = Options::new(url, "the-token".into(), claims(), vec!["8.8.4.4".parse().unwrap()]);
     options.silence = silence;
+    options.local = local;
     tokio::spawn(run(options, events, stop_rx));
     (rx, stop)
 }
@@ -258,4 +263,53 @@ async fn a_hub_reset_closes_the_site_connection() {
     send(&mut ws, Frame::Reset { stream: 1 }).await;
     assert_eq!(tokio::time::timeout(Duration::from_secs(3), closed.recv()).await.unwrap(), Some(0), "the site sees the close");
     LOOSE_POLICY.store(false, Ordering::SeqCst);
+}
+
+/// A service that answers with the question, reversed.
+fn reversing() -> LocalService {
+    Arc::new(|question: Vec<u8>| Box::pin(async move { question.into_iter().rev().collect::<Vec<u8>>() }))
+}
+
+#[tokio::test]
+async fn answers_the_hubs_own_question_on_this_mac_and_connects_nowhere() {
+    let (url, mut hubs) = hub().await;
+    let (mut events, _stop) = start_with(url, Duration::from_secs(20), Some(reversing()));
+    let (_, mut ws) = hubs.recv().await.unwrap();
+    ok(&mut ws).await;
+    until(&mut events, |e| matches!(e, Event::Up { .. })).await;
+
+    send(&mut ws, Frame::Open { stream: 7, host: LOCAL_HOST.into(), port: 443 }).await;
+    assert_eq!(frame(&mut ws).await, Frame::Opened { stream: 7 });
+    send(&mut ws, Frame::Data { stream: 7, bytes: b"abc".to_vec() }).await;
+    assert_eq!(frame(&mut ws).await, Frame::Credit { stream: 7, bytes: 3 });
+    send(&mut ws, Frame::Fin { stream: 7 }).await;
+    assert_eq!(frame(&mut ws).await, Frame::Data { stream: 7, bytes: b"cba".to_vec() });
+    assert_eq!(frame(&mut ws).await, Frame::Fin { stream: 7 });
+
+    // A question past the cap is dropped, never answered.
+    send(&mut ws, Frame::Open { stream: 8, host: LOCAL_HOST.into(), port: 443 }).await;
+    assert_eq!(frame(&mut ws).await, Frame::Opened { stream: 8 });
+    send(&mut ws, Frame::Data { stream: 8, bytes: vec![b'x'; LOCAL_REQUEST_MAX + 1] }).await;
+    assert_eq!(frame(&mut ws).await, Frame::Reset { stream: 8 });
+}
+
+#[tokio::test]
+async fn refuses_the_question_without_a_service_or_on_another_port() {
+    let (url, mut hubs) = hub().await;
+    let (mut events, _stop) = start(url, Duration::from_secs(20));
+    let (_, mut ws) = hubs.recv().await.unwrap();
+    ok(&mut ws).await;
+    until(&mut events, |e| matches!(e, Event::Up { .. })).await;
+    // No service (an older build): a dead name like any other.
+    send(&mut ws, Frame::Open { stream: 1, host: LOCAL_HOST.into(), port: 443 }).await;
+    assert!(matches!(frame(&mut ws).await, Frame::Refused { stream: 1, .. }));
+
+    let (url, mut hubs) = hub().await;
+    let (mut events, _stop) = start_with(url, Duration::from_secs(20), Some(reversing()));
+    let (_, mut ws) = hubs.recv().await.unwrap();
+    ok(&mut ws).await;
+    until(&mut events, |e| matches!(e, Event::Up { .. })).await;
+    // Port 80 is never the question: it goes the way of any stream, and the name resolves nowhere.
+    send(&mut ws, Frame::Open { stream: 2, host: LOCAL_HOST.into(), port: 80 }).await;
+    assert!(matches!(frame(&mut ws).await, Frame::Refused { stream: 2, .. }));
 }

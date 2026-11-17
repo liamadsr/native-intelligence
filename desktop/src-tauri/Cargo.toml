@@ -42,6 +42,10 @@ ringbuf = "0.4"
 # FluidInference's Rust port of NVIDIA NeMo text processing, Apache-2.0.
 text-processing-rs = { git = "https://github.com/FluidInference/text-processing-rs", rev = "46ebddcea5e1ff673c2cb5256a1b6b0e6c4ff527" }
 uuid = { version = "1", features = ["v4"] }
+# Saved logins for the agent's browser (saved_logins.rs): the OS keystore, the
+# Keychain on a Mac and Credential Manager on Windows. MIT OR Apache-2.0.
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
+url = "2"
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
 tauri-plugin-single-instance = { version = "2.4.0", features = ["deep-link"] }

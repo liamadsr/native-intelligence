@@ -7,6 +7,7 @@ mod audio;
 #[cfg(any(debug_assertions, feature = "automation-bridge"))]
 mod automation;
 mod browser_exit;
+mod saved_logins;
 mod commands;
 mod dictate;
 mod incoming_url;
@@ -807,6 +808,10 @@ pub fn run() {
             browser_exit::browser_exit_start,
             browser_exit::browser_exit_stop,
             browser_exit::browser_exit_status,
+            saved_logins::saved_logins_list,
+            saved_logins::saved_login_save,
+            saved_logins::saved_login_remove,
+            saved_logins::saved_login_set_ask,
             commands::recording::list_input_devices,
             commands::recording::set_input_priority,
             commands::recording::reset_input_priority,
@@ -953,6 +958,7 @@ pub fn run() {
             // run left live as interrupted, then waits for commands.
             app.manage(local_agent::LocalAgentService::spawn(app.handle().clone()));
             app.manage(browser_exit::BrowserExitService::default());
+            app.manage(saved_logins::SavedLoginsService::default());
             // Studio takes (screen, camera, microphone): idle until the first
             // studio_recorder_* command starts its sidecar.
             app.manage(commands::studio_recorder::StudioRecorder::new());
