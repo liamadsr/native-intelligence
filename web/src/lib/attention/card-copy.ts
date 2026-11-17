@@ -11,7 +11,7 @@ import { postCardCopy } from '@/lib/content/post-draft'
 /** The verb-accurate primary-button label — never a bare "Accept" (WS-1b). Email
  *  cards are labelled by the caller (they carry a retry state). */
 export function cardPrimaryLabel(item: Pick<AttentionItem, 'kind'>, p: AttentionPayload): string {
-  if (item.kind === 'approval') return p.public_content === true ? 'Approve and post' : 'Approve'
+  if (item.kind === 'approval') return p.browser_sign_in ? 'Sign in' : p.public_content === true ? 'Approve and post' : 'Approve'
   if (item.kind === 'work_proposal') return 'Start'
   if (item.kind === 'question') return postCardCopy(p)?.verb ?? 'Got it'
   if (p.assignee_ai_member_id) return 'Assign & start'

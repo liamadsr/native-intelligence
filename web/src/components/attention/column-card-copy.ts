@@ -70,7 +70,7 @@ export function attentionCopy(item: AttentionItem, { agentName }: { agentName?: 
     details: paragraphs(item.why, str(p.description), effect),
   })
 
-  if (item.kind === 'approval') return base(p.public_content === true ? 'Approve and post' : 'Approve', title, 'show')
+  if (item.kind === 'approval') return base(p.browser_sign_in ? 'Sign in' : p.public_content === true ? 'Approve and post' : 'Approve', title, 'show')
   if (item.kind === 'work_proposal') {
     return { ...base('Start', title, 'act', 'bot'), details: paragraphs(item.why, str(p.task), effect) }
   }

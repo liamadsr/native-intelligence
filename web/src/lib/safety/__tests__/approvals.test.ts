@@ -153,6 +153,20 @@ describe('createToolApproval', () => {
     expect(db.rows('attention_item')).toHaveLength(1)
   })
 
+  it('a browser step’s card and a sign-in card for the same task never stand in for each other', async () => {
+    const step = { browser: { origin: 'https://shop.example.com', target: 'Place order', context_hash: 'h1' } }
+    const signIn = { browserSignIn: { site: 'shop.example.com' } }
+    const first = await createToolApproval(db as never, { ...held, context: step })
+    const second = await createToolApproval(db as never, { ...held, context: signIn })
+    expect(second).toMatchObject({ ok: true })
+    expect((second as { reused?: boolean }).reused).toBeUndefined()
+    expect((second as { approvalId: string }).approvalId).not.toBe((first as { approvalId: string }).approvalId)
+    // Each is still reused by its own kind, and the sign-in card's payload carries its site.
+    expect(await createToolApproval(db as never, { ...held, context: signIn })).toMatchObject({ ok: true, reused: true })
+    expect(await createToolApproval(db as never, { ...held, context: step })).toMatchObject({ ok: true, reused: true })
+    expect(await createToolApproval(db as never, { ...held, context: { browserSignIn: { site: 'other.example.com' } } })).not.toHaveProperty('reused')
+  })
+
   it('reuses the same call’s card only within the same chat or Mac job (N7)', async () => {
     const first = await raise()
     // Another chat raising the same call gets its own card: the first answers someone else.

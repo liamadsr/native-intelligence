@@ -1,6 +1,7 @@
 import { lookup } from 'node:dns/promises'
 import type { IncomingMessage } from 'node:http'
 import { connect, createServer, isIP, type Server, type Socket } from 'node:net'
+import { Duplex } from 'node:stream'
 import type { RawData, WebSocket } from 'ws'
 import { EXIT_PORTS, isPublicAddress } from '../exit/address'
 import { decodeFrame, encodeFrame, MAX_DATA, MAX_STREAMS, MUX_VERSION, WINDOW, type Frame, type Refusal } from '../exit/mux'
@@ -29,6 +30,18 @@ import { verifySandboxToken } from '../viewer-token'
  */
 
 export type ExitMode = 'mac' | 'cloud'
+
+/**
+ * The name the relay opens a stream to when it asks the person's Mac
+ * something (a saved login; desktop `saved_logins.rs`, crate `browser-exit`
+ * node.rs LOCAL_HOST), port 443. The Mac answers on the stream and connects
+ * nowhere; an older desktop refuses it as a name that does not resolve. Only
+ * the relay's own `ask` opens one: the browser's proxy refuses the name, so no
+ * page can put a question to the Mac.
+ */
+export const LOCAL_HOST = 'saved-login.invalid'
+/** The Mac's answer, at most. */
+const ANSWER_MAX = 64 * 1024
 
 /**
  * Which request header carries the Mac's public address as our edge saw it.
@@ -305,7 +318,7 @@ export function startExit(options: ExitOptions) {
     }
     const name = host.toLowerCase().replace(/\.$/, '')
     const refusedName = [...refused].some(h => name === h || name.endsWith(`.${h}`))
-    if (!ports.includes(port) || refusedName || name === 'localhost' || name.endsWith('.localhost')) {
+    if (!ports.includes(port) || refusedName || name === 'localhost' || name.endsWith('.localhost') || name === LOCAL_HOST || name.endsWith(`.${LOCAL_HOST}`)) {
       replied(SOCKS.notAllowed); socket.end(); return
     }
     if (mode === 'mac') {
@@ -367,9 +380,44 @@ export function startExit(options: ExitOptions) {
   socks.on('error', error => log('exit.socks_error', { message: error.message }))
   socks.listen(options.socksPort, '127.0.0.1')
 
+  /**
+   * Ask the person's Mac a question over its tunnel (whatever the mode: nothing leaves the Mac for it). The
+   * answer's bytes, or null: no tunnel, an older desktop, a refusal, or no answer in time. Never logged.
+   */
+  function ask(question: Uint8Array, timeoutMs: number): Promise<Uint8Array | null> {
+    const t = tunnel
+    if (!t) return Promise.resolve(null)
+    return new Promise(resolve => {
+      const parts: Uint8Array[] = []
+      let size = 0
+      let settled = false
+      const settle = (answer: Uint8Array | null) => { if (settled) return; settled = true; clearTimeout(timer); resolve(answer); if (!side.destroyed) side.destroy() }
+      // The relay's end of the stream, where Chrome's socket would be: what it "sends" is the question, what it is written is the answer.
+      const side = new Duplex({
+        read() {},
+        write(chunk: Buffer, _encoding, done) {
+          size += chunk.length
+          if (size > ANSWER_MAX) { done(); settle(null); return }
+          parts.push(u8(chunk))
+          done()
+        },
+        final(done) { done(); settle(parts.reduce(concat, new Uint8Array(0))) },
+      })
+      side.on('error', () => settle(null))
+      side.on('close', () => settle(null))
+      const timer = setTimeout(() => settle(null), timeoutMs)
+      // Held until the Mac opens the stream, as Chrome's socket is: the question then goes out, and its end after it.
+      side.pause()
+      viaTunnel(t, side as unknown as Socket, LOCAL_HOST, 443, new Uint8Array(0), code => { if (code !== SOCKS.ok) settle(null) })
+      side.push(Buffer.from(question))
+      side.push(null)
+    })
+  }
+
   return {
     socks,
     attach,
+    ask,
     tunnelUp: () => tunnel !== null,
     tunnelDevice: () => tunnel?.device ?? null,
     mode: () => mode,

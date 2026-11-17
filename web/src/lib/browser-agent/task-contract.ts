@@ -143,6 +143,8 @@ export const observationSchema = z.object({
     selected: z.enum(['true', 'false']).optional(),
     expanded: z.enum(['true', 'false']).optional(),
     sensitive: z.boolean(), forbidden: z.boolean(), context: z.string().max(500),
+    // A password field's kind (sign-in-page.ts): one the person knows, or one they are choosing. Older runtimes omit it.
+    secretKind: z.enum(['password', 'new-password']).optional(),
     destination: z.string().max(4000),
     dialog: z.string().max(300).optional(),
     input: z.object({ type: z.string().max(40), placeholder: z.string().max(200), description: z.string().max(500),

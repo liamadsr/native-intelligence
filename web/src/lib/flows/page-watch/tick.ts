@@ -84,9 +84,9 @@ import { agentPausedCache } from '@/lib/work/agent-paused'
 import { resetPageWatch } from './changes'
 import { diffLines, fingerprint, knownHashes, readSets, rememberRead } from './diff'
 import { PAGE_WATCH_MIN_LINES } from './probe'
-import { browserWatchSession, isSkippedRead, type BrowserWatchRead, type BrowserWatchSession } from './read-browser'
+import { browserWatchSession, isSignInRead, isSignInReason, isSkippedRead, signInSiteOf, type BrowserWatchRead, type BrowserWatchSession } from './read-browser'
 import { readWatchPage, type FetchPage } from './read-page'
-import { normalizeWatchUrl, PAGE_WATCH_BROWSER_RETRY_MINUTES, PAGE_WATCH_LOOK_FOR_MAX, watchIntervalMinutes, watchReadsInBrowser } from './url'
+import { normalizeWatchUrl, PAGE_WATCH_BROWSER_INTERVAL_MINUTES, PAGE_WATCH_BROWSER_RETRY_MINUTES, PAGE_WATCH_LOOK_FOR_MAX, watchIntervalMinutes, watchReadsInBrowser } from './url'
 
 /** Due loops read in one pass; the rest wait for the next (they stay due). */
 export const PAGE_WATCH_PASS_LIMIT = 100
@@ -98,6 +98,8 @@ export const PAGE_WATCH_BROWSER_PASS_LIMIT = 6
 export const PAGE_WATCH_BROWSER_CONCURRENCY = 2
 /** Failed reads in a row that switch the loop off. */
 export const PAGE_WATCH_MAX_FAILURES = 8
+/** Reads in a row that found the site asking for a sign-in before the loop is switched off: a week of them, so a watch nobody signs back in for does not wake a browser for ever. */
+export const PAGE_WATCH_SIGN_IN_MAX_WAITS = Math.ceil((7 * 24 * 60) / PAGE_WATCH_BROWSER_INTERVAL_MINUTES)
 /** Reads in a row whose lines are held unjudged before the pass tells anyway. */
 export const JUDGE_HOLD_READS = 3
 /** Stored changes are kept this long (a loop's run reads its change within minutes). */
@@ -126,6 +128,8 @@ export type NotifyStopped = (args: {
   ownerUserId: string | null
   teammateId: string | null
   sentence: string
+  /** The notice's title; a stopped watch's when absent. */
+  title?: string
 }) => Promise<void>
 
 export interface PageWatchDeps {
@@ -158,6 +162,8 @@ export interface PageWatchPassResult {
   failed: number
   /** Browser reads not made now (the browser was busy, taken over, or needs the Mac): tried again soon, nothing counted. */
   skipped: number
+  /** Browser reads that found the site asking for a sign-in: the watch waits for its owner, who was told once. */
+  waiting: number
   stopped: number
   /** Switched off: their owner is no longer a member of the workspace. */
   orphaned: number
@@ -182,13 +188,14 @@ interface WatchRow {
   line_count: number | null
   failures: number | null
   judge_failures: number | null
+  last_error: string | null
 }
 
-type Outcome = 'held' | 'lost' | 'baseline' | 'unchanged' | 'ignored' | 'told' | 'judgeHeld' | 'failed' | 'skipped' | 'stopped' | 'orphaned' | 'errored'
+type Outcome = 'held' | 'lost' | 'baseline' | 'unchanged' | 'ignored' | 'told' | 'judgeHeld' | 'failed' | 'skipped' | 'waiting' | 'stopped' | 'orphaned' | 'errored'
 
 const OUTCOME_KEYS: Record<Outcome, keyof PageWatchPassResult> = {
   held: 'held', lost: 'lost', baseline: 'baselines', unchanged: 'unchanged', ignored: 'ignored', told: 'told',
-  judgeHeld: 'judgeHeld', failed: 'failed', skipped: 'skipped', stopped: 'stopped', orphaned: 'orphaned', errored: 'errored',
+  judgeHeld: 'judgeHeld', failed: 'failed', skipped: 'skipped', waiting: 'waiting', stopped: 'stopped', orphaned: 'orphaned', errored: 'errored',
 }
 
 const log = (flowId: string, outcome: string, detail?: string) =>
@@ -223,7 +230,7 @@ const notifyWithBot: NotifyStopped = async (args) => {
         sentence: args.sentence,
       })
     : {}
-  const copy = botNoticeCopy(metadata, { title: `Page watch stopped: ${args.flowName}`, body: args.sentence })
+  const copy = botNoticeCopy(metadata, { title: args.title ?? `Page watch stopped: ${args.flowName}`, body: args.sentence })
   const { createNotification } = await import('@/lib/notifications')
   await createNotification({
     workspaceId: args.workspaceId,
@@ -335,7 +342,7 @@ async function eachBounded<T>(items: readonly T[], limit: number, work: (item: T
 
 export async function runPageWatchPass(supabase: SupabaseClient, now: Date, deps: PageWatchDeps = {}): Promise<PageWatchPassResult> {
   const result: PageWatchPassResult = {
-    due: 0, held: 0, lost: 0, baselines: 0, unchanged: 0, ignored: 0, told: 0, judgeHeld: 0, failed: 0, skipped: 0, stopped: 0, orphaned: 0, errored: 0, pruned: 0,
+    due: 0, held: 0, lost: 0, baselines: 0, unchanged: 0, ignored: 0, told: 0, judgeHeld: 0, failed: 0, skipped: 0, waiting: 0, stopped: 0, orphaned: 0, errored: 0, pruned: 0,
   }
   const nowIso = now.toISOString()
 
@@ -490,7 +497,7 @@ async function watchOne(
 
   const { data: watchData, error: watchError } = await supabase
     .from('flow_page_watch')
-    .select('url, fingerprints, line_count, failures, judge_failures')
+    .select('url, fingerprints, line_count, failures, judge_failures, last_error')
     .eq('flow_id', flow.id)
     .eq('workspace_id', flow.workspace_id)
     .maybeSingle()
@@ -527,6 +534,7 @@ async function watchOne(
     log(flow.id, 'skipped', `why=${read.skipped}`)
     return 'skipped'
   }
+  if (isSignInRead(read)) return waitForSignIn(supabase, flow, { pageUrl, watch, samePage, site: read.signIn, reason: read.reason, nowIso, nextIso, deps })
   if (!read.ok) return failRead(supabase, flow, { pageUrl, watch, samePage, reason: read.reason, nowIso, nextIso, deps })
   const lines = read.lines
   // A robot check, a maintenance page or a shell answers 200 too: it is a failed read, and the baseline stays.
@@ -631,11 +639,97 @@ async function watchOne(
   return 'told'
 }
 
+/**
+ * Whether the watch is in a sign-in wait: its stored reason is one, and the wait has reads counted. A watch
+ * switched off and on again keeps its reason for the person to read but counts nothing (changes.ts
+ * resetPageWatch): it starts a new wait, and its owner is told again.
+ */
+function waitingForSignIn(watch: WatchRow | null, samePage: boolean): boolean {
+  return samePage && !!watch && isSignInReason(watch.last_error) && (watch.failures ?? 0) > 0
+}
+
+/** What the sign-in notice says: written here, from the site's name alone, never the page's text. Pure. */
+export function signInSentence(site: string): string {
+  return `${site} asks for a sign-in, so I can't read the page you asked me to watch. Sign in to it in my browser (open my computer and take over), and I'll carry on from there. I never type passwords myself.`
+}
+
+/** What the notice says when nobody signed back in for a week. Pure. */
+export function signInStoppedSentence(site: string): string {
+  return `I stopped watching the page on ${site}: my browser has been signed out of it for a week. Sign in to it in my browser, then switch the loop back on.`
+}
+
+/**
+ * The site asked for a sign-in (read-browser.ts SignInRead). Not a failed
+ * read: the baseline stays, the watch keeps its usual interval, and its owner
+ * is told once, by the loop's bot, when the wait begins. `failures` counts the
+ * wait's reads (its stored reason says which kind the count is); after
+ * PAGE_WATCH_SIGN_IN_MAX_WAITS of them the loop is switched off, with a notice.
+ */
+async function waitForSignIn(
+  supabase: SupabaseClient,
+  flow: DueFlow,
+  args: { pageUrl: string; watch: WatchRow | null; samePage: boolean; site: string; reason: string; nowIso: string; nextIso: string; deps: PageWatchDeps },
+): Promise<Outcome> {
+  const reason = args.reason.slice(0, 300)
+  const already = waitingForSignIn(args.watch, args.samePage)
+  const waits = (already ? Math.max(0, args.watch?.failures ?? 0) : 0) + 1
+  const notice = (title: string, sentence: string) => (args.deps.notify ?? notifyWithBot)({
+    supabase,
+    workspaceId: flow.workspace_id,
+    flowId: flow.id,
+    flowName: flow.name?.trim() || 'a loop',
+    ownerUserId: flow.created_by,
+    teammateId: flow.ai_team_member_id,
+    sentence,
+    title,
+  })
+  // Told before the wait is stored: a notice that could not be sent is tried again at the next read, never lost.
+  if (!already) {
+    try {
+      await notice(`Sign-in needed: ${flow.name?.trim() || 'a loop'}`, signInSentence(args.site))
+    } catch (err) {
+      log(flow.id, 'errored', `step=sign_in_notice reason=${JSON.stringify(err instanceof Error ? err.message.slice(0, 120) : 'unknown')}`)
+      return 'errored'
+    }
+  }
+  const { error } = await supabase.from('flow_page_watch').upsert(
+    {
+      flow_id: flow.id,
+      workspace_id: flow.workspace_id,
+      url: args.pageUrl,
+      ...(args.samePage ? {} : { fingerprints: [], line_count: null, judge_failures: 0 }),
+      checked_at: args.nowIso,
+      failures: waits,
+      last_error: reason,
+    },
+    { onConflict: 'flow_id' },
+  )
+  if (error) log(flow.id, 'errored', 'step=sign_in_write')
+  log(flow.id, 'waiting', `why=sign_in waits=${waits}`)
+  if (waits < PAGE_WATCH_SIGN_IN_MAX_WAITS) return 'waiting'
+
+  if (!(await switchOff(supabase, flow, args.nextIso))) return 'waiting'
+  await resetPageWatch(supabase, flow.id)
+  try {
+    await notice(`Page watch stopped: ${flow.name?.trim() || 'a loop'}`, signInStoppedSentence(args.site))
+  } catch (err) {
+    log(flow.id, 'errored', `step=notice reason=${JSON.stringify(err instanceof Error ? err.message.slice(0, 120) : 'unknown')}`)
+  }
+  log(flow.id, 'stopped', `why=sign_in waits=${waits}`)
+  return 'stopped'
+}
+
 async function failRead(
   supabase: SupabaseClient,
   flow: DueFlow,
   args: { pageUrl: string; watch: WatchRow | null; samePage: boolean; reason: string; nowIso: string; nextIso: string; deps: PageWatchDeps },
 ): Promise<Outcome> {
+  // A watch that waits for a sign-in stays waiting until a read succeeds: a signed-out site that shows too little, or
+  // does not load, is still the same wait (one notice, one count, the week's cap), never a fresh run of failures.
+  if (waitingForSignIn(args.watch, args.samePage)) {
+    const reason = args.watch!.last_error as string
+    return waitForSignIn(supabase, flow, { ...args, site: signInSiteOf(reason), reason })
+  }
   // A new page starts its count (and its remembered reads) from nothing: the old page's failures are not its own.
   const failures = (args.samePage ? Math.max(0, args.watch?.failures ?? 0) : 0) + 1
   const reason = args.reason.slice(0, 300)

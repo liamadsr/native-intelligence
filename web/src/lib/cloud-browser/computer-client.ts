@@ -28,13 +28,17 @@ export interface ComputerState {
   viewOpen: boolean
   /** Bumped when the live view must connect again (the driver changed in another window). */
   viewEpoch: number
+  /** How many times THIS window handed the browser back (setDriver('agent') that the server took). A hand back elsewhere, or a state read, never counts. */
+  handBacks: number
+  /** The view was opened from a sign-in card (use-sign-in-ask.ts): the site the person is signing in to, shown in the view's bar until they hand back or close. */
+  signInSite: string | null
   /** C4: a Mac of the person's carries the browser's traffic (the server's word, on any device). */
   macConnected: boolean
   /** C4: this Mac's own exit, on the desktop that drives it (browser-exit-client.ts); null elsewhere. */
   mac: BrowserExitStatus | null
 }
 
-const INITIAL: ComputerState = { exists: null, status: null, driver: 'agent', busy: false, liveView: false, thumbnail: null, viewOpen: false, viewEpoch: 0,
+const INITIAL: ComputerState = { exists: null, status: null, driver: 'agent', busy: false, liveView: false, thumbnail: null, viewOpen: false, viewEpoch: 0, handBacks: 0, signInSite: null,
   macConnected: false, mac: null }
 export const COMPUTER_POLL_MS = 15_000
 
@@ -130,6 +134,9 @@ export function useComputerPolling(active: boolean): void {
 
 export function openLiveView() { set({ viewOpen: true }) }
 
+/** Open the view for a sign-in card: its bar names the site and offers Done. */
+export function openLiveViewForSignIn(site: string) { set({ viewOpen: true, signInSite: site.slice(0, 253) }) }
+
 /** This Mac's exit as the desktop reports it (browser-exit-client.ts). */
 export function setMacStatus(mac: BrowserExitStatus | null) { set({ mac }) }
 
@@ -142,7 +149,7 @@ export function hideLiveView() { if (state.driver !== 'person') set({ viewOpen: 
 /** The person closes the view. Closing while driving hands the browser back: the agent never waits on a window nobody has open. */
 export function closeLiveView() {
   if (state.viewOpen && state.driver === 'person') void setDriver('agent')
-  set({ viewOpen: false })
+  set({ viewOpen: false, signInSite: null })
 }
 
 /** The driver changed elsewhere: an open view connects again, with input or without. */
@@ -161,7 +168,7 @@ export async function setDriver(driver: 'agent' | 'person'): Promise<boolean> {
   try {
     const response = await fetch('/api/account/browser/driver', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ driver }) })
     if (!response.ok) return false
-    set({ driver })
+    set({ driver, ...(driver === 'agent' ? { handBacks: state.handBacks + 1, signInSite: null } : {}) })
     return true
   } catch {
     return false

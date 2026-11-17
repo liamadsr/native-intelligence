@@ -33,12 +33,14 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Hand, Loader2, MousePointer2, ShieldBan, X } from 'lucide-react'
+import { Check, Hand, KeyRound, Loader2, MousePointer2, ShieldBan, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useDesktopOS } from '@/components/desktop-titlebar'
 import { useAssistantName } from '@/lib/voice/assistant-name-store'
 import { closeLiveView, handBackOnExit, liveViewTicket, refreshComputer, setDriver, useComputer } from '@/lib/cloud-browser/computer-client'
 import { BlockedSitesPanel } from './blocked-sites-panel'
+import { SavedLoginsPanel } from './saved-logins-panel'
+import { tauriBridge } from '@/lib/tauri-bridge'
 import { blockSite, refreshBlockedSites, unblockSite, useBlockedSites } from './blocked-sites-store'
 
 /** The subset of noVNC's RFB this view uses. */
@@ -101,6 +103,14 @@ function LiveViewWindow() {
   const [paused, setPaused] = useState(false)
   // The person's own list of sites the agent never uses (blocked-sites-store.ts), over the screen.
   const [sitesOpen, setSitesOpen] = useState(false)
+  // Saved logins: on a desktop app that can keep them (an older one, or the web, has no such panel).
+  const [loginsOpen, setLoginsOpen] = useState(false)
+  const [savedLogins, setSavedLogins] = useState(false)
+  useEffect(() => {
+    let live = true
+    void tauriBridge.savedLogins.list().then(list => { if (live) setSavedLogins(list !== null) }, () => {})
+    return () => { live = false }
+  }, [])
   const failures = useRef(0)
   const connect = useCallback((wake: boolean) => setAttempt(previous => ({ n: previous.n + 1, wake })), [])
   const control = phase.kind === 'live' && phase.control
@@ -258,10 +268,10 @@ function LiveViewWindow() {
 
   // Esc closes a view-only window; while driving, Esc is the cloud Chrome's. With the sites panel open, Esc is the panel's.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !control && !sitesOpen) closeLiveView() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !control && !sitesOpen && !loginsOpen) closeLiveView() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [control, sitesOpen])
+  }, [control, sitesOpen, loginsOpen])
 
   const tryAgain = () => { failures.current = 0; connect(true) }
   const takeOver = async () => { if (await setDriver('person')) connect(false) }
@@ -278,6 +288,8 @@ function LiveViewWindow() {
     <div data-cloud-browser-live-view="" data-ni-browser="" className="ph-no-capture fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]">
       <div role="dialog" aria-modal="true" aria-label={`${name}’s computer`}
         // As wide as fits: the screen keeps 16:10 under the header and the driving note.
+        // The sign-in bar is one more row above the screen: the screen gives up its height.
+        style={computer.signInSite ? { maxWidth: 'min(1280px, calc((100dvh - 10.5rem) * 1.6))' } : undefined}
         className="flex max-h-full w-full max-w-[min(1280px,calc((100dvh_-_7.5rem)*1.6))] flex-col overflow-hidden rounded-2xl border border-border/60 bg-background shadow-2xl">
         <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border/60 px-4">
           <span className={cn('size-2 shrink-0 rounded-full', phase.kind === 'live' ? 'bg-emerald-500' : phase.kind === 'error' ? 'bg-red-500'
@@ -288,10 +300,17 @@ function LiveViewWindow() {
           </span>
           <div className="ml-auto flex items-center gap-1.5">
             <button type="button" data-live-view-blocked-sites="" aria-label="Blocked sites" title="Sites your agent never uses"
-              aria-expanded={sitesOpen} onClick={() => setSitesOpen(open => !open)}
+              aria-expanded={sitesOpen} onClick={() => { setLoginsOpen(false); setSitesOpen(open => !open) }}
               className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <ShieldBan aria-hidden className="size-4" />
             </button>
+            {savedLogins && (
+              <button type="button" data-live-view-saved-logins="" aria-label="Saved logins" title="Sites your agent may sign in to by itself"
+                aria-expanded={loginsOpen} onClick={() => { setSitesOpen(false); setLoginsOpen(open => !open) }}
+                className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <KeyRound aria-hidden className="size-4" />
+              </button>
+            )}
             {phase.kind === 'live' && (control ? (
               <button type="button" data-live-view-hand-back="" onClick={() => void handBack()}
                 className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -309,9 +328,23 @@ function LiveViewWindow() {
             </button>
           </div>
         </header>
+        {/* Opened from a sign-in card: what to do here, and the way back. Done closes the view, which hands the browser back; the card's task then runs again. */}
+        {computer.signInSite && (
+          <div data-live-view-sign-in="" className="flex shrink-0 items-center gap-3 border-b border-border/60 bg-muted/40 px-4 py-2">
+            <p className="min-w-0 flex-1 text-xs">
+              <span className="font-medium">Sign in to {computer.signInSite} below.</span>{' '}
+              <span className="text-muted-foreground">Press Done when you’re signed in, and {name} carries on.</span>
+            </p>
+            <button type="button" data-live-view-sign-in-done="" onClick={() => closeLiveView()}
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <Check aria-hidden className="size-3.5" /> Done
+            </button>
+          </div>
+        )}
         <div className="relative aspect-[16/10] w-full bg-neutral-950">
           <div ref={screenRef} data-live-view-screen="" className="absolute inset-0" />
           {sitesOpen && <SitesPanel onClose={() => setSitesOpen(false)} />}
+          {loginsOpen && <SavedLoginsPanel onClose={() => setLoginsOpen(false)} />}
           {phase.kind !== 'live' && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-sm text-neutral-300">
               {phase.kind === 'connecting' ? <Loader2 aria-hidden className="size-5 animate-spin motion-reduce:animate-none" /> : null}

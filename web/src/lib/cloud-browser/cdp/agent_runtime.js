@@ -684,8 +684,10 @@
   }
   const sensitiveWords = /\b(buy|purchase|pay|checkout|order|delete|remove|send|transfer|confirm|subscribe|unsubscribe|deactivate|close account|sign in|log in)\b/i;
   const dialogSelector = 'dialog,[role~="dialog"],[role~="alertdialog"],[aria-modal="true"]';
+  // Fields a saved login was put into (fillField): forbidden for good, so their values stay out of every observation.
+  const filledFields = new WeakSet();
   function forbiddenField(el) {
-    return /password|credit.?card|card.?number|security.?code|cvv|cvc|cc-number|cc-csc|one-time-code/i.test(
+    return filledFields.has(el) || /password|credit.?card|card.?number|security.?code|cvv|cvc|cc-number|cc-csc|one-time-code/i.test(
       [el.type, el.autocomplete, el.name, el.id, accName(el)].join(' '));
   }
   function observedControlState(el) {
@@ -762,6 +764,9 @@
     return { ref: assignRef(el, role, name), role, name, canType, forbidden,
       value: forbidden ? '' : String(value ?? '').slice(0, 2000),
       ...(canType && !forbidden ? { input: inputHints(el) } : {}),
+      // A password field says only which kind it is (one the person knows, or one they are choosing): never its value or hints.
+      ...(el.tagName === 'INPUT' && el.type === 'password'
+        ? { secretKind: /\bnew-password\b/i.test(String(el.getAttribute('autocomplete') || '')) ? 'new-password' : 'password' } : {}),
       ...(dropdown ? dropdown : {}),
       ...observedControlState(el),
       disabled: isDisabled(el) || el.matches(':disabled'), context, destination,
@@ -1423,9 +1428,36 @@
     return { ok: value === request.text, code: value === request.text ? undefined : 'write_unverified' };
   }
 
+  // A saved login's fill (browser-agent/sign-in-fill.ts): put `text` into one field of the last observation. The
+  // model never chooses it, and `text` arrives as an argument from the app (never inside a script's source).
+  // Everything is checked and done in this one call, so the page gets no turn in between: only in the top
+  // document, only on the host the login was given for, and a password only into a password field. A field that
+  // was filled is forbidden from then on (forbiddenField), whatever the page turns it into: its value never
+  // reaches an observation.
+  function fillField(request, text) {
+    if (window !== window.top) return { ok: false, code: 'unsupported' };
+    if (!request || typeof text !== 'string' || String(request.host || '').toLowerCase() !== location.hostname.toLowerCase()) return { ok: false, code: 'wrong_host' };
+    const record = taskTargets.get(request.ref);
+    const el = record && record.el.deref();
+    if (!el || !el.isConnected || el.tagName !== 'INPUT' || el.disabled || !taskVisible(el)) return { ok: false, code: 'invalid_target' };
+    const password = el.type === 'password';
+    if (request.kind === 'password' ? !password : (request.kind !== 'account' || password || !/^(text|email|tel)$/.test(el.type))) {
+      return { ok: false, code: 'invalid_target' };
+    }
+    if (el.readOnly) return { ok: false, code: 'not_editable' };
+    filledFields.add(el);
+    el.focus();
+    // The whole value is replaced (an account already typed or remembered is not added to).
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, text);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return { ok: el.value === text };
+  }
+
   window.__dial8Agent = {
     __v: 1,
     snapshot,
+    fillField,
     click,
     type,
     getText,

@@ -8,8 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DecisionResult } from '@/lib/ai/decisions/contracts'
 import type { WatchMattersPick } from '@/lib/ai/decisions/tasks/watch-matters'
 import { memoryDb } from '@/test/memory-db'
-import type { BrowserWatchRead, BrowserWatchSession } from '../read-browser'
-import { PAGE_WATCH_BROWSER_CONCURRENCY, PAGE_WATCH_BROWSER_PASS_LIMIT, PAGE_WATCH_MAX_FAILURES, runPageWatchPass, type JudgeWatch, type PageWatchDeps } from '../tick'
+import { signInReason, type BrowserWatchRead, type BrowserWatchSession } from '../read-browser'
+import { PAGE_WATCH_BROWSER_CONCURRENCY, PAGE_WATCH_BROWSER_PASS_LIMIT, PAGE_WATCH_MAX_FAILURES, PAGE_WATCH_SIGN_IN_MAX_WAITS, runPageWatchPass, signInSentence, signInStoppedSentence, type JudgeWatch, type PageWatchDeps } from '../tick'
 
 const WS = '11111111-1111-4111-8111-111111111111'
 const OWNER = '33333333-3333-4333-8333-333333333333'
@@ -107,15 +107,105 @@ describe('runPageWatchPass, read in the person\'s browser', () => {
     expect(t.judge).not.toHaveBeenCalled()
   })
 
-  it(`what the page did is a failed read: a sign-out counts up, and at ${PAGE_WATCH_MAX_FAILURES} the loop stops and its owner is told why`, async () => {
+  it(`what the page did is a failed read: it counts up, and at ${PAGE_WATCH_MAX_FAILURES} the loop stops and its owner is told why`, async () => {
     const t = setup()
     await t.tick()
-    t.setAnswer({ ok: false, reason: 'The page sent your browser to a sign-in page. Sign in to the site in your agent\'s browser.' })
+    t.setAnswer({ ok: false, reason: 'The page did not load in your browser.' })
     for (let i = 1; i < PAGE_WATCH_MAX_FAILURES; i++) expect(await t.tick()).toMatchObject({ failed: 1 })
-    expect(t.tables.flow_page_watch[0]).toMatchObject({ failures: PAGE_WATCH_MAX_FAILURES - 1, last_error: expect.stringContaining('sign-in page') })
+    expect(t.tables.flow_page_watch[0]).toMatchObject({ failures: PAGE_WATCH_MAX_FAILURES - 1, last_error: expect.stringContaining('did not load') })
     expect(await t.tick()).toMatchObject({ stopped: 1 })
     expect(t.tables.flow[0]).toMatchObject({ enabled: false, next_run_at: null })
-    expect(t.notify).toHaveBeenCalledWith(expect.objectContaining({ sentence: expect.stringContaining('sign-in page') }))
+    expect(t.notify).toHaveBeenCalledWith(expect.objectContaining({ sentence: expect.stringContaining('did not load') }))
+  })
+
+  it('a site that asks for a sign-in is a wait, not a failure: the owner is told once, the baseline stays, and the watch carries on once they sign in', async () => {
+    const t = setup()
+    await t.tick()
+    const signedOut: BrowserWatchRead = { ok: false, signIn: 'app.example.com', reason: signInReason('app.example.com') }
+    t.setAnswer(signedOut)
+    // Far past the failed reads that would stop it.
+    for (let i = 1; i <= PAGE_WATCH_MAX_FAILURES + 4; i++) expect(await t.tick()).toMatchObject({ waiting: 1, failed: 0, stopped: 0 })
+    expect(t.notify).toHaveBeenCalledTimes(1)
+    expect(t.notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'Sign-in needed: Orders watch', sentence: signInSentence('app.example.com'), ownerUserId: OWNER }))
+    expect(t.tables.flow[0]).toMatchObject({ enabled: true })
+    expect(t.tables.flow_page_watch[0]).toMatchObject({ line_count: BASE.length, last_error: signInReason('app.example.com') })
+    // Signed in again: read as before, the wait forgotten, and a new line is news against the kept baseline.
+    t.setAnswer({ ok: true, lines: [...BASE, 'Order 1044 | New'] })
+    expect(await t.tick()).toMatchObject({ told: 1 })
+    expect(t.tables.flow_page_watch[0]).toMatchObject({ failures: 0, last_error: null })
+    // Signed out a second time: told again, once.
+    t.setAnswer(signedOut)
+    await t.tick()
+    await t.tick()
+    expect(t.notify).toHaveBeenCalledTimes(2)
+  })
+
+  it('a signed-out site that also fails to load is still the same wait: one notice, one count, never a stop at the failed reads', async () => {
+    const t = setup()
+    await t.tick()
+    const signedOut: BrowserWatchRead = { ok: false, signIn: 'app.example.com', reason: signInReason('app.example.com') }
+    // Back and forth, far past the failed reads that would stop it.
+    for (let i = 0; i < PAGE_WATCH_MAX_FAILURES + 2; i++) {
+      t.setAnswer(signedOut)
+      expect(await t.tick()).toMatchObject({ waiting: 1, failed: 0, stopped: 0 })
+      t.setAnswer(i % 2 ? { ok: true, lines: ['Loading'] } : { ok: false, reason: 'The page did not load in your browser.' })
+      expect(await t.tick()).toMatchObject({ waiting: 1, failed: 0, stopped: 0 })
+    }
+    expect(t.notify).toHaveBeenCalledTimes(1)
+    expect(t.tables.flow_page_watch[0]).toMatchObject({ failures: 2 * (PAGE_WATCH_MAX_FAILURES + 2), last_error: signInReason('app.example.com') })
+    expect(t.tables.flow[0]).toMatchObject({ enabled: true })
+  })
+
+  it('a failed read before any wait counts as a failure, and a sign-in after it starts the wait from one', async () => {
+    const t = setup()
+    await t.tick()
+    t.setAnswer({ ok: false, reason: 'The page did not load in your browser.' })
+    await t.tick()
+    await t.tick()
+    expect(t.tables.flow_page_watch[0]).toMatchObject({ failures: 2 })
+    t.setAnswer({ ok: false, signIn: 'app.example.com', reason: signInReason('app.example.com') })
+    expect(await t.tick()).toMatchObject({ waiting: 1 })
+    expect(t.tables.flow_page_watch[0]).toMatchObject({ failures: 1 })
+    expect(t.notify).toHaveBeenCalledTimes(1)
+  })
+
+  it('switched back on while still signed out: its owner is told again, and the week starts over', async () => {
+    const t = setup()
+    await t.tick()
+    // As the stop leaves the row: nothing counted, the reason kept for the person to read.
+    t.tables.flow_page_watch[0].failures = 0
+    t.tables.flow_page_watch[0].last_error = signInReason('app.example.com')
+    t.setAnswer({ ok: false, signIn: 'app.example.com', reason: signInReason('app.example.com') })
+    expect(await t.tick()).toMatchObject({ waiting: 1 })
+    expect(t.notify).toHaveBeenCalledTimes(1)
+    expect(t.tables.flow_page_watch[0]).toMatchObject({ failures: 1 })
+    // And a failed read in that state is an ordinary failure, not a wait.
+    t.tables.flow_page_watch[0].failures = 0
+    t.setAnswer({ ok: false, reason: 'The page did not load in your browser.' })
+    expect(await t.tick()).toMatchObject({ failed: 1, waiting: 0 })
+  })
+
+  it('a sign-in notice that could not be sent is tried again at the next read', async () => {
+    const t = setup()
+    await t.tick()
+    t.setAnswer({ ok: false, signIn: 'app.example.com', reason: signInReason('app.example.com') })
+    t.notify.mockRejectedValueOnce(new Error('notifications down'))
+    expect(await t.tick()).toMatchObject({ errored: 1, waiting: 0 })
+    expect(t.tables.flow_page_watch[0].last_error).toBeNull()
+    expect(await t.tick()).toMatchObject({ waiting: 1 })
+    expect(t.notify).toHaveBeenCalledTimes(2)
+  })
+
+  it('nobody signed back in for a week: the loop is switched off, with a notice that says so', async () => {
+    const t = setup()
+    await t.tick()
+    t.setAnswer({ ok: false, signIn: 'app.example.com', reason: signInReason('app.example.com') })
+    t.tables.flow_page_watch[0].failures = PAGE_WATCH_SIGN_IN_MAX_WAITS - 1
+    t.tables.flow_page_watch[0].last_error = signInReason('app.example.com')
+    expect(await t.tick()).toMatchObject({ stopped: 1 })
+    expect(t.tables.flow[0]).toMatchObject({ enabled: false, next_run_at: null })
+    expect(t.notify).toHaveBeenCalledTimes(1)
+    expect(t.notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'Page watch stopped: Orders watch', sentence: signInStoppedSentence('app.example.com') }))
   })
 
   it('a page that shows almost nothing in the browser is a failed read with its own words', async () => {

@@ -368,7 +368,10 @@ pub async fn browser_exit_start(app: AppHandle, svc: State<'_, BrowserExitServic
         inner.running = Some(Running { generation, stop, sandbox: claims.sandbox.clone(), hub: claims.hub.clone() });
         inner.needs_token = false;
         let (events, mut rx) = mpsc::unbounded_channel();
-        tauri::async_runtime::spawn(run(Options::new(url, token, claims, public_ips), events, stop_rx));
+        // The relay may ask this machine for a saved login over the tunnel (saved_logins.rs), for this account's browser only.
+        let mut options = Options::new(url, token, claims.clone(), public_ips);
+        options.local = Some(crate::saved_logins::service(app.clone(), claims.user_id.clone()));
+        tauri::async_runtime::spawn(run(options, events, stop_rx));
         let (svc2, app2) = (svc.clone(), app.clone());
         tauri::async_runtime::spawn(async move {
             while let Some(event) = rx.recv().await {
